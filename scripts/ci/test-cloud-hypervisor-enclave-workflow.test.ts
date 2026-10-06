@@ -62,6 +62,10 @@ describe('Cloud Hypervisor enclave conformance CI boundary', () => {
       'src/cloud-hypervisor/trusted-enclave-storage.test.ts',
       'src/cloud-hypervisor/trusted-enclave-preflight.test.ts',
       'src/cloud-hypervisor/workload-profile.test.ts',
+      'src/enclave/gateway.test.ts',
+      'src/enclave/workflow-integration.test.ts',
+      'src/commands/main-action-startup-diagnostics.test.ts',
+      'src/cli-workflow.test.ts',
     ]));
     const commands = job.steps.map((step) => step.run ?? '').join('\n');
     expect(commands).not.toMatch(/sudo|unshare|AWF_REQUIRE_LIVE_GUEST_PROBE|\.integration\.test\.ts/);

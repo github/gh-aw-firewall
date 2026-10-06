@@ -1156,6 +1156,18 @@ Cloud Hypervisor smoke run is not enclave acceptance. macOS cannot validate
 the privileged mounts or KVM boundaries. Failure diagnostics remain private
 on the ephemeral runner; guest output and credentials are not uploaded.
 
+The acceptance harness also distinguishes actual AWF host gateway readiness
+from broker health and its own independent MCP requests. Bounded schema-2
+startup diagnostics identify earlier preflight/artifact/storage/recovery stages,
+explicitly not-attempted readiness, and allowlisted DNS, connectivity, HTTP,
+protocol, or readiness-deadline failures. A successful AWF initialize and exact
+tools proof emits `AWF_HOST_GATEWAY_READINESS` before harness requests begin.
+This is a host-to-loopback Docker gateway observation, not CH guest DNS or
+data-plane evidence. See [diagnostic fields and bounds](INTEGRATION-TESTS.md#unified-enclave-coverage).
+The cause of the `v0.28.36` pre-broker exit remains unknown; immutable releases
+cannot receive these diagnostics, and an authorized future release and eligible
+live run are required to establish it.
+
 ## Troubleshooting
 
 ### Preflight rejects the host

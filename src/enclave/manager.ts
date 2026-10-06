@@ -48,6 +48,7 @@ import {
 import { ProductionTrustedCloudHypervisorEnclaveStorageProvider } from '../cloud-hypervisor/trusted-enclave-storage';
 import { HOST_EXECUTOR_STORAGE_ROOT } from './host-executor-journal';
 import * as path from 'path';
+import { updateEnclaveStartupProgress } from './startup-progress';
 
 export const ENCLAVE_RUN_LABEL = 'awf.enclave.run';
 export function isEnclaveScriptEnabled(config: WrapperConfig): boolean {
@@ -142,6 +143,7 @@ export async function prepareEnclaves(
   deps: PrepareEnclavesDeps = {},
 ): Promise<void> {
   if (!isEnclavesEnabled(config)) return;
+  updateEnclaveStartupProgress(config, { stage: 'configuration' });
   const enclaves = config.enclaves!;
   const env = deps.env ?? process.env;
   const storageProvider = deps.cloudHypervisorStorageProvider ??
@@ -215,6 +217,7 @@ export async function prepareEnclaves(
   }
 
   const hostExecutorSelected = isCloudHypervisorEnclaveSelected(config);
+  updateEnclaveStartupProgress(config, { stage: 'host-preflight' });
   if (hostExecutorSelected) {
     const hostPaths = resolveEnclavePaths(config.workDir);
     for (const [root, label] of [
@@ -228,6 +231,7 @@ export async function prepareEnclaves(
     }
   }
   await assertCloudHypervisorEnclavePrerequisites(config, storageProvider);
+  updateEnclaveStartupProgress(config, { stage: 'runtime-preflight' });
   await (deps.assertPrimaryAvailable ?? assertPrimaryRuntimeAvailable)(config.containerRuntime);
   if (enclaves.executors.script.enabled && !hostExecutorSelected) {
     const assertScriptRuntime = deps.assertScriptRuntimeAvailable ?? assertScriptRuntimeAvailable;
@@ -239,6 +243,7 @@ export async function prepareEnclaves(
   }
 
   const paths = resolveEnclavePaths(config.workDir);
+  updateEnclaveStartupProgress(config, { stage: 'seed-staging' });
   assertPrivateRootIsolated(config, paths, env, process.cwd(), 'enclave');
   try {
     const workDirStat = fs.lstatSync(config.workDir);
@@ -297,6 +302,7 @@ export async function prepareEnclaves(
     );
   }
   if (hostExecutorSelected) {
+    updateEnclaveStartupProgress(config, { stage: 'host-service' });
     await startCloudHypervisorEnclaveLifecycle(config, storageProvider, env);
     if (enclaves.executors.script.enabled) {
       await assertScriptRuntimeAvailable(enclaves.executors.script, undefined, undefined, config);

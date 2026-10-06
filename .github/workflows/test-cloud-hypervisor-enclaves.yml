@@ -30,6 +30,7 @@ on:
       - 'src/types/enclave-options.ts'
       - 'src/parsers/enclave-parser.ts'
       - 'src/commands/main-action*'
+      - 'src/cli-workflow*'
       - 'src/services/enclave-mcp-service*'
       - 'containers/enclave/**'
       - 'containers/bounded-execution/**'
@@ -41,6 +42,7 @@ on:
       - 'scripts/ci/cloud-hypervisor-enclave-gateway*'
       - 'docs/cloud-hypervisor-foundation.md'
       - 'docs/INTEGRATION-TESTS.md'
+      - 'docs/enclaves-architecture.md'
       - 'docs/awf-config-spec.md'
       - 'package*.json'
       - 'jest.config.js'
@@ -84,10 +86,14 @@ jobs:
             src/enclave/cloud-hypervisor-lifecycle.test.ts \
             src/enclave/cloud-hypervisor-host-service.test.ts \
             src/enclave/manager.test.ts \
+            src/enclave/gateway.test.ts \
+            src/enclave/workflow-integration.test.ts \
             src/enclave/preflight.test.ts \
             src/enclave/runtime-preflight.test.ts \
             src/services/enclave-mcp-service.test.ts \
             src/commands/main-action.test.ts \
+            src/commands/main-action-startup-diagnostics.test.ts \
+            src/cli-workflow.test.ts \
             src/cloud-hypervisor/host-enclave-executor.test.ts \
             src/cloud-hypervisor/enclave-storage.test.ts \
             src/cloud-hypervisor/trusted-enclave-storage.test.ts \

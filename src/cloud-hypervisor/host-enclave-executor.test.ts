@@ -780,14 +780,17 @@ describe('readBoundedCloudHypervisorEnclaveResult', () => {
   });
 
   it('requires staged and verified enclave artifacts before creating the executor', async () => {
+    const onPreflightStage = jest.fn();
     const options = {
       runState: {} as HostExecutorRunState,
       config: { artifactReleaseTag: 'v0.23.1' } as CloudHypervisorOptions,
       workDir: '/tmp/awf-enclave',
       environment: {},
+      onPreflightStage,
     };
     await expect(createCloudHypervisorHostEnclaveExecutor(options))
       .rejects.toThrow('Cloud Hypervisor enclave artifacts have not been staged and verified');
+    expect(onPreflightStage.mock.calls).toEqual([['artifact-preflight']]);
   });
 
   it('resolves the trusted CLI and removes preflight artifacts when artifact verification fails', async () => {
@@ -842,14 +845,23 @@ describe('readBoundedCloudHypervisorEnclaveResult', () => {
       expect(runPreflight).toHaveBeenCalledTimes(1);
       expect(removeSnapshot).toHaveBeenCalledWith(preflight.artifactSnapshotDirectory);
       const boundedArtifactPreflight = jest.fn().mockRejectedValue(new Error('bounded artifact gate'));
-      await expect(createCloudHypervisorHostEnclaveExecutor(options, {
+      const onPreflightStage = jest.fn();
+      await expect(createCloudHypervisorHostEnclaveExecutor({ ...options, onPreflightStage }, {
         preflight: async () => preflight,
         preflightEnclaveArtifacts: boundedArtifactPreflight,
         removeArtifactSnapshot: removeSnapshot,
       })).rejects.toThrow('bounded artifact gate');
+      expect(onPreflightStage.mock.calls).toEqual([
+        ['artifact-preflight'], ['host-preflight'], ['recovery'], ['artifact-preflight'],
+      ]);
       expect(boundedArtifactPreflight).toHaveBeenCalledWith(expect.objectContaining({
         manifestPath: environment.AWF_CLOUD_HYPERVISOR_ENCLAVE_MANIFEST,
       }));
+      onPreflightStage.mockClear();
+      await expect(createCloudHypervisorHostEnclaveExecutor({ ...options, onPreflightStage }, {
+        preflight: jest.fn().mockRejectedValue(new Error('PRIVATE_HOST_PREFLIGHT')),
+      })).rejects.toThrow('PRIVATE_HOST_PREFLIGHT');
+      expect(onPreflightStage.mock.calls).toEqual([['artifact-preflight'], ['host-preflight']]);
     } finally {
       runPreflight.mockRestore();
       trustedTool.mockRestore();

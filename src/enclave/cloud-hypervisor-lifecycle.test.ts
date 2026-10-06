@@ -7,6 +7,7 @@ import { deriveEnclaveSeedId, resolveEnclavePaths } from './paths';
 import type { HostExecutorServer } from './host-executor-server';
 import { assertAgentRuntimeAvailable, assertScriptRuntimeAvailable } from './runtime-preflight';
 import { startCloudHypervisorEnclaveHostService } from './cloud-hypervisor-host-service';
+import { getEnclaveStartupProgress } from './startup-progress';
 import {
   assertCloudHypervisorEnclaveLifecycleReady,
   assertCloudHypervisorEnclavePrerequisites,
@@ -101,6 +102,9 @@ describe('trusted Cloud Hypervisor enclave lifecycle', () => {
       .rejects.toThrow('hard capacity enforcement unavailable');
     expect(provider.prepareRun).not.toHaveBeenCalled();
     expect(start).not.toHaveBeenCalled();
+    expect(getEnclaveStartupProgress(config)).toMatchObject({
+      stage: 'host-preflight', readiness: 'not-attempted',
+    });
     await expect(stopCloudHypervisorEnclaveLifecycle(config)).rejects.toThrow(/startup failed/);
     expect(fs.existsSync(resolveEnclavePaths(workDir).seedMapPath)).toBe(true);
   });
@@ -159,6 +163,11 @@ describe('trusted Cloud Hypervisor enclave lifecycle', () => {
   it('runs trusted storage preparation before full preflight and admits only one listener', async () => {
     await expect(assertCloudHypervisorEnclaveLifecycleReady(config)).rejects.toThrow(/full preflight/);
     await startCloudHypervisorEnclaveLifecycle(config, provider, {});
+    const onPreflightStage = start.mock.calls[0][0].onPreflightStage;
+    onPreflightStage?.('artifact-preflight');
+    expect(getEnclaveStartupProgress(config)).toMatchObject({
+      stage: 'artifact-preflight', readiness: 'not-attempted', code: 'none',
+    });
     expect(start).toHaveBeenCalledWith(expect.objectContaining({
       runtimeDir: resolveEnclavePaths(workDir).hostExecutorDir,
       workDir: resolveEnclavePaths(workDir).workDir,
@@ -184,6 +193,16 @@ describe('trusted Cloud Hypervisor enclave lifecycle', () => {
     await expect(startCloudHypervisorEnclaveLifecycle(config, provider, {}))
       .rejects.toThrow(/already exists/);
     await stopCloudHypervisorEnclaveLifecycle(config);
+  });
+
+  it('keeps an allocation failure explicitly before gateway readiness', async () => {
+    const failure = new Error('PRIVATE_STORAGE_PATH_TOKEN');
+    (provider.prepareRun as jest.Mock).mockRejectedValueOnce(failure);
+    await expect(startCloudHypervisorEnclaveLifecycle(config, provider, {})).rejects.toBe(failure);
+    expect(getEnclaveStartupProgress(config)).toMatchObject({
+      stage: 'storage-preflight', readiness: 'not-attempted', attempts: 0,
+    });
+    expect(start).not.toHaveBeenCalled();
   });
 
   it('drains admissions before cancelling the backend, then releases bounded storage', async () => {

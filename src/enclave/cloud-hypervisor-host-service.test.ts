@@ -49,8 +49,10 @@ describe('Cloud Hypervisor enclave host service composition', () => {
     const backend = { execute: jest.fn(), close: jest.fn().mockResolvedValue(undefined) };
     createBackend.mockResolvedValue(backend as never);
     startServer.mockRejectedValue(new Error('private launch details'));
-    await expect(startCloudHypervisorEnclaveHostService(options))
+    const onPreflightStage = jest.fn();
+    await expect(startCloudHypervisorEnclaveHostService({ ...options, onPreflightStage }))
       .rejects.toThrow('Cloud Hypervisor enclave host service could not start');
+    expect(onPreflightStage).toHaveBeenCalledWith('host-service');
     expect(backend.close).toHaveBeenCalledTimes(1);
   });
 

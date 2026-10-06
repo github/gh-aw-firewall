@@ -239,6 +239,59 @@ for (const role of ['script', 'agent']) {
 }
 const failedSpawns = new WeakSet();
 
+function safeEnclaveStartup(value) {
+  if (!value || JSON.stringify(Object.keys(value).sort())
+      !== '["attempts","code","httpStatus","perspective","readiness","schemaVersion","stage"]'
+      || value.schemaVersion !== 1 || value.perspective !== 'awf-host'
+      || ![
+        'host-bootstrap', 'runtime-preflight', 'configuration', 'enclave-preflight',
+        'host-preflight', 'artifact-preflight', 'seed-staging', 'storage-preflight',
+        'recovery', 'host-service',
+        'host-network', 'compose-config', 'containers', 'gateway-attach',
+        'github-readiness', 'gateway-contract', 'initialize', 'initialized',
+        'tools-list', 'delegation', 'primary-agent',
+      ].includes(value.stage)
+      || !['not-attempted', 'attempted', 'ready'].includes(value.readiness)
+      || ![
+        'none', 'unknown', 'dns-not-found', 'dns-temporary', 'connection-refused',
+        'connection-timeout', 'request-timeout', 'network-unreachable', 'host-unreachable',
+        'connection-reset', 'transport-other', 'http-auth', 'http-status',
+        'backend-unavailable', 'response-too-large', 'malformed-json',
+        'malformed-protocol', 'rpc-error', 'identity-mismatch', 'tools-mismatch', 'readiness-deadline', 'ready',
+      ].includes(value.code)
+      || !Number.isInteger(value.attempts) || value.attempts < 0 || value.attempts > 1200
+      || !(value.httpStatus === null
+        || (Number.isInteger(value.httpStatus) && value.httpStatus >= 100 && value.httpStatus <= 599))
+      || (value.readiness === 'not-attempted'
+        && (value.attempts !== 0 || !['none', 'unknown', 'readiness-deadline'].includes(value.code)))
+      || (value.readiness !== 'not-attempted' && value.attempts === 0)
+      || (value.readiness === 'ready'
+        && (value.code !== 'ready' || !['tools-list', 'delegation', 'primary-agent'].includes(value.stage)))) {
+    return undefined;
+  }
+  return {
+    schemaVersion: 1, perspective: 'awf-host', stage: value.stage,
+    readiness: value.readiness, code: value.code, attempts: value.attempts,
+    httpStatus: value.httpStatus,
+  };
+}
+
+function gatewayCategory(code) {
+  if (['dns-not-found', 'dns-temporary'].includes(code)) return 'dns';
+  if ([
+    'connection-refused', 'connection-timeout', 'request-timeout', 'network-unreachable',
+    'host-unreachable', 'connection-reset',
+  ].includes(code)) return 'connectivity';
+  if (code === 'http-auth') return 'gateway-auth';
+  if (code === 'backend-unavailable' || code === 'readiness-deadline') return 'gateway-readiness';
+  if ([
+    'http-status', 'response-too-large', 'malformed-json', 'malformed-protocol',
+    'rpc-error', 'identity-mismatch', 'tools-mismatch',
+  ].includes(code)) return 'gateway-protocol';
+  if (code === 'transport-other') return 'other';
+  return undefined;
+}
+
 function trackAwfChild(child) {
   child.on('error', () => failedSpawns.add(child));
   return child;
@@ -247,14 +300,23 @@ function trackAwfChild(child) {
 function startupDiagnostic(child, reason, stage, stderrFile, startupErrorFile) {
   let category = 'unknown';
   let logInspection = 'unavailable';
+  let enclaveStartup;
   if (reason !== 'spawn-failure' && startupErrorFile) {
     try {
       const record = JSON.parse(readDiagnosticFile(startupErrorFile, 16 * 1024, true).toString('utf8'));
-      if (record?.phase === 'startup' && typeof record.message === 'string'
+      if ((record?.phase === 'startup'
+          || (record?.phase === 'enclave-startup-progress'
+            && record.message === 'Enclave startup in progress'))
+          && typeof record.message === 'string'
           && typeof record.timestamp === 'string'
-          && JSON.stringify(Object.keys(record).sort()) === '["message","phase","timestamp"]') {
+          && [
+            '["message","phase","timestamp"]',
+            '["enclaveStartup","message","phase","timestamp"]',
+          ].includes(JSON.stringify(Object.keys(record).sort()))) {
         category = STARTUP_CATEGORIES.get(record.message) || 'unknown';
         logInspection = 'structured';
+        enclaveStartup = safeEnclaveStartup(record.enclaveStartup);
+        if (enclaveStartup) category = gatewayCategory(enclaveStartup.code) || category;
       }
     } catch {
       // Older releases or interrupted startup may not have persisted this record.
@@ -277,8 +339,8 @@ function startupDiagnostic(child, reason, stage, stderrFile, startupErrorFile) {
     }
   }
   return {
-    schemaVersion: 1,
-    phase: 'pre-broker',
+    schemaVersion: enclaveStartup ? 2 : 1,
+    phase: enclaveStartup ? 'host-startup' : 'pre-broker',
     stage: stage === 'recovery' ? 'recovery' : 'initial',
     reason: ['exit', 'signal', 'timeout', 'spawn-failure'].includes(reason) ? reason : 'unknown',
     category,
@@ -287,6 +349,7 @@ function startupDiagnostic(child, reason, stage, stderrFile, startupErrorFile) {
     signal: ['SIGTERM', 'SIGKILL', 'SIGINT', 'SIGHUP', 'SIGABRT', 'SIGSEGV', 'SIGBUS']
       .includes(child?.signalCode) ? child.signalCode : null,
     logInspection,
+    ...(enclaveStartup ? { enclaveStartup } : {}),
   };
 }
 
@@ -326,6 +389,38 @@ async function waitForBroker(child, container, deadline, diagnostics) {
     await new Promise((resolve) => setTimeout(resolve, 1000));
   }
   fail('timeout', 'Timed out waiting for the live enclave broker');
+}
+
+async function waitForHostGatewayReadiness(child, deadline, diagnostics) {
+  const fail = (reason, message) => {
+    emitStartupDiagnostic(
+      child, reason, diagnostics.stage, diagnostics.stderrFile, diagnostics.startupErrorFile,
+    );
+    throw new Error(message);
+  };
+  while (Date.now() < deadline) {
+    if (failedSpawns.has(child)) fail('spawn-failure', 'Could not spawn AWF before host gateway readiness');
+    if (child.signalCode !== null) fail('signal', 'AWF was signalled before host gateway readiness');
+    if (child.exitCode !== null) fail('exit', 'AWF exited before host gateway readiness');
+    let progress;
+    try {
+      const record = JSON.parse(readDiagnosticFile(
+        diagnostics.startupErrorFile, 16 * 1024, true,
+      ).toString('utf8'));
+      if (record.phase === 'enclave-startup-progress'
+          && record.message === 'Enclave startup in progress') {
+        progress = safeEnclaveStartup(record.enclaveStartup);
+      }
+    } catch {
+      // Publication can be interrupted; only a complete validated record proves readiness.
+    }
+    if (progress?.readiness === 'ready') {
+      console.log(`AWF_HOST_GATEWAY_READINESS ${JSON.stringify(progress)}`);
+      return;
+    }
+    await new Promise((resolve) => setTimeout(resolve, Math.min(250, deadline - Date.now())));
+  }
+  fail('timeout', 'Timed out waiting for actual AWF host gateway readiness');
 }
 
 function assertNoVmResidue() {
@@ -902,6 +997,10 @@ async function main() {
       stage: 'initial', stderrFile: awfErr,
       startupErrorFile: path.join(workDir, 'proxy-logs', 'awf-startup-error.json'),
     });
+    await waitForHostGatewayReadiness(awf, Date.now() + 150_000, {
+      stage: 'initial', stderrFile: awfErr,
+      startupErrorFile: path.join(workDir, 'proxy-logs', 'awf-startup-error.json'),
+    });
 
     const initialized = await requestMcp(
       endpoint, gatewayKey, 1, 'initialize', {
@@ -1153,6 +1252,10 @@ async function main() {
         stage: 'recovery', stderrFile: awfErr,
         startupErrorFile: path.join(workDir, 'proxy-logs', 'awf-startup-error.json'),
       });
+      await waitForHostGatewayReadiness(awf, Date.now() + 150_000, {
+        stage: 'recovery', stderrFile: awfErr,
+        startupErrorFile: path.join(workDir, 'proxy-logs', 'awf-startup-error.json'),
+      });
       const recoveryTools = await requestMcp(endpoint, gatewayKey, 13, 'tools/list', {});
       if (!Array.isArray(recoveryTools?.result?.tools)) {
         throw new Error('Live broker did not become ready after host-executor recovery');
@@ -1296,6 +1399,7 @@ if (require.main === module) {
 module.exports = {
   startupDiagnostic,
   waitForBroker,
+  waitForHostGatewayReadiness,
   failedSpawns,
   removePrivateAwfLogs,
   stopAwf,

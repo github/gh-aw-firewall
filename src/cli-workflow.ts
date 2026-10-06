@@ -8,6 +8,7 @@ import { TOPOLOGY_NETWORK_NAME, getTopologyContainerIps, patchComposeWithTopolog
 import { validateEnclavesConfig } from './enclave/preflight';
 import { isEnclaveAgentGithubRouteEnabled } from './types/enclave-options';
 import type { ModelRoutingBootstrapState } from './types';
+import { updateEnclaveStartupProgress } from './enclave/startup-progress';
 
 /**
  * Dependencies injected into the main workflow.
@@ -99,6 +100,7 @@ export async function runMainWorkflow(
 
   // Fixed sidecar addresses on awf-net, relocated when --network-subnet is set.
   const addressing = resolveNetworkAddressing(config.networkSubnet);
+  updateEnclaveStartupProgress(config, { stage: 'configuration' });
 
   // Structural validation only: the dynamic delegation handoff can be read
   // exactly once (taking custody deletes it from the environment), so that
@@ -122,6 +124,7 @@ export async function runMainWorkflow(
       throw new Error('Enclaves are enabled but no staging implementation was provided to runMainWorkflow');
     }
     logger.info('Staging enclave repository seeds...');
+    updateEnclaveStartupProgress(config, { stage: 'enclave-preflight' });
     await dependencies.prepareEnclaves(config);
   }
   let routingState: ModelRoutingBootstrapState | undefined;
@@ -139,6 +142,7 @@ export async function runMainWorkflow(
   // network topology (internal network + dual-homed proxy). No host iptables and
   // no pre-created external network are needed — docker-compose creates the
   // internal and external networks itself — so this step is skipped entirely.
+  updateEnclaveStartupProgress(config, { stage: 'host-network' });
   if (config.networkIsolation) {
     // Topology enforcement runs entirely through the Docker daemon's networking,
     // so a reachable daemon is mandatory. Abort early with a clear message on
@@ -172,6 +176,7 @@ export async function runMainWorkflow(
 
   // Step 1: Write configuration files
   logger.info('Generating configuration files...');
+  updateEnclaveStartupProgress(config, { stage: 'compose-config' });
   await dependencies.writeConfigs(config);
 
   // Step 2: Start containers.
@@ -240,6 +245,7 @@ export async function runMainWorkflow(
           throw new Error('Enclaves require an exclusive MCP gateway readiness implementation');
         }
         logger.info('Attaching the trusted MCP gateway to the private enclave control path...');
+        updateEnclaveStartupProgress(config, { stage: 'gateway-attach' });
         await dependencies.connectEnclaveGateway(config);
         if (isEnclaveAgentGithubRouteEnabled(config.enclaves?.executors.agent)) {
           if (
@@ -252,6 +258,7 @@ export async function runMainWorkflow(
             );
           }
           logger.info('Attaching the compiler-owned GitHub proxy to its private control path...');
+          updateEnclaveStartupProgress(config, { stage: 'github-readiness' });
           await dependencies.connectEnclaveGithubGateway(config);
           await dependencies.assertEnclaveGithubGatewayReady(config);
         }
@@ -265,6 +272,7 @@ export async function runMainWorkflow(
             );
           }
           logger.info('Reconciling mcpg delegation state and opening dynamic admission...');
+          updateEnclaveStartupProgress(config, { stage: 'delegation' });
           await dependencies.startEnclaveDynamicDelegation(config);
         }
       }
@@ -286,6 +294,7 @@ export async function runMainWorkflow(
     : undefined;
 
   try {
+    updateEnclaveStartupProgress(config, { stage: 'containers' });
     await dependencies.startContainers(
       config.workDir,
       config.allowedDomains,
@@ -312,6 +321,7 @@ export async function runMainWorkflow(
     throw startError;
   }
   onContainersStarted?.();
+  updateEnclaveStartupProgress(config, { stage: 'primary-agent' });
 
   // Step 3: Wait for agent to complete
   const result = await dependencies.runAgentCommand(config.workDir, config.allowedDomains, config.proxyLogsDir, config.agentTimeout);

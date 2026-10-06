@@ -1,4 +1,5 @@
 import { mainActionFsMocks } from './main-action-fs-mock.test-utils';
+import { constants as fsConstants } from 'fs';
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 jest.mock('fs', () => require('./main-action-fs-mock.test-utils').mainActionFsMockFactory());
@@ -49,6 +50,8 @@ import { MAIN_ACTION_STUB_CONFIG, setupMainActionTestHarness } from './main-acti
 import type { WrapperConfig } from '../types';
 import { CloudHypervisorUnsupportedHostError } from '../cloud-hypervisor/errors';
 import { RoutingFailureExitError } from '../routing/bootstrap';
+import { initializeEnclaveStartupProgress, updateEnclaveStartupProgress } from '../enclave/startup-progress';
+import { normalizeEnclavesConfig } from '../parsers/enclave-parser';
 
 const {
   mkdirSync: mockMkdirSync,
@@ -573,6 +576,67 @@ describe('createMainAction', () => {
       testHelpers.writeStartupFailureDiagnostic(MAIN_ACTION_STUB_CONFIG, new Error('startup failed'));
       expect(mockWriteFileSync).not.toHaveBeenCalled();
       expect(mockCloseSync).toHaveBeenCalledWith(42);
+    });
+
+    it.each([
+      { nlink: 2, uid: process.getuid?.() },
+      { nlink: 1, uid: (process.getuid?.() ?? 0) + 1 },
+    ])('does not truncate a hardlinked or foreign-owned diagnostic', (stat) => {
+      (mockFstatSync as jest.Mock).mockReturnValueOnce({ isFile: () => true, ...stat });
+      testHelpers.writeStartupFailureDiagnostic(MAIN_ACTION_STUB_CONFIG, new Error('startup failed'));
+      expect(mainActionFsMocks.ftruncateSync).not.toHaveBeenCalled();
+      expect(mockWriteFileSync).not.toHaveBeenCalled();
+      expect(mockOpenSync.mock.calls[0][1] & fsConstants.O_TRUNC).toBe(0);
+      expect(mockCloseSync).toHaveBeenCalledWith(42);
+    });
+
+    it('persists bounded safe progress alongside fatal errors without copying their fields', () => {
+      const config = {
+        ...MAIN_ACTION_STUB_CONFIG,
+        enclaves: normalizeEnclavesConfig([
+          { script: {}, repos: [{ repo: 'octo/private', sensitivity: 'internal' }] },
+        ]),
+      };
+      initializeEnclaveStartupProgress(config);
+      updateEnclaveStartupProgress(config, {
+        stage: 'initialize', readiness: 'attempted', attempts: 1,
+        code: 'dns-not-found',
+      });
+      const sentinel = 'PRIVATE_TOKEN_PATH_IP_HOSTNAME_repository-sentinel';
+      testHelpers.writeStartupFailureDiagnostic(config, Object.assign(
+        new Error(sentinel.repeat(1024)), { code: sentinel, cause: sentinel, headers: sentinel },
+      ));
+      const record = JSON.parse(mockWriteFileSync.mock.calls[0][1]);
+      expect(record.enclaveStartup).toEqual({
+        schemaVersion: 1, perspective: 'awf-host', stage: 'initialize',
+        readiness: 'attempted', code: 'dns-not-found', attempts: 1, httpStatus: null,
+      });
+      expect(record.phase).toBe('startup');
+      expect(JSON.stringify(record)).not.toContain(sentinel);
+      expect(Buffer.byteLength(mockWriteFileSync.mock.calls[0][1])).toBeLessThan(16 * 1024);
+    });
+
+    it('publishes progress before host bootstrap and preserves a not-attempted fatal record', async () => {
+      const config = {
+        ...MAIN_ACTION_STUB_CONFIG,
+        enclaves: normalizeEnclavesConfig([
+          { script: {}, repos: [{ repo: 'octo/private', sensitivity: 'internal' }] },
+        ]),
+      };
+      mockedValidateOptions.validateOptions.mockReturnValueOnce(config);
+      mockedDindProbe.probeSplitFilesystem.mockRejectedValueOnce(new Error('bootstrap failed'));
+      await expect(createMainAction(getOptionValueSource)(['echo hi'], {}))
+        .rejects.toThrow('process.exit: 1');
+      const records = mockWriteFileSync.mock.calls
+        .filter((call) => call[0] === 42)
+        .map((call) => JSON.parse(call[1]));
+      expect(records[0]).toMatchObject({
+        phase: 'enclave-startup-progress', message: 'Enclave startup in progress',
+        enclaveStartup: { stage: 'host-bootstrap', readiness: 'not-attempted', attempts: 0 },
+      });
+      expect(records[1]).toMatchObject({
+        phase: 'startup', enclaveStartup: { stage: 'host-bootstrap', readiness: 'not-attempted' },
+      });
     });
 
     it('redacts secret-derived endpoint forms from startup diagnostics', () => {

@@ -5,6 +5,7 @@ import * as path from 'path';
 import { execFileSync, spawn, ChildProcess } from 'child_process';
 import { EventEmitter } from 'events';
 import { validateSchema, validateValueAgainstSchema } from '../../src/bounded-execution/finite-schema';
+import type { EnclaveStartupProgress } from '../../src/enclave/startup-progress';
 
 const root = path.resolve(__dirname, '../..');
 const harnessPath = path.join(root, 'scripts/ci/cloud-hypervisor-enclave-live-smoke.js');
@@ -20,7 +21,11 @@ const harness = require(harnessPath) as {
     exitCode: number | null;
     signal: string | null;
     logInspection: string;
+    enclaveStartup?: EnclaveStartupProgress;
   };
+  waitForHostGatewayReadiness(child: StartupChild, deadline: number, diagnostics: {
+    stage: string; stderrFile: string; startupErrorFile: string;
+  }): Promise<void>;
   waitForBroker(child: StartupChild, container: string, deadline: number, diagnostics: {
     stage: string; stderrFile: string;
   }): Promise<void>;
@@ -104,6 +109,113 @@ describe('sanitized host startup diagnostics', () => {
     fs.rmSync(directory, { recursive: true, force: true });
   });
   const diagnose = (file: string) => harness.startupDiagnostic(child, 'exit', 'initial', file);
+  const progress = (update: Partial<EnclaveStartupProgress> = {}): EnclaveStartupProgress => ({
+    schemaVersion: 1, perspective: 'awf-host', stage: 'initialize',
+    readiness: 'attempted', code: 'dns-not-found', attempts: 1, httpStatus: null, ...update,
+  });
+  const publish = (value: unknown, message = sentinel, phase = 'startup') => {
+    const file = path.join(directory, 'awf-startup-error.json');
+    fs.writeFileSync(file, JSON.stringify({
+      timestamp: sentinel, phase, message, enclaveStartup: value,
+    }));
+    return file;
+  };
+
+  it.each([
+    ['dns-not-found', 'dns'], ['dns-temporary', 'dns'],
+    ['connection-refused', 'connectivity'], ['connection-timeout', 'connectivity'],
+    ['request-timeout', 'connectivity'], ['network-unreachable', 'connectivity'],
+    ['host-unreachable', 'connectivity'], ['connection-reset', 'connectivity'],
+    ['transport-other', 'other'], ['http-auth', 'gateway-auth'],
+    ['http-status', 'gateway-protocol'], ['malformed-json', 'gateway-protocol'],
+    ['malformed-protocol', 'gateway-protocol'], ['rpc-error', 'gateway-protocol'],
+    ['identity-mismatch', 'gateway-protocol'], ['tools-mismatch', 'gateway-protocol'],
+    ['response-too-large', 'gateway-protocol'], ['backend-unavailable', 'gateway-readiness'],
+    ['readiness-deadline', 'gateway-readiness'], ['unknown', 'unknown'],
+  ])('exports only the allowlisted actual-host diagnostic code %s', (code, category) => {
+    const value = progress({ code: code as EnclaveStartupProgress['code'], httpStatus: 503 });
+    const file = publish(value);
+    const result = harness.startupDiagnostic(child, 'exit', 'initial', stderrFile, file);
+    expect(result).toEqual({
+      schemaVersion: 2, phase: 'host-startup', stage: 'initial', reason: 'exit',
+      category, exitCode: 1, signal: null, logInspection: 'structured', enclaveStartup: value,
+    });
+    const line = `AWF_HOST_STARTUP_DIAGNOSTIC ${JSON.stringify(result)}\n`;
+    expect(Buffer.byteLength(line)).toBeLessThanOrEqual(640);
+    expect(line).not.toContain(sentinel);
+  });
+
+  it('distinguishes an earlier host failure from an attempted but unclassified request', () => {
+    const value = progress({
+      stage: 'enclave-preflight', readiness: 'not-attempted', code: 'none', attempts: 0,
+    });
+    const file = publish(value);
+    expect(harness.startupDiagnostic(child, 'exit', 'initial', stderrFile, file))
+      .toMatchObject({ category: 'unknown', enclaveStartup: value });
+  });
+
+  it('bounds schema-2 output at maximum allowed numeric and fixed-string metadata', () => {
+    const file = publish(progress({
+      stage: 'artifact-preflight', code: 'readiness-deadline', attempts: 1200, httpStatus: 599,
+    }));
+    const result = harness.startupDiagnostic(
+      { exitCode: 255, signalCode: 'SIGSEGV' }, 'timeout', 'recovery', stderrFile, file,
+    );
+    expect(Buffer.byteLength(`AWF_HOST_STARTUP_DIAGNOSTIC ${JSON.stringify(result)}\n`))
+      .toBeLessThanOrEqual(640);
+    expect(JSON.stringify(result)).not.toContain(sentinel);
+  });
+
+  it.each([
+    { stage: sentinel }, { code: sentinel }, { perspective: 'harness' },
+    { hostname: sentinel }, { attempts: 1201 }, { attempts: -1 },
+    { httpStatus: sentinel }, { httpStatus: 600 }, { readiness: sentinel },
+    { readiness: 'not-attempted' }, { readiness: 'ready' }, { schemaVersion: 99 },
+  ])('rejects arbitrary progress metadata without disclosing it: %s', (update) => {
+    const file = publish({ ...progress(), ...update });
+    const result = harness.startupDiagnostic(child, 'exit', 'initial', stderrFile, file);
+    expect(result.enclaveStartup).toBeUndefined();
+    expect(result.category).toBe('unknown');
+    expect(JSON.stringify(result)).not.toContain(sentinel);
+  });
+
+  it('does not mistake a harness handshake or broker health for actual AWF readiness', async () => {
+    const file = publish(progress(), 'Enclave startup in progress', 'enclave-startup-progress');
+    const output = jest.spyOn(console, 'log').mockImplementation(() => {});
+    const errors = jest.spyOn(console, 'error').mockImplementation(() => {});
+    await expect(harness.waitForHostGatewayReadiness(
+      { exitCode: null, signalCode: null }, Date.now() + 5,
+      { stage: 'initial', stderrFile, startupErrorFile: file },
+    )).rejects.toThrow(/actual AWF host gateway readiness/);
+    expect(output).not.toHaveBeenCalled();
+    expect(errors).toHaveBeenCalledWith(expect.stringContaining('"readiness":"attempted"'));
+  });
+
+  it('emits successful actual-host proof only after the full handshake', async () => {
+    const value = progress({
+      stage: 'tools-list', readiness: 'ready', code: 'ready', attempts: 2,
+    });
+    const file = publish(value, 'Enclave startup in progress', 'enclave-startup-progress');
+    const output = jest.spyOn(console, 'log').mockImplementation(() => {});
+    await harness.waitForHostGatewayReadiness(
+      { exitCode: null, signalCode: null }, Date.now() + 1000,
+      { stage: 'initial', stderrFile, startupErrorFile: file },
+    );
+    expect(output).toHaveBeenCalledWith(`AWF_HOST_GATEWAY_READINESS ${JSON.stringify(value)}`);
+    expect(JSON.stringify(output.mock.calls)).not.toContain(sentinel);
+  });
+
+  it('preserves a real AWF exit even if a ready record remains', async () => {
+    const file = publish(progress({
+      stage: 'tools-list', readiness: 'ready', code: 'ready',
+    }), 'Enclave startup in progress', 'enclave-startup-progress');
+    const output = jest.spyOn(console, 'log').mockImplementation(() => {});
+    jest.spyOn(console, 'error').mockImplementation(() => {});
+    await expect(harness.waitForHostGatewayReadiness(child, Date.now() + 1000, {
+      stage: 'initial', stderrFile, startupErrorFile: file,
+    })).rejects.toThrow(/AWF exited/);
+    expect(output).not.toHaveBeenCalled();
+  });
 
   it.each([
     [known, 'container-runtime'],

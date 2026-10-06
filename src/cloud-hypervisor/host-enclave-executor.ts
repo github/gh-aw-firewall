@@ -145,6 +145,7 @@ export async function createCloudHypervisorHostEnclaveExecutor(
   options: CreateCloudHypervisorHostEnclaveExecutorOptions,
   dependencies: Partial<HostEnclaveExecutorDependencies> = {},
 ): Promise<CloudHypervisorHostEnclaveExecutorBackend> {
+  options.onPreflightStage?.('artifact-preflight');
   const environment = options.environment ?? process.env;
   const releaseTag = options.config.artifactReleaseTag;
   const manifestPath = environment.AWF_CLOUD_HYPERVISOR_ENCLAVE_MANIFEST;
@@ -155,13 +156,16 @@ export async function createCloudHypervisorHostEnclaveExecutor(
     throw new Error('Cloud Hypervisor enclave artifacts have not been staged and verified');
   }
   const attestationToolPath = await resolveTrustedAttestationTool(environment);
+  options.onPreflightStage?.('host-preflight');
   const preflight = await (dependencies.preflight ?? runCloudHypervisorPreflight)(options.config);
   try {
+    options.onPreflightStage?.('recovery');
     await reapHostExecutorResources(
       hostExecutorJournalDirectory(options.runState),
       options.managerDependencies?.cleanupRegistry ?? new DurableCloudHypervisorCleanupRegistry(),
       preflight.tools,
     );
+    options.onPreflightStage?.('artifact-preflight');
     const enclaveArtifacts = await (dependencies.preflightEnclaveArtifacts ?? preflightCloudHypervisorEnclaveArtifacts)({
       releaseTag,
       manifestPath,

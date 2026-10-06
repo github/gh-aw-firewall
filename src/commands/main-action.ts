@@ -42,6 +42,11 @@ import {
 } from '../enclave/dynamic-delegation';
 import { getStartupDiagnosticPath } from '../logs/startup-diagnostics';
 import {
+  getEnclaveStartupProgress,
+  initializeEnclaveStartupProgress,
+  updateEnclaveStartupProgress,
+} from '../enclave/startup-progress';
+import {
   assertEnclaveGatewayReady,
   connectEnclaveGateway,
   shutdownEnclaveGateway,
@@ -135,26 +140,32 @@ function writeStartupFailureDiagnostic(config: WrapperConfig, error: unknown, ph
     const proxyLogsDir = config.proxyLogsDir || path.join(config.workDir, 'squid-logs');
     fs.mkdirSync(proxyLogsDir, { recursive: true, mode: 0o755 });
     assertRealDirectory(proxyLogsDir);
-    const message = redactSensitiveValues(
+    const enclaveStartup = getEnclaveStartupProgress(config);
+    const redactedMessage = redactSensitiveValues(
       redactSecrets(error instanceof Error ? error.message : String(error)),
       deriveSensitiveEndpointForms(config.sensitiveAllowedDomains),
     );
+    const message = enclaveStartup && Buffer.byteLength(JSON.stringify(redactedMessage), 'utf8') > 8 * 1024
+      ? 'Enclave startup failure exceeded diagnostic message bound'
+      : redactedMessage;
     const flags =
       fs.constants.O_WRONLY |
       fs.constants.O_CREAT |
-      fs.constants.O_TRUNC |
       fs.constants.O_NONBLOCK |
       (fs.constants.O_NOFOLLOW ?? 0);
     const fd = fs.openSync(getStartupDiagnosticPath(proxyLogsDir), flags, 0o600);
     try {
-      if (!fs.fstatSync(fd).isFile()) {
-        throw new Error('Refusing to write startup diagnostic to a non-regular file');
+      const stat = fs.fstatSync(fd);
+      if (!stat.isFile() || stat.nlink !== 1 || stat.uid !== process.getuid?.()) {
+        throw new Error('Refusing to write startup diagnostic to an unowned or non-regular file');
       }
       fs.fchmodSync(fd, 0o600);
+      fs.ftruncateSync(fd, 0);
       fs.writeFileSync(fd, JSON.stringify({
         timestamp: new Date().toISOString(),
         phase,
         message,
+        ...(enclaveStartup ? { enclaveStartup } : {}),
       }, null, 2) + '\n');
       fs.fsyncSync(fd);
       fs.fchmodSync(fd, 0o644);
@@ -405,6 +416,11 @@ export function createMainAction(getOptionValueSource: OptionSourceResolver) {
   );
 
   try {
+    initializeEnclaveStartupProgress(config, () => {
+      writeStartupFailureDiagnostic(
+        config, new Error('Enclave startup in progress'), 'enclave-startup-progress',
+      );
+    });
     // Apply --docker-host override for AWF's own container operations.
     // This must be called before startContainers/stopContainers/runAgentCommand.
     setAwfDockerHost(config.awfDockerHost);
@@ -437,6 +453,7 @@ export function createMainAction(getOptionValueSource: OptionSourceResolver) {
     }
     logger.debug(`DNS servers: ${(config.dnsServers ?? []).join(', ')}`);
 
+    updateEnclaveStartupProgress(config, { stage: 'runtime-preflight' });
     externalRuntimeBackend = resolveExternalRuntimeBackend(config, startContainers);
     performCleanup = buildCleanupFn(
       config,

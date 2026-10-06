@@ -127,4 +127,6 @@ export interface CreateCloudHypervisorHostEnclaveExecutorOptions {
   readonly agentPolicies?: Readonly<Record<string, HostExecutorAgentPolicy>>;
   readonly managerDependencies?: CloudHypervisorManagerDependencies;
   readonly environment?: NodeJS.ProcessEnv;
+  /** Host-local diagnostics only; never part of the broker protocol. */
+  readonly onPreflightStage?: (stage: 'host-preflight' | 'artifact-preflight' | 'recovery' | 'host-service') => void;
 }

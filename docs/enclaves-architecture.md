@@ -261,6 +261,28 @@ contract failures are terminal. Neither component may downgrade or bypass the
 gateway, and readiness errors never log response bodies, headers, or
 capabilities.
 
+Host startup diagnostics track whether this actual readiness handshake was
+never attempted, attempted, or completed; they do not infer it from broker
+health or an independent probe. Each request records its fixed phase
+(`initialize`, `initialized`, `tools-list`) and only allowlisted DNS, connection,
+request-timeout, HTTP authentication/status, backend-unavailable, framing/JSON,
+JSON-RPC shape/error, identity/tool mismatch, and readiness-deadline codes.
+Only the documented retryable 503 shape is retried; permanent failures still
+abort. Transport errors retain their errno classification without forwarding
+raw Node error messages, addresses, endpoints, or credentials.
+
+The CLI publishes the latest bounded snapshot through the existing startup
+record before cleanup, including earlier configuration, preflight/artifact,
+seed staging, recovery, service, container, and attachment stages. Progress uses
+the distinct `enclave-startup-progress` phase and a fixed message; fatal records
+use `startup`. The release-pinned CH acceptance fixture validates and exports
+only the safe fields from its private record. See
+[integration coverage](INTEGRATION-TESTS.md#unified-enclave-coverage) for schema
+bounds and live-proof limitations. In that fixture the primary runtime is
+Docker and readiness is a host request to a published loopback gateway route,
+not guest DNS; CH script guests have no NIC, and agent data-plane networking is
+separate.
+
 After primary-agent work stops, AWF gives the enclave server a bounded
 4860-second stop grace. The server closes admissions, drains its single execution
 lane, reconciles labelled enclaves, and exits before AWF preserves audit

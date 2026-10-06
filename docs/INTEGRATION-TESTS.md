@@ -81,7 +81,7 @@ invoke the public MCP route or execute a workload, unlike the other live
 assertions. Their deterministic transport tests are not KVM evidence.
 Before broker readiness, an AWF exit, signal, spawn failure, or readiness
 timeout emits one `AWF_HOST_STARTUP_DIAGNOSTIC` JSON line to the job log before
-fixture cleanup. Schema version 1 contains only `phase` (`pre-broker`),
+fixture cleanup. Legacy schema version 1 contains only `phase` (`pre-broker`),
 `stage` (`initial` or `recovery`), a fixed `reason` and `category`, bounded
 `exitCode`, allowlisted `signal`, and `logInspection` (`structured`, `bounded`,
 or `unavailable`). Categories cover exact known configuration, host-preflight,
@@ -89,12 +89,38 @@ artifact, container-runtime, host-service, broker, recovery-state, and
 unsupported-host errors; unmatched errors are explicitly `unknown`, not an
 inferred root cause. The harness first uses the existing host startup record,
 then falls back to the first fatal stderr header for older/interrupted starts.
-The entire diagnostic line is at most 256 bytes; spawn failures never consult
-possibly stale logs.
+Legacy lines remain at most 256 bytes. Schema version 2 uses `host-startup`
+and adds a validated `enclaveStartup` snapshot from AWF itself (not a harness
+probe). Its perspective is always `awf-host`; startup stages distinguish host
+bootstrap, configuration, runtime/host/storage/artifact preflight, seed staging,
+recovery, host service, container bring-up, gateway attachment, optional GitHub
+readiness, and the actual `initialize`, initialized notification, and `tools/list`
+requests. `readiness` is explicitly `not-attempted`, `attempted`, or `ready`.
+Missing/unvalidated observations remain unknown, never inferred as not attempted.
+Only allowlisted transport/protocol codes, initialization attempt count
+(saturated at 1200), and HTTP error status (100–599 or null) are exported.
+Categories distinguish `dns`, `connectivity`, `gateway-auth`,
+`gateway-protocol`, `gateway-readiness`, `other`, and `unknown`.
+The schema-2 diagnostic line is bounded to 640 bytes; spawn failures never
+consult possibly stale logs. A request timeout includes DNS/TCP/response time
+and does not prove a particular TCP failure. Retryable backend-unavailable
+responses remain distinct from readiness-deadline exhaustion.
 It never prints stdout, stderr, record messages, paths, timestamps, causes,
 or subprocess error objects. Descriptor-based, no-follow, regular-file reads
 are limited to 16 KiB for the record and 64 KiB for stderr; changed or unsafe
 files cannot produce a classification. Each launch resets its private logs.
+AWF reuses its existing startup-error record inside the fixture's root-private
+0700 directories; there is no new network or agent-facing diagnostic channel.
+Progress records have phase `enclave-startup-progress` and a fixed message;
+fatal records retain phase `startup`. Oversized serialized fatal messages are
+replaced with a fixed message so they cannot hide the bounded snapshot.
+Publication validates descriptor ownership, single-link regular-file metadata,
+and no-follow opening before truncation. Existing log readers ignore progress
+records rather than presenting them as failures.
+After broker health, both initial and recovery launches additionally wait for
+AWF's successful host handshake before making the harness's own MCP requests.
+Only then is `AWF_HOST_GATEWAY_READINESS` emitted with the same safe snapshot.
+Broker health and a successful harness request are not proof of AWF readiness.
 AWF stdout/stderr and startup error records are removed even when cleanup
 requires retaining private recovery state; no raw artifacts are uploaded.
 Cleanup failures remain failures and do not replace the primary startup error.
@@ -102,7 +128,7 @@ Deterministic regressions cover the output shape and bounds, secrets and
 repository sentinels, malformed/unknown input, unsafe/changing files, each
 failure reason, and bounded cleanup. These diagnostics do not establish that
 an agent or workload ran and do not fix an unidentified startup cause. The
-immutable `v0.28.35` release cannot receive this change; release-pinned live
+immutable `v0.28.36` release cannot receive this change; release-pinned live
 acceptance needs a future authorized release containing it.
 Privileged enclave probes no longer run in the ordinary artifact-build job.
 Production full-storage admission is enabled only after supported-host and

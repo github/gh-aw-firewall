@@ -2,6 +2,7 @@ import { normalizeEnclavesConfig } from '../parsers/enclave-parser';
 import type { WrapperConfig } from '../types';
 import { runMainWorkflow } from '../cli-workflow';
 import { typedDynamicEnclavePolicyFixture } from './dynamic-policy.test-utils';
+import { getEnclaveStartupProgress } from './startup-progress';
 
 jest.mock('../container-runtime', () => ({
   runtimeNeedsStaticDns: jest.fn().mockReturnValue(false),
@@ -46,6 +47,40 @@ function dynamicConfig(): WrapperConfig {
 }
 
 describe('unified enclave workflow integration', () => {
+  it.each([
+    ['prepareEnclaves', 'enclave-preflight'],
+    ['writeConfigs', 'compose-config'],
+    ['startContainers', 'containers'],
+    ['connectEnclaveGateway', 'gateway-attach'],
+  ])('retains a not-attempted readiness record when %s fails', async (dependency, stage) => {
+    const wrapper = config();
+    const failure = new Error('PRIVATE_PATH_TOKEN_HOSTNAME\nrepository-sentinel');
+    const dependencies = {
+      ensureFirewallNetwork: jest.fn(),
+      setupHostIptables: jest.fn(),
+      prepareEnclaves: jest.fn(),
+      writeConfigs: jest.fn(),
+      connectEnclaveGateway: jest.fn(),
+      assertEnclaveGatewayReady: jest.fn(),
+      startContainers: jest.fn(async (
+        _workDir: string, _domains: string[], _logs?: string, _skipPull?: boolean,
+        _networkReady?: () => Promise<void>, infrastructureReady?: () => Promise<void>,
+      ) => infrastructureReady?.()),
+      runAgentCommand: jest.fn(),
+    };
+    dependencies[dependency as keyof typeof dependencies].mockRejectedValueOnce(failure);
+    await expect(runMainWorkflow(wrapper, dependencies, {
+      logger: { info: jest.fn(), success: jest.fn(), warn: jest.fn() },
+      performCleanup: jest.fn(),
+    })).rejects.toBe(failure);
+    expect(getEnclaveStartupProgress(wrapper)).toMatchObject({
+      stage, readiness: 'not-attempted', code: 'none', attempts: 0,
+    });
+    expect(JSON.stringify(getEnclaveStartupProgress(wrapper))).not.toContain(failure.message);
+    expect(dependencies.assertEnclaveGatewayReady).not.toHaveBeenCalled();
+    expect(dependencies.runAgentCommand).not.toHaveBeenCalled();
+  });
+
   it('stages before config generation and container startup', async () => {
     const order: string[] = [];
     await runMainWorkflow(config(), {

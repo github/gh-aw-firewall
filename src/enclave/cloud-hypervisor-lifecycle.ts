@@ -15,6 +15,7 @@ import {
 import type { HostExecutorRunState, HostExecutorServer } from './host-executor-server';
 import { deriveEnclaveSeedId, readEnclaveRunId, resolveEnclavePaths, type EnclavePaths } from './paths';
 import { validateEnclavesConfig } from './preflight';
+import { updateEnclaveStartupProgress } from './startup-progress';
 
 export const CLOUD_HYPERVISOR_ENCLAVE_STORAGE_REQUIRED =
   'Cloud Hypervisor enclaves require the trusted hard-bounded writable-storage provider (#9394); '
@@ -150,18 +151,23 @@ export async function startCloudHypervisorEnclaveLifecycle(
     workDir: paths.workDir,
     agentPolicies: deriveAgentPolicies(config),
     environment,
+    onPreflightStage: (stage) => updateEnclaveStartupProgress(config, { stage }),
   };
   const run: RunLifecycle = { configuration: config, runId: options.runState.runId };
   runs.set(paths.root, run);
   run.startPromise = (async () => {
     try {
+      updateEnclaveStartupProgress(config, { stage: 'host-preflight' });
       await assertCloudHypervisorEnclavePrerequisites(config, storageProvider);
+      updateEnclaveStartupProgress(config, { stage: 'storage-preflight' });
       run.storage = await storageProvider.prepareRun(options);
+      updateEnclaveStartupProgress(config, { stage: 'host-service' });
       run.server = await startCloudHypervisorEnclaveHostService({
         ...options,
         backendDependencies: run.storage.backendDependencies,
         managerDependencies: run.storage.managerDependencies,
       });
+      updateEnclaveStartupProgress(config, { stage: 'host-service' });
       if (run.draining) run.server.closeAdmissions();
     } catch (error) {
       run.failed = true;

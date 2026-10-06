@@ -28,6 +28,7 @@ export async function startCloudHypervisorEnclaveHostService(
     ? await createCloudHypervisorHostEnclaveExecutor(options, options.backendDependencies)
     : await createCloudHypervisorHostEnclaveExecutor(options);
   try {
+    options.onPreflightStage?.('host-service');
     return await startHostExecutorServer({
       runtimeDir: options.runtimeDir,
       runState: options.runState,
