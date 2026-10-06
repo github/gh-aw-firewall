@@ -3,8 +3,11 @@ const {
   MODEL_NOT_SUPPORTED_RETRY_DELAYS_MS,
   rebuildBodyFramingHeaders,
 } = require('./upstream-http');
+const { clearRuntimeModels, replaceRuntimeModels } = require('./runtime-model-catalog');
 
 describe('upstream-http', () => {
+  afterEach(() => clearRuntimeModels());
+
   test('rebuilds body framing headers case-insensitively', () => {
     expect(rebuildBodyFramingHeaders({
       'Content-Length': '10',
@@ -270,6 +273,70 @@ describe('upstream-http', () => {
       headers: expect.objectContaining({ 'content-length': String(retryBody.length) }),
     }));
   });
+
+  test.each(['ordered fallback', 'endpoint-blocked fallback'])(
+    'rejects unsupported reasoning effort after %s rewrites the model',
+    (fallbackType) => {
+      replaceRuntimeModels('copilot', [
+        { id: 'initial-model', supportedReasoningEfforts: ['low', 'high'] },
+        { id: 'fallback-model', supportedReasoningEfforts: ['low'] },
+      ]);
+      const proxyReq = { on: jest.fn(), write: jest.fn(), end: jest.fn() };
+      const responseCallbacks = [];
+      const httpsRequest = jest.fn((_options, cb) => {
+        responseCallbacks.push(cb);
+        return proxyReq;
+      });
+      const handleUpstreamResponse = jest.fn();
+      const res = { headersSent: false, writeHead: jest.fn(), end: jest.fn() };
+      const sendUpstreamRequest = createSendUpstreamRequest({
+        https: { request: httpsRequest },
+        proxyAgent: {},
+        handleUpstreamResponse,
+        sleep: jest.fn(),
+        otel: { endSpanError: jest.fn(), endSpan: jest.fn() },
+        handleRequestError: jest.fn(),
+        metrics: { gaugeDec: jest.fn(), increment: jest.fn(), observe: jest.fn() },
+        getFallbackModels: () => ['fallback-model'],
+      });
+      const req = {
+        method: 'POST',
+        url: '/v1/chat/completions',
+        ...(fallbackType === 'endpoint-blocked fallback'
+          ? { awfModelCandidates: ['initial-model', 'fallback-model'] }
+          : {}),
+      };
+      const body = Buffer.from(JSON.stringify({
+        model: 'initial-model',
+        reasoning_effort: 'high',
+        messages: [],
+      }));
+
+      sendUpstreamRequest({ 'content-length': String(body.length) }, createContext({
+        body,
+        requestBytes: body.length,
+        req,
+        res,
+      }));
+
+      if (fallbackType === 'ordered fallback') {
+        const errorHandler = proxyReq.on.mock.calls.find(([event]) => event === 'error')[1];
+        errorHandler(new Error('ECONNRESET'));
+      } else {
+        responseCallbacks[0]({ statusCode: 400, headers: {} });
+        handleUpstreamResponse.mock.calls[0][2].onModelEndpointBlockedRetry();
+      }
+
+      expect(httpsRequest).toHaveBeenCalledTimes(1);
+      expect(res.writeHead).toHaveBeenCalledWith(400, expect.any(Object));
+      expect(JSON.parse(res.end.mock.calls[0][0])).toMatchObject({
+        error: {
+          code: 'unsupported_reasoning_effort',
+          message: 'reasoning_effort "high" is not supported by model fallback-model; supported values: [low]',
+        },
+      });
+    },
+  );
 
   test('carries Codex compatibility metadata forward across the endpoint-blocked retry', () => {
     const proxyReq = { on: jest.fn(), write: jest.fn(), end: jest.fn() };

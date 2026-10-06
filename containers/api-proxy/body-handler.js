@@ -27,7 +27,6 @@ const { getAndClearPendingSteeringMessage } = require('./guards/effective-token-
 const { getAndClearPendingTimeoutSteeringMessage } = require('./guards/timeout-steering');
 const { translateCodexCustomToolsForCopilot } = require('./codex-compat');
 const { stripRedundantModelPrefixInBody } = require('./model-body-rewriter');
-const { validateReasoningEffort } = require('./reasoning-effort-validation');
 
 /** Maximum request body size: 10 MB to prevent DoS via large payloads. */
 const MAX_BODY_SIZE = 10 * 1024 * 1024;
@@ -264,8 +263,6 @@ function createBodyHandler({ handleRequestError, otel }) {
         body = streamOpts.body;
       }
     }
-
-    validateReasoningEffort(body, provider, req.url);
 
     return { body, codexCompatibility };
   }

@@ -8,6 +8,8 @@ const {
   selectNextFallbackModel,
   rewriteRequestModel,
 } = require('./model-fallback-chain');
+const { validateReasoningEffort } = require('./reasoning-effort-validation');
+const { sanitizeForLog } = require('./logging');
 
 /**
  * Backoff delays (ms) between successive model-not-supported retries.
@@ -62,6 +64,37 @@ function createSendUpstreamRequest({
     codexCompatibility = null,
     attemptedModels = null,
   }) {
+    try {
+      validateReasoningEffort(body, provider, upstreamPath);
+    } catch (err) {
+      if (err.code !== 'unsupported_reasoning_effort') throw err;
+      if (res.headersSent) return;
+
+      const statusCode = err.statusCode || 400;
+      const duration = Date.now() - startTime;
+      metrics.gaugeDec('active_requests', { provider });
+      metrics.increment('requests_total', { provider, method: req.method, status_class: '4xx' });
+      logRequest?.('warn', 'request_validation_failed', {
+        request_id: requestId,
+        provider,
+        method: req.method,
+        path: sanitizeForLog(req.url),
+        status: statusCode,
+        duration_ms: duration,
+        error_code: err.code,
+      });
+      otel.endSpan(span, statusCode);
+      res.writeHead(statusCode, { 'Content-Type': 'application/json', 'X-Request-ID': requestId });
+      res.end(JSON.stringify({
+        error: {
+          message: err.message,
+          type: err.type || 'invalid_request_error',
+          code: err.code,
+        },
+      }));
+      return;
+    }
+
     const isRoutingClassifier = req.awfRequestContext?.purpose === 'routing_classification';
     const cancellationSignal = isRoutingClassifier
       ? req.awfRequestContext.signal

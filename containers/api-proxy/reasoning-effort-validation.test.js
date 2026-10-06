@@ -6,20 +6,24 @@ const { validateReasoningEffort } = require('./reasoning-effort-validation');
 describe('validateReasoningEffort', () => {
   afterEach(() => clearRuntimeModels());
 
-  it('rejects an effort not advertised for the resolved model', () => {
+  it.each([
+    ['/v1/chat/completions', { reasoning_effort: 'short' }, 'reasoning_effort'],
+    ['/v1/responses', { reasoning: { effort: 'short' } }, 'reasoning.effort'],
+    ['/v1/messages', { output_config: { effort: 'short' } }, 'output_config.effort'],
+  ])('rejects an unsupported effort on %s', (url, effort, field) => {
     replaceRuntimeModels('copilot', [{
       id: 'gpt-5-mini',
       supportedReasoningEfforts: ['low', 'medium', 'high'],
     }]);
 
     expect(() => validateReasoningEffort(
-      Buffer.from(JSON.stringify({ model: 'gpt-5-mini', reasoning_effort: 'short' })),
+      Buffer.from(JSON.stringify({ model: 'gpt-5-mini', ...effort })),
       'copilot',
-      '/v1/chat/completions',
+      url,
     )).toThrow(expect.objectContaining({
       statusCode: 400,
       code: 'unsupported_reasoning_effort',
-      message: 'reasoning_effort "short" is not supported by model gpt-5-mini; supported values: [low medium high]',
+      message: `${field} "short" is not supported by model gpt-5-mini; supported values: [low medium high]`,
     }));
   });
 
