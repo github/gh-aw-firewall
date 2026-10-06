@@ -2138,8 +2138,11 @@ or `aborted`), and `status` (final HTTP status). Request-side model fields
 use the wire representation used for comparison, unlike canonical selection
 model fields. Before the request body is observed, body-dependent comparisons
 MUST be listed in `unavailable` and omitted from `deviations`; known provider
-and endpoint differences remain reportable. `routed` is `unobserved` when no
-known deviation exists but body-dependent comparisons remain unavailable.
+and endpoint differences remain reportable. Endpoint differences are
+informational and MUST NOT by themselves make `routed` `deviated`. A known
+provider difference makes `routed` `deviated`, even when body-dependent
+comparisons remain unavailable. Otherwise, `routed` is `unobserved` when
+body-dependent comparisons remain unavailable.
 A model-policy rejection MUST NOT be reported as successful
 completion. Stream errors and premature closure MUST NOT be treated as
 completion merely because HTTP headers indicated success. When token usage is

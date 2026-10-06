@@ -28,6 +28,7 @@ function buildClassifierRequest(mapping, plan) {
     });
   }
   if (mapping.protocol === 'chat-completions') {
+    const maxOutputTokens = mapping.effort === undefined ? CLASSIFIER_OUTPUT_TOKENS : CLASSIFIER_REASONING_OUTPUT_TOKENS;
     return Object.freeze({
       path: '/chat/completions',
       body: Object.freeze({
@@ -36,10 +37,10 @@ function buildClassifierRequest(mapping, plan) {
           Object.freeze({ role: 'system', content: plan.system_prompt }),
           Object.freeze({ role: 'user', content: plan.prompt }),
         ]),
-        tools: Object.freeze([]), stream: false, max_tokens: CLASSIFIER_OUTPUT_TOKENS,
+        tools: Object.freeze([]), stream: false, max_tokens: maxOutputTokens,
         ...(mapping.effort === undefined ? {} : { reasoning_effort: mapping.effort }),
       }),
-      outputAllowance: CLASSIFIER_OUTPUT_TOKENS,
+      outputAllowance: maxOutputTokens,
     });
   }
   if (mapping.protocol === 'messages') {

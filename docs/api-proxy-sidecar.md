@@ -811,11 +811,12 @@ as the body `model` to `endpoint` (for `/responses`, `reasoning.effort` equal to
 use any model that `AWF_ALLOWED_MODELS` / `AWF_DISALLOWED_MODELS` permit, and
 that model policy, not routing, is what bounds cost. Each inference request is
 logged as a `model_routing` event with `stage: "request"` and
-`routed: "as_selected"` or `"deviated"` (with the deviating `model`, `effort`,
-`endpoint`, or `provider`), recording requested and selected values side by
-side. Only genuine routing failures (no selection could be produced, or an
-upstream failure on a request that used the selected provider and model) end
-the run with exit `78`.
+`routed: "as_selected"` or `"deviated"` (with differences in `model`, `effort`,
+or `provider`), recording requested and selected values side by side. Endpoint
+differences are informational: they remain in `deviations` but do not by
+themselves make a request `deviated`. Only genuine routing failures (no
+selection could be produced, or an upstream failure on a request that used the
+selected provider and model) end the run with exit `78`.
 
 ### Model-routing audit log
 
@@ -851,7 +852,10 @@ Request records retain `routed` (`as_selected`, `deviated`, or `unobserved`),
 `deviations`, and `unavailable`. If a request is rejected before its body is
 read, `unavailable` contains `model` and `effort`, and those comparisons are
 omitted from `deviations`; known provider and endpoint differences are still
-reported. This avoids treating unread body fields as confirmed deviations.
+reported. Endpoint differences are informational and do not determine `routed`.
+Otherwise, a known provider difference makes the request `deviated`; if there
+is no known provider difference and body-dependent comparisons remain
+unavailable, it is `unobserved`.
 `selected_model`, `selected_effort`, `selected_provider`, `selected_endpoint`,
 `requested_model`, and `requested_effort`; `provider` and `pathname` identify
 the requested provider and endpoint. Selection
