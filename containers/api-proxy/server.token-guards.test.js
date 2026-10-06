@@ -257,8 +257,24 @@ describe('proxyRequest max-runs guard', () => {
     const payload = JSON.parse(res2.end.mock.calls[0][0]);
     expect(payload.error.type).toBe('max_runs_exceeded');
     expect(payload.error.message).toMatch(/Maximum LLM invocations exceeded/);
+    expect(payload.error.message).toBe(
+      'Maximum LLM invocations exceeded (1 / 1): the shared per-run max-turns budget, including sub-agents, is exhausted. For gh-aw workflows, increase max-turns in workflow frontmatter and recompile; retrying within this run cannot restore the budget.'
+    );
     expect(payload.error.max_runs).toBe(1);
     expect(payload.error.invocation_count).toBe(1);
+
+    // Retrying an exhausted per-run budget must not reach the provider.
+    const req3 = makeReq();
+    const res3 = makeRes();
+    proxyRequest(req3, res3, 'api.openai.com', { Authorization: '******' }, 'openai');
+    req3.emit('end');
+    await flushPromises();
+
+    expect(cycle.spy).toHaveBeenCalledTimes(1);
+    expect(res3.writeHead).toHaveBeenCalledWith(429, expect.objectContaining({
+      'Content-Type': 'application/json',
+    }));
+    expect(JSON.parse(res3.end.mock.calls[0][0])).toEqual(payload);
   });
 
   it('allows requests when max runs is not configured', async () => {
