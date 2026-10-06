@@ -264,6 +264,7 @@ export async function runMainWorkflow(
     ? async () => {
       // The Docker lifecycle invokes this after infrastructure service startup.
       await checks.check('infrastructure', () => undefined);
+      infrastructureCheckPassed = true;
       if (!dependencies.connectEnclaveGateway || !dependencies.assertEnclaveGatewayReady) {
         throw new Error('Enclaves require an exclusive MCP gateway readiness implementation');
       }
@@ -298,7 +299,7 @@ export async function runMainWorkflow(
         updateEnclaveStartupProgress(config, { stage: 'delegation' });
         await checks.check('delegation', () => dependencies.startEnclaveDynamicDelegation!(config));
       }
-      await checks.check('readiness', () => assertEnclaveStartupChecklistComplete(config));
+      await checks.check('readiness', () => assertEnclaveStartupChecklistComplete(config, true));
     }
     : undefined;
   const routingInfrastructureReady = config.experimentalModelRouting === true && config.modelRouting
@@ -317,6 +318,7 @@ export async function runMainWorkflow(
     }
     : undefined;
 
+  let infrastructureCheckPassed = false;
   try {
     updateEnclaveStartupProgress(config, { stage: 'containers' });
     checks.attempt('infrastructure');
@@ -329,7 +331,7 @@ export async function runMainWorkflow(
       onInfrastructureReady,
     );
   } catch (startError) {
-    if (config.enclaves?.enabled) {
+    if (config.enclaves?.enabled && !infrastructureCheckPassed) {
       checks.fail('infrastructure', startError);
     }
     // Signal that containers may have been partially created so the caller's

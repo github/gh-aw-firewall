@@ -549,6 +549,8 @@ describe('runMainWorkflow', () => {
       runAgentCommand,
     }), createWorkflowOptions())).rejects.toThrow(/tool mismatch/);
     expect(runAgentCommand).not.toHaveBeenCalled();
+    expect(getEnclaveStartupProgress(enclaveConfig)?.startupChecks?.checks['startup/infrastructure'])
+      .toEqual(['passed', 'none']);
   });
 
   it('passes agentTimeout to runAgentCommand', async () => {

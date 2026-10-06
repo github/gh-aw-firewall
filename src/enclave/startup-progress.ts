@@ -94,11 +94,21 @@ export function updateEnclaveStartupProgress(
   state.publish?.(getEnclaveStartupProgress(config)!);
 }
 
-export function assertEnclaveStartupChecklistComplete(config: WrapperConfig): void {
+export function assertEnclaveStartupChecklistComplete(
+  config: WrapperConfig,
+  readinessCheckInProgress = false,
+): void {
   if (!config.enclaves?.enabled) return;
   const checklist = states.get(config)?.progress.startupChecks;
-  if (!checklist || !checklist.checks['startup/readiness'] || Object.entries(checklist.checks).some(([id, [result]]) =>
-    id !== 'startup/readiness' && result !== 'passed' && result !== 'not-required')) {
+  const readiness = checklist?.checks['startup/readiness']?.[0];
+  if (
+    !checklist
+    || (readinessCheckInProgress
+      ? readiness !== 'attempted'
+      : readiness !== 'passed' || !checklist.ready)
+    || Object.entries(checklist.checks).some(([id, [result]]) =>
+      id !== 'startup/readiness' && result !== 'passed' && result !== 'not-required')
+  ) {
     throw new Error('Enclave startup checklist has incomplete required checks; primary agent will not start');
   }
 }

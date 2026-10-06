@@ -53,7 +53,8 @@ describe('standard enclave startup checklist', () => {
       await startup.check(id, () => undefined);
     }
     expect(getEnclaveStartupProgress(wrapper)!.startupChecks!.ready).toBe(false);
-    await startup.check('readiness', () => assertEnclaveStartupChecklistComplete(wrapper));
+    expect(() => assertEnclaveStartupChecklistComplete(wrapper)).toThrow(/incomplete required checks/);
+    await startup.check('readiness', () => assertEnclaveStartupChecklistComplete(wrapper, true));
     expect(getEnclaveStartupProgress(wrapper)!.startupChecks!.ready).toBe(true);
     expect(() => assertEnclaveStartupChecklistComplete(wrapper)).not.toThrow();
   });
