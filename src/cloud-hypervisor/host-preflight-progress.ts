@@ -28,6 +28,18 @@ export function hostPreflightReason(error: unknown): HostPreflightReason {
     && Object.prototype.hasOwnProperty.call(schema.reasons, code) ? code as HostPreflightReason : 'unknown';
 }
 
+export class HostPreflightCleanupError extends Error {
+  readonly cause: unknown;
+  readonly cleanupError: unknown;
+
+  constructor(cause: unknown, cleanupError: unknown) {
+    super('Host preflight failed and cleanup failed');
+    this.cause = cause;
+    this.cleanupError = cleanupError;
+    markHostPreflightError(this, hostPreflightReason(cause));
+  }
+}
+
 /** Reports only executed gates; constructing a plan does not pass any check. */
 export class HostPreflightReporter {
   private readonly progress: HostPreflightProgress;
@@ -45,6 +57,10 @@ export class HostPreflightReporter {
     this.publish?.({
       ...this.progress, checks: this.progress.checks.map((check) => ({ ...check })),
     });
+  }
+
+  fork(scope: HostPreflightScope): HostPreflightReporter {
+    return new HostPreflightReporter(scope, this.publish);
   }
 
   notRequired(id: HostPreflightCheck): void {

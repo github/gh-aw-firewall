@@ -62,6 +62,15 @@ Host-to-gateway readiness does not prove guest execution or guest connectivity;
 the separate CI admission probe's `preflight-harness` perspective cannot prove
 an `awf-host` check passed.
 
+For Cloud Hypervisor, a failed `bounded-runtime/artifact-snapshot` is host
+artifact preparation, not a guest network failure. Read the corresponding
+`artifact-snapshot` copy/mode/identity/bind/remount/sealed-storage subcheck,
+and retain `bounded-cleanup` evidence separately. An rsync partial-transfer
+or file-I/O reason does not prove storage exhaustion; logical release image
+sizes do not measure sparse allocation. Unknown reasons remain unknown until
+the failed operation supplies discriminating evidence. No new root-cause
+finding is asserted for the unresolved v0.28.39 snapshot failure.
+
 ## Agent entry point
 
 Agents should load [`.github/skills/diagnose-awf/SKILL.md`](../../.github/skills/diagnose-awf/SKILL.md).

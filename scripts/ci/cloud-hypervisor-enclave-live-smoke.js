@@ -382,6 +382,7 @@ function startupDiagnostic(child, reason, stage, stderrFile, startupErrorFile) {
         if (enclaveStartup) {
           category = gatewayCategory(enclaveStartup.code)
             || (enclaveStartup.hostPreflight?.checks.some((check) => check.result === 'failed')
+              || Object.values(enclaveStartup.startupChecks?.checks ?? {}).some(([result]) => result === 'failed')
               ? 'host-preflight' : category);
         }
       }

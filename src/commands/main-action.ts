@@ -140,7 +140,7 @@ function writeStartupFailureDiagnostic(config: WrapperConfig, error: unknown, ph
     const proxyLogsDir = config.proxyLogsDir || path.join(config.workDir, 'squid-logs');
     fs.mkdirSync(proxyLogsDir, { recursive: true, mode: 0o755 });
     assertRealDirectory(proxyLogsDir);
-    const enclaveStartup = getEnclaveStartupProgress(config);
+    let enclaveStartup = getEnclaveStartupProgress(config);
     const redactedMessage = redactSensitiveValues(
       redactSecrets(error instanceof Error ? error.message : String(error)),
       deriveSensitiveEndpointForms(config.sensitiveAllowedDomains),
@@ -149,6 +149,20 @@ function writeStartupFailureDiagnostic(config: WrapperConfig, error: unknown, ph
     const message = enclaveStartup && Buffer.byteLength(JSON.stringify(redactedMessage), 'utf8') > messageBound
       ? 'Enclave startup failure exceeded diagnostic message bound'
       : redactedMessage;
+    const timestamp = new Date().toISOString();
+    const serialize = (): string => JSON.stringify({
+      timestamp, phase, message,
+      ...(enclaveStartup ? { enclaveStartup } : {}),
+    }, null, enclaveStartup?.startupChecks ? undefined : 2) + '\n';
+    let record = serialize();
+    if (enclaveStartup?.startupChecks && Buffer.byteLength(record, 'utf8') > 16 * 1024) {
+      // The cumulative checklist already retains every active-scope check.
+      enclaveStartup = { ...enclaveStartup, hostPreflight: undefined };
+      record = serialize();
+    }
+    if (enclaveStartup && Buffer.byteLength(record, 'utf8') > 16 * 1024) {
+      throw new Error('Enclave startup diagnostic exceeds the descriptor bound');
+    }
     const flags =
       fs.constants.O_WRONLY |
       fs.constants.O_CREAT |
@@ -162,12 +176,7 @@ function writeStartupFailureDiagnostic(config: WrapperConfig, error: unknown, ph
       }
       fs.fchmodSync(fd, 0o600);
       fs.ftruncateSync(fd, 0);
-      fs.writeFileSync(fd, JSON.stringify({
-        timestamp: new Date().toISOString(),
-        phase,
-        message,
-        ...(enclaveStartup ? { enclaveStartup } : {}),
-      }, null, enclaveStartup?.startupChecks ? undefined : 2) + '\n');
+      fs.writeFileSync(fd, record);
       fs.fsyncSync(fd);
       fs.fchmodSync(fd, 0o644);
     } finally {

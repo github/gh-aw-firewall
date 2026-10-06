@@ -105,6 +105,7 @@
       "manifest-trust": null,
       "bundle-trust": null,
       "artifact-snapshot": null,
+      "snapshot-journal": null,
       "tool-gh": null,
       "manifest-attestation": null,
       "manifest-contents": null,
@@ -129,6 +130,37 @@
       "docker-infrastructure": null,
       "docker-info": null,
       "docker-compose": null
+    },
+    "artifact-snapshot": {
+      "root": null,
+      "directory": null,
+      "identity": null,
+      "vmm-copy": null,
+      "vmm-mode": null,
+      "virtiofsd-copy": null,
+      "virtiofsd-mode": null,
+      "kernel-copy": null,
+      "kernel-mode": null,
+      "rootfs-copy": null,
+      "rootfs-mode": null,
+      "supervisor-copy": null,
+      "supervisor-mode": null,
+      "manifest-copy": null,
+      "manifest-mode": null,
+      "bundle-copy": null,
+      "bundle-mode": null,
+      "directory-mode": null,
+      "mount-intent": null,
+      "bind": null,
+      "mount-capture": null,
+      "readonly-exec": null,
+      "sealed-storage": null,
+      "partial-remove": null
+    },
+    "bounded-cleanup": {
+      "storage-close": null,
+      "directory-release": null,
+      "journal-complete": null
     },
     "bounded-artifacts": {
       "configured-role": null,
@@ -156,7 +188,10 @@
   "optionalChecks": [
     "startup/github-attachment", "startup/github-ready", "startup/delegation",
     "enclave-runtime/script-runtime", "enclave-runtime/agent-runtime", "enclave-runtime/host-service",
-    "enclave-storage/seed-catalog", "enclave-storage/github-identity", "enclave-storage/delegation-custody"
+    "enclave-storage/seed-catalog", "enclave-storage/github-identity", "enclave-storage/delegation-custody",
+    "artifact-snapshot/manifest-copy", "artifact-snapshot/manifest-mode",
+    "artifact-snapshot/bundle-copy", "artifact-snapshot/bundle-mode",
+    "artifact-snapshot/partial-remove", "bounded-cleanup/directory-release"
   ],
   "reasons": {
     "none": null,
@@ -168,6 +203,13 @@
     "runner-not-github-hosted": null,
     "ubuntu-image-required": null,
     "command-failed": null,
+    "mount-noexec": null,
+    "storage-mount-options": null,
+    "storage-path-changed": null,
+    "storage-cap-changed": null,
+    "rsync-file-io": null,
+    "rsync-partial-transfer": null,
+    "rsync-source-vanished": null,
     "path-not-absolute": null,
     "private-root-overlap": null,
     "mount-source-invalid": null,

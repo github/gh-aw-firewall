@@ -232,7 +232,19 @@ describe('invocation-wide kernel-enforced storage', () => {
     await expect(prepared.close()).resolves.toBeUndefined();
   });
 
-  it.each(['script', 'agent'] as const)('accounts for every %s path on one superblock, with sealed exec artifacts', async (role) => {
+  it.each([
+    { role: 'script' }, { role: 'agent' },
+    ...['mount-intent', 'bind', 'mount-capture', 'readonly-exec', 'sealed-storage']
+      .map((gate) => ({ role: 'script', gate })),
+    { role: 'script', gate: 'bind', commandExit: 32 },
+    { role: 'script', gate: 'readonly-exec', commandExit: 32 },
+    { role: 'script', gate: 'sealed-storage', verification: 'cap' },
+    { role: 'script', gate: 'sealed-storage', verification: 'path' },
+    { role: 'script', gate: 'sealed-storage', verification: 'symlink' },
+    { role: 'script', gate: 'sealed-storage', verification: 'type' },
+  ] as { role: 'script' | 'agent'; gate?: string; commandExit?: number; verification?: string }[])(
+    'accounts for every $role path and identifies snapshot sealing failure $gate $verification $commandExit',
+    async ({ role, gate, commandExit, verification }) => {
     const plan = {
       runId: 'a'.repeat(32), entryId: role, invocationId: 'b'.repeat(32), executorKind: role,
       invocationHostDir: `/private/invocations/${role}/${'b'.repeat(32)}`,
@@ -267,13 +279,15 @@ describe('invocation-wide kernel-enforced storage', () => {
     );
     const command = execa as unknown as jest.Mock;
     command.mockResolvedValue({ exitCode: 0, stderr: '' });
-    (createArtifactSnapshot as jest.Mock).mockImplementation(async (sources, _copy, capture, stagingRoot) => {
-      expect(stagingRoot).toBe(path.join(root, 'artifacts'));
-      await capture?.(snapshotDirectory);
-      return { ...sources, directory: snapshotDirectory };
-    });
+    jest.spyOn(fs, 'mkdtemp').mockResolvedValue(snapshotDirectory);
+    jest.spyOn(fs, 'copyFile').mockResolvedValue(undefined);
+    jest.spyOn(fs, 'chmod').mockResolvedValue(undefined);
+    const snapshotImplementation = jest.requireActual<typeof import('./artifact-snapshot')>('./artifact-snapshot');
+    (createArtifactSnapshot as jest.Mock).mockImplementation(snapshotImplementation.createArtifactSnapshot);
 
-    const allocation = await prepareTrustedInvocationStorage(run, plan, journal, tools);
+    const published: HostPreflightProgress[] = [];
+    const allocation = await prepareTrustedInvocationStorage(run, plan, journal, tools,
+      new HostPreflightReporter('bounded-runtime', (value) => published.push(value)));
     expect(fs.mkdir).toHaveBeenCalledWith('/run/awf-cloud-hypervisor', { mode: 0o711 });
     expect(fs.mkdir).toHaveBeenCalledWith('/run/awf-cloud-hypervisor/enclave-storage', { mode: 0o711 });
     expect(command).toHaveBeenCalledWith(tools.mount, [
@@ -287,11 +301,67 @@ describe('invocation-wide kernel-enforced storage', () => {
     await allocation.dependencies.verifyStorage!(plan.invocationHostDir, profiles[role].writableStorageBytes,
       ['output', 'runtime', ...(role === 'agent' ? ['session-handoff', 'session-state'] : [])]
         .map((name) => path.join(plan.invocationHostDir, name)));
-    await allocation.dependencies.createArtifactSnapshot!({
+    const primary = Object.assign(new Error('/private/SECRET\nBearer token'), { code: 'EPERM' });
+    if (gate === 'mount-intent') (journal.prepareStorageMount as jest.Mock).mockRejectedValueOnce(primary);
+    if (gate === 'mount-capture') (journal.captureStorageMount as jest.Mock).mockRejectedValueOnce(primary);
+    if (gate === 'bind' || gate === 'readonly-exec') {
+      command.mockImplementation(async (_tool, args: string[]) => {
+        if (args[0] === (gate === 'bind' ? '--bind' : '-o')) {
+          if (commandExit) return { exitCode: commandExit, stderr: '/private/SECRET\nBearer token' };
+          throw primary;
+        }
+        return { exitCode: 0, stderr: '' };
+      });
+    }
+    if (gate === 'sealed-storage' && !verification) readMounts.mockResolvedValue(
+      String(await fs.readFile('/proc/self/mountinfo', 'utf8'))
+        .replace(` ${snapshotDirectory} ro,`, ` ${snapshotDirectory} rw,`),
+    );
+    if (verification === 'cap') (fs.statfs as jest.Mock).mockResolvedValue({
+      type: 0x01021994n, bsize: 4096n, blocks: BigInt(profiles[role].writableStorageBytes / 4096) + 1n,
+    });
+    if (verification === 'path') (fs.realpath as jest.Mock).mockImplementation(async (file) =>
+      String(file) === root ? '/outside' : String(file));
+    if (verification === 'symlink' || verification === 'type') {
+      (fs.lstat as jest.Mock).mockResolvedValue({
+        isDirectory: () => verification !== 'type', isSymbolicLink: () => verification === 'symlink',
+        uid: 0, mode: 0o40711,
+      });
+    }
+    const creating = allocation.dependencies.createArtifactSnapshot!({
       cloudHypervisorBinary: '/trusted/cloud-hypervisor', virtiofsdBinary: '/trusted/virtiofsd',
       kernelPath: '/trusted/kernel', rootfsPath: '/trusted/rootfs', supervisorPath: '/trusted/supervisor',
       manifestPath: '/trusted/manifest', bundlePath: '/trusted/bundle',
     }, jest.fn(), jest.fn());
+    if (gate) {
+      if (gate === 'sealed-storage' || commandExit) await expect(creating).rejects.toThrow();
+      else await expect(creating).rejects.toBe(primary);
+      const record = published[published.length - 1];
+      expect(record.scope).toBe('artifact-snapshot');
+      expect(record.checks.filter((check) => check.result === 'failed')).toEqual([{
+        id: gate, result: 'failed', reason: gate === 'sealed-storage'
+          ? verification === 'cap' ? 'storage-cap-changed' : verification === 'path' ? 'storage-path-changed' :
+            verification === 'symlink' ? 'file-symlink' : verification === 'type' ? 'file-type' : 'storage-mount-options'
+          : commandExit ? 'command-failed' : 'EPERM',
+      }]);
+      const gates = ['mount-intent', 'bind', 'mount-capture', 'readonly-exec', 'sealed-storage'];
+      for (const later of gates.slice(gates.indexOf(gate) + 1)) {
+        expect(record.checks.find((check) => check.id === later)?.result).toBe('not-attempted');
+      }
+      expect(JSON.stringify(published)).not.toMatch(/SECRET|Bearer|token/);
+      await allocation.close();
+      expect(journal.closeStorage).toHaveBeenCalledWith(tools.umount);
+      return;
+    }
+    await creating;
+    const snapshotProgress = published[published.length - 1];
+    expect(snapshotProgress.scope).toBe('artifact-snapshot');
+    expect(snapshotProgress.checks.every((check) =>
+      check.result === 'passed' || (check.id === 'partial-remove' && check.result === 'not-required'))).toBe(true);
+    expect(createArtifactSnapshot).toHaveBeenCalledWith(
+      expect.anything(), expect.anything(), expect.anything(), path.join(root, 'artifacts'),
+      expect.any(HostPreflightReporter),
+    );
     expect(command).toHaveBeenCalledWith(tools.mount,
       ['-o', 'remount,bind,ro,nosuid,nodev,exec', snapshotDirectory], expect.anything());
     expect(command).toHaveBeenCalledWith(tools.mount,

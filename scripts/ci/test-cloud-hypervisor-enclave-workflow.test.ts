@@ -70,6 +70,7 @@ describe('Cloud Hypervisor enclave conformance CI boundary', () => {
       'src/enclave/startup-progress.test.ts',
       'src/cloud-hypervisor/host-preflight-progress.test.ts',
       'src/cloud-hypervisor/artifact-trust.test.ts',
+      'src/cloud-hypervisor/artifact-snapshot.test.ts',
       'src/cloud-hypervisor/preflight.test.ts',
       'scripts/ci/cloud-hypervisor-enclave-host-preflight.test.ts',
       'scripts/ci/cloud-hypervisor-enclave-environment-probe.test.ts',

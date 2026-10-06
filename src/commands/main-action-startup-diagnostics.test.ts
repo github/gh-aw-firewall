@@ -108,6 +108,7 @@ describe('startup progress descriptor publication', () => {
       Object.values(schema.scopes).reduce((total, plan) => total + Object.keys(plan).length, 0),
     );
     expect(record.enclaveStartup.startupChecks.ready).toBe(false);
+    expect(record.enclaveStartup.hostPreflight).toBeUndefined();
     expect(bytes.toString('utf8')).not.toContain('PRIVATE_SENTINEL');
   });
   it('does not follow a record pathname replaced after descriptor validation', () => {

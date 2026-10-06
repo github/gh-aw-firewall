@@ -220,7 +220,7 @@ describe('bounded immutable enclave preflight', () => {
     await expect(createBoundedEnclavePreflight({
       ...input, onHostPreflight: (record) => published.push(record),
     }, active).preflight(config)).rejects.toThrow();
-    const last = published[published.length - 1];
+    const last = published.filter((record) => record.scope === 'bounded-runtime').slice(-1)[0];
     expect(last.scope).toBe('bounded-runtime');
     expect(last.checks.filter((check) => check.result === 'failed')).toEqual([{
       id: gate, result: 'failed', reason: gate === 'configured-role' ? 'requirement-not-met' : 'EPERM',
@@ -375,6 +375,68 @@ describe('bounded immutable enclave preflight', () => {
     expect(probes.runVersion).not.toHaveBeenCalled();
   });
 
+  it('reports journal snapshot preparation before any copy and retains the failed runtime gate after cleanup', async () => {
+    const published: HostPreflightProgress[] = [];
+    const error = Object.assign(new Error('/private/token'), { code: 'ENOSPC' });
+    journal.prepareSnapshot.mockRejectedValue(error);
+    await expect(createBoundedEnclavePreflight({
+      ...options(), onHostPreflight: (value) => published.push(value),
+    }, active).preflight(config)).rejects.toBe(error);
+    const runtime = published.filter((value) => value.scope === 'bounded-runtime').slice(-1)[0];
+    expect(runtime.checks.filter((check) => check.result === 'failed')).toEqual([
+      { id: 'artifact-snapshot', result: 'failed', reason: 'ENOSPC' },
+      { id: 'snapshot-journal', result: 'failed', reason: 'ENOSPC' },
+    ]);
+    expect(createSnapshot).not.toHaveBeenCalled();
+    expect(probes.verifyManifestAttestation).not.toHaveBeenCalled();
+    expect(published[published.length - 1]?.scope).toBe('bounded-cleanup');
+    expect(JSON.stringify(published)).not.toContain('token');
+  });
+
+  it('rejects a source replacement captured during copying at the digest gate, before executing either binary', async () => {
+    const original = createSnapshot.getMockImplementation()!;
+    createSnapshot.mockImplementation(async (...args) => {
+      const result = await original(...args);
+      snapshot.set(result.cloudHypervisorBinary, 'replaced during copy');
+      return result;
+    });
+    const published: HostPreflightProgress[] = [];
+    await expect(createBoundedEnclavePreflight({
+      ...options(), onHostPreflight: (value) => published.push(value),
+    }, active).preflight(config)).rejects.toThrow('SHA-256 mismatch');
+    const runtime = published.filter((value) => value.scope === 'bounded-runtime').slice(-1)[0];
+    expect(runtime.checks.find((check) => check.id === 'cloud-hypervisor-digest'))
+      .toEqual({ id: 'cloud-hypervisor-digest', result: 'failed', reason: 'digest-mismatch' });
+    expect(probes.runVersion).not.toHaveBeenCalled();
+    expect(journal.complete).toHaveBeenCalled();
+    expect(active.size).toBe(0);
+  });
+
+  it.each(['storage-close', 'directory-release', 'journal-complete'])(
+    'distinguishes %s cleanup failure without replacing the original snapshot failure', async (gate) => {
+      const primary = Object.assign(new Error('private primary'), { code: 'EIO' });
+      const cleanup = Object.assign(new Error('private cleanup'), { code: 'EPERM' });
+      createSnapshot.mockRejectedValue(primary);
+      if (gate === 'storage-close') close.mockRejectedValue(cleanup);
+      if (gate === 'directory-release') journal.verifyDirectory.mockRejectedValue(cleanup);
+      if (gate === 'journal-complete') journal.complete.mockRejectedValue(cleanup);
+      const published: HostPreflightProgress[] = [];
+      await expect(createBoundedEnclavePreflight({
+        ...options(), onHostPreflight: (value) => published.push(value),
+      }, active).preflight(config)).rejects.toMatchObject({ cause: primary, cleanupError: cleanup });
+      const record = published[published.length - 1];
+      expect(record.scope).toBe('bounded-cleanup');
+      expect(record.checks.filter((check) => check.result === 'failed'))
+        .toEqual([{ id: gate, result: 'failed', reason: 'EPERM' }]);
+      expect(published.filter((value) => value.scope === 'bounded-runtime').slice(-1)[0].checks
+        .find((check) => check.id === 'artifact-snapshot')?.reason).toBe('EIO');
+      expect(active.has(root)).toBe(true);
+      expect(probes.verifyManifestAttestation).not.toHaveBeenCalled();
+      expect(probes.runVersion).not.toHaveBeenCalled();
+      expect(JSON.stringify(published)).not.toContain('private');
+    },
+  );
+
   it('retains the active domain and does not release source paths on a busy cleanup', async () => {
     close.mockRejectedValue(new Error('storage unmount failed'));
     await expect(createBoundedEnclavePreflight(options(), active).preflight(config))
@@ -388,7 +450,10 @@ describe('bounded immutable enclave preflight', () => {
     (prepareTrustedInvocationStorage as jest.Mock).mockRejectedValue(new Error('partial mount'));
     journal.closeStorage.mockRejectedValue(new Error('uncommitted mount'));
     await expect(createBoundedEnclavePreflight(options(), active).preflight(config))
-      .rejects.toThrow('uncommitted mount');
+      .rejects.toMatchObject({
+        cause: expect.objectContaining({ message: 'partial mount' }),
+        cleanupError: expect.objectContaining({ message: 'uncommitted mount' }),
+      });
     expect(journal.closeStorage).toHaveBeenCalledWith('/trusted/umount');
     expect(active.has(root)).toBe(true);
     expect(journal.complete).not.toHaveBeenCalled();
