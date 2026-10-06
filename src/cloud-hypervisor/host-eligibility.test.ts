@@ -23,29 +23,29 @@ describe('GitHub-hosted Ubuntu KVM runner eligibility', () => {
 
   it('rejects non-Linux hosts', () => {
     expect(evaluateGithubHostedRunnerEligibility(env({ platform: 'darwin' })))
-      .toEqual({ eligible: false, reason: expect.stringMatching(/requires Linux/) });
+      .toEqual({ eligible: false, code: 'platform-unsupported', reason: expect.stringMatching(/requires Linux/) });
   });
 
   it('rejects non-x86_64 architectures', () => {
     expect(evaluateGithubHostedRunnerEligibility(env({ arch: 'arm64' })))
-      .toEqual({ eligible: false, reason: expect.stringMatching(/x86_64 runners/) });
+      .toEqual({ eligible: false, code: 'architecture-unsupported', reason: expect.stringMatching(/x86_64 runners/) });
   });
 
   it('rejects hosts outside GitHub Actions', () => {
     expect(evaluateGithubHostedRunnerEligibility(env({ githubActions: undefined })))
-      .toEqual({ eligible: false, reason: expect.stringMatching(/GitHub Actions runs/) });
+      .toEqual({ eligible: false, code: 'github-actions-required', reason: expect.stringMatching(/GitHub Actions runs/) });
   });
 
   it('rejects self-hosted runners', () => {
     expect(evaluateGithubHostedRunnerEligibility(env({ runnerEnvironment: 'self-hosted' })))
-      .toEqual({ eligible: false, reason: expect.stringMatching(/not self-hosted/) });
+      .toEqual({ eligible: false, code: 'runner-not-github-hosted', reason: expect.stringMatching(/not self-hosted/) });
   });
 
   it('rejects non-Ubuntu runner images', () => {
     expect(evaluateGithubHostedRunnerEligibility(env({ imageOs: 'windows2022' })))
-      .toEqual({ eligible: false, reason: expect.stringMatching(/Ubuntu runner image/) });
+      .toEqual({ eligible: false, code: 'ubuntu-image-required', reason: expect.stringMatching(/Ubuntu runner image/) });
     expect(evaluateGithubHostedRunnerEligibility(env({ imageOs: undefined })))
-      .toEqual({ eligible: false, reason: expect.stringMatching(/Ubuntu runner image/) });
+      .toEqual({ eligible: false, code: 'ubuntu-image-required', reason: expect.stringMatching(/Ubuntu runner image/) });
   });
 
   it('throws the evaluated reason via the assertion helper', () => {

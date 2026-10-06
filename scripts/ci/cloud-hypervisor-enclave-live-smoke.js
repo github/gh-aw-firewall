@@ -238,10 +238,67 @@ for (const role of ['script', 'agent']) {
   );
 }
 const failedSpawns = new WeakSet();
+const hostPreflightSchema = require('../../src/cloud-hypervisor/host-preflight-schema.json');
+
+function safeHostPreflight(value) {
+  if (!value || JSON.stringify(Object.keys(value).sort()) !== '["checks","schemaVersion","scope"]'
+      || value.schemaVersion !== 1
+      || typeof value.scope !== 'string'
+      || !Object.prototype.hasOwnProperty.call(hostPreflightSchema.scopes, value.scope)
+      || !Array.isArray(value.checks)) return undefined;
+  const expected = Object.keys(hostPreflightSchema.scopes[value.scope]);
+  if (value.checks.length !== expected.length) return undefined;
+  const checks = [];
+  for (let index = 0; index < expected.length; index += 1) {
+    const check = value.checks[index];
+    if (!check || JSON.stringify(Object.keys(check).sort()) !== '["id","reason","result"]'
+        || check.id !== expected[index]
+        || !['not-attempted', 'not-required', 'attempted', 'passed', 'failed'].includes(check.result)
+        || typeof check.reason !== 'string'
+        || !Object.prototype.hasOwnProperty.call(hostPreflightSchema.reasons, check.reason)
+        || (check.result === 'failed' ? check.reason === 'none' : check.reason !== 'none')
+        || (check.result === 'not-required'
+          && !hostPreflightSchema.optionalChecks.includes(`${value.scope}/${check.id}`))) {
+      return undefined;
+    }
+    checks.push({ id: check.id, result: check.result, reason: check.reason });
+  }
+  return { schemaVersion: 1, scope: value.scope, checks };
+}
+
+function safeStartupChecklist(value) {
+  if (!value || JSON.stringify(Object.keys(value).sort()) !== '["checks","ready","schemaVersion"]'
+      || value.schemaVersion !== 1 || typeof value.ready !== 'boolean'
+      || !value.checks || typeof value.checks !== 'object' || Array.isArray(value.checks)) return undefined;
+  const checks = {};
+  const scopes = new Set();
+  for (const [id, outcome] of Object.entries(value.checks)) {
+    const [scope, check, extra] = id.split('/');
+    if (extra !== undefined || !Object.prototype.hasOwnProperty.call(hostPreflightSchema.scopes, scope)
+        || !Object.prototype.hasOwnProperty.call(hostPreflightSchema.scopes[scope], check)
+        || !Array.isArray(outcome) || outcome.length !== 2
+        || !['not-attempted', 'not-required', 'attempted', 'passed', 'failed'].includes(outcome[0])
+        || typeof outcome[1] !== 'string'
+        || !Object.prototype.hasOwnProperty.call(hostPreflightSchema.reasons, outcome[1])
+        || (outcome[0] === 'failed' ? outcome[1] === 'none' : outcome[1] !== 'none')
+        || (outcome[0] === 'not-required' && !hostPreflightSchema.optionalChecks.includes(id))) return undefined;
+    checks[id] = [outcome[0], outcome[1]];
+    scopes.add(scope);
+  }
+  for (const scope of scopes) {
+    if (Object.keys(hostPreflightSchema.scopes[scope]).some((id) =>
+      !Object.prototype.hasOwnProperty.call(checks, `${scope}/${id}`))) return undefined;
+  }
+  if (value.ready && (checks['startup/readiness']?.[0] !== 'passed'
+    || Object.values(checks).some(([result]) => result !== 'passed' && result !== 'not-required'))) return undefined;
+  return { schemaVersion: 1, ready: value.ready, checks };
+}
 
 function safeEnclaveStartup(value) {
-  if (!value || JSON.stringify(Object.keys(value).sort())
-      !== '["attempts","code","httpStatus","perspective","readiness","schemaVersion","stage"]'
+  const keys = ['attempts', 'code', 'httpStatus', 'perspective', 'readiness', 'schemaVersion', 'stage'];
+  if (value && Object.prototype.hasOwnProperty.call(value, 'hostPreflight')) keys.push('hostPreflight');
+  if (value && Object.prototype.hasOwnProperty.call(value, 'startupChecks')) keys.push('startupChecks');
+  if (!value || JSON.stringify(Object.keys(value).sort()) !== JSON.stringify(keys.sort())
       || value.schemaVersion !== 1 || value.perspective !== 'awf-host'
       || ![
         'host-bootstrap', 'runtime-preflight', 'configuration', 'enclave-preflight',
@@ -269,10 +326,16 @@ function safeEnclaveStartup(value) {
         && (value.code !== 'ready' || !['tools-list', 'delegation', 'primary-agent'].includes(value.stage)))) {
     return undefined;
   }
+  const hostPreflight = value.hostPreflight === undefined ? undefined : safeHostPreflight(value.hostPreflight);
+  if (Object.prototype.hasOwnProperty.call(value, 'hostPreflight') && !hostPreflight) return undefined;
+  const startupChecks = value.startupChecks === undefined ? undefined : safeStartupChecklist(value.startupChecks);
+  if (Object.prototype.hasOwnProperty.call(value, 'startupChecks') && !startupChecks) return undefined;
   return {
     schemaVersion: 1, perspective: 'awf-host', stage: value.stage,
     readiness: value.readiness, code: value.code, attempts: value.attempts,
     httpStatus: value.httpStatus,
+    ...(hostPreflight ? { hostPreflight } : {}),
+    ...(startupChecks ? { startupChecks } : {}),
   };
 }
 
@@ -316,7 +379,11 @@ function startupDiagnostic(child, reason, stage, stderrFile, startupErrorFile) {
         category = STARTUP_CATEGORIES.get(record.message) || 'unknown';
         logInspection = 'structured';
         enclaveStartup = safeEnclaveStartup(record.enclaveStartup);
-        if (enclaveStartup) category = gatewayCategory(enclaveStartup.code) || category;
+        if (enclaveStartup) {
+          category = gatewayCategory(enclaveStartup.code)
+            || (enclaveStartup.hostPreflight?.checks.some((check) => check.result === 'failed')
+              ? 'host-preflight' : category);
+        }
       }
     } catch {
       // Older releases or interrupted startup may not have persisted this record.
@@ -414,7 +481,8 @@ async function waitForHostGatewayReadiness(child, deadline, diagnostics) {
     } catch {
       // Publication can be interrupted; only a complete validated record proves readiness.
     }
-    if (progress?.readiness === 'ready') {
+    if (progress?.readiness === 'ready'
+        && (!progress.startupChecks || progress.startupChecks.ready)) {
       console.log(`AWF_HOST_GATEWAY_READINESS ${JSON.stringify(progress)}`);
       return;
     }

@@ -40,6 +40,28 @@ on the default branch remain authoritative for actual AWF behaviour.
 Per-run logs, cache-memory, and incident reports are **evidence**, not competing
 sources of truth.
 
+## Enclave startup diagnosis
+
+Enclave-enabled AWF runs publish the always-on, versioned
+`enclaveStartup.startupChecks` checklist before primary-agent startup. Start
+with the failed `scope/check-id` and its allowlisted reason; retain earlier
+passed checks and later `not-attempted` checks as evidence, not inferred
+success. The common checklist spans runtime/storage preparation, network
+enforcement, infrastructure service startup, and real gateway connectivity and
+protocol checks; Cloud Hypervisor adds its trusted host and bounded storage
+prerequisites. Only explicitly optional, disabled features are `not-required`.
+`startupChecks.ready` requires all applicable checks to pass.
+
+The [standard checklist contract and extension
+rules](../cloud-hypervisor-foundation.md#standard-enclave-startup-checklist)
+describe the canonical check catalog, origin instrumentation, safe output,
+and regression requirements. Extend that catalog and its tests when adding a
+startup prerequisite; do not invent parallel diagnostic-only checks. An
+unknown reason still needs evidence before becoming a finding in this registry.
+Host-to-gateway readiness does not prove guest execution or guest connectivity;
+the separate CI admission probe's `preflight-harness` perspective cannot prove
+an `awf-host` check passed.
+
 ## Agent entry point
 
 Agents should load [`.github/skills/diagnose-awf/SKILL.md`](../../.github/skills/diagnose-awf/SKILL.md).

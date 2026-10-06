@@ -129,4 +129,5 @@ export interface CreateCloudHypervisorHostEnclaveExecutorOptions {
   readonly environment?: NodeJS.ProcessEnv;
   /** Host-local diagnostics only; never part of the broker protocol. */
   readonly onPreflightStage?: (stage: 'host-preflight' | 'artifact-preflight' | 'recovery' | 'host-service') => void;
+  readonly onHostPreflight?: (progress: import('./host-preflight-progress').HostPreflightProgress) => void;
 }

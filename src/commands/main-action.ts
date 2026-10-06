@@ -145,7 +145,8 @@ function writeStartupFailureDiagnostic(config: WrapperConfig, error: unknown, ph
       redactSecrets(error instanceof Error ? error.message : String(error)),
       deriveSensitiveEndpointForms(config.sensitiveAllowedDomains),
     );
-    const message = enclaveStartup && Buffer.byteLength(JSON.stringify(redactedMessage), 'utf8') > 8 * 1024
+    const messageBound = enclaveStartup?.hostPreflight ? 1024 : 8 * 1024;
+    const message = enclaveStartup && Buffer.byteLength(JSON.stringify(redactedMessage), 'utf8') > messageBound
       ? 'Enclave startup failure exceeded diagnostic message bound'
       : redactedMessage;
     const flags =
@@ -166,7 +167,7 @@ function writeStartupFailureDiagnostic(config: WrapperConfig, error: unknown, ph
         phase,
         message,
         ...(enclaveStartup ? { enclaveStartup } : {}),
-      }, null, 2) + '\n');
+      }, null, enclaveStartup?.startupChecks ? undefined : 2) + '\n');
       fs.fsyncSync(fd);
       fs.fchmodSync(fd, 0o644);
     } finally {

@@ -46,6 +46,7 @@ on:
       - 'scripts/ci/cloud-hypervisor-enclave-startup-faults.js'
       - 'scripts/ci/cloud-hypervisor-enclave-gateway*'
       - 'scripts/ci/cloud-hypervisor-enclave-environment-probe.js'
+      - 'scripts/ci/cloud-hypervisor-enclave-host-preflight.js'
       - 'examples/enclave-environment-probe/**'
       - 'docs/cloud-hypervisor-foundation.md'
       - 'docs/INTEGRATION-TESTS.md'
@@ -94,6 +95,7 @@ jobs:
             src/enclave/cloud-hypervisor-host-service.test.ts \
             src/enclave/manager.test.ts \
             src/enclave/gateway.test.ts \
+            src/enclave/startup-progress.test.ts \
             src/enclave/workflow-integration.test.ts \
             src/enclave/preflight.test.ts \
             src/enclave/runtime-preflight.test.ts \
@@ -105,6 +107,9 @@ jobs:
             src/cloud-hypervisor/enclave-storage.test.ts \
             src/cloud-hypervisor/trusted-enclave-storage.test.ts \
             src/cloud-hypervisor/trusted-enclave-preflight.test.ts \
+            src/cloud-hypervisor/host-preflight-progress.test.ts \
+            src/cloud-hypervisor/artifact-trust.test.ts \
+            src/cloud-hypervisor/preflight.test.ts \
             src/cloud-hypervisor/enclave-export-plan.test.ts \
             src/cloud-hypervisor/enclave-network.test.ts \
             src/cloud-hypervisor/workload-profile.test.ts \
@@ -119,6 +124,7 @@ jobs:
             scripts/ci/cloud-hypervisor-enclave-release-gate.test.ts \
             scripts/ci/cloud-hypervisor-enclave-startup-faults.test.ts \
             scripts/ci/cloud-hypervisor-enclave-environment-probe.test.ts \
+            scripts/ci/cloud-hypervisor-enclave-host-preflight.test.ts \
             scripts/ci/cloud-hypervisor-environment-probe.test.ts \
             scripts/ci/test-cloud-hypervisor-enclave-workflow.test.ts \
             scripts/ci/test-cloud-hypervisor-workflow.test.ts
@@ -159,6 +165,10 @@ jobs:
           '
           test -r /sys/fs/cgroup/cgroup.controllers
           sudo -n test -w /sys/fs/cgroup
+      - name: Probe production host admission (not AWF or guest execution)
+        run: |
+          sudo -n env "PATH=$PATH" "$(command -v node)" \
+            scripts/ci/cloud-hypervisor-enclave-host-preflight.js
       - name: Install host probe prerequisites
         run: |
           sudo apt-get update

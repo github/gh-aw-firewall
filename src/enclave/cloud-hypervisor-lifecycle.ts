@@ -16,6 +16,9 @@ import type { HostExecutorRunState, HostExecutorServer } from './host-executor-s
 import { deriveEnclaveSeedId, readEnclaveRunId, resolveEnclavePaths, type EnclavePaths } from './paths';
 import { validateEnclavesConfig } from './preflight';
 import { updateEnclaveStartupProgress } from './startup-progress';
+import {
+  HostPreflightReporter, markHostPreflightError, type HostPreflightProgress,
+} from '../cloud-hypervisor/host-preflight-progress';
 
 export const CLOUD_HYPERVISOR_ENCLAVE_STORAGE_REQUIRED =
   'Cloud Hypervisor enclaves require the trusted hard-bounded writable-storage provider (#9394); '
@@ -31,7 +34,7 @@ export const CLOUD_HYPERVISOR_ENCLAVE_STORAGE_REQUIRED =
  * A capacity check, sparse-file size, or invocation/guest tmpfs alone is insufficient.
  */
 export interface TrustedCloudHypervisorEnclaveStorageProvider {
-  assertAvailable(config: WrapperConfig): Promise<void>;
+  assertAvailable(config: WrapperConfig, publish?: (progress: HostPreflightProgress) => void): Promise<void>;
   prepareRun(options: CloudHypervisorEnclaveHostServiceOptions): Promise<{
     readonly backendDependencies?: Partial<HostEnclaveExecutorDependencies>;
     readonly managerDependencies?: CloudHypervisorManagerDependencies;
@@ -50,8 +53,16 @@ export async function assertCloudHypervisorEnclavePrerequisites(
   storageProvider?: TrustedCloudHypervisorEnclaveStorageProvider,
 ): Promise<void> {
   if (!isCloudHypervisorEnclaveSelected(config)) return;
-  if (!storageProvider) throw new Error(CLOUD_HYPERVISOR_ENCLAVE_STORAGE_REQUIRED);
-  await storageProvider.assertAvailable(config);
+  if (!storageProvider) {
+    const report = new HostPreflightReporter('provider-selection', (hostPreflight) =>
+      updateEnclaveStartupProgress(config, { hostPreflight }));
+    await report.check('storage-provider', () => {
+      throw markHostPreflightError(new Error(CLOUD_HYPERVISOR_ENCLAVE_STORAGE_REQUIRED), 'requirement-not-met');
+    });
+    return;
+  }
+  await storageProvider.assertAvailable(config, (hostPreflight) =>
+    updateEnclaveStartupProgress(config, { hostPreflight }));
 }
 
 export function deriveCloudHypervisorEnclaveRunState(
@@ -152,6 +163,7 @@ export async function startCloudHypervisorEnclaveLifecycle(
     agentPolicies: deriveAgentPolicies(config),
     environment,
     onPreflightStage: (stage) => updateEnclaveStartupProgress(config, { stage }),
+    onHostPreflight: (hostPreflight) => updateEnclaveStartupProgress(config, { hostPreflight }),
   };
   const run: RunLifecycle = { configuration: config, runId: options.runState.runId };
   runs.set(paths.root, run);

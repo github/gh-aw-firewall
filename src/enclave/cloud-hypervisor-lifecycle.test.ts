@@ -8,6 +8,7 @@ import type { HostExecutorServer } from './host-executor-server';
 import { assertAgentRuntimeAvailable, assertScriptRuntimeAvailable } from './runtime-preflight';
 import { startCloudHypervisorEnclaveHostService } from './cloud-hypervisor-host-service';
 import { getEnclaveStartupProgress } from './startup-progress';
+import { ProductionTrustedCloudHypervisorEnclaveStorageProvider } from '../cloud-hypervisor/trusted-enclave-storage';
 import {
   assertCloudHypervisorEnclaveLifecycleReady,
   assertCloudHypervisorEnclavePrerequisites,
@@ -109,6 +110,30 @@ describe('trusted Cloud Hypervisor enclave lifecycle', () => {
     expect(fs.existsSync(resolveEnclavePaths(workDir).seedMapPath)).toBe(true);
   });
 
+  it('publishes the origin subcheck for actual production admission before listener or network readiness', async () => {
+    const production = new ProductionTrustedCloudHypervisorEnclaveStorageProvider({
+      platform: 'linux', arch: 'x64', uid: 1000, environment: {},
+      readFile: jest.fn(), access: jest.fn(), lstat: jest.fn(), openKvm: jest.fn(),
+    });
+    const prepare = jest.spyOn(production, 'prepareRun');
+    await expect(startCloudHypervisorEnclaveLifecycle(config, production, {})).rejects.toThrow(/9394/);
+    const progress = getEnclaveStartupProgress(config);
+    expect(progress).toMatchObject({
+      stage: 'host-preflight', readiness: 'not-attempted', code: 'none', attempts: 0, httpStatus: null,
+      hostPreflight: {
+        schemaVersion: 1, scope: 'storage-admission',
+        checks: expect.arrayContaining([
+          { id: 'root', result: 'failed', reason: 'requirement-not-met' },
+          { id: 'kvm-open', result: 'not-attempted', reason: 'none' },
+        ]),
+      },
+    });
+    expect(start).not.toHaveBeenCalled();
+    expect(prepare).not.toHaveBeenCalled();
+    progress!.hostPreflight!.checks[0].result = 'passed';
+    expect(getEnclaveStartupProgress(config)!.hostPreflight!.checks[0].result).toBe('failed');
+    await expect(stopCloudHypervisorEnclaveLifecycle(config)).rejects.toThrow(/startup failed/);
+  });
   it('derives fixed entry IDs, exact seed IDs, and host-only paths from staged state', () => {
     const paths = resolveEnclavePaths(workDir);
     expect(deriveCloudHypervisorEnclaveRunState(config, paths)).toEqual({

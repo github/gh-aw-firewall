@@ -205,6 +205,13 @@ describe('enclave mcpg handoff', () => {
       perspective: 'awf-host', stage: 'initialize', readiness: 'attempted',
       code, attempts: 1, httpStatus: null,
     });
+    expect(getEnclaveStartupProgress(wrapper)?.startupChecks).toMatchObject({
+      ready: false, checks: {
+        'gateway-handshake/initialize': ['failed', code],
+        'gateway-handshake/initialized': ['not-attempted', 'none'],
+        'gateway-handshake/tools-list': ['not-attempted', 'none'],
+      },
+    });
     expect(JSON.stringify(events)).not.toContain(secret);
     expect(JSON.stringify(events)).not.toContain(errno);
   });
@@ -228,6 +235,8 @@ describe('enclave mcpg handoff', () => {
         stage: 'initialize', readiness: 'attempted', code, attempts: 1,
         httpStatus: status === 200 ? null : status,
       });
+      expect(getEnclaveStartupProgress(wrapper)?.startupChecks?.checks['gateway-handshake/initialize'])
+        .toEqual(['failed', code]);
       expect(server.initializeAttempts()).toBe(1);
       if (body.length > 4) expect(JSON.stringify(getEnclaveStartupProgress(wrapper))).not.toContain(body);
     } finally {
@@ -245,6 +254,8 @@ describe('enclave mcpg handoff', () => {
       expect(getEnclaveStartupProgress(wrapper)).toMatchObject({
         stage, readiness: 'attempted', code: 'http-auth', httpStatus: 403, attempts: 1,
       });
+      expect(getEnclaveStartupProgress(wrapper)?.startupChecks?.checks[`gateway-handshake/${stage}`])
+        .toEqual(['failed', 'http-auth']);
     } finally {
       await server.close();
     }
@@ -467,6 +478,14 @@ describe('enclave mcpg handoff', () => {
         .resolves.toBeUndefined();
       expect(getEnclaveStartupProgress(wrapper)).toMatchObject({
         stage: 'tools-list', readiness: 'ready', code: 'ready', attempts: 1,
+      });
+      expect(getEnclaveStartupProgress(wrapper)?.startupChecks).toMatchObject({
+        ready: false, checks: {
+          'gateway-handshake/contract': ['passed', 'none'],
+          'gateway-handshake/initialize': ['passed', 'none'],
+          'gateway-handshake/initialized': ['passed', 'none'],
+          'gateway-handshake/tools-list': ['passed', 'none'],
+        },
       });
       expect(contract.server.tools).toEqual(['enclave_run_script']);
       expect(server.authorizationHeaders()).toEqual([

@@ -105,7 +105,27 @@ Only allowlisted transport/protocol codes, initialization attempt count
 (saturated at 1200), and HTTP error status (100–599 or null) are exported.
 Categories distinguish `dns`, `connectivity`, `gateway-auth`,
 `gateway-protocol`, `gateway-readiness`, `other`, and `unknown`.
-The schema-2 diagnostic line is bounded to 640 bytes; spawn failures never
+The schema-2 diagnostic line without subchecks is bounded to 640 bytes.
+An optional schema-1 `hostPreflight` snapshot contains the current shared,
+fixed check plan, with `not-attempted` / `not-required` / `attempted` /
+`passed` / `failed` results and only
+allowlisted reasons. It records actual gate outcomes, including trusted tool
+ownership/traversal/access, pinned versions, bounded mounts, KVM, capabilities,
+cgroups, and Docker/Compose; it does not infer success for unexecuted checks.
+Lines including only an active subcheck plan are bounded to 8192 bytes.
+The always-on `startupChecks` schema-1 cumulative checklist also retains
+earlier scopes as `scope/check-id: [result, reason]` and distinguishes
+complete hosting readiness from a gateway handshake alone. Lines including
+the cumulative checklist remain within 16 KiB, as do compact persisted
+records including the fatal message; the descriptor read limit is unchanged.
+Failed gates select the
+`host-preflight` category without interpreting their raw errors. Unknown
+errors remain explicit `unknown` reasons. See the
+[standard checklist and scope definitions](cloud-hypervisor-foundation.md#standard-enclave-startup-checklist).
+The privileged host-probes job also runs the production read-only admission
+method under sudo, emitting `AWF_HOST_PREFLIGHT_PROBE` with perspective
+`preflight-harness`, never `awf-host` or guest success.
+Spawn failures never
 consult possibly stale logs. A request timeout includes DNS/TCP/response time
 and does not prove a particular TCP failure. Retryable backend-unavailable
 responses remain distinct from readiness-deadline exhaustion.
@@ -117,13 +137,16 @@ AWF reuses its existing startup-error record inside the fixture's root-private
 0700 directories; there is no new network or agent-facing diagnostic channel.
 Progress records have phase `enclave-startup-progress` and a fixed message;
 fatal records retain phase `startup`. Oversized serialized fatal messages are
-replaced with a fixed message so they cannot hide the bounded snapshot.
+replaced with a fixed message so they cannot hide the bounded snapshot (1024
+serialized message bytes when subchecks are present; 8192 otherwise).
 Publication validates descriptor ownership, single-link regular-file metadata,
 and no-follow opening before truncation. Existing log readers ignore progress
 records rather than presenting them as failures.
 After broker health, both initial and recovery launches additionally wait for
 AWF's successful host handshake before making the harness's own MCP requests.
-Only then is `AWF_HOST_GATEWAY_READINESS` emitted with the same safe snapshot.
+For checklist-aware releases every required startup/storage/connectivity
+check must pass before primary-agent startup and before
+`AWF_HOST_GATEWAY_READINESS` is emitted with the same safe snapshot.
 Broker health and a successful harness request are not proof of AWF readiness.
 AWF stdout/stderr and startup error records are removed even when cleanup
 requires retaining private recovery state; no raw artifacts are uploaded.

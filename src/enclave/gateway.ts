@@ -9,6 +9,7 @@ import {
   gatewayTransportCode, updateEnclaveStartupProgress,
   type EnclaveStartupStage, type GatewayCode,
 } from './startup-progress';
+import { HostPreflightReporter } from '../cloud-hypervisor/host-preflight-progress';
 import {
   ENCLAVE_MCP_CONTROL_NETWORK,
 } from './network';
@@ -302,21 +303,25 @@ export async function connectEnclaveGateway(
   config: WrapperConfig,
   env: NodeJS.ProcessEnv = process.env,
 ): Promise<void> {
-  const contract = resolveEnclaveGatewayContract(config, env);
-  await inspectGateway(contract);
-  const connected = await execa(
-    'docker',
-    ['network', 'connect', ENCLAVE_MCP_CONTROL_NETWORK, contract.containerName],
-    { env: getLocalDockerEnv(), reject: false, timeout: 10_000 },
-  );
-  if (
-    connected.exitCode !== 0
-    && !/already exists in network|is already attached|already connected/i.test(connected.stderr || '')
-  ) {
-    throw new Error('Failed to attach the trusted enclave MCP gateway to its private control network');
-  }
+  const report = new HostPreflightReporter('gateway-attachment', (hostPreflight) =>
+    updateEnclaveStartupProgress(config, { hostPreflight }));
+  const contract = await report.check('contract', () => resolveEnclaveGatewayContract(config, env));
+  await report.check('identity', () => inspectGateway(contract));
+  await report.check('network-connect', async () => {
+    const connected = await execa(
+      'docker',
+      ['network', 'connect', ENCLAVE_MCP_CONTROL_NETWORK, contract.containerName],
+      { env: getLocalDockerEnv(), reject: false, timeout: 10_000 },
+    );
+    if (
+      connected.exitCode !== 0
+      && !/already exists in network|is already attached|already connected/i.test(connected.stderr || '')
+    ) {
+      throw new Error('Failed to attach the trusted enclave MCP gateway to its private control network');
+    }
+  });
   try {
-    await assertControlNetworkMembership(contract);
+    await report.check('network-membership', () => assertControlNetworkMembership(contract));
   } catch (error) {
     // Leave the fixed-name control network reusable by startup retries.
     await execa(
@@ -490,48 +495,56 @@ async function proveGatewayReadiness(
   contract: EnclaveGatewayContract,
   deadline: number,
   onRequest?: (stage: EnclaveStartupStage) => void,
+  report = new HostPreflightReporter('gateway-handshake'),
 ): Promise<void> {
-  const initializeBudget = remainingRequestBudget(deadline);
-  onRequest?.('initialize');
-  const initialized = await postJsonRpc(contract.endpoint, {
-    jsonrpc: '2.0',
-    id: 1,
-    method: 'initialize',
-    params: {
-      protocolVersion: MCP_PROTOCOL_VERSION,
-      capabilities: {},
-      clientInfo: { name: 'awf-readiness', version: '1.0.0' },
-    },
-  }, initializeBudget, contract.gatewayApiKey);
-  const result = initialized.response.result as { serverInfo?: { name?: string } } | undefined;
-  if (initialized.response.error || result?.serverInfo?.name !== 'awmg-awf-enclave') {
-    throw new GatewayReadinessError(
-      'Gateway initialize proof did not reach the routed AWF enclave server', false,
-      initialized.response.error ? 'rpc-error'
-        : result?.serverInfo?.name === undefined ? 'malformed-protocol' : 'identity-mismatch',
-    );
-  }
-  const initializedBudget = remainingRequestBudget(deadline);
-  onRequest?.('initialized');
-  await postJsonRpc(contract.endpoint, {
-    jsonrpc: '2.0',
-    method: 'notifications/initialized',
-  }, initializedBudget, contract.gatewayApiKey, initialized.sessionId);
-  const listBudget = remainingRequestBudget(deadline);
-  onRequest?.('tools-list');
-  const listed = await postJsonRpc(contract.endpoint, {
-    jsonrpc: '2.0',
-    id: 2,
-    method: 'tools/list',
-    params: {},
-  }, listBudget, contract.gatewayApiKey, initialized.sessionId);
-  const tools = (listed.response.result as { tools?: unknown })?.tools;
-  if (canonicalToolSet(tools) !== canonicalToolSet(expectedRoutedTools(contract.expectedTools))) {
-    throw new GatewayReadinessError(
-      'Gateway enclave tool contract did not exactly match the enabled executors', false,
-      listed.response.error ? 'rpc-error' : 'tools-mismatch',
-    );
-  }
+  const sessionId = await report.check('initialize', async () => {
+    const initializeBudget = remainingRequestBudget(deadline);
+    onRequest?.('initialize');
+    const initialized = await postJsonRpc(contract.endpoint, {
+      jsonrpc: '2.0',
+      id: 1,
+      method: 'initialize',
+      params: {
+        protocolVersion: MCP_PROTOCOL_VERSION,
+        capabilities: {},
+        clientInfo: { name: 'awf-readiness', version: '1.0.0' },
+      },
+    }, initializeBudget, contract.gatewayApiKey);
+    const result = initialized.response.result as { serverInfo?: { name?: string } } | undefined;
+    if (initialized.response.error || result?.serverInfo?.name !== 'awmg-awf-enclave') {
+      throw new GatewayReadinessError(
+        'Gateway initialize proof did not reach the routed AWF enclave server', false,
+        initialized.response.error ? 'rpc-error'
+          : result?.serverInfo?.name === undefined ? 'malformed-protocol' : 'identity-mismatch',
+      );
+    }
+    return initialized.sessionId;
+  });
+  await report.check('initialized', async () => {
+    const initializedBudget = remainingRequestBudget(deadline);
+    onRequest?.('initialized');
+    await postJsonRpc(contract.endpoint, {
+      jsonrpc: '2.0',
+      method: 'notifications/initialized',
+    }, initializedBudget, contract.gatewayApiKey, sessionId);
+  });
+  await report.check('tools-list', async () => {
+    const listBudget = remainingRequestBudget(deadline);
+    onRequest?.('tools-list');
+    const listed = await postJsonRpc(contract.endpoint, {
+      jsonrpc: '2.0',
+      id: 2,
+      method: 'tools/list',
+      params: {},
+    }, listBudget, contract.gatewayApiKey, sessionId);
+    const tools = (listed.response.result as { tools?: unknown })?.tools;
+    if (canonicalToolSet(tools) !== canonicalToolSet(expectedRoutedTools(contract.expectedTools))) {
+      throw new GatewayReadinessError(
+        'Gateway enclave tool contract did not exactly match the enabled executors', false,
+        listed.response.error ? 'rpc-error' : 'tools-mismatch',
+      );
+    }
+  });
 }
 
 export async function assertEnclaveGatewayReady(
@@ -540,7 +553,9 @@ export async function assertEnclaveGatewayReady(
   timeoutMs?: number,
 ): Promise<void> {
   updateEnclaveStartupProgress(config, { stage: 'gateway-contract' });
-  const contract = resolveEnclaveGatewayContract(config, env);
+  const report = new HostPreflightReporter('gateway-handshake', (hostPreflight) =>
+    updateEnclaveStartupProgress(config, { hostPreflight }));
+  const contract = await report.check('contract', () => resolveEnclaveGatewayContract(config, env));
   const deadline = Date.now() + (timeoutMs ?? contract.readinessTimeoutMs);
   let lastError: unknown;
   let attempts = 0;
@@ -552,7 +567,7 @@ export async function assertEnclaveGatewayReady(
           stage, readiness: 'attempted', code: 'none', httpStatus: null,
           attempts: Math.min(attempts, 1200),
         });
-      });
+      }, report);
       updateEnclaveStartupProgress(config, { readiness: 'ready', code: 'ready' });
       return;
     } catch (error) {
@@ -572,8 +587,7 @@ export async function assertEnclaveGatewayReady(
   } while (Date.now() < deadline);
   updateEnclaveStartupProgress(config, { code: 'readiness-deadline' });
   throw new Error(
-    `Enclave MCP gateway readiness timed out before primary-agent startup: ${
-      lastError instanceof Error ? lastError.message : 'unknown readiness failure'
+    `Enclave MCP gateway readiness timed out before primary-agent startup: ${lastError instanceof Error ? lastError.message : 'unknown readiness failure'
     }`,
   );
 }

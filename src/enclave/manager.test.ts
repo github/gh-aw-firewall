@@ -12,6 +12,7 @@ import {
 } from './manager';
 import { releaseSeedPermissions, type GitRunner } from './staging';
 import { resolveEnclavePaths } from './paths';
+import { getEnclaveStartupProgress } from './startup-progress';
 
 import { typedDynamicEnclavePolicyFixture } from './dynamic-policy.test-utils';
 import * as runtimePreflight from './runtime-preflight';
@@ -199,6 +200,16 @@ describe('prepareEnclaves fail-closed preflight', () => {
       gitRunner: clone,
       cloudHypervisorStorageProvider: { assertAvailable: available, prepareRun },
     })).rejects.toThrow(/Cloud Hypervisor enclave.*custom volume/);
+    expect(getEnclaveStartupProgress(wrapperConfig)).toMatchObject({
+      stage: 'host-preflight', readiness: 'not-attempted', code: 'none', attempts: 0,
+      hostPreflight: {
+        scope: 'host-isolation', checks: expect.arrayContaining([{
+          id: resource === 'journal' ? 'journal-isolation' :
+            resource === 'invocations' ? 'invocation-isolation' : 'allocation-isolation',
+          result: 'failed', reason: 'private-root-overlap',
+        }]),
+      },
+    });
     expect(primary).not.toHaveBeenCalled();
     expect(clone).not.toHaveBeenCalled();
     expect(available).not.toHaveBeenCalled();

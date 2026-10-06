@@ -8,7 +8,11 @@ import { TOPOLOGY_NETWORK_NAME, getTopologyContainerIps, patchComposeWithTopolog
 import { validateEnclavesConfig } from './enclave/preflight';
 import { isEnclaveAgentGithubRouteEnabled } from './types/enclave-options';
 import type { ModelRoutingBootstrapState } from './types';
-import { updateEnclaveStartupProgress } from './enclave/startup-progress';
+import {
+  assertEnclaveStartupChecklistComplete, resetEnclaveStartupChecklist, updateEnclaveStartupProgress,
+} from './enclave/startup-progress';
+import { HostPreflightReporter } from './cloud-hypervisor/host-preflight-progress';
+import { isCloudHypervisorEnclaveSelected } from './enclave/cloud-hypervisor-lifecycle';
 
 /**
  * Dependencies injected into the main workflow.
@@ -97,6 +101,19 @@ export async function runMainWorkflow(
   options: WorkflowOptions
 ): Promise<number> {
   const { logger, performCleanup, onHostIptablesSetup, onContainersStarted } = options;
+  resetEnclaveStartupChecklist(config);
+  if (isCloudHypervisorEnclaveSelected(config)) {
+    for (const scope of ['host-isolation', 'storage-admission', 'bounded-runtime', 'bounded-artifacts'] as const) {
+      new HostPreflightReporter(scope, (hostPreflight) => updateEnclaveStartupProgress(config, { hostPreflight }));
+    }
+  }
+  const checks = new HostPreflightReporter('startup', config.enclaves?.enabled
+    ? (hostPreflight) => updateEnclaveStartupProgress(config, { hostPreflight }) : undefined);
+  if (!isEnclaveAgentGithubRouteEnabled(config.enclaves?.executors.agent)) {
+    checks.notRequired('github-attachment');
+    checks.notRequired('github-ready');
+  }
+  if (config.enclaves?.executors.agent.dynamic === undefined) checks.notRequired('delegation');
 
   // Fixed sidecar addresses on awf-net, relocated when --network-subnet is set.
   const addressing = resolveNetworkAddressing(config.networkSubnet);
@@ -106,10 +123,12 @@ export async function runMainWorkflow(
   // exactly once (taking custody deletes it from the environment), so that
   // check belongs to `prepareEnclaves` below, which still runs before any
   // container is created.
-  const enclaveErrors = validateEnclavesConfig(config, { requireDelegationHandoff: false });
-  if (enclaveErrors.length > 0) {
-    throw new Error(`Invalid enclave configuration:\n- ${enclaveErrors.join('\n- ')}`);
-  }
+  await checks.check('configuration', () => {
+    const enclaveErrors = validateEnclavesConfig(config, { requireDelegationHandoff: false });
+    if (enclaveErrors.length > 0) {
+      throw new Error(`Invalid enclave configuration:\n- ${enclaveErrors.join('\n- ')}`);
+    }
+  });
 
   // Step -1: Enclave staging (trusted, host-side, credential-bearing).
   //
@@ -125,7 +144,7 @@ export async function runMainWorkflow(
     }
     logger.info('Staging enclave repository seeds...');
     updateEnclaveStartupProgress(config, { stage: 'enclave-preflight' });
-    await dependencies.prepareEnclaves(config);
+    await checks.check('enclave-preparation', () => dependencies.prepareEnclaves!(config));
   }
   let routingState: ModelRoutingBootstrapState | undefined;
   if (config.experimentalModelRouting === true && config.modelRouting) {
@@ -143,41 +162,43 @@ export async function runMainWorkflow(
   // no pre-created external network are needed — docker-compose creates the
   // internal and external networks itself — so this step is skipped entirely.
   updateEnclaveStartupProgress(config, { stage: 'host-network' });
-  if (config.networkIsolation) {
-    // Topology enforcement runs entirely through the Docker daemon's networking,
-    // so a reachable daemon is mandatory. Abort early with a clear message on
-    // unsupported platforms (e.g. ARC Kubernetes-native without DinD).
-    if (dependencies.assertTopologySupported) {
-      await dependencies.assertTopologySupported();
+  await checks.check('network-enforcement', async () => {
+    if (config.networkIsolation) {
+      // Topology enforcement runs entirely through the Docker daemon's networking,
+      // so a reachable daemon is mandatory. Abort early with a clear message on
+      // unsupported platforms (e.g. ARC Kubernetes-native without DinD).
+      if (dependencies.assertTopologySupported) {
+        await dependencies.assertTopologySupported();
+      }
+      logger.info('Network-isolation mode: enforcing egress via Docker network topology (no host iptables, no sudo).');
+    } else {
+      logger.info('Setting up host-level firewall network and iptables rules...');
+      const networkConfig = await dependencies.ensureFirewallNetwork(config.networkSubnet);
+      // When API proxy is enabled, allow agent→sidecar traffic at the host level.
+      // The sidecar itself routes through Squid, so domain whitelisting is still enforced.
+      const dnsServers = config.dnsServers || DEFAULT_DNS_SERVERS;
+      const apiProxyIp = config.enableApiProxy ? networkConfig.proxyIp : undefined;
+      // When DoH is enabled, the DoH proxy needs direct HTTPS access to the resolver
+      const dohProxyIp = config.dnsOverHttps ? addressing.dohProxyIp : undefined;
+      const hostAccess: HostAccessConfig | undefined = config.enableHostAccess
+        ? { enabled: true, allowHostPorts: config.allowHostPorts, allowHostServicePorts: config.allowHostServicePorts }
+        : undefined;
+      // When DIFC proxy is enabled, allow cli-proxy container to reach the host gateway
+      // on the DIFC proxy port (e.g., 18443)
+      let cliProxyConfig: CliProxyHostConfig | undefined;
+      if (config.difcProxyHost) {
+        const { port } = parseDifcProxyHost(config.difcProxyHost);
+        cliProxyConfig = { ip: addressing.cliProxyIp, difcProxyPort: parseInt(port, 10) };
+      }
+      await dependencies.setupHostIptables(networkConfig.squidIp, 3128, dnsServers, apiProxyIp, dohProxyIp, hostAccess, cliProxyConfig, addressing.gatewayIp);
+      onHostIptablesSetup?.();
     }
-    logger.info('Network-isolation mode: enforcing egress via Docker network topology (no host iptables, no sudo).');
-  } else {
-    logger.info('Setting up host-level firewall network and iptables rules...');
-    const networkConfig = await dependencies.ensureFirewallNetwork(config.networkSubnet);
-    // When API proxy is enabled, allow agent→sidecar traffic at the host level.
-    // The sidecar itself routes through Squid, so domain whitelisting is still enforced.
-    const dnsServers = config.dnsServers || DEFAULT_DNS_SERVERS;
-    const apiProxyIp = config.enableApiProxy ? networkConfig.proxyIp : undefined;
-    // When DoH is enabled, the DoH proxy needs direct HTTPS access to the resolver
-    const dohProxyIp = config.dnsOverHttps ? addressing.dohProxyIp : undefined;
-    const hostAccess: HostAccessConfig | undefined = config.enableHostAccess
-      ? { enabled: true, allowHostPorts: config.allowHostPorts, allowHostServicePorts: config.allowHostServicePorts }
-      : undefined;
-    // When DIFC proxy is enabled, allow cli-proxy container to reach the host gateway
-    // on the DIFC proxy port (e.g., 18443)
-    let cliProxyConfig: CliProxyHostConfig | undefined;
-    if (config.difcProxyHost) {
-      const { port } = parseDifcProxyHost(config.difcProxyHost);
-      cliProxyConfig = { ip: addressing.cliProxyIp, difcProxyPort: parseInt(port, 10) };
-    }
-    await dependencies.setupHostIptables(networkConfig.squidIp, 3128, dnsServers, apiProxyIp, dohProxyIp, hostAccess, cliProxyConfig, addressing.gatewayIp);
-    onHostIptablesSetup?.();
-  }
+  });
 
   // Step 1: Write configuration files
   logger.info('Generating configuration files...');
   updateEnclaveStartupProgress(config, { stage: 'compose-config' });
-  await dependencies.writeConfigs(config);
+  await checks.check('compose-configuration', () => dependencies.writeConfigs(config));
 
   // Step 2: Start containers.
   //
@@ -241,60 +262,64 @@ export async function runMainWorkflow(
 
   const enclaveInfrastructureReady = config.enclaves?.enabled
     ? async () => {
-        if (!dependencies.connectEnclaveGateway || !dependencies.assertEnclaveGatewayReady) {
-          throw new Error('Enclaves require an exclusive MCP gateway readiness implementation');
-        }
-        logger.info('Attaching the trusted MCP gateway to the private enclave control path...');
-        updateEnclaveStartupProgress(config, { stage: 'gateway-attach' });
-        await dependencies.connectEnclaveGateway(config);
-        if (isEnclaveAgentGithubRouteEnabled(config.enclaves?.executors.agent)) {
-          if (
-            !dependencies.connectEnclaveGithubGateway
-            || !dependencies.assertEnclaveGithubGatewayReady
-          ) {
-            throw new Error(
-              'The enclave GitHub gateway (agent.tools.github or the legacy agent.github.cli ' +
-              'marker) requires an exclusive enclave GitHub gateway readiness implementation',
-            );
-          }
-          logger.info('Attaching the compiler-owned GitHub proxy to its private control path...');
-          updateEnclaveStartupProgress(config, { stage: 'github-readiness' });
-          await dependencies.connectEnclaveGithubGateway(config);
-          await dependencies.assertEnclaveGithubGatewayReady(config);
-        }
-        logger.info('Proving enclave tools end to end through the MCP gateway...');
-        await dependencies.assertEnclaveGatewayReady(config);
-        if (config.enclaves?.executors.agent.dynamic !== undefined) {
-          if (!dependencies.startEnclaveDynamicDelegation) {
-            throw new Error(
-              'enclaves[].dynamic requires the AWF-private delegation admission authority; '
-              + 'AWF never runs a dynamic entry without it',
-            );
-          }
-          logger.info('Reconciling mcpg delegation state and opening dynamic admission...');
-          updateEnclaveStartupProgress(config, { stage: 'delegation' });
-          await dependencies.startEnclaveDynamicDelegation(config);
-        }
+      // The Docker lifecycle invokes this after infrastructure service startup.
+      await checks.check('infrastructure', () => undefined);
+      if (!dependencies.connectEnclaveGateway || !dependencies.assertEnclaveGatewayReady) {
+        throw new Error('Enclaves require an exclusive MCP gateway readiness implementation');
       }
+      logger.info('Attaching the trusted MCP gateway to the private enclave control path...');
+      updateEnclaveStartupProgress(config, { stage: 'gateway-attach' });
+      await checks.check('gateway-attachment', () => dependencies.connectEnclaveGateway!(config));
+      if (isEnclaveAgentGithubRouteEnabled(config.enclaves?.executors.agent)) {
+        if (
+          !dependencies.connectEnclaveGithubGateway
+          || !dependencies.assertEnclaveGithubGatewayReady
+        ) {
+          throw new Error(
+            'The enclave GitHub gateway (agent.tools.github or the legacy agent.github.cli ' +
+            'marker) requires an exclusive enclave GitHub gateway readiness implementation',
+          );
+        }
+        logger.info('Attaching the compiler-owned GitHub proxy to its private control path...');
+        updateEnclaveStartupProgress(config, { stage: 'github-readiness' });
+        await checks.check('github-attachment', () => dependencies.connectEnclaveGithubGateway!(config));
+        await checks.check('github-ready', () => dependencies.assertEnclaveGithubGatewayReady!(config));
+      }
+      logger.info('Proving enclave tools end to end through the MCP gateway...');
+      await checks.check('gateway-ready', () => dependencies.assertEnclaveGatewayReady!(config));
+      if (config.enclaves?.executors.agent.dynamic !== undefined) {
+        if (!dependencies.startEnclaveDynamicDelegation) {
+          throw new Error(
+            'enclaves[].dynamic requires the AWF-private delegation admission authority; '
+            + 'AWF never runs a dynamic entry without it',
+          );
+        }
+        logger.info('Reconciling mcpg delegation state and opening dynamic admission...');
+        updateEnclaveStartupProgress(config, { stage: 'delegation' });
+        await checks.check('delegation', () => dependencies.startEnclaveDynamicDelegation!(config));
+      }
+      await checks.check('readiness', () => assertEnclaveStartupChecklistComplete(config));
+    }
     : undefined;
   const routingInfrastructureReady = config.experimentalModelRouting === true && config.modelRouting
     ? async () => {
-        if (!dependencies.waitForRoutingSelection) {
-          throw new Error('Model routing is enabled but no selection wait implementation was provided');
-        }
-        logger.info('Waiting for model routing selection...');
-        await dependencies.waitForRoutingSelection(routingState);
+      if (!dependencies.waitForRoutingSelection) {
+        throw new Error('Model routing is enabled but no selection wait implementation was provided');
       }
+      logger.info('Waiting for model routing selection...');
+      await dependencies.waitForRoutingSelection(routingState);
+    }
     : undefined;
   const onInfrastructureReady = enclaveInfrastructureReady || routingInfrastructureReady
     ? async () => {
-        if (enclaveInfrastructureReady) await enclaveInfrastructureReady();
-        if (routingInfrastructureReady) await routingInfrastructureReady();
-      }
+      if (enclaveInfrastructureReady) await enclaveInfrastructureReady();
+      if (routingInfrastructureReady) await routingInfrastructureReady();
+    }
     : undefined;
 
   try {
     updateEnclaveStartupProgress(config, { stage: 'containers' });
+    checks.attempt('infrastructure');
     await dependencies.startContainers(
       config.workDir,
       config.allowedDomains,
@@ -304,6 +329,9 @@ export async function runMainWorkflow(
       onInfrastructureReady,
     );
   } catch (startError) {
+    if (config.enclaves?.enabled) {
+      checks.fail('infrastructure', startError);
+    }
     // Signal that containers may have been partially created so the caller's
     // cleanup (stopContainers / docker compose down -v) will tear them down
     // instead of leaving orphaned containers and networks.
@@ -321,6 +349,7 @@ export async function runMainWorkflow(
     throw startError;
   }
   onContainersStarted?.();
+  assertEnclaveStartupChecklistComplete(config);
   updateEnclaveStartupProgress(config, { stage: 'primary-agent' });
 
   // Step 3: Wait for agent to complete

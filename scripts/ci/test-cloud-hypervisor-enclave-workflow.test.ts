@@ -67,6 +67,11 @@ describe('Cloud Hypervisor enclave conformance CI boundary', () => {
       'src/enclave/workflow-integration.test.ts',
       'src/commands/main-action-startup-diagnostics.test.ts',
       'src/cli-workflow.test.ts',
+      'src/enclave/startup-progress.test.ts',
+      'src/cloud-hypervisor/host-preflight-progress.test.ts',
+      'src/cloud-hypervisor/artifact-trust.test.ts',
+      'src/cloud-hypervisor/preflight.test.ts',
+      'scripts/ci/cloud-hypervisor-enclave-host-preflight.test.ts',
       'scripts/ci/cloud-hypervisor-enclave-environment-probe.test.ts',
       'scripts/ci/cloud-hypervisor-environment-probe.test.ts',
     ]));
@@ -103,6 +108,11 @@ describe('Cloud Hypervisor enclave conformance CI boundary', () => {
     expect(job.steps.find((step) => step.name.startsWith('Probe real'))!.run)
       .toContain('src/cloud-hypervisor/enclave-trusted-storage.integration.test.ts');
     expect(job.steps.find((step) => step.name === 'Remove probe executable')?.if).toBe('always()');
+    const admission = job.steps.find((step) => step.name.startsWith('Probe production host admission'))!;
+    expect(admission.run).toContain('sudo -n env "PATH=$PATH"');
+    expect(admission.run).toContain('cloud-hypervisor-enclave-host-preflight.js');
+    expect(job.steps.indexOf(admission)).toBeGreaterThan(gateIndex);
+    expect(admission['continue-on-error']).toBeUndefined();
   });
 
   it('opts live broker-to-VM acceptance in separately and never substitutes development artifacts', () => {

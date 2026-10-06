@@ -14,6 +14,7 @@ import { runCloudHypervisorPreflight, type CloudHypervisorPreflightDependencies 
 import { createBoundedEnclavePreflight } from './trusted-enclave-preflight';
 import { prepareTrustedInvocationStorage } from './trusted-enclave-storage';
 import { CLOUD_HYPERVISOR_ENCLAVE_RESOURCE_PROFILES as profiles } from './workload-profile';
+import type { HostPreflightProgress } from './host-preflight-progress';
 
 jest.mock('./artifact-trust', () => ({
   ...jest.requireActual('./artifact-trust'),
@@ -66,6 +67,7 @@ describe('bounded immutable enclave preflight', () => {
   let close: jest.Mock;
   let createSnapshot: jest.Mock;
   let mountTmpfs: jest.Mock;
+  let verifyStorage: jest.Mock;
   let probes: Partial<CloudHypervisorPreflightDependencies>;
 
   beforeEach(() => {
@@ -119,6 +121,7 @@ describe('bounded immutable enclave preflight', () => {
     });
     close = jest.fn(async () => { events.push('close'); });
     mountTmpfs = jest.fn(async () => { events.push('mount'); });
+    verifyStorage = jest.fn(async () => { events.push('verify-storage'); });
     createSnapshot = jest.fn(async (input: CloudHypervisorArtifactSnapshotSources, _copy, capture) => {
       expect(active.has(root)).toBe(true);
       expect(journal.prepareSnapshot).toHaveBeenCalled();
@@ -141,7 +144,7 @@ describe('bounded immutable enclave preflight', () => {
       return {
         workDir: root, dependencies: {
           createArtifactSnapshot: createSnapshot, mountTmpfs,
-          verifyStorage: jest.fn(async () => { events.push('verify-storage'); }),
+          verifyStorage,
         },
         managerDependencies: {}, close,
       };
@@ -188,6 +191,44 @@ describe('bounded immutable enclave preflight', () => {
   });
 
   afterEach(() => jest.restoreAllMocks());
+
+  it.each([
+    'configured-role', 'tool-mount', 'tool-umount', 'invocation-root',
+    'invocation-parent', 'resource-journal', 'storage-allocation',
+    'invocation-directory', 'invocation-mount', 'storage-verification',
+  ])('reports the actual bounded %s failure without proceeding into runtime preflight', async (gate) => {
+    const published: HostPreflightProgress[] = [];
+    const input = options(gate === 'configured-role' ? [] : ['script']);
+    const error = Object.assign(new Error('/private/SECRET\nBearer token'), { code: 'EPERM' });
+    const reject = async () => { throw error; };
+    if (gate === 'tool-mount' || gate === 'tool-umount') {
+      (assertTrustedHostTool as jest.Mock).mockImplementation(async (tool) => {
+        if (`tool-${tool}` === gate) throw error;
+      });
+    }
+    if (gate === 'invocation-root' || gate === 'invocation-parent') {
+      (fs.lstat as jest.Mock).mockImplementation(async (file) => {
+        if (file === (gate === 'invocation-root' ? '/' : '/private/invocations/configured-script')) throw error;
+        return { uid: 0, mode: 0o40700, isDirectory: () => true, isSymbolicLink: () => false };
+      });
+    }
+    if (gate === 'resource-journal') (HostExecutorResourceJournal.create as jest.Mock).mockImplementation(reject);
+    if (gate === 'storage-allocation') (prepareTrustedInvocationStorage as jest.Mock).mockImplementation(reject);
+    if (gate === 'invocation-directory') journal.captureDirectory.mockImplementation(reject);
+    if (gate === 'invocation-mount') mountTmpfs.mockImplementation(reject);
+    if (gate === 'storage-verification') verifyStorage.mockImplementation(reject);
+    await expect(createBoundedEnclavePreflight({
+      ...input, onHostPreflight: (record) => published.push(record),
+    }, active).preflight(config)).rejects.toThrow();
+    const last = published[published.length - 1];
+    expect(last.scope).toBe('bounded-runtime');
+    expect(last.checks.filter((check) => check.result === 'failed')).toEqual([{
+      id: gate, result: 'failed', reason: gate === 'configured-role' ? 'requirement-not-met' : 'EPERM',
+    }]);
+    expect(last.checks.find((check) => check.id === 'operator-identity')?.result).toBe('not-attempted');
+    expect(runCloudHypervisorPreflight).not.toHaveBeenCalled();
+    expect(JSON.stringify(last)).not.toMatch(/SECRET|Bearer|token/);
+  });
 
   it('attests, parses, hashes and probes only the sealed snapshot despite operator source swaps', async () => {
     const result = await createBoundedEnclavePreflight(options(), active).preflight(config);

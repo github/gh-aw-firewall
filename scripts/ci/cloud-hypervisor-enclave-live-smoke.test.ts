@@ -6,6 +6,8 @@ import { execFileSync, spawn, ChildProcess } from 'child_process';
 import { EventEmitter } from 'events';
 import { validateSchema, validateValueAgainstSchema } from '../../src/bounded-execution/finite-schema';
 import type { EnclaveStartupProgress } from '../../src/enclave/startup-progress';
+import { HostPreflightReporter, type HostPreflightScope } from '../../src/cloud-hypervisor/host-preflight-progress';
+import hostPreflightSchema from '../../src/cloud-hypervisor/host-preflight-schema.json';
 
 const root = path.resolve(__dirname, '../..');
 const harnessPath = path.join(root, 'scripts/ci/cloud-hypervisor-enclave-live-smoke.js');
@@ -120,6 +122,106 @@ describe('sanitized host startup diagnostics', () => {
     }));
     return file;
   };
+  const standardChecklist = (): NonNullable<EnclaveStartupProgress['startupChecks']> => ({
+    schemaVersion: 1, ready: false,
+    checks: Object.fromEntries(Object.keys(hostPreflightSchema.scopes.startup)
+      .map((id) => [`startup/${id}`, ['not-attempted', 'none']])),
+  });
+
+  it('retains the standard cumulative checklist without exporting messages or private metadata', () => {
+    const startupChecks = standardChecklist();
+    startupChecks.checks['startup/enclave-preparation'] = ['failed', 'EPERM'];
+    const value = progress({
+      stage: 'host-preflight', code: 'none', readiness: 'not-attempted', attempts: 0, startupChecks,
+    });
+    const result = harness.startupDiagnostic(child, 'exit', 'initial', stderrFile, publish(value));
+    expect(result.enclaveStartup?.startupChecks).toEqual(startupChecks);
+    expect(JSON.stringify(result)).not.toContain(sentinel);
+    expect(Buffer.byteLength(JSON.stringify(result))).toBeLessThan(16 * 1024);
+  });
+
+  it.each([
+    { ...standardChecklist(), ready: true },
+    { ...standardChecklist(), path: sentinel },
+    { ...standardChecklist(), checks: { 'startup/readiness': ['passed', 'none'] } },
+    { ...standardChecklist(), checks: { ...standardChecklist().checks, [sentinel]: ['failed', 'EPERM'] } },
+    { ...standardChecklist(), checks: { ...standardChecklist().checks, 'startup/configuration': ['not-required', 'none'] } },
+    { ...standardChecklist(), checks: { ...standardChecklist().checks, 'startup/configuration': ['failed', sentinel] } },
+    { ...standardChecklist(), checks: { ...standardChecklist().checks, 'startup/configuration': ['passed', 'none', sentinel] } },
+  ])('rejects malformed, partial, unsafe or falsely-ready cumulative checklists', (startupChecks) => {
+    const value = progress({ startupChecks: startupChecks as NonNullable<EnclaveStartupProgress['startupChecks']> });
+    const result = harness.startupDiagnostic(child, 'exit', 'initial', stderrFile, publish(value));
+    expect(result.enclaveStartup).toBeUndefined();
+    expect(JSON.stringify(result)).not.toContain(sentinel);
+  });
+
+  it('does not claim hosting readiness from a handshake while required storage checks remain incomplete', async () => {
+    const file = publish(progress({
+      stage: 'tools-list', readiness: 'ready', code: 'ready', attempts: 2,
+      startupChecks: standardChecklist(),
+    }), 'Enclave startup in progress', 'enclave-startup-progress');
+    const output = jest.spyOn(console, 'log').mockImplementation(() => {});
+    jest.spyOn(console, 'error').mockImplementation(() => {});
+    await expect(harness.waitForHostGatewayReadiness(
+      { exitCode: null, signalCode: null }, Date.now() + 5,
+      { stage: 'initial', stderrFile, startupErrorFile: file },
+    )).rejects.toThrow(/actual AWF host gateway readiness/);
+    expect(output).not.toHaveBeenCalled();
+  });
+
+  it.each(Object.keys(hostPreflightSchema.scopes) as HostPreflightScope[])(
+    'exports only the exact actual-host check plan for %s with readiness still not attempted', async (scope) => {
+      const publishCheck = jest.fn();
+      const reporter = new HostPreflightReporter(scope, publishCheck);
+      const first = Object.keys(hostPreflightSchema.scopes[scope])[0] as 'root' | 'configured-role';
+      await expect(reporter.check(first, () => {
+        throw Object.assign(new Error(sentinel), { code: 'EPERM' });
+      })).rejects.toThrow(sentinel);
+      const hostPreflight = publishCheck.mock.calls[publishCheck.mock.calls.length - 1][0];
+      const value = progress({
+        stage: 'host-preflight', code: 'none', readiness: 'not-attempted', attempts: 0, hostPreflight,
+      });
+      const file = publish(value);
+      const result = harness.startupDiagnostic(child, 'exit', 'initial', stderrFile, file);
+      expect(result).toMatchObject({
+        schemaVersion: 2, phase: 'host-startup', category: 'host-preflight', enclaveStartup: value,
+      });
+      expect(Buffer.byteLength(`AWF_HOST_STARTUP_DIAGNOSTIC ${JSON.stringify(result)}\n`)).toBeLessThan(8192);
+      expect(JSON.stringify(result)).not.toContain(sentinel);
+    },
+  );
+
+  it.each([
+    (value: Record<string, unknown>) => ({ ...value, scope: sentinel }),
+    (value: Record<string, unknown>) => ({ ...value, schemaVersion: 99 }),
+    (value: Record<string, unknown>) => ({ ...value, path: sentinel }),
+    (value: Record<string, unknown>) => ({ ...value, checks: [] }),
+    (value: Record<string, unknown>) => ({ ...value, checks: new Array(1000).fill({ id: sentinel, result: 'passed', reason: 'none' }) }),
+    (value: Record<string, unknown>) => ({ ...value, checks: [{ id: 'root', result: 'failed', reason: 'none' }] }),
+    (value: Record<string, unknown>) => ({ ...value, checks: [{ id: 'root', result: 'passed', reason: 'EPERM' }] }),
+  ])('rejects malformed or arbitrary subcheck records without exposing them', (mutate) => {
+    const publishCheck = jest.fn();
+    new HostPreflightReporter('storage-admission', publishCheck);
+    const hostPreflight = mutate(publishCheck.mock.calls[0][0]);
+    const value = progress({ hostPreflight: hostPreflight as EnclaveStartupProgress['hostPreflight'] });
+    const result = harness.startupDiagnostic(child, 'exit', 'initial', stderrFile, publish(value));
+    expect(result.enclaveStartup).toBeUndefined();
+    expect(JSON.stringify(result)).not.toContain(sentinel);
+  });
+
+  it.each([
+    { id: sentinel }, { result: sentinel }, { reason: sentinel }, { rawError: sentinel },
+    { reason: 'none', result: 'failed' }, { reason: 'EPERM', result: 'passed' },
+  ])('validates every nested check field and does not forward unknown fields: %p', (update) => {
+    const publishCheck = jest.fn();
+    new HostPreflightReporter('storage-admission', publishCheck);
+    const hostPreflight = publishCheck.mock.calls[0][0];
+    hostPreflight.checks[0] = { ...hostPreflight.checks[0], ...update };
+    const result = harness.startupDiagnostic(child, 'exit', 'initial', stderrFile,
+      publish(progress({ hostPreflight })));
+    expect(result.enclaveStartup).toBeUndefined();
+    expect(JSON.stringify(result)).not.toContain(sentinel);
+  });
 
   it.each([
     ['dns-not-found', 'dns'], ['dns-temporary', 'dns'],

@@ -8,7 +8,10 @@ import {
 import { HOST_EXECUTOR_ENTRY_ID_PATTERN, HOST_EXECUTOR_ID_PATTERN } from '../enclave/host-executor-protocol';
 import type { HostExecutorInvocationPlan } from '../enclave/host-executor-server';
 import type { CloudHypervisorOptions } from '../types/runtime-options';
-import { assertTrustedAncestorChain, assertTrustedHostTool } from './artifact-trust';
+import { assertTrustedAncestorChain, assertTrustedHostTool, resolveTrustedHostTool } from './artifact-trust';
+import {
+  HostPreflightReporter, hostPreflightReason, markHostPreflightError, type HostPreflightScope,
+} from './host-preflight-progress';
 import { preflightCloudHypervisorEnclaveArtifacts } from './enclave-artifact-preflight';
 import type { CloudHypervisorEnclaveArtifactPreflightOptions } from './enclave-executor-types';
 import { copySparseFileWithRsync, runCloudHypervisorPreflight, type CloudHypervisorHostToolPaths } from './preflight';
@@ -17,7 +20,7 @@ import { CLOUD_HYPERVISOR_ENCLAVE_RESOURCE_PROFILES } from './workload-profile';
 
 async function trustedDirectory(directory: string): Promise<void> {
   if (!path.isAbsolute(directory) || path.normalize(directory) !== directory) {
-    throw new Error('Preflight storage requires a normalized absolute directory');
+    throw markHostPreflightError(new Error('Preflight storage requires a normalized absolute directory'), 'path-not-absolute');
   }
   await assertTrustedAncestorChain('preflight storage', path.join(directory, 'child'), {
     uid: 0, access: fs.access, lstat: fs.lstat, sha256: async () => '',
@@ -25,13 +28,15 @@ async function trustedDirectory(directory: string): Promise<void> {
   const stat = await fs.lstat(directory);
   if (!stat.isDirectory() || stat.isSymbolicLink() || stat.uid !== 0 ||
     (stat.mode & 0o022) !== 0 || await fs.realpath(directory) !== directory) {
-    throw new Error('Preflight storage requires root-owned trusted directories');
+    throw markHostPreflightError(new Error('Preflight storage requires root-owned trusted directories'),
+      stat.isSymbolicLink() ? 'file-symlink' : !stat.isDirectory() ? 'file-type' :
+        stat.uid !== 0 ? 'file-owner' : (stat.mode & 0o022) !== 0 ? 'file-writable' : 'requirement-not-met');
   }
 }
 
 async function prepareInvocationRoot(directory: string): Promise<void> {
   if (!path.isAbsolute(directory) || path.normalize(directory) !== directory) {
-    throw new Error('Preflight storage requires a normalized absolute directory');
+    throw markHostPreflightError(new Error('Preflight storage requires a normalized absolute directory'), 'path-not-absolute');
   }
   let current = path.parse(directory).root;
   await trustedDirectory(current);
@@ -47,25 +52,21 @@ async function prepareInvocationRoot(directory: string): Promise<void> {
 }
 
 async function trustedTool(tool: 'mount' | 'umount' | 'rsync', environment: NodeJS.ProcessEnv): Promise<string> {
-  for (const directory of (environment.PATH ?? '').split(path.delimiter)) {
-    if (!directory) continue;
-    const candidate = path.join(directory, tool);
-    try {
-      await assertTrustedHostTool(tool, candidate);
-      return candidate;
-    } catch {
-      // Search only ownership-verified host tools.
-    }
+  try {
+    return await resolveTrustedHostTool(tool, environment, assertTrustedHostTool);
+  } catch (error) {
+    throw markHostPreflightError(new Error(`Bounded enclave preflight requires trusted host tool "${tool}"`),
+      hostPreflightReason(error));
   }
-  throw new Error(`Bounded enclave preflight requires trusted host tool "${tool}"`);
 }
 
 async function storageTools(
   environment: NodeJS.ProcessEnv,
+  report: HostPreflightReporter,
 ): Promise<Pick<CloudHypervisorHostToolPaths, 'mount' | 'umount'>> {
   return {
-    mount: await trustedTool('mount', environment),
-    umount: await trustedTool('umount', environment),
+    mount: await report.check('tool-mount', () => trustedTool('mount', environment)),
+    umount: await report.check('tool-umount', () => trustedTool('umount', environment)),
   };
 }
 
@@ -81,22 +82,28 @@ export function createBoundedEnclavePreflight(
 } {
   const withStorage = async <T>(
     operation: (allocation: Awaited<ReturnType<typeof prepareTrustedInvocationStorage>>,
-      journal: HostExecutorResourceJournal) => Promise<T>,
+      journal: HostExecutorResourceJournal, report: HostPreflightReporter) => Promise<T>,
+    scope: HostPreflightScope = 'bounded-runtime',
   ): Promise<T> => {
     const run = options.runState;
+    const report = new HostPreflightReporter(scope, options.onHostPreflight);
     const entries = run.entries.filter((entry) => entry.executorKind === 'script' || entry.executorKind === 'agent');
     const entry = entries.sort((left, right) =>
       CLOUD_HYPERVISOR_ENCLAVE_RESOURCE_PROFILES[left.executorKind].writableStorageBytes -
       CLOUD_HYPERVISOR_ENCLAVE_RESOURCE_PROFILES[right.executorKind].writableStorageBytes)[0];
-    if (!entry || !HOST_EXECUTOR_ENTRY_ID_PATTERN.test(entry.entryId) ||
-      !HOST_EXECUTOR_ID_PATTERN.test(run.runId)) {
-      throw new Error('Bounded enclave preflight requires a configured static role');
-    }
-    const tools = await storageTools(options.environment ?? process.env);
-    await prepareInvocationRoot(run.invocationsDir);
+    await report.check('configured-role', () => {
+      if (!entry || !HOST_EXECUTOR_ENTRY_ID_PATTERN.test(entry.entryId) ||
+        !HOST_EXECUTOR_ID_PATTERN.test(run.runId)) {
+        throw markHostPreflightError(new Error('Bounded enclave preflight requires a configured static role'), 'requirement-not-met');
+      }
+    });
+    const tools = await storageTools(options.environment ?? process.env, report);
+    await report.check('invocation-root', () => prepareInvocationRoot(run.invocationsDir));
     const parent = path.join(run.invocationsDir, entry.entryId);
-    await fs.mkdir(parent, { recursive: true, mode: 0o700 });
-    await trustedDirectory(parent);
+    await report.check('invocation-parent', async () => {
+      await fs.mkdir(parent, { recursive: true, mode: 0o700 });
+      await trustedDirectory(parent);
+    });
     const invocationId = randomBytes(16).toString('hex');
     const plan: HostExecutorInvocationPlan = {
       runId: run.runId, entryId: entry.entryId, invocationId, executorKind: entry.executorKind,
@@ -110,18 +117,27 @@ export function createBoundedEnclavePreflight(
     let allocation: Awaited<ReturnType<typeof prepareTrustedInvocationStorage>> | undefined;
     let directoryCaptured = false;
     try {
-      journal = await HostExecutorResourceJournal.create(run, plan, hostExecutorVmRunId(plan));
-      allocation = await prepareTrustedInvocationStorage(run, plan, journal, tools);
-      await fs.mkdir(plan.invocationHostDir, { mode: 0o700 });
-      await journal.captureDirectory();
+      journal = await report.check('resource-journal', () =>
+        HostExecutorResourceJournal.create(run, plan, hostExecutorVmRunId(plan)));
+      const capturedJournal = journal;
+      allocation = await report.check('storage-allocation', () =>
+        prepareTrustedInvocationStorage(run, plan, capturedJournal, tools, report));
+      await report.check('invocation-directory', async () => {
+        await fs.mkdir(plan.invocationHostDir, { mode: 0o700 });
+        await capturedJournal.captureDirectory();
+      });
       directoryCaptured = true;
       const profile = CLOUD_HYPERVISOR_ENCLAVE_RESOURCE_PROFILES[entry.executorKind];
-      await allocation.dependencies.mountTmpfs!(
-        plan.invocationHostDir, profile.writableStorageBytes, profile.uid, profile.gid, tools,
-      );
-      await journal.captureMount();
-      await allocation.dependencies.verifyStorage!(plan.invocationHostDir, profile.writableStorageBytes);
-      return await operation(allocation, journal);
+      const capturedAllocation = allocation;
+      await report.check('invocation-mount', async () => {
+        await capturedAllocation.dependencies.mountTmpfs!(
+          plan.invocationHostDir, profile.writableStorageBytes, profile.uid, profile.gid, tools,
+        );
+        await capturedJournal.captureMount();
+      });
+      await report.check('storage-verification', () =>
+        capturedAllocation.dependencies.verifyStorage!(plan.invocationHostDir, profile.writableStorageBytes));
+      return await operation(allocation, journal, report);
     } finally {
       if (journal) {
         // A failed copy may have removed its partial snapshot already. Reclaim
@@ -139,8 +155,9 @@ export function createBoundedEnclavePreflight(
   };
   return {
     preflight: async (config) => {
-      const verified = await withStorage(async (allocation, journal) =>
+      const verified = await withStorage(async (allocation, journal, report) =>
         runCloudHypervisorPreflight(config, {
+          hostPreflightReporter: report,
           createArtifactSnapshot: async (sources, copy) => {
             await journal.prepareSnapshot();
             return allocation.dependencies.createArtifactSnapshot!(
@@ -160,12 +177,13 @@ export function createBoundedEnclavePreflight(
         artifactSnapshotDirectory: path.dirname(config.cloudHypervisorBinary),
       };
     },
-    preflightEnclaveArtifacts: (artifactOptions) => withStorage(async (allocation) => {
-      const rsync = await trustedTool('rsync', options.environment ?? process.env);
+    preflightEnclaveArtifacts: (artifactOptions) => withStorage(async (allocation, _journal, report) => {
+      const rsync = await report.check('tool-rsync', () => trustedTool('rsync', options.environment ?? process.env));
       const verificationRoot = path.join(allocation.workDir, 'verification');
-      await fs.mkdir(verificationRoot, { mode: 0o700 });
-      return preflightCloudHypervisorEnclaveArtifacts(artifactOptions, verificationRoot,
-        (source, destination) => copySparseFileWithRsync(rsync, source, destination));
-    }),
+      await report.check('verification-directory', () => fs.mkdir(verificationRoot, { mode: 0o700 }));
+      return report.check('enclave-artifacts', () =>
+        preflightCloudHypervisorEnclaveArtifacts(artifactOptions, verificationRoot,
+          (source, destination) => copySparseFileWithRsync(rsync, source, destination)));
+    }, 'bounded-artifacts'),
   };
 }

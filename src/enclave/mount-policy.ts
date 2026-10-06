@@ -6,6 +6,7 @@ import type { WrapperConfig } from '../types';
 import { applyHostPathPrefixToVolumes } from '../services/host-path-prefix';
 import { resolveDockerSocketPath } from '../services/agent-volumes/docker-socket';
 import type { EnclavePaths } from './paths';
+import { markHostPreflightError } from '../cloud-hypervisor/host-preflight-progress';
 
 interface VisiblePath {
   label: string;
@@ -19,7 +20,7 @@ interface VisiblePath {
  */
 export function resolvePathThroughExistingAncestor(candidate: string): string {
   if (!path.isAbsolute(candidate)) {
-    throw new Error(`Enclave mount policy requires an absolute path: ${candidate}`);
+    throw markHostPreflightError(new Error(`Enclave mount policy requires an absolute path: ${candidate}`), 'path-not-absolute');
   }
 
   const missing: string[] = [];
@@ -143,7 +144,7 @@ function collectAgentVisiblePaths(
   for (const volume of config.volumeMounts ?? []) {
     const source = mountSource(volume);
     if (!source) {
-      throw new Error(`Enclave mount policy could not parse custom bind mount: ${volume}`);
+      throw markHostPreflightError(new Error(`Enclave mount policy could not parse custom bind mount: ${volume}`), 'mount-source-invalid');
     }
     visible.push({ label: `custom volume ${volume}`, source });
   }
@@ -183,10 +184,10 @@ export function assertPrivateRootIsolated(
       pathsOverlap(privateRoot, resolvedVisible)
       || pathsOverlap(privateDaemonRoot, resolvedDaemonVisible)
     ) {
-      throw new Error(
+      throw markHostPreflightError(new Error(
         `Unsafe ${label} private root "${roots.root}" overlaps agent-visible ${visible.label} ` +
         `"${visible.source}" after path and symlink resolution`,
-      );
+      ), 'private-root-overlap');
     }
   }
 }

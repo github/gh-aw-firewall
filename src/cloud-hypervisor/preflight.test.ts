@@ -9,6 +9,9 @@ import { CLOUD_HYPERVISOR_ARTIFACT_RELEASE_TAG } from './artifact-manifest';
 import { CloudHypervisorUnsupportedHostError } from './errors';
 import { CLOUD_HYPERVISOR_ARTIFACT_SNAPSHOT_ROOT } from './manager-types';
 import {
+  HostPreflightReporter, type HostPreflightProgress, type HostPreflightCheck,
+} from './host-preflight-progress';
+import {
   calculateSha256,
   cloudHypervisorPreflightTestHelpers,
   parseCloudHypervisorVersion,
@@ -118,6 +121,126 @@ describe('Cloud Hypervisor preflight (foundation only)', () => {
     jest.restoreAllMocks();
     if (originalPath === undefined) delete process.env.PATH;
     else process.env.PATH = originalPath;
+  });
+
+  it.each([
+    'getent', 'getfacl', 'groupdel', 'id', 'ip', 'nft', 'sysctl', 'flock',
+    'mke2fs', 'debugfs', 'e2fsck', 'rsync', 'mount', 'umount', 'setfacl', 'setpriv',
+    'useradd', 'userdel', 'gh', 'docker',
+  ])('identifies a failure of required trusted tool %s before a gateway can start', async (tool) => {
+    const records: HostPreflightProgress[] = [];
+    const error = Object.assign(new Error('/private/SECRET\nBearer credential'), { code: 'EACCES' });
+    const deps = dependencies({
+      hostPreflightReporter: new HostPreflightReporter('bounded-runtime', (record) => records.push(record)),
+      assertToolAvailable: jest.fn(async (candidate) => {
+        if (candidate === tool) throw error;
+        return `/trusted/${candidate}`;
+      }),
+    });
+    await expect(runCloudHypervisorPreflight(config(), deps)).rejects.toThrow(/requires host tool|SECRET/);
+    const last = records[records.length - 1];
+    expect(last.checks.filter((check) => check.result === 'failed'))
+      .toEqual([{ id: `tool-${tool}`, result: 'failed', reason: 'EACCES' }]);
+    expect(JSON.stringify(last)).not.toMatch(/private|SECRET|Bearer|credential/);
+    expect(last.checks.find((check) => check.id === 'docker-infrastructure')?.result).toBe('not-attempted');
+  });
+
+  it.each([
+    { check: 'cloud-hypervisor-trust', file: '/opt/cloud-hypervisor' },
+    { check: 'virtiofsd-trust', file: '/opt/virtiofsd' },
+    { check: 'kernel-trust', file: '/opt/vmlinux.bin' },
+    { check: 'rootfs-trust', file: '/opt/rootfs.ext4' },
+    { check: 'supervisor-trust', file: '/opt/awf-supervisor' },
+    { check: 'manifest-trust', file: '/opt/manifest.json' },
+    { check: 'bundle-trust', file: '/opt/manifest.sigstore.jsonl' },
+    { check: 'kvm-access', file: '/dev/kvm' },
+  ])('records the actual $check access failure and not unexecuted later checks', async ({ check, file }) => {
+    const publish = jest.fn();
+    await expect(runCloudHypervisorPreflight(config(), dependencies({
+      hostPreflightReporter: new HostPreflightReporter('bounded-runtime', publish),
+      access: async (candidate) => {
+        if (candidate === file) throw Object.assign(new Error('/private/SECRET'), { code: 'EPERM' });
+      },
+    }))).rejects.toThrow();
+    const record = publish.mock.calls[publish.mock.calls.length - 1][0] as HostPreflightProgress;
+    expect(record.checks.filter((item) => item.result === 'failed'))
+      .toEqual([{ id: check, result: 'failed', reason: 'EPERM' }]);
+    expect(record.checks.find((item) => item.id === 'docker-info')?.result).toBe('not-attempted');
+    expect(JSON.stringify(record)).not.toContain(file);
+  });
+
+  it.each([
+    { check: 'artifact-configuration', setup: { kernelPath: undefined }, reason: 'unknown' },
+    { check: 'artifact-snapshot', override: { createArtifactSnapshot: async () => { throw Object.assign(new Error('secret'), { code: 'ENOSPC' }); } }, reason: 'ENOSPC' },
+    { check: 'manifest-attestation', override: { verifyManifestAttestation: async () => { throw new Error('secret'); } }, reason: 'unknown' },
+    { check: 'manifest-contents', override: { readFile: async () => '{"secret":true}' }, reason: 'unknown' },
+    { check: 'cloud-hypervisor-digest', override: { sha256: async () => 'f'.repeat(64) }, reason: 'digest-mismatch' },
+    { check: 'cloud-hypervisor-version', override: { runVersion: async () => 'secret' }, reason: 'version-format' },
+    { check: 'cloud-hypervisor-version', override: { runVersion: async () => 'v52.0' }, reason: 'version-mismatch' },
+    { check: 'platform', override: { platform: 'darwin' as const }, reason: 'requirement-not-met' },
+    { check: 'architecture', override: { arch: 'arm64' }, reason: 'requirement-not-met' },
+    { check: 'kvm-group', override: { resolveKvmGid: async () => { throw Object.assign(new Error('secret'), { code: 'ENOENT' }); } }, reason: 'ENOENT' },
+    { check: 'host-policy', override: { assertHostPolicy: async () => { throw new Error('secret'); } }, reason: 'unknown' },
+    { check: 'docker-infrastructure', override: { assertDockerInfrastructure: async () => { throw new Error('secret'); } }, reason: 'unknown' },
+  ])('preserves the actual $check error while reporting safe reason $reason', async ({ check, override, setup, reason }) => {
+    const publish = jest.fn();
+    await expect(runCloudHypervisorPreflight(config(setup), dependencies({
+      ...override, hostPreflightReporter: new HostPreflightReporter('bounded-runtime', publish),
+    }))).rejects.toThrow();
+    const record = publish.mock.calls[publish.mock.calls.length - 1][0] as HostPreflightProgress;
+    expect(record.checks.filter((item) => item.result === 'failed'))
+      .toEqual([{ id: check, result: 'failed', reason }]);
+    expect(JSON.stringify(record)).not.toContain('secret');
+  });
+
+  it.each([
+    ['virtiofsd-digest', '/snapshot/virtiofsd'],
+    ['kernel-digest', '/snapshot/vmlinux.bin'],
+    ['rootfs-digest', '/snapshot/rootfs.ext4'],
+    ['supervisor-digest', '/snapshot/awf-supervisor'],
+  ])('retains per-artifact digest attribution for %s', async (check, file) => {
+    const publish = jest.fn();
+    await expect(runCloudHypervisorPreflight(config(), dependencies({
+      hostPreflightReporter: new HostPreflightReporter('bounded-runtime', publish),
+      sha256: async (candidate) => candidate === file ? 'f'.repeat(64) : digest,
+    }))).rejects.toThrow(/SHA-256 mismatch/);
+    const record = publish.mock.calls[publish.mock.calls.length - 1][0] as HostPreflightProgress;
+    expect(record.checks.find((item) => item.id === check))
+      .toEqual({ id: check, result: 'failed', reason: 'digest-mismatch' });
+  });
+
+  it.each([
+    ['ipv4-control', '/proc/sys/net/ipv4/ip_forward'],
+    ['ipv6-control', '/proc/sys/net/ipv6/conf/all/disable_ipv6'],
+    ['seccomp-control', '/proc/sys/kernel/seccomp/actions_avail'],
+    ['cgroup-v2', '/sys/fs/cgroup/cgroup.controllers'],
+  ] as [HostPreflightCheck, string][])('distinguishes the default host-policy check %s', async (check, file) => {
+    jest.spyOn(process, 'getuid').mockReturnValue(0);
+    jest.spyOn(fs, 'access').mockImplementation(async (candidate) => {
+      if (candidate === file) throw Object.assign(new Error('/private/SECRET'), { code: 'EACCES' });
+    });
+    const publish = jest.fn();
+    await expect(cloudHypervisorPreflightTestHelpers.defaultDependencies.assertHostPolicy(
+      new HostPreflightReporter('bounded-runtime', publish),
+    )).rejects.toBeInstanceOf(CloudHypervisorUnsupportedHostError);
+    const record = publish.mock.calls[publish.mock.calls.length - 1][0] as HostPreflightProgress;
+    expect(record.checks.filter((item) => item.result === 'failed'))
+      .toEqual([{ id: check, result: 'failed', reason: 'EACCES' }]);
+  });
+
+  it.each(['docker-info', 'docker-compose'])('distinguishes the real Docker command gate %s', async (check) => {
+    mockedExeca.mockImplementation((async (_binary: string, args: string[]) => ({
+      exitCode: args[0] === (check === 'docker-info' ? 'info' : 'compose') ? 1 : 0,
+      stdout: '/private/SECRET', stderr: '/private/SECRET',
+    })) as typeof execa);
+    const publish = jest.fn();
+    await expect(cloudHypervisorPreflightTestHelpers.defaultDependencies.assertDockerInfrastructure(
+      '/trusted/docker', new HostPreflightReporter('bounded-runtime', publish),
+    )).rejects.toThrow(/failed with code 1/);
+    const record = publish.mock.calls[publish.mock.calls.length - 1][0] as HostPreflightProgress;
+    expect(record.checks.find((item) => item.id === check))
+      .toEqual({ id: check, result: 'failed', reason: 'command-failed' });
+    expect(JSON.stringify(record)).not.toContain('SECRET');
   });
 
   it('runs default version, tool, and digest host probes', async () => {
@@ -376,7 +499,7 @@ describe('Cloud Hypervisor preflight (foundation only)', () => {
     );
     expect(deps.sha256).toHaveBeenCalledTimes(5);
     expect(deps.assertToolAvailable).toHaveBeenCalledTimes(20);
-    expect(deps.assertDockerInfrastructure).toHaveBeenCalledWith('/usr/bin/docker');
+    expect(deps.assertDockerInfrastructure).toHaveBeenCalledWith('/usr/bin/docker', expect.anything());
     expect(deps.verifyManifestAttestation).toHaveBeenCalledWith(
       '/usr/bin/gh',
       '/snapshot/manifest.json',

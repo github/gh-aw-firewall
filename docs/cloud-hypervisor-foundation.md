@@ -1198,12 +1198,96 @@ gh workflow run test-cloud-hypervisor-enclaves.yml \
 The probe cannot execute until host startup and broker readiness succeed, so
 existing startup failures can still prevent guest execution.
 
+### Standard enclave startup checklist
+
+Every enclave-enabled AWF startup runs an always-on, versioned checklist before
+the primary agent can start; this is not controlled by the optional CI host
+probe. `enclaveStartup.startupChecks` has schema version 1, a cumulative
+`checks` map keyed by `scope/check-id`, and an overall `ready` boolean. Each
+map value is the fixed tuple `[result, reason]`. The list preserves earlier
+storage and trust outcomes when connectivity starts, and resets for each new
+startup instead of inheriting prior success. The primary-agent startup hook
+requires every applicable check to pass. Only explicitly configuration-dependent
+checks can be `not-required`; required checks cannot be skipped.
+
+The common checklist covers configuration, enabled runtime availability,
+private storage isolation, directory layout, run identity, seed catalog and
+private capability custody, network enforcement, Compose configuration,
+infrastructure service startup, gateway identity and exclusive network membership,
+actual MCP initialize/initialized/exact-tools proof, optional GitHub route
+attachment/readiness, and optional dynamic admission. A gateway handshake
+alone is not overall readiness. The existing guest isolation controls remain
+per-invocation controls; this host startup checklist does not claim guest
+boot, guest DNS, data-plane connectivity, or workload execution.
+
+`src/cloud-hypervisor/host-preflight-schema.json` is the canonical catalog of
+check IDs, optional checks, and safe reason codes, shared by AWF and the
+diagnostic harness. New prerequisites must be added there, instrumented at
+their actual fail-closed operation, and covered by failure-injection and
+readiness-blocking tests. There must not be a second, ad-hoc implementation
+of a prerequisite or an inferred pass from stderr. The deterministic enclave
+suite exercises the catalog, workflow gate, storage and gateway origins, safe
+serialization, and exact bounds on every PR.
+
+### Fine-grained host preflight diagnostics
+
+The optional `enclaveStartup.hostPreflight` record identifies the checks AWF
+actually executes, not guesses derived from stderr. Its schema version is 1;
+`scope` identifies the currently executing group. Each fixed check ID has a
+`result` of `not-attempted`, `not-required`, `attempted`, `passed`, or `failed`,
+plus an allowlisted `reason` (`none` unless
+failed). Later unexecuted checks remain `not-attempted`; checks skipped by a
+different code path are not claimed to have passed. The canonical plans and
+reason allowlist are in `src/cloud-hypervisor/host-preflight-schema.json`,
+shared by AWF and the harness.
+
+| Scope | Actual prerequisite checks |
+|---|---|
+| `startup` | Common lifecycle gates and overall readiness before primary-agent startup |
+| `enclave-runtime` / `enclave-storage` | Enabled runtime prerequisites and the private seed/storage/capability staging gates |
+| `gateway-attachment` / `gateway-handshake` | Compiler contract, container identity, network attachment/membership, and actual bounded MCP requests and tool contract |
+| `host-isolation` / `provider-selection` | Recovery-journal, invocation, and allocation-root isolation from primary-agent mounts; missing trusted storage provider |
+| `storage-admission` | Root UID, existing GitHub-hosted eligibility helper, Ubuntu distribution, effective mount capability, kernel tmpfs support, KVM access/device/open, writable cgroup hierarchy, and CPU/memory/PID controllers |
+| `bounded-runtime` | Configured role, mount/umount lookup, invocation directory trust, journaled aggregate storage allocation/mount/layout/verification, artifact configuration/trust/snapshot/attestation/digests/versions, each required host tool, platform/architecture, KVM access/group, root/kernel controls/cgroup v2, Docker daemon and Compose |
+| `bounded-artifacts` | The same bounded allocation and invocation checks, rsync lookup, verification directory, and enclave artifact verification (distinct from runtime preflight) |
+
+Host-tool failures distinguish `tool-not-found`, unsafe ancestor/file
+symlink, ownership, write permissions, file type, and allowlisted access
+errno such as `EACCES`, `EPERM`, or `ENOTDIR`. Version checks distinguish
+`version-format`, `version-mismatch`, execution errno, and `command-failed`.
+Unsupported errors stay `unknown`: messages, stderr/stdout, PATH values,
+paths, hostnames, credentials, and repository contents are never copied into
+the public subcheck record. Ownership, executable, digest, attestation,
+mount, and eligibility requirements are unchanged; no fallback is introduced.
+Nested failures can mark both an aggregate gate and its more specific child.
+
+The original admission error is still the no-fallback storage-provider error,
+with its cause retained privately. Before these subchecks, that one error
+collapsed all admission failures. Private-root mount isolation also runs under
+`host-preflight` before admission. The `v0.28.38` environment probe's
+`host-preflight` / `not-attempted` failure therefore establishes no gateway
+request or guest execution and does not establish which host requirement
+failed. There is no matching diagnosis-registry finding for its specific cause.
+A future authorized release containing this change, followed by the same
+release-pinned environment probe, is needed to obtain that evidence.
+
+The gated privileged `host-probes` job also executes the same production
+admission method through
+`scripts/ci/cloud-hypervisor-enclave-host-preflight.js`. It emits a bounded
+`AWF_HOST_PREFLIGHT_PROBE` with perspective `preflight-harness`, passes or
+fails explicitly, and does not allocate storage, expose a listener, or boot a
+VM. This separate read-only observation cannot prove AWF passed admission,
+gateway readiness, or guest success. Local macOS tests exercise rejection
+and injected Linux prerequisites, not live eligible-Linux/KVM/mount behavior.
+
 The acceptance harness also distinguishes actual AWF host gateway readiness
 from broker health and its own independent MCP requests. Bounded schema-2
 startup diagnostics identify earlier preflight/artifact/storage/recovery stages,
 explicitly not-attempted readiness, and allowlisted DNS, connectivity, HTTP,
 protocol, or readiness-deadline failures. A successful AWF initialize and exact
-tools proof emits `AWF_HOST_GATEWAY_READINESS` before harness requests begin.
+tools proof and complete startup checklist emit `AWF_HOST_GATEWAY_READINESS`
+before harness requests begin (older records without a checklist retain their
+handshake-only semantics).
 This is a host-to-loopback Docker gateway observation, not CH guest DNS or
 data-plane evidence. See [diagnostic fields and bounds](INTEGRATION-TESTS.md#unified-enclave-coverage).
 The cause of the `v0.28.36` pre-broker exit remains unknown; immutable releases

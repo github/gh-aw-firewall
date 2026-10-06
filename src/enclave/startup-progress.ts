@@ -1,4 +1,11 @@
 import type { WrapperConfig } from '../types';
+import type { CheckResult, HostPreflightProgress, HostPreflightReason } from '../cloud-hypervisor/host-preflight-progress';
+
+export interface EnclaveStartupChecklist {
+  schemaVersion: 1;
+  ready: boolean;
+  checks: Record<string, [CheckResult, HostPreflightReason]>;
+}
 
 export type EnclaveStartupStage =
   | 'host-bootstrap' | 'runtime-preflight' | 'configuration' | 'enclave-preflight'
@@ -23,6 +30,8 @@ export interface EnclaveStartupProgress {
   code: GatewayCode;
   attempts: number;
   httpStatus: number | null;
+  hostPreflight?: HostPreflightProgress;
+  startupChecks?: EnclaveStartupChecklist;
 }
 
 const states = new WeakMap<WrapperConfig, {
@@ -47,7 +56,19 @@ export function initializeEnclaveStartupProgress(
 
 export function getEnclaveStartupProgress(config: WrapperConfig): EnclaveStartupProgress | undefined {
   const progress = states.get(config)?.progress;
-  return progress ? { ...progress } : undefined;
+  return progress ? {
+    ...progress,
+    ...(progress.hostPreflight ? {
+      hostPreflight: { ...progress.hostPreflight, checks: progress.hostPreflight.checks.map((check) => ({ ...check })) },
+    } : {}),
+    ...(progress.startupChecks ? {
+      startupChecks: {
+        ...progress.startupChecks,
+        checks: Object.fromEntries(Object.entries(progress.startupChecks.checks)
+          .map(([id, value]) => [id, [...value]])),
+      },
+    } : {}),
+  } : undefined;
 }
 
 export function updateEnclaveStartupProgress(
@@ -58,7 +79,35 @@ export function updateEnclaveStartupProgress(
   if (!states.has(config)) initializeEnclaveStartupProgress(config);
   const state = states.get(config)!;
   state.progress = { ...state.progress, ...update };
-  state.publish?.({ ...state.progress });
+  if (update.hostPreflight) {
+    const checks = { ...state.progress.startupChecks?.checks };
+    for (const check of update.hostPreflight.checks) {
+      checks[`${update.hostPreflight.scope}/${check.id}`] = [check.result, check.reason];
+    }
+    state.progress.startupChecks = {
+      schemaVersion: 1,
+      ready: checks['startup/readiness']?.[0] === 'passed'
+        && Object.values(checks).every(([result]) => result === 'passed' || result === 'not-required'),
+      checks,
+    };
+  }
+  state.publish?.(getEnclaveStartupProgress(config)!);
+}
+
+export function assertEnclaveStartupChecklistComplete(config: WrapperConfig): void {
+  if (!config.enclaves?.enabled) return;
+  const checklist = states.get(config)?.progress.startupChecks;
+  if (!checklist || !checklist.checks['startup/readiness'] || Object.entries(checklist.checks).some(([id, [result]]) =>
+    id !== 'startup/readiness' && result !== 'passed' && result !== 'not-required')) {
+    throw new Error('Enclave startup checklist has incomplete required checks; primary agent will not start');
+  }
+}
+
+export function resetEnclaveStartupChecklist(config: WrapperConfig): void {
+  updateEnclaveStartupProgress(config, {
+    stage: 'configuration', readiness: 'not-attempted', code: 'none', attempts: 0,
+    httpStatus: null, hostPreflight: undefined, startupChecks: undefined,
+  });
 }
 
 export function gatewayTransportCode(error: unknown): GatewayCode {

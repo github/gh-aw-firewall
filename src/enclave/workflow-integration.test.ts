@@ -88,7 +88,15 @@ describe('unified enclave workflow integration', () => {
       setupHostIptables: jest.fn(),
       prepareEnclaves: jest.fn(async () => { order.push('prepareEnclaves'); }),
       writeConfigs: jest.fn(async () => { order.push('writeConfigs'); }),
-      startContainers: jest.fn(async () => { order.push('startContainers'); }),
+      startContainers: jest.fn(async (
+        _workDir: string, _domains: string[], _logs?: string, _skipPull?: boolean,
+        _networkReady?: () => Promise<void>, infrastructureReady?: () => Promise<void>,
+      ) => {
+        order.push('startContainers');
+        await infrastructureReady?.();
+      }),
+      connectEnclaveGateway: jest.fn(),
+      assertEnclaveGatewayReady: jest.fn(),
       runAgentCommand: jest.fn(async () => ({ exitCode: 0 })),
     }, {
       logger: { info: jest.fn(), success: jest.fn(), warn: jest.fn() },
