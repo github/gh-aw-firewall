@@ -175,16 +175,16 @@ describe('routed reasoning efforts', () => {
         .toMatchObject({ routed: 'as_selected', deviations: [] });
 
       const otherEffort = effort === 'none' ? 'max' : 'none';
-      for (const [url, payload, deviations] of [
-        ['/responses', { model: 'gpt-test', reasoning: { effort: otherEffort } }, ['effort']],
-        ['/responses', { model: 'gpt-test', reasoning: { effort: 'low' } }, ['effort']],
-        ['/responses', { model: 'gpt-test' }, ['effort']],
-        ['/responses', { model: 'other-model', reasoning: { effort } }, ['model']],
-        ['/chat/completions', { model: 'gpt-test', reasoning_effort: effort }, ['endpoint']],
-        ['/chat/completions', { model: 'gpt-test', reasoning: { effort } }, ['effort', 'endpoint']],
+      for (const [url, payload, routed, deviations] of [
+        ['/responses', { model: 'gpt-test', reasoning: { effort: otherEffort } }, 'deviated', ['effort']],
+        ['/responses', { model: 'gpt-test', reasoning: { effort: 'low' } }, 'deviated', ['effort']],
+        ['/responses', { model: 'gpt-test' }, 'deviated', ['effort']],
+        ['/responses', { model: 'other-model', reasoning: { effort } }, 'deviated', ['model']],
+        ['/chat/completions', { model: 'gpt-test', reasoning_effort: effort }, 'as_selected', ['endpoint']],
+        ['/chat/completions', { model: 'gpt-test', reasoning: { effort } }, 'deviated', ['effort', 'endpoint']],
       ]) {
         expect(sendRequest(session, records, url, payload)).toMatchObject({
-          routed: 'deviated',
+          routed,
           deviations,
           selected_effort: effort,
         });

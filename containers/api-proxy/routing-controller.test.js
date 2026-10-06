@@ -187,7 +187,7 @@ describe('routing controller', () => {
     });
   });
 
-  it('routes Copilot Claude reasoning candidates through Messages', async () => {
+  it('routes Copilot Claude reasoning candidates through Chat Completions', async () => {
     const { controller, calls } = createHarness({
       models: [{
         id: 'claude-sonnet-5',
@@ -200,11 +200,11 @@ describe('routing controller', () => {
     expect(result.selection).toMatchObject({
       provider: 'copilot',
       choice: { model: 'github-copilot/claude-sonnet-5', effort: 'max' },
-      endpoint: '/v1/messages',
+      endpoint: '/chat/completions',
     });
     expect(calls.execute[0]).toMatchObject({
-      path: '/v1/messages',
-      body: { output_config: { effort: 'max' } },
+      path: '/chat/completions',
+      body: { reasoning_effort: 'max' },
     });
   });
 
