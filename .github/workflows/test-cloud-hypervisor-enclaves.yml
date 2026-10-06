@@ -13,8 +13,13 @@ on:
         required: true
         type: boolean
         default: false
+      run_environment_probe:
+        description: Run only the script-only public environment probe in a release-attested enclave VM (no model or Copilot secret)
+        required: true
+        type: boolean
+        default: false
       acceptance_commit:
-        description: Full reviewed follow-up SHA that the published release tag must contain (required for live KVM)
+        description: Full reviewed follow-up SHA that the published release tag must contain (required for live KVM and the environment probe)
         required: false
         type: string
         default: ''
@@ -40,6 +45,8 @@ on:
       - 'scripts/ci/cloud-hypervisor-enclave-release-gate.js'
       - 'scripts/ci/cloud-hypervisor-enclave-startup-faults.js'
       - 'scripts/ci/cloud-hypervisor-enclave-gateway*'
+      - 'scripts/ci/cloud-hypervisor-enclave-environment-probe.js'
+      - 'examples/enclave-environment-probe/**'
       - 'docs/cloud-hypervisor-foundation.md'
       - 'docs/INTEGRATION-TESTS.md'
       - 'docs/enclaves-architecture.md'
@@ -111,6 +118,8 @@ jobs:
             scripts/ci/cloud-hypervisor-enclave-live-smoke.test.ts \
             scripts/ci/cloud-hypervisor-enclave-release-gate.test.ts \
             scripts/ci/cloud-hypervisor-enclave-startup-faults.test.ts \
+            scripts/ci/cloud-hypervisor-enclave-environment-probe.test.ts \
+            scripts/ci/cloud-hypervisor-environment-probe.test.ts \
             scripts/ci/test-cloud-hypervisor-enclave-workflow.test.ts \
             scripts/ci/test-cloud-hypervisor-workflow.test.ts
 
@@ -238,6 +247,85 @@ jobs:
         run: |
           set -euo pipefail
           identity="gh-aw-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-enclave-live"
+          if docker inspect \
+            --format '{{ index .Config.Labels "com.github.gh-aw.mcpg.run" }}' \
+            awmg-mcpg 2>/dev/null | grep --fixed-strings --line-regexp --quiet "$identity"; then
+            docker rm --force awmg-mcpg
+          fi
+
+  environment-probe:
+    name: Public enclave environment probe (script-only, release-attested VM)
+    # Independent of the full acceptance and host-limit suites; it repeats its own release,
+    # host, artifact, and readiness prerequisites below rather than skipping them.
+    if: github.event_name == 'workflow_dispatch' && inputs.run_environment_probe
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Install dependencies and build AWF
+        run: npm ci && npm run build && npm run type-check
+      - name: Require exact published release source containing the reviewed probe integration
+        env:
+          AWF_ACCEPTANCE_COMMIT: ${{ inputs.acceptance_commit }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          node scripts/ci/cloud-hypervisor-enclave-release-gate.js --environment-probe
+          tag="$(node -p "require('./dist/cloud-hypervisor/artifact-manifest').CLOUD_HYPERVISOR_ARTIFACT_RELEASE_TAG")"
+          gh release view "$tag" --repo github/gh-aw-firewall --json isDraft \
+            --jq 'if .isDraft then error("Acceptance requires a published release") else "Published release verified" end'
+      - name: Validate the probe and its harness locally (no KVM)
+        run: |
+          set -euo pipefail
+          python3 -B -m unittest discover -s examples/enclave-environment-probe -q
+          npm test -- --ci --runInBand --runTestsByPath \
+            scripts/ci/cloud-hypervisor-environment-probe.test.ts \
+            scripts/ci/cloud-hypervisor-enclave-environment-probe.test.ts \
+            scripts/ci/cloud-hypervisor-enclave-release-gate.test.ts
+      - name: Verify GitHub-hosted Ubuntu x86_64 KVM and cgroup-v2 host
+        run: |
+          set -euo pipefail
+          node -e "require('./dist/cloud-hypervisor/host-eligibility').assertGithubHostedRunnerEligibility()"
+          sudo -n "$(command -v node)" -e '
+            const fs = require("fs");
+            if (!fs.statSync("/dev/kvm").isCharacterDevice()) throw new Error("KVM device required");
+            const fd = fs.openSync("/dev/kvm", "r+");
+            fs.closeSync(fd);
+          '
+          test -r /sys/fs/cgroup/cgroup.controllers
+          sudo -n test -w /sys/fs/cgroup
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends \
+            e2fsprogs iproute2 jq nftables rsync util-linux
+      - name: Build the isolated public MCP gateway fixture
+        run: |
+          docker build \
+            --file scripts/ci/cloud-hypervisor-enclave-gateway.Dockerfile \
+            --tag awf-cloud-hypervisor-enclave-live-gateway:test \
+            .
+      - name: Run the public environment probe through the script enclave MCP route
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_TOKEN: ${{ github.token }}
+          AWF_ACCEPTANCE_COMMIT: ${{ inputs.acceptance_commit }}
+        run: |
+          set -euo pipefail
+          sudo -n --preserve-env=PATH,HOME,GITHUB_ACTIONS,GITHUB_REF,RUNNER_ENVIRONMENT,ImageOS,RUNNER_TEMP,GITHUB_RUN_ID,GITHUB_RUN_ATTEMPT,GH_TOKEN,GITHUB_TOKEN,AWF_ACCEPTANCE_COMMIT \
+            node scripts/ci/cloud-hypervisor-enclave-environment-probe.js
+      - name: Remove only this job's gateway fixture
+        if: always()
+        run: |
+          set -euo pipefail
+          identity="gh-aw-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-enclave-probe"
           if docker inspect \
             --format '{{ index .Config.Labels "com.github.gh-aw.mcpg.run" }}' \
             awmg-mcpg 2>/dev/null | grep --fixed-strings --line-regexp --quiet "$identity"; then

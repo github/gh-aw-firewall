@@ -28,6 +28,7 @@ interface Workflow {
       inputs: {
         run_host_probes: { type: string; default: boolean };
         run_live_kvm: { type: string; default: boolean };
+        run_environment_probe: { type: string; default: boolean };
         acceptance_commit: { type: string; default: string };
       };
     };
@@ -42,7 +43,7 @@ const workflow = yaml.load(source) as Workflow;
 
 describe('Cloud Hypervisor enclave conformance CI boundary', () => {
   it('runs deterministic conformance without privileged probes or KVM artifacts', () => {
-    expect(Object.keys(workflow.jobs)).toEqual(['deterministic', 'host-probes', 'live-kvm']);
+    expect(Object.keys(workflow.jobs)).toEqual(['deterministic', 'host-probes', 'live-kvm', 'environment-probe']);
     expect(workflow.permissions).toEqual({ contents: 'read' });
     const job = workflow.jobs.deterministic;
     expect(job.if).toBeUndefined();
@@ -66,6 +67,8 @@ describe('Cloud Hypervisor enclave conformance CI boundary', () => {
       'src/enclave/workflow-integration.test.ts',
       'src/commands/main-action-startup-diagnostics.test.ts',
       'src/cli-workflow.test.ts',
+      'scripts/ci/cloud-hypervisor-enclave-environment-probe.test.ts',
+      'scripts/ci/cloud-hypervisor-environment-probe.test.ts',
     ]));
     const commands = job.steps.map((step) => step.run ?? '').join('\n');
     expect(commands).not.toMatch(/sudo|unshare|AWF_REQUIRE_LIVE_GUEST_PROBE|\.integration\.test\.ts/);
@@ -141,6 +144,46 @@ describe('Cloud Hypervisor enclave conformance CI boundary', () => {
     expect(secretSteps[0].run).toContain('AWF_ACCEPTANCE_COMMIT');
   });
 
+  it('runs the script-only environment probe in a distinct opt-in job without the Copilot secret', () => {
+    expect(workflow.on.workflow_dispatch.inputs.run_environment_probe).toMatchObject({
+      type: 'boolean', default: false,
+    });
+    const job = workflow.jobs['environment-probe'];
+    expect(job.if).toBe("github.event_name == 'workflow_dispatch' && inputs.run_environment_probe");
+    expect(job.needs).toBeUndefined();
+    expect(job['runs-on']).toBe('ubuntu-24.04');
+    expect(job.steps[0].with).toMatchObject({ 'fetch-depth': 0, 'fetch-tags': true });
+    expect(JSON.stringify(job)).not.toMatch(/secrets\.|COPILOT_GITHUB_TOKEN|enable-api-proxy/);
+    const names = job.steps.map((step) => step.name);
+    const gateIndex = names.findIndex((name) => name.startsWith('Require exact published'));
+    const hostIndex = names.findIndex((name) => name.startsWith('Verify GitHub-hosted'));
+    const probeIndex = names.findIndex((name) => name.startsWith('Run the public environment probe'));
+    expect(gateIndex).toBeGreaterThan(0);
+    expect(hostIndex).toBeGreaterThan(gateIndex);
+    expect(probeIndex).toBeGreaterThan(hostIndex);
+    const gate = job.steps[gateIndex];
+    expect(gate.run).toContain('cloud-hypervisor-enclave-release-gate.js --environment-probe');
+    expect(gate.run).toContain('gh release view "$tag"');
+    expect(gate.env).toMatchObject({ AWF_ACCEPTANCE_COMMIT: '${{ inputs.acceptance_commit }}' });
+    const host = job.steps[hostIndex].run!;
+    expect(host).toContain('assertGithubHostedRunnerEligibility()');
+    expect(host).toContain('fs.openSync("/dev/kvm", "r+")');
+    expect(host).toContain('/sys/fs/cgroup/cgroup.controllers');
+    const probe = job.steps[probeIndex];
+    expect(probe.run).toContain('node scripts/ci/cloud-hypervisor-enclave-environment-probe.js');
+    expect(probe.run).toContain('GITHUB_REF');
+    expect(probe.run).toContain('AWF_ACCEPTANCE_COMMIT');
+    expect(probe.env).toEqual({
+      GH_TOKEN: '${{ github.token }}',
+      GITHUB_TOKEN: '${{ github.token }}',
+      AWF_ACCEPTANCE_COMMIT: '${{ inputs.acceptance_commit }}',
+    });
+    expect(job.steps.some((step) => /probe\.py\b(?!.*unittest)/.test(step.run ?? ''))).toBe(false);
+    const cleanup = job.steps.find((step) => step.name.startsWith('Remove only this job'))!;
+    expect(cleanup.if).toBe('always()');
+    expect(cleanup.run).toContain('-enclave-probe"');
+  });
+
   it('keeps privileged enclave probes out of the ordinary artifact build job', () => {
     const primary = yaml.load(fs.readFileSync(
       path.join(root, '.github/workflows/test-cloud-hypervisor.yml'), 'utf8',
@@ -176,6 +219,8 @@ describe('Cloud Hypervisor enclave conformance CI boundary', () => {
       'scripts/ci/cloud-hypervisor-enclave-release-gate.js',
       'scripts/ci/cloud-hypervisor-enclave-startup-faults.js',
       'scripts/ci/cloud-hypervisor-enclave-gateway*',
+      'scripts/ci/cloud-hypervisor-enclave-environment-probe.js',
+      'examples/enclave-environment-probe/**',
       '.github/workflows/test-cloud-hypervisor-enclaves.yml',
     ]));
   });

@@ -72,6 +72,10 @@ an exact published release tag containing the explicitly pinned reviewed
 acceptance commit, not `main`. The tag-only release version bump intentionally
 leaves `main` at `0.23.1`; substituting newer artifacts for that package is not
 allowed. A future authorized release containing this harness is required.
+A separate false-by-default `run_environment_probe` dispatch runs only the
+script-only public environment probe through the same release-attested public
+MCP route, without an agent executor, API proxy, or Copilot secret; see
+[the probe dispatch](cloud-hypervisor-foundation.md#public-enclave-environment-probe-dispatch).
 The live job also runs scripts/ci-only startup-failure probes for both roles
 after real VM creation and boot, using the production host executor service,
 authenticated broker protocol v2 client, storage provider, and VM manager.

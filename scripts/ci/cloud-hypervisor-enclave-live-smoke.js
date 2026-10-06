@@ -856,6 +856,73 @@ function toAwfConfig(config) {
   return awfConfig;
 }
 
+function spawnAwf(awfArguments, environment, stdoutFile, stderrFile, stage) {
+  let stdout;
+  let stderr;
+  try {
+    stdout = fs.openSync(stdoutFile, 'w', 0o600);
+    stderr = fs.openSync(stderrFile, 'w', 0o600);
+    const child = spawn(process.execPath, awfArguments, {
+      env: { ...environment, NO_COLOR: '1', FORCE_COLOR: '0' },
+      stdio: ['ignore', stdout, stderr],
+    });
+    return trackAwfChild(child);
+  } catch {
+    emitStartupDiagnostic(undefined, 'spawn-failure', stage, stderrFile);
+    throw new Error('Could not launch AWF before public enclave broker readiness');
+  } finally {
+    if (stdout !== undefined) fs.closeSync(stdout);
+    if (stderr !== undefined) fs.closeSync(stderr);
+  }
+}
+
+// The key reaches the fixture only through a private env file, never argv or logs.
+function startGatewayFixture({ gatewayEnv, gatewayKey, capability, identity, onStarted }) {
+  fs.writeFileSync(gatewayEnv, [
+    'MCP_GATEWAY_PORT=8080',
+    `MCP_GATEWAY_API_KEY=${gatewayKey}`,
+    `AWF_ENCLAVE_MCP_CAPABILITY=${capability}`,
+    '',
+  ].join('\n'), { mode: 0o600, flag: 'wx' });
+
+  run('docker', [
+    'run', '--detach', '--name', GATEWAY_CONTAINER,
+    '--label', `com.github.gh-aw.mcpg.run=${identity}`,
+    '--publish', '127.0.0.1::8080',
+    '--env-file', gatewayEnv,
+    GATEWAY_IMAGE,
+  ]);
+  onStarted?.();
+  const gatewayInspect = JSON.parse(run('docker', [
+    'inspect', '--format', '{{json .NetworkSettings.Ports}}', GATEWAY_CONTAINER,
+  ]));
+  const mapping = gatewayInspect['8080/tcp']?.[0];
+  if (!mapping?.HostPort) throw new Error('Live enclave gateway did not bind its loopback route');
+  return {
+    capability,
+    gatewayKey,
+    endpoint: `http://127.0.0.1:${mapping.HostPort}/mcp/awf-enclave`,
+    identity,
+  };
+}
+
+function removeGatewayFixture(identity) {
+  const gateway = spawnSync('docker', [
+    'inspect', '--format', '{{ index .Config.Labels "com.github.gh-aw.mcpg.run" }}',
+    GATEWAY_CONTAINER,
+  ], { encoding: 'utf8' });
+  if (gateway.status === 0 && gateway.stdout.trim() === identity) {
+    const removed = spawnSync('docker', ['rm', '--force', GATEWAY_CONTAINER], { encoding: 'utf8' });
+    if (removed.error || removed.status !== 0) {
+      console.error('Could not remove the identity-checked live gateway fixture');
+      return false;
+    }
+    return true;
+  }
+  console.error('Could not verify the live gateway fixture identity; it was not removed');
+  return false;
+}
+
 async function main() {
   if (process.getuid?.() !== 0 || process.env.GITHUB_ACTIONS !== 'true'
       || process.env.RUNNER_ENVIRONMENT !== 'github-hosted'
@@ -903,23 +970,7 @@ async function main() {
       '--',
       'while [ ! -f /workspace/.awf-enclave-live-stop ]; do sleep 1; done',
     ];
-    let stdout;
-    let stderr;
-    try {
-      stdout = fs.openSync(awfOut, 'w', 0o600);
-      stderr = fs.openSync(awfErr, 'w', 0o600);
-      const child = spawn(process.execPath, awfArguments, {
-        env: { ...awfEnvironment, NO_COLOR: '1', FORCE_COLOR: '0' },
-        stdio: ['ignore', stdout, stderr],
-      });
-      return trackAwfChild(child);
-    } catch {
-      emitStartupDiagnostic(undefined, 'spawn-failure', stage, awfErr);
-      throw new Error('Could not launch AWF before public enclave broker readiness');
-    } finally {
-      if (stdout !== undefined) fs.closeSync(stdout);
-      if (stderr !== undefined) fs.closeSync(stderr);
-    }
+    return spawnAwf(awfArguments, awfEnvironment, awfOut, awfErr, stage);
   };
   const stopComposeAfterCrash = (composeWorkDir = workDir) => run('docker', [
     'compose',
@@ -941,33 +992,11 @@ async function main() {
     fs.chmodSync(workspace, 0o755);
     fs.mkdirSync(path.join(workDir, 'audit'), { recursive: true, mode: 0o700 });
     fs.mkdirSync(path.join(workDir, 'proxy-logs'), { recursive: true, mode: 0o700 });
-    fs.writeFileSync(gatewayEnv, [
-      'MCP_GATEWAY_PORT=8080',
-      `MCP_GATEWAY_API_KEY=${gatewayKey}`,
-      `AWF_ENCLAVE_MCP_CAPABILITY=${capability}`,
-      '',
-    ].join('\n'), { mode: 0o600, flag: 'wx' });
-
-    run('docker', [
-      'run', '--detach', '--name', GATEWAY_CONTAINER,
-      '--label', `com.github.gh-aw.mcpg.run=${gatewayIdentity}`,
-      '--publish', '127.0.0.1::8080',
-      '--env-file', gatewayEnv,
-      GATEWAY_IMAGE,
-    ]);
-    gatewayStarted = true;
-    const gatewayInspect = JSON.parse(run('docker', [
-      'inspect', '--format', '{{json .NetworkSettings.Ports}}', GATEWAY_CONTAINER,
-    ]));
-    const mapping = gatewayInspect['8080/tcp']?.[0];
-    if (!mapping?.HostPort) throw new Error('Live enclave gateway did not bind its loopback route');
-    const endpoint = `http://127.0.0.1:${mapping.HostPort}/mcp/awf-enclave`;
-    const handoff = {
-      capability,
-      gatewayKey,
-      endpoint,
-      identity: gatewayIdentity,
-    };
+    const handoff = startGatewayFixture({
+      gatewayEnv, gatewayKey, capability, identity: gatewayIdentity,
+      onStarted: () => { gatewayStarted = true; },
+    });
+    const { endpoint } = handoff;
     const writeAwfConfig = (targetWorkDir, targetConfigPath) => {
       fs.mkdirSync(targetWorkDir, { recursive: true, mode: 0o700 });
       fs.mkdirSync(path.join(targetWorkDir, 'audit'), { recursive: true, mode: 0o700 });
@@ -1311,23 +1340,9 @@ async function main() {
           process.exitCode = 1;
         }
       }
-      if (gatewayStarted) {
-        const gateway = spawnSync('docker', [
-          'inspect', '--format', '{{ index .Config.Labels "com.github.gh-aw.mcpg.run" }}',
-          GATEWAY_CONTAINER,
-        ], { encoding: 'utf8' });
-        if (gateway.status === 0 && gateway.stdout.trim() === gatewayIdentity) {
-          const removed = spawnSync('docker', ['rm', '--force', GATEWAY_CONTAINER], { encoding: 'utf8' });
-          if (removed.error || removed.status !== 0) {
-            console.error('Could not remove the identity-checked live gateway fixture');
-            keepArtifacts = true;
-            process.exitCode = 1;
-          }
-        } else {
-          console.error('Could not verify the live gateway fixture identity; it was not removed');
-          keepArtifacts = true;
-          process.exitCode = 1;
-        }
+      if (gatewayStarted && !removeGatewayFixture(gatewayIdentity)) {
+        keepArtifacts = true;
+        process.exitCode = 1;
       }
       try {
         assertNoVmResidue();
@@ -1397,6 +1412,15 @@ if (require.main === module) {
 }
 
 module.exports = {
+  GATEWAY_CONTAINER,
+  GATEWAY_IMAGE,
+  emitStartupDiagnostic,
+  prepareReleaseArtifacts,
+  releaseTag,
+  removeGatewayFixture,
+  spawnAwf,
+  startGatewayFixture,
+  waitForVmCleanup,
   startupDiagnostic,
   waitForBroker,
   waitForHostGatewayReadiness,

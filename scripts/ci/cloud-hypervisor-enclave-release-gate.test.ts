@@ -7,7 +7,9 @@ const gate = require('./cloud-hypervisor-enclave-release-gate') as {
     acceptanceCommit: string; includesAcceptance: boolean;
   }): void;
   assertManifestSource(manifest: unknown, tag: string, commit: string): void;
-  verifyAcceptanceCheckout(environment: NodeJS.ProcessEnv): unknown;
+  verifyAcceptanceCheckout(environment: NodeJS.ProcessEnv, requiredPaths?: readonly string[]): unknown;
+  ACCEPTANCE_REQUIRED_PATHS: readonly string[];
+  ENVIRONMENT_PROBE_REQUIRED_PATHS: readonly string[];
 };
 
 describe('exact enclave acceptance release identity', () => {
@@ -32,6 +34,22 @@ describe('exact enclave acceptance release identity', () => {
     expect(() => gate.assertManifestSource(manifest, 'v1.2.3', 'a'.repeat(40))).not.toThrow();
     expect(() => gate.assertManifestSource(manifest, 'v1.2.4', 'a'.repeat(40))).toThrow();
     expect(() => gate.assertManifestSource(manifest, 'v1.2.3', 'b'.repeat(40))).toThrow();
+  });
+  it('requires the probe integration in addition to the existing acceptance harness', () => {
+    expect(gate.ENVIRONMENT_PROBE_REQUIRED_PATHS).toEqual(expect.arrayContaining([
+      ...gate.ACCEPTANCE_REQUIRED_PATHS,
+      'scripts/ci/cloud-hypervisor-enclave-environment-probe.js',
+      'examples/enclave-environment-probe/probe.py',
+      'examples/enclave-environment-probe/build-request.py',
+      'examples/enclave-environment-probe/awf.yaml',
+    ]));
+    for (const required of gate.ENVIRONMENT_PROBE_REQUIRED_PATHS) {
+      expect(fs.existsSync(path.join(__dirname, '../..', required))).toBe(true);
+    }
+    expect(gate.ACCEPTANCE_REQUIRED_PATHS)
+      .toEqual(['scripts/ci/cloud-hypervisor-enclave-startup-faults.js']);
+    expect(() => gate.verifyAcceptanceCheckout({ AWF_ACCEPTANCE_COMMIT: '' }, gate.ENVIRONMENT_PROBE_REQUIRED_PATHS))
+      .toThrow(/full acceptance_commit/);
   });
   it('checks ancestry and harness presence without changing package versions', () => {
     const source = fs.readFileSync(path.join(__dirname, 'cloud-hypervisor-enclave-release-gate.js'), 'utf8');

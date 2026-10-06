@@ -75,6 +75,14 @@ and [artifact setup](../../docs/cloud-hypervisor-foundation.md#host-eligibility-
    socket, endpoint or capability. The result is the unchanged canonical
    `{"status":"ok","result":...}` or non-disclosing `{"status":"error"}`.
 
+### Repository workflow dispatch
+
+The Cloud Hypervisor enclave conformance workflow runs this probe in a distinct
+`run_environment_probe` job without an agent executor, API proxy, or Copilot
+secret. It requires a future published release tag containing this probe and
+its integration; see
+[the dispatch guide](../../docs/cloud-hypervisor-foundation.md#public-enclave-environment-probe-dispatch).
+
 The guest probe **cannot run until host startup and broker readiness succeed**.
 It cannot diagnose the earlier `v0.28.37` pre-broker failure with schema 1 and
 an unknown category. It does not modify host diagnostics, recovery, or networking.
