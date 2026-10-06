@@ -1,4 +1,5 @@
 import { promises as fs } from 'fs';
+import * as os from 'os';
 import * as path from 'path';
 import execa from 'execa';
 import type { WrapperConfig } from '../types';
@@ -149,7 +150,12 @@ describe('production trusted enclave storage availability', () => {
 
 describe('invocation-wide kernel-enforced storage', () => {
   const tools = { mount: '/trusted/mount', umount: '/trusted/umount' } as CloudHypervisorHostToolPaths;
-  afterEach(() => jest.restoreAllMocks());
+  const temporaryPaths: string[] = [];
+  afterEach(async () => {
+    jest.restoreAllMocks();
+    await Promise.all(temporaryPaths.splice(0).map((temporaryPath) =>
+      fs.rm(temporaryPath, { recursive: true, force: true })));
+  });
 
   it.each([
     'storage-ancestor', 'storage-parent', 'storage-root', 'storage-tmpfs',
@@ -245,9 +251,19 @@ describe('invocation-wide kernel-enforced storage', () => {
   ] as { role: 'script' | 'agent'; gate?: string; commandExit?: number; verification?: string }[])(
     'accounts for every $role path and identifies snapshot sealing failure $gate $verification $commandExit',
     async ({ role, gate, commandExit, verification }) => {
+    const temporaryPath = verification === 'symlink' ? await fs.mkdtemp(path.join(os.tmpdir(), 'ch-storage-symlink-')) : undefined;
+    if (temporaryPath) {
+      temporaryPaths.push(temporaryPath);
+      await fs.mkdir(path.join(temporaryPath, 'target'));
+      await fs.symlink(path.join(temporaryPath, 'target'), path.join(temporaryPath, 'invocation'));
+    }
+    const invocationHostDir = temporaryPath ? path.join(temporaryPath, 'invocation') :
+      `/private/invocations/${role}/${'b'.repeat(32)}`;
+    const actualLstat = fs.lstat.bind(fs);
+    const actualRealpath = fs.realpath.bind(fs);
     const plan = {
       runId: 'a'.repeat(32), entryId: role, invocationId: 'b'.repeat(32), executorKind: role,
-      invocationHostDir: `/private/invocations/${role}/${'b'.repeat(32)}`,
+      invocationHostDir,
     } as HostExecutorInvocationPlan;
     const run = {} as HostExecutorRunState;
     const root = hostExecutorStorageDirectory(hostExecutorVmRunId(plan));
@@ -261,10 +277,12 @@ describe('invocation-wide kernel-enforced storage', () => {
     jest.spyOn(fs, 'mkdir').mockResolvedValue(undefined);
     jest.spyOn(fs, 'chown').mockResolvedValue(undefined);
     jest.spyOn(fs, 'rm').mockResolvedValue(undefined);
-    jest.spyOn(fs, 'lstat').mockResolvedValue({
-      isDirectory: () => true, isSymbolicLink: () => false, uid: 0, mode: 0o40711,
-    } as Awaited<ReturnType<typeof fs.lstat>>);
-    jest.spyOn(fs, 'realpath').mockImplementation(async (value) => String(value));
+    jest.spyOn(fs, 'lstat').mockImplementation(async (value) => temporaryPath && String(value) === invocationHostDir
+      ? actualLstat(value)
+      : { isDirectory: () => true, isSymbolicLink: () => false, uid: 0, mode: 0o40711 } as Awaited<ReturnType<typeof fs.lstat>>);
+    jest.spyOn(fs, 'realpath').mockImplementation(async (value) => temporaryPath && String(value) === invocationHostDir
+      ? actualRealpath(value)
+      : String(value));
     jest.spyOn(fs, 'stat').mockResolvedValue({ dev: 50 } as Awaited<ReturnType<typeof fs.stat>>);
     jest.spyOn(fs, 'statfs').mockResolvedValue({
       type: 0x01021994n, bsize: 4096n, blocks: BigInt(profiles[role].writableStorageBytes / 4096),
@@ -298,9 +316,11 @@ describe('invocation-wide kernel-enforced storage', () => {
     await allocation.dependencies.mountTmpfs!(
       plan.invocationHostDir, profiles[role].writableStorageBytes, profiles[role].uid, profiles[role].gid, tools,
     );
-    await allocation.dependencies.verifyStorage!(plan.invocationHostDir, profiles[role].writableStorageBytes,
-      ['output', 'runtime', ...(role === 'agent' ? ['session-handoff', 'session-state'] : [])]
-        .map((name) => path.join(plan.invocationHostDir, name)));
+    if (verification !== 'symlink') {
+      await allocation.dependencies.verifyStorage!(plan.invocationHostDir, profiles[role].writableStorageBytes,
+        ['output', 'runtime', ...(role === 'agent' ? ['session-handoff', 'session-state'] : [])]
+          .map((name) => path.join(plan.invocationHostDir, name)));
+    }
     const primary = Object.assign(new Error('/private/SECRET\nBearer token'), { code: 'EPERM' });
     if (gate === 'mount-intent') (journal.prepareStorageMount as jest.Mock).mockRejectedValueOnce(primary);
     if (gate === 'mount-capture') (journal.captureStorageMount as jest.Mock).mockRejectedValueOnce(primary);
@@ -322,9 +342,9 @@ describe('invocation-wide kernel-enforced storage', () => {
     });
     if (verification === 'path') (fs.realpath as jest.Mock).mockImplementation(async (file) =>
       String(file) === root ? '/outside' : String(file));
-    if (verification === 'symlink' || verification === 'type') {
+    if (verification === 'type') {
       (fs.lstat as jest.Mock).mockResolvedValue({
-        isDirectory: () => verification !== 'type', isSymbolicLink: () => verification === 'symlink',
+        isDirectory: () => false, isSymbolicLink: () => false,
         uid: 0, mode: 0o40711,
       });
     }

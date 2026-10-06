@@ -250,13 +250,13 @@ export async function prepareTrustedInvocationStorage(
     verifyOptions(artifacts, 'rw', true);
     if (snapshotMount) verifyOptions(snapshotMount, 'ro', true);
     for (const candidate of [root, directory, ...writable]) {
-      if (await fs.realpath(candidate) !== candidate) {
-        throw markHostPreflightError(new Error('Invocation storage path changed'), 'storage-path-changed');
-      }
       const identity = await fs.lstat(candidate);
       if (!identity.isDirectory() || identity.isSymbolicLink()) {
         throw markHostPreflightError(new Error('Invocation export is not a real directory'),
           identity.isSymbolicLink() ? 'file-symlink' : 'file-type');
+      }
+      if (await fs.realpath(candidate) !== candidate) {
+        throw markHostPreflightError(new Error('Invocation storage path changed'), 'storage-path-changed');
       }
       const stat = await fs.statfs(candidate, { bigint: true });
       if (stat.type !== 0x01021994n || stat.blocks * stat.bsize !== BigInt(maximumBytes) ||
