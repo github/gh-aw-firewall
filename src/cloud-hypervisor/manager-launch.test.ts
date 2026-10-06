@@ -209,7 +209,7 @@ import {
       sleep: jest.fn(async () => new Promise((resolve) => setTimeout(resolve, 2))),
     });
     const manager = new CloudHypervisorManager(
-      config(),
+      config({ apiTimeoutMs: 1 }),
       '/tmp/awf',
       deps,
       'partial',
@@ -449,7 +449,7 @@ import {
     expect(deps.createVsockClient).toHaveBeenCalledWith(
       expect.stringContaining('/run/awf-cloud-hypervisor/cloud-hypervisor/guest/awf-vsock.socket'),
       52,
-      1,
+      5000,
     );
     await expect(manager.execute({
       requestId: 'command',
