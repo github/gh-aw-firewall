@@ -41,8 +41,8 @@ function protocolFor(provider, effort, protocols) {
   if (provider === 'anthropic') return 'messages';
   if (effort === undefined) return protocols.includes('chat-completions') ? 'chat-completions' : null;
   if (protocols.includes('responses')) return 'responses';
-  if (protocols.includes('messages')) return 'messages';
   if (protocols.includes('chat-completions')) return 'chat-completions';
+  if (protocols.includes('messages')) return 'messages';
   return null;
 }
 

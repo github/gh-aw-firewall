@@ -227,6 +227,28 @@ describe('advisory routing observation', () => {
     });
   });
 
+  it('does not mark an endpoint-only difference as deviated, but still detects effort changes', () => {
+    const harness = createHarness(COPILOT_MESSAGES_SELECTION);
+    const matchingRequest = observe(harness, request({ url: '/chat/completions' }));
+    send(matchingRequest.req, { model: 'claude-sonnet-5', reasoning_effort: 'max' });
+    matchingRequest.res.end();
+    expect(harness.records.at(-1)).toMatchObject({
+      routed: 'as_selected',
+      deviations: ['endpoint'],
+      selected_endpoint: '/v1/messages',
+      requested_effort: 'max',
+    });
+
+    const deviatingRequest = observe(harness, request({ url: '/chat/completions' }));
+    send(deviatingRequest.req, { model: 'claude-sonnet-5', reasoning_effort: 'low' });
+    deviatingRequest.res.end();
+    expect(harness.records.at(-1)).toMatchObject({
+      routed: 'deviated',
+      deviations: ['effort', 'endpoint'],
+      requested_effort: 'low',
+    });
+  });
+
   it('records a non-JSON body as a deviation without a requested model', () => {
     const harness = createHarness();
     const { req, res } = observe(harness, request());

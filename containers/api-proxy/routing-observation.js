@@ -180,9 +180,10 @@ function createRoutingObservation({
     if (bodyObserved && normalizedRequestedModel !== selection.wire_model) deviations.push('model');
     if (bodyObserved && normalizedRequestedEffort !== selectedEffort) deviations.push('effort');
     if (endpoint !== selectedEndpoint) deviations.push('endpoint');
+    const routingDeviations = deviations.filter(deviation => deviation !== 'endpoint');
     return {
       stage: 'request',
-      routed: deviations.length > 0 ? 'deviated' : unavailable.length > 0 ? 'unobserved' : 'as_selected',
+      routed: routingDeviations.length > 0 ? 'deviated' : unavailable.length > 0 ? 'unobserved' : 'as_selected',
       deviations,
       unavailable,
       method: req.method,

@@ -95,7 +95,7 @@ describe('routing candidates', () => {
     )).toThrow(expect.objectContaining({ code: 'no_route' }));
   });
 
-  it('chooses a supported protocol based on effort and the model endpoints', () => {
+  it('prefers Copilot chat-completions for reasoning models that also offer Messages', () => {
     const pool = build([
       model('both', { efforts: ['none'] }),
       model('chat', { efforts: [], protocols: ['chat-completions'] }),
@@ -119,11 +119,11 @@ describe('routing candidates', () => {
     expect(Object.values(pool.byId).map(mapping => mapping.protocol)).toEqual([
       'responses',
       'chat-completions',
-      'messages',
-      'messages',
-      'messages',
-      'messages',
-      'messages',
+      'chat-completions',
+      'chat-completions',
+      'chat-completions',
+      'chat-completions',
+      'chat-completions',
       'chat-completions',
     ]);
   });
