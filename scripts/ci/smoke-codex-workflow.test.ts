@@ -5,6 +5,21 @@ const workflowsDir = path.resolve(__dirname, '../../.github/workflows');
 const smokeCodexSourcePath = path.join(workflowsDir, 'smoke-codex.md');
 const smokeCodexLockPath = path.join(workflowsDir, 'smoke-codex.lock.yml');
 
+describe('smoke codex token-usage verification', () => {
+  it('runs only after the agent succeeds in both source and compiled workflow', () => {
+    for (const workflowPath of [smokeCodexSourcePath, smokeCodexLockPath]) {
+      const workflow = fs.readFileSync(workflowPath, 'utf-8');
+
+      expect(workflow).toMatch(
+        /^[ \t]*verify_token_usage:[ \t]*\r?\n[ \t]*needs:[ \t]*agent[ \t]*\r?\n[ \t]*if:[ \t]*needs\.agent\.result == 'success'[ \t]*$/m,
+      );
+      expect(workflow).toContain(
+        'check-token-usage.js --artifact-root /tmp/gh-aw-agent --engine codex',
+      );
+    }
+  });
+});
+
 describe('smoke codex workflow output requirements', () => {
   it('pins Playwright CLI to a version available outside the npm release cooldown', () => {
     const source = fs.readFileSync(smokeCodexSourcePath, 'utf-8');
