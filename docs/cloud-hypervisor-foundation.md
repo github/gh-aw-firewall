@@ -1198,7 +1198,7 @@ gh workflow run test-cloud-hypervisor-enclaves.yml \
 The probe cannot execute until host startup and broker readiness succeed, so
 existing startup failures can still prevent guest execution.
 
-
+The acceptance harness also distinguishes actual AWF host gateway readiness
 from broker health and its own independent MCP requests. Bounded schema-2
 startup diagnostics identify earlier preflight/artifact/storage/recovery stages,
 explicitly not-attempted readiness, and allowlisted DNS, connectivity, HTTP,
