@@ -195,6 +195,7 @@ async function main() {
       '--work-dir', workDir,
       '--log-level', 'error',
       '--agent-timeout', '30',
+      '--mount', `${workspace}:/workspace:rw`,
       '--',
       'while [ ! -f /workspace/.awf-enclave-probe-stop ]; do sleep 1; done',
     ], {
