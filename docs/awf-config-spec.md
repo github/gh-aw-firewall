@@ -1458,7 +1458,7 @@ The API proxy MUST enforce the max-runs limit as follows:
      {
        "error": {
          "type": "max_runs_exceeded",
-         "message": "Maximum LLM invocations exceeded (5 / 5).",
+         "message": "Maximum LLM invocations exceeded (5 / 5): the shared per-run max-turns budget, including sub-agents, is exhausted. For gh-aw workflows, increase max-turns in workflow frontmatter and recompile; retrying within this run cannot restore the budget.",
          "invocation_count": 5,
          "max_runs": 5
        }

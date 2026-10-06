@@ -1313,7 +1313,7 @@ Before forwarding each request to the upstream provider, the proxy checks the in
     {
       "error": {
         "type": "max_runs_exceeded",
-        "message": "Maximum LLM invocations exceeded (50 / 50).",
+        "message": "Maximum LLM invocations exceeded (50 / 50): the shared per-run max-turns budget, including sub-agents, is exhausted. For gh-aw workflows, increase max-turns in workflow frontmatter and recompile; retrying within this run cannot restore the budget.",
         "invocation_count": 50,
         "max_runs": 50
       }
