@@ -15,6 +15,8 @@ let getAndClearPendingTimeoutSteeringMessage;
 let injectSteeringMessage;
 let resetEffectiveTokenGuardForTests;
 let resetTimeoutSteeringForTests;
+let replaceRuntimeModels;
+let clearRuntimeModels;
 
 setupServerTestEnv(() => {
   ({ proxyRequest } = require('./server'));
@@ -25,6 +27,7 @@ setupServerTestEnv(() => {
     resetEffectiveTokenGuardForTests,
     resetTimeoutSteeringForTests,
   } = require('./proxy-request'));
+  ({ replaceRuntimeModels, clearRuntimeModels } = require('./runtime-model-catalog'));
   return {
     proxyRequest,
     getAndClearPendingSteeringMessage,
@@ -32,6 +35,8 @@ setupServerTestEnv(() => {
     injectSteeringMessage,
     resetEffectiveTokenGuardForTests,
     resetTimeoutSteeringForTests,
+    replaceRuntimeModels,
+    clearRuntimeModels,
   };
 });
 
@@ -58,6 +63,7 @@ describe('token steering — getAndClearPendingSteeringMessage and injectSteerin
     delete process.env.AWF_AGENT_TIMEOUT_MINUTES;
     resetEffectiveTokenGuardForTests();
     resetTimeoutSteeringForTests();
+    clearRuntimeModels();
     jest.restoreAllMocks();
   });
 
@@ -247,6 +253,66 @@ describe('token steering — getAndClearPendingSteeringMessage and injectSteerin
     const writtenBody3 = JSON.parse(upstreamReq3.write.mock.calls[0][0].toString());
     const systemMessages3 = writtenBody3.messages.filter(m => m.role === 'system' && m.content.includes('[AWF TOKEN WARNING]'));
     expect(systemMessages3).toHaveLength(0);
+  });
+
+  it('rejects an unsupported effort after model routing and token steering', async () => {
+    replaceRuntimeModels('copilot', [{
+      id: 'gpt-5-mini',
+      supportedReasoningEfforts: ['low', 'medium', 'high'],
+    }]);
+    let responseHandler;
+    const upstreamReq = makeProxyReq();
+    jest.spyOn(https, 'request').mockImplementationOnce((_opts, cb) => {
+      responseHandler = cb;
+      return upstreamReq;
+    });
+
+    const firstReq = new EventEmitter();
+    firstReq.url = '/v1/chat/completions';
+    firstReq.method = 'POST';
+    firstReq.headers = { 'content-type': 'application/json' };
+    const firstRes = { headersSent: false, setHeader: jest.fn(), writeHead: jest.fn(), end: jest.fn() };
+    proxyRequest(firstReq, firstRes, 'api.githubcopilot.com', { Authorization: '******' }, 'copilot');
+    firstReq.emit('end');
+    await flushPromises();
+    completeUpstreamResponse(responseHandler, {
+      statusCode: 200,
+      body: { model: 'gpt-4o', usage: { prompt_tokens: 0, completion_tokens: 21 } },
+    });
+
+    const invalidBody = Buffer.from(JSON.stringify({
+      model: 'routed-model',
+      reasoning_effort: 'short',
+      messages: [{ role: 'user', content: 'Second request' }],
+    }));
+    const req = new EventEmitter();
+    req.url = '/v1/chat/completions';
+    req.method = 'POST';
+    req.headers = { 'content-type': 'application/json', 'content-length': String(invalidBody.length) };
+    const res = { headersSent: false, setHeader: jest.fn(), writeHead: jest.fn(), end: jest.fn() };
+    const routeToMini = body => {
+      const parsed = JSON.parse(body.toString('utf8'));
+      parsed.model = 'gpt-5-mini';
+      return Buffer.from(JSON.stringify(parsed));
+    };
+
+    proxyRequest(req, res, 'api.githubcopilot.com', { Authorization: '******' }, 'copilot', '', routeToMini);
+    req.emit('data', invalidBody);
+    req.emit('end');
+    await flushPromises();
+
+    expect(https.request).toHaveBeenCalledTimes(1);
+    expect(getAndClearPendingSteeringMessage()).toBeNull();
+    expect(res.writeHead).toHaveBeenCalledWith(400, expect.objectContaining({
+      'Content-Type': 'application/json',
+    }));
+    expect(JSON.parse(res.end.mock.calls[0][0])).toMatchObject({
+      error: {
+        type: 'invalid_request_error',
+        code: 'unsupported_reasoning_effort',
+        message: 'reasoning_effort "short" is not supported by model gpt-5-mini; supported values: [low medium high]',
+      },
+    });
   });
 
   it('does not inject any warning when AWF_ENABLE_TOKEN_STEERING is not set', async () => {
