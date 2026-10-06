@@ -10,7 +10,7 @@
     "build": "tsc",
     "dev": "tsc --watch",
     "type-check": "tsc --noEmit -p tsconfig.check.json",
-    "test": "jest",
+    "test": "npm run build && jest",
     "test:unit": "jest --config jest.config.js",
     "test:integration": "jest --config tests/setup/jest.integration.config.js",
     "test:all": "npm run test:unit && npm run test:integration",
