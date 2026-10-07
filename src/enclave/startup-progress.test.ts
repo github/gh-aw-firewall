@@ -12,17 +12,18 @@ function config(): WrapperConfig {
 }
 
 describe('standard enclave startup checklist', () => {
-  it.each(Object.keys(schema.scopes['artifact-snapshot']) as HostPreflightCheck[])(
-    'blocks primary-agent readiness while snapshot gate %s is failed or unattempted', async (id) => {
+  it.each((['artifact-snapshot', 'storage-mount-capture'] as const).flatMap((scope) =>
+    Object.keys(schema.scopes[scope]).map((id) => ({ scope, id: id as HostPreflightCheck }))))(
+    'blocks primary-agent readiness while $scope/$id is failed or unattempted', async ({ scope, id }) => {
       const wrapper = config();
       const publish = (hostPreflight: Parameters<typeof updateEnclaveStartupProgress>[1]['hostPreflight']) =>
         updateEnclaveStartupProgress(wrapper, { hostPreflight });
       const startup = new HostPreflightReporter('startup', publish);
-      const snapshot = new HostPreflightReporter('artifact-snapshot', publish);
+      const snapshot = new HostPreflightReporter(scope, publish);
       for (const check of Object.keys(schema.scopes.startup) as HostPreflightCheck[]) {
         if (check !== 'readiness') await startup.check(check, () => undefined);
       }
-      for (const check of Object.keys(schema.scopes['artifact-snapshot']) as HostPreflightCheck[]) {
+      for (const check of Object.keys(schema.scopes[scope]) as HostPreflightCheck[]) {
         if (check !== id) await snapshot.check(check, () => undefined);
       }
       expect(() => assertEnclaveStartupChecklistComplete(wrapper)).toThrow(/incomplete required checks/);
@@ -30,7 +31,8 @@ describe('standard enclave startup checklist', () => {
       await expect(startup.check('readiness', () => assertEnclaveStartupChecklistComplete(wrapper, true)))
         .rejects.toThrow(/incomplete required checks/);
       expect(getEnclaveStartupProgress(wrapper)?.startupChecks?.ready).toBe(false);
-      expect(() => snapshot.notRequired('readonly-exec')).toThrow(/cannot be skipped/);
+      expect(() => snapshot.notRequired(scope === 'artifact-snapshot' ? 'readonly-exec' : 'canonical-path'))
+        .toThrow(/cannot be skipped/);
       await snapshot.check(id, () => undefined);
       await startup.check('readiness', () => assertEnclaveStartupChecklistComplete(wrapper, true));
       expect(getEnclaveStartupProgress(wrapper)?.startupChecks?.ready).toBe(true);

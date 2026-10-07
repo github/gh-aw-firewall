@@ -89,14 +89,31 @@ export class HostPreflightReporter {
     this.emit();
   }
 
+  private pass(id: HostPreflightCheck): void {
+    const check = this.progress.checks.find((candidate) => candidate.id === id)!;
+    check.result = 'passed';
+    this.emit();
+  }
+
+  checkSync<T>(id: HostPreflightCheck, operation: () => T): T {
+    this.attempt(id);
+    try {
+      const result = operation();
+      this.pass(id);
+      return result;
+    } catch (error) {
+      this.fail(id, error);
+      throw error;
+    }
+  }
+
   async check<T>(id: HostPreflightCheck, operation: () => Promise<T> | T): Promise<T> {
     const check = this.progress.checks.find((candidate) => candidate.id === id);
     if (!check) throw new Error('Unknown host preflight check');
     this.attempt(id);
     try {
       const result = await operation();
-      check.result = 'passed';
-      this.emit();
+      this.pass(id);
       return result;
     } catch (error) {
       this.fail(id, error);

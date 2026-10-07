@@ -20,6 +20,9 @@ import {
 } from '../cloud-hypervisor/cleanup-record-store';
 import type { CloudHypervisorCleanupRegistry } from '../cloud-hypervisor/cleanup-registry';
 import type { CloudHypervisorVmmIdentityToolPaths } from '../cloud-hypervisor/vmm-identity';
+import {
+  HostPreflightReporter, markHostPreflightError, type HostPreflightCheck,
+} from '../cloud-hypervisor/host-preflight-progress';
 
 export const HOST_EXECUTOR_DEFAULT_JOURNAL_DIRECTORY =
   '/var/lib/awf-cloud-hypervisor/host-executor-journal';
@@ -74,24 +77,30 @@ function syncDirectory(directory: string): void {
   try { fs.fsyncSync(fd); } finally { fs.closeSync(fd); }
 }
 
-function persist(target: string, value: unknown, exclusive = false): void {
+function persist(target: string, value: unknown, exclusive = false, report?: HostPreflightReporter): void {
+  const check = <T>(id: HostPreflightCheck, operation: () => T): T =>
+    report ? report.checkSync(id, operation) : operation();
   const staging = `${target}.write-${randomBytes(16).toString('hex')}`;
-  const fd = fs.openSync(staging,
-    fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL | fs.constants.O_NOFOLLOW, 0o600);
+  const fd = check('journal-open', () => fs.openSync(staging,
+    fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL | fs.constants.O_NOFOLLOW, 0o600));
   try {
-    fs.writeFileSync(fd, `${JSON.stringify(value)}\n`);
-    fs.fsyncSync(fd);
-  } finally { fs.closeSync(fd); }
+    check('journal-write', () => fs.writeFileSync(fd, `${JSON.stringify(value)}\n`));
+    check('journal-file-sync', () => fs.fsyncSync(fd));
+  } finally { check('journal-file-close', () => fs.closeSync(fd)); }
   try {
-    if (exclusive) {
-      fs.linkSync(staging, target);
-      fs.unlinkSync(staging);
-    } else {
-      fs.renameSync(staging, target);
-    }
-    syncDirectory(path.dirname(target));
+    check('journal-publish', () => {
+      if (exclusive) {
+        fs.linkSync(staging, target);
+        fs.unlinkSync(staging);
+      } else {
+        fs.renameSync(staging, target);
+      }
+    });
+    check('journal-directory-sync', () => syncDirectory(path.dirname(target)));
   } finally {
-    if (fs.existsSync(staging)) fs.unlinkSync(staging);
+    check('journal-staging-remove', () => {
+      if (fs.existsSync(staging)) fs.unlinkSync(staging);
+    });
   }
 }
 
@@ -262,18 +271,39 @@ export class HostExecutorResourceJournal {
     persist(this.file, this.record);
   }
 
-  async captureStorageMount(): Promise<void> {
+  async captureStorageMount(
+    report = new HostPreflightReporter('storage-mount-capture'),
+  ): Promise<void> {
     const storage = this.record.storage!;
-    const mounts = (await readMounts(this.dependencies.readFile))
+    await report.check('canonical-path', async () => {
+      if (!storage.pending || await this.dependencies.realpath(storage.pending) !== storage.pending) {
+        throw markHostPreflightError(new Error('Storage mount path changed'), 'storage-path-changed');
+      }
+    });
+    const mounts = (await readMounts(this.dependencies.readFile, report))
       .filter((mount) => mount.mountPoint === storage.pending);
-    if (mounts.length !== 1 || mounts[0].filesystemType !== 'tmpfs' ||
-      mounts[0].source !== 'awf-enclave-invocation') throw new Error('Storage mount identity unavailable');
+    report.checkSync('match-count', () => {
+      if (mounts.length !== 1) {
+        throw markHostPreflightError(new Error('Storage mount identity unavailable'),
+          mounts.length === 0 ? 'storage-mount-missing' : 'storage-mount-multiple');
+      }
+    });
+    report.checkSync('filesystem', () => {
+      if (mounts[0].filesystemType !== 'tmpfs') {
+        throw markHostPreflightError(new Error('Storage mount filesystem changed'), 'storage-mount-filesystem');
+      }
+    });
+    report.checkSync('source', () => {
+      if (mounts[0].source !== 'awf-enclave-invocation') {
+        throw markHostPreflightError(new Error('Storage mount source changed'), 'storage-mount-source');
+      }
+    });
     storage.mounts.push(mounts[0]);
     if (mounts[0].mountPoint === storage.directory) {
       storage.mountedIdentity = await trustedDirectory(storage.directory, this.dependencies);
     }
     delete storage.pending;
-    persist(this.file, this.record);
+    persist(this.file, this.record, false, report);
   }
 
   async verifyStorage(): Promise<void> {
@@ -568,7 +598,9 @@ async function verifyStorageRecord(
   record: ResourceRecord, dependencies: ResolvedCleanupDependencies, allowRootMissing = false,
 ): Promise<void> {
   const storage = record.storage!;
-  if (storage.pending || !storage.directoryIdentity) throw new Error('Storage identity is uncommitted');
+  if (storage.pending || !storage.directoryIdentity) {
+    throw markHostPreflightError(new Error('Storage identity is uncommitted'), 'storage-identity-uncommitted');
+  }
   await assertIdentity(HOST_EXECUTOR_STORAGE_ROOT, storage.parentIdentity, dependencies);
   for (const ancestor of storage.ancestors) {
     await assertIdentity(ancestor.path, ancestor.identity, dependencies);
@@ -590,7 +622,7 @@ async function verifyStorageRecord(
     const candidates = current.filter((candidate) => candidate.mountPoint === mount.mountPoint);
     if ((!allowRootMissing && candidates.length !== 1) || candidates.length > 1 ||
       (candidates.length === 1 && !sameMountIdentity(candidates[0], mount))) {
-      throw new Error('Invocation storage mount identity changed');
+      throw markHostPreflightError(new Error('Invocation storage mount identity changed'), 'storage-mount-identity-changed');
     }
   }
   if (current.some((mount) => (mount.mountPoint === storage.directory ||
@@ -598,7 +630,7 @@ async function verifyStorageRecord(
     mount.mountPoint.startsWith(`${record.directory}/`) ||
     storage.mounts.some((known) => known.device === mount.device)) &&
     !storage.mounts.some((known) => sameMountIdentity(known, mount)))) {
-    throw new Error('Unrecorded invocation storage mount');
+    throw markHostPreflightError(new Error('Unrecorded invocation storage mount'), 'storage-mount-unrecorded');
   }
 }
 

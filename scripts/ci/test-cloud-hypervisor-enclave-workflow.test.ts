@@ -71,6 +71,8 @@ describe('Cloud Hypervisor enclave conformance CI boundary', () => {
       'src/cloud-hypervisor/host-preflight-progress.test.ts',
       'src/cloud-hypervisor/artifact-trust.test.ts',
       'src/cloud-hypervisor/artifact-snapshot.test.ts',
+      'src/enclave/host-executor-journal.test.ts',
+      'src/cloud-hypervisor/cleanup-process.test.ts',
       'src/cloud-hypervisor/preflight.test.ts',
       'scripts/ci/cloud-hypervisor-enclave-host-preflight.test.ts',
       'scripts/ci/cloud-hypervisor-enclave-environment-probe.test.ts',
@@ -114,6 +116,13 @@ describe('Cloud Hypervisor enclave conformance CI boundary', () => {
     expect(admission.run).toContain('cloud-hypervisor-enclave-host-preflight.js');
     expect(job.steps.indexOf(admission)).toBeGreaterThan(gateIndex);
     expect(admission['continue-on-error']).toBeUndefined();
+    const capture = job.steps.find((step) => step.name.startsWith('Probe mount capture hypotheses'))!;
+    expect(job.steps.indexOf(capture)).toBeGreaterThan(gateIndex);
+    expect(job.steps.indexOf(capture)).toBeLessThan(job.steps.findIndex((step) => step.name.startsWith('Probe real')));
+    expect(capture.run).toContain('unshare --mount --propagation private');
+    expect(capture.run).toContain('AWF_TEST_ENCLAVE_STORAGE=1');
+    expect(capture.run).toContain('src/cloud-hypervisor/enclave-mount-capture.integration.test.ts');
+    expect(capture['continue-on-error']).toBeUndefined();
   });
 
   it('opts live broker-to-VM acceptance in separately and never substitutes development artifacts', () => {

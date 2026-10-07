@@ -295,7 +295,8 @@ export async function prepareTrustedInvocationStorage(
         const snapshot = await createArtifactSnapshot(sources, copy, capture, artifacts, snapshotReport);
         await snapshotReport.check('mount-intent', () => journal.prepareStorageMount(snapshot.directory));
         await snapshotReport.check('bind', () => mount(tools, ['--bind', snapshot.directory, snapshot.directory]));
-        await snapshotReport.check('mount-capture', () => journal.captureStorageMount());
+        await snapshotReport.check('mount-capture', () =>
+          journal.captureStorageMount(snapshotReport.fork('storage-mount-capture')));
         await snapshotReport.check('readonly-exec', () =>
           mount(tools, ['-o', 'remount,bind,ro,nosuid,nodev,exec', snapshot.directory]));
         snapshotMount = snapshot.directory;

@@ -119,6 +119,7 @@ jobs:
             src/cloud-hypervisor/manager-diagnostics.test.ts \
             src/cloud-hypervisor/manager-cleanup.test.ts \
             src/cloud-hypervisor/cleanup-identity.test.ts \
+            src/cloud-hypervisor/cleanup-process.test.ts \
             src/cloud-hypervisor/host-eligibility.test.ts \
             scripts/ci/cloud-hypervisor-enclave-artifacts.test.ts \
             scripts/ci/cloud-hypervisor-enclave-live-smoke.test.ts \
@@ -174,6 +175,12 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install --yes --no-install-recommends nftables iproute2 curl
+      - name: Probe mount capture hypotheses (not VM acceptance)
+        run: |
+          sudo -n unshare --mount --propagation private \
+            env "PATH=$PATH" AWF_TEST_ENCLAVE_STORAGE=1 \
+            ./node_modules/.bin/jest --ci --runInBand --runTestsByPath \
+            src/cloud-hypervisor/enclave-mount-capture.integration.test.ts
       - name: Probe real aggregate storage and network enforcement
         run: |
           sudo -n unshare --mount --propagation private \

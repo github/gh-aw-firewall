@@ -1250,6 +1250,7 @@ shared by AWF and the harness.
 | `storage-admission` | Root UID, existing GitHub-hosted eligibility helper, Ubuntu distribution, effective mount capability, kernel tmpfs support, KVM access/device/open, writable cgroup hierarchy, and CPU/memory/PID controllers |
 | `bounded-runtime` | Configured role, mount/umount lookup, invocation directory trust, journaled aggregate storage allocation/mount/layout/verification, artifact configuration/trust/snapshot/attestation/digests/versions, each required host tool, platform/architecture, KVM access/group, root/kernel controls/cgroup v2, Docker daemon and Compose |
 | `artifact-snapshot` | Actual staging root validation, directory creation/identity capture, per-artifact copy and chmod, directory mode, mount intent/bind/identity capture, read-only executable remount, and sealed aggregate storage verification |
+| `storage-mount-capture` | Snapshot mount canonical path, actual mount-table read/parse, exact match count, filesystem/source validation, and each durable journal commit operation |
 | `bounded-cleanup` | Identity-journaled storage close, captured invocation directory release, and journal completion; original failure evidence is retained if cleanup also fails |
 | `bounded-artifacts` | The same bounded allocation and invocation checks, rsync lookup, verification directory, and enclave artifact verification (distinct from runtime preflight) |
 
@@ -1264,6 +1265,35 @@ successful copy; after a failed copy it records actual partial-directory
 cleanup. Disabled development-only manifest/bundle copies are explicitly not
 required. No source metadata, file contents, paths, or command output are
 included in these check records.
+
+`artifact-snapshot/mount-capture` now publishes the nested, required
+`storage-mount-capture` scope. Its successful checks eliminate hypotheses
+**at that capture**, not for every future invocation. No diagnostic retry,
+alternate namespace, mount selection, or cleanup bypass is introduced.
+
+| Hypothesis | Discriminating evidence | Coverage |
+|---|---|---|
+| Stacked or repeated bind | `match-count` fails with `storage-mount-multiple`; exactly one matching mount passes | Injected duplicate entries and real Linux stacked binds |
+| Path or namespace mismatch | `canonical-path` rejects canonical-path divergence; a mount absent from the reader's namespace fails `match-count` with `storage-mount-missing` | Injected canonical/missing paths; real symlink-resolving mount and isolated child mount namespace |
+| Wrong backing filesystem or source | Separate `filesystem` / `source` checks fail with `storage-mount-filesystem` / `storage-mount-source` | Injected foreign identities, real disk-backed bind, and foreign tmpfs source |
+| Mount-table read or parse failure | Separate `mountinfo-read` errno and `mountinfo-parse` / `mountinfo-malformed` checks | Injected read/malformed-table failures, escaped paths and unknown optional fields, plus real Linux mount-table reads |
+| Journal persistence failure after valid capture | All identity checks pass; the failing `journal-*` check identifies staging open/write/file sync/close, publication, directory sync, or staging removal | Per-operation errno injection, durable-intent recovery rejection before publication, and a real successful fsync/rename commit |
+
+A zero match alone does not distinguish a namespace mismatch from an absent
+mount; it is not a namespace diagnosis. Filesystem/source values and paths
+are never exported. Later checks remain `not-attempted` when an earlier gate
+fails; finalizers can still report their actually executed close/removal checks.
+`bounded-cleanup/storage-close` distinguishes
+`storage-identity-uncommitted` (including a pending mount capture),
+`storage-mount-identity-changed`, and `storage-mount-unrecorded`. It does not
+automatically adopt or unmount an unidentified mount.
+
+The real mount tests are a separate step in the existing false-by-default
+privileged host-probe job, before the broader storage/network suites. They
+exercise production capture and journaling in a private Linux mount namespace,
+not a guest VM or the released environment probe. Deterministic fault injection
+can establish diagnostic discrimination, but cannot establish which condition
+occurred on the failing hosted runner.
 
 Filesystem exceptions retain only allowlisted errno classifications.
 `mount-noexec` identifies an observed staging mount that rejects execution;
@@ -1298,6 +1328,14 @@ the manifest sizes nor the compressed archive size establishes exhaustion.
 The failed subcheck and its reason are the next discriminating evidence;
 the root cause remains unconfirmed. See the
 [published manifests and archive](https://github.com/github/gh-aw-firewall/releases/tag/v0.28.39).
+
+In [run 37554009561](https://github.com/github/gh-aw-firewall/actions/runs/37554009561)
+(v0.28.40), artifact copies and the bind passed, while mount capture and storage
+close failed with unknown reasons; read-only sealing, gateway readiness, and
+guest execution were not attempted. That immutable release does not contain
+the nested capture diagnostics. A new release containing these checks and an
+authorized release-pinned environment probe are required to distinguish the
+five hypotheses on the original execution path.
 These diagnostics require a future published release; immutable v0.28.39
 assets are not patched by changing the source or dispatching a job.
 

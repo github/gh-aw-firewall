@@ -374,6 +374,8 @@ describe('invocation-wide kernel-enforced storage', () => {
       return;
     }
     await creating;
+    expect(journal.captureStorageMount).toHaveBeenLastCalledWith(expect.any(HostPreflightReporter));
+    expect(published.some((progress) => progress.scope === 'storage-mount-capture')).toBe(true);
     const snapshotProgress = published[published.length - 1];
     expect(snapshotProgress.scope).toBe('artifact-snapshot');
     expect(snapshotProgress.checks.every((check) =>

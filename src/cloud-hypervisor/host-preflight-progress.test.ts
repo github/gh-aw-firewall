@@ -53,4 +53,19 @@ describe('bounded actual-host preflight progress', () => {
     expect(hostPreflightReason(error)).toBe('ancestor-owner');
     expect(Object.keys(error)).toEqual([]);
   });
+
+  it('reports synchronous commit checks without replacing thrown objects or passing later operations', () => {
+    const publish = jest.fn();
+    const reporter = new HostPreflightReporter('storage-mount-capture', publish);
+    expect(reporter.checkSync('journal-open', () => 42)).toBe(42);
+    const error = Object.assign(new Error('PRIVATE_SENTINEL'), { code: 'EIO' });
+    expect(() => reporter.checkSync('journal-write', () => { throw error; })).toThrow(error);
+    const last = publish.mock.calls[publish.mock.calls.length - 1][0];
+    expect(last.checks.find((check: { id: string }) => check.id === 'journal-open')).toMatchObject({ result: 'passed' });
+    expect(last.checks.find((check: { id: string }) => check.id === 'journal-write')).toMatchObject({
+      result: 'failed', reason: 'EIO',
+    });
+    expect(last.checks.find((check: { id: string }) => check.id === 'journal-publish')).toMatchObject({ result: 'not-attempted' });
+    expect(JSON.stringify(publish.mock.calls)).not.toContain('PRIVATE_SENTINEL');
+  });
 });

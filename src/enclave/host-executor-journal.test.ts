@@ -8,6 +8,10 @@ import {
 import type { HostExecutorInvocationPlan, HostExecutorRunState } from './host-executor-server';
 import type { CleanupRegistryDependencies } from '../cloud-hypervisor/cleanup-dependencies';
 import type { CloudHypervisorCleanupRegistry } from '../cloud-hypervisor/cleanup-registry';
+import {
+  HostPreflightReporter, hostPreflightReason,
+  type HostPreflightProgress, type HostPreflightReason,
+} from '../cloud-hypervisor/host-preflight-progress';
 
 describe('durable host executor journal', () => {
   let root: string;
@@ -91,9 +95,13 @@ describe('durable host executor journal', () => {
       reapPending: jest.fn(async () => undefined),
       create: jest.fn(), createPending: jest.fn(),
     };
+    jest.spyOn(dependencies, 'readFile');
   });
 
-  afterEach(() => fs.rmSync(root, { recursive: true, force: true }));
+  afterEach(() => {
+    jest.restoreAllMocks();
+    fs.rmSync(root, { recursive: true, force: true });
+  });
 
   async function resourceJournal() {
     return HostExecutorResourceJournal.create(run, plan, vmRunId(), dependencies);
@@ -112,7 +120,7 @@ describe('durable host executor journal', () => {
     return journal;
   }
 
-  async function aggregateStorageJournal() {
+  async function aggregateStorageJournal(captureSnapshotMount = true) {
     const storageRoot = hostExecutorStorageDirectory(vmRunId());
     let storageExists = true;
     const originalLstat = fs.promises.lstat;
@@ -140,6 +148,7 @@ describe('durable host executor journal', () => {
       mountInfo = mountInfo.split('\n').filter((line) => !line.includes(` ${args[0]} `)).join('\n');
       return { exitCode: 0, stdout: '', stderr: '' };
     }) };
+    jest.spyOn(dependencies, 'realpath');
     const journal = await resourceJournal();
     await journal.prepareStorage();
     await journal.captureStorageDirectory();
@@ -157,9 +166,143 @@ describe('durable host executor journal', () => {
     await journal.captureSnapshot(snapshot);
     await journal.prepareStorageMount(snapshot);
     mountInfo += `1002 1 0:50 /artifacts/run-fixture ${snapshot} ro,nosuid,nodev - tmpfs awf-enclave-invocation rw\n`;
-    await journal.captureStorageMount();
+    if (captureSnapshotMount) await journal.captureStorageMount();
     return { journal, storageRoot, snapshot };
   }
+
+  const captureIds = [
+    'canonical-path', 'mountinfo-read', 'mountinfo-parse', 'match-count', 'filesystem', 'source',
+    'journal-open', 'journal-write', 'journal-file-sync', 'journal-file-close',
+    'journal-publish', 'journal-directory-sync', 'journal-staging-remove',
+  ];
+
+  it.each([
+    ['stacked', 'match-count', 'storage-mount-multiple'],
+    ['missing', 'match-count', 'storage-mount-missing'],
+    ['canonical', 'canonical-path', 'storage-path-changed'],
+    ['filesystem', 'filesystem', 'storage-mount-filesystem'],
+    ['source', 'source', 'storage-mount-source'],
+    ['read', 'mountinfo-read', 'EIO'],
+    ['parse', 'mountinfo-parse', 'mountinfo-malformed'],
+  ] as const)('distinguishes %s mount capture failure and retains fail-closed cleanup', async (failure, id, reason) => {
+    const { journal, snapshot } = await aggregateStorageJournal(false);
+    if (failure === 'stacked') {
+      mountInfo += `2002 1002 0:50 /artifacts/run-fixture ${snapshot} rw - tmpfs awf-enclave-invocation rw\n`;
+    }
+    if (failure === 'missing') {
+      mountInfo = mountInfo.split('\n').filter((line) => !line.includes(` ${snapshot} `)).join('\n');
+    }
+    if (failure === 'canonical') {
+      (dependencies.realpath as jest.Mock).mockImplementation(async (file) =>
+        String(file) === snapshot ? '/private/SECRET' : String(file));
+    }
+    if (failure === 'filesystem' || failure === 'source') {
+      mountInfo = mountInfo.split('\n').map((line) => line.includes(` ${snapshot} `)
+        ? line.replace('tmpfs awf-enclave-invocation', failure === 'filesystem'
+          ? 'ext4 /private/SECRET' : 'tmpfs PRIVATE_SENTINEL')
+        : line).join('\n');
+    }
+    if (failure === 'parse') mountInfo += '\nmalformed PRIVATE_SENTINEL\n';
+    const original = Object.assign(new Error('/private/SECRET Bearer credential'), { code: 'EIO' });
+    if (failure === 'read') (dependencies.readFile as jest.Mock).mockRejectedValueOnce(original);
+    const publish = jest.fn<void, [HostPreflightProgress]>();
+    await expect(journal.captureStorageMount(new HostPreflightReporter('storage-mount-capture', publish)))
+      .rejects.toThrow();
+    const last = publish.mock.calls[publish.mock.calls.length - 1][0];
+    expect(last.checks).toEqual(captureIds.map((check, index) => ({
+      id: check, result: index < captureIds.indexOf(id) ? 'passed' : check === id ? 'failed' : 'not-attempted',
+      reason: check === id ? reason : 'none',
+    })));
+    expect(readRecord().storage.pending).toBe(snapshot);
+    expect(readRecord().storage.mounts.some((mount: { mountPoint: string }) => mount.mountPoint === snapshot)).toBe(false);
+    await expect(journal.closeStorage(tools.umount)).rejects.toThrow('Storage identity is uncommitted');
+    try { await journal.closeStorage(tools.umount); } catch (error) {
+      expect(hostPreflightReason(error)).toBe('storage-identity-uncommitted');
+    }
+    expect(dependencies.run).not.toHaveBeenCalled();
+    expect(dependencies.rm).not.toHaveBeenCalled();
+    expect(JSON.stringify(publish.mock.calls)).not.toMatch(/private|SECRET|PRIVATE_SENTINEL|Bearer|credential/);
+  });
+
+  it('captures escaped mountpoints and optional fields without exporting any mount-table data', async () => {
+    const { journal, snapshot } = await aggregateStorageJournal(false);
+    mountInfo += '3100 1 8:1 / /unrelated\\040directory rw shared:12 future:tag - ext4 /dev/SECRET rw\n';
+    mountInfo = mountInfo.replace(` ${snapshot} `, ` ${snapshot.replace('run-fixture', '\\162un-fixture')} `);
+    const publish = jest.fn<void, [HostPreflightProgress]>();
+    await journal.captureStorageMount(new HostPreflightReporter('storage-mount-capture', publish));
+    const last = publish.mock.calls[publish.mock.calls.length - 1][0];
+    expect(last.checks.map((check) => check.id)).toEqual(captureIds);
+    expect(last.checks.every((check) => check.result === 'passed' && check.reason === 'none')).toBe(true);
+    expect(readRecord().storage.pending).toBeUndefined();
+    expect(readRecord().storage.mounts.filter((mount: { mountPoint: string }) => mount.mountPoint === snapshot)).toHaveLength(1);
+    expect(JSON.stringify(publish.mock.calls)).not.toMatch(/SECRET|unrelated|run-fixture/);
+  });
+
+  it.each([
+    ['journal-open', 'ENOSPC'],
+    ['journal-write', 'ENOSPC'],
+    ['journal-file-sync', 'EIO'],
+    ['journal-file-close', 'EIO'],
+    ['journal-publish', 'EROFS'],
+    ['journal-directory-sync', 'EIO'],
+    ['journal-staging-remove', 'EACCES'],
+    ['journal-write', 'unrecognized-private-code'],
+  ] as const)('separates successful mount identity from %s failure (%s)', async (id, code) => {
+    const { journal, snapshot } = await aggregateStorageJournal(false);
+    const nodeFs = jest.requireActual<typeof fs>('fs');
+    const original = Object.assign(new Error('/private/SECRET Bearer credential'), { code });
+    if (id === 'journal-open') jest.spyOn(nodeFs, 'openSync').mockImplementationOnce(() => { throw original; });
+    if (id === 'journal-write') jest.spyOn(nodeFs, 'writeFileSync').mockImplementationOnce(() => { throw original; });
+    if (id === 'journal-file-sync' || id === 'journal-directory-sync') {
+      const sync = nodeFs.fsyncSync;
+      jest.spyOn(nodeFs, 'fsyncSync').mockImplementation((fd) => {
+        if (nodeFs.fstatSync(fd).isDirectory() === (id === 'journal-directory-sync')) throw original;
+        sync(fd);
+      });
+    }
+    if (id === 'journal-file-close') {
+      const close = nodeFs.closeSync;
+      jest.spyOn(nodeFs, 'closeSync').mockImplementationOnce((fd) => { close(fd); throw original; });
+    }
+    if (id === 'journal-publish') jest.spyOn(nodeFs, 'renameSync').mockImplementationOnce(() => { throw original; });
+    if (id === 'journal-staging-remove') jest.spyOn(nodeFs, 'existsSync').mockImplementationOnce(() => { throw original; });
+    const publish = jest.fn<void, [HostPreflightProgress]>();
+    await expect(journal.captureStorageMount(new HostPreflightReporter('storage-mount-capture', publish)))
+      .rejects.toBe(original);
+    const last = publish.mock.calls[publish.mock.calls.length - 1][0];
+    expect(last.checks.filter((check) => check.result === 'failed')).toEqual([{
+      id, result: 'failed', reason: code === 'unrecognized-private-code' ? 'unknown' : code as HostPreflightReason,
+    }]);
+    for (const check of captureIds.slice(0, 6)) {
+      expect(last.checks.find((item) => item.id === check)?.result).toBe('passed');
+    }
+    const recordPublished = ['journal-directory-sync', 'journal-staging-remove'].includes(id);
+    jest.restoreAllMocks();
+    expect(readRecord().storage.pending).toBe(recordPublished ? undefined : snapshot);
+    if (!recordPublished) {
+      const stale = readRecord();
+      stale.owner.startTime = '999';
+      fs.writeFileSync(recordFile(), JSON.stringify(stale), { mode: 0o600 });
+      await expect(reap()).rejects.toThrow('uncommitted');
+      expect(dependencies.run).not.toHaveBeenCalled();
+      expect(dependencies.rm).not.toHaveBeenCalled();
+    }
+    expect(JSON.stringify(publish.mock.calls)).not.toMatch(/private|SECRET|Bearer|credential|unrecognized/);
+  });
+
+  it('classifies unrecorded and replaced mounts independently of the original capture error', async () => {
+    const { journal, snapshot } = await aggregateStorageJournal();
+    mountInfo += '2000 1 0:50 / /outside-bind rw - tmpfs awf-enclave-invocation rw\n';
+    try { await journal.verifyStorage(); throw new Error('expected rejection'); } catch (error) {
+      expect(hostPreflightReason(error)).toBe('storage-mount-unrecorded');
+    }
+    mountInfo = mountInfo.split('\n').filter((line) => !line.includes(' /outside-bind ')).join('\n');
+    mountInfo = mountInfo.replace(`1002 1 0:50 /artifacts/run-fixture ${snapshot}`, `2002 1 0:50 /artifacts/run-fixture ${snapshot}`);
+    try { await journal.closeStorage(tools.umount); throw new Error('expected rejection'); } catch (error) {
+      expect(hostPreflightReason(error)).toBe('storage-mount-identity-changed');
+    }
+    expect(dependencies.run).not.toHaveBeenCalled();
+  });
 
   it('recovers one identity-matched aggregate superblock after VM cleanup, never replaying the invocation', async () => {
     const { storageRoot, snapshot } = await aggregateStorageJournal();

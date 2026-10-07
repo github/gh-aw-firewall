@@ -1,6 +1,7 @@
 import { promises as fs } from 'fs';
 import type { FileIdentity, InterfaceIdentity, MountIdentity, ProcessIdentity, RecordedProcess } from './cleanup-identity';
 import { parseMountInfoLine, parseStatusIdentity, sameFileIdentity } from './cleanup-identity';
+import { HostPreflightReporter, markHostPreflightError } from './host-preflight-progress';
 
 const PROCESS_STOP_WAIT_MS = 2_000;
 const PROCESS_STOP_INTERVAL_MS = 50;
@@ -196,7 +197,16 @@ export async function interfaceExists(
 
 export async function readMounts(
   readFile: typeof fs.readFile,
+  report?: HostPreflightReporter,
 ): Promise<MountIdentity[]> {
-  const text = await readFile('/proc/self/mountinfo', 'utf8');
-  return text.split(/\r?\n/).filter(Boolean).map(parseMountInfoLine);
+  const read = () => readFile('/proc/self/mountinfo', 'utf8');
+  const text = report ? await report.check('mountinfo-read', read) : await read();
+  const parse = () => {
+    try {
+      return text.split(/\r?\n/).filter(Boolean).map(parseMountInfoLine);
+    } catch (error) {
+      throw markHostPreflightError(error, 'mountinfo-malformed');
+    }
+  };
+  return report ? report.checkSync('mountinfo-parse', parse) : parse();
 }
