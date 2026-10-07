@@ -137,6 +137,58 @@ describe('upstream-http', () => {
     });
   });
 
+  test('retries a pre-translated request on its original endpoint after endpoint rejection', () => {
+    replaceRuntimeModels('copilot', [
+      { id: 'copilot/model', supportedEndpoints: ['/responses'] },
+    ]);
+    const sourceBody = Buffer.from(JSON.stringify({
+      model: 'copilot/model',
+      messages: [{ role: 'user', content: 'hello' }],
+    }));
+    const translated = translateCopilotWireApi(sourceBody, '/v1/chat/completions?foo=1');
+    const proxyReq = { on: jest.fn(), write: jest.fn(), end: jest.fn() };
+    const responseCallbacks = [];
+    const httpsRequest = jest.fn((_options, cb) => {
+      responseCallbacks.push(cb);
+      return proxyReq;
+    });
+    const handleUpstreamResponse = jest.fn();
+    const sendUpstreamRequest = createSendUpstreamRequest({
+      https: { request: httpsRequest },
+      proxyAgent: {},
+      handleUpstreamResponse,
+      sleep: jest.fn(),
+      otel: { endSpanError: jest.fn(), endSpan: jest.fn() },
+      handleRequestError: jest.fn(),
+      metrics: { gaugeDec: jest.fn(), increment: jest.fn(), observe: jest.fn() },
+    });
+    const req = { method: 'POST', url: '/v1/chat/completions?foo=1' };
+
+    sendUpstreamRequest({ 'content-length': String(translated.body.length) }, createContext({
+      body: translated.body,
+      upstreamPath: '/v1/responses?foo=1',
+      req,
+      res: { headersSent: false },
+      wireApiCompatibility: translated.compatibility,
+      wireApiSourceBody: sourceBody,
+    }));
+    responseCallbacks[0]({ statusCode: 400, headers: {} });
+    expect(handleUpstreamResponse.mock.calls[0][2].onWireApiEndpointRetry()).toBe(true);
+
+    expect(httpsRequest).toHaveBeenCalledTimes(2);
+    expect(httpsRequest.mock.calls[1][0].path).toBe('/v1/chat/completions?foo=1');
+    expect(httpsRequest.mock.calls[1][0].headers['accept-encoding']).toBe('identity');
+    expect(proxyReq.write.mock.calls[1][0]).toBe(sourceBody);
+    responseCallbacks[1]({ statusCode: 400, headers: {} });
+    expect(handleUpstreamResponse.mock.calls[1][2].wireApiCompatibility).toEqual({
+      requestedEndpoint: '/chat/completions',
+      upstreamEndpoint: '/chat/completions',
+      passthrough: true,
+    });
+    expect(handleUpstreamResponse.mock.calls[1][2].onWireApiEndpointRetry()).toBe(false);
+    expect(httpsRequest).toHaveBeenCalledTimes(2);
+  });
+
   test('dispatches upstream HTTP requests on port 80 when targetScheme is http', () => {
     const proxyReq = { on: jest.fn(), write: jest.fn(), end: jest.fn() };
     const httpRequest = jest.fn((_options, cb) => {

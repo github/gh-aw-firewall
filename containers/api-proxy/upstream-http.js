@@ -95,6 +95,7 @@ function createSendUpstreamRequest({
     codexCompatibility = null,
     wireApiCompatibility = null,
     wireApiSourceBody = null,
+    wireApiEndpointRetryAttempted = false,
     attemptedModels = null,
   }) {
     try {
@@ -206,6 +207,7 @@ function createSendUpstreamRequest({
                 ? wireFallback.wireApiCompatibility
                 : carryForwardWireApiCompatibility(wireApiCompatibility),
               wireApiSourceBody: wireFallback?.wireApiSourceBody || wireApiSourceBody,
+              wireApiEndpointRetryAttempted,
               attemptedModels: [...attempted, nextModel],
             });
             return true;
@@ -260,35 +262,46 @@ function createSendUpstreamRequest({
         codexCompatibility,
         wireApiCompatibility,
         wireApiSourceBody,
+        wireApiEndpointRetryAttempted,
         onModelFallback,
         onWireApiEndpointRetry: () => {
-          if (provider !== 'copilot' || !wireApiSourceBody ||
-              (wireApiCompatibility && !wireApiCompatibility.passthrough)) return false;
+          if (provider !== 'copilot' || !wireApiSourceBody || wireApiEndpointRetryAttempted) return false;
           const requestedEndpoint = endpointForPath(req.url);
-          if (!requestedEndpoint) return false;
-          const alternateEndpoint = requestedEndpoint === '/responses' ? '/chat/completions' : '/responses';
-          const translated = translateCopilotWireApi(wireApiSourceBody, req.url, {
-            upstreamEndpoint: alternateEndpoint,
-          });
-          if (!translated) return false;
-          req.awfRouting?.onEndpointTranslation?.(translated.compatibility);
+          const rejectedEndpoint = endpointForPath(upstreamPath);
+          if (!requestedEndpoint || !rejectedEndpoint) return false;
+          const alternateEndpoint = rejectedEndpoint === '/responses' ? '/chat/completions' : '/responses';
+          let retryBody = wireApiSourceBody;
+          let retryCompatibility = {
+            requestedEndpoint,
+            upstreamEndpoint: requestedEndpoint,
+            passthrough: true,
+          };
+          if (alternateEndpoint !== requestedEndpoint) {
+            const translated = translateCopilotWireApi(wireApiSourceBody, req.url, {
+              upstreamEndpoint: alternateEndpoint,
+            });
+            if (!translated) return false;
+            retryBody = translated.body;
+            retryCompatibility = translated.compatibility;
+          }
+          req.awfRouting?.onEndpointTranslation?.(retryCompatibility);
           logRequest?.('warn', 'wire_api_endpoint_retry', {
             request_id: requestId,
             provider,
-            requested_endpoint: requestedEndpoint,
+            rejected_endpoint: rejectedEndpoint,
             upstream_endpoint: alternateEndpoint,
             message: 'Copilot rejected the endpoint; retrying the same model on the other wire API',
           });
-          const retryHeaders = rebuildBodyFramingHeaders(requestHeaders, translated.body.length);
+          const retryHeaders = rebuildBodyFramingHeaders(requestHeaders, retryBody.length);
           retryHeaders['accept-encoding'] = 'identity';
           sendUpstreamRequest(retryHeaders, {
-            body: translated.body, targetHost,
+            body: retryBody, targetHost,
             upstreamPath: replaceUpstreamEndpoint(upstreamPath, alternateEndpoint),
             req, res, provider, requestId, startTime, span,
-            requestBytes: translated.body.length, requestSigner,
+            requestBytes: retryBody.length, requestSigner,
             hasRetried, modelNotSupportedRetryCount, targetScheme,
-            codexCompatibility, wireApiCompatibility: translated.compatibility,
-            wireApiSourceBody, attemptedModels,
+            codexCompatibility, wireApiCompatibility: retryCompatibility,
+            wireApiSourceBody, wireApiEndpointRetryAttempted: true, attemptedModels,
           });
           return true;
         },
@@ -300,6 +313,7 @@ function createSendUpstreamRequest({
           codexCompatibility,
           wireApiCompatibility,
           wireApiSourceBody,
+          wireApiEndpointRetryAttempted,
           attemptedModels,
         }),
         onModelNotSupportedRetry: () => {
@@ -313,6 +327,7 @@ function createSendUpstreamRequest({
               codexCompatibility,
               wireApiCompatibility,
               wireApiSourceBody,
+              wireApiEndpointRetryAttempted,
               attemptedModels,
             });
           });
@@ -371,6 +386,7 @@ function createSendUpstreamRequest({
               ? wireFallback.wireApiCompatibility
               : carryForwardWireApiCompatibility(wireApiCompatibility),
             wireApiSourceBody: wireFallback?.wireApiSourceBody || wireApiSourceBody,
+            wireApiEndpointRetryAttempted,
             attemptedModels: [...(Array.isArray(attemptedModels) && attemptedModels.length > 0 ? attemptedModels : [currentModel]), nextModel],
           });
           return true;
