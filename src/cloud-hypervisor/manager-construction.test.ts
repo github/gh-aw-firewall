@@ -1,5 +1,5 @@
 import type { MicrovmNetworkPlan } from '../microvm/network';
-import { cloudHypervisorManagerTestHelpers } from './manager';
+import { cloudHypervisorManagerTestHelpers, resolveCloudHypervisorManagerDependencies } from './manager';
 import { createCloudHypervisorRunPaths } from './manager';
 
 import {
@@ -7,6 +7,17 @@ import {
 } from './manager.test-utils';
 
   describe('construction', () => {
+  it('resolves independent trusted manager adapters without mutating the existing test facade', () => {
+    const original = cloudHypervisorManagerTestHelpers.defaultDependencies;
+    const remove = jest.fn();
+    const resolved = resolveCloudHypervisorManagerDependencies({ rm: remove });
+    expect(resolved).not.toBe(original);
+    expect(resolved.rm).toBe(remove);
+    expect(resolved.createRootfsPreparer).toBe(original.createRootfsPreparer);
+    expect(original.rm).not.toBe(remove);
+    expect(resolveCloudHypervisorManagerDependencies().rm).toBe(original.rm);
+  });
+
   it('constructs the default host adapters and non-root identity', async () => {
     const defaults = cloudHypervisorManagerTestHelpers.defaultDependencies;
     const child = defaults.launch(process.execPath, ['-e', ''], {
@@ -34,6 +45,7 @@ import {
       '/run/awf',
       '/run/awf-shares',
       { uid: 1000, gid: 1000 },
+      { uid: 1001, gid: 1001 },
       cgroupMock(),
       { mount: hostTools.mount, umount: hostTools.umount },
     )).toBeDefined();
@@ -64,7 +76,7 @@ import {
       if (originalSudoGid === undefined) delete process.env.SUDO_GID;
       else process.env.SUDO_GID = originalSudoGid;
     }
-  });
+  }, 30_000);
 
   it('constructs unique, contained run paths outside workDir', () => {
     const first = createCloudHypervisorRunPaths('/opt/cloud-hypervisor');
@@ -78,4 +90,3 @@ import {
     )).toThrow(/Unsafe microVM run id/);
   });
   });
-

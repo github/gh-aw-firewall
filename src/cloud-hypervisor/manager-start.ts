@@ -5,6 +5,7 @@ import type { MicrovmRootfsPreparer } from '../microvm/rootfs';
 import type {
   MicrovmNetworkLifecycle,
   MicrovmNetworkPlan,
+  MicrovmNetworkPlanOptions,
 } from '../microvm/network';
 import type { CloudHypervisorApiClient } from './api-client';
 import {
@@ -28,11 +29,16 @@ import { validateCloudHypervisorExports } from './exports';
 import { hasReadOnlyWorkspaceMountPlan } from './filesystem-write-enforcement';
 import type { VirtiofsdManager, VirtiofsdDevice } from './virtiofsd';
 import { buildCloudHypervisorVmConfig } from './vm-config-builder';
+import { resolveCloudHypervisorEnclaveNetwork } from './enclave-network';
 import type { BoundedOutputCapture } from './diagnostics';
 import type { CloudHypervisorCleanupHandle } from './cleanup-registry';
 import type { CloudHypervisorConfinementEvidence } from './confinement-verifier';
 import type { CloudHypervisorVmmIdentityManager } from './vmm-identity';
 import type { CloudHypervisorPreflightResult } from './preflight';
+import {
+  createCloudHypervisorEmptyNetworkNamespacePlan,
+  type CloudHypervisorNetworkLifecycle,
+} from './network-namespace';
 import {
   assertCloudHypervisorWorkloadLaunchable,
   type CloudHypervisorWorkloadProfile,
@@ -44,11 +50,13 @@ export interface CloudHypervisorStartContext {
   dependencies: CloudHypervisorManagerDependencies;
   paths: CloudHypervisorRunPaths;
   workloadProfile: CloudHypervisorWorkloadProfile;
+  /** True only for the internal host-executor backend; user runtime selection never sets this. */
+  allowTrustedEnclaveExecution?: boolean;
   verifiedArtifacts?: CloudHypervisorPreflightResult;
   stdoutCapture: BoundedOutputCapture;
   stderrCapture: BoundedOutputCapture;
   setNetworkPlan(plan: MicrovmNetworkPlan | undefined): void;
-  setNetwork(network: MicrovmNetworkLifecycle | undefined): void;
+  setNetwork(network: MicrovmNetworkLifecycle | CloudHypervisorNetworkLifecycle | undefined): void;
   setRootfsPreparer(preparer: MicrovmRootfsPreparer | undefined): void;
   setCgroup(cgroup: CloudHypervisorCgroup | undefined): void;
   setVmmIdentity(identity: CloudHypervisorVmmIdentityManager | undefined): void;
@@ -67,29 +75,40 @@ export async function startCloudHypervisor(
 ): Promise<CloudHypervisorApiClient> {
   const {
     config, workDir, dependencies, paths, workloadProfile, verifiedArtifacts,
+    allowTrustedEnclaveExecution,
   } = context;
-  assertCloudHypervisorWorkloadLaunchable(workloadProfile);
-  const networkConfig: CloudHypervisorManagerNetworkConfig = {
-    infrastructureBridge: workloadProfile.network.infrastructureBridge,
-    enableApiProxy: workloadProfile.network.enableApiProxy,
-    ...(workloadProfile.network.apiProxyIp
-      ? { apiProxyIp: workloadProfile.network.apiProxyIp }
-      : {}),
-    ...(workloadProfile.network.controlPeer
-      ? { controlPeer: workloadProfile.network.controlPeer }
-      : {}),
-    ...(workloadProfile.network.controlPeers
-      ? { controlPeers: workloadProfile.network.controlPeers }
-      : {}),
-    ...(workloadProfile.network.hostAliases
-      ? { hostAliases: workloadProfile.network.hostAliases }
-      : {}),
-  };
+  assertCloudHypervisorWorkloadLaunchable(workloadProfile, allowTrustedEnclaveExecution);
   const guestConfig = workloadProfile.guest;
 
   let startupError: unknown;
   try {
     const artifacts = verifiedArtifacts ?? await dependencies.preflight(config);
+    const networkConfig: (CloudHypervisorManagerNetworkConfig & Pick<
+      MicrovmNetworkPlanOptions, 'enclaveAgent'
+    >) | undefined =
+      workloadProfile.network.mode === 'primary'
+        ? {
+            infrastructureBridge: workloadProfile.network.infrastructureBridge,
+            enableApiProxy: workloadProfile.network.enableApiProxy,
+            ...(workloadProfile.network.apiProxyIp
+              ? { apiProxyIp: workloadProfile.network.apiProxyIp }
+              : {}),
+            ...(workloadProfile.network.controlPeer
+              ? { controlPeer: workloadProfile.network.controlPeer }
+              : {}),
+            ...(workloadProfile.network.controlPeers
+              ? { controlPeers: workloadProfile.network.controlPeers }
+              : {}),
+            ...(workloadProfile.network.hostAliases
+              ? { hostAliases: workloadProfile.network.hostAliases }
+              : {}),
+          }
+        : workloadProfile.kind === 'agent-enclave'
+          ? await resolveCloudHypervisorEnclaveNetwork(workloadProfile, {
+              docker: artifacts.tools.docker,
+              ip: artifacts.tools.ip,
+            })
+          : undefined;
     const vmmTools = {
       getfacl: artifacts.tools.getfacl,
       getent: artifacts.tools.getent,
@@ -121,36 +140,63 @@ export async function startCloudHypervisor(
     });
     context.setVmmIdentity(vmmIdentityManager);
     const identity = await vmmIdentityManager.allocate();
-    const reservation = await dependencies.reserveNetwork(paths.runId, {
-      ...networkConfig,
-      tapOwnerUid: identity.uid,
-      tapOwnerGid: identity.gid,
-      tapVnetHdr: true,
-    }, artifacts.tools);
-    const networkPlan = reservation.plan;
-    context.setNetworkPlan(networkPlan);
-    try {
-      await cleanupRecord.captureNetworkPlan(networkPlan);
-    } catch (error) {
-      try {
-        await reservation.release();
-      } catch (releaseError) {
-        throw new Error(
-          `Creating the durable cleanup record failed: ${formatError(error)}; ` +
-          `releasing the network reservation also failed: ${formatError(releaseError)}`,
-        );
+    let networkPlan: MicrovmNetworkPlan | undefined;
+    let networkNamespace: string;
+    if (networkConfig) {
+      if (workloadProfile.kind === 'agent-enclave') {
+        const verified = await resolveCloudHypervisorEnclaveNetwork(workloadProfile, {
+          docker: artifacts.tools.docker,
+          ip: artifacts.tools.ip,
+        });
+        if (verified.infrastructureBridge !== networkConfig.infrastructureBridge) {
+          throw new Error('Agent-enclave Docker bridge changed before network setup');
+        }
       }
-      throw error;
+      const reservation = await dependencies.reserveNetwork(paths.runId, {
+        ...networkConfig,
+        tapOwnerUid: identity.uid,
+        tapOwnerGid: identity.gid,
+        tapVnetHdr: true,
+      }, artifacts.tools);
+      networkPlan = reservation.plan;
+      context.setNetworkPlan(networkPlan);
+      try {
+        await cleanupRecord.captureNetworkPlan(networkPlan);
+      } catch (error) {
+        try {
+          await reservation.release();
+        } catch (releaseError) {
+          throw new Error(
+            `Creating the durable cleanup record failed: ${formatError(error)}; ` +
+            `releasing the network reservation also failed: ${formatError(releaseError)}`,
+          );
+        }
+        throw error;
+      }
+      const network = dependencies.createNetwork(networkPlan, artifacts.tools, reservation, {
+        resourceCreated: (resource) => cleanupRecord.captureNetworkResource(resource),
+      });
+      context.setNetwork(network);
+      await network.setup();
+      networkNamespace = networkPlan.namespaceName;
+    } else {
+      const namespacePlan = createCloudHypervisorEmptyNetworkNamespacePlan(paths.runId);
+      await cleanupRecord.captureEmptyNetworkNamespace(namespacePlan);
+      const network = dependencies.createEmptyNetworkNamespace(
+        namespacePlan,
+        artifacts.tools,
+        { resourceCreated: (resource) => cleanupRecord.captureNetworkResource(resource) },
+      );
+      context.setNetwork(network);
+      await network.setup();
+      networkNamespace = namespacePlan.namespaceName;
     }
-    const network = dependencies.createNetwork(networkPlan, artifacts.tools, reservation, {
-      resourceCreated: (resource) => cleanupRecord.captureNetworkResource(resource),
-    });
-    context.setNetwork(network);
-    await network.setup();
     let rootfsSource = artifacts.rootfsPath;
     if (guestConfig) {
       validateCloudHypervisorExports(guestConfig.exports, {
         allowReadOnlyWorkspace: hasReadOnlyWorkspaceMountPlan(guestConfig.mountEnforcement),
+        requireWorkspace: guestConfig.workspaceMount !== null,
+        ...(guestConfig.workspaceMount === null ? { maxExports: 6 } : {}),
       });
       const rootfsPreparationDirectory = path.join(
         workDir, 'cloud-hypervisor-rootfs', paths.runId,
@@ -162,8 +208,8 @@ export async function startCloudHypervisor(
         supervisorSha256: guestConfig.supervisorSha256,
         supervisorGuestPath: '/usr/sbin/awf-supervisor',
         hostAliases: {
-          ...(networkConfig.apiProxyIp ? { 'api-proxy': networkConfig.apiProxyIp } : {}),
-          ...(networkConfig.hostAliases ?? {}),
+          ...(networkConfig?.apiProxyIp ? { 'api-proxy': networkConfig.apiProxyIp } : {}),
+          ...(networkConfig?.hostAliases ?? {}),
         },
       }, artifacts.tools, (source, destination) =>
         dependencies.copySparseFile(artifacts.tools.rsync, source, destination));
@@ -175,7 +221,14 @@ export async function startCloudHypervisor(
     await cleanupRecord.captureRunDirectory();
     const cgroup = dependencies.createCgroup(
       paths.cgroupPath,
-      { memoryMib: config.memoryMib, vcpuCount: config.vcpuCount },
+      guestConfig?.enclaveResources
+        ? {
+            memoryMib: guestConfig.enclaveResources.memoryMiB,
+            vcpuCount: guestConfig.enclaveResources.vcpuCount,
+            cpuQuotaMilli: guestConfig.enclaveResources.cpuQuotaMilli,
+            writableStorageBytes: guestConfig.enclaveResources.writableStorageBytes,
+          }
+        : { memoryMib: config.memoryMib, vcpuCount: config.vcpuCount },
     );
     context.setCgroup(cgroup);
     await cgroup.setup();
@@ -202,15 +255,17 @@ export async function startCloudHypervisor(
       paths.logPath,
       paths.serialLogPath,
     ]);
-    await vmmIdentityManager.validateTapOwnership(
-      artifacts.tools.ip,
-      networkPlan.namespaceName,
-      networkPlan.tapName,
-    );
+    if (networkPlan) {
+      await vmmIdentityManager.validateTapOwnership(
+        artifacts.tools.ip,
+        networkPlan.namespaceName,
+        networkPlan.tapName,
+      );
+    }
     return await vmmIdentityManager.withDeviceAccess(async () => {
       const launchCommand = buildCloudHypervisorLaunchCommand({
         tools: { ip: artifacts.tools.ip, setpriv: artifacts.tools.setpriv },
-        namespaceName: networkPlan.namespaceName,
+        namespaceName: networkNamespace,
         identity,
         cloudHypervisorBinary: config.cloudHypervisorBinary,
         apiSocketPath: paths.apiSocketPath,
@@ -247,20 +302,25 @@ export async function startCloudHypervisor(
         expectedExecutable: config.cloudHypervisorBinary,
         identity,
         launchPolicy: launchCommand.confinementPolicy,
-        networkNamespace: networkPlan.namespaceName,
+        networkNamespace,
         cgroupPath: paths.cgroupPath,
         cgroupLimits: cgroup.expectedLimits(),
       }));
       if (guestConfig) {
         const virtiofsd = dependencies.createVirtiofsdManager(
           artifacts.virtiofsdBinary, paths.runDirectory, paths.virtiofsdShareDirectory,
-          identity, cgroup, { mount: artifacts.tools.mount, umount: artifacts.tools.umount },
+          identity, guestIdentity, cgroup,
+          { mount: artifacts.tools.mount, umount: artifacts.tools.umount },
           cleanupRecord,
         );
         context.setVirtiofsd(virtiofsd);
         try {
           context.setFsDevices(
-            await virtiofsd.start(guestConfig.exports, guestConfig.mountEnforcement),
+            await virtiofsd.start(
+              guestConfig.exports,
+              guestConfig.mountEnforcement,
+              guestConfig.enclaveResources?.writableStorageBytes,
+            ),
           );
           await cleanupRecord.captureVirtiofsdResources();
         } catch (error) {
@@ -276,10 +336,13 @@ export async function startCloudHypervisor(
         paths,
         networkPlan,
         ...(guestConfig ? { guestConfig: { ...guestConfig, identity: guestIdentity } } : {}),
+        ...(guestConfig?.enclaveResources
+          ? { enclaveResources: guestConfig.enclaveResources }
+          : {}),
         fsDevices: context.getFsDevices(),
       }));
       return client;
-    });
+    }, networkPlan !== undefined);
   } catch (error) {
     startupError = error;
   }

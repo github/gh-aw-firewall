@@ -71,6 +71,14 @@ export function buildCopilotCredentialEnv(params: CopilotCredentialEnvParams): R
     return env;
   }
 
+  if (config.allowedDomains?.length) {
+    logger.warn(
+      'Copilot API proxy mode sets COPILOT_OFFLINE=true: native web_fetch and web_search tools are unavailable, ' +
+      'even for allowlisted domains. Use shell curl with --allow-url <host> (or --allow-all-urls); ' +
+      'AWF still enforces the domain allowlist. See docs/troubleshooting.md#copilot-web-tools-unavailable-in-api-proxy-mode'
+    );
+  }
+
   // Credential-isolation placeholders for the BYOK auth variables. These MUST be
   // set here (in agentEnvAdditions, applied last in compose-generator) rather than
   // only in tool-specific-environment.ts, because `Object.assign(environment,
@@ -92,11 +100,11 @@ export function buildCopilotCredentialEnv(params: CopilotCredentialEnvParams): R
     logger.debug('COPILOT_PROVIDER_API_KEY set to placeholder value for credential isolation');
   }
 
-  // Set the wire API based solely on the model, regardless of which auth path is active.
-  // GPT-5-family models must use the /responses endpoint; setting this here ensures the
-  // Copilot CLI uses the correct endpoint in both BYOK modes.
+  // Preserve an explicitly selected wire API (for example, a routed model selection)
+  // before falling back to the main model's default.
+  const configuredWireApi = getConfigEnvValue(config, 'COPILOT_PROVIDER_WIRE_API');
   const copilotModel = getConfigEnvValue(config, 'COPILOT_MODEL');
-  if (copilotModel && requiresResponsesWireApi(copilotModel)) {
+  if (!configuredWireApi && copilotModel && requiresResponsesWireApi(copilotModel)) {
     env.COPILOT_PROVIDER_WIRE_API = 'responses';
     logger.debug(`COPILOT_PROVIDER_WIRE_API set to responses for model: ${copilotModel}`);
   }

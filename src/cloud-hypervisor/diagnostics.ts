@@ -3,6 +3,7 @@ import * as path from 'path';
 import { Writable } from 'stream';
 import type { ExecaChildProcess } from 'execa';
 import type { MicrovmNetworkLifecycle, MicrovmNetworkPlan } from '../microvm/network';
+import type { CloudHypervisorNetworkLifecycle } from './network-namespace';
 import {
   CLOUD_HYPERVISOR_RELEASE_VERSION,
   type CloudHypervisorOptions,
@@ -185,7 +186,7 @@ export interface CloudHypervisorDiagnosticsContext {
   guestStdoutCapture: BoundedOutputCapture;
   guestStderrCapture: BoundedOutputCapture;
   captureGuestRawOutput?: boolean;
-  network: MicrovmNetworkLifecycle | undefined;
+  network: MicrovmNetworkLifecycle | CloudHypervisorNetworkLifecycle | undefined;
   networkPlan: MicrovmNetworkPlan | undefined;
   client: CloudHypervisorApiClient | undefined;
   instanceStarted: boolean;

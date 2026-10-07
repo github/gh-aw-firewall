@@ -139,6 +139,19 @@ export async function connectTopologyContainers(
 
 const IPV4_REGEX = /^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/;
 
+interface ComposeServiceWithHosts {
+  extra_hosts?: Record<string, string>;
+}
+
+function mergePeerHosts(service: ComposeServiceWithHosts, peerIps: Map<string, string>): void {
+  if (!service.extra_hosts) {
+    service.extra_hosts = {};
+  }
+  for (const [name, ip] of peerIps) {
+    service.extra_hosts[name] = ip;
+  }
+}
+
 /**
  * Inspects the IP addresses of topology-attached containers on the specified
  * Docker network. Used when the agent runs under an alternative container
@@ -181,8 +194,10 @@ export async function getTopologyContainerIps(
 
 /**
  * Patches docker-compose.yml to add /etc/hosts entries for topology-attached
- * containers in the agent service. This bypasses Docker's embedded DNS
- * (127.0.0.11) for runtimes whose network stack cannot reach it (e.g. gVisor).
+ * containers in AWF services that resolve topology peers. This bypasses Docker's
+ * embedded DNS (127.0.0.11) for runtimes whose network stack cannot reach it
+ * (e.g. gVisor) and for DinD resolver configurations whose inherited search
+ * domains can make single-label peer lookups fail on internal Docker networks.
  *
  * Must be called AFTER topology containers are connected to the network
  * (so their IPs are known) and BEFORE the full `docker compose up` that
@@ -203,12 +218,7 @@ export function patchComposeWithTopologyHosts(
     return;
   }
 
-  if (!agentService.extra_hosts) {
-    agentService.extra_hosts = {};
-  }
-  for (const [name, ip] of peerIps) {
-    agentService.extra_hosts[name] = ip;
-  }
+  mergePeerHosts(agentService, peerIps);
 
   // Also give the squid-proxy container the same name→IP mappings. Squid resolves
   // proxied destinations via its external `dns_nameservers`, which cannot resolve
@@ -220,14 +230,20 @@ export function patchComposeWithTopologyHosts(
   // recreates squid-proxy to pick up the new extra_hosts.
   const squidService = compose?.services?.['squid-proxy'];
   if (squidService) {
-    if (!squidService.extra_hosts) {
-      squidService.extra_hosts = {};
-    }
-    for (const [name, ip] of peerIps) {
-      squidService.extra_hosts[name] = ip;
-    }
+    mergePeerHosts(squidService, peerIps);
   } else {
     log.warn('Could not find squid-proxy service in docker-compose.yml; skipping Squid topology DNS patch');
+  }
+
+  // The cli-proxy dials AWF_DIFC_PROXY_HOST (for example `awmg-cli-proxy`)
+  // before the agent runs. Give it the same static host mappings so inherited
+  // Kubernetes search domains / ndots settings from ARC DinD cannot make musl
+  // return EAI_AGAIN before Docker's bare service name can resolve.
+  const cliProxyService = compose?.services?.['cli-proxy'];
+  if (cliProxyService) {
+    mergePeerHosts(cliProxyService, peerIps);
+  } else {
+    log.info('cli-proxy not enabled; no topology DNS patch needed');
   }
 
   fs.writeFileSync(composePath, yaml.dump(compose, { lineWidth: -1 }), { mode: 0o600 });

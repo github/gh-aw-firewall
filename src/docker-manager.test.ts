@@ -9,6 +9,12 @@
 // module tests.
 
 import * as dockerManager from './docker-manager';
+import { execFileSync } from 'child_process';
+
+jest.mock('child_process', () => ({ ...jest.requireActual('child_process'), execFileSync: jest.fn() }));
+const mockExec = execFileSync as unknown as jest.Mock;
+type Compose = Parameters<typeof dockerManager.filterComposeCapDrop>[0];
+type Out = { services: Record<string, { cap_drop?: string[] }> };
 
 describe('docker-manager (barrel re-exports)', () => {
   it('re-exports host-env symbols', () => {
@@ -73,5 +79,102 @@ describe('docker-manager (barrel re-exports)', () => {
 
   it('isCapDropSkipped returns a boolean via the barrel re-export', () => {
     expect(typeof dockerManager.isCapDropSkipped()).toBe('boolean');
+  });
+
+
+
+
+
+
+  describe('filterCapDrop with explicit bounding set', () => {
+    const original = process.env.AWF_SKIP_CAP_DROP;
+    afterEach(() => {
+      if (original === undefined) delete process.env.AWF_SKIP_CAP_DROP;
+      else process.env.AWF_SKIP_CAP_DROP = original;
+    });
+
+    it('returns the original list when the bounding set is unknown', () => {
+      delete process.env.AWF_SKIP_CAP_DROP;
+      expect(dockerManager.filterCapDrop(['NET_ADMIN'], null)).toEqual(['NET_ADMIN']);
+    });
+
+    it('keeps ALL and drops capabilities absent from the bounding set', () => {
+      delete process.env.AWF_SKIP_CAP_DROP;
+      const capBnd = BigInt(1) << BigInt(12); // NET_ADMIN only
+      expect(dockerManager.filterCapDrop(['ALL', 'NET_ADMIN', 'SYS_ADMIN'], capBnd)).toEqual(['ALL', 'NET_ADMIN']);
+    });
+
+    it.each(['1', 'true', 'YES'])('returns empty when AWF_SKIP_CAP_DROP=%s', (v) => {
+      process.env.AWF_SKIP_CAP_DROP = v;
+      expect(dockerManager.isCapDropSkipped()).toBe(true);
+      expect(dockerManager.filterCapDrop(['ALL'], null)).toEqual([]);
+    });
+
+    it('does not skip for other values', () => {
+      process.env.AWF_SKIP_CAP_DROP = 'no';
+      expect(dockerManager.isCapDropSkipped()).toBe(false);
+    });
+  });
+
+  describe('getHostCapabilityBoundingSet via barrel', () => {
+    beforeEach(() => mockExec.mockReset());
+
+    it('parses CapBnd from probe output', () => {
+      mockExec.mockReturnValue('Name:\tsh\nCapBnd:\t000000000000ffff\n');
+      expect(dockerManager.getHostCapabilityBoundingSet('img:1')).toBe(BigInt(0xffff));
+      expect(mockExec.mock.calls[0][1]).toContain('img:1');
+    });
+
+    it('returns null when CapBnd is missing or docker fails', () => {
+      mockExec.mockReturnValueOnce('Name: sh\n');
+      expect(dockerManager.getHostCapabilityBoundingSet()).toBeNull();
+      mockExec.mockImplementationOnce(() => { throw new Error('no docker'); });
+      expect(dockerManager.getHostCapabilityBoundingSet()).toBeNull();
+    });
+  });
+
+  describe('filterComposeCapDrop via barrel', () => {
+    const original = process.env.AWF_SKIP_CAP_DROP;
+    beforeEach(() => { mockExec.mockReset(); delete process.env.AWF_SKIP_CAP_DROP; });
+    afterEach(() => {
+      if (original === undefined) delete process.env.AWF_SKIP_CAP_DROP;
+      else process.env.AWF_SKIP_CAP_DROP = original;
+    });
+
+    it('returns config unchanged when it has no services', () => {
+      const cfg = {} as unknown as Compose;
+      expect(dockerManager.filterComposeCapDrop(cfg, null)).toBe(cfg);
+    });
+
+    it('filters per-service cap_drop and removes empty lists', () => {
+      const capBnd = BigInt(1) << BigInt(12);
+      const cfg = {
+        services: {
+          a: { image: 'x', cap_drop: ['NET_ADMIN', 'SYS_ADMIN'] },
+          b: { image: 'y', cap_drop: ['SYS_ADMIN'] },
+          c: { image: 'z' },
+        },
+      } as unknown as Compose;
+      const out = dockerManager.filterComposeCapDrop(cfg, capBnd) as unknown as Out;
+      expect(out.services.a.cap_drop).toEqual(['NET_ADMIN']);
+      expect(out.services.b.cap_drop).toBeUndefined();
+      expect(out.services.c.cap_drop).toBeUndefined();
+      expect(mockExec).not.toHaveBeenCalled();
+    });
+
+    it('probes the daemon with the first service image when no override is given', () => {
+      mockExec.mockReturnValue('CapBnd:\t0000000000000000\n');
+      const cfg = { services: { a: { image: 'probe:img', cap_drop: ['NET_ADMIN', 'ALL'] } } } as unknown as Compose;
+      const out = dockerManager.filterComposeCapDrop(cfg) as unknown as Out;
+      expect(mockExec.mock.calls[0][1]).toContain('probe:img');
+      expect(out.services.a.cap_drop).toEqual(['ALL']);
+    });
+  });
+
+  describe('filterCapDrop via barrel', () => {
+    it('returns empty for undefined or empty lists', () => {
+      expect(dockerManager.filterCapDrop(undefined, null)).toEqual([]);
+      expect(dockerManager.filterCapDrop([], null)).toEqual([]);
+    });
   });
 });

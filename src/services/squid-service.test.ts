@@ -43,6 +43,17 @@ describe('squid service', () => {
       expect(squid.stop_grace_period).toBe('2s');
     });
 
+    it('should set a bounded restart policy so a transient crash self-heals', () => {
+      // Squid runs as PID 1 in the foreground; without a restart policy, a
+      // transient crash tears down its network endpoint and peers see a bare
+      // EHOSTUNREACH on their next connection attempt instead of Docker
+      // bringing it back up. The retry count stays bounded so persistent
+      // startup failures still surface via didContainerFailStartup().
+      const result = generateDockerCompose(mockConfig, mockNetworkConfig);
+      const squid = result.services['squid-proxy'] as any;
+      expect(squid.restart).toBe('on-failure:3');
+    });
+
     it('should inject squid config via base64 env var when content is provided', () => {
       const squidConfig = 'http_port 3128\nacl allowed_domains dstdomain .github.com\n';
       const result = generateDockerCompose(mockConfig, mockNetworkConfig, undefined, squidConfig);

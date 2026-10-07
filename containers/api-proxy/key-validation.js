@@ -4,6 +4,7 @@ const { fetchJson, httpProbe, extractModelIds, extractModelMetadata } = require(
 const {
   replaceRuntimeModels,
   clearRuntimeModels,
+  getRuntimeModels,
   getRuntimeCatalogSnapshot,
 } = require('./runtime-model-catalog');
 const { logRequest } = require('./logging');
@@ -272,6 +273,7 @@ const testHelpers = { _resolveModelForValidation };
 module.exports = {
   keyValidationResults,
   cachedModels,
+  getRuntimeModels,
   getRuntimeCatalogSnapshot,
   configureKeyValidation,
   resetKeyValidationState,

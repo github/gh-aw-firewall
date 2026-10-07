@@ -1,5 +1,8 @@
+import * as apiProxyConfigDomains from './api-proxy-config-domains';
 import {
+  extractOtlpEndpointsFromEnv,
   resolveApiTargetsToAllowedDomains,
+  resolveOtlpEndpointEnv,
 } from './api-proxy-config-domains';
 
 describe('resolveApiTargetsToAllowedDomains', () => {
@@ -468,5 +471,61 @@ describe('resolveApiTargetsToAllowedDomains with GHES', () => {
     expect(domains).toContain('telemetry.enterprise.githubcopilot.com');
     expect(domains).not.toContain('custom.copilot.com');
     expect(domains).toContain('https://custom.copilot.com');
+  });
+});
+
+describe('OTLP endpoint resolution', () => {
+  it('keeps the endpoint environment variable list module-private', () => {
+    expect(apiProxyConfigDomains).not.toHaveProperty('OTLP_ENDPOINT_ENV_VARS');
+  });
+
+  it('resolves env values with additional env, env-file, then host precedence', () => {
+    expect(resolveOtlpEndpointEnv(
+      { OTEL_EXPORTER_OTLP_ENDPOINT: 'https://additional.example.com' },
+      {
+        OTEL_EXPORTER_OTLP_ENDPOINT: 'https://file.example.com',
+        OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: 'https://file-traces.example.com',
+      },
+      {
+        OTEL_EXPORTER_OTLP_ENDPOINT: 'https://host.example.com',
+        OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: 'https://host-traces.example.com',
+        OTEL_EXPORTER_OTLP_METRICS_ENDPOINT: 'https://host-metrics.example.com',
+      }
+    )).toEqual({
+      OTEL_EXPORTER_OTLP_ENDPOINT: 'https://additional.example.com',
+      OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: 'https://file-traces.example.com',
+      OTEL_EXPORTER_OTLP_METRICS_ENDPOINT: 'https://host-metrics.example.com',
+      OTEL_EXPORTER_OTLP_LOGS_ENDPOINT: undefined,
+    });
+  });
+
+  it('extracts exact collector hosts, ports, and protocols from global and per-signal endpoints', () => {
+    expect(extractOtlpEndpointsFromEnv({
+      OTEL_EXPORTER_OTLP_ENDPOINT: 'https://otel.example.com:4318',
+      OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: 'http://traces.otel.example.com',
+      OTEL_EXPORTER_OTLP_METRICS_ENDPOINT: 'http://otel.example.com:4318',
+      OTEL_EXPORTER_OTLP_LOGS_ENDPOINT: 'http://logs.otel.example.com',
+    })).toEqual([
+      { hostname: 'otel.example.com', port: 4318, protocol: 'https' },
+      { hostname: 'traces.otel.example.com', port: 80, protocol: 'http' },
+      { hostname: 'otel.example.com', port: 4318, protocol: 'http' },
+      { hostname: 'logs.otel.example.com', port: 80, protocol: 'http' },
+    ]);
+  });
+
+  it('ignores malformed, non-HTTP(S), and dangerous-port endpoints', () => {
+    expect(extractOtlpEndpointsFromEnv({
+      OTEL_EXPORTER_OTLP_ENDPOINT: 'not-a-valid-url',
+      OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: 'grpc://otel.example.com:4317',
+      OTEL_EXPORTER_OTLP_METRICS_ENDPOINT: 'https://otel.example.com:5432',
+    })).toEqual([]);
+  });
+
+  it('does not add OTLP endpoints to the broad domain allowlist', () => {
+    const domains: string[] = [];
+    resolveApiTargetsToAllowedDomains({}, domains, {
+      OTEL_EXPORTER_OTLP_ENDPOINT: 'https://otel.example.com:4318',
+    });
+    expect(domains).toEqual([]);
   });
 });

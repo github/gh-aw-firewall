@@ -5,11 +5,18 @@ const {
   filterResolvableAliases,
   filterAvailableModelsToConfiguredProviders,
 } = require('./model-resolver');
-const { rewriteModelInBody } = require('./model-body-rewriter');
+const {
+  rewriteModelInBody,
+  isCopilotAutoResponsesRequest,
+  rewriteCopilotAutoResponsesModelInBody,
+} = require('./model-body-rewriter');
 const { sanitizeForLog, logRequest } = require('./logging');
 const { diag } = require('./token-persistence');
 const { getCopilotModelFallbackPolicy } = require('./providers/copilot-auth');
-const { ALLOWED_MODELS, DISALLOWED_MODELS } = require('./guards/model-policy-guard');
+const {
+  ALLOWED_MODELS,
+  DISALLOWED_MODELS,
+} = require('./guards/model-policy-guard');
 const { isModelPriceable } = require('./guards/ai-credits-guard');
 
 const MODEL_ALIASES_RAW = (process.env.AWF_MODEL_ALIASES || '').trim() || undefined;
@@ -121,8 +128,16 @@ function getEffectiveModelFallbackForReflect(adapters) {
   return effectiveByProvider;
 }
 
-function makeModelBodyTransform(provider, cachedModels, refreshProviderModelsForResolution, getConfiguredModelCacheKeys) {
-  if (!MODEL_ALIASES) return null;
+function makeModelBodyTransform(
+  provider,
+  cachedModels,
+  refreshProviderModelsForResolution,
+  getConfiguredModelCacheKeys,
+  getRuntimeModels = () => [],
+  isNativeCopilot = false,
+) {
+  const canRouteCopilotAutoResponses = provider === 'copilot' && isNativeCopilot === true;
+  if (!MODEL_ALIASES && !canRouteCopilotAutoResponses) return null;
   const providerModelFallback = getModelFallbackForProvider(provider);
   const resolvableModels = () => (
     getConfiguredModelCacheKeys
@@ -130,10 +145,36 @@ function makeModelBodyTransform(provider, cachedModels, refreshProviderModelsFor
       : cachedModels
   );
   return async (body, req) => {
-    let result = rewriteModelInBody(body, provider, MODEL_ALIASES.models, resolvableModels(), providerModelFallback, MODEL_POLICY_CONFIG);
-    if (!result || (result.fallback && result.fallback.activated)) {
-      await refreshProviderModelsForResolution(provider);
+    let result = null;
+    if (
+      canRouteCopilotAutoResponses &&
+      isCopilotAutoResponsesRequest(body, req)
+    ) {
+      const getAutoResolution = () => rewriteCopilotAutoResponsesModelInBody(
+        body,
+        cachedModels.copilot,
+        getRuntimeModels('copilot'),
+        MODEL_POLICY_CONFIG,
+      );
+      result = getAutoResolution();
+      if (!result) {
+        await refreshProviderModelsForResolution(provider);
+        result = getAutoResolution();
+      }
+      if (!result) {
+        const error = new Error('No available GitHub Copilot model supports Responses and Codex tools');
+        error.statusCode = 503;
+        error.code = 'copilot_auto_responses_model_unavailable';
+        error.type = 'service_unavailable';
+        throw error;
+      }
+    }
+    if (!result && MODEL_ALIASES) {
       result = rewriteModelInBody(body, provider, MODEL_ALIASES.models, resolvableModels(), providerModelFallback, MODEL_POLICY_CONFIG);
+      if (!result || (result.fallback && result.fallback.activated)) {
+        await refreshProviderModelsForResolution(provider);
+        result = rewriteModelInBody(body, provider, MODEL_ALIASES.models, resolvableModels(), providerModelFallback, MODEL_POLICY_CONFIG);
+      }
     }
     if (!result) return null;
     // Store ranked candidates on the request object so endpoint-blocked retry

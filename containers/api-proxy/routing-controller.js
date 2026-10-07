@@ -1,5 +1,6 @@
 'use strict';
 
+const { createHash } = require('crypto');
 const { buildRoutingCandidates } = require('./routing-candidates');
 const { extractClassifierOutput, preflightClassifierRequest } = require('./routing-classifier');
 const {
@@ -64,13 +65,18 @@ function createSelection(choice, mapping) {
   return deepFreezeJson({
     schema: 'awf-routing-selection/v1',
     engine: 'copilot',
-    provider: 'copilot',
+    provider: mapping.provider,
     choice: {
       id: choice.id,
       model: choice.model,
       ...(Object.hasOwn(choice, 'effort') ? { effort: choice.effort } : {}),
     },
     wire_model: mapping.wireModel,
+    endpoint: {
+      responses: '/responses',
+      'chat-completions': '/chat/completions',
+      messages: '/v1/messages',
+    }[mapping.protocol],
   });
 }
 
@@ -146,8 +152,9 @@ function createRoutingController(dependencies) {
       // Checks router identity and objective support. The execution catalogue does not narrow the pool.
       validateCapabilities(rawCapabilities, config.objective, routerIdentity);
 
-      const snapshot = await runPhase(({ signal: phaseSignal }) => catalogue.getSnapshot({ signal: phaseSignal }));
-      const pool = buildRoutingCandidates({ catalogue: snapshot, policy });
+      const snapshot = await runPhase(({ signal: phaseSignal }) =>
+        catalogue.getSnapshot({ signal: phaseSignal, provider: config.provider || 'copilot' }));
+      const pool = buildRoutingCandidates({ catalogue: snapshot, policy, candidateModels: config.candidateModels });
       catalogueOverlap = countCatalogueOverlap(rawCapabilities, pool.choices);
 
       const loadedConversation = await runPhase(({ signal: phaseSignal }) =>
@@ -159,6 +166,7 @@ function createRoutingController(dependencies) {
       assertPlanningRequestSize(classifyRequest);
 
       let classification = null;
+      let successfulClassifier = null;
       let degradedReason = null;
       let classifierPlan;
       try {
@@ -174,6 +182,10 @@ function createRoutingController(dependencies) {
       for (const choice of classifierPlan.ranked_choices) {
         if (actualAttempts >= CLASSIFIER_MAX_ATTEMPTS) break;
         const mapping = pool.byId[choice.id];
+        if (!Number.isInteger(mapping.contextWindow) || mapping.contextWindow <= 0) {
+          capacityExclusions++;
+          continue;
+        }
         const preflight = preflightClassifierRequest(mapping, classifierPlan);
         if (!preflight.eligible) {
           capacityExclusions++;
@@ -195,6 +207,7 @@ function createRoutingController(dependencies) {
               path: preflight.request.path,
               body: preflight.request.body,
               purpose: PURPOSE,
+              provider: mapping.provider,
             }, { signal: phaseSignal, timeoutMs }),
             {
               signal,
@@ -223,6 +236,9 @@ function createRoutingController(dependencies) {
 
         const rawOutput = extractClassifierOutput(mapping.protocol, result.body);
         classification = rawOutput === null ? null : validateClassifierOutput(rawOutput);
+        if (classification !== null) {
+          successfulClassifier = { model: mapping.choice.model, effort: mapping.effort ?? null };
+        }
         if (classification === null) degradedReason = 'invalid_classifier_output';
         break;
       }
@@ -259,6 +275,20 @@ function createRoutingController(dependencies) {
       safeRecord(observer, {
         stage: 'selection',
         objective: config.objective,
+        provider: config.provider || 'copilot',
+        selected_provider: selection.provider,
+        wire_model: selection.wire_model,
+        endpoint: selection.endpoint,
+        labels: classification?.labels ?? null,
+        mode: classification?.mode ?? null,
+        classifier_model: successfulClassifier?.model ?? null,
+        classifier_effort: successfulClassifier?.effort ?? null,
+        router: { name: rawCapabilities.name, version: rawCapabilities.version },
+        ranked_choices: route.ranked_choices.map(choice => ({
+          model: choice.model,
+          effort: choice.effort ?? null,
+        })),
+        conversation_sha256: createHash('sha256').update(JSON.stringify(conversation)).digest('hex'),
         selected_id: selection.choice.id,
         selected_model: selection.choice.model,
         selected_effort: selection.choice.effort ?? null,

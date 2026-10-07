@@ -54,7 +54,8 @@ function createDecompressor(headers) {
  * Extract reasoning token count from provider usage payloads.
  *
  * Supports explicit `reasoning_tokens` and provider-specific nested fields.
- * Priority order: top-level → completion_tokens_details → output_tokens_details.
+ * Priority order: top-level → completion_tokens_details → output_tokens_details
+ * (`reasoning_tokens`, then OpenRouter's `thinking_tokens`).
  */
 function extractReasoningTokens(usage) {
   if (!usage || typeof usage !== 'object') return undefined;
@@ -64,6 +65,10 @@ function extractReasoningTokens(usage) {
   }
   if (usage.output_tokens_details && typeof usage.output_tokens_details.reasoning_tokens === 'number') {
     return usage.output_tokens_details.reasoning_tokens;
+  }
+  // OpenRouter's Anthropic-compatible endpoint names it `thinking_tokens`.
+  if (usage.output_tokens_details && typeof usage.output_tokens_details.thinking_tokens === 'number') {
+    return usage.output_tokens_details.thinking_tokens;
   }
   return undefined;
 }
@@ -210,9 +215,31 @@ function buildAnthropicMessageStartUsage(usage) {
   return out;
 }
 
+function isPositiveNumber(value) {
+  return typeof value === 'number' && value > 0;
+}
+
+/**
+ * Build usage from an Anthropic `message_delta` event.
+ *
+ * `message_delta.usage` is cumulative. Anthropic may include input and cache
+ * fields here, and OpenRouter's Anthropic-compatible endpoint reports the real
+ * input / cache counts ONLY here (its `message_start` carries placeholder zeros
+ * or nulls). Input and cache fields are copied only when positive so a non-zero
+ * delta value overrides the `message_start` placeholder, while a zero delta
+ * value never erases a real `message_start` count.
+ */
 function buildAnthropicMessageDeltaUsage(usage) {
   const out = {};
   if (typeof usage.output_tokens === 'number') out.output_tokens = usage.output_tokens;
+  if (isPositiveNumber(usage.input_tokens)) out.input_tokens = usage.input_tokens;
+  if (isPositiveNumber(usage.cache_creation_input_tokens)) {
+    out.cache_creation_input_tokens = usage.cache_creation_input_tokens;
+  }
+  const cacheReadTokens = extractCacheReadTokens(usage);
+  if (isPositiveNumber(cacheReadTokens)) out.cache_read_input_tokens = cacheReadTokens;
+  const reasoningTokens = extractReasoningTokens(usage);
+  if (typeof reasoningTokens === 'number') out.reasoning_tokens = reasoningTokens;
   return out;
 }
 
@@ -379,7 +406,8 @@ function extractUsageFromJson(body) {
  *
  * Anthropic streaming events with usage:
  *   - message_start: { type: "message_start", message: { usage: { input_tokens, cache_creation_input_tokens, cache_read_input_tokens } } }
- *   - message_delta: { type: "message_delta", usage: { output_tokens } }
+ *   - message_delta: { type: "message_delta", usage: { output_tokens, [input_tokens], [cache_*_input_tokens] } }
+ *     (cumulative; OpenRouter reports input/cache counts only here)
  *
  * OpenAI/Copilot streaming events with usage:
  *   - Final chunk: { usage: { prompt_tokens, completion_tokens, total_tokens, prompt_tokens_details: { cached_tokens } } }

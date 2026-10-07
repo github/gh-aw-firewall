@@ -7,12 +7,34 @@ import type { CloudHypervisorCgroup } from './launcher';
 import type { CloudHypervisorCleanupRegistry } from './cleanup-registry';
 import type { CloudHypervisorVmmIdentityManager } from './vmm-identity';
 import { CloudHypervisorManager } from './manager';
+import { createCloudHypervisorRunPaths } from './manager-types';
 
 import {
   virtiofsdManagerMock, config, processMock, networkConfig, guestConfig, cleanupHandleMock, vmmIdentityMock, dependencies,
 } from './manager.test-utils';
 
   describe('stop and cleanup', () => {
+  it('removes the invocation-derived short run path before releasing the VMM identity', async () => {
+    const runId = 'a'.repeat(32);
+    const root = `/run/awf-cloud-hypervisor/enclave-storage/${runId}`;
+    const removed: string[] = [];
+    const identity = vmmIdentityMock();
+    (identity.cleanup as jest.Mock).mockImplementation(async () => {
+      expect(removed).toContain(`${root}/runs/vm`);
+    });
+    const deps = dependencies({
+      createRunPaths: (binary, id, workload) => createCloudHypervisorRunPaths(binary, id, workload, root),
+      createVmmIdentity: jest.fn(() => identity),
+      rm: jest.fn(async (directory) => { removed.push(directory); }),
+    });
+    const manager = new CloudHypervisorManager(config(), root, deps, runId, networkConfig());
+    await manager.start();
+    await manager.stop();
+    expect(deps.rm).toHaveBeenCalledWith(`${root}/runs/vm`, { recursive: true, force: true });
+    expect(removed).not.toContain(`${root}/runs/cloud-hypervisor/${runId}`);
+    expect(identity.cleanup).toHaveBeenCalledTimes(1);
+  });
+
   it('cleans up the network and cgroup before removing the run directory', async () => {
     const order: string[] = [];
     const deps = dependencies({
@@ -65,6 +87,7 @@ import {
     const handle = cleanupHandleMock();
     (handle.complete as jest.Mock).mockImplementation(async () => { order.push('record-complete'); });
     const registry: CloudHypervisorCleanupRegistry = {
+      hasPendingRecord: jest.fn().mockResolvedValue(false),
       reapPending: jest.fn(async () => { order.push('reap'); }),
       createPending: jest.fn(async () => {
         order.push('record-create');
@@ -104,6 +127,7 @@ import {
         release,
       })),
       cleanupRegistry: {
+        hasPendingRecord: jest.fn().mockResolvedValue(false),
         reapPending: jest.fn().mockResolvedValue(undefined),
         createPending: jest.fn().mockRejectedValue(new Error('registry unavailable')),
         create: jest.fn().mockRejectedValue(new Error('registry unavailable')),
@@ -164,15 +188,7 @@ import {
     expect(cgroup.cleanup).toHaveBeenCalledTimes(1);
   });
 
-  it('invokes a beforeCleanup hook after process termination but before run-directory removal', async () => {
-    // Regression test: Cloud Hypervisor does not flush buffered guest
-    // serial console output until its process actually exits, so
-    // diagnostics collection must happen after process termination is
-    // confirmed but before stop() removes the run directory those
-    // diagnostic files live in. Discovered via live-KVM validation: a
-    // guest boot failure produced a completely empty serial console log
-    // when diagnostics were collected any earlier (e.g. before
-    // vmm.shutdown()/process termination).
+  async function createStartedManager() {
     const child = processMock();
     const deps = dependencies({
       launch: jest.fn().mockReturnValue(child),
@@ -186,6 +202,19 @@ import {
       guestConfig(),
     );
     await manager.start();
+    return { manager, deps, child };
+  }
+
+  it('invokes a beforeCleanup hook after process termination but before run-directory removal', async () => {
+    // Regression test: Cloud Hypervisor does not flush buffered guest
+    // serial console output until its process actually exits, so
+    // diagnostics collection must happen after process termination is
+    // confirmed but before stop() removes the run directory those
+    // diagnostic files live in. Discovered via live-KVM validation: a
+    // guest boot failure produced a completely empty serial console log
+    // when diagnostics were collected any earlier (e.g. before
+    // vmm.shutdown()/process termination).
+    const { manager, deps } = await createStartedManager();
 
     const beforeCleanup = jest.fn(async () => {});
 
@@ -207,19 +236,7 @@ import {
   });
 
   it('propagates a beforeCleanup hook failure alongside other stop() errors', async () => {
-    const child = processMock();
-    const deps = dependencies({
-      launch: jest.fn().mockReturnValue(child),
-    });
-    const manager = new CloudHypervisorManager(
-      config(),
-      '/tmp/awf',
-      deps,
-      'keep',
-      networkConfig(),
-      guestConfig(),
-    );
-    await manager.start();
+    const { manager, deps } = await createStartedManager();
 
     await expect(
       manager.stop({
@@ -348,4 +365,3 @@ import {
   });
 
   });
-

@@ -35,9 +35,20 @@ This directory contains comprehensive integration tests that verify firewall beh
 
 ### Integration Testing
 - **CLI Proxy** (`cli-proxy.test.ts`) - gh wrapper routing, token isolation, and opt-in approved-integrity live regression coverage
+- **Model Routing** (`model-routing.test.ts`) - Router health, capabilities, classifier, and route endpoints from the API-proxy network
 - **Claude Code** (`claude-code.test.ts`) - Claude Code CLI integration
 - **No Docker** (`no-docker.test.ts`) - Docker-in-Docker removal verification
 - **Docker Warning** (`docker-warning.test.ts`) - Docker command warning messages
+
+The model-routing smoke exercises the router's live planning API through the
+API-proxy container and prints a `MODEL_ROUTING_SMOKE` record with the router
+version and selected fixture choice. The GitHub Actions workflow
+`.github/workflows/test-model-routing.yml` also runs AWF on Linux with routing
+enabled, restricts routing to one known Copilot model, and validates a live
+Copilot inference response. It runs on routing-related pushes to `main`,
+weekly, and via `workflow_dispatch` on `main` only. It deliberately
+does not run on pull requests because it uses `copilot-requests: write` and
+performs a real inference with the workflow token.
 
 ## Smoke Tests
 

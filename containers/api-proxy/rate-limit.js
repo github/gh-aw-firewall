@@ -15,9 +15,12 @@ function createRateLimitChecker({ limiter, metrics, logRequest, generateRequestI
     const check = limiter.check(provider, requestBytes);
     if (!check.allowed) {
       const clientRequestId = req.headers['x-request-id'];
-      const requestId = isValidRequestId(clientRequestId)
-        ? clientRequestId
-        : generateRequestId();
+      const requestId = req.awfRouting?.requestId
+        || (isValidRequestId(clientRequestId) ? clientRequestId : generateRequestId());
+      if (req.awfRouting) {
+        req.awfRouting.requestId = requestId;
+        req.awfRouting.rejected = true;
+      }
       const limitLabels = { rpm: 'requests per minute', rph: 'requests per hour', bytes_pm: 'bytes per minute' };
       const windowLabel = limitLabels[check.limitType] || check.limitType;
 

@@ -1,3 +1,4 @@
+import * as path from 'path';
 import type { ExecaChildProcess } from 'execa';
 import type {
   MicrovmNetworkLifecycle,
@@ -9,6 +10,7 @@ import type { CloudHypervisorApiClient } from './api-client';
 import type { CloudHypervisorCgroup } from './launcher';
 import type { VirtiofsdManager } from './virtiofsd';
 import type { CloudHypervisorDirectoryExport } from './exports';
+import type { CloudHypervisorEnclaveExportRole, CloudHypervisorEnclaveExportPlan } from './enclave-export-plan';
 import {
   type CloudHypervisorManagerDependencies,
   type CloudHypervisorManagerNetworkConfig,
@@ -18,6 +20,7 @@ import type {
   CloudHypervisorCleanupRegistry,
 } from './cleanup-registry';
 import type { CloudHypervisorVmmIdentityManager } from './vmm-identity';
+import type { CloudHypervisorNetworkLifecycle } from './network-namespace';
 import {
   cloudHypervisorHostTools as hostTools,
   createCloudHypervisorOptions as config,
@@ -84,6 +87,50 @@ function guestConfig() {
   };
 }
 
+function enclaveExportPlan(
+  role: CloudHypervisorEnclaveExportRole,
+  entryId = role === 'script' ? 'script-entry' : 'agent-entry',
+  invocationId = role === 'script' ? 'b'.repeat(32) : 'd'.repeat(32),
+): CloudHypervisorEnclaveExportPlan {
+  const seedsDir = '/trusted/seeds';
+  const invocationsDir = '/trusted/invocations';
+  const seedId = 'c'.repeat(32);
+  const invocationHostDir = path.join(invocationsDir, entryId, invocationId);
+  const exports: CloudHypervisorDirectoryExport[] = [
+    { tag: 'enclave-seed', source: path.join(seedsDir, seedId), target: '/input-seed', mode: 'ro' },
+    { tag: 'enclave-request', source: path.join(invocationHostDir, 'request'), target: '/input-request', mode: 'ro' },
+    { tag: 'enclave-output', source: path.join(invocationHostDir, 'output'), target: '/output', mode: 'rw' },
+    { tag: 'enclave-runtime', source: path.join(invocationHostDir, 'runtime'), target: '/runtime', mode: 'rw' },
+  ];
+  if (role === 'agent') {
+    exports.push(
+      {
+        tag: 'enclave-session-handoff',
+        source: path.join(invocationHostDir, 'session-handoff'),
+        target: '/session-handoff',
+        mode: 'ro',
+      },
+      {
+        tag: 'enclave-session-state',
+        source: path.join(invocationHostDir, 'session-state'),
+        target: '/session-state',
+        mode: 'rw',
+      },
+    );
+  }
+  return {
+    role,
+    runId: 'a'.repeat(32),
+    entryId,
+    invocationId,
+    seedId,
+    seedsDir,
+    invocationsDir,
+    invocationHostDir,
+    exports,
+  };
+}
+
 function createTestNetworkPlan(
   overrides: Partial<MicrovmNetworkPlan> = {},
 ): MicrovmNetworkPlan {
@@ -123,6 +170,14 @@ function networkLifecycle(plan: MicrovmNetworkPlan): MicrovmNetworkLifecycle {
   };
 }
 
+function emptyNetworkLifecycle(): CloudHypervisorNetworkLifecycle {
+  return {
+    setup: jest.fn().mockResolvedValue(undefined),
+    cleanup: jest.fn().mockResolvedValue(undefined),
+    captureDiagnostics: jest.fn().mockResolvedValue(''),
+  };
+}
+
 function cgroupMock(): CloudHypervisorCgroup {
   return {
     cgroupPath: '/sys/fs/cgroup/awf-cloud-hypervisor/run',
@@ -140,6 +195,7 @@ function cgroupMock(): CloudHypervisorCgroup {
 function cleanupHandleMock(): CloudHypervisorCleanupHandle {
   return {
     captureNetworkPlan: jest.fn().mockResolvedValue(undefined),
+    captureEmptyNetworkNamespace: jest.fn().mockResolvedValue(undefined),
     captureArtifactSnapshot: jest.fn().mockResolvedValue(undefined),
     prepareVmmAccount: jest.fn().mockResolvedValue(undefined),
     captureVmmIdentity: jest.fn().mockResolvedValue(undefined),
@@ -157,6 +213,7 @@ function cleanupHandleMock(): CloudHypervisorCleanupHandle {
 
 function cleanupRegistryMock(): CloudHypervisorCleanupRegistry {
   return {
+    hasPendingRecord: jest.fn().mockResolvedValue(false),
     reapPending: jest.fn().mockResolvedValue(undefined),
     createPending: jest.fn().mockResolvedValue(cleanupHandleMock()),
     create: jest.fn().mockResolvedValue(cleanupHandleMock()),
@@ -214,6 +271,7 @@ function dependencies(
       return { plan, release: jest.fn().mockResolvedValue(undefined) };
     }),
     createNetwork: jest.fn((plan) => networkLifecycle(plan)),
+    createEmptyNetworkNamespace: jest.fn(() => emptyNetworkLifecycle()),
     cleanupRegistry: cleanupRegistryMock(),
     createRootfsPreparer: jest.fn(() => rootfsPreparerMock()),
     createVirtiofsdManager: jest.fn(() => virtiofsdManagerMock()),
@@ -255,4 +313,4 @@ function dependencies(
 }
 
 
-export { hostTools, exportsConfig, rootfsPreparerMock, virtiofsdManagerMock, config, processMock, networkConfig, guestConfig, createTestNetworkPlan, networkLifecycle, cgroupMock, cleanupHandleMock, cleanupRegistryMock, vmmIdentityMock, dependencies };
+export { hostTools, exportsConfig, rootfsPreparerMock, virtiofsdManagerMock, config, processMock, networkConfig, guestConfig, enclaveExportPlan, createTestNetworkPlan, networkLifecycle, emptyNetworkLifecycle, cgroupMock, cleanupHandleMock, cleanupRegistryMock, vmmIdentityMock, dependencies };

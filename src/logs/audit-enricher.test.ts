@@ -229,6 +229,21 @@ describe('computeRuleStats', () => {
     expect(stats.find(r => r.ruleId === 'deny-default')?.hits).toBe(1);
   });
 
+  it('should ignore NONE_* operational entries when counting rule hits', () => {
+    const manifest = makeDefaultManifest();
+
+    const entries: EnrichedLogEntry[] = [
+      { ...makeEntry({ domain: 'github.com', isAllowed: true }), matchedRuleId: 'allow-both-plain', matchReason: '' },
+      { ...makeEntry({ domain: 'github.com', decision: 'NONE_NONE:HIER_NONE', statusCode: 0, isAllowed: false, url: 'github.com:443' }), matchedRuleId: 'allow-both-plain', matchReason: '' },
+      { ...makeEntry({ domain: 'evil.com', isAllowed: false }), matchedRuleId: 'deny-default', matchReason: '' },
+    ];
+
+    const stats = computeRuleStats(entries, manifest);
+
+    expect(stats.find(r => r.ruleId === 'allow-both-plain')?.hits).toBe(1);
+    expect(stats.find(r => r.ruleId === 'deny-default')?.hits).toBe(1);
+  });
+
   it('should report 0 hits for unused rules', () => {
     const manifest = makeDefaultManifest();
 

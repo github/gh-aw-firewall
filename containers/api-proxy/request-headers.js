@@ -131,10 +131,10 @@ function applyCopilotHostHeaders(headers, targetHost) {
  * @param {Buffer} body - Final (possibly transformed) request body
  * @param {number} inboundBytes - Original body size before transforms
  * @param {import('http').IncomingMessage} req
- * @param {{ injectHeaders: object, provider: string, targetHost: string, requestId: string, codexCompatibility?: object|null }} opts
+ * @param {{ injectHeaders: object, provider: string, targetHost: string, requestId: string, codexCompatibility?: object|null, wireApiCompatibility?: object|null }} opts
  * @returns {object} Headers object for the upstream request
  */
-function buildRequestHeaders(body, inboundBytes, req, { injectHeaders, provider, targetHost, requestId, codexCompatibility = null }) {
+function buildRequestHeaders(body, inboundBytes, req, { injectHeaders, provider, targetHost, requestId, codexCompatibility = null, wireApiCompatibility = null }) {
   const headers = {};
   for (const [name, value] of Object.entries(req.headers)) {
     if (!shouldStripHeader(name)) headers[name] = value;
@@ -165,7 +165,7 @@ function buildRequestHeaders(body, inboundBytes, req, { injectHeaders, provider,
   // `custom_tool_call` events). It operates on plain text, so a compressed
   // response would leave the translated payload silently unrewritten. Force
   // identity encoding whenever the request was translated for compatibility.
-  if (codexCompatibility) {
+  if (codexCompatibility || (wireApiCompatibility && !wireApiCompatibility.passthrough)) {
     headers['accept-encoding'] = 'identity';
   }
 

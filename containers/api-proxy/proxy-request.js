@@ -26,6 +26,7 @@ const {
 } = require('./deprecated-header-tracker');
 const { extractBillingHeaders } = require('./billing-headers');
 const { createUpstreamResponseHandlers } = require('./upstream-response');
+const { replaceUpstreamEndpoint } = require('./wire-api-compat');
 const { createRateLimitChecker } = require('./rate-limit');
 const { createProxyWebSocket } = require('./websocket-proxy');
 const {
@@ -79,7 +80,7 @@ const {
   getModelPolicyBlockState,
   buildModelPolicyError,
 } = require('./guards/model-policy-guard');
-const { enforceGuards } = require('./proxy-guards');
+const { enforceGuards, getCurrentGuardChecks } = require('./proxy-guards');
 
 // ── Optional token tracker (graceful degradation when not bundled) ────────────
 let trackTokenUsage;
@@ -199,6 +200,11 @@ const sendUpstreamRequest = createSendUpstreamRequest({
   otel,
   handleRequestError,
   metrics,
+  logRequest,
+  // A fallback model must pass the same guards (model policy, retired models,
+  // multiplier cap, budgets) as the originally requested model.
+  isFallbackModelPermitted: (model, provider) =>
+    getCurrentGuardChecks(model, provider).every(guard => !guard.isBlocked(guard.block)),
 });
 
 // ── Core proxy: HTTP ──────────────────────────────────────────────────────────
@@ -218,7 +224,9 @@ const sendUpstreamRequest = createSendUpstreamRequest({
  */
 function proxyRequest(req, res, targetHost, injectHeaders, provider, basePath = '', bodyTransform = null, requestSigner = null, targetScheme = 'https') {
   const clientRequestId = req.headers['x-request-id'];
-  const requestId = isValidRequestId(clientRequestId) ? clientRequestId : generateRequestId();
+  const requestId = req.awfRouting?.requestId
+    || (isValidRequestId(clientRequestId) ? clientRequestId : generateRequestId());
+  if (req.awfRouting) req.awfRouting.requestId = requestId;
   const startTime = Date.now();
 
   // Start OTEL span (no-op when OTEL is not configured).
@@ -259,7 +267,7 @@ function proxyRequest(req, res, targetHost, injectHeaders, provider, basePath = 
     return;
   }
 
-  const upstreamPath = buildUpstreamPath(req.url, targetHost, basePath);
+  let upstreamPath = buildUpstreamPath(req.url, targetHost, basePath);
 
   // Step 1: collect body (enforces 10 MB limit; returns null if already rejected)
   collectRequestBody(req, provider, requestId, res, span, startTime, targetHost).then(async (rawBody) => {
@@ -269,8 +277,11 @@ function proxyRequest(req, res, targetHost, injectHeaders, provider, basePath = 
     const inboundBytes = rawBody.length;
     let body;
     let codexCompatibility = null;
+    let wireApiCompatibility = null;
+    let wireApiSourceBody = null;
     try {
-      ({ body, codexCompatibility } = await transformRequestBody(rawBody, provider, req, requestId, bodyTransform));
+      ({ body, codexCompatibility, wireApiCompatibility, wireApiSourceBody } =
+        await transformRequestBody(rawBody, provider, req, requestId, bodyTransform));
     } catch (err) {
       const statusCode = Number.isInteger(err && err.statusCode) ? err.statusCode : 400;
       const duration = Date.now() - startTime;
@@ -299,18 +310,21 @@ function proxyRequest(req, res, targetHost, injectHeaders, provider, basePath = 
     }
 
     // Step 3: dispatch upstream
+    if (wireApiCompatibility) {
+      upstreamPath = replaceUpstreamEndpoint(upstreamPath, wireApiCompatibility.upstreamEndpoint);
+    }
     const requestBytes = body.length;
     metrics.increment('request_bytes_total', { provider }, requestBytes);
 
     const headers = buildRequestHeaders(body, inboundBytes, req, {
-      injectHeaders, provider, targetHost, requestId, codexCompatibility,
+      injectHeaders, provider, targetHost, requestId, codexCompatibility, wireApiCompatibility,
     });
 
     if (enforceGuards({ body, provider, req, res, requestId, startTime, span, inboundBytes })) return;
 
     sendUpstreamRequest(headers, {
       body, targetHost, upstreamPath, req, res, provider, requestId, startTime, span, requestBytes, requestSigner,
-      targetScheme, codexCompatibility,
+      targetScheme, codexCompatibility, wireApiCompatibility, wireApiSourceBody,
     });
   });
 }

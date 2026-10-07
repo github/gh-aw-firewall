@@ -487,6 +487,54 @@ describe('prepareLogDirectories (sub-function)', () => {
     // chroot home must NOT have been created
     expect(fs.existsSync(`${fixture.tempDir}-chroot-home`)).toBe(false);
   });
+
+  it('pre-creates the api-proxy log dir where a shared /tmp prefix redirects it', () => {
+    // --proxy-logs-dir outside /tmp (e.g. ${RUNNER_TEMP}) + shared /tmp prefix:
+    // the daemon writes token-usage.jsonl to /tmp<dir>, so that dir must exist
+    // and be writable by the non-root api-proxy before startup.
+    const outsideTmp = `/awf-workdir-setup-test-${path.basename(fixture.tempDir)}`;
+    const translatedRoot = path.join('/tmp', outsideTmp);
+    try {
+      const logPaths = {
+        ...resolveLogPaths(buildConfig()),
+        apiProxyLogs: path.join(outsideTmp, 'api-proxy-logs'),
+        cliProxyLogs: path.join(outsideTmp, 'cli-proxy-logs'),
+      };
+      // The runner-side source dir itself is outside /tmp and may not be creatable here.
+      (fs.mkdirSync as unknown as jest.Mock).mockImplementation(
+        (dir: fs.PathLike, opts?: fs.MakeDirectoryOptions) =>
+          String(dir).startsWith(outsideTmp) ? undefined : actualFs.mkdirSync(dir, opts),
+      );
+      (fs.chmodSync as unknown as jest.Mock).mockImplementation(
+        (p: fs.PathLike, mode: fs.Mode) => (String(p).startsWith(outsideTmp) ? undefined : actualFs.chmodSync(p, mode)),
+      );
+      const statAs = (real: typeof actualFs.statSync) => (p: fs.PathLike) =>
+        real(String(p).startsWith(outsideTmp) ? fixture.tempDir : p);
+      (fs.lstatSync as unknown as jest.Mock).mockImplementation(statAs(actualFs.lstatSync));
+      (fs.statSync as unknown as jest.Mock).mockImplementation(statAs(actualFs.statSync));
+
+      workdirSetupTestHelpers.prepareLogDirectories(logPaths, '/tmp');
+
+      const translated = path.join(translatedRoot, 'api-proxy-logs');
+      expect(actualFs.statSync(translated).isDirectory()).toBe(true);
+      expect(actualFs.statSync(translated).mode & 0o777).toBe(0o777);
+      const translatedCliProxy = path.join(translatedRoot, 'cli-proxy-logs');
+      expect(actualFs.statSync(translatedCliProxy).isDirectory()).toBe(true);
+      expect(actualFs.statSync(translatedCliProxy).mode & 0o777).toBe(0o777);
+    } finally {
+      (fs.lstatSync as unknown as jest.Mock).mockImplementation(actualFs.lstatSync);
+      (fs.statSync as unknown as jest.Mock).mockImplementation(actualFs.statSync);
+      actualFs.rmSync(translatedRoot, { recursive: true, force: true });
+    }
+  });
+
+  it('does not create a translated api-proxy log dir for a daemon-only prefix', () => {
+    const logPaths = resolveLogPaths(buildConfig());
+    workdirSetupTestHelpers.prepareLogDirectories(logPaths, '/host');
+
+    expect(fs.existsSync(logPaths.apiProxyLogs)).toBe(true);
+    expect(fs.existsSync(path.join('/host', logPaths.apiProxyLogs))).toBe(false);
+  });
 });
 
 describe('prepareChrootHomeMounts (sub-function)', () => {

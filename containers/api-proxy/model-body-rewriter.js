@@ -10,7 +10,8 @@
 
 const { parseBodyAsObject } = require('./body-utils');
 const { resolveModel } = require('./model-resolver');
-const { stripRedundantProviderPrefix } = require('./model-utils');
+const { compareByVersion, stripRedundantProviderPrefix } = require('./model-utils');
+const { isModelPermittedByPolicy } = require('./guards/model-policy-guard');
 
 /**
  * Attempt to rewrite the "model" field in a JSON request body using the alias map.
@@ -77,7 +78,62 @@ function stripRedundantModelPrefixInBody(body, provider) {
   return Buffer.from(JSON.stringify(parsed), 'utf8');
 }
 
+function isCopilotAutoResponsesRequest(body, req) {
+  if (req?.method !== 'POST' || typeof req.url !== 'string') return false;
+  let pathname;
+  try {
+    pathname = new URL(req.url, 'http://localhost').pathname;
+  } catch {
+    return false;
+  }
+  if (pathname !== '/responses' && pathname !== '/v1/responses') return false;
+  const parsed = parseBodyAsObject(body);
+  return typeof parsed?.model === 'string' &&
+    stripRedundantProviderPrefix(parsed.model, 'copilot').toLowerCase() === 'auto';
+}
+
+function rewriteCopilotAutoResponsesModelInBody(body, availableModels, modelRecords, modelPolicyConfig) {
+  const available = new Set(
+    (availableModels || []).filter(model => typeof model === 'string').map(model => model.toLowerCase()),
+  );
+  const recordsById = new Map(
+    (modelRecords || [])
+      .filter(record => typeof record?.id === 'string')
+      .map(record => [record.id.toLowerCase(), record]),
+  );
+  const candidates = [...available]
+    .map(id => recordsById.get(id))
+    .filter(record => record &&
+      record.modelPickerEnabled !== false &&
+      /(?:^|[-.])codex(?:$|[-.])/i.test(record.id) &&
+      Array.isArray(record.supportedEndpoints) &&
+      record.supportedEndpoints.some(endpoint => ['/responses', '/v1/responses', 'responses'].includes(endpoint)) &&
+      isModelPermittedByPolicy(
+        record.id,
+        modelPolicyConfig?.allowedModels,
+        modelPolicyConfig?.disallowedModels,
+        'copilot',
+      ))
+    .map(record => record.id)
+    .sort(compareByVersion);
+  if (candidates.length === 0) return null;
+
+  const parsed = parseBodyAsObject(body);
+  const originalModel = parsed.model;
+  const resolvedModel = candidates[0];
+  parsed.model = resolvedModel;
+  return {
+    body: Buffer.from(JSON.stringify(parsed), 'utf8'),
+    originalModel,
+    resolvedModel,
+    candidates,
+    log: [`[model-resolver] Copilot Responses auto: "${originalModel}" → "${resolvedModel}"`],
+  };
+}
+
 module.exports = {
   rewriteModelInBody,
   stripRedundantModelPrefixInBody,
+  isCopilotAutoResponsesRequest,
+  rewriteCopilotAutoResponsesModelInBody,
 };

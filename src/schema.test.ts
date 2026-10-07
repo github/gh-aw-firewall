@@ -234,6 +234,13 @@ describe('awf-config.schema.json', () => {
     expect(validate({ apiProxy: { requestedModel: 123 } })).toBe(false);
   });
 
+  it('validates apiProxy.fallbackModels as an ordered list of model IDs', () => {
+    expect(validate({ apiProxy: { fallbackModels: ['gpt-5.4', 'claude-sonnet-4.6'] } })).toBe(true);
+    expect(validate({ apiProxy: { fallbackModels: 'gpt-5.4' } })).toBe(false);
+    expect(validate({ apiProxy: { fallbackModels: [''] } })).toBe(false);
+    expect(validate({ apiProxy: { fallbackModels: ['a', 'a'] } })).toBe(false);
+  });
+
   it('accepts apiProxy.modelRouter with string fields', () => {
     expect(validate({
       apiProxy: {

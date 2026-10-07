@@ -92,6 +92,16 @@ export function buildSquidService(params: SquidServiceParams): any {
       start_period: '5s',
     },
     ports: [`${SQUID_PORT}:${SQUID_PORT}`],
+    // Squid runs as PID 1 in the foreground (`exec squid -N`); if the process
+    // itself crashes (e.g. transient resource pressure from many concurrent
+    // proxied builds), the container exits and its network endpoint is torn
+    // down. Without a restart policy, peers that already resolved Squid's IP
+    // (e.g. the agent, via HTTP_PROXY/HTTPS_PROXY) see a bare `EHOSTUNREACH`
+    // on their next connection attempt instead of a quick self-heal. Bound the
+    // retry count so persistent startup failures (bad config, missing certs)
+    // still surface promptly via the existing exited/unhealthy detection in
+    // didContainerFailStartup() once retries are exhausted.
+    restart: 'on-failure:3',
     // Security hardening: Drop unnecessary capabilities
     // Squid only needs network capabilities, not system administration capabilities
     cap_drop: [

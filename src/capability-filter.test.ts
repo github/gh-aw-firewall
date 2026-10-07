@@ -122,8 +122,8 @@ describe('capability-filter', () => {
   });
 
   describe('filterComposeCapDrop', () => {
-    it('filters cap_drop across all services in compose config', () => {
-      const compose = {
+    const makeBaseComposeFixture = (): DockerComposeConfig =>
+      ({
         version: '3.8',
         networks: {},
         services: {
@@ -140,14 +140,16 @@ describe('capability-filter', () => {
             cap_drop: ['ALL'],
           },
         },
-      } as unknown as DockerComposeConfig;
+      }) as unknown as DockerComposeConfig;
 
-      // Trim SYS_MODULE (bit 16)
+    const makeTrimmedCapBnd = (): bigint => {
       const fullCapBnd = 0x000001ffffffffffn;
       const sysModuleBit = 1n << 16n;
-      const trimmedCapBnd = fullCapBnd & ~sysModuleBit;
+      return fullCapBnd & ~sysModuleBit;
+    };
 
-      const filtered = filterComposeCapDrop(compose, trimmedCapBnd);
+    it('filters cap_drop across all services in compose config', () => {
+      const filtered = filterComposeCapDrop(makeBaseComposeFixture(), makeTrimmedCapBnd());
       expect(filtered.services['squid-proxy'].cap_drop).toEqual(['NET_RAW', 'SYS_ADMIN']);
       expect(filtered.services.agent.cap_drop).toEqual(['NET_RAW']);
       expect(filtered.services['api-proxy'].cap_drop).toEqual(['ALL']);
@@ -165,37 +167,13 @@ describe('capability-filter', () => {
         },
       } as unknown as DockerComposeConfig;
 
-      // Trim SYS_MODULE (bit 16)
-      const fullCapBnd = 0x000001ffffffffffn;
-      const sysModuleBit = 1n << 16n;
-      const trimmedCapBnd = fullCapBnd & ~sysModuleBit;
-
-      const filtered = filterComposeCapDrop(compose, trimmedCapBnd);
+      const filtered = filterComposeCapDrop(compose, makeTrimmedCapBnd());
       expect(filtered.services.agent.cap_drop).toBeUndefined();
     });
 
     it('deletes cap_drop from all services when AWF_SKIP_CAP_DROP is set', () => {
       process.env.AWF_SKIP_CAP_DROP = 'true';
-      const compose = {
-        version: '3.8',
-        networks: {},
-        services: {
-          'squid-proxy': {
-            container_name: 'awf-squid',
-            cap_drop: ['NET_RAW', 'SYS_ADMIN', 'SYS_MODULE'],
-          },
-          agent: {
-            container_name: 'awf-agent',
-            cap_drop: ['NET_RAW', 'SYS_MODULE'],
-          },
-          'api-proxy': {
-            container_name: 'awf-api-proxy',
-            cap_drop: ['ALL'],
-          },
-        },
-      } as unknown as DockerComposeConfig;
-
-      const filtered = filterComposeCapDrop(compose);
+      const filtered = filterComposeCapDrop(makeBaseComposeFixture());
       expect(filtered.services['squid-proxy'].cap_drop).toBeUndefined();
       expect(filtered.services.agent.cap_drop).toBeUndefined();
       expect(filtered.services['api-proxy'].cap_drop).toBeUndefined();

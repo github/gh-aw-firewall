@@ -14,6 +14,7 @@ import {
   ENCLAVE_AGENT_GITHUB_MIN_INTEGRITIES,
   ENCLAVE_AGENT_GITHUB_TOOLS,
   ENCLAVE_SENSITIVITIES,
+  isEnclaveAgentGithubToolsEnabled,
 } from '../types/enclave-options';
 import {
   MAX_RESULT_BYTES,
@@ -150,6 +151,9 @@ export function validateEnclavesConfig(
   if (!enclaves?.enabled) return [];
 
   const errors: string[] = [];
+  if (config.containerRuntime === 'cloud-hypervisor') {
+    errors.push('The primary-agent cloud-hypervisor runtime cannot be combined with enclaves');
+  }
   if (config.enableDind) {
     errors.push(
       'enclaves cannot be combined with enableDind: exposing the Docker socket to the primary ' +
@@ -167,6 +171,22 @@ export function validateEnclavesConfig(
 
   validateRepositoryList(enclaves, errors);
   const { script, agent } = enclaves.executors;
+  const hostExecutorSelected = (script.enabled && script.runtime === 'cloud-hypervisor')
+    || (agent.enabled && agent.runtime === 'cloud-hypervisor');
+  if (hostExecutorSelected) {
+    if (config.containerRuntime === 'sbx' || config.containerRuntime === 'nvx') {
+      errors.push(`Cloud Hypervisor enclaves cannot be combined with the primary ${config.containerRuntime} runtime`);
+    }
+    if (config.dockerHostPathPrefix) {
+      errors.push('Cloud Hypervisor enclaves cannot use a Docker host path prefix or split-filesystem DinD');
+    }
+    if ([script, agent].some((entry) => entry.enabled && entry.runtime !== 'cloud-hypervisor')) {
+      errors.push('Cloud Hypervisor enclaves cannot be mixed with other enclave runtimes; no runtime fallback');
+    }
+    if (!config.cloudHypervisor?.previewEnabled) {
+      errors.push('Cloud Hypervisor enclaves require explicit --cloud-hypervisor-preview opt-in');
+    }
+  }
   if (!script.enabled && !agent.enabled) {
     errors.push('enclaves is enabled but no enclave executor entry is configured');
   }
@@ -209,6 +229,12 @@ export function validateEnclavesConfig(
       errors.push(
         'enclaves[].dynamic is not supported with runtime "cloud-hypervisor" in the initial preview; '
         + 'only static script and static agent microVM enclaves are in scope, with no runtime fallback',
+      );
+    }
+    if (agent.runtime === 'cloud-hypervisor' && isEnclaveAgentGithubToolsEnabled(agent)) {
+      errors.push(
+        'Cloud Hypervisor static GitHub tools require a compiler-scoped executor bearer handoff; '
+        + 'the current host backend cannot use the static identity alone and never substitutes a gateway-wide key',
       );
     }
     if (!ENGINES.has(agent.engine)) {

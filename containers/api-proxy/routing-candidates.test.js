@@ -8,12 +8,12 @@ function model(id, overrides = {}) {
   return { id, efforts: ['low', 'high'], protocols: ['responses', 'chat-completions'], ...overrides };
 }
 
-function catalogue(models) {
-  return { provider: 'copilot', configured: true, discovery: 'complete', models };
+function catalogue(models, provider = 'copilot') {
+  return { provider, configured: true, discovery: 'complete', models };
 }
 
-function build(models, policy) {
-  return buildRoutingCandidates({ catalogue: catalogue(models), policy });
+function build(models, policy, provider = 'copilot', candidateModels) {
+  return buildRoutingCandidates({ catalogue: catalogue(models, provider), policy, candidateModels });
 }
 
 describe('routing candidates', () => {
@@ -33,6 +33,7 @@ describe('routing candidates', () => {
       choice: pool.choices[1], provider: 'copilot', wireModel: 'gpt-test',
       effort: 'high', protocol: 'responses', contextWindow: 128_000,
     });
+
     expect(pool.byId['choice-0001']).toEqual({
       choice: pool.choices[0], provider: 'copilot', wireModel: 'claude-test', protocol: 'chat-completions',
     });
@@ -47,6 +48,21 @@ describe('routing candidates', () => {
     expect(build([...models].reverse())).toEqual(pool);
     expect(validateRouteResponse({ ranked_choices: pool.choices }, pool.choices).ranked_choices).toBe(pool.choices);
     expect(toRouteCandidates(pool)[1].context_window).toBe(128_000);
+  });
+
+  it.each([
+    ['openai', 'gpt-5.4', ['none', 'low', 'medium', 'high', 'xhigh'], ['responses']],
+    ['anthropic', 'claude-opus-5-5', ['low', 'medium', 'high', 'max'], ['messages']],
+  ])('preserves the provider identity and protocol for %s candidates', (provider, id, efforts, protocols) => {
+    const pool = build([model(id, {
+      efforts,
+      protocols: provider === 'openai' ? ['responses', 'chat-completions'] : protocols,
+      contextWindow: 1_000_000,
+    })], undefined, provider);
+    expect(pool.choices.every(choice => choice.model.startsWith(`${provider}/`))).toBe(true);
+    expect(Object.values(pool.byId).every(mapping => mapping.provider === provider)).toBe(true);
+    expect(Object.values(pool.byId).every(mapping => mapping.protocol === protocols[0])).toBe(true);
+    expect(Object.values(pool.byId).every(mapping => mapping.contextWindow === 1_000_000)).toBe(true);
   });
 
   it('includes every advertised effort without inventing a default', () => {
@@ -65,15 +81,51 @@ describe('routing candidates', () => {
     expect(pool.byId['choice-0002'].protocol).toBe('responses');
   });
 
-  it('derives the protocol from effort rather than preferring one endpoint', () => {
+  it('excludes Copilot models unavailable in the model picker, even when explicitly allowed', () => {
+    const pool = build([
+      model('internal', { modelPickerEnabled: false }),
+      model('public'),
+    ], { allowedModels: ['internal', 'public'] });
+    expect(pool.choices.map(choice => choice.model)).toEqual([
+      'github-copilot/public', 'github-copilot/public',
+    ]);
+    expect(() => build(
+      [model('internal', { modelPickerEnabled: false })],
+      { allowedModels: ['internal'] },
+    )).toThrow(expect.objectContaining({ code: 'no_route' }));
+  });
+
+  it('prefers Copilot chat-completions for reasoning models that also offer Messages', () => {
     const pool = build([
       model('both', { efforts: ['none'] }),
       model('chat', { efforts: [], protocols: ['chat-completions'] }),
-      model('wrong-effort', { protocols: ['chat-completions'] }),
+      model('effort-chat', { efforts: ['low'], protocols: ['chat-completions'] }),
+      model('claude', {
+        efforts: ['low', 'medium', 'high', 'xhigh', 'max'],
+        protocols: ['messages', 'chat-completions'],
+      }),
       model('wrong-empty', { efforts: [], protocols: ['responses'] }),
     ]);
-    expect(pool.choices.map(choice => choice.model)).toEqual(['github-copilot/both', 'github-copilot/chat']);
-    expect(Object.values(pool.byId).map(mapping => mapping.protocol)).toEqual(['responses', 'chat-completions']);
+    expect(pool.choices.map(choice => choice.model)).toEqual([
+      'github-copilot/both',
+      'github-copilot/chat',
+      'github-copilot/claude',
+      'github-copilot/claude',
+      'github-copilot/claude',
+      'github-copilot/claude',
+      'github-copilot/claude',
+      'github-copilot/effort-chat',
+    ]);
+    expect(Object.values(pool.byId).map(mapping => mapping.protocol)).toEqual([
+      'responses',
+      'chat-completions',
+      'chat-completions',
+      'chat-completions',
+      'chat-completions',
+      'chat-completions',
+      'chat-completions',
+      'chat-completions',
+    ]);
   });
 
   it.each(['*sonnet*', 'copilot/*sonnet*', 'github-copilot/*sonnet*', 'github/*sonnet*'])(
@@ -87,6 +139,43 @@ describe('routing candidates', () => {
       ]);
     },
   );
+
+  it('limits route choices to candidateModels while retaining the wider model policy', () => {
+    const pool = build([
+      model('claude-haiku-4.5'),
+      model('gpt-5.6-luna'),
+      model('claude-opus-5'),
+    ], {
+      allowedModels: ['*'],
+      disallowedModels: ['*opus*'],
+    }, 'copilot', ['claude-haiku-*']);
+
+    expect(pool.choices.map(choice => choice.model)).toEqual([
+      'github-copilot/claude-haiku-4.5',
+      'github-copilot/claude-haiku-4.5',
+    ]);
+  });
+
+  it('intersects routing candidates with the policy allowlist and denylist', () => {
+    const pool = build([
+      model('gpt-allowed'),
+      model('gpt-blocked'),
+      model('claude-haiku-4.5'),
+    ], {
+      allowedModels: ['gpt-*'],
+      disallowedModels: ['gpt-blocked'],
+    }, 'copilot', ['*']);
+
+    expect(pool.choices.map(choice => choice.model)).toEqual([
+      'github-copilot/gpt-allowed',
+      'github-copilot/gpt-allowed',
+    ]);
+  });
+
+  it('returns no route when candidateModels excludes every policy-permitted model', () => {
+    expect(() => build([model('gpt-allowed')], { allowedModels: ['*'] }, 'copilot', ['claude-*']))
+      .toThrow(expect.objectContaining({ code: 'no_route', retryable: false }));
+  });
 
   it('deduplicates overlapping policy patterns, model identities, and efforts', () => {
     const pool = build([
@@ -158,7 +247,7 @@ describe('routing candidates', () => {
 
   it.each([
     undefined,
-    { ...catalogue([model('gpt-test')]), provider: 'openai' },
+    { ...catalogue([model('gpt-test')]), provider: 'gemini' },
     { ...catalogue([model('gpt-test')]), configured: false },
     { ...catalogue([model('gpt-test')]), discovery: 'failed' },
     catalogue([]),

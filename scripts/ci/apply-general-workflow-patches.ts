@@ -33,6 +33,7 @@ import {
   issueDuplicationConclusionConcurrencyRegex,
   issueDuplicationConclusionConcurrencySentinel,
   ripgrepInstallStepRegex,
+  cloudHypervisorBundleStepRegex,
   patchLocalBuildCloudHypervisorArtifacts,
 } from './workflow-patch-patterns';
 import {
@@ -53,10 +54,13 @@ const publishedAwfWorkflowLockFiles = new Set([
   'auth-doctor-updater.lock.yml',
   'doc-maintainer.lock.yml',
   'model-api-mapping-updater.lock.yml',
-  'sbx-gvisor-doc-updater.lock.yml',
   'schema-sync.lock.yml',
   'self-hosted-runner-doctor-updater.lock.yml',
   'update-release-notes.lock.yml',
+]);
+
+const cloudHypervisorBundleRetryWorkflowLockFiles = new Set([
+  'smoke-cloud-hypervisor.lock.yml',
 ]);
 
 export function usesPublishedAwfRelease(workflowPath: string): boolean {
@@ -123,6 +127,42 @@ export function applyGeneralWorkflowPatches(
           `${indent}  run: timeout --foreground --kill-after=10s 4m bash "\${RUNNER_TEMP}/gh-aw/actions/install_ripgrep.sh"\n`
       );
       log.push(`  Bounded ${ripgrepInstallMatches.length} ripgrep install step(s)`);
+    }
+  }
+
+  const workflowFile = workflowPath.split(/[/\\]/).pop();
+  const shouldRetryCloudHypervisorBundle =
+    workflowFile !== undefined &&
+    cloudHypervisorBundleRetryWorkflowLockFiles.has(workflowFile);
+  if (shouldRetryCloudHypervisorBundle) {
+    cloudHypervisorBundleStepRegex.lastIndex = 0;
+    const cloudHypervisorBundleMatches = content.match(cloudHypervisorBundleStepRegex);
+    if (cloudHypervisorBundleMatches) {
+      content = content.replace(
+        cloudHypervisorBundleStepRegex,
+        (_match, indent: string, awfVersion: string) =>
+          `${indent}- name: Download and verify cloud-hypervisor bundle\n` +
+          `${indent}  id: cloud-hypervisor-bundle\n` +
+          `${indent}  env:\n` +
+          `${indent}    GH_AW_AWF_VERSION: ${awfVersion}\n` +
+          `${indent}  run: |\n` +
+          `${indent}    setup_status=0\n` +
+          `${indent}    max_attempts=3\n` +
+          `${indent}    for attempt in $(seq 1 "$max_attempts"); do\n` +
+          `${indent}      if bash "\${RUNNER_TEMP}/gh-aw/actions/cloud_hypervisor_setup_bundle.sh"; then\n` +
+          `${indent}        exit 0\n` +
+          `${indent}      else\n` +
+          `${indent}        setup_status=$?\n` +
+          `${indent}      fi\n` +
+          `${indent}      if [ "$attempt" -lt "$max_attempts" ]; then\n` +
+          `${indent}        sleep $((attempt * 10))\n` +
+          `${indent}      fi\n` +
+          `${indent}    done\n` +
+          `${indent}    exit "$setup_status"\n`
+      );
+      log.push(
+        `  Wrapped ${cloudHypervisorBundleMatches.length} Cloud Hypervisor bundle setup step(s) with retries`
+      );
     }
   }
 
@@ -585,8 +625,8 @@ export function applyGeneralWorkflowPatches(
   // The scan step content has been updated to use quarantine-based handling
   // (moving files to .quarantine/ instead of deleting them) and a tighter
   // injection pattern (requires colons, e.g. 'SYSTEM:' not just 'SYSTEM').
-  // The 'QUARANTINE_DIR' string acts as a sentinel for the new version.
-  const scanStepNewVersion = 'QUARANTINE_DIR';
+  // The explicit instruction-tag comment acts as a sentinel for the latest version.
+  const scanStepNewVersion = "also match the explicit '<system>' instruction tag";
   if (!content.includes(scanInjectionStepSentinel)) {
     const commitMatch = content.match(cacheMemoryCommitStepRegex);
     if (commitMatch) {

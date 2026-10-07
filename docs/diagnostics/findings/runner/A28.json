@@ -1,0 +1,40 @@
+{
+  "$schema": "../../schema.json",
+  "id": "A28",
+  "boundary": "runner",
+  "title": "ARC/DinD streaming logs target a read-only parent mount",
+  "symptoms": [
+    "Streaming log write fails with read-only file system",
+    "A successful engine run becomes a failure under arc-dind",
+    "Safe outputs are missing after a streaming engine run"
+  ],
+  "conditions": [
+    "runner.topology is arc-dind",
+    "The engine writes a streaming log directly beneath ${RUNNER_TEMP}/gh-aw",
+    "The parent ${RUNNER_TEMP}/gh-aw mount is read-only"
+  ],
+  "affects": {
+    "runner": "arc-dind",
+    "runtime": "any",
+    "provider": "any",
+    "authMode": "any"
+  },
+  "versions": { "introduced": "unknown", "fixed": "unknown" },
+  "status": "workaround",
+  "rootCause": "The streaming log path is beneath a read-only parent mount, so the engine cannot create or append its log even when the engine itself succeeds.",
+  "probe": {
+    "command": "findmnt -T \"${RUNNER_TEMP}/gh-aw\" -o TARGET,OPTIONS; findmnt -T \"${RUNNER_TEMP}/gh-aw/sandbox/agent\" -o TARGET,OPTIONS",
+    "expect": "The parent mount is read-only and the sandbox/agent mount is writable; no files are created or modified.",
+    "readOnly": true,
+    "secretSafe": true
+  },
+  "action": "Use ${RUNNER_TEMP}/gh-aw/sandbox/agent/pi-streaming.jsonl consistently for the streaming-log writer, parser, and artifact upload. Upgrade AWF to the version containing github/gh-aw-firewall#9188; relocating Pi's log in the gh-aw compiler remains unresolved.",
+  "references": [
+    { "kind": "issue", "ref": "https://github.com/github/gh-aw-firewall/issues/9183", "title": "ARC/DinD streaming log write failure" },
+    { "kind": "pull-request", "ref": "https://github.com/github/gh-aw-firewall/pull/9188", "title": "Retain writable sandbox/agent mount" },
+    { "kind": "doc", "ref": "docs/arc-dind.md", "title": "ARC / DinD documentation" },
+    { "kind": "test", "ref": "src/services/agent-volumes-arc-dind-staging.test.ts" }
+  ],
+  "owner": "@github/gh-aw-firewall-maintainers",
+  "reviewBy": "2027-03-31"
+}

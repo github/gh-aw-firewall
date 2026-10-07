@@ -18,10 +18,13 @@ This directory contains example scripts demonstrating common ways to use the Age
 | [blocked-domains.sh](blocked-domains.sh) | Blocking specific domains with allowlist/blocklist |
 | [debugging.sh](debugging.sh) | Debug mode with log inspection |
 | [domains.txt](domains.txt) | Example domain allowlist file |
+| [enclave-environment-probe](enclave-environment-probe/README.md) | Bounded public-sensitivity Cloud Hypervisor script-enclave metadata probe |
 
 ## Running Examples
 
-Each example is a standalone shell script. Run with:
+The shell examples are standalone scripts. The enclave probe has its own
+[supported broker invocation instructions](enclave-environment-probe/README.md#supported-invocation).
+Run shell examples with:
 
 ```bash
 # Make executable (if needed)

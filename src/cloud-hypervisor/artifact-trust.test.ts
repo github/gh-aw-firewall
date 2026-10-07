@@ -10,7 +10,9 @@ import {
   hasCompleteArtifactDigests,
   parsePositiveUid,
   resolveTrustedOperatorUid,
+  resolveTrustedHostTool,
 } from './artifact-trust';
+import { hostPreflightReason } from './host-preflight-progress';
 
 const digest = 'a'.repeat(64);
 
@@ -18,6 +20,59 @@ describe('Cloud Hypervisor artifact trust', () => {
   afterEach(() => {
     delete process.env.SUDO_UID;
     jest.restoreAllMocks();
+  });
+
+  it.each([
+    { location: 'parent', reason: 'ancestor-symlink', stat: { isSymbolicLink: () => true } },
+    { location: 'parent', reason: 'ancestor-writable', stat: { mode: 0o40777 } },
+    { location: 'parent', reason: 'ancestor-owner', stat: { uid: 1000 } },
+    { location: 'file', reason: 'file-symlink', stat: { isSymbolicLink: () => true } },
+    { location: 'file', reason: 'file-type', stat: { isFile: () => false } },
+    { location: 'file', reason: 'file-writable', stat: { mode: 0o100777 } },
+    { location: 'file', reason: 'file-owner', stat: { uid: 1000 } },
+  ])('classifies the actual trusted executable $location rejection as $reason', async ({ location, reason, stat }) => {
+    jest.spyOn(fs, 'lstat').mockImplementation(async (file) => ({
+      uid: 0, mode: 0o100755, isFile: () => true, isSymbolicLink: () => false,
+      ...(file === (location === 'parent' ? '/runner' : '/runner/node') ? stat : {}),
+    } as Awaited<ReturnType<typeof fs.lstat>>));
+    const access = jest.spyOn(fs, 'access').mockResolvedValue(undefined);
+    const error = await assertTrustedHostTool('node', '/runner/node').catch((failure: unknown) => failure);
+    expect(error).toBeInstanceOf(Error);
+    expect(hostPreflightReason(error)).toBe(reason);
+    expect(access).not.toHaveBeenCalled();
+  });
+
+  it.each(['ENOENT', 'EACCES', 'EPERM', 'ENOTDIR', 'ELOOP', 'ENOEXEC', 'EIO'])(
+    'preserves trusted executable access errno %s without parsing paths or messages', async (code) => {
+      jest.spyOn(fs, 'lstat').mockResolvedValue({
+        uid: 0, mode: 0o100755, isFile: () => true, isSymbolicLink: () => false,
+      } as Awaited<ReturnType<typeof fs.lstat>>);
+      const error = Object.assign(new Error('/private/SECRET\nBearer token'), { code });
+      jest.spyOn(fs, 'access').mockRejectedValue(error);
+      await expect(assertTrustedHostTool('mount', '/trusted/mount')).rejects.toBe(error);
+      expect(hostPreflightReason(error)).toBe(code);
+    },
+  );
+
+  it('searches preserved PATH without accepting symlinks or operator-owned tools and preserves the first rejection', async () => {
+    jest.spyOn(fs, 'lstat').mockImplementation(async (file) => {
+      if (String(file).startsWith('/missing')) throw Object.assign(new Error('/private/missing'), { code: 'ENOENT' });
+      return {
+        uid: String(file).startsWith('/runner') ? 1000 : 0, mode: 0o100755,
+        isFile: () => true, isSymbolicLink: () => false,
+      } as Awaited<ReturnType<typeof fs.lstat>>;
+    });
+    jest.spyOn(fs, 'access').mockResolvedValue(undefined);
+    await expect(resolveTrustedHostTool('node', { PATH: '/runner/bin:/missing:/trusted' }))
+      .resolves.toBe('/trusted/node');
+    const error = await resolveTrustedHostTool('node', { PATH: '/runner/bin:/missing' })
+      .catch((failure: unknown) => failure);
+    expect(hostPreflightReason(error)).toBe('ancestor-owner');
+    const missing = await resolveTrustedHostTool('mount', { PATH: '/missing' })
+      .catch((failure: unknown) => failure);
+    expect(hostPreflightReason(missing)).toBe('tool-not-found');
+    const empty = await resolveTrustedHostTool('mount', { PATH: '' }).catch((failure: unknown) => failure);
+    expect(hostPreflightReason(empty)).toBe('tool-not-found');
   });
 
   it('calculates SHA-256 digests for trusted artifacts', async () => {

@@ -13,6 +13,7 @@
 import { describe, test, expect, beforeAll, afterAll } from '@jest/globals';
 import { createRunner, AwfRunner } from '../fixtures/awf-runner';
 import { cleanup } from '../fixtures/cleanup';
+import execa from 'execa';
 
 describe('Network Security', () => {
   let runner: AwfRunner;
@@ -88,6 +89,61 @@ describe('Network Security', () => {
   });
 
   describe('Firewall Bypass Prevention', () => {
+    test('should survive CONNECT clients closing before TLS ClientHello without restarting', async () => {
+      try {
+        const result = await runner.runWithSudo(
+          `python3 - <<'PY'
+import os
+import socket
+from urllib.parse import urlparse
+
+proxy_url = urlparse(os.environ['HTTPS_PROXY'])
+proxy = (proxy_url.hostname, int(os.environ['SQUID_PROXY_PORT']))
+for wait_for_response in (False, True):
+    for half_close in (False, True):
+        for _ in range(5):
+            with socket.create_connection(proxy, timeout=5) as sock:
+                sock.sendall(b'CONNECT nodejs.org:443 HTTP/1.1\\r\\nHost: nodejs.org:443\\r\\n\\r\\n')
+                if wait_for_response:
+                    response = b''
+                    while b'\\r\\n\\r\\n' not in response:
+                        chunk = sock.recv(4096)
+                        if not chunk:
+                            raise SystemExit('proxy closed before CONNECT response')
+                        response += chunk
+                    if b' 200 ' not in response.split(b'\\r\\n', 1)[0]:
+                        raise SystemExit('allowed CONNECT was rejected')
+                if half_close:
+                    sock.shutdown(socket.SHUT_WR)
+                    while sock.recv(4096):
+                        pass
+PY
+status=$?
+if [ "$status" -ne 0 ]; then exit "$status"; fi
+curl -fsS --max-time 20 https://nodejs.org/ > /dev/null`,
+          {
+            allowDomains: ['nodejs.org'],
+            buildLocal: true,
+            keepContainers: true,
+            timeout: 600000,
+          }
+        );
+
+        expect(result).toSucceed();
+        const { stdout } = await execa('docker', [
+          'inspect', '--format={{.State.Running}} {{.RestartCount}}', 'awf-squid',
+        ]);
+        expect(stdout.trim()).toBe('true 0');
+        const { stdout: cacheLog } = await execa('docker', [
+          'exec', 'awf-squid', 'cat', '/var/log/squid/cache.log',
+        ]);
+        expect(cacheLog).not.toContain('FATAL:');
+        expect(cacheLog).not.toContain('assertion failed');
+      } finally {
+        await cleanup(false);
+      }
+    }, 660000);
+
     test('should block CONNECT domain fronting with a different TLS SNI', async () => {
       const result = await runner.runWithSudo(
         `python3 - <<'PY'

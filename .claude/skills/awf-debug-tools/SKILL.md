@@ -322,3 +322,10 @@ Planned scripts for future versions:
 - `generate-allowlist.py` - Auto-generate allowlist from logs
 - `cleanup-awf.py` - Clean up orphaned resources
 - `benchmark-awf.py` - Performance testing utilities
+
+## Start here for diagnosis
+
+If you are diagnosing a failure rather than exploring, enter through the
+[`diagnose-awf`](../diagnose-awf/SKILL.md) skill and the canonical diagnosis registry in
+[`docs/diagnostics/README.md`](../../../docs/diagnostics/README.md). This skill is one of the
+specialist references it routes to.

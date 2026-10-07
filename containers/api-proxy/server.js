@@ -16,6 +16,7 @@ const { logRequest } = require('./logging');
 const {
   MODEL_ALIASES,
   MODEL_FALLBACK,
+  MODEL_POLICY_CONFIG,
   parseModelFallbackConfig,
   makeModelBodyTransform: makeModelBodyTransformForProvider,
   filterResolvableAliases,
@@ -25,6 +26,7 @@ const {
 const {
   keyValidationResults,
   cachedModels,
+  getRuntimeModels,
   getRuntimeCatalogSnapshot,
   configureKeyValidation,
   resetKeyValidationState,
@@ -99,6 +101,12 @@ if (!HTTPS_PROXY) {
 }
 
 const { createAllAdapters } = require('./providers');
+const {
+  resolveApiKey,
+  resolveCopilotAuthToken,
+  deriveCopilotApiTarget,
+  isGithubCopilotCatalogTarget,
+} = require('./providers/copilot-auth');
 
 /**
  * Model cache keys of the provider slots that are actually configured for this
@@ -122,6 +130,11 @@ function makeModelBodyTransform(provider) {
     cachedModels,
     refreshProviderModelsForResolution,
     getConfiguredModelCacheKeys,
+    getRuntimeModels,
+    provider === 'copilot' &&
+      !resolveApiKey(process.env) &&
+      Boolean(resolveCopilotAuthToken(process.env)) &&
+      isGithubCopilotCatalogTarget(deriveCopilotApiTarget(process.env)),
   );
 }
 
@@ -132,7 +145,7 @@ const registeredAdapters = createAllAdapters(process.env, {
   geminiBodyTransform: makeModelBodyTransform('gemini'),
 });
 const routing = createProductionRoutingSession({
-  getCopilotAdapter: () => registeredAdapters.find(adapter => adapter.name === 'copilot'),
+  getAdapter: provider => registeredAdapters.find(adapter => adapter.name === provider),
 });
 
 configureKeyValidation({
@@ -169,11 +182,15 @@ const { healthResponse, reflectEndpoints, handleManagementEndpoint } = createMan
   getAdapters: () => registeredAdapters,
   getCachedModels: () => cachedModels,
   getRuntimeModelMetadata: () => getRuntimeCatalogSnapshot(),
+  getRoutingModelMetadata: () => Object.fromEntries(
+    registeredAdapters.map(adapter => [adapter.name, getRuntimeModels(adapter.name) || []]),
+  ),
   isModelFetchComplete: () => isModelFetchComplete(),
   getKeyValidationState: () => ({ complete: isKeyValidationComplete(), results: keyValidationResults }),
   getLimiter: () => limiter,
   httpsProxy: HTTPS_PROXY,
   getModelAliases: getFilteredModelAliases,
+  modelPolicy: MODEL_POLICY_CONFIG,
   getModelFallback: () => MODEL_FALLBACK,
   getEffectiveModelFallback: () => getEffectiveModelFallbackForReflect(registeredAdapters),
   getEffectiveTokenUsage: () => getEffectiveTokenReflectState(),
@@ -181,6 +198,7 @@ const { healthResponse, reflectEndpoints, handleManagementEndpoint } = createMan
   getMaxRunsUsage: () => getMaxRunsReflectState(),
   getMaxCacheMissesUsage: () => getMaxCacheMissesReflectState(),
   getPermissionDeniedUsage: () => getPermissionDeniedReflectState(),
+  getRoutingState: () => routing?.getReflectState() ?? null,
 });
 
 function buildModelsJson() {

@@ -175,22 +175,49 @@ describe('validateAwfFileConfig', () => {
 
   it('validates closed apiProxy.routing fields', () => {
     const valid = {
+      candidateModels: ['gpt-5.6-luna'],
       objective: { goal: 'cost', mode: 'auto' },
       task: { conversationFile: '/tmp/gh-aw/conversation.json' },
     };
 
-    expect(validateAwfFileConfig({ apiProxy: { routing: valid } })).toEqual([]);
+    expect(validateAwfFileConfig({ experimental: { modelRouting: true }, apiProxy: { routing: valid } })).toEqual([]);
     expect(validateAwfFileConfig({
+      experimental: { modelRouting: true },
+      apiProxy: { routing: { ...valid, provider: 'anthropic' } },
+    })).toEqual([]);
+    expect(validateAwfFileConfig({
+      experimental: { modelRouting: true },
+      apiProxy: { routing: { ...valid, provider: 'gemini' } },
+    })).toContain('config.apiProxy.routing.provider must be one of: copilot, openai, anthropic');
+    expect(validateAwfFileConfig({
+      experimental: { modelRouting: true },
       apiProxy: { routing: { ...valid, objective: { ...valid.objective, goal: 'quality' } } },
     })).toContain('config.apiProxy.routing.objective.goal must be one of: cost, cost-speed');
     expect(validateAwfFileConfig({
+      experimental: { modelRouting: true },
       apiProxy: { routing: { ...valid, objective: { ...valid.objective, mode: 'fast' } } },
     })).toContain(
       'config.apiProxy.routing.objective.mode must be one of: economy, balanced, robust, auto',
     );
     expect(validateAwfFileConfig({
+      experimental: { modelRouting: true },
       apiProxy: { routing: { ...valid, unexpected: true } },
     })).toContain('config.apiProxy.routing.unexpected is not supported');
+    expect(validateAwfFileConfig({
+      experimental: { modelRouting: true },
+      apiProxy: { routing: { ...valid, candidateModels: [] } },
+    })).toContain('config.apiProxy.routing.candidateModels must NOT have fewer than 1 items');
+    for (const experimental of [undefined, { modelRouting: false }, {}]) {
+      expect(validateAwfFileConfig({ experimental, apiProxy: { routing: valid } }))
+        .toContain('config.apiProxy.routing requires experimental.modelRouting: true');
+    }
+    expect(validateAwfFileConfig({ experimental: { modelRouting: true } })).toEqual([]);
+    expect(validateAwfFileConfig({ experimental: { modelRouting: false } })).toEqual([]);
+    expect(validateAwfFileConfig({})).toEqual([]);
+    expect(validateAwfFileConfig({ experimental: { modelRouting: 'yes' } }))
+      .toContain('config.experimental.modelRouting must be a boolean');
+    expect(validateAwfFileConfig({ experimental: { unknown: true } }))
+      .toContain('config.experimental.unknown is not supported');
   });
 
   it('rejects non-object apiProxy.targets', () => {
@@ -597,6 +624,12 @@ describe('validateAwfFileConfig', () => {
     });
     expect(errors).toContain('config.rateLimiting.maxGithubApiPointsRest must be a positive integer');
     expect(errors).toContain('config.rateLimiting.maxGithubApiPointsGraphql must be a positive integer');
+  });
+
+  it('rejects a non-positive enclave tool-call cap', () => {
+    const errors = validateAwfFileConfig({ rateLimiting: { maxNumToolCalls: 0 } });
+    expect(errors).toContain('config.rateLimiting.maxNumToolCalls must be a positive integer');
+    expect(validateAwfFileConfig({ rateLimiting: { maxNumToolCalls: 10 } })).toEqual([]);
   });
 
   it('accepts valid rateLimiting values', () => {

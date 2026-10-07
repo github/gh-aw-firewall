@@ -4,6 +4,7 @@ import execa, { type ExecaChildProcess } from 'execa';
 import type { CloudHypervisorCgroup } from './launcher';
 import type { CloudHypervisorDirectoryExport } from './exports';
 import type { CloudHypervisorCleanupHandle } from './cleanup-registry';
+import { assertBoundedEnclaveWritableExports } from './enclave-storage';
 import {
   StagedHostMountTree,
   selectMountPlan,
@@ -16,6 +17,7 @@ import {
 import {
   VIRTIOFSD_ENVIRONMENT,
   captureVirtiofsdProcessIdentity,
+  findForbiddenVirtiofsdOption,
   verifyVirtiofsdSandbox,
   type VirtiofsdSandboxDependencies,
 } from './virtiofsd-sandbox';
@@ -24,6 +26,7 @@ export type {
   MountTreeDependencies,
   MountTreeStats,
   VirtiofsdExportMountPlan,
+  VirtiofsdMaskOverlay,
   VirtiofsdMountEnforcement,
   VirtiofsdOverlayKind,
   VirtiofsdWritableOverlay,
@@ -62,6 +65,7 @@ export interface VirtiofsdDependencies
   runTool(command: string, args: readonly string[]): Promise<void>;
   captureTool(command: string, args: readonly string[]): Promise<string>;
   statPath(filePath: string): Promise<MountTreeStats>;
+  assertWritableStorageBound: typeof assertBoundedEnclaveWritableExports;
   realpath(filePath: string): Promise<string>;
   readMountInfo(): Promise<string>;
 }
@@ -107,6 +111,7 @@ const defaultDependencies: VirtiofsdDependencies = {
     return result.stdout;
   },
   statPath: fs.lstat,
+  assertWritableStorageBound: assertBoundedEnclaveWritableExports,
   realpath: fs.realpath,
   readMountInfo: () => fs.readFile('/proc/self/mountinfo', 'utf8'),
   sleep: (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds)),
@@ -122,6 +127,18 @@ interface RunningDaemon extends VirtiofsdDevice {
 }
 
 export class VirtiofsdManager {
+  static withStorageVerifier(
+    verifier: VirtiofsdDependencies['assertWritableStorageBound'],
+    ...args: [
+      string, string, string, { uid: number; gid: number }, { uid: number; gid: number },
+      Pick<CloudHypervisorCgroup, 'assign' | 'cgroupPath'>,
+      { readonly mount: string; readonly umount: string }, CloudHypervisorCleanupHandle?,
+    ]
+  ): VirtiofsdManager {
+    const [binary, run, share, identity, workspace, cgroup, tools, cleanup] = args;
+    return new VirtiofsdManager(binary, run, share, identity, workspace, cgroup, tools,
+      { ...defaultDependencies, assertWritableStorageBound: verifier }, cleanup);
+  }
   private readonly running: RunningDaemon[] = [];
   private readonly diagnosticDevices: VirtiofsdDevice[] = [];
   /** Mount trees whose staging failed with residue that still needs unmounting. */
@@ -132,6 +149,11 @@ export class VirtiofsdManager {
     private readonly runDirectory: string,
     private readonly shareDirectory: string,
     private readonly identity: { uid: number; gid: number },
+    /**
+     * Host uid/gid of the workspace user. Every guest uid/gid used to create a
+     * file or set an owner in an export is squashed to this identity.
+     */
+    private readonly workspaceIdentity: { uid: number; gid: number },
     private readonly cgroup: Pick<CloudHypervisorCgroup, 'assign' | 'cgroupPath'>,
     private readonly tools: { readonly mount: string; readonly umount: string },
     private readonly dependencies: VirtiofsdDependencies = defaultDependencies,
@@ -148,9 +170,13 @@ export class VirtiofsdManager {
   async start(
     exports: readonly CloudHypervisorDirectoryExport[],
     enforcement?: VirtiofsdMountEnforcement,
+    writableStorageLimitBytes?: number,
   ): Promise<VirtiofsdDevice[]> {
     try {
       assertPlansMatchExports(enforcement, exports);
+      if (writableStorageLimitBytes !== undefined) {
+        await this.dependencies.assertWritableStorageBound(exports, writableStorageLimitBytes);
+      }
       for (const [index, directoryExport] of exports.entries()) {
         await this.startOne(directoryExport, index, selectMountPlan(enforcement, directoryExport.tag));
       }
@@ -319,6 +345,7 @@ export class VirtiofsdManager {
     }
     const args = buildVirtiofsdArgs(directoryExport, socketPath, sharedDirectory, {
       announceSubmounts: mountTree !== undefined,
+      workspaceIdentity: this.workspaceIdentity,
     });
     const cleanupKey = `virtiofsd-${index}`;
     const workerCleanupKey = `${cleanupKey}-worker`;
@@ -374,6 +401,7 @@ export class VirtiofsdManager {
       expectedExecutable,
       socketPath,
       sharedDirectory,
+      requiredArguments: args.filter((arg) => arg.startsWith('--translate-')),
       cgroupPath: this.cgroup.cgroupPath,
       evidencePath,
       assignToCgroup: (pid) => this.cgroup.assign(pid),
@@ -410,7 +438,19 @@ export class VirtiofsdManager {
   }
 }
 
+/**
+ * Upper bound of the guest id range squashed by `--translate-uid` /
+ * `--translate-gid`: `squash-guest:0:<host id>:4294967295` covers every guest
+ * uid/gid, including 0.
+ */
+const SQUASH_GUEST_ID_COUNT = 4294967295;
+
 export interface VirtiofsdArgOptions {
+  /**
+   * Host workspace identity that every guest uid/gid (including guest root)
+   * is squashed to on create/chown. Must be a resolved, non-root identity.
+   */
+  readonly workspaceIdentity: { readonly uid: number; readonly gid: number };
   /**
    * Required when the shared directory is a staged mount tree: the guest must
    * see each writable child bind as its own submount instead of a hole in an
@@ -422,21 +462,44 @@ export interface VirtiofsdArgOptions {
 export function buildVirtiofsdArgs(
   directoryExport: CloudHypervisorDirectoryExport,
   socketPath: string,
-  sharedDirectory = directoryExport.source,
-  options: VirtiofsdArgOptions = {},
+  sharedDirectory: string,
+  options: VirtiofsdArgOptions,
 ): string[] {
   if (!path.isAbsolute(socketPath)) {
     throw new Error(`virtiofsd socket path must be absolute: ${socketPath}`);
   }
-  return [
+  const uid = assertWorkspaceId('uid', options.workspaceIdentity?.uid);
+  const gid = assertWorkspaceId('gid', options.workspaceIdentity?.gid);
+  const args = [
     `--socket-path=${socketPath}`,
     `--shared-dir=${sharedDirectory}`,
     '--sandbox=namespace',
     '--seccomp=kill',
     '--cache=auto',
     '--inode-file-handles=never',
+    `--translate-uid=squash-guest:0:${uid}:${SQUASH_GUEST_ID_COUNT}`,
+    `--translate-gid=squash-guest:0:${gid}:${SQUASH_GUEST_ID_COUNT}`,
     ...(options.announceSubmounts ? ['--announce-submounts'] : []),
   ];
+  const forbidden = findForbiddenVirtiofsdOption(args);
+  if (forbidden !== undefined) {
+    throw new Error(`virtiofsd must not be launched with ${forbidden}`);
+  }
+  return args;
+}
+
+function assertWorkspaceId(kind: 'uid' | 'gid', value: number | undefined): number {
+  if (
+    typeof value !== 'number' ||
+    !Number.isSafeInteger(value) ||
+    value < 1 ||
+    value >= SQUASH_GUEST_ID_COUNT
+  ) {
+    throw new Error(
+      `virtiofsd requires a resolved non-root workspace ${kind} for guest id squashing; got ${String(value)}`,
+    );
+  }
+  return value;
 }
 
 class BoundedCapture {

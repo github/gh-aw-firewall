@@ -10,6 +10,17 @@
       "type": "string",
       "description": "JSON Schema URL for IDE validation and autocomplete."
     },
+    "experimental": {
+      "type": "object",
+      "description": "Explicit opt-ins for experimental AWF features.",
+      "additionalProperties": false,
+      "properties": {
+        "modelRouting": {
+          "type": "boolean",
+          "description": "Experimental opt-in for task-level model routing. Must be true when apiProxy.routing is configured; without apiProxy.routing, routing remains inactive."
+        }
+      }
+    },
     "network": {
       "type": "object",
       "description": "Network egress configuration.",
@@ -348,6 +359,15 @@
             }
           }
         },
+        "fallbackModels": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "uniqueItems": true,
+          "description": "Ordered list of concrete model IDs to retry with when the requested model fails with a model-specific error: upstream 5xx, a connection error/timeout before any response, or a 400/404 reporting the model as unsupported, not found, or not accessible. 401, 403, and 429 responses never trigger a fallback. The API proxy rewrites the request's model (body 'model' field, or the Gemini '/models/<model>:' path segment), and records the model that actually served the request in token-usage logs ('model' plus a 'model_fallback' object). A redundant '<provider>/' prefix is stripped. Each fallback model must pass the same model-policy and budget guards as the requested model."
+        },
         "modelRouter": {
           "type": "object",
           "description": "Model-router settings for Copilot-compatible BYOK upstreams.",
@@ -365,13 +385,33 @@
         },
         "routing": {
           "type": "object",
-          "description": "Opt-in task-level model routing configuration prepared by a trusted workflow compiler.",
+          "description": "Task-level model routing request prepared by a trusted workflow compiler. Requires experimental.modelRouting: true.",
           "additionalProperties": false,
           "required": [
             "objective",
             "task"
           ],
           "properties": {
+            "provider": {
+              "type": "string",
+              "enum": [
+                "copilot",
+                "openai",
+                "anthropic"
+              ],
+              "default": "copilot",
+              "description": "Provider slot whose native model catalogue is routed. Defaults to Copilot."
+            },
+            "candidateModels": {
+              "type": "array",
+              "minItems": 1,
+              "uniqueItems": true,
+              "items": {
+                "type": "string",
+                "minLength": 1
+              },
+              "description": "Optional model-pattern allowlist for router/classifier candidates. Candidates are still intersected with apiProxy.allowedModels and apiProxy.disallowedModels for policy enforcement. When omitted, apiProxy.allowedModels continues to supply the routing candidates."
+            },
             "objective": {
               "type": "object",
               "additionalProperties": false,
@@ -1241,6 +1281,11 @@
           "type": "integer",
           "minimum": 1,
           "description": "Maximum GitHub GraphQL API secondary-rate-limit points allowed per AWF run. Requires security.difcProxy.host."
+        },
+        "maxNumToolCalls": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Maximum number of enclave tool calls (enclave_run_script, enclave_run_agent) allowed per AWF run. Every attempted call counts; further calls are denied in-band. Requires enclaves. Omit for unlimited."
         }
       }
     },
@@ -1907,6 +1952,39 @@
               "required": [
                 "stagingImage"
               ]
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "required": [
+          "apiProxy"
+        ],
+        "properties": {
+          "apiProxy": {
+            "type": "object",
+            "required": [
+              "routing"
+            ]
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "experimental"
+        ],
+        "properties": {
+          "experimental": {
+            "type": "object",
+            "required": [
+              "modelRouting"
+            ],
+            "properties": {
+              "modelRouting": {
+                "const": true
+              }
             }
           }
         }

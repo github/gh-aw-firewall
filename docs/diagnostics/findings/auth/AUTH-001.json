@@ -1,0 +1,39 @@
+{
+  "$schema": "../../schema.json",
+  "id": "AUTH-001",
+  "boundary": "auth",
+  "title": "Enterprise or Business Copilot target rejects the Authorization header prefix",
+  "symptoms": [
+    "400 Bad Request: Authorization header is badly formatted",
+    "Copilot requests fail immediately against api.enterprise.githubcopilot.com or api.business.githubcopilot.com"
+  ],
+  "conditions": [
+    "The resolved Copilot target is the enterprise or business host, or GHES is detected (AWF_PLATFORM_TYPE=ghes, or GITHUB_SERVER_URL is neither github.com nor *.ghe.com)",
+    "A classic PAT or OAuth GitHub token is used (fine-grained github_pat_* tokens and BYOK keys always use Bearer)"
+  ],
+  "affects": {
+    "runner": "any",
+    "runtime": "any",
+    "provider": "copilot",
+    "authMode": "github-token"
+  },
+  "versions": { "introduced": "unknown", "fixed": "unknown" },
+  "status": "fixed",
+  "rootCause": "The enterprise and business Copilot targets require the 'token' Authorization prefix for classic PAT/OAuth tokens; AWF selects the prefix in copilotTargetRequiresGitHubTokenPrefix(), so a target or platform-type misdetection produces the wrong prefix.",
+  "probe": {
+    "command": "awf --version && server_url=${GITHUB_SERVER_URL:-} && server_host=${server_url#*://} && server_host=${server_host%%/*} && echo \"GITHUB_SERVER_URL host: ${server_host:-unset}\" && echo \"AWF_PLATFORM_TYPE is ghes: $([ \"${AWF_PLATFORM_TYPE:-}\" = ghes ] && echo yes || echo no)\"",
+    "expect": "Shows the AWF version, parsed server host, and whether AWF_PLATFORM_TYPE explicitly selects GHES. Never print token values or Authorization headers.",
+    "readOnly": true,
+    "secretSafe": true
+  },
+  "action": "Confirm the target host and platform detection inputs (AWF_PLATFORM_TYPE, GITHUB_SERVER_URL) are set for the enterprise/GHES deployment so the documented prefix is selected. See docs/auth-matrix.md for the supported combinations; do not paste tokens into the diagnosis.",
+  "references": [
+    { "kind": "doc", "ref": "docs/auth-matrix.md", "title": "Provider: GitHub Copilot" },
+    { "kind": "pull-request", "ref": "https://github.com/github/gh-aw-firewall/pull/8038", "title": "Fine-grained PATs always use Bearer" },
+    { "kind": "code", "ref": "containers/api-proxy/providers/copilot-auth.js", "title": "copilotTargetRequiresGitHubTokenPrefix()" },
+    { "kind": "test", "ref": "containers/api-proxy/copilot-adapter-enterprise.test.js" }
+  ],
+  "related": ["AUTH-002"],
+  "owner": "@github/gh-aw-firewall-maintainers",
+  "reviewBy": "2027-03-31"
+}

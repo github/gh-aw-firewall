@@ -166,3 +166,10 @@ sudo iptables -t filter -F FW_WRAPPER 2>/dev/null
 sudo iptables -t filter -X FW_WRAPPER 2>/dev/null
 rm -rf /tmp/awf-*
 ```
+
+## Start here for diagnosis
+
+If you are diagnosing a failure rather than exploring, enter through the
+[`diagnose-awf`](../diagnose-awf/SKILL.md) skill and the canonical diagnosis registry in
+[`docs/diagnostics/README.md`](../../../docs/diagnostics/README.md). This skill is one of the
+specialist references it routes to.

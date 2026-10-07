@@ -4,7 +4,7 @@ on:
   roles: all
   workflow_dispatch:
   label_command:
-    name: ready-for-aw
+    name: [ready-for-aw, test-cloud-hypervisor-copilot]
     events: [pull_request]
     remove_label: false
   reaction: "eyes"
@@ -19,13 +19,19 @@ model: claude-sonnet-5
 engine:
   id: copilot
   version: 1.0.34
+  args:
+    - --allow-url=https://github.com
+    - --allow-url=https://example.com
 network:
   allowed:
     - defaults
     - github
 tools:
   bash:
-    - "*"
+    - curl
+    - printf
+    - cat
+    - jq
   github:
     toolsets: [pull_requests]
 safe-outputs:
@@ -44,13 +50,13 @@ timeout-minutes: 15
 sandbox:
   agent:
     id: awf
-    version: v0.28.11
+    version: v0.28.31
     runtime: cloud-hypervisor
 strict: false
 jobs:
   verify_token_usage:
     needs: agent
-    if: always() && needs.agent.result != 'skipped' && needs.agent.result != 'cancelled'
+    if: needs.agent.result == 'success'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -60,7 +66,7 @@ jobs:
         with:
           persist-credentials: false
       - name: Download agent artifact
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8.0.2
         with:
           name: agent
           path: /tmp/gh-aw-agent
@@ -68,8 +74,9 @@ jobs:
         run: node scripts/ci/check-token-usage.js --artifact-root /tmp/gh-aw-agent --engine copilot
 post-steps:
   - name: Validate safe outputs were invoked
+    env:
+      OUTPUTS_FILE: ${{ steps.set-runtime-paths.outputs.GH_AW_SAFE_OUTPUTS }}
     run: |
-      OUTPUTS_FILE="${GH_AW_SAFE_OUTPUTS:-${RUNNER_TEMP}/gh-aw/safeoutputs/outputs.jsonl}"
       if [ ! -s "$OUTPUTS_FILE" ]; then
         echo "::error::No safe outputs were invoked."
         exit 1
@@ -82,15 +89,34 @@ post-steps:
 
 # Smoke Test: Cloud Hypervisor + Copilot
 
+The `test-cloud-hypervisor-copilot` PR label runs only this smoke test; use it
+for a focused rerun without reapplying the shared `ready-for-aw` label.
+
 Run these checks inside the Cloud Hypervisor sandbox:
+
+Run each shell check as a separate command. `/tmp/gh-aw/agent` already exists:
+do not prepend `mkdir`, use Python, or install tools. The two CLI URL approvals
+only let `curl` execute; AWF still enforces the network allowlist, so
+`example.com` must remain blocked.
 
 1. Call `github-list_pull_requests` for `${{ github.repository }}` with `limit: 1` and `state: merged`.
 2. Confirm `curl -s -o /dev/null -w "%{http_code}" --max-time 10 https://github.com` returns 200 or 301.
-3. Write a unique line to `/tmp/gh-aw/agent/smoke-cloud-hypervisor-${GITHUB_RUN_ID}.txt`, then read it back.
+3. Use `printf` to write a unique line to `/tmp/gh-aw/agent/smoke-cloud-hypervisor-${GITHUB_RUN_ID}.txt`, then use `cat` to read it back.
 4. Confirm `curl -s -o /dev/null -w "%{http_code}" --max-time 5 https://example.com` is blocked with 000 or 403.
 
 Keep the summary under 10 lines with a PASS or FAIL for each check.
 
-On a pull request trigger, call `add_comment` with `item_number: ${{ github.event.pull_request.number }}`. If all checks pass, call `add_labels` with the same item number and label `smoke-cloud-hypervisor`.
+The trigger event is `${{ github.event_name }}`. On `pull_request`, call
+`add_comment` with `item_number: ${{ github.event.pull_request.number }}` even if
+a check fails. Write the summary to `/tmp/gh-aw/agent/comment-body.md` with
+`cat` and a quoted heredoc, then invoke the safe-output CLI in a separate command:
+
+```bash
+jq -Rs --argjson item_number '${{ github.event.pull_request.number }}' '{item_number: $item_number, body: .}' /tmp/gh-aw/agent/comment-body.md | safeoutputs add_comment .
+```
+
+Do not use command substitution or Python to construct the payload, and do not
+substitute `noop` for a required PR comment. If all checks pass, call
+`add_labels` with the same item number and label `smoke-cloud-hypervisor`.
 
 On `workflow_dispatch`, call `noop` with the concise summary instead.

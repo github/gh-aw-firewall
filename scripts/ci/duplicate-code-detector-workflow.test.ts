@@ -41,7 +41,9 @@ describe('duplicate code detector workflow optimization config', () => {
     expect(lock).toContain('npm install -g jscpd 2>&1 | tail -3');
     expect(lock).toContain('Tools: create_issue(max:3), missing_tool, missing_data, noop');
     expect(lock).toContain('\\"create_issue\\":{\\"expires\\":720,\\"labels\\":[\\"code-quality\\",\\"refactoring\\"],\\"max\\":3');
-    expect(lock).toContain('"mcp_servers":[{"name":"safeoutputs","tools":["create_issue","missing_data","missing_tool","noop"]}]');
+    expect(lock).toContain(
+      '"mcp_servers":[{"name":"safeoutputs","tools":["create_issue","missing_data","missing_tool","noop","report_incomplete"]}]'
+    );
     expect(lock).not.toContain('github_mcp_tools_with_safeoutputs_prompt.md');
     expect(lock).not.toContain('GITHUB_TOOLSETS');
     expect(lock).not.toContain('ghcr.io/github/github-mcp-server');

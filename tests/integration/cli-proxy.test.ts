@@ -140,6 +140,23 @@ describe('CLI Proxy Sidecar', () => {
       },
       180000
     );
+
+    // gh treats GH_HOST=localhost:<port> as GHES and reads installed_version
+    // from /api/v3/meta during search feature detection (gh-aw-firewall#9184).
+    approvedIntegrityLiveTest.each([
+      'gh pr list --repo github/gh-aw-firewall --search "is:closed" --limit 1 --json number',
+      'gh search prs --repo github/gh-aw-firewall --limit 1 --json number',
+    ])('should run search commands without GHES version errors: %s', async (command) => {
+      const result = await runner.run(command, {
+        ...cliProxyDefaults,
+        env: {
+          GITHUB_TOKEN: approvedIntegrityToken!,
+        },
+      });
+
+      expect(result).toSucceed();
+      expect(`${result.stdout}${result.stderr}`).not.toContain('malformed version');
+    }, 180000);
   });
 
   describe('Meta-command Denial', () => {

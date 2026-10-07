@@ -12,6 +12,7 @@ name: Smoke Enclave Build Test
 engine:
   id: copilot
   version: 1.0.34
+  args: ["--allow-tool", "awf-enclave(enclave_run_script)"]
 network:
   allowed:
     - defaults
@@ -58,7 +59,7 @@ jobs:
         with:
           persist-credentials: false
       - name: Download agent artifact
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8.0.2
         with:
           name: agent
           path: /tmp/gh-aw-agent

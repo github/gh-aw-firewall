@@ -1,0 +1,40 @@
+{
+  "$schema": "../../schema.json",
+  "id": "A29",
+  "boundary": "runner",
+  "title": "ARC/DinD api-proxy token-usage log not found at /tmp/gh-aw",
+  "symptoms": [
+    "token-usage.jsonl is missing for post-run consumers on arc-dind",
+    "gh-aw.aic / gen_ai.usage.* telemetry is absent on arc-dind",
+    "The run succeeds but token-usage telemetry is missing"
+  ],
+  "conditions": [
+    "runner.topology is arc-dind",
+    "The compiler passes ${RUNNER_TEMP}/gh-aw log directories but the consumer hardcodes /tmp/gh-aw",
+    "A second sub-case uses --docker-host-path-prefix /tmp with --proxy-logs-dir outside /tmp, rewriting the bind source to /tmp<dir>"
+  ],
+  "affects": {
+    "runner": "arc-dind",
+    "runtime": "any",
+    "provider": "any",
+    "authMode": "any"
+  },
+  "versions": { "introduced": "unknown", "fixed": "unknown" },
+  "status": "workaround",
+  "rootCause": "The token-usage file lives under the runner/daemon-visible log directory, not a fixed /tmp/gh-aw path. Consumers cannot predict that path. With a shared /tmp prefix and a log directory outside /tmp, AWF also reported and repaired the original, empty directory rather than the rewritten bind source.",
+  "probe": {
+    "command": "printf '%s\\n' \"${AWF_TOKEN_USAGE_LOG:-unset}\"; ls -l \"${AWF_TOKEN_USAGE_LOG:-/dev/null}\"",
+    "expect": "After a patched AWF run that writes token usage, AWF_TOKEN_USAGE_LOG is set in a later job step and the file exists; no file contents or credentials are printed.",
+    "readOnly": true,
+    "secretSafe": true
+  },
+  "action": "Upgrade AWF to v0.28.31 or newer, which includes github/gh-aw-firewall#9357. Read $AWF_TOKEN_USAGE_LOG (or the 'Token usage log available at:' log line) instead of hardcoding /tmp/gh-aw. AWF exports the path to $GITHUB_ENV only when the file exists and pre-creates the rewritten api-proxy log directory with mode 0777 and a warning. gh-aw's parse_token_usage.cjs must still adopt AWF_TOKEN_USAGE_LOG; the end-to-end fix remains unresolved.",
+  "references": [
+    { "kind": "issue", "ref": "https://github.com/github/gh-aw-firewall/issues/9352", "title": "Missing token-usage telemetry on ARC/DinD" },
+    { "kind": "pull-request", "ref": "https://github.com/github/gh-aw-firewall/pull/9357", "title": "Report and export the api-proxy token-usage log path (released in v0.28.31)" },
+    { "kind": "doc", "ref": "docs/arc-dind.md#locating-api-proxy-token-usage-logs", "title": "Locating API proxy token-usage logs" },
+    { "kind": "test", "ref": "src/artifact-preservation-token-usage.test.ts" }
+  ],
+  "owner": "@github/gh-aw-firewall-maintainers",
+  "reviewBy": "2027-03-31"
+}

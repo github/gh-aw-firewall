@@ -41,7 +41,7 @@ timeout-minutes: 15
 sandbox:
   agent:
     id: awf
-    version: v0.28.11
+    version: v0.28.31
     runtime: cloud-hypervisor
 strict: false
 jobs:
@@ -57,7 +57,7 @@ jobs:
         with:
           persist-credentials: false
       - name: Download agent artifact
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8.0.2
         with:
           name: agent
           path: /tmp/gh-aw-agent
@@ -65,8 +65,9 @@ jobs:
         run: node scripts/ci/check-token-usage.js --artifact-root /tmp/gh-aw-agent --engine claude
 post-steps:
   - name: Validate safe outputs were invoked
+    env:
+      OUTPUTS_FILE: ${{ steps.set-runtime-paths.outputs.GH_AW_SAFE_OUTPUTS }}
     run: |
-      OUTPUTS_FILE="${GH_AW_SAFE_OUTPUTS:-${RUNNER_TEMP}/gh-aw/safeoutputs/outputs.jsonl}"
       if [ ! -s "$OUTPUTS_FILE" ]; then
         echo "::error::No safe outputs were invoked."
         exit 1

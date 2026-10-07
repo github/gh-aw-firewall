@@ -60,9 +60,25 @@ steps:
       gh aw logs \
         --engine claude \
         --start-date -7d \
+        --artifacts agent \
         --json \
         -c 50 \
+        -o /tmp/gh-aw/token-audit/logs \
         > /tmp/gh-aw/token-audit/claude-logs.json || LOGS_EXIT=$?
+
+      GRAPH_EXIT=0
+      gh aw logs \
+        --engine claude \
+        --start-date -7d \
+        --artifacts agent \
+        --tool-graph \
+        --format console \
+        -c 50 \
+        -o /tmp/gh-aw/token-audit/tool-graphs \
+        > /tmp/gh-aw/token-audit/claude-tool-graphs.mmd || GRAPH_EXIT=$?
+      if [ "$GRAPH_EXIT" -ne 0 ]; then
+        echo "⚠️ Unable to generate Claude tool graphs (exit code $GRAPH_EXIT); continuing with transcripts"
+      fi
 
       if [ -s /tmp/gh-aw/token-audit/claude-logs.json ]; then
         TOTAL=$(jq '.runs | length' /tmp/gh-aw/token-audit/claude-logs.json)
@@ -203,6 +219,22 @@ Read **only** the staged target workflow file. Do not open or read other workflo
 The pre-agent step downloaded the last 7 days of Claude workflow logs to `/tmp/gh-aw/token-audit/claude-logs.json`. Filter that file for `$TOP_WORKFLOW` to inspect only the selected workflow's runs.
 
 Determine per-run token breakdown, average turns, error patterns, cache write vs read ratio, and which tools are actually used vs loaded (`tool_usage` and `mcp_tool_usage` fields).
+
+### Trace-level redundancy hypotheses
+
+Use the Mermaid graph at `/tmp/gh-aw/token-audit/claude-tool-graphs.mmd` to orient the analysis, then inspect only successful target-workflow run transcripts under `/tmp/gh-aw/token-audit/logs/`. Locate transcript/tool-call files with `find`/`jq`; do not assume a fixed artifact layout. Count non-final tool calls per run, excluding the final response and failed run setup, and retain run ID, turn number, call index, tool name, normalized arguments, and result status.
+
+Flag only evidence-backed **hypotheses**, citing the run ID and turn/call index:
+- repeated reads of the same resource with identical arguments and no intervening write;
+- retries with identical arguments after a failure or timeout;
+- broad exploratory calls later superseded by a more specific call for the same goal;
+- calls whose result is not reflected in later reasoning or the final response.
+
+Do not infer redundancy from aggregate counts alone. If transcripts are unavailable or ambiguous, say so and do not manufacture evidence.
+
+### Empirical tool-call cap
+
+For successful target-workflow runs with usable traces, calculate the non-final tool-call count per run and report p50 and p95 using nearest-rank percentiles, including sample size and supporting run IDs. Recommend `--max-num-tool-calls` as p95 + 2, with the exact integer, only when there are at least 3 usable runs, p95 is no more than twice p50, and fewer than 20% of runs are within two calls of the observed maximum. Otherwise flag high variance or ceiling risk and request more data. Explain how the proposed cap bounds retries/runaways without changing the observed happy path.
 
 ## Step 5: Generate Optimization Recommendations
 

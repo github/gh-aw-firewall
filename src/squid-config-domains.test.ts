@@ -5,6 +5,33 @@ const WILDCARD_DOMAIN_CHARS = '[a-zA-Z0-9.-]*';
 describe('generateSquidConfig', () => {
   const defaultPort = 3128;
 
+  describe('OTLP endpoint allowlisting', () => {
+    it('allows only the exact collector host and endpoint port', () => {
+      const result = generateSquidConfig({
+        domains: ['github.com'],
+        port: defaultPort,
+        otlpEndpoints: [{ hostname: 'otel.example.com', port: 4318, protocol: 'https' }],
+      });
+
+      expect(result).toContain('acl otlp_endpoint_0_host dstdomain otel.example.com');
+      expect(result).not.toContain('acl otlp_endpoint_0_host dstdomain .otel.example.com');
+      expect(result).toContain('acl otlp_endpoint_0_port port 4318');
+      expect(result).toContain('acl Safe_ports port 4318');
+      expect(result).toContain('http_access allow CONNECT otlp_endpoint_0_host otlp_endpoint_0_port');
+      expect(result).not.toContain('acl allowed_domains dstdomain .otel.example.com');
+    });
+
+    it('restricts HTTP endpoints to non-CONNECT requests on the configured port', () => {
+      const result = generateSquidConfig({
+        domains: [],
+        port: defaultPort,
+        otlpEndpoints: [{ hostname: 'otel.example.com', port: 4318, protocol: 'http' }],
+      });
+
+      expect(result).toContain('http_access allow !CONNECT otlp_endpoint_0_host otlp_endpoint_0_port');
+    });
+  });
+
   describe('Protocol-Specific Domain Handling', () => {
     it('should treat http:// prefix as HTTP-only domain', () => {
       const config: SquidConfig = {

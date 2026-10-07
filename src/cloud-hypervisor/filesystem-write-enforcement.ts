@@ -1,7 +1,16 @@
+import * as fs from 'fs';
+import * as path from 'path';
 import {
+  CLOUD_HYPERVISOR_TMP_GH_AW_EXPORT_TAG,
   CLOUD_HYPERVISOR_WORKSPACE_EXPORT_TAG,
   type CloudHypervisorDirectoryExport,
 } from './exports';
+import {
+  EXPLICITLY_SAFE_GH_AW_CHILDREN,
+  SENSITIVE_PATH_EXEMPTIONS,
+  resolveSensitivePaths,
+  type ResolvedSensitivePath,
+} from '../sensitive-paths';
 import {
   planCloudHypervisorFilesystemWrites,
   summarizeCloudHypervisorFilesystemWriteBoundary,
@@ -40,6 +49,10 @@ export interface CloudHypervisorFilesystemWriteEnforcement {
    * nothing for an unrestricted run.
    */
   readonly writeBoundary: readonly string[];
+  /** Registry entries that resolve to existing directories inside published exports. */
+  readonly sensitiveMasks: readonly ResolvedSensitivePath[];
+  /** Immediate `/tmp/gh-aw` children without an explicit safety classification. */
+  readonly unclassifiedPaths: readonly string[];
 }
 
 /**
@@ -77,12 +90,14 @@ export function toCloudHypervisorFilesystemWriteEnforcement(
     const mandatoryPlans = exports
       .filter((entry) => entry.tag === 'runner-tool-cache' && entry.mode === 'ro')
       .map((entry) => ({ tag: entry.tag, writableOverlays: [] }));
+    const { plans, sensitiveMasks, unclassifiedPaths } =
+      withSensitivePathMasks(exports, mandatoryPlans);
     return {
       exports,
-      ...(mandatoryPlans.length > 0
-        ? { mountEnforcement: { plans: mandatoryPlans } }
-        : {}),
+      ...(plans.length > 0 ? { mountEnforcement: { plans } } : {}),
       writeBoundary: [],
+      sensitiveMasks,
+      unclassifiedPaths,
     };
   }
 
@@ -108,11 +123,146 @@ export function toCloudHypervisorFilesystemWriteEnforcement(
     return { ...entry.export, mode: entry.guestMountMode };
   });
 
+  const { plans: enforcedPlans, sensitiveMasks, unclassifiedPaths } =
+    withSensitivePathMasks(publishedExports, plans);
   return {
     exports: publishedExports,
-    mountEnforcement: { plans },
+    mountEnforcement: { plans: enforcedPlans },
     writeBoundary: summarizeCloudHypervisorFilesystemWriteBoundary(plan),
+    sensitiveMasks,
+    unclassifiedPaths,
   };
+}
+
+/**
+ * Applies every registered mask whose existing directory is inside a published
+ * export. A path that exists but is a symlink or non-directory fails closed.
+ */
+function withSensitivePathMasks(
+  exports: readonly CloudHypervisorDirectoryExport[],
+  plans: readonly VirtiofsdExportMountPlan[],
+): {
+  plans: VirtiofsdExportMountPlan[];
+  sensitiveMasks: ResolvedSensitivePath[];
+  unclassifiedPaths: string[];
+} {
+  const sensitivePaths = resolveSensitivePaths('cloud-hypervisor');
+  const resolvedMasks = sensitivePaths
+    .map((entry) => resolvePathInExport(entry, exports))
+    .filter((entry): entry is { export: CloudHypervisorDirectoryExport; mask: ResolvedSensitivePath } =>
+      entry !== undefined)
+    .map((entry) => {
+      ensureRealDirectoryWithinRoot(entry.export.source, entry.mask.path);
+      return entry;
+    });
+  const sensitiveMasks = resolvedMasks.map(({ mask }) => mask);
+  const maskedByTag = new Map<string, ResolvedSensitivePath[]>();
+  for (const { export: exportEntry, mask } of resolvedMasks) {
+    const masks = maskedByTag.get(exportEntry.tag) ?? [];
+    masks.push(mask);
+    maskedByTag.set(exportEntry.tag, masks);
+  }
+
+  const enforcedPlans = [...plans];
+  for (const [tag, masks] of maskedByTag) {
+    const index = enforcedPlans.findIndex((entry) => entry.tag === tag);
+    const maskedPaths = masks.map(({ path: destination }) => ({ destination }));
+    if (index === -1) {
+      enforcedPlans.push({ tag, writableOverlays: [], maskedPaths });
+    } else {
+      enforcedPlans[index] = {
+        ...enforcedPlans[index],
+        maskedPaths: [...(enforcedPlans[index].maskedPaths ?? []), ...maskedPaths],
+      };
+    }
+  }
+  return {
+    plans: enforcedPlans,
+    sensitiveMasks,
+    unclassifiedPaths: findUnclassifiedGhAwChildren(exports),
+  };
+}
+
+function resolvePathInExport(
+  entry: ResolvedSensitivePath,
+  exports: readonly CloudHypervisorDirectoryExport[],
+): { export: CloudHypervisorDirectoryExport; mask: ResolvedSensitivePath } | undefined {
+  const exportEntry = exports.find((item) => containsOrEquals(item.target, entry.path));
+  if (!exportEntry) return undefined;
+  const relative = path.relative(exportEntry.target, entry.path);
+  return {
+    export: exportEntry,
+    mask: {
+      ...entry,
+      path: relative ? path.join(exportEntry.source, relative) : exportEntry.source,
+    },
+  };
+}
+
+function ensureRealDirectoryWithinRoot(root: string, candidate: string): void {
+  const relative = path.relative(root, candidate);
+  if (relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {
+    throw new Error(`Sensitive path escapes its Cloud Hypervisor export: ${candidate}`);
+  }
+  assertRealDirectory(root);
+  let current = root;
+  for (const segment of relative ? relative.split(path.sep) : []) {
+    current = path.join(current, segment);
+    try {
+      assertRealDirectory(current);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+      try {
+        fs.mkdirSync(current, { mode: 0o700 });
+      } catch (mkdirError) {
+        if ((mkdirError as NodeJS.ErrnoException).code !== 'EEXIST') throw mkdirError;
+      }
+      assertRealDirectory(current);
+    }
+  }
+}
+
+function assertRealDirectory(candidate: string): void {
+  const lstat: fs.Stats = fs.lstatSync(candidate);
+  if (lstat.isSymbolicLink()) {
+    throw new Error(`Sensitive path must not be a symlink: ${candidate}`);
+  }
+  if (!lstat.isDirectory()) {
+    throw new Error(`Sensitive path must be a directory: ${candidate}`);
+  }
+  const resolved = fs.realpathSync(candidate);
+  if (resolved !== candidate) {
+    throw new Error(`Sensitive path must be canonical: ${candidate} resolves to ${resolved}`);
+  }
+}
+
+function findUnclassifiedGhAwChildren(
+  exports: readonly CloudHypervisorDirectoryExport[],
+): string[] {
+  const tmpGhAw = exports.find((entry) => entry.tag === CLOUD_HYPERVISOR_TMP_GH_AW_EXPORT_TAG);
+  if (!tmpGhAw) return [];
+  const classifiedChildren = new Set<string>(EXPLICITLY_SAFE_GH_AW_CHILDREN);
+  for (const entry of resolveSensitivePaths('cloud-hypervisor')) {
+    const relative = path.relative(tmpGhAw.target, entry.path);
+    if (relative && relative !== '..' && !relative.startsWith(`..${path.sep}`)) {
+      classifiedChildren.add(relative.split(path.sep)[0]);
+    }
+  }
+  for (const entry of SENSITIVE_PATH_EXEMPTIONS) {
+    const relative = path.relative(tmpGhAw.target, entry.path);
+    if (relative && relative !== '..' && !relative.startsWith(`..${path.sep}`)) {
+      classifiedChildren.add(relative.split(path.sep)[0]);
+    }
+  }
+  return fs.readdirSync(tmpGhAw.source)
+    .filter((child) => !classifiedChildren.has(child))
+    .map((child) => path.join(tmpGhAw.source, child))
+    .sort();
+}
+
+function containsOrEquals(parent: string, child: string): boolean {
+  const relative = path.relative(parent, child);
+  return relative === '' || (relative !== '..' && !relative.startsWith(`..${path.sep}`));
 }
 
 /**

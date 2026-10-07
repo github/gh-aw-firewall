@@ -4,8 +4,11 @@ const { isModelPermittedByPolicy } = require('./guards/model-policy-guard');
 const { stripRedundantProviderPrefix } = require('./model-utils');
 const { createRoutingError } = require('./routing-errors');
 
-const CANONICAL_PROVIDER = 'github-copilot';
-const PROVIDER = 'copilot';
+const PROVIDERS = Object.freeze({
+  copilot: Object.freeze({ canonical: 'github-copilot', alias: 'copilot' }),
+  openai: Object.freeze({ canonical: 'openai', alias: 'openai' }),
+  anthropic: Object.freeze({ canonical: 'anthropic', alias: 'anthropic' }),
+});
 const EFFORTS = new Set(['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max']);
 
 function normalizePolicyList(value, name) {
@@ -34,9 +37,24 @@ function normalizeEfforts(value) {
   return efforts;
 }
 
-// Selection enforcement derives the endpoint from effort presence.
-function protocolForEffort(effort) {
-  return effort === undefined ? 'chat-completions' : 'responses';
+function protocolFor(provider, effort, protocols) {
+  if (provider === 'anthropic') return 'messages';
+  if (effort === undefined) return protocols.includes('chat-completions') ? 'chat-completions' : null;
+  if (protocols.includes('responses')) return 'responses';
+  if (protocols.includes('chat-completions')) return 'chat-completions';
+  if (protocols.includes('messages')) return 'messages';
+  return null;
+}
+
+function getModelRoutingChoices(providerModel, provider) {
+  if (provider === 'copilot' && providerModel.modelPickerEnabled === false) return [];
+  if (!Array.isArray(providerModel.efforts) || !Array.isArray(providerModel.protocols)) return [];
+  const efforts = normalizeEfforts(providerModel.efforts);
+  if (providerModel.efforts.length > 0 && efforts.length === 0) return [];
+  return (efforts.length === 0 ? [undefined] : efforts).flatMap(effort => {
+    const protocol = protocolFor(provider, effort, providerModel.protocols);
+    return protocol && providerModel.protocols.includes(protocol) ? [{ effort, protocol }] : [];
+  });
 }
 
 function indexModels(models, path, getIdentity) {
@@ -62,39 +80,45 @@ function makePairKey(model, effort) {
   return `${model.toLowerCase()}\u0000${effort === undefined ? '' : effort}`;
 }
 
-function buildRoutingCandidates({ catalogue, policy = {} }) {
-  if (!catalogue || catalogue.provider !== PROVIDER || catalogue.configured !== true) {
-    throw createRoutingError('provider_unavailable', 'The Copilot provider is not configured');
+function buildRoutingCandidates({ catalogue, policy = {}, candidateModels }) {
+  const provider = catalogue?.provider;
+  const providerInfo = Object.hasOwn(PROVIDERS, provider) ? PROVIDERS[provider] : null;
+  if (!catalogue || !providerInfo || catalogue.configured !== true) {
+    throw createRoutingError('provider_unavailable', 'The selected provider is not configured');
   }
   if (catalogue.discovery !== 'complete' || !Array.isArray(catalogue.models) || catalogue.models.length === 0) {
-    throw createRoutingError('provider_unavailable', 'The Copilot model catalogue is unavailable');
+    throw createRoutingError('provider_unavailable', 'The selected provider model catalogue is unavailable');
   }
 
   const allowedModels = normalizePolicyList(policy.allowedModels, 'allowedModels');
   const disallowedModels = normalizePolicyList(policy.disallowedModels, 'disallowedModels');
+  const routingCandidates = normalizePolicyList(candidateModels, 'routing.candidateModels');
   const providerModels = indexModels(catalogue.models, 'catalogue.models', model => model.id);
-  const permittedModels = new Map(
-    [...providerModels].filter(([, model]) => isModelPermittedByPolicy(model.id, allowedModels, disallowedModels, PROVIDER)),
+  const policyModels = new Map(
+    [...providerModels].filter(([, model]) =>
+      isModelPermittedByPolicy(model.id, allowedModels, disallowedModels, providerInfo.alias)),
   );
+  if (policyModels.size === 0) {
+    throw createRoutingError('model_policy_violation', 'The model policy excludes every available model');
+  }
+  const permittedModels = routingCandidates
+    ? new Map([...policyModels].filter(([, model]) =>
+      isModelPermittedByPolicy(model.id, routingCandidates, null, providerInfo.alias)))
+    : policyModels;
   if (permittedModels.size === 0) {
-    throw createRoutingError('model_policy_violation', 'The model policy excludes every available Copilot model');
+    throw createRoutingError('no_route', 'No available model matches routing.candidateModels');
   }
 
   const pairs = [];
   for (const providerModel of permittedModels.values()) {
-    if (!Array.isArray(providerModel.efforts) || !Array.isArray(providerModel.protocols)) continue;
-    const efforts = normalizeEfforts(providerModel.efforts);
-    if (providerModel.efforts.length > 0 && efforts.length === 0) continue;
-
-    const nativeName = stripRedundantProviderPrefix(providerModel.id, CANONICAL_PROVIDER);
-    for (const effort of (efforts.length === 0 ? [undefined] : efforts)) {
-      const protocol = protocolForEffort(effort);
-      if (!providerModel.protocols.includes(protocol)) continue;
+    const nativeName = stripRedundantProviderPrefix(providerModel.id, providerInfo.canonical);
+    for (const { effort, protocol } of getModelRoutingChoices(providerModel, provider)) {
       pairs.push({
-        model: `${CANONICAL_PROVIDER}/${nativeName}`,
+        model: `${providerInfo.canonical}/${nativeName}`,
         effort,
         providerModel,
         protocol,
+        provider,
       });
     }
   }
@@ -105,7 +129,7 @@ function buildRoutingCandidates({ catalogue, policy = {} }) {
     return leftKey < rightKey ? -1 : leftKey > rightKey ? 1 : 0;
   });
   if (pairs.length === 0) {
-    throw createRoutingError('no_route', 'No available Copilot model and effort is supported for routing');
+    throw createRoutingError('no_route', 'No available model and effort is supported for the selected provider');
   }
 
   const byId = Object.create(null);
@@ -121,7 +145,7 @@ function buildRoutingCandidates({ catalogue, policy = {} }) {
       : undefined;
     byId[id] = Object.freeze({
       choice,
-      provider: PROVIDER,
+      provider: pair.provider,
       wireModel: pair.providerModel.id,
       ...(pair.effort === undefined ? {} : { effort: pair.effort }),
       ...(contextWindow === undefined ? {} : { contextWindow }),
@@ -138,5 +162,6 @@ function buildRoutingCandidates({ catalogue, policy = {} }) {
 
 module.exports = {
   buildRoutingCandidates,
+  getModelRoutingChoices,
   normalizePolicyList,
 };

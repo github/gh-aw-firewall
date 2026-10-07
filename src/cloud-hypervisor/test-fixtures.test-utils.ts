@@ -10,6 +10,7 @@ const cloudHypervisorHostTools: CloudHypervisorHostToolPaths = {
   groupdel: '/usr/sbin/groupdel',
   id: '/usr/bin/id',
   ip: '/usr/bin/ip',
+  docker: '/usr/bin/docker',
   nft: '/usr/sbin/nft',
   sysctl: '/usr/sbin/sysctl',
   flock: '/usr/bin/flock',
@@ -37,7 +38,9 @@ function createCloudHypervisorOptions(
     supervisorPath: '/opt/awf-supervisor',
     vcpuCount: 2,
     memoryMib: 512,
-    apiTimeoutMs: 1,
+    // Successful-start tests mock socket readiness; a 1 ms default let the
+    // deadline expire before the first mocked check under CI load.
+    apiTimeoutMs: 5000,
     ...overrides,
   };
 }

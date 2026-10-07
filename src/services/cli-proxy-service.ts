@@ -144,6 +144,7 @@ export function buildCliProxyService(params: CliProxyServiceParams): CliProxyBui
     },
     // Enable host.docker.internal resolution for connecting to host DIFC proxy
     extra_hosts: { 'host.docker.internal': 'host-gateway' },
+    dns_search: [], // Disable inherited DNS search domains so Docker peer names resolve directly
     volumes: applyHostPathPrefixToVolumes(
       [
         // Log directory for HTTP server logs

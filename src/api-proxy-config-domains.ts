@@ -1,3 +1,6 @@
+import { validateAndSanitizeHostAccessPort } from './squid/validation';
+import type { OtlpEndpoint } from './types/squid';
+
 /**
  * Extracts GHEC domains from GITHUB_SERVER_URL and GITHUB_API_URL environment variables.
  * When GITHUB_SERVER_URL points to a GHEC tenant (*.ghe.com), returns the tenant hostname,
@@ -95,6 +98,78 @@ function extractGhesDomainsFromEngineApiTarget(
   }
 
   return domains;
+}
+
+/** OTEL environment variables that carry an OTLP collector endpoint URL. */
+const OTLP_ENDPOINT_ENV_VARS = [
+  'OTEL_EXPORTER_OTLP_ENDPOINT',
+  'OTEL_EXPORTER_OTLP_TRACES_ENDPOINT',
+  'OTEL_EXPORTER_OTLP_METRICS_ENDPOINT',
+  'OTEL_EXPORTER_OTLP_LOGS_ENDPOINT',
+] as const;
+
+export function resolveOtlpEndpointEnv(
+  additionalEnv: Record<string, string | undefined> = {},
+  envFileEnv: Record<string, string | undefined> = {},
+  hostEnv: Record<string, string | undefined> = process.env
+): Record<string, string | undefined> {
+  return Object.fromEntries(OTLP_ENDPOINT_ENV_VARS.map(name => {
+    // eslint-disable-next-line security/detect-object-injection -- name comes only from the fixed OTLP_ENDPOINT_ENV_VARS literal list.
+    return [name, additionalEnv[name] ?? envFileEnv[name] ?? hostEnv[name]];
+  }));
+}
+
+/**
+ * Extracts exact OTLP collector host and port pairs from the OpenTelemetry exporter
+ * endpoint variables. Only HTTP(S) URLs are recognized.
+ *
+ * @param env - Environment variables (defaults to process.env)
+ * @returns De-duplicated endpoint host, port, and protocol tuples
+ */
+export function extractOtlpEndpointsFromEnv(
+  env: Record<string, string | undefined> = process.env
+): OtlpEndpoint[] {
+  const endpoints: OtlpEndpoint[] = [];
+
+  for (const varName of OTLP_ENDPOINT_ENV_VARS) {
+    // eslint-disable-next-line security/detect-object-injection -- varName is from the fixed OTLP_ENDPOINT_ENV_VARS literal list above, not user input.
+    const rawValue = env[varName]?.trim();
+    if (!rawValue) continue;
+
+    let parsed: URL;
+    try {
+      parsed = new URL(rawValue);
+    } catch {
+      // Invalid URL — skip; downstream validation will surface a clear error if needed.
+      continue;
+    }
+
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+      // Only http(s) OTLP/HTTP exporters route through Squid; gRPC (typically a bare
+      // host:port with no recognizable scheme) is not proxy-aware and is out of scope here.
+      continue;
+    }
+
+    const protocol = parsed.protocol.slice(0, -1) as OtlpEndpoint['protocol'];
+    const port = Number(parsed.port || (protocol === 'https' ? 443 : 80));
+    if (!Number.isInteger(port) || port < 1 || port > 65535) {
+      continue;
+    }
+    try {
+      validateAndSanitizeHostAccessPort(String(port));
+    } catch {
+      // Never let an environment-provided endpoint make a dangerous port safe.
+      continue;
+    }
+
+    if (!endpoints.some(endpoint =>
+      endpoint.hostname === parsed.hostname && endpoint.port === port && endpoint.protocol === protocol
+    )) {
+      endpoints.push({ hostname: parsed.hostname, port, protocol });
+    }
+  }
+
+  return endpoints;
 }
 
 /**

@@ -1,0 +1,9 @@
+{
+  "rootPropagation": ["private", "shared", "slave", "shared-slave", "unbindable", "unknown"],
+  "artifactsPropagation": ["private", "shared", "slave", "shared-slave", "unbindable", "unknown"],
+  "localPeerRelation": ["same-group-overlap", "different-group", "not-shared", "unknown"],
+  "visibleOutsidePeers": ["present", "absent", "unknown"],
+  "snapshotEntries": ["zero", "one", "multiple"],
+  "snapshotIds": ["none", "unique", "repeated", "mixed"],
+  "snapshotParentStack": ["present", "absent", "unknown"]
+}

@@ -23,7 +23,9 @@ const CAPABILITY_PATH = path.join(CAPABILITY_DIR, 'auth-token');
 const CONTROL_DIR = '/run/awf-enclave-mcp-control';
 const AUDIT_DIR = '/var/log/awf-enclave';
 const READY_PATH = path.join(CONTROL_DIR, 'server.ready');
+const TOOL_CALL_BUDGET_PATH = path.join(CONTROL_DIR, 'tool-call-budget.json');
 const MCP_PORT = 8080;
+const HOST_EXECUTOR_DIR = '/run/awf-enclave-host-executor';
 
 /**
  * Fixed agent-enclave mount points and identity. Never caller-supplied.
@@ -82,11 +84,14 @@ function dockerSize(name, fallback) {
 
 function loadConfig(files = fs) {
   const executorBackend = requireEnv('AWF_ENCLAVE_BACKEND');
+  if (executorBackend === 'cloud-hypervisor') {
+    return loadHostConfig('script', loadServerConfig(files));
+  }
   if (executorBackend !== 'docker' && executorBackend !== 'gvisor') {
     throw new Error('AWF_ENCLAVE_BACKEND must be docker or gvisor');
   }
   const primaryBackend = requireEnv('AWF_ENCLAVE_PRIMARY_BACKEND');
-  if (primaryBackend !== 'docker' && primaryBackend !== 'gvisor' && primaryBackend !== 'sbx') {
+  if (!['docker', 'gvisor', 'sbx', 'cloud-hypervisor'].includes(primaryBackend)) {
     throw new Error('AWF_ENCLAVE_PRIMARY_BACKEND is unsupported');
   }
   const cpuLimit = process.env.AWF_ENCLAVE_CPU || '1';
@@ -175,7 +180,7 @@ function isSeedMapEnabled() {
  */
 function loadServerConfig(files = fs) {
   const primaryBackend = requireEnv('AWF_ENCLAVE_PRIMARY_BACKEND');
-  if (primaryBackend !== 'docker' && primaryBackend !== 'gvisor' && primaryBackend !== 'sbx') {
+  if (!['docker', 'gvisor', 'sbx', 'cloud-hypervisor'].includes(primaryBackend)) {
     throw new Error('AWF_ENCLAVE_PRIMARY_BACKEND is unsupported');
   }
   const capability = files.readFileSync(CAPABILITY_PATH, 'utf8').trim();
@@ -193,6 +198,9 @@ function loadServerConfig(files = fs) {
     auditDir: AUDIT_DIR,
     primaryBackend,
     capability,
+    // Optional run-wide enclave tool-call cap; omission means unlimited.
+    maxToolCalls: optionalPositiveInt('AWF_ENCLAVE_MAX_TOOL_CALLS'),
+    toolCallBudgetPath: TOOL_CALL_BUDGET_PATH,
   };
 }
 
@@ -226,6 +234,7 @@ function resolveRunId() {
  */
 function loadAgentConfig(server, files = fs) {
   const backend = requireEnv('AWF_ENCLAVE_AGENT_BACKEND');
+  if (backend === 'cloud-hypervisor') return loadHostConfig('agent', server);
   if (!AGENT_SUPPORTED_BACKENDS.has(backend)) {
     throw new Error(`Unsupported AWF_ENCLAVE_AGENT_BACKEND: ${backend}`);
   }
@@ -350,6 +359,34 @@ function loadAgentConfig(server, files = fs) {
   };
 }
 
+function loadHostConfig(kind, server) {
+  if (kind === 'agent' && isDynamicAdmissionEnabled()) {
+    throw new Error('Dynamic host executor admission is not yet supported');
+  }
+  const prefix = kind === 'script' ? 'AWF_ENCLAVE' : 'AWF_ENCLAVE_AGENT';
+  const entryId = requireEnv(`${prefix}_ENTRY_ID`);
+  if (!/^[a-z0-9](?:[a-z0-9-]{0,62})$/.test(entryId)) {
+    throw new Error('Invalid trusted host executor entry identity');
+  }
+  const runId = server.runId;
+  if (!runId) throw new Error('Host executor requires an explicit AWF_ENCLAVE_RUN_ID');
+  return {
+    entryId,
+    runId,
+    executorBackend: 'cloud-hypervisor',
+    backend: 'cloud-hypervisor',
+    primaryBackend: server.primaryBackend,
+    hostExecutorSocketPath: path.join(HOST_EXECUTOR_DIR, 'executor.sock'),
+    hostExecutorCapabilityPath: path.join(HOST_EXECUTOR_DIR, 'capability'),
+    timeoutSeconds: positiveInt(`${prefix}_TIMEOUT`, kind === 'script' ? 30 : 120, MAX_ENCLAVE_TIMEOUT_SECONDS),
+    maxInvocations: positiveInt(`${prefix}_MAX_INVOCATIONS`, kind === 'script' ? 32 : 8),
+    maxOutputBytes: positiveInt(`${prefix}_MAX_OUTPUT_BYTES`, MAX_RESULT_BYTES, MAX_RESULT_BYTES),
+    maxScriptBytes: positiveInt('AWF_ENCLAVE_MAX_SCRIPT_BYTES', MAX_SCRIPT_BYTES, MAX_SCRIPT_BYTES),
+    maxPromptBytes: positiveInt('AWF_ENCLAVE_AGENT_MAX_PROMPT_BYTES', 4096, MAX_TASK_BYTES),
+    dynamicEnabled: false,
+  };
+}
+
 function loadSeedMap(seedMapPath) {
   return parsePrivateRepositorySeedMap(
     fs.readFileSync(seedMapPath, 'utf8'),
@@ -374,6 +411,7 @@ module.exports = {
   CAPABILITY_DIR,
   WORK_DIR,
   GITHUB_AGENT_ID_FILE,
+  HOST_EXECUTOR_DIR,
   isAgentExecutorEnabled,
   isDynamicAdmissionEnabled,
   isScriptExecutorEnabled,

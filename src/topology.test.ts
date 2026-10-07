@@ -252,22 +252,40 @@ describe('topology', () => {
       });
     });
 
-    it('also patches the squid-proxy service extra_hosts so Squid can resolve peers', () => {
+    it('also patches squid-proxy and cli-proxy extra_hosts so sidecars can resolve peers', () => {
       const compose = {
         services: {
           agent: { container_name: 'awf-agent' },
           'squid-proxy': { container_name: 'awf-squid' },
+          'cli-proxy': {
+            container_name: 'awf-cli-proxy',
+            extra_hosts: { 'host.docker.internal': 'host-gateway' },
+          },
         },
       };
       fs.writeFileSync(path.join(tmpDir, 'docker-compose.yml'), yaml.dump(compose));
       const log = { info: jest.fn(), warn: jest.fn() };
 
-      const peerIps = new Map([['awmg-mcpg', '172.30.0.40']]);
+      const peerIps = new Map([
+        ['awmg-mcpg', '172.30.0.40'],
+        ['awmg-cli-proxy', '172.30.0.3'],
+      ]);
       patchComposeWithTopologyHosts(tmpDir, peerIps, log);
 
       const patched = yaml.load(fs.readFileSync(path.join(tmpDir, 'docker-compose.yml'), 'utf8')) as any;
-      expect(patched.services['squid-proxy'].extra_hosts).toEqual({ 'awmg-mcpg': '172.30.0.40' });
-      expect(patched.services.agent.extra_hosts).toEqual({ 'awmg-mcpg': '172.30.0.40' });
+      expect(patched.services['squid-proxy'].extra_hosts).toEqual({
+        'awmg-mcpg': '172.30.0.40',
+        'awmg-cli-proxy': '172.30.0.3',
+      });
+      expect(patched.services['cli-proxy'].extra_hosts).toEqual({
+        'host.docker.internal': 'host-gateway',
+        'awmg-mcpg': '172.30.0.40',
+        'awmg-cli-proxy': '172.30.0.3',
+      });
+      expect(patched.services.agent.extra_hosts).toEqual({
+        'awmg-mcpg': '172.30.0.40',
+        'awmg-cli-proxy': '172.30.0.3',
+      });
     });
 
     it('warns when squid-proxy service is missing but still patches the agent', () => {

@@ -26,6 +26,51 @@ This firewall solves a specific problem: **egress control for AI agents running 
 
 ---
 
+## Limitations and Non-Goals
+
+AWF does **not** guarantee that source code or secrets remain confidential after
+the agent is fully compromised. The agent can read the files and environment
+available to it. If it can reach an allowed destination, it can send that data
+there. In particular, allowing `github.com` or `api.github.com` does not
+distinguish your account or repository from another: the default domain/SNI
+filter does not inspect encrypted HTTP paths, API operations, or GitHub identity.
+
+The container, chroot, and firewall rules are not a security boundary against
+runner-host compromise. AWF assumes the host kernel, Docker daemon, and host
+firewall remain trusted. An escape that gains runner-level access can read the
+checkout and runner-accessible secrets, and root on the runner can remove
+host-level egress rules. GitHub-hosted runners provide an outer ephemeral VM
+boundary; self-hosted deployments should use dedicated ephemeral VMs, not
+persistent or shared hosts, when running untrusted agents.
+
+### Recommended additional controls
+
+- Use dedicated ephemeral runner VMs and enforce egress policy outside the VM
+  (for example, a network firewall or gateway that denies direct egress and
+  permits only a controlled proxy).
+- Do not place broad or long-lived credentials in the agent environment. Use
+  short-lived, least-privilege credentials and broker access where possible;
+  AWF cannot prevent an agent from using or exfiltrating credentials it can
+  read.
+- Use enclaves for sensitive repository work when supported. AWF's enclave
+  integration can mediate narrowly scoped GitHub MCP access, including
+  per-invocation repository-scoped reads in dynamic mode. This is not a
+  repository-aware policy for arbitrary traffic from the primary agent and
+  does not protect against runner-host compromise. See the
+  [Unified Enclave Architecture](https://github.com/github/gh-aw-firewall/blob/main/docs/enclaves-architecture.md).
+
+### GitHub repository/path-scoped filtering
+
+General GitHub account-, repository-, or API-path allowlisting is **not**
+provided by AWF's domain allowlist. SSL Bump can expose URLs for path filtering,
+but it is not a general GitHub identity or API authorization mechanism.
+Repository-aware enforcement belongs in a credential-holding API/MCP broker
+that validates each operation and repository; it cannot be reliably added to
+Squid's hostname/SNI policy. AWF's enclave GitHub MCP integration is the
+existing bounded option, not a transparent restriction on all GitHub traffic.
+
+---
+
 ## Design Principles
 
 Three principles guided every architectural decision:

@@ -1,5 +1,11 @@
 # Diagnosing AWF Failures with the Self-Hosted Runner Doctor
 
+> **Not a runner problem?** The canonical diagnosis registry in
+> [`docs/diagnostics/README.md`](diagnostics/README.md) covers every boundary (runner,
+> runtime, network, auth, CI, security). Agents should enter through the
+> [`diagnose-awf`](../.github/skills/diagnose-awf/SKILL.md) skill, or use the portable
+> [`.github/agents/diagnose-awf.md`](../.github/agents/diagnose-awf.md) artifact without a clone.
+
 When an AWF (Agentic Workflow Firewall) run fails on a self-hosted, ARC + DinD,
 GHES, GHEC (`*.ghe.com`), or otherwise non-GitHub-hosted runner, you can have a
 coding agent diagnose it for you using the **Self-Hosted Runner Doctor** agent.

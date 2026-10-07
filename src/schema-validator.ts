@@ -136,5 +136,12 @@ export function validateWithSchema(config: unknown): string[] {
   }
 
   const deduplicated = deduplicateErrors(validate.errors);
-  return deduplicated.map(formatError);
+  const routingGateErrors = deduplicated.filter(err => err.schemaPath.startsWith('#/allOf/1/'));
+  const errors = deduplicated
+    .filter(err => !routingGateErrors.includes(err))
+    .map(formatError);
+  if (routingGateErrors.length > 0) {
+    errors.push('config.apiProxy.routing requires experimental.modelRouting: true');
+  }
+  return errors;
 }

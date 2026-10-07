@@ -22,7 +22,7 @@ strict: false
 jobs:
   verify_token_usage:
     needs: agent
-    if: always() && needs.agent.result != 'skipped' && needs.agent.result != 'cancelled'
+    if: needs.agent.result == 'success'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -32,7 +32,7 @@ jobs:
         with:
           persist-credentials: false
       - name: Download agent artifact
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8.0.2
         with:
           name: agent
           path: /tmp/gh-aw-agent
@@ -51,6 +51,7 @@ tools:
   github:
     mode: gh-proxy
   playwright:
+    version: "0.1.21"
   edit:
   bash:
     - "*"
@@ -76,9 +77,9 @@ safe-outputs:
 timeout-minutes: 20
 post-steps:
   - name: Validate safe outputs were invoked
+    env:
+      OUTPUTS_FILE: ${{ steps.set-runtime-paths.outputs.GH_AW_SAFE_OUTPUTS }}
     run: |
-      OUTPUTS_FILE="${GH_AW_SAFE_OUTPUTS:-${RUNNER_TEMP}/gh-aw/safeoutputs/outputs.jsonl}"
-
       # Detect permission-blocked writes (PR runs with read-only permissions)
       PERMISSION_BLOCKED=false
       for LOG_FILE in "/tmp/gh-aw/agent-stdio.log" "${RUNNER_TEMP}/gh-aw/agent-stdio.log"; do
@@ -124,7 +125,7 @@ post-steps:
 
 1. **GitHub MCP Testing**: Review the last 2 merged pull requests in `__GH_AW_GITHUB_REPOSITORY__`
 2. **GitHub PR Detail Testing**: Use the GitHub tools to retrieve the number, title, and author of 2 pull requests from `__GH_AW_GITHUB_REPOSITORY__`
-3. **Playwright Testing**: Use the playwright tools to navigate to https://github.com and verify the page title contains "GitHub" (do NOT try to install playwright - use the provided MCP tools)
+3. **Playwright Testing**: Use the `playwright-cli` command (invoked via the bash tool - Codex exposes Playwright as a CLI tool, not an MCP tool) to navigate to https://github.com and verify the page title contains "GitHub", e.g. `playwright-cli open https://github.com` followed by a command to read the page title (do NOT try to install playwright - use the pre-installed `playwright-cli`)
 4. **File Writing Testing**: Create a test file `/tmp/gh-aw/agent/smoke-test-codex-${{ github.run_id }}.txt` with content "Smoke test passed for Codex at $(date)" (create the directory if it doesn't exist)
 5. **Bash Tool Testing**: Execute bash commands to verify file creation was successful (use `cat` to read the file back)
 6. **Discussion Interaction Testing**: 
@@ -142,6 +143,8 @@ post-steps:
 - Overall status: PASS or FAIL
 
 If step 7 produced a valid discussion number (>0), use the `add_comment` tool to add a **mystical oracle-themed comment** to that discussion - be creative and use mystical language like "🔮 The ancient spirits stir..."
+
+For safe-output comment calls, use the `safeoutputs` CLI from a login shell (`/bin/bash -lc`); non-login shells may not include it in `PATH`. Pass each `add_comment` payload as one positional JSON argument outside the `-lc` command string, for example: `/bin/bash -lc 'safeoutputs add_comment "$1"' -- '{"item_number": 123, "body": "Smoke Codex result: PASS"}'`. Keep PR titles and other untrusted comment text out of the `-lc` command string; JSON-escape it and encode apostrophes as `\u0027` before placing it in the single-quoted payload. Do not build comment payloads with `jq`, pipe JSON through stdin, or retry from a non-login shell.
 
 If all tests pass on a pull request trigger:
 - Use the `add_labels` safe-output tool to add the label `smoke-codex` to the pull request

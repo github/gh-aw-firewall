@@ -5,7 +5,9 @@ import {
   interfaceExists,
   tryCaptureInterfaceIdentity,
 } from './cleanup-process';
-import { sameFileIdentity } from './cleanup-identity';
+import { sameFileIdentity, sameMountIdentity } from './cleanup-identity';
+import { readMounts } from './cleanup-process';
+import * as path from 'path';
 import {
   pathExists,
   runChecked,
@@ -44,6 +46,18 @@ export async function validateRecordResources(
   record: CleanupRecord,
   ipPath: string,
 ): Promise<void> {
+  if (record.invocationStorage) {
+    const storage = record.invocationStorage;
+    if ((await dependencies.readFile('/proc/sys/kernel/random/boot_id', 'utf8')).trim() !== storage.bootId) {
+      throw new Error('Invocation storage belongs to a different boot');
+    }
+    await validateFileIfPresent(dependencies, storage.directory, storage.identity, 'invocation storage');
+    await validateFileIfPresent(dependencies, path.dirname(storage.directory), storage.parentIdentity, 'storage parent');
+    const mounts = (await readMounts(dependencies.readFile)).filter((mount) => mount.mountPoint === storage.directory);
+    if (mounts.length !== 1 || !sameMountIdentity(mounts[0], storage.mount)) {
+      throw new Error('Invocation storage mount identity changed');
+    }
+  }
   const network = record.network;
   const netnsExists = network ? await pathExists(network.netnsPath, dependencies.lstat) : false;
   if (network) {
@@ -69,12 +83,12 @@ export async function validateRecordResources(
       'artifact snapshot directory',
     );
   }
-  if (network) {
+  if (network && network.mode !== 'none') {
     await validateInterfaceIfPresent(
       dependencies, ipPath, network.hostVethName, record.identities.hostVeth, undefined,
     );
   }
-  if (network && netnsExists) {
+  if (network && network.mode !== 'none' && netnsExists) {
     await validateInterfaceIfPresent(
       dependencies,
       ipPath,
@@ -94,7 +108,8 @@ export async function deleteNetwork(
   ipPath: string,
 ): Promise<void> {
   const network = requireNetwork(record);
-  if (await interfaceExists(dependencies.run, ipPath, network.hostVethName)) {
+  if (network.mode !== 'none' &&
+      await interfaceExists(dependencies.run, ipPath, network.hostVethName)) {
     await validateInterfaceIfPresent(
       dependencies,
       ipPath,
@@ -113,6 +128,7 @@ export async function deleteNetwork(
     );
     await runChecked(dependencies.run, ipPath, ['netns', 'delete', network.namespaceName]);
   }
+  if (network.mode === 'none') return;
   const rule = bridgeForwardRule(
     '-C',
     network.infrastructureBridge,

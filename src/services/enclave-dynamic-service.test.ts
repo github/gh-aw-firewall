@@ -143,6 +143,19 @@ describe('dynamic enclave compose topology', () => {
   });
 });
 
+describe('enclave tool-call cap', () => {
+  it('leaves the broker unlimited when no cap is configured', () => {
+    const environment = build(staticConfig()).service.environment as Record<string, string>;
+    expect(environment).not.toHaveProperty('AWF_ENCLAVE_MAX_TOOL_CALLS');
+  });
+
+  it('passes a configured run-wide cap to the broker', () => {
+    const environment = build(dynamicConfig({ maxNumToolCalls: 7 })).service
+      .environment as Record<string, string>;
+    expect(environment.AWF_ENCLAVE_MAX_TOOL_CALLS).toBe('7');
+  });
+});
+
 describe('primary agent environment exclusion', () => {
   it('excludes both halves of the delegation handoff from the primary agent', () => {
     const exclusions = buildExclusionSet(dynamicConfig());

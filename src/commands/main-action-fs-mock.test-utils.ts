@@ -7,7 +7,8 @@ export const mainActionFsMocks = {
   closeSync: jest.fn(),
   lstatSync: jest.fn(() => ({ isSymbolicLink: () => false })),
   statSync: jest.fn(() => ({ isDirectory: () => true })),
-  fstatSync: jest.fn(() => ({ isFile: () => true })),
+  fstatSync: jest.fn(() => ({ isFile: () => true, nlink: 1, uid: process.getuid?.() })),
+  ftruncateSync: jest.fn(),
   fchmodSync: jest.fn(),
   fsyncSync: jest.fn(),
 };
@@ -25,6 +26,7 @@ export function mainActionFsMockFactory() {
     lstatSync: (...args: unknown[]) => (mainActionFsMocks.lstatSync as jest.Mock)(...args),
     statSync: (...args: unknown[]) => (mainActionFsMocks.statSync as jest.Mock)(...args),
     fstatSync: (...args: unknown[]) => (mainActionFsMocks.fstatSync as jest.Mock)(...args),
+    ftruncateSync: (...args: unknown[]) => mainActionFsMocks.ftruncateSync(...args),
     fchmodSync: (...args: unknown[]) => mainActionFsMocks.fchmodSync(...args),
     fsyncSync: (...args: unknown[]) => mainActionFsMocks.fsyncSync(...args),
   };

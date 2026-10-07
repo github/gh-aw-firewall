@@ -28,6 +28,10 @@ import type {
   CloudHypervisorVmmIdentityObserver,
   CloudHypervisorVmmIdentityToolPaths,
 } from './vmm-identity';
+import type {
+  CloudHypervisorEmptyNetworkNamespacePlan,
+  CloudHypervisorNetworkLifecycle,
+} from './network-namespace';
 
 const API_SOCKET_NAME = 'api.socket';
 const VSOCK_SOCKET_NAME = 'awf-vsock.socket';
@@ -83,6 +87,7 @@ export interface CloudHypervisorRunPaths {
 }
 
 export interface CloudHypervisorManagerDependencies {
+  createRunPaths?: typeof createCloudHypervisorRunPaths;
   preflight: typeof runCloudHypervisorPreflight;
   launch(
     command: string,
@@ -116,6 +121,11 @@ export interface CloudHypervisorManagerDependencies {
     reservation: MicrovmNetworkReservation,
     observer?: MicrovmNetworkResourceObserver,
   ): MicrovmNetworkLifecycle;
+  createEmptyNetworkNamespace(
+    plan: CloudHypervisorEmptyNetworkNamespacePlan,
+    tools: CloudHypervisorHostToolPaths,
+    observer?: Pick<MicrovmNetworkResourceObserver, 'resourceCreated'>,
+  ): CloudHypervisorNetworkLifecycle;
   cleanupRegistry: CloudHypervisorCleanupRegistry;
   createRootfsPreparer(
     config: MicrovmRootfsConfig,
@@ -127,6 +137,7 @@ export interface CloudHypervisorManagerDependencies {
     runDirectory: string,
     shareDirectory: string,
     identity: { uid: number; gid: number },
+    workspaceIdentity: { uid: number; gid: number },
     cgroup: CloudHypervisorCgroup,
     tools: Pick<CloudHypervisorHostToolPaths, 'mount' | 'umount'>,
     cleanupRecord?: CloudHypervisorCleanupHandle,
@@ -168,6 +179,21 @@ export interface CloudHypervisorManagerGuestConfig {
    * this to null because their selected seed/output exports are not a workspace.
    */
   readonly workspaceMount?: '/workspace' | null;
+  readonly enclaveResources?: CloudHypervisorEnclaveResourceProfile;
+}
+
+export interface CloudHypervisorEnclaveResourceProfile {
+  readonly role: 'script' | 'agent';
+  readonly memoryMiB: number;
+  readonly vcpuCount: number;
+  readonly cpuQuotaMilli: number;
+  readonly maxProcesses: number;
+  readonly tmpfsBytes: number;
+  readonly maxFileBytes: number;
+  readonly maxOpenFiles: number;
+  readonly writableStorageBytes: number;
+  readonly uid: number;
+  readonly gid: number;
 }
 
 export interface CloudHypervisorIdentity {
@@ -182,14 +208,16 @@ export function createCloudHypervisorRunPaths(
     kind: 'primary-agent',
     ownerId: 'primary-agent',
   },
+  invocationStorageRoot?: string,
 ): CloudHypervisorRunPaths {
   assertSafeMicrovmRunId(runId);
-  const runBaseDir = CLOUD_HYPERVISOR_RUN_ROOT;
-  const runDirectory = path.join(
-    runBaseDir,
-    path.basename(cloudHypervisorBinary),
-    runId,
-  );
+  const runBaseDir = invocationStorageRoot
+    ? path.join(invocationStorageRoot, 'runs') : CLOUD_HYPERVISOR_RUN_ROOT;
+  // The invocation root already contains the VM identity. Repeating it here
+  // would exceed Linux's 108-byte AF_UNIX limit for API/vsock/virtiofsd sockets.
+  const runDirectory = invocationStorageRoot
+    ? path.join(runBaseDir, 'vm')
+    : path.join(runBaseDir, path.basename(cloudHypervisorBinary), runId);
   return {
     runId,
     workloadIdentity,
@@ -201,7 +229,8 @@ export function createCloudHypervisorRunPaths(
     vsockSocketPath: path.join(runDirectory, VSOCK_SOCKET_NAME),
     logPath: path.join(runDirectory, CLOUD_HYPERVISOR_LOG_NAME),
     serialLogPath: path.join(runDirectory, CLOUD_HYPERVISOR_SERIAL_LOG_NAME),
-    virtiofsdShareDirectory: path.join(runBaseDir, 'virtiofsd', runId),
+    virtiofsdShareDirectory: invocationStorageRoot
+      ? path.join(runBaseDir, 'fs') : path.join(runBaseDir, 'virtiofsd', runId),
     cgroupPath: path.join(CGROUP_ROOT, 'awf-cloud-hypervisor', runId),
   };
 }

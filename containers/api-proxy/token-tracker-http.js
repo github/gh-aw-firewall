@@ -303,8 +303,9 @@ function extractUsageFromTrackedState(state) {
  * @param {object|null} params.billingInfo
  * @param {string|null} params.initiatorSent
  * @param {object|undefined} params.budgetResult
+ * @param {object|undefined} [params.modelFallback] - Ordered-fallback details when the request was served by a fallback model
  */
-function buildAndWriteTokenRecord(normalized, { requestId, provider, model, reqPath, status, streaming, duration, responseBytes, billingInfo, initiatorSent, budgetResult, purpose }) {
+function buildAndWriteTokenRecord(normalized, { requestId, provider, model, reqPath, status, streaming, duration, responseBytes, billingInfo, initiatorSent, budgetResult, purpose, modelFallback, requestedEndpoint, upstreamEndpoint }) {
   const record = buildTokenUsageRecord(normalized, {
     requestId,
     provider,
@@ -315,11 +316,16 @@ function buildAndWriteTokenRecord(normalized, { requestId, provider, model, reqP
     duration,
     responseBytes,
     purpose,
+    requestedEndpoint,
+    upstreamEndpoint,
   });
 
   // Include billing/quota info when available (Copilot PRU tracking)
   if (initiatorSent) record.x_initiator = initiatorSent;
   if (billingInfo) record.billing = billingInfo;
+  // Record which model actually served the request when the ordered fallback
+  // chain switched away from the requested model.
+  if (modelFallback) record.model_fallback = modelFallback;
 
   // Include effective token and AI credit budget fields when computed
   mergeBudgetFields(record, budgetResult);
@@ -337,6 +343,26 @@ function buildAndWriteTokenRecord(normalized, { requestId, provider, model, reqP
     cache_read_tokens: normalized.cache_read_tokens,
     cache_write_tokens: normalized.cache_write_tokens,
     streaming,
+    ...(modelFallback ? { requested_model: modelFallback.requested_model, model_fallback_attempt: modelFallback.attempt } : {}),
+  });
+}
+
+function reportUnsupportedCursorAccounting(requestId, provider, status, reason, contentEncoding) {
+  const accounting = {
+    provider,
+    path: '/agent.v1.AgentService/RunSSE',
+    status,
+    streaming: true,
+    protocol: 'cursor-runsse',
+    reason,
+    ...(contentEncoding ? { content_encoding: contentEncoding } : {}),
+  };
+  auditTrack('TRACK_END', { rid: requestId, result: 'unsupported_accounting', ...accounting });
+  logRequest('warn', 'token_track_unsupported_accounting', {
+    request_id: requestId,
+    ...accounting,
+    message: 'Cursor native token usage could not be extracted: AWF has no verified native usage decoder. ' +
+      'Token and AI-credit budgets cannot account for this response; missing usage does not mean zero cost.',
   });
 }
 
@@ -352,7 +378,10 @@ function buildAndWriteTokenRecord(normalized, { requestId, provider, model, reqP
  * @param {object} opts - Original options passed to trackTokenUsage
  */
 function finalizeHttpTracking(state, proxyRes, opts) {
-  const { requestId, provider, path: reqPath, startTime, metrics: metricsRef, billingInfo, initiatorSent, requestModel, onUsage, onSpanEnd, purpose } = opts;
+  const {
+    requestId, provider, path: reqPath, startTime, metrics: metricsRef, billingInfo, initiatorSent,
+    requestModel, onUsage, onSpanEnd, purpose, modelFallback, requestedEndpoint, upstreamEndpoint,
+  } = opts;
   const { streaming, compressed, contentEncoding } = state;
 
   // Only process successful responses (2xx)
@@ -386,6 +415,19 @@ function finalizeHttpTracking(state, proxyRes, opts) {
 
   const normalized = normalizeUsage(usage);
   if (!normalized) {
+    // The native Cursor stream is not an OpenAI completion just because it
+    // uses the OpenAI upstream route. No verified native usage decoder exists.
+    if (streaming && typeof reqPath === 'string'
+      && reqPath.split('?')[0] === '/agent.v1.AgentService/RunSSE') {
+      reportUnsupportedCursorAccounting(
+        requestId,
+        provider,
+        proxyRes.statusCode,
+        'native_usage_contract_unverified',
+      );
+      if (typeof onSpanEnd === 'function') onSpanEnd(proxyRes.statusCode);
+      return;
+    }
     auditTrack('TRACK_END', { rid: requestId, result: 'no_usage', streaming, bytes: state.totalBytes, overflow: state.overflow, ct: state.contentType, ce: contentEncoding });
     // Log at info level so failed extraction is visible in CI without debug mode
     logRequest('info', 'token_track_no_usage', {
@@ -435,6 +477,9 @@ function finalizeHttpTracking(state, proxyRes, opts) {
     initiatorSent,
     budgetResult,
     purpose,
+    modelFallback,
+    requestedEndpoint,
+    upstreamEndpoint,
   });
 
   if (typeof onSpanEnd === 'function') onSpanEnd(proxyRes.statusCode);
@@ -461,6 +506,7 @@ function finalizeHttpTracking(state, proxyRes, opts) {
  * @param {object|null} opts.billingInfo - Extracted billing/quota headers from response
  * @param {string|null} opts.initiatorSent - X-Initiator value sent on the request
  * @param {string|null} [opts.requestModel] - Model extracted from the request body, used as fallback when response omits model
+ * @param {object} [opts.modelFallback] - Ordered-fallback details ({ requested_model, model, attempt, reason, status }) when a fallback model served the request
  * @param {(normalizedUsage: object, model: string|null) => Record<string, number>|void} [opts.onUsage] - Optional callback invoked after normalized usage is extracted
  * @param {(statusCode: number) => void} [opts.onSpanEnd] - Optional callback invoked at end of finalizeHttpTracking() to signal span completion
  * @param {object} [opts.res] - Downstream client response; watched for 'close' so usage is finalized when the client (e.g. Codex) tears down the connection before the upstream stream ends cleanly
@@ -471,6 +517,15 @@ function trackTokenUsage(proxyRes, opts) {
   const contentType = proxyRes.headers['content-type'] || '(none)';
   const contentEncoding = proxyRes.headers['content-encoding'] || '(none)';
   const compressed = isCompressedResponse(proxyRes.headers);
+  let sseInspectionComplete = false;
+  const completeSseInspection = () => {
+    if (sseInspectionComplete) return;
+    sseInspectionComplete = true;
+    try { opts.onSseInspectionComplete?.(); } catch { /* best-effort observer */ }
+  };
+  if (streaming) {
+    try { opts.onSseInspectionStart?.(); } catch { /* best-effort observer */ }
+  }
 
   auditTrack('TRACK_START', { rid: requestId, provider, path: reqPath, streaming, ct: contentType, ce: contentEncoding, status: proxyRes.statusCode });
 
@@ -500,6 +555,18 @@ function trackTokenUsage(proxyRes, opts) {
         'The Accept-Encoding sanitizer should have prevented this — check if the client bypassed the proxy header rewrite.',
     });
     diag('HTTP_TRACK_UNSUPPORTED_ENCODING', { request_id: requestId, provider, path: reqPath, content_encoding: contentEncoding });
+    if (proxyRes.statusCode >= 200 && proxyRes.statusCode < 300
+      && streaming && typeof reqPath === 'string'
+      && reqPath.split('?')[0] === '/agent.v1.AgentService/RunSSE') {
+      reportUnsupportedCursorAccounting(
+        requestId,
+        provider,
+        proxyRes.statusCode,
+        `unsupported_content_encoding_${contentEncoding}`,
+        contentEncoding,
+      );
+    }
+    completeSseInspection();
     if (typeof opts.onSpanEnd === 'function') opts.onSpanEnd(proxyRes.statusCode);
     return;
   }
@@ -513,12 +580,24 @@ function trackTokenUsage(proxyRes, opts) {
     if (decompressor) {
       decompressor.on('error', (err) => {
         diag('DECOMPRESS_ERROR', { request_id: requestId, error: err.message });
+        completeSseInspection();
       });
     }
   }
 
   const onChunk = createChunkHandler(state, { requestId, provider, onSseData: opts.onSseData });
-  const onFinalize = () => finalizeHttpTracking(state, proxyRes, opts);
+  const onFinalize = () => {
+    try {
+      if (streaming && state.partialLine.trim()) {
+        for (const line of parseSseDataLines(state.partialLine)) {
+          if (typeof opts.onSseData === 'function') opts.onSseData(line);
+        }
+      }
+      finalizeHttpTracking(state, proxyRes, opts);
+    } finally {
+      completeSseInspection();
+    }
+  };
   wireListeners(proxyRes, decompressor, state, onChunk, onFinalize, res);
 }
 

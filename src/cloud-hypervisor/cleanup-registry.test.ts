@@ -5,6 +5,7 @@ import {
   DurableCloudHypervisorCleanupRegistry,
 } from './cleanup-registry';
 import { createCleanupRegistryTestHarness } from './cleanup-registry.test-utils';
+import { createCloudHypervisorEmptyNetworkNamespacePlan } from './network-namespace';
 
 describe('DurableCloudHypervisorCleanupRegistry orchestration', () => {
   let harness: Awaited<ReturnType<typeof createCleanupRegistryTestHarness>>;
@@ -23,7 +24,10 @@ describe('DurableCloudHypervisorCleanupRegistry orchestration', () => {
       const paths = harness.runPaths('recorded-run');
       const plan = harness.networkPlan(paths.runId);
 
+      expect(await registry.hasPendingRecord(paths.runId)).toBe(false);
       await registry.create(paths, plan, process.execPath, '/usr/bin/ip');
+      expect(await registry.hasPendingRecord(paths.runId)).toBe(true);
+      await expect(registry.hasPendingRecord('../invalid')).rejects.toThrow('Invalid Cloud Hypervisor run ID');
 
       const recordPath = path.join(harness.temporaryRoot, 'pending-cleanup', 'recorded-run.json');
       const record = JSON.parse(await fs.readFile(recordPath, 'utf8')) as {
@@ -461,6 +465,71 @@ describe('DurableCloudHypervisorCleanupRegistry orchestration', () => {
   });
 
   describe('resource recovery', () => {
+    it('reaps a persisted namespace-only record after validating identity, then stays idempotent', async () => {
+      const paths = harness.runPaths('script-namespace-recovery');
+      paths.workloadIdentity = {
+        kind: 'script-enclave', ownerId: 'script', invocationId: 'invocation',
+      };
+      const plan = createCloudHypervisorEmptyNetworkNamespacePlan(paths.runId);
+      const netnsIdentityFile = path.join(harness.temporaryRoot, 'script-netns-identity');
+      await fs.writeFile(netnsIdentityFile, '');
+      let netnsExists = true;
+      const base = harness.dependencies();
+      const baseLstat = base.lstat as typeof fs.lstat;
+      const lstat: typeof fs.lstat = (async (filePath: PathLike, options?: unknown) => {
+        if (String(filePath) === plan.netnsPath) {
+          if (!netnsExists) throw Object.assign(new Error('gone'), { code: 'ENOENT' });
+          return fs.lstat(netnsIdentityFile, options as never);
+        }
+        return baseLstat(filePath, options as never);
+      }) as typeof fs.lstat;
+      const run = jest.fn(async (command: string, args: readonly string[]) => {
+        if (command === '/usr/bin/ip' && args[0] === 'netns' && args[1] === 'delete') {
+          netnsExists = false;
+          return { exitCode: 0, stdout: '', stderr: '' };
+        }
+        throw new Error(`Unexpected network cleanup command: ${command} ${args.join(' ')}`);
+      });
+      const registry = new DurableCloudHypervisorCleanupRegistry({ ...base, lstat, run });
+      const handle = await registry.createPending(paths, process.execPath, '/usr/bin/ip');
+      await handle.captureEmptyNetworkNamespace(plan);
+      await expect(handle.captureNetworkResource('tap')).rejects.toThrow(
+        /Closed network namespace cannot capture tap/,
+      );
+      await handle.captureNetworkResource('netns');
+      const recordPath = path.join(harness.temporaryRoot, 'pending-cleanup', `${paths.runId}.json`);
+      const record = JSON.parse(await fs.readFile(recordPath, 'utf8')) as {
+        network: unknown;
+        identities: { netns: { device: string; inode: string } };
+        workload: unknown;
+      };
+      expect(record.network).toEqual(plan);
+      expect(record.workload).toEqual(paths.workloadIdentity);
+      expect(record.identities.netns).toEqual({
+        device: (await fs.lstat(netnsIdentityFile, { bigint: true })).dev.toString(),
+        inode: (await fs.lstat(netnsIdentityFile, { bigint: true })).ino.toString(),
+      });
+
+      harness.state.ownerStartTime = '2000';
+      await harness.mutateRecord(paths.runId, (value) => {
+        value.identities.netns.inode = '-1';
+      });
+      await expect(new DurableCloudHypervisorCleanupRegistry({ ...base, lstat, run })
+        .reapPending('/usr/bin/ip', '/usr/bin/umount')).rejects.toThrow(/netns identity changed/);
+      expect(run).not.toHaveBeenCalled();
+      await harness.mutateRecord(paths.runId, (value) => {
+        value.identities.netns.inode = record.identities.netns.inode;
+      });
+      const reaper = new DurableCloudHypervisorCleanupRegistry({ ...base, lstat, run });
+      await reaper.reapPending('/usr/bin/ip', '/usr/bin/umount');
+      expect(run).toHaveBeenCalledTimes(1);
+      expect(run).toHaveBeenCalledWith('/usr/bin/ip', ['netns', 'delete', plan.namespaceName]);
+      expect(netnsExists).toBe(false);
+      await expect(fs.access(recordPath)).rejects.toMatchObject({ code: 'ENOENT' });
+      await reaper.reapPending('/usr/bin/ip', '/usr/bin/umount');
+      expect(run).toHaveBeenCalledTimes(1);
+    });
+
     it('retains evidence and fails when a live resource lacks a committed identity', async () => {
       const base = harness.dependencies();
       const originalLstat = base.lstat as typeof fs.lstat;

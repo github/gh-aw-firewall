@@ -21,7 +21,7 @@ function manifest(overrides: Record<string, unknown> = {}): string {
     },
     artifacts: {
       cloudHypervisor: { file: 'cloud-hypervisor', version: '53.0', sha256: digest },
-      virtiofsd: { file: 'virtiofsd', version: '1.10.0', sha256: digest },
+      virtiofsd: { file: 'virtiofsd', version: '1.13.3', sha256: digest },
       kernel: { file: 'vmlinux.bin', version: '6.1.141', sha256: digest },
       rootfs: { file: 'rootfs.ext4', version: releaseTag, sha256: digest },
       supervisor: { file: 'awf-supervisor', version: releaseTag, sha256: digest },
@@ -63,7 +63,7 @@ describe('Cloud Hypervisor artifact manifest', () => {
     expect(() => parseCloudHypervisorArtifactManifest(manifest({
       artifacts: {
         cloudHypervisor: { file: 'other', version: '53.0', sha256: digest },
-        virtiofsd: { file: 'virtiofsd', version: '1.10.0', sha256: digest },
+        virtiofsd: { file: 'virtiofsd', version: '1.13.3', sha256: digest },
         kernel: { file: 'vmlinux.bin', version: '6.1.141', sha256: digest },
         rootfs: { file: 'rootfs.ext4', version: releaseTag, sha256: digest },
         supervisor: { file: 'awf-supervisor', version: releaseTag, sha256: digest },
@@ -72,12 +72,21 @@ describe('Cloud Hypervisor artifact manifest', () => {
     expect(() => parseCloudHypervisorArtifactManifest(manifest({
       artifacts: {
         cloudHypervisor: { file: 'cloud-hypervisor', version: '53.0', sha256: 'bad' },
-        virtiofsd: { file: 'virtiofsd', version: '1.10.0', sha256: digest },
+        virtiofsd: { file: 'virtiofsd', version: '1.13.3', sha256: digest },
         kernel: { file: 'vmlinux.bin', version: '6.1.141', sha256: digest },
         rootfs: { file: 'rootfs.ext4', version: releaseTag, sha256: digest },
         supervisor: { file: 'awf-supervisor', version: releaseTag, sha256: digest },
       },
     }), releaseTag)).toThrow(/lowercase SHA-256/);
+    expect(() => parseCloudHypervisorArtifactManifest(manifest({
+      artifacts: {
+        cloudHypervisor: { file: 'cloud-hypervisor', version: '53.0', sha256: digest },
+        virtiofsd: { file: 'virtiofsd', version: '1.10.0', sha256: digest },
+        kernel: { file: 'vmlinux.bin', version: '6.1.141', sha256: digest },
+        rootfs: { file: 'rootfs.ext4', version: releaseTag, sha256: digest },
+        supervisor: { file: 'awf-supervisor', version: releaseTag, sha256: digest },
+      },
+    }), releaseTag)).toThrow(/virtiofsd version must be 1\.13\.3/);
   });
 
   it('rejects local artifact names that do not match the signed manifest', () => {

@@ -1,6 +1,11 @@
 'use strict';
 
-const { matchesGlobPattern, lookupModelEndpoints, getModelApiMappingReflect } = require('./model-api-mapping');
+const {
+  matchesGlobPattern,
+  lookupModelEndpoints,
+  lookupModelRoutingMetadata,
+  getModelApiMappingReflect,
+} = require('./model-api-mapping');
 
 describe('model-api-mapping', () => {
   describe('matchesGlobPattern', () => {
@@ -169,14 +174,44 @@ describe('model-api-mapping', () => {
     });
   });
 
+  describe('lookupModelRoutingMetadata', () => {
+    it('returns verified OpenAI effort and context data only for covered model IDs', () => {
+      expect(lookupModelRoutingMetadata('gpt-5.4', 'openai')).toEqual({
+        family: 'gpt-5.4',
+        endpoints: ['chat_completions', 'responses'],
+        reasoningEfforts: ['none', 'low', 'medium', 'high', 'xhigh'],
+        contextWindowTokens: 1_050_000,
+      });
+      expect(lookupModelRoutingMetadata('gpt-5.4-mini', 'openai')).toBeNull();
+      expect(lookupModelRoutingMetadata('o3', 'openai')).toBeNull();
+      expect(lookupModelRoutingMetadata('gpt-5.4-2026-03-05', 'openai'))
+        .toMatchObject({ contextWindowTokens: 1_050_000 });
+    });
+
+    it('returns Anthropic Messages effort and context metadata for maintained families', () => {
+      expect(lookupModelRoutingMetadata('claude-opus-5-5', 'anthropic')).toEqual({
+        family: 'claude-opus-5',
+        endpoints: ['messages'],
+        reasoningEfforts: ['low', 'medium', 'high', 'max'],
+        contextWindowTokens: 1_000_000,
+      });
+      expect(lookupModelRoutingMetadata('claude-haiku-4-5-20251001', 'anthropic')).toBeNull();
+    });
+  });
+
   describe('getModelApiMappingReflect', () => {
     it('returns available mapping with provider list', () => {
       const reflect = getModelApiMappingReflect();
       expect(reflect.available).toBe(true);
       expect(reflect.providers).toContain('openai');
       expect(reflect.providers).toContain('anthropic');
-      expect(reflect.last_updated).toBe('2026-09-24T07:03:39Z');
+      expect(reflect.last_updated).toBe('2026-09-30T07:10:00Z');
       expect(reflect.models.anthropic.models[0].family).toBe('claude-opus-5');
+      expect(reflect.models.openai.models.find(model => model.family === 'gpt-5.4').routing)
+        .toEqual({
+          reasoningEfforts: ['none', 'low', 'medium', 'high', 'xhigh'],
+          contextWindowTokens: 1_050_000,
+        });
       expect(reflect.error).toBeNull();
     });
   });

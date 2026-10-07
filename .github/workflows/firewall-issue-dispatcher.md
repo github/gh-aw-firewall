@@ -43,7 +43,7 @@ jobs:
               }
             }
           ' > "$RUNNER_TEMP/awf-data/awf-issues.json"
-      - uses: actions/upload-artifact@v7.0.1
+      - uses: actions/upload-artifact@v7.0.2
         with:
           name: awf-issues-${{ github.run_id }}
           path: ${{ runner.temp }}/awf-data/awf-issues.json
@@ -54,7 +54,7 @@ sandbox:
     id: awf
 
 steps:
-  - uses: actions/download-artifact@v8.0.1
+  - uses: actions/download-artifact@v8.0.2
     with:
       name: awf-issues-${{ github.run_id }}
       path: /tmp/gh-aw/data

@@ -57,7 +57,15 @@ export interface CleanupRecord {
     readonly virtiofsdShareDirectory: string;
     artifactSnapshotDirectory?: string;
   };
+  invocationStorage?: {
+    bootId: string;
+    directory: string;
+    identity: FileIdentity;
+    parentIdentity: FileIdentity;
+    mount: MountIdentity;
+  };
   network?: {
+    readonly mode?: 'primary' | 'enclave-agent';
     readonly namespaceName: string;
     readonly netnsPath: string;
     readonly hostVethName: string;
@@ -65,6 +73,10 @@ export interface CleanupRecord {
     readonly tapName: string;
     readonly infrastructureBridge: string;
     readonly hostForwardRuleComment: string;
+  } | {
+    readonly mode: 'none';
+    readonly namespaceName: string;
+    readonly netnsPath: string;
   };
   readonly identities: {
     runDirectory?: FileIdentity;
@@ -100,10 +112,34 @@ export function validateRecord(
     path.join(registryRoot, `${record.runId}.json`) !== recordPath
   ) throw new Error('invalid cleanup record identity');
   if (record.workload !== undefined) validateWorkloadIdentity(record.workload);
+  if (record.invocationStorage) {
+    const root = `/run/awf-cloud-hypervisor/enclave-storage/${record.runId}`;
+    if (!/^[0-9a-f]{32}$/.test(record.runId) ||
+      !['script-enclave', 'agent-enclave'].includes(record.workload?.kind ?? '') ||
+      typeof record.invocationStorage.bootId !== 'string' || !record.invocationStorage.bootId ||
+      record.invocationStorage.directory !== root ||
+      record.invocationStorage.mount.mountPoint !== root ||
+      record.invocationStorage.mount.root !== '/' ||
+      record.invocationStorage.mount.filesystemType !== 'tmpfs' ||
+      record.invocationStorage.mount.source !== 'awf-enclave-invocation' ||
+      !Number.isSafeInteger(record.invocationStorage.mount.mountId) ||
+      record.invocationStorage.mount.mountId <= 0 ||
+      !/^\d+:\d+$/.test(record.invocationStorage.mount.device) ||
+      ![record.invocationStorage.identity, record.invocationStorage.parentIdentity].every((identity) =>
+        identity && /^(?:0|[1-9][0-9]{0,19})$/.test(identity.device) &&
+        /^[1-9][0-9]{0,19}$/.test(identity.inode)) ||
+      record.paths.runDirectory !== path.join(root, 'runs', 'vm') ||
+      record.paths.virtiofsdShareDirectory !== path.join(root, 'runs', 'fs') ||
+      record.paths.cgroupPath !== `/sys/fs/cgroup/awf-cloud-hypervisor/${record.runId}`) {
+      throw new Error('Cleanup storage paths are not invocation-owned');
+    }
+  } else if (record.paths?.runDirectory.startsWith('/run/awf-cloud-hypervisor/enclave-storage/')) {
+    throw new Error('Invocation storage identity is missing');
+  }
   if (
-    !record.paths?.runDirectory.endsWith(`/${record.runId}`) ||
+    (!record.paths?.runDirectory.endsWith(`/${record.runId}`) && !record.invocationStorage) ||
     !record.paths?.cgroupPath.endsWith(`/${record.runId}`) ||
-    !record.paths?.virtiofsdShareDirectory.endsWith(`/${record.runId}`) ||
+    (!record.paths?.virtiofsdShareDirectory.endsWith(`/${record.runId}`) && !record.invocationStorage) ||
     (record.paths.artifactSnapshotDirectory !== undefined && (
       !isTrustedArtifactSnapshotDirectory(
         record.paths.artifactSnapshotDirectory,
@@ -113,8 +149,11 @@ export function validateRecord(
     )) ||
     (record.network !== undefined && (
       record.network.netnsPath !== `/var/run/netns/${record.network.namespaceName}` ||
-      !/^awf-microvm-[0-9a-f]{12}$/.test(record.network.hostForwardRuleComment) ||
-      !/^[A-Za-z0-9_.-]{1,15}$/.test(record.network.infrastructureBridge)
+      !/^awfvm-[0-9a-f]{12}$/.test(record.network.namespaceName) ||
+      (record.network.mode !== 'none' && (
+        !/^awf-microvm-[0-9a-f]{12}$/.test(record.network.hostForwardRuleComment) ||
+        !/^[A-Za-z0-9_.-]{1,15}$/.test(record.network.infrastructureBridge)
+      ))
     ))
   ) throw new Error('cleanup record paths are not run-scoped');
   validateProcessIdentity(record.owner, 'cleanup record owner');
@@ -181,6 +220,16 @@ export function isTrustedArtifactSnapshotDirectory(
   directory: string,
   runDirectory: string,
 ): boolean {
+  const invocation = /^\/run\/awf-cloud-hypervisor\/enclave-storage\/([0-9a-f]{32})\/runs\/vm$/.exec(runDirectory);
+  if (invocation) {
+    return path.dirname(directory) ===
+      `/run/awf-cloud-hypervisor/enclave-storage/${invocation[1]}/artifacts`;
+  }
+  const match = /^\/run\/awf-cloud-hypervisor\/enclave-storage\/([0-9a-f]{32})\/runs\/cloud-hypervisor\/([0-9a-f]{32})$/.exec(runDirectory);
+  if (match) {
+    return match[1] === match[2] && path.dirname(directory) ===
+      `/run/awf-cloud-hypervisor/enclave-storage/${match[1]}/artifacts`;
+  }
   const legacyRunRootSnapshotRoot = path.join(
     path.dirname(path.dirname(runDirectory)),
     'trusted-artifacts',
@@ -213,6 +262,16 @@ export function assertSafeRecordPaths(
   paths: CleanupScopedPaths,
   plan: MicrovmNetworkPlan | undefined,
 ): void {
+  const storageRoot = `/run/awf-cloud-hypervisor/enclave-storage/${paths.runId}`;
+  if (paths.runDirectory === path.join(storageRoot, 'runs', 'vm')) {
+    if (!/^[0-9a-f]{32}$/.test(paths.runId) ||
+      (plan !== undefined && plan.runId !== paths.runId) ||
+      ![storageRoot, path.join(storageRoot, 'runs')].includes(paths.runBaseDir) ||
+      paths.cgroupPath !== `/sys/fs/cgroup/awf-cloud-hypervisor/${paths.runId}`) {
+      throw new Error('Cloud Hypervisor cleanup resources are not scoped to one invocation');
+    }
+    return;
+  }
   if (
     (plan !== undefined && plan.runId !== paths.runId) ||
     !paths.runDirectory.startsWith(`${paths.runBaseDir}${path.sep}`) ||

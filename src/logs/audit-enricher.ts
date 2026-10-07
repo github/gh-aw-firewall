@@ -7,6 +7,7 @@
  */
 
 import { ParsedLogEntry, PolicyManifest, PolicyRule } from '../types';
+import { isNoneDecision } from './log-parser';
 
 /**
  * A log entry enriched with the policy rule that matched it.
@@ -159,8 +160,8 @@ export function computeRuleStats(
   const hitCounts = new Map<string, number>();
 
   for (const entry of enrichedEntries) {
-    // Skip benign operational entries
-    if (entry.url === 'error:transaction-end-before-headers') continue;
+    // Skip benign operational entries and SSL-bump step-1 preflight peeks.
+    if (isNoneDecision(entry.decision) || entry.url === 'error:transaction-end-before-headers') continue;
     hitCounts.set(entry.matchedRuleId, (hitCounts.get(entry.matchedRuleId) || 0) + 1);
   }
 

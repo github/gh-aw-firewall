@@ -67,7 +67,7 @@ export function buildApiProxyServiceConfig(params: ApiProxyServiceConfigParams):
         // Mount log directory for api-proxy logs
         `${apiProxyLogsPath}:/var/log/api-proxy:rw`,
         ...(apiProxyCaCertPath ? [`${apiProxyCaCertPath}:${API_PROXY_UPSTREAM_CA_CERT_CONTAINER_PATH}:ro`] : []),
-        ...(config.modelRoutingBootstrap ? [
+        ...(config.experimentalModelRouting === true && config.modelRouting && config.modelRoutingBootstrap ? [
           `${config.modelRoutingBootstrap.inputDir}:${ROUTING_CONTAINER_INPUT_DIR}:ro`,
           `${config.modelRoutingBootstrap.outputDir}:${ROUTING_CONTAINER_OUTPUT_DIR}:rw`,
         ] : []),
@@ -79,7 +79,7 @@ export function buildApiProxyServiceConfig(params: ApiProxyServiceConfigParams):
     ...buildContainerSecurityHardening({ memLimit: '512m', pidsLimit: 100, cpuShares: 512 }),
     stop_grace_period: `${stopGracePeriodSeconds}s`,
   };
-  if (config.modelRoutingBootstrap) {
+  if (config.experimentalModelRouting === true && config.modelRouting && config.modelRoutingBootstrap) {
     proxyService.networks = {
       ...proxyService.networks,
       [ROUTING_NETWORK_NAME]: {},

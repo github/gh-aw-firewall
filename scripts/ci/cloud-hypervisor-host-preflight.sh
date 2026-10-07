@@ -84,8 +84,8 @@ virtiofsd_mode=$(stat -c '%a' "$ARTIFACT_DIR/virtiofsd")
 virtiofsd_uid=$(stat -c '%u' "$ARTIFACT_DIR/virtiofsd")
 [ "$virtiofsd_uid" -eq 0 ] || [ "$virtiofsd_uid" -eq "$(id -u)" ] \
   || fail "virtiofsd must be owned by root or the workflow operator."
-"$ARTIFACT_DIR/virtiofsd" --version 2>&1 | grep -Eq '(^| )1\.10\.0($| )' \
-  || fail "virtiofsd v1.10.0 is required."
+"$ARTIFACT_DIR/virtiofsd" --version 2>&1 | grep -Eq '(^| )1\.13\.3($| )' \
+  || fail "virtiofsd v1.13.3 is required."
 (
   cd "$ARTIFACT_DIR"
   sha256sum --check --strict SHA256SUMS

@@ -50,6 +50,7 @@ permissions:
 
 imports:
   - shared/mcp-pagination.md
+  - shared/diagnosis-findings.md
 
 tools:
   github:
@@ -92,6 +93,12 @@ You are the CI Failure Doctor. When a workflow fails, investigate the root cause
 3. **Search cache-memory** for similar past failures
 4. **Check for existing issues** that match this failure
 5. **Create an investigation issue** if no duplicate exists
+
+## Canonical Diagnosis Registry (read-only)
+
+`docs/diagnostics/` holds this repository's canonical diagnosis findings. Consult the imported generated findings catalog before writing your analysis and cite any matching finding ID.
+
+You are a **read-only consumer**: cite an existing finding ID, or describe a candidate with its redacted evidence and the smallest read-only probe. Never assert a cause without current-main evidence, never propose a credential-bearing probe or an isolation bypass, and never edit registry records — canonical state changes only through a human-reviewed pull request (see `docs/diagnostics/patterns.md`).
 
 ## Key Patterns for This Repository
 

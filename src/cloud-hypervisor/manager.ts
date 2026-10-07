@@ -63,6 +63,10 @@ import {
 } from './cleanup-registry';
 import { CloudHypervisorVmmIdentityManager } from './vmm-identity';
 import {
+  CloudHypervisorEmptyNetworkNamespace,
+  type CloudHypervisorNetworkLifecycle,
+} from './network-namespace';
+import {
   sealCloudHypervisorWorkloadProfile,
   snapshotCloudHypervisorWorkloadProfile,
   type CloudHypervisorWorkloadProfile,
@@ -111,6 +115,12 @@ const defaultDependencies: CloudHypervisorManagerDependencies = {
     reservation,
     observer,
   ),
+  createEmptyNetworkNamespace: (plan, tools, observer) =>
+    new CloudHypervisorEmptyNetworkNamespace(
+      plan,
+      new LinuxNetworkCommands(undefined, tools),
+      observer,
+    ),
   cleanupRegistry: new DurableCloudHypervisorCleanupRegistry(),
   createRootfsPreparer: (config, tools, copyRootfs) => new MicrovmRootfsPreparer(config, {
     runTool: async (command, args) => {
@@ -126,9 +136,10 @@ const defaultDependencies: CloudHypervisorManagerDependencies = {
     copyRootfs,
   }),
   createVirtiofsdManager: (
-    binaryPath, runDirectory, shareDirectory, identity, cgroup, tools, cleanupRecord,
+    binaryPath, runDirectory, shareDirectory, identity, workspaceIdentity, cgroup, tools, cleanupRecord,
   ) => new VirtiofsdManager(
-    binaryPath, runDirectory, shareDirectory, identity, cgroup, tools, undefined, cleanupRecord,
+    binaryPath, runDirectory, shareDirectory, identity, workspaceIdentity, cgroup, tools, undefined,
+    cleanupRecord,
   ),
   createVsockClient: (socketPath, guestPort, timeoutMs) => new MicrovmVsockClient({
     socketPath,
@@ -143,6 +154,12 @@ const defaultDependencies: CloudHypervisorManagerDependencies = {
     new CloudHypervisorVmmIdentityManager(runId, tools, undefined, observer),
   resolveIdentity: resolveCloudHypervisorIdentity,
 };
+
+export function resolveCloudHypervisorManagerDependencies(
+  overrides: Partial<CloudHypervisorManagerDependencies> = {},
+): CloudHypervisorManagerDependencies {
+  return { ...defaultDependencies, ...overrides };
+}
 
 /** @internal Exposed only for focused host-adapter tests. */
 export const cloudHypervisorManagerTestHelpers = {
@@ -192,7 +209,7 @@ export class CloudHypervisorManager {
   paths: CloudHypervisorRunPaths;
   private process: ExecaChildProcess<string> | undefined;
   private client: CloudHypervisorApiClient | undefined;
-  private network: MicrovmNetworkLifecycle | undefined;
+  private network: MicrovmNetworkLifecycle | CloudHypervisorNetworkLifecycle | undefined;
   private rootfsPreparer: MicrovmRootfsPreparer | undefined;
   private virtiofsd: VirtiofsdManager | undefined;
   private fsDevices: VirtiofsdDevice[] = [];
@@ -245,6 +262,7 @@ export class CloudHypervisorManager {
     profileOrNetworkConfig?: CloudHypervisorWorkloadProfile | CloudHypervisorManagerNetworkConfig,
     legacyGuestConfig?: CloudHypervisorManagerGuestConfig,
     private readonly verifiedArtifacts?: CloudHypervisorPreflightResult,
+    private readonly allowTrustedEnclaveExecution = false,
   ) {
     const profile: CloudHypervisorWorkloadProfile = isWorkloadProfile(profileOrNetworkConfig)
       ? sealCloudHypervisorWorkloadProfile(profileOrNetworkConfig)
@@ -267,7 +285,7 @@ export class CloudHypervisorManager {
     this.workloadProfile = isWorkloadProfile(profileOrNetworkConfig)
       ? profile
       : snapshotCloudHypervisorWorkloadProfile(profile);
-    this.paths = createCloudHypervisorRunPaths(
+    this.paths = (dependencies.createRunPaths ?? createCloudHypervisorRunPaths)(
       config.cloudHypervisorBinary,
       runId,
       this.workloadProfile.identity,
@@ -281,6 +299,7 @@ export class CloudHypervisorManager {
       dependencies: this.dependencies,
       paths: this.paths,
       workloadProfile: this.workloadProfile,
+      allowTrustedEnclaveExecution: this.allowTrustedEnclaveExecution,
       verifiedArtifacts: this.verifiedArtifacts,
       stdoutCapture: this.stdoutCapture,
       stderrCapture: this.stderrCapture,

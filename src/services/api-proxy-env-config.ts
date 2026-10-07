@@ -152,6 +152,8 @@ function buildProviderRoutingEnv(config: WrapperConfig): Record<string, string> 
     // run and differ between runs/attempts.
     ...(process.env.GITHUB_RUN_ID?.trim() && { GITHUB_RUN_ID: process.env.GITHUB_RUN_ID.trim() }),
     ...(process.env.GITHUB_RUN_ATTEMPT?.trim() && { GITHUB_RUN_ATTEMPT: process.env.GITHUB_RUN_ATTEMPT.trim() }),
+    ...(process.env.GITHUB_REPOSITORY?.trim() && { GITHUB_REPOSITORY: process.env.GITHUB_REPOSITORY.trim() }),
+    ...(process.env.GITHUB_WORKFLOW_REF?.trim() && { GITHUB_WORKFLOW_REF: process.env.GITHUB_WORKFLOW_REF.trim() }),
     ...(getConfigEnvValue(config, 'GITHUB_COPILOT_INTEGRATION_ID') && {
       GITHUB_COPILOT_INTEGRATION_ID: getConfigEnvValue(config, 'GITHUB_COPILOT_INTEGRATION_ID')!,
     }),
@@ -273,8 +275,11 @@ function buildModelPolicyEnv(config: WrapperConfig): Record<string, string> {
     ...(config.modelFallback && {
       AWF_MODEL_FALLBACK: JSON.stringify(config.modelFallback),
     }),
+    ...(config.fallbackModels && config.fallbackModels.length > 0 && {
+      AWF_FALLBACK_MODELS: JSON.stringify(config.fallbackModels),
+    }),
     // Model policy (allowed/disallowed)
-    ...(config.allowedModels && config.allowedModels.length > 0 && {
+    ...(config.allowedModels !== undefined && {
       AWF_ALLOWED_MODELS: JSON.stringify(config.allowedModels),
     }),
     ...(config.disallowedModels && config.disallowedModels.length > 0 && {
@@ -310,7 +315,7 @@ function buildModelPolicyEnv(config: WrapperConfig): Record<string, string> {
 }
 
 function buildModelRoutingEnv(config: WrapperConfig): Record<string, string> {
-  if (!config.modelRouting) return {};
+  if (config.experimentalModelRouting !== true || !config.modelRouting) return {};
   if (!config.modelRoutingBootstrap) {
     throw new Error(MODEL_ROUTING_NOT_STAGED_MESSAGE);
   }

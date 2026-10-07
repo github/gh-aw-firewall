@@ -1,0 +1,152 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/github/gh-aw-firewall/main/docs/diagnostics/schema.json",
+  "title": "AWF Diagnosis Finding",
+  "description": "A single machine-readable AWF diagnosis finding. Records live in docs/diagnostics/findings/<boundary>/<ID>.json and are the canonical diagnosis knowledge state. See docs/diagnostics/patterns.md for the update protocol.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "id",
+    "boundary",
+    "title",
+    "symptoms",
+    "conditions",
+    "affects",
+    "versions",
+    "status",
+    "rootCause",
+    "probe",
+    "action",
+    "references",
+    "owner",
+    "reviewBy"
+  ],
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "description": "Relative or absolute JSON Schema reference for editor validation."
+    },
+    "id": {
+      "type": "string",
+      "description": "Stable finding ID. Runner findings retain the historical A/B/C/D catalog IDs (for example 'A1'); other boundaries use a namespace prefix (RT-, NET-, AUTH-, CI-, SEC-). IDs are never recycled.",
+      "pattern": "^([A-D][0-9]{1,3}|(RT|NET|AUTH|CI|SEC)-[0-9]{3})$"
+    },
+    "boundary": {
+      "type": "string",
+      "description": "Trust boundary / phase that failed.",
+      "enum": ["runner", "runtime", "network", "auth", "ci", "security"]
+    },
+    "title": {
+      "type": "string",
+      "description": "Short human-readable summary of the failure.",
+      "minLength": 8,
+      "maxLength": 160
+    },
+    "symptoms": {
+      "type": "array",
+      "description": "Concise symptom signatures (observable error strings or behaviours) used for matching.",
+      "minItems": 1,
+      "items": { "type": "string", "minLength": 4 }
+    },
+    "conditions": {
+      "type": "array",
+      "description": "Discriminating conditions that must hold for this finding to match. Used to disambiguate overlapping symptoms.",
+      "minItems": 1,
+      "items": { "type": "string", "minLength": 4 }
+    },
+    "affects": {
+      "type": "object",
+      "description": "Topology dimensions this finding applies to. Use 'unknown' when unverified and 'any' when the dimension is irrelevant.",
+      "additionalProperties": false,
+      "required": ["runner", "runtime", "provider", "authMode"],
+      "properties": {
+        "runner": { "type": "string", "minLength": 1 },
+        "runtime": { "type": "string", "minLength": 1 },
+        "provider": { "type": "string", "minLength": 1 },
+        "authMode": { "type": "string", "minLength": 1 }
+      }
+    },
+    "versions": {
+      "type": "object",
+      "description": "AWF version or commit scope. Use 'unknown' when the scope has not been verified against the default branch; never assert a shipped fix from an open PR or provider documentation alone.",
+      "additionalProperties": false,
+      "required": ["introduced", "fixed"],
+      "properties": {
+        "introduced": { "type": "string", "minLength": 1 },
+        "fixed": { "type": "string", "minLength": 1 }
+      }
+    },
+    "status": {
+      "type": "string",
+      "description": "Lifecycle status of the finding.",
+      "enum": ["fixed", "workaround", "unresolved", "needs-evidence", "superseded"]
+    },
+    "supersededBy": {
+      "type": "string",
+      "description": "ID of the finding that replaces this one. Required when status is 'superseded'.",
+      "pattern": "^([A-D][0-9]{1,3}|(RT|NET|AUTH|CI|SEC)-[0-9]{3})$"
+    },
+    "rootCause": {
+      "type": "string",
+      "description": "Root cause, distinct from the symptom.",
+      "minLength": 12
+    },
+    "probe": {
+      "type": "object",
+      "description": "Smallest discriminating probe. Must be read-only and secret-safe: no credential values, token exchanges, inference calls, or environment dumps.",
+      "additionalProperties": false,
+      "required": ["command", "expect", "readOnly", "secretSafe"],
+      "properties": {
+        "command": { "type": "string", "minLength": 3 },
+        "expect": { "type": "string", "minLength": 3 },
+        "readOnly": { "type": "boolean", "const": true },
+        "secretSafe": { "type": "boolean", "const": true }
+      }
+    },
+    "action": {
+      "type": "string",
+      "description": "Recommended fix or workaround. Never recommends disabling isolation, broadening an allowlist by default, or dumping credentials.",
+      "minLength": 12
+    },
+    "references": {
+      "type": "array",
+      "description": "Provenance: issues/merged PRs plus implementation or test citations.",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["kind", "ref"],
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": ["issue", "pull-request", "doc", "code", "test"]
+          },
+          "ref": {
+            "type": "string",
+            "description": "An https URL, or a repository-relative path (optionally with a #anchor) for doc/code/test references.",
+            "minLength": 3
+          },
+          "title": { "type": "string" }
+        }
+      }
+    },
+    "related": {
+      "type": "array",
+      "description": "Cross-links to other finding IDs instead of duplicating a cause across boundaries.",
+      "items": {
+        "type": "string",
+        "pattern": "^([A-D][0-9]{1,3}|(RT|NET|AUTH|CI|SEC)-[0-9]{3})$"
+      }
+    },
+    "owner": {
+      "type": "string",
+      "description": "Owning team or handle responsible for review.",
+      "minLength": 2
+    },
+    "reviewBy": {
+      "type": "string",
+      "description": "Next review date (YYYY-MM-DD) for the maintenance cadence.",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"
+    }
+  }
+}

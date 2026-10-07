@@ -15,13 +15,78 @@
  */
 
 const metrics = require('./metrics');
-const { getModelApiMappingReflect } = require('./model-api-mapping');
+const {
+  getModelApiMappingReflect,
+  lookupModelEndpoints,
+  lookupModelRoutingMetadata,
+} = require('./model-api-mapping');
+const { isModelPermittedByPolicy } = require('./guards/model-policy-guard');
+const { normalizeModel } = require('./routing-catalogue');
+const { getModelRoutingChoices } = require('./routing-candidates');
+
+function filterModelCatalogue(entries, provider, modelPolicy, getModel) {
+  if (!Array.isArray(entries) || !modelPolicy ||
+      (!modelPolicy.allowedModels?.length && !modelPolicy.disallowedModels?.length)) {
+    return entries;
+  }
+  return entries.filter(entry => {
+    const model = getModel(entry);
+    return typeof model !== 'string' || isModelPermittedByPolicy(
+      model,
+      modelPolicy.allowedModels ?? null,
+      modelPolicy.disallowedModels ?? null,
+      provider,
+    );
+  });
+}
+
+function buildRoutingModelMetadata(provider, modelIds, runtimeRecords) {
+  if (!Array.isArray(modelIds)) return null;
+  const runtimeById = new Map(
+    (Array.isArray(runtimeRecords) ? runtimeRecords : [])
+      .filter(record => typeof record?.id === 'string')
+      .map(record => [record.id.toLowerCase(), record]),
+  );
+  return modelIds.map(id => {
+    const runtime = runtimeById.get(id.toLowerCase());
+    const maintained = lookupModelRoutingMetadata(id, provider);
+    const endpointMapping = lookupModelEndpoints(id, provider);
+    const normalized = normalizeModel(id, runtime, provider);
+    const efforts = Array.isArray(normalized.efforts) ? normalized.efforts : null;
+    const endpoints = Array.isArray(runtime?.supportedEndpoints)
+      ? runtime.supportedEndpoints
+      : (endpointMapping?.endpoints || []);
+    const runtimeHasMetadata = Array.isArray(runtime?.supportedReasoningEfforts) ||
+      Array.isArray(runtime?.capabilities?.supports?.reasoning_effort) ||
+      runtime?.capabilities?.supports?.reasoningEffort === false ||
+      Array.isArray(runtime?.supportedEndpoints) ||
+      typeof runtime?.modelPickerEnabled === 'boolean' ||
+      (Number.isInteger(runtime?.capabilities?.limits?.max_context_window_tokens) &&
+        runtime.capabilities.limits.max_context_window_tokens > 0);
+    const hasMaintainedMetadata = maintained !== null;
+    const candidateMetadataComplete = getModelRoutingChoices(normalized, provider).length > 0;
+    return {
+      model_id: id,
+      source: runtimeHasMetadata && hasMaintainedMetadata
+        ? 'provider+maintained'
+        : (runtimeHasMetadata ? 'provider' : (hasMaintainedMetadata ? 'maintained' : 'incomplete')),
+      supported_endpoints: endpoints,
+      supported_reasoning_efforts: efforts,
+      context_window_tokens: normalized.contextWindow ?? null,
+      candidate_metadata_complete: candidateMetadataComplete,
+      ...(provider === 'copilot' && runtime?.modelPickerEnabled === false
+        ? { candidate_metadata_reason: 'Model is not enabled in the Copilot model picker' }
+        : {}),
+    };
+  });
+}
 
 /**
  * @typedef {object} ManagementDeps
  * @property {() => Array<object>}  getAdapters           - Returns registered adapters array
  * @property {() => Record<string, string[]|null>} getCachedModels - Returns model cache object
  * @property {() => Record<string, object[]>} getRuntimeModelMetadata - Returns sanitized runtime metadata
+ * @property {() => Record<string, object[]>} [getRoutingModelMetadata] - Returns private runtime metadata for routing normalization
  * @property {() => boolean}        isModelFetchComplete  - Whether startup model fetch has run
  * @property {() => { complete: boolean, results: Record<string, object> }} getKeyValidationState
  * @property {() => import('./rate-limiter').RateLimiter} getLimiter
@@ -33,6 +98,7 @@ const { getModelApiMappingReflect } = require('./model-api-mapping');
  * @property {() => object}         getMaxRunsUsage        - Returns max-runs usage summary
  * @property {() => object}         getMaxCacheMissesUsage - Returns max-cache-misses usage summary
  * @property {() => object}         getPermissionDeniedUsage - Returns permission-denied usage summary
+ * @property {{ allowedModels?: string[]|null, disallowedModels?: string[]|null }|null} [modelPolicy]
  */
 
 /**
@@ -48,6 +114,7 @@ function createManagementHandlers(deps) {
     getAdapters,
     getCachedModels,
     getRuntimeModelMetadata = () => ({}),
+    getRoutingModelMetadata,
     isModelFetchComplete,
     getKeyValidationState,
     getLimiter,
@@ -59,7 +126,10 @@ function createManagementHandlers(deps) {
     getMaxRunsUsage,
     getMaxCacheMissesUsage,
     getPermissionDeniedUsage,
+    getRoutingState = () => null,
+    modelPolicy = null,
   } = deps;
+  const getPrivateRoutingModelMetadata = getRoutingModelMetadata || getRuntimeModelMetadata;
 
   /**
    * Build the health response payload.
@@ -92,17 +162,39 @@ function createManagementHandlers(deps) {
   function reflectEndpoints() {
     const cachedModels = getCachedModels();
     const runtimeModelMetadata = getRuntimeModelMetadata();
+    const routingModelMetadata = getPrivateRoutingModelMetadata();
     const modelAliases = getModelAliases();
     return {
       endpoints: getAdapters().map(adapter => {
         const info = adapter.getReflectionInfo();
+        const providerModels = info.models_cache_key !== null
+          ? (cachedModels[info.models_cache_key] || null)
+          : null;
+        const models = filterModelCatalogue(providerModels, adapter.name, modelPolicy, model => model);
+        const modelMetadata = filterModelCatalogue(
+          runtimeModelMetadata[adapter.name] || null,
+          adapter.name,
+          modelPolicy,
+          record => record?.id,
+        );
+        const privateRoutingModelMetadata = filterModelCatalogue(
+          routingModelMetadata[adapter.name] || null,
+          adapter.name,
+          modelPolicy,
+          record => record?.id,
+        );
         return {
           provider:   info.provider,
           port:       info.port,
           base_url:   info.base_url,
           configured: info.configured,
-          models:     info.models_cache_key !== null ? (cachedModels[info.models_cache_key] || null) : null,
-          model_metadata: runtimeModelMetadata[adapter.name] || null,
+          models,
+          model_metadata: modelMetadata,
+          routing_models: buildRoutingModelMetadata(
+            adapter.name,
+            models,
+            privateRoutingModelMetadata,
+          ),
           models_url: info.models_url,
           ...(info.credential_kind !== undefined && { credential_kind: info.credential_kind }),
           ...(info.selected_scheme !== undefined && { selected_scheme: info.selected_scheme }),
@@ -120,6 +212,7 @@ function createManagementHandlers(deps) {
       cache_misses: getMaxCacheMissesUsage(),
       permission_denied: getPermissionDeniedUsage(),
       model_api_mapping: getModelApiMappingReflect(),
+      routing: getRoutingState(),
     };
   }
 
@@ -153,4 +246,4 @@ function createManagementHandlers(deps) {
   return { healthResponse, reflectEndpoints, handleManagementEndpoint };
 }
 
-module.exports = { createManagementHandlers };
+module.exports = { buildRoutingModelMetadata, createManagementHandlers };

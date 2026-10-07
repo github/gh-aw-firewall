@@ -7,3 +7,7 @@ import "errors"
 func runSupervisor() error {
 	return errors.New("the microVM guest supervisor requires Linux")
 }
+
+func runEnclaveExec([]string) error {
+	return errors.New("the microVM guest supervisor requires Linux")
+}

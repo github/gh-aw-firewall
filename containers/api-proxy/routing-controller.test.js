@@ -23,8 +23,8 @@ function capabilities(models = []) {
   };
 }
 
-function snapshot(models) {
-  return { provider: 'copilot', configured: true, discovery: 'complete', models };
+function snapshot(models, provider = 'copilot') {
+  return { provider, configured: true, discovery: 'complete', models };
 }
 
 function classifierBody(text) {
@@ -80,9 +80,13 @@ function createHarness(overrides = {}) {
     ...overrides.executor,
   };
   const controller = createRoutingController({
-    config: { objective: { goal: 'cost', mode: 'balanced' }, task: { conversationFile: '/tmp/conversation.json' } },
+    config: {
+      provider: overrides.provider || 'copilot',
+      objective: { goal: 'cost', mode: 'balanced' },
+      task: { conversationFile: '/tmp/conversation.json' },
+    },
     planner,
-    catalogue: { getSnapshot: jest.fn(async () => snapshot(models)) },
+    catalogue: { getSnapshot: jest.fn(async () => snapshot(models, overrides.provider || 'copilot')) },
     loadConversation: overrides.loadConversation || jest.fn(async () => JSON.parse(JSON.stringify(CONVERSATION))),
     executor,
     observer: { record: record => records.push(record) },
@@ -113,6 +117,7 @@ describe('routing controller', () => {
       provider: 'copilot',
       choice: { id: 'choice-0001', model: 'github-copilot/gpt-test', effort: 'low' },
       wire_model: 'gpt-test',
+      endpoint: '/responses',
     });
     expect(Object.isFrozen(result)).toBe(true);
     expect(Object.isFrozen(result.selection)).toBe(true);
@@ -134,6 +139,16 @@ describe('routing controller', () => {
     const selectionRecord = records.find(record => record.stage === 'selection');
     expect(selectionRecord).toMatchObject({
       objective: { goal: 'cost', mode: 'balanced' },
+      provider: 'copilot',
+      selected_provider: 'copilot',
+      wire_model: 'gpt-test',
+      endpoint: '/responses',
+      labels: VALID_CLASSIFICATION.labels,
+      mode: VALID_CLASSIFICATION.mode,
+      classifier_model: 'github-copilot/gpt-test',
+      classifier_effort: 'low',
+      router: { name: 'gh-aw-router', version: '1.0.0' },
+      ranked_choices: [{ model: 'github-copilot/gpt-test', effort: 'low' }],
       selected_id: 'choice-0001',
       selected_model: 'github-copilot/gpt-test',
       selected_effort: 'low',
@@ -144,6 +159,66 @@ describe('routing controller', () => {
       catalogue_overlap: 1,
     });
     expect(typeof selectionRecord.latency_ms).toBe('number');
+    expect(selectionRecord.conversation_sha256).toBe(
+      require('crypto').createHash('sha256').update(JSON.stringify(CONVERSATION)).digest('hex'),
+    );
+    expect(JSON.stringify(records)).not.toContain('add a test');
+    expect(JSON.stringify(records)).not.toContain('classify the task');
+  });
+
+  it('routes Anthropic candidates through Messages without changing the selected provider', async () => {
+    const { controller, calls } = createHarness({
+      provider: 'anthropic',
+      models: [{
+        id: 'claude-opus-5-5',
+        efforts: ['medium'],
+        protocols: ['messages'],
+        contextWindow: 1_000_000,
+      }],
+    });
+
+    const result = await controller.run();
+    expect(result.selection.provider).toBe('anthropic');
+    expect(result.selection.choice.model).toBe('anthropic/claude-opus-5-5');
+    expect(calls.execute[0]).toMatchObject({
+      path: '/v1/messages',
+      provider: 'anthropic',
+      body: { output_config: { effort: 'medium' } },
+    });
+  });
+
+  it('routes Copilot Claude reasoning candidates through Chat Completions', async () => {
+    const { controller, calls } = createHarness({
+      models: [{
+        id: 'claude-sonnet-5',
+        efforts: ['max'],
+        protocols: ['messages', 'chat-completions'],
+        contextWindow: 1_000_000,
+      }],
+    });
+    const result = await controller.run();
+    expect(result.selection).toMatchObject({
+      provider: 'copilot',
+      choice: { model: 'github-copilot/claude-sonnet-5', effort: 'max' },
+      endpoint: '/chat/completions',
+    });
+    expect(calls.execute[0]).toMatchObject({
+      path: '/chat/completions',
+      body: { reasoning_effort: 'max' },
+    });
+  });
+
+  it('adds the Chat Completions endpoint to an effortless selection', async () => {
+    const { controller } = createHarness({
+      models: [{
+        id: 'claude-haiku-4.5',
+        efforts: [],
+        protocols: ['chat-completions'],
+        contextWindow: 200_000,
+      }],
+    });
+    const result = await controller.run();
+    expect(result.selection.endpoint).toBe('/chat/completions');
   });
 
   it('runs the decision at most once', async () => {
@@ -153,6 +228,84 @@ describe('routing controller', () => {
     expect(first).toBe(second);
     await first;
     expect(planner.route).toHaveBeenCalledTimes(1);
+  });
+
+  it('records the successful retry classifier and the full ordered routing ranking', async () => {
+    const { controller, records } = createHarness({
+      models: [
+        { id: 'a-test', efforts: ['low'], protocols: ['responses'], contextWindow: 128_000 },
+        { id: 'b-test', efforts: ['high'], protocols: ['responses'], contextWindow: 128_000 },
+      ],
+      executeResult: attempt => attempt === 1
+        ? { statusCode: 503, body: Buffer.from('{}') }
+        : { statusCode: 200, body: classifierBody(JSON.stringify(VALID_CLASSIFICATION)) },
+      planner: {
+        route: jest.fn(async request => ({
+          ranked_choices: request.models.slice().reverse().map(({ id, model, effort }) => ({ id, model, effort })),
+        })),
+      },
+    });
+    const result = await controller.run();
+    expect(result.ok).toBe(true);
+    expect(records.find(record => record.stage === 'selection')).toMatchObject({
+      classifier_attempts: 2,
+      classifier_model: 'github-copilot/b-test',
+      classifier_effort: 'high',
+      ranked_choices: [
+        { model: 'github-copilot/b-test', effort: 'high' },
+        { model: 'github-copilot/a-test', effort: 'low' },
+      ],
+    });
+  });
+
+  it.each(['success', 'degraded', 'failure', 'unwritable'])('handles real controller %s logs without task or classifier text', async scenario => {
+    const fs = require('fs');
+    const path = require('path');
+    const { createRoutingObserver } = require('./routing-runtime');
+    const directory = fs.mkdtempSync(path.join(require('os').tmpdir(), 'awf-routing-controller-log-'));
+    const saved = process.env.AWF_TOKEN_LOG_DIR;
+    process.env.AWF_TOKEN_LOG_DIR = directory;
+    try {
+      if (scenario === 'unwritable') {
+        process.env.AWF_TOKEN_LOG_DIR = path.join(directory, 'not-a-directory');
+        fs.writeFileSync(process.env.AWF_TOKEN_LOG_DIR, '');
+      }
+      const { controller } = createHarness({
+        ...(scenario === 'degraded' ? {
+          executeResult: () => ({ statusCode: 200, body: classifierBody('private invalid output') }),
+        } : {}),
+        ...(scenario === 'failure' ? {
+          planner: { route: jest.fn(async () => { throw { statusCode: 422, body: { code: 'no_route' } }; }) },
+        } : {}),
+        dependencies: { observer: createRoutingObserver(jest.fn()) },
+      });
+      const result = await controller.run();
+      if (scenario === 'unwritable') {
+        expect(result.ok).toBe(true);
+        expect(result.selection.wire_model).toBe('gpt-test');
+        return;
+      }
+      const text = fs.readFileSync(path.join(directory, 'model-routing.jsonl'), 'utf8');
+      const records = text.trim().split('\n').map(line => JSON.parse(line));
+      expect(records[0]).toMatchObject({ stage: 'classification', attempt: 1 });
+      if (scenario === 'failure') {
+        expect(result.ok).toBe(false);
+        expect(records.at(-1)).toMatchObject({ stage: 'failure', code: 'no_route' });
+      } else {
+        expect(result.ok).toBe(true);
+        expect(records.at(-1)).toMatchObject({
+          stage: 'selection', selected_model: result.selection.choice.model,
+          degraded_classification: scenario === 'degraded',
+        });
+      }
+      for (const privateText of ['add a test', 'classify the task', 'private invalid output']) {
+        expect(text).not.toContain(privateText);
+      }
+    } finally {
+      if (saved === undefined) delete process.env.AWF_TOKEN_LOG_DIR;
+      else process.env.AWF_TOKEN_LOG_DIR = saved;
+      fs.rmSync(directory, { recursive: true, force: true });
+    }
   });
 
   it('omits classification and records degradation for an invalid classifier answer without retrying', async () => {
@@ -171,6 +324,10 @@ describe('routing controller', () => {
     expect(result.degradedClassification).toBe(true);
     expect(result.degradedReason).toBe('invalid_classifier_output');
     expect(records.find(record => record.stage === 'selection')).toMatchObject({
+      labels: null,
+      mode: null,
+      classifier_model: null,
+      classifier_effort: null,
       degraded_classification: true,
       degraded_reason: 'invalid_classifier_output',
       classifier_attempts: 1,
@@ -185,6 +342,24 @@ describe('routing controller', () => {
 
     expect(result.ok).toBe(true);
     expect(calls.execute).toHaveLength(0);
+    expect(result.degradedReason).toBe('classifier_capacity_exhausted');
+    expect(records.find(record => record.stage === 'selection')).toMatchObject({
+      classifier_attempts: 0,
+      degraded_reason: 'classifier_capacity_exhausted',
+    });
+  });
+
+  it('skips classification when context capacity is missing but retains the model for final routing', async () => {
+    const { controller, calls, records } = createHarness({
+      models: [{ id: 'unknown-capacity', efforts: ['low'], protocols: ['responses'] }],
+    });
+    const result = await controller.run();
+
+    expect(result.ok).toBe(true);
+    expect(calls.execute).toHaveLength(0);
+    expect(calls.route[0].models).toEqual([
+      expect.objectContaining({ model: 'github-copilot/unknown-capacity' }),
+    ]);
     expect(result.degradedReason).toBe('classifier_capacity_exhausted');
     expect(records.find(record => record.stage === 'selection')).toMatchObject({
       classifier_attempts: 0,

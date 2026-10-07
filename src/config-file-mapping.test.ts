@@ -96,6 +96,21 @@ describe('mapAwfFileConfigToCliOptions', () => {
     expect(result.openaiBaseUrlEnv).toBe('CODEX_LB_BASE_URL');
   });
 
+  it('preserves routing candidate models in the routed config', () => {
+    const candidateModels = ['gpt-5.6-luna'];
+    const result = mapAwfFileConfigToCliOptions({
+      apiProxy: {
+        routing: {
+          candidateModels,
+          objective: { goal: 'cost', mode: 'balanced' },
+          task: { conversationFile: '/tmp/conversation.json' },
+        },
+      },
+    });
+
+    expect(result.modelRouting).toMatchObject({ candidateModels });
+  });
+
   it('maps authHeader fields for openai and anthropic targets', () => {
     const result = mapAwfFileConfigToCliOptions({
       apiProxy: {
@@ -178,15 +193,20 @@ describe('mapAwfFileConfigToCliOptions', () => {
 
   it('maps task-level model routing fields', () => {
     const routing = {
+      provider: 'anthropic' as const,
       objective: { goal: 'cost-speed' as const, mode: 'robust' as const },
       task: { conversationFile: '/tmp/gh-aw/conversation.json' },
     };
 
     const result = mapAwfFileConfigToCliOptions({
+      experimental: { modelRouting: true },
       apiProxy: { routing },
     });
 
     expect(result.modelRouting).toEqual(routing);
+    expect(result.experimentalModelRouting).toBe(true);
+    expect(mapAwfFileConfigToCliOptions({ experimental: { modelRouting: false } }).experimentalModelRouting).toBe(false);
+    expect(mapAwfFileConfigToCliOptions({}).experimentalModelRouting).toBeUndefined();
   });
 
   it('maps effective-token guard fields', () => {
@@ -251,6 +271,13 @@ describe('mapAwfFileConfigToCliOptions', () => {
       apiProxy: { modelFallback: { enabled: false, strategy: 'middle_power' } },
     });
     expect(result.modelFallback).toEqual({ enabled: false, strategy: 'middle_power' });
+  });
+
+  it('maps fallbackModels field', () => {
+    const result = mapAwfFileConfigToCliOptions({
+      apiProxy: { fallbackModels: ['gpt-5.4', 'claude-sonnet-4.6'] },
+    });
+    expect(result.fallbackModels).toEqual(['gpt-5.4', 'claude-sonnet-4.6']);
   });
 
   it('maps modelFallback.excludeEngines field', () => {
@@ -577,6 +604,12 @@ describe('mapAwfFileConfigToCliOptions', () => {
     expect(result.rateLimitBytesPm).toBe('1048576');
     expect(result.maxGithubApiPointsRest).toBe(2000);
     expect(result.maxGithubApiPointsGraphql).toBe(1500);
+  });
+
+  it('maps rateLimiting.maxNumToolCalls to the enclave tool-call cap', () => {
+    expect(mapAwfFileConfigToCliOptions({ rateLimiting: { maxNumToolCalls: 25 } }).maxNumToolCalls)
+      .toBe(25);
+    expect(mapAwfFileConfigToCliOptions({}).maxNumToolCalls).toBeUndefined();
   });
 
   it('returns undefined for empty allowDomains array', () => {

@@ -19,12 +19,37 @@ seconds. Pairing current AWF with v0.4.17 would silently reinterpret a
 120-second TTL as 120 nanoseconds. gh-aw pins the matching default in
 `pkg/constants/version_constants.go` (`DefaultMCPGatewayVersion`).
 
-Cloud Hypervisor is recognized as a reserved executor runtime under
-[ADR 0002](adr/0002-cloud-hypervisor-enclave-executor.md). Configuration,
-host eligibility, and attested artifact requirements fail closed today before
-any enclave is launched. Static script and static agent microVM execution will
-be enabled only after every ADR rollout gate is implemented; dynamic agents and
-custom image overrides remain outside that initial scope.
+Explicit Cloud Hypervisor enclave selection routes through the trusted host
+executor under [ADR 0002](adr/0002-cloud-hypervisor-enclave-executor.md).
+AWF derives run state from validated configuration and staged seeds, verifies
+host/artifact prerequisites, and constructs one authenticated private Unix
+listener before starting the broker. Only the broker mounts the client channel;
+it receives neither the host recovery journal nor launch controls, Docker socket,
+or repository seed trees. Protocol v2 and its settlement contract are unchanged.
+Static script and static agent entries are the initial scope. Dynamic admission,
+custom images, mixed container/VM enclave runtimes, split-filesystem Docker,
+primary sbx/NVX/Cloud Hypervisor combinations, and static GitHub tools without a
+scoped executor bearer handoff fail closed.
+
+Production admission also requires the trusted aggregate writable-storage
+provider from [#9394](https://github.com/github/gh-aw-firewall/issues/9394).
+AWF supplies the production provider only on eligible GitHub-hosted Ubuntu
+x86_64 hosts with privileged KVM access and writable cgroup v2. Unsupported
+hosts retain the missing-prerequisite error before staging or constructing a
+listener or VM. No configuration/environment switch bypasses it, and AWF never
+falls back to a different runtime. Each invocation owns one kernel-bounded
+allocation domain: script 1 GiB, agent 512 MiB. Artifact snapshots, rootfs
+preparation and staging, VM runtime state, and writable exports all consume that
+same capacity, including sparse-file allocations and concurrent writers.
+Executable artifacts are sealed read-only; writable state remains `noexec`.
+Preflight captures immutable artifacts in short-lived domains before attestation
+or executable probes; invocation copies are checked against those digests.
+Host-only mount points use the trusted `/var/lib/awf-cloud-hypervisor/host-invocations`
+tree, not the broker's `/var/tmp` work directory. Allocation roots and mount
+points must remain outside all primary-agent mounts.
+The host lifecycle closes admissions before broker shutdown,
+then cancels/closes the executor before releasing storage or deleting private
+state. Unresolved cleanup preserves recovery records and prevents deletion.
 
 ## Architecture
 
@@ -175,6 +200,15 @@ model configuration. Both executors debit the same live per-repository ledger
 and share one serialization lane. A concurrent tool call receives the canonical
 error immediately instead of entering an unbounded fixed-timing queue.
 
+An optional run-wide cap, `--max-num-tool-calls <n>` (config
+`rateLimiting.maxNumToolCalls`), bounds enclave tool calls for cost control.
+It is unlimited by default. When set, every attempted well-formed call to either
+tool counts; once exhausted, calls are denied in-band with a model-facing
+message, the broker logs one warning with the tool name, executor kind, and run
+id, and the count is persisted per run in the broker's private control
+directory. The limit is advertised in the tool descriptions. See
+[awf-config-spec.md §14.2a](awf-config-spec.md).
+
 ## Topology and readiness
 
 - `enclave-mcp-server` joins only the private `awf-enclave-mcp-control` network.
@@ -226,6 +260,28 @@ remaining readiness budget. Other HTTP, authentication, protocol, and tool
 contract failures are terminal. Neither component may downgrade or bypass the
 gateway, and readiness errors never log response bodies, headers, or
 capabilities.
+
+Host startup diagnostics track whether this actual readiness handshake was
+never attempted, attempted, or completed; they do not infer it from broker
+health or an independent probe. Each request records its fixed phase
+(`initialize`, `initialized`, `tools-list`) and only allowlisted DNS, connection,
+request-timeout, HTTP authentication/status, backend-unavailable, framing/JSON,
+JSON-RPC shape/error, identity/tool mismatch, and readiness-deadline codes.
+Only the documented retryable 503 shape is retried; permanent failures still
+abort. Transport errors retain their errno classification without forwarding
+raw Node error messages, addresses, endpoints, or credentials.
+
+The CLI publishes the latest bounded snapshot through the existing startup
+record before cleanup, including earlier configuration, preflight/artifact,
+seed staging, recovery, service, container, and attachment stages. Progress uses
+the distinct `enclave-startup-progress` phase and a fixed message; fatal records
+use `startup`. The release-pinned CH acceptance fixture validates and exports
+only the safe fields from its private record. See
+[integration coverage](INTEGRATION-TESTS.md#unified-enclave-coverage) for schema
+bounds and live-proof limitations. In that fixture the primary runtime is
+Docker and readiness is a host request to a published loopback gateway route,
+not guest DNS; CH script guests have no NIC, and agent data-plane networking is
+separate.
 
 After primary-agent work stops, AWF gives the enclave server a bounded
 4860-second stop grace. The server closes admissions, drains its single execution
@@ -573,13 +629,34 @@ contract.
 
 ## Cloud Hypervisor enclave executor
 
-Cloud Hypervisor currently runs only the primary-agent preview and rejects
-enclave configurations. The planned per-invocation microVM executor is a
-separate host-owned component: `enclave-mcp-server` remains container-side and
-submits bounded, authenticated requests to it over a private Unix socket.
+Cloud Hypervisor supports static enclave runtime selection only after trusted
+storage and host/artifact preflight. Its workload foundation constructs a
+script-enclave VM with an explicit closed no-network profile: the host creates
+only an empty per-run network namespace, supplies no virtual NIC, and omits
+guest interface, address, route, and DNS configuration. No bridge, veth, TAP,
+Squid, API proxy, mcpg, or external-network dependency is created. Durable
+cleanup records the namespace-only state explicitly and does not invent
+primary-agent network resources.
+
+The per-invocation microVM executor is a separate host-owned component:
+`enclave-mcp-server` remains container-side and submits bounded, authenticated
+requests to it over a private Unix socket.
 Its threat model, network and filesystem matrices, protocol, lifecycle, and
 rollout gates are defined in
 [ADR 0002: Cloud Hypervisor enclave executor](adr/0002-cloud-hypervisor-enclave-executor.md).
+
+The version 2 broker-to-host protocol and a trusted one-shot host executor are
+implemented and wired for static Cloud Hypervisor enclave roles:
+`src/enclave/host-executor-protocol.ts` and `src/enclave/host-executor-server.ts`
+(host side), `containers/enclave/mcp-server/host-executor-client.js` (broker
+side), and `src/cloud-hypervisor/host-enclave-executor.ts` (VM backend).
+Requests are capability-authenticated, size-bounded, and restricted to a closed
+field set. The backend verifies release attestations, derives VM settings from
+trusted host policy, uses bounded invocation storage, and validates structured
+results. Admission requires the production bounded-storage provider and all
+existing host/artifact/security gates. Live release-attested broker-to-VM
+acceptance remains a separate gate in #9395. See
+[Version 2 implementation](adr/0002-cloud-hypervisor-enclave-executor.md#version-2-implementation).
 
 ## Coverage after legacy smoke removal
 

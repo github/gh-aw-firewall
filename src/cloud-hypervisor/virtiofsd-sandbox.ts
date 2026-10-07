@@ -36,9 +36,37 @@ export interface VirtiofsdSandboxVerificationOptions {
   readonly expectedExecutable: string;
   readonly socketPath: string;
   readonly sharedDirectory: string;
+  /** Arguments (e.g. uid/gid translation) that must appear verbatim on the live command line. */
+  readonly requiredArguments: readonly string[];
   readonly cgroupPath: string;
   readonly evidencePath: string;
   readonly assignToCgroup: (pid: number) => Promise<void>;
+}
+
+/**
+ * Options that would let the guest set extended attributes on host files.
+ * uid/gid translation does not cover xattrs (e.g. `security.capability`), and
+ * upstream documents `--posix-acl` as incompatible with translation, so these
+ * must never reach virtiofsd. `-o` (including the attached `-oxattr` form) is the
+ * legacy compat option syntax that can also enable xattrs.
+ */
+const FORBIDDEN_VIRTIOFSD_OPTIONS: ReadonlySet<string> = new Set([
+  '--xattr',
+  '--xattrmap',
+  '--posix-acl',
+  '--security-label',
+  '-o',
+]);
+
+/** Returns the first argument that would enable guest-controlled xattrs, if any. */
+export function findForbiddenVirtiofsdOption(args: readonly string[]): string | undefined {
+  for (const arg of args) {
+    const name = arg.split('=', 1)[0];
+    if (FORBIDDEN_VIRTIOFSD_OPTIONS.has(name)) return name;
+    // Short options may carry their value attached (e.g. `-oxattr`).
+    if (arg.startsWith('-o')) return '-o';
+  }
+  return undefined;
 }
 
 interface ProcessEvidence {
@@ -354,9 +382,14 @@ function assertLaunchCommand(
     !command.includes(`--socket-path=${options.socketPath}`) ||
     !command.includes(`--shared-dir=${options.sharedDirectory}`) ||
     !command.includes('--sandbox=namespace') ||
-    !command.includes('--seccomp=kill')
+    !command.includes('--seccomp=kill') ||
+    options.requiredArguments.some((argument) => !command.includes(argument))
   ) {
     throw new Error('virtiofsd parent command line does not match the requested sandbox export');
+  }
+  const forbidden = findForbiddenVirtiofsdOption(command);
+  if (forbidden !== undefined) {
+    throw new Error(`virtiofsd parent command line enables guest-controlled xattrs via ${forbidden}`);
   }
 }
 

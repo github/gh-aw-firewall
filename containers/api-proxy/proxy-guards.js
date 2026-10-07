@@ -127,6 +127,7 @@ function sendGuardBlockedResponse(block, {
   });
   otel.endSpan(span, statusCode);
   res.writeHead(statusCode, { 'Content-Type': 'application/json', 'X-Request-ID': requestId });
+  if (req.awfRouting) req.awfRouting.rejected = true;
   res.end(JSON.stringify(buildError(block)));
 
   if (req.awfRequestContext?.purpose === 'routing_classification') return;

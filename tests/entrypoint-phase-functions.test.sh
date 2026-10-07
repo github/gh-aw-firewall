@@ -14,6 +14,15 @@ FAIL=0
 pass() { echo "✓ $1"; PASS=$((PASS + 1)); }
 fail() { echo "❌ FAIL: $1"; FAIL=$((FAIL + 1)); }
 
+write_entrypoint_fixture() {
+  local fixture_entrypoint="$1"
+  awk '
+    $0 == "if [[ \"${BASH_SOURCE[0]}\" == \"$0\" ]]; then" { skip=1; next }
+    skip && $0 == "fi" { skip=0; next }
+    !skip { print }
+  ' "${ENTRYPOINT}" | sed 's#/host#${AWF_TEST_HOST_ROOT}#g' > "${fixture_entrypoint}"
+}
+
 required_functions=(
   print_banner
   setup_user_identity
@@ -45,6 +54,8 @@ required_functions=(
   build_path_script
   run_chroot_command
   run_non_chroot_command
+  relax_gh_aw_shared_permissions
+  relax_gh_aw_handoff_dir
   main
 )
 
@@ -182,9 +193,9 @@ run_copy_system_ca_bundle_fixture() {
   mkdir -p "${host_root}/etc/pki/tls/certs" "${host_root}/etc/ssl/certs"
   printf '%s\n' "fixture-ca-cert" > "${host_root}/etc/pki/tls/certs/ca-bundle.crt"
 
-  awk '$0 != "main \"$@\""' "${ENTRYPOINT}" > "${fixture_entrypoint}"
-  sed -i "s#/host#\${AWF_TEST_HOST_ROOT}#g" "${fixture_entrypoint}"
+  write_entrypoint_fixture "${fixture_entrypoint}"
 
+  local result
   (
     set -e
     # shellcheck disable=SC1090
@@ -207,7 +218,7 @@ run_copy_system_ca_bundle_fixture() {
     [ -r "${AWF_TEST_HOST_ROOT}${SSL_CERT_FILE}" ]
     [ "${NODE_EXTRA_CA_CERTS}" = "${SSL_CERT_FILE}" ]
   )
-  local result=$?
+  result=$?
   rm -rf "${tmp_dir}"
   return "${result}"
 }
@@ -245,10 +256,10 @@ run_copy_browser_libs_fixture() {
   printf 'real-libnspr4-bytes' > "${fake_lib}"
   printf '%s\n' "${fake_lib}" > "${manifest}"
 
-  awk '$0 != "main \"$@\""' "${ENTRYPOINT}" > "${fixture_entrypoint}"
-  sed -i "s#/host#\${AWF_TEST_HOST_ROOT}#g" "${fixture_entrypoint}"
+  write_entrypoint_fixture "${fixture_entrypoint}"
   sed -i "s#/usr/local/share/awf/browser-libs.manifest#\${AWF_TEST_MANIFEST}#g" "${fixture_entrypoint}"
 
+  local result
   (
     set -e
     # shellcheck disable=SC1090
@@ -275,7 +286,7 @@ run_copy_browser_libs_fixture() {
     # LD_LIBRARY_PATH rather than being silently broken by the chroot bind mount.
     [ "$(cat "${staged_lib}")" = "real-libnspr4-bytes" ]
   )
-  local result=$?
+  result=$?
   rm -rf "${tmp_dir}"
   return "${result}"
 }
@@ -310,6 +321,7 @@ run_configure_jvm_proxy_readonly_home_fixture() {
 
   # Run in a separate bash process: `set -e` is ignored inside a subshell that
   # is part of an `if` condition, which would mask the abort this test guards.
+  local result
   env -u JAVA_TOOL_OPTIONS \
     HOME="${fake_home}" \
     AWF_CHROOT_ENABLED="false" \
@@ -328,7 +340,7 @@ run_configure_jvm_proxy_readonly_home_fixture() {
         *) exit 1 ;;
       esac
     ' _ "${ENTRYPOINT}" 2>/dev/null
-  local result=$?
+  result=$?
   chmod -R u+w "${fake_home}" 2>/dev/null || true
   rm -rf "${tmp_dir}"
   return "${result}"
@@ -393,6 +405,201 @@ if run_warn_codex_auto_model_fixture; then
   pass "warn_codex_auto_model() warns only for codex model auto under api-proxy"
 else
   fail "warn_codex_auto_model() did not warn correctly for codex model auto under api-proxy"
+fi
+
+# relax_gh_aw_shared_permissions() must add the group-write bit only to the
+# host-shared /tmp/gh-aw handoff root and specific post-agent handoff
+# directories (found via /host/tmp/gh-aw in chroot mode, or /tmp/gh-aw directly
+# otherwise), so a later host-side step running under a
+# different-but-same-group identity (e.g. gh-aw's post-agent
+# validateMemoryStep) can still write into directories the agent created,
+# without making unrelated payload-bearing files/directories or the tree
+# world-writable.
+run_relax_gh_aw_shared_permissions_fixture() {
+  local tmp_dir
+  tmp_dir="$(mktemp -d)"
+  local host_root="${tmp_dir}/host-root"
+  local fixture_entrypoint="${tmp_dir}/entrypoint-fixture.sh"
+  mkdir -p "${host_root}/tmp/gh-aw/memory-validation"
+  mkdir -p "${host_root}/tmp/gh-aw/token-audit"
+  touch "${host_root}/tmp/gh-aw/token-audit/audit.json"
+  chmod 700 "${host_root}/tmp/gh-aw" "${host_root}/tmp/gh-aw/memory-validation"
+  chmod 700 "${host_root}/tmp/gh-aw/token-audit"
+  chmod 600 "${host_root}/tmp/gh-aw/token-audit/audit.json"
+
+  write_entrypoint_fixture "${fixture_entrypoint}"
+
+  local result
+  (
+    set -e
+    # shellcheck disable=SC1090
+    . "${fixture_entrypoint}"
+
+    AWF_TEST_HOST_ROOT="${host_root}"
+    relax_gh_aw_shared_permissions
+
+    mode="$(stat -c '%a' "${host_root}/tmp/gh-aw")"
+    [ "${mode}" = "770" ]
+    mode="$(stat -c '%a' "${host_root}/tmp/gh-aw/memory-validation")"
+    [ "${mode}" = "770" ]
+    mode="$(stat -c '%a' "${host_root}/tmp/gh-aw/token-audit")"
+    [ "${mode}" = "700" ]
+    mode="$(stat -c '%a' "${host_root}/tmp/gh-aw/token-audit/audit.json")"
+    [ "${mode}" = "600" ]
+  )
+  result=$?
+  rm -rf "${tmp_dir}"
+  return "${result}"
+}
+
+if run_relax_gh_aw_shared_permissions_fixture; then
+  pass "relax_gh_aw_shared_permissions() only relaxes known /tmp/gh-aw handoff directories"
+else
+  fail "relax_gh_aw_shared_permissions() does not correctly limit /tmp/gh-aw group permission repair"
+fi
+
+run_relax_gh_aw_shared_permissions_symlink_fixture() {
+  local tmp_dir
+  tmp_dir="$(mktemp -d)"
+  local host_root="${tmp_dir}/host-root"
+  local sensitive_dir="${tmp_dir}/sensitive"
+  local fixture_entrypoint="${tmp_dir}/entrypoint-fixture.sh"
+  mkdir -p "${host_root}/tmp/gh-aw" "${sensitive_dir}"
+  chmod 700 "${host_root}/tmp/gh-aw" "${sensitive_dir}"
+  ln -s "${sensitive_dir}" "${host_root}/tmp/gh-aw/memory-validation"
+
+  write_entrypoint_fixture "${fixture_entrypoint}"
+
+  local result
+  (
+    set -e
+    # shellcheck disable=SC1090
+    . "${fixture_entrypoint}"
+
+    AWF_TEST_HOST_ROOT="${host_root}"
+    relax_gh_aw_shared_permissions
+
+    mode="$(stat -c '%a' "${host_root}/tmp/gh-aw")"
+    [ "${mode}" = "770" ]
+    mode="$(stat -c '%a' "${sensitive_dir}")"
+    [ "${mode}" = "700" ]
+  )
+  result=$?
+  rm -rf "${tmp_dir}"
+  return "${result}"
+}
+
+if run_relax_gh_aw_shared_permissions_symlink_fixture; then
+  pass "relax_gh_aw_shared_permissions() skips symlinked gh-aw handoff paths"
+else
+  fail "relax_gh_aw_shared_permissions() follows a symlinked gh-aw handoff path"
+fi
+
+run_relax_gh_aw_shared_permissions_root_symlink_fixture() {
+  local tmp_dir
+  tmp_dir="$(mktemp -d)"
+  local host_root="${tmp_dir}/host-root"
+  local sensitive_dir="${tmp_dir}/sensitive"
+  local fixture_entrypoint="${tmp_dir}/entrypoint-fixture.sh"
+  mkdir -p "${host_root}/tmp" "${sensitive_dir}/memory-validation"
+  chmod 700 "${sensitive_dir}" "${sensitive_dir}/memory-validation"
+  ln -s "${sensitive_dir}" "${host_root}/tmp/gh-aw"
+
+  write_entrypoint_fixture "${fixture_entrypoint}"
+
+  local result
+  (
+    set -e
+    # shellcheck disable=SC1090
+    . "${fixture_entrypoint}"
+
+    AWF_TEST_HOST_ROOT="${host_root}"
+    relax_gh_aw_shared_permissions
+
+    mode="$(stat -c '%a' "${sensitive_dir}")"
+    [ "${mode}" = "700" ]
+    mode="$(stat -c '%a' "${sensitive_dir}/memory-validation")"
+    [ "${mode}" = "700" ]
+  )
+  result=$?
+  rm -rf "${tmp_dir}"
+  return "${result}"
+}
+
+if run_relax_gh_aw_shared_permissions_root_symlink_fixture; then
+  pass "relax_gh_aw_shared_permissions() skips child repairs when the gh-aw root is a symlink"
+else
+  fail "relax_gh_aw_shared_permissions() follows a symlinked gh-aw root"
+fi
+
+run_agent_with_token_protection_cleanup_fixture() {
+  local tmp_dir
+  tmp_dir="$(mktemp -d)"
+  local host_root="${tmp_dir}/host-root"
+  local fixture_entrypoint="${tmp_dir}/entrypoint-fixture.sh"
+  mkdir -p "${host_root}/tmp/gh-aw/memory-validation"
+  chmod 700 "${host_root}/tmp/gh-aw" "${host_root}/tmp/gh-aw/memory-validation"
+
+  write_entrypoint_fixture "${fixture_entrypoint}"
+
+  set +e
+  AWF_TEST_HOST_ROOT="${host_root}" bash -c '
+    set -e
+    # shellcheck disable=SC1090
+    . "$1"
+    AWF_TEST_HOST_ROOT="$2"
+    run_agent_with_token_protection bash -c "exit 42"
+  ' _ "${fixture_entrypoint}" "${host_root}" >/dev/null 2>&1
+  local failed_exit=$?
+  set -e
+  local failed_root_mode
+  failed_root_mode="$(stat -c '%a' "${host_root}/tmp/gh-aw")"
+  local failed_handoff_mode
+  failed_handoff_mode="$(stat -c '%a' "${host_root}/tmp/gh-aw/memory-validation")"
+
+  chmod 700 "${host_root}/tmp/gh-aw" "${host_root}/tmp/gh-aw/memory-validation"
+  set +e
+  AWF_TEST_HOST_ROOT="${host_root}" bash -c '
+    set -e
+    # shellcheck disable=SC1090
+    . "$1"
+    AWF_TEST_HOST_ROOT="$2"
+    run_agent_with_token_protection bash -c "touch \"\$1/tmp/gh-aw/agent-ready\"; sleep 30" _ "$2"
+  ' _ "${fixture_entrypoint}" "${host_root}" >/dev/null 2>&1 &
+  local runner_pid=$!
+  for _i in 1 2 3 4 5 6 7 8 9 10; do
+    [ -e "${host_root}/tmp/gh-aw/agent-ready" ] && break
+    sleep 0.1
+  done
+  if [ ! -e "${host_root}/tmp/gh-aw/agent-ready" ]; then
+    kill -TERM "${runner_pid}" 2>/dev/null || true
+    wait "${runner_pid}" 2>/dev/null || true
+    set -e
+    rm -rf "${tmp_dir}"
+    return 1
+  fi
+  kill -TERM "${runner_pid}" 2>/dev/null || true
+  wait "${runner_pid}"
+  local signaled_exit=$?
+  set -e
+  local signaled_root_mode
+  signaled_root_mode="$(stat -c '%a' "${host_root}/tmp/gh-aw")"
+  local signaled_handoff_mode
+  signaled_handoff_mode="$(stat -c '%a' "${host_root}/tmp/gh-aw/memory-validation")"
+
+  rm -rf "${tmp_dir}"
+  [ "${failed_exit}" -eq 42 ] &&
+    [ "${failed_root_mode}" = "770" ] &&
+    [ "${failed_handoff_mode}" = "770" ] &&
+    [ "${signaled_exit}" -eq 143 ] &&
+    [ "${signaled_root_mode}" = "770" ] &&
+    [ "${signaled_handoff_mode}" = "770" ]
+}
+
+if run_agent_with_token_protection_cleanup_fixture; then
+  pass "run_agent_with_token_protection() repairs gh-aw handoff permissions after failures and signals"
+else
+  fail "run_agent_with_token_protection() does not repair gh-aw handoff permissions after failures and signals"
 fi
 
 echo ""

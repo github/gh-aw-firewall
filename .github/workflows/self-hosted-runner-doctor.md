@@ -13,6 +13,7 @@ permissions:
   pull-requests: read
 imports:
   - shared/self-hosted-failure-modes.md
+  - shared/diagnosis-findings.md
 tools:
   github:
     toolsets: [default]
@@ -86,9 +87,22 @@ mkdir -p /tmp/gh-aw/agent
 SENTINEL="/tmp/gh-aw/agent/awf-runner-doctor-$$"
 echo ok > "$SENTINEL"
 docker run --rm -v /tmp:/tmp alpine sh -lc "ls -l $SENTINEL" 2>/dev/null
+
+docker network inspect awf-net --format '{{json .Options}} {{json .Containers}}' 2>/dev/null
 ```
 
+When Compose or legacy-iptables mode reports a missing bridge, an empty options map without `com.docker.network.bridge.name` and an empty containers map identify an unoccupied orphaned `awf-net`. Do not classify it as safe to recreate or remove while containers are attached.
+
 If the issue does **not** include enough evidence for a confident match, do not guess. Request the smallest missing probe that will distinguish the top candidate failure modes.
+
+For missing token-usage telemetry on arc-dind (A29), check `AWF_TOKEN_USAGE_LOG` first in a job step after AWF completes:
+
+```bash
+printf '%s\n' "${AWF_TOKEN_USAGE_LOG:-unset}"
+ls -l "${AWF_TOKEN_USAGE_LOG:-/dev/null}"
+```
+
+Expect a set variable and an existing file when token usage was written. If `$GITHUB_ENV` was unavailable, use AWF's `Token usage log available at:` log line. Do not hardcode `/tmp/gh-aw/...` or print the file contents. Upgrade to AWF v0.28.31 or newer for github/gh-aw-firewall#9357; gh-aw's `parse_token_usage.cjs` must still consume the exported path.
 
 ### 3. Match symptom → failure mode
 
@@ -103,8 +117,9 @@ Prefer the narrowest match. Examples:
 - `unknown shorthand flag: 'd' in -d` from `docker compose up -d` → A14 (DinD sidecar missing `docker-compose-plugin`)
 - `Rootless artifact permission repair failed` on ARC/DinD squid logs → A15 (`dockerHostPathPrefix` not applied to repair bind mount)
 - `node: command not found` on ARC/DinD with `runner.topology: arc-dind` even when binary is correctly installed → A16 (sysroot filter was over-broad and dropped the workspace mount)
-- `EAI_AGAIN` / `ENOTFOUND` resolving a topology-attached DIFC proxy (for example `awmg-cli-proxy`) in network-isolation + topology-attach: if DinD `nslookup` fails, match B12; otherwise B5
+- `EAI_AGAIN` / `ENOTFOUND` resolving a topology-attached DIFC proxy (for example `awmg-cli-proxy`) in network-isolation + topology-attach: inherited Kubernetes `search` domains / `ndots:5`, or an unreachable resolver, match B12; if DNS works when checked after the peer is attached and no search/ndots issue is present, match B5
 - `EACCES` in upload-artifact after sudo:false → B6
+- `EACCES: permission denied` writing `/tmp/gh-aw/memory-validation/cache-default.ok` (or another `/tmp/gh-aw` path) from a host-side gh-aw step after AWF exits → B35 (UID-remapped agent leaves shared `/tmp/gh-aw` paths unwritable by the host runner; fixed in github/gh-aw-firewall#9029)
 - `403 ERR_ACCESS_DENIED` for MCP tool calls (`safeoutputs`, `github`) to `172.30.0.1/redacted` under `--container-runtime gvisor` or raw `runsc`; safe-output validation fails even though the agent completed → D8 (gVisor userspace netstack bypasses the usual iptables DNAT path; patched AWF adds `172.30.0.1` to `NO_PROXY`)
 - credential files such as `~/.aws/credentials`, `~/.ssh/id_rsa`, or `~/.docker/config.json` are visible inside an `--container-runtime sbx` microVM → D9 (older AWF mounted the entire host `$HOME` into sbx; fixed in github/gh-aw-firewall#6336)
 - Copilot CLI exits immediately (exit code 1, ~0.5 s, zero stdout/stderr) after AWF upgrade on Docker or gVisor but not sbx → B14 (`~/.copilot/config.json` incorrectly added to credential deny list; fixed in github/gh-aw-firewall#6374)
@@ -116,6 +131,7 @@ Prefer the narrowest match. Examples:
 - `"cloud-hypervisor --version" exited with code undefined` under `--container-runtime cloud-hypervisor` → D14 (signal-terminated, missing-binary, or corrupted-artifact failure not distinguished from a real version-check failure; fixed in github/gh-aw-firewall#8622; further fixed with a bounded retry for transient probe failures in github/gh-aw-firewall#8801)
 - `Unable to execute "<path>/cloud-hypervisor --version"; verify the trusted artifact exists, is executable, and is complete: code=EACCES` under `--container-runtime cloud-hypervisor` → D15 (trusted artifacts staged on a `noexec`/non-exec-capable root; fixed by staging under `/var/lib/awf-cloud-hypervisor/trusted-artifacts` in github/gh-aw-firewall#8835, with a pre-staging `noexec` check in github/gh-aw-firewall#8866)
 - `trusted artifact root "<path>" is on a mount that rejects execution` under `--container-runtime cloud-hypervisor` → D15 (pre-staging detection of a `noexec` trusted-artifact root; remount it without `noexec`)
+- `Error: NVX confinement detected a process identity or thread-set race` (or the Cloud Hypervisor equivalent) immediately after `Containers started successfully`, non-deterministic across identical runs → D16 (false positive from benign VMM thread churn during TOCTOU re-verification; fixed in github/gh-aw-firewall#9016/#9017)
 - `TCP_DENIED` in Squid access log for a topology peer or `difcProxyHost` during agent run; in-session MCP/HTTP calls to those hosts fail in network-isolation mode → B13 (topology peer hostnames and `difcProxyHost` not added to `NO_PROXY`; fixed in github/gh-aw-firewall#6189 and github/gh-aw-firewall#6438; if block report still flags topology peer after github/gh-aw-firewall#6473, treat as audit/policy-manifest reporting false positive tracked in github/gh-aw-firewall#6652 / github/gh-aw-firewall#6658 — runtime traffic is not blocked)
 - `⚠️ Firewall blocked N domain(s)` warning lists `awmgmcpg` or `172.30.0.x` as a blocked domain on every run, even with no actual external blocks → B13 (internal MCP gateway traffic counted by log aggregator as denied; fixed in github/gh-aw-firewall#6689 with `isInternalAwfDomain()` filter)
 - `--network-isolation is not yet supported with --enable-host-access` → B15 (compiler auto-emits both flags when `localhost` in allowlist + topology; fixed in github/gh-aw-firewall#6657)
@@ -151,7 +167,10 @@ Prefer the narrowest match. Examples:
 - `error mounting "/dev/null" to .../home/.npmrc: create mountpoint ...: read-only file system` (or `.docker/config.json`, `.composer/auth.json`) on `arc-dind` with `--docker-host-path-prefix` set → A23 (a surviving prefixed `${workDir}-chroot-home:/host$HOME` mount is paired with `/dev/null:/host$HOME/<credential>:ro` overlays because prefixed sources were compared with unprefixed `workDir`/`effectiveHome`; fixed in github/gh-aw-firewall#7998)
 - `error mounting "/dev/null" to .../.npmrc: create mountpoint ...: read-only file system` on `arc-dind` persisting even after upgrading past github/gh-aw-firewall#7998 (A23's fix), where the credential mountpoint is missing under a declared-`rw` home bind backed by a genuinely read-only directory → A24 (`pruneUnmountableCredentialOverlays` only checked declared bind mode, never real filesystem writability for `rw`-declared covers; fixed in github/gh-aw-firewall#8086)
 - `docker network connect --alias <name> awf-net <service_container>` is needed for raw-protocol GitHub Actions `services:` containers under `runner.topology: arc-dind` → A25 (service container must join `awf-net` for direct protocol access while the agent stays isolated; documented in github/gh-aw-firewall#8085)
-- `a network with name awf-net exists but was not created for project` → B27 (orphaned fixed-name `awf-net` from a prior run on a persistent self-hosted runner; fixed in github/gh-aw-firewall#7817)
+- `a network with name awf-net exists but was not created for project`, or a missing bridge in legacy iptables mode → B27 (inspect `docker network inspect awf-net --format '{{json .Options}} {{json .Containers}}'`; an empty options map without `com.docker.network.bridge.name` and an empty containers map identify an unoccupied orphan; fixed in github/gh-aw-firewall#9130)
+- `malformed version:` from `gh pr list --search`, `gh issue list --search`, or `gh search prs or issues` in cli-proxy gh-proxy mode → C5 (fixed in github/gh-aw-firewall#9189; the later-step `GH_HOST` leak remains a gh-aw issue)
+- Streaming log write failure / `read-only file system` under `${RUNNER_TEMP}/gh-aw` on arc-dind → A28 (use `${RUNNER_TEMP}/gh-aw/sandbox/agent/pi-streaming.jsonl`; fixed in github/gh-aw-firewall#9188, compiler relocation remains unresolved)
+- `token-usage.jsonl` not found / missing `gh-aw.aic` or `gen_ai.usage.*` telemetry on arc-dind → A29 (check `AWF_TOKEN_USAGE_LOG` first; AWF path reporting fixed in github/gh-aw-firewall#9357, gh-aw parser adoption remains unresolved)
 - TLS/certificate verification failure from api-proxy against a custom `--openai-api-target`/`--anthropic-api-target` internal endpoint using a private/corporate CA → B28 (api-proxy sidecar had no custom CA trust extension point; fixed in github/gh-aw-firewall#7816 with `apiProxy.caCert`/`--api-proxy-ca-cert`)
 - `context-rebuild circuit breaker tripped` together with a failed `cd` into the expected workspace path → B29 (container-workdir not bind-mounted into the chroot; fixed in github/gh-aw-firewall#8021)
 - `awf logs summary` reports "no log sources found" after a pre-egress startup failure with no Squid `access.log` → B30 (check preserved logs dir for `awf-startup-error.json`; fixed in github/gh-aw-firewall#8023)
@@ -166,6 +185,10 @@ Prefer the narrowest match. Examples:
 ### 4. Check for known gaps and notable fixes
 
 If the best match is one of the known open gaps (Kata Containers runtime support, `--enable-dind` cleanup, enterprise header-injection extension points, or the remaining `GH_HOST` leak to user steps), say so explicitly instead of implying there is a shipped fix.
+
+A28 / github/gh-aw-firewall#9183 — gh-aw compiler must relocate Pi's streaming log to `sandbox/agent`.
+
+A29 / github/gh-aw-firewall#9352 — gh-aw `parse_token_usage.cjs` must consume `AWF_TOKEN_USAGE_LOG`.
 
 A13 / github/gh-aw-firewall#5693, github/gh-aw-firewall#5696 — ARC/DinD split-fs base-userland staging is **fixed in AWF v0.27.15**: set `runner.topology: "arc-dind"` in the AWF config JSON. The `sysroot-stage` init container copies the signed `build-tools` image filesystem into a `sysroot` volume mounted at `/host:ro` before the agent starts.
 
@@ -191,7 +214,7 @@ B10 / github/gh-aw-firewall#6025 — `fixArtifactPermissionsForRootless()` compo
 
 B11 / github/gh-aw-firewall#6072 — Rootless permission-repair diagnostics were too opaque and could mislead triage when the agent already exited non-zero. **Improved in AWF (PR github/gh-aw-firewall#6072, merged 2026-07-10)**: repair-container stderr is now included in the `[WARN]` message, and chroot-home cleanup noise is reduced by downgrading that log to `debug`.
 
-B12 / github/gh-aw-firewall#6326, github/gh-aw-firewall#6328 — On ARC/DinD, a topology-attached DIFC proxy addressed by Kubernetes Service name can remain unresolvable from DinD containers even after the ordering fix. `detectDnsResolutionFailure()` now augments the startup error with the unresolved host and recommends using the proxy IP or `dockerd --dns <cluster-dns-ip>`.
+B12 / github/gh-aw-firewall#6326, github/gh-aw-firewall#6328, github/gh-aw-firewall#9100 — On ARC/DinD, `EAI_AGAIN`/`ENOTFOUND` for a topology-attached DIFC proxy can persist even after the ordering fix. Kubernetes `search` domains plus `ndots:5` can make Alpine/musl expand the single-label Docker peer name before its direct lookup, even when the peer is attached to `awf-net`. Inspect cli-proxy's `/etc/resolv.conf`; PR github/gh-aw-firewall#9100 sets `dns_search: []` on cli-proxy. On older AWF set `dns_search: []` for that Compose service. If the cluster resolver itself is unreachable, use the proxy IP or configure `dockerd --dns <cluster-dns-ip>`.
 
 B13 / github/gh-aw-firewall#6189, github/gh-aw-firewall#6438, github/gh-aw-firewall#6473, github/gh-aw-firewall#6652, github/gh-aw-firewall#6658, github/gh-aw-firewall#6685, github/gh-aw-firewall#6689 — In `--network-isolation` mode, MCP tool calls to topology-attached peers or to a `difcProxyHost` were failing because those hosts were not included in `NO_PROXY`. **Fixed in AWF (PR github/gh-aw-firewall#6189, merged 2026-07-20):** topology peer hostnames are added to `NO_PROXY`. **Fixed in AWF (PR github/gh-aw-firewall#6438, merged 2026-07-20):** `config.difcProxyHost` (stripped of `:port`) is also added to `NO_PROXY`. **Fixed in AWF (PR github/gh-aw-firewall#6473, merged 2026-07-21):** topology peer hostnames and `difcProxyHost` are also auto-added to the Squid ACL allowlist. Upgrade to AWF including all three PRs. **Fixed in AWF (PR github/gh-aw-firewall#6658, merged 2026-07-27):** Topology-peer rules are now added to the policy manifest, closing the audit attribution gap. The block report no longer incorrectly flags `awmg-mcpg` as denied. Upgrade AWF to the version including github/gh-aw-firewall#6658. **Additional fix (PR github/gh-aw-firewall#6689):** `isInternalAwfDomain()` in `src/logs/internal-domain-filter.ts` filters `TCP_DENIED` log entries whose destination is a `172.30.0.0/24` IP or single-label hostname (Docker container names always single-label) from both the runtime `⚠️ Firewall blocked N domain(s)` warning and `awf logs stats/summary` output. Upgrade AWF to the version including github/gh-aw-firewall#6689.
 
@@ -241,6 +264,8 @@ D14 / github/gh-aw-firewall#8620, github/gh-aw-firewall#8622, github/gh-aw-firew
 
 D15 / github/gh-aw-firewall#8827, github/gh-aw-firewall#8834, github/gh-aw-firewall#8835, github/gh-aw-firewall#8866 — On `--container-runtime cloud-hypervisor`, preflight could abort the whole engine run with `code=EACCES` while probing the staged `cloud-hypervisor` binary, even though the artifact was root-owned mode `0555` and digest-verified: the executable snapshot lived under `/run/awf-cloud-hypervisor`, a runtime-state `tmpfs` that hardened hosts mount `noexec`. **Fixed in AWF (PR github/gh-aw-firewall#8835, merged 2026-09-21):** executable snapshots are staged under `/var/lib/awf-cloud-hypervisor/trusted-artifacts` while `/run/awf-cloud-hypervisor` keeps runtime state only, and `EACCES` failures report uid/gid/groups, mount options, and per-path-component stat/ACL data. **Follow-up (PR github/gh-aw-firewall#8866):** preflight now refuses to stage when the trusted-artifact root resolves to a `noexec` mount, naming the mount point and its options. Confirm with `findmnt -no TARGET,OPTIONS /var/lib/awf-cloud-hypervisor`.
 
+D16 / github/gh-aw-firewall#9012, github/gh-aw-firewall#9016, github/gh-aw-firewall#9017 — NVX and Cloud Hypervisor confinement verification intermittently rejected a VMM when worker threads started or exited between snapshots of `/proc/<pid>/task` and the later cgroup/namespace reads. **Fixed in AWF (PRs github/gh-aw-firewall#9016 and github/gh-aw-firewall#9017, merged 2026-09-26):** re-verification tolerates benign thread churn while fully checking new or recycled TIDs; it still fails closed on process identity/executable changes, a vanished main thread, policy-violating threads, or exceeding the thread bound. Upgrade AWF to include both PRs.
+
 C7 / #5615 — DIFC proxy enterprise-host awareness for `*.ghe.com` data-residency is not yet implemented in the companion projects; AWF ≥ v0.27.12 provides improved diagnostics (HTTP status + targeted hint) but the underlying cause remains unresolved.
 
 C8 / github/gh-aw-firewall#5872 — Copilot Business `token` prefix short-circuit on GHEC is **fixed** in AWF version including github/gh-aw-firewall#5872. **Additional fix (github/gh-aw-firewall#6237):** `gh-aw`'s offline mode sets `COPILOT_PROVIDER_API_KEY=dummy-byok-key-for-offline-mode` as a sentinel. In AWF before github/gh-aw-firewall#6237, this sentinel was treated as a real BYOK key, suppressing the GitHub-token auth path and producing `400` on Business/Enterprise targets. Fixed by treating `dummy-byok-key-for-offline-mode` as a non-credential sentinel (same class as AWF placeholder tokens).
@@ -252,6 +277,8 @@ C10 / github/gh-aw-firewall#8035, github/gh-aw-firewall#8038 — Fine-grained Gi
 D7 / github/gh-aw-firewall#6260, github/gh-aw-firewall#6261, github/gh-aw-firewall#6276 — Claude Code (Bun/JSC) crashes with `SIGSEGV`/`SIGABRT` under `--container-runtime gvisor` because JSC JIT is incompatible with gVisor's W^X memory restrictions. **AWF (PR github/gh-aw-firewall#6276) automatically sets `BUN_JSC_useJIT=0`** at runtime via `buildToolEnvironment()` when Claude runs under gVisor — no workflow change required. For older AWF builds without github/gh-aw-firewall#6276, pass `--env BUN_JSC_useJIT=0` as a manual fallback.
 
 D11 / github/gh-aw-firewall#6558 — gVisor + Node.js v22 V8 ESM startup crash root cause remains unresolved (`SIGABRT` `StringBytes::Encode` assertion and occasional exit 139). **Mitigated in AWF (PR github/gh-aw-firewall#6514, merged 2026-07-23):** `runAgentCommand()` does a one-shot retry (`MAX_GVISOR_AGENT_RETRIES = 1`) when gVisor exits 134/139 within `GVISOR_STARTUP_CRASH_WINDOW_MS = 30_000`, but this does not prevent the underlying crash.
+
+B35 / github/gh-aw-firewall#9028, github/gh-aw-firewall#9029 — Host-side gh-aw steps such as `validateMemoryStep` fail with `EACCES` writing under `/tmp/gh-aw` after the UID-remapped AWF agent exits. **Fixed in AWF (PR github/gh-aw-firewall#9029, merged 2026-09-26):** the agent entrypoint sets `umask 0002` for the user command and runs `relax_gh_aw_shared_permissions()` as root after command exit to add group-write to `/tmp/gh-aw` without making it world-writable. Upgrade AWF to include github/gh-aw-firewall#9029.
 
 ### 5. Avoid duplicate triage
 

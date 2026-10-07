@@ -3,13 +3,78 @@
 package main
 
 import (
+	"encoding/base64"
+	"fmt"
 	"net"
 	"os"
 	"path/filepath"
 	"reflect"
 	"syscall"
 	"testing"
+	"time"
 )
+
+func TestWorkspaceLessNoNetworkSupervisorBootReachesVsock(t *testing.T) {
+	target := filepath.Join(t.TempDir(), "seed")
+	originalMount := mountFilesystem
+	defer func() { mountFilesystem = originalMount }()
+	mounted := false
+	mountFilesystem = func(source, destination, fstype string, flags uintptr, data string) error {
+		if source != "seed" || destination != target || fstype != "virtiofs" || flags&syscall.MS_RDONLY == 0 {
+			t.Fatalf("unexpected guest mount: %q %q %q %#x", source, destination, fstype, flags)
+		}
+		mounted = true
+		return nil
+	}
+	cmdline := fmt.Sprintf("awf.network-mode=none awf.vsock-port=1024 awf.virtiofs=seed:%s:ro",
+		base64.RawURLEncoding.EncodeToString([]byte(target)))
+	socketPath := filepath.Join(t.TempDir(), "supervisor.sock")
+	socket, err := net.Listen("unix", socketPath)
+	if err != nil {
+		t.Fatalf("listen on test socket: %v", err)
+	}
+	defer socket.Close()
+	file, err := socket.(*net.UnixListener).File()
+	if err != nil {
+		t.Fatalf("obtain test listener: %v", err)
+	}
+	defer file.Close()
+	done := make(chan error, 1)
+	go func() {
+		done <- runSupervisorWithCmdline(cmdline, func(port uint32) (*vsockListener, error) {
+			if port != 1024 || !mounted {
+				return nil, fmt.Errorf("listener started before guest mount or with wrong port: %d, mounted=%t", port, mounted)
+			}
+			return &vsockListener{fd: int(file.Fd())}, nil
+		})
+	}()
+	connection, err := net.Dial("unix", socketPath)
+	if err != nil {
+		t.Fatalf("connect to booted supervisor: %v", err)
+	}
+	if err := connection.SetReadDeadline(time.Now().Add(2 * time.Second)); err != nil {
+		t.Fatalf("set deadline: %v", err)
+	}
+	ready, err := ReadFrame(connection)
+	if err != nil {
+		t.Fatalf("read booted supervisor ready frame: %v", err)
+	}
+	if ready.Type != "ready" || ready.Version != ProtocolVersion {
+		t.Fatalf("unexpected supervisor readiness: %#v", ready)
+	}
+	connection.Close()
+	if err := syscall.Shutdown(int(file.Fd()), syscall.SHUT_RDWR); err != nil {
+		t.Fatalf("stop test listener: %v", err)
+	}
+	select {
+	case err := <-done:
+		if err == nil {
+			t.Fatal("supervisor unexpectedly exited cleanly without shutdown")
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("supervisor did not stop after closing test listener")
+	}
+}
 
 func TestResolveCommandUsesRequestPath(t *testing.T) {
 	directory := t.TempDir()

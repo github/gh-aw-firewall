@@ -28,6 +28,7 @@ function buildClassifierRequest(mapping, plan) {
     });
   }
   if (mapping.protocol === 'chat-completions') {
+    const maxOutputTokens = mapping.effort === undefined ? CLASSIFIER_OUTPUT_TOKENS : CLASSIFIER_REASONING_OUTPUT_TOKENS;
     return Object.freeze({
       path: '/chat/completions',
       body: Object.freeze({
@@ -36,10 +37,26 @@ function buildClassifierRequest(mapping, plan) {
           Object.freeze({ role: 'system', content: plan.system_prompt }),
           Object.freeze({ role: 'user', content: plan.prompt }),
         ]),
-        tools: Object.freeze([]), stream: false, max_tokens: CLASSIFIER_OUTPUT_TOKENS,
+        tools: Object.freeze([]), stream: false, max_tokens: maxOutputTokens,
         ...(mapping.effort === undefined ? {} : { reasoning_effort: mapping.effort }),
       }),
-      outputAllowance: CLASSIFIER_OUTPUT_TOKENS,
+      outputAllowance: maxOutputTokens,
+    });
+  }
+  if (mapping.protocol === 'messages') {
+    const maxOutputTokens = mapping.effort === undefined ? CLASSIFIER_OUTPUT_TOKENS : CLASSIFIER_REASONING_OUTPUT_TOKENS;
+    return Object.freeze({
+      path: '/v1/messages',
+      body: Object.freeze({
+        model: mapping.wireModel,
+        system: plan.system_prompt,
+        messages: Object.freeze([Object.freeze({ role: 'user', content: plan.prompt })]),
+        max_tokens: maxOutputTokens,
+        ...(mapping.effort === undefined
+          ? {}
+          : { output_config: Object.freeze({ effort: mapping.effort }) }),
+      }),
+      outputAllowance: maxOutputTokens,
     });
   }
   throw createRoutingError('routing_configuration_error', 'The classifier choice uses an unverified protocol');
@@ -84,6 +101,12 @@ function extractClassifierOutput(protocol, raw) {
       }
     }
     return outputTexts.length === 1 ? outputTexts[0] : null;
+  }
+  if (protocol === 'messages') {
+    const text = (Array.isArray(response.content) ? response.content : [])
+      .filter(item => item?.type === 'text' && typeof item.text === 'string')
+      .map(item => item.text);
+    return text.length === 1 ? text[0] : null;
   }
   return null;
 }

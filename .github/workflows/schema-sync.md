@@ -25,7 +25,8 @@ network:
 tools:
   github:
     toolsets: [default, pull_requests]
-  cache-memory: true
+  repo-memory:
+    branch-name: memory/schema-sync
   bash: ["*"]
   edit:
 safe-outputs:
@@ -56,13 +57,14 @@ These source files drive schema and spec content:
 
 ### 1. Load last-processed commit
 
-Read `/tmp/gh-aw/cache-memory/schema-sync-state.json`. It stores:
+Read `/tmp/gh-aw/repo-memory/default/schema-sync-state.json`. It stores:
 ```json
 { "last_commit_sha": "<sha>", "updated": "YYYY-MM-DD-HH-MM-SS" }
 ```
 
 - If the file exists, use `last_commit_sha` as the starting point.
 - If the file does NOT exist (first run), use commits from the **last 7 days**.
+  This is an expected cold start; do not report it with `missing_data`.
 
 ### 2. Fetch relevant commits
 
@@ -71,7 +73,7 @@ the starting point. Filter to commits that modify any of the source files listed
 in the mapping table above.
 
 If no relevant commits are found, write the current HEAD SHA to
-`/tmp/gh-aw/cache-memory/schema-sync-state.json` and directly invoke the
+`/tmp/gh-aw/repo-memory/default/schema-sync-state.json` and directly invoke the
 `safeoutputs.noop` MCP tool with a concise summary. Do not simulate this safe
 output with `bash`, `printf`, or a final text response.
 
@@ -106,7 +108,7 @@ simulate this safe output with `bash`, `printf`, or a final text response.
 
 ### 6. Save state
 
-Write the HEAD commit SHA to `/tmp/gh-aw/cache-memory/schema-sync-state.json`
+Write the HEAD commit SHA to `/tmp/gh-aw/repo-memory/default/schema-sync-state.json`
 using filesystem-safe timestamp format `YYYY-MM-DD-HH-MM-SS` (no colons, no `T`, no `Z`):
 ```json
 { "last_commit_sha": "<HEAD SHA>", "updated": "YYYY-MM-DD-HH-MM-SS" }

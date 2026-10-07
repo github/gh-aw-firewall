@@ -33,7 +33,7 @@ done
 )
 
 "$ARTIFACT_DIR/cloud-hypervisor" --version | grep -F '53.0'
-"$ARTIFACT_DIR/virtiofsd" --version 2>&1 | grep -E '(^| )1\.10\.0($| )'
+"$ARTIFACT_DIR/virtiofsd" --version 2>&1 | grep -E '(^| )1\.13\.3($| )'
 grep -Fx 'CONFIG_VIRTIO_FS=y' "$ARTIFACT_DIR/kernel.config"
 file "$ARTIFACT_DIR/vmlinux.bin" | grep -E 'Linux kernel|boot executable'
 e2fsck -f -n "$ARTIFACT_DIR/rootfs.ext4"
@@ -134,9 +134,13 @@ verify_enclave_rootfs() {
   e2fsck -f -n "$image"
   debugfs -R "stat $entrypoint" "$image" 2>&1 | grep -F 'Type: regular'
   debugfs -R 'stat /usr/sbin/awf-supervisor' "$image" 2>&1 | grep -F 'Type: regular'
+  debugfs -R 'stat /dev/shm' "$image" 2>&1 | grep -F 'Type: directory'
   device_listing=$(debugfs -R 'ls -p /dev' "$image" 2>/dev/null)
-  if printf '%s\n' "$device_listing" | debugfs_listing_has_non_dot_entries; then
-    echo "unexpected embedded device found in $role enclave rootfs" >&2
+  if ! printf '%s\n' "$device_listing" | awk -F/ '
+    NF > 0 && $6 != "." && $6 != ".." &&
+      !($6 == "shm" && $3 ~ /^040/) { print; bad=1 }
+    END { exit bad ? 1 : 0 }'; then
+    echo "unexpected embedded device or directory found in $role enclave rootfs" >&2
     return 1
   fi
   role_metadata=$(debugfs -R 'cat /etc/awf/enclave-role.json' "$image" 2>/dev/null)
@@ -149,10 +153,28 @@ verify_enclave_rootfs() {
 
   for forbidden in \
     /sbin/apk \
+    /usr/bin/apk \
     /usr/bin/apt \
+    /usr/bin/apt-cache \
     /usr/bin/apt-get \
+    /usr/bin/apt-mark \
     /usr/bin/dpkg \
+    /usr/bin/dpkg-deb \
+    /usr/bin/dpkg-query \
+    /usr/bin/rpm \
+    /usr/bin/dnf \
+    /usr/bin/yum \
+    /usr/bin/zypper \
+    /usr/bin/pacman \
+    /usr/bin/emerge \
+    /usr/bin/npm \
+    /usr/bin/npx \
+    /usr/bin/corepack \
+    /usr/bin/yarn \
+    /usr/bin/pnpm \
+    /usr/local/bin/npm \
     /usr/local/bin/pip \
+    /usr/local/bin/pip3 \
     /etc/shadow \
     /etc/gshadow \
     /root/.git-credentials \
@@ -161,6 +183,28 @@ verify_enclave_rootfs() {
       echo "forbidden enclave rootfs path present for $role: $forbidden" >&2
       return 1
     fi
+  done
+
+  # Package-manager modules remain usable through `python3 -m` even without
+  # launchers, so every Python library tree must lack them.
+  local libdir pydir module packages
+  for libdir in /usr/lib /usr/local/lib; do
+    while IFS= read -r pydir; do
+      for module in ensurepip site-packages/pip dist-packages/pip; do
+        if debugfs -R "stat $libdir/$pydir/$module" "$image" 2>&1 | grep -Fq 'Inode:'; then
+          echo "forbidden Python package-manager module present for $role: $libdir/$pydir/$module" >&2
+          return 1
+        fi
+      done
+      for packages in site-packages dist-packages; do
+        if debugfs -R "ls -p $libdir/$pydir/$packages" "$image" 2>/dev/null \
+          | awk -F/ 'NF >= 7 && $6 ~ /^pip-/ { found=1 } END { exit found ? 0 : 1 }'; then
+          echo "forbidden pip distribution metadata present for $role: $libdir/$pydir/$packages" >&2
+          return 1
+        fi
+      done
+    done < <(debugfs -R "ls -p $libdir" "$image" 2>/dev/null \
+      | awk -F/ 'NF >= 7 && $6 ~ /^python3(\.[0-9]+)?$/ { print $6 }')
   done
 
   seed_listing=$(debugfs -R 'ls -p /awf/seed' "$image" 2>/dev/null)

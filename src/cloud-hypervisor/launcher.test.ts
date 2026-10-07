@@ -4,6 +4,7 @@ import {
   computeCloudHypervisorLandlockRules,
   type CloudHypervisorCgroupDependencies,
 } from './launcher';
+import { CLOUD_HYPERVISOR_ENCLAVE_RESOURCE_PROFILES as profiles } from './workload-profile';
 
 describe('buildCloudHypervisorLaunchCommand', () => {
   const baseOptions = {
@@ -206,6 +207,56 @@ describe('CloudHypervisorCgroup', () => {
       '/sys/fs/cgroup/awf-cloud-hypervisor/run-1/pids.max',
       '256',
     );
+  });
+
+  it('enforces the exact fractional CPU budget for an enclave without VMM headroom', async () => {
+    const deps = dependencies();
+    const cgroup = new CloudHypervisorCgroup(
+      '/sys/fs/cgroup/awf-cloud-hypervisor/enclave-1',
+      { memoryMib: 768, vcpuCount: 1, cpuQuotaMilli: 500 },
+      deps,
+    );
+    await cgroup.setup();
+
+    expect(cgroup.expectedLimits().cpuMax).toBe('50000 100000');
+    expect(deps.writeFile).toHaveBeenCalledWith(
+      '/sys/fs/cgroup/awf-cloud-hypervisor/enclave-1/cpu.max',
+      '50000 100000',
+    );
+    expect(() => new CloudHypervisorCgroup(
+      '/sys/fs/cgroup/awf-cloud-hypervisor/invalid',
+      { memoryMib: 768, vcpuCount: 1, cpuQuotaMilli: 1001 },
+    ).expectedLimits()).toThrow(/resource limits are invalid/);
+  });
+
+  it.each(['script', 'agent'] as const)('budgets host tmpfs pages separately from %s guest memory', async (role) => {
+    const profile = profiles[role];
+    const deps = dependencies();
+    const cgroup = new CloudHypervisorCgroup(
+      '/sys/fs/cgroup/awf-cloud-hypervisor/enclave-storage',
+      {
+        memoryMib: profile.memoryMiB,
+        vcpuCount: profile.vcpuCount,
+        cpuQuotaMilli: profile.cpuQuotaMilli,
+        writableStorageBytes: profile.writableStorageBytes,
+      },
+      deps,
+    );
+    await cgroup.setup();
+    expect(cgroup.expectedLimits().memoryMax).toBe(
+      String((profile.memoryMiB + 256) * 1024 * 1024 + profile.writableStorageBytes),
+    );
+    expect(deps.writeFile).toHaveBeenCalledWith(
+      '/sys/fs/cgroup/awf-cloud-hypervisor/enclave-storage/memory.max',
+      cgroup.expectedLimits().memoryMax,
+    );
+  });
+
+  it.each([0, -1, NaN, Infinity, Number.MAX_SAFE_INTEGER])('rejects invalid storage memory budget %s', (size) => {
+    expect(() => new CloudHypervisorCgroup(
+      '/sys/fs/cgroup/awf-cloud-hypervisor/invalid',
+      { memoryMib: 768, vcpuCount: 1, writableStorageBytes: size },
+    ).expectedLimits()).toThrow(/resource limits are invalid/);
   });
 
   it('assigns a PID into cgroup.procs and rejects invalid PIDs', async () => {

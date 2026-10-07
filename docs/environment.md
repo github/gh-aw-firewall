@@ -199,6 +199,10 @@ If you see instead:
 
 the runner did not set `GITHUB_PATH`, and the tool's bin directory must already be in `$PATH` at AWF launch time.
 
+## Token Usage Log in GitHub Actions
+
+When AWF preserves an API-proxy token usage log in GitHub Actions, it exports its runner-visible path as `AWF_TOKEN_USAGE_LOG` via `$GITHUB_ENV`. Later workflow steps can read this variable to locate `token-usage.jsonl`; it is only set when the log file exists. See [ARC/DinD token usage guidance](arc-dind.md#locating-api-proxy-token-usage-logs).
+
 ## Debugging Environment Variables
 
 The following environment variables control debugging behavior:
@@ -238,8 +242,14 @@ Any variable present in the host environment with the `OTEL_` prefix is passed t
 export OTEL_SERVICE_NAME=my-agent
 export OTEL_EXPORTER_OTLP_ENDPOINT=https://otel.example.com
 export OTEL_EXPORTER_OTLP_HEADERS="Authorization=Bearer $MY_OTEL_TOKEN"
-sudo -E awf --allow-domains otel.example.com -- agent-command
+sudo -E awf -- agent-command
 ```
+
+### Automatic OTLP endpoint allowlisting
+
+AWF automatically allows the OTLP collector endpoint when `OTEL_EXPORTER_OTLP_ENDPOINT` (or a per-signal `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` / `OTEL_EXPORTER_OTLP_METRICS_ENDPOINT` / `OTEL_EXPORTER_OTLP_LOGS_ENDPOINT`) is set. Values are resolved from `--env` first, then `--env-file`, then the host environment, so you no longer need to pass `--allow-domains` for the collector. A debug log line (`--log-level debug`) records the allowed host and port.
+
+Only the **exact hostname and endpoint port** parsed from the endpoint URL are allowed (no wildcard/subdomain expansion). Only `http://`/`https://` URLs are considered — malformed URLs, dangerous ports, and schemes AWF doesn't recognize (e.g. a bare gRPC `host:port` with no `http(s)://` prefix) are skipped and must still be configured separately if reachable over HTTP(S).
 
 ### Security: one-shot token protection for OTEL credentials
 
@@ -254,10 +264,11 @@ The following OTEL variables often carry bearer tokens or other credentials and 
 
 ### Network requirements
 
-- **OTLP/HTTP (`http/protobuf`, default):** Traffic goes through the Squid proxy on ports 80/443. Add the OTLP collector domain to `--allow-domains`:
+- **OTLP/HTTP (`http/protobuf`, default):** Traffic goes through the Squid proxy on ports 80/443. The collector domain is [auto-allowed](#automatic-otlp-endpoint-allowlisting) from `OTEL_EXPORTER_OTLP_ENDPOINT` / `_TRACES_ENDPOINT` / `_METRICS_ENDPOINT` / `_LOGS_ENDPOINT`, so no `--allow-domains` flag is normally required:
 
   ```bash
-  awf --allow-domains otel.example.com -- agent-command
+  export OTEL_EXPORTER_OTLP_ENDPOINT=https://otel.example.com
+  awf -- agent-command
   ```
 
 - **OTLP/gRPC (port 4317):** gRPC clients typically do not respect `HTTP_PROXY` env vars, and port 4317 is not covered by AWF's iptables DNAT rules (only 80/443). Traffic to port 4317 hits the default DROP rule and is blocked. Use `http/protobuf` protocol instead:
@@ -427,6 +438,44 @@ AWF mounts a container-scoped procfs at `/host/proc` with `hidepid=2` to prevent
 - PID 1 (the entrypoint) may briefly hold authentication tokens before `unset_sensitive_tokens()` clears them
 - Without `hidepid=2`, an agent could race to read `/proc/1/environ` and extract credentials
 - The `/dev/fd` → `/proc/self/fd` symlink provides an indirect path to procfs that `hidepid=2` also blocks
+
+### UID/GID remapping and host-side steps that share `/tmp/gh-aw`
+
+AWF's agent container remaps its internal `awfuser` UID/GID to match the
+invoking host user (`setup_user_identity()` in
+[`entrypoint.sh`](../containers/agent/entrypoint.sh)) so that files the agent
+creates on bind-mounted host paths — including the shared scratch tree used by
+gh-aw features like `tools.cache-memory` (`/tmp/gh-aw`) — are normally owned by
+that same host user.
+
+However, a later **host-side** step that runs after the agent container has
+already exited (for example gh-aw's post-agent `validateMemoryStep`, which
+writes a validation marker under `/tmp/gh-aw/memory-validation/*.ok`) can still
+run under a slightly different effective identity than the one AWF remapped
+to inside the container (e.g. when AWF is invoked as native root without
+`sudo`, where the real host UID cannot be recovered from `SUDO_UID`/`SUDO_GID`
+and AWF falls back to a default unprivileged UID/GID). If that identity
+doesn't exactly match the UID that owns the newly created directories, the
+host-side step fails with `EACCES: permission denied`.
+
+To reduce this class of failure, AWF's entrypoint:
+
+- Sets `umask 0002` for the user command, so new files/directories the agent
+  creates default to being group-writable.
+- Adds group write/execute permissions to the `/tmp/gh-aw` handoff root and
+  the known host-side `memory-validation` handoff directory (as root, from
+  outside the chroot) right after the agent command exits — whether it
+  succeeded, failed, or was signaled — so a host-side step that shares the same
+  primary group as the mapped agent user can still write into the required
+  handoff directories. This intentionally does **not** recurse through the
+  whole `/tmp/gh-aw` tree or make it world-writable, to avoid widening access
+  to unrelated payload-bearing files on multi-user self-hosted runners.
+
+If a host-side step still cannot write into `/tmp/gh-aw` after the agent
+exits (for example because the host step's group also doesn't match), invoke
+`awf` with `sudo` rather than as native root so the real host UID/GID can be
+recovered from `SUDO_UID`/`SUDO_GID`, or adjust the failing step to run as the
+same user/group that invoked `awf`.
 
 ### Limitation
 

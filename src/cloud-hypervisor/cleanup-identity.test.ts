@@ -26,6 +26,22 @@ describe('cleanup identity primitives', () => {
   });
 
   describe('record and process validation', () => {
+    it('accepts short socket paths only for the exact invocation-derived VM and cgroup', () => {
+      const runId = 'a'.repeat(32);
+      const root = `/run/awf-cloud-hypervisor/enclave-storage/${runId}`;
+      const paths = {
+        runId, runBaseDir: path.join(root, 'runs'), runDirectory: path.join(root, 'runs', 'vm'),
+        cgroupPath: `/sys/fs/cgroup/awf-cloud-hypervisor/${runId}`,
+      };
+      expect(() => assertSafeRecordPaths(paths, undefined)).not.toThrow();
+      expect(() => assertSafeRecordPaths({ ...paths, runDirectory: path.join(root, 'runs', 'other') }, undefined))
+        .toThrow('not scoped');
+      expect(() => assertSafeRecordPaths({ ...paths, runBaseDir: '/arbitrary' }, undefined))
+        .toThrow('not scoped');
+      expect(() => assertSafeRecordPaths({ ...paths, cgroupPath: `/arbitrary/${runId}` }, undefined))
+        .toThrow('not scoped');
+    });
+
     it('rejects cross-run setup and unstable process credentials', async () => {
       const paths = harness.runPaths('scoped-run');
       await expect(new DurableCloudHypervisorCleanupRegistry(harness.dependencies()).create(

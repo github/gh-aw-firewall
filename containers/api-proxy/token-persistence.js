@@ -17,6 +17,7 @@ const TOKEN_LOG_DIR = process.env.AWF_TOKEN_LOG_DIR || '/var/log/api-proxy';
 const TOKEN_LOG_FILE = path.join(TOKEN_LOG_DIR, 'token-usage.jsonl');
 const DIAG_LOG_FILE = path.join(TOKEN_LOG_DIR, 'token-diag.jsonl');
 const AUDIT_LOG_FILE = path.join(TOKEN_LOG_DIR, 'token-tracker-audit.jsonl');
+const UPSTREAM_ERROR_LOG_FILE = path.join(TOKEN_LOG_DIR, 'upstream-errors.jsonl');
 const DIAG_ENABLED = process.env.AWF_DEBUG_TOKENS === '1';
 
 // AWF version used to identify schema version in JSONL records.
@@ -35,6 +36,17 @@ const TOKEN_DIAG_SCHEMA = `token-diag/v${AWF_VERSION || '0.0.0-dev'}`;
 let logStream = null;
 let diagStream = null;
 let auditStream = null;
+let upstreamErrorStream = null;
+
+function createOwnerOnlyAppendStream(filePath, onError) {
+  fs.mkdirSync(TOKEN_LOG_DIR, { recursive: true });
+  const fd = fs.openSync(filePath, 'a', 0o600);
+  fs.fchmodSync(fd, 0o600);
+  fs.closeSync(fd);
+  const stream = fs.createWriteStream(filePath, { flags: 'a', mode: 0o600 });
+  stream.on('error', onError);
+  return stream;
+}
 
 function ensureTokenUsageFileExists() {
   try {
@@ -96,15 +108,25 @@ function diag(msg, data) {
 function auditTrack(event, data) {
   try {
     if (!auditStream) {
-      fs.mkdirSync(TOKEN_LOG_DIR, { recursive: true });
-      const fd = fs.openSync(AUDIT_LOG_FILE, 'a', 0o600);
-      fs.fchmodSync(fd, 0o600);
-      fs.closeSync(fd);
-      auditStream = fs.createWriteStream(AUDIT_LOG_FILE, { flags: 'a', mode: 0o600 });
-      auditStream.on('error', () => { auditStream = null; });
+      auditStream = createOwnerOnlyAppendStream(AUDIT_LOG_FILE, () => { auditStream = null; });
     }
     const line = { ts: Date.now(), event, ...data };
     auditStream.write(JSON.stringify(line) + '\n');
+  } catch { /* best-effort */ }
+}
+
+/**
+ * Persist one sanitized upstream error-response diagnostic to upstream-errors.jsonl.
+ * Callers must pass fields that have already been header/body sanitized for logs.
+ * This is best-effort and never throws so diagnostics cannot disrupt proxy traffic.
+ */
+function auditUpstreamErrorResponse(fields) {
+  try {
+    if (!upstreamErrorStream) {
+      upstreamErrorStream = createOwnerOnlyAppendStream(UPSTREAM_ERROR_LOG_FILE, () => { upstreamErrorStream = null; });
+    }
+    const line = { ts: Date.now(), event: 'UPSTREAM_ERROR_RESPONSE', ...fields };
+    upstreamErrorStream.write(JSON.stringify(line) + '\n');
   } catch { /* best-effort */ }
 }
 
@@ -217,7 +239,10 @@ function validateTokenUsageRecord(record) {
  * @returns {object}
  */
 function buildTokenUsageRecord(normalized, opts) {
-  const { requestId, provider, model, reqPath, status, streaming, duration, responseBytes, purpose } = opts;
+  const {
+    requestId, provider, model, reqPath, status, streaming, duration, responseBytes, purpose,
+    requestedEndpoint, upstreamEndpoint,
+  } = opts;
   return {
     _schema: TOKEN_USAGE_SCHEMA,
     timestamp: new Date().toISOString(),
@@ -235,6 +260,8 @@ function buildTokenUsageRecord(normalized, opts) {
     duration_ms: duration,
     response_bytes: responseBytes,
     ...(purpose ? { purpose } : {}),
+    ...(requestedEndpoint ? { requested_endpoint: requestedEndpoint } : {}),
+    ...(upstreamEndpoint ? { upstream_endpoint: upstreamEndpoint } : {}),
   };
 }
 
@@ -306,6 +333,10 @@ function closeLogStream() {
         pending++;
         auditStream.end(() => { auditStream = null; pending--; check(); });
       }
+      if (upstreamErrorStream) {
+        pending++;
+        upstreamErrorStream.end(() => { upstreamErrorStream = null; pending--; check(); });
+      }
       if (pending === 0) resolve();
     }),
     closeBlockedRequestDiagStream(),
@@ -315,10 +346,12 @@ function closeLogStream() {
 module.exports = {
   TOKEN_LOG_FILE,
   AUDIT_LOG_FILE,
+  UPSTREAM_ERROR_LOG_FILE,
   TOKEN_USAGE_SCHEMA,
   TOKEN_DIAG_SCHEMA,
   diag,
   auditTrack,
+  auditUpstreamErrorResponse,
   buildTokenDiagRecord,
   buildTokenUsageRecord,
   incrementTokenMetrics,

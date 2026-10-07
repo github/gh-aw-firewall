@@ -1,5 +1,10 @@
 # Troubleshooting
 
+> **Diagnosing a specific failure?** Start at the canonical diagnosis registry in
+> [`docs/diagnostics/README.md`](diagnostics/README.md), or load the
+> [`diagnose-awf`](../.github/skills/diagnose-awf/SKILL.md) skill. This guide remains the broad
+> troubleshooting reference.
+
 ## Domain Access Issues
 
 ### Domain is Blocked
@@ -20,6 +25,71 @@
    ```bash
    sudo grep "TCP_DENIED" /tmp/squid-logs-<timestamp>/access.log
    ```
+
+### Copilot Web Tools Unavailable in API Proxy Mode
+
+**Problem:** With `engine: copilot`, `tools: web-fetch:` or `tools: web-search:`
+compiles successfully, but Copilot never exposes `web_fetch` or `web_search`.
+Squid sees no requests to the expected domains, even when they are allowlisted.
+
+**Cause:** AWF's Copilot API proxy flow sets `COPILOT_OFFLINE=true` and points
+`COPILOT_PROVIDER_BASE_URL` at the sidecar (by default, `http://172.30.0.30:10002`).
+Offline mode skips GitHub authentication, keeping real credentials exclusively in
+the sidecar, but Copilot CLI also disables its native web tools. `--allow-tool
+web_fetch` / `--allow-tool web_search` cannot enable tools absent from the catalog.
+AWF warns about this limitation when Copilot sidecar routing is active and the
+agent domain allowlist is non-empty.
+
+**Workaround:** Ask the agent to fetch content using `curl` from bash instead.
+Allow both the shell tool and the destination URL in Copilot CLI, as well as the
+domain in AWF. In a gh-aw workflow, use:
+
+```yaml
+engine:
+  id: copilot
+  args: ["--allow-url", "osv.dev"]
+network:
+  allowed: ["osv.dev"]
+tools:
+  bash: ["curl"]
+```
+
+Prompt the agent to run `curl --fail --location https://osv.dev/`. Merge these
+settings with the workflow's existing tools and network allowlist, and allow any
+redirect destinations that are needed. Under `--no-ask-user`, shell permission
+alone is insufficient: without URL permission, Copilot reports
+`Permission denied and could not request permission from user`.
+
+Alternatively, use `engine.args: ["--allow-all-urls"]` to approve URLs at the
+Copilot CLI layer. Neither `--allow-url` nor `--allow-all-urls` bypasses AWF:
+Squid still enforces `network.allowed` (or `--allow-domains` for direct AWF use).
+This workaround fetches known URLs; it does not restore native web search.
+Do not disable offline mode or expose real credentials to the agent to work
+around this limitation.
+
+Compiler-side warning or an MCP fetch fallback is tracked in
+[github/gh-aw#65043](https://github.com/github/gh-aw/issues/65043).
+AWF receives the command and domain allowlist, not gh-aw's `tools` declarations,
+so its startup warning cannot identify which native web tools were requested.
+
+### Copilot BYOK Sub-Agent Model/API Mismatch
+
+**Problem:** Copilot CLI sub-agents using a model from a different wire-API family
+than the session's main model can fail with an upstream `400` response. For
+example, GPT-5 models use the Responses API, while Claude models use Chat
+Completions. BYOK configures one wire API for the Copilot CLI session, including
+requests made by sub-agents.
+
+**Workaround:** Use sub-agent models that use the same wire API as the main model.
+With model routing, each sub-agent model must also match the wire API of every
+model that can be selected for the main session. AWF preserves an explicitly
+configured `COPILOT_PROVIDER_WIRE_API`; otherwise it selects the Responses API
+when `COPILOT_MODEL` is a GPT-5-family or o3 model.
+
+Copilot CLI does not currently expose per-model BYOK wire-API configuration
+through its provider environment variables. Compile-time warnings and guidance
+in gh-aw's sub-agent reference need to be implemented in the
+[github/gh-aw](https://github.com/github/gh-aw) repository.
 
 ## Container Issues
 
@@ -165,21 +235,25 @@ docker network rm awf-net
    ```
 4. Review [GitHub Enterprise Configuration](enterprise-configuration.md) for the expected endpoint derivation and allowlist behavior.
 
-### Codex `auto` Model Fails Under AWF
+### OpenAI Codex `auto` Model Fails Under AWF
 
 **Problem:** A Codex run inside AWF fails with messages such as:
 - `Unknown model auto is used`
 - `The requested model is not supported`
 - `chatgpt authentication required for remote plugin catalog; api key auth is not supported`
 
-**Cause:** Codex's `auto` model alias relies on ChatGPT-authenticated remote
-model/plugin metadata. AWF's API proxy uses API-key credential injection, so the
-ChatGPT catalog lookup cannot be used even if `chatgpt.com` is on the network
-allowlist.
+**Cause:** When Codex uses the OpenAI-native endpoint, its `auto` model alias
+relies on ChatGPT-authenticated remote model/plugin metadata. AWF's API proxy
+uses API-key credential injection, so the ChatGPT catalog lookup cannot be used
+even if `chatgpt.com` is on the network allowlist.
 
 **Solution:** Set an explicit Codex model instead of `auto`, for example
 `model: gpt-5.3-codex` in workflow frontmatter or `codex exec --model
 gpt-5.3-codex ...` for direct CLI usage.
+
+When using the GitHub Copilot provider, `copilot/auto` is routed on Responses
+requests using the available Copilot model inventory; Chat Completions requests
+retain Copilot's native `auto` behavior.
 
 ## Permission Issues
 

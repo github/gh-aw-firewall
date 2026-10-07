@@ -1,11 +1,25 @@
 import { isIP } from 'net';
 import * as path from 'path';
+import {
+  ENCLAVE_AGENT_API_PROXY_IP,
+  ENCLAVE_AGENT_GITHUB_MCP_IP,
+  ENCLAVE_GITHUB_MCP_PORT,
+} from '../enclave/network';
+import {
+  type EnclaveAgentEngine,
+  type EnclaveAgentProfile,
+} from '../types/enclave-options';
 import type { MicrovmControlPeer } from '../microvm/network';
 import type {
   CloudHypervisorManagerGuestConfig,
+  CloudHypervisorEnclaveResourceProfile,
   CloudHypervisorWorkloadIdentity,
 } from './manager-types';
 import { validateCloudHypervisorExports } from './exports';
+import {
+  validateCloudHypervisorEnclaveExportPlan,
+  type CloudHypervisorEnclaveExportPlan,
+} from './enclave-export-plan';
 import { hasReadOnlyWorkspaceMountPlan } from './filesystem-write-enforcement';
 export type {
   CloudHypervisorWorkloadIdentity,
@@ -30,7 +44,8 @@ export interface CloudHypervisorEnclaveAgentNetworkProfile {
   readonly mode: 'enclave-agent';
   readonly apiProxy: {
     readonly ip: string;
-    readonly port: number;
+    readonly engine: EnclaveAgentEngine;
+    readonly profile: EnclaveAgentProfile;
   };
   readonly githubDataPlane?: {
     readonly ip: string;
@@ -52,6 +67,7 @@ export interface CloudHypervisorPrimaryAgentProfile
   };
   readonly rootfsRole: 'primary-agent';
   readonly network: CloudHypervisorPrimaryNetworkProfile;
+  readonly exportPlan?: never;
   readonly guest?: CloudHypervisorManagerGuestConfig;
   readonly rawOutput: 'capture';
 }
@@ -65,7 +81,9 @@ export interface CloudHypervisorScriptEnclaveProfile
   };
   readonly rootfsRole: 'script-enclave';
   readonly network: CloudHypervisorNoNetworkProfile;
+  readonly exportPlan: CloudHypervisorEnclaveExportPlan;
   readonly guest: CloudHypervisorManagerGuestConfig;
+  readonly resources: CloudHypervisorEnclaveResourceProfile;
   readonly rawOutput: 'discard';
 }
 
@@ -78,7 +96,9 @@ export interface CloudHypervisorAgentEnclaveProfile
   };
   readonly rootfsRole: 'agent-enclave';
   readonly network: CloudHypervisorEnclaveAgentNetworkProfile;
+  readonly exportPlan: CloudHypervisorEnclaveExportPlan;
   readonly guest: CloudHypervisorManagerGuestConfig;
+  readonly resources: CloudHypervisorEnclaveResourceProfile;
   readonly rawOutput: 'discard';
 }
 
@@ -87,8 +107,42 @@ export type CloudHypervisorWorkloadProfile =
   | CloudHypervisorScriptEnclaveProfile
   | CloudHypervisorAgentEnclaveProfile;
 
+export type CloudHypervisorLaunchableWorkloadProfile =
+  | CloudHypervisorPrimaryAgentProfile
+  | CloudHypervisorScriptEnclaveProfile;
+
 const SAFE_IDENTITY = /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$/;
 const SAFE_INTERFACE = /^[A-Za-z0-9_.-]{1,15}$/;
+const MIB = 1024 * 1024;
+
+export const CLOUD_HYPERVISOR_ENCLAVE_RESOURCE_PROFILES = Object.freeze({
+  script: Object.freeze({
+    role: 'script',
+    memoryMiB: 768,
+    vcpuCount: 1,
+    cpuQuotaMilli: 500,
+    maxProcesses: 47,
+    tmpfsBytes: 256 * MIB,
+    maxFileBytes: 512 * MIB,
+    maxOpenFiles: 1024,
+    writableStorageBytes: 1024 * MIB,
+    uid: 65534,
+    gid: 65534,
+  }),
+  agent: Object.freeze({
+    role: 'agent',
+    memoryMiB: 768,
+    vcpuCount: 1,
+    cpuQuotaMilli: 500,
+    maxProcesses: 47,
+    tmpfsBytes: 96 * MIB,
+    maxFileBytes: 256 * MIB,
+    maxOpenFiles: 1024,
+    writableStorageBytes: 512 * MIB,
+    uid: 65534,
+    gid: 65534,
+  }),
+}) satisfies Readonly<Record<'script' | 'agent', CloudHypervisorEnclaveResourceProfile>>;
 
 export function createPrimaryAgentCloudHypervisorProfile(options: {
   readonly network: Omit<CloudHypervisorPrimaryNetworkProfile, 'mode'>;
@@ -107,7 +161,8 @@ export function createPrimaryAgentCloudHypervisorProfile(options: {
 export function createScriptEnclaveCloudHypervisorProfile(options: {
   readonly enclaveId: string;
   readonly invocationId: string;
-  readonly guest: CloudHypervisorManagerGuestConfig;
+  readonly guest: Omit<CloudHypervisorManagerGuestConfig, 'exports' | 'workspaceMount'>;
+  readonly exportPlan: CloudHypervisorEnclaveExportPlan;
 }): CloudHypervisorScriptEnclaveProfile {
   return sealCloudHypervisorWorkloadProfile({
     kind: 'script-enclave',
@@ -118,7 +173,17 @@ export function createScriptEnclaveCloudHypervisorProfile(options: {
     },
     rootfsRole: 'script-enclave',
     network: { mode: 'none' },
-    guest: options.guest,
+    exportPlan: options.exportPlan,
+    resources: CLOUD_HYPERVISOR_ENCLAVE_RESOURCE_PROFILES.script,
+    guest: {
+      ...options.guest,
+      enclaveResources: CLOUD_HYPERVISOR_ENCLAVE_RESOURCE_PROFILES.script,
+      exports: validateCloudHypervisorEnclaveExportPlan(options.exportPlan, 'script', {
+        entryId: options.enclaveId,
+        invocationId: options.invocationId,
+      }),
+      workspaceMount: null,
+    },
     rawOutput: 'discard',
   }) as CloudHypervisorScriptEnclaveProfile;
 }
@@ -126,8 +191,13 @@ export function createScriptEnclaveCloudHypervisorProfile(options: {
 export function createAgentEnclaveCloudHypervisorProfile(options: {
   readonly enclaveId: string;
   readonly invocationId: string;
-  readonly guest: CloudHypervisorManagerGuestConfig;
-  readonly apiProxy: CloudHypervisorEnclaveAgentNetworkProfile['apiProxy'];
+  readonly guest: Omit<CloudHypervisorManagerGuestConfig, 'exports' | 'workspaceMount'>;
+  readonly exportPlan: CloudHypervisorEnclaveExportPlan;
+  readonly apiProxy: {
+    readonly ip: string;
+    readonly engine: EnclaveAgentEngine;
+    readonly profile: EnclaveAgentProfile;
+  };
   readonly githubDataPlane?: CloudHypervisorEnclaveAgentNetworkProfile['githubDataPlane'];
 }): CloudHypervisorAgentEnclaveProfile {
   return sealCloudHypervisorWorkloadProfile({
@@ -143,7 +213,17 @@ export function createAgentEnclaveCloudHypervisorProfile(options: {
       apiProxy: options.apiProxy,
       ...(options.githubDataPlane ? { githubDataPlane: options.githubDataPlane } : {}),
     },
-    guest: options.guest,
+    exportPlan: options.exportPlan,
+    resources: CLOUD_HYPERVISOR_ENCLAVE_RESOURCE_PROFILES.agent,
+    guest: {
+      ...options.guest,
+      enclaveResources: CLOUD_HYPERVISOR_ENCLAVE_RESOURCE_PROFILES.agent,
+      exports: validateCloudHypervisorEnclaveExportPlan(options.exportPlan, 'agent', {
+        entryId: options.enclaveId,
+        invocationId: options.invocationId,
+      }),
+      workspaceMount: null,
+    },
     rawOutput: 'discard',
   }) as CloudHypervisorAgentEnclaveProfile;
 }
@@ -157,8 +237,17 @@ export function validateCloudHypervisorWorkloadProfile(
   if (profile.kind !== profile.identity?.kind || profile.kind !== profile.rootfsRole) {
     throw new Error('Cloud Hypervisor workload profile identity and rootfs role must match its kind');
   }
-  assertClosedObject(profile, ['kind', 'identity', 'rootfsRole', 'network', 'guest', 'rawOutput'],
-    'workload profile');
+  const allowedProfileKeys = [
+    'kind',
+    'identity',
+    'rootfsRole',
+    'network',
+    'guest',
+    'exportPlan',
+    'rawOutput',
+  ];
+  if (profile.kind !== 'primary-agent') allowedProfileKeys.push('resources');
+  assertClosedObject(profile, allowedProfileKeys, 'workload profile');
   assertClosedObject(profile.identity, ['kind', 'ownerId', 'invocationId'], 'workload identity');
   assertSafeIdentity(profile.identity.ownerId, 'owner');
 
@@ -168,7 +257,9 @@ export function validateCloudHypervisorWorkloadProfile(
         profile.identity.ownerId !== 'primary-agent' ||
         profile.identity.invocationId !== undefined ||
         profile.network.mode !== 'primary' ||
-        profile.rawOutput !== 'capture'
+        profile.rawOutput !== 'capture' ||
+        profile.exportPlan !== undefined ||
+        (profile.guest?.enclaveResources !== undefined)
       ) {
         throw new Error('Contradictory Cloud Hypervisor primary-agent workload profile');
       }
@@ -178,7 +269,8 @@ export function validateCloudHypervisorWorkloadProfile(
       if (
         !profile.identity.invocationId ||
         profile.network.mode !== 'none' ||
-        profile.rawOutput !== 'discard'
+        profile.rawOutput !== 'discard' ||
+        !sameResourceProfile(profile.resources, CLOUD_HYPERVISOR_ENCLAVE_RESOURCE_PROFILES.script)
       ) {
         throw new Error('Contradictory Cloud Hypervisor script-enclave workload profile');
       }
@@ -189,7 +281,8 @@ export function validateCloudHypervisorWorkloadProfile(
       if (
         !profile.identity.invocationId ||
         profile.network.mode !== 'enclave-agent' ||
-        profile.rawOutput !== 'discard'
+        profile.rawOutput !== 'discard' ||
+        !sameResourceProfile(profile.resources, CLOUD_HYPERVISOR_ENCLAVE_RESOURCE_PROFILES.agent)
       ) {
         throw new Error('Contradictory Cloud Hypervisor agent-enclave workload profile');
       }
@@ -199,9 +292,27 @@ export function validateCloudHypervisorWorkloadProfile(
         ['mode', 'apiProxy', 'githubDataPlane'],
         'agent-enclave network profile',
       );
-      validateEndpoint(profile.network.apiProxy, 'dedicated API proxy');
+      assertClosedObject(
+        profile.network.apiProxy,
+        ['ip', 'engine', 'profile'],
+        'dedicated API proxy',
+      );
+      validateIp(profile.network.apiProxy.ip, 'dedicated API proxy');
+      if (
+        profile.network.apiProxy.ip !== ENCLAVE_AGENT_API_PROXY_IP ||
+        !['copilot', 'claude', 'codex', 'gemini'].includes(profile.network.apiProxy.engine) ||
+        !['openai', 'anthropic'].includes(profile.network.apiProxy.profile)
+      ) {
+        throw new Error('Cloud Hypervisor agent-enclave requires a supported dedicated API proxy engine profile');
+      }
       if (profile.network.githubDataPlane) {
         validateEndpoint(profile.network.githubDataPlane, 'GitHub data plane');
+        if (
+          profile.network.githubDataPlane.ip !== ENCLAVE_AGENT_GITHUB_MCP_IP ||
+          profile.network.githubDataPlane.port !== ENCLAVE_GITHUB_MCP_PORT
+        ) {
+          throw new Error('Cloud Hypervisor agent-enclave requires the compiler-owned GitHub data plane');
+        }
       }
       break;
     default:
@@ -227,13 +338,27 @@ export function snapshotCloudHypervisorWorkloadProfile(
 
 export function assertCloudHypervisorWorkloadLaunchable(
   profile: CloudHypervisorWorkloadProfile,
-): asserts profile is CloudHypervisorPrimaryAgentProfile {
+  allowTrustedEnclaveExecution = false,
+): void {
   validateCloudHypervisorWorkloadProfile(profile);
-  if (profile.kind !== 'primary-agent') {
+  if (profile.kind !== 'primary-agent' && !allowTrustedEnclaveExecution) {
     throw new Error(
-      `Cloud Hypervisor ${profile.kind} execution is not implemented; refusing to fall back to the primary-agent runtime`,
+      `Cloud Hypervisor ${profile.kind} execution is not implemented; refusing to fall back to another runtime`,
     );
   }
+  if (profile.kind === 'primary-agent' && allowTrustedEnclaveExecution) {
+    throw new Error('Trusted enclave execution authorization cannot launch a primary-agent profile');
+  }
+}
+
+function sameResourceProfile(
+  actual: CloudHypervisorEnclaveResourceProfile | undefined,
+  expected: CloudHypervisorEnclaveResourceProfile,
+): boolean {
+  if (!actual || typeof actual !== 'object') return false;
+  const keys = Object.keys(expected) as (keyof CloudHypervisorEnclaveResourceProfile)[];
+  return Object.keys(actual).length === keys.length &&
+    keys.every((key) => actual[key] === expected[key]);
 }
 
 function validateGuest(profile: CloudHypervisorWorkloadProfile): void {
@@ -249,7 +374,11 @@ function validateGuest(profile: CloudHypervisorWorkloadProfile): void {
     'vsockPort',
     'identity',
     'workspaceMount',
+    'enclaveResources',
   ], `${profile.kind} guest configuration`);
+  if (profile.kind === 'primary-agent' && profile.guest.enclaveResources !== undefined) {
+    throw new Error('Cloud Hypervisor primary-agent cannot declare enclave resource limits');
+  }
   if (
     !path.isAbsolute(profile.guest.supervisorBinaryPath) ||
     !/^[a-f0-9]{64}$/.test(profile.guest.supervisorSha256)
@@ -267,6 +396,31 @@ function validateGuest(profile: CloudHypervisorWorkloadProfile): void {
     )))
   ) {
     throw new Error(`Cloud Hypervisor ${profile.kind} must not declare a primary workspace mount`);
+  }
+  if (profile.kind !== 'primary-agent') {
+    if (!sameResourceProfile(profile.guest.enclaveResources, profile.resources)) {
+      throw new Error(`Cloud Hypervisor ${profile.kind} guest resource profile is missing or inconsistent`);
+    }
+    if (profile.guest.mountEnforcement !== undefined) {
+      throw new Error(`Cloud Hypervisor ${profile.kind} must use its closed export access modes`);
+    }
+
+    const role = profile.kind === 'script-enclave' ? 'script' : 'agent';
+    const plannedExports = validateCloudHypervisorEnclaveExportPlan(profile.exportPlan, role, {
+      entryId: profile.identity.ownerId,
+      invocationId: profile.identity.invocationId!,
+    });
+    if (
+      profile.guest.exports.length !== plannedExports.length ||
+      plannedExports.some((entry) => !profile.guest.exports.some((actual) => (
+        actual.tag === entry.tag &&
+        actual.source === entry.source &&
+        actual.target === entry.target &&
+        actual.mode === entry.mode
+      )))
+    ) {
+      throw new Error(`Cloud Hypervisor ${profile.kind} guest exports do not match its trusted export plan`);
+    }
   }
   if (
     profile.guest.vsockPort !== undefined &&
@@ -290,6 +444,7 @@ function validateGuest(profile: CloudHypervisorWorkloadProfile): void {
   validateCloudHypervisorExports(profile.guest.exports, {
     allowReadOnlyWorkspace: hasReadOnlyWorkspaceMountPlan(profile.guest.mountEnforcement),
     requireWorkspace: workspaceMount !== null,
+    ...(profile.kind !== 'primary-agent' ? { maxExports: 6 } : {}),
   });
 }
 

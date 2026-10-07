@@ -17,20 +17,30 @@ describe('runtime model catalog', () => {
       id: 'gpt-test',
       supportedReasoningEfforts: ['low', 'high'],
       supported_endpoints: ['/responses', '/chat/completions'],
+      model_picker_enabled: false,
       capabilities: { limits: { max_context_window_tokens: 128_000 } },
     };
     const records = parseProviderModelMetadata('copilot', {
-      data: [entry, { id: 'missing' }, { id: 'empty', supportedReasoningEfforts: [] }],
+      data: [
+        entry,
+        { id: 'responses-only', supported_endpoints: ['/responses'] },
+        { id: 'completions-only', supported_endpoints: ['/chat/completions'] },
+        { id: 'unknown-endpoint', supported_endpoints: ['/unknown'] },
+        { id: 'missing' },
+        { id: 'empty', supportedReasoningEfforts: [] },
+      ],
     });
     replaceRuntimeModels('copilot', records);
     const model = getRuntimeModels('copilot').find(record => record.id === entry.id);
     expect(model).toMatchObject({
       supportedReasoningEfforts: ['low', 'high'],
       supportedEndpoints: ['/responses', '/chat/completions'],
+      modelPickerEnabled: false,
       capabilities: entry.capabilities,
     });
     expect(model.supportedReasoningEfforts).not.toBe(entry.supportedReasoningEfforts);
     expect(model.supportedEndpoints).not.toBe(entry.supported_endpoints);
+    expect(model).not.toHaveProperty('model_picker_enabled');
     entry.supportedReasoningEfforts.push('max');
     entry.supported_endpoints.length = 0;
     expect(model.supportedReasoningEfforts).toEqual(['low', 'high']);
@@ -42,6 +52,12 @@ describe('runtime model catalog', () => {
       expect(record).not.toHaveProperty('supportedEndpoints');
       expect(record).not.toHaveProperty('capabilities');
     }
+    expect(getRuntimeCatalogSnapshot().copilot).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: 'responses-only', wire_api: 'responses' }),
+      expect.objectContaining({ id: 'completions-only', wire_api: 'completions' }),
+    ]));
+    expect(getRuntimeCatalogSnapshot().copilot.find(record => record.id === 'gpt-test')).not.toHaveProperty('wire_api');
+    expect(getRuntimeCatalogSnapshot().copilot.find(record => record.id === 'unknown-endpoint')).not.toHaveProperty('wire_api');
   });
 
   it('normalizes current Copilot tiered pricing into dollars per million tokens', () => {

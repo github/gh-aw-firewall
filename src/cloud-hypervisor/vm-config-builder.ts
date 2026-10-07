@@ -12,9 +12,11 @@ import {
 } from './launcher';
 import {
   CLOUD_HYPERVISOR_GUEST_VSOCK_PORT,
+  type CloudHypervisorEnclaveResourceProfile,
   type CloudHypervisorManagerGuestConfig,
   type CloudHypervisorRunPaths,
 } from './manager-types';
+import { CLOUD_HYPERVISOR_ENCLAVE_RESOURCE_PROFILES } from './workload-profile';
 import type { VirtiofsdDevice } from './virtiofsd';
 
 const CLOUD_HYPERVISOR_GUEST_SUPERVISOR = '/usr/sbin/awf-supervisor';
@@ -24,6 +26,7 @@ export interface CloudHypervisorVmConfigInput {
   paths: CloudHypervisorRunPaths;
   networkPlan?: MicrovmNetworkPlan;
   guestConfig?: CloudHypervisorManagerGuestConfig;
+  enclaveResources?: CloudHypervisorEnclaveResourceProfile;
   fsDevices?: readonly VirtiofsdDevice[];
 }
 
@@ -36,8 +39,32 @@ export function buildCloudHypervisorVmConfig({
   paths,
   networkPlan,
   guestConfig,
+  enclaveResources,
   fsDevices = [],
 }: CloudHypervisorVmConfigInput) {
+  const profileResources = guestConfig?.enclaveResources;
+  if (profileResources || enclaveResources) {
+    const resources = profileResources;
+    const expected = resources
+      ? CLOUD_HYPERVISOR_ENCLAVE_RESOURCE_PROFILES[resources.role]
+      : undefined;
+    if (
+      !resources ||
+      enclaveResources !== resources ||
+      !expected ||
+      Object.keys(expected).length !== Object.keys(resources).length ||
+      Object.keys(expected).some((key) => (
+        expected[key as keyof typeof expected] !==
+        resources[key as keyof CloudHypervisorEnclaveResourceProfile]
+      )) ||
+      !guestConfig
+    ) {
+      throw new Error('Cloud Hypervisor enclave VM limits must match its closed guest resource profile');
+    }
+  }
+  const effectiveResources = profileResources;
+  const vmMemoryMiB = effectiveResources?.memoryMiB ?? config.memoryMib;
+  const vmVcpuCount = effectiveResources?.vcpuCount ?? config.vcpuCount;
   const landlockRules = computeCloudHypervisorLandlockRules({
     kernelPath: paths.kernelPath,
     rootfsPath: paths.rootfsPath,
@@ -48,11 +75,11 @@ export function buildCloudHypervisorVmConfig({
   });
   return {
     cpus: {
-      boot_vcpus: config.vcpuCount,
-      max_vcpus: config.vcpuCount,
+      boot_vcpus: vmVcpuCount,
+      max_vcpus: vmVcpuCount,
     },
     memory: {
-      size: config.memoryMib * 1024 * 1024,
+      size: vmMemoryMiB * 1024 * 1024,
       ...(fsDevices.length > 0 ? { shared: true } : {}),
     },
     payload: {
@@ -64,7 +91,7 @@ export function buildCloudHypervisorVmConfig({
     disks: [{
       id: 'rootfs',
       path: paths.rootfsPath,
-      readonly: false,
+      readonly: Boolean(effectiveResources),
       image_type: 'Raw' as const,
     }],
     ...(fsDevices.length > 0
@@ -120,13 +147,18 @@ export function buildSupervisorBootArgs(
     'root=/dev/vda',
     'rootfstype=ext4',
     'rootflags=data=ordered',
-    'rw',
+    guestConfig.enclaveResources ? 'ro' : 'rw',
     ...(networkPlan ? ['net.ifnames=0', 'biosdevname=0'] : []),
     `init=${CLOUD_HYPERVISOR_GUEST_SUPERVISOR}`,
+    ...(guestConfig.enclaveResources
+      ? [`awf.enclave-role=${guestConfig.enclaveResources.role}`]
+      : []),
+    ...(!networkPlan ? ['awf.network-mode=none'] : []),
     ...(workspaceMount ? [`awf.workspace-mount=${workspaceMount}`] : []),
     `awf.virtiofs=${encodeVirtiofsBootArg(guestConfig.exports, {
       allowReadOnlyWorkspace: hasReadOnlyWorkspaceMountPlan(guestConfig.mountEnforcement),
       requireWorkspace: workspaceMount !== null,
+      ...(workspaceMount === null ? { maxExports: 6 } : {}),
     })}`,
     `awf.vsock-port=${port}`,
     ...(networkPlan

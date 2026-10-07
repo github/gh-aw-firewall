@@ -1,0 +1,61 @@
+{
+  "$schema": "../../schema.json",
+  "id": "SEC-001",
+  "boundary": "security",
+  "title": "Suspected isolation or credential-boundary regression must go to security review, not a bypass",
+  "symptoms": [
+    "The agent container can reach a domain that is not allowlisted",
+    "A provider credential is observable inside the agent environment while the api-proxy is enabled",
+    "Egress succeeds without a corresponding Squid access-log entry"
+  ],
+  "conditions": [
+    "The observed behaviour weakens an AWF isolation guarantee rather than blocking legitimate work",
+    "The failure is a capability that should not exist, not a missing allowlist entry"
+  ],
+  "affects": {
+    "runner": "any",
+    "runtime": "any",
+    "provider": "any",
+    "authMode": "any"
+  },
+  "versions": {
+    "introduced": "unknown",
+    "fixed": "unknown"
+  },
+  "status": "needs-evidence",
+  "rootCause": "unknown - a suspected regression in the egress or credential-isolation boundary requires verification against current main before any cause is asserted.",
+  "probe": {
+    "command": "docker exec awf-squid awk '{ print $1, $2, $3, $7, $8 }' /var/log/squid/access.log | tail -50",
+    "expect": "Shows timestamp, client, host, status, and decision only; absence of a matching entry for successful egress indicates a bypass worth escalating.",
+    "readOnly": true,
+    "secretSafe": true
+  },
+  "action": "Escalate through the repository security review process with the redacted evidence. Remediation is never a bypass: do not widen the agent environment, weaken isolation, or broaden the domain allowlist.",
+  "references": [
+    {
+      "kind": "doc",
+      "ref": "docs/security.md",
+      "title": "Security model"
+    },
+    {
+      "kind": "doc",
+      "ref": "docs/architecture.md",
+      "title": "Trust boundaries"
+    },
+    {
+      "kind": "code",
+      "ref": "src/squid-config.ts",
+      "title": "Generated egress policy"
+    },
+    {
+      "kind": "test",
+      "ref": "src/squid-config-security.test.ts"
+    }
+  ],
+  "related": [
+    "NET-001",
+    "AUTH-002"
+  ],
+  "owner": "@github/gh-aw-firewall-maintainers",
+  "reviewBy": "2027-03-31"
+}

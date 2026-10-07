@@ -10,7 +10,7 @@ import { createScriptEnclaveCloudHypervisorProfile } from './workload-profile';
 
 import {
   hostTools, virtiofsdManagerMock, config, processMock, networkConfig, guestConfig,
-  createTestNetworkPlan, dependencies,
+  enclaveExportPlan, createTestNetworkPlan, dependencies,
 } from './manager.test-utils';
 
   describe('launch and boot', () => {
@@ -209,7 +209,7 @@ import {
       sleep: jest.fn(async () => new Promise((resolve) => setTimeout(resolve, 2))),
     });
     const manager = new CloudHypervisorManager(
-      config(),
+      config({ apiTimeoutMs: 1 }),
       '/tmp/awf',
       deps,
       'partial',
@@ -270,7 +270,7 @@ import {
     expect(deps.launch).not.toHaveBeenCalled();
   });
 
-  it('rejects an enclave profile before preflight or resource allocation', async () => {
+  it('keeps script-enclave execution fail-closed before filesystem or VM side effects', async () => {
     const deps = dependencies();
     const manager = new CloudHypervisorManager(
       config(),
@@ -279,21 +279,53 @@ import {
       'script-enclave',
       createScriptEnclaveCloudHypervisorProfile({
         enclaveId: 'script-entry',
-        invocationId: 'invocation-1',
+        invocationId: 'b'.repeat(32),
         guest: {
-          exports: [{ tag: 'seed', source: '/seed', target: '/seed', mode: 'ro' }],
           supervisorBinaryPath: '/opt/awf-supervisor',
           supervisorSha256: 'a'.repeat(64),
-          workspaceMount: null,
         },
+        exportPlan: enclaveExportPlan('script'),
       }),
     );
 
-    await expect(manager.start()).rejects.toThrow(/not implemented; refusing to fall back/);
+    await expect(manager.start()).rejects.toThrow(
+      /script-enclave execution is not implemented; refusing to fall back/,
+    );
     expect(deps.preflight).not.toHaveBeenCalled();
-    expect(deps.cleanupRegistry.createPending).not.toHaveBeenCalled();
     expect(deps.reserveNetwork).not.toHaveBeenCalled();
+    expect(deps.createNetwork).not.toHaveBeenCalled();
+    expect(deps.createEmptyNetworkNamespace).not.toHaveBeenCalled();
+    expect(deps.cleanupRegistry.createPending).not.toHaveBeenCalled();
+    expect(deps.createVirtiofsdManager).not.toHaveBeenCalled();
     expect(deps.launch).not.toHaveBeenCalled();
+  });
+
+  it('includes the closed storage budget only in the trusted enclave host cgroup', async () => {
+    const deps = dependencies();
+    const profile = createScriptEnclaveCloudHypervisorProfile({
+      enclaveId: 'script-entry',
+      invocationId: 'b'.repeat(32),
+      guest: {
+        supervisorBinaryPath: '/opt/awf-supervisor',
+        supervisorSha256: 'a'.repeat(64),
+      },
+      exportPlan: enclaveExportPlan('script'),
+    });
+    const manager = new CloudHypervisorManager(
+      config(), '/tmp/awf', deps, 'script-storage', profile, undefined, undefined, true,
+    );
+    const client = await manager.start();
+    expect(deps.createCgroup).toHaveBeenCalledWith(
+      expect.any(String),
+      {
+        memoryMib: 768, vcpuCount: 1, cpuQuotaMilli: 500,
+        writableStorageBytes: 1024 * 1024 * 1024,
+      },
+    );
+    expect(client.vmCreate).toHaveBeenCalledWith(expect.objectContaining({
+      memory: expect.objectContaining({ size: 768 * 1024 * 1024 }),
+    }));
+    await manager.stop();
   });
 
   it('configures one rootfs disk and virtio-fs devices, then stops daemons after the VMM', async () => {
@@ -335,10 +367,20 @@ import {
         controlPeers: [{ ip: '172.30.0.60', ports: [8080] }],
         hostAliases: { 'awmg-mcpg': '172.30.0.60' },
       }),
-      guestConfig(),
+      { ...guestConfig(), identity: { uid: 3001, gid: 3002 } },
     );
 
     const client = await manager.start();
+    expect(deps.createVirtiofsdManager).toHaveBeenCalledWith(
+      '/opt/virtiofsd',
+      '/run/awf-cloud-hypervisor/cloud-hypervisor/guest',
+      '/run/awf-cloud-hypervisor/virtiofsd/guest',
+      expect.objectContaining({ uid: 2001, gid: 2002 }),
+      { uid: 3001, gid: 3002 },
+      expect.anything(),
+      expect.objectContaining({ mount: hostTools.mount, umount: hostTools.umount }),
+      expect.anything(),
+    );
     expect(deps.createRootfsPreparer).toHaveBeenCalledWith(
       expect.objectContaining({
         hostAliases: {
@@ -407,7 +449,7 @@ import {
     expect(deps.createVsockClient).toHaveBeenCalledWith(
       expect.stringContaining('/run/awf-cloud-hypervisor/cloud-hypervisor/guest/awf-vsock.socket'),
       52,
-      1,
+      5000,
     );
     await expect(manager.execute({
       requestId: 'command',

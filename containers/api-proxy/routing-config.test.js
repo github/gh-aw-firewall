@@ -15,7 +15,7 @@ describe('routing configuration', () => {
 
     const result = parseRoutingConfig(JSON.stringify(input));
 
-    expect(result).toEqual(input);
+    expect(result).toEqual({ ...input, provider: 'copilot' });
     expect(Object.isFrozen(result)).toBe(true);
     expect(Object.isFrozen(result.objective)).toBe(true);
     expect(Object.isFrozen(result.task)).toBe(true);
@@ -50,5 +50,37 @@ describe('routing configuration', () => {
     for (const [raw, message] of failures) {
       expect(() => parseRoutingConfig(raw)).toThrow(message);
     }
+  });
+
+  it('preserves a distinct non-empty candidate list', () => {
+    const input = {
+      candidateModels: ['  github-copilot/gpt-5*  '],
+      objective: { goal: 'cost', mode: 'balanced' },
+      task: { conversationFile: '/tmp/gh-aw/conversation.json' },
+    };
+
+    const result = parseRoutingConfig(JSON.stringify(input));
+
+    expect(result.candidateModels).toEqual(['github-copilot/gpt-5*']);
+    expect(Object.isFrozen(result.candidateModels)).toBe(true);
+    expect(() => parseRoutingConfig(JSON.stringify({ ...input, candidateModels: [] })))
+      .toThrow('routing.candidateModels must be a non-empty array');
+    expect(() => parseRoutingConfig(JSON.stringify({ ...input, candidateModels: ['${{ inputs.model }}'] })))
+      .toThrow('routing.candidateModels[0] must be a literal model pattern');
+  });
+
+  it('defaults to Copilot and permits only provider-scoped routing slots', () => {
+    const base = {
+      objective: { goal: 'cost', mode: 'balanced' },
+      task: { conversationFile: '/tmp/conversation.json' },
+    };
+    expect(parseRoutingConfig(JSON.stringify(base)).provider).toBe('copilot');
+    for (const provider of ['copilot', 'openai', 'anthropic']) {
+      expect(parseRoutingConfig(JSON.stringify({ ...base, provider })).provider).toBe(provider);
+    }
+    expect(() => parseRoutingConfig(JSON.stringify({ ...base, provider: 'gemini' })))
+      .toThrow('routing.provider is not supported');
+    expect(() => parseRoutingConfig(JSON.stringify({ ...base, provider: null })))
+      .toThrow('routing.provider is not supported');
   });
 });

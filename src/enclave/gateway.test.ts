@@ -1,6 +1,11 @@
 import * as http from 'http';
 import * as path from 'path';
 import execa from 'execa';
+import { EventEmitter } from 'events';
+import {
+  getEnclaveStartupProgress, initializeEnclaveStartupProgress,
+  type EnclaveStartupProgress,
+} from './startup-progress';
 import { normalizeEnclavesConfig } from '../parsers/enclave-parser';
 import type { WrapperConfig } from '../types';
 import {
@@ -57,6 +62,7 @@ function listen(
   options: {
     unavailableInitializations?: number;
     unavailableRetryable?: boolean;
+    beforeUnavailableResponse?: () => void;
     initializationStatus?: number;
     initializationBody?: string;
     initializationRpcError?: boolean;
@@ -65,6 +71,7 @@ function listen(
     hangInitialization?: boolean;
     trickleInitialization?: boolean;
     sse?: boolean;
+    failureMethod?: string;
   } = {},
 ): Promise<{
   endpoint: string;
@@ -89,6 +96,11 @@ function listen(
           options.sse ? 'text/event-stream' : 'application/json',
         );
         response.setHeader('mcp-session-id', 'session-1');
+        if (options.failureMethod === message.method) {
+          response.statusCode = options.initializationStatus ?? 403;
+          response.end(options.initializationBody ?? 'PRIVATE_BODY');
+          return;
+        }
         if (message.method === 'initialize') {
           initializeAttempts += 1;
           if (options.hangInitialization) return;
@@ -101,6 +113,7 @@ function listen(
             options.unavailableInitializations
             && initializeAttempts <= options.unavailableInitializations
           ) {
+            options.beforeUnavailableResponse?.();
             response.statusCode = 503;
             response.end(JSON.stringify({
               error: 'backend_unavailable',
@@ -166,6 +179,109 @@ function listen(
 
 describe('enclave mcpg handoff', () => {
   beforeEach(() => mockExeca.mockReset());
+  afterEach(() => jest.restoreAllMocks());
+
+  it.each([
+    ['ENOTFOUND', 'dns-not-found'], ['EAI_AGAIN', 'dns-temporary'],
+    ['ECONNREFUSED', 'connection-refused'], ['ETIMEDOUT', 'connection-timeout'],
+    ['ENETUNREACH', 'network-unreachable'], ['EHOSTUNREACH', 'host-unreachable'],
+    ['ECONNRESET', 'connection-reset'], ['SECRET\n/private/192.0.2.1', 'transport-other'],
+  ])('classifies actual request errors without serializing their payload: %s', async (errno, code) => {
+    const events: EnclaveStartupProgress[] = [];
+    const wrapper = config();
+    initializeEnclaveStartupProgress(wrapper, (event) => events.push(event));
+    const secret = 'PRIVATE_TOKEN_secret.example_192.0.2.1_/private/path\nrepository-sentinel';
+    const transport = jest.requireActual<typeof http>('http');
+    jest.spyOn(transport, 'request').mockImplementation(() => {
+      const request = new EventEmitter();
+      Object.assign(request, {
+        end: () => process.nextTick(() => request.emit('error', Object.assign(
+          new Error(secret), { code: errno, hostname: secret, address: secret },
+        ))),
+      });
+      return request as http.ClientRequest;
+    });
+    await expect(assertEnclaveGatewayReady(wrapper, env(), 1000))
+      .rejects.toThrow('Gateway readiness transport failed');
+    expect(getEnclaveStartupProgress(wrapper)).toMatchObject({
+      perspective: 'awf-host', stage: 'initialize', readiness: 'attempted',
+      code, attempts: 1, httpStatus: null,
+    });
+    expect(getEnclaveStartupProgress(wrapper)?.startupChecks).toMatchObject({
+      ready: false, checks: {
+        'gateway-handshake/initialize': ['failed', code],
+        'gateway-handshake/initialized': ['not-attempted', 'none'],
+        'gateway-handshake/tools-list': ['not-attempted', 'none'],
+      },
+    });
+    expect(JSON.stringify(events)).not.toContain(secret);
+    expect(JSON.stringify(events)).not.toContain(errno);
+  });
+
+  it.each([
+    [401, 'private token', 'http-auth'],
+    [403, 'secret.example/192.0.2.1', 'http-auth'],
+    [500, 'PRIVATE_BODY', 'http-status'],
+    [503, '{"error":"backend_unavailable","retryable":false}', 'http-status'],
+    [503, '{', 'http-status'],
+    [200, '{PRIVATE_BODY', 'malformed-json'],
+    [200, 'null', 'malformed-protocol'],
+    [200, '[]', 'malformed-protocol'],
+    [200, '{"jsonrpc":"2.0","id":999,"result":{}}', 'malformed-protocol'],
+  ])('records bounded HTTP/protocol failure %s without retrying', async (status, body, code) => {
+    const wrapper = config();
+    const server = await listen([], { initializationStatus: status, initializationBody: body });
+    try {
+      await expect(assertEnclaveGatewayReady(wrapper, env(server.endpoint), 1000)).rejects.toThrow();
+      expect(getEnclaveStartupProgress(wrapper)).toMatchObject({
+        stage: 'initialize', readiness: 'attempted', code, attempts: 1,
+        httpStatus: status === 200 ? null : status,
+      });
+      expect(getEnclaveStartupProgress(wrapper)?.startupChecks?.checks['gateway-handshake/initialize'])
+        .toEqual(['failed', code]);
+      expect(server.initializeAttempts()).toBe(1);
+      if (body.length > 4) expect(JSON.stringify(getEnclaveStartupProgress(wrapper))).not.toContain(body);
+    } finally {
+      await server.close();
+    }
+  });
+
+  it.each([
+    ['notifications/initialized', 'initialized'], ['tools/list', 'tools-list'],
+  ])('records the actual failing request phase %s', async (failureMethod, stage) => {
+    const wrapper = config();
+    const server = await listen([], { failureMethod });
+    try {
+      await expect(assertEnclaveGatewayReady(wrapper, env(server.endpoint), 1000)).rejects.toThrow();
+      expect(getEnclaveStartupProgress(wrapper)).toMatchObject({
+        stage, readiness: 'attempted', code: 'http-auth', httpStatus: 403, attempts: 1,
+      });
+      expect(getEnclaveStartupProgress(wrapper)?.startupChecks?.checks[`gateway-handshake/${stage}`])
+        .toEqual(['failed', 'http-auth']);
+    } finally {
+      await server.close();
+    }
+  });
+
+  it('leaves invalid readiness handoff explicitly not attempted', async () => {
+    const wrapper = config();
+    await expect(assertEnclaveGatewayReady(wrapper, { ...env(), MCP_GATEWAY_API_KEY: '' }))
+      .rejects.toThrow(/MCP_GATEWAY_API_KEY/);
+    expect(getEnclaveStartupProgress(wrapper)).toMatchObject({
+      stage: 'gateway-contract', readiness: 'not-attempted', attempts: 0, code: 'none',
+    });
+  });
+
+  it('does not claim a request when the budget expires before initialize', async () => {
+    const wrapper = config();
+    const transport = jest.requireActual<typeof http>('http');
+    const request = jest.spyOn(transport, 'request');
+    await expect(assertEnclaveGatewayReady(wrapper, env(), 0)).rejects.toThrow(/deadline expired/);
+    expect(request).not.toHaveBeenCalled();
+    expect(getEnclaveStartupProgress(wrapper)).toMatchObject({
+      stage: 'gateway-contract', readiness: 'not-attempted', attempts: 0, code: 'readiness-deadline',
+    });
+  });
 
   it('generates the exact static compiler upstream without secret material', () => {
     expect(buildEnclaveMcpgUpstreamContract(config(true))).toEqual({
@@ -359,8 +475,20 @@ describe('enclave mcpg handoff', () => {
     const contract = buildEnclaveMcpgUpstreamContract(config());
     const server = await listen([routedTool(enclaveProtocol.TOOL)]);
     try {
-      await expect(assertEnclaveGatewayReady(config(), env(server.endpoint), 1000))
+      const wrapper = config();
+      await expect(assertEnclaveGatewayReady(wrapper, env(server.endpoint), 1000))
         .resolves.toBeUndefined();
+      expect(getEnclaveStartupProgress(wrapper)).toMatchObject({
+        stage: 'tools-list', readiness: 'ready', code: 'ready', attempts: 1,
+      });
+      expect(getEnclaveStartupProgress(wrapper)?.startupChecks).toMatchObject({
+        ready: false, checks: {
+          'gateway-handshake/contract': ['passed', 'none'],
+          'gateway-handshake/initialize': ['passed', 'none'],
+          'gateway-handshake/initialized': ['passed', 'none'],
+          'gateway-handshake/tools-list': ['passed', 'none'],
+        },
+      });
       expect(contract.server.tools).toEqual(['enclave_run_script']);
       expect(server.authorizationHeaders()).toEqual([
         'g'.repeat(48),
@@ -388,8 +516,10 @@ describe('enclave mcpg handoff', () => {
       { serverName: 'awf-enclave' },
     );
     try {
-      await expect(assertEnclaveGatewayReady(config(), env(server.endpoint), 1000))
+      const wrapper = config();
+      await expect(assertEnclaveGatewayReady(wrapper, env(server.endpoint), 1000))
         .rejects.toThrow(/routed AWF enclave server/);
+      expect(getEnclaveStartupProgress(wrapper)?.code).toBe('identity-mismatch');
     } finally {
       await server.close();
     }
@@ -401,14 +531,23 @@ describe('enclave mcpg handoff', () => {
       { unavailableInitializations: 1 },
     );
     try {
+      const wrapper = config();
+      const events: EnclaveStartupProgress[] = [];
+      initializeEnclaveStartupProgress(wrapper, (event) => events.push(event));
       await expect(assertEnclaveGatewayReady(
-        config(),
+        wrapper,
         {
           ...env(server.endpoint),
           AWF_ENCLAVE_MCP_READINESS_TIMEOUT_MS: '2000',
         },
       )).resolves.toBeUndefined();
       expect(server.initializeAttempts()).toBe(2);
+      expect(events).toContainEqual(expect.objectContaining({
+        code: 'backend-unavailable', httpStatus: 503, attempts: 1,
+      }));
+      expect(getEnclaveStartupProgress(wrapper)).toMatchObject({
+        readiness: 'ready', code: 'ready', attempts: 2,
+      });
     } finally {
       await server.close();
     }
@@ -431,8 +570,12 @@ describe('enclave mcpg handoff', () => {
   it('fails immediately when the gateway publishes a mismatched tool contract', async () => {
     const server = await listen([{ name: 'unexpected_tool' }]);
     try {
-      await expect(assertEnclaveGatewayReady(config(), env(server.endpoint), 1000))
+      const wrapper = config();
+      await expect(assertEnclaveGatewayReady(wrapper, env(server.endpoint), 1000))
         .rejects.toThrow(/tool contract did not exactly match/);
+      expect(getEnclaveStartupProgress(wrapper)).toMatchObject({
+        stage: 'tools-list', code: 'tools-mismatch',
+      });
       expect(server.initializeAttempts()).toBe(1);
     } finally {
       await server.close();
@@ -478,8 +621,10 @@ describe('enclave mcpg handoff', () => {
   it('rejects readiness responses above the framing bound', async () => {
     const server = await listen([], { oversizedInitialization: true });
     try {
-      await expect(assertEnclaveGatewayReady(config(), env(server.endpoint), 1000))
+      const wrapper = config();
+      await expect(assertEnclaveGatewayReady(wrapper, env(server.endpoint), 1000))
         .rejects.toThrow(/framing bound/);
+      expect(getEnclaveStartupProgress(wrapper)?.code).toBe('response-too-large');
     } finally {
       await server.close();
     }
@@ -489,8 +634,10 @@ describe('enclave mcpg handoff', () => {
     const server = await listen([], { hangInitialization: true });
     const started = Date.now();
     try {
-      await expect(assertEnclaveGatewayReady(config(), env(server.endpoint), 30))
+      const wrapper = config();
+      await expect(assertEnclaveGatewayReady(wrapper, env(server.endpoint), 30))
         .rejects.toThrow(/request timed out/);
+      expect(getEnclaveStartupProgress(wrapper)?.code).toBe('request-timeout');
       expect(Date.now() - started).toBeLessThan(500);
     } finally {
       await server.close();
@@ -510,11 +657,27 @@ describe('enclave mcpg handoff', () => {
   });
 
   it('times out after retryable backend-unavailable responses exhaust the deadline', async () => {
-    const server = await listen([], { unavailableInitializations: 100 });
+    // Real HTTP and retry sleeps, but the readiness deadline clock advances only
+    // when the gateway answers, so the number of attempts that fit is exact.
+    // Each request budget stays >= 1.5 s, so load cannot turn this into a
+    // per-request timeout; the single retry sleep is RETRY_DELAY_MS (500 ms).
+    const advances = [500, 1_500];
+    let now = 1_000_000;
+    const clock = jest.spyOn(Date, 'now').mockImplementation(() => now);
+    const server = await listen([], {
+      unavailableInitializations: 100,
+      beforeUnavailableResponse: () => { now += advances.shift() ?? 0; },
+    });
     try {
-      await expect(assertEnclaveGatewayReady(config(), env(server.endpoint), 30))
+      const wrapper = config();
+      await expect(assertEnclaveGatewayReady(wrapper, env(server.endpoint), 2_000))
         .rejects.toThrow(/readiness timed out/);
+      expect(server.initializeAttempts()).toBe(2);
+      expect(getEnclaveStartupProgress(wrapper)).toMatchObject({
+        readiness: 'attempted', code: 'readiness-deadline', httpStatus: 503, attempts: 2,
+      });
     } finally {
+      clock.mockRestore();
       await server.close();
     }
   });

@@ -496,6 +496,15 @@ model selector: harnesses that route through the Copilot provider (port
 `copilot/auto`, and the api-proxy sidecar strips the redundant `copilot/`
 prefix before forwarding, so Copilot resolves `auto` dynamically at request
 time (see [docs/api-proxy-sidecar.md](api-proxy-sidecar.md#codex-openai-example)).
+Since [PR #9005](https://github.com/github/gh-aw-firewall/pull/9005), this
+redundant-prefix stripping (`stripRedundantModelPrefixInBody` in
+`containers/api-proxy/model-body-rewriter.js`, which uses
+`stripRedundantProviderPrefix` from `containers/api-proxy/model-utils.js`) is
+unconditional for every provider, not just Copilot: a LiteLLM-style
+`openai/gpt-6-sol` sent to the OpenAI route (port `10000`) is normalized to
+`gpt-6-sol` before forwarding upstream, so requests from harnesses like Pi are
+no longer rejected with an opaque `400` for an unrecognized provider-prefixed
+model name.
 
 **Example 3: Using both providers**
 
@@ -734,7 +743,7 @@ GitHub JWT  ──►  api.anthropic.com/v1/oauth/token
             ◄──  { access_token: "sk-ant-oat01-...", expires_in: 3600 }
 ```
 
-The federation beta is a routing switch used only for the JWT-bearer exchange. It is not added to static-key requests, forwarded refresh-token exchanges, or subsequent API calls. See Anthropic's [WIF documentation](https://platform.claude.com/docs/en/manage-claude/workload-identity-federation) and [TypeScript SDK exchange implementation](https://github.com/anthropics/anthropic-sdk-typescript/blob/3b45cd3b69c956ac63384fdb09ce1d8109f3fa80/src/lib/credentials/oidc-federation.ts).
+The federation beta is a routing switch used only for the JWT-bearer exchange. It is not added to static-key requests, forwarded refresh-token exchanges, or subsequent API calls. See Anthropic's [WIF documentation](https://platform.claude.com/docs/en/manage-claude/workload-identity-federation) and [TypeScript SDK exchange implementation](https://raw.githubusercontent.com/anthropics/anthropic-sdk-typescript/3b45cd3b69c956ac63384fdb09ce1d8109f3fa80/src/lib/credentials/oidc-federation.ts).
 
 #### Step 4: Credential caching and auto-refresh
 

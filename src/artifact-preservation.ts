@@ -11,6 +11,8 @@ import type { ImageManifestConfig } from './image-resolver';
 import { getLocalDockerEnv } from './host-env';
 import { resolveEnclavePaths } from './enclave/paths';
 import { ENCLAVE_MCP_SERVER_CONTAINER_NAME } from './constants';
+import { resolveRunnerVisibleHostPath } from './services/host-path-prefix';
+import { getStartupDiagnosticPath } from './logs/startup-diagnostics';
 
 const ENCLAVE_SESSION_DIR = 'sessions';
 const ENCLAVE_AUDIT_FILES = [
@@ -131,7 +133,7 @@ function preserveDirectory({
   preserveErrorMessage,
   chmodPreservedDir = false,
   chmodRuntimeDir = 'recursive',
-}: PreserveDirectoryOptions): void {
+}: PreserveDirectoryOptions): string | undefined {
   if (runtimeDir) {
     const targetDir = runtimeSubdir ? path.join(runtimeDir, runtimeSubdir) : runtimeDir;
     if (fs.existsSync(targetDir)) {
@@ -148,8 +150,9 @@ function preserveDirectory({
           logger.warn(permissionErrorMessage, error);
         }
       }
+      return targetDir;
     }
-    return;
+    return undefined;
   }
 
   const sourceDir = path.join(workDir, workSubdir);
@@ -160,7 +163,7 @@ function preserveDirectory({
       logger.info(`${preservedLabel} preserved at: ${destinationDir}`);
     } catch (error) {
       logger.debug(preserveErrorMessage, error);
-      return;
+      return undefined;
     }
     if (chmodPreservedDir) {
       // Best-effort: files written by a container user (e.g. squid UID 13) are
@@ -181,11 +184,76 @@ function preserveDirectory({
         }
       }
     }
+    return destinationDir;
+  }
+  return undefined;
+}
+
+/** File name the api-proxy sidecar writes per-request token usage records to. */
+const TOKEN_USAGE_LOG_FILE = 'token-usage.jsonl';
+
+/**
+ * Environment variable exported via `$GITHUB_ENV` with the absolute,
+ * runner-visible path of the preserved `token-usage.jsonl`.
+ *
+ * The location depends on `--proxy-logs-dir`, the work directory, and
+ * `--docker-host-path-prefix` translation (for example `${RUNNER_TEMP}/gh-aw/...`
+ * under `runner.topology: arc-dind`), so later workflow steps should read this
+ * variable instead of hardcoding a `/tmp/gh-aw/...` path.
+ */
+const TOKEN_USAGE_LOG_ENV_VAR = 'AWF_TOKEN_USAGE_LOG';
+
+/**
+ * Logs the final runner-visible token-usage log path and, inside GitHub
+ * Actions, exports it as {@link TOKEN_USAGE_LOG_ENV_VAR} for subsequent steps.
+ * Best-effort: never throws.
+ */
+function resolveTokenLogSubdir(tokenLogDir?: string): string | undefined {
+  const relativePath = path.relative('/var/log/api-proxy', tokenLogDir || '/var/log/api-proxy');
+  if (
+    relativePath === '..' ||
+    relativePath.startsWith(`..${path.sep}`) ||
+    path.isAbsolute(relativePath)
+  ) {
+    return undefined;
+  }
+  return relativePath === '.' ? '' : relativePath;
+}
+
+function publishTokenUsageLogPath(apiProxyLogsDir: string, tokenLogSubdir: string): void {
+  const tokenUsageLog = path.join(apiProxyLogsDir, tokenLogSubdir, TOKEN_USAGE_LOG_FILE);
+  if (!fs.existsSync(tokenUsageLog)) return;
+  logger.info(`Token usage log available at: ${tokenUsageLog}`);
+
+  const githubEnvFile = process.env.GITHUB_ENV;
+  if (!githubEnvFile) return;
+  // A newline would let the value inject additional $GITHUB_ENV entries.
+  if (/[\r\n]/.test(tokenUsageLog)) {
+    logger.debug(`Not exporting ${TOKEN_USAGE_LOG_ENV_VAR}: path contains a newline`);
+    return;
+  }
+  try {
+    fs.appendFileSync(githubEnvFile, `${TOKEN_USAGE_LOG_ENV_VAR}=${tokenUsageLog}\n`);
+    logger.debug(`Exported ${TOKEN_USAGE_LOG_ENV_VAR}=${tokenUsageLog} to $GITHUB_ENV`);
+  } catch (error) {
+    logger.debug(`Could not export ${TOKEN_USAGE_LOG_ENV_VAR} to $GITHUB_ENV:`, error);
+  }
+}
+
+function preserveHostStartupDiagnostic(proxyLogsDir: string): void {
+  const diagnosticPath = getStartupDiagnosticPath(proxyLogsDir);
+  try {
+    if (!fs.existsSync(diagnosticPath) || !fs.lstatSync(diagnosticPath).isFile()) return;
+    fs.chmodSync(diagnosticPath, 0o644);
+    logger.info(`Startup diagnostic available at: ${diagnosticPath}`);
+  } catch (error) {
+    logger.debug('Could not fix startup diagnostic permissions:', error);
   }
 }
 
 type PreserveCleanupArtifactsOptions = {
   proxyLogsDir?: string;
+  tokenLogDir?: string;
   auditDir?: string;
   sessionStateDir?: string;
   dockerHostPathPrefix?: string;
@@ -197,7 +265,7 @@ type PreserveCleanupArtifactsOptions = {
 
 export function preserveCleanupArtifacts(
   workDir: string,
-  { proxyLogsDir, auditDir, sessionStateDir, dockerHostPathPrefix, imageRegistry, imageTag, agentImage, images }: PreserveCleanupArtifactsOptions = {},
+  { proxyLogsDir, tokenLogDir, auditDir, sessionStateDir, dockerHostPathPrefix, imageRegistry, imageTag, agentImage, images }: PreserveCleanupArtifactsOptions = {},
 ): void {
   const timestamp = path.basename(workDir).replace('awf-', '');
   const agentLogsDestination = path.join(os.tmpdir(), `awf-agent-logs-${timestamp}`);
@@ -209,6 +277,15 @@ export function preserveCleanupArtifacts(
     } catch (error) {
       logger.debug('Could not preserve agent logs:', error);
     }
+  }
+
+  // Container-written log directories reach the runner through translated bind
+  // mounts; read them where the daemon actually wrote them.
+  const runnerVisibleProxyLogsDir = proxyLogsDir
+    ? resolveRunnerVisibleHostPath(proxyLogsDir, dockerHostPathPrefix)
+    : undefined;
+  if (proxyLogsDir && proxyLogsDir !== runnerVisibleProxyLogsDir) {
+    preserveHostStartupDiagnostic(proxyLogsDir);
   }
 
   preserveDirectory({
@@ -223,8 +300,8 @@ export function preserveCleanupArtifacts(
     preserveErrorMessage: 'Could not preserve agent session state:',
   });
 
-  preserveDirectory({
-    runtimeDir: proxyLogsDir,
+  const preservedApiProxyLogsDir = preserveDirectory({
+    runtimeDir: runnerVisibleProxyLogsDir,
     runtimeSubdir: 'api-proxy-logs',
     workDir,
     workSubdir: 'api-proxy-logs',
@@ -236,9 +313,13 @@ export function preserveCleanupArtifacts(
     preserveErrorMessage: 'Could not preserve api-proxy logs:',
     chmodRuntimeDir: false,
   });
+  const tokenLogSubdir = resolveTokenLogSubdir(tokenLogDir);
+  if (preservedApiProxyLogsDir && tokenLogSubdir !== undefined) {
+    publishTokenUsageLogPath(preservedApiProxyLogsDir, tokenLogSubdir);
+  }
 
   preserveDirectory({
-    runtimeDir: proxyLogsDir,
+    runtimeDir: runnerVisibleProxyLogsDir,
     runtimeSubdir: 'cli-proxy-logs',
     workDir,
     workSubdir: 'cli-proxy-logs',
@@ -251,7 +332,7 @@ export function preserveCleanupArtifacts(
   });
 
   preserveDirectory({
-    runtimeDir: proxyLogsDir,
+    runtimeDir: runnerVisibleProxyLogsDir,
     workDir,
     workSubdir: 'squid-logs',
     destinationBaseName: 'squid-logs',

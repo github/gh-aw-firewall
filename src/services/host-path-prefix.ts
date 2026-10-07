@@ -115,6 +115,29 @@ export function prefixHostPath(
   return hostPath === '/' ? dockerHostPathPrefix : `${dockerHostPathPrefix}${hostPath}`;
 }
 
+/**
+ * Returns where the contents of a bind-mount source directory are visible on
+ * the *runner's* filesystem once `--docker-host-path-prefix` has been applied.
+ *
+ * - No prefix, or a daemon-only prefix (`/host`, `/tmp/gh-aw`, ...): the
+ *   daemon sees runner path `X` at `<prefix>X`, so writes land at `X` on the
+ *   runner and the path is returned unchanged.
+ * - Shared prefix (`/tmp`, see `isSharedDockerHostPathPrefix`): both sides see
+ *   `/tmp` at the same path, so a source outside `/tmp` (for example a log
+ *   directory under `${RUNNER_TEMP}`) is rewritten to `/tmp<X>` and the daemon
+ *   writes there — which the runner also sees at `/tmp<X>`, not at `X`.
+ *
+ * Use this when a host-side consumer (artifact preservation, token-usage
+ * discovery) must read files a container wrote through a translated bind.
+ */
+export function resolveRunnerVisibleHostPath(
+  hostPath: string,
+  dockerHostPathPrefix: string | undefined,
+): string {
+  if (!isSharedDockerHostPathPrefix(dockerHostPathPrefix)) return hostPath;
+  return prefixHostPath(hostPath, normalizeDockerHostPathPrefix(dockerHostPathPrefix as string));
+}
+
 function translateBindMountHostPath(
   mount: string,
   dockerHostPathPrefix: string,

@@ -56,6 +56,9 @@ export const ENCLAVE_AGENT_API_PROXY_IP = '172.31.0.30';
 /** Fixed shared-mcpg address on the agent-enclave network. */
 export const ENCLAVE_AGENT_GITHUB_MCP_IP = '172.31.0.40';
 
+/** GitHub MCP data-plane port on the dedicated agent-enclave network. */
+export const ENCLAVE_GITHUB_MCP_PORT = 8080;
+
 /** Fixed alias for the shared gateway's GitHub MCP route. */
 export const ENCLAVE_GITHUB_MCP_ALIAS = 'awf-enclave-github-mcp';
 

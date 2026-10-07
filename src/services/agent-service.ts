@@ -11,6 +11,7 @@ import { agentImageRole, resolveRuntimeImage } from '../image-resolver';
 import { resolveDockerRuntime, runtimeNeedsStaticDns, runtimeUsesComposeAgent } from '../container-runtime';
 import { buildInternalServiceHosts } from './internal-service-hosts';
 import { logger } from '../logger';
+import { dockerSensitiveTmpfs } from '../sensitive-paths';
 import { WrapperConfig } from '../types';
 import { NetworkConfig, ImageBuildConfig } from './squid-service';
 
@@ -38,22 +39,8 @@ interface AgentServiceParams {
  */
 function buildAgentSecurityConfig(config: WrapperConfig): any {
   return {
-    // SECURITY: Hide sensitive directories from agent using tmpfs overlays (empty in-memory filesystems)
-    //
-    // 1. MCP logs: tmpfs over /tmp/gh-aw/mcp-logs prevents the agent from reading
-    //    MCP server logs inside the container. The host can still write to its own
-    //    /tmp/gh-aw/mcp-logs directory since tmpfs only affects the container's view.
-    //
-    // 2. WorkDir: tmpfs over workDir (e.g., /tmp/awf-<timestamp>) prevents the agent
-    //    from reading docker-compose.yml which contains environment variables (tokens,
-    //    API keys) in plaintext. Without this overlay, code inside the container could
-    //    extract secrets via: cat /tmp/awf-*/docker-compose.yml
-    //    Note: volume mounts of workDir subdirectories (agent-logs, squid-logs, etc.)
-    //    are mapped to different container paths (e.g., ~/.copilot/logs, /var/log/squid)
-    //    so they are unaffected by the tmpfs overlay on workDir.
-    //
-    // Hide both normal and /host-prefixed paths since /tmp is mounted at both
-    // /tmp and /host/tmp in chroot mode (which is always on)
+    // SECURITY: Hide sensitive paths from the agent. Both ordinary and /host-
+    // prefixed paths are required because chroot mode mounts /tmp at both paths.
     //
     // /host/dev/shm: /dev is bind-mounted read-only (/dev:/host/dev:ro), which makes
     // /dev/shm read-only after chroot /host. POSIX semaphores and shared memory
@@ -63,10 +50,7 @@ function buildAgentSecurityConfig(config: WrapperConfig): any {
     // memory is fully isolated from the host and other containers. Size is capped at 64MB
     // (Docker's default). noexec and nosuid flags restrict abuse vectors.
     tmpfs: [
-      '/tmp/gh-aw/mcp-logs:rw,noexec,nosuid,size=1m',
-      '/host/tmp/gh-aw/mcp-logs:rw,noexec,nosuid,size=1m',
-      `${config.workDir}:rw,noexec,nosuid,size=1m`,
-      `/host${config.workDir}:rw,noexec,nosuid,size=1m`,
+      ...dockerSensitiveTmpfs(config.workDir),
       '/host/dev/shm:rw,noexec,nosuid,nodev,size=65536k',
     ],
     // SECURITY: NET_ADMIN is NOT granted to the agent container.

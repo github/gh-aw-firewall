@@ -3,6 +3,7 @@ import { promises as fs } from 'fs';
 import * as path from 'path';
 import { createDefaultIdentityDependencies } from '../identity-dependencies';
 import { withDirectoryLock, type DirectoryLockOwner } from '../microvm/directory-lock';
+import { resolveAndValidateVmmAccount } from '../vmm-account-validation';
 
 const ACCOUNT_PREFIX = 'awfvmm-';
 const ACCOUNT_LOCK_DIRECTORY = '/run/awf-cloud-hypervisor/.account-lock';
@@ -122,7 +123,7 @@ export class CloudHypervisorVmmIdentityManager {
     });
   }
 
-  async withDeviceAccess<T>(operation: () => Promise<T>): Promise<T> {
+  async withDeviceAccess<T>(operation: () => Promise<T>, includeTun = true): Promise<T> {
     const identity = this.requireIdentity();
     return this.withDeviceAclLock(async () => {
       if (this.identity !== identity) {
@@ -131,7 +132,7 @@ export class CloudHypervisorVmmIdentityManager {
       let result: T | undefined;
       let operationError: unknown;
       try {
-        await this.grantDeviceAccessLocked(identity);
+        await this.grantDeviceAccessLocked(identity, includeTun);
         result = await operation();
       } catch (error) {
         operationError = error;
@@ -215,8 +216,11 @@ export class CloudHypervisorVmmIdentityManager {
     });
   }
 
-  private async grantDeviceAccessLocked(identity: CloudHypervisorVmmIdentity): Promise<void> {
-    for (const devicePath of VMM_DEVICE_PATHS) {
+  private async grantDeviceAccessLocked(
+    identity: CloudHypervisorVmmIdentity,
+    includeTun: boolean,
+  ): Promise<void> {
+    for (const devicePath of includeTun ? VMM_DEVICE_PATHS : VMM_DEVICE_PATHS.slice(0, 1)) {
       await this.observer?.prepareAcl(devicePath);
       await this.dependencies.run(this.tools.setfacl, [
         '--modify', `user:${identity.uid}:rw`, devicePath,
@@ -276,38 +280,13 @@ export class CloudHypervisorVmmIdentityManager {
   }
 
   private async resolveAndValidateAccount(name: string): Promise<CloudHypervisorVmmIdentity> {
-    const [
-      { stdout: uidText },
-      { stdout: gidText },
-      { stdout: groupsText },
-      { stdout: passwdText },
-    ] = await Promise.all([
-      this.dependencies.run(this.tools.id, ['-u', name]),
-      this.dependencies.run(this.tools.id, ['-g', name]),
-      this.dependencies.run(this.tools.id, ['-G', name]),
-      this.dependencies.run(this.tools.getent, ['passwd', name]),
-    ]);
-    const uid = parsePositiveInteger(uidText, 'uid');
-    const gid = parsePositiveInteger(gidText, 'gid');
-    const groups = groupsText.trim().split(/\s+/).filter(Boolean).map((value) =>
-      parsePositiveInteger(value, 'supplementary group'));
-    if (groups.length !== 1 || groups[0] !== gid) {
-      throw new Error(
-        `Cloud Hypervisor VMM account ${name} inherited supplementary groups: ${groups.join(' ')}`,
-      );
-    }
-    const passwd = passwdText.trim().split(':');
-    if (
-      passwd.length !== 7 ||
-      passwd[0] !== name ||
-      passwd[2] !== String(uid) ||
-      passwd[3] !== String(gid) ||
-      passwd[5] !== '/nonexistent' ||
-      passwd[6] !== '/usr/sbin/nologin'
-    ) {
-      throw new Error(`Cloud Hypervisor VMM account ${name} has unsafe passwd state`);
-    }
-    return { name, uid, gid };
+    return resolveAndValidateVmmAccount({
+      name,
+      accountLabel: 'Cloud Hypervisor VMM',
+      tools: this.tools,
+      run: this.dependencies.run,
+      parsePositiveInteger,
+    });
   }
 
   private async accountExists(name: string): Promise<boolean> {

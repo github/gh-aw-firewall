@@ -1,0 +1,9 @@
+--- a/src/client_side.cc
++++ b/src/client_side.cc
+@@ -2829 +2829,5 @@
+-    assert(!inBuf.isEmpty());
++    if (inBuf.isEmpty()) {
++        debugs(83, 3, "client EOF before TLS ClientHello: " << clientConnection);
++        clientConnection->close();
++        return;
++    }

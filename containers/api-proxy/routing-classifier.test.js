@@ -24,9 +24,66 @@ describe('routing classifier', () => {
       },
       outputAllowance: CLASSIFIER_REASONING_OUTPUT_TOKENS,
     });
+
     expect(Object.isFrozen(responses.body)).toBe(true);
     expect(buildClassifierRequest({ wireModel: 'chat-test', protocol: 'chat-completions' }, plan))
       .toMatchObject({ path: '/chat/completions', body: { model: 'chat-test', tools: [], stream: false, max_tokens: CLASSIFIER_OUTPUT_TOKENS } });
+  });
+
+  it('preserves the reasoning output allowance for effort-bearing Chat Completions requests', () => {
+    expect(buildClassifierRequest({
+      wireModel: 'chat-reasoning-test',
+      protocol: 'chat-completions',
+      effort: 'max',
+    }, plan)).toMatchObject({
+      path: '/chat/completions',
+      body: {
+        model: 'chat-reasoning-test',
+        max_tokens: CLASSIFIER_REASONING_OUTPUT_TOKENS,
+        reasoning_effort: 'max',
+      },
+      outputAllowance: CLASSIFIER_REASONING_OUTPUT_TOKENS,
+    });
+  });
+
+  it('builds and parses Anthropic Messages requests with the selected effort', () => {
+    const request = buildClassifierRequest({
+      wireModel: 'claude-opus-5-5',
+      protocol: 'messages',
+      effort: 'medium',
+    }, plan);
+    expect(request).toEqual({
+      path: '/v1/messages',
+      body: {
+        model: 'claude-opus-5-5',
+        system: plan.system_prompt,
+        messages: [{ role: 'user', content: plan.prompt }],
+        max_tokens: CLASSIFIER_REASONING_OUTPUT_TOKENS,
+        output_config: { effort: 'medium' },
+      },
+      outputAllowance: CLASSIFIER_REASONING_OUTPUT_TOKENS,
+    });
+    expect(extractClassifierOutput('messages', {
+      content: [{ type: 'text', text: '{"mode":"balanced"}' }],
+    })).toBe('{"mode":"balanced"}');
+  });
+
+  it('builds a Copilot Claude Messages classifier request with the selected effort', () => {
+    expect(buildClassifierRequest({
+      wireModel: 'claude-sonnet-5',
+      protocol: 'messages',
+      effort: 'max',
+    }, plan)).toEqual({
+      path: '/v1/messages',
+      body: {
+        model: 'claude-sonnet-5',
+        system: plan.system_prompt,
+        messages: [{ role: 'user', content: plan.prompt }],
+        max_tokens: CLASSIFIER_REASONING_OUTPUT_TOKENS,
+        output_config: { effort: 'max' },
+      },
+      outputAllowance: CLASSIFIER_REASONING_OUTPUT_TOKENS,
+    });
   });
 
   it('fails closed without verified capacity and admits the exact capacity boundary', () => {

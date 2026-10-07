@@ -15,6 +15,9 @@ import type { CodexHostedWebConfig } from './codex-hosted-web-policy';
 // ts-prune-ignore-next
 export interface AwfFileConfig {
   $schema?: string;
+  experimental?: {
+    modelRouting?: boolean;
+  };
   network?: {
     allowDomains?: string[];
     blockDomains?: string[];
@@ -56,6 +59,7 @@ export interface AwfFileConfig {
       strategy?: 'middle_power';
       excludeEngines?: string[];
     };
+    fallbackModels?: string[];
     modelRouter?: {
       providerType?: string;
       baseUrl?: string;
@@ -224,6 +228,7 @@ export interface AwfFileConfig {
     bytesPerMinute?: number;
     maxGithubApiPointsRest?: number;
     maxGithubApiPointsGraphql?: number;
+    maxNumToolCalls?: number;
   };
   platform?: {
     type?: 'github.com' | 'ghes' | 'ghec' | 'ghec-self-hosted';

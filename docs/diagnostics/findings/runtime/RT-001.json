@@ -1,0 +1,61 @@
+{
+  "$schema": "../../schema.json",
+  "id": "RT-001",
+  "boundary": "runtime",
+  "title": "Alternative container runtime rejects the AWF agent container configuration",
+  "symptoms": [
+    "OCI runtime create failed",
+    "unknown capability reported by the container runtime at start",
+    "unsupported mount reported by the container runtime at start",
+    "The agent container never starts while Squid is healthy"
+  ],
+  "conditions": [
+    "The Docker daemon default runtime is not runc (for example gVisor runsc or Kata)",
+    "The failure happens at container create/start time, before any user command runs"
+  ],
+  "affects": {
+    "runner": "self-hosted",
+    "runtime": "gvisor|kata",
+    "provider": "any",
+    "authMode": "any"
+  },
+  "versions": {
+    "introduced": "unknown",
+    "fixed": "unknown"
+  },
+  "status": "needs-evidence",
+  "rootCause": "unknown - alternative runtimes implement mounts, capabilities, and seccomp differently from runc; the specific unsupported feature must be identified from the runtime error before a fix is asserted.",
+  "probe": {
+    "command": "docker info --format '{{.DefaultRuntime}} {{range $k,$v := .Runtimes}}{{$k}} {{end}}'",
+    "expect": "Shows the active default runtime so the failure can be attributed to a non-runc runtime.",
+    "readOnly": true,
+    "secretSafe": true
+  },
+  "action": "Record the exact runtime error and the runtime version, then consult docs/gvisor-integration.md for the supported configuration. Collect evidence rather than disabling seccomp or capabilities.",
+  "references": [
+    {
+      "kind": "doc",
+      "ref": "docs/gvisor-integration.md",
+      "title": "gVisor integration"
+    },
+    {
+      "kind": "doc",
+      "ref": "docs/compatibility.md",
+      "title": "Supported platforms"
+    },
+    {
+      "kind": "code",
+      "ref": "src/container-runtime.ts",
+      "title": "Runtime detection"
+    },
+    {
+      "kind": "test",
+      "ref": "src/container-lifecycle-gvisor.test.ts"
+    }
+  ],
+  "related": [
+    "A4"
+  ],
+  "owner": "@github/gh-aw-firewall-maintainers",
+  "reviewBy": "2027-03-31"
+}

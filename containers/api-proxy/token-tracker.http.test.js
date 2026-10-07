@@ -14,6 +14,15 @@ const {
 } = require('./token-tracker');
 const { EventEmitter } = require('events');
 const zlib = require('zlib');
+const { createRoutingObservation } = require('./routing-observation');
+
+const ROUTING_SELECTION = Object.freeze({
+  schema: 'awf-routing-selection/v1',
+  engine: 'copilot',
+  provider: 'copilot',
+  choice: Object.freeze({ id: 'choice-1', model: 'github-copilot/gpt-test', effort: 'low' }),
+  wire_model: 'gpt-test',
+});
 
 afterAll(async () => {
   await closeLogStream();
@@ -42,6 +51,70 @@ describe('isStreamingResponse', () => {
 // ── trackTokenUsage integration ───────────────────────────────────────
 
 describe('trackTokenUsage', () => {
+  test('waits for compressed SSE failure inspection before recording and draining', async () => {
+    const records = [];
+    const observation = createRoutingObservation({
+      getSelection: () => ROUTING_SELECTION,
+      recordFailure: jest.fn(),
+      observer: { record: record => records.push(record) },
+    });
+    const req = {
+      method: 'POST',
+      url: '/responses',
+      headers: {},
+    };
+    const res = new EventEmitter();
+    res.statusCode = 200;
+    res.writableFinished = false;
+    observation.observeRequest(req, res, { name: 'copilot' });
+    req.awfRouting.bodyTransform(Buffer.from(JSON.stringify({
+      model: 'gpt-test',
+      reasoning: { effort: 'low' },
+    })));
+
+    const proxyRes = new EventEmitter();
+    proxyRes.headers = {
+      'content-type': 'text/event-stream',
+      'content-encoding': 'gzip',
+    };
+    proxyRes.statusCode = 200;
+    trackTokenUsage(proxyRes, {
+      requestId: req.awfRouting.requestId,
+      provider: 'copilot',
+      path: '/responses',
+      startTime: Date.now(),
+      metrics: { increment: jest.fn() },
+      res,
+      onSseData: req.awfRouting.onSseData,
+      onSseInspectionStart: req.awfRouting.onSseInspectionStart,
+      onSseInspectionComplete: req.awfRouting.onSseInspectionComplete,
+    });
+
+    res.writableFinished = true;
+    res.emit('finish');
+    let drained = false;
+    const draining = observation.drain().then(() => { drained = true; });
+    await Promise.resolve();
+    expect(drained).toBe(false);
+    expect(records).toEqual([]);
+
+    proxyRes.emit('data', zlib.gzipSync(Buffer.from(
+      'data: {"type":"response.failed","response":{"error":{"code":"rate_limited"}}}\n\n',
+    )));
+    proxyRes.emit('end');
+    await Promise.race([
+      draining,
+      new Promise((_, reject) => setTimeout(() => reject(new Error('SSE inspection did not complete')), 1000)),
+    ]);
+
+    expect(records).toEqual([expect.objectContaining({
+      request_id: req.awfRouting.requestId,
+      routed: 'as_selected',
+      outcome: 'failed',
+      status: 200,
+    })]);
+  });
+
   test('extracts usage from non-streaming JSON response', (done) => {
     const proxyRes = new EventEmitter();
     proxyRes.headers = { 'content-type': 'application/json' };

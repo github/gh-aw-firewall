@@ -145,7 +145,7 @@ When `AWF_AUTH_TYPE=github-oidc` and `AWF_AUTH_PROVIDER=anthropic`:
 AWF follows Anthropic's SDK behavior: JWT-bearer `POST /v1/oauth/token` exchanges send `oauth-2025-04-20,oidc-federation-2026-04-01`, while API requests authenticated with the resulting bearer token send `oauth-2025-04-20`. The federation beta is never added to static `x-api-key` requests or forwarded refresh-token exchanges. Client-supplied `anthropic-beta` values are preserved and deduplicated with AWF-required values and the optional auto-cache beta.
 :::
 
-**Official references:** [Anthropic WIF documentation](https://platform.claude.com/docs/en/manage-claude/workload-identity-federation) · [Anthropic TypeScript SDK federation exchange](https://github.com/anthropics/anthropic-sdk-typescript/blob/3b45cd3b69c956ac63384fdb09ce1d8109f3fa80/src/lib/credentials/oidc-federation.ts)
+**Official references:** [Anthropic WIF documentation](https://platform.claude.com/docs/en/manage-claude/workload-identity-federation) · [Anthropic TypeScript SDK federation exchange](https://raw.githubusercontent.com/anthropics/anthropic-sdk-typescript/3b45cd3b69c956ac63384fdb09ce1d8109f3fa80/src/lib/credentials/oidc-federation.ts)
 
 ### Custom Auth Header
 
@@ -396,7 +396,7 @@ The request layer signs the HTTP method, canonical path and sorted query, final 
 
 **Implementation:** `containers/api-proxy/anthropic-oidc-token-provider.js`
 
-**Official references:** [Anthropic WIF documentation](https://platform.claude.com/docs/en/manage-claude/workload-identity-federation) · [Anthropic TypeScript SDK credential constants](https://github.com/anthropics/anthropic-sdk-typescript/blob/3b45cd3b69c956ac63384fdb09ce1d8109f3fa80/src/lib/credentials/types.ts)
+**Official references:** [Anthropic WIF documentation](https://platform.claude.com/docs/en/manage-claude/workload-identity-federation) · [Anthropic TypeScript SDK credential constants](https://raw.githubusercontent.com/anthropics/anthropic-sdk-typescript/3b45cd3b69c956ac63384fdb09ce1d8109f3fa80/src/lib/credentials/types.ts)
 
 ---
 

@@ -1,0 +1,54 @@
+{
+  "$schema": "../../schema.json",
+  "id": "CI-001",
+  "boundary": "ci",
+  "title": "gh-aw safe-output step fails because the emitted payload violates the declared contract",
+  "symptoms": [
+    "safe output validation failed in the workflow run",
+    "The agent job succeeds but the safe-output collection step exits non-zero",
+    "create-pull-request rejected: file not in allowed-files"
+  ],
+  "conditions": [
+    "The workflow declares safe-outputs in its .md source",
+    "The failure occurs in the post-agent safe-output step, not inside the AWF sandbox"
+  ],
+  "affects": {
+    "runner": "github-hosted",
+    "runtime": "any",
+    "provider": "any",
+    "authMode": "any"
+  },
+  "versions": {
+    "introduced": "unknown",
+    "fixed": "unknown"
+  },
+  "status": "workaround",
+  "rootCause": "Safe outputs are validated against the compiled contract (max counts, labels, title prefix, allowed-files); an agent that writes outside that contract fails the step rather than the GitHub API call.",
+  "probe": {
+    "command": "gh aw logs <workflow-name>",
+    "expect": "Shows the safe-output validation error and which declared constraint was violated.",
+    "readOnly": true,
+    "secretSafe": true
+  },
+  "action": "Fix the workflow .md source (safe-outputs constraints or prompt) and recompile with gh aw compile; never hand-edit the .lock.yml. Widening permissions is not a fix for a contract violation.",
+  "references": [
+    {
+      "kind": "doc",
+      "ref": "docs/github_actions.md",
+      "title": "AWF in GitHub Actions"
+    },
+    {
+      "kind": "doc",
+      "ref": ".github/skills/debugging-workflows/SKILL.md",
+      "title": "Debugging agentic workflows"
+    },
+    {
+      "kind": "test",
+      "ref": "scripts/ci/ready-for-aw-workflows.test.ts",
+      "title": "Compiled workflow contract checks"
+    }
+  ],
+  "related": [],
+  "owner": "@github/gh-aw-firewall-maintainers",
+  "reviewBy": "2027-03-31"
+}

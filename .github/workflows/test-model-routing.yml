@@ -1,0 +1,861 @@
+name: Model Routing End-to-End Smoke
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/test-model-routing.yml'
+      - 'containers/api-proxy/Dockerfile'
+      - 'containers/api-proxy/routing-*'
+      - 'containers/api-proxy/fixtures/routing-contract/**'
+      - 'containers/api-proxy/management.js'
+      - 'containers/api-proxy/guards/model-policy-guard.js'
+      - 'containers/api-proxy/proxy-guards.js'
+      - 'containers/api-proxy/proxy-request.js'
+      - 'containers/api-proxy/body-handler.js'
+      - 'containers/api-proxy/request-headers.js'
+      - 'containers/api-proxy/upstream-http.js'
+      - 'containers/api-proxy/upstream-response.js'
+      - 'containers/api-proxy/upstream-token.js'
+      - 'containers/api-proxy/upstream-log.js'
+      - 'containers/api-proxy/token-persistence.js'
+      - 'containers/api-proxy/token-tracker-http.js'
+      - 'containers/api-proxy/wire-api-compat*'
+      - 'containers/api-proxy/server.js'
+      - 'containers/api-proxy/server-factory.js'
+      - 'containers/api-proxy/startup.js'
+      - 'containers/api-proxy/providers/copilot.js'
+      - 'src/routing/**'
+      - 'src/cli-workflow.ts'
+      - 'src/compose-generator.ts'
+      - 'src/commands/resolve-credentials.ts'
+      - 'src/config-file.ts'
+      - 'src/config-mapper.ts'
+      - 'src/schema-validator.ts'
+      - 'src/services/api-proxy-env-config.ts'
+      - 'src/services/api-proxy-service-config.ts'
+      - 'src/services/agent-environment/tool-specific-environment.ts'
+      - 'src/services/credentials/copilot-credential-env.ts'
+      - 'src/services/router-service.ts'
+      - 'tests/integration/model-routing.test.ts'
+  schedule:
+    - cron: '0 9 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  copilot-requests: write
+
+env:
+  AGENT_IMAGE: ghcr.io/github/gh-aw-firewall/agent:0.28.29@sha256:edcf17ae63dd74366bc911a74678b9e264d66ac51c48ec156c80e2619892ebbb
+  SQUID_IMAGE: ghcr.io/github/gh-aw-firewall/squid:0.28.29@sha256:1d5e169c4df14e87fc826261b94cf4ddaf2f08aca2a5b88701100ec193968193
+  # Model-routing runs require digest-pinned images; the proxy is built from source and pinned in the job.
+  API_PROXY_LOCAL_TAG: localhost:5000/awf/api-proxy:routing-smoke
+  ROUTER_IMAGE: ghcr.io/githubnext/gh-aw-router:latest@sha256:d1612d0eaec3fa8f14c38bbd0a6a0682732fc9f83b7fec94219d3e757a048270
+
+jobs:
+  model-routing:
+    name: Exercise live routing, policy, and Copilot inference
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build AWF
+        run: npm run build
+
+      - name: Show Docker versions
+        run: |
+          docker version
+          docker compose version
+
+      - name: Prepare smoke images
+        run: |
+          set -euo pipefail
+          docker pull "$AGENT_IMAGE"
+          docker pull "$SQUID_IMAGE"
+          docker pull "$ROUTER_IMAGE"
+          docker run --detach --name awf-routing-registry \
+            --publish 127.0.0.1:5000:5000 registry:2.8.3@sha256:a3d8aaa63ed8681a604f1dea0aa03f100d5895b6a58ace528858a7b332415373
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent http://127.0.0.1:5000/v2/ >/dev/null; then
+              break
+            fi
+            sleep 1
+          done
+          curl --fail --silent http://127.0.0.1:5000/v2/ >/dev/null
+          # Exercise the API-proxy source under test, not the last released image.
+          docker build --tag "$API_PROXY_LOCAL_TAG" containers/api-proxy
+          docker push "$API_PROXY_LOCAL_TAG"
+          api_proxy_digest="$(docker image inspect --format='{{index .RepoDigests 0}}' "$API_PROXY_LOCAL_TAG" | sed 's/.*@//')"
+          [[ "$api_proxy_digest" =~ ^sha256:[a-f0-9]{64}$ ]] || {
+            echo "Could not resolve a sha256 digest for the locally built API proxy image" >&2
+            exit 1
+          }
+          printf 'API_PROXY_IMAGE=localhost:5000/awf/api-proxy:routing-smoke@%s\n' "$api_proxy_digest" >> "$GITHUB_ENV"
+
+      - name: Run router/API-proxy planning smoke
+        run: npm run test:integration -- --runInBand model-routing.test.ts
+
+      - name: Run a routed Copilot inference through AWF
+        env:
+          COPILOT_GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          ROUTING_DIR="${RUNNER_TEMP}/model-routing"
+          mkdir -m 700 -p "$ROUTING_DIR"
+          cat > "${ROUTING_DIR}/conversation.json" <<'JSON'
+          [{"role":"user","parts":[{"text":"Reply with exactly ROUTED_OK."}]}]
+          JSON
+          cat > "${ROUTING_DIR}/awf-config.yml" <<YAML
+          experimental:
+            modelRouting: true
+          network:
+            allowDomains:
+              - api.githubcopilot.com
+          apiProxy:
+            enabled: true
+            allowedModels:
+              - github-copilot/claude-haiku-4.5
+            routing:
+              objective:
+                goal: cost
+                mode: balanced
+              task:
+                conversationFile: ${ROUTING_DIR}/conversation.json
+          container:
+            images:
+              agent: ${AGENT_IMAGE}
+              apiProxy: ${API_PROXY_IMAGE}
+              squid: ${SQUID_IMAGE}
+              router: ${ROUTER_IMAGE}
+          YAML
+
+          ROUTED_COMMAND="$(cat <<'SCRIPT'
+          set -euo pipefail
+          test -n "${COPILOT_API_URL:-}" || { echo "COPILOT_API_URL is missing" >&2; exit 1; }
+          response="$(curl --fail --silent --show-error --max-time 120 \
+            -H "Content-Type: application/json" \
+            --data "{\"model\":\"claude-haiku-4.5\",\"messages\":[{\"role\":\"user\",\"content\":\"Reply with exactly ROUTED_OK.\"}],\"max_tokens\":16,\"stream\":false}" \
+            "${COPILOT_API_URL}/chat/completions")"
+          node -e '
+            const assert = require("node:assert/strict");
+            const result = JSON.parse(process.argv[1]);
+            const text = result.choices?.[0]?.message?.content;
+            assert.equal(typeof text, "string", "Copilot response contained no message text");
+            assert.match(text, /ROUTED_OK/, "Copilot did not return the expected smoke response");
+            console.log("ROUTED_COPILOT_INFERENCE=passed model=claude-haiku-4.5");
+          ' "$response"
+          SCRIPT
+          )"
+          sudo --preserve-env=COPILOT_GITHUB_TOKEN,GITHUB_WORKSPACE,GITHUB_RUN_ID,GITHUB_RUN_ATTEMPT,GITHUB_REPOSITORY,GITHUB_WORKFLOW_REF,HOME,PATH \
+            node dist/cli.js --config "${ROUTING_DIR}/awf-config.yml" -- bash -euc "$ROUTED_COMMAND"
+
+      - name: Run an effort-routed Copilot inference through AWF
+        env:
+          COPILOT_GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          ROUTING_DIR="${RUNNER_TEMP}/model-routing-effort"
+          mkdir -m 700 -p "$ROUTING_DIR"
+          cat > "${ROUTING_DIR}/conversation.json" <<'JSON'
+          [{"role":"user","parts":[{"text":"Reply with exactly ROUTED_OK."}]}]
+          JSON
+          cat > "${ROUTING_DIR}/awf-config.yml" <<YAML
+          experimental:
+            modelRouting: true
+          network:
+            allowDomains:
+              - api.githubcopilot.com
+          apiProxy:
+            enabled: true
+            allowedModels:
+              - github-copilot/gpt-5.4-mini
+            routing:
+              objective:
+                goal: cost
+                mode: balanced
+              task:
+                conversationFile: ${ROUTING_DIR}/conversation.json
+          container:
+            images:
+              agent: ${AGENT_IMAGE}
+              apiProxy: ${API_PROXY_IMAGE}
+              squid: ${SQUID_IMAGE}
+              router: ${ROUTER_IMAGE}
+          YAML
+
+          # The agent learns the routed model, effort, and endpoint from /reflect
+          # and seeds its request from it. The selection is advisory, not enforced.
+          ROUTED_COMMAND="$(cat <<'SCRIPT'
+          set -euo pipefail
+          test -n "${COPILOT_API_URL:-}" || { echo "COPILOT_API_URL is missing" >&2; exit 1; }
+          reflect="$(curl --fail --silent --show-error --max-time 30 "${COPILOT_API_URL}/reflect")"
+          request="$(node -e '
+            const assert = require("node:assert/strict");
+            const routing = JSON.parse(process.argv[1]).routing;
+            assert.equal(routing?.status, "selected", "/reflect did not report a routed selection: " + JSON.stringify(routing));
+            const s = routing.selection;
+            assert.equal(s.provider, "copilot");
+            assert.equal(s.model, "github-copilot/gpt-5.4-mini");
+            assert.equal(s.wire_model, "gpt-5.4-mini");
+            assert.equal(typeof s.effort, "string", "the selection carries no reasoning effort");
+            assert.equal(s.endpoint, "/responses");
+            console.error("ROUTED_SELECTION=" + JSON.stringify(s));
+            console.log(JSON.stringify({
+              model: s.wire_model,
+              input: "Reply with exactly ROUTED_OK.",
+              reasoning: { effort: s.effort },
+              max_output_tokens: 2048,
+              stream: false,
+            }));
+          ' "$reflect")"
+          response="$(curl --fail --silent --show-error --max-time 180 \
+            -H "Content-Type: application/json" \
+            --data "$request" \
+            "${COPILOT_API_URL}/responses")"
+          node -e '
+            const assert = require("node:assert/strict");
+            const result = JSON.parse(process.argv[1]);
+            const text = (result.output || [])
+              .filter(item => item.type === "message")
+              .flatMap(item => item.content || [])
+              .filter(part => part.type === "output_text")
+              .map(part => part.text)
+              .join("");
+            assert.match(text, /ROUTED_OK/, "Copilot did not return the expected smoke response: " + JSON.stringify(result).slice(0, 500));
+            console.log("ROUTED_COPILOT_EFFORT_INFERENCE=passed model=gpt-5.4-mini endpoint=/responses");
+          ' "$response"
+          for effort in none max; do
+            request="$(node -e '
+              console.log(JSON.stringify({
+                model: "gpt-5.4-mini",
+                input: "Reply with exactly ROUTED_OK.",
+                reasoning: { effort: process.argv[1] },
+                max_output_tokens: 2048,
+                stream: false,
+              }));
+            ' "$effort")"
+            response="$(curl --fail --silent --show-error --max-time 180 \
+              -H "Content-Type: application/json" \
+              --data "$request" \
+              "${COPILOT_API_URL}/responses")"
+            node -e '
+              const assert = require("node:assert/strict");
+              const result = JSON.parse(process.argv[1]);
+              const text = (result.output || [])
+                .filter(item => item.type === "message")
+                .flatMap(item => item.content || [])
+                .filter(part => part.type === "output_text")
+                .map(part => part.text)
+                .join("");
+              assert.match(text, /ROUTED_OK/, "Copilot failed an explicit effort request: " + JSON.stringify(result).slice(0, 500));
+              console.log("COPILOT_EFFORT_INFERENCE=passed effort=" + process.argv[2]);
+            ' "$response" "$effort"
+          done
+          SCRIPT
+          )"
+          sudo --preserve-env=COPILOT_GITHUB_TOKEN,GITHUB_WORKSPACE,GITHUB_RUN_ID,GITHUB_RUN_ATTEMPT,GITHUB_REPOSITORY,GITHUB_WORKFLOW_REF,HOME,PATH \
+            node dist/cli.js --config "${ROUTING_DIR}/awf-config.yml" -- bash -euc "$ROUTED_COMMAND"
+
+      - name: Translate cross-endpoint Copilot sub-agent requests through AWF
+        env:
+          COPILOT_GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          ROUTING_DIR="${RUNNER_TEMP}/model-routing-wire-api"
+          mkdir -m 700 -p "$ROUTING_DIR"
+          cat > "${ROUTING_DIR}/awf-config.yml" <<YAML
+          network:
+            allowDomains:
+              - api.githubcopilot.com
+          apiProxy:
+            enabled: true
+            allowedModels:
+              - github-copilot/gpt-5.4-mini
+              - github-copilot/claude-haiku-4.5
+          container:
+            images:
+              agent: ${AGENT_IMAGE}
+              apiProxy: ${API_PROXY_IMAGE}
+              squid: ${SQUID_IMAGE}
+          YAML
+
+          ROUTED_COMMAND="$(cat <<'SCRIPT'
+          set -euo pipefail
+          test -n "${COPILOT_API_URL:-}" || { echo "COPILOT_API_URL is missing" >&2; exit 1; }
+          responses() {
+            curl --fail --silent --show-error --max-time 180 \
+              -H "Content-Type: application/json" \
+              --data "{\"model\":\"$1\",\"input\":\"Reply with exactly WIRE_API_OK.\",\"max_output_tokens\":128,\"stream\":false}" \
+              "${COPILOT_API_URL}/responses"
+          }
+          chat() {
+            curl --fail --silent --show-error --max-time 180 \
+              -H "Content-Type: application/json" \
+              --data "{\"model\":\"$1\",\"messages\":[{\"role\":\"user\",\"content\":\"Reply with exactly WIRE_API_OK.\"}],\"max_tokens\":128,\"stream\":false}" \
+              "${COPILOT_API_URL}/chat/completions"
+          }
+          assert_responses() {
+            node -e '
+              const assert = require("node:assert/strict");
+              const result = JSON.parse(process.argv[1]);
+              const text = (result.output || []).filter(item => item.type === "message")
+                .flatMap(item => item.content || []).filter(part => part.type === "output_text")
+                .map(part => part.text).join("");
+              assert.match(text, /WIRE_API_OK/, "Responses-format request failed: " + JSON.stringify(result).slice(0, 500));
+            ' "$1"
+          }
+          assert_chat() {
+            node -e '
+              const assert = require("node:assert/strict");
+              const result = JSON.parse(process.argv[1]);
+              const text = result.choices?.[0]?.message?.content;
+              assert.match(text || "", /WIRE_API_OK/, "Chat-format request failed: " + JSON.stringify(result).slice(0, 500));
+            ' "$1"
+          }
+
+          assert_responses "$(responses gpt-5.4-mini)"
+          assert_responses "$(responses claude-haiku-4.5)"
+          echo "CROSS_ENDPOINT_SUBAGENT=passed main=gpt-5.4-mini subagent=claude-haiku-4.5 requested=/responses"
+          assert_chat "$(chat claude-haiku-4.5)"
+          assert_chat "$(chat gpt-5.4-mini)"
+          echo "CROSS_ENDPOINT_SUBAGENT=passed main=claude-haiku-4.5 subagent=gpt-5.4-mini requested=/chat/completions"
+          SCRIPT
+          )"
+          sudo --preserve-env=COPILOT_GITHUB_TOKEN,GITHUB_WORKSPACE,GITHUB_RUN_ID,GITHUB_RUN_ATTEMPT,GITHUB_REPOSITORY,GITHUB_WORKFLOW_REF,HOME,PATH \
+            node dist/cli.js --config "${ROUTING_DIR}/awf-config.yml" -- bash -euc "$ROUTED_COMMAND"
+
+      - name: Route between two Copilot candidates and allow a deviating choice
+        env:
+          COPILOT_GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          ROUTING_DIR="${GITHUB_WORKSPACE}/.routing-smoke/multi"
+          mkdir -m 700 -p "$ROUTING_DIR"
+          cat > "${ROUTING_DIR}/conversation.json" <<'JSON'
+          [{"role":"user","parts":[{"text":"Reply with exactly ROUTED_OK."}]}]
+          JSON
+          cat > "${ROUTING_DIR}/awf-config.yml" <<YAML
+          experimental:
+            modelRouting: true
+          network:
+            allowDomains:
+              - api.githubcopilot.com
+          apiProxy:
+            enabled: true
+            allowedModels:
+              - github-copilot/claude-haiku-4.5
+              - github-copilot/gpt-5.4-mini
+              - github-copilot/gpt-4o
+            disallowedModels:
+              - github-copilot/gpt-4o
+            routing:
+              objective:
+                goal: cost
+                mode: balanced
+              task:
+                conversationFile: ${ROUTING_DIR}/conversation.json
+          container:
+            images:
+              agent: ${AGENT_IMAGE}
+              apiProxy: ${API_PROXY_IMAGE}
+              squid: ${SQUID_IMAGE}
+              router: ${ROUTER_IMAGE}
+          YAML
+
+          # ROUTING_TARGET=selected sends the routed choice; ROUTING_TARGET=other
+          # sends the candidate the router did not pick. The selection is advisory,
+          # so both must succeed as long as model policy permits the model.
+          ROUTED_COMMAND="$(cat <<'SCRIPT'
+          set -euo pipefail
+          test -n "${COPILOT_API_URL:-}" || { echo "COPILOT_API_URL is missing" >&2; exit 1; }
+          reflect="$(curl --fail --silent --show-error --max-time 30 "${COPILOT_API_URL}/reflect")"
+          plan="$(node -e '
+            const assert = require("node:assert/strict");
+            const reflect = JSON.parse(process.argv[1]);
+            const routing = reflect.routing;
+            assert.equal(routing?.status, "selected", "/reflect did not report a routed selection: " + JSON.stringify(routing));
+            const copilot = reflect.endpoints.find(endpoint => endpoint.provider === "copilot");
+            assert.ok(copilot, "Copilot is missing from /reflect");
+            const expectedModels = ["claude-haiku-4.5", "gpt-5.4-mini"];
+            assert.ok(Array.isArray(copilot.models), "Copilot model catalogue is missing");
+            assert.deepEqual(
+              [...copilot.models].sort(),
+              [...expectedModels].sort(),
+              "Copilot /reflect models should contain only policy-permitted candidates",
+            );
+            assert.deepEqual(
+              copilot.routing_models.map(model => model.model_id).sort(),
+              [...expectedModels].sort(),
+              "Copilot routing catalogue should be filtered by model policy",
+            );
+            assert.ok(
+              copilot.model_metadata === null || Array.isArray(copilot.model_metadata),
+              "Copilot model metadata should be null or an array",
+            );
+            if (copilot.model_metadata) {
+              assert.deepEqual(
+                copilot.model_metadata.map(model => model.id).sort(),
+                [...expectedModels].sort(),
+                "Copilot model metadata should be filtered by model policy",
+              );
+            }
+            const s = routing.selection;
+            require("node:fs").writeFileSync(
+              process.env.ROUTING_EVIDENCE_DIR + "/selection-" + process.env.ROUTING_TARGET + ".json",
+              JSON.stringify(s) + "\n",
+            );
+            const candidates = {
+              "github-copilot/claude-haiku-4.5": {
+                path: "/chat/completions",
+                body: { model: "claude-haiku-4.5", messages: [{ role: "user", content: "Reply with exactly ROUTED_OK." }], max_tokens: 16, stream: false },
+              },
+              "github-copilot/gpt-5.4-mini": {
+                path: "/responses",
+                body: { model: "gpt-5.4-mini", input: "Reply with exactly ROUTED_OK.", reasoning: { effort: s.effort ?? "low" }, max_output_tokens: 2048, stream: false },
+              },
+            };
+            assert.ok(Object.hasOwn(candidates, s.model), "router selected a model outside the allow-list: " + s.model);
+            assert.equal(s.endpoint, candidates[s.model].path, "unexpected endpoint for " + s.model);
+            console.error("ROUTED_SELECTION=" + JSON.stringify(s));
+            const model = process.env.ROUTING_TARGET === "other"
+              ? Object.keys(candidates).find(model => model !== s.model)
+              : s.model;
+            console.log(JSON.stringify({ model, ...candidates[model] }));
+          ' "$reflect")"
+          path="$(node -e 'process.stdout.write(JSON.parse(process.argv[1]).path)' "$plan")"
+          body="$(node -e 'process.stdout.write(JSON.stringify(JSON.parse(process.argv[1]).body))' "$plan")"
+          target="$(node -e 'process.stdout.write(JSON.parse(process.argv[1]).model)' "$plan")"
+          response="$(curl --fail --silent --show-error --max-time 180 \
+            -H "Content-Type: application/json" --data "$body" "${COPILOT_API_URL}${path}")"
+          node -e '
+            const assert = require("node:assert/strict");
+            const result = JSON.parse(process.argv[1]);
+            const text = result.choices?.[0]?.message?.content ?? (result.output || [])
+              .filter(item => item.type === "message")
+              .flatMap(item => item.content || [])
+              .filter(part => part.type === "output_text")
+              .map(part => part.text)
+              .join("");
+            assert.match(String(text), /ROUTED_OK/, "Copilot did not return the expected smoke response: " + JSON.stringify(result).slice(0, 500));
+            console.log("ROUTED_MULTI_CANDIDATE_INFERENCE=passed target=" + process.argv[3] + " model=" + process.argv[2]);
+          ' "$response" "$target" "$ROUTING_TARGET"
+          if [ "${ROUTING_TARGET}" = other ]; then
+            policy_error="$(mktemp)"
+            status="$(curl --silent --show-error --max-time 60 -o "$policy_error" -w '%{http_code}' \
+              -H "Content-Type: application/json" \
+              --data '{"model":"gpt-4o","messages":[{"role":"user","content":"This request must be blocked by model policy."}],"max_tokens":16,"stream":false}' \
+              "${COPILOT_API_URL}/chat/completions")"
+            node -e '
+              const assert = require("node:assert/strict");
+              assert.equal(process.argv[1], "403", "model policy did not reject a disallowed model");
+              const error = JSON.parse(require("node:fs").readFileSync(process.argv[2], "utf8")).error;
+              assert.equal(error?.type, "model_policy_violation");
+              assert.equal(error?.reason, "disallowed");
+              console.log("MODEL_POLICY=blocked disallowed model without failing routed run");
+            ' "$status" "$policy_error"
+            rm -f "$policy_error"
+          fi
+          SCRIPT
+          )"
+
+          echo "::group::Routed choice is admitted"
+          sudo --preserve-env=COPILOT_GITHUB_TOKEN,GITHUB_WORKSPACE,GITHUB_RUN_ID,GITHUB_RUN_ATTEMPT,GITHUB_REPOSITORY,GITHUB_WORKFLOW_REF,HOME,PATH \
+            node dist/cli.js --config "${ROUTING_DIR}/awf-config.yml" \
+            --proxy-logs-dir "${ROUTING_DIR}/logs-selected" \
+            --env ROUTING_EVIDENCE_DIR="${ROUTING_DIR}" --env ROUTING_TARGET=selected -- bash -euc "$ROUTED_COMMAND"
+          echo "::endgroup::"
+
+          echo "::group::Non-selected candidate is admitted (advisory routing)"
+          # A deviating request is not a routing failure: the run must exit 0.
+          sudo --preserve-env=COPILOT_GITHUB_TOKEN,GITHUB_WORKSPACE,GITHUB_RUN_ID,GITHUB_RUN_ATTEMPT,GITHUB_REPOSITORY,GITHUB_WORKFLOW_REF,HOME,PATH \
+            node dist/cli.js --config "${ROUTING_DIR}/awf-config.yml" \
+            --proxy-logs-dir "${ROUTING_DIR}/logs-other" \
+            --env ROUTING_EVIDENCE_DIR="${ROUTING_DIR}" --env ROUTING_TARGET=other -- bash -euc "$ROUTED_COMMAND"
+          echo "::endgroup::"
+          echo "ROUTED_DEVIATION_EXIT=0"
+
+      - name: Assert preserved routing selection and terminal request records
+        run: |
+          node <<'JS'
+          const assert = require("node:assert/strict");
+          const fs = require("node:fs");
+          const path = require("node:path");
+          const crypto = require("node:crypto");
+          const root = path.join(process.env.GITHUB_WORKSPACE, ".routing-smoke/multi");
+          const readJsonl = file => fs.readFileSync(file, "utf8").trim().split("\n").filter(Boolean).map(JSON.parse);
+          const conversation = JSON.parse(fs.readFileSync(path.join(root, "conversation.json"), "utf8"));
+          const digest = crypto.createHash("sha256").update(JSON.stringify(conversation)).digest("hex");
+          for (const target of ["selected", "other"]) {
+            const reflected = JSON.parse(fs.readFileSync(path.join(root, `selection-${target}.json`), "utf8"));
+            const logs = path.join(root, `logs-${target}`, "api-proxy-logs");
+            const records = readJsonl(path.join(logs, "model-routing.jsonl"));
+            for (const record of records) {
+              assert.match(record._schema, /^model-routing\/v.+$/);
+              assert.equal(record.event, "model_routing");
+              assert.ok(["classification", "selection", "failure", "request"].includes(record.stage));
+              assert.ok(Number.isFinite(Date.parse(record.timestamp)));
+              assert.ok(!JSON.stringify(record).includes("Reply with exactly ROUTED_OK."), "audit captured prompt text");
+              assert.ok(!JSON.stringify(record).includes("This request must be blocked by model policy."), "audit captured rejected prompt text");
+            }
+            const selections = records.filter(record => record.stage === "selection");
+            assert.equal(selections.length, 1, "expected one selection per routed run");
+            const selection = selections[0];
+            assert.equal(selection.selected_model, reflected.model);
+            assert.equal(selection.wire_model, reflected.wire_model);
+            assert.equal(selection.endpoint, reflected.endpoint);
+            assert.equal(selection.selected_effort, reflected.effort);
+            assert.equal(selection.selected_provider, reflected.provider);
+            assert.equal(selection.conversation_sha256, digest);
+            assert.deepEqual(selection.objective, { goal: "cost", mode: "balanced" });
+            assert.equal(selection.provider, "copilot");
+            assert.equal(typeof selection.interaction_id, "string");
+            if (process.env.GITHUB_RUN_ID) {
+              assert.equal(selection.interaction_id, process.env.GITHUB_RUN_ID + "-" + (process.env.GITHUB_RUN_ATTEMPT || "1"));
+            }
+            for (const [field, env] of [["github_repository", "GITHUB_REPOSITORY"], ["github_workflow_ref", "GITHUB_WORKFLOW_REF"]]) {
+              if (process.env[env]) assert.equal(selection[field], process.env[env]);
+            }
+            assert.equal(typeof selection.router.name, "string");
+            assert.equal(typeof selection.router.version, "string");
+            assert.ok(selection.ranked_choices.length > 0);
+            assert.equal(selection.ranked_choices[0].model, reflected.model);
+            assert.equal(selection.ranked_choices[0].effort, reflected.effort);
+            for (const field of ["labels", "mode", "classifier_model", "classifier_effort"]) {
+              assert.ok(Object.hasOwn(selection, field), `missing ${field}`);
+            }
+            const requests = records.filter(record => record.stage === "request");
+            assert.equal(requests.length, target === "selected" ? 1 : 2);
+            const inference = requests.find(record => record.outcome === "completed");
+            assert.ok(inference, "missing completed inference record");
+            assert.equal(inference.status, 200);
+            assert.equal(inference.selected_model, reflected.wire_model);
+            assert.equal(inference.selected_effort, reflected.effort);
+            assert.equal(inference.selected_provider, reflected.provider);
+            assert.equal(inference.selected_endpoint, reflected.endpoint);
+            assert.equal(inference.provider, "copilot");
+            const requestedModel = target === "selected" ? reflected.wire_model
+              : ["claude-haiku-4.5", "gpt-5.4-mini"].find(model => model !== reflected.wire_model);
+            assert.equal(inference.requested_model, requestedModel);
+            const requestedEndpoint = requestedModel === "gpt-5.4-mini" ? "/responses" : "/chat/completions";
+            const requestedEffort = requestedModel === "gpt-5.4-mini" ? (reflected.effort ?? "low") : null;
+            assert.equal(inference.pathname, requestedEndpoint);
+            assert.equal(inference.requested_effort, requestedEffort);
+            assert.equal(inference.routed, target === "selected" ? "as_selected" : "deviated");
+            const deviations = [];
+            if (requestedModel !== reflected.wire_model) deviations.push("model");
+            if (requestedEffort !== reflected.effort) deviations.push("effort");
+            if (requestedEndpoint !== reflected.endpoint) deviations.push("endpoint");
+            assert.deepEqual(inference.deviations, deviations);
+            if (target === "other") {
+              const rejection = requests.find(record => record.requested_model === "gpt-4o");
+              assert.ok(rejection, "missing model-policy rejection record");
+              assert.equal(rejection.outcome, "rejected");
+              assert.equal(rejection.status, 403);
+              assert.equal(rejection.routed, "deviated");
+              assert.ok(rejection.deviations.includes("model"));
+            }
+            assert.ok(!records.some(record => record.stage === "failure"), "advisory deviation caused a routing failure");
+            const usageFile = path.join(logs, "token-usage.jsonl");
+            const usage = fs.existsSync(usageFile) ? readJsonl(usageFile) : [];
+            for (const request of requests) {
+              assert.equal(typeof request.request_id, "string");
+              assert.ok(request.request_id.length > 0);
+            }
+            const correlated = usage.filter(record => record.request_id && record.purpose !== "routing_classification");
+            assert.ok(correlated.length > 0, "completed inference has no token-usage request ID");
+            for (const record of correlated) {
+              assert.ok(requests.some(request => request.request_id === record.request_id),
+                "token usage did not correlate with a terminal routing request");
+            }
+            console.log(`ROUTING_AUDIT=passed target=${target} correlated_usage=${correlated.length}`);
+          }
+          JS
+
+      - name: Install the Copilot CLI used by gh-aw
+        env:
+          # Keep in step with gh-aw's DefaultCopilotVersion.
+          COPILOT_CLI_VERSION: 1.0.89
+        run: |
+          set -euo pipefail
+          npm install --global --no-audit --no-fund "@github/copilot@${COPILOT_CLI_VERSION}"
+          copilot --version
+
+      - name: Run the Copilot CLI agent on the routed selection
+        env:
+          COPILOT_GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          ROUTING_DIR="${RUNNER_TEMP}/model-routing-cli"
+          mkdir -m 700 -p "$ROUTING_DIR"
+          cat > "${ROUTING_DIR}/conversation.json" <<'JSON'
+          [{"role":"user","parts":[{"text":"Reply with exactly ROUTED_OK."}]}]
+          JSON
+          cat > "${ROUTING_DIR}/awf-config.yml" <<YAML
+          experimental:
+            modelRouting: true
+          network:
+            allowDomains:
+              - api.githubcopilot.com
+          apiProxy:
+            enabled: true
+            allowedModels:
+              - github-copilot/claude-haiku-4.5
+              - github-copilot/gpt-5.4-mini
+            routing:
+              objective:
+                goal: cost
+                mode: balanced
+              task:
+                conversationFile: ${ROUTING_DIR}/conversation.json
+          container:
+            images:
+              agent: ${AGENT_IMAGE}
+              apiProxy: ${API_PROXY_IMAGE}
+              squid: ${SQUID_IMAGE}
+              router: ${ROUTER_IMAGE}
+          YAML
+
+          # The shape a gh-aw engine step would take: read the routed selection
+          # from /reflect and hand it to the Copilot CLI. The selection is advisory:
+          # the CLI (or a sub-agent) may use another policy-permitted model.
+          ROUTED_COMMAND="$(cat <<'SCRIPT'
+          set -euo pipefail
+          test -n "${COPILOT_API_URL:-}" || { echo "COPILOT_API_URL is missing" >&2; exit 1; }
+          reflect="$(curl --fail --silent --show-error --max-time 30 "${COPILOT_API_URL}/reflect")"
+          selection="$(node -e '
+            const assert = require("node:assert/strict");
+            const routing = JSON.parse(process.argv[1]).routing;
+            assert.equal(routing?.status, "selected", "/reflect did not report a routed selection: " + JSON.stringify(routing));
+            const s = routing.selection;
+            console.error("ROUTED_SELECTION=" + JSON.stringify(s));
+            const wireApi = s.endpoint === "/responses" ? "responses" : "completions";
+            console.log(s.wire_model + " " + wireApi + " " + (s.effort ?? ""));
+          ' "$reflect")"
+          read -r model wire_api effort <<<"$selection"
+          # AWF derives the wire API from COPILOT_MODEL at launch, before the
+          # router has chosen, so the routed endpoint must be applied here.
+          export COPILOT_PROVIDER_WIRE_API="$wire_api"
+          args=(--model "$model")
+          if [ -n "${effort:-}" ]; then args+=(--reasoning-effort "$effort"); fi
+          export HOME="$(mktemp -d)"
+          output="$(copilot "${args[@]}" \
+            --prompt "Reply with exactly ROUTED_OK and nothing else." \
+            --silent --no-color --allow-all-tools --disable-builtin-mcps \
+            --no-custom-instructions --no-auto-update --no-ask-user)"
+          printf '%s\n' "$output"
+          grep -q ROUTED_OK <<<"$output" || { echo "Copilot CLI did not return ROUTED_OK" >&2; exit 1; }
+          echo "ROUTED_COPILOT_CLI=passed model=${model} effort=${effort:-none}"
+          SCRIPT
+          )"
+          sudo --preserve-env=COPILOT_GITHUB_TOKEN,GITHUB_WORKSPACE,GITHUB_RUN_ID,GITHUB_RUN_ATTEMPT,GITHUB_REPOSITORY,GITHUB_WORKFLOW_REF,HOME,PATH \
+            node dist/cli.js --config "${ROUTING_DIR}/awf-config.yml" -- bash -euc "$ROUTED_COMMAND"
+
+      - name: Show Docker state on failure
+        if: failure()
+        run: |
+          docker ps -a
+          docker network ls
+
+      - name: Stop local image registry
+        if: always()
+        run: |
+          if docker container inspect awf-routing-registry >/dev/null 2>&1; then
+            docker rm --force awf-routing-registry
+          fi
+
+  native-provider-routing:
+    name: Exercise live ${{ matrix.provider }} routing
+    # Paid provider keys: run on the weekly schedule and on demand, not on every push.
+    if: github.ref == 'refs/heads/main' && github.event_name != 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - provider: openai
+            domain: api.openai.com
+            model: openai/gpt-5.4
+            wire_model: gpt-5.4
+          - provider: anthropic
+            domain: api.anthropic.com
+            model: anthropic/claude-sonnet-5
+            wire_model: claude-sonnet-5
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build AWF
+        run: npm run build
+
+      - name: Prepare smoke images
+        run: |
+          set -euo pipefail
+          docker pull "$AGENT_IMAGE"
+          docker pull "$SQUID_IMAGE"
+          docker pull "$ROUTER_IMAGE"
+          docker run --detach --name awf-routing-registry \
+            --publish 127.0.0.1:5000:5000 registry:2.8.3@sha256:a3d8aaa63ed8681a604f1dea0aa03f100d5895b6a58ace528858a7b332415373
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent http://127.0.0.1:5000/v2/ >/dev/null; then
+              break
+            fi
+            sleep 1
+          done
+          curl --fail --silent http://127.0.0.1:5000/v2/ >/dev/null
+          # Exercise the API-proxy source under test, not the last released image.
+          docker build --tag "$API_PROXY_LOCAL_TAG" containers/api-proxy
+          docker push "$API_PROXY_LOCAL_TAG"
+          api_proxy_digest="$(docker image inspect --format='{{index .RepoDigests 0}}' "$API_PROXY_LOCAL_TAG" | sed 's/.*@//')"
+          [[ "$api_proxy_digest" =~ ^sha256:[a-f0-9]{64}$ ]] || {
+            echo "Could not resolve a sha256 digest for the locally built API proxy image" >&2
+            exit 1
+          }
+          printf 'API_PROXY_IMAGE=localhost:5000/awf/api-proxy:routing-smoke@%s\n' "$api_proxy_digest" >> "$GITHUB_ENV"
+
+      - name: Run a routed ${{ matrix.provider }} inference through AWF
+        env:
+          OPENAI_API_KEY: ${{ matrix.provider == 'openai' && secrets.OPENAI_API_KEY || '' }}
+          ANTHROPIC_API_KEY: ${{ matrix.provider == 'anthropic' && secrets.ANTHROPIC_API_KEY || '' }}
+          ROUTING_PROVIDER: ${{ matrix.provider }}
+          ROUTING_DOMAIN: ${{ matrix.domain }}
+          ROUTING_MODEL: ${{ matrix.model }}
+          ROUTING_WIRE_MODEL: ${{ matrix.wire_model }}
+        run: |
+          set -euo pipefail
+          case "${ROUTING_PROVIDER}" in
+            openai) test -n "${OPENAI_API_KEY}" || { echo "OPENAI_API_KEY secret is not available" >&2; exit 1; } ;;
+            anthropic) test -n "${ANTHROPIC_API_KEY}" || { echo "ANTHROPIC_API_KEY secret is not available" >&2; exit 1; } ;;
+          esac
+          ROUTING_DIR="${RUNNER_TEMP}/model-routing-${ROUTING_PROVIDER}"
+          mkdir -m 700 -p "$ROUTING_DIR"
+          cat > "${ROUTING_DIR}/conversation.json" <<'JSON'
+          [{"role":"user","parts":[{"text":"Reply with exactly ROUTED_OK."}]}]
+          JSON
+          cat > "${ROUTING_DIR}/awf-config.yml" <<YAML
+          experimental:
+            modelRouting: true
+          network:
+            allowDomains:
+              - ${ROUTING_DOMAIN}
+          apiProxy:
+            enabled: true
+            allowedModels:
+              - ${ROUTING_MODEL}
+            routing:
+              provider: ${ROUTING_PROVIDER}
+              objective:
+                goal: cost
+                mode: balanced
+              task:
+                conversationFile: ${ROUTING_DIR}/conversation.json
+          container:
+            images:
+              agent: ${AGENT_IMAGE}
+              apiProxy: ${API_PROXY_IMAGE}
+              squid: ${SQUID_IMAGE}
+              router: ${ROUTER_IMAGE}
+          YAML
+
+          # The agent reads the routed selection from /reflect (management port
+          # 10000) and sends exactly that model, effort, and native endpoint.
+          ROUTED_COMMAND="$(cat <<'SCRIPT'
+          set -euo pipefail
+          reflect="$(curl --fail --silent --show-error --max-time 30 "http://172.30.0.30:10000/reflect")"
+          plan="$(node -e '
+            const assert = require("node:assert/strict");
+            const [reflectJson, provider, model, wireModel] = process.argv.slice(1);
+            const routing = JSON.parse(reflectJson).routing;
+            assert.equal(routing?.status, "selected", "/reflect did not report a routed selection: " + JSON.stringify(routing));
+            const s = routing.selection;
+            assert.equal(s.provider, provider);
+            assert.equal(s.model, model);
+            assert.equal(s.wire_model, wireModel);
+            console.error("ROUTED_SELECTION=" + JSON.stringify(s));
+            const prompt = "Reply with exactly ROUTED_OK.";
+            let base, body;
+            if (provider === "anthropic") {
+              assert.equal(s.endpoint, "/v1/messages");
+              base = process.env.ANTHROPIC_BASE_URL;
+              body = { model: s.wire_model, max_tokens: 4096, messages: [{ role: "user", content: prompt }] };
+              if (s.effort !== null) body.output_config = { effort: s.effort };
+            } else {
+              base = process.env.OPENAI_BASE_URL;
+              if (s.effort === null) {
+                assert.equal(s.endpoint, "/chat/completions");
+                body = { model: s.wire_model, messages: [{ role: "user", content: prompt }], stream: false };
+              } else {
+                assert.equal(s.endpoint, "/responses");
+                body = { model: s.wire_model, input: prompt, reasoning: { effort: s.effort }, max_output_tokens: 4096, stream: false };
+              }
+            }
+            assert.ok(base, "provider base URL is missing from the agent environment");
+            const url = new URL(base).origin + (s.endpoint.startsWith("/v1/") ? s.endpoint : "/v1" + s.endpoint);
+            console.log(JSON.stringify({ url, body }));
+          ' "$reflect" "$ROUTING_PROVIDER" "$ROUTING_MODEL" "$ROUTING_WIRE_MODEL")"
+          url="$(node -e 'process.stdout.write(JSON.parse(process.argv[1]).url)' "$plan")"
+          body="$(node -e 'process.stdout.write(JSON.stringify(JSON.parse(process.argv[1]).body))' "$plan")"
+          response="$(curl --fail-with-body --silent --show-error --max-time 180 \
+            -H "Content-Type: application/json" -H "anthropic-version: 2023-06-01" \
+            --data "$body" "$url")" || { echo "routed request failed: ${response:-}" >&2; exit 1; }
+          node -e '
+            const assert = require("node:assert/strict");
+            const result = JSON.parse(process.argv[1]);
+            const text = result.choices?.[0]?.message?.content ??
+              (Array.isArray(result.content) ? result.content.filter(p => p.type === "text").map(p => p.text).join("") : null) ??
+              (result.output || [])
+                .filter(item => item.type === "message")
+                .flatMap(item => item.content || [])
+                .filter(part => part.type === "output_text")
+                .map(part => part.text)
+                .join("");
+            assert.match(String(text), /ROUTED_OK/, "provider did not return the expected smoke response: " + JSON.stringify(result).slice(0, 500));
+            console.log("ROUTED_NATIVE_INFERENCE=passed provider=" + process.argv[2] + " model=" + process.argv[3]);
+          ' "$response" "$ROUTING_PROVIDER" "$ROUTING_MODEL"
+          SCRIPT
+          )"
+          sudo --preserve-env=OPENAI_API_KEY,ANTHROPIC_API_KEY,ROUTING_PROVIDER,ROUTING_MODEL,ROUTING_WIRE_MODEL,GITHUB_WORKSPACE,GITHUB_RUN_ID,GITHUB_RUN_ATTEMPT,GITHUB_REPOSITORY,GITHUB_WORKFLOW_REF,HOME,PATH \
+            node dist/cli.js --config "${ROUTING_DIR}/awf-config.yml" \
+            --env ROUTING_PROVIDER="${ROUTING_PROVIDER}" --env ROUTING_MODEL="${ROUTING_MODEL}" --env ROUTING_WIRE_MODEL="${ROUTING_WIRE_MODEL}" \
+            -- bash -euc "$ROUTED_COMMAND"
+
+      - name: Show Docker state on failure
+        if: failure()
+        run: |
+          docker ps -a
+          docker network ls
+
+      - name: Stop local image registry
+        if: always()
+        run: |
+          if docker container inspect awf-routing-registry >/dev/null 2>&1; then
+            docker rm --force awf-routing-registry
+          fi

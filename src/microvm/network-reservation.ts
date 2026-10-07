@@ -11,6 +11,11 @@ import {
   NETWORK_SUBNET,
   SQUID_IP,
 } from '../config/network-policy';
+import {
+  ENCLAVE_AGENT_API_PROXY_IP,
+  ENCLAVE_AGENT_GITHUB_MCP_IP,
+  ENCLAVE_AGENT_SUBNET,
+} from '../enclave/network';
 import { createMicrovmNetworkPlan } from './network-plan';
 import type {
   MicrovmNetworkHostTools,
@@ -498,10 +503,11 @@ function chooseInfrastructureIp(
   reserved: ReadonlySet<string>,
   live: ReadonlySet<string>,
 ): string {
-  const [networkIp, rawPrefix] = NETWORK_SUBNET.split('/');
+  const subnet = options.enclaveAgent ? ENCLAVE_AGENT_SUBNET : NETWORK_SUBNET;
+  const [networkIp, rawPrefix] = subnet.split('/');
   const prefix = Number(rawPrefix);
   if (prefix !== 24) {
-    throw new Error(`Unsupported microVM infrastructure subnet: ${NETWORK_SUBNET}`);
+    throw new Error(`Unsupported microVM infrastructure subnet: ${subnet}`);
   }
   const base = ipv4ToInteger(networkIp);
   const unavailable = new Set([
@@ -510,18 +516,21 @@ function chooseInfrastructureIp(
     API_PROXY_IP,
     DOH_PROXY_IP,
     CLI_PROXY_IP,
+    ...(options.enclaveAgent
+      ? ['172.31.0.1', ENCLAVE_AGENT_API_PROXY_IP, ENCLAVE_AGENT_GITHUB_MCP_IP]
+      : []),
     ...reserved,
     ...live,
     ...(options.controlPeer ? [options.controlPeer.ip] : []),
     ...(options.controlPeers ?? []).map((peer) => peer.ip),
   ]);
-  const preferredOffset = Number(AGENT_IP.split('.')[3]);
+  const preferredOffset = options.enclaveAgent ? 20 : Number(AGENT_IP.split('.')[3]);
   for (let attempt = 0; attempt < 253; attempt += 1) {
     const offset = 2 + ((preferredOffset - 2 + attempt) % 253);
     const candidate = integerToIpv4(base + offset);
     if (!unavailable.has(candidate)) return candidate;
   }
-  throw new Error(`No unused microVM infrastructure address is available on ${NETWORK_SUBNET}`);
+  throw new Error(`No unused microVM infrastructure address is available on ${subnet}`);
 }
 
 function integerToIpv4(value: number): string {

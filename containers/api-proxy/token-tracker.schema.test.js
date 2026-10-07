@@ -127,6 +127,8 @@ describe('shared token usage helpers', () => {
       streaming: false,
       duration: 123,
       responseBytes: 456,
+      requestedEndpoint: '/chat/completions',
+      upstreamEndpoint: '/responses',
     });
 
     expect(record).toMatchObject({
@@ -143,6 +145,8 @@ describe('shared token usage helpers', () => {
       cache_write_tokens: 1,
       duration_ms: 123,
       response_bytes: 456,
+      requested_endpoint: '/chat/completions',
+      upstream_endpoint: '/responses',
     });
     expect(validateTokenUsageRecord(record)).toBe(true);
   });
@@ -559,6 +563,37 @@ describe('token-usage file sentinel', () => {
       isolated.auditTrack('UPSTREAM_ERROR_RESPONSE', { response_body: 'redacted' });
       await isolated.closeLogStream();
       expect(fs.statSync(isolated.AUDIT_LOG_FILE).mode & 0o777).toBe(0o600);
+    } finally {
+      if (originalDir === undefined) delete process.env.AWF_TOKEN_LOG_DIR;
+      else process.env.AWF_TOKEN_LOG_DIR = originalDir;
+      fs.rmSync(auditDir, { recursive: true, force: true });
+    }
+  });
+
+  test('creates upstream error records with owner-only permissions', async () => {
+    const originalDir = process.env.AWF_TOKEN_LOG_DIR;
+    const auditDir = fs.mkdtempSync('/tmp/awf-upstream-error-permissions-');
+    process.env.AWF_TOKEN_LOG_DIR = auditDir;
+    let isolated;
+    jest.isolateModules(() => {
+      isolated = require('./token-persistence');
+    });
+
+    try {
+      isolated.auditUpstreamErrorResponse({ request_id: 'req-1', response_body: 'redacted' });
+      await isolated.closeLogStream();
+      const fd = fs.openSync(isolated.UPSTREAM_ERROR_LOG_FILE, 'r');
+      try {
+        expect(fs.fstatSync(fd).mode & 0o777).toBe(0o600);
+        const record = JSON.parse(fs.readFileSync(fd, 'utf8'));
+        expect(record).toMatchObject({
+          event: 'UPSTREAM_ERROR_RESPONSE',
+          request_id: 'req-1',
+          response_body: 'redacted',
+        });
+      } finally {
+        fs.closeSync(fd);
+      }
     } finally {
       if (originalDir === undefined) delete process.env.AWF_TOKEN_LOG_DIR;
       else process.env.AWF_TOKEN_LOG_DIR = originalDir;

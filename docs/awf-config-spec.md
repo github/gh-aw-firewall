@@ -239,7 +239,10 @@ AWF settings MAY be supplied via config files, including stdin (`--config -`).
 - `apiProxy.maxPermissionDenied` → `--max-permission-denied <number>`
 - `apiProxy.requestedModel` → *(config-only; maps to `AWF_REQUESTED_MODEL` for pre-startup validation)*
 - `apiProxy.modelFallback` → *(config-only; model fallback strategy)*
-- `apiProxy.routing` → *(config-only; maps to `AWF_ROUTING_CONFIG` — trusted task-level routing objective and conversation input)*
+- `apiProxy.fallbackModels` → *(config-only; maps to `AWF_FALLBACK_MODELS` — ordered model IDs retried on 5xx, timeout, or model-not-supported failures)*
+- `experimental.modelRouting` → *(config-only; experimental opt-in required for `apiProxy.routing`; defaults to off)*
+- `apiProxy.routing` → *(config-only; requires `experimental.modelRouting: true`; task-level routing objective and task conversation input)*
+- `apiProxy.routing.candidateModels` → *(optional glob patterns that limit router/classifier choices; intersected with the model policy; defaults to `apiProxy.allowedModels`)*
 - `apiProxy.modelRouter.providerType` → *(config-only; maps to `COPILOT_PROVIDER_TYPE`)*
 - `apiProxy.modelRouter.baseUrl` → *(config-only; maps to `COPILOT_PROVIDER_BASE_URL`)*
 - `apiProxy.allowedModels` → *(config-only; maps to `AWF_ALLOWED_MODELS` — JSON array of glob patterns; only matching models are permitted)*
@@ -365,6 +368,7 @@ AWF settings MAY be supplied via config files, including stdin (`--config -`).
 - `rateLimiting.bytesPerMinute` → `--rate-limit-bytes-pm`
 - `rateLimiting.maxGithubApiPointsRest` → `--max-github-api-points-rest` *(requires `security.difcProxy.host`)*
 - `rateLimiting.maxGithubApiPointsGraphql` → `--max-github-api-points-graphql` *(requires `security.difcProxy.host`)*
+- `rateLimiting.maxNumToolCalls` → `--max-num-tool-calls` *(requires `enclaves`, see §14.2a)*
 
 GitHub API point budgets apply to the entire AWF run and are enforced only by
 the protected `gh` CLI proxy enabled through `security.difcProxy.host`. REST
@@ -1454,7 +1458,7 @@ The API proxy MUST enforce the max-runs limit as follows:
      {
        "error": {
          "type": "max_runs_exceeded",
-         "message": "Maximum LLM invocations exceeded (5 / 5).",
+         "message": "Maximum LLM invocations exceeded (5 / 5): the shared per-run max-turns budget, including sub-agents, is exhausted. For gh-aw workflows, increase max-turns in workflow frontmatter and recompile; retrying within this run cannot restore the budget.",
          "invocation_count": 5,
          "max_runs": 5
        }
@@ -1889,6 +1893,56 @@ This enables workflow authors to get clear, early feedback when a retired or
 misspelled model is specified, rather than waiting for the first API request to
 fail with an opaque error.
 
+### 12.7 Ordered Fallback Models
+
+When `apiProxy.fallbackModels` is configured, the API proxy retries a failed
+request with the next model in an ordered list. The middle-power fallback above
+picks a model when the request is *resolved*. This chain applies after the
+upstream has *rejected* the model.
+
+```json
+{
+  "apiProxy": {
+    "fallbackModels": ["gpt-5.4", "claude-sonnet-4.6"]
+  }
+}
+```
+
+**Mapping:** `apiProxy.fallbackModels` → `AWF_FALLBACK_MODELS` (JSON array; a
+comma-separated list is also accepted when the variable is set directly)
+
+**Behavior:**
+
+1. Fallback triggers only on model-specific failures:
+   - any upstream `5xx` response (`504` is reported as `upstream_timeout`)
+   - a connection error or timeout before any upstream response
+     (`upstream_connection_error`)
+   - a `400`/`404` whose body says the model is unsupported, not found, or not
+     accessible, such as `model_not_supported`, `model_not_found`, or
+     `not accessible via the … endpoint` (`model_not_supported`)
+2. `401`, `403`, and `429` responses never trigger a fallback. A generic `400`
+   validation error, such as a bad tool schema or a too-long context, is
+   returned to the client unchanged.
+3. The proxy rewrites the request body's `model` field (OpenAI, Anthropic,
+   Copilot). For Gemini, where the body has no `model`, it rewrites the
+   `/models/<model>:<method>` path segment instead. The proxy strips a
+   redundant `<provider>/` prefix on fallback entries.
+4. Entries are tried in order. The proxy skips models already attempted for the
+   request and models rejected by the model-policy, retired-model,
+   multiplier-cap, or budget guards. When the chain is exhausted, the proxy
+   returns the last upstream error to the client.
+5. Each switch emits a `model_fallback` warning log with `from_model`,
+   `to_model`, `requested_model`, `attempt`, `reason`, and `status`. The
+   token-usage record for the successful response holds the model that served
+   the request in `model`, plus a `model_fallback` object with
+   `requested_model`, `model`, `attempt`, `reason`, and `status`. gh-aw can
+   report that model in `GH_AW_INFO_MODEL` and telemetry.
+6. Copilot's existing transient `model not supported` retries and the alias
+   endpoint-blocked candidate retry still run first. The ordered chain applies
+   only after those have been exhausted.
+7. WebSocket (Responses API) upgrades and AWF-internal routing classifier
+   requests are not covered.
+
 ### 12.1 Alias Candidates Are Restricted to Configured Providers
 
 Alias resolution MUST only consider provider slots that are actually configured
@@ -1916,28 +1970,62 @@ yet, use HTTP `503` and `"retryable": true`.
 
 ## 13a. Task-Level Model Routing
 
-`apiProxy.routing` is an opt-in, compiler-authored request for AWF to select one
-model and reasoning effort for the entire run.
+Task-level model routing is **experimental and opt-in**. To enable it, set
+root-level `experimental.modelRouting: true` alongside the compiler-authored
+`apiProxy.routing` request. An existing config containing `apiProxy.routing`
+without this gate must add the `experimental` block shown below; otherwise
+validation fails rather than silently ignoring the request. The gate alone,
+without `apiProxy.routing`, is valid but does not activate routing. Omitting
+the gate (or setting it to `false`) without a routing request preserves normal
+operation without routing infrastructure or environment.
 
-As of this release, the API proxy's routing controller and request enforcement
-are wired into the running server ([PR #8966](https://github.com/github/gh-aw-firewall/pull/8966)):
-when `AWF_ROUTING_CONFIG` is present, a routing session starts after key
-validation and model discovery, and every inference request is screened
-against the one selected model/effort — a mismatch is rejected with `403`
-before the adapter's enabled check runs, so a rejection never reveals provider
-configuration. Upgrades are rejected outright while a routing session exists.
-**The host workflow does not yet stage or validate `apiProxy.routing` input**
-(private per-run routing directory, host-mode rejection, `selection.json`
-wait-for-ready) — that wiring is tracked in
-[PR #8985](https://github.com/github/gh-aw-firewall/pull/8985) (open, not yet
-merged). Until it merges, `AWF_ROUTING_CONFIG` is derived directly from the
-config file's `apiProxy.routing.task.conversationFile` host path with no host
-staging, so configuring this block does not yet produce a working end-to-end
-routed run.
+As of this release, both the proxy-side and host-side halves of task-level
+routing are wired and shipped on `main`. The API proxy's routing controller
+is wired into the running server
+([PR #8966](https://github.com/github/gh-aw-firewall/pull/8966)): when
+`AWF_ROUTING_CONFIG` is present, a routing session starts after key
+validation and model discovery and selects one model/effort for the run.
+The host workflow stages and validates `apiProxy.routing` input before
+the proxy starts ([PR #8985](https://github.com/github/gh-aw-firewall/pull/8985)):
+it writes the task conversation into a private per-run routing directory,
+rejects unsupported configurations (non-Linux, non-runc, disabled API proxy,
+`--keep-containers`, DinD/split filesystems, Docker-socket exposure, or an
+unpinned router image),
+and waits for `selection.json` before starting the agent.
+
+The selection is **advisory**, not admitted-only. The agent is seeded with the
+selected model, effort, and endpoint, but the proxy does not pin requests to
+it: an agent (or a sub-agent that declares its own `model:`) MAY send any model
+that model policy permits, and such a request completes normally. Model choice
+is not a containment boundary — `allowedModels` / `disallowedModels`
+(`AWF_ALLOWED_MODELS` / `AWF_DISALLOWED_MODELS`) remain the enforcement
+surface that bounds cost and policy, independently of routing, and a request
+for an excluded model is still rejected by that policy guard. WebSocket
+upgrades are proxied normally while a routing session exists. For each
+inference request the proxy logs a `model_routing` event with
+`stage: "request"`, recording the requested and selected provider, model,
+effort, and endpoint, `routed: "as_selected"` or `"deviated"`, and the list of
+`deviations`, so routing quality stays measurable without enforcement.
+
+A genuine routing failure still surfaces as host exit code `78` instead of the
+run silently continuing: no selection could be produced (`no_route`, router
+unreachable, contract or configuration errors), or an upstream failure on a
+request that used the selected provider and model (a native provider error
+code, an SSE error event, or a prematurely closed response). A request that
+uses another model is not a routing failure, and neither is its upstream
+error or a model-policy rejection of it.
+
+The agent learns the selected model, effort, and endpoint from the API proxy's
+`GET /reflect` `routing` field (see
+[api-proxy-sidecar.md](api-proxy-sidecar.md)); the private `selection.json`
+is not visible to the agent.
 
 ```yaml
+experimental:
+  modelRouting: true
 apiProxy:
   routing:
+    provider: copilot
     objective:
       goal: cost
       mode: balanced
@@ -1947,37 +2035,128 @@ apiProxy:
 
 | Field | Allowed values | Description |
 |-------|----------------|-------------|
+| `provider` | `copilot` (default), `openai`, `anthropic` | Restricts routing to one configured native API-proxy provider; AWF does not switch credentials or translate across providers. |
+| `candidateModels` | non-empty array of model glob patterns | Limits router/classifier choices without widening the request policy; defaults to `apiProxy.allowedModels`. |
 | `objective.goal` | `cost`, `cost-speed` | Optimization goal used by the router |
 | `objective.mode` | `economy`, `balanced`, `robust`, `auto` | Fixed routing profile, or `auto` classification |
-| `task.conversationFile` | non-empty string | Host path to the trusted conversation input |
+| `task.conversationFile` | non-empty string | Host path to the task conversation whose description the router classifies |
 
-The routing object is closed: all fields shown above are required and unknown
-properties are rejected. A supported routed run also requires a complete
+The task conversation must be written by the workflow host before AWF starts.
+Callers are responsible for preparing task-relevant conversation content before
+AWF starts. AWF classifies the supplied conversation as-is; it does not parse
+workflow prompt markup or remove injected system instructions. If a rendered
+prompt contains a system block, the caller should provide the task conversation
+without that unrelated block.
+The conversation is a JSON array in the router's
+conversation format, for example
+`[{"role":"user","parts":[{"text":"Fix the failing unit test."}]}]`, with at
+least one non-blank `user` message and at most 1 MiB. Its user messages form the
+task **description**, which the router classifies once per run. The resulting
+**classification** (task type, scope, complexity, and, for `mode: auto`, the
+routing profile) selects the one model and effort the agent is seeded with for
+the whole run. The router is not invoked again per request or per sub-agent.
+
+The routing object is closed: `objective` and `task` are required, `provider`
+and `candidateModels` are optional, and unknown properties are rejected.
+Omitting `provider` preserves Copilot routing. OpenAI and Anthropic routing
+require the matching provider to be configured for the agent and currently
+require the native `api.openai.com` or `api.anthropic.com` target; AWF does not
+route custom gateways or translate or forward requests across provider
+boundaries. A supported routed run also requires a complete
 `container.images` manifest containing digest-pinned references for `router`
 and every other enabled image role. The legacy `latest` router default is kept
 only for resolver compatibility and is not a supported tag-only routed
 configuration.
 
-The candidate pool used by the routing controller is now called by the running
-proxy (see the wiring note above). It uses only the native, GitHub-token-backed
-Copilot catalogue, not a custom gateway or BYOK provider occupying the Copilot
-slot. It preserves advertised
-reasoning efforts, supported endpoints, and positive context limits. Models
-with missing effort or endpoint metadata are excluded; an explicitly empty
-effort list (or explicit lack of reasoning-effort support) instead allows one
-effortless choice. Effortless choices require chat completions; choices with
-an effort, including `none`, require responses. Unsupported effort values are
+The candidate pool uses models discovered for the selected native provider.
+The `/reflect` `model_api_mapping` includes maintained routing metadata for
+selected model families where provider `/models` endpoints do not publish
+context limits or reasoning-effort support. The initial maintained set covers
+OpenAI `gpt-5.4` and `gpt-5.4-2026-03-05`, plus Anthropic
+`claude-opus-5-5`, `claude-opus-5`, `claude-fable-5-1`, `claude-fable-5`,
+`claude-mythos-5-1`, `claude-mythos-5`, `claude-mythos-preview*`,
+`claude-sonnet-5-5`, `claude-sonnet-5`, `claude-opus-4-6`/`4-7`/`4-8`, and
+`claude-sonnet-4-6`. This is deliberately not exhaustive: discovered IDs are
+eligible only when endpoint and effort support are known from runtime metadata
+or an exact maintained mapping. For example, `o3`, `gpt-5-nano`, and
+`gpt-5.4-mini` do not inherit metadata from the GPT-5.4 base model and can yield
+`no_route`. Positive context limits are also maintained in `/reflect`; without
+one, a model is excluded from classifier preflight but may still remain
+available to the router.
+
+An explicitly empty effort list (or explicit lack of reasoning-effort support)
+allows one effortless choice. OpenAI uses its mapped Responses or Chat
+Completions protocol; Anthropic uses Messages. Unsupported effort values are
 discarded, and a model with no remaining advertised effort is excluded rather
 than converted into an effortless choice.
 
-Request guards, alias resolution, and candidate filtering share
-provider-aware `allowedModels` / `disallowedModels` matching. Native patterns
+Request guards and alias resolution use the provider-aware
+`allowedModels` / `disallowedModels` policy. Candidate filtering additionally
+uses `apiProxy.routing.candidateModels` when supplied; those patterns only
+narrow the router/classifier pool and never widen the request policy. When
+omitted, candidates continue to be derived from `allowedModels`. Native patterns
 such as `gpt-*` match the native model name; qualified patterns such as
 `github-copilot/gpt-*` match that provider only. Copilot recognizes the existing
 `copilot`, `github-copilot`, and `github` provider aliases. Matching remains
 case-insensitive with `*` wildcards, and deny rules take precedence. A
 provider-prefixed `auto` remains subject to dynamic-model verification: under
 a denylist it must also match an explicit allow rule.
+
+### 13a.1 Model-routing audit records
+
+When task-level routing is active, the proxy MUST attempt to persist `model-routing.jsonl`
+in `apiProxy.logging.tokenLogDir` (`AWF_TOKEN_LOG_DIR`, default
+`/var/log/api-proxy`) independently of diagnostic logging. Records MUST include
+`_schema: "model-routing/v<AWF_VERSION>"`, `timestamp` as specified in §13.4,
+`event: "model_routing"`, and `stage` equal to `classification`, `selection`,
+`failure`, or `request`.
+
+Every selection record MUST include:
+
+- `selected_model` as the canonical provider-qualified ID, `selected_effort`
+  (or `null`), and `selected_provider`;
+- `wire_model` and `endpoint` matching the selected route advertised in
+  `/reflect`;
+- `labels` and `mode` from validated classification, or `null` when
+  classification did not succeed;
+- `classifier_model` and `classifier_effort` identifying the successful
+  classifier, or `null` when no classifier succeeded;
+- `router` containing `name` and `version`;
+- `ranked_choices` in router preference order, each with `model` and `effort`;
+- the routing `objective` and configured `provider`;
+- `conversation_sha256`, the SHA-256 digest of the UTF-8 `JSON.stringify`
+  serialization of the validated staged conversation;
+- `interaction_id` from the existing Copilot interaction-ID builder; and
+- `github_repository` and `github_workflow_ref` when available.
+
+Every request record MUST retain the advisory comparison (`routed`,
+`deviations`, `unavailable`, `selected_model`, `selected_effort`, `selected_provider`,
+`selected_endpoint`, `requested_model`, and `requested_effort`, with `provider`
+and `pathname` identifying the requested provider and endpoint) and
+include `request_id`, terminal `outcome` (`completed`, `rejected`, `failed`,
+or `aborted`), and `status` (final HTTP status). Request-side model fields
+use the wire representation used for comparison, unlike canonical selection
+model fields. Before the request body is observed, body-dependent comparisons
+MUST be listed in `unavailable` and omitted from `deviations`; known provider
+and endpoint differences remain reportable. Endpoint differences are
+informational and MUST NOT by themselves make `routed` `deviated`. A known
+provider difference makes `routed` `deviated`, even when body-dependent
+comparisons remain unavailable. Otherwise, `routed` is `unobserved` when
+body-dependent comparisons remain unavailable.
+A model-policy rejection MUST NOT be reported as successful
+completion. Stream errors and premature closure MUST NOT be treated as
+completion merely because HTTP headers indicated success. When token usage is
+available, `request_id` MUST correlate with the corresponding
+`token-usage.jsonl` record; not every rejected or aborted call produces usage.
+
+These records MUST NOT contain raw conversation or prompt text, raw classifier
+output, or request/response bodies. Optional conversation capture is not
+implemented and remains outside the routing audit contract. AWF MUST attempt to preserve
+the audit file alongside the other API-proxy logs described in §13.4.
+Audit writes are synchronous and best-effort; disk success is not guaranteed,
+and logging errors MUST NOT change routing or inference behavior. The writer
+MUST use owner-only file permissions (`0600`)
+and MUST NOT follow symbolic links. No explicit flush is required.
 
 ## 13. Model Alias Logging
 
@@ -2044,7 +2223,7 @@ apiProxy:
 | Property | Type | Default | Env var | Description |
 |----------|------|---------|---------|-------------|
 | `apiProxy.logging.debugTokens` | boolean | `false` | `AWF_DEBUG_TOKENS` | Enable diagnostic token/model-alias logging to file |
-| `apiProxy.logging.tokenLogDir` | string | `/var/log/api-proxy` | `AWF_TOKEN_LOG_DIR` | Directory for `token-usage.jsonl` and `token-diag.jsonl` |
+| `apiProxy.logging.tokenLogDir` | string | `/var/log/api-proxy` | `AWF_TOKEN_LOG_DIR` | Directory for `token-usage.jsonl`, `model-routing.jsonl`, and `token-diag.jsonl` |
 | `apiProxy.diagnostics.captureBlockedRequests` | string \| boolean | `false` | `AWF_CAPTURE_BLOCKED_LLM_REQUESTS` | Capture body-shape info for guard-blocked requests (`false`/`true`/`summary`/`redacted`/`full`; `true` is an alias for `summary`) |
 | `apiProxy.diagnostics.maxCapturedBytes` | integer | `250000` | `AWF_MAX_BLOCKED_CAPTURE_BYTES` | Max bytes per record in `full` capture mode |
 
@@ -2073,9 +2252,17 @@ Directory: configured by `logging.proxyLogsDir` (default: `<workDir>/squid-logs/
 
 Directory: configured by `apiProxy.logging.tokenLogDir` / `AWF_TOKEN_LOG_DIR`
 (default: `/var/log/api-proxy/`; must be `/var/log/api-proxy` or a subdirectory to be preserved by AWF's default bind mount)
+
+On the runner, these files are preserved under `<logging.proxyLogsDir>/api-proxy-logs/`
+(or `/tmp/api-proxy-logs-<ts>/` when `proxyLogsDir` is not set). After cleanup AWF logs
+`Token usage log available at: <path>` and, when `$GITHUB_ENV` is set, exports
+`AWF_TOKEN_USAGE_LOG=<path>` so later workflow steps can locate `token-usage.jsonl`
+without hardcoding a path (see [ARC + DinD](arc-dind.md#locating-api-proxy-token-usage-logs)).
+
 | File | Format | Description | Always written |
 |------|--------|-------------|----------------|
 | `token-usage.jsonl` | JSONL (`token-usage/v<version>` schema) | Per-API-call token usage and cost records | Yes (when API proxy is active) |
+| `model-routing.jsonl` | JSONL (`model-routing/v<AWF_VERSION>` schema) | Routing classification, selection, failure, and terminal request audit records; metadata only | Yes (when task-level routing is active) |
 | `token-diag.jsonl` | JSONL (`token-diag/v<version>` schema) | Diagnostic events: model resolution steps, alias rewrites, token budget decisions | Only when `apiProxy.logging.debugTokens: true` |
 | `blocked-request-diag.jsonl` | JSONL (`blocked-request-diag/v<version>` schema) | Body-shape diagnostics for guard-blocked requests (effective tokens, AI credits, etc.) | Only when `apiProxy.diagnostics.captureBlockedRequests` is set |
 | `otel.jsonl` | JSONL (OpenTelemetry spans) | Distributed tracing spans; written as local fallback when no OTLP collector is configured | Only when OTEL is active and no collector endpoint set |
@@ -2242,15 +2429,23 @@ At most one entry MAY exist per executor kind, and each entry MUST declare exact
 
 `gvisor` requires an exactly registered `runsc` runtime and never falls back. `sbx` remains fail-closed for both executors until the audited capability proof lands.
 
-`cloud-hypervisor` is a reserved enclave runtime value governed by
-[ADR 0002](adr/0002-cloud-hypervisor-enclave-executor.md). AWF preserves the
-selection through parsing and validates the shared top-level `cloudHypervisor`
-preview, host, and attested-artifact configuration, but currently fails closed
-before launching an enclave. Execution remains disabled until the host executor,
-dedicated script and agent rootfs artifacts, workload-specific networking,
-resource parity, and durable recovery gates land. The initial scope is static
-script and static agent entries only; dynamic entries and custom `image`
-overrides are rejected, and no configuration falls back to another runtime.
+`cloud-hypervisor` selects the trusted host enclave executor governed by
+[ADR 0002](adr/0002-cloud-hypervisor-enclave-executor.md), not the primary-agent
+VM backend. AWF owns the per-run authenticated private Unix listener, staged
+seed paths, release-attested role artifacts, launch policy, and recovery state.
+The broker uses the unchanged protocol v2 without caller-selectable launch
+controls. Supported GitHub-hosted Ubuntu x86_64 KVM host/artifact preflight and
+the hard-bounded aggregate writable-storage provider from
+[#9394](https://github.com/github/gh-aw-firewall/issues/9394) are mandatory.
+The production provider is installed and is selected only after the supported
+host and package-matched release-attested artifact preflight pass. Unsupported
+hosts fail explicitly before staging/listener/VM creation; there is no bypass
+flag.
+The initial scope is static script and static agent entries only. Dynamic
+entries, custom `image` overrides, mixed container/VM enclave runtimes,
+Docker host path prefixes, primary sbx/NVX/Cloud Hypervisor combinations, and static
+GitHub tools lacking a scoped executor bearer handoff are rejected.
+No unavailable configuration falls back to another runtime.
 
 An enclave-only `cloud-hypervisor` selection requires top-level
 `cloudHypervisor` configuration but does not select Cloud Hypervisor for the
@@ -2433,6 +2628,19 @@ enclave_run_agent({
 Both tool schemas are closed (`additionalProperties: false`). A call can never provide or override images, runtimes, models, engines, profiles, mounts, network settings, credentials, repository catalogs, budgets, timeouts, or any other trusted control.
 
 The primary agent MUST NOT receive a broker socket, wrapper binary, direct server URL, capability token, repository seed, ledger state, or alternate enclave transport.
+
+### 14.2a Optional tool-call cap (cost control)
+
+`rateLimiting.maxNumToolCalls` (CLI: `--max-num-tool-calls <n>`) caps the number of enclave tool calls the primary agent may make in one AWF run. It is OPTIONAL and defaults to **unlimited**: when omitted, `enclave-mcp-server` keeps no counter, persists no state, and publishes no advisory text. Setting it without any configured enclave is a startup error.
+
+When configured:
+
+- **Scope** — one run-wide budget shared by `enclave_run_script` and `enclave_run_agent`, independent of each entry's `maxInvocations` and of the per-repository disclosure ledger. Dynamic repository admission is performed by the broker inside an `enclave_run_agent` call and does not consume additional units; tool calls made *inside* an enclave agent are bounded by `maxModelRequests`/`maxModelTokens` instead.
+- **Counting** — every attempted, well-formed `tools/call` to a published enclave tool consumes one unit before any other admission decision, including calls later rejected as busy, oversized, invalid, or failed. Malformed JSON-RPC requests that never name a published tool do not count.
+- **Advisory** — each published tool description, and the `initialize` result's `instructions`, state: "You are allowed to make at most N enclave tool calls in this run. After that, the system will deny any further enclave tool calls."
+- **Denial** — once exhausted, calls never reach an executor and return an in-band `isError` result whose text is "Max tool call count reached, no more tool calls are allowed. Make a decision based on what you already have in context." The decision depends only on the caller's own call count and trusted configuration, so it discloses no repository information. On the first denied call the broker logs one warning, `Max tool call count reached. {"toolName":…,"agentName":<executor kind>,"sessionID":<run id>,"maxToolCalls":N}`, so repeated retries cannot flood the logs.
+- **Persistence** — the count is persisted (mode `0600`) in the broker's private control directory keyed by the AWF run id, so a restarted broker for the same run resumes the count rather than resetting it.
+- **Exemptions** — the enclave server publishes no final-answer or structured-result submission tool; the agent's own result/safe-output tools are served elsewhere and are never counted or denied by this cap.
 
 ### 14.3 Topology, gateway contract, and readiness
 

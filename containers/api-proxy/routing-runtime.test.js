@@ -99,7 +99,7 @@ describe('createProductionRoutingController', () => {
       task: { conversationFile: '/run/awf-routing/input/conversation.json' },
     });
     expect(() => createProductionRoutingController({ rawConfig }))
-      .toThrow(/Copilot provider adapter owner is unavailable/);
+      .toThrow(/The provider adapter owner is unavailable/);
   });
 });
 
@@ -138,6 +138,51 @@ describe('createProductionRoutingSession', () => {
     session.completeShutdown();
     expect(readResult(outputDir, 'complete.json')).toEqual({ schema: 'awf-routing-complete/v1' });
     expect(fs.readdirSync(outputDir).filter(name => name.endsWith('.tmp'))).toEqual([]);
+  });
+
+  test('reflects the selection the agent must send, and failures without a selection', async () => {
+    const pending = createProductionRoutingSession({
+      rawConfig: '{}',
+      outputDir: makeOutputDir(),
+      createController: controllerReturning({ ok: true, selection: SELECTION }),
+    });
+    expect(pending.getReflectState()).toEqual({ status: 'pending', selection: null });
+    await pending.start();
+    expect(pending.getReflectState()).toEqual({
+      status: 'selected',
+      selection: {
+        provider: 'copilot', model: 'gpt-5', wire_model: 'gpt-5', effort: 'medium', endpoint: '/responses',
+      },
+    });
+
+    const cases = [
+      [{ provider: 'copilot', choice: { id: 'choice-0001', model: 'github-copilot/claude-haiku-4.5' } },
+        { effort: null, endpoint: '/chat/completions' }],
+      [{ provider: 'copilot', endpoint: '/v1/messages', choice: { id: 'choice-0001', model: 'github-copilot/claude-sonnet-5', effort: 'max' } },
+        { effort: 'max', endpoint: '/v1/messages' }],
+      [{ provider: 'anthropic', choice: { id: 'choice-0001', model: 'anthropic/claude-opus-5', effort: 'high' } },
+        { effort: 'high', endpoint: '/v1/messages' }],
+    ];
+    for (const [overrides, expected] of cases) {
+      const session = createProductionRoutingSession({
+        rawConfig: '{}',
+        outputDir: makeOutputDir(),
+        createController: controllerReturning({ ok: true, selection: { ...SELECTION, ...overrides } }),
+      });
+      await session.start();
+      expect(session.getReflectState().selection).toMatchObject(expected);
+    }
+
+    const failed = createProductionRoutingSession({
+      rawConfig: '{}',
+      outputDir: makeOutputDir(),
+      createController: controllerReturning({
+        ok: false,
+        failure: { schema: 'awf-routing-failure/v1', code: 'no_route', detail: 'x', retryable: false },
+      }),
+    });
+    await failed.start();
+    expect(failed.getReflectState()).toEqual({ status: 'failed', failure_code: 'no_route', selection: null });
   });
 
   test('publishes a failure record when the controller fails', async () => {
@@ -222,20 +267,21 @@ describe('createProductionRoutingSession', () => {
     });
     await session.start();
 
-    const res = {
-      writeHead: jest.fn(),
-      end: jest.fn(),
-    };
-    const rejected = session.screenRequest(
-      { url: '/v1/chat/completions', method: 'POST', headers: {} },
-      res,
-      { name: 'copilot' },
-    );
+    const { EventEmitter } = require('events');
+    const res = new EventEmitter();
+    res.statusCode = 200;
+    res.writableFinished = false;
+    res.write = jest.fn();
+    res.end = jest.fn();
+    const req = { url: '/v1/chat/completions', method: 'POST', headers: {} };
+    session.observeRequest(req, res, { name: 'copilot' });
+    req.awfRouting.bodyTransform(Buffer.from(JSON.stringify({ model: SELECTION.wire_model })));
+    res.statusCode = 503;
+    res.end(JSON.stringify({ error: { code: 'provider_unavailable' } }));
 
-    expect(rejected).toBe(true);
     expect(readResult(outputDir, 'runtime-failure.json')).toMatchObject({
       schema: 'awf-routing-failure/v1',
-      code: 'model_routing_mismatch',
+      code: 'provider_unavailable',
     });
   });
 
@@ -251,11 +297,15 @@ describe('createProductionRoutingSession', () => {
     await session.start();
     fs.writeFileSync(path.join(outputDir, 'runtime-failure.json'), '{}');
 
-    session.screenRequest(
-      { url: '/v1/chat/completions', method: 'POST', headers: {} },
-      { writeHead: jest.fn(), end: jest.fn() },
-      { name: 'copilot' },
-    );
+    const { EventEmitter } = require('events');
+    const res = new EventEmitter();
+    res.statusCode = 502;
+    res.write = jest.fn();
+    res.end = jest.fn();
+    const req = { url: '/v1/chat/completions', method: 'POST', headers: {} };
+    session.observeRequest(req, res, { name: 'copilot' });
+    req.awfRouting.bodyTransform(Buffer.from(JSON.stringify({ model: SELECTION.wire_model })));
+    res.end(JSON.stringify({ error: { code: 'bad_gateway' } }));
 
     expect(fatalExit).toHaveBeenCalledWith(78);
   });

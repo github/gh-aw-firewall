@@ -12,6 +12,7 @@
  */
 
 import { CloudHypervisorUnsupportedHostError } from './errors';
+import type { HostPreflightReason } from './host-preflight-progress';
 
 export interface GithubHostedRunnerEnv {
   platform: NodeJS.Platform;
@@ -28,6 +29,7 @@ export interface GithubHostedRunnerEligibility {
   eligible: boolean;
   /** Present only when `eligible` is `false`; explains which check failed. */
   reason?: string;
+  code?: HostPreflightReason;
 }
 
 function currentEnv(): GithubHostedRunnerEnv {
@@ -52,23 +54,26 @@ export function evaluateGithubHostedRunnerEligibility(
   env: GithubHostedRunnerEnv = currentEnv(),
 ): GithubHostedRunnerEligibility {
   if (env.platform !== 'linux') {
-    return { eligible: false, reason: `Cloud Hypervisor requires Linux; found ${env.platform}` };
+    return { eligible: false, code: 'platform-unsupported', reason: `Cloud Hypervisor requires Linux; found ${env.platform}` };
   }
   if (env.arch !== 'x64') {
     return {
       eligible: false,
+      code: 'architecture-unsupported',
       reason: `Cloud Hypervisor supports only GitHub-hosted x86_64 runners; found Node architecture ${env.arch}`,
     };
   }
   if (env.githubActions !== 'true') {
     return {
       eligible: false,
+      code: 'github-actions-required',
       reason: 'Cloud Hypervisor is supported only inside GitHub Actions runs (GITHUB_ACTIONS != "true")',
     };
   }
   if (env.runnerEnvironment !== 'github-hosted') {
     return {
       eligible: false,
+      code: 'runner-not-github-hosted',
       reason: 'Cloud Hypervisor is supported only on GitHub-hosted runners, not self-hosted ' +
         `(RUNNER_ENVIRONMENT=${env.runnerEnvironment ?? 'unset'})`,
     };
@@ -76,6 +81,7 @@ export function evaluateGithubHostedRunnerEligibility(
   if (!env.imageOs || !/^ubuntu/i.test(env.imageOs)) {
     return {
       eligible: false,
+      code: 'ubuntu-image-required',
       reason: `Cloud Hypervisor requires a GitHub-hosted Ubuntu runner image (ImageOS=${env.imageOs ?? 'unset'})`,
     };
   }

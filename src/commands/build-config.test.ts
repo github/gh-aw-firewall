@@ -110,10 +110,12 @@ describe('buildConfig', () => {
         task: { conversationFile: '/tmp/gh-aw/conversation.json' },
       };
       const config = buildConfig(makeInputs({
-        options: { ...makeInputs().options, modelRouting },
+        options: { ...makeInputs().options, experimentalModelRouting: true, modelRouting },
       }));
 
       expect(config.modelRouting).toEqual(modelRouting);
+      expect(config.experimentalModelRouting).toBe(true);
+      expect(buildConfig(makeInputs()).experimentalModelRouting).toBeUndefined();
     });
 
     it('should set logLevel from inputs', () => {

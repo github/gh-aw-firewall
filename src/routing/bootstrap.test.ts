@@ -28,6 +28,7 @@ function makeConfig(workDir: string, conversationFile: string): WrapperConfig {
     imageRegistry: 'ghcr.io/github/gh-aw-firewall',
     imageTag: 'latest',
     enableApiProxy: true,
+    experimentalModelRouting: true,
     images: {
       router: `ghcr.io/example/router:test@sha256:${digest}`,
     },
@@ -61,6 +62,19 @@ describe('routing bootstrap', () => {
 
   afterEach(() => {
     fs.rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  it('does not stage routing without both opt-in and a routing request', () => {
+    const config = makeConfig(path.join(tempDir, 'work'), path.join(tempDir, 'missing.json'));
+    for (const optIn of [undefined, false]) {
+      config.experimentalModelRouting = optIn;
+      expect(stageRoutingConversation(config)).toBeUndefined();
+      expect(config.modelRoutingBootstrap).toBeUndefined();
+    }
+    config.experimentalModelRouting = true;
+    delete config.modelRouting;
+    expect(stageRoutingConversation(config)).toBeUndefined();
+    expect(config.modelRoutingBootstrap).toBeUndefined();
   });
 
   it('validates and stages one private conversation copy with rewritten config', () => {
@@ -181,5 +195,25 @@ describe('routing bootstrap', () => {
   it('keeps result-file validation helpers closed to malformed records', () => {
     expect(routingBootstrapTestHelpers.isSelectionRecord({ schema: 'awf-routing-selection/v1' })).toBe(false);
     expect(routingBootstrapTestHelpers.isFailureRecord({ schema: 'awf-routing-failure/v1' })).toBe(false);
+  });
+
+  it.each(['copilot', 'openai', 'anthropic'])('accepts a routing selection for %s', provider => {
+    expect(routingBootstrapTestHelpers.isSelectionRecord({
+      schema: 'awf-routing-selection/v1',
+      engine: 'copilot',
+      provider,
+      choice: { id: 'one', model: `${provider}/model` },
+      wire_model: 'model',
+    })).toBe(true);
+  });
+
+  it('rejects a selection for a provider outside the supported routing set', () => {
+    expect(routingBootstrapTestHelpers.isSelectionRecord({
+      schema: 'awf-routing-selection/v1',
+      engine: 'copilot',
+      provider: 'gemini',
+      choice: { id: 'one', model: 'gemini/model' },
+      wire_model: 'model',
+    })).toBe(false);
   });
 });

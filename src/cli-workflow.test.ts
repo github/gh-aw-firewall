@@ -2,6 +2,7 @@ import { runMainWorkflow } from './cli-workflow';
 import { WrapperConfig } from './types';
 import { HostAccessConfig } from './host-iptables';
 import { normalizeEnclavesConfig } from './parsers/enclave-parser';
+import { getEnclaveStartupProgress } from './enclave/startup-progress';
 
 jest.mock('./topology', () => ({
   TOPOLOGY_NETWORK_NAME: 'awf-net',
@@ -223,6 +224,7 @@ describe('runMainWorkflow', () => {
     const config: WrapperConfig = {
       ...baseConfig,
       enableApiProxy: true,
+      experimentalModelRouting: true,
       modelRouting: {
         objective: { goal: 'cost', mode: 'balanced' },
         task: { conversationFile: '/host/conversation.json' },
@@ -273,6 +275,31 @@ describe('runMainWorkflow', () => {
     ]);
     expect(dependencies.waitForRoutingSelection).toHaveBeenCalledWith(routingState);
     expect(dependencies.verifyRoutingCompletion).toHaveBeenCalledWith(routingState);
+  });
+
+  it('does not run routing hooks without both the gate and a routing request', async () => {
+    const config: WrapperConfig = {
+      ...baseConfig,
+      modelRouting: {
+        objective: { goal: 'cost', mode: 'balanced' },
+        task: { conversationFile: '/host/conversation.json' },
+      },
+    };
+    const dependencies = createWorkflowDependencies({
+      prepareRouting: jest.fn(),
+      waitForRoutingSelection: jest.fn(),
+      verifyRoutingCompletion: jest.fn(),
+      cleanupRouting: jest.fn(),
+    });
+    for (const optIn of [undefined, false, true]) {
+      config.experimentalModelRouting = optIn;
+      if (optIn === true) delete config.modelRouting;
+      expect(await runMainWorkflow(config, dependencies, createWorkflowOptions())).toBe(0);
+    }
+    expect(dependencies.prepareRouting).not.toHaveBeenCalled();
+    expect(dependencies.waitForRoutingSelection).not.toHaveBeenCalled();
+    expect(dependencies.verifyRoutingCompletion).not.toHaveBeenCalled();
+    expect(dependencies.cleanupRouting).not.toHaveBeenCalled();
   });
 
   it('skips host network setup and iptables in network-isolation mode', async () => {
@@ -443,6 +470,7 @@ describe('runMainWorkflow', () => {
       ) => {
         order.push('infrastructure');
         await onInfrastructureReady?.();
+        expect(getEnclaveStartupProgress(enclaveConfig)?.startupChecks?.ready).toBe(true);
         order.push('agent-started');
       },
     );
@@ -467,6 +495,35 @@ describe('runMainWorkflow', () => {
       'agent-started',
       'agent-run',
     ]);
+    expect(getEnclaveStartupProgress(enclaveConfig)?.startupChecks?.checks).toMatchObject({
+      'startup/configuration': ['passed', 'none'],
+      'startup/enclave-preparation': ['passed', 'none'],
+      'startup/network-enforcement': ['passed', 'none'],
+      'startup/compose-configuration': ['passed', 'none'],
+      'startup/infrastructure': ['passed', 'none'],
+      'startup/gateway-attachment': ['passed', 'none'],
+      'startup/gateway-ready': ['passed', 'none'],
+      'startup/github-ready': ['not-required', 'none'],
+      'startup/readiness': ['passed', 'none'],
+    });
+  });
+
+  it('cannot consider a new enclave startup ready when the infrastructure readiness callback was not executed', async () => {
+    const runAgentCommand = jest.fn();
+    const config = { ...enclaveConfig };
+    await expect(runMainWorkflow(config, createWorkflowDependencies({
+      prepareEnclaves: jest.fn().mockResolvedValue(undefined),
+      connectEnclaveGateway: jest.fn().mockResolvedValue(undefined),
+      assertEnclaveGatewayReady: jest.fn().mockResolvedValue(undefined),
+      runAgentCommand,
+    }), createWorkflowOptions())).rejects.toThrow(/incomplete required checks/);
+    expect(runAgentCommand).not.toHaveBeenCalled();
+    expect(getEnclaveStartupProgress(config)?.startupChecks).toMatchObject({
+      ready: false, checks: {
+        'startup/infrastructure': ['attempted', 'none'],
+        'startup/gateway-ready': ['not-attempted', 'none'],
+      },
+    });
   });
 
   it('aborts before primary-agent startup when gateway readiness fails', async () => {
@@ -492,6 +549,8 @@ describe('runMainWorkflow', () => {
       runAgentCommand,
     }), createWorkflowOptions())).rejects.toThrow(/tool mismatch/);
     expect(runAgentCommand).not.toHaveBeenCalled();
+    expect(getEnclaveStartupProgress(enclaveConfig)?.startupChecks?.checks['startup/infrastructure'])
+      .toEqual(['passed', 'none']);
   });
 
   it('passes agentTimeout to runAgentCommand', async () => {

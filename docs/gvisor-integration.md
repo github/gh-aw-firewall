@@ -249,9 +249,9 @@ With no iptables DNAT fallback, tools that ignore `HTTP_PROXY`/`HTTPS_PROXY`
 with "No route to host". Egress under gVisor requires proxy-aware clients.
 :::
 
-`.github/workflows/test-gvisor-compat.yml` remains a **manual, non-gating
-diagnostic probe** for iptables/proxy reachability inside a `runsc` sandbox; it
-documents the historical behavior but is not part of the enforced egress path.
+The former `test-gvisor-compat.yml` manual diagnostic probe is archived under
+`.github/disabled-workflows/`; it documents historical iptables/proxy reachability
+inside a `runsc` sandbox but is not part of the enforced egress path.
 
 ### Runtime-specific compatibility shims
 
@@ -265,11 +265,12 @@ documents the historical behavior but is not part of the enforced egress path.
 
 - CLI: `--container-runtime gvisor` (unknown values pass through as raw Docker
   runtime names).
-- gh-aw workflow frontmatter: `sandbox.agent.runtime: gvisor` (see the
-  `smoke-gvisor*` workflows under `.github/workflows/`).
+- gh-aw workflow frontmatter: `sandbox.agent.runtime: gvisor` (the
+  `smoke-gvisor*` workflows are archived under `.github/disabled-workflows/`
+  and no longer run in PR CI).
 - **Prerequisite:** `runsc` must be installed and registered as a Docker runtime
-  in `/etc/docker/daemon.json`. CI installs the `runsc` +
-  `containerd-shim-runsc-v1` binaries from the gVisor release bucket and
+  in `/etc/docker/daemon.json`. The archived compatibility workflow installs the
+  `runsc` + `containerd-shim-runsc-v1` binaries from the gVisor release bucket and
   registers both `runsc` (netstack) and `runsc-net-host` (`--network=host`)
   runtimes; AWF maps `gvisor` to plain `runsc`.
 
@@ -365,7 +366,8 @@ service.
 - netstack DNS limitation: <https://github.com/google/gvisor/issues/7469>
 - AWF source: `src/container-runtime.ts`, `src/services/agent-service.ts`,
   `src/topology.ts`, `src/services/agent-environment/tool-specific-environment.ts`
-- CI: `.github/workflows/test-gvisor-compat.yml`, `.github/workflows/smoke-gvisor*.md`
+- Archived workflow examples: `.github/disabled-workflows/test-gvisor-compat.yml`,
+  `.github/disabled-workflows/smoke-gvisor*.md`
 - Related: [Docker Sandboxes (sbx) integration](./sbx-integration.md),
   [Cloud Hypervisor architecture](./cloud-hypervisor-foundation.md),
   [Sandbox design](./sandbox-design.md)

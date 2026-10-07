@@ -51,6 +51,8 @@ export function mapAwfFileConfigToCliOptions(config: AwfFileConfig): Record<stri
     maxCacheMisses: config.apiProxy?.maxCacheMisses,
     requestedModel: config.apiProxy?.requestedModel,
     modelFallback: config.apiProxy?.modelFallback,
+    fallbackModels: config.apiProxy?.fallbackModels,
+    experimentalModelRouting: config.experimental?.modelRouting,
     modelRouting: config.apiProxy?.routing,
     copilotProviderType: config.apiProxy?.modelRouter?.providerType,
     copilotProviderBaseUrl: config.apiProxy?.modelRouter?.baseUrl,
@@ -183,6 +185,7 @@ export function mapAwfFileConfigToCliOptions(config: AwfFileConfig): Record<stri
     rateLimitBytesPm: toStringIfDefined(config.rateLimiting?.bytesPerMinute),
     maxGithubApiPointsRest: config.rateLimiting?.maxGithubApiPointsRest,
     maxGithubApiPointsGraphql: config.rateLimiting?.maxGithubApiPointsGraphql,
+    maxNumToolCalls: config.rateLimiting?.maxNumToolCalls,
 
     platformType: config.platform?.type,
 

@@ -7,7 +7,7 @@ Cloud Hypervisor runs the primary agent in a hardware-isolated microVM while
 AWF keeps Squid and the API proxy in Docker Compose on the host.
 
 This document covers that one-VM-per-run primary-agent runtime. The distinct
-planned one-VM-per-enclave-invocation design keeps the enclave MCP broker
+separately gated one-VM-per-enclave-invocation design keeps the enclave MCP broker
 host/container-side; see
 [ADR 0002: Cloud Hypervisor enclave executor](adr/0002-cloud-hypervisor-enclave-executor.md).
 
@@ -58,15 +58,23 @@ The implementation is divided into focused modules:
   computes Landlock rules.
 - `src/cloud-hypervisor/vm-config-builder.ts` constructs the `vm.create`
   payload.
+- `src/cloud-hypervisor/network-namespace.ts` creates and removes the empty,
+  per-run network namespace used by no-network script-enclave workloads.
 - `src/microvm/` contains shared network, workspace, VSOCK, guest-protocol, and
   artifact primitives.
 - `guest/microvm-supervisor/` contains the shared guest supervisor.
 - `guest/cloud-hypervisor/` contains Cloud Hypervisor artifact build and
   verification tooling.
 
+For workspace-less script enclaves, the generated guest command line includes
+`awf.network-mode=none` instead of workspace and guest-interface arguments.
+The supervisor rejects mixed network/workspace arguments, mounts only the
+declared virtio-fs exports, and opens its VSOCK listener without configuring
+guest networking.
+
 ## Runtime lifecycle
 
-AWF performs these steps for each run:
+For the primary-agent preview, AWF performs these steps for each run:
 
 1. Validate the runtime flags, security mode, topology, host eligibility, and
    required artifact paths and digests.
@@ -132,6 +140,217 @@ the record and resources for diagnosis. The record is removed only after normal
 teardown succeeds. `--keep-containers` is an explicit diagnostic opt-out: its
 record is removed while the requested resources remain preserved.
 
+### No-network script-enclave profile
+
+The script-enclave workload profile selects `network.mode: none`. Trusted
+host-side planning derives one run-scoped empty network namespace and launches
+the VMM inside it, but creates no NIC, TAP, veth pair, bridge attachment,
+address, route, DNS configuration, nftables service rule, Squid dependency, or
+API-proxy/mcpg path. The VM payload omits `net`, the guest command line omits
+interface/address/gateway arguments, and the VMM receives temporary access to
+`/dev/kvm` but not `/dev/net/tun`.
+
+The cleanup record represents this as a namespace-only resource rather than
+fabricating primary-agent interface fields. Namespace teardown is bounded and
+idempotent, including partial startup before VM creation.
+
+### Agent-enclave network profile (storage prerequisite required)
+
+The agent-enclave plan uses the dedicated, internal `awf-enclave-agent` bridge,
+never `awf-net`. Host-side Docker network inspection verifies the fixed
+subnet, local internal bridge and exact peer membership (including the
+compiler-handoff mcpg container identity when configured) before resolving its
+bridge interface. The plan selects only the configured engine's dedicated API
+proxy port at `172.31.0.30` and, when GitHub access is configured, the
+compiler-owned mcpg data-plane port 8080 at `172.31.0.40`. Neither mcpg's
+delegation-control listener nor any other port is admitted. The caller cannot
+provide a bridge, peer address, route, DNS server, TAP name or firewall rule.
+
+The VMM would join a per-run host network namespace with a TAP and veth
+attached to that verified bridge. Its host-namespace nftables forward chain
+defaults to drop, checks guest MAC and source IP, rejects DNS and host/link-local
+destinations, and accepts only the selected destination/port pairs; matching
+SNAT rules permit replies. This boundary applies even when guest software
+ignores proxy variables. The existing reservation and durable cleanup record
+track the namespace, veth, TAP and scoped bridge rule for rollback and
+idempotent teardown. Cloud Hypervisor enclave selection uses the trusted host
+executor, with a production hard-bounded storage provider on eligible hosts.
+Unavailable storage or host prerequisites reject admission before staging,
+network, or VM side effects.
+The optional `AWF_TEST_ENCLAVE_NETWORK=1` Jest integration test exercises
+permitted and denied TCP packets across this host nftables boundary on a
+privileged Linux host with working network namespaces and veth forwarding.
+
+### Enclave virtio-fs layouts (storage prerequisite required)
+
+Script and agent enclave exports are derived from the authenticated host
+executor's trusted run state and invocation plan. The plan accepts no path, tag,
+guest target, or permission from the broker. It resolves the selected static
+seed under the run's seed directory and the invocation's fixed child
+directories; all sources must already exist as canonical real directories.
+Planning creates no directories or mounts, so path or policy validation fails
+before filesystem side effects.
+
+Both roles receive the selected seed at `/input-seed` and the immutable
+invocation request at `/input-request`, both host-enforced read-only. Each role
+gets only its own `/output` and `/runtime` directories as writable exports.
+Agent enclaves additionally receive only the distinct
+`/session-handoff` and `/session-state` directories as writable exports; the
+parent invocation directory, delegation-control files, and executor state are
+never exported. No enclave export uses or synthesizes `/workspace`. Guest
+mount-tree overrides are rejected for enclaves, so guest cooperation cannot
+widen an export's host-enforced mode. Export tags, targets, counts, and modes
+are closed per role, with duplicate and overlapping targets rejected.
+
+The primary-agent layout remains the existing `/workspace` layout. The internal
+host executor derives these enclave exports; user-facing script- and
+agent-enclave VM launches remain fail-closed while the trusted aggregate
+writable-storage provider (#9394) is unavailable.
+
+### Enclave resource profiles (storage prerequisite required)
+
+The host creates one immutable resource profile from the workload role; the
+broker protocol, guest environment, and arbitrary launch metadata cannot set or
+raise these fields. The role budgets are:
+
+| Limit | Script | Agent |
+| --- | ---: | ---: |
+| Cloud Hypervisor guest RAM | 768 MiB | 768 MiB |
+| Guest vCPUs | 1 | 1 |
+| Host CPU quota | 500 milli-CPU | 500 milli-CPU |
+| Guest process limit (`RLIMIT_NPROC`, UID 65534) | 47 | 47 |
+| Per-file limit (`RLIMIT_FSIZE`) | 512 MiB | 256 MiB |
+| Open files (`RLIMIT_NOFILE`) | 1024 | 1024 |
+| Role work tmpfs | `/query`, 256 MiB | `/tmp`, 96 MiB |
+| Additional tmpfs | `/tmp` 16 MiB, `/run` 16 MiB, `/dev/shm` 32 MiB | `/home/awf-enclave` 32 MiB, `/run` 16 MiB, `/dev/shm` 32 MiB |
+| Aggregate invocation storage ceiling (including artifacts and VM state) | 1 GiB | 512 MiB |
+| Guest UID/GID | 65534:65534 | 65534:65534 |
+
+The VM receives exactly the profile's vCPU count and memory. The host cgroup
+applies a matching 50000/100000-µs CPU quota to the VMM and its virtio-fs
+processes; the guest sees one logical vCPU, while its total host scheduling rate
+is capped at half a CPU. Host cgroup memory includes 256 MiB of VMM/device
+overhead above guest RAM. Primary-agent runs continue to use their existing
+Cloud Hypervisor options and cgroup headroom.
+
+Before the VSOCK listener starts, the guest supervisor mounts each required
+tmpfs with `nosuid,nodev` (and `noexec` for the role-work, temporary, and home
+filesystems), then
+verifies the mounted filesystem type and maximum capacity. It applies and reads
+back the process, file-size, and open-file rlimits. The guest root disk is opened
+read-only by Cloud Hypervisor and booted `ro`; the fixed virtio-fs export plan
+provides the only other write locations. Agent guests bind the writable
+`/runtime` export at `/agent` (`nosuid,nodev`), the invocation-private runtime
+root the agent entrypoint expects; boot fails if that export is missing or
+read-only. Enclave boot lines that declare a primary workspace device, mount,
+or `workspace` export are rejected. Script and agent requests must use the
+profile's fixed UID/GID. The supervisor clears supplementary groups and drops
+all capabilities except `CAP_SETGID` and `CAP_SETUID`, which its trusted
+launcher needs to transition the child identity. Capabilities, the bounding
+set, and `no_new_privs` are per-thread kernel state, so the cgo-free supervisor
+applies each change to every Go runtime thread and verifies every entry under
+`/proc/self/task` before serving requests. After the identity transition, the
+execution trampoline verifies UID/GID, empty groups, empty effective,
+permitted, inheritable, and ambient capability sets, the restricted
+`CAP_SETGID`/`CAP_SETUID` bounding set, rlimits, and `no_new_privs` on every
+thread before `exec` of workload code. `no_new_privs` prevents the workload from gaining
+privileges through executable metadata. Missing mounts, unsupported kernel
+controls, or verification mismatches abort startup rather than launching
+without a limit.
+
+The trusted host executor mounts one invocation-private Linux **tmpfs** at
+`/run/awf-cloud-hypervisor/enclave-storage/<vmRunId>`, with `size=1073741824` for scripts (1 GiB) or
+`size=536870912` for agents (512 MiB). The production provider routes artifact
+snapshots, rootfs preparation and staging, VM run paths, and the closed writable
+virtio-fs exports through this single allocation domain. Request and handoff
+files also consume its budget. Executable artifacts use a sealed read-only view;
+writable state uses `nosuid,nodev,noexec`. These views share one tmpfs
+superblock, not independent capacity limits. Linux charges allocated pages
+atomically, including concurrent writes and writes into sparse-file holes;
+allocation beyond the aggregate ceiling returns `ENOSPC`.
+Artifact and rootfs pages reduce the capacity available to workload writes.
+An artifact set or prepared image that cannot fit fails closed with the same
+ceiling; AWF does not enlarge the profile to accommodate it.
+Sparse logical lengths do not allocate pages and do not bypass the allocation
+limit. No disk quota, loop device, or guest-only `size=` limit is required, so
+the mechanism uses the supported GitHub-hosted Linux/KVM runner's existing
+mount/virtio-fs path. Guest-internal tmpfs ceilings remain separate.
+
+Host-only invocation mount points live under
+`/var/lib/awf-cloud-hypervisor/host-invocations/<runId>/<entryId>/<invocationId>`,
+not the broker's `/var/tmp` work directory. AWF validates every ancestor as a
+root-owned, non-writable real directory without making a sticky-directory
+exception. Each mount point binds the allocation domain's `state` directory;
+it is not a second allocation. Empty mount-point directories and durable
+control journals contain no workload or artifact bytes. Admission rejects
+primary-agent mounts exposing these paths, the allocation roots, or recovery
+journals.
+
+Host tmpfs pages are charged to the writing virtio-fs process's memory cgroup.
+The enclave-only host `memory.max` therefore includes the fixed storage ceiling
+in addition to 768 MiB guest RAM and the existing 256 MiB VMM overhead:
+2 GiB for scripts and 1.5 GiB for agents. This avoids preempting the storage
+ceiling with the old shared-cgroup budget; it does not enlarge guest RAM or add
+a configurable resource limit. Host memory exhaustion can still terminate an
+invocation rather than return `ENOSPC`, and is treated as executor failure.
+Primary-agent cgroup budgets are unchanged.
+
+Before staging inputs and again before starting virtio-fs daemons, AWF verifies
+canonical export paths, the exact invocation mount in `/proc/self/mountinfo`,
+its tmpfs type, private mount identity, mount options, and exact role capacity
+from `statfs`. This is verification of a kernel-enforced backing store, not
+a free-space preflight. Missing, undersized, oversized, aliased, nested, or
+unverifiable mounts abort startup. There are no caller-selectable storage paths,
+sizes, classes, overrides, or fallback to the runner filesystem.
+
+The existing durable host-executor resource journal records the underlying
+directory before mounting and captures the tmpfs mount identity before use.
+Completion, timeout, cancellation, and partial startup wait for outstanding
+provisioning and VM/virtio-fs teardown before ordinary (never lazy) unmount and
+directory removal. Abandoned-run recovery first reaps the VM cleanup record,
+then verifies recorded directory/mount ownership and removes invocation storage.
+Unmount or ownership-verification failure retains the recovery record, reports
+incomplete cleanup, and keeps admissions closed; it never deletes through a
+live mount.
+
+`src/cloud-hypervisor/enclave-storage.integration.test.ts` exercises the actual
+host backing paths served by the closed writable exports, including role-sized
+aggregate `ENOSPC`, sparse and concurrent writes, invocation isolation, and busy
+unmount failure. It also fills storage in the production host cgroup budget while
+holding the guest-RAM equivalent resident, with swap disabled, to check that
+storage exhaustion is not preempted by a cgroup OOM. Run it as root in a private mount namespace with
+`AWF_TEST_ENCLAVE_STORAGE=1 npm test -- --runInBand enclave-storage.integration.test.ts`.
+The gated `host-probes` job in `.github/workflows/test-cloud-hypervisor-enclaves.yml`
+runs this suite and `enclave-trusted-storage.integration.test.ts` via
+`sudo unshare --mount --propagation private`.
+Live guest transport conformance additionally requires the release-attested role
+artifacts and KVM runtime wiring.
+
+The rootfs build removes package-manager executables, the importable `pip` and
+`ensurepip` modules (so `python3 -m pip` cannot run or be recreated),
+setuid/setgid files, and file capabilities before creating either role image.
+The build executes each image's Python to confirm neither module resolves, and
+the verifier checks required supervisor/runtime paths and the absence of those
+modules in every Python library tree. The build also checks that no privilege
+bits or file capabilities remain.
+
+`TestEnclaveGuestLimitsLive` (run as root by the Cloud Hypervisor preview
+workflow) applies the real agent-role tmpfs, rlimit, read-only root, and
+all-thread privilege setup in a private mount namespace and launches a workload
+through the execution trampoline. The workload must observe `ENOSPC` on each
+bounded tmpfs, `EFBIG`, `EMFILE`, and `EAGAIN` at the file-size, open-file, and
+process limits, `EROFS` on read-only storage, UID/GID 65534 with no groups, and
+empty capabilities with `no_new_privs` on every thread. Booting enclave rootfs
+images under KVM remains gated on runtime wiring. No runtime-required privilege exception is
+allowlisted. These profiles and guest controls do not enable Cloud Hypervisor
+enclave execution by themselves. Runtime selection now connects the host-owned
+listener and broker adapter to the one-shot VM backend using unchanged protocol
+v2. The host must first supply the trusted storage provider from #9394 and pass
+supported-host/artifact preflight. Production installs that provider on eligible
+hosts; unsupported hosts still fail explicitly without runtime fallback.
+An authenticated broker startup probe uses `status` for an unknown
+invocation; it launches no VM and introduces no new protocol operation.
+
 ## Security boundaries
 
 ### Host eligibility and artifact trust
@@ -156,7 +375,17 @@ supervisor into a root-owned, non-writable snapshot under
 `/var/lib/awf-cloud-hypervisor/trusted-artifacts/`. That root must be on an
 exec-capable filesystem: AWF resolves its mount and fails closed before copying
 anything when the mount carries `noexec`, instead of surfacing an opaque
-`EACCES` from the later `--version` probe. Verification and execution use
+`EACCES` from the later `--version` probe. Enclaves instead stage the snapshot in
+their invocation-owned allocation domain, using an executable read-only view of
+the same bounded superblock. Run-level enclave preflight verifies immutable
+copies in short-lived, journaled, role-bounded preflight domains, including the
+temporary manifest/bundle files used for role attestation. Role rootfs, provenance,
+and SBOM inputs are captured into root-private bounded storage before hashing
+and attestation, with each role copy removed before staging the next. These domains close
+before listener startup; no unbounded shared snapshot remains. Attestation,
+parsing, digest checks, and executable version probes use the sealed copies,
+never mutable original paths. Invocation copies are verified again against the
+attested digests before launch. Verification and execution use
 only that snapshot, preventing caller-controlled path replacement between
 checking and use. Rootfs snapshot, writable preparation, and run staging
 preserve sparse ext4 holes so the trusted copies do not multiply the image's
@@ -183,8 +412,13 @@ An existing cache entry is fully reverified before reuse; an invalid entry is a
 terminal error and is never silently replaced. The script exports the
 role-specific `AWF_CLOUD_HYPERVISOR_ENCLAVE_SCRIPT_ROOTFS` and
 `AWF_CLOUD_HYPERVISOR_ENCLAVE_AGENT_ROOTFS` paths through `GITHUB_ENV`.
-Cloud Hypervisor enclave execution remains fail-closed until the other ADR 0002
-host-executor gates are implemented, and custom enclave image overrides remain
+The host-side artifact preflight, one-shot VM backend, authenticated broker
+dispatch, and per-run runtime wiring are implemented. Production execution
+uses the trusted bounded-storage provider (#9394) on eligible hosts and remains
+fail-closed when it is unavailable.
+Live conformance must exercise the integrated boundary against the
+[ADR 0002 supported-host real-KVM security matrix](adr/0002-cloud-hypervisor-enclave-executor.md#supported-host-real-kvm-validation)
+as the separate live-VM acceptance step. Custom enclave image overrides remain
 unsupported.
 
 :::danger[Fail-closed verification]
@@ -277,7 +511,9 @@ Before any virtio-fs socket is included in the Cloud Hypervisor VM
 configuration, AWF verifies the live parent and worker through `/proc`:
 
 - the parent PID still has its launch-time start value, trusted executable, and
-  exact socket, export, sandbox, and seccomp arguments;
+  exact socket, export, sandbox, seccomp, and uid/gid translation arguments,
+  with no `--xattr`, `--xattrmap`, `--posix-acl`, `--security-label`, or `-o`
+  option;
 - parent and worker UIDs/GIDs match the reviewed root namespace identity;
 - every parent capability set is empty, while the worker effective and
   permitted masks equal the pinned minimal virtiofsd set, its inheritable and
@@ -301,6 +537,51 @@ startup, AWF preserves the failure record under
 cleanup removes the private run directory. This verification follows the
 proven post-launch model from `agent-microvm` v0.9.0 rather than relying only on
 `--sandbox=namespace` and socket existence.
+
+### Guest uid/gid squashing in exports
+
+The guest supervisor runs as guest root, so a compromised agent that reaches
+guest root must not be able to choose host file ownership inside writable
+exports. Before v1.13, virtiofsd applied guest-requested owners verbatim and
+performed guest-root operations as its own host-root identity, so guest root
+could create host-root-owned files or `chown` files to any host uid/gid.
+
+AWF therefore pins virtiofsd v1.13.3, built from the pinned upstream source
+(crates.io `virtiofsd-1.13.3.crate`, digest-pinned, upstream commit
+`bbf82173682a3e48083771a0a23331e5c23b4924`, `cargo build --release --locked`
+with a pinned Rust toolchain; the manifest records the tag, commit, crate and
+`Cargo.lock` digests, toolchain, and binary digest). Every export is launched
+with:
+
+```text
+--translate-uid=squash-guest:0:<workspace uid>:4294967295
+--translate-gid=squash-guest:0:<workspace gid>:4294967295
+```
+
+The workspace uid/gid is the same non-root identity AWF passes to the guest
+agent. Every guest uid/gid used to create a file or assign an owner, including
+0, maps to that single host identity, so guest-root creates land as the
+workspace user and `chown` cannot forge host ownership; the runner user can
+always modify or delete what the guest left behind. The host-to-guest
+direction is not translated, so `stat` in the guest still shows real host ids.
+AWF fails closed before launch if the workspace uid or gid is unresolved, 0,
+or out of range, and the post-launch command-line verification rejects a
+daemon whose live arguments lack either translation.
+
+virtiofsd itself still runs as host root; translation is applied inside the
+daemon and does not need a user namespace, `newuidmap`, or subuid ranges. The
+reviewed sandbox assertions are unchanged against v1.13.3: with
+`--inode-file-handles=never` the worker still holds exactly `CHOWN`,
+`DAC_OVERRIDE`, `FOWNER`, `FSETID`, `SETGID`, `SETUID`, `MKNOD`, and `SETFCAP`
+(`00000000880000db`) with an empty bounding set, `NoNewPrivs: 1`, and seccomp
+filter mode `2`, while the parent holds no capabilities.
+
+Translation does not cover extended attributes, and upstream documents it as
+incompatible with `--posix-acl`. AWF never passes `--xattr`, `--xattrmap`,
+`--posix-acl`, `--security-label`, or legacy `-o` options, so the guest cannot
+set `security.*` or `trusted.*` xattrs such as file capabilities on host
+files. Both the argument builder and the post-launch command-line check
+enforce this invariant.
 
 ### Credential isolation
 
@@ -457,7 +738,7 @@ enforced — is described in
 
 ## Host mount-tree enforcement
 
-Cloud Hypervisor v53 and virtiofsd v1.10 expose no per-path read-only option, so
+Cloud Hypervisor v53 and virtiofsd v1.13 expose no per-path read-only option, so
 a mixed read-only/read-write export cannot be described to the guest, and a
 guest-side read-only mount is not a security boundary. The only trustworthy
 boundary is the host VFS.
@@ -704,6 +985,625 @@ The live job runs only when explicitly enabled by workflow dispatch or the
 
 After each case, the suite checks for leaked `awfvm-*` namespaces,
 `vmh*`/`vmn*`/`vmt*` interfaces, cgroups, and Cloud Hypervisor processes.
+
+### Enclave conformance evidence and remaining live gate
+
+`.github/workflows/test-cloud-hypervisor-enclaves.yml` separates deterministic
+enclave contract tests from privileged host probes. Ordinary PR CI exercises the
+real broker handler, authenticated Unix host protocol v2, schema validation,
+information ledger, settlement, and lifecycle using a **mock VM manager**. It
+tests both static roles, invalid/oversized/non-UTF-8 output, storage rejection,
+partial startup, guest failure, simulated OOM/timeout, cancellation, recovery
+without replay, and cleanup-before-settlement. Audit calls and the actual host
+journal are checked for raw-output/error sentinels. Artifact tests verify the
+release signer/repository arguments for the manifest and both role rootfs
+subjects; fixture attestations are not evidence of a real release signature.
+
+Privileged probes require either dispatch with `run_host_probes: true` (default
+false) or the `cloud-hypervisor-enclave-conformance` PR label. The job requires
+the production GitHub-hosted Ubuntu x86_64 eligibility check, opening the KVM
+character device as the privileged orchestrator, and a writable cgroup v2
+hierarchy. A missing prerequisite after opt-in fails the job; it does not skip,
+fall back to Docker, grant the runner user KVM access, or relax limits.
+
+These probes exercise the real role-sized host tmpfs stores (script 1 GiB,
+agent 512 MiB), aggregate sparse/concurrent ENOSPC across snapshots, prepared
+and staged rootfs, manager state and exports, memory-cgroup accounting,
+busy-unmount failure, and invocation isolation. They check executable/read-only
+artifact views, `noexec` state, and dead-owner recovery that refuses a replaced
+mount and preserves no-replay tombstones. They also send real TCP packets
+through the agent nftables boundary and execute the supervisor's guest-limit
+probe in a private host mount namespace. They **do not boot an enclave VM**,
+exercise the broker in a VM, or establish preview readiness. No repository is
+staged and no raw guest/seed logs are uploaded; only synthetic test evidence is
+printed. The existing primary-agent KVM smoke is not enclave conformance and
+its development artifact bypass must not be reused for enclaves.
+
+Full issue [#9395](https://github.com/github/gh-aw-firewall/issues/9395) acceptance
+remains a separate live-VM gate after implementation PRs
+[#9397](https://github.com/github/gh-aw-firewall/pull/9397) and
+[#9398](https://github.com/github/gh-aw-firewall/pull/9398) merged:
+
+| Required boundary | Current implementation evidence |
+| --- | --- |
+| Production storage admission | `prepareEnclaves()` supplies the trusted production provider on eligible GitHub-hosted Ubuntu x86_64 KVM/cgroup-v2 hosts. Unsupported hosts retain the existing admission error before seeds, runtime probes, listener, or VM creation. |
+| Aggregate invocation storage | One invocation-owned tmpfs superblock enforces script 1 GiB or agent 512 MiB across snapshots, rootfs copies, runtime state, and writable exports. Sparse and concurrent writes share the kernel allocation ceiling, which remains enforced until successful close. |
+| Snapshot allocation and executable artifacts | Invocation-local executable artifact staging is sealed read-only and shares allocation accounting with `noexec` writable state. Release attestation, digest verification, and launch confinement remain mandatory. |
+| Writable VM and preparation state | Trusted dependency hooks derive rootfs preparation, staged disk, manager run paths, and virtio-fs staging within the invocation domain; no independent runner-filesystem copies are used for enclaves. |
+| Recovery ownership | Durable journals capture invocation-owned mount/device/inode identities. Recovery reaps VM resources first and refuses changed identities or uncommitted mount intents; it never replays work or uses a global bind mount. |
+
+An empty provider, a free-space check, an export-only tmpfs, or a mock manager
+does not meet this contract. The gated privileged storage probes exercise the
+production domain, including aggregate exhaustion across snapshots, rootfs,
+runtime state, and exports. They do not establish live VM acceptance.
+
+The integrated privileged storage suite must pass on an eligible Linux runner.
+Until that gated job runs successfully, deterministic coverage is not a
+substitute for those probes.
+
+The separately opted-in `live-kvm` job now provides a real broker-to-VM
+acceptance path. It requires the package-matched GitHub release's signed Cloud
+Hypervisor manifest/bundle and signed script/agent rootfs manifest, then uses
+the production artifact preflight and storage provider. It invokes both static
+executor tools through the public `/mcp/awf-enclave` HTTP route and requires
+canonical bounded results. The script guest reports and the harness checks
+UID/GID, seed read-only enforcement, no NIC/direct egress, privilege and
+capability drop, `no_new_privs`, and the configured process/file/open-file
+limits. Synthetic guest stdout/stderr sentinels are checked against AWF,
+gateway, broker, audit, proxy, and host-executor journal diagnostics. Diagnostic
+files are opened without following symlinks, checked and read through the same
+descriptor, and read within a hard bound even if they grow during inspection. This
+acceptance job is manually dispatched with `run_live_kvm: true`, distinct from
+the host-only probes, and is not enabled in ordinary CI or by PR labels; this
+avoids passing the Copilot credential to untrusted pull-request code.
+
+The job is not evidence of passing live acceptance until it runs successfully
+on the eligible GitHub-hosted Ubuntu x86_64 KVM/cgroup-v2 runner.
+`main`'s package version `0.23.1` is intentional: the release workflow bumps
+package/lock versions in a tag-only commit rather than updating protected
+`main`. Published `v0.28.31` has package version `0.28.31`, but predates the
+live acceptance follow-up. Acceptance must check out a future published tag
+containing the reviewed implementation, build that tag's package, and use only
+its artifacts. The release gate fails before the Copilot secret is introduced
+on `main`, PR branches, or tags missing the pinned acceptance commit. It must
+not use newer artifacts for older packages, local build artifacts, or an
+unattested-artifact switch. The supported release pipeline must publish the
+package-matched Cloud Hypervisor archive, manifest and Sigstore bundle, plus
+the enclave rootfs manifest/bundle, role rootfs images, SBOMs, and provenance
+bundles. Both manifests must name the checked-out release commit.
+
+The live harness checks the agent guest UID/GID, capability and privilege
+drop, `no_new_privs`, process/file/open-file limits, the permitted API-proxy
+peer and port, and denial of other proxy ports, peers, GitHub MCP, and public
+egress.
+Both script (1 GiB) and agent (512 MiB) guests must produce actual guest-visible
+aggregate `ENOSPC` within a write bound no larger than their configured role
+ceiling; the probe removes its files before returning a canonical result. A
+guest memory-pressure probe requires an increased guest `oom_kill` counter and
+the memory-consuming child to exit by `SIGKILL`. The harness also requires
+canonical guest-failure and timeout responses, aborts a public request only
+after its guest has reached a marker, waits for resource cleanup, and kills an
+identified VMM plus the AWF host process to verify that restart cleans the
+exact pending journal identity without replaying a successful result.
+
+`scripts/ci/cloud-hypervisor-enclave-startup-faults.js` adds a host-only partial
+startup probe without changing production APIs or introducing CLI/config/env
+controls. It uses the existing trusted storage dependency boundary to provide
+an API client that calls the real VMM, then raises a fixed error immediately
+after `vmCreate` (inside `manager.start()`) or `vmBoot` (inside
+`manager.startInstance()`). Both script and agent roles use the real production
+storage provider, artifact preflight, manager, and authenticated broker-to-host
+protocol v2 client/server. These startup probes do not use the public MCP route
+and never reach workload execution or make model requests.
+
+The fault selector and callback are closures owned by the acceptance host,
+not files, guest inputs, environment hooks, or broker fields. The normal CLI
+never imports this module. Before raising the fault, the probe requires pending
+invocation and VM journals with live VMM/virtio-fs, network, cgroup, storage,
+mount and snapshot identities. It requires a terminal executor failure with
+no result, identity-preserving cleaned journal metadata (allowing the
+explicitly released snapshot mount), removal of recorded paths, and rejection
+of replay after settlement. Attested artifacts are not changed; role storage
+limits remain script 1 GiB and agent 512 MiB. Deterministic tests establish
+transport ordering and evidence rejection only, not privileged cleanup or VM
+acceptance. Neither those tests nor a successful host-only probe establishes
+full issue
+[#9395](https://github.com/github/gh-aw-firewall/issues/9395) acceptance.
+This conformance work is a follow-up to
+[#9395](https://github.com/github/gh-aw-firewall/issues/9395),
+[#9399](https://github.com/github/gh-aw-firewall/pull/9399), and
+[#9441](https://github.com/github/gh-aw-firewall/pull/9441); it does not claim
+that #9395 or the prior pull requests established these live assertions.
+
+### Explicit enclave acceptance dispatch
+
+This is a manual, secret-bearing operation requiring separate maintainer
+authorization. Creating the follow-up PR does **not** authorize release
+publication or acceptance dispatch.
+
+1. Merge the reviewed acceptance changes, then separately authorize the
+   [supported release workflow](releasing.md) on `main`. Wait for the complete
+   signed artifact set to be published. Do not infer a version or use `latest`.
+2. Set `RELEASE_TAG` to that exact published tag and `ACCEPTANCE_COMMIT` to the
+   full reviewed follow-up SHA recorded in the PR. Verify the tag contains that
+   SHA and `scripts/ci/cloud-hypervisor-enclave-startup-faults.js`. The workflow
+   enforces both checks with a full-history checkout, and requires tag/package
+   equality. Existing `v0.23.1` lacks the assets; `v0.28.31` predates the
+   acceptance changes. Neither is an acceptable substitute.
+3. Confirm `COPILOT_GITHUB_TOKEN` is configured as a repository secret and
+   usable for the configured Copilot model. After explicit authorization,
+   dispatch **both** gates in the same run:
+
+```bash
+RELEASE_TAG='<exact-published-tag-containing-the-reviewed-follow-up>'
+ACCEPTANCE_COMMIT='<full-reviewed-follow-up-commit-SHA>'
+gh workflow run test-cloud-hypervisor-enclaves.yml \
+  --repo github/gh-aw-firewall --ref "$RELEASE_TAG" \
+  -f run_host_probes=true -f run_live_kvm=true \
+  -f acceptance_commit="$ACCEPTANCE_COMMIT"
+gh run list --repo github/gh-aw-firewall \
+  --workflow test-cloud-hypervisor-enclaves.yml --event workflow_dispatch --limit 5
+# Select the run for that exact tag; then inspect all three jobs.
+gh run view '<run-id>' --repo github/gh-aw-firewall
+```
+
+Keep the PR draft until deterministic conformance, privileged host probes, and
+live broker-to-VM acceptance all pass on the supported GitHub-hosted
+Ubuntu 24.04 x86_64 KVM/cgroup-v2 runner. A skipped job is not acceptance.
+The live job must include the two-role startup probes, resource cleanup,
+crash recovery without replay, and redaction assertions. A primary-agent
+Cloud Hypervisor smoke run is not enclave acceptance. macOS cannot validate
+the privileged mounts or KVM boundaries. Failure diagnostics remain private
+on the ephemeral runner; guest output and credentials are not uploaded.
+
+### Public enclave environment probe dispatch
+
+The same workflow has a distinct, false-by-default `run_environment_probe`
+input. Its `environment-probe` job runs only the script-only public
+[environment probe](../examples/enclave-environment-probe/README.md) through
+`scripts/ci/cloud-hypervisor-enclave-environment-probe.js`. It reuses the live
+harness's release-asset setup, gateway fixture, AWF launch, startup diagnostics,
+readiness waits, and cleanup, but configures no agent executor or API proxy and
+receives no Copilot or model secret; only the job's `github.token` is used for
+release metadata and public seed staging. It does not depend on the full
+acceptance or host-limit jobs, yet repeats their release, host, and artifact
+prerequisites: the release gate runs with `--environment-probe`, so the
+published package-matched tag must contain `acceptance_commit`, the
+startup-fault harness, the probe harness, and the probe example. Both
+downloaded manifests must name the checked-out tag commit, and the runner must
+be an eligible GitHub-hosted Ubuntu 24.04 x86_64 KVM/cgroup-v2 host.
+
+After AWF reports actual host gateway readiness, the harness requires the
+public tool list to be exactly `enclave_run_script` and submits the request
+generated by `build-request.py` (the `probe.py` source is never executed on the
+host). It prints one `AWF_ENCLAVE_ENVIRONMENT_PROBE_RESULT` line only for a
+canonical `status: ok` result that validates against the probe's finite schema
+within 8192 bytes. A canonical error, invalid result, or earlier startup
+failure fails the job; startup failures emit only the sanitized
+`AWF_HOST_STARTUP_DIAGNOSTIC` metadata. Nothing is uploaded, and private AWF
+logs are removed.
+
+`v0.28.37` and earlier predate the probe (#9499) and its integration, so they
+are ineligible. After a future authorized release whose tag contains both:
+
+```bash
+RELEASE_TAG='<exact-published-tag-containing-the-probe-integration>'
+ACCEPTANCE_COMMIT='<full-probe-integration-commit-SHA>'
+gh workflow run test-cloud-hypervisor-enclaves.yml \
+  --repo github/gh-aw-firewall --ref "$RELEASE_TAG" \
+  -f run_environment_probe=true \
+  -f acceptance_commit="$ACCEPTANCE_COMMIT"
+```
+
+The probe cannot execute until host startup and broker readiness succeed, so
+existing startup failures can still prevent guest execution.
+
+### Standard enclave startup checklist
+
+Every enclave-enabled AWF startup runs an always-on, versioned checklist before
+the primary agent can start; this is not controlled by the optional CI host
+probe. `enclaveStartup.startupChecks` has schema version 1, a cumulative
+`checks` map keyed by `scope/check-id`, and an overall `ready` boolean. Each
+map value is the fixed tuple `[result, reason]`. The list preserves earlier
+storage and trust outcomes when connectivity starts, and resets for each new
+startup instead of inheriting prior success. The primary-agent startup hook
+requires every applicable check to pass. Only explicitly configuration-dependent
+checks can be `not-required`; required checks cannot be skipped.
+
+The common checklist covers configuration, enabled runtime availability,
+private storage isolation, directory layout, run identity, seed catalog and
+private capability custody, network enforcement, Compose configuration,
+infrastructure service startup, gateway identity and exclusive network membership,
+actual MCP initialize/initialized/exact-tools proof, optional GitHub route
+attachment/readiness, and optional dynamic admission. A gateway handshake
+alone is not overall readiness. The existing guest isolation controls remain
+per-invocation controls; this host startup checklist does not claim guest
+boot, guest DNS, data-plane connectivity, or workload execution.
+
+`src/cloud-hypervisor/host-preflight-schema.json` is the canonical catalog of
+check IDs, optional checks, and safe reason codes, shared by AWF and the
+diagnostic harness. New prerequisites must be added there, instrumented at
+their actual fail-closed operation, and covered by failure-injection and
+readiness-blocking tests. There must not be a second, ad-hoc implementation
+of a prerequisite or an inferred pass from stderr. The deterministic enclave
+suite exercises the catalog, workflow gate, storage and gateway origins, safe
+serialization, and exact bounds on every PR.
+
+### Fine-grained host preflight diagnostics
+
+The optional `enclaveStartup.hostPreflight` record identifies the checks AWF
+actually executes, not guesses derived from stderr. Its schema version is 1;
+`scope` identifies the currently executing group. Each fixed check ID has a
+`result` of `not-attempted`, `not-required`, `attempted`, `passed`, or `failed`,
+plus an allowlisted `reason` (`none` unless
+failed). Later unexecuted checks remain `not-attempted`; checks skipped by a
+different code path are not claimed to have passed. The canonical plans and
+reason allowlist are in `src/cloud-hypervisor/host-preflight-schema.json`,
+shared by AWF and the harness.
+
+| Scope | Actual prerequisite checks |
+|---|---|
+| `startup` | Common lifecycle gates and overall readiness before primary-agent startup |
+| `enclave-runtime` / `enclave-storage` | Enabled runtime prerequisites and the private seed/storage/capability staging gates |
+| `gateway-attachment` / `gateway-handshake` | Compiler contract, container identity, network attachment/membership, and actual bounded MCP requests and tool contract |
+| `host-isolation` / `provider-selection` | Recovery-journal, invocation, and allocation-root isolation from primary-agent mounts; missing trusted storage provider |
+| `storage-admission` | Root UID, existing GitHub-hosted eligibility helper, Ubuntu distribution, effective mount capability, kernel tmpfs support, KVM access/device/open, writable cgroup hierarchy, and CPU/memory/PID controllers |
+| `bounded-runtime` | Configured role, mount/umount lookup, invocation directory trust, journaled aggregate storage allocation/mount/private-propagation/layout/verification, artifact configuration/trust/snapshot/attestation/digests/versions, each required host tool, platform/architecture, KVM access/group, root/kernel controls/cgroup v2, Docker daemon and Compose |
+| `artifact-snapshot` | Actual staging root validation, directory creation/identity capture, per-artifact copy and chmod, directory mode, mount intent/bind/identity capture, read-only executable remount, and sealed aggregate storage verification |
+| `storage-mount-capture` | Snapshot mount canonical path, actual mount-table read/parse, exact match count, filesystem/source validation, and each durable journal commit operation |
+| `bounded-cleanup` | Identity-journaled storage close, captured invocation directory release, and journal completion; original failure evidence is retained if cleanup also fails |
+| `bounded-artifacts` | The same bounded allocation and invocation checks, rsync lookup, verification directory, and enclave artifact verification (distinct from runtime preflight) |
+
+`bounded-runtime/artifact-snapshot` remains the enclosing gate.
+`bounded-runtime/snapshot-journal` identifies preparation of the recovery
+journal before any snapshot directory is created. Within `artifact-snapshot`,
+`vmm`, `virtiofsd`, `kernel`, `rootfs`, `supervisor`, `manifest`, and `bundle`
+each have separate `-copy` and `-mode` checks. A successful copy is not a
+sealed artifact: `readonly-exec` and `sealed-storage` must also pass before
+attestation, digests, or execution. `partial-remove` is not required after a
+successful copy; after a failed copy it records actual partial-directory
+cleanup. Disabled development-only manifest/bundle copies are explicitly not
+required. No source metadata, file contents, paths, or command output are
+included in these check records.
+
+`artifact-snapshot/mount-capture` now publishes the nested, required
+`storage-mount-capture` scope. Its successful checks eliminate hypotheses
+**at that capture**, not for every future invocation. No diagnostic retry,
+alternate namespace, mount selection, or cleanup bypass is introduced.
+
+| Hypothesis | Discriminating evidence | Coverage |
+|---|---|---|
+| Stacked or repeated bind | `match-count` fails with `storage-mount-multiple`; exactly one matching mount passes | Injected duplicate entries and real Linux stacked binds |
+| Path or namespace mismatch | `canonical-path` rejects canonical-path divergence; a mount absent from the reader's namespace fails `match-count` with `storage-mount-missing` | Injected canonical/missing paths; real symlink-resolving mount and isolated child mount namespace |
+| Wrong backing filesystem or source | Separate `filesystem` / `source` checks fail with `storage-mount-filesystem` / `storage-mount-source` | Injected foreign identities, real disk-backed bind, and foreign tmpfs source |
+| Mount-table read or parse failure | Separate `mountinfo-read` errno and `mountinfo-parse` / `mountinfo-malformed` checks | Injected read/malformed-table failures, escaped paths and unknown optional fields, plus real Linux mount-table reads |
+| Journal persistence failure after valid capture | All identity checks pass; the failing `journal-*` check identifies staging open/write/file sync/close, publication, directory sync, or staging removal | Per-operation errno injection, durable-intent recovery rejection before publication, and a real successful fsync/rename commit |
+
+A zero match alone does not distinguish a namespace mismatch from an absent
+mount; it is not a namespace diagnosis. Filesystem/source values and paths
+are never exported. Later checks remain `not-attempted` when an earlier gate
+fails; finalizers can still report their actually executed close/removal checks.
+`bounded-cleanup/storage-close` distinguishes
+`storage-identity-uncommitted` (including a pending mount capture),
+`storage-mount-identity-changed`, and `storage-mount-unrecorded`. It does not
+automatically adopt or unmount an unidentified mount.
+
+The real mount tests are a separate step in the existing false-by-default
+privileged host-probe job, before the broader storage/network suites. They
+exercise production capture and journaling in a private Linux mount namespace,
+not a guest VM or the released environment probe. Deterministic fault injection
+can establish diagnostic discrimination, but cannot establish which condition
+occurred on the failing hosted runner.
+
+Filesystem exceptions retain only allowlisted errno classifications.
+`mount-noexec` identifies an observed staging mount that rejects execution;
+sealed verification distinguishes `storage-mount-options`,
+`storage-path-changed`, and `storage-cap-changed`. The trusted rsync invocation
+reports fixed exit classes: `rsync-file-io` (11), `rsync-partial-transfer` (23),
+and `rsync-source-vanished` (24), otherwise `command-failed`. An rsync I/O or
+partial-transfer exit does **not** prove `ENOSPC`; stderr is never parsed into
+a checklist reason. Other unclassified failures remain `unknown`. If both
+preparation and cleanup fail, the thrown error retains the original error as
+`cause` and the cleanup exception as `cleanupError`; both failing check
+records survive. Cleanup never falls back to lazy unmount or releases an
+unconfirmed active allocation.
+
+The startup failure descriptor stays bounded to 16 KiB. If the cumulative
+checklist plus a duplicate active `hostPreflight` scope exceeds that bound,
+the writer omits the optional duplicate `hostPreflight`, retaining **every**
+`startupChecks` entry and its schema version. It never truncates the catalog
+or substitutes success for missing evidence.
+
+For the public environment probe in
+[run 37546226833](https://github.com/github/gh-aw-firewall/actions/runs/37546226833)
+(v0.28.39), startup failed at artifact preparation before guest execution.
+The published enclave manifest records script/agent rootfs logical sizes of
+127,422,464 / 1,026,367,488 bytes, respectively. The main runtime archive's
+tar header records `rootfs.ext4` at 1,314,160,640 bytes; that main runtime
+image is also staged before enclave-specific verification. These are
+**logical sizes**, not allocated bytes. The role-sized aggregate caps remain
+1 GiB (script) and 512 MiB (agent), including artifacts and writable state.
+Sparse copying can fit an image whose logical size exceeds its cap, so neither
+the manifest sizes nor the compressed archive size establishes exhaustion.
+The failed subcheck and its reason are the next discriminating evidence;
+the root cause remains unconfirmed. See the
+[published manifests and archive](https://github.com/github/gh-aw-firewall/releases/tag/v0.28.39).
+
+In [run 37554009561](https://github.com/github/gh-aw-firewall/actions/runs/37554009561)
+(v0.28.40), artifact copies and the bind passed, while mount capture and storage
+close failed with unknown reasons; read-only sealing, gateway readiness, and
+guest execution were not attempted. That immutable release does not contain
+the nested capture diagnostics. A new release containing these checks and an
+authorized release-pinned environment probe are required to distinguish the
+five hypotheses on the original execution path.
+
+### Snapshot bind topology evidence
+
+The v0.28.41
+[probe run 37562487508](https://github.com/github/gh-aw-firewall/actions/runs/37562487508)
+identified `storage-mount-multiple`: canonical path and mount-table reading/
+parsing passed, but more than one entry matched the snapshot directory. This
+does not yet distinguish actual stacked mounts from repeated mount-table rows,
+or explain which operation introduced them.
+
+Snapshot startup now retains a bounded `enclaveStartup.mountTopology` record
+with schema version 1, `bindCalls` (`zero`, `one`, `multiple`), and nullable
+`before` / `after` observations. `artifact-snapshot/topology-before` reads the
+table immediately before binding. `storage-mount-capture/mountinfo-topology`
+derives the after observation from the **same table read** used by the
+exact-one-match guard, before that guard can reject the mount. No second
+post-bind read or retry can substitute a different observation.
+
+Every observation contains only the fixed enums in
+`src/cloud-hypervisor/mount-topology-schema.json`. It reports root/artifact-parent
+propagation classes, whether those mounts share an overlapping local peer group,
+whether peers outside the allocation are visible, zero/one/multiple snapshot
+entries, unique/repeated/mixed snapshot IDs, and whether distinct snapshot IDs
+form a parent stack. It never publishes mount IDs, peer IDs, device numbers,
+namespace identities, paths, sources, filesystem contents, or raw optional
+fields. `null` means not observed, not an inferred zero or private mount.
+
+| Hypothesis | Evidence that can eliminate it for the observed bind | Remaining uncertainty |
+|---|---|---|
+| Local overlapping shared peers duplicate the nested bind | Root/artifact-parent `private`, or a known `not-shared` / `different-group` relation, excludes the specific same-group local mechanism | `same-group-overlap` is supporting topology, not proof of causation |
+| Propagation from external peers/namespaces | Both root and artifact parent `private` exclude incoming propagation through those observed mounts | `visibleOutsidePeers: absent` covers only this namespace and cannot rule out peers in another namespace; a slave can receive events without a visible shared peer |
+| AWF calls the same snapshot bind twice | `bindCalls: one` excludes repeated calls to this allocation's wrapper for that directory | Counts exclude other processes, other allocation instances, and extra syscalls inside the mount helper |
+| Snapshot is already mounted before AWF binds | `before.snapshotEntries: zero` excludes a mount present at that observation | An external mount can still race between observation and bind |
+| Duplicate rows rather than distinct kernel mounts | `after.snapshotIds: unique` excludes repetition of an identical mount ID within the captured table | `repeated` / `mixed` is not itself proof of a kernel bug; unknown topology stays unknown |
+
+Before/after evidence survives the outer failure, subsequent cleanup scopes,
+and omission of the duplicate active host-preflight scope. The complete
+catalog plus maximum-size topology evidence is tested against the unchanged
+16 KiB descriptor bound. A new startup clears the previous observations.
+Missing or failed observation checks block readiness; no check selects a
+topmost mount, deduplicates the table, changes propagation, or adopts an
+unrecorded resource.
+
+The opt-in Linux mount suite compares a minimal unisolated shared-parent
+baseline against the actual production allocation, artifact-parent self-bind,
+invocation bind, and snapshot sequence beneath private and shared synthetic
+parents in separate private namespaces. Shared propagation is intentionally
+enabled only inside the disposable test namespace. These tests are
+host-topology reproductions, not live VM acceptance; they require a supported
+privileged Linux runner and are not claimed to have passed from deterministic
+mocks.
+
+### Private invocation allocation propagation
+
+The v0.28.42
+[probe run 37566610268](https://github.com/github/gh-aw-firewall/actions/runs/37566610268)
+reported zero snapshot entries before a single wrapper bind, followed by
+multiple distinct mount IDs. Both the allocation root and artifact parent were
+shared members of the same overlapping peer group, with outside peers visible.
+That evidence supports local shared-peer propagation rather than repeated
+wrapper calls or repeated identical rows; it does not alone exclude incoming
+events from outside peers.
+
+Production storage now breaks that propagation relationship at the freshly
+mounted, identity-journaled invocation tmpfs **before** creating its layout or
+any child bind. `storage-propagation-set` verifies the journal's exact mount
+identity and executes `mount --make-private <allocation-root>`.
+`storage-propagation` verifies the identity again and requires exactly one
+mount-table entry with private propagation. Both are mandatory in
+`bounded-runtime` and `bounded-artifacts`; an error, a successful no-op mount
+command, missing/duplicate entries, or residual shared/slave/unbindable state
+blocks setup before child mounts. Ordinary journal cleanup remains available
+for the identity-known root if setup fails.
+
+This is a non-recursive operation on a new, empty allocation, not on `/`,
+`/run`, the shared storage parent, another invocation, or the whole host mount
+namespace. It preserves the tmpfs mount identity, source, allocation ceiling,
+and noexec/nosuid/nodev flags. Binds from that private domain remain private
+only when the destination covering mount is also non-shared. Every later
+storage-option verification also checks private
+propagation on the allocation, invocation state, runtime/rootfs directories,
+artifact parent, and sealed snapshot; a propagation change fails with
+`storage-mount-propagation`. No duplicate is selected, deduplicated, or adopted,
+and exact-one-match capture and identity-checked cleanup are unchanged.
+
+The Linux regression suite asserts that the unisolated baseline has duplicate
+distinct IDs, while fixed production snapshots have a single entry beneath
+either parent mode, both root/artifact-parent observations are private, the
+parent's original shared/private state is unchanged, and ordinary allocation
+close succeeds. It is still opt-in and needs real privileged Linux execution.
+A new release containing this fix and a release-pinned environment probe are
+required to establish whether startup progresses beyond the original failure.
+The immutable v0.28.39 and v0.28.42 assets are not patched by source changes or
+workflow dispatches.
+
+### Post-bind storage propagation evidence
+
+The v0.28.43
+[probe run 37571367739](https://github.com/github/gh-aw-firewall/actions/runs/37571367739)
+passed setting and immediately verifying private allocation propagation, layout,
+artifact/run binds, and the invocation bind. Later `bounded-runtime/storage-verification`
+failed with `storage-mount-propagation`; all bounded cleanup checks passed.
+Snapshot preparation, guest boot, and gateway readiness were not attempted.
+There is no matching diagnosis-registry finding and no confirmed root cause yet.
+
+The missing distinction is **which mount role** failed and whether the guard
+saw non-private propagation, zero entries, or multiple entries. The guard's
+aggregate reason covers all three. Journal identity verification had already
+passed, so missing/duplicate-entry alternatives require a later change or
+different table observation; they are less likely than destination inheritance.
+
+The source and destination are not the same storage location. Production
+`mountTmpfs` binds `<allocation>/state` onto the separately derived
+`plan.invocationHostDir` under `run.invocationsDir`. Making the allocation
+private does not make that external destination's covering mount private.
+Linux's [shared-subtree bind semantics](https://docs.kernel.org/filesystems/sharedsubtree.html)
+explicitly make a private-source clone shared when it is attached to a shared
+destination mount. The kernel
+[`attach_recursive_mnt()` implementation](https://github.com/torvalds/linux/blob/v6.8/fs/namespace.c)
+tests the destination and calls `set_mnt_shared()` on the attached tree.
+This kernel reference establishes the mechanism, not the probe's unrecorded
+exact kernel version. A
+[`remount,bind`](https://man7.org/linux/man-pages/man8/mount.8.html)
+changes per-mount flags, not automatically its propagation class.
+
+These are five hypotheses, ordered by code/semantic support, not five findings:
+
+| Hypothesis | Diagnostic that can disprove it for the observed failure |
+|---|---|
+| Private state source is bound beneath a shared external invocation destination | A known non-shared `destinationBeforeBind`, or a unique private `invocationAfterBind`, excludes immediate shared-destination inheritance at that observation. A private source, shared destination, then one shared invocation entry supports it. |
+| Allocation root regains non-private propagation after the initial private check | A unique private `rootVerified` from the failing verification table excludes root propagation as that guard's culprit. Compare `rootAfterPrivate` and `rootAfterLayout` for the interval of change; identities remain independently checked. |
+| A local artifact/run/rootfs child bind or remount introduces non-private propagation | Unique private observations for all three local roles after layout and at verification exclude those roles. A private root with a non-private local child separates this from a changed root. Invocation after-bind/after-remount observations separately identify a helper-time transition. |
+| The propagation reason actually represents ambiguous duplicate entries | One exact entry at the failed role excludes ambiguity. Multiple entries with unique IDs distinguish distinct mounts from repeated or mixed IDs, without selecting a topmost entry or blaming the kernel. |
+| The expected exact entry is absent because of a late removal or path/view mismatch | An exact entry at the failed role excludes absence. Zero exact entries distinguish normalized-only spelling from no normalized match. This does not identify a symlink target, prove a namespace mismatch, or distinguish removal from a wrong view. |
+
+Startup retains fixed-size `enclaveStartup.storagePropagation`, schema version
+1. `invocationLocation` is only `inside`/`outside`; `sourceBeforeBind` and
+`destinationBeforeBind` are propagation classes of the most specific visible
+covering mounts immediately before binding. An ambiguous covering mount or
+stacked ancestor is `unknown`; this observation never authorizes selection
+among stacked mounts.
+`null` means unobserved. Pre-bind observations cannot exclude a subsequent race.
+
+`mounts` has exactly fourteen fixed slots: the root after the private check;
+root/artifacts/runs/rootfs after local layout binds; invocation before bind,
+after bind, and after remount; and root/invocation/runs/rootfs/artifacts/snapshot
+at verification. Each non-null slot is a compact four-element tuple:
+
+| Tuple position | Codes |
+|---|---|
+| 0: exact entry count | `0` zero, `1` one, `2` multiple |
+| 1: propagation | `0` private, `1` shared, `2` slave, `3` shared-slave, `4` unbindable, `5` unknown |
+| 2: mount-ID relationship | `0` none, `1` unique, `2` repeated, `3` mixed |
+| 3: path-match relationship | `0` exact, `1` normalized-only, `2` absent |
+
+Thus `[1,1,1,0]` means one exact shared entry; `[2,5,1,0]` means multiple
+distinct-ID exact entries with no single propagation class. The canonical
+allowlist and legend live in `src/cloud-hypervisor/storage-propagation-schema.json`.
+No IDs, paths, namespace identifiers, device numbers, sources, raw rows,
+stderr, or filesystem content are exported. A normalized-only observation
+does not weaken the exact-match guard.
+
+The nested `storage-verification` checklist identifies journal identity,
+mount-table read/observation, and allocation-root, invocation-state,
+run-storage, rootfs-preparation, artifact-parent, and sealed-snapshot checks.
+The snapshot check is `not-required` only while no sealed snapshot exists.
+All applicable mount-role checks still require private propagation and the
+original mount options. Every verified role's evidence is derived **before
+the first role guard from the same single read used by all role guards**;
+no second read can replace the failed observation. If journal identity fails
+first, the verification slots are reset to null: prior phase evidence is not
+evidence of the failed identity-check table. Each verification attempt clears
+all six verification slots before reading, so an unreadable/malformed later
+table cannot inherit a previous successful observation.
+
+Evidence survives cleanup and omission of the duplicate active scope, is
+deep-copied, and resets on a new startup/allocation. Compact tuples keep the
+full 188-check catalog and both evidence records inside the existing 16 KiB
+descriptor limit. When the total would exceed the bound, only the duplicate
+active scope and then the optional fatal-message text are replaced/omitted;
+the complete cumulative checklist and evidence remain. No guard, storage cap,
+trust requirement, propagation operation, or cleanup policy is relaxed.
+
+The opt-in Linux suite now varies the allocation parent and **separate
+invocation destination** independently, inside disposable private namespaces.
+This closes the earlier fixture gap that left the invocation destination under
+a private namespace while varying only the allocation parent. These tests do
+not run on macOS and are not guest acceptance.
+
+### Private invocation state mount
+
+The v0.28.44
+[probe run 37576714531](https://github.com/github/gh-aw-firewall/actions/runs/37576714531)
+failed only `storage-verification/invocation-state` with
+`storage-mount-propagation`; cleanup passed. The evidence was
+`invocationLocation: outside`, `sourceBeforeBind: private`,
+`destinationBeforeBind: shared`, `invocationBeforeBind: [0,5,0,2]`, and one
+exact shared invocation entry (`[1,1,1,0]`) after bind, after remount, and at
+verification. Root, artifacts, runs, and rootfs were unique private entries
+after layout and at verification. That supports the first hypothesis and
+disproves the other four for this failure.
+
+Production `mountTmpfs` therefore keeps the identity-journaled bind, then
+re-verifies the journal and executes non-recursive
+`mount --make-private <invocation-state>` before the restrictive remount.
+`invocationAfterBind` still records the inherited class, while
+`invocationAfterRemount` must be one exact private entry; otherwise setup
+fails with `storage-mount-propagation` and ordinary journal cleanup unmounts
+the captured identity. The shared destination's covering mount, the host
+namespace, and every other mount are left unchanged. As with any bind beneath
+a shared mount, the kernel may already have propagated a copy to destination
+peers at bind time; those copies keep the shared parent's unmount propagation
+and are not adopted or selected.
+
+A failed mount command remains a tool failure: a nonzero exit is reported as
+`command-failed`, while an execution error retains its allowlisted errno (for
+example, `EPERM`). `storage-mount-propagation` specifically reports a mount
+command that succeeds but leaves the invocation mount shared, including a
+subsequent remount that re-shares it.
+
+The opt-in Linux shared-destination cases now expect the invocation to be
+shared after bind, private after remount and at verification, a single-entry
+sealed snapshot, an unchanged shared destination, and successful allocation
+cleanup. A new release and release-pinned environment probe are required to
+establish whether live startup progresses beyond this guard.
+
+Host-tool failures distinguish `tool-not-found`, unsafe ancestor/file
+symlink, ownership, write permissions, file type, and allowlisted access
+errno such as `EACCES`, `EPERM`, or `ENOTDIR`. Version checks distinguish
+`version-format`, `version-mismatch`, execution errno, and `command-failed`.
+Unsupported errors stay `unknown`: messages, stderr/stdout, PATH values,
+paths, hostnames, credentials, and repository contents are never copied into
+the public subcheck record. Ownership, executable, digest, attestation,
+mount, and eligibility requirements are unchanged; no fallback is introduced.
+Nested failures can mark both an aggregate gate and its more specific child.
+
+The original admission error is still the no-fallback storage-provider error,
+with its cause retained privately. Before these subchecks, that one error
+collapsed all admission failures. Private-root mount isolation also runs under
+`host-preflight` before admission. The `v0.28.38` environment probe's
+`host-preflight` / `not-attempted` failure therefore establishes no gateway
+request or guest execution and does not establish which host requirement
+failed. There is no matching diagnosis-registry finding for its specific cause.
+A future authorized release containing this change, followed by the same
+release-pinned environment probe, is needed to obtain that evidence.
+
+The gated privileged `host-probes` job also executes the same production
+admission method through
+`scripts/ci/cloud-hypervisor-enclave-host-preflight.js`. It emits a bounded
+`AWF_HOST_PREFLIGHT_PROBE` with perspective `preflight-harness`, passes or
+fails explicitly, and does not allocate storage, expose a listener, or boot a
+VM. This separate read-only observation cannot prove AWF passed admission,
+gateway readiness, or guest success. Local macOS tests exercise rejection
+and injected Linux prerequisites, not live eligible-Linux/KVM/mount behavior.
+
+The acceptance harness also distinguishes actual AWF host gateway readiness
+from broker health and its own independent MCP requests. Bounded schema-2
+startup diagnostics identify earlier preflight/artifact/storage/recovery stages,
+explicitly not-attempted readiness, and allowlisted DNS, connectivity, HTTP,
+protocol, or readiness-deadline failures. A successful AWF initialize and exact
+tools proof and complete startup checklist emit `AWF_HOST_GATEWAY_READINESS`
+before harness requests begin (older records without a checklist retain their
+handshake-only semantics).
+This is a host-to-loopback Docker gateway observation, not CH guest DNS or
+data-plane evidence. See [diagnostic fields and bounds](INTEGRATION-TESTS.md#unified-enclave-coverage).
+The cause of the `v0.28.36` pre-broker exit remains unknown; immutable releases
+cannot receive these diagnostics, and an authorized future release and eligible
+live run are required to establish it.
 
 ## Troubleshooting
 

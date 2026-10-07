@@ -118,6 +118,7 @@ describe('CloudHypervisorVmmIdentityManager', () => {
       uid: 23001,
       gid: 23002,
     });
+
     expect(run).toHaveBeenCalledWith(tools.useradd, expect.arrayContaining([
       '--system',
       '--user-group',
@@ -167,6 +168,23 @@ describe('CloudHypervisorVmmIdentityManager', () => {
     expect(run).toHaveBeenCalledWith(
       tools.setfacl,
       ['--remove', 'user:23001', '/dev/net/tun'],
+    );
+  });
+
+  it('does not grant TAP device access for a no-network VM', async () => {
+    const { deps, run } = dependencies();
+    const manager = new CloudHypervisorVmmIdentityManager('script-run', tools, deps);
+    await manager.allocate();
+
+    await manager.withDeviceAccess(async () => undefined, false);
+
+    expect(run).toHaveBeenCalledWith(
+      tools.setfacl,
+      ['--modify', 'user:23001:rw', '/dev/kvm'],
+    );
+    expect(run).not.toHaveBeenCalledWith(
+      tools.setfacl,
+      expect.arrayContaining(['/dev/net/tun']),
     );
   });
 
@@ -460,7 +478,7 @@ describe('CloudHypervisorVmmIdentityManager', () => {
       1234,
       jest.fn().mockRejectedValue(Object.assign(new Error('denied'), { code: 'EACCES' })),
     )).rejects.toThrow('denied');
-  });
+  }, 30_000);
 
   it('rejects a pre-existing generated account and malformed TAP ownership', async () => {
     const existing = dependencies();

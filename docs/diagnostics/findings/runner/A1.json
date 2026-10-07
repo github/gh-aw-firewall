@@ -1,0 +1,41 @@
+{
+  "$schema": "../../schema.json",
+  "id": "A1",
+  "boundary": "runner",
+  "title": "Bind-mounted files are missing inside containers on ARC / DinD split filesystems",
+  "symptoms": [
+    "Bind-mounted workspace or config files are empty or missing inside the agent container",
+    "docker compose starts but the mounted path resolves to an empty directory",
+    "no such file or directory for a path that exists on the runner"
+  ],
+  "conditions": [
+    "Runner and Docker daemon do not share a filesystem (ARC with a DinD sidecar)",
+    "DOCKER_HOST points at the sidecar daemon rather than the runner's own socket",
+    "No --docker-host-path-prefix / container.dockerHostPathPrefix is configured"
+  ],
+  "affects": {
+    "runner": "arc-dind",
+    "runtime": "any",
+    "provider": "any",
+    "authMode": "any"
+  },
+  "versions": { "introduced": "unknown", "fixed": "unknown" },
+  "status": "workaround",
+  "rootCause": "Bind-mount sources are runner filesystem paths that the DinD Docker daemon cannot resolve, so the daemon creates empty directories instead of mounting the runner's content.",
+  "probe": {
+    "command": "docker -H \"$DOCKER_HOST\" run --rm -v /tmp:/tmp alpine ls /tmp",
+    "expect": "The listing is missing a sentinel file created on the runner under /tmp, confirming a split filesystem.",
+    "readOnly": true,
+    "secretSafe": true
+  },
+  "action": "Set --docker-host-path-prefix (for example /tmp/gh-aw) or container.dockerHostPathPrefix so bind-mount sources are rewritten to paths the daemon can resolve. Kernel virtual filesystems (/dev, /sys, /proc) are intentionally not prefixed.",
+  "references": [
+    { "kind": "issue", "ref": "https://github.com/github/gh-aw-firewall/issues/5753", "title": "ARC split-filesystem bind mounts" },
+    { "kind": "doc", "ref": "docs/arc-dind.md", "title": "ARC / DinD split filesystem support" },
+    { "kind": "code", "ref": "src/services/agent-volumes.ts", "title": "translateBindMountHostPath()" },
+    { "kind": "test", "ref": "src/services/agent-volumes-arc-dind-staging.test.ts" }
+  ],
+  "related": ["A4"],
+  "owner": "@github/gh-aw-firewall-maintainers",
+  "reviewBy": "2027-03-31"
+}

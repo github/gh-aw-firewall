@@ -9,6 +9,7 @@ describe('smoke claude workflow optimization config', () => {
   it('uses pre-computed result step and max-turns 8 in source workflow', () => {
     const source = fs.readFileSync(smokeClaudeSourcePath, 'utf-8');
 
+    expect(source).toContain('version: 2.1.280');
     expect(source).toContain('max-turns: 8');
     expect(source).toContain('Check GitHub.com reachability');
     expect(source).toContain('/tmp/gh-aw/agent/smoke-context.txt');
@@ -45,6 +46,7 @@ describe('smoke claude workflow optimization config', () => {
   it('compiles the workflow without playwright tools and with max-turns 8', () => {
     const lock = fs.readFileSync(smokeClaudeLockPath, 'utf-8');
 
+    expect(lock).toContain('@anthropic-ai/claude-code@2.1.280');
     expect(lock).toContain('--max-turns 8');
     expect(lock).toContain('Check GitHub.com reachability');
     expect(lock).toContain('playwright_check=✅ PASS');
@@ -66,5 +68,15 @@ describe('smoke claude workflow optimization config', () => {
     // regressions where the api-proxy stops recording token data.
     expect(lock).toContain('verify_token_usage');
     expect(lock).toContain('check-token-usage.js --artifact-root /tmp/gh-aw-agent --engine claude');
+  });
+
+  it('runs token-usage verification only after the agent succeeds', () => {
+    for (const workflowFile of [smokeClaudeSourcePath, smokeClaudeLockPath]) {
+      const workflow = fs.readFileSync(workflowFile, 'utf-8');
+
+      expect(workflow).toMatch(
+        /^[ \t]*verify_token_usage:[ \t]*\r?\n[ \t]*needs:[ \t]*agent[ \t]*\r?\n[ \t]*if:[ \t]*needs\.agent\.result == 'success'[ \t]*$/m,
+      );
+    }
   });
 });

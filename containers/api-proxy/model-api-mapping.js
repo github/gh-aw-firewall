@@ -4,13 +4,10 @@
  * AWF API Proxy — Model-to-API Endpoint Mapping
  *
  * Loads the model-api-mapping.json reference file and exposes it for
- * the /reflect management endpoint. This mapping documents which API
- * endpoints each model family supports (e.g. responses-only vs
- * chat/completions vs both).
+ * the /reflect management endpoint and the routing eligibility catalogue.
  *
- * The mapping is informational — it does not alter proxy routing behavior.
- * Consumers (e.g. SDK drivers, harness scripts) can query /reflect to
- * determine the correct endpoint for a given model.
+ * Maintained routing metadata informs model eligibility and candidate
+ * construction. Consumers can also query /reflect for model endpoint details.
  */
 
 const fs = require('fs');
@@ -101,6 +98,29 @@ function lookupModelEndpoints(model, provider) {
   return null;
 }
 
+function lookupModelRoutingMetadata(model, provider) {
+  if (!_mapping || !model || !provider) return null;
+  const providerMapping = _mapping.providers?.[provider];
+  if (!providerMapping || !Array.isArray(providerMapping.models)) return null;
+
+  const matching = providerMapping.models
+    .filter(entry => entry.routing)
+    .flatMap(entry => (entry.routingPatterns || entry.patterns || [])
+      .filter(pattern => matchesGlobPattern(model, pattern))
+      .map(pattern => ({ entry, pattern })))
+    .sort((left, right) => right.pattern.length - left.pattern.length);
+  const entry = matching[0]?.entry;
+  const routing = entry?.routing;
+  if (!routing) return null;
+
+  return {
+    family: entry.family,
+    endpoints: [...entry.endpoints],
+    reasoningEfforts: [...routing.reasoningEfforts],
+    contextWindowTokens: routing.contextWindowTokens,
+  };
+}
+
 /**
  * Simple glob matching: supports trailing `*` wildcard only.
  * @param {string} value
@@ -140,6 +160,7 @@ module.exports = {
   getModelApiMapping,
   getModelApiMappingReflect,
   lookupModelEndpoints,
+  lookupModelRoutingMetadata,
   loadMapping,
   matchesGlobPattern,
 };

@@ -19,6 +19,23 @@ export interface ApiProxyModelOptions {
   };
 
   /**
+   * Ordered list of concrete model IDs the API proxy retries with when the
+   * requested model fails with a model-specific error.
+   *
+   * Eligible failures: upstream 5xx, a connection error/timeout before any
+   * response, or a 400/404 reporting the model as unsupported, not found, or
+   * not accessible. 401, 403, and 429 never trigger a fallback. The proxy
+   * rewrites the request model and records the model actually used in
+   * token-usage logs (`model` plus a `model_fallback` object).
+   *
+   * - Config: `apiProxy.fallbackModels`
+   * - Environment variable: `AWF_FALLBACK_MODELS` (JSON array, internal)
+   *
+   * @example ['gpt-5.4', 'claude-sonnet-4.6']
+   */
+  fallbackModels?: string[];
+
+  /**
    * Model alias map for the API proxy sidecar
    *
    * When enableApiProxy is true and model aliases are configured, the proxy

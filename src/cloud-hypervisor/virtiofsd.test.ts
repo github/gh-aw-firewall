@@ -10,6 +10,7 @@ import {
 import {
   VIRTIOFSD_ENVIRONMENT,
   captureVirtiofsdProcessIdentity,
+  findForbiddenVirtiofsdOption,
 } from './virtiofsd-sandbox';
 
 const workspace = {
@@ -25,6 +26,11 @@ const cache = {
   mode: 'ro' as const,
 };
 const STAGED_ROOT = '/run/awf-shares/run/0-workspace';
+const WORKSPACE_IDENTITY = { uid: 1001, gid: 121 };
+const SQUASH_ARGS = [
+  '--translate-uid=squash-guest:0:1001:4294967295',
+  '--translate-gid=squash-guest:0:121:4294967295',
+];
 
 function processMock(pid: number): ExecaChildProcess<string> {
   const child = Promise.resolve({ exitCode: 0 }) as unknown as ExecaChildProcess<string>;
@@ -103,6 +109,7 @@ function dependencies(
       isFile: () => false,
       isSymbolicLink: () => false,
     }),
+    assertWritableStorageBound: jest.fn().mockResolvedValue(undefined),
     realpath: jest.fn(async (filePath: string) => filePath),
     readFile,
     readlink: jest.fn(async (filePath: string) => {
@@ -135,6 +142,7 @@ function manager(
     '/run/awf/run',
     '/run/awf-shares/run',
     { uid: 1000, gid: 1000 },
+    WORKSPACE_IDENTITY,
     cgroup ?? {
       cgroupPath: '/sys/fs/cgroup/awf-cloud-hypervisor/test',
       assign: jest.fn().mockResolvedValue(undefined),
@@ -160,15 +168,107 @@ const enforcement = {
 };
 
 describe('VirtiofsdManager', () => {
+  it('verifies bounded enclave storage before launching any daemon', async () => {
+    const deps = dependencies();
+    const boundedManager = manager(deps);
+
+    await expect(boundedManager.start([workspace], undefined, 2048)).resolves.toHaveLength(1);
+    expect(deps.assertWritableStorageBound).toHaveBeenCalledWith([workspace], 2048);
+    await boundedManager.stop();
+
+    const rejected = dependencies({
+      assertWritableStorageBound: jest.fn().mockRejectedValue(new Error('Unverifiable bounded storage')),
+    });
+    await expect(manager(rejected).start([workspace], undefined, 2048))
+      .rejects.toThrow('Unverifiable bounded storage');
+    expect(rejected.launch).not.toHaveBeenCalled();
+  });
+
+  it('does not provision or verify bounded storage for primary-agent exports', async () => {
+    const deps = dependencies();
+    const primary = manager(deps);
+    await primary.start([workspace]);
+    expect(deps.assertWritableStorageBound).not.toHaveBeenCalled();
+    await primary.stop();
+  });
+
   it('uses explicit sandbox, seccomp, cache, and inode policy', () => {
-    expect(buildVirtiofsdArgs(cache, '/run/awf/cache.sock', '/run/awf-ro/cache')).toEqual([
+    expect(buildVirtiofsdArgs(cache, '/run/awf/cache.sock', '/run/awf-ro/cache', {
+      workspaceIdentity: WORKSPACE_IDENTITY,
+    })).toEqual([
       '--socket-path=/run/awf/cache.sock',
       '--shared-dir=/run/awf-ro/cache',
       '--sandbox=namespace',
       '--seccomp=kill',
       '--cache=auto',
       '--inode-file-handles=never',
+      ...SQUASH_ARGS,
     ]);
+  });
+
+  it('squashes every guest uid/gid, including root, to the workspace identity', () => {
+    for (const directoryExport of [workspace, cache]) {
+      const args = buildVirtiofsdArgs(directoryExport, '/run/awf/x.sock', '/run/awf/x', {
+        workspaceIdentity: WORKSPACE_IDENTITY,
+      });
+      expect(args).toEqual(expect.arrayContaining(SQUASH_ARGS));
+      expect(args.filter((arg) => arg.startsWith('--translate-'))).toEqual(SQUASH_ARGS);
+    }
+  });
+
+  it.each([
+    ['root uid', { uid: 0, gid: 121 }],
+    ['root gid', { uid: 1001, gid: 0 }],
+    ['unresolved uid', { uid: undefined, gid: 121 }],
+    ['unresolved gid', { uid: 1001, gid: Number.NaN }],
+    ['negative uid', { uid: -1, gid: 121 }],
+    ['non-integer gid', { uid: 1001, gid: 1.5 }],
+    ['out-of-range uid', { uid: 4294967295, gid: 121 }],
+  ])('fails closed for a %s workspace identity', (_label, workspaceIdentity) => {
+    expect(() => buildVirtiofsdArgs(workspace, '/run/awf/x.sock', '/run/awf/x', {
+      workspaceIdentity: workspaceIdentity as { uid: number; gid: number },
+    })).toThrow(/non-root workspace (uid|gid)/);
+  });
+
+  it('never passes options that enable guest-controlled extended attributes', () => {
+    for (const announceSubmounts of [false, true]) {
+      for (const directoryExport of [workspace, cache]) {
+        const args = buildVirtiofsdArgs(directoryExport, '/run/awf/x.sock', '/run/awf/x', {
+          workspaceIdentity: WORKSPACE_IDENTITY,
+          announceSubmounts,
+        });
+        for (const arg of args) {
+          expect(arg.split('=', 1)[0]).not.toMatch(
+            /^(--xattr|--xattrmap|--posix-acl|--security-label|-o)$/,
+          );
+        }
+        expect(findForbiddenVirtiofsdOption(args)).toBeUndefined();
+      }
+    }
+    for (const option of ['--xattr', '--xattrmap=:map::user.:', '--posix-acl', '--security-label', '-o']) {
+      expect(findForbiddenVirtiofsdOption(['--seccomp=kill', option])).toBe(option.split('=', 1)[0]);
+    }
+    expect(findForbiddenVirtiofsdOption(['-oxattr'])).toBe('-o');
+    expect(findForbiddenVirtiofsdOption(['-oxattr,posix_acl'])).toBe('-o');
+  });
+
+  it('refuses to launch when the workspace identity is root', async () => {
+    const deps = dependencies();
+    const rootManager = new VirtiofsdManager(
+      '/opt/virtiofsd',
+      '/run/awf/run',
+      '/run/awf-shares/run',
+      { uid: 1000, gid: 1000 },
+      { uid: 0, gid: 0 },
+      {
+        cgroupPath: '/sys/fs/cgroup/awf-cloud-hypervisor/test',
+        assign: jest.fn().mockResolvedValue(undefined),
+      },
+      { mount: '/usr/bin/mount', umount: '/usr/bin/umount' },
+      deps,
+    );
+    await expect(rootManager.start([workspace])).rejects.toThrow(/non-root workspace uid/);
+    expect(deps.launch).not.toHaveBeenCalled();
   });
 
   it('starts one daemon per export, assigns the shared cgroup, and cleans residue', async () => {
@@ -186,6 +286,7 @@ describe('VirtiofsdManager', () => {
       '/run/awf/run',
       '/run/awf-shares/run',
       { uid: 1000, gid: 1000 },
+      WORKSPACE_IDENTITY,
       cgroup,
       { mount: '/usr/bin/mount', umount: '/usr/bin/umount' },
       deps,
@@ -199,7 +300,7 @@ describe('VirtiofsdManager', () => {
     expect(deps.launch).toHaveBeenCalledTimes(2);
     expect(deps.launch).toHaveBeenCalledWith(
       '/opt/virtiofsd',
-      expect.arrayContaining(['--sandbox=namespace', '--seccomp=kill']),
+      expect.arrayContaining(['--sandbox=namespace', '--seccomp=kill', ...SQUASH_ARGS]),
       {
         reject: false,
         stdio: ['ignore', 'pipe', 'pipe'],
@@ -253,6 +354,7 @@ describe('VirtiofsdManager', () => {
       '/run/awf/run',
       '/run/awf-shares/run',
       { uid: 1000, gid: 1000 },
+      WORKSPACE_IDENTITY,
       {
         cgroupPath: '/sys/fs/cgroup/awf-cloud-hypervisor/test',
         assign: jest.fn().mockResolvedValue(undefined),
@@ -438,6 +540,43 @@ describe('VirtiofsdManager', () => {
         });
       },
       error: /command line does not match/,
+    },
+    {
+      name: 'uid translation',
+      mutate: (deps: VirtiofsdDependencies) => {
+        const readFile = deps.readFile;
+        deps.readFile = jest.fn(async (filePath: string, encoding: BufferEncoding) => {
+          const contents = await readFile(filePath, encoding);
+          return filePath === '/proc/100/cmdline'
+            ? contents.replace(SQUASH_ARGS[0], '--translate-uid=squash-guest:0:0:4294967295')
+            : contents;
+        });
+      },
+      error: /command line does not match/,
+    },
+    {
+      name: 'gid translation',
+      mutate: (deps: VirtiofsdDependencies) => {
+        const readFile = deps.readFile;
+        deps.readFile = jest.fn(async (filePath: string, encoding: BufferEncoding) => {
+          const contents = await readFile(filePath, encoding);
+          return filePath === '/proc/100/cmdline'
+            ? contents.replace(`${SQUASH_ARGS[1]}\0`, '')
+            : contents;
+        });
+      },
+      error: /command line does not match/,
+    },
+    {
+      name: 'xattr policy',
+      mutate: (deps: VirtiofsdDependencies) => {
+        const readFile = deps.readFile;
+        deps.readFile = jest.fn(async (filePath: string, encoding: BufferEncoding) => {
+          const contents = await readFile(filePath, encoding);
+          return filePath === '/proc/100/cmdline' ? `${contents}--xattr\0` : contents;
+        });
+      },
+      error: /enables guest-controlled xattrs via --xattr/,
     },
   ])('fails closed when $name verification fails', async ({ mutate, error }) => {
     const deps = dependencies();
@@ -735,6 +874,7 @@ describe('VirtiofsdManager', () => {
       '/run/awf/run',
       '/run/awf-shares/run',
       { uid: 1000, gid: 1000 },
+      WORKSPACE_IDENTITY,
       {
         cgroupPath: '/sys/fs/cgroup/awf-cloud-hypervisor/test',
         assign: jest.fn().mockResolvedValue(undefined),
@@ -781,6 +921,7 @@ describe('VirtiofsdManager host mount-tree enforcement', () => {
       '--seccomp=kill',
       '--cache=auto',
       '--inode-file-handles=never',
+      ...SQUASH_ARGS,
     ]);
     expect(cacheArgs).not.toContain('--announce-submounts');
     expect(deps.runTool).toHaveBeenCalledWith('/usr/bin/mount', [
@@ -801,6 +942,7 @@ describe('VirtiofsdManager host mount-tree enforcement', () => {
       '--seccomp=kill',
       '--cache=auto',
       '--inode-file-handles=never',
+      ...SQUASH_ARGS,
     ]);
     expect(deps.runTool).toHaveBeenCalledWith('/usr/bin/mount', [
       '--bind', '/host/cache', '/run/awf-shares/run/1-cache',
@@ -825,6 +967,7 @@ describe('VirtiofsdManager host mount-tree enforcement', () => {
       '--seccomp=kill',
       '--cache=auto',
       '--inode-file-handles=never',
+      ...SQUASH_ARGS,
       '--announce-submounts',
     ]);
     expect((deps.runTool as jest.Mock).mock.calls).toEqual([

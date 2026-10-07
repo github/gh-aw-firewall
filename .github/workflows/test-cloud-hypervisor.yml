@@ -58,6 +58,12 @@ jobs:
         # below, which is much slower to diagnose.
         run: go test ./...
 
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '22'
+          cache: npm
+
       - name: Install deterministic guest build prerequisites
         run: |
           sudo apt-get update
@@ -72,11 +78,16 @@ jobs:
             file \
             flex \
             libcap2-bin \
+            libcap-ng-dev \
             libelf-dev \
+            libseccomp-dev \
             libssl-dev \
+            pkg-config \
             rsync \
-            virtiofsd \
             xz-utils
+          # virtiofsd is built from pinned upstream source by
+          # build-test-artifacts.sh with the rustup toolchain it pins.
+          rustup --version
 
       - name: Build and verify pinned artifacts
         run: |

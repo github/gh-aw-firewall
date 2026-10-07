@@ -1,9 +1,63 @@
 'use strict';
 
+const { getFallbackReason } = require('./model-fallback-chain');
+
+/**
+ * Forward a fully buffered upstream (error) response to the client, emitting
+ * the same completion/auth/error diagnostics as the streaming path.
+ */
+function sendBufferedUpstreamResponse(proxyRes, responseBody, {
+  completionCtx, authErrCtx, initiatorSent, billingInfo, res, span, requestId,
+  logRequestCompletion, logUpstreamAuthError, logUpstreamErrorResponse, otel,
+  requestModel = null, requestTools = null,
+}) {
+  logRequestCompletion(proxyRes.statusCode, responseBody.length, initiatorSent, billingInfo, completionCtx);
+  logUpstreamAuthError(proxyRes.statusCode, { ...authErrCtx, responseBody });
+  if (typeof logUpstreamErrorResponse === 'function') {
+    logUpstreamErrorResponse(proxyRes.statusCode, {
+      ...authErrCtx,
+      requestModel,
+      requestTools,
+      transformed: false,
+      responseHeaders: proxyRes.headers,
+      responseBody,
+      responseBodyBytes: responseBody.length,
+      responseBodyTruncated: false,
+    });
+  }
+
+  const resHeaders = {
+    ...proxyRes.headers,
+    'x-request-id': requestId,
+    'content-length': String(responseBody.length),
+  };
+  delete resHeaders['transfer-encoding'];
+  res.writeHead(proxyRes.statusCode, resHeaders);
+  res.end(responseBody);
+  otel.endSpan(span, proxyRes.statusCode);
+}
+
+/**
+ * Handle a buffered fallback-eligible (5xx / 404) upstream response: switch to
+ * the next model in the ordered fallback chain when the failure is
+ * model-specific, otherwise forward the response unchanged.
+ *
+ * @returns {boolean} true when a fallback request was dispatched.
+ */
+function handleFallbackEligibleResponse(proxyRes, responseBody, ctx) {
+  const reason = getFallbackReason(proxyRes.statusCode, responseBody);
+  if (reason && typeof ctx.onModelFallback === 'function' &&
+      ctx.onModelFallback({ statusCode: proxyRes.statusCode, reason })) {
+    return true;
+  }
+  sendBufferedUpstreamResponse(proxyRes, responseBody, ctx);
+  return false;
+}
+
 function handle400WithRetry(proxyRes, requestHeaders, responseBody, {
   provider, requestId, hasRetried, onRetry,
   modelNotSupportedRetryCount, maxModelNotSupportedRetries, onModelNotSupportedRetry,
-  onModelEndpointBlockedRetry,
+  onModelEndpointBlockedRetry, onModelFallback = null,
   completionCtx, authErrCtx, initiatorSent, billingInfo, res, span,
   parseDeprecatedHeaderFromBody, learnAndStripDeprecatedHeaderValue,
   parseModelNotSupportedFromBody, parseModelEndpointBlockedFromBody, logRequest, sanitizeForLog,
@@ -64,7 +118,15 @@ function handle400WithRetry(proxyRes, requestHeaders, responseBody, {
     return true;
   }
 
-  // ── (d) Model-unavailable diagnostic (non-retryable model-not-supported 400) ───
+  // ── (d) Ordered model fallback chain (any provider) ─────────────────────
+  // Only a model-specific 400 (model not supported / not found / not
+  // accessible) switches models; generic validation errors are surfaced.
+  if (typeof onModelFallback === 'function') {
+    const reason = getFallbackReason(proxyRes.statusCode, responseBody);
+    if (reason && onModelFallback({ statusCode: proxyRes.statusCode, reason })) return true;
+  }
+
+  // ── (e) Model-unavailable diagnostic (non-retryable model-not-supported 400) ───
   if (proxyRes.statusCode === 400 && parseModelNotSupportedFromBody(responseBody)) {
     const { req } = authErrCtx;
     logRequest('error', 'model_unavailable', {
@@ -79,33 +141,16 @@ function handle400WithRetry(proxyRes, requestHeaders, responseBody, {
     });
   }
 
-  logRequestCompletion(proxyRes.statusCode, responseBody.length, initiatorSent, billingInfo, completionCtx);
-  logUpstreamAuthError(proxyRes.statusCode, { ...authErrCtx, responseBody });
-  if (typeof logUpstreamErrorResponse === 'function') {
-    logUpstreamErrorResponse(proxyRes.statusCode, {
-      ...authErrCtx,
-      requestModel,
-      requestTools,
-      transformed: false,
-      responseHeaders: proxyRes.headers,
-      responseBody,
-      responseBodyBytes: responseBody.length,
-      responseBodyTruncated: false,
-    });
-  }
-
-  const resHeaders = {
-    ...proxyRes.headers,
-    'x-request-id': requestId,
-    'content-length': String(responseBody.length),
-  };
-  delete resHeaders['transfer-encoding'];
-  res.writeHead(proxyRes.statusCode, resHeaders);
-  res.end(responseBody);
-  otel.endSpan(span, proxyRes.statusCode);
+  sendBufferedUpstreamResponse(proxyRes, responseBody, {
+    completionCtx, authErrCtx, initiatorSent, billingInfo, res, span, requestId,
+    logRequestCompletion, logUpstreamAuthError, logUpstreamErrorResponse, otel,
+    requestModel, requestTools,
+  });
   return false;
 }
 
 module.exports = {
   handle400WithRetry,
+  handleFallbackEligibleResponse,
+  sendBufferedUpstreamResponse,
 };

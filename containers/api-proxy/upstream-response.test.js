@@ -36,6 +36,60 @@ function createProxyRes({ statusCode, headers }) {
 }
 
 describe('upstream-response', () => {
+  test('translates a buffered upstream Chat Completions response back to Responses', () => {
+    const deps = createDependencies();
+    const { handleUpstreamResponse } = createUpstreamResponseHandlers(deps);
+    const proxyRes = createProxyRes({
+      statusCode: 200,
+      headers: { 'content-type': 'application/json', 'content-length': '80' },
+    });
+    const res = { writeHead: jest.fn(), end: jest.fn() };
+    const body = Buffer.from(JSON.stringify({
+      model: 'claude-haiku-4.5',
+      input: 'hello',
+    }));
+    const upstreamBody = Buffer.from(JSON.stringify({
+      id: 'chatcmpl_1',
+      model: 'claude-haiku-4.5',
+      choices: [{ index: 0, message: { role: 'assistant', content: 'hello' }, finish_reason: 'stop' }],
+      usage: { prompt_tokens: 2, completion_tokens: 1, total_tokens: 3 },
+    }));
+
+    handleUpstreamResponse(proxyRes, {}, {
+      body,
+      res,
+      provider: 'copilot',
+      requestId: 'wire-api-req',
+      req: { method: 'POST', url: '/responses' },
+      targetHost: 'api.githubcopilot.com',
+      startTime: Date.now() - 10,
+      span: {},
+      requestBytes: body.length,
+      hasRetried: false,
+      onRetry: jest.fn(),
+      wireApiCompatibility: {
+        requestedEndpoint: '/responses',
+        upstreamEndpoint: '/chat/completions',
+        direction: 'responses_to_chat',
+      },
+    });
+
+    proxyRes.emit('data', upstreamBody);
+    proxyRes.emit('end');
+
+    expect(res.writeHead).toHaveBeenCalledWith(200, expect.not.objectContaining({
+      'content-length': '80',
+    }));
+    expect(JSON.parse(res.end.mock.calls[0][0].toString('utf8'))).toMatchObject({
+      object: 'response',
+      output: [{
+        type: 'message',
+        content: [{ type: 'output_text', text: 'hello' }],
+      }],
+      usage: { input_tokens: 2, output_tokens: 1, total_tokens: 3 },
+    });
+  });
+
   test('captures non-2xx upstream body/headers without altering plain-text response', () => {
     const deps = createDependencies();
     const { handleUpstreamResponse } = createUpstreamResponseHandlers(deps);
@@ -171,6 +225,53 @@ describe('upstream-response', () => {
       status: 429,
       response_streaming: true,
       upstream_request_ids: { 'x-correlation-id': 'corr-123' },
+    }));
+  });
+
+  test.each([400, 503])('streams oversized %i fallback errors without inspecting the full response', (statusCode) => {
+    const deps = createDependencies();
+    const { handleUpstreamResponse } = createUpstreamResponseHandlers(deps);
+    const proxyRes = createProxyRes({
+      statusCode,
+      headers: { 'content-type': 'application/json', 'content-length': '65547' },
+    });
+    const res = { writeHead: jest.fn(), write: jest.fn(() => true), end: jest.fn(), once: jest.fn() };
+    const prefix = Buffer.alloc(64 * 1024, 'a');
+    const overflow = Buffer.from('overflow');
+    const tail = Buffer.from('tail');
+    const onModelFallback = jest.fn(() => true);
+
+    handleUpstreamResponse(proxyRes, {}, {
+      body: Buffer.from('{"model":"gpt-5.4"}'),
+      res,
+      provider: 'openai',
+      requestId: 'local-req-4',
+      req: { method: 'POST', url: '/v1/chat/completions' },
+      targetHost: 'api.openai.com',
+      startTime: Date.now() - 10,
+      span: {},
+      requestBytes: 20,
+      hasRetried: false,
+      onRetry: jest.fn(),
+      onModelFallback,
+    });
+
+    proxyRes.emit('data', prefix);
+    proxyRes.emit('data', overflow);
+    proxyRes.emit('data', tail);
+    proxyRes.emit('end');
+
+    expect(onModelFallback).not.toHaveBeenCalled();
+    expect(res.writeHead).toHaveBeenCalledWith(statusCode, expect.objectContaining({
+      'x-request-id': 'local-req-4',
+      'content-length': '65547',
+    }));
+    expect(res.write).toHaveBeenNthCalledWith(1, prefix);
+    expect(res.write).toHaveBeenNthCalledWith(2, overflow);
+    expect(proxyRes.pipe).toHaveBeenCalledWith(res);
+    expect(deps.logRequest).toHaveBeenCalledWith('warn', 'upstream_error_response', expect.objectContaining({
+      response_body_bytes: prefix.length + overflow.length + tail.length,
+      response_body_truncated: true,
     }));
   });
 });

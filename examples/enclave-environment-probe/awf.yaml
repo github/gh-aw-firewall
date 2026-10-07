@@ -1,0 +1,18 @@
+network:
+  isolation: true
+  allowDomains:
+    - github.com
+    - api.github.com
+cloudHypervisor:
+  previewEnabled: true
+  mountPolicy: workspace-only
+enclaves:
+  - script:
+      maxScriptBytes: 16384
+    runtime: cloud-hypervisor
+    timeout: 30
+    maxOutputBytes: 8192
+    maxInvocations: 1
+    repos:
+      - repo: github/gh-aw-firewall
+        sensitivity: public

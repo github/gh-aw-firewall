@@ -138,6 +138,21 @@ describe('buildProviderRoutingEnv', () => {
     expect(env.COPILOT_INTEGRATION_ID).toBe('my-integration');
   });
 
+  it.each(['GITHUB_REPOSITORY', 'GITHUB_WORKFLOW_REF'])('forwards nonempty %s for routing evidence', (key) => {
+    const saved = process.env[key];
+    try {
+      process.env[key] = '  owner/repo  ';
+      expect(buildProviderRoutingEnv({ ...baseConfig, workDir: '/tmp/awf-test' })[key]).toBe('owner/repo');
+      process.env[key] = '   ';
+      expect(buildProviderRoutingEnv({ ...baseConfig, workDir: '/tmp/awf-test' })[key]).toBeUndefined();
+      delete process.env[key];
+      expect(buildProviderRoutingEnv({ ...baseConfig, workDir: '/tmp/awf-test' })[key]).toBeUndefined();
+    } finally {
+      if (saved !== undefined) process.env[key] = saved;
+      else delete process.env[key];
+    }
+  });
+
   it('omits COPILOT_INTEGRATION_ID when whitespace-only', () => {
     const env = buildProviderRoutingEnv({
       ...baseConfig,
@@ -422,6 +437,22 @@ describe('buildModelPolicyEnv', () => {
     expect(env.AWF_MODEL_FALLBACK).toBe('{"enabled":false,"strategy":"middle_power"}');
   });
 
+  it('sets AWF_FALLBACK_MODELS when fallbackModels is configured', () => {
+    const env = buildModelPolicyEnv({
+      ...baseConfig,
+      workDir: '/tmp/awf-test',
+      fallbackModels: ['gpt-5.4', 'claude-sonnet-4.6'],
+    });
+    expect(env.AWF_FALLBACK_MODELS).toBe('["gpt-5.4","claude-sonnet-4.6"]');
+  });
+
+  it('omits AWF_FALLBACK_MODELS when fallbackModels is empty or unset', () => {
+    expect(buildModelPolicyEnv({ ...baseConfig, workDir: '/tmp/awf-test', fallbackModels: [] }))
+      .not.toHaveProperty('AWF_FALLBACK_MODELS');
+    expect(buildModelPolicyEnv({ ...baseConfig, workDir: '/tmp/awf-test' }))
+      .not.toHaveProperty('AWF_FALLBACK_MODELS');
+  });
+
 it('buildModelPolicyEnv no longer sets AWF_ROUTING_CONFIG when modelRouting is configured', () => {
     const env = buildModelPolicyEnv({
       ...baseConfig,
@@ -446,7 +477,9 @@ it('buildModelPolicyEnv no longer sets AWF_ROUTING_CONFIG when modelRouting is c
       const env = buildModelRoutingEnv({
         ...baseConfig,
         workDir: '/tmp/awf-test',
+        experimentalModelRouting: true,
         modelRouting: {
+          candidateModels: ['gpt-5.6-luna'],
           objective: { goal: 'cost', mode: 'balanced' },
           task: { conversationFile: '/host/conversation.json' },
         },
@@ -460,7 +493,7 @@ it('buildModelPolicyEnv no longer sets AWF_ROUTING_CONFIG when modelRouting is c
         },
       });
       expect(env.AWF_ROUTING_CONFIG).toBe(
-        '{"objective":{"goal":"cost","mode":"balanced"},"task":{"conversationFile":"/run/awf-routing/input/conversation.json"}}'
+        '{"candidateModels":["gpt-5.6-luna"],"objective":{"goal":"cost","mode":"balanced"},"task":{"conversationFile":"/run/awf-routing/input/conversation.json"}}'
       );
     });
 
@@ -468,17 +501,32 @@ it('buildModelPolicyEnv no longer sets AWF_ROUTING_CONFIG when modelRouting is c
       expect(() => buildModelRoutingEnv({
         ...baseConfig,
         workDir: '/tmp/awf-test',
+        experimentalModelRouting: true,
         modelRouting: {
           objective: { goal: 'cost', mode: 'balanced' },
           task: { conversationFile: '/host/conversation.json' },
         },
       })).toThrow('Model routing was configured but the routing conversation was not staged');
     });
+
+    it('omits routing environment without both the opt-in and a request', () => {
+      const config = {
+        ...baseConfig,
+        workDir: '/tmp/awf-test',
+        modelRouting: {
+          objective: { goal: 'cost' as const, mode: 'balanced' as const },
+          task: { conversationFile: '/host/conversation.json' },
+        },
+      };
+      expect(buildModelRoutingEnv(config)).toEqual({});
+      expect(buildModelRoutingEnv({ ...config, experimentalModelRouting: false })).toEqual({});
+      expect(buildModelRoutingEnv({ ...baseConfig, workDir: '/tmp/awf-test', experimentalModelRouting: true })).toEqual({});
+    });
   });
 
-  it('omits AWF_ALLOWED_MODELS when allowedModels is empty', () => {
+  it('forwards an empty allowedModels list so the proxy rejects the invalid policy', () => {
     const env = buildModelPolicyEnv({ ...baseConfig, workDir: '/tmp/awf-test', allowedModels: [] });
-    expect(env.AWF_ALLOWED_MODELS).toBeUndefined();
+    expect(env.AWF_ALLOWED_MODELS).toBe('[]');
   });
 
   it('sets AWF_DISALLOWED_MODELS when disallowedModels is non-empty', () => {

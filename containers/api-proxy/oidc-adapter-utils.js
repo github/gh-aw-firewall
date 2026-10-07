@@ -121,10 +121,50 @@ function resolveAuthHeadersWithFallback({ oidcProvider, awsOidcProvider, buildOi
   return staticHeaders;
 }
 
+/**
+ * Build the shared "OIDC unavailable" response scaffold used by provider
+ * adapters that support GitHub OIDC authentication.
+ *
+ * Centralises the repeated request-time (`unconfiguredResponseWhen`) and
+ * health-check (`unavailableWhen`) callbacks so that OIDC retryability, error
+ * wording, and the "requested vs configured" distinction stay in sync across
+ * provider adapters instead of being re-implemented in each one.
+ *
+ * - When OIDC was requested and is configured (token infra initialised, but
+ *   no token available yet), both callbacks report `unavailableMessage` and
+ *   the request-time response is marked retryable.
+ * - When OIDC was requested but could not be configured at all (e.g. missing
+ *   required env vars), both callbacks report `unconfiguredMessage` (falling
+ *   back to `unavailableMessage` when not provided) and the request-time
+ *   response is not retryable.
+ * - When OIDC was not requested, both callbacks return null so callers fall
+ *   through to the provider's static-key not-configured/health messaging.
+ *
+ * @param {object} opts
+ * @param {boolean} opts.requested - Whether the caller asked for OIDC auth for this provider
+ * @param {boolean} opts.configured - Whether the OIDC provider was successfully initialised (the token itself may not be available yet)
+ * @param {string} opts.unavailableMessage - Message once OIDC is configured but no token is available yet (retryable)
+ * @param {string} [opts.unconfiguredMessage] - Message when OIDC was requested but could not be initialised at all. Defaults to unavailableMessage when omitted.
+ * @returns {{
+ *   unconfiguredResponseWhen: () => ({ kind: 'provider_not_configured', message: string, retryable: boolean }|null),
+ *   unavailableWhen: () => ({ message: string, status: string }|null),
+ * }}
+ */
+function buildOidcUnavailableScaffold({ requested, configured, unavailableMessage, unconfiguredMessage }) {
+  const message = configured ? unavailableMessage : (unconfiguredMessage || unavailableMessage);
+  return {
+    unconfiguredResponseWhen: () => (requested
+      ? { kind: 'provider_not_configured', message, retryable: !!configured }
+      : null),
+    unavailableWhen: () => (requested ? { message, status: 'unavailable' } : null),
+  };
+}
+
 module.exports = {
   isValidHeaderName,
   validateAuthHeaderEnv,
   createOidcRuntimeAdapterMethods,
   resolveOidcAuthHeaders,
   resolveAuthHeadersWithFallback,
+  buildOidcUnavailableScaffold,
 };

@@ -7,9 +7,10 @@
  * Workload Identity Federation via a bearer Authorization header.
  */
 
-const { createProviderAuthScaffold, createOidcAwareProviderAdapter } = require('../adapter-factory');
+const { createStandardProviderAdapter } = require('../adapter-factory');
 const { bearerAuthHeaders, providerKeyHeaders } = require('./auth-headers');
 const { GOOGLE_PROVIDER_SPECS } = require('./google-provider-specs');
+const { buildOidcUnavailableScaffold } = require('../oidc-adapter-utils');
 
 function isGcpOidcRequested(env) {
   return (env.AWF_AUTH_TYPE || '').trim().toLowerCase() === 'github-oidc'
@@ -50,35 +51,27 @@ function createGoogleAuthAdapter(env, deps = {}, opts) {
     transformRequestUrl,
   } = opts;
 
-  const { apiKey, rawTarget, basePath, bodyTransform } = createProviderAuthScaffold(env, deps, {
-    keyEnvVar: envConstants.KEY,
-    targetEnvVar: envConstants.TARGET,
-    basePathEnvVar: envConstants.BASE_PATH,
-    defaultTarget,
-  });
-  const buildStaticHeaders = () => providerKeyHeaders('x-goog-api-key', apiKey);
   const gcpOidcRequested = isGcpOidcRequested(env);
 
-  return createOidcAwareProviderAdapter({
-    env,
-    oidcAuthOptions: { staticAuthToken: apiKey, skipWhen: !gcpOidcRequested },
-    buildOidcHeaders: bearerAuthHeaders,
-    buildStaticHeaders,
-    createAdapterMethodsOptions: ({ authProvider, oidcConfigured, validationSkip, skipModelsFetch }) => ({
-      apiKey,
-      rawTarget,
-      basePath,
-      provider: name,
-      port,
-      defaultTarget,
+  return createStandardProviderAdapter(env, deps, {
+    envVars: {
+      keyEnvVar: envConstants.KEY,
+      targetEnvVar: envConstants.TARGET,
+      basePathEnvVar: envConstants.BASE_PATH,
+    },
+    name,
+    port,
+    defaultTarget,
+    createOidcAuthOptions: () => ({ skipWhen: !gcpOidcRequested }),
+    createHeaderBuilders: ({ apiKey }) => ({
+      buildOidcHeaders: bearerAuthHeaders,
+      buildStaticHeaders: () => providerKeyHeaders('x-goog-api-key', apiKey),
+    }),
+    createAdapterMethodsOptions: ({ authProvider, oidcConfigured, buildStaticHeaders }) => ({
       validationPath,
       validationHeaders: buildStaticHeaders,
-      validationSkip,
-      skipModelsFetch,
       modelsPath,
       modelsFetchHeaders: modelsPath ? buildStaticHeaders : null,
-      credentialConfigured: !!apiKey || oidcConfigured,
-      reflectionConfigured: !!apiKey || oidcConfigured,
       reflectionExtra: () => ({
         auth_type: oidcConfigured ? `github-oidc/${authProvider}` : 'static-key',
       }),
@@ -88,34 +81,22 @@ function createGoogleAuthAdapter(env, deps = {}, opts) {
       // ACTIONS_ID_TOKEN_REQUEST_* or workload identity provider), report the
       // incomplete configuration instead of falling through to the
       // static-key-only message.
-      const oidcUnavailableError = oidcConfigured
-        ? `${label} OIDC token (${authProvider}) unavailable; retry shortly`
-        : `${label} GCP OIDC requires ACTIONS_ID_TOKEN_REQUEST_URL and ACTIONS_ID_TOKEN_REQUEST_TOKEN (permissions: id-token: write) plus AWF_AUTH_GCP_WORKLOAD_IDENTITY_PROVIDER.`;
+      const oidcScaffold = buildOidcUnavailableScaffold({
+        requested: gcpOidcRequested,
+        configured: oidcConfigured,
+        unavailableMessage: `${label} OIDC token (${authProvider}) unavailable; retry shortly`,
+        unconfiguredMessage: `${label} GCP OIDC requires ACTIONS_ID_TOKEN_REQUEST_URL and ACTIONS_ID_TOKEN_REQUEST_TOKEN (permissions: id-token: write) plus AWF_AUTH_GCP_WORKLOAD_IDENTITY_PROVIDER.`,
+      });
       return {
-        name,
-        port,
-        isManagementPort: false,
-        bodyTransform,
         missingCredentialResponse: {
           kind: 'plain_error',
           statusCode: 503,
           message: unconfiguredErrorMessage,
         },
-        unconfiguredResponseWhen: () => (gcpOidcRequested
-          ? {
-              kind: 'provider_not_configured',
-              message: oidcUnavailableError,
-              retryable: oidcConfigured,
-            }
-          : null),
+        unconfiguredResponseWhen: oidcScaffold.unconfiguredResponseWhen,
         healthServiceName,
         missingCredentialMessage: healthErrorMessage,
-        unavailableWhen: () => (gcpOidcRequested
-          ? {
-              message: oidcUnavailableError,
-              status: 'unavailable',
-            }
-          : null),
+        unavailableWhen: oidcScaffold.unavailableWhen,
         ...(transformRequestUrl !== undefined ? { transformRequestUrl } : {}),
         extra: {
           _oidcProvider: oidcProvider,

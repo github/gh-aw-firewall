@@ -1221,7 +1221,7 @@ steps:
 post-steps:
   - name: Upload NVX Phase 0 evidence
     if: always()
-    uses: actions/upload-artifact@v7.0.1
+    uses: actions/upload-artifact@v7.0.2
     with:
       name: nvx-phase-0-evidence-${{ github.run_id }}
       path: /tmp/gh-aw/agent/nvx-phase-0/

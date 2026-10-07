@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"syscall"
@@ -24,6 +25,36 @@ const (
 	cancelGrace  = 2 * time.Second
 	maxTimeoutMS = int64(24 * 60 * 60 * 1000)
 )
+
+func runEnclaveExec(args []string) error {
+	if len(args) < 3 {
+		return fmt.Errorf("invalid enclave execution trampoline arguments")
+	}
+	profile, err := enclaveResourceProfileForRole(args[0])
+	if err != nil {
+		return err
+	}
+	if os.Getuid() != int(profile.uid) || os.Getgid() != int(profile.gid) {
+		return fmt.Errorf("enclave process identity verification failed")
+	}
+	groups, err := os.Getgroups()
+	if err != nil {
+		return fmt.Errorf("verify enclave supplementary groups: %w", err)
+	}
+	if len(groups) != 0 {
+		return fmt.Errorf("enclave process has supplementary groups")
+	}
+	if err := setNoNewPrivilegesAllThreads(); err != nil {
+		return fmt.Errorf("set enclave process no_new_privs: %w", err)
+	}
+	if err := verifyEnclaveThreads("/proc/self/task", validateEnclaveCapabilities); err != nil {
+		return err
+	}
+	if err := verifyEnclaveRlimits(profile); err != nil {
+		return err
+	}
+	return syscall.Exec(args[1], args[2:], os.Environ())
+}
 
 type sockaddrVM struct {
 	Family   uint16
@@ -77,17 +108,49 @@ func runSupervisor() error {
 	if err != nil {
 		return fmt.Errorf("read kernel command line: %w", err)
 	}
-	config, err := parseBootConfig(string(cmdline))
+	return runSupervisorWithCmdline(string(cmdline), listenVsock)
+}
+
+func runSupervisorWithCmdline(cmdline string, listen func(uint32) (*vsockListener, error)) error {
+	config, err := parseBootConfig(cmdline)
 	if err != nil {
 		return err
+	}
+	if config.EnclaveRole != "" {
+		runtime.LockOSThread()
 	}
 	if err := mountConfiguredFilesystems(config); err != nil {
 		return err
 	}
+	if config.EnclaveRole != "" {
+		profile, err := enclaveResourceProfileForRole(config.EnclaveRole)
+		if err != nil {
+			return err
+		}
+		if err := mountEnclaveTmpfs(profile); err != nil {
+			return err
+		}
+		if config.EnclaveRole == "agent" {
+			if err := mountEnclaveAgentRuntime(config); err != nil {
+				return err
+			}
+		}
+		if err := mountEnclaveCompatibilityPaths(config.EnclaveRole); err != nil {
+			return err
+		}
+		if err := applyEnclaveRlimits(profile); err != nil {
+			return err
+		}
+	}
 	if err := configureNetwork(config); err != nil {
 		return err
 	}
-	listener, err := listenVsock(config.VsockPort)
+	if config.EnclaveRole != "" {
+		if err := dropEnclaveSupervisorPrivileges(); err != nil {
+			return err
+		}
+	}
+	listener, err := listen(config.VsockPort)
 	if err != nil {
 		return fmt.Errorf("listen on vsock: %w", err)
 	}
@@ -186,6 +249,12 @@ func unmountConfiguredFilesystems(config bootConfig) error {
 	for _, mount := range config.VirtiofsMounts {
 		targets = append(targets, mount.Target)
 	}
+	if config.EnclaveRole == "agent" {
+		targets = append(targets, enclaveAgentRuntimeTarget)
+	}
+	if config.EnclaveRole != "" {
+		targets = append(targets, enclaveCompatibilityTarget)
+	}
 	return unmountTargets(targets)
 }
 
@@ -247,6 +316,9 @@ func mountWorkspace(config bootConfig) error {
 }
 
 func configureNetwork(config bootConfig) error {
+	if config.NoNetwork {
+		return nil
+	}
 	ip, err := ipCommand()
 	if err != nil {
 		return err
@@ -397,7 +469,20 @@ func (s *session) start(frame Frame) error {
 	if frame.UID > int64(^uint32(0)) || frame.GID > int64(^uint32(0)) {
 		return fmt.Errorf("uid and gid must fit Linux credential limits")
 	}
-	cwd, err := resolveCWD(s.config.WorkspaceMount, frame.Cwd)
+	if s.config.EnclaveRole != "" {
+		profile, err := enclaveResourceProfileForRole(s.config.EnclaveRole)
+		if err != nil {
+			return err
+		}
+		if frame.UID != int64(profile.uid) || frame.GID != int64(profile.gid) {
+			return typedError{errorInvalidRequest, "enclave uid and gid must match the fixed guest identity"}
+		}
+	}
+	workspace := s.config.WorkspaceMount
+	if s.config.NoNetwork {
+		workspace = "/"
+	}
+	cwd, err := resolveCWD(workspace, frame.Cwd)
 	if err != nil {
 		return err
 	}
@@ -418,10 +503,23 @@ func (s *session) start(frame Frame) error {
 		cancel()
 		return err
 	}
-	command := exec.Command(resolvedCommand, frame.Argv[1:]...)
+	var command *exec.Cmd
+	if s.config.EnclaveRole != "" {
+		command = exec.Command(
+			"/usr/sbin/awf-supervisor",
+			append([]string{"--awf-enclave-exec", s.config.EnclaveRole, resolvedCommand, frame.Argv[0]}, frame.Argv[1:]...)...,
+		)
+	} else {
+		command = exec.Command(resolvedCommand, frame.Argv[1:]...)
+	}
 	command.Dir = cwd
 	command.Env = environment(frame.Env)
-	command.SysProcAttr = &syscall.SysProcAttr{Setpgid: true, Credential: &syscall.Credential{Uid: uint32(frame.UID), Gid: uint32(frame.GID)}}
+	command.SysProcAttr = &syscall.SysProcAttr{
+		Setpgid: true,
+		Credential: &syscall.Credential{
+			Uid: uint32(frame.UID), Gid: uint32(frame.GID), NoSetGroups: true,
+		},
+	}
 	stdin, err := command.StdinPipe()
 	if err != nil {
 		cancel()

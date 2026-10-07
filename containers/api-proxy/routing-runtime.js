@@ -7,7 +7,7 @@
  *
  * Session lifecycle:
  *   start()            → plan → write selection.json
- *   enforcement        → admit only the selected model for the agent's request
+ *   observation        → advisory: record requested vs. selected model per request
  *   shutdown()         → abort in-flight work, drain, then write complete.json
  *
  * The input and output directories belong to the proxy alone and are the only
@@ -26,7 +26,8 @@ const { createRoutingCatalogue } = require('./routing-catalogue');
 const { parseRoutingConfig } = require('./routing-config');
 const { createRoutingController } = require('./routing-controller');
 const { createRoutingError, RoutingError, toRoutingFailure } = require('./routing-errors');
-const { createRoutingEnforcement } = require('./routing-enforcement');
+const { createRoutingObservation } = require('./routing-observation');
+const { writeRoutingRecord } = require('./routing-persistence');
 const { createRoutingProviderExecutor } = require('./routing-provider-executor');
 const { createRoutingRouterClient } = require('./routing-router-client');
 const { cachedModels } = require('./key-validation');
@@ -65,9 +66,13 @@ async function loadRoutingConversation(filePath, { signal } = {}) {
 function createRoutingObserver(writeLog = logRequest) {
   return Object.freeze({
     record(record) {
-      const level = record.stage === 'failure' || (record.stage === 'decision' && record.decision === 'reject')
-        ? 'warn' : 'info';
-      writeLog(level, 'model_routing', record);
+      const level = record.stage === 'failure' ? 'warn' : 'info';
+      try {
+        writeLog(level, 'model_routing', record);
+      } catch {
+        // Console logging must not prevent persistence or affect routing.
+      }
+      writeRoutingRecord(record);
     },
   });
 }
@@ -99,6 +104,7 @@ function parsePolicyList(raw, name) {
  */
 function createProductionRoutingController({
   rawConfig = process.env.AWF_ROUTING_CONFIG,
+  getAdapter,
   getCopilotAdapter,
   routerTransport,
   observer = createRoutingObserver(),
@@ -111,17 +117,18 @@ function createProductionRoutingController({
     allowedModels: parsePolicyList(process.env.AWF_ALLOWED_MODELS, 'AWF_ALLOWED_MODELS'),
     disallowedModels: parsePolicyList(process.env.AWF_DISALLOWED_MODELS, 'AWF_DISALLOWED_MODELS'),
   };
-  if (typeof getCopilotAdapter !== 'function') {
-    throw createRoutingError('routing_configuration_error', 'The Copilot provider adapter owner is unavailable');
+  if (typeof getAdapter !== 'function' && typeof getCopilotAdapter !== 'function') {
+    throw createRoutingError('routing_configuration_error', 'The provider adapter owner is unavailable');
   }
+  const resolveAdapter = getAdapter || (provider => provider === 'copilot' ? getCopilotAdapter?.() : null);
 
   const catalogue = createRoutingCatalogue({
-    getCopilotAdapter,
+    getAdapter: resolveAdapter,
     getDiscoveredModels: provider => cachedModels[provider],
     getRuntimeModels,
   });
   const executor = createRoutingProviderExecutor({
-    getCopilotAdapter,
+    getAdapter: resolveAdapter,
     proxyRequest,
     checkRateLimit,
   });
@@ -202,13 +209,14 @@ function publishRoutingResult(outputDir, name, record) {
  * Build the routing session the proxy owns for the lifetime of the run.
  *
  * Returns null when routing is not configured. The returned object also spreads
- * the enforcement surface (screenRequest, rejectUpgrade, drain) so callers hold
- * a single routing handle.
+ * the observation surface (observeRequest, drain) so callers hold a single
+ * routing handle.
  *
  * @returns {object|null}
  */
 function createProductionRoutingSession({
   rawConfig = process.env.AWF_ROUTING_CONFIG,
+  getAdapter,
   getCopilotAdapter,
   outputDir = '/run/awf-routing/output',
   createController = createProductionRoutingController,
@@ -227,7 +235,7 @@ function createProductionRoutingSession({
   // agent response path, so it must never throw back into that stream.
   function recordFailure(code) {
     if (terminalFailure || (result && !result.ok)) return;
-    terminalFailure = toRoutingFailure(createRoutingError(code, 'Routed execution was rejected'));
+    terminalFailure = toRoutingFailure(createRoutingError(code, 'Routed execution failed'));
     try {
       observer.record({ stage: 'failure', phase: result?.ok ? 'primary' : 'bootstrap', code: terminalFailure.code });
     } catch {
@@ -248,7 +256,28 @@ function createProductionRoutingSession({
 
   const getSelection = () => result?.ok ? result.selection : null;
   const getFailure = () => terminalFailure || (result && !result.ok ? result.failure : null);
-  const enforcement = createRoutingEnforcement({ getSelection, getFailure, recordFailure, observer });
+
+  // Agent-visible view of the selection. Advisory: the agent/harness seeds its
+  // model, effort, and endpoint from it, but may send any policy-permitted model.
+  function getReflectState() {
+    const failure = getFailure();
+    if (failure) return { status: 'failed', failure_code: failure.code, selection: null };
+    const selection = getSelection();
+    if (!selection) return { status: 'pending', selection: null };
+    const provider = selection.provider || 'copilot';
+    const effort = Object.hasOwn(selection.choice, 'effort') ? selection.choice.effort : null;
+    return {
+      status: 'selected',
+      selection: {
+        provider,
+        model: selection.choice.model,
+        wire_model: selection.wire_model,
+        effort,
+        endpoint: selection.endpoint || (provider === 'anthropic' ? '/v1/messages' : (effort === null ? '/chat/completions' : '/responses')),
+      },
+    };
+  }
+  const observation = createRoutingObservation({ getSelection, recordFailure, observer });
 
   async function execute() {
     try {
@@ -257,7 +286,7 @@ function createProductionRoutingSession({
           throw createRoutingError('routing_contract_error', 'Stale routing results cannot be reused');
         }
       }
-      const controller = createController({ rawConfig, getCopilotAdapter, observer });
+      const controller = createController({ rawConfig, getAdapter, getCopilotAdapter, observer });
       result = await controller.run({ signal: abortController.signal, jobDeadlineMs: deadline });
       if (terminalFailure) result = Object.freeze({ ok: false, failure: terminalFailure });
       publishRoutingResult(outputDir, result.ok ? 'selection.json' : 'failure.json',
@@ -287,7 +316,7 @@ function createProductionRoutingSession({
     async shutdown() {
       abortController.abort();
       await runPromise;
-      await enforcement.drain();
+      await observation.drain();
       drained = true;
     },
     completeShutdown() {
@@ -296,7 +325,8 @@ function createProductionRoutingSession({
     },
     getSelection,
     getFailure,
-    ...enforcement,
+    getReflectState,
+    ...observation,
   });
 }
 

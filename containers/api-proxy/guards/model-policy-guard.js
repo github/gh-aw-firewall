@@ -31,8 +31,8 @@ function parseModelPatterns(raw) {
   try {
     const parsed = JSON.parse(raw.trim());
     if (!Array.isArray(parsed)) return null;
-    const strings = parsed.filter(p => typeof p === 'string' && p.trim()).map(p => p.trim());
-    return strings.length > 0 ? strings : null;
+    if (!parsed.length || !parsed.every(p => typeof p === 'string' && p.trim())) return null;
+    return parsed.map(p => p.trim());
   } catch {
     return null;
   }
@@ -40,6 +40,13 @@ function parseModelPatterns(raw) {
 
 const ALLOWED_MODELS = parseModelPatterns(process.env.AWF_ALLOWED_MODELS);
 const DISALLOWED_MODELS = parseModelPatterns(process.env.AWF_DISALLOWED_MODELS);
+
+if (process.env.AWF_ALLOWED_MODELS !== undefined && !ALLOWED_MODELS) {
+  throw new Error('AWF_ALLOWED_MODELS must be a non-empty JSON array of model patterns');
+}
+if (process.env.AWF_DISALLOWED_MODELS !== undefined && !DISALLOWED_MODELS) {
+  throw new Error('AWF_DISALLOWED_MODELS must be a non-empty JSON array of model patterns');
+}
 
 if (ALLOWED_MODELS) {
   const { logRequest } = require('../logging');

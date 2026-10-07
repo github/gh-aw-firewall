@@ -1,6 +1,7 @@
 import * as crypto from 'crypto';
 import * as fs from 'fs';
 import * as path from 'path';
+import { HOST_EXECUTOR_DEFAULT_JOURNAL_DIRECTORY } from './host-executor-journal';
 
 export interface EnclavePaths {
   root: string;
@@ -43,6 +44,10 @@ export interface EnclavePaths {
    * seed map at all.
    */
   runIdPath: string;
+  /** Broker-only transport below the mount-policy-isolated private root, not the ingress root. */
+  hostExecutorDir: string;
+  /** Host-only global recovery records, retained across work-directory cleanup and runs. */
+  hostExecutorJournalDir: string;
 }
 
 export const ENCLAVE_PRIVATE_BASE_DIR = '/var/tmp';
@@ -68,6 +73,7 @@ export const ENCLAVE_SERVER_CONTROL_DIR = '/run/awf-enclave-mcp-control';
 export const ENCLAVE_SERVER_DELEGATION_CHANNEL_DIR = '/run/awf-enclave-delegation';
 export const ENCLAVE_SERVER_AUDIT_DIR = '/var/log/awf-enclave';
 export const ENCLAVE_SERVER_DOCKER_SOCKET_PATH = '/var/run/docker.sock';
+export const ENCLAVE_SERVER_HOST_EXECUTOR_DIR = '/run/awf-enclave-host-executor';
 
 function deriveRootIdentity(awfWorkDir: string): string {
   const uid = process.getuid?.() ?? 0;
@@ -100,6 +106,8 @@ export function resolveEnclavePaths(
     delegationAuditPath: path.join(root, 'delegation-audit.jsonl'),
     runIdPath: path.join(root, 'run-id'),
     delegationChannelDir: path.join(root, 'delegation-channel'),
+    hostExecutorDir: path.join(root, 'host-executor'),
+    hostExecutorJournalDir: HOST_EXECUTOR_DEFAULT_JOURNAL_DIRECTORY,
   };
 }
 

@@ -193,6 +193,8 @@ export function buildConfig(inputs: BuildConfigInputs): WrapperConfig {
     apiProxyCaCert: options.apiProxyCaCert as string | undefined,
     modelFallback:
       options.modelFallback as { enabled?: boolean; strategy?: 'middle_power' } | undefined,
+    fallbackModels: options.fallbackModels as string[] | undefined,
+    experimentalModelRouting: options.experimentalModelRouting as boolean | undefined,
     modelRouting: options.modelRouting as WrapperConfig['modelRouting'],
     requestedModel: options.requestedModel as string | undefined,
     anthropicAutoCache: options.anthropicAutoCache as boolean,
@@ -241,6 +243,9 @@ export function buildConfig(inputs: BuildConfigInputs): WrapperConfig {
     maxGithubApiPointsGraphql: options.maxGithubApiPointsGraphql === undefined
       ? undefined
       : Number(options.maxGithubApiPointsGraphql),
+    maxNumToolCalls: options.maxNumToolCalls === undefined
+      ? undefined
+      : Number(options.maxNumToolCalls),
     diagnosticLogs: (options.diagnosticLogs as boolean) || false,
     awfDockerHost: options.dockerHost as string | undefined,
     upstreamProxy,

@@ -65,6 +65,13 @@ describe('CLI proxy sidecar (external DIFC proxy)', () => {
         expect(proxy.extra_hosts).toEqual({ 'host.docker.internal': 'host-gateway' });
       });
 
+      it('should disable inherited DNS search domains so peer names resolve directly', () => {
+        const configWithCliProxy = { ...mockConfig, difcProxyHost: 'awmg-cli-proxy:18443' };
+        const result = generateDockerCompose(configWithCliProxy, mockNetworkConfigWithCliProxy);
+        const proxy = result.services['cli-proxy'];
+        expect(proxy.dns_search).toEqual([]);
+      });
+
       it('should mount CA cert as read-only volume when difcProxyCaCert is set', () => {
         const configWithCliProxy = {
           ...mockConfig,

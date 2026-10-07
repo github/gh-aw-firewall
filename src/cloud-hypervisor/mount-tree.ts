@@ -4,7 +4,7 @@ import type { CloudHypervisorDirectoryExport } from './exports';
 /**
  * Host mount-tree enforcement for virtiofsd exports.
  *
- * Cloud Hypervisor v53 and virtiofsd v1.10 have no per-path read-only option, so
+ * Cloud Hypervisor v53 and virtiofsd v1.13 have no per-path read-only option, so
  * a mixed read-only/read-write export cannot be expressed inside the guest. The
  * only trustworthy boundary is the host VFS: stage a private mount tree that is
  * recursively read-only and then bind the few writable paths back in as nested
@@ -30,10 +30,33 @@ export interface VirtiofsdWritableOverlay {
   readonly kind: VirtiofsdOverlayKind;
 }
 
+/**
+ * A directory hidden from the guest entirely, regardless of the rest of the
+ * export's mode. Its staged counterpart is replaced by an empty, read-only
+ * tmpfs, so the guest cannot read the host content underneath -- unlike a
+ * writable overlay, a mask never re-exposes host content.
+ */
+export interface VirtiofsdMaskOverlay {
+  /**
+   * Canonical, absolute host path, expressed in the original export
+   * namespace, whose staged counterpart is replaced by an empty read-only
+   * tmpfs.
+   */
+  readonly destination: string;
+}
+
 /** Enforcement request for one export, addressed by its export tag. */
 export interface VirtiofsdExportMountPlan {
   readonly tag: string;
   readonly writableOverlays: readonly VirtiofsdWritableOverlay[];
+  /**
+   * Paths hidden from the guest regardless of the export's mode. Applied last
+   * -- after the recursive read-only pass and writable overlays, or after the
+   * plain private rbind used for a masks-only plan on an otherwise read-write
+   * export -- so a masked directory can never be raced open by an earlier
+   * overlay.
+   */
+  readonly maskedPaths?: readonly VirtiofsdMaskOverlay[];
 }
 
 /**
@@ -80,6 +103,10 @@ interface ResolvedOverlay {
   readonly kind: VirtiofsdOverlayKind;
 }
 
+interface ResolvedMask {
+  readonly stagedDestination: string;
+}
+
 export interface MountInfoEntry {
   readonly mountPoint: string;
   readonly options: readonly string[];
@@ -87,8 +114,11 @@ export interface MountInfoEntry {
 }
 
 const MAX_WRITABLE_OVERLAYS = 64;
+const MAX_MASKED_PATHS = 16;
 const READONLY_REMOUNT_OPTIONS = 'remount,bind,ro,nosuid,nodev';
 const WRITABLE_REMOUNT_OPTIONS = 'remount,bind,rw,nosuid,nodev';
+const HARDENED_REMOUNT_OPTIONS = 'remount,bind,nosuid,nodev';
+const MASK_MOUNT_OPTIONS = 'ro,nosuid,nodev,size=0,mode=000';
 const MINIMUM_UTIL_LINUX = { major: 2, minor: 23 } as const;
 
 /**
@@ -192,10 +222,23 @@ export class StagedHostMountTree {
 
   async stage(): Promise<void> {
     if (this.staged) throw new Error(`Mount tree already staged: ${this.rootPath}`);
-    const overlays = this.resolveOverlays();
+    const { overlays, masks } = this.resolveOverlaysAndMasks();
     try {
-      await this.stageReadonlyRoot();
-      await this.stageWritableOverlays(overlays);
+      // A plan with no writable overlays ordinarily locks the whole export
+      // read-only -- the safe default for a zero-overlay plan, such as the
+      // mandatory runner-tool-cache plan. A masks-only plan on an otherwise
+      // read-write export is the one exception: it must leave everything but
+      // the masked paths writable, so it skips the recursive read-only pass
+      // entirely rather than reopening it with a writable overlay -- the
+      // export root itself can never be a writable overlay destination (see
+      // `resolveOverlaysAndMasks`'s disjointness check).
+      if (this.options.directoryExport.mode === 'rw' && overlays.length === 0 && masks.length > 0) {
+        await this.stageWritableRoot();
+      } else {
+        await this.stageReadonlyRoot();
+        await this.stageWritableOverlays(overlays);
+      }
+      await this.stageMasks(masks);
       this.staged = true;
     } catch (error) {
       await this.rollback(error);
@@ -220,6 +263,21 @@ export class StagedHostMountTree {
   }
 
   private async stageReadonlyRoot(): Promise<void> {
+    await this.stageRootBind(READONLY_REMOUNT_OPTIONS);
+    await this.assertTreeIsReadonly();
+  }
+
+  /**
+   * Used only for a masks-only plan on a read-write export: an rbind and
+   * private-propagation pass identical to {@link stageReadonlyRoot}, but the
+   * follow-up remount hardens each mount without changing its read-only state.
+   */
+  private async stageWritableRoot(): Promise<void> {
+    await this.stageRootBind(HARDENED_REMOUNT_OPTIONS);
+    await this.assertTreeIsHardenedAndPrivate();
+  }
+
+  private async stageRootBind(remountOptions: string): Promise<void> {
     const { dependencies, tools, directoryExport } = this.options;
     await assertMountToolSupported(tools, dependencies);
     await dependencies.mkdir(this.rootPath, { recursive: true, mode: 0o700 });
@@ -247,9 +305,8 @@ export class StagedHostMountTree {
       .map((entry) => entry.mountPoint)
       .sort((left, right) => pathDepth(right) - pathDepth(left));
     for (const target of targets) {
-      await dependencies.runTool(tools.mount, ['-o', READONLY_REMOUNT_OPTIONS, target]);
+      await dependencies.runTool(tools.mount, ['-o', remountOptions, target]);
     }
-    await this.assertTreeIsReadonly();
   }
 
   private async stageWritableOverlays(overlays: readonly ResolvedOverlay[]): Promise<void> {
@@ -284,6 +341,25 @@ export class StagedHostMountTree {
     await this.assertOnlyOverlaysAreWritable(overlays);
   }
 
+  private async stageMasks(masks: readonly ResolvedMask[]): Promise<void> {
+    const { dependencies, tools } = this.options;
+    for (const mask of masks) {
+      await this.assertMaskDestination(mask);
+      // A synthetic tmpfs, not a bind: there is no host source to leak, so it
+      // is mounted read-only directly rather than bound and then remounted.
+      await dependencies.runTool(tools.mount, [
+        '-t',
+        'tmpfs',
+        '-o',
+        MASK_MOUNT_OPTIONS,
+        'none',
+        mask.stagedDestination,
+      ]);
+      this.pendingMounts.add(mask.stagedDestination);
+    }
+    await this.assertMasksAreHidden(masks);
+  }
+
   private async rollback(cause: unknown): Promise<void> {
     try {
       await this.unmount();
@@ -295,7 +371,7 @@ export class StagedHostMountTree {
     }
   }
 
-  private resolveOverlays(): ResolvedOverlay[] {
+  private resolveOverlaysAndMasks(): { overlays: ResolvedOverlay[]; masks: ResolvedMask[] } {
     const { directoryExport, plan, rootPath } = this.options;
     if (plan.tag !== directoryExport.tag) {
       throw new Error(
@@ -315,8 +391,11 @@ export class StagedHostMountTree {
         `source ${directoryExport.source}`,
       );
     }
-    if (plan.writableOverlays.length === 0) return [];
-    if (directoryExport.mode === 'ro') {
+    const maskedPaths = plan.maskedPaths ?? [];
+    if (plan.writableOverlays.length === 0 && maskedPaths.length === 0) {
+      return { overlays: [], masks: [] };
+    }
+    if (directoryExport.mode === 'ro' && plan.writableOverlays.length > 0) {
       throw new Error(
         `Read-only Cloud Hypervisor export "${directoryExport.tag}" cannot receive writable overlays`,
       );
@@ -326,8 +405,13 @@ export class StagedHostMountTree {
         `Cloud Hypervisor export "${directoryExport.tag}" exceeds ${MAX_WRITABLE_OVERLAYS} writable overlays`,
       );
     }
+    if (maskedPaths.length > MAX_MASKED_PATHS) {
+      throw new Error(
+        `Cloud Hypervisor export "${directoryExport.tag}" exceeds ${MAX_MASKED_PATHS} masked paths`,
+      );
+    }
     const destinations: string[] = [];
-    const resolved = plan.writableOverlays.map((overlay) => {
+    const overlays = plan.writableOverlays.map((overlay) => {
       const label = `export "${directoryExport.tag}" overlay`;
       if (overlay.kind !== 'file' && overlay.kind !== 'directory') {
         throw new Error(`Invalid ${label} kind: ${String(overlay.kind)}`);
@@ -336,28 +420,43 @@ export class StagedHostMountTree {
       assertCleanAbsolutePath(overlay.destination, `${label} destination`);
       assertContainedPath(directoryExport.source, overlay.source, `${label} source`);
       assertContainedPath(directoryExport.source, overlay.destination, `${label} destination`);
-      for (const existing of destinations) {
-        if (existing === overlay.destination) {
-          throw new Error(`Duplicate ${label} destination: ${overlay.destination}`);
-        }
-        if (containsPath(existing, overlay.destination) || containsPath(overlay.destination, existing)) {
-          throw new Error(
-            `Overlapping ${label} destinations: ${existing} and ${overlay.destination}`,
-          );
-        }
-      }
+      assertNoOverlap(destinations, overlay.destination, label);
       destinations.push(overlay.destination);
       return {
         source: overlay.source,
-        stagedDestination: path.join(
-          rootPath,
-          path.relative(directoryExport.source, overlay.destination),
-        ),
+        stagedDestination: stagedPathFor(rootPath, directoryExport.source, overlay.destination),
         kind: overlay.kind,
       };
     });
+
+    const maskDestinations: string[] = [];
+    const masks = maskedPaths.map((mask) => {
+      const label = `export "${directoryExport.tag}" mask`;
+      assertCleanAbsolutePath(mask.destination, `${label} destination`);
+      assertContainedPath(directoryExport.source, mask.destination, `${label} destination`);
+      assertNoOverlap(maskDestinations, mask.destination, label);
+      // A mask can never overlap a writable overlay: one hides the path from
+      // the guest entirely, the other re-exposes host content there. Letting
+      // both apply to the same path would make the outcome depend on staging
+      // order instead of failing closed.
+      if (destinations.some((existing) => containsOrEquals(existing, mask.destination))) {
+        throw new Error(
+          `Cloud Hypervisor ${label} destination overlaps a writable overlay: ${mask.destination}`,
+        );
+      }
+      maskDestinations.push(mask.destination);
+      return { stagedDestination: stagedPathFor(rootPath, directoryExport.source, mask.destination) };
+    });
+
     // Shallow paths first so a parent mount point always exists before a child.
-    return resolved.sort((left, right) => pathDepth(left.stagedDestination) - pathDepth(right.stagedDestination));
+    return {
+      overlays: overlays.sort(
+        (left, right) => pathDepth(left.stagedDestination) - pathDepth(right.stagedDestination),
+      ),
+      masks: masks.sort(
+        (left, right) => pathDepth(left.stagedDestination) - pathDepth(right.stagedDestination),
+      ),
+    };
   }
 
   /**
@@ -442,6 +541,67 @@ export class StagedHostMountTree {
     for (const destination of expected) {
       if (!writable.has(destination)) {
         throw new Error(`Writable overlay was not applied: ${destination}`);
+      }
+    }
+  }
+
+  /**
+   * Counterpart to {@link assertTreeIsReadonly} for a masks-only plan: the
+   * staged root must stay read-write (masks are applied afterwards, on top of
+   * this), but every mount still has to be hardened and privately propagated.
+   */
+  private async assertTreeIsHardenedAndPrivate(): Promise<void> {
+    const entries = await this.readTreeMountInfo();
+    const root = entries.find((entry) => entry.mountPoint === this.rootPath);
+    if (!root) {
+      throw new Error(`Staged mount tree is missing its root mount: ${this.rootPath}`);
+    }
+    if (!root.options.includes('rw')) {
+      throw new Error(`Staged mount tree root is not writable: ${this.rootPath}`);
+    }
+    for (const entry of entries) {
+      assertHardenedOptions(entry);
+      assertPrivatePropagation(entry);
+    }
+  }
+
+  /**
+   * Same rationale as {@link assertOverlayDestination}: the mask target is
+   * inspected inside the already privately propagated staged tree, and
+   * `realpath` equality rejects a symlink in any path component so a mask can
+   * never be redirected onto an unrelated host directory.
+   */
+  private async assertMaskDestination(mask: ResolvedMask): Promise<void> {
+    const { dependencies } = this.options;
+    const label = `masked destination ${mask.stagedDestination}`;
+    const resolved = await dependencies.realpath(mask.stagedDestination);
+    if (resolved !== mask.stagedDestination) {
+      throw new Error(
+        `Masked destination must be canonical: ${mask.stagedDestination} resolves to ${resolved}`,
+      );
+    }
+    assertContainedPath(this.rootPath, resolved, label);
+    const stats = await dependencies.statPath(mask.stagedDestination);
+    assertStatsMatchKind(stats, 'directory', label);
+  }
+
+  private async assertMasksAreHidden(masks: readonly ResolvedMask[]): Promise<void> {
+    if (masks.length === 0) return;
+    const expected = new Set(masks.map((mask) => mask.stagedDestination));
+    const entries = await this.readTreeMountInfo();
+    const applied = new Set<string>();
+    for (const entry of entries) {
+      if (!expected.has(entry.mountPoint)) continue;
+      if (!entry.options.includes('ro')) {
+        throw new Error(`Masked mount is not read-only: ${entry.mountPoint}`);
+      }
+      assertHardenedOptions(entry);
+      assertPrivatePropagation(entry);
+      applied.add(entry.mountPoint);
+    }
+    for (const destination of expected) {
+      if (!applied.has(destination)) {
+        throw new Error(`Masked path was not applied: ${destination}`);
       }
     }
   }
@@ -537,6 +697,25 @@ function containsPath(parent: string, child: string): boolean {
     !relative.startsWith(`..${path.sep}`) &&
     !path.isAbsolute(relative)
   );
+}
+
+function containsOrEquals(left: string, right: string): boolean {
+  return left === right || containsPath(left, right) || containsPath(right, left);
+}
+
+function assertNoOverlap(existing: readonly string[], candidate: string, label: string): void {
+  for (const other of existing) {
+    if (other === candidate) {
+      throw new Error(`Duplicate ${label} destination: ${candidate}`);
+    }
+    if (containsPath(other, candidate) || containsPath(candidate, other)) {
+      throw new Error(`Overlapping ${label} destinations: ${other} and ${candidate}`);
+    }
+  }
+}
+
+function stagedPathFor(rootPath: string, source: string, destination: string): string {
+  return path.join(rootPath, path.relative(source, destination));
 }
 
 function pathDepth(value: string): number {

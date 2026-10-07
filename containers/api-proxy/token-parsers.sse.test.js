@@ -44,6 +44,55 @@ describe('extractUsageFromSseLine', () => {
     expect(result.usage).toEqual({ output_tokens: 42 });
   });
 
+  test('extracts input and cache-read tokens from OpenRouter-style message_delta usage', () => {
+    const line = JSON.stringify({
+      type: 'message_delta',
+      delta: { stop_reason: 'end_turn' },
+      usage: {
+        input_tokens: 18,
+        output_tokens: 20,
+        output_tokens_details: { thinking_tokens: 16 },
+        cache_creation_input_tokens: null,
+        cache_read_input_tokens: 2816,
+        cost: 0.000046296,
+        is_byok: false,
+      },
+    });
+
+    const result = extractUsageFromSseLine(line);
+    expect(result.usage).toEqual({
+      input_tokens: 18,
+      output_tokens: 20,
+      cache_read_input_tokens: 2816,
+      reasoning_tokens: 16,
+    });
+  });
+
+  test('copies non-zero cache_creation_input_tokens from message_delta usage', () => {
+    const line = JSON.stringify({
+      type: 'message_delta',
+      usage: { output_tokens: 5, cache_creation_input_tokens: 1200 },
+    });
+
+    const result = extractUsageFromSseLine(line);
+    expect(result.usage).toEqual({ output_tokens: 5, cache_creation_input_tokens: 1200 });
+  });
+
+  test('ignores zero input and cache fields in message_delta usage', () => {
+    const line = JSON.stringify({
+      type: 'message_delta',
+      usage: {
+        input_tokens: 0,
+        output_tokens: 42,
+        cache_creation_input_tokens: 0,
+        cache_read_input_tokens: 0,
+      },
+    });
+
+    const result = extractUsageFromSseLine(line);
+    expect(result.usage).toEqual({ output_tokens: 42 });
+  });
+
   test('extracts OpenAI final chunk usage', () => {
     const line = JSON.stringify({
       model: 'gpt-4o',

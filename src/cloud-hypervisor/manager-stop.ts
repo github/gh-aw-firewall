@@ -14,6 +14,7 @@ import type { VirtiofsdManager, VirtiofsdDevice } from './virtiofsd';
 import type { CloudHypervisorGuestChannel } from './guest-execution';
 import type { CloudHypervisorCleanupHandle } from './cleanup-registry';
 import type { CloudHypervisorVmmIdentityManager } from './vmm-identity';
+import type { CloudHypervisorNetworkLifecycle } from './network-namespace';
 
 const SHUTDOWN_GRACE_MS = 5_000;
 
@@ -23,7 +24,7 @@ export interface CloudHypervisorStopContext {
   paths: CloudHypervisorRunPaths;
   process?: ExecaChildProcess<string>;
   client?: CloudHypervisorApiClient;
-  network?: MicrovmNetworkLifecycle;
+  network?: MicrovmNetworkLifecycle | CloudHypervisorNetworkLifecycle;
   networkPlan?: MicrovmNetworkPlan;
   rootfsPreparer?: MicrovmRootfsPreparer;
   virtiofsd?: VirtiofsdManager;
@@ -137,7 +138,7 @@ export async function stopCloudHypervisor(context: CloudHypervisorStopContext): 
   if (!instanceWasStarted || terminationConfirmed) {
     try {
       await context.dependencies.rm(
-        path.join(context.paths.runBaseDir, path.basename(context.config.cloudHypervisorBinary), context.paths.runId),
+        context.paths.runDirectory,
         { recursive: true, force: true },
       );
     } catch (error) { identityResourcesRemoved = false; errors.push(error); }

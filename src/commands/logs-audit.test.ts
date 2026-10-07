@@ -22,6 +22,13 @@ const mockedHelpers = logsCommandHelpers as jest.Mocked<typeof logsCommandHelper
 const mockedAggregator = logAggregator as jest.Mocked<typeof logAggregator>;
 const mockedEnricher = auditEnricher as jest.Mocked<typeof auditEnricher>;
 
+beforeEach(() => {
+  mockedAggregator.isSkippableLogEntry.mockImplementation(entry => {
+    return entry.url === 'error:transaction-end-before-headers' ||
+      (typeof entry.decision === 'string' && entry.decision.startsWith('NONE'));
+  });
+});
+
 // Helpers for test fixtures
 
 function makeSource(partial: Partial<LogSource> = {}): LogSource {
@@ -281,6 +288,12 @@ describe('logs-audit command', () => {
       const entries: EnrichedLogEntry[] = [
         makeEnrichedEntry({ domain: 'github.com', isAllowed: true }),
         makeEnrichedEntry({ url: 'error:transaction-end-before-headers', domain: '-', isAllowed: false }),
+        makeEnrichedEntry({
+          domain: 'github.com',
+          decision: 'NONE_NONE:HIER_NONE',
+          statusCode: 0,
+          isAllowed: false,
+        }),
       ];
 
       mockedHelpers.discoverAndSelectSource.mockResolvedValue(source);

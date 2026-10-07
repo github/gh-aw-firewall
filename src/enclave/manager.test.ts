@@ -1,5 +1,4 @@
 import * as fs from 'fs';
-import * as os from 'os';
 import * as path from 'path';
 import execa from 'execa';
 import { normalizeEnclavesConfig } from '../parsers/enclave-parser';
@@ -13,6 +12,7 @@ import {
 } from './manager';
 import { releaseSeedPermissions, type GitRunner } from './staging';
 import { resolveEnclavePaths } from './paths';
+import { getEnclaveStartupProgress } from './startup-progress';
 
 import { typedDynamicEnclavePolicyFixture } from './dynamic-policy.test-utils';
 import * as runtimePreflight from './runtime-preflight';
@@ -30,11 +30,22 @@ const gitRunner: GitRunner = async (args) => {
 };
 
 jest.mock('execa', () => ({ __esModule: true, default: jest.fn() }));
+jest.mock('./paths', () => {
+  const actual = jest.requireActual('./paths');
+  return {
+    ...actual,
+    resolveEnclavePaths: (workDir: string) => ({
+      ...actual.resolveEnclavePaths(workDir, path.dirname(workDir)),
+      hostExecutorJournalDir: `${workDir}-host-recovery`,
+    }),
+  };
+});
 const mockExeca = execa as unknown as jest.Mock;
 
 function enclaveEnv(overrides: NodeJS.ProcessEnv = {}): NodeJS.ProcessEnv {
   return {
     GH_TOKEN: 'secret',
+    GITHUB_WORKSPACE: path.join(process.cwd(), '.enclave-test-workspace'),
     AWF_ENCLAVE_MCP_CAPABILITY: 'a'.repeat(64),
     AWF_ENCLAVE_MCP_GATEWAY_IDENTITY: 'test-run-identity',
     AWF_ENCLAVE_MCP_GATEWAY_CONTAINER: 'awmg-mcpg',
@@ -100,7 +111,7 @@ describe('prepareEnclaves fail-closed preflight', () => {
   beforeEach(() => {
     mockExeca.mockReset();
     mockExeca.mockResolvedValue({ exitCode: 0, stdout: '' });
-    workDir = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-enclave-manager-'));
+    workDir = fs.mkdtempSync(path.join(process.cwd(), '.awf-enclave-manager-'));
   });
 
   afterEach(() => {
@@ -117,6 +128,93 @@ describe('prepareEnclaves fail-closed preflight', () => {
       assertPrimaryAvailable: jest.fn(),
       assertScriptRuntimeAvailable: jest.fn(),
     })).rejects.toThrow(/Unix-socket Docker host/);
+  });
+
+  it.each(['script', 'agent', 'both'] as const)('fails %s closed on missing hard-bounded storage before probes, seeds, or host effects', async (role) => {
+    const entries: EnclaveEntries = [];
+    if (role !== 'agent') entries.push({ script: {}, runtime: 'cloud-hypervisor', repos: [repository] });
+    if (role !== 'script') entries.push({
+      agent: { model: 'trusted-model' }, runtime: 'cloud-hypervisor', repos: [repository],
+    });
+    const wrapperConfig = agentConfig(workDir, entries);
+    wrapperConfig.cloudHypervisor = { previewEnabled: true } as WrapperConfig['cloudHypervisor'];
+    const primary = jest.fn();
+    const executor = jest.fn();
+    const clone = jest.fn();
+    await expect(prepareEnclaves(wrapperConfig, {
+      env: enclaveEnv(),
+      assertPrimaryAvailable: primary,
+      assertScriptRuntimeAvailable: executor,
+      assertAgentRuntimeAvailable: executor,
+      gitRunner: clone,
+    })).rejects.toThrow(/hard-bounded writable-storage provider.*9394/);
+    expect(primary).not.toHaveBeenCalled();
+    expect(executor).not.toHaveBeenCalled();
+    expect(clone).not.toHaveBeenCalled();
+    expect(fs.existsSync(resolveEnclavePaths(workDir).root)).toBe(false);
+    expect(fs.existsSync(resolveEnclavePaths(workDir).hostExecutorDir)).toBe(false);
+  });
+
+  it('rejects unavailable trusted storage before runtime probes or private state effects', async () => {
+    const wrapperConfig = config(workDir, [{
+      script: {}, runtime: 'cloud-hypervisor', repos: [repository],
+    }]);
+    wrapperConfig.cloudHypervisor = { previewEnabled: true } as WrapperConfig['cloudHypervisor'];
+    const primary = jest.fn();
+    const clone = jest.fn();
+    const prepareRun = jest.fn();
+    await expect(prepareEnclaves(wrapperConfig, {
+      env: enclaveEnv(),
+      assertPrimaryAvailable: primary,
+      gitRunner: clone,
+      cloudHypervisorStorageProvider: {
+        assertAvailable: jest.fn().mockRejectedValue(new Error('aggregate storage enforcement unavailable')),
+        prepareRun,
+      },
+    })).rejects.toThrow('aggregate storage enforcement unavailable');
+    expect(primary).not.toHaveBeenCalled();
+    expect(clone).not.toHaveBeenCalled();
+    expect(prepareRun).not.toHaveBeenCalled();
+    expect(fs.existsSync(resolveEnclavePaths(workDir).root)).toBe(false);
+    expect(fs.existsSync(resolveEnclavePaths(workDir).hostExecutorDir)).toBe(false);
+  });
+
+  it.each(['journal', 'invocations', 'storage'] as const)(
+    'rejects primary-agent mounts exposing trusted %s paths before effects', async (resource) => {
+    const wrapperConfig = config(workDir, [{
+      script: {}, runtime: 'cloud-hypervisor', repos: [repository],
+    }]);
+    wrapperConfig.cloudHypervisor = { previewEnabled: true } as WrapperConfig['cloudHypervisor'];
+    const paths = resolveEnclavePaths(workDir);
+    const root = resource === 'journal' ? paths.hostExecutorJournalDir :
+      resource === 'invocations' ? path.join(path.dirname(paths.hostExecutorJournalDir), 'host-invocations') :
+        '/run/awf-cloud-hypervisor/enclave-storage';
+    wrapperConfig.volumeMounts = [`${root}:/exposed-recovery:rw`];
+    const primary = jest.fn();
+    const clone = jest.fn();
+    const available = jest.fn();
+    const prepareRun = jest.fn();
+    await expect(prepareEnclaves(wrapperConfig, {
+      env: enclaveEnv(),
+      assertPrimaryAvailable: primary,
+      gitRunner: clone,
+      cloudHypervisorStorageProvider: { assertAvailable: available, prepareRun },
+    })).rejects.toThrow(/Cloud Hypervisor enclave.*custom volume/);
+    expect(getEnclaveStartupProgress(wrapperConfig)).toMatchObject({
+      stage: 'host-preflight', readiness: 'not-attempted', code: 'none', attempts: 0,
+      hostPreflight: {
+        scope: 'host-isolation', checks: expect.arrayContaining([{
+          id: resource === 'journal' ? 'journal-isolation' :
+            resource === 'invocations' ? 'invocation-isolation' : 'allocation-isolation',
+          result: 'failed', reason: 'private-root-overlap',
+        }]),
+      },
+    });
+    expect(primary).not.toHaveBeenCalled();
+    expect(clone).not.toHaveBeenCalled();
+    expect(available).not.toHaveBeenCalled();
+    expect(prepareRun).not.toHaveBeenCalled();
+    expect(fs.existsSync(paths.root)).toBe(false);
   });
 
   it('requires the compiler topology handoff before staging', async () => {

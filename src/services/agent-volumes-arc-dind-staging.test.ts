@@ -14,6 +14,39 @@ jest.mock('execa', () => require('../test-helpers/mock-execa.test-utils').execaM
 const { getConfig } = useAgentVolumesTestConfig();
 
 describe('agent service', () => {
+  it('keeps an ARC/DinD writable streaming-log directory beneath a read-only runner temp mount', () => {
+    const runnerTemp = fs.mkdtempSync(path.join('/tmp', 'awf-runner-temp-'));
+    const ghAwDir = path.join(runnerTemp, 'gh-aw');
+    const agentDir = path.join(ghAwDir, 'sandbox/agent');
+    fs.mkdirSync(agentDir, { recursive: true });
+
+    try {
+      const result = generateDockerCompose(
+        {
+          ...getConfig(),
+          runnerTopology: 'arc-dind',
+          dockerHostPathPrefix: '/daemon-root',
+          volumeMounts: [
+            `${ghAwDir}:${ghAwDir}:ro`,
+            `${agentDir}:${agentDir}:rw`,
+          ],
+        },
+        mockNetworkConfig,
+      );
+      const volumes = result.services.agent.volumes as string[];
+      const parent = `/daemon-root${ghAwDir}:/host${ghAwDir}:ro`;
+      const child = `/daemon-root${agentDir}:/host${agentDir}:rw`;
+
+      expect(volumes).toContain(parent);
+      expect(volumes).toContain(child);
+      expect(volumes.indexOf(parent)).toBeLessThan(volumes.indexOf(child));
+      expect(volumes).not.toContain(`/daemon-root${ghAwDir}:/host${ghAwDir}:rw`);
+      expect(volumes).not.toContain(`/daemon-root/daemon-root${agentDir}:/host${agentDir}:rw`);
+    } finally {
+      fs.rmSync(runnerTemp, { recursive: true, force: true });
+    }
+  });
+
   it('should auto-stage the ARC/DinD manual bootstrap files under a shared /tmp docker-host-path-prefix', () => {
     const originalPath = process.env.PATH;
     const sharedTmpPrefix = fs.mkdtempSync(path.join('/tmp', 'gh-aw-'));

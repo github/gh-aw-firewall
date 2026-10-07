@@ -23,4 +23,16 @@ describe('schema sync workflow prompt', () => {
       source.match(/Do not\s+simulate this safe\s+output with `bash`, `printf`, or a final text response\./g),
     ).toHaveLength(2);
   });
+
+  it('stores the sync watermark in durable repo memory', () => {
+    const source = fs.readFileSync(sourcePath, 'utf-8');
+    const lock = fs.readFileSync(lockPath, 'utf-8');
+
+    expect(source).toMatch(/repo-memory:\s+branch-name: memory\/schema-sync/);
+    expect(source).toContain('/tmp/gh-aw/repo-memory/default/schema-sync-state.json');
+    expect(source).toContain('expected cold start; do not report it with');
+    expect(source).not.toContain('cache-memory:');
+    expect(lock).toContain('push_repo_memory:');
+    expect(lock).toContain('BRANCH_NAME: memory/schema-sync');
+  });
 });

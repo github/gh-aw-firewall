@@ -147,6 +147,25 @@ describe('log-aggregator', () => {
       expectOnlyValidTunnelStats(stats);
     });
 
+    it('should filter out NONE_* Squid preflight entries', () => {
+      const [first, second] = validTunnelEntries();
+      const entries: ParsedLogEntry[] = [
+        first,
+        createLogEntry({
+          domain: 'allowed.example.com',
+          url: 'allowed.example.com:443',
+          decision: 'NONE_NONE:HIER_NONE',
+          statusCode: 0,
+          isAllowed: false,
+        }),
+        second,
+      ];
+
+      const stats = aggregateLogs(entries);
+
+      expectOnlyValidTunnelStats(stats);
+    });
+
     it('should handle multiple transaction-end-before-headers entries', () => {
       const [first, second] = validTunnelEntries();
       const entries: ParsedLogEntry[] = [
@@ -154,6 +173,32 @@ describe('log-aggregator', () => {
         transactionEndEntry({ clientIp: '::1' }), // healthcheck from localhost
         second,
         transactionEndEntry({ clientIp: '172.30.0.20' }), // shutdown-time connection closure
+      ];
+
+      const stats = aggregateLogs(entries);
+
+      expectOnlyValidTunnelStats(stats);
+    });
+
+    it('should filter out ssl_bump step1 and other NONE decision entries', () => {
+      const [first, second] = validTunnelEntries();
+      const entries: ParsedLogEntry[] = [
+        first,
+        createLogEntry({
+          domain: 'github.com',
+          url: 'github.com:443',
+          decision: 'NONE_NONE:HIER_NONE',
+          statusCode: 0,
+          isAllowed: false,
+        }),
+        second,
+        createLogEntry({
+          domain: 'upstream-blocked.example',
+          url: 'error:transaction-end-before-headers',
+          decision: 'NONE_MISS:HIER_DIRECT',
+          statusCode: 0,
+          isAllowed: false,
+        }),
       ];
 
       const stats = aggregateLogs(entries);

@@ -14,6 +14,7 @@ permissions:
   pull-requests: read
 imports:
   - shared/self-hosted-failure-modes.md
+  - shared/diagnosis-maintenance.md
 tools:
   github:
     toolsets: [default]
@@ -35,6 +36,17 @@ safe-outputs:
     expires: 30d
 timeout-minutes: 20
 steps:
+  - name: Install root dependencies for diagnostics tooling
+    run: |
+      for attempt in 1 2 3; do
+        if npm ci; then
+          break
+        fi
+        if [ "$attempt" -eq 3 ]; then
+          exit 1
+        fi
+        sleep $((attempt * 5))
+      done
   - name: Compute scan window
     run: |
       # Look back two days so a missed daily run does not create a coverage gap.
@@ -89,6 +101,22 @@ Classify each lesson as one of:
 - **Update to an existing mode** — add a new citation, flip a status (e.g. open → fixed), or improve the fix/probe wording.
 - **New error-string lookup entry** — a recognizable error string that should map to a mode in the doctor's quick-lookup.
 
+## Step 3b — Propose the canonical registry change
+
+`docs/diagnostics/` is the canonical diagnosis state. Follow the shared
+diagnosis-maintenance contract imported below: search the registry first, then
+express every lesson as a canonical record change (new record, or an update to
+an existing record) using the runner ID namespace `A*`/`B*`/`C*`/`D*`.
+
+```bash
+npx tsx scripts/diagnostics/cli.ts search "<redacted symptom>" --boundary runner
+cat docs/diagnostics/schema.json
+```
+
+The runner catalog, workflow playbook and portable agent remain in place; your
+proposal must name the canonical record first, then any matching catalog or
+playbook edit.
+
 ## Step 4 — Avoid duplicate proposals
 
 Before creating an issue, search existing open issues labelled `runner-doctor`. If an open proposal already covers the same lessons, call `noop` instead of stacking another issue.
@@ -100,6 +128,9 @@ If you found concrete, not-yet-captured updates, call `create-issue` **once** wi
 ### Summary
 - scan window and number of items reviewed
 - number of genuinely new lessons
+
+### Proposed canonical registry changes
+For `docs/diagnostics/findings/runner/<ID>.json`: the exact record fields to add or change (id, boundary, symptoms, conditions, affects, versions, status, rootCause, probe, action, references, owner, reviewBy), valid against `docs/diagnostics/schema.json`. Note that a reviewer must run `npm run diagnostics:render` so the generated consumers stay in sync.
 
 ### Proposed knowledge-base changes
 For `.github/workflows/shared/self-hosted-failure-modes.md`: the exact table row(s) to add or modify, including the failure-mode ID, category, and citation numbers.
@@ -118,6 +149,7 @@ If there are **no** new lessons, call `noop` with a one-line explanation. Do not
 ## Guardrails
 
 - Propose knowledge/documentation edits only — never modify code, never open a pull request.
-- Keep existing failure-mode IDs stable; only append new IDs.
+- Keep existing failure-mode IDs stable; only append new IDs. Supersede in place; never recycle an ID.
+- Never propose a probe that dumps the environment, exchanges a token, or bypasses isolation.
 - Prefer the narrowest change; do not restructure entries that already work.
 - Skip anything whose citation numbers are already present in the catalog.

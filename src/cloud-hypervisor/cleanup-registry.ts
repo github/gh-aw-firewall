@@ -2,6 +2,7 @@ import * as path from 'path';
 import type { MicrovmNetworkPlan } from '../microvm/network';
 import type { CloudHypervisorRunPaths } from './manager-types';
 import type { CloudHypervisorVmmIdentityToolPaths } from './vmm-identity';
+import type { CloudHypervisorEmptyNetworkNamespacePlan } from './network-namespace';
 import { createCleanupHandle } from './cleanup-handle';
 import {
   assertSafeRecordPaths,
@@ -43,6 +44,7 @@ export type CloudHypervisorNetworkResource =
 
 export interface CloudHypervisorCleanupHandle {
   captureNetworkPlan(plan: MicrovmNetworkPlan): Promise<void>;
+  captureEmptyNetworkNamespace(plan: CloudHypervisorEmptyNetworkNamespacePlan): Promise<void>;
   captureArtifactSnapshot(directory: string): Promise<void>;
   prepareVmmAccount(name: string): Promise<void>;
   captureVmmIdentity(identity: import('./vmm-identity').CloudHypervisorVmmIdentity): Promise<void>;
@@ -63,6 +65,7 @@ export interface CloudHypervisorCleanupHandle {
 }
 
 export interface CloudHypervisorCleanupRegistry {
+  hasPendingRecord(runId: string): Promise<boolean>;
   reapPending(
     ipPath: string,
     umountPath: string,
@@ -91,6 +94,17 @@ export class DurableCloudHypervisorCleanupRegistry implements CloudHypervisorCle
 
   constructor(dependencies: CleanupRegistryDependencies = {}) {
     this.dependencies = resolveCleanupDependencies(dependencies);
+  }
+
+  async hasPendingRecord(runId: string): Promise<boolean> {
+    if (!/^[A-Za-z0-9_.-]+$/.test(runId)) throw new Error('Invalid Cloud Hypervisor run ID');
+    try {
+      await this.dependencies.lstat(path.join(this.dependencies.rootDirectory, `${runId}.json`));
+      return true;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return false;
+      throw error;
+    }
   }
 
   async reapPending(
@@ -168,6 +182,7 @@ export class DurableCloudHypervisorCleanupRegistry implements CloudHypervisorCle
         virtiofsdShareDirectory: paths.virtiofsdShareDirectory,
       },
       ...(plan ? { network: {
+        mode: plan.mode ?? 'primary',
         namespaceName: plan.namespaceName,
         netnsPath: plan.netnsPath,
         hostVethName: plan.hostVethName,
@@ -181,6 +196,17 @@ export class DurableCloudHypervisorCleanupRegistry implements CloudHypervisorCle
       mounts: [],
       updatedAt: new Date().toISOString(),
     };
+    if (paths.runBaseDir.startsWith('/run/awf-cloud-hypervisor/enclave-storage/')) {
+      const directory = `/run/awf-cloud-hypervisor/enclave-storage/${paths.runId}`;
+      const mount = (await readMounts(this.dependencies.readFile)).find((mount) => mount.mountPoint === directory);
+      if (!mount) throw new Error('Invocation storage mount identity is unavailable');
+      record.invocationStorage = {
+        bootId: (await this.dependencies.readFile('/proc/sys/kernel/random/boot_id', 'utf8')).trim(),
+        directory, mount,
+        identity: await captureFileIdentity(this.dependencies.lstat, directory),
+        parentIdentity: await captureFileIdentity(this.dependencies.lstat, path.dirname(directory)),
+      };
+    }
     await writeRecord(this.dependencies, recordPath, record, true);
     return createCleanupHandle({
       recordPath,
@@ -225,7 +251,7 @@ export class DurableCloudHypervisorCleanupRegistry implements CloudHypervisorCle
       record.paths.virtiofsdShareDirectory,
       record.identities.virtiofsdShareDirectory,
     );
-    if (record.paths.artifactSnapshotDirectory) {
+    if (record.paths.artifactSnapshotDirectory && !record.invocationStorage) {
       await this.removeDirectoryTree(
         record.paths.artifactSnapshotDirectory,
         record.identities.artifactSnapshotDirectory,
