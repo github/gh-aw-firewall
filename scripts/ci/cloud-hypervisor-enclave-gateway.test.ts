@@ -105,11 +105,53 @@ describe('Cloud Hypervisor enclave gateway fixture', () => {
     });
   });
 
-  it('refuses non-loopback test upstream overrides', async () => {
+  it('returns permanent failures for truncated backend responses without terminating the gateway', async () => {
+    upstream = http.createServer((request, response) => {
+      request.resume();
+      request.on('end', () => {
+        response.writeHead(200, { 'content-type': 'application/json', 'content-length': '100' });
+        response.write('{"jsonrpc":');
+        setTimeout(() => response.destroy(), 20);
+      });
+    });
+    await new Promise<void>((resolve) => upstream?.listen(0, '127.0.0.1', resolve));
+    const port = await startGateway((upstream.address() as AddressInfo).port);
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      await expect(post(port, { jsonrpc: '2.0', id: 1, method: 'initialize' })).resolves.toEqual({
+        status: 502, body: { error: 'upstream unavailable' },
+      });
+    }
+    expect(gateway?.exitCode).toBeNull();
+  });
+
+  it('keeps oversized backend responses permanent without terminating the gateway', async () => {
+    upstream = http.createServer((request, response) => {
+      request.resume();
+      request.on('end', () => response.end('x'.repeat(420 * 1024 + 1)));
+    });
+    await new Promise<void>((resolve) => upstream?.listen(0, '127.0.0.1', resolve));
+    const port = await startGateway((upstream.address() as AddressInfo).port);
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      await expect(post(port, { jsonrpc: '2.0', id: 1, method: 'initialize' })).resolves.toEqual({
+        status: 502, body: { error: 'upstream response exceeded its bound' },
+      });
+    }
+    expect(gateway?.exitCode).toBeNull();
+  });
+
+  it.each([
+    'http://example.com:80/mcp',
+    'http://127.0.0.1:0/mcp',
+    'http://127.0.0.1:65536/mcp',
+    'http://127.0.0.1:99999/mcp',
+    'http://awf-enclave-mcp:0/mcp',
+    'http://awf-enclave-mcp:65536/mcp',
+    'http://awf-enclave-mcp:99999/mcp',
+  ])('refuses invalid test upstream override %s at startup', async (upstreamUrl) => {
     const child = spawn(process.execPath, [fixture], {
       env: {
         PATH: process.env.PATH, MCP_GATEWAY_API_KEY: apiKey, AWF_ENCLAVE_MCP_CAPABILITY: capability,
-        AWF_ENCLAVE_GATEWAY_FIXTURE_UPSTREAM: 'http://example.com:80/mcp',
+        AWF_ENCLAVE_GATEWAY_FIXTURE_UPSTREAM: upstreamUrl,
       },
       stdio: 'ignore',
     });
