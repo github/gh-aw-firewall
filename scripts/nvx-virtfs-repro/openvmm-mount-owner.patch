@@ -1,8 +1,8 @@
 diff --git a/openvmm/openvmm_entry/src/cli_args.rs b/openvmm/openvmm_entry/src/cli_args.rs
-index 4b763c1a..b015d9d9 100644
+index 4b763c1..d653596 100644
 --- a/openvmm/openvmm_entry/src/cli_args.rs
 +++ b/openvmm/openvmm_entry/src/cli_args.rs
-@@ -1133,6 +1133,21 @@ pub struct Options {
+@@ -1133,6 +1133,23 @@ options:
      )]
      pub microvm_mount_deny: Vec<PathBuf>,
  
@@ -10,9 +10,11 @@ index 4b763c1a..b015d9d9 100644
 +    ///
 +    /// `process` (default) uses the OpenVMM process identity. `caller` runs
 +    /// each request as the guest caller's uid/gid, like virtiofsd, so files the
-+    /// guest creates are owned by the guest user; guest uid/gid 0 is squashed to
-+    /// the export root's owner. `caller` requires CAP_SETUID and CAP_SETGID, and
-+    /// drops supplementary groups per request; requests fail with EPERM otherwise.
++    /// guest creates are owned by the guest user. Only the
++    /// `--microvm-workload-identity` uid/gid pass through; any other guest id,
++    /// including 0, is squashed to the export root's owner. `caller` requires
++    /// CAP_SETUID and CAP_SETGID, and drops supplementary groups per request;
++    /// requests fail with EPERM otherwise.
 +    #[clap(
 +        long = "mount-owner",
 +        value_name = "process|caller",
@@ -24,7 +26,7 @@ index 4b763c1a..b015d9d9 100644
      /// virtio PMEM device
      ///
      /// Prefix with `pcie_port=<port_name>:` to expose the device over
-@@ -2416,6 +2431,13 @@ pub struct MicrovmMountCli {
+@@ -2416,6 +2433,13 @@ pub struct MicrovmMountCli {
      pub access: openvmm_defs::config::MicrovmFilesystemAccess,
  }
  
@@ -39,27 +41,34 @@ index 4b763c1a..b015d9d9 100644
      type Err = anyhow::Error;
  
 diff --git a/openvmm/openvmm_entry/src/lib.rs b/openvmm/openvmm_entry/src/lib.rs
-index 667a39a0..40657aff 100644
+index 667a39a..0f408da 100644
 --- a/openvmm/openvmm_entry/src/lib.rs
 +++ b/openvmm/openvmm_entry/src/lib.rs
-@@ -4359,7 +4359,11 @@ async fn vm_config_from_command_line(
+@@ -4359,7 +4359,18 @@ async fn vm_config_from_command_line(
              (
                  virtio_resources::fs::VirtioFsBackend::HostFs {
                      root_path: filesystem.root_path.clone(),
 -                    mount_options: String::new(),
 +                    mount_options: match opt.microvm_mount_owner {
 +                        cli_args::MicrovmMountOwnerCli::Process => String::new(),
-+                        // Matches `virtiofs::MicroVmCreateOwner::CALLER_MOUNT_OPTION`.
-+                        cli_args::MicrovmMountOwnerCli::Caller => "owner=caller".to_owned(),
++                        // Parsed by `virtiofs::MicroVmCreateOwner::from_mount_options`.
++                        cli_args::MicrovmMountOwnerCli::Caller => {
++                            match opt.microvm_workload_identity {
++                                Some(identity) => {
++                                    format!("owner=caller:{}:{}", identity.uid, identity.gid)
++                                }
++                                None => "owner=caller".to_owned(),
++                            }
++                        }
 +                    },
                  },
                  virtio_resources::fs::VirtioFsProfile::Microvm {
                      stable_id: MICROVM_FILESYSTEM_STABLE_ID.to_owned(),
 diff --git a/vm/devices/support/fs/lxutil/src/lib.rs b/vm/devices/support/fs/lxutil/src/lib.rs
-index 0244a9f3..e9d3a285 100644
+index 0244a9f..e9d3a28 100644
 --- a/vm/devices/support/fs/lxutil/src/lib.rs
 +++ b/vm/devices/support/fs/lxutil/src/lib.rs
-@@ -25,6 +25,8 @@
+@@ -25,6 +25,8 @@ use windows as sys;
  
  pub use path::PathBufExt;
  pub use path::PathExt;
@@ -69,7 +78,7 @@ index 0244a9f3..e9d3a285 100644
  /// A platform-independent abstraction that allows you to treat an area of the file system as if
  /// it has Unix semantics.
 diff --git a/vm/devices/support/fs/lxutil/src/unix/mod.rs b/vm/devices/support/fs/lxutil/src/unix/mod.rs
-index d94f66a7..05482d60 100644
+index d94f66a..05482d6 100644
 --- a/vm/devices/support/fs/lxutil/src/unix/mod.rs
 +++ b/vm/devices/support/fs/lxutil/src/unix/mod.rs
 @@ -478,3 +478,172 @@ impl LxFile {
@@ -246,10 +255,10 @@ index d94f66a7..05482d60 100644
 +    }
 +}
 diff --git a/vm/devices/virtio/virtiofs/src/lib.rs b/vm/devices/virtio/virtiofs/src/lib.rs
-index dce54cca..28051fab 100644
+index dce54cc..db703e6 100644
 --- a/vm/devices/virtio/virtiofs/src/lib.rs
 +++ b/vm/devices/virtio/virtiofs/src/lib.rs
-@@ -31,6 +31,52 @@
+@@ -31,6 +31,98 @@ use inode::DedupKey;
  use inode::VirtioFsInode;
  use inode::VirtioFsVolume;
  pub use lxutil::LxVolumeOptions;
@@ -260,26 +269,55 @@ index dce54cca..28051fab 100644
 +    /// Every request runs as the OpenVMM process identity (historical behavior).
 +    #[default]
 +    Process,
-+    /// Every request runs as the guest caller's uid/gid, like virtiofsd, so
-+    /// guest-created objects are owned by the guest user on the host. Guest
-+    /// uid 0 and gid 0 are squashed to the export root's owner.
-+    Caller,
++    /// Every request runs as a host identity derived from the guest caller,
++    /// like virtiofsd, so guest-created objects are owned by the guest user on
++    /// the host. The FUSE uid/gid are guest-controlled, so only the configured
++    /// workload uid/gid pass through; any other id, including 0, is squashed
++    /// to the export root's owner.
++    Caller {
++        /// The guest workload identity allowed to pass through.
++        workload: Option<(lx::uid_t, lx::gid_t)>,
++    },
 +}
 +
 +impl MicroVmCreateOwner {
-+    /// The HostFs `mount_options` value that selects [`Self::Caller`].
++    /// The HostFs `mount_options` prefix that selects [`Self::Caller`].
 +    pub const CALLER_MOUNT_OPTION: &'static str = "owner=caller";
 +
-+    /// Parses the microVM HostFs mount options; only the owner option is accepted.
++    /// Parses the microVM HostFs mount options; only the owner option is
++    /// accepted, as `owner=caller` or `owner=caller:<UID>:<GID>`.
 +    pub fn from_mount_options(options: &str) -> anyhow::Result<Self> {
-+        match options {
-+            "" => Ok(Self::Process),
-+            Self::CALLER_MOUNT_OPTION if cfg!(unix) => Ok(Self::Caller),
-+            _ => anyhow::bail!(
-+                "microVM virtio-fs accepts only the '{}' HostFs mount option on Unix",
-+                Self::CALLER_MOUNT_OPTION
-+            ),
++        if options.is_empty() {
++            return Ok(Self::Process);
 +        }
++        let invalid = || {
++            anyhow::anyhow!(
++                "microVM virtio-fs accepts only the '{0}' or '{0}:<UID>:<GID>' HostFs mount option on Unix",
++                Self::CALLER_MOUNT_OPTION
++            )
++        };
++        if !cfg!(unix) {
++            return Err(invalid());
++        }
++        let rest = options
++            .strip_prefix(Self::CALLER_MOUNT_OPTION)
++            .ok_or_else(invalid)?;
++        if rest.is_empty() {
++            return Ok(Self::Caller { workload: None });
++        }
++        let (uid, gid) = rest
++            .strip_prefix(':')
++            .and_then(|ids| ids.split_once(':'))
++            .ok_or_else(invalid)?;
++        let uid = uid.parse::<lx::uid_t>().map_err(|_| invalid())?;
++        let gid = gid.parse::<lx::gid_t>().map_err(|_| invalid())?;
++        anyhow::ensure!(
++            uid != 0 && gid != 0,
++            "microVM virtio-fs caller workload identity must be nonzero"
++        );
++        Ok(Self::Caller {
++            workload: Some((uid, gid)),
++        })
 +    }
 +}
 +
@@ -288,21 +326,38 @@ index dce54cca..28051fab 100644
 +pub struct CallerIdentity {
 +    squash_uid: lx::uid_t,
 +    squash_gid: lx::gid_t,
++    workload: Option<(lx::uid_t, lx::gid_t)>,
 +}
 +
 +impl CallerIdentity {
 +    /// Returns the host uid/gid for a guest request.
++    ///
++    /// The configured workload uid/gid map to themselves; every other guest
++    /// id, including 0, maps to the export root's owner, so a guest cannot
++    /// act as an arbitrary host account by forging FUSE request ids.
 +    pub fn map(&self, uid: lx::uid_t, gid: lx::gid_t) -> (lx::uid_t, lx::gid_t) {
++        let (workload_uid, workload_gid) = match self.workload {
++            Some((uid, gid)) => (Some(uid), Some(gid)),
++            None => (None, None),
++        };
 +        (
-+            if uid == 0 { self.squash_uid } else { uid },
-+            if gid == 0 { self.squash_gid } else { gid },
++            if Some(uid) == workload_uid {
++                uid
++            } else {
++                self.squash_uid
++            },
++            if Some(gid) == workload_gid {
++                gid
++            } else {
++                self.squash_gid
++            },
 +        )
 +    }
 +}
  use parking_lot::RwLock;
  use profile::MICROVM_FUSE_MAJOR;
  use profile::MICROVM_FUSE_MAX_WRITE;
-@@ -136,6 +182,7 @@ struct VirtioFsInner {
+@@ -136,6 +228,7 @@ struct VirtioFsInner {
      policy: CacheAndIoPolicy,
      microvm_profile: Option<MicroVmVirtioFsProfile>,
      negotiation: RwLock<FuseNegotiation>,
@@ -310,7 +365,7 @@ index dce54cca..28051fab 100644
  }
  
  /// Distinguishes a single-share device from a multi-share aggregate.
-@@ -717,6 +764,7 @@ pub fn new(
+@@ -717,6 +810,7 @@ impl VirtioFs {
                  policy: CacheAndIoPolicy::normal(),
                  microvm_profile: None,
                  negotiation: RwLock::new(FuseNegotiation::default()),
@@ -318,7 +373,7 @@ index dce54cca..28051fab 100644
              }),
          })
      }
-@@ -728,6 +776,15 @@ pub fn new(
+@@ -728,6 +822,15 @@ impl VirtioFs {
      pub fn new_microvm(
          root_path: impl AsRef<Path>,
          profile: MicroVmVirtioFsProfile,
@@ -334,18 +389,22 @@ index dce54cca..28051fab 100644
      ) -> anyhow::Result<Self> {
          let root_path = root_path.as_ref();
          profile.validate_root_path(root_path)?;
-@@ -765,6 +822,10 @@ pub fn new_microvm(
+@@ -765,6 +868,14 @@ impl VirtioFs {
                  policy: CacheAndIoPolicy::microvm(&profile),
                  microvm_profile: Some(profile),
                  negotiation: RwLock::new(FuseNegotiation::default()),
-+                caller_identity: (owner == MicroVmCreateOwner::Caller).then_some(CallerIdentity {
-+                    squash_uid: root_stat.uid,
-+                    squash_gid: root_stat.gid,
-+                }),
++                caller_identity: match owner {
++                    MicroVmCreateOwner::Process => None,
++                    MicroVmCreateOwner::Caller { workload } => Some(CallerIdentity {
++                        squash_uid: root_stat.uid,
++                        squash_gid: root_stat.gid,
++                        workload,
++                    }),
++                },
              }),
          })
      }
-@@ -785,6 +846,7 @@ pub fn new_aggregate() -> Self {
+@@ -785,6 +896,7 @@ impl VirtioFs {
                  policy: CacheAndIoPolicy::normal(),
                  microvm_profile: None,
                  negotiation: RwLock::new(FuseNegotiation::default()),
@@ -353,7 +412,7 @@ index dce54cca..28051fab 100644
              }),
          }
      }
-@@ -805,6 +867,10 @@ pub(crate) fn microvm_profile(&self) -> Option<&MicroVmVirtioFsProfile> {
+@@ -805,6 +917,10 @@ impl VirtioFs {
          self.inner.microvm_profile.as_ref()
      }
  
@@ -364,7 +423,7 @@ index dce54cca..28051fab 100644
      fn is_microvm(&self) -> bool {
          self.inner.microvm_profile.is_some()
      }
-@@ -2498,3 +2564,36 @@ fn relative_path_validation_rejects_platform_escapes() {
+@@ -2498,3 +2614,71 @@ mod microvm_tests {
          assert!(validate_relative_path(Path::new("alternate:name"), true).is_err());
      }
  }
@@ -381,31 +440,66 @@ index dce54cca..28051fab 100644
 +            MicroVmCreateOwner::Process
 +        );
 +        #[cfg(unix)]
-+        assert_eq!(
-+            MicroVmCreateOwner::from_mount_options("owner=caller").unwrap(),
-+            MicroVmCreateOwner::Caller
-+        );
-+        assert!(MicroVmCreateOwner::from_mount_options("owner=root").is_err());
-+        assert!(MicroVmCreateOwner::from_mount_options("ro").is_err());
++        {
++            assert_eq!(
++                MicroVmCreateOwner::from_mount_options("owner=caller").unwrap(),
++                MicroVmCreateOwner::Caller { workload: None }
++            );
++            assert_eq!(
++                MicroVmCreateOwner::from_mount_options("owner=caller:1001:1002").unwrap(),
++                MicroVmCreateOwner::Caller {
++                    workload: Some((1001, 1002))
++                }
++            );
++        }
++        for invalid in [
++            "owner=root",
++            "ro",
++            "owner=caller:",
++            "owner=caller:1001",
++            "owner=caller:1001:",
++            "owner=caller:0:1002",
++            "owner=caller:1001:0",
++            "owner=caller:1:2:3",
++            "owner=callerx",
++        ] {
++            assert!(
++                MicroVmCreateOwner::from_mount_options(invalid).is_err(),
++                "{invalid}"
++            );
++        }
 +    }
 +
 +    #[test]
-+    fn squashes_guest_root_to_export_owner() {
++    fn passes_through_only_the_workload_identity() {
 +        let identity = CallerIdentity {
-+            squash_uid: 1001,
-+            squash_gid: 1002,
++            squash_uid: 2001,
++            squash_gid: 2002,
++            workload: Some((1001, 1002)),
 +        };
-+        assert_eq!(identity.map(0, 0), (1001, 1002));
-+        assert_eq!(identity.map(1234, 0), (1234, 1002));
-+        assert_eq!(identity.map(0, 5678), (1001, 5678));
-+        assert_eq!(identity.map(1234, 5678), (1234, 5678));
++        assert_eq!(identity.map(1001, 1002), (1001, 1002));
++        assert_eq!(identity.map(0, 0), (2001, 2002));
++        assert_eq!(identity.map(1001, 0), (1001, 2002));
++        assert_eq!(identity.map(0, 1002), (2001, 1002));
++        assert_eq!(identity.map(4242, 4242), (2001, 2002));
++    }
++
++    #[test]
++    fn squashes_everything_without_a_workload_identity() {
++        let identity = CallerIdentity {
++            squash_uid: 2001,
++            squash_gid: 2002,
++            workload: None,
++        };
++        assert_eq!(identity.map(0, 0), (2001, 2002));
++        assert_eq!(identity.map(1001, 1002), (2001, 2002));
 +    }
 +}
 diff --git a/vm/devices/virtio/virtiofs/src/resolver.rs b/vm/devices/virtio/virtiofs/src/resolver.rs
-index 7fe0afc6..e199d379 100644
+index 7fe0afc..e199d37 100644
 --- a/vm/devices/virtio/virtiofs/src/resolver.rs
 +++ b/vm/devices/virtio/virtiofs/src/resolver.rs
-@@ -111,17 +111,15 @@ fn resolve(
+@@ -111,17 +111,15 @@ impl ResolveResource<VirtioDeviceHandle, VirtioFsHandle> for VirtioFsResolver {
                  else {
                      anyhow::bail!("microVM virtio-fs requires a HostFs backend");
                  };
@@ -427,7 +521,7 @@ index 7fe0afc6..e199d379 100644
                  )?
              }
 diff --git a/vm/devices/virtio/virtiofs/src/virtio.rs b/vm/devices/virtio/virtiofs/src/virtio.rs
-index c690563b..2eda1159 100644
+index c690563..2eda115 100644
 --- a/vm/devices/virtio/virtiofs/src/virtio.rs
 +++ b/vm/devices/virtio/virtiofs/src/virtio.rs
 @@ -98,6 +98,8 @@ pub struct VirtioFsDevice {
@@ -439,7 +533,7 @@ index c690563b..2eda1159 100644
      stateful_fs: Option<VirtioFs>,
      #[inspect(skip)]
      admission: Arc<RequestAdmission>,
-@@ -288,6 +290,30 @@ pub fn new_microvm_hostfs(
+@@ -288,6 +290,30 @@ impl VirtioFsDevice {
          denied_paths: Vec<String>,
          root_path: impl AsRef<Path>,
          notify_corruption: Option<Arc<dyn Fn() + Sync + Send>>,
@@ -470,7 +564,7 @@ index c690563b..2eda1159 100644
      ) -> anyhow::Result<Self> {
          let profile = MicroVmVirtioFsProfile::from_attachment(
              stable_id,
-@@ -295,7 +321,7 @@ pub fn new_microvm_hostfs(
+@@ -295,7 +321,7 @@ impl VirtioFsDevice {
              read_only,
              denied_paths,
          )?;
@@ -479,7 +573,7 @@ index c690563b..2eda1159 100644
          Self::new_microvm(driver_source, profile, fs, notify_corruption)
      }
  
-@@ -338,6 +364,7 @@ fn from_parts<Fs>(
+@@ -338,6 +364,7 @@ impl VirtioFsDevice {
              shared_memory_region: None,
              notify_corruption,
              num_request_queues,
@@ -487,7 +581,7 @@ index c690563b..2eda1159 100644
              microvm_attachment_id,
              microvm_profile,
              stateful_fs,
-@@ -414,6 +441,7 @@ async fn start_queue(
+@@ -414,6 +441,7 @@ impl VirtioDevice for VirtioFsDevice {
              shared_memory_size: self.shmem_size,
              notify_corruption: self.notify_corruption.clone(),
              admission: Arc::clone(&self.admission),
@@ -495,7 +589,7 @@ index c690563b..2eda1159 100644
          });
  
          let queue_event = PolledWait::new(&self.driver, resources.event)
-@@ -447,6 +475,7 @@ async fn start_queue(
+@@ -447,6 +475,7 @@ impl VirtioDevice for VirtioFsDevice {
                      shared_memory_size: 0,
                      notify_corruption: self.notify_corruption.clone(),
                      admission: Arc::clone(&self.admission),
