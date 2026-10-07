@@ -178,3 +178,22 @@ describe('docker-manager (barrel re-exports)', () => {
     });
   });
 });
+
+describe('parseDifcProxyHost via barrel', () => {
+  it('defaults for empty or whitespace input', () => {
+    expect(dockerManager.parseDifcProxyHost('  ')).toEqual({ host: 'host.docker.internal', port: '18443' });
+  });
+
+  it('parses host:port, schemes, and bracketed IPv6', () => {
+    expect(dockerManager.parseDifcProxyHost('proxy.local:9000')).toEqual({ host: 'proxy.local', port: '9000' });
+    expect(dockerManager.parseDifcProxyHost('https://proxy.local:443')).toEqual({ host: 'proxy.local', port: '443' });
+    expect(dockerManager.parseDifcProxyHost('[::1]:18443')).toEqual({ host: '::1', port: '18443' });
+    expect(dockerManager.parseDifcProxyHost('proxy.local')).toEqual({ host: 'proxy.local', port: '18443' });
+  });
+
+  it('rejects malformed hosts and out-of-range ports', () => {
+    expect(() => dockerManager.parseDifcProxyHost('host:abc')).toThrow(/Invalid --difc-proxy-host/);
+    expect(() => dockerManager.parseDifcProxyHost('host:0')).toThrow(/between 1 and 65535/);
+    expect(() => dockerManager.parseDifcProxyHost('host:70000')).toThrow(/Invalid --difc-proxy-host/);
+  });
+});
