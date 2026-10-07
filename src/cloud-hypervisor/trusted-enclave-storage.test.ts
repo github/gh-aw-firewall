@@ -366,6 +366,57 @@ describe('invocation-wide kernel-enforced storage', () => {
     expect(journal.closeStorage).toHaveBeenCalledWith(tools.umount);
   });
 
+  it.each(['before-bind', 'after-bind'])(
+    'keeps storage identity cleanup safe when the %s mountinfo read fails', async (failedRead) => {
+      const plan = {
+        runId: 'a'.repeat(32), entryId: 'script', invocationId: 'b'.repeat(32), executorKind: 'script',
+        invocationHostDir: '/private/SECRET/invocations/script/invocation',
+      } as HostExecutorInvocationPlan;
+      const root = hostExecutorStorageDirectory(hostExecutorVmRunId(plan));
+      const journal = {
+        prepareStorage: jest.fn(), captureStorageDirectory: jest.fn(), prepareStorageMount: jest.fn(),
+        captureStorageMount: jest.fn(), verifyStorage: jest.fn(), closeStorage: jest.fn(),
+      } as unknown as HostExecutorResourceJournal;
+      jest.spyOn(fs, 'mkdir').mockResolvedValue(undefined);
+      jest.spyOn(fs, 'chown').mockResolvedValue(undefined);
+      jest.spyOn(fs, 'lstat').mockResolvedValue({
+        uid: 0, mode: 0o40711, isDirectory: () => true, isSymbolicLink: () => false,
+      } as Awaited<ReturnType<typeof fs.lstat>>);
+      jest.spyOn(fs, 'realpath').mockImplementation(async (file) => String(file));
+      const read = jest.spyOn(fs, 'readFile').mockResolvedValue(
+        `901 1 0:50 / ${root} rw,nosuid,nodev,noexec - tmpfs awf-enclave-invocation rw\n`,
+      );
+      (execa as unknown as jest.Mock).mockResolvedValue({ exitCode: 0, stderr: '' });
+      const storage = await prepareTrustedInvocationStorage({} as HostExecutorRunState, plan, journal, tools);
+      (journal.prepareStorageMount as jest.Mock).mockClear();
+      (journal.captureStorageMount as jest.Mock).mockClear();
+      read.mockReset();
+      const failure = Object.assign(new Error('/private/SECRET'), { code: 'EACCES' });
+      if (failedRead === 'before-bind') {
+        read.mockRejectedValueOnce(failure);
+      } else {
+        read.mockResolvedValueOnce(`1 1 8:1 / / rw shared:17 - ext4 root rw\n`)
+          .mockRejectedValueOnce(failure);
+      }
+      await expect(storage.dependencies.mountTmpfs!(
+        plan.invocationHostDir, profiles.script.writableStorageBytes, profiles.script.uid, profiles.script.gid, tools,
+      )).rejects.toBe(failure);
+      if (failedRead === 'before-bind') {
+        expect(journal.prepareStorageMount).not.toHaveBeenCalled();
+        expect(journal.captureStorageMount).not.toHaveBeenCalled();
+        expect(execa).not.toHaveBeenCalledWith(tools.mount, ['--bind', root + '/state', plan.invocationHostDir],
+          expect.anything());
+      } else {
+        expect(journal.prepareStorageMount).toHaveBeenCalledWith(plan.invocationHostDir);
+        expect(journal.captureStorageMount).toHaveBeenCalledTimes(1);
+        expect((journal.captureStorageMount as jest.Mock).mock.invocationCallOrder[0])
+          .toBeLessThan(read.mock.invocationCallOrder[1]);
+      }
+      storage.close();
+      expect(journal.closeStorage).toHaveBeenCalledWith(tools.umount);
+    },
+  );
+
   it.each([
     { role: 'script' }, { role: 'agent' },
     ...['mount-intent', 'topology-before', 'bind', 'mount-capture', 'readonly-exec', 'sealed-storage']

@@ -329,16 +329,16 @@ export async function prepareTrustedInvocationStorage(
       mountTmpfs: async (directory, bytes, uid, gid) => {
         if (directory !== plan.invocationHostDir || bytes !== profile.writableStorageBytes ||
           uid !== profile.uid || gid !== profile.gid) throw new Error('Invocation state identity mismatch');
-        await journal.prepareStorageMount(directory);
         const before = await fs.readFile('/proc/self/mountinfo', 'utf8');
         propagation.sourceBeforeBind = observeCoveringPropagation(before, state);
         propagation.destinationBeforeBind = observeCoveringPropagation(before, directory);
         propagation.mounts.invocationBeforeBind = observeStorageMount(before, directory);
         report.propagation(propagation);
+        await journal.prepareStorageMount(directory);
         await mount(tools, ['--bind', state, directory]);
+        await journal.captureStorageMount();
         propagation.mounts.invocationAfterBind = observeStorageMount(await fs.readFile('/proc/self/mountinfo', 'utf8'), directory);
         report.propagation(propagation);
-        await journal.captureStorageMount();
         await mount(tools, ['-o', 'remount,bind,rw,nosuid,nodev,noexec', directory]);
         propagation.mounts.invocationAfterRemount = observeStorageMount(await fs.readFile('/proc/self/mountinfo', 'utf8'), directory);
         report.propagation(propagation);

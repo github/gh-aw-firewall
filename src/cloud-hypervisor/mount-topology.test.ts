@@ -38,6 +38,12 @@ describe('bounded storage propagation evidence', () => {
     expect(observeCoveringPropagation(text, '/private/SECRET-sibling/state')).toBe('slave');
     expect(observeCoveringPropagation(text + line(201, 1, '/', root, 'shared:4 '), `${root}/state`)).toBe('unknown');
     expect(observeCoveringPropagation(text + line(202, 1, '/', '/', 'shared:4 '), `${root}/state`)).toBe('unknown');
+    expect(observeCoveringPropagation(
+      line(1, 1, '/', '/', 'shared:3 ') +
+      line(10, 1, '/', '/invocations/sub') +
+      line(20, 1, '/', '/invocations', 'shared:4 '),
+      '/invocations/sub/run',
+    )).toBe('unknown');
     expect(observeCoveringPropagation('', '/outside')).toBe('unknown');
   });
 

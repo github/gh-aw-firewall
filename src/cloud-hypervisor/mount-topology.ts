@@ -114,12 +114,32 @@ export function observeStorageMount(text: string, target: string): StorageMountO
 
 /** Observational only: ambiguity is unknown, never authority to select a mount. */
 export function observeCoveringPropagation(text: string, target: string): Propagation {
-  const candidates = parseTable(text).filter((mount) => mount.mountPoint === '/' ||
+  const mounts = parseTable(text);
+  const candidates = mounts.filter((mount) => mount.mountPoint === '/' ||
     mount.mountPoint === target || target.startsWith(`${mount.mountPoint}/`));
   if (new Set(candidates.map((mount) => mount.mountPoint)).size !== candidates.length) return 'unknown';
-  const longest = candidates.reduce((maximum, mount) => Math.max(maximum, mount.mountPoint.length), 0);
-  const matches = candidates.filter((mount) => mount.mountPoint.length === longest);
-  return propagation(matches.length === 1 ? matches[0] : undefined);
+  const ids = new Map<number, TopologyMount>();
+  for (const mount of mounts) {
+    if (ids.has(mount.mountId)) return 'unknown';
+    ids.set(mount.mountId, mount);
+  }
+  const ordered = candidates.sort((left, right) => left.mountPoint.length - right.mountPoint.length);
+  for (let index = 1; index < ordered.length; index++) {
+    const ancestorId = ordered[index - 1].mountId;
+    let current: TopologyMount | undefined = ordered[index];
+    const visited = new Set<number>();
+    let descendsFromAncestor = false;
+    while (current && !visited.has(current.mountId)) {
+      if (current.mountId === ancestorId) {
+        descendsFromAncestor = true;
+        break;
+      }
+      visited.add(current.mountId);
+      current = ids.get(current.parentId);
+    }
+    if (!descendsFromAncestor) return 'unknown';
+  }
+  return propagation(ordered[ordered.length - 1]);
 }
 
 export function assertPrivateStorageObservation(observation: StorageMountObservation): void {
