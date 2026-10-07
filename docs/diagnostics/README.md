@@ -73,6 +73,15 @@ sizes do not measure sparse allocation. Unknown reasons remain unknown until
 the failed operation supplies discriminating evidence. No new root-cause
 finding is asserted for the unresolved v0.28.39/v0.28.40 snapshot failure.
 
+If capture reports `storage-mount-multiple`, inspect the bounded
+`enclaveStartup.mountTopology` before/after evidence and wrapper bind-call
+bucket. Distinct mount IDs differ from repeated rows; local overlapping peers
+differ from peers visible outside the allocation. An absent visible peer does
+not prove absence in another namespace. The
+[topology interpretation contract](../cloud-hypervisor-foundation.md#snapshot-bind-topology-evidence)
+states which observations can eliminate each hypothesis without assuming a
+root cause or changing propagation.
+
 ## Agent entry point
 
 Agents should load [`.github/skills/diagnose-awf/SKILL.md`](../../.github/skills/diagnose-awf/SKILL.md).

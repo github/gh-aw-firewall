@@ -108,6 +108,7 @@ jobs:
             src/cloud-hypervisor/trusted-enclave-storage.test.ts \
             src/cloud-hypervisor/trusted-enclave-preflight.test.ts \
             src/cloud-hypervisor/host-preflight-progress.test.ts \
+            src/cloud-hypervisor/mount-topology.test.ts \
             src/cloud-hypervisor/artifact-trust.test.ts \
             src/cloud-hypervisor/artifact-snapshot.test.ts \
             src/cloud-hypervisor/preflight.test.ts \

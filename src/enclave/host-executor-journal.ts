@@ -273,6 +273,7 @@ export class HostExecutorResourceJournal {
 
   async captureStorageMount(
     report = new HostPreflightReporter('storage-mount-capture'),
+    observe?: (text: string) => void,
   ): Promise<void> {
     const storage = this.record.storage!;
     await report.check('canonical-path', async () => {
@@ -280,7 +281,7 @@ export class HostExecutorResourceJournal {
         throw markHostPreflightError(new Error('Storage mount path changed'), 'storage-path-changed');
       }
     });
-    const mounts = (await readMounts(this.dependencies.readFile, report))
+    const mounts = (await readMounts(this.dependencies.readFile, report, observe))
       .filter((mount) => mount.mountPoint === storage.pending);
     report.checkSync('match-count', () => {
       if (mounts.length !== 1) {

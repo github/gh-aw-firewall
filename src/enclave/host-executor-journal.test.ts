@@ -12,6 +12,7 @@ import {
   HostPreflightReporter, hostPreflightReason,
   type HostPreflightProgress, type HostPreflightReason,
 } from '../cloud-hypervisor/host-preflight-progress';
+import { observeMountTopology } from '../cloud-hypervisor/mount-topology';
 
 describe('durable host executor journal', () => {
   let root: string;
@@ -171,7 +172,7 @@ describe('durable host executor journal', () => {
   }
 
   const captureIds = [
-    'canonical-path', 'mountinfo-read', 'mountinfo-parse', 'match-count', 'filesystem', 'source',
+    'canonical-path', 'mountinfo-read', 'mountinfo-parse', 'mountinfo-topology', 'match-count', 'filesystem', 'source',
     'journal-open', 'journal-write', 'journal-file-sync', 'journal-file-close',
     'journal-publish', 'journal-directory-sync', 'journal-staging-remove',
   ];
@@ -184,6 +185,7 @@ describe('durable host executor journal', () => {
     ['source', 'source', 'storage-mount-source'],
     ['read', 'mountinfo-read', 'EIO'],
     ['parse', 'mountinfo-parse', 'mountinfo-malformed'],
+    ['topology', 'mountinfo-topology', 'mountinfo-malformed'],
   ] as const)('distinguishes %s mount capture failure and retains fail-closed cleanup', async (failure, id, reason) => {
     const { journal, snapshot } = await aggregateStorageJournal(false);
     if (failure === 'stacked') {
@@ -203,6 +205,7 @@ describe('durable host executor journal', () => {
         : line).join('\n');
     }
     if (failure === 'parse') mountInfo += '\nmalformed PRIVATE_SENTINEL\n';
+    if (failure === 'topology') mountInfo += '\n3100 invalid 8:1 / /unrelated rw shared:bad - ext4 PRIVATE_SENTINEL rw\n';
     const original = Object.assign(new Error('/private/SECRET Bearer credential'), { code: 'EIO' });
     if (failure === 'read') (dependencies.readFile as jest.Mock).mockRejectedValueOnce(original);
     const publish = jest.fn<void, [HostPreflightProgress]>();
@@ -236,6 +239,29 @@ describe('durable host executor journal', () => {
     expect(readRecord().storage.pending).toBeUndefined();
     expect(readRecord().storage.mounts.filter((mount: { mountPoint: string }) => mount.mountPoint === snapshot)).toHaveLength(1);
     expect(JSON.stringify(publish.mock.calls)).not.toMatch(/SECRET|unrelated|run-fixture/);
+  });
+
+  it('publishes repeated-row evidence from the exact guard read before rejecting multiple matches', async () => {
+    const { journal, snapshot, storageRoot } = await aggregateStorageJournal(false);
+    const snapshotLine = mountInfo.split('\n').find((line) => line.includes(` ${snapshot} `))!;
+    mountInfo += `${snapshotLine}\n`;
+    const publish = jest.fn<void, [HostPreflightProgress]>();
+    const reporter = new HostPreflightReporter('storage-mount-capture', publish);
+    (dependencies.readFile as jest.Mock).mockClear();
+    await expect(journal.captureStorageMount(reporter, (text) => {
+      reporter.topology({ schemaVersion: 1, bindCalls: 'one', before: null,
+        after: observeMountTopology(text, storageRoot, `${storageRoot}/artifacts`, snapshot) });
+    })).rejects.toThrow('Storage mount identity unavailable');
+    expect(dependencies.readFile).toHaveBeenCalledTimes(1);
+    expect(dependencies.readFile).toHaveBeenCalledWith('/proc/self/mountinfo', 'utf8');
+    const final = publish.mock.calls[publish.mock.calls.length - 1][0];
+    expect(final.mountTopology?.after).toMatchObject({ snapshotEntries: 'multiple', snapshotIds: 'repeated' });
+    expect(final.checks.find((check) => check.id === 'mountinfo-topology')?.result).toBe('passed');
+    expect(final.checks.find((check) => check.id === 'match-count')).toMatchObject({
+      result: 'failed', reason: 'storage-mount-multiple',
+    });
+    expect(final.checks.find((check) => check.id === 'journal-open')?.result).toBe('not-attempted');
+    expect(JSON.stringify(publish.mock.calls)).not.toContain(snapshot);
   });
 
   it.each([
@@ -273,7 +299,7 @@ describe('durable host executor journal', () => {
     expect(last.checks.filter((check) => check.result === 'failed')).toEqual([{
       id, result: 'failed', reason: code === 'unrecognized-private-code' ? 'unknown' : code as HostPreflightReason,
     }]);
-    for (const check of captureIds.slice(0, 6)) {
+    for (const check of captureIds.slice(0, 7)) {
       expect(last.checks.find((item) => item.id === check)?.result).toBe('passed');
     }
     const recordPublished = ['journal-directory-sync', 'journal-staging-remove'].includes(id);

@@ -1,5 +1,6 @@
 import type { WrapperConfig } from '../types';
 import type { CheckResult, HostPreflightProgress, HostPreflightReason } from '../cloud-hypervisor/host-preflight-progress';
+import { cloneMountTopology, type MountTopologyEvidence } from '../cloud-hypervisor/mount-topology';
 
 export interface EnclaveStartupChecklist {
   schemaVersion: 1;
@@ -32,6 +33,7 @@ export interface EnclaveStartupProgress {
   httpStatus: number | null;
   hostPreflight?: HostPreflightProgress;
   startupChecks?: EnclaveStartupChecklist;
+  mountTopology?: MountTopologyEvidence;
 }
 
 const states = new WeakMap<WrapperConfig, {
@@ -59,8 +61,13 @@ export function getEnclaveStartupProgress(config: WrapperConfig): EnclaveStartup
   return progress ? {
     ...progress,
     ...(progress.hostPreflight ? {
-      hostPreflight: { ...progress.hostPreflight, checks: progress.hostPreflight.checks.map((check) => ({ ...check })) },
+      hostPreflight: {
+        ...progress.hostPreflight, checks: progress.hostPreflight.checks.map((check) => ({ ...check })),
+        ...(progress.hostPreflight.mountTopology
+          ? { mountTopology: cloneMountTopology(progress.hostPreflight.mountTopology) } : {}),
+      },
     } : {}),
+    ...(progress.mountTopology ? { mountTopology: cloneMountTopology(progress.mountTopology) } : {}),
     ...(progress.startupChecks ? {
       startupChecks: {
         ...progress.startupChecks,
@@ -80,6 +87,9 @@ export function updateEnclaveStartupProgress(
   const state = states.get(config)!;
   state.progress = { ...state.progress, ...update };
   if (update.hostPreflight) {
+    if (update.hostPreflight.mountTopology) {
+      state.progress.mountTopology = cloneMountTopology(update.hostPreflight.mountTopology);
+    }
     const checks = { ...state.progress.startupChecks?.checks };
     for (const check of update.hostPreflight.checks) {
       checks[`${update.hostPreflight.scope}/${check.id}`] = [check.result, check.reason];
@@ -116,7 +126,7 @@ export function assertEnclaveStartupChecklistComplete(
 export function resetEnclaveStartupChecklist(config: WrapperConfig): void {
   updateEnclaveStartupProgress(config, {
     stage: 'configuration', readiness: 'not-attempted', code: 'none', attempts: 0,
-    httpStatus: null, hostPreflight: undefined, startupChecks: undefined,
+    httpStatus: null, hostPreflight: undefined, startupChecks: undefined, mountTopology: undefined,
   });
 }
 

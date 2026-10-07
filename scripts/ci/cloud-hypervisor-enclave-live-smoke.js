@@ -239,9 +239,33 @@ for (const role of ['script', 'agent']) {
 }
 const failedSpawns = new WeakSet();
 const hostPreflightSchema = require('../../src/cloud-hypervisor/host-preflight-schema.json');
+const mountTopologySchema = require('../../src/cloud-hypervisor/mount-topology-schema.json');
+
+function safeMountTopology(value) {
+  if (!value || JSON.stringify(Object.keys(value).sort()) !== '["after","before","bindCalls","schemaVersion"]'
+      || value.schemaVersion !== 1 || !['zero', 'one', 'multiple'].includes(value.bindCalls)) return undefined;
+  const observation = (item) => {
+    if (item === null) return null;
+    if (!item || JSON.stringify(Object.keys(item).sort()) !== JSON.stringify(Object.keys(mountTopologySchema).sort())) {
+      return undefined;
+    }
+    const safe = {};
+    for (const [key, values] of Object.entries(mountTopologySchema)) {
+      if (!values.includes(item[key])) return undefined;
+      safe[key] = item[key];
+    }
+    return safe;
+  };
+  const before = observation(value.before);
+  const after = observation(value.after);
+  if (before === undefined || after === undefined) return undefined;
+  return { schemaVersion: 1, bindCalls: value.bindCalls, before, after };
+}
 
 function safeHostPreflight(value) {
-  if (!value || JSON.stringify(Object.keys(value).sort()) !== '["checks","schemaVersion","scope"]'
+  const keys = ['checks', 'schemaVersion', 'scope'];
+  if (value && Object.prototype.hasOwnProperty.call(value, 'mountTopology')) keys.push('mountTopology');
+  if (!value || JSON.stringify(Object.keys(value).sort()) !== JSON.stringify(keys.sort())
       || value.schemaVersion !== 1
       || typeof value.scope !== 'string'
       || !Object.prototype.hasOwnProperty.call(hostPreflightSchema.scopes, value.scope)
@@ -263,7 +287,9 @@ function safeHostPreflight(value) {
     }
     checks.push({ id: check.id, result: check.result, reason: check.reason });
   }
-  return { schemaVersion: 1, scope: value.scope, checks };
+  const mountTopology = value.mountTopology === undefined ? undefined : safeMountTopology(value.mountTopology);
+  if (Object.prototype.hasOwnProperty.call(value, 'mountTopology') && !mountTopology) return undefined;
+  return { schemaVersion: 1, scope: value.scope, checks, ...(mountTopology ? { mountTopology } : {}) };
 }
 
 function safeStartupChecklist(value) {
@@ -298,6 +324,7 @@ function safeEnclaveStartup(value) {
   const keys = ['attempts', 'code', 'httpStatus', 'perspective', 'readiness', 'schemaVersion', 'stage'];
   if (value && Object.prototype.hasOwnProperty.call(value, 'hostPreflight')) keys.push('hostPreflight');
   if (value && Object.prototype.hasOwnProperty.call(value, 'startupChecks')) keys.push('startupChecks');
+  if (value && Object.prototype.hasOwnProperty.call(value, 'mountTopology')) keys.push('mountTopology');
   if (!value || JSON.stringify(Object.keys(value).sort()) !== JSON.stringify(keys.sort())
       || value.schemaVersion !== 1 || value.perspective !== 'awf-host'
       || ![
@@ -330,12 +357,15 @@ function safeEnclaveStartup(value) {
   if (Object.prototype.hasOwnProperty.call(value, 'hostPreflight') && !hostPreflight) return undefined;
   const startupChecks = value.startupChecks === undefined ? undefined : safeStartupChecklist(value.startupChecks);
   if (Object.prototype.hasOwnProperty.call(value, 'startupChecks') && !startupChecks) return undefined;
+  const mountTopology = value.mountTopology === undefined ? undefined : safeMountTopology(value.mountTopology);
+  if (Object.prototype.hasOwnProperty.call(value, 'mountTopology') && !mountTopology) return undefined;
   return {
     schemaVersion: 1, perspective: 'awf-host', stage: value.stage,
     readiness: value.readiness, code: value.code, attempts: value.attempts,
     httpStatus: value.httpStatus,
     ...(hostPreflight ? { hostPreflight } : {}),
     ...(startupChecks ? { startupChecks } : {}),
+    ...(mountTopology ? { mountTopology } : {}),
   };
 }
 

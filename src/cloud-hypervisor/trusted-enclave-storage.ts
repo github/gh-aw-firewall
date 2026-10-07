@@ -23,6 +23,7 @@ import { CLOUD_HYPERVISOR_ENCLAVE_RESOURCE_PROFILES } from './workload-profile';
 import { VirtiofsdManager } from './virtiofsd';
 import { parseMountInfoLine } from './cleanup-identity';
 import { evaluateGithubHostedRunnerEligibility } from './host-eligibility';
+import { observeMountTopology, type MountTopologyEvidence } from './mount-topology';
 import {
   HostPreflightReporter, markHostPreflightError, type HostPreflightProgress,
 } from './host-preflight-progress';
@@ -228,6 +229,7 @@ export async function prepareTrustedInvocationStorage(
     }
   });
   let snapshotMount: string | undefined;
+  const snapshotBindCalls = new Map<string, number>();
   const verifyStorage = async (directory: string, maximumBytes: number, writable: readonly string[] = []): Promise<void> => {
     if (directory !== plan.invocationHostDir || maximumBytes !== profile.writableStorageBytes ||
       writable.some((candidate) => path.dirname(candidate) !== directory || path.normalize(candidate) !== candidate ||
@@ -294,9 +296,29 @@ export async function prepareTrustedInvocationStorage(
         const snapshotReport = report.fork('artifact-snapshot');
         const snapshot = await createArtifactSnapshot(sources, copy, capture, artifacts, snapshotReport);
         await snapshotReport.check('mount-intent', () => journal.prepareStorageMount(snapshot.directory));
-        await snapshotReport.check('bind', () => mount(tools, ['--bind', snapshot.directory, snapshot.directory]));
+        const priorCalls = snapshotBindCalls.get(snapshot.directory) ?? 0;
+        const topology: MountTopologyEvidence = {
+          schemaVersion: 1, bindCalls: priorCalls === 0 ? 'zero' : priorCalls === 1 ? 'one' : 'multiple',
+          before: null, after: null,
+        };
+        snapshotReport.topology(topology);
+        await snapshotReport.check('topology-before', async () => {
+          topology.before = observeMountTopology(await fs.readFile('/proc/self/mountinfo', 'utf8'),
+            root, artifacts, snapshot.directory);
+          snapshotReport.topology(topology);
+        });
+        await snapshotReport.check('bind', async () => {
+          const count = Math.min(2, (snapshotBindCalls.get(snapshot.directory) ?? 0) + 1);
+          snapshotBindCalls.set(snapshot.directory, count);
+          topology.bindCalls = count === 1 ? 'one' : 'multiple';
+          snapshotReport.topology(topology);
+          await mount(tools, ['--bind', snapshot.directory, snapshot.directory]);
+        });
         await snapshotReport.check('mount-capture', () =>
-          journal.captureStorageMount(snapshotReport.fork('storage-mount-capture')));
+          journal.captureStorageMount(snapshotReport.fork('storage-mount-capture'), (text) => {
+            topology.after = observeMountTopology(text, root, artifacts, snapshot.directory);
+            snapshotReport.topology(topology);
+          }));
         await snapshotReport.check('readonly-exec', () =>
           mount(tools, ['-o', 'remount,bind,ro,nosuid,nodev,exec', snapshot.directory]));
         snapshotMount = snapshot.directory;

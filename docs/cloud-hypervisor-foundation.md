@@ -1336,6 +1336,56 @@ guest execution were not attempted. That immutable release does not contain
 the nested capture diagnostics. A new release containing these checks and an
 authorized release-pinned environment probe are required to distinguish the
 five hypotheses on the original execution path.
+
+### Snapshot bind topology evidence
+
+The v0.28.41
+[probe run 37562487508](https://github.com/github/gh-aw-firewall/actions/runs/37562487508)
+identified `storage-mount-multiple`: canonical path and mount-table reading/
+parsing passed, but more than one entry matched the snapshot directory. This
+does not yet distinguish actual stacked mounts from repeated mount-table rows,
+or explain which operation introduced them.
+
+Snapshot startup now retains a bounded `enclaveStartup.mountTopology` record
+with schema version 1, `bindCalls` (`zero`, `one`, `multiple`), and nullable
+`before` / `after` observations. `artifact-snapshot/topology-before` reads the
+table immediately before binding. `storage-mount-capture/mountinfo-topology`
+derives the after observation from the **same table read** used by the
+exact-one-match guard, before that guard can reject the mount. No second
+post-bind read or retry can substitute a different observation.
+
+Every observation contains only the fixed enums in
+`src/cloud-hypervisor/mount-topology-schema.json`. It reports root/artifact-parent
+propagation classes, whether those mounts share an overlapping local peer group,
+whether peers outside the allocation are visible, zero/one/multiple snapshot
+entries, unique/repeated/mixed snapshot IDs, and whether distinct snapshot IDs
+form a parent stack. It never publishes mount IDs, peer IDs, device numbers,
+namespace identities, paths, sources, filesystem contents, or raw optional
+fields. `null` means not observed, not an inferred zero or private mount.
+
+| Hypothesis | Evidence that can eliminate it for the observed bind | Remaining uncertainty |
+|---|---|---|
+| Local overlapping shared peers duplicate the nested bind | Root/artifact-parent `private`, or a known `not-shared` / `different-group` relation, excludes the specific same-group local mechanism | `same-group-overlap` is supporting topology, not proof of causation |
+| Propagation from external peers/namespaces | Both root and artifact parent `private` exclude incoming propagation through those observed mounts | `visibleOutsidePeers: absent` covers only this namespace and cannot rule out peers in another namespace; a slave can receive events without a visible shared peer |
+| AWF calls the same snapshot bind twice | `bindCalls: one` excludes repeated calls to this allocation's wrapper for that directory | Counts exclude other processes, other allocation instances, and extra syscalls inside the mount helper |
+| Snapshot is already mounted before AWF binds | `before.snapshotEntries: zero` excludes a mount present at that observation | An external mount can still race between observation and bind |
+| Duplicate rows rather than distinct kernel mounts | `after.snapshotIds: unique` excludes repetition of an identical mount ID within the captured table | `repeated` / `mixed` is not itself proof of a kernel bug; unknown topology stays unknown |
+
+Before/after evidence survives the outer failure, subsequent cleanup scopes,
+and omission of the duplicate active host-preflight scope. The complete
+catalog plus maximum-size topology evidence is tested against the unchanged
+16 KiB descriptor bound. A new startup clears the previous observations.
+Missing or failed observation checks block readiness; no check selects a
+topmost mount, deduplicates the table, changes propagation, or adopts an
+unrecorded resource.
+
+The opt-in Linux mount suite compares the actual production allocation,
+artifact-parent self-bind, invocation bind, and snapshot sequence beneath
+private versus shared synthetic parents in separate private namespaces.
+Shared propagation is intentionally enabled only inside the disposable test
+namespace. These tests are host-topology reproductions, not live VM acceptance;
+they require a supported privileged Linux runner and are not claimed to have
+passed from deterministic mocks. Production propagation is unchanged.
 These diagnostics require a future published release; immutable v0.28.39
 assets are not patched by changing the source or dispatching a job.
 

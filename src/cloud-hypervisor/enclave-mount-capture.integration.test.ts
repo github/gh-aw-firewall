@@ -10,6 +10,7 @@ import type { HostExecutorInvocationPlan, HostExecutorRunState } from '../enclav
 import { HostPreflightReporter, hostPreflightReason, type HostPreflightProgress } from './host-preflight-progress';
 import type { CloudHypervisorHostToolPaths } from './preflight';
 import { prepareTrustedInvocationStorage } from './trusted-enclave-storage';
+import type { MountTopologyEvidence } from './mount-topology';
 
 const live = process.env.AWF_TEST_ENCLAVE_STORAGE === '1';
 const tools = { mount: '/usr/bin/mount', umount: '/usr/bin/umount' } as CloudHypervisorHostToolPaths;
@@ -61,6 +62,75 @@ jest.setTimeout(30_000);
     const bind = () => execa(tools.mount, ['--bind', snapshot, snapshot]);
     return { journal, storage, snapshot, published, capture, bind, close };
   }
+
+  it.each(['private', 'shared'] as const)(
+    'compares the actual production snapshot sequence under %s propagation', async (mode) => {
+      const child = await execa('/usr/bin/unshare', [
+        '--mount', '--propagation', 'private', process.execPath, '-e', `
+        const fs = require('fs').promises;
+        const path = require('path');
+        const { execFileSync } = require('child_process');
+        const { randomBytes } = require('crypto');
+        const { HostExecutorResourceJournal, hostExecutorVmRunId } = require(process.argv[1]);
+        const { prepareTrustedInvocationStorage } = require(process.argv[2]);
+        const { HostPreflightReporter, hostPreflightReason } = require(process.argv[3]);
+        (async () => {
+          const [scratch, mode] = process.argv.slice(4);
+          const parent = '/run/awf-cloud-hypervisor/enclave-storage';
+          await fs.mkdir(parent, { recursive: true, mode: 0o711 });
+          execFileSync('/usr/bin/mount', ['-t', 'tmpfs', '-o', 'size=4194304,mode=0711', 'probe-parent', parent]);
+          execFileSync('/usr/bin/mount', ['--make-' + mode, parent]);
+          const run = { runId: randomBytes(16).toString('hex'), seedsDir: path.join(scratch, 'seeds'),
+            invocationsDir: path.join(scratch, 'invocations'), journalDir: path.join(scratch, 'journal'), entries: [] };
+          const invocationId = randomBytes(16).toString('hex');
+          const plan = { runId: run.runId, entryId: 'script', invocationId, executorKind: 'script',
+            timeoutMs: 60000, requestHash: 'a'.repeat(64), admissionId: 'b'.repeat(32),
+            schemaHash: 'c'.repeat(64), schema: { type: 'boolean' }, payload: 'synthetic',
+            invocationHostDir: path.join(run.invocationsDir, 'script', invocationId) };
+          await fs.mkdir(path.dirname(plan.invocationHostDir), { recursive: true, mode: 0o700 });
+          const journal = await HostExecutorResourceJournal.create(run, plan, hostExecutorVmRunId(plan));
+          await fs.mkdir(plan.invocationHostDir, { mode: 0o700 });
+          await journal.captureDirectory();
+          let topology;
+          const storage = await prepareTrustedInvocationStorage(run, plan, journal,
+            { mount: '/usr/bin/mount', umount: '/usr/bin/umount' },
+            new HostPreflightReporter('bounded-runtime', value => {
+              if (value.mountTopology) topology = value.mountTopology;
+            }));
+          await storage.dependencies.mountTmpfs(plan.invocationHostDir, 1073741824, 65534, 65534);
+          await journal.captureMount();
+          await journal.prepareSnapshot();
+          let reason = 'none';
+          try {
+            await storage.dependencies.createArtifactSnapshot({
+              cloudHypervisorBinary: '/usr/bin/true', virtiofsdBinary: '/usr/bin/true',
+              kernelPath: '/usr/bin/true', rootfsPath: '/usr/bin/true', supervisorPath: '/usr/bin/true'
+            }, fs.copyFile, directory => journal.captureSnapshot(directory));
+          } catch (error) { reason = hostPreflightReason(error); }
+          if (!topology) throw new Error('Probe did not reach snapshot topology');
+          process.stdout.write(JSON.stringify({ reason, topology }));
+        })().catch(() => { console.error('Mount topology probe setup failed'); process.exitCode = 1; });
+        `,
+        path.resolve(__dirname, '../../dist/enclave/host-executor-journal.js'),
+        path.resolve(__dirname, '../../dist/cloud-hypervisor/trusted-enclave-storage.js'),
+        path.resolve(__dirname, '../../dist/cloud-hypervisor/host-preflight-progress.js'),
+        scratch, mode,
+      ]);
+      const result = JSON.parse(child.stdout) as { reason: string; topology: MountTopologyEvidence };
+      expect(result.topology.bindCalls).toBe('one');
+      expect(result.topology.before?.snapshotEntries).toBe('zero');
+      if (mode === 'shared') {
+        expect(result.reason).toBe('storage-mount-multiple');
+        expect(result.topology.before?.localPeerRelation).toBe('same-group-overlap');
+        expect(result.topology.after).toMatchObject({ snapshotEntries: 'multiple', snapshotIds: 'unique' });
+      } else {
+        expect(result.reason).toBe('none');
+        expect(result.topology.before?.rootPropagation).toBe('private');
+        expect(result.topology.after).toMatchObject({ snapshotEntries: 'one', snapshotIds: 'unique' });
+      }
+      expect(child.stdout).not.toContain(scratch);
+    },
+  );
 
   it('captures and durably commits a real self-bind with the inherited tmpfs source', async () => {
     const probe = await fixture();

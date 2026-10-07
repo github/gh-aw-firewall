@@ -240,7 +240,7 @@ describe('invocation-wide kernel-enforced storage', () => {
 
   it.each([
     { role: 'script' }, { role: 'agent' },
-    ...['mount-intent', 'bind', 'mount-capture', 'readonly-exec', 'sealed-storage']
+    ...['mount-intent', 'topology-before', 'bind', 'mount-capture', 'readonly-exec', 'sealed-storage']
       .map((gate) => ({ role: 'script', gate })),
     { role: 'script', gate: 'bind', commandExit: 32 },
     { role: 'script', gate: 'readonly-exec', commandExit: 32 },
@@ -323,6 +323,14 @@ describe('invocation-wide kernel-enforced storage', () => {
     }
     const primary = Object.assign(new Error('/private/SECRET\nBearer token'), { code: 'EPERM' });
     if (gate === 'mount-intent') (journal.prepareStorageMount as jest.Mock).mockRejectedValueOnce(primary);
+    if (gate === 'topology-before') {
+      const table = String(await fs.readFile('/proc/self/mountinfo', 'utf8'));
+      // Artifact-root execution eligibility reads the table before the origin check.
+      readMounts.mockResolvedValueOnce(table).mockRejectedValueOnce(primary);
+    }
+    (journal.captureStorageMount as jest.Mock).mockImplementation(async (_report, observe?: (text: string) => void) => {
+      if (observe) observe(String(await fs.readFile('/proc/self/mountinfo', 'utf8')));
+    });
     if (gate === 'mount-capture') (journal.captureStorageMount as jest.Mock).mockRejectedValueOnce(primary);
     if (gate === 'bind' || gate === 'readonly-exec') {
       command.mockImplementation(async (_tool, args: string[]) => {
@@ -364,7 +372,7 @@ describe('invocation-wide kernel-enforced storage', () => {
             verification === 'symlink' ? 'file-symlink' : verification === 'type' ? 'file-type' : 'storage-mount-options'
           : commandExit ? 'command-failed' : 'EPERM',
       }]);
-      const gates = ['mount-intent', 'bind', 'mount-capture', 'readonly-exec', 'sealed-storage'];
+      const gates = ['mount-intent', 'topology-before', 'bind', 'mount-capture', 'readonly-exec', 'sealed-storage'];
       for (const later of gates.slice(gates.indexOf(gate) + 1)) {
         expect(record.checks.find((check) => check.id === later)?.result).toBe('not-attempted');
       }
@@ -374,8 +382,13 @@ describe('invocation-wide kernel-enforced storage', () => {
       return;
     }
     await creating;
-    expect(journal.captureStorageMount).toHaveBeenLastCalledWith(expect.any(HostPreflightReporter));
+    expect(journal.captureStorageMount).toHaveBeenLastCalledWith(expect.any(HostPreflightReporter), expect.any(Function));
     expect(published.some((progress) => progress.scope === 'storage-mount-capture')).toBe(true);
+    const evidence = published.filter((progress) => progress.mountTopology).map((progress) => progress.mountTopology!);
+    expect(evidence[0]).toEqual({ schemaVersion: 1, bindCalls: 'zero', before: null, after: null });
+    expect(evidence[evidence.length - 1]).toMatchObject({
+      bindCalls: 'one', before: { snapshotEntries: 'one' }, after: { snapshotEntries: 'one', snapshotIds: 'unique' },
+    });
     const snapshotProgress = published[published.length - 1];
     expect(snapshotProgress.scope).toBe('artifact-snapshot');
     expect(snapshotProgress.checks.every((check) =>
@@ -427,5 +440,13 @@ describe('invocation-wide kernel-enforced storage', () => {
     expect(journal.closeStorage).toHaveBeenCalledWith(tools.umount);
     expect(command.mock.calls.filter(([, args]) => (args as string[]).some((arg) => /lazy|^-l$/.test(arg)))).toEqual([]);
     await allocation.close();
+
+    // Reusing a directory in the same allocation counts a second wrapper call.
+    const repeated = allocation.dependencies.createArtifactSnapshot!({
+      cloudHypervisorBinary: '/trusted/cloud-hypervisor', virtiofsdBinary: '/trusted/virtiofsd',
+      kernelPath: '/trusted/kernel', rootfsPath: '/trusted/rootfs', supervisorPath: '/trusted/supervisor',
+    }, jest.fn(), jest.fn());
+    await repeated;
+    expect(published.filter((progress) => progress.mountTopology).pop()?.mountTopology?.bindCalls).toBe('multiple');
   });
 });

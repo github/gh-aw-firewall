@@ -39,6 +39,22 @@ describe('standard enclave startup checklist', () => {
     },
   );
 
+  it('retains topology after scope changes, copies observations, and clears them for a new startup', () => {
+    const wrapper = config();
+    const report = new HostPreflightReporter('artifact-snapshot', (hostPreflight) =>
+      updateEnclaveStartupProgress(wrapper, { hostPreflight }));
+    const value = { schemaVersion: 1 as const, bindCalls: 'one' as const, before: null, after: null };
+    report.topology(value);
+    new HostPreflightReporter('bounded-cleanup', (hostPreflight) =>
+      updateEnclaveStartupProgress(wrapper, { hostPreflight }));
+    expect(getEnclaveStartupProgress(wrapper)?.mountTopology).toEqual(value);
+    const exposed = getEnclaveStartupProgress(wrapper)!;
+    exposed.mountTopology!.bindCalls = 'multiple';
+    expect(getEnclaveStartupProgress(wrapper)?.mountTopology?.bindCalls).toBe('one');
+    resetEnclaveStartupChecklist(wrapper);
+    expect(getEnclaveStartupProgress(wrapper)?.mountTopology).toBeUndefined();
+  });
+
   it('retains earlier storage evidence when actual connectivity checks begin and blocks readiness on either failure', async () => {
     const wrapper = config();
     const publish = (hostPreflight: Parameters<typeof updateEnclaveStartupProgress>[1]['hostPreflight']) =>

@@ -8,6 +8,7 @@ import type { WrapperConfig } from '../types';
 import { HostPreflightReporter } from '../cloud-hypervisor/host-preflight-progress';
 import schema from '../cloud-hypervisor/host-preflight-schema.json';
 import type { HostPreflightScope, HostPreflightCheck } from '../cloud-hypervisor/host-preflight-progress';
+import { observeMountTopology, type MountTopologyEvidence } from '../cloud-hypervisor/mount-topology';
 
 describe('startup progress descriptor publication', () => {
   let directory: string;
@@ -100,6 +101,19 @@ describe('startup progress descriptor publication', () => {
     for (const check of Object.keys(schema.scopes['bounded-runtime']) as HostPreflightCheck[]) {
       active.fail(check, Object.assign(new Error('PRIVATE_SENTINEL'), { code: longestReason }));
     }
+    const observation = observeMountTopology(
+      '100 1 0:1 / /PRIVATE rw shared:1 master:2 - tmpfs secret rw\n' +
+      '101 100 0:1 /artifacts /PRIVATE/artifacts rw shared:1 master:2 - tmpfs secret rw\n',
+      '/PRIVATE', '/PRIVATE/artifacts', '/PRIVATE/artifacts/run-secret',
+    );
+    const mountTopology: MountTopologyEvidence = {
+      schemaVersion: 1, bindCalls: 'multiple',
+      before: { ...observation, visibleOutsidePeers: 'unknown', snapshotEntries: 'multiple',
+        snapshotIds: 'repeated', snapshotParentStack: 'unknown' },
+      after: { ...observation, visibleOutsidePeers: 'unknown', snapshotEntries: 'multiple',
+        snapshotIds: 'repeated', snapshotParentStack: 'unknown' },
+    };
+    active.topology(mountTopology);
     testHelpers.writeStartupFailureDiagnostic(config, new Error('x'.repeat(1022)));
     const bytes = fs.readFileSync(recordPath);
     expect(bytes.length).toBeLessThanOrEqual(16 * 1024);
@@ -109,6 +123,8 @@ describe('startup progress descriptor publication', () => {
     );
     expect(record.enclaveStartup.startupChecks.ready).toBe(false);
     expect(record.enclaveStartup.hostPreflight).toBeUndefined();
+    expect(record.enclaveStartup.mountTopology).toEqual(mountTopology);
+    expect(bytes.toString('utf8')).not.toContain('/PRIVATE');
     expect(bytes.toString('utf8')).not.toContain('PRIVATE_SENTINEL');
   });
   it('does not follow a record pathname replaced after descriptor validation', () => {

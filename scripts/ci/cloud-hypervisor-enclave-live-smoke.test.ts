@@ -10,6 +10,7 @@ import {
   HostPreflightReporter, type HostPreflightCheck, type HostPreflightScope,
 } from '../../src/cloud-hypervisor/host-preflight-progress';
 import hostPreflightSchema from '../../src/cloud-hypervisor/host-preflight-schema.json';
+import { observeMountTopology, type MountTopologyEvidence } from '../../src/cloud-hypervisor/mount-topology';
 
 const root = path.resolve(__dirname, '../..');
 const harnessPath = path.join(root, 'scripts/ci/cloud-hypervisor-enclave-live-smoke.js');
@@ -128,6 +129,48 @@ describe('sanitized host startup diagnostics', () => {
     schemaVersion: 1, ready: false,
     checks: Object.fromEntries(Object.keys(hostPreflightSchema.scopes.startup)
       .map((id) => [`startup/${id}`, ['not-attempted', 'none']])),
+  });
+
+  const topology = (): MountTopologyEvidence => {
+    const observation = observeMountTopology(
+      '100 1 0:1 / /PRIVATE rw shared:1 - tmpfs SECRET rw\n' +
+      '101 100 0:1 /artifacts /PRIVATE/artifacts rw shared:1 - tmpfs SECRET rw\n' +
+      '102 101 0:1 /artifacts/run-secret /PRIVATE/artifacts/run-secret rw - tmpfs SECRET rw\n' +
+      '103 102 0:1 /artifacts/run-secret /PRIVATE/artifacts/run-secret rw - tmpfs SECRET rw\n',
+      '/PRIVATE', '/PRIVATE/artifacts', '/PRIVATE/artifacts/run-secret',
+    );
+    return { schemaVersion: 1, bindCalls: 'one', before: { ...observation, snapshotEntries: 'zero',
+      snapshotIds: 'none', snapshotParentStack: 'absent' }, after: observation };
+  };
+  it.each([false, true])('preserves topology after cleanup and duplicate scope omission (%s)', (active) => {
+    const mountTopology = topology();
+    const value = progress({
+      mountTopology, startupChecks: standardChecklist(),
+      ...(active ? { hostPreflight: {
+        schemaVersion: 1 as const, scope: 'artifact-snapshot' as const, mountTopology,
+        checks: Object.keys(hostPreflightSchema.scopes['artifact-snapshot']).map((id) => ({
+          id: id as HostPreflightCheck, result: 'not-attempted' as const, reason: 'none' as const,
+        })),
+      } } : {}),
+    });
+    const result = harness.startupDiagnostic(child, 'exit', 'initial', stderrFile, publish(value));
+    expect(result.enclaveStartup?.mountTopology).toEqual(mountTopology);
+    if (active) expect(result.enclaveStartup?.hostPreflight?.mountTopology).toEqual(mountTopology);
+    expect(JSON.stringify(result)).not.toMatch(/PRIVATE|SECRET|run-secret/);
+  });
+
+  it.each([
+    { ...topology(), path: sentinel },
+    { ...topology(), bindCalls: sentinel },
+    { ...topology(), before: { ...topology().before, path: sentinel } },
+    { ...topology(), after: { ...topology().after, snapshotIds: sentinel } },
+    { ...topology(), after: {} },
+    { ...topology(), schemaVersion: 2 },
+  ])('rejects unsafe or incomplete topology instead of echoing it', (mountTopology) => {
+    const value = { ...progress(), mountTopology };
+    const result = harness.startupDiagnostic(child, 'exit', 'initial', stderrFile, publish(value));
+    expect(result.enclaveStartup).toBeUndefined();
+    expect(JSON.stringify(result)).not.toContain(sentinel);
   });
 
   it('retains the standard cumulative checklist without exporting messages or private metadata', () => {
