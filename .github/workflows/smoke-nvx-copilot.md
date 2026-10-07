@@ -128,7 +128,7 @@ jobs:
           set -euo pipefail
           cp "$BUNDLE_PATH" "$RUNNER_TEMP/nvx-attested-artifacts/manifest.sigstore.jsonl"
       - name: Upload attested NVX artifacts
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
         with:
           name: nvx-smoke-attested-artifacts
           path: ${{ runner.temp }}/nvx-attested-artifacts/
@@ -151,7 +151,7 @@ steps:
       npm run build
 
   - name: Download the attested NVX artifacts
-    uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+    uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8.0.2
     with:
       name: nvx-smoke-attested-artifacts
       path: ${{ runner.temp }}/nvx-attested-artifacts
@@ -336,15 +336,16 @@ steps:
 post-steps:
   - name: Upload NVX smoke evidence
     if: always()
-    uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+    uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
     with:
       name: nvx-smoke-evidence
       path: /tmp/gh-aw/agent/smoke-nvx-copilot/
       if-no-files-found: warn
       retention-days: 7
   - name: Validate safe outputs were invoked
+    env:
+      OUTPUTS_FILE: ${{ steps.set-runtime-paths.outputs.GH_AW_SAFE_OUTPUTS }}
     run: |
-      OUTPUTS_FILE="${GH_AW_SAFE_OUTPUTS:-${RUNNER_TEMP}/gh-aw/safeoutputs/outputs.jsonl}"
       if [ ! -s "$OUTPUTS_FILE" ]; then
         echo "::error::No safe outputs were invoked."
         exit 1

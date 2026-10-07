@@ -1571,6 +1571,52 @@ If your workflow uses the `observability.otlp` frontmatter block, gh-aw automati
 `GITHUB_AW_OTEL_TRACE_ID`, and `GITHUB_AW_OTEL_PARENT_SPAN_ID`. AWF forwards all of these
 into the api-proxy container, so no extra configuration is needed.
 
+## Copilot Wire API Translation
+
+The Copilot proxy endpoint (port 10002) automatically translates requests between GitHub Copilot's two wire APIs based on model support:
+
+- **Responses API** (`/responses`) — supports reasoning efforts and advanced features like streaming reasoning tokens
+- **Chat Completions API** (`/chat/completions`) — standard Chat Completions format
+
+### How it works
+
+When a Copilot model supports only one wire API but a request arrives for the other, the proxy transparently translates the request:
+
+1. **Detection**: The proxy checks the requested model and determines which endpoints it supports
+2. **Translation**: If the model only supports the other wire API, the request body, headers, and endpoint are transformed
+3. **Upstream dispatch**: The translated request is sent to the correct upstream endpoint
+4. **Response mapping**: Response tokens and usage are mapped back to the original wire API format
+
+### Supported features
+
+Wire API translation handles:
+- Message format normalization (roles, content types, tool calls)
+- Reasoning effort translation (`reasoning_effort` ↔ `reasoning.effort`)
+- Streaming and non-streaming responses
+- Error propagation with proper HTTP status codes
+
+### Observability
+
+The model-routing audit log (`model-routing.jsonl`) tracks wire API translation:
+
+- `requested_endpoint` — the wire API the client requested
+- `upstream_endpoint` — the wire API actually used (differs when translation occurred)
+- When translation happens, telemetry includes both endpoints so you can identify:
+  - Which models triggered translation
+  - Request patterns that benefited from fallback endpoints
+
+Example log entries:
+
+```json
+{"event":"model_routing","stage":"request","requested_endpoint":"/responses","upstream_endpoint":"/chat/completions","routed":"as_selected"}
+```
+
+### Limitations of wire API translation
+
+- **Unsupported features** return HTTP 400 with a `WireApiCompatibilityError` if a request includes features that cannot be translated between wire APIs
+- **Reasoning effort is required** when translating to Responses API, but optional when translating to Chat Completions
+- **Custom tool definitions** in Responses format may not translate cleanly to Chat Completions schema
+
 ## Limitations
 
 - **Cursor native token accounting is unsupported when no recognized usage is observable**:
