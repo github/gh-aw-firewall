@@ -312,6 +312,45 @@ describe('upstream-http', () => {
     }));
   });
 
+  test.each([true, false])('rechecks model guards on scoped endpoint retries (eligible candidate: %s)', eligible => {
+    const proxyReq = { on: jest.fn(), write: jest.fn(), end: jest.fn() };
+    const responseCallbacks = [];
+    const httpsRequest = jest.fn((_options, callback) => {
+      responseCallbacks.push(callback);
+      return proxyReq;
+    });
+    const handleUpstreamResponse = jest.fn();
+    const isFallbackModelPermitted = jest.fn(model => eligible && model === 'claude-haiku-4.5');
+    const sendUpstreamRequest = createSendUpstreamRequest({
+      https: { request: httpsRequest },
+      proxyAgent: {},
+      handleUpstreamResponse,
+      sleep: jest.fn(),
+      otel: { endSpanError: jest.fn() },
+      handleRequestError: jest.fn(),
+      metrics: { increment: jest.fn(), observe: jest.fn() },
+      isFallbackModelPermitted,
+    });
+    const req = {
+      method: 'POST',
+      awfScopedAuto: true,
+      awfModelCandidates: ['claude-sonnet-4.6', 'claude-opus-5', 'claude-haiku-4.5'],
+    };
+    sendUpstreamRequest({}, createContext({
+      body: Buffer.from('{"model":"claude-sonnet-4.6","messages":[]}'),
+      upstreamPath: '/v1/messages',
+      req,
+    }));
+    responseCallbacks[0]({ statusCode: 400, headers: {} });
+    expect(handleUpstreamResponse.mock.calls[0][2].onModelEndpointBlockedRetry()).toBe(eligible);
+    expect(isFallbackModelPermitted).toHaveBeenCalledWith('claude-opus-5', 'copilot');
+    expect(isFallbackModelPermitted).toHaveBeenCalledWith('claude-haiku-4.5', 'copilot');
+    expect(httpsRequest).toHaveBeenCalledTimes(eligible ? 2 : 1);
+    if (eligible) {
+      expect(JSON.parse(proxyReq.write.mock.calls[1][0]).model).toBe('claude-haiku-4.5');
+    }
+  });
+
   test('reframes and re-signs endpoint-blocked fallback bodies', () => {
     const proxyReq = { on: jest.fn(), write: jest.fn(), end: jest.fn() };
     const responseCallbacks = [];

@@ -301,7 +301,10 @@ function createSendUpstreamRequest({
           const currentIdx = candidates.indexOf(currentModel);
           if (currentIdx < 0 || currentIdx >= candidates.length - 1) return false;
 
-          const nextModel = candidates[currentIdx + 1];
+          const nextModel = selectNextFallbackModel(
+            candidates.slice(currentIdx + 1), [currentModel], provider, isFallbackModelPermitted,
+          );
+          if (!nextModel) return false;
           let wireFallback = null;
           if (provider === 'copilot' && wireApiSourceBody) {
             try {
