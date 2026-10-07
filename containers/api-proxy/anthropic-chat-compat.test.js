@@ -104,10 +104,25 @@ describe('chatRequestToAnthropic', () => {
     expect(result.tool_choice).toEqual({ type: 'tool', name: 'lookup' });
   });
 
+  it('preserves strict function-tool schemas', () => {
+    const result = chatRequestToAnthropic({
+      model: 'm',
+      messages: [{ role: 'user', content: 'hi' }],
+      tools: [{ type: 'function', function: {
+        name: 'lookup', strict: true, parameters: { type: 'object', required: ['query'] },
+      } }],
+    });
+    expect(result.tools[0]).toEqual({
+      name: 'lookup', strict: true, input_schema: { type: 'object', required: ['query'] },
+    });
+  });
+
   it.each([
     ['n', { n: 2 }],
     ['response_format', { response_format: { type: 'json_schema', json_schema: {} } }],
     ['logprobs', { logprobs: true }],
+    ['reasoning_effort', { reasoning_effort: 'high' }],
+    ['frequency_penalty', { frequency_penalty: 0.5 }],
     ['audio', { audio: { voice: 'x' } }],
   ])('rejects the unsupported %s field instead of silently changing the request', (feature, extra) => {
     expect(() => chatRequestToAnthropic({ model: 'm', messages: [{ role: 'user', content: 'hi' }], ...extra }))

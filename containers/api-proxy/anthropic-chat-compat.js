@@ -38,13 +38,9 @@ const MAPPED_CHAT_FIELDS = new Set([
 ]);
 
 /**
- * Chat request fields with no Messages API equivalent (metadata, caching, and
- * best-effort sampling hints) that are dropped rather than rejected.
+ * Transport-only fields that do not affect inference and may be dropped.
  */
-const DROPPABLE_CHAT_FIELDS = new Set([
-  'stream_options', 'store', 'prompt_cache_key', 'service_tier', 'reasoning_effort',
-  'metadata', 'seed', 'frequency_penalty', 'presence_penalty', 'intent', 'safety_identifier',
-]);
+const DROPPABLE_CHAT_FIELDS = new Set(['stream_options']);
 
 function textFromChatContent(content, feature) {
   if (typeof content === 'string') return content;
@@ -163,6 +159,7 @@ function translateChatTools(tools) {
     return {
       name: tool.function.name,
       ...(typeof tool.function.description === 'string' ? { description: tool.function.description } : {}),
+      ...(typeof tool.function.strict === 'boolean' ? { strict: tool.function.strict } : {}),
       input_schema: tool.function.parameters && typeof tool.function.parameters === 'object'
         ? tool.function.parameters
         : { type: 'object', properties: {} },

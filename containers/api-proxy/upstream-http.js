@@ -165,8 +165,8 @@ function createSendUpstreamRequest({
       failures: [],
     };
 
-    // Resolve whether a fallback candidate exists up front so the response
-    // handler only buffers error bodies when a fallback is actually possible.
+    // Evaluate candidates only after an eligible failure so skipped-entry
+    // evidence is retained even when no candidate is usable.
     let onModelFallback = null;
     if (!isRoutingClassifier) {
       const chain = getFallbackModelsDep();
@@ -190,7 +190,7 @@ function createSendUpstreamRequest({
           onSkip,
         });
 
-        if (select(null, null)) {
+        {
           let fallbackTriggered = false;
           onModelFallback = ({ statusCode = null, reason = 'upstream_error', abandon = null } = {}) => {
             if (fallbackTriggered || res.headersSent) return false;
@@ -256,6 +256,13 @@ function createSendUpstreamRequest({
             };
             const nextAttempts = (candidate) => [...attempted, { provider: candidate.provider, model: candidate.model }];
             const nextOrigin = { ...origin, failures };
+            let cancellationFinalized = false;
+            const finalizeCancellation = () => {
+              if (cancellationFinalized) return;
+              cancellationFinalized = true;
+              metrics.gaugeDec('active_requests', { provider });
+              otel.endSpan(span, 0);
+            };
 
             // Same provider as the failed attempt: rewrite the model in place.
             const buildSameProviderAttempt = (candidate) => {
@@ -382,7 +389,10 @@ function createSendUpstreamRequest({
                   requestId,
                   codexCompatibility: !!origin.codexCompatibility,
                 }).then((built) => {
-                  if (res.headersSent || res.destroyed || res.writableEnded) return;
+                  if (res.headersSent || res.destroyed || res.writableEnded) {
+                    finalizeCancellation();
+                    return;
+                  }
                   if (built.substitutedModel) {
                     logRequest?.('warn', 'model_fallback_substitution_blocked', {
                       request_id: requestId,
@@ -412,7 +422,10 @@ function createSendUpstreamRequest({
                   logSkip(candidate, err?.code === 'unsupported_protocol_feature' || err?.code === 'unsupported_wire_api_feature'
                     ? `protocol_translation_failed: ${err.feature || err.message}`
                     : 'request_build_failed');
-                  if (res.headersSent || res.destroyed || res.writableEnded) return;
+                  if (res.headersSent || res.destroyed || res.writableEnded) {
+                    finalizeCancellation();
+                    return;
+                  }
                   if (!tryCandidates()) giveUp();
                 });
                 return true;
@@ -420,7 +433,6 @@ function createSendUpstreamRequest({
             };
 
             if (tryCandidates()) return true;
-            fallbackTriggered = false;
             return false;
           };
         }

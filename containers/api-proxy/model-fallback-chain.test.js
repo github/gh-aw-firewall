@@ -257,6 +257,18 @@ describe('model-fallback-chain', () => {
       expect(errors[1]).toContain('GEMINI_API_KEY');
     });
 
+    test('accepts OIDC-configured providers before their token is ready', () => {
+      const oidcAdapter = {
+        isEnabled: () => false,
+        getOidcProvider: () => ({ isReady: () => false }),
+      };
+      expect(validateFallbackChain(['openai/gpt-5.4'], () => oidcAdapter)).toEqual([]);
+      expect(validateFallbackChain(['openai/gpt-5.4'], () => ({
+        isEnabled: () => false,
+        getAwsOidcProvider: () => ({ isReady: () => false }),
+      }))).toEqual([]);
+    });
+
     test('reports entries that name a provider but no model', () => {
       expect(validateFallbackChain(['openai/'], () => enabled)[0]).toContain('no model');
     });

@@ -495,7 +495,7 @@ describe('upstream-http', () => {
     }));
   });
 
-  test('does not offer a fallback when every chain entry is rejected', () => {
+  test('keeps fallback handling installed when every chain entry is rejected', () => {
     const httpsRequest = jest.fn((_options, cb) => {
       cb({ statusCode: 503, headers: {} });
       return { on: jest.fn(), write: jest.fn(), end: jest.fn() };
@@ -515,6 +515,62 @@ describe('upstream-http', () => {
     });
 
     sendUpstreamRequest({}, createContext({ body: Buffer.from('{"model":"first"}') }));
-    expect(handleUpstreamResponse.mock.calls[0][2].onModelFallback).toBeNull();
+    expect(handleUpstreamResponse.mock.calls[0][2].onModelFallback).toEqual(expect.any(Function));
+  });
+
+  test.each(['resolved', 'rejected'])('finalizes cancellation when async candidate build is %s', async (outcome) => {
+    let resolveTransform;
+    let rejectTransform;
+    const transformPromise = new Promise((resolve, reject) => {
+      resolveTransform = resolve;
+      rejectTransform = reject;
+    });
+    const proxyReq = { on: jest.fn(), write: jest.fn(), end: jest.fn() };
+    const httpsRequest = jest.fn((_options, cb) => {
+      cb({ statusCode: 200, headers: {} });
+      return proxyReq;
+    });
+    const handleUpstreamResponse = jest.fn();
+    const gaugeDec = jest.fn();
+    const endSpan = jest.fn();
+    const span = {};
+    const res = { headersSent: false, destroyed: false, writableEnded: false };
+    const sendUpstreamRequest = createSendUpstreamRequest({
+      https: { request: httpsRequest },
+      proxyAgent: {},
+      handleUpstreamResponse,
+      sleep: jest.fn(),
+      otel: { endSpanError: jest.fn(), endSpan },
+      handleRequestError: jest.fn(),
+      metrics: { gaugeDec, gaugeInc: jest.fn(), increment: jest.fn(), observe: jest.fn() },
+      getFallbackModels: () => ['anthropic/claude-sonnet-4.6'],
+      getProviderAdapter: () => ({
+        isEnabled: () => true,
+        getBodyTransform: () => () => transformPromise,
+        getTargetHost: () => 'api.anthropic.com',
+        getBasePath: () => '',
+        getAuthHeaders: () => ({ 'x-api-key': 'key' }),
+        getRequestSigner: () => null,
+      }),
+    });
+    const req = { method: 'POST', url: '/v1/chat/completions', headers: {} };
+
+    sendUpstreamRequest({}, createContext({
+      req,
+      res,
+      span,
+      body: Buffer.from(JSON.stringify({ model: 'first', messages: [{ role: 'user', content: 'hi' }] })),
+    }));
+    const fallback = handleUpstreamResponse.mock.calls[0][2].onModelFallback;
+    expect(fallback({ reason: 'upstream_5xx', abandon: jest.fn() })).toBe(true);
+    res.destroyed = true;
+    if (outcome === 'resolved') resolveTransform(Buffer.from('{"model":"claude-sonnet-4.6"}'));
+    else rejectTransform(new Error('transform failed'));
+    await new Promise(resolve => setImmediate(resolve));
+
+    expect(gaugeDec).toHaveBeenCalledTimes(1);
+    expect(gaugeDec).toHaveBeenCalledWith('active_requests', { provider: 'copilot' });
+    expect(endSpan).toHaveBeenCalledWith(span, 0);
+    expect(httpsRequest).toHaveBeenCalledTimes(1);
   });
 });

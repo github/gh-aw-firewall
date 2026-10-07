@@ -297,7 +297,7 @@ describe('proxyRequest cross-provider fallback chain', () => {
     expect(capturedOptions).toHaveLength(3);
     expect(res.writeHead).toHaveBeenCalledTimes(1);
     expect(res.writeHead.mock.calls[0][0]).toBe(529);
-    expect(last.pipe).toHaveBeenCalledWith(res);
+    expect(res.end).toHaveBeenCalledWith(Buffer.from('{"type":"error","error":{"type":"overloaded_error"}}'));
     expect(req.awfModelFallback).toMatchObject({ provider: 'anthropic', attempt: 2 });
   });
 
@@ -343,6 +343,9 @@ describe('proxyRequest cross-provider fallback chain', () => {
     await flushPromises();
     expect(capturedOptions).toHaveLength(1);
     expect(res.writeHead.mock.calls[0][0]).toBe(503);
+    expect(getStructuredLogs(stdoutWriteSpy, 'model_fallback_skipped')).toEqual(expect.arrayContaining([
+      expect.objectContaining({ entry: 'openai/blocked-model', reason: 'guard_rejected' }),
+    ]));
   });
 
   it('skips providers that cannot serve the protocol and logs why', async () => {

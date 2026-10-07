@@ -301,13 +301,17 @@ function validateFallbackChain(chain, getAdapter) {
     } catch {
       adapter = null;
     }
-    let enabled = false;
+    let configured = false;
     try {
-      enabled = !!adapter && adapter.isEnabled() === true;
+      configured = !!adapter && adapter.isEnabled() === true;
+      if (!configured && adapter) {
+        configured = ['getOidcProvider', 'getAwsOidcProvider']
+          .some(getter => typeof adapter[getter] === 'function' && !!adapter[getter]());
+      }
     } catch {
-      enabled = false;
+      configured = false;
     }
-    if (!enabled) {
+    if (!configured) {
       errors.push(
         `apiProxy.fallbackModels entry "${entry}" targets provider "${provider}", which is not configured ` +
         `for this run (no endpoint credentials). Configure ${PROVIDER_CREDENTIAL_HINTS[provider] || `credentials for ${provider}`} ` +
