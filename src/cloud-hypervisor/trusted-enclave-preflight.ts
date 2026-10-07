@@ -10,7 +10,7 @@ import type { HostExecutorInvocationPlan } from '../enclave/host-executor-server
 import type { CloudHypervisorOptions } from '../types/runtime-options';
 import { assertTrustedAncestorChain, assertTrustedHostTool, resolveTrustedHostTool } from './artifact-trust';
 import {
-  HostPreflightReporter, hostPreflightReason, markHostPreflightError, type HostPreflightScope,
+  HostPreflightReporter, HostPreflightCleanupError, hostPreflightReason, markHostPreflightError, type HostPreflightScope,
 } from './host-preflight-progress';
 import { preflightCloudHypervisorEnclaveArtifacts } from './enclave-artifact-preflight';
 import type { CloudHypervisorEnclaveArtifactPreflightOptions } from './enclave-executor-types';
@@ -116,6 +116,8 @@ export function createBoundedEnclavePreflight(
     let journal: HostExecutorResourceJournal | undefined;
     let allocation: Awaited<ReturnType<typeof prepareTrustedInvocationStorage>> | undefined;
     let directoryCaptured = false;
+    let primaryFailure: { error: unknown } | undefined;
+    let result: { value: T } | undefined;
     try {
       journal = await report.check('resource-journal', () =>
         HostExecutorResourceJournal.create(run, plan, hostExecutorVmRunId(plan)));
@@ -137,21 +139,35 @@ export function createBoundedEnclavePreflight(
       });
       await report.check('storage-verification', () =>
         capturedAllocation.dependencies.verifyStorage!(plan.invocationHostDir, profile.writableStorageBytes));
-      return await operation(allocation, journal, report);
-    } finally {
-      if (journal) {
-        // A failed copy may have removed its partial snapshot already. Reclaim
-        // the identity-known enclosing domain, not an assumed snapshot path.
-        if (allocation) await allocation.close();
-        else await journal.closeStorage(tools.umount);
+      result = { value: await operation(allocation, journal, report) };
+    } catch (error) {
+      primaryFailure = { error };
+    }
+    if (journal) {
+      // A failed copy may have removed its partial snapshot already. Reclaim
+      // the identity-known enclosing domain, not an assumed snapshot path.
+      const cleanupJournal = journal;
+      const cleanupReport = report.fork('bounded-cleanup');
+      try {
+        await cleanupReport.check('storage-close', () =>
+          allocation ? allocation.close() : cleanupJournal.closeStorage(tools.umount));
         if (directoryCaptured) {
-          await journal.verifyDirectory();
-          await fs.rm(plan.invocationHostDir, { recursive: true, force: true });
+          await cleanupReport.check('directory-release', async () => {
+            await cleanupJournal.verifyDirectory();
+            await fs.rm(plan.invocationHostDir, { recursive: true, force: true });
+          });
+        } else {
+          cleanupReport.notRequired('directory-release');
         }
-        await journal.complete();
+        await cleanupReport.check('journal-complete', () => cleanupJournal.complete());
         active.delete(root);
+      } catch (cleanupError) {
+        if (primaryFailure) throw new HostPreflightCleanupError(primaryFailure.error, cleanupError);
+        throw cleanupError;
       }
     }
+    if (primaryFailure) throw primaryFailure.error;
+    return result!.value;
   };
   return {
     preflight: async (config) => {
@@ -159,12 +175,12 @@ export function createBoundedEnclavePreflight(
         runCloudHypervisorPreflight(config, {
           hostPreflightReporter: report,
           createArtifactSnapshot: async (sources, copy) => {
-            await journal.prepareSnapshot();
+            await report.check('snapshot-journal', () => journal.prepareSnapshot());
             return allocation.dependencies.createArtifactSnapshot!(
               sources, copy, (directory) => journal.captureSnapshot(directory),
             );
           },
-          // The whole sealed domain is closed in withStorage's finally block.
+          // withStorage closes the whole sealed domain after success or failure.
           removeArtifactSnapshot: async () => undefined,
         }));
       return {

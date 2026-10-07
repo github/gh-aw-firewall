@@ -170,6 +170,32 @@ describe('Cloud Hypervisor preflight (foundation only)', () => {
   });
 
   it.each([
+    { reason: 'file-symlink', stat: { isSymbolicLink: () => true } },
+    { reason: 'file-type', stat: { isFile: () => false } },
+    { reason: 'file-owner', stat: { uid: 2000 } },
+    { reason: 'file-writable', stat: { mode: 0o100777 } },
+  ])('rejects $reason on the snapshot source before allocating or probing any snapshot', async ({ reason, stat }) => {
+    const published: HostPreflightProgress[] = [];
+    const deps = dependencies({
+      hostPreflightReporter: new HostPreflightReporter('bounded-runtime', (value) => published.push(value)),
+    });
+    const original = deps.lstat!;
+    deps.lstat = async (file) => ({
+      ...await original(file), ...(file === '/opt/rootfs.ext4' ? stat : {}),
+    });
+    await expect(runCloudHypervisorPreflight(config(), deps)).rejects.toThrow();
+    const record = published[published.length - 1];
+    expect(record.checks.filter((check) => check.result === 'failed')).toEqual([
+      { id: 'rootfs-trust', result: 'failed', reason },
+    ]);
+    expect(record.checks.find((check) => check.id === 'artifact-snapshot')?.result).toBe('not-attempted');
+    expect(deps.createArtifactSnapshot).not.toHaveBeenCalled();
+    expect(deps.verifyManifestAttestation).not.toHaveBeenCalled();
+    expect(deps.runVersion).not.toHaveBeenCalled();
+    expect(JSON.stringify(published)).not.toContain('/opt/');
+  });
+
+  it.each([
     { check: 'artifact-configuration', setup: { kernelPath: undefined }, reason: 'unknown' },
     { check: 'artifact-snapshot', override: { createArtifactSnapshot: async () => { throw Object.assign(new Error('secret'), { code: 'ENOSPC' }); } }, reason: 'ENOSPC' },
     { check: 'manifest-attestation', override: { verifyManifestAttestation: async () => { throw new Error('secret'); } }, reason: 'unknown' },

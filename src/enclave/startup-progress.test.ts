@@ -12,6 +12,31 @@ function config(): WrapperConfig {
 }
 
 describe('standard enclave startup checklist', () => {
+  it.each(Object.keys(schema.scopes['artifact-snapshot']) as HostPreflightCheck[])(
+    'blocks primary-agent readiness while snapshot gate %s is failed or unattempted', async (id) => {
+      const wrapper = config();
+      const publish = (hostPreflight: Parameters<typeof updateEnclaveStartupProgress>[1]['hostPreflight']) =>
+        updateEnclaveStartupProgress(wrapper, { hostPreflight });
+      const startup = new HostPreflightReporter('startup', publish);
+      const snapshot = new HostPreflightReporter('artifact-snapshot', publish);
+      for (const check of Object.keys(schema.scopes.startup) as HostPreflightCheck[]) {
+        if (check !== 'readiness') await startup.check(check, () => undefined);
+      }
+      for (const check of Object.keys(schema.scopes['artifact-snapshot']) as HostPreflightCheck[]) {
+        if (check !== id) await snapshot.check(check, () => undefined);
+      }
+      expect(() => assertEnclaveStartupChecklistComplete(wrapper)).toThrow(/incomplete required checks/);
+      snapshot.fail(id, Object.assign(new Error('private'), { code: 'EIO' }));
+      await expect(startup.check('readiness', () => assertEnclaveStartupChecklistComplete(wrapper, true)))
+        .rejects.toThrow(/incomplete required checks/);
+      expect(getEnclaveStartupProgress(wrapper)?.startupChecks?.ready).toBe(false);
+      expect(() => snapshot.notRequired('readonly-exec')).toThrow(/cannot be skipped/);
+      await snapshot.check(id, () => undefined);
+      await startup.check('readiness', () => assertEnclaveStartupChecklistComplete(wrapper, true));
+      expect(getEnclaveStartupProgress(wrapper)?.startupChecks?.ready).toBe(true);
+    },
+  );
+
   it('retains earlier storage evidence when actual connectivity checks begin and blocks readiness on either failure', async () => {
     const wrapper = config();
     const publish = (hostPreflight: Parameters<typeof updateEnclaveStartupProgress>[1]['hostPreflight']) =>

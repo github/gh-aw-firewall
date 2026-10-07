@@ -6,7 +6,9 @@ import { execFileSync, spawn, ChildProcess } from 'child_process';
 import { EventEmitter } from 'events';
 import { validateSchema, validateValueAgainstSchema } from '../../src/bounded-execution/finite-schema';
 import type { EnclaveStartupProgress } from '../../src/enclave/startup-progress';
-import { HostPreflightReporter, type HostPreflightScope } from '../../src/cloud-hypervisor/host-preflight-progress';
+import {
+  HostPreflightReporter, type HostPreflightCheck, type HostPreflightScope,
+} from '../../src/cloud-hypervisor/host-preflight-progress';
 import hostPreflightSchema from '../../src/cloud-hypervisor/host-preflight-schema.json';
 
 const root = path.resolve(__dirname, '../..');
@@ -139,6 +141,36 @@ describe('sanitized host startup diagnostics', () => {
     expect(JSON.stringify(result)).not.toContain(sentinel);
     expect(Buffer.byteLength(JSON.stringify(result))).toBeLessThan(16 * 1024);
   });
+
+  it.each([false, true])(
+    'retains the full snapshot failure after cleanup, including when the duplicate active scope is omitted (%s)', (active) => {
+      const startupChecks: NonNullable<EnclaveStartupProgress['startupChecks']> = {
+        schemaVersion: 1, ready: false,
+        checks: Object.fromEntries(Object.entries(hostPreflightSchema.scopes).flatMap(([scope, checks]) =>
+          Object.keys(checks).map((id) => [`${scope}/${id}`, ['not-attempted', 'none']]))),
+      };
+      startupChecks.checks['artifact-snapshot/rootfs-copy'] = ['failed', 'rsync-partial-transfer'];
+      startupChecks.checks['bounded-runtime/artifact-snapshot'] = ['failed', 'rsync-partial-transfer'];
+      for (const id of Object.keys(hostPreflightSchema.scopes['bounded-cleanup'])) {
+        startupChecks.checks[`bounded-cleanup/${id}`] = ['passed', 'none'];
+      }
+      const value = progress({
+        stage: 'host-preflight', code: 'none', readiness: 'not-attempted', attempts: 0, startupChecks,
+        ...(active ? { hostPreflight: {
+          schemaVersion: 1, scope: 'bounded-cleanup',
+          checks: Object.keys(hostPreflightSchema.scopes['bounded-cleanup']).map((id) => ({
+            id: id as HostPreflightCheck, result: 'passed' as const, reason: 'none' as const,
+          })),
+        } } : {}),
+      });
+      const result = harness.startupDiagnostic(child, 'exit', 'initial', stderrFile, publish(value));
+      expect(result.category).toBe('host-preflight');
+      expect(result.enclaveStartup?.startupChecks).toEqual(startupChecks);
+      expect(result.enclaveStartup?.readiness).toBe('not-attempted');
+      expect(JSON.stringify(result)).not.toContain(sentinel);
+      expect(Buffer.byteLength(JSON.stringify(result))).toBeLessThan(16 * 1024);
+    },
+  );
 
   it.each([
     { ...standardChecklist(), ready: true },

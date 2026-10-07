@@ -241,7 +241,7 @@ export async function prepareTrustedInvocationStorage(
       const options = matches[0]?.split(' ')[5].split(',') ?? [];
       if (matches.length !== 1 || ![mode, 'nosuid', 'nodev'].every((flag) => options.includes(flag)) ||
         options.includes('noexec') === executable) {
-        throw new Error('Invocation storage mount options changed');
+        throw markHostPreflightError(new Error('Invocation storage mount options changed'), 'storage-mount-options');
       }
     };
     for (const mountPoint of [root, directory, path.join(root, 'runs'), path.join(root, 'cloud-hypervisor-rootfs')]) {
@@ -250,13 +250,18 @@ export async function prepareTrustedInvocationStorage(
     verifyOptions(artifacts, 'rw', true);
     if (snapshotMount) verifyOptions(snapshotMount, 'ro', true);
     for (const candidate of [root, directory, ...writable]) {
-      if (await fs.realpath(candidate) !== candidate) throw new Error('Invocation storage path changed');
       const identity = await fs.lstat(candidate);
-      if (!identity.isDirectory() || identity.isSymbolicLink()) throw new Error('Invocation export is not a real directory');
+      if (!identity.isDirectory() || identity.isSymbolicLink()) {
+        throw markHostPreflightError(new Error('Invocation export is not a real directory'),
+          identity.isSymbolicLink() ? 'file-symlink' : 'file-type');
+      }
+      if (await fs.realpath(candidate) !== candidate) {
+        throw markHostPreflightError(new Error('Invocation storage path changed'), 'storage-path-changed');
+      }
       const stat = await fs.statfs(candidate, { bigint: true });
       if (stat.type !== 0x01021994n || stat.blocks * stat.bsize !== BigInt(maximumBytes) ||
         (await fs.stat(candidate)).dev !== (await fs.stat(root)).dev) {
-        throw new Error('Invocation storage cap changed');
+        throw markHostPreflightError(new Error('Invocation storage cap changed'), 'storage-cap-changed');
       }
     }
   };
@@ -286,13 +291,16 @@ export async function prepareTrustedInvocationStorage(
       },
       verifyStorage,
       createArtifactSnapshot: async (sources, copy, capture) => {
-        const snapshot = await createArtifactSnapshot(sources, copy, capture, artifacts);
-        await journal.prepareStorageMount(snapshot.directory);
-        await mount(tools, ['--bind', snapshot.directory, snapshot.directory]);
-        await journal.captureStorageMount();
-        await mount(tools, ['-o', 'remount,bind,ro,nosuid,nodev,exec', snapshot.directory]);
+        const snapshotReport = report.fork('artifact-snapshot');
+        const snapshot = await createArtifactSnapshot(sources, copy, capture, artifacts, snapshotReport);
+        await snapshotReport.check('mount-intent', () => journal.prepareStorageMount(snapshot.directory));
+        await snapshotReport.check('bind', () => mount(tools, ['--bind', snapshot.directory, snapshot.directory]));
+        await snapshotReport.check('mount-capture', () => journal.captureStorageMount());
+        await snapshotReport.check('readonly-exec', () =>
+          mount(tools, ['-o', 'remount,bind,ro,nosuid,nodev,exec', snapshot.directory]));
         snapshotMount = snapshot.directory;
-        await verifyStorage(plan.invocationHostDir, profile.writableStorageBytes);
+        await snapshotReport.check('sealed-storage', () =>
+          verifyStorage(plan.invocationHostDir, profile.writableStorageBytes));
         return snapshot;
       },
       removeArtifactSnapshot: async (directory) => {

@@ -1249,7 +1249,57 @@ shared by AWF and the harness.
 | `host-isolation` / `provider-selection` | Recovery-journal, invocation, and allocation-root isolation from primary-agent mounts; missing trusted storage provider |
 | `storage-admission` | Root UID, existing GitHub-hosted eligibility helper, Ubuntu distribution, effective mount capability, kernel tmpfs support, KVM access/device/open, writable cgroup hierarchy, and CPU/memory/PID controllers |
 | `bounded-runtime` | Configured role, mount/umount lookup, invocation directory trust, journaled aggregate storage allocation/mount/layout/verification, artifact configuration/trust/snapshot/attestation/digests/versions, each required host tool, platform/architecture, KVM access/group, root/kernel controls/cgroup v2, Docker daemon and Compose |
+| `artifact-snapshot` | Actual staging root validation, directory creation/identity capture, per-artifact copy and chmod, directory mode, mount intent/bind/identity capture, read-only executable remount, and sealed aggregate storage verification |
+| `bounded-cleanup` | Identity-journaled storage close, captured invocation directory release, and journal completion; original failure evidence is retained if cleanup also fails |
 | `bounded-artifacts` | The same bounded allocation and invocation checks, rsync lookup, verification directory, and enclave artifact verification (distinct from runtime preflight) |
+
+`bounded-runtime/artifact-snapshot` remains the enclosing gate.
+`bounded-runtime/snapshot-journal` identifies preparation of the recovery
+journal before any snapshot directory is created. Within `artifact-snapshot`,
+`vmm`, `virtiofsd`, `kernel`, `rootfs`, `supervisor`, `manifest`, and `bundle`
+each have separate `-copy` and `-mode` checks. A successful copy is not a
+sealed artifact: `readonly-exec` and `sealed-storage` must also pass before
+attestation, digests, or execution. `partial-remove` is not required after a
+successful copy; after a failed copy it records actual partial-directory
+cleanup. Disabled development-only manifest/bundle copies are explicitly not
+required. No source metadata, file contents, paths, or command output are
+included in these check records.
+
+Filesystem exceptions retain only allowlisted errno classifications.
+`mount-noexec` identifies an observed staging mount that rejects execution;
+sealed verification distinguishes `storage-mount-options`,
+`storage-path-changed`, and `storage-cap-changed`. The trusted rsync invocation
+reports fixed exit classes: `rsync-file-io` (11), `rsync-partial-transfer` (23),
+and `rsync-source-vanished` (24), otherwise `command-failed`. An rsync I/O or
+partial-transfer exit does **not** prove `ENOSPC`; stderr is never parsed into
+a checklist reason. Other unclassified failures remain `unknown`. If both
+preparation and cleanup fail, the thrown error retains the original error as
+`cause` and the cleanup exception as `cleanupError`; both failing check
+records survive. Cleanup never falls back to lazy unmount or releases an
+unconfirmed active allocation.
+
+The startup failure descriptor stays bounded to 16 KiB. If the cumulative
+checklist plus a duplicate active `hostPreflight` scope exceeds that bound,
+the writer omits the optional duplicate `hostPreflight`, retaining **every**
+`startupChecks` entry and its schema version. It never truncates the catalog
+or substitutes success for missing evidence.
+
+For the public environment probe in
+[run 37546226833](https://github.com/github/gh-aw-firewall/actions/runs/37546226833)
+(v0.28.39), startup failed at artifact preparation before guest execution.
+The published enclave manifest records script/agent rootfs logical sizes of
+127,422,464 / 1,026,367,488 bytes, respectively. The main runtime archive's
+tar header records `rootfs.ext4` at 1,314,160,640 bytes; that main runtime
+image is also staged before enclave-specific verification. These are
+**logical sizes**, not allocated bytes. The role-sized aggregate caps remain
+1 GiB (script) and 512 MiB (agent), including artifacts and writable state.
+Sparse copying can fit an image whose logical size exceeds its cap, so neither
+the manifest sizes nor the compressed archive size establishes exhaustion.
+The failed subcheck and its reason are the next discriminating evidence;
+the root cause remains unconfirmed. See the
+[published manifests and archive](https://github.com/github/gh-aw-firewall/releases/tag/v0.28.39).
+These diagnostics require a future published release; immutable v0.28.39
+assets are not patched by changing the source or dispatching a job.
 
 Host-tool failures distinguish `tool-not-found`, unsafe ancestor/file
 symlink, ownership, write permissions, file type, and allowlisted access
