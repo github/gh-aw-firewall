@@ -86,7 +86,11 @@ function getScopedAutoCandidates(provider, modelProvider, endpoint, models, reco
       const tierOrder = rank(a) - rank(b);
       if (tierOrder) return tierOrder;
     }
-    return compareByVersion(a, b);
+    const stripDate = model => model.replace(/-\d{8}$/, '');
+    const versionOrder = compareByVersion(stripDate(a), stripDate(b));
+    if (versionOrder) return versionOrder;
+    const releaseDate = model => Number(model.match(/-(\d{8})$/)?.[1] || 0);
+    return releaseDate(b) - releaseDate(a) || a.localeCompare(b);
   });
 }
 
