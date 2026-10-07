@@ -642,6 +642,24 @@ The token-usage record shows the model that actually served the request in
 `model`, plus a `model_fallback` object that names the `requested_model`. See
 [AWF config spec §12.7](awf-config-spec.md#127-ordered-fallback-models).
 
+Entries qualified with another configured provider switch the upstream provider
+as well as the model, keeping the agent's live session:
+
+```yaml
+apiProxy:
+  fallbackModels:
+    - openai/gpt-5.4
+    - anthropic/claude-sonnet-4.6
+```
+
+Each attempt uses the target provider's endpoint and credentials. The proxy
+translates Chat Completions and Responses requests to the Anthropic Messages API
+(including tools, tool results, and streaming) and translates the response back.
+The proxy refuses to start when an entry names a provider without credentials.
+Token-usage records include the serving `provider` and the `requested_provider`,
+`from_provider`, and `failures` evidence. See
+[§12.7.1](awf-config-spec.md#1271-cross-provider-fallback-chains).
+
 ### Health check
 
 Docker healthcheck on the `/health` endpoint (port 10000):

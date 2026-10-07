@@ -66,6 +66,7 @@ COPY server.js logging.js metrics.js rate-limiter.js rate-limiter-window.js \
      ai-credits-pricing.js models-dev-catalog.js models.dev.catalog.json \
      provider-pricing-overlays.js runtime-model-catalog.js \
      oidc-refresh-utils.js body-transform.js body-utils.js codex-compat.js wire-api-compat.js rate-limit.js websocket-proxy.js \
+     anthropic-chat-compat.js cross-provider-fallback.js \
      websocket-guards.js websocket-tunnel.js \
      deprecated-header-tracker.js billing-headers.js upstream-response.js \
      upstream-log.js upstream-retry.js upstream-token.js \
