@@ -10,7 +10,7 @@ import type { HostExecutorInvocationPlan, HostExecutorRunState } from '../enclav
 import { HostPreflightReporter, hostPreflightReason, type HostPreflightProgress } from './host-preflight-progress';
 import type { CloudHypervisorHostToolPaths } from './preflight';
 import { prepareTrustedInvocationStorage } from './trusted-enclave-storage';
-import type { MountTopologyEvidence } from './mount-topology';
+import type { MountTopologyEvidence, StoragePropagationEvidence } from './mount-topology';
 
 const live = process.env.AWF_TEST_ENCLAVE_STORAGE === '1';
 const tools = { mount: '/usr/bin/mount', umount: '/usr/bin/umount' } as CloudHypervisorHostToolPaths;
@@ -63,7 +63,7 @@ jest.setTimeout(30_000);
     return { journal, storage, snapshot, published, capture, bind, close };
   }
 
-  it.each(['private', 'shared', 'shared-baseline'] as const)(
+  it.each(['private', 'shared', 'shared-baseline', 'destination-shared', 'shared-both'] as const)(
     'isolates the allocation beneath %s parent propagation without changing that parent', async (mode) => {
       const child = await execa('/usr/bin/unshare', [
         '--mount', '--propagation', 'private', process.execPath, '-e', `
@@ -80,7 +80,9 @@ jest.setTimeout(30_000);
           const parent = '/run/awf-cloud-hypervisor/enclave-storage';
           await fs.mkdir(parent, { recursive: true, mode: 0o711 });
           execFileSync('/usr/bin/mount', ['-t', 'tmpfs', '-o', 'size=4194304,mode=0711', 'probe-parent', parent]);
-          execFileSync('/usr/bin/mount', ['--make-' + (mode === 'shared-baseline' ? 'shared' : mode), parent]);
+          const sharedParent = ['shared', 'shared-baseline', 'shared-both'].includes(mode);
+          const sharedDestination = ['destination-shared', 'shared-both'].includes(mode);
+          execFileSync('/usr/bin/mount', ['--make-' + (sharedParent ? 'shared' : 'private'), parent]);
           if (mode === 'shared-baseline') {
             const root = path.join(parent, 'baseline');
             const artifacts = path.join(root, 'artifacts');
@@ -100,6 +102,11 @@ jest.setTimeout(30_000);
           }
           const run = { runId: randomBytes(16).toString('hex'), seedsDir: path.join(scratch, 'seeds'),
             invocationsDir: path.join(scratch, 'invocations'), journalDir: path.join(scratch, 'journal'), entries: [] };
+          if (sharedDestination) {
+            await fs.mkdir(run.invocationsDir, { recursive: true, mode: 0o700 });
+            execFileSync('/usr/bin/mount', ['-t', 'tmpfs', '-o', 'size=4194304,mode=0700', 'probe-destination', run.invocationsDir]);
+            execFileSync('/usr/bin/mount', ['--make-shared', run.invocationsDir]);
+          }
           const invocationId = randomBytes(16).toString('hex');
           const plan = { runId: run.runId, entryId: 'script', invocationId, executorKind: 'script',
             timeoutMs: 60000, requestHash: 'a'.repeat(64), admissionId: 'b'.repeat(32),
@@ -109,23 +116,26 @@ jest.setTimeout(30_000);
           const journal = await HostExecutorResourceJournal.create(run, plan, hostExecutorVmRunId(plan));
           await fs.mkdir(plan.invocationHostDir, { mode: 0o700 });
           await journal.captureDirectory();
-          let topology;
+          let topology, storagePropagation, verification;
           const storage = await prepareTrustedInvocationStorage(run, plan, journal,
             { mount: '/usr/bin/mount', umount: '/usr/bin/umount' },
             new HostPreflightReporter('bounded-runtime', value => {
               if (value.mountTopology) topology = value.mountTopology;
+              if (value.storagePropagation) storagePropagation = value.storagePropagation;
+              if (value.scope === 'storage-verification') verification = value;
             }));
           await storage.dependencies.mountTmpfs(plan.invocationHostDir, 1073741824, 65534, 65534);
           await journal.captureMount();
-          await journal.prepareSnapshot();
           let reason = 'none';
           try {
+            await storage.dependencies.verifyStorage(plan.invocationHostDir, 1073741824);
+            await journal.prepareSnapshot();
             await storage.dependencies.createArtifactSnapshot({
               cloudHypervisorBinary: '/usr/bin/true', virtiofsdBinary: '/usr/bin/true',
               kernelPath: '/usr/bin/true', rootfsPath: '/usr/bin/true', supervisorPath: '/usr/bin/true'
             }, fs.copyFile, directory => journal.captureSnapshot(directory));
           } catch (error) { reason = hostPreflightReason(error); }
-          if (!topology) throw new Error('Probe did not reach snapshot topology');
+          if (!topology && !sharedDestination) throw new Error('Probe did not reach snapshot topology');
           const table = await fs.readFile('/proc/self/mountinfo', 'utf8');
           const parentLine = table.split('\\n').find(line => line.split(' ')[4] === parent);
           const parentStillShared = parentLine.split(' ').some(field => field.startsWith('shared:'));
@@ -134,7 +144,8 @@ jest.setTimeout(30_000);
             if (error.code !== 'ENOENT') throw error;
             return true;
           });
-          process.stdout.write(JSON.stringify({ reason, topology, parentStillShared, allocationRemoved }));
+          process.stdout.write(JSON.stringify({ reason, topology, storagePropagation, verification,
+            parentStillShared, allocationRemoved }));
         })().catch(() => { console.error('Mount topology probe setup failed'); process.exitCode = 1; });
         `,
         path.resolve(__dirname, '../../dist/enclave/host-executor-journal.js'),
@@ -143,20 +154,44 @@ jest.setTimeout(30_000);
         scratch, mode, path.resolve(__dirname, '../../dist/cloud-hypervisor/mount-topology.js'),
       ]);
       const result = JSON.parse(child.stdout) as {
-        reason: string; topology: MountTopologyEvidence; parentStillShared?: boolean; allocationRemoved?: boolean;
+        reason: string; topology?: MountTopologyEvidence; storagePropagation?: StoragePropagationEvidence;
+        verification?: HostPreflightProgress; parentStillShared?: boolean; allocationRemoved?: boolean;
       };
-      expect(result.topology.bindCalls).toBe('one');
-      expect(result.topology.before?.snapshotEntries).toBe('zero');
+      if (mode === 'destination-shared' || mode === 'shared-both') {
+        expect(result.reason).toBe('storage-mount-propagation');
+        expect(result.topology).toBeUndefined();
+        expect(result.storagePropagation).toMatchObject({
+          invocationLocation: 'outside', sourceBeforeBind: 'private', destinationBeforeBind: 'shared',
+          mounts: {
+            rootAfterPrivate: [1, 0, 1, 0],
+            rootVerified: [1, 0, 1, 0],
+            artifactsVerified: [1, 0, 1, 0],
+            invocationBeforeBind: [0, 5, 0, 2],
+            invocationAfterBind: [1, 1, 1, 0],
+            invocationAfterRemount: [1, 1, 1, 0],
+            invocationVerified: [1, 1, 1, 0],
+          },
+        });
+        expect(result.verification?.checks.find((check) => check.id === 'invocation-state')).toMatchObject({
+          result: 'failed', reason: 'storage-mount-propagation',
+        });
+        expect(result.parentStillShared).toBe(mode === 'shared-both');
+        expect(result.allocationRemoved).toBe(true);
+        expect(child.stdout).not.toContain(scratch);
+        return;
+      }
+      expect(result.topology!.bindCalls).toBe('one');
+      expect(result.topology!.before?.snapshotEntries).toBe('zero');
       if (mode === 'shared-baseline') {
         expect(result.reason).toBe('baseline');
-        expect(result.topology.before?.localPeerRelation).toBe('same-group-overlap');
-        expect(result.topology.after).toMatchObject({ snapshotEntries: 'multiple', snapshotIds: 'unique' });
+        expect(result.topology!.before?.localPeerRelation).toBe('same-group-overlap');
+        expect(result.topology!.after).toMatchObject({ snapshotEntries: 'multiple', snapshotIds: 'unique' });
       } else {
         expect(result.reason).toBe('none');
-        expect(result.topology.before?.rootPropagation).toBe('private');
-        expect(result.topology.before?.artifactsPropagation).toBe('private');
-        expect(result.topology.before?.localPeerRelation).toBe('not-shared');
-        expect(result.topology.after).toMatchObject({ snapshotEntries: 'one', snapshotIds: 'unique' });
+        expect(result.topology!.before?.rootPropagation).toBe('private');
+        expect(result.topology!.before?.artifactsPropagation).toBe('private');
+        expect(result.topology!.before?.localPeerRelation).toBe('not-shared');
+        expect(result.topology!.after).toMatchObject({ snapshotEntries: 'one', snapshotIds: 'unique' });
         expect(result.parentStillShared).toBe(mode === 'shared');
         expect(result.allocationRemoved).toBe(true);
       }

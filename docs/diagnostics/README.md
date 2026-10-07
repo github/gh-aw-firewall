@@ -90,6 +90,16 @@ mount, not permission to select a topmost duplicate. See the
 [private allocation contract](../cloud-hypervisor-foundation.md#private-invocation-allocation-propagation).
 The fix does not change host-wide propagation or relax recovery identity checks.
 
+A later `storage-verification` failure is not evidence that snapshot binding was
+attempted. Read its journal/read/observation and fixed mount-role checks, then
+`enclaveStartup.storagePropagation`. The compact observations distinguish a
+non-private mount from a missing or ambiguous exact match. The
+[post-bind investigation contract](../cloud-hypervisor-foundation.md#post-bind-storage-propagation-evidence)
+documents the tuple legend and five falsifiable hypotheses, including the
+separate invocation destination outside the private allocation. No registry
+finding matches the v0.28.43 failure yet; a release-pinned observation is needed
+before claiming a root cause.
+
 ## Agent entry point
 
 Agents should load [`.github/skills/diagnose-awf/SKILL.md`](../../.github/skills/diagnose-awf/SKILL.md).

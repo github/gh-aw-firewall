@@ -133,6 +133,17 @@
       "docker-info": null,
       "docker-compose": null
     },
+    "storage-verification": {
+      "journal-identity": null,
+      "mountinfo-read": null,
+      "mountinfo-observation": null,
+      "allocation-root": null,
+      "invocation-state": null,
+      "run-storage": null,
+      "rootfs-preparation": null,
+      "artifact-parent": null,
+      "sealed-snapshot": null
+    },
     "artifact-snapshot": {
       "root": null,
       "directory": null,
@@ -207,6 +218,7 @@
     }
   },
   "optionalChecks": [
+    "storage-verification/sealed-snapshot",
     "startup/github-attachment", "startup/github-ready", "startup/delegation",
     "enclave-runtime/script-runtime", "enclave-runtime/agent-runtime", "enclave-runtime/host-service",
     "enclave-storage/seed-catalog", "enclave-storage/github-identity", "enclave-storage/delegation-custody",

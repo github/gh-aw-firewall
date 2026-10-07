@@ -246,6 +246,7 @@ describe('invocation-wide kernel-enforced storage', () => {
     const prepared = await provider.prepareRun({} as Parameters<typeof provider.prepareRun>[0]);
     const plan = {
       runId: 'a'.repeat(32), entryId: 'script', invocationId: 'b'.repeat(32), executorKind: 'script',
+      invocationHostDir: `/private/invocations/script/${'b'.repeat(32)}`,
     } as HostExecutorInvocationPlan;
     const closeStorage = jest.fn().mockResolvedValue(undefined);
     await expect(prepared.backendDependencies!.prepareInvocationStorage!(
@@ -253,6 +254,116 @@ describe('invocation-wide kernel-enforced storage', () => {
     )).rejects.toThrow('early allocation failure');
     expect(closeStorage).toHaveBeenCalledWith(tools.umount);
     await expect(prepared.close()).resolves.toBeUndefined();
+  });
+
+  it.each([
+    { hypothesis: 'shared destination', fault: 'invocation-shared', slot: 'invocationVerified', check: 'invocation-state',
+      expected: [1, 1, 1, 0] },
+    { hypothesis: 'root propagation changed', fault: 'root-shared', slot: 'rootVerified', check: 'allocation-root',
+      expected: [1, 1, 1, 0] },
+    { hypothesis: 'local child propagation changed', fault: 'runs-slave', slot: 'runsVerified', check: 'run-storage',
+      expected: [1, 2, 1, 0] },
+    { hypothesis: 'distinct duplicate entries', fault: 'duplicate', slot: 'invocationVerified', check: 'invocation-state',
+      expected: [2, 5, 1, 0] },
+    { hypothesis: 'repeated identical entries', fault: 'repeat', slot: 'invocationVerified', check: 'invocation-state',
+      expected: [2, 5, 2, 0] },
+    { hypothesis: 'missing exact mount', fault: 'missing', slot: 'invocationVerified', check: 'invocation-state',
+      expected: [0, 5, 0, 2] },
+    { hypothesis: 'noncanonical target spelling', fault: 'alias', slot: 'invocationVerified', check: 'invocation-state',
+      expected: [0, 5, 0, 1] },
+    { hypothesis: 'remount changed invocation propagation', fault: 'remount-shared', slot: 'invocationVerified',
+      check: 'invocation-state', expected: [1, 1, 1, 0] },
+    { hypothesis: 'verification read denied', fault: 'read', slot: 'invocationVerified',
+      check: 'mountinfo-read', expected: null },
+    { hypothesis: 'verification table malformed', fault: 'malformed', slot: 'invocationVerified',
+      check: 'mountinfo-observation', expected: null },
+    { hypothesis: 'journal rejected changed identity', fault: 'journal', slot: 'invocationVerified',
+      check: 'journal-identity', expected: null },
+  ])('discriminates $hypothesis using the same table as the private propagation guard', async ({ fault, slot, check, expected }) => {
+    const plan = {
+      runId: 'a'.repeat(32), entryId: 'script', invocationId: 'b'.repeat(32), executorKind: 'script',
+      invocationHostDir: '/private/SECRET/invocations/script/invocation',
+    } as HostExecutorInvocationPlan;
+    const root = hostExecutorStorageDirectory(hostExecutorVmRunId(plan));
+    const journal = {
+      prepareStorage: jest.fn(), captureStorageDirectory: jest.fn(), prepareStorageMount: jest.fn(),
+      captureStorageMount: jest.fn(), verifyStorage: jest.fn(), closeStorage: jest.fn(),
+    } as unknown as HostExecutorResourceJournal;
+    jest.spyOn(fs, 'mkdir').mockResolvedValue(undefined);
+    jest.spyOn(fs, 'chown').mockResolvedValue(undefined);
+    jest.spyOn(fs, 'lstat').mockResolvedValue({
+      uid: 0, mode: 0o40711, isDirectory: () => true, isSymbolicLink: () => false,
+    } as Awaited<ReturnType<typeof fs.lstat>>);
+    jest.spyOn(fs, 'realpath').mockImplementation(async (file) => String(file));
+    const row = (id: number, target: string, optional = '') =>
+      `${id} 1 0:50 / ${target} rw,nosuid,nodev,noexec ${optional}- tmpfs awf-enclave-invocation rw\n`;
+    const rootLine = row(901, root);
+    const runsLine = row(903, `${root}/runs`);
+    const local = rootLine + row(902, `${root}/artifacts`).replace(',noexec', '') +
+      runsLine + row(904, `${root}/cloud-hypervisor-rootfs`);
+    const invocationLine = row(905, plan.invocationHostDir);
+    let table = local + '1 1 8:1 / / rw shared:17 - ext4 SECRET rw\n';
+    const read = jest.spyOn(fs, 'readFile').mockImplementation(async () => table);
+    (execa as unknown as jest.Mock).mockImplementation(async (_tool, args: string[]) => {
+      if (args[0] === '--bind' && args[2] === plan.invocationHostDir) {
+        table += fault === 'invocation-shared' ? row(905, plan.invocationHostDir, 'shared:29 ') : invocationLine;
+      }
+      if (fault === 'remount-shared' && args[0] === '-o' && args[2] === plan.invocationHostDir) {
+        table = table.replace(invocationLine, row(905, plan.invocationHostDir, 'shared:29 '));
+      }
+      return { exitCode: 0, stderr: '' };
+    });
+    const published: HostPreflightProgress[] = [];
+    const storage = await prepareTrustedInvocationStorage({} as HostExecutorRunState, plan, journal, tools,
+      new HostPreflightReporter('bounded-runtime', (value) => published.push(value)));
+    await storage.dependencies.mountTmpfs!(plan.invocationHostDir, profiles.script.writableStorageBytes,
+      profiles.script.uid, profiles.script.gid, tools);
+    const before = published.filter((value) => value.storagePropagation).pop()!.storagePropagation!;
+    expect(before).toMatchObject({
+      invocationLocation: 'outside', sourceBeforeBind: 'private', destinationBeforeBind: 'shared',
+      mounts: {
+        rootAfterPrivate: [1, 0, 1, 0],
+        rootAfterLayout: [1, 0, 1, 0],
+        invocationBeforeBind: [0, 5, 0, 2],
+        invocationAfterBind: [1, fault === 'invocation-shared' ? 1 : 0, 1, 0],
+      },
+    });
+    if (fault === 'root-shared') table = table.replace(rootLine, row(901, root, 'shared:29 '));
+    if (fault === 'runs-slave') table = table.replace(runsLine, row(903, `${root}/runs`, 'master:29 '));
+    if (fault === 'duplicate') table += row(906, plan.invocationHostDir);
+    if (fault === 'repeat') table += invocationLine;
+    if (fault === 'missing') table = table.replace(invocationLine, '');
+    if (fault === 'alias') table = table.replace(invocationLine, row(905, `${plan.invocationHostDir}/.`));
+    // A subsequent read would hide the failure: the published evidence must use the guard's read.
+    read.mockResolvedValueOnce(table).mockResolvedValue(local + invocationLine);
+    if (fault === 'read') read.mockReset().mockRejectedValueOnce(
+      Object.assign(new Error('/private/SECRET'), { code: 'EACCES' }),
+    );
+    if (fault === 'malformed') read.mockReset().mockResolvedValueOnce('PRIVATE malformed mountinfo');
+    if (fault === 'journal') (journal.verifyStorage as jest.Mock).mockRejectedValueOnce(
+      Object.assign(new Error('/private/SECRET'), { code: 'EIO' }),
+    );
+    await expect(storage.dependencies.verifyStorage!(plan.invocationHostDir, profiles.script.writableStorageBytes))
+      .rejects.toThrow(['read', 'journal'].includes(fault) ? '/private/SECRET' :
+        fault === 'malformed' ? /Malformed .*mountinfo/ : 'propagation is not private');
+    const last = published[published.length - 1];
+    expect(last.scope).toBe('storage-verification');
+    expect(last.checks.find((item) => item.id === check)).toMatchObject({
+      result: 'failed', reason: fault === 'read' ? 'EACCES' : fault === 'journal' ? 'EIO' :
+        fault === 'malformed' ? 'mountinfo-malformed' : 'storage-mount-propagation',
+    });
+    if (expected) {
+      const evidence = last.storagePropagation!;
+      expect(evidence.mounts[slot as keyof typeof evidence.mounts]).toEqual(expected);
+      expect(evidence.mounts.artifactsVerified).toEqual([1, 0, 1, 0]);
+      if (fault === 'remount-shared') expect(evidence.mounts.invocationAfterRemount).toEqual([1, 1, 1, 0]);
+    } else {
+      expect(published.filter((value) => value.storagePropagation).pop()!.storagePropagation?.mounts.invocationVerified)
+        .toBeNull();
+    }
+    expect(JSON.stringify(published)).not.toMatch(/SECRET|invocations\/|0:50|shared:29|master:29/);
+    await storage.close();
+    expect(journal.closeStorage).toHaveBeenCalledWith(tools.umount);
   });
 
   it.each([
@@ -449,6 +560,15 @@ describe('invocation-wide kernel-enforced storage', () => {
     readMounts.mockResolvedValue(info.replace(` ${snapshotDirectory} ro,`, ` ${snapshotDirectory} rw,`));
     await expect(allocation.dependencies.verifyStorage!(plan.invocationHostDir,
       profiles[role].writableStorageBytes)).rejects.toThrow('mount options changed');
+    expect(published.filter((progress) => progress.storagePropagation).pop()?.storagePropagation?.mounts.snapshotVerified)
+      .toEqual([1, 0, 1, 0]);
+    readMounts.mockRejectedValueOnce(Object.assign(new Error('SECRET'), { code: 'EIO' }));
+    await expect(allocation.dependencies.verifyStorage!(plan.invocationHostDir,
+      profiles[role].writableStorageBytes)).rejects.toThrow('SECRET');
+    const unreadable = published[published.length - 1];
+    expect(unreadable.checks.find((check) => check.id === 'mountinfo-read'))
+      .toMatchObject({ result: 'failed', reason: 'EIO' });
+    expect(Object.values(unreadable.storagePropagation!.mounts).slice(-6)).toEqual(Array(6).fill(null));
     readMounts.mockResolvedValue(info);
     const output = path.join(plan.invocationHostDir, 'output');
     jest.spyOn(fs, 'realpath').mockImplementation(async (value) => String(value) === output ? '/outside' : String(value));

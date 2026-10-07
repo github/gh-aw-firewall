@@ -1,6 +1,8 @@
 import type { WrapperConfig } from '../types';
 import type { CheckResult, HostPreflightProgress, HostPreflightReason } from '../cloud-hypervisor/host-preflight-progress';
-import { cloneMountTopology, type MountTopologyEvidence } from '../cloud-hypervisor/mount-topology';
+import {
+  cloneMountTopology, type MountTopologyEvidence, cloneStoragePropagation, type StoragePropagationEvidence,
+} from '../cloud-hypervisor/mount-topology';
 
 export interface EnclaveStartupChecklist {
   schemaVersion: 1;
@@ -34,6 +36,7 @@ export interface EnclaveStartupProgress {
   hostPreflight?: HostPreflightProgress;
   startupChecks?: EnclaveStartupChecklist;
   mountTopology?: MountTopologyEvidence;
+  storagePropagation?: StoragePropagationEvidence;
 }
 
 const states = new WeakMap<WrapperConfig, {
@@ -65,9 +68,12 @@ export function getEnclaveStartupProgress(config: WrapperConfig): EnclaveStartup
         ...progress.hostPreflight, checks: progress.hostPreflight.checks.map((check) => ({ ...check })),
         ...(progress.hostPreflight.mountTopology
           ? { mountTopology: cloneMountTopology(progress.hostPreflight.mountTopology) } : {}),
+        ...(progress.hostPreflight.storagePropagation
+          ? { storagePropagation: cloneStoragePropagation(progress.hostPreflight.storagePropagation) } : {}),
       },
     } : {}),
     ...(progress.mountTopology ? { mountTopology: cloneMountTopology(progress.mountTopology) } : {}),
+    ...(progress.storagePropagation ? { storagePropagation: cloneStoragePropagation(progress.storagePropagation) } : {}),
     ...(progress.startupChecks ? {
       startupChecks: {
         ...progress.startupChecks,
@@ -89,6 +95,9 @@ export function updateEnclaveStartupProgress(
   if (update.hostPreflight) {
     if (update.hostPreflight.mountTopology) {
       state.progress.mountTopology = cloneMountTopology(update.hostPreflight.mountTopology);
+    }
+    if (update.hostPreflight.storagePropagation) {
+      state.progress.storagePropagation = cloneStoragePropagation(update.hostPreflight.storagePropagation);
     }
     const checks = { ...state.progress.startupChecks?.checks };
     for (const check of update.hostPreflight.checks) {
@@ -127,6 +136,7 @@ export function resetEnclaveStartupChecklist(config: WrapperConfig): void {
   updateEnclaveStartupProgress(config, {
     stage: 'configuration', readiness: 'not-attempted', code: 'none', attempts: 0,
     httpStatus: null, hostPreflight: undefined, startupChecks: undefined, mountTopology: undefined,
+    storagePropagation: undefined,
   });
 }
 

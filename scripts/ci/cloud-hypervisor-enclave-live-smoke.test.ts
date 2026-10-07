@@ -10,7 +10,9 @@ import {
   HostPreflightReporter, type HostPreflightCheck, type HostPreflightScope,
 } from '../../src/cloud-hypervisor/host-preflight-progress';
 import hostPreflightSchema from '../../src/cloud-hypervisor/host-preflight-schema.json';
-import { observeMountTopology, type MountTopologyEvidence } from '../../src/cloud-hypervisor/mount-topology';
+import {
+  observeMountTopology, type MountTopologyEvidence, createStoragePropagationEvidence,
+} from '../../src/cloud-hypervisor/mount-topology';
 
 const root = path.resolve(__dirname, '../..');
 const harnessPath = path.join(root, 'scripts/ci/cloud-hypervisor-enclave-live-smoke.js');
@@ -159,6 +161,56 @@ describe('sanitized host startup diagnostics', () => {
     expect(JSON.stringify(result)).not.toMatch(/PRIVATE|SECRET|run-secret/);
   });
 
+  const storageEvidence = () => {
+    const evidence = createStoragePropagationEvidence('/PRIVATE/root', '/PRIVATE/invocation');
+    evidence.sourceBeforeBind = 'private';
+    evidence.destinationBeforeBind = 'shared';
+    evidence.mounts.invocationAfterBind = [1, 1, 1, 0];
+    evidence.mounts.invocationVerified = [1, 1, 1, 0];
+    return evidence;
+  };
+  it.each([false, true])('preserves storage evidence after cleanup or active scope omission (%s)', (active) => {
+    const storagePropagation = storageEvidence();
+    const value = progress({
+      storagePropagation, startupChecks: standardChecklist(),
+      ...(active ? { hostPreflight: {
+        schemaVersion: 1 as const, scope: 'storage-verification' as const, storagePropagation,
+        checks: Object.keys(hostPreflightSchema.scopes['storage-verification']).map((id) => ({
+          id: id as HostPreflightCheck, result: 'not-attempted' as const, reason: 'none' as const,
+        })),
+      } } : {}),
+    });
+    const result = harness.startupDiagnostic(child, 'exit', 'initial', stderrFile, publish(value));
+    expect(result.enclaveStartup?.storagePropagation).toEqual(storagePropagation);
+    if (active) expect(result.enclaveStartup?.hostPreflight?.storagePropagation).toEqual(storagePropagation);
+    expect(JSON.stringify(result)).not.toMatch(/PRIVATE|SECRET|run-secret/);
+  });
+
+  it.each([
+    { ...storageEvidence(), path: sentinel },
+    { ...storageEvidence(), invocationLocation: sentinel },
+    { ...storageEvidence(), sourceBeforeBind: sentinel },
+    { ...storageEvidence(), destinationBeforeBind: sentinel },
+    { ...storageEvidence(), schemaVersion: 2 },
+    { ...storageEvidence(), mounts: {} },
+    { ...storageEvidence(), mounts: { ...storageEvidence().mounts, path: sentinel } },
+    { ...storageEvidence(), mounts: { ...storageEvidence().mounts, rootVerified: [1, sentinel, 1, 0] } },
+    { ...storageEvidence(), mounts: { ...storageEvidence().mounts, rootVerified: [1, 0, 1] } },
+  ])('rejects unsafe storage evidence at both publication surfaces', (storagePropagation) => {
+    for (const nested of [false, true]) {
+      const value = nested ? {
+        ...progress(), hostPreflight: {
+          schemaVersion: 1, scope: 'storage-verification', storagePropagation,
+          checks: Object.keys(hostPreflightSchema.scopes['storage-verification']).map((id) => ({
+            id, result: 'not-attempted', reason: 'none',
+          })),
+        },
+      } : { ...progress(), storagePropagation };
+      const result = harness.startupDiagnostic(child, 'exit', 'initial', stderrFile, publish(value));
+      expect(result.enclaveStartup).toBeUndefined();
+      expect(JSON.stringify(result)).not.toContain(sentinel);
+    }
+  });
   it.each([
     { ...topology(), path: sentinel },
     { ...topology(), bindCalls: sentinel },

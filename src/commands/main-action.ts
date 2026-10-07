@@ -146,7 +146,7 @@ function writeStartupFailureDiagnostic(config: WrapperConfig, error: unknown, ph
       deriveSensitiveEndpointForms(config.sensitiveAllowedDomains),
     );
     const messageBound = enclaveStartup?.hostPreflight ? 1024 : 8 * 1024;
-    const message = enclaveStartup && Buffer.byteLength(JSON.stringify(redactedMessage), 'utf8') > messageBound
+    let message = enclaveStartup && Buffer.byteLength(JSON.stringify(redactedMessage), 'utf8') > messageBound
       ? 'Enclave startup failure exceeded diagnostic message bound'
       : redactedMessage;
     const timestamp = new Date().toISOString();
@@ -158,6 +158,10 @@ function writeStartupFailureDiagnostic(config: WrapperConfig, error: unknown, ph
     if (enclaveStartup?.startupChecks && Buffer.byteLength(record, 'utf8') > 16 * 1024) {
       // The cumulative checklist already retains every active-scope check.
       enclaveStartup = { ...enclaveStartup, hostPreflight: undefined };
+      record = serialize();
+    }
+    if (enclaveStartup?.startupChecks && Buffer.byteLength(record, 'utf8') > 16 * 1024) {
+      message = 'Enclave startup failure exceeded diagnostic message bound';
       record = serialize();
     }
     if (enclaveStartup && Buffer.byteLength(record, 'utf8') > 16 * 1024) {

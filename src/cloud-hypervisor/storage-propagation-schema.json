@@ -1,0 +1,21 @@
+{
+  "propagation": ["private", "shared", "slave", "shared-slave", "unbindable", "unknown"],
+  "location": ["inside", "outside"],
+  "observation": [
+    [0, 1, 2],
+    [0, 1, 2, 3, 4, 5],
+    [0, 1, 2, 3],
+    [0, 1, 2]
+  ],
+  "legend": {
+    "entries": ["zero", "one", "multiple"],
+    "propagation": ["private", "shared", "slave", "shared-slave", "unbindable", "unknown"],
+    "ids": ["none", "unique", "repeated", "mixed"],
+    "pathMatch": ["exact", "normalized-only", "absent"]
+  },
+  "mounts": [
+    "rootAfterPrivate", "rootAfterLayout", "artifactsAfterLayout", "runsAfterLayout", "rootfsAfterLayout",
+    "invocationBeforeBind", "invocationAfterBind", "invocationAfterRemount",
+    "rootVerified", "invocationVerified", "runsVerified", "rootfsVerified", "artifactsVerified", "snapshotVerified"
+  ]
+}

@@ -1413,8 +1413,9 @@ for the identity-known root if setup fails.
 This is a non-recursive operation on a new, empty allocation, not on `/`,
 `/run`, the shared storage parent, another invocation, or the whole host mount
 namespace. It preserves the tmpfs mount identity, source, allocation ceiling,
-and noexec/nosuid/nodev flags. Bind mounts created from that private domain
-remain private. Every later storage-option verification also checks private
+and noexec/nosuid/nodev flags. Binds from that private domain remain private
+only when the destination covering mount is also non-shared. Every later
+storage-option verification also checks private
 propagation on the allocation, invocation state, runtime/rootfs directories,
 artifact parent, and sealed snapshot; a propagation change fails with
 `storage-mount-propagation`. No duplicate is selected, deduplicated, or adopted,
@@ -1429,6 +1430,108 @@ A new release containing this fix and a release-pinned environment probe are
 required to establish whether startup progresses beyond the original failure.
 The immutable v0.28.39 and v0.28.42 assets are not patched by source changes or
 workflow dispatches.
+
+### Post-bind storage propagation evidence
+
+The v0.28.43
+[probe run 37571367739](https://github.com/github/gh-aw-firewall/actions/runs/37571367739)
+passed setting and immediately verifying private allocation propagation, layout,
+artifact/run binds, and the invocation bind. Later `bounded-runtime/storage-verification`
+failed with `storage-mount-propagation`; all bounded cleanup checks passed.
+Snapshot preparation, guest boot, and gateway readiness were not attempted.
+There is no matching diagnosis-registry finding and no confirmed root cause yet.
+
+The missing distinction is **which mount role** failed and whether the guard
+saw non-private propagation, zero entries, or multiple entries. The guard's
+aggregate reason covers all three. Journal identity verification had already
+passed, so missing/duplicate-entry alternatives require a later change or
+different table observation; they are less likely than destination inheritance.
+
+The source and destination are not the same storage location. Production
+`mountTmpfs` binds `<allocation>/state` onto the separately derived
+`plan.invocationHostDir` under `run.invocationsDir`. Making the allocation
+private does not make that external destination's covering mount private.
+Linux's [shared-subtree bind semantics](https://docs.kernel.org/filesystems/sharedsubtree.html)
+explicitly make a private-source clone shared when it is attached to a shared
+destination mount. The kernel
+[`attach_recursive_mnt()` implementation](https://github.com/torvalds/linux/blob/v6.8/fs/namespace.c)
+tests the destination and calls `set_mnt_shared()` on the attached tree.
+This kernel reference establishes the mechanism, not the probe's unrecorded
+exact kernel version. A
+[`remount,bind`](https://man7.org/linux/man-pages/man8/mount.8.html)
+changes per-mount flags, not automatically its propagation class.
+
+These are five hypotheses, ordered by code/semantic support, not five findings:
+
+| Hypothesis | Diagnostic that can disprove it for the observed failure |
+|---|---|
+| Private state source is bound beneath a shared external invocation destination | A known non-shared `destinationBeforeBind`, or a unique private `invocationAfterBind`, excludes immediate shared-destination inheritance at that observation. A private source, shared destination, then one shared invocation entry supports it. |
+| Allocation root regains non-private propagation after the initial private check | A unique private `rootVerified` from the failing verification table excludes root propagation as that guard's culprit. Compare `rootAfterPrivate` and `rootAfterLayout` for the interval of change; identities remain independently checked. |
+| A local artifact/run/rootfs child bind or remount introduces non-private propagation | Unique private observations for all three local roles after layout and at verification exclude those roles. A private root with a non-private local child separates this from a changed root. Invocation after-bind/after-remount observations separately identify a helper-time transition. |
+| The propagation reason actually represents ambiguous duplicate entries | One exact entry at the failed role excludes ambiguity. Multiple entries with unique IDs distinguish distinct mounts from repeated or mixed IDs, without selecting a topmost entry or blaming the kernel. |
+| The expected exact entry is absent because of a late removal or path/view mismatch | An exact entry at the failed role excludes absence. Zero exact entries distinguish normalized-only spelling from no normalized match. This does not identify a symlink target, prove a namespace mismatch, or distinguish removal from a wrong view. |
+
+Startup retains fixed-size `enclaveStartup.storagePropagation`, schema version
+1. `invocationLocation` is only `inside`/`outside`; `sourceBeforeBind` and
+`destinationBeforeBind` are propagation classes of the most specific visible
+covering mounts immediately before binding. An ambiguous covering mount or
+stacked ancestor is `unknown`; this observation never authorizes selection
+among stacked mounts.
+`null` means unobserved. Pre-bind observations cannot exclude a subsequent race.
+
+`mounts` has exactly fourteen fixed slots: the root after the private check;
+root/artifacts/runs/rootfs after local layout binds; invocation before bind,
+after bind, and after remount; and root/invocation/runs/rootfs/artifacts/snapshot
+at verification. Each non-null slot is a compact four-element tuple:
+
+| Tuple position | Codes |
+|---|---|
+| 0: exact entry count | `0` zero, `1` one, `2` multiple |
+| 1: propagation | `0` private, `1` shared, `2` slave, `3` shared-slave, `4` unbindable, `5` unknown |
+| 2: mount-ID relationship | `0` none, `1` unique, `2` repeated, `3` mixed |
+| 3: path-match relationship | `0` exact, `1` normalized-only, `2` absent |
+
+Thus `[1,1,1,0]` means one exact shared entry; `[2,5,1,0]` means multiple
+distinct-ID exact entries with no single propagation class. The canonical
+allowlist and legend live in `src/cloud-hypervisor/storage-propagation-schema.json`.
+No IDs, paths, namespace identifiers, device numbers, sources, raw rows,
+stderr, or filesystem content are exported. A normalized-only observation
+does not weaken the exact-match guard.
+
+The nested `storage-verification` checklist identifies journal identity,
+mount-table read/observation, and allocation-root, invocation-state,
+run-storage, rootfs-preparation, artifact-parent, and sealed-snapshot checks.
+The snapshot check is `not-required` only while no sealed snapshot exists.
+All applicable mount-role checks still require private propagation and the
+original mount options. Every verified role's evidence is derived **before
+the first role guard from the same single read used by all role guards**;
+no second read can replace the failed observation. If journal identity fails
+first, the verification slots are reset to null: prior phase evidence is not
+evidence of the failed identity-check table. Each verification attempt clears
+all six verification slots before reading, so an unreadable/malformed later
+table cannot inherit a previous successful observation.
+
+Evidence survives cleanup and omission of the duplicate active scope, is
+deep-copied, and resets on a new startup/allocation. Compact tuples keep the
+full 188-check catalog and both evidence records inside the existing 16 KiB
+descriptor limit. When the total would exceed the bound, only the duplicate
+active scope and then the optional fatal-message text are replaced/omitted;
+the complete cumulative checklist and evidence remain. No guard, storage cap,
+trust requirement, propagation operation, or cleanup policy is relaxed.
+
+The opt-in Linux suite now varies the allocation parent and **separate
+invocation destination** independently, inside disposable private namespaces.
+Shared-destination cases expect rejection at `invocation-state`, private
+allocation/local mounts, a shared invocation after bind and remount, no
+snapshot attempt, and successful ordinary allocation cleanup. This closes
+the earlier fixture gap that left the invocation destination under a private
+namespace while varying only the allocation parent. These tests do not run
+on macOS and are not guest acceptance.
+
+A future published release containing these diagnostics and an authorized
+release-pinned probe are required to observe the original runner. v0.28.43
+is immutable. This diagnostic change does not claim that a hypothesis is
+confirmed or that enclave startup is repaired.
 
 Host-tool failures distinguish `tool-not-found`, unsafe ancestor/file
 symlink, ownership, write permissions, file type, and allowlisted access

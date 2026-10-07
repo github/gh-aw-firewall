@@ -1,5 +1,7 @@
 import schema from './host-preflight-schema.json';
-import { cloneMountTopology, type MountTopologyEvidence } from './mount-topology';
+import {
+  cloneMountTopology, type MountTopologyEvidence, cloneStoragePropagation, type StoragePropagationEvidence,
+} from './mount-topology';
 
 export type HostPreflightScope = keyof typeof schema.scopes;
 export type HostPreflightCheck = {
@@ -12,6 +14,7 @@ export interface HostPreflightProgress {
   scope: HostPreflightScope;
   checks: { id: HostPreflightCheck; result: CheckResult; reason: HostPreflightReason }[];
   mountTopology?: MountTopologyEvidence;
+  storagePropagation?: StoragePropagationEvidence;
 }
 
 // Keep classification out of error messages, which may contain private paths.
@@ -59,6 +62,8 @@ export class HostPreflightReporter {
     this.publish?.({
       ...this.progress, checks: this.progress.checks.map((check) => ({ ...check })),
       ...(this.progress.mountTopology ? { mountTopology: cloneMountTopology(this.progress.mountTopology) } : {}),
+      ...(this.progress.storagePropagation
+        ? { storagePropagation: cloneStoragePropagation(this.progress.storagePropagation) } : {}),
     });
   }
 
@@ -68,6 +73,11 @@ export class HostPreflightReporter {
 
   topology(value: MountTopologyEvidence): void {
     this.progress.mountTopology = cloneMountTopology(value);
+    this.emit();
+  }
+
+  propagation(value: StoragePropagationEvidence): void {
+    this.progress.storagePropagation = cloneStoragePropagation(value);
     this.emit();
   }
 

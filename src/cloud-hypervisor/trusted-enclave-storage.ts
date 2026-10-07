@@ -23,9 +23,12 @@ import { CLOUD_HYPERVISOR_ENCLAVE_RESOURCE_PROFILES } from './workload-profile';
 import { VirtiofsdManager } from './virtiofsd';
 import { parseMountInfoLine } from './cleanup-identity';
 import { evaluateGithubHostedRunnerEligibility } from './host-eligibility';
-import { assertPrivateStorageMount, observeMountTopology, type MountTopologyEvidence } from './mount-topology';
 import {
-  HostPreflightReporter, markHostPreflightError, type HostPreflightProgress,
+  assertPrivateStorageObservation, createStoragePropagationEvidence, observeCoveringPropagation,
+  observeStorageMount, observeMountTopology, type MountTopologyEvidence, type StoragePropagationSlot,
+} from './mount-topology';
+import {
+  HostPreflightReporter, markHostPreflightError, type HostPreflightProgress, type HostPreflightCheck,
 } from './host-preflight-progress';
 
 export interface TrustedEnclaveStorageHostDependencies {
@@ -160,6 +163,8 @@ export async function prepareTrustedInvocationStorage(
   const vmRunId = hostExecutorVmRunId(plan);
   const root = hostExecutorStorageDirectory(vmRunId);
   const profile = CLOUD_HYPERVISOR_ENCLAVE_RESOURCE_PROFILES[plan.executorKind];
+  const propagation = createStoragePropagationEvidence(root, plan.invocationHostDir);
+  report.propagation(propagation);
   await report.check('storage-ancestor', () => assertTrustedAncestorChain('invocation storage parent', path.dirname(HOST_EXECUTOR_STORAGE_ROOT), {
     uid: 0, access: fs.access, lstat: fs.lstat, sha256: async () => '',
   }));
@@ -211,7 +216,9 @@ export async function prepareTrustedInvocationStorage(
   });
   await report.check('storage-propagation', async () => {
     await journal.verifyStorage();
-    assertPrivateStorageMount(await fs.readFile('/proc/self/mountinfo', 'utf8'), root);
+    propagation.mounts.rootAfterPrivate = observeStorageMount(await fs.readFile('/proc/self/mountinfo', 'utf8'), root);
+    report.propagation(propagation);
+    assertPrivateStorageObservation(propagation.mounts.rootAfterPrivate);
   });
   const state = path.join(root, 'state');
   const artifacts = path.join(root, 'artifacts');
@@ -235,6 +242,12 @@ export async function prepareTrustedInvocationStorage(
       await journal.captureStorageMount();
       await mount(tools, ['-o', 'remount,bind,rw,nosuid,nodev,noexec', directory]);
     }
+    const info = await fs.readFile('/proc/self/mountinfo', 'utf8');
+    propagation.mounts.rootAfterLayout = observeStorageMount(info, root);
+    propagation.mounts.artifactsAfterLayout = observeStorageMount(info, artifacts);
+    propagation.mounts.runsAfterLayout = observeStorageMount(info, path.join(root, 'runs'));
+    propagation.mounts.rootfsAfterLayout = observeStorageMount(info, path.join(root, 'cloud-hypervisor-rootfs'));
+    report.propagation(propagation);
   });
   let snapshotMount: string | undefined;
   const snapshotBindCalls = new Map<string, number>();
@@ -244,22 +257,43 @@ export async function prepareTrustedInvocationStorage(
         !['output', 'runtime', 'session-handoff', 'session-state'].includes(path.basename(candidate)))) {
       throw new Error('Writable paths escape invocation storage');
     }
-    await journal.verifyStorage();
-    const info = (await fs.readFile('/proc/self/mountinfo', 'utf8')).trim().split('\n');
-    const verifyOptions = (mountPoint: string, mode: 'rw' | 'ro', executable: boolean): void => {
-      assertPrivateStorageMount(info.join('\n'), mountPoint);
-      const matches = info.filter((line) => parseMountInfoLine(line).mountPoint === mountPoint);
-      const options = matches[0]?.split(' ')[5].split(',') ?? [];
-      if (matches.length !== 1 || ![mode, 'nosuid', 'nodev'].every((flag) => options.includes(flag)) ||
-        options.includes('noexec') === executable) {
-        throw markHostPreflightError(new Error('Invocation storage mount options changed'), 'storage-mount-options');
-      }
-    };
-    for (const mountPoint of [root, directory, path.join(root, 'runs'), path.join(root, 'cloud-hypervisor-rootfs')]) {
-      verifyOptions(mountPoint, 'rw', false);
+    const verification = report.fork('storage-verification');
+    for (const slot of ['rootVerified', 'invocationVerified', 'runsVerified', 'rootfsVerified',
+      'artifactsVerified', 'snapshotVerified'] as const) propagation.mounts[slot] = null;
+    report.propagation(propagation);
+    verification.propagation(propagation);
+    await verification.check('journal-identity', () => journal.verifyStorage());
+    const info = await verification.check('mountinfo-read', () => fs.readFile('/proc/self/mountinfo', 'utf8'));
+    const targets: {
+      target: string; slot: StoragePropagationSlot; check: HostPreflightCheck;
+      mode: 'rw' | 'ro'; executable: boolean;
+    }[] = [
+      { target: root, slot: 'rootVerified', check: 'allocation-root', mode: 'rw', executable: false },
+      { target: directory, slot: 'invocationVerified', check: 'invocation-state', mode: 'rw', executable: false },
+      { target: path.join(root, 'runs'), slot: 'runsVerified', check: 'run-storage', mode: 'rw', executable: false },
+      { target: path.join(root, 'cloud-hypervisor-rootfs'), slot: 'rootfsVerified', check: 'rootfs-preparation',
+        mode: 'rw', executable: false },
+      { target: artifacts, slot: 'artifactsVerified', check: 'artifact-parent', mode: 'rw', executable: true },
+      ...(snapshotMount ? [{ target: snapshotMount, slot: 'snapshotVerified' as const, check: 'sealed-snapshot' as const,
+        mode: 'ro' as const, executable: true }] : []),
+    ];
+    verification.checkSync('mountinfo-observation', () => {
+      for (const { target, slot } of targets) propagation.mounts[slot] = observeStorageMount(info, target);
+      report.propagation(propagation);
+      verification.propagation(propagation);
+    });
+    if (!snapshotMount) verification.notRequired('sealed-snapshot');
+    for (const { target, slot, check, mode, executable } of targets) {
+      verification.checkSync(check, () => {
+        assertPrivateStorageObservation(propagation.mounts[slot]!);
+        const matches = info.trim().split('\n').filter((line) => parseMountInfoLine(line).mountPoint === target);
+        const options = matches[0]?.split(' ')[5].split(',') ?? [];
+        if (matches.length !== 1 || ![mode, 'nosuid', 'nodev'].every((flag) => options.includes(flag)) ||
+          options.includes('noexec') === executable) {
+          throw markHostPreflightError(new Error('Invocation storage mount options changed'), 'storage-mount-options');
+        }
+      });
     }
-    verifyOptions(artifacts, 'rw', true);
-    if (snapshotMount) verifyOptions(snapshotMount, 'ro', true);
     for (const candidate of [root, directory, ...writable]) {
       const identity = await fs.lstat(candidate);
       if (!identity.isDirectory() || identity.isSymbolicLink()) {
@@ -296,9 +330,18 @@ export async function prepareTrustedInvocationStorage(
         if (directory !== plan.invocationHostDir || bytes !== profile.writableStorageBytes ||
           uid !== profile.uid || gid !== profile.gid) throw new Error('Invocation state identity mismatch');
         await journal.prepareStorageMount(directory);
+        const before = await fs.readFile('/proc/self/mountinfo', 'utf8');
+        propagation.sourceBeforeBind = observeCoveringPropagation(before, state);
+        propagation.destinationBeforeBind = observeCoveringPropagation(before, directory);
+        propagation.mounts.invocationBeforeBind = observeStorageMount(before, directory);
+        report.propagation(propagation);
         await mount(tools, ['--bind', state, directory]);
+        propagation.mounts.invocationAfterBind = observeStorageMount(await fs.readFile('/proc/self/mountinfo', 'utf8'), directory);
+        report.propagation(propagation);
         await journal.captureStorageMount();
         await mount(tools, ['-o', 'remount,bind,rw,nosuid,nodev,noexec', directory]);
+        propagation.mounts.invocationAfterRemount = observeStorageMount(await fs.readFile('/proc/self/mountinfo', 'utf8'), directory);
+        report.propagation(propagation);
       },
       verifyStorage,
       createArtifactSnapshot: async (sources, copy, capture) => {

@@ -240,6 +240,29 @@ for (const role of ['script', 'agent']) {
 const failedSpawns = new WeakSet();
 const hostPreflightSchema = require('../../src/cloud-hypervisor/host-preflight-schema.json');
 const mountTopologySchema = require('../../src/cloud-hypervisor/mount-topology-schema.json');
+const storagePropagationSchema = require('../../src/cloud-hypervisor/storage-propagation-schema.json');
+
+function safeStoragePropagation(value) {
+  if (!value || JSON.stringify(Object.keys(value).sort()) !==
+      '["destinationBeforeBind","invocationLocation","mounts","schemaVersion","sourceBeforeBind"]'
+      || value.schemaVersion !== 1 || !storagePropagationSchema.location.includes(value.invocationLocation)
+      || [value.sourceBeforeBind, value.destinationBeforeBind].some((item) =>
+        item !== null && !storagePropagationSchema.propagation.includes(item))
+      || !value.mounts || JSON.stringify(Object.keys(value.mounts).sort()) !==
+        JSON.stringify([...storagePropagationSchema.mounts].sort())) return undefined;
+  const mounts = {};
+  for (const key of storagePropagationSchema.mounts) {
+    const item = value.mounts[key];
+    if (item !== null && (!Array.isArray(item) || item.length !== 4
+        || JSON.stringify(Object.keys(item)) !== '["0","1","2","3"]'
+        || item.some((field, index) => !storagePropagationSchema.observation[index].includes(field)))) return undefined;
+    mounts[key] = item === null ? null : [...item];
+  }
+  return {
+    schemaVersion: 1, invocationLocation: value.invocationLocation,
+    sourceBeforeBind: value.sourceBeforeBind, destinationBeforeBind: value.destinationBeforeBind, mounts,
+  };
+}
 
 function safeMountTopology(value) {
   if (!value || JSON.stringify(Object.keys(value).sort()) !== '["after","before","bindCalls","schemaVersion"]'
@@ -265,6 +288,7 @@ function safeMountTopology(value) {
 function safeHostPreflight(value) {
   const keys = ['checks', 'schemaVersion', 'scope'];
   if (value && Object.prototype.hasOwnProperty.call(value, 'mountTopology')) keys.push('mountTopology');
+  if (value && Object.prototype.hasOwnProperty.call(value, 'storagePropagation')) keys.push('storagePropagation');
   if (!value || JSON.stringify(Object.keys(value).sort()) !== JSON.stringify(keys.sort())
       || value.schemaVersion !== 1
       || typeof value.scope !== 'string'
@@ -289,7 +313,12 @@ function safeHostPreflight(value) {
   }
   const mountTopology = value.mountTopology === undefined ? undefined : safeMountTopology(value.mountTopology);
   if (Object.prototype.hasOwnProperty.call(value, 'mountTopology') && !mountTopology) return undefined;
-  return { schemaVersion: 1, scope: value.scope, checks, ...(mountTopology ? { mountTopology } : {}) };
+  const storagePropagation = value.storagePropagation === undefined ? undefined : safeStoragePropagation(value.storagePropagation);
+  if (Object.prototype.hasOwnProperty.call(value, 'storagePropagation') && !storagePropagation) return undefined;
+  return {
+    schemaVersion: 1, scope: value.scope, checks, ...(mountTopology ? { mountTopology } : {}),
+    ...(storagePropagation ? { storagePropagation } : {}),
+  };
 }
 
 function safeStartupChecklist(value) {
@@ -325,6 +354,7 @@ function safeEnclaveStartup(value) {
   if (value && Object.prototype.hasOwnProperty.call(value, 'hostPreflight')) keys.push('hostPreflight');
   if (value && Object.prototype.hasOwnProperty.call(value, 'startupChecks')) keys.push('startupChecks');
   if (value && Object.prototype.hasOwnProperty.call(value, 'mountTopology')) keys.push('mountTopology');
+  if (value && Object.prototype.hasOwnProperty.call(value, 'storagePropagation')) keys.push('storagePropagation');
   if (!value || JSON.stringify(Object.keys(value).sort()) !== JSON.stringify(keys.sort())
       || value.schemaVersion !== 1 || value.perspective !== 'awf-host'
       || ![
@@ -359,6 +389,8 @@ function safeEnclaveStartup(value) {
   if (Object.prototype.hasOwnProperty.call(value, 'startupChecks') && !startupChecks) return undefined;
   const mountTopology = value.mountTopology === undefined ? undefined : safeMountTopology(value.mountTopology);
   if (Object.prototype.hasOwnProperty.call(value, 'mountTopology') && !mountTopology) return undefined;
+  const storagePropagation = value.storagePropagation === undefined ? undefined : safeStoragePropagation(value.storagePropagation);
+  if (Object.prototype.hasOwnProperty.call(value, 'storagePropagation') && !storagePropagation) return undefined;
   return {
     schemaVersion: 1, perspective: 'awf-host', stage: value.stage,
     readiness: value.readiness, code: value.code, attempts: value.attempts,
@@ -366,6 +398,7 @@ function safeEnclaveStartup(value) {
     ...(hostPreflight ? { hostPreflight } : {}),
     ...(startupChecks ? { startupChecks } : {}),
     ...(mountTopology ? { mountTopology } : {}),
+    ...(storagePropagation ? { storagePropagation } : {}),
   };
 }
 

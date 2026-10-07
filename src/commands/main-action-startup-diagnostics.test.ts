@@ -8,7 +8,9 @@ import type { WrapperConfig } from '../types';
 import { HostPreflightReporter } from '../cloud-hypervisor/host-preflight-progress';
 import schema from '../cloud-hypervisor/host-preflight-schema.json';
 import type { HostPreflightScope, HostPreflightCheck } from '../cloud-hypervisor/host-preflight-progress';
-import { observeMountTopology, type MountTopologyEvidence } from '../cloud-hypervisor/mount-topology';
+import {
+  observeMountTopology, type MountTopologyEvidence, createStoragePropagationEvidence,
+} from '../cloud-hypervisor/mount-topology';
 
 describe('startup progress descriptor publication', () => {
   let directory: string;
@@ -114,6 +116,13 @@ describe('startup progress descriptor publication', () => {
         snapshotIds: 'repeated', snapshotParentStack: 'unknown' },
     };
     active.topology(mountTopology);
+    const storagePropagation = createStoragePropagationEvidence('/PRIVATE/root', '/PRIVATE/invocation');
+    storagePropagation.sourceBeforeBind = 'shared-slave';
+    storagePropagation.destinationBeforeBind = 'shared-slave';
+    for (const key of Object.keys(storagePropagation.mounts) as (keyof typeof storagePropagation.mounts)[]) {
+      storagePropagation.mounts[key] = [2, 3, 2, 1];
+    }
+    active.propagation(storagePropagation);
     testHelpers.writeStartupFailureDiagnostic(config, new Error('x'.repeat(1022)));
     const bytes = fs.readFileSync(recordPath);
     expect(bytes.length).toBeLessThanOrEqual(16 * 1024);
@@ -124,6 +133,8 @@ describe('startup progress descriptor publication', () => {
     expect(record.enclaveStartup.startupChecks.ready).toBe(false);
     expect(record.enclaveStartup.hostPreflight).toBeUndefined();
     expect(record.enclaveStartup.mountTopology).toEqual(mountTopology);
+    expect(record.enclaveStartup.storagePropagation).toEqual(storagePropagation);
+    expect(record.message).toBe('Enclave startup failure exceeded diagnostic message bound');
     expect(bytes.toString('utf8')).not.toContain('/PRIVATE');
     expect(bytes.toString('utf8')).not.toContain('PRIVATE_SENTINEL');
   });

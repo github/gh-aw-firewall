@@ -6,6 +6,7 @@ import {
   assertEnclaveStartupChecklistComplete, getEnclaveStartupProgress,
   initializeEnclaveStartupProgress, resetEnclaveStartupChecklist, updateEnclaveStartupProgress,
 } from './startup-progress';
+import { createStoragePropagationEvidence } from '../cloud-hypervisor/mount-topology';
 
 function config(): WrapperConfig {
   return { enclaves: normalizeEnclavesConfig([{ script: {}, repos: [] }]) } as WrapperConfig;
@@ -13,8 +14,9 @@ function config(): WrapperConfig {
 
 describe('standard enclave startup checklist', () => {
   it.each([
-    ...(['artifact-snapshot', 'storage-mount-capture'] as const).flatMap((scope) =>
-      Object.keys(schema.scopes[scope]).map((id) => ({ scope, id: id as HostPreflightCheck }))),
+    ...(['artifact-snapshot', 'storage-mount-capture', 'storage-verification'] as const).flatMap((scope) =>
+      Object.keys(schema.scopes[scope]).filter((id) => id !== 'sealed-snapshot')
+        .map((id) => ({ scope, id: id as HostPreflightCheck }))),
     ...(['bounded-runtime', 'bounded-artifacts'] as const).flatMap((scope) =>
       (['storage-propagation-set', 'storage-propagation'] as const).map((id) => ({ scope, id }))),
   ])(
@@ -36,7 +38,8 @@ describe('standard enclave startup checklist', () => {
         .rejects.toThrow(/incomplete required checks/);
       expect(getEnclaveStartupProgress(wrapper)?.startupChecks?.ready).toBe(false);
       expect(() => snapshot.notRequired(scope === 'artifact-snapshot' ? 'readonly-exec' :
-        scope === 'storage-mount-capture' ? 'canonical-path' : 'storage-propagation'))
+        scope === 'storage-mount-capture' ? 'canonical-path' :
+          scope === 'storage-verification' ? 'allocation-root' : 'storage-propagation'))
         .toThrow(/cannot be skipped/);
       await snapshot.check(id, () => undefined);
       await startup.check('readiness', () => assertEnclaveStartupChecklistComplete(wrapper, true));
@@ -58,6 +61,25 @@ describe('standard enclave startup checklist', () => {
     expect(getEnclaveStartupProgress(wrapper)?.mountTopology?.bindCalls).toBe('one');
     resetEnclaveStartupChecklist(wrapper);
     expect(getEnclaveStartupProgress(wrapper)?.mountTopology).toBeUndefined();
+  });
+
+  it('retains storage propagation after cleanup, deep copies tuples, and resets all earlier evidence', () => {
+    const wrapper = config();
+    const publish = (hostPreflight: Parameters<typeof updateEnclaveStartupProgress>[1]['hostPreflight']) =>
+      updateEnclaveStartupProgress(wrapper, { hostPreflight });
+    const report = new HostPreflightReporter('storage-verification', publish);
+    const value = createStoragePropagationEvidence('/SECRET/root', '/SECRET/invocation');
+    value.mounts.invocationVerified = [1, 1, 1, 0];
+    report.propagation(value);
+    value.mounts.invocationVerified[1] = 0;
+    expect(getEnclaveStartupProgress(wrapper)?.storagePropagation?.mounts.invocationVerified?.[1]).toBe(1);
+    const exposed = getEnclaveStartupProgress(wrapper)!;
+    exposed.storagePropagation!.mounts.invocationVerified![1] = 2;
+    exposed.hostPreflight!.storagePropagation!.mounts.invocationVerified![1] = 2;
+    new HostPreflightReporter('bounded-cleanup', publish);
+    expect(getEnclaveStartupProgress(wrapper)?.storagePropagation?.mounts.invocationVerified?.[1]).toBe(1);
+    resetEnclaveStartupChecklist(wrapper);
+    expect(getEnclaveStartupProgress(wrapper)?.storagePropagation).toBeUndefined();
   });
 
   it('retains earlier storage evidence when actual connectivity checks begin and blocks readiness on either failure', async () => {

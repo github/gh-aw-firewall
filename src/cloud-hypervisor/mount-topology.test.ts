@@ -1,4 +1,7 @@
-import { assertPrivateStorageMount, observeMountTopology, cloneMountTopology, type MountTopologyEvidence } from './mount-topology';
+import {
+  assertPrivateStorageMount, observeMountTopology, cloneMountTopology, type MountTopologyEvidence,
+  observeStorageMount, observeCoveringPropagation, createStoragePropagationEvidence, cloneStoragePropagation,
+} from './mount-topology';
 import { hostPreflightReason } from './host-preflight-progress';
 import schema from './mount-topology-schema.json';
 
@@ -8,6 +11,63 @@ const snapshot = `${artifacts}/run-sensitive`;
 const line = (id: number, parent: number, backing: string, target: string, optional = '') =>
   `${id} ${parent} 0:50 ${backing} ${target} rw ${optional}- tmpfs awf-enclave-invocation rw\n`;
 const base = (optional = '') => line(100, 1, '/', root, optional) + line(101, 100, '/artifacts', artifacts, optional);
+
+describe('bounded storage propagation evidence', () => {
+  it.each([
+    ['', [0, 5, 0, 2]],
+    [base(), [1, 0, 1, 0]],
+    [base('shared:3 master:2 '), [1, 3, 1, 0]],
+    [base() + base(), [2, 5, 2, 0]],
+    [base() + line(103, 1, '/', root), [2, 5, 1, 0]],
+    [base() + base() + line(103, 1, '/', root), [2, 5, 3, 0]],
+    [line(100, 1, '/', `${root}/.`), [0, 5, 0, 1]],
+  ])('separates row count, propagation, IDs and path spelling', (text, expected) => {
+    expect(observeStorageMount(text as string, root)).toEqual(expected);
+  });
+
+  it('decodes escaped exact paths and ignores unknown optional tags', () => {
+    expect(observeStorageMount(line(100, 1, '/', root.replace('SECRET', '\\123ECRET'), 'future:tag '), root))
+      .toEqual([1, 0, 1, 0]);
+  });
+
+  it('finds source and destination covering propagation without selecting among stacked parents', () => {
+    const text = line(1, 1, '/', '/', 'shared:3 ') + base() +
+      line(200, 1, '/', '/private/SECRET-sibling', 'master:2 ');
+    expect(observeCoveringPropagation(text, `${root}/state`)).toBe('private');
+    expect(observeCoveringPropagation(text, '/outside/invocation')).toBe('shared');
+    expect(observeCoveringPropagation(text, '/private/SECRET-sibling/state')).toBe('slave');
+    expect(observeCoveringPropagation(text + line(201, 1, '/', root, 'shared:4 '), `${root}/state`)).toBe('unknown');
+    expect(observeCoveringPropagation(text + line(202, 1, '/', '/', 'shared:4 '), `${root}/state`)).toBe('unknown');
+    expect(observeCoveringPropagation('', '/outside')).toBe('unknown');
+  });
+
+  it('bounds observations and deep-copies every tuple without paths or mount identifiers', () => {
+    const evidence = createStoragePropagationEvidence(root, '/outside/SECRET');
+    evidence.mounts.rootAfterPrivate = observeStorageMount(base(), root);
+    const copy = cloneStoragePropagation(evidence);
+    copy.mounts.rootAfterPrivate![1] = 1;
+    expect(evidence.mounts.rootAfterPrivate![1]).toBe(0);
+    expect(JSON.stringify(copy)).not.toMatch(/SECRET|\/outside|0:50/);
+    expect(createStoragePropagationEvidence(root, `${root}/state`).invocationLocation).toBe('inside');
+    expect(createStoragePropagationEvidence(root, `${root}-sibling/state`).invocationLocation).toBe('outside');
+  });
+
+  it('rejects extra keys, sparse or oversized tuples, omitted slots and arbitrary strings', () => {
+    const evidence = createStoragePropagationEvidence(root, '/outside/SECRET');
+    const sparse = [1, 0, 1, 0];
+    delete sparse[1];
+    const malformed = [
+      { ...evidence, path: 'SECRET' }, { ...evidence, sourceBeforeBind: 'SECRET' },
+      { ...evidence, mounts: {} }, { ...evidence, mounts: { ...evidence.mounts, path: 'SECRET' } },
+      { ...evidence, mounts: { ...evidence.mounts, rootVerified: [1, 'SECRET', 1, 0] } },
+      { ...evidence, mounts: { ...evidence.mounts, rootVerified: [1, 0, 1, 0, 'SECRET'] } },
+      { ...evidence, mounts: { ...evidence.mounts, rootVerified: sparse } },
+    ];
+    for (const value of malformed) {
+      expect(() => cloneStoragePropagation(value as typeof evidence)).toThrow(/Invalid bounded storage/);
+    }
+  });
+});
 
 describe('bounded snapshot topology evidence', () => {
   it('accepts only a uniquely observed private mount without changing the table', () => {
