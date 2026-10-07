@@ -15,7 +15,7 @@ import {
 } from './trusted-enclave-storage';
 import { CLOUD_HYPERVISOR_ENCLAVE_RESOURCE_PROFILES as profiles } from './workload-profile';
 import type { CloudHypervisorHostToolPaths } from './preflight';
-import { HostPreflightReporter, type HostPreflightProgress } from './host-preflight-progress';
+import { HostPreflightReporter, hostPreflightReason, type HostPreflightProgress } from './host-preflight-progress';
 
 jest.mock('execa');
 jest.mock('./artifact-snapshot', () => ({
@@ -365,7 +365,7 @@ describe('invocation-wide kernel-enforced storage', () => {
     expect(journal.closeStorage).toHaveBeenCalledWith(tools.umount);
   });
 
-  it.each(['privatized', 'privatize-ignored', 'remount-shared', 'privatize-denied'])(
+  it.each(['privatized', 'privatize-ignored', 'remount-shared', 'privatize-denied', 'privatize-command-failed'])(
     'privatizes only the captured invocation mount beneath a shared destination (%s)', async (outcome) => {
       const plan = {
         runId: 'a'.repeat(32), entryId: 'script', invocationId: 'b'.repeat(32), executorKind: 'script',
@@ -394,6 +394,7 @@ describe('invocation-wide kernel-enforced storage', () => {
         if (args[0] === '--bind' && args[2] === plan.invocationHostDir) table += shared;
         if (args[0] === '--make-private' && args[1] === plan.invocationHostDir) {
           if (outcome === 'privatize-denied') throw failure;
+          if (outcome === 'privatize-command-failed') return { exitCode: 32, stderr: '/private/SECRET' };
           if (outcome !== 'privatize-ignored') table = table.replace(shared, row(plan.invocationHostDir));
         }
         if (outcome === 'remount-shared' && args[0] === '-o' && args[2] === plan.invocationHostDir) {
@@ -409,13 +410,22 @@ describe('invocation-wide kernel-enforced storage', () => {
       const mounted = storage.dependencies.mountTmpfs!(plan.invocationHostDir, profiles.script.writableStorageBytes,
         profiles.script.uid, profiles.script.gid, tools);
       if (outcome === 'privatized') await expect(mounted).resolves.toBeUndefined();
-      else if (outcome === 'privatize-denied') await expect(mounted).rejects.toBe(failure);
-      else await expect(mounted).rejects.toThrow('propagation is not private');
+      else {
+        const error = await mounted.then(() => null, (reason: unknown) => reason);
+        if (outcome === 'privatize-denied') {
+          expect(error).toBe(failure);
+          expect(hostPreflightReason(error)).toBe('EPERM');
+        } else if (outcome === 'privatize-command-failed') {
+          expect(error).toMatchObject({ message: expect.stringContaining('Invocation storage mount failed') });
+          expect(hostPreflightReason(error)).toBe('command-failed');
+        } else expect(error).toMatchObject({ message: expect.stringContaining('propagation is not private') });
+      }
       const commands = command.mock.calls.map(([, args]) => args as string[]);
-      expect(commands.slice(0, outcome === 'privatize-denied' ? 2 : 3)).toEqual([
+      const mountCommandFailed = ['privatize-denied', 'privatize-command-failed'].includes(outcome);
+      expect(commands.slice(0, mountCommandFailed ? 2 : 3)).toEqual([
         ['--bind', `${root}/state`, plan.invocationHostDir],
         ['--make-private', plan.invocationHostDir],
-        ...(outcome === 'privatize-denied' ? [] : [['-o', 'remount,bind,rw,nosuid,nodev,noexec', plan.invocationHostDir]]),
+        ...(!mountCommandFailed ? [['-o', 'remount,bind,rw,nosuid,nodev,noexec', plan.invocationHostDir]] : []),
       ]);
       expect(commands.filter((args) => args[0].startsWith('--make-'))).toEqual([['--make-private', plan.invocationHostDir]]);
       expect((journal.captureStorageMount as jest.Mock).mock.invocationCallOrder[0])
@@ -426,7 +436,7 @@ describe('invocation-wide kernel-enforced storage', () => {
       expect(evidence).toMatchObject({ sourceBeforeBind: 'private', destinationBeforeBind: 'shared' });
       expect(evidence.mounts.invocationAfterBind).toEqual([1, 1, 1, 0]);
       expect(evidence.mounts.invocationAfterRemount).toEqual(
-        outcome === 'privatized' ? [1, 0, 1, 0] : outcome === 'privatize-denied' ? null : [1, 1, 1, 0]);
+        outcome === 'privatized' ? [1, 0, 1, 0] : mountCommandFailed ? null : [1, 1, 1, 0]);
       expect(table).toContain('/ / rw shared:17 ');
       expect(JSON.stringify(published)).not.toMatch(/SECRET|invocations\/|shared:29/);
       await storage.close();

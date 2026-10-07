@@ -1550,16 +1550,17 @@ a shared mount, the kernel may already have propagated a copy to destination
 peers at bind time; those copies keep the shared parent's unmount propagation
 and are not adopted or selected.
 
+A failed mount command remains a tool failure: a nonzero exit is reported as
+`command-failed`, while an execution error retains its allowlisted errno (for
+example, `EPERM`). `storage-mount-propagation` specifically reports a mount
+command that succeeds but leaves the invocation mount shared, including a
+subsequent remount that re-shares it.
+
 The opt-in Linux shared-destination cases now expect the invocation to be
 shared after bind, private after remount and at verification, a single-entry
 sealed snapshot, an unchanged shared destination, and successful allocation
 cleanup. A new release and release-pinned environment probe are required to
 establish whether live startup progresses beyond this guard.
-
-A future published release containing these diagnostics and an authorized
-release-pinned probe are required to observe the original runner. v0.28.43
-is immutable. This diagnostic change does not claim that a hypothesis is
-confirmed or that enclave startup is repaired.
 
 Host-tool failures distinguish `tool-not-found`, unsafe ancestor/file
 symlink, ownership, write permissions, file type, and allowlisted access
