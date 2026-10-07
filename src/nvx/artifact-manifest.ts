@@ -1,8 +1,8 @@
 import { version as AWF_VERSION } from '../../package.json';
 
-export const NVX_RELEASE_TAG = 'v0.1.0-dev.d561c4300ebe';
-export const NVX_COMMIT = 'd561c4300ebe854baba5d154056ead6f9d462047';
-export const NVX_OPENVMM_COMMIT = '0bc357bbcf3a654b63dfb51f1103c5751bf3d31f';
+export const NVX_RELEASE_TAG = 'v0.1.0-dev.be859aa77ffa';
+export const NVX_COMMIT = 'be859aa77ffa7a20f9ef50f68c5386acdfca9955';
+export const NVX_OPENVMM_COMMIT = '762bc1c7a203b16aee752324d6a4ab0bde1a713a';
 export const NVX_ARTIFACT_RELEASE_TAG = `v${AWF_VERSION}`;
 export const NVX_ARTIFACT_REPOSITORY = 'github/gh-aw-firewall';
 export const NVX_ARTIFACT_SIGNER_WORKFLOW =
