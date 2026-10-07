@@ -70,6 +70,32 @@ describe('upstream-http', () => {
     expect(handleUpstreamResponse).toHaveBeenCalled();
   });
 
+  test('does not let a scoped auto request escape through the global fallback chain', () => {
+    const proxyReq = { on: jest.fn(), write: jest.fn(), end: jest.fn() };
+    const handleUpstreamResponse = jest.fn();
+    const getFallbackModels = jest.fn(() => ['gpt-5.4-mini']);
+    const sendUpstreamRequest = createSendUpstreamRequest({
+      https: { request: jest.fn((_options, callback) => {
+        callback({ statusCode: 503, headers: {} });
+        return proxyReq;
+      }) },
+      proxyAgent: {},
+      handleUpstreamResponse,
+      sleep: jest.fn(),
+      otel: { endSpanError: jest.fn() },
+      handleRequestError: jest.fn(),
+      metrics: { increment: jest.fn(), observe: jest.fn() },
+      getFallbackModels,
+    });
+    sendUpstreamRequest({}, createContext({
+      body: Buffer.from('{"model":"claude-sonnet-4.6"}'),
+      upstreamPath: '/v1/messages',
+      req: { method: 'POST', awfScopedAuto: true },
+    }));
+    expect(getFallbackModels).not.toHaveBeenCalled();
+    expect(handleUpstreamResponse.mock.calls[0][2].onModelFallback).toBeNull();
+  });
+
   test('rebuilds the wire API request for the selected ordered fallback model', () => {
     replaceRuntimeModels('copilot', [
       { id: 'claude-sonnet-5', supportedEndpoints: ['/chat/completions'] },

@@ -25,15 +25,16 @@ describe('makeModelBodyTransform', () => {
     resetModelCacheState();
   });
 
-  it('should return null when MODEL_ALIASES is not configured', () => {
-    // When AWF_MODEL_ALIASES is not set, MODEL_ALIASES is null and
-    // makeModelBodyTransform returns null (no transform applied).
+  it('should leave ordinary models unchanged when MODEL_ALIASES is not configured', async () => {
     if (MODEL_ALIASES) {
       // If the env var happens to be set in this test environment, skip.
       return;
     }
     const transform = makeModelBodyTransform('copilot');
-    expect(transform).toBeNull();
+    await expect(transform(
+      Buffer.from('{"model":"gpt-4o"}'),
+      { method: 'POST', url: '/chat/completions' },
+    )).resolves.toBeNull();
   });
 
   it('should rewrite model field in POST body when aliases are configured', () => {

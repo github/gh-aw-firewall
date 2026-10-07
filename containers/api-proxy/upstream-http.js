@@ -137,7 +137,7 @@ function createSendUpstreamRequest({
     // Resolve the next fallback model up front so the response handler only
     // buffers error bodies when a fallback is actually possible.
     let onModelFallback = null;
-    if (!isRoutingClassifier) {
+    if (!isRoutingClassifier && !req.awfScopedAuto) {
       const chain = getFallbackModelsDep();
       const current = chain.length > 0 ? getRequestModel(body, upstreamPath) : null;
       if (current) {
