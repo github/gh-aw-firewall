@@ -1521,12 +1521,40 @@ trust requirement, propagation operation, or cleanup policy is relaxed.
 
 The opt-in Linux suite now varies the allocation parent and **separate
 invocation destination** independently, inside disposable private namespaces.
-Shared-destination cases expect rejection at `invocation-state`, private
-allocation/local mounts, a shared invocation after bind and remount, no
-snapshot attempt, and successful ordinary allocation cleanup. This closes
-the earlier fixture gap that left the invocation destination under a private
-namespace while varying only the allocation parent. These tests do not run
-on macOS and are not guest acceptance.
+This closes the earlier fixture gap that left the invocation destination under
+a private namespace while varying only the allocation parent. These tests do
+not run on macOS and are not guest acceptance.
+
+### Private invocation state mount
+
+The v0.28.44
+[probe run 37576714531](https://github.com/github/gh-aw-firewall/actions/runs/37576714531)
+failed only `storage-verification/invocation-state` with
+`storage-mount-propagation`; cleanup passed. The evidence was
+`invocationLocation: outside`, `sourceBeforeBind: private`,
+`destinationBeforeBind: shared`, `invocationBeforeBind: [0,5,0,2]`, and one
+exact shared invocation entry (`[1,1,1,0]`) after bind, after remount, and at
+verification. Root, artifacts, runs, and rootfs were unique private entries
+after layout and at verification. That supports the first hypothesis and
+disproves the other four for this failure.
+
+Production `mountTmpfs` therefore keeps the identity-journaled bind, then
+re-verifies the journal and executes non-recursive
+`mount --make-private <invocation-state>` before the restrictive remount.
+`invocationAfterBind` still records the inherited class, while
+`invocationAfterRemount` must be one exact private entry; otherwise setup
+fails with `storage-mount-propagation` and ordinary journal cleanup unmounts
+the captured identity. The shared destination's covering mount, the host
+namespace, and every other mount are left unchanged. As with any bind beneath
+a shared mount, the kernel may already have propagated a copy to destination
+peers at bind time; those copies keep the shared parent's unmount propagation
+and are not adopted or selected.
+
+The opt-in Linux shared-destination cases now expect the invocation to be
+shared after bind, private after remount and at verification, a single-entry
+sealed snapshot, an unchanged shared destination, and successful allocation
+cleanup. A new release and release-pinned environment probe are required to
+establish whether live startup progresses beyond this guard.
 
 A future published release containing these diagnostics and an authorized
 release-pinned probe are required to observe the original runner. v0.28.43

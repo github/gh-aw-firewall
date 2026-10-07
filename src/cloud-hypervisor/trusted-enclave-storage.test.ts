@@ -257,7 +257,7 @@ describe('invocation-wide kernel-enforced storage', () => {
   });
 
   it.each([
-    { hypothesis: 'shared destination', fault: 'invocation-shared', slot: 'invocationVerified', check: 'invocation-state',
+    { hypothesis: 'invocation re-shared after privatization', fault: 'invocation-shared', slot: 'invocationVerified', check: 'invocation-state',
       expected: [1, 1, 1, 0] },
     { hypothesis: 'root propagation changed', fault: 'root-shared', slot: 'rootVerified', check: 'allocation-root',
       expected: [1, 1, 1, 0] },
@@ -271,8 +271,6 @@ describe('invocation-wide kernel-enforced storage', () => {
       expected: [0, 5, 0, 2] },
     { hypothesis: 'noncanonical target spelling', fault: 'alias', slot: 'invocationVerified', check: 'invocation-state',
       expected: [0, 5, 0, 1] },
-    { hypothesis: 'remount changed invocation propagation', fault: 'remount-shared', slot: 'invocationVerified',
-      check: 'invocation-state', expected: [1, 1, 1, 0] },
     { hypothesis: 'verification read denied', fault: 'read', slot: 'invocationVerified',
       check: 'mountinfo-read', expected: null },
     { hypothesis: 'verification table malformed', fault: 'malformed', slot: 'invocationVerified',
@@ -305,11 +303,10 @@ describe('invocation-wide kernel-enforced storage', () => {
     let table = local + '1 1 8:1 / / rw shared:17 - ext4 SECRET rw\n';
     const read = jest.spyOn(fs, 'readFile').mockImplementation(async () => table);
     (execa as unknown as jest.Mock).mockImplementation(async (_tool, args: string[]) => {
-      if (args[0] === '--bind' && args[2] === plan.invocationHostDir) {
-        table += fault === 'invocation-shared' ? row(905, plan.invocationHostDir, 'shared:29 ') : invocationLine;
-      }
-      if (fault === 'remount-shared' && args[0] === '-o' && args[2] === plan.invocationHostDir) {
-        table = table.replace(invocationLine, row(905, plan.invocationHostDir, 'shared:29 '));
+      // The destination's covering mount is shared, so the bind inherits shared propagation.
+      if (args[0] === '--bind' && args[2] === plan.invocationHostDir) table += row(905, plan.invocationHostDir, 'shared:29 ');
+      if (args[0] === '--make-private' && args[1] === plan.invocationHostDir) {
+        table = table.replace(row(905, plan.invocationHostDir, 'shared:29 '), invocationLine);
       }
       return { exitCode: 0, stderr: '' };
     });
@@ -325,9 +322,11 @@ describe('invocation-wide kernel-enforced storage', () => {
         rootAfterPrivate: [1, 0, 1, 0],
         rootAfterLayout: [1, 0, 1, 0],
         invocationBeforeBind: [0, 5, 0, 2],
-        invocationAfterBind: [1, fault === 'invocation-shared' ? 1 : 0, 1, 0],
+        invocationAfterBind: [1, 1, 1, 0],
+        invocationAfterRemount: [1, 0, 1, 0],
       },
     });
+    if (fault === 'invocation-shared') table = table.replace(invocationLine, row(905, plan.invocationHostDir, 'shared:29 '));
     if (fault === 'root-shared') table = table.replace(rootLine, row(901, root, 'shared:29 '));
     if (fault === 'runs-slave') table = table.replace(runsLine, row(903, `${root}/runs`, 'master:29 '));
     if (fault === 'duplicate') table += row(906, plan.invocationHostDir);
@@ -356,7 +355,7 @@ describe('invocation-wide kernel-enforced storage', () => {
       const evidence = last.storagePropagation!;
       expect(evidence.mounts[slot as keyof typeof evidence.mounts]).toEqual(expected);
       expect(evidence.mounts.artifactsVerified).toEqual([1, 0, 1, 0]);
-      if (fault === 'remount-shared') expect(evidence.mounts.invocationAfterRemount).toEqual([1, 1, 1, 0]);
+      expect(evidence.mounts.invocationAfterRemount).toEqual([1, 0, 1, 0]);
     } else {
       expect(published.filter((value) => value.storagePropagation).pop()!.storagePropagation?.mounts.invocationVerified)
         .toBeNull();
@@ -365,6 +364,75 @@ describe('invocation-wide kernel-enforced storage', () => {
     await storage.close();
     expect(journal.closeStorage).toHaveBeenCalledWith(tools.umount);
   });
+
+  it.each(['privatized', 'privatize-ignored', 'remount-shared', 'privatize-denied'])(
+    'privatizes only the captured invocation mount beneath a shared destination (%s)', async (outcome) => {
+      const plan = {
+        runId: 'a'.repeat(32), entryId: 'script', invocationId: 'b'.repeat(32), executorKind: 'script',
+        invocationHostDir: '/private/SECRET/invocations/script/invocation',
+      } as HostExecutorInvocationPlan;
+      const root = hostExecutorStorageDirectory(hostExecutorVmRunId(plan));
+      const journal = {
+        prepareStorage: jest.fn(), captureStorageDirectory: jest.fn(), prepareStorageMount: jest.fn(),
+        captureStorageMount: jest.fn(), verifyStorage: jest.fn(), closeStorage: jest.fn(),
+      } as unknown as HostExecutorResourceJournal;
+      jest.spyOn(fs, 'mkdir').mockResolvedValue(undefined);
+      jest.spyOn(fs, 'chown').mockResolvedValue(undefined);
+      jest.spyOn(fs, 'lstat').mockResolvedValue({
+        uid: 0, mode: 0o40711, isDirectory: () => true, isSymbolicLink: () => false,
+      } as Awaited<ReturnType<typeof fs.lstat>>);
+      jest.spyOn(fs, 'realpath').mockImplementation(async (file) => String(file));
+      const row = (target: string, optional = '') =>
+        `905 1 0:50 /state ${target} rw,nosuid,nodev,noexec ${optional}- tmpfs awf-enclave-invocation rw\n`;
+      const shared = row(plan.invocationHostDir, 'shared:29 ');
+      let table = `901 1 0:50 / ${root} rw,nosuid,nodev,noexec - tmpfs awf-enclave-invocation rw\n` +
+        '1 1 8:1 / / rw shared:17 - ext4 SECRET rw\n';
+      jest.spyOn(fs, 'readFile').mockImplementation(async () => table);
+      const failure = Object.assign(new Error('/private/SECRET'), { code: 'EPERM' });
+      const command = execa as unknown as jest.Mock;
+      command.mockImplementation(async (_tool, args: string[]) => {
+        if (args[0] === '--bind' && args[2] === plan.invocationHostDir) table += shared;
+        if (args[0] === '--make-private' && args[1] === plan.invocationHostDir) {
+          if (outcome === 'privatize-denied') throw failure;
+          if (outcome !== 'privatize-ignored') table = table.replace(shared, row(plan.invocationHostDir));
+        }
+        if (outcome === 'remount-shared' && args[0] === '-o' && args[2] === plan.invocationHostDir) {
+          table = table.replace(row(plan.invocationHostDir), shared);
+        }
+        return { exitCode: 0, stderr: '' };
+      });
+      const published: HostPreflightProgress[] = [];
+      const storage = await prepareTrustedInvocationStorage({} as HostExecutorRunState, plan, journal, tools,
+        new HostPreflightReporter('bounded-runtime', (value) => published.push(value)));
+      (journal.verifyStorage as jest.Mock).mockClear();
+      command.mockClear();
+      const mounted = storage.dependencies.mountTmpfs!(plan.invocationHostDir, profiles.script.writableStorageBytes,
+        profiles.script.uid, profiles.script.gid, tools);
+      if (outcome === 'privatized') await expect(mounted).resolves.toBeUndefined();
+      else if (outcome === 'privatize-denied') await expect(mounted).rejects.toBe(failure);
+      else await expect(mounted).rejects.toThrow('propagation is not private');
+      const commands = command.mock.calls.map(([, args]) => args as string[]);
+      expect(commands.slice(0, outcome === 'privatize-denied' ? 2 : 3)).toEqual([
+        ['--bind', `${root}/state`, plan.invocationHostDir],
+        ['--make-private', plan.invocationHostDir],
+        ...(outcome === 'privatize-denied' ? [] : [['-o', 'remount,bind,rw,nosuid,nodev,noexec', plan.invocationHostDir]]),
+      ]);
+      expect(commands.filter((args) => args[0].startsWith('--make-'))).toEqual([['--make-private', plan.invocationHostDir]]);
+      expect((journal.captureStorageMount as jest.Mock).mock.invocationCallOrder[0])
+        .toBeLessThan((journal.verifyStorage as jest.Mock).mock.invocationCallOrder[0]);
+      expect((journal.verifyStorage as jest.Mock).mock.invocationCallOrder[0])
+        .toBeLessThan(command.mock.invocationCallOrder[1]);
+      const evidence = published.filter((value) => value.storagePropagation).pop()!.storagePropagation!;
+      expect(evidence).toMatchObject({ sourceBeforeBind: 'private', destinationBeforeBind: 'shared' });
+      expect(evidence.mounts.invocationAfterBind).toEqual([1, 1, 1, 0]);
+      expect(evidence.mounts.invocationAfterRemount).toEqual(
+        outcome === 'privatized' ? [1, 0, 1, 0] : outcome === 'privatize-denied' ? null : [1, 1, 1, 0]);
+      expect(table).toContain('/ / rw shared:17 ');
+      expect(JSON.stringify(published)).not.toMatch(/SECRET|invocations\/|shared:29/);
+      await storage.close();
+      expect(journal.closeStorage).toHaveBeenCalledWith(tools.umount);
+    },
+  );
 
   it.each(['before-bind', 'after-bind'])(
     'keeps storage identity cleanup safe when the %s mountinfo read fails', async (failedRead) => {

@@ -339,9 +339,14 @@ export async function prepareTrustedInvocationStorage(
         await journal.captureStorageMount();
         propagation.mounts.invocationAfterBind = observeStorageMount(await fs.readFile('/proc/self/mountinfo', 'utf8'), directory);
         report.propagation(propagation);
+        // A bind beneath a shared external destination inherits shared propagation even from a
+        // private source. Privatize only this captured invocation mount; host propagation is unchanged.
+        await journal.verifyStorage();
+        await mount(tools, ['--make-private', directory]);
         await mount(tools, ['-o', 'remount,bind,rw,nosuid,nodev,noexec', directory]);
         propagation.mounts.invocationAfterRemount = observeStorageMount(await fs.readFile('/proc/self/mountinfo', 'utf8'), directory);
         report.propagation(propagation);
+        assertPrivateStorageObservation(propagation.mounts.invocationAfterRemount);
       },
       verifyStorage,
       createArtifactSnapshot: async (sources, copy, capture) => {

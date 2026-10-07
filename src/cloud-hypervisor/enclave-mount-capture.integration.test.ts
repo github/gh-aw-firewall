@@ -135,17 +135,19 @@ jest.setTimeout(30_000);
               kernelPath: '/usr/bin/true', rootfsPath: '/usr/bin/true', supervisorPath: '/usr/bin/true'
             }, fs.copyFile, directory => journal.captureSnapshot(directory));
           } catch (error) { reason = hostPreflightReason(error); }
-          if (!topology && !sharedDestination) throw new Error('Probe did not reach snapshot topology');
+          if (!topology) throw new Error('Probe did not reach snapshot topology');
           const table = await fs.readFile('/proc/self/mountinfo', 'utf8');
-          const parentLine = table.split('\\n').find(line => line.split(' ')[4] === parent);
-          const parentStillShared = parentLine.split(' ').some(field => field.startsWith('shared:'));
+          const isShared = target => table.split('\\n').find(line => line.split(' ')[4] === target)
+            ?.split(' ').some(field => field.startsWith('shared:')) ?? false;
+          const parentStillShared = isShared(parent);
+          const destinationStillShared = isShared(run.invocationsDir);
           await storage.close();
           const allocationRemoved = await fs.lstat(storage.workDir).then(() => false, error => {
             if (error.code !== 'ENOENT') throw error;
             return true;
           });
           process.stdout.write(JSON.stringify({ reason, topology, storagePropagation, verification,
-            parentStillShared, allocationRemoved }));
+            parentStillShared, destinationStillShared, allocationRemoved }));
         })().catch(() => { console.error('Mount topology probe setup failed'); process.exitCode = 1; });
         `,
         path.resolve(__dirname, '../../dist/enclave/host-executor-journal.js'),
@@ -155,11 +157,13 @@ jest.setTimeout(30_000);
       ]);
       const result = JSON.parse(child.stdout) as {
         reason: string; topology?: MountTopologyEvidence; storagePropagation?: StoragePropagationEvidence;
-        verification?: HostPreflightProgress; parentStillShared?: boolean; allocationRemoved?: boolean;
+        verification?: HostPreflightProgress; parentStillShared?: boolean; destinationStillShared?: boolean;
+        allocationRemoved?: boolean;
       };
       if (mode === 'destination-shared' || mode === 'shared-both') {
-        expect(result.reason).toBe('storage-mount-propagation');
-        expect(result.topology).toBeUndefined();
+        // The bind inherits the shared destination; only the invocation mount is then privatized.
+        expect(result.reason).toBe('none');
+        expect(result.topology!.after).toMatchObject({ snapshotEntries: 'one', snapshotIds: 'unique' });
         expect(result.storagePropagation).toMatchObject({
           invocationLocation: 'outside', sourceBeforeBind: 'private', destinationBeforeBind: 'shared',
           mounts: {
@@ -168,14 +172,15 @@ jest.setTimeout(30_000);
             artifactsVerified: [1, 0, 1, 0],
             invocationBeforeBind: [0, 5, 0, 2],
             invocationAfterBind: [1, 1, 1, 0],
-            invocationAfterRemount: [1, 1, 1, 0],
-            invocationVerified: [1, 1, 1, 0],
+            invocationAfterRemount: [1, 0, 1, 0],
+            invocationVerified: [1, 0, 1, 0],
           },
         });
         expect(result.verification?.checks.find((check) => check.id === 'invocation-state')).toMatchObject({
-          result: 'failed', reason: 'storage-mount-propagation',
+          result: 'passed', reason: 'none',
         });
         expect(result.parentStillShared).toBe(mode === 'shared-both');
+        expect(result.destinationStillShared).toBe(true);
         expect(result.allocationRemoved).toBe(true);
         expect(child.stdout).not.toContain(scratch);
         return;
