@@ -261,10 +261,13 @@ If you see DNS resolution errors:
 - Use the attached container name for a Compose frontend, or
   `host.docker.internal` for a host service, not the browser's `localhost`.
 - For `503 ERR_DNS_FAIL` from Squid on `host.docker.internal`, enable
-  `--enable-host-access` (or the standalone CLI's `localhost` keyword). An
-  allowlist entry alone does not create DNS resolution: this flag adds Docker's
-  `host-gateway` mapping to Squid's `/etc/hosts`, which Squid consults before
-  its configured upstream DNS servers.
+  `--enable-host-access` and verify the effective config and Squid's `/etc/hosts`.
+  This flag adds Docker's `host-gateway` mapping, which Squid consults before
+  upstream DNS. The current CLI also auto-enables host access for an exact
+  `host.docker.internal` allowlist entry (with or without an HTTP/HTTPS prefix)
+  or its `localhost` keyword. Those entries are themselves host-access grants;
+  only `localhost` also supplies default development ports. Upstream DNS cannot
+  resolve the Docker-only hostname.
 - Specify the host-published port with `--allow-host-ports` and allow
   `host.docker.internal`. In topology mode, the agent has no direct host route;
   the HTTP client/browser must use Squid. For Playwright Test, explicitly

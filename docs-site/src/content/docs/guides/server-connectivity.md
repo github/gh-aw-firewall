@@ -60,7 +60,10 @@ awf --enable-host-access --allow-host-ports 3000 \
 
 :::tip
 `--enable-host-access` installs Docker's `host-gateway` mapping in Squid.
-Allowlisting the name alone is insufficient and can produce `503 ERR_DNS_FAIL`.
+The current CLI also auto-enables host access for an exact `host.docker.internal`
+allowlist entry; it is itself a host-access grant. If you see `503 ERR_DNS_FAIL`,
+check Squid's `/etc/hosts` mapping and the effective host-access config rather
+than relying on upstream DNS to resolve this Docker-only name.
 The host listener must not bind only to `127.0.0.1`; in topology mode clients
 must use the HTTP proxy because the agent has no direct host route.
 :::

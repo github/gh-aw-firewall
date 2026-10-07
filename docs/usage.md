@@ -483,11 +483,15 @@ guidance. This path requires the stack and AWF to use the same Docker daemon.
 
 ### Host-gateway DNS and browser URLs
 
-Allowlisting `host.docker.internal` alone does not make it resolvable by Squid.
+Squid needs Docker's `host-gateway` mapping to resolve `host.docker.internal`.
 `--enable-host-access` adds `host.docker.internal:host-gateway` to Squid's
-`extra_hosts`; Squid reads `/etc/hosts` before upstream DNS. Without that mapping,
-a proxied request can fail with `503 ERR_DNS_FAIL`. Specify both the domain and
-the required port:
+`extra_hosts`; the current CLI also automatically enables host access for an
+exact `host.docker.internal` allowlist entry (including HTTP/HTTPS-prefixed
+forms). Thus the hostname itself is a host-access opt-in, not just a DNS name.
+Squid reads `/etc/hosts` before upstream DNS. If a proxied request fails with
+`503 ERR_DNS_FAIL`, check the effective host-access config and Squid's
+`/etc/hosts` mapping. An upstream DNS server cannot resolve this Docker-only
+name. Specify the host-access intent, domain, and required port explicitly:
 
 ```bash
 awf --enable-host-access --allow-host-ports 8080 \
@@ -521,7 +525,7 @@ sudo awf \
 >
 > Only enable this for trusted workloads like MCP gateways or local testing with Playwright.
 
-**Why opt-in?** By default, `host.docker.internal` hostname resolution is disabled to prevent containers from accessing host services. This is a defense-in-depth measure against malicious code attempting to access local resources.
+**Why opt-in?** By default, `host.docker.internal` hostname resolution is disabled to prevent containers from accessing host services. Passing `--enable-host-access` or an exact host-gateway keyword in the allowlist opts in to this access.
 
 ### Example: MCP Gateway on Host
 
