@@ -71,7 +71,6 @@ post-steps:
   - name: Validate model-api-mapping.json
     run: |
       if ! jq empty docs/model-api-mapping.json; then
-        printf '{"items":[]}\n' > /tmp/gh-aw/agent_output.json
         exit 1
       fi
 safe-outputs:
