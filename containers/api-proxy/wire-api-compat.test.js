@@ -123,6 +123,32 @@ describe('Copilot wire API compatibility', () => {
     });
   });
 
+  test('accepts canonical Responses assistant output in a subsequent translated turn', () => {
+    const previousOutput = [{
+      type: 'message',
+      id: 'msg_1',
+      status: 'completed',
+      role: 'assistant',
+      content: [{
+        type: 'output_text',
+        text: 'hello',
+        annotations: [],
+      }],
+    }];
+    const translated = translateCopilotWireApi(buffer({
+      model: 'claude-sonnet-5',
+      input: [
+        { role: 'user', content: 'say hello' },
+        ...previousOutput,
+      ],
+    }), '/responses');
+
+    expect(json(translated.body).messages).toEqual([
+      { role: 'user', content: 'say hello' },
+      { role: 'assistant', content: [{ type: 'text', text: 'hello' }] },
+    ]);
+  });
+
   test('preserves assistant text before translated tool calls', () => {
     const translated = translateCopilotWireApi(buffer({
       model: 'gpt-5.4-mini',

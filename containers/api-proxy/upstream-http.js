@@ -2,7 +2,6 @@
 
 const { parseBodyAsObject } = require('./body-utils');
 const { carryForwardCodexCompatibility } = require('./codex-compat');
-const { carryForwardWireApiCompatibility } = require('./wire-api-compat');
 const {
   getFallbackModels,
   getRequestModel,
@@ -11,6 +10,12 @@ const {
 } = require('./model-fallback-chain');
 const { validateReasoningEffort } = require('./reasoning-effort-validation');
 const { sanitizeForLog } = require('./logging');
+const {
+  carryForwardWireApiCompatibility,
+  endpointForPath,
+  replaceUpstreamEndpoint,
+  translateCopilotWireApi,
+} = require('./wire-api-compat');
 
 /**
  * Backoff delays (ms) between successive model-not-supported retries.
@@ -28,6 +33,31 @@ function rebuildBodyFramingHeaders(headers, bodyLength) {
   }
   reframedHeaders['content-length'] = String(bodyLength);
   return reframedHeaders;
+}
+
+function rebuildCopilotWireApiFallback(sourceBody, nextModel, req, upstreamPath) {
+  const requestedEndpoint = endpointForPath(req?.url);
+  const parsed = parseBodyAsObject(sourceBody);
+  if (!requestedEndpoint || !parsed || typeof parsed.model !== 'string') return null;
+
+  parsed.model = nextModel;
+  const nextSourceBody = Buffer.from(JSON.stringify(parsed), 'utf8');
+  const translated = translateCopilotWireApi(nextSourceBody, req.url);
+  const compatibility = translated?.compatibility || {
+    requestedEndpoint,
+    upstreamEndpoint: requestedEndpoint,
+    passthrough: true,
+  };
+  req.awfRouting?.onEndpointTranslation?.(compatibility);
+  return {
+    body: translated?.body || nextSourceBody,
+    upstreamPath: replaceUpstreamEndpoint(
+      upstreamPath,
+      compatibility.upstreamEndpoint,
+    ),
+    wireApiCompatibility: compatibility,
+    wireApiSourceBody: nextSourceBody,
+  };
 }
 
 /**
@@ -64,6 +94,7 @@ function createSendUpstreamRequest({
     targetScheme = 'https',
     codexCompatibility = null,
     wireApiCompatibility = null,
+    wireApiSourceBody = null,
     attemptedModels = null,
   }) {
     try {
@@ -121,6 +152,19 @@ function createSendUpstreamRequest({
           let fallbackTriggered = false;
           onModelFallback = ({ statusCode = null, reason = 'upstream_error' } = {}) => {
             if (fallbackTriggered || res.headersSent) return false;
+            let wireFallback = null;
+            if (provider === 'copilot' && wireApiSourceBody) {
+              try {
+                wireFallback = rebuildCopilotWireApiFallback(
+                  wireApiSourceBody,
+                  nextModel,
+                  req,
+                  upstreamPath,
+                );
+              } catch {
+                return false;
+              }
+            }
             fallbackTriggered = true;
             const requestedModel = attempted[0];
             const attempt = attempted.length;
@@ -144,19 +188,24 @@ function createSendUpstreamRequest({
                 message: `Upstream ${statusCode !== null ? `returned ${statusCode}` : 'request failed'} for model "${current.model}"; falling back to "${nextModel}"`,
               });
             }
-            const retryHeaders = rewritten.body === body
+            const retryBody = wireFallback?.body || rewritten.body;
+            const retryPath = wireFallback?.upstreamPath || rewritten.upstreamPath;
+            const retryHeaders = retryBody === body
               ? requestHeaders
-              : rebuildBodyFramingHeaders(requestHeaders, rewritten.body.length);
+              : rebuildBodyFramingHeaders(requestHeaders, retryBody.length);
             sendUpstreamRequest(retryHeaders, {
-              body: rewritten.body, targetHost, upstreamPath: rewritten.upstreamPath, req, res, provider, requestId,
-              startTime, span, requestBytes: rewritten.body.length, requestSigner,
+              body: retryBody, targetHost, upstreamPath: retryPath, req, res, provider, requestId,
+              startTime, span, requestBytes: retryBody.length, requestSigner,
               hasRetried,
               modelNotSupportedRetryCount,
               targetScheme,
-              codexCompatibility: rewritten.body === body
+              codexCompatibility: retryBody === body
                 ? codexCompatibility
                 : carryForwardCodexCompatibility(codexCompatibility),
-              wireApiCompatibility: carryForwardWireApiCompatibility(wireApiCompatibility),
+              wireApiCompatibility: wireFallback
+                ? wireFallback.wireApiCompatibility
+                : carryForwardWireApiCompatibility(wireApiCompatibility),
+              wireApiSourceBody: wireFallback?.wireApiSourceBody || wireApiSourceBody,
               attemptedModels: [...attempted, nextModel],
             });
             return true;
@@ -210,6 +259,7 @@ function createSendUpstreamRequest({
         modelNotSupportedRetryCount,
         codexCompatibility,
         wireApiCompatibility,
+        wireApiSourceBody,
         onModelFallback,
         onRetry: (retryHeaders) => sendUpstreamRequest(retryHeaders, {
           body, targetHost, upstreamPath, req, res, provider, requestId, startTime, span, requestBytes, requestSigner,
@@ -218,6 +268,7 @@ function createSendUpstreamRequest({
           targetScheme,
           codexCompatibility,
           wireApiCompatibility,
+          wireApiSourceBody,
           attemptedModels,
         }),
         onModelNotSupportedRetry: () => {
@@ -230,6 +281,7 @@ function createSendUpstreamRequest({
               targetScheme,
               codexCompatibility,
               wireApiCompatibility,
+              wireApiSourceBody,
               attemptedModels,
             });
           });
@@ -250,6 +302,19 @@ function createSendUpstreamRequest({
           if (currentIdx < 0 || currentIdx >= candidates.length - 1) return false;
 
           const nextModel = candidates[currentIdx + 1];
+          let wireFallback = null;
+          if (provider === 'copilot' && wireApiSourceBody) {
+            try {
+              wireFallback = rebuildCopilotWireApiFallback(
+                wireApiSourceBody,
+                nextModel,
+                req,
+                upstreamPath,
+              );
+            } catch {
+              return false;
+            }
+          }
 
           // Rewrite the body with the next candidate. This produces a new
           // Buffer object, so Codex compatibility metadata (keyed on the
@@ -258,19 +323,23 @@ function createSendUpstreamRequest({
           const newParsed = parseBodyAsObject(body);
           if (!newParsed) return false;
           newParsed.model = nextModel;
-          const newBody = Buffer.from(JSON.stringify(newParsed), 'utf8');
+          const newBody = wireFallback?.body || Buffer.from(JSON.stringify(newParsed), 'utf8');
+          const retryPath = wireFallback?.upstreamPath || upstreamPath;
           const retryHeaders = rebuildBodyFramingHeaders(requestHeaders, newBody.length);
 
           // Update the candidates list so if the next model also fails we can
           // continue falling back (by shifting the current index forward).
           sendUpstreamRequest(retryHeaders, {
-            body: newBody, targetHost, upstreamPath, req, res, provider, requestId, startTime, span,
+            body: newBody, targetHost, upstreamPath: retryPath, req, res, provider, requestId, startTime, span,
             requestBytes: newBody.length, requestSigner,
             hasRetried,
             modelNotSupportedRetryCount,
             targetScheme,
             codexCompatibility: carryForwardCodexCompatibility(codexCompatibility),
-            wireApiCompatibility: carryForwardWireApiCompatibility(wireApiCompatibility),
+            wireApiCompatibility: wireFallback
+              ? wireFallback.wireApiCompatibility
+              : carryForwardWireApiCompatibility(wireApiCompatibility),
+            wireApiSourceBody: wireFallback?.wireApiSourceBody || wireApiSourceBody,
             attemptedModels: [...(Array.isArray(attemptedModels) && attemptedModels.length > 0 ? attemptedModels : [currentModel]), nextModel],
           });
           return true;

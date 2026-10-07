@@ -278,8 +278,10 @@ function proxyRequest(req, res, targetHost, injectHeaders, provider, basePath = 
     let body;
     let codexCompatibility = null;
     let wireApiCompatibility = null;
+    let wireApiSourceBody = null;
     try {
-      ({ body, codexCompatibility, wireApiCompatibility } = await transformRequestBody(rawBody, provider, req, requestId, bodyTransform));
+      ({ body, codexCompatibility, wireApiCompatibility, wireApiSourceBody } =
+        await transformRequestBody(rawBody, provider, req, requestId, bodyTransform));
     } catch (err) {
       const statusCode = Number.isInteger(err && err.statusCode) ? err.statusCode : 400;
       const duration = Date.now() - startTime;
@@ -322,7 +324,7 @@ function proxyRequest(req, res, targetHost, injectHeaders, provider, basePath = 
 
     sendUpstreamRequest(headers, {
       body, targetHost, upstreamPath, req, res, provider, requestId, startTime, span, requestBytes, requestSigner,
-      targetScheme, codexCompatibility, wireApiCompatibility,
+      targetScheme, codexCompatibility, wireApiCompatibility, wireApiSourceBody,
     });
   });
 }

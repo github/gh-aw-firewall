@@ -165,7 +165,7 @@ function buildRequestHeaders(body, inboundBytes, req, { injectHeaders, provider,
   // `custom_tool_call` events). It operates on plain text, so a compressed
   // response would leave the translated payload silently unrewritten. Force
   // identity encoding whenever the request was translated for compatibility.
-  if (codexCompatibility || wireApiCompatibility) {
+  if (codexCompatibility || (wireApiCompatibility && !wireApiCompatibility.passthrough)) {
     headers['accept-encoding'] = 'identity';
   }
 

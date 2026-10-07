@@ -4,6 +4,7 @@ const {
   rebuildBodyFramingHeaders,
 } = require('./upstream-http');
 const { clearRuntimeModels, replaceRuntimeModels } = require('./runtime-model-catalog');
+const { translateCopilotWireApi } = require('./wire-api-compat');
 
 describe('upstream-http', () => {
   afterEach(() => clearRuntimeModels());
@@ -67,6 +68,73 @@ describe('upstream-http', () => {
     expect(proxyReq.write).toHaveBeenCalledWith(Buffer.from('{"ok":true}'));
     expect(proxyReq.end).toHaveBeenCalled();
     expect(handleUpstreamResponse).toHaveBeenCalled();
+  });
+
+  test('rebuilds the wire API request for the selected ordered fallback model', () => {
+    replaceRuntimeModels('copilot', [
+      { id: 'claude-sonnet-5', supportedEndpoints: ['/chat/completions'] },
+      { id: 'gpt-5.4-mini', supportedEndpoints: ['/responses'] },
+    ]);
+    const sourceBody = Buffer.from(JSON.stringify({
+      model: 'claude-sonnet-5',
+      input: [{ role: 'user', content: 'hello' }],
+    }));
+    const translated = translateCopilotWireApi(sourceBody, '/v1/responses?foo=1');
+    const proxyReq = { on: jest.fn(), write: jest.fn(), end: jest.fn() };
+    const responseCallbacks = [];
+    const httpsRequest = jest.fn((options, cb) => {
+      responseCallbacks.push(cb);
+      return proxyReq;
+    });
+    const handleUpstreamResponse = jest.fn();
+    const sendUpstreamRequest = createSendUpstreamRequest({
+      https: { request: httpsRequest },
+      proxyAgent: {},
+      handleUpstreamResponse,
+      sleep: jest.fn(),
+      otel: { endSpanError: jest.fn(), endSpan: jest.fn() },
+      handleRequestError: jest.fn(),
+      metrics: { gaugeDec: jest.fn(), increment: jest.fn(), observe: jest.fn() },
+      getFallbackModels: () => ['gpt-5.4-mini'],
+    });
+    const onEndpointTranslation = jest.fn();
+    const req = {
+      method: 'POST',
+      url: '/v1/responses?foo=1',
+      awfRouting: { onEndpointTranslation },
+    };
+
+    sendUpstreamRequest({ 'content-length': String(translated.body.length) }, createContext({
+      body: translated.body,
+      upstreamPath: '/v1/chat/completions?foo=1',
+      req,
+      res: { headersSent: false },
+      wireApiCompatibility: translated.compatibility,
+      wireApiSourceBody: sourceBody,
+    }));
+    responseCallbacks[0]({ statusCode: 503, headers: {} });
+    expect(handleUpstreamResponse.mock.calls[0][2].onModelFallback({
+      statusCode: 503,
+      reason: 'upstream_5xx',
+    })).toBe(true);
+
+    expect(httpsRequest).toHaveBeenCalledTimes(2);
+    expect(httpsRequest.mock.calls[1][0].path).toBe('/v1/responses?foo=1');
+    expect(JSON.parse(proxyReq.write.mock.calls[1][0].toString())).toEqual({
+      model: 'gpt-5.4-mini',
+      input: [{ role: 'user', content: 'hello' }],
+    });
+    responseCallbacks[1]({ statusCode: 200, headers: {} });
+    expect(handleUpstreamResponse.mock.calls[1][2].wireApiCompatibility).toEqual({
+      requestedEndpoint: '/responses',
+      upstreamEndpoint: '/responses',
+      passthrough: true,
+    });
+    expect(onEndpointTranslation).toHaveBeenCalledWith({
+      requestedEndpoint: '/responses',
+      upstreamEndpoint: '/responses',
+      passthrough: true,
+    });
   });
 
   test('dispatches upstream HTTP requests on port 80 when targetScheme is http', () => {

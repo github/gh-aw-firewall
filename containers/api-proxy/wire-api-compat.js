@@ -192,6 +192,7 @@ function translateResponseContent(content) {
   return content.map(part => {
     if (!part || typeof part !== 'object') return part;
     if (part.type === 'input_text') return { ...part, type: 'text' };
+    if (part.type === 'output_text') return { type: 'text', text: part.text };
     if (part.type === 'input_image') {
       return {
         type: 'image_url',
@@ -244,7 +245,7 @@ function responseInputToMessages(input) {
     if (item.type && item.type !== 'message') {
       throw new WireApiCompatibilityError(`input[${index}].type=${item.type}`);
     }
-    ensureOnlyFields(item, new Set(['type', 'role', 'content']));
+    ensureOnlyFields(item, new Set(['type', 'id', 'status', 'role', 'content']));
     const role = item.role || 'user';
     if (!['system', 'developer', 'user', 'assistant'].includes(role)) {
       throw new WireApiCompatibilityError(`input[${index}].role=${role}`);
@@ -740,14 +741,14 @@ function createSseTransform(state, translate) {
 }
 
 function transformWireApiResponseBody(body, compatibility) {
-  if (!compatibility) return null;
+  if (!compatibility || compatibility.passthrough) return null;
   return compatibility.direction === 'responses_to_chat'
     ? transformChatResponse(body)
     : transformResponsesResponse(body);
 }
 
 function createWireApiSseTransform(compatibility) {
-  if (!compatibility) return null;
+  if (!compatibility || compatibility.passthrough) return null;
   return compatibility.direction === 'responses_to_chat'
     ? createChatToResponsesSseTransform()
     : createResponsesToChatSseTransform(compatibility.includeUsage);
@@ -759,6 +760,7 @@ function carryForwardWireApiCompatibility(compatibility) {
 
 module.exports = {
   WireApiCompatibilityError,
+  endpointForPath,
   translateCopilotWireApi,
   replaceUpstreamEndpoint,
   transformWireApiResponseBody,
