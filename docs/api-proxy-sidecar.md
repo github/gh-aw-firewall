@@ -1582,10 +1582,18 @@ The Copilot proxy endpoint (port 10002) automatically translates requests betwee
 
 When a Copilot model supports only one wire API but a request arrives for the other, the proxy transparently translates the request:
 
-1. **Detection**: The proxy checks the requested model and determines which endpoints it supports
-2. **Translation**: If the model only supports the other wire API, the request body, headers, and endpoint are transformed
+1. **Detection**: The proxy checks the requested model's advertised endpoint support and preserves the client's endpoint when supported (or when support is unknown)
+2. **Translation**: If the model only supports the other wire API, the request body, headers, and endpoint are transformed only if the request's features can be preserved
 3. **Upstream dispatch**: The translated request is sent to the correct upstream endpoint
 4. **Response mapping**: Response tokens and usage are mapped back to the original wire API format
+
+If Copilot returns `model "..." is not accessible via the ... endpoint`, the
+proxy tries the other wire API once for the **same model**, provided the request
+can be translated without dropping features. This handles missing or stale
+endpoint metadata. If translation is incompatible or the other endpoint also
+rejects the model, the proxy returns an actionable HTTP 400. Model changes are
+limited to configured alias candidates or an explicit model fallback policy;
+endpoint recovery does not invent a replacement model.
 
 ### Supported features
 
@@ -1615,7 +1623,11 @@ Example log entries:
 
 - **Unsupported features** return HTTP 400 with a `WireApiCompatibilityError` if a request includes features that cannot be translated between wire APIs
 - **Reasoning effort is required** when translating to Responses API, but optional when translating to Chat Completions
-- **Custom tool definitions** in Responses format may not translate cleanly to Chat Completions schema
+- **Custom tool definitions** (`tools[custom]`) are preserved when the client's
+  endpoint is supported, but cannot generally translate between the two APIs.
+  Choose a model supporting that endpoint, or use function tools supported by
+  both APIs. The existing Responses `apply_patch` compatibility adapter remains
+  supported; this does not imply support for arbitrary freeform custom tools.
 
 ## Limitations
 

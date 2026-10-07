@@ -59,7 +59,145 @@ describe('proxyRequest copilot model-not-supported retry', () => {
   });
 
   afterEach(() => {
+    require('./runtime-model-catalog').clearRuntimeModels();
     jest.restoreAllMocks();
+  });
+
+  it.each([false, true])('retries the same model on Responses after endpoint rejection (stale metadata: %s)', async (staleMetadata) => {
+    if (staleMetadata) {
+      require('./runtime-model-catalog').replaceRuntimeModels('copilot', [{
+        id: 'gpt-5.4-mini', supportedEndpoints: ['/chat/completions', '/responses'],
+      }]);
+    }
+    const bodies = [];
+    jest.spyOn(https, 'request').mockImplementation((options, cb) => {
+      capturedOptions.push(options);
+      responseHandlers.push(cb);
+      const upstream = makeProxyReq();
+      upstream.write = jest.fn(chunk => bodies.push(JSON.parse(chunk.toString())));
+      return upstream;
+    });
+    const req = makeReq({ 'accept-encoding': 'gzip' });
+    const res = makeRes();
+    proxyRequest(req, res, 'api.githubcopilot.com', {}, 'copilot');
+    req.emit('data', Buffer.from(JSON.stringify({
+      model: 'gpt-5.4-mini',
+      messages: [{ role: 'user', content: 'check' }],
+      tools: [{ type: 'function', function: { name: 'check', parameters: { type: 'object' } } }],
+    })));
+    req.emit('end');
+    await flushPromises();
+
+    const first = makeProxyRes(400);
+    responseHandlers[0](first);
+    first.emit('data', Buffer.from('{"message":"model \\"gpt-5.4-mini\\" is not accessible via the /chat/completions endpoint"}'));
+    first.emit('end');
+    await flushPromises();
+
+    expect(capturedOptions.map(options => options.path)).toEqual(['/v1/chat/completions', '/v1/responses']);
+    expect(bodies.map(body => body.model)).toEqual(['gpt-5.4-mini', 'gpt-5.4-mini']);
+    expect(bodies[1]).toMatchObject({
+      input: [{ role: 'user', content: 'check' }],
+      tools: [{ type: 'function', name: 'check', parameters: { type: 'object' } }],
+    });
+    expect(capturedOptions[1].headers['content-length']).toBe(String(Buffer.byteLength(JSON.stringify(bodies[1]))));
+    expect(capturedOptions[1].headers['accept-encoding']).toBe('identity');
+
+    const second = makeProxyRes(200, { 'content-type': 'application/json' });
+    responseHandlers[1](second);
+    second.emit('data', Buffer.from(JSON.stringify({
+      id: 'resp_check', model: 'gpt-5.4-mini',
+      output: [{ type: 'message', role: 'assistant', content: [{ type: 'output_text', text: 'checked' }] }],
+    })));
+    second.emit('end');
+    await flushPromises();
+    expect(res.writeHead).toHaveBeenCalledWith(200, expect.any(Object));
+    expect(JSON.parse(res.end.mock.calls[0][0].toString())).toMatchObject({
+      choices: [{ message: { content: 'checked' } }],
+    });
+  });
+
+  it('does not loop or silently change models when both endpoints reject the model', async () => {
+    const req = makeReq();
+    const res = makeRes();
+    proxyRequest(req, res, 'api.githubcopilot.com', {}, 'copilot');
+    req.emit('data', Buffer.from('{"model":"gpt-5.4-mini","messages":[]}'));
+    req.emit('end');
+    await flushPromises();
+    for (const [index, endpoint] of ['/chat/completions', '/responses'].entries()) {
+      const response = makeProxyRes(400);
+      responseHandlers[index](response);
+      response.emit('data', Buffer.from(JSON.stringify({
+        message: `model "gpt-5.4-mini" is not accessible via the ${endpoint} endpoint`,
+      })));
+      response.emit('end');
+      await flushPromises();
+    }
+    expect(capturedOptions).toHaveLength(2);
+    expect(JSON.parse(res.end.mock.calls[0][0].toString()).error).toMatchObject({
+      code: 'model_endpoint_incompatible',
+      message: expect.stringContaining('explicit model alias/fallback policy'),
+    });
+  });
+
+  it('preserves a native Chat custom-tool request and fails clearly if its endpoint is rejected', async () => {
+    require('./runtime-model-catalog').replaceRuntimeModels('copilot', [{
+      id: 'both', supportedEndpoints: ['/chat/completions', '/responses'],
+    }]);
+    const bodies = [];
+    jest.spyOn(https, 'request').mockImplementation((options, cb) => {
+      capturedOptions.push(options);
+      responseHandlers.push(cb);
+      const upstream = makeProxyReq();
+      upstream.write = jest.fn(chunk => bodies.push(chunk));
+      return upstream;
+    });
+    const body = Buffer.from(JSON.stringify({
+      model: 'both', messages: [],
+      tools: [{ type: 'custom', custom: { name: 'quick-checker', format: { type: 'text' } } }],
+    }));
+    const req = makeReq();
+    const res = makeRes();
+    proxyRequest(req, res, 'api.githubcopilot.com', {}, 'copilot');
+    req.emit('data', body);
+    req.emit('end');
+    await flushPromises();
+    expect(bodies[0]).toEqual(body);
+
+    const response = makeProxyRes(400);
+    responseHandlers[0](response);
+    response.emit('data', Buffer.from('{"message":"model \\"both\\" is not accessible via the /chat/completions endpoint"}'));
+    response.emit('end');
+    await flushPromises();
+    expect(capturedOptions).toHaveLength(1);
+    expect(res.writeHead).toHaveBeenCalledWith(400, expect.any(Object));
+    expect(JSON.parse(res.end.mock.calls[0][0].toString()).error).toMatchObject({
+      code: 'unsupported_wire_api_feature',
+      message: expect.stringContaining("tools[custom]"),
+    });
+    expect(JSON.parse(res.end.mock.calls[0][0].toString()).error.message)
+      .toContain('Choose a model supporting /chat/completions');
+  });
+
+  it('rejects a custom-tool request before dispatch when the model only supports the other API', async () => {
+    require('./runtime-model-catalog').replaceRuntimeModels('copilot', [{
+      id: 'gpt-5.4-mini', supportedEndpoints: ['/responses'],
+    }]);
+    const req = makeReq();
+    const res = makeRes();
+    proxyRequest(req, res, 'api.githubcopilot.com', {}, 'copilot');
+    req.emit('data', Buffer.from(JSON.stringify({
+      model: 'gpt-5.4-mini', messages: [],
+      tools: [{ type: 'custom', custom: { name: 'quick-checker' } }],
+    })));
+    req.emit('end');
+    await flushPromises();
+    expect(capturedOptions).toHaveLength(0);
+    expect(res.writeHead).toHaveBeenCalledWith(400, expect.any(Object));
+    expect(JSON.parse(res.end.mock.calls[0][0]).error).toMatchObject({
+      code: 'unsupported_wire_api_feature',
+      message: expect.stringContaining('Choose a model supporting /chat/completions'),
+    });
   });
 
   it('retries once after Copilot returns 400 model not supported, then succeeds', async () => {

@@ -143,8 +143,12 @@ describe('proxyRequest ordered model fallback chain', () => {
       await startRequest(cfg);
       respond(0, cfg.modelErrorStatus, cfg.modelError);
       await flushPromises();
-      // Copilot transient model-not-supported retries do not apply to this
-      // error shape, so the first retry is the fallback model.
+      if (cfg.provider === 'copilot') {
+        expect(sentModel(1)).toBe('primary');
+        expect(capturedOptions[1].path).toBe('/responses');
+        respond(1, cfg.modelErrorStatus, cfg.modelError);
+        await flushPromises();
+      }
       expect(sentModel(capturedOptions.length - 1)).toBe('fallback-a');
     });
 

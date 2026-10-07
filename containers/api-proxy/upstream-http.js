@@ -261,6 +261,37 @@ function createSendUpstreamRequest({
         wireApiCompatibility,
         wireApiSourceBody,
         onModelFallback,
+        onWireApiEndpointRetry: () => {
+          if (provider !== 'copilot' || !wireApiSourceBody ||
+              (wireApiCompatibility && !wireApiCompatibility.passthrough)) return false;
+          const requestedEndpoint = endpointForPath(req.url);
+          if (!requestedEndpoint) return false;
+          const alternateEndpoint = requestedEndpoint === '/responses' ? '/chat/completions' : '/responses';
+          const translated = translateCopilotWireApi(wireApiSourceBody, req.url, {
+            upstreamEndpoint: alternateEndpoint,
+          });
+          if (!translated) return false;
+          req.awfRouting?.onEndpointTranslation?.(translated.compatibility);
+          logRequest?.('warn', 'wire_api_endpoint_retry', {
+            request_id: requestId,
+            provider,
+            requested_endpoint: requestedEndpoint,
+            upstream_endpoint: alternateEndpoint,
+            message: 'Copilot rejected the endpoint; retrying the same model on the other wire API',
+          });
+          const retryHeaders = rebuildBodyFramingHeaders(requestHeaders, translated.body.length);
+          retryHeaders['accept-encoding'] = 'identity';
+          sendUpstreamRequest(retryHeaders, {
+            body: translated.body, targetHost,
+            upstreamPath: replaceUpstreamEndpoint(upstreamPath, alternateEndpoint),
+            req, res, provider, requestId, startTime, span,
+            requestBytes: translated.body.length, requestSigner,
+            hasRetried, modelNotSupportedRetryCount, targetScheme,
+            codexCompatibility, wireApiCompatibility: translated.compatibility,
+            wireApiSourceBody, attemptedModels,
+          });
+          return true;
+        },
         onRetry: (retryHeaders) => sendUpstreamRequest(retryHeaders, {
           body, targetHost, upstreamPath, req, res, provider, requestId, startTime, span, requestBytes, requestSigner,
           hasRetried: true,

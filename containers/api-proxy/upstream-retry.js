@@ -57,7 +57,7 @@ function handleFallbackEligibleResponse(proxyRes, responseBody, ctx) {
 function handle400WithRetry(proxyRes, requestHeaders, responseBody, {
   provider, requestId, hasRetried, onRetry,
   modelNotSupportedRetryCount, maxModelNotSupportedRetries, onModelNotSupportedRetry,
-  onModelEndpointBlockedRetry, onModelFallback = null,
+  onModelEndpointBlockedRetry, onWireApiEndpointRetry = null, onModelFallback = null,
   completionCtx, authErrCtx, initiatorSent, billingInfo, res, span,
   parseDeprecatedHeaderFromBody, learnAndStripDeprecatedHeaderValue,
   parseModelNotSupportedFromBody, parseModelEndpointBlockedFromBody, logRequest, sanitizeForLog,
@@ -79,15 +79,26 @@ function handle400WithRetry(proxyRes, requestHeaders, responseBody, {
     }
   }
 
+  const endpointBlocked = provider === 'copilot' && parseModelEndpointBlockedFromBody(responseBody);
+  let compatibilityError = null;
+  if (endpointBlocked && typeof onWireApiEndpointRetry === 'function') {
+    try {
+      if (onWireApiEndpointRetry()) return true;
+    } catch (err) {
+      if (err.code !== 'unsupported_wire_api_feature') throw err;
+      compatibilityError = err;
+    }
+  }
+
   // ── (b) Permanent endpoint-blocked fallback (copilot only) ───────────────────
   // When Copilot rejects a model because it is not accessible via the requested
   // endpoint (e.g. gpt-5.4-mini on /chat/completions), this is a permanent
   // per-model restriction — not a transient catalogue issue.  Try the next
   // ranked candidate from the alias resolution if one is available.
   if (
-    provider === 'copilot' &&
+    endpointBlocked &&
     onModelEndpointBlockedRetry &&
-    parseModelEndpointBlockedFromBody(responseBody)
+    !res.headersSent
   ) {
     const { req } = authErrCtx;
     logRequest('warn', 'model_endpoint_blocked_fallback', {
@@ -124,6 +135,20 @@ function handle400WithRetry(proxyRes, requestHeaders, responseBody, {
   if (typeof onModelFallback === 'function') {
     const reason = getFallbackReason(proxyRes.statusCode, responseBody);
     if (reason && onModelFallback({ statusCode: proxyRes.statusCode, reason })) return true;
+  }
+
+  if (endpointBlocked) {
+    responseBody = Buffer.from(JSON.stringify({
+      error: {
+        code: compatibilityError?.code || 'model_endpoint_incompatible',
+        type: 'invalid_request_error',
+        message: compatibilityError?.message ||
+          `Copilot model "${requestModel || '(unknown)'}" is unavailable on the selected wire API. ` +
+          'Choose a model supporting the requested endpoint and request features, or configure an explicit ' +
+          'model alias/fallback policy. AWF will not drop request features or silently select another model.',
+      },
+    }));
+    proxyRes = { statusCode: 400, headers: { 'content-type': 'application/json' } };
   }
 
   // ── (e) Model-unavailable diagnostic (non-retryable model-not-supported 400) ───

@@ -14,6 +14,7 @@ class WireApiCompatibilityError extends Error {
     this.name = 'WireApiCompatibilityError';
     this.statusCode = 400;
     this.code = 'unsupported_wire_api_feature';
+    this.feature = feature;
   }
 }
 
@@ -326,20 +327,32 @@ function translateResponsesRequest(body) {
   return result;
 }
 
-function translateCopilotWireApi(body, path) {
+function translateCopilotWireApi(body, path, { upstreamEndpoint: overrideEndpoint = null } = {}) {
   const requestedEndpoint = endpointForPath(path);
   if (!requestedEndpoint) return null;
   const parsed = parseBodyAsObject(body);
   if (!parsed || typeof parsed.model !== 'string') return null;
   const model = findRuntimeModel('copilot', parsed.model);
-  if (!Array.isArray(model?.supportedEndpoints)) return null;
-  const endpoints = new Set(model.supportedEndpoints.map(advertisedEndpoint).filter(Boolean));
+  if (!overrideEndpoint && !Array.isArray(model?.supportedEndpoints)) return null;
+  const endpoints = new Set((model?.supportedEndpoints || []).map(advertisedEndpoint).filter(Boolean));
   const upstreamEndpoint = requestedEndpoint === RESPONSES_ENDPOINT ? CHAT_ENDPOINT : RESPONSES_ENDPOINT;
-  if (endpoints.has(requestedEndpoint) || !endpoints.has(upstreamEndpoint)) return null;
+  if (overrideEndpoint !== upstreamEndpoint &&
+      (endpoints.has(requestedEndpoint) || !endpoints.has(upstreamEndpoint))) return null;
 
-  const translated = requestedEndpoint === RESPONSES_ENDPOINT
-    ? translateResponsesRequest(parsed)
-    : translateChatRequest(parsed);
+  let translated;
+  try {
+    translated = requestedEndpoint === RESPONSES_ENDPOINT
+      ? translateResponsesRequest(parsed)
+      : translateChatRequest(parsed);
+  } catch (err) {
+    if (err instanceof WireApiCompatibilityError) {
+      err.message += ` Routing model "${parsed.model}" to ${upstreamEndpoint} is incompatible: this request needs ` +
+        `${requestedEndpoint} to preserve '${err.feature}'. Choose a model supporting ${requestedEndpoint} ` +
+        'for this request, or use function tools/features supported by both APIs. ' +
+        'AWF will not drop request features or silently select another model.';
+    }
+    throw err;
+  }
   return {
     body: Buffer.from(JSON.stringify(translated)),
     compatibility: {

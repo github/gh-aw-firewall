@@ -97,6 +97,29 @@ describe('upstream-retry', () => {
       );
     });
 
+    test('tries the same-model endpoint retry before a configured model fallback', () => {
+      const opts = createBaseOptions();
+      opts.parseModelEndpointBlockedFromBody.mockReturnValue(true);
+      opts.onWireApiEndpointRetry = jest.fn(() => true);
+      opts.onModelFallback = jest.fn(() => true);
+      expect(handle400WithRetry({ statusCode: 400, headers: {} }, {}, endpointBlockedBody, opts)).toBe(true);
+      expect(opts.onWireApiEndpointRetry).toHaveBeenCalled();
+      expect(opts.onModelEndpointBlockedRetry).not.toHaveBeenCalled();
+      expect(opts.onModelFallback).not.toHaveBeenCalled();
+    });
+
+    test('allows an explicit model fallback when endpoint translation cannot preserve custom tools', () => {
+      const opts = createBaseOptions();
+      opts.parseModelEndpointBlockedFromBody.mockReturnValue(true);
+      opts.onWireApiEndpointRetry = jest.fn(() => {
+        const { WireApiCompatibilityError } = require('./wire-api-compat');
+        throw new WireApiCompatibilityError('tools[custom]');
+      });
+      opts.onModelEndpointBlockedRetry.mockReturnValue(true);
+      expect(handle400WithRetry({ statusCode: 400, headers: {} }, {}, endpointBlockedBody, opts)).toBe(true);
+      expect(opts.res.end).not.toHaveBeenCalled();
+    });
+
     test('falls through to forward response when onModelEndpointBlockedRetry returns false (no candidates)', () => {
       const opts = createBaseOptions();
       opts.parseModelEndpointBlockedFromBody.mockReturnValue(true);

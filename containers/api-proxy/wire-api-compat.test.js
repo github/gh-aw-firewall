@@ -206,6 +206,34 @@ describe('Copilot wire API compatibility', () => {
     expect(result.wireApiCompatibility).toBeNull();
   });
 
+  test.each(['/responses', '/chat/completions'])('preserves custom tools on supported %s', (path) => {
+    const body = buffer({
+      model: 'both',
+      ...(path === '/responses' ? { input: 'check' } : { messages: [] }),
+      tools: [path === '/responses'
+        ? { type: 'custom', name: 'quick-checker', format: { type: 'text' } }
+        : { type: 'custom', custom: { name: 'quick-checker', format: { type: 'text' } } }],
+    });
+    expect(translateCopilotWireApi(body, path)).toBeNull();
+  });
+
+  test.each([
+    ['claude-sonnet-5', '/responses', { input: 'check' }, '/chat/completions'],
+    ['gpt-5.4-mini', '/chat/completions', { messages: [] }, '/responses'],
+  ])('explains custom-tool incompatibility for %s', (model, path, input, alternate) => {
+    const body = buffer({ model, ...input, tools: [{ type: 'custom', name: 'quick-checker' }] });
+    try {
+      translateCopilotWireApi(body, path);
+      throw new Error('Expected compatibility rejection');
+    } catch (err) {
+      expect(err.code).toBe('unsupported_wire_api_feature');
+      expect(err.message).toContain('tools[custom]');
+      expect(err.message).toContain(`Routing model "${model}" to ${alternate} is incompatible`);
+      expect(err.message).toContain(`Choose a model supporting ${path}`);
+      expect(err.message).toContain('will not drop request features');
+    }
+  });
+
   test.each([
     [{ model: 'claude-sonnet-5', input: 'hi', previous_response_id: 'resp_1' }, /previous_response_id/],
     [{ model: 'claude-sonnet-5', input: 'hi', tools: [{ type: 'browser_search' }] }, /tools\[browser_search\]/],
