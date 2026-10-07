@@ -300,6 +300,23 @@ describe('NVX one-shot execution adapter', () => {
     }
   });
 
+  it('rejects malformed CPU profiles before launching NVX', async () => {
+    const { root, request } = await fixture();
+    const runProcess = jest.fn();
+    try {
+      await expect(new NvxOneShotAdapter({
+        pythonBinary: '/usr/bin/python3',
+        runProcess,
+      }).execute({
+        ...request,
+        cpuProfile: 'host invalid',
+      })).rejects.toThrow(/NVX CPU profile is invalid/);
+      expect(runProcess).not.toHaveBeenCalled();
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
   it('rejects missing outcomes, wrapper mismatches, and modified images', async () => {
     const missing = await fixture();
     const noOutcomeDependencies: NvxOneShotAdapterDependencies = {

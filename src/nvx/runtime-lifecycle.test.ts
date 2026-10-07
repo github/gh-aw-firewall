@@ -475,6 +475,25 @@ describe('NVX Phase 3d runtime lifecycle', () => {
     ]);
     expect(openvmmArguments.join(' ')).not.toContain(`/run/awf-nvx/runs/${RUN_ID}`);
     expect(plan.outcomePath).toBe(`/run/awf-nvx/runs/${RUN_ID}/outcome.json`);
+
+    const customProfilePlan = buildNvxPhase3dLaunchPlan({
+      runId: RUN_ID,
+      tools,
+      identity: { name: `awfnvx-${RUN_ID.slice(0, 20)}`, uid: 23001, gid: 23002 },
+      filesystem: filesystemBundle(),
+      execution: {
+        entrypoint: '/bin/true',
+        cpuProfile: 'intel.icelake-sp.v1',
+      },
+      network: { infrastructureBridge: 'br-awf', enableApiProxy: false },
+    });
+    const customProfileArguments = customProfilePlan.launchCommand.args.slice(
+      customProfilePlan.launchCommand.args.indexOf('/opt/awf-nvx/openvmm') + 1,
+    );
+    expect(customProfileArguments).toEqual(expect.arrayContaining([
+      '--cpu-profile',
+      'intel.icelake-sp.v1',
+    ]));
   });
 
   it('rejects a filesystem bundle staged outside the canonical run directory', () => {
