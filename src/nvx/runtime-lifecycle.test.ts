@@ -443,6 +443,8 @@ describe('NVX Phase 3d runtime lifecycle', () => {
       '--single-process',
       '--hypervisor',
       'kvm',
+      '--cpu-profile',
+      'host',
       '--memory',
       '512M',
       '--kernel',

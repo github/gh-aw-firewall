@@ -19,7 +19,10 @@ import {
 } from './confinement';
 import type { NvxCleanupDeviceAclIdentity } from './cleanup-record';
 import type { NvxFilesystemBundle } from './filesystem-builder';
-import type { NvxOneShotExecutionRequest } from './one-shot-adapter';
+import {
+  NVX_ONE_SHOT_CPU_PROFILE,
+  type NvxOneShotExecutionRequest,
+} from './one-shot-adapter';
 import {
   NVX_GUEST_ARTIFACT_ROOT,
   assertNvxRunLayout,
@@ -675,6 +678,8 @@ export function buildDirectOpenvmmArguments(
     '--single-process',
     '--hypervisor',
     'kvm',
+    '--cpu-profile',
+    request.cpuProfile ?? NVX_ONE_SHOT_CPU_PROFILE,
     '--memory',
     `${request.memoryMib ?? 512}M`,
     '--kernel',

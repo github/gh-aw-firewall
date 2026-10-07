@@ -139,6 +139,8 @@ describe('NVX one-shot execution adapter', () => {
         request.filesystem.scratch.path,
         '--network-profile',
         'portable',
+        '--cpu-profile',
+        'host',
         '--network-egress',
         'deny',
         '--network-ingress',
@@ -155,6 +157,22 @@ describe('NVX one-shot execution adapter', () => {
         'stop',
         'deprovision',
         '--state-dir',
+      ]));
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('passes an explicitly pinned CPU profile to NVX', async () => {
+    const { root, request } = await fixture();
+    try {
+      const args = buildNvxOneShotArguments(
+        { ...request, cpuProfile: 'intel.icelake-sp.v1' },
+        path.join(request.filesystem.runDirectory, 'outcome.json'),
+      );
+      expect(args).toEqual(expect.arrayContaining([
+        '--cpu-profile',
+        'intel.icelake-sp.v1',
       ]));
     } finally {
       await fs.rm(root, { recursive: true, force: true });

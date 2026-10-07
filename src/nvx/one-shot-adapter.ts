@@ -19,6 +19,7 @@ const NVX_MAX_OUTCOME_BYTES = 64 * 1024;
 const NVX_DEFAULT_RAW_TAIL_BYTES = 64 * 1024;
 const NVX_TERMINATION_GRACE_MS = 2_000;
 const NVX_DEFAULT_WORKLOAD_ID = 65534;
+export const NVX_ONE_SHOT_CPU_PROFILE = 'host';
 
 export interface NvxOneShotNetworkPlan {
   readonly guestAddress: string;
@@ -39,6 +40,7 @@ export interface NvxOneShotExecutionRequest {
   readonly memoryMaxBytes?: number;
   readonly pidsMax?: number;
   readonly memoryMib?: number;
+  readonly cpuProfile?: string;
   readonly timeoutMs?: number;
   readonly abortSignal?: AbortSignal;
   readonly network: NvxOneShotNetworkPlan;
@@ -290,6 +292,7 @@ export function buildNvxOneShotArguments(
   args.push(
     '--memory-mib', String(request.memoryMib ?? 512),
     '--hypervisor', 'kvm',
+    '--cpu-profile', request.cpuProfile ?? NVX_ONE_SHOT_CPU_PROFILE,
     '--net', request.network.guestAddress,
     '--network-profile', 'portable',
     '--network-egress', 'deny',
@@ -452,6 +455,10 @@ function validateRequest(request: NvxOneShotExecutionRequest): void {
   assertOptionalPositiveInteger(request.memoryMaxBytes, 'NVX memory limit');
   assertOptionalPositiveInteger(request.pidsMax, 'NVX process limit');
   assertOptionalPositiveInteger(request.memoryMib, 'NVX guest memory');
+  const cpuProfile = request.cpuProfile ?? NVX_ONE_SHOT_CPU_PROFILE;
+  if (!/^[a-z0-9]+(?:[.-][a-z0-9]+)*$/.test(cpuProfile)) {
+    throw new Error(`NVX CPU profile is invalid: ${cpuProfile}`);
+  }
   assertOptionalPositiveInteger(request.timeoutMs, 'NVX timeout');
   assertIpv4Cidr(request.network.guestAddress, 'NVX guest network address');
   if (request.network.proxyAddress !== undefined) {

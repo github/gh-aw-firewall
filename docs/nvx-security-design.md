@@ -154,6 +154,11 @@ Implemented boundary:
   implementation, including ordered sandbox blocks, workload identity,
   one-shot lifecycle, KVM, memory, kernel/initramfs, NVX-owned kernel command
   line, portable network policy, outcome report, and an initial paused state;
+- an explicit `host` CPU profile for one-shot preview VMs. The pinned NVX
+  release does not automatically select this profile on CPUs outside its
+  built-in catalog. AWF does because these VMs are never resumed or migrated
+  across hosts, while OpenVMM still fingerprints and verifies the current host
+  before boot instead of silently accepting an incompatible CPU;
 - a Bubblewrap `--block-fd` / `--json-status-fd` readiness gate. AWF records
   and cgroups the launcher and sandbox child before releasing Bubblewrap,
   discovers the exact OpenVMM executable from cgroup and procfs state, captures
