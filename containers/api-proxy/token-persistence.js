@@ -239,7 +239,10 @@ function validateTokenUsageRecord(record) {
  * @returns {object}
  */
 function buildTokenUsageRecord(normalized, opts) {
-  const { requestId, provider, model, reqPath, status, streaming, duration, responseBytes, purpose } = opts;
+  const {
+    requestId, provider, model, reqPath, status, streaming, duration, responseBytes, purpose,
+    requestedEndpoint, upstreamEndpoint,
+  } = opts;
   return {
     _schema: TOKEN_USAGE_SCHEMA,
     timestamp: new Date().toISOString(),
@@ -257,6 +260,8 @@ function buildTokenUsageRecord(normalized, opts) {
     duration_ms: duration,
     response_bytes: responseBytes,
     ...(purpose ? { purpose } : {}),
+    ...(requestedEndpoint ? { requested_endpoint: requestedEndpoint } : {}),
+    ...(upstreamEndpoint ? { upstream_endpoint: upstreamEndpoint } : {}),
   };
 }
 

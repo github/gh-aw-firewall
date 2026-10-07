@@ -36,6 +36,60 @@ function createProxyRes({ statusCode, headers }) {
 }
 
 describe('upstream-response', () => {
+  test('translates a buffered upstream Chat Completions response back to Responses', () => {
+    const deps = createDependencies();
+    const { handleUpstreamResponse } = createUpstreamResponseHandlers(deps);
+    const proxyRes = createProxyRes({
+      statusCode: 200,
+      headers: { 'content-type': 'application/json', 'content-length': '80' },
+    });
+    const res = { writeHead: jest.fn(), end: jest.fn() };
+    const body = Buffer.from(JSON.stringify({
+      model: 'claude-haiku-4.5',
+      input: 'hello',
+    }));
+    const upstreamBody = Buffer.from(JSON.stringify({
+      id: 'chatcmpl_1',
+      model: 'claude-haiku-4.5',
+      choices: [{ index: 0, message: { role: 'assistant', content: 'hello' }, finish_reason: 'stop' }],
+      usage: { prompt_tokens: 2, completion_tokens: 1, total_tokens: 3 },
+    }));
+
+    handleUpstreamResponse(proxyRes, {}, {
+      body,
+      res,
+      provider: 'copilot',
+      requestId: 'wire-api-req',
+      req: { method: 'POST', url: '/responses' },
+      targetHost: 'api.githubcopilot.com',
+      startTime: Date.now() - 10,
+      span: {},
+      requestBytes: body.length,
+      hasRetried: false,
+      onRetry: jest.fn(),
+      wireApiCompatibility: {
+        requestedEndpoint: '/responses',
+        upstreamEndpoint: '/chat/completions',
+        direction: 'responses_to_chat',
+      },
+    });
+
+    proxyRes.emit('data', upstreamBody);
+    proxyRes.emit('end');
+
+    expect(res.writeHead).toHaveBeenCalledWith(200, expect.not.objectContaining({
+      'content-length': '80',
+    }));
+    expect(JSON.parse(res.end.mock.calls[0][0].toString('utf8'))).toMatchObject({
+      object: 'response',
+      output: [{
+        type: 'message',
+        content: [{ type: 'output_text', text: 'hello' }],
+      }],
+      usage: { input_tokens: 2, output_tokens: 1, total_tokens: 3 },
+    });
+  });
+
   test('captures non-2xx upstream body/headers without altering plain-text response', () => {
     const deps = createDependencies();
     const { handleUpstreamResponse } = createUpstreamResponseHandlers(deps);

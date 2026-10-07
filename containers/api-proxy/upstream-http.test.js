@@ -271,7 +271,7 @@ describe('upstream-http', () => {
     }));
   });
 
-  test('carries Codex compatibility metadata forward across the endpoint-blocked retry', () => {
+  test('carries compatibility metadata forward across the endpoint-blocked retry', () => {
     const proxyReq = { on: jest.fn(), write: jest.fn(), end: jest.fn() };
     const responseCallbacks = [];
     const httpsRequest = jest.fn((_options, cb) => {
@@ -291,12 +291,18 @@ describe('upstream-http', () => {
     const originalBody = Buffer.from('{"model":"a","messages":[]}');
     const req = { method: 'POST', awfModelCandidates: ['a', 'much-longer-model-name'] };
     const codexCompatibility = { customTools: new Set(['apply_patch']) };
+    const wireApiCompatibility = {
+      requestedEndpoint: '/chat/completions',
+      upstreamEndpoint: '/responses',
+      direction: 'chat_to_responses',
+    };
 
     sendUpstreamRequest({ 'content-length': String(originalBody.length) }, createContext({
       body: originalBody,
       requestBytes: originalBody.length,
       req,
       codexCompatibility,
+      wireApiCompatibility,
     }));
     responseCallbacks[0]({ statusCode: 400, headers: {} });
     handleUpstreamResponse.mock.calls[0][2].onModelEndpointBlockedRetry();
@@ -305,6 +311,7 @@ describe('upstream-http', () => {
     // The retry rebuilds the body as a brand-new Buffer object; compatibility
     // metadata must not depend on the (now-stale) original buffer identity.
     expect(handleUpstreamResponse.mock.calls[1][2].codexCompatibility).toBe(codexCompatibility);
+    expect(handleUpstreamResponse.mock.calls[1][2].wireApiCompatibility).toBe(wireApiCompatibility);
   });
 
   test('skips fallback models rejected by isFallbackModelPermitted', () => {

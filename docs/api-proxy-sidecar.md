@@ -865,6 +865,11 @@ representation for comparison. Each request record includes `request_id`,
 (the final HTTP status). A policy-rejected deviation remains a rejection, not
 a failure to select a route. HTTP success alone does not imply `completed`:
 stream errors or premature termination can produce `failed` or `aborted`.
+Request records include `requested_endpoint` and `upstream_endpoint`; these
+differ when the Copilot proxy translates a request for a model that supports
+only the other wire API. Endpoint-only translation remains informational and
+does not change the `routed` classification. Translated token-usage records
+carry the same endpoint pair, and usage is extracted from the upstream response.
 Join `request_id` to `token-usage.jsonl` when a usage record is available;
 rejected or aborted calls may have no token-usage record.
 Classifier usage rows have `purpose: "routing_classification"` and are not

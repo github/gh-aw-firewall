@@ -2,6 +2,7 @@
 
 const { parseBodyAsObject } = require('./body-utils');
 const { carryForwardCodexCompatibility } = require('./codex-compat');
+const { carryForwardWireApiCompatibility } = require('./wire-api-compat');
 const {
   getFallbackModels,
   getRequestModel,
@@ -60,6 +61,7 @@ function createSendUpstreamRequest({
     modelNotSupportedRetryCount = 0,
     targetScheme = 'https',
     codexCompatibility = null,
+    wireApiCompatibility = null,
     attemptedModels = null,
   }) {
     const isRoutingClassifier = req.awfRequestContext?.purpose === 'routing_classification';
@@ -121,6 +123,7 @@ function createSendUpstreamRequest({
               codexCompatibility: rewritten.body === body
                 ? codexCompatibility
                 : carryForwardCodexCompatibility(codexCompatibility),
+              wireApiCompatibility: carryForwardWireApiCompatibility(wireApiCompatibility),
               attemptedModels: [...attempted, nextModel],
             });
             return true;
@@ -173,6 +176,7 @@ function createSendUpstreamRequest({
         hasRetried,
         modelNotSupportedRetryCount,
         codexCompatibility,
+        wireApiCompatibility,
         onModelFallback,
         onRetry: (retryHeaders) => sendUpstreamRequest(retryHeaders, {
           body, targetHost, upstreamPath, req, res, provider, requestId, startTime, span, requestBytes, requestSigner,
@@ -180,6 +184,7 @@ function createSendUpstreamRequest({
           modelNotSupportedRetryCount,
           targetScheme,
           codexCompatibility,
+          wireApiCompatibility,
           attemptedModels,
         }),
         onModelNotSupportedRetry: () => {
@@ -191,6 +196,7 @@ function createSendUpstreamRequest({
               modelNotSupportedRetryCount: modelNotSupportedRetryCount + 1,
               targetScheme,
               codexCompatibility,
+              wireApiCompatibility,
               attemptedModels,
             });
           });
@@ -231,6 +237,7 @@ function createSendUpstreamRequest({
             modelNotSupportedRetryCount,
             targetScheme,
             codexCompatibility: carryForwardCodexCompatibility(codexCompatibility),
+            wireApiCompatibility: carryForwardWireApiCompatibility(wireApiCompatibility),
             attemptedModels: [...(Array.isArray(attemptedModels) && attemptedModels.length > 0 ? attemptedModels : [currentModel]), nextModel],
           });
           return true;

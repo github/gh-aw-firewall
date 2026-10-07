@@ -75,7 +75,7 @@ function buildCopilotAuthErrorMessage(statusCode, env = process.env) {
 
 function createLogRequestCompletion({ metrics, logRequest, sanitizeForLog, applyMaxRunsInvocation }) {
   return function logRequestCompletion(statusCode, responseBytes, initiatorSent, billingInfo, {
-    startTime, provider, req, requestBytes, targetHost, requestId,
+    startTime, provider, req, requestBytes, targetHost, requestId, wireApiCompatibility,
   }) {
     const duration = Date.now() - startTime;
     const sc = metrics.statusClass(statusCode);
@@ -92,6 +92,10 @@ function createLogRequestCompletion({ metrics, logRequest, sanitizeForLog, apply
       duration_ms: duration, request_bytes: requestBytes,
       response_bytes: responseBytes, upstream_host: targetHost,
     };
+    if (wireApiCompatibility) {
+      logFields.requested_endpoint = wireApiCompatibility.requestedEndpoint;
+      logFields.upstream_endpoint = wireApiCompatibility.upstreamEndpoint;
+    }
     if (initiatorSent) logFields.x_initiator = initiatorSent;
     if (billingInfo) logFields.billing = billingInfo;
     logRequest('info', 'request_complete', logFields);

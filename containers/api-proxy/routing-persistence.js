@@ -13,7 +13,7 @@ const FIELDS = new Set([
   'eligible_choices', 'catalogue_overlap', 'latency_ms', 'labels', 'mode',
   'router', 'ranked_choices', 'conversation_sha256', 'phase', 'code', 'detail',
   'request_id', 'routed', 'deviations', 'unavailable', 'method', 'pathname',
-  'requested_model', 'requested_effort', 'outcome', 'status',
+  'requested_model', 'requested_effort', 'requested_endpoint', 'upstream_endpoint', 'outcome', 'status',
 ]);
 
 /**

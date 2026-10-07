@@ -162,7 +162,27 @@ describe('advisory routing observation', () => {
       selected_model: 'gpt-test',
       selected_effort: 'low',
       selected_endpoint: '/responses',
+      requested_endpoint: '/responses',
+      upstream_endpoint: '/responses',
     }]);
+  });
+
+  it('records a translated upstream endpoint without treating it as a routing deviation', () => {
+    const harness = createHarness();
+    const { req, res } = observe(harness, request({ url: '/v1/responses' }));
+    send(req, { model: 'gpt-test', reasoning: { effort: 'low' } });
+    req.awfRouting.onEndpointTranslation({
+      requestedEndpoint: '/responses',
+      upstreamEndpoint: '/chat/completions',
+    });
+    res.end();
+
+    expect(harness.records[0]).toMatchObject({
+      routed: 'as_selected',
+      deviations: [],
+      requested_endpoint: '/responses',
+      upstream_endpoint: '/chat/completions',
+    });
   });
 
   it('uses a valid caller request ID or generates one before request processing', () => {

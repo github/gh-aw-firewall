@@ -48,7 +48,10 @@ describe('routing persistence', () => {
       { stage: 'selection', selected_model: 'provider/model', degraded_classification: true,
         degraded_reason: 'invalid_classifier_output', labels: null, mode: null },
       { stage: 'failure', code: 'no_route', detail: 'The router found no eligible model choice' },
-      { stage: 'request', request_id: 'request-1', outcome: 'completed', status: 200, routed: 'as_selected' },
+      {
+        stage: 'request', request_id: 'request-1', outcome: 'completed', status: 200, routed: 'as_selected',
+        requested_endpoint: '/responses', upstream_endpoint: '/chat/completions',
+      },
       { stage: 'request', request_id: 'request-2', outcome: 'rejected', status: 403, routed: 'deviated' },
     ];
     for (const record of records) observer.record(record);

@@ -26,6 +26,7 @@ const metrics = require('./metrics');
 const { getAndClearPendingSteeringMessage } = require('./guards/effective-token-guard');
 const { getAndClearPendingTimeoutSteeringMessage } = require('./guards/timeout-steering');
 const { translateCodexCustomToolsForCopilot } = require('./codex-compat');
+const { translateCopilotWireApi } = require('./wire-api-compat');
 const { stripRedundantModelPrefixInBody } = require('./model-body-rewriter');
 
 /** Maximum request body size: 10 MB to prevent DoS via large payloads. */
@@ -168,10 +169,11 @@ function createBodyHandler({ handleRequestError, otel }) {
    * @param {import('http').IncomingMessage} req
    * @param {string} requestId
    * @param {((body: Buffer) => (Buffer | null | Promise<Buffer | null>)) | null} bodyTransform
-   * @returns {Promise<{ body: Buffer, codexCompatibility: { customTools: Set<string> } | null }>}
+   * @returns {Promise<{ body: Buffer, codexCompatibility: { customTools: Set<string> } | null, wireApiCompatibility: object | null }>}
    */
   async function transformRequestBody(body, provider, req, requestId, bodyTransform) {
     let codexCompatibility = null;
+    let wireApiCompatibility = null;
     const isWritableMethod = req.method === 'POST' || req.method === 'PUT' || req.method === 'PATCH';
 
     // Normalize a redundant "<provider>/" prefix (e.g. "openai/gpt-6-sol", used by
@@ -264,7 +266,16 @@ function createBodyHandler({ handleRequestError, otel }) {
       }
     }
 
-    return { body, codexCompatibility };
+    if (provider === 'copilot' && req.method === 'POST') {
+      const translated = translateCopilotWireApi(body, req.url);
+      if (translated) {
+        body = translated.body;
+        wireApiCompatibility = translated.compatibility;
+        req.awfRouting?.onEndpointTranslation?.(wireApiCompatibility);
+      }
+    }
+
+    return { body, codexCompatibility, wireApiCompatibility };
   }
 
   return { collectRequestBody, transformRequestBody };

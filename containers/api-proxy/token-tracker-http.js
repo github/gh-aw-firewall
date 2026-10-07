@@ -305,7 +305,7 @@ function extractUsageFromTrackedState(state) {
  * @param {object|undefined} params.budgetResult
  * @param {object|undefined} [params.modelFallback] - Ordered-fallback details when the request was served by a fallback model
  */
-function buildAndWriteTokenRecord(normalized, { requestId, provider, model, reqPath, status, streaming, duration, responseBytes, billingInfo, initiatorSent, budgetResult, purpose, modelFallback }) {
+function buildAndWriteTokenRecord(normalized, { requestId, provider, model, reqPath, status, streaming, duration, responseBytes, billingInfo, initiatorSent, budgetResult, purpose, modelFallback, requestedEndpoint, upstreamEndpoint }) {
   const record = buildTokenUsageRecord(normalized, {
     requestId,
     provider,
@@ -316,6 +316,8 @@ function buildAndWriteTokenRecord(normalized, { requestId, provider, model, reqP
     duration,
     responseBytes,
     purpose,
+    requestedEndpoint,
+    upstreamEndpoint,
   });
 
   // Include billing/quota info when available (Copilot PRU tracking)
@@ -376,7 +378,10 @@ function reportUnsupportedCursorAccounting(requestId, provider, status, reason, 
  * @param {object} opts - Original options passed to trackTokenUsage
  */
 function finalizeHttpTracking(state, proxyRes, opts) {
-  const { requestId, provider, path: reqPath, startTime, metrics: metricsRef, billingInfo, initiatorSent, requestModel, onUsage, onSpanEnd, purpose, modelFallback } = opts;
+  const {
+    requestId, provider, path: reqPath, startTime, metrics: metricsRef, billingInfo, initiatorSent,
+    requestModel, onUsage, onSpanEnd, purpose, modelFallback, requestedEndpoint, upstreamEndpoint,
+  } = opts;
   const { streaming, compressed, contentEncoding } = state;
 
   // Only process successful responses (2xx)
@@ -473,6 +478,8 @@ function finalizeHttpTracking(state, proxyRes, opts) {
     budgetResult,
     purpose,
     modelFallback,
+    requestedEndpoint,
+    upstreamEndpoint,
   });
 
   if (typeof onSpanEnd === 'function') onSpanEnd(proxyRes.statusCode);

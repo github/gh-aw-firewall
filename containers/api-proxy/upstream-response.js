@@ -13,6 +13,10 @@ const {
   transformCodexCompatibleResponseBody,
   createCodexCompatibleSseTransform,
 } = require('./codex-compat');
+const {
+  transformWireApiResponseBody,
+  createWireApiSseTransform,
+} = require('./wire-api-compat');
 
 /** Maximum number of times to retry a Copilot 400 "model not supported" response. */
 const MAX_MODEL_NOT_SUPPORTED_RETRIES = 2;
@@ -166,6 +170,7 @@ function createUpstreamResponseHandlers({
     onModelEndpointBlockedRetry,
     onModelFallback = null,
     codexCompatibility = null,
+    wireApiCompatibility = null,
   }) {
     let responseBytes = 0;
     let capturedErrorBytes = 0;
@@ -202,7 +207,7 @@ function createUpstreamResponseHandlers({
     const shouldCaptureUpstreamError = !isRoutingClassifier &&
       (proxyRes.statusCode < 200 || proxyRes.statusCode >= 300);
 
-    const completionCtx = { startTime, provider, req, requestBytes, targetHost, requestId };
+    const completionCtx = { startTime, provider, req, requestBytes, targetHost, requestId, wireApiCompatibility };
     const authErrCtx = { requestId, provider, targetHost, req };
 
     function forwardOversizedBufferedResponse(bufferedChunks, currentChunk) {
@@ -318,9 +323,9 @@ function createUpstreamResponseHandlers({
 
     const isStreaming = (proxyRes.headers['content-type'] || '').includes('text/event-stream');
     const isJson = (proxyRes.headers['content-type'] || '').includes('application/json');
-    const canTransformCodexResponse =
+    const canTransformCompatibilityResponse =
       provider === 'copilot' &&
-      !!codexCompatibility &&
+      (!!codexCompatibility || !!wireApiCompatibility) &&
       proxyRes.statusCode >= 200 &&
       proxyRes.statusCode < 300 &&
       !proxyRes.headers['content-encoding'];
@@ -328,12 +333,15 @@ function createUpstreamResponseHandlers({
     const resHeaders = { ...proxyRes.headers, 'x-request-id': requestId };
     logUpstreamAuthError(proxyRes.statusCode, authErrCtx);
 
-    let codexSseTransform = null;
-    if (canTransformCodexResponse && isStreaming) {
-      codexSseTransform = createCodexCompatibleSseTransform(codexCompatibility, provider);
+    const responseTransforms = [];
+    if (canTransformCompatibilityResponse && isStreaming) {
+      const wireSseTransform = createWireApiSseTransform(wireApiCompatibility);
+      const codexSseTransform = createCodexCompatibleSseTransform(codexCompatibility, provider);
+      if (wireSseTransform) responseTransforms.push(wireSseTransform);
+      if (codexSseTransform) responseTransforms.push(codexSseTransform);
     }
 
-    if (canTransformCodexResponse && isJson) {
+    if (canTransformCompatibilityResponse && isJson) {
       const bufferedChunks = [];
       proxyRes.on('data', (chunk) => {
         responseBytes += chunk.length;
@@ -341,9 +349,12 @@ function createUpstreamResponseHandlers({
       });
       proxyRes.on('end', () => {
         logRequestCompletion(proxyRes.statusCode, responseBytes, initiatorSent, billingInfo, completionCtx);
-        const responseBody = Buffer.concat(bufferedChunks);
-        const transformed = transformCodexCompatibleResponseBody(responseBody, codexCompatibility, provider);
-        const outgoingBody = transformed || responseBody;
+        let outgoingBody = Buffer.concat(bufferedChunks);
+        const wireTransformed = transformWireApiResponseBody(outgoingBody, wireApiCompatibility);
+        if (wireTransformed) outgoingBody = wireTransformed;
+        const codexTransformed = transformCodexCompatibleResponseBody(outgoingBody, codexCompatibility, provider);
+        if (codexTransformed) outgoingBody = codexTransformed;
+        const transformed = !!wireTransformed || !!codexTransformed;
         res.writeHead(proxyRes.statusCode, transformed ? withoutContentLength(resHeaders) : resHeaders);
         res.end(outgoingBody);
       });
@@ -368,7 +379,7 @@ function createUpstreamResponseHandlers({
             ...authErrCtx,
             requestModel,
             requestTools,
-            transformed: !!codexSseTransform,
+            transformed: responseTransforms.length > 0,
             responseHeaders: proxyRes.headers,
             responseBody: Buffer.concat(capturedErrorChunks, capturedErrorBytes),
             responseBodyBytes: responseBytes,
@@ -377,9 +388,9 @@ function createUpstreamResponseHandlers({
         }
       });
 
-      if (codexSseTransform) {
+      if (responseTransforms.length > 0) {
         res.writeHead(proxyRes.statusCode, withoutContentLength(resHeaders));
-        proxyRes.pipe(codexSseTransform).pipe(res);
+        responseTransforms.reduce((stream, transform) => stream.pipe(transform), proxyRes).pipe(res);
       } else {
         res.writeHead(proxyRes.statusCode, resHeaders);
         proxyRes.pipe(res);
@@ -394,6 +405,7 @@ function createUpstreamResponseHandlers({
       metrics,
       otel,
       logRequest,
+      wireApiCompatibility,
     });
   }
 

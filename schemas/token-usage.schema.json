@@ -61,6 +61,22 @@
       "type": "string",
       "description": "API endpoint path for this request (e.g. '/v1/messages', '/v1/chat/completions')."
     },
+    "requested_endpoint": {
+      "type": "string",
+      "enum": [
+        "/responses",
+        "/chat/completions"
+      ],
+      "description": "Copilot wire endpoint requested by the client when AWF translated it to another endpoint."
+    },
+    "upstream_endpoint": {
+      "type": "string",
+      "enum": [
+        "/responses",
+        "/chat/completions"
+      ],
+      "description": "Copilot wire endpoint used upstream when AWF translated the request."
+    },
     "status": {
       "type": "integer",
       "minimum": 100,

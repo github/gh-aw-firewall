@@ -12,6 +12,15 @@ on:
       - 'containers/api-proxy/guards/model-policy-guard.js'
       - 'containers/api-proxy/proxy-guards.js'
       - 'containers/api-proxy/proxy-request.js'
+      - 'containers/api-proxy/body-handler.js'
+      - 'containers/api-proxy/request-headers.js'
+      - 'containers/api-proxy/upstream-http.js'
+      - 'containers/api-proxy/upstream-response.js'
+      - 'containers/api-proxy/upstream-token.js'
+      - 'containers/api-proxy/upstream-log.js'
+      - 'containers/api-proxy/token-persistence.js'
+      - 'containers/api-proxy/token-tracker-http.js'
+      - 'containers/api-proxy/wire-api-compat*'
       - 'containers/api-proxy/server.js'
       - 'containers/api-proxy/server-factory.js'
       - 'containers/api-proxy/startup.js'
@@ -258,6 +267,74 @@ jobs:
               console.log("COPILOT_EFFORT_INFERENCE=passed effort=" + process.argv[2]);
             ' "$response" "$effort"
           done
+          SCRIPT
+          )"
+          sudo --preserve-env=COPILOT_GITHUB_TOKEN,GITHUB_WORKSPACE,GITHUB_RUN_ID,GITHUB_RUN_ATTEMPT,GITHUB_REPOSITORY,GITHUB_WORKFLOW_REF,HOME,PATH \
+            node dist/cli.js --config "${ROUTING_DIR}/awf-config.yml" -- bash -euc "$ROUTED_COMMAND"
+
+      - name: Translate cross-endpoint Copilot sub-agent requests through AWF
+        env:
+          COPILOT_GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          ROUTING_DIR="${RUNNER_TEMP}/model-routing-wire-api"
+          mkdir -m 700 -p "$ROUTING_DIR"
+          cat > "${ROUTING_DIR}/awf-config.yml" <<YAML
+          network:
+            allowDomains:
+              - api.githubcopilot.com
+          apiProxy:
+            enabled: true
+            allowedModels:
+              - github-copilot/gpt-5.4-mini
+              - github-copilot/claude-haiku-4.5
+          container:
+            images:
+              agent: ${AGENT_IMAGE}
+              apiProxy: ${API_PROXY_IMAGE}
+              squid: ${SQUID_IMAGE}
+          YAML
+
+          ROUTED_COMMAND="$(cat <<'SCRIPT'
+          set -euo pipefail
+          test -n "${COPILOT_API_URL:-}" || { echo "COPILOT_API_URL is missing" >&2; exit 1; }
+          responses() {
+            curl --fail --silent --show-error --max-time 180 \
+              -H "Content-Type: application/json" \
+              --data "{\"model\":\"$1\",\"input\":\"Reply with exactly WIRE_API_OK.\",\"max_output_tokens\":128,\"stream\":false}" \
+              "${COPILOT_API_URL}/responses"
+          }
+          chat() {
+            curl --fail --silent --show-error --max-time 180 \
+              -H "Content-Type: application/json" \
+              --data "{\"model\":\"$1\",\"messages\":[{\"role\":\"user\",\"content\":\"Reply with exactly WIRE_API_OK.\"}],\"max_tokens\":128,\"stream\":false}" \
+              "${COPILOT_API_URL}/chat/completions"
+          }
+          assert_responses() {
+            node -e '
+              const assert = require("node:assert/strict");
+              const result = JSON.parse(process.argv[1]);
+              const text = (result.output || []).filter(item => item.type === "message")
+                .flatMap(item => item.content || []).filter(part => part.type === "output_text")
+                .map(part => part.text).join("");
+              assert.match(text, /WIRE_API_OK/, "Responses-format request failed: " + JSON.stringify(result).slice(0, 500));
+            ' "$1"
+          }
+          assert_chat() {
+            node -e '
+              const assert = require("node:assert/strict");
+              const result = JSON.parse(process.argv[1]);
+              const text = result.choices?.[0]?.message?.content;
+              assert.match(text || "", /WIRE_API_OK/, "Chat-format request failed: " + JSON.stringify(result).slice(0, 500));
+            ' "$1"
+          }
+
+          assert_responses "$(responses gpt-5.4-mini)"
+          assert_responses "$(responses claude-haiku-4.5)"
+          echo "CROSS_ENDPOINT_SUBAGENT=passed main=gpt-5.4-mini subagent=claude-haiku-4.5 requested=/responses"
+          assert_chat "$(chat claude-haiku-4.5)"
+          assert_chat "$(chat gpt-5.4-mini)"
+          echo "CROSS_ENDPOINT_SUBAGENT=passed main=claude-haiku-4.5 subagent=gpt-5.4-mini requested=/chat/completions"
           SCRIPT
           )"
           sudo --preserve-env=COPILOT_GITHUB_TOKEN,GITHUB_WORKSPACE,GITHUB_RUN_ID,GITHUB_RUN_ATTEMPT,GITHUB_REPOSITORY,GITHUB_WORKFLOW_REF,HOME,PATH \

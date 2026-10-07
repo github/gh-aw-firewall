@@ -127,6 +127,8 @@ describe('shared token usage helpers', () => {
       streaming: false,
       duration: 123,
       responseBytes: 456,
+      requestedEndpoint: '/chat/completions',
+      upstreamEndpoint: '/responses',
     });
 
     expect(record).toMatchObject({
@@ -143,6 +145,8 @@ describe('shared token usage helpers', () => {
       cache_write_tokens: 1,
       duration_ms: 123,
       response_bytes: 456,
+      requested_endpoint: '/chat/completions',
+      upstream_endpoint: '/responses',
     });
     expect(validateTokenUsageRecord(record)).toBe(true);
   });

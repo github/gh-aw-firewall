@@ -195,6 +195,8 @@ function createRoutingObservation({
       selected_model: selection.wire_model,
       selected_effort: selectedEffort,
       selected_endpoint: selectedEndpoint,
+      requested_endpoint: endpoint,
+      upstream_endpoint: endpoint,
     };
   }
 
@@ -257,6 +259,13 @@ function createRoutingObservation({
       req.awfRouting = {
         requestId,
         bodyTransform,
+        onEndpointTranslation(compatibility) {
+          if (!compatibility || compatibility.requestedEndpoint !== state.telemetry.requested_endpoint) return;
+          state.telemetry = {
+            ...state.telemetry,
+            upstream_endpoint: compatibility.upstreamEndpoint,
+          };
+        },
         onSseData,
         onSseInspectionStart: responseHooks.sseInspectionStart,
         onSseInspectionComplete: responseHooks.sseInspectionComplete,
