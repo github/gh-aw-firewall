@@ -657,6 +657,12 @@ They are stored alongside the other Cloud Hypervisor diagnostics under the
 configured audit directory, or under the work-directory diagnostics path when
 no audit directory is configured. This preserves forensic evidence without
 allowing raw guest bytes to reach the GitHub Actions command parser.
+The diagnostic directory remains private (`0700`), and all generated diagnostic
+files remain `0600`. Both are owned by the invoking non-root host identity
+(including when AWF runs through `sudo`), so post-run runner-side redaction can
+read and remove audit sources without granting group or world access. Artifact
+cleanup preserves these private modes instead of applying the public-log
+permission repair to the Cloud Hypervisor diagnostic subtree.
 
 ## Guest and workspace
 

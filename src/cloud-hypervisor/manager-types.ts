@@ -104,6 +104,9 @@ export interface CloudHypervisorManagerDependencies {
   copySparseFile(rsyncBinaryPath: string, source: string, destination: string): Promise<void>;
   chmod(filePath: string, mode: number): Promise<void>;
   chown(filePath: string, uid: number, gid: number): Promise<void>;
+  lstat: typeof fs.lstat;
+  realpath: typeof fs.realpath;
+  open: typeof fs.open;
   writeFile: typeof fs.writeFile;
   readFileTail(filePath: string, maxBytes: number): Promise<Buffer>;
   access(filePath: string): Promise<void>;

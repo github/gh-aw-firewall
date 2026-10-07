@@ -1,3 +1,4 @@
+import { constants, promises as fs } from 'fs';
 import * as path from 'path';
 import type { ExecaChildProcess } from 'execa';
 import type {
@@ -242,7 +243,7 @@ function dependencies(
     vmShutdown: jest.fn().mockResolvedValue(undefined),
     vmmShutdown: jest.fn().mockResolvedValue(undefined),
   } as unknown as CloudHypervisorApiClient;
-  return {
+  const testDependencies: CloudHypervisorManagerDependencies = {
     preflight: jest.fn().mockResolvedValue({
       version: '53.0',
       cloudHypervisorBinary: '/opt/cloud-hypervisor',
@@ -260,6 +261,12 @@ function dependencies(
     copySparseFile: jest.fn().mockResolvedValue(undefined),
     chmod: jest.fn().mockResolvedValue(undefined),
     chown: jest.fn().mockResolvedValue(undefined),
+    lstat: jest.fn().mockResolvedValue({
+      isSymbolicLink: () => false,
+      isDirectory: () => true,
+    }),
+    realpath: jest.fn(async (filePath) => String(filePath)) as unknown as typeof fs.realpath,
+    open: jest.fn(),
     writeFile: jest.fn().mockResolvedValue(undefined),
     readFileTail: jest.fn().mockResolvedValue(Buffer.alloc(0)),
     access: jest.fn().mockResolvedValue(undefined),
@@ -308,8 +315,29 @@ function dependencies(
     }),
     createVmmIdentity: jest.fn(() => vmmIdentityMock()),
     resolveIdentity: jest.fn().mockReturnValue({ uid: 1000, gid: 1000 }),
-    ...overrides,
   };
+  const mergedDependencies = { ...testDependencies, ...overrides };
+  if (!overrides.open) {
+    mergedDependencies.open = jest.fn(async (filePath, flags) => {
+      const directory = typeof flags === 'number' &&
+        Boolean(flags & (constants.O_DIRECTORY ?? 0));
+      const target = String(filePath);
+      return {
+        stat: async () => ({
+          isDirectory: () => directory,
+          isFile: () => !directory,
+          nlink: 1,
+        }),
+        chmod: (mode: number) => mergedDependencies.chmod(target, mode),
+        chown: (uid: number, gid: number) => mergedDependencies.chown(target, uid, gid),
+        truncate: async () => undefined,
+        writeFile: (contents: string | Buffer) =>
+          mergedDependencies.writeFile(target, contents, { mode: 0o600 }),
+        close: async () => undefined,
+      } as Awaited<ReturnType<typeof fs.open>>;
+    });
+  }
+  return mergedDependencies;
 }
 
 
