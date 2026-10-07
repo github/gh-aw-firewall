@@ -1426,10 +1426,9 @@ either parent mode, both root/artifact-parent observations are private, the
 parent's original shared/private state is unchanged, and ordinary allocation
 close succeeds. It is still opt-in and needs real privileged Linux execution.
 A new release containing this fix and a release-pinned environment probe are
-required to establish whether startup progresses beyond the original failure;
-v0.28.42 remains immutable.
-These diagnostics require a future published release; immutable v0.28.39
-assets are not patched by changing the source or dispatching a job.
+required to establish whether startup progresses beyond the original failure.
+The immutable v0.28.39 and v0.28.42 assets are not patched by source changes or
+workflow dispatches.
 
 Host-tool failures distinguish `tool-not-found`, unsafe ancestor/file
 symlink, ownership, write permissions, file type, and allowlisted access
