@@ -1622,6 +1622,17 @@ and each has a field that can rule it out:
 | H4: Inherited descendant writers kept stderr unstable | `evidence.stderr.attempts` and `unstable` |
 | H5: The failure is in a stage or check without a mapped category | `AWF_STARTUP_EXIT.stage`, `failedCheck`, `containersStarted`, `elapsed` |
 
+The `v0.28.46` probe
+([run 37649953345](https://github.com/github/gh-aw-firewall/actions/runs/37649953345))
+confirmed H1 and H3 and ruled out H2 and H4. For H5, it located the failure:
+host storage and infrastructure passed, and the first gateway `initialize`
+returned HTTP 502. That 502 came from the public probe's gateway fixture, which
+returned a permanent 502 while `awf-enclave-mcp` was still unreachable. The
+fixture now matches mcpg's late-backend contract: it returns
+`503 {"error":"backend_unavailable","retryable":true}` until the backend
+responds, so AWF retries within `AWF_ENCLAVE_MCP_READINESS_TIMEOUT_MS`.
+Invalid or oversize backend responses remain a permanent 502.
+
 Limits were raised to reduce truncation:
 
 - The writer's record bound is now 64 KiB. Writer outcomes are reported as

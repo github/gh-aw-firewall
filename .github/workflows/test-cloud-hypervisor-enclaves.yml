@@ -124,6 +124,7 @@ jobs:
             src/cloud-hypervisor/host-eligibility.test.ts \
             scripts/ci/cloud-hypervisor-enclave-artifacts.test.ts \
             scripts/ci/cloud-hypervisor-enclave-live-smoke.test.ts \
+            scripts/ci/cloud-hypervisor-enclave-gateway.test.ts \
             scripts/ci/cloud-hypervisor-enclave-release-gate.test.ts \
             scripts/ci/cloud-hypervisor-enclave-startup-faults.test.ts \
             scripts/ci/cloud-hypervisor-enclave-environment-probe.test.ts \

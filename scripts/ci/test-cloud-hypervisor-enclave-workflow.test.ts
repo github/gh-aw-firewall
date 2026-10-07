@@ -64,6 +64,7 @@ describe('Cloud Hypervisor enclave conformance CI boundary', () => {
       'src/cloud-hypervisor/trusted-enclave-preflight.test.ts',
       'src/cloud-hypervisor/workload-profile.test.ts',
       'src/enclave/gateway.test.ts',
+      'scripts/ci/cloud-hypervisor-enclave-gateway.test.ts',
       'src/enclave/workflow-integration.test.ts',
       'src/commands/main-action-startup-diagnostics.test.ts',
       'src/cli-workflow.test.ts',
