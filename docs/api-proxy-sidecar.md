@@ -1591,7 +1591,7 @@ When a Copilot model supports only one wire API but a request arrives for the ot
 
 Wire API translation handles:
 - Message format normalization (roles, content types, tool calls)
-- Reasoning effort translation (reasoning_effort ↔ output_config.effort)
+- Reasoning effort translation (`reasoning_effort` ↔ `reasoning.effort`)
 - Streaming and non-streaming responses
 - Error propagation with proper HTTP status codes
 
