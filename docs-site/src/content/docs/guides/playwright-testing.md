@@ -86,8 +86,7 @@ clients that ignore `NO_PROXY` can reach them. Those peer rules permit **any
 port**; `--allow-host-ports` does not restrict an attached peer. Attachment is a
 trust grant, not a domain/port-isolated tunnel.
 
-For gh-aw, launch the stack in trusted host-side `steps:` before the agent starts.
-The corresponding **AWF config file** (not gh-aw workflow frontmatter) is:
+This is a **standalone AWF CLI** recipe. Its configuration file is:
 
 ```yaml
 network:
@@ -96,11 +95,12 @@ network:
   allowDomains: [awf-compose-web]
 ```
 
-Ensure your compiler passes the attachment through to AWF, and direct its
-Playwright tool to `http://awf-compose-web:80`. gh-aw's external-domain field is
-`network.allowed`; it is distinct from AWF's `network.allowDomains`. Keep stack
-cleanup in an `if: always()` host step. Do not grant the agent Docker access or
-sudo just to attach containers; AWF performs the attachment.
+The current gh-aw compiler-launched AWF handoff does not support arbitrary
+`topologyAttach` entries: it attaches its managed peers (such as `awmg-mcpg` and
+`awmg-cli-proxy`) and provides no workflow field for `awf-compose-web`. Starting
+the stack in a host-side `steps:` block does not make it available to that AWF
+run. Use this recipe only when the standalone AWF CLI consumes the configuration
+directly; gh-aw needs compiler support for arbitrary attachments first.
 
 :::caution
 Only attach a frontend you trust. A dual-homed container can reach the agent

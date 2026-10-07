@@ -135,7 +135,7 @@ jobs:
         run: |
           echo "=== Running network tests ==="
           npm run test:integration -- \
-            --testPathPatterns="(ipv6|localhost-access|network-security)" \
+            --testPathPatterns="(ipv6|localhost-access|network-security|topology-compose)" \
             --verbose
         env:
           JEST_TIMEOUT: 180000

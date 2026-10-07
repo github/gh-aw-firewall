@@ -82,7 +82,8 @@ Options:
   --network-isolation          Experimental: enforce egress via Docker network topology (an
                                internal network with no internet route plus a dual-homed Squid
                                proxy) instead of host iptables. Requires no sudo / NET_ADMIN, so it
-                               works inside ARC / Kubernetes DinD runners. Not yet supported with
+                               works inside ARC / Kubernetes DinD runners. Host HTTP(S) access uses
+                               Squid; no direct host route is provided. Not yet supported with
                                --dns-over-https. (default: false)
   --verify-sbx-egress          Fail before agent startup unless Docker sbx blocks direct
                                non-proxy HTTPS egress. Requires --container-runtime sbx.
