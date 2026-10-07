@@ -98,6 +98,43 @@ sudo -E awf --allow-domains github.com 'copilot --prompt "..."'
 - Working with untrusted code
 - In production/CI environments
 
+## Provider-neutral API key (API proxy)
+
+Set `AWF_AGENT_API_KEY` and `AWF_AGENT_API_PROVIDER` in the **host environment**
+to supply a BYO-endpoint key without changing its secret name when switching
+engines. The API proxy is always enabled; the deprecated `--enable-api-proxy`
+flag is not needed. AWF resolves the key before starting the sidecar; only the
+selected provider receives it.
+
+| `AWF_AGENT_API_PROVIDER` | Native variable (takes precedence when non-empty) |
+|---|---|
+| `openai` (Codex/OpenAI-compatible clients) | `OPENAI_API_KEY` |
+| `anthropic` (Claude) | `ANTHROPIC_API_KEY` |
+| `copilot` (Copilot BYOK) | `COPILOT_PROVIDER_API_KEY` |
+| `gemini` | `GEMINI_API_KEY` |
+| `vertex` | `GOOGLE_API_KEY` |
+
+```bash
+export AWF_AGENT_API_PROVIDER=openai
+export AWF_AGENT_API_KEY="$AGENT_API_KEY"
+sudo -E awf --allow-domains api.openai.com 'codex exec "..."'
+```
+
+Provider names are case-insensitive. A non-empty neutral key requires an explicit
+supported provider; AWF does not infer it from the command or endpoint, and does
+not distribute it to other providers. Endpoint configuration is unchanged.
+For Copilot this is a **provider API key**, not a `COPILOT_GITHUB_TOKEN`.
+
+The API proxy cannot be disabled. Both `AWF_AGENT_API_KEY` and the compiler's
+`AGENT_API_KEY` source variable are excluded from the agent environment,
+including `--env-all`, `--env`, and `--env-file` passthrough. Supply the key on
+the host, not through agent environment flags. The agent receives the existing
+provider-specific placeholders and proxy URLs.
+
+The workflow-level `AGENT_API_KEY` secret declaration and mapping for the selected
+`engine.id` belong to the gh-aw compiler; this AWF alias does not change compiler
+validation or reusable workflow secret declarations.
+
 ## `COPILOT_GITHUB_TOKEN` and Classic PAT Compatibility
 
 When `COPILOT_GITHUB_TOKEN` is set in the host environment, AWF injects it into the agent container so the Copilot CLI can authenticate against the GitHub Copilot API.

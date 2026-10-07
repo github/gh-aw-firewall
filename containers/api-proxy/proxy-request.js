@@ -191,6 +191,21 @@ const { handleUpstreamResponse } = createUpstreamResponseHandlers({
   learnAndStripDeprecatedHeaderValue,
 });
 
+/**
+ * Provider adapter lookup used by cross-provider ordered fallback. Configured
+ * by server.js once the adapters are registered.
+ */
+let fallbackProviderLookup = null;
+
+/**
+ * Register the provider adapters that cross-provider fallback attempts may use.
+ *
+ * @param {{ getAdapter: (provider: string) => object|null|undefined }} options
+ */
+function configureFallbackProviders({ getAdapter } = {}) {
+  fallbackProviderLookup = typeof getAdapter === 'function' ? getAdapter : null;
+}
+
 const sendUpstreamRequest = createSendUpstreamRequest({
   https,
   http,
@@ -205,6 +220,7 @@ const sendUpstreamRequest = createSendUpstreamRequest({
   // multiplier cap, budgets) as the originally requested model.
   isFallbackModelPermitted: (model, provider) =>
     getCurrentGuardChecks(model, provider).every(guard => !guard.isBlocked(guard.block)),
+  getProviderAdapter: (provider) => (fallbackProviderLookup ? fallbackProviderLookup(provider) || null : null),
 });
 
 // ── Core proxy: HTTP ──────────────────────────────────────────────────────────
@@ -330,6 +346,7 @@ function proxyRequest(req, res, targetHost, injectHeaders, provider, basePath = 
 }
 
 module.exports = {
+  configureFallbackProviders,
   isValidRequestId,
   checkRateLimit,
   collectRequestBody,

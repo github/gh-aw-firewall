@@ -526,6 +526,58 @@ The sidecar container:
 - **Ports**: 10000 (OpenAI), 10001 (Anthropic), 10002 (GitHub Copilot), 10003 (Google Gemini), 10004 (Google Vertex AI)
 - **Proxy**: Routes via Squid at `http://172.30.0.10:3128`
 
+## Provider-scoped automatic model selection
+
+On JSON inference requests, combine `model: "auto"` with the AWF-only
+`model_provider` field to choose a model family without changing the configured
+backend, endpoint, or credentials. For example, send this body to the **Copilot**
+proxy on port **10002**, at `POST /v1/messages`, to request a Claude-compatible
+model using the configured Copilot credentials:
+
+```json
+{
+  "model": "auto?effort=high",
+  "model_provider": "anthropic",
+  "max_tokens": 1024,
+  "messages": [{"role": "user", "content": "Hello"}]
+}
+```
+
+- `model_provider` accepts `anthropic` (Claude), `openai` (GPT/o-series), or
+  `google` (Gemini). These are **model families**, not backend routing directives.
+  `copilot` is not a model-family constraint.
+- Supported request surfaces are `POST /messages`, `/chat/completions`, and
+  `/responses`, with optional `/v1` prefixes. Native Gemini/Vertex URL-model
+  requests and the Copilot `/auto` endpoint do not use this contract.
+- Redundant backend prefixes such as `copilot/auto` are accepted. Query suffixes
+  are preserved verbatim on the selected model and ranked retry candidates;
+  this does not add support for options the selected model/upstream rejects.
+- Selection uses only this backend's live inventory and models whose runtime
+  `supported_endpoints` explicitly includes the requested protocol. A model ID
+  alone or a maintained model-name mapping is not sufficient, particularly for
+  native Messages. Backends that omit endpoint metadata cannot satisfy the
+  picker; AWF does not assume compatibility or switch to another backend.
+- Disabled picker models and models excluded by allow/deny policy are omitted.
+  Anthropic selection prefers the newest compatible Sonnet, then Opus, then
+  Haiku. Other families use highest-version ordering. Copilot Responses requests
+  containing Codex custom tools additionally require a Codex model.
+- AWF removes `model_provider` before forwarding. Scoped requests never use the
+  global ordered fallback chain or unconstrained alias/middle-power fallback;
+  endpoint-blocked retries stay within the eligible ranked candidates.
+- Invalid combinations (including a concrete model with `model_provider`)
+  return HTTP **400**. No eligible model after one inventory refresh returns
+  HTTP **503**, code `scoped_auto_model_unavailable`, with troubleshooting advice.
+
+Each `/reflect` endpoint entry exposes `automatic_model_selection` separately
+from its concrete `models` list. It identifies `model: "auto"`,
+`constraint_field: "model_provider"`, accepted `model_providers`, and policy-filtered
+`candidates[model_provider][endpoint]` (for example,
+`candidates.anthropic.messages`). Wait for `models_fetch_complete: true` before
+validating candidates. An empty list means the current inventory cannot satisfy
+that family/protocol combination; tool-specific compatibility and upstream
+availability still need validation at inference time. This contract does not
+claim hosted end-to-end Messages validation.
+
 ## Model Fallback
 
 When a model requested by an agent is unavailable on the target provider, the API proxy can automatically select an alternative using the **middle-power strategy**. This ensures requests complete without interruption.
@@ -641,6 +693,24 @@ model must pass the same model-policy and budget guards as the original model.
 The token-usage record shows the model that actually served the request in
 `model`, plus a `model_fallback` object that names the `requested_model`. See
 [AWF config spec §12.7](awf-config-spec.md#127-ordered-fallback-models).
+
+Entries qualified with another configured provider switch the upstream provider
+as well as the model, keeping the agent's live session:
+
+```yaml
+apiProxy:
+  fallbackModels:
+    - openai/gpt-5.4
+    - anthropic/claude-sonnet-4.6
+```
+
+Each attempt uses the target provider's endpoint and credentials. The proxy
+translates Chat Completions and Responses requests to the Anthropic Messages API
+(including tools, tool results, and streaming) and translates the response back.
+The proxy refuses to start when an entry names a provider without credentials.
+Token-usage records include the serving `provider` and the `requested_provider`,
+`from_provider`, and `failures` evidence. See
+[§12.7.1](awf-config-spec.md#1271-cross-provider-fallback-chains).
 
 ### Health check
 

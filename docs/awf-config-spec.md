@@ -239,7 +239,7 @@ AWF settings MAY be supplied via config files, including stdin (`--config -`).
 - `apiProxy.maxPermissionDenied` → `--max-permission-denied <number>`
 - `apiProxy.requestedModel` → *(config-only; maps to `AWF_REQUESTED_MODEL` for pre-startup validation)*
 - `apiProxy.modelFallback` → *(config-only; model fallback strategy)*
-- `apiProxy.fallbackModels` → *(config-only; maps to `AWF_FALLBACK_MODELS` — ordered model IDs retried on 5xx, timeout, or model-not-supported failures)*
+- `apiProxy.fallbackModels` → *(config-only; maps to `AWF_FALLBACK_MODELS` — ordered model IDs, optionally provider-qualified for cross-provider fallback, retried on 5xx, timeout, or model-not-supported failures)*
 - `experimental.modelRouting` → *(config-only; experimental opt-in required for `apiProxy.routing`; defaults to off)*
 - `apiProxy.routing` → *(config-only; requires `experimental.modelRouting: true`; task-level routing objective and task conversation input)*
 - `apiProxy.routing.candidateModels` → *(optional glob patterns that limit router/classifier choices; intersected with the model policy; defaults to `apiProxy.allowedModels`)*
@@ -1932,16 +1932,74 @@ comma-separated list is also accepted when the variable is set directly)
    multiplier-cap, or budget guards. When the chain is exhausted, the proxy
    returns the last upstream error to the client.
 5. Each switch emits a `model_fallback` warning log with `from_model`,
-   `to_model`, `requested_model`, `attempt`, `reason`, and `status`. The
-   token-usage record for the successful response holds the model that served
-   the request in `model`, plus a `model_fallback` object with
-   `requested_model`, `model`, `attempt`, `reason`, and `status`. gh-aw can
-   report that model in `GH_AW_INFO_MODEL` and telemetry.
+   `to_model`, `from_provider`, `to_provider`, `requested_model`,
+   `requested_provider`, `attempt`, `reason`, and `status`. The token-usage
+   record for the successful response holds the model and provider that served
+   the request in `model` and `provider`, plus a `model_fallback` object with
+   `requested_model`, `requested_provider`, `model`, `provider`, `attempt`,
+   `reason`, `status`, `from_model`, `from_provider`, and `failures` (every
+   failed attempt in order). gh-aw can report that model in `GH_AW_INFO_MODEL`
+   and telemetry.
 6. Copilot's existing transient `model not supported` retries and the alias
    endpoint-blocked candidate retry still run first. The ordered chain applies
    only after those have been exhausted.
 7. WebSocket (Responses API) upgrades and AWF-internal routing classifier
    requests are not covered.
+
+#### 12.7.1 Cross-Provider Fallback Chains
+
+An entry qualified with a different provider than the one whose listener
+received the request (`openai/…`, `anthropic/…`, `copilot/…`; `github/…` and
+`github-copilot/…` are aliases for `copilot`) switches the upstream provider as
+well as the model, without restarting the agent:
+
+```json
+{
+  "apiProxy": {
+    "fallbackModels": ["openai/gpt-5.4", "anthropic/claude-sonnet-4.6"]
+  }
+}
+```
+
+1. The attempt uses the target provider's configured endpoint (including a
+   custom target/base path), credentials, request signer, and body transforms.
+   Client headers that identify the originating provider (`copilot-*`,
+   `openai-*`, `x-github-*`, `editor-*`, `x-initiator`, …) are not forwarded.
+2. The proxy translates the protocol where needed and translates the response
+   back, so the agent keeps the protocol and live session it started with:
+
+   | Agent protocol | `openai` | `copilot` | `anthropic` |
+   |---|---|---|---|
+   | Chat Completions | native | native | translated to Messages |
+   | Responses | native | native | translated to Messages (via Chat) |
+   | Anthropic Messages | — | native (`/v1/messages`) | native |
+
+   Translation covers system prompts, text and image content, tool definitions,
+   tool choice, assistant tool calls, tool results, stop sequences, usage, and
+   streaming (SSE) responses including tool-call deltas. A request that uses a
+   feature with no faithful equivalent (for example `n > 1`, `logprobs`, or a
+   JSON-schema `response_format` sent to Anthropic) is not translated: that
+   candidate is skipped with a `model_fallback_skipped` log.
+3. Guards run against the *target* provider: model policy (`openai/*` style
+   patterns), retired models, multiplier caps, and budgets. A candidate that a
+   guard rejects is skipped; switching providers never bypasses a veto.
+4. Only configured entries are used, in order. When a target body transform
+   (such as alias resolution or the middle-power fallback) would substitute a
+   different model, the configured model is kept and a
+   `model_fallback_substitution_blocked` warning is logged.
+5. Failure eligibility is unchanged: only failures that occur before any
+   response byte has been sent to the agent advance the chain, so no partial
+   response is replayed and no tool call is duplicated.
+6. A qualified entry for an unconfigured provider is a configuration error:
+   the API proxy refuses to start and logs `fallback_models_invalid` with the
+   credential to configure. Entries for providers that cannot serve the
+   request's protocol (for example `gemini/…` from a Chat Completions request)
+   are skipped at request time with a `model_fallback_skipped` log.
+7. Unqualified entries, and entries qualified with the receiving provider, keep
+   the existing same-provider behavior, including after a cross-provider
+   attempt. To send a model ID that itself contains a provider-like prefix (for
+   example an OpenRouter ID on an OpenAI-compatible endpoint), qualify it with
+   the serving provider: `openai/anthropic/claude-sonnet-4`.
 
 ### 12.1 Alias Candidates Are Restricted to Configured Providers
 

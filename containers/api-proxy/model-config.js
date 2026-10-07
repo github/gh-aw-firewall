@@ -18,6 +18,7 @@ const {
   DISALLOWED_MODELS,
 } = require('./guards/model-policy-guard');
 const { isModelPriceable } = require('./guards/ai-credits-guard');
+const { parseScopedAutoRequest, rewriteScopedAutoRequest, pickerError } = require('./scoped-auto-model');
 
 const MODEL_ALIASES_RAW = (process.env.AWF_MODEL_ALIASES || '').trim() || undefined;
 const MODEL_ALIASES = parseModelAliases(MODEL_ALIASES_RAW);
@@ -137,7 +138,6 @@ function makeModelBodyTransform(
   isNativeCopilot = false,
 ) {
   const canRouteCopilotAutoResponses = provider === 'copilot' && isNativeCopilot === true;
-  if (!MODEL_ALIASES && !canRouteCopilotAutoResponses) return null;
   const providerModelFallback = getModelFallbackForProvider(provider);
   const resolvableModels = () => (
     getConfiguredModelCacheKeys
@@ -146,7 +146,27 @@ function makeModelBodyTransform(
   );
   return async (body, req) => {
     let result = null;
+    const scopedAuto = parseScopedAutoRequest(body, req, provider);
+    if (scopedAuto) {
+      const resolveScopedAuto = () => rewriteScopedAutoRequest(
+        scopedAuto, provider, resolvableModels()[provider], getRuntimeModels(provider), MODEL_POLICY_CONFIG,
+      );
+      result = resolveScopedAuto();
+      if (!result) {
+        await refreshProviderModelsForResolution(provider);
+        result = resolveScopedAuto();
+      }
+      if (!result) {
+        throw pickerError(
+          `No available ${scopedAuto.modelProvider} model on the configured ${provider} backend advertises support for /${scopedAuto.endpoint} and satisfies model policy. Check /reflect, endpoint model metadata, and allowed/disallowed models.`,
+          'scoped_auto_model_unavailable',
+          503,
+        );
+      }
+      req.awfScopedAuto = true;
+    }
     if (
+      !result &&
       canRouteCopilotAutoResponses &&
       isCopilotAutoResponsesRequest(body, req)
     ) {

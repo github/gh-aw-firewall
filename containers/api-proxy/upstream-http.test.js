@@ -70,6 +70,32 @@ describe('upstream-http', () => {
     expect(handleUpstreamResponse).toHaveBeenCalled();
   });
 
+  test('does not let a scoped auto request escape through the global fallback chain', () => {
+    const proxyReq = { on: jest.fn(), write: jest.fn(), end: jest.fn() };
+    const handleUpstreamResponse = jest.fn();
+    const getFallbackModels = jest.fn(() => ['gpt-5.4-mini']);
+    const sendUpstreamRequest = createSendUpstreamRequest({
+      https: { request: jest.fn((_options, callback) => {
+        callback({ statusCode: 503, headers: {} });
+        return proxyReq;
+      }) },
+      proxyAgent: {},
+      handleUpstreamResponse,
+      sleep: jest.fn(),
+      otel: { endSpanError: jest.fn() },
+      handleRequestError: jest.fn(),
+      metrics: { increment: jest.fn(), observe: jest.fn() },
+      getFallbackModels,
+    });
+    sendUpstreamRequest({}, createContext({
+      body: Buffer.from('{"model":"claude-sonnet-4.6"}'),
+      upstreamPath: '/v1/messages',
+      req: { method: 'POST', awfScopedAuto: true },
+    }));
+    expect(getFallbackModels).not.toHaveBeenCalled();
+    expect(handleUpstreamResponse.mock.calls[0][2].onModelFallback).toBeNull();
+  });
+
   test('rebuilds the wire API request for the selected ordered fallback model', () => {
     replaceRuntimeModels('copilot', [
       { id: 'claude-sonnet-5', supportedEndpoints: ['/chat/completions'] },
@@ -286,6 +312,45 @@ describe('upstream-http', () => {
     }));
   });
 
+  test.each([true, false])('rechecks model guards on scoped endpoint retries (eligible candidate: %s)', eligible => {
+    const proxyReq = { on: jest.fn(), write: jest.fn(), end: jest.fn() };
+    const responseCallbacks = [];
+    const httpsRequest = jest.fn((_options, callback) => {
+      responseCallbacks.push(callback);
+      return proxyReq;
+    });
+    const handleUpstreamResponse = jest.fn();
+    const isFallbackModelPermitted = jest.fn(model => eligible && model === 'claude-haiku-4.5');
+    const sendUpstreamRequest = createSendUpstreamRequest({
+      https: { request: httpsRequest },
+      proxyAgent: {},
+      handleUpstreamResponse,
+      sleep: jest.fn(),
+      otel: { endSpanError: jest.fn() },
+      handleRequestError: jest.fn(),
+      metrics: { increment: jest.fn(), observe: jest.fn() },
+      isFallbackModelPermitted,
+    });
+    const req = {
+      method: 'POST',
+      awfScopedAuto: true,
+      awfModelCandidates: ['claude-sonnet-4.6', 'claude-opus-5', 'claude-haiku-4.5'],
+    };
+    sendUpstreamRequest({}, createContext({
+      body: Buffer.from('{"model":"claude-sonnet-4.6","messages":[]}'),
+      upstreamPath: '/v1/messages',
+      req,
+    }));
+    responseCallbacks[0]({ statusCode: 400, headers: {} });
+    expect(handleUpstreamResponse.mock.calls[0][2].onModelEndpointBlockedRetry()).toBe(eligible);
+    expect(isFallbackModelPermitted).toHaveBeenCalledWith('claude-opus-5', 'copilot');
+    expect(isFallbackModelPermitted).toHaveBeenCalledWith('claude-haiku-4.5', 'copilot');
+    expect(httpsRequest).toHaveBeenCalledTimes(eligible ? 2 : 1);
+    if (eligible) {
+      expect(JSON.parse(proxyReq.write.mock.calls[1][0]).model).toBe('claude-haiku-4.5');
+    }
+  });
+
   test('reframes and re-signs endpoint-blocked fallback bodies', () => {
     const proxyReq = { on: jest.fn(), write: jest.fn(), end: jest.fn() };
     const responseCallbacks = [];
@@ -495,7 +560,7 @@ describe('upstream-http', () => {
     }));
   });
 
-  test('does not offer a fallback when every chain entry is rejected', () => {
+  test('keeps fallback handling installed when every chain entry is rejected', () => {
     const httpsRequest = jest.fn((_options, cb) => {
       cb({ statusCode: 503, headers: {} });
       return { on: jest.fn(), write: jest.fn(), end: jest.fn() };
@@ -515,6 +580,62 @@ describe('upstream-http', () => {
     });
 
     sendUpstreamRequest({}, createContext({ body: Buffer.from('{"model":"first"}') }));
-    expect(handleUpstreamResponse.mock.calls[0][2].onModelFallback).toBeNull();
+    expect(handleUpstreamResponse.mock.calls[0][2].onModelFallback).toEqual(expect.any(Function));
+  });
+
+  test.each(['resolved', 'rejected'])('finalizes cancellation when async candidate build is %s', async (outcome) => {
+    let resolveTransform;
+    let rejectTransform;
+    const transformPromise = new Promise((resolve, reject) => {
+      resolveTransform = resolve;
+      rejectTransform = reject;
+    });
+    const proxyReq = { on: jest.fn(), write: jest.fn(), end: jest.fn() };
+    const httpsRequest = jest.fn((_options, cb) => {
+      cb({ statusCode: 200, headers: {} });
+      return proxyReq;
+    });
+    const handleUpstreamResponse = jest.fn();
+    const gaugeDec = jest.fn();
+    const endSpan = jest.fn();
+    const span = {};
+    const res = { headersSent: false, destroyed: false, writableEnded: false };
+    const sendUpstreamRequest = createSendUpstreamRequest({
+      https: { request: httpsRequest },
+      proxyAgent: {},
+      handleUpstreamResponse,
+      sleep: jest.fn(),
+      otel: { endSpanError: jest.fn(), endSpan },
+      handleRequestError: jest.fn(),
+      metrics: { gaugeDec, gaugeInc: jest.fn(), increment: jest.fn(), observe: jest.fn() },
+      getFallbackModels: () => ['anthropic/claude-sonnet-4.6'],
+      getProviderAdapter: () => ({
+        isEnabled: () => true,
+        getBodyTransform: () => () => transformPromise,
+        getTargetHost: () => 'api.anthropic.com',
+        getBasePath: () => '',
+        getAuthHeaders: () => ({ 'x-api-key': 'key' }),
+        getRequestSigner: () => null,
+      }),
+    });
+    const req = { method: 'POST', url: '/v1/chat/completions', headers: {} };
+
+    sendUpstreamRequest({}, createContext({
+      req,
+      res,
+      span,
+      body: Buffer.from(JSON.stringify({ model: 'first', messages: [{ role: 'user', content: 'hi' }] })),
+    }));
+    const fallback = handleUpstreamResponse.mock.calls[0][2].onModelFallback;
+    expect(fallback({ reason: 'upstream_5xx', abandon: jest.fn() })).toBe(true);
+    res.destroyed = true;
+    if (outcome === 'resolved') resolveTransform(Buffer.from('{"model":"claude-sonnet-4.6"}'));
+    else rejectTransform(new Error('transform failed'));
+    await new Promise(resolve => setImmediate(resolve));
+
+    expect(gaugeDec).toHaveBeenCalledTimes(1);
+    expect(gaugeDec).toHaveBeenCalledWith('active_requests', { provider: 'copilot' });
+    expect(endSpan).toHaveBeenCalledWith(span, 0);
+    expect(httpsRequest).toHaveBeenCalledTimes(1);
   });
 });

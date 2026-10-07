@@ -19,6 +19,13 @@
  * The model is rewritten in the JSON request body `model` field (OpenAI,
  * Anthropic, Copilot) or, when the body carries no model, in the
  * `/models/<model>:<method>` upstream path segment (Gemini).
+ *
+ * Entries may be provider-qualified (`openai/gpt-5.4`,
+ * `anthropic/claude-sonnet-4.6`, `copilot/grok-4.7`). A qualified entry whose
+ * provider differs from the listener that received the request switches the
+ * upstream provider as well as the model (see cross-provider-fallback.js).
+ * Unqualified entries, and entries qualified with the receiving provider,
+ * keep the request on the receiving provider.
  */
 
 const { parseBodyAsObject } = require('./body-utils');
@@ -40,6 +47,22 @@ const MODEL_SPECIFIC_ERROR_PATTERNS = [
   /\bmodels\/[^\s"]+ is not found\b/i,
   /"type"\s*:\s*"not_found_error"[^}]*"message"\s*:\s*"model:|"message"\s*:\s*"model:[^}]*"type"\s*:\s*"not_found_error"/i,
 ];
+
+/**
+ * Provider prefixes recognised in fallback entries, mapped to the canonical
+ * adapter name. Unknown prefixes are treated as part of the model ID (e.g. an
+ * OpenAI-compatible BYOK model such as `meta-llama/llama-3.3-70b`).
+ */
+const FALLBACK_PROVIDER_PREFIXES = Object.freeze({
+  copilot: 'copilot',
+  'github-copilot': 'copilot',
+  github: 'copilot',
+  openai: 'openai',
+  anthropic: 'anthropic',
+  gemini: 'gemini',
+  google: 'gemini',
+  vertex: 'vertex',
+});
 
 /** Path segment carrying the model for Gemini-style endpoints. */
 const PATH_MODEL_PATTERN = /(\/models\/)([^/:?]+)(:[^/?]*)/;
@@ -153,6 +176,161 @@ function normalizeFallbackModel(model, provider) {
 }
 
 /**
+ * Resolve a configured fallback entry against the provider that received the
+ * request.
+ *
+ * @param {string} entry - Configured entry, optionally `<provider>/<model>`
+ * @param {string} originProvider - Provider whose listener received the request
+ * @returns {{ entry: string, provider: string, model: string, qualified: boolean }}
+ */
+function resolveFallbackEntry(entry, originProvider) {
+  const value = String(entry);
+  const slashIdx = value.indexOf('/');
+  if (slashIdx > 0) {
+    const prefixProvider = FALLBACK_PROVIDER_PREFIXES[value.slice(0, slashIdx).toLowerCase()];
+    const model = value.slice(slashIdx + 1);
+    if (prefixProvider && model) {
+      if (prefixProvider === originProvider) {
+        return { entry: value, provider: originProvider, model: normalizeFallbackModel(value, originProvider), qualified: true };
+      }
+      return { entry: value, provider: prefixProvider, model, qualified: true };
+    }
+  }
+  return { entry: value, provider: originProvider, model: value, qualified: false };
+}
+
+/**
+ * Normalize a previously attempted model (string or `{ provider, model }`)
+ * into an attempt descriptor.
+ *
+ * @param {string|{provider?: string, model: string}} attempt
+ * @param {string} provider - Provider assumed for bare strings
+ * @returns {{ provider: string, model: string }}
+ */
+function toAttempt(attempt, provider) {
+  if (attempt && typeof attempt === 'object') {
+    return { provider: attempt.provider || provider, model: String(attempt.model) };
+  }
+  return { provider, model: String(attempt) };
+}
+
+function attemptKey(provider, model) {
+  return `${String(provider).toLowerCase()}\u0000${String(model).toLowerCase()}`;
+}
+
+/**
+ * Pick the next candidate from the chain that has not been attempted yet, can
+ * be routed, and is permitted by the guards for its *target* provider.
+ *
+ * Candidates are never invented: only configured entries are returned, in the
+ * configured order.
+ *
+ * @param {string[]} chain - Ordered fallback list
+ * @param {Array<string|{provider: string, model: string}>} attempted - Attempts so far
+ * @param {string} originProvider - Provider whose listener received the request
+ * @param {{
+ *   isPermitted?: (model: string, provider: string) => boolean,
+ *   getRouteRejection?: (candidate: object) => string|null,
+ *   onSkip?: (candidate: object, reason: string) => void,
+ *   exclude?: Set<string>,
+ * }} [options]
+ * @returns {{ entry: string, provider: string, model: string, qualified: boolean } | null}
+ */
+function selectNextFallbackCandidate(chain, attempted, originProvider, options = {}) {
+  const { isPermitted, getRouteRejection, onSkip, exclude } = options;
+  const attemptedKeys = new Set((attempted || []).map((a) => {
+    const { provider, model } = toAttempt(a, originProvider);
+    return attemptKey(provider, normalizeFallbackModel(model, provider));
+  }));
+  for (const entry of chain || []) {
+    const candidate = resolveFallbackEntry(entry, originProvider);
+    if (!candidate.model) continue;
+    const key = attemptKey(candidate.provider, candidate.model);
+    if (attemptedKeys.has(key) || (exclude && exclude.has(key))) continue;
+    if (typeof getRouteRejection === 'function') {
+      let rejection;
+      try {
+        rejection = getRouteRejection(candidate);
+      } catch {
+        rejection = 'route_unavailable';
+      }
+      if (rejection) {
+        onSkip?.(candidate, rejection);
+        continue;
+      }
+    }
+    if (typeof isPermitted === 'function') {
+      let permitted;
+      try {
+        permitted = isPermitted(candidate.model, candidate.provider) === true;
+      } catch {
+        permitted = false;
+      }
+      if (!permitted) {
+        onSkip?.(candidate, 'guard_rejected');
+        continue;
+      }
+    }
+    return candidate;
+  }
+  return null;
+}
+
+/**
+ * Validate that every provider-qualified fallback entry references a provider
+ * that is configured for this run (endpoint plus credentials).
+ *
+ * @param {string[]} chain
+ * @param {(provider: string) => ({ isEnabled: () => boolean } | null | undefined)} getAdapter
+ * @returns {string[]} Actionable error messages (empty when valid)
+ */
+function validateFallbackChain(chain, getAdapter) {
+  const errors = [];
+  for (const entry of chain || []) {
+    const slashIdx = entry.indexOf('/');
+    if (slashIdx <= 0) continue;
+    const provider = FALLBACK_PROVIDER_PREFIXES[entry.slice(0, slashIdx).toLowerCase()];
+    if (!provider) continue;
+    if (!entry.slice(slashIdx + 1)) {
+      errors.push(`apiProxy.fallbackModels entry "${entry}" names provider "${provider}" but no model.`);
+      continue;
+    }
+    let adapter = null;
+    try {
+      adapter = typeof getAdapter === 'function' ? getAdapter(provider) : null;
+    } catch {
+      adapter = null;
+    }
+    let configured = false;
+    try {
+      configured = !!adapter && adapter.isEnabled() === true;
+      if (!configured && adapter) {
+        configured = ['getOidcProvider', 'getAwsOidcProvider']
+          .some(getter => typeof adapter[getter] === 'function' && !!adapter[getter]());
+      }
+    } catch {
+      configured = false;
+    }
+    if (!configured) {
+      errors.push(
+        `apiProxy.fallbackModels entry "${entry}" targets provider "${provider}", which is not configured ` +
+        `for this run (no endpoint credentials). Configure ${PROVIDER_CREDENTIAL_HINTS[provider] || `credentials for ${provider}`} ` +
+        'or remove the entry.',
+      );
+    }
+  }
+  return errors;
+}
+
+const PROVIDER_CREDENTIAL_HINTS = Object.freeze({
+  copilot: 'COPILOT_GITHUB_TOKEN (or COPILOT_PROVIDER_API_KEY for a Copilot BYOK provider)',
+  openai: 'OPENAI_API_KEY (or OpenAI OIDC auth)',
+  anthropic: 'ANTHROPIC_API_KEY (or Anthropic OIDC auth)',
+  gemini: 'GEMINI_API_KEY',
+  vertex: 'GOOGLE_API_KEY (or Vertex AI OIDC auth)',
+});
+
+/**
  * Pick the next model from the chain that has not been attempted yet and is
  * permitted by the caller-supplied predicate.
  *
@@ -209,6 +387,12 @@ function rewriteRequestModel({ body, upstreamPath }, location, nextModel) {
 }
 
 module.exports = {
+  FALLBACK_PROVIDER_PREFIXES,
+  resolveFallbackEntry,
+  selectNextFallbackCandidate,
+  validateFallbackChain,
+  attemptKey,
+  toAttempt,
   parseFallbackModels,
   getFallbackModels,
   isModelSpecificErrorBody,

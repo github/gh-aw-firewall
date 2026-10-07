@@ -47,7 +47,11 @@ function sendBufferedUpstreamResponse(proxyRes, responseBody, {
 function handleFallbackEligibleResponse(proxyRes, responseBody, ctx) {
   const reason = getFallbackReason(proxyRes.statusCode, responseBody);
   if (reason && typeof ctx.onModelFallback === 'function' &&
-      ctx.onModelFallback({ statusCode: proxyRes.statusCode, reason })) {
+      ctx.onModelFallback({
+        statusCode: proxyRes.statusCode,
+        reason,
+        abandon: () => sendBufferedUpstreamResponse(proxyRes, responseBody, ctx),
+      })) {
     return true;
   }
   sendBufferedUpstreamResponse(proxyRes, responseBody, ctx);
@@ -123,7 +127,12 @@ function handle400WithRetry(proxyRes, requestHeaders, responseBody, {
   // accessible) switches models; generic validation errors are surfaced.
   if (typeof onModelFallback === 'function') {
     const reason = getFallbackReason(proxyRes.statusCode, responseBody);
-    if (reason && onModelFallback({ statusCode: proxyRes.statusCode, reason })) return true;
+    const abandon = () => sendBufferedUpstreamResponse(proxyRes, responseBody, {
+      completionCtx, authErrCtx, initiatorSent, billingInfo, res, span, requestId,
+      logRequestCompletion, logUpstreamAuthError, logUpstreamErrorResponse, otel,
+      requestModel, requestTools,
+    });
+    if (reason && onModelFallback({ statusCode: proxyRes.statusCode, reason, abandon })) return true;
   }
 
   // ── (e) Model-unavailable diagnostic (non-retryable model-not-supported 400) ───

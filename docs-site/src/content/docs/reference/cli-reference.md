@@ -563,12 +563,13 @@ Enable access to host services via `host.docker.internal`. This allows container
 
 ```bash
 # Access local development server
-sudo awf --enable-host-access --allow-domains host.docker.internal \
+sudo awf --enable-host-access --allow-host-ports 3000 \
+  --allow-domains host.docker.internal \
   -- curl http://host.docker.internal:3000
 ```
 
 :::danger[Security Warning]
-When `--enable-host-access` is enabled, containers can access services on the host machine. By default, only ports 80 and 443 are allowed. Use `--allow-host-ports` to allow additional ports.
+When `--enable-host-access` is enabled, containers can access services on the host machine. Ports 80 and 443 are allowed by default; use `--allow-host-ports` to add non-standard ports. In network-isolation mode, host HTTP/HTTPS requests go through Squid; this does not provide a direct host route for raw-protocol clients.
 :::
 
 **See also:** [Host Access Configuration](/gh-aw-firewall/docs/usage/#host-access)
@@ -590,8 +591,8 @@ sudo awf --allow-domains localhost --allow-host-ports 3000 \
 ```
 
 **Default behavior:**
-- Without `--allow-host-ports`: Only ports 80 and 443 are allowed
-- With `--allow-host-ports`: Only the specified ports are allowed
+- Ports 80 and 443 remain allowed by default
+- `--allow-host-ports` adds ports to Squid's allowed-port list; it does not replace 80 and 443
 
 ### `--allow-host-service-ports <ports>`
 

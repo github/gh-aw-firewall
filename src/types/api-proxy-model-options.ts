@@ -28,10 +28,14 @@ export interface ApiProxyModelOptions {
    * rewrites the request model and records the model actually used in
    * token-usage logs (`model` plus a `model_fallback` object).
    *
+   * Entries qualified with another configured provider (`openai/…`,
+   * `anthropic/…`, `copilot/…`) switch the upstream provider too, translating
+   * the request and response protocol so the agent's live session continues.
+   *
    * - Config: `apiProxy.fallbackModels`
    * - Environment variable: `AWF_FALLBACK_MODELS` (JSON array, internal)
    *
-   * @example ['gpt-5.4', 'claude-sonnet-4.6']
+   * @example ['openai/gpt-5.4', 'anthropic/claude-sonnet-4.6']
    */
   fallbackModels?: string[];
 

@@ -23,6 +23,7 @@ const {
 const { isModelPermittedByPolicy } = require('./guards/model-policy-guard');
 const { normalizeModel } = require('./routing-catalogue');
 const { getModelRoutingChoices } = require('./routing-candidates');
+const { reflectScopedAuto } = require('./scoped-auto-model');
 
 function filterModelCatalogue(entries, provider, modelPolicy, getModel) {
   if (!Array.isArray(entries) || !modelPolicy ||
@@ -190,6 +191,9 @@ function createManagementHandlers(deps) {
           configured: info.configured,
           models,
           model_metadata: modelMetadata,
+          automatic_model_selection: reflectScopedAuto(
+            adapter.name, models, privateRoutingModelMetadata, modelPolicy,
+          ),
           routing_models: buildRoutingModelMetadata(
             adapter.name,
             models,

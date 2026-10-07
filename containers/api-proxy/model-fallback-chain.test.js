@@ -7,6 +7,9 @@ const {
   normalizeFallbackModel,
   selectNextFallbackModel,
   rewriteRequestModel,
+  resolveFallbackEntry,
+  selectNextFallbackCandidate,
+  validateFallbackChain,
 } = require('./model-fallback-chain');
 
 describe('model-fallback-chain', () => {
@@ -154,6 +157,120 @@ describe('model-fallback-chain', () => {
       expect(rewriteRequestModel({ body: Buffer.from('nope'), upstreamPath: '/x' }, 'body', 'b')).toBeNull();
       expect(rewriteRequestModel({ body: Buffer.alloc(0), upstreamPath: '/x' }, 'path', 'b')).toBeNull();
       expect(rewriteRequestModel({ body: Buffer.alloc(0), upstreamPath: '/x' }, 'other', 'b')).toBeNull();
+    });
+  });
+
+  describe('resolveFallbackEntry', () => {
+    test('keeps unqualified entries on the receiving provider', () => {
+      expect(resolveFallbackEntry('gpt-5.4', 'copilot'))
+        .toEqual({ entry: 'gpt-5.4', provider: 'copilot', model: 'gpt-5.4', qualified: false });
+    });
+
+    test('switches provider for entries qualified with another provider', () => {
+      expect(resolveFallbackEntry('openai/gpt-5.4', 'copilot'))
+        .toEqual({ entry: 'openai/gpt-5.4', provider: 'openai', model: 'gpt-5.4', qualified: true });
+      expect(resolveFallbackEntry('Anthropic/claude-sonnet-4.6', 'copilot'))
+        .toMatchObject({ provider: 'anthropic', model: 'claude-sonnet-4.6' });
+      expect(resolveFallbackEntry('github-copilot/grok-4.7', 'openai'))
+        .toMatchObject({ provider: 'copilot', model: 'grok-4.7' });
+    });
+
+    test('strips a prefix that names the receiving provider', () => {
+      expect(resolveFallbackEntry('copilot/grok-4.7', 'copilot'))
+        .toMatchObject({ provider: 'copilot', model: 'grok-4.7', qualified: true });
+    });
+
+    test('keeps unknown prefixes and nested IDs as part of the model', () => {
+      expect(resolveFallbackEntry('meta-llama/llama-3.3-70b', 'openai'))
+        .toMatchObject({ provider: 'openai', model: 'meta-llama/llama-3.3-70b', qualified: false });
+      // Qualifying with the serving provider keeps an OpenRouter-style ID intact.
+      expect(resolveFallbackEntry('openai/anthropic/claude-sonnet-4', 'openai'))
+        .toMatchObject({ provider: 'openai', model: 'anthropic/claude-sonnet-4' });
+    });
+  });
+
+  describe('selectNextFallbackCandidate', () => {
+    const chain = ['openai/gpt-5.4', 'anthropic/claude-sonnet-4.6', 'gpt-5-mini'];
+
+    test('returns configured candidates in order, skipping attempted ones', () => {
+      expect(selectNextFallbackCandidate(chain, ['grok-4.7'], 'copilot'))
+        .toMatchObject({ provider: 'openai', model: 'gpt-5.4' });
+      expect(selectNextFallbackCandidate(chain, [
+        { provider: 'copilot', model: 'grok-4.7' },
+        { provider: 'openai', model: 'gpt-5.4' },
+      ], 'copilot')).toMatchObject({ provider: 'anthropic', model: 'claude-sonnet-4.6' });
+      expect(selectNextFallbackCandidate(chain, [
+        { provider: 'copilot', model: 'grok-4.7' },
+        { provider: 'openai', model: 'gpt-5.4' },
+        { provider: 'anthropic', model: 'claude-sonnet-4.6' },
+      ], 'copilot')).toMatchObject({ provider: 'copilot', model: 'gpt-5-mini' });
+    });
+
+    test('treats the same model on a different provider as a distinct attempt', () => {
+      expect(selectNextFallbackCandidate(['openai/gpt-5.4'], [{ provider: 'copilot', model: 'gpt-5.4' }], 'copilot'))
+        .toMatchObject({ provider: 'openai', model: 'gpt-5.4' });
+    });
+
+    test('evaluates guards against the target provider and reports vetoes', () => {
+      const onSkip = jest.fn();
+      const isPermitted = jest.fn((model, provider) => provider !== 'openai');
+      expect(selectNextFallbackCandidate(chain, ['grok-4.7'], 'copilot', { isPermitted, onSkip }))
+        .toMatchObject({ provider: 'anthropic' });
+      expect(isPermitted).toHaveBeenCalledWith('gpt-5.4', 'openai');
+      expect(onSkip).toHaveBeenCalledWith(expect.objectContaining({ provider: 'openai' }), 'guard_rejected');
+    });
+
+    test('skips candidates that cannot be routed and never invents alternatives', () => {
+      const onSkip = jest.fn();
+      const getRouteRejection = candidate => (candidate.provider === 'copilot' ? null : 'provider_not_configured');
+      expect(selectNextFallbackCandidate(['openai/gpt-5.4', 'anthropic/claude-sonnet-4.6'], ['grok-4.7'], 'copilot', {
+        getRouteRejection, onSkip,
+      })).toBeNull();
+      expect(onSkip).toHaveBeenCalledTimes(2);
+      expect(onSkip).toHaveBeenLastCalledWith(expect.objectContaining({ provider: 'anthropic' }), 'provider_not_configured');
+    });
+
+    test('honours the exclusion set', () => {
+      const exclude = new Set(['openai\u0000gpt-5.4']);
+      expect(selectNextFallbackCandidate(chain, ['grok-4.7'], 'copilot', { exclude }))
+        .toMatchObject({ provider: 'anthropic' });
+    });
+  });
+
+  describe('validateFallbackChain', () => {
+    const enabled = { isEnabled: () => true };
+    const disabled = { isEnabled: () => false };
+
+    test('accepts qualified entries for configured providers and ignores unqualified ones', () => {
+      const getAdapter = provider => (provider === 'openai' ? enabled : disabled);
+      expect(validateFallbackChain(['gpt-5-mini', 'openai/gpt-5.4', 'meta-llama/llama-3'], getAdapter)).toEqual([]);
+    });
+
+    test('reports actionable errors for providers without credentials', () => {
+      const errors = validateFallbackChain(
+        ['openai/gpt-5.4', 'anthropic/claude-sonnet-4.6', 'gemini/gemini-2.5-pro'],
+        provider => (provider === 'openai' ? enabled : provider === 'anthropic' ? disabled : undefined),
+      );
+      expect(errors).toHaveLength(2);
+      expect(errors[0]).toContain('"anthropic/claude-sonnet-4.6"');
+      expect(errors[0]).toContain('ANTHROPIC_API_KEY');
+      expect(errors[1]).toContain('GEMINI_API_KEY');
+    });
+
+    test('accepts OIDC-configured providers before their token is ready', () => {
+      const oidcAdapter = {
+        isEnabled: () => false,
+        getOidcProvider: () => ({ isReady: () => false }),
+      };
+      expect(validateFallbackChain(['openai/gpt-5.4'], () => oidcAdapter)).toEqual([]);
+      expect(validateFallbackChain(['openai/gpt-5.4'], () => ({
+        isEnabled: () => false,
+        getAwsOidcProvider: () => ({ isReady: () => false }),
+      }))).toEqual([]);
+    });
+
+    test('reports entries that name a provider but no model', () => {
+      expect(validateFallbackChain(['openai/'], () => enabled)[0]).toContain('no model');
     });
   });
 });

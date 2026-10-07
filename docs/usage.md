@@ -82,8 +82,9 @@ Options:
   --network-isolation          Experimental: enforce egress via Docker network topology (an
                                internal network with no internet route plus a dual-homed Squid
                                proxy) instead of host iptables. Requires no sudo / NET_ADMIN, so it
-                               works inside ARC / Kubernetes DinD runners. Not yet supported with
-                               --dns-over-https or --enable-host-access. (default: false)
+                               works inside ARC / Kubernetes DinD runners. Host HTTP(S) access uses
+                               Squid; no direct host route is provided. Not yet supported with
+                               --dns-over-https. (default: false)
   --verify-sbx-egress          Fail before agent startup unless Docker sbx blocks direct
                                non-proxy HTTPS egress. Requires --container-runtime sbx.
   --topology-attach <name>     With --network-isolation, attach an externally-launched trusted
@@ -453,6 +454,59 @@ sudo awf \
 
 When running MCP gateways or other services on your host machine that need to be accessible from inside the firewall, use the `--enable-host-access` flag.
 
+### Host-run Docker Compose frontends
+
+For a Compose stack started on the runner host, prefer attaching its trusted
+frontend container to AWF's internal network over exposing host ports:
+
+```bash
+# Run on the host before AWF; the frontend has container_name: awf-compose-web.
+docker compose -f compose.yml up -d --wait
+awf --network-isolation \
+  --topology-attach awf-compose-web \
+  --allow-domains awf-compose-web \
+  -- 'curl --fail http://awf-compose-web:80'
+docker compose -f compose.yml down
+```
+
+The frontend retains its Compose network and backend connectivity. AWF connects
+only the named container to `awf-net`, then maps that name to its `awf-net` IP
+for both the agent and Squid. Use the container name and **container port**, not
+`localhost`, the Compose service key, or the published host port. The agent's
+loopback is not the host's. Attached peers are trusted: current AWF adds their
+names to `NO_PROXY` and Squid peer allow rules on **any port**, independently of
+`--allow-host-ports`. Do not attach untrusted PR-controlled services or generic
+forward proxies, which could provide an alternate egress path.
+
+See the [Compose + Playwright example](../docs-site/src/content/docs/guides/playwright-testing.md#host-run-docker-compose-stack-topology-attachment)
+for the minimal Compose file, browser test, AWF config, cleanup, and trust-boundary
+guidance. This path requires the stack and AWF to use the same Docker daemon.
+
+### Host-gateway DNS and browser URLs
+
+Squid needs Docker's `host-gateway` mapping to resolve `host.docker.internal`.
+`--enable-host-access` adds `host.docker.internal:host-gateway` to Squid's
+`extra_hosts`; the current CLI also automatically enables host access for an
+exact `host.docker.internal` allowlist entry (including HTTP/HTTPS-prefixed
+forms). Thus the hostname itself is a host-access opt-in, not just a DNS name.
+Squid reads `/etc/hosts` before upstream DNS. If a proxied request fails with
+`503 ERR_DNS_FAIL`, check the effective host-access config and Squid's
+`/etc/hosts` mapping. An upstream DNS server cannot resolve this Docker-only
+name. Specify the host-access intent, domain, and required port explicitly:
+
+```bash
+awf --enable-host-access --allow-host-ports 8080 \
+  --allow-domains host.docker.internal \
+  -- 'curl --fail --noproxy "" --proxy "$HTTP_PROXY" http://host.docker.internal:8080'
+```
+
+In topology mode this is an HTTP/HTTPS **proxy path**, not a direct host route.
+Playwright's browser must use Squid and navigate to
+`http://host.docker.internal:8080`; neither the CLI's `localhost` keyword nor
+`--allow-host-ports` rewrites browser URLs. The host listener must be reachable
+on the gateway interface, not bound only to `127.0.0.1`. Under DinD, the gateway
+is the Docker daemon's host, which may differ from the runner.
+
 ### Enabling Host Access
 
 ```bash
@@ -460,18 +514,19 @@ When running MCP gateways or other services on your host machine that need to be
 sudo awf \
   --enable-host-access \
   --allow-domains host.docker.internal \
-  -- curl http://host.docker.internal:8080
+  --allow-host-ports 8080 \
+  -- 'curl --noproxy "" --proxy "$HTTP_PROXY" http://host.docker.internal:8080'
 ```
 
 ### Security Considerations
 
-> ⚠️ **Security Warning**: When `--enable-host-access` is enabled, containers can currently access ANY port on services running on the host machine via `host.docker.internal`. This includes databases, admin panels, and other sensitive services.
+> ⚠️ **Security Warning**: Host access exposes services reachable on the permitted host ports, including unrelated services on those ports. Treat the host as a trust boundary.
 >
-> **Port restrictions:** Use `--allow-host-ports` to explicitly restrict which ports can be accessed (e.g., `--allow-host-ports 80,443,8080`). A future update will make port restrictions the default behavior.
+> **Port restrictions:** Squid permits ports 80 and 443 by default. `--allow-host-ports` adds ports to Squid's `Safe_ports` for allowlisted destinations; it does not restrict attached peers or create a direct host route in topology mode.
 >
 > Only enable this for trusted workloads like MCP gateways or local testing with Playwright.
 
-**Why opt-in?** By default, `host.docker.internal` hostname resolution is disabled to prevent containers from accessing host services. This is a defense-in-depth measure against malicious code attempting to access local resources.
+**Why opt-in?** By default, `host.docker.internal` hostname resolution is disabled to prevent containers from accessing host services. Passing `--enable-host-access` or an exact host-gateway keyword in the allowlist opts in to this access.
 
 ### Example: MCP Gateway on Host
 
@@ -487,9 +542,9 @@ sudo awf \
   -- 'copilot --mcp-gateway http://host.docker.internal:8080 --prompt "test"'
 ```
 
-**Note:** When `--enable-host-access` is enabled without `--allow-host-ports`, all ports on `host.docker.internal` are currently allowed. Use `--allow-host-ports` to explicitly restrict which ports can be accessed (e.g., `--allow-host-ports 80,443,8080` for web services and an MCP gateway).
-
-> **Security Note:** A future update will change the default behavior to only allow ports 80 and 443 unless `--allow-host-ports` is specified. Explicitly set `--allow-host-ports` now to ensure consistent behavior across versions.
+**Note:** Non-standard HTTP/HTTPS host ports require `--allow-host-ports`
+(for example `8080` for an MCP gateway). This proxy configuration does not make
+raw-protocol clients such as `psql` proxy-aware.
 
 ### Example: GitHub Actions `services:` Container in Strict Mode
 

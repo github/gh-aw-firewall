@@ -34,6 +34,8 @@ export function buildExclusionSet(config: WrapperConfig): Set<string> {
   ]);
 
   if (config.enableApiProxy) {
+    excludedEnvVars.add('AGENT_API_KEY');
+    excludedEnvVars.add('AWF_AGENT_API_KEY');
     excludedEnvVars.add('OPENAI_API_KEY');
     excludedEnvVars.add('OPENAI_KEY');
     excludedEnvVars.add('CODEX_API_KEY');

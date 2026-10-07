@@ -131,6 +131,13 @@ describe('model policy filtering in /reflect', () => {
     ]);
     expect(result.model_aliases).toEqual({ custom: ['openai/gpt-5.4'] });
     expect(result.model_fallback).toEqual({ enabled: true });
+    expect(result.endpoints[1].automatic_model_selection).toMatchObject({
+      model: 'auto',
+      constraint_field: 'model_provider',
+      preserves_backend: true,
+      candidates: { anthropic: { messages: [] } },
+    });
+    expect(result.endpoints[1].models).not.toContain('auto');
   });
 });
 
