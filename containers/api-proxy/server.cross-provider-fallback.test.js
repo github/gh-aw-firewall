@@ -290,7 +290,7 @@ describe('proxyRequest cross-provider fallback chain', () => {
     await flushPromises();
     respond(1, 503, '{"error":"openai down"}');
     await flushPromises();
-    const last = respond(2, 529, '{"type":"error","error":{"type":"overloaded_error"}}');
+    respond(2, 529, '{"type":"error","error":{"type":"overloaded_error"}}');
     await flushPromises();
 
     // No candidate remains, so the final failure is streamed to the agent as-is.
