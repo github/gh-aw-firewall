@@ -686,6 +686,7 @@ describe('sanitized host startup diagnostics', () => {
 
   it.each([
     { path: sentinel }, { stage: sentinel }, { failedCheck: sentinel }, { failedCheck: 'startup/unknown' },
+    { failedCheck: 'constructor/name' }, { failedCheck: 'constructor/prototype' },
     { recordWrite: sentinel }, { cleanup: sentinel }, { elapsed: sentinel }, { exitCode: 999 },
     { message: sentinel }, { progressWriteFailures: -1 },
   ])('rejects malformed or unsafe exit markers: %p', (update) => {
@@ -723,6 +724,7 @@ describe('sanitized host startup diagnostics', () => {
   it('recovers the last validated record after AWF cleanup removes it', async () => {
     const value = progress({ stage: 'containers', readiness: 'not-attempted', code: 'none', attempts: 0 });
     const file = publish(value, 'Enclave startup in progress', 'enclave-startup-progress');
+    fs.writeFileSync(stderrFile, `[ERROR] Fatal error: Error: ${known}\n`);
     jest.spyOn(console, 'error').mockImplementation(() => {});
     const running = { exitCode: null as number | null, signalCode: null };
     setTimeout(() => {
@@ -736,7 +738,7 @@ describe('sanitized host startup diagnostics', () => {
     expect(evidence.record).toMatchObject({ final: 'missing', source: 'cached' });
     expect(evidence.record.cachedPolls).toBeGreaterThan(0);
     expect(harness.startupDiagnostic(running, 'exit', 'initial', stderrFile, file))
-      .toMatchObject({ logInspection: 'structured', enclaveStartup: value });
+      .toMatchObject({ category: 'container-runtime', logInspection: 'structured', enclaveStartup: value });
   });
 
   it('bounds all metadata even for malformed child state', () => {

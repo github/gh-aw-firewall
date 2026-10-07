@@ -615,7 +615,14 @@ export function createMainAction(getOptionValueSource: OptionSourceResolver) {
       agentTimeoutMinutes?: number,
     ) => {
       agentCommandStarted = true;
-      return workflowRunAgentCommand(workDir, allowedDomains, proxyLogsDir, agentTimeoutMinutes);
+      const result = await workflowRunAgentCommand(workDir, allowedDomains, proxyLogsDir, agentTimeoutMinutes);
+      if (result.exitCode !== 0) {
+        emitStartupExitMarker(config, startupExitState, {
+          path: 'workflow-return', exitCode: result.exitCode, containersStarted,
+          agentStarted: agentCommandStarted, recordWrite: 'not-attempted', cleanup: 'pending',
+        });
+      }
+      return result;
     };
     const diagnosticRuntimeBackend = externalRuntimeBackend;
     const workflowCollectDiagnosticLogs = diagnosticRuntimeBackend

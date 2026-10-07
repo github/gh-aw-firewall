@@ -101,6 +101,7 @@ describe('createMainAction', () => {
       mockedCliWorkflow,
       mockedSbxManager,
     });
+    mockedDockerManager.runAgentCommand.mockResolvedValue({ exitCode: 0, blockedDomains: [] });
     mockedRedactSecrets.deriveSensitiveEndpointForms.mockImplementation((domains?: string[]) =>
       domains ?? []
     );
@@ -433,6 +434,29 @@ describe('createMainAction', () => {
       const action = createMainAction(getOptionValueSource);
       await action(['curl https://example.com'], {});
       expect(processExitSpy).toHaveBeenCalledWith(42);
+    });
+
+    it('emits an enclave exit marker before cleanup for a non-zero agent result', async () => {
+      const config = {
+        ...MAIN_ACTION_STUB_CONFIG,
+        enclaves: normalizeEnclavesConfig([
+          { script: {}, repos: [{ repo: 'octo/private', sensitivity: 'internal' }] },
+        ]),
+      } as unknown as import('../types').WrapperConfig;
+      mockedValidateOptions.validateOptions.mockReturnValue(config);
+      mockedDockerManager.runAgentCommand.mockResolvedValue({ exitCode: 42, blockedDomains: [] });
+      mockedCliWorkflow.runMainWorkflow.mockImplementation(async (_config, dependencies) => {
+        const result = await dependencies.runAgentCommand('/tmp/awf-test', ['github.com']);
+        return result.exitCode;
+      });
+      const write = jest.spyOn(process.stderr, 'write').mockImplementation(() => true);
+      const action = createMainAction(getOptionValueSource);
+
+      await action(['echo hi'], {});
+
+      expect(write).toHaveBeenCalledWith(expect.stringMatching(
+        /^AWF_STARTUP_EXIT .*"exitCode":42.*"cleanup":"pending"/,
+      ));
     });
 
     describe('sbx runtime wiring', () => {

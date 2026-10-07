@@ -571,8 +571,9 @@ function safeExitMarker(line) {
       || !(value.stage === null || ENCLAVE_STARTUP_STAGES.includes(value.stage))
       || !(value.failedCheck === null || (typeof value.failedCheck === 'string'
         && /^[a-z0-9-]+\/[a-z0-9-]+$/.test(value.failedCheck)
+        && Object.prototype.hasOwnProperty.call(hostPreflightSchema.scopes, value.failedCheck.split('/')[0])
         && Object.prototype.hasOwnProperty.call(
-          hostPreflightSchema.scopes[value.failedCheck.split('/')[0]] ?? {},
+          hostPreflightSchema.scopes[value.failedCheck.split('/')[0]],
           value.failedCheck.split('/')[1],
         )))
       || typeof value.containersStarted !== 'boolean' || typeof value.agentStarted !== 'boolean'
@@ -599,6 +600,7 @@ function collectStartupEvidence(child, reason, stage, stderrFile, startupErrorFi
   let category = 'unknown';
   let logInspection = 'unavailable';
   let enclaveStartup;
+  let cachedRecordApplied = false;
   const evidence = {
     schemaVersion: 1,
     record: { final: 'not-attempted', size: null, source: 'none', cachedPolls: 0, cachedSize: null },
@@ -637,6 +639,7 @@ function collectStartupEvidence(child, reason, stage, stderrFile, startupErrorFi
       if (evidence.record.source === 'none') {
         applyRecord(cached.record);
         evidence.record.source = 'cached';
+        cachedRecordApplied = true;
       }
     }
   }
@@ -656,8 +659,8 @@ function collectStartupEvidence(child, reason, stage, stderrFile, startupErrorFi
           break;
         }
       }
-      if (logInspection !== 'structured') {
-        logInspection = 'bounded';
+      if (logInspection !== 'structured') logInspection = 'bounded';
+      if (category === 'unknown' && (logInspection !== 'structured' || cachedRecordApplied)) {
         const header = lines.find((line) => line.startsWith('[ERROR] Fatal error: '));
         const prefix = '[ERROR] Fatal error: Error: ';
         if (header?.startsWith(prefix)) {
