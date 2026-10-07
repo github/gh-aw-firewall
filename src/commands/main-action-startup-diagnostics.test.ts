@@ -54,9 +54,55 @@ describe('startup progress descriptor publication', () => {
     fs.writeFileSync(target, 'PRIVATE_SENTINEL', { mode: 0o600 });
     if (kind === 'symlink') fs.symlinkSync(target, recordPath);
     else fs.linkSync(target, recordPath);
-    testHelpers.writeStartupFailureDiagnostic(config, new Error('startup failed'));
+    expect(testHelpers.writeStartupFailureDiagnostic(config, new Error('startup failed')))
+      .toBe('unsafe-target');
     expect(fs.readFileSync(target, 'utf8')).toBe('PRIVATE_SENTINEL');
     expect(fs.statSync(target).mode & 0o777).toBe(0o600);
+  });
+
+  const markers = (write: jest.SpyInstance) => write.mock.calls.map(([line]) => String(line))
+    .filter((line) => line.startsWith('AWF_STARTUP_EXIT '))
+    .map((line) => JSON.parse(line.slice('AWF_STARTUP_EXIT '.length)));
+  const exitState = { startedAt: Date.now() - 9 * 60_000, lastProgressWrite: 'written' as const, progressWriteFailures: 2 };
+  const exitMarker = {
+    path: 'fatal' as const, exitCode: 1, containersStarted: true, agentStarted: false, recordWrite: 'written' as const,
+  };
+
+  it('emits fixed-code exit markers that reveal whether cleanup removed the record', () => {
+    updateEnclaveStartupProgress(config, {
+      stage: 'containers',
+      startupChecks: { schemaVersion: 1, ready: false, checks: { 'startup/infrastructure': ['failed', 'unknown'] } },
+    });
+    testHelpers.writeStartupFailureDiagnostic(config, new Error('PRIVATE_SENTINEL'));
+    const write = jest.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    testHelpers.emitStartupExitMarker(config, exitState, { ...exitMarker, cleanup: 'pending' });
+    fs.rmSync(recordPath);
+    testHelpers.emitStartupExitMarker(config, exitState, { ...exitMarker, cleanup: 'completed' });
+    expect(markers(write)).toEqual([
+      expect.objectContaining({ cleanup: 'pending', recordAfterCleanup: 'unknown' }),
+      {
+        schemaVersion: 1, path: 'fatal', exitCode: 1, stage: 'containers', failedCheck: 'startup/infrastructure',
+        containersStarted: true, agentStarted: false, recordWrite: 'written', lastProgressWrite: 'written',
+        progressWriteFailures: 2, cleanup: 'completed', recordAfterCleanup: 'missing', elapsed: '<10m',
+      },
+    ]);
+    expect(write.mock.calls.join('')).not.toContain('PRIVATE_SENTINEL');
+    expect(write.mock.calls.join('')).not.toContain(directory);
+  });
+
+  it('emits no exit marker without enclaves and clamps invalid exit codes', () => {
+    const write = jest.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    testHelpers.emitStartupExitMarker({ ...config, enclaves: undefined }, exitState, { ...exitMarker, cleanup: 'failed' });
+    expect(markers(write)).toEqual([]);
+    testHelpers.writeStartupFailureDiagnostic(config, new Error('startup failed'));
+    testHelpers.emitStartupExitMarker(config, exitState, { ...exitMarker, exitCode: -3, cleanup: 'failed' });
+    expect(markers(write)).toEqual([expect.objectContaining({ exitCode: 255, recordAfterCleanup: 'present' })]);
+  });
+
+  it.each([
+    [-1, null], [0, '<1m'], [59_999, '<1m'], [60_000, '<3m'], [7 * 60_000, '<8m'], [15 * 60_000, '>=15m'],
+  ])('buckets elapsed %p ms as %p', (ms, bucket) => {
+    expect(testHelpers.startupElapsedBucket(ms)).toBe(bucket);
   });
 
   it('bounds JSON-escaped fatal messages as well as their unescaped byte length', () => {
@@ -88,7 +134,7 @@ describe('startup progress descriptor publication', () => {
     expect(bytes.toString('utf8')).not.toContain('SECRET');
   });
 
-  it('bounds the entire standard checklist, active scope and fatal message to the existing 16 KiB descriptor limit', async () => {
+  it('keeps the entire standard checklist, active scope and fatal message within the 64 KiB descriptor limit', async () => {
     const longestReason = Object.keys(schema.reasons).sort((left, right) => right.length - left.length)[0];
     for (const scope of Object.keys(schema.scopes) as HostPreflightScope[]) {
       const report = new HostPreflightReporter(scope, (hostPreflight) =>
@@ -123,18 +169,20 @@ describe('startup progress descriptor publication', () => {
       storagePropagation.mounts[key] = [2, 3, 2, 1];
     }
     active.propagation(storagePropagation);
-    testHelpers.writeStartupFailureDiagnostic(config, new Error('x'.repeat(1022)));
+    expect(testHelpers.writeStartupFailureDiagnostic(config, new Error('x'.repeat(1022)))).toBe('written');
     const bytes = fs.readFileSync(recordPath);
-    expect(bytes.length).toBeLessThanOrEqual(16 * 1024);
+    // The worst case exceeds the former 16 KiB bound, which forced evidence to be dropped.
+    expect(bytes.length).toBeGreaterThan(16 * 1024);
+    expect(bytes.length).toBeLessThanOrEqual(64 * 1024);
     const record = JSON.parse(bytes.toString('utf8'));
     expect(Object.keys(record.enclaveStartup.startupChecks.checks)).toHaveLength(
       Object.values(schema.scopes).reduce((total, plan) => total + Object.keys(plan).length, 0),
     );
     expect(record.enclaveStartup.startupChecks.ready).toBe(false);
-    expect(record.enclaveStartup.hostPreflight).toBeUndefined();
+    expect(record.enclaveStartup.hostPreflight.scope).toBe('bounded-runtime');
     expect(record.enclaveStartup.mountTopology).toEqual(mountTopology);
     expect(record.enclaveStartup.storagePropagation).toEqual(storagePropagation);
-    expect(record.message).toBe('Enclave startup failure exceeded diagnostic message bound');
+    expect(record.message).toBe('x'.repeat(1022));
     expect(bytes.toString('utf8')).not.toContain('/PRIVATE');
     expect(bytes.toString('utf8')).not.toContain('PRIVATE_SENTINEL');
   });

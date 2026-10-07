@@ -1308,7 +1308,8 @@ preparation and cleanup fail, the thrown error retains the original error as
 records survive. Cleanup never falls back to lazy unmount or releases an
 unconfirmed active allocation.
 
-The startup failure descriptor stays bounded to 16 KiB. If the cumulative
+The startup failure descriptor is bounded to 64 KiB (16 KiB before the
+pre-broker exit evidence below). If the cumulative
 checklist plus a duplicate active `hostPreflight` scope exceeds that bound,
 the writer omits the optional duplicate `hostPreflight`, retaining **every**
 `startupChecks` entry and its schema version. It never truncates the catalog
@@ -1373,8 +1374,8 @@ fields. `null` means not observed, not an inferred zero or private mount.
 
 Before/after evidence survives the outer failure, subsequent cleanup scopes,
 and omission of the duplicate active host-preflight scope. The complete
-catalog plus maximum-size topology evidence is tested against the unchanged
-16 KiB descriptor bound. A new startup clears the previous observations.
+catalog plus maximum-size topology evidence is tested against the 64 KiB
+descriptor bound. A new startup clears the previous observations.
 Missing or failed observation checks block readiness; no check selects a
 topmost mount, deduplicates the table, changes propagation, or adopts an
 unrecorded resource.
@@ -1513,7 +1514,7 @@ table cannot inherit a previous successful observation.
 
 Evidence survives cleanup and omission of the duplicate active scope, is
 deep-copied, and resets on a new startup/allocation. Compact tuples keep the
-full 188-check catalog and both evidence records inside the existing 16 KiB
+full 188-check catalog and both evidence records inside the 64 KiB
 descriptor limit. When the total would exceed the bound, only the duplicate
 active scope and then the optional fatal-message text are replaced/omitted;
 the complete cumulative checklist and evidence remain. No guard, storage cap,
@@ -1604,6 +1605,42 @@ data-plane evidence. See [diagnostic fields and bounds](INTEGRATION-TESTS.md#uni
 The cause of the `v0.28.36` pre-broker exit remains unknown; immutable releases
 cannot receive these diagnostics, and an authorized future release and eligible
 live run are required to establish it.
+
+### Pre-broker exit evidence
+
+The `v0.28.45` probe
+([run 37637164901](https://github.com/github/gh-aw-firewall/actions/runs/37637164901))
+exited with code 1 before the broker started, with
+`logInspection: unavailable` and no structured record. Five hypotheses remain,
+and each has a field that can rule it out:
+
+| Hypothesis | Eliminating evidence |
+| --- | --- |
+| H1: AWF cleanup removes `awf-work` (and the record within it) after writing | `AWF_STARTUP_EXIT.recordAfterCleanup`, `evidence.record.final` and `source: cached` |
+| H2: The record exceeded the former 16 KiB writer bound and was skipped | `AWF_STARTUP_EXIT.recordWrite` / `lastProgressWrite`, `evidence.record.size` |
+| H3: `--build-local` compose output pushed stderr past the 64 KiB reader bound | `evidence.stderr.inspection` / `size` |
+| H4: Inherited descendant writers kept stderr unstable | `evidence.stderr.attempts` and `unstable` |
+| H5: The failure is in a stage or check without a mapped category | `AWF_STARTUP_EXIT.stage`, `failedCheck`, `containersStarted`, `elapsed` |
+
+Limits were raised to reduce truncation:
+
+- The writer's record bound is now 64 KiB. Writer outcomes are reported as
+  `written`, `oversize`, `unsafe-target`, `io-error`, `error`, or
+  `not-attempted` instead of being skipped silently.
+- The harness reads records up to 64 KiB. It scans up to 8 MiB of stderr in
+  full and the stable final 1 MiB of larger files (`tail`). Each read is
+  retried up to five times on the same inode; a replaced pathname reports
+  `replaced` and is never read.
+- During broker polling, the harness caches the last validated record. A record
+  deleted by cleanup is still classified, with `source: cached`.
+
+For runs with enclaves enabled, AWF writes a fixed-code `AWF_STARTUP_EXIT` line
+to stderr even with `--log-level error`: once before cleanup (`pending`) and
+again after it. The harness accepts the last marker only if its exact key set
+and every enumerated value validate; `failedCheck` must name a check in the
+startup schema. The harness prints a second line, `AWF_HOST_STARTUP_EVIDENCE`,
+that contains only buckets, enums, and counters. Neither line includes
+messages, paths, or identifiers.
 
 ## Troubleshooting
 

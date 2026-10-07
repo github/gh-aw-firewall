@@ -135,7 +135,18 @@ function persistConfigAuditArtifact(
   }
 }
 
-function writeStartupFailureDiagnostic(config: WrapperConfig, error: unknown, phase = 'startup'): void {
+// Large enough for the full cumulative checklist plus late-stage gateway
+// evidence; the CI reader uses the same bound.
+const STARTUP_DIAGNOSTIC_MAX_BYTES = 64 * 1024;
+
+type StartupDiagnosticWriteOutcome =
+  | 'written' | 'oversize' | 'unsafe-target' | 'io-error' | 'error' | 'not-attempted';
+
+function writeStartupFailureDiagnostic(
+  config: WrapperConfig,
+  error: unknown,
+  phase = 'startup',
+): StartupDiagnosticWriteOutcome {
   try {
     const proxyLogsDir = config.proxyLogsDir || path.join(config.workDir, 'squid-logs');
     fs.mkdirSync(proxyLogsDir, { recursive: true, mode: 0o755 });
@@ -155,17 +166,18 @@ function writeStartupFailureDiagnostic(config: WrapperConfig, error: unknown, ph
       ...(enclaveStartup ? { enclaveStartup } : {}),
     }, null, enclaveStartup?.startupChecks ? undefined : 2) + '\n';
     let record = serialize();
-    if (enclaveStartup?.startupChecks && Buffer.byteLength(record, 'utf8') > 16 * 1024) {
+    if (enclaveStartup?.startupChecks && Buffer.byteLength(record, 'utf8') > STARTUP_DIAGNOSTIC_MAX_BYTES) {
       // The cumulative checklist already retains every active-scope check.
       enclaveStartup = { ...enclaveStartup, hostPreflight: undefined };
       record = serialize();
     }
-    if (enclaveStartup?.startupChecks && Buffer.byteLength(record, 'utf8') > 16 * 1024) {
+    if (enclaveStartup?.startupChecks && Buffer.byteLength(record, 'utf8') > STARTUP_DIAGNOSTIC_MAX_BYTES) {
       message = 'Enclave startup failure exceeded diagnostic message bound';
       record = serialize();
     }
-    if (enclaveStartup && Buffer.byteLength(record, 'utf8') > 16 * 1024) {
-      throw new Error('Enclave startup diagnostic exceeds the descriptor bound');
+    if (enclaveStartup && Buffer.byteLength(record, 'utf8') > STARTUP_DIAGNOSTIC_MAX_BYTES) {
+      logger.debug('Failed to write AWF startup diagnostic: record exceeds the descriptor bound');
+      return 'oversize';
     }
     const flags =
       fs.constants.O_WRONLY |
@@ -176,7 +188,8 @@ function writeStartupFailureDiagnostic(config: WrapperConfig, error: unknown, ph
     try {
       const stat = fs.fstatSync(fd);
       if (!stat.isFile() || stat.nlink !== 1 || stat.uid !== process.getuid?.()) {
-        throw new Error('Refusing to write startup diagnostic to an unowned or non-regular file');
+        logger.debug('Refusing to write startup diagnostic to an unowned or non-regular file');
+        return 'unsafe-target';
       }
       fs.fchmodSync(fd, 0o600);
       fs.ftruncateSync(fd, 0);
@@ -186,8 +199,75 @@ function writeStartupFailureDiagnostic(config: WrapperConfig, error: unknown, ph
     } finally {
       fs.closeSync(fd);
     }
+    return 'written';
   } catch (diagnosticError) {
     logger.debug(`Failed to write AWF startup diagnostic: ${diagnosticError}`);
+    const code = (diagnosticError as NodeJS.ErrnoException | undefined)?.code;
+    if (code === 'ELOOP') return 'unsafe-target';
+    return typeof code === 'string' ? 'io-error' : 'error';
+  }
+}
+
+interface StartupExitState {
+  startedAt: number;
+  lastProgressWrite: StartupDiagnosticWriteOutcome;
+  progressWriteFailures: number;
+}
+
+function startupElapsedBucket(ms: number): string | null {
+  if (!Number.isFinite(ms) || ms < 0) return null;
+  const buckets: Array<[number, string]> = [
+    [60_000, '<1m'], [3 * 60_000, '<3m'], [5 * 60_000, '<5m'], [8 * 60_000, '<8m'],
+    [10 * 60_000, '<10m'], [15 * 60_000, '<15m'],
+  ];
+  return buckets.find(([limit]) => ms < limit)?.[1] ?? '>=15m';
+}
+
+/**
+ * Emits one fixed-code enclave startup exit marker on stderr. It carries no
+ * messages, paths or identifiers, so CI can read it even when the structured
+ * record is missing and AWF runs with `--log-level error`.
+ */
+function emitStartupExitMarker(
+  config: WrapperConfig,
+  state: StartupExitState,
+  marker: {
+    path: 'fatal' | 'workflow-return';
+    exitCode: number;
+    containersStarted: boolean;
+    agentStarted: boolean;
+    recordWrite: StartupDiagnosticWriteOutcome;
+    cleanup: 'pending' | 'completed' | 'failed';
+  },
+): void {
+  if (!config.enclaves?.enabled) return;
+  try {
+    const progress = getEnclaveStartupProgress(config);
+    const failedCheck = Object.entries(progress?.startupChecks?.checks ?? {})
+      .find(([, [result]]) => result === 'failed')?.[0] ?? null;
+    let recordAfterCleanup: 'present' | 'missing' | 'unknown' = 'unknown';
+    if (marker.cleanup !== 'pending') {
+      const proxyLogsDir = config.proxyLogsDir || path.join(config.workDir, 'squid-logs');
+      recordAfterCleanup = fs.existsSync(getStartupDiagnosticPath(proxyLogsDir)) ? 'present' : 'missing';
+    }
+    process.stderr.write(`AWF_STARTUP_EXIT ${JSON.stringify({
+      schemaVersion: 1,
+      path: marker.path,
+      exitCode: Number.isInteger(marker.exitCode) && marker.exitCode >= 0 && marker.exitCode <= 255
+        ? marker.exitCode : 255,
+      stage: progress?.stage ?? null,
+      failedCheck,
+      containersStarted: marker.containersStarted,
+      agentStarted: marker.agentStarted,
+      recordWrite: marker.recordWrite,
+      lastProgressWrite: state.lastProgressWrite,
+      progressWriteFailures: state.progressWriteFailures,
+      cleanup: marker.cleanup,
+      recordAfterCleanup,
+      elapsed: startupElapsedBucket(Date.now() - state.startedAt),
+    })}\n`);
+  } catch {
+    // Diagnostics must never change the exit path.
   }
 }
 
@@ -429,11 +509,17 @@ export function createMainAction(getOptionValueSource: OptionSourceResolver) {
     () => hostIptablesSetup,
   );
 
+  const startupExitState: StartupExitState = {
+    startedAt: Date.now(), lastProgressWrite: 'not-attempted', progressWriteFailures: 0,
+  };
+
   try {
     initializeEnclaveStartupProgress(config, () => {
-      writeStartupFailureDiagnostic(
+      const outcome = writeStartupFailureDiagnostic(
         config, new Error('Enclave startup in progress'), 'enclave-startup-progress',
       );
+      startupExitState.lastProgressWrite = outcome;
+      if (outcome !== 'written') startupExitState.progressWriteFailures += 1;
     });
     // Apply --docker-host override for AWF's own container operations.
     // This must be called before startContainers/stopContainers/runAgentCommand.
@@ -587,19 +673,35 @@ export function createMainAction(getOptionValueSource: OptionSourceResolver) {
       }
     );
 
+    if (exitCode !== 0) {
+      emitStartupExitMarker(config, startupExitState, {
+        path: 'workflow-return', exitCode, containersStarted, agentStarted: agentCommandStarted,
+        recordWrite: 'not-attempted', cleanup: 'completed',
+      });
+    }
     console.error(`Process exiting with code: ${exitCode}`);
     process.exit(exitCode);
     return;
   } catch (error) {
     logger.error('Fatal error:', error);
-    if (!agentCommandStarted) {
-      writeStartupFailureDiagnostic(config, error);
-    }
+    const recordWrite: StartupDiagnosticWriteOutcome = agentCommandStarted
+      ? 'not-attempted'
+      : writeStartupFailureDiagnostic(config, error);
+    const plannedExitCode = findRoutingFailure(error)?.exitCode ?? 1;
+    const exitMarker = {
+      path: 'fatal' as const, exitCode: plannedExitCode, containersStarted,
+      agentStarted: agentCommandStarted, recordWrite,
+    };
+    // Emit before cleanup too, so a hung or crashing teardown still leaves evidence.
+    emitStartupExitMarker(config, startupExitState, { ...exitMarker, cleanup: 'pending' });
+    let cleanupOutcome: 'completed' | 'failed' = 'completed';
     try {
       await performCleanup();
     } catch (cleanupError) {
+      cleanupOutcome = 'failed';
       logger.warn('Cleanup after a fatal error failed.', cleanupError);
     }
+    emitStartupExitMarker(config, startupExitState, { ...exitMarker, cleanup: cleanupOutcome });
     cleanupRoutingState(config);
     const fatalExitCode = findRoutingFailure(error)?.exitCode ?? 1;
     console.error(`Process exiting with code: ${fatalExitCode}`);
@@ -614,6 +716,8 @@ export const testHelpers = {
   redactConfigForLogging,
   persistConfigAuditArtifact,
   writeStartupFailureDiagnostic,
+  emitStartupExitMarker,
+  startupElapsedBucket,
   writeIncompleteEnclaveAuditMarker,
   buildCleanupFn,
 };

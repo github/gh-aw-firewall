@@ -30,11 +30,19 @@ const harness = require(harnessPath) as {
     logInspection: string;
     enclaveStartup?: EnclaveStartupProgress;
   };
+  startupEvidence(child: StartupChild | undefined, reason: string, stage: string, file: string, startupErrorFile?: string): {
+    schemaVersion: number;
+    record: { final: string; size: string | null; source: string; cachedPolls: number; cachedSize: string | null };
+    stderr: { inspection: string; size: string | null; attempts: number };
+    awfExit: Record<string, unknown> | null;
+    awfExitMarkers: number;
+    elapsed: string | null;
+  };
   waitForHostGatewayReadiness(child: StartupChild, deadline: number, diagnostics: {
     stage: string; stderrFile: string; startupErrorFile: string;
   }): Promise<void>;
   waitForBroker(child: StartupChild, container: string, deadline: number, diagnostics: {
-    stage: string; stderrFile: string;
+    stage: string; stderrFile: string; startupErrorFile?: string;
   }): Promise<void>;
   failedSpawns: WeakSet<StartupChild>;
   removePrivateAwfLogs(stdoutFile: string, stderrFile: string, startupErrorFiles?: string[]): void;
@@ -532,11 +540,6 @@ describe('sanitized host startup diagnostics', () => {
       category: 'unknown', logInspection: 'unavailable',
     });
     assertUnavailable();
-    fs.writeFileSync(stderrFile, `[ERROR] Fatal error: Error: ${known}\n${'x'.repeat(64 * 1024)}`);
-    const read = jest.spyOn(require('fs'), 'readSync');
-    assertUnavailable();
-    expect(read).not.toHaveBeenCalled();
-    fs.unlinkSync(stderrFile);
     const target = path.join(directory, 'private');
     fs.writeFileSync(target, `[ERROR] Fatal error: Error: ${known}`);
     fs.symlinkSync(target, stderrFile);
@@ -601,8 +604,12 @@ describe('sanitized host startup diagnostics', () => {
     } finally {
       harness.removePrivateAwfLogs(stdoutFile, stderrFile);
     }
-    expect(records).toHaveLength(1);
+    expect(records).toHaveLength(2);
     expect(records[0]).toMatch(/^AWF_HOST_STARTUP_DIAGNOSTIC /);
+    expect(records[1]).toMatch(/^AWF_HOST_STARTUP_EVIDENCE /);
+    expect(records[1]).not.toContain(sentinel);
+    expect(JSON.parse(records[1].slice('AWF_HOST_STARTUP_EVIDENCE '.length)).stderr.inspection)
+      .toBe(reason === 'spawn-failure' ? 'not-attempted' : 'ok');
     const record = JSON.parse(records[0].slice('AWF_HOST_STARTUP_DIAGNOSTIC '.length));
     expect(record).toEqual({
       schemaVersion: 1, phase: 'pre-broker', stage: 'recovery', reason,
@@ -614,6 +621,122 @@ describe('sanitized host startup diagnostics', () => {
     expect(Buffer.byteLength(`${records[0]}\n`)).toBeLessThanOrEqual(256);
     expect(fs.existsSync(stderrFile)).toBe(false);
     expect(fs.existsSync(stdoutFile)).toBe(false);
+  });
+
+  const exitMarker = (update: Record<string, unknown> = {}) => `AWF_STARTUP_EXIT ${JSON.stringify({
+    schemaVersion: 1, path: 'fatal', exitCode: 1, stage: 'containers',
+    failedCheck: 'startup/infrastructure', containersStarted: true, agentStarted: false,
+    recordWrite: 'written', lastProgressWrite: 'written', progressWriteFailures: 0,
+    cleanup: 'completed', recordAfterCleanup: 'missing', elapsed: '<10m', ...update,
+  })}`;
+
+  it('scans the stable tail of very large stderr for the fatal header and exit marker', () => {
+    const fd = fs.openSync(stderrFile, 'w');
+    fs.writeSync(fd, `[ERROR] Fatal error: Error: ${sentinel}\n`);
+    fs.writeSync(fd, 'x'.repeat(8 * 1024 * 1024));
+    fs.writeSync(fd, `\n${exitMarker()}\n[ERROR] Fatal error: Error: ${known}\n`);
+    fs.closeSync(fd);
+    const evidence = harness.startupEvidence(child, 'exit', 'initial', stderrFile);
+    expect(evidence.stderr).toEqual({ inspection: 'tail', size: '>8MiB', attempts: 1 });
+    expect(evidence.awfExit).toMatchObject({ path: 'fatal', stage: 'containers', recordAfterCleanup: 'missing' });
+    expect(diagnose(stderrFile)).toMatchObject({ category: 'container-runtime', logInspection: 'bounded' });
+    expect(JSON.stringify(evidence)).not.toContain(sentinel);
+  });
+
+  it('reads stderr above the former 64 KiB bound in full', () => {
+    fs.writeFileSync(stderrFile, `${'x'.repeat(64 * 1024)}\n[ERROR] Fatal error: Error: ${known}\n`);
+    expect(harness.startupEvidence(child, 'exit', 'initial', stderrFile).stderr)
+      .toEqual({ inspection: 'ok', size: '<=1MiB', attempts: 1 });
+    expect(diagnose(stderrFile).category).toBe('container-runtime');
+  });
+
+  it('retries a changing stderr file on the same inode and reports instability', () => {
+    fs.writeFileSync(stderrFile, `[ERROR] Fatal error: Error: ${known}`);
+    const nodeFs = require('fs') as typeof fs;
+    const originalRead = fs.readSync;
+    let reads = 0;
+    jest.spyOn(nodeFs, 'readSync').mockImplementation((...args) => {
+      const result = originalRead(...args);
+      reads += 1;
+      if (reads <= 2) fs.appendFileSync(stderrFile, 'x');
+      return result;
+    });
+    const evidence = harness.startupEvidence(child, 'exit', 'initial', stderrFile);
+    expect(evidence.stderr.inspection).toBe('ok');
+    expect(evidence.stderr.attempts).toBeGreaterThan(1);
+  });
+
+  it('reports a replaced pathname during retries without reading it', () => {
+    fs.writeFileSync(stderrFile, sentinel);
+    const nodeFs = require('fs') as typeof fs;
+    const originalRead = fs.readSync;
+    let first = true;
+    jest.spyOn(nodeFs, 'readSync').mockImplementation((...args) => {
+      const result = originalRead(...args);
+      if (first) {
+        first = false;
+        fs.appendFileSync(stderrFile, 'x');
+        fs.renameSync(stderrFile, path.join(directory, 'original'));
+        fs.writeFileSync(stderrFile, `[ERROR] Fatal error: Error: ${known}`);
+      }
+      return result;
+    });
+    expect(harness.startupEvidence(child, 'exit', 'initial', stderrFile).stderr.inspection).toBe('replaced');
+  });
+
+  it.each([
+    { path: sentinel }, { stage: sentinel }, { failedCheck: sentinel }, { failedCheck: 'startup/unknown' },
+    { recordWrite: sentinel }, { cleanup: sentinel }, { elapsed: sentinel }, { exitCode: 999 },
+    { message: sentinel }, { progressWriteFailures: -1 },
+  ])('rejects malformed or unsafe exit markers: %p', (update) => {
+    fs.writeFileSync(stderrFile, `${exitMarker(update)}\n`);
+    const evidence = harness.startupEvidence(child, 'exit', 'initial', stderrFile);
+    expect(evidence.awfExit).toBeNull();
+    expect(evidence.awfExitMarkers).toBe(1);
+    expect(JSON.stringify(evidence)).not.toContain(sentinel);
+  });
+
+  it('uses the last valid exit marker so post-cleanup state wins', () => {
+    fs.writeFileSync(stderrFile, `${exitMarker({ cleanup: 'pending', recordAfterCleanup: 'unknown' })}\n`
+      + `${exitMarker()}\n`);
+    expect(harness.startupEvidence(child, 'exit', 'initial', stderrFile).awfExit)
+      .toMatchObject({ cleanup: 'completed', recordAfterCleanup: 'missing' });
+  });
+
+  it('accepts structured records above the former 16 KiB bound', () => {
+    const startupChecks: NonNullable<EnclaveStartupProgress['startupChecks']> = {
+      schemaVersion: 1, ready: false,
+      checks: Object.fromEntries(Object.entries(hostPreflightSchema.scopes).flatMap(([scope, checks]) =>
+        Object.keys(checks).map((id) => [`${scope}/${id}`, ['not-attempted', 'none']]))),
+    };
+    const file = path.join(directory, 'awf-startup-error.json');
+    fs.writeFileSync(file, JSON.stringify({
+      timestamp: 'x'.repeat(16 * 1024), phase: 'startup', message: sentinel,
+      enclaveStartup: progress({ startupChecks }),
+    }));
+    const result = harness.startupDiagnostic(child, 'exit', 'initial', stderrFile, file);
+    expect(result.logInspection).toBe('structured');
+    expect(harness.startupEvidence(child, 'exit', 'initial', stderrFile, file).record)
+      .toMatchObject({ final: 'valid', size: '<=64KiB', source: 'final' });
+  });
+
+  it('recovers the last validated record after AWF cleanup removes it', async () => {
+    const value = progress({ stage: 'containers', readiness: 'not-attempted', code: 'none', attempts: 0 });
+    const file = publish(value, 'Enclave startup in progress', 'enclave-startup-progress');
+    jest.spyOn(console, 'error').mockImplementation(() => {});
+    const running = { exitCode: null as number | null, signalCode: null };
+    setTimeout(() => {
+      fs.rmSync(file);
+      running.exitCode = 1;
+    }, 50);
+    await expect(harness.waitForBroker(running, 'awf-test-missing-container', Date.now() + 10_000, {
+      stage: 'initial', stderrFile, startupErrorFile: file,
+    })).rejects.toThrow(/AWF exited/);
+    const evidence = harness.startupEvidence(running, 'exit', 'initial', stderrFile, file);
+    expect(evidence.record).toMatchObject({ final: 'missing', source: 'cached' });
+    expect(evidence.record.cachedPolls).toBeGreaterThan(0);
+    expect(harness.startupDiagnostic(running, 'exit', 'initial', stderrFile, file))
+      .toMatchObject({ logInspection: 'structured', enclaveStartup: value });
   });
 
   it('bounds all metadata even for malformed child state', () => {
