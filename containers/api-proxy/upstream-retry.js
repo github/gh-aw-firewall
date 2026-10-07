@@ -85,8 +85,11 @@ function handle400WithRetry(proxyRes, requestHeaders, responseBody, {
     try {
       if (onWireApiEndpointRetry()) return true;
     } catch (err) {
-      if (err.code !== 'unsupported_wire_api_feature') throw err;
-      compatibilityError = err;
+      compatibilityError = err?.code === 'unsupported_wire_api_feature' ? err : {
+        code: 'unsupported_wire_api_feature',
+        message: 'Cannot translate this Copilot request to the alternate wire API. Check the request fields, ' +
+          'or choose a model supporting the requested endpoint. AWF will not drop request features.',
+      };
     }
   }
 

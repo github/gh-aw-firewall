@@ -168,7 +168,7 @@ function translateChatRequest(body) {
     result.max_output_tokens = body.max_completion_tokens ?? body.max_tokens;
   }
   if (body.reasoning_effort !== undefined) result.reasoning = { effort: body.reasoning_effort };
-  if (body.response_format !== undefined) {
+  if (body.response_format !== undefined && body.response_format !== null) {
     const format = body.response_format;
     if (format.type === 'json_object') {
       result.text = { format: { type: 'json_object' } };

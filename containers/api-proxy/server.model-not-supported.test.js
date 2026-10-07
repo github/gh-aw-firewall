@@ -63,7 +63,7 @@ describe('proxyRequest copilot model-not-supported retry', () => {
     jest.restoreAllMocks();
   });
 
-  it.each([false, true])('retries the same model on Responses after endpoint rejection (stale metadata: %s)', async (staleMetadata) => {
+  it.each([false, true])('retries the same model with a nullable response format (stale metadata: %s)', async (staleMetadata) => {
     if (staleMetadata) {
       require('./runtime-model-catalog').replaceRuntimeModels('copilot', [{
         id: 'gpt-5.4-mini', supportedEndpoints: ['/chat/completions', '/responses'],
@@ -84,6 +84,7 @@ describe('proxyRequest copilot model-not-supported retry', () => {
       model: 'gpt-5.4-mini',
       messages: [{ role: 'user', content: 'check' }],
       tools: [{ type: 'function', function: { name: 'check', parameters: { type: 'object' } } }],
+      response_format: null,
     })));
     req.emit('end');
     await flushPromises();
