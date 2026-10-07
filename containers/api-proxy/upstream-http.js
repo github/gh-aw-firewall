@@ -7,6 +7,7 @@ const {
   getFallbackModels,
   getRequestModel,
   selectNextFallbackCandidate,
+  selectNextFallbackModel,
   rewriteRequestModel,
   toAttempt,
 } = require('./model-fallback-chain');
