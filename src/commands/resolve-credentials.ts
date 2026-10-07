@@ -96,7 +96,7 @@ export function resolveApiCredentials(
 
 function resolveAgentApiKey(options: Record<string, unknown>): Partial<Record<string, string>> {
   const key = process.env.AWF_AGENT_API_KEY?.trim();
-  if (!options.enableApiProxy || !key) return {};
+  if (options.enableApiProxy === false || !key) return {};
 
   // The proxy can enable multiple providers; never broadcast a neutral key.
   const provider = process.env.AWF_AGENT_API_PROVIDER?.trim().toLowerCase();

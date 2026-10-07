@@ -117,6 +117,13 @@ describe('resolveApiCredentials', () => {
       expect(resolveApiCredentials({ enableApiProxy: true }).openaiApiKey).toBe('test-neutral-key');
     });
 
+    it('accepts the neutral key when the API proxy option is omitted', () => {
+      process.env.AWF_AGENT_API_KEY = 'test-neutral-key';
+      process.env.AWF_AGENT_API_PROVIDER = 'openai';
+
+      expect(resolveApiCredentials({}).openaiApiKey).toBe('test-neutral-key');
+    });
+
     it.each([undefined, '', 'unknown', 'azure'])('rejects missing or unsupported provider %s without exposing the key', (provider) => {
       process.env.AWF_AGENT_API_KEY = 'test-neutral-key';
       if (provider !== undefined) process.env.AWF_AGENT_API_PROVIDER = provider;
