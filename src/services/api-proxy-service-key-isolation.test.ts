@@ -1,6 +1,9 @@
 import { generateDockerCompose, WrapperConfig, baseConfig, mockNetworkConfig, useTempWorkDir } from './service-test-setup.test-utils';
 import { mockNetworkConfigWithProxy } from './api-proxy-service.test-utils';
 import { NetworkConfig } from './squid-service';
+import { resolveApiCredentials } from '../commands/resolve-credentials';
+import * as fs from 'fs';
+import * as path from 'path';
 
 // Create mock functions (must remain per-file — jest.mock() is hoisted before imports)
 
@@ -40,6 +43,60 @@ describe('API proxy sidecar: API key isolation', () => {
     },
     () => mockConfig
   );
+
+  it.each([
+    ['openai', 'OPENAI_API_KEY', 'OPENAI_BASE_URL', 10000],
+    ['anthropic', 'ANTHROPIC_API_KEY', 'ANTHROPIC_BASE_URL', 10001],
+    ['copilot', 'COPILOT_PROVIDER_API_KEY', 'COPILOT_PROVIDER_BASE_URL', 10002],
+    ['gemini', 'GEMINI_API_KEY', 'GOOGLE_GEMINI_BASE_URL', 10003],
+    ['vertex', 'GOOGLE_API_KEY', 'GOOGLE_VERTEX_BASE_URL', 10004],
+  ])('passes the neutral key only to the %s sidecar path', (provider, nativeKey, baseUrlKey, port) => {
+    withEnvVar('AWF_AGENT_API_KEY', 'test-neutral-key', () => {
+      withEnvVar('AWF_AGENT_API_PROVIDER', String(provider), () => {
+        withEnvVar(String(nativeKey), '', () => {
+          const config = {
+            ...mockConfig,
+            enableApiProxy: true,
+            envAll: true,
+            ...resolveApiCredentials({ enableApiProxy: true }),
+          };
+          const result = generateDockerCompose(config, mockNetworkConfigWithProxy);
+          const agentEnv = result.services.agent.environment ?? {};
+          const proxyEnv = result.services['api-proxy'].environment ?? {};
+
+          expect(proxyEnv[nativeKey]).toBe('test-neutral-key');
+          expect(proxyEnv.AWF_AGENT_API_KEY).toBeUndefined();
+          expect(agentEnv.AWF_AGENT_API_KEY).toBeUndefined();
+          expect(Object.values(agentEnv)).not.toContain('test-neutral-key');
+          expect(agentEnv[baseUrlKey]).toBe(`http://172.30.0.30:${port}`);
+        });
+      });
+    });
+  });
+
+  it.each(['AWF_AGENT_API_KEY', 'AGENT_API_KEY'])('excludes %s from host env-all passthrough', (key) => {
+    withEnvVar(key, 'test-neutral-key', () => {
+      const env = getAgentEnvironment({ ...mockConfig, enableApiProxy: true, envAll: true });
+      expect(env[key]).toBeUndefined();
+    });
+  });
+
+  it.each(['AWF_AGENT_API_KEY', 'AGENT_API_KEY'])('excludes %s from explicit additionalEnv', (key) => {
+    const env = getAgentEnvironment({
+      ...mockConfig,
+      enableApiProxy: true,
+      additionalEnv: { [key]: 'test-neutral-key' },
+    });
+    expect(env[key]).toBeUndefined();
+  });
+
+  it.each(['AWF_AGENT_API_KEY', 'AGENT_API_KEY'])('excludes %s from env-file passthrough', (key) => {
+    const envFile = path.join(mockConfig.workDir, 'neutral-key.env');
+    fs.writeFileSync(envFile, `${key}=test-neutral-key\n`);
+
+    const env = getAgentEnvironment({ ...mockConfig, enableApiProxy: true, envFile });
+    expect(env[key]).toBeUndefined();
+  });
 
       it('should not leak ANTHROPIC_API_KEY to agent when api-proxy is enabled', () => {
         // Simulate the key being in process.env (as it would be in real usage)

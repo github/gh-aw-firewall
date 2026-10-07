@@ -1,6 +1,8 @@
 import { resolveApiCredentials } from './resolve-credentials';
 
 const ENV_KEYS = [
+  'AWF_AGENT_API_KEY',
+  'AWF_AGENT_API_PROVIDER',
   'OPENAI_API_KEY',
   'ANTHROPIC_API_KEY',
   'COPILOT_GITHUB_TOKEN',
@@ -66,6 +68,75 @@ describe('resolveApiCredentials', () => {
     expect(credentials.copilotProviderApiKey).toBe('sk-provider');
     expect(credentials.geminiApiKey).toBe('sk-gemini');
     expect(credentials.googleApiKey).toBe('sk-google');
+  });
+
+  describe('neutral API key fallback', () => {
+    const providers = [
+      ['openai', 'openaiApiKey', 'OPENAI_API_KEY'],
+      ['anthropic', 'anthropicApiKey', 'ANTHROPIC_API_KEY'],
+      ['copilot', 'copilotProviderApiKey', 'COPILOT_PROVIDER_API_KEY'],
+      ['gemini', 'geminiApiKey', 'GEMINI_API_KEY'],
+      ['vertex', 'googleApiKey', 'GOOGLE_API_KEY'],
+    ] as const;
+
+    it.each(providers)('routes the neutral key only to %s', (provider, configKey) => {
+      process.env.AWF_AGENT_API_KEY = 'test-neutral-key';
+      process.env.AWF_AGENT_API_PROVIDER = provider;
+
+      const credentials = resolveApiCredentials({ enableApiProxy: true });
+
+      expect(credentials[configKey]).toBe('test-neutral-key');
+      for (const [, otherConfigKey] of providers) {
+        if (otherConfigKey !== configKey) {
+          expect(credentials[otherConfigKey]).toBeUndefined();
+        }
+      }
+      expect(credentials.copilotGithubToken).toBeUndefined();
+    });
+
+    it.each(providers)('prefers the native key for %s', (provider, configKey, envKey) => {
+      process.env.AWF_AGENT_API_KEY = 'test-neutral-key';
+      process.env.AWF_AGENT_API_PROVIDER = provider;
+      process.env[envKey] = 'test-native-key';
+
+      expect(resolveApiCredentials({ enableApiProxy: true })[configKey]).toBe('test-native-key');
+    });
+
+    it.each(providers)('falls back when the native key for %s is empty', (provider, configKey, envKey) => {
+      process.env.AWF_AGENT_API_KEY = 'test-neutral-key';
+      process.env.AWF_AGENT_API_PROVIDER = provider;
+      process.env[envKey] = '';
+
+      expect(resolveApiCredentials({ enableApiProxy: true })[configKey]).toBe('test-neutral-key');
+    });
+
+    it('normalizes provider selection and trims the neutral key', () => {
+      process.env.AWF_AGENT_API_KEY = ' test-neutral-key ';
+      process.env.AWF_AGENT_API_PROVIDER = ' OpenAI ';
+
+      expect(resolveApiCredentials({ enableApiProxy: true }).openaiApiKey).toBe('test-neutral-key');
+    });
+
+    it.each([undefined, '', 'unknown', 'azure'])('rejects missing or unsupported provider %s without exposing the key', (provider) => {
+      process.env.AWF_AGENT_API_KEY = 'test-neutral-key';
+      if (provider !== undefined) process.env.AWF_AGENT_API_PROVIDER = provider;
+
+      expect(() => resolveApiCredentials({ enableApiProxy: true })).toThrow(
+        'AWF_AGENT_API_KEY requires AWF_AGENT_API_PROVIDER to be openai, anthropic, copilot, gemini, or vertex'
+      );
+    });
+
+    it('ignores the alias when API proxy is disabled', () => {
+      process.env.AWF_AGENT_API_KEY = 'test-neutral-key';
+
+      expect(resolveApiCredentials({ enableApiProxy: false }).openaiApiKey).toBeUndefined();
+    });
+
+    it('ignores an empty alias without requiring a provider', () => {
+      process.env.AWF_AGENT_API_KEY = ' ';
+
+      expect(resolveApiCredentials({ enableApiProxy: true }).openaiApiKey).toBeUndefined();
+    });
   });
 
   it('prefers explicit options over environment fallbacks', () => {

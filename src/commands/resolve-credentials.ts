@@ -52,19 +52,21 @@ export function resolveApiCredentials(
       .filter(([, value]) => value !== undefined)
   ) as Pick<ApiCredentials, OidcConfigKey>;
 
+  const agentApiKey = resolveAgentApiKey(options);
+
   return {
-    openaiApiKey: process.env[OPENAI_ENV.KEY],
-    anthropicApiKey: process.env[ANTHROPIC_ENV.KEY],
+    openaiApiKey: process.env[OPENAI_ENV.KEY] || agentApiKey.openai,
+    anthropicApiKey: process.env[ANTHROPIC_ENV.KEY] || agentApiKey.anthropic,
     copilotGithubToken: process.env[COPILOT_ENV.GITHUB_TOKEN],
-    copilotProviderApiKey: process.env[COPILOT_ENV.PROVIDER_API_KEY],
+    copilotProviderApiKey: process.env[COPILOT_ENV.PROVIDER_API_KEY] || agentApiKey.copilot,
     copilotProviderType: resolveOptionOrEnv(options, 'copilotProviderType', COPILOT_ENV.PROVIDER_TYPE),
     copilotProviderBaseUrl: resolveOptionOrEnv(
       options,
       'copilotProviderBaseUrl',
       COPILOT_ENV.PROVIDER_BASE_URL
     ),
-    geminiApiKey: process.env[GEMINI_ENV.KEY],
-    googleApiKey: process.env[VERTEX_ENV.KEY],
+    geminiApiKey: process.env[GEMINI_ENV.KEY] || agentApiKey.gemini,
+    googleApiKey: process.env[VERTEX_ENV.KEY] || agentApiKey.vertex,
     copilotApiTarget: inputs.resolvedCopilotApiTarget,
     copilotApiBasePath: inputs.resolvedCopilotApiBasePath,
     openaiApiTarget: resolveOptionOrEnv(options, 'openaiApiTarget', OPENAI_ENV.TARGET),
@@ -90,6 +92,24 @@ export function resolveApiCredentials(
     vertexApiBasePath: resolveOptionOrEnv(options, 'vertexApiBasePath', VERTEX_ENV.BASE_PATH),
     githubToken: process.env.GITHUB_TOKEN || process.env.GH_TOKEN,
   };
+}
+
+function resolveAgentApiKey(options: Record<string, unknown>): Partial<Record<string, string>> {
+  const key = process.env.AWF_AGENT_API_KEY?.trim();
+  if (!options.enableApiProxy || !key) return {};
+
+  // The proxy can enable multiple providers; never broadcast a neutral key.
+  const provider = process.env.AWF_AGENT_API_PROVIDER?.trim().toLowerCase();
+  switch (provider) {
+    case 'openai':
+    case 'anthropic':
+    case 'copilot':
+    case 'gemini':
+    case 'vertex':
+      return { [provider]: key };
+    default:
+      throw new Error('AWF_AGENT_API_KEY requires AWF_AGENT_API_PROVIDER to be openai, anthropic, copilot, gemini, or vertex');
+  }
 }
 
 function resolveOptionOrEnv(
