@@ -1,4 +1,4 @@
-import { observeMountTopology, cloneMountTopology, type MountTopologyEvidence } from './mount-topology';
+import { assertPrivateStorageMount, observeMountTopology, cloneMountTopology, type MountTopologyEvidence } from './mount-topology';
 import { hostPreflightReason } from './host-preflight-progress';
 import schema from './mount-topology-schema.json';
 
@@ -10,6 +10,23 @@ const line = (id: number, parent: number, backing: string, target: string, optio
 const base = (optional = '') => line(100, 1, '/', root, optional) + line(101, 100, '/artifacts', artifacts, optional);
 
 describe('bounded snapshot topology evidence', () => {
+  it('accepts only a uniquely observed private mount without changing the table', () => {
+    const table = base();
+    expect(() => assertPrivateStorageMount(table, root)).not.toThrow();
+    expect(() => assertPrivateStorageMount(base('future:field '), root)).not.toThrow();
+  });
+
+  it.each(['shared:1 ', 'master:1 ', 'shared:1 master:2 ', 'unbindable '])(
+    'rejects residual %s propagation', (optional) => {
+      try {
+        assertPrivateStorageMount(base(optional), root);
+        throw new Error('expected rejection');
+      } catch (error) { expect(hostPreflightReason(error)).toBe('storage-mount-propagation'); }
+    },
+  );
+  it.each(['', base() + base()])('rejects absent or ambiguous allocation mount', (text) => {
+    expect(() => assertPrivateStorageMount(text, root)).toThrow('propagation is not private');
+  });
   it('identifies overlapping local peers and a distinct-ID snapshot stack without disclosing identifiers', () => {
     const value = observeMountTopology(base('shared:19 ') +
       line(102, 101, '/artifacts/run-sensitive', snapshot, 'shared:20 ') +

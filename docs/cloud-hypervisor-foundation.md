@@ -1248,7 +1248,7 @@ shared by AWF and the harness.
 | `gateway-attachment` / `gateway-handshake` | Compiler contract, container identity, network attachment/membership, and actual bounded MCP requests and tool contract |
 | `host-isolation` / `provider-selection` | Recovery-journal, invocation, and allocation-root isolation from primary-agent mounts; missing trusted storage provider |
 | `storage-admission` | Root UID, existing GitHub-hosted eligibility helper, Ubuntu distribution, effective mount capability, kernel tmpfs support, KVM access/device/open, writable cgroup hierarchy, and CPU/memory/PID controllers |
-| `bounded-runtime` | Configured role, mount/umount lookup, invocation directory trust, journaled aggregate storage allocation/mount/layout/verification, artifact configuration/trust/snapshot/attestation/digests/versions, each required host tool, platform/architecture, KVM access/group, root/kernel controls/cgroup v2, Docker daemon and Compose |
+| `bounded-runtime` | Configured role, mount/umount lookup, invocation directory trust, journaled aggregate storage allocation/mount/private-propagation/layout/verification, artifact configuration/trust/snapshot/attestation/digests/versions, each required host tool, platform/architecture, KVM access/group, root/kernel controls/cgroup v2, Docker daemon and Compose |
 | `artifact-snapshot` | Actual staging root validation, directory creation/identity capture, per-artifact copy and chmod, directory mode, mount intent/bind/identity capture, read-only executable remount, and sealed aggregate storage verification |
 | `storage-mount-capture` | Snapshot mount canonical path, actual mount-table read/parse, exact match count, filesystem/source validation, and each durable journal commit operation |
 | `bounded-cleanup` | Identity-journaled storage close, captured invocation directory release, and journal completion; original failure evidence is retained if cleanup also fails |
@@ -1379,13 +1379,55 @@ Missing or failed observation checks block readiness; no check selects a
 topmost mount, deduplicates the table, changes propagation, or adopts an
 unrecorded resource.
 
-The opt-in Linux mount suite compares the actual production allocation,
-artifact-parent self-bind, invocation bind, and snapshot sequence beneath
-private versus shared synthetic parents in separate private namespaces.
-Shared propagation is intentionally enabled only inside the disposable test
-namespace. These tests are host-topology reproductions, not live VM acceptance;
-they require a supported privileged Linux runner and are not claimed to have
-passed from deterministic mocks. Production propagation is unchanged.
+The opt-in Linux mount suite compares a minimal unisolated shared-parent
+baseline against the actual production allocation, artifact-parent self-bind,
+invocation bind, and snapshot sequence beneath private and shared synthetic
+parents in separate private namespaces. Shared propagation is intentionally
+enabled only inside the disposable test namespace. These tests are
+host-topology reproductions, not live VM acceptance; they require a supported
+privileged Linux runner and are not claimed to have passed from deterministic
+mocks.
+
+### Private invocation allocation propagation
+
+The v0.28.42
+[probe run 37566610268](https://github.com/github/gh-aw-firewall/actions/runs/37566610268)
+reported zero snapshot entries before a single wrapper bind, followed by
+multiple distinct mount IDs. Both the allocation root and artifact parent were
+shared members of the same overlapping peer group, with outside peers visible.
+That evidence supports local shared-peer propagation rather than repeated
+wrapper calls or repeated identical rows; it does not alone exclude incoming
+events from outside peers.
+
+Production storage now breaks that propagation relationship at the freshly
+mounted, identity-journaled invocation tmpfs **before** creating its layout or
+any child bind. `storage-propagation-set` verifies the journal's exact mount
+identity and executes `mount --make-private <allocation-root>`.
+`storage-propagation` verifies the identity again and requires exactly one
+mount-table entry with private propagation. Both are mandatory in
+`bounded-runtime` and `bounded-artifacts`; an error, a successful no-op mount
+command, missing/duplicate entries, or residual shared/slave/unbindable state
+blocks setup before child mounts. Ordinary journal cleanup remains available
+for the identity-known root if setup fails.
+
+This is a non-recursive operation on a new, empty allocation, not on `/`,
+`/run`, the shared storage parent, another invocation, or the whole host mount
+namespace. It preserves the tmpfs mount identity, source, allocation ceiling,
+and noexec/nosuid/nodev flags. Bind mounts created from that private domain
+remain private. Every later storage-option verification also checks private
+propagation on the allocation, invocation state, runtime/rootfs directories,
+artifact parent, and sealed snapshot; a propagation change fails with
+`storage-mount-propagation`. No duplicate is selected, deduplicated, or adopted,
+and exact-one-match capture and identity-checked cleanup are unchanged.
+
+The Linux regression suite asserts that the unisolated baseline has duplicate
+distinct IDs, while fixed production snapshots have a single entry beneath
+either parent mode, both root/artifact-parent observations are private, the
+parent's original shared/private state is unchanged, and ordinary allocation
+close succeeds. It is still opt-in and needs real privileged Linux execution.
+A new release containing this fix and a release-pinned environment probe are
+required to establish whether startup progresses beyond the original failure;
+v0.28.42 remains immutable.
 These diagnostics require a future published release; immutable v0.28.39
 assets are not patched by changing the source or dispatching a job.
 

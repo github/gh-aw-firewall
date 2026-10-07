@@ -63,8 +63,8 @@ jest.setTimeout(30_000);
     return { journal, storage, snapshot, published, capture, bind, close };
   }
 
-  it.each(['private', 'shared'] as const)(
-    'compares the actual production snapshot sequence under %s propagation', async (mode) => {
+  it.each(['private', 'shared', 'shared-baseline'] as const)(
+    'isolates the allocation beneath %s parent propagation without changing that parent', async (mode) => {
       const child = await execa('/usr/bin/unshare', [
         '--mount', '--propagation', 'private', process.execPath, '-e', `
         const fs = require('fs').promises;
@@ -74,12 +74,30 @@ jest.setTimeout(30_000);
         const { HostExecutorResourceJournal, hostExecutorVmRunId } = require(process.argv[1]);
         const { prepareTrustedInvocationStorage } = require(process.argv[2]);
         const { HostPreflightReporter, hostPreflightReason } = require(process.argv[3]);
+        const { observeMountTopology } = require(process.argv[6]);
         (async () => {
           const [scratch, mode] = process.argv.slice(4);
           const parent = '/run/awf-cloud-hypervisor/enclave-storage';
           await fs.mkdir(parent, { recursive: true, mode: 0o711 });
           execFileSync('/usr/bin/mount', ['-t', 'tmpfs', '-o', 'size=4194304,mode=0711', 'probe-parent', parent]);
-          execFileSync('/usr/bin/mount', ['--make-' + mode, parent]);
+          execFileSync('/usr/bin/mount', ['--make-' + (mode === 'shared-baseline' ? 'shared' : mode), parent]);
+          if (mode === 'shared-baseline') {
+            const root = path.join(parent, 'baseline');
+            const artifacts = path.join(root, 'artifacts');
+            const snapshot = path.join(artifacts, 'run-baseline');
+            await fs.mkdir(root, { mode: 0o711 });
+            execFileSync('/usr/bin/mount', ['-t', 'tmpfs', '-o', 'size=4194304,mode=0711', 'awf-enclave-invocation', root]);
+            await fs.mkdir(artifacts);
+            execFileSync('/usr/bin/mount', ['--bind', artifacts, artifacts]);
+            await fs.mkdir(snapshot);
+            const before = observeMountTopology(await fs.readFile('/proc/self/mountinfo', 'utf8'), root, artifacts, snapshot);
+            execFileSync('/usr/bin/mount', ['--bind', snapshot, snapshot]);
+            const after = observeMountTopology(await fs.readFile('/proc/self/mountinfo', 'utf8'), root, artifacts, snapshot);
+            process.stdout.write(JSON.stringify({ reason: 'baseline', topology: {
+              schemaVersion: 1, bindCalls: 'one', before, after
+            }}));
+            return;
+          }
           const run = { runId: randomBytes(16).toString('hex'), seedsDir: path.join(scratch, 'seeds'),
             invocationsDir: path.join(scratch, 'invocations'), journalDir: path.join(scratch, 'journal'), entries: [] };
           const invocationId = randomBytes(16).toString('hex');
@@ -108,25 +126,39 @@ jest.setTimeout(30_000);
             }, fs.copyFile, directory => journal.captureSnapshot(directory));
           } catch (error) { reason = hostPreflightReason(error); }
           if (!topology) throw new Error('Probe did not reach snapshot topology');
-          process.stdout.write(JSON.stringify({ reason, topology }));
+          const table = await fs.readFile('/proc/self/mountinfo', 'utf8');
+          const parentLine = table.split('\\n').find(line => line.split(' ')[4] === parent);
+          const parentStillShared = parentLine.split(' ').some(field => field.startsWith('shared:'));
+          await storage.close();
+          const allocationRemoved = await fs.lstat(storage.workDir).then(() => false, error => {
+            if (error.code !== 'ENOENT') throw error;
+            return true;
+          });
+          process.stdout.write(JSON.stringify({ reason, topology, parentStillShared, allocationRemoved }));
         })().catch(() => { console.error('Mount topology probe setup failed'); process.exitCode = 1; });
         `,
         path.resolve(__dirname, '../../dist/enclave/host-executor-journal.js'),
         path.resolve(__dirname, '../../dist/cloud-hypervisor/trusted-enclave-storage.js'),
         path.resolve(__dirname, '../../dist/cloud-hypervisor/host-preflight-progress.js'),
-        scratch, mode,
+        scratch, mode, path.resolve(__dirname, '../../dist/cloud-hypervisor/mount-topology.js'),
       ]);
-      const result = JSON.parse(child.stdout) as { reason: string; topology: MountTopologyEvidence };
+      const result = JSON.parse(child.stdout) as {
+        reason: string; topology: MountTopologyEvidence; parentStillShared?: boolean; allocationRemoved?: boolean;
+      };
       expect(result.topology.bindCalls).toBe('one');
       expect(result.topology.before?.snapshotEntries).toBe('zero');
-      if (mode === 'shared') {
-        expect(result.reason).toBe('storage-mount-multiple');
+      if (mode === 'shared-baseline') {
+        expect(result.reason).toBe('baseline');
         expect(result.topology.before?.localPeerRelation).toBe('same-group-overlap');
         expect(result.topology.after).toMatchObject({ snapshotEntries: 'multiple', snapshotIds: 'unique' });
       } else {
         expect(result.reason).toBe('none');
         expect(result.topology.before?.rootPropagation).toBe('private');
+        expect(result.topology.before?.artifactsPropagation).toBe('private');
+        expect(result.topology.before?.localPeerRelation).toBe('not-shared');
         expect(result.topology.after).toMatchObject({ snapshotEntries: 'one', snapshotIds: 'unique' });
+        expect(result.parentStillShared).toBe(mode === 'shared');
+        expect(result.allocationRemoved).toBe(true);
       }
       expect(child.stdout).not.toContain(scratch);
     },

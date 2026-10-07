@@ -64,6 +64,14 @@ export function validateMountTopology(text: string): void {
   parseTable(text);
 }
 
+export function assertPrivateStorageMount(text: string, target: string): void {
+  const matches = parseTable(text).filter((mount) => mount.mountPoint === target);
+  if (matches.length !== 1 || propagation(matches[0]) !== 'private') {
+    throw markHostPreflightError(new Error('Invocation storage propagation is not private'),
+      'storage-mount-propagation');
+  }
+}
+
 /** Reduces a private mount table to fixed relationships; no identifiers or paths escape. */
 export function observeMountTopology(
   text: string, root: string, artifacts: string, snapshot: string,

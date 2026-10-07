@@ -153,14 +153,18 @@ describe('invocation-wide kernel-enforced storage', () => {
   const temporaryPaths: string[] = [];
   afterEach(async () => {
     jest.restoreAllMocks();
+    (execa as unknown as jest.Mock).mockReset();
     await Promise.all(temporaryPaths.splice(0).map((temporaryPath) =>
       fs.rm(temporaryPath, { recursive: true, force: true })));
   });
 
   it.each([
     'storage-ancestor', 'storage-parent', 'storage-root', 'storage-tmpfs',
-    'storage-layout', 'storage-artifact-mount', 'storage-run-mounts',
-  ])('identifies the actual allocation gate %s without publishing a filesystem path', async (gate) => {
+    'storage-propagation-set', 'storage-propagation', 'storage-layout', 'storage-artifact-mount', 'storage-run-mounts',
+  ].map((gate) => ({ gate, residual: '' })).concat(
+    ['shared:19 ', 'master:19 ', 'shared:20 master:19 ', 'unbindable ', 'missing', 'duplicate']
+      .map((residual) => ({ gate: 'storage-propagation', residual })),
+  ))('identifies allocation gate $gate ($residual) without publishing a filesystem path', async ({ gate, residual }) => {
     const plan = {
       runId: 'a'.repeat(32), entryId: 'script', invocationId: 'b'.repeat(32), executorKind: 'script',
       invocationHostDir: '/private/invocations/script/invocation',
@@ -170,6 +174,7 @@ describe('invocation-wide kernel-enforced storage', () => {
     const journal = {
       prepareStorage: jest.fn(), captureStorageDirectory: jest.fn(),
       prepareStorageMount: jest.fn(), captureStorageMount: jest.fn(),
+      verifyStorage: jest.fn(),
     } as unknown as HostExecutorResourceJournal;
     const paths: Record<string, string> = {
       'storage-parent': '/run/awf-cloud-hypervisor',
@@ -186,19 +191,31 @@ describe('invocation-wide kernel-enforced storage', () => {
     });
     jest.spyOn(fs, 'realpath').mockImplementation(async (file) => String(file));
     jest.spyOn(fs, 'chown').mockResolvedValue(undefined);
+    jest.spyOn(fs, 'readFile').mockImplementation(async () => {
+      if (gate === 'storage-propagation' && !residual) throw failure;
+      const line = `901 1 0:50 / ${root} rw ${residual && !['missing', 'duplicate'].includes(residual) ? residual : ''}- tmpfs awf-enclave-invocation rw\n`;
+      return residual === 'missing' ? '' : residual === 'duplicate' ? line + line : line;
+    });
     (execa as unknown as jest.Mock).mockImplementation(async (_tool, args: string[]) => {
       if ((gate === 'storage-tmpfs' && args[0] === '-t')
+        || (gate === 'storage-propagation-set' && args[0] === '--make-private')
         || (gate === 'storage-artifact-mount' && args.includes(`${root}/artifacts`))) throw failure;
       return { exitCode: 0, stderr: '' };
     });
     const publish = jest.fn();
-    await expect(prepareTrustedInvocationStorage({} as HostExecutorRunState, plan, journal, tools,
-      new HostPreflightReporter('bounded-runtime', publish))).rejects.toBe(failure);
+    const preparation = prepareTrustedInvocationStorage({} as HostExecutorRunState, plan, journal, tools,
+      new HostPreflightReporter('bounded-runtime', publish));
+    if (residual) await expect(preparation).rejects.toThrow('propagation is not private');
+    else await expect(preparation).rejects.toBe(failure);
     const record = publish.mock.calls[publish.mock.calls.length - 1][0] as HostPreflightProgress;
     expect(record.checks.filter((check) => check.result === 'failed'))
-      .toEqual([{ id: gate, result: 'failed', reason: 'EPERM' }]);
+      .toEqual([{ id: gate, result: 'failed', reason: residual ? 'storage-mount-propagation' : 'EPERM' }]);
     expect(record.checks.find((check) => check.id === 'cloud-hypervisor-version')?.result).toBe('not-attempted');
-    expect(JSON.stringify(record)).not.toMatch(/private|SECRET|Bearer|token/);
+    expect(JSON.stringify(record)).not.toMatch(/\/private\/|SECRET|Bearer|token/);
+    if (['storage-propagation-set', 'storage-propagation'].includes(gate)) {
+      expect(fs.mkdir).not.toHaveBeenCalledWith(`${root}/state`, expect.anything());
+      expect((execa as unknown as jest.Mock).mock.calls.some(([, args]) => args[0] === '--bind')).toBe(false);
+    }
   });
 
   it('keeps run admission cleanup blocked when invocation allocation fails partway', async () => {
@@ -248,6 +265,7 @@ describe('invocation-wide kernel-enforced storage', () => {
     { role: 'script', gate: 'sealed-storage', verification: 'path' },
     { role: 'script', gate: 'sealed-storage', verification: 'symlink' },
     { role: 'script', gate: 'sealed-storage', verification: 'type' },
+    { role: 'script', gate: 'sealed-storage', verification: 'propagation' },
   ] as { role: 'script' | 'agent'; gate?: string; commandExit?: number; verification?: string }[])(
     'accounts for every $role path and identifies snapshot sealing failure $gate $verification $commandExit',
     async ({ role, gate, commandExit, verification }) => {
@@ -313,6 +331,13 @@ describe('invocation-wide kernel-enforced storage', () => {
       `size=${profiles[role].writableStorageBytes},mode=0711,uid=0,gid=0,nosuid,nodev,noexec`,
       'awf-enclave-invocation', root,
     ], expect.anything());
+    expect(command).toHaveBeenCalledWith(tools.mount, ['--make-private', root], expect.anything());
+    const commands = command.mock.calls.map(([, args]) => args as string[]);
+    expect(commands.filter((args) => args[0].startsWith('--make-'))).toEqual([['--make-private', root]]);
+    expect(commands.findIndex((args) => args[0] === '--make-private'))
+      .toBeLessThan(commands.findIndex((args) => args[0] === '--bind'));
+    expect((journal.verifyStorage as jest.Mock).mock.invocationCallOrder[0])
+      .toBeLessThan(command.mock.invocationCallOrder[commands.findIndex((args) => args[0] === '--make-private')]);
     await allocation.dependencies.mountTmpfs!(
       plan.invocationHostDir, profiles[role].writableStorageBytes, profiles[role].uid, profiles[role].gid, tools,
     );
@@ -345,6 +370,10 @@ describe('invocation-wide kernel-enforced storage', () => {
       String(await fs.readFile('/proc/self/mountinfo', 'utf8'))
         .replace(` ${snapshotDirectory} ro,`, ` ${snapshotDirectory} rw,`),
     );
+    if (verification === 'propagation') readMounts.mockResolvedValue(
+      String(await fs.readFile('/proc/self/mountinfo', 'utf8'))
+        .replace(` ${snapshotDirectory} ro,nosuid,nodev -`, ` ${snapshotDirectory} ro,nosuid,nodev shared:19 -`),
+    );
     if (verification === 'cap') (fs.statfs as jest.Mock).mockResolvedValue({
       type: 0x01021994n, bsize: 4096n, blocks: BigInt(profiles[role].writableStorageBytes / 4096) + 1n,
     });
@@ -368,7 +397,8 @@ describe('invocation-wide kernel-enforced storage', () => {
       expect(record.scope).toBe('artifact-snapshot');
       expect(record.checks.filter((check) => check.result === 'failed')).toEqual([{
         id: gate, result: 'failed', reason: gate === 'sealed-storage'
-          ? verification === 'cap' ? 'storage-cap-changed' : verification === 'path' ? 'storage-path-changed' :
+          ? verification === 'propagation' ? 'storage-mount-propagation' :
+            verification === 'cap' ? 'storage-cap-changed' : verification === 'path' ? 'storage-path-changed' :
             verification === 'symlink' ? 'file-symlink' : verification === 'type' ? 'file-type' : 'storage-mount-options'
           : commandExit ? 'command-failed' : 'EPERM',
       }]);
@@ -402,6 +432,14 @@ describe('invocation-wide kernel-enforced storage', () => {
     expect(command).toHaveBeenCalledWith(tools.mount,
       ['-o', 'remount,bind,rw,nosuid,nodev,noexec', plan.invocationHostDir], expect.anything());
     const info = String(await fs.readFile('/proc/self/mountinfo', 'utf8'));
+    for (const mountPoint of [root, plan.invocationHostDir, `${root}/runs`,
+      `${root}/cloud-hypervisor-rootfs`, `${root}/artifacts`, snapshotDirectory]) {
+      readMounts.mockResolvedValue(info.split('\n').map((line) =>
+        line.includes(` ${mountPoint} `) ? line.replace(' - tmpfs', ' shared:19 - tmpfs') : line).join('\n'));
+      await expect(allocation.dependencies.verifyStorage!(plan.invocationHostDir,
+        profiles[role].writableStorageBytes)).rejects.toThrow('propagation is not private');
+    }
+    readMounts.mockResolvedValue(info);
     for (const mountPoint of [root, plan.invocationHostDir, `${root}/runs`, `${root}/cloud-hypervisor-rootfs`]) {
       readMounts.mockResolvedValue(info.split('\n').map((line) =>
         line.includes(` ${mountPoint} `) ? line.replace(',noexec', '') : line).join('\n'));

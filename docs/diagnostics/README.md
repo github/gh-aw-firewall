@@ -82,6 +82,14 @@ not prove absence in another namespace. The
 states which observations can eliminate each hypothesis without assuming a
 root cause or changing propagation.
 
+Newer production storage establishes an invocation-scoped private propagation
+boundary before any child bind. Check `storage-propagation-set` and
+`storage-propagation` in the active bounded scope; neither can be skipped.
+`storage-mount-propagation` denotes an observed missing/ambiguous or non-private
+mount, not permission to select a topmost duplicate. See the
+[private allocation contract](../cloud-hypervisor-foundation.md#private-invocation-allocation-propagation).
+The fix does not change host-wide propagation or relax recovery identity checks.
+
 ## Agent entry point
 
 Agents should load [`.github/skills/diagnose-awf/SKILL.md`](../../.github/skills/diagnose-awf/SKILL.md).

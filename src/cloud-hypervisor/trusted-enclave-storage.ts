@@ -23,7 +23,7 @@ import { CLOUD_HYPERVISOR_ENCLAVE_RESOURCE_PROFILES } from './workload-profile';
 import { VirtiofsdManager } from './virtiofsd';
 import { parseMountInfoLine } from './cleanup-identity';
 import { evaluateGithubHostedRunnerEligibility } from './host-eligibility';
-import { observeMountTopology, type MountTopologyEvidence } from './mount-topology';
+import { assertPrivateStorageMount, observeMountTopology, type MountTopologyEvidence } from './mount-topology';
 import {
   HostPreflightReporter, markHostPreflightError, type HostPreflightProgress,
 } from './host-preflight-progress';
@@ -205,6 +205,14 @@ export async function prepareTrustedInvocationStorage(
       ENCLAVE_STORAGE_SOURCE, root]);
     await journal.captureStorageMount();
   });
+  await report.check('storage-propagation-set', async () => {
+    await journal.verifyStorage();
+    await mount(tools, ['--make-private', root]);
+  });
+  await report.check('storage-propagation', async () => {
+    await journal.verifyStorage();
+    assertPrivateStorageMount(await fs.readFile('/proc/self/mountinfo', 'utf8'), root);
+  });
   const state = path.join(root, 'state');
   const artifacts = path.join(root, 'artifacts');
   await report.check('storage-layout', async () => {
@@ -239,6 +247,7 @@ export async function prepareTrustedInvocationStorage(
     await journal.verifyStorage();
     const info = (await fs.readFile('/proc/self/mountinfo', 'utf8')).trim().split('\n');
     const verifyOptions = (mountPoint: string, mode: 'rw' | 'ro', executable: boolean): void => {
+      assertPrivateStorageMount(info.join('\n'), mountPoint);
       const matches = info.filter((line) => parseMountInfoLine(line).mountPoint === mountPoint);
       const options = matches[0]?.split(' ')[5].split(',') ?? [];
       if (matches.length !== 1 || ![mode, 'nosuid', 'nodev'].every((flag) => options.includes(flag)) ||

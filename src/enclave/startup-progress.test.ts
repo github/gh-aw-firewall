@@ -12,8 +12,12 @@ function config(): WrapperConfig {
 }
 
 describe('standard enclave startup checklist', () => {
-  it.each((['artifact-snapshot', 'storage-mount-capture'] as const).flatMap((scope) =>
-    Object.keys(schema.scopes[scope]).map((id) => ({ scope, id: id as HostPreflightCheck }))))(
+  it.each([
+    ...(['artifact-snapshot', 'storage-mount-capture'] as const).flatMap((scope) =>
+      Object.keys(schema.scopes[scope]).map((id) => ({ scope, id: id as HostPreflightCheck }))),
+    ...(['bounded-runtime', 'bounded-artifacts'] as const).flatMap((scope) =>
+      (['storage-propagation-set', 'storage-propagation'] as const).map((id) => ({ scope, id }))),
+  ])(
     'blocks primary-agent readiness while $scope/$id is failed or unattempted', async ({ scope, id }) => {
       const wrapper = config();
       const publish = (hostPreflight: Parameters<typeof updateEnclaveStartupProgress>[1]['hostPreflight']) =>
@@ -31,7 +35,8 @@ describe('standard enclave startup checklist', () => {
       await expect(startup.check('readiness', () => assertEnclaveStartupChecklistComplete(wrapper, true)))
         .rejects.toThrow(/incomplete required checks/);
       expect(getEnclaveStartupProgress(wrapper)?.startupChecks?.ready).toBe(false);
-      expect(() => snapshot.notRequired(scope === 'artifact-snapshot' ? 'readonly-exec' : 'canonical-path'))
+      expect(() => snapshot.notRequired(scope === 'artifact-snapshot' ? 'readonly-exec' :
+        scope === 'storage-mount-capture' ? 'canonical-path' : 'storage-propagation'))
         .toThrow(/cannot be skipped/);
       await snapshot.check(id, () => undefined);
       await startup.check('readiness', () => assertEnclaveStartupChecklistComplete(wrapper, true));
