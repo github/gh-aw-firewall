@@ -166,7 +166,7 @@ describe('proxyRequest ordered model fallback chain', () => {
       await flushPromises();
       expect(capturedOptions).toHaveLength(3);
       expect(res.writeHead).toHaveBeenCalledWith(500, expect.any(Object));
-      expect(last.pipe).toHaveBeenCalledWith(res);
+      expect(res.end).toHaveBeenCalledWith(Buffer.from('{"error":"still broken"}'));
     });
 
     it.each([401, 403, 429])('does not fall back on %i', async (status) => {

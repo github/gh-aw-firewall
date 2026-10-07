@@ -33,6 +33,18 @@ function manifest() {
 }
 
 describe('NVX artifact manifest', () => {
+  it('pins the expected NVX release and source revisions', () => {
+    expect({
+      releaseTag: NVX_RELEASE_TAG,
+      nvxCommit: NVX_COMMIT,
+      openvmmCommit: NVX_OPENVMM_COMMIT,
+    }).toEqual({
+      releaseTag: 'v0.1.0-dev.be859aa77ffa',
+      nvxCommit: 'be859aa77ffa7a20f9ef50f68c5386acdfca9955',
+      openvmmCommit: '762bc1c7a203b16aee752324d6a4ab0bde1a713a',
+    });
+  });
+
   it('binds the AWF attestation to the pinned NVX and OpenVMM sources', () => {
     expect(parseNvxArtifactManifest(
       JSON.stringify(manifest()),
@@ -43,17 +55,17 @@ describe('NVX artifact manifest', () => {
   it.each([
     ['release tag', () => {
       const value = manifest();
-      value.upstream.releaseTag = 'v0.1.0';
+      value.upstream.releaseTag = 'v0.1.0-dev.d561c4300ebe';
       return value;
     }, /releaseTag/],
     ['NVX commit', () => {
       const value = manifest();
-      value.upstream.nvxCommit = 'b'.repeat(40);
+      value.upstream.nvxCommit = 'd561c4300ebe854baba5d154056ead6f9d462047';
       return value;
     }, /nvxCommit/],
     ['OpenVMM commit', () => {
       const value = manifest();
-      value.upstream.openvmmCommit = 'c'.repeat(40);
+      value.upstream.openvmmCommit = '0bc357bbcf3a654b63dfb51f1103c5751bf3d31f';
       return value;
     }, /openvmmCommit/],
     ['artifact role', () => {

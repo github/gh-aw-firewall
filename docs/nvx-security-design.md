@@ -9,9 +9,11 @@ This document defines the Phase 1 security contract for evaluating NVX as an
 AWF primary-agent microVM backend. It is a design contract, not an implemented
 runtime.
 
-The design is pinned to NVX release `v0.1.0-dev.d561c4300ebe`, commit
-`d561c4300ebe854baba5d154056ead6f9d462047`, and OpenVMM commit
-`0bc357bbcf3a654b63dfb51f1103c5751bf3d31f`.
+The design is pinned to NVX release `v0.1.0-dev.be859aa77ffa`, commit
+`be859aa77ffa7a20f9ef50f68c5386acdfca9955`, and OpenVMM commit
+`762bc1c7a203b16aee752324d6a4ab0bde1a713a`. The Linux KVM archive is
+`nvx-0.1.0-linux-kvm.tar.gz` with SHA-256
+`ad6bf948d84d60d92f35103b52dc3ad33a421e9a4457ce0823d1890a6985a912`.
 
 ## Decision: one-shot execution
 

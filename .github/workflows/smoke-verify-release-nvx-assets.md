@@ -94,6 +94,18 @@ steps:
         exit 0
       fi
 
+      if ! jq -e \
+        --arg release_tag "v0.1.0-dev.be859aa77ffa" \
+        --arg nvx_commit "be859aa77ffa7a20f9ef50f68c5386acdfca9955" \
+        --arg openvmm_commit "762bc1c7a203b16aee752324d6a4ab0bde1a713a" \
+        '.upstream.releaseTag == $release_tag and
+         .upstream.nvxCommit == $nvx_commit and
+         .upstream.openvmmCommit == $openvmm_commit' \
+        "$DL_DIR/nvx-test-x86_64.manifest.json" > /dev/null 2>&1; then
+        record false "manifest.json for $TAG does not match the pinned NVX release and source revisions"
+        exit 0
+      fi
+
       declare -A manifest_key=( [openvmm]=openvmm [vmlinux]=kernel [initramfs.cpio.gz]=initramfs )
       for f in "${!manifest_key[@]}"; do
         expected=$(jq -r ".artifacts.${manifest_key[$f]}.sha256" "$DL_DIR/nvx-test-x86_64.manifest.json")
@@ -173,4 +185,3 @@ If `pass` is `false`, call `create-issue` with a title of
 `NVX release asset verification failed for <tag>` and a body containing the
 `reason` field (and the contents of `attestation.log` if present). Never call
 `noop` when `pass` is `false`.
-

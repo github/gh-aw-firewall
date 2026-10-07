@@ -17,6 +17,11 @@ const {
   transformWireApiResponseBody,
   createWireApiSseTransform,
 } = require('./wire-api-compat');
+const {
+  needsResponseTranslation,
+  transformProtocolResponseBody,
+  createProtocolSseTransforms,
+} = require('./cross-provider-fallback');
 
 /** Maximum number of times to retry a Copilot 400 "model not supported" response. */
 const MAX_MODEL_NOT_SUPPORTED_RETRIES = 2;
@@ -172,6 +177,7 @@ function createUpstreamResponseHandlers({
     onModelFallback = null,
     codexCompatibility = null,
     wireApiCompatibility = null,
+    protocolTranslation = null,
   }) {
     let responseBytes = 0;
     let capturedErrorBytes = 0;
@@ -325,9 +331,13 @@ function createUpstreamResponseHandlers({
 
     const isStreaming = (proxyRes.headers['content-type'] || '').includes('text/event-stream');
     const isJson = (proxyRes.headers['content-type'] || '').includes('application/json');
+    // A cross-provider fallback attempt is translated back into the protocol
+    // of the listener that received the request; Codex compatibility follows
+    // that originating provider rather than the serving one.
+    const compatibilityProvider = protocolTranslation?.originProvider || provider;
     const canTransformCompatibilityResponse =
-      provider === 'copilot' &&
-      (!!codexCompatibility || !!wireApiCompatibility) &&
+      (provider === 'copilot' || !!protocolTranslation) &&
+      (!!codexCompatibility || !!wireApiCompatibility || needsResponseTranslation(protocolTranslation)) &&
       proxyRes.statusCode >= 200 &&
       proxyRes.statusCode < 300 &&
       !proxyRes.headers['content-encoding'];
@@ -337,8 +347,9 @@ function createUpstreamResponseHandlers({
 
     const responseTransforms = [];
     if (canTransformCompatibilityResponse && isStreaming) {
+      responseTransforms.push(...createProtocolSseTransforms(protocolTranslation));
       const wireSseTransform = createWireApiSseTransform(wireApiCompatibility);
-      const codexSseTransform = createCodexCompatibleSseTransform(codexCompatibility, provider);
+      const codexSseTransform = createCodexCompatibleSseTransform(codexCompatibility, compatibilityProvider);
       if (wireSseTransform) responseTransforms.push(wireSseTransform);
       if (codexSseTransform) responseTransforms.push(codexSseTransform);
     }
@@ -352,11 +363,13 @@ function createUpstreamResponseHandlers({
       proxyRes.on('end', () => {
         logRequestCompletion(proxyRes.statusCode, responseBytes, initiatorSent, billingInfo, completionCtx);
         let outgoingBody = Buffer.concat(bufferedChunks);
+        const protocolTransformed = transformProtocolResponseBody(outgoingBody, protocolTranslation);
+        if (protocolTransformed) outgoingBody = protocolTransformed;
         const wireTransformed = transformWireApiResponseBody(outgoingBody, wireApiCompatibility);
         if (wireTransformed) outgoingBody = wireTransformed;
-        const codexTransformed = transformCodexCompatibleResponseBody(outgoingBody, codexCompatibility, provider);
+        const codexTransformed = transformCodexCompatibleResponseBody(outgoingBody, codexCompatibility, compatibilityProvider);
         if (codexTransformed) outgoingBody = codexTransformed;
-        const transformed = !!wireTransformed || !!codexTransformed;
+        const transformed = !!protocolTransformed || !!wireTransformed || !!codexTransformed;
         res.writeHead(proxyRes.statusCode, transformed ? withoutContentLength(resHeaders) : resHeaders);
         res.end(outgoingBody);
       });

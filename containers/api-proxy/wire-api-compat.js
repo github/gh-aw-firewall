@@ -775,6 +775,7 @@ module.exports = {
   WireApiCompatibilityError,
   endpointForPath,
   translateCopilotWireApi,
+  translateResponsesRequest,
   replaceUpstreamEndpoint,
   transformWireApiResponseBody,
   createWireApiSseTransform,

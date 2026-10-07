@@ -39,9 +39,9 @@ jobs:
       - name: Fetch and verify pinned NVX release artifacts
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          NVX_RELEASE: v0.1.0-dev.d561c4300ebe
+          NVX_RELEASE: v0.1.0-dev.be859aa77ffa
           NVX_ARCHIVE: nvx-0.1.0-linux-kvm.tar.gz
-          NVX_ARCHIVE_SHA256: 705c863cf7183e89606542b12961644eefd24fed8b2520156dd5cb63a3982699
+          NVX_ARCHIVE_SHA256: ad6bf948d84d60d92f35103b52dc3ad33a421e9a4457ce0823d1890a6985a912
           SIGNER_WORKFLOW: github/gh-aw-firewall/.github/workflows/nvx-phase-3b-live-kvm.yml
         run: |
           set -euo pipefail
@@ -87,9 +87,9 @@ jobs:
                 sourceCommit:$source_commit
               },
               upstream:{
-                releaseTag:"v0.1.0-dev.d561c4300ebe",
-                nvxCommit:"d561c4300ebe854baba5d154056ead6f9d462047",
-                openvmmCommit:"0bc357bbcf3a654b63dfb51f1103c5751bf3d31f"
+                releaseTag:"v0.1.0-dev.be859aa77ffa",
+                nvxCommit:"be859aa77ffa7a20f9ef50f68c5386acdfca9955",
+                openvmmCommit:"762bc1c7a203b16aee752324d6a4ab0bde1a713a"
               },
               architecture:"x86_64",
               artifacts:{
@@ -161,8 +161,8 @@ jobs:
 
       - name: Fetch pinned NVX source
         env:
-          NVX_COMMIT: d561c4300ebe854baba5d154056ead6f9d462047
-          NVX_OPENVMM_COMMIT: 0bc357bbcf3a654b63dfb51f1103c5751bf3d31f
+          NVX_COMMIT: be859aa77ffa7a20f9ef50f68c5386acdfca9955
+          NVX_OPENVMM_COMMIT: 762bc1c7a203b16aee752324d6a4ab0bde1a713a
         run: |
           set -euo pipefail
           source_dir="$RUNNER_TEMP/nvx-source"

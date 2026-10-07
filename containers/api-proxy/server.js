@@ -44,8 +44,10 @@ const {
 const { createProviderServer: createProviderServerFactory } = require('./server-factory');
 const { bootPrimary } = require('./startup');
 const { createProductionRoutingSession } = require('./routing-runtime');
+const { getFallbackModels, validateFallbackChain } = require('./model-fallback-chain');
 
 const {
+  configureFallbackProviders,
   proxyRequest,
   proxyWebSocket,
   checkRateLimit,
@@ -144,6 +146,19 @@ const registeredAdapters = createAllAdapters(process.env, {
   copilotBodyTransform: makeModelBodyTransform('copilot'),
   geminiBodyTransform: makeModelBodyTransform('gemini'),
 });
+const getRegisteredAdapter = provider => registeredAdapters.find(adapter => adapter.name === provider);
+configureFallbackProviders({ getAdapter: getRegisteredAdapter });
+
+/**
+ * Validate provider-qualified apiProxy.fallbackModels entries against the
+ * configured adapters.
+ *
+ * @returns {string[]} Actionable configuration errors
+ */
+function validateFallbackModelsConfig(env = process.env) {
+  return validateFallbackChain(getFallbackModels(env), getRegisteredAdapter);
+}
+
 const routing = createProductionRoutingSession({
   getAdapter: provider => registeredAdapters.find(adapter => adapter.name === provider),
 });
@@ -222,6 +237,13 @@ function createProviderServer(adapter) {
 }
 
 if (require.main === module) {
+  const fallbackModelErrors = validateFallbackModelsConfig();
+  if (fallbackModelErrors.length > 0) {
+    for (const message of fallbackModelErrors) {
+      logRequest('error', 'fallback_models_invalid', { message });
+    }
+    process.exit(1);
+  }
   bootPrimary({
     registeredAdapters,
     createProviderServer,
@@ -241,6 +263,7 @@ if (require.main === module) {
 
 module.exports = {
   proxyRequest,
+  validateFallbackModelsConfig,
   proxyWebSocket,
   buildUpstreamPath,
   shouldStripHeader,

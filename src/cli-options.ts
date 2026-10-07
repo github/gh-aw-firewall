@@ -316,7 +316,8 @@ program
     '--network-isolation',
     'Enforce egress via Docker network topology (internal network +\n' +
     '                                       dual-homed proxy) instead of iptables. Requires no sudo/NET_ADMIN.\n' +
-    '                                       Not yet supported with --dns-over-https or --enable-host-access.\n' +
+    '                                       Host HTTP(S) access uses Squid; no direct host route is provided.\n' +
+    '                                       Not yet supported with --dns-over-https.\n' +
     '                                       Enabled by default (strict security).'
   )
   .option(

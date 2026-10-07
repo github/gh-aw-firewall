@@ -52,14 +52,26 @@ The firewall only allows ports 80 (HTTP) and 443 (HTTPS). Non-standard gRPC port
 Use `host.docker.internal` to connect from inside awf to services running on your host machine:
 
 ```bash
-# Connect to a server running on the host (e.g., localhost:3000)
-sudo awf --allow-domains host.docker.internal -- \
-  curl http://host.docker.internal:3000/api
+# Connect through Squid to a host listener reachable on the Docker gateway
+awf --enable-host-access --allow-host-ports 3000 \
+  --allow-domains host.docker.internal -- \
+  'curl --noproxy "" --proxy "$HTTP_PROXY" http://host.docker.internal:3000/api'
 ```
 
 :::tip
-`host.docker.internal` is automatically configured in awf containers and resolves to the host machine.
+`--enable-host-access` installs Docker's `host-gateway` mapping in Squid.
+The current CLI also auto-enables host access for an exact `host.docker.internal`
+allowlist entry; it is itself a host-access grant. If you see `503 ERR_DNS_FAIL`,
+check Squid's `/etc/hosts` mapping and the effective host-access config rather
+than relying on upstream DNS to resolve this Docker-only name.
+The host listener must not bind only to `127.0.0.1`; in topology mode clients
+must use the HTTP proxy because the agent has no direct host route.
 :::
+
+For a host-run Docker Compose stack, prefer
+[attaching its trusted frontend to `awf-net`](/gh-aw-firewall/guides/playwright-testing#host-run-docker-compose-stack-topology-attachment).
+Use its container name and container port while retaining the Compose backend
+network; no host-published port is needed.
 
 ## Server inside, client outside
 

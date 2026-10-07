@@ -126,15 +126,53 @@
     },
     "model_fallback": {
       "type": "object",
-      "description": "Present only when the ordered fallback chain (apiProxy.fallbackModels / AWF_FALLBACK_MODELS) switched away from the requested model. The top-level 'model' field is the model that actually served the request.",
+      "description": "Present only when the ordered fallback chain (apiProxy.fallbackModels / AWF_FALLBACK_MODELS) switched away from the requested model. The top-level 'model' and 'provider' fields identify the model and provider that actually served the request.",
       "properties": {
         "requested_model": {
           "type": "string",
           "description": "Model originally requested by the agent (after alias resolution)."
         },
+        "requested_provider": {
+          "type": "string",
+          "description": "Provider whose listener received the agent's request."
+        },
         "model": {
           "type": "string",
           "description": "Fallback model the request was re-sent with."
+        },
+        "provider": {
+          "type": "string",
+          "description": "Provider that served the fallback attempt. Differs from requested_provider for provider-qualified (cross-provider) fallback entries."
+        },
+        "from_model": {
+          "type": "string",
+          "description": "Model of the attempt that failed immediately before this one."
+        },
+        "from_provider": {
+          "type": "string",
+          "description": "Provider of the attempt that failed immediately before this one."
+        },
+        "failures": {
+          "type": "array",
+          "description": "Every failed attempt in chain order, starting with the originally requested model.",
+          "items": {
+            "type": "object",
+            "properties": {
+              "provider": {
+                "type": "string"
+              },
+              "model": {
+                "type": "string"
+              },
+              "reason": {
+                "type": "string"
+              },
+              "status": {
+                "type": "integer"
+              }
+            },
+            "additionalProperties": true
+          }
         },
         "attempt": {
           "type": "integer",
