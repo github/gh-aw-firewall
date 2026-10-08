@@ -7,39 +7,27 @@ import {
 } from '../types/runtime-options';
 
 /**
- * Guest-visible layout of an NVX one-shot microVM run.
- *
- * The NVX guest assembles its root filesystem as an overlay whose lower layers
- * are the read-only `distro`/`runtime`/`custom` EROFS devices and whose upper
- * layer lives on the writable `scratch` device. AWF owns the `custom` layer, so
- * every host directory AWF exports into the guest is staged there at its
- * guest-absolute path and becomes writable through the overlay upper layer.
+ * Guest-visible layout of an NVX one-shot microVM run. Host workspace and
+ * tool-cache directories are attached as live virtio-fs shares; the custom
+ * EROFS layer contains only AWF-owned immutable guest configuration.
  */
 export const NVX_GUEST_WORKSPACE = '/workspace';
 /**
  * Guest `$HOME`. Deliberately outside the workspace export so AWF-owned home
- * state is never staged into, or copied back out of, the user's repository.
+ * state is never mixed into the user's live workspace share.
  */
 export const NVX_GUEST_HOME = '/home/awf';
 /** Guest path of the AWF-generated per-run entrypoint script. */
 export const NVX_GUEST_RUN_SCRIPT = '/etc/awf/nvx-run.sh';
-/**
- * Directory inside the writable scratch filesystem that backs the guest
- * overlay's upper layer (`upperdir=$scratch/upper`). Everything the guest
- * workload writes to an exported directory lands here, which is what makes a
- * post-run copy-back possible without any guest cooperation.
- */
-export const NVX_SCRATCH_UPPER_DIRECTORY = 'upper';
-
 export { NVX_DEFAULT_MOUNT_POLICY, NVX_MOUNT_POLICIES, type NvxMountPolicy };
 
 export type NvxExportMode = 'ro' | 'rw';
 
 export interface NvxDirectoryExport {
   readonly tag: string;
-  /** Absolute, realpath-canonical host directory staged into the custom layer. */
+  /** Absolute, realpath-canonical host directory shared through virtio-fs. */
   readonly source: string;
-  /** Absolute guest path the directory is staged at. */
+  /** Absolute guest path where the live share is mounted. */
   readonly target: string;
   readonly mode: NvxExportMode;
 }

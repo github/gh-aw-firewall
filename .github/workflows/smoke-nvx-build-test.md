@@ -218,7 +218,7 @@ steps:
       # Mirrors the smoke-cloud-hypervisor-build-test workload. It builds from a
       # scratch copy of the workspace so the host checkout (and its glibc
       # node_modules) is never modified, and only the results directory is
-      # copied back through the workspace export.
+      # written through the live workspace share.
       cat > "$layer_root/usr/local/bin/awf-nvx-build-test" <<'EOF'
       #!/bin/bash
       set -u
@@ -327,8 +327,8 @@ steps:
       # NVX stages its EROFS layer images and the guest scratch image under
       # /run/awf-nvx/runs (src/nvx/paths.ts). /run is a RAM-backed tmpfs that
       # Ubuntu sizes at ~10% of RAM, which fits a single CLI invocation but not
-      # a Node.js + Go distro layer, the workspace layer, and a multi-GiB
-      # scratch overlay. tmpfs only allocates pages that are actually written,
+      # a Node.js + Go distro layer and a multi-GiB scratch overlay. tmpfs only
+      # allocates pages that are actually written,
       # so raising the ceiling does not reserve memory up front.
       df -h /run
       sudo mount -o remount,size=8G /run
@@ -400,8 +400,8 @@ steps:
       else
         guest_json='{}'
       fi
-      # workspace_copy_back proves both --env passthrough and the post-run
-      # copy-back of guest writes to the exported workspace.
+      # workspace_live_share proves both --env passthrough and direct guest
+      # writes through the exported live workspace.
       jq -n \
         --argjson guest "$guest_json" \
         --arg marker "$marker" \
@@ -412,7 +412,7 @@ steps:
           microvm_run: $microvm_run,
           awf_exit_code: $awf_status,
           guest_completed: $guest_completed,
-          workspace_copy_back: (if $guest.marker == $marker then "PASS" else "FAIL" end),
+          workspace_live_share: (if $guest.marker == $marker then "PASS" else "FAIL" end),
           http_code: ($guest.http_code // "missing"),
           node_build: ($guest.node_build // "missing"),
           node_test: ($guest.node_test // "missing"),
@@ -462,7 +462,7 @@ post-steps:
       const expected = {
         microvm_run: "PASS",
         guest_completed: "PASS",
-        workspace_copy_back: "PASS",
+        workspace_live_share: "PASS",
         node_build: "PASS",
         node_test: "PASS",
         go_build: "PASS",
@@ -497,7 +497,7 @@ A pre-agent step already ran a deterministic Node.js and Go build/test workload 
 1. Read `/tmp/gh-aw/agent/smoke-nvx-build-test/build-test-results.json`. It contains:
    - `microvm_run`: whether `awf` exited 0 (PASS/FAIL)
    - `guest_completed`: whether the guest workload ran to completion (PASS/FAIL)
-   - `workspace_copy_back`: whether the guest's workspace write, carrying the per-run `--env` marker, reached the host (PASS/FAIL)
+   - `workspace_live_share`: whether the guest's workspace write, carrying the per-run `--env` marker, was immediately visible on the host (PASS/FAIL)
    - `http_code`: GitHub.com HTTP response code from inside the guest
    - `node_build`: `npm ci && npm run build` status (PASS/FAIL)
    - `node_test`: Jest subset status (PASS/FAIL)
@@ -517,7 +517,7 @@ A pre-agent step already ran a deterministic Node.js and Go build/test workload 
 | Test | Status |
 |------|--------|
 | microVM run | ✅/❌ |
-| Workspace copy-back | ✅/❌ |
+| Live workspace sharing | ✅/❌ |
 | GitHub.com connectivity | ✅/❌ |
 | Node.js build (`npm ci && npm run build`) | ✅/❌ |
 | Node.js tests (Jest subset) | ✅/❌ |

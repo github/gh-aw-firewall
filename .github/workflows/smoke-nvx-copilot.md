@@ -202,8 +202,8 @@ steps:
 
       # The guest command exercises every capability this smoke test is about:
       # the live workspace export, --container-workdir, per-run environment
-      # passthrough, and a real coding agent writing a workspace file that must
-      # be copied back to the host.
+      # passthrough, and a real coding agent writing directly through the
+      # workspace share.
       cat > "$layer_root/usr/local/bin/awf-nvx-smoke" <<'EOF'
       #!/bin/sh
       set -eu
@@ -309,9 +309,9 @@ steps:
       fi
 
       if [ -f "$proof_file" ] && [ "$(cat "$proof_file")" = "$marker" ]; then
-        record workspace-copy-back PASS "guest write reached the host workspace"
+        record workspace-live-share PASS "guest write reached the host workspace immediately"
       else
-        record workspace-copy-back FAIL \
+        record workspace-live-share FAIL \
           "expected $marker in nvx-smoke-workspace-proof.txt"
       fi
 
@@ -362,7 +362,7 @@ JSON object per check.
 
 1. Read `/tmp/gh-aw/agent/smoke-nvx-copilot/scenarios.jsonl`.
 2. Report a PASS or FAIL line for each of `microvm-run`, `guest-assertions`,
-   `workspace-copy-back`, and `copilot-inference`.
+   `workspace-live-share`, and `copilot-inference`.
 3. If anything failed, read `/tmp/gh-aw/agent/smoke-nvx-copilot/logs/awf.log`
    and add one short line naming the most likely cause.
 

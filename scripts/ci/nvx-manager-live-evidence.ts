@@ -6,8 +6,10 @@ import { PassThrough } from 'stream';
 import execa from 'execa';
 import {
   NVX_ARTIFACT_RELEASE_TAG,
+  NvxGuestConfigLayer,
   NvxManager,
   createNvxRunLayout,
+  type NvxLiveMount,
 } from '../../src/nvx';
 
 interface Inputs {
@@ -57,6 +59,8 @@ async function main(): Promise<void> {
   });
   assertSuccess(filesystem, 'NVX filesystem denial');
   assertOutputContains(filesystem, 'NVX-FILESYSTEM-DENIAL-PROOF');
+
+  const liveWorkspace = await runLiveWorkspaceCase(inputs);
 
   const network = await runCase(inputs, {
     name: 'network-denial',
@@ -120,6 +124,7 @@ async function main(): Promise<void> {
       checks: [
         { name: 'attested-manager-guest-boot', status: 'PASS', ...success },
         { name: 'filesystem-credential-denial', status: 'PASS', ...filesystem },
+        { name: 'live-virtiofs-workspace', status: 'PASS', ...liveWorkspace },
         { name: 'network-default-denial', status: 'PASS', ...network },
         { name: 'copilot-api-proxy-inference', status: 'PASS', ...copilot },
         { name: 'timeout-process-tree-cleanup', status: 'PASS', ...timeout },
@@ -148,6 +153,9 @@ interface RunCaseOptions {
   memoryMaxBytes?: number;
   pidsMax?: number;
   scratchBytes?: number;
+  mounts?: readonly NvxLiveMount[];
+  runScript?: string;
+  hostInteraction?: () => Promise<void>;
 }
 
 async function runCase(
@@ -170,7 +178,7 @@ async function runCase(
     stderrBytes = appendBoundedOutput(stderrChunks, stderrBytes, chunk);
     process.stderr.write(chunk);
   });
-  const abortController = options.abortAfterMs === undefined
+  const abortController = options.abortAfterMs === undefined && !options.hostInteraction
     ? undefined
     : new AbortController();
   const abortTimer = options.abortAfterMs === undefined
@@ -207,6 +215,7 @@ async function runCase(
       memoryMaxBytes: options.memoryMaxBytes ?? 128 * 1024 * 1024,
       pidsMax: options.pidsMax ?? 64,
       memoryMib: options.memoryMib ?? 256,
+      mounts: options.mounts,
       timeoutMs: options.timeoutMs,
       abortSignal: abortController?.signal,
       stdout,
@@ -216,11 +225,29 @@ async function runCase(
       infrastructureBridge: inputs.bridge,
       enableApiProxy: options.enableApiProxy ?? false,
     },
+    ...(options.runScript === undefined
+      ? {}
+      : {
+        guestConfig: new NvxGuestConfigLayer({
+          stagingRoot: path.join(inputs.evidence, 'guest-config', runId),
+          uid: 65534,
+          gid: 65534,
+          runScript: options.runScript,
+        }),
+      }),
   });
 
   let result;
   try {
-    result = await manager.execute();
+    const execution = manager.execute();
+    try {
+      await options.hostInteraction?.();
+    } catch (error) {
+      abortController?.abort();
+      await execution.catch(() => undefined);
+      throw error;
+    }
+    result = await execution;
   } finally {
     if (abortTimer) clearTimeout(abortTimer);
     stdout.end();
@@ -248,6 +275,120 @@ async function runCase(
     confinement,
     residue,
   };
+}
+
+async function runLiveWorkspaceCase(inputs: Inputs) {
+  const workspace = path.join(inputs.evidence, 'live-workspace');
+  const toolCache = path.join(inputs.evidence, 'live-tool-cache');
+  await fs.mkdir(path.join(workspace, 'writable'), { recursive: true, mode: 0o755 });
+  await fs.mkdir(toolCache, { recursive: true, mode: 0o755 });
+  await fs.chown(workspace, 65534, 65534);
+  await fs.chown(path.join(workspace, 'writable'), 65534, 65534);
+  await fs.chown(toolCache, 65534, 65534);
+  // OpenVMM's dedicated host identity canonicalizes mount-policy paths before
+  // switching to the guest caller identity for filesystem operations.
+  await fs.chmod(workspace, 0o755);
+  await fs.chmod(path.join(workspace, 'writable'), 0o755);
+  await fs.writeFile(path.join(toolCache, 'tool.txt'), 'tool-cache\n', { mode: 0o444 });
+  const runScript = `#!/bin/sh
+set -eu
+test "$(id -u)" = 65534
+test "$(cat /opt/hostedtoolcache/tool.txt)" = "tool-cache"
+if touch /opt/hostedtoolcache/forbidden 2>/dev/null; then exit 91; fi
+if touch /workspace/forbidden 2>/dev/null; then exit 92; fi
+printf ready > /workspace/writable/guest-ready
+i=0
+while [ ! -f /workspace/writable/host-response ]; do
+  i=$((i + 1))
+  [ "$i" -lt 300 ] || exit 93
+  sleep 0.1
+done
+test "$(cat /workspace/writable/host-response)" = "host-visible"
+mkdir /workspace/writable/rename-from
+mv /workspace/writable/rename-from /workspace/writable/renamed
+chmod 750 /workspace/writable/renamed
+ln -s host-response /workspace/writable/response-link
+touch /workspace/writable/deleted
+rm /workspace/writable/deleted
+printf guest-visible > /workspace/writable/guest-output
+printf '%s\\n' NVX-LIVE-VIRTIOFS-PROOF
+`;
+  const result = await runCase(inputs, {
+    name: 'live-virtiofs-workspace',
+    entrypoint: '/etc/awf/nvx-run.sh',
+    timeoutMs: 120_000,
+    runScript,
+    mounts: [
+      {
+        tag: 'workspace',
+        guestTarget: '/workspace',
+        hostPath: workspace,
+        mode: 'rw',
+        deniedPaths: [],
+        allowedPaths: [],
+        writablePaths: [path.join(workspace, 'writable')],
+      },
+      {
+        tag: 'runner-tool-cache',
+        guestTarget: '/opt/hostedtoolcache',
+        hostPath: toolCache,
+        mode: 'ro',
+        deniedPaths: [],
+        allowedPaths: [],
+        writablePaths: [],
+      },
+    ],
+    hostInteraction: async () => {
+      await waitForPath(path.join(workspace, 'writable', 'guest-ready'), 30_000);
+      const response = path.join(workspace, 'writable', 'host-response');
+      const pending = `${response}.pending`;
+      await fs.writeFile(pending, 'host-visible', { mode: 0o600 });
+      await fs.chown(pending, 65534, 65534);
+      await fs.rename(pending, response);
+    },
+  });
+  assertSuccess(result, 'NVX live virtio-fs workspace');
+  assertOutputContains(result, 'NVX-LIVE-VIRTIOFS-PROOF');
+  if (await fs.readFile(path.join(workspace, 'writable', 'guest-output'), 'utf8') !== 'guest-visible') {
+    throw new Error('NVX live workspace did not expose the guest write to the host');
+  }
+  const output = await fs.lstat(path.join(workspace, 'writable', 'guest-output'));
+  if (output.uid !== 65534 || output.gid !== 65534) {
+    throw new Error(`NVX live workspace created unexpected owner ${output.uid}:${output.gid}`);
+  }
+  const renamed = await fs.lstat(path.join(workspace, 'writable', 'renamed'));
+  if ((renamed.mode & 0o777) !== 0o750) {
+    throw new Error('NVX live workspace did not preserve chmod');
+  }
+  if (await fs.readlink(path.join(workspace, 'writable', 'response-link')) !== 'host-response') {
+    throw new Error('NVX live workspace did not preserve the guest symlink');
+  }
+  await expectMissing(path.join(workspace, 'writable', 'deleted'));
+  return result;
+}
+
+async function waitForPath(filePath: string, timeoutMs: number): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    try {
+      await fs.lstat(filePath);
+      return;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  throw new Error(`Timed out waiting for live NVX path: ${filePath}`);
+}
+
+async function expectMissing(filePath: string): Promise<void> {
+  try {
+    await fs.lstat(filePath);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return;
+    throw error;
+  }
+  throw new Error(`Expected NVX live workspace path to be absent: ${filePath}`);
 }
 
 async function runStaleRecoveryCase(inputs: Inputs) {

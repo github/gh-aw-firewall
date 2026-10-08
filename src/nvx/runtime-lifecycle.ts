@@ -20,9 +20,11 @@ import {
 import type { NvxCleanupDeviceAclIdentity } from './cleanup-record';
 import type { NvxFilesystemBundle } from './filesystem-builder';
 import {
+  appendMountArguments,
   NVX_ONE_SHOT_CPU_PROFILE,
   type NvxOneShotExecutionRequest,
 } from './one-shot-adapter';
+import type { NvxLiveMount } from './live-mount-policy';
 import {
   NVX_GUEST_ARTIFACT_ROOT,
   assertNvxRunLayout,
@@ -604,10 +606,12 @@ export function buildNvxPhase3dLaunchPlan(options: {
   const outcomePath = path.join(layout.runDirectory, 'outcome.json');
   const guestFilesystem = toNvxGuestFilesystemBundle(layout, options.filesystem);
   const guestOutcomePath = toNvxGuestRunPath(layout, outcomePath);
+  const liveMounts = toJailedLiveMounts(options.execution.mounts ?? []);
   const openvmmArguments = buildDirectOpenvmmArguments({
     ...options.execution,
     nvxRoot: NVX_GUEST_ARTIFACT_ROOT,
     filesystem: guestFilesystem,
+    mounts: liveMounts.map(({ mount }) => mount),
     network: {
       guestAddress: `${networkPlan.guestIp}/${networkPlan.guestPrefixLength}`,
       egressAllow: networkPlan.allowedEndpoints.map(
@@ -639,6 +643,11 @@ export function buildNvxPhase3dLaunchPlan(options: {
         '/lib64',
         '/etc/ssl',
       ],
+      shareRoots: liveMounts.map(({ source, mount }) => ({
+        source,
+        jailPath: mount.hostPath,
+        mode: mount.mode,
+      })),
       openvmmArguments,
     }),
     outcomePath,
@@ -697,6 +706,7 @@ export function buildDirectOpenvmmArguments(
     '--network-ingress',
     'deny',
   );
+  appendMountArguments(args, request.mounts ?? []);
   for (const rule of request.network.egressAllow ?? []) {
     args.push('--network-egress-allow', rule);
   }
@@ -713,6 +723,37 @@ export function buildDirectOpenvmmArguments(
   for (const forward of forwards) args.push('--host-loopback-forward', forward);
   args.push('--microvm-report', outcomePath);
   return args;
+}
+
+function toJailedLiveMounts(
+  mounts: readonly NvxLiveMount[],
+): Array<{ source: string; mount: NvxLiveMount }> {
+  return mounts.map((mount) => {
+    const jailPath = path.posix.join('/mnt/awf-nvx-shares', mount.tag);
+    const translate = (candidate: string): string => {
+      const relative = path.relative(mount.hostPath, candidate);
+      if (
+        relative === '..' ||
+        relative.startsWith(`..${path.sep}`) ||
+        path.isAbsolute(relative)
+      ) {
+        throw new Error(
+          `NVX mount policy path is outside share ${mount.guestTarget}: ${candidate}`,
+        );
+      }
+      return relative ? path.join(jailPath, relative) : jailPath;
+    };
+    return {
+      source: mount.hostPath,
+      mount: {
+        ...mount,
+        hostPath: jailPath,
+        deniedPaths: mount.deniedPaths.map(translate),
+        allowedPaths: mount.allowedPaths.map(translate),
+        writablePaths: mount.writablePaths.map(translate),
+      },
+    };
+  });
 }
 
 function buildDirectKernelCommandLine(

@@ -342,7 +342,6 @@ following behavior:
 | `dns-denial` | Direct DNS (8.8.8.8:53) is blocked from the guest |
 | `metadata-denial` | Instance metadata IP (`169.254.169.254`) is unreachable |
 | `api-proxy-reflect` | API proxy `/reflect` reachable; secret sentinel not in output |
-| `workspace-copyback` | Guest file writes, permission changes, and symlinks survive copy-back |
 | `exit-code` | Agent exit code propagates faithfully (37 → 37) |
 | `timeout-124` | Timed-out agent exits 124 |
 | `device-assumptions` **(CH-only)** | `/dev/vda`/`/dev/vdb` and `eth0` guest device assumptions hold |
@@ -357,3 +356,25 @@ After every case, the suite asserts no `awfvm-*` namespaces,
 sentinel (`awf-cloud-hypervisor-real-secret-do-not-expose`). See
 [Cloud Hypervisor integration (preview)](../docs/cloud-hypervisor-foundation.md#part-14--ci-workflow)
 for the full CI workflow specification.
+
+## NVX preview integration tests
+
+The NVX backend has an opt-in live-KVM workflow
+(`nvx-phase-3b-live-kvm.yml`) plus separate Copilot and build-test smoke
+workflows. The live job validates the production `NvxManager` path with the
+pinned, workflow-attested NVX artifacts on GitHub-hosted Ubuntu x86_64 KVM
+runners.
+
+Live assertions cover guest boot, exact OpenVMM capability/seccomp
+confinement, immediate bidirectional workspace visibility, workload-owned host
+files, selective workspace writes, an independent read-only tool-cache share,
+directory creation/rename/deletion, chmod, symlinks, network denial, Copilot
+API-proxy inference, timeout, cancellation, stale recovery, concurrent-run
+isolation, and residue-free cleanup. Focused tests additionally reject
+symlinked policy paths, nested mounts, overlapping or bind-aliased share roots,
+and hard links crossing write or read-denial boundaries.
+
+`smoke-nvx-build-test.md` exercises `npm ci`, TypeScript compilation, Jest, Go
+builds, and Go tests while writing results through the live workspace share.
+`smoke-nvx-copilot.md` runs a real Copilot agent and verifies that its workspace
+write is immediately visible to the host.

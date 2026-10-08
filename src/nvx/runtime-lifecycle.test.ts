@@ -395,8 +395,9 @@ describe('NVX Phase 3d runtime lifecycle', () => {
       '3',
       '--json-status-fd',
       '4',
-      '--seccomp',
+      '--file',
       '5',
+      '/run/openvmm-seccomp.bpf',
       '--clearenv',
       '--setenv',
       'TERM',
@@ -508,6 +509,45 @@ describe('NVX Phase 3d runtime lifecycle', () => {
       execution: { entrypoint: '/bin/true' },
       network: { infrastructureBridge: 'br-awf', enableApiProxy: false },
     })).toThrow(/canonical run directory/);
+  });
+
+  it('binds canonical live-share roots into Bubblewrap and passes jailed paths to OpenVMM', () => {
+    const plan = buildNvxPhase3dLaunchPlan({
+      runId: RUN_ID,
+      tools,
+      identity: { name: `awfnvx-${RUN_ID.slice(0, 20)}`, uid: 23001, gid: 23002 },
+      filesystem: filesystemBundle(),
+      execution: {
+        entrypoint: '/bin/true',
+        mounts: [{
+          tag: 'workspace',
+          guestTarget: '/workspace',
+          hostPath: '/home/runner/work/repo',
+          mode: 'rw',
+          deniedPaths: ['/home/runner/work/repo/private'],
+          allowedPaths: ['/home/runner/work/repo/private/payloads'],
+          writablePaths: ['/home/runner/work/repo/dist'],
+        }],
+      },
+      network: { infrastructureBridge: 'br-awf', enableApiProxy: false },
+    });
+
+    expect(plan.launchCommand.args).toEqual(expect.arrayContaining([
+      '--bind',
+      '/home/runner/work/repo',
+      '/mnt/awf-nvx-shares/workspace',
+    ]));
+    const openvmm = plan.launchCommand.args.slice(
+      plan.launchCommand.args.indexOf('/opt/awf-nvx/openvmm') + 1,
+    );
+    const mountIndex = openvmm.indexOf('--mount');
+    expect(openvmm.slice(mountIndex, mountIndex + 10)).toEqual([
+      '--mount', '/workspace,/mnt/awf-nvx-shares/workspace,rw',
+      '--mount-deny', '/mnt/awf-nvx-shares/workspace/private',
+      '--mount-allow', '/mnt/awf-nvx-shares/workspace/private/payloads',
+      '--mount-write', '/mnt/awf-nvx-shares/workspace/dist',
+      '--mount-owner', 'caller',
+    ]);
   });
 
   it('registers nvx as a microvm runtime now that Phase 3f evidence has been accepted', () => {

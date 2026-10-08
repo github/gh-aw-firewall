@@ -21,11 +21,11 @@ function status(taskId: number, overrides: Partial<Record<string, string>> = {})
     Uid: '1000 1000 1000 1000',
     Gid: '1001 1001 1001 1001',
     Groups: '',
-    CapInh: '0000000000000000',
-    CapPrm: '0000000000000000',
-    CapEff: '0000000000000000',
-    CapBnd: '0000000000000000',
-    CapAmb: '0000000000000000',
+    CapInh: '00000000000000c0',
+    CapPrm: '00000000000000c0',
+    CapEff: '00000000000000c0',
+    CapBnd: '00000000000000c0',
+    CapAmb: '00000000000000c0',
     NoNewPrivs: '1',
     Seccomp: '2',
     ...overrides,
@@ -125,6 +125,11 @@ function verificationOptions() {
       '/lib64',
       '/etc/ssl',
     ],
+    shareRoots: [{
+      source: '/workspace',
+      jailPath: '/mnt/awf-nvx-shares/workspace',
+      mode: 'rw',
+    }],
     openvmmArguments: ['--paused', '--machine', 'microvm'],
   });
   return {
@@ -175,7 +180,8 @@ describe('NVX host confinement', () => {
       '--unshare-ipc',
       '--block-fd', '3',
       '--json-status-fd', '4',
-      '--seccomp', '5',
+      '--perms', '0444',
+      '--file', '5', '/run/openvmm-seccomp.bpf',
       '--clearenv',
       '--setenv', 'TERM', 'dumb',
       '--setenv', 'HOME', '/nonexistent',
@@ -189,7 +195,11 @@ describe('NVX host confinement', () => {
       '--bind', `/run/awf-nvx/runs/${RUN_ID}`,
       '--clear-groups',
       '--no-new-privs',
+      '--inh-caps=-all',
       '--bounding-set=-all',
+      '--ambient-caps=-all',
+      '/usr/bin/python3',
+      '/run/openvmm-seccomp.bpf',
       '/opt/awf-nvx/openvmm',
       '--paused',
       '--machine',
@@ -197,9 +207,15 @@ describe('NVX host confinement', () => {
     ]));
     expect(result.args).not.toContain('/dev/net/tun');
     expect(result.args).not.toContain('/bin/sh');
+    expect(result.args).not.toContain('--seccomp');
+    expect(result.args.indexOf('/usr/bin/setpriv'))
+      .toBeLessThan(result.args.indexOf('/usr/bin/python3'));
+    expect(result.args[result.args.indexOf('/usr/bin/python3') + 2])
+      .toContain('PR_SET_SECCOMP');
     expect(result.confinementPolicy.supplementaryGroups).toEqual([]);
     expect(result.confinementPolicy.capabilities.effective)
       .toBe('0000000000000000');
+    expect(result.allowCallerMount).toBe(false);
   });
 
   it('rejects broad or caller-controlled filesystem roots', () => {
@@ -247,6 +263,35 @@ describe('NVX host confinement', () => {
     })).toThrow(/share one run ID/);
   });
 
+  it('grants caller-mount capabilities only when a share is present', () => {
+    const result = buildNvxConstrainedLaunchCommand({
+      tools: {
+        ip: '/usr/sbin/ip',
+        bwrap: '/usr/bin/bwrap',
+        setpriv: '/usr/bin/setpriv',
+      },
+      namespaceName: 'awfnvx-test',
+      identity: { uid: 1000, gid: 1001 },
+      nvxRoot: `/var/lib/awf-nvx/trusted-artifacts/run-${RUN_ID}`,
+      runDirectory: `/run/awf-nvx/runs/${RUN_ID}`,
+      systemReadOnlyPaths: ['/usr'],
+      shareRoots: [{
+        source: '/workspace',
+        jailPath: '/mnt/awf-nvx-shares/workspace',
+        mode: 'rw',
+      }],
+      openvmmArguments: [],
+    });
+    expect(result.allowCallerMount).toBe(true);
+    expect(result.args).toEqual(expect.arrayContaining([
+      '--inh-caps=-all,+setgid,+setuid',
+      '--bounding-set=-all,+setgid,+setuid',
+      '--ambient-caps=-all,+setgid,+setuid',
+    ]));
+    expect(result.confinementPolicy.capabilities.effective)
+      .toBe('00000000000000c0');
+  });
+
   it('computes explicit memory, CPU, and PID limits', () => {
     expect(computeNvxCgroupLimits({
       guestMemoryMib: 512,
@@ -291,6 +336,9 @@ describe('NVX host confinement', () => {
     ['missing seccomp', {
       status: status(PID, { Seccomp: '0' }),
     }, /seccomp filter mode 2/],
+    ['additional capability', {
+      status: status(PID, { CapEff: '00000000000001c0' }),
+    }, /unexpected CapEff/],
     ['unexpected cgroup process', {
       cgroupPids: `${LAUNCHER_PID}\n${PID}\n9999\n`,
     }, /cgroup PIDs/],

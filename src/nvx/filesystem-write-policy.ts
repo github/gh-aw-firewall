@@ -1,6 +1,6 @@
 import { promises as fs } from 'fs';
 import * as path from 'path';
-import type { NvxDirectoryExport, NvxExportMode } from './workspace-export';
+import type { NvxDirectoryExport } from './workspace-export';
 
 /**
  * How a single NVX guest export is affected by `filesystem.allowWrite`.
@@ -34,17 +34,6 @@ export interface NvxWritableOverlay {
 export interface NvxExportWritePlan {
   readonly export: NvxDirectoryExport;
   readonly disposition: NvxExportWriteDisposition;
-  /**
-   * Ownership the export's staged tree must carry inside the guest's `custom`
-   * EROFS layer.
-   *
-   * `workload` stages the tree owned by the guest workload identity, so the
-   * overlay can copy entries up into the writable scratch layer. `root` stages
-   * it owned by uid/gid 0 with the write bits cleared: the workload runs with
-   * an empty capability set (no `CAP_FOWNER`/`CAP_DAC_OVERRIDE`), so it can
-   * neither write the entry nor `chmod` it back to writable.
-   */
-  readonly stagedOwnership: 'workload' | 'root';
   readonly overlays: readonly NvxWritableOverlay[];
 }
 
@@ -78,8 +67,7 @@ export interface NvxFilesystemWritePolicyOptions {
 }
 
 /**
- * Plans how `filesystem.allowWrite` narrows the directories AWF stages into the
- * NVX guest's `custom` layer.
+ * Plans how `filesystem.allowWrite` narrows NVX live directory shares.
  *
  * The planner only ever removes write access: it never upgrades a read-only
  * export and never exposes a host path that is not already reachable through an
@@ -99,7 +87,6 @@ export async function planNvxFilesystemWrites(
       exports: entries.map((entry) => ({
         export: entry,
         disposition: 'unrestricted',
-        stagedOwnership: stagedOwnershipFor(entry.mode),
         overlays: [],
       })),
       overlays: [],
@@ -129,19 +116,53 @@ export async function planNvxFilesystemWrites(
       continue;
     }
     const hostCandidate = path.join(owner.source, relativePath);
-    const hostPath = await realpath(hostCandidate).catch(() => {
-      throw new Error(
-        `filesystem.allowWrite path does not exist on the host: ${allowed}`,
-      );
-    });
-    if (hostPath !== owner.source && !hostPath.startsWith(`${owner.source}/`)) {
-      throw new Error(
-        `filesystem.allowWrite path escapes its export via a symlink: ${allowed}`,
-      );
-    }
-    const stat = await lstat(hostCandidate);
-    if (stat.isSymbolicLink()) {
-      throw new Error(`filesystem.allowWrite path must not be a symlink: ${allowed}`);
+    const stat = await assertNoSymlinkComponents(
+      owner.source,
+      hostCandidate,
+      allowed,
+      realpath,
+      lstat,
+    );
+    const hostPath = hostCandidate;
+
+    async function assertNoSymlinkComponents(
+      root: string,
+      candidate: string,
+      guestPath: string,
+      realpath: (target: string) => Promise<string>,
+      lstat: NonNullable<NvxFilesystemWritePolicyOptions['lstat']>,
+    ): Promise<Awaited<ReturnType<typeof lstat>>> {
+      const relative = path.relative(root, candidate);
+      let current = root;
+      let finalStat: Awaited<ReturnType<typeof lstat>> | undefined;
+      for (const segment of relative.split(path.sep).filter(Boolean)) {
+        current = path.join(current, segment);
+        let stat: Awaited<ReturnType<typeof lstat>>;
+        try {
+          stat = await lstat(current);
+        } catch {
+          throw new Error(
+            `filesystem.allowWrite path does not exist on the host: ${guestPath}`,
+          );
+        }
+        if (stat.isSymbolicLink()) {
+          throw new Error(`filesystem.allowWrite path must not contain symlinks: ${guestPath}`);
+        }
+        let canonical: string;
+        try {
+          canonical = await realpath(current);
+        } catch {
+          throw new Error(
+            `filesystem.allowWrite path does not exist on the host: ${guestPath}`,
+          );
+        }
+        if (canonical !== current) {
+          throw new Error(`filesystem.allowWrite path must be canonical: ${guestPath}`);
+        }
+        finalStat = stat;
+      }
+      if (!finalStat) throw new Error(`filesystem.allowWrite path is invalid: ${guestPath}`);
+      return finalStat;
     }
     if (!stat.isDirectory() && !stat.isFile()) {
       throw new Error(
@@ -171,7 +192,6 @@ export async function planNvxFilesystemWrites(
       return {
         export: entry,
         disposition: 'read-only',
-        stagedOwnership: 'root',
         overlays: [],
       };
     }
@@ -179,7 +199,6 @@ export async function planNvxFilesystemWrites(
       return {
         export: entry,
         disposition: 'writable',
-        stagedOwnership: 'workload',
         overlays: [],
       };
     }
@@ -188,7 +207,6 @@ export async function planNvxFilesystemWrites(
       return {
         export: entry,
         disposition: 'read-only',
-        stagedOwnership: 'root',
         overlays: [],
       };
     }
@@ -196,14 +214,12 @@ export async function planNvxFilesystemWrites(
       return {
         export: entry,
         disposition: 'writable',
-        stagedOwnership: 'workload',
         overlays: [],
       };
     }
     return {
       export: entry,
       disposition: 'selective',
-      stagedOwnership: 'root',
       overlays,
     };
   });
@@ -214,53 +230,6 @@ export async function planNvxFilesystemWrites(
     exports: exportPlans,
     overlays: exportPlans.flatMap((plan) => plan.overlays),
   };
-}
-
-/**
- * True when the guest is permitted to persist writes at `guestPath` back to the
- * host. Used as the copy-back filter so a guest that somehow wrote outside the
- * policy cannot smuggle the change onto the host.
- */
-export function isNvxWritableGuestPath(
-  plan: NvxFilesystemWritePlan,
-  guestPath: string,
-): boolean {
-  const normalized = path.posix.normalize(guestPath);
-  for (const exportPlan of plan.exports) {
-    if (!isWithin(normalized, exportPlan.export.target)) continue;
-    switch (exportPlan.disposition) {
-      case 'unrestricted':
-        return exportPlan.export.mode === 'rw';
-      case 'writable':
-        return true;
-      case 'read-only':
-        return false;
-      case 'selective':
-        return exportPlan.overlays.some((overlay) => (
-          isWithin(normalized, overlay.guestPath)
-        ));
-    }
-  }
-  return false;
-}
-
-/**
- * Whether a directory must be traversed during copy-back because it contains a
- * path permitted by a selective write policy.
- */
-export function hasNvxWritableGuestDescendant(
-  plan: NvxFilesystemWritePlan,
-  guestPath: string,
-): boolean {
-  const normalized = path.posix.normalize(guestPath);
-  return plan.exports.some((exportPlan) => (
-    exportPlan.disposition === 'selective'
-    && exportPlan.overlays.some((overlay) => isWithin(overlay.guestPath, normalized))
-  ));
-}
-
-function stagedOwnershipFor(mode: NvxExportMode): 'workload' | 'root' {
-  return mode === 'rw' ? 'workload' : 'root';
 }
 
 function deepestWritableExport(

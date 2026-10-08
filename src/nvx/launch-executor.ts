@@ -17,10 +17,18 @@ const TERMINATION_GRACE_MS = 2_000;
 const OPENVMM_REPL_PROMPT = Buffer.from('openvmm> ');
 const OPENVMM_REPL_PROMPT_TIMEOUT_MS = 5_000;
 const AUDIT_ARCH_X86_64 = 0xc000003e;
+const X32_SYSCALL_BIT = 0x40000000;
 const SECCOMP_RET_KILL_PROCESS = 0x80000000;
 const SECCOMP_RET_ERRNO_EPERM = 0x00050001;
 const SECCOMP_RET_ALLOW = 0x7fff0000;
 const DENIED_X86_64_SYSCALLS = [
+  105, // setuid
+  106, // setgid
+  113, // setreuid
+  114, // setregid
+  116, // setgroups
+  117, // setresuid
+  119, // setresgid
   101, // ptrace
   155, // pivot_root
   163, // acct
@@ -154,8 +162,15 @@ export class DirectOpenvmmLaunchExecutor implements NvxLaunchExecutor {
       await this.terminate();
       throw new Error('NVX direct executor did not receive required process file descriptors');
     }
-    const exit = waitForExit(child);
-    await endStream(child.stdio[5], buildOpenvmmSeccompFilter());
+    let launcherExited = false;
+    const exit = waitForExit(child).then((result) => {
+      launcherExited = true;
+      return result;
+    });
+    await endStream(
+      child.stdio[5],
+      buildOpenvmmSeccompFilter(options.plan.launchCommand.allowCallerMount),
+    );
 
     const stdoutGate = createOpenvmmStdoutGate(
       child.stdout,
@@ -188,12 +203,15 @@ export class DirectOpenvmmLaunchExecutor implements NvxLaunchExecutor {
       await options.hooks.sandboxStarted(sandboxPid);
       child.stdio[3].end();
 
-      const openvmmPid = await discoverOpenvmmPid(
-        options.plan.layout.cgroupPath,
-        options.request.nvxRoot + '/openvmm',
-        this.dependencies,
-        () => timedOut || cancelled,
-      );
+      const openvmmPid = await Promise.race([
+        discoverOpenvmmPid(
+          options.plan.layout.cgroupPath,
+          options.request.nvxRoot + '/openvmm',
+          this.dependencies,
+          () => timedOut || cancelled || launcherExited,
+        ),
+        rejectOnExit(exit, 'before AWF discovered the OpenVMM process'),
+      ]);
       const mountNamespace = await this.dependencies.readlink(`/proc/${openvmmPid}/ns/mnt`);
       const mountNamespaceInode = parseMountNamespaceInode(mountNamespace);
       await options.hooks.openvmmReady(openvmmPid, mountNamespaceInode);
@@ -513,14 +531,19 @@ function endStream(stream: Writable, contents: Buffer): Promise<void> {
   });
 }
 
-function buildOpenvmmSeccompFilter(): Buffer {
+function buildOpenvmmSeccompFilter(allowCallerMount = false): Buffer {
   const instructions: Array<readonly [number, number, number, number]> = [
     [0x20, 0, 0, 4],
     [0x15, 1, 0, AUDIT_ARCH_X86_64],
     [0x06, 0, 0, SECCOMP_RET_KILL_PROCESS],
     [0x20, 0, 0, 0],
+    [0x45, 0, 1, X32_SYSCALL_BIT],
+    [0x06, 0, 0, SECCOMP_RET_ERRNO_EPERM],
   ];
-  for (const syscall of DENIED_X86_64_SYSCALLS) {
+  const deniedSyscalls = allowCallerMount
+    ? DENIED_X86_64_SYSCALLS
+    : [...DENIED_X86_64_SYSCALLS, 122, 123];
+  for (const syscall of deniedSyscalls) {
     instructions.push(
       [0x15, 0, 1, syscall],
       [0x06, 0, 0, SECCOMP_RET_ERRNO_EPERM],
@@ -541,3 +564,12 @@ function buildOpenvmmSeccompFilter(): Buffer {
 function formatError(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
+
+/** @internal Exposed only for focused seccomp policy tests. */
+// ts-prune-ignore-next
+export const testHelpers = {
+  deniedX86_64Syscalls: DENIED_X86_64_SYSCALLS,
+  deniedWithoutCallerMount: [...DENIED_X86_64_SYSCALLS, 122, 123],
+  buildOpenvmmSeccompFilter,
+  x32SyscallBit: X32_SYSCALL_BIT,
+};

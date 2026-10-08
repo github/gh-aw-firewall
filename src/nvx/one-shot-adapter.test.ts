@@ -179,6 +179,80 @@ describe('NVX one-shot execution adapter', () => {
     }
   });
 
+  it('orders filesystem layers before building NVX arguments', async () => {
+    const { root, request } = await fixture();
+    const customPath = path.join(request.filesystem.runDirectory, 'custom.erofs');
+    await fs.writeFile(customPath, 'custom');
+    await fs.chmod(customPath, 0o400);
+    try {
+      const custom = {
+        ...request.filesystem.layers[0],
+        role: 'custom' as const,
+        path: customPath,
+        uuid: '22222222-3333-5444-8555-666666666666',
+        sha256: await sha256(customPath),
+      };
+      const args = buildNvxOneShotArguments({
+        ...request,
+        filesystem: {
+          ...request.filesystem,
+          layers: [custom, request.filesystem.layers[0]],
+        },
+      }, path.join(request.filesystem.runDirectory, 'outcome.json'));
+      const firstLayer = args.indexOf('--layer');
+      expect(args.slice(firstLayer, firstLayer + 4)).toEqual([
+        '--layer',
+        expect.stringMatching(/^distro,/),
+        '--layer',
+        expect.stringMatching(/^custom,/),
+      ]);
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('attributes each live-share policy immediately after its mount', async () => {
+    const { root, request } = await fixture();
+    try {
+      const args = buildNvxOneShotArguments({
+        ...request,
+        mounts: [
+          {
+            tag: 'workspace',
+            guestTarget: '/workspace',
+            hostPath: '/home/runner/work/repo',
+            mode: 'rw',
+            deniedPaths: ['/home/runner/work/repo/private'],
+            allowedPaths: ['/home/runner/work/repo/private/payloads'],
+            writablePaths: ['/home/runner/work/repo/dist'],
+          },
+          {
+            tag: 'runner-tool-cache',
+            guestTarget: '/opt/hostedtoolcache',
+            hostPath: '/opt/hostedtoolcache',
+            mode: 'ro',
+            deniedPaths: [],
+            allowedPaths: [],
+            writablePaths: [],
+          },
+        ],
+      }, path.join(request.filesystem.runDirectory, 'outcome.json'));
+      const first = args.indexOf('--mount');
+      expect(args.slice(first, first + 8)).toEqual([
+        '--mount', '/workspace,/home/runner/work/repo,rw',
+        '--mount-deny', '/home/runner/work/repo/private',
+        '--mount-allow', '/home/runner/work/repo/private/payloads',
+        '--mount-write', '/home/runner/work/repo/dist',
+      ]);
+      expect(args.slice(first + 8, first + 12)).toEqual([
+        '--mount', '/opt/hostedtoolcache,/opt/hostedtoolcache,ro',
+        '--mount-owner', 'caller',
+      ]);
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
   it('preserves guest exit 125, filters streamed output, and keeps bounded raw tails', async () => {
     const { root, request } = await fixture();
     const stdout = new PassThrough();
@@ -294,6 +368,24 @@ describe('NVX one-shot execution adapter', () => {
         workloadUid: 1000,
         workloadGid: 1000,
       })).rejects.toThrow(/scratch owner 65534:65534 must match workload identity 1000:1000/);
+      expect(runProcess).not.toHaveBeenCalled();
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('rejects guest root before launching NVX', async () => {
+    const { root, request } = await fixture();
+    const runProcess = jest.fn();
+    try {
+      await expect(new NvxOneShotAdapter({
+        pythonBinary: '/usr/bin/python3',
+        runProcess,
+      }).execute({
+        ...request,
+        workloadUid: 0,
+        workloadGid: 0,
+      })).rejects.toThrow(/workload UID must be a positive integer/);
       expect(runProcess).not.toHaveBeenCalled();
     } finally {
       await fs.rm(root, { recursive: true, force: true });

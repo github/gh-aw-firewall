@@ -2,6 +2,7 @@ import { EventEmitter } from 'events';
 import { PassThrough } from 'stream';
 import {
   DirectOpenvmmLaunchExecutor,
+  testHelpers,
   type NvxLaunchExecutorDependencies,
 } from './launch-executor';
 import type { NvxPhase3dLaunchPlan } from './runtime-lifecycle';
@@ -58,6 +59,7 @@ function plan(): NvxPhase3dLaunchPlan {
       command: '/usr/sbin/ip',
       args: ['netns', 'exec', `awfnvx-${RUN_ID}`, '/usr/bin/bwrap'],
       confinementPolicy: {} as never,
+      allowCallerMount: false,
     },
     outcomePath: `/run/awf-nvx/runs/${RUN_ID}/outcome.json`,
   };
@@ -81,6 +83,7 @@ function harness(options: {
   status?: string;
   readyError?: Error;
   timeoutMs?: number;
+  exitAfterStatus?: boolean;
 } = {}) {
   const order: string[] = [];
   const child = createChild();
@@ -177,6 +180,14 @@ function harness(options: {
     if (options.status !== undefined) {
       if (options.status === '{"child-pid":4200}\n') {
         child.stdio[4].write(options.status);
+        if (options.exitAfterStatus) {
+          setImmediate(() => {
+            child.stdout.end();
+            child.stderr.end();
+            child.stdio[4].end();
+            child.emit('exit', 1, null);
+          });
+        }
       } else {
         child.stdio[4].end(options.status);
       }
@@ -196,6 +207,42 @@ function harness(options: {
 }
 
 describe('direct OpenVMM launch executor', () => {
+  it('rejects the x32 syscall ABI before applying the native denylist', () => {
+    const filter = testHelpers.buildOpenvmmSeccompFilter();
+    const instructions = Array.from(
+      { length: filter.length / 8 },
+      (_, index) => {
+        const offset = index * 8;
+        return [
+          filter.readUInt16LE(offset),
+          filter.readUInt8(offset + 2),
+          filter.readUInt8(offset + 3),
+          filter.readUInt32LE(offset + 4),
+        ];
+      },
+    );
+    expect(instructions).toContainEqual([0x45, 0, 1, testHelpers.x32SyscallBit]);
+    const x32Guard = instructions.findIndex(
+      (instruction) => instruction[0] === 0x45 &&
+        instruction[3] === testHelpers.x32SyscallBit,
+    );
+    expect(instructions[x32Guard + 1]).toEqual([0x06, 0, 0, 0x00050001]);
+  });
+
+  it('denies filesystem credential switching unless a caller-owned share is mounted', () => {
+    expect(testHelpers.deniedX86_64Syscalls).toEqual(expect.arrayContaining([
+      105, 106, 113, 114, 116, 117, 119,
+    ]));
+    expect(testHelpers.deniedX86_64Syscalls).not.toContain(122);
+    expect(testHelpers.deniedX86_64Syscalls).not.toContain(123);
+    expect(testHelpers.deniedWithoutCallerMount).toEqual(
+      expect.arrayContaining([122, 123]),
+    );
+    expect(testHelpers.buildOpenvmmSeccompFilter()).not.toEqual(
+      testHelpers.buildOpenvmmSeccompFilter(true),
+    );
+  });
+
   it('gates Bubblewrap, verifies OpenVMM, and resumes only after readiness', async () => {
     const value = harness({ status: '{"child-pid":4200}\n' });
     await expect(value.executor.execute({
@@ -267,6 +314,27 @@ describe('direct OpenVMM launch executor', () => {
     })).rejects.toThrow(/Bubblewrap/);
     expect(value.hooks.sandboxStarted).not.toHaveBeenCalled();
     expect(value.order).not.toContain('stdin:resume\n');
+  });
+
+  it('reports an early launcher exit instead of timing out OpenVMM discovery', async () => {
+    const value = harness({
+      status: '{"child-pid":4200}\n',
+      exitAfterStatus: true,
+    });
+    value.dependencies.stat = jest.fn(async (filePath) => {
+      if (filePath.endsWith('/openvmm')) return { dev: 10n, ino: 20n };
+      throw Object.assign(new Error(`missing: ${filePath}`), { code: 'ENOENT' });
+    });
+    value.dependencies.sleep = jest.fn(
+      () => new Promise((resolve) => setImmediate(resolve)),
+    );
+    await expect(value.executor.execute({
+      plan: plan(),
+      request: value.executionRequest,
+      hooks: value.hooks,
+    })).rejects.toThrow(
+      'NVX launcher exited before AWF discovered the OpenVMM process: code=1 signal=null',
+    );
   });
 
   it('terminates the process group and cgroup on timeout before readiness', async () => {
