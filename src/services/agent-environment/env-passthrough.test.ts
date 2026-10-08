@@ -1,5 +1,15 @@
+import * as fs from 'fs';
+import * as hostIdentity from '../../host-identity';
 import { passthroughHostEnvironment } from './env-passthrough';
 import { WrapperConfig } from '../../types';
+
+jest.mock('fs', () => {
+  const actual = jest.requireActual<typeof import('fs')>('fs');
+  return {
+    ...actual,
+    statSync: jest.fn((...args: Parameters<typeof actual.statSync>) => actual.statSync(...args)),
+  };
+});
 
 // Mock the logger to suppress output during tests
 jest.mock('../../logger', () => ({
@@ -27,6 +37,7 @@ describe('passthroughHostEnvironment', () => {
   });
 
   afterEach(() => {
+    jest.restoreAllMocks();
     // Restore env vars
     for (const [key, val] of Object.entries(savedEnv)) {
       if (val === undefined) {
@@ -223,6 +234,11 @@ describe('passthroughHostEnvironment', () => {
   describe('--env-all drops host-only paths under unmounted RUNNER_TEMP subtrees', () => {
     const runnerTemp = '/home/runner/work/_temp';
 
+    beforeEach(() => {
+      const actual = jest.requireActual<typeof import('fs')>('fs');
+      jest.mocked(fs.statSync).mockReset().mockImplementation(actual.statSync);
+    });
+
     function runEnvAll(
       vars: Record<string, string>,
       overrides: Partial<WrapperConfig> = {},
@@ -275,6 +291,55 @@ describe('passthroughHostEnvironment', () => {
 
       expect(environment).toHaveProperty('GH_AW_SAFE_OUTPUTS', `${runnerTemp}/gh-aw/safeoutputs/outputs.jsonl`);
       expect(environment).toHaveProperty('GH_AW_DIR', `${runnerTemp}/gh-aw`);
+    });
+
+    it('keeps paths covered by an automatic working-directory mount', () => {
+      const workDir = `${runnerTemp}/project`;
+      jest.mocked(fs.statSync).mockReturnValue({ isDirectory: () => true } as fs.Stats);
+      const environment = runEnvAll(
+        {
+          UV_CACHE_DIR: `${workDir}/cache`,
+          INPUT_PATH: `${workDir}/inputs/data.json`,
+          UNMOUNTED_PATH: `${workDir}-other/cache`,
+          TRAVERSAL_PATH: `${workDir}/../setup-uv-cache`,
+        },
+        { containerWorkDir: `${workDir}/nested/../` },
+      );
+
+      expect(fs.statSync).toHaveBeenCalledWith(workDir);
+      expect(environment).toHaveProperty('UV_CACHE_DIR', `${workDir}/cache`);
+      expect(environment).toHaveProperty('INPUT_PATH', `${workDir}/inputs/data.json`);
+      expect(environment).not.toHaveProperty('UNMOUNTED_PATH');
+      expect(environment).not.toHaveProperty('TRAVERSAL_PATH');
+    });
+
+    it.each(['missing', 'file'])('drops paths under a %s working directory', (kind) => {
+      const workDir = `${runnerTemp}/project`;
+      jest.mocked(fs.statSync).mockImplementation(() => {
+        if (kind === 'missing') {
+          throw new Error('ENOENT');
+        }
+        return { isDirectory: () => false } as fs.Stats;
+      });
+      const environment = runEnvAll(
+        { UV_CACHE_DIR: `${workDir}/cache` },
+        { containerWorkDir: workDir },
+      );
+
+      expect(environment).not.toHaveProperty('UV_CACHE_DIR');
+    });
+
+    it('does not treat a deliberately hidden working directory as mounted', () => {
+      jest.spyOn(hostIdentity, 'getRealUserHome').mockReturnValue('/home/runner');
+      jest.mocked(fs.statSync).mockReturnValue({ isDirectory: () => true } as fs.Stats);
+      const workDir = '/home/runner/.ssh/project';
+      const environment = runEnvAll(
+        { RUNNER_TEMP: '/home/runner', INPUT_PATH: `${workDir}/data.json` },
+        { containerWorkDir: workDir },
+      );
+
+      expect(fs.statSync).not.toHaveBeenCalled();
+      expect(environment).not.toHaveProperty('INPUT_PATH');
     });
 
     it('keeps values equal to RUNNER_TEMP, relative values, and paths outside RUNNER_TEMP', () => {

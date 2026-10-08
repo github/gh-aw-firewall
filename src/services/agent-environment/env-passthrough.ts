@@ -5,6 +5,7 @@ import { getRealUserHome } from '../../host-identity';
 import { logger } from '../../logger';
 import { WrapperConfig } from '../../types';
 import { mountedChrootRoots } from '../agent-path-policy';
+import { buildContainerWorkDirMounts } from '../agent-volumes/workspace-mounts';
 
 interface EnvPassthroughParams {
   config: WrapperConfig;
@@ -136,11 +137,15 @@ function dropUnmountedRunnerTempPaths(
     if (candidate === runnerTemp || !isAtOrBelow(candidate, runnerTemp)) {
       continue;
     }
-    mountedRoots ??= mountedChrootRoots(
-      config,
-      process.env.GITHUB_WORKSPACE || process.cwd(),
-      getRealUserHome(),
-    );
+    if (!mountedRoots) {
+      const workspaceDir = process.env.GITHUB_WORKSPACE || process.cwd();
+      const effectiveHome = getRealUserHome();
+      mountedRoots = [
+        ...mountedChrootRoots(config, workspaceDir, effectiveHome),
+        ...buildContainerWorkDirMounts({ config, workspaceDir, effectiveHome })
+          .map((mount) => mount.split(':')[0]),
+      ];
+    }
     if (mountedRoots.some((root) => isAtOrBelow(candidate, root))) {
       continue;
     }
