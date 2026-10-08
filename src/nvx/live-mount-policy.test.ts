@@ -96,6 +96,24 @@ describe('planNvxLiveMounts', () => {
     }
   });
 
+  it('rejects root-owned share roots before launching OpenVMM', async () => {
+    const value = await fixture();
+    try {
+      await expect(planNvxLiveMounts([value.workspace], undefined, {
+        ...value.dependencies,
+        lstat: async (candidate) => {
+          const stats = await fs.lstat(candidate);
+          if (candidate === value.workspace.source) {
+            Object.defineProperty(stats, 'uid', { value: 0 });
+          }
+          return stats;
+        },
+      })).rejects.toThrow(/must not be owned by root/);
+    } finally {
+      await fs.rm(value.root, { recursive: true, force: true });
+    }
+  });
+
   it('rejects overlapping and bind-aliased share roots', async () => {
     const value = await fixture();
     try {
@@ -112,6 +130,8 @@ describe('planNvxLiveMounts', () => {
       const fakeStats = (dev: number, ino: number) => ({
         dev,
         ino,
+        uid: 1000,
+        gid: 1000,
         nlink: 1,
         isDirectory: () => true,
         isFile: () => false,

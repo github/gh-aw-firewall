@@ -284,6 +284,7 @@ async function runLiveWorkspaceCase(inputs: Inputs) {
   await fs.mkdir(toolCache, { recursive: true, mode: 0o755 });
   await fs.chown(workspace, 65534, 65534);
   await fs.chown(path.join(workspace, 'writable'), 65534, 65534);
+  await fs.chown(toolCache, 65534, 65534);
   // OpenVMM's dedicated host identity canonicalizes mount-policy paths before
   // switching to the guest caller identity for filesystem operations.
   await fs.chmod(workspace, 0o755);

@@ -27,6 +27,8 @@ export interface NvxLiveMount {
 interface NvxMountPolicyStats {
   readonly dev: number | bigint;
   readonly ino: number | bigint;
+  readonly uid: number;
+  readonly gid: number;
   readonly nlink: number;
   isDirectory(): boolean;
   isFile(): boolean;
@@ -60,6 +62,7 @@ export async function planNvxLiveMounts(
   dependencies: NvxLiveMountPolicyDependencies = defaultDependencies,
 ): Promise<NvxLiveMountPlan> {
   validateNvxExports(exports);
+  await assertNonRootShareOwners(exports, dependencies);
   await assertDisjointShareRoots(exports, dependencies);
   await assertNoNestedMounts(exports, dependencies);
   const writePlan = await planNvxFilesystemWrites(exports, allowWrite, {
@@ -108,6 +111,21 @@ export async function planNvxLiveMounts(
   }
   await assertNoHardLinkBoundaryAliases(mounts, dependencies);
   return { mounts, writePlan };
+}
+
+async function assertNonRootShareOwners(
+  exports: readonly NvxDirectoryExport[],
+  dependencies: NvxLiveMountPolicyDependencies,
+): Promise<void> {
+  for (const entry of exports) {
+    const stats = await dependencies.lstat(entry.source);
+    if (stats.uid === 0 || stats.gid === 0) {
+      throw new Error(
+        `NVX share source must not be owned by root when mount-owner caller is enabled: ` +
+        entry.source,
+      );
+    }
+  }
 }
 
 async function resolveSensitiveHostPaths(
