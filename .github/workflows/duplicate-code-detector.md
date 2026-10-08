@@ -33,7 +33,7 @@ jobs:
 
       - name: Install jscpd
         run: |
-          npm install -g jscpd 2>&1 | tail -3
+          npm install -g jscpd@4.0.5 2>&1 | tail -3
 
       - name: Gather file metrics
         run: |
