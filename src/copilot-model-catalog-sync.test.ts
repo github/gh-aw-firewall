@@ -106,6 +106,7 @@ const MAPPING_FAMILIES_NOT_EXPOSED_BY_COPILOT_CLI = new Set([
   'claude-3-5-haiku',
   'claude-3-7-sonnet',
   'claude-3-opus',
+  'claude-haiku-5', // API mapping covers this family; it is not in the Copilot CLI model picker.
 ]);
 
 describe('SUPPORTED_COPILOT_MODELS ↔ ai-credits-pricing catalog sync', () => {
