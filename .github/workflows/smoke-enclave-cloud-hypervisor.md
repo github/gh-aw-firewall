@@ -20,7 +20,7 @@ network:
 tools:
   github: false
 enclaves:
-  - script:
+  - script: {}
     runtime: cloud-hypervisor
     repos:
       - repo: github/gh-aw-firewall
