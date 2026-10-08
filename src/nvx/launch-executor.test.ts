@@ -82,6 +82,7 @@ function harness(options: {
   status?: string;
   readyError?: Error;
   timeoutMs?: number;
+  exitAfterStatus?: boolean;
 } = {}) {
   const order: string[] = [];
   const child = createChild();
@@ -178,6 +179,14 @@ function harness(options: {
     if (options.status !== undefined) {
       if (options.status === '{"child-pid":4200}\n') {
         child.stdio[4].write(options.status);
+        if (options.exitAfterStatus) {
+          setImmediate(() => {
+            child.stdout.end();
+            child.stderr.end();
+            child.stdio[4].end();
+            child.emit('exit', 1, null);
+          });
+        }
       } else {
         child.stdio[4].end(options.status);
       }
@@ -298,6 +307,27 @@ describe('direct OpenVMM launch executor', () => {
     })).rejects.toThrow(/Bubblewrap/);
     expect(value.hooks.sandboxStarted).not.toHaveBeenCalled();
     expect(value.order).not.toContain('stdin:resume\n');
+  });
+
+  it('reports an early launcher exit instead of timing out OpenVMM discovery', async () => {
+    const value = harness({
+      status: '{"child-pid":4200}\n',
+      exitAfterStatus: true,
+    });
+    value.dependencies.stat = jest.fn(async (filePath) => {
+      if (filePath.endsWith('/openvmm')) return { dev: 10n, ino: 20n };
+      throw Object.assign(new Error(`missing: ${filePath}`), { code: 'ENOENT' });
+    });
+    value.dependencies.sleep = jest.fn(
+      () => new Promise((resolve) => setImmediate(resolve)),
+    );
+    await expect(value.executor.execute({
+      plan: plan(),
+      request: value.executionRequest,
+      hooks: value.hooks,
+    })).rejects.toThrow(
+      'NVX launcher exited before AWF discovered the OpenVMM process: code=1 signal=null',
+    );
   });
 
   it('terminates the process group and cgroup on timeout before readiness', async () => {

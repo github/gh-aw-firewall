@@ -280,10 +280,14 @@ async function runCase(
 async function runLiveWorkspaceCase(inputs: Inputs) {
   const workspace = path.join(inputs.evidence, 'live-workspace');
   const toolCache = path.join(inputs.evidence, 'live-tool-cache');
-  await fs.mkdir(path.join(workspace, 'writable'), { recursive: true, mode: 0o700 });
+  await fs.mkdir(path.join(workspace, 'writable'), { recursive: true, mode: 0o755 });
   await fs.mkdir(toolCache, { recursive: true, mode: 0o755 });
   await fs.chown(workspace, 65534, 65534);
   await fs.chown(path.join(workspace, 'writable'), 65534, 65534);
+  // OpenVMM's dedicated host identity canonicalizes mount-policy paths before
+  // switching to the guest caller identity for filesystem operations.
+  await fs.chmod(workspace, 0o755);
+  await fs.chmod(path.join(workspace, 'writable'), 0o755);
   await fs.writeFile(path.join(toolCache, 'tool.txt'), 'tool-cache\n', { mode: 0o444 });
   const runScript = `#!/bin/sh
 set -eu

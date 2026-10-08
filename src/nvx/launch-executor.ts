@@ -164,7 +164,11 @@ export class DirectOpenvmmLaunchExecutor implements NvxLaunchExecutor {
       await this.terminate();
       throw new Error('NVX direct executor did not receive required process file descriptors');
     }
-    const exit = waitForExit(child);
+    let launcherExited = false;
+    const exit = waitForExit(child).then((result) => {
+      launcherExited = true;
+      return result;
+    });
     await endStream(child.stdio[5], buildOpenvmmSeccompFilter());
 
     const stdoutGate = createOpenvmmStdoutGate(
@@ -198,12 +202,15 @@ export class DirectOpenvmmLaunchExecutor implements NvxLaunchExecutor {
       await options.hooks.sandboxStarted(sandboxPid);
       child.stdio[3].end();
 
-      const openvmmPid = await discoverOpenvmmPid(
-        options.plan.layout.cgroupPath,
-        options.request.nvxRoot + '/openvmm',
-        this.dependencies,
-        () => timedOut || cancelled,
-      );
+      const openvmmPid = await Promise.race([
+        discoverOpenvmmPid(
+          options.plan.layout.cgroupPath,
+          options.request.nvxRoot + '/openvmm',
+          this.dependencies,
+          () => timedOut || cancelled || launcherExited,
+        ),
+        rejectOnExit(exit, 'before AWF discovered the OpenVMM process'),
+      ]);
       const mountNamespace = await this.dependencies.readlink(`/proc/${openvmmPid}/ns/mnt`);
       const mountNamespaceInode = parseMountNamespaceInode(mountNamespace);
       await options.hooks.openvmmReady(openvmmPid, mountNamespaceInode);
