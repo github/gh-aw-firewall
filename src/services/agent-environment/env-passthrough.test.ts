@@ -253,12 +253,14 @@ describe('passthroughHostEnvironment', () => {
       const environment = runEnvAll(
         {
           SOME_TOOL_DIR: `${runnerTemp}/other-tool/nested/`,
+          DOT_PREFIXED_DIR: `${runnerTemp}/..cache`,
           TRAVERSAL_DIR: `${runnerTemp}/gh-aw/../setup-uv-cache`,
         },
         { volumeMounts: [`${runnerTemp}/gh-aw:${runnerTemp}/gh-aw:ro`] },
       );
 
       expect(environment).not.toHaveProperty('SOME_TOOL_DIR');
+      expect(environment).not.toHaveProperty('DOT_PREFIXED_DIR');
       expect(environment).not.toHaveProperty('TRAVERSAL_DIR');
     });
 
@@ -315,15 +317,21 @@ describe('passthroughHostEnvironment', () => {
 
     it('does not filter when RUNNER_TEMP is unset', () => {
       const environment: Record<string, string> = {};
-      withEnv({ UV_CACHE_DIR: '/home/runner/work/_temp/setup-uv-cache' }, () => {
-        savedEnv.RUNNER_TEMP = process.env.RUNNER_TEMP;
-        delete process.env.RUNNER_TEMP;
-        passthroughHostEnvironment({
-          config: makeConfig({ envAll: true }),
-          environment,
-          excludedEnvVars: new Set<string>(),
+      const originalRunnerTemp = process.env.RUNNER_TEMP;
+      delete process.env.RUNNER_TEMP;
+      try {
+        withEnv({ UV_CACHE_DIR: '/home/runner/work/_temp/setup-uv-cache' }, () => {
+          passthroughHostEnvironment({
+            config: makeConfig({ envAll: true }),
+            environment,
+            excludedEnvVars: new Set<string>(),
+          });
         });
-      });
+      } finally {
+        if (originalRunnerTemp !== undefined) {
+          process.env.RUNNER_TEMP = originalRunnerTemp;
+        }
+      }
 
       expect(environment).toHaveProperty('UV_CACHE_DIR', '/home/runner/work/_temp/setup-uv-cache');
     });

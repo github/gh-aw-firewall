@@ -96,7 +96,8 @@ function isAtOrBelow(candidate: string, root: string): boolean {
     return true;
   }
   const relative = path.posix.relative(root, candidate);
-  return relative === '' || (!relative.startsWith('..') && !path.posix.isAbsolute(relative));
+  return relative === '' ||
+    (relative !== '..' && !relative.startsWith('../') && !path.posix.isAbsolute(relative));
 }
 
 /**
