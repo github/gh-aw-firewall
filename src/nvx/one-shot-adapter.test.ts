@@ -342,6 +342,62 @@ describe('NVX one-shot execution adapter', () => {
     }
   });
 
+  it('allows guest root for caller-owned live-share root-squash evidence', async () => {
+    const { root, request } = await fixture();
+    const runProcess = jest.fn(async (processRequest) => {
+      const outcomePath = processRequest.args[processRequest.args.length - 1];
+      await fs.writeFile(
+        outcomePath,
+        `${JSON.stringify(outcome('success', 0))}\n`,
+        { mode: 0o600 },
+      );
+      return { exitCode: 0, signal: null, timedOut: false, cancelled: false };
+    });
+    try {
+      await new NvxOneShotAdapter({
+        pythonBinary: '/usr/bin/python3',
+        runProcess,
+      }).execute({
+        ...request,
+        workloadUid: 0,
+        workloadGid: 0,
+        mounts: [{
+          tag: 'workspace',
+          guestTarget: '/workspace',
+          hostPath: '/workspace',
+          mode: 'rw',
+          deniedPaths: [],
+          allowedPaths: [],
+          writablePaths: [],
+        }],
+      });
+      expect(runProcess.mock.calls[0][0].args).toEqual(expect.arrayContaining([
+        '--workload-user',
+        '0:0',
+      ]));
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('rejects guest root when there is no writable live share to validate', async () => {
+    const { root, request } = await fixture();
+    const runProcess = jest.fn();
+    try {
+      await expect(new NvxOneShotAdapter({
+        pythonBinary: '/usr/bin/python3',
+        runProcess,
+      }).execute({
+        ...request,
+        workloadUid: 0,
+        workloadGid: 0,
+      })).rejects.toThrow(/guest root requires a writable live share/);
+      expect(runProcess).not.toHaveBeenCalled();
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
   it('rejects malformed CPU profiles before launching NVX', async () => {
     const { root, request } = await fixture();
     const runProcess = jest.fn();

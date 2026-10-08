@@ -14,6 +14,8 @@ const SYSTEM_CGROUP_ROOT = '/sys/fs/cgroup';
 const NETWORK_NAMESPACE_ROOT = '/run/netns';
 const MAX_VERIFIED_THREADS = 256;
 const CALLER_MOUNT_CAPABILITIES = '00000000000000c0';
+const NO_CAPABILITIES = '0000000000000000';
+type NvxCapabilitySet = typeof CALLER_MOUNT_CAPABILITIES | typeof NO_CAPABILITIES;
 const SECCOMP_EXEC_PYTHON = [
   'import ctypes, os, sys',
   'data = open(sys.argv[1], "rb").read()',
@@ -41,11 +43,11 @@ const ALLOWED_SYSTEM_ROOTS = new Set([
 export interface NvxLaunchConfinementPolicy {
   readonly supplementaryGroups: readonly number[];
   readonly capabilities: {
-    readonly inheritable: typeof CALLER_MOUNT_CAPABILITIES;
-    readonly permitted: typeof CALLER_MOUNT_CAPABILITIES;
-    readonly effective: typeof CALLER_MOUNT_CAPABILITIES;
-    readonly bounding: typeof CALLER_MOUNT_CAPABILITIES;
-    readonly ambient: typeof CALLER_MOUNT_CAPABILITIES;
+    readonly inheritable: NvxCapabilitySet;
+    readonly permitted: NvxCapabilitySet;
+    readonly effective: NvxCapabilitySet;
+    readonly bounding: NvxCapabilitySet;
+    readonly ambient: NvxCapabilitySet;
   };
   readonly noNewPrivs: 1;
   readonly seccompMode: 2;
@@ -55,6 +57,7 @@ export interface NvxLaunchCommand {
   readonly command: string;
   readonly args: readonly string[];
   readonly confinementPolicy: NvxLaunchConfinementPolicy;
+  readonly allowCallerMount: boolean;
 }
 
 export interface NvxCgroupLimits {
@@ -179,6 +182,8 @@ export function buildNvxConstrainedLaunchCommand(options: {
     occupiedSources.push(share.source);
     occupiedTargets.push(share.jailPath);
   }
+  const allowCallerMount = shareRoots.length > 0;
+  const capabilities = allowCallerMount ? CALLER_MOUNT_CAPABILITIES : NO_CAPABILITIES;
 
   const jailArguments: string[] = [
     '--die-with-parent',
@@ -229,9 +234,9 @@ export function buildNvxConstrainedLaunchCommand(options: {
     `--regid=${options.identity.gid}`,
     '--clear-groups',
     '--no-new-privs',
-    '--inh-caps=-all,+setgid,+setuid',
-    '--bounding-set=-all,+setgid,+setuid',
-    '--ambient-caps=-all,+setgid,+setuid',
+    `--inh-caps=${allowCallerMount ? '-all,+setgid,+setuid' : '-all'}`,
+    `--bounding-set=${allowCallerMount ? '-all,+setgid,+setuid' : '-all'}`,
+    `--ambient-caps=${allowCallerMount ? '-all,+setgid,+setuid' : '-all'}`,
     '--',
     '/usr/bin/python3',
     '-c',
@@ -248,14 +253,15 @@ export function buildNvxConstrainedLaunchCommand(options: {
       options.tools.bwrap,
       ...jailArguments,
     ],
+    allowCallerMount,
     confinementPolicy: {
       supplementaryGroups: [],
       capabilities: {
-        inheritable: CALLER_MOUNT_CAPABILITIES,
-        permitted: CALLER_MOUNT_CAPABILITIES,
-        effective: CALLER_MOUNT_CAPABILITIES,
-        bounding: CALLER_MOUNT_CAPABILITIES,
-        ambient: CALLER_MOUNT_CAPABILITIES,
+        inheritable: capabilities,
+        permitted: capabilities,
+        effective: capabilities,
+        bounding: capabilities,
+        ambient: capabilities,
       },
       noNewPrivs: 1,
       seccompMode: 2,

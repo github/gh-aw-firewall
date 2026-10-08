@@ -9,6 +9,10 @@ describe('NvxGuestConfigLayer', () => {
     const home = path.join(root, 'home');
     await fs.mkdir(path.join(home, '.npm'), { recursive: true });
     await fs.writeFile(path.join(home, '.npm', 'cache'), 'allowed');
+    await fs.mkdir(path.join(home, '.config', 'gh'), { recursive: true });
+    await fs.writeFile(path.join(home, '.config', 'gh', 'hosts.yml'), 'secret');
+    await fs.mkdir(path.join(home, '.azure'), { recursive: true });
+    await fs.writeFile(path.join(home, '.azure', 'credentials'), 'secret');
     await fs.mkdir(path.join(home, '.ssh'), { recursive: true });
     await fs.writeFile(path.join(home, '.ssh', 'id_ed25519'), 'secret');
     const layer = new NvxGuestConfigLayer({
@@ -27,6 +31,12 @@ describe('NvxGuestConfigLayer', () => {
         .resolves.toContain('exec true');
       await expect(fs.readFile(path.join(source, 'home/awf/.npm/cache'), 'utf8'))
         .resolves.toBe('allowed');
+      await expect(fs.lstat(path.join(source, 'home/awf/.config/gh')))
+        .rejects.toMatchObject({ code: 'ENOENT' });
+      await expect(fs.lstat(path.join(source, 'home/awf/.azure/credentials')))
+        .rejects.toMatchObject({ code: 'ENOENT' });
+      const stagingRoot = await fs.stat(path.dirname(source));
+      expect(stagingRoot.mode & 0o777).toBe(0o700);
       await expect(fs.lstat(path.join(source, 'workspace'))).rejects.toMatchObject({
         code: 'ENOENT',
       });

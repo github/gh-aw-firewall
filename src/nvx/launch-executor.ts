@@ -29,8 +29,6 @@ const DENIED_X86_64_SYSCALLS = [
   116, // setgroups
   117, // setresuid
   119, // setresgid
-  // setfsuid (122) and setfsgid (123) are intentionally allowed for
-  // --mount-owner caller; broader process-identity changes remain denied.
   101, // ptrace
   155, // pivot_root
   163, // acct
@@ -169,7 +167,10 @@ export class DirectOpenvmmLaunchExecutor implements NvxLaunchExecutor {
       launcherExited = true;
       return result;
     });
-    await endStream(child.stdio[5], buildOpenvmmSeccompFilter());
+    await endStream(
+      child.stdio[5],
+      buildOpenvmmSeccompFilter(options.plan.launchCommand.allowCallerMount),
+    );
 
     const stdoutGate = createOpenvmmStdoutGate(
       child.stdout,
@@ -530,7 +531,7 @@ function endStream(stream: Writable, contents: Buffer): Promise<void> {
   });
 }
 
-function buildOpenvmmSeccompFilter(): Buffer {
+function buildOpenvmmSeccompFilter(allowCallerMount = false): Buffer {
   const instructions: Array<readonly [number, number, number, number]> = [
     [0x20, 0, 0, 4],
     [0x15, 1, 0, AUDIT_ARCH_X86_64],
@@ -539,7 +540,10 @@ function buildOpenvmmSeccompFilter(): Buffer {
     [0x45, 0, 1, X32_SYSCALL_BIT],
     [0x06, 0, 0, SECCOMP_RET_ERRNO_EPERM],
   ];
-  for (const syscall of DENIED_X86_64_SYSCALLS) {
+  const deniedSyscalls = allowCallerMount
+    ? DENIED_X86_64_SYSCALLS
+    : [...DENIED_X86_64_SYSCALLS, 122, 123];
+  for (const syscall of deniedSyscalls) {
     instructions.push(
       [0x15, 0, 1, syscall],
       [0x06, 0, 0, SECCOMP_RET_ERRNO_EPERM],
@@ -565,6 +569,7 @@ function formatError(error: unknown): string {
 // ts-prune-ignore-next
 export const testHelpers = {
   deniedX86_64Syscalls: DENIED_X86_64_SYSCALLS,
+  deniedWithoutCallerMount: [...DENIED_X86_64_SYSCALLS, 122, 123],
   buildOpenvmmSeccompFilter,
   x32SyscallBit: X32_SYSCALL_BIT,
 };

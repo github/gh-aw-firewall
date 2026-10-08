@@ -125,6 +125,11 @@ function verificationOptions() {
       '/lib64',
       '/etc/ssl',
     ],
+    shareRoots: [{
+      source: '/workspace',
+      jailPath: '/mnt/awf-nvx-shares/workspace',
+      mode: 'rw',
+    }],
     openvmmArguments: ['--paused', '--machine', 'microvm'],
   });
   return {
@@ -190,9 +195,9 @@ describe('NVX host confinement', () => {
       '--bind', `/run/awf-nvx/runs/${RUN_ID}`,
       '--clear-groups',
       '--no-new-privs',
-      '--inh-caps=-all,+setgid,+setuid',
-      '--bounding-set=-all,+setgid,+setuid',
-      '--ambient-caps=-all,+setgid,+setuid',
+      '--inh-caps=-all',
+      '--bounding-set=-all',
+      '--ambient-caps=-all',
       '/usr/bin/python3',
       '/run/openvmm-seccomp.bpf',
       '/opt/awf-nvx/openvmm',
@@ -209,7 +214,8 @@ describe('NVX host confinement', () => {
       .toContain('PR_SET_SECCOMP');
     expect(result.confinementPolicy.supplementaryGroups).toEqual([]);
     expect(result.confinementPolicy.capabilities.effective)
-      .toBe('00000000000000c0');
+      .toBe('0000000000000000');
+    expect(result.allowCallerMount).toBe(false);
   });
 
   it('rejects broad or caller-controlled filesystem roots', () => {
@@ -255,6 +261,35 @@ describe('NVX host confinement', () => {
       nvxRoot: `/var/lib/awf-nvx/trusted-artifacts/run-${'b'.repeat(32)}`,
       runDirectory: `/run/awf-nvx/runs/${RUN_ID}`,
     })).toThrow(/share one run ID/);
+  });
+
+  it('grants caller-mount capabilities only when a share is present', () => {
+    const result = buildNvxConstrainedLaunchCommand({
+      tools: {
+        ip: '/usr/sbin/ip',
+        bwrap: '/usr/bin/bwrap',
+        setpriv: '/usr/bin/setpriv',
+      },
+      namespaceName: 'awfnvx-test',
+      identity: { uid: 1000, gid: 1001 },
+      nvxRoot: `/var/lib/awf-nvx/trusted-artifacts/run-${RUN_ID}`,
+      runDirectory: `/run/awf-nvx/runs/${RUN_ID}`,
+      systemReadOnlyPaths: ['/usr'],
+      shareRoots: [{
+        source: '/workspace',
+        jailPath: '/mnt/awf-nvx-shares/workspace',
+        mode: 'rw',
+      }],
+      openvmmArguments: [],
+    });
+    expect(result.allowCallerMount).toBe(true);
+    expect(result.args).toEqual(expect.arrayContaining([
+      '--inh-caps=-all,+setgid,+setuid',
+      '--bounding-set=-all,+setgid,+setuid',
+      '--ambient-caps=-all,+setgid,+setuid',
+    ]));
+    expect(result.confinementPolicy.capabilities.effective)
+      .toBe('00000000000000c0');
   });
 
   it('computes explicit memory, CPU, and PID limits', () => {

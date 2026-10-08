@@ -59,6 +59,7 @@ function plan(): NvxPhase3dLaunchPlan {
       command: '/usr/sbin/ip',
       args: ['netns', 'exec', `awfnvx-${RUN_ID}`, '/usr/bin/bwrap'],
       confinementPolicy: {} as never,
+      allowCallerMount: false,
     },
     outcomePath: `/run/awf-nvx/runs/${RUN_ID}/outcome.json`,
   };
@@ -228,12 +229,18 @@ describe('direct OpenVMM launch executor', () => {
     expect(instructions[x32Guard + 1]).toEqual([0x06, 0, 0, 0x00050001]);
   });
 
-  it('denies broad identity changes but permits filesystem credential switching', () => {
+  it('denies filesystem credential switching unless a caller-owned share is mounted', () => {
     expect(testHelpers.deniedX86_64Syscalls).toEqual(expect.arrayContaining([
       105, 106, 113, 114, 116, 117, 119,
     ]));
     expect(testHelpers.deniedX86_64Syscalls).not.toContain(122);
     expect(testHelpers.deniedX86_64Syscalls).not.toContain(123);
+    expect(testHelpers.deniedWithoutCallerMount).toEqual(
+      expect.arrayContaining([122, 123]),
+    );
+    expect(testHelpers.buildOpenvmmSeccompFilter()).not.toEqual(
+      testHelpers.buildOpenvmmSeccompFilter(true),
+    );
   });
 
   it('gates Bubblewrap, verifies OpenVMM, and resumes only after readiness', async () => {
