@@ -120,7 +120,13 @@ Include open and closed issues plus merged pull requests. Read bodies and key co
 
 ## Step 3 — Check Official Provider Guidance
 
-Use `web-fetch` only for the allowlisted official documentation sites:
+Use the enabled `bash` tool with read-only `curl` requests to check only the allowlisted official documentation sites below. For example:
+
+```bash
+curl --fail --location --silent --show-error --max-time 30 'https://platform.openai.com/docs/'
+```
+
+Do not submit credentials, repository data, workflow logs, or configuration values in these requests.
 
 - OpenAI API authentication and endpoints: `https://platform.openai.com/docs/`
 - Azure OpenAI and Entra workload identity: `https://learn.microsoft.com/azure/ai-services/openai/` and `https://learn.microsoft.com/entra/workload-id/`
