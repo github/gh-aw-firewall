@@ -9,6 +9,7 @@ import {
   NvxManager,
   createNvxRunLayout,
 } from '../../src/nvx';
+import { guardStaleChildPipe } from './nvx-manager-live-evidence-stream';
 
 interface Inputs {
   artifacts: string;
@@ -265,6 +266,9 @@ async function runStaleRecoveryCase(inputs: Inputs) {
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   const childExitPromise = waitForExit(child);
+  let intentionalTermination = false;
+  guardStaleChildPipe(child.stdout, () => intentionalTermination);
+  guardStaleChildPipe(child.stderr, () => intentionalTermination);
   child.stdout.pipe(process.stdout, { end: false });
   child.stderr.pipe(process.stderr, { end: false });
   if (!child.pid) throw new Error('NVX stale recovery child did not start');
@@ -273,10 +277,12 @@ async function runStaleRecoveryCase(inputs: Inputs) {
   try {
     staleRecord = await waitForCleanupRecord(staleLayout.cleanupRecordPath);
   } catch (error) {
+    intentionalTermination = true;
     child.kill('SIGKILL');
     await childExitPromise;
     throw error;
   }
+  intentionalTermination = true;
   child.kill('SIGKILL');
   const childExit = await childExitPromise;
   if (childExit.signal !== 'SIGKILL') {
