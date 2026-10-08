@@ -149,7 +149,7 @@ jobs:
             cat /tmp/gh-aw/grep-analysis.txt
             echo
             echo "## Existing duplicate-code issues"
-            jq '[.[] | {number, title, state, stateReason}]' "$ISSUES"
+            jq '[.[] | {number, state, stateReason}]' "$ISSUES"
           } > "$ANALYSIS"
 
           DELIMITER="GH_AW_ANALYSIS_$(uuidgen)"
