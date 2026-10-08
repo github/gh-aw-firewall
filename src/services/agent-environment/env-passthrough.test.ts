@@ -219,4 +219,113 @@ describe('passthroughHostEnvironment', () => {
       expect(environment).not.toHaveProperty('GH_AW_OTLP_ENDPOINTS');
     });
   });
+
+  describe('--env-all drops host-only paths under unmounted RUNNER_TEMP subtrees', () => {
+    const runnerTemp = '/home/runner/work/_temp';
+
+    function runEnvAll(
+      vars: Record<string, string>,
+      overrides: Partial<WrapperConfig> = {},
+      environment: Record<string, string> = {},
+    ): Record<string, string> {
+      withEnv({ RUNNER_TEMP: runnerTemp, GITHUB_WORKSPACE: '/home/runner/work/repo/repo', ...vars }, () => {
+        passthroughHostEnvironment({
+          config: makeConfig({ envAll: true, ...overrides }),
+          environment,
+          excludedEnvVars: new Set<string>(),
+        });
+      });
+      return environment;
+    }
+
+    it('drops setup-uv UV_CACHE_DIR and UV_PYTHON_INSTALL_DIR', () => {
+      const environment = runEnvAll({
+        UV_CACHE_DIR: `${runnerTemp}/setup-uv-cache`,
+        UV_PYTHON_INSTALL_DIR: `${runnerTemp}/uv-python-dir`,
+      });
+
+      expect(environment).not.toHaveProperty('UV_CACHE_DIR');
+      expect(environment).not.toHaveProperty('UV_PYTHON_INSTALL_DIR');
+      expect(environment).toHaveProperty('RUNNER_TEMP', runnerTemp);
+    });
+
+    it('drops any absolute path under RUNNER_TEMP, including traversal out of a mounted subtree', () => {
+      const environment = runEnvAll(
+        {
+          SOME_TOOL_DIR: `${runnerTemp}/other-tool/nested/`,
+          TRAVERSAL_DIR: `${runnerTemp}/gh-aw/../setup-uv-cache`,
+        },
+        { volumeMounts: [`${runnerTemp}/gh-aw:${runnerTemp}/gh-aw:ro`] },
+      );
+
+      expect(environment).not.toHaveProperty('SOME_TOOL_DIR');
+      expect(environment).not.toHaveProperty('TRAVERSAL_DIR');
+    });
+
+    it('keeps paths covered by a custom mount', () => {
+      const environment = runEnvAll(
+        {
+          GH_AW_SAFE_OUTPUTS: `${runnerTemp}/gh-aw/safeoutputs/outputs.jsonl`,
+          GH_AW_DIR: `${runnerTemp}/gh-aw`,
+        },
+        { volumeMounts: [`${runnerTemp}/gh-aw:${runnerTemp}/gh-aw:ro`] },
+      );
+
+      expect(environment).toHaveProperty('GH_AW_SAFE_OUTPUTS', `${runnerTemp}/gh-aw/safeoutputs/outputs.jsonl`);
+      expect(environment).toHaveProperty('GH_AW_DIR', `${runnerTemp}/gh-aw`);
+    });
+
+    it('keeps values equal to RUNNER_TEMP, relative values, and paths outside RUNNER_TEMP', () => {
+      const environment = runEnvAll({
+        TEMP_ROOT_ALIAS: runnerTemp,
+        RELATIVE_DIR: '_temp/setup-uv-cache',
+        SIBLING_DIR: `${runnerTemp}-other/cache`,
+        TOOL_CACHE_DIR: '/opt/hostedtoolcache',
+      });
+
+      expect(environment).toHaveProperty('TEMP_ROOT_ALIAS', runnerTemp);
+      expect(environment).toHaveProperty('RELATIVE_DIR', '_temp/setup-uv-cache');
+      expect(environment).toHaveProperty('SIBLING_DIR', `${runnerTemp}-other/cache`);
+      expect(environment).toHaveProperty('TOOL_CACHE_DIR', '/opt/hostedtoolcache');
+    });
+
+    it('keeps paths when RUNNER_TEMP lies inside an always-mounted root such as /tmp', () => {
+      const environment: Record<string, string> = {};
+      withEnv({ RUNNER_TEMP: '/tmp/runner-temp', UV_CACHE_DIR: '/tmp/runner-temp/setup-uv-cache' }, () => {
+        passthroughHostEnvironment({
+          config: makeConfig({ envAll: true }),
+          environment,
+          excludedEnvVars: new Set<string>(),
+        });
+      });
+
+      expect(environment).toHaveProperty('UV_CACHE_DIR', '/tmp/runner-temp/setup-uv-cache');
+    });
+
+    it('does not remove values that were set before host passthrough', () => {
+      const environment = runEnvAll(
+        { UV_CACHE_DIR: `${runnerTemp}/setup-uv-cache` },
+        {},
+        { AWF_PRESET_DIR: `${runnerTemp}/preset` },
+      );
+
+      expect(environment).toHaveProperty('AWF_PRESET_DIR', `${runnerTemp}/preset`);
+      expect(environment).not.toHaveProperty('UV_CACHE_DIR');
+    });
+
+    it('does not filter when RUNNER_TEMP is unset', () => {
+      const environment: Record<string, string> = {};
+      withEnv({ UV_CACHE_DIR: '/home/runner/work/_temp/setup-uv-cache' }, () => {
+        savedEnv.RUNNER_TEMP = process.env.RUNNER_TEMP;
+        delete process.env.RUNNER_TEMP;
+        passthroughHostEnvironment({
+          config: makeConfig({ envAll: true }),
+          environment,
+          excludedEnvVars: new Set<string>(),
+        });
+      });
+
+      expect(environment).toHaveProperty('UV_CACHE_DIR', '/home/runner/work/_temp/setup-uv-cache');
+    });
+  });
 });
