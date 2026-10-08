@@ -1,7 +1,7 @@
 {
   "title": "Model-to-API Endpoint Mapping",
   "description": "Maps AI model families to supported API endpoints and includes maintained task-routing effort/context metadata for selected model IDs.",
-  "lastUpdated": "2026-09-30T07:10:00Z",
+  "lastUpdated": "2026-10-08T07:12:00Z",
   "sources": {
     "openai": "https://developers.openai.com/api/docs/models",
     "openai_routing": "https://developers.openai.com/api/docs/models/gpt-5.4",
@@ -324,6 +324,12 @@
             "contextWindowTokens": 1000000
           },
           "notes": "Sonnet 4.6 has a verified 1M-token context window and supports the Anthropic effort parameter."
+        },
+        {
+          "family": "claude-haiku-5",
+          "patterns": ["claude-haiku-5*"],
+          "endpoints": ["messages"],
+          "notes": "Fast/cheap Haiku generation 5 (claude-haiku-5-5). 1M token context window per official models overview; effort levels not verified, so no routing metadata."
         },
         {
           "family": "claude-haiku-4",
