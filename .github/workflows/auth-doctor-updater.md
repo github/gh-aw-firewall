@@ -17,7 +17,6 @@ imports:
 tools:
   github:
     toolsets: [default]
-  web-fetch:
   bash: true
   cache-memory: true
   edit:
