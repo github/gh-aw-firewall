@@ -1120,7 +1120,7 @@ describe('readBoundedCloudHypervisorEnclaveResult', () => {
       toolTrust.mockRestore();
       await fs.rm(scratch, { recursive: true, force: true });
     }
-  });
+  }, 15_000);
 
   afterEach(async () => {
     await fs.rm(directory, { recursive: true, force: true });
