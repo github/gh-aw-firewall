@@ -37,6 +37,33 @@ async function fixture(): Promise<{
 }
 
 describe('planNvxLiveMounts', () => {
+  it('plans a live mount with the production filesystem dependencies', async () => {
+    const root = await fs.mkdtemp(path.join(process.cwd(), '.awf-nvx-policy-defaults-'));
+    const workspaceRoot = path.join(root, 'workspace');
+    const readFile = jest.spyOn(fs, 'readFile').mockResolvedValue(
+      '1 0 8:1 / / rw - ext4 /dev/root rw\n',
+    );
+    await fs.mkdir(workspaceRoot);
+    await fs.mkdir(path.join(workspaceRoot, 'dist'));
+    try {
+      const plan = await planNvxLiveMounts([{
+        tag: 'workspace',
+        source: workspaceRoot,
+        target: '/workspace',
+        mode: 'rw',
+      }], ['/workspace/dist']);
+      expect(plan.mounts).toEqual([
+        expect.objectContaining({
+          hostPath: workspaceRoot,
+          writablePaths: [path.join(workspaceRoot, 'dist')],
+        }),
+      ]);
+    } finally {
+      readFile.mockRestore();
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
   it('maps write narrowing to host paths and preserves an independent read-only cache', async () => {
     const value = await fixture();
     const cache = path.join(value.root, 'tool-cache');
@@ -132,6 +159,28 @@ describe('planNvxLiveMounts', () => {
       await expect(fs.lstat(path.join(outside, 'firewall'))).rejects.toMatchObject({
         code: 'ENOENT',
       });
+    } finally {
+      await fs.rm(value.root, { recursive: true, force: true });
+    }
+  });
+
+  it('rejects a writable path that overlaps a sensitive read denial', async () => {
+    const value = await fixture();
+    const source = path.join(value.root, 'tmp-gh-aw');
+    await fs.mkdir(source);
+    await fs.mkdir(path.join(source, 'mcp-logs'));
+    try {
+      await expect(planNvxLiveMounts([
+        value.workspace,
+        {
+          tag: 'tmp-gh-aw',
+          source,
+          target: '/tmp/gh-aw',
+          mode: 'rw',
+        },
+      ], ['/tmp/gh-aw/mcp-logs'], value.dependencies)).rejects.toThrow(
+        /sensitive read denial overlaps filesystem\.allowWrite/,
+      );
     } finally {
       await fs.rm(value.root, { recursive: true, force: true });
     }
