@@ -154,7 +154,7 @@ jobs:
         run: node scripts/ci/check-token-usage.js --artifact-root /tmp/gh-aw-agent --engine copilot
 steps:
   - name: Set up Node.js
-    uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+    uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1  # v7.1.0
     with:
       node-version: '22'
       cache: npm

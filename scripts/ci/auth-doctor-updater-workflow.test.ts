@@ -53,6 +53,14 @@ describe('auth doctor updater workflow config', () => {
     expect(source).not.toContain('${{ env.');
   });
 
+  it('checks official provider docs with the enabled bash tool', () => {
+    const source = fs.readFileSync(sourcePath, 'utf-8');
+
+    expect(source).toContain('Use the enabled `bash` tool with read-only `curl` requests');
+    expect(source).toContain('curl --fail --location --silent --show-error --max-time 30');
+    expect(source).not.toContain('Use `web-fetch`');
+  });
+
   it('compiles the schedule, scan window, permissions, and safe outputs', () => {
     const lock = fs.readFileSync(lockPath, 'utf-8');
 
