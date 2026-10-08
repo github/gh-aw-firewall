@@ -116,23 +116,14 @@ export async function planNvxFilesystemWrites(
       continue;
     }
     const hostCandidate = path.join(owner.source, relativePath);
-    await assertNoSymlinkComponents(
+    const stat = await assertNoSymlinkComponents(
       owner.source,
       hostCandidate,
       allowed,
       realpath,
       lstat,
     );
-    const hostPath = await realpath(hostCandidate).catch(() => {
-      throw new Error(
-        `filesystem.allowWrite path does not exist on the host: ${allowed}`,
-      );
-    });
-    if (hostPath !== owner.source && !hostPath.startsWith(`${owner.source}/`)) {
-      throw new Error(
-        `filesystem.allowWrite path escapes its export via a symlink: ${allowed}`,
-      );
-    }
+    const hostPath = hostCandidate;
 
     async function assertNoSymlinkComponents(
       root: string,
@@ -140,9 +131,10 @@ export async function planNvxFilesystemWrites(
       guestPath: string,
       realpath: (target: string) => Promise<string>,
       lstat: NonNullable<NvxFilesystemWritePolicyOptions['lstat']>,
-    ): Promise<void> {
+    ): Promise<Awaited<ReturnType<typeof lstat>>> {
       const relative = path.relative(root, candidate);
       let current = root;
+      let finalStat: Awaited<ReturnType<typeof lstat>> | undefined;
       for (const segment of relative.split(path.sep).filter(Boolean)) {
         current = path.join(current, segment);
         let stat: Awaited<ReturnType<typeof lstat>>;
@@ -167,11 +159,10 @@ export async function planNvxFilesystemWrites(
         if (canonical !== current) {
           throw new Error(`filesystem.allowWrite path must be canonical: ${guestPath}`);
         }
+        finalStat = stat;
       }
-    }
-    const stat = await lstat(hostCandidate);
-    if (stat.isSymbolicLink()) {
-      throw new Error(`filesystem.allowWrite path must not be a symlink: ${allowed}`);
+      if (!finalStat) throw new Error(`filesystem.allowWrite path is invalid: ${guestPath}`);
+      return finalStat;
     }
     if (!stat.isDirectory() && !stat.isFile()) {
       throw new Error(

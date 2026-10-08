@@ -39,7 +39,7 @@ describe('planNvxFilesystemWrites', () => {
 
   it('narrows a workspace export to the allowed subpaths', async () => {
     const plan = await planNvxFilesystemWrites(
-      [workspace],
+      [workspace, toolCache],
       ['/workspace/dist', '/workspace/.cache'],
       directories,
     );
@@ -47,6 +47,7 @@ describe('planNvxFilesystemWrites', () => {
     expect(plan.restricted).toBe(true);
     expect(plan.allowedPaths).toEqual(['/workspace/.cache', '/workspace/dist']);
     expect(plan.exports[0].disposition).toBe('selective');
+    expect(plan.exports[1].disposition).toBe('read-only');
     expect(plan.overlays).toEqual([
       {
         exportTag: 'workspace',
