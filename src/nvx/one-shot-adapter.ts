@@ -457,11 +457,16 @@ function validateRequest(request: NvxOneShotExecutionRequest): void {
   }
   const workloadUid = request.workloadUid ?? NVX_DEFAULT_WORKLOAD_ID;
   const workloadGid = request.workloadGid ?? NVX_DEFAULT_WORKLOAD_ID;
-  assertPositiveInteger(workloadUid, 'NVX workload UID');
-  assertPositiveInteger(workloadGid, 'NVX workload GID');
+  assertIdentityInteger(workloadUid, 'NVX workload UID');
+  assertIdentityInteger(workloadGid, 'NVX workload GID');
+  const guestRoot = workloadUid === 0 && workloadGid === 0;
+  if (guestRoot && !request.mounts?.some((mount) => mount.mode === 'rw')) {
+    throw new Error('NVX guest root requires a writable live share');
+  }
   if (
-    request.filesystem.scratch.uid !== workloadUid ||
-    request.filesystem.scratch.gid !== workloadGid
+    !guestRoot &&
+    (request.filesystem.scratch.uid !== workloadUid ||
+      request.filesystem.scratch.gid !== workloadGid)
   ) {
     throw new Error(
       `NVX scratch owner ${request.filesystem.scratch.uid}:${request.filesystem.scratch.gid} ` +
@@ -787,6 +792,12 @@ function assertContained(root: string, candidate: string, label: string): void {
 function assertPositiveInteger(value: number, label: string): void {
   if (!Number.isSafeInteger(value) || value < 1) {
     throw new Error(`${label} must be a positive integer`);
+  }
+}
+
+function assertIdentityInteger(value: number, label: string): void {
+  if (!Number.isSafeInteger(value) || value < 0 || value > 0xffff_ffff) {
+    throw new Error(`${label} must be a non-negative 32-bit integer`);
   }
 }
 

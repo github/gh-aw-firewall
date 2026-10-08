@@ -13,13 +13,16 @@ async function fixture(): Promise<{
 }> {
   const root = await fs.mkdtemp(path.join(process.cwd(), '.awf-nvx-policy-'));
   const workspaceRoot = path.join(root, 'workspace');
+  const homePath = path.join(root, 'home');
   await fs.mkdir(workspaceRoot);
+  await fs.mkdir(homePath);
   const dependencies: NvxLiveMountPolicyDependencies = {
     realpath: fs.realpath,
     lstat: fs.lstat,
     readdir: fs.readdir,
     mkdir: fs.mkdir,
     readMountInfo: async () => '1 0 8:1 / / rw - ext4 /dev/root rw\n',
+    homePath,
   };
   return {
     root,
@@ -76,6 +79,59 @@ describe('planNvxLiveMounts', () => {
         ['/workspace/link'],
         value.dependencies,
       )).rejects.toThrow(/must not contain symlinks/);
+    } finally {
+      await fs.rm(value.root, { recursive: true, force: true });
+    }
+  });
+
+  it('denies central credential paths when an export overlaps the host home', async () => {
+    const value = await fixture();
+    await fs.writeFile(path.join(value.workspace.source, '.npmrc'), 'token');
+    await fs.mkdir(path.join(value.workspace.source, '.azure'));
+    await fs.writeFile(
+      path.join(value.workspace.source, '.azure', 'credentials'),
+      'token',
+    );
+    await fs.mkdir(path.join(value.workspace.source, '.config', 'gh'), { recursive: true });
+    await fs.writeFile(
+      path.join(value.workspace.source, '.config', 'gh', 'hosts.yml'),
+      'token',
+    );
+    try {
+      const plan = await planNvxLiveMounts([value.workspace], undefined, {
+        ...value.dependencies,
+        homePath: value.workspace.source,
+      });
+      expect(plan.mounts[0].deniedPaths).toEqual(expect.arrayContaining([
+        path.join(value.workspace.source, '.npmrc'),
+        path.join(value.workspace.source, '.azure', 'credentials'),
+        path.join(value.workspace.source, '.config', 'gh'),
+      ]));
+    } finally {
+      await fs.rm(value.root, { recursive: true, force: true });
+    }
+  });
+
+  it('does not follow a symlink while creating missing sensitive paths', async () => {
+    const value = await fixture();
+    const source = path.join(value.root, 'gh-aw');
+    const outside = path.join(value.root, 'outside');
+    await fs.mkdir(source);
+    await fs.mkdir(outside);
+    await fs.symlink(outside, path.join(source, 'sandbox'));
+    try {
+      await expect(planNvxLiveMounts([
+        value.workspace,
+        {
+          tag: 'tmp-gh-aw',
+          source,
+          target: '/tmp/gh-aw',
+          mode: 'rw',
+        },
+      ], undefined, value.dependencies)).rejects.toThrow(/must not contain symlinks/);
+      await expect(fs.lstat(path.join(outside, 'firewall'))).rejects.toMatchObject({
+        code: 'ENOENT',
+      });
     } finally {
       await fs.rm(value.root, { recursive: true, force: true });
     }
@@ -138,6 +194,42 @@ describe('planNvxLiveMounts', () => {
           return fakeStats(1, 1);
         },
         readMountInfo: async () => '',
+      })).rejects.toThrow(/cross through a bind mount/);
+    } finally {
+      await fs.rm(value.root, { recursive: true, force: true });
+    }
+  });
+
+  it('rejects a bind-mounted share root nested below another export', async () => {
+    const value = await fixture();
+    const nested = path.join(value.workspace.source, 'cache');
+    const cache = path.join(value.root, 'cache-bind');
+    await fs.mkdir(nested);
+    await fs.mkdir(cache);
+    const aliasedStats = {
+      dev: 900,
+      ino: 901,
+      nlink: 1,
+      isDirectory: () => true,
+      isFile: () => false,
+      isSymbolicLink: () => false,
+    };
+    try {
+      await expect(planNvxLiveMounts([
+        value.workspace,
+        {
+          tag: 'runner-tool-cache',
+          source: cache,
+          target: '/opt/hostedtoolcache',
+          mode: 'ro',
+        },
+      ], undefined, {
+        ...value.dependencies,
+        lstat: async (candidate) => (
+          candidate === nested || candidate === cache
+            ? aliasedStats
+            : fs.lstat(candidate)
+        ),
       })).rejects.toThrow(/cross through a bind mount/);
     } finally {
       await fs.rm(value.root, { recursive: true, force: true });

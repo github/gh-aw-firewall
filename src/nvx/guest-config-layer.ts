@@ -47,6 +47,8 @@ export class NvxGuestConfigLayer {
 
   async stage(): Promise<string> {
     if (this.staged) throw new Error('NVX guest configuration layer is already staged');
+    await fs.mkdir(this.config.stagingRoot, { recursive: true, mode: 0o700 });
+    await fs.chmod(this.config.stagingRoot, 0o700);
     await fs.mkdir(this.layerSourcePath, { recursive: true, mode: 0o755 });
     await this.stageGuestHome();
     await this.stageRunScript();
@@ -78,7 +80,7 @@ export class NvxGuestConfigLayer {
         throw new Error(`Allowed NVX guest home state must be a real directory: ${source}`);
       }
       const destination = path.join(guestHome, toolPath);
-      await copySafeTree(source, destination, source);
+      await copySafeTree(source, destination, this.config.homePath);
       await applyOwnership(destination, this.config.uid, this.config.gid, this.chown, this.lchown);
     }
     await applyOwnership(guestHome, this.config.uid, this.config.gid, this.chown, this.lchown);

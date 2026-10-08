@@ -156,6 +156,8 @@ interface RunCaseOptions {
   mounts?: readonly NvxLiveMount[];
   runScript?: string;
   hostInteraction?: () => Promise<void>;
+  workloadUid?: number;
+  workloadGid?: number;
 }
 
 async function runCase(
@@ -210,8 +212,8 @@ async function runCase(
     execution: {
       entrypoint: options.entrypoint,
       args: options.args,
-      workloadUid: 65534,
-      workloadGid: 65534,
+      workloadUid: options.workloadUid ?? 65534,
+      workloadGid: options.workloadGid ?? 65534,
       memoryMaxBytes: options.memoryMaxBytes ?? 128 * 1024 * 1024,
       pidsMax: options.pidsMax ?? 64,
       memoryMib: options.memoryMib ?? 256,
@@ -291,10 +293,12 @@ async function runLiveWorkspaceCase(inputs: Inputs) {
   await fs.writeFile(path.join(toolCache, 'tool.txt'), 'tool-cache\n', { mode: 0o444 });
   const runScript = `#!/bin/sh
 set -eu
+test "$(id -u)" = 0
 test "$(cat /opt/hostedtoolcache/tool.txt)" = "tool-cache"
 if touch /opt/hostedtoolcache/forbidden 2>/dev/null; then exit 91; fi
 if touch /workspace/forbidden 2>/dev/null; then exit 92; fi
 printf ready > /workspace/writable/guest-ready
+printf root-originated > /workspace/writable/root-originated
 i=0
 while [ ! -f /workspace/writable/host-response ]; do
   i=$((i + 1))
@@ -316,6 +320,8 @@ printf '%s\\n' NVX-LIVE-VIRTIOFS-PROOF
     entrypoint: '/etc/awf/nvx-run.sh',
     timeoutMs: 120_000,
     runScript,
+    workloadUid: 0,
+    workloadGid: 0,
     mounts: [
       {
         tag: 'workspace',
@@ -353,6 +359,15 @@ printf '%s\\n' NVX-LIVE-VIRTIOFS-PROOF
   const output = await fs.lstat(path.join(workspace, 'writable', 'guest-output'));
   if (output.uid !== 65534 || output.gid !== 65534) {
     throw new Error(`NVX live workspace created unexpected owner ${output.uid}:${output.gid}`);
+  }
+  const rootOriginated = await fs.lstat(
+    path.join(workspace, 'writable', 'root-originated'),
+  );
+  if (rootOriginated.uid !== 65534 || rootOriginated.gid !== 65534) {
+    throw new Error(
+      `NVX root-originated write escaped caller ownership: ` +
+      `${rootOriginated.uid}:${rootOriginated.gid}`,
+    );
   }
   const renamed = await fs.lstat(path.join(workspace, 'writable', 'renamed'));
   if ((renamed.mode & 0o777) !== 0o750) {

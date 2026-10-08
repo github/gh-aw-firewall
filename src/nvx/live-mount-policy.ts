@@ -1,5 +1,7 @@
 import { promises as fs } from 'fs';
+import * as os from 'os';
 import * as path from 'path';
+import { CREDENTIAL_ENTRIES, HOME_FORBIDDEN_SUBDIRS } from '../config/mount-policy';
 import {
   SENSITIVE_PATH_EXEMPTIONS,
   resolveSensitivePaths,
@@ -37,16 +39,23 @@ export interface NvxLiveMountPolicyDependencies {
   realpath(filePath: string): Promise<string>;
   lstat(filePath: string): Promise<NvxMountPolicyStats>;
   readdir(directory: string): Promise<string[]>;
-  mkdir(directory: string, options: { recursive: true; mode: number }): Promise<unknown>;
+  readdirDirectories?(directory: string): Promise<string[]>;
+  mkdir(directory: string, options: { mode: number }): Promise<unknown>;
   readMountInfo(): Promise<string>;
+  homePath?: string;
 }
 
 const defaultDependencies: NvxLiveMountPolicyDependencies = {
   realpath: fs.realpath,
   lstat: (filePath) => fs.lstat(filePath),
   readdir: (directory) => fs.readdir(directory),
+  readdirDirectories: async (directory) =>
+    (await fs.readdir(directory, { withFileTypes: true }))
+      .filter((entry) => entry.isDirectory())
+      .map((entry) => entry.name),
   mkdir: (directory, options) => fs.mkdir(directory, options),
   readMountInfo: () => fs.readFile('/proc/self/mountinfo', 'utf8'),
+  homePath: process.env.HOME ?? os.homedir(),
 };
 
 export interface NvxLiveMountPlan {
@@ -77,6 +86,7 @@ export async function planNvxLiveMounts(
       resolveSensitivePaths('nvx').map((entry) => entry.path),
       dependencies,
     );
+    deniedPaths.push(...await resolveHomeCredentialPaths(exportEntry, dependencies));
     const exemptionCandidates = await resolveSensitiveHostPaths(
       exportEntry,
       SENSITIVE_PATH_EXEMPTIONS.map((entry) => entry.path),
@@ -122,7 +132,7 @@ async function resolveSensitiveHostPaths(
     const relative = path.posix.relative(exportEntry.target, guestPath);
     const candidate = path.join(exportEntry.source, ...relative.split('/'));
     if (createMissing) {
-      await dependencies.mkdir(candidate, { recursive: true, mode: 0o700 });
+      await ensureDirectorySafely(candidate, exportEntry.source, dependencies);
     }
     let canonical: string;
     try {
@@ -138,6 +148,76 @@ async function resolveSensitiveHostPaths(
     resolved.push(canonical);
   }
   return resolved;
+}
+
+async function resolveHomeCredentialPaths(
+  exportEntry: NvxDirectoryExport,
+  dependencies: NvxLiveMountPolicyDependencies,
+): Promise<string[]> {
+  const relativePaths = [
+    ...CREDENTIAL_ENTRIES.map(({ path: credentialPath }) => credentialPath),
+    ...HOME_FORBIDDEN_SUBDIRS,
+  ];
+  const resolved: string[] = [];
+  for (const relativePath of relativePaths) {
+    const sensitivePath = path.resolve(
+      dependencies.homePath ?? process.env.HOME ?? os.homedir(),
+      relativePath,
+    );
+    const candidate = isWithin(sensitivePath, exportEntry.source)
+      ? sensitivePath
+      : isWithin(exportEntry.source, sensitivePath)
+        ? exportEntry.source
+        : undefined;
+    if (!candidate || resolved.includes(candidate)) continue;
+    try {
+      const canonical = await assertCanonicalPath(
+        candidate,
+        exportEntry.source,
+        dependencies,
+      );
+      const stats = await dependencies.lstat(canonical);
+      if (!stats.isDirectory() && !stats.isFile()) {
+        throw new Error(
+          `NVX mount policy path must be a regular file or directory: ${candidate}`,
+        );
+      }
+      resolved.push(canonical);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') continue;
+      throw error;
+    }
+  }
+  return resolved;
+}
+
+async function ensureDirectorySafely(
+  candidate: string,
+  root: string,
+  dependencies: NvxLiveMountPolicyDependencies,
+): Promise<void> {
+  const relative = path.relative(root, candidate);
+  if (relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {
+    throw new Error(`NVX mount policy path escapes its share: ${candidate}`);
+  }
+  let current = root;
+  for (const segment of ['', ...relative.split(path.sep).filter(Boolean)]) {
+    if (segment) current = path.join(current, segment);
+    let stats: NvxMountPolicyStats;
+    try {
+      stats = await dependencies.lstat(current);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT' || !segment) throw error;
+      await dependencies.mkdir(current, { mode: 0o700 });
+      stats = await dependencies.lstat(current);
+    }
+    if (stats.isSymbolicLink() || !stats.isDirectory()) {
+      throw new Error(`NVX mount policy path must not contain symlinks: ${candidate}`);
+    }
+    if (await dependencies.realpath(current) !== current) {
+      throw new Error(`NVX mount policy path must be canonical: ${candidate}`);
+    }
+  }
 }
 
 async function assertCanonicalPath(
@@ -206,8 +286,39 @@ async function assertDisjointShareRoots(
           `NVX share roots cross through a bind mount: ${other.source} and ${entry.source}`,
         );
       }
+      if (
+        await containsDirectoryIdentity(other.source, entryRoot, dependencies) ||
+        await containsDirectoryIdentity(entry.source, otherRoot, dependencies)
+      ) {
+        throw new Error(
+          `NVX share roots cross through a bind mount: ${other.source} and ${entry.source}`,
+        );
+      }
     }
   }
+}
+
+async function containsDirectoryIdentity(
+  root: string,
+  wanted: string,
+  dependencies: NvxLiveMountPolicyDependencies,
+  visited = new Set<string>(),
+): Promise<boolean> {
+  const stats = await dependencies.lstat(root);
+  if (stats.isSymbolicLink() || !stats.isDirectory()) return false;
+  const key = identity(stats);
+  if (key === wanted) return true;
+  if (visited.has(key)) return false;
+  visited.add(key);
+  const names = dependencies.readdirDirectories
+    ? await dependencies.readdirDirectories(root)
+    : await dependencies.readdir(root);
+  for (const name of names) {
+    if (await containsDirectoryIdentity(path.join(root, name), wanted, dependencies, visited)) {
+      return true;
+    }
+  }
+  return false;
 }
 
 async function assertNoNestedMounts(
