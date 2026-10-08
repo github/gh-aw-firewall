@@ -6,6 +6,36 @@ const sourcePath = path.join(workflowsDir, 'test-coverage-reporter.md');
 const lockPath = path.join(workflowsDir, 'test-coverage-reporter.lock.yml');
 
 describe('test coverage reporter workflow token optimization config', () => {
+  it('hands off the full precomputed report template through an allowed file read', () => {
+    const source = fs.readFileSync(sourcePath, 'utf-8');
+    const prompt = source.split(/^---$/m)[2];
+
+    expect(source).toContain('cat:/tmp/gh-aw/agent/coverage-report-template.txt');
+    expect(source).toContain('} > /tmp/gh-aw/agent/coverage-report-template.txt');
+    expect(prompt).toContain('cat /tmp/gh-aw/agent/coverage-report-template.txt');
+    expect(prompt).not.toContain('${{ steps.');
+    expect(prompt).toContain('run git log, or read coverage summary files');
+    expect(prompt).toContain('Preserve the data sections from the pre-computed report template');
+    for (const [step, output] of [
+      ['critical-gaps', 'CRITICAL_GAPS'],
+      ['coverage-table', 'COVERAGE_TABLE'],
+      ['func-audit', 'FUNC_AUDIT'],
+      ['recent-changes', 'RECENT_FILES'],
+    ]) {
+      expect(source).toContain(`\${{ steps.${step}.outputs.${output} }}`);
+    }
+    expect(source).toContain("fs.readFileSync('coverage/coverage-summary.json', 'utf8')");
+  });
+
+  it('compiles the report file handoff and its narrowly scoped read permission', () => {
+    const lock = fs.readFileSync(lockPath, 'utf-8');
+
+    expect(lock).toContain('} > /tmp/gh-aw/agent/coverage-report-template.txt');
+    expect(lock).toContain('shell(cat:/tmp/gh-aw/agent/coverage-report-template.txt)');
+    expect(lock).toContain('{{#runtime-import .github/workflows/test-coverage-reporter.md}}');
+    expect(lock).not.toContain('EXPR_STEPS_DISCUSSION_TEMPLATE_OUTPUTS_DISCUSSION_BODY');
+  });
+
   it('removes unused tool injection and trims precomputed coverage context in source workflow', () => {
     const source = fs.readFileSync(sourcePath, 'utf-8');
 
@@ -33,7 +63,7 @@ describe('test coverage reporter workflow token optimization config', () => {
     // Token optimization: pre-built discussion template step added
     expect(source).toContain('Pre-build discussion template');
     expect(source).toContain('id: discussion-template');
-    expect(source).toContain('DISCUSSION_BODY');
+    expect(source).toContain('coverage-report-template.txt');
     expect(source).not.toContain('The pre-built discussion template is in `${{ steps.discussion-template.outputs.DISCUSSION_BODY }}`.');
     expect(source).not.toContain('Using only this brief and the full discussion body in `${{ steps.discussion-template.outputs.DISCUSSION_BODY }}`');
 
@@ -79,7 +109,7 @@ describe('test coverage reporter workflow token optimization config', () => {
 
     // Token optimization: pre-built discussion template step compiled correctly
     expect(lock).toContain('id: discussion-template');
-    expect(lock).toContain('DISCUSSION_BODY');
+    expect(lock).toContain('coverage-report-template.txt');
     expect(lock).not.toContain('The pre-built discussion template is in `${{ steps.discussion-template.outputs.DISCUSSION_BODY }}`.');
     expect(lock).not.toContain('Using only this brief and the full discussion body in `${{ steps.discussion-template.outputs.DISCUSSION_BODY }}`');
     expect(lock).toContain('- name: Cache npm dependencies');
