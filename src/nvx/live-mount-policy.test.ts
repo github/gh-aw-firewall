@@ -248,6 +248,32 @@ describe('planNvxLiveMounts', () => {
     }
   });
 
+  it('rejects a noncanonical sensitive-path exemption', async () => {
+    const value = await fixture();
+    const source = path.join(value.root, 'gh-aw');
+    const payloads = path.join(source, 'mcp-payloads');
+    await fs.mkdir(source);
+    await fs.mkdir(payloads);
+    try {
+      await expect(planNvxLiveMounts([
+        value.workspace,
+        {
+          tag: 'tmp-gh-aw',
+          source,
+          target: '/tmp/gh-aw',
+          mode: 'rw',
+        },
+      ], undefined, {
+        ...value.dependencies,
+        realpath: async (candidate) => (
+          candidate === payloads ? `${candidate}-alias` : fs.realpath(candidate)
+        ),
+      })).rejects.toThrow(/must be canonical/);
+    } finally {
+      await fs.rm(value.root, { recursive: true, force: true });
+    }
+  });
+
   it('rejects a noncanonical sensitive policy directory', async () => {
     const value = await fixture();
     const source = path.join(value.root, 'gh-aw');
@@ -298,6 +324,43 @@ describe('planNvxLiveMounts', () => {
           return fs.lstat(candidate);
         },
       })).rejects.toMatchObject({ code: 'EACCES' });
+    } finally {
+      await fs.rm(value.root, { recursive: true, force: true });
+    }
+  });
+
+  it('rejects a sensitive policy entry that is neither a file nor directory', async () => {
+    const value = await fixture();
+    const source = path.join(value.root, 'gh-aw');
+    const mcpLogs = path.join(source, 'mcp-logs');
+    let mcpLogsStats = 0;
+    await fs.mkdir(source);
+    try {
+      await expect(planNvxLiveMounts([
+        value.workspace,
+        {
+          tag: 'tmp-gh-aw',
+          source,
+          target: '/tmp/gh-aw',
+          mode: 'rw',
+        },
+      ], undefined, {
+        ...value.dependencies,
+        lstat: async (candidate) => {
+          const stats = await fs.lstat(candidate);
+          if (candidate !== mcpLogs || ++mcpLogsStats < 3) return stats;
+          return {
+            dev: stats.dev,
+            ino: stats.ino,
+            uid: stats.uid,
+            gid: stats.gid,
+            nlink: stats.nlink,
+            isDirectory: () => false,
+            isFile: () => false,
+            isSymbolicLink: () => false,
+          };
+        },
+      })).rejects.toThrow(/must be a regular file or directory/);
     } finally {
       await fs.rm(value.root, { recursive: true, force: true });
     }
