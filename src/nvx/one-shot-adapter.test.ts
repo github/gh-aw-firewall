@@ -179,6 +179,38 @@ describe('NVX one-shot execution adapter', () => {
     }
   });
 
+  it('orders filesystem layers before building NVX arguments', async () => {
+    const { root, request } = await fixture();
+    const customPath = path.join(request.filesystem.runDirectory, 'custom.erofs');
+    await fs.writeFile(customPath, 'custom');
+    await fs.chmod(customPath, 0o400);
+    try {
+      const custom = {
+        ...request.filesystem.layers[0],
+        role: 'custom' as const,
+        path: customPath,
+        uuid: '22222222-3333-5444-8555-666666666666',
+        sha256: await sha256(customPath),
+      };
+      const args = buildNvxOneShotArguments({
+        ...request,
+        filesystem: {
+          ...request.filesystem,
+          layers: [custom, request.filesystem.layers[0]],
+        },
+      }, path.join(request.filesystem.runDirectory, 'outcome.json'));
+      const firstLayer = args.indexOf('--layer');
+      expect(args.slice(firstLayer, firstLayer + 4)).toEqual([
+        '--layer',
+        expect.stringMatching(/^distro,/),
+        '--layer',
+        expect.stringMatching(/^custom,/),
+      ]);
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
   it('attributes each live-share policy immediately after its mount', async () => {
     const { root, request } = await fixture();
     try {
