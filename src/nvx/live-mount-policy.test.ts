@@ -229,6 +229,8 @@ describe('planNvxLiveMounts', () => {
     const aliasedStats = {
       dev: 900,
       ino: 901,
+      uid: 1000,
+      gid: 1000,
       nlink: 1,
       isDirectory: () => true,
       isFile: () => false,
