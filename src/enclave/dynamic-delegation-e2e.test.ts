@@ -463,24 +463,7 @@ describe('dynamic repository enclave delegation service integration suite', () =
 
     it('denies disallowed owners and disallowed repositories with canonical denial', async () => {
       const server = await startMockMcpgServer();
-      const workDir = makeWorkDir();
-      const runId = '12345-1';
-      const paths = resolveEnclavePaths(workDir);
-
-      const service = new DynamicDelegationService({
-        policy: typedDynamicEnclavePolicyFixture(), // allows 'octo-org' and 'other-org/exact-repo'
-        identity: { runId, entryId: ENCLAVE_DYNAMIC_ENTRY_ID },
-        handoff: {
-          endpoint: parseEndpoint(
-            `http://127.0.0.1:${server.port}/internal/awf-enclave-mcp-control/github-repository-delegation-v1`,
-          ),
-          capability: MOCK_CAPABILITY,
-        },
-        ledger: createEnclaveInformationBudgetLedger(new Map()),
-        auditPath: paths.delegationAuditPath,
-        clock: TEST_CLOCK,
-        jitter: () => 0,
-      });
+      const { service } = createDynamicDelegationHarness(server);
 
       await service.recover();
 
