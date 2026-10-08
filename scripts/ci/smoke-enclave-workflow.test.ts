@@ -60,6 +60,8 @@ describe('experimental Cloud Hypervisor enclave smoke workflow', () => {
     expect(source).toContain('max-invocations: 1');
     expect(source).toContain('invocations.length !== 1');
     expect(source).toContain('record.kind === "invocation"');
+    expect(source).toContain('record.kind === "failure"');
+    expect(source).toContain('failures.length !== 0');
     expect(source).toContain('record.sensitivity === "public"');
     expect(source).toContain('record.type === "noop" && record.message === expected');
     expect(source).toContain('ENCLAVE_CLOUD_HYPERVISOR_PASS');

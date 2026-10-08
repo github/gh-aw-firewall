@@ -57,7 +57,12 @@ post-steps:
       const [auditPath, outputsPath] = process.argv.slice(2);
       const readRecords = file => fs.readFileSync(file, "utf8")
         .split("\n").filter(Boolean).map(line => JSON.parse(line));
-      const invocations = readRecords(auditPath).filter(record =>
+      const auditRecords = readRecords(auditPath);
+      const failures = auditRecords.filter(record => record.kind === "failure");
+      if (failures.length !== 0) {
+        throw new Error(`expected no failed enclave attempts, found ${failures.length}`);
+      }
+      const invocations = auditRecords.filter(record =>
         record.kind === "invocation" &&
         record.repo === "github/gh-aw-firewall" &&
         record.sensitivity === "public");
