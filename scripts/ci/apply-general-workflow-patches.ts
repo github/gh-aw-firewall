@@ -51,6 +51,8 @@ export interface PatchResult {
 }
 
 const publishedAwfWorkflowLockFiles = new Set([
+  // The experimental enclave smoke keeps binary and attested VM artifacts release-matched.
+  'smoke-enclave-cloud-hypervisor.lock.yml',
   'auth-doctor-updater.lock.yml',
   'doc-maintainer.lock.yml',
   'model-api-mapping-updater.lock.yml',
@@ -170,6 +172,7 @@ export function applyGeneralWorkflowPatches(
   // gateway config but exempt it from the eager startup connectivity check so
   // mcpg can rediscover it once AWF attaches and launches the backend.
   const isEnclaveSmoke =
+    workflowPath.endsWith('smoke-enclave-cloud-hypervisor.lock.yml') ||
     workflowPath.endsWith('smoke-enclave-build-test.lock.yml') ||
     workflowPath.endsWith('smoke-enclave-issues-read.lock.yml') ||
     workflowPath.endsWith('smoke-enclave-dynamic-issues-read.lock.yml');
