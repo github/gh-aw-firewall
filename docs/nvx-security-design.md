@@ -82,10 +82,10 @@ downloaded repository content, and model-generated instructions are untrusted.
 | Host eligibility | Fail unless the host is supported Linux x86_64 with KVM, cgroup v2, required namespace/firewall features, and known-compatible NVX/OpenVMM versions. Landlock is required only when the selected OpenVMM release exposes a verifiable self-confinement contract. | AWF |
 | VMM identity | OpenVMM runs as a random dedicated per-run system identity with no login shell, home, or supplementary groups. | AWF |
 | Device access | Grant that identity temporary access only to the exact devices required by the selected NVX networking mode. Revoke the exact ACLs during cleanup. | AWF |
-| VMM launch | Launch with an argument vector, never a shell. Set `no_new_privs`, empty all capability sets and supplementary groups, enter dedicated mount and network namespaces plus a bounded cgroup, and restrict host filesystem visibility to the staged run directory and required device nodes. | AWF |
+| VMM launch | Launch with an argument vector, never a shell. Set `no_new_privs`, empty supplementary groups, retain exactly `CAP_SETUID|CAP_SETGID` for caller-owned virtio-fs requests, enter dedicated mount and network namespaces plus a bounded cgroup, and restrict host filesystem visibility to the staged run directory, canonical live-share roots, and required device nodes. | AWF |
 | Live verification | Before treating the VM as ready, verify the VMM executable, PID start time, uid/gid, capabilities, seccomp state, namespace, cgroup membership, and configured limits from host kernel state. | AWF |
 | Network | Host-enforced policy permits only the required paths to Squid, API-proxy ports, and explicitly configured control peers. Direct internet, metadata, arbitrary DNS, host loopback, ingress, and lateral traffic are denied. | AWF + NVX |
-| Filesystem | Guest lower layers are immutable EROFS images. Each run receives a new private ext4 scratch image mounted `nosuid,nodev`. No host path is exposed implicitly. | AWF + NVX |
+| Filesystem | Guest lower layers are immutable EROFS images. Each run receives a new private ext4 scratch image mounted `nosuid,nodev`; only explicit canonical virtio-fs workspace/tool-cache shares are live. No host path is exposed implicitly. | AWF + NVX |
 | Workload identity | The guest command runs as an image-defined non-root uid/gid with cleared supplementary groups, `no_new_privs`, and no capabilities. | NVX, verified by AWF |
 | Credentials | Real provider credentials remain only in the host API proxy. The guest receives non-secret endpoint configuration and placeholder material only when required by the agent. | AWF |
 | Resources | Memory, process, CPU, disk, file-size, and wall-clock limits are explicit and applied before the workload starts. Unsupported limits fail closed rather than being ignored. | AWF + NVX |
@@ -171,12 +171,16 @@ Implemented boundary:
   through EOF so final sandbox status cannot terminate Bubblewrap with
   `SIGPIPE`;
   and
-- an explicit x86_64 cBPF seccomp denylist passed to Bubblewrap on inherited
-  FD 5 before `setpriv` and OpenVMM execute. The filter rejects host-management,
-  kernel-module, namespace-changing, cross-process-memory, keyring, BPF,
-  performance, and privileged mount syscalls while leaving the KVM and
-  Consomme syscall surface available; confinement verification requires every
-  OpenVMM thread to report seccomp filter mode 2.
+- an explicit x86_64 cBPF seccomp denylist passed on inherited FD 5.
+  Bubblewrap materializes the filter read-only inside the jail, `setpriv`
+  performs the one permitted identity transition and establishes the exact
+  capability sets, and a fixed Python loader installs the filter immediately
+  before executing OpenVMM. The filter rejects broader identity changes,
+  host-management, kernel-module, namespace-changing, cross-process-memory,
+  keyring, BPF, performance, and privileged mount syscalls while leaving
+  `setfsuid`/`setfsgid`, KVM, and the Consomme syscall surface available;
+  confinement verification requires every OpenVMM thread to report seccomp
+  filter mode 2.
 - shared one-shot validation, bounded workflow-command-filtered output,
   structured outcome parsing, timeout, cancellation, and signal semantics.
 
@@ -332,34 +336,33 @@ does not weaken any Phase 3f invariant above.
   `--enable-api-proxy` are required.
 - **Live host workspace export**: `$GITHUB_WORKSPACE` (falling back to the
   current working directory) is exported into the guest at the fixed guest path
-  `/workspace` as a live, read-write directory. The attested guest contract is
-  kernel-command-line only, so there is no virtio-fs share to attach; instead
-  AWF stages the workspace into the `custom` EROFS layer it owns
-  (`src/nvx/workspace-layer.ts`). The guest assembles its root filesystem as
-  `overlayfs(lowerdir=custom:runtime:distro, upperdir=<scratch>/upper)`, so the
-  staged tree is writable inside the guest and every guest write lands in the
-  writable scratch image. After the microVM has exited, AWF reads the overlay
-  upper layer out of the scratch image with `e2fsck`/`debugfs` and merges it
-  back into the host workspace, applying creations, modifications, symlinks,
-  and overlay whiteout deletions. Copy-back is refused for any entry a host
-  process changed while the microVM was running, so concurrent host edits are
-  reported instead of silently overwritten.
+  `/workspace` as an OpenVMM-enforced live virtio-fs share. OpenVMM receives
+  `--mount /workspace,<canonical-host-root>,rw --mount-owner caller`, so changes
+  are visible immediately in both directions, host operations run as the guest
+  caller's uid/gid, and guest root is squashed to the share owner. Workspace
+  content is never copied into EROFS and there is no post-run extraction or
+  copy-back lifecycle.
 - **Mount policy**: `--nvx-mount-policy` (`nvx.mountPolicy`) selects
   `workspace-only` (the default: just `$GITHUB_WORKSPACE`, read-write) or
   `workspace-and-tool-cache` (additionally exports `RUNNER_TOOL_CACHE` /
   `AGENT_TOOLSDIRECTORY` read-only), mirroring the Cloud Hypervisor mount
   policies. Credential paths and forbidden `$HOME` subdirectories are excluded
-  from every staged tree, and the guest `$HOME` is a separate AWF-owned
-  directory at `/home/awf` seeded only with allowed tool state — it is never
-  staged into, or copied back out of, the workspace.
+  from the AWF-owned guest configuration layer. The guest `$HOME` is a separate
+  immutable custom EROFS tree at `/home/awf`, seeded only with allowed tool
+  state. The optional runner tool cache is a separate `ro` virtio-fs share and
+  never inherits workspace write policy.
 - **`filesystem.allowWrite`**: narrows the workspace export to specific
-  writable subpaths (`src/nvx/filesystem-write-policy.ts`). Narrowed subtrees
-  are staged owned by uid/gid 0 with their write bits cleared; because the
-  guest workload runs with an empty capability set (no `CAP_FOWNER` /
-  `CAP_DAC_OVERRIDE`), it can neither write those entries nor `chmod` them back
-  to writable, so the restriction is enforced inside the guest and not only at
-  copy-back time. Copy-back additionally drops any path outside the policy as
-  defence in depth and reports it.
+  writable host subpaths (`src/nvx/filesystem-write-policy.ts`,
+  `src/nvx/live-mount-policy.ts`). AWF passes each canonical path as
+  `--mount-write` immediately after its owning `--mount`; OpenVMM returns
+  `EROFS` for writes elsewhere. Sensitive read masks are translated to
+  `--mount-deny`, with readable exemptions translated to `--mount-allow` when
+  they lie inside a denied tree.
+- **Alias safety**: policy paths must be canonical and contain no symlink
+  components. Share roots must be disjoint lexically and by directory identity.
+  AWF rejects nested mounts inside a share and scans policy-bearing trees for
+  hard-linked files that cross writable/read-only or denied/allowed boundaries.
+  These checks deliberately fail closed because OpenVMM policy is path-based.
 - **`--container-workdir`**: supported, and validated to resolve inside the
   guest workspace export (`/workspace`). Paths outside it are rejected rather
   than silently relocated.
@@ -370,12 +373,12 @@ does not weaken any Phase 3f invariant above.
   NVX-local change — it would alter Cloud Hypervisor's behaviour too, which is
   out of scope here. NVX therefore fails closed with an actionable error
   instead of silently ignoring the flag.
-- **Known limitation — overlay opaque directories**: `debugfs rdump` does not
-  reproduce overlayfs `trusted.overlay.opaque` extended attributes. A guest
-  that deletes a directory and recreates one with the same name is merged as an
-  update rather than a replacement, so host entries the guest did not
-  explicitly white out survive. Whiteout deletions of individual entries are
-  applied normally.
+- **OpenVMM confinement for caller ownership**: OpenVMM retains exactly
+  `CAP_SETUID|CAP_SETGID` (`0xc0`) in every capability set so it can use only
+  `setfsuid`/`setfsgid` for per-request filesystem credentials. The seccomp
+  filter permits those two calls while denying `setuid`, `setgid`, `setreuid`,
+  `setregid`, `setresuid`, `setresgid`, and `setgroups`. Live verification
+  rejects any missing or additional capability bit.
 - **Adapter**: `src/nvx/runtime-backend.ts` implements the same
   `ExternalAgentRuntimeBackend` interface used by the `sbx` and Cloud
   Hypervisor backends, mapping it onto the existing, unmodified `NvxManager`
@@ -427,20 +430,15 @@ These combinations are rejected outright rather than partially applied.
 Remove the incompatible flag, or use Docker/gVisor/Cloud Hypervisor instead of
 NVX for that run.
 
-**NVX preview requires `debugfs`/`e2fsck` on the host**
-Workspace copy-back reads the guest overlay upper layer out of the scratch ext4
-image. Install `e2fsprogs` on the host; preflight fails before launch when
-either tool is missing.
-
 **NVX preview `--container-workdir` must be inside the guest workspace export**
 The host workspace is exported at the fixed guest path `/workspace`. Pass a
 working directory inside it (for example `/workspace/packages/app`).
 
-**NVX workspace copy-back refused: the host changed &lt;path&gt; while the microVM
-was running**
-A host process modified an exported file while the guest was running, so
-merging the guest's version would silently discard the host change. Re-run
-without concurrent host writes to the workspace.
+**NVX share contains nested mount / hard-link alias crosses a filesystem policy
+boundary**
+The live-share topology could expose the same object through different access
+rules. Remove the nested/bind mount or hard-link alias so every host object has
+one unambiguous read/write classification.
 
 **NVX preview does not support `--network-subnet`**
 Both microVM backends discover their infrastructure on the fixed default
@@ -721,8 +719,8 @@ continuing to keep `nvx` absent from the runtime registry and CLI:
 - `src/nvx/confinement.ts` constructs a shell-free
   `ip netns exec` → Bubblewrap → `setpriv` → NVX launch chain with a private
   mount namespace, minimal device exposure, a fixed read-only system allowlist,
-  a dedicated uid/gid, empty supplementary groups, no capabilities, and
-  `no_new_privs`. It also verifies the live OpenVMM process and every thread
+  a dedicated uid/gid, empty supplementary groups, exactly
+  `CAP_SETUID|CAP_SETGID`, and `no_new_privs`. It also verifies the live OpenVMM process and every thread
   against the expected executable, identity, namespace, cgroup membership,
   limits, capabilities, seccomp mode, and stable process identity; and
 - `src/nvx/cleanup-record.ts` defines the exact durable ownership record used

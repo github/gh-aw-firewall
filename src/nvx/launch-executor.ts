@@ -17,10 +17,20 @@ const TERMINATION_GRACE_MS = 2_000;
 const OPENVMM_REPL_PROMPT = Buffer.from('openvmm> ');
 const OPENVMM_REPL_PROMPT_TIMEOUT_MS = 5_000;
 const AUDIT_ARCH_X86_64 = 0xc000003e;
+const X32_SYSCALL_BIT = 0x40000000;
 const SECCOMP_RET_KILL_PROCESS = 0x80000000;
 const SECCOMP_RET_ERRNO_EPERM = 0x00050001;
 const SECCOMP_RET_ALLOW = 0x7fff0000;
 const DENIED_X86_64_SYSCALLS = [
+  105, // setuid
+  106, // setgid
+  113, // setreuid
+  114, // setregid
+  116, // setgroups
+  117, // setresuid
+  119, // setresgid
+  // setfsuid (122) and setfsgid (123) are intentionally allowed for
+  // --mount-owner caller; broader process-identity changes remain denied.
   101, // ptrace
   155, // pivot_root
   163, // acct
@@ -519,6 +529,8 @@ function buildOpenvmmSeccompFilter(): Buffer {
     [0x15, 1, 0, AUDIT_ARCH_X86_64],
     [0x06, 0, 0, SECCOMP_RET_KILL_PROCESS],
     [0x20, 0, 0, 0],
+    [0x45, 0, 1, X32_SYSCALL_BIT],
+    [0x06, 0, 0, SECCOMP_RET_ERRNO_EPERM],
   ];
   for (const syscall of DENIED_X86_64_SYSCALLS) {
     instructions.push(
@@ -541,3 +553,11 @@ function buildOpenvmmSeccompFilter(): Buffer {
 function formatError(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
+
+/** @internal Exposed only for focused seccomp policy tests. */
+// ts-prune-ignore-next
+export const testHelpers = {
+  deniedX86_64Syscalls: DENIED_X86_64_SYSCALLS,
+  buildOpenvmmSeccompFilter,
+  x32SyscallBit: X32_SYSCALL_BIT,
+};

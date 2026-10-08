@@ -58,7 +58,7 @@ function harness(overrides: Partial<NvxRuntimeBackendDependencies> = {}) {
     rawStdoutTail: Buffer.alloc(0),
     rawStderrTail: Buffer.alloc(0),
   } as NvxOneShotExecutionResult);
-  const manager = { execute: executeMock, getWorkspaceCopyBack: () => undefined };
+  const manager = { execute: executeMock };
   const createManager = jest.fn().mockReturnValue(manager) as unknown as
     NvxRuntimeBackendDependencies['createManager'];
 
@@ -71,11 +71,22 @@ function harness(overrides: Partial<NvxRuntimeBackendDependencies> = {}) {
     resolveExports: jest.fn().mockResolvedValue([
       { tag: 'workspace', source: '/home/runner/work/repo', target: '/workspace', mode: 'rw' },
     ]),
-    createWorkspaceLayer: jest.fn().mockReturnValue({
+    planLiveMounts: jest.fn().mockResolvedValue({
+      mounts: [{
+        tag: 'workspace',
+        guestTarget: '/workspace',
+        hostPath: '/home/runner/work/repo',
+        mode: 'rw',
+        deniedPaths: [],
+        allowedPaths: [],
+        writablePaths: [],
+      }],
+      writePlan: {},
+    }),
+    createGuestConfigLayer: jest.fn().mockReturnValue({
       stage: jest.fn().mockResolvedValue('/tmp/awf-work/nvx-guest-layer/custom-layer'),
-      extractAfterStop: jest.fn().mockResolvedValue({ applied: [], removed: [], rejected: [] }),
       cleanup: jest.fn().mockResolvedValue(undefined),
-    }) as unknown as NvxRuntimeBackendDependencies['createWorkspaceLayer'],
+    }) as unknown as NvxRuntimeBackendDependencies['createGuestConfigLayer'],
     randomRunId: jest.fn().mockReturnValue('a'.repeat(32)),
     logger: {
       debug: jest.fn(),
@@ -177,6 +188,13 @@ describe('NvxRuntimeBackend', () => {
     expect(managerConfig.execution.memoryMib).toBe(512);
     expect(managerConfig.execution.memoryMaxBytes).toBe(512 * 1024 * 1024);
     expect(managerConfig.execution.pidsMax).toBe(128);
+    expect(managerConfig.execution.mounts).toEqual([
+      expect.objectContaining({
+        guestTarget: '/workspace',
+        hostPath: '/home/runner/work/repo',
+        mode: 'rw',
+      }),
+    ]);
     expect(managerConfig.execution.timeoutMs).toBe(10 * 60_000);
     expect(managerConfig.filesystem.layers).toEqual([
       { role: 'distro', sourcePath: '/opt/nvx/distro.layer' },
@@ -217,7 +235,7 @@ describe('NvxRuntimeBackend', () => {
     }));
     const createManager = jest.fn((cfg: { execution: { abortSignal?: AbortSignal } }) => {
       capturedSignal = cfg.execution.abortSignal;
-      return { execute: executeMock, getWorkspaceCopyBack: () => undefined };
+      return { execute: executeMock };
     }) as unknown as NvxRuntimeBackendDependencies['createManager'];
     const backend = nvxRuntimeTestHelpers.createBackendWithDependencies(
       nvxConfig(),
@@ -231,6 +249,47 @@ describe('NvxRuntimeBackend', () => {
     while (!capturedSignal) await new Promise((resolve) => setImmediate(resolve));
     await expect(backend.stop()).resolves.toBeUndefined();
     await expect(execPromise).rejects.toThrow('aborted');
+  });
+
+  it('does not launch when stop occurs while live mounts are being planned', async () => {
+    let releasePlanning!: () => void;
+    const planning = new Promise<void>((resolve) => {
+      releasePlanning = resolve;
+    });
+    const { dependencies, createManager } = harness({
+      planLiveMounts: jest.fn(async () => {
+        await planning;
+        return {
+          mounts: [],
+          writePlan: {},
+        } as never;
+      }),
+    });
+    const backend = nvxRuntimeTestHelpers.createBackendWithDependencies(
+      nvxConfig(),
+      dependencies,
+    );
+
+    await backend.start(
+      '/tmp/awf-work',
+      ['example.com'],
+      '/tmp/awf-work/logs',
+      false,
+      jest.fn(),
+      jest.fn(),
+    );
+    const execution = backend.exec(
+      '/tmp/awf-work',
+      ['example.com'],
+      '/tmp/awf-work/logs',
+      undefined,
+    );
+    await new Promise((resolve) => setImmediate(resolve));
+    await expect(backend.stop()).resolves.toBeUndefined();
+    releasePlanning();
+
+    await expect(execution).rejects.toThrow(/aborted by shutdown/);
+    expect(createManager).not.toHaveBeenCalled();
   });
 
   it('is a no-op diagnostics collector since NvxManager owns durable cleanup', async () => {

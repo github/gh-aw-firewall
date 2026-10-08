@@ -640,7 +640,11 @@ jobs:
             src/nvx/cleanup-record.test.ts \
             src/nvx/artifact-manifest.test.ts \
             src/nvx/preflight.test.ts \
+            src/nvx/guest-config-layer.test.ts \
+            src/nvx/filesystem-write-policy.test.ts \
+            src/nvx/live-mount-policy.test.ts \
             src/nvx/runtime-lifecycle.test.ts \
+            src/nvx/runtime-backend.test.ts \
             src/nvx/confinement.test.ts \
             src/nvx/launch-executor.test.ts \
             src/nvx/manager.test.ts \

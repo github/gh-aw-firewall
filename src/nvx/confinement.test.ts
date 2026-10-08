@@ -21,11 +21,11 @@ function status(taskId: number, overrides: Partial<Record<string, string>> = {})
     Uid: '1000 1000 1000 1000',
     Gid: '1001 1001 1001 1001',
     Groups: '',
-    CapInh: '0000000000000000',
-    CapPrm: '0000000000000000',
-    CapEff: '0000000000000000',
-    CapBnd: '0000000000000000',
-    CapAmb: '0000000000000000',
+    CapInh: '00000000000000c0',
+    CapPrm: '00000000000000c0',
+    CapEff: '00000000000000c0',
+    CapBnd: '00000000000000c0',
+    CapAmb: '00000000000000c0',
     NoNewPrivs: '1',
     Seccomp: '2',
     ...overrides,
@@ -175,7 +175,8 @@ describe('NVX host confinement', () => {
       '--unshare-ipc',
       '--block-fd', '3',
       '--json-status-fd', '4',
-      '--seccomp', '5',
+      '--perms', '0444',
+      '--file', '5', '/run/openvmm-seccomp.bpf',
       '--clearenv',
       '--setenv', 'TERM', 'dumb',
       '--setenv', 'HOME', '/nonexistent',
@@ -189,7 +190,11 @@ describe('NVX host confinement', () => {
       '--bind', `/run/awf-nvx/runs/${RUN_ID}`,
       '--clear-groups',
       '--no-new-privs',
-      '--bounding-set=-all',
+      '--inh-caps=-all,+setgid,+setuid',
+      '--bounding-set=-all,+setgid,+setuid',
+      '--ambient-caps=-all,+setgid,+setuid',
+      '/usr/bin/python3',
+      '/run/openvmm-seccomp.bpf',
       '/opt/awf-nvx/openvmm',
       '--paused',
       '--machine',
@@ -197,9 +202,14 @@ describe('NVX host confinement', () => {
     ]));
     expect(result.args).not.toContain('/dev/net/tun');
     expect(result.args).not.toContain('/bin/sh');
+    expect(result.args).not.toContain('--seccomp');
+    expect(result.args.indexOf('/usr/bin/setpriv'))
+      .toBeLessThan(result.args.indexOf('/usr/bin/python3'));
+    expect(result.args[result.args.indexOf('/usr/bin/python3') + 2])
+      .toContain('PR_SET_SECCOMP');
     expect(result.confinementPolicy.supplementaryGroups).toEqual([]);
     expect(result.confinementPolicy.capabilities.effective)
-      .toBe('0000000000000000');
+      .toBe('00000000000000c0');
   });
 
   it('rejects broad or caller-controlled filesystem roots', () => {
@@ -291,6 +301,9 @@ describe('NVX host confinement', () => {
     ['missing seccomp', {
       status: status(PID, { Seccomp: '0' }),
     }, /seccomp filter mode 2/],
+    ['additional capability', {
+      status: status(PID, { CapEff: '00000000000001c0' }),
+    }, /unexpected CapEff/],
     ['unexpected cgroup process', {
       cgroupPids: `${LAUNCHER_PID}\n${PID}\n9999\n`,
     }, /cgroup PIDs/],

@@ -13,7 +13,20 @@ import {
 const SYSTEM_CGROUP_ROOT = '/sys/fs/cgroup';
 const NETWORK_NAMESPACE_ROOT = '/run/netns';
 const MAX_VERIFIED_THREADS = 256;
-const ZERO_CAPABILITIES = '0000000000000000';
+const CALLER_MOUNT_CAPABILITIES = '00000000000000c0';
+const SECCOMP_EXEC_PYTHON = [
+  'import ctypes, os, sys',
+  'data = open(sys.argv[1], "rb").read()',
+  'data and len(data) % 8 == 0 or sys.exit("invalid seccomp filter")',
+  'F = type("F", (ctypes.Structure,), {"_fields_": [("code", ctypes.c_ushort), ("jt", ctypes.c_ubyte), ("jf", ctypes.c_ubyte), ("k", ctypes.c_uint)]})',
+  'filters = (F * (len(data) // 8)).from_buffer_copy(data)',
+  'P = type("P", (ctypes.Structure,), {"_fields_": [("len", ctypes.c_ushort), ("filter", ctypes.POINTER(F))]})',
+  'libc = ctypes.CDLL(None, use_errno=True)',
+  'program = P(len(filters), filters)',
+  'result = libc.prctl(22, 2, ctypes.byref(program), 0, 0)',
+  'result == 0 or (_ for _ in ()).throw(OSError(ctypes.get_errno(), "PR_SET_SECCOMP"))',
+  'os.execv(sys.argv[2], sys.argv[2:])',
+].join('; ');
 const ALLOWED_SYSTEM_ROOTS = new Set([
   '/bin',
   '/etc/alternatives',
@@ -28,11 +41,11 @@ const ALLOWED_SYSTEM_ROOTS = new Set([
 export interface NvxLaunchConfinementPolicy {
   readonly supplementaryGroups: readonly number[];
   readonly capabilities: {
-    readonly inheritable: typeof ZERO_CAPABILITIES;
-    readonly permitted: typeof ZERO_CAPABILITIES;
-    readonly effective: typeof ZERO_CAPABILITIES;
-    readonly bounding: typeof ZERO_CAPABILITIES;
-    readonly ambient: typeof ZERO_CAPABILITIES;
+    readonly inheritable: typeof CALLER_MOUNT_CAPABILITIES;
+    readonly permitted: typeof CALLER_MOUNT_CAPABILITIES;
+    readonly effective: typeof CALLER_MOUNT_CAPABILITIES;
+    readonly bounding: typeof CALLER_MOUNT_CAPABILITIES;
+    readonly ambient: typeof CALLER_MOUNT_CAPABILITIES;
   };
   readonly noNewPrivs: 1;
   readonly seccompMode: 2;
@@ -106,6 +119,11 @@ export function buildNvxConstrainedLaunchCommand(options: {
   readonly nvxRoot: string;
   readonly runDirectory: string;
   readonly systemReadOnlyPaths: readonly string[];
+  readonly shareRoots?: readonly {
+    readonly source: string;
+    readonly jailPath: string;
+    readonly mode: 'ro' | 'rw';
+  }[];
   readonly openvmmArguments: readonly string[];
 }): NvxLaunchCommand {
   assertSafeName(options.namespaceName, 'NVX network namespace');
@@ -142,13 +160,31 @@ export function buildNvxConstrainedLaunchCommand(options: {
   for (const argument of options.openvmmArguments) {
     if (argument.includes('\0')) throw new Error('NVX launch arguments must not contain NUL bytes');
   }
+  const shareRoots = [...(options.shareRoots ?? [])];
+  const occupiedSources = [nvxRoot, runDirectory];
+  const occupiedTargets = [nvxRoot, runDirectory, ...readOnlyPaths];
+  for (const share of shareRoots) {
+    assertAbsolutePath(share.source, 'NVX share source');
+    assertAbsolutePath(share.jailPath, 'NVX share jail path');
+    if (!share.jailPath.startsWith('/mnt/awf-nvx-shares/')) {
+      throw new Error(`NVX share jail path is outside the canonical root: ${share.jailPath}`);
+    }
+    for (const existing of occupiedSources) assertNonOverlappingPaths(existing, share.source);
+    for (const existing of occupiedTargets) assertNonOverlappingPaths(existing, share.jailPath);
+    for (const existing of shareRoots) {
+      if (existing === share) break;
+      assertNonOverlappingPaths(existing.source, share.source);
+      assertNonOverlappingPaths(existing.jailPath, share.jailPath);
+    }
+    occupiedSources.push(share.source);
+    occupiedTargets.push(share.jailPath);
+  }
 
   const jailArguments: string[] = [
     '--die-with-parent',
     '--new-session',
     '--block-fd', '3',
     '--json-status-fd', '4',
-    '--seccomp', '5',
     '--unshare-ipc',
     '--unshare-pid',
     '--unshare-uts',
@@ -156,6 +192,10 @@ export function buildNvxConstrainedLaunchCommand(options: {
     '--dir', '/etc',
     '--dir', '/opt',
     '--dir', '/run',
+    '--perms', '0444',
+    '--file', '5', '/run/openvmm-seccomp.bpf',
+    '--dir', '/mnt',
+    '--dir', '/mnt/awf-nvx-shares',
     '--proc', '/proc',
     '--dev', '/dev',
     '--dev-bind', '/dev/kvm', '/dev/kvm',
@@ -163,6 +203,13 @@ export function buildNvxConstrainedLaunchCommand(options: {
   ];
   for (const systemPath of readOnlyPaths) {
     jailArguments.push('--ro-bind', systemPath, systemPath);
+  }
+  for (const share of shareRoots) {
+    jailArguments.push(
+      share.mode === 'ro' ? '--ro-bind' : '--bind',
+      share.source,
+      share.jailPath,
+    );
   }
   jailArguments.push(
     '--ro-bind', path.join(runDirectory, 'resolv.conf'), '/etc/resolv.conf',
@@ -182,10 +229,14 @@ export function buildNvxConstrainedLaunchCommand(options: {
     `--regid=${options.identity.gid}`,
     '--clear-groups',
     '--no-new-privs',
-    '--inh-caps=-all',
-    '--bounding-set=-all',
-    '--ambient-caps=-all',
+    '--inh-caps=-all,+setgid,+setuid',
+    '--bounding-set=-all,+setgid,+setuid',
+    '--ambient-caps=-all,+setgid,+setuid',
     '--',
+    '/usr/bin/python3',
+    '-c',
+    SECCOMP_EXEC_PYTHON,
+    '/run/openvmm-seccomp.bpf',
     '/opt/awf-nvx/openvmm',
     ...options.openvmmArguments,
   );
@@ -200,11 +251,11 @@ export function buildNvxConstrainedLaunchCommand(options: {
     confinementPolicy: {
       supplementaryGroups: [],
       capabilities: {
-        inheritable: ZERO_CAPABILITIES,
-        permitted: ZERO_CAPABILITIES,
-        effective: ZERO_CAPABILITIES,
-        bounding: ZERO_CAPABILITIES,
-        ambient: ZERO_CAPABILITIES,
+        inheritable: CALLER_MOUNT_CAPABILITIES,
+        permitted: CALLER_MOUNT_CAPABILITIES,
+        effective: CALLER_MOUNT_CAPABILITIES,
+        bounding: CALLER_MOUNT_CAPABILITIES,
+        ambient: CALLER_MOUNT_CAPABILITIES,
       },
       noNewPrivs: 1,
       seccompMode: 2,

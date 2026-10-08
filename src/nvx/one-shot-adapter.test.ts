@@ -179,6 +179,48 @@ describe('NVX one-shot execution adapter', () => {
     }
   });
 
+  it('attributes each live-share policy immediately after its mount', async () => {
+    const { root, request } = await fixture();
+    try {
+      const args = buildNvxOneShotArguments({
+        ...request,
+        mounts: [
+          {
+            tag: 'workspace',
+            guestTarget: '/workspace',
+            hostPath: '/home/runner/work/repo',
+            mode: 'rw',
+            deniedPaths: ['/home/runner/work/repo/private'],
+            allowedPaths: ['/home/runner/work/repo/private/payloads'],
+            writablePaths: ['/home/runner/work/repo/dist'],
+          },
+          {
+            tag: 'runner-tool-cache',
+            guestTarget: '/opt/hostedtoolcache',
+            hostPath: '/opt/hostedtoolcache',
+            mode: 'ro',
+            deniedPaths: [],
+            allowedPaths: [],
+            writablePaths: [],
+          },
+        ],
+      }, path.join(request.filesystem.runDirectory, 'outcome.json'));
+      const first = args.indexOf('--mount');
+      expect(args.slice(first, first + 8)).toEqual([
+        '--mount', '/workspace,/home/runner/work/repo,rw',
+        '--mount-deny', '/home/runner/work/repo/private',
+        '--mount-allow', '/home/runner/work/repo/private/payloads',
+        '--mount-write', '/home/runner/work/repo/dist',
+      ]);
+      expect(args.slice(first + 8, first + 12)).toEqual([
+        '--mount', '/opt/hostedtoolcache,/opt/hostedtoolcache,ro',
+        '--mount-owner', 'caller',
+      ]);
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
   it('preserves guest exit 125, filters streamed output, and keeps bounded raw tails', async () => {
     const { root, request } = await fixture();
     const stdout = new PassThrough();

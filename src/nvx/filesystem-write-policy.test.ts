@@ -1,7 +1,4 @@
-import {
-  isNvxWritableGuestPath,
-  planNvxFilesystemWrites,
-} from './filesystem-write-policy';
+import { planNvxFilesystemWrites } from './filesystem-write-policy';
 import { NVX_GUEST_WORKSPACE, type NvxDirectoryExport } from './workspace-export';
 
 const WORKSPACE_SOURCE = '/home/runner/work/repo';
@@ -38,8 +35,6 @@ describe('planNvxFilesystemWrites', () => {
     expect(plan.overlays).toEqual([]);
     expect(plan.exports.map((entry) => entry.disposition))
       .toEqual(['unrestricted', 'unrestricted']);
-    expect(plan.exports.map((entry) => entry.stagedOwnership))
-      .toEqual(['workload', 'root']);
   });
 
   it('narrows a workspace export to the allowed subpaths', async () => {
@@ -52,7 +47,6 @@ describe('planNvxFilesystemWrites', () => {
     expect(plan.restricted).toBe(true);
     expect(plan.allowedPaths).toEqual(['/workspace/.cache', '/workspace/dist']);
     expect(plan.exports[0].disposition).toBe('selective');
-    expect(plan.exports[0].stagedOwnership).toBe('root');
     expect(plan.overlays).toEqual([
       {
         exportTag: 'workspace',
@@ -90,7 +84,6 @@ describe('planNvxFilesystemWrites', () => {
     );
 
     expect(plan.exports[0].disposition).toBe('writable');
-    expect(plan.exports[0].stagedOwnership).toBe('workload');
     expect(plan.overlays).toEqual([]);
   });
 
@@ -99,7 +92,6 @@ describe('planNvxFilesystemWrites', () => {
 
     expect(plan.restricted).toBe(true);
     expect(plan.exports[0].disposition).toBe('read-only');
-    expect(plan.exports[0].stagedOwnership).toBe('root');
   });
 
   it('leaves internal exports writable and consumes allowlist entries inside them', async () => {
@@ -137,7 +129,7 @@ describe('planNvxFilesystemWrites', () => {
     await expect(planNvxFilesystemWrites([workspace], ['/workspace/link'], {
       realpath: async () => '/etc',
       lstat: directories.lstat,
-    })).rejects.toThrow(/escapes its export via a symlink/);
+    })).rejects.toThrow(/must be canonical/);
 
     await expect(planNvxFilesystemWrites([workspace], ['/workspace/link'], {
       realpath: async (target: string) => target,
@@ -146,7 +138,7 @@ describe('planNvxFilesystemWrites', () => {
         isFile: () => false,
         isSymbolicLink: () => true,
       }),
-    })).rejects.toThrow(/must not be a symlink/);
+    })).rejects.toThrow(/must not contain symlinks/);
 
     await expect(planNvxFilesystemWrites([workspace], ['/workspace/socket'], {
       realpath: async (target: string) => target,
@@ -156,29 +148,5 @@ describe('planNvxFilesystemWrites', () => {
         isSymbolicLink: () => false,
       }),
     })).rejects.toThrow(/must be a regular file or directory/);
-  });
-});
-
-describe('isNvxWritableGuestPath', () => {
-  it('follows the declared export mode when unrestricted', async () => {
-    const plan = await planNvxFilesystemWrites([workspace, toolCache], undefined);
-
-    expect(isNvxWritableGuestPath(plan, '/workspace/src/main.ts')).toBe(true);
-    expect(isNvxWritableGuestPath(plan, `${TOOL_CACHE_SOURCE}/node`)).toBe(false);
-    expect(isNvxWritableGuestPath(plan, '/etc/passwd')).toBe(false);
-  });
-
-  it('permits only the allowed subtrees of a selectively narrowed export', async () => {
-    const plan = await planNvxFilesystemWrites([workspace], ['/workspace/dist'], directories);
-
-    expect(isNvxWritableGuestPath(plan, '/workspace/dist')).toBe(true);
-    expect(isNvxWritableGuestPath(plan, '/workspace/dist/app.js')).toBe(true);
-    expect(isNvxWritableGuestPath(plan, '/workspace/dist/../src/main.ts')).toBe(false);
-    expect(isNvxWritableGuestPath(plan, '/workspace/src/main.ts')).toBe(false);
-  });
-
-  it('denies everything inside a fully read-only export', async () => {
-    const plan = await planNvxFilesystemWrites([workspace], [], directories);
-    expect(isNvxWritableGuestPath(plan, '/workspace/anything')).toBe(false);
   });
 });

@@ -14,6 +14,7 @@ import {
   parseNvxOneShotOutcome,
   type NvxOneShotOutcome,
 } from './outcome';
+import type { NvxLiveMount } from './live-mount-policy';
 
 const NVX_MAX_OUTCOME_BYTES = 64 * 1024;
 const NVX_DEFAULT_RAW_TAIL_BYTES = 64 * 1024;
@@ -41,6 +42,7 @@ export interface NvxOneShotExecutionRequest {
   readonly pidsMax?: number;
   readonly memoryMib?: number;
   readonly cpuProfile?: string;
+  readonly mounts?: readonly NvxLiveMount[];
   readonly timeoutMs?: number;
   readonly abortSignal?: AbortSignal;
   readonly network: NvxOneShotNetworkPlan;
@@ -276,6 +278,7 @@ export function buildNvxOneShotArguments(
   for (const layer of orderedLayers(request.filesystem.layers)) {
     args.push('--layer', `${layer.role},${layer.path},${layer.uuid}`);
   }
+  appendMountArguments(args, request.mounts ?? []);
   args.push(
     '--scratch', request.filesystem.scratch.path,
     '--entrypoint', request.entrypoint,
@@ -312,6 +315,19 @@ export function buildNvxOneShotArguments(
   for (const forward of forwards) args.push('--host-loopback-forward', forward);
   args.push('--outcome-report', outcomePath);
   return args;
+}
+
+export function appendMountArguments(
+  args: string[],
+  mounts: readonly NvxLiveMount[],
+): void {
+  for (const mount of mounts) {
+    args.push('--mount', `${mount.guestTarget},${mount.hostPath},${mount.mode}`);
+    for (const denied of mount.deniedPaths) args.push('--mount-deny', denied);
+    for (const allowed of mount.allowedPaths) args.push('--mount-allow', allowed);
+    for (const writable of mount.writablePaths) args.push('--mount-write', writable);
+  }
+  if (mounts.length > 0) args.push('--mount-owner', 'caller');
 }
 
 async function verifyFilesystemBundle(bundle: NvxFilesystemBundle): Promise<void> {
@@ -458,6 +474,25 @@ function validateRequest(request: NvxOneShotExecutionRequest): void {
   const cpuProfile = request.cpuProfile ?? NVX_ONE_SHOT_CPU_PROFILE;
   if (!/^[a-z0-9]+(?:[.-][a-z0-9]+)*$/.test(cpuProfile)) {
     throw new Error(`NVX CPU profile is invalid: ${cpuProfile}`);
+  }
+  for (const mount of request.mounts ?? []) {
+    for (const [label, value] of [
+      ['guest target', mount.guestTarget],
+      ['host path', mount.hostPath],
+      ...mount.deniedPaths.map((value) => ['denied path', value] as const),
+      ...mount.allowedPaths.map((value) => ['allowed path', value] as const),
+      ...mount.writablePaths.map((value) => ['writable path', value] as const),
+    ] as const) {
+      if (!path.isAbsolute(value) || value.includes('\0') || value.includes(',')) {
+        throw new Error(`NVX mount ${label} must be an absolute path without NUL or comma`);
+      }
+    }
+    if (mount.mode !== 'ro' && mount.mode !== 'rw') {
+      throw new Error(`NVX mount mode is invalid: ${String(mount.mode)}`);
+    }
+    if (mount.mode === 'ro' && mount.writablePaths.length > 0) {
+      throw new Error(`NVX read-only mount cannot have writable paths: ${mount.guestTarget}`);
+    }
   }
   assertOptionalPositiveInteger(request.timeoutMs, 'NVX timeout');
   assertIpv4Cidr(request.network.guestAddress, 'NVX guest network address');

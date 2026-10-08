@@ -2,6 +2,7 @@ import { EventEmitter } from 'events';
 import { PassThrough } from 'stream';
 import {
   DirectOpenvmmLaunchExecutor,
+  testHelpers,
   type NvxLaunchExecutorDependencies,
 } from './launch-executor';
 import type { NvxPhase3dLaunchPlan } from './runtime-lifecycle';
@@ -196,6 +197,36 @@ function harness(options: {
 }
 
 describe('direct OpenVMM launch executor', () => {
+  it('rejects the x32 syscall ABI before applying the native denylist', () => {
+    const filter = testHelpers.buildOpenvmmSeccompFilter();
+    const instructions = Array.from(
+      { length: filter.length / 8 },
+      (_, index) => {
+        const offset = index * 8;
+        return [
+          filter.readUInt16LE(offset),
+          filter.readUInt8(offset + 2),
+          filter.readUInt8(offset + 3),
+          filter.readUInt32LE(offset + 4),
+        ];
+      },
+    );
+    expect(instructions).toContainEqual([0x45, 0, 1, testHelpers.x32SyscallBit]);
+    const x32Guard = instructions.findIndex(
+      (instruction) => instruction[0] === 0x45 &&
+        instruction[3] === testHelpers.x32SyscallBit,
+    );
+    expect(instructions[x32Guard + 1]).toEqual([0x06, 0, 0, 0x00050001]);
+  });
+
+  it('denies broad identity changes but permits filesystem credential switching', () => {
+    expect(testHelpers.deniedX86_64Syscalls).toEqual(expect.arrayContaining([
+      105, 106, 113, 114, 116, 117, 119,
+    ]));
+    expect(testHelpers.deniedX86_64Syscalls).not.toContain(122);
+    expect(testHelpers.deniedX86_64Syscalls).not.toContain(123);
+  });
+
   it('gates Bubblewrap, verifies OpenVMM, and resumes only after readiness', async () => {
     const value = harness({ status: '{"child-pid":4200}\n' });
     await expect(value.executor.execute({

@@ -28,12 +28,8 @@ export interface NvxLayerSource {
    * Stages the layer with the source tree's own uid/gid instead of flattening
    * everything to root (`mkfs.erofs --all-root`).
    *
-   * AWF-owned layers that export host directories into the guest need this:
-   * the guest overlays the layer read-only under a writable scratch upper
-   * layer, and overlayfs only lets the non-root workload copy an entry up when
-   * the entry is writable *for that identity*. Root-owned, write-cleared
-   * entries are how a `filesystem.allowWrite` narrowing is enforced inside the
-   * guest rather than only at copy-back time.
+   * The AWF-owned custom layer uses this to retain the workload ownership of
+   * allowed guest-home state while keeping the generated run script root-owned.
    */
   readonly preserveOwnership?: boolean;
 }

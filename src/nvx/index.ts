@@ -20,6 +20,7 @@ export {
   NvxOneShotAdapter,
   NvxOneShotExecutionError,
   NvxPreparedExecution,
+  appendMountArguments,
   buildNvxOneShotArguments,
 } from './one-shot-adapter';
 export type {
@@ -29,6 +30,14 @@ export type {
   NvxOneShotNetworkPlan,
   NvxProcessResult,
 } from './one-shot-adapter';
+export {
+  planNvxLiveMounts,
+} from './live-mount-policy';
+export type {
+  NvxLiveMount,
+  NvxLiveMountPlan,
+  NvxLiveMountPolicyDependencies,
+} from './live-mount-policy';
 export {
   NVX_OUTCOME_SCHEMA_VERSION,
   NVX_TEARDOWN_STAGES,
@@ -150,7 +159,6 @@ export {
   NVX_GUEST_RUN_SCRIPT,
   NVX_GUEST_WORKSPACE,
   NVX_MOUNT_POLICIES,
-  NVX_SCRATCH_UPPER_DIRECTORY,
   NVX_WORKSPACE_EXPORT_TAG,
   resolveNvxExports,
   validateNvxExports,
@@ -159,10 +167,7 @@ export type {
   NvxDirectoryExport,
   NvxMountPolicy,
 } from './workspace-export';
-export {
-  isNvxWritableGuestPath,
-  planNvxFilesystemWrites,
-} from './filesystem-write-policy';
+export { planNvxFilesystemWrites } from './filesystem-write-policy';
 export type {
   NvxExportWritePlan,
   NvxFilesystemWritePlan,
@@ -170,11 +175,9 @@ export type {
 export { buildNvxGuestRunScript } from './guest-entrypoint';
 export type { NvxGuestRunScriptOptions } from './guest-entrypoint';
 export { buildNvxGuestEnvironment } from './guest-environment-builder';
-export { NvxWorkspaceLayer } from './workspace-layer';
+export { NvxGuestConfigLayer } from './guest-config-layer';
 export type {
-  NvxWorkspaceCopyBackResult,
-  NvxWorkspaceLayerConfig,
-  NvxWorkspaceLayerDependencies,
-  NvxWorkspaceTool,
-} from './workspace-layer';
-export type { NvxWorkspaceLifecycle } from './manager';
+  NvxGuestConfigLayerConfig,
+  NvxGuestConfigLayerDependencies,
+} from './guest-config-layer';
+export type { NvxGuestConfigLifecycle } from './manager';
