@@ -11,7 +11,7 @@ describe('smoke codex token-usage verification', () => {
       const workflow = fs.readFileSync(workflowPath, 'utf-8');
 
       expect(workflow).toMatch(
-        /^[ \t]*verify_token_usage:[ \t]*\r?\n(?:[ \t]+name:[^\r\n]*\r?\n)?[ \t]*needs:[ \t]*agent[ \t]*\r?\n[ \t]*if:[ \t]*needs\.agent\.result == 'success'[ \t]*$/m,
+        /^[ \t]*verify_token_usage:[ \t]*\r?\n(?:[ \t]*name:[^\r\n]*\r?\n)?[ \t]*needs:[ \t]*agent[ \t]*\r?\n[ \t]*if:[ \t]*needs\.agent\.result == 'success'[ \t]*$/m,
       );
       expect(workflow).toContain(
         'check-token-usage.js --artifact-root /tmp/gh-aw-agent --engine codex',
