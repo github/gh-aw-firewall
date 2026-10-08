@@ -245,6 +245,29 @@ describe('dynamic repository enclave delegation service integration suite', () =
     return dir;
   }
 
+  function createDynamicDelegationHarness(server: Awaited<ReturnType<typeof startMockMcpgServer>>) {
+    const workDir = makeWorkDir();
+    const runId = '12345-1';
+    const paths = resolveEnclavePaths(workDir);
+    const endpoint = parseEndpoint(
+      `http://127.0.0.1:${server.port}/internal/awf-enclave-mcp-control/github-repository-delegation-v1`,
+    );
+    const service = new DynamicDelegationService({
+      policy: typedDynamicEnclavePolicyFixture(),
+      identity: { runId, entryId: ENCLAVE_DYNAMIC_ENTRY_ID },
+      handoff: {
+        endpoint,
+        capability: MOCK_CAPABILITY,
+      },
+      ledger: createEnclaveInformationBudgetLedger(new Map()),
+      auditPath: paths.delegationAuditPath,
+      clock: TEST_CLOCK,
+      jitter: () => 0,
+    });
+
+    return { runId, paths, endpoint, service };
+  }
+
   afterEach(() => {
     for (const d of tmpDirs) {
       try {
@@ -394,30 +417,11 @@ describe('dynamic repository enclave delegation service integration suite', () =
   describe('Policy and authorization failures', () => {
     it('rejects non-canonical selectors with canonical denial reason', async () => {
       const server = await startMockMcpgServer();
-      const workDir = makeWorkDir();
-      const runId = '12345-1';
-      const paths = resolveEnclavePaths(workDir);
+      const { paths, endpoint, service } = createDynamicDelegationHarness(server);
       fs.mkdirSync(paths.root, { recursive: true, mode: 0o700 });
       stageEnclaveDynamicDelegationHandoff(paths, {
-        endpoint: parseEndpoint(
-          `http://127.0.0.1:${server.port}/internal/awf-enclave-mcp-control/github-repository-delegation-v1`,
-        ),
+        endpoint,
         capability: MOCK_CAPABILITY,
-      });
-
-      const service = new DynamicDelegationService({
-        policy: typedDynamicEnclavePolicyFixture(),
-        identity: { runId, entryId: ENCLAVE_DYNAMIC_ENTRY_ID },
-        handoff: {
-          endpoint: parseEndpoint(
-            `http://127.0.0.1:${server.port}/internal/awf-enclave-mcp-control/github-repository-delegation-v1`,
-          ),
-          capability: MOCK_CAPABILITY,
-        },
-        ledger: createEnclaveInformationBudgetLedger(new Map()),
-        auditPath: paths.delegationAuditPath,
-        clock: TEST_CLOCK,
-        jitter: () => 0,
       });
 
       await service.recover();
@@ -559,25 +563,9 @@ describe('dynamic repository enclave delegation service integration suite', () =
   describe('Lifecycle, recovery, and limits', () => {
     it('handles exact retry matching and detects idempotency key mismatch', async () => {
       const server = await startMockMcpgServer();
-      const workDir = makeWorkDir();
-      const runId = '12345-1';
-      const paths = resolveEnclavePaths(workDir);
 
       try {
-        const service = new DynamicDelegationService({
-          policy: typedDynamicEnclavePolicyFixture(),
-          identity: { runId, entryId: ENCLAVE_DYNAMIC_ENTRY_ID },
-          handoff: {
-            endpoint: parseEndpoint(
-              `http://127.0.0.1:${server.port}/internal/awf-enclave-mcp-control/github-repository-delegation-v1`,
-            ),
-            capability: MOCK_CAPABILITY,
-          },
-          ledger: createEnclaveInformationBudgetLedger(new Map()),
-          auditPath: paths.delegationAuditPath,
-          clock: TEST_CLOCK,
-          jitter: () => 0,
-        });
+        const { runId, service } = createDynamicDelegationHarness(server);
 
         await service.recover();
 
