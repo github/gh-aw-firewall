@@ -36,6 +36,7 @@ import {
   buildCopySessionStateStep,
   buildCopilotCliDaemonCopyStep,
 } from './workflow-step-builders';
+import { applyCodexWorkflowPatches } from './apply-codex-workflow-patches';
 
 
 describe('installStepRegex', () => {
@@ -386,6 +387,20 @@ describe('codexConfigTomlHeredocRegex + CODEX_PROXY_ENV_KEY_REGEX', () => {
     const result = input.replace(CODEX_PROXY_ENV_KEY_REGEX, '$1');
     expect(result).not.toContain('env_key = "OPENAI_API_KEY"');
     expect(result).toContain('supports_websockets = false');
+  });
+
+  it('removes the v0.91.6 JSON env_key from only the openai-proxy provider', () => {
+    const input =
+      "          GH_AW_CODEX_CONFIG_JSON: '" +
+      '{"model_providers":{"openai-proxy":{"base_url":"http://172.30.0.30:10000",' +
+      '"env_key":"CODEX_API_KEY","supports_websockets":false},' +
+      '"other":{"env_key":"OTHER_API_KEY"}}}' +
+      "'\n";
+
+    const result = applyCodexWorkflowPatches(input).content;
+
+    expect(result).not.toContain('"env_key":"CODEX_API_KEY"');
+    expect(result).toContain('"env_key":"OTHER_API_KEY"');
   });
 });
 

@@ -8,6 +8,7 @@
 import {
   codexConfigTomlHeredocRegex,
   CODEX_PROXY_PROVIDER_SENTINEL,
+  CODEX_PROXY_PROVIDER_JSON_SENTINEL,
   CODEX_PROXY_ENV_KEY_REGEX,
   xpiaCatRegex,
   xpiaSafeBlockRegex,
@@ -38,7 +39,9 @@ export function applyCodexWorkflowPatches(content: string): CodexPatchResult {
   //   - sets supports_websockets=false to force REST (which respects base_url)
   //   - omits env_key so Codex does not hard-require OPENAI_API_KEY at startup;
   //     auth is handled by the sidecar
-  if (!content.includes(CODEX_PROXY_PROVIDER_SENTINEL)) {
+  const hasTomlProxyProvider = content.includes(CODEX_PROXY_PROVIDER_SENTINEL);
+  const hasJsonProxyProvider = content.includes(CODEX_PROXY_PROVIDER_JSON_SENTINEL);
+  if (!hasTomlProxyProvider && !hasJsonProxyProvider) {
     const heredocMatch = content.match(codexConfigTomlHeredocRegex);
     if (heredocMatch) {
       const indent = heredocMatch[1];
@@ -61,8 +64,25 @@ export function applyCodexWorkflowPatches(content: string): CodexPatchResult {
           `The compiled lock file may have changed structure. Manual review required.`
       );
     }
+  } else if (hasJsonProxyProvider) {
+    log.push(`  openai-proxy custom provider already present in Codex config JSON`);
   } else {
     log.push(`  openai-proxy custom provider already present in Codex config.toml`);
+  }
+
+  const configJsonEnvKey = '"env_key":"CODEX_API_KEY",';
+  const patchedJsonConfig = content
+    .split('\n')
+    .map(line =>
+      line.includes('GH_AW_CODEX_CONFIG_JSON:') &&
+      line.includes(CODEX_PROXY_PROVIDER_JSON_SENTINEL)
+        ? line.replace(configJsonEnvKey, '')
+        : line
+    )
+    .join('\n');
+  if (patchedJsonConfig !== content) {
+    content = patchedJsonConfig;
+    log.push('  Removed CODEX_API_KEY env_key from openai-proxy JSON provider');
   }
 
   // Remove legacy env_key for openai-proxy so Codex doesn't require OPENAI_API_KEY
