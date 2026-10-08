@@ -11,6 +11,31 @@ jest.mock('execa', () => require('../test-helpers/mock-execa.test-utils').execaM
 
 let mockConfig: WrapperConfig;
 
+function expectOidcCredentialsScrubbed(config: WrapperConfig): void {
+  const origUrl = process.env.ACTIONS_ID_TOKEN_REQUEST_URL;
+  const origToken = process.env.ACTIONS_ID_TOKEN_REQUEST_TOKEN;
+  process.env.ACTIONS_ID_TOKEN_REQUEST_URL = 'https://token.actions.githubusercontent.com/abc';
+  process.env.ACTIONS_ID_TOKEN_REQUEST_TOKEN = 'test-oidc-token-value';
+
+  try {
+    const result = generateDockerCompose(config, mockNetworkConfig);
+    const env = result.services.agent.environment as Record<string, string>;
+    expect(env.ACTIONS_ID_TOKEN_REQUEST_URL).toBeUndefined();
+    expect(env.ACTIONS_ID_TOKEN_REQUEST_TOKEN).toBeUndefined();
+  } finally {
+    if (origUrl !== undefined) {
+      process.env.ACTIONS_ID_TOKEN_REQUEST_URL = origUrl;
+    } else {
+      delete process.env.ACTIONS_ID_TOKEN_REQUEST_URL;
+    }
+    if (origToken !== undefined) {
+      process.env.ACTIONS_ID_TOKEN_REQUEST_TOKEN = origToken;
+    } else {
+      delete process.env.ACTIONS_ID_TOKEN_REQUEST_TOKEN;
+    }
+  }
+}
+
 describe('agent environment: credentials', () => {
   useTempWorkDir(
     baseConfig,
@@ -151,53 +176,11 @@ describe('agent environment: credentials', () => {
   });
 
   it('should never pass Actions OIDC minting variables to the agent', () => {
-    const origUrl = process.env.ACTIONS_ID_TOKEN_REQUEST_URL;
-    const origToken = process.env.ACTIONS_ID_TOKEN_REQUEST_TOKEN;
-    process.env.ACTIONS_ID_TOKEN_REQUEST_URL = 'https://token.actions.githubusercontent.com/abc';
-    process.env.ACTIONS_ID_TOKEN_REQUEST_TOKEN = 'test-oidc-token-value';
-
-    try {
-      const result = generateDockerCompose(mockConfig, mockNetworkConfig);
-      const env = result.services.agent.environment as Record<string, string>;
-      expect(env.ACTIONS_ID_TOKEN_REQUEST_URL).toBeUndefined();
-      expect(env.ACTIONS_ID_TOKEN_REQUEST_TOKEN).toBeUndefined();
-    } finally {
-      if (origUrl !== undefined) {
-        process.env.ACTIONS_ID_TOKEN_REQUEST_URL = origUrl;
-      } else {
-        delete process.env.ACTIONS_ID_TOKEN_REQUEST_URL;
-      }
-      if (origToken !== undefined) {
-        process.env.ACTIONS_ID_TOKEN_REQUEST_TOKEN = origToken;
-      } else {
-        delete process.env.ACTIONS_ID_TOKEN_REQUEST_TOKEN;
-      }
-    }
+    expectOidcCredentialsScrubbed(mockConfig);
   });
 
   it('should exclude Actions OIDC minting variables from --env-all', () => {
-    const origUrl = process.env.ACTIONS_ID_TOKEN_REQUEST_URL;
-    const origToken = process.env.ACTIONS_ID_TOKEN_REQUEST_TOKEN;
-    process.env.ACTIONS_ID_TOKEN_REQUEST_URL = 'https://token.actions.githubusercontent.com/abc';
-    process.env.ACTIONS_ID_TOKEN_REQUEST_TOKEN = 'test-oidc-token-value';
-
-    try {
-      const result = generateDockerCompose({ ...mockConfig, envAll: true }, mockNetworkConfig);
-      const env = result.services.agent.environment as Record<string, string>;
-      expect(env.ACTIONS_ID_TOKEN_REQUEST_URL).toBeUndefined();
-      expect(env.ACTIONS_ID_TOKEN_REQUEST_TOKEN).toBeUndefined();
-    } finally {
-      if (origUrl !== undefined) {
-        process.env.ACTIONS_ID_TOKEN_REQUEST_URL = origUrl;
-      } else {
-        delete process.env.ACTIONS_ID_TOKEN_REQUEST_URL;
-      }
-      if (origToken !== undefined) {
-        process.env.ACTIONS_ID_TOKEN_REQUEST_TOKEN = origToken;
-      } else {
-        delete process.env.ACTIONS_ID_TOKEN_REQUEST_TOKEN;
-      }
-    }
+    expectOidcCredentialsScrubbed({ ...mockConfig, envAll: true });
   });
 
   it('should reject explicit Actions OIDC minting variables in additionalEnv', () => {
