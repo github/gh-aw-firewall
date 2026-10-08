@@ -1,7 +1,11 @@
+import * as path from 'path';
 import { MAX_ENV_VALUE_SIZE } from '../../constants';
 import { copyEnvEntries } from '../../env-utils';
+import { getRealUserHome } from '../../host-identity';
 import { logger } from '../../logger';
 import { WrapperConfig } from '../../types';
+import { mountedChrootRoots } from '../agent-path-policy';
+import { buildContainerWorkDirMounts } from '../agent-volumes/workspace-mounts';
 
 interface EnvPassthroughParams {
   config: WrapperConfig;
@@ -14,6 +18,7 @@ export function passthroughHostEnvironment(params: EnvPassthroughParams): void {
 
   if (config.envAll) {
     const skippedLargeVars: string[] = [];
+    const preexistingKeys = new Set(Object.keys(environment));
     copyEnvEntries(process.env, environment, {
       excludedKeys: excludedEnvVars,
       noOverwrite: true,
@@ -30,6 +35,8 @@ export function passthroughHostEnvironment(params: EnvPassthroughParams): void {
       }
       logger.warn('Use --env VAR="$VAR" to explicitly pass large values if needed.');
     }
+
+    dropUnmountedRunnerTempPaths(config, environment, preexistingKeys);
     return;
   }
 
@@ -82,5 +89,69 @@ export function passthroughHostEnvironment(params: EnvPassthroughParams): void {
 
   if (config.enableDind && !environment.DOCKER_HOST && config.awfDockerHost?.startsWith('unix://')) {
     environment.DOCKER_HOST = config.awfDockerHost;
+  }
+}
+
+function isAtOrBelow(candidate: string, root: string): boolean {
+  if (root === '/') {
+    return true;
+  }
+  const relative = path.posix.relative(root, candidate);
+  return relative === '' ||
+    (relative !== '..' && !relative.startsWith('../') && !path.posix.isAbsolute(relative));
+}
+
+/**
+ * Removes `--env-all` forwarded variables whose value is an absolute path
+ * strictly inside `${RUNNER_TEMP}` but not covered by any agent mount.
+ *
+ * Only `${RUNNER_TEMP}/gh-aw` is normally mounted into the sandbox, so host-only
+ * tool paths such as setup-uv's `UV_CACHE_DIR=${RUNNER_TEMP}/setup-uv-cache`
+ * and `UV_PYTHON_INSTALL_DIR=${RUNNER_TEMP}/uv-python-dir` would point at
+ * locations the agent cannot create or write. Dropping them lets tools fall
+ * back to their defaults under the allowlisted `$HOME` directories. The
+ * unmounted directories are deliberately not made writable: setup-uv's post
+ * step would otherwise save agent-written files into the Actions cache.
+ * Explicit `--env` values are applied later and are not affected.
+ */
+function dropUnmountedRunnerTempPaths(
+  config: WrapperConfig,
+  environment: Record<string, string>,
+  preexistingKeys: Set<string>,
+): void {
+  const runnerTempValue = process.env.RUNNER_TEMP;
+  if (!runnerTempValue || !path.posix.isAbsolute(runnerTempValue)) {
+    return;
+  }
+  const runnerTemp = path.posix.normalize(runnerTempValue).replace(/\/+$/, '') || '/';
+  if (runnerTemp === '/') {
+    return;
+  }
+
+  let mountedRoots: string[] | undefined;
+  for (const [key, value] of Object.entries(environment)) {
+    if (key === 'RUNNER_TEMP' || preexistingKeys.has(key) || !path.posix.isAbsolute(value)) {
+      continue;
+    }
+    const candidate = path.posix.normalize(value).replace(/\/+$/, '') || '/';
+    if (candidate === runnerTemp || !isAtOrBelow(candidate, runnerTemp)) {
+      continue;
+    }
+    if (!mountedRoots) {
+      const workspaceDir = process.env.GITHUB_WORKSPACE || process.cwd();
+      const effectiveHome = getRealUserHome();
+      mountedRoots = [
+        ...mountedChrootRoots(config, workspaceDir, effectiveHome),
+        ...buildContainerWorkDirMounts({ config, workspaceDir, effectiveHome })
+          .map((mount) => mount.split(':')[0]),
+      ];
+    }
+    if (mountedRoots.some((root) => isAtOrBelow(candidate, root))) {
+      continue;
+    }
+    delete environment[key];
+    logger.debug(
+      `Not forwarding ${key} from --env-all: ${candidate} is under RUNNER_TEMP but not mounted into the sandbox`
+    );
   }
 }

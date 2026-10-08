@@ -1,5 +1,15 @@
+import * as fs from 'fs';
+import * as hostIdentity from '../../host-identity';
 import { passthroughHostEnvironment } from './env-passthrough';
 import { WrapperConfig } from '../../types';
+
+jest.mock('fs', () => {
+  const actual = jest.requireActual<typeof import('fs')>('fs');
+  return {
+    ...actual,
+    statSync: jest.fn((...args: Parameters<typeof actual.statSync>) => actual.statSync(...args)),
+  };
+});
 
 // Mock the logger to suppress output during tests
 jest.mock('../../logger', () => ({
@@ -27,6 +37,7 @@ describe('passthroughHostEnvironment', () => {
   });
 
   afterEach(() => {
+    jest.restoreAllMocks();
     // Restore env vars
     for (const [key, val] of Object.entries(savedEnv)) {
       if (val === undefined) {
@@ -217,6 +228,177 @@ describe('passthroughHostEnvironment', () => {
       // reach the untrusted agent container — it is forwarded only to the api-proxy sidecar
       // via api-proxy-env-config (spec §9.2)
       expect(environment).not.toHaveProperty('GH_AW_OTLP_ENDPOINTS');
+    });
+  });
+
+  describe('--env-all drops host-only paths under unmounted RUNNER_TEMP subtrees', () => {
+    const runnerTemp = '/home/runner/work/_temp';
+
+    beforeEach(() => {
+      const actual = jest.requireActual<typeof import('fs')>('fs');
+      jest.mocked(fs.statSync).mockReset().mockImplementation(actual.statSync);
+    });
+
+    function runEnvAll(
+      vars: Record<string, string>,
+      overrides: Partial<WrapperConfig> = {},
+      environment: Record<string, string> = {},
+    ): Record<string, string> {
+      withEnv({ RUNNER_TEMP: runnerTemp, GITHUB_WORKSPACE: '/home/runner/work/repo/repo', ...vars }, () => {
+        passthroughHostEnvironment({
+          config: makeConfig({ envAll: true, ...overrides }),
+          environment,
+          excludedEnvVars: new Set<string>(),
+        });
+      });
+      return environment;
+    }
+
+    it('drops setup-uv UV_CACHE_DIR and UV_PYTHON_INSTALL_DIR', () => {
+      const environment = runEnvAll({
+        UV_CACHE_DIR: `${runnerTemp}/setup-uv-cache`,
+        UV_PYTHON_INSTALL_DIR: `${runnerTemp}/uv-python-dir`,
+      });
+
+      expect(environment).not.toHaveProperty('UV_CACHE_DIR');
+      expect(environment).not.toHaveProperty('UV_PYTHON_INSTALL_DIR');
+      expect(environment).toHaveProperty('RUNNER_TEMP', runnerTemp);
+    });
+
+    it('drops any absolute path under RUNNER_TEMP, including traversal out of a mounted subtree', () => {
+      const environment = runEnvAll(
+        {
+          SOME_TOOL_DIR: `${runnerTemp}/other-tool/nested/`,
+          DOT_PREFIXED_DIR: `${runnerTemp}/..cache`,
+          TRAVERSAL_DIR: `${runnerTemp}/gh-aw/../setup-uv-cache`,
+        },
+        { volumeMounts: [`${runnerTemp}/gh-aw:${runnerTemp}/gh-aw:ro`] },
+      );
+
+      expect(environment).not.toHaveProperty('SOME_TOOL_DIR');
+      expect(environment).not.toHaveProperty('DOT_PREFIXED_DIR');
+      expect(environment).not.toHaveProperty('TRAVERSAL_DIR');
+    });
+
+    it('keeps paths covered by a custom mount', () => {
+      const environment = runEnvAll(
+        {
+          GH_AW_SAFE_OUTPUTS: `${runnerTemp}/gh-aw/safeoutputs/outputs.jsonl`,
+          GH_AW_DIR: `${runnerTemp}/gh-aw`,
+        },
+        { volumeMounts: [`${runnerTemp}/gh-aw:${runnerTemp}/gh-aw:ro`] },
+      );
+
+      expect(environment).toHaveProperty('GH_AW_SAFE_OUTPUTS', `${runnerTemp}/gh-aw/safeoutputs/outputs.jsonl`);
+      expect(environment).toHaveProperty('GH_AW_DIR', `${runnerTemp}/gh-aw`);
+    });
+
+    it('keeps paths covered by an automatic working-directory mount', () => {
+      const workDir = `${runnerTemp}/project`;
+      jest.mocked(fs.statSync).mockReturnValue({ isDirectory: () => true } as fs.Stats);
+      const environment = runEnvAll(
+        {
+          UV_CACHE_DIR: `${workDir}/cache`,
+          INPUT_PATH: `${workDir}/inputs/data.json`,
+          UNMOUNTED_PATH: `${workDir}-other/cache`,
+          TRAVERSAL_PATH: `${workDir}/../setup-uv-cache`,
+        },
+        { containerWorkDir: `${workDir}/nested/../` },
+      );
+
+      expect(fs.statSync).toHaveBeenCalledWith(workDir);
+      expect(environment).toHaveProperty('UV_CACHE_DIR', `${workDir}/cache`);
+      expect(environment).toHaveProperty('INPUT_PATH', `${workDir}/inputs/data.json`);
+      expect(environment).not.toHaveProperty('UNMOUNTED_PATH');
+      expect(environment).not.toHaveProperty('TRAVERSAL_PATH');
+    });
+
+    it.each(['missing', 'file'])('drops paths under a %s working directory', (kind) => {
+      const workDir = `${runnerTemp}/project`;
+      jest.mocked(fs.statSync).mockImplementation(() => {
+        if (kind === 'missing') {
+          throw new Error('ENOENT');
+        }
+        return { isDirectory: () => false } as fs.Stats;
+      });
+      const environment = runEnvAll(
+        { UV_CACHE_DIR: `${workDir}/cache` },
+        { containerWorkDir: workDir },
+      );
+
+      expect(environment).not.toHaveProperty('UV_CACHE_DIR');
+    });
+
+    it('does not treat a deliberately hidden working directory as mounted', () => {
+      jest.spyOn(hostIdentity, 'getRealUserHome').mockReturnValue('/home/runner');
+      jest.mocked(fs.statSync).mockReturnValue({ isDirectory: () => true } as fs.Stats);
+      const workDir = '/home/runner/.ssh/project';
+      const environment = runEnvAll(
+        { RUNNER_TEMP: '/home/runner', INPUT_PATH: `${workDir}/data.json` },
+        { containerWorkDir: workDir },
+      );
+
+      expect(fs.statSync).not.toHaveBeenCalled();
+      expect(environment).not.toHaveProperty('INPUT_PATH');
+    });
+
+    it('keeps values equal to RUNNER_TEMP, relative values, and paths outside RUNNER_TEMP', () => {
+      const environment = runEnvAll({
+        TEMP_ROOT_ALIAS: runnerTemp,
+        RELATIVE_DIR: '_temp/setup-uv-cache',
+        SIBLING_DIR: `${runnerTemp}-other/cache`,
+        TOOL_CACHE_DIR: '/opt/hostedtoolcache',
+      });
+
+      expect(environment).toHaveProperty('TEMP_ROOT_ALIAS', runnerTemp);
+      expect(environment).toHaveProperty('RELATIVE_DIR', '_temp/setup-uv-cache');
+      expect(environment).toHaveProperty('SIBLING_DIR', `${runnerTemp}-other/cache`);
+      expect(environment).toHaveProperty('TOOL_CACHE_DIR', '/opt/hostedtoolcache');
+    });
+
+    it('keeps paths when RUNNER_TEMP lies inside an always-mounted root such as /tmp', () => {
+      const environment: Record<string, string> = {};
+      withEnv({ RUNNER_TEMP: '/tmp/runner-temp', UV_CACHE_DIR: '/tmp/runner-temp/setup-uv-cache' }, () => {
+        passthroughHostEnvironment({
+          config: makeConfig({ envAll: true }),
+          environment,
+          excludedEnvVars: new Set<string>(),
+        });
+      });
+
+      expect(environment).toHaveProperty('UV_CACHE_DIR', '/tmp/runner-temp/setup-uv-cache');
+    });
+
+    it('does not remove values that were set before host passthrough', () => {
+      const environment = runEnvAll(
+        { UV_CACHE_DIR: `${runnerTemp}/setup-uv-cache` },
+        {},
+        { AWF_PRESET_DIR: `${runnerTemp}/preset` },
+      );
+
+      expect(environment).toHaveProperty('AWF_PRESET_DIR', `${runnerTemp}/preset`);
+      expect(environment).not.toHaveProperty('UV_CACHE_DIR');
+    });
+
+    it('does not filter when RUNNER_TEMP is unset', () => {
+      const environment: Record<string, string> = {};
+      const originalRunnerTemp = process.env.RUNNER_TEMP;
+      delete process.env.RUNNER_TEMP;
+      try {
+        withEnv({ UV_CACHE_DIR: '/home/runner/work/_temp/setup-uv-cache' }, () => {
+          passthroughHostEnvironment({
+            config: makeConfig({ envAll: true }),
+            environment,
+            excludedEnvVars: new Set<string>(),
+          });
+        });
+      } finally {
+        if (originalRunnerTemp !== undefined) {
+          process.env.RUNNER_TEMP = originalRunnerTemp;
+        }
+      }
+
+      expect(environment).toHaveProperty('UV_CACHE_DIR', '/home/runner/work/_temp/setup-uv-cache');
     });
   });
 });
