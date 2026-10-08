@@ -75,7 +75,7 @@ describe('smoke claude workflow optimization config', () => {
       const workflow = fs.readFileSync(workflowFile, 'utf-8');
 
       expect(workflow).toMatch(
-        /^[ \t]*verify_token_usage:[ \t]*\r?\n[ \t]*needs:[ \t]*agent[ \t]*\r?\n[ \t]*if:[ \t]*needs\.agent\.result == 'success'[ \t]*$/m,
+        /^[ \t]*verify_token_usage:[ \t]*\r?\n(?:[ \t]*name:[^\r\n]*\r?\n)?[ \t]*needs:[ \t]*agent[ \t]*\r?\n[ \t]*if:[ \t]*needs\.agent\.result == 'success'[ \t]*$/m,
       );
     }
   });

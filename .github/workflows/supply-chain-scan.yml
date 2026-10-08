@@ -57,11 +57,11 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Checkout enclave-compatible gh-aw compiler
+      - name: Checkout gh-aw v0.91.6 compiler
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: github/gh-aw
-          ref: b52dd75307b4233bd710ce0a0afd96766c2a48e3
+          ref: 3ead8042c7b1edc2128ba1b28b1b80d00b7f4c22
           path: .tmp/gh-aw-compiler
           persist-credentials: false
 
@@ -76,7 +76,7 @@ jobs:
           mkdir -p "$HOME/.local/share/gh/extensions/gh-aw"
           go build \
             -C .tmp/gh-aw-compiler \
-            -ldflags="-X main.version=v0.88.6 -X main.isRelease=true" \
+            -ldflags="-X main.version=v0.91.6 -X main.isRelease=true" \
             -o "$HOME/.local/share/gh/extensions/gh-aw/gh-aw" \
             ./cmd/gh-aw
           rm -rf .tmp/gh-aw-compiler

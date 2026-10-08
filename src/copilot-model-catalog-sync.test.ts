@@ -77,6 +77,9 @@ const SUPPORTED_WITHOUT_CURATED_PRICING = new Set([
   'o3',
   'o3-mini',
   'gemini-3-1-pro-preview',
+  // Claude Haiku 5.5 is in Copilot CLI; use the static model catalog until
+  // its curated per-model pricing is added.
+  'claude-haiku-5-5',
 ]);
 
 const MAPPING_FAMILIES_NOT_EXPOSED_BY_COPILOT_CLI = new Set([
