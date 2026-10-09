@@ -29,9 +29,14 @@ describe('experimental Cloud Hypervisor enclave smoke workflow', () => {
     expect(lock).toContain('runs-on: ubuntu-24.04');
   });
 
-  it('selects a VM enclave without changing the Docker primary agent', () => {
+  it('selects a Cloud Hypervisor enclave with a gVisor primary agent', () => {
+    expect(source).toContain('runtime: docker');
+    expect(source).toContain('Install and register gVisor (runsc)');
+    expect(source).toContain('config.setdefault("runtimes", {})["runsc"]');
+    expect(source).toContain('docker info --format');
     expect(lock).toContain('\\"runtime\\":\\"cloud-hypervisor\\"');
-    expect(lock).toContain('\\"containerRuntime\\":\\"docker\\"');
+    expect(lock).toContain('awf --container-runtime gvisor --config');
+    expect(lock).toContain('\\"containerRuntime\\":\\"gvisor\\"');
     expect(lock).toContain('\\"cloudHypervisor\\":{\\"previewEnabled\\":true');
     expect(lock).toContain('--exclude-env AWF_CLOUD_HYPERVISOR_ENCLAVE_SCRIPT_ROOTFS');
   });

@@ -74,6 +74,43 @@ for (const workflowPath of codexWorkflowPaths) {
 // The compiler doesn't support sandbox.agent.containerRuntime yet, so we inject it here.
 const runtimeCmdPattern = /awf --config /g;
 
+const enclaveGvisorLockPath = path.join(
+  workflowsDir,
+  'smoke-enclave-cloud-hypervisor.lock.yml',
+);
+if (fs.existsSync(enclaveGvisorLockPath)) {
+  const original = fs.readFileSync(enclaveGvisorLockPath, 'utf-8');
+  const runtimeFlag = 'awf --container-runtime gvisor --config ';
+  const serializedDockerRuntime = String.raw`\"containerRuntime\":\"docker\"`;
+  const serializedGvisorRuntime = String.raw`\"containerRuntime\":\"gvisor\"`;
+  let content = original;
+  if (!content.includes(runtimeFlag)) {
+    content = content.replace(
+      runtimeCmdPattern,
+      runtimeFlag,
+    );
+    if (!content.includes(runtimeFlag)) {
+      throw new Error(`Could not select gVisor runtime in ${enclaveGvisorLockPath}`);
+    }
+  }
+  if (!content.includes(serializedGvisorRuntime)) {
+    const dockerRuntimeCount = content.split(serializedDockerRuntime).length - 1;
+    if (dockerRuntimeCount !== 1) {
+      throw new Error(
+        `Expected exactly one Docker runtime in generated AWF config for ${enclaveGvisorLockPath}; found ${dockerRuntimeCount}`,
+      );
+    }
+    content = content.replace(serializedDockerRuntime, serializedGvisorRuntime);
+  }
+  if (content !== original) {
+    fs.writeFileSync(enclaveGvisorLockPath, content);
+    console.log(`  Selected gVisor for the Cloud Hypervisor enclave smoke agent`);
+    console.log(`Updated ${enclaveGvisorLockPath}`);
+  } else {
+    console.log(`Skipping ${enclaveGvisorLockPath}: gVisor runtime already selected.`);
+  }
+}
+
 const playwrightRuntimeLockPaths = new Map([
   ['smoke-playwright-runc.lock.yml', 'docker-runc'],
   ['smoke-playwright-cloud-hypervisor.lock.yml', 'cloud-hypervisor'],
