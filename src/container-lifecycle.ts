@@ -23,6 +23,7 @@ import {
 import { checkSquidLogs } from './squid-log-reader';
 import { isGvisorRuntime } from './container-runtime';
 import { removeConflictingComposeNetworks } from './compose-network-conflicts';
+import { captureEnclaveStartupDiagnostics } from './enclave/startup-diagnostics';
 
 const GVISOR_RETRYABLE_AGENT_EXIT_CODES = new Set([134, 139]);
 const MAX_GVISOR_AGENT_RETRIES = 1;
@@ -69,6 +70,7 @@ async function attemptContainerStartup(
   skipPull?: boolean,
   onNetworkReady?: () => Promise<void>,
   onInfrastructureReady?: () => Promise<void>,
+  proxyLogsDir?: string,
 ): Promise<Error | undefined> {
   // Phase 1 (topology mode only): start squid-proxy alone so the compose-managed
   // awf-net is created before any health-gated dependents (cli-proxy, agent) start.
@@ -94,6 +96,7 @@ async function attemptContainerStartup(
     logger.info('Topology peers attached; continuing with full container bring-up...');
   }
 
+  let enclaveServerStarted = false;
   try {
     if (onInfrastructureReady) {
       const listed = await execa('docker', ['compose', 'config', '--services'], {
@@ -104,6 +107,7 @@ async function attemptContainerStartup(
         .split('\n')
         .map((service) => service.trim())
         .filter(Boolean);
+      enclaveServerStarted = services.includes('enclave-mcp-server');
       const infrastructure = services.filter(
         (service) => service !== 'agent' && service !== 'iptables-init',
       );
@@ -134,6 +138,9 @@ async function attemptContainerStartup(
     await runDockerComposeUp(workDir, composeArgs);
     return undefined;
   } catch (error) {
+    if (enclaveServerStarted) {
+      await captureEnclaveStartupDiagnostics(workDir, proxyLogsDir, 'startup-failure');
+    }
     return error instanceof Error ? error : new Error(String(error));
   }
 }
@@ -191,7 +198,7 @@ async function handleRetryStartupFailure(
     throw createCliProxyStartupError(dnsFailureHost);
   }
   if (await didContainerFailStartup(retryErrorMsg, ENCLAVE_MCP_SERVER_CONTAINER_NAME)) {
-    await logContainerLogsToStderr(ENCLAVE_MCP_SERVER_CONTAINER_NAME);
+    await captureEnclaveStartupDiagnostics(workDir, proxyLogsDir, 'startup-failure');
     throw retryError;
   }
   // Any remaining retry error (e.g. squid healthcheck or domain blockage) falls
@@ -262,7 +269,7 @@ async function handleStartupFailure(
   }
 
   if (firstAttemptEnclaveServerFailure) {
-    await logContainerLogsToStderr(ENCLAVE_MCP_SERVER_CONTAINER_NAME);
+    await captureEnclaveStartupDiagnostics(workDir, proxyLogsDir, 'startup-failure');
     throw error;
   }
 
@@ -344,6 +351,7 @@ export async function startContainers(
           skipPull,
           onNetworkReady,
           onInfrastructureReady,
+          proxyLogsDir,
         );
         if (error) throw error;
       }
@@ -354,6 +362,7 @@ export async function startContainers(
     skipPull,
     onNetworkReady,
     onInfrastructureReady,
+    proxyLogsDir,
   );
   if (startupError) {
     if (

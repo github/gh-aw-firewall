@@ -51,6 +51,7 @@ import {
   connectEnclaveGateway,
   shutdownEnclaveGateway,
 } from '../enclave/gateway';
+import { captureEnclaveStartupDiagnostics } from '../enclave/startup-diagnostics';
 import {
   assertEnclaveGithubGatewayReady,
   connectEnclaveGithubGateway,
@@ -349,11 +350,13 @@ async function runCleanup(
       }
       try {
         await shutdownEnclaveGateway(config);
-      } catch (error) {
+      } catch {
         enclaveAuditComplete = false;
+        if (config.enclaves?.enabled) {
+          await captureEnclaveStartupDiagnostics(config.workDir, config.proxyLogsDir, 'shutdown-failure');
+        }
         logger.warn(
           'Enclave gateway did not complete graceful shutdown; preserved enclave audit is marked incomplete.',
-          error,
         );
       }
     }
