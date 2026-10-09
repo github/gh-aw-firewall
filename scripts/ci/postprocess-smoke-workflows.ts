@@ -75,8 +75,17 @@ const enclaveDefaultRuntimeLockPath = path.join(
   workflowsDir,
   'smoke-enclave-cloud-hypervisor.lock.yml',
 );
-if (fs.existsSync(enclaveDefaultRuntimeLockPath)) {
-  const original = fs.readFileSync(enclaveDefaultRuntimeLockPath, 'utf-8');
+let enclaveDefaultRuntimeLock: string | undefined;
+try {
+  enclaveDefaultRuntimeLock = fs.readFileSync(enclaveDefaultRuntimeLockPath, 'utf-8');
+} catch (error) {
+  if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+    throw error;
+  }
+  console.log(`Skipping ${enclaveDefaultRuntimeLockPath}: file not found.`);
+}
+if (enclaveDefaultRuntimeLock !== undefined) {
+  const original = enclaveDefaultRuntimeLock;
   const content = omitCloudHypervisorSmokePrimaryRuntime(original);
   if (content !== original) {
     fs.writeFileSync(enclaveDefaultRuntimeLockPath, content);
