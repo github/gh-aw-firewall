@@ -8,6 +8,13 @@ selection. A configuration selecting Cloud Hypervisor enclaves still fails
 closed; it does not fall back to Docker, gVisor, sbx, or the primary-agent
 Cloud Hypervisor runtime.
 
+Run-level backend selection is governed by
+[ADR 0004](0004-unified-workload-sandbox-backends.md): the primary and enclaves
+must use separate instances of one resolved workload backend. Mixed
+Docker-primary / Cloud-Hypervisor-enclave runs are rejected, and unified
+Cloud Hypervisor primary-with-enclave execution remains gated. This does not
+replace the host-executor mechanisms and trust boundaries defined below.
+
 ## Context
 
 Today's enclave broker (`enclave-mcp-server`) launches untrusted Docker-based
