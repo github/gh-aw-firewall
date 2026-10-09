@@ -103,6 +103,49 @@ describe('Codex hosted-web policy', () => {
       .toEqual([['docs.github.com'], ['docs.github.com']]);
   });
 
+  it.each([
+    'Find the latest documentation',
+    [{ role: 'user', content: [{ type: 'input_text', text: 'Find the latest documentation' }] }],
+    [],
+  ])('preserves standalone conversation input and output limits while applying filters: %j', input => {
+    const body = {
+      id: 'search-request',
+      model: 'gpt-5.6-terra',
+      max_output_tokens: 2048,
+      input,
+      settings: { filters: { allowed_domains: ['github.com'] } },
+      commands: { search_query: [{ q: 'documentation', domains: ['github.com'] }] },
+    };
+    expect(enforceStandalone(body, { ...allow, maxUses: undefined })).toEqual({
+      ...body,
+      settings: { filters: { allowed_domains: ['docs.github.com'] } },
+      commands: { search_query: [{ q: 'documentation', domains: ['docs.github.com'] }] },
+    });
+    expect(body.settings.filters.allowed_domains).toEqual(['github.com']);
+    expect(body.commands.search_query[0].domains).toEqual(['github.com']);
+  });
+
+  it('accepts a zero standalone output limit', () => {
+    expect(enforceStandalone({ max_output_tokens: 0 }, { ...allow, maxUses: undefined })
+      .max_output_tokens).toBe(0);
+  });
+
+  it.each([-1, 1.5, '2048', null, true, {}, []])(
+    'rejects invalid standalone max_output_tokens: %j',
+    maxOutputTokens => {
+      expect(() => enforceStandalone({
+        max_output_tokens: maxOutputTokens,
+      }, { ...allow, maxUses: undefined })).toThrow(expect.objectContaining({
+        code: 'codex_hosted_web_shape_invalid', statusCode: 400,
+      }));
+    },
+  );
+
+  it.each([null, 42, true, {}])('rejects invalid standalone input: %j', input => {
+    expect(() => enforceStandalone({ input }, { ...allow, maxUses: undefined }))
+      .toThrow(expect.objectContaining({ code: 'codex_hosted_web_shape_invalid', statusCode: 400 }));
+  });
+
   it('unions standalone blocklists and prevents query scopes from removing blocks', () => {
     const result = enforceStandalone({
       settings: { filters: { blocked_domains: ['ads.example'] } },
@@ -159,22 +202,30 @@ describe('Codex hosted-web policy', () => {
       .toThrow(expect.objectContaining({ code: 'codex_hosted_web_max_uses_unsupported' }));
   });
 
-  it('uses the request path to select the standalone body shape', () => {
-    const transform = makeCodexHostedWebTransform({ ...allow, maxUses: undefined });
-    const transformed = transform(
-      Buffer.from(JSON.stringify({ commands: {} })),
-      { url: '/v1/alpha/search' },
-    );
-    expect(JSON.parse(transformed)).toEqual({
-      commands: {},
-      settings: { filters: { allowed_domains: ['docs.github.com'] } },
-    });
-    expect(JSON.parse(transform(
-      Buffer.from(JSON.stringify({ commands: {} })),
-      { url: '/v1/alpha/search/' },
-    ))).toEqual({
-      commands: {},
-      settings: { filters: { allowed_domains: ['docs.github.com'] } },
-    });
-  });
+  it.each(['/alpha/search', '/v1/alpha/search'])(
+    'uses the request path to select the standalone body shape: %s',
+    pathname => {
+      const transform = makeCodexHostedWebTransform({ ...allow, maxUses: undefined });
+      const body = {
+        commands: { search_query: [{ q: 'documentation' }] },
+        input: [{ role: 'user', content: 'Find documentation' }],
+        max_output_tokens: 2048,
+      };
+      const transformed = transform(
+        Buffer.from(JSON.stringify(body)),
+        { url: pathname },
+      );
+      expect(JSON.parse(transformed)).toEqual({
+        ...body,
+        settings: { filters: { allowed_domains: ['docs.github.com'] } },
+      });
+      expect(JSON.parse(transform(
+        Buffer.from(JSON.stringify(body)),
+        { url: `${pathname}/` },
+      ))).toEqual({
+        ...body,
+        settings: { filters: { allowed_domains: ['docs.github.com'] } },
+      });
+    },
+  );
 });
