@@ -5,6 +5,7 @@ import * as path from 'path';
 
 import { applyGeneralWorkflowPatches } from './apply-general-workflow-patches';
 import { applyCodexWorkflowPatches } from './apply-codex-workflow-patches';
+import { omitCloudHypervisorSmokePrimaryRuntime } from './workflow-patch-patterns';
 
 
 const repoRoot = path.resolve(__dirname, '../..');
@@ -70,44 +71,19 @@ for (const workflowPath of codexWorkflowPaths) {
   }
 }
 
-// ── Runtime workflow patching: inject --container-runtime into AWF commands ───
-// The compiler doesn't support sandbox.agent.containerRuntime yet, so we inject it here.
-const runtimeCmdPattern = /awf --config /g;
-
-const enclaveGvisorLockPath = path.join(
+const enclaveDefaultRuntimeLockPath = path.join(
   workflowsDir,
   'smoke-enclave-cloud-hypervisor.lock.yml',
 );
-if (fs.existsSync(enclaveGvisorLockPath)) {
-  const original = fs.readFileSync(enclaveGvisorLockPath, 'utf-8');
-  const runtimeFlag = 'awf --container-runtime gvisor --config ';
-  const serializedDockerRuntime = String.raw`\"containerRuntime\":\"docker\"`;
-  const serializedGvisorRuntime = String.raw`\"containerRuntime\":\"gvisor\"`;
-  let content = original;
-  if (!content.includes(runtimeFlag)) {
-    content = content.replace(
-      runtimeCmdPattern,
-      runtimeFlag,
-    );
-    if (!content.includes(runtimeFlag)) {
-      throw new Error(`Could not select gVisor runtime in ${enclaveGvisorLockPath}`);
-    }
-  }
-  if (!content.includes(serializedGvisorRuntime)) {
-    const dockerRuntimeCount = content.split(serializedDockerRuntime).length - 1;
-    if (dockerRuntimeCount !== 1) {
-      throw new Error(
-        `Expected exactly one Docker runtime in generated AWF config for ${enclaveGvisorLockPath}; found ${dockerRuntimeCount}`,
-      );
-    }
-    content = content.replace(serializedDockerRuntime, serializedGvisorRuntime);
-  }
+if (fs.existsSync(enclaveDefaultRuntimeLockPath)) {
+  const original = fs.readFileSync(enclaveDefaultRuntimeLockPath, 'utf-8');
+  const content = omitCloudHypervisorSmokePrimaryRuntime(original);
   if (content !== original) {
-    fs.writeFileSync(enclaveGvisorLockPath, content);
-    console.log(`  Selected gVisor for the Cloud Hypervisor enclave smoke agent`);
-    console.log(`Updated ${enclaveGvisorLockPath}`);
+    fs.writeFileSync(enclaveDefaultRuntimeLockPath, content);
+    console.log(`  Omitted the primary container runtime for the Cloud Hypervisor enclave smoke`);
+    console.log(`Updated ${enclaveDefaultRuntimeLockPath}`);
   } else {
-    console.log(`Skipping ${enclaveGvisorLockPath}: gVisor runtime already selected.`);
+    console.log(`Skipping ${enclaveDefaultRuntimeLockPath}: primary runtime is already unset.`);
   }
 }
 
