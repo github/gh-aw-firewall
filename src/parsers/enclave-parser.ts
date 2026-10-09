@@ -8,6 +8,7 @@ import {
   type RawEnclaveScriptEntry,
   type RawEnclavesConfig,
 } from '../types/enclave-options';
+import { resolveRunSandboxBackend } from '../enclave/run-backend';
 
 function isScriptEntry(entry: RawEnclaveEntry): entry is RawEnclaveScriptEntry {
   return Object.prototype.hasOwnProperty.call(entry, 'script');
@@ -60,9 +61,13 @@ function entryCommon(entry: RawEnclaveEntry | undefined): object {
  * Structural violations fail closed at parse time: an entry must carry exactly
  * one `script` or `agent` key, and at most one entry may exist per executor
  * kind.
+ * Production assembly supplies the primary selection to inherit omitted
+ * runtimes and reject conflicts. Without it this is a structural normalizer
+ * for trusted executor-level tooling; run validation still checks consistency.
  */
 export function normalizeEnclavesConfig(
   raw: RawEnclavesConfig | undefined,
+  selection?: { primaryRuntime?: string },
 ): EnclavesConfig | undefined {
   if (!raw) return undefined;
   if (!Array.isArray(raw)) {
@@ -93,12 +98,28 @@ export function normalizeEnclavesConfig(
     }
   }
 
+  const backend = selection && raw.length > 0
+    ? resolveRunSandboxBackend(selection.primaryRuntime)
+    : undefined;
+  if (backend === 'nvx') {
+    throw new Error('NVX enclaves are not implemented; no runtime fallback is permitted');
+  }
+  for (const entry of raw) {
+    if (backend !== undefined && entry.runtime !== undefined && entry.runtime !== backend) {
+      throw new Error(
+        `Enclave backend "${entry.runtime}" differs from primary backend "${backend}"; `
+        + 'one sandbox backend is required per run; no runtime fallback',
+      );
+    }
+  }
+
   return {
     enabled: raw.length > 0,
     privateRepos: mergeRepositories(raw),
     executors: {
       script: {
         ...ENCLAVE_SCRIPT_EXECUTOR_DEFAULTS,
+        ...(backend !== undefined && { runtime: backend }),
         ...entryCommon(script),
         ...script?.script,
         enabled: script !== undefined,
@@ -106,6 +127,7 @@ export function normalizeEnclavesConfig(
       },
       agent: {
         ...ENCLAVE_AGENT_EXECUTOR_DEFAULTS,
+        ...(backend !== undefined && { runtime: backend }),
         ...entryCommon(agent),
         ...agent?.agent,
         enabled: agent !== undefined,

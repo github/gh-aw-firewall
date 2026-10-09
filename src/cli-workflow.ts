@@ -6,6 +6,7 @@ import { resolveNetworkAddressing } from './network-subnet';
 import { buildInternalServiceHosts } from './services/internal-service-hosts';
 import { TOPOLOGY_NETWORK_NAME, getTopologyContainerIps, patchComposeWithTopologyHosts } from './topology';
 import { validateEnclavesConfig } from './enclave/preflight';
+import { validateRunSandboxBackend } from './enclave/run-backend';
 import { isEnclaveAgentGithubRouteEnabled } from './types/enclave-options';
 import type { ModelRoutingBootstrapState } from './types';
 import {
@@ -124,7 +125,10 @@ export async function runMainWorkflow(
   // check belongs to `prepareEnclaves` below, which still runs before any
   // container is created.
   await checks.check('configuration', () => {
-    const enclaveErrors = validateEnclavesConfig(config, { requireDelegationHandoff: false });
+    const enclaveErrors = [
+      ...(config.enclaves ? validateRunSandboxBackend(config.containerRuntime, config.enclaves) : []),
+      ...validateEnclavesConfig(config, { requireDelegationHandoff: false }),
+    ];
     if (enclaveErrors.length > 0) {
       throw new Error(`Invalid enclave configuration:\n- ${enclaveErrors.join('\n- ')}`);
     }

@@ -260,6 +260,7 @@ export function buildConfig(inputs: BuildConfigInputs): WrapperConfig {
     nvx,
     enclaves: normalizeEnclavesConfig(
       options.enclaves as AwfFileConfig['enclaves'] | undefined,
+      { primaryRuntime: options.containerRuntime as string | undefined },
     ),
   };
 }
