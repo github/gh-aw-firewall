@@ -1,6 +1,6 @@
 # AWF enclave images. Build context: containers/.
 
-FROM python:3.14.7-alpine3.24 AS enclave-script
+FROM python:3.14.8-alpine3.24 AS enclave-script
 
 RUN apk upgrade --no-cache \
     && python3 -c 'import json, pathlib, sys; sys.exit(0)' \
