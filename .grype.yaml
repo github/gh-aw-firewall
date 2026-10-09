@@ -52,6 +52,75 @@ ignore:
       version: "1.37.0-r31"
       type: apk
 
+  # ── Go 1.26.8 stdlib findings in Alpine's docker-cli ───────────────────────
+  #
+  # The Alpine 3.24 docker-cli package embeds Go 1.26.8 and currently reports
+  # these findings with fixes in Go 1.26.9 / 1.27.2. The enclave MCP server
+  # invokes docker only through its local Unix socket using fixed lifecycle
+  # commands; it does not expose a Docker API listener or allow callers to
+  # supply arbitrary Docker CLI arguments. Revisit these exceptions when Alpine
+  # publishes a v3.24 docker-cli package built with a fixed Go release.
+  - vulnerability: GO-2026-6603
+    package:
+      name: stdlib
+      version: "go1.26.8"
+      type: go-module
+      location: "/usr/bin/docker"
+  - vulnerability: GO-2026-6604
+    package:
+      name: stdlib
+      version: "go1.26.8"
+      type: go-module
+      location: "/usr/bin/docker"
+  - vulnerability: GO-2026-6605
+    package:
+      name: stdlib
+      version: "go1.26.8"
+      type: go-module
+      location: "/usr/bin/docker"
+  - vulnerability: GO-2026-6607
+    package:
+      name: stdlib
+      version: "go1.26.8"
+      type: go-module
+      location: "/usr/bin/docker"
+  - vulnerability: GO-2026-6608
+    package:
+      name: stdlib
+      version: "go1.26.8"
+      type: go-module
+      location: "/usr/bin/docker"
+  - vulnerability: GO-2026-6610
+    package:
+      name: stdlib
+      version: "go1.26.8"
+      type: go-module
+      location: "/usr/bin/docker"
+  - vulnerability: GO-2026-6611
+    package:
+      name: stdlib
+      version: "go1.26.8"
+      type: go-module
+      location: "/usr/bin/docker"
+  - vulnerability: GO-2026-6612
+    package:
+      name: stdlib
+      version: "go1.26.8"
+      type: go-module
+      location: "/usr/bin/docker"
+  - vulnerability: GO-2026-6613
+    package:
+      name: stdlib
+      version: "go1.26.8"
+      type: go-module
+      location: "/usr/bin/docker"
+  - vulnerability: GO-2026-6617
+    package:
+      name: stdlib
+      version: "go1.26.8"
+      type: go-module
+      location: "/usr/bin/docker"
+
   # ── Node.js 22.23.2 Permission Model false positive ───────────────────────────
   #
   # CVE-2026-58043 (Node.js Permission Model path matching, HIGH):
