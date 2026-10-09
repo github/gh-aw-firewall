@@ -283,6 +283,38 @@ Docker and readiness is a host request to a published loopback gateway route,
 not guest DNS; CH script guests have no NIC, and agent data-plane networking is
 separate.
 
+### Retained MCP server startup evidence
+
+AWF captures the enclave MCP server before a failed infrastructure/readiness
+attempt can enter automatic retry or container removal. A failed graceful
+shutdown also captures the stopped server before final removal. Up to eight
+independent snapshots are retained under
+`sandbox/firewall/logs/enclave-startup/attempt-*/diagnostic.json` when gh-aw supplies
+its firewall log directory. Without a configured log directory they are part of
+the preserved `squid-logs` tree. ARC/DinD capture is host-produced and stays in
+the runner-visible log directory, not the daemon's translated bind-mount path.
+
+Each snapshot includes status, running state, exit code, OOM state and whether
+Docker reported an error (not its text). Docker inspect and the last 50 log lines
+are each bounded to five seconds and 16 KiB. Raw logs are never saved or echoed:
+only closed-set error type/errno classifications and, for newer server images,
+startup stage and up to eight allowlisted AWF module/line/column frames survive.
+Messages, arbitrary paths, function names, environment, headers, capabilities
+and repository seed data are excluded. Module-load failures before the server's
+startup handler and older images yield coarse log classifications only.
+Unavailable/oversized capture is recorded without masking the startup failure;
+earlier attempts are not overwritten. These artifacts are distinct from mcpg's
+`mcp-logs/awf-enclave.log`, which records backend connection attempts rather than
+the enclave server's stderr.
+
+The experimental Cloud Hypervisor smoke still installs **published AWF v0.28.49**
+and release-matched attested guest artifacts. Source changes here do not add
+capture to that published binary or origin diagnostics to its server image.
+Live verification requires a release containing the host and server changes,
+followed by a coordinated update of the package, images and matching attested
+Cloud Hypervisor artifacts. Local builds must not silently replace that
+release-attested verification path.
+
 After primary-agent work stops, AWF gives the enclave server a bounded
 4860-second stop grace. The server closes admissions, drains its single execution
 lane, reconciles labelled enclaves, and exits before AWF preserves audit

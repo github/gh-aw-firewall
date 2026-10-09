@@ -20,6 +20,7 @@ jest.mock('./signal-handler');
 jest.mock('./validate-options');
 jest.mock('../sbx-manager');
 jest.mock('../enclave/gateway');
+jest.mock('../enclave/startup-diagnostics');
 jest.mock('../enclave/github-gateway');
 jest.mock('../enclave/cloud-hypervisor-lifecycle');
 jest.mock('../external-runtime-backend-resolver', () => {
@@ -43,6 +44,7 @@ import * as signalHandler from './signal-handler';
 import * as validateOptions from './validate-options';
 import * as sbxManager from '../sbx-manager';
 import * as enclaveGateway from '../enclave/gateway';
+import { captureEnclaveStartupDiagnostics } from '../enclave/startup-diagnostics';
 import * as enclaveGithubGateway from '../enclave/github-gateway';
 import * as enclaveHostLifecycle from '../enclave/cloud-hypervisor-lifecycle';
 import * as externalRuntimeResolver from '../external-runtime-backend-resolver';
@@ -1320,10 +1322,16 @@ describe('createMainAction', () => {
 
     it('preserves audits after an enclave drain failure', async () => {
       mockedEnclaveGateway.shutdownEnclaveGateway.mockRejectedValueOnce(
-        new Error('drain failed')
+        new Error('drain failed: Bearer SECRET repository seed')
       );
+      const config = {
+        ...MAIN_ACTION_STUB_CONFIG,
+        enclaves: normalizeEnclavesConfig([
+          { script: {}, repos: [{ repo: 'octo/private', sensitivity: 'internal' }] },
+        ]),
+      };
       const performCleanup = testHelpers.buildCleanupFn(
-        MAIN_ACTION_STUB_CONFIG,
+        config,
         () => true,
         () => false,
       );
@@ -1332,8 +1340,13 @@ describe('createMainAction', () => {
 
       expect(mockedLogger.warn).toHaveBeenCalledWith(
         'Enclave gateway did not complete graceful shutdown; preserved enclave audit is marked incomplete.',
-        expect.any(Error)
       );
+      expect(JSON.stringify(mockedLogger.warn.mock.calls)).not.toContain('SECRET');
+      expect(captureEnclaveStartupDiagnostics).toHaveBeenCalledWith(
+        config.workDir, config.proxyLogsDir, 'shutdown-failure',
+      );
+      expect(jest.mocked(captureEnclaveStartupDiagnostics).mock.invocationCallOrder[0])
+        .toBeLessThan(mockedDockerManager.stopContainers.mock.invocationCallOrder[0]);
       expect(mockedDockerManager.preserveIptablesAudit).toHaveBeenCalled();
       expect(mockedDockerManager.stopContainers).toHaveBeenCalled();
     });

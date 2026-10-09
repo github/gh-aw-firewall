@@ -59,6 +59,33 @@ describe('Cloud Hypervisor diagnostic artifact handoff', () => {
     }
   });
 
+  it.each([undefined, '/host'])('retains host enclave startup evidence with path prefix %s', (prefix) => {
+    const workDir = path.join(scratch, 'awf-capture');
+    const logsDir = path.join(scratch, 'logs');
+    const attempt = path.join(logsDir, 'enclave-startup', 'attempt-first');
+    fs.mkdirSync(workDir);
+    fs.mkdirSync(attempt, { recursive: true, mode: 0o755 });
+    const file = path.join(attempt, 'diagnostic.json');
+    fs.writeFileSync(file, '{"state":{"exitCode":1}}\n', { mode: 0o644 });
+
+    preserveCleanupArtifacts(workDir, { proxyLogsDir: logsDir, dockerHostPathPrefix: prefix });
+    fs.rmSync(workDir, { recursive: true });
+
+    expect(fs.readFileSync(file, 'utf8')).toContain('"exitCode":1');
+    expect(fs.statSync(file).mode & 0o777).toBe(0o644);
+  });
+
+  it('moves default startup snapshots with the preserved Squid log tree before workDir cleanup', () => {
+    const workDir = path.join(scratch, 'awf-capture');
+    const attempt = path.join(workDir, 'squid-logs', 'enclave-startup', 'attempt-first');
+    fs.mkdirSync(attempt, { recursive: true });
+    fs.writeFileSync(path.join(attempt, 'diagnostic.json'), '{"state":{"exitCode":1}}\n');
+    preserveCleanupArtifacts(workDir);
+    fs.rmSync(workDir, { recursive: true });
+    expect(fs.readFileSync(path.join(os.tmpdir(), 'squid-logs-capture',
+      'enclave-startup', 'attempt-first', 'diagnostic.json'), 'utf8')).toContain('"exitCode":1');
+  });
+
   it.each(['audit', 'audit-diagnostics', 'default-audit', 'default-diagnostics'])(
     'preserves runner-owned private diagnostics through %s cleanup',
     async (location) => {

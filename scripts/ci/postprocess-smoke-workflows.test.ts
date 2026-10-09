@@ -31,6 +31,7 @@ import {
   issueDuplicationConclusionConcurrencySentinel,
   ripgrepInstallStepRegex,
   patchLocalBuildCloudHypervisorArtifacts,
+  omitCloudHypervisorSmokePrimaryRuntime,
 } from './workflow-patch-patterns';
 import {
   buildCopySessionStateStep,
@@ -38,6 +39,29 @@ import {
 } from './workflow-step-builders';
 import { applyCodexWorkflowPatches } from './apply-codex-workflow-patches';
 
+
+describe('omitCloudHypervisorSmokePrimaryRuntime', () => {
+  it('removes only the explicit default Docker primary runtime and is idempotent', () => {
+    const input =
+      String.raw`\"container\":{\"containerRuntime\":\"docker\",\"imageTag\":\"0.28.49\"},` +
+      String.raw`"enclaves":[{"runtime":"cloud-hypervisor"}]`;
+    const expected =
+      String.raw`\"container\":{\"imageTag\":\"0.28.49\"},` +
+      String.raw`"enclaves":[{"runtime":"cloud-hypervisor"}]`;
+
+    expect(omitCloudHypervisorSmokePrimaryRuntime(input)).toBe(expected);
+    expect(omitCloudHypervisorSmokePrimaryRuntime(expected)).toBe(expected);
+  });
+
+  it('rejects any emitted primary runtime override', () => {
+    expect(() => omitCloudHypervisorSmokePrimaryRuntime(
+      String.raw`awf --container-runtime gvisor --config config.json`,
+    )).toThrow('Cloud Hypervisor enclave smoke must leave the primary runtime unset');
+    expect(() => omitCloudHypervisorSmokePrimaryRuntime(
+      String.raw`\"container\":{\"containerRuntime\":\"gvisor\"}`,
+    )).toThrow('Cloud Hypervisor enclave smoke must leave the primary runtime unset');
+  });
+});
 
 describe('installStepRegex', () => {
   it('should match unquoted /opt/gh-aw path', () => {

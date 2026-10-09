@@ -40,7 +40,6 @@ sandbox:
   agent:
     id: awf
     version: v0.28.49
-    runtime: docker
 strict: false
 concurrency:
   group: smoke-enclave-cloud-hypervisor
@@ -80,8 +79,9 @@ post-steps:
 # Experimental Cloud Hypervisor Script Enclave Smoke Test
 
 This manual-only preview tests the real compiler-launched MCP Gateway and the
-AWF-owned Cloud Hypervisor script executor. The primary agent runs on Docker.
-Unsupported hosts fail closed; no Docker enclave fallback is permitted.
+AWF-owned Cloud Hypervisor script executor. The primary agent uses the default
+Docker/runc runtime. Enclave execution must use Cloud Hypervisor and fails
+closed; no Docker enclave fallback is permitted.
 The published AWF binary and release-attested artifacts are pinned together.
 
 Use `enclave_run_script` exactly once for `github/gh-aw-firewall`.

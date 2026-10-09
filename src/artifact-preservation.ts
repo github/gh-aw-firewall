@@ -341,6 +341,19 @@ export function preserveCleanupArtifacts(
     : undefined;
   if (proxyLogsDir && proxyLogsDir !== runnerVisibleProxyLogsDir) {
     preserveHostStartupDiagnostic(proxyLogsDir);
+    preserveDirectory({
+      runtimeDir: proxyLogsDir,
+      runtimeSubdir: 'enclave-startup',
+      workDir,
+      workSubdir: 'squid-logs/enclave-startup',
+      destinationBaseName: 'awf-enclave-startup',
+      timestamp,
+      availableLabel: 'Host enclave startup diagnostics',
+      preservedLabel: 'Host enclave startup diagnostics',
+      permissionErrorMessage: 'Could not repair enclave startup diagnostic permissions:',
+      preserveErrorMessage: 'Could not preserve enclave startup diagnostics:',
+      chmodRuntimeDir: false,
+    });
   }
 
   preserveDirectory({
