@@ -27,6 +27,9 @@ const { AGENT_TOOL_NAME, TOOL_NAME, dispatchJsonRpc, parseJsonRpcBody } = requir
 const { createDynamicDelegationClient } = require('./delegation-channel');
 const { createToolCallBudget } = require('./tool-call-budget');
 const { createHostExecutorRunner } = require('./host-executor-runner');
+const { startupDiagnostic } = require('./startup-diagnostics');
+
+let startupStage = 'server-config';
 
 const MAX_HTTP_BODY_BYTES = 420 * 1024;
 const RESPONSE_HEADERS = {
@@ -182,13 +185,16 @@ function listenOnPrivateNetwork(server, config) {
 }
 
 async function main() {
+  startupStage = 'server-config';
   const serverConfig = loadServerConfig();
+  startupStage = 'audit';
   fs.rmSync(serverConfig.readyPath, { force: true });
   const audit = createProtectedAuditLog(serverConfig.auditDir, 'enclave.jsonl');
   const telemetry = createRuntimeTelemetry(serverConfig.auditDir);
   const clock = createRealClock();
   // A dynamic-only run stages no seed catalog at all: no clone, no seed map,
   // no /awf/seed mount, and no job token anywhere in the topology.
+  startupStage = 'seed-map';
   const { runId, seeds } = serverConfig.seedMapEnabled
     ? loadSeedMap(serverConfig.seedMapPath)
     : { runId: serverConfig.runId, seeds: new Map() };
@@ -196,6 +202,7 @@ async function main() {
     throw new Error('The enclave broker could not resolve this run identity');
   }
 
+  startupStage = 'executors';
   const scriptEnabled = isScriptExecutorEnabled();
   const agentEnabled = isAgentExecutorEnabled();
   if (!scriptEnabled && !agentEnabled) {
@@ -216,11 +223,14 @@ async function main() {
   let maxPromptBytes;
 
   if (scriptEnabled) {
+    startupStage = 'script-config';
     const config = loadConfig();
     const runner = config.executorBackend === 'cloud-hypervisor'
       ? createHostExecutorRunner(config, { nowMs: clock.nowMs })
       : createScriptRunner(config, { nowMs: clock.nowMs });
+    startupStage = 'script-available';
     await runner.assertAvailable();
+    startupStage = 'script-reconcile';
     await runner.reconcileRun(runId);
     runners.push({ runner, config });
     maxScriptBytes = config.maxScriptBytes;
@@ -241,11 +251,14 @@ async function main() {
   }
 
   if (agentEnabled) {
+    startupStage = 'agent-config';
     const config = loadAgentConfig(serverConfig);
     const runner = config.executorBackend === 'cloud-hypervisor'
       ? createHostExecutorRunner(config, { nowMs: clock.nowMs })
       : createAgentRunner(config, { nowMs: clock.nowMs });
+    startupStage = 'agent-available';
     await runner.assertAvailable();
+    startupStage = 'agent-reconcile';
     await runner.reconcileRun(runId);
     runners.push({ runner, config });
     maxPromptBytes = config.maxPromptBytes;
@@ -291,6 +304,7 @@ async function main() {
     category: 'ready',
   });
 
+  startupStage = 'tool-budget';
   const toolCallBudget = createToolCallBudget({
     maxToolCalls: serverConfig.maxToolCalls,
     runId,
@@ -307,7 +321,9 @@ async function main() {
     maxPromptBytes,
     toolCallBudget,
   });
+  startupStage = 'listen';
   await listenOnPrivateNetwork(server, serverConfig);
+  startupStage = 'ready-file';
   fs.mkdirSync(serverConfig.controlDir, { recursive: true, mode: 0o700 });
   fs.writeFileSync(serverConfig.readyPath, '', { mode: 0o600 });
   audit.lifecycle('listening', { executors });
@@ -348,7 +364,7 @@ async function main() {
 
 if (require.main === module) {
   main().catch((error) => {
-    process.stderr.write(`[awf-enclave] server failed to start: ${error.message}\n`);
+    process.stderr.write(`${JSON.stringify(startupDiagnostic(error, startupStage))}\n`);
     process.exit(1);
   });
 }

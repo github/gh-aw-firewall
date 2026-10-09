@@ -744,9 +744,17 @@ describe('enclave mcpg handoff', () => {
   it('reports enclave server OOM state after an abnormal shutdown', async () => {
     mockExeca
       .mockResolvedValueOnce({ exitCode: 0, stdout: '', stderr: '' })
-      .mockResolvedValueOnce({ exitCode: 0, stdout: '137|true|\n', stderr: '' });
+      .mockResolvedValueOnce({ exitCode: 0, stdout: '137|true|Bearer SECRET seed data\n', stderr: '' });
     await expect(shutdownEnclaveGateway(config(), env()))
       .rejects.toThrow(/137\|true\|/);
     expect(mockExeca).toHaveBeenCalledTimes(2);
+  });
+
+  it('withholds arbitrary Docker state error text on failed cleanup', async () => {
+    mockExeca
+      .mockResolvedValueOnce({ exitCode: 0, stdout: '', stderr: '' })
+      .mockResolvedValueOnce({ exitCode: 0, stdout: '1|false|Bearer SECRET seed data', stderr: '' });
+    await expect(shutdownEnclaveGateway(config(), env()))
+      .rejects.toThrow('state: 1|false|[error text withheld]');
   });
 });

@@ -29,9 +29,12 @@ describe('experimental Cloud Hypervisor enclave smoke workflow', () => {
     expect(lock).toContain('runs-on: ubuntu-24.04');
   });
 
-  it('selects a VM enclave without changing the Docker primary agent', () => {
+  it('selects a Cloud Hypervisor enclave and leaves the primary runtime at its default', () => {
+    expect(source).not.toMatch(/sandbox:\s+agent:\s+id: awf\s+version: v0\.28\.49\s+runtime:/);
+    expect(source).not.toContain('gVisor');
     expect(lock).toContain('\\"runtime\\":\\"cloud-hypervisor\\"');
-    expect(lock).toContain('\\"containerRuntime\\":\\"docker\\"');
+    expect(lock).not.toContain('awf --container-runtime ');
+    expect(lock).not.toContain('\\"containerRuntime\\":');
     expect(lock).toContain('\\"cloudHypervisor\\":{\\"previewEnabled\\":true');
     expect(lock).toContain('--exclude-env AWF_CLOUD_HYPERVISOR_ENCLAVE_SCRIPT_ROOTFS');
   });

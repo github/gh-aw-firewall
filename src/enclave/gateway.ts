@@ -623,8 +623,11 @@ export async function shutdownEnclaveGateway(
   );
   const state = inspectResult.stdout.trim();
   if (inspectResult.exitCode !== 0 || !state.startsWith('0|false|')) {
+    const match = /^(\d{1,3})\|(true|false)\|/.exec(state);
+    const safeState = match && Number(match[1]) <= 255
+      ? `${Number(match[1])}|${match[2]}|[error text withheld]` : 'unavailable';
     throw new Error(
-      `Enclave MCP server did not complete graceful cleanup (state: ${state || 'unavailable'})`,
+      `Enclave MCP server did not complete graceful cleanup (state: ${safeState}); see retained enclave startup diagnostics`,
     );
   }
   await execa(

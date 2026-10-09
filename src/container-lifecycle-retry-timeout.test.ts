@@ -13,11 +13,13 @@
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 jest.mock('execa', () => require('./test-helpers/mock-execa.test-utils').execaMockFactory());
 jest.mock('./container-startup-diagnostics');
+jest.mock('./enclave/startup-diagnostics');
 jest.mock('./squid-log-reader', () => ({
   checkSquidLogs: jest.fn().mockResolvedValue({ hasDenials: false, blockedTargets: [] }),
 }));
 
 import { startContainers, runAgentCommand, fastKillAgentContainer } from './container-lifecycle';
+import { captureEnclaveStartupDiagnostics } from './enclave/startup-diagnostics';
 import { containerLifecycleTestHelpers } from './container-lifecycle.test-utils';
 import { markAgentExternallyKilled } from './container-lifecycle-state';
 import { mockExecaFn } from './test-helpers/mock-execa.test-utils';
@@ -42,6 +44,7 @@ describe('container-lifecycle retry and timeout branches', () => {
 
   beforeEach(() => {
     mockExecaFn.mockReset();
+    jest.mocked(captureEnclaveStartupDiagnostics).mockReset();
     containerLifecycleTestHelpers.resetAgentExternallyKilled();
 
     mockDidContainerFailStartup.mockReset();
@@ -128,7 +131,7 @@ describe('container-lifecycle retry and timeout branches', () => {
     });
 
     describe('startContainers - enclave MCP server fails on first attempt', () => {
-      it('surfaces server logs without retrying', async () => {
+      it('captures safe server diagnostics without dumping raw logs or retrying', async () => {
         const startupError = new Error(
           'dependency failed to start: container awf-enclave-mcp-server exited (1)',
         );
@@ -143,8 +146,9 @@ describe('container-lifecycle retry and timeout branches', () => {
           .mockResolvedValueOnce(true); // enclave MCP server
 
         await expect(startContainers(getDir(), ['github.com'])).rejects.toThrow(startupError);
-        expect(mockLogContainerLogsToStderr)
-          .toHaveBeenCalledWith('awf-enclave-mcp-server');
+        expect(captureEnclaveStartupDiagnostics)
+          .toHaveBeenCalledWith(getDir(), undefined, 'startup-failure');
+        expect(mockLogContainerLogsToStderr).not.toHaveBeenCalled();
         expectComposeUpAttempts(1);
       });
     });

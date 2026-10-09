@@ -5,6 +5,7 @@ import * as path from 'path';
 
 import { applyGeneralWorkflowPatches } from './apply-general-workflow-patches';
 import { applyCodexWorkflowPatches } from './apply-codex-workflow-patches';
+import { omitCloudHypervisorSmokePrimaryRuntime } from './workflow-patch-patterns';
 
 
 const repoRoot = path.resolve(__dirname, '../..');
@@ -70,9 +71,30 @@ for (const workflowPath of codexWorkflowPaths) {
   }
 }
 
-// ── Runtime workflow patching: inject --container-runtime into AWF commands ───
-// The compiler doesn't support sandbox.agent.containerRuntime yet, so we inject it here.
-const runtimeCmdPattern = /awf --config /g;
+const enclaveDefaultRuntimeLockPath = path.join(
+  workflowsDir,
+  'smoke-enclave-cloud-hypervisor.lock.yml',
+);
+let enclaveDefaultRuntimeLock: string | undefined;
+try {
+  enclaveDefaultRuntimeLock = fs.readFileSync(enclaveDefaultRuntimeLockPath, 'utf-8');
+} catch (error) {
+  if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+    throw error;
+  }
+  console.log(`Skipping ${enclaveDefaultRuntimeLockPath}: file not found.`);
+}
+if (enclaveDefaultRuntimeLock !== undefined) {
+  const original = enclaveDefaultRuntimeLock;
+  const content = omitCloudHypervisorSmokePrimaryRuntime(original);
+  if (content !== original) {
+    fs.writeFileSync(enclaveDefaultRuntimeLockPath, content);
+    console.log(`  Omitted the primary container runtime for the Cloud Hypervisor enclave smoke`);
+    console.log(`Updated ${enclaveDefaultRuntimeLockPath}`);
+  } else {
+    console.log(`Skipping ${enclaveDefaultRuntimeLockPath}: primary runtime is already unset.`);
+  }
+}
 
 const playwrightRuntimeLockPaths = new Map([
   ['smoke-playwright-runc.lock.yml', 'docker-runc'],
