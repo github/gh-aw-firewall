@@ -13,7 +13,7 @@ const SEARCH_PATHS = new Set(['/v1/alpha/search', '/alpha/search']);
 const SEARCH_COMMANDS = new Set(['search_query', 'image_query', 'open', 'click', 'find', 'screenshot']);
 const URL_COMMANDS = new Set(['open', 'find', 'screenshot']);
 const FILTER_FIELDS = new Set(['allowed_domains', 'blocked_domains']);
-const STANDALONE_FIELDS = new Set(['id', 'model', 'settings', 'commands']);
+const STANDALONE_FIELDS = new Set(['id', 'model', 'settings', 'commands', 'max_output_tokens', 'input']);
 const TOOL_FIELDS = new Set([
   'type', 'external_web_access', 'indexed_web_access', 'filters', 'user_location',
   'search_context_size', 'search_content_types', 'image_settings', 'max_uses',
@@ -271,6 +271,21 @@ function enforceStandalone(body, policy) {
     'codex_hosted_web_shape_invalid',
     'Codex standalone hosted search body contains an unrecognized field.',
   );
+  if (hasField(body, 'max_output_tokens') &&
+      (!Number.isInteger(body.max_output_tokens) || body.max_output_tokens < 0)) {
+    throw new CodexHostedWebPolicyError(
+      'codex_hosted_web_shape_invalid',
+      'Codex standalone hosted search "max_output_tokens" must be a non-negative integer.',
+      400,
+    );
+  }
+  if (hasField(body, 'input') && typeof body.input !== 'string' && !Array.isArray(body.input)) {
+    throw new CodexHostedWebPolicyError(
+      'codex_hosted_web_shape_invalid',
+      'Codex standalone hosted search "input" must be a string or an array of items.',
+      400,
+    );
+  }
   const settings = body.settings === undefined ? {} : body.settings;
   if (!settings || typeof settings !== 'object' || Array.isArray(settings)) {
     throw new CodexHostedWebPolicyError(
