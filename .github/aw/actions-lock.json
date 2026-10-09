@@ -1,5 +1,10 @@
 {
   "entries": {
+    "actions/attest-build-provenance@v4.2.2": {
+      "repo": "actions/attest-build-provenance",
+      "version": "v4.2.2",
+      "sha": "4d101475d8b20a2381f78447822ac1eab6504dd8"
+    },
     "actions/cache/restore@v6.1.0": {
       "repo": "actions/cache/restore",
       "version": "v6.1.0",
@@ -65,15 +70,10 @@
       "version": "v10.2.0",
       "sha": "c18668ad3cf93ea998bef934396af7bb5c839dc7"
     },
-    "github/gh-aw-actions/setup-cli@v0.91.6": {
-      "repo": "github/gh-aw-actions/setup-cli",
-      "version": "v0.91.6",
-      "sha": "13f59f7032b1e9a26305dada85d6b99fa2a5e649"
-    },
-    "github/gh-aw-actions/setup@v0.91.6": {
+    "github/gh-aw-actions/setup@v0.91.7": {
       "repo": "github/gh-aw-actions/setup",
-      "version": "v0.91.6",
-      "sha": "13f59f7032b1e9a26305dada85d6b99fa2a5e649"
+      "version": "v0.91.7",
+      "sha": "7a073567000cd18a81b85d31527ac08d414c9599"
     }
   },
   "containers": {

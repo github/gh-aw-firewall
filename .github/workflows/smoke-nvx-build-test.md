@@ -7,6 +7,7 @@ on:
     events: [pull_request]
     remove_label: false
   reaction: "eyes"
+  needs: [build_nvx_artifacts]
 concurrency:
   job-discriminator: ${{ github.run_id }}
 permissions:
@@ -18,6 +19,26 @@ permissions:
 name: Smoke NVX Build Test
 engine:
   id: copilot
+sandbox:
+  agent:
+    runtime: nvx
+    nvx:
+      preview: true
+      network-isolation: true
+      api-proxy: true
+      mount-policy: workspace-only
+      layer-path: ${{ runner.temp }}/nvx-alpine-root
+      openvmm-path: ${{ runner.temp }}/nvx-attested-artifacts/openvmm
+      kernel-path: ${{ runner.temp }}/nvx-attested-artifacts/vmlinux
+      initramfs-path: ${{ runner.temp }}/nvx-attested-artifacts/initramfs.cpio.gz
+      artifact-manifest-path: ${{ runner.temp }}/nvx-attested-artifacts/manifest.json
+      artifact-manifest-bundle-path: ${{ runner.temp }}/nvx-attested-artifacts/manifest.sigstore.jsonl
+      signer-workflow: github/gh-aw-firewall/.github/workflows/smoke-nvx-build-test.lock.yml
+      memory-mib: 4096
+      memory-max-bytes: 4294967296
+      pids-max: 1024
+      scratch-bytes: 3221225472
+      container-workdir: /workspace
 network:
   allowed:
     - defaults
@@ -334,52 +355,27 @@ steps:
       sudo mount -o remount,size=8G /run
       df -h /run
 
-  - name: Run the build and test workloads inside an NVX microVM
-    timeout-minutes: 55
+  - name: Prepare declarative NVX build evidence
     run: |
-      # Evidence-producing: a failed workload must be recorded for the agent
-      # to analyze rather than aborting the step before results are written.
-      set +e
+      set -euo pipefail
+      data_dir=/tmp/gh-aw/agent/smoke-nvx-build-test
+      mkdir -p "$data_dir/logs"
+      marker="nvx-build-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+      echo "AWF_NVX_BUILD_MARKER=$marker" >> "$GITHUB_ENV"
+      sudo rm -rf "$GITHUB_WORKSPACE/.nvx-build-test"
+post-steps:
+  - name: Collect declarative NVX build evidence
+    if: always()
+    env:
+      AGENT_OUTCOME: ${{ steps.agentic_execution.outcome }}
+    run: |
       set -u
       data_dir=/tmp/gh-aw/agent/smoke-nvx-build-test
       mkdir -p "$data_dir/logs"
-
-      artifact_dir="$RUNNER_TEMP/nvx-attested-artifacts"
-      layer_root="$RUNNER_TEMP/nvx-alpine-root"
-      marker="nvx-build-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
       guest_out="$GITHUB_WORKSPACE/.nvx-build-test"
-      sudo rm -rf "$guest_out"
-
-      # A real build workload needs far more headroom than NVX's defaults
-      # (512 MiB, 128 pids). The scratch overlay holds node_modules, dist, and
-      # the npm and Go caches (estimated ~1 GiB) with headroom to spare.
-      sudo timeout 50m \
-        node "$GITHUB_WORKSPACE/dist/cli.js" \
-        --container-runtime nvx \
-        --nvx-preview \
-        --nvx-layer "$layer_root" \
-        --nvx-openvmm "$artifact_dir/openvmm" \
-        --nvx-kernel "$artifact_dir/vmlinux" \
-        --nvx-initramfs "$artifact_dir/initramfs.cpio.gz" \
-        --nvx-artifact-manifest "$artifact_dir/manifest.json" \
-        --nvx-artifact-manifest-bundle "$artifact_dir/manifest.sigstore.jsonl" \
-        --nvx-signer-workflow \
-        'github/gh-aw-firewall/.github/workflows/smoke-nvx-build-test.lock.yml' \
-        --nvx-mount-policy workspace-only \
-        --nvx-memory-mib 4096 \
-        --nvx-memory-max-bytes 3758096384 \
-        --nvx-pids-max 1024 \
-        --nvx-scratch-bytes 3221225472 \
-        --container-workdir /workspace \
-        --network-isolation \
-        --proxy-logs-dir "$data_dir/logs/inner-proxy-logs" \
-        --allow-domains github.com,registry.npmjs.org \
-        --env "AWF_NVX_BUILD_MARKER=$marker" \
-        --log-level info \
-        -- /usr/local/bin/awf-nvx-build-test \
-        > "$data_dir/logs/awf.log" 2>&1
-      awf_status=$?
-
+      if [ -f /tmp/gh-aw/agent-stdio.log ]; then
+        cp /tmp/gh-aw/agent-stdio.log "$data_dir/logs/awf.log"
+      fi
       if [ -d "$guest_out" ]; then
         sudo mkdir -p "$data_dir/guest"
         sudo cp -R "$guest_out/." "$data_dir/guest/"
@@ -387,7 +383,13 @@ steps:
       sudo rm -rf "$guest_out"
       sudo chown -R "$(id -u):$(id -g)" "$data_dir"
 
-      if [ "$awf_status" -eq 0 ]; then microvm_run=PASS; else microvm_run=FAIL; fi
+      if [ "$AGENT_OUTCOME" = "success" ]; then
+        microvm_run=PASS
+        awf_status=0
+      else
+        microvm_run=FAIL
+        awf_status=1
+      fi
       if grep -q 'AWF-NVX-BUILD-TEST-COMPLETE' "$data_dir/logs/awf.log"; then
         guest_completed=PASS
       else
@@ -404,7 +406,7 @@ steps:
       # writes through the exported live workspace.
       jq -n \
         --argjson guest "$guest_json" \
-        --arg marker "$marker" \
+        --arg marker "$AWF_NVX_BUILD_MARKER" \
         --arg awf_status "$awf_status" \
         --arg microvm_run "$microvm_run" \
         --arg guest_completed "$guest_completed" \
@@ -423,7 +425,6 @@ steps:
       cat "$data_dir/build-test-results.json"
 
       exit 0
-post-steps:
   - name: Upload NVX build test evidence
     if: always()
     uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
@@ -490,23 +491,24 @@ post-steps:
 
 ## Context
 
-A pre-agent step already ran a deterministic Node.js and Go build/test workload inside an NVX one-shot microVM, through AWF's `nvx` runtime, and recorded the results. Do not re-run the microVM yourself; only analyze the recorded evidence.
+You are running inside the compiler-owned NVX one-shot microVM.
 
 ## Step 1: Read Results
 
-1. Read `/tmp/gh-aw/agent/smoke-nvx-build-test/build-test-results.json`. It contains:
-   - `microvm_run`: whether `awf` exited 0 (PASS/FAIL)
-   - `guest_completed`: whether the guest workload ran to completion (PASS/FAIL)
-   - `workspace_live_share`: whether the guest's workspace write, carrying the per-run `--env` marker, was immediately visible on the host (PASS/FAIL)
+1. Run `/usr/local/bin/awf-nvx-build-test` exactly once with the bash tool.
+2. Read `/workspace/.nvx-build-test/results.json`. It contains:
    - `http_code`: GitHub.com HTTP response code from inside the guest
    - `node_build`: `npm ci && npm run build` status (PASS/FAIL)
    - `node_test`: Jest subset status (PASS/FAIL)
    - `go_build`: Go build status (PASS/FAIL/CLONE_FAILED)
    - `go_test`: Go test status (PASS/FAIL/SKIPPED)
    - `network_isolation`: whether a non-allowlisted domain was blocked (PASS/FAIL)
-2. If anything failed, read the relevant log and add one short line naming the most likely cause:
-   - `microvm_run` or `guest_completed`: `/tmp/gh-aw/agent/smoke-nvx-build-test/logs/awf.log`
-   - Workload failures: `npm-ci.log`, `npm-build.log`, `jest.log`, `go-fetch.log`, `go-build.log`, or `go-test.log` under `/tmp/gh-aw/agent/smoke-nvx-build-test/guest/`
+3. Verify its `marker` equals `$AWF_NVX_BUILD_MARKER`; this proves the live
+   workspace share and compiler-owned environment passthrough.
+4. If anything failed, read the relevant log under `/workspace/.nvx-build-test/`
+   and add one short line naming the most likely cause.
+
+The host post-step records and validates the final evidence after this agent exits.
 
 ## Step 2: Output (MANDATORY)
 
