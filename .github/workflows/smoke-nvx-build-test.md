@@ -43,6 +43,7 @@ network:
   allowed:
     - defaults
     - github
+    - registry.npmjs.org
 tools:
   bash:
     - "*"
