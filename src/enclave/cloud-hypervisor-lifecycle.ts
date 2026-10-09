@@ -14,7 +14,8 @@ import {
 } from './cloud-hypervisor-host-service';
 import type { HostExecutorRunState, HostExecutorServer } from './host-executor-server';
 import { deriveEnclaveSeedId, readEnclaveRunId, resolveEnclavePaths, type EnclavePaths } from './paths';
-import { validateEnclavesConfig } from './preflight';
+import { validateEnclavesStructure } from './preflight';
+import { validateRunSandboxBackend } from './run-backend';
 import { updateEnclaveStartupProgress } from './startup-progress';
 import {
   HostPreflightReporter, markHostPreflightError, type HostPreflightProgress,
@@ -69,8 +70,14 @@ export function deriveCloudHypervisorEnclaveRunState(
   config: WrapperConfig,
   paths: EnclavePaths,
 ): HostExecutorRunState {
-  const errors = validateEnclavesConfig(config, { requireDelegationHandoff: false });
-  if (errors.length || !isCloudHypervisorEnclaveSelected(config)) {
+  if (!config.enclaves || !isCloudHypervisorEnclaveSelected(config)) {
+    throw new Error('Invalid trusted Cloud Hypervisor enclave configuration: no Cloud Hypervisor executor');
+  }
+  const errors = [
+    ...validateRunSandboxBackend(config.containerRuntime, config.enclaves),
+    ...validateEnclavesStructure(config, { requireDelegationHandoff: false }),
+  ];
+  if (errors.length) {
     throw new Error(`Invalid trusted Cloud Hypervisor enclave configuration: ${errors.join('; ')}`);
   }
   const runId = readEnclaveRunId(paths);
@@ -192,6 +199,9 @@ export async function startCloudHypervisorEnclaveLifecycle(
 export function closeCloudHypervisorEnclaveAdmissions(config: WrapperConfig): void {
   const run = runs.get(resolveEnclavePaths(config.workDir).root);
   if (!run) return;
+  if (run.configuration !== config) {
+    throw new Error('Cloud Hypervisor enclave lifecycle is owned by another configuration');
+  }
   run.draining = true;
   run.server?.closeAdmissions();
 }

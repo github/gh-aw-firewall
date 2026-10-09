@@ -147,13 +147,22 @@ export function validateEnclavesConfig(
   config: WrapperConfig,
   options: ValidateEnclavesOptions = {},
 ): string[] {
+  const errors = validateEnclavesStructure(config, options);
+  if (config.enclaves?.enabled && config.containerRuntime === 'cloud-hypervisor') {
+    errors.unshift('The primary-agent cloud-hypervisor runtime cannot be combined with enclaves');
+  }
+  return errors;
+}
+
+/** Structural host-executor validation; does not authorize production execution. */
+export function validateEnclavesStructure(
+  config: WrapperConfig,
+  options: ValidateEnclavesOptions = {},
+): string[] {
   const enclaves = config.enclaves;
   if (!enclaves?.enabled) return [];
 
   const errors: string[] = [];
-  if (config.containerRuntime === 'cloud-hypervisor') {
-    errors.push('The primary-agent cloud-hypervisor runtime cannot be combined with enclaves');
-  }
   if (config.enableDind) {
     errors.push(
       'enclaves cannot be combined with enableDind: exposing the Docker socket to the primary ' +
