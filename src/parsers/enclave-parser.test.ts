@@ -17,6 +17,53 @@ const dynamicPolicy = typedDynamicEnclavePolicyFixture;
 const repository = { repo: 'octo-org/private-service', sensitivity: 'confidential' as const };
 
 describe('normalizeEnclavesConfig', () => {
+  it.each(['gvisor', 'sbx', 'cloud-hypervisor'] as const)(
+    'inherits the selected %s backend for both executor kinds', primaryRuntime => {
+      const config = normalizeEnclavesConfig([
+        { script: {}, repos: [repository] },
+        { agent: { model: 'gpt-5' }, repos: [repository] },
+      ], { primaryRuntime });
+      expect(config?.executors.script.runtime).toBe(primaryRuntime);
+      expect(config?.executors.agent.runtime).toBe(primaryRuntime);
+    },
+  );
+
+  it('normalizes the default and aliased primary backends', () => {
+    for (const primaryRuntime of [undefined, 'docker', 'runc']) {
+      expect(normalizeEnclavesConfig([
+        { script: {}, repos: [repository] },
+      ], { primaryRuntime })?.executors.script.runtime).toBe('docker');
+    }
+    expect(normalizeEnclavesConfig([
+      { script: {}, repos: [repository] },
+    ], { primaryRuntime: 'runsc' })?.executors.script.runtime).toBe('gvisor');
+  });
+
+  it('rejects explicit mismatches instead of rewriting them', () => {
+    expect(() => normalizeEnclavesConfig([
+      { script: {}, runtime: 'docker', repos: [repository] },
+    ], { primaryRuntime: 'cloud-hypervisor' })).toThrow(/one sandbox backend/);
+    expect(() => normalizeEnclavesConfig([
+      { script: {}, runtime: 'cloud-hypervisor', repos: [repository] },
+    ], {})).toThrow(/primary backend "docker"/);
+  });
+
+  it('accepts an explicit matching runtime and ignores unselected executor defaults', () => {
+    const config = normalizeEnclavesConfig([
+      { script: {}, runtime: 'cloud-hypervisor', repos: [repository] },
+    ], { primaryRuntime: 'cloud-hypervisor' });
+    expect(config?.executors.script.runtime).toBe('cloud-hypervisor');
+    expect(config?.executors.agent.enabled).toBe(false);
+  });
+
+  it('keeps unsupported NVX enclave execution closed without affecting standalone NVX', () => {
+    expect(() => normalizeEnclavesConfig([
+      { script: {}, repos: [repository] },
+    ], { primaryRuntime: 'nvx' })).toThrow(/NVX enclaves are not implemented/);
+    expect(normalizeEnclavesConfig(undefined, { primaryRuntime: 'nvx' })).toBeUndefined();
+    expect(normalizeEnclavesConfig([], { primaryRuntime: 'nvx' })?.enabled).toBe(false);
+  });
+
   it('is absent unless the section is configured', () => {
     expect(normalizeEnclavesConfig(undefined)).toBeUndefined();
   });

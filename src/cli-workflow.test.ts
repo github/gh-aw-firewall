@@ -126,6 +126,45 @@ const runWorkflowWithDefaults = async (
 };
 
 describe('runMainWorkflow', () => {
+  it.each([
+    [undefined, 'gvisor'],
+    [undefined, 'cloud-hypervisor'],
+    ['gvisor', 'docker'],
+    ['cloud-hypervisor', 'docker'],
+    ['nvx', 'docker'],
+  ] as const)('rejects primary %s / enclave %s before staging or infrastructure', async (primary, enclave) => {
+    const dependencies = createWorkflowDependencies({ prepareEnclaves: jest.fn() });
+    const config = {
+      ...enclaveConfig,
+      containerRuntime: primary,
+      enclaves: normalizeEnclavesConfig([
+        { script: {}, runtime: enclave, repos: [{ repo: 'octo/private', sensitivity: 'internal' }] },
+      ]),
+    };
+    await expect(runMainWorkflow(config, dependencies, createWorkflowOptions()))
+      .rejects.toThrow(/one sandbox backend is required per run/);
+    expect(dependencies.prepareEnclaves).not.toHaveBeenCalled();
+    expect(dependencies.ensureFirewallNetwork).not.toHaveBeenCalled();
+    expect(dependencies.writeConfigs).not.toHaveBeenCalled();
+    expect(dependencies.startContainers).not.toHaveBeenCalled();
+    expect(dependencies.runAgentCommand).not.toHaveBeenCalled();
+  });
+
+  it('keeps Cloud Hypervisor primary-with-enclave execution gated after inheritance', async () => {
+    const dependencies = createWorkflowDependencies({ prepareEnclaves: jest.fn() });
+    const config = {
+      ...enclaveConfig,
+      containerRuntime: 'cloud-hypervisor',
+      enclaves: normalizeEnclavesConfig([
+        { script: {}, repos: [{ repo: 'octo/private', sensitivity: 'internal' }] },
+      ], { primaryRuntime: 'cloud-hypervisor' }),
+    };
+    await expect(runMainWorkflow(config, dependencies, createWorkflowOptions()))
+      .rejects.toThrow(/primary-agent cloud-hypervisor/);
+    expect(dependencies.prepareEnclaves).not.toHaveBeenCalled();
+    expect(dependencies.startContainers).not.toHaveBeenCalled();
+  });
+
   beforeEach(() => {
     // Default: topology peer lookup returns an empty map so onNetworkReady's
     // static-DNS pre-registration runs without throwing in tests that don't

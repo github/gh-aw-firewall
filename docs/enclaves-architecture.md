@@ -4,6 +4,15 @@
 
 Layer 5 establishes one `enclaves` subsystem, one AWF-owned MCP server, and mcpg-only access through the compiler handoff contract.
 
+Run configuration now requires one workload sandbox backend for the primary and
+all enabled enclave executors. Omitted enclave runtimes inherit the primary
+selection (Docker/runc by default); explicit conflicts fail before staging or
+startup. Each workload remains a separate isolated instance, and supporting
+Docker infrastructure is not part of this constraint. Cloud Hypervisor
+primary-with-enclave execution is still gated pending lifecycle integration;
+NVX enclaves remain unsupported. The host-executor machinery described below is
+preserved, but Docker-primary/Cloud-Hypervisor-enclave runs are no longer accepted.
+
 Dynamic repository admission described below is implemented and version-gated.
 It runs only when the gh-aw compiler starts mcpg's
 `github-repository-delegation-v1` controller (mcpg v0.4.18 or newer) and hands

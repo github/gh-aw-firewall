@@ -30,6 +30,31 @@ const ENV_KEYS = [
 ] as const;
 
 describe('buildConfig', () => {
+  it('inherits the primary backend while retaining its original CLI selection', () => {
+    const config = buildConfig(makeInputs({
+      options: {
+        ...makeInputs().options,
+        containerRuntime: 'cloud-hypervisor',
+        enclaves: [
+          { script: {}, repos: [{ repo: 'octo/private', sensitivity: 'internal' }] },
+        ],
+      },
+    }));
+    expect(config.containerRuntime).toBe('cloud-hypervisor');
+    expect(config.enclaves?.executors.script.runtime).toBe('cloud-hypervisor');
+  });
+
+  it('rejects a mixed-backend configuration during assembly', () => {
+    expect(() => buildConfig(makeInputs({
+      options: {
+        ...makeInputs().options,
+        enclaves: [
+          { script: {}, runtime: 'cloud-hypervisor', repos: [{ repo: 'octo/private', sensitivity: 'internal' }] },
+        ],
+      },
+    }))).toThrow(/primary backend "docker"/);
+  });
+
   let savedEnv: Partial<Record<(typeof ENV_KEYS)[number], string | undefined>>;
 
   beforeEach(() => {

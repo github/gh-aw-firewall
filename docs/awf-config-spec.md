@@ -2449,6 +2449,8 @@ envelope, the handoff, and the identity lifecycle.
 ### 14.1 Executors and shared configuration
 
 ```yaml
+container:
+  containerRuntime: gvisor
 enclaves:
   - script: {}
     repos:
@@ -2467,7 +2469,6 @@ enclaves:
           allowedRepos:
             - octo-org/private-service
           minIntegrity: none
-    runtime: gvisor
     memoryLimit: 256m
     maxOutputBytes: 2048
     maxInvocations: 3
@@ -2487,6 +2488,16 @@ At most one entry MAY exist per executor kind, and each entry MUST declare exact
 
 `gvisor` requires an exactly registered `runsc` runtime and never falls back. `sbx` remains fail-closed for both executors until the audited capability proof lands.
 
+**One workload backend per run:** omitted enclave `runtime` values inherit the
+primary selection in `container.containerRuntime`. An omitted primary selection
+means Docker/runc. Explicit enclave selections must match that backend; gVisor
+is distinct from Docker even though both use Docker orchestration. A mismatch
+fails before seed staging or infrastructure startup, rather than changing either
+selection or falling back. Each workload still uses its own isolated instance.
+Supporting Squid, proxy, and MCP infrastructure may remain in Docker.
+Cloud Hypervisor inheritance is implemented, but primary-with-enclave execution
+remains gated until lifecycle integration lands. NVX enclaves remain unsupported.
+
 `cloud-hypervisor` selects the trusted host enclave executor governed by
 [ADR 0002](adr/0002-cloud-hypervisor-enclave-executor.md), not the primary-agent
 VM backend. AWF owns the per-run authenticated private Unix listener, staged
@@ -2505,9 +2516,10 @@ Docker host path prefixes, primary sbx/NVX/Cloud Hypervisor combinations, and st
 GitHub tools lacking a scoped executor bearer handoff are rejected.
 No unavailable configuration falls back to another runtime.
 
-An enclave-only `cloud-hypervisor` selection requires top-level
-`cloudHypervisor` configuration but does not select Cloud Hypervisor for the
-primary agent or alter its mounts, TTY, or container runtime.
+An enclave-only `cloud-hypervisor` selection does not implicitly switch the
+primary agent: with a default Docker primary it is now rejected as a backend
+mismatch. Existing host-executor machinery is retained for subsequent
+same-backend lifecycle integration; it is not a supported mixed-backend run.
 
 The agent executor additionally requires `enableApiProxy`, a configured provider route for its fixed engine/profile, a configured `model`, and the absence of `enableDind`. AWF validates those requirements before repository staging.
 

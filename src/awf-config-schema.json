@@ -1750,8 +1750,7 @@
               "sbx",
               "cloud-hypervisor"
             ],
-            "default": "docker",
-            "description": "Trusted enclave executor runtime. cloud-hypervisor is reserved behind the ADR 0002 implementation gates and currently fails closed before execution."
+            "description": "Trusted enclave executor runtime. Omission inherits the primary sandbox backend (Docker when container.containerRuntime is absent). Explicit selections must match the primary backend; mixed-backend runs are rejected without fallback. Cloud Hypervisor primary-with-enclave execution remains gated, and NVX enclaves are not implemented."
           },
           "image": {
             "type": "string",
