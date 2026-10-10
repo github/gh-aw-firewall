@@ -19,6 +19,8 @@ jest.mock('./squid-log-reader', () => ({
 }));
 
 import { startContainers, runAgentCommand, fastKillAgentContainer } from './container-lifecycle';
+import * as fs from 'fs';
+import * as path from 'path';
 import { captureEnclaveStartupDiagnostics } from './enclave/startup-diagnostics';
 import { containerLifecycleTestHelpers } from './container-lifecycle.test-utils';
 import { markAgentExternallyKilled } from './container-lifecycle-state';
@@ -230,6 +232,35 @@ describe('container-lifecycle retry and timeout branches', () => {
 
         const result = await resultPromise;
 
+        expect(result.exitCode).toBe(124);
+        expect(mockExecaFn).toHaveBeenCalledWith(
+          'docker',
+          ['stop', '-t', '10', 'awf-agent'],
+          expect.objectContaining({ reject: false }),
+        );
+      } finally {
+        jest.useRealTimers();
+      }
+    });
+
+    it('does not let the agent runtime marker extend the host timeout deadline', async () => {
+      jest.useFakeTimers();
+      const startTimeMs = Date.now();
+      const runtimeDir = path.join(getDir(), 'api-proxy-logs', 'agent-runtime');
+      fs.mkdirSync(runtimeDir, { recursive: true });
+      fs.writeFileSync(path.join(runtimeDir, 'started-at-ms'), String(startTimeMs + 10 * 60 * 1000));
+      jest.setSystemTime(startTimeMs + 30_000);
+      try {
+        mockExecaFn
+          .mockResolvedValueOnce(ok() as any)
+          .mockReturnValueOnce(new Promise<never>(() => {}))
+          .mockResolvedValueOnce(ok() as any);
+
+        const resultPromise = runAgentCommand(getDir(), ['github.com'], undefined, 1);
+        await jest.advanceTimersByTimeAsync(60_001);
+        await jest.advanceTimersByTimeAsync(300);
+
+        const result = await resultPromise;
         expect(result.exitCode).toBe(124);
         expect(mockExecaFn).toHaveBeenCalledWith(
           'docker',

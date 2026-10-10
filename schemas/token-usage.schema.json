@@ -124,6 +124,36 @@
       ],
       "description": "Trusted in-process purpose of the request. Present only for AWF-internal requests such as router classification calls; absent for agent-originated requests."
     },
+    "steering": {
+      "type": "object",
+      "required": [
+        "type",
+        "threshold"
+      ],
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": [
+            "timeout",
+            "ai_credit",
+            "token"
+          ],
+          "description": "Kind of advisory steering notice injected into this request."
+        },
+        "threshold": {
+          "type": "integer",
+          "enum": [
+            80,
+            90,
+            95,
+            99
+          ],
+          "description": "Percent threshold that triggered the injected notice."
+        }
+      },
+      "additionalProperties": false,
+      "description": "Present when an advisory steering notice was injected into this request."
+    },
     "model_fallback": {
       "type": "object",
       "description": "Present only when the ordered fallback chain (apiProxy.fallbackModels / AWF_FALLBACK_MODELS) switched away from the requested model. The top-level 'model' and 'provider' fields identify the model and provider that actually served the request.",

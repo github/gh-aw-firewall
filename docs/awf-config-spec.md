@@ -221,7 +221,7 @@ AWF settings MAY be supplied via config files, including stdin (`--config -`).
 - `network.topologyAttach[]` → `--topology-attach <name>` *(repeatable; requires `network.isolation: true`)*
 - `apiProxy.enabled` → `--enable-api-proxy` *([DEPRECATED] API proxy is always enabled; this flag is ignored)*
 - `apiProxy.caCert` → `--api-proxy-ca-cert <path>` *(mounts an additional CA certificate into the api-proxy sidecar and sets `NODE_EXTRA_CA_CERTS` for upstream TLS verification)*
-- `apiProxy.enableTokenSteering` → `--enable-token-steering` *(maps to `AWF_ENABLE_TOKEN_STEERING`; omit or set to `false` to opt out)*
+- `apiProxy.enableTokenSteering` → `--enable-token-steering` *(maps to `AWF_ENABLE_TOKEN_STEERING`; opts into runtime, effective-token, and AI-credit advisory warnings; omit or set to `false` to opt out)*
 - `apiProxy.anthropicAutoCache` → `--anthropic-auto-cache`
 - `apiProxy.anthropicCacheTailTtl` → `--anthropic-cache-tail-ttl <5m|1h>`
 - `apiProxy.hostedWeb.claude` → *(config-only; maps to `AWF_CLAUDE_HOSTED_WEB_POLICY` — AWF-owned domain policy for Anthropic-hosted `web_search_*`/`web_fetch_*` server tools; see [§9.8 Claude Hosted Web Search and Fetch](#98-claude-hosted-web-search-and-fetch))*
@@ -1231,56 +1231,59 @@ percentage thresholds of `maxEffectiveTokens`:
 
 Each threshold MUST be recorded at most once per run.
 
-### 10.5 Token Steering
+### 10.5 Budget Steering
 
-Token steering is **opt-in**. It is active only when `apiProxy.enableTokenSteering`
-is `true` (CLI: `--enable-token-steering`), which sets `AWF_ENABLE_TOKEN_STEERING=true`
-in the api-proxy sidecar. When disabled (the default), thresholds are still tracked
-(for introspection) but no warning messages are injected. Setting the field to
-`false`, or omitting it, opts a workflow out; the env var is only emitted when the
-value is `true`.
+Budget steering is **opt-in**. It is active only when `apiProxy.enableTokenSteering`
+is `true` (CLI: `--enable-token-steering`), which sets
+`AWF_ENABLE_TOKEN_STEERING=true` in the api-proxy sidecar. When disabled (the
+default), thresholds remain observable but no warning messages are injected.
+Setting the field to `false`, or omitting it, opts out.
 
-When token steering is enabled and a threshold is first crossed, the proxy MUST
-inject a budget-warning system message into the **body** of the very next eligible
-request sent by the agent, then discard the pending message so that it is injected
-at most once per threshold per run.
+When enabled, the proxy tracks effective-token, AI-credit, and runtime thresholds
+at 80%, 90%, 95%, and 99%. Credit thresholds use the lower of configured
+`maxAiCredits` and the non-overridable 10,000-credit hard cap (the hard cap is
+the ceiling when `maxAiCredits` is not configured). Runtime thresholds use the
+agent start marker written by the runtime; the host timeout and API proxy use
+that same start time and deadline.
 
-The injected message has the format:
+Warnings are advisory and are injected into the **next eligible outbound model
+request** after a threshold crossing. They do not interrupt an in-progress model
+request or tool, extend a timeout, raise a budget, guarantee a later request, or
+guarantee that the agent completes or submits work. If the budget is already
+exhausted, normal terminal rejection remains in effect.
+
+Each threshold is recorded once per run. At most one warning is injected per
+request: the largest crossed percentage is delivered first, then other pending
+warnings are delivered on later eligible requests. For equal percentages, time
+warnings precede AI-credit warnings, which precede effective-token warnings.
+Classifier requests, malformed JSON, unsupported body shapes, or any request
+that cannot be modified do not consume pending warnings. A warning is consumed
+only after successful body injection.
+
+The warning formats are:
 
 ```
 [AWF TOKEN WARNING] <threshold-specific text>
+[AWF AI CREDIT WARNING] <threshold-specific text>
+[AWF TIME WARNING] <threshold-specific text>
 ```
 
-| Threshold | Injected text |
-|-----------|---------------|
+| Threshold | Effective-token text |
+|-----------|-----------------------|
 | 80% | You have used 80% of your effective token budget. Begin planning to wrap up your current work. |
 | 90% | You have used 90% of your effective token budget. Complete your current task and prepare final output. |
 | 95% | You have used 95% of your effective token budget. Finalize and submit your work now. |
 | 99% | You have used 99% of your effective token budget. You are about to be cut off. Submit immediately. |
 
-If multiple thresholds are crossed simultaneously (e.g. a single large
-response crosses both 80% and 90%), the proxy MUST inject only the highest
-crossed threshold on the next request and queue the remaining thresholds for
-subsequent requests (one per request).
+AI-credit and time messages use the matching threshold-specific wording for the
+AI-credit budget and allotted run time, respectively.
 
 **Provider-specific injection rules:**
 
-- **OpenAI / Copilot** — the proxy inserts a `{ "role": "system", "content": "<message>" }` entry into the `messages` array immediately after any pre-existing system messages.
+- **OpenAI / Copilot Chat Completions** — the proxy inserts a `{ "role": "system", "content": "<message>" }` entry into the `messages` array immediately after any pre-existing system messages.
+- **OpenAI / Copilot Responses** — the proxy appends the notice to `instructions`, preserving existing instructions, `input`, tool calls/results, and streaming fields.
 - **Anthropic** — the proxy appends the warning to the `system` field: if `system` is a string it is concatenated (separated by `\n\n`); if `system` is an array of content blocks a `{ "type": "text", "text": "<message>" }` block is appended; if `system` is absent it is created as the warning string.
 - **Gemini** — the proxy appends a `{ "text": "<message>" }` part to `systemInstruction.parts`; if `systemInstruction` is absent it is created.
-
-If the request body cannot be parsed as JSON, or if the body format does not
-match the expected structure, the proxy MUST silently skip injection for that
-request and NOT re-queue the message.
-
-When token steering is enabled **and** `container.agentTimeout` is configured,
-the proxy MUST also inject runtime warnings at 80/90/95/99% of elapsed run time
-using the same queueing behavior (highest crossed threshold first, then one
-pending warning per subsequent request):
-
-```
-[AWF TIME WARNING] <threshold-specific text>
-```
 
 ### 10.6 Introspection
 
@@ -1301,6 +1304,10 @@ When configured, the proxy MUST enforce this budget in addition to any
 configured `maxEffectiveTokens` budget. Once cumulative AI credits reach or
 exceed `maxAiCredits`, subsequent requests MUST be rejected with HTTP `403`
 and error type `ai_credits_limit_exceeded`.
+
+When `apiProxy.enableTokenSteering` is true, cumulative credits also queue the
+80%, 90%, 95%, and 99% advisory warnings. This warning path does not alter credit
+accounting or terminal rejection.
 
 Regardless of `maxAiCredits` configuration, AWF also enforces a non-overridable
 hard cap of **10,000 AI credits**. When cumulative AI credits reach this hard

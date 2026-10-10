@@ -123,7 +123,7 @@
         },
         "enableTokenSteering": {
           "type": "boolean",
-          "description": "Enable effective token budget steering. When true, the proxy injects budget-warning system messages at 80%, 90%, 95%, and 99% usage to nudge the agent to wrap up, and sets AWF_ENABLE_TOKEN_STEERING=true in the api-proxy sidecar. Set to false (or omit) to opt out. Requires maxEffectiveTokens. Default: false."
+          "description": "Enable advisory runtime, effective-token, and AI-credit steering. When true, the proxy injects warnings at 80%, 90%, 95%, and 99% of configured budgets/deadlines into the next eligible agent request. Warnings do not interrupt running work or guarantee completion. Set to false (or omit) to opt out. Default: false."
         },
         "anthropicAutoCache": {
           "type": "boolean",
@@ -251,7 +251,7 @@
         "maxAiCredits": {
           "type": "number",
           "exclusiveMinimum": 0,
-          "description": "Maximum cumulative AI credits allowed for a run. When reached, the API proxy rejects subsequent requests with HTTP 403 and error type 'ai_credits_limit_exceeded'. AWF also enforces a non-overridable hard cap of 10,000 AI credits; values above 10,000 are effectively clamped."
+          "description": "Maximum cumulative AI credits allowed for a run. When reached, the API proxy rejects subsequent requests with HTTP 403 and error type 'ai_credits_limit_exceeded'. With apiProxy.enableTokenSteering, advisory notices are queued at 80%, 90%, 95%, and 99% of the effective limit. AWF also enforces a non-overridable hard cap of 10,000 AI credits; values above 10,000 are effectively clamped."
         },
         "defaultAiCreditsPricing": {
           "type": "object",
@@ -904,7 +904,7 @@
         "agentTimeout": {
           "type": "integer",
           "minimum": 1,
-          "description": "Maximum time (in minutes) the agent command is allowed to run."
+          "description": "Maximum time (in minutes) the agent command is allowed to run. With apiProxy.enableTokenSteering, advisory notices are queued at 80%, 90%, 95%, and 99% of the runtime deadline."
         },
         "enableDind": {
           "type": "boolean",

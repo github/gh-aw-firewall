@@ -114,6 +114,17 @@ describe('prepareWorkDirectories', () => {
       expect(fs.statSync(logPaths.apiProxyLogs).isDirectory()).toBe(true);
     });
 
+    it('creates a private runtime marker directory only when timeout steering can be used', () => {
+      const config = buildConfig({ enableApiProxy: true, agentTimeout: 10 });
+      const logPaths = resolveLogPaths(config);
+      const runtimeDir = path.join(logPaths.apiProxyLogs, 'agent-runtime');
+
+      prepareWorkDirectories(config, logPaths);
+
+      expect(fs.statSync(runtimeDir).isDirectory()).toBe(true);
+      expect(fs.statSync(runtimeDir).mode & 0o777).toBe(0o700);
+    });
+
     it('creates cli-proxy logs directory', () => {
       const config = buildConfig();
       const logPaths = resolveLogPaths(config);

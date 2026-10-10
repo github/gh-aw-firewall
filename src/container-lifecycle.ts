@@ -408,8 +408,12 @@ export async function runAgentCommand(workDir: string, allowedDomains: string[],
   logger.info('Executing agent command...');
 
   try {
-    // Compute the absolute deadline once so the retry shares the same budget.
-    const overallDeadlineMs = agentTimeoutMinutes ? Date.now() + agentTimeoutMinutes * 60 * 1000 : undefined;
+    // Keep timeout enforcement on a host-controlled clock; the agent can write
+    // the shared runtime marker used for advisory API-proxy steering.
+    const agentStartTimeMs = Date.now();
+    const overallDeadlineMs = agentTimeoutMinutes
+      ? agentStartTimeMs + agentTimeoutMinutes * 60 * 1000
+      : undefined;
 
     const executeAgentAttempt = async (logsSince?: string): Promise<number> => {
       // Stream logs in real-time using docker logs -f (follow mode)

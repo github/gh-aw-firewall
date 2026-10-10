@@ -256,6 +256,7 @@ function buildRateLimitEnv(config: WrapperConfig): Record<string, string> {
     }),
     ...(config.agentTimeout !== undefined && {
       AWF_AGENT_TIMEOUT_MINUTES: String(config.agentTimeout),
+      AWF_AGENT_RUNTIME_START_FILE: '/var/log/api-proxy/agent-runtime/started-at-ms',
     }),
   };
 }

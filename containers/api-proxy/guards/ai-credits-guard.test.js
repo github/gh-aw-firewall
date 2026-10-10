@@ -4,6 +4,8 @@ const {
   getAiCreditsReflectState,
   getAiCreditsBlockState,
   buildAiCreditsLimitError,
+  getPendingAiCreditSteeringWarning,
+  acknowledgeAiCreditSteeringWarning,
   checkUnknownModelRejection,
   isRecognizedDynamicSelector,
   isModelPriceable,
@@ -80,6 +82,11 @@ describe('ai-credits-guard', () => {
     expect(process.env.AWF_AI_CREDITS_USED).toBe('0.12275');
     expect(getAiCreditsReflectState()).toEqual({
       total: 0.12275,
+      max_ai_credits: null,
+      effective_max_ai_credits: HARD_CAP_AI_CREDITS,
+      percent_used: 0,
+      thresholds_crossed: [],
+      thresholds_pending: [],
       by_model: {
         'gpt-5-mini': {
           input_credits: 0.0225,
@@ -97,7 +104,54 @@ describe('ai-credits-guard', () => {
     });
   });
 
-  it('matches dated model names after canonicalization', () => {
+  it('steers fractional AI-credit budgets without requiring an effective-token budget', () => {
+    process.env.AWF_MAX_AI_CREDITS = '0.001';
+    applyAiCreditsUsage({ input_tokens: 32 }, 'gpt-5-mini');
+
+    expect(getPendingAiCreditSteeringWarning()).toEqual({
+      threshold: 80,
+      message: '[AWF AI CREDIT WARNING] You have used 80% of your AI-credit budget. Begin planning to wrap up your current work.',
+    });
+    expect(getAiCreditsReflectState()).toMatchObject({
+      max_ai_credits: 0.001,
+      effective_max_ai_credits: 0.001,
+      percent_used: 80,
+      thresholds_crossed: [80],
+      thresholds_pending: [80],
+    });
+  });
+
+  it('uses the 10,000-credit hard cap as the steering ceiling', () => {
+    process.env.AWF_MAX_AI_CREDITS = '20000';
+    applyAiCreditsUsage({ input_tokens: 320_000_000 }, 'gpt-5-mini');
+
+    expect(getPendingAiCreditSteeringWarning().threshold).toBe(80);
+    expect(getAiCreditsReflectState()).toMatchObject({
+      max_ai_credits: HARD_CAP_AI_CREDITS,
+      effective_max_ai_credits: HARD_CAP_AI_CREDITS,
+      percent_used: 80,
+      thresholds_crossed: [80],
+    });
+  });
+
+  it('queues crossed credit thresholds in descending order without weakening terminal enforcement', () => {
+    process.env.AWF_MAX_AI_CREDITS = '0.001';
+    applyAiCreditsUsage({ input_tokens: 32 }, 'gpt-5-mini');
+    acknowledgeAiCreditSteeringWarning(80);
+    applyAiCreditsUsage({ input_tokens: 8 }, 'gpt-5-mini');
+    applyAiCreditsUsage({ input_tokens: 4 }, 'gpt-5-mini');
+    applyAiCreditsUsage({ input_tokens: 4 }, 'gpt-5-mini');
+
+    expect(getPendingAiCreditSteeringWarning().threshold).toBe(99);
+    acknowledgeAiCreditSteeringWarning(99);
+    expect(getPendingAiCreditSteeringWarning().threshold).toBe(95);
+    expect(getAiCreditsBlockState()).toMatchObject({
+      maxAiCredits: 0.001,
+      maxExceeded: true,
+    });
+  });
+
+  it('matches pricing table entries by model prefix', () => {
     const usage = applyAiCreditsUsage({
       input_tokens: 2000,
       cache_read_tokens: 1000,
@@ -566,7 +620,7 @@ describe('ai-credits-guard', () => {
     const usage = applyAiCreditsUsage({ input_tokens: 100 }, 'unknown-model');
 
     expect(usage).toBeNull();
-    expect(getAiCreditsReflectState()).toEqual({ total: 0, by_model: {} });
+    expect(getAiCreditsReflectState()).toMatchObject({ total: 0, by_model: {} });
     expect(lines).toContainEqual(expect.objectContaining({
       event: 'unknown_model_ai_credits_pricing',
       level: 'warn',
@@ -901,6 +955,11 @@ describe('ai-credits-guard', () => {
     expect(isRecognizedDynamicSelector('auto', PROVIDER_OPENAI)).toBe(false);
     expect(getAiCreditsReflectState()).toEqual({
       total: 3.5,
+      max_ai_credits: 10,
+      effective_max_ai_credits: 10,
+      percent_used: 35,
+      thresholds_crossed: [],
+      thresholds_pending: [],
       by_model: {
         auto: {
           input_credits: 1,
