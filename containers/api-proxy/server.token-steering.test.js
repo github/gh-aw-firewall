@@ -10,13 +10,16 @@ const { EventEmitter } = require('events');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const { tokenLogDir } = require('./test-helpers/token-tracker-setup');
 const { setupServerTestEnv, flushPromises, makeProxyReq, completeUpstreamResponse } = require('./test-helpers/server-mock-factories');
 
 let proxyRequest;
+let closeTokenUsageLog;
 let getAndClearPendingSteeringMessage;
 let getAndClearPendingTimeoutSteeringMessage;
 let injectSteeringMessage;
 let resetEffectiveTokenGuardForTests;
+let resetAiCreditsGuardForTests;
 let resetTimeoutSteeringForTests;
 let replaceRuntimeModels;
 let clearRuntimeModels;
@@ -24,6 +27,7 @@ let timeoutRuntimeDir;
 
 setupServerTestEnv(() => {
   ({ proxyRequest } = require('./server'));
+  ({ closeLogStream: closeTokenUsageLog } = require('./token-tracker'));
   ({
     getAndClearPendingSteeringMessage,
     getAndClearPendingTimeoutSteeringMessage,
@@ -31,6 +35,7 @@ setupServerTestEnv(() => {
     resetEffectiveTokenGuardForTests,
     resetTimeoutSteeringForTests,
   } = require('./proxy-request'));
+  ({ resetAiCreditsGuardForTests } = require('./guards/ai-credits-guard'));
   ({ replaceRuntimeModels, clearRuntimeModels } = require('./runtime-model-catalog'));
   return {
     proxyRequest,
@@ -38,6 +43,7 @@ setupServerTestEnv(() => {
     getAndClearPendingTimeoutSteeringMessage,
     injectSteeringMessage,
     resetEffectiveTokenGuardForTests,
+    resetAiCreditsGuardForTests,
     resetTimeoutSteeringForTests,
     replaceRuntimeModels,
     clearRuntimeModels,
@@ -55,24 +61,32 @@ describe('token steering — getAndClearPendingSteeringMessage and injectSteerin
     timeoutRuntimeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-timeout-steering-'));
     process.env.AWF_MAX_EFFECTIVE_TOKENS = '100';
     process.env.AWF_ENABLE_TOKEN_STEERING = 'true';
+    delete process.env.AWF_MAX_AI_CREDITS;
     delete process.env.AWF_EFFECTIVE_TOKEN_MODEL_MULTIPLIERS;
     delete process.env.AWF_AGENT_TIMEOUT_MINUTES;
     process.env.AWF_AGENT_RUNTIME_START_FILE = path.join(timeoutRuntimeDir, 'started-at-ms');
     resetEffectiveTokenGuardForTests();
+    resetAiCreditsGuardForTests();
     resetTimeoutSteeringForTests();
   });
 
   afterEach(() => {
     delete process.env.AWF_MAX_EFFECTIVE_TOKENS;
+    delete process.env.AWF_MAX_AI_CREDITS;
     delete process.env.AWF_ENABLE_TOKEN_STEERING;
     delete process.env.AWF_EFFECTIVE_TOKEN_MODEL_MULTIPLIERS;
     delete process.env.AWF_AGENT_TIMEOUT_MINUTES;
     delete process.env.AWF_AGENT_RUNTIME_START_FILE;
     resetEffectiveTokenGuardForTests();
+    resetAiCreditsGuardForTests();
     resetTimeoutSteeringForTests();
     clearRuntimeModels();
     fs.rmSync(timeoutRuntimeDir, { recursive: true, force: true });
     jest.restoreAllMocks();
+  });
+
+  afterAll(async () => {
+    await closeTokenUsageLog();
   });
 
   it('returns null when no thresholds have been crossed', () => {
@@ -262,6 +276,107 @@ describe('token steering — getAndClearPendingSteeringMessage and injectSteerin
     const writtenBody3 = JSON.parse(upstreamReq3.write.mock.calls[0][0].toString());
     const systemMessages3 = writtenBody3.messages.filter(m => m.role === 'system' && m.content.includes('[AWF TOKEN WARNING]'));
     expect(systemMessages3).toHaveLength(0);
+  });
+
+  it('steers gh-aw default AI-credit-only Copilot Responses requests end to end', async () => {
+    process.env.AWF_MAX_AI_CREDITS = '1000';
+    delete process.env.AWF_MAX_EFFECTIVE_TOKENS;
+    delete process.env.AWF_AGENT_TIMEOUT_MINUTES;
+    const cycles = [];
+    jest.spyOn(https, 'request').mockImplementation((_options, callback) => {
+      const upstreamReq = makeProxyReq();
+      cycles.push({ upstreamReq, responseHandler: callback });
+      return upstreamReq;
+    });
+
+    const sendRequest = async (requestId, body, usage, purpose) => {
+      const bodyBuffer = Buffer.from(JSON.stringify(body));
+      const req = new EventEmitter();
+      req.url = '/v1/responses';
+      req.method = 'POST';
+      req.headers = {
+        'content-type': 'application/json',
+        'content-length': String(bodyBuffer.length),
+        'x-request-id': requestId,
+      };
+      if (purpose) req.awfRequestContext = { purpose };
+      const res = { headersSent: false, setHeader: jest.fn(), writeHead: jest.fn(), end: jest.fn() };
+
+      proxyRequest(req, res, 'api.githubcopilot.com', { Authorization: '******' }, 'copilot');
+      req.emit('data', bodyBuffer);
+      req.emit('end');
+      await flushPromises();
+
+      const cycle = cycles.at(-1);
+      expect(cycle.upstreamReq.write).toHaveBeenCalledTimes(1);
+      const writtenBody = JSON.parse(cycle.upstreamReq.write.mock.calls[0][0].toString());
+      completeUpstreamResponse(cycle.responseHandler, {
+        body: usage === null ? null : { model: 'gpt-5-mini', usage },
+      });
+      await flushPromises();
+      return writtenBody;
+    };
+
+    await sendRequest(
+      'credit-crossing-80',
+      { input: 'Count usage.' },
+      { input_tokens: 32_000_000, output_tokens: 0 },
+    );
+
+    const classifier = await sendRequest(
+      'credit-classifier',
+      { input: 'Classify this request.' },
+      null,
+      'routing_classification',
+    );
+    expect(classifier).toEqual({ input: 'Classify this request.' });
+
+    const input = [
+      { role: 'user', content: 'Continue.' },
+      { type: 'function_call', call_id: 'call-1', name: 'explore', arguments: '{}' },
+      { type: 'function_call_output', call_id: 'call-1', output: 'Research complete.' },
+    ];
+    const delivered = [];
+    for (const [threshold, inputTokens] of [
+      [80, 4_000_000],
+      [90, 2_000_000],
+      [95, 1_600_000],
+      [99, 0],
+    ]) {
+      const requestId = `credit-delivery-${threshold}`;
+      const requestBody = {
+        instructions: 'Keep working on the task.',
+        input,
+        stream: true,
+      };
+      const writtenBody = await sendRequest(
+        requestId,
+        requestBody,
+        { input_tokens: inputTokens, output_tokens: 0 },
+      );
+
+      expect(writtenBody.instructions).toContain('Keep working on the task.');
+      expect(writtenBody.instructions).toContain(`[AWF AI CREDIT WARNING] You have used ${threshold}%`);
+      expect(writtenBody.instructions).not.toContain('[AWF TIME WARNING]');
+      expect(writtenBody.input).toEqual(input);
+      expect(writtenBody.stream).toBe(true);
+      delivered.push(requestId);
+    }
+
+    expect(getAndClearPendingTimeoutSteeringMessage()).toBeNull();
+    await closeTokenUsageLog();
+    const tokenRecords = fs.readFileSync(path.join(tokenLogDir, 'token-usage.jsonl'), 'utf8')
+      .trim()
+      .split('\n')
+      .map(line => JSON.parse(line));
+    for (const threshold of [80, 90, 95, 99]) {
+      const requestId = `credit-delivery-${threshold}`;
+      expect(tokenRecords.find(record => record.request_id === requestId).steering).toEqual({
+        type: 'ai_credit',
+        threshold,
+      });
+    }
+    expect(delivered).toEqual([80, 90, 95, 99].map(value => `credit-delivery-${value}`));
   });
 
   it('rejects an unsupported effort after model routing and token steering', async () => {

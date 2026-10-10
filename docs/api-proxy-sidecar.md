@@ -1286,9 +1286,11 @@ This one switch enables advisory warnings for effective-token, AI-credit, and ru
 
 To opt a workflow out explicitly, set `apiProxy.enableTokenSteering: false` (or omit the field). The CLI/config value is the only source of the sidecar's `AWF_ENABLE_TOKEN_STEERING` env var, which is emitted only when steering is enabled.
 
-Steering is advisory and delivered only in the body of a later eligible outbound model request. It cannot interrupt a running model request or tool, extend the timeout, raise a budget, guarantee a subsequent request, or guarantee completion/submission. Terminal budget exhaustion still rejects requests normally.
+Steering is advisory and delivered only in the body of a later eligible outbound model request. It cannot interrupt a running model request or tool, extend the timeout, raise a budget, guarantee a subsequent request, or guarantee completion/submission. Terminal budget exhaustion still rejects requests normally. The proxy cannot reliably distinguish main-agent requests from sub-agent requests: the recorded `x-initiator` value identifies billing class (`agent` or `user`), not which agent made the request. A notice may therefore be delivered to whichever agent or sub-agent request is next.
 
 Each threshold is tracked once per run. At most one warning is injected per eligible request; the largest crossed percentage is delivered first, then pending warnings on later requests. Equal percentages are ordered time, AI credits, then effective tokens. Classifier, malformed, unsupported, or otherwise unmodifiable requests leave warnings pending; a warning is consumed only after successful injection.
+
+When a usage record is available for a request carrying a notice, its `token-usage.jsonl` record includes `steering: { "type": "ai_credit", "threshold": 90 }` (with `type` set to `timeout`, `ai_credit`, or `token`, and `threshold` to 80, 90, 95, or 99). This lets consumers correlate the delivered notice with its request ID without recording prompt content.
 
 The message formats are:
 

@@ -185,6 +185,7 @@ function createBodyHandler({ handleRequestError, otel }) {
     let codexCompatibility = null;
     let wireApiCompatibility = null;
     let wireApiSourceBody = null;
+    let steering = null;
     const isWritableMethod = req.method === 'POST' || req.method === 'PUT' || req.method === 'PATCH';
 
     // Normalize a redundant "<provider>/" prefix (e.g. "openai/gpt-6-sol", used by
@@ -280,6 +281,7 @@ function createBodyHandler({ handleRequestError, otel }) {
         const steered = injectSteeringMessage(body, provider, nextWarning.warning.message, req.url);
         if (steered) {
           body = steered;
+          steering = { type: nextWarning.type, threshold: nextWarning.warning.threshold };
           nextWarning.acknowledge(nextWarning.warning.threshold);
           logRequest('info', `${nextWarning.type}_steering`, {
             request_id: requestId,
@@ -309,7 +311,7 @@ function createBodyHandler({ handleRequestError, otel }) {
       }
     }
 
-    return { body, codexCompatibility, wireApiCompatibility, wireApiSourceBody };
+    return { body, codexCompatibility, wireApiCompatibility, wireApiSourceBody, steering };
   }
 
   return { collectRequestBody, transformRequestBody };
