@@ -72,7 +72,7 @@ jobs:
             '"cache_peer" OR "GH_HOST" OR "resolv.conf" OR "toolcache" OR "_tool" OR "one-shot-token" OR "capsh" OR "passwd"'
           )
           for signals in "${queries[@]}"; do
-            gh api --paginate search/issues \
+            gh api --method GET --paginate search/issues \
               -f q="repo:${GITHUB_REPOSITORY} updated:>=$SINCE ($signals)" \
               -f per_page=100 \
               --jq '.items[] | {number, title, url, state, updated_at, is_pull_request: has("pull_request")}' \
