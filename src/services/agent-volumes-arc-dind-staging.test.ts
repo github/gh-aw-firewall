@@ -14,6 +14,71 @@ jest.mock('execa', () => require('../test-helpers/mock-execa.test-utils').execaM
 const { getConfig } = useAgentVolumesTestConfig();
 
 describe('agent service', () => {
+  it.each(['/host', '/tmp/gh-aw', '/tmp'])(
+    'preserves explicit agent log targets and commands with the %s DinD prefix',
+    (dockerHostPathPrefix) => {
+      const runnerTemp = fs.mkdtempSync(path.join('/tmp', 'awf-runner-temp-'));
+      const logsDir = path.join(runnerTemp, 'gh-aw/sandbox/agent/logs');
+      const canonicalLogsDir = '/tmp/gh-aw/sandbox/agent/logs';
+      fs.mkdirSync(logsDir, { recursive: true });
+
+      try {
+        const agentCommand = `copilot --log-dir ${canonicalLogsDir}`;
+        const result = generateDockerCompose(
+          {
+            ...getConfig(),
+            runnerTopology: 'arc-dind',
+            dockerHostPathPrefix,
+            agentCommand,
+            volumeMounts: [`${logsDir}:${canonicalLogsDir}:rw`],
+          },
+          mockNetworkConfig,
+        );
+        const volumes = result.services.agent.volumes as string[];
+        const translatedSource = `${dockerHostPathPrefix}${logsDir}`;
+
+        expect(volumes).toContain(`${translatedSource}:/host${canonicalLogsDir}:rw`);
+        expect(volumes).not.toContain(`${translatedSource}:/host${logsDir}:rw`);
+        expect(result.services.agent.command).toEqual(['/bin/bash', '-c', agentCommand]);
+      } finally {
+        fs.rmSync(runnerTemp, { recursive: true, force: true });
+      }
+    },
+  );
+
+  it('preserves detection input scope and safe-output mounts without widening input permissions', () => {
+    const runnerTemp = fs.mkdtempSync(path.join('/tmp', 'awf-runner-temp-'));
+    const detectionDir = path.join(runnerTemp, 'gh-aw/threat-detection');
+    const safeOutputsDir = path.join(runnerTemp, 'gh-aw/safeoutputs');
+    fs.mkdirSync(detectionDir, { recursive: true });
+    fs.mkdirSync(safeOutputsDir, { recursive: true });
+
+    try {
+      const agentCommand = `copilot --add-dir ${detectionDir}`;
+      const result = generateDockerCompose(
+        {
+          ...getConfig(),
+          runnerTopology: 'arc-dind',
+          dockerHostPathPrefix: '/host',
+          agentCommand,
+          volumeMounts: [
+            `${detectionDir}:${detectionDir}:ro`,
+            `${safeOutputsDir}:${safeOutputsDir}:rw`,
+          ],
+        },
+        mockNetworkConfig,
+      );
+      const volumes = result.services.agent.volumes as string[];
+
+      expect(volumes).toContain(`/host${detectionDir}:/host${detectionDir}:ro`);
+      expect(volumes).not.toContain(`/host${detectionDir}:/host${detectionDir}:rw`);
+      expect(volumes).toContain(`/host${safeOutputsDir}:/host${safeOutputsDir}:rw`);
+      expect(result.services.agent.command).toEqual(['/bin/bash', '-c', agentCommand]);
+    } finally {
+      fs.rmSync(runnerTemp, { recursive: true, force: true });
+    }
+  });
+
   it('keeps an ARC/DinD writable streaming-log directory beneath a read-only runner temp mount', () => {
     const runnerTemp = fs.mkdtempSync(path.join('/tmp', 'awf-runner-temp-'));
     const ghAwDir = path.join(runnerTemp, 'gh-aw');
