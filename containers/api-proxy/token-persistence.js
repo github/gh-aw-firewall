@@ -241,7 +241,7 @@ function validateTokenUsageRecord(record) {
 function buildTokenUsageRecord(normalized, opts) {
   const {
     requestId, provider, model, reqPath, status, streaming, duration, responseBytes, purpose,
-    requestedEndpoint, upstreamEndpoint,
+    requestedEndpoint, upstreamEndpoint, steering,
   } = opts;
   return {
     _schema: TOKEN_USAGE_SCHEMA,
@@ -260,6 +260,7 @@ function buildTokenUsageRecord(normalized, opts) {
     duration_ms: duration,
     response_bytes: responseBytes,
     ...(purpose ? { purpose } : {}),
+    ...(steering ? { steering } : {}),
     ...(requestedEndpoint ? { requested_endpoint: requestedEndpoint } : {}),
     ...(upstreamEndpoint ? { upstream_endpoint: upstreamEndpoint } : {}),
   };

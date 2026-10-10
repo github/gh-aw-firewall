@@ -127,6 +127,7 @@ describe('shared token usage helpers', () => {
       streaming: false,
       duration: 123,
       responseBytes: 456,
+      steering: { type: 'ai_credit', threshold: 90 },
       requestedEndpoint: '/chat/completions',
       upstreamEndpoint: '/responses',
     });
@@ -145,6 +146,7 @@ describe('shared token usage helpers', () => {
       cache_write_tokens: 1,
       duration_ms: 123,
       response_bytes: 456,
+      steering: { type: 'ai_credit', threshold: 90 },
       requested_endpoint: '/chat/completions',
       upstream_endpoint: '/responses',
     });

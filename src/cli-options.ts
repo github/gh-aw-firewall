@@ -508,9 +508,9 @@ program
   )
   .option(
     '--enable-token-steering',
-    'Enable effective token budget steering in the API proxy (requires --enable-api-proxy).\n' +
-    '                                       Injects budget-warning system messages at 80%, 90%, 95%, and 99%\n' +
-    '                                       usage to nudge the agent to wrap up before hitting the hard limit.',
+    'Enable runtime, effective-token, and AI-credit steering in the API proxy (requires --enable-api-proxy).\n' +
+    '                                       Injects advisory warnings at 80%, 90%, 95%, and 99% of configured budgets/deadlines\n' +
+    '                                       into the next eligible request; it does not interrupt work or guarantee completion.',
     false
   )
 

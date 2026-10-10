@@ -8,6 +8,7 @@ function setupTokenTracking(proxyRes, body, {
   trackTokenUsage, sanitizeForLog, metrics, otel, logRequest, wireApiCompatibility,
 }) {
   const purpose = req.awfRequestContext?.purpose;
+  const steering = req.awfSteering;
   const requestedEndpoint = wireApiCompatibility?.requestedEndpoint || null;
   const upstreamEndpoint = wireApiCompatibility?.upstreamEndpoint || null;
   // Extract model from request body as fallback for token tracking when the
@@ -20,7 +21,7 @@ function setupTokenTracking(proxyRes, body, {
     } catch { /* non-JSON body */ }
   }
   trackTokenUsage(proxyRes, {
-    requestId, provider, path: sanitizeForLog(req.url), res, startTime, metrics, billingInfo, initiatorSent, requestModel, purpose,
+    requestId, provider, path: sanitizeForLog(req.url), res, startTime, metrics, billingInfo, initiatorSent, requestModel, purpose, steering,
     ...(requestedEndpoint ? { requestedEndpoint, upstreamEndpoint } : {}),
     ...(req.awfModelFallback ? { modelFallback: req.awfModelFallback } : {}),
     ...(req.awfRouting ? {

@@ -2,6 +2,7 @@
 
 const { ET_WARNING_THRESHOLDS } = require('./effective-token-guard');
 const { parsePositiveInteger } = require('./guard-utils');
+const fs = require('fs');
 
 const TIMEOUT_STEERING_MESSAGES = {
   80: 'You have used 80% of your allotted run time. Begin planning to wrap up your current work.',
@@ -10,7 +11,7 @@ const TIMEOUT_STEERING_MESSAGES = {
   99: 'You have used 99% of your allotted run time. You are about to time out. Submit immediately.',
 };
 
-function createTimeoutSteeringState(configKey = null, startTimeMs = Date.now()) {
+function createTimeoutSteeringState(configKey = null, startTimeMs = null) {
   return {
     configKey,
     startTimeMs,
@@ -36,11 +37,24 @@ function getTimeoutSteeringConfig() {
   return timeoutSteeringConfigCache.parsedMinutes;
 }
 
+function readAgentStartTimeMs() {
+  const startFile = process.env.AWF_AGENT_RUNTIME_START_FILE;
+  if (!startFile) return null;
+  try {
+    const startTimeMs = Number(fs.readFileSync(startFile, 'utf8').trim());
+    return Number.isFinite(startTimeMs) && startTimeMs > 0 ? startTimeMs : null;
+  } catch {
+    return null;
+  }
+}
+
 function getTimeoutSteeringState(timeoutMinutes) {
   if (!timeoutMinutes) return null;
-  const configKey = String(timeoutMinutes);
+  const startTimeMs = readAgentStartTimeMs();
+  if (startTimeMs === null) return null;
+  const configKey = `${timeoutMinutes}|${startTimeMs}`;
   if (timeoutSteeringState.configKey !== configKey) {
-    timeoutSteeringState = createTimeoutSteeringState(configKey);
+    timeoutSteeringState = createTimeoutSteeringState(configKey, startTimeMs);
   }
   return timeoutSteeringState;
 }
@@ -58,7 +72,7 @@ function updateTimeoutSteeringThresholds(state, timeoutMinutes) {
   }
 }
 
-function getAndClearPendingTimeoutSteeringMessage() {
+function getPendingTimeoutSteeringWarning() {
   const timeoutMinutes = getTimeoutSteeringConfig();
   const state = getTimeoutSteeringState(timeoutMinutes);
   if (!state) return null;
@@ -66,11 +80,47 @@ function getAndClearPendingTimeoutSteeringMessage() {
   updateTimeoutSteeringThresholds(state, timeoutMinutes);
   if (state.uninjectedThresholds.size === 0) return null;
 
-  const maxThreshold = Math.max(...state.uninjectedThresholds);
-  state.uninjectedThresholds.delete(maxThreshold);
-  const text = TIMEOUT_STEERING_MESSAGES[maxThreshold] ||
-    `You have used ${maxThreshold}% of your allotted run time.`;
-  return `[AWF TIME WARNING] ${text}`;
+  const threshold = Math.max(...state.uninjectedThresholds);
+  const text = TIMEOUT_STEERING_MESSAGES[threshold] ||
+    `You have used ${threshold}% of your allotted run time.`;
+  return { threshold, message: `[AWF TIME WARNING] ${text}` };
+}
+
+function acknowledgeTimeoutSteeringWarning(threshold) {
+  timeoutSteeringState.uninjectedThresholds.delete(threshold);
+}
+
+function getAndClearPendingTimeoutSteeringMessage() {
+  const warning = getPendingTimeoutSteeringWarning();
+  if (!warning) return null;
+  acknowledgeTimeoutSteeringWarning(warning.threshold);
+  return warning.message;
+}
+
+function getTimeoutSteeringReflectState() {
+  const timeoutMinutes = getTimeoutSteeringConfig();
+  const state = getTimeoutSteeringState(timeoutMinutes);
+  if (!state) {
+    return {
+      enabled: Boolean(timeoutMinutes),
+      timeout_minutes: timeoutMinutes,
+      started_at_ms: null,
+      percent_elapsed: 0,
+      thresholds_crossed: [],
+      thresholds_pending: [],
+    };
+  }
+  updateTimeoutSteeringThresholds(state, timeoutMinutes);
+  const elapsedMs = Math.max(0, Date.now() - state.startTimeMs);
+  const percentElapsed = Math.min(100, (elapsedMs / (timeoutMinutes * 60 * 1000)) * 100);
+  return {
+    enabled: true,
+    timeout_minutes: timeoutMinutes,
+    started_at_ms: state.startTimeMs,
+    percent_elapsed: Math.round(percentElapsed * 100) / 100,
+    thresholds_crossed: [...state.emittedThresholds].sort((a, b) => a - b),
+    thresholds_pending: [...state.uninjectedThresholds].sort((a, b) => a - b),
+  };
 }
 
 function resetTimeoutSteeringForTests() {
@@ -81,5 +131,8 @@ function resetTimeoutSteeringForTests() {
 
 module.exports = {
   getAndClearPendingTimeoutSteeringMessage,
+  getPendingTimeoutSteeringWarning,
+  acknowledgeTimeoutSteeringWarning,
+  getTimeoutSteeringReflectState,
   resetTimeoutSteeringForTests,
 };

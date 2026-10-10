@@ -14,6 +14,7 @@ import {
 } from './enclave/startup-progress';
 import { HostPreflightReporter } from './cloud-hypervisor/host-preflight-progress';
 import { isCloudHypervisorEnclaveSelected } from './enclave/cloud-hypervisor-lifecycle';
+import { ensureAgentRuntimeStartMarker } from './agent-runtime-start';
 
 /**
  * Dependencies injected into the main workflow.
@@ -359,6 +360,9 @@ export async function runMainWorkflow(
   updateEnclaveStartupProgress(config, { stage: 'primary-agent' });
 
   // Step 3: Wait for agent to complete
+  if (config.enableApiProxy && config.agentTimeout !== undefined) {
+    ensureAgentRuntimeStartMarker(config.workDir, config.proxyLogsDir);
+  }
   const result = await dependencies.runAgentCommand(config.workDir, config.allowedDomains, config.proxyLogsDir, config.agentTimeout);
 
   // Step 3.5: Collect diagnostic logs before containers are stopped
