@@ -1282,7 +1282,7 @@ apiProxy:
   enableTokenSteering: true
 ```
 
-This one switch enables advisory warnings for effective-token, AI-credit, and runtime thresholds at 80%, 90%, 95%, and 99%. Credit thresholds use the lower of `maxAiCredits` and the non-overridable 10,000-credit hard cap (or the hard cap alone when no credit budget is configured). Runtime steering uses the actual agent start marker, not the first model request; host timeout enforcement and the proxy share that start time.
+This one switch enables advisory warnings for effective-token, AI-credit, and runtime thresholds at 80%, 90%, 95%, and 99%. Credit thresholds use the lower of `maxAiCredits` and the non-overridable 10,000-credit hard cap (or the hard cap alone when no credit budget is configured). Runtime steering uses the actual agent start marker, not the first model request. Host timeout enforcement uses a separate host-controlled deadline and does not trust the agent-writable marker.
 
 To opt a workflow out explicitly, set `apiProxy.enableTokenSteering: false` (or omit the field). The CLI/config value is the only source of the sidecar's `AWF_ENABLE_TOKEN_STEERING` env var, which is emitted only when steering is enabled.
 
@@ -1307,7 +1307,7 @@ Injection is protocol-aware and preserves caller content and tool exchanges:
 | Anthropic / Copilot Messages | Appends a text block to `system` |
 | Gemini | Appends a text part to `systemInstruction.parts` |
 
-`/reflect` exposes effective-token and AI-credit threshold state (`thresholds_crossed`, `thresholds_pending`) and runtime deadline state at `time_steering` (`started_at_ms`, `percent_elapsed`, and threshold fields).
+`/reflect` exposes effective-token `thresholds_crossed`, AI-credit `thresholds_crossed` and `thresholds_pending`, and runtime deadline state at `time_steering` (`started_at_ms`, `percent_elapsed`, and threshold fields).
 
 ### Introspection
 

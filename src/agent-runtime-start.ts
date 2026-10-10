@@ -17,6 +17,9 @@ export function readAgentRuntimeStartTimeMs(workDir: string, proxyLogsDir?: stri
 }
 
 export function ensureAgentRuntimeStartMarker(workDir: string, proxyLogsDir?: string): number | undefined {
+  const existingStartedAtMs = readAgentRuntimeStartTimeMs(workDir, proxyLogsDir);
+  if (existingStartedAtMs !== undefined) return existingStartedAtMs;
+
   const markerPath = resolveAgentRuntimeStartFile(workDir, proxyLogsDir);
   const markerDir = path.dirname(markerPath);
   const startedAtMs = Date.now();
@@ -24,13 +27,6 @@ export function ensureAgentRuntimeStartMarker(workDir: string, proxyLogsDir?: st
   try {
     fs.mkdirSync(markerDir, { recursive: true, mode: 0o700 });
     fs.chmodSync(markerDir, 0o700);
-    try {
-      fs.unlinkSync(markerPath);
-    } catch (error) {
-      if (!error || typeof error !== 'object' || !('code' in error) || error.code !== 'ENOENT') {
-        throw error;
-      }
-    }
     fileDescriptor = fs.openSync(
       markerPath,
       fs.constants.O_CREAT | fs.constants.O_EXCL | fs.constants.O_WRONLY | fs.constants.O_NOFOLLOW,

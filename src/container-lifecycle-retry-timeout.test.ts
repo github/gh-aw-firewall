@@ -243,12 +243,12 @@ describe('container-lifecycle retry and timeout branches', () => {
       }
     });
 
-    it('uses the agent runtime start marker as the host timeout deadline', async () => {
+    it('does not let the agent runtime marker extend the host timeout deadline', async () => {
       jest.useFakeTimers();
       const startTimeMs = Date.now();
       const runtimeDir = path.join(getDir(), 'api-proxy-logs', 'agent-runtime');
       fs.mkdirSync(runtimeDir, { recursive: true });
-      fs.writeFileSync(path.join(runtimeDir, 'started-at-ms'), String(startTimeMs));
+      fs.writeFileSync(path.join(runtimeDir, 'started-at-ms'), String(startTimeMs + 10 * 60 * 1000));
       jest.setSystemTime(startTimeMs + 30_000);
       try {
         mockExecaFn
@@ -257,7 +257,7 @@ describe('container-lifecycle retry and timeout branches', () => {
           .mockResolvedValueOnce(ok() as any);
 
         const resultPromise = runAgentCommand(getDir(), ['github.com'], undefined, 1);
-        await jest.advanceTimersByTimeAsync(30_001);
+        await jest.advanceTimersByTimeAsync(60_001);
         await jest.advanceTimersByTimeAsync(300);
 
         const result = await resultPromise;

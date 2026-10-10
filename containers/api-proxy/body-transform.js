@@ -110,7 +110,8 @@ function injectSteeringMessage(body, provider, message, requestPath = '') {
   } else if (provider === 'gemini') {
     if (!Array.isArray(parsed.contents)) return null;
     const existing = parsed.systemInstruction;
-    if (existing && typeof existing === 'object' && !Array.isArray(existing)) {
+    if (existing !== undefined) {
+      if (!existing || typeof existing !== 'object' || Array.isArray(existing)) return null;
       if (existing.parts !== undefined && !Array.isArray(existing.parts)) return null;
       const parts = Array.isArray(existing.parts)
         ? [...existing.parts, { text: message }]

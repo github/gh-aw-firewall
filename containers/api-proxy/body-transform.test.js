@@ -64,6 +64,19 @@ describe('injectStreamOptions', () => {
     });
   });
 
+  describe('injectSteeringMessage for Gemini requests', () => {
+    const warning = '[AWF AI CREDIT WARNING] Use the remaining budget carefully.';
+
+    test.each([null, 'malformed', []])('returns null for malformed systemInstruction %p', (systemInstruction) => {
+      const body = Buffer.from(JSON.stringify({
+        contents: [{ role: 'user', parts: [{ text: 'Continue the task.' }] }],
+        systemInstruction,
+      }));
+
+      expect(injectSteeringMessage(body, 'gemini', warning)).toBeNull();
+    });
+  });
+
   test('does not inject include_usage for OpenAI responses endpoint', () => {
     const body = Buffer.from(JSON.stringify({ stream: true, input: 'hello' }));
 

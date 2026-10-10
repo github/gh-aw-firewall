@@ -1,6 +1,5 @@
 import execa from 'execa';
 import { logger } from './logger';
-import { readAgentRuntimeStartTimeMs } from './agent-runtime-start';
 import { runComposeDown, fixSquidLogPermissions } from './container-stop';
 import {
   AGENT_CONTAINER_NAME,
@@ -409,11 +408,9 @@ export async function runAgentCommand(workDir: string, allowedDomains: string[],
   logger.info('Executing agent command...');
 
   try {
-    // Use the start timestamp written by the agent entrypoint so timeout
-    // enforcement and API-proxy steering share the same runtime deadline.
-    const agentStartTimeMs = agentTimeoutMinutes
-      ? readAgentRuntimeStartTimeMs(workDir, proxyLogsDir) ?? Date.now()
-      : Date.now();
+    // Keep timeout enforcement on a host-controlled clock; the agent can write
+    // the shared runtime marker used for advisory API-proxy steering.
+    const agentStartTimeMs = Date.now();
     const overallDeadlineMs = agentTimeoutMinutes
       ? agentStartTimeMs + agentTimeoutMinutes * 60 * 1000
       : undefined;

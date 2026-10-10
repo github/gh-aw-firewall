@@ -31,15 +31,14 @@ describe('agent runtime start marker', () => {
     jest.restoreAllMocks();
   });
 
-  it('refreshes a read-only marker with the current runtime start time', () => {
+  it('preserves an existing marker', () => {
     const startedAtMs = 1_700_000_000_000;
-    const refreshedAtMs = startedAtMs + 1_000;
-    jest.spyOn(Date, 'now').mockReturnValueOnce(startedAtMs).mockReturnValueOnce(refreshedAtMs);
+    jest.spyOn(Date, 'now').mockReturnValueOnce(startedAtMs).mockReturnValueOnce(startedAtMs + 1_000);
 
     expect(ensureAgentRuntimeStartMarker(workDir)).toBe(startedAtMs);
     expect(readAgentRuntimeStartTimeMs(workDir)).toBe(startedAtMs);
-    expect(ensureAgentRuntimeStartMarker(workDir)).toBe(refreshedAtMs);
-    expect(readAgentRuntimeStartTimeMs(workDir)).toBe(refreshedAtMs);
+    expect(ensureAgentRuntimeStartMarker(workDir)).toBe(startedAtMs);
+    expect(readAgentRuntimeStartTimeMs(workDir)).toBe(startedAtMs);
     expect(fs.statSync(resolveAgentRuntimeStartFile(workDir)).mode & 0o777).toBe(0o444);
     expect(fs.statSync(path.dirname(resolveAgentRuntimeStartFile(workDir))).mode & 0o777).toBe(0o555);
   });
