@@ -7,6 +7,9 @@ import { applyHostPathPrefixToVolumes } from '../services/host-path-prefix';
 import { resolveDockerSocketPath } from '../services/agent-volumes/docker-socket';
 import type { EnclavePaths } from './paths';
 import { markHostPreflightError } from '../cloud-hypervisor/host-preflight-progress';
+import type { CloudHypervisorDirectoryExport } from '../cloud-hypervisor/exports';
+import { resolveEnclavePaths } from './paths';
+import { HOST_EXECUTOR_STORAGE_ROOT } from './host-executor-journal';
 
 interface VisiblePath {
   label: string;
@@ -203,6 +206,34 @@ export function assertEnclavePrivateRootIsolated(
   cwd = process.cwd(),
 ): void {
   assertPrivateRootIsolated(config, paths, env, cwd, 'enclave');
+}
+
+/**
+ * Check actual virtio-fs sources, including RUNNER_TEMP/AGENT_TOOLSDIRECTORY
+ * and aliases that the Compose-oriented visible-path union cannot describe.
+ * Read-only exports still disclose private state and must also be rejected.
+ */
+export function assertCloudHypervisorEnclaveExportsIsolated(
+  config: WrapperConfig,
+  directoryExports: readonly CloudHypervisorDirectoryExport[],
+): void {
+  if (!config.enclaves?.enabled) return;
+  const paths = resolveEnclavePaths(config.workDir);
+  const privateRoots = [
+    paths.root,
+    paths.ingressRoot,
+    paths.hostExecutorJournalDir,
+    path.join(path.dirname(paths.hostExecutorJournalDir), 'host-invocations'),
+    HOST_EXECUTOR_STORAGE_ROOT,
+  ].map(resolvePathThroughExistingAncestor);
+  for (const entry of directoryExports) {
+    const source = resolvePathThroughExistingAncestor(entry.source);
+    if (privateRoots.some((root) => pathsOverlap(root, source))) {
+      throw new Error(
+        `Cloud Hypervisor export "${entry.tag}" overlaps enclave private or recovery state`,
+      );
+    }
+  }
 }
 
 /** @internal Exported for focused adversarial tests. */

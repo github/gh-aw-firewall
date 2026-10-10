@@ -27,6 +27,7 @@ describe('enclave runtime preflight', () => {
     ['gvisor', 'gvisor'],
     ['runsc', 'gvisor'],
     ['sbx', 'sbx'],
+    ['cloud-hypervisor', 'cloud-hypervisor'],
   ] as const)('normalizes primary runtime %s to %s', (runtime, expected) => {
     expect(resolvePrimaryRuntimeBackend(runtime)).toBe(expected);
   });
