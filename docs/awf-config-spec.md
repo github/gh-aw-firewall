@@ -1423,7 +1423,8 @@ through `AWF_API_PROXY_PROVIDERS`. Provider aliases `github-copilot` and
 
 `defaultAiCreditsPricing` is an optional object with `input` and `output`
 fields (both required, in $/1M tokens), plus optional `cachedInput` and
-`cacheWrite` fields.
+`cacheWrite` fields and an optional `reasoning` rate. `reasoning` defaults to
+`output`; reported reasoning tokens are priced separately using that rate.
 
 It is supplied via the AWF config file and maps to the
 `AWF_DEFAULT_AI_CREDITS_PRICING` environment variable (JSON string) injected
@@ -1448,7 +1449,8 @@ metadata:
    error payload includes:
    - `model`: the unresolved model name
    - `message`: human-readable instructions to configure
-     `apiProxy.defaultAiCreditsPricing`
+     `apiProxy.defaultAiCreditsPricing`, add the model to
+     `apiProxy.modelPricingCatalog`, or add it to an AWF pricing table
 
    This fail-closed behavior prevents unaccounted spending from models whose
    pricing is unknown to the proxy.

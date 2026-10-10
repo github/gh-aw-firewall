@@ -33,16 +33,17 @@ export interface RateLimitOptions {
   maxAiCredits?: number;
 
   /**
-   * Default AI credits pricing for models not in the built-in pricing table.
+   * Default AI credits pricing for models not resolved by another pricing source.
    *
    * When maxAiCredits is active and the api-proxy encounters a model not in its
-   * pricing table, it uses these rates as a fallback. If not set and the model
-   * is unrecognized, the request is rejected with HTTP 400 (type:
+   * pricing catalog or table, it uses these rates as a fallback. If not set and
+   * the model is unrecognized, the request is rejected with HTTP 400 (type:
    * unknown_model_ai_credits) to prevent unaccounted spending.
    *
-   * Rates are per 1 million tokens in dollars.
+   * Rates are per 1 million tokens in dollars. Reasoning tokens use the output
+   * rate unless a distinct reasoning rate is supplied.
    *
-   * @example { input: 3.0, output: 15.0, cachedInput: 0.3, cacheWrite: 3.75 }
+   * @example { input: 3.0, output: 15.0, cachedInput: 0.3, cacheWrite: 3.75, reasoning: 15.0 }
    */
   defaultAiCreditsPricing?: {
     input: number;

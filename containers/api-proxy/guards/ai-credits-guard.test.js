@@ -825,6 +825,7 @@ describe('ai-credits-guard', () => {
       expect(result.model).toBe('brand-new-model-xyz');
       expect(result.error.type).toBe('unknown_model_ai_credits');
       expect(result.error.message).toContain('defaultAiCreditsPricing');
+      expect(result.error.message).toContain('modelPricingCatalog');
     });
 
     it('does not reject when maxAiCredits is not active', () => {

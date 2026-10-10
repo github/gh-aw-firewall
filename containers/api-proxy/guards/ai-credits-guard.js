@@ -278,7 +278,7 @@ function checkUnknownModelRejection(model, provider = undefined) {
       type: 'unknown_model_ai_credits',
       message: `Model "${model}" has no AI credits pricing and no default pricing is configured. ` +
         'Set apiProxy.defaultAiCreditsPricing in the AWF config (e.g. {"input": 3.0, "output": 15.0}) ' +
-        'to provide a fallback rate, or add the model to the pricing table.',
+        'to provide a fallback rate, or add the model to apiProxy.modelPricingCatalog or a pricing table.',
       model,
     },
   };
