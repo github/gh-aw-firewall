@@ -33,6 +33,9 @@ export function prepareWorkDirectories(config: WrapperConfig, logPaths: LogPaths
   prepareLogDirectories(logPaths, config.dockerHostPathPrefix);
   prepareChrootHomeMounts(config);
   ensureInitSignalDir(config.workDir);
+  if (config.enableApiProxy && config.agentTimeout !== undefined) {
+    ensureDirectory(path.join(logPaths.apiProxyLogs, 'agent-runtime'), { mode: 0o700 });
+  }
 }
 
 /** @internal Exposed only for unit tests — not part of the public API. */

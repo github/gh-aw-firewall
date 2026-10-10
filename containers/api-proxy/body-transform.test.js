@@ -1,4 +1,4 @@
-const { injectStreamOptions } = require('./body-transform');
+const { injectSteeringMessage, injectStreamOptions } = require('./body-transform');
 
 describe('injectStreamOptions', () => {
   test('injects include_usage for streaming chat completions requests', () => {
@@ -8,6 +8,73 @@ describe('injectStreamOptions', () => {
 
     expect(transformed).not.toBeNull();
     expect(JSON.parse(transformed.body.toString('utf8')).stream_options).toEqual({ include_usage: true });
+  });
+
+  describe('injectSteeringMessage for Responses requests', () => {
+    const warning = '[AWF AI CREDIT WARNING] Use the remaining budget carefully.';
+
+    test('appends to instructions without changing input or tool history', () => {
+      const input = [
+        { role: 'user', content: [{ type: 'input_text', text: 'Continue the task.' }] },
+        { type: 'function_call', call_id: 'call-1', name: 'read_file', arguments: '{}' },
+        { type: 'function_call_output', call_id: 'call-1', output: 'file contents' },
+      ];
+      const body = Buffer.from(JSON.stringify({
+        model: 'gpt-5-mini',
+        instructions: 'Keep working carefully.',
+        input,
+        stream: true,
+      }));
+
+      const result = injectSteeringMessage(body, 'openai', warning, '/v1/responses');
+
+      expect(result).not.toBeNull();
+      expect(JSON.parse(result.toString())).toEqual({
+        model: 'gpt-5-mini',
+        instructions: `Keep working carefully.\n\n${warning}`,
+        input,
+        stream: true,
+      });
+    });
+
+    test('sets instructions for Responses requests without existing instructions', () => {
+      const body = Buffer.from(JSON.stringify({ input: 'Continue the task.' }));
+
+      const result = injectSteeringMessage(body, 'copilot', warning, '/responses');
+
+      expect(JSON.parse(result.toString())).toMatchObject({
+        input: 'Continue the task.',
+        instructions: warning,
+      });
+    });
+
+    test('returns null for malformed Responses input or instructions', () => {
+      expect(injectSteeringMessage(
+        Buffer.from(JSON.stringify({ input: { text: 'not a supported input' } })),
+        'openai',
+        warning,
+        '/v1/responses',
+      )).toBeNull();
+      expect(injectSteeringMessage(
+        Buffer.from(JSON.stringify({ input: 'hello', instructions: [] })),
+        'openai',
+        warning,
+        '/v1/responses',
+      )).toBeNull();
+    });
+  });
+
+  describe('injectSteeringMessage for Gemini requests', () => {
+    const warning = '[AWF AI CREDIT WARNING] Use the remaining budget carefully.';
+
+    test.each([null, 'malformed', []])('returns null for malformed systemInstruction %p', (systemInstruction) => {
+      const body = Buffer.from(JSON.stringify({
+        contents: [{ role: 'user', parts: [{ text: 'Continue the task.' }] }],
+        systemInstruction,
+      }));
+
+      expect(injectSteeringMessage(body, 'gemini', warning)).toBeNull();
+    });
   });
 
   test('does not inject include_usage for OpenAI responses endpoint', () => {

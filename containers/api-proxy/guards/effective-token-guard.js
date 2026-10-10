@@ -200,16 +200,27 @@ function buildEffectiveTokenLimitError(etState) {
   };
 }
 
-function getAndClearPendingSteeringMessage() {
+function getPendingSteeringWarning() {
   const config = getEffectiveTokenConfig();
   const state = getEffectiveTokenState(config);
   if (!state || state.uninjectedThresholds.size === 0) return null;
 
-  const maxThreshold = Math.max(...state.uninjectedThresholds);
-  state.uninjectedThresholds.delete(maxThreshold);
-  const text = ET_STEERING_MESSAGES[maxThreshold] ||
-    `You have used ${maxThreshold}% of your effective token budget.`;
-  return `[AWF TOKEN WARNING] ${text}`;
+  const threshold = Math.max(...state.uninjectedThresholds);
+  const text = ET_STEERING_MESSAGES[threshold] ||
+    `You have used ${threshold}% of your effective token budget.`;
+  return { threshold, message: `[AWF TOKEN WARNING] ${text}` };
+}
+
+function acknowledgeSteeringWarning(threshold) {
+  const state = etGuardState;
+  state.uninjectedThresholds.delete(threshold);
+}
+
+function getAndClearPendingSteeringMessage() {
+  const warning = getPendingSteeringWarning();
+  if (!warning) return null;
+  acknowledgeSteeringWarning(warning.threshold);
+  return warning.message;
 }
 
 module.exports = {
@@ -219,5 +230,7 @@ module.exports = {
   resetEffectiveTokenGuardForTests,
   buildEffectiveTokenLimitError,
   getAndClearPendingSteeringMessage,
+  getPendingSteeringWarning,
+  acknowledgeSteeringWarning,
   ET_WARNING_THRESHOLDS,
 };

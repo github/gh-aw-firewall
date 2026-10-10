@@ -69,7 +69,7 @@ awf [options] -- <command>
 | `--rate-limit-rph <n>` | number | `10000` | Max requests per hour per provider |
 | `--rate-limit-bytes-pm <n>` | number | `52428800` (~50 MB) | Max request bytes per minute per provider |
 | `--no-rate-limit` | flag | — | Disable rate limiting in API proxy |
-| `--enable-token-steering` | flag | `false` | Inject budget-warning messages at 80/90/95/99% effective token usage |
+| `--enable-token-steering` | flag | `false` | Opt in to runtime, effective-token, and AI-credit advisory warnings |
 | `--difc-proxy-host <host:port>` | string | — | Connect to external DIFC proxy and enable CLI proxy sidecar |
 | `--difc-proxy-ca-cert <path>` | string | — | Path to TLS CA cert for external DIFC proxy verification |
 | `--diagnostic-logs` | flag | `false` | Collect diagnostics on non-zero exit |
@@ -955,7 +955,7 @@ sudo -E awf --enable-api-proxy --no-rate-limit \
 
 ### `--enable-token-steering`
 
-Inject budget-warning system messages into outgoing LLM requests when cumulative effective token usage crosses 80%, 90%, 95%, or 99% of `maxEffectiveTokens`. Each threshold is injected at most once per run. Has no effect if `maxEffectiveTokens` is not configured.
+Opt in to advisory runtime, effective-token, and AI-credit warnings at 80%, 90%, 95%, and 99% of their configured budgets/deadlines. Notices are injected one per eligible outbound request; they do not interrupt ongoing work or guarantee completion. AI-credit thresholds use the lower of `maxAiCredits` and the 10,000-credit hard cap. Configure `container.agentTimeout` to enable runtime warnings.
 
 - **Default:** `false`
 - **Requires:** `--enable-api-proxy`

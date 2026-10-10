@@ -414,6 +414,7 @@ describe('buildRateLimitEnv', () => {
   it('sets AWF_AGENT_TIMEOUT_MINUTES when configured', () => {
     const env = buildRateLimitEnv({ ...baseConfig, workDir: '/tmp/awf-test', agentTimeout: 30 });
     expect(env.AWF_AGENT_TIMEOUT_MINUTES).toBe('30');
+    expect(env.AWF_AGENT_RUNTIME_START_FILE).toBe('/var/log/api-proxy/agent-runtime/started-at-ms');
   });
 
   it('sets AWF_MAX_MODEL_MULTIPLIER when maxModelMultiplierCap is configured', () => {
