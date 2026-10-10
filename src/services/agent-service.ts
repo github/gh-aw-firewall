@@ -14,6 +14,7 @@ import { logger } from '../logger';
 import { dockerSensitiveTmpfs } from '../sensitive-paths';
 import { WrapperConfig } from '../types';
 import { NetworkConfig, ImageBuildConfig } from './squid-service';
+import { resolveLogPaths } from '../log-paths';
 
 // Re-export functions for backwards compatibility
 export { buildAgentEnvironment } from './agent-environment/environment-builder';
@@ -99,6 +100,13 @@ function buildAgentSecurityConfig(config: WrapperConfig): any {
  */
 export function buildAgentService(params: AgentServiceParams): any {
   const { config, networkConfig, environment, agentVolumes, dnsServers, imageConfig } = params;
+  const hasAgentRuntimeClock = config.enableApiProxy && config.agentTimeout !== undefined;
+  const agentRuntimeVolumes = hasAgentRuntimeClock
+    ? applyHostPathPrefixToVolumes(
+      [`${path.join(resolveLogPaths(config).apiProxyLogs, 'agent-runtime')}:/run/awf-runtime:rw`],
+      config.dockerHostPathPrefix,
+    )
+    : [];
 
   // Agent service configuration
   const agentService: any = {
@@ -113,8 +121,13 @@ export function buildAgentService(params: AgentServiceParams): any {
       ? [networkConfig.dohProxyIp, '127.0.0.11']
       : dnsServers, // Use configured DNS servers (prevents DNS exfiltration)
     dns_search: [], // Disable DNS search domains to prevent embedded DNS fallback
-    volumes: agentVolumes,
-    environment,
+    volumes: [...agentVolumes, ...agentRuntimeVolumes],
+    environment: {
+      ...environment,
+      ...(hasAgentRuntimeClock && {
+        AWF_AGENT_RUNTIME_START_FILE: '/run/awf-runtime/started-at-ms',
+      }),
+    },
     depends_on: {
       'squid-proxy': {
         condition: 'service_healthy',

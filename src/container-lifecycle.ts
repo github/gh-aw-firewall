@@ -1,5 +1,6 @@
 import execa from 'execa';
 import { logger } from './logger';
+import { readAgentRuntimeStartTimeMs } from './agent-runtime-start';
 import { runComposeDown, fixSquidLogPermissions } from './container-stop';
 import {
   AGENT_CONTAINER_NAME,
@@ -408,8 +409,14 @@ export async function runAgentCommand(workDir: string, allowedDomains: string[],
   logger.info('Executing agent command...');
 
   try {
-    // Compute the absolute deadline once so the retry shares the same budget.
-    const overallDeadlineMs = agentTimeoutMinutes ? Date.now() + agentTimeoutMinutes * 60 * 1000 : undefined;
+    // Use the start timestamp written by the agent entrypoint so timeout
+    // enforcement and API-proxy steering share the same runtime deadline.
+    const agentStartTimeMs = agentTimeoutMinutes
+      ? readAgentRuntimeStartTimeMs(workDir, proxyLogsDir) ?? Date.now()
+      : Date.now();
+    const overallDeadlineMs = agentTimeoutMinutes
+      ? agentStartTimeMs + agentTimeoutMinutes * 60 * 1000
+      : undefined;
 
     const executeAgentAttempt = async (logsSince?: string): Promise<number> => {
       // Stream logs in real-time using docker logs -f (follow mode)

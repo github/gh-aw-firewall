@@ -58,6 +58,7 @@ const {
 } = require('./guards/max-permission-denied-guard');
 const {
   getAndClearPendingTimeoutSteeringMessage,
+  getTimeoutSteeringReflectState,
   resetTimeoutSteeringForTests,
 } = require('./guards/timeout-steering');
 const {
@@ -359,6 +360,7 @@ module.exports = {
   HTTPS_PROXY,
   getEffectiveTokenReflectState,
   getAiCreditsReflectState,
+  getTimeoutSteeringReflectState,
   getMaxRunsReflectState,
   getMaxCacheMissesReflectState,
   getPermissionDeniedReflectState,

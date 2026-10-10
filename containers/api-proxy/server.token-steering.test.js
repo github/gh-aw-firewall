@@ -7,6 +7,9 @@
 
 const https = require('https');
 const { EventEmitter } = require('events');
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
 const { setupServerTestEnv, flushPromises, makeProxyReq, completeUpstreamResponse } = require('./test-helpers/server-mock-factories');
 
 let proxyRequest;
@@ -17,6 +20,7 @@ let resetEffectiveTokenGuardForTests;
 let resetTimeoutSteeringForTests;
 let replaceRuntimeModels;
 let clearRuntimeModels;
+let timeoutRuntimeDir;
 
 setupServerTestEnv(() => {
   ({ proxyRequest } = require('./server'));
@@ -48,10 +52,12 @@ describe('token steering — getAndClearPendingSteeringMessage and injectSteerin
   // proxy handles both the threshold crossing and the body injection.
 
   beforeEach(() => {
+    timeoutRuntimeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-timeout-steering-'));
     process.env.AWF_MAX_EFFECTIVE_TOKENS = '100';
     process.env.AWF_ENABLE_TOKEN_STEERING = 'true';
     delete process.env.AWF_EFFECTIVE_TOKEN_MODEL_MULTIPLIERS;
     delete process.env.AWF_AGENT_TIMEOUT_MINUTES;
+    process.env.AWF_AGENT_RUNTIME_START_FILE = path.join(timeoutRuntimeDir, 'started-at-ms');
     resetEffectiveTokenGuardForTests();
     resetTimeoutSteeringForTests();
   });
@@ -61,9 +67,11 @@ describe('token steering — getAndClearPendingSteeringMessage and injectSteerin
     delete process.env.AWF_ENABLE_TOKEN_STEERING;
     delete process.env.AWF_EFFECTIVE_TOKEN_MODEL_MULTIPLIERS;
     delete process.env.AWF_AGENT_TIMEOUT_MINUTES;
+    delete process.env.AWF_AGENT_RUNTIME_START_FILE;
     resetEffectiveTokenGuardForTests();
     resetTimeoutSteeringForTests();
     clearRuntimeModels();
+    fs.rmSync(timeoutRuntimeDir, { recursive: true, force: true });
     jest.restoreAllMocks();
   });
 
@@ -71,13 +79,12 @@ describe('token steering — getAndClearPendingSteeringMessage and injectSteerin
     expect(getAndClearPendingSteeringMessage()).toBeNull();
   });
 
-  it('returns timeout steering warnings as runtime thresholds are crossed', () => {
+  it('uses the runtime start marker when the first timeout check is delayed', () => {
     process.env.AWF_AGENT_TIMEOUT_MINUTES = '10';
     const start = 1_700_000_000_000;
+    fs.writeFileSync(process.env.AWF_AGENT_RUNTIME_START_FILE, String(start));
     const nowSpy = jest.spyOn(Date, 'now').mockReturnValue(start);
     resetTimeoutSteeringForTests();
-
-    expect(getAndClearPendingTimeoutSteeringMessage()).toBeNull();
 
     nowSpy.mockReturnValue(start + (8 * 60 * 1000));
     const msg80 = getAndClearPendingTimeoutSteeringMessage();
@@ -95,6 +102,7 @@ describe('token steering — getAndClearPendingSteeringMessage and injectSteerin
   it('injects timeout steering warning into OpenAI request body', async () => {
     process.env.AWF_AGENT_TIMEOUT_MINUTES = '10';
     const start = 1_700_000_000_000;
+    fs.writeFileSync(process.env.AWF_AGENT_RUNTIME_START_FILE, String(start));
     const nowSpy = jest.spyOn(Date, 'now').mockReturnValue(start);
     resetTimeoutSteeringForTests();
 
@@ -143,6 +151,7 @@ describe('token steering — getAndClearPendingSteeringMessage and injectSteerin
   it('injects Copilot Messages steering into the top-level system field', async () => {
     process.env.AWF_AGENT_TIMEOUT_MINUTES = '10';
     const start = 1_700_000_000_000;
+    fs.writeFileSync(process.env.AWF_AGENT_RUNTIME_START_FILE, String(start));
     const nowSpy = jest.spyOn(Date, 'now').mockReturnValue(start);
     resetTimeoutSteeringForTests();
 

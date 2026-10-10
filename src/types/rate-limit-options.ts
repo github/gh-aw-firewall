@@ -114,15 +114,12 @@ export interface RateLimitOptions {
   maxCacheMisses?: number;
 
   /**
-   * Enable effective token budget steering warnings in the API proxy
+   * Enable runtime, effective-token, and AI-credit steering warnings in the API proxy.
    *
-   * When true, the api-proxy injects budget-warning system messages into outgoing
-   * LLM requests when cumulative usage crosses the configured thresholds (80%, 90%,
-   * 95%, 99%). This nudges the agent to wrap up before hitting the hard limit.
-   * When false (the default), no steering messages are injected.
-   *
-   * Requires `maxEffectiveTokens` to be set. Has no effect without a configured
-   * effective token budget.
+   * When true, the api-proxy injects advisory messages into the next eligible
+   * outbound request at 80%, 90%, 95%, and 99% of configured budgets/deadlines.
+   * Messages are not an interruption or guarantee of completion. When false
+   * (the default), no steering messages are injected.
    *
    * @default false
    */

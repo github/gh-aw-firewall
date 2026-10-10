@@ -1271,56 +1271,43 @@ WebSocket upgrade requests are also rejected with `403` when the budget is reach
 Once the budget is reached or exceeded, **all subsequent requests in the run are rejected**. The budget is not recoverable — there is no way to "free up" tokens within a single run. The rejection uses **HTTP `403`** (not `429`) precisely because the limit is terminal: a `429` would invite LLM SDK clients to retry with backoff against a cap that never recovers, burning the remaining run budget until the step times out.
 :::
 
-### Threshold tracking and token steering
+### Runtime, token, and AI-credit steering
 
-The proxy tracks which usage thresholds have been crossed. When token steering is enabled (see below), it **injects a budget-warning message** into the body of the next eligible request sent to the upstream model:
-
-| Threshold | Tracked once per run | Warning injected (when steering enabled) |
-|-----------|-----------------------|------------------------------------------|
-| 80% | Yes | Yes |
-| 90% | Yes | Yes |
-| 95% | Yes | Yes |
-| 99% | Yes | Yes |
-
-#### Enabling token steering
-
-Token steering is **opt-in**. Pass `--enable-token-steering` on the CLI or set `apiProxy.enableTokenSteering: true` in the config file:
+Budget steering is **opt-in**. Pass `--enable-token-steering` on the CLI or set `apiProxy.enableTokenSteering: true` in the config file:
 
 ```yaml
 apiProxy:
-  maxEffectiveTokens: 500000
+  maxAiCredits: 25
+  # maxEffectiveTokens: 500000  # optional
   enableTokenSteering: true
 ```
 
-When disabled (the default), thresholds are still tracked and exposed via `/reflect`, but no warning messages are injected into request bodies.
+This one switch enables advisory warnings for effective-token, AI-credit, and runtime thresholds at 80%, 90%, 95%, and 99%. Credit thresholds use the lower of `maxAiCredits` and the non-overridable 10,000-credit hard cap (or the hard cap alone when no credit budget is configured). Runtime steering uses the actual agent start marker, not the first model request; host timeout enforcement and the proxy share that start time.
 
 To opt a workflow out explicitly, set `apiProxy.enableTokenSteering: false` (or omit the field). The CLI/config value is the only source of the sidecar's `AWF_ENABLE_TOKEN_STEERING` env var, which is emitted only when steering is enabled.
 
-#### How steering messages are injected
+Steering is advisory and delivered only in the body of a later eligible outbound model request. It cannot interrupt a running model request or tool, extend the timeout, raise a budget, guarantee a subsequent request, or guarantee completion/submission. Terminal budget exhaustion still rejects requests normally.
 
-When a threshold is crossed, the proxy modifies the outgoing request body of the *next* API call to include a system-level warning. This ensures the agent receives budget information even if it doesn't parse headers or error responses. The message format is:
+Each threshold is tracked once per run. At most one warning is injected per eligible request; the largest crossed percentage is delivered first, then pending warnings on later requests. Equal percentages are ordered time, AI credits, then effective tokens. Classifier, malformed, unsupported, or otherwise unmodifiable requests leave warnings pending; a warning is consumed only after successful injection.
+
+The message formats are:
 
 ```
 [AWF TOKEN WARNING] You have used 90% of your effective token budget. Complete your current task and prepare final output.
-```
-
-When `--agent-timeout` is configured, the proxy also injects runtime steering messages at the same thresholds:
-
-```
+[AWF AI CREDIT WARNING] You have used 90% of your AI-credit budget. Complete your current task and prepare final output.
 [AWF TIME WARNING] You have used 90% of your allotted run time. Complete your current task and prepare final output.
 ```
 
-The injection is provider-aware:
+Injection is protocol-aware and preserves caller content and tool exchanges:
 
-| Provider | Injection mechanism |
-|----------|---------------------|
-| OpenAI / Copilot | Inserts `{"role":"system","content":"..."}` after existing system messages |
-| Anthropic | Appends to the `system` field (string concat or block append) |
-| Gemini | Appends `{"text":"..."}` to `systemInstruction.parts` |
+| Request format | Injection mechanism |
+|---------------|---------------------|
+| OpenAI / Copilot Chat Completions | Inserts a `system` message after existing system messages |
+| OpenAI / Copilot Responses | Appends to `instructions`, preserving `input`, tool history, and stream fields |
+| Anthropic / Copilot Messages | Appends a text block to `system` |
+| Gemini | Appends a text part to `systemInstruction.parts` |
 
-Each threshold is injected **at most once** per run. If the body cannot be parsed as JSON, injection is silently skipped for that request.
-
-Crossed thresholds are also exposed via `/reflect` in `effective_tokens.thresholds_crossed`.
+`/reflect` exposes effective-token and AI-credit threshold state (`thresholds_crossed`, `thresholds_pending`) and runtime deadline state at `time_steering` (`started_at_ms`, `percent_elapsed`, and threshold fields).
 
 ### Introspection
 

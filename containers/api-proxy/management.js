@@ -96,6 +96,7 @@ function buildRoutingModelMetadata(provider, modelIds, runtimeRecords) {
  * @property {() => { enabled: boolean, strategy: string }} getModelFallback - Returns fallback config
  * @property {() => Record<string, { enabled: boolean, strategy: string, suppressed: boolean, suppression_reason?: string }>} getEffectiveModelFallback - Returns provider-effective fallback summary
  * @property {() => object}         getAiCreditsUsage     - Returns AI credits usage summary
+ * @property {() => object}         [getTimeoutSteeringUsage] - Returns runtime steering state
  * @property {() => object}         getMaxRunsUsage        - Returns max-runs usage summary
  * @property {() => object}         getMaxCacheMissesUsage - Returns max-cache-misses usage summary
  * @property {() => object}         getPermissionDeniedUsage - Returns permission-denied usage summary
@@ -124,6 +125,7 @@ function createManagementHandlers(deps) {
     getModelFallback,
     getEffectiveModelFallback,
     getAiCreditsUsage,
+    getTimeoutSteeringUsage = () => null,
     getMaxRunsUsage,
     getMaxCacheMissesUsage,
     getPermissionDeniedUsage,
@@ -212,6 +214,7 @@ function createManagementHandlers(deps) {
       model_fallback: getModelFallback(),
       model_fallback_effective: getEffectiveModelFallback(),
       ai_credits: getAiCreditsUsage(),
+      time_steering: getTimeoutSteeringUsage(),
       runs: getMaxRunsUsage(),
       cache_misses: getMaxCacheMissesUsage(),
       permission_denied: getPermissionDeniedUsage(),

@@ -1825,6 +1825,19 @@ warn_codex_auto_model
 log_environment_details
 determine_capabilities_to_drop
 log_execution_context "$@"
+if [ -n "${AWF_AGENT_RUNTIME_START_FILE:-}" ] && [ ! -f "$AWF_AGENT_RUNTIME_START_FILE" ]; then
+  runtime_dir="$(dirname "$AWF_AGENT_RUNTIME_START_FILE")"
+  runtime_started_at_ms="$(date +%s%3N)"
+  if mkdir -p "$runtime_dir" &&
+    [[ "$runtime_started_at_ms" =~ ^[0-9]+$ ]] &&
+    printf '%s\n' "$runtime_started_at_ms" > "$AWF_AGENT_RUNTIME_START_FILE" &&
+    chmod 0444 "$AWF_AGENT_RUNTIME_START_FILE" &&
+    chmod 0555 "$runtime_dir"; then
+    echo "[entrypoint] Agent runtime start recorded for timeout steering"
+  else
+    echo "[entrypoint][WARN] Could not record agent runtime start for timeout steering"
+  fi
+fi
 if [ "${AWF_CHROOT_ENABLED}" = "true" ]; then
   run_chroot_command "$@"
 else
