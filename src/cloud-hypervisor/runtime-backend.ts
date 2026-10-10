@@ -40,6 +40,11 @@ import {
   stopManager,
 } from './runtime-cleanup';
 import { createPrimaryAgentCloudHypervisorProfile } from './workload-profile';
+import {
+  assertCloudHypervisorEnclaveLifecycleReady,
+  closeCloudHypervisorEnclaveAdmissions,
+  stopCloudHypervisorEnclaveLifecycle,
+} from '../enclave/cloud-hypervisor-lifecycle';
 export { buildCloudHypervisorGuestEnvironment };
 export { CloudHypervisorRetryableReadinessError } from './preflight';
 export {
@@ -292,7 +297,10 @@ class CloudHypervisorRuntimeBackend implements ExternalAgentRuntimeBackend {
     const manager = this.manager;
     const environment = this.environment;
     const identity = this.identity;
-    if (!manager || !environment || !identity) {
+    if (this.config.enclaves?.enabled) {
+      await assertCloudHypervisorEnclaveLifecycleReady(this.config);
+    }
+    if (this.stopped || this.stopping || !manager || !environment || !identity) {
       throw new Error('Cloud Hypervisor microVM is not ready');
     }
     if (this.config.tty) {
@@ -380,6 +388,7 @@ class CloudHypervisorRuntimeBackend implements ExternalAgentRuntimeBackend {
   }
 
   async stop(): Promise<void> {
+    closeCloudHypervisorEnclaveAdmissions(this.config);
     if (this.stopped) return;
     if (this.stopping) return this.stopping;
     this.stopping = this.stopManager(false);
@@ -392,6 +401,7 @@ class CloudHypervisorRuntimeBackend implements ExternalAgentRuntimeBackend {
   }
 
   async preserve(): Promise<void> {
+    closeCloudHypervisorEnclaveAdmissions(this.config);
     if (this.stopped) return;
     if (this.stopping) return this.stopping;
     this.stopping = this.stopManager(true);
@@ -425,13 +435,19 @@ class CloudHypervisorRuntimeBackend implements ExternalAgentRuntimeBackend {
 
   private async stopManager(preserve: boolean): Promise<void> {
     if (this.manager) this.stoppedManagers.add(this.manager);
-    await stopManager({
-      activeExecution: this.activeExecution,
-      manager: this.manager,
-      preserve,
-      cleanedManagers: this.cleanedManagers,
-      cleanupArtifactSnapshot: () => this.cleanupArtifactSnapshot(),
-    });
+    try {
+      await stopManager({
+        activeExecution: this.activeExecution,
+        manager: this.manager,
+        preserve,
+        cleanedManagers: this.cleanedManagers,
+        cleanupArtifactSnapshot: () => this.cleanupArtifactSnapshot(),
+      });
+    } finally {
+      if (this.config.enclaves?.enabled) {
+        await stopCloudHypervisorEnclaveLifecycle(this.config);
+      }
+    }
   }
 
   private async cleanupArtifactSnapshot(): Promise<void> {

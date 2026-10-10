@@ -9,8 +9,8 @@ name: Supply Chain Scan
 # Scanner images are pinned to reviewed digests so scan behaviour is
 # reproducible:
 #   --syft  versioned via gh-aw (generates SBOMs)
-#   grype   anchore/grype@sha256:fd4ab4d...  (v0.116.0)
-#   grant   anchore/grant@sha256:17246361... (v0.6.8)
+#   grype   ghcr.io/anchore/grype@sha256:fd4ab4d...  (v0.116.0)
+#   grant   ghcr.io/anchore/grant@sha256:17246361... (v0.6.8)
 #
 # Blocking vs. report-only:
 #   * BLOCKING gate = "Build and scan PR container images". It rebuilds the
@@ -57,6 +57,9 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Configure Docker Hub cache
+        run: bash scripts/ci/configure-docker-mirror.sh
+
       - name: Checkout gh-aw v0.91.7 compiler
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -81,6 +84,14 @@ jobs:
             ./cmd/gh-aw
           rm -rf .tmp/gh-aw-compiler
           gh aw version
+
+      - name: Prepare pinned scanners
+        run: |
+          # Keep the compiler's exact Syft reference so digest-qualified lookups
+          # find it locally. The daemon cache also covers ordinary/nested builds.
+          docker pull anchore/syft:v1.52.0@sha256:500e2d872ac019436926e8322b4fc1f39441d94d21f6f4046c6ff29b30e8cb02
+          docker pull ghcr.io/anchore/grype@sha256:fd4ab4d1042b522c896e73bdf09ab8bf384fa417df99d6dd0d6e1008c7e7c821
+          docker pull ghcr.io/anchore/grant@sha256:172463611795f43b77302cdfbd7b3f81295492a7330e0820cfe41c3674920237
 
       - name: Compile + generate SBOMs (Syft)
         env:
@@ -120,7 +131,7 @@ jobs:
           docker run --rm \
             -v "$GRYPE_DB:/cache" \
             -e GRYPE_DB_CACHE_DIR=/cache \
-            anchore/grype@sha256:fd4ab4d1042b522c896e73bdf09ab8bf384fa417df99d6dd0d6e1008c7e7c821 \
+            ghcr.io/anchore/grype@sha256:fd4ab4d1042b522c896e73bdf09ab8bf384fa417df99d6dd0d6e1008c7e7c821 \
             db update
 
       - name: Save Grype vulnerability DB cache
@@ -136,7 +147,7 @@ jobs:
         # upstream third-party images that a PR cannot rebuild. Findings are
         # REPORTED as warnings but do NOT fail the job. The blocking CVE gate is
         # the "Build and scan PR container images" step below.
-        # anchore/grype@sha256:fd4ab4d1042b522c896e73bdf09ab8bf384fa417df99d6dd0d6e1008c7e7c821 = v0.116.0
+        # ghcr.io/anchore/grype@sha256:fd4ab4d1042b522c896e73bdf09ab8bf384fa417df99d6dd0d6e1008c7e7c821 = v0.116.0
         env:
           GRYPE_DB: ${{ runner.temp }}/grype-db
         run: |
@@ -162,7 +173,7 @@ jobs:
                   '-e', 'GRYPE_DB_AUTO_UPDATE=false',
                   '-e', 'GRYPE_CHECK_FOR_APP_UPDATE=false',
                   '-v', f'{cwd}/.grype.yaml:/root/.grype.yaml:ro',
-                  'anchore/grype@sha256:fd4ab4d1042b522c896e73bdf09ab8bf384fa417df99d6dd0d6e1008c7e7c821',
+                  'ghcr.io/anchore/grype@sha256:fd4ab4d1042b522c896e73bdf09ab8bf384fa417df99d6dd0d6e1008c7e7c821',
                   f'registry:{image}', '--fail-on', 'high',
                   '--config', '/root/.grype.yaml',
               ])
@@ -218,7 +229,7 @@ jobs:
                   '-e', 'GRYPE_DB_AUTO_UPDATE=false',
                   '-e', 'GRYPE_CHECK_FOR_APP_UPDATE=false',
                   '-v', f'{cwd}/.grype.yaml:/root/.grype.yaml:ro',
-                  'anchore/grype@sha256:fd4ab4d1042b522c896e73bdf09ab8bf384fa417df99d6dd0d6e1008c7e7c821',
+                  'ghcr.io/anchore/grype@sha256:fd4ab4d1042b522c896e73bdf09ab8bf384fa417df99d6dd0d6e1008c7e7c821',
                   f'docker-archive:{tar}', '--fail-on', 'high',
                   '--config', '/root/.grype.yaml',
               ])
@@ -232,7 +243,7 @@ jobs:
         # License findings on the immutable published / third-party manifest
         # digests are reported as warnings but do NOT fail the job (same
         # rationale as the report-only CVE scan above).
-        # anchore/grant@sha256:172463611795f43b77302cdfbd7b3f81295492a7330e0820cfe41c3674920237 = v0.6.8
+        # ghcr.io/anchore/grant@sha256:172463611795f43b77302cdfbd7b3f81295492a7330e0820cfe41c3674920237 = v0.6.8
         run: |
           python3 - <<'PYEOF'
           import json, os, re, glob, subprocess, sys
@@ -251,7 +262,7 @@ jobs:
                   'docker', 'run', '--rm',
                   '-v', f'{home}/.docker/config.json:/root/.docker/config.json:ro',
                   '-v', f'{cwd}/.grant.yaml:/tmp/grant.yaml',
-                  'anchore/grant@sha256:172463611795f43b77302cdfbd7b3f81295492a7330e0820cfe41c3674920237',
+                  'ghcr.io/anchore/grant@sha256:172463611795f43b77302cdfbd7b3f81295492a7330e0820cfe41c3674920237',
                   'check', '-c', '/tmp/grant.yaml', image,
               ])
               print('::endgroup::', flush=True)

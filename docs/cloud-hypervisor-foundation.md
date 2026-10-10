@@ -10,6 +10,12 @@ This document covers that one-VM-per-run primary-agent runtime. The distinct
 separately gated one-VM-per-enclave-invocation design keeps the enclave MCP broker
 host/container-side; see
 [ADR 0002: Cloud Hypervisor enclave executor](adr/0002-cloud-hypervisor-enclave-executor.md).
+The internal unified lifecycle reuses this primary manager/boot loop and the
+authenticated per-invocation host executor; it does not share a guest or replace
+either launcher. Production primary-with-enclave execution remains rejected
+pending real end-to-end acceptance. See
+[ADR 0004](adr/0004-unified-workload-sandbox-backends.md#cloud-hypervisor-lifecycle-integration-gated)
+for readiness, export isolation, shutdown ownership, and the remaining gates.
 
 :::caution[Preview support]
 This runtime requires both `--container-runtime cloud-hypervisor` and
