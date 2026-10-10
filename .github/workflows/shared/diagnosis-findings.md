@@ -21,6 +21,8 @@ Match the narrowest finding ID. When nothing matches, say so and request the sma
 | capsh: not found | A4 | runner | workaround |
 | /bin/bash: no such file or directory during chroot startup | A4 | runner | workaround |
 | node: not found when the harness binary starts | A4 | runner | workaround |
+| The first uv command fails with Permission denied under UV_CACHE_DIR | B36 | runner | fixed |
+| The agent repeatedly chooses its own uv cache directory | B36 | runner | fixed |
 | OCI runtime create failed | RT-001 | runtime | needs-evidence |
 | unknown capability reported by the container runtime at start | RT-001 | runtime | needs-evidence |
 | unsupported mount reported by the container runtime at start | RT-001 | runtime | needs-evidence |
@@ -100,6 +102,19 @@ Match the narrowest finding ID. When nothing matches, say so and request the sma
 - **Action:** Use a glibc DinD image such as ghcr.io/github/gh-aw-firewall/dind-ubuntu:latest for the Docker-in-Docker sidecar.
 - **Related:** A1
 - **Provenance:** doc: DinD image requirements (docs/arc-dind.md) · doc: Runner failure-mode catalog (A4) (.github/workflows/shared/self-hosted-failure-modes.md) · code: chroot setup (containers/agent/entrypoint.sh)
+- **Owner:** @github/gh-aw-firewall-maintainers · **Review by:** 2027-03-31
+
+### B36 — setup-uv paths under RUNNER_TEMP are unwritable with --env-all
+
+- **Boundary:** runner · **Status:** fixed
+- **Affects:** runner=any, runtime=any, provider=any, auth=any
+- **Versions:** introduced=unknown, fixed=unknown
+- **Symptoms:** The first uv command fails with Permission denied under UV_CACHE_DIR · The agent repeatedly chooses its own uv cache directory
+- **Discriminating conditions:** The workflow uses runtimes: uv and AWF is invoked with --env-all · setup-uv sets UV_CACHE_DIR or UV_PYTHON_INSTALL_DIR beneath RUNNER_TEMP outside the mounted gh-aw subtree
+- **Root cause:** --env-all forwarded setup-uv cache and Python-install paths beneath RUNNER_TEMP into the agent, but only RUNNER_TEMP/gh-aw is mounted and that mount is read-only, leaving those paths unwritable.
+- **Safe probe:** `printf '%s\n' "${UV_CACHE_DIR:-unset}" "${UV_PYTHON_INSTALL_DIR:-unset}"` → On unpatched AWF, the variables point beneath RUNNER_TEMP outside the mounted gh-aw subtree; on patched AWF they are unset unless explicitly overridden, and uv uses its default under ~/.cache/uv. No files are written.
+- **Action:** Upgrade AWF to include github/gh-aw-firewall#9705. AWF drops unmounted absolute paths beneath RUNNER_TEMP when forwarding host variables; explicit --env values still override the filter. Keep these cache directories unwritable so setup-uv cannot save agent-written files into the repository-wide Actions cache. Disabling setup-uv caching is tracked on the gh-aw compiler side.
+- **Provenance:** issue: setup-uv cache paths are unwritable inside AWF (https://github.com/github/gh-aw-firewall/issues/9701) · pull-request: Drop unmounted RUNNER_TEMP paths from --env-all (https://github.com/github/gh-aw-firewall/pull/9705) · code: Filter unmounted runner-temp environment paths (src/services/agent-environment/env-passthrough.ts) · test: Covers setup-uv paths and --env-all filtering (src/services/agent-environment/env-passthrough.test.ts)
 - **Owner:** @github/gh-aw-firewall-maintainers · **Review by:** 2027-03-31
 
 ## Boundary: runtime

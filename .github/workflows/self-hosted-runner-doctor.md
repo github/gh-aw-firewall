@@ -66,6 +66,7 @@ Before proposing a fix, establish as many of these facts as the report or reprod
 - runner home directory (`$HOME`)
 - daemon libc and runtime (`glibc` vs `musl`, `runc` vs `runsc`/`kata`)
 - Docker IPv6 state
+- For tool permission errors with `runtimes: uv` and `--env-all`, check whether `UV_CACHE_DIR` or `UV_PYTHON_INSTALL_DIR` points under `$RUNNER_TEMP` outside the `gh-aw` subtree (B36). Inspect only those named variables, not the full environment.
 
 ### 2. Use only read-only probes
 
@@ -120,6 +121,7 @@ Prefer the narrowest match. Examples:
 - `EAI_AGAIN` / `ENOTFOUND` resolving a topology-attached DIFC proxy (for example `awmg-cli-proxy`) in network-isolation + topology-attach: inherited Kubernetes `search` domains / `ndots:5`, or an unreachable resolver, match B12; if DNS works when checked after the peer is attached and no search/ndots issue is present, match B5
 - `EACCES` in upload-artifact after sudo:false → B6
 - `EACCES: permission denied` writing `/tmp/gh-aw/memory-validation/cache-default.ok` (or another `/tmp/gh-aw` path) from a host-side gh-aw step after AWF exits → B35 (UID-remapped agent leaves shared `/tmp/gh-aw` paths unwritable by the host runner; fixed in github/gh-aw-firewall#9029)
+- `uv` `Permission denied` on `UV_CACHE_DIR` or `UV_PYTHON_INSTALL_DIR` beneath `$RUNNER_TEMP` when using `runtimes: uv` and `--env-all` → B36 (setup-uv paths under unmounted `$RUNNER_TEMP`; fixed in github/gh-aw-firewall#9705)
 - `403 ERR_ACCESS_DENIED` for MCP tool calls (`safeoutputs`, `github`) to `172.30.0.1/redacted` under `--container-runtime gvisor` or raw `runsc`; safe-output validation fails even though the agent completed → D8 (gVisor userspace netstack bypasses the usual iptables DNAT path; patched AWF adds `172.30.0.1` to `NO_PROXY`)
 - credential files such as `~/.aws/credentials`, `~/.ssh/id_rsa`, or `~/.docker/config.json` are visible inside an `--container-runtime sbx` microVM → D9 (older AWF mounted the entire host `$HOME` into sbx; fixed in github/gh-aw-firewall#6336)
 - Copilot CLI exits immediately (exit code 1, ~0.5 s, zero stdout/stderr) after AWF upgrade on Docker or gVisor but not sbx → B14 (`~/.copilot/config.json` incorrectly added to credential deny list; fixed in github/gh-aw-firewall#6374)

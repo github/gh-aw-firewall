@@ -1,0 +1,38 @@
+{
+  "$schema": "../../schema.json",
+  "id": "B36",
+  "boundary": "runner",
+  "title": "setup-uv paths under RUNNER_TEMP are unwritable with --env-all",
+  "symptoms": [
+    "The first uv command fails with Permission denied under UV_CACHE_DIR",
+    "The agent repeatedly chooses its own uv cache directory"
+  ],
+  "conditions": [
+    "The workflow uses runtimes: uv and AWF is invoked with --env-all",
+    "setup-uv sets UV_CACHE_DIR or UV_PYTHON_INSTALL_DIR beneath RUNNER_TEMP outside the mounted gh-aw subtree"
+  ],
+  "affects": {
+    "runner": "any",
+    "runtime": "any",
+    "provider": "any",
+    "authMode": "any"
+  },
+  "versions": { "introduced": "unknown", "fixed": "unknown" },
+  "status": "fixed",
+  "rootCause": "--env-all forwarded setup-uv cache and Python-install paths beneath RUNNER_TEMP into the agent, but only RUNNER_TEMP/gh-aw is mounted and that mount is read-only, leaving those paths unwritable.",
+  "probe": {
+    "command": "printf '%s\\n' \"${UV_CACHE_DIR:-unset}\" \"${UV_PYTHON_INSTALL_DIR:-unset}\"",
+    "expect": "On unpatched AWF, the variables point beneath RUNNER_TEMP outside the mounted gh-aw subtree; on patched AWF they are unset unless explicitly overridden, and uv uses its default under ~/.cache/uv. No files are written.",
+    "readOnly": true,
+    "secretSafe": true
+  },
+  "action": "Upgrade AWF to include github/gh-aw-firewall#9705. AWF drops unmounted absolute paths beneath RUNNER_TEMP when forwarding host variables; explicit --env values still override the filter. Keep these cache directories unwritable so setup-uv cannot save agent-written files into the repository-wide Actions cache. Disabling setup-uv caching is tracked on the gh-aw compiler side.",
+  "references": [
+    { "kind": "issue", "ref": "https://github.com/github/gh-aw-firewall/issues/9701", "title": "setup-uv cache paths are unwritable inside AWF" },
+    { "kind": "pull-request", "ref": "https://github.com/github/gh-aw-firewall/pull/9705", "title": "Drop unmounted RUNNER_TEMP paths from --env-all" },
+    { "kind": "code", "ref": "src/services/agent-environment/env-passthrough.ts", "title": "Filter unmounted runner-temp environment paths" },
+    { "kind": "test", "ref": "src/services/agent-environment/env-passthrough.test.ts", "title": "Covers setup-uv paths and --env-all filtering" }
+  ],
+  "owner": "@github/gh-aw-firewall-maintainers",
+  "reviewBy": "2027-03-31"
+}

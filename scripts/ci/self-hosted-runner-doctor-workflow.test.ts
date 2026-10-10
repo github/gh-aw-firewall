@@ -60,6 +60,21 @@ describe('self-hosted runner doctor workflow config', () => {
     expect(source).toContain('D16 / github/gh-aw-firewall#9012, github/gh-aw-firewall#9016, github/gh-aw-firewall#9017');
   });
 
+  it('documents B36 setup-uv paths under RUNNER_TEMP across doctor sources', () => {
+    const source = fs.readFileSync(sourcePath, 'utf-8');
+    const shared = fs.readFileSync(sharedPath, 'utf-8');
+    const portableAgent = fs.readFileSync(portableAgentPath, 'utf-8');
+
+    expect(shared).toContain('| B36 | The first `uv` command fails with `Permission denied` under `UV_CACHE_DIR`');
+    expect(shared).toContain('github/gh-aw-firewall#9701, github/gh-aw-firewall#9705');
+    expect(source).toContain('→ B36 (setup-uv paths under unmounted `$RUNNER_TEMP`; fixed in github/gh-aw-firewall#9705)');
+    expect(source).toContain('outside the `gh-aw` subtree (B36)');
+    expect(portableAgent).toContain('| B36 | With `runtimes: uv` and `--env-all`');
+    expect(portableAgent).toContain('github/gh-aw-firewall#9701, github/gh-aw-firewall#9705');
+    expect(portableAgent).toContain('`UV_CACHE_DIR` or `UV_PYTHON_INSTALL_DIR` points under `$RUNNER_TEMP` outside the `gh-aw` subtree (B36)');
+    expect(portableAgent).toContain('| `uv` `Permission denied` with `UV_CACHE_DIR` or `UV_PYTHON_INSTALL_DIR`');
+  });
+
   it('compiles the trigger, safe outputs, and knowledge-base references into the lock workflow', () => {
     const lock = fs.readFileSync(lockPath, 'utf-8');
 
