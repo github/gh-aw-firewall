@@ -4,6 +4,9 @@ import * as path from 'path';
 import { PassThrough } from 'stream';
 import type { WrapperConfig } from './types';
 import * as hostEligibility from './cloud-hypervisor/host-eligibility';
+import * as enclaveLifecycle from './enclave/cloud-hypervisor-lifecycle';
+import * as runtimeValidation from './cloud-hypervisor/runtime-validation';
+import { normalizeEnclavesConfig } from './parsers/enclave-parser';
 import {
   cloudHypervisorRuntimeTestHelpers,
   createCloudHypervisorRuntimeBackend,
@@ -179,6 +182,88 @@ describe('Cloud Hypervisor runtime backend', () => {
 
   afterEach(() => {
     eligibilitySpy.mockRestore();
+  });
+
+  describe('gated internal enclave facade composition', () => {
+    let ready: jest.SpyInstance;
+    let admissions: jest.SpyInstance;
+    let drain: jest.SpyInstance;
+    let compatibility: jest.SpyInstance;
+
+    beforeEach(() => {
+      // Only this unit boundary bypasses compatibility; production gates are
+      // asserted independently in unified-lifecycle and workflow tests.
+      compatibility = jest.spyOn(runtimeValidation, 'assertCloudHypervisorRuntimeCompatibility')
+        .mockImplementation(() => undefined);
+      ready = jest.spyOn(enclaveLifecycle, 'assertCloudHypervisorEnclaveLifecycleReady')
+        .mockResolvedValue(undefined);
+      admissions = jest.spyOn(enclaveLifecycle, 'closeCloudHypervisorEnclaveAdmissions')
+        .mockImplementation(() => undefined);
+      drain = jest.spyOn(enclaveLifecycle, 'stopCloudHypervisorEnclaveLifecycle')
+        .mockResolvedValue(undefined);
+    });
+
+    afterEach(() => {
+      ready.mockRestore();
+      admissions.mockRestore();
+      drain.mockRestore();
+      compatibility.mockRestore();
+    });
+
+    function unifiedConfig(): WrapperConfig {
+      return config({
+        enclaves: normalizeEnclavesConfig([{
+          script: {}, runtime: 'cloud-hypervisor',
+          repos: [{ repo: 'octo/private', sensitivity: 'internal' }],
+        }]),
+      });
+    }
+
+    async function startUnified() {
+      const result = harness();
+      result.deps.startInfrastructure = jest.fn(async (_work, _domains, _logs, _pull, _network, hook) => {
+        await hook?.();
+      });
+      const backend = createBackend(unifiedConfig(), result.deps);
+      await backend.start('/tmp/awf', ['github.com'], undefined, true, undefined, async () => undefined);
+      return { ...result, backend };
+    }
+
+    it('rechecks enclave liveness before executing the primary command', async () => {
+      const { backend, manager } = await startUnified();
+      ready.mockRejectedValueOnce(new Error('host executor drained'));
+      await expect(backend.exec('/tmp/awf', ['github.com'])).rejects.toThrow('host executor drained');
+      expect(manager.execute).toHaveBeenCalledTimes(2); // network and connectivity only
+      await backend.stop();
+    });
+
+    it.each(['stop', 'preserve'] as const)(
+      'closes admissions and drains invocation VMs once during concurrent %s', async (operation) => {
+        const { backend, manager } = await startUnified();
+        await Promise.all([backend[operation](), backend[operation]()]);
+        expect(admissions).toHaveBeenCalled();
+        expect(manager.stop).toHaveBeenCalledTimes(1);
+        expect(drain).toHaveBeenCalledTimes(1);
+        expect(admissions.mock.invocationCallOrder[0])
+          .toBeLessThan(manager.stop.mock.invocationCallOrder[0]);
+        expect(manager.stop.mock.invocationCallOrder[0])
+          .toBeLessThan(drain.mock.invocationCallOrder[0]);
+        await expect(backend.exec('/tmp/awf', ['github.com'])).rejects.toThrow(/not ready/);
+      },
+    );
+
+    it('still drains enclave VMs if primary termination fails', async () => {
+      const { backend, manager } = await startUnified();
+      manager.stop.mockRejectedValueOnce(new Error('primary cleanup uncertain'));
+      await expect(backend.stop()).rejects.toThrow('primary cleanup uncertain');
+      expect(drain).toHaveBeenCalledTimes(1);
+    });
+
+    it('propagates invocation cleanup failure instead of declaring the runtime stopped', async () => {
+      const { backend } = await startUnified();
+      drain.mockRejectedValueOnce(new Error('invocation cleanup uncertain'));
+      await expect(backend.stop()).rejects.toThrow('invocation cleanup uncertain');
+    });
   });
 
   describe('startup and preflight', () => {
