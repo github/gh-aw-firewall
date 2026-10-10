@@ -2,10 +2,12 @@
 
 ## Status
 
-Accepted direction; implementation is incremental. This PR implements backend
-resolution, inheritance of omitted enclave runtimes, and conflict rejection
-only. Docker verification is complete. Cloud Hypervisor primary-with-enclave
-execution remains gated, and NVX enclaves remain unsupported.
+Accepted direction; implementation is incremental. Backend resolution,
+inheritance of omitted enclave runtimes, and conflict rejection are implemented.
+The internal Cloud Hypervisor primary/enclave lifecycle is composed with the
+existing host executor and boot loop. Docker verification is complete.
+Cloud Hypervisor primary-with-enclave production execution remains gated on
+real end-to-end acceptance, and NVX enclaves remain unsupported.
 
 This decision complements [ADR 0001](0001-agent-enclaves.md) and refines the
 run-level integration of
@@ -82,6 +84,42 @@ handoffs, resource enforcement, and recovery checks remain explicit and
 mandatory. Code reuse must not introduce a permissive lowest-common-denominator
 backend or bypass existing checks.
 
+### Cloud Hypervisor lifecycle integration (gated)
+
+The existing enclave preparation path stages static seeds and starts the
+authenticated host service only after its host, artifact, and bounded-storage
+preflight. Structural validation of that trusted service is separate from
+production authorization; the CLI workflow and primary runtime compatibility
+checks still reject Cloud Hypervisor primary-with-enclave execution. There is
+no new configuration or environment-variable bypass.
+
+The primary boot loop requires that exact configuration's host lifecycle to be
+ready before starting supporting Compose infrastructure. Its infrastructure
+callback attaches compiler-owned mcpg, verifies the enabled tool contracts, and
+performs any required GitHub readiness checks through the existing workflow
+path. The boot loop requires callback completion, rechecks admissions, and
+revalidates the discovered topology before creating the primary manager. The
+existing primary profile permits discovered gateway peers only on port 8080,
+publishes their host aliases, and bypasses Squid for those peers in the guest
+environment. It does not attach the primary VM to the private enclave network.
+Guest connectivity probes remain separate from mcpg tool-contract readiness.
+
+Before planning virtio-fs mounts, AWF checks every actual primary export source,
+including runner-temporary and tool-cache exports, against private seed,
+ingress/capability, broker transport, invocation, allocation, and recovery roots.
+Read-only exports and symlink aliases are also rejected on overlap; a readonly
+mount is not a confidentiality boundary. This supplements, rather than replaces,
+the staging-time mount-policy checks and existing guest credential exclusions.
+
+Primary execution rechecks host-lifecycle readiness. Shutdown closes admissions
+before primary cancellation, drains invocation VMs even if primary termination
+fails, and releases enclave storage only after the existing recovery checks.
+Concurrent stop/preserve calls share teardown, and another configuration cannot
+close the owning run's admissions or storage. The CLI cleanup path retains
+sidecars, gateway attachments, and private recovery state if either primary
+or enclave VM cleanup is uncertain. Keeping primary diagnostics does not keep
+enclave admissions or invocation VMs alive.
+
 ## Rollout and acceptance
 
 1. **Docker verification (complete):** verify existing Docker execution and the
@@ -94,6 +132,32 @@ backend or bypass existing checks.
    cancellation, cleanup, and recovery boundaries.
 3. **Unified NVX:** leverage the shared microVM architecture where practical,
    with NVX-specific trust and isolation acceptance before enabling its enclaves.
+
+The lifecycle regression tests use a mocked VM/host-service boundary and a
+readiness callback; they are not real-KVM or real-mcpg acceptance. No workflow
+dispatch or production enablement is part of this slice. Subsequent acceptance
+must first run a Cloud Hypervisor primary with a static script enclave through
+compiler-owned **real mcpg**, then a static agent enclave with the dedicated
+model proxy. It must establish:
+
+- Fresh independent invocation VMs, release-attested artifacts, bounded
+  resources/storage, and bounded schema-valid results.
+- Guest reachability of the compiler's public gateway route and denial of the
+  broker, seed, capability, storage, and recovery paths, including carried-in
+  submounts and filesystem alias/race cases. Path-overlap checks alone are not
+  proof of live virtio-fs confinement.
+- Credential exclusion, no-network script execution, and dedicated agent
+  network membership without access to the primary, general proxy, or control
+  plane.
+- Normal completion, cancellation, readiness/startup failure, concurrent
+  shutdown, uncertain teardown, and restart/orphan reconciliation without
+  releasing infrastructure or protected state before VMs are reaped.
+
+Static agent GitHub tools have an additional unresolved contract: the host
+backend requires a compiler-scoped executor bearer handoff; the existing static
+identity alone is insufficient. AWF retains that explicit rejection and must not
+substitute a gateway-wide key or broaden the guest's network privileges. An
+agent acceptance run without GitHub tools does not satisfy that separate gate.
 
 Dynamic repository admission is a separate capability from on-demand creation
 of fresh enclave instances. Static enclaves already require fresh instances per

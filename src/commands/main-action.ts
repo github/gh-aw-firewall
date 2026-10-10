@@ -323,7 +323,9 @@ async function runCleanup(
     } catch (error) {
       externalRuntimeCleanupError = error;
       logger.warn(
-        'External runtime cleanup failed; continuing with infrastructure teardown.',
+        config.containerRuntime === 'cloud-hypervisor' && config.enclaves?.enabled
+          ? 'Unified Cloud Hypervisor cleanup failed; infrastructure and recovery state must be preserved.'
+          : 'External runtime cleanup failed; continuing with infrastructure teardown.',
         error,
       );
     }
@@ -364,6 +366,10 @@ async function runCleanup(
     // VM cancellation/cleanup must complete before disconnecting its peers or
     // tearing down sidecars/networks, even when broker draining fails.
     await stopCloudHypervisorEnclaveLifecycle(config);
+  }
+  if (externalRuntimeCleanupError
+    && config.containerRuntime === 'cloud-hypervisor' && config.enclaves?.enabled) {
+    throw externalRuntimeCleanupError;
   }
   if (containersStarted) {
     if (preserveIptablesAudit(
@@ -584,6 +590,7 @@ export function createMainAction(getOptionValueSource: OptionSourceResolver) {
       } catch (error) {
         if (
           externalRuntimeBackend.runtime === 'cloud-hypervisor' &&
+          !config.enclaves?.enabled &&
           isCloudHypervisorUnsupportedHostError(error)
         ) {
           logger.warn(formatCloudHypervisorDockerFallbackWarning(error));
