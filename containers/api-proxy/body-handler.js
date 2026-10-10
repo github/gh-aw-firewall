@@ -23,8 +23,18 @@
 const { sanitizeNullToolCallTypes, injectSteeringMessage, injectStreamOptions } = require('./body-transform');
 const { sanitizeForLog, logRequest } = require('./logging');
 const metrics = require('./metrics');
-const { getAndClearPendingSteeringMessage } = require('./guards/effective-token-guard');
-const { getAndClearPendingTimeoutSteeringMessage } = require('./guards/timeout-steering');
+const {
+  getPendingSteeringWarning,
+  acknowledgeSteeringWarning,
+} = require('./guards/effective-token-guard');
+const {
+  getPendingTimeoutSteeringWarning,
+  acknowledgeTimeoutSteeringWarning,
+} = require('./guards/timeout-steering');
+const {
+  getPendingAiCreditSteeringWarning,
+  acknowledgeAiCreditSteeringWarning,
+} = require('./guards/ai-credits-guard');
 const { translateCodexCustomToolsForCopilot } = require('./codex-compat');
 const { endpointForPath, translateCopilotWireApi } = require('./wire-api-compat');
 const { stripRedundantModelPrefixInBody } = require('./model-body-rewriter');
@@ -161,7 +171,7 @@ function createBodyHandler({ handleRequestError, otel }) {
    * Transforms applied in order:
    *   1. `bodyTransform` — optional caller-supplied transform
    *   2. `sanitizeNullToolCallTypes` — strips/normalizes null tool-call types
-   *   3. `injectSteeringMessage` — timeout + token-budget steering (when enabled)
+   *   3. `injectSteeringMessage` — timeout + token/credit steering (when enabled)
    *   4. `injectStreamOptions` — adds `stream_options.include_usage`
    *
    * @param {Buffer} body
@@ -175,6 +185,7 @@ function createBodyHandler({ handleRequestError, otel }) {
     let codexCompatibility = null;
     let wireApiCompatibility = null;
     let wireApiSourceBody = null;
+    let steering = null;
     const isWritableMethod = req.method === 'POST' || req.method === 'PUT' || req.method === 'PATCH';
 
     // Normalize a redundant "<provider>/" prefix (e.g. "openai/gpt-6-sol", used by
@@ -242,18 +253,41 @@ function createBodyHandler({ handleRequestError, otel }) {
     const allowSteering = req.awfRequestContext?.purpose !== 'routing_classification';
     if (allowSteering && isSteeringEnabled() && (req.method === 'POST' || req.method === 'PUT')) {
       const steeringMessages = [
-        { type: 'timeout', message: getAndClearPendingTimeoutSteeringMessage() },
-        { type: 'token', message: getAndClearPendingSteeringMessage() },
+        {
+          type: 'timeout',
+          priority: 3,
+          warning: getPendingTimeoutSteeringWarning(),
+          acknowledge: acknowledgeTimeoutSteeringWarning,
+        },
+        {
+          type: 'ai_credit',
+          priority: 2,
+          warning: getPendingAiCreditSteeringWarning(),
+          acknowledge: acknowledgeAiCreditSteeringWarning,
+        },
+        {
+          type: 'token',
+          priority: 1,
+          warning: getPendingSteeringWarning(),
+          acknowledge: acknowledgeSteeringWarning,
+        },
       ];
-      for (const { type, message } of steeringMessages) {
-        if (!message) continue;
-        const steered = injectSteeringMessage(body, provider, message, req.url);
+      const nextWarning = steeringMessages
+        .filter(candidate => candidate.warning)
+        .sort((a, b) =>
+          b.warning.threshold - a.warning.threshold || b.priority - a.priority
+        )[0];
+      if (nextWarning) {
+        const steered = injectSteeringMessage(body, provider, nextWarning.warning.message, req.url);
         if (steered) {
           body = steered;
-          logRequest('info', `${type}_steering`, {
+          steering = { type: nextWarning.type, threshold: nextWarning.warning.threshold };
+          nextWarning.acknowledge(nextWarning.warning.threshold);
+          logRequest('info', `${nextWarning.type}_steering`, {
             request_id: requestId,
             provider,
-            message,
+            threshold: nextWarning.warning.threshold,
+            message: nextWarning.warning.message,
           });
         }
       }
@@ -277,7 +311,7 @@ function createBodyHandler({ handleRequestError, otel }) {
       }
     }
 
-    return { body, codexCompatibility, wireApiCompatibility, wireApiSourceBody };
+    return { body, codexCompatibility, wireApiCompatibility, wireApiSourceBody, steering };
   }
 
   return { collectRequestBody, transformRequestBody };

@@ -66,15 +66,22 @@ function isMessagesRequest(requestPath) {
   return path.endsWith('/messages');
 }
 
+function isResponsesRequest(requestPath) {
+  if (typeof requestPath !== 'string') return false;
+  const path = requestPath.split('?')[0].split('#')[0].replace(/\/+$/, '');
+  return path === '/responses' || path.endsWith('/responses');
+}
+
 /**
  * Inject a token-budget warning message into a request body.
  *
- * Handles three JSON body formats:
+ * Handles four JSON body formats:
  *   - Messages   (/v1/messages)          — appends a text block to `system`
  *                                           (Anthropic and Copilot)
  *   - Gemini     (/v1beta/…generateContent) — appends a part to `systemInstruction`
  *   - OpenAI     (/v1/chat/completions)  — inserts a system message after any
  *                                           existing system messages
+ *   - Responses  (/v1/responses)         — appends to `instructions`
  *
  * Returns a new Buffer containing the modified body, or null when the body
  * cannot be parsed or injection is not applicable.
@@ -90,16 +97,22 @@ function injectSteeringMessage(body, provider, message, requestPath = '') {
   if (!parsed) return null;
 
   if (provider === 'anthropic' || isMessagesRequest(requestPath)) {
+    if (!Array.isArray(parsed.messages)) return null;
     if (typeof parsed.system === 'string') {
       parsed = { ...parsed, system: parsed.system + '\n\n' + message };
     } else if (Array.isArray(parsed.system)) {
       parsed = { ...parsed, system: [...parsed.system, { type: 'text', text: message }] };
-    } else {
+    } else if (parsed.system === undefined) {
       parsed = { ...parsed, system: message };
+    } else {
+      return null;
     }
   } else if (provider === 'gemini') {
+    if (!Array.isArray(parsed.contents)) return null;
     const existing = parsed.systemInstruction;
-    if (existing && typeof existing === 'object' && !Array.isArray(existing)) {
+    if (existing !== undefined) {
+      if (!existing || typeof existing !== 'object' || Array.isArray(existing)) return null;
+      if (existing.parts !== undefined && !Array.isArray(existing.parts)) return null;
       const parts = Array.isArray(existing.parts)
         ? [...existing.parts, { text: message }]
         : [{ text: message }];
@@ -107,6 +120,16 @@ function injectSteeringMessage(body, provider, message, requestPath = '') {
     } else {
       parsed = { ...parsed, systemInstruction: { parts: [{ text: message }] } };
     }
+  } else if (
+    isResponsesRequest(requestPath) ||
+    (parsed.input !== undefined && !Array.isArray(parsed.messages))
+  ) {
+    if (typeof parsed.input !== 'string' && !Array.isArray(parsed.input)) return null;
+    if (parsed.instructions !== undefined && typeof parsed.instructions !== 'string') return null;
+    const instructions = typeof parsed.instructions === 'string'
+      ? `${parsed.instructions}\n\n${message}`
+      : message;
+    parsed = { ...parsed, instructions };
   } else {
     if (!Array.isArray(parsed.messages)) return null;
     const systemMsg = { role: 'system', content: message };

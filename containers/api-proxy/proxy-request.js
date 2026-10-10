@@ -58,6 +58,7 @@ const {
 } = require('./guards/max-permission-denied-guard');
 const {
   getAndClearPendingTimeoutSteeringMessage,
+  getTimeoutSteeringReflectState,
   resetTimeoutSteeringForTests,
 } = require('./guards/timeout-steering');
 const {
@@ -295,8 +296,9 @@ function proxyRequest(req, res, targetHost, injectHeaders, provider, basePath = 
     let codexCompatibility = null;
     let wireApiCompatibility = null;
     let wireApiSourceBody = null;
+    let steering = null;
     try {
-      ({ body, codexCompatibility, wireApiCompatibility, wireApiSourceBody } =
+      ({ body, codexCompatibility, wireApiCompatibility, wireApiSourceBody, steering } =
         await transformRequestBody(rawBody, provider, req, requestId, bodyTransform));
     } catch (err) {
       const statusCode = Number.isInteger(err && err.statusCode) ? err.statusCode : 400;
@@ -324,6 +326,7 @@ function proxyRequest(req, res, targetHost, injectHeaders, provider, basePath = 
       }));
       return;
     }
+    if (steering) req.awfSteering = steering;
 
     // Step 3: dispatch upstream
     if (wireApiCompatibility) {
@@ -359,6 +362,7 @@ module.exports = {
   HTTPS_PROXY,
   getEffectiveTokenReflectState,
   getAiCreditsReflectState,
+  getTimeoutSteeringReflectState,
   getMaxRunsReflectState,
   getMaxCacheMissesReflectState,
   getPermissionDeniedReflectState,

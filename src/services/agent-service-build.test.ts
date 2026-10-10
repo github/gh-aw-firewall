@@ -1,4 +1,6 @@
 import { generateDockerCompose, WrapperConfig, baseConfig, mockNetworkConfig, useTempWorkDir } from './service-test-setup.test-utils';
+import { mockNetworkConfigWithProxy } from './api-proxy-service.test-utils';
+import { resolveLogPaths } from '../log-paths';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
@@ -29,6 +31,24 @@ describe('agent service', () => {
       expect(agent.cap_add).toContain('SYS_CHROOT');
       // SYS_ADMIN is needed to mount procfs at /host/proc for dynamic /proc/self/exe
       expect(agent.cap_add).toContain('SYS_ADMIN');
+    });
+
+    it('shares only the runtime marker directory with the agent when timeout steering is configured', () => {
+      const config = {
+        ...mockConfig,
+        enableApiProxy: true,
+        openaiApiKey: 'sk-test-key',
+        agentTimeout: 10,
+      };
+      const result = generateDockerCompose(config, mockNetworkConfigWithProxy);
+      const agent = result.services.agent as any;
+      const proxy = result.services['api-proxy'] as any;
+      const runtimeDir = `${resolveLogPaths(config).apiProxyLogs}/agent-runtime`;
+
+      expect(agent.volumes).toContain(`${runtimeDir}:/run/awf-runtime:rw`);
+      expect(agent.environment.AWF_AGENT_RUNTIME_START_FILE).toBe('/run/awf-runtime/started-at-ms');
+      expect(proxy.environment.AWF_AGENT_RUNTIME_START_FILE)
+        .toBe('/var/log/api-proxy/agent-runtime/started-at-ms');
     });
 
     it('should add apparmor:unconfined security_opt', () => {
