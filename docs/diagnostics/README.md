@@ -152,7 +152,8 @@ npm run diagnostics:check                          # fail if generated output is
 | capsh: not found | A4 | runner | workaround |
 | /bin/bash: no such file or directory during chroot startup | A4 | runner | workaround |
 | node: not found when the harness binary starts | A4 | runner | workaround |
-| The first uv command fails with Permission denied under UV_CACHE_DIR | B36 | runner | fixed |
+| uv Permission denied under UV_CACHE_DIR | B36 | runner | fixed |
+| uv Permission denied under UV_PYTHON_INSTALL_DIR | B36 | runner | fixed |
 | The agent repeatedly chooses its own uv cache directory | B36 | runner | fixed |
 | OCI runtime create failed | RT-001 | runtime | needs-evidence |
 | unknown capability reported by the container runtime at start | RT-001 | runtime | needs-evidence |

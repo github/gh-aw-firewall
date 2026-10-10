@@ -66,7 +66,7 @@ Before proposing a fix, establish as many of these facts as the report or reprod
 - runner home directory (`$HOME`)
 - daemon libc and runtime (`glibc` vs `musl`, `runc` vs `runsc`/`kata`)
 - Docker IPv6 state
-- For tool permission errors with `runtimes: uv` and `--env-all`, check whether `UV_CACHE_DIR` or `UV_PYTHON_INSTALL_DIR` points under `$RUNNER_TEMP` outside the `gh-aw` subtree (B36). Inspect only those named variables, not the full environment.
+- For `uv` permission errors under `UV_CACHE_DIR` or `UV_PYTHON_INSTALL_DIR` with `runtimes: uv` and `--env-all`, check whether either value points under `$RUNNER_TEMP` outside the `gh-aw` subtree (B36). Inspect only those named variables, not the full environment.
 
 ### 2. Use only read-only probes
 

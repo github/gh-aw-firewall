@@ -245,6 +245,11 @@ describe('diagnosis routing fixtures', () => {
       query: { text: 'The agent container can reach a domain that is not allowlisted' },
       expected: 'SEC-001',
     },
+    {
+      name: 'uv Python-install permission failure',
+      query: { text: 'uv Permission denied under UV_PYTHON_INSTALL_DIR' },
+      expected: 'B36',
+    },
   ];
 
   for (const fixture of fixtures) {

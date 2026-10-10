@@ -4,7 +4,8 @@
   "boundary": "runner",
   "title": "setup-uv paths under RUNNER_TEMP are unwritable with --env-all",
   "symptoms": [
-    "The first uv command fails with Permission denied under UV_CACHE_DIR",
+    "uv Permission denied under UV_CACHE_DIR",
+    "uv Permission denied under UV_PYTHON_INSTALL_DIR",
     "The agent repeatedly chooses its own uv cache directory"
   ],
   "conditions": [
@@ -22,7 +23,7 @@
   "rootCause": "--env-all forwarded setup-uv cache and Python-install paths beneath RUNNER_TEMP into the agent, but only RUNNER_TEMP/gh-aw is mounted and that mount is read-only, leaving those paths unwritable.",
   "probe": {
     "command": "printf '%s\\n' \"${UV_CACHE_DIR:-unset}\" \"${UV_PYTHON_INSTALL_DIR:-unset}\"",
-    "expect": "On unpatched AWF, the variables point beneath RUNNER_TEMP outside the mounted gh-aw subtree; on patched AWF they are unset unless explicitly overridden, and uv uses its default under ~/.cache/uv. No files are written.",
+    "expect": "On unpatched AWF, the variables point beneath RUNNER_TEMP outside the mounted gh-aw subtree; on patched AWF they are unset unless explicitly overridden. When unset on Linux without XDG overrides, UV_CACHE_DIR defaults to $HOME/.cache/uv and UV_PYTHON_INSTALL_DIR defaults to $HOME/.local/share/uv/python. No files are written.",
     "readOnly": true,
     "secretSafe": true
   },
