@@ -4,10 +4,13 @@ import * as path from 'path';
 import type { WrapperConfig } from '../types';
 import {
   assertEnclavePrivateRootIsolated,
+  assertCloudHypervisorEnclaveExportsIsolated,
   findDockerSocketExposingMount,
   resolvePathThroughExistingAncestor,
 } from './mount-policy';
 import { resolveEnclavePaths } from './paths';
+import { normalizeEnclavesConfig } from '../parsers/enclave-parser';
+import { HOST_EXECUTOR_STORAGE_ROOT } from './host-executor-journal';
 
 function config(workDir: string, volumeMounts?: string[]): WrapperConfig {
   return { workDir, volumeMounts } as WrapperConfig;
@@ -86,5 +89,43 @@ describe('enclave private-root mount policy', () => {
     fs.symlinkSync(target, alias);
     expect(resolvePathThroughExistingAncestor(path.join(alias, 'missing', 'leaf')))
       .toBe(path.join(fs.realpathSync.native(target), 'missing', 'leaf'));
+  });
+
+  it('checks all actual primary exports against private, broker and recovery roots', () => {
+    const wrapper = {
+      ...config(workDir),
+      enclaves: normalizeEnclavesConfig([{
+        script: {}, runtime: 'cloud-hypervisor',
+        repos: [{ repo: 'octo/private', sensitivity: 'internal' }],
+      }]),
+    };
+    const paths = resolveEnclavePaths(workDir);
+    for (const root of [
+      paths.root, paths.ingressRoot, paths.hostExecutorJournalDir,
+      path.join(path.dirname(paths.hostExecutorJournalDir), 'host-invocations'),
+      HOST_EXECUTOR_STORAGE_ROOT,
+    ]) {
+      for (const source of [root, path.dirname(root), path.join(root, 'child')]) {
+        for (const mode of ['ro', 'rw'] as const) {
+          expect(() => assertCloudHypervisorEnclaveExportsIsolated(wrapper, [{
+            tag: 'runner-temp-gh-aw', source, target: '/data', mode,
+          }])).toThrow(/private or recovery state/);
+        }
+      }
+    }
+    expect(() => assertCloudHypervisorEnclaveExportsIsolated(wrapper, [{
+      tag: 'workspace', source: workDir, target: '/workspace', mode: 'rw',
+    }])).not.toThrow();
+
+    const alias = path.join(testRoot, 'private-state-alias');
+    fs.symlinkSync(path.dirname(paths.root), alias);
+    expect(() => assertCloudHypervisorEnclaveExportsIsolated(wrapper, [{
+      tag: 'runner-tool-cache', source: path.join(alias, path.basename(paths.root)),
+      target: '/tools', mode: 'ro',
+    }])).toThrow(/private or recovery state/);
+    expect(() => assertCloudHypervisorEnclaveExportsIsolated({
+      ...wrapper, enclaves: { ...wrapper.enclaves!, enabled: false },
+    }, [{ tag: 'workspace', source: paths.root, target: '/workspace', mode: 'rw' }]))
+      .not.toThrow();
   });
 });

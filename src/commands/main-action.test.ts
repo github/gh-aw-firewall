@@ -766,6 +766,30 @@ describe('createMainAction', () => {
           expect.objectContaining({ message: 'preflight failed' }),
         );
       });
+
+      it('does not fall back across workload backends when enclaves are enabled', async () => {
+        const selectedConfig = {
+          ...MAIN_ACTION_STUB_CONFIG,
+          containerRuntime: 'cloud-hypervisor',
+          cloudHypervisor: { previewEnabled: true },
+          enclaves: { enabled: true },
+        } as WrapperConfig;
+        const failure = new CloudHypervisorUnsupportedHostError('KVM unavailable');
+        mockedValidateOptions.validateOptions.mockReturnValueOnce(selectedConfig);
+        mockedExternalRuntimeResolver.resolveExternalRuntimeBackend.mockReturnValueOnce({
+          runtime: 'cloud-hypervisor',
+          preflight: jest.fn().mockRejectedValue(failure),
+          start: jest.fn(), exec: jest.fn(), collectDiagnostics: jest.fn(), stop: jest.fn(),
+        });
+        const action = createMainAction(getOptionValueSource);
+        await expect(action(['echo hi'], {})).rejects.toThrow('process.exit: 1');
+        expect(selectedConfig.containerRuntime).toBe('cloud-hypervisor');
+        expect(selectedConfig.cloudHypervisor).toBeDefined();
+        expect(mockedCliWorkflow.runMainWorkflow).not.toHaveBeenCalled();
+        expect(mockedLogger.warn).not.toHaveBeenCalledWith(
+          expect.stringContaining('falling back to the standard Docker backend'),
+        );
+      });
     });
   });
 
@@ -850,6 +874,30 @@ describe('createMainAction', () => {
     });
 
     describe('Cloud Hypervisor enclave cleanup ordering', () => {
+      it('preserves supporting infrastructure and private state when primary VM cleanup fails', async () => {
+        const failure = new Error('primary VMM cleanup uncertain');
+        const backend = {
+          runtime: 'cloud-hypervisor',
+          preflight: jest.fn(), start: jest.fn(), exec: jest.fn(),
+          collectDiagnostics: jest.fn(), stop: jest.fn().mockRejectedValue(failure),
+        };
+        const cleanup = testHelpers.buildCleanupFn(
+          {
+            ...MAIN_ACTION_STUB_CONFIG, containerRuntime: 'cloud-hypervisor',
+            enclaves: { enabled: true },
+          } as WrapperConfig,
+          () => true, () => false, backend,
+        );
+        await expect(cleanup('SIGTERM')).rejects.toBe(failure);
+        expect(mockedEnclaveHostLifecycle.closeCloudHypervisorEnclaveAdmissions)
+          .toHaveBeenCalled();
+        expect(mockedEnclaveHostLifecycle.stopCloudHypervisorEnclaveLifecycle)
+          .toHaveBeenCalled();
+        expect(mockedEnclaveGithubGateway.disconnectEnclaveGithubGateway).not.toHaveBeenCalled();
+        expect(mockedDockerManager.stopContainers).not.toHaveBeenCalled();
+        expect(mockedDockerManager.cleanup).not.toHaveBeenCalled();
+      });
+
       it('closes host admissions before broker shutdown on the shared cleanup path', async () => {
         const cleanup = testHelpers.buildCleanupFn(
           { ...MAIN_ACTION_STUB_CONFIG }, () => true, () => false,

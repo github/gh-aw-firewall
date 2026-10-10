@@ -146,7 +146,7 @@ export function assertCloudHypervisorPreSecurityCompatibility(config: WrapperCon
   if (primaryCloudHypervisor && config.enclaves?.enabled) {
     throw new Error(
       'Cloud Hypervisor primary-agent execution with enclaves is reserved until the '
-      + 'runtime-neutral enclave lifecycle integration lands; no runtime fallback is permitted',
+      + 'real end-to-end isolation acceptance completes; no runtime fallback is permitted',
     );
   }
   if (primaryCloudHypervisor && config.dnsOverHttps) {

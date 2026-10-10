@@ -15,6 +15,8 @@ import {
 import { buildCloudHypervisorGuestEnvironment } from './guest-environment-builder';
 import { planCloudHypervisorFilesystemWriteEnforcement } from './filesystem-write-enforcement';
 import { requireCloudHypervisorConfig } from './runtime-validation';
+import { assertCloudHypervisorEnclaveLifecycleReady } from '../enclave/cloud-hypervisor-lifecycle';
+import { assertCloudHypervisorEnclaveExportsIsolated } from '../enclave/mount-policy';
 import { formatError } from './backend-utils';
 import {
   captureGuestNetworkStateForDiagnostics,
@@ -99,6 +101,13 @@ export async function runCloudHypervisorBootLoop({
     if (!preflightResult) {
       throw new Error('Cloud Hypervisor preflight did not produce verified artifacts');
     }
+    if (config.enclaves?.enabled) {
+      await assertCloudHypervisorEnclaveLifecycleReady(config);
+      if (!onInfrastructureReady) {
+        throw new Error('Cloud Hypervisor enclaves require compiler-owned MCP gateway readiness');
+      }
+    }
+    let infrastructureReady = false;
     stage = 'compose-infrastructure';
     await dependencies.startInfrastructure(
       workDir,
@@ -106,9 +115,20 @@ export async function runCloudHypervisorBootLoop({
       proxyLogsDir,
       skipPull,
       onNetworkReady,
-      onInfrastructureReady,
+      config.enclaves?.enabled && onInfrastructureReady ? (async () => {
+        if (isStopped()) throw new Error('Cloud Hypervisor infrastructure startup aborted by shutdown');
+        await onInfrastructureReady();
+        infrastructureReady = true;
+      }) : onInfrastructureReady,
     );
 
+    if (isStopped()) throw new Error('Cloud Hypervisor infrastructure startup aborted by shutdown');
+    if (config.enclaves?.enabled) {
+      if (!infrastructureReady) {
+        throw new Error('Cloud Hypervisor infrastructure did not complete MCP gateway readiness');
+      }
+      await assertCloudHypervisorEnclaveLifecycleReady(config);
+    }
     stage = 'infrastructure-discovery';
     const cloudHypervisor = requireCloudHypervisorConfig(config);
     const verifiedCloudHypervisor = {
@@ -126,6 +146,8 @@ export async function runCloudHypervisorBootLoop({
     );
     identity = dependencies.identity();
     stage = 'filesystem-write-policy';
+    const resolvedExports = await dependencies.resolveExports(cloudHypervisor.mountPolicy);
+    assertCloudHypervisorEnclaveExportsIsolated(config, resolvedExports);
     // Planned before the boot loop so an invalid or unmatched
     // `filesystem.allowWrite` entry fails closed before virtiofsd, the VMM,
     // or the guest is launched, and so every boot attempt reuses one
@@ -137,7 +159,7 @@ export async function runCloudHypervisorBootLoop({
       sensitiveMasks,
       unclassifiedPaths,
     } = planCloudHypervisorFilesystemWriteEnforcement(
-      await dependencies.resolveExports(cloudHypervisor.mountPolicy),
+      resolvedExports,
       config.filesystemAllowWrite,
     );
     writeSensitivePathAudit(
@@ -184,6 +206,10 @@ export async function runCloudHypervisorBootLoop({
       }
       if (isStopped()) {
         throw new Error('Cloud Hypervisor microVM boot aborted by shutdown');
+      }
+      if (config.enclaves?.enabled) {
+        await assertCloudHypervisorEnclaveLifecycleReady(config);
+        if (isStopped()) throw new Error('Cloud Hypervisor microVM boot aborted by shutdown');
       }
       manager = dependencies.createManager(
         verifiedCloudHypervisor,
