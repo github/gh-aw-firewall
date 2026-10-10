@@ -7,24 +7,27 @@
 # NOTE: ARG declared before first FROM is global and available in all FROM statements
 ARG BASE_IMAGE=ubuntu:22.04
 
-FROM golang:1.27.1-alpine@sha256:8a5910f31396cd4d89662f56c68b3ae31d374308270a1c3bd96672ee5ed43414 AS gh-build
+FROM golang:1.27.2-alpine@sha256:f92b6ef800e499660581efdabdf25d9d817a9d124eaf900924f0504e7e27e12d AS gh-build
 
 ARG GH_VERSION=2.98.0
 ARG GH_SOURCE_SHA256=abada9e8b550547ac93f99250f3ad4d90ad623fa245cb54cb058f78030a6a5f6
 ARG GH_SOURCE_DATE_EPOCH=1787263311
 ARG GH_GRPC_VERSION=1.83.2
-ARG GH_X_CRYPTO_VERSION=0.56.0
+ARG GH_X_CRYPTO_VERSION=0.57.0
+ARG GH_X_NET_VERSION=0.60.0
 RUN wget -q "https://github.com/cli/cli/archive/refs/tags/v${GH_VERSION}.tar.gz" -O /tmp/gh.tar.gz \
     && echo "${GH_SOURCE_SHA256}  /tmp/gh.tar.gz" | sha256sum -c - \
     && tar -xzf /tmp/gh.tar.gz -C /tmp \
     && cd "/tmp/cli-${GH_VERSION}" \
-    && go get "google.golang.org/grpc@v${GH_GRPC_VERSION}" "golang.org/x/crypto@v${GH_X_CRYPTO_VERSION}" \
+    && go get "google.golang.org/grpc@v${GH_GRPC_VERSION}" "golang.org/x/crypto@v${GH_X_CRYPTO_VERSION}" "golang.org/x/net@v${GH_X_NET_VERSION}" \
     && CGO_ENABLED=0 GH_VERSION="${GH_VERSION}" SOURCE_DATE_EPOCH="${GH_SOURCE_DATE_EPOCH}" \
          go run ./script/build.go bin/gh \
     && go version -m bin/gh | awk -v version="v${GH_GRPC_VERSION}" \
          '$1 == "dep" && $2 == "google.golang.org/grpc" && $3 == version { found=1 } END { exit !found }' \
     && go version -m bin/gh | awk -v version="v${GH_X_CRYPTO_VERSION}" \
          '$1 == "dep" && $2 == "golang.org/x/crypto" && $3 == version { found=1 } END { exit !found }' \
+    && go version -m bin/gh | awk -v version="v${GH_X_NET_VERSION}" \
+         '$1 == "dep" && $2 == "golang.org/x/net" && $3 == version { found=1 } END { exit !found }' \
     && /tmp/cli-${GH_VERSION}/bin/gh --version
 
 FROM ${BASE_IMAGE} AS one-shot-token-build
