@@ -126,6 +126,7 @@ npm run diagnostics:check                          # fail if generated output is
 | A28 | runner | ARC/DinD streaming logs target a read-only parent mount | workaround | [`findings/runner/A28.json`](./findings/runner/A28.json) |
 | A29 | runner | ARC/DinD api-proxy token-usage log not found at /tmp/gh-aw | workaround | [`findings/runner/A29.json`](./findings/runner/A29.json) |
 | A4 | runner | capsh, /bin/bash, or node missing inside the DinD chroot | workaround | [`findings/runner/A4.json`](./findings/runner/A4.json) |
+| B36 | runner | setup-uv paths under RUNNER_TEMP are unwritable with --env-all | fixed | [`findings/runner/B36.json`](./findings/runner/B36.json) |
 | RT-001 | runtime | Alternative container runtime rejects the AWF agent container configuration | needs-evidence | [`findings/runtime/RT-001.json`](./findings/runtime/RT-001.json) |
 | NET-001 | network | Squid denies a request because the domain is not in the allowlist | workaround | [`findings/network/NET-001.json`](./findings/network/NET-001.json) |
 | NET-002 | network | DNS resolution fails because the resolver is not in the trusted DNS server list | workaround | [`findings/network/NET-002.json`](./findings/network/NET-002.json) |
@@ -151,6 +152,9 @@ npm run diagnostics:check                          # fail if generated output is
 | capsh: not found | A4 | runner | workaround |
 | /bin/bash: no such file or directory during chroot startup | A4 | runner | workaround |
 | node: not found when the harness binary starts | A4 | runner | workaround |
+| uv Permission denied under UV_CACHE_DIR | B36 | runner | fixed |
+| uv Permission denied under UV_PYTHON_INSTALL_DIR | B36 | runner | fixed |
+| The agent repeatedly chooses its own uv cache directory | B36 | runner | fixed |
 | OCI runtime create failed | RT-001 | runtime | needs-evidence |
 | unknown capability reported by the container runtime at start | RT-001 | runtime | needs-evidence |
 | unsupported mount reported by the container runtime at start | RT-001 | runtime | needs-evidence |
