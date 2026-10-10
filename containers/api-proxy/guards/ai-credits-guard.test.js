@@ -199,7 +199,7 @@ describe('ai-credits-guard', () => {
     }, 'gpt-6.1-sol', PROVIDER_COPILOT);
 
     expect(usage).toMatchObject({
-      aiCreditsThisResponse: 1.1015,
+      aiCreditsThisResponse: 1.0765,
       pricingSource: 'shared_catalog',
       pricingCatalogId: 'github/gh-aw/model-pricing',
       pricingCatalogVersion: 'sha256:catalog-2026-10-10',

@@ -318,10 +318,14 @@ function calculateAiCredits(normalizedUsage, model, state = aiCreditsState, prov
   const cacheWriteCredits = pricing.cacheWrite
     ? (cacheWriteTokens * pricing.cacheWrite) / CREDIT_DENOMINATOR
     : 0;
-  const reasoningCredits = ((normalizedUsage.reasoning_tokens || 0) *
-    (pricing.reasoning ?? pricing.output)) / CREDIT_DENOMINATOR;
+  const outputTokens = normalizedUsage.output_tokens || 0;
+  const reasoningTokens = Math.min(
+    Math.max(0, normalizedUsage.reasoning_tokens || 0),
+    Math.max(0, outputTokens),
+  );
+  const reasoningCredits = (reasoningTokens * (pricing.reasoning ?? pricing.output)) / CREDIT_DENOMINATOR;
   const outputCredits = (
-    (normalizedUsage.output_tokens || 0) * pricing.output / CREDIT_DENOMINATOR
+    (Math.max(0, outputTokens - reasoningTokens) * pricing.output / CREDIT_DENOMINATOR)
   ) + reasoningCredits;
   const totalCredits = inputCredits + cachedInputCredits + cacheWriteCredits + outputCredits;
 

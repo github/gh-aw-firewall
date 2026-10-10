@@ -1388,12 +1388,13 @@ and `reasoning`, all in USD per million tokens. Use `cacheWrite: null` when no
 separate cache-write price applies, and set `reasoning` equal to `output` when
 there is no distinct reasoning rate. Requiring explicit values makes the
 catalog consumer-independent rather than relying on different defaults.
-AI-credit accounting charges reported `output_tokens` at the output rate and
-separately reported `reasoning_tokens` at the reasoning rate, matching gh-aw's
-model-cost calculation. Cache and input token totals retain the
-provider-specific usage semantics described above. Catalog model matching is
-exact after canonicalization; provider names support the aliases listed for
-`apiProxy.providers`.
+AI-credit accounting treats `reasoning_tokens` as a subset of
+`output_tokens`: it prices the remaining output tokens at `output` and the
+reasoning tokens at `reasoning`, without double-counting them. If reasoning
+usage is absent, all output tokens use the output rate. Cache and input token
+totals retain the provider-specific usage semantics described above. Catalog
+model matching is exact after canonicalization; provider names support the
+aliases listed for `apiProxy.providers`.
 
 Without a supplied catalog, standalone AWF continues to use its local curated
 and bundled snapshots without network access. Operators may supply the same
