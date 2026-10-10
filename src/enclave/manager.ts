@@ -240,8 +240,14 @@ export async function prepareEnclaves(
   if (!enclaves.executors.script.enabled) runtimeChecks.notRequired('script-runtime');
   if (!enclaves.executors.agent.enabled) runtimeChecks.notRequired('agent-runtime');
   if (!hostExecutorSelected) runtimeChecks.notRequired('host-service');
-  await runtimeChecks.check('primary-runtime', () =>
-    (deps.assertPrimaryAvailable ?? assertPrimaryRuntimeAvailable)(config.containerRuntime));
+  if (config.containerRuntime === 'cloud-hypervisor') {
+    // The external runtime preflights the primary VM before runMainWorkflow;
+    // Cloud Hypervisor is not a Docker OCI runtime.
+    runtimeChecks.notRequired('primary-runtime');
+  } else {
+    await runtimeChecks.check('primary-runtime', () =>
+      (deps.assertPrimaryAvailable ?? assertPrimaryRuntimeAvailable)(config.containerRuntime));
+  }
   if (enclaves.executors.script.enabled && !hostExecutorSelected) {
     const assertScriptRuntime = deps.assertScriptRuntimeAvailable ?? assertScriptRuntimeAvailable;
     await runtimeChecks.check('script-runtime', () => assertScriptRuntime(enclaves.executors.script));
