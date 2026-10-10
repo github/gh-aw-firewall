@@ -258,10 +258,7 @@
           "description": "Fallback per-token pricing ($/1M tokens) for models not in a configured pricing catalog. When maxAiCredits is active and a model is unrecognized, this rate is used. If not set, unrecognized models are rejected with HTTP 400 (type: unknown_model_ai_credits).",
           "required": [
             "input",
-            "output",
-            "cachedInput",
-            "cacheWrite",
-            "reasoning"
+            "output"
           ],
           "properties": {
             "input": {
@@ -340,7 +337,10 @@
                       "type": "object",
                       "required": [
                         "input",
-                        "output"
+                        "output",
+                        "cachedInput",
+                        "cacheWrite",
+                        "reasoning"
                       ],
                       "properties": {
                         "input": {
