@@ -15,17 +15,31 @@ describe('agent runtime start marker', () => {
   });
 
   afterEach(() => {
+    const markerDir = path.join(workDir, 'api-proxy-logs', 'agent-runtime');
+    if (fs.existsSync(markerDir)) {
+      const markerPath = path.join(markerDir, 'started-at-ms');
+      if (fs.existsSync(markerPath)) fs.chmodSync(markerPath, 0o644);
+      fs.chmodSync(markerDir, 0o755);
+    }
+    const customMarkerDir = path.join(workDir, 'external-logs', 'api-proxy-logs', 'agent-runtime');
+    if (fs.existsSync(customMarkerDir)) {
+      const markerPath = path.join(customMarkerDir, 'started-at-ms');
+      if (fs.existsSync(markerPath)) fs.chmodSync(markerPath, 0o644);
+      fs.chmodSync(customMarkerDir, 0o755);
+    }
     fs.rmSync(workDir, { recursive: true, force: true });
     jest.restoreAllMocks();
   });
 
-  it('writes a read-only marker and reuses the runtime start time', () => {
+  it('refreshes a read-only marker with the current runtime start time', () => {
     const startedAtMs = 1_700_000_000_000;
-    jest.spyOn(Date, 'now').mockReturnValue(startedAtMs);
+    const refreshedAtMs = startedAtMs + 1_000;
+    jest.spyOn(Date, 'now').mockReturnValueOnce(startedAtMs).mockReturnValueOnce(refreshedAtMs);
 
     expect(ensureAgentRuntimeStartMarker(workDir)).toBe(startedAtMs);
     expect(readAgentRuntimeStartTimeMs(workDir)).toBe(startedAtMs);
-    expect(ensureAgentRuntimeStartMarker(workDir)).toBe(startedAtMs);
+    expect(ensureAgentRuntimeStartMarker(workDir)).toBe(refreshedAtMs);
+    expect(readAgentRuntimeStartTimeMs(workDir)).toBe(refreshedAtMs);
     expect(fs.statSync(resolveAgentRuntimeStartFile(workDir)).mode & 0o777).toBe(0o444);
     expect(fs.statSync(path.dirname(resolveAgentRuntimeStartFile(workDir))).mode & 0o777).toBe(0o555);
   });
