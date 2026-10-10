@@ -7,6 +7,7 @@ const { resolveRuntimePricing } = require('../runtime-model-catalog');
 const { resolveProviderPricingOverlay } = require('../provider-pricing-overlays');
 const { parsePositiveNumber } = require('./guard-utils');
 const { PROVIDER_ANTHROPIC, PROVIDER_COPILOT } = require('../provider-names');
+const { ET_WARNING_THRESHOLDS } = require('./effective-token-guard');
 
 const TOKENS_PER_MILLION = 1_000_000;
 const DOLLARS_PER_CREDIT = 0.01;
@@ -70,11 +71,37 @@ function roundCredits(value) {
   return Math.round((value + Number.EPSILON) * 1_000_000) / 1_000_000;
 }
 
+function getEffectiveAiCreditsCeiling(config = getAiCreditsConfig()) {
+  return Math.min(config.max ?? HARD_CAP_AI_CREDITS, HARD_CAP_AI_CREDITS);
+}
+
+function updateAiCreditSteeringThresholds() {
+  const config = getAiCreditsConfig();
+  const ceiling = getEffectiveAiCreditsCeiling(config);
+  const configKey = String(ceiling);
+  if (aiCreditsState.steeringConfigKey !== configKey) {
+    aiCreditsState.steeringConfigKey = configKey;
+    aiCreditsState.emittedThresholds.clear();
+    aiCreditsState.uninjectedThresholds.clear();
+  }
+
+  const percentUsed = (aiCreditsState.totalAiCredits / ceiling) * 100;
+  for (const threshold of ET_WARNING_THRESHOLDS) {
+    if (percentUsed >= threshold && !aiCreditsState.emittedThresholds.has(threshold)) {
+      aiCreditsState.emittedThresholds.add(threshold);
+      aiCreditsState.uninjectedThresholds.add(threshold);
+    }
+  }
+}
+
 function createAiCreditsState() {
   return {
     totalAiCredits: 0,
     byModel: {},
     warnedUnknownModels: new Set(),
+    steeringConfigKey: null,
+    emittedThresholds: new Set(),
+    uninjectedThresholds: new Set(),
   };
 }
 
@@ -382,6 +409,7 @@ function applyAiCreditsUsage(normalizedUsage, model, provider = undefined) {
   modelBucket.fallbackPricingUsed = calc.usedFallbackPricing;
   modelBucket.dynamicSelector = calc.dynamicSelector;
   aiCreditsState.totalAiCredits += calc.totalCredits;
+  updateAiCreditSteeringThresholds();
 
   process.env.AWF_AI_CREDITS_USED = String(roundCredits(aiCreditsState.totalAiCredits));
 
@@ -406,6 +434,9 @@ function applyAiCreditsUsage(normalizedUsage, model, provider = undefined) {
 }
 
 function getAiCreditsReflectState() {
+  const config = getAiCreditsConfig();
+  const effectiveCeiling = getEffectiveAiCreditsCeiling(config);
+  const reflectedTotal = Math.min(aiCreditsState.totalAiCredits, effectiveCeiling);
   const byModel = {};
   for (const [model, usage] of Object.entries(aiCreditsState.byModel)) {
     byModel[model] = {
@@ -423,8 +454,33 @@ function getAiCreditsReflectState() {
   }
   return {
     total: roundCredits(aiCreditsState.totalAiCredits),
+    max_ai_credits: config.max,
+    effective_max_ai_credits: effectiveCeiling,
+    percent_used: Math.round((reflectedTotal / effectiveCeiling) * 10000) / 100,
+    thresholds_crossed: [...aiCreditsState.emittedThresholds].sort((a, b) => a - b),
+    thresholds_pending: [...aiCreditsState.uninjectedThresholds].sort((a, b) => a - b),
     by_model: byModel,
   };
+}
+
+const AI_CREDIT_STEERING_MESSAGES = {
+  80: 'You have used 80% of your AI-credit budget. Begin planning to wrap up your current work.',
+  90: 'You have used 90% of your AI-credit budget. Complete your current task and prepare final output.',
+  95: 'You have used 95% of your AI-credit budget. Finalize and submit your work now.',
+  99: 'You have used 99% of your AI-credit budget. You are about to be cut off. Submit immediately.',
+};
+
+function getPendingAiCreditSteeringWarning() {
+  updateAiCreditSteeringThresholds();
+  if (aiCreditsState.uninjectedThresholds.size === 0) return null;
+  const threshold = Math.max(...aiCreditsState.uninjectedThresholds);
+  const text = AI_CREDIT_STEERING_MESSAGES[threshold] ||
+    `You have used ${threshold}% of your AI-credit budget.`;
+  return { threshold, message: `[AWF AI CREDIT WARNING] ${text}` };
+}
+
+function acknowledgeAiCreditSteeringWarning(threshold) {
+  aiCreditsState.uninjectedThresholds.delete(threshold);
 }
 
 function getAiCreditsBlockState() {
@@ -478,6 +534,8 @@ module.exports = {
   getAiCreditsReflectState,
   getAiCreditsBlockState,
   buildAiCreditsLimitError,
+  getPendingAiCreditSteeringWarning,
+  acknowledgeAiCreditSteeringWarning,
   checkUnknownModelRejection,
   isRecognizedDynamicSelector,
   isModelPriceable,
