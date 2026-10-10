@@ -54,6 +54,23 @@ The test suite is organized in three tiers:
 | Smoke Tests | 4 | N/A | Per-workflow (scheduled + PR) |
 | Build-Test | 8 | N/A | Per-workflow (PR + dispatch) |
 
+### CI image retrieval
+
+The chroot, examples, deterministic Cloud Hypervisor guest build, and supply-chain
+jobs configure the GitHub-hosted Linux runner's Docker daemon with Google's
+[Docker Hub cache](https://cloud.google.com/artifact-registry/docs/pull-cached-dockerhub-images)
+before starting containers. This covers ordinary and nested `docker build`
+commands without rewriting production Dockerfiles or digest pins. A cache miss
+still falls back to Docker Hub and can fail under upstream rate limits; retrieval
+errors are not skipped.
+
+The supply-chain job pulls its pinned scanners once before compilation. Syft
+retains the compiler's exact Docker Hub reference (served through the daemon
+cache); Grype and Grant use Anchore's GHCR distribution at the same reviewed
+digests. Scan targets, vulnerability database updates, and the blocking
+High/Critical PR-image gate are unchanged. The setup script validates the merged
+daemon configuration before restart and refuses local or self-hosted runners.
+
 ### Unified enclave coverage
 
 Cloud Hypervisor enclave contract coverage runs in

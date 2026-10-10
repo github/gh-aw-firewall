@@ -16,13 +16,14 @@ import {
 
 const RUNSC_RUNTIME = 'runsc';
 
-export type PrimaryRuntimeBackend = 'docker' | 'gvisor' | 'sbx';
+export type PrimaryRuntimeBackend = 'docker' | 'gvisor' | 'sbx' | 'cloud-hypervisor';
 
 export function resolvePrimaryRuntimeBackend(
   containerRuntime: string | undefined,
 ): PrimaryRuntimeBackend {
   if (containerRuntime === 'gvisor' || containerRuntime === RUNSC_RUNTIME) return 'gvisor';
   if (containerRuntime === 'sbx') return 'sbx';
+  if (containerRuntime === 'cloud-hypervisor') return 'cloud-hypervisor';
   return 'docker';
 }
 
