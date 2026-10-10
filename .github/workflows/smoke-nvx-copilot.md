@@ -7,6 +7,7 @@ on:
     events: [pull_request]
     remove_label: false
   reaction: "eyes"
+  needs: [build_nvx_artifacts]
 concurrency:
   job-discriminator: ${{ github.run_id }}
 permissions:
@@ -18,6 +19,23 @@ permissions:
 name: Smoke NVX Copilot
 engine:
   id: copilot
+sandbox:
+  agent:
+    runtime: nvx
+    nvx:
+      preview: true
+      network-isolation: true
+      api-proxy: true
+      mount-policy: workspace-only
+      layer-path: ${{ runner.temp }}/nvx-alpine-root
+      openvmm-path: ${{ runner.temp }}/nvx-attested-artifacts/openvmm
+      kernel-path: ${{ runner.temp }}/nvx-attested-artifacts/vmlinux
+      initramfs-path: ${{ runner.temp }}/nvx-attested-artifacts/initramfs.cpio.gz
+      artifact-manifest-path: ${{ runner.temp }}/nvx-attested-artifacts/manifest.json
+      artifact-manifest-bundle-path: ${{ runner.temp }}/nvx-attested-artifacts/manifest.sigstore.jsonl
+      signer-workflow: github/gh-aw-firewall/.github/workflows/smoke-nvx-copilot.lock.yml
+      scratch-bytes: 536870912
+      container-workdir: /workspace
 network:
   allowed:
     - defaults
@@ -244,13 +262,21 @@ steps:
       EOF
       chmod 0755 "$layer_root/usr/local/bin/awf-nvx-smoke"
 
-  - name: Run the Copilot agent inside an NVX microVM
-    env:
-      COPILOT_GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+  - name: Prepare declarative NVX smoke evidence
     run: |
-      # Evidence-producing: a failed scenario must be recorded for the agent to
-      # analyze rather than aborting the step before the summary is written.
-      set +e
+      set -euo pipefail
+      data_dir=/tmp/gh-aw/agent/smoke-nvx-copilot
+      mkdir -p "$data_dir/logs"
+      marker="nvx-smoke-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+      echo "AWF_NVX_SMOKE_MARKER=$marker" >> "$GITHUB_ENV"
+      rm -f "$GITHUB_WORKSPACE/nvx-smoke-workspace-proof.txt" \
+        "$GITHUB_WORKSPACE/nvx-smoke-copilot-proof.txt"
+post-steps:
+  - name: Collect declarative NVX smoke evidence
+    if: always()
+    env:
+      AGENT_OUTCOME: ${{ steps.agentic_execution.outcome }}
+    run: |
       set -u
       data_dir=/tmp/gh-aw/agent/smoke-nvx-copilot
       mkdir -p "$data_dir/logs"
@@ -262,45 +288,20 @@ steps:
           '{check:$check,status:$status,detail:$detail}' >> "$results"
       }
 
-      artifact_dir="$RUNNER_TEMP/nvx-attested-artifacts"
-      layer_root="$RUNNER_TEMP/nvx-alpine-root"
-      marker="nvx-smoke-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
       proof_file="$GITHUB_WORKSPACE/nvx-smoke-workspace-proof.txt"
       copilot_file="$GITHUB_WORKSPACE/nvx-smoke-copilot-proof.txt"
-      rm -f "$proof_file" "$copilot_file"
-
-      sudo --preserve-env=COPILOT_GITHUB_TOKEN \
-        node "$GITHUB_WORKSPACE/dist/cli.js" \
-        --container-runtime nvx \
-        --nvx-preview \
-        --nvx-layer "$layer_root" \
-        --nvx-openvmm "$artifact_dir/openvmm" \
-        --nvx-kernel "$artifact_dir/vmlinux" \
-        --nvx-initramfs "$artifact_dir/initramfs.cpio.gz" \
-        --nvx-artifact-manifest "$artifact_dir/manifest.json" \
-        --nvx-artifact-manifest-bundle "$artifact_dir/manifest.sigstore.jsonl" \
-        --nvx-signer-workflow \
-        'github/gh-aw-firewall/.github/workflows/smoke-nvx-copilot.lock.yml' \
-        --nvx-mount-policy workspace-only \
-        --nvx-scratch-bytes 536870912 \
-        --container-workdir /workspace \
-        --network-isolation \
-        --enable-api-proxy \
-        --proxy-logs-dir "$data_dir/logs/inner-proxy-logs" \
-        --allow-domains github.com,api.github.com,api.githubcopilot.com \
-        --env "AWF_NVX_SMOKE_MARKER=$marker" \
-        --log-level info \
-        -- /usr/local/bin/awf-nvx-smoke \
-        > "$data_dir/logs/awf.log" 2>&1
-      awf_status=$?
-
-      if [ "$awf_status" -eq 0 ]; then
-        record microvm-run PASS "awf exited 0"
-      else
-        record microvm-run FAIL "awf exited $awf_status; see logs/awf.log"
+      if [ -f /tmp/gh-aw/agent-stdio.log ]; then
+        cp /tmp/gh-aw/agent-stdio.log "$data_dir/logs/awf.log"
       fi
 
-      if grep -q 'AWF-NVX-SMOKE-COMPLETE' "$data_dir/logs/awf.log"; then
+      if [ "$AGENT_OUTCOME" = "success" ]; then
+        record microvm-run PASS "compiler-owned AWF execution exited 0"
+      else
+        record microvm-run FAIL \
+          "agent outcome was ${AGENT_OUTCOME:-missing}; see logs/awf.log"
+      fi
+
+      if grep -q 'AWF-NVX-SMOKE-COMPLETE' "$data_dir/logs/awf.log" 2>/dev/null; then
         record guest-assertions PASS \
           "guest confirmed /workspace export, --container-workdir, and env passthrough"
       else
@@ -308,15 +309,16 @@ steps:
           "guest did not reach AWF-NVX-SMOKE-COMPLETE"
       fi
 
-      if [ -f "$proof_file" ] && [ "$(cat "$proof_file")" = "$marker" ]; then
+      if [ -f "$proof_file" ] && \
+         [ "$(cat "$proof_file")" = "$AWF_NVX_SMOKE_MARKER" ]; then
         record workspace-live-share PASS "guest write reached the host workspace immediately"
       else
         record workspace-live-share FAIL \
-          "expected $marker in nvx-smoke-workspace-proof.txt"
+          "expected $AWF_NVX_SMOKE_MARKER in nvx-smoke-workspace-proof.txt"
       fi
 
       if grep -q 'NVX-COPILOT-PROOF' "$copilot_file" 2>/dev/null; then
-        record copilot-inference PASS "Copilot responded through the API proxy"
+        record copilot-inference PASS "pinned Copilot responded through the API proxy"
       else
         record copilot-inference FAIL \
           "no NVX-COPILOT-PROOF in nvx-smoke-copilot-proof.txt"
@@ -331,9 +333,6 @@ steps:
       rm -f "$proof_file" "$copilot_file"
       sudo chown -R "$(id -u):$(id -g)" "$data_dir"
       cat "$results"
-
-      exit 0
-post-steps:
   - name: Upload NVX smoke evidence
     if: always()
     uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
@@ -356,17 +355,17 @@ post-steps:
 
 # Smoke Test: NVX microVM + Copilot
 
-A pre-agent step already ran the pinned Copilot CLI as a real coding agent
-inside an NVX one-shot microVM, through AWF's `nvx` runtime, and recorded one
-JSON object per check.
+You are running inside the compiler-owned NVX one-shot microVM.
 
-1. Read `/tmp/gh-aw/agent/smoke-nvx-copilot/scenarios.jsonl`.
-2. Report a PASS or FAIL line for each of `microvm-run`, `guest-assertions`,
+1. Run `/usr/local/bin/awf-nvx-smoke` exactly once with the bash tool.
+2. Verify `/workspace/nvx-smoke-workspace-proof.txt` contains
+   `$AWF_NVX_SMOKE_MARKER` and `/workspace/nvx-smoke-copilot-proof.txt`
+   contains `NVX-COPILOT-PROOF`.
+3. Report a PASS or FAIL line for each of `microvm-run`, `guest-assertions`,
    `workspace-live-share`, and `copilot-inference`.
-3. If anything failed, read `/tmp/gh-aw/agent/smoke-nvx-copilot/logs/awf.log`
-   and add one short line naming the most likely cause.
+4. If the guest command fails, add one short line naming the most likely cause.
 
-Do not re-run the microVM yourself; only analyze the recorded evidence.
+The host post-step records the final evidence after this agent exits.
 
 Keep the summary under 10 lines.
 
