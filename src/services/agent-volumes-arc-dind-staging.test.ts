@@ -35,7 +35,7 @@ describe('agent service', () => {
           mockNetworkConfig,
         );
         const volumes = result.services.agent.volumes as string[];
-        const translatedSource = `${dockerHostPathPrefix}${logsDir}`;
+        const translatedSource = dockerHostPathPrefix === '/tmp' ? logsDir : `${dockerHostPathPrefix}${logsDir}`;
 
         expect(volumes).toContain(`${translatedSource}:/host${canonicalLogsDir}:rw`);
         expect(volumes).not.toContain(`${translatedSource}:/host${logsDir}:rw`);
