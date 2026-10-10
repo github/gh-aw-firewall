@@ -46,6 +46,7 @@ describe('trusted Cloud Hypervisor enclave lifecycle', () => {
     workDir = fs.mkdtempSync(path.join(process.cwd(), '.ch-lifecycle-test-'));
     config = {
       workDir,
+      containerRuntime: 'cloud-hypervisor',
       enableApiProxy: true,
       copilotGithubToken: 'test',
       cloudHypervisor: { previewEnabled: true },
@@ -240,6 +241,26 @@ describe('trusted Cloud Hypervisor enclave lifecycle', () => {
       .toBeLessThan((server.close as jest.Mock).mock.invocationCallOrder[0]);
     expect((server.close as jest.Mock).mock.invocationCallOrder[0])
       .toBeLessThan(storage.close.mock.invocationCallOrder[0]);
+  });
+
+  it('rejects cross-owner shutdown without closing admissions or releasing storage', async () => {
+    await startCloudHypervisorEnclaveLifecycle(config, provider, {});
+    const other = { ...config };
+    expect(() => closeCloudHypervisorEnclaveAdmissions(other)).toThrow(/owned by another/);
+    await expect(stopCloudHypervisorEnclaveLifecycle(other)).rejects.toThrow(/owned by another/);
+    expect(server.closeAdmissions).not.toHaveBeenCalled();
+    expect(server.close).not.toHaveBeenCalled();
+    expect(storage.close).not.toHaveBeenCalled();
+    await expect(assertCloudHypervisorEnclaveLifecycleReady(config)).resolves.toBeUndefined();
+    await stopCloudHypervisorEnclaveLifecycle(config);
+  });
+
+  it('rejects mixed workload backends at the internal lifecycle boundary', async () => {
+    config.containerRuntime = undefined;
+    await expect(startCloudHypervisorEnclaveLifecycle(config, provider, {}))
+      .rejects.toThrow(/differs from primary backend/);
+    expect(provider.prepareRun).not.toHaveBeenCalled();
+    expect(start).not.toHaveBeenCalled();
   });
 
   it('waits for in-flight startup and immediately drains a late listener', async () => {

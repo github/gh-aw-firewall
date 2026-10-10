@@ -116,7 +116,7 @@ describe('buildEnclaveMcpService', () => {
       }
       const enclaves = normalizeEnclavesConfig(entries);
       const result = buildEnclaveMcpService({
-        config: config({ enclaves, enableApiProxy: true }),
+        config: config({ enclaves, enableApiProxy: true, containerRuntime: 'cloud-hypervisor' }),
         imageConfig: ghcr,
         networkConfig: {
           subnet: '172.30.0.0/24', squidIp: '172.30.0.10', agentIp: '172.30.0.20', proxyIp: '172.30.0.30',
@@ -125,6 +125,7 @@ describe('buildEnclaveMcpService', () => {
       expect(result.scriptImageService).toBeUndefined();
       expect(result.agentImageService).toBeUndefined();
       const environment = result.service.environment as Record<string, string>;
+      expect(environment.AWF_ENCLAVE_PRIMARY_BACKEND).toBe('cloud-hypervisor');
       expect(environment.AWF_ENCLAVE_IMAGE).toBeUndefined();
       expect(environment.AWF_ENCLAVE_AGENT_IMAGE).toBeUndefined();
       expect(environment.AWF_ENCLAVE_HOST_WORK_DIR).toBeUndefined();
@@ -202,5 +203,39 @@ describe('buildEnclaveMcpService', () => {
     expect(JSON.stringify((agent as { networks?: unknown }).networks)).not.toContain(
       'awf-enclave-mcp-control',
     );
+  });
+
+  it('assembles unified CH supporting services without a Compose workload or Docker socket', () => {
+    const compose = generateDockerCompose(config({
+      containerRuntime: 'cloud-hypervisor',
+      networkIsolation: true,
+      enableApiProxy: true,
+      enclaves: normalizeEnclavesConfig([
+        { script: {}, runtime: 'cloud-hypervisor', repos: [{ repo: 'octo/private', sensitivity: 'internal' }] },
+        {
+          agent: { engine: 'copilot', model: 'gpt-4.1' }, runtime: 'cloud-hypervisor',
+          repos: [{ repo: 'octo/private', sensitivity: 'internal' }],
+        },
+      ]),
+    }), {
+      subnet: '172.30.0.0/24', squidIp: '172.30.0.10',
+      agentIp: '172.30.0.20', proxyIp: '172.30.0.30',
+    });
+    expect(compose.services.agent).toBeUndefined();
+    expect(compose.services['iptables-init']).toBeUndefined();
+    expect(compose.services['enclave-script-image']).toBeUndefined();
+    expect(compose.services['enclave-agent-image']).toBeUndefined();
+    expect(compose.services['squid-proxy']).toBeDefined();
+    expect(compose.services['api-proxy']).toBeDefined();
+    expect(compose.services['enclave-agent-api-proxy']).toBeDefined();
+    const broker = compose.services['enclave-mcp-server'];
+    expect(broker.environment).toMatchObject({
+      AWF_ENCLAVE_PRIMARY_BACKEND: 'cloud-hypervisor',
+      AWF_ENCLAVE_BACKEND: 'cloud-hypervisor',
+      AWF_ENCLAVE_AGENT_BACKEND: 'cloud-hypervisor',
+    });
+    expect(Object.keys(broker.networks ?? {})).toEqual(['awf-enclave-mcp-control']);
+    expect(JSON.stringify(broker.volumes)).not.toContain('docker.sock');
+    expect(JSON.stringify(broker.volumes)).not.toContain(resolveEnclavePaths(workDir).seedsDir);
   });
 });

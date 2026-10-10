@@ -23,6 +23,8 @@ on:
       - 'src/filesystem-policy.ts'
       - 'src/types/runtime-options.ts'
       - 'scripts/ci/cloud-hypervisor-*.sh'
+      - 'scripts/ci/configure-docker-mirror.sh'
+      - 'scripts/ci/docker-registry-ci.test.ts'
       - 'docs/cloud-hypervisor-foundation.md'
 
 permissions:
@@ -43,6 +45,9 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4
+
+      - name: Configure Docker Hub cache
+        run: bash scripts/ci/configure-docker-mirror.sh
 
       - name: Set up Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0

@@ -14,6 +14,11 @@ must use separate instances of one resolved workload backend. Mixed
 Docker-primary / Cloud-Hypervisor-enclave runs are rejected, and unified
 Cloud Hypervisor primary-with-enclave execution remains gated. This does not
 replace the host-executor mechanisms and trust boundaries defined below.
+The internal primary boot loop now requires host-service and mcpg readiness
+before creating its independent primary VM, checks actual primary exports for
+private-state overlap, and joins shutdown with the existing invocation drain.
+These orchestration checks do not authorize production execution; see ADR 0004
+for the remaining real-KVM/real-mcpg acceptance and static GitHub bearer gate.
 
 ## Context
 
