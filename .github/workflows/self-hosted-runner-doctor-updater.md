@@ -7,19 +7,107 @@ on:
   skip-if-match:
     query: 'is:issue is:open label:runner-doctor'
     max: 1
+if: needs.prepare_candidates.outputs.has_candidates == 'true'
+jobs:
+  prepare_candidates:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: read
+      pull-requests: read
+    outputs:
+      has_candidates: ${{ steps.prepare.outputs.has_candidates }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7.0.1
+      - name: Prepare runner doctor context
+        id: prepare
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          CONTEXT_DIR=/tmp/gh-aw/agent
+          mkdir -p "$CONTEXT_DIR"
+
+          # Look back two days so a missed daily run does not create a coverage gap.
+          SINCE=$(date -u -d '2 days ago' +%Y-%m-%d)
+          echo "$SINCE" > "$CONTEXT_DIR/scan-since.txt"
+
+          {
+            for finding in docs/diagnostics/findings/runner/*.json; do
+              jq -r '.references[]? | select(.kind == "issue" or .kind == "pull-request") | .ref |
+                select(test("^https://github.com/github/gh-aw-firewall/(issues|pull)/[0-9]+$")) |
+                sub("^https://github.com/github/gh-aw-firewall/(issues|pull)/"; "github/gh-aw-firewall#")' \
+                "$finding"
+            done
+            grep -hEo 'github/gh-aw-firewall#[0-9]+' .github/workflows/shared/self-hosted-failure-modes.md || true
+            grep -hEo '(^|[ ,])#[0-9]+' .github/workflows/shared/self-hosted-failure-modes.md |
+              sed -E 's/^[ ,]*//' || true
+          } | sort -u > "$CONTEXT_DIR/covered.txt"
+
+          {
+            find docs/diagnostics/findings/runner -maxdepth 1 -type f -name '*.json' -printf '%f\n' |
+              sed -E 's/\.json$//'
+            grep -Eo '^\| [A-D][0-9]+' .github/workflows/shared/self-hosted-failure-modes.md |
+              sed -E 's/^\| //'
+          } | sort -u > "$CONTEXT_DIR/failure-mode-ids.txt"
+
+          : > "$CONTEXT_DIR/next-ids.txt"
+          for category in A B C D; do
+            max_id=$(awk -v category="$category" '
+              substr($0, 1, 1) == category {
+                id = substr($0, 2)
+                if (id + 0 > max) max = id + 0
+              }
+              END { print max + 0 }
+            ' "$CONTEXT_DIR/failure-mode-ids.txt")
+            echo "$category$((max_id + 1))" >> "$CONTEXT_DIR/next-ids.txt"
+          done
+
+          CANDIDATE_RESULTS=/tmp/gh-aw/candidate-results.jsonl
+          : > "$CANDIDATE_RESULTS"
+          queries=(
+            '"ARC" OR "DinD" OR "self-hosted" OR "GHES" OR "GHEC" OR "ghe.com"'
+            '"DOCKER_HOST" OR "docker-host-path-prefix" OR "chroot" OR "musl" OR "Alpine" OR "IPv6" OR "corporate proxy"'
+            '"cache_peer" OR "GH_HOST" OR "resolv.conf" OR "toolcache" OR "_tool" OR "one-shot-token" OR "capsh" OR "passwd"'
+          )
+          for signals in "${queries[@]}"; do
+            gh api --method GET --paginate search/issues \
+              -f q="repo:${GITHUB_REPOSITORY} updated:>=$SINCE ($signals)" \
+              -f per_page=100 \
+              --jq '.items[] | {number, title, url, state, updated_at, is_pull_request: has("pull_request")}' \
+              >> "$CANDIDATE_RESULTS"
+          done
+          jq -s 'unique_by(.number) | sort_by(.number)' "$CANDIDATE_RESULTS" \
+            > "$CONTEXT_DIR/candidates.json"
+          rm "$CANDIDATE_RESULTS"
+          candidate_count=$(jq 'length' "$CONTEXT_DIR/candidates.json")
+          echo "Prepared $candidate_count runner-doctor candidates since $SINCE"
+          echo "candidate_count=$candidate_count" >> "$GITHUB_OUTPUT"
+          if [ "$candidate_count" -gt 0 ]; then
+            echo "has_candidates=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_candidates=false" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Upload runner doctor context
+        if: steps.prepare.outputs.has_candidates == 'true'
+        uses: actions/upload-artifact@v7.0.2
+        with:
+          name: runner-doctor-context
+          path: /tmp/gh-aw/agent/
+          if-no-files-found: error
+          retention-days: 1
 permissions:
   copilot-requests: write
   contents: read
   issues: read
   pull-requests: read
 imports:
-  - shared/self-hosted-failure-modes.md
   - shared/diagnosis-maintenance.md
 tools:
   github:
-    toolsets: [default]
+    toolsets: [issues, pull_requests]
   bash: true
-  cache-memory: true
 sandbox:
   agent:
     id: awf
@@ -36,6 +124,11 @@ safe-outputs:
     expires: 30d
 timeout-minutes: 20
 steps:
+  - name: Download prepared runner doctor context
+    uses: actions/download-artifact@v8.0.2
+    with:
+      name: runner-doctor-context
+      path: /tmp/gh-aw/agent
   - name: Install root dependencies for diagnostics tooling
     run: |
       for attempt in 1 2 3; do
@@ -47,14 +140,6 @@ steps:
         fi
         sleep $((attempt * 5))
       done
-  - name: Compute scan window
-    run: |
-      # Look back two days so a missed daily run does not create a coverage gap.
-      # Overlap is de-duplicated by checking existing knowledge-base citations.
-      SINCE=$(date -u -d '2 days ago' +%Y-%m-%d)
-      mkdir -p /tmp/gh-aw/agent
-      echo "$SINCE" > /tmp/gh-aw/agent/scan-since.txt
-      echo "Scanning for self-hosted runner lessons updated since $SINCE"
 ---
 
 # Runner Doctor Updater
@@ -72,7 +157,7 @@ Consider issues and pull requests **updated on or after** the scan window. The w
 
 ## Step 1 — Find relevant issues and PRs
 
-Search this repository for items updated since the scan window that involve non-hosted runner environments. First read the scan date with `cat /tmp/gh-aw/agent/scan-since.txt`, then combine the date qualifier `updated:>=<SINCE_DATE>` with these signals (search several; do not assume one query is enough):
+Read the compact candidate list at `/tmp/gh-aw/agent/candidates.json`. It contains issue/PR numbers, titles, URLs, states, update dates, and a pull-request flag, gathered from the signals below and `updated:>=<SINCE_DATE>`. Fetch full details and key comments only for candidates not already covered. Do not repeat the broad candidate searches.
 
 `ARC`, `DinD`, `self-hosted`, `GHES`, `GHEC`, `ghe.com`, `DOCKER_HOST`, `docker-host-path-prefix`, `chroot`, `musl`, `Alpine`, `IPv6`, `corporate proxy`, `cache_peer`, `GH_HOST`, `resolv.conf`, `toolcache`, `_tool`, `one-shot-token`, `capsh`, `passwd`.
 
@@ -84,12 +169,12 @@ For each relevant item, capture: the observable symptom / error string, the affe
 
 ## Step 3 — Compare against the current doctor
 
-The current failure-mode catalog is imported below. Also read the live files to propose precise edits:
+Use `/tmp/gh-aw/agent/covered.txt` to identify citations already covered and `/tmp/gh-aw/agent/next-ids.txt` for the next free failure-mode ID per category. The catalog is intentionally not inlined. Use targeted searches and read only matching sections:
 
 ```bash
-cat .github/workflows/shared/self-hosted-failure-modes.md
-cat .github/workflows/self-hosted-runner-doctor.md
-cat .github/agents/self-hosted-runner-doctor.md
+grep -n "#<ISSUE_OR_PR_NUMBER>" .github/workflows/shared/self-hosted-failure-modes.md
+grep -n -A30 -B5 "<matching symptom or failure-mode ID>" .github/workflows/self-hosted-runner-doctor.md
+grep -n -A30 -B5 "<matching symptom or failure-mode ID>" .github/agents/self-hosted-runner-doctor.md
 ```
 
 `.github/agents/self-hosted-runner-doctor.md` is the **portable, self-contained doctor agent** that users load directly into their own coding agent (without cloning the repo). It embeds a copy of the failure-mode catalog and the diagnostic playbook. Whenever you propose a change to `shared/self-hosted-failure-modes.md` (catalog rows, error-string lookup, or known-unresolved items) or to the playbook in `self-hosted-runner-doctor.md`, you **must** propose the matching edit to the embedded copy in the portable agent so the two stay in sync.
@@ -110,8 +195,9 @@ an existing record) using the runner ID namespace `A*`/`B*`/`C*`/`D*`.
 
 ```bash
 npx tsx scripts/diagnostics/cli.ts search "<redacted symptom>" --boundary runner
-cat docs/diagnostics/schema.json
 ```
+
+Read `docs/diagnostics/schema.json` only when a proposed record change requires checking its fields.
 
 The runner catalog, workflow playbook and portable agent remain in place; your
 proposal must name the canonical record first, then any matching catalog or
