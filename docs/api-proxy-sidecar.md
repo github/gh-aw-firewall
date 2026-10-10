@@ -1699,7 +1699,7 @@ Example log entries:
   describe optional turn-ended counts and Connect-framed protobuf messages,
   but these do not verify authoritative counts or executed-model metadata for
   Cursor CLI `2026.07.20-8cc9c0b`. The reported smoke run did not capture the raw
-  response. Cursor's [official SDK contract](https://github.com/cursor/sdk-bridge/blob/main/proto/sdk/v1/sdk_agent_service.proto)
+  response. Cursor's [official SDK contract](https://raw.githubusercontent.com/cursor/sdk-bridge/main/proto/sdk/v1/sdk_agent_service.proto)
   exposes cloud usage through a different service, not native RunSSE; AWF does
   not assume those contracts are interchangeable.
   Until a native usage contract is verified, a 2xx RunSSE stream without

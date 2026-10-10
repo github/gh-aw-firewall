@@ -1,4 +1,4 @@
-import * as fs from 'fs';
+import fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import {
@@ -33,9 +33,15 @@ describe('agent runtime start marker', () => {
 
   it('preserves an existing marker', () => {
     const startedAtMs = 1_700_000_000_000;
+    const openSync = jest.spyOn(fs, 'openSync');
     jest.spyOn(Date, 'now').mockReturnValueOnce(startedAtMs).mockReturnValueOnce(startedAtMs + 1_000);
 
     expect(ensureAgentRuntimeStartMarker(workDir)).toBe(startedAtMs);
+    expect(openSync).toHaveBeenCalledWith(
+      resolveAgentRuntimeStartFile(workDir),
+      fs.constants.O_CREAT | fs.constants.O_EXCL | fs.constants.O_WRONLY | fs.constants.O_NOFOLLOW,
+      0o600,
+    );
     expect(readAgentRuntimeStartTimeMs(workDir)).toBe(startedAtMs);
     expect(ensureAgentRuntimeStartMarker(workDir)).toBe(startedAtMs);
     expect(readAgentRuntimeStartTimeMs(workDir)).toBe(startedAtMs);

@@ -30,16 +30,16 @@ export function ensureAgentRuntimeStartMarker(workDir: string, proxyLogsDir?: st
     fileDescriptor = fs.openSync(
       markerPath,
       fs.constants.O_CREAT | fs.constants.O_EXCL | fs.constants.O_WRONLY | fs.constants.O_NOFOLLOW,
-      0o444,
+      0o600,
     );
     try {
       fs.writeSync(fileDescriptor, `${startedAtMs}\n`);
+      fs.fchmodSync(fileDescriptor, 0o444);
     } finally {
       const openedFileDescriptor = fileDescriptor;
       fileDescriptor = undefined;
       fs.closeSync(openedFileDescriptor);
     }
-    fs.chmodSync(markerPath, 0o444);
     fs.chmodSync(markerDir, 0o555);
     return startedAtMs;
   } catch {

@@ -554,6 +554,11 @@ describe('reflectEndpoints', () => {
     expect(result.ai_credits).toEqual({
       total: 0,
       by_model: {},
+      max_ai_credits: null,
+      effective_max_ai_credits: 10_000,
+      percent_used: 0,
+      thresholds_crossed: [],
+      thresholds_pending: [],
     });
   });
 

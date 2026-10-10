@@ -1467,11 +1467,11 @@ private does not make that external destination's covering mount private.
 Linux's [shared-subtree bind semantics](https://docs.kernel.org/filesystems/sharedsubtree.html)
 explicitly make a private-source clone shared when it is attached to a shared
 destination mount. The kernel
-[`attach_recursive_mnt()` implementation](https://github.com/torvalds/linux/blob/v6.8/fs/namespace.c)
+[`attach_recursive_mnt()` implementation](https://raw.githubusercontent.com/torvalds/linux/v6.8/fs/namespace.c)
 tests the destination and calls `set_mnt_shared()` on the attached tree.
 This kernel reference establishes the mechanism, not the probe's unrecorded
 exact kernel version. A
-[`remount,bind`](https://man7.org/linux/man-pages/man8/mount.8.html)
+[`remount,bind`](https://manpages.ubuntu.com/manpages/noble/man8/mount.8.html)
 changes per-mount flags, not automatically its propagation class.
 
 These are five hypotheses, ordered by code/semantic support, not five findings:

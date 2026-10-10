@@ -107,6 +107,10 @@ export function buildAgentService(params: AgentServiceParams): any {
       config.dockerHostPathPrefix,
     )
     : [];
+  agentVolumes.push(...agentRuntimeVolumes);
+  if (hasAgentRuntimeClock) {
+    environment.AWF_AGENT_RUNTIME_START_FILE = '/run/awf-runtime/started-at-ms';
+  }
 
   // Agent service configuration
   const agentService: any = {
@@ -121,13 +125,8 @@ export function buildAgentService(params: AgentServiceParams): any {
       ? [networkConfig.dohProxyIp, '127.0.0.11']
       : dnsServers, // Use configured DNS servers (prevents DNS exfiltration)
     dns_search: [], // Disable DNS search domains to prevent embedded DNS fallback
-    volumes: [...agentVolumes, ...agentRuntimeVolumes],
-    environment: {
-      ...environment,
-      ...(hasAgentRuntimeClock && {
-        AWF_AGENT_RUNTIME_START_FILE: '/run/awf-runtime/started-at-ms',
-      }),
-    },
+    volumes: agentVolumes,
+    environment,
     depends_on: {
       'squid-proxy': {
         condition: 'service_healthy',
