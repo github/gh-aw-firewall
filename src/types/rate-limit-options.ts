@@ -44,10 +44,36 @@ export interface RateLimitOptions {
    *
    * @example { input: 3.0, output: 15.0, cachedInput: 0.3, cacheWrite: 3.75 }
    */
-  defaultAiCreditsPricing?: { input: number; output: number; cachedInput?: number; cacheWrite?: number | null };
+  defaultAiCreditsPricing?: {
+    input: number;
+    output: number;
+    cachedInput?: number;
+    cacheWrite?: number | null;
+    reasoning?: number;
+  };
 
   /** Provider/model pricing overlays in models.dev provider format. */
   apiProxyProviders?: Record<string, unknown>;
+
+  /**
+   * Versioned provider-scoped model prices supplied by the workflow compiler.
+   * Rates use USD per million tokens and are consumed offline by the API proxy.
+   */
+  modelPricingCatalog?: {
+    schemaVersion: 1;
+    unit: 'USD_PER_1M_TOKENS';
+    catalogId: string;
+    version: string;
+    providers: Record<string, {
+      models: Record<string, {
+        input: number;
+        output: number;
+        cachedInput: number;
+        cacheWrite: number | null;
+        reasoning: number;
+      }>;
+    }>;
+  };
 
   /**
    * Model-specific multipliers used by effective token accounting.

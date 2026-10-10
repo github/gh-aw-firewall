@@ -11,6 +11,37 @@ describe('validateAwfFileConfig', () => {
     expect(errors).toEqual([]);
   });
 
+  it('validates the versioned provider-scoped pricing catalog contract', () => {
+    const validCatalog = {
+      schemaVersion: 1,
+      unit: 'USD_PER_1M_TOKENS',
+      catalogId: 'github/gh-aw/model-pricing',
+      version: 'sha256:catalog-v1',
+      providers: {
+        copilot: {
+          models: {
+            'gpt-6.1-sol': {
+              input: 10,
+              output: 50,
+              cachedInput: 1,
+              cacheWrite: null,
+              reasoning: 50,
+            },
+          },
+        },
+      },
+    };
+    expect(validateAwfFileConfig({ apiProxy: { modelPricingCatalog: validCatalog } })).toEqual([]);
+    expect(validateAwfFileConfig({
+      apiProxy: {
+        modelPricingCatalog: {
+          ...validCatalog,
+          unit: 'USD_PER_TOKEN',
+        },
+      },
+    })).not.toEqual([]);
+  });
+
   it('reports unknown keys and invalid value types', () => {
     const errors = validateAwfFileConfig({
       network: { allowDomains: 'github.com' },

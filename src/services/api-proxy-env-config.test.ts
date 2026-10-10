@@ -396,6 +396,35 @@ describe('buildRateLimitEnv', () => {
     expect(JSON.parse(env.AWF_API_PROXY_PROVIDERS)).toEqual(providers);
   });
 
+  it('passes a versioned model pricing catalog to the API proxy', () => {
+    const modelPricingCatalog = {
+      schemaVersion: 1 as const,
+      unit: 'USD_PER_1M_TOKENS' as const,
+      catalogId: 'github/gh-aw/model-pricing',
+      version: 'sha256:catalog-v1',
+      providers: {
+        copilot: {
+          models: {
+            'gpt-6.1-sol': {
+              input: 10,
+              cachedInput: 1,
+              cacheWrite: null,
+              output: 50,
+              reasoning: 50,
+            },
+          },
+        },
+      },
+    };
+    const env = buildRateLimitEnv({
+      ...baseConfig,
+      workDir: '/tmp/awf-test',
+      modelPricingCatalog,
+    });
+
+    expect(JSON.parse(env.AWF_MODEL_PRICING_CATALOG)).toEqual(modelPricingCatalog);
+  });
+
   it('sets AWF_MAX_RUNS when configured', () => {
     const env = buildRateLimitEnv({ ...baseConfig, workDir: '/tmp/awf-test', maxRuns: 25 });
     expect(env.AWF_MAX_RUNS).toBe('25');

@@ -28,8 +28,19 @@ function normalizeCost(cost) {
   const cacheWrite = cost.cache_write === undefined
     ? null
     : parseDollarsPerToken(cost.cache_write);
-  if (cachedInput === null || (cost.cache_write !== undefined && cacheWrite === null)) return null;
-  return { input, cachedInput, cacheWrite, output };
+  const reasoning = cost.reasoning === undefined
+    ? undefined
+    : parseDollarsPerToken(cost.reasoning);
+  if (cachedInput === null ||
+      (cost.cache_write !== undefined && cacheWrite === null) ||
+      (cost.reasoning !== undefined && reasoning === null)) return null;
+  return {
+    input,
+    cachedInput,
+    cacheWrite,
+    output,
+    ...(reasoning !== undefined ? { reasoning } : {}),
+  };
 }
 
 function getProviderAliases(provider) {

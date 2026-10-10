@@ -30,6 +30,10 @@ function computeTokenBudgetUsage({ logRequest, requestId, provider, purpose }, n
       ai_credits_total: aiCreditsUsage.totalAiCredits,
       pricing_source: aiCreditsUsage.pricingSource,
       pricing_tier: aiCreditsUsage.pricingTier,
+      ...(aiCreditsUsage.pricingCatalogId ? { pricing_catalog_id: aiCreditsUsage.pricingCatalogId } : {}),
+      ...(aiCreditsUsage.pricingCatalogVersion
+        ? { pricing_catalog_version: aiCreditsUsage.pricingCatalogVersion }
+        : {}),
       accounting_policy: aiCreditsUsage.accountingPolicy,
       fallback_pricing_used: aiCreditsUsage.fallbackPricingUsed,
       dynamic_selector: aiCreditsUsage.dynamicSelector,
@@ -47,6 +51,12 @@ function computeTokenBudgetUsage({ logRequest, requestId, provider, purpose }, n
     budgetFields.ai_credits_total = aiCreditsUsage.totalAiCredits;
     budgetFields.ai_credits_pricing_source = aiCreditsUsage.pricingSource;
     budgetFields.ai_credits_pricing_tier = aiCreditsUsage.pricingTier;
+    if (aiCreditsUsage.pricingCatalogId) {
+      budgetFields.ai_credits_pricing_catalog_id = aiCreditsUsage.pricingCatalogId;
+    }
+    if (aiCreditsUsage.pricingCatalogVersion) {
+      budgetFields.ai_credits_pricing_catalog_version = aiCreditsUsage.pricingCatalogVersion;
+    }
     budgetFields.ai_credits_accounting_policy = aiCreditsUsage.accountingPolicy;
     budgetFields.ai_credits_fallback_pricing_used = aiCreditsUsage.fallbackPricingUsed;
     budgetFields.ai_credits_dynamic_selector = aiCreditsUsage.dynamicSelector;
