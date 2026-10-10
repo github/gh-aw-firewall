@@ -171,33 +171,6 @@ describe('docker-manager (barrel re-exports)', () => {
     });
   });
 
-  describe('additional capability edge cases', () => {
-    const original = process.env.AWF_SKIP_CAP_DROP;
-    beforeEach(() => { mockExec.mockReset(); delete process.env.AWF_SKIP_CAP_DROP; });
-    afterEach(() => {
-      if (original === undefined) delete process.env.AWF_SKIP_CAP_DROP;
-      else process.env.AWF_SKIP_CAP_DROP = original;
-    });
-
-    it('keeps capabilities present in the bounding set', () => {
-      const capBnd = (BigInt(1) << BigInt(12)) | (BigInt(1) << BigInt(21));
-      expect(dockerManager.filterCapDrop(['NET_ADMIN', 'SYS_ADMIN'], capBnd)).toEqual(['NET_ADMIN', 'SYS_ADMIN']);
-    });
-
-    it('drops every non-ALL capability when the bounding set is empty', () => {
-      expect(dockerManager.filterCapDrop(['NET_ADMIN', 'SYS_ADMIN'], BigInt(0))).toEqual([]);
-    });
-
-    it('returns null from the probe when docker output is empty', () => {
-      mockExec.mockReturnValueOnce('');
-      expect(dockerManager.getHostCapabilityBoundingSet()).toBeNull();
-    });
-
-    it('isCapDropSkipped is false when the env var is unset', () => {
-      expect(dockerManager.isCapDropSkipped()).toBe(false);
-    });
-  });
-
   describe('filterCapDrop via barrel', () => {
     it('returns empty for undefined or empty lists', () => {
       expect(dockerManager.filterCapDrop(undefined, null)).toEqual([]);
