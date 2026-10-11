@@ -133,6 +133,26 @@ enclave admissions or invocation VMs alive.
 3. **Unified NVX:** leverage the shared microVM architecture where practical,
    with NVX-specific trust and isolation acceptance before enabling its enclaves.
 
+### Upstream compiler contract blocking unified acceptance
+
+The pinned gh-aw compiler `v0.91.7` rejects a workflow that combines
+`sandbox.agent.runtime: cloud-hypervisor` with any `enclaves` entry, with the
+validation error that Cloud Hypervisor is incompatible with enclaves. This was
+confirmed by compiling the proposed manual acceptance workflow with the exact
+compiler version in the existing workflow lock metadata. The closed
+[gh-aw#66639](https://github.com/github/gh-aw/issues/66639) supports a
+Cloud Hypervisor enclave with a Docker primary; it does not support the unified
+primary-plus-enclave selection.
+
+Because compilation stops before generating a workflow, current compiler-owned
+mcpg and release-artifact setup cannot yet be verified for this combination.
+The precise upstream dependency is compiler support for compiling a Cloud
+Hypervisor primary with a static script enclave while preserving the existing
+artifact and mcpg handoff contracts. Track this as a separate gh-aw compiler
+follow-up; do not work around the rejection with a generated-lock edit, a mock
+gateway, or a general AWF configuration bypass. Keep the AWF production guard
+in place until gh-aw can compile this path and it passes real-KVM validation.
+
 The lifecycle regression tests use a mocked VM/host-service boundary and a
 readiness callback; they are not real-KVM or real-mcpg acceptance. No workflow
 dispatch or production enablement is part of this slice. Subsequent acceptance
