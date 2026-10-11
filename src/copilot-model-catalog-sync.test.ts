@@ -35,6 +35,7 @@ function normalizeSeparators(s: string): string {
 const INTENTIONALLY_EXCLUDED_FROM_SUPPORTED = new Set([
   // ── Embedding models — cannot be used as COPILOT_MODEL ────────────────────
   'text-embedding-3-small', // text embedding, not a chat/completion model
+  'text-embedding-3-small-inference', // inference endpoint alias for the embedding model
   'text-embedding-ada-002', // text embedding, not a chat/completion model
 
   // ── Older Claude Opus 4 versions ──────────────────────────────────────────
