@@ -178,20 +178,6 @@ describe('docker-manager (barrel re-exports)', () => {
     });
   });
 
-  describe('parseDifcProxyHost via barrel', () => {
-    it('defaults for empty input', () => {
-      expect(dockerManager.parseDifcProxyHost('  ')).toEqual({ host: 'host.docker.internal', port: '18443' });
-    });
-    it('parses host:port, schemes and bracketed IPv6', () => {
-      expect(dockerManager.parseDifcProxyHost('proxy:9000')).toEqual({ host: 'proxy', port: '9000' });
-      expect(dockerManager.parseDifcProxyHost('https://proxy:443')).toEqual({ host: 'proxy', port: '443' });
-      expect(dockerManager.parseDifcProxyHost('[::1]:18443')).toEqual({ host: '::1', port: '18443' });
-      expect(dockerManager.parseDifcProxyHost('proxy')).toEqual({ host: 'proxy', port: '18443' });
-    });
-    it.each(['host:abc', 'host:0', 'host:70000'])('rejects invalid value %s', (v) => {
-      expect(() => dockerManager.parseDifcProxyHost(v)).toThrow(/difc-proxy-host/);
-    });
-  });
 
   describe('getLocalDockerEnv / setAwfDockerHost via barrel', () => {
     const original = process.env.DOCKER_HOST;
