@@ -3,7 +3,7 @@ import * as path from 'path';
 import { logger } from '../../logger';
 import { WrapperConfig } from '../../types';
 import { INIT_SIGNAL_DIR, LEGACY_INIT_SIGNAL_DIR } from '../../constants';
-import { applyHostPathPrefixToVolumes } from '../host-path-prefix';
+import { applyHostPathPrefixToVolumes, isSharedDockerHostPathPrefix } from '../host-path-prefix';
 import { hiddenHostRoots, mountedChrootRoots } from '../agent-path-policy';
 import {
   extractCommandBinaryName,
@@ -191,12 +191,12 @@ export function buildCustomVolumeMounts(
   debug(`Adding ${volumeMounts.length} custom volume mount(s)`);
 
   // Custom mount sources always use the runner's filesystem view. Translate
-  // them even when a source already starts with the daemon-side prefix; this
-  // is required when both are /tmp/gh-aw in ARC/DinD safeoutputs workflows.
+  // sources already under daemon-only prefixes (such as /tmp/gh-aw), but keep
+  // paths under the shared /tmp prefix unchanged.
   const translatedMounts = applyHostPathPrefixToVolumes(
     volumeMounts,
     dockerHostPathPrefix,
-    { translateAlreadyPrefixedPaths: true },
+    { translateAlreadyPrefixedPaths: !isSharedDockerHostPathPrefix(dockerHostPathPrefix) },
   );
 
   return translatedMounts.map((mount, index) => {

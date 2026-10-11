@@ -188,6 +188,42 @@ child `:rw` does not make the rest of the read-only parent writable; the
 workflow/compiler that chooses the log location must also update its
 consumers.
 
+### Agent logs, threat detection, and safe-output ownership
+
+The failures reported in [github/gh-aw#66926](https://github.com/github/gh-aw/issues/66926)
+are tracked there for compiler/MCP Gateway fixes, with AWF-side tracking in
+[github/gh-aw-firewall#9779](https://github.com/github/gh-aw-firewall/issues/9779):
+
+- **Agent logs:** Copilot's `--log-dir`, the log parser's `GH_AW_AGENT_OUTPUT`,
+  and artifact collection must refer to the same files. Writing to
+  `${RUNNER_TEMP}/gh-aw/sandbox/agent/logs` does not populate the runner's
+  `/tmp/gh-aw/sandbox/agent/logs`. AWF's internal `workDir/agent-logs` mount
+  backs the default `~/.copilot/logs`; it does not override an explicit
+  `--log-dir`. The compiler must align the producer and consumers with the
+  runner-visible mount source. An explicit mount can give the sandbox a
+  canonical target while retaining a different runner-side source; the
+  runner's parser must still read the source, accounting for path translation.
+  AWF does not create cross-root symlinks or copies, which can conflict with
+  artifact consolidation.
+- **Threat detection:** mounting the input directory only makes it visible to
+  the process. The compiler must also pass that directory in Copilot's
+  `--add-dir` scope. Detection must fail closed if required inputs cannot be
+  read or no valid verdict is produced; a successful engine exit alone is not
+  proof that inputs were analyzed. AWF passes the command through unchanged
+  and cannot interpret an engine's permission denials or detection verdict.
+  The upstream `Conclude threat detection` step must also honor
+  `RUN_DETECTION=false` rather than requiring a deliberately skipped binary.
+- **Safe outputs:** the compiler/MCP Gateway must run the nested `safeoutputs`
+  stdio container with the runner UID/GID (`--user <uid>:<gid>`). Setting the
+  gateway container's user does not set its child containers' users. Their
+  writable bind-mount source must be accessible to that identity so
+  `outputs.jsonl` remains runner-owned and rewritable by redaction. These
+  containers are launched by MCP Gateway, not AWF; AWF's agent UID/GID mapping
+  cannot repair their ownership. Failed redaction must stop publication with
+  a hard error, not a warning. Do not make the file world-writable or bypass
+  the compiler's safe-output-file access rule as a workaround. That rule and
+  any ownership-only exception also require an upstream compiler change.
+
 ## Locating API proxy token-usage logs
 
 The api-proxy writes `token-usage.jsonl` into `<proxy-logs-dir>/api-proxy-logs/`
