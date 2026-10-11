@@ -5,7 +5,7 @@ import * as path from 'path';
 
 import { applyGeneralWorkflowPatches } from './apply-general-workflow-patches';
 import { applyCodexWorkflowPatches } from './apply-codex-workflow-patches';
-import { omitCloudHypervisorSmokePrimaryRuntime } from './workflow-patch-patterns';
+import { assertCloudHypervisorSmokePrimaryRuntime } from './workflow-patch-patterns';
 
 
 const repoRoot = path.resolve(__dirname, '../..');
@@ -86,13 +86,13 @@ try {
 }
 if (enclaveDefaultRuntimeLock !== undefined) {
   const original = enclaveDefaultRuntimeLock;
-  const content = omitCloudHypervisorSmokePrimaryRuntime(original);
+  const content = assertCloudHypervisorSmokePrimaryRuntime(original);
   if (content !== original) {
     fs.writeFileSync(enclaveDefaultRuntimeLockPath, content);
-    console.log(`  Omitted the primary container runtime for the Cloud Hypervisor enclave smoke`);
+    console.log(`  Verified the Cloud Hypervisor primary runtime for the enclave smoke`);
     console.log(`Updated ${enclaveDefaultRuntimeLockPath}`);
   } else {
-    console.log(`Skipping ${enclaveDefaultRuntimeLockPath}: primary runtime is already unset.`);
+    console.log(`Skipping ${enclaveDefaultRuntimeLockPath}: primary runtime is verified.`);
   }
 }
 

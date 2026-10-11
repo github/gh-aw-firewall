@@ -6,8 +6,11 @@ Accepted direction; implementation is incremental. Backend resolution,
 inheritance of omitted enclave runtimes, and conflict rejection are implemented.
 The internal Cloud Hypervisor primary/enclave lifecycle is composed with the
 existing host executor and boot loop. Docker verification is complete.
-Cloud Hypervisor primary-with-enclave production execution remains gated on
-real end-to-end acceptance, and NVX enclaves remain unsupported.
+The gh-aw v0.91.8 compiler supports the static-script unified workflow, and a
+manual/tagged acceptance path is implemented in source. Published AWF release
+coordination and real end-to-end acceptance remain outstanding before that
+path can run. Production execution remains gated, and NVX enclaves remain
+unsupported.
 
 This decision complements [ADR 0001](0001-agent-enclaves.md) and refines the
 run-level integration of
@@ -125,40 +128,55 @@ enclave admissions or invocation VMs alive.
 1. **Docker verification (complete):** verify existing Docker execution and the
    resolution, inheritance, and early conflict checks. This PR does not enable
    new microVM combinations.
-2. **Unified Cloud Hypervisor with static enclaves:** integrate the primary
-   instance and fresh static script/agent enclave instances under the resolved
-   Cloud Hypervisor backend. Retain the current gate until end-to-end acceptance
-   demonstrates the required artifact, isolation, credential, resource, result,
-   cancellation, cleanup, and recovery boundaries.
+2. **Unified Cloud Hypervisor with static enclaves:** primary and fresh
+   single-use enclave instances use the resolved Cloud Hypervisor backend.
+   The manual static-script workflow and narrowly scoped tagged acceptance
+   authorization are implemented. Keep ordinary production configurations
+   gated until the matching AWF release is published and live acceptance
+   demonstrates the required artifact, isolation, credential, resource,
+   result, cancellation, cleanup, and recovery boundaries.
 3. **Unified NVX:** leverage the shared microVM architecture where practical,
    with NVX-specific trust and isolation acceptance before enabling its enclaves.
 
-### Upstream compiler contract blocking unified acceptance
+### Historical compiler blocker (resolved by gh-aw v0.91.8)
 
-The pinned gh-aw compiler `v0.91.7` rejects a workflow that combines
-`sandbox.agent.runtime: cloud-hypervisor` with any `enclaves` entry, with the
-validation error that Cloud Hypervisor is incompatible with enclaves. This was
-confirmed by compiling the proposed manual acceptance workflow with the exact
-compiler version in the existing workflow lock metadata. The closed
-[gh-aw#66639](https://github.com/github/gh-aw/issues/66639) supports a
-Cloud Hypervisor enclave with a Docker primary; it does not support the unified
-primary-plus-enclave selection.
+The gh-aw v0.91.7 compiler rejected
+`sandbox.agent.runtime: cloud-hypervisor` combined with an enclave. That was
+the compiler blocker recorded in #9805; it is no longer the current blocker.
+Upstream [gh-aw#67772](https://github.com/github/gh-aw/pull/67772) added the
+compiler support in v0.91.8 and closed
+[gh-aw#67752](https://github.com/github/gh-aw/issues/67752).
+The target manual workflow compiles with the exact v0.91.8 compiler and emits
+the Cloud Hypervisor primary selection, static script executor, supporting
+Docker infrastructure, compiler-owned mcpg discovery/readiness and
+authentication handoffs, and primary/script artifact setup. The generated lock
+records v0.91.8. Do not edit the generated lock to evade compiler validation.
 
-Because compilation stops before generating a workflow, current compiler-owned
-mcpg and release-artifact setup cannot yet be verified for this combination.
-The precise upstream dependency is compiler support for compiling a Cloud
-Hypervisor primary with a static script enclave while preserving the existing
-artifact and mcpg handoff contracts. Track this as a separate gh-aw compiler
-follow-up; do not work around the rejection with a generated-lock edit, a mock
-gateway, or a general AWF configuration bypass. Keep the AWF production guard
-in place until gh-aw can compile this path and it passes real-KVM validation.
+### AWF release and live acceptance remain blocked
 
-The lifecycle regression tests use a mocked VM/host-service boundary and a
-readiness callback; they are not real-KVM or real-mcpg acceptance. No workflow
-dispatch or production enablement is part of this slice. Subsequent acceptance
-must first run a Cloud Hypervisor primary with a static script enclave through
-compiler-owned **real mcpg**, then a static agent enclave with the dedicated
-model proxy. It must establish:
+The published AWF v0.28.51 release contains the unified lifecycle integration
+and matching versioned images/artifact setup, but its binary still rejects a
+Cloud Hypervisor primary with enclaves. The source-only acceptance authorization
+added here admits only the official manual workflow on a published version tag,
+with one public static script executor and one invocation. All other
+configurations retain the production rejection. This authorization is not
+present in v0.28.51, so the workflow must not be dispatched with that release.
+
+Release coordination is required: publish a new AWF release containing the
+reviewed narrow authorization and unified lifecycle code, publish the matching
+images and release-attested Cloud Hypervisor bundle/script rootfs, then update
+the workflow's AWF pin and regenerate its lock so host code and artifacts are
+release-matched. Do not retag v0.28.51, run the workflow against a local build,
+or treat the compiler's default AWF pin as proof that the path is executable.
+No release operation or acceptance dispatch is authorized by this change.
+
+The lifecycle regression tests and source gate tests are local regressions, not
+real-KVM or real-mcpg acceptance. The v0.91.8 compile and lock inspection are
+compiler evidence only. No workflow dispatch or production enablement is part
+of this slice. After release coordination and explicit authorization,
+acceptance must run a Cloud Hypervisor primary with a static script enclave
+through compiler-owned **real mcpg**, then a static agent enclave with the
+dedicated model proxy. The script acceptance must establish:
 
 - Fresh independent invocation VMs, release-attested artifacts, bounded
   resources/storage, and bounded schema-valid results.

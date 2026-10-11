@@ -2,6 +2,7 @@ import { getLocalDockerEnv } from '../docker-host';
 import type { CloudHypervisorOptions, WrapperConfig } from '../types';
 import { CLOUD_HYPERVISOR_MOUNT_POLICIES } from '../types/runtime-options';
 import { assertGithubHostedRunnerEligibility } from './host-eligibility';
+import { isCloudHypervisorScriptAcceptanceWorkflow } from '../enclave/cloud-hypervisor-script-acceptance';
 
 /**
  * Explicit, fail-closed compatibility guards for the Cloud Hypervisor
@@ -143,7 +144,11 @@ export function assertCloudHypervisorPreSecurityCompatibility(config: WrapperCon
   if (config.difcProxyHost) {
     throw new Error('Cloud Hypervisor preview does not yet support DIFC proxies');
   }
-  if (primaryCloudHypervisor && config.enclaves?.enabled) {
+  if (
+    primaryCloudHypervisor
+    && config.enclaves?.enabled
+    && !isCloudHypervisorScriptAcceptanceWorkflow(config)
+  ) {
     throw new Error(
       'Cloud Hypervisor primary-agent execution with enclaves is reserved until the '
       + 'real end-to-end isolation acceptance completes; no runtime fallback is permitted',

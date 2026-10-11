@@ -31,7 +31,7 @@ import {
   issueDuplicationConclusionConcurrencySentinel,
   ripgrepInstallStepRegex,
   patchLocalBuildCloudHypervisorArtifacts,
-  omitCloudHypervisorSmokePrimaryRuntime,
+  assertCloudHypervisorSmokePrimaryRuntime,
 } from './workflow-patch-patterns';
 import {
   buildCopySessionStateStep,
@@ -40,26 +40,28 @@ import {
 import { applyCodexWorkflowPatches } from './apply-codex-workflow-patches';
 
 
-describe('omitCloudHypervisorSmokePrimaryRuntime', () => {
-  it('removes only the explicit default Docker primary runtime and is idempotent', () => {
+describe('assertCloudHypervisorSmokePrimaryRuntime', () => {
+  it('preserves the explicit Cloud Hypervisor primary runtime', () => {
     const input =
-      String.raw`\"container\":{\"containerRuntime\":\"docker\",\"imageTag\":\"0.28.49\"},` +
-      String.raw`"enclaves":[{"runtime":"cloud-hypervisor"}]`;
-    const expected =
-      String.raw`\"container\":{\"imageTag\":\"0.28.49\"},` +
+      String.raw`awf --container-runtime cloud-hypervisor --config config.json ` +
       String.raw`"enclaves":[{"runtime":"cloud-hypervisor"}]`;
 
-    expect(omitCloudHypervisorSmokePrimaryRuntime(input)).toBe(expected);
-    expect(omitCloudHypervisorSmokePrimaryRuntime(expected)).toBe(expected);
+    expect(assertCloudHypervisorSmokePrimaryRuntime(input)).toBe(input);
   });
 
-  it('rejects any emitted primary runtime override', () => {
-    expect(() => omitCloudHypervisorSmokePrimaryRuntime(
+  it('rejects missing or non-Cloud-Hypervisor primary runtime selection', () => {
+    expect(() => assertCloudHypervisorSmokePrimaryRuntime(
       String.raw`awf --container-runtime gvisor --config config.json`,
-    )).toThrow('Cloud Hypervisor enclave smoke must leave the primary runtime unset');
-    expect(() => omitCloudHypervisorSmokePrimaryRuntime(
-      String.raw`\"container\":{\"containerRuntime\":\"gvisor\"}`,
-    )).toThrow('Cloud Hypervisor enclave smoke must leave the primary runtime unset');
+    )).toThrow('Cloud Hypervisor enclave smoke must select the Cloud Hypervisor primary runtime');
+    expect(() => assertCloudHypervisorSmokePrimaryRuntime(
+      String.raw`\"container\":{\"containerRuntime\":\"docker\"}`,
+    )).toThrow('Cloud Hypervisor enclave smoke must select the Cloud Hypervisor primary runtime');
+    expect(() => assertCloudHypervisorSmokePrimaryRuntime(
+      String.raw`\"container\":{\"imageTag\":\"0.28.51\"}`,
+    )).toThrow('Cloud Hypervisor enclave smoke must select the Cloud Hypervisor primary runtime');
+    expect(() => assertCloudHypervisorSmokePrimaryRuntime(
+      String.raw`awf --container-runtime docker --config config.json`,
+    )).toThrow('Cloud Hypervisor enclave smoke must select the Cloud Hypervisor primary runtime');
   });
 });
 

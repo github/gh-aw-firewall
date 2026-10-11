@@ -1,5 +1,6 @@
 import type { WrapperConfig } from '../types';
 import { normalizeEnclavesConfig } from '../parsers/enclave-parser';
+import { validateEnclavesConfig } from '../enclave/preflight';
 import * as hostEligibility from './host-eligibility';
 import {
   assertCloudHypervisorPreSecurityCompatibility,
@@ -244,6 +245,53 @@ describe('Cloud Hypervisor runtime validation', () => {
     expect(() => assertCloudHypervisorPreSecurityCompatibility(
       config(overrides as Partial<WrapperConfig>),
     )).toThrow(error);
+  });
+
+  it('admits only the published manual static-script acceptance workflow', () => {
+    const keys = [
+      'GITHUB_ACTIONS',
+      'GITHUB_REPOSITORY',
+      'GITHUB_EVENT_NAME',
+      'GITHUB_WORKFLOW_REF',
+      'GITHUB_REF',
+      'GITHUB_REF_TYPE',
+      'GITHUB_REF_NAME',
+    ] as const;
+    const previous = Object.fromEntries(keys.map(key => [key, process.env[key]]));
+    Object.assign(process.env, {
+      GITHUB_ACTIONS: 'true',
+      GITHUB_REPOSITORY: 'github/gh-aw-firewall',
+      GITHUB_EVENT_NAME: 'workflow_dispatch',
+      GITHUB_WORKFLOW_REF:
+        'github/gh-aw-firewall/.github/workflows/smoke-enclave-cloud-hypervisor.lock.yml@refs/tags/v0.28.51',
+      GITHUB_REF: 'refs/tags/v0.28.51',
+      GITHUB_REF_TYPE: 'tag',
+      GITHUB_REF_NAME: 'v0.28.51',
+    });
+    const acceptance = config({
+      cloudHypervisor: {
+        ...config().cloudHypervisor!,
+        artifactReleaseTag: 'v0.28.51',
+      },
+      enclaves: normalizeEnclavesConfig([{
+        script: {},
+        runtime: 'cloud-hypervisor',
+        repos: [{ repo: 'github/gh-aw-firewall', sensitivity: 'public' }],
+        maxInvocations: 1,
+      }]),
+    });
+
+    try {
+      expect(validateEnclavesConfig(acceptance)).toEqual([]);
+      expect(() => assertCloudHypervisorPreSecurityCompatibility(acceptance)).not.toThrow();
+      expect(() => assertCloudHypervisorRuntimeCompatibility(acceptance)).not.toThrow();
+    } finally {
+      for (const key of keys) {
+        const value = previous[key];
+        if (value === undefined) delete process.env[key];
+        else process.env[key] = value;
+      }
+    }
   });
 
   it('accepts a local Unix Docker socket', () => {

@@ -26,6 +26,7 @@ import { ENCLAVE_AGENT_MAX_TASK_BYTES } from './protocol';
 import type { EnclaveDynamicDelegationHandoffResolution } from './dynamic-delegation-handoff';
 import { normalizePrivateRepositoryKey } from '../bounded-execution/repository-staging';
 import { findDockerSocketExposingMount } from './mount-policy';
+import { isCloudHypervisorScriptAcceptanceWorkflow } from './cloud-hypervisor-script-acceptance';
 
 const RUNTIMES = new Set(['docker', 'gvisor', 'sbx', 'cloud-hypervisor']);
 const ENGINES = new Set(['copilot', 'claude', 'codex', 'gemini']);
@@ -148,7 +149,11 @@ export function validateEnclavesConfig(
   options: ValidateEnclavesOptions = {},
 ): string[] {
   const errors = validateEnclavesStructure(config, options);
-  if (config.enclaves?.enabled && config.containerRuntime === 'cloud-hypervisor') {
+  if (
+    config.enclaves?.enabled
+    && config.containerRuntime === 'cloud-hypervisor'
+    && !isCloudHypervisorScriptAcceptanceWorkflow(config)
+  ) {
     errors.unshift('The primary-agent cloud-hypervisor runtime cannot be combined with enclaves');
   }
   return errors;

@@ -50,18 +50,14 @@ export const standaloneSkipPullRegex = /--skip-pull(?:\s+--build-local)?/g;
 export const localAwfImageDownloadRegex =
   /\s+ghcr\.io\/github\/gh-aw-firewall\/(?:agent|api-proxy|squid|enclave-(?:agent|mcp-server)):[0-9.]+(?:@sha256:[a-f0-9]{64})?/g;
 
-// gh-aw can emit its implicit Docker default as an explicit config value.
-// Keep this target workflow on AWF's default runtime by omitting that field.
-export function omitCloudHypervisorSmokePrimaryRuntime(content: string): string {
-  const serializedDockerRuntime = String.raw`\"containerRuntime\":\"docker\",`;
-  const patched = content.replace(serializedDockerRuntime, '');
+export function assertCloudHypervisorSmokePrimaryRuntime(content: string): string {
   if (
-    patched.includes(String.raw`\"containerRuntime\":\"`) ||
-    patched.includes('awf --container-runtime ')
+    !content.includes('--container-runtime cloud-hypervisor')
+    || content.includes('--container-runtime docker')
   ) {
-    throw new Error('Cloud Hypervisor enclave smoke must leave the primary runtime unset');
+    throw new Error('Cloud Hypervisor enclave smoke must select the Cloud Hypervisor primary runtime');
   }
-  return patched;
+  return content;
 }
 
 const cloudHypervisorDigestArgs =
