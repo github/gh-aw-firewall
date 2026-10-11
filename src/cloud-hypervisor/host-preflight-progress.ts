@@ -1,4 +1,4 @@
-import schema from './host-preflight-schema.json';
+import { schema } from './host-preflight-schema';
 import {
   cloneMountTopology, type MountTopologyEvidence, cloneStoragePropagation, type StoragePropagationEvidence,
 } from './mount-topology';
