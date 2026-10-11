@@ -233,6 +233,9 @@ function buildRateLimitEnv(config: WrapperConfig): Record<string, string> {
     ...(config.apiProxyProviders && {
       AWF_API_PROXY_PROVIDERS: JSON.stringify(config.apiProxyProviders),
     }),
+    ...(config.modelPricingCatalog && {
+      AWF_MODEL_PRICING_CATALOG: JSON.stringify(config.modelPricingCatalog),
+    }),
     ...(config.effectiveTokenModelMultipliers && {
       AWF_EFFECTIVE_TOKEN_MODEL_MULTIPLIERS: JSON.stringify(config.effectiveTokenModelMultipliers),
     }),

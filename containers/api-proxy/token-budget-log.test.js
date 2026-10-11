@@ -3,6 +3,7 @@
 const { computeTokenBudgetUsage } = require('./token-budget-log');
 const { resetEffectiveTokenGuardForTests } = require('./guards/effective-token-guard');
 const { resetAiCreditsGuardForTests } = require('./guards/ai-credits-guard');
+const { resetModelPricingCatalogForTests } = require('./model-pricing-catalog');
 
 describe('computeTokenBudgetUsage', () => {
   let logRequest;
@@ -15,8 +16,10 @@ describe('computeTokenBudgetUsage', () => {
     delete process.env.AWF_MAX_EFFECTIVE_TOKENS;
     delete process.env.AWF_EFFECTIVE_TOKEN_MODEL_MULTIPLIERS;
     delete process.env.AWF_MAX_AI_CREDITS;
+    delete process.env.AWF_MODEL_PRICING_CATALOG;
     resetEffectiveTokenGuardForTests();
     resetAiCreditsGuardForTests();
+    resetModelPricingCatalogForTests();
   });
 
   it('returns undefined when neither guard is active', () => {
@@ -64,6 +67,46 @@ describe('computeTokenBudgetUsage', () => {
       model: 'claude-sonnet-4-6',
       ai_credits_this_response: expect.any(Number),
       ai_credits_total: expect.any(Number),
+    }));
+  });
+
+  it('persists shared catalog provenance with AI-credit usage', () => {
+    process.env.AWF_MAX_AI_CREDITS = '100';
+    process.env.AWF_MODEL_PRICING_CATALOG = JSON.stringify({
+      schemaVersion: 1,
+      unit: 'USD_PER_1M_TOKENS',
+      catalogId: 'shared-catalog',
+      version: 'v1',
+      providers: {
+        openai: {
+          models: {
+            'catalog-only-model': {
+              input: 1,
+              output: 2,
+              cachedInput: 0.1,
+              cacheWrite: null,
+              reasoning: 2,
+            },
+          },
+        },
+      },
+    });
+    resetModelPricingCatalogForTests();
+
+    const result = computeTokenBudgetUsage(
+      { logRequest, requestId: 'req-catalog', provider: 'openai' },
+      { input_tokens: 1000, output_tokens: 500 },
+      'catalog-only-model',
+    );
+
+    expect(result).toMatchObject({
+      ai_credits_pricing_source: 'shared_catalog',
+      ai_credits_pricing_catalog_id: 'shared-catalog',
+      ai_credits_pricing_catalog_version: 'v1',
+    });
+    expect(logRequest).toHaveBeenCalledWith('info', 'token_budget_usage', expect.objectContaining({
+      pricing_catalog_id: 'shared-catalog',
+      pricing_catalog_version: 'v1',
     }));
   });
 

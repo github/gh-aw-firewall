@@ -82,15 +82,6 @@ function resolveCatalogModel(model) {
     return { exists: true, pricing: exactPricing, zeroCost: isZeroCostPricing(exactPricing) };
   }
 
-  let stripped = canonical;
-  while (stripped.includes('-')) {
-    stripped = stripped.slice(0, stripped.lastIndexOf('-'));
-    const pricing = pricingByModel.get(stripped);
-    if (pricing) {
-      return { exists: true, pricing, zeroCost: isZeroCostPricing(pricing) };
-    }
-  }
-
   return { exists: knownModels.has(canonical), pricing: null, zeroCost: false };
 }
 

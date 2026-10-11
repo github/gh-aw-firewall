@@ -43,8 +43,29 @@ export interface AwfFileConfig {
     };
     maxEffectiveTokens?: number;
     maxAiCredits?: number;
-    defaultAiCreditsPricing?: { input: number; output: number; cachedInput?: number; cacheWrite?: number | null };
+    defaultAiCreditsPricing?: {
+      input: number;
+      output: number;
+      cachedInput?: number;
+      cacheWrite?: number | null;
+      reasoning?: number;
+    };
     providers?: Record<string, unknown>;
+    modelPricingCatalog?: {
+      schemaVersion: 1;
+      unit: 'USD_PER_1M_TOKENS';
+      catalogId: string;
+      version: string;
+      providers: Record<string, {
+        models: Record<string, {
+          input: number;
+          output: number;
+          cachedInput: number;
+          cacheWrite: number | null;
+          reasoning: number;
+        }>;
+      }>;
+    };
     modelMultipliers?: Record<string, number>;
     defaultModelMultiplier?: number;
     maxModelMultiplierCap?: number;

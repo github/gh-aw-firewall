@@ -20,25 +20,31 @@ const {
   clearRuntimeModels,
 } = require('../runtime-model-catalog');
 const { resetProviderPricingOverlaysForTests } = require('../provider-pricing-overlays');
+const { resetModelPricingCatalogForTests } = require('../model-pricing-catalog');
 
 describe('ai-credits-guard', () => {
   let originalMaxAiCredits;
   let originalDefaultPricing;
+  let originalModelPricingCatalog;
 
   beforeEach(() => {
     originalMaxAiCredits = process.env.AWF_MAX_AI_CREDITS;
     originalDefaultPricing = process.env.AWF_DEFAULT_AI_CREDITS_PRICING;
+    originalModelPricingCatalog = process.env.AWF_MODEL_PRICING_CATALOG;
     delete process.env.AWF_MAX_AI_CREDITS;
     delete process.env.AWF_DEFAULT_AI_CREDITS_PRICING;
+    delete process.env.AWF_MODEL_PRICING_CATALOG;
     resetAiCreditsGuardForTests();
     clearRuntimeModels();
     resetProviderPricingOverlaysForTests();
+    resetModelPricingCatalogForTests();
   });
 
   afterEach(() => {
     resetAiCreditsGuardForTests();
     clearRuntimeModels();
     resetProviderPricingOverlaysForTests();
+    resetModelPricingCatalogForTests();
     delete process.env.AWF_API_PROXY_PROVIDERS;
     if (originalMaxAiCredits === undefined) {
       delete process.env.AWF_MAX_AI_CREDITS;
@@ -49,6 +55,11 @@ describe('ai-credits-guard', () => {
       delete process.env.AWF_DEFAULT_AI_CREDITS_PRICING;
     } else {
       process.env.AWF_DEFAULT_AI_CREDITS_PRICING = originalDefaultPricing;
+    }
+    if (originalModelPricingCatalog === undefined) {
+      delete process.env.AWF_MODEL_PRICING_CATALOG;
+    } else {
+      process.env.AWF_MODEL_PRICING_CATALOG = originalModelPricingCatalog;
     }
     jest.restoreAllMocks();
   });
@@ -208,6 +219,132 @@ describe('ai-credits-guard', () => {
       expect(checkUnknownModelRejection(model, PROVIDER_COPILOT)).toBeNull();
     },
   );
+
+  it('uses a supplied versioned catalog for AI-credit enforcement and records provenance', () => {
+    process.env.AWF_MAX_AI_CREDITS = '10';
+    process.env.AWF_MODEL_PRICING_CATALOG = JSON.stringify({
+      schemaVersion: 1,
+      unit: 'USD_PER_1M_TOKENS',
+      catalogId: 'github/gh-aw/model-pricing',
+      version: 'sha256:catalog-2026-10-10',
+      providers: {
+        'github-copilot': {
+          models: {
+            'gpt-6.1-sol': {
+              input: 10,
+              cachedInput: 1,
+              cacheWrite: 2,
+              output: 50,
+              reasoning: 75,
+            },
+          },
+        },
+      },
+    });
+    resetAiCreditsGuardForTests();
+    resetModelPricingCatalogForTests();
+
+    const usage = applyAiCreditsUsage({
+      input_tokens: 1000,
+      cache_read_tokens: 100,
+      cache_write_tokens: 20,
+      output_tokens: 10,
+      reasoning_tokens: 5,
+    }, 'gpt-6.1-sol', PROVIDER_COPILOT);
+
+    expect(usage).toMatchObject({
+      aiCreditsThisResponse: 1.0765,
+      pricingSource: 'shared_catalog',
+      pricingCatalogId: 'github/gh-aw/model-pricing',
+      pricingCatalogVersion: 'sha256:catalog-2026-10-10',
+    });
+    expect(getAiCreditsReflectState().by_model['gpt-6.1-sol']).toMatchObject({
+      pricing_source: 'shared_catalog',
+      pricing_catalog_id: 'github/gh-aw/model-pricing',
+      pricing_catalog_version: 'sha256:catalog-2026-10-10',
+    });
+    expect(checkUnknownModelRejection('gpt-6.1-sol', PROVIDER_COPILOT)).toBeNull();
+  });
+
+  it('keeps explicit provider pricing ahead of the supplied catalog', () => {
+    process.env.AWF_MODEL_PRICING_CATALOG = JSON.stringify({
+      schemaVersion: 1,
+      unit: 'USD_PER_1M_TOKENS',
+      catalogId: 'shared-catalog',
+      version: 'v1',
+      providers: {
+        copilot: {
+          models: {
+            'catalog-only-model': {
+              input: 100,
+              output: 1000,
+              cachedInput: 10,
+              cacheWrite: null,
+              reasoning: 1000,
+            },
+          },
+        },
+      },
+    });
+    process.env.AWF_API_PROXY_PROVIDERS = JSON.stringify({
+      copilot: {
+        models: {
+          'catalog-only-model': {
+            cost: {
+              input: '0.000002',
+              output: '0.000004',
+              cache_read: '0.0000002',
+            },
+          },
+        },
+      },
+    });
+    resetModelPricingCatalogForTests();
+    resetProviderPricingOverlaysForTests();
+
+    const usage = applyAiCreditsUsage({
+      input_tokens: 1000,
+      cache_read_tokens: 100,
+      output_tokens: 10,
+    }, 'catalog-only-model', PROVIDER_COPILOT);
+
+    expect(usage).toMatchObject({
+      aiCreditsThisResponse: 0.206,
+      pricingSource: 'operator',
+    });
+    expect(usage.pricingCatalogVersion).toBeUndefined();
+  });
+
+  it('does not apply shared catalog rates to related but unlisted model names', () => {
+    process.env.AWF_MAX_AI_CREDITS = '10';
+    process.env.AWF_MODEL_PRICING_CATALOG = JSON.stringify({
+      schemaVersion: 1,
+      unit: 'USD_PER_1M_TOKENS',
+      catalogId: 'shared-catalog',
+      version: 'v1',
+      providers: {
+        copilot: {
+          models: {
+            'catalog-only-model': {
+              input: 1,
+              output: 2,
+              cachedInput: 0.1,
+              cacheWrite: null,
+              reasoning: 2,
+            },
+          },
+        },
+      },
+    });
+    resetAiCreditsGuardForTests();
+    resetModelPricingCatalogForTests();
+
+    expect(checkUnknownModelRejection('catalog-only-model-preview', PROVIDER_COPILOT))
+      .toMatchObject({
+        rejected: true,
+        error: { type: 'unknown_model_ai_credits' },
+      });
+  });
 
   it('does not double-count cached tokens when input_tokens is total-inclusive (OpenAI-style)', () => {
     // OpenAI (Chat Completions and Responses API) reports prompt_tokens/input_tokens
@@ -500,9 +637,9 @@ describe('ai-credits-guard', () => {
     expect(usage.outputCreditsThisResponse).toBe(0);
   });
 
-  it('resolves text-embedding-3-small-inference via prefix match', () => {
+  it('resolves the explicit text-embedding-3-small-inference alias', () => {
     const usage = applyAiCreditsUsage({ input_tokens: 1_000_000, output_tokens: 0 }, 'text-embedding-3-small-inference');
-    // Same pricing as text-embedding-3-small via prefix match
+    // The inference name is an explicit alias, not a prefix match.
     expect(usage).not.toBeNull();
     expect(usage.aiCreditsThisResponse).toBeCloseTo(2.0, 5);
   });
@@ -742,6 +879,7 @@ describe('ai-credits-guard', () => {
       expect(result.model).toBe('brand-new-model-xyz');
       expect(result.error.type).toBe('unknown_model_ai_credits');
       expect(result.error.message).toContain('defaultAiCreditsPricing');
+      expect(result.error.message).toContain('modelPricingCatalog');
     });
 
     it('does not reject when maxAiCredits is not active', () => {

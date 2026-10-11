@@ -1,6 +1,31 @@
 import { mapAwfFileConfigToCliOptions } from './config-mapper';
 
 describe('mapAwfFileConfigToCliOptions', () => {
+  it('maps the versioned model pricing catalog to API proxy options', () => {
+    const catalog = {
+      schemaVersion: 1 as const,
+      unit: 'USD_PER_1M_TOKENS' as const,
+      catalogId: 'github/gh-aw/model-pricing',
+      version: 'sha256:catalog-v1',
+      providers: {
+        copilot: {
+          models: {
+            'gpt-6.1-sol': {
+              input: 10,
+              output: 50,
+              cachedInput: 1,
+              cacheWrite: null,
+              reasoning: 50,
+            },
+          },
+        },
+      },
+    };
+
+    expect(mapAwfFileConfigToCliOptions({ apiProxy: { modelPricingCatalog: catalog } })
+      .modelPricingCatalog).toEqual(catalog);
+  });
+
   it('maps nested config values to CLI option names', () => {
     const result = mapAwfFileConfigToCliOptions({
       network: { allowDomains: ['github.com', 'api.github.com'], dnsServers: ['1.1.1.1', '1.0.0.1'] },

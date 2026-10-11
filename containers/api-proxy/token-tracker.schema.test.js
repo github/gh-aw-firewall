@@ -409,6 +409,8 @@ describe('token-usage JSONL record schema field', () => {
         model_multiplier: 2,
         ai_credits_this_response: 0.01,
         ai_credits_total: 0.05,
+        ai_credits_pricing_catalog_id: 'github/gh-aw/model-pricing',
+        ai_credits_pricing_catalog_version: 'sha256:test-http-catalog',
       }),
     });
 
@@ -429,7 +431,10 @@ describe('token-usage JSONL record schema field', () => {
         model_multiplier: 2,
         ai_credits_this_response: 0.01,
         ai_credits_total: 0.05,
+        ai_credits_pricing_catalog_id: 'github/gh-aw/model-pricing',
+        ai_credits_pricing_catalog_version: 'sha256:test-http-catalog',
       });
+      expect(validateTokenUsageRecord(parsed)).toBe(true);
       done();
     }, 20);
   });
@@ -463,6 +468,8 @@ describe('token-usage JSONL record schema field', () => {
       expect(parsed.model_multiplier).toBeUndefined();
       expect(parsed.ai_credits_this_response).toBeUndefined();
       expect(parsed.ai_credits_total).toBeUndefined();
+      expect(parsed.ai_credits_pricing_catalog_id).toBeUndefined();
+      expect(parsed.ai_credits_pricing_catalog_version).toBeUndefined();
       done();
     }, 20);
   });
@@ -482,6 +489,8 @@ describe('token-usage JSONL record schema field', () => {
         model_multiplier: 4,
         ai_credits_this_response: 0.02,
         ai_credits_total: 0.08,
+        ai_credits_pricing_catalog_id: 'github/gh-aw/model-pricing',
+        ai_credits_pricing_catalog_version: 'sha256:test-ws-catalog',
       }),
     });
 
@@ -499,7 +508,10 @@ describe('token-usage JSONL record schema field', () => {
         model_multiplier: 4,
         ai_credits_this_response: 0.02,
         ai_credits_total: 0.08,
+        ai_credits_pricing_catalog_id: 'github/gh-aw/model-pricing',
+        ai_credits_pricing_catalog_version: 'sha256:test-ws-catalog',
       });
+      expect(validateTokenUsageRecord(parsed)).toBe(true);
       done();
     }, 20);
   });
@@ -528,6 +540,8 @@ describe('token-usage JSONL record schema field', () => {
       expect(parsed.model_multiplier).toBeUndefined();
       expect(parsed.ai_credits_this_response).toBeUndefined();
       expect(parsed.ai_credits_total).toBeUndefined();
+      expect(parsed.ai_credits_pricing_catalog_id).toBeUndefined();
+      expect(parsed.ai_credits_pricing_catalog_version).toBeUndefined();
       done();
     }, 20);
   });

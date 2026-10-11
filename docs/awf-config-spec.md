@@ -1326,17 +1326,25 @@ Setting `maxAiCredits` above 10,000 MUST NOT raise the effective limit.
 The AI credits guard resolves model names using this lookup order:
 
 1. **Operator provider overlay** — model prices configured under
-   `apiProxy.providers`.
-2. **Runtime provider metadata** — authoritative token prices discovered from
+   `apiProxy.providers`. These explicit overrides take precedence over every
+   other source.
+2. **Versioned shared catalog** — provider-scoped prices supplied in
+   `apiProxy.modelPricingCatalog`. This catalog is pinned by its `catalogId`
+   and `version` and takes precedence over runtime and bundled prices.
+3. **Runtime provider metadata** — authoritative token prices discovered from
    the configured provider. Copilot supports this today.
-3. **Curated pricing table** — a built-in table of known models with exact pricing.
-4. **Bundled models.dev catalog** — a bundled snapshot of the models.dev catalog used as a fallback when the model is not found in the curated table.
+4. **Curated pricing table** — a built-in table of known models with exact pricing.
+5. **Bundled models.dev catalog** — an offline snapshot used when the model is
+   not found in the higher-priority sources.
 
 Model names are **canonicalized** before lookup: provider prefixes
 (e.g. `copilot/`) are stripped, and separators (`.`, `_`, `-`) are treated
 as interchangeable. For example, `copilot/claude-sonnet-4.6`,
 `claude_sonnet_4_6`, and `claude-sonnet-4-6` all resolve to the same pricing
-entry.
+entry. Version-date suffixes are also normalized. Shared-catalog entries and
+bundled pricing require an exact canonical model match; AWF does not infer a
+price from a related model-family prefix. `apiProxy.providers` retains its
+explicit longest-prefix override behavior.
 
 If none of these sources resolves the model, the `defaultAiCreditsPricing` fallback
 (if configured) is used. If that is also absent, the request is rejected.
@@ -1351,6 +1359,53 @@ Promotions are informational only because provider discovery does not prove
 that a discount applies to a specific request; they never reduce accounting.
 Failed or empty discovery responses do not replace the last successful runtime
 snapshot.
+
+### 10.7.1.1 Versioned Shared Pricing Catalog
+
+Compilers that report inference cost SHOULD pass the exact provider/model rates
+they use through `apiProxy.modelPricingCatalog`. AWF consumes the supplied
+catalog locally and does not fetch or refresh it, so the compiler's lock pins
+the same catalog version for both estimate and enforcement. Updating prices
+requires updating the authoritative catalog and recompiling the workflow; an
+existing lock continues using its pinned version. `catalogId` and `version`
+are included in AI-credit usage logs and reflect state to diagnose mismatches.
+
+The contract is provider-scoped and rates are dollars per million tokens:
+
+```yaml
+apiProxy:
+  modelPricingCatalog:
+    schemaVersion: 1
+    unit: USD_PER_1M_TOKENS
+    catalogId: github/gh-aw/model-pricing
+    version: sha256:<immutable-catalog-digest>
+    providers:
+      github-copilot:
+        models:
+          gpt-6.1-sol:
+            input: 10
+            cachedInput: 1
+            cacheWrite: null
+            output: 50
+            reasoning: 50
+```
+
+Each catalog model MUST provide `input`, `output`, `cachedInput`, `cacheWrite`,
+and `reasoning`, all in USD per million tokens. Use `cacheWrite: null` when no
+separate cache-write price applies, and set `reasoning` equal to `output` when
+there is no distinct reasoning rate. Requiring explicit values makes the
+catalog consumer-independent rather than relying on different defaults.
+AI-credit accounting treats `reasoning_tokens` as a subset of
+`output_tokens`: it prices the remaining output tokens at `output` and the
+reasoning tokens at `reasoning`, without double-counting them. If reasoning
+usage is absent, all output tokens use the output rate. Cache and input token
+totals retain the provider-specific usage semantics described above. Catalog
+model matching is exact after canonicalization; provider names support the
+aliases listed for `apiProxy.providers`.
+
+Without a supplied catalog, standalone AWF continues to use its local curated
+and bundled snapshots without network access. Operators may supply the same
+contract directly through the AWF config file for offline runs.
 
 Provider overlays use the models.dev provider structure and per-token dollar
 rates:
@@ -1376,21 +1431,23 @@ through `AWF_API_PROXY_PROVIDERS`. Provider aliases `github-copilot` and
 
 `defaultAiCreditsPricing` is an optional object with `input` and `output`
 fields (both required, in $/1M tokens), plus optional `cachedInput` and
-`cacheWrite` fields.
+`cacheWrite` fields and an optional `reasoning` rate. `reasoning` defaults to
+`output`; reported reasoning tokens are priced separately using that rate.
 
 It is supplied via the AWF config file and maps to the
 `AWF_DEFAULT_AI_CREDITS_PRICING` environment variable (JSON string) injected
 into the api-proxy container.
 
-When configured, any model not found in the curated built-in pricing table or
-the bundled models.dev catalog uses these rates as a fallback for AI credits
-calculation.
+When configured, any model not found in the operator overlay, shared catalog,
+runtime provider metadata, curated built-in pricing table, or bundled models.dev
+catalog uses these rates as a fallback for AI credits calculation.
 
 ### 10.7.3 Unknown Model Rejection
 
 When `maxAiCredits` is active and the proxy encounters a request whose model
 cannot be resolved from the curated built-in pricing table or the bundled
-models.dev catalog:
+models.dev catalog, operator overlay, supplied catalog, or runtime provider
+metadata:
 
 1. **If `defaultAiCreditsPricing` is configured**: the fallback rates are used
    and the request proceeds normally.
@@ -1400,7 +1457,8 @@ models.dev catalog:
    error payload includes:
    - `model`: the unresolved model name
    - `message`: human-readable instructions to configure
-     `apiProxy.defaultAiCreditsPricing`
+     `apiProxy.defaultAiCreditsPricing`, add the model to
+     `apiProxy.modelPricingCatalog`, or add it to an AWF pricing table
 
    This fail-closed behavior prevents unaccounted spending from models whose
    pricing is unknown to the proxy.

@@ -5,6 +5,7 @@ const pricingByModel = require('../ai-credits-pricing');
 const { resolveCatalogModel } = require('../models-dev-catalog');
 const { resolveRuntimePricing } = require('../runtime-model-catalog');
 const { resolveProviderPricingOverlay } = require('../provider-pricing-overlays');
+const { resolveModelPricingCatalog } = require('../model-pricing-catalog');
 const { parsePositiveNumber } = require('./guard-utils');
 const { PROVIDER_ANTHROPIC, PROVIDER_COPILOT } = require('../provider-names');
 const { ET_WARNING_THRESHOLDS } = require('./effective-token-guard');
@@ -132,6 +133,7 @@ function getAiCreditsConfig() {
           cachedInput: parsed.cachedInput ?? parsed.input * 0.1,
           cacheWrite: parsed.cacheWrite ?? null,
           output: parsed.output,
+          ...(typeof parsed.reasoning === 'number' ? { reasoning: parsed.reasoning } : {}),
         };
       }
     } catch { /* invalid JSON — leave null */ }
@@ -166,6 +168,9 @@ function resolveModelPricing(model, state = aiCreditsState, provider = undefined
   const operatorPricing = provider ? resolveProviderPricingOverlay(provider, pricingModel) : null;
   if (operatorPricing) return operatorPricing;
 
+  const catalogPricing = provider ? resolveModelPricingCatalog(provider, pricingModel) : null;
+  if (catalogPricing) return catalogPricing;
+
   const runtime = provider ? resolveRuntimePricing(provider, pricingModel, inputTokens) : null;
   if (runtime && ['input', 'cachedInput', 'cacheWrite', 'output']
     .every(field => Object.hasOwn(runtime.pricing, field))) {
@@ -198,18 +203,6 @@ function resolveLowerPriorityPricing(model, state, options = {}) {
     const canonicalKey = canonicalizeModel(configuredModel);
     if (canonical === canonicalKey) return { pricing, source: 'curated', tier: 'default' };
   }
-
-  // Prefix match: canonical model starts with a canonical pricing key
-  let prefixMatch = null;
-  for (const [configuredModel, pricing] of Object.entries(pricingByModel)) {
-    const canonicalKey = canonicalizeModel(configuredModel);
-    if (canonical.startsWith(`${canonicalKey}-`)) {
-      if (!prefixMatch || canonicalKey.length > prefixMatch.key.length) {
-        prefixMatch = { key: canonicalKey, pricing };
-      }
-    }
-  }
-  if (prefixMatch) return { pricing: prefixMatch.pricing, source: 'curated', tier: 'default' };
 
   const catalogModel = resolveCatalogModel(model);
   if (catalogModel.pricing) {
@@ -312,7 +305,7 @@ function checkUnknownModelRejection(model, provider = undefined) {
       type: 'unknown_model_ai_credits',
       message: `Model "${model}" has no AI credits pricing and no default pricing is configured. ` +
         'Set apiProxy.defaultAiCreditsPricing in the AWF config (e.g. {"input": 3.0, "output": 15.0}) ' +
-        'to provide a fallback rate, or add the model to the pricing table.',
+        'to provide a fallback rate, or add the model to apiProxy.modelPricingCatalog or a pricing table.',
       model,
     },
   };
@@ -352,7 +345,15 @@ function calculateAiCredits(normalizedUsage, model, state = aiCreditsState, prov
   const cacheWriteCredits = pricing.cacheWrite
     ? (cacheWriteTokens * pricing.cacheWrite) / CREDIT_DENOMINATOR
     : 0;
-  const outputCredits = ((normalizedUsage.output_tokens || 0) * pricing.output) / CREDIT_DENOMINATOR;
+  const outputTokens = normalizedUsage.output_tokens || 0;
+  const reasoningTokens = Math.min(
+    Math.max(0, normalizedUsage.reasoning_tokens || 0),
+    Math.max(0, outputTokens),
+  );
+  const reasoningCredits = (reasoningTokens * (pricing.reasoning ?? pricing.output)) / CREDIT_DENOMINATOR;
+  const outputCredits = (
+    (Math.max(0, outputTokens - reasoningTokens) * pricing.output / CREDIT_DENOMINATOR)
+  ) + reasoningCredits;
   const totalCredits = inputCredits + cachedInputCredits + cacheWriteCredits + outputCredits;
 
   return {
@@ -366,6 +367,8 @@ function calculateAiCredits(normalizedUsage, model, state = aiCreditsState, prov
     pricingObservedAt: pricingResolution.observedAt,
     pricingApiVersion: pricingResolution.apiVersion,
     pricingDiscountPercent: pricingResolution.discountPercent,
+    pricingCatalogId: pricingResolution.pricingCatalogId,
+    pricingCatalogVersion: pricingResolution.pricingCatalogVersion,
     accountingPolicy: pricingResolution.accountingPolicy ||
       (dynamicSelector ? 'dynamic_selector_runtime' : model === 'unknown' ? 'unknown_model_fallback' : 'concrete_model'),
     usedFallbackPricing: pricingResolution.usedFallbackPricing === true ||
@@ -391,6 +394,8 @@ function applyAiCreditsUsage(normalizedUsage, model, provider = undefined) {
       totalCredits: 0,
       pricingSource: calc.pricingSource,
       pricingTier: calc.pricingTier,
+      pricingCatalogId: calc.pricingCatalogId,
+      pricingCatalogVersion: calc.pricingCatalogVersion,
       accountingPolicy: calc.accountingPolicy,
       fallbackPricingUsed: calc.usedFallbackPricing,
       dynamicSelector: calc.dynamicSelector,
@@ -405,6 +410,8 @@ function applyAiCreditsUsage(normalizedUsage, model, provider = undefined) {
   modelBucket.totalCredits += calc.totalCredits;
   modelBucket.pricingSource = calc.pricingSource;
   modelBucket.pricingTier = calc.pricingTier;
+  modelBucket.pricingCatalogId = calc.pricingCatalogId;
+  modelBucket.pricingCatalogVersion = calc.pricingCatalogVersion;
   modelBucket.accountingPolicy = calc.accountingPolicy;
   modelBucket.fallbackPricingUsed = calc.usedFallbackPricing;
   modelBucket.dynamicSelector = calc.dynamicSelector;
@@ -422,6 +429,8 @@ function applyAiCreditsUsage(normalizedUsage, model, provider = undefined) {
     totalAiCredits: roundCredits(aiCreditsState.totalAiCredits),
     pricingSource: calc.pricingSource,
     pricingTier: calc.pricingTier,
+    ...(calc.pricingCatalogId ? { pricingCatalogId: calc.pricingCatalogId } : {}),
+    ...(calc.pricingCatalogVersion ? { pricingCatalogVersion: calc.pricingCatalogVersion } : {}),
     accountingPolicy: calc.accountingPolicy,
     fallbackPricingUsed: calc.usedFallbackPricing,
     dynamicSelector: calc.dynamicSelector,
@@ -447,6 +456,8 @@ function getAiCreditsReflectState() {
       total: roundCredits(usage.totalCredits),
       pricing_source: usage.pricingSource,
       pricing_tier: usage.pricingTier,
+      ...(usage.pricingCatalogId ? { pricing_catalog_id: usage.pricingCatalogId } : {}),
+      ...(usage.pricingCatalogVersion ? { pricing_catalog_version: usage.pricingCatalogVersion } : {}),
       accounting_policy: usage.accountingPolicy || null,
       fallback_pricing_used: usage.fallbackPricingUsed === true,
       dynamic_selector: usage.dynamicSelector || null,

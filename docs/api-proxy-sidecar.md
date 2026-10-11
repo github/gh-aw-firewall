@@ -955,8 +955,10 @@ providers continue to use bundled pricing because their model-list APIs do not
 currently advertise token prices. Failed or empty refreshes retain the last
 successful snapshot.
 
-Explicit `apiProxy.providers` model-cost overlays take precedence over runtime
-and bundled pricing. Overlay costs use the models.dev format (dollars per token)
+Explicit `apiProxy.providers` model-cost overlays take precedence over all other
+pricing sources. A versioned `apiProxy.modelPricingCatalog` takes precedence
+over runtime and bundled pricing and records its catalog ID and version with
+AI-credit usage. Overlay costs use the models.dev format (dollars per token)
 and are normalized to dollars per million tokens inside the proxy.
 
 ## Troubleshooting

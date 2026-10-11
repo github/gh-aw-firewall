@@ -103,10 +103,30 @@ describe('buildConfig', () => {
           },
         };
         const defaultPricing = { input: 3, output: 15, cachedInput: 0.3 };
+        const modelPricingCatalog = {
+          schemaVersion: 1 as const,
+          unit: 'USD_PER_1M_TOKENS' as const,
+          catalogId: 'github/gh-aw/model-pricing',
+          version: 'sha256:test-catalog',
+          providers: {
+            anthropic: {
+              models: {
+                'custom-model': {
+                  input: 3,
+                  output: 15,
+                  cachedInput: 0.3,
+                  cacheWrite: null,
+                  reasoning: 15,
+                },
+              },
+            },
+          },
+        };
         const options = mapAwfFileConfigToCliOptions({
           apiProxy: {
             providers,
             defaultAiCreditsPricing: defaultPricing,
+            modelPricingCatalog,
           },
         });
         const config = buildConfig(makeInputs({ options: { ...makeInputs().options, ...options } }));
@@ -114,6 +134,7 @@ describe('buildConfig', () => {
 
         expect(JSON.parse(env.AWF_API_PROXY_PROVIDERS)).toEqual(providers);
         expect(JSON.parse(env.AWF_DEFAULT_AI_CREDITS_PRICING)).toEqual(defaultPricing);
+        expect(JSON.parse(env.AWF_MODEL_PRICING_CATALOG)).toEqual(modelPricingCatalog);
       });
     });
 

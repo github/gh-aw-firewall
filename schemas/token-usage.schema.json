@@ -323,6 +323,14 @@
       "type": "string",
       "description": "API version of the pricing data source used to resolve this model's cost, when known. Present only when apiProxy.maxAiCredits is configured and the pricing source reports a version."
     },
+    "ai_credits_pricing_catalog_id": {
+      "type": "string",
+      "description": "Identifier of the shared pricing catalog used for AI-credit accounting, when supplied."
+    },
+    "ai_credits_pricing_catalog_version": {
+      "type": "string",
+      "description": "Pinned version of the shared pricing catalog used for AI-credit accounting, when supplied."
+    },
     "ai_credits_pricing_discount_percent": {
       "type": "number",
       "minimum": 0,
