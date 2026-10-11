@@ -1,4 +1,26 @@
-{
+const boundedExecutorChecks = {
+  "configured-role": null,
+  "tool-mount": null,
+  "tool-umount": null,
+  "invocation-root": null,
+  "invocation-parent": null,
+  "resource-journal": null,
+  "storage-allocation": null,
+  "storage-ancestor": null,
+  "storage-parent": null,
+  "storage-root": null,
+  "storage-tmpfs": null,
+  "storage-propagation-set": null,
+  "storage-propagation": null,
+  "storage-layout": null,
+  "storage-artifact-mount": null,
+  "storage-run-mounts": null,
+  "invocation-directory": null,
+  "invocation-mount": null,
+  "storage-verification": null
+};
+
+export const schema = {
   "scopes": {
     "startup": {
       "configuration": null,
@@ -62,25 +84,7 @@
       "cgroup-controllers": null
     },
     "bounded-runtime": {
-      "configured-role": null,
-      "tool-mount": null,
-      "tool-umount": null,
-      "invocation-root": null,
-      "invocation-parent": null,
-      "resource-journal": null,
-      "storage-allocation": null,
-      "storage-ancestor": null,
-      "storage-parent": null,
-      "storage-root": null,
-      "storage-tmpfs": null,
-      "storage-propagation-set": null,
-      "storage-propagation": null,
-      "storage-layout": null,
-      "storage-artifact-mount": null,
-      "storage-run-mounts": null,
-      "invocation-directory": null,
-      "invocation-mount": null,
-      "storage-verification": null,
+      ...boundedExecutorChecks,
       "operator-identity": null,
       "artifact-configuration": null,
       "cloud-hypervisor-trust": null,
@@ -193,29 +197,11 @@
       "journal-staging-remove": null
     },
     "bounded-artifacts": {
-      "configured-role": null,
-      "tool-mount": null,
-      "tool-umount": null,
-      "invocation-root": null,
-      "invocation-parent": null,
-      "resource-journal": null,
-      "storage-allocation": null,
-      "storage-ancestor": null,
-      "storage-parent": null,
-      "storage-root": null,
-      "storage-tmpfs": null,
-      "storage-propagation-set": null,
-      "storage-propagation": null,
-      "storage-layout": null,
-      "storage-artifact-mount": null,
-      "storage-run-mounts": null,
-      "invocation-directory": null,
-      "invocation-mount": null,
-      "storage-verification": null,
+      ...boundedExecutorChecks,
       "tool-rsync": null,
       "verification-directory": null,
       "enclave-artifacts": null
-    }
+    },
   },
   "optionalChecks": [
     "storage-verification/sealed-snapshot",
@@ -298,4 +284,4 @@
     "tools-mismatch": null,
     "readiness-deadline": null
   }
-}
+};

@@ -1,8 +1,8 @@
-import schema from './host-preflight-schema.json';
 import {
   HostPreflightReporter, hostPreflightReason, markHostPreflightError,
   type HostPreflightCheck, type HostPreflightScope,
 } from './host-preflight-progress';
+import { schema } from './host-preflight-schema';
 
 describe('bounded actual-host preflight progress', () => {
   const scopes = Object.keys(schema.scopes) as HostPreflightScope[];
