@@ -1232,7 +1232,7 @@ alone is not overall readiness. The existing guest isolation controls remain
 per-invocation controls; this host startup checklist does not claim guest
 boot, guest DNS, data-plane connectivity, or workload execution.
 
-`src/cloud-hypervisor/host-preflight-schema.json` is the canonical catalog of
+`src/cloud-hypervisor/host-preflight-schema.ts` is the canonical catalog of
 check IDs, optional checks, and safe reason codes, shared by AWF and the
 diagnostic harness. New prerequisites must be added there, instrumented at
 their actual fail-closed operation, and covered by failure-injection and
@@ -1250,7 +1250,7 @@ actually executes, not guesses derived from stderr. Its schema version is 1;
 plus an allowlisted `reason` (`none` unless
 failed). Later unexecuted checks remain `not-attempted`; checks skipped by a
 different code path are not claimed to have passed. The canonical plans and
-reason allowlist are in `src/cloud-hypervisor/host-preflight-schema.json`,
+reason allowlist are in `src/cloud-hypervisor/host-preflight-schema.ts`,
 shared by AWF and the harness.
 
 | Scope | Actual prerequisite checks |

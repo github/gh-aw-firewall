@@ -1,6 +1,6 @@
 import type { WrapperConfig } from '../types';
 import { normalizeEnclavesConfig } from '../parsers/enclave-parser';
-import schema from '../cloud-hypervisor/host-preflight-schema.json';
+import { schema } from '../cloud-hypervisor/host-preflight-schema';
 import { HostPreflightReporter, type HostPreflightCheck } from '../cloud-hypervisor/host-preflight-progress';
 import {
   assertEnclaveStartupChecklistComplete, getEnclaveStartupProgress,

@@ -9,7 +9,7 @@ import type { EnclaveStartupProgress } from '../../src/enclave/startup-progress'
 import {
   HostPreflightReporter, type HostPreflightCheck, type HostPreflightScope,
 } from '../../src/cloud-hypervisor/host-preflight-progress';
-import hostPreflightSchema from '../../src/cloud-hypervisor/host-preflight-schema.json';
+import { schema as hostPreflightSchema } from '../../src/cloud-hypervisor/host-preflight-schema';
 import {
   observeMountTopology, type MountTopologyEvidence, createStoragePropagationEvidence,
 } from '../../src/cloud-hypervisor/mount-topology';

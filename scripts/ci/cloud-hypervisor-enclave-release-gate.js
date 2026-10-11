@@ -29,7 +29,7 @@ const ENVIRONMENT_PROBE_REQUIRED_PATHS = Object.freeze([
   'examples/enclave-environment-probe/build-request.py',
   'examples/enclave-environment-probe/awf.yaml',
   'src/cloud-hypervisor/host-preflight-progress.ts',
-  'src/cloud-hypervisor/host-preflight-schema.json',
+  'src/cloud-hypervisor/host-preflight-schema.ts',
 ]);
 
 function verifyAcceptanceCheckout(environment = process.env, requiredPaths = ACCEPTANCE_REQUIRED_PATHS) {

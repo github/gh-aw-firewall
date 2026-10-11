@@ -238,7 +238,7 @@ for (const role of ['script', 'agent']) {
   );
 }
 const failedSpawns = new WeakSet();
-const hostPreflightSchema = require('../../src/cloud-hypervisor/host-preflight-schema.json');
+const { schema: hostPreflightSchema } = require('../../dist/cloud-hypervisor/host-preflight-schema');
 const mountTopologySchema = require('../../src/cloud-hypervisor/mount-topology-schema.json');
 const storagePropagationSchema = require('../../src/cloud-hypervisor/storage-propagation-schema.json');
 

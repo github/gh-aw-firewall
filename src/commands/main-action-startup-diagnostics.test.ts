@@ -6,7 +6,7 @@ import { normalizeEnclavesConfig } from '../parsers/enclave-parser';
 import { initializeEnclaveStartupProgress, updateEnclaveStartupProgress } from '../enclave/startup-progress';
 import type { WrapperConfig } from '../types';
 import { HostPreflightReporter } from '../cloud-hypervisor/host-preflight-progress';
-import schema from '../cloud-hypervisor/host-preflight-schema.json';
+import { schema } from '../cloud-hypervisor/host-preflight-schema';
 import type { HostPreflightScope, HostPreflightCheck } from '../cloud-hypervisor/host-preflight-progress';
 import {
   observeMountTopology, type MountTopologyEvidence, createStoragePropagationEvidence,
