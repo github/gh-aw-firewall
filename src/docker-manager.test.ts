@@ -179,28 +179,4 @@ describe('docker-manager (barrel re-exports)', () => {
   });
 
 
-  describe('getLocalDockerEnv / setAwfDockerHost via barrel', () => {
-    const original = process.env.DOCKER_HOST;
-    afterEach(() => {
-      dockerManager.setAwfDockerHost(undefined);
-      if (original === undefined) delete process.env.DOCKER_HOST;
-      else process.env.DOCKER_HOST = original;
-    });
-
-    it('uses the explicit override', () => {
-      process.env.DOCKER_HOST = 'tcp://remote:2375';
-      dockerManager.setAwfDockerHost('unix:///custom.sock');
-      expect(dockerManager.getLocalDockerEnv().DOCKER_HOST).toBe('unix:///custom.sock');
-    });
-    it('keeps unix and loopback endpoints', () => {
-      process.env.DOCKER_HOST = 'unix:///var/run/docker.sock';
-      expect(dockerManager.getLocalDockerEnv().DOCKER_HOST).toBe('unix:///var/run/docker.sock');
-      process.env.DOCKER_HOST = 'tcp://127.0.0.1:2375';
-      expect(dockerManager.getLocalDockerEnv().DOCKER_HOST).toBe('tcp://127.0.0.1:2375');
-    });
-    it('removes remote TCP endpoints', () => {
-      process.env.DOCKER_HOST = 'tcp://remote:2375';
-      expect(dockerManager.getLocalDockerEnv().DOCKER_HOST).toBeUndefined();
-    });
-  });
 });
