@@ -352,6 +352,7 @@ steps:
       }
       RESULTS_EOF
       cat "$out/results.json"
+      printf 'complete\n' > "$out/completed"
       echo AWF-NVX-BUILD-TEST-COMPLETE
       EOF
       chmod 0755 "$layer_root/usr/local/bin/awf-nvx-build-test"
@@ -404,7 +405,8 @@ post-steps:
         microvm_run=FAIL
         awf_status=1
       fi
-      if grep -q 'AWF-NVX-BUILD-TEST-COMPLETE' "$data_dir/logs/awf.log"; then
+      if [ -f "$data_dir/guest/completed" ] && \
+         grep -qx 'complete' "$data_dir/guest/completed"; then
         guest_completed=PASS
       else
         guest_completed=FAIL
