@@ -83,6 +83,8 @@ describe('NVX Copilot smoke compiler contract', () => {
   beforeEach(() => {
     root = fs.mkdtempSync(path.join(os.tmpdir(), 'nvx-copilot-smoke-'));
     workspace = path.join(root, 'workspace');
+    fs.mkdirSync(workspace, { recursive: true });
+    workspace = fs.realpathSync(workspace);
     binary = path.join(workspace, '.gh-aw-nvx/gh-aw/bin/copilot');
     fs.mkdirSync(path.dirname(binary), { recursive: true });
     fs.writeFileSync(path.join(workspace, 'package.json'), '{}');
