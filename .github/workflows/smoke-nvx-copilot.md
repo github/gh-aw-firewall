@@ -240,7 +240,7 @@ steps:
       test -r /workspace/package.json
       test -n "${AWF_NVX_SMOKE_MARKER:-}"
       test -n "${HTTPS_PROXY:-}"
-      if env | grep -Eq '^(GH_TOKEN|GITHUB_TOKEN|OPENAI_API_KEY|ANTHROPIC_API_KEY|COPILOT_API_KEY)='; then
+      if env | grep -Eq '^(GH_TOKEN|GITHUB_TOKEN|OPENAI_API_KEY|ANTHROPIC_API_KEY)='; then
         echo "credential variable reached the NVX guest" >&2
         exit 1
       fi
@@ -261,6 +261,11 @@ steps:
         echo "real credential value reached the NVX guest via COPILOT_PROVIDER_API_KEY" >&2
         exit 1
       fi
+      if [ -n "${COPILOT_API_KEY:-}" ] && \
+         [ "$COPILOT_API_KEY" != "dummy-byok-key-for-offline-mode" ]; then
+        echo "real credential value reached the NVX guest via COPILOT_API_KEY" >&2
+        exit 1
+      fi
       printf '%s\n' "$AWF_NVX_SMOKE_MARKER" > /workspace/nvx-smoke-workspace-proof.txt
       runtime_home=/tmp/copilot-home
       mkdir -m 0700 "$runtime_home"
@@ -274,6 +279,7 @@ steps:
       COPILOT_GITHUB_TOKEN="ghu_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"; export COPILOT_GITHUB_TOKEN
       COPILOT_TOKEN="$COPILOT_GITHUB_TOKEN"; export COPILOT_TOKEN
       COPILOT_PROVIDER_API_KEY="$COPILOT_GITHUB_TOKEN"; export COPILOT_PROVIDER_API_KEY
+      COPILOT_API_KEY="dummy-byok-key-for-offline-mode"; export COPILOT_API_KEY
       COPILOT_API_URL="http://172.30.0.30:10002"; export COPILOT_API_URL
       COPILOT_PROVIDER_BASE_URL="$COPILOT_API_URL"; export COPILOT_PROVIDER_BASE_URL
       COPILOT_OFFLINE=true; export COPILOT_OFFLINE
