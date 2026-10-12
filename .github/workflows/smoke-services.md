@@ -45,6 +45,7 @@ network:
     - defaults
     - github
 tools:
+  github: false
   bash:
     - "*"
 safe-outputs:
