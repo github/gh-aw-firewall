@@ -14,9 +14,20 @@ describe('Smoke Services workflow token optimization', () => {
     expect(frontmatter).toContain('github: false');
     expect(frontmatter).toContain('bash:\n    - "*"');
     expect(prompt).toContain('item_number` from the triggering event');
-    expect(prompt).toContain('github.event.pull_request.number');
+    expect(prompt).toContain('${{ github.event.pull_request.number || inputs.item_number }}');
+    expect(prompt).toContain('If a target is present, call `add_comment` exactly once');
     expect(prompt.indexOf('add_comment')).toBeLessThan(prompt.indexOf('add_labels'));
-    expect(prompt).toContain('Do not call `noop`.');
+    expect(prompt).toContain('Do not call `noop` after these outputs.');
+  });
+
+  it('uses noop for scheduled runs and manual dispatches without a target', () => {
+    const source = fs.readFileSync(sourcePath, 'utf-8');
+    const prompt = source.split(/^---$/m)[2];
+
+    expect(prompt).toContain('If no target is present (scheduled runs or manual dispatches without `item_number`)');
+    expect(prompt).toContain('call `noop` exactly once with a brief check summary and overall PASS or FAIL');
+    expect(prompt).toContain('Do not call `add_comment` or `add_labels`.');
+    expect(prompt).not.toContain('Do not call `noop`.');
   });
 
   it('compiles without GitHub MCP tool injection while retaining safe outputs', () => {

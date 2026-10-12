@@ -116,4 +116,7 @@ Interpret results:
 
 ## Output
 
-Use the `item_number` from the triggering event (for pull requests, `${{ github.event.pull_request.number }}`); never guess a target from schedule or workflow metadata. Call `add_comment` exactly once with a brief comment (max 5-10 lines) summarizing which checks succeeded (✅) and which failed (❌), plus overall PASS or FAIL. If every check succeeded, call `add_labels` after `add_comment` to apply the `smoke-services` label. Do not call `noop`.
+Use the `item_number` from the triggering event: `${{ github.event.pull_request.number || inputs.item_number }}` (the PR number or the optional manual dispatch input); never guess a target from schedule or workflow metadata.
+
+- If a target is present, call `add_comment` exactly once with a brief comment (max 5-10 lines) summarizing which checks succeeded (✅) and which failed (❌), plus overall PASS or FAIL. If every check succeeded, call `add_labels` after `add_comment` to apply the `smoke-services` label. Do not call `noop` after these outputs.
+- If no target is present (scheduled runs or manual dispatches without `item_number`), call `noop` exactly once with a brief check summary and overall PASS or FAIL. Do not call `add_comment` or `add_labels`.
