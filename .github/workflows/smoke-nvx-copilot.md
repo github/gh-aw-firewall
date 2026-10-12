@@ -264,14 +264,16 @@ steps:
       XDG_CONFIG_HOME="$runtime_home/.config"; export XDG_CONFIG_HOME
       XDG_STATE_HOME="$runtime_home/.local/state"; export XDG_STATE_HOME
       # The real credential remains in the API proxy sidecar. The nested CLI
-      # needs only the same fixed placeholder used by the outer AWF agent.
+      # needs only the same fixed placeholders used by the outer AWF agent.
       COPILOT_GITHUB_TOKEN="******"; export COPILOT_GITHUB_TOKEN
+      COPILOT_API_KEY="dummy-byok-key-for-offline-mode"; export COPILOT_API_KEY
       /usr/local/bin/copilot \
         --prompt "Respond with exactly NVX-COPILOT-PROOF and nothing else." \
         --silent --no-color --stream on --allow-all-tools \
         --disable-builtin-mcps --no-custom-instructions --no-auto-update \
         --no-ask-user --model claude-sonnet-5 --max-ai-credits 30 \
         > /workspace/nvx-smoke-copilot-proof.txt
+      printf 'complete\n' > /workspace/nvx-smoke-complete.txt
       echo AWF-NVX-SMOKE-COMPLETE
       EOF
       chmod 0755 "$layer_root/usr/local/bin/awf-nvx-smoke"
@@ -284,7 +286,8 @@ steps:
       marker="nvx-smoke-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
       echo "AWF_NVX_SMOKE_MARKER=$marker" >> "$GITHUB_ENV"
       rm -f "$GITHUB_WORKSPACE/nvx-smoke-workspace-proof.txt" \
-        "$GITHUB_WORKSPACE/nvx-smoke-copilot-proof.txt"
+        "$GITHUB_WORKSPACE/nvx-smoke-copilot-proof.txt" \
+        "$GITHUB_WORKSPACE/nvx-smoke-complete.txt"
 post-steps:
   - name: Collect declarative NVX smoke evidence
     if: always()
@@ -304,6 +307,7 @@ post-steps:
 
       proof_file="$GITHUB_WORKSPACE/nvx-smoke-workspace-proof.txt"
       copilot_file="$GITHUB_WORKSPACE/nvx-smoke-copilot-proof.txt"
+      complete_file="$GITHUB_WORKSPACE/nvx-smoke-complete.txt"
       if [ -f /tmp/gh-aw/agent-stdio.log ]; then
         cp /tmp/gh-aw/agent-stdio.log "$data_dir/logs/awf.log"
       fi
@@ -315,7 +319,7 @@ post-steps:
           "agent outcome was ${AGENT_OUTCOME:-missing}; see logs/awf.log"
       fi
 
-      if grep -q 'AWF-NVX-SMOKE-COMPLETE' "$data_dir/logs/awf.log" 2>/dev/null; then
+      if [ -f "$complete_file" ] && grep -qx 'complete' "$complete_file"; then
         record guest-assertions PASS \
           "guest confirmed /workspace export, --container-workdir, and env passthrough"
       else
@@ -344,7 +348,7 @@ post-steps:
       if [ -f "$copilot_file" ]; then
         cp "$copilot_file" "$data_dir/copilot-response.txt"
       fi
-      rm -f "$proof_file" "$copilot_file"
+      rm -f "$proof_file" "$copilot_file" "$complete_file"
       sudo chown -R "$(id -u):$(id -g)" "$data_dir"
       cat "$results"
   - name: Upload NVX smoke evidence
@@ -355,6 +359,13 @@ post-steps:
       path: /tmp/gh-aw/agent/smoke-nvx-copilot/
       if-no-files-found: warn
       retention-days: 7
+  - name: Validate declarative NVX smoke evidence
+    run: |
+      results=/tmp/gh-aw/agent/smoke-nvx-copilot/scenarios.jsonl
+      if ! jq -s -e 'length == 4 and all(.[]; .status == "PASS")' "$results" > /dev/null; then
+        cat "$results"
+        exit 1
+      fi
   - name: Validate safe outputs were invoked
     env:
       OUTPUTS_FILE: ${{ steps.set-runtime-paths.outputs.GH_AW_SAFE_OUTPUTS }}
