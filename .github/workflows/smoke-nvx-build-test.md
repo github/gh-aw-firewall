@@ -21,7 +21,7 @@ engine:
   id: copilot
 sandbox:
   agent:
-    # Keep this aligned with build_nvx_artifacts.env.AWF_RELEASE_TAG when upgrading gh-aw/AWF.
+    # Keep this aligned with both AWF_RELEASE_TAG values below when upgrading gh-aw/AWF.
     version: v0.28.51
     runtime: nvx
     nvx:
@@ -186,11 +186,15 @@ steps:
       cache: npm
 
   - name: Install host tools and build AWF
+    env:
+      AWF_RELEASE_TAG: v0.28.51
     run: |
       set -euo pipefail
       sudo apt-get update
       sudo apt-get install --yes --no-install-recommends \
         acl bubblewrap e2fsprogs erofs-utils jq nftables uidmap
+      # The local build must identify as the trusted release recorded in the manifest.
+      npm version "${AWF_RELEASE_TAG#v}" --no-git-tag-version --allow-same-version
       npm ci
       npm run build
 
