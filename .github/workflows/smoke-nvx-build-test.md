@@ -21,6 +21,8 @@ engine:
   id: copilot
 sandbox:
   agent:
+    # Keep this aligned with build_nvx_artifacts.env.AWF_RELEASE_TAG when upgrading gh-aw/AWF.
+    version: v0.28.51
     runtime: nvx
     nvx:
       preview: true
@@ -69,6 +71,8 @@ jobs:
     name: Build workflow-attested NVX artifacts
     runs-on: ubuntu-24.04
     timeout-minutes: 20
+    env:
+      AWF_RELEASE_TAG: v0.28.51
     permissions:
       contents: read
       id-token: write
@@ -103,9 +107,8 @@ jobs:
           install -m 0444 "$extracted/guest/vmlinux" "$artifact_dir/vmlinux"
           install -m 0444 "$extracted/guest/initramfs.cpio.gz" \
             "$artifact_dir/initramfs.cpio.gz"
-          release_tag="v$(node -p "require('./package.json').version")"
           jq -n \
-            --arg release_tag "$release_tag" \
+            --arg release_tag "$AWF_RELEASE_TAG" \
             --arg source_commit "$GITHUB_SHA" \
             --arg signer_workflow "$SIGNER_WORKFLOW" \
             --arg openvmm_sha "$(sha256sum "$artifact_dir/openvmm" | cut -d' ' -f1)" \
