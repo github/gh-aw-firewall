@@ -30,6 +30,9 @@ describe('Smoke NVX Copilot nested authentication', () => {
     );
     expect(script).toContain('COPILOT_TOKEN="$COPILOT_GITHUB_TOKEN"; export COPILOT_TOKEN');
     expect(script).toContain(
+      'COPILOT_PROVIDER_API_KEY="$COPILOT_GITHUB_TOKEN"; export COPILOT_PROVIDER_API_KEY',
+    );
+    expect(script).toContain(
       'COPILOT_API_URL="http://172.30.0.30:10002"; export COPILOT_API_URL',
     );
     expect(script).toContain(
@@ -38,7 +41,6 @@ describe('Smoke NVX Copilot nested authentication', () => {
     expect(script).toContain('COPILOT_OFFLINE=true; export COPILOT_OFFLINE');
     expect(script).toContain('nc -z -w 5 172.30.0.30 10002');
     expect(script).not.toContain('COPILOT_API_KEY=');
-    expect(script).not.toContain('COPILOT_PROVIDER_API_KEY=');
     expect(script).not.toContain('$GH_TOKEN');
     expect(script).not.toContain('$GITHUB_TOKEN');
     expect(script).not.toContain('${{');
@@ -48,10 +50,13 @@ describe('Smoke NVX Copilot nested authentication', () => {
     const script = nestedSmokeScript(readWorkflow(sourcePath));
 
     expect(script).toContain(
-      "env | grep -Eq '^(GH_TOKEN|GITHUB_TOKEN|OPENAI_API_KEY|ANTHROPIC_API_KEY|COPILOT_API_KEY|COPILOT_PROVIDER_API_KEY)='",
+      "env | grep -Eq '^(GH_TOKEN|GITHUB_TOKEN|OPENAI_API_KEY|ANTHROPIC_API_KEY|COPILOT_API_KEY)='",
     );
     expect(script).toContain(
       'real credential value reached the NVX guest via COPILOT_GITHUB_TOKEN',
+    );
+    expect(script).toContain(
+      'real credential value reached the NVX guest via COPILOT_PROVIDER_API_KEY',
     );
   });
 
@@ -60,6 +65,9 @@ describe('Smoke NVX Copilot nested authentication', () => {
 
     expect(lock).toContain(COPILOT_PLACEHOLDER_TOKEN);
     expect(lock).toContain('COPILOT_TOKEN=\\"$COPILOT_GITHUB_TOKEN\\"; export COPILOT_TOKEN');
+    expect(lock).toContain(
+      'COPILOT_PROVIDER_API_KEY=\\"$COPILOT_GITHUB_TOKEN\\"; export COPILOT_PROVIDER_API_KEY',
+    );
     expect(lock).toContain('COPILOT_API_URL=\\"http://172.30.0.30:10002\\"; export COPILOT_API_URL');
     expect(lock).toContain(
       'COPILOT_PROVIDER_BASE_URL=\\"$COPILOT_API_URL\\"; export COPILOT_PROVIDER_BASE_URL',
