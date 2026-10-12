@@ -3,6 +3,7 @@ import * as os from 'os';
 import * as path from 'path';
 import { spawnSync } from 'child_process';
 import * as yaml from 'js-yaml';
+import { COPILOT_PLACEHOLDER_TOKEN } from '../../src/constants/placeholders';
 
 const workflowsDir = path.resolve(__dirname, '../../.github/workflows');
 const source = fs.readFileSync(path.join(workflowsDir, 'smoke-nvx-copilot.md'), 'utf8');
@@ -15,6 +16,36 @@ const guestScript = layerStep.run!.split("<<'EOF'\n")[1].split('\nEOF')[0];
 const lock = yaml.load(fs.readFileSync(path.join(workflowsDir, 'smoke-nvx-copilot.lock.yml'), 'utf8')) as {
   jobs: { agent: { steps: Array<{ name?: string; run?: string; env?: Record<string, string> }> } };
 };
+
+describe('Smoke NVX Copilot nested authentication', () => {
+  it('inherits only the AWF placeholder and fixed Copilot API proxy route', () => {
+    expect(guestScript).toContain(`test "\${COPILOT_TOKEN:-}" = '${COPILOT_PLACEHOLDER_TOKEN}'`);
+    expect(guestScript).toContain(`test "\${COPILOT_PROVIDER_API_KEY:-}" = '${COPILOT_PLACEHOLDER_TOKEN}'`);
+    expect(guestScript).toContain('test "${COPILOT_API_KEY:-}" = dummy-byok-key-for-offline-mode');
+    expect(guestScript).toContain('test "${COPILOT_API_URL:-}" = http://172.30.0.30:10002');
+    expect(guestScript).toContain('test "${COPILOT_PROVIDER_BASE_URL:-}" = "$COPILOT_API_URL"');
+    expect(guestScript).toContain('test "${COPILOT_OFFLINE:-}" = true');
+    expect(guestScript).not.toMatch(/^\s*COPILOT_(?:GITHUB_TOKEN|TOKEN|PROVIDER_API_KEY|API_KEY|API_URL|PROVIDER_BASE_URL|OFFLINE)=/m);
+    expect(guestScript).not.toContain('$GH_TOKEN');
+    expect(guestScript).not.toContain('$GITHUB_TOKEN');
+    expect(guestScript).not.toContain('${{');
+  });
+
+  it('keeps real GitHub and provider credentials forbidden in the nested guest', () => {
+    expect(guestScript).toContain(
+      "env | grep -Eq '^(GH_TOKEN|GITHUB_TOKEN|OPENAI_API_KEY|ANTHROPIC_API_KEY)='",
+    );
+    expect(guestScript).toContain('real credential value reached the NVX guest via COPILOT_GITHUB_TOKEN');
+    expect(guestScript).toContain(`test "\${COPILOT_PROVIDER_API_KEY:-}" = '${COPILOT_PLACEHOLDER_TOKEN}'`);
+    expect(guestScript).toContain('test "${COPILOT_API_KEY:-}" = dummy-byok-key-for-offline-mode');
+  });
+
+  it('keeps the compiled workflow aligned with the nested auth boundary', () => {
+    const compiledScript = lock.jobs.agent.steps.find(step => step.name === layerStep.name)?.run;
+    expect(compiledScript).toBe(layerStep.run);
+    expect(compiledScript).toContain(COPILOT_PLACEHOLDER_TOKEN);
+  });
+});
 
 describe('NVX Copilot smoke compiler contract', () => {
   it('reuses the compiler-staged musl binary without an independent package pin', () => {
@@ -69,8 +100,9 @@ printf "NVX-COPILOT-PROOF\\n"
       COPILOT_OFFLINE: 'true',
       COPILOT_API_URL: 'http://172.30.0.30:10002',
       COPILOT_PROVIDER_BASE_URL: 'http://172.30.0.30:10002',
-      COPILOT_TOKEN: '******',
-      COPILOT_PROVIDER_API_KEY: '******',
+      COPILOT_TOKEN: COPILOT_PLACEHOLDER_TOKEN,
+      COPILOT_PROVIDER_API_KEY: COPILOT_PLACEHOLDER_TOKEN,
+      COPILOT_GITHUB_TOKEN: COPILOT_PLACEHOLDER_TOKEN,
       COPILOT_API_KEY: 'dummy-byok-key-for-offline-mode',
     };
   });
@@ -95,7 +127,9 @@ printf "NVX-COPILOT-PROOF\\n"
     ['COPILOT_API_URL', 'https://api.githubcopilot.com'],
     ['COPILOT_PROVIDER_BASE_URL', 'https://api.githubcopilot.com'],
     ['COPILOT_TOKEN', 'unexpected-value'],
+    ['COPILOT_TOKEN', '******'],
     ['COPILOT_PROVIDER_API_KEY', 'unexpected-value'],
+    ['COPILOT_PROVIDER_API_KEY', '******'],
     ['COPILOT_API_KEY', 'unexpected-value'],
     ['COPILOT_GITHUB_TOKEN', 'unexpected-value'],
     ['GH_TOKEN', 'unexpected-value'],

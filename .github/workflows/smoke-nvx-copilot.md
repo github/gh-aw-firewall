@@ -237,8 +237,8 @@ steps:
       test "${COPILOT_OFFLINE:-}" = true
       test "${COPILOT_API_URL:-}" = http://172.30.0.30:10002
       test "${COPILOT_PROVIDER_BASE_URL:-}" = "$COPILOT_API_URL"
-      test "${COPILOT_TOKEN:-}" = '******'
-      test "${COPILOT_PROVIDER_API_KEY:-}" = '******'
+      test "${COPILOT_TOKEN:-}" = 'ghu_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
+      test "${COPILOT_PROVIDER_API_KEY:-}" = 'ghu_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
       test "${COPILOT_API_KEY:-}" = dummy-byok-key-for-offline-mode
       if env | grep -Eq '^(GH_TOKEN|GITHUB_TOKEN|OPENAI_API_KEY|ANTHROPIC_API_KEY)='; then
         echo "credential variable reached the NVX guest" >&2
