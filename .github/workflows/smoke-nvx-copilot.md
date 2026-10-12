@@ -31,8 +31,8 @@ sandbox:
       openvmm-path: ${{ runner.temp }}/nvx-attested-artifacts/openvmm
       kernel-path: ${{ runner.temp }}/nvx-attested-artifacts/vmlinux
       initramfs-path: ${{ runner.temp }}/nvx-attested-artifacts/initramfs.cpio.gz
-      artifact-manifest-path: ${{ runner.temp }}/nvx-attested-artifacts/manifest.json
-      artifact-manifest-bundle-path: ${{ runner.temp }}/nvx-attested-artifacts/manifest.sigstore.jsonl
+      artifact-manifest-path: ${{ runner.temp }}/nvx-attested-artifacts/nvx-test-x86_64.manifest.json
+      artifact-manifest-bundle-path: ${{ runner.temp }}/nvx-attested-artifacts/nvx-test-x86_64.manifest.sigstore.jsonl
       signer-workflow: github/gh-aw-firewall/.github/workflows/smoke-nvx-copilot.lock.yml
       scratch-bytes: 536870912
       container-workdir: /workspace
@@ -133,18 +133,19 @@ jobs:
                   sha256:$initramfs_sha
                 }
               }
-            }' > "$artifact_dir/manifest.json"
+            }' > "$artifact_dir/nvx-test-x86_64.manifest.json"
       - name: Attest the pinned NVX artifact manifest
         id: attest_nvx_manifest
         uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
-          subject-path: ${{ runner.temp }}/nvx-attested-artifacts/manifest.json
+          subject-path: ${{ runner.temp }}/nvx-attested-artifacts/nvx-test-x86_64.manifest.json
       - name: Bundle the manifest attestation
         env:
           BUNDLE_PATH: ${{ steps.attest_nvx_manifest.outputs.bundle-path }}
         run: |
           set -euo pipefail
-          cp "$BUNDLE_PATH" "$RUNNER_TEMP/nvx-attested-artifacts/manifest.sigstore.jsonl"
+          cp "$BUNDLE_PATH" \
+            "$RUNNER_TEMP/nvx-attested-artifacts/nvx-test-x86_64.manifest.sigstore.jsonl"
       - name: Upload attested NVX artifacts
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
         with:
@@ -183,11 +184,13 @@ steps:
       # every trusted artifact to be root-owned, so re-root them here. Once
       # chowned to root, only sudo can chmod them.
       sudo chown root:root "$artifact_dir"/openvmm "$artifact_dir"/vmlinux \
-        "$artifact_dir"/initramfs.cpio.gz "$artifact_dir"/manifest.json \
-        "$artifact_dir"/manifest.sigstore.jsonl
+        "$artifact_dir"/initramfs.cpio.gz \
+        "$artifact_dir"/nvx-test-x86_64.manifest.json \
+        "$artifact_dir"/nvx-test-x86_64.manifest.sigstore.jsonl
       sudo chmod 0555 "$artifact_dir/openvmm"
       sudo chmod 0444 "$artifact_dir/vmlinux" "$artifact_dir/initramfs.cpio.gz" \
-        "$artifact_dir/manifest.json" "$artifact_dir/manifest.sigstore.jsonl"
+        "$artifact_dir/nvx-test-x86_64.manifest.json" \
+        "$artifact_dir/nvx-test-x86_64.manifest.sigstore.jsonl"
 
   - name: Build the guest distro layer with the pinned Copilot CLI
     env:
