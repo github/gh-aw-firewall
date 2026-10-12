@@ -47,6 +47,8 @@ describe('isCloudHypervisorScriptAcceptanceWorkflow', () => {
       GITHUB_REF_TYPE: 'tag',
       GITHUB_REF_NAME: 'v0.28.51',
     };
+    delete process.env.GITHUB_SHA;
+    delete process.env.GITHUB_WORKFLOW_SHA;
   });
 
   afterEach(() => {
@@ -76,6 +78,20 @@ describe('isCloudHypervisorScriptAcceptanceWorkflow', () => {
     process.env.GITHUB_REF_TYPE = 'branch';
     process.env.GITHUB_REF_NAME = 'main';
     process.env.GITHUB_SHA = VALID_SHA;
+    process.env.GITHUB_WORKFLOW_SHA = VALID_SHA;
+
+    expect(isCloudHypervisorScriptAcceptanceWorkflow(config({
+      cloudHypervisor: { artifactReleaseTag: 'v0.28.52' } as WrapperConfig['cloudHypervisor'],
+    }))).toBe(true);
+  });
+
+  it('allows the main workflow when GITHUB_WORKFLOW_SHA is omitted', () => {
+    process.env.GITHUB_WORKFLOW_REF = ACCEPTANCE_MAIN_REF;
+    process.env.GITHUB_REF = 'refs/heads/main';
+    process.env.GITHUB_REF_TYPE = 'branch';
+    process.env.GITHUB_REF_NAME = 'main';
+    process.env.GITHUB_SHA = VALID_SHA;
+    delete process.env.GITHUB_WORKFLOW_SHA;
 
     expect(isCloudHypervisorScriptAcceptanceWorkflow(config({
       cloudHypervisor: { artifactReleaseTag: 'v0.28.52' } as WrapperConfig['cloudHypervisor'],
@@ -117,10 +133,10 @@ describe('isCloudHypervisorScriptAcceptanceWorkflow', () => {
   });
 
   it.each([
-    ['missing GITHUB_SHA', { GITHUB_SHA: undefined }],
-    ['empty GITHUB_SHA', { GITHUB_SHA: '' }],
-    ['short GITHUB_SHA', { GITHUB_SHA: '0123456789abcdef' }],
-    ['non-hex GITHUB_SHA', { GITHUB_SHA: '0123456789abcdef0123456789abcdef0123456g' }],
+    ['missing GITHUB_SHA', { GITHUB_SHA: undefined, GITHUB_WORKFLOW_SHA: undefined }],
+    ['empty GITHUB_SHA', { GITHUB_SHA: '', GITHUB_WORKFLOW_SHA: undefined }],
+    ['short GITHUB_SHA', { GITHUB_SHA: '0123456789abcdef', GITHUB_WORKFLOW_SHA: undefined }],
+    ['non-hex GITHUB_SHA', { GITHUB_SHA: '0123456789abcdef0123456789abcdef0123456g', GITHUB_WORKFLOW_SHA: undefined }],
     ['mismatched GITHUB_WORKFLOW_SHA', {
       GITHUB_SHA: VALID_SHA,
       GITHUB_WORKFLOW_SHA: 'fedcba9876543210fedcba9876543210fedcba98',
@@ -132,31 +148,38 @@ describe('isCloudHypervisorScriptAcceptanceWorkflow', () => {
     ['wrong workflow file on main', {
       GITHUB_WORKFLOW_REF: 'github/gh-aw-firewall/.github/workflows/build.lock.yml@refs/heads/main',
       GITHUB_SHA: VALID_SHA,
+      GITHUB_WORKFLOW_SHA: VALID_SHA,
     }],
     ['workflow ref with wrong branch', {
       GITHUB_WORKFLOW_REF: `${ACCEPTANCE_WORKFLOW_PATH}@refs/heads/dev`,
       GITHUB_SHA: VALID_SHA,
+      GITHUB_WORKFLOW_SHA: VALID_SHA,
     }],
     ['workflow ref with mismatched commit SHA', {
       GITHUB_WORKFLOW_REF: `${ACCEPTANCE_WORKFLOW_PATH}@fedcba9876543210fedcba9876543210fedcba98`,
       GITHUB_SHA: VALID_SHA,
+      GITHUB_WORKFLOW_SHA: VALID_SHA,
     }],
     ['wrong branch name', {
       GITHUB_REF_NAME: 'dev',
       GITHUB_REF: 'refs/heads/dev',
       GITHUB_SHA: VALID_SHA,
+      GITHUB_WORKFLOW_SHA: VALID_SHA,
     }],
     ['tag ref type on main ref', {
       GITHUB_REF_TYPE: 'tag',
       GITHUB_SHA: VALID_SHA,
+      GITHUB_WORKFLOW_SHA: VALID_SHA,
     }],
     ['fork repository on main', {
       GITHUB_REPOSITORY: 'fork-owner/gh-aw-firewall',
       GITHUB_SHA: VALID_SHA,
+      GITHUB_WORKFLOW_SHA: VALID_SHA,
     }],
     ['push event on main', {
       GITHUB_EVENT_NAME: 'push',
       GITHUB_SHA: VALID_SHA,
+      GITHUB_WORKFLOW_SHA: VALID_SHA,
     }],
   ])('rejects main context with %s', (_description, environment) => {
     process.env.GITHUB_WORKFLOW_REF = ACCEPTANCE_MAIN_REF;
