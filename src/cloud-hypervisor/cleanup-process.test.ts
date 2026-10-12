@@ -15,12 +15,12 @@ describe('cleanup process recovery', () => {
   });
 
   describe('signal escalation and PID validation', () => {
-    it('escalates an identity-validated live process to SIGKILL', async () => {
-      const paths = harness.runPaths('kill-escalation');
-      const kill = jest.fn((_pid: number, signal?: NodeJS.Signals | number) => {
-        if (signal === 'SIGKILL') harness.state.daemonAlive = false;
-        return true as const;
-      });
+    async function withIdentityValidatedProcess(
+      runId: string,
+      kill: typeof process.kill,
+      action: (registry: DurableCloudHypervisorCleanupRegistry) => Promise<void>,
+    ): Promise<void> {
+      const paths = harness.runPaths(runId);
       const now = jest.spyOn(Date, 'now');
       let currentTime = 0;
       now.mockImplementation(() => {
@@ -36,13 +36,23 @@ describe('cleanup process recovery', () => {
         await handle.captureProcess('worker', 5000);
         harness.state.ownerStartTime = '2000';
 
+        await action(registry);
+      } finally {
+        now.mockRestore();
+      }
+    }
+
+    it('escalates an identity-validated live process to SIGKILL', async () => {
+      const kill = jest.fn((_pid: number, signal?: NodeJS.Signals | number) => {
+        if (signal === 'SIGKILL') harness.state.daemonAlive = false;
+        return true as const;
+      });
+      await withIdentityValidatedProcess('kill-escalation', kill, async (registry) => {
         await registry.reapPending('/usr/bin/ip', '/usr/bin/umount');
 
         expect(kill).toHaveBeenNthCalledWith(1, 5000, 'SIGTERM');
         expect(kill).toHaveBeenNthCalledWith(2, 5000, 'SIGKILL');
-      } finally {
-        now.mockRestore();
-      }
+      });
     });
 
     it('does not kill a PID whose committed command arguments no longer match', async () => {
@@ -63,30 +73,13 @@ describe('cleanup process recovery', () => {
     });
 
     it('fails visibly when an identity-validated process survives SIGKILL', async () => {
-      const paths = harness.runPaths('unkillable-process');
       const kill = jest.fn(() => true as const);
-      const now = jest.spyOn(Date, 'now');
-      let currentTime = 0;
-      now.mockImplementation(() => {
-        currentTime += 1_000;
-        return currentTime;
-      });
-      try {
-        const registry = new DurableCloudHypervisorCleanupRegistry(harness.dependencies({ kill }));
-        const handle = await registry.create(
-          paths, harness.networkPlan(paths.runId), process.execPath, '/usr/bin/ip',
-        );
-        await handle.prepareProcess('worker', process.execPath, '/sock');
-        await handle.captureProcess('worker', 5000);
-        harness.state.ownerStartTime = '2000';
-
+      await withIdentityValidatedProcess('unkillable-process', kill, async (registry) => {
         await expect(registry.reapPending('/usr/bin/ip', '/usr/bin/umount')).rejects.toThrow(
           /identity-validated process 5000 did not exit/,
         );
         expect(kill).toHaveBeenCalledWith(5000, 'SIGKILL');
-      } finally {
-        now.mockRestore();
-      }
+      });
     });
 
     it('accepts an ESRCH race only after the recorded process disappears', async () => {
@@ -128,7 +121,6 @@ describe('cleanup process recovery', () => {
     });
 
     it('accepts an ESRCH race after SIGTERM timeout only when SIGKILL sees process exit', async () => {
-      const paths = harness.runPaths('sigkill-esrch');
       const kill = jest.fn((_pid: number, signal?: NodeJS.Signals | number) => {
         if (signal === 'SIGKILL') {
           harness.state.daemonAlive = false;
@@ -136,55 +128,22 @@ describe('cleanup process recovery', () => {
         }
         return true as const;
       });
-      const now = jest.spyOn(Date, 'now');
-      let currentTime = 0;
-      now.mockImplementation(() => {
-        currentTime += 1_000;
-        return currentTime;
-      });
-      try {
-        const registry = new DurableCloudHypervisorCleanupRegistry(harness.dependencies({ kill }));
-        const handle = await registry.create(
-          paths, harness.networkPlan(paths.runId), process.execPath, '/usr/bin/ip',
-        );
-        await handle.prepareProcess('worker', process.execPath, '/sock');
-        await handle.captureProcess('worker', 5000);
-        harness.state.ownerStartTime = '2000';
-
+      await withIdentityValidatedProcess('sigkill-esrch', kill, async (registry) => {
         await expect(registry.reapPending('/usr/bin/ip', '/usr/bin/umount')).resolves.toBeUndefined();
         expect(kill).toHaveBeenCalledWith(5000, 'SIGKILL');
-      } finally {
-        now.mockRestore();
-      }
+      });
     });
 
     it('rejects SIGKILL ESRCH while the recorded process still matches', async () => {
-      const paths = harness.runPaths('sigkill-esrch-live');
       const kill = jest.fn((_pid: number, signal?: NodeJS.Signals | number) => {
         if (signal === 'SIGKILL') throw Object.assign(new Error('gone'), { code: 'ESRCH' });
         return true as const;
       });
-      const now = jest.spyOn(Date, 'now');
-      let currentTime = 0;
-      now.mockImplementation(() => {
-        currentTime += 1_000;
-        return currentTime;
-      });
-      try {
-        const registry = new DurableCloudHypervisorCleanupRegistry(harness.dependencies({ kill }));
-        const handle = await registry.create(
-          paths, harness.networkPlan(paths.runId), process.execPath, '/usr/bin/ip',
-        );
-        await handle.prepareProcess('worker', process.execPath, '/sock');
-        await handle.captureProcess('worker', 5000);
-        harness.state.ownerStartTime = '2000';
-
+      await withIdentityValidatedProcess('sigkill-esrch-live', kill, async (registry) => {
         await expect(registry.reapPending('/usr/bin/ip', '/usr/bin/umount')).rejects.toThrow(
           /still matches after kill reported ESRCH/,
         );
-      } finally {
-        now.mockRestore();
-      }
+      });
     });
   });
 
