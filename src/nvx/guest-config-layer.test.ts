@@ -93,4 +93,27 @@ describe('NvxGuestConfigLayer', () => {
       await fs.rm(root, { recursive: true, force: true });
     }
   });
+
+  it('removes the staged tree when permission restoration encounters a read-only path', async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'awf-nvx-config-'));
+    const stagingRoot = path.join(root, 'staging');
+    const layer = new NvxGuestConfigLayer({
+      stagingRoot,
+      uid: process.getuid?.() ?? 1000,
+      gid: process.getgid?.() ?? 1000,
+      runScript: '#!/bin/sh\nexec true\n',
+    }, {
+      chown: async () => undefined,
+      lchown: async () => undefined,
+    });
+    await layer.stage();
+    const chmod = jest.spyOn(fs, 'chmod').mockRejectedValueOnce(new Error('read-only'));
+    try {
+      await expect(layer.cleanup()).resolves.toBeUndefined();
+      await expect(fs.lstat(stagingRoot)).rejects.toMatchObject({ code: 'ENOENT' });
+    } finally {
+      chmod.mockRestore();
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
 });
