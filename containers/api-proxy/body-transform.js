@@ -126,7 +126,7 @@ function injectSteeringMessage(body, provider, message, requestPath = '') {
     (parsed.input !== undefined && !Array.isArray(parsed.messages))
   ) {
     if (typeof parsed.input !== 'string' && !Array.isArray(parsed.input)) return null;
-    if (parsed.instructions !== undefined && typeof parsed.instructions !== 'string') return null;
+    if (parsed.instructions !== undefined && parsed.instructions !== null && typeof parsed.instructions !== 'string') return null;
     const input = typeof parsed.input === 'string'
       ? [{ role: 'user', content: parsed.input }]
       : parsed.input;

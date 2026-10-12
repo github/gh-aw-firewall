@@ -28,6 +28,7 @@ describe('injectStreamOptions', () => {
         input: [{ role: 'user', content: 'Continue the task.' }],
       }],
       ['no instructions', { input: [{ role: 'user', content: 'Continue the task.' }] }],
+      ['null instructions', { instructions: null, input: [{ role: 'user', content: 'Continue the task.' }] }],
       ['string input', { instructions: 'Keep working carefully.', input: 'Continue the task.' }],
       ['empty input', { input: [] }],
     ])('appends one final developer notice preserving the prefix for %s', (_name, request) => {
