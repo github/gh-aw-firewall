@@ -240,7 +240,7 @@ steps:
       test -r /workspace/package.json
       test -n "${AWF_NVX_SMOKE_MARKER:-}"
       test -n "${HTTPS_PROXY:-}"
-      if env | grep -Eq '^(GH_TOKEN|GITHUB_TOKEN|OPENAI_API_KEY|ANTHROPIC_API_KEY)='; then
+      if env | grep -Eq '^(GH_TOKEN|GITHUB_TOKEN|OPENAI_API_KEY|ANTHROPIC_API_KEY|COPILOT_API_KEY|COPILOT_PROVIDER_API_KEY)='; then
         echo "credential variable reached the NVX guest" >&2
         exit 1
       fi
@@ -263,10 +263,17 @@ steps:
       XDG_CACHE_HOME="$runtime_home/.cache"; export XDG_CACHE_HOME
       XDG_CONFIG_HOME="$runtime_home/.config"; export XDG_CONFIG_HOME
       XDG_STATE_HOME="$runtime_home/.local/state"; export XDG_STATE_HOME
-      # The real credential remains in the API proxy sidecar. The nested CLI
-      # needs only the same fixed placeholders used by the outer AWF agent.
-      COPILOT_GITHUB_TOKEN="******"; export COPILOT_GITHUB_TOKEN
-      COPILOT_API_KEY="dummy-byok-key-for-offline-mode"; export COPILOT_API_KEY
+      # Keep the nested pinned CLI on the same non-secret auth shape and fixed
+      # sidecar route that AWF gives the outer compiler-staged CLI. Real
+      # credentials remain exclusively in the API proxy sidecar.
+      COPILOT_GITHUB_TOKEN="ghu_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"; export COPILOT_GITHUB_TOKEN
+      COPILOT_TOKEN="$COPILOT_GITHUB_TOKEN"; export COPILOT_TOKEN
+      COPILOT_API_URL="http://172.30.0.30:10002"; export COPILOT_API_URL
+      COPILOT_PROVIDER_BASE_URL="$COPILOT_API_URL"; export COPILOT_PROVIDER_BASE_URL
+      COPILOT_OFFLINE=true; export COPILOT_OFFLINE
+      test "$COPILOT_GITHUB_TOKEN" = "$COPILOT_TOKEN"
+      test "$COPILOT_API_URL" = "$COPILOT_PROVIDER_BASE_URL"
+      nc -z -w 5 172.30.0.30 10002
       /usr/local/bin/copilot \
         --prompt "Respond with exactly NVX-COPILOT-PROOF and nothing else." \
         --silent --no-color --stream on --allow-all-tools \
