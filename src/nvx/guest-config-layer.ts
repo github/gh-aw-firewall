@@ -18,6 +18,7 @@ export interface NvxGuestConfigLayerConfig {
   readonly gid: number;
   readonly runScript: string;
   readonly homePath?: string;
+  readonly hostAliases?: Readonly<Record<string, string>>;
 }
 
 export interface NvxGuestConfigLayerDependencies {
@@ -51,6 +52,7 @@ export class NvxGuestConfigLayer {
     await fs.chmod(this.config.stagingRoot, 0o700);
     await fs.mkdir(this.layerSourcePath, { recursive: true, mode: 0o755 });
     await this.stageGuestHome();
+    await this.stageHostAliases();
     await this.stageRunScript();
     this.staged = true;
     return this.layerSourcePath;
@@ -94,6 +96,23 @@ export class NvxGuestConfigLayer {
     await fs.chmod(scriptPath, 0o555);
     await this.chown(path.dirname(scriptPath), 0, 0);
     await fs.chmod(path.dirname(scriptPath), 0o555);
+  }
+
+  private async stageHostAliases(): Promise<void> {
+    const aliases = Object.entries(this.config.hostAliases ?? {});
+    if (aliases.length === 0) return;
+    const hostsPath = path.join(this.layerSourcePath, 'etc/hosts');
+    await fs.mkdir(path.dirname(hostsPath), { recursive: true, mode: 0o755 });
+    const lines = [
+      '127.0.0.1 localhost',
+      '::1 localhost',
+      ...aliases
+        .sort(([left], [right]) => left.localeCompare(right))
+        .map(([name, address]) => `${address} ${name}`),
+    ];
+    await fs.writeFile(hostsPath, `${lines.join('\n')}\n`, { mode: 0o444 });
+    await this.chown(hostsPath, 0, 0);
+    await fs.chmod(hostsPath, 0o444);
   }
 }
 

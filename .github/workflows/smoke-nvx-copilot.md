@@ -212,7 +212,8 @@ steps:
       package_dir="$RUNNER_TEMP/nvx-copilot-package"
       mkdir -p "$layer_root" "$package_dir"
       sudo docker pull "$ALPINE_IMAGE"
-      container=$(sudo docker create "$ALPINE_IMAGE")
+      container=$(sudo docker create "$ALPINE_IMAGE" apk add --no-cache bash)
+      sudo docker start --attach "$container"
       sudo docker export "$container" | tar -xf - -C "$layer_root"
       sudo docker rm "$container"
       mkdir -p "$layer_root/etc" "$layer_root/usr/local/bin"

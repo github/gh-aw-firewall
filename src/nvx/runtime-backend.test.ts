@@ -159,6 +159,7 @@ describe('NvxRuntimeBackend', () => {
 
   it('constructs the NvxManager with preserved command, identity, and limits, and returns the exit code unchanged', async () => {
     const { dependencies, createManager, executeMock } = harness();
+    const createGuestConfigLayer = dependencies.createGuestConfigLayer as unknown as jest.Mock;
     const snapshot = infrastructureSnapshot();
     (snapshot as { topologyPeerIps: Record<string, string> }).topologyPeerIps = {
       gateway: '172.31.0.40',
@@ -207,6 +208,12 @@ describe('NvxRuntimeBackend', () => {
     expect(managerConfig.network.controlPeers).toEqual([
       { ip: '172.31.0.40', ports: [8080] },
     ]);
+    expect(createGuestConfigLayer).toHaveBeenCalledWith(expect.objectContaining({
+      hostAliases: {
+        'api-proxy': '172.31.0.30',
+        gateway: '172.31.0.40',
+      },
+    }));
   });
 
   it('rejects TTY execution before touching any resources', async () => {

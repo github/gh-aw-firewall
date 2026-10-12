@@ -21,6 +21,9 @@ describe('NvxGuestConfigLayer', () => {
       gid: process.getgid?.() ?? 1000,
       runScript: '#!/bin/sh\nexec true\n',
       homePath: home,
+      hostAliases: {
+        'api-proxy': '172.30.0.30',
+      },
     }, {
       chown: async () => undefined,
       lchown: async () => undefined,
@@ -31,6 +34,10 @@ describe('NvxGuestConfigLayer', () => {
         .resolves.toContain('exec true');
       await expect(fs.readFile(path.join(source, 'home/awf/.npm/cache'), 'utf8'))
         .resolves.toBe('allowed');
+      await expect(fs.readFile(path.join(source, 'etc/hosts'), 'utf8'))
+        .resolves.toBe(
+          '127.0.0.1 localhost\n::1 localhost\n172.30.0.30 api-proxy\n',
+        );
       await expect(fs.lstat(path.join(source, 'home/awf/.config/gh')))
         .rejects.toMatchObject({ code: 'ENOENT' });
       await expect(fs.lstat(path.join(source, 'home/awf/.azure/credentials')))

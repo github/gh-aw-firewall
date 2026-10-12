@@ -265,6 +265,10 @@ export class NvxRuntimeBackend implements ExternalAgentRuntimeBackend {
         command: this.config.agentCommand,
       }),
       homePath: process.env.HOME,
+      hostAliases: {
+        ...(infrastructure.apiProxyIp ? { 'api-proxy': infrastructure.apiProxyIp } : {}),
+        ...infrastructure.topologyPeerIps,
+      },
     });
 
     const timeoutMs = agentTimeoutMinutes === undefined
