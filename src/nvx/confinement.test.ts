@@ -117,7 +117,7 @@ function verificationOptions() {
     namespaceName: 'awfnvx-test',
     identity: { uid: 1000, gid: 1001 },
     nvxRoot: `/var/lib/awf-nvx/trusted-artifacts/run-${RUN_ID}`,
-    runDirectory: `/run/awf-nvx/runs/${RUN_ID}`,
+    runDirectory: `/var/lib/awf-nvx/runs/${RUN_ID}`,
     systemReadOnlyPaths: [
       '/usr',
       '/bin',
@@ -160,7 +160,7 @@ describe('NVX host confinement', () => {
       namespaceName: 'awfnvx-abc123',
       identity: { uid: 1000, gid: 1001 },
       nvxRoot: `/var/lib/awf-nvx/trusted-artifacts/run-${RUN_ID}`,
-      runDirectory: `/run/awf-nvx/runs/${RUN_ID}`,
+      runDirectory: `/var/lib/awf-nvx/runs/${RUN_ID}`,
       systemReadOnlyPaths: [
         '/usr',
         '/bin',
@@ -190,9 +190,9 @@ describe('NVX host confinement', () => {
       '--dir', '/opt',
       '--dir', '/run',
       '--dev-bind', '/dev/kvm',
-      '--ro-bind', `/run/awf-nvx/runs/${RUN_ID}/resolv.conf`, '/etc/resolv.conf',
+      '--ro-bind', `/var/lib/awf-nvx/runs/${RUN_ID}/resolv.conf`, '/etc/resolv.conf',
       '--ro-bind', `/var/lib/awf-nvx/trusted-artifacts/run-${RUN_ID}`,
-      '--bind', `/run/awf-nvx/runs/${RUN_ID}`,
+      '--bind', `/var/lib/awf-nvx/runs/${RUN_ID}`,
       '--clear-groups',
       '--no-new-privs',
       '--inh-caps=-all',
@@ -228,7 +228,7 @@ describe('NVX host confinement', () => {
       namespaceName: 'awfnvx-test',
       identity: { uid: 1000, gid: 1001 },
       nvxRoot: `/var/lib/awf-nvx/trusted-artifacts/run-${RUN_ID}`,
-      runDirectory: `/run/awf-nvx/runs/${RUN_ID}`,
+      runDirectory: `/var/lib/awf-nvx/runs/${RUN_ID}`,
       systemReadOnlyPaths: ['/usr', '/home/runner'],
       openvmmArguments: [],
     })).toThrow(/rejects system root/);
@@ -249,7 +249,7 @@ describe('NVX host confinement', () => {
     expect(() => buildNvxConstrainedLaunchCommand({
       ...baseOptions,
       nvxRoot: '/',
-      runDirectory: `/run/awf-nvx/runs/${RUN_ID}`,
+      runDirectory: `/var/lib/awf-nvx/runs/${RUN_ID}`,
     })).toThrow(/per-run path/);
     expect(() => buildNvxConstrainedLaunchCommand({
       ...baseOptions,
@@ -259,7 +259,7 @@ describe('NVX host confinement', () => {
     expect(() => buildNvxConstrainedLaunchCommand({
       ...baseOptions,
       nvxRoot: `/var/lib/awf-nvx/trusted-artifacts/run-${'b'.repeat(32)}`,
-      runDirectory: `/run/awf-nvx/runs/${RUN_ID}`,
+      runDirectory: `/var/lib/awf-nvx/runs/${RUN_ID}`,
     })).toThrow(/share one run ID/);
   });
 
@@ -273,7 +273,7 @@ describe('NVX host confinement', () => {
       namespaceName: 'awfnvx-test',
       identity: { uid: 1000, gid: 1001 },
       nvxRoot: `/var/lib/awf-nvx/trusted-artifacts/run-${RUN_ID}`,
-      runDirectory: `/run/awf-nvx/runs/${RUN_ID}`,
+      runDirectory: `/var/lib/awf-nvx/runs/${RUN_ID}`,
       systemReadOnlyPaths: ['/usr'],
       shareRoots: [{
         source: '/workspace',

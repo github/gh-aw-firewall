@@ -76,7 +76,7 @@ export interface NvxFilesystemBuilderConfig {
   readonly workDir: string;
   /**
    * Stages the bundle directly in the canonical per-run directory
-   * (`/run/awf-nvx/runs/<runId>`) that the Phase 3b launch plan binds into the
+   * (`/var/lib/awf-nvx/runs/<runId>`) that the Phase 3b launch plan binds into the
    * Bubblewrap jail. Defaults to `<workDir>/nvx-images/<runId>`.
    */
   readonly useCanonicalRunDirectory?: boolean;

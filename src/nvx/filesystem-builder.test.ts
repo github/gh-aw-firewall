@@ -180,7 +180,7 @@ describe('NVX deterministic filesystem builder', () => {
       useCanonicalRunDirectory: true,
       layers: [{ role: 'distro', sourcePath: source }],
     }, dependencies);
-    expect(builder.runDirectory).toBe(`/run/awf-nvx/runs/${runId}`);
+    expect(builder.runDirectory).toBe(`/var/lib/awf-nvx/runs/${runId}`);
     expect(() => new NvxFilesystemBuilder({
       runId: 'not-canonical',
       workDir: os.tmpdir(),

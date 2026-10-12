@@ -477,7 +477,9 @@ cgroup; and no Landlock or equivalent host-filesystem confinement was verified.
 The NVX launcher must follow the Cloud Hypervisor post-launch verification
 model:
 
-1. create a root-owned private run directory and durable cleanup record;
+1. create a root-owned private run directory and durable cleanup record under
+   disk-backed `/var/lib/awf-nvx`, avoiding size-limited `/run` tmpfs storage
+   for EROFS layers and scratch images;
 2. allocate a random per-run VMM uid/gid;
 3. stage trusted artifacts and create only the required sockets and files;
 4. grant narrow uid-specific device ACLs after recording the intended identity,

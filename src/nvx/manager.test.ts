@@ -60,7 +60,7 @@ function harness(overrides: Partial<NvxManagerDependencies> = {}) {
     },
     tools,
   } satisfies NvxPreflightResult;
-  const runDirectory = `/run/awf-nvx/runs/${RUN_ID}`;
+  const runDirectory = `/var/lib/awf-nvx/runs/${RUN_ID}`;
   const filesystem = {
     runDirectory,
     manifestPath: `${runDirectory}/manifest.json`,
@@ -212,11 +212,11 @@ describe('NvxManager', () => {
     expect(value.order.indexOf('record-openvmm')).toBeLessThan(value.order.indexOf('verify'));
     expect(value.dependencies.copyFile).toHaveBeenCalledWith(
       '/etc/resolv.conf',
-      `/run/awf-nvx/runs/${RUN_ID}/resolv.conf`,
+      `/var/lib/awf-nvx/runs/${RUN_ID}/resolv.conf`,
       expect.any(Number),
     );
     expect(value.dependencies.chmod).toHaveBeenCalledWith(
-      `/run/awf-nvx/runs/${RUN_ID}/resolv.conf`,
+      `/var/lib/awf-nvx/runs/${RUN_ID}/resolv.conf`,
       0o444,
     );
     expect(value.order.slice(-7)).toEqual([

@@ -45,7 +45,7 @@ function record() {
         inode: '10',
       },
       runDirectory: {
-        path: `/run/awf-nvx/runs/${RUN_ID}`,
+        path: `/var/lib/awf-nvx/runs/${RUN_ID}`,
         device: '8',
         inode: '11',
       },

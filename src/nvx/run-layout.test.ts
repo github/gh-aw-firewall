@@ -14,8 +14,8 @@ describe('NVX run layout', () => {
     expect(createNvxRunLayout(RUN_ID)).toEqual({
       runId: RUN_ID,
       artifactSnapshotDirectory: `/var/lib/awf-nvx/trusted-artifacts/run-${RUN_ID}`,
-      runDirectory: `/run/awf-nvx/runs/${RUN_ID}`,
-      cleanupRecordPath: `/run/awf-nvx/cleanup/${RUN_ID}.json`,
+      runDirectory: `/var/lib/awf-nvx/runs/${RUN_ID}`,
+      cleanupRecordPath: `/var/lib/awf-nvx/cleanup/${RUN_ID}.json`,
       cgroupPath: `/sys/fs/cgroup/awf-nvx/${RUN_ID}`,
       networkNamespace: `awfnvx-${RUN_ID}`,
     });

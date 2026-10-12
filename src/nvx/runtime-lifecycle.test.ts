@@ -138,7 +138,7 @@ function identityDependencies(
 }
 
 function filesystemBundle(): NvxFilesystemBundle {
-  const runDirectory = `/run/awf-nvx/runs/${RUN_ID}`;
+  const runDirectory = `/var/lib/awf-nvx/runs/${RUN_ID}`;
   return {
     runDirectory,
     manifestPath: path.join(runDirectory, 'manifest.json'),
@@ -421,7 +421,7 @@ describe('NVX Phase 3d runtime lifecycle', () => {
     expect(plan.launchCommand.args).not.toContain('/bin/sh');
     expect(plan.launchCommand.args).toEqual(expect.arrayContaining([
       '--ro-bind',
-      `/run/awf-nvx/runs/${RUN_ID}/resolv.conf`,
+      `/var/lib/awf-nvx/runs/${RUN_ID}/resolv.conf`,
       '/etc/resolv.conf',
     ]));
     // Bubblewrap binds the run directory at /run/awf-nvx, so argv must carry
@@ -474,8 +474,8 @@ describe('NVX Phase 3d runtime lifecycle', () => {
       '--microvm-report',
       '/run/awf-nvx/outcome.json',
     ]);
-    expect(openvmmArguments.join(' ')).not.toContain(`/run/awf-nvx/runs/${RUN_ID}`);
-    expect(plan.outcomePath).toBe(`/run/awf-nvx/runs/${RUN_ID}/outcome.json`);
+    expect(openvmmArguments.join(' ')).not.toContain(`/var/lib/awf-nvx/runs/${RUN_ID}`);
+    expect(plan.outcomePath).toBe(`/var/lib/awf-nvx/runs/${RUN_ID}/outcome.json`);
 
     const customProfilePlan = buildNvxPhase3dLaunchPlan({
       runId: RUN_ID,
