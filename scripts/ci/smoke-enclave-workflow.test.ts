@@ -30,7 +30,7 @@ describe('experimental Cloud Hypervisor enclave smoke workflow', () => {
   });
 
   it('selects the same Cloud Hypervisor backend for the primary and static script enclave', () => {
-    expect(source).toContain('version: v0.28.52\n    runtime: cloud-hypervisor');
+    expect(source).toContain('version: v0.28.54\n    runtime: cloud-hypervisor');
     expect(source).toContain('runtime: cloud-hypervisor');
     expect(lock).toContain('\\"runtime\\":\\"cloud-hypervisor\\"');
     expect(lock).toContain('--container-runtime cloud-hypervisor');
@@ -41,23 +41,29 @@ describe('experimental Cloud Hypervisor enclave smoke workflow', () => {
   });
 
   it('pins the published AWF and its attested artifacts to the same release', () => {
-    expect(lock).toContain('install_awf_binary.sh" v0.28.52');
-    expect(lock).toContain('GH_AW_AWF_VERSION: v0.28.52');
+    expect(lock).toContain('install_awf_binary.sh" v0.28.54');
+    expect(lock).toContain('GH_AW_AWF_VERSION: v0.28.54');
+    expect(lock).toContain('https://github.com/github/gh-aw-firewall/releases/download/v0.28.54/awf-config.schema.json');
     expect(lock).toContain('Download and verify cloud-hypervisor enclave artifacts');
     expect(lock).toContain('cloud_hypervisor_setup_enclave_artifacts.sh');
     expect(lock).not.toContain('Install awf binary (local)');
     expect(lock).not.toContain('--build-local');
-    expect(source).toContain('Do not dispatch this update yet');
-    expect(source).toContain('to equal the verified artifact release tag');
-    expect(source).toContain('Do not retag v0.28.52 or bypass the acceptance gate.');
-    expect(source).toContain('authorizes the reviewed official workflow on `main`');
-    expect(source).toContain('### Remaining release prerequisite');
+    expect(source).not.toContain('Do not dispatch this update yet');
+    expect(source).toContain('installed host\nbinary authorizes this path');
+    expect(source).toContain('Do not retag v0.28.54 or bypass the acceptance gate.');
+    expect(source).toContain('After this update merges to `main`');
+    expect(source).toContain('### Remaining manual dispatch prerequisite');
+    expect(source).toContain('No further release or retag is required');
+    expect(source).toContain('separate live-run\nauthorization');
     expect(source).toContain('gh aw run smoke-enclave-cloud-hypervisor --ref main');
   });
 
   it('uses one real gateway with late enclave discovery and host authentication', () => {
     expect(countOccurrences(lock, '- name: Start MCP Gateway')).toBe(1);
     expect(lock).toContain('ghcr.io/github/gh-aw-mcpg:');
+    expect(lock).toContain(
+      'ghcr.io/github/gh-aw-mcpg:v0.4.30@sha256:ab5a436a1490438db473e4e3d4c973cb1d75e3cb233fb08b73d31b42d7d18fba'
+    );
     expect(lock).toContain('"awf-enclave": {\n                "required": false,');
     expect(lock).toContain('GH_AW_MCP_DEFERRED_SERVERS="awf-enclave"');
     expect(lock).toContain('AWF_ENCLAVE_MCP_READINESS_TIMEOUT_MS="120000"');
@@ -70,42 +76,54 @@ describe('experimental Cloud Hypervisor enclave smoke workflow', () => {
 
   it('sets up release-matched primary and script-role artifacts', () => {
     expect(lock).toContain('cloud_hypervisor_setup_bundle.sh');
-    expect(lock).toContain('GH_AW_AWF_VERSION: v0.28.52');
+    expect(lock).toContain('GH_AW_AWF_VERSION: v0.28.54');
     expect(lock).toContain('cloud_hypervisor_setup_enclave_artifacts.sh');
     expect(lock).toContain(
       'GH_AW_AWF_VERSION: ${{ steps.cloud-hypervisor-bundle.outputs.release_tag }}'
     );
-    expect(lock).toContain('ghcr.io/github/gh-aw-firewall/enclave-script:0.28.52');
-    expect(lock).toContain('ghcr.io/github/gh-aw-firewall/enclave-mcp-server:0.28.52');
+    expect(lock).toContain('ghcr.io/github/gh-aw-firewall/enclave-script:0.28.54');
+    expect(lock).toContain('ghcr.io/github/gh-aw-firewall/enclave-mcp-server:0.28.54');
     expect(lock).toContain('AWF_CLOUD_HYPERVISOR_ENCLAVE_SCRIPT_ROOTFS');
   });
 
   it('keeps every first-party image digest pinned to the binary release', () => {
+    const pinCache = JSON.parse(fs.readFileSync(
+      path.resolve(__dirname, '../../.github/aw/actions-lock.json'), 'utf8'
+    )) as {
+      containers: Record<string, { image: string; digest: string; pinned_image: string }>;
+    };
     const manifestLine = lock.split('\n').find(line => line.startsWith('# gh-aw-manifest: '));
     if (!manifestLine) {
       throw new Error('Missing compiled workflow manifest');
     }
     const manifest = JSON.parse(manifestLine.slice('# gh-aw-manifest: '.length)) as {
-      containers: Array<{ image: string; pinned_image: string }>;
+      containers: Array<{ image: string; digest: string; pinned_image: string }>;
     };
     const awfImages = manifest.containers.filter(container =>
       container.image.startsWith('ghcr.io/github/gh-aw-firewall/')
     );
     expect(awfImages.map(container => container.image.split('/').pop()).sort()).toEqual([
-      'agent:0.28.52', 'api-proxy:0.28.52', 'enclave-mcp-server:0.28.52',
-      'enclave-script:0.28.52', 'squid:0.28.52',
+      'agent:0.28.54', 'api-proxy:0.28.54', 'enclave-mcp-server:0.28.54',
+      'enclave-script:0.28.54', 'squid:0.28.54',
     ]);
     for (const container of awfImages) {
+      expect(container).toEqual(pinCache.containers[container.image]);
       expect(container.pinned_image).toMatch(
         new RegExp(`^${container.image.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}@sha256:[a-f0-9]{64}$`)
       );
       expect(lock).toContain(container.pinned_image);
     }
-    expect(lock).toContain('\\"imageTag\\":\\"0.28.52,');
-    expect(lock).not.toContain('0.28.51');
+    expect(lock).toContain('\\"imageTag\\":\\"0.28.54,');
+    expect(lock).not.toMatch(/0\.28\.(51|52|53)/);
   });
 
   it('requires an audited invocation and exact successful output', () => {
+    expect(source).toContain('repo: github/gh-aw-firewall\n        sensitivity: public');
+    expect(source).toContain('no Docker enclave fallback is permitted');
+    expect(source).toContain("uses AWF's finite-disclosure schema algebra, not JSON");
+    expect(source).toContain('"package_json": { "type": "boolean" }');
+    expect(source).toContain('"src": { "type": "boolean" }');
+    expect(source).not.toContain('enclave_run_agent');
     expect(source).toContain('max-invocations: 1');
     expect(source).toContain('invocations.length !== 1');
     expect(source).toContain('record.kind === "invocation"');
@@ -114,6 +132,16 @@ describe('experimental Cloud Hypervisor enclave smoke workflow', () => {
     expect(source).toContain('record.sensitivity === "public"');
     expect(source).toContain('record.type === "noop" && record.message === expected');
     expect(source).toContain('ENCLAVE_CLOUD_HYPERVISOR_PASS');
+  });
+
+  it('documents the exact official-main guard without relaxing production gates', () => {
+    expect(source).toContain('Official repository: `github/gh-aw-firewall`');
+    expect(source).toContain('Manual event: `workflow_dispatch`');
+    expect(source).toContain('matching\n     `GITHUB_WORKFLOW_SHA` when present');
+    expect(source).toContain('at `@refs/heads/main` or `@${GITHUB_SHA}`');
+    expect(source).toContain('All pull requests (`refs/pull/*`), non-main branches, forks, and automated events are rejected.');
+    expect(source).toContain('unattested developer overrides are rejected.');
+    expect(source).toContain('primary and every enclave invocation must use separate VMs');
   });
 
   it('post-processes the published-release workflow idempotently', () => {

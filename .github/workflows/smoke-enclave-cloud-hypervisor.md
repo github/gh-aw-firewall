@@ -39,7 +39,7 @@ timeout-minutes: 20
 sandbox:
   agent:
     id: awf
-    version: v0.28.52
+    version: v0.28.54
     runtime: cloud-hypervisor
 strict: false
 concurrency:
@@ -84,8 +84,8 @@ single-use Cloud Hypervisor script enclave through the real compiler-launched
 MCP Gateway. The primary and every enclave invocation must use separate VMs;
 no Docker enclave fallback is permitted.
 
-The v0.28.52 published AWF release includes the narrowly scoped tagged-workflow
-acceptance path. The binary, Docker images, and release-attested primary and
+The v0.28.54 published AWF release includes the narrowly scoped official-main
+and tagged-workflow acceptance paths. The binary, Docker images, and release-attested primary and
 script enclave artifacts all select that release. This workflow is compiled
 with gh-aw v0.91.9 and does not publish a release or authorize a live run.
 
@@ -129,7 +129,12 @@ On any failure, call `safeoutputs missing_data`; never report failure via `noop`
 
 ## Usage
 
-Do not dispatch this update yet: although the acceptance policy now authorizes the reviewed official workflow on `main` (`refs/heads/main`) to test an independently pinned published release, existing published AWF host binaries (including v0.28.52 and v0.28.53) only contain the older tag-only guard that required the workflow execution tag to equal the verified artifact release tag. Because host execution uses the installed release binary rather than local source, dispatching on `main` against an older binary fails the host-side gate.
+After this update merges to `main`, the reviewed official workflow can manually
+test the independently pinned published v0.28.54 release. That release contains
+the official-main acceptance policy merged in #9878, so the installed host
+binary authorizes this path without requiring the workflow to run from the
+artifact release tag. A live run still requires separate explicit authorization;
+this pin update does not dispatch or authorize one.
 
 ### Trust model
 
@@ -156,18 +161,18 @@ Both paths enforce strict fail-closed constraints:
 - Agent enclaves, dynamic admission, custom script images, and private repository fixtures are rejected.
 - Release-attested artifacts with mutually matching release identities; unattested developer overrides are rejected.
 
-### Remaining release prerequisite
+### Remaining manual dispatch prerequisite
 
-A future published release must contain this workflow with binary, images,
-and attested artifacts pinned to that same release, recompiled and
-post-processed before tagging. After that release and separate live-run
-authorization, dispatch with:
+Merge this reviewed workflow update to `main` and obtain separate live-run
+authorization. No further release or retag is required: the binary, images,
+and attested artifacts are pinned to the policy-containing published v0.28.54.
+Only after both prerequisites are satisfied, dispatch with:
 
 ```bash
 gh aw run smoke-enclave-cloud-hypervisor --ref main
 ```
 
-Do not retag v0.28.52 or bypass the acceptance gate. The runner must be
+Do not retag v0.28.54 or bypass the acceptance gate. The runner must be
 GitHub-hosted Ubuntu x86_64 with KVM. Use the real mcpg and AWF artifacts
 captured by the compiled workflow to investigate failures; this test does not
 use the standalone probe's mock gateway.

@@ -316,13 +316,13 @@ earlier attempts are not overwritten. These artifacts are distinct from mcpg's
 `mcp-logs/awf-enclave.log`, which records backend connection attempts rather than
 the enclave server's stderr.
 
-The experimental Cloud Hypervisor smoke still installs **published AWF v0.28.49**
-and release-matched attested guest artifacts. Source changes here do not add
-capture to that published binary or origin diagnostics to its server image.
-Live verification requires a release containing the host and server changes,
-followed by a coordinated update of the package, images and matching attested
-Cloud Hypervisor artifacts. Local builds must not silently replace that
-release-attested verification path.
+The experimental Cloud Hypervisor smoke installs **published AWF v0.28.54**
+with release-matched images and attested primary and script guest artifacts.
+That release includes the host and server diagnostics changes and the reviewed
+official-main acceptance policy. Once the workflow pin update merges to `main`,
+a separately authorized manual run can exercise this release without another
+release or retag. This does not establish passing live acceptance; local builds
+must not silently replace that release-attested verification path.
 
 After primary-agent work stops, AWF gives the enclave server a bounded
 4860-second stop grace. The server closes admissions, drains its single execution
