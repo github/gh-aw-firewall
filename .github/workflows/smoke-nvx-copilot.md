@@ -199,18 +199,13 @@ steps:
         "$artifact_dir/nvx-test-x86_64.manifest.json" \
         "$artifact_dir/nvx-test-x86_64.manifest.sigstore.jsonl"
 
-  - name: Build the guest distro layer with the pinned Copilot CLI
+  - name: Build the guest distro layer for compiler-managed Copilot
     env:
       ALPINE_IMAGE: alpine@sha256:eafc1edb577d2e9b458664a15f23ea1c370214193226069eb22921169fc7e43f
-      COPILOT_PACKAGE: '@github/copilot-linuxmusl-x64'
-      COPILOT_VERSION: 1.0.86
-      COPILOT_ARCHIVE: github-copilot-linuxmusl-x64-1.0.86.tgz
-      COPILOT_ARCHIVE_SHA256: 34cf74e32c5227efd1957ff69f9ad957205968621c1ce4a84384ece6c19a2f6c
     run: |
       set -euo pipefail
       layer_root="$RUNNER_TEMP/nvx-alpine-root"
-      package_dir="$RUNNER_TEMP/nvx-copilot-package"
-      mkdir -p "$layer_root" "$package_dir"
+      mkdir -p "$layer_root"
       sudo docker pull "$ALPINE_IMAGE"
       container=$(sudo docker create "$ALPINE_IMAGE" apk add --no-cache bash)
       sudo docker start --attach "$container"
@@ -221,13 +216,6 @@ steps:
         > "$layer_root/etc/passwd"
       printf 'runner:x:%s:\n' "$(id -g)" > "$layer_root/etc/group"
       chmod 1777 "$layer_root/tmp"
-
-      npm pack "${COPILOT_PACKAGE}@${COPILOT_VERSION}" \
-        --pack-destination "$RUNNER_TEMP" --silent
-      printf '%s  %s\n' "$COPILOT_ARCHIVE_SHA256" "$RUNNER_TEMP/$COPILOT_ARCHIVE" |
-        sha256sum --check --status
-      tar -xzf "$RUNNER_TEMP/$COPILOT_ARCHIVE" --strip-components=1 -C "$package_dir"
-      install -m 0755 "$package_dir/copilot" "$layer_root/usr/local/bin/copilot"
 
       # The guest command exercises every capability this smoke test is about:
       # the live workspace export, --container-workdir, per-run environment
@@ -240,6 +228,18 @@ steps:
       test -r /workspace/package.json
       test -n "${AWF_NVX_SMOKE_MARKER:-}"
       test -n "${HTTPS_PROXY:-}"
+      # Reuse the checksum-verified musl CLI staged by the compiler for this run.
+      copilot_bin=/workspace/.gh-aw-nvx/gh-aw/bin/copilot
+      test -f "$copilot_bin"
+      test ! -L "$copilot_bin"
+      test -x "$copilot_bin"
+      # Inherit the outer agent's offline proxy contract; never fall back to OAuth.
+      test "${COPILOT_OFFLINE:-}" = true
+      test "${COPILOT_API_URL:-}" = http://172.30.0.30:10002
+      test "${COPILOT_PROVIDER_BASE_URL:-}" = "$COPILOT_API_URL"
+      test "${COPILOT_TOKEN:-}" = '******'
+      test "${COPILOT_PROVIDER_API_KEY:-}" = '******'
+      test "${COPILOT_API_KEY:-}" = dummy-byok-key-for-offline-mode
       if env | grep -Eq '^(GH_TOKEN|GITHUB_TOKEN|OPENAI_API_KEY|ANTHROPIC_API_KEY)='; then
         echo "credential variable reached the NVX guest" >&2
         exit 1
@@ -263,11 +263,7 @@ steps:
       XDG_CACHE_HOME="$runtime_home/.cache"; export XDG_CACHE_HOME
       XDG_CONFIG_HOME="$runtime_home/.config"; export XDG_CONFIG_HOME
       XDG_STATE_HOME="$runtime_home/.local/state"; export XDG_STATE_HOME
-      # The real credential remains in the API proxy sidecar. The nested CLI
-      # needs only the same fixed placeholders used by the outer AWF agent.
-      COPILOT_GITHUB_TOKEN="******"; export COPILOT_GITHUB_TOKEN
-      COPILOT_API_KEY="dummy-byok-key-for-offline-mode"; export COPILOT_API_KEY
-      /usr/local/bin/copilot \
+      "$copilot_bin" \
         --prompt "Respond with exactly NVX-COPILOT-PROOF and nothing else." \
         --silent --no-color --stream on --allow-all-tools \
         --disable-builtin-mcps --no-custom-instructions --no-auto-update \
@@ -335,11 +331,16 @@ post-steps:
           "expected $AWF_NVX_SMOKE_MARKER in nvx-smoke-workspace-proof.txt"
       fi
 
-      if grep -q 'NVX-COPILOT-PROOF' "$copilot_file" 2>/dev/null; then
-        record copilot-inference PASS "pinned Copilot responded through the API proxy"
+      usage_file="${AWF_TOKEN_USAGE_LOG:-/tmp/gh-aw/sandbox/firewall/logs/api-proxy-logs/token-usage.jsonl}"
+      if grep -q 'NVX-COPILOT-PROOF' "$copilot_file" 2>/dev/null && \
+         jq -s -e '[.[] | select(.event == "token_usage") |
+           ((.input_tokens // 0) + (.output_tokens // 0))] | add > 0' \
+           "$usage_file" > /dev/null 2>&1; then
+        record copilot-inference PASS \
+          "compiler-managed Copilot responded through the API proxy with nonzero token usage"
       else
         record copilot-inference FAIL \
-          "no NVX-COPILOT-PROOF in nvx-smoke-copilot-proof.txt"
+          "missing NVX-COPILOT-PROOF or nonzero API proxy token usage"
       fi
 
       if [ -f "$proof_file" ]; then
