@@ -60,12 +60,12 @@ jobs:
       - name: Configure Docker Hub cache
         run: bash scripts/ci/configure-docker-mirror.sh
 
-      # v0.91.8 supports Cloud Hypervisor primaries with script enclaves.
-      - name: Checkout gh-aw v0.91.8 compiler
+      # Includes the declarative NVX guest-libc contract used by smoke workflows.
+      - name: Checkout NVX guest-libc compiler
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: github/gh-aw
-          ref: c16656ef90fa17dfe6e91fa8fb3d11f54632a74d
+          ref: 237a2739088c04d5f1a04e7cea22957747ffbcc2
           path: .tmp/gh-aw-compiler
           persist-credentials: false
 
@@ -75,12 +75,12 @@ jobs:
           go-version-file: .tmp/gh-aw-compiler/go.mod
           cache: false
 
-      - name: Install enclave-compatible gh-aw
+      - name: Install NVX guest-libc-compatible gh-aw
         run: |
           mkdir -p "$HOME/.local/share/gh/extensions/gh-aw"
           go build \
             -C .tmp/gh-aw-compiler \
-            -ldflags="-X main.version=v0.91.8 -X main.isRelease=true" \
+            -ldflags="-X main.version=v0.91.8-20-g237a273908 -X main.isRelease=true" \
             -o "$HOME/.local/share/gh/extensions/gh-aw/gh-aw" \
             ./cmd/gh-aw
           rm -rf .tmp/gh-aw-compiler

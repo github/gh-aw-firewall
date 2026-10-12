@@ -61,10 +61,12 @@ describe('CI registry retrieval', () => {
     expect(steps.find((step) => step.run?.includes(`'${grant}'`))?.run).toContain(grant);
   });
 
-  it('builds the pinned unified Cloud Hypervisor enclave compiler before scanning', () => {
+  it('builds the pinned NVX guest-libc compiler before scanning', () => {
     const steps = jobs('supply-chain-scan.yml').scan.steps;
     const checkout = steps.findIndex((step) => step.with?.repository === 'github/gh-aw');
-    const install = steps.findIndex((step) => step.name === 'Install enclave-compatible gh-aw');
+    const install = steps.findIndex(
+      (step) => step.name === 'Install NVX guest-libc-compatible gh-aw',
+    );
     const compile = steps.findIndex((step) => step.run === 'gh aw compile --syft .github/workflows/*.md');
     expect(checkout).toBeGreaterThanOrEqual(0);
     expect(install).toBeGreaterThan(checkout);
@@ -72,12 +74,14 @@ describe('CI registry retrieval', () => {
     expect(steps[checkout].uses).toMatch(/^actions\/checkout@[a-f0-9]{40}$/);
     expect(steps[checkout].with).toEqual({
       repository: 'github/gh-aw',
-      ref: 'c16656ef90fa17dfe6e91fa8fb3d11f54632a74d',
+      ref: '237a2739088c04d5f1a04e7cea22957747ffbcc2',
       path: '.tmp/gh-aw-compiler',
       'persist-credentials': false,
     });
     expect(steps[install].run).toContain('-C .tmp/gh-aw-compiler');
-    expect(steps[install].run).toContain('-ldflags="-X main.version=v0.91.8 -X main.isRelease=true"');
+    expect(steps[install].run).toContain(
+      '-ldflags="-X main.version=v0.91.8-20-g237a273908 -X main.isRelease=true"',
+    );
     for (const index of [checkout, install, compile]) {
       expect(steps[index].if).toBeUndefined();
       expect(steps[index]['continue-on-error']).toBeUndefined();

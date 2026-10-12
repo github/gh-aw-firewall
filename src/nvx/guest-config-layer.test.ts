@@ -27,6 +27,7 @@ describe('NvxGuestConfigLayer', () => {
       homePath: home,
       hostAliases: {
         'api-proxy': '172.30.0.30',
+        'api.githubcopilot.com': '172.30.0.30',
       },
     }, {
       chown: async () => undefined,
@@ -48,7 +49,8 @@ describe('NvxGuestConfigLayer', () => {
       expect(copiedCacheFile.mode & 0o600).toBe(0o600);
       await expect(fs.readFile(path.join(source, 'etc/hosts'), 'utf8'))
         .resolves.toBe(
-          '127.0.0.1 localhost\n::1 localhost\n172.30.0.30 api-proxy\n',
+          '127.0.0.1 localhost\n::1 localhost\n' +
+            '172.30.0.30 api-proxy\n172.30.0.30 api.githubcopilot.com\n',
         );
       await expect(fs.lstat(path.join(source, 'home/awf/.config/gh')))
         .rejects.toMatchObject({ code: 'ENOENT' });

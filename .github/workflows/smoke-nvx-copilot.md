@@ -264,6 +264,9 @@ steps:
       XDG_CACHE_HOME="$runtime_home/.cache"; export XDG_CACHE_HOME
       XDG_CONFIG_HOME="$runtime_home/.config"; export XDG_CONFIG_HOME
       XDG_STATE_HOME="$runtime_home/.local/state"; export XDG_STATE_HOME
+      # The real credential remains in the API proxy sidecar. The nested CLI
+      # needs only the same fixed placeholder used by the outer AWF agent.
+      COPILOT_GITHUB_TOKEN="******"; export COPILOT_GITHUB_TOKEN
       /usr/local/bin/copilot \
         --prompt "Respond with exactly NVX-COPILOT-PROOF and nothing else." \
         --silent --no-color --stream on --allow-all-tools \
