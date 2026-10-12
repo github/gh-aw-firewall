@@ -61,11 +61,11 @@ describe('CI registry retrieval', () => {
     expect(steps.find((step) => step.run?.includes(`'${grant}'`))?.run).toContain(grant);
   });
 
-  it('builds the pinned NVX guest-libc compiler before scanning', () => {
+  it('builds the pinned NVX-aware compiler before scanning', () => {
     const steps = jobs('supply-chain-scan.yml').scan.steps;
     const checkout = steps.findIndex((step) => step.with?.repository === 'github/gh-aw');
     const install = steps.findIndex(
-      (step) => step.name === 'Install NVX guest-libc-compatible gh-aw',
+      (step) => step.name === 'Install NVX-aware gh-aw',
     );
     const compile = steps.findIndex((step) => step.run === 'gh aw compile --syft .github/workflows/*.md');
     expect(checkout).toBeGreaterThanOrEqual(0);
@@ -74,13 +74,13 @@ describe('CI registry retrieval', () => {
     expect(steps[checkout].uses).toMatch(/^actions\/checkout@[a-f0-9]{40}$/);
     expect(steps[checkout].with).toEqual({
       repository: 'github/gh-aw',
-      ref: '237a2739088c04d5f1a04e7cea22957747ffbcc2',
+      ref: '6cc24f363363eedf2e405a31ec39495508c0c07f',
       path: '.tmp/gh-aw-compiler',
       'persist-credentials': false,
     });
     expect(steps[install].run).toContain('-C .tmp/gh-aw-compiler');
     expect(steps[install].run).toContain(
-      '-ldflags="-X main.version=v0.91.8-20-g237a273908 -X main.isRelease=true"',
+      '-ldflags="-X main.version=v0.91.8-37-g6cc24f3633 -X main.isRelease=true"',
     );
     for (const index of [checkout, install, compile]) {
       expect(steps[index].if).toBeUndefined();
