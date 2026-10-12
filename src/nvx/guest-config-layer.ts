@@ -135,7 +135,10 @@ async function restoreWritable(root: string): Promise<void> {
 
 async function copySafeTree(source: string, destination: string, root: string): Promise<void> {
   const sourceStat = await fs.lstat(source);
-  await fs.mkdir(destination, { recursive: true, mode: sourceStat.mode & 0o7777 });
+  await fs.mkdir(destination, {
+    recursive: true,
+    mode: (sourceStat.mode & 0o7777) | 0o700,
+  });
   const entries = await fs.readdir(source, { withFileTypes: true });
   for (const entry of entries.sort((left, right) => left.name.localeCompare(right.name))) {
     const sourcePath = path.join(source, entry.name);
@@ -167,7 +170,11 @@ async function applyOwnership(
     return;
   }
   await chown(root, uid, gid);
-  if (!stat.isDirectory()) return;
+  if (!stat.isDirectory()) {
+    if (stat.isFile()) await fs.chmod(root, (stat.mode & 0o7777) | 0o600);
+    return;
+  }
+  await fs.chmod(root, (stat.mode & 0o7777) | 0o700);
   for (const entry of await fs.readdir(root)) {
     await applyOwnership(path.join(root, entry), uid, gid, chown, lchown);
   }
