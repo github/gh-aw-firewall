@@ -260,6 +260,7 @@ steps:
       runtime_home=/tmp/copilot-home
       mkdir -m 0700 "$runtime_home"
       HOME="$runtime_home"; export HOME
+      COPILOT_HOME="$runtime_home/.copilot"; export COPILOT_HOME
       XDG_CACHE_HOME="$runtime_home/.cache"; export XDG_CACHE_HOME
       XDG_CONFIG_HOME="$runtime_home/.config"; export XDG_CONFIG_HOME
       XDG_STATE_HOME="$runtime_home/.local/state"; export XDG_STATE_HOME
@@ -269,6 +270,10 @@ steps:
         --disable-builtin-mcps --no-custom-instructions --no-auto-update \
         --no-ask-user --model claude-sonnet-5 --max-ai-credits 30 \
         > /workspace/nvx-smoke-copilot-proof.txt
+      set -- "$COPILOT_HOME"/session-state/*/events.jsonl
+      test "$#" -eq 1
+      test -f "$1"
+      cp "$1" /workspace/nvx-smoke-copilot-events.jsonl
       printf 'complete\n' > /workspace/nvx-smoke-complete.txt
       echo AWF-NVX-SMOKE-COMPLETE
       EOF
@@ -283,6 +288,7 @@ steps:
       echo "AWF_NVX_SMOKE_MARKER=$marker" >> "$GITHUB_ENV"
       rm -f "$GITHUB_WORKSPACE/nvx-smoke-workspace-proof.txt" \
         "$GITHUB_WORKSPACE/nvx-smoke-copilot-proof.txt" \
+        "$GITHUB_WORKSPACE/nvx-smoke-copilot-events.jsonl" \
         "$GITHUB_WORKSPACE/nvx-smoke-complete.txt"
 post-steps:
   - name: Collect declarative NVX smoke evidence
@@ -303,6 +309,7 @@ post-steps:
 
       proof_file="$GITHUB_WORKSPACE/nvx-smoke-workspace-proof.txt"
       copilot_file="$GITHUB_WORKSPACE/nvx-smoke-copilot-proof.txt"
+      events_file="$GITHUB_WORKSPACE/nvx-smoke-copilot-events.jsonl"
       complete_file="$GITHUB_WORKSPACE/nvx-smoke-complete.txt"
       if [ -f /tmp/gh-aw/agent-stdio.log ]; then
         cp /tmp/gh-aw/agent-stdio.log "$data_dir/logs/awf.log"
@@ -333,14 +340,22 @@ post-steps:
 
       usage_file="${AWF_TOKEN_USAGE_LOG:-/tmp/gh-aw/sandbox/firewall/logs/api-proxy-logs/token-usage.jsonl}"
       if grep -q 'NVX-COPILOT-PROOF' "$copilot_file" 2>/dev/null && \
+         jq -s -e '
+           [.[] | select(.type == "session.shutdown")] | last |
+           [.data.modelMetrics[]?.usage] |
+           {
+             input_tokens: (map(.inputTokens // 0) | add // 0),
+             output_tokens: (map(.outputTokens // 0) | add // 0)
+           } | select(.input_tokens > 0 and .output_tokens > 0)' \
+           "$events_file" > "$data_dir/copilot-token-usage.json" 2>/dev/null && \
          jq -s -e '[.[] | select(.event == "token_usage") |
            ((.input_tokens // 0) + (.output_tokens // 0))] | add > 0' \
            "$usage_file" > /dev/null 2>&1; then
         record copilot-inference PASS \
-          "compiler-managed Copilot responded through the API proxy with nonzero token usage"
+          "compiler-managed Copilot responded through the API proxy with nonzero nested token usage"
       else
         record copilot-inference FAIL \
-          "missing NVX-COPILOT-PROOF or nonzero API proxy token usage"
+          "missing NVX-COPILOT-PROOF, nested token usage, or API proxy token usage"
       fi
 
       if [ -f "$proof_file" ]; then
@@ -349,7 +364,7 @@ post-steps:
       if [ -f "$copilot_file" ]; then
         cp "$copilot_file" "$data_dir/copilot-response.txt"
       fi
-      rm -f "$proof_file" "$copilot_file" "$complete_file"
+      rm -f "$proof_file" "$copilot_file" "$events_file" "$complete_file"
       sudo chown -R "$(id -u):$(id -g)" "$data_dir"
       cat "$results"
   - name: Upload NVX smoke evidence

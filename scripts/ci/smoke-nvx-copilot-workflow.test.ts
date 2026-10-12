@@ -55,7 +55,11 @@ describe('NVX Copilot smoke compiler contract', () => {
     binary = path.join(workspace, '.gh-aw-nvx/gh-aw/bin/copilot');
     fs.mkdirSync(path.dirname(binary), { recursive: true });
     fs.writeFileSync(path.join(workspace, 'package.json'), '{}');
-    fs.writeFileSync(binary, '#!/bin/sh\nprintf "NVX-COPILOT-PROOF\\n"\n', { mode: 0o755 });
+    fs.writeFileSync(binary, `#!/bin/sh
+mkdir -p "$COPILOT_HOME/session-state/nested"
+printf '%s\\n' '{"type":"session.shutdown","data":{"modelMetrics":{"test-model":{"usage":{"inputTokens":10,"outputTokens":1}}}}}' > "$COPILOT_HOME/session-state/nested/events.jsonl"
+printf "NVX-COPILOT-PROOF\\n"
+`, { mode: 0o755 });
     script = guestScript.split('/workspace').join(workspace)
       .replace('/tmp/copilot-home', path.join(root, 'copilot-home'));
     env = {
@@ -113,6 +117,12 @@ describe('NVX Copilot smoke compiler contract', () => {
     expect(runGuest().status).not.toBe(0);
   });
 
+  it('fails if the nested CLI does not persist its own session', () => {
+    fs.writeFileSync(binary, '#!/bin/sh\nprintf "NVX-COPILOT-PROOF\\n"\n');
+    expect(runGuest().status).not.toBe(0);
+    expect(fs.existsSync(path.join(workspace, 'nvx-smoke-complete.txt'))).toBe(false);
+  });
+
   it.each([
     ['nonzero usage', '{"event":"token_usage","input_tokens":10,"output_tokens":1}\n', 'PASS'],
     ['zero usage', '{"event":"token_usage","input_tokens":0,"output_tokens":0}\n', 'FAIL'],
@@ -121,9 +131,16 @@ describe('NVX Copilot smoke compiler contract', () => {
     ['malformed usage', 'not-json\n', 'FAIL'],
     ['missing usage', undefined, 'FAIL'],
     ['missing nested proof', '{"event":"token_usage","input_tokens":10,"output_tokens":1}\n', 'FAIL'],
+    ['zero nested usage', '{"event":"token_usage","input_tokens":10,"output_tokens":1}\n', 'FAIL'],
+    ['missing nested usage', '{"event":"token_usage","input_tokens":10,"output_tokens":1}\n', 'FAIL'],
   ])('requires a nested response and %s in host evidence', (name, usage, status) => {
     expect(runGuest().status).toBe(0);
     if (name === 'missing nested proof') fs.unlinkSync(path.join(workspace, 'nvx-smoke-copilot-proof.txt'));
+    const eventsFile = path.join(workspace, 'nvx-smoke-copilot-events.jsonl');
+    if (name === 'zero nested usage') {
+      fs.writeFileSync(eventsFile, '{"type":"session.shutdown","data":{"modelMetrics":{}}}\n');
+    }
+    if (name === 'missing nested usage') fs.unlinkSync(eventsFile);
     const dataDir = path.join(root, 'evidence');
     const usageFile = path.join(root, 'token-usage.jsonl');
     if (usage !== undefined) fs.writeFileSync(usageFile, usage);
@@ -142,5 +159,10 @@ describe('NVX Copilot smoke compiler contract', () => {
     expect(scenarios).toHaveLength(4);
     expect(scenarios.find(scenario => scenario.check === 'copilot-inference')?.status).toBe(status);
     expect(fs.existsSync(path.join(workspace, 'nvx-smoke-copilot-proof.txt'))).toBe(false);
+    expect(fs.existsSync(eventsFile)).toBe(false);
+    if (status === 'PASS') {
+      expect(JSON.parse(fs.readFileSync(path.join(dataDir, 'copilot-token-usage.json'), 'utf8')))
+        .toEqual({ input_tokens: 10, output_tokens: 1 });
+    }
   });
 });
