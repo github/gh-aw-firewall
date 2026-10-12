@@ -3,11 +3,11 @@ import * as path from 'path';
 
 export const AGENT_RUNTIME_START_FILE = '/run/awf-runtime/started-at-ms';
 
-export function resolveAgentRuntimeStartFile(workDir: string, proxyLogsDir?: string): string {
+function resolveAgentRuntimeStartFile(workDir: string, proxyLogsDir?: string): string {
   return path.join(proxyLogsDir || workDir, 'api-proxy-logs', 'agent-runtime', 'started-at-ms');
 }
 
-export function readAgentRuntimeStartTimeMs(workDir: string, proxyLogsDir?: string): number | undefined {
+function readAgentRuntimeStartTimeMs(workDir: string, proxyLogsDir?: string): number | undefined {
   try {
     const value = Number(fs.readFileSync(resolveAgentRuntimeStartFile(workDir, proxyLogsDir), 'utf8').trim());
     return Number.isFinite(value) && value > 0 ? value : undefined;

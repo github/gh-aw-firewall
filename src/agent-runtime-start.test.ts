@@ -3,8 +3,6 @@ import * as os from 'os';
 import * as path from 'path';
 import {
   ensureAgentRuntimeStartMarker,
-  readAgentRuntimeStartTimeMs,
-  resolveAgentRuntimeStartFile,
 } from './agent-runtime-start';
 
 describe('agent runtime start marker', () => {
@@ -35,18 +33,18 @@ describe('agent runtime start marker', () => {
     const startedAtMs = 1_700_000_000_000;
     const openSync = jest.spyOn(fs, 'openSync');
     jest.spyOn(Date, 'now').mockReturnValueOnce(startedAtMs).mockReturnValueOnce(startedAtMs + 1_000);
+    const markerPath = path.join(workDir, 'api-proxy-logs', 'agent-runtime', 'started-at-ms');
 
     expect(ensureAgentRuntimeStartMarker(workDir)).toBe(startedAtMs);
     expect(openSync).toHaveBeenCalledWith(
-      resolveAgentRuntimeStartFile(workDir),
+      markerPath,
       fs.constants.O_CREAT | fs.constants.O_EXCL | fs.constants.O_WRONLY | fs.constants.O_NOFOLLOW,
       0o600,
     );
-    expect(readAgentRuntimeStartTimeMs(workDir)).toBe(startedAtMs);
     expect(ensureAgentRuntimeStartMarker(workDir)).toBe(startedAtMs);
-    expect(readAgentRuntimeStartTimeMs(workDir)).toBe(startedAtMs);
-    expect(fs.statSync(resolveAgentRuntimeStartFile(workDir)).mode & 0o777).toBe(0o444);
-    expect(fs.statSync(path.dirname(resolveAgentRuntimeStartFile(workDir))).mode & 0o777).toBe(0o555);
+    expect(fs.readFileSync(markerPath, 'utf8').trim()).toBe(String(startedAtMs));
+    expect(fs.statSync(markerPath).mode & 0o777).toBe(0o444);
+    expect(fs.statSync(path.dirname(markerPath)).mode & 0o777).toBe(0o555);
   });
 
   it('uses the configured proxy log root for shared marker storage', () => {

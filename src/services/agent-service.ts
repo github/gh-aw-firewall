@@ -15,6 +15,7 @@ import { dockerSensitiveTmpfs } from '../sensitive-paths';
 import { WrapperConfig } from '../types';
 import { NetworkConfig, ImageBuildConfig } from './squid-service';
 import { resolveLogPaths } from '../log-paths';
+import { AGENT_RUNTIME_START_FILE } from '../agent-runtime-start';
 
 // Re-export functions for backwards compatibility
 export { buildAgentEnvironment } from './agent-environment/environment-builder';
@@ -109,7 +110,7 @@ export function buildAgentService(params: AgentServiceParams): any {
     : [];
   agentVolumes.push(...agentRuntimeVolumes);
   if (hasAgentRuntimeClock) {
-    environment.AWF_AGENT_RUNTIME_START_FILE = '/run/awf-runtime/started-at-ms';
+    environment.AWF_AGENT_RUNTIME_START_FILE = AGENT_RUNTIME_START_FILE;
   }
 
   // Agent service configuration
