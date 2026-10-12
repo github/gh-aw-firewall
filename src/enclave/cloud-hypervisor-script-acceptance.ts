@@ -1,10 +1,15 @@
+import { parseImageTag } from '../image-tag';
 import type { WrapperConfig } from '../types';
 
-const ACCEPTANCE_WORKFLOW_REF =
-  /^github\/gh-aw-firewall\/\.github\/workflows\/smoke-enclave-cloud-hypervisor\.lock\.yml@(refs\/tags\/v\d+\.\d+\.\d+)$/;
+const ACCEPTANCE_WORKFLOW_PATH =
+  'github/gh-aw-firewall/.github/workflows/smoke-enclave-cloud-hypervisor.lock.yml';
+
+const TAG_REF_PATTERN = /^refs\/tags\/(v\d+\.\d+\.\d+)$/;
+const RELEASE_TAG_PATTERN = /^v\d+\.\d+\.\d+$/;
+const SHA_PATTERN = /^[0-9a-f]{40}$/i;
 
 export function isCloudHypervisorScriptAcceptanceWorkflow(
-  config: Pick<WrapperConfig, 'containerRuntime' | 'enclaves' | 'cloudHypervisor'>,
+  config: Pick<WrapperConfig, 'containerRuntime' | 'enclaves' | 'cloudHypervisor' | 'imageTag'>,
 ): boolean {
   if (
     process.env.GITHUB_ACTIONS !== 'true'
@@ -13,14 +18,67 @@ export function isCloudHypervisorScriptAcceptanceWorkflow(
   ) {
     return false;
   }
-  const workflowRef = process.env.GITHUB_WORKFLOW_REF ?? '';
-  const refMatch = ACCEPTANCE_WORKFLOW_REF.exec(workflowRef);
+
+  const cloudHypervisor = config.cloudHypervisor;
+  const artifactReleaseTag = cloudHypervisor?.artifactReleaseTag;
+  if (!artifactReleaseTag || !RELEASE_TAG_PATTERN.test(artifactReleaseTag)) {
+    return false;
+  }
+
   if (
-    !refMatch
-    || process.env.GITHUB_REF !== refMatch[1]
-    || process.env.GITHUB_REF_TYPE !== 'tag'
-    || process.env.GITHUB_REF_NAME !== config.cloudHypervisor?.artifactReleaseTag
+    cloudHypervisor?.developmentAllowUnattestedArtifacts
+    || cloudHypervisor?.sha256
   ) {
+    return false;
+  }
+
+  if (config.imageTag !== undefined) {
+    try {
+      const parsedImage = parseImageTag(config.imageTag);
+      const normalizedImageTag = parsedImage.tag.startsWith('v')
+        ? parsedImage.tag
+        : `v${parsedImage.tag}`;
+      if (normalizedImageTag !== artifactReleaseTag) {
+        return false;
+      }
+    } catch {
+      return false;
+    }
+  }
+
+  const ref = process.env.GITHUB_REF ?? '';
+  const refType = process.env.GITHUB_REF_TYPE ?? '';
+  const refName = process.env.GITHUB_REF_NAME ?? '';
+  const workflowRef = process.env.GITHUB_WORKFLOW_REF ?? '';
+  const sha = process.env.GITHUB_SHA ?? '';
+  const workflowSha = process.env.GITHUB_WORKFLOW_SHA;
+
+  if (workflowSha !== undefined && !SHA_PATTERN.test(workflowSha)) {
+    return false;
+  }
+  if (workflowSha !== undefined && sha && workflowSha !== sha) {
+    return false;
+  }
+
+  const isTaggedAcceptance =
+    refType === 'tag'
+    && refName === artifactReleaseTag
+    && TAG_REF_PATTERN.test(ref)
+    && ref === `refs/tags/${refName}`
+    && workflowRef === `${ACCEPTANCE_WORKFLOW_PATH}@${ref}`;
+
+  const isMainAcceptance =
+    refType === 'branch'
+    && refName === 'main'
+    && ref === 'refs/heads/main'
+    && SHA_PATTERN.test(sha)
+    && (workflowSha === undefined || workflowSha === sha)
+    && (
+      workflowRef === `${ACCEPTANCE_WORKFLOW_PATH}@refs/heads/main`
+      || workflowRef === `${ACCEPTANCE_WORKFLOW_PATH}@${sha}`
+    );
+
+  if (!isTaggedAcceptance && !isMainAcceptance) {
     return false;
   }
 

@@ -129,18 +129,45 @@ On any failure, call `safeoutputs missing_data`; never report failure via `noop`
 
 ## Usage
 
-Do not dispatch this update yet: the immutable v0.28.52 tag contains the older
-v0.28.51 workflow pin, not this recompiled workflow. Merging this update does
-not change that tag. The acceptance gate requires the workflow execution tag
-to equal the verified artifact release tag; branch dispatches and a newer
-workflow tag paired with v0.28.52 artifacts are rejected.
+Do not dispatch this update yet: although the acceptance policy now authorizes the reviewed official workflow on `main` (`refs/heads/main`) to test an independently pinned published release, existing published AWF host binaries (including v0.28.52 and v0.28.53) only contain the older tag-only guard that required the workflow execution tag to equal the verified artifact release tag. Because host execution uses the installed release binary rather than local source, dispatching on `main` against an older binary fails the host-side gate.
+
+### Trust model
+
+The updated acceptance policy authorizes two exact execution paths:
+1. **Reviewed workflow on `main` (`refs/heads/main`)**: allows testing an
+   independently pinned published AWF release, breaking the circular dependency
+   where a release could not pin its own tag before publishing. Requires:
+   - Official repository: `github/gh-aw-firewall`
+   - Manual event: `workflow_dispatch`
+   - Verified commit provenance: valid 40-character hex `GITHUB_SHA`, matching
+     `GITHUB_WORKFLOW_SHA` when present
+   - Exact official workflow lock:
+     `github/gh-aw-firewall/.github/workflows/smoke-enclave-cloud-hypervisor.lock.yml`
+     at `@refs/heads/main` or `@${GITHUB_SHA}`
+   - Exact ref identity: `GITHUB_REF` is `refs/heads/main`, `GITHUB_REF_TYPE` is
+     `branch`, `GITHUB_REF_NAME` is `main`
+2. **Approved tagged workflow**: maintains the existing approved path on an
+   official release tag (`refs/tags/vX.Y.Z`) where `GITHUB_REF_NAME` matches the
+   verified `artifactReleaseTag`.
+
+Both paths enforce strict fail-closed constraints:
+- All pull requests (`refs/pull/*`), non-main branches, forks, and automated events are rejected.
+- Exactly one public script enclave for `github/gh-aw-firewall` with Cloud Hypervisor runtime and a single invocation.
+- Agent enclaves, dynamic admission, custom script images, and private repository fixtures are rejected.
+- Release-attested artifacts with mutually matching release identities; unattested developer overrides are rejected.
+
+### Remaining release prerequisite
 
 A future published release must contain this workflow with binary, images,
 and attested artifacts pinned to that same release, recompiled and
 post-processed before tagging. After that release and separate live-run
-authorization, dispatch with
-`gh aw run smoke-enclave-cloud-hypervisor --ref <published-tag>`.
-Do not retag v0.28.52 or bypass the acceptance gate.
-The runner must be GitHub-hosted Ubuntu x86_64 with KVM. Use the real mcpg and
-AWF artifacts captured by the compiled workflow to investigate failures; this
-test does not use the standalone probe's mock gateway.
+authorization, dispatch with:
+
+```bash
+gh aw run smoke-enclave-cloud-hypervisor --ref main
+```
+
+Do not retag v0.28.52 or bypass the acceptance gate. The runner must be
+GitHub-hosted Ubuntu x86_64 with KVM. Use the real mcpg and AWF artifacts
+captured by the compiled workflow to investigate failures; this test does not
+use the standalone probe's mock gateway.

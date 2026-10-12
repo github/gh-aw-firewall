@@ -50,6 +50,9 @@ describe('experimental Cloud Hypervisor enclave smoke workflow', () => {
     expect(source).toContain('Do not dispatch this update yet');
     expect(source).toContain('to equal the verified artifact release tag');
     expect(source).toContain('Do not retag v0.28.52 or bypass the acceptance gate.');
+    expect(source).toContain('authorizes the reviewed official workflow on `main`');
+    expect(source).toContain('### Remaining release prerequisite');
+    expect(source).toContain('gh aw run smoke-enclave-cloud-hypervisor --ref main');
   });
 
   it('uses one real gateway with late enclave discovery and host authentication', () => {

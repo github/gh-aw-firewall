@@ -130,11 +130,13 @@ enclave admissions or invocation VMs alive.
    new microVM combinations.
 2. **Unified Cloud Hypervisor with static enclaves:** primary and fresh
    single-use enclave instances use the resolved Cloud Hypervisor backend.
-   The manual static-script workflow and narrowly scoped tagged acceptance
-   authorization are implemented. Keep ordinary production configurations
-   gated until the matching AWF release is published and live acceptance
-   demonstrates the required artifact, isolation, credential, resource,
-   result, cancellation, cleanup, and recovery boundaries.
+   The manual static-script workflow and narrowly scoped acceptance authorization
+   (authorizing the reviewed official workflow on `refs/heads/main` to test an
+   independently pinned published release, alongside the approved tagged path)
+   are implemented. Keep ordinary production configurations gated until the
+   policy-containing AWF release is published and live acceptance demonstrates
+   the required artifact, isolation, credential, resource, result, cancellation,
+   cleanup, and recovery boundaries.
 3. **Unified NVX:** leverage the shared microVM architecture where practical,
    with NVX-specific trust and isolation acceptance before enabling its enclaves.
 
@@ -146,29 +148,38 @@ the compiler blocker recorded in #9805; it is no longer the current blocker.
 Upstream [gh-aw#67772](https://github.com/github/gh-aw/pull/67772) added the
 compiler support in v0.91.8 and closed
 [gh-aw#67752](https://github.com/github/gh-aw/issues/67752).
-The target manual workflow compiles with the exact v0.91.8 compiler and emits
+The target manual workflow compiles with the exact v0.91.8/v0.91.9 compiler and emits
 the Cloud Hypervisor primary selection, static script executor, supporting
 Docker infrastructure, compiler-owned mcpg discovery/readiness and
 authentication handoffs, and primary/script artifact setup. The generated lock
-records v0.91.8. Do not edit the generated lock to evade compiler validation.
+records the compiler version. Do not edit the generated lock to evade compiler validation.
 
 ### AWF release and live acceptance remain blocked
 
-The published AWF v0.28.51 release contains the unified lifecycle integration
-and matching versioned images/artifact setup, but its binary still rejects a
-Cloud Hypervisor primary with enclaves. The source-only acceptance authorization
-added here admits only the official manual workflow on a published version tag,
-with one public static script executor and one invocation. All other
-configurations retain the production rejection. This authorization is not
-present in v0.28.51, so the workflow must not be dispatched with that release.
+Earlier acceptance gates required the workflow execution tag to equal the
+verified artifact release tag. That created an endless circular dependency
+where a release tag could not pin its own yet-to-be-published version.
+The updated acceptance policy authorizes the reviewed official workflow on
+`main` (`refs/heads/main`) to test an independently pinned published release,
+while preserving the approved tagged path.
 
-Release coordination is required: publish a new AWF release containing the
-reviewed narrow authorization and unified lifecycle code, publish the matching
-images and release-attested Cloud Hypervisor bundle/script rootfs, then update
-the workflow's AWF pin and regenerate its lock so host code and artifacts are
-release-matched. Do not retag v0.28.51, run the workflow against a local build,
-or treat the compiler's default AWF pin as proof that the path is executable.
-No release operation or acceptance dispatch is authorized by this change.
+However, existing published AWF host binaries (including v0.28.52 and v0.28.53)
+only contain the older tag-only guard. Because the acceptance workflow executes
+the installed released binary rather than local unverified source, dispatching
+on `main` against an unchanged existing release binary fails the host-side gate.
+
+A new AWF release containing this reviewed acceptance policy must be published
+before live acceptance can execute on `main`. The rollout proceeds in safe stages:
+1. Merge the acceptance policy and documentation into `main`.
+2. Cut and publish a new AWF release containing the updated acceptance policy,
+   along with matching container images and release-attested Cloud Hypervisor artifacts.
+3. Update the manual workflow pin to that new release and regenerate its lock.
+4. With separate authorization, dispatch live acceptance on `main`:
+   `gh aw run smoke-enclave-cloud-hypervisor --ref main`.
+
+Do not run the workflow against local unverified binaries or bypass the
+acceptance gate. No release operation or live acceptance dispatch is authorized
+by this pull request.
 
 The lifecycle regression tests and source gate tests are local regressions, not
 real-KVM or real-mcpg acceptance. The v0.91.8 compile and lock inspection are
