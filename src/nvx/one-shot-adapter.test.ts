@@ -559,6 +559,32 @@ describe('NVX one-shot execution adapter', () => {
     }
   });
 
+  it('streams a successful child process through the default process runner', async () => {
+    const stdout: Buffer[] = [];
+    const stderr: Buffer[] = [];
+    const result = await testHelpers.runNvxProcess({
+      command: process.execPath,
+      args: ['-e', "process.stdout.write('out'); process.stderr.write('err')"],
+      cwd: process.cwd(),
+      env: process.env,
+      onStdout: async (chunk) => {
+        stdout.push(chunk);
+      },
+      onStderr: async (chunk) => {
+        stderr.push(chunk);
+      },
+    });
+
+    expect(result).toEqual({
+      exitCode: 0,
+      signal: null,
+      timedOut: false,
+      cancelled: false,
+    });
+    expect(Buffer.concat(stdout).toString()).toBe('out');
+    expect(Buffer.concat(stderr).toString()).toBe('err');
+  });
+
   linuxIt('escalates process-group termination after the launcher exits', async () => {
     const childPidPath = path.join(
       await fs.mkdtemp(path.join(os.tmpdir(), 'awf-nvx-process-')),
