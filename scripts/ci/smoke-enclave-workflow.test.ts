@@ -94,7 +94,7 @@ describe('experimental Cloud Hypervisor enclave smoke workflow', () => {
     ]);
     for (const container of awfImages) {
       expect(container.pinned_image).toMatch(
-        new RegExp(`^${container.image.replace(/\./g, '\\.')}@sha256:[a-f0-9]{64}$`)
+        new RegExp(`^${container.image.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}@sha256:[a-f0-9]{64}$`)
       );
       expect(lock).toContain(container.pinned_image);
     }
