@@ -26,6 +26,7 @@ sandbox:
     runtime: nvx
     nvx:
       preview: true
+      guest-libc: musl
       network-isolation: true
       api-proxy: true
       mount-policy: workspace-only
