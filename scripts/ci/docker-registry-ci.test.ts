@@ -13,6 +13,8 @@ const grant = 'ghcr.io/anchore/grant@sha256:172463611795f43b77302cdfbd7b3f812954
 interface Step {
   name?: string;
   run?: string;
+  uses?: string;
+  with?: Record<string, unknown>;
   if?: string;
   'continue-on-error'?: boolean;
 }
@@ -57,6 +59,29 @@ describe('CI registry retrieval', () => {
     expect(blocking?.run).toContain('sys.exit(rc)');
     expect(blocking?.['continue-on-error']).toBeUndefined();
     expect(steps.find((step) => step.run?.includes(`'${grant}'`))?.run).toContain(grant);
+  });
+
+  it('builds the pinned unified Cloud Hypervisor enclave compiler before scanning', () => {
+    const steps = jobs('supply-chain-scan.yml').scan.steps;
+    const checkout = steps.findIndex((step) => step.with?.repository === 'github/gh-aw');
+    const install = steps.findIndex((step) => step.name === 'Install enclave-compatible gh-aw');
+    const compile = steps.findIndex((step) => step.run === 'gh aw compile --syft .github/workflows/*.md');
+    expect(checkout).toBeGreaterThanOrEqual(0);
+    expect(install).toBeGreaterThan(checkout);
+    expect(compile).toBeGreaterThan(install);
+    expect(steps[checkout].uses).toMatch(/^actions\/checkout@[a-f0-9]{40}$/);
+    expect(steps[checkout].with).toEqual({
+      repository: 'github/gh-aw',
+      ref: 'c16656ef90fa17dfe6e91fa8fb3d11f54632a74d',
+      path: '.tmp/gh-aw-compiler',
+      'persist-credentials': false,
+    });
+    expect(steps[install].run).toContain('-C .tmp/gh-aw-compiler');
+    expect(steps[install].run).toContain('-ldflags="-X main.version=v0.91.8 -X main.isRelease=true"');
+    for (const index of [checkout, install, compile]) {
+      expect(steps[index].if).toBeUndefined();
+      expect(steps[index]['continue-on-error']).toBeUndefined();
+    }
   });
 });
 

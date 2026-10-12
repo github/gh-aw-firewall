@@ -60,11 +60,12 @@ jobs:
       - name: Configure Docker Hub cache
         run: bash scripts/ci/configure-docker-mirror.sh
 
-      - name: Checkout gh-aw v0.91.7 compiler
+      # v0.91.8 supports Cloud Hypervisor primaries with script enclaves.
+      - name: Checkout gh-aw v0.91.8 compiler
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: github/gh-aw
-          ref: 9d0a5a0453b09ac1e6dcd22dc5ee124803323faa
+          ref: c16656ef90fa17dfe6e91fa8fb3d11f54632a74d
           path: .tmp/gh-aw-compiler
           persist-credentials: false
 
@@ -79,7 +80,7 @@ jobs:
           mkdir -p "$HOME/.local/share/gh/extensions/gh-aw"
           go build \
             -C .tmp/gh-aw-compiler \
-            -ldflags="-X main.version=v0.91.7 -X main.isRelease=true" \
+            -ldflags="-X main.version=v0.91.8 -X main.isRelease=true" \
             -o "$HOME/.local/share/gh/extensions/gh-aw/gh-aw" \
             ./cmd/gh-aw
           rm -rf .tmp/gh-aw-compiler
