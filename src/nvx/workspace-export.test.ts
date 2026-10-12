@@ -2,6 +2,8 @@ import { promises as fs } from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import {
+  NVX_GUEST_HOME,
+  NVX_GUEST_HOME_SEED,
   NVX_GUEST_WORKSPACE,
   resolveNvxExports,
   validateNvxExports,
@@ -142,6 +144,14 @@ describe('validateNvxExports', () => {
     expect(() => validateNvxExports([
       workspaceExport(),
       workspaceExport({ tag: 'home-config', source: '/cache', target: '/home/awf/.config' }),
+    ])).toThrow(/collides with an AWF-owned guest path/);
+    expect(() => validateNvxExports([
+      workspaceExport(),
+      workspaceExport({ tag: 'writable-home', source: '/cache', target: NVX_GUEST_HOME }),
+    ])).toThrow(/collides with an AWF-owned guest path/);
+    expect(() => validateNvxExports([
+      workspaceExport(),
+      workspaceExport({ tag: 'home-seed', source: '/cache', target: NVX_GUEST_HOME_SEED }),
     ])).toThrow(/collides with an AWF-owned guest path/);
     expect(() => validateNvxExports([
       workspaceExport(),

@@ -5,7 +5,7 @@ import {
   HOME_FORBIDDEN_SUBDIRS,
   HOME_TOOL_PATHS,
 } from '../config/mount-policy';
-import { NVX_GUEST_HOME, NVX_GUEST_RUN_SCRIPT } from './workspace-export';
+import { NVX_GUEST_HOME_SEED, NVX_GUEST_RUN_SCRIPT } from './workspace-export';
 
 const EXCLUDED_RELATIVE_PATHS = [
   ...CREDENTIAL_ENTRIES.map(({ path: entryPath }) => normalizeRelative(entryPath)),
@@ -65,7 +65,7 @@ export class NvxGuestConfigLayer {
   }
 
   private async stageGuestHome(): Promise<void> {
-    const guestHome = path.join(this.layerSourcePath, NVX_GUEST_HOME.slice(1));
+    const guestHome = path.join(this.layerSourcePath, NVX_GUEST_HOME_SEED.slice(1));
     await fs.mkdir(guestHome, { recursive: true, mode: 0o700 });
     await this.chown(guestHome, this.config.uid, this.config.gid);
     if (!this.config.homePath) return;

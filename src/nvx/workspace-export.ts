@@ -13,10 +13,14 @@ import {
  */
 export const NVX_GUEST_WORKSPACE = '/workspace';
 /**
- * Guest `$HOME`. Deliberately outside the workspace export so AWF-owned home
- * state is never mixed into the user's live workspace share.
+ * Writable guest `$HOME`, backed by the per-run scratch filesystem.
  */
-export const NVX_GUEST_HOME = '/home/awf';
+export const NVX_GUEST_HOME = '/tmp/awf-home';
+/**
+ * Immutable seed for allowed host tool state. The guest entrypoint copies this
+ * into {@link NVX_GUEST_HOME} before the workload starts.
+ */
+export const NVX_GUEST_HOME_SEED = '/home/awf';
 /** Guest path of the AWF-generated per-run entrypoint script. */
 export const NVX_GUEST_RUN_SCRIPT = '/etc/awf/nvx-run.sh';
 export { NVX_DEFAULT_MOUNT_POLICY, NVX_MOUNT_POLICIES, type NvxMountPolicy };
@@ -155,7 +159,12 @@ export function validateNvxExports(entries: readonly NvxDirectoryExport[]): void
 }
 
 function isReservedGuestTarget(target: string): boolean {
-  const reserved = [path.dirname(NVX_GUEST_RUN_SCRIPT), NVX_GUEST_RUN_SCRIPT, NVX_GUEST_HOME];
+  const reserved = [
+    path.dirname(NVX_GUEST_RUN_SCRIPT),
+    NVX_GUEST_RUN_SCRIPT,
+    NVX_GUEST_HOME,
+    NVX_GUEST_HOME_SEED,
+  ];
   return reserved.some((entry) => isWithin(target, entry) || isWithin(entry, target));
 }
 
