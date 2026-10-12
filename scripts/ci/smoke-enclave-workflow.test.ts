@@ -30,24 +30,26 @@ describe('experimental Cloud Hypervisor enclave smoke workflow', () => {
   });
 
   it('selects the same Cloud Hypervisor backend for the primary and static script enclave', () => {
-    expect(source).toContain('version: v0.28.51\n    runtime: cloud-hypervisor');
+    expect(source).toContain('version: v0.28.52\n    runtime: cloud-hypervisor');
     expect(source).toContain('runtime: cloud-hypervisor');
     expect(lock).toContain('\\"runtime\\":\\"cloud-hypervisor\\"');
     expect(lock).toContain('--container-runtime cloud-hypervisor');
     expect(lock).not.toContain('--container-runtime docker');
     expect(lock).toContain('\\"cloudHypervisor\\":{\\"previewEnabled\\":true');
     expect(lock).toContain('--exclude-env AWF_CLOUD_HYPERVISOR_ENCLAVE_SCRIPT_ROOTFS');
-    expect(lock).toContain('"compiler_version":"v0.91.8"');
+    expect(lock).toContain('"compiler_version":"v0.91.9"');
   });
 
   it('pins the published AWF and its attested artifacts to the same release', () => {
-    expect(lock).toContain('install_awf_binary.sh" v0.28.51');
-    expect(lock).toContain('GH_AW_AWF_VERSION: v0.28.51');
+    expect(lock).toContain('install_awf_binary.sh" v0.28.52');
+    expect(lock).toContain('GH_AW_AWF_VERSION: v0.28.52');
     expect(lock).toContain('Download and verify cloud-hypervisor enclave artifacts');
     expect(lock).toContain('cloud_hypervisor_setup_enclave_artifacts.sh');
     expect(lock).not.toContain('Install awf binary (local)');
     expect(lock).not.toContain('--build-local');
-    expect(source).toContain('Do not dispatch until a published AWF');
+    expect(source).toContain('Do not dispatch this update yet');
+    expect(source).toContain('to equal the verified artifact release tag');
+    expect(source).toContain('Do not retag v0.28.52 or bypass the acceptance gate.');
   });
 
   it('uses one real gateway with late enclave discovery and host authentication', () => {
@@ -65,14 +67,39 @@ describe('experimental Cloud Hypervisor enclave smoke workflow', () => {
 
   it('sets up release-matched primary and script-role artifacts', () => {
     expect(lock).toContain('cloud_hypervisor_setup_bundle.sh');
-    expect(lock).toContain('GH_AW_AWF_VERSION: v0.28.51');
+    expect(lock).toContain('GH_AW_AWF_VERSION: v0.28.52');
     expect(lock).toContain('cloud_hypervisor_setup_enclave_artifacts.sh');
     expect(lock).toContain(
       'GH_AW_AWF_VERSION: ${{ steps.cloud-hypervisor-bundle.outputs.release_tag }}'
     );
-    expect(lock).toContain('ghcr.io/github/gh-aw-firewall/enclave-script:0.28.51');
-    expect(lock).toContain('ghcr.io/github/gh-aw-firewall/enclave-mcp-server:0.28.51');
+    expect(lock).toContain('ghcr.io/github/gh-aw-firewall/enclave-script:0.28.52');
+    expect(lock).toContain('ghcr.io/github/gh-aw-firewall/enclave-mcp-server:0.28.52');
     expect(lock).toContain('AWF_CLOUD_HYPERVISOR_ENCLAVE_SCRIPT_ROOTFS');
+  });
+
+  it('keeps every first-party image digest pinned to the binary release', () => {
+    const manifestLine = lock.split('\n').find(line => line.startsWith('# gh-aw-manifest: '));
+    if (!manifestLine) {
+      throw new Error('Missing compiled workflow manifest');
+    }
+    const manifest = JSON.parse(manifestLine.slice('# gh-aw-manifest: '.length)) as {
+      containers: Array<{ image: string; pinned_image: string }>;
+    };
+    const awfImages = manifest.containers.filter(container =>
+      container.image.startsWith('ghcr.io/github/gh-aw-firewall/')
+    );
+    expect(awfImages.map(container => container.image.split('/').pop()).sort()).toEqual([
+      'agent:0.28.52', 'api-proxy:0.28.52', 'enclave-mcp-server:0.28.52',
+      'enclave-script:0.28.52', 'squid:0.28.52',
+    ]);
+    for (const container of awfImages) {
+      expect(container.pinned_image).toMatch(
+        new RegExp(`^${container.image.replace(/\./g, '\\.')}@sha256:[a-f0-9]{64}$`)
+      );
+      expect(lock).toContain(container.pinned_image);
+    }
+    expect(lock).toContain('\\"imageTag\\":\\"0.28.52,');
+    expect(lock).not.toContain('0.28.51');
   });
 
   it('requires an audited invocation and exact successful output', () => {

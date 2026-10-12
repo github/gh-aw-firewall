@@ -39,7 +39,7 @@ timeout-minutes: 20
 sandbox:
   agent:
     id: awf
-    version: v0.28.51
+    version: v0.28.52
     runtime: cloud-hypervisor
 strict: false
 concurrency:
@@ -84,12 +84,10 @@ single-use Cloud Hypervisor script enclave through the real compiler-launched
 MCP Gateway. The primary and every enclave invocation must use separate VMs;
 no Docker enclave fallback is permitted.
 
-The v0.28.51 published AWF release contains the unified lifecycle integration
-but still rejects this combination. Do not dispatch until a published AWF
-release includes the narrowly scoped tagged-workflow acceptance path added
-alongside this workflow, and update this pin so the binary and release-attested
-Cloud Hypervisor artifacts match. This PR does not publish a release or
-authorize a live run.
+The v0.28.52 published AWF release includes the narrowly scoped tagged-workflow
+acceptance path. The binary, Docker images, and release-attested primary and
+script enclave artifacts all select that release. This workflow is compiled
+with gh-aw v0.91.9 and does not publish a release or authorize a live run.
 
 Use `enclave_run_script` exactly once for `github/gh-aw-firewall`.
 Do not use the current checkout, bash, GitHub tools, or network requests to answer.
@@ -131,10 +129,18 @@ On any failure, call `safeoutputs missing_data`; never report failure via `noop`
 
 ## Usage
 
-After the AWF release dependency above is satisfied, dispatch with
-`gh aw run smoke-enclave-cloud-hypervisor --ref <published-tag>`. The tag must
-contain this compiled workflow; branch dispatches are rejected by the AWF
-acceptance gate.
+Do not dispatch this update yet: the immutable v0.28.52 tag contains the older
+v0.28.51 workflow pin, not this recompiled workflow. Merging this update does
+not change that tag. The acceptance gate requires the workflow execution tag
+to equal the verified artifact release tag; branch dispatches and a newer
+workflow tag paired with v0.28.52 artifacts are rejected.
+
+A future published release must contain this workflow with binary, images,
+and attested artifacts pinned to that same release, recompiled and
+post-processed before tagging. After that release and separate live-run
+authorization, dispatch with
+`gh aw run smoke-enclave-cloud-hypervisor --ref <published-tag>`.
+Do not retag v0.28.52 or bypass the acceptance gate.
 The runner must be GitHub-hosted Ubuntu x86_64 with KVM. Use the real mcpg and
 AWF artifacts captured by the compiled workflow to investigate failures; this
 test does not use the standalone probe's mock gateway.
