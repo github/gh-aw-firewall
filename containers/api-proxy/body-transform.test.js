@@ -13,38 +13,64 @@ describe('injectStreamOptions', () => {
   describe('injectSteeringMessage for Responses requests', () => {
     const warning = '[AWF AI CREDIT WARNING] Use the remaining budget carefully.';
 
-    test('appends to instructions without changing input or tool history', () => {
-      const input = [
-        { role: 'user', content: [{ type: 'input_text', text: 'Continue the task.' }] },
-        { type: 'function_call', call_id: 'call-1', name: 'read_file', arguments: '{}' },
-        { type: 'function_call_output', call_id: 'call-1', output: 'file contents' },
-      ];
-      const body = Buffer.from(JSON.stringify({
-        model: 'gpt-5-mini',
+    test.each([
+      ['tool loop ending in a function result', {
         instructions: 'Keep working carefully.',
-        input,
+        input: [
+          { role: 'user', content: [{ type: 'input_text', text: 'Continue the task.' }] },
+          { type: 'reasoning', id: 'reasoning-1', summary: [] },
+          { type: 'function_call', call_id: 'call-1', name: 'read_file', arguments: '{}' },
+          { type: 'function_call_output', call_id: 'call-1', output: 'file contents' },
+        ],
+      }],
+      ['input ending in a user message', {
+        instructions: 'Keep working carefully.',
+        input: [{ role: 'user', content: 'Continue the task.' }],
+      }],
+      ['no instructions', { input: [{ role: 'user', content: 'Continue the task.' }] }],
+      ['string input', { instructions: 'Keep working carefully.', input: 'Continue the task.' }],
+      ['empty input', { input: [] }],
+    ])('appends one final developer notice preserving the prefix for %s', (_name, request) => {
+      const original = {
+        model: 'gpt-5-mini',
+        ...request,
+        tools: [{ type: 'function', name: 'read_file', parameters: { type: 'object' } }],
+        prompt_cache_key: 'stable-cache-key',
         stream: true,
-      }));
+      };
+      const body = Buffer.from(JSON.stringify(original));
+      const input = typeof original.input === 'string'
+        ? [{ role: 'user', content: original.input }]
+        : original.input;
+      const baseline = JSON.stringify({ ...original, input });
+      const prefixEnd = baseline.indexOf(JSON.stringify(input)) + JSON.stringify(input).length - 1;
 
-      const result = injectSteeringMessage(body, 'openai', warning, '/v1/responses');
+      const result = injectSteeringMessage(body, 'copilot', warning, '/v1/responses');
 
       expect(result).not.toBeNull();
-      expect(JSON.parse(result.toString())).toEqual({
-        model: 'gpt-5-mini',
-        instructions: `Keep working carefully.\n\n${warning}`,
-        input,
-        stream: true,
-      });
+      expect(result.subarray(0, Buffer.byteLength(baseline.slice(0, prefixEnd))))
+        .toEqual(Buffer.from(baseline.slice(0, prefixEnd)));
+      const parsed = JSON.parse(result.toString());
+      expect(parsed.input).toHaveLength(input.length + 1);
+      expect(parsed.input.pop()).toEqual({ type: 'message', role: 'developer', content: warning });
+      expect(JSON.stringify(parsed)).toBe(baseline);
+      if (typeof original.input === 'string') parsed.input = original.input;
+      expect(Buffer.from(JSON.stringify(parsed))).toEqual(body);
     });
 
-    test('sets instructions for Responses requests without existing instructions', () => {
-      const body = Buffer.from(JSON.stringify({ input: 'Continue the task.' }));
+    test('also appends a notice for Responses body shapes on unrecognized paths', () => {
+      const result = injectSteeringMessage(
+        Buffer.from(JSON.stringify({ input: 'Continue the task.' })),
+        'openai',
+        warning,
+        '/unknown',
+      );
 
-      const result = injectSteeringMessage(body, 'copilot', warning, '/responses');
-
-      expect(JSON.parse(result.toString())).toMatchObject({
-        input: 'Continue the task.',
-        instructions: warning,
+      expect(JSON.parse(result.toString())).toEqual({
+        input: [
+          { role: 'user', content: 'Continue the task.' },
+          { type: 'message', role: 'developer', content: warning },
+        ],
       });
     });
 

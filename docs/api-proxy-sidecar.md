@@ -1307,7 +1307,7 @@ Injection is protocol-aware and preserves caller content and tool exchanges:
 | Request format | Injection mechanism |
 |---------------|---------------------|
 | OpenAI / Copilot Chat Completions | Inserts a `system` message after existing system messages |
-| OpenAI / Copilot Responses | Appends to `instructions`, preserving `input`, tool history, and stream fields |
+| OpenAI / Copilot Responses | Appends one final `developer` message item to `input` after all existing items, preserving `instructions`, tools, existing input/tool history, and stream fields for prompt-cache reuse; string input becomes a user message followed by the notice |
 | Anthropic / Copilot Messages | Appends a text block to `system` |
 | Gemini | Appends a text part to `systemInstruction.parts` |
 

@@ -1282,7 +1282,7 @@ AI-credit budget and allotted run time, respectively.
 **Provider-specific injection rules:**
 
 - **OpenAI / Copilot Chat Completions** — the proxy inserts a `{ "role": "system", "content": "<message>" }` entry into the `messages` array immediately after any pre-existing system messages.
-- **OpenAI / Copilot Responses** — the proxy appends the notice to `instructions`, preserving existing instructions, `input`, tool calls/results, and streaming fields.
+- **OpenAI / Copilot Responses** — the proxy appends one final `developer` message item to `input`, after all existing items (including tool results), leaving `instructions`, tools, existing input items, and streaming fields unchanged to preserve the prompt-cache prefix. A string `input` becomes a single user message followed by the notice. The notice is one-shot and is not added to later requests; when translated to Chat Completions, it remains the final message and the leading system message from `instructions` is unchanged.
 - **Anthropic** — the proxy appends the warning to the `system` field: if `system` is a string it is concatenated (separated by `\n\n`); if `system` is an array of content blocks a `{ "type": "text", "text": "<message>" }` block is appended; if `system` is absent it is created as the warning string.
 - **Gemini** — the proxy appends a `{ "text": "<message>" }` part to `systemInstruction.parts`; if `systemInstruction` is absent it is created.
 

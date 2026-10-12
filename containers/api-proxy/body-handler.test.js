@@ -8,6 +8,7 @@ const {
 const {
   resetTimeoutSteeringForTests,
 } = require('./guards/timeout-steering');
+const { replaceRuntimeModels, clearRuntimeModels } = require('./runtime-model-catalog');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
@@ -89,7 +90,7 @@ describe('transformRequestBody Codex custom-tool translation routing', () => {
               { type: 'function_call_output', call_id: 'call-1', output: 'contents' },
             ],
           },
-          getWarning: parsed => parsed.instructions,
+          getWarning: parsed => parsed.input.at(-1).content,
         },
         {
           provider: 'anthropic',
@@ -113,9 +114,17 @@ describe('transformRequestBody Codex custom-tool translation routing', () => {
 
       for (const [index, testCase] of cases.entries()) {
         resetAiCreditsGuardForTests();
+        const body = Buffer.from(JSON.stringify(testCase.body));
+        const baseline = await transformRequestBody(
+          body,
+          testCase.provider,
+          { method: 'POST', url: testCase.url },
+          `baseline-${index}`,
+          null,
+        );
         createCreditWarning();
         const result = await transformRequestBody(
-          Buffer.from(JSON.stringify(testCase.body)),
+          body,
           testCase.provider,
           { method: 'POST', url: testCase.url },
           `request-${index}`,
@@ -127,7 +136,26 @@ describe('transformRequestBody Codex custom-tool translation routing', () => {
         expect(JSON.stringify(parsed)).toContain('Caller instructions.');
         expect(getPendingAiCreditSteeringWarning()).toBeNull();
         if (testCase.url === '/v1/responses') {
-          expect(parsed.input).toEqual(testCase.body.input);
+          const prefixEnd = baseline.body.indexOf(Buffer.from(JSON.stringify(testCase.body.input)))
+            + Buffer.byteLength(JSON.stringify(testCase.body.input)) - 1;
+          expect(result.body.subarray(0, prefixEnd)).toEqual(baseline.body.subarray(0, prefixEnd));
+          expect(parsed.input).toHaveLength(testCase.body.input.length + 1);
+          expect(parsed.input.pop()).toEqual({
+            type: 'message',
+            role: 'developer',
+            content: expect.stringContaining(warningPrefix),
+          });
+          expect(Buffer.from(JSON.stringify(parsed))).toEqual(baseline.body);
+          expect(result.steering).toEqual({ type: 'ai_credit', threshold: 80 });
+          const later = await transformRequestBody(
+            body,
+            testCase.provider,
+            { method: 'POST', url: testCase.url },
+            `later-${index}`,
+            null,
+          );
+          expect(later.body).toEqual(baseline.body);
+          expect(later.steering).toBeNull();
         }
       }
     });
@@ -153,6 +181,43 @@ describe('transformRequestBody Codex custom-tool translation routing', () => {
       );
       expect(json(classifier.body)).toEqual({ input: 'Classify this request.' });
       expect(getPendingAiCreditSteeringWarning().threshold).toBe(80);
+    });
+
+    test('keeps steering last and instructions unchanged when translating Responses to Chat', async () => {
+      replaceRuntimeModels('copilot', [{
+        id: 'chat-only',
+        supportedEndpoints: ['/chat/completions'],
+      }]);
+      const body = Buffer.from(JSON.stringify({
+        model: 'chat-only',
+        instructions: 'Caller instructions.',
+        input: [
+          { role: 'user', content: 'Continue.' },
+          { type: 'function_call', call_id: 'call-1', name: 'read_file', arguments: '{}' },
+          { type: 'function_call_output', call_id: 'call-1', output: 'contents' },
+        ],
+      }));
+      const req = { method: 'POST', url: '/v1/responses' };
+
+      try {
+        const baseline = await transformRequestBody(body, 'copilot', req, 'chat-baseline', null);
+        createCreditWarning();
+        const result = await transformRequestBody(body, 'copilot', req, 'chat-steered', null);
+        const parsed = json(result.body);
+
+        expect(result.wireApiCompatibility.direction).toBe('responses_to_chat');
+        expect(parsed.messages).toHaveLength(json(baseline.body).messages.length + 1);
+        expect(parsed.messages[0]).toEqual({ role: 'system', content: 'Caller instructions.' });
+        expect(parsed.messages.pop()).toEqual({
+          role: 'developer',
+          content: expect.stringContaining(warningPrefix),
+        });
+        expect(Buffer.from(JSON.stringify(parsed))).toEqual(baseline.body);
+        expect(result.steering).toEqual({ type: 'ai_credit', threshold: 80 });
+        expect(getPendingAiCreditSteeringWarning()).toBeNull();
+      } finally {
+        clearRuntimeModels();
+      }
     });
 
     test('delivers AI-credit warnings at each configured threshold on later eligible requests', async () => {

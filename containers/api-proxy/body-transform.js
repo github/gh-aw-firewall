@@ -81,7 +81,8 @@ function isResponsesRequest(requestPath) {
  *   - Gemini     (/v1beta/…generateContent) — appends a part to `systemInstruction`
  *   - OpenAI     (/v1/chat/completions)  — inserts a system message after any
  *                                           existing system messages
- *   - Responses  (/v1/responses)         — appends to `instructions`
+ *   - Responses  (/v1/responses)         — appends a final developer message to
+ *                                           `input`, preserving the cached prefix
  *
  * Returns a new Buffer containing the modified body, or null when the body
  * cannot be parsed or injection is not applicable.
@@ -126,10 +127,10 @@ function injectSteeringMessage(body, provider, message, requestPath = '') {
   ) {
     if (typeof parsed.input !== 'string' && !Array.isArray(parsed.input)) return null;
     if (parsed.instructions !== undefined && typeof parsed.instructions !== 'string') return null;
-    const instructions = typeof parsed.instructions === 'string'
-      ? `${parsed.instructions}\n\n${message}`
-      : message;
-    parsed = { ...parsed, instructions };
+    const input = typeof parsed.input === 'string'
+      ? [{ role: 'user', content: parsed.input }]
+      : parsed.input;
+    parsed = { ...parsed, input: [...input, { type: 'message', role: 'developer', content: message }] };
   } else {
     if (!Array.isArray(parsed.messages)) return null;
     const systemMsg = { role: 'system', content: message };

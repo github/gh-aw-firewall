@@ -317,6 +317,19 @@ describe('token steering — getAndClearPendingSteeringMessage and injectSteerin
       return writtenBody;
     };
 
+    const input = [
+      { role: 'user', content: 'Continue.' },
+      { type: 'function_call', call_id: 'call-1', name: 'explore', arguments: '{}' },
+      { type: 'function_call_output', call_id: 'call-1', output: 'Research complete.' },
+    ];
+    const requestBody = {
+      instructions: 'Keep working on the task.',
+      input,
+      stream: true,
+    };
+    const baseline = await sendRequest('credit-baseline', requestBody, null);
+    const baselineBuffer = cycles.at(-1).upstreamReq.write.mock.calls[0][0];
+
     await sendRequest(
       'credit-crossing-80',
       { input: 'Count usage.' },
@@ -331,11 +344,6 @@ describe('token steering — getAndClearPendingSteeringMessage and injectSteerin
     );
     expect(classifier).toEqual({ input: 'Classify this request.' });
 
-    const input = [
-      { role: 'user', content: 'Continue.' },
-      { type: 'function_call', call_id: 'call-1', name: 'explore', arguments: '{}' },
-      { type: 'function_call_output', call_id: 'call-1', output: 'Research complete.' },
-    ];
     const delivered = [];
     for (const [threshold, inputTokens] of [
       [80, 4_000_000],
@@ -344,25 +352,29 @@ describe('token steering — getAndClearPendingSteeringMessage and injectSteerin
       [99, 0],
     ]) {
       const requestId = `credit-delivery-${threshold}`;
-      const requestBody = {
-        instructions: 'Keep working on the task.',
-        input,
-        stream: true,
-      };
       const writtenBody = await sendRequest(
         requestId,
         requestBody,
         { input_tokens: inputTokens, output_tokens: 0 },
       );
 
-      expect(writtenBody.instructions).toContain('Keep working on the task.');
-      expect(writtenBody.instructions).toContain(`[AWF AI CREDIT WARNING] You have used ${threshold}%`);
-      expect(writtenBody.instructions).not.toContain('[AWF TIME WARNING]');
-      expect(writtenBody.input).toEqual(input);
-      expect(writtenBody.stream).toBe(true);
+      const writtenBuffer = cycles.at(-1).upstreamReq.write.mock.calls[0][0];
+      const prefixEnd = baselineBuffer.indexOf(Buffer.from(JSON.stringify(input)))
+        + Buffer.byteLength(JSON.stringify(input)) - 1;
+      expect(writtenBuffer.subarray(0, prefixEnd)).toEqual(baselineBuffer.subarray(0, prefixEnd));
+      expect(writtenBody.input).toHaveLength(input.length + 1);
+      const notice = writtenBody.input.pop();
+      expect(notice).toEqual({
+        type: 'message',
+        role: 'developer',
+        content: expect.stringContaining(`[AWF AI CREDIT WARNING] You have used ${threshold}%`),
+      });
+      expect(notice.content).not.toContain('[AWF TIME WARNING]');
+      expect(Buffer.from(JSON.stringify(writtenBody))).toEqual(baselineBuffer);
       delivered.push(requestId);
     }
 
+    expect(await sendRequest('credit-after-notices', requestBody, null)).toEqual(baseline);
     expect(getAndClearPendingTimeoutSteeringMessage()).toBeNull();
     await closeTokenUsageLog();
     const tokenRecords = fs.readFileSync(path.join(tokenLogDir, 'token-usage.jsonl'), 'utf8')
