@@ -47,7 +47,6 @@ network:
 tools:
   bash:
     - "*"
-  github:
 safe-outputs:
     threat-detection:
       enabled: false
@@ -116,4 +115,4 @@ Interpret results:
 
 ## Output
 
-Post a brief comment (max 5-10 lines) summarizing which checks succeeded (✅) and which failed (❌), plus overall PASS or FAIL. If every check succeeded, also apply the `smoke-services` label.
+Use the `item_number` from the triggering event (for pull requests, `${{ github.event.pull_request.number }}`); never guess a target from schedule or workflow metadata. Call `add_comment` exactly once with a brief comment (max 5-10 lines) summarizing which checks succeeded (✅) and which failed (❌), plus overall PASS or FAIL. If every check succeeded, call `add_labels` after `add_comment` to apply the `smoke-services` label. Do not call `noop`.
