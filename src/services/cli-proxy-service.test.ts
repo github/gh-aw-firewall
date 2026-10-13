@@ -306,7 +306,7 @@ describe('CLI proxy sidecar (external DIFC proxy)', () => {
         expect(dependsOn['cli-proxy-mcpg']).toBeUndefined();
       });
 
-      it('should pass GH_TOKEN to cli-proxy environment when available', () => {
+      it('should use a non-secret placeholder instead of GH_TOKEN', () => {
         const originalGhToken = process.env.GH_TOKEN;
         try {
           process.env.GH_TOKEN = 'ghp_cli_proxy_test_token';
@@ -314,7 +314,8 @@ describe('CLI proxy sidecar (external DIFC proxy)', () => {
           const result = generateDockerCompose(configWithCliProxy, mockNetworkConfigWithCliProxy);
           const proxy = result.services['cli-proxy'];
           const env = proxy.environment as Record<string, string>;
-          expect(env.GH_TOKEN).toBe('ghp_cli_proxy_test_token');
+          expect(env.GH_TOKEN).toBe('awf-cli-proxy-placeholder');
+          expect(JSON.stringify(proxy)).not.toContain('ghp_cli_proxy_test_token');
         } finally {
           if (originalGhToken !== undefined) {
             process.env.GH_TOKEN = originalGhToken;
@@ -324,7 +325,7 @@ describe('CLI proxy sidecar (external DIFC proxy)', () => {
         }
       });
 
-      it('should fall back to GITHUB_TOKEN for cli-proxy when GH_TOKEN is absent', () => {
+      it('should not copy GITHUB_TOKEN into cli-proxy when GH_TOKEN is absent', () => {
         const originalGhToken = process.env.GH_TOKEN;
         const originalGithubToken = process.env.GITHUB_TOKEN;
         try {
@@ -334,7 +335,8 @@ describe('CLI proxy sidecar (external DIFC proxy)', () => {
           const result = generateDockerCompose(configWithCliProxy, mockNetworkConfigWithCliProxy);
           const proxy = result.services['cli-proxy'];
           const env = proxy.environment as Record<string, string>;
-          expect(env.GH_TOKEN).toBe('ghp_github_token_fallback');
+          expect(env.GH_TOKEN).toBe('awf-cli-proxy-placeholder');
+          expect(JSON.stringify(proxy)).not.toContain('ghp_github_token_fallback');
         } finally {
           if (originalGhToken !== undefined) {
             process.env.GH_TOKEN = originalGhToken;
@@ -349,7 +351,7 @@ describe('CLI proxy sidecar (external DIFC proxy)', () => {
         }
       });
 
-      it('should not set GH_TOKEN in cli-proxy when neither GH_TOKEN nor GITHUB_TOKEN is set', () => {
+      it('should use the placeholder when no ambient GitHub token is set', () => {
         const originalGhToken = process.env.GH_TOKEN;
         const originalGithubToken = process.env.GITHUB_TOKEN;
         try {
@@ -359,7 +361,7 @@ describe('CLI proxy sidecar (external DIFC proxy)', () => {
           const result = generateDockerCompose(configWithCliProxy, mockNetworkConfigWithCliProxy);
           const proxy = result.services['cli-proxy'];
           const env = proxy.environment as Record<string, string>;
-          expect(env.GH_TOKEN).toBeUndefined();
+          expect(env.GH_TOKEN).toBe('awf-cli-proxy-placeholder');
         } finally {
           if (originalGhToken !== undefined) {
             process.env.GH_TOKEN = originalGhToken;

@@ -2,49 +2,90 @@
 /**
  * Tests for cli-proxy server.js
  *
- * Write control is now handled by the external DIFC guard policy.
- * The server only enforces meta-command denial (auth, config, extension).
+ * Write control is handled by the external DIFC guard policy.
+ * The server confines request shape, subprocess environment, and local helpers.
  */
 
+const http = require('http');
 const {
   validateArgs,
   validateEnclaveArgs,
   summarizeEnclaveArgs,
   extractInvocationCapability,
   ALWAYS_DENIED_SUBCOMMANDS,
-  PROTECTED_ENV_KEYS,
+  DENIED_COMMAND_PATHS,
+  CHILD_ENV_KEYS,
+  FORCED_CHILD_ENV,
+  validateExecRequest,
   buildExecEnv,
 } = require('./security');
 const { runGhCommand } = require('./gh-runner');
+const { requestHandler } = require('./server');
 
-describe('PROTECTED_ENV_KEYS', () => {
-  it('should protect GH_HOST from agent override', () => {
-    expect(PROTECTED_ENV_KEYS.has('GH_HOST')).toBe(true);
+function postExec(payload) {
+  return new Promise((resolve, reject) => {
+    const server = http.createServer((req, res) => {
+      requestHandler(req, res).catch(reject);
+    });
+    server.listen(0, '127.0.0.1', () => {
+      const address = server.address();
+      const body = JSON.stringify(payload);
+      const request = http.request({
+        host: '127.0.0.1',
+        port: address.port,
+        path: '/exec',
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'content-length': Buffer.byteLength(body),
+        },
+      }, (response) => {
+        const chunks = [];
+        response.on('data', (chunk) => chunks.push(chunk));
+        response.on('end', () => {
+          server.close(() => resolve({
+            statusCode: response.statusCode,
+            body: JSON.parse(Buffer.concat(chunks).toString('utf8')),
+          }));
+        });
+      });
+      request.on('error', reject);
+      request.end(body);
+    });
+  });
+}
+
+describe('POST /exec request boundary', () => {
+  it('rejects caller-controlled environment variables before executing gh', async () => {
+    const response = await postExec({
+      args: ['browse', '--repo', 'owner/repo'],
+      env: { GH_BROWSER: '/bin/sh -c printenv GH_TOKEN' },
+    });
+
+    expect(response).toEqual({
+      statusCode: 400,
+      body: { error: 'Request contains an unsupported field' },
+    });
+  });
+});
+
+describe('validateExecRequest', () => {
+  it('allows only args and optional stdin', () => {
+    expect(validateExecRequest({ args: ['pr', 'list'], stdin: '' }, false)).toEqual({ valid: true });
   });
 
-  it('should protect GH_TOKEN from agent override', () => {
-    expect(PROTECTED_ENV_KEYS.has('GH_TOKEN')).toBe(true);
+  it.each(['env', 'cwd', 'unexpected'])('rejects the unsupported %s field', (field) => {
+    const result = validateExecRequest({ args: ['pr', 'list'], [field]: {} }, false);
+    expect(result.valid).toBe(false);
+    expect(result.error).toContain('unsupported field');
   });
 
-  it('should protect GITHUB_TOKEN from agent override', () => {
-    expect(PROTECTED_ENV_KEYS.has('GITHUB_TOKEN')).toBe(true);
+  it('rejects non-string stdin', () => {
+    expect(validateExecRequest({ args: ['api'], stdin: {} }, false).valid).toBe(false);
   });
 
-  it('should protect enterprise auth tokens from agent override', () => {
-    expect(PROTECTED_ENV_KEYS.has('GH_ENTERPRISE_TOKEN')).toBe(true);
-    expect(PROTECTED_ENV_KEYS.has('GITHUB_ENTERPRISE_TOKEN')).toBe(true);
-  });
-
-  it('should protect NODE_EXTRA_CA_CERTS from agent override', () => {
-    expect(PROTECTED_ENV_KEYS.has('NODE_EXTRA_CA_CERTS')).toBe(true);
-  });
-
-  it('should protect SSL_CERT_FILE from agent override (combined CA bundle for Go TLS)', () => {
-    expect(PROTECTED_ENV_KEYS.has('SSL_CERT_FILE')).toBe(true);
-  });
-
-  it('should protect GH_CONFIG_DIR from agent override (gh HTTP shim routing)', () => {
-    expect(PROTECTED_ENV_KEYS.has('GH_CONFIG_DIR')).toBe(true);
+  it('continues to reject stdin in enclave mode', () => {
+    expect(validateExecRequest({ args: ['api'], stdin: '' }, true).valid).toBe(false);
   });
 });
 
@@ -143,7 +184,7 @@ describe('validateArgs', () => {
           GH_HOST: 'awf-enclave-github-proxy:18443',
         };
         try {
-          const child = buildExecEnv({ GH_HOST: 'attacker.invalid' }, 'invocation-capability');
+          const child = buildExecEnv('invocation-capability');
           expect(child.GH_ENTERPRISE_TOKEN).toBe('invocation-capability');
           expect(child.GH_TOKEN).toBeUndefined();
           expect(child.GITHUB_TOKEN).toBeUndefined();
@@ -296,6 +337,35 @@ describe('validateArgs', () => {
       const result = validateArgs(['extension', 'install', 'owner/ext']);
       expect(result.valid).toBe(false);
     });
+
+    it('should deny browser helpers', () => {
+      expect(validateArgs(['browse']).valid).toBe(false);
+      expect(validateArgs(['pr', 'view', '--web']).valid).toBe(false);
+      expect(validateArgs(['pr', 'view', '--browser=/bin/sh']).valid).toBe(false);
+    });
+
+    it('should deny alternate hosts', () => {
+      expect(validateArgs(['api', '--hostname', 'attacker.invalid', '/user']).valid).toBe(false);
+      expect(validateArgs(['api', '--hostname=attacker.invalid', '/user']).valid).toBe(false);
+    });
+
+    it('should deny API endpoint forms that can change URL authority', () => {
+      expect(validateArgs(['api', '@attacker.invalid/proof']).valid).toBe(false);
+      expect(validateArgs(['api', '//attacker.invalid/proof']).valid).toBe(false);
+      expect(validateArgs(['api', 'https://attacker.invalid/proof']).valid).toBe(false);
+      expect(validateArgs(['api', 'repos/owner/repo']).valid).toBe(true);
+    });
+
+    it.each([...DENIED_COMMAND_PATHS])('should deny shim-bypassing command %s', (commandPath) => {
+      expect(validateArgs(commandPath.split(' ')).valid).toBe(false);
+    });
+
+    it('should permit file-valued fields only through stdin', () => {
+      expect(validateArgs(['api', '-F', 'body=@-']).valid).toBe(true);
+      expect(validateArgs(['api', '-F', 'body=@/proc/self/environ']).valid).toBe(false);
+      expect(validateArgs(['pr', 'create', '--body-file', '-']).valid).toBe(true);
+      expect(validateArgs(['pr', 'create', '--body-file', '/proc/self/environ']).valid).toBe(false);
+    });
   });
 
   describe('allowlist completeness', () => {
@@ -309,81 +379,43 @@ describe('buildExecEnv', () => {
   const originalEnv = process.env;
 
   beforeEach(() => {
-    process.env = { ...originalEnv, GH_HOST: 'github.com', GH_TOKEN: 'secret-token', GITHUB_TOKEN: 'secret-github-token', NODE_EXTRA_CA_CERTS: '/certs/ca.crt', SSL_CERT_FILE: '/certs/ssl.crt', GIT_SSL_CAINFO: '/certs/git.crt', EXISTING_VAR: 'existing' };
+    process.env = {
+      ...originalEnv,
+      GH_HOST: 'github.com',
+      GH_TOKEN: 'secret-token',
+      GITHUB_TOKEN: 'secret-github-token',
+      NODE_EXTRA_CA_CERTS: '/certs/ca.crt',
+      SSL_CERT_FILE: '/certs/ssl.crt',
+      GIT_SSL_CAINFO: '/certs/git.crt',
+      GH_BROWSER: '/bin/sh -c printenv GH_TOKEN',
+      EXISTING_VAR: 'existing',
+    };
   });
 
   afterEach(() => {
     process.env = originalEnv;
   });
 
-  it('should inherit server environment variables', () => {
-    const env = buildExecEnv(null);
-    expect(env.EXISTING_VAR).toBe('existing');
-  });
-
-  it('should apply safe extra env vars', () => {
-    const env = buildExecEnv({ MY_VAR: 'my-value' });
-    expect(env.MY_VAR).toBe('my-value');
-  });
-
-  it('should not allow overriding GH_HOST', () => {
-    const env = buildExecEnv({ GH_HOST: 'evil.com' });
+  it('copies only explicitly allowed server environment variables', () => {
+    const env = buildExecEnv();
     expect(env.GH_HOST).toBe('github.com');
-  });
-
-  it('should not allow overriding GH_TOKEN', () => {
-    const env = buildExecEnv({ GH_TOKEN: 'stolen' });
     expect(env.GH_TOKEN).toBe('secret-token');
-  });
-
-  it('should not allow overriding GITHUB_TOKEN', () => {
-    const env = buildExecEnv({ GITHUB_TOKEN: 'stolen' });
     expect(env.GITHUB_TOKEN).toBe('secret-github-token');
-  });
-
-  it('should not allow overriding NODE_EXTRA_CA_CERTS', () => {
-    const env = buildExecEnv({ NODE_EXTRA_CA_CERTS: '/evil/ca.crt' });
     expect(env.NODE_EXTRA_CA_CERTS).toBe('/certs/ca.crt');
-  });
-
-  it('should not allow overriding SSL_CERT_FILE', () => {
-    const env = buildExecEnv({ SSL_CERT_FILE: '/evil/ssl.crt' });
     expect(env.SSL_CERT_FILE).toBe('/certs/ssl.crt');
-  });
-
-  it('should not allow overriding GIT_SSL_CAINFO', () => {
-    const env = buildExecEnv({ GIT_SSL_CAINFO: '/evil/git.crt' });
     expect(env.GIT_SSL_CAINFO).toBe('/certs/git.crt');
+    expect(env.EXISTING_VAR).toBeUndefined();
+    expect(CHILD_ENV_KEYS.has('EXISTING_VAR')).toBe(false);
   });
 
-  it('should ignore dangerous prototype keys from JSON payloads', () => {
-    const extraEnv = JSON.parse('{"__proto__":"polluted","constructor":"polluted","prototype":"polluted","MY_VAR":"ok"}');
-    const env = buildExecEnv(extraEnv);
-    expect(env.MY_VAR).toBe('ok');
-    expect(env.__proto__).toBe(Object.prototype);
-    expect(env.constructor).toBe(Object);
-    expect(env.prototype).toBeUndefined();
-    expect({}.polluted).toBeUndefined();
-  });
-
-  it('should silently skip non-string values', () => {
-    const env = buildExecEnv({ MY_VAR: 42 });
-    expect(env.MY_VAR).toBeUndefined();
-  });
-
-  it('should handle null extraEnv gracefully', () => {
-    const env = buildExecEnv(null);
-    expect(env.EXISTING_VAR).toBe('existing');
-  });
-
-  it('should handle undefined extraEnv gracefully', () => {
-    const env = buildExecEnv(undefined);
-    expect(env.EXISTING_VAR).toBe('existing');
-  });
-
-  it('should handle non-object extraEnv gracefully', () => {
-    const env = buildExecEnv('not-an-object');
-    expect(env.EXISTING_VAR).toBe('existing');
+  it('forces noninteractive helper settings over ambient values', () => {
+    const env = buildExecEnv();
+    expect(env.GH_BROWSER).toBe('false');
+    expect(env.BROWSER).toBe('false');
+    expect(env.GH_EDITOR).toBe('false');
+    expect(env.GH_PAGER).toBe('cat');
+    expect(env.GH_PROMPT_DISABLED).toBe('1');
+    expect(env).toEqual(expect.objectContaining(FORCED_CHILD_ENV));
   });
 });
 

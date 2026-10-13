@@ -81,7 +81,7 @@ The `gh` CLI uses `GH_HOST=localhost:18443`, which matches the cert's SAN.
 
 Because `localhost:18443` is not `github.com`, `gh` treats it as GitHub Enterprise Server and reads `installed_version` from `GET /api/v3/meta` during feature detection (e.g. `gh pr list --search`, `gh search prs`). The github.com-backed DIFC proxy does not return that field, which made those commands fail with `malformed version: `.
 
-The entrypoint therefore configures `gh` (via `http_unix_socket` in a private `GH_CONFIG_DIR`) to send its API requests as plain HTTP over a Unix socket served by `gh-http-shim.js`. The shim forwards every request unchanged over TLS to `GH_HOST` and, only for `/api/v3/meta`, adds a synthetic `installed_version` when the upstream response lacks one. git traffic (`gh repo clone`) does not use the socket. `GH_CONFIG_DIR` is protected from `/exec` env overrides.
+The entrypoint therefore configures `gh` (via `http_unix_socket` in a private `GH_CONFIG_DIR`) to send its API requests as plain HTTP over a Unix socket served by `gh-http-shim.js`. The shim removes `gh`'s non-secret placeholder authorization so the external DIFC proxy uses its own credential, forwards the request over TLS to `GH_HOST`, and adds a synthetic `installed_version` only when `/api/v3/meta` lacks one. Commands that bypass the shim through git or SSH are denied. `/exec` does not accept environment overrides, and each child receives only an explicit set of server-owned variables.
 
 ### CLI Flags
 
@@ -186,13 +186,12 @@ Content-Type: application/json
 
 {
   "args": ["pr", "list", "--repo", "owner/repo", "--json", "number,title"],
-  "cwd": "/home/runner/work/repo/repo",
-  "stdin": null,
-  "env": {
-    "GH_REPO": "owner/repo"
-  }
+  "stdin": null
 }
 ```
+
+Requests containing additional fields are rejected. Browser, editor, pager, alternate-host,
+and file-input escape paths are disabled or constrained before `gh` is started.
 
 Response (streamed via chunked transfer encoding):
 
@@ -267,7 +266,6 @@ CLI_PROXY="${AWF_CLI_PROXY_URL:-http://172.30.0.50:11000}"
 
 # Build JSON payload
 ARGS_JSON=$(printf '%s\n' "$@" | jq -Rs '[split("\n")[] | select(length>0)]')
-CWD_JSON=$(printf '%s' "$(pwd)" | jq -Rs '.')
 
 # Read stdin if piped
 STDIN_DATA=""
@@ -279,7 +277,7 @@ fi
 RESPONSE=$(curl -sf --max-time 60 \
   -X POST "${CLI_PROXY}/exec" \
   -H "Content-Type: application/json" \
-  -d "{\"args\":${ARGS_JSON},\"cwd\":${CWD_JSON},\"stdin\":\"${STDIN_DATA}\"}")
+  -d "{\"args\":${ARGS_JSON},\"stdin\":\"${STDIN_DATA}\"}")
 
 # Extract and output
 printf '%s' "$RESPONSE" | jq -r '.stdout' 2>/dev/null

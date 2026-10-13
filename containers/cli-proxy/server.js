@@ -8,9 +8,10 @@
  *
  * Security:
  *   - Args are exec'd directly via execFile (no shell, no injection)
+ *   - Request bodies and subprocess environments use strict allowlists
  *   - Per-command timeout (default 30s)
  *   - Max output size limit to prevent memory exhaustion
- *   - Meta-commands (auth, config, extension) are always denied
+ *   - Meta-commands and helper-launching paths are always denied
  *
  * The gh CLI running inside this container has GH_HOST set to the DIFC proxy.
  * In enclave mode its auth token is only the invocation capability; the
@@ -24,7 +25,7 @@ const { COMMAND_TIMEOUT_MS, runGhCommand, terminateActiveCommands } = require('.
 const {
   validateArgs,
   ALWAYS_DENIED_SUBCOMMANDS,
-  PROTECTED_ENV_KEYS,
+  validateExecRequest,
   buildExecEnv,
   extractInvocationCapability,
   capabilityAuditContext,
@@ -105,9 +106,7 @@ function handleHealth(res) {
  * Expected request body (JSON):
  * {
  *   "args": ["pr", "list", "--repo", "owner/repo", "--json", "number,title"],
- *   "cwd": "/home/runner/work/repo/repo",   // optional
- *   "stdin": null,                           // optional, base64-encoded or null
- *   "env": { "GH_REPO": "owner/repo" }      // optional extra env vars
+ *   "stdin": null                            // optional, base64-encoded or null
  * }
  *
  * Response body (JSON):
@@ -130,8 +129,14 @@ async function handleExec(req, res) {
     return sendError(res, 400, 'Invalid JSON body');
   }
 
-  const { args, cwd, stdin, env: extraEnv } = body;
   const enclaveMode = process.env.AWF_CLI_PROXY_MODE === 'enclave';
+  const requestValidation = validateExecRequest(body, enclaveMode);
+  if (!requestValidation.valid) {
+    accessLog({ event: 'exec_denied', error: requestValidation.error });
+    return sendError(res, 400, requestValidation.error);
+  }
+
+  const { args, stdin } = body;
   let capability;
   if (enclaveMode) {
     const authorizationNames = req.rawHeaders.filter(
@@ -141,15 +146,6 @@ async function handleExec(req, res) {
     if (authorizationNames.length !== 1 || capability === undefined) {
       accessLog({ event: 'exec_denied', error: 'invalid invocation authorization' });
       return sendError(res, 401, 'Invalid invocation authorization');
-    }
-    if (
-      cwd !== undefined
-      || extraEnv !== undefined
-      || (stdin !== undefined && stdin !== null)
-      || Object.keys(body).some((key) => !['args', 'stdin'].includes(key))
-    ) {
-      accessLog({ event: 'exec_denied', error: 'enclave request contains an unsupported field' });
-      return sendError(res, 400, 'Enclave request contains an unsupported field');
     }
   }
 
@@ -172,9 +168,9 @@ async function handleExec(req, res) {
     accessLog({ event: 'github_api_points_limited', ...commandAudit, ...pointLimit });
     return sendError(res, 429, `GitHub ${pointLimit.kind} API point limit exceeded`);
   }
-  accessLog({ event: 'exec_start', ...commandAudit, cwd: enclaveMode ? null : (cwd || null) });
+  accessLog({ event: 'exec_start', ...commandAudit });
 
-  const childEnv = buildExecEnv(extraEnv, capability);
+  const childEnv = buildExecEnv(capability);
   const abortController = new AbortController();
   const abortOnDisconnect = () => {
     if (!res.writableEnded) abortController.abort();
@@ -276,4 +272,10 @@ if (require.main === module) {
   process.once('SIGTERM', shutdown);
 }
 
-module.exports = { validateArgs, ALWAYS_DENIED_SUBCOMMANDS, PROTECTED_ENV_KEYS, buildExecEnv, runGhCommand };
+module.exports = {
+  validateArgs,
+  ALWAYS_DENIED_SUBCOMMANDS,
+  buildExecEnv,
+  runGhCommand,
+  requestHandler,
+};

@@ -23,6 +23,7 @@ interface CliProxyBuildResult {
 }
 
 export const CLI_PROXY_EGRESS_SERVICE_NAME = 'cli-proxy-egress';
+export const CLI_PROXY_AUTH_PLACEHOLDER = 'awf-cli-proxy-placeholder';
 
 interface CliProxyServiceParams {
   config: WrapperConfig;
@@ -166,12 +167,9 @@ export function buildCliProxyService(params: CliProxyServiceParams): CliProxyBui
       https_proxy: `http://${networkConfig.squidIp}:${SQUID_PORT}`,
       // Pass GITHUB_REPOSITORY for GH_REPO default in entrypoint
       ...(process.env.GITHUB_REPOSITORY && { GITHUB_REPOSITORY: process.env.GITHUB_REPOSITORY }),
-      // The gh CLI inside the cli-proxy needs a GitHub token to authenticate API
-      // requests. The token is safe here: the cli-proxy container is inside the
-      // firewall perimeter and not accessible to the agent. The DIFC proxy on the
-      // host provides write-control via its guard policy.
-      ...(process.env.GH_TOKEN && { GH_TOKEN: process.env.GH_TOKEN }),
-      ...(process.env.GITHUB_TOKEN && !process.env.GH_TOKEN && { GH_TOKEN: process.env.GITHUB_TOKEN }),
+      // gh requires a token to construct requests, but the local HTTP shim strips
+      // this non-secret placeholder so the external DIFC proxy uses its own token.
+      GH_TOKEN: CLI_PROXY_AUTH_PLACEHOLDER,
       ...(config.maxGithubApiPointsRest !== undefined && {
         AWF_MAX_GITHUB_API_POINTS_REST: String(config.maxGithubApiPointsRest),
       }),

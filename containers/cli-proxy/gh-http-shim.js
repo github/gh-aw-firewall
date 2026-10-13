@@ -11,10 +11,10 @@
  *
  * gh is configured (via `http_unix_socket` in GH_CONFIG_DIR/config.yml) to send
  * its API requests as plain HTTP over a Unix socket served by this shim. The
- * shim forwards every request unchanged over TLS to GH_HOST and, only for
- * `GET /api/v3/meta`, injects a synthetic `installed_version` when the upstream
- * response lacks one. git traffic (e.g. `gh repo clone`) does not use this
- * socket and keeps talking to GH_HOST directly.
+ * shim removes the non-secret placeholder authorization before forwarding over
+ * TLS to GH_HOST, allowing the DIFC proxy to inject its own credential. Only for
+ * `GET /api/v3/meta`, it also injects a synthetic `installed_version` when the
+ * upstream response lacks one.
  *
  * Usage: node gh-http-shim.js <socketPath>
  */
@@ -126,6 +126,7 @@ function createShimHandler(upstream, options = {}) {
   return function handle(req, res) {
     const meta = isMetaRequest(req.method, req.url);
     const headers = stripHopByHopHeaders(req.headers);
+    delete headers.authorization;
     if (meta) {
       // Keep the /meta response uncompressed so it can be patched.
       headers['accept-encoding'] = 'identity';

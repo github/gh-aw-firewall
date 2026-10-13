@@ -143,7 +143,7 @@ describe('gh-http-shim forwarding', () => {
     expect(res.body.toString()).toBe('{"message":"denied"}');
   });
 
-  it('forwards other requests, headers, and bodies unchanged', async () => {
+  it('forwards requests without the placeholder authorization', async () => {
     upstreamHandler = (_req, res) => {
       res.writeHead(201, { 'content-type': 'application/json', 'x-custom': 'yes' });
       res.end('{"created":true}');
@@ -164,7 +164,7 @@ describe('gh-http-shim forwarding', () => {
       url: '/api/graphql?x=1',
       body: '{"query":"{viewer{login}}"}',
     });
-    expect(upstreamRequests[0].headers.authorization).toBe('token abc');
+    expect(upstreamRequests[0].headers.authorization).toBeUndefined();
     expect(upstreamRequests[0].headers['accept-encoding']).toBe('gzip');
   });
 

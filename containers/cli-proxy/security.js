@@ -1,31 +1,49 @@
 'use strict';
 
-// Environment keys that agents are not allowed to override via the /exec env field.
-// GH_HOST / GH_TOKEN / GITHUB_TOKEN — prevent auth/routing hijack.
-// NODE_EXTRA_CA_CERTS / SSL_CERT_FILE / GIT_SSL_CAINFO — prevent TLS trust-store bypass.
-// GH_CONFIG_DIR — keeps gh routed through the local HTTP shim (see gh-http-shim.js).
-const _PROTECTED_ENV_KEYS = new Set([
+const CHILD_ENV_KEYS = new Set([
+  'PATH',
+  'HOME',
+  'TMPDIR',
+  'TMP',
+  'TEMP',
+  'LANG',
+  'LC_ALL',
+  'TZ',
   'GH_HOST',
+  'GH_REPO',
   'GH_TOKEN',
   'GITHUB_TOKEN',
   'GH_ENTERPRISE_TOKEN',
   'GITHUB_ENTERPRISE_TOKEN',
+  'GITHUB_SERVER_URL',
   'NODE_EXTRA_CA_CERTS',
   'SSL_CERT_FILE',
   'GIT_SSL_CAINFO',
   'GH_CONFIG_DIR',
+  'HTTP_PROXY',
+  'HTTPS_PROXY',
+  'http_proxy',
+  'https_proxy',
+  'NO_PROXY',
+  'no_proxy',
 ]);
-const PROTECTED_ENV_KEYS = Object.freeze({
-  has(key) { return _PROTECTED_ENV_KEYS.has(key); },
-  get size() { return _PROTECTED_ENV_KEYS.size; },
-  values() { return _PROTECTED_ENV_KEYS.values(); },
-  keys() { return _PROTECTED_ENV_KEYS.keys(); },
-  entries() { return _PROTECTED_ENV_KEYS.entries(); },
-  forEach(callback, thisArg) { return _PROTECTED_ENV_KEYS.forEach(callback, thisArg); },
-  [Symbol.iterator]() { return _PROTECTED_ENV_KEYS[Symbol.iterator](); },
+
+const FORCED_CHILD_ENV = Object.freeze({
+  GH_PROMPT_DISABLED: '1',
+  GH_PAGER: 'cat',
+  PAGER: 'cat',
+  GIT_PAGER: 'cat',
+  GH_EDITOR: 'false',
+  GIT_EDITOR: 'false',
+  EDITOR: 'false',
+  VISUAL: 'false',
+  GH_BROWSER: 'false',
+  BROWSER: 'false',
 });
 
-const UNSAFE_ENV_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
+const EXEC_REQUEST_KEYS = new Set(['args', 'stdin']);
+const HELPER_LAUNCH_FLAGS = new Set(['--web', '--browser', '--editor']);
+const STDIN_FILE_FLAGS = new Set(['--input', '--body-file', '--notes-file']);
 
 /**
  * Meta-commands that are always denied.
@@ -34,8 +52,17 @@ const UNSAFE_ENV_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
 const ALWAYS_DENIED_SUBCOMMANDS = new Set([
   'alias',
   'auth',
+  'browse',
   'config',
   'extension',
+]);
+const DENIED_COMMAND_PATHS = new Set([
+  'codespace',
+  'gist clone',
+  'pr checkout',
+  'repo clone',
+  'repo fork',
+  'repo sync',
 ]);
 
 const ENCLAVE_ISSUE_PATH = /^\/?repos\/([a-z0-9_.-]+)\/([a-z0-9_.-]+)\/issues(?:\/([1-9][0-9]*)(\/comments)?)?$/;
@@ -253,6 +280,59 @@ function capabilityAuditContext(token) {
   }
 }
 
+function validateExecRequest(body, enclaveMode) {
+  if (!body || typeof body !== 'object' || Array.isArray(body)) {
+    return { valid: false, error: 'Request body must be a JSON object' };
+  }
+  if (Object.keys(body).some((key) => !EXEC_REQUEST_KEYS.has(key))) {
+    return { valid: false, error: 'Request contains an unsupported field' };
+  }
+  if (
+    body.stdin !== undefined
+    && body.stdin !== null
+    && typeof body.stdin !== 'string'
+  ) {
+    return { valid: false, error: 'stdin must be a base64 string or null' };
+  }
+  if (enclaveMode && body.stdin !== undefined && body.stdin !== null) {
+    return { valid: false, error: 'Enclave request contains an unsupported field' };
+  }
+  return { valid: true };
+}
+
+function validateFileInputArgs(args) {
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index];
+    if (STDIN_FILE_FLAGS.has(arg)) {
+      if (args[index + 1] !== '-') {
+        return { valid: false, error: `${arg} permits only stdin` };
+      }
+      index += 1;
+      continue;
+    }
+    const fileFlag = [...STDIN_FILE_FLAGS].find((flag) => arg.startsWith(`${flag}=`));
+    if (fileFlag && arg !== `${fileFlag}=-`) {
+      return { valid: false, error: `${fileFlag} permits only stdin` };
+    }
+    if (arg === '-F' || arg === '--field') {
+      const value = args[index + 1];
+      if (typeof value === 'string' && value.includes('=@') && !value.endsWith('=@-')) {
+        return { valid: false, error: `${arg} file values permit only stdin` };
+      }
+      index += 1;
+      continue;
+    }
+    if (
+      (arg.startsWith('-F') || arg.startsWith('--field='))
+      && arg.includes('=@')
+      && !arg.endsWith('=@-')
+    ) {
+      return { valid: false, error: 'Field file values permit only stdin' };
+    }
+  }
+  return { valid: true };
+}
+
 /**
  * Validates the gh CLI arguments.
  * Write control is handled by the DIFC guard policy — this server only
@@ -274,6 +354,23 @@ function validateArgs(args) {
       return { valid: false, error: 'All args must be strings' };
     }
   }
+  if (args.length > 256 || args.some((arg) => arg.length > 256 * 1024)) {
+    return { valid: false, error: 'Arguments exceed their bound' };
+  }
+  if (
+    args.some((arg) => (
+      HELPER_LAUNCH_FLAGS.has(arg)
+      || [...HELPER_LAUNCH_FLAGS].some((flag) => arg.startsWith(`${flag}=`))
+      || arg.startsWith('--hostname=')
+    ))
+  ) {
+    return { valid: false, error: 'Helper-launching and host-selection flags are not permitted' };
+  }
+  if (args.includes('--hostname')) {
+    return { valid: false, error: 'Host-selection flags are not permitted' };
+  }
+  const fileInputValidation = validateFileInputArgs(args);
+  if (!fileInputValidation.valid) return fileInputValidation;
 
   // Find the subcommand by scanning through args, skipping flags and their values.
   let subcommand = null;
@@ -303,22 +400,31 @@ function validateArgs(args) {
   if (ALWAYS_DENIED_SUBCOMMANDS.has(subcommand)) {
     return { valid: false, error: `Subcommand '${subcommand}' is not permitted` };
   }
+  const commandPath = [subcommand, args[i + 1]].filter(Boolean).join(' ');
+  if (DENIED_COMMAND_PATHS.has(commandPath) || DENIED_COMMAND_PATHS.has(subcommand)) {
+    return { valid: false, error: `Command '${commandPath}' is not permitted` };
+  }
+  if (
+    subcommand === 'api'
+    && args.some((arg) => arg.startsWith('@') || arg.startsWith('//') || /^[a-z][a-z0-9+.-]*:\/\//i.test(arg))
+  ) {
+    return { valid: false, error: 'API endpoints must be relative paths' };
+  }
 
   return { valid: true };
 }
 
 /**
- * Build the environment object for a subprocess by inheriting the server's environment
- * and applying caller-supplied overrides, excluding any PROTECTED_ENV_KEYS.
+ * Build the environment object for a subprocess from server-owned values only.
  *
- * Security-critical: ensures agents cannot override auth or TLS trust-store variables.
- *
- * @param {Record<string, string>|null|undefined} extraEnv - Optional caller-supplied env overrides
+ * @param {string|undefined} capability - Enclave invocation capability
  * @returns {NodeJS.ProcessEnv} The merged environment for the child process
  */
-function buildExecEnv(extraEnv, capability) {
-  // Inherit server environment (includes GH_HOST, NODE_EXTRA_CA_CERTS, GH_REPO, etc.)
-  const childEnv = Object.assign({}, process.env);
+function buildExecEnv(capability) {
+  const childEnv = { ...FORCED_CHILD_ENV };
+  for (const key of CHILD_ENV_KEYS) {
+    if (typeof process.env[key] === 'string') childEnv[key] = process.env[key];
+  }
   if (process.env.AWF_CLI_PROXY_MODE === 'enclave') {
     for (const key of [
       'GITHUB_TOKEN',
@@ -332,28 +438,16 @@ function buildExecEnv(extraEnv, capability) {
     // GH_HOST is a private alias, so gh classifies it as an enterprise host and
     // reads GH_ENTERPRISE_TOKEN rather than GH_TOKEN.
     childEnv.GH_ENTERPRISE_TOKEN = capability;
-    return childEnv;
-  }
-  if (extraEnv && typeof extraEnv === 'object') {
-    // Only allow safe string env overrides; never allow overriding keys in PROTECTED_ENV_KEYS.
-    for (const [key, value] of Object.entries(extraEnv)) {
-      if (
-        typeof key === 'string'
-        && typeof value === 'string'
-        && !PROTECTED_ENV_KEYS.has(key)
-        && !UNSAFE_ENV_KEYS.has(key)
-      ) {
-        childEnv[key] = value;
-      }
-    }
   }
   return childEnv;
 }
 
 module.exports = {
   ALWAYS_DENIED_SUBCOMMANDS,
-  PROTECTED_ENV_KEYS,
-  UNSAFE_ENV_KEYS,
+  DENIED_COMMAND_PATHS,
+  CHILD_ENV_KEYS,
+  FORCED_CHILD_ENV,
+  validateExecRequest,
   validateArgs,
   validateEnclaveArgs,
   summarizeEnclaveArgs,

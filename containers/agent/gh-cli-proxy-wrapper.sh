@@ -13,9 +13,6 @@ CLI_PROXY="${AWF_CLI_PROXY_URL:-http://172.30.0.50:11000}"
 # newlines as argument separators.
 ARGS_JSON=$(jq -n '$ARGS.positional' --args -- "$@")
 
-# Capture working directory
-CWD=$(pwd)
-
 # Read stdin only when gh is explicitly told to consume it.
 STDIN_DATA=""
 PREVIOUS_ARG=""
@@ -42,9 +39,8 @@ HTTP_STATUS=$(curl -s \
   -w "%{http_code}" \
   -X POST "${CLI_PROXY}/exec" \
   -H "Content-Type: application/json" \
-  --data-binary "$(printf '{"args":%s,"cwd":%s,"stdin":"%s"}' \
+  --data-binary "$(printf '{"args":%s,"stdin":"%s"}' \
     "$ARGS_JSON" \
-    "$(printf '%s' "$CWD" | jq -Rs .)" \
     "$STDIN_DATA")")
 CURL_EXIT=$?
 if [ "$CURL_EXIT" -ne 0 ]; then
