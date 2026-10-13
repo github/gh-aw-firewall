@@ -41,6 +41,21 @@ function config(overrides: Partial<WrapperConfig> = {}): WrapperConfig {
   } as WrapperConfig;
 }
 
+function acceptanceConfig(artifactReleaseTag: string): WrapperConfig {
+  return config({
+    cloudHypervisor: {
+      ...config().cloudHypervisor!,
+      artifactReleaseTag,
+    },
+    enclaves: normalizeEnclavesConfig([{
+      script: {},
+      runtime: 'cloud-hypervisor',
+      repos: [{ repo: 'github/gh-aw-firewall', sensitivity: 'public' }],
+      maxInvocations: 1,
+    }]),
+  });
+}
+
 describe('Cloud Hypervisor runtime validation', () => {
   let eligibilitySpy: jest.SpyInstance;
 
@@ -268,18 +283,7 @@ describe('Cloud Hypervisor runtime validation', () => {
       GITHUB_REF_TYPE: 'tag',
       GITHUB_REF_NAME: 'v0.28.51',
     });
-    const acceptance = config({
-      cloudHypervisor: {
-        ...config().cloudHypervisor!,
-        artifactReleaseTag: 'v0.28.51',
-      },
-      enclaves: normalizeEnclavesConfig([{
-        script: {},
-        runtime: 'cloud-hypervisor',
-        repos: [{ repo: 'github/gh-aw-firewall', sensitivity: 'public' }],
-        maxInvocations: 1,
-      }]),
-    });
+    const acceptance = acceptanceConfig('v0.28.51');
 
     try {
       expect(validateEnclavesConfig(acceptance)).toEqual([]);
@@ -313,18 +317,7 @@ describe('Cloud Hypervisor runtime validation', () => {
       GITHUB_SHA: '0123456789abcdef0123456789abcdef01234567',
       GITHUB_WORKFLOW_SHA: '0123456789abcdef0123456789abcdef01234567',
     });
-    const acceptance = config({
-      cloudHypervisor: {
-        ...config().cloudHypervisor!,
-        artifactReleaseTag: 'v0.28.52',
-      },
-      enclaves: normalizeEnclavesConfig([{
-        script: {},
-        runtime: 'cloud-hypervisor',
-        repos: [{ repo: 'github/gh-aw-firewall', sensitivity: 'public' }],
-        maxInvocations: 1,
-      }]),
-    });
+    const acceptance = acceptanceConfig('v0.28.52');
 
     try {
       expect(validateEnclavesConfig(acceptance)).toEqual([]);
