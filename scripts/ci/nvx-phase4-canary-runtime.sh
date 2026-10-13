@@ -68,7 +68,7 @@ preflight_started=$(now_ms)
 test "$(uname -s)" = Linux
 test "$(uname -m)" = x86_64
 test -c /dev/kvm
-test -x dist/cli.js
+test -f dist/cli.js
 sudo sync
 sudo sh -c 'echo 3 > /proc/sys/vm/drop_caches'
 

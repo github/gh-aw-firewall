@@ -109,6 +109,7 @@ describe('NVX benchmark campaign evidence', () => {
     expect(source).toContain('v0.91.9');
     expect(source).toContain('v0.28.54');
     expect(source).toContain('install_copilot_cli.sh" 1.0.95');
+    expect(source).toContain("matrix.runtime == 'nvx' && 'musl' || 'glibc'");
     expect(source).toContain('promotionEligible == false');
     expect(source).not.toContain('mode: full');
 
@@ -116,6 +117,8 @@ describe('NVX benchmark campaign evidence', () => {
       __dirname, '..', '..', 'scripts', 'ci', 'nvx-phase4-canary-runtime.sh',
     ), 'utf8');
     expect(harness).toContain('--container-workdir /workspace');
+    expect(harness).toContain('test -f dist/cli.js');
+    expect(harness).not.toContain('test -x dist/cli.js');
     expect(harness).toContain('--cloud-hypervisor-vcpus 1');
     expect(harness).toContain('--nvx-memory-mib 4096');
     expect(harness).toContain('[ "$observed_memory_max" = 4563402752 ]');

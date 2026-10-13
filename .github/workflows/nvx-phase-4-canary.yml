@@ -72,7 +72,7 @@ jobs:
         env:
           GH_HOST: github.com
           GH_AW_COMPILED_VERSION: v0.91.9
-          GH_AW_COPILOT_GUEST_LIBC: ${{ matrix.runtime == 'nvx' && 'musl' || 'gnu' }}
+          GH_AW_COPILOT_GUEST_LIBC: ${{ matrix.runtime == 'nvx' && 'musl' || 'glibc' }}
         run: bash "${RUNNER_TEMP}/gh-aw/actions/install_copilot_cli.sh" 1.0.95
 
       - name: Provision Cloud Hypervisor v53.0 artifacts
