@@ -9,6 +9,7 @@ export interface CleanupRegistryDependencies {
   readonly effectiveUid?: number;
   readonly processId?: number;
   readonly readFile?: typeof fs.readFile;
+  readonly writeFile?: typeof fs.writeFile;
   readonly readlink?: typeof fs.readlink;
   readonly realpath?: typeof fs.realpath;
   readonly lstat?: typeof fs.lstat;
@@ -34,6 +35,7 @@ export interface ResolvedCleanupDependencies {
   readonly effectiveUid: number;
   readonly processId: number;
   readonly readFile: typeof fs.readFile;
+  readonly writeFile: typeof fs.writeFile;
   readonly readlink: typeof fs.readlink;
   readonly realpath: typeof fs.realpath;
   readonly lstat: typeof fs.lstat;
@@ -60,6 +62,7 @@ export function resolveCleanupDependencies(
     effectiveUid: dependencies.effectiveUid ?? process.geteuid?.() ?? -1,
     processId: dependencies.processId ?? process.pid,
     readFile: dependencies.readFile ?? fs.readFile,
+    writeFile: dependencies.writeFile ?? fs.writeFile,
     readlink: dependencies.readlink ?? fs.readlink,
     realpath: dependencies.realpath ?? fs.realpath,
     lstat: dependencies.lstat ?? fs.lstat,

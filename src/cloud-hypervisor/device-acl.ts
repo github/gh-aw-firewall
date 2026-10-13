@@ -21,7 +21,7 @@ export function parseDeviceAcl(contents: string): string[] {
   }
   const hasNamedEntry = normalized.some((entry) =>
     /^(?:user|group):[0-9]+:/.test(entry));
-  if (hasNamedEntry !== normalized.some((entry) => entry.startsWith('mask::'))) {
+  if (hasNamedEntry && !normalized.some((entry) => entry.startsWith('mask::'))) {
     throw new Error('Cloud Hypervisor device ACL mask is inconsistent');
   }
   return normalized;

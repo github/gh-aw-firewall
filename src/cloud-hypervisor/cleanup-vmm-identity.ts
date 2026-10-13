@@ -1,5 +1,10 @@
 import type { CleanupRecord } from './cleanup-identity';
-import type { CloudHypervisorVmmIdentityToolPaths } from './vmm-identity';
+import * as path from 'path';
+import {
+  withCloudHypervisorDeviceAclLock,
+  type CloudHypervisorVmmIdentityDependencies,
+  type CloudHypervisorVmmIdentityToolPaths,
+} from './vmm-identity';
 import { runChecked, type ResolvedCleanupDependencies } from './cleanup-dependencies';
 import {
   deviceAclArgument,
@@ -33,38 +38,55 @@ async function releaseVmmAcls(
   identity: RecordedVmmIdentity,
   tools: CloudHypervisorVmmIdentityToolPaths,
 ): Promise<void> {
-  for (const aclPath of [...identity.aclPaths].reverse()) {
-    const baseline = identity.aclBaselines?.[aclPath as CloudHypervisorDevicePath];
-    if (baseline) {
-      await runChecked(dependencies.run, tools.setfacl, [
-        `--set=${deviceAclArgument(baseline)}`, aclPath,
-      ]);
-      const restored = await dependencies.run(tools.getfacl, [
-        '--absolute-names', '--numeric', aclPath,
-      ]);
-      if (
-        restored.exitCode !== 0 ||
-        !sameDeviceAcl(parseDeviceAcl(restored.stdout), baseline)
-      ) throw new Error(`VMM ACL restoration validation failed for ${aclPath}`);
-      continue;
-    }
-    let acl = await dependencies.run(tools.getfacl, [
-      '--absolute-names', '--numeric', aclPath,
-    ]);
-    if (acl.exitCode !== 0) {
-      throw new Error(`VMM ACL revalidation failed for ${aclPath}: ${acl.stderr.trim()}`);
-    }
-    if (acl.stdout.split(/\r?\n/).some((line) => line.startsWith(`user:${identity.uid}:`))) {
-      await runChecked(dependencies.run, tools.setfacl, [
-        '--remove', `user:${identity.uid}`, aclPath,
-      ]);
-      acl = await dependencies.run(tools.getfacl, ['--absolute-names', '--numeric', aclPath]);
-      if (
-        acl.exitCode !== 0 ||
-        acl.stdout.split(/\r?\n/).some((line) => line.startsWith(`user:${identity.uid}:`))
-      ) throw new Error(`VMM ACL removal validation failed for ${aclPath}`);
-    }
-  }
+  const lockDependencies: Partial<CloudHypervisorVmmIdentityDependencies> = {
+    mkdir: dependencies.mkdir,
+    writeFile: dependencies.writeFile,
+    readFile: dependencies.readFile,
+    rm: dependencies.rm,
+    rmdir: dependencies.rmdir,
+    lstat: dependencies.lstat,
+    sleep: dependencies.sleep,
+    pid: dependencies.processId,
+  };
+  await withCloudHypervisorDeviceAclLock(
+    tools,
+    async () => {
+      for (const aclPath of [...identity.aclPaths].reverse()) {
+        const baseline = identity.aclBaselines?.[aclPath as CloudHypervisorDevicePath];
+        if (baseline) {
+          await runChecked(dependencies.run, tools.setfacl, [
+            `--set=${deviceAclArgument(baseline)}`, aclPath,
+          ]);
+          const restored = await dependencies.run(tools.getfacl, [
+            '--absolute-names', '--numeric', aclPath,
+          ]);
+          if (
+            restored.exitCode !== 0 ||
+            !sameDeviceAcl(parseDeviceAcl(restored.stdout), baseline)
+          ) throw new Error(`VMM ACL restoration validation failed for ${aclPath}`);
+          continue;
+        }
+        let acl = await dependencies.run(tools.getfacl, [
+          '--absolute-names', '--numeric', aclPath,
+        ]);
+        if (acl.exitCode !== 0) {
+          throw new Error(`VMM ACL revalidation failed for ${aclPath}: ${acl.stderr.trim()}`);
+        }
+        if (acl.stdout.split(/\r?\n/).some((line) => line.startsWith(`user:${identity.uid}:`))) {
+          await runChecked(dependencies.run, tools.setfacl, [
+            '--remove', `user:${identity.uid}`, aclPath,
+          ]);
+          acl = await dependencies.run(tools.getfacl, ['--absolute-names', '--numeric', aclPath]);
+          if (
+            acl.exitCode !== 0 ||
+            acl.stdout.split(/\r?\n/).some((line) => line.startsWith(`user:${identity.uid}:`))
+          ) throw new Error(`VMM ACL removal validation failed for ${aclPath}`);
+        }
+      }
+    },
+    lockDependencies,
+    path.join(path.dirname(dependencies.rootDirectory), '.device-acl-lock'),
+  );
 }
 
 /**

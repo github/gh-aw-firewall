@@ -95,7 +95,7 @@ describe('DurableCloudHypervisorCleanupRegistry orchestration', () => {
             exitCode: 0,
             stdout: aclExists
               ? 'user::rw-\nuser:23001:rw-\ngroup::rw-\nmask::rw-\nother::rw-\n'
-              : 'user::rw-\ngroup::rw-\nother::rw-\n',
+              : 'user::rw-\ngroup::rw-\nmask::rw-\nother::rw-\n',
             stderr: '',
           };
         }
@@ -104,7 +104,13 @@ describe('DurableCloudHypervisorCleanupRegistry orchestration', () => {
           if (args[0] === '-u') return { exitCode: 0, stdout: '23001\n', stderr: '' };
           return { exitCode: 0, stdout: '23002\n', stderr: '' };
         }
-        if (command === tools.setfacl) aclExists = false;
+        if (command === tools.setfacl) {
+          await expect(fs.access(path.join(
+            harness.temporaryRoot,
+            '.device-acl-lock',
+          ))).resolves.toBeUndefined();
+          aclExists = false;
+        }
         if (command === tools.userdel) userExists = false;
         if (command === tools.groupdel) groupExists = false;
         return { exitCode: 0, stdout: '', stderr: '' };
@@ -116,7 +122,7 @@ describe('DurableCloudHypervisorCleanupRegistry orchestration', () => {
       await handle.captureArtifactSnapshot(snapshot);
       await handle.prepareVmmAccount(account);
       await handle.captureVmmIdentity({ name: account, uid: 23001, gid: 23002 });
-      const baseline = ['user::rw-', 'group::rw-', 'other::rw-'];
+      const baseline = ['user::rw-', 'group::rw-', 'mask::rw-', 'other::rw-'];
       await handle.prepareVmmAcl('/dev/kvm', baseline);
       harness.state.ownerStartTime = '2000';
 

@@ -325,8 +325,11 @@ export class CloudHypervisorVmmIdentityManager {
     return this.withLock(ACCOUNT_LOCK_DIRECTORY, ACCOUNT_LOCK_TIMEOUT_MS, operation);
   }
 
-  private async withDeviceAclLock<T>(operation: () => Promise<T>): Promise<T> {
-    return this.withLock(DEVICE_ACL_LOCK_DIRECTORY, DEVICE_ACL_LOCK_TIMEOUT_MS, operation);
+  async withDeviceAclLock<T>(
+    operation: () => Promise<T>,
+    lockDirectory = DEVICE_ACL_LOCK_DIRECTORY,
+  ): Promise<T> {
+    return this.withLock(lockDirectory, DEVICE_ACL_LOCK_TIMEOUT_MS, operation);
   }
 
   private async withLock<T>(
@@ -448,6 +451,25 @@ export class CloudHypervisorVmmIdentityManager {
   }
 }
 
+export function withCloudHypervisorDeviceAclLock<T>(
+  tools: CloudHypervisorVmmIdentityToolPaths,
+  operation: () => Promise<T>,
+  dependencies: Partial<CloudHypervisorVmmIdentityDependencies> = {},
+  lockDirectory = DEVICE_ACL_LOCK_DIRECTORY,
+): Promise<T> {
+  const resolvedDependencies = { ...defaultDependencies, ...dependencies };
+  if (!dependencies.processStartTime && dependencies.readFile) {
+    resolvedDependencies.processStartTime = (pid) =>
+      readProcessStartTime(pid, resolvedDependencies.readFile);
+  }
+  const manager = new CloudHypervisorVmmIdentityManager(
+    'device-acl-recovery',
+    tools,
+    resolvedDependencies,
+  );
+  return manager.withDeviceAclLock(operation, lockDirectory);
+}
+
 export function createAccountName(): string {
   return `${ACCOUNT_PREFIX}${randomBytes(10).toString('hex')}`;
 }
@@ -466,7 +488,8 @@ export const cloudHypervisorVmmIdentityTestHelpers = {
 
 async function readProcessStartTime(
   pid: number,
-  readFile: typeof fs.readFile = fs.readFile,
+  readFile: (filePath: string, encoding: 'utf8') => Promise<string> =
+    (filePath, encoding) => fs.readFile(filePath, encoding),
 ): Promise<string | undefined> {
   try {
     const stat = await readFile(`/proc/${pid}/stat`, 'utf8');
@@ -480,7 +503,7 @@ async function readProcessStartTime(
 function parseProcessStatStartTime(stat: string): string | undefined {
   const close = stat.lastIndexOf(')');
   const fields = stat.slice(close + 2).split(' ');
-  return fields[19];
+  return fields[19]?.trim();
 }
 
 function parsePositiveInteger(value: string, label: string): number {
