@@ -35,6 +35,8 @@ export type {
 const SOCKET_READY_TIMEOUT_MS = 5_000;
 const SOCKET_READY_INTERVAL_MS = 25;
 const STOP_TIMEOUT_MS = 2_000;
+const UNMOUNT_BUSY_RETRY_ATTEMPTS = 5;
+const UNMOUNT_BUSY_RETRY_INTERVAL_MS = 25;
 const CAPTURE_LIMIT_BYTES = 256 * 1024;
 
 export interface VirtiofsdDevice {
@@ -203,7 +205,7 @@ export class VirtiofsdManager {
     const remaining: RunningDaemon[] = [];
     for (const tree of [...this.orphanedMountTrees]) {
       try {
-        await tree.unmount();
+        await this.unmountTree(tree);
       } catch (error) {
         errors.push(error);
       }
@@ -260,7 +262,7 @@ export class VirtiofsdManager {
       }
       if (daemon.mountTree) {
         try {
-          await daemon.mountTree.unmount();
+          await this.unmountTree(daemon.mountTree);
         } catch (error) {
           errors.push(error);
         }
@@ -281,6 +283,19 @@ export class VirtiofsdManager {
     if (errors.length === 1) throw errors[0];
     if (errors.length > 1) {
       throw new Error(`virtiofsd cleanup failed: ${errors.map(formatError).join('; ')}`);
+    }
+  }
+
+  private async unmountTree(tree: StagedHostMountTree): Promise<void> {
+    for (let attempt = 1; attempt <= UNMOUNT_BUSY_RETRY_ATTEMPTS; attempt += 1) {
+      try {
+        await tree.unmount();
+        return;
+      } catch (error) {
+        const retryable = tree.hasResidue && isBusyUnmountError(error);
+        if (!retryable || attempt === UNMOUNT_BUSY_RETRY_ATTEMPTS) throw error;
+        await this.dependencies.sleep(UNMOUNT_BUSY_RETRY_INTERVAL_MS);
+      }
     }
   }
 
@@ -519,4 +534,10 @@ class BoundedCapture {
 
 function formatError(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+function isBusyUnmountError(error: unknown): boolean {
+  if ((error as NodeJS.ErrnoException | undefined)?.code === 'EBUSY') return true;
+  return error instanceof Error &&
+    /(?:target|resource) is busy/i.test(error.message);
 }

@@ -994,6 +994,50 @@ describe('VirtiofsdManager host mount-tree enforcement', () => {
     expect(deps.rmdir).toHaveBeenCalledWith(STAGED_ROOT);
   });
 
+  it('retries a transient busy staged-root unmount after daemon termination', async () => {
+    let rootUnmountAttempts = 0;
+    const deps = dependencies({
+      runTool: jest.fn(async (command: string, args: readonly string[]) => {
+        if (command.endsWith('umount') && args[0] === '-R' &&
+          ++rootUnmountAttempts === 1) {
+          throw new Error(`${STAGED_ROOT}: target is busy`);
+        }
+      }),
+    });
+    const started = manager(deps);
+    await started.start([workspace], enforcement);
+
+    await expect(started.stop()).resolves.toBeUndefined();
+    expect(rootUnmountAttempts).toBe(2);
+    expect(deps.sleep).toHaveBeenCalledWith(25);
+    expect(deps.rmdir).toHaveBeenCalledWith(STAGED_ROOT);
+  });
+
+  it('fails closed and retains a persistently busy staged mount for a later stop', async () => {
+    let rootUnmountAttempts = 0;
+    let busy = true;
+    const deps = dependencies({
+      runTool: jest.fn(async (command: string, args: readonly string[]) => {
+        if (command.endsWith('umount') && args[0] === '-R') {
+          rootUnmountAttempts += 1;
+          if (busy) throw new Error(`${STAGED_ROOT}: target is busy`);
+        }
+      }),
+    });
+    const started = manager(deps);
+    await started.start([workspace], enforcement);
+
+    await expect(started.stop()).rejects.toThrow(/target is busy/);
+    expect(rootUnmountAttempts).toBe(5);
+    expect(deps.sleep).toHaveBeenCalledTimes(4);
+    expect(deps.rmdir).not.toHaveBeenCalledWith(STAGED_ROOT);
+
+    busy = false;
+    await expect(started.stop()).resolves.toBeUndefined();
+    expect(rootUnmountAttempts).toBe(6);
+    expect(deps.rmdir).toHaveBeenCalledWith(STAGED_ROOT);
+  });
+
   it('unmounts the staged tree when the daemon fails to start', async () => {
     const exited = processMock(300);
     Object.assign(exited, { exitCode: 1 });
