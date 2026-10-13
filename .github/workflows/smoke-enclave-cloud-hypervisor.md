@@ -90,11 +90,14 @@ acceptance paths. The binary, Docker images, and release-attested primary and
 script enclave artifacts all select that release. This workflow is compiled
 with gh-aw v0.91.9 and does not publish a release or authorize a live run.
 
-Call the `enclave_run_script` MCP tool directly exactly once, selecting
-`github/gh-aw-firewall`. Pass exactly this JSON object, with exactly the
-required `privateRepo`, `schema`, and `script` keys:
+The enclave server is mounted as the `awf-enclave` CLI command on `PATH`,
+not as a direct MCP tool. Make exactly one enclave call from shell/Bash:
+`awf-enclave enclave_run_script .`. The `.` sentinel reads a JSON object
+from stdin. Run this exact command with the required `privateRepo`, `schema`,
+and `script` keys:
 
-```json
+```bash
+awf-enclave enclave_run_script . <<'JSON'
 {
   "privateRepo": "github/gh-aw-firewall",
   "schema": {
@@ -106,22 +109,31 @@ required `privateRepo`, `schema`, and `script` keys:
   },
   "script": "import json\nimport pathlib\n\nroot = pathlib.Path(\"/query/repo\")\nresult = {\n    \"package_json\": (root / \"package.json\").is_file(),\n    \"src\": (root / \"src\").is_dir(),\n}\npathlib.Path(\"/query/out\").write_text(json.dumps(result), encoding=\"utf-8\")"
 }
+JSON
 ```
 
 The `schema` uses AWF's finite-disclosure schema algebra, not JSON Schema.
-Do not use the current checkout, shell commands, CLI commands, GitHub tools, or
-network requests to answer. Do not invoke the tool through a shell or CLI,
-inspect its help, probe its schema, send empty arguments, use `repo` instead
-of `privateRepo`, or retry. If the invocation fails, call
-`safeoutputs missing_data` immediately and never make a second attempt.
+Use the enclave result, not the current checkout or another data source, to
+answer. Avoid unnecessary enclave calls: acceptance allows one invocation,
+and an invalid invocation consumes that quota too. Do not retry a failed
+invocation. AWF enforces isolation and invocation budgets; these instructions
+keep the smoke test focused and are not a security control.
 
-Only if both returned booleans are `true`, call `noop` with exactly:
+Safe outputs are also mounted CLI commands, not direct MCP tools. Only if
+both returned booleans are `true`, run this final command once from shell/Bash:
 
-```text
-ENCLAVE_CLOUD_HYPERVISOR_PASS {"package_json":true,"src":true}
+```bash
+printf '%s\n' '{"message":"ENCLAVE_CLOUD_HYPERVISOR_PASS {\"package_json\":true,\"src\":true}"}' | safeoutputs noop .
 ```
 
-On any failure, call `safeoutputs missing_data`; never report failure via `noop`.
+On any failure, including an unavailable enclave command or a failed invocation,
+run this final command once instead; never report failure via `noop`:
+
+```bash
+printf '%s\n' '{"data_type":"Cloud Hypervisor enclave result","reason":"The enclave invocation failed or did not return both required booleans as true."}' | safeoutputs missing_data .
+```
+
+Do not use safe outputs for discovery, probing, or placeholder calls.
 
 ## Usage
 

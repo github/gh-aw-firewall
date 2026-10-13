@@ -1,5 +1,6 @@
 import * as fs from 'fs';
 import * as path from 'path';
+import { execFileSync } from 'child_process';
 import { applyGeneralWorkflowPatches } from './apply-general-workflow-patches';
 
 const workflowsDir = path.resolve(__dirname, '../../.github/workflows');
@@ -133,13 +134,16 @@ describe('experimental Cloud Hypervisor enclave smoke workflow', () => {
     expect(source).toContain("uses AWF's finite-disclosure schema algebra, not JSON");
     expect(source).toContain('"package_json": { "type": "boolean" }');
     expect(source).toContain('"src": { "type": "boolean" }');
-    const toolInputMatch = source.match(
-      /Pass exactly this JSON object, with exactly the\nrequired `privateRepo`, `schema`, and `script` keys:\n\n```json\n([\s\S]*?)\n```/
+    const toolCommandMatch = source.match(
+      /```bash\n(awf-enclave enclave_run_script \. <<'JSON'\n[\s\S]*?\nJSON)\n```/
     );
-    if (!toolInputMatch) {
-      throw new Error('Missing the exact enclave MCP tool input object');
+    if (!toolCommandMatch) {
+      throw new Error('Missing the exact mounted enclave CLI command');
     }
-    const toolInput = JSON.parse(toolInputMatch[1]) as {
+    const toolInput = JSON.parse(execFileSync('bash', ['-c',
+      'function awf-enclave() { [[ "$#" == 2 && "$1" == enclave_run_script && "$2" == . ]] || return 1; cat; }\n' +
+      toolCommandMatch[1],
+    ], { encoding: 'utf8' })) as {
       privateRepo: string;
       schema: { type: string; fields: Record<string, { type: string }> };
       script: string;
@@ -162,12 +166,12 @@ result = {
     "src": (root / "src").is_dir(),
 }
 pathlib.Path("/query/out").write_text(json.dumps(result), encoding="utf-8")`);
-    expect(source).toContain('Call the `enclave_run_script` MCP tool directly exactly once');
-    expect(source).toContain('Do not invoke the tool through a shell or CLI');
-    expect(source).toContain('inspect its help, probe its schema, send empty arguments');
-    expect(source).toMatch(/use `repo` instead\s+of `privateRepo`, or retry/);
-    expect(source).toContain('If the invocation fails, call\n`safeoutputs missing_data` immediately');
-    expect(source).toContain('never make a second attempt');
+    expect(source).toContain('not as a direct MCP tool');
+    expect(source).toContain('Make exactly one enclave call from shell/Bash');
+    expect(source).toContain('an invalid invocation consumes that quota too');
+    expect(source).toContain('Do not retry a failed\ninvocation');
+    expect(source).toContain('AWF enforces isolation and invocation budgets');
+    expect(source).not.toMatch(/MCP tool directly|Do not invoke the tool through a shell or CLI|Do not use[^.]*shell commands|inspect its help|probe its schema/);
     expect(source).not.toContain('enclave_run_agent');
     expect(source).toContain('max-invocations: 1');
     expect(source).toContain('invocations.length !== 1');
@@ -177,6 +181,31 @@ pathlib.Path("/query/out").write_text(json.dumps(result), encoding="utf-8")`);
     expect(source).toContain('record.sensitivity === "public"');
     expect(source).toContain('record.type === "noop" && record.message === expected');
     expect(source).toContain('ENCLAVE_CLOUD_HYPERVISOR_PASS');
+  });
+
+  it('uses final safe-output CLI calls with JSON stdin for success and failure', () => {
+    const commands = [...source.matchAll(/```bash\n([\s\S]*?)\n```/g)]
+      .map(match => match[1]).filter(command => command.includes('| safeoutputs '));
+    expect(commands).toHaveLength(2);
+    for (const [index, tool] of ['noop', 'missing_data'].entries()) {
+      expect(commands[index]).toContain(`| safeoutputs ${tool} .`);
+      const input = JSON.parse(execFileSync('bash', ['-c',
+        `function safeoutputs() { [[ "$#" == 2 && "$1" == ${tool} && "$2" == . ]] || return 1; cat; }\n` +
+        commands[index],
+      ], { encoding: 'utf8' }));
+      if (tool === 'noop') {
+        expect(input).toEqual({
+          message: 'ENCLAVE_CLOUD_HYPERVISOR_PASS {"package_json":true,"src":true}',
+        });
+      } else {
+        expect(input).toEqual({
+          data_type: 'Cloud Hypervisor enclave result',
+          reason: 'The enclave invocation failed or did not return both required booleans as true.',
+        });
+      }
+    }
+    expect(source).toContain('Do not use safe outputs for discovery, probing, or placeholder calls.');
+    expect(source).toContain('never report failure via `noop`');
   });
 
   it('documents the exact official-main guard without relaxing production gates', () => {
