@@ -316,7 +316,7 @@ earlier attempts are not overwritten. These artifacts are distinct from mcpg's
 `mcp-logs/awf-enclave.log`, which records backend connection attempts rather than
 the enclave server's stderr.
 
-The experimental Cloud Hypervisor smoke installs **published AWF v0.28.54**
+The experimental Cloud Hypervisor smoke installs **published AWF v0.28.55**
 with release-matched images and attested primary and script guest artifacts.
 That release includes the host and server diagnostics changes and the reviewed
 official-main acceptance policy. Once the workflow pin update merges to `main`,
