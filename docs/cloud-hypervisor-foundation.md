@@ -1236,7 +1236,8 @@ For an enclave-enabled Cloud Hypervisor primary, `enclave-runtime/primary-runtim
 is recorded only after the selected external runtime backend's trusted preflight
 succeeds for that run. Cloud Hypervisor is not checked as a Docker OCI runtime;
 missing or failed backend evidence leaves the required checklist check failed
-or unattempted and blocks startup.
+or unattempted and blocks startup. Attempts to skip a required check identify
+only its allowlisted `scope/check-id` in the error.
 
 `src/cloud-hypervisor/host-preflight-schema.ts` is the canonical catalog of
 check IDs, optional checks, and safe reason codes, shared by AWF and the

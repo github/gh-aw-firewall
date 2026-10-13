@@ -795,6 +795,33 @@ describe('createMainAction', () => {
           .slice(-1)[0];
         expect(startupDiagnostic).toContain('"enclave-runtime/primary-runtime":["failed","unknown"]');
       });
+
+      it('does not hand successful primary preflight evidence to a different config', async () => {
+        const selectedConfig = {
+          ...MAIN_ACTION_STUB_CONFIG,
+          containerRuntime: 'cloud-hypervisor',
+          cloudHypervisor: { previewEnabled: true },
+          enclaves: { enabled: true },
+        } as WrapperConfig;
+        const preflight = jest.fn().mockResolvedValue(undefined);
+        mockedValidateOptions.validateOptions.mockReturnValueOnce(selectedConfig);
+        mockedExternalRuntimeResolver.resolveExternalRuntimeBackend.mockReturnValueOnce({
+          runtime: 'cloud-hypervisor',
+          preflight,
+          start: jest.fn(), exec: jest.fn(), collectDiagnostics: jest.fn(), stop: jest.fn(),
+        });
+        mockedCliWorkflow.runMainWorkflow.mockImplementationOnce(async (_config, dependencies) => {
+          await expect(dependencies.prepareEnclaves!({
+            ...selectedConfig,
+          })).rejects.toThrow('Cloud Hypervisor primary runtime preflight evidence is unavailable for this run');
+          return 0;
+        });
+
+        const action = createMainAction(getOptionValueSource);
+        await action(['echo hi'], {});
+
+        expect(preflight).toHaveBeenCalledTimes(1);
+      });
     });
   });
 

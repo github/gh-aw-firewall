@@ -136,6 +136,8 @@ describe('standard enclave startup checklist', () => {
     expect(() => runtime.notRequired('primary-runtime')).toThrow(
       'Required startup check "enclave-runtime/primary-runtime" cannot be skipped',
     );
+    expect(() => runtime.notRequired('/private/path' as HostPreflightCheck))
+      .toThrow('Unknown host preflight check');
   });
 
   it('permits a disabled executor runtime to be marked not required', () => {

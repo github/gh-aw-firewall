@@ -682,19 +682,23 @@ export function createMainAction(getOptionValueSource: OptionSourceResolver) {
         assertEnclaveGithubGatewayReady,
         prepareEnclaves: config.enclaves?.enabled
           && externalRuntimeBackend?.runtime === 'cloud-hypervisor'
-          ? (candidate) => prepareEnclaves(candidate, {
-            assertCloudHypervisorPrimaryPreflight: async (preflightConfig) => {
-              if (
-                candidate !== config
-                || preflightConfig !== config
-                || config.containerRuntime !== 'cloud-hypervisor'
-                || externalRuntimeBackend?.runtime !== 'cloud-hypervisor'
-                || !cloudHypervisorPrimaryPreflightPassed
-              ) {
-                throw new Error('Cloud Hypervisor primary runtime preflight evidence is unavailable for this run');
-              }
-            },
-          })
+          ? async (candidate) => {
+            if (candidate !== config) {
+              throw new Error('Cloud Hypervisor primary runtime preflight evidence is unavailable for this run');
+            }
+            return prepareEnclaves(candidate, {
+              assertCloudHypervisorPrimaryPreflight: async (preflightConfig) => {
+                if (
+                  preflightConfig !== config
+                  || config.containerRuntime !== 'cloud-hypervisor'
+                  || externalRuntimeBackend?.runtime !== 'cloud-hypervisor'
+                  || !cloudHypervisorPrimaryPreflightPassed
+                ) {
+                  throw new Error('Cloud Hypervisor primary runtime preflight evidence is unavailable for this run');
+                }
+              },
+            });
+          }
           : prepareEnclaves,
         startEnclaveDynamicDelegation,
         prepareRouting: async (routingConfig) => stageRoutingConversation(routingConfig),
