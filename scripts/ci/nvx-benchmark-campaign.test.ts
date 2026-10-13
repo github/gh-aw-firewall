@@ -139,7 +139,8 @@ describe('NVX benchmark campaign evidence', () => {
     expect(harness).toContain('df -Pk /tmp');
     expect(harness).toContain('guest-error.txt');
     expect(harness).toContain('AWF_PHASE4_NODE_BIN');
-    expect(harness).toContain('expected_memory_max=4294967296');
+    expect(harness).toContain('--nvx-memory-max-bytes 4294967296');
+    expect(harness).toContain('expected_memory_max=4563402752');
     expect(harness).toContain('expected_memory_max=4563402752');
     expect(harness).toContain('resources.json');
     expect(harness).toContain('--cloud-hypervisor-vcpus 1');

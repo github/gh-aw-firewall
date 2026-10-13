@@ -426,7 +426,7 @@ while kill -0 "$awf_pid" 2>/dev/null; do
   if [ -n "$observed_cgroup" ] &&
      sudo test -f "$observed_cgroup/cpu.stat"; then
     current_cpu_micros=$(sudo awk '$1 == "usage_usec" { print $2 }' \
-         "$observed_cgroup/cpu.stat")
+         "$observed_cgroup/cpu.stat" 2>/dev/null || true)
     if [[ "$current_cpu_micros" =~ ^[0-9]+$ ]] &&
           [ "$current_cpu_micros" -gt "$cpu_usage_micros" ]; then
          cpu_usage_micros=$current_cpu_micros
@@ -570,11 +570,9 @@ else
   done
 fi
 resource_limits=false
-if [ "$runtime" = nvx ]; then
-  expected_memory_max=4294967296
-else
-  expected_memory_max=4563402752
-fi
+# Both launchers add 256 MiB of host-runtime headroom to the matched 4 GiB
+# guest limit.
+expected_memory_max=4563402752
 if [ -n "$observed_cgroup" ] && [ "$observed_pids_max" = 256 ]; then
   read -r cpu_quota cpu_period <<<"$observed_cpu_max"
   if [ "$observed_memory_max" = "$expected_memory_max" ] &&
