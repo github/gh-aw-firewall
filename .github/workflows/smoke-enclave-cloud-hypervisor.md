@@ -5,13 +5,13 @@ on:
 permissions:
   contents: read
   copilot-requests: write
-env:
-  GH_TOKEN: ${{ github.token }}
 name: Smoke Enclave Cloud Hypervisor (Experimental)
 runs-on: ubuntu-24.04
 engine:
   id: copilot
   version: 1.0.34
+  env:
+    GH_TOKEN: ${{ github.token }}
   args: ["--allow-tool", "awf-enclave(enclave_run_script)"]
 network:
   allowed:

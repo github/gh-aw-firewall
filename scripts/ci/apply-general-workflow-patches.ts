@@ -260,6 +260,20 @@ export function applyGeneralWorkflowPatches(
         log.push(`  Excluded enclave staging credential from the primary agent`);
       }
     }
+
+    if (workflowPath.endsWith('smoke-enclave-cloud-hypervisor.lock.yml')) {
+      const stagingTokenExclusion = '--exclude-env GH_TOKEN';
+      if (!content.includes(stagingTokenExclusion)) {
+        if (!content.includes(gatewayKeyExclusion)) {
+          throw new Error('Could not find the primary-agent environment exclusion anchor');
+        }
+        content = content.replace(
+          gatewayKeyExclusion,
+          `${stagingTokenExclusion} ${gatewayKeyExclusion}`
+        );
+        log.push(`  Excluded enclave staging credential from the primary agent`);
+      }
+    }
   }
 
   if (usesPublishedAwfRelease(workflowPath)) {

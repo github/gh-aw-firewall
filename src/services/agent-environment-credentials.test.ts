@@ -300,7 +300,15 @@ describe('agent environment: credentials', () => {
   });
 
   it('should keep host GitHub tokens out of the primary container when enclaves are enabled', () => {
-    const names = ['GH_TOKEN', 'GITHUB_TOKEN', 'GITHUB_PERSONAL_ACCESS_TOKEN'];
+    const names = [
+      'GH_TOKEN',
+      'GITHUB_TOKEN',
+      'GITHUB_PERSONAL_ACCESS_TOKEN',
+      'COPILOT_GITHUB_TOKEN',
+      'GITHUB_API_TOKEN',
+      'GITHUB_PAT',
+      'GH_ACCESS_TOKEN',
+    ];
     const previous = Object.fromEntries(names.map((name) => [name, process.env[name]]));
     Object.assign(process.env, {
       GH_TOKEN: 'host-gh-token',
@@ -328,6 +336,28 @@ describe('agent environment: credentials', () => {
         if (previous[name] === undefined) delete process.env[name];
         else process.env[name] = previous[name];
       }
+    }
+  });
+
+  it('should fail closed when a host GitHub token is copied to another environment variable', () => {
+    const originalToken = process.env.GH_TOKEN;
+    process.env.GH_TOKEN = 'host-gh-token-value';
+
+    try {
+      const configWithTokenAlias = {
+        ...mockConfig,
+        enableApiProxy: false,
+        additionalEnv: { STAGING_TOKEN_COPY: 'host-gh-token-value' },
+        enclaves: normalizeEnclavesConfig([
+          { script: {}, repos: [{ repo: 'github/gh-aw-firewall', sensitivity: 'public' }] },
+        ]),
+      };
+
+      expect(() => generateDockerCompose(configWithTokenAlias, mockNetworkConfig))
+        .toThrow(/host GitHub token through agent sandbox variable STAGING_TOKEN_COPY/);
+    } finally {
+      if (originalToken === undefined) delete process.env.GH_TOKEN;
+      else process.env.GH_TOKEN = originalToken;
     }
   });
 

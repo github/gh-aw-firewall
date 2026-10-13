@@ -10,7 +10,15 @@ import {
 
 describe('Cloud Hypervisor runtime backend environment and path mapping', () => {
   it('never puts host GitHub tokens in the primary micro-VM guest environment', () => {
-    const names = ['GH_TOKEN', 'GITHUB_TOKEN', 'GITHUB_PERSONAL_ACCESS_TOKEN'];
+    const names = [
+      'GH_TOKEN',
+      'GITHUB_TOKEN',
+      'GITHUB_PERSONAL_ACCESS_TOKEN',
+      'COPILOT_GITHUB_TOKEN',
+      'GITHUB_API_TOKEN',
+      'GITHUB_PAT',
+      'GH_ACCESS_TOKEN',
+    ];
     const previous = Object.fromEntries(names.map((name) => [name, process.env[name]]));
     Object.assign(process.env, {
       GH_TOKEN: 'host-gh-token',
@@ -38,6 +46,27 @@ describe('Cloud Hypervisor runtime backend environment and path mapping', () => 
         if (previous[name] === undefined) delete process.env[name];
         else process.env[name] = previous[name];
       }
+    }
+  });
+
+  it('fails closed when a host GitHub token is copied to another guest variable', () => {
+    const originalToken = process.env.GH_TOKEN;
+    process.env.GH_TOKEN = 'host-gh-token-value';
+
+    try {
+      expect(() => buildCloudHypervisorGuestEnvironment(
+        config({
+          enableApiProxy: false,
+          enclaves: normalizeEnclavesConfig([
+            { script: {}, repos: [{ repo: 'github/gh-aw-firewall', sensitivity: 'public' }] },
+          ]),
+          additionalEnv: { STAGING_TOKEN_COPY: 'host-gh-token-value' },
+        }),
+        infrastructure(),
+      )).toThrow(/host GitHub token through agent sandbox variable STAGING_TOKEN_COPY/);
+    } finally {
+      if (originalToken === undefined) delete process.env.GH_TOKEN;
+      else process.env.GH_TOKEN = originalToken;
     }
   });
 

@@ -68,7 +68,6 @@ function assertNoProviderSecrets(
     config.copilotProviderApiKey,
     config.geminiApiKey,
     config.googleApiKey,
-    config.githubToken,
   ]
     .filter((value): value is string => typeof value === 'string' && value.length > 0);
   for (const [name, value] of Object.entries(environment)) {

@@ -15,6 +15,7 @@ import {
   preflightCloudHypervisorEnclaveArtifacts,
   readBoundedCloudHypervisorEnclaveResult,
 } from './host-enclave-executor';
+import { agentEnvironment, stageInvocationInputs } from './enclave-invocation-staging';
 import type { FiniteSchemaNode } from '../bounded-execution/finite-schema';
 import type {
   HostExecutorInvocationPlan,
@@ -39,6 +40,82 @@ import type { CloudHypervisorWorkloadProfile } from './workload-profile';
 
 describe('readBoundedCloudHypervisorEnclaveResult', () => {
   let directory: string;
+
+  it('rejects the host GitHub token in the enclave bearer file before staging inputs', async () => {
+    const previousToken = process.env.GH_TOKEN;
+    const token = 'host-github-token-value';
+    process.env.GH_TOKEN = token;
+    const writeFile = jest.fn();
+    const plan: HostExecutorInvocationPlan = {
+      runId: 'a'.repeat(32),
+      entryId: 'agent-entry',
+      invocationId: 'b'.repeat(32),
+      executorKind: 'agent',
+      timeoutMs: 1000,
+      requestHash: 'c'.repeat(64),
+      admissionId: 'd'.repeat(32),
+      schemaHash: 'e'.repeat(64),
+      schema: { type: 'boolean' },
+      payload: 'test',
+      invocationHostDir: '/tmp/awf-enclave-invocation',
+      seedId: 'f'.repeat(32),
+      seedHostPath: '/tmp/awf-enclave-seed',
+    };
+    const policy: HostExecutorAgentPolicy = {
+      model: 'trusted-model',
+      profile: 'openai',
+      maxOutputBytes: 4096,
+      githubAgentId: 'trusted-agent-id',
+      githubBearer: token,
+    };
+
+    try {
+      await expect(stageInvocationInputs(plan, 'agent', policy, {
+        writeFile,
+        chown: jest.fn(),
+        chmod: jest.fn(),
+      })).rejects.toThrow(/host GitHub token through Cloud Hypervisor enclave GitHub bearer file/);
+      expect(writeFile).not.toHaveBeenCalled();
+    } finally {
+      if (previousToken === undefined) delete process.env.GH_TOKEN;
+      else process.env.GH_TOKEN = previousToken;
+    }
+  });
+
+  it('rejects a host GitHub token copied into the enclave guest environment', () => {
+    const previousToken = process.env.GH_TOKEN;
+    const token = 'host-github-token-value';
+    process.env.GH_TOKEN = token;
+    const policy: HostExecutorAgentPolicy = {
+      model: token,
+      profile: 'openai',
+      maxOutputBytes: 4096,
+    };
+    const plan: HostExecutorInvocationPlan = {
+      runId: 'a'.repeat(32),
+      entryId: 'agent-entry',
+      invocationId: 'b'.repeat(32),
+      executorKind: 'agent',
+      timeoutMs: 1000,
+      requestHash: 'c'.repeat(64),
+      admissionId: 'd'.repeat(32),
+      schemaHash: 'e'.repeat(64),
+      schema: { type: 'boolean' },
+      payload: 'test',
+      invocationHostDir: '/tmp/awf-enclave-invocation',
+      seedId: 'f'.repeat(32),
+      seedHostPath: '/tmp/awf-enclave-seed',
+    };
+
+    try {
+      expect(() => agentEnvironment(policy, plan)).toThrow(
+        /host GitHub token through Cloud Hypervisor enclave variable COPILOT_MODEL/,
+      );
+    } finally {
+      if (previousToken === undefined) delete process.env.GH_TOKEN;
+      else process.env.GH_TOKEN = previousToken;
+    }
+  });
 
   beforeEach(async () => {
     directory = await fs.mkdtemp(path.join(process.cwd(), '.awf-enclave-result-'));

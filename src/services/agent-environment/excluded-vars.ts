@@ -1,5 +1,6 @@
 import { PROXY_ENV_VARS } from '../../upstream-proxy';
 import { WrapperConfig } from '../../types';
+import { addGithubTokenEnvVars } from './github-token-isolation';
 
 export function buildExclusionSet(config: WrapperConfig): Set<string> {
   const excludedEnvVars = new Set([
@@ -52,13 +53,7 @@ export function buildExclusionSet(config: WrapperConfig): Set<string> {
     // GitHub tokens are excluded when API proxy is enabled (strict mode):
     // the agent must not hold live credentials that can be extracted via
     // /proc/self/environ or environment inspection.
-    excludedEnvVars.add('GITHUB_TOKEN');
-    excludedEnvVars.add('GH_TOKEN');
-    excludedEnvVars.add('GITHUB_PERSONAL_ACCESS_TOKEN');
-    excludedEnvVars.add('COPILOT_GITHUB_TOKEN');
-    excludedEnvVars.add('GITHUB_API_TOKEN');
-    excludedEnvVars.add('GITHUB_PAT');
-    excludedEnvVars.add('GH_ACCESS_TOKEN');
+    addGithubTokenEnvVars(excludedEnvVars);
     // Exclude the OpenAI endpoint override so the sidecar-isolated endpoint
     // URL is never visible to the untrusted agent via its environment.
     excludedEnvVars.add('OPENAI_ENDPOINT_OVERRIDE');
@@ -74,26 +69,14 @@ export function buildExclusionSet(config: WrapperConfig): Set<string> {
   if (config.difcProxyHost) {
     // Redundant with enableApiProxy block above, kept for explicit documentation:
     // when DIFC proxy handles GitHub auth, tokens must never reach the agent.
-    excludedEnvVars.add('GITHUB_TOKEN');
-    excludedEnvVars.add('GH_TOKEN');
-    excludedEnvVars.add('GITHUB_PERSONAL_ACCESS_TOKEN');
-    excludedEnvVars.add('COPILOT_GITHUB_TOKEN');
-    excludedEnvVars.add('GITHUB_API_TOKEN');
-    excludedEnvVars.add('GITHUB_PAT');
-    excludedEnvVars.add('GH_ACCESS_TOKEN');
+    addGithubTokenEnvVars(excludedEnvVars);
   }
 
   if (config.enclaves?.enabled) {
     // Enclaves read private repositories on the primary agent's behalf. A
     // GitHub token in the primary environment would bypass mcpg and defeat
     // repository isolation, so strip tokens independently of proxy settings.
-    excludedEnvVars.add('GITHUB_TOKEN');
-    excludedEnvVars.add('GH_TOKEN');
-    excludedEnvVars.add('GITHUB_PERSONAL_ACCESS_TOKEN');
-    excludedEnvVars.add('COPILOT_GITHUB_TOKEN');
-    excludedEnvVars.add('GITHUB_API_TOKEN');
-    excludedEnvVars.add('GITHUB_PAT');
-    excludedEnvVars.add('GH_ACCESS_TOKEN');
+    addGithubTokenEnvVars(excludedEnvVars);
   }
 
   if (config.excludeEnv && config.excludeEnv.length > 0) {

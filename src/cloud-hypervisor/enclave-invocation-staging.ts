@@ -22,6 +22,10 @@ import type {
 } from './enclave-executor-types';
 import type { CloudHypervisorHostToolPaths } from './preflight';
 import { CLOUD_HYPERVISOR_ENCLAVE_RESOURCE_PROFILES } from './workload-profile';
+import {
+  assertNoHostGithubTokenValue,
+  enforceGithubTokenIsolation,
+} from '../services/agent-environment/github-token-isolation';
 
 const GITHUB_PROFILE = 'issues-read-v1';
 const GITHUB_ENDPOINT = `http://${ENCLAVE_AGENT_GITHUB_MCP_IP}:${ENCLAVE_GITHUB_MCP_PORT}/mcp/github`;
@@ -136,7 +140,7 @@ async function writePrivateFile(
   uid: number,
   gid: number,
   mode: number,
-  dependencies: HostEnclaveExecutorDependencies,
+  dependencies: Pick<HostEnclaveExecutorDependencies, 'writeFile' | 'chown' | 'chmod'>,
 ): Promise<void> {
   await dependencies.writeFile(filePathValue, contents, { encoding: 'utf8', mode, flag: 'wx' });
   await dependencies.chown(filePathValue, uid, gid);
@@ -147,8 +151,15 @@ export async function stageInvocationInputs(
   plan: HostExecutorInvocationPlan,
   role: CloudHypervisorEnclaveRole,
   policy: HostExecutorAgentPolicy | undefined,
-  dependencies: HostEnclaveExecutorDependencies,
+  dependencies: Pick<HostEnclaveExecutorDependencies, 'writeFile' | 'chown' | 'chmod'>,
 ): Promise<void> {
+  if (role === 'agent' && policy?.githubBearer) {
+    assertNoHostGithubTokenValue(
+      policy.githubBearer,
+      [process.env.GH_TOKEN, process.env.GITHUB_TOKEN],
+      'Cloud Hypervisor enclave GitHub bearer file',
+    );
+  }
   const resourceProfile = role === 'script'
     ? CLOUD_HYPERVISOR_ENCLAVE_RESOURCE_PROFILES.script
     : CLOUD_HYPERVISOR_ENCLAVE_RESOURCE_PROFILES.agent;
@@ -216,7 +227,7 @@ export function agentEnvironment(
   policy: HostExecutorAgentPolicy,
   plan: HostExecutorInvocationPlan,
 ): Readonly<Record<string, string>> {
-  return Object.freeze({
+  const environment = {
     PATH: '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin',
     HOME: '/agent/home',
     COPILOT_HOME: '/agent/copilot',
@@ -245,5 +256,11 @@ export function agentEnvironment(
     ...(policy.maxModelTokens !== undefined
       ? { AWF_ENCLAVE_AGENT_MAX_MODEL_TOKENS: String(policy.maxModelTokens) }
       : {}),
-  });
+  };
+  enforceGithubTokenIsolation(
+    environment,
+    [process.env.GH_TOKEN, process.env.GITHUB_TOKEN],
+    'Cloud Hypervisor enclave',
+  );
+  return Object.freeze(environment);
 }
