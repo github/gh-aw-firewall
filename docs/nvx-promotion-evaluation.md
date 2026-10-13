@@ -205,9 +205,9 @@ promotion eligibility and runner-minute ceiling. Repository concurrency
 permits only one Phase 4 campaign tier at a time.
 
 A progression run is accepted only when its aggregate is a complete,
-successful, measured pilot from the same source commit, runner class, guest
-image and reviewed baseline. All original run and recovery records must
-succeed with no assertion failures or residue. A 1,000-minute pilot must cite
+successful, measured pilot from the same source commit, runner class, runner
+image, guest image and reviewed baseline. All original run and recovery records
+must succeed with no assertion failures or residue. A 1,000-minute pilot must cite
 the successful 100-minute workflow run ID; a full campaign must cite the
 successful 1,000-minute workflow run ID.
 
