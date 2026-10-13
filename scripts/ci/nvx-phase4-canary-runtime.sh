@@ -81,6 +81,10 @@ else
 fi
 printf '%s\n' "$kvm_acl_before" > "$evidence_dir/kvm-acl-before.txt"
 chmod 0600 "$evidence_dir/kvm-acl-before.txt"
+restore_kvm_acl() {
+  sudo setfacl --restore="$evidence_dir/kvm-acl-before.txt" >/dev/null 2>&1 || true
+}
+trap restore_kvm_acl EXIT
 processes_before=$(runtime_process_snapshot)
 netns_before=$(sudo ip netns list 2>/dev/null || true)
 cgroups_before=$(sudo find /sys/fs/cgroup -maxdepth 4 -type d \
@@ -452,7 +456,6 @@ wait "$awf_pid"
 awf_status=$?
 set -e
 
-sudo setfacl --restore="$evidence_dir/kvm-acl-before.txt"
 for _cleanup_attempt in $(seq 1 50); do
   processes_after=$(runtime_process_snapshot)
   netns_after=$(sudo ip netns list 2>/dev/null || true)
@@ -475,6 +478,8 @@ done
 cleanup_completed=$(now_ms)
 printf '%s\n' "$kvm_acl_after" > "$evidence_dir/kvm-acl-after.txt"
 chmod 0600 "$evidence_dir/kvm-acl-after.txt"
+restore_kvm_acl
+trap - EXIT
 
 runtime_ready=${runtime_ready:-0}
 first_work=${first_work:-0}

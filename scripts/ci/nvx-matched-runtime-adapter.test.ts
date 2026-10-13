@@ -261,6 +261,20 @@ describe('matched runtime measurement adapter', () => {
     }
     expect(() => aggregateCampaign(campaign, workloadSpecificLayer, thresholds))
       .not.toThrow();
+
+    const mismatchedToolchain = structuredClone(artifacts) as SampleArtifact[];
+    const secondNvxToolchain = mismatchedToolchain.find((artifact) =>
+      artifact.kind === 'run' && artifact.result.runtime === 'nvx' &&
+      artifact.result.workload === 'copilot-inference',
+    );
+    if (secondNvxToolchain?.kind === 'run') {
+      const toolchain = secondNvxToolchain.result.provenance.nvxGuestToolchain!;
+      toolchain.packages.push('phase4-extra-tool-1.0.0-r0');
+      toolchain.packageInventorySha256 = createHash('sha256')
+        .update(`${toolchain.packages.join('\n')}\n`).digest('hex');
+    }
+    expect(() => aggregateCampaign(campaign, mismatchedToolchain, thresholds))
+      .toThrow('NVX guest toolchain provenance differs');
   });
 
   it('parses complete measured recovery evidence and fails closed on omissions', () => {

@@ -629,6 +629,19 @@ export function aggregateCampaign(
         throw new Error('guest tool versions differ across matched canary samples');
       }
     }
+    const nvxToolchains = canaryAttempts
+      .filter((attempt) => attempt.runtime === 'nvx')
+      .map((attempt) => {
+        const toolchain = attempt.provenance.nvxGuestToolchain;
+        return JSON.stringify(toolchain && {
+          packageInventorySha256: toolchain.packageInventorySha256,
+          packages: toolchain.packages,
+          tools: toolchain.tools,
+        });
+      });
+    if (new Set(nvxToolchains).size > 1) {
+      throw new Error('NVX guest toolchain provenance differs across canary samples');
+    }
   }
 
   const primaryRuns: RunEvidence[] = [];
