@@ -162,4 +162,21 @@ describe('model selectors before inference guards', () => {
     expect(JSON.parse(upstream.upstreamRequest.write.mock.calls[0][0].toString()).model)
       .toBe('gpt-5.6-terra');
   });
+
+  it('retains all operator alias candidates for endpoint fallback', async () => {
+    load({ AWF_MODEL_ALIASES: JSON.stringify({ models: { 'Team Model': ['copilot/*'] } }) });
+    const { req } = await send('Team Model (copilot)');
+    expect(req.awfModelCandidates).toEqual(expect.arrayContaining(cache.copilot));
+  });
+
+  it('selects a policy-permitted candidate from an operator display alias', async () => {
+    load({
+      AWF_MODEL_ALIASES: JSON.stringify({ models: { 'Team Model': ['copilot/*'] } }),
+      AWF_ALLOWED_MODELS: JSON.stringify(['claude-sonnet-5']),
+    });
+    const { upstream, req } = await send('Team Model');
+    expect(req.awfModelCandidates).toEqual(['claude-sonnet-5']);
+    expect(JSON.parse(upstream.upstreamRequest.write.mock.calls[0][0].toString()).model)
+      .toBe('claude-sonnet-5');
+  });
 });

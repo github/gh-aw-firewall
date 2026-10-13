@@ -1,6 +1,6 @@
 'use strict';
 
-const { resolveModelSelector } = require('./model-selector');
+const { resolveModelSelector: resolveSelector } = require('./model-selector');
 const { parseProviderModelMetadata } = require('./runtime-model-catalog');
 
 const ids = ['gpt-5.6-terra', 'claude-sonnet-5'];
@@ -10,6 +10,10 @@ const records = parseProviderModelMetadata('copilot', {
     { id: ids[1], name: 'Claude Sonnet 5' },
   ],
 });
+
+function resolveModelSelector(...args) {
+  return resolveSelector(...args)?.resolvedModel ?? null;
+}
 
 describe('selected scalar model selectors', () => {
   it.each([
@@ -62,6 +66,20 @@ describe('selected scalar model selectors', () => {
     expect(resolveModelSelector('GPT-5.6 Terra', 'copilot', ids, records, {
       'GPT-5.6 Terra': ['copilot/claude-sonnet-5'],
     })).toBe(ids[1]);
+  });
+
+  it('retains policy-aware alias candidates and model parameters for endpoint retries', () => {
+    const aliases = { 'Team Model': ['copilot/*'] };
+    const selection = resolveSelector(
+      'Team Model (copilot)?reasoning=high', 'copilot', ids, records, aliases,
+    );
+    expect(selection.candidates).toEqual(expect.arrayContaining(ids.map(id => `${id}?reasoning=high`)));
+    expect(selection.log.length).toBeGreaterThan(0);
+    const permitted = resolveSelector('Team Model', 'copilot', ids, records, aliases, {
+      allowedModels: ['claude-sonnet-5'],
+    });
+    expect(permitted.resolvedModel).toBe('claude-sonnet-5');
+    expect(permitted.candidates).toEqual(['claude-sonnet-5']);
   });
 
   it('never applies middle-power fallback to an unresolved display-name alias', () => {

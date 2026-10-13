@@ -195,7 +195,7 @@ function makeModelBodyTransform(
       const parsed = parseBodyAsObject(body);
       const selectModel = () => resolveModelSelector(
         parsed?.model, provider, resolvableModels()[provider], getRuntimeModels(provider),
-        MODEL_ALIASES?.models,
+        MODEL_ALIASES?.models, MODEL_POLICY_CONFIG,
       );
       let selectedModel;
       try {
@@ -207,24 +207,22 @@ function makeModelBodyTransform(
       }
       if (selectedModel) {
         const originalModel = req?.awfRequestedModelSelector ?? parsed.model;
-        parsed.model = selectedModel;
+        parsed.model = selectedModel.resolvedModel;
         result = {
+          ...selectedModel,
           body: Buffer.from(JSON.stringify(parsed), 'utf8'),
           originalModel,
-          resolvedModel: selectedModel,
-          candidates: [selectedModel],
-          log: [],
         };
         req?.awfRouting?.onModelSelectorResolution?.(result.body);
         logRequest('info', 'model_selector_resolution', {
           requested_selector: sanitizeForLog(originalModel),
           selected_provider: provider,
-          resolved_model: sanitizeForLog(selectedModel),
+          resolved_model: sanitizeForLog(selectedModel.resolvedModel),
         });
         diag('model_selector_resolution', {
           requested_selector: sanitizeForLog(originalModel),
           selected_provider: provider,
-          resolved_model: sanitizeForLog(selectedModel),
+          resolved_model: sanitizeForLog(selectedModel.resolvedModel),
         });
       }
     }
