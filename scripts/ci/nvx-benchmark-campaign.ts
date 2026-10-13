@@ -132,13 +132,15 @@ export interface RecoveryEvidence extends RecoveryResult {
 
 export type SampleArtifact = { kind: 'run'; result: RunEvidence } | { kind: 'recovery'; result: RecoveryEvidence };
 
-export interface CampaignResults extends BenchmarkResults {
+export interface CampaignResults extends Omit<BenchmarkResults, 'runs' | 'recoveries'> {
   campaignId: string;
   mode: CampaignMode;
   sourceCommit: string;
   runnerImage: string;
   guestImage: string;
   provenance: CampaignProvenance;
+  runs: RunEvidence[];
+  recoveries: RecoveryEvidence[];
   attempts: RunEvidence[];
   recoveryAttempts: RecoveryEvidence[];
   expectedSampleIds: string[];
@@ -938,6 +940,7 @@ export function aggregateCampaign(manifest: CampaignManifest, artifacts: SampleA
 }
 
 export function isSuccessfulPilot(results: CampaignResults): boolean {
+  const resultSampleIds = [...results.runs, ...results.recoveries].map((result) => result.sampleId).sort();
   return (
     (results.mode === 'pilot-100' || results.mode === 'pilot-1000') &&
     !results.dryRun &&
@@ -946,6 +949,7 @@ export function isSuccessfulPilot(results: CampaignResults): boolean {
     results.missingSampleIds.length === 0 &&
     results.unexpectedSampleIds.length === 0 &&
     results.observedSampleIds.length === EXECUTION_SAMPLE_COUNTS[results.mode] &&
+    isDeepStrictEqual(resultSampleIds, [...results.observedSampleIds].sort()) &&
     [...results.runs, ...results.recoveries].every(
       (result) => result.success && result.assertionFailures.length === 0 && result.residue.length === 0,
     )
@@ -978,6 +982,7 @@ export function validateProgressionEvidence(
     predecessor.campaignId === current.campaignId ||
     predecessor.sourceCommit !== current.sourceCommit ||
     predecessor.runnerClass !== current.runnerClass ||
+    predecessor.runnerImage !== current.runnerImage ||
     predecessor.guestImage !== current.guestImage ||
     !isDeepStrictEqual(predecessor.versions, current.versions) ||
     !isDeepStrictEqual(predecessor.provenance, current.provenance)

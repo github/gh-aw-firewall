@@ -132,6 +132,7 @@ describe('NVX benchmark campaign evidence', () => {
     expect(source).toContain('I reviewed and approve the 1,000 runner-minute pilot');
     expect(source).toContain('I reviewed and approve the 10,000 runner-minute estimate');
     expect(source).toContain('progression_run_id');
+    expect(source).toContain('--pattern "nvx-phase4-aggregate-*-${PROGRESSION_RUN_ID}-1"');
     expect(source).toContain('prior_run_id');
     expect(source).toContain('allow_infrastructure_retry');
     expect(source).toContain('infrastructure_retry_url');
@@ -295,6 +296,17 @@ describe('NVX benchmark campaign evidence', () => {
     expect(isSuccessfulPilot(successfulSmall)).toBe(true);
     expect(() => validateProgressionEvidence(broad, small, successfulSmall)).not.toThrow();
     expect(() => validateProgressionEvidence(full, small, successfulSmall)).toThrow('pilot-1000');
+
+    const missingRecords = structuredClone(successfulSmall);
+    missingRecords.runs = [];
+    missingRecords.recoveries = [];
+    expect(isSuccessfulPilot(missingRecords)).toBe(false);
+    expect(() => validateProgressionEvidence(broad, small, missingRecords)).toThrow('successfulPilot');
+
+    const differentRunnerImage = { ...broad, runnerImage: 'ubuntu-24.04-different' };
+    expect(() => validateProgressionEvidence(differentRunnerImage, small, successfulSmall)).toThrow(
+      'same reviewed source and baseline',
+    );
 
     successfulSmall.runs[0].residue.push('run-directory');
     expect(isSuccessfulPilot(successfulSmall)).toBe(false);

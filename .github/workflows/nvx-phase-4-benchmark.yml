@@ -213,7 +213,7 @@ jobs:
               progression="$RUNNER_TEMP/progression"
               mkdir -m 0700 "$progression"
               gh run download "$PROGRESSION_RUN_ID" --repo "$GITHUB_REPOSITORY" \
-                --pattern "nvx-phase4-aggregate-*" --dir "$progression"
+                --pattern "nvx-phase4-aggregate-*-${PROGRESSION_RUN_ID}-1" --dir "$progression"
               predecessor_manifest=$(find "$progression" -name manifest.json -type f -print -quit)
               predecessor_results=$(find "$progression" -name benchmark-results.json -type f -print -quit)
               test -n "$predecessor_manifest" && test -n "$predecessor_results"
