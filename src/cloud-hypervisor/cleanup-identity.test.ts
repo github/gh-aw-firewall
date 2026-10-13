@@ -81,6 +81,30 @@ describe('cleanup identity primitives', () => {
         ['bad-process', (record) => {
           record.processes.worker = { state: 'pending', executable: 'relative', socketPath: '/sock' };
         }, /process record is malformed/],
+        ['bad-acl-baseline-path', (record) => {
+          record.vmmIdentity = {
+            state: 'live',
+            name: 'awfvmm-0123456789abcdef0123',
+            uid: 23001,
+            gid: 23002,
+            aclPaths: ['/dev/kvm'],
+            aclBaselines: {
+              '/dev/net/tun': ['user::rw-', 'group::rw-', 'other::rw-'],
+            },
+          };
+        }, /cleanup VMM identity is malformed/],
+        ['bad-acl-baseline-shape', (record) => {
+          record.vmmIdentity = {
+            state: 'live',
+            name: 'awfvmm-0123456789abcdef0123',
+            uid: 23001,
+            gid: 23002,
+            aclPaths: ['/dev/kvm'],
+            aclBaselines: {
+              '/dev/kvm': ['user::rw-', 'group::rw-'],
+            },
+          };
+        }, /cleanup VMM identity is malformed/],
         ['bad-mount', (record) => {
           record.mounts = [{
             mountId: 0,

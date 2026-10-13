@@ -23,14 +23,19 @@ describe('cleanup handle integration', () => {
       const account = 'awfvmm-0123456789abcdef0123';
       await handle.prepareVmmAccount(account);
       await handle.captureVmmIdentity({ name: account, uid: 23001, gid: 23002 });
-      await handle.prepareVmmAcl('/dev/kvm', ['user::rw-', 'group::rw-', 'other::rw-']);
+      const baseline = ['user::rw-', 'group::rw-', 'other::rw-'];
+      await handle.prepareVmmAcl('/dev/kvm', baseline);
+      await expect(handle.prepareVmmAcl('/dev/kvm', [
+        'user::rw-', 'group::r--', 'other::---',
+      ])).rejects.toThrow(/baseline changed/);
       await handle.releaseVmmAcl('/dev/kvm');
 
       const record = JSON.parse(await fs.readFile(
         path.join(harness.temporaryRoot, 'pending-cleanup', `${paths.runId}.json`),
         'utf8',
-      )) as { vmmIdentity: { aclPaths: string[] } };
+      )) as { vmmIdentity: { aclPaths: string[]; aclBaselines?: object } };
       expect(record.vmmIdentity.aclPaths).toEqual([]);
+      expect(record.vmmIdentity.aclBaselines).toEqual({});
       await expect(handle.releaseVmmAcl('/dev/kvm')).rejects.toThrow(/intent is missing/);
     });
 

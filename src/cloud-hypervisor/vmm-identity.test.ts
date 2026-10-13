@@ -883,6 +883,18 @@ describe('CloudHypervisorVmmIdentityManager', () => {
     expect(base.deps.run).not.toHaveBeenCalledWith(tools.userdel, [identity.name]);
   });
 
+  it('fails closed if an in-memory device ACL baseline is lost before restoration', async () => {
+    const base = dependencies();
+    const manager = new CloudHypervisorVmmIdentityManager('missing-baseline', tools, base.deps);
+    await manager.allocate();
+    const operation = async () => {
+      (Reflect.get(manager, 'aclBaselines') as Map<string, string[]>).clear();
+    };
+
+    await expect(manager.withDeviceAccess(operation))
+      .rejects.toThrow(/ACL baseline is missing/);
+  });
+
   it('recovers a stale zero-byte lock without racing a replacement owner', async () => {
     const base = dependencies();
     let lockExists = true;
