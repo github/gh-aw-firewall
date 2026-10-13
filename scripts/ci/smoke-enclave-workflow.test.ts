@@ -86,6 +86,66 @@ describe('experimental Cloud Hypervisor enclave smoke workflow', () => {
     expect(source).toContain('safeoutputs missing_data .');
   });
 
+  it('disables separate failure issues without suppressing non-issue diagnostics', () => {
+    const frontmatter = yaml.load(source.split('---')[1]) as {
+      'safe-outputs': {
+        'report-failure-as-issue': boolean;
+        'report-incomplete': { 'create-issue': boolean };
+      };
+    };
+    const compiled = yaml.load(lock) as {
+      jobs: Record<string, {
+        permissions?: Record<string, string>;
+        steps: Array<{
+          name: string;
+          if?: string;
+          env?: Record<string, string>;
+        }>;
+      }>;
+    };
+    const failureStep = compiled.jobs.conclusion.steps.find(step =>
+      step.name === 'Handle agent failure');
+    const loadOutputsStep = compiled.jobs.conclusion.steps.find(step =>
+      step.env?.GH_AW_REPORT_INCOMPLETE_CREATE_ISSUE !== undefined);
+
+    expect(frontmatter['safe-outputs']['report-failure-as-issue']).toBe(false);
+    expect(frontmatter['safe-outputs']['report-incomplete']['create-issue']).toBe(false);
+    expect(failureStep).toBeDefined();
+    expect(failureStep?.env?.GH_AW_FAILURE_REPORT_AS_ISSUE).toBe('false');
+    expect(failureStep?.env?.GH_AW_MISSING_DATA_REPORT_AS_FAILURE).toBe('true');
+    expect(failureStep?.env?.GH_AW_MISSING_TOOL_REPORT_AS_FAILURE).toBe('true');
+    expect(loadOutputsStep?.env?.GH_AW_REPORT_INCOMPLETE_CREATE_ISSUE).toBe('false');
+    expect(compiled.jobs.activation.permissions?.issues).toBeUndefined();
+    const blockedVersionStep = compiled.jobs.activation.steps.find(step =>
+      step.env?.GH_AW_BLOCKED_VERSION_REPORT_AS_ISSUE !== undefined);
+    expect(blockedVersionStep?.env?.GH_AW_BLOCKED_VERSION_REPORT_AS_ISSUE).toBe('false');
+    for (const configKey of [
+      'GH_AW_SAFE_OUTPUTS_CONFIG', 'GH_AW_SAFE_OUTPUTS_HANDLER_CONFIG',
+    ]) {
+      const configStep = Object.values(compiled.jobs).flatMap(job => job.steps)
+        .find(step => step.env?.[configKey] !== undefined);
+      const config = JSON.parse(configStep?.env?.[configKey] ?? '{}') as {
+        create_issue?: { max: number };
+        create_report_incomplete_issue?: unknown;
+        report_incomplete?: unknown;
+      };
+      expect(config.create_issue?.max).toBe(1);
+      expect(config.create_report_incomplete_issue).toBeUndefined();
+      expect(config.report_incomplete).toEqual({});
+    }
+    for (const name of [
+      'Append agent step summary',
+      'Parse agent logs for step summary',
+      'Generate observability summary',
+      'Validate enclave invocation and result',
+    ]) {
+      expect(compiled.jobs.agent.steps.find(step => step.name === name)?.if)
+        .toBe('always()');
+    }
+    expect(lock).toContain('name: Upload Safe Outputs Items\n        if: always()');
+    expect(source).toContain('safeoutputs missing_data .');
+  });
+
   it('is manual-only and explicitly experimental on a supported runner', () => {
     expect(source).toContain('workflow_dispatch:');
     expect(source).not.toContain('schedule:');

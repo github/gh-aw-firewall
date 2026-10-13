@@ -28,6 +28,9 @@ enclaves:
     timeout: 120
     max-invocations: 1
 safe-outputs:
+  report-failure-as-issue: false
+  report-incomplete:
+    create-issue: false
   threat-detection:
     enabled: false
   messages:
@@ -134,6 +137,10 @@ printf '%s\n' '{"data_type":"Cloud Hypervisor enclave result","reason":"The encl
 ```
 
 Do not use safe outputs for discovery, probing, or placeholder calls.
+
+Automatic failure issues are disabled so the ordinary safe-output issue remains
+the only issue-creation path, capped at one per run. Failures remain visible in
+the workflow status, step summaries, logs, and uploaded artifacts.
 
 ## Usage
 
