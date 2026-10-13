@@ -149,34 +149,57 @@ cat > "$workspace_dir/workload.sh" <<'EOF'
 #!/bin/sh
 set -eu
 root=${AWF_PHASE4_CANARY_ROOT:?}
+guest_stage=bootstrap
+guest_fail() {
+  code=$1
+  reason=$2
+  printf '%s\n' "$reason" > "$root/guest-error"
+  exit "$code"
+}
+guest_exit() {
+  status=$?
+  if [ "$status" -ne 0 ] && [ ! -s "$root/guest-error" ]; then
+    printf 'stage=%s status=%s\n' "$guest_stage" "$status" > "$root/guest-error"
+  fi
+}
+trap guest_exit EXIT
+guest_stage=workspace
 test "$(pwd)" = /workspace
 printf '%s\n' ready > "$root/runtime-ready"
-test ! -e /host
+if awk '$5 == "/host" { found = 1 } END { exit !found }' /proc/self/mountinfo; then
+  guest_fail 40 host-mount-visible
+fi
+guest_stage=credentials
 if env | grep -Eq '^(GH_TOKEN|GITHUB_TOKEN|OPENAI_API_KEY|ANTHROPIC_API_KEY)='; then
-  exit 41
+  guest_fail 41 real-credential-environment-visible
 fi
 copilot_placeholder="ghu_$(printf '%036s' '' | tr ' ' a)"
 if [ -n "${COPILOT_GITHUB_TOKEN:-}" ] &&
    [ "$COPILOT_GITHUB_TOKEN" != "$copilot_placeholder" ]; then
-  exit 42
+  guest_fail 42 copilot-github-token-not-placeholder
 fi
 if [ -n "${COPILOT_TOKEN:-}" ] && [ "$COPILOT_TOKEN" != "$copilot_placeholder" ]; then
-  exit 44
+  guest_fail 44 copilot-token-not-placeholder
 fi
 if [ -n "${COPILOT_API_KEY:-}" ] &&
    [ "$COPILOT_API_KEY" != "dummy-byok-key-for-offline-mode" ]; then
-  exit 45
+  guest_fail 45 copilot-api-key-not-placeholder
 fi
-test -z "${COPILOT_PROVIDER_API_KEY:-}"
+if [ -n "${COPILOT_PROVIDER_API_KEY:-}" ]; then
+  guest_fail 46 copilot-provider-api-key-visible
+fi
+guest_stage=egress
 blocked=$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 https://example.com 2>/dev/null || true)
 blocked=${blocked:-000}
-case "$blocked" in 000|403) ;; *) exit 43 ;; esac
+case "$blocked" in 000|403) ;; *) guest_fail 43 deny-by-default-egress-failed ;; esac
+guest_stage=toolchain
 guest_node_version=$(node --version)
 guest_curl_version=$(curl --version | awk 'NR == 1 {print $1, $2}')
-scratch_capacity=$(df -PB1 /tmp | awk 'NR == 2 {print $2}')
+scratch_capacity=$(df -Pk /tmp | awk 'NR == 2 {print $2 * 1024}')
 scratch_before_bytes=$(du -sb /tmp 2>/dev/null | awk '{print $1}')
 scratch_before_bytes=${scratch_before_bytes:-0}
 scratch_peak_bytes=$scratch_before_bytes
+guest_stage=workload
 case "${AWF_PHASE4_WORKLOAD:?}" in
   build-test)
     printf '%s\n' ready > "$root/first-work"
@@ -238,16 +261,25 @@ if [ "$scratch_after_bytes" -gt "$scratch_peak_bytes" ]; then
 fi
 scratch_usage_bytes=$((scratch_peak_bytes - scratch_before_bytes))
 if [ "$scratch_usage_bytes" -lt 0 ]; then scratch_usage_bytes=0; fi
-jq -n \
-  --arg nodeVersion "$guest_node_version" \
-  --arg curlVersion "$guest_curl_version" \
-  --argjson scratchCapacityBytes "$scratch_capacity" \
-  --argjson scratchUsageBytes "$scratch_usage_bytes" \
-  '{credentialIsolation:true,egressPolicy:true,workspaceOnlyExposure:true,
-    nodeVersion:$nodeVersion,curlVersion:$curlVersion,
-    scratchCapacityBytes:$scratchCapacityBytes,scratchUsageBytes:$scratchUsageBytes}' \
-  > "$root/guest-status.json"
+guest_stage=evidence
+GUEST_NODE_VERSION=$guest_node_version \
+GUEST_CURL_VERSION=$guest_curl_version \
+SCRATCH_CAPACITY_BYTES=$scratch_capacity \
+SCRATCH_USAGE_BYTES=$scratch_usage_bytes \
+node -e '
+  const fs = require("node:fs");
+  fs.writeFileSync(process.argv[1], JSON.stringify({
+    credentialIsolation: true,
+    egressPolicy: true,
+    workspaceOnlyExposure: true,
+    nodeVersion: process.env.GUEST_NODE_VERSION,
+    curlVersion: process.env.GUEST_CURL_VERSION,
+    scratchCapacityBytes: Number(process.env.SCRATCH_CAPACITY_BYTES),
+    scratchUsageBytes: Number(process.env.SCRATCH_USAGE_BYTES),
+  }));
+' "$root/guest-status.json"
 printf '%s\n' complete > "$root/workload-complete"
+trap - EXIT
 EOF
 chmod 0755 "$workspace_dir/workload.sh"
 
@@ -545,6 +577,9 @@ for proof in build-proof copilot-proof; do
     cp --no-clobber "$workspace_dir/$proof" "$raw_evidence_dir/$proof"
   fi
 done
+if [ -s "$workspace_dir/guest-error" ]; then
+  cp --no-clobber "$workspace_dir/guest-error" "$raw_evidence_dir/guest-error.txt"
+fi
 token_log=$(find "$proxy_logs" -name token-usage.jsonl -type f -print -quit)
 if [ -n "$token_log" ] && [ -n "${AWF_PHASE4_TOKEN_USAGE_OUTPUT:-}" ]; then
   cp --no-clobber "$token_log" "$AWF_PHASE4_TOKEN_USAGE_OUTPUT"

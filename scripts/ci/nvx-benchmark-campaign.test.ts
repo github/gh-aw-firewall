@@ -133,6 +133,9 @@ describe('NVX benchmark campaign evidence', () => {
     expect(harness).toContain('sudo test -f "$candidate/memory.max"');
     expect(harness).toContain("! -path '/sys/fs/cgroup/awf-nvx'");
     expect(harness).toContain('setfacl --restore="$evidence_dir/kvm-acl-before.txt"');
+    expect(harness).toContain('host-mount-visible');
+    expect(harness).toContain('df -Pk /tmp');
+    expect(harness).toContain('guest-error.txt');
     expect(harness).toContain('--cloud-hypervisor-vcpus 1');
     expect(harness).toContain('--nvx-memory-mib 4096');
     expect(harness).toContain('[ "$observed_memory_max" = 4563402752 ]');
