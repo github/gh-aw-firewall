@@ -110,6 +110,7 @@ describe('NVX benchmark campaign evidence', () => {
     expect(source).toContain('v0.28.54');
     expect(source).toContain('install_copilot_cli.sh" 1.0.95');
     expect(source).toContain("matrix.runtime == 'nvx' && 'musl' || 'glibc'");
+    expect(source).toContain('AWF_PHASE4_KVM_ACL_BASELINE');
     expect(source).toContain('promotionEligible == false');
     expect(source).not.toContain('mode: full');
 
@@ -123,6 +124,8 @@ describe('NVX benchmark campaign evidence', () => {
     expect(harness).toContain('copilot_host=$(command -v copilot)');
     expect(harness).toContain('GITHUB_ACTIONS,RUNNER_ENVIRONMENT,ImageOS');
     expect(harness).toContain('0.28.54,squid=sha256:960930db');
+    expect(harness).toContain("copilot_placeholder=\"ghu_$(printf '%036s' '' | tr ' ' a)\"");
+    expect(harness).toContain('"/proc/$runtime_pid/cgroup"');
     expect(harness).toContain('--cloud-hypervisor-vcpus 1');
     expect(harness).toContain('--nvx-memory-mib 4096');
     expect(harness).toContain('[ "$observed_memory_max" = 4563402752 ]');

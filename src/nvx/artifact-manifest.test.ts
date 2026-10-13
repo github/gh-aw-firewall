@@ -2,6 +2,7 @@ import {
   NVX_ARTIFACT_RELEASE_TAG,
   NVX_ARTIFACT_REPOSITORY,
   NVX_ARTIFACT_SIGNER_WORKFLOW,
+  NVX_CANARY_SIGNER_WORKFLOW,
   NVX_COMMIT,
   NVX_OPENVMM_COMMIT,
   NVX_RELEASE_TAG,
@@ -50,6 +51,16 @@ describe('NVX artifact manifest', () => {
       JSON.stringify(manifest()),
       NVX_ARTIFACT_RELEASE_TAG,
     )).toEqual(manifest());
+  });
+
+  it('trusts the bounded Phase 4 canary signer workflow', () => {
+    const value = manifest();
+    value.release.workflow = NVX_CANARY_SIGNER_WORKFLOW;
+    expect(parseNvxArtifactManifest(
+      JSON.stringify(value),
+      NVX_ARTIFACT_RELEASE_TAG,
+      NVX_CANARY_SIGNER_WORKFLOW,
+    )).toEqual(value);
   });
 
   it.each([

@@ -72,7 +72,11 @@ test -f dist/cli.js
 sudo sync
 sudo sh -c 'echo 3 > /proc/sys/vm/drop_caches'
 
-kvm_acl_before=$(sudo getfacl --absolute-names --numeric /dev/kvm 2>/dev/null)
+if [ -n "${AWF_PHASE4_KVM_ACL_BASELINE:-}" ]; then
+  kvm_acl_before=$(cat "$AWF_PHASE4_KVM_ACL_BASELINE")
+else
+  kvm_acl_before=$(sudo getfacl --absolute-names --numeric /dev/kvm 2>/dev/null)
+fi
 processes_before=$(runtime_process_snapshot)
 netns_before=$(sudo ip netns list 2>/dev/null || true)
 cgroups_before=$(sudo find /sys/fs/cgroup -maxdepth 4 -type d \
@@ -145,10 +149,12 @@ test ! -e /host
 if env | grep -Eq '^(GH_TOKEN|GITHUB_TOKEN|OPENAI_API_KEY|ANTHROPIC_API_KEY)='; then
   exit 41
 fi
-if [ -n "${COPILOT_GITHUB_TOKEN:-}" ] && [ "$COPILOT_GITHUB_TOKEN" != "******" ]; then
+copilot_placeholder="ghu_$(printf '%036s' '' | tr ' ' a)"
+if [ -n "${COPILOT_GITHUB_TOKEN:-}" ] &&
+   [ "$COPILOT_GITHUB_TOKEN" != "$copilot_placeholder" ]; then
   exit 42
 fi
-if [ -n "${COPILOT_TOKEN:-}" ] && [ "$COPILOT_TOKEN" != "******" ]; then
+if [ -n "${COPILOT_TOKEN:-}" ] && [ "$COPILOT_TOKEN" != "$copilot_placeholder" ]; then
   exit 44
 fi
 if [ -n "${COPILOT_API_KEY:-}" ] &&
@@ -321,6 +327,31 @@ while kill -0 "$awf_pid" 2>/dev/null; do
     peak_host_disk_bytes=$current_host
   fi
   if [ -z "$observed_cgroup" ]; then
+    if [ "$runtime" = nvx ]; then
+      runtime_pid=$(sudo pgrep -xo openvmm 2>/dev/null || true)
+    else
+      runtime_pid=$(sudo pgrep -f \
+        '/var/lib/awf-cloud-hypervisor/trusted-artifacts/run-[^/]*/[c]loud-hypervisor --api-socket' \
+        2>/dev/null | sed -n '1p')
+    fi
+    if [[ "$runtime_pid" =~ ^[0-9]+$ ]] && [ -r "/proc/$runtime_pid/cgroup" ]; then
+      cgroup_membership=$(sudo awk -F: '$1 == "0" { print $3 }' \
+        "/proc/$runtime_pid/cgroup")
+      candidate="/sys/fs/cgroup$cgroup_membership"
+      if [[ "$candidate" == "/sys/fs/cgroup/awf-$runtime/"* ]] &&
+         [ -f "$candidate/memory.max" ] &&
+         [ -f "$candidate/cpu.max" ] &&
+         [ -f "$candidate/pids.max" ] &&
+         [ -f "$candidate/cpu.stat" ]; then
+        observed_cgroup=$candidate
+        preflight_completed=$(now_ms)
+        observed_memory_max=$(sudo cat "$candidate/memory.max")
+        observed_cpu_max=$(sudo cat "$candidate/cpu.max")
+        observed_pids_max=$(sudo cat "$candidate/pids.max")
+      fi
+    fi
+  fi
+  if [ -z "$observed_cgroup" ]; then
     while IFS= read -r candidate; do
       [ -n "$candidate" ] || continue
       if ! grep -Fxq "$candidate" <<<"$cgroups_before" &&
@@ -366,6 +397,24 @@ set +e
 wait "$awf_pid"
 awf_status=$?
 set -e
+
+for _cleanup_attempt in $(seq 1 50); do
+  processes_after=$(runtime_process_snapshot)
+  netns_after=$(sudo ip netns list 2>/dev/null || true)
+  cgroups_after=$(sudo find /sys/fs/cgroup -maxdepth 4 -type d \
+    \( -path '/sys/fs/cgroup/awf-nvx*' -o \
+       -path '/sys/fs/cgroup/awf-cloud-hypervisor*' \) -print 2>/dev/null | sort)
+  mounts_after=$(findmnt -rn -o TARGET 2>/dev/null | grep -E 'awf-(nvx|cloud-hypervisor)' || true)
+  kvm_acl_after=$(sudo getfacl --absolute-names --numeric /dev/kvm 2>/dev/null)
+  if [ "$processes_before" = "$processes_after" ] &&
+     [ "$netns_before" = "$netns_after" ] &&
+     [ "$cgroups_before" = "$cgroups_after" ] &&
+     [ "$mounts_before" = "$mounts_after" ] &&
+     [ "$kvm_acl_before" = "$kvm_acl_after" ]; then
+    break
+  fi
+  sleep 0.1
+done
 cleanup_completed=$(now_ms)
 
 runtime_ready=${runtime_ready:-0}
@@ -410,18 +459,11 @@ jq -n \
   }' > "$AWF_BENCHMARK_EVENTS"
 
 residue=()
-processes_after=$(runtime_process_snapshot)
-netns_after=$(sudo ip netns list 2>/dev/null || true)
-cgroups_after=$(sudo find /sys/fs/cgroup -maxdepth 4 -type d \
-  \( -path '/sys/fs/cgroup/awf-nvx*' -o \
-     -path '/sys/fs/cgroup/awf-cloud-hypervisor*' \) -print 2>/dev/null | sort)
-mounts_after=$(findmnt -rn -o TARGET 2>/dev/null | grep -E 'awf-(nvx|cloud-hypervisor)' || true)
 [ "$processes_before" = "$processes_after" ] || residue+=("runtime-process")
 [ "$netns_before" = "$netns_after" ] || residue+=("network-namespace")
 [ "$cgroups_before" = "$cgroups_after" ] || residue+=("cgroup")
 [ "$mounts_before" = "$mounts_after" ] || residue+=("mount")
 test ! -e "$work_dir" || residue+=("run-directory:$work_dir")
-kvm_acl_after=$(sudo getfacl --absolute-names --numeric /dev/kvm 2>/dev/null)
 kvm_restored=false
 if [ "$kvm_acl_before" = "$kvm_acl_after" ]; then kvm_restored=true; fi
 guest_ok=false

@@ -81,6 +81,11 @@ jobs:
           GH_AW_AWF_VERSION: v0.28.54
         run: |
           set -euo pipefail
+          sudo getfacl --absolute-names --numeric /dev/kvm |
+            sudo tee "$RUNNER_TEMP/phase4-kvm-acl-before.txt" >/dev/null
+          sudo chmod 0600 "$RUNNER_TEMP/phase4-kvm-acl-before.txt"
+          echo "AWF_PHASE4_KVM_ACL_BASELINE=$RUNNER_TEMP/phase4-kvm-acl-before.txt" \
+            >> "$GITHUB_ENV"
           bash "${RUNNER_TEMP}/gh-aw/actions/cloud_hypervisor_kvm_access.sh"
           bash "${RUNNER_TEMP}/gh-aw/actions/cloud_hypervisor_host_preflight.sh"
           bash "${RUNNER_TEMP}/gh-aw/actions/cloud_hypervisor_setup_bundle.sh"
