@@ -15,8 +15,8 @@ describe('issue duplication detector workflow optimization', () => {
     expect(source).toContain('name: Fetch issue and cached signatures');
     expect(source).toContain('gh issue view "$ISSUE_NUMBER"');
     expect(source).toContain('/tmp/gh-aw/agent/cached-issues.json');
-    expect(source).toContain('post-steps:');
-    expect(source).toContain('name: Update cached issue signatures');
+    expect(source).not.toContain('post-steps:');
+    expect(source.indexOf('cp "$cache"')).toBeLessThan(source.indexOf('jq -s'));
     expect(source).toContain('key_phrases:');
     expect(source).toContain('| .[-100:]');
     expect(prompt).not.toContain('list up to 20 open issues');
@@ -31,8 +31,24 @@ describe('issue duplication detector workflow optimization', () => {
     );
     expect(lock).not.toContain('"search_repositories"');
     expect(lock).toContain('Fetch issue and cached signatures');
-    expect(lock).toContain('Update cached issue signatures');
+    const update = lock.indexOf('mv \\"$cache.tmp\\" \\"$cache\\"');
+    expect(update).toBeGreaterThan(lock.indexOf('Fetch issue and cached signatures'));
+    expect(update).toBeLessThan(lock.indexOf('name: Execute GitHub Copilot CLI'));
+    expect(update).toBeLessThan(lock.indexOf('name: Scan cache-memory'));
+    expect(update).toBeLessThan(lock.indexOf('name: Commit cache-memory changes'));
     expect(lock).toContain('gh issue view');
     expect(lock).toContain('ISSUE_NUMBER');
+  });
+
+  it('targets the prepared issue for comments on opened issues and manual dispatches', () => {
+    const source = fs.readFileSync(sourcePath, 'utf-8');
+    const lock = fs.readFileSync(lockPath, 'utf-8');
+
+    expect(source).toContain('github.event.issue.number || inputs.issue_number');
+    expect(source).toContain('add-comment:\n    max: 1\n    target: "*"');
+    expect(source).toContain(
+      'Set `item_number` to the `number` from `/tmp/gh-aw/agent/new-issue.json`',
+    );
+    expect(lock).toContain('\\"add_comment\\":{\\"max\\":1,\\"target\\":\\"*\\"}');
   });
 });

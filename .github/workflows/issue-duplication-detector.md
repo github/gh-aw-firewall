@@ -30,6 +30,7 @@ safe-outputs:
     enabled: false
   add-comment:
     max: 1
+    target: "*"
 timeout-minutes: 10
 steps:
   - name: Fetch issue and cached signatures
@@ -50,15 +51,8 @@ steps:
       else
         printf '[]\n' > /tmp/gh-aw/agent/cached-issues.json
       fi
-post-steps:
-  - name: Update cached issue signatures
-    if: always()
-    run: |
-      set -euo pipefail
-      cache=/tmp/gh-aw/cache-memory/issues.json
-      issue=/tmp/gh-aw/agent/new-issue.json
-      [ -s "$issue" ] || exit 0
 
+      issue=/tmp/gh-aw/agent/new-issue.json
       mkdir -p "$(dirname "$cache")"
       [ -s "$cache" ] || printf '[]\n' > "$cache"
       jq -s '
@@ -123,6 +117,7 @@ Consider an issue a potential duplicate if ANY of these conditions are met:
 ## Output Behavior
 
 **If duplicates are found**: Add a helpful comment to the new issue:
+- Set `item_number` to the `number` from `/tmp/gh-aw/agent/new-issue.json`, including for manual workflow runs.
 - List the potential duplicate issues with links
 - Briefly explain why they appear similar
 - Be polite and acknowledge this is automated detection
