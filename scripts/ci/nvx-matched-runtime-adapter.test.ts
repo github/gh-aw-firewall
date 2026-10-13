@@ -251,16 +251,16 @@ describe('matched runtime measurement adapter', () => {
     expect(() => aggregateCampaign(campaign, mismatchedTools, thresholds))
       .toThrow('guest tool versions differ');
 
-    const mismatchedLayer = structuredClone(artifacts) as SampleArtifact[];
-    const secondNvxSample = mismatchedLayer.find((artifact) =>
+    const workloadSpecificLayer = structuredClone(artifacts) as SampleArtifact[];
+    const secondNvxSample = workloadSpecificLayer.find((artifact) =>
       artifact.kind === 'run' && artifact.result.runtime === 'nvx' &&
       artifact.result.workload === 'copilot-inference',
     );
     if (secondNvxSample?.kind === 'run') {
       secondNvxSample.result.provenance.nvxGuestToolchain!.layerSha256 = 'e'.repeat(64);
     }
-    expect(() => aggregateCampaign(campaign, mismatchedLayer, thresholds))
-      .toThrow('NVX guest toolchain provenance differs');
+    expect(() => aggregateCampaign(campaign, workloadSpecificLayer, thresholds))
+      .not.toThrow();
   });
 
   it('parses complete measured recovery evidence and fails closed on omissions', () => {
