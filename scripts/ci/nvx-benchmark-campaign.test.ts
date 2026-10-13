@@ -128,6 +128,7 @@ describe('NVX benchmark campaign evidence', () => {
     expect(harness).toContain('GITHUB_ACTIONS,RUNNER_ENVIRONMENT,ImageOS');
     expect(harness).toContain('0.28.54,squid=sha256:960930db');
     expect(harness).toContain("copilot_placeholder=\"ghu_$(printf '%036s' '' | tr ' ' a)\"");
+    expect(harness).toContain('COPILOT_PROVIDER_API_KEY" != "$copilot_placeholder"');
     expect(harness).toContain('"/proc/$runtime_pid/cgroup"');
     expect(harness).toContain('sudo test -r "/proc/$runtime_pid/cgroup"');
     expect(harness).toContain('sudo test -f "$candidate/memory.max"');

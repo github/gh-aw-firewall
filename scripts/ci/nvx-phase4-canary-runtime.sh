@@ -185,8 +185,9 @@ if [ -n "${COPILOT_API_KEY:-}" ] &&
    [ "$COPILOT_API_KEY" != "dummy-byok-key-for-offline-mode" ]; then
   guest_fail 45 copilot-api-key-not-placeholder
 fi
-if [ -n "${COPILOT_PROVIDER_API_KEY:-}" ]; then
-  guest_fail 46 copilot-provider-api-key-visible
+if [ -n "${COPILOT_PROVIDER_API_KEY:-}" ] &&
+   [ "$COPILOT_PROVIDER_API_KEY" != "$copilot_placeholder" ]; then
+  guest_fail 46 copilot-provider-api-key-not-placeholder
 fi
 guest_stage=egress
 blocked=$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 https://example.com 2>/dev/null || true)
