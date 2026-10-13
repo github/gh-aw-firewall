@@ -420,9 +420,6 @@ function readProcessTreeMetrics(rootPid: number): Omit<ProcessMetrics, 'cpuSecon
   let rssKiB = 0;
   for (const pid of descendants) {
     try {
-      const stat = fs.readFileSync(`/proc/${pid}/stat`, 'utf8');
-      const close = stat.lastIndexOf(')');
-      const fields = stat.slice(close + 2).split(' ');
       const status = fs.readFileSync(`/proc/${pid}/status`, 'utf8');
       const rss = /^VmRSS:\s+(\d+)\s+kB$/m.exec(status);
       rssKiB += rss ? Number(rss[1]) : 0;
