@@ -147,7 +147,7 @@ describe('NVX benchmark campaign evidence', () => {
     const cloudSetup = executeSteps.find((step) => step.name === 'Provision Cloud Hypervisor v53.0 artifacts');
     const cloudImmutability = executeSteps.find((step) => step.name === 'Make Cloud Hypervisor artifacts immutable');
     expect(cloudSetup?.run).toContain('cloud_hypervisor_setup_bundle.sh');
-    expect(cloudSetup?.run).not.toContain('GH_AW_CLOUD_HYPERVISOR_BINARY');
+    expect(cloudSetup?.run).not.toContain('GH_AW_CLOUD_HYPERVISOR_');
     expect(cloudImmutability?.run).toContain('GH_AW_CLOUD_HYPERVISOR_BINARY');
     expect(executeSteps.indexOf(cloudImmutability!)).toBe(executeSteps.indexOf(cloudSetup!) + 1);
     const campaignSigner = 'github/gh-aw-firewall/.github/workflows/nvx-phase-4-benchmark.yml';
