@@ -2,6 +2,7 @@ import { createHash } from 'crypto';
 import { createReadStream, promises as fs } from 'fs';
 import { isIP } from 'net';
 import * as path from 'path';
+import { buildMicrovmScratchInit, MICROVM_SCRATCH_INIT_GUEST_PATH } from './scratch-init';
 
 export interface MicrovmRootfsConfig {
   readonly runDirectory: string;
@@ -10,6 +11,7 @@ export interface MicrovmRootfsConfig {
   readonly supervisorSha256: string;
   readonly supervisorGuestPath?: string;
   readonly hostAliases?: Readonly<Record<string, string>>;
+  readonly scratchMib?: number;
 }
 
 export interface MicrovmRootfsDependencies {
@@ -61,6 +63,21 @@ export class MicrovmRootfsPreparer {
     await this.dependencies.runTool('debugfs', [
       '-w', '-R', `sif ${guestSupervisor} mode 0100755`, this.rootfsImagePath,
     ]);
+    if (this.config.scratchMib !== undefined) {
+      const localInit = path.join(this.config.runDirectory, 'awf-scratch-init');
+      assertDebugfsOperand(localInit, 'scratch init staging path');
+      await fs.writeFile(localInit,
+        buildMicrovmScratchInit(this.config.scratchMib, guestSupervisor), { mode: 0o500 });
+      await this.dependencies.runTool('debugfs', [
+        '-w', '-R', `rm ${MICROVM_SCRATCH_INIT_GUEST_PATH}`, this.rootfsImagePath,
+      ]);
+      await this.dependencies.runTool('debugfs', [
+        '-w', '-R', `write ${localInit} ${MICROVM_SCRATCH_INIT_GUEST_PATH}`, this.rootfsImagePath,
+      ]);
+      await this.dependencies.runTool('debugfs', [
+        '-w', '-R', `sif ${MICROVM_SCRATCH_INIT_GUEST_PATH} mode 0100755`, this.rootfsImagePath,
+      ]);
+    }
     await this.injectHostAliases();
     await this.dependencies.runTool('e2fsck', ['-f', '-y', this.rootfsImagePath]);
     return this.rootfsImagePath;

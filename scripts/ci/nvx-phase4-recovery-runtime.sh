@@ -12,6 +12,9 @@ sample_id=${3:?sample id is required}
 case "$runtime" in nvx|cloud-hypervisor) ;; *) exit 2 ;; esac
 case "$kind" in cancellation|stale-recovery) ;; *) exit 2 ;; esac
 
+# shellcheck source=scripts/ci/nvx-phase4-runtime-checks.sh
+source "$(dirname "${BASH_SOURCE[0]}")/nvx-phase4-runtime-checks.sh"
+
 root="$RUNNER_TEMP/nvx-phase4-recovery/$sample_id"
 work="$root/work"
 config="$root/config.json"
@@ -47,7 +50,7 @@ snapshot_processes() {
   {
     sudo pgrep -a -x openvmm 2>/dev/null || true
     sudo pgrep -a -x virtiofsd 2>/dev/null || true
-    sudo pgrep -af '/var/lib/awf-cloud-hypervisor/trusted-artifacts/run-[^/]*/[c]loud-hypervisor' \
+    sudo pgrep -af '/var/lib/awf-cloud-hypervisor/trusted-artifacts/run-[^/]*/[c]loud-hypervisor --api-socket' \
       2>/dev/null || true
   } | sort
 }
@@ -73,6 +76,10 @@ processes_before=$(snapshot_processes)
 mounts_before=$(snapshot_mounts)
 netns_before=$(snapshot_netns)
 cgroups_before=$(snapshot_cgroups)
+cleanup_before=$(runtime_storage_snapshot "$runtime" cleanup)
+runs_before=$(runtime_storage_snapshot "$runtime" run)
+scratch_before=$(runtime_storage_snapshot "$runtime" scratch)
+snapshots_before=$(runtime_storage_snapshot "$runtime" snapshot)
 kvm_before=$(sudo getfacl --absolute-names --numeric /dev/kvm 2>/dev/null)
 
 jq -n '{
@@ -115,6 +122,7 @@ else
       "$GH_AW_CLOUD_HYPERVISOR_ARTIFACT_MANIFEST_BUNDLE"
     --cloud-hypervisor-artifact-release-tag v0.28.54
     --cloud-hypervisor-vcpus 2 --cloud-hypervisor-memory-mib 4096
+    --cloud-hypervisor-scratch-mib 2048
   )
 fi
 
@@ -131,20 +139,37 @@ run_awf() {
 export AWF_PHASE4_RECOVERY_ROOT="/workspace/.nvx-phase4-recovery/$sample_id"
 started_ms=$(date +%s%3N)
 run_awf "/bin/sh $AWF_PHASE4_RECOVERY_ROOT/workload.sh" >"$root/first.log" 2>&1 &
-manager_pid=$!
+launcher_pid=$!
+manager_pid=
+manager_start_time=
 readiness=false
 cleanup_record=
 cleanup_record_identity_valid=false
 for _ in $(seq 1 600); do
-  if ! kill -0 "$manager_pid" 2>/dev/null; then break; fi
-  cleanup_record=$(sudo find "$cleanup_root" -maxdepth 1 -name '*.json' -type f \
-    -print -quit 2>/dev/null || true)
+  if ! kill -0 "$launcher_pid" 2>/dev/null; then break; fi
+  if [ -z "$manager_pid" ]; then
+    manager_identity=$(awf_manager_identity "$work" "$PWD/dist/cli.js" || true)
+    if [ -n "$manager_identity" ]; then
+      read -r manager_pid manager_start_time <<< "$manager_identity"
+    fi
+  fi
+  cleanup_record=
+  if [ -n "$manager_pid" ]; then
+    while IFS= read -r candidate; do
+      if sudo jq -e --argjson pid "$manager_pid" '.owner.pid == $pid' \
+        "$candidate" >/dev/null 2>&1; then
+        cleanup_record=$candidate
+        break
+      fi
+    done < <(sudo find "$cleanup_root" -maxdepth 1 -name '*.json' -type f \
+      -print 2>/dev/null || true)
+  fi
   if [ -f "$ready_marker" ] && [ -s "$guest_status" ] && [ -n "$cleanup_record" ] &&
     { sudo pgrep -x openvmm >/dev/null 2>&1 ||
-      sudo pgrep -x cloud-hypervisor >/dev/null 2>&1; }; then
-    if [ "$(sudo stat -c %u "$cleanup_record")" = 0 ] &&
-      [ "$(sudo stat -c %a "$cleanup_record")" = 600 ] &&
-      sudo jq -e '.runId | type == "string"' "$cleanup_record" >/dev/null; then
+      sudo pgrep -f '/var/lib/awf-cloud-hypervisor/trusted-artifacts/run-[^/]*/[c]loud-hypervisor --api-socket' \
+        >/dev/null 2>&1; }; then
+    if awf_cleanup_identity_valid "$runtime" "$cleanup_record" "$cleanup_root" \
+      "$manager_pid" "$manager_start_time"; then
       cleanup_record_identity_valid=true
     fi
     readiness=true
@@ -154,21 +179,38 @@ for _ in $(seq 1 600); do
 done
 
 manager_killed_after_record=false
+terminal_observed=false
 set +e
-if [ "$kind" = cancellation ]; then
-  sudo kill -TERM "$manager_pid" 2>/dev/null
-else
-  if [ -n "$cleanup_record" ]; then manager_killed_after_record=true; fi
-  sudo kill -KILL "$manager_pid" 2>/dev/null
+if [ -n "$manager_pid" ] &&
+  [ "$(awf_manager_identity "$work" "$PWD/dist/cli.js")" = "$manager_pid $manager_start_time" ]; then
+  if [ "$kind" = stale-recovery ] && [ "$cleanup_record_identity_valid" = true ] &&
+    awf_cleanup_identity_valid "$runtime" "$cleanup_record" "$cleanup_root" \
+      "$manager_pid" "$manager_start_time"; then
+    if sudo kill -KILL "$manager_pid" 2>/dev/null; then
+      manager_killed_after_record=true
+    fi
+  else
+    sudo kill -TERM "$manager_pid" 2>/dev/null
+  fi
 fi
-wait "$manager_pid"
+wait "$launcher_pid"
 first_status=$?
+if [ -n "$manager_pid" ]; then
+  for _ in $(seq 1 100); do
+    awf_manager_alive "$manager_pid" "$manager_start_time"
+    alive_status=$?
+    if [ "$alive_status" -eq 1 ]; then terminal_observed=true; break; fi
+    if [ "$alive_status" -ne 0 ]; then break; fi
+    sleep 0.1
+  done
+fi
+if [ "$terminal_observed" != true ]; then manager_killed_after_record=false; fi
 set -e
-terminal_observed=true
 
 workload_after_recovery=false
-if [ "$kind" = stale-recovery ]; then
-  rm -rf -- "$work"
+if [ "$kind" = stale-recovery ] && [ "$terminal_observed" = true ] &&
+  [ "$manager_killed_after_record" = true ]; then
+  sudo rm -rf -- "$work"
   set +e
   run_awf 'true' >"$root/recovery.log" 2>&1
   recovery_status=$?
@@ -185,10 +227,13 @@ if [ -s "$guest_status" ]; then
   guest_credential=$(jq -r '.credentialIsolation == true' "$guest_status")
   guest_workspace=$(jq -r '.workspaceOnlyExposure == true' "$guest_status")
   scratch_capacity=$(jq -er '.scratchCapacityBytes' "$guest_status")
-  if [ "$scratch_capacity" -le 2147483648 ]; then bounded_scratch=true; fi
+  if [ "$scratch_capacity" -gt 0 ] && [ "$scratch_capacity" -le 2147483648 ]; then
+    bounded_scratch=true
+  fi
 fi
 runtime_no_fallback=false
-if { [ "$runtime" = nvx ] && grep -Fq "[nvx] Agent command exited" "$root/first.log"; } ||
+if { [ "$runtime" = nvx ] && [ "$readiness" = true ] &&
+     [ "$cleanup_record_identity_valid" = true ]; } ||
   { [ "$runtime" = cloud-hypervisor ] &&
     grep -Fq "[cloud-hypervisor] runtime=cloud-hypervisor maturity=preview fallback=disabled" \
       "$root/first.log"; }; then
@@ -217,14 +262,19 @@ for _ in $(seq 1 100); do
   mounts_after=$(snapshot_mounts)
   netns_after=$(snapshot_netns)
   cgroups_after=$(snapshot_cgroups)
+  cleanup_after=$(runtime_storage_snapshot "$runtime" cleanup)
+  runs_after=$(runtime_storage_snapshot "$runtime" run)
+  scratch_after=$(runtime_storage_snapshot "$runtime" scratch)
+  snapshots_after=$(runtime_storage_snapshot "$runtime" snapshot)
   kvm_after=$(sudo getfacl --absolute-names --numeric /dev/kvm 2>/dev/null)
-  remaining_record=$(sudo find "$cleanup_root" -maxdepth 1 -name '*.json' -type f \
-    -print -quit 2>/dev/null || true)
   if [ "$processes_before" = "$processes_after" ] &&
     [ "$mounts_before" = "$mounts_after" ] &&
     [ "$netns_before" = "$netns_after" ] &&
     [ "$cgroups_before" = "$cgroups_after" ] &&
-    [ -z "$remaining_record" ]; then
+    [ "$cleanup_before" = "$cleanup_after" ] &&
+    [ "$runs_before" = "$runs_after" ] &&
+    [ "$scratch_before" = "$scratch_after" ] &&
+    [ "$snapshots_before" = "$snapshots_after" ]; then
     break
   fi
   sleep 0.1
@@ -235,16 +285,17 @@ process_tree_gone=$([ "$processes_before" = "$processes_after" ] && echo true ||
 mounts_restored=$([ "$mounts_before" = "$mounts_after" ] && echo true || echo false)
 namespaces_restored=$([ "$netns_before" = "$netns_after" ] && echo true || echo false)
 cgroups_restored=$([ "$cgroups_before" = "$cgroups_after" ] && echo true || echo false)
-cleanup_removed=$([ -z "$remaining_record" ] && echo true || echo false)
+cleanup_removed=$([ "$cleanup_before" = "$cleanup_after" ] && echo true || echo false)
 kvm_restored=$(
   [ "$(normalize_acl "$kvm_before")" = "$(normalize_acl "$kvm_after")" ] &&
     echo true || echo false
 )
-run_removed=$([ ! -e "$work" ] && echo true || echo false)
-scratch_removed=$run_removed
-snapshot_removed=$run_removed
+run_removed=$([ ! -e "$work" ] && [ "$runs_before" = "$runs_after" ] && echo true || echo false)
+scratch_removed=$([ "$scratch_before" = "$scratch_after" ] && echo true || echo false)
+snapshot_removed=$([ "$snapshots_before" = "$snapshots_after" ] && echo true || echo false)
 identity_checked=false
 if [ "$kind" = stale-recovery ] && [ "$cleanup_record_identity_valid" = true ] &&
+  [ "$manager_killed_after_record" = true ] && [ "$terminal_observed" = true ] &&
   [ "$cleanup_removed" = true ] && [ "$workload_after_recovery" = true ]; then
   identity_checked=true
 fi
@@ -257,18 +308,21 @@ residue=()
 [ "$cleanup_removed" = true ] || residue+=("cleanup-record")
 [ "$kvm_restored" = true ] || residue+=("kvm-acl")
 [ "$run_removed" = true ] || residue+=("run-directory")
+[ "$scratch_removed" = true ] || residue+=("scratch")
+[ "$snapshot_removed" = true ] || residue+=("trusted-artifact-snapshot")
 rm -rf -- "$workspace"
 [ ! -e "$workspace" ] || residue+=("workspace-staging")
 
 success=false
 if [ "$readiness" = true ] && [ "$terminal_observed" = true ] &&
+  [ "$cleanup_record_identity_valid" = true ] &&
   [ "$guest_egress" = true ] && [ "$guest_credential" = true ] &&
   [ "$guest_workspace" = true ] && [ "$runtime_no_fallback" = true ] &&
   [ "$immutable_artifacts" = true ] && [ "$bounded_scratch" = true ] &&
   [ "${#residue[@]}" -eq 0 ]; then
   if [ "$kind" = cancellation ] && [ "$first_status" -ne 0 ]; then success=true; fi
   if [ "$kind" = stale-recovery ] && [ "$manager_killed_after_record" = true ] &&
-    [ "$workload_after_recovery" = true ]; then success=true; fi
+    [ "$workload_after_recovery" = true ] && [ "$identity_checked" = true ]; then success=true; fi
 fi
 failure_category=workload-failure
 [ "$success" = true ] && failure_category=success
@@ -279,6 +333,10 @@ if [ "$success" = false ] && [ "$guest_egress" = true ] &&
   grep -Eqi 'EAI_AGAIN|ENETUNREACH|ETIMEDOUT|ECONNRESET|upstream[^[:alnum:]]+(502|503)|HTTP[^[:alnum:]]+(502|503)' \
     "$root/first.log"; then
   failure_category=network-infrastructure
+fi
+if [ "$cleanup_record_identity_valid" != true ] ||
+  { [ "$kind" = stale-recovery ] && [ "$identity_checked" != true ]; }; then
+  failure_category=provenance
 fi
 
 if [ "${#residue[@]}" -eq 0 ]; then residue_json='[]'; else
@@ -304,7 +362,7 @@ jq -n \
   --argjson cleanupRecordRemoved "$cleanup_removed" \
   --argjson kvmAclRestored "$kvm_restored" \
   --argjson identityCheckedCleanup "$identity_checked" \
-  --argjson provenance "$([ -n "$cleanup_record" ] && echo true || echo false)" \
+  --argjson provenance "$cleanup_record_identity_valid" \
   --argjson runtimeFallback "$runtime_no_fallback" \
   --argjson egressPolicy "$guest_egress" \
   --argjson credentialIsolation "$guest_credential" \

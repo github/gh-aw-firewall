@@ -1,4 +1,5 @@
 import type { MicrovmNetworkPlan } from '../microvm/network';
+import { MICROVM_SCRATCH_INIT_GUEST_PATH } from '../microvm/scratch-init';
 import type { CloudHypervisorOptions } from '../types/runtime-options';
 import {
   validateCloudHypervisorExports,
@@ -85,7 +86,7 @@ export function buildCloudHypervisorVmConfig({
     payload: {
       kernel: paths.kernelPath,
       ...(guestConfig
-        ? { cmdline: buildSupervisorBootArgs(networkPlan, guestConfig) }
+        ? { cmdline: buildSupervisorBootArgs(networkPlan, guestConfig, config.scratchMib) }
         : {}),
     },
     disks: [{
@@ -132,7 +133,13 @@ export function buildCloudHypervisorVmConfig({
 export function buildSupervisorBootArgs(
   networkPlan: MicrovmNetworkPlan | undefined,
   guestConfig: CloudHypervisorManagerGuestConfig,
+  scratchMib?: number,
 ): string {
+  if (scratchMib !== undefined && (
+    !Number.isInteger(scratchMib) || scratchMib < 1 || scratchMib > 0xffffffff
+  )) {
+    throw new Error('Cloud Hypervisor scratch MiB must be an integer in 1-4294967295');
+  }
   const port = guestConfig.vsockPort ?? CLOUD_HYPERVISOR_GUEST_VSOCK_PORT;
   if (!Number.isInteger(port) || port < 1 || port > 65_535) {
     throw new Error(`Cloud Hypervisor guest vsock port must be in 1-65535: ${port}`);
@@ -149,7 +156,9 @@ export function buildSupervisorBootArgs(
     'rootflags=data=ordered',
     guestConfig.enclaveResources ? 'ro' : 'rw',
     ...(networkPlan ? ['net.ifnames=0', 'biosdevname=0'] : []),
-    `init=${CLOUD_HYPERVISOR_GUEST_SUPERVISOR}`,
+    `init=${scratchMib !== undefined && !guestConfig.enclaveResources
+      ? MICROVM_SCRATCH_INIT_GUEST_PATH
+      : CLOUD_HYPERVISOR_GUEST_SUPERVISOR}`,
     ...(guestConfig.enclaveResources
       ? [`awf.enclave-role=${guestConfig.enclaveResources.role}`]
       : []),

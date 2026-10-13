@@ -56,6 +56,8 @@ export interface CloudHypervisorOptions {
   developmentAllowUnattestedArtifacts?: boolean;
   vcpuCount: number;
   memoryMib: number;
+  /** Optional primary guest /tmp tmpfs capacity in MiB; enclave limits remain fixed. */
+  scratchMib?: number;
   apiTimeoutMs: number;
   /** Development-only legacy digest pins; never a provenance trust root. */
   sha256?: CloudHypervisorArtifactDigests;

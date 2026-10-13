@@ -212,6 +212,7 @@ program
   )
   .option('--cloud-hypervisor-vcpus <count>', 'Guest virtual CPU count (default: 2).')
   .option('--cloud-hypervisor-memory-mib <mib>', 'Guest memory in MiB (default: 512).')
+  .option('--cloud-hypervisor-scratch-mib <mib>', 'Primary guest /tmp tmpfs capacity in MiB (positive integer; default: unchanged rootfs storage).')
   .option('--cloud-hypervisor-api-timeout-ms <ms>', 'Bounded API socket readiness timeout in milliseconds (default: 5000).')
   .option('--cloud-hypervisor-binary-sha256 <digest>', 'Expected SHA-256 digest of the Cloud Hypervisor binary.')
   .option('--cloud-hypervisor-virtiofsd-sha256 <digest>', 'Expected SHA-256 digest of the sibling virtiofsd binary.')

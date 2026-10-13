@@ -46,6 +46,8 @@ describe('buildCloudHypervisorVmConfig', () => {
     expect(vmConfig.payload.cmdline).not.toContain('awf.workspace-mount=');
     expect(vmConfig.payload.cmdline).not.toContain('awf.guest-ip=');
     expect(vmConfig.payload.cmdline).toContain('awf.network-mode=none');
+    expect(vmConfig.payload.cmdline).not.toContain('awf.scratch-mib=');
+    expect(vmConfig.payload.cmdline).toContain('init=/usr/sbin/awf-supervisor');
     expect(vmConfig.landlock_rules).not.toEqual(expect.arrayContaining([
       expect.objectContaining({ path: '/dev/net/tun' }),
     ]));
@@ -54,7 +56,7 @@ describe('buildCloudHypervisorVmConfig', () => {
   it('applies only the closed enclave VM budget and boots its rootfs read-only', () => {
     const resources = CLOUD_HYPERVISOR_ENCLAVE_RESOURCE_PROFILES.script;
     const vmConfig = buildCloudHypervisorVmConfig({
-      config: config({ vcpuCount: 8, memoryMib: 4096 }),
+      config: config({ vcpuCount: 8, memoryMib: 4096, scratchMib: 512 }),
       paths,
       guestConfig: {
         exports: [{
@@ -75,6 +77,8 @@ describe('buildCloudHypervisorVmConfig', () => {
     expect(vmConfig.memory.size).toBe(768 * 1024 * 1024);
     expect(vmConfig.disks[0].readonly).toBe(true);
     expect(vmConfig.payload.cmdline).toContain('awf.enclave-role=script');
+    expect(vmConfig.payload.cmdline).not.toContain('awf.scratch-mib=');
+    expect(vmConfig.payload.cmdline).toContain('init=/usr/sbin/awf-supervisor');
     expect(vmConfig.payload.cmdline).toContain(' ro ');
     expect(vmConfig.payload.cmdline).not.toContain(' rw ');
   });
@@ -99,6 +103,34 @@ describe('buildCloudHypervisorVmConfig', () => {
       },
       enclaveResources: resources,
     })).toThrow(/closed guest resource profile/);
+  });
+
+  it('boots the primary through trusted scratch init without requiring a new supervisor protocol', () => {
+    const vmConfig = buildCloudHypervisorVmConfig({
+      config: config({ scratchMib: 96 }),
+      paths,
+      networkPlan: networkPlan(),
+      guestConfig: {
+        exports: [{ tag: 'workspace', source: '/workspace', target: '/workspace', mode: 'rw' }],
+        supervisorBinaryPath: '/opt/awf-supervisor',
+        supervisorSha256: 'a'.repeat(64),
+      },
+    });
+    expect(vmConfig.payload.cmdline).toContain('init=/usr/sbin/awf-scratch-init');
+    expect(vmConfig.payload.cmdline).not.toContain('awf.scratch-mib=');
+  });
+
+  it.each([0, -1, 1.5, Infinity, 4294967296])('rejects unsafe direct scratch configuration %s', (scratchMib) => {
+    expect(() => buildCloudHypervisorVmConfig({
+      config: config({ scratchMib }),
+      paths,
+      guestConfig: {
+        exports: [{ tag: 'seed', source: '/seed', target: '/seed', mode: 'ro' }],
+        workspaceMount: null,
+        supervisorBinaryPath: '/opt/awf-supervisor',
+        supervisorSha256: 'a'.repeat(64),
+      },
+    })).toThrow(/scratch MiB/);
   });
 
   it('adds virtio-fs, vsock and supervisor cmdline with a guest config', () => {

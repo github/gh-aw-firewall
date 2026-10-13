@@ -236,6 +236,20 @@ record, and selects only missing stable sample IDs. A sample with a recorded
 security assertion failure, cleanup failure, residue, workload failure or
 successful original attempt is never selected again.
 
+Concurrent samples run two inspected runtime instances, not two processes in
+one guest. The primary CLI owns the shared Squid/API-proxy infrastructure;
+the peer uses the same reviewed runtime backend without recreating those
+sidecars. Before either workload starts, host evidence must show distinct
+live VMM processes, accounts, run directories, cgroups and network namespaces,
+with the selected resource bounds applied to both. Infrastructure stays alive
+until both guest workloads have ended. Cleanup checks include durable records,
+runtime scratch/run directories and trusted-artifact snapshot roots.
+
+Guest security checks and scratch capacity are saved before inference. A
+transient inference failure can therefore retain those completed checks and
+use preserved logs for infrastructure classification without inventing
+successful workload evidence.
+
 One linked second attempt is allowed only when the original record has no
 assertion failures or residue and is classified as `runner-preempted`,
 `runner-unavailable`, or `network-infrastructure`. After documenting the

@@ -80,6 +80,25 @@ guest networking.
 
 ## Runtime lifecycle
 
+### Optional primary guest scratch bound
+
+Use `--cloud-hypervisor-scratch-mib 96` (or `cloudHypervisor.scratchMib: 96`)
+to mount a 96 MiB tmpfs over the primary guest's `/tmp`. The value is a positive
+integer MiB (1–4294967295; 1 MiB = 1048576 bytes). AWF injects a trusted scratch-init
+wrapper into the existing per-run rootfs copy. As PID 1, it mounts and verifies
+the filesystem type and exact capacity before executing the unchanged,
+release-verified supervisor. Mount or verification failures prevent supervisor
+readiness and workload startup. This works with the pinned v0.28.54 supervisor
+and rootfs; source artifacts, manifest hashes, and attestation evidence are
+unchanged. It requires the rootfs's existing shell, mount, mkdir, and stat tools.
+Omitting this option
+preserves the existing rootfs-backed `/tmp`; enclave role budgets remain fixed.
+The mount uses `nosuid,nodev` and sticky mode `1777`, but allows execution for
+ordinary build tools. It bounds allocated scratch pages, not total guest memory,
+workspace storage, or other writable rootfs paths. Choose guest RAM accordingly;
+memory pressure can still occur before the scratch ceiling. Nested declared
+virtio-fs exports such as `/tmp/gh-aw` retain their own storage boundary.
+
 For the primary-agent preview, AWF performs these steps for each run:
 
 1. Validate the runtime flags, security mode, topology, host eligibility, and

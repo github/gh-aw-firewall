@@ -189,6 +189,7 @@ export interface AwfFileConfig {
     developmentAllowUnattestedArtifacts?: boolean;
     vcpuCount?: number;
     memoryMib?: number;
+    scratchMib?: number;
     apiTimeoutMs?: number;
     sha256?: CloudHypervisorArtifactDigests;
   };

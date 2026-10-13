@@ -39,6 +39,7 @@ describe('Cloud Hypervisor configuration (foundation only)', () => {
         artifactReleaseTag: 'v0.23.1',
         vcpuCount: 4,
         memoryMib: 1024,
+        scratchMib: 96,
         apiTimeoutMs: 8000,
         sha256: { virtiofsd: digest, kernel: digest, supervisor: digest },
       },
@@ -56,6 +57,7 @@ describe('Cloud Hypervisor configuration (foundation only)', () => {
       cloudHypervisorArtifactReleaseTag: 'v0.23.1',
       cloudHypervisorVcpus: 4,
       cloudHypervisorMemoryMib: 1024,
+      cloudHypervisorScratchMib: 96,
       cloudHypervisorApiTimeoutMs: 8000,
       cloudHypervisorVirtiofsdSha256: digest,
       cloudHypervisorKernelSha256: digest,
@@ -88,6 +90,23 @@ describe('Cloud Hypervisor configuration (foundation only)', () => {
       cloudHypervisorPreview: false,
     })).toBeUndefined();
   });
+
+  it('accepts an explicit scratch bound without introducing a default', () => {
+    expect(buildCloudHypervisorConfig({ cloudHypervisorScratchMib: '96' })?.scratchMib).toBe(96);
+    expect(buildCloudHypervisorConfig({ cloudHypervisorPreview: true }))
+      .not.toHaveProperty('scratchMib');
+    expect(validateAwfFileConfig({ cloudHypervisor: { scratchMib: 96 } })).toEqual([]);
+  });
+
+  it.each([0, -1, 1.5, '', 'bad', Infinity, 4294967296])(
+    'rejects invalid scratch bound %s from CLI and config file',
+    (value) => {
+      expect(() => buildCloudHypervisorConfig({ cloudHypervisorScratchMib: value }))
+        .toThrow(/--cloud-hypervisor-scratch-mib/);
+      expect(validateAwfFileConfig({ cloudHypervisor: { scratchMib: value } }))
+        .not.toEqual([]);
+    },
+  );
 
   it('treats an explicitly configured secure mount policy as Cloud Hypervisor configuration', () => {
     expect(buildCloudHypervisorConfig({

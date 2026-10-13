@@ -305,6 +305,7 @@ function buildCloudHypervisorConfig(
       'cloudHypervisorArtifactReleaseTag',
       'cloudHypervisorVcpus',
       'cloudHypervisorMemoryMib',
+      'cloudHypervisorScratchMib',
       'cloudHypervisorApiTimeoutMs',
       'cloudHypervisorBinarySha256',
       'cloudHypervisorVirtiofsdSha256',
@@ -346,6 +347,9 @@ function buildCloudHypervisorConfig(
       '--cloud-hypervisor-memory-mib',
       CLOUD_HYPERVISOR_DEFAULT_MEMORY_MIB,
     ),
+    ...(options.cloudHypervisorScratchMib !== undefined
+      ? { scratchMib: parseCloudHypervisorScratchMib(options.cloudHypervisorScratchMib) }
+      : {}),
     apiTimeoutMs: parsePositiveIntegerOption(
       options.cloudHypervisorApiTimeoutMs,
       '--cloud-hypervisor-api-timeout-ms',
@@ -381,6 +385,14 @@ function parseCloudHypervisorMountPolicy(value: unknown): CloudHypervisorMountPo
     );
   }
   return policy as CloudHypervisorMountPolicy;
+}
+
+function parseCloudHypervisorScratchMib(value: unknown): number {
+  const parsed = parsePositiveIntegerOption(value, '--cloud-hypervisor-scratch-mib', 1);
+  if (parsed > 0xffffffff) {
+    throw new Error('--cloud-hypervisor-scratch-mib must be at most 4294967295');
+  }
+  return parsed;
 }
 
 /**

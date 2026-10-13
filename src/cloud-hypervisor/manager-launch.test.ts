@@ -328,7 +328,7 @@ import {
     await manager.stop();
   });
 
-  it('configures one rootfs disk and virtio-fs devices, then stops daemons after the VMM', async () => {
+  it.each([undefined, 96])('configures rootfs and virtio-fs with a legacy supervisor (scratch MiB=%s), then stops daemons after the VMM', async (scratchMib) => {
     const order: string[] = [];
     const child = processMock();
     const virtiofsd = virtiofsdManagerMock();
@@ -359,7 +359,7 @@ import {
       createVsockClient: jest.fn().mockReturnValue(guestClient),
     });
     const manager = new CloudHypervisorManager(
-      config(),
+      config({ scratchMib }),
       '/tmp/awf',
       deps,
       'guest',
@@ -371,6 +371,10 @@ import {
     );
 
     const client = await manager.start();
+    expect((deps.createRootfsPreparer as jest.Mock).mock.calls[0][0].scratchMib).toBe(scratchMib);
+    expect((client.vmCreate as jest.Mock).mock.calls[0][0].payload.cmdline).toContain(
+      scratchMib === undefined ? 'init=/usr/sbin/awf-supervisor' : 'init=/usr/sbin/awf-scratch-init',
+    );
     expect(deps.createVirtiofsdManager).toHaveBeenCalledWith(
       '/opt/virtiofsd',
       '/run/awf-cloud-hypervisor/cloud-hypervisor/guest',
@@ -412,7 +416,11 @@ import {
       expect.any(Object),
     );
     expect(client.vmCreate).toHaveBeenCalledWith(expect.objectContaining({
-      payload: expect.objectContaining({ cmdline: expect.stringContaining('init=/usr/sbin/awf-supervisor') }),
+      payload: expect.objectContaining({
+        cmdline: expect.stringContaining(
+          scratchMib === undefined ? 'init=/usr/sbin/awf-supervisor' : 'init=/usr/sbin/awf-scratch-init',
+        ),
+      }),
       memory: expect.objectContaining({ shared: true }),
       disks: [expect.objectContaining({ id: 'rootfs', image_type: 'Raw', readonly: false })],
       fs: [expect.objectContaining({

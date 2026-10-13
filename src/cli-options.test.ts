@@ -17,6 +17,7 @@ describe('cli-options program', () => {
     program.setOptionValueWithSource('excludeEnv', [], 'default');
     program.setOptionValueWithSource('mount', [], 'default');
     program.setOptionValueWithSource('cloudHypervisorMountPolicy', undefined, 'default');
+    program.setOptionValueWithSource('cloudHypervisorScratchMib', undefined, 'default');
   });
 
   it('exposes the expected metadata', () => {
@@ -70,6 +71,16 @@ describe('cli-options program', () => {
     expect(parseEnv('KEY=VAL')).toEqual(['KEY=VAL']);
     expect(parseExcludeEnv('HOME')).toEqual(['HOME']);
     expect(parseMount('/a:/b:ro')).toEqual(['/a:/b:ro']);
+  });
+
+  it('parses optional Cloud Hypervisor scratch sizing without a default', () => {
+    program.parse(['node', 'awf', '--', 'true'], { from: 'node' });
+    expect(program.opts().cloudHypervisorScratchMib).toBeUndefined();
+    program.parse(
+      ['node', 'awf', '--cloud-hypervisor-scratch-mib', '96', '--', 'true'],
+      { from: 'node' },
+    );
+    expect(program.opts().cloudHypervisorScratchMib).toBe('96');
   });
 
   it('parses vertex API routing flags', () => {

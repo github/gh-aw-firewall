@@ -207,6 +207,9 @@ export async function startCloudHypervisor(
         supervisorBinaryPath: guestConfig.supervisorBinaryPath,
         supervisorSha256: guestConfig.supervisorSha256,
         supervisorGuestPath: '/usr/sbin/awf-supervisor',
+        ...(!guestConfig.enclaveResources && config.scratchMib !== undefined
+          ? { scratchMib: config.scratchMib }
+          : {}),
         hostAliases: {
           ...(networkConfig?.apiProxyIp ? { 'api-proxy': networkConfig.apiProxyIp } : {}),
           ...(networkConfig?.hostAliases ?? {}),
