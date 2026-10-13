@@ -84,6 +84,14 @@ chmod 0600 "$evidence_dir/kvm-acl-before.txt"
 restore_kvm_acl() {
   sudo setfacl --restore="$evidence_dir/kvm-acl-before.txt" >/dev/null 2>&1 || true
 }
+normalize_kvm_acl() {
+  local acl=$1
+  if grep -Eq '^(user|group):[^:]' <<<"$acl"; then
+    printf '%s\n' "$acl"
+  else
+    grep -v '^mask::' <<<"$acl"
+  fi
+}
 trap restore_kvm_acl EXIT
 processes_before=$(runtime_process_snapshot)
 netns_before=$(sudo ip netns list 2>/dev/null || true)
@@ -470,7 +478,8 @@ for _cleanup_attempt in $(seq 1 50); do
      [ "$netns_before" = "$netns_after" ] &&
      [ "$cgroups_before" = "$cgroups_after" ] &&
      [ "$mounts_before" = "$mounts_after" ] &&
-     [ "$kvm_acl_before" = "$kvm_acl_after" ]; then
+     [ "$(normalize_kvm_acl "$kvm_acl_before")" = \
+       "$(normalize_kvm_acl "$kvm_acl_after")" ]; then
     break
   fi
   sleep 0.1
@@ -529,7 +538,12 @@ residue=()
 [ "$mounts_before" = "$mounts_after" ] || residue+=("mount")
 test ! -e "$work_dir" || residue+=("run-directory:$work_dir")
 kvm_restored=false
-if [ "$kvm_acl_before" = "$kvm_acl_after" ]; then kvm_restored=true; fi
+if [ "$(normalize_kvm_acl "$kvm_acl_before")" = \
+  "$(normalize_kvm_acl "$kvm_acl_after")" ]; then
+  kvm_restored=true
+else
+  residue+=("kvm-acl")
+fi
 guest_ok=false
 egress=false
 credential=false
