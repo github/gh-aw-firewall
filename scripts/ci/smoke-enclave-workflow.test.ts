@@ -1,6 +1,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { execFileSync } from 'child_process';
+import * as yaml from 'js-yaml';
 import { applyGeneralWorkflowPatches } from './apply-general-workflow-patches';
 
 const workflowsDir = path.resolve(__dirname, '../../.github/workflows');
@@ -21,6 +22,67 @@ describe('experimental Cloud Hypervisor enclave smoke workflow', () => {
   );
   const workflowPath = path.join(workflowsDir, 'smoke-enclave-cloud-hypervisor.lock.yml');
   const lock = fs.readFileSync(workflowPath, 'utf8');
+
+  it('keeps the workflow token out of the agent while preserving scoped host authentication', () => {
+    const compiled = yaml.load(lock) as {
+      env?: Record<string, unknown>;
+      jobs: Record<string, {
+        env?: Record<string, unknown>;
+        permissions?: Record<string, string>;
+        steps?: Array<{
+          name?: string;
+          env?: Record<string, unknown>;
+          run?: string;
+        }>;
+      }>;
+    };
+    const agent = compiled.jobs.agent;
+    const executeAgent = agent.steps?.find(step =>
+      step.name === 'Execute GitHub Copilot CLI');
+    const configureGh = agent.steps?.find(step =>
+      step.name === 'Configure gh CLI for GitHub Enterprise');
+
+    expect(compiled.env?.GH_TOKEN).toBeUndefined();
+    expect(agent.env?.GH_TOKEN).toBeUndefined();
+    expect(executeAgent?.env?.GH_TOKEN).toBeUndefined();
+    expect(executeAgent?.env?.GITHUB_TOKEN).toBeUndefined();
+    expect(executeAgent?.run).toContain('--exclude-env COPILOT_GITHUB_TOKEN');
+    expect(configureGh?.env?.GH_TOKEN).toBe('${{ github.token }}');
+    expect(agent.permissions?.issues).not.toBe('write');
+  });
+
+  it('keeps the compiler-injected issue output bounded for failure reporting', () => {
+    const compiled = yaml.load(lock) as {
+      jobs: Record<string, {
+        permissions?: Record<string, string>;
+        steps?: Array<{
+          name?: string;
+          env?: Record<string, string>;
+        }>;
+      }>;
+    };
+    const configStep = compiled.jobs.agent.steps?.find(step =>
+      step.name === 'Generate Safe Outputs Config');
+    const safeOutputsConfig = JSON.parse(
+      configStep?.env?.GH_AW_SAFE_OUTPUTS_CONFIG ?? '{}'
+    ) as {
+      create_issue?: {
+        labels: string[];
+        max: number;
+        title_prefix: string;
+      };
+    };
+
+    expect(source).not.toContain('GH_TOKEN: ${{ github.token }}');
+    expect(safeOutputsConfig.create_issue).toEqual({
+      labels: ['smoke-enclave-cloud-hypervisor'],
+      max: 1,
+      title_prefix: '[smoke-enclave-cloud-hypervisor]',
+    });
+    expect(compiled.jobs.safe_outputs.permissions?.issues).toBe('write');
+    expect(source).toContain('run this final command once instead');
+    expect(source).toContain('safeoutputs missing_data .');
+  });
 
   it('is manual-only and explicitly experimental on a supported runner', () => {
     expect(source).toContain('workflow_dispatch:');
