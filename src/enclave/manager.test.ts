@@ -343,8 +343,10 @@ describe('prepareEnclaves fail-closed preflight', () => {
         cloudHypervisorStorageProvider,
       })).rejects.toThrow('Cloud Hypervisor primary runtime preflight evidence is unavailable');
 
-      expect(getEnclaveStartupProgress(wrapperConfig)?.startupChecks?.checks['enclave-runtime/primary-runtime'])
-        .toEqual(['failed', 'unknown']);
+      expect(getEnclaveStartupProgress(wrapperConfig)?.startupChecks).toMatchObject({
+        ready: false,
+        checks: { 'enclave-runtime/primary-runtime': ['failed', 'unknown'] },
+      });
       expect(fs.existsSync(resolveEnclavePaths(workDir).seedMapPath)).toBe(false);
     } finally {
       restoreEnvironment();
@@ -380,10 +382,13 @@ describe('prepareEnclaves fail-closed preflight', () => {
       expect(dockerOciProbe).not.toHaveBeenCalled();
       expect(lifecycleReady).toHaveBeenCalledWith(wrapperConfig);
       expect(startLifecycle).toHaveBeenCalledTimes(1);
-      expect(getEnclaveStartupProgress(wrapperConfig)?.startupChecks?.checks).toMatchObject({
-        'enclave-runtime/primary-runtime': ['passed', 'none'],
-        'enclave-runtime/script-runtime': ['passed', 'none'],
-        'enclave-runtime/agent-runtime': ['not-required', 'none'],
+      expect(getEnclaveStartupProgress(wrapperConfig)?.startupChecks).toMatchObject({
+        ready: false,
+        checks: {
+          'enclave-runtime/primary-runtime': ['passed', 'none'],
+          'enclave-runtime/script-runtime': ['passed', 'none'],
+          'enclave-runtime/agent-runtime': ['not-required', 'none'],
+        },
       });
     } finally {
       startLifecycle.mockRestore();
@@ -408,8 +413,10 @@ describe('prepareEnclaves fail-closed preflight', () => {
         ),
       })).rejects.toThrow('mismatched runtime configuration');
 
-      expect(getEnclaveStartupProgress(wrapperConfig)?.startupChecks?.checks['enclave-runtime/primary-runtime'])
-        .toEqual(['failed', 'unknown']);
+      expect(getEnclaveStartupProgress(wrapperConfig)?.startupChecks).toMatchObject({
+        ready: false,
+        checks: { 'enclave-runtime/primary-runtime': ['failed', 'unknown'] },
+      });
       expect(fs.existsSync(resolveEnclavePaths(workDir).seedMapPath)).toBe(false);
     } finally {
       restoreEnvironment();
