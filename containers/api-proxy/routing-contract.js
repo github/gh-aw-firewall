@@ -258,7 +258,11 @@ function validateClassifyResponse(response, offeredChoices) {
 function validateClassifierOutput(raw) {
   let parsed;
   try {
-    parsed = JSON.parse(Buffer.isBuffer(raw) ? raw.toString('utf8') : raw);
+    const text = Buffer.isBuffer(raw) ? raw.toString('utf8') : raw;
+    const fenced = typeof text === 'string'
+      ? text.trim().match(/^```(?:json)?[ \t]*\r?\n([\s\S]*?)\r?\n```$/)
+      : null;
+    parsed = JSON.parse(fenced ? fenced[1] : text);
   } catch {
     return null;
   }
