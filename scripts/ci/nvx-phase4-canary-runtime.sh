@@ -25,9 +25,12 @@ now_ms() {
 }
 
 runtime_process_snapshot() {
-  for name in openvmm cloud-hypervisor virtiofsd; do
-    pgrep -a -x "$name" 2>/dev/null || true
+  for name in openvmm virtiofsd; do
+    sudo pgrep -a -x "$name" 2>/dev/null || true
   done
+  sudo pgrep -af \
+    '/var/lib/awf-cloud-hypervisor/trusted-artifacts/run-[^/]*/[c]loud-hypervisor --api-socket' \
+    2>/dev/null || true
 }
 
 runtime_storage_bytes() {
@@ -154,6 +157,8 @@ test -z "${COPILOT_PROVIDER_API_KEY:-}"
 blocked=$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 https://example.com 2>/dev/null || true)
 blocked=${blocked:-000}
 case "$blocked" in 000|403) ;; *) exit 43 ;; esac
+guest_node_version=$(node --version)
+guest_curl_version=$(curl --version | awk 'NR == 1 {print $1, $2}')
 scratch_capacity=$(df -PB1 /tmp | awk 'NR == 2 {print $2}')
 scratch_before_bytes=$(du -sb /tmp 2>/dev/null | awk '{print $1}')
 scratch_before_bytes=${scratch_before_bytes:-0}
@@ -219,9 +224,13 @@ if [ "$scratch_after_bytes" -gt "$scratch_peak_bytes" ]; then
 fi
 scratch_usage_bytes=$((scratch_peak_bytes - scratch_before_bytes))
 if [ "$scratch_usage_bytes" -lt 0 ]; then scratch_usage_bytes=0; fi
-jq -n --argjson scratchCapacityBytes "$scratch_capacity" \
+jq -n \
+  --arg nodeVersion "$guest_node_version" \
+  --arg curlVersion "$guest_curl_version" \
+  --argjson scratchCapacityBytes "$scratch_capacity" \
   --argjson scratchUsageBytes "$scratch_usage_bytes" \
   '{credentialIsolation:true,egressPolicy:true,workspaceOnlyExposure:true,
+    nodeVersion:$nodeVersion,curlVersion:$curlVersion,
     scratchCapacityBytes:$scratchCapacityBytes,scratchUsageBytes:$scratchUsageBytes}' \
   > "$root/guest-status.json"
 printf '%s\n' complete > "$root/workload-complete"
@@ -289,6 +298,7 @@ observed_memory_max=
 observed_cpu_max=
 observed_pids_max=
 peak_host_disk_bytes=0
+cpu_usage_micros=0
 while kill -0 "$awf_pid" 2>/dev/null; do
   current_host=$(
     local_bytes=$(
@@ -310,7 +320,8 @@ while kill -0 "$awf_pid" 2>/dev/null; do
       if ! grep -Fxq "$candidate" <<<"$cgroups_before" &&
          [ -f "$candidate/memory.max" ] &&
          [ -f "$candidate/cpu.max" ] &&
-         [ -f "$candidate/pids.max" ]; then
+         [ -f "$candidate/pids.max" ] &&
+         [ -f "$candidate/cpu.stat" ]; then
         observed_cgroup=$candidate
         preflight_completed=$(now_ms)
         observed_memory_max=$(sudo cat "$candidate/memory.max")
@@ -321,6 +332,14 @@ while kill -0 "$awf_pid" 2>/dev/null; do
     done < <(sudo find /sys/fs/cgroup -maxdepth 4 -type d \
       \( -path '/sys/fs/cgroup/awf-nvx*' -o \
          -path '/sys/fs/cgroup/awf-cloud-hypervisor*' \) -print 2>/dev/null)
+  fi
+  if [ -n "$observed_cgroup" ] && [ -f "$observed_cgroup/cpu.stat" ]; then
+    current_cpu_micros=$(sudo awk '$1 == "usage_usec" { print $2 }' \
+         "$observed_cgroup/cpu.stat")
+    if [[ "$current_cpu_micros" =~ ^[0-9]+$ ]] &&
+          [ "$current_cpu_micros" -gt "$cpu_usage_micros" ]; then
+         cpu_usage_micros=$current_cpu_micros
+    fi
   fi
   if [ -z "$runtime_ready" ] && [ -f "$ready_marker" ]; then
     runtime_ready=$(now_ms)
@@ -348,8 +367,12 @@ first_work=${first_work:-0}
 workload_completed=${workload_completed:-0}
 preflight_completed=${preflight_completed:-0}
 scratch_bytes=0
+guest_node_version=
+guest_curl_version=
 if [ -s "$guest_status" ]; then
   scratch_bytes=$(jq -er '.scratchUsageBytes' "$guest_status")
+  guest_node_version=$(jq -er '.nodeVersion' "$guest_status")
+  guest_curl_version=$(jq -er '.curlVersion' "$guest_status")
 fi
 host_disk_bytes=$peak_host_disk_bytes
 
@@ -362,6 +385,9 @@ jq -n \
   --argjson cleanupCompletedMs "$cleanup_completed" \
   --argjson scratchBytes "$scratch_bytes" \
   --argjson hostDiskBytes "$host_disk_bytes" \
+  --argjson cpuUsageMicros "$cpu_usage_micros" \
+  --arg guestNodeVersion "$guest_node_version" \
+  --arg guestCurlVersion "$guest_curl_version" \
   --arg cachePreparation "cold-cache-flushed" \
   '{
     artifactPreflightStartedMs:$artifactPreflightStartedMs,
@@ -372,6 +398,8 @@ jq -n \
     cleanupCompletedMs:$cleanupCompletedMs,
     scratchBytes:$scratchBytes,
     hostDiskBytes:$hostDiskBytes,
+    cpuUsageMicros:$cpuUsageMicros,
+    guestTools:{node:$guestNodeVersion,curl:$guestCurlVersion},
     cachePreparation:$cachePreparation
   }' > "$AWF_BENCHMARK_EVENTS"
 
@@ -460,6 +488,18 @@ token_log=$(find "$proxy_logs" -name token-usage.jsonl -type f -print -quit)
 if [ -n "$token_log" ] && [ -n "${AWF_PHASE4_TOKEN_USAGE_OUTPUT:-}" ]; then
   cp --no-clobber "$token_log" "$AWF_PHASE4_TOKEN_USAGE_OUTPUT"
 fi
+token_tracker_audit=$(find "$proxy_logs" -name token-tracker-audit.jsonl -type f -print -quit)
+if [ -n "$token_tracker_audit" ] &&
+   [ -n "${AWF_PHASE4_TOKEN_TRACKER_AUDIT_OUTPUT:-}" ]; then
+  cp --no-clobber "$token_tracker_audit" "$AWF_PHASE4_TOKEN_TRACKER_AUDIT_OUTPUT"
+fi
+for token_log_evidence in \
+  "${AWF_PHASE4_TOKEN_USAGE_OUTPUT:-}" \
+  "${AWF_PHASE4_TOKEN_TRACKER_AUDIT_OUTPUT:-}"; do
+  if [ -n "$token_log_evidence" ] && [ -e "$token_log_evidence" ]; then
+    chmod 0600 "$token_log_evidence"
+  fi
+done
 chmod 0600 "$raw_evidence_dir"/*
 
 rm -rf -- "$workspace_dir"

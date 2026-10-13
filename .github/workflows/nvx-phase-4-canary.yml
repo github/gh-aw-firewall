@@ -117,6 +117,22 @@ jobs:
           artifacts="$RUNNER_TEMP/nvx-artifacts"
           layer="$RUNNER_TEMP/nvx-layer"
           mkdir -p "$package" "$artifacts" "$layer"
+          apk_packages=(
+            ada-libs=2.9.2-r4 alpine-baselayout=3.7.0-r0 alpine-baselayout-data=3.7.0-r0
+            alpine-keys=2.5-r0 alpine-release=3.22.1-r0 apk-tools=2.14.9-r2
+            bash=5.2.37-r0 brotli-libs=1.1.0-r2 busybox=1.37.0-r18
+            busybox-binsh=1.37.0-r18 c-ares=1.34.8-r0 ca-certificates=20260909-r0
+            ca-certificates-bundle=20250619-r0 curl=8.14.1-r3 icu-data-en=76.1-r1
+            icu-libs=76.1-r1 libapk2=2.14.9-r2 libcrypto3=3.5.1-r0
+            libcurl=8.14.1-r3 libgcc=14.2.0-r6 libidn2=2.3.7-r0
+            libncursesw=6.5_p20250503-r0 libpsl=0.21.5-r3 libssl3=3.5.1-r0
+            libstdc++=14.2.0-r6 libunistring=1.3-r0 musl=1.2.5-r10
+            musl-utils=1.2.5-r10 ncurses-terminfo-base=6.5_p20250503-r0
+            nghttp2-libs=1.69.0-r0 nodejs=22.23.2-r0 npm=11.6.4-r0
+            readline=8.2.13-r1 scanelf=1.3.8-r1 simdjson=3.12.0-r0
+            simdutf=7.2.1-r0 sqlite-libs=3.49.2-r1 ssl_client=1.37.0-r18
+            zlib=1.3.1-r2 zstd-libs=1.5.7-r0
+          )
           gh release download "$NVX_RELEASE" --repo microsoft/nvx \
             --pattern "$NVX_ARCHIVE" --dir "$package"
           printf '%s  %s\n' "$NVX_ARCHIVE_SHA256" "$package/$NVX_ARCHIVE" |
@@ -141,16 +157,48 @@ jobs:
           sudo chmod 0444 "$artifacts/manifest.json"
           image=alpine@sha256:eafc1edb577d2e9b458664a15f23ea1c370214193226069eb22921169fc7e43f
           sudo docker pull "$image"
-          container=$(sudo docker create "$image" apk add --no-cache bash ca-certificates curl nodejs npm)
-          sudo docker start --attach "$container"
+          container=$(sudo docker create "$image" sh -ec '
+            apk add --no-cache "$@" >/dev/null 2>&1
+            printf "%s\n" __PACKAGES__
+            apk info -v | sort
+            printf "%s\n" __TOOLS__
+            printf "bash=%s\n" "$(bash --version | head -n 1)"
+            printf "curl=%s\n" "$(curl --version | head -n 1)"
+            printf "node=%s\n" "$(node --version)"
+            printf "npm=%s\n" "$(npm --version)"
+          ' install "${apk_packages[@]}")
+          sudo docker start --attach "$container" > "$artifacts/toolchain.txt"
+          awk '/^__PACKAGES__$/{inside=1; next} /^__TOOLS__$/{inside=0} inside' \
+            "$artifacts/toolchain.txt" > "$artifacts/packages.txt"
+          awk '/^__TOOLS__$/{inside=1; next} inside' \
+            "$artifacts/toolchain.txt" > "$artifacts/tools.txt"
           sudo docker export "$container" | tar -xf - -C "$layer"
           sudo docker rm "$container"
+          layer_sha256=$(tar --sort=name --mtime='@0' --owner=0 --group=0 --numeric-owner \
+            -cf - -C "$layer" . | sha256sum | cut -d' ' -f1)
+          package_inventory_sha256=$(sha256sum "$artifacts/packages.txt" | cut -d' ' -f1)
+          packages_json=$(jq -Rn '[inputs | select(length > 0)]' < "$artifacts/packages.txt")
+          tool_value() {
+            sed -n "s/^$1=//p" "$artifacts/tools.txt"
+          }
+          jq -n \
+            --arg layerSha256 "$layer_sha256" \
+            --arg packageInventorySha256 "$package_inventory_sha256" \
+            --argjson packages "$packages_json" \
+            --arg bash "$(tool_value bash)" \
+            --arg curl "$(tool_value curl)" \
+            --arg node "$(tool_value node)" \
+            --arg npm "$(tool_value npm)" \
+            '{layerSha256:$layerSha256,packageInventorySha256:$packageInventorySha256,
+              packages:$packages,tools:{bash:$bash,curl:$curl,node:$node,npm:$npm}}' \
+            > "$artifacts/toolchain.json"
           sudo mount -o remount,size=8G /run
           {
             echo "NVX_OPENVMM=$artifacts/openvmm"
             echo "NVX_KERNEL=$artifacts/vmlinux"
             echo "NVX_INITRAMFS=$artifacts/initramfs.cpio.gz"
             echo "NVX_LAYER=$layer"
+            echo "NVX_TOOLCHAIN=$artifacts/toolchain.json"
             echo "NVX_MANIFEST=$artifacts/manifest.json"
           } >> "$GITHUB_ENV"
 
@@ -193,6 +241,10 @@ jobs:
             "$evidence/manifest.json")
           output="$evidence/raw/run-$sample_id.json"
           token_usage="$evidence/token-usage.jsonl"
+          token_tracker_audit="$evidence/token-tracker-audit.jsonl"
+          if [[ "$RUNTIME" == nvx ]]; then
+            cp "$NVX_TOOLCHAIN" "$evidence/toolchain.json"
+          fi
           jq -n \
             --arg manifestPath "$evidence/manifest.json" \
             --arg sampleId "$sample_id" \
@@ -202,12 +254,15 @@ jobs:
             --arg assertionsPath "$evidence/assertions.json" \
             --arg residuePath "$evidence/residue.json" \
             --arg tokenUsagePath "$token_usage" \
+            --arg tokenTrackerAuditPath "$token_tracker_audit" \
+            --arg toolchainPath "$([[ "$RUNTIME" == nvx ]] && echo "$evidence/toolchain.json" || true)" \
+            --argjson attempt "$GITHUB_RUN_ATTEMPT" \
             --arg workflowRunId "$GITHUB_RUN_ID" \
             --arg jobId "$GITHUB_JOB-$RUNTIME-$WORKLOAD" \
             --arg workflowAttemptId "$GITHUB_RUN_ATTEMPT" \
             --arg runtime "$RUNTIME" \
             --arg workload "$WORKLOAD" \
-            '{manifestPath:$manifestPath,sampleId:$sampleId,attempt:1,command:["bash","scripts/ci/nvx-phase4-canary-runtime.sh",$runtime,$workload,$sampleId],cwd:$cwd,outputPath:$outputPath,lifecyclePath:$lifecyclePath,assertionsPath:$assertionsPath,residuePath:$residuePath,tokenUsagePath:$tokenUsagePath,workflowRunId:$workflowRunId,jobId:$jobId,workflowAttemptId:$workflowAttemptId}' \
+            '{manifestPath:$manifestPath,sampleId:$sampleId,attempt:$attempt,command:["bash","scripts/ci/nvx-phase4-canary-runtime.sh",$runtime,$workload,$sampleId],cwd:$cwd,outputPath:$outputPath,lifecyclePath:$lifecyclePath,assertionsPath:$assertionsPath,residuePath:$residuePath,tokenUsagePath:$tokenUsagePath,tokenTrackerAuditPath:$tokenTrackerAuditPath,toolchainPath:$toolchainPath,workflowRunId:$workflowRunId,jobId:$jobId,workflowAttemptId:$workflowAttemptId} | if .toolchainPath == "" then del(.toolchainPath) else . end' \
             > "$evidence/adapter-input.json"
           echo "sample_id=$sample_id" >> "$GITHUB_OUTPUT"
 
@@ -215,6 +270,7 @@ jobs:
         env:
           COPILOT_GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           AWF_PHASE4_TOKEN_USAGE_OUTPUT: ${{ runner.temp }}/evidence/token-usage.jsonl
+          AWF_PHASE4_TOKEN_TRACKER_AUDIT_OUTPUT: ${{ runner.temp }}/evidence/token-tracker-audit.jsonl
         run: npx tsx scripts/ci/nvx-matched-runtime-adapter.ts "$RUNNER_TEMP/evidence/adapter-input.json"
 
       - name: Upload immutable sample evidence

@@ -1,5 +1,5 @@
 import { createHash } from 'crypto';
-import { execFileSync, spawn } from 'child_process';
+import { spawn } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
 import {
@@ -22,6 +22,8 @@ interface LifecycleEvidence {
   cleanupCompletedMs: number;
   scratchBytes: number;
   hostDiskBytes: number;
+  cpuUsageMicros: number;
+  guestTools: { node: string; curl: string };
   cachePreparation: 'cold-cache-flushed' | 'warm-cache-primed';
 }
 
@@ -38,6 +40,10 @@ interface TokenUsageRecord {
   cache_read_tokens: number;
 }
 
+type NvxGuestToolchain = NonNullable<
+  CampaignManifest['provenance']['nvxGuestToolchain']
+>;
+
 export interface AdapterInput {
   manifestPath: string;
   sampleId: string;
@@ -49,6 +55,8 @@ export interface AdapterInput {
   assertionsPath: string;
   residuePath: string;
   tokenUsagePath?: string;
+  tokenTrackerAuditPath?: string;
+  toolchainPath?: string;
   workflowRunId: string;
   jobId: string;
   workflowAttemptId: string;
@@ -81,14 +89,11 @@ interface RecoveryMeasurement {
 }
 
 interface ProcessMetrics {
-  cpuSeconds: number;
   peakMemoryMiB: number;
   peakPids: number;
 }
 
 const MIB = 1024 * 1024;
-const CLOCK_TICKS = Number(execFileSync('getconf', ['CLK_TCK'], { encoding: 'utf8' }).trim());
-
 function requireFinite(value: unknown, label: string, positive = false): number {
   if (typeof value !== 'number' || !Number.isFinite(value) || value < 0 || (positive && value === 0)) {
     throw new Error(`measured evidence is missing valid ${label}`);
@@ -118,7 +123,11 @@ function readJson<T>(file: string, label: string): T {
   return JSON.parse(fs.readFileSync(file, 'utf8')) as T;
 }
 
-function parseTokenUsage(file: string | undefined, workload: string): {
+function parseTokenUsage(
+  file: string | undefined,
+  auditFile: string | undefined,
+  workload: string,
+): {
   apiProxyRequests: number;
   inputTokens: number;
   outputTokens: number;
@@ -128,9 +137,28 @@ function parseTokenUsage(file: string | undefined, workload: string): {
     if (file && fs.existsSync(file) && fs.readFileSync(file, 'utf8').trim() !== '') {
       throw new Error('build-test sample unexpectedly emitted API-proxy token usage');
     }
+    if (auditFile && fs.existsSync(auditFile) && fs.readFileSync(auditFile, 'utf8').trim() !== '') {
+      throw new Error('build-test sample unexpectedly emitted API-proxy request audit events');
+    }
     return { apiProxyRequests: 0, inputTokens: 0, outputTokens: 0, cacheReadTokens: 0 };
   }
   if (!file || !fs.existsSync(file)) throw new Error('missing Copilot API-proxy token usage');
+  if (!auditFile || !fs.existsSync(auditFile)) {
+    throw new Error('missing Copilot API-proxy request audit');
+  }
+  const apiProxyRequests = fs.readFileSync(auditFile, 'utf8')
+    .split(/\r?\n/)
+    .filter(Boolean)
+    .map((line, index) => {
+      const record = JSON.parse(line) as { event?: unknown };
+      if (typeof record.event !== 'string') {
+        throw new Error(`invalid API-proxy audit event at line ${index + 1}`);
+      }
+      return record.event === 'TRACK_START' || record.event === 'WS_TRACK_START';
+    })
+    .filter(Boolean)
+    .length;
+  if (apiProxyRequests === 0) throw new Error('Copilot sample emitted no API-proxy request starts');
   const records = fs.readFileSync(file, 'utf8').split(/\r?\n/).filter(Boolean).map((line, index) => {
     const record = JSON.parse(line) as Partial<TokenUsageRecord>;
     if (record.event !== 'token_usage') throw new Error(`invalid token usage event at line ${index + 1}`);
@@ -141,9 +169,8 @@ function parseTokenUsage(file: string | undefined, workload: string): {
       cache_read_tokens: requireFinite(record.cache_read_tokens, 'cache_read_tokens'),
     };
   });
-  if (records.length === 0) throw new Error('Copilot sample emitted no API-proxy requests');
   return {
-    apiProxyRequests: records.length,
+    apiProxyRequests,
     inputTokens: records.reduce((sum, record) => sum + record.input_tokens, 0),
     outputTokens: records.reduce((sum, record) => sum + record.output_tokens, 0),
     cacheReadTokens: records.reduce((sum, record) => sum + record.cache_read_tokens, 0),
@@ -189,7 +216,11 @@ export function buildMeasuredArtifact(
   if (assertionEvidence.resourceLimitsEnforced !== true) {
     throw new Error('resource limits were not proven enforced');
   }
-  const tokens = parseTokenUsage(input.tokenUsagePath, sample.workload);
+  const tokens = parseTokenUsage(
+    input.tokenUsagePath,
+    input.tokenTrackerAuditPath,
+    sample.workload,
+  );
   const assertionFailures = Object.entries(assertionEvidence.assertions)
     .filter(([, passed]) => !passed)
     .map(([name]) => name);
@@ -199,6 +230,41 @@ export function buildMeasuredArtifact(
     (!success && failureCategory === 'success')) {
     throw new Error('measured success and failure category are inconsistent');
   }
+  const provenance = structuredClone(manifest.provenance);
+  if (sample.runtime === 'nvx') {
+    if (!input.toolchainPath) throw new Error('missing NVX guest toolchain provenance');
+    const toolchain = readJson<NvxGuestToolchain>(input.toolchainPath, 'NVX guest toolchain');
+    if (!/^[0-9a-f]{64}$/i.test(toolchain.layerSha256) ||
+      !/^[0-9a-f]{64}$/i.test(toolchain.packageInventorySha256) ||
+      !Array.isArray(toolchain.packages) || toolchain.packages.length === 0 ||
+      !toolchain.packages.every((entry) => typeof entry === 'string' && entry !== '') ||
+      !['bash', 'curl', 'node', 'npm'].every((name) =>
+        typeof toolchain.tools?.[name as keyof NvxGuestToolchain['tools']] === 'string' &&
+        toolchain.tools[name as keyof NvxGuestToolchain['tools']] !== '') ||
+      createHash('sha256').update(`${toolchain.packages.join('\n')}\n`).digest('hex') !==
+        toolchain.packageInventorySha256 ||
+      ![
+        'bash-5.2.37-r0',
+        'curl-8.14.1-r3',
+        'nodejs-22.23.2-r0',
+        'npm-11.6.4-r0',
+      ].every((version) => toolchain.packages.includes(version)) ||
+      toolchain.tools.node !== 'v22.23.2' ||
+      toolchain.tools.npm !== '11.6.4' ||
+      !toolchain.tools.bash.includes('5.2.37') ||
+      !toolchain.tools.curl.startsWith('curl 8.14.1')) {
+      throw new Error('invalid NVX guest toolchain provenance');
+    }
+    provenance.nvxGuestToolchain = toolchain;
+  } else if (input.toolchainPath) {
+    throw new Error('Cloud Hypervisor sample unexpectedly included NVX guest toolchain provenance');
+  }
+  if (!lifecycle.guestTools ||
+    typeof lifecycle.guestTools.node !== 'string' || lifecycle.guestTools.node === '' ||
+    typeof lifecycle.guestTools.curl !== 'string' || lifecycle.guestTools.curl === '') {
+    throw new Error('missing measured guest tool versions');
+  }
+  provenance.observedGuestTools = lifecycle.guestTools;
   const result: RunEvidence = {
     ...sample,
     campaignId: manifest.campaignId,
@@ -217,7 +283,7 @@ export function buildMeasuredArtifact(
     scratchMiB: requireFinite(lifecycle.scratchBytes, 'scratchBytes') / MIB,
     hostDiskMiB: requireFinite(lifecycle.hostDiskBytes, 'hostDiskBytes') / MIB,
     peakPids: requireFinite(metrics.peakPids, 'peakPids', true),
-    cpuSeconds: requireFinite(metrics.cpuSeconds, 'cpuSeconds', true),
+    cpuSeconds: requireFinite(lifecycle.cpuUsageMicros, 'cpuUsageMicros', true) / 1_000_000,
     ...tokens,
     assertionFailures,
     residue,
@@ -230,7 +296,7 @@ export function buildMeasuredArtifact(
     runnerImage: manifest.runnerImage,
     guestImage: manifest.guestImage,
     versions: { ...manifest.versions },
-    provenance: structuredClone(manifest.provenance),
+    provenance,
     evidenceKind: 'measured',
   };
   return { kind: 'run', result };
@@ -329,7 +395,7 @@ export function buildMeasuredRecoveryArtifact(
   return { kind: 'recovery', result };
 }
 
-function readProcessTreeMetrics(rootPid: number): ProcessMetrics {
+function readProcessTreeMetrics(rootPid: number): Omit<ProcessMetrics, 'cpuSeconds'> {
   const descendants = new Set<number>([rootPid]);
   let changed = true;
   while (changed) {
@@ -351,14 +417,12 @@ function readProcessTreeMetrics(rootPid: number): ProcessMetrics {
       }
     }
   }
-  let cpuTicks = 0;
   let rssKiB = 0;
   for (const pid of descendants) {
     try {
       const stat = fs.readFileSync(`/proc/${pid}/stat`, 'utf8');
       const close = stat.lastIndexOf(')');
       const fields = stat.slice(close + 2).split(' ');
-      cpuTicks += Number(fields[11]) + Number(fields[12]);
       const status = fs.readFileSync(`/proc/${pid}/status`, 'utf8');
       const rss = /^VmRSS:\s+(\d+)\s+kB$/m.exec(status);
       rssKiB += rss ? Number(rss[1]) : 0;
@@ -367,7 +431,6 @@ function readProcessTreeMetrics(rootPid: number): ProcessMetrics {
     }
   }
   return {
-    cpuSeconds: cpuTicks / CLOCK_TICKS,
     peakMemoryMiB: rssKiB / 1024,
     peakPids: descendants.size,
   };
@@ -400,12 +463,10 @@ export async function executeMeasuredSample(input: AdapterInput): Promise<Sample
   if (!child.pid) throw new Error('sample command did not start');
   let peakMemoryMiB = 0;
   let peakPids = 0;
-  let cpuSeconds = 0;
   const timer = setInterval(() => {
     const current = readProcessTreeMetrics(child.pid!);
     peakMemoryMiB = Math.max(peakMemoryMiB, current.peakMemoryMiB);
     peakPids = Math.max(peakPids, current.peakPids);
-    cpuSeconds = Math.max(cpuSeconds, current.cpuSeconds);
   }, 100);
   const exitCode = await new Promise<number>((resolve, reject) => {
     child.once('error', reject);
@@ -417,7 +478,6 @@ export async function executeMeasuredSample(input: AdapterInput): Promise<Sample
   const final = readProcessTreeMetrics(child.pid);
   peakMemoryMiB = Math.max(peakMemoryMiB, final.peakMemoryMiB);
   peakPids = Math.max(peakPids, final.peakPids);
-  cpuSeconds = Math.max(cpuSeconds, final.cpuSeconds);
   const artifact = buildMeasuredArtifact(
     manifest,
     sample,
@@ -425,7 +485,7 @@ export async function executeMeasuredSample(input: AdapterInput): Promise<Sample
     readJson<LifecycleEvidence>(input.lifecyclePath, 'lifecycle evidence'),
     readJson<AssertionEvidence>(input.assertionsPath, 'assertion evidence'),
     readJson<string[]>(input.residuePath, 'residue evidence'),
-    { cpuSeconds, peakMemoryMiB, peakPids },
+    { peakMemoryMiB, peakPids },
     exitCode,
     thresholds,
   );

@@ -1,3 +1,4 @@
+import { createHash } from 'crypto';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
@@ -33,6 +34,8 @@ function manifest(): CampaignManifest {
 function evidence(campaign = manifest(), sampleIndex = 0) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'nvx-adapter-test-'));
   const tokenUsagePath = path.join(root, 'token-usage.jsonl');
+  const tokenTrackerAuditPath = path.join(root, 'token-tracker-audit.jsonl');
+  const toolchainPath = path.join(root, 'toolchain.json');
   const sample = campaign.expectedRuns[sampleIndex];
   if (sample.workload === 'copilot-inference') {
     fs.writeFileSync(tokenUsagePath, [
@@ -44,6 +47,28 @@ function evidence(campaign = manifest(), sampleIndex = 0) {
       }),
       '',
     ].join('\n'));
+    fs.writeFileSync(tokenTrackerAuditPath, [
+      JSON.stringify({ event: 'TRACK_START', rid: 'request-1' }),
+      JSON.stringify({ event: 'TRACK_END', rid: 'request-1', result: 'ok' }),
+      JSON.stringify({ event: 'TRACK_START', rid: 'request-2' }),
+      JSON.stringify({ event: 'TRACK_END', rid: 'request-2', result: 'no_usage' }),
+      JSON.stringify({ event: 'WS_TRACK_START', rid: 'request-3' }),
+      '',
+    ].join('\n'));
+  }
+  if (sample.runtime === 'nvx') {
+    const packages = [
+      'bash-5.2.37-r0',
+      'curl-8.14.1-r3',
+      'nodejs-22.23.2-r0',
+      'npm-11.6.4-r0',
+    ];
+    fs.writeFileSync(toolchainPath, JSON.stringify({
+      layerSha256: 'c'.repeat(64),
+      packageInventorySha256: createHash('sha256').update(`${packages.join('\n')}\n`).digest('hex'),
+      packages,
+      tools: { bash: 'GNU bash 5.2.37', curl: 'curl 8.14.1', node: 'v22.23.2', npm: '11.6.4' },
+    }));
   }
   return {
     campaign,
@@ -54,6 +79,8 @@ function evidence(campaign = manifest(), sampleIndex = 0) {
       assertionsPath: path.join(root, 'assertions.json'),
       residuePath: path.join(root, 'residue.json'),
       tokenUsagePath,
+      tokenTrackerAuditPath,
+      ...(sample.runtime === 'nvx' ? { toolchainPath } : {}),
       workflowRunId: 'run-1',
       jobId: 'canary',
       workflowAttemptId: '1',
@@ -67,6 +94,8 @@ function evidence(campaign = manifest(), sampleIndex = 0) {
       cleanupCompletedMs: 550,
       scratchBytes: 1024 * 1024,
       hostDiskBytes: 2 * 1024 * 1024,
+      cpuUsageMicros: 1_250_000,
+      guestTools: { node: 'v22.23.2', curl: 'curl 8.14.1' },
       cachePreparation: 'cold-cache-flushed' as const,
     },
     assertions: {
@@ -74,7 +103,7 @@ function evidence(campaign = manifest(), sampleIndex = 0) {
       resourceLimitsEnforced: true,
       failureCategory: 'success',
     },
-    metrics: { cpuSeconds: 1.25, peakMemoryMiB: 64, peakPids: 4 },
+    metrics: { peakMemoryMiB: 64, peakPids: 4 },
   };
 }
 
@@ -113,18 +142,43 @@ describe('matched runtime measurement adapter', () => {
       cleanupMs: 50,
       scratchMiB: 1,
       hostDiskMiB: 2,
-      apiProxyRequests: 1,
+      apiProxyRequests: 3,
       inputTokens: 12,
       outputTokens: 3,
       cacheReadTokens: 4,
+      cpuSeconds: 1.25,
       resourceProfile: 'default',
       cachePreparation: 'cold-cache-flushed',
       success: true,
     });
+    expect(artifact.result.apiProxyRequests).toBe(3);
+    expect(artifact.result.provenance.nvxGuestToolchain?.layerSha256).toBe('c'.repeat(64));
+    expect(artifact.result.provenance.observedGuestTools).toEqual({
+      node: 'v22.23.2',
+      curl: 'curl 8.14.1',
+    });
+  });
+
+  it('counts API-proxy starts independently when no response includes token usage', () => {
+    const data = evidence(manifest(), 1);
+    fs.writeFileSync(data.input.tokenUsagePath!, '');
+    const artifact = buildMeasuredArtifact(
+      data.campaign, data.sample, data.input, data.lifecycle, data.assertions,
+      [], data.metrics, 0, thresholds,
+    );
+    if (artifact.kind !== 'run') return;
+    expect(artifact.result.apiProxyRequests).toBe(3);
+    expect(artifact.result.inputTokens).toBe(0);
+    expect(artifact.result.outputTokens).toBe(0);
   });
 
   it('fails closed for missing metrics, provenance assertions, and token evidence', () => {
     const data = evidence(manifest(), 1);
+    expect(() => buildMeasuredArtifact(
+      data.campaign, data.sample, data.input,
+      { ...data.lifecycle, cpuUsageMicros: 0 },
+      data.assertions, [], data.metrics, 0, thresholds,
+    )).toThrow('cpuUsageMicros');
     expect(() => buildMeasuredArtifact(
       data.campaign, data.sample, data.input,
       { ...data.lifecycle, scratchBytes: Number.NaN },

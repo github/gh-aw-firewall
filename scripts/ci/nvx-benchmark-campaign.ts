@@ -36,6 +36,13 @@ export interface CampaignProvenance {
   runtimeArtifacts: Record<RunResult['runtime'], string>;
   guestImage: string;
   workloadVersions: Record<string, string>;
+  observedGuestTools?: { node: string; curl: string };
+  nvxGuestToolchain?: {
+    layerSha256: string;
+    packageInventorySha256: string;
+    packages: string[];
+    tools: Record<'bash' | 'curl' | 'node' | 'npm', string>;
+  };
 }
 
 export const RESOURCE_PROFILE_LIMITS: Record<RunResult['resourceProfile'], ResourceLimits> = {
@@ -343,11 +350,58 @@ function validateProvenance(
     !exactStringRecord(provenance.workloadVersions, manifest.provenance.workloadVersions)) {
     throw new Error(`${label} has mismatched compiler/runtime/guest/workload provenance`);
   }
+  const nvxGuestToolchain = provenance.nvxGuestToolchain;
+  if (manifest.canary) {
+    const observedGuestTools = provenance.observedGuestTools;
+    if (!isObservedGuestTools(observedGuestTools)) {
+      throw new Error(`${label} is missing measured guest tool versions`);
+    }
+    if (record.runtime === 'nvx') {
+      if (!isNvxGuestToolchain(nvxGuestToolchain)) {
+        throw new Error(`${label} is missing pinned NVX guest toolchain provenance`);
+      }
+    } else if (nvxGuestToolchain !== undefined) {
+      throw new Error(`${label} has unexpected NVX guest toolchain provenance`);
+    }
+  } else if (nvxGuestToolchain !== undefined) {
+    throw new Error(`${label} has unexpected NVX guest toolchain provenance`);
+  }
   const assertions = record.assertions as Record<string, unknown>;
   for (const name of thresholds.zeroTolerance) {
     if (typeof assertions[name] !== 'boolean') {
       throw new Error(`${label} is missing zero-tolerance assertion ${name}`);
     }
+  }
+
+  function isObservedGuestTools(
+    value: unknown,
+  ): value is NonNullable<CampaignProvenance['observedGuestTools']> {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+    const tools = value as NonNullable<CampaignProvenance['observedGuestTools']>;
+    return typeof tools.node === 'string' && tools.node !== '' &&
+      typeof tools.curl === 'string' && tools.curl !== '';
+  }
+
+  function isNvxGuestToolchain(
+    value: unknown,
+  ): value is NonNullable<CampaignProvenance['nvxGuestToolchain']> {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+    const toolchain = value as NonNullable<CampaignProvenance['nvxGuestToolchain']>;
+    return /^[0-9a-f]{64}$/i.test(toolchain.layerSha256) &&
+      /^[0-9a-f]{64}$/i.test(toolchain.packageInventorySha256) &&
+      Array.isArray(toolchain.packages) && toolchain.packages.length > 0 &&
+      toolchain.packages.every((entry) => typeof entry === 'string' && entry !== '') &&
+      createHash('sha256').update(`${toolchain.packages.join('\n')}\n`).digest('hex') ===
+        toolchain.packageInventorySha256 &&
+      ['bash-5.2.37-r0', 'curl-8.14.1-r3', 'nodejs-22.23.2-r0', 'npm-11.6.4-r0']
+        .every((version) => toolchain.packages.includes(version)) &&
+      toolchain.tools?.node === 'v22.23.2' &&
+      toolchain.tools?.npm === '11.6.4' &&
+      toolchain.tools?.bash?.includes('5.2.37') === true &&
+      toolchain.tools?.curl?.startsWith('curl 8.14.1') === true &&
+      ['bash', 'curl', 'node', 'npm'].every((tool) =>
+        typeof toolchain.tools?.[tool as 'bash' | 'curl' | 'node' | 'npm'] === 'string' &&
+        toolchain.tools[tool as 'bash' | 'curl' | 'node' | 'npm'] !== '');
   }
 }
 
@@ -562,6 +616,22 @@ export function aggregateCampaign(
       recoveryAttempts.set(sampleId, sampleAttempts);
     } else {
       throw new Error('sample artifact has an unknown kind');
+    }
+  }
+
+  if (manifest.canary) {
+    const guestTools = [...attempts.values()]
+      .flat()
+      .map((attempt) => JSON.stringify(attempt.provenance.observedGuestTools));
+    if (new Set(guestTools).size > 1) {
+      throw new Error('guest tool versions differ across matched canary samples');
+    }
+    const nvxToolchains = [...attempts.values()]
+      .flat()
+      .filter((attempt) => attempt.runtime === 'nvx')
+      .map((attempt) => JSON.stringify(attempt.provenance.nvxGuestToolchain));
+    if (new Set(nvxToolchains).size > 1) {
+      throw new Error('NVX guest toolchain provenance differs across canary samples');
     }
   }
 
