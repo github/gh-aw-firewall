@@ -39,7 +39,7 @@ timeout-minutes: 20
 sandbox:
   agent:
     id: awf
-    version: v0.28.55
+    version: v0.28.56
     runtime: cloud-hypervisor
 strict: false
 concurrency:
@@ -84,8 +84,9 @@ single-use Cloud Hypervisor script enclave through the real compiler-launched
 MCP Gateway. The primary and every enclave invocation must use separate VMs;
 no Docker enclave fallback is permitted.
 
-The v0.28.55 published AWF release includes the narrowly scoped official-main
-and tagged-workflow acceptance paths. The binary, Docker images, and release-attested primary and
+The v0.28.56 published AWF release includes bounded enclave MCP startup
+diagnostics (#9898) and the narrowly scoped official-main and tagged-workflow
+acceptance paths. The binary, Docker images, and release-attested primary and
 script enclave artifacts all select that release. This workflow is compiled
 with gh-aw v0.91.9 and does not publish a release or authorize a live run.
 
@@ -130,7 +131,7 @@ On any failure, call `safeoutputs missing_data`; never report failure via `noop`
 ## Usage
 
 After this update merges to `main`, the reviewed official workflow can manually
-test the independently pinned published v0.28.55 release. That release contains
+test the independently pinned published v0.28.56 release. That release contains
 the official-main acceptance policy merged in #9878, so the installed host
 binary authorizes this path without requiring the workflow to run from the
 artifact release tag. A live run still requires separate explicit authorization;
@@ -165,14 +166,14 @@ Both paths enforce strict fail-closed constraints:
 
 Merge this reviewed workflow update to `main` and obtain separate live-run
 authorization. No further release or retag is required: the binary, images,
-and attested artifacts are pinned to the policy-containing published v0.28.55.
+and attested artifacts are pinned to the policy-containing published v0.28.56.
 Only after both prerequisites are satisfied, dispatch with:
 
 ```bash
 gh aw run smoke-enclave-cloud-hypervisor --ref main
 ```
 
-Do not retag v0.28.55 or bypass the acceptance gate. The runner must be
+Do not retag v0.28.56 or bypass the acceptance gate. The runner must be
 GitHub-hosted Ubuntu x86_64 with KVM. Use the real mcpg and AWF artifacts
 captured by the compiled workflow to investigate failures; this test does not
 use the standalone probe's mock gateway.
