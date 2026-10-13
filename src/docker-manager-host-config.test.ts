@@ -14,6 +14,10 @@ describe('docker-manager host config utilities', () => {
       expect(parseDifcProxyHost('   ')).toEqual({ host: 'host.docker.internal', port: '18443' });
     });
 
+    it('should return default host and port for scheme-only input', () => {
+      expect(parseDifcProxyHost('http://')).toEqual({ host: 'host.docker.internal', port: '18443' });
+    });
+
     it('should parse bare host:port', () => {
       expect(parseDifcProxyHost('my-gateway.internal:8443')).toEqual({ host: 'my-gateway.internal', port: '8443' });
     });
