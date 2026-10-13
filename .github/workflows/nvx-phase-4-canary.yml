@@ -117,6 +117,8 @@ jobs:
           artifacts="$RUNNER_TEMP/nvx-artifacts"
           layer="$RUNNER_TEMP/nvx-layer"
           mkdir -p "$package" "$artifacts" "$layer"
+          # Package pins are literal apk constraints, not array-index assignments.
+          # shellcheck disable=SC2191
           apk_packages=(
             ada-libs=2.9.2-r4 alpine-baselayout=3.7.0-r0 alpine-baselayout-data=3.7.0-r0
             alpine-keys=2.5-r0 alpine-release=3.22.1-r0 apk-tools=2.14.9-r2
@@ -167,7 +169,8 @@ jobs:
             printf "node=%s\n" "$(node --version)"
             printf "npm=%s\n" "$(npm --version)"
           ' install "${apk_packages[@]}")
-          sudo docker start --attach "$container" > "$artifacts/toolchain.txt"
+          sudo docker start --attach "$container" |
+            tee "$artifacts/toolchain.txt" >/dev/null
           awk '/^__PACKAGES__$/{inside=1; next} /^__TOOLS__$/{inside=0} inside' \
             "$artifacts/toolchain.txt" > "$artifacts/packages.txt"
           awk '/^__TOOLS__$/{inside=1; next} inside' \
