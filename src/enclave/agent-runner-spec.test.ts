@@ -1,6 +1,7 @@
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
+import { GITHUB_TOKEN_ENV_VARS } from '../services/agent-environment/github-token-isolation';
 
 /* eslint-disable @typescript-eslint/no-require-imports */
 const containersRoot = path.join(__dirname, '..', '..', 'containers');
@@ -128,7 +129,13 @@ describe('unified enclave agent runner specification', () => {
       '/daemon/private/enclave/work/0123456789abcdef/github-agent-id:' +
       '/run/awf-enclave-github/agent-id:ro',
     ]));
-    expect(githubSpec.launchArgs.join(' ')).not.toMatch(/MCP_GATEWAY|githubCapabilityKey|GH_TOKEN/);
+    expect(githubSpec.launchArgs.join(' ')).not.toMatch(/MCP_GATEWAY|githubCapabilityKey/);
+    const envNames = githubSpec.launchArgs.flatMap((argument: string, index: number) =>
+      argument === '--env' ? [githubSpec.launchArgs[index + 1].split('=', 1)[0]] : [],
+    );
+    for (const name of GITHUB_TOKEN_ENV_VARS.filter(name => name !== 'COPILOT_GITHUB_TOKEN')) {
+      expect(envNames).not.toContain(name);
+    }
   });
 
   it('never accepts an invocation-supplied control', () => {

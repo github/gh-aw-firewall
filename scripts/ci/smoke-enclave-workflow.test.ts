@@ -42,14 +42,15 @@ describe('experimental Cloud Hypervisor enclave smoke workflow', () => {
     const configureGh = agent.steps?.find(step =>
       step.name === 'Configure gh CLI for GitHub Enterprise');
 
-    expect(compiled.env?.GH_TOKEN).toBe('${{ github.token }}');
+    expect(compiled.env?.GH_TOKEN).toBeUndefined();
     expect(agent.env?.GH_TOKEN).toBeUndefined();
-    expect(executeAgent?.env?.GH_TOKEN).toBeUndefined();
+    expect(executeAgent?.env?.GH_TOKEN).toBe('${{ github.token }}');
     expect(executeAgent?.env?.GITHUB_TOKEN).toBeUndefined();
+    expect(executeAgent?.run).toContain('--exclude-env GH_TOKEN');
     expect(executeAgent?.run).toContain('--exclude-env COPILOT_GITHUB_TOKEN');
     expect(configureGh?.env?.GH_TOKEN).toBe('${{ github.token }}');
     expect(agent.permissions?.issues).not.toBe('write');
-    expect(source).toContain('env:\n  GH_TOKEN: ${{ github.token }}');
+    expect(source).toContain('env:\n    GH_TOKEN: ${{ github.token }}');
   });
 
   it('keeps the compiler-injected issue output bounded for failure reporting', () => {
@@ -285,6 +286,25 @@ pathlib.Path("/query/out").write_text(json.dumps(result), encoding="utf-8")`);
     const patched = applyGeneralWorkflowPatches(lock, workflowPath).content;
     expect(patched).toBe(lock);
     expect(patched).toContain('--container-runtime cloud-hypervisor');
+  });
+
+  it('adds the host staging-token exclusion to the primary agent command', () => {
+    const compiled = [
+      '              "awf-enclave": {',
+      '                "type": "http",',
+      '                "url": "http://awf-enclave-mcp:8080/mcp"',
+      '      - name: Execute GitHub Copilot CLI',
+      '        run: awf --env-all --exclude-env MCP_GATEWAY_AGENT_ID',
+      '        env:',
+      '          GH_TOKEN: ${{ github.token }}',
+    ].join('\n');
+    const first = applyGeneralWorkflowPatches(compiled, workflowPath).content;
+    const second = applyGeneralWorkflowPatches(first, workflowPath).content;
+
+    expect(first).toContain(
+      '--exclude-env GH_TOKEN --exclude-env MCP_GATEWAY_API_KEY --exclude-env MCP_GATEWAY_AGENT_ID',
+    );
+    expect(second).toBe(first);
   });
 });
 

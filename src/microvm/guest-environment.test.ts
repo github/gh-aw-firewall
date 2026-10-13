@@ -65,4 +65,11 @@ describe('buildGuestEnvironment', () => {
     expect(() => buildEnvironment({ openaiApiKey: 'secret' }))
       .toThrow('Refusing to pass a real provider credential through Test Runtime guest variable LEAKED');
   });
+
+  it('rejects the configured GitHub token in the guest environment without enclaves', () => {
+    mockBuildAgentEnvironment.mockReturnValue({ GITHUB_TOKEN: 'host-github-token' });
+
+    expect(() => buildEnvironment({ githubToken: 'host-github-token' }))
+      .toThrow('Refusing to pass a real provider credential through Test Runtime guest variable GITHUB_TOKEN');
+  });
 });
