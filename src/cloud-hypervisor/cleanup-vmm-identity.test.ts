@@ -98,6 +98,7 @@ describe('Cloud Hypervisor durable VMM identity cleanup', () => {
         return { exitCode: 0, stdout: '', stderr: '' };
       }
       if (command === tools.getfacl) {
+        await expect(fs.access(path.join(root, '.device-acl-lock'))).resolves.toBeUndefined();
         return { exitCode: 0, stdout: `${baseline.join('\n')}\n`, stderr: '' };
       }
       if (command === tools.getent || command === tools.id) {
