@@ -16,7 +16,13 @@ const tools = {
   useradd: '/usr/sbin/useradd',
   userdel: '/usr/sbin/userdel',
 };
-const baseline = ['user::rw-', 'group::rw-', 'mask::rw-', 'other::rw-'];
+const baseline = [
+  'user::rw-',
+  'user:1001:rw-',
+  'group::rw-',
+  'mask::rw-',
+  'other::rw-',
+];
 
 function cleanupRecord(aclBaselines?: Record<'/dev/kvm', string[]>): CleanupRecord {
   return {
@@ -92,14 +98,48 @@ describe('Cloud Hypervisor durable VMM identity cleanup', () => {
   });
 
   it('restores and validates the exact baseline while holding the shared ACL lock', async () => {
+    let accountDeleted = false;
+    let currentAcl = [...baseline];
     const run = jest.fn(async (command: string, args: readonly string[]) => {
-      if (command === tools.setfacl) {
+      if (
+        command === tools.setfacl ||
+        command === tools.getfacl ||
+        command === tools.userdel
+      ) {
         await expect(fs.access(path.join(root, '.device-acl-lock'))).resolves.toBeUndefined();
+      }
+      if (command === tools.setfacl) {
+        currentAcl = [...baseline];
         return { exitCode: 0, stdout: '', stderr: '' };
       }
       if (command === tools.getfacl) {
-        await expect(fs.access(path.join(root, '.device-acl-lock'))).resolves.toBeUndefined();
-        return { exitCode: 0, stdout: `${baseline.join('\n')}\n`, stderr: '' };
+        return { exitCode: 0, stdout: `${currentAcl.join('\n')}\n`, stderr: '' };
+      }
+      if (command === tools.getent && args[0] === 'passwd' && !accountDeleted) {
+        return {
+          exitCode: 0,
+          stdout:
+            'awfvmm-0123456789abcdef0123:x:23001:23002:' +
+            'AWF Cloud Hypervisor acl-recovery:/nonexistent:/usr/sbin/nologin\n',
+          stderr: '',
+        };
+      }
+      if (command === tools.id && args[0] === '-u' && !accountDeleted) {
+        return { exitCode: 0, stdout: '23001\n', stderr: '' };
+      }
+      if (command === tools.id && args[0] === '-u' && accountDeleted) {
+        return { exitCode: 1, stdout: '', stderr: '' };
+      }
+      if (command === tools.id && args[0] === '-g') {
+        return { exitCode: 0, stdout: '23002\n', stderr: '' };
+      }
+      if (command === tools.id && args[0] === '-G') {
+        return { exitCode: 0, stdout: '23002\n', stderr: '' };
+      }
+      if (command === tools.userdel) {
+        accountDeleted = true;
+        currentAcl = ['user::rw-', 'group::rw-', 'mask::rw-', 'other::rw-'];
+        return { exitCode: 0, stdout: '', stderr: '' };
       }
       if (command === tools.getent || command === tools.id) {
         return { exitCode: 2, stdout: '', stderr: '' };
@@ -117,6 +157,13 @@ describe('Cloud Hypervisor durable VMM identity cleanup', () => {
       `--set=${baseline.join(',')}`,
       '/dev/kvm',
     ]);
+    expect(run.mock.calls.filter(([command]) => command === tools.setfacl)).toHaveLength(2);
+    const userdelCall = run.mock.calls.findIndex(([command]) => command === tools.userdel);
+    const setfaclCalls = run.mock.calls
+      .map(([command], index) => command === tools.setfacl ? index : -1)
+      .filter((index) => index >= 0);
+    const finalSetfaclCall = setfaclCalls[setfaclCalls.length - 1];
+    expect(userdelCall).toBeLessThan(finalSetfaclCall);
     await expect(fs.access(path.join(root, '.device-acl-lock')))
       .rejects.toMatchObject({ code: 'ENOENT' });
   });
@@ -139,7 +186,9 @@ describe('Cloud Hypervisor durable VMM identity cleanup', () => {
       resolved,
       cleanupRecord({ '/dev/kvm': baseline }),
       tools,
-    )).rejects.toThrow(/ACL restoration validation failed/);
+    )).rejects.toThrow(
+      /before=user::rw-,user:<id>:rw-,group::rw-,mask::rw-,other::rw-.*after=user::rw-,group::r--,mask::r--,other::---/,
+    );
   });
 
   it('keeps legacy user-ACE removal fail-closed when no baseline was recorded', async () => {

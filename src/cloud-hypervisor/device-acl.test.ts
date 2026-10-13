@@ -1,5 +1,6 @@
 import {
   deviceAclArgument,
+  describeDeviceAclShape,
   parseDeviceAcl,
   sameDeviceAcl,
 } from './device-acl';
@@ -29,6 +30,16 @@ describe('Cloud Hypervisor device ACLs', () => {
       'other::rw-',
     ])).toBe(false);
     expect(sameDeviceAcl(acl, acl.slice(0, -1))).toBe(false);
+    expect(sameDeviceAcl(acl, [
+      'user::rw-',
+      'user:1000:r--',
+      'group::rw-',
+      'mask::r--',
+      'other::---',
+    ])).toBe(false);
+    expect(describeDeviceAclShape(acl)).toBe(
+      'user::rw-,user:<id>:rw-,group::rw-,mask::r--,other::---',
+    );
   });
 
   it('accepts the mask-only residue observed in run 38474851931', () => {

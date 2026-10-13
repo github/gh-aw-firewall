@@ -39,3 +39,10 @@ export function sameDeviceAcl(
   return left.length === right.length &&
     left.every((entry, index) => entry === right[index]);
 }
+
+export function describeDeviceAclShape(entries: readonly string[]): string {
+  const shape = entries
+    .map((entry) => entry.replace(/^((?:user|group):)[0-9]+:/, '$1<id>:'))
+    .join(',');
+  return shape.length <= 512 ? shape : `${shape.slice(0, 509)}...`;
+}

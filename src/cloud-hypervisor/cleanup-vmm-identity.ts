@@ -7,6 +7,7 @@ import {
 } from './vmm-identity';
 import { runChecked, type ResolvedCleanupDependencies } from './cleanup-dependencies';
 import {
+  describeDeviceAclShape,
   deviceAclArgument,
   parseDeviceAcl,
   sameDeviceAcl,
@@ -26,17 +27,23 @@ export async function deleteVmmIdentity(
   if (identity.aclPaths.length > 0 && identity.state !== 'live') {
     throw new Error(`VMM ACL intent lacks a committed numeric identity: ${identity.name}`);
   }
-  if (identity.state === 'live') {
-    await releaseVmmAcls(dependencies, identity, tools);
+  if (identity.state === 'live' && identity.aclPaths.length > 0) {
+    await withVmmAclLock(dependencies, tools, async () => {
+      await restoreVmmAclsLocked(dependencies, identity, tools);
+      const expectedGid = await deleteVmmAccount(dependencies, record, identity, tools);
+      await deleteVmmGroup(dependencies, identity, tools, expectedGid);
+      await restoreVmmAclsLocked(dependencies, identity, tools);
+    });
+    return;
   }
   const expectedGid = await deleteVmmAccount(dependencies, record, identity, tools);
   await deleteVmmGroup(dependencies, identity, tools, expectedGid);
 }
 
-async function releaseVmmAcls(
+async function withVmmAclLock(
   dependencies: ResolvedCleanupDependencies,
-  identity: RecordedVmmIdentity,
   tools: CloudHypervisorVmmIdentityToolPaths,
+  operation: () => Promise<void>,
 ): Promise<void> {
   const lockDependencies: Partial<CloudHypervisorVmmIdentityDependencies> = {
     mkdir: dependencies.mkdir,
@@ -50,43 +57,58 @@ async function releaseVmmAcls(
   };
   await withCloudHypervisorDeviceAclLock(
     tools,
-    async () => {
-      for (const aclPath of [...identity.aclPaths].reverse()) {
-        const baseline = identity.aclBaselines?.[aclPath as CloudHypervisorDevicePath];
-        if (baseline) {
-          await runChecked(dependencies.run, tools.setfacl, [
-            `--set=${deviceAclArgument(baseline)}`, aclPath,
-          ]);
-          const restored = await dependencies.run(tools.getfacl, [
-            '--absolute-names', '--numeric', aclPath,
-          ]);
-          if (
-            restored.exitCode !== 0 ||
-            !sameDeviceAcl(parseDeviceAcl(restored.stdout), baseline)
-          ) throw new Error(`VMM ACL restoration validation failed for ${aclPath}`);
-          continue;
-        }
-        let acl = await dependencies.run(tools.getfacl, [
-          '--absolute-names', '--numeric', aclPath,
-        ]);
-        if (acl.exitCode !== 0) {
-          throw new Error(`VMM ACL revalidation failed for ${aclPath}: ${acl.stderr.trim()}`);
-        }
-        if (acl.stdout.split(/\r?\n/).some((line) => line.startsWith(`user:${identity.uid}:`))) {
-          await runChecked(dependencies.run, tools.setfacl, [
-            '--remove', `user:${identity.uid}`, aclPath,
-          ]);
-          acl = await dependencies.run(tools.getfacl, ['--absolute-names', '--numeric', aclPath]);
-          if (
-            acl.exitCode !== 0 ||
-            acl.stdout.split(/\r?\n/).some((line) => line.startsWith(`user:${identity.uid}:`))
-          ) throw new Error(`VMM ACL removal validation failed for ${aclPath}`);
-        }
-      }
-    },
+    operation,
     lockDependencies,
     path.join(path.dirname(dependencies.rootDirectory), '.device-acl-lock'),
   );
+}
+
+async function restoreVmmAclsLocked(
+  dependencies: ResolvedCleanupDependencies,
+  identity: RecordedVmmIdentity,
+  tools: CloudHypervisorVmmIdentityToolPaths,
+): Promise<void> {
+  for (const aclPath of [...identity.aclPaths].reverse()) {
+    const baseline = identity.aclBaselines?.[aclPath as CloudHypervisorDevicePath];
+    if (baseline) {
+      await runChecked(dependencies.run, tools.setfacl, [
+        `--set=${deviceAclArgument(baseline)}`, aclPath,
+      ]);
+      const restored = await dependencies.run(tools.getfacl, [
+        '--absolute-names', '--numeric', aclPath,
+      ]);
+      if (restored.exitCode !== 0) {
+        throw new Error(
+          `VMM ACL restoration validation failed for ${aclPath}: ${restored.stderr.trim()}`,
+        );
+      }
+      const restoredAcl = parseDeviceAcl(restored.stdout);
+      if (!sameDeviceAcl(restoredAcl, baseline)) {
+        throw new Error(
+          `VMM ACL restoration validation failed for ${aclPath}: ` +
+          `before=${describeDeviceAclShape(baseline)} ` +
+          `after=${describeDeviceAclShape(restoredAcl)}`,
+        );
+      }
+      continue;
+    }
+    let acl = await dependencies.run(tools.getfacl, [
+      '--absolute-names', '--numeric', aclPath,
+    ]);
+    if (acl.exitCode !== 0) {
+      throw new Error(`VMM ACL revalidation failed for ${aclPath}: ${acl.stderr.trim()}`);
+    }
+    if (acl.stdout.split(/\r?\n/).some((line) => line.startsWith(`user:${identity.uid}:`))) {
+      await runChecked(dependencies.run, tools.setfacl, [
+        '--remove', `user:${identity.uid}`, aclPath,
+      ]);
+      acl = await dependencies.run(tools.getfacl, ['--absolute-names', '--numeric', aclPath]);
+      if (
+        acl.exitCode !== 0 ||
+        acl.stdout.split(/\r?\n/).some((line) => line.startsWith(`user:${identity.uid}:`))
+      ) throw new Error(`VMM ACL removal validation failed for ${aclPath}`);
+    }
+  }
 }
 
 /**
