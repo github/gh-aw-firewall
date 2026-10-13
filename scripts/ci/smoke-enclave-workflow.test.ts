@@ -91,6 +91,7 @@ describe('experimental Cloud Hypervisor enclave smoke workflow', () => {
       'safe-outputs': {
         'report-failure-as-issue': boolean;
         'report-incomplete': { 'create-issue': boolean };
+        'missing-tool': { 'create-issue': boolean };
       };
     };
     const compiled = yaml.load(lock) as {
@@ -110,10 +111,14 @@ describe('experimental Cloud Hypervisor enclave smoke workflow', () => {
 
     expect(frontmatter['safe-outputs']['report-failure-as-issue']).toBe(false);
     expect(frontmatter['safe-outputs']['report-incomplete']['create-issue']).toBe(false);
+    expect(frontmatter['safe-outputs']['missing-tool']['create-issue']).toBe(false);
     expect(failureStep).toBeDefined();
     expect(failureStep?.env?.GH_AW_FAILURE_REPORT_AS_ISSUE).toBe('false');
     expect(failureStep?.env?.GH_AW_MISSING_DATA_REPORT_AS_FAILURE).toBe('true');
     expect(failureStep?.env?.GH_AW_MISSING_TOOL_REPORT_AS_FAILURE).toBe('true');
+    const missingToolStep = compiled.jobs.conclusion.steps.find(step =>
+      step.env?.GH_AW_MISSING_TOOL_CREATE_ISSUE !== undefined);
+    expect(missingToolStep?.env?.GH_AW_MISSING_TOOL_CREATE_ISSUE).toBe('false');
     expect(loadOutputsStep?.env?.GH_AW_REPORT_INCOMPLETE_CREATE_ISSUE).toBe('false');
     expect(compiled.jobs.activation.permissions?.issues).toBeUndefined();
     const blockedVersionStep = compiled.jobs.activation.steps.find(step =>

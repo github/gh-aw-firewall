@@ -31,6 +31,8 @@ safe-outputs:
   report-failure-as-issue: false
   report-incomplete:
     create-issue: false
+  missing-tool:
+    create-issue: false
   threat-detection:
     enabled: false
   messages:
