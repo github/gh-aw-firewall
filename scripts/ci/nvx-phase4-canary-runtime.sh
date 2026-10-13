@@ -194,7 +194,7 @@ blocked=$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 https://example.co
 blocked=${blocked:-000}
 case "$blocked" in 000|403) ;; *) guest_fail 43 deny-by-default-egress-failed ;; esac
 guest_stage=toolchain
-guest_node_version=$(node --version)
+guest_node_version=$("$AWF_PHASE4_NODE_BIN" --version)
 guest_curl_version=$(curl --version | awk 'NR == 1 {print $1, $2}')
 scratch_capacity=$(df -Pk /tmp | awk 'NR == 2 {print $2 * 1024}')
 scratch_before_bytes=$(du -sb /tmp 2>/dev/null | awk '{print $1}')
@@ -211,8 +211,8 @@ const value = Array.from({ length: 1000 }, (_, index) => index).reduce((a, b) =>
 assert.equal(value, 499500);
 process.stdout.write(`${value}\n`);
 BUILD
-    node --check /tmp/phase4-build/build.js
-    node /tmp/phase4-build/build.js > "$root/build-proof"
+    "$AWF_PHASE4_NODE_BIN" --check /tmp/phase4-build/build.js
+    "$AWF_PHASE4_NODE_BIN" /tmp/phase4-build/build.js > "$root/build-proof"
     grep -qx 499500 "$root/build-proof"
     test -s "$root/build-proof"
     scratch_peak_bytes=$(du -sb /tmp 2>/dev/null | awk '{print $1}')
@@ -267,7 +267,7 @@ GUEST_NODE_VERSION=$guest_node_version \
 GUEST_CURL_VERSION=$guest_curl_version \
 SCRATCH_CAPACITY_BYTES=$scratch_capacity \
 SCRATCH_USAGE_BYTES=$scratch_usage_bytes \
-node -e '
+"$AWF_PHASE4_NODE_BIN" -e '
   const fs = require("node:fs");
   fs.writeFileSync(process.argv[1], JSON.stringify({
     credentialIsolation: true,
@@ -294,6 +294,15 @@ if [ "$workload" = copilot-inference ]; then
   cp "$copilot_host" "$workspace_dir/copilot"
   chmod 0555 "$workspace_dir/copilot"
 fi
+if [ "$runtime" = nvx ]; then
+  node_guest=node
+else
+  node_host=$(command -v node)
+  test -x "$node_host"
+  cp "$node_host" "$workspace_dir/node"
+  chmod 0555 "$workspace_dir/node"
+  node_guest="/workspace/.nvx-phase4-canary/$sample_id/node"
+fi
 
 config="$sample_root/awf-config.json"
 jq -n \
@@ -318,12 +327,13 @@ jq -n \
 export AWF_PHASE4_CANARY_ROOT="/workspace/.nvx-phase4-canary/$sample_id"
 export AWF_PHASE4_WORKLOAD="$workload"
 export AWF_PHASE4_COPILOT_BIN="$AWF_PHASE4_CANARY_ROOT/copilot"
+export AWF_PHASE4_NODE_BIN="$node_guest"
 preflight_completed=
 
 set +e
 # The runner user owns awf_log; sudo is required only for the AWF process.
 # shellcheck disable=SC2024
-sudo --preserve-env=AWF_PHASE4_CANARY_ROOT,AWF_PHASE4_WORKLOAD,AWF_PHASE4_COPILOT_BIN,COPILOT_GITHUB_TOKEN,GITHUB_ACTIONS,RUNNER_ENVIRONMENT,ImageOS \
+sudo --preserve-env=AWF_PHASE4_CANARY_ROOT,AWF_PHASE4_WORKLOAD,AWF_PHASE4_COPILOT_BIN,AWF_PHASE4_NODE_BIN,COPILOT_GITHUB_TOKEN,GITHUB_ACTIONS,RUNNER_ENVIRONMENT,ImageOS \
   node dist/cli.js \
   --config "$config" \
   --work-dir "$work_dir" \
@@ -333,6 +343,7 @@ sudo --preserve-env=AWF_PHASE4_CANARY_ROOT,AWF_PHASE4_WORKLOAD,AWF_PHASE4_COPILO
   --env "AWF_PHASE4_CANARY_ROOT=$AWF_PHASE4_CANARY_ROOT" \
   --env "AWF_PHASE4_WORKLOAD=$workload" \
   --env "AWF_PHASE4_COPILOT_BIN=$AWF_PHASE4_COPILOT_BIN" \
+  --env "AWF_PHASE4_NODE_BIN=$AWF_PHASE4_NODE_BIN" \
   --log-level debug \
   "${runtime_args[@]}" \
   -- "/bin/sh $AWF_PHASE4_CANARY_ROOT/workload.sh" \
@@ -557,14 +568,29 @@ else
   done
 fi
 resource_limits=false
+if [ "$runtime" = nvx ]; then
+  expected_memory_max=4294967296
+else
+  expected_memory_max=4563402752
+fi
 if [ -n "$observed_cgroup" ] && [ "$observed_pids_max" = 256 ]; then
   read -r cpu_quota cpu_period <<<"$observed_cpu_max"
-  if [ "$observed_memory_max" = 4563402752 ] &&
+  if [ "$observed_memory_max" = "$expected_memory_max" ] &&
      [ "$cpu_period" = 100000 ] &&
      [ "$cpu_quota" = 200000 ]; then
     resource_limits=true
   fi
 fi
+jq -n \
+  --arg cgroup "$observed_cgroup" \
+  --arg memoryMax "$observed_memory_max" \
+  --arg cpuMax "$observed_cpu_max" \
+  --arg pidsMax "$observed_pids_max" \
+  --arg expectedMemoryMax "$expected_memory_max" \
+  '{cgroup:$cgroup,memoryMax:$memoryMax,cpuMax:$cpuMax,pidsMax:$pidsMax,
+    expectedMemoryMax:$expectedMemoryMax}' \
+  > "$evidence_dir/resources.json"
+chmod 0600 "$evidence_dir/resources.json"
 
 raw_evidence_dir="$(dirname "$AWF_BENCHMARK_EVENTS")/runtime-$sample_id"
 mkdir "$raw_evidence_dir"
