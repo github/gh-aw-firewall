@@ -24,6 +24,10 @@ describe('Cloud Hypervisor device ACLs', () => {
     ]);
     expect(deviceAclArgument(acl)).toBe(acl.join(','));
     expect(sameDeviceAcl(acl, [...acl])).toBe(true);
+    expect(sameDeviceAcl(acl, [
+      ...acl.slice(0, -1),
+      'other::rw-',
+    ])).toBe(false);
     expect(sameDeviceAcl(acl, acl.slice(0, -1))).toBe(false);
   });
 
