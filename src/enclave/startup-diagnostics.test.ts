@@ -155,6 +155,17 @@ describe('bounded enclave startup evidence', () => {
     });
     expect(ids).toContain('host-executor-socket');
     expect(ids).not.toContain('seed-map');
+    expect(ids).not.toContain('seed-directory');
+    expect(ids).not.toContain('docker-socket');
+    const containerExecutorIds = selectedProbeIds({
+      AWF_ENCLAVE_BACKEND: 'docker',
+      AWF_ENCLAVE_SCRIPT_ENABLED: 'true',
+      AWF_ENCLAVE_SEED_MAP_ENABLED: 'true',
+    });
+    expect(containerExecutorIds).toEqual(expect.arrayContaining([
+      'seed-directory', 'docker-socket', 'docker-executable', 'script-seccomp',
+    ]));
+    expect(containerExecutorIds).not.toContain('host-executor-socket');
     expect(JSON.stringify([timedOut, missing])).not.toContain('/private/path');
   });
 

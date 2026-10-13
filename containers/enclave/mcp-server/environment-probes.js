@@ -14,6 +14,9 @@ const PROBE_TARGETS = {
   'host-executor-socket': ['/run/awf-enclave-host-executor/executor.sock', 'socket', 'connect'],
   'host-executor-capability': ['/run/awf-enclave-host-executor/capability', 'file', 'read'],
   'delegation-channel': ['/run/awf-enclave-delegation', 'directory', 'read'],
+  'docker-socket': ['/var/run/docker.sock', 'socket', 'connect'],
+  'script-seccomp': ['/opt/awf/script-seccomp.json', 'file', 'read'],
+  'agent-seccomp': ['/opt/awf/enclave-seccomp.json', 'file', 'read'],
   'node-executable': [process.execPath, 'file', 'execute'],
   'docker-executable': ['/usr/bin/docker', 'file', 'execute'],
 };
@@ -92,12 +95,19 @@ async function probeTarget(id, target, expectedType, access, filesystem = fs, ti
 
 function selectedProbeIds(environment) {
   const ids = ['capability', 'audit-directory', 'control-directory', 'ready-file-parent', 'node-executable'];
+  const scriptEnabled = environment.AWF_ENCLAVE_SCRIPT_ENABLED === 'true';
+  const agentEnabled = environment.AWF_ENCLAVE_AGENT_ENABLED === 'true';
+  const scriptBackend = scriptEnabled ? environment.AWF_ENCLAVE_BACKEND : undefined;
+  const agentBackend = agentEnabled ? environment.AWF_ENCLAVE_AGENT_BACKEND : undefined;
+  const usesContainerExecutor = [scriptBackend, agentBackend].some(
+    backend => backend !== undefined && backend !== 'cloud-hypervisor',
+  );
   if (environment.AWF_ENCLAVE_SEED_MAP_ENABLED !== 'false') ids.push('seed-map');
-  if (environment.AWF_ENCLAVE_BACKEND !== 'cloud-hypervisor'
-      && environment.AWF_ENCLAVE_SEED_MAP_ENABLED !== 'false') ids.push('seed-directory');
-  if ((environment.AWF_ENCLAVE_BACKEND && environment.AWF_ENCLAVE_BACKEND !== 'cloud-hypervisor')
-      || (environment.AWF_ENCLAVE_AGENT_BACKEND && environment.AWF_ENCLAVE_AGENT_BACKEND !== 'cloud-hypervisor')) {
-    ids.push('docker-executable');
+  if (usesContainerExecutor) {
+    ids.push('docker-socket', 'docker-executable');
+    if (environment.AWF_ENCLAVE_SEED_MAP_ENABLED !== 'false') ids.push('seed-directory');
+    if (scriptBackend && scriptBackend !== 'cloud-hypervisor') ids.push('script-seccomp');
+    if (agentBackend && agentBackend !== 'cloud-hypervisor') ids.push('agent-seccomp');
   }
   if (environment.AWF_ENCLAVE_AGENT_GITHUB_ENABLED === 'true') ids.push('agent-id');
   if (environment.AWF_ENCLAVE_BACKEND === 'cloud-hypervisor'

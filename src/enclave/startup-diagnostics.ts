@@ -56,7 +56,8 @@ function finiteString(value: unknown, allowed: Set<string>): string {
 const probeIds = new Set([
   'capability', 'audit-directory', 'control-directory', 'ready-file-parent',
   'seed-map', 'seed-directory', 'agent-id', 'host-executor-socket',
-  'host-executor-capability', 'delegation-channel', 'node-executable', 'docker-executable',
+  'host-executor-capability', 'delegation-channel', 'docker-socket',
+  'script-seccomp', 'agent-seccomp', 'node-executable', 'docker-executable',
 ]);
 
 function safeProbes(value: unknown) {
