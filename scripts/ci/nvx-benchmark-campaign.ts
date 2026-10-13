@@ -5,7 +5,7 @@ import * as path from 'path';
 import { isDeepStrictEqual } from 'util';
 import { BenchmarkResults, RecoveryResult, RunResult, Thresholds, evaluate } from './nvx-promotion-evaluator';
 
-export type CampaignMode = 'dry-run' | 'canary' | 'full';
+export type CampaignMode = 'dry-run' | 'canary' | 'pilot-100' | 'pilot-1000' | 'full';
 
 export interface CampaignSample {
   sampleId: string;
@@ -134,6 +134,7 @@ export type SampleArtifact = { kind: 'run'; result: RunEvidence } | { kind: 'rec
 
 export interface CampaignResults extends BenchmarkResults {
   campaignId: string;
+  mode: CampaignMode;
   sourceCommit: string;
   runnerImage: string;
   guestImage: string;
@@ -147,6 +148,7 @@ export interface CampaignResults extends BenchmarkResults {
   dryRun: boolean;
   canary: boolean;
   promotionEligible: boolean;
+  estimatedRunnerMinutes: number;
 }
 
 const INFRASTRUCTURE_FAILURES = new Set(['runner-preempted', 'runner-unavailable', 'network-infrastructure']);
@@ -164,12 +166,21 @@ const RECOVERY_ASSERTIONS = [
 const RUNNER_MINUTES_PER_SAMPLE = 10;
 const MAX_CAMPAIGN_SAMPLES = 1_000;
 const MAX_CELL_SAMPLES = 20;
+const EXECUTION_SAMPLE_COUNTS: Partial<Record<CampaignMode, number>> = {
+  'pilot-100': 10,
+  'pilot-1000': 100,
+  full: 1_000,
+};
 
 function stableId(campaignId: string, parts: string[]): string {
   return createHash('sha256')
     .update([campaignId, ...parts].join('\0'))
     .digest('hex')
     .slice(0, 24);
+}
+
+function jsonEqual(left: unknown, right: unknown): boolean {
+  return JSON.stringify(left) === JSON.stringify(right);
 }
 
 export function createCampaignManifest(
@@ -200,8 +211,9 @@ export function createCampaignManifest(
 
   const dryRun = input.mode === 'dry-run';
   const canary = input.mode === 'canary';
+  const runtimes = ['nvx', 'cloud-hypervisor'] as const;
   const expectedRuns = canary
-    ? (['nvx', 'cloud-hypervisor'] as const).flatMap((runtime) =>
+    ? runtimes.flatMap((runtime) =>
         thresholds.matrix.workloads.map((workload) => {
           const mode = 'sequential' as const;
           const cache = 'cold' as const;
@@ -218,13 +230,40 @@ export function createCampaignManifest(
           };
         }),
       )
-    : (['nvx', 'cloud-hypervisor'] as const).flatMap((runtime) =>
+    : input.mode === 'pilot-100'
+      ? runtimes.flatMap((runtime) =>
+          [
+            ...thresholds.matrix.workloads.map((workload) => ({
+              workload,
+              mode: 'sequential' as const,
+              cache: 'cold' as const,
+              resourceProfile: 'default' as const,
+            })),
+            {
+              workload: 'build-test',
+              mode: 'concurrent' as const,
+              cache: 'cold' as const,
+              resourceProfile: 'default' as const,
+            },
+          ].map(({ workload, mode, cache, resourceProfile }) => ({
+            sampleId: stableId(input.campaignId, [runtime, workload, mode, cache, resourceProfile, '1']),
+            runtime,
+            workload,
+            mode,
+            cache,
+            resourceProfile,
+            ordinal: 1,
+          })),
+        )
+      : runtimes.flatMap((runtime) =>
         thresholds.matrix.workloads.flatMap((workload) =>
           thresholds.matrix.modes.flatMap((mode) =>
             thresholds.matrix.caches.flatMap((cache) =>
               thresholds.matrix.resourceProfiles.flatMap((resourceProfile) => {
                 const count = dryRun
                   ? 1
+                  : input.mode === 'pilot-1000'
+                    ? 2
                   : mode === 'sequential'
                     ? thresholds.sample.minSequentialRunsPerLaneRuntime
                     : thresholds.sample.minConcurrentRunsPerLaneRuntime;
@@ -247,11 +286,14 @@ export function createCampaignManifest(
       );
   const expectedRecoveries = canary
     ? []
-    : (['nvx', 'cloud-hypervisor'] as const).flatMap((runtime) =>
+    : runtimes.flatMap((runtime) =>
         (['cancellation', 'stale-recovery'] as const).flatMap((kind) =>
           Array.from(
             {
-              length: dryRun ? 1 : thresholds.sample.minRecoverySamplesPerKindRuntime,
+              length:
+                dryRun || input.mode === 'pilot-100' || input.mode === 'pilot-1000'
+                  ? 1
+                  : thresholds.sample.minRecoverySamplesPerKindRuntime,
             },
             (_, index) => {
               const ordinal = index + 1;
@@ -301,8 +343,9 @@ export function createCampaignManifest(
 }
 
 export function createCampaignCells(manifest: CampaignManifest): CampaignCell[] {
-  if (manifest.mode !== 'full' || manifest.expectedRuns.length + manifest.expectedRecoveries.length !== MAX_CAMPAIGN_SAMPLES) {
-    throw new Error('execution cells require the canonical 1,000-sample full campaign');
+  const expectedSampleCount = EXECUTION_SAMPLE_COUNTS[manifest.mode];
+  if (!expectedSampleCount || manifest.expectedRuns.length + manifest.expectedRecoveries.length !== expectedSampleCount) {
+    throw new Error('execution cells require a canonical measured campaign tier');
   }
   const cells = new Map<string, CampaignCell>();
   for (const sample of manifest.expectedRuns) {
@@ -342,9 +385,9 @@ export function createCampaignCells(manifest: CampaignManifest): CampaignCell[] 
     )
     .sort((left, right) => left.cellId.localeCompare(right.cellId));
   if (
-    result.length !== 76 ||
+    result.length < 1 ||
     result.some((cell) => cell.sampleIds.length < 1 || cell.sampleIds.length > MAX_CELL_SAMPLES) ||
-    new Set(result.flatMap((cell) => cell.sampleIds)).size !== MAX_CAMPAIGN_SAMPLES
+    new Set(result.flatMap((cell) => cell.sampleIds)).size !== expectedSampleCount
   ) {
     throw new Error('campaign execution cells are incomplete, duplicated, or unbounded');
   }
@@ -364,7 +407,7 @@ export function selectPendingCellSamples(
 }> {
   const canonicalCell = createCampaignCells(manifest).find((candidate) => candidate.cellId === cell.cellId);
   if (!canonicalCell || !isDeepStrictEqual(canonicalCell, cell)) {
-    throw new Error('campaign cell does not match the canonical full-campaign plan');
+    throw new Error('campaign cell does not match the canonical campaign-tier plan');
   }
   const attempts = new Map<string, Array<RunEvidence | RecoveryEvidence>>();
   const attemptIds = new Set<string>();
@@ -704,7 +747,13 @@ export function aggregateCampaign(manifest: CampaignManifest, artifacts: SampleA
   ) {
     throw new Error('unsupported or incomplete campaign manifest');
   }
-  if (manifest.mode !== 'dry-run' && manifest.mode !== 'canary' && manifest.mode !== 'full') {
+  if (
+    manifest.mode !== 'dry-run' &&
+    manifest.mode !== 'canary' &&
+    manifest.mode !== 'pilot-100' &&
+    manifest.mode !== 'pilot-1000' &&
+    manifest.mode !== 'full'
+  ) {
     throw new Error('unsupported or incomplete campaign manifest');
   }
   const canonicalManifest = createCampaignManifest(
@@ -864,6 +913,7 @@ export function aggregateCampaign(manifest: CampaignManifest, artifacts: SampleA
 
   return {
     campaignId: manifest.campaignId,
+    mode: manifest.mode,
     sourceCommit: manifest.sourceCommit,
     runnerClass: manifest.runnerClass,
     runnerImage: manifest.runnerImage,
@@ -883,7 +933,79 @@ export function aggregateCampaign(manifest: CampaignManifest, artifacts: SampleA
     dryRun: manifest.dryRun,
     canary: manifest.canary,
     promotionEligible: manifest.promotionEligible,
+    estimatedRunnerMinutes: manifest.estimatedRunnerMinutes,
   };
+}
+
+export function isSuccessfulPilot(results: CampaignResults): boolean {
+  return (
+    (results.mode === 'pilot-100' || results.mode === 'pilot-1000') &&
+    !results.dryRun &&
+    !results.canary &&
+    !results.promotionEligible &&
+    results.missingSampleIds.length === 0 &&
+    results.unexpectedSampleIds.length === 0 &&
+    results.observedSampleIds.length === EXECUTION_SAMPLE_COUNTS[results.mode] &&
+    [...results.runs, ...results.recoveries].every(
+      (result) => result.success && result.assertionFailures.length === 0 && result.residue.length === 0,
+    )
+  );
+}
+
+export function validateProgressionEvidence(
+  current: CampaignManifest,
+  predecessor: CampaignManifest,
+  results: CampaignResults,
+): void {
+  const requiredMode = current.mode === 'pilot-1000' ? 'pilot-100' : current.mode === 'full' ? 'pilot-1000' : undefined;
+  if (!requiredMode) throw new Error(`campaign mode ${current.mode} does not accept progression evidence`);
+  const canonicalPredecessor = createCampaignManifest(
+    {
+      campaignId: predecessor.campaignId,
+      mode: predecessor.mode,
+      sourceCommit: predecessor.sourceCommit,
+      runnerClass: predecessor.runnerClass,
+      runnerImage: predecessor.runnerImage,
+      guestImage: predecessor.guestImage,
+    },
+    loadThresholds(),
+  );
+  if (!isDeepStrictEqual(predecessor, canonicalPredecessor)) {
+    throw new Error('progression manifest is not a canonical immutable campaign tier');
+  }
+  if (
+    predecessor.mode !== requiredMode ||
+    predecessor.campaignId === current.campaignId ||
+    predecessor.sourceCommit !== current.sourceCommit ||
+    predecessor.runnerClass !== current.runnerClass ||
+    predecessor.guestImage !== current.guestImage ||
+    !isDeepStrictEqual(predecessor.versions, current.versions) ||
+    !isDeepStrictEqual(predecessor.provenance, current.provenance)
+  ) {
+    throw new Error(`campaign requires a successful ${requiredMode} pilot from the same reviewed source and baseline`);
+  }
+  const expectedSampleIds = [...predecessor.expectedRuns, ...predecessor.expectedRecoveries]
+    .map((sample) => sample.sampleId)
+    .sort();
+  const invalidFields = [
+    results.campaignId !== predecessor.campaignId && 'campaignId',
+    results.mode !== predecessor.mode && 'mode',
+    results.sourceCommit !== predecessor.sourceCommit && 'sourceCommit',
+    results.runnerClass !== predecessor.runnerClass && 'runnerClass',
+    results.runnerImage !== predecessor.runnerImage && 'runnerImage',
+    results.guestImage !== predecessor.guestImage && 'guestImage',
+    results.estimatedRunnerMinutes !== predecessor.estimatedRunnerMinutes && 'estimatedRunnerMinutes',
+    !jsonEqual(results.versions, predecessor.versions) && 'versions',
+    !jsonEqual(results.provenance, predecessor.provenance) && 'provenance',
+    !isDeepStrictEqual([...results.expectedSampleIds].sort(), expectedSampleIds) && 'expectedSampleIds',
+    !isDeepStrictEqual([...results.observedSampleIds].sort(), expectedSampleIds) && 'observedSampleIds',
+    !isSuccessfulPilot(results) && 'successfulPilot',
+  ].filter((field): field is string => typeof field === 'string');
+  if (invalidFields.length > 0) {
+    throw new Error(
+      `campaign requires complete, successful, immutable ${requiredMode} pilot evidence; invalid ${invalidFields.join(', ')}`,
+    );
+  }
 }
 
 function dryRunAssertions(thresholds: Thresholds): Record<string, boolean> {
@@ -1001,7 +1123,9 @@ function report(results: CampaignResults, thresholds: Thresholds): string {
         ? '**dry-run only (not benchmark data)**'
         : results.canary
           ? '**measured canary (excluded from promotion thresholds)**'
-          : 'measured promotion campaign'
+          : results.promotionEligible
+            ? 'measured promotion campaign'
+            : `**measured ${results.mode} pilot (excluded from promotion thresholds)**`
     }`,
     `- Runner: \`${results.runnerClass}\``,
     `- Samples: ${results.runs.length} primary runs; ${results.recoveries.length} recovery records`,
@@ -1031,12 +1155,12 @@ function loadThresholds(): Thresholds {
 
 function usage(): never {
   throw new Error(
-    'usage: nvx-benchmark-campaign plan <manifest.json> <campaign-id> <dry-run|canary|full> ' +
+    'usage: nvx-benchmark-campaign plan <manifest.json> <campaign-id> <dry-run|canary|pilot-100|pilot-1000|full> ' +
       '<source-sha> <runner-class> <runner-image> <guest-image> | dry-run <manifest.json> ' +
       '<samples-dir> <workflow-run-id> <job-id> <workflow-attempt> | aggregate ' +
       '<manifest.json> <samples-dir> <results.json> <report.md> | matrix <manifest.json> ' +
       '<matrix.json> | pending <manifest.json> <cell.json> <samples-dir> <allow-infrastructure-retry> ' +
-      '<pending.json>',
+      '<pending.json> | progression <current-manifest.json> <predecessor-manifest.json> <predecessor-results.json>',
   );
 }
 
@@ -1046,8 +1170,8 @@ function main(): void {
   if (command === 'plan') {
     const [manifestPath, campaignId, mode, sourceCommit, runnerClass, runnerImage, guestImage] = args;
     if (!manifestPath || !campaignId || !mode || !sourceCommit || !runnerClass || !runnerImage || !guestImage) usage();
-    if (mode !== 'dry-run' && mode !== 'canary' && mode !== 'full') {
-      throw new Error('mode must be dry-run, canary, or full');
+    if (mode !== 'dry-run' && mode !== 'canary' && mode !== 'pilot-100' && mode !== 'pilot-1000' && mode !== 'full') {
+      throw new Error('mode must be dry-run, canary, pilot-100, pilot-1000, or full');
     }
     const manifest = createCampaignManifest({ campaignId, mode, sourceCommit, runnerClass, runnerImage, guestImage }, thresholds);
     fs.writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, {
@@ -1144,10 +1268,36 @@ function main(): void {
       mode: 0o600,
     });
     fs.writeFileSync(path.join(path.dirname(resultsPath), 'evaluation.json'), `${JSON.stringify(evaluation, null, 2)}\n`, { mode: 0o600 });
+    const successfulPilot = isSuccessfulPilot(results);
+    fs.writeFileSync(
+      path.join(path.dirname(resultsPath), 'campaign-status.json'),
+      `${JSON.stringify(
+        {
+          campaignId: results.campaignId,
+          mode: results.mode,
+          promotionEligible: results.promotionEligible,
+          successfulPilot,
+          recommendation: evaluation.recommendation,
+        },
+        null,
+        2,
+      )}\n`,
+      { mode: 0o600 },
+    );
     fs.writeFileSync(reportPath, report(results, thresholds), { mode: 0o600 });
     process.stdout.write(`${JSON.stringify(evaluation, null, 2)}\n`);
-    if (evaluation.recommendation === 'promote') return;
+    if (evaluation.recommendation === 'promote' || successfulPilot) return;
     process.exitCode = 1;
+    return;
+  }
+  if (command === 'progression') {
+    const [currentManifestPath, predecessorManifestPath, predecessorResultsPath] = args;
+    if (!currentManifestPath || !predecessorManifestPath || !predecessorResultsPath) usage();
+    const current = JSON.parse(fs.readFileSync(currentManifestPath, 'utf8')) as CampaignManifest;
+    const predecessor = JSON.parse(fs.readFileSync(predecessorManifestPath, 'utf8')) as CampaignManifest;
+    const results = JSON.parse(fs.readFileSync(predecessorResultsPath, 'utf8')) as CampaignResults;
+    validateProgressionEvidence(current, predecessor, results);
+    process.stdout.write(`Validated successful ${predecessor.mode} progression evidence from ${predecessor.campaignId}.\n`);
     return;
   }
   usage();

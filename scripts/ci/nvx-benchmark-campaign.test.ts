@@ -3,6 +3,7 @@ import * as path from 'path';
 import * as yaml from 'js-yaml';
 import {
   CampaignManifest,
+  CampaignResults,
   RESOURCE_PROFILE_LIMITS,
   RunEvidence,
   SampleArtifact,
@@ -10,7 +11,9 @@ import {
   createCampaignCells,
   createCampaignManifest,
   generateDryRunArtifacts,
+  isSuccessfulPilot,
   selectPendingCellSamples,
+  validateProgressionEvidence,
 } from './nvx-benchmark-campaign';
 import { evaluate, Thresholds } from './nvx-promotion-evaluator';
 
@@ -23,10 +26,10 @@ const identifiers = {
   workflowAttemptId: '1',
 };
 
-function manifest(mode: 'dry-run' | 'full' = 'dry-run'): CampaignManifest {
+function manifest(mode: 'dry-run' | 'pilot-100' | 'pilot-1000' | 'full' = 'dry-run', campaignId = 'campaign-test'): CampaignManifest {
   return createCampaignManifest(
     {
-      campaignId: 'campaign-test',
+      campaignId,
       mode,
       sourceCommit: 'a'.repeat(40),
       runnerClass: 'ubuntu-24.04',
@@ -39,6 +42,44 @@ function manifest(mode: 'dry-run' | 'full' = 'dry-run'): CampaignManifest {
 
 function dryArtifacts(campaign = manifest()): SampleArtifact[] {
   return generateDryRunArtifacts(campaign, thresholds, identifiers);
+}
+
+function successfulPilotResults(campaign: CampaignManifest): CampaignResults {
+  const expectedSampleIds = [...campaign.expectedRuns, ...campaign.expectedRecoveries]
+    .map((sample) => sample.sampleId)
+    .sort();
+  return {
+    campaignId: campaign.campaignId,
+    mode: campaign.mode,
+    sourceCommit: campaign.sourceCommit,
+    runnerClass: campaign.runnerClass,
+    runnerImage: campaign.runnerImage,
+    guestImage: campaign.guestImage,
+    versions: structuredClone(campaign.versions),
+    provenance: structuredClone(campaign.provenance),
+    runs: campaign.expectedRuns.map((sample) => ({
+      ...sample,
+      success: true,
+      assertionFailures: [],
+      residue: [],
+    })) as unknown as CampaignResults['runs'],
+    recoveries: campaign.expectedRecoveries.map((sample) => ({
+      ...sample,
+      success: true,
+      assertionFailures: [],
+      residue: [],
+    })) as unknown as CampaignResults['recoveries'],
+    attempts: [],
+    recoveryAttempts: [],
+    expectedSampleIds,
+    observedSampleIds: [...expectedSampleIds],
+    missingSampleIds: [],
+    unexpectedSampleIds: [],
+    dryRun: false,
+    canary: false,
+    promotionEligible: false,
+    estimatedRunnerMinutes: campaign.estimatedRunnerMinutes,
+  };
 }
 
 describe('NVX benchmark campaign evidence', () => {
@@ -87,15 +128,19 @@ describe('NVX benchmark campaign evidence', () => {
     expect(workflow.concurrency['cancel-in-progress']).toBe(false);
     const source = fs.readFileSync(workflowPath, 'utf8');
     expect(source).toContain('default: dry-run');
+    expect(source).toContain('I reviewed and approve the 100 runner-minute pilot');
+    expect(source).toContain('I reviewed and approve the 1,000 runner-minute pilot');
     expect(source).toContain('I reviewed and approve the 10,000 runner-minute estimate');
+    expect(source).toContain('progression_run_id');
     expect(source).toContain('prior_run_id');
     expect(source).toContain('allow_infrastructure_retry');
     expect(source).toContain('infrastructure_retry_url');
     expect(source).toContain('nvx-benchmark-campaign.ts matrix');
     expect(source).toContain('nvx-benchmark-campaign.ts pending');
     expect(workflow.jobs.execute.strategy?.['max-parallel']).toBe(4);
-    expect(source).toContain('test "$(jq \'.include | length\' "$plan/matrix.json")" -eq 76');
-    expect(source).toContain('test "$(jq \'[.include[].sampleIds[]] | length\' "$plan/matrix.json")" -eq 1000');
+    expect(source).toContain('pilot-100:10:10:100');
+    expect(source).toContain('pilot-1000:52:100:1000');
+    expect(source).toContain('full:76:1000:10000');
   });
 
   it('keeps the real canary bounded, serialized, matched, and promotion-ineligible', () => {
@@ -189,6 +234,37 @@ describe('NVX benchmark campaign evidence', () => {
     ).toBe(48);
   });
 
+  it('creates exact matched non-promotion pilot tiers', () => {
+    const small = manifest('pilot-100');
+    expect(small.expectedRuns).toHaveLength(6);
+    expect(small.expectedRecoveries).toHaveLength(4);
+    expect(small.estimatedRunnerMinutes).toBe(100);
+    expect(small.promotionEligible).toBe(false);
+    expect(
+      small.expectedRuns.map((sample) => [sample.runtime, sample.workload, sample.mode, sample.cache, sample.resourceProfile]),
+    ).toEqual([
+      ['nvx', 'build-test', 'sequential', 'cold', 'default'],
+      ['nvx', 'copilot-inference', 'sequential', 'cold', 'default'],
+      ['nvx', 'build-test', 'concurrent', 'cold', 'default'],
+      ['cloud-hypervisor', 'build-test', 'sequential', 'cold', 'default'],
+      ['cloud-hypervisor', 'copilot-inference', 'sequential', 'cold', 'default'],
+      ['cloud-hypervisor', 'build-test', 'concurrent', 'cold', 'default'],
+    ]);
+
+    const broad = manifest('pilot-1000');
+    expect(broad.expectedRuns).toHaveLength(96);
+    expect(broad.expectedRecoveries).toHaveLength(4);
+    expect(broad.estimatedRunnerMinutes).toBe(1_000);
+    expect(broad.promotionEligible).toBe(false);
+    expect(
+      new Set(
+        broad.expectedRuns.map((sample) =>
+          [sample.runtime, sample.workload, sample.mode, sample.cache, sample.resourceProfile].join('/'),
+        ),
+      ).size,
+    ).toBe(48);
+  });
+
   it('partitions the full campaign into bounded deterministic execution cells', () => {
     const campaign = manifest('full');
     const cells = createCampaignCells(campaign);
@@ -198,6 +274,31 @@ describe('NVX benchmark campaign evidence', () => {
     expect(cells.every((cell) => cell.sampleIds.length >= 10 && cell.sampleIds.length <= 20)).toBe(true);
     expect(new Set(cells.flatMap((cell) => cell.sampleIds)).size).toBe(1_000);
     expect(createCampaignCells(campaign)).toEqual(cells);
+  });
+
+  it.each([
+    ['pilot-100', 10, 10],
+    ['pilot-1000', 52, 100],
+  ] as const)('partitions %s into exact bounded execution cells', (mode, cellCount, sampleCount) => {
+    const campaign = manifest(mode);
+    const cells = createCampaignCells(campaign);
+    expect(cells).toHaveLength(cellCount);
+    expect(new Set(cells.flatMap((cell) => cell.sampleIds)).size).toBe(sampleCount);
+    expect(cells.every((cell) => cell.sampleIds.length >= 1 && cell.sampleIds.length <= 2)).toBe(true);
+  });
+
+  it('requires successful immutable pilot progression without mixing tiers', () => {
+    const small = manifest('pilot-100', 'pilot-small');
+    const broad = manifest('pilot-1000', 'pilot-broad');
+    const full = manifest('full', 'campaign-full');
+    const successfulSmall = successfulPilotResults(small);
+    expect(isSuccessfulPilot(successfulSmall)).toBe(true);
+    expect(() => validateProgressionEvidence(broad, small, successfulSmall)).not.toThrow();
+    expect(() => validateProgressionEvidence(full, small, successfulSmall)).toThrow('pilot-1000');
+
+    successfulSmall.runs[0].residue.push('run-directory');
+    expect(isSuccessfulPilot(successfulSmall)).toBe(false);
+    expect(() => validateProgressionEvidence(broad, small, successfulSmall)).toThrow('successful');
   });
 
   it('resumes immutable evidence without duplicate or unbounded execution', () => {

@@ -4,17 +4,22 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: Dry-run validates deterministically; full executes the reviewed campaign
+        description: Dry-run validates; pilots measure non-promotion tiers; full runs the promotion campaign
         required: true
         type: choice
-        options: [dry-run, full]
+        options: [dry-run, pilot-100, pilot-1000, full]
         default: dry-run
       campaign_id:
         description: Immutable campaign identifier; reuse only to resume this exact campaign
         required: true
         type: string
-      confirm_full_campaign:
-        description: 'For full mode enter exactly: I reviewed and approve the 10,000 runner-minute estimate'
+      confirm_runner_minutes:
+        description: Exact tier-specific runner-minute confirmation text
+        required: false
+        type: string
+        default: ''
+      progression_run_id:
+        description: Successful prerequisite pilot workflow run ID (100 for 1,000; 1,000 for full)
         required: false
         type: string
         default: ''
@@ -68,7 +73,8 @@ jobs:
         env:
           CAMPAIGN_MODE: ${{ inputs.mode }}
           CAMPAIGN_ID: ${{ inputs.campaign_id }}
-          CONFIRM_FULL_CAMPAIGN: ${{ inputs.confirm_full_campaign }}
+          CONFIRM_RUNNER_MINUTES: ${{ inputs.confirm_runner_minutes }}
+          PROGRESSION_RUN_ID: ${{ inputs.progression_run_id }}
           PRIOR_RUN_ID: ${{ inputs.prior_run_id }}
           ALLOW_INFRASTRUCTURE_RETRY: ${{ inputs.allow_infrastructure_retry }}
           INFRASTRUCTURE_RETRY_URL: ${{ inputs.infrastructure_retry_url }}
@@ -88,24 +94,55 @@ jobs:
               throw new Error("runner class does not match the reviewed baseline");
             }
           '
-          if [ "$CAMPAIGN_MODE" = full ]; then
-            test "$CONFIRM_FULL_CAMPAIGN" = \
-              "I reviewed and approve the 10,000 runner-minute estimate" || {
-                echo "::error::Full mode requires the exact reviewed 10,000 runner-minute confirmation."
-                exit 1
-              }
+          case "$CAMPAIGN_MODE" in
+            dry-run)
+              expected_confirmation=''
+              required_progression=''
+              ;;
+            pilot-100)
+              expected_confirmation='I reviewed and approve the 100 runner-minute pilot'
+              required_progression=''
+              ;;
+            pilot-1000)
+              expected_confirmation='I reviewed and approve the 1,000 runner-minute pilot'
+              required_progression=pilot-100
+              ;;
+            full)
+              expected_confirmation='I reviewed and approve the 10,000 runner-minute estimate'
+              required_progression=pilot-1000
+              ;;
+            *)
+              echo "::error::Unsupported campaign mode."
+              exit 1
+              ;;
+          esac
+          if [ "$CONFIRM_RUNNER_MINUTES" != "$expected_confirmation" ]; then
+            echo "::error::$CAMPAIGN_MODE requires its exact reviewed runner-minute confirmation."
+            exit 1
+          fi
+          if [ -n "$PROGRESSION_RUN_ID" ] && ! [[ "$PROGRESSION_RUN_ID" =~ ^[0-9]+$ ]]; then
+            echo "::error::progression_run_id must be a numeric workflow run ID."
+            exit 1
+          fi
+          if [ -n "$required_progression" ] && [ -z "$PROGRESSION_RUN_ID" ]; then
+            echo "::error::$CAMPAIGN_MODE requires a successful $required_progression workflow run."
+            exit 1
+          fi
+          if [ -z "$required_progression" ] && [ -n "$PROGRESSION_RUN_ID" ]; then
+            echo "::error::$CAMPAIGN_MODE does not accept progression evidence."
+            exit 1
           fi
           if [ -n "$PRIOR_RUN_ID" ] && ! [[ "$PRIOR_RUN_ID" =~ ^[0-9]+$ ]]; then
             echo "::error::prior_run_id must be a numeric workflow run ID."
             exit 1
           fi
-          if [ -n "$PRIOR_RUN_ID" ] && [ "$CAMPAIGN_MODE" != full ]; then
-            echo "::error::prior_run_id is only valid for a full campaign resume."
+          if [ -n "$PRIOR_RUN_ID" ] && [ "$CAMPAIGN_MODE" = dry-run ]; then
+            echo "::error::prior_run_id is only valid for a measured campaign resume."
             exit 1
           fi
           if [ "$ALLOW_INFRASTRUCTURE_RETRY" = true ]; then
-            [ "$CAMPAIGN_MODE" = full ] && [ -n "$PRIOR_RUN_ID" ] || {
-              echo "::error::Infrastructure retries require full mode and a prior run."
+            [ "$CAMPAIGN_MODE" != dry-run ] && [ -n "$PRIOR_RUN_ID" ] || {
+              echo "::error::Infrastructure retries require measured mode and a prior run."
               exit 1
             }
             [[ "$INFRASTRUCTURE_RETRY_URL" =~ ^https://github\.com/[^/]+/[^/]+/(issues|pull)/[0-9]+$ ]] || {
@@ -122,12 +159,13 @@ jobs:
           CAMPAIGN_ID: ${{ inputs.campaign_id }}
           CAMPAIGN_MODE: ${{ inputs.mode }}
           PRIOR_RUN_ID: ${{ inputs.prior_run_id }}
+          PROGRESSION_RUN_ID: ${{ inputs.progression_run_id }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
           plan="$RUNNER_TEMP/phase4-plan"
           mkdir -m 0700 "$plan"
-          if [ "$CAMPAIGN_MODE" = full ] && [ -n "$PRIOR_RUN_ID" ]; then
+          if [ "$CAMPAIGN_MODE" != dry-run ] && [ -n "$PRIOR_RUN_ID" ]; then
             prior_plan="$RUNNER_TEMP/prior-plan"
             mkdir -m 0700 "$prior_plan"
             gh run download "$PRIOR_RUN_ID" --repo "$GITHUB_REPOSITORY" \
@@ -139,9 +177,9 @@ jobs:
             cp "$matrix" "$plan/matrix.json"
             jq -e \
               --arg campaign "$CAMPAIGN_ID" --arg source "$GITHUB_SHA" \
+              --arg mode "$CAMPAIGN_MODE" \
               '.campaignId == $campaign and .sourceCommit == ($source | ascii_downcase)
-                and .mode == "full" and .promotionEligible == true
-                and .estimatedRunnerMinutes == 10000' \
+                and .mode == $mode' \
               "$plan/manifest.json" >/dev/null
           else
             runner_image="${ImageOS:?}/${ImageVersion:?}"
@@ -150,7 +188,7 @@ jobs:
               ubuntu-24.04 "$runner_image" \
               "NVX microsoft/nvx@v0.1.0-dev.be859aa77ffa; Cloud Hypervisor v53.0"
           fi
-          if [ "$CAMPAIGN_MODE" = full ]; then
+          if [ "$CAMPAIGN_MODE" != dry-run ]; then
             npx tsx scripts/ci/nvx-benchmark-campaign.ts matrix \
               "$plan/manifest.json" "$plan/matrix.expected.json"
             if [ -f "$plan/matrix.json" ]; then
@@ -159,8 +197,29 @@ jobs:
             else
               mv "$plan/matrix.expected.json" "$plan/matrix.json"
             fi
-            test "$(jq '.include | length' "$plan/matrix.json")" -eq 76
-            test "$(jq '[.include[].sampleIds[]] | length' "$plan/matrix.json")" -eq 1000
+            case "$CAMPAIGN_MODE" in
+              pilot-100) expected='pilot-100:10:10:100' ;;
+              pilot-1000) expected='pilot-1000:52:100:1000' ;;
+              full) expected='full:76:1000:10000' ;;
+            esac
+            IFS=: read -r expected_mode expected_cells expected_samples expected_minutes <<<"$expected"
+            test "$(jq -r .mode "$plan/manifest.json")" = "$expected_mode"
+            test "$(jq -r .promotionEligible "$plan/manifest.json")" = "$([ "$CAMPAIGN_MODE" = full ] && echo true || echo false)"
+            test "$(jq -r .estimatedRunnerMinutes "$plan/manifest.json")" -eq "$expected_minutes"
+            test "$(jq '.include | length' "$plan/matrix.json")" -eq "$expected_cells"
+            test "$(jq '[.include[].sampleIds[]] | length' "$plan/matrix.json")" -eq "$expected_samples"
+            test "$(jq '[.include[].sampleIds[]] | unique | length' "$plan/matrix.json")" -eq "$expected_samples"
+            if [ -n "$PROGRESSION_RUN_ID" ]; then
+              progression="$RUNNER_TEMP/progression"
+              mkdir -m 0700 "$progression"
+              gh run download "$PROGRESSION_RUN_ID" --repo "$GITHUB_REPOSITORY" \
+                --pattern "nvx-phase4-aggregate-*" --dir "$progression"
+              predecessor_manifest=$(find "$progression" -name manifest.json -type f -print -quit)
+              predecessor_results=$(find "$progression" -name benchmark-results.json -type f -print -quit)
+              test -n "$predecessor_manifest" && test -n "$predecessor_results"
+              npx tsx scripts/ci/nvx-benchmark-campaign.ts progression \
+                "$plan/manifest.json" "$predecessor_manifest" "$predecessor_results"
+            fi
             echo "matrix=$(jq -c . "$plan/matrix.json")" >> "$GITHUB_OUTPUT"
           else
             echo 'matrix={"include":[]}' >> "$GITHUB_OUTPUT"
@@ -184,7 +243,7 @@ jobs:
   execute:
     name: ${{ matrix.cellId }}
     needs: prepare
-    if: inputs.mode == 'full'
+    if: inputs.mode != 'dry-run'
     runs-on: ubuntu-24.04
     timeout-minutes: 350
     strategy:
@@ -431,7 +490,7 @@ jobs:
   aggregate:
     name: Deterministically aggregate campaign
     needs: [prepare, execute]
-    if: always() && inputs.mode == 'full' && needs.prepare.result == 'success'
+    if: always() && inputs.mode != 'dry-run' && needs.prepare.result == 'success'
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:

@@ -165,23 +165,85 @@ Cold samples must report `cold-cache-flushed`; warm samples must report
 `warm-cache-primed`. Each run record carries the applied limits and preparation
 label, and the collector rejects a mismatch.
 
-The full matrix contains 960 run samples and 40 lifecycle-recovery samples. At
-the conservative 10-minute per-sample planning allowance, this is 10,000
-runner-minutes (166.7 runner-hours) before setup or infrastructure overhead.
-The manifest prints the campaign identity, fixed baseline, runner image, guest
-image, source commit, expected stable sample IDs, and estimate. The workflow is
-serialized across campaigns and does not start an unbounded or PR-triggered
-campaign. A full dispatch requires the exact confirmation text
-`I reviewed and approve the 10,000 runner-minute estimate`.
+The measured campaign has three strictly separated tiers. Every manifest and
+aggregate records its tier, exact stable sample IDs, estimated runner minutes,
+and `promotionEligible` value. Pilot evidence is immutable and measured, but
+always sets `promotionEligible: false`; the planner and aggregator never merge
+pilot sample IDs into a full campaign.
 
-Full execution uses the reviewed matched-runtime adapter and a deterministic
-76-cell plan: 72 bounded runtime/lane parts and four runtime/recovery cells.
-Each cell contains at most 20 stable sample IDs and runs them serially; the
-workflow runs at most four cells in parallel. Before any live work starts, the
-planner requires exactly 76 cells, 1,000 unique sample IDs, and the canonical
-10,000-runner-minute estimate. Repository concurrency also permits only one
-promotion campaign at a time. These are hard stop conditions rather than
-advisory limits.
+| Tier | Deterministic plan | Estimate | Promotion eligible | Prerequisite |
+| --- | --- | ---: | --- | --- |
+| `pilot-100` | 6 matched run samples plus 4 recovery samples | 100 runner-minutes | No | None |
+| `pilot-1000` | 2 samples in each of 48 matched runtime/lane cells plus 4 recovery samples | 1,000 runner-minutes | No | Successful `pilot-100` run |
+| `full` | 960 run samples plus 40 recovery samples | 10,000 runner-minutes | Yes | Successful `pilot-1000` run |
+
+The 100-minute tier runs both workloads in the sequential/cold/default baseline
+for both runtimes, adds a matched concurrent/cold/default build pair, and runs
+one cancellation and one stale-recovery sample per runtime. Every run retains
+the credential, egress, workspace-exposure, resource, cleanup, residue and KVM
+ACL assertions.
+
+The 1,000-minute tier runs two samples for both runtimes in every combination
+of workload, sequential/concurrent mode, cold/warm cache and
+minimum/default/elevated resource profile. It also runs one cancellation and
+one stale-recovery sample per runtime. This covers the complete matrix shape
+before the full tier increases the per-lane statistical sample size.
+
+At the conservative 10-minute per-sample planning allowance, the full tier is
+10,000 runner-minutes (166.7 runner-hours) before setup or infrastructure
+overhead. The workflow is serialized across all tiers and does not start an
+unbounded or PR-triggered campaign. Each measured tier requires exact
+tier-specific confirmation text.
+
+Measured execution uses the reviewed matched-runtime adapter. The 100-minute
+tier has exactly 10 one-sample cells, the 1,000-minute tier has exactly 52
+cells and 100 unique samples, and the full tier has exactly 76 cells and 1,000
+unique samples. Each cell contains at most 20 stable sample IDs and runs them
+serially; the workflow runs at most four cells in parallel. Before live work
+starts, the planner verifies the exact tier, cell count, unique sample count,
+promotion eligibility and runner-minute ceiling. Repository concurrency
+permits only one Phase 4 campaign tier at a time.
+
+A progression run is accepted only when its aggregate is a complete,
+successful, measured pilot from the same source commit, runner class, guest
+image and reviewed baseline. All original run and recovery records must
+succeed with no assertion failures or residue. A 1,000-minute pilot must cite
+the successful 100-minute workflow run ID; a full campaign must cite the
+successful 1,000-minute workflow run ID.
+
+### Initial 100-minute pilot dispatch
+
+After this workflow change is merged to `main`, choose a new immutable campaign
+ID and run:
+
+```bash
+gh workflow run nvx-phase-4-benchmark.yml \
+  --ref PILOT_SOURCE_REF \
+  -f mode=pilot-100 \
+  -f campaign_id=nvx-p4-pilot-100-2026-10 \
+  -f confirm_runner_minutes='I reviewed and approve the 100 runner-minute pilot' \
+  -f progression_run_id='' \
+  -f prior_run_id='' \
+  -f allow_infrastructure_retry=false \
+  -f infrastructure_retry_url=''
+```
+
+### Initial 1,000-minute pilot dispatch
+
+Use the same reviewed source ref and cite the successful 100-minute workflow
+run:
+
+```bash
+gh workflow run nvx-phase-4-benchmark.yml \
+  --ref PILOT_SOURCE_REF \
+  -f mode=pilot-1000 \
+  -f campaign_id=nvx-p4-pilot-1000-2026-10 \
+  -f confirm_runner_minutes='I reviewed and approve the 1,000 runner-minute pilot' \
+  -f progression_run_id=PILOT_100_RUN_ID \
+  -f prior_run_id='' \
+  -f allow_infrastructure_retry=false \
+  -f infrastructure_retry_url=''
+```
 
 Each cell uploads its manifest, canonical cell definition, pending list,
 adapter inputs, raw measured records, lifecycle/assertion/residue evidence and
@@ -200,7 +262,8 @@ gh workflow run nvx-phase-4-benchmark.yml \
   --ref FULL_CAMPAIGN_SOURCE_REF \
   -f mode=full \
   -f campaign_id=nvx-p4-full-2026-10 \
-  -f confirm_full_campaign='I reviewed and approve the 10,000 runner-minute estimate' \
+  -f confirm_runner_minutes='I reviewed and approve the 10,000 runner-minute estimate' \
+  -f progression_run_id=PILOT_1000_RUN_ID \
   -f prior_run_id='' \
   -f allow_infrastructure_retry=false \
   -f infrastructure_retry_url=''
@@ -216,6 +279,34 @@ with `prior_run_id`.
 
 ### Resume from immutable prior artifacts
 
+Resume a 100-minute pilot with:
+
+```bash
+gh workflow run nvx-phase-4-benchmark.yml \
+  --ref PILOT_SOURCE_REF \
+  -f mode=pilot-100 \
+  -f campaign_id=nvx-p4-pilot-100-2026-10 \
+  -f confirm_runner_minutes='I reviewed and approve the 100 runner-minute pilot' \
+  -f progression_run_id='' \
+  -f prior_run_id=PILOT_100_RUN_ID \
+  -f allow_infrastructure_retry=false \
+  -f infrastructure_retry_url=''
+```
+
+Resume a 1,000-minute pilot with:
+
+```bash
+gh workflow run nvx-phase-4-benchmark.yml \
+  --ref PILOT_SOURCE_REF \
+  -f mode=pilot-1000 \
+  -f campaign_id=nvx-p4-pilot-1000-2026-10 \
+  -f confirm_runner_minutes='I reviewed and approve the 1,000 runner-minute pilot' \
+  -f progression_run_id=PILOT_100_RUN_ID \
+  -f prior_run_id=PILOT_1000_RUN_ID \
+  -f allow_infrastructure_retry=false \
+  -f infrastructure_retry_url=''
+```
+
 To resume interrupted or incomplete cells without rerunning completed sample
 IDs:
 
@@ -224,7 +315,8 @@ gh workflow run nvx-phase-4-benchmark.yml \
   --ref FULL_CAMPAIGN_SOURCE_REF \
   -f mode=full \
   -f campaign_id=nvx-p4-full-2026-10 \
-  -f confirm_full_campaign='I reviewed and approve the 10,000 runner-minute estimate' \
+  -f confirm_runner_minutes='I reviewed and approve the 10,000 runner-minute estimate' \
+  -f progression_run_id=PILOT_1000_RUN_ID \
   -f prior_run_id=FULL_CAMPAIGN_RUN_ID \
   -f allow_infrastructure_retry=false \
   -f infrastructure_retry_url=''
@@ -260,7 +352,8 @@ gh workflow run nvx-phase-4-benchmark.yml \
   --ref FULL_CAMPAIGN_SOURCE_REF \
   -f mode=full \
   -f campaign_id=nvx-p4-full-2026-10 \
-  -f confirm_full_campaign='I reviewed and approve the 10,000 runner-minute estimate' \
+  -f confirm_runner_minutes='I reviewed and approve the 10,000 runner-minute estimate' \
+  -f progression_run_id=PILOT_1000_RUN_ID \
   -f prior_run_id=FULL_CAMPAIGN_RUN_ID \
   -f allow_infrastructure_retry=true \
   -f infrastructure_retry_url=https://github.com/github/gh-aw-firewall/issues/ISSUE_NUMBER
