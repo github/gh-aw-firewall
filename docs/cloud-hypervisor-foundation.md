@@ -1232,6 +1232,12 @@ alone is not overall readiness. The existing guest isolation controls remain
 per-invocation controls; this host startup checklist does not claim guest
 boot, guest DNS, data-plane connectivity, or workload execution.
 
+For an enclave-enabled Cloud Hypervisor primary, `enclave-runtime/primary-runtime`
+is recorded only after the selected external runtime backend's trusted preflight
+succeeds for that run. Cloud Hypervisor is not checked as a Docker OCI runtime;
+missing or failed backend evidence leaves the required checklist check failed
+or unattempted and blocks startup.
+
 `src/cloud-hypervisor/host-preflight-schema.ts` is the canonical catalog of
 check IDs, optional checks, and safe reason codes, shared by AWF and the
 diagnostic harness. New prerequisites must be added there, instrumented at

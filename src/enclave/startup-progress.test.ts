@@ -114,7 +114,9 @@ describe('standard enclave startup checklist', () => {
     const wrapper = config();
     const startup = new HostPreflightReporter('startup', (hostPreflight) =>
       updateEnclaveStartupProgress(wrapper, { hostPreflight }));
-    expect(() => startup.notRequired('gateway-ready')).toThrow(/cannot be skipped/);
+    expect(() => startup.notRequired('gateway-ready')).toThrow(
+      'Required startup check "startup/gateway-ready" cannot be skipped',
+    );
     startup.notRequired('github-attachment');
     startup.notRequired('github-ready');
     startup.notRequired('delegation');
@@ -127,6 +129,22 @@ describe('standard enclave startup checklist', () => {
     await startup.check('readiness', () => assertEnclaveStartupChecklistComplete(wrapper, true));
     expect(getEnclaveStartupProgress(wrapper)!.startupChecks!.ready).toBe(true);
     expect(() => assertEnclaveStartupChecklistComplete(wrapper)).not.toThrow();
+  });
+
+  it('rejects skipping the required enclave primary runtime check with its allowlisted scope and ID', () => {
+    const runtime = new HostPreflightReporter('enclave-runtime');
+    expect(() => runtime.notRequired('primary-runtime')).toThrow(
+      'Required startup check "enclave-runtime/primary-runtime" cannot be skipped',
+    );
+  });
+
+  it('permits a disabled executor runtime to be marked not required', () => {
+    const wrapper = config();
+    const runtime = new HostPreflightReporter('enclave-runtime', (hostPreflight) =>
+      updateEnclaveStartupProgress(wrapper, { hostPreflight }));
+    runtime.notRequired('agent-runtime');
+    expect(getEnclaveStartupProgress(wrapper)!.startupChecks!.checks['enclave-runtime/agent-runtime'])
+      .toEqual(['not-required', 'none']);
   });
 
   it('resets every startup rather than inheriting previous passed checks or readiness', async () => {

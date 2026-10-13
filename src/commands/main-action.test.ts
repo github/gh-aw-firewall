@@ -789,6 +789,11 @@ describe('createMainAction', () => {
         expect(mockedLogger.warn).not.toHaveBeenCalledWith(
           expect.stringContaining('falling back to the standard Docker backend'),
         );
+        const startupDiagnostic = mockWriteFileSync.mock.calls
+          .map((call) => String(call[1]))
+          .filter((contents) => contents.includes('"enclave-runtime/primary-runtime"'))
+          .slice(-1)[0];
+        expect(startupDiagnostic).toContain('"enclave-runtime/primary-runtime":["failed","unknown"]');
       });
     });
   });

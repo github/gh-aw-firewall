@@ -82,10 +82,12 @@ export class HostPreflightReporter {
   }
 
   notRequired(id: HostPreflightCheck): void {
-    if (!schema.optionalChecks.includes(`${this.progress.scope}/${id}`)) {
-      throw new Error('Required startup check cannot be skipped');
+    const check = this.progress.checks.find((candidate) => candidate.id === id);
+    if (!check) throw new Error('Unknown host preflight check');
+    const checkId = `${this.progress.scope}/${check.id}`;
+    if (!schema.optionalChecks.includes(checkId)) {
+      throw new Error(`Required startup check "${checkId}" cannot be skipped`);
     }
-    const check = this.progress.checks.find((candidate) => candidate.id === id)!;
     check.result = 'not-required';
     check.reason = 'none';
     this.emit();

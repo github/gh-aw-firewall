@@ -41,6 +41,7 @@ import {
   stopEnclaveDynamicDelegation,
 } from '../enclave/dynamic-delegation';
 import { getStartupDiagnosticPath } from '../logs/startup-diagnostics';
+import { HostPreflightReporter } from '../cloud-hypervisor/host-preflight-progress';
 import {
   getEnclaveStartupProgress,
   initializeEnclaveStartupProgress,
@@ -512,6 +513,7 @@ export function createMainAction(getOptionValueSource: OptionSourceResolver) {
   let agentCommandStarted = false;
   let hostIptablesSetup = false;
   let externalRuntimeBackend: ExternalAgentRuntimeBackend | undefined;
+  let cloudHypervisorPrimaryPreflightPassed = false;
   let performCleanup = buildCleanupFn(
     config,
     () => containersStarted,
@@ -586,7 +588,14 @@ export function createMainAction(getOptionValueSource: OptionSourceResolver) {
 
     if (externalRuntimeBackend) {
       try {
-        await externalRuntimeBackend.preflight();
+        if (config.enclaves?.enabled && externalRuntimeBackend.runtime === 'cloud-hypervisor') {
+          const checks = new HostPreflightReporter('enclave-runtime', (hostPreflight) =>
+            updateEnclaveStartupProgress(config, { hostPreflight }));
+          await checks.check('primary-runtime', () => externalRuntimeBackend!.preflight());
+          cloudHypervisorPrimaryPreflightPassed = true;
+        } else {
+          await externalRuntimeBackend.preflight();
+        }
       } catch (error) {
         if (
           externalRuntimeBackend.runtime === 'cloud-hypervisor' &&
@@ -671,7 +680,22 @@ export function createMainAction(getOptionValueSource: OptionSourceResolver) {
         assertEnclaveGatewayReady,
         connectEnclaveGithubGateway,
         assertEnclaveGithubGatewayReady,
-        prepareEnclaves,
+        prepareEnclaves: config.enclaves?.enabled
+          && externalRuntimeBackend?.runtime === 'cloud-hypervisor'
+          ? (candidate) => prepareEnclaves(candidate, {
+            assertCloudHypervisorPrimaryPreflight: async (preflightConfig) => {
+              if (
+                candidate !== config
+                || preflightConfig !== config
+                || config.containerRuntime !== 'cloud-hypervisor'
+                || externalRuntimeBackend?.runtime !== 'cloud-hypervisor'
+                || !cloudHypervisorPrimaryPreflightPassed
+              ) {
+                throw new Error('Cloud Hypervisor primary runtime preflight evidence is unavailable for this run');
+              }
+            },
+          })
+          : prepareEnclaves,
         startEnclaveDynamicDelegation,
         prepareRouting: async (routingConfig) => stageRoutingConversation(routingConfig),
         waitForRoutingSelection,

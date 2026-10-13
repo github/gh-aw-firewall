@@ -13,6 +13,7 @@ import {
 import { releaseSeedPermissions, type GitRunner } from './staging';
 import { resolveEnclavePaths } from './paths';
 import { getEnclaveStartupProgress } from './startup-progress';
+import * as cloudHypervisorLifecycle from './cloud-hypervisor-lifecycle';
 
 import { typedDynamicEnclavePolicyFixture } from './dynamic-policy.test-utils';
 import * as runtimePreflight from './runtime-preflight';
@@ -75,6 +76,36 @@ function config(workDir: string, entries: EnclaveEntries = scriptEntries): Wrapp
     topologyAttach: ['awmg-mcpg'],
     enclaves: normalizeEnclavesConfig(entries),
   } as WrapperConfig;
+}
+
+function cloudHypervisorPrimaryConfig(workDir: string): WrapperConfig {
+  return {
+    ...config(workDir, [{
+      script: {}, runtime: 'cloud-hypervisor',
+      repos: [{ repo: 'github/gh-aw-firewall', sensitivity: 'public' }],
+      maxInvocations: 1,
+    }]),
+    containerRuntime: 'cloud-hypervisor',
+    cloudHypervisor: { previewEnabled: true, artifactReleaseTag: 'v0.28.54' },
+  } as WrapperConfig;
+}
+
+function enableCloudHypervisorAcceptanceContext(): () => void {
+  const original = process.env;
+  process.env = {
+    ...original,
+    GITHUB_ACTIONS: 'true',
+    GITHUB_REPOSITORY: 'github/gh-aw-firewall',
+    GITHUB_EVENT_NAME: 'workflow_dispatch',
+    GITHUB_WORKFLOW_REF:
+      'github/gh-aw-firewall/.github/workflows/smoke-enclave-cloud-hypervisor.lock.yml@refs/tags/v0.28.54',
+    GITHUB_REF: 'refs/tags/v0.28.54',
+    GITHUB_REF_TYPE: 'tag',
+    GITHUB_REF_NAME: 'v0.28.54',
+  };
+  return () => {
+    process.env = original;
+  };
 }
 
 /** A configuration whose agent executor has a routed API-proxy model target. */
@@ -297,6 +328,92 @@ describe('prepareEnclaves fail-closed preflight', () => {
     });
     expect(assertScriptRuntimeAvailable).not.toHaveBeenCalled();
     expect(assertAgentRuntimeAvailable).toHaveBeenCalledTimes(1);
+  });
+
+  it('requires Cloud Hypervisor primary preflight evidence before passing its required check', async () => {
+    const restoreEnvironment = enableCloudHypervisorAcceptanceContext();
+    const wrapperConfig = cloudHypervisorPrimaryConfig(workDir);
+    const cloudHypervisorStorageProvider = {
+      assertAvailable: jest.fn().mockResolvedValue(undefined),
+      prepareRun: jest.fn(),
+    };
+    try {
+      await expect(prepareEnclaves(wrapperConfig, {
+        env: enclaveEnv(),
+        cloudHypervisorStorageProvider,
+      })).rejects.toThrow('Cloud Hypervisor primary runtime preflight evidence is unavailable');
+
+      expect(getEnclaveStartupProgress(wrapperConfig)?.startupChecks?.checks['enclave-runtime/primary-runtime'])
+        .toEqual(['failed', 'unknown']);
+      expect(fs.existsSync(resolveEnclavePaths(workDir).seedMapPath)).toBe(false);
+    } finally {
+      restoreEnvironment();
+    }
+  });
+
+  it('records passed evidence only after the current Cloud Hypervisor primary preflight succeeds', async () => {
+    const restoreEnvironment = enableCloudHypervisorAcceptanceContext();
+    const wrapperConfig = cloudHypervisorPrimaryConfig(workDir);
+    const primaryPreflight = jest.fn(async (candidate: WrapperConfig) => {
+      if (candidate !== wrapperConfig) throw new Error('mismatched runtime configuration');
+    });
+    const dockerOciProbe = jest.fn();
+    const startLifecycle = jest.spyOn(
+      cloudHypervisorLifecycle, 'startCloudHypervisorEnclaveLifecycle',
+    ).mockResolvedValue(undefined);
+    const lifecycleReady = jest.spyOn(
+      cloudHypervisorLifecycle, 'assertCloudHypervisorEnclaveLifecycleReady',
+    ).mockResolvedValue(undefined);
+    try {
+      await prepareEnclaves(wrapperConfig, {
+        env: enclaveEnv(),
+        gitRunner,
+        cloudHypervisorStorageProvider: {
+          assertAvailable: jest.fn().mockResolvedValue(undefined),
+          prepareRun: jest.fn(),
+        },
+        assertCloudHypervisorPrimaryPreflight: primaryPreflight,
+        assertPrimaryAvailable: dockerOciProbe,
+      });
+
+      expect(primaryPreflight).toHaveBeenCalledWith(wrapperConfig);
+      expect(dockerOciProbe).not.toHaveBeenCalled();
+      expect(lifecycleReady).toHaveBeenCalledWith(wrapperConfig);
+      expect(startLifecycle).toHaveBeenCalledTimes(1);
+      expect(getEnclaveStartupProgress(wrapperConfig)?.startupChecks?.checks).toMatchObject({
+        'enclave-runtime/primary-runtime': ['passed', 'none'],
+        'enclave-runtime/script-runtime': ['passed', 'none'],
+        'enclave-runtime/agent-runtime': ['not-required', 'none'],
+      });
+    } finally {
+      startLifecycle.mockRestore();
+      lifecycleReady.mockRestore();
+      restoreEnvironment();
+    }
+  });
+
+  it('keeps failed or mismatched Cloud Hypervisor primary preflight evidence failed', async () => {
+    const restoreEnvironment = enableCloudHypervisorAcceptanceContext();
+    const wrapperConfig = cloudHypervisorPrimaryConfig(workDir);
+    const cloudHypervisorStorageProvider = {
+      assertAvailable: jest.fn().mockResolvedValue(undefined),
+      prepareRun: jest.fn(),
+    };
+    try {
+      await expect(prepareEnclaves(wrapperConfig, {
+        env: enclaveEnv(),
+        cloudHypervisorStorageProvider,
+        assertCloudHypervisorPrimaryPreflight: jest.fn().mockRejectedValue(
+          new Error('mismatched runtime configuration'),
+        ),
+      })).rejects.toThrow('mismatched runtime configuration');
+
+      expect(getEnclaveStartupProgress(wrapperConfig)?.startupChecks?.checks['enclave-runtime/primary-runtime'])
+        .toEqual(['failed', 'unknown']);
+      expect(fs.existsSync(resolveEnclavePaths(workDir).seedMapPath)).toBe(false);
+    } finally {
+      restoreEnvironment();
+    }
   });
 
   it('rejects the unproven sbx agent runtime before staging and never downgrades', async () => {

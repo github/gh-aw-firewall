@@ -135,6 +135,7 @@ export interface PrepareEnclavesDeps {
   assertScriptRuntimeAvailable?: (config: EnclaveScriptExecutorConfig) => Promise<void>;
   assertAgentRuntimeAvailable?: (config: EnclaveAgentExecutorConfig) => Promise<void>;
   assertPrimaryAvailable?: typeof assertPrimaryRuntimeAvailable;
+  assertCloudHypervisorPrimaryPreflight?: (config: WrapperConfig) => Promise<void>;
   /** Trusted host integration only. No CLI/config/env switch can supply this provider. */
   cloudHypervisorStorageProvider?: TrustedCloudHypervisorEnclaveStorageProvider;
 }
@@ -241,9 +242,12 @@ export async function prepareEnclaves(
   if (!enclaves.executors.agent.enabled) runtimeChecks.notRequired('agent-runtime');
   if (!hostExecutorSelected) runtimeChecks.notRequired('host-service');
   if (config.containerRuntime === 'cloud-hypervisor') {
-    // The external runtime preflights the primary VM before runMainWorkflow;
-    // Cloud Hypervisor is not a Docker OCI runtime.
-    runtimeChecks.notRequired('primary-runtime');
+    await runtimeChecks.check('primary-runtime', () => {
+      if (!deps.assertCloudHypervisorPrimaryPreflight) {
+        throw new Error('Cloud Hypervisor primary runtime preflight evidence is unavailable');
+      }
+      return deps.assertCloudHypervisorPrimaryPreflight(config);
+    });
   } else {
     await runtimeChecks.check('primary-runtime', () =>
       (deps.assertPrimaryAvailable ?? assertPrimaryRuntimeAvailable)(config.containerRuntime));
