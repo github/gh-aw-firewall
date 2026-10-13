@@ -119,6 +119,10 @@ describe('NVX benchmark campaign evidence', () => {
     expect(harness).toContain('--container-workdir /workspace');
     expect(harness).toContain('test -f dist/cli.js');
     expect(harness).not.toContain('test -x dist/cli.js');
+    expect(harness).toContain('$RUNNER_TEMP/gh-aw/nvx-engine/copilot');
+    expect(harness).toContain('copilot_host=$(command -v copilot)');
+    expect(harness).toContain('GITHUB_ACTIONS,RUNNER_ENVIRONMENT,ImageOS');
+    expect(harness).toContain('0.28.54,squid=sha256:960930db');
     expect(harness).toContain('--cloud-hypervisor-vcpus 1');
     expect(harness).toContain('--nvx-memory-mib 4096');
     expect(harness).toContain('[ "$observed_memory_max" = 4563402752 ]');

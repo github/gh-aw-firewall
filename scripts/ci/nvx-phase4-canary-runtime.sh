@@ -239,8 +239,12 @@ printf '%s\n' complete > "$root/workload-complete"
 EOF
 chmod 0755 "$workspace_dir/workload.sh"
 
-copilot_host="$RUNNER_TEMP/gh-aw/bin/copilot"
 if [ "$workload" = copilot-inference ]; then
+  if [ "$runtime" = nvx ]; then
+    copilot_host="$RUNNER_TEMP/gh-aw/nvx-engine/copilot"
+  else
+    copilot_host=$(command -v copilot)
+  fi
   test -x "$copilot_host"
   cp "$copilot_host" "$workspace_dir/copilot"
   chmod 0555 "$workspace_dir/copilot"
@@ -274,13 +278,13 @@ preflight_completed=
 set +e
 # The runner user owns awf_log; sudo is required only for the AWF process.
 # shellcheck disable=SC2024
-sudo --preserve-env=AWF_PHASE4_CANARY_ROOT,AWF_PHASE4_WORKLOAD,AWF_PHASE4_COPILOT_BIN,COPILOT_GITHUB_TOKEN \
+sudo --preserve-env=AWF_PHASE4_CANARY_ROOT,AWF_PHASE4_WORKLOAD,AWF_PHASE4_COPILOT_BIN,COPILOT_GITHUB_TOKEN,GITHUB_ACTIONS,RUNNER_ENVIRONMENT,ImageOS \
   node dist/cli.js \
   --config "$config" \
   --work-dir "$work_dir" \
   --container-workdir /workspace \
   --enable-api-proxy \
-  --image-tag v0.28.54 \
+  --image-tag "0.28.54,squid=sha256:960930db796d005e63153b9ffd984b58ebda1ed8c26800c09eb7515dc94237db,agent=sha256:fc4f3d07d9f0479aa76d4a6d55f36735c29e0558f10a413fbd36e3d00b34a830,api-proxy=sha256:f8dff30ac37a8987b564f2872796a9c093b3ab281b1cdfc3493c1ea5fa84ff79" \
   --env "AWF_PHASE4_CANARY_ROOT=$AWF_PHASE4_CANARY_ROOT" \
   --env "AWF_PHASE4_WORKLOAD=$workload" \
   --env "AWF_PHASE4_COPILOT_BIN=$AWF_PHASE4_COPILOT_BIN" \
