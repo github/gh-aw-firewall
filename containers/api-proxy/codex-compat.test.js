@@ -129,6 +129,120 @@ describe('Codex apply_patch compatibility transform', () => {
     expect(sent.input[2]).toEqual(ordinaryFunctionCall);
   });
 
+  test.each([
+    ['ctc_patch', 'Done'],
+    ['fc_patch', 'apply_patch verification failed: invalid hunk at line 2'],
+  ])('normalizes custom output IDs after call %s with result %s', (id, output) => {
+    const message = { type: 'message', id: 'msg_next', role: 'user', content: 'continue' };
+    const reasoning = { type: 'reasoning', id: 'rs_previous', summary: [] };
+    const translated = translateCodexCustomToolsForCopilot(Buffer.from(JSON.stringify({
+      tools: [{ type: 'custom', name: 'apply_patch' }],
+      input: [
+        {
+          type: 'custom_tool_call',
+          id,
+          call_id: 'call_patch',
+          name: 'apply_patch',
+          input: '*** Begin Patch\n*** End Patch\n',
+        },
+        { type: 'custom_tool_call_output', id: 'ctco_patch', call_id: 'call_patch', output },
+        message,
+        reasoning,
+      ],
+    })));
+    const sent = json(translated.body);
+
+    expect(sent.input[0]).toEqual({
+      type: 'function_call',
+      id: 'fc_patch',
+      call_id: 'call_patch',
+      name: 'apply_patch',
+      arguments: JSON.stringify({ patch: '*** Begin Patch\n*** End Patch\n' }),
+    });
+    expect(sent.input[1]).toEqual({
+      type: 'function_call_output',
+      id: 'fco_patch',
+      call_id: 'call_patch',
+      output,
+    });
+    expect(sent.input[1].id).not.toBe(sent.input[0].id);
+    expect(sent.input.slice(2)).toEqual([message, reasoning]);
+    expect(translateCodexCustomToolsForCopilot(translated.body)).toBeNull();
+    expect(carryForwardCodexCompatibility(translated.compatibility)).toBe(translated.compatibility);
+  });
+
+  test.each(['fc_existing', 'fco_existing', 'other_id', null, 42, undefined])(
+    'preserves custom output ID %s and ordinary function results',
+    (id) => {
+      const output = { type: 'custom_tool_call_output', call_id: 'call_patch', output: 'Done' };
+      if (id !== undefined) output.id = id;
+      const ordinaryOutput = {
+        type: 'function_call_output', id: 'ctco_unrelated', call_id: 'call_search', output: 'found',
+      };
+      const translated = translateCodexCustomToolsForCopilot(Buffer.from(JSON.stringify({
+        input: [output, ordinaryOutput],
+      })));
+
+      expect(json(translated.body).input).toEqual([
+        { ...output, type: 'function_call_output' },
+        ordinaryOutput,
+      ]);
+    }
+  );
+
+  test.each(['JSON', 'SSE'])('preserves %s response IDs through history replay', async (format) => {
+    const { compatibility } = translateCodexCustomToolsForCopilot(Buffer.from(JSON.stringify({
+      tools: [{ type: 'custom', name: 'apply_patch' }],
+    })));
+    const item = {
+      type: 'function_call',
+      id: 'fc_patch',
+      call_id: 'call_patch',
+      name: 'apply_patch',
+      arguments: JSON.stringify({ patch: '*** Begin Patch\n*** End Patch\n' }),
+    };
+    let customCall;
+    if (format === 'JSON') {
+      customCall = json(transformCodexCompatibleResponseBody(
+        Buffer.from(JSON.stringify({ output: [item] })), compatibility, 'copilot'
+      )).output[0];
+    } else {
+      const stream = createCodexCompatibleSseTransform(compatibility, 'copilot');
+      const chunks = [];
+      stream.on('data', chunk => chunks.push(chunk.toString('utf8')));
+      stream.end([
+        'event: response.output_item.added',
+        'data: ' + JSON.stringify({ type: 'response.output_item.added', output_index: 0, item }),
+        '',
+        'event: response.function_call_arguments.done',
+        'data: ' + JSON.stringify({
+          type: 'response.function_call_arguments.done', item_id: item.id,
+          output_index: 0, arguments: item.arguments,
+        }),
+        '', '',
+      ].join('\n'));
+      await once(stream, 'end');
+      const events = chunks.join('').split('\n')
+        .filter(line => line.startsWith('data: '))
+        .map(line => JSON.parse(line.slice('data: '.length)));
+      customCall = events.find(event => event.type === 'response.output_item.added').item;
+      expect(events.filter(event => event.item_id).map(event => event.item_id))
+        .toEqual(['fc_patch', 'fc_patch']);
+    }
+
+    expect(customCall.id).toBe(item.id);
+    const sent = json(translateCodexCustomToolsForCopilot(Buffer.from(JSON.stringify({
+      input: [
+        customCall,
+        { type: 'custom_tool_call_output', id: 'ctco_patch', call_id: item.call_id, output: 'Done' },
+      ],
+    }))).body);
+    expect(sent.input).toEqual([
+      item,
+      { type: 'function_call_output', id: 'fco_patch', call_id: item.call_id, output: 'Done' },
+    ]);
+  });
+
   test('fails explicitly for unsupported custom tools', () => {
     const body = Buffer.from(JSON.stringify({
       tools: [{ type: 'custom', name: 'freeform_shell' }],

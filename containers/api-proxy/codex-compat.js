@@ -82,8 +82,12 @@ function toFunctionCall(item) {
 function toFunctionCallOutput(item) {
   if (!item || typeof item !== 'object') return item;
   if (item.type !== 'custom_tool_call_output') return item;
+  const output = { ...item };
+  if (typeof output.id === 'string' && output.id.startsWith('ctco_')) {
+    output.id = `fco_${output.id.slice('ctco_'.length)}`;
+  }
   return {
-    ...item,
+    ...output,
     type: 'function_call_output',
   };
 }
