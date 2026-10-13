@@ -111,6 +111,126 @@ const defaultDependencies: NvxRuntimeLifecycleDependencies = {
   rename: fs.rename,
 };
 
+async function withLifecycleLock<T>(
+  dependencies: NvxRuntimeLifecycleDependencies,
+  lockDirectory: string,
+  timeoutMs: number,
+  operation: () => Promise<T>,
+): Promise<T> {
+  return withDirectoryLock({
+    lockDirectory,
+    timeoutMs,
+    retryMs: LOCK_RETRY_MS,
+    dependencies,
+    startTimeErrorMessage: 'Cannot determine AWF process start time for NVX lifecycle lock',
+    timeoutErrorMessage: 'Timed out waiting for the NVX lifecycle lock',
+    reclaimStaleLock: (directory) => reclaimStaleLock(dependencies, directory),
+    removeOwnedLock: (directory, owner) => removeOwnedLock(dependencies, directory, owner),
+    operation,
+  });
+}
+
+async function reclaimStaleLock(
+  dependencies: NvxRuntimeLifecycleDependencies,
+  lockDirectory: string,
+): Promise<void> {
+  let initialStats: Awaited<ReturnType<NvxRuntimeLifecycleDependencies['lstat']>>;
+  try {
+    initialStats = await dependencies.lstat(lockDirectory);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return;
+    throw error;
+  }
+  const owner = await readLockOwner(dependencies, lockDirectory);
+  if (
+    owner &&
+    await dependencies.processStartTime(owner.pid) === owner.startTime
+  ) return;
+  if (
+    !owner &&
+    (initialStats.mtimeMs === undefined ||
+      Date.now() - initialStats.mtimeMs < INCOMPLETE_LOCK_STALE_MS)
+  ) return;
+  const quarantinePath = `${lockDirectory}.stale-${randomBytes(16).toString('hex')}`;
+  try {
+    await dependencies.rename(lockDirectory, quarantinePath);
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code === 'ENOENT' || code === 'ENOTEMPTY' || code === 'EEXIST' || code === 'ENOTDIR') return;
+    throw error;
+  }
+  const quarantined = await dependencies.lstat(quarantinePath);
+  const quarantinedOwner = await readLockOwner(dependencies, quarantinePath);
+  const sameInode =
+    String(quarantined.dev ?? '') === String(initialStats.dev ?? '') &&
+    String(quarantined.ino ?? '') === String(initialStats.ino ?? '');
+  const sameOwner =
+    quarantinedOwner?.pid === owner?.pid &&
+    quarantinedOwner?.startTime === owner?.startTime;
+  const ownerIsLive = quarantinedOwner !== undefined &&
+    (await dependencies.processStartTime(quarantinedOwner.pid)) === quarantinedOwner.startTime;
+  if (!sameInode || !sameOwner || ownerIsLive) {
+    try {
+      await dependencies.rename(quarantinePath, lockDirectory);
+    } catch {
+      // The lock path was recreated by another holder; leave it untouched.
+    }
+    throw new Error('NVX lifecycle lock reclamation raced with another lock owner');
+  }
+  await dependencies.rm(quarantinePath, { recursive: true, force: true });
+}
+
+async function readLockOwner(
+  dependencies: NvxRuntimeLifecycleDependencies,
+  lockDirectory: string,
+): Promise<{ pid: number; startTime: string } | undefined> {
+  try {
+    const parsed = JSON.parse(
+      await dependencies.readFile(path.join(lockDirectory, 'owner.json'), 'utf8'),
+    ) as { pid?: unknown; startTime?: unknown };
+    const pid = parsed.pid;
+    if (typeof pid === 'number' && Number.isSafeInteger(pid) && typeof parsed.startTime === 'string') {
+      return { pid, startTime: parsed.startTime };
+    }
+    return undefined;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT' || error instanceof SyntaxError) {
+      return undefined;
+    }
+    throw error;
+  }
+}
+
+async function removeOwnedLock(
+  dependencies: NvxRuntimeLifecycleDependencies,
+  lockDirectory: string,
+  owner: DirectoryLockOwner,
+): Promise<void> {
+  const current = JSON.parse(
+    await dependencies.readFile(path.join(lockDirectory, 'owner.json'), 'utf8'),
+  ) as typeof owner;
+  if (
+    current.pid !== owner.pid ||
+    current.startTime !== owner.startTime ||
+    current.nonce !== owner.nonce
+  ) {
+    throw new Error('NVX lifecycle lock ownership changed unexpectedly');
+  }
+  await dependencies.rm(lockDirectory, { recursive: true, force: true });
+}
+
+export function withNvxDeviceAclLock<T>(
+  operation: () => Promise<T>,
+  dependencies: NvxRuntimeLifecycleDependencies = defaultDependencies,
+): Promise<T> {
+  return withLifecycleLock(
+    dependencies,
+    DEVICE_ACL_LOCK_DIRECTORY,
+    DEVICE_ACL_LOCK_TIMEOUT_MS,
+    operation,
+  );
+}
+
 interface NvxDeviceAclGrant {
   readonly identity: NvxCleanupDeviceAclIdentity;
   readonly state: 'pending' | 'granted';
@@ -132,7 +252,7 @@ export class NvxVmmIdentityManager {
 
   async allocate(): Promise<NvxVmmIdentity> {
     if (this.identity) return this.identity;
-    return this.withLock(ACCOUNT_LOCK_DIRECTORY, ACCOUNT_LOCK_TIMEOUT_MS, async () => {
+    return withLifecycleLock(this.dependencies, ACCOUNT_LOCK_DIRECTORY, ACCOUNT_LOCK_TIMEOUT_MS, async () => {
       if (this.identity) return this.identity;
       if (this.provisionalAccountName) {
         throw new Error(`NVX VMM account cleanup is still pending: ${this.provisionalAccountName}`);
@@ -180,7 +300,7 @@ export class NvxVmmIdentityManager {
   ): Promise<T> {
     const identity = this.requireIdentity();
     const requested = dedupeDevices(devicePaths);
-    const acls = await this.withLock(DEVICE_ACL_LOCK_DIRECTORY, DEVICE_ACL_LOCK_TIMEOUT_MS, async () => {
+    const acls = await withNvxDeviceAclLock(async () => {
       if (this.identity !== identity) throw new Error('NVX VMM identity changed before device ACL grant');
       try {
         return await this.grantDeviceAccessLocked(identity, requested);
@@ -195,7 +315,7 @@ export class NvxVmmIdentityManager {
         }
         throw error;
       }
-    });
+    }, this.dependencies);
     let result: T | undefined;
     let operationError: unknown;
     try {
@@ -204,11 +324,7 @@ export class NvxVmmIdentityManager {
       operationError = error;
     }
     try {
-      await this.withLock(
-        DEVICE_ACL_LOCK_DIRECTORY,
-        DEVICE_ACL_LOCK_TIMEOUT_MS,
-        () => this.revokeDeviceAccessLocked(identity),
-      );
+      await withNvxDeviceAclLock(() => this.revokeDeviceAccessLocked(identity), this.dependencies);
     } catch (revokeError) {
       if (operationError) {
         throw new Error(
@@ -226,7 +342,7 @@ export class NvxVmmIdentityManager {
     const identity = this.identity;
     const provisionalAccountName = this.provisionalAccountName;
     if (!identity && !provisionalAccountName) return;
-    await this.withLock(ACCOUNT_LOCK_DIRECTORY, ACCOUNT_LOCK_TIMEOUT_MS, async () => {
+    await withLifecycleLock(this.dependencies, ACCOUNT_LOCK_DIRECTORY, ACCOUNT_LOCK_TIMEOUT_MS, async () => {
       if (!identity && provisionalAccountName) {
         if (this.provisionalAccountName !== provisionalAccountName) return;
         await this.removeAccountState(provisionalAccountName);
@@ -238,11 +354,7 @@ export class NvxVmmIdentityManager {
       if (current.uid !== identity.uid || current.gid !== identity.gid) {
         throw new Error(`Refusing to remove reused NVX VMM account ${identity.name}`);
       }
-      await this.withLock(
-        DEVICE_ACL_LOCK_DIRECTORY,
-        DEVICE_ACL_LOCK_TIMEOUT_MS,
-        () => this.revokeDeviceAccessLocked(identity),
-      );
+      await withNvxDeviceAclLock(() => this.revokeDeviceAccessLocked(identity), this.dependencies);
       await this.removeAccountState(identity.name);
       this.identity = undefined;
     });
@@ -384,107 +496,6 @@ export class NvxVmmIdentityManager {
     return this.identity;
   }
 
-  private async withLock<T>(
-    lockDirectory: string,
-    timeoutMs: number,
-    operation: () => Promise<T>,
-  ): Promise<T> {
-    return withDirectoryLock({
-      lockDirectory,
-      timeoutMs,
-      retryMs: LOCK_RETRY_MS,
-      dependencies: this.dependencies,
-      startTimeErrorMessage: 'Cannot determine AWF process start time for NVX lifecycle lock',
-      timeoutErrorMessage: 'Timed out waiting for the NVX lifecycle lock',
-      reclaimStaleLock: (directory) => this.reclaimStaleLock(directory),
-      removeOwnedLock: (directory, owner) => this.removeOwnedLock(directory, owner),
-      operation,
-    });
-  }
-
-  private async reclaimStaleLock(lockDirectory: string): Promise<void> {
-    let initialStats: Awaited<ReturnType<NvxRuntimeLifecycleDependencies['lstat']>>;
-    try {
-      initialStats = await this.dependencies.lstat(lockDirectory);
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return;
-      throw error;
-    }
-    const owner = await this.readLockOwner(lockDirectory);
-    if (
-      owner &&
-      await this.dependencies.processStartTime(owner.pid) === owner.startTime
-    ) return;
-    if (
-      !owner &&
-      (initialStats.mtimeMs === undefined ||
-        Date.now() - initialStats.mtimeMs < INCOMPLETE_LOCK_STALE_MS)
-    ) return;
-    // Claim the exact directory that was inspected by moving it aside
-    // atomically; only the winner of the rename may delete it.
-    const quarantinePath = `${lockDirectory}.stale-${randomBytes(16).toString('hex')}`;
-    try {
-      await this.dependencies.rename(lockDirectory, quarantinePath);
-    } catch (error) {
-      const code = (error as NodeJS.ErrnoException).code;
-      if (code === 'ENOENT' || code === 'ENOTEMPTY' || code === 'EEXIST' || code === 'ENOTDIR') return;
-      throw error;
-    }
-    const quarantined = await this.dependencies.lstat(quarantinePath);
-    const quarantinedOwner = await this.readLockOwner(quarantinePath);
-    const sameInode =
-      String(quarantined.dev ?? '') === String(initialStats.dev ?? '') &&
-      String(quarantined.ino ?? '') === String(initialStats.ino ?? '');
-    const sameOwner =
-      quarantinedOwner?.pid === owner?.pid &&
-      quarantinedOwner?.startTime === owner?.startTime;
-    const ownerIsLive = quarantinedOwner !== undefined &&
-      (await this.dependencies.processStartTime(quarantinedOwner.pid)) === quarantinedOwner.startTime;
-    if (!sameInode || !sameOwner || ownerIsLive) {
-      try {
-        await this.dependencies.rename(quarantinePath, lockDirectory);
-      } catch {
-        // The lock path was recreated by another holder; leave it untouched.
-      }
-      throw new Error('NVX lifecycle lock reclamation raced with another lock owner');
-    }
-    await this.dependencies.rm(quarantinePath, { recursive: true, force: true });
-  }
-
-  private async readLockOwner(lockDirectory: string): Promise<{ pid: number; startTime: string } | undefined> {
-    try {
-      const parsed = JSON.parse(
-        await this.dependencies.readFile(path.join(lockDirectory, 'owner.json'), 'utf8'),
-      ) as { pid?: unknown; startTime?: unknown };
-      const pid = parsed.pid;
-      if (typeof pid === 'number' && Number.isSafeInteger(pid) && typeof parsed.startTime === 'string') {
-        return { pid, startTime: parsed.startTime };
-      }
-      return undefined;
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === 'ENOENT' || error instanceof SyntaxError) {
-        return undefined;
-      }
-      throw error;
-    }
-  }
-
-  private async removeOwnedLock(
-    lockDirectory: string,
-    owner: DirectoryLockOwner,
-  ): Promise<void> {
-    const current = JSON.parse(
-      await this.dependencies.readFile(path.join(lockDirectory, 'owner.json'), 'utf8'),
-    ) as typeof owner;
-    if (
-      current.pid !== owner.pid ||
-      current.startTime !== owner.startTime ||
-      current.nonce !== owner.nonce
-    ) {
-      throw new Error('NVX lifecycle lock ownership changed unexpectedly');
-    }
-    await this.dependencies.rm(lockDirectory, { recursive: true, force: true });
-  }
 }
 
 export class NvxCgroupManager {

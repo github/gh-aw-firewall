@@ -25,11 +25,19 @@ describe('DurableNvxCleanupRegistry', () => {
   let run: jest.Mock;
   let registry: DurableNvxCleanupRegistry;
   let store: NvxCleanupStore;
+  let withDeviceAclLock: jest.Mock;
 
   beforeEach(async () => {
     root = path.join(process.cwd(), `.nvx-cleanup-test-${process.pid}-${Date.now()}`);
     ownerAlive = true;
     const lstat: typeof fs.lstat = (async (filePath: PathLike, options?: unknown) => {
+      if (String(filePath) === '/dev/kvm') {
+        return {
+          dev: (options as { bigint?: boolean } | undefined)?.bigint ? 8n : 8,
+          ino: (options as { bigint?: boolean } | undefined)?.bigint ? 10n : 10,
+          uid: (options as { bigint?: boolean } | undefined)?.bigint ? 0n : 0,
+        } as never;
+      }
       const value = await fs.lstat(filePath, options as never);
       return Object.assign(value, {
         uid: (options as { bigint?: boolean } | undefined)?.bigint ? 0n : 0,
@@ -76,6 +84,7 @@ describe('DurableNvxCleanupRegistry', () => {
       processMatches,
     } satisfies Partial<NvxCleanupStoreDependencies>, root);
     run = jest.fn(async () => ({ exitCode: 1, stdout: '', stderr: '' }));
+    withDeviceAclLock = jest.fn(async (operation: () => Promise<unknown>) => operation());
     const dependencies: NvxCleanupRegistryDependencies = {
       store,
       pid: 4242,
@@ -87,6 +96,7 @@ describe('DurableNvxCleanupRegistry', () => {
       rmdir: fs.rmdir,
       kill: jest.fn(),
       sleep: jest.fn().mockResolvedValue(undefined),
+      withDeviceAclLock,
       run,
     };
     registry = new DurableNvxCleanupRegistry(dependencies);
@@ -157,6 +167,46 @@ describe('DurableNvxCleanupRegistry', () => {
     await expect(registry.reapPending(tools)).resolves.toBeUndefined();
     expect(run).toHaveBeenCalledWith(tools.userdel, [name]);
     expect(run).toHaveBeenCalledWith(tools.groupdel, [name]);
+  });
+
+  it('serializes stale device ACL removal with live lifecycle mutations', async () => {
+    const name = `awfnvx-${'d'.repeat(20)}`;
+    const devicePath = '/dev/kvm';
+    const handle = await registry.createPending(RUN_ID);
+    await handle.prepareAccount(name);
+    await handle.captureIdentity({ name, uid: 23001, gid: 23002 });
+    await handle.prepareDeviceAcl({
+      path: devicePath,
+      device: '8',
+      inode: '10',
+      permissions: 'rw-',
+      uid: 23001,
+    });
+    ownerAlive = false;
+    run.mockImplementation(async (_command: string, args: readonly string[]) => {
+      if (args[0] === 'passwd') {
+        return {
+          exitCode: 0,
+          stdout: `${name}:x:23001:23002:AWF NVX ${RUN_ID}:/nonexistent:/usr/sbin/nologin\n`,
+          stderr: '',
+        };
+      }
+      if (args[0] === 'group') {
+        return { exitCode: 0, stdout: `${name}:x:23002:\n`, stderr: '' };
+      }
+      if (args[0] === '-G') {
+        return { exitCode: 0, stdout: '23002\n', stderr: '' };
+      }
+      return { exitCode: 0, stdout: '', stderr: '' };
+    });
+
+    await registry.reapPending(tools);
+
+    expect(withDeviceAclLock).toHaveBeenCalledTimes(1);
+    expect(run).toHaveBeenCalledWith(
+      tools.setfacl,
+      ['--remove', 'user:23001', devicePath],
+    );
   });
 
   it('allows only one concurrent cleanup claimant', async () => {

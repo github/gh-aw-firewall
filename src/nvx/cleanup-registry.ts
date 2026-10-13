@@ -12,7 +12,10 @@ import {
 } from './cleanup-record';
 import { NvxCleanupStore, type NvxCleanupStoreDependencies } from './cleanup-store';
 import { createNvxRunLayout, type NvxRunLayout } from './run-layout';
-import type { NvxVmmIdentity } from './runtime-lifecycle';
+import {
+  withNvxDeviceAclLock,
+  type NvxVmmIdentity,
+} from './runtime-lifecycle';
 
 export interface NvxCleanupToolPaths {
   readonly getent: string;
@@ -35,6 +38,7 @@ export interface NvxCleanupRegistryDependencies {
   rmdir: typeof fs.rmdir;
   kill: typeof process.kill;
   sleep(milliseconds: number): Promise<void>;
+  withDeviceAclLock<T>(operation: () => Promise<T>): Promise<T>;
   run(command: string, args: readonly string[]): Promise<{
     exitCode: number;
     stdout: string;
@@ -87,6 +91,7 @@ function defaultDependencies(): NvxCleanupRegistryDependencies {
     rmdir: fs.rmdir,
     kill: process.kill,
     sleep: (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds)),
+    withDeviceAclLock: withNvxDeviceAclLock,
     run: async (command, args) => {
       const result = await execa(command, [...args], {
         reject: false,
@@ -360,13 +365,15 @@ export class DurableNvxCleanupRegistry implements NvxCleanupRegistry {
     const identity = record.vmmIdentity;
     if (!identity) return;
     if (identity.state === 'live' && identity.uid !== undefined && identity.gid !== undefined) {
-      for (const acl of record.resources.deviceAcls) {
-        const current = await this.captureFile(acl.path);
-        if (current.device !== acl.device || current.inode !== acl.inode || acl.uid !== identity.uid) {
-          throw new Error(`NVX device identity changed for ${acl.path}`);
+      await this.dependencies.withDeviceAclLock(async () => {
+        for (const acl of record.resources.deviceAcls) {
+          const current = await this.captureFile(acl.path);
+          if (current.device !== acl.device || current.inode !== acl.inode || acl.uid !== identity.uid) {
+            throw new Error(`NVX device identity changed for ${acl.path}`);
+          }
+          await this.runChecked(tools.setfacl, ['--remove', `user:${identity.uid}`, acl.path]);
         }
-        await this.runChecked(tools.setfacl, ['--remove', `user:${identity.uid}`, acl.path]);
-      }
+      });
     }
 
     const passwd = await this.dependencies.run(tools.getent, ['passwd', identity.name]);
