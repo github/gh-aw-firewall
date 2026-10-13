@@ -22,6 +22,22 @@ function modelSelection(id, suffix) {
   return { resolvedModel, candidates: [resolvedModel], log: [] };
 }
 
+function resolveAliasSelection(selector, aliasKey, provider, ids, aliases, suffix, modelPolicy, qualified, base) {
+  if (!aliasKey || (!qualified && !/\s/.test(base))) return null;
+  const resolveAlias = policy => resolveModel(
+    aliasKey, aliases, { [provider]: ids }, provider, [], { enabled: false }, policy,
+  );
+  const resolution = resolveAlias(modelPolicy) || (modelPolicy && resolveAlias(null));
+  if (resolution && ids.includes(resolution.resolvedModel)) {
+    return {
+      ...resolution,
+      resolvedModel: resolution.resolvedModel + suffix,
+      candidates: (resolution.candidates || [resolution.resolvedModel]).map(id => id + suffix),
+    };
+  }
+  throw selectorError(selector, provider, 'the configured alias has no available catalog model');
+}
+
 /**
  * Resolve an already-selected scalar against the active provider catalogue.
  * Unknown API/deployment IDs remain provider-local; UI selectors never use
@@ -42,34 +58,38 @@ function resolveModelSelector(selector, provider, modelIds, records, aliases = {
   // Check IDs before interpreting punctuation: deployment names are arbitrary.
   if (direct) return modelSelection(direct, suffix);
 
+  const exactAliasKey = Object.keys(aliases).find(key => key.toLowerCase() === base.toLowerCase());
+  const exactAlias = resolveAliasSelection(
+    selector, exactAliasKey, provider, ids, aliases, suffix, modelPolicy, false, base,
+  );
+  if (exactAlias) return exactAlias;
+
+  const fullNameMatches = [...new Set((records || [])
+    .filter(record => ids.includes(record.id) &&
+      typeof record.displayName === 'string' &&
+      record.displayName.toLowerCase() === base.toLowerCase())
+    .map(record => record.id))];
+  if (fullNameMatches.length > 1) {
+    throw selectorError(selector, provider, 'the advertised display name is ambiguous; use a canonical ID');
+  }
+  if (fullNameMatches.length === 1) return modelSelection(fullNameMatches[0], suffix);
+
   const qualified = base.match(/^(.+) \(([^()]+)\)$/);
   const name = qualified ? qualified[1] : base;
   if (qualified && qualified[2].toLowerCase() !== provider.toLowerCase()) {
-    throw selectorError(selector, provider, `vendor ${JSON.stringify(qualified[2])} does not match the active provider`);
+    const error = selectorError(selector, provider, `vendor ${JSON.stringify(qualified[2])} does not match the active provider`);
+    error.catalogRefreshable = false;
+    throw error;
   }
   const qualifiedId = qualified && ids.find(id => id.toLowerCase() === name.toLowerCase());
   if (qualifiedId) return modelSelection(qualifiedId, suffix);
 
-  const aliasKey = Object.keys(aliases).find(key => key.toLowerCase() === base.toLowerCase()) ||
+  const aliasKey =
     (qualified && Object.keys(aliases).find(key => key.toLowerCase() === name.toLowerCase()));
-  if (aliasKey) {
-    // Ordinary aliases retain their existing resolution, policy and logging path.
-    if (!qualified && !/\s/.test(base)) return null;
-    const resolveAlias = policy => resolveModel(
-      aliasKey, aliases, { [provider]: ids }, provider, [], { enabled: false }, policy,
-    );
-    // Prefer policy-permitted alias candidates. If none exist, preserve a
-    // concrete ID so the model-policy guard reports the rejection.
-    const resolution = resolveAlias(modelPolicy) || (modelPolicy && resolveAlias(null));
-    if (resolution && ids.includes(resolution.resolvedModel)) {
-      return {
-        ...resolution,
-        resolvedModel: resolution.resolvedModel + suffix,
-        candidates: (resolution.candidates || [resolution.resolvedModel]).map(id => id + suffix),
-      };
-    }
-    throw selectorError(selector, provider, 'the configured alias has no available catalog model');
-  }
+  const aliasSelection = resolveAliasSelection(
+    selector, aliasKey, provider, ids, aliases, suffix, modelPolicy, Boolean(qualified), base,
+  );
+  if (aliasSelection) return aliasSelection;
 
   const available = new Set(ids);
   const matches = [...new Set((records || [])

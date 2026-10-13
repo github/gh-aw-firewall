@@ -201,7 +201,8 @@ function makeModelBodyTransform(
       try {
         selectedModel = selectModel();
       } catch (error) {
-        if (error.code !== 'unsupported_model_selector' || Array.isArray(parsed?.model)) throw error;
+        if (error.code !== 'unsupported_model_selector' || error.catalogRefreshable === false ||
+          Array.isArray(parsed?.model)) throw error;
         await refreshProviderModelsForResolution(provider);
         selectedModel = selectModel();
       }

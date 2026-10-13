@@ -36,8 +36,19 @@ describe('selected scalar model selectors', () => {
   });
 
   it('does not select across vendors', () => {
-    expect(() => resolveModelSelector('GPT-5.6 Terra (openai)', 'copilot', ids, records))
-      .toThrow('does not match the active provider');
+    try {
+      resolveModelSelector('GPT-5.6 Terra (openai)', 'copilot', ids, records);
+      throw new Error('expected provider mismatch');
+    } catch (error) {
+      expect(error.message).toContain('does not match the active provider');
+      expect(error.catalogRefreshable).toBe(false);
+    }
+  });
+
+  it('matches a complete advertised display name before parsing parentheses as a vendor', () => {
+    expect(resolveModelSelector('Model (Preview)', 'copilot', ids, [
+      { id: ids[0], displayName: 'Model (Preview)' },
+    ])).toBe(ids[0]);
   });
 
   it('rejects colliding display names instead of guessing', () => {
@@ -65,6 +76,9 @@ describe('selected scalar model selectors', () => {
   it('uses an explicit alias ahead of an advertised display name', () => {
     expect(resolveModelSelector('GPT-5.6 Terra', 'copilot', ids, records, {
       'GPT-5.6 Terra': ['copilot/claude-sonnet-5'],
+    })).toBe(ids[1]);
+    expect(resolveModelSelector('sonnet (copilot)', 'copilot', ids, records, {
+      sonnet: ['copilot/claude-sonnet-5'],
     })).toBe(ids[1]);
   });
 

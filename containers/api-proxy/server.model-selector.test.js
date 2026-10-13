@@ -101,6 +101,21 @@ describe('model selectors before inference guards', () => {
     expect(upstream.spy).toHaveBeenCalledTimes(1);
   });
 
+  it('resolves parenthesized display names without refreshing provider models', async () => {
+    records = [{ id: 'gpt-5.6-terra', displayName: 'Model (Preview)' }];
+    const { upstream } = await send('Model (Preview)');
+    expect(refresh).not.toHaveBeenCalled();
+    expect(JSON.parse(upstream.upstreamRequest.write.mock.calls[0][0].toString()).model)
+      .toBe('gpt-5.6-terra');
+  });
+
+  it('does not refresh provider models for a deterministic vendor mismatch', async () => {
+    const { upstream, res } = await send('GPT-5.6 Terra (openai)');
+    expect(refresh).not.toHaveBeenCalled();
+    expect(upstream.spy).not.toHaveBeenCalled();
+    expect(res.writeHead).toHaveBeenCalledWith(400, expect.any(Object));
+  });
+
   it('compares advisory routing with the canonical ID rather than the UI selector', async () => {
     const upstream = createMockUpstreamCycle(https);
     const req = makeReq('/chat/completions');
