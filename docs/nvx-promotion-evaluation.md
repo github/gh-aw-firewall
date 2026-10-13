@@ -80,11 +80,12 @@ these four fields form the lane key. The evaluator enumerates the required
 Cartesian product from the thresholds file instead of inferring lanes from the
 submitted results, so any missing cell fails its sample-size gate.
 
-Reruns: a run that fails is recorded as a failure and counted in the success
-rate. A rerun is permitted only for a demonstrated runner or network
-infrastructure fault unrelated to either runtime (for example the runner being
-preempted); both the original failure and the rerun must be retained. A failed
-security or cleanup assertion is never rerun away.
+Reruns: a run or recovery attempt that fails is recorded as a failure and
+counted in its gate. One rerun is permitted only for a demonstrated runner or
+network infrastructure fault unrelated to either runtime (for example the
+runner being preempted); both the original failure and the rerun must be
+retained. The original remains the scored sample. A failed security or cleanup
+assertion, or any residue, is never rerun away.
 
 ## Evidence collected per run
 
@@ -92,13 +93,15 @@ Each run emits one `RunResult` record (see
 `scripts/ci/nvx-promotion-evaluator.ts`): `artifactPreflightMs`, `startupMs`,
 `firstWorkloadMs`, `endToEndMs`, `cleanupMs`, `cpuSeconds`, `peakMemoryMiB`,
 `scratchMiB`, `hostDiskMiB`, `peakPids`, `apiProxyRequests`, `inputTokens`,
-`outputTokens`, failed assertions and post-run residue. The evaluator validates
-that every numeric evidence field is present, finite and non-negative.
-Cancellation and stale-recovery samples are emitted as `RecoveryResult`
-records with an explicit `success` status, `assertionFailures`, duration and
-residue. Any failed recovery or lifecycle assertion stops promotion before its
-duration is included in the percentile. Raw records are retained as
-machine-readable JSON workflow artifacts alongside the report.
+`outputTokens`, failed assertions and post-run residue. The collector validates
+that every numeric evidence field is present and finite; startup and end-to-end
+duration, peak memory, peak PIDs and CPU usage must also be positive.
+Cancellation and stale-recovery samples carry explicit success and failure
+categories, readiness and cleanup assertions, duration, and residue. Failed
+boolean assertions are retained as failures for the evaluator, which stops
+promotion before including that recovery duration in the percentile. Raw
+records are retained as machine-readable JSON workflow artifacts alongside the
+report.
 
 Evaluate a result set with:
 

@@ -2,6 +2,7 @@ import { createHash } from 'crypto';
 import { execFileSync } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
+import { isDeepStrictEqual } from 'util';
 import {
   BenchmarkResults,
   RecoveryResult,
@@ -84,6 +85,7 @@ export interface RecoveryEvidence extends RecoveryResult {
   sampleId: string;
   campaignId: string;
   attemptId: string;
+  failureCategory: string;
   workflowRunId: string;
   jobId: string;
   workflowAttemptId: string;
@@ -98,6 +100,8 @@ export interface RecoveryEvidence extends RecoveryResult {
   managerKilledAfterCleanupRecord: boolean;
   workloadAfterRecovery: boolean;
   evidenceKind: 'measured' | 'dry-run';
+  rerunOf?: string;
+  rerunReason?: string;
 }
 
 export type SampleArtifact =
@@ -314,8 +318,12 @@ function validateRun(
     'peakMemoryMiB', 'scratchMiB', 'hostDiskMiB', 'peakPids', 'cpuSeconds',
     'apiProxyRequests', 'inputTokens', 'outputTokens', 'cacheReadTokens',
   ] as const;
+  const positiveMetrics = new Set([
+    'startupMs', 'endToEndMs', 'peakMemoryMiB', 'peakPids', 'cpuSeconds',
+  ]);
   for (const metric of numericMetrics) {
-    if (!Number.isFinite(run[metric]) || run[metric] < 0) {
+    if (!Number.isFinite(run[metric]) || run[metric] < 0 ||
+      (positiveMetrics.has(metric) && run[metric] === 0)) {
       throw new Error(`${label} has invalid or missing ${metric}`);
     }
   }
@@ -355,24 +363,51 @@ function validateRecovery(
     recovery.runtime !== sample.runtime ||
     recovery.kind !== sample.kind ||
     typeof recovery.success !== 'boolean' ||
+    typeof recovery.failureCategory !== 'string' ||
+    recovery.failureCategory === '' ||
     !Number.isFinite(recovery.durationMs) ||
     recovery.durationMs < 0 ||
     !Array.isArray(recovery.assertionFailures) ||
-    !Array.isArray(recovery.residue)
+    !Array.isArray(recovery.residue) ||
+    typeof recovery.readinessConfirmed !== 'boolean' ||
+    typeof recovery.terminalObserved !== 'boolean' ||
+    typeof recovery.managerKilledAfterCleanupRecord !== 'boolean' ||
+    typeof recovery.workloadAfterRecovery !== 'boolean'
   ) {
     throw new Error(`${label} is incomplete or does not match its expected recovery cell`);
   }
-  if (recovery.readinessConfirmed !== true || recovery.terminalObserved !== true ||
-    RECOVERY_ASSERTIONS.some((name) => recovery.assertions[name] !== true) ||
+  if (RECOVERY_ASSERTIONS.some((name) => typeof recovery.assertions[name] !== 'boolean') ||
     (recovery.kind === 'stale-recovery' &&
-      (recovery.managerKilledAfterCleanupRecord !== true ||
-        recovery.workloadAfterRecovery !== true ||
-        recovery.assertions.identityCheckedCleanup !== true))) {
+      typeof recovery.assertions.identityCheckedCleanup !== 'boolean')) {
     throw new Error(`${label} is missing readiness or stale-recovery evidence`);
   }
-  for (const [name, passed] of Object.entries(recovery.assertions)) {
-    if (passed === false && !recovery.assertionFailures.includes(name)) {
-      recovery.assertionFailures.push(name);
+  const failedAssertions = [
+    ...RECOVERY_ASSERTIONS.filter((name) => recovery.assertions[name] === false),
+    ...(recovery.readinessConfirmed ? [] : ['readinessConfirmed']),
+    ...(recovery.terminalObserved ? [] : ['terminalObserved']),
+    ...(recovery.kind === 'stale-recovery' && !recovery.managerKilledAfterCleanupRecord
+      ? ['managerKilledAfterCleanupRecord'] : []),
+    ...(recovery.kind === 'stale-recovery' && !recovery.workloadAfterRecovery
+      ? ['workloadAfterRecovery'] : []),
+    ...(recovery.kind === 'stale-recovery' && recovery.assertions.identityCheckedCleanup === false
+      ? ['identityCheckedCleanup'] : []),
+    ...Object.entries(recovery.assertions)
+      .filter(([name, passed]) => passed === false &&
+        (name !== 'identityCheckedCleanup' || recovery.kind === 'stale-recovery'))
+      .map(([name]) => name),
+  ];
+  for (const name of failedAssertions) {
+    if (!recovery.assertionFailures.includes(name)) recovery.assertionFailures.push(name);
+  }
+  if ((!recovery.success && recovery.failureCategory === 'success') ||
+    (recovery.success && recovery.failureCategory !== 'success')) {
+    throw new Error(`${label} has an inconsistent success category`);
+  }
+  if (recovery.rerunOf !== undefined) {
+    if (typeof recovery.rerunReason !== 'string' ||
+      !INFRASTRUCTURE_FAILURES.has(recovery.rerunReason) ||
+      recovery.assertionFailures.length > 0 || recovery.residue.length > 0) {
+      throw new Error(`${label} is not eligible for an infrastructure-only rerun`);
     }
   }
 }
@@ -382,8 +417,36 @@ export function aggregateCampaign(
   artifacts: SampleArtifact[],
   thresholds: Thresholds,
 ): CampaignResults {
-  if (manifest.schemaVersion !== 1 || manifest.versions === undefined) {
+  if (!manifest || manifest.schemaVersion !== 1 || !manifest.versions ||
+    typeof manifest.versions !== 'object' || Array.isArray(manifest.versions)) {
     throw new Error('unsupported or incomplete campaign manifest');
+  }
+  if (manifest.mode !== 'dry-run' && manifest.mode !== 'full') {
+    throw new Error('unsupported or incomplete campaign manifest');
+  }
+  const canonicalManifest = createCampaignManifest({
+    campaignId: manifest.campaignId,
+    mode: manifest.mode,
+    sourceCommit: manifest.sourceCommit,
+    runnerClass: manifest.runnerClass,
+    runnerImage: manifest.runnerImage,
+    guestImage: manifest.guestImage,
+  }, thresholds);
+  const samplesMatch = (
+    actual: CampaignSample[] | RecoverySample[],
+    expected: CampaignSample[] | RecoverySample[],
+  ): boolean => {
+    if (!Array.isArray(actual) || actual.length !== expected.length) return false;
+    const byId = new Map(actual.map((sample) => [sample?.sampleId, sample]));
+    return byId.size === expected.length &&
+      expected.every((sample) => isDeepStrictEqual(byId.get(sample.sampleId), sample));
+  };
+  if (manifest.dryRun !== canonicalManifest.dryRun ||
+    manifest.estimatedRunnerMinutes !== canonicalManifest.estimatedRunnerMinutes ||
+    !isDeepStrictEqual(manifest.versions, canonicalManifest.versions) ||
+    !samplesMatch(manifest.expectedRuns, canonicalManifest.expectedRuns) ||
+    !samplesMatch(manifest.expectedRecoveries, canonicalManifest.expectedRecoveries)) {
+    throw new Error('campaign manifest does not match canonical threshold-derived expectations');
   }
   for (const [key, expected] of Object.entries(thresholds.baseline)) {
     if (manifest.versions[key] !== expected) {
@@ -450,10 +513,21 @@ export function aggregateCampaign(
   }
   const primaryRecoveries: RecoveryEvidence[] = [];
   for (const [sampleId, sampleAttempts] of recoveryAttempts) {
-    if (sampleAttempts.length !== 1) {
-      throw new Error(`recovery sample ${sampleId} must have exactly one attempt`);
+    const primary = sampleAttempts.filter((attempt) => attempt.rerunOf === undefined);
+    if (primary.length !== 1) {
+      throw new Error(`recovery sample ${sampleId} must have exactly one original attempt`);
     }
-    primaryRecoveries.push(sampleAttempts[0]);
+    for (const rerun of sampleAttempts.filter((attempt) => attempt.rerunOf !== undefined)) {
+      if (rerun.rerunOf !== primary[0].attemptId ||
+        primary[0].success ||
+        !INFRASTRUCTURE_FAILURES.has(primary[0].failureCategory) ||
+        primary[0].assertionFailures.length > 0 ||
+        primary[0].residue.length > 0) {
+        throw new Error(`recovery sample ${sampleId} has an unauthorized rerun`);
+      }
+    }
+    if (sampleAttempts.length > 2) throw new Error(`recovery sample ${sampleId} has duplicate reruns`);
+    primaryRecoveries.push(primary[0]);
   }
 
   const expectedSampleIds = [
@@ -553,6 +627,7 @@ export function generateDryRunArtifacts(
         ...sample,
         campaignId: manifest.campaignId,
         attemptId: `${sample.sampleId}-attempt-1`,
+        failureCategory: 'success',
         ...identifiers,
         success: true,
         durationMs: 1,

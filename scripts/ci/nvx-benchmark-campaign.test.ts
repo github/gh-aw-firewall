@@ -10,7 +10,7 @@ import {
   createCampaignManifest,
   generateDryRunArtifacts,
 } from './nvx-benchmark-campaign';
-import { Thresholds } from './nvx-promotion-evaluator';
+import { evaluate, Thresholds } from './nvx-promotion-evaluator';
 
 const thresholds = JSON.parse(
   fs.readFileSync(path.join(__dirname, '..', '..', 'docs', 'nvx-promotion-thresholds.json'), 'utf8'),
@@ -113,6 +113,25 @@ describe('NVX benchmark campaign evidence', () => {
     }, thresholds)).toThrow('immutable');
   });
 
+  it('rejects manifests that do not match the canonical campaign matrix', () => {
+    const campaign = manifest();
+    const artifacts = dryArtifacts(campaign);
+    const missingRun = structuredClone(campaign);
+    missingRun.expectedRuns.pop();
+    expect(() => aggregateCampaign(missingRun, artifacts, thresholds))
+      .toThrow('canonical threshold-derived expectations');
+
+    const missingRecovery = structuredClone(campaign);
+    missingRecovery.expectedRecoveries.pop();
+    expect(() => aggregateCampaign(missingRecovery, artifacts, thresholds))
+      .toThrow('canonical threshold-derived expectations');
+
+    const wrongMode = structuredClone(campaign);
+    wrongMode.dryRun = false;
+    expect(() => aggregateCampaign(wrongMode, artifacts, thresholds))
+      .toThrow('canonical threshold-derived expectations');
+  });
+
   it('rejects missing, duplicate, and unexpected samples', () => {
     const campaign = manifest();
     const artifacts = dryArtifacts(campaign);
@@ -137,6 +156,16 @@ describe('NVX benchmark campaign evidence', () => {
     const missingMetric = dryArtifacts(campaign);
     (missingMetric[0].result as RunEvidence).hostDiskMiB = Number.NaN;
     expect(() => aggregateCampaign(campaign, missingMetric, thresholds)).toThrow('hostDiskMiB');
+  });
+
+  it('rejects zero values for metrics that must be observed as positive', () => {
+    const campaign = manifest();
+    for (const metric of ['startupMs', 'endToEndMs', 'peakMemoryMiB', 'peakPids', 'cpuSeconds'] as const) {
+      const artifacts = dryArtifacts(campaign);
+      const run = (artifacts[0] as Extract<SampleArtifact, { kind: 'run' }>).result;
+      run[metric] = 0;
+      expect(() => aggregateCampaign(campaign, artifacts, thresholds)).toThrow(metric);
+    }
   });
 
   it('keeps an eligible infrastructure rerun but scores its failed original only once', () => {
@@ -233,9 +262,53 @@ describe('NVX benchmark campaign evidence', () => {
     const artifacts = dryArtifacts(campaign);
     const recovery = artifacts.find((artifact) => artifact.kind === 'recovery') as
       Extract<SampleArtifact, { kind: 'recovery' }>;
-    recovery.result.readinessConfirmed = false;
+    recovery.result.readinessConfirmed = undefined as unknown as boolean;
     expect(() => aggregateCampaign(campaign, artifacts, thresholds))
-      .toThrow('missing readiness or stale-recovery evidence');
+      .toThrow('incomplete or does not match its expected recovery cell');
+  });
+
+  it('passes failed cleanup assertions to the evaluator as stop-promotion blockers', () => {
+    const campaign = manifest();
+    const artifacts = dryArtifacts(campaign);
+    const recovery = artifacts.find((artifact) => artifact.kind === 'recovery') as
+      Extract<SampleArtifact, { kind: 'recovery' }>;
+    recovery.result.assertions.cleanupRecordRemoved = false;
+
+    const results = aggregateCampaign(campaign, artifacts, thresholds);
+    expect(results.recoveries.some((item) =>
+      item.assertionFailures.includes('cleanupRecordRemoved'),
+    )).toBe(true);
+    expect(evaluate(results, thresholds).recommendation).toBe('stop-promotion');
+  });
+
+  it('allows one linked infrastructure-only recovery rerun but scores the original', () => {
+    const campaign = manifest();
+    const artifacts = dryArtifacts(campaign);
+    const first = artifacts.find((artifact) => artifact.kind === 'recovery') as
+      Extract<SampleArtifact, { kind: 'recovery' }>;
+    first.result.success = false;
+    first.result.failureCategory = 'runner-preempted';
+    const rerun: SampleArtifact = {
+      kind: 'recovery',
+      result: {
+        ...first.result,
+        attemptId: `${first.result.sampleId}-attempt-2`,
+        success: true,
+        failureCategory: 'success',
+        rerunOf: first.result.attemptId,
+        rerunReason: 'runner-preempted',
+      },
+    };
+
+    const results = aggregateCampaign(campaign, [...artifacts, rerun], thresholds);
+    expect(results.recoveryAttempts).toHaveLength(5);
+    expect(results.recoveries.some((item) => !item.success)).toBe(true);
+    expect(evaluate(results, thresholds).recommendation).toBe('stop-promotion');
+
+    const unauthorized = structuredClone(rerun);
+    if (unauthorized.kind === 'recovery') unauthorized.result.rerunReason = 'security-failure';
+    expect(() => aggregateCampaign(campaign, [...artifacts, unauthorized], thresholds))
+      .toThrow('infrastructure-only rerun');
   });
 
   it('aggregates independently of input artifact ordering', () => {
