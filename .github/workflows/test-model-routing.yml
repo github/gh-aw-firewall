@@ -224,6 +224,24 @@ jobs:
               stream: false,
             }));
           ' "$reflect")"
+          efforts="$(node -e '
+            const assert = require("node:assert/strict");
+            const reflect = JSON.parse(process.argv[1]);
+            const s = reflect.routing.selection;
+            const copilot = reflect.endpoints.find(endpoint => endpoint.provider === "copilot");
+            const model = copilot?.routing_models?.find(model => model.model_id === s.wire_model);
+            const supported = model?.supported_reasoning_efforts;
+            assert.ok(Array.isArray(supported) && supported.length > 0,
+              "No supported reasoning efforts listed for routed model " + s.wire_model);
+            assert.ok(supported.includes(s.effort),
+              "Routed effort " + s.effort + " is not supported by " + s.wire_model);
+            const ranking = ["none", "minimal", "low", "medium", "high", "xhigh", "max"];
+            assert.ok(supported.every(effort => ranking.includes(effort)),
+              "Unrecognized reasoning effort in catalogue for " + s.wire_model);
+            const ranked = ranking.filter(effort => supported.includes(effort));
+            console.log([...new Set([ranked[0], ranked[ranked.length - 1]])].join(" "));
+          ' "$reflect")"
+          read -r -a explicit_efforts <<<"$efforts"
           response="$(curl --fail --silent --show-error --max-time 180 \
             -H "Content-Type: application/json" \
             --data "$request" \
@@ -240,16 +258,12 @@ jobs:
             assert.match(text, /ROUTED_OK/, "Copilot did not return the expected smoke response: " + JSON.stringify(result).slice(0, 500));
             console.log("ROUTED_COPILOT_EFFORT_INFERENCE=passed model=gpt-5.4-mini endpoint=/responses");
           ' "$response"
-          for effort in none max; do
+          for effort in "${explicit_efforts[@]}"; do
             request="$(node -e '
-              console.log(JSON.stringify({
-                model: "gpt-5.4-mini",
-                input: "Reply with exactly ROUTED_OK.",
-                reasoning: { effort: process.argv[1] },
-                max_output_tokens: 2048,
-                stream: false,
-              }));
-            ' "$effort")"
+              const request = JSON.parse(process.argv[1]);
+              request.reasoning.effort = process.argv[2];
+              console.log(JSON.stringify(request));
+            ' "$request" "$effort")"
             response="$(curl --fail --silent --show-error --max-time 180 \
               -H "Content-Type: application/json" \
               --data "$request" \

@@ -23,7 +23,7 @@ describe('experimental Cloud Hypervisor enclave smoke workflow', () => {
   const workflowPath = path.join(workflowsDir, 'smoke-enclave-cloud-hypervisor.lock.yml');
   const lock = fs.readFileSync(workflowPath, 'utf8');
 
-  it('keeps the workflow token out of the agent while preserving scoped host authentication', () => {
+  it('provides the staging token to the trusted host without exposing it to the agent', () => {
     const compiled = yaml.load(lock) as {
       env?: Record<string, unknown>;
       jobs: Record<string, {
@@ -42,13 +42,14 @@ describe('experimental Cloud Hypervisor enclave smoke workflow', () => {
     const configureGh = agent.steps?.find(step =>
       step.name === 'Configure gh CLI for GitHub Enterprise');
 
-    expect(compiled.env?.GH_TOKEN).toBeUndefined();
+    expect(compiled.env?.GH_TOKEN).toBe('${{ github.token }}');
     expect(agent.env?.GH_TOKEN).toBeUndefined();
     expect(executeAgent?.env?.GH_TOKEN).toBeUndefined();
     expect(executeAgent?.env?.GITHUB_TOKEN).toBeUndefined();
     expect(executeAgent?.run).toContain('--exclude-env COPILOT_GITHUB_TOKEN');
     expect(configureGh?.env?.GH_TOKEN).toBe('${{ github.token }}');
     expect(agent.permissions?.issues).not.toBe('write');
+    expect(source).toContain('env:\n  GH_TOKEN: ${{ github.token }}');
   });
 
   it('keeps the compiler-injected issue output bounded for failure reporting', () => {
@@ -73,7 +74,7 @@ describe('experimental Cloud Hypervisor enclave smoke workflow', () => {
       };
     };
 
-    expect(source).not.toContain('GH_TOKEN: ${{ github.token }}');
+    expect(source).toContain('GH_TOKEN: ${{ github.token }}');
     expect(safeOutputsConfig.create_issue).toEqual({
       labels: ['smoke-enclave-cloud-hypervisor'],
       max: 1,

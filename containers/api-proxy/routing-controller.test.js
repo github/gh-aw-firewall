@@ -221,6 +221,64 @@ describe('routing controller', () => {
     expect(result.selection.endpoint).toBe('/chat/completions');
   });
 
+  it('records a classified selection when the classifier reply is fenced', async () => {
+    const classification = {
+      labels: { task_type: 'explain', scope: 'local', task_complexity: 'unknown' },
+      mode: 'economy',
+    };
+    const { controller, calls, records } = createHarness({
+      models: [{
+        id: 'claude-haiku-4.5',
+        efforts: [],
+        protocols: ['chat-completions'],
+        contextWindow: 200_000,
+      }],
+      executeResult: () => ({
+        statusCode: 200,
+        body: Buffer.from(JSON.stringify({
+          choices: [{ message: { content: `\`\`\`json\n${JSON.stringify(classification)}\n\`\`\`` } }],
+        })),
+      }),
+    });
+    const result = await controller.run();
+
+    expect(result.ok).toBe(true);
+    expect(result.degradedClassification).toBe(false);
+    expect(result.degradedReason).toBeUndefined();
+    expect(calls.route[0].classification).toEqual(classification);
+    expect(calls.execute).toHaveLength(1);
+    expect(records.find(record => record.stage === 'selection')).toMatchObject({
+      degraded_classification: false,
+      degraded_reason: null,
+      classifier_attempts: 1,
+      labels: classification.labels,
+      mode: classification.mode,
+      classifier_model: 'github-copilot/claude-haiku-4.5',
+    });
+  });
+
+  it('keeps invalid_classifier_output for a fenced reply that is otherwise invalid', async () => {
+    const { controller, calls, records } = createHarness({
+      executeResult: () => ({
+        statusCode: 200,
+        body: classifierBody(`\`\`\`json\n${JSON.stringify(VALID_CLASSIFICATION)}\n\`\`\`\nDone.`),
+      }),
+    });
+    const result = await controller.run();
+
+    expect(result.ok).toBe(true);
+    expect(result.degradedReason).toBe('invalid_classifier_output');
+    expect(Object.hasOwn(calls.route[0], 'classification')).toBe(false);
+    expect(records.find(record => record.stage === 'selection')).toMatchObject({
+      degraded_classification: true,
+      degraded_reason: 'invalid_classifier_output',
+      classifier_attempts: 1,
+      labels: null,
+      mode: null,
+      classifier_model: null,
+    });
+  });
+
   it('runs the decision at most once', async () => {
     const { controller, planner } = createHarness();
     const first = controller.run();

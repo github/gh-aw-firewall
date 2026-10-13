@@ -1,4 +1,5 @@
 import type { WrapperConfig } from './types';
+import { normalizeEnclavesConfig } from './parsers/enclave-parser';
 import { buildCloudHypervisorGuestEnvironment } from './cloud-hypervisor/guest-environment-builder';
 import { assertCloudHypervisorPreSecurityCompatibility } from './cloud-hypervisor-runtime-backend';
 import { assertCloudHypervisorSelection } from './cloud-hypervisor/runtime-validation';
@@ -8,6 +9,38 @@ import {
 } from './cloud-hypervisor/test-fixtures.test-utils';
 
 describe('Cloud Hypervisor runtime backend environment and path mapping', () => {
+  it('never puts host GitHub tokens in the primary micro-VM guest environment', () => {
+    const names = ['GH_TOKEN', 'GITHUB_TOKEN', 'GITHUB_PERSONAL_ACCESS_TOKEN'];
+    const previous = Object.fromEntries(names.map((name) => [name, process.env[name]]));
+    Object.assign(process.env, {
+      GH_TOKEN: 'host-gh-token',
+      GITHUB_TOKEN: 'host-github-token',
+      GITHUB_PERSONAL_ACCESS_TOKEN: 'host-pat',
+    });
+
+    try {
+      const environment = buildCloudHypervisorGuestEnvironment(
+        config({
+          enableApiProxy: false,
+          envAll: true,
+          enclaves: normalizeEnclavesConfig([
+            { script: {}, repos: [{ repo: 'github/gh-aw-firewall', sensitivity: 'public' }] },
+          ]),
+        }),
+        infrastructure(),
+      );
+
+      for (const name of names) {
+        expect(environment[name]).toBeUndefined();
+      }
+    } finally {
+      for (const name of names) {
+        if (previous[name] === undefined) delete process.env[name];
+        else process.env[name] = previous[name];
+      }
+    }
+  });
+
   it('preserves sanitized env values without leaking real provider secrets', () => {
     const secret = 'sk-real-provider-' + 'secret';
     const environment = buildCloudHypervisorGuestEnvironment(

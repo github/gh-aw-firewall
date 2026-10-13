@@ -22,7 +22,56 @@ const offeredChoices = [
   },
 ];
 
+const HAIKU_REPLY = '{"labels":{"task_type":"explain","scope":"local","task_complexity":"unknown"},"mode":"economy"}';
+
 describe('routing contracts', () => {
+  it('accepts a classifier reply wrapped in a code fence labelled json', () => {
+    expect(validateClassifierOutput(`\`\`\`json\n${HAIKU_REPLY}\n\`\`\``))
+      .toEqual(JSON.parse(HAIKU_REPLY));
+  });
+
+  it('accepts a classifier reply wrapped in an unlabelled code fence', () => {
+    expect(validateClassifierOutput(`\`\`\`\n${HAIKU_REPLY}\n\`\`\``))
+      .toEqual(JSON.parse(HAIKU_REPLY));
+  });
+
+  it('accepts surrounding whitespace and CRLF in a fenced classifier reply', () => {
+    expect(validateClassifierOutput(Buffer.from(` \t\r\n\`\`\`json\r\n${HAIKU_REPLY}\r\n\`\`\`\r\n `)))
+      .toEqual(JSON.parse(HAIKU_REPLY));
+  });
+
+  it.each([
+    `Here is the classification:\n\`\`\`json\n${HAIKU_REPLY}\n\`\`\``,
+    `\`\`\`json\n${HAIKU_REPLY}\n\`\`\`\nDone.`,
+  ])('rejects text before or after a fenced classifier reply: %s', reply => {
+    expect(validateClassifierOutput(reply)).toBeNull();
+  });
+
+  it('rejects a classifier reply that contains two code fences', () => {
+    const fenced = `\`\`\`json\n${HAIKU_REPLY}\n\`\`\``;
+    expect(validateClassifierOutput(`${fenced}\n${fenced}`)).toBeNull();
+  });
+
+  it('rejects a fenced classifier reply with a label other than json', () => {
+    expect(validateClassifierOutput(`\`\`\`javascript\n${HAIKU_REPLY}\n\`\`\``)).toBeNull();
+  });
+
+  it('rejects a fenced classifier reply that fails the schema', () => {
+    const invalid = {
+      labels: { task_type: 'explain', scope: 'local', task_complexity: 'unknown', mode: 'economy' },
+    };
+    expect(validateClassifierOutput(`\`\`\`json\n${JSON.stringify(invalid)}\n\`\`\``)).toBeNull();
+  });
+
+  it('rejects malformed JSON inside a fenced classifier reply', () => {
+    expect(validateClassifierOutput('```json\n{\n```')).toBeNull();
+  });
+
+  it('accepts an unfenced valid classifier reply unchanged', () => {
+    expect(validateClassifierOutput(HAIKU_REPLY)).toEqual(JSON.parse(HAIKU_REPLY));
+    expect(validateClassifierOutput(Buffer.from(HAIKU_REPLY))).toEqual(JSON.parse(HAIKU_REPLY));
+  });
+
   it('accepts reviewed capability, classifier-plan, and route shapes', () => {
     const successfulPlanningRecords = corpusCases.filter(testCase =>
       testCase.status === 200 && ['/capabilities', '/classify', '/route'].includes(testCase.path),

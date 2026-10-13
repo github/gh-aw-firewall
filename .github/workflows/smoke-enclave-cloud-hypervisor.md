@@ -5,6 +5,8 @@ on:
 permissions:
   contents: read
   copilot-requests: write
+env:
+  GH_TOKEN: ${{ github.token }}
 name: Smoke Enclave Cloud Hypervisor (Experimental)
 runs-on: ubuntu-24.04
 engine:
