@@ -419,7 +419,9 @@ while kill -0 "$awf_pid" 2>/dev/null; do
       fi
     done < <(sudo find /sys/fs/cgroup -maxdepth 4 -type d \
       \( -path '/sys/fs/cgroup/awf-nvx*' -o \
-         -path '/sys/fs/cgroup/awf-cloud-hypervisor*' \) -print 2>/dev/null)
+         -path '/sys/fs/cgroup/awf-cloud-hypervisor*' \) \
+      ! -path '/sys/fs/cgroup/awf-nvx' \
+      ! -path '/sys/fs/cgroup/awf-cloud-hypervisor' -print 2>/dev/null)
   fi
   if [ -n "$observed_cgroup" ] &&
      sudo test -f "$observed_cgroup/cpu.stat"; then

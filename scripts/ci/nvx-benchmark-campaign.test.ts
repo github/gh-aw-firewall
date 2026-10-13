@@ -133,6 +133,7 @@ describe('NVX benchmark campaign evidence', () => {
     expect(harness).toContain('sudo test -r "/proc/$runtime_pid/cgroup"');
     expect(harness).toContain('sudo test -f "$candidate/memory.max"');
     expect(harness).toContain("! -path '/sys/fs/cgroup/awf-nvx'");
+    expect(harness.split("! -path '/sys/fs/cgroup/awf-nvx'").length - 1).toBe(3);
     expect(harness).toContain('setfacl --restore="$evidence_dir/kvm-acl-before.txt"');
     expect(harness).toContain('host-mount-visible');
     expect(harness).toContain('df -Pk /tmp');
