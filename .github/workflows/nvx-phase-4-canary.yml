@@ -182,6 +182,24 @@ jobs:
             "$artifacts/toolchain.txt" > "$artifacts/tools.txt"
           sudo docker export "$container" | tar -xf - -C "$layer"
           sudo docker rm "$container"
+          workload_uid=$(node -e \
+            "process.stdout.write(require('./dist/host-identity').getSafeHostUid())")
+          workload_gid=$(node -e \
+            "process.stdout.write(require('./dist/host-identity').getSafeHostGid())")
+          sudo awk -F: -v uid="$workload_uid" \
+            '$1 != "awf" && $3 != uid' "$layer/etc/passwd" |
+            tee "$RUNNER_TEMP/nvx-passwd" >/dev/null
+          printf 'awf:x:%s:%s:AWF workload:/home/awf:/bin/sh\n' \
+            "$workload_uid" "$workload_gid" >> "$RUNNER_TEMP/nvx-passwd"
+          sudo install -o root -g root -m 0644 \
+            "$RUNNER_TEMP/nvx-passwd" "$layer/etc/passwd"
+          if ! sudo awk -F: -v gid="$workload_gid" \
+            '$3 == gid { found = 1 } END { exit !found }' "$layer/etc/group"; then
+            printf 'awf:x:%s:\n' "$workload_gid" |
+              sudo tee -a "$layer/etc/group" >/dev/null
+          fi
+          sudo install -d -o "$workload_uid" -g "$workload_gid" -m 0700 \
+            "$layer/home/awf"
           layer_sha256=$(tar --sort=name --mtime='@0' --owner=0 --group=0 --numeric-owner \
             -cf - -C "$layer" . | sha256sum | cut -d' ' -f1)
           package_inventory_sha256=$(sha256sum "$artifacts/packages.txt" | cut -d' ' -f1)

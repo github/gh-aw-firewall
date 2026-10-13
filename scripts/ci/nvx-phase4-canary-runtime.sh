@@ -11,6 +11,8 @@ sample_id=${3:?sample id is required}
 : "${RUNNER_TEMP:?RUNNER_TEMP is required}"
 : "${GITHUB_WORKSPACE:?GITHUB_WORKSPACE is required}"
 
+evidence_dir=$(dirname "$AWF_BENCHMARK_EVENTS")
+
 case "$runtime" in
   nvx|cloud-hypervisor) ;;
   *) echo "unsupported runtime: $runtime" >&2; exit 2 ;;
@@ -73,15 +75,19 @@ sudo sync
 sudo sh -c 'echo 3 > /proc/sys/vm/drop_caches'
 
 if [ -n "${AWF_PHASE4_KVM_ACL_BASELINE:-}" ]; then
-  kvm_acl_before=$(cat "$AWF_PHASE4_KVM_ACL_BASELINE")
+  kvm_acl_before=$(sudo cat "$AWF_PHASE4_KVM_ACL_BASELINE")
 else
   kvm_acl_before=$(sudo getfacl --absolute-names --numeric /dev/kvm 2>/dev/null)
 fi
+printf '%s\n' "$kvm_acl_before" > "$evidence_dir/kvm-acl-before.txt"
+chmod 0600 "$evidence_dir/kvm-acl-before.txt"
 processes_before=$(runtime_process_snapshot)
 netns_before=$(sudo ip netns list 2>/dev/null || true)
 cgroups_before=$(sudo find /sys/fs/cgroup -maxdepth 4 -type d \
   \( -path '/sys/fs/cgroup/awf-nvx*' -o \
-     -path '/sys/fs/cgroup/awf-cloud-hypervisor*' \) -print 2>/dev/null | sort)
+     -path '/sys/fs/cgroup/awf-cloud-hypervisor*' \) \
+  ! -path '/sys/fs/cgroup/awf-nvx' \
+  ! -path '/sys/fs/cgroup/awf-cloud-hypervisor' -print 2>/dev/null | sort)
 mounts_before=$(findmnt -rn -o TARGET 2>/dev/null | grep -E 'awf-(nvx|cloud-hypervisor)' || true)
 runtime_storage_before=$(runtime_storage_bytes)
 
@@ -334,7 +340,8 @@ while kill -0 "$awf_pid" 2>/dev/null; do
         '/var/lib/awf-cloud-hypervisor/trusted-artifacts/run-[^/]*/[c]loud-hypervisor --api-socket' \
         2>/dev/null | sed -n '1p')
     fi
-    if [[ "$runtime_pid" =~ ^[0-9]+$ ]] && [ -r "/proc/$runtime_pid/cgroup" ]; then
+    if [[ "$runtime_pid" =~ ^[0-9]+$ ]] &&
+       sudo test -r "/proc/$runtime_pid/cgroup"; then
       cgroup_membership=$(sudo awk -F: '$1 == "0" { print $3 }' \
         "/proc/$runtime_pid/cgroup")
       candidate="/sys/fs/cgroup$cgroup_membership"
@@ -403,7 +410,9 @@ for _cleanup_attempt in $(seq 1 50); do
   netns_after=$(sudo ip netns list 2>/dev/null || true)
   cgroups_after=$(sudo find /sys/fs/cgroup -maxdepth 4 -type d \
     \( -path '/sys/fs/cgroup/awf-nvx*' -o \
-       -path '/sys/fs/cgroup/awf-cloud-hypervisor*' \) -print 2>/dev/null | sort)
+       -path '/sys/fs/cgroup/awf-cloud-hypervisor*' \) \
+    ! -path '/sys/fs/cgroup/awf-nvx' \
+    ! -path '/sys/fs/cgroup/awf-cloud-hypervisor' -print 2>/dev/null | sort)
   mounts_after=$(findmnt -rn -o TARGET 2>/dev/null | grep -E 'awf-(nvx|cloud-hypervisor)' || true)
   kvm_acl_after=$(sudo getfacl --absolute-names --numeric /dev/kvm 2>/dev/null)
   if [ "$processes_before" = "$processes_after" ] &&
@@ -416,6 +425,8 @@ for _cleanup_attempt in $(seq 1 50); do
   sleep 0.1
 done
 cleanup_completed=$(now_ms)
+printf '%s\n' "$kvm_acl_after" > "$evidence_dir/kvm-acl-after.txt"
+chmod 0600 "$evidence_dir/kvm-acl-after.txt"
 
 runtime_ready=${runtime_ready:-0}
 first_work=${first_work:-0}
