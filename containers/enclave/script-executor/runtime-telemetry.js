@@ -3,8 +3,8 @@
 const fs = require('fs');
 const path = require('path');
 
-const PRIMARY_BACKENDS = new Set(['docker', 'gvisor', 'sbx']);
-const EXECUTOR_BACKENDS = new Set(['docker', 'gvisor', 'sbx', 'mixed']);
+const PRIMARY_BACKENDS = new Set(['docker', 'gvisor', 'sbx', 'cloud-hypervisor']);
+const EXECUTOR_BACKENDS = new Set(['docker', 'gvisor', 'sbx', 'cloud-hypervisor', 'mixed']);
 const LIFECYCLE_CLASSES = new Set(['preflight', 'startup', 'invocation', 'cleanup']);
 const CAPABILITY_STATES = new Set(['supported', 'unavailable', 'blocked']);
 const CATEGORY_PATTERN = /^[a-z][a-z0-9-]{0,63}$/;

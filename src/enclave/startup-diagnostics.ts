@@ -208,13 +208,14 @@ function safeImageIdentity(containerText: string, imageText?: string) {
   }).slice(0, 4) : [];
   const identityStatus = !containerImageId || !inspectedImageId
     ? 'unavailable' : containerImageId === inspectedImageId ? 'matched' : 'mismatch';
+  const identityMatched = identityStatus === 'matched';
   return {
     identityStatus,
     containerImageId,
     inspectedImageId,
-    repoDigests,
-    sourceRevision,
-    sourceRevisionStatus: sourceRevision ? 'captured' : 'unavailable',
+    repoDigests: identityMatched ? repoDigests : [],
+    sourceRevision: identityMatched ? sourceRevision : null,
+    sourceRevisionStatus: identityMatched && sourceRevision ? 'captured' : 'unavailable',
   };
 }
 

@@ -412,7 +412,6 @@ async function main() {
   );
   await runStartupStage(startupReporter, 'ready-file', 'ready-file-publication-failed', () => {
     fs.mkdirSync(serverConfig.controlDir, { recursive: true, mode: 0o700 });
-    fs.writeFileSync(serverConfig.readyPath, '', { mode: 0o600 });
     audit.lifecycle('listening', { executors });
     telemetry.emit({
       primaryBackend: serverConfig.primaryBackend,
@@ -421,6 +420,7 @@ async function main() {
       capabilityState: 'supported',
       category: 'ready',
     });
+    fs.writeFileSync(serverConfig.readyPath, '', { mode: 0o600 });
   });
 
   let stopping = false;

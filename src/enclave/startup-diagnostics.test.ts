@@ -15,6 +15,8 @@ const startupDiagnostics =
   require('../../containers/enclave/mcp-server/startup-diagnostics.js');
 const { createStartupReporter, runStartupStage, startupDiagnostic } = startupDiagnostics;
 // eslint-disable-next-line @typescript-eslint/no-require-imports
+const { buildRuntimeTelemetryRecord } = require('../../containers/enclave/script-executor/runtime-telemetry.js');
+// eslint-disable-next-line @typescript-eslint/no-require-imports
 const { probeTarget, selectedProbeIds } = require('../../containers/enclave/mcp-server/environment-probes.js');
 const {
   classifyLogs, safeControlNetworkMembership, safeImageIdentity, safeState,
@@ -142,6 +144,19 @@ describe('bounded enclave startup evidence', () => {
     expect(JSON.stringify(diagnostic)).not.toContain('SECRET');
   });
 
+  it('accepts Cloud Hypervisor backends in runtime telemetry', () => {
+    expect(buildRuntimeTelemetryRecord({
+      primaryBackend: 'cloud-hypervisor',
+      executorBackend: 'cloud-hypervisor',
+      lifecycleClass: 'startup',
+      capabilityState: 'supported',
+      category: 'ready',
+    })).toMatchObject({
+      primaryBackend: 'cloud-hypervisor',
+      executorBackend: 'cloud-hypervisor',
+    });
+  });
+
   it('records probe timeouts, missing paths, and selected prerequisite identifiers without paths', async () => {
     const timeoutFs = { promises: { lstat: () => new Promise(() => {}) } };
     const timedOut = await probeTarget('capability', '/private/path', 'file', 'read', timeoutFs, 5);
@@ -253,8 +268,17 @@ describe('bounded enclave startup evidence', () => {
       .not.toContain('SECRET');
     expect(safeImageIdentity(
       JSON.stringify({ imageId }),
-      JSON.stringify({ imageId: `sha256:${'f'.repeat(64)}` }),
-    )).toMatchObject({ identityStatus: 'mismatch', sourceRevisionStatus: 'unavailable' });
+      JSON.stringify({
+        imageId: `sha256:${'f'.repeat(64)}`,
+        sourceRevision: 'f'.repeat(40),
+        repoDigests: [`ghcr.io/example/enclave@sha256:${'f'.repeat(64)}`],
+      }),
+    )).toMatchObject({
+      identityStatus: 'mismatch',
+      repoDigests: [],
+      sourceRevision: null,
+      sourceRevisionStatus: 'unavailable',
+    });
   });
 
   it('captures exact control-network membership without retaining unexpected network names', () => {
