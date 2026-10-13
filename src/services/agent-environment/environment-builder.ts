@@ -9,7 +9,7 @@ import { recoverHostPaths } from './host-path-recovery';
 import { buildOtelEnvironment, buildSslEnvironment } from './observability-environment';
 import { buildProxyEnvironment } from './proxy-environment';
 import { buildToolEnvironment } from './tool-specific-environment';
-import { enforceGithubTokenIsolation } from './github-token-isolation';
+import { enforceGithubTokenIsolation, getGithubTokenEnvValues } from './github-token-isolation';
 import { AgentEnvironmentParams } from './types';
 
 export function buildAgentEnvironment(params: AgentEnvironmentParams): Record<string, string> {
@@ -28,7 +28,7 @@ export function buildAgentEnvironment(params: AgentEnvironmentParams): Record<st
   if (params.config.enclaves?.enabled) {
     enforceGithubTokenIsolation(
       environment,
-      [process.env.GH_TOKEN, process.env.GITHUB_TOKEN, params.config.githubToken],
+      [...getGithubTokenEnvValues(), params.config.githubToken],
       'agent sandbox',
     );
   }

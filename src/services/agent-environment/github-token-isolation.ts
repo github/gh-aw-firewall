@@ -14,6 +14,10 @@ export function addGithubTokenEnvVars(excludedEnvVars: Set<string>): void {
   }
 }
 
+export function getGithubTokenEnvValues(): (string | undefined)[] {
+  return GITHUB_TOKEN_ENV_VARS.map((name) => process.env[name]);
+}
+
 export function assertNoHostGithubTokenValue(
   value: string | undefined,
   tokenValues: readonly (string | undefined)[],

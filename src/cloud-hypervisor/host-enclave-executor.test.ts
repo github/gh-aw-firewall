@@ -42,9 +42,9 @@ describe('readBoundedCloudHypervisorEnclaveResult', () => {
   let directory: string;
 
   it('rejects the host GitHub token in the enclave bearer file before staging inputs', async () => {
-    const previousToken = process.env.GH_TOKEN;
+    const previousToken = process.env.GITHUB_PAT;
     const token = 'host-github-token-value';
-    process.env.GH_TOKEN = token;
+    process.env.GITHUB_PAT = token;
     const writeFile = jest.fn();
     const plan: HostExecutorInvocationPlan = {
       runId: 'a'.repeat(32),
@@ -77,15 +77,15 @@ describe('readBoundedCloudHypervisorEnclaveResult', () => {
       })).rejects.toThrow(/host GitHub token through Cloud Hypervisor enclave GitHub bearer file/);
       expect(writeFile).not.toHaveBeenCalled();
     } finally {
-      if (previousToken === undefined) delete process.env.GH_TOKEN;
-      else process.env.GH_TOKEN = previousToken;
+      if (previousToken === undefined) delete process.env.GITHUB_PAT;
+      else process.env.GITHUB_PAT = previousToken;
     }
   });
 
   it('rejects a host GitHub token copied into the enclave guest environment', () => {
-    const previousToken = process.env.GH_TOKEN;
+    const previousToken = process.env.GITHUB_PAT;
     const token = 'host-github-token-value';
-    process.env.GH_TOKEN = token;
+    process.env.GITHUB_PAT = token;
     const policy: HostExecutorAgentPolicy = {
       model: token,
       profile: 'openai',
@@ -112,8 +112,8 @@ describe('readBoundedCloudHypervisorEnclaveResult', () => {
         /host GitHub token through Cloud Hypervisor enclave variable COPILOT_MODEL/,
       );
     } finally {
-      if (previousToken === undefined) delete process.env.GH_TOKEN;
-      else process.env.GH_TOKEN = previousToken;
+      if (previousToken === undefined) delete process.env.GITHUB_PAT;
+      else process.env.GITHUB_PAT = previousToken;
     }
   });
 

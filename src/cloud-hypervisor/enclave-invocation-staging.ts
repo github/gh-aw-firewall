@@ -25,6 +25,7 @@ import { CLOUD_HYPERVISOR_ENCLAVE_RESOURCE_PROFILES } from './workload-profile';
 import {
   assertNoHostGithubTokenValue,
   enforceGithubTokenIsolation,
+  getGithubTokenEnvValues,
 } from '../services/agent-environment/github-token-isolation';
 
 const GITHUB_PROFILE = 'issues-read-v1';
@@ -156,7 +157,7 @@ export async function stageInvocationInputs(
   if (role === 'agent' && policy?.githubBearer) {
     assertNoHostGithubTokenValue(
       policy.githubBearer,
-      [process.env.GH_TOKEN, process.env.GITHUB_TOKEN],
+      getGithubTokenEnvValues(),
       'Cloud Hypervisor enclave GitHub bearer file',
     );
   }
@@ -259,7 +260,7 @@ export function agentEnvironment(
   };
   enforceGithubTokenIsolation(
     environment,
-    [process.env.GH_TOKEN, process.env.GITHUB_TOKEN],
+    getGithubTokenEnvValues(),
     'Cloud Hypervisor enclave',
   );
   return Object.freeze(environment);

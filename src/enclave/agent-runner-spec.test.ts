@@ -133,9 +133,9 @@ describe('unified enclave agent runner specification', () => {
     const envNames = githubSpec.launchArgs.flatMap((argument: string, index: number) =>
       argument === '--env' ? [githubSpec.launchArgs[index + 1].split('=', 1)[0]] : [],
     );
-    expect(envNames).not.toEqual(expect.arrayContaining(
-      GITHUB_TOKEN_ENV_VARS.filter(name => name !== 'COPILOT_GITHUB_TOKEN'),
-    ));
+    for (const name of GITHUB_TOKEN_ENV_VARS.filter(name => name !== 'COPILOT_GITHUB_TOKEN')) {
+      expect(envNames).not.toContain(name);
+    }
   });
 
   it('never accepts an invocation-supplied control', () => {

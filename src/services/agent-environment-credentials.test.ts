@@ -340,8 +340,8 @@ describe('agent environment: credentials', () => {
   });
 
   it('should fail closed when a host GitHub token is copied to another environment variable', () => {
-    const originalToken = process.env.GH_TOKEN;
-    process.env.GH_TOKEN = 'host-gh-token-value';
+    const originalToken = process.env.GITHUB_PAT;
+    process.env.GITHUB_PAT = 'host-gh-token-value';
 
     try {
       const configWithTokenAlias = {
@@ -356,8 +356,8 @@ describe('agent environment: credentials', () => {
       expect(() => generateDockerCompose(configWithTokenAlias, mockNetworkConfig))
         .toThrow(/host GitHub token through agent sandbox variable STAGING_TOKEN_COPY/);
     } finally {
-      if (originalToken === undefined) delete process.env.GH_TOKEN;
-      else process.env.GH_TOKEN = originalToken;
+      if (originalToken === undefined) delete process.env.GITHUB_PAT;
+      else process.env.GITHUB_PAT = originalToken;
     }
   });
 

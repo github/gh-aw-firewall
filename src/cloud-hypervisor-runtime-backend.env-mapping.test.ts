@@ -50,8 +50,8 @@ describe('Cloud Hypervisor runtime backend environment and path mapping', () => 
   });
 
   it('fails closed when a host GitHub token is copied to another guest variable', () => {
-    const originalToken = process.env.GH_TOKEN;
-    process.env.GH_TOKEN = 'host-gh-token-value';
+    const originalToken = process.env.GITHUB_PAT;
+    process.env.GITHUB_PAT = 'host-gh-token-value';
 
     try {
       expect(() => buildCloudHypervisorGuestEnvironment(
@@ -65,8 +65,8 @@ describe('Cloud Hypervisor runtime backend environment and path mapping', () => 
         infrastructure(),
       )).toThrow(/host GitHub token through agent sandbox variable STAGING_TOKEN_COPY/);
     } finally {
-      if (originalToken === undefined) delete process.env.GH_TOKEN;
-      else process.env.GH_TOKEN = originalToken;
+      if (originalToken === undefined) delete process.env.GITHUB_PAT;
+      else process.env.GITHUB_PAT = originalToken;
     }
   });
 
