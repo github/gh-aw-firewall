@@ -12,6 +12,8 @@ engine:
   version: 1.0.34
   env:
     GH_TOKEN: ${{ github.token }}
+    GH_AW_HARNESS_STARTUP_RETRIES: "0"
+    GH_AW_HARNESS_MAX_RETRIES: "0"
   args: ["--allow-tool", "awf-enclave(enclave_run_script)"]
 network:
   allowed:
@@ -28,6 +30,22 @@ enclaves:
     timeout: 120
     max-invocations: 1
 safe-outputs:
+  github-token: ${{ secrets.GITHUB_TOKEN }}
+  report-failed-jobs: false
+  jobs:
+    report-smoke-result:
+      description: "Record the successful enclave smoke result in the Actions summary."
+      runs-on: ubuntu-slim
+      if: needs.agent.result == 'success'
+      output: "Smoke result recorded."
+      inputs:
+        result:
+          description: "The exact successful enclave result."
+          required: true
+          type: string
+      steps:
+        - name: Record enclave result
+          run: printf '%s\n' 'ENCLAVE_CLOUD_HYPERVISOR_PASS {"package_json":true,"src":true}' >> "$GITHUB_STEP_SUMMARY"
   report-failure-as-issue: false
   report-incomplete:
     create-issue: false
@@ -40,6 +58,7 @@ safe-outputs:
     run-started: "[{workflow_name}]({run_url}) is testing a script enclave through real mcpg..."
     run-success: "[{workflow_name}]({run_url}) completed. Cloud Hypervisor script enclave passed."
     run-failure: "[{workflow_name}]({run_url}) reports {status}. Cloud Hypervisor script enclave failed."
+  timeout-minutes: 20
 timeout-minutes: 20
 sandbox:
   agent:
@@ -50,6 +69,9 @@ strict: false
 concurrency:
   group: smoke-enclave-cloud-hypervisor
   cancel-in-progress: false
+jobs:
+  agent:
+    timeout-minutes: 20
 post-steps:
   - name: Validate enclave invocation and result
     if: always()
@@ -67,17 +89,22 @@ post-steps:
       if (failures.length !== 0) {
         throw new Error(`expected no failed enclave attempts, found ${failures.length}`);
       }
-      const invocations = auditRecords.filter(record =>
-        record.kind === "invocation" &&
-        record.repo === "github/gh-aw-firewall" &&
-        record.sensitivity === "public");
-      if (invocations.length !== 1) {
+      const invocations = auditRecords.filter(record => record.kind === "invocation");
+      if (invocations.length !== 1 ||
+          invocations[0].repo !== "github/gh-aw-firewall" ||
+          invocations[0].sensitivity !== "public") {
         throw new Error(`expected one successful enclave invocation, found ${invocations.length}`);
       }
       const expected = 'ENCLAVE_CLOUD_HYPERVISOR_PASS {"package_json":true,"src":true}';
-      if (!readRecords(outputsPath).some(record =>
-        record.type === "noop" && record.message === expected)) {
-        throw new Error("agent did not report the exact enclave result through noop");
+      const outputs = readRecords(outputsPath);
+      const diagnostics = outputs.filter(record =>
+        record.type === "missing_data" || record.type === "missing_tool");
+      if (diagnostics.length !== 0) {
+        throw new Error(`expected no missing-data or missing-tool diagnostics, found ${diagnostics.length}`);
+      }
+      const results = outputs.filter(record => record.type === "report_smoke_result");
+      if (results.length !== 1 || results[0].result !== expected) {
+        throw new Error("agent did not report the exact enclave result");
       }
       NODE
 ---
@@ -94,6 +121,9 @@ diagnostics (#9898) and the narrowly scoped official-main and tagged-workflow
 acceptance paths. The binary, Docker images, and release-attested primary and
 script enclave artifacts all select that release. This workflow is compiled
 with gh-aw v0.91.9 and does not publish a release or authorize a live run.
+The agent and built-in safe-outputs jobs have 20-minute timeouts; other
+generated jobs, including custom reporting, do not. GitHub Actions does not
+provide an enforceable 20-minute wall-clock limit for the entire workflow run.
 
 The enclave server is mounted as the `awf-enclave` CLI command on `PATH`,
 not as a direct MCP tool. Make exactly one enclave call from shell/Bash:
@@ -128,21 +158,25 @@ Safe outputs are also mounted CLI commands, not direct MCP tools. Only if
 both returned booleans are `true`, run this final command once from shell/Bash:
 
 ```bash
-printf '%s\n' '{"message":"ENCLAVE_CLOUD_HYPERVISOR_PASS {\"package_json\":true,\"src\":true}"}' | safeoutputs noop .
+printf '%s\n' '{"result":"ENCLAVE_CLOUD_HYPERVISOR_PASS {\"package_json\":true,\"src\":true}"}' | safeoutputs report_smoke_result .
 ```
 
 On any failure, including an unavailable enclave command or a failed invocation,
-run this final command once instead; never report failure via `noop`:
-
-```bash
-printf '%s\n' '{"data_type":"Cloud Hypervisor enclave result","reason":"The enclave invocation failed or did not return both required booleans as true."}' | safeoutputs missing_data .
-```
+do not retry the enclave call or invoke a safe output. The always-run validator
+records failures from the audit log and the workflow retains step summaries,
+logs, and artifacts.
 
 Do not use safe outputs for discovery, probing, or placeholder calls.
 
-Automatic failure issues are disabled so the ordinary safe-output issue remains
-the only issue-creation path, capped at one per run. Failures remain visible in
-the workflow status, step summaries, logs, and uploaded artifacts.
+The ordinary `create_issue` tool, failed-jobs issue reporter, and failure-issue
+handler are disabled. `missing_data` remains a non-issue diagnostic recorder.
+The safe-outputs job is pinned to the repository `GITHUB_TOKEN` secret and has
+no issue permissions; the generated workflow grants no job `issues: write`.
+The summary job prints a fixed PASS literal only after the always-run validator
+confirms exactly one successful target invocation, the exact result record,
+and no enclave failures or `missing_data`/`missing_tool` diagnostics. Its job
+is gated on that validator succeeding. Do not invoke `missing_data`; failures
+remain visible in workflow status, summaries, logs, and artifacts.
 
 ## Usage
 

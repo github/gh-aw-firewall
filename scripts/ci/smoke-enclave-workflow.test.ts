@@ -53,54 +53,28 @@ describe('experimental Cloud Hypervisor enclave smoke workflow', () => {
     expect(source).toContain('env:\n    GH_TOKEN: ${{ github.token }}');
   });
 
-  it('keeps the compiler-injected issue output bounded for failure reporting', () => {
-    const compiled = yaml.load(lock) as {
-      jobs: Record<string, {
-        permissions?: Record<string, string>;
-        steps?: Array<{
-          name?: string;
-          env?: Record<string, string>;
-        }>;
-      }>;
-    };
-    const configStep = compiled.jobs.agent.steps?.find(step =>
-      step.name === 'Generate Safe Outputs Config');
-    const safeOutputsConfig = JSON.parse(
-      configStep?.env?.GH_AW_SAFE_OUTPUTS_CONFIG ?? '{}'
-    ) as {
-      create_issue?: {
-        labels: string[];
-        max: number;
-        title_prefix: string;
-      };
-    };
-
-    expect(source).toContain('GH_TOKEN: ${{ github.token }}');
-    expect(safeOutputsConfig.create_issue).toEqual({
-      labels: ['smoke-enclave-cloud-hypervisor'],
-      max: 1,
-      title_prefix: '[smoke-enclave-cloud-hypervisor]',
-    });
-    expect(compiled.jobs.safe_outputs.permissions?.issues).toBe('write');
-    expect(source).toContain('run this final command once instead');
-    expect(source).toContain('safeoutputs missing_data .');
-  });
-
-  it('disables separate failure issues without suppressing non-issue diagnostics', () => {
+  it('omits issue-creation tools, reporters, and permissions', () => {
     const frontmatter = yaml.load(source.split('---')[1]) as {
       'safe-outputs': {
+        'create-issue'?: unknown;
+        'github-token': string;
         'report-failure-as-issue': boolean;
+        'report-failed-jobs': boolean;
         'report-incomplete': { 'create-issue': boolean };
         'missing-tool': { 'create-issue': boolean };
+        jobs: Record<string, unknown>;
       };
     };
     const compiled = yaml.load(lock) as {
       jobs: Record<string, {
+        if?: string;
         permissions?: Record<string, string>;
         steps: Array<{
           name: string;
           if?: string;
           env?: Record<string, string>;
+          with?: Record<string, string>;
+          run?: string;
         }>;
       }>;
     };
@@ -109,18 +83,29 @@ describe('experimental Cloud Hypervisor enclave smoke workflow', () => {
     const loadOutputsStep = compiled.jobs.conclusion.steps.find(step =>
       step.env?.GH_AW_REPORT_INCOMPLETE_CREATE_ISSUE !== undefined);
 
+    expect(frontmatter['safe-outputs']['create-issue']).toBeUndefined();
+    expect(frontmatter['safe-outputs'].jobs['report-smoke-result']).toBeDefined();
+    expect(frontmatter['safe-outputs']['github-token']).toBe('${{ secrets.GITHUB_TOKEN }}');
     expect(frontmatter['safe-outputs']['report-failure-as-issue']).toBe(false);
+    expect(frontmatter['safe-outputs']['report-failed-jobs']).toBe(false);
     expect(frontmatter['safe-outputs']['report-incomplete']['create-issue']).toBe(false);
     expect(frontmatter['safe-outputs']['missing-tool']['create-issue']).toBe(false);
     expect(failureStep).toBeDefined();
     expect(failureStep?.env?.GH_AW_FAILURE_REPORT_AS_ISSUE).toBe('false');
     expect(failureStep?.env?.GH_AW_MISSING_DATA_REPORT_AS_FAILURE).toBe('true');
     expect(failureStep?.env?.GH_AW_MISSING_TOOL_REPORT_AS_FAILURE).toBe('true');
+    expect(compiled.jobs.conclusion.steps.some(step =>
+      step.name === 'Report failed jobs')).toBe(false);
     const missingToolStep = compiled.jobs.conclusion.steps.find(step =>
       step.env?.GH_AW_MISSING_TOOL_CREATE_ISSUE !== undefined);
     expect(missingToolStep?.env?.GH_AW_MISSING_TOOL_CREATE_ISSUE).toBe('false');
     expect(loadOutputsStep?.env?.GH_AW_REPORT_INCOMPLETE_CREATE_ISSUE).toBe('false');
-    expect(compiled.jobs.activation.permissions?.issues).toBeUndefined();
+    expect(compiled.jobs.conclusion.permissions?.issues).toBeUndefined();
+    expect(Object.entries(compiled.jobs)
+      .filter(([, job]) => job.permissions?.issues === 'write')
+      .map(([name]) => name)).toEqual([]);
+    expect(compiled.jobs.safe_outputs.permissions?.issues).toBeUndefined();
+    expect(compiled.jobs.report_smoke_result.permissions?.issues).toBeUndefined();
     const blockedVersionStep = compiled.jobs.activation.steps.find(step =>
       step.env?.GH_AW_BLOCKED_VERSION_REPORT_AS_ISSUE !== undefined);
     expect(blockedVersionStep?.env?.GH_AW_BLOCKED_VERSION_REPORT_AS_ISSUE).toBe('false');
@@ -130,14 +115,27 @@ describe('experimental Cloud Hypervisor enclave smoke workflow', () => {
       const configStep = Object.values(compiled.jobs).flatMap(job => job.steps)
         .find(step => step.env?.[configKey] !== undefined);
       const config = JSON.parse(configStep?.env?.[configKey] ?? '{}') as {
-        create_issue?: { max: number };
+        create_issue?: unknown;
+        missing_data?: { create_issue?: string };
         create_report_incomplete_issue?: unknown;
         report_incomplete?: unknown;
       };
-      expect(config.create_issue?.max).toBe(1);
+      expect(config.create_issue).toBeUndefined();
+      expect(config.missing_data?.create_issue).toBeUndefined();
       expect(config.create_report_incomplete_issue).toBeUndefined();
       expect(config.report_incomplete).toEqual({});
     }
+    const manifestLine = lock.split('\n').find(line =>
+      line.startsWith('# gh-aw-manifest: '));
+    expect(manifestLine).toBeDefined();
+    const manifest = JSON.parse(manifestLine!.slice('# gh-aw-manifest: '.length)) as {
+      mcp_servers: Array<{ name: string; tools: string[] }>;
+    };
+    const safeOutputsTools = manifest.mcp_servers.find(server =>
+      server.name === 'safeoutputs')?.tools ?? [];
+    expect(safeOutputsTools).not.toContain('create_issue');
+    expect(safeOutputsTools).toContain('report_smoke_result');
+    expect(safeOutputsTools).toContain('missing_data');
     for (const name of [
       'Append agent step summary',
       'Parse agent logs for step summary',
@@ -148,7 +146,121 @@ describe('experimental Cloud Hypervisor enclave smoke workflow', () => {
         .toBe('always()');
     }
     expect(lock).toContain('name: Upload Safe Outputs Items\n        if: always()');
-    expect(source).toContain('safeoutputs missing_data .');
+    expect(source).toContain('safeoutputs report_smoke_result .');
+    const processSafeOutputs = compiled.jobs.safe_outputs.steps.find(step =>
+      step.name === 'Process Safe Outputs');
+    expect(processSafeOutputs?.with?.['github-token']).toBe('${{ secrets.GITHUB_TOKEN }}');
+    expect(source).toContain('The ordinary `create_issue` tool, failed-jobs issue reporter');
+    expect(source).toContain('the generated workflow grants no job `issues: write`');
+
+    const reportJob = compiled.jobs.report_smoke_result;
+    const reportStep = reportJob.steps.find(step =>
+      step.name === 'Record enclave result');
+    expect(reportJob.if).toContain("needs.agent.result == 'success'");
+    expect(reportStep?.run).toContain(
+      `ENCLAVE_CLOUD_HYPERVISOR_PASS {"package_json":true,"src":true}`
+    );
+    expect(reportStep?.env?.SMOKE_RESULT).toBeUndefined();
+    expect(reportStep?.run).not.toContain('inputs.result');
+  });
+
+  it('gates the fixed PASS summary on the exact successful result and no diagnostics', () => {
+    const frontmatter = yaml.load(source.split('---')[1]) as {
+      'post-steps': Array<{ name: string; if?: string; run: string }>;
+    };
+    const compiled = yaml.load(lock) as {
+      jobs: Record<string, {
+        if?: string;
+        steps: Array<{ name: string; if?: string; run?: string }>;
+        'timeout-minutes'?: number;
+      }>;
+    };
+    const validateStep = frontmatter['post-steps'].find(step =>
+      step.name === 'Validate enclave invocation and result');
+    const compiledValidateStep = compiled.jobs.agent.steps.find(step =>
+      step.name === 'Validate enclave invocation and result');
+    expect(validateStep?.if).toBe('always()');
+    expect(compiledValidateStep?.if).toBe('always()');
+    expect(validateStep?.run).toContain('record.kind === "failure"');
+    expect(validateStep?.run).toContain('record.type === "missing_data"');
+    expect(validateStep?.run).toContain('record.type === "missing_tool"');
+    expect(validateStep?.run).toContain('results.length !== 1');
+    expect(compiled.jobs.report_smoke_result.if)
+      .toContain("needs.agent.result == 'success'");
+
+    const tempDir = fs.mkdtempSync(path.join(__dirname, 'smoke-enclave-validation-'));
+    const auditPath = path.join(tempDir, 'audit.jsonl');
+    const outputsPath = path.join(tempDir, 'outputs.jsonl');
+    const audit = [{ kind: 'invocation', repo: 'github/gh-aw-firewall', sensitivity: 'public' }];
+    const expectedOutput = {
+      type: 'report_smoke_result',
+      result: 'ENCLAVE_CLOUD_HYPERVISOR_PASS {"package_json":true,"src":true}',
+    };
+    const validate = (outputs: unknown[], auditRecords: unknown[] = audit) => {
+      fs.writeFileSync(auditPath, `${auditRecords.map(value => JSON.stringify(value)).join('\n')}\n`);
+      fs.writeFileSync(outputsPath, `${outputs.map(value => JSON.stringify(value)).join('\n')}\n`);
+      return execFileSync('bash', ['-c', validateStep!.run], {
+        encoding: 'utf8',
+        env: { ...process.env, AUDIT_LOG: auditPath, OUTPUTS_FILE: outputsPath },
+        stdio: 'pipe',
+      });
+    };
+
+    try {
+      expect(() => validate([expectedOutput])).not.toThrow();
+      for (const diagnosticType of ['missing_data', 'missing_tool']) {
+        expect(() => validate([
+          expectedOutput,
+          { type: diagnosticType, reason: 'contradictory failure diagnostic' },
+        ])).toThrow();
+      }
+      expect(() => validate([
+        expectedOutput,
+        { type: 'report_smoke_result', result: 'different result' },
+      ])).toThrow();
+      expect(() => validate([
+        { ...expectedOutput, result: 'different result' },
+      ])).toThrow();
+      expect(() => validate([
+        expectedOutput,
+      ], [
+        ...audit,
+        { kind: 'failure', repo: 'github/gh-aw-firewall', sensitivity: 'public' },
+      ])).toThrow();
+    } finally {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it('sets both agent retry budgets to zero and bounds individual jobs', () => {
+    const compiled = yaml.load(lock) as {
+      'timeout-minutes'?: number;
+      jobs: Record<string, {
+        'timeout-minutes'?: number;
+        steps: Array<{
+          name: string;
+          env?: Record<string, string>;
+          run?: string;
+        }>;
+      }>;
+    };
+    const executeAgent = compiled.jobs.agent.steps.find(step =>
+      step.name === 'Execute GitHub Copilot CLI');
+
+    expect(compiled.jobs.agent['timeout-minutes']).toBe(20);
+    expect(compiled.jobs.safe_outputs['timeout-minutes']).toBe(20);
+    expect(compiled['timeout-minutes']).toBeUndefined();
+    for (const [name, job] of Object.entries(compiled.jobs)) {
+      expect(job['timeout-minutes']).toBe(
+        ['agent', 'safe_outputs'].includes(name) ? 20 : undefined
+      );
+    }
+    expect(executeAgent?.env?.GH_AW_HARNESS_STARTUP_RETRIES).toBe(0);
+    expect(executeAgent?.env?.GH_AW_HARNESS_MAX_RETRIES).toBe(0);
+    expect(executeAgent?.run).toContain('run_awf_with_startup_retries.sh');
+    expect(executeAgent?.run).toContain('copilot_harness.cjs');
+    expect(source).toContain('GH_AW_HARNESS_STARTUP_RETRIES: "0"');
+    expect(source).toContain('GH_AW_HARNESS_MAX_RETRIES: "0"');
   });
 
   it('is manual-only and explicitly experimental on a supported runner', () => {
@@ -307,34 +419,26 @@ pathlib.Path("/query/out").write_text(json.dumps(result), encoding="utf-8")`);
     expect(source).toContain('record.kind === "invocation"');
     expect(source).toContain('record.kind === "failure"');
     expect(source).toContain('failures.length !== 0');
-    expect(source).toContain('record.sensitivity === "public"');
-    expect(source).toContain('record.type === "noop" && record.message === expected');
+    expect(source).toContain('invocations[0].sensitivity !== "public"');
+    expect(source).toContain('record.type === "report_smoke_result"');
+    expect(source).toContain('results[0].result !== expected');
     expect(source).toContain('ENCLAVE_CLOUD_HYPERVISOR_PASS');
   });
 
-  it('uses final safe-output CLI calls with JSON stdin for success and failure', () => {
+  it('uses one non-issue safe-output CLI call for the successful result', () => {
     const commands = [...source.matchAll(/```bash\n([\s\S]*?)\n```/g)]
       .map(match => match[1]).filter(command => command.includes('| safeoutputs '));
-    expect(commands).toHaveLength(2);
-    for (const [index, tool] of ['noop', 'missing_data'].entries()) {
-      expect(commands[index]).toContain(`| safeoutputs ${tool} .`);
-      const input = JSON.parse(execFileSync('bash', ['-c',
-        `function safeoutputs() { [[ "$#" == 2 && "$1" == ${tool} && "$2" == . ]] || return 1; cat; }\n` +
-        commands[index],
-      ], { encoding: 'utf8' }));
-      if (tool === 'noop') {
-        expect(input).toEqual({
-          message: 'ENCLAVE_CLOUD_HYPERVISOR_PASS {"package_json":true,"src":true}',
-        });
-      } else {
-        expect(input).toEqual({
-          data_type: 'Cloud Hypervisor enclave result',
-          reason: 'The enclave invocation failed or did not return both required booleans as true.',
-        });
-      }
-    }
+    expect(commands).toHaveLength(1);
+    expect(commands[0]).toContain('| safeoutputs report_smoke_result .');
+    const input = JSON.parse(execFileSync('bash', ['-c',
+      'function safeoutputs() { [[ "$#" == 2 && "$1" == report_smoke_result && "$2" == . ]] || return 1; cat; }\n' +
+      commands[0],
+    ], { encoding: 'utf8' }));
+    expect(input).toEqual({
+      result: 'ENCLAVE_CLOUD_HYPERVISOR_PASS {"package_json":true,"src":true}',
+    });
     expect(source).toContain('Do not use safe outputs for discovery, probing, or placeholder calls.');
-    expect(source).toContain('never report failure via `noop`');
+    expect(source).toContain('do not retry the enclave call or invoke a safe output');
   });
 
   it('documents the exact official-main guard without relaxing production gates', () => {
