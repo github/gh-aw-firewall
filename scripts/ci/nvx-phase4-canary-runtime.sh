@@ -69,6 +69,8 @@ test "$(uname -s)" = Linux
 test "$(uname -m)" = x86_64
 test -c /dev/kvm
 test -x dist/cli.js
+sudo sync
+sudo sh -c 'echo 3 > /proc/sys/vm/drop_caches'
 
 kvm_acl_before=$(sudo getfacl --absolute-names --numeric /dev/kvm 2>/dev/null)
 processes_before=$(runtime_process_snapshot)

@@ -240,6 +240,27 @@ describe('matched runtime measurement adapter', () => {
     expect(forward.promotionEligible).toBe(false);
     expect(reverse.runs).toEqual(forward.runs);
     expect(reverse.observedSampleIds).toEqual(forward.observedSampleIds);
+
+    const mismatchedTools = structuredClone(artifacts) as SampleArtifact[];
+    const cloudSample = mismatchedTools.find((artifact) =>
+      artifact.kind === 'run' && artifact.result.runtime === 'cloud-hypervisor',
+    );
+    if (cloudSample?.kind === 'run') {
+      cloudSample.result.provenance.observedGuestTools!.node = 'v22.23.3';
+    }
+    expect(() => aggregateCampaign(campaign, mismatchedTools, thresholds))
+      .toThrow('guest tool versions differ');
+
+    const mismatchedLayer = structuredClone(artifacts) as SampleArtifact[];
+    const secondNvxSample = mismatchedLayer.find((artifact) =>
+      artifact.kind === 'run' && artifact.result.runtime === 'nvx' &&
+      artifact.result.workload === 'copilot-inference',
+    );
+    if (secondNvxSample?.kind === 'run') {
+      secondNvxSample.result.provenance.nvxGuestToolchain!.layerSha256 = 'e'.repeat(64);
+    }
+    expect(() => aggregateCampaign(campaign, mismatchedLayer, thresholds))
+      .toThrow('NVX guest toolchain provenance differs');
   });
 
   it('parses complete measured recovery evidence and fails closed on omissions', () => {
