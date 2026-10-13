@@ -288,6 +288,10 @@ Successful reviewed Phase 3f evidence satisfies the remaining Phase 3
 promotion gate. Runtime registration, the mandatory preview flag, configuration
 surface, and external-backend adapter are implemented below.
 
+Phase 4 promotion thresholds, the benchmark matrix, and the go/no-go process
+for leaving preview are defined in
+[nvx-promotion-evaluation.md](nvx-promotion-evaluation.md).
+
 ## Runtime registration (opt-in preview)
 
 Following the accepted Phase 3f promotion evidence, `nvx` is registered as a

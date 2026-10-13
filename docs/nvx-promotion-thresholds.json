@@ -1,0 +1,43 @@
+{
+  "version": 1,
+  "baseline": {
+    "ghAw": "v0.91.9",
+    "awf": "v0.28.54",
+    "nvxWorkflowUpgrade": "github/gh-aw-firewall#9886",
+    "muslGuestAssetSelection": "github/gh-aw#67915"
+  },
+  "sample": {
+    "minSequentialRunsPerLaneRuntime": 30,
+    "minConcurrentRunsPerLaneRuntime": 10,
+    "minRecoverySamplesPerKindRuntime": 10
+  },
+  "absolute": {
+    "minSuccessRate": 0.95,
+    "startupMs": { "p50": 10000, "p95": 20000 },
+    "endToEndMs": { "p50": 300000, "p95": 600000 },
+    "peakMemoryMiB": { "p95": 6144 },
+    "scratchMiB": { "p95": 4096 },
+    "peakPids": { "p95": 512 },
+    "cleanupMs": { "p95": 30000 },
+    "cancellationMs": { "p95": 30000 },
+    "staleRecoveryMs": { "p95": 60000 }
+  },
+  "relativeToCloudHypervisor": {
+    "minimumAdvantage": 0.1,
+    "advantageMetrics": ["startupMs.p50", "startupMs.p95", "endToEndMs.p50", "endToEndMs.p95", "peakMemoryMiB.p95", "scratchMiB.p95"],
+    "maxRegression": 0.1,
+    "regressionMetrics": ["startupMs.p50", "startupMs.p95", "endToEndMs.p50", "endToEndMs.p95", "peakMemoryMiB.p95", "scratchMiB.p95", "cpuSeconds.p95", "peakPids.p95", "cleanupMs.p95"],
+    "maxSuccessRateDeficit": 0
+  },
+  "zeroTolerance": [
+    "provenance",
+    "runtimeFallback",
+    "egressPolicy",
+    "credentialIsolation",
+    "workspaceOnlyExposure",
+    "immutableArtifacts",
+    "boundedScratch",
+    "kvmAclRestoration",
+    "residue"
+  ]
+}
