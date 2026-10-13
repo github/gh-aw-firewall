@@ -31,31 +31,60 @@ runtime_storage_snapshot() {
   done | sort
 }
 
-awf_manager_identity() {
-  sudo node - "$1" "$2" <<'NODE'
+awf_cleanup_identity() {
+  sudo node - "$@" <<'NODE'
 const fs = require('fs');
 const path = require('path');
-const [work, cli] = process.argv.slice(2);
+const [runtime, cleanupRoot] = process.argv.slice(2);
+(async () => {
 const matches = [];
-for (const entry of fs.readdirSync('/proc')) {
-  if (!/^[0-9]+$/.test(entry)) continue;
+for (const name of fs.readdirSync(cleanupRoot)) {
+  if (!/^[A-Za-z0-9_.-]+\.json$/.test(name)) continue;
+  const recordPath = path.join(cleanupRoot, name);
   try {
-    const root = `/proc/${entry}`;
-    if (!['node', 'nodejs'].includes(path.basename(fs.readlinkSync(`${root}/exe`)))) continue;
-    const argv = fs.readFileSync(`${root}/cmdline`, 'utf8').split('\0');
-    const cwd = fs.readlinkSync(`${root}/cwd`);
-    if (!argv[1] || path.resolve(cwd, argv[1]) !== path.resolve(cli)) continue;
-    const index = argv.indexOf('--work-dir');
-    if (index < 0 || argv[index + 1] !== work) continue;
-    const stat = fs.readFileSync(`${root}/stat`, 'utf8');
-    const fields = stat.slice(stat.lastIndexOf(')') + 2).split(' ');
-    if (fields[0] !== 'Z') matches.push(`${entry} ${fields[19]}`);
+    const stat = fs.lstatSync(recordPath);
+    if (!stat.isFile() || stat.uid !== 0 || (stat.mode & 0o777) !== 0o600) continue;
+    const contents = fs.readFileSync(recordPath, 'utf8');
+    let record;
+    if (runtime === 'nvx') {
+      record = require(path.resolve('dist/nvx/cleanup-record.js'))
+        .parseNvxCleanupRecord(contents, recordPath, cleanupRoot);
+    } else {
+      record = JSON.parse(contents);
+      require(path.resolve('dist/cloud-hypervisor/cleanup-identity.js'))
+        .validateRecord(record, recordPath, cleanupRoot);
+    }
+    const normalizeNvxProcess = (identity) => ({
+      ...identity,
+      startTime: identity.startTimeTicks,
+      executableIdentity: {
+        device: identity.executableDevice,
+        inode: identity.executableInode,
+      },
+    });
+    const owner = runtime === 'nvx' ? normalizeNvxProcess(record.owner) : record.owner;
+    const { processMatches } = require(path.resolve('dist/cloud-hypervisor/cleanup-process.js'));
+    if (!await processMatches(fs.promises, owner)) continue;
+    if (runtime === 'nvx') {
+      const launcher = record.resources.launcher;
+      if (!record.stages.processStarted || !launcher ||
+        !await processMatches(fs.promises, normalizeNvxProcess(launcher))) continue;
+    } else {
+      const vmm = record.processes.vmm;
+      const snapshot = record.paths.artifactSnapshotDirectory;
+      if (!snapshot || vmm?.state !== 'live' || !vmm.identity ||
+        vmm.executable !== path.join(snapshot, 'cloud-hypervisor') ||
+        vmm.identity.executable !== vmm.executable ||
+        !await processMatches(fs.promises, vmm.identity, vmm)) continue;
+    }
+    matches.push([recordPath, owner.pid, owner.startTime]);
   } catch (error) {
-    if (!['ENOENT', 'ESRCH'].includes(error.code)) throw error;
+    if (!['ENOENT', 'ESRCH'].includes(error.code)) console.error(error);
   }
 }
 if (matches.length !== 1) process.exit(1);
-console.log(matches[0]);
+console.log(matches[0].join('\t'));
+})().catch((error) => { console.error(error); process.exitCode = 1; });
 NODE
 }
 
@@ -112,13 +141,10 @@ const [runtime, recordPath, cleanupRoot, pid, startTime] = process.argv.slice(2)
     throw new Error('Cleanup owner process identity changed');
   }
   if (runtime === 'nvx') {
-    const vmm = record.resources.openvmm;
-    const expectedExecutable = path.join(
-      '/var/lib/awf-nvx/trusted-artifacts', `run-${record.runId}`, 'openvmm',
-    );
-    if (!record.stages.processStarted || !vmm || vmm.executable !== expectedExecutable ||
-      !await processMatches(fs.promises, normalizeNvxProcess(vmm))) {
-      throw new Error('NVX live VMM process identity is missing or changed');
+    const launcher = record.resources.launcher;
+    if (!record.stages.processStarted || !launcher ||
+      !await processMatches(fs.promises, normalizeNvxProcess(launcher))) {
+      throw new Error('NVX live runtime launcher identity is missing or changed');
     }
   } else {
     const vmm = record.processes.vmm;

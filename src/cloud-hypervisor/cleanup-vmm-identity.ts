@@ -1,6 +1,12 @@
 import type { CleanupRecord } from './cleanup-identity';
 import type { CloudHypervisorVmmIdentityToolPaths } from './vmm-identity';
 import { runChecked, type ResolvedCleanupDependencies } from './cleanup-dependencies';
+import {
+  deviceAclArgument,
+  parseDeviceAcl,
+  sameDeviceAcl,
+  type CloudHypervisorDevicePath,
+} from './device-acl';
 
 type RecordedVmmIdentity = NonNullable<CleanupRecord['vmmIdentity']>;
 
@@ -28,6 +34,20 @@ async function releaseVmmAcls(
   tools: CloudHypervisorVmmIdentityToolPaths,
 ): Promise<void> {
   for (const aclPath of [...identity.aclPaths].reverse()) {
+    const baseline = identity.aclBaselines?.[aclPath as CloudHypervisorDevicePath];
+    if (baseline) {
+      await runChecked(dependencies.run, tools.setfacl, [
+        `--set=${deviceAclArgument(baseline)}`, aclPath,
+      ]);
+      const restored = await dependencies.run(tools.getfacl, [
+        '--absolute-names', '--numeric', aclPath,
+      ]);
+      if (
+        restored.exitCode !== 0 ||
+        !sameDeviceAcl(parseDeviceAcl(restored.stdout), baseline)
+      ) throw new Error(`VMM ACL restoration validation failed for ${aclPath}`);
+      continue;
+    }
     let acl = await dependencies.run(tools.getfacl, [
       '--absolute-names', '--numeric', aclPath,
     ]);

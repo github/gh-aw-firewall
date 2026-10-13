@@ -58,7 +58,7 @@ describe('DurableCloudHypervisorCleanupRegistry orchestration', () => {
       expect((await fs.stat(path.dirname(recordPath))).mode & 0o777).toBe(0o700);
     });
 
-    it('journals and reaps the exact dedicated VMM account and ACL identity', async () => {
+    it('restores the exact /dev/kvm ACL baseline after run 38474851931 forced termination', async () => {
       const paths = harness.runPaths('vmm-account-recovery');
       const account = 'awfvmm-0123456789abcdef0123';
       let userExists = true;
@@ -93,7 +93,9 @@ describe('DurableCloudHypervisorCleanupRegistry orchestration', () => {
         if (command === tools.getfacl) {
           return {
             exitCode: 0,
-            stdout: aclExists ? 'user:23001:rw-\n' : '',
+            stdout: aclExists
+              ? 'user::rw-\nuser:23001:rw-\ngroup::rw-\nmask::rw-\nother::rw-\n'
+              : 'user::rw-\ngroup::rw-\nother::rw-\n',
             stderr: '',
           };
         }
@@ -114,12 +116,16 @@ describe('DurableCloudHypervisorCleanupRegistry orchestration', () => {
       await handle.captureArtifactSnapshot(snapshot);
       await handle.prepareVmmAccount(account);
       await handle.captureVmmIdentity({ name: account, uid: 23001, gid: 23002 });
-      await handle.prepareVmmAcl('/dev/kvm');
+      const baseline = ['user::rw-', 'group::rw-', 'other::rw-'];
+      await handle.prepareVmmAcl('/dev/kvm', baseline);
       harness.state.ownerStartTime = '2000';
 
       await registry.reapPending(tools.ip, '/usr/bin/umount', tools);
 
-      expect(run).toHaveBeenCalledWith(tools.setfacl, ['--remove', 'user:23001', '/dev/kvm']);
+      expect(run).toHaveBeenCalledWith(tools.setfacl, [
+        `--set=${baseline.join(',')}`,
+        '/dev/kvm',
+      ]);
       expect(run).toHaveBeenCalledWith(tools.userdel, [account]);
       expect(run).toHaveBeenCalledWith(tools.groupdel, [account]);
       await expect(fs.access(snapshot)).rejects.toMatchObject({ code: 'ENOENT' });

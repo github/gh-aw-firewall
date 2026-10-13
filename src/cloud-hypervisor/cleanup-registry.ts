@@ -36,6 +36,7 @@ import {
   unmountVirtiofsdResources,
   writeRecord,
 } from './cleanup-record-store';
+import type { CloudHypervisorDevicePath } from './device-acl';
 
 export type { CleanupRegistryDependencies } from './cleanup-dependencies';
 
@@ -48,7 +49,7 @@ export interface CloudHypervisorCleanupHandle {
   captureArtifactSnapshot(directory: string): Promise<void>;
   prepareVmmAccount(name: string): Promise<void>;
   captureVmmIdentity(identity: import('./vmm-identity').CloudHypervisorVmmIdentity): Promise<void>;
-  prepareVmmAcl(path: string): Promise<void>;
+  prepareVmmAcl(path: CloudHypervisorDevicePath, baseline: readonly string[]): Promise<void>;
   releaseVmmAcl(path: string): Promise<void>;
   captureNetworkResource(resource: CloudHypervisorNetworkResource): Promise<void>;
   captureRunDirectory(): Promise<void>;

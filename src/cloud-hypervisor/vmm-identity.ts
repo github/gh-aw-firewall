@@ -4,6 +4,12 @@ import * as path from 'path';
 import { createDefaultIdentityDependencies } from '../identity-dependencies';
 import { withDirectoryLock, type DirectoryLockOwner } from '../microvm/directory-lock';
 import { resolveAndValidateVmmAccount } from '../vmm-account-validation';
+import {
+  deviceAclArgument,
+  parseDeviceAcl,
+  sameDeviceAcl,
+  type CloudHypervisorDevicePath,
+} from './device-acl';
 
 const ACCOUNT_PREFIX = 'awfvmm-';
 const ACCOUNT_LOCK_DIRECTORY = '/run/awf-cloud-hypervisor/.account-lock';
@@ -34,8 +40,8 @@ export interface CloudHypervisorVmmIdentityToolPaths {
 export interface CloudHypervisorVmmIdentityObserver {
   prepareAccount(name: string): Promise<void>;
   captureIdentity(identity: CloudHypervisorVmmIdentity): Promise<void>;
-  prepareAcl(path: string): Promise<void>;
-  releaseAcl(path: string): Promise<void>;
+  prepareAcl(path: CloudHypervisorDevicePath, baseline: readonly string[]): Promise<void>;
+  releaseAcl(path: CloudHypervisorDevicePath): Promise<void>;
 }
 
 export interface CloudHypervisorVmmIdentityDependencies {
@@ -65,6 +71,7 @@ export class CloudHypervisorVmmIdentityManager {
   private identity: CloudHypervisorVmmIdentity | undefined;
   private provisionalAccountName: string | undefined;
   private readonly aclPaths = new Set<string>();
+  private readonly aclBaselines = new Map<CloudHypervisorDevicePath, string[]>();
 
   constructor(
     private readonly runId: string,
@@ -138,7 +145,7 @@ export class CloudHypervisorVmmIdentityManager {
         operationError = error;
       }
       try {
-        await this.revokeDeviceAccessLocked(identity);
+        await this.revokeDeviceAccessLocked();
       } catch (revokeError) {
         if (operationError) {
           throw new Error(
@@ -210,7 +217,7 @@ export class CloudHypervisorVmmIdentityManager {
           `Refusing to remove reused Cloud Hypervisor VMM account ${identity.name}`,
         );
       }
-      await this.withDeviceAclLock(() => this.revokeDeviceAccessLocked(identity));
+      await this.withDeviceAclLock(() => this.revokeDeviceAccessLocked());
       await this.removeAccountState(identity.name);
       this.identity = undefined;
     });
@@ -221,11 +228,16 @@ export class CloudHypervisorVmmIdentityManager {
     includeTun: boolean,
   ): Promise<void> {
     for (const devicePath of includeTun ? VMM_DEVICE_PATHS : VMM_DEVICE_PATHS.slice(0, 1)) {
-      await this.observer?.prepareAcl(devicePath);
+      const before = await this.dependencies.run(this.tools.getfacl, [
+        '--absolute-names', '--numeric', devicePath,
+      ]);
+      const baseline = parseDeviceAcl(before.stdout);
+      await this.observer?.prepareAcl(devicePath, baseline);
       await this.dependencies.run(this.tools.setfacl, [
         '--modify', `user:${identity.uid}:rw`, devicePath,
       ]);
       this.aclPaths.add(devicePath);
+      this.aclBaselines.set(devicePath, baseline);
       const { stdout } = await this.dependencies.run(this.tools.getfacl, [
         '--absolute-names', '--numeric', devicePath,
       ]);
@@ -235,21 +247,26 @@ export class CloudHypervisorVmmIdentityManager {
     }
   }
 
-  private async revokeDeviceAccessLocked(identity: CloudHypervisorVmmIdentity): Promise<void> {
+  private async revokeDeviceAccessLocked(): Promise<void> {
     const errors: unknown[] = [];
     for (const devicePath of [...this.aclPaths].reverse()) {
       try {
+        const baseline = this.aclBaselines.get(devicePath as CloudHypervisorDevicePath);
+        if (!baseline) {
+          throw new Error(`Cloud Hypervisor VMM ACL baseline is missing for ${devicePath}`);
+        }
         await this.dependencies.run(this.tools.setfacl, [
-          '--remove', `user:${identity.uid}`, devicePath,
+          `--set=${deviceAclArgument(baseline)}`, devicePath,
         ]);
         const { stdout } = await this.dependencies.run(this.tools.getfacl, [
           '--absolute-names', '--numeric', devicePath,
         ]);
-        if (stdout.split(/\r?\n/).some((line) => line.startsWith(`user:${identity.uid}:`))) {
-          throw new Error(`Cloud Hypervisor VMM ACL removal validation failed for ${devicePath}`);
+        if (!sameDeviceAcl(parseDeviceAcl(stdout), baseline)) {
+          throw new Error(`Cloud Hypervisor VMM ACL restoration failed for ${devicePath}`);
         }
-        await this.observer?.releaseAcl(devicePath);
+        await this.observer?.releaseAcl(devicePath as CloudHypervisorDevicePath);
         this.aclPaths.delete(devicePath);
+        this.aclBaselines.delete(devicePath as CloudHypervisorDevicePath);
       } catch (error) {
         errors.push(error);
       }

@@ -166,22 +166,9 @@ cleanup_record_identity_valid=false
 runtime_process_observed=false
 for _ in $(seq 1 600); do
   if ! kill -0 "$launcher_pid" 2>/dev/null; then break; fi
-  if [ -z "$manager_pid" ]; then
-    manager_identity=$(awf_manager_identity "$work" "$PWD/dist/cli.js" || true)
-    if [ -n "$manager_identity" ]; then
-      read -r manager_pid manager_start_time <<< "$manager_identity"
-    fi
-  fi
-  cleanup_record=
-  if [ -n "$manager_pid" ]; then
-    while IFS= read -r candidate; do
-      if sudo jq -e --argjson pid "$manager_pid" '.owner.pid == $pid' \
-        "$candidate" >/dev/null 2>&1; then
-        cleanup_record=$candidate
-        break
-      fi
-    done < <(sudo find "$cleanup_root" -maxdepth 1 -name '*.json' -type f \
-      -print 2>/dev/null || true)
+  cleanup_identity=$(awf_cleanup_identity "$runtime" "$cleanup_root" || true)
+  if [ -n "$cleanup_identity" ]; then
+    IFS=$'\t' read -r cleanup_record manager_pid manager_start_time <<< "$cleanup_identity"
   fi
   if [ -f "$ready_marker" ] && [ -s "$guest_status" ] && [ -n "$cleanup_record" ]; then
     if awf_cleanup_identity_valid "$runtime" "$cleanup_record" "$cleanup_root" \
@@ -198,8 +185,9 @@ done
 manager_killed_after_record=false
 terminal_observed=false
 set +e
+current_cleanup_identity=$(awf_cleanup_identity "$runtime" "$cleanup_root" || true)
 if [ -n "$manager_pid" ] &&
-  [ "$(awf_manager_identity "$work" "$PWD/dist/cli.js")" = "$manager_pid $manager_start_time" ]; then
+  [ "$current_cleanup_identity" = "$cleanup_record"$'\t'"$manager_pid"$'\t'"$manager_start_time" ]; then
   if [ "$kind" = stale-recovery ] && [ "$cleanup_record_identity_valid" = true ] &&
     awf_cleanup_identity_valid "$runtime" "$cleanup_record" "$cleanup_root" \
       "$manager_pid" "$manager_start_time"; then

@@ -23,7 +23,7 @@ describe('cleanup handle integration', () => {
       const account = 'awfvmm-0123456789abcdef0123';
       await handle.prepareVmmAccount(account);
       await handle.captureVmmIdentity({ name: account, uid: 23001, gid: 23002 });
-      await handle.prepareVmmAcl('/dev/kvm');
+      await handle.prepareVmmAcl('/dev/kvm', ['user::rw-', 'group::rw-', 'other::rw-']);
       await handle.releaseVmmAcl('/dev/kvm');
 
       const record = JSON.parse(await fs.readFile(

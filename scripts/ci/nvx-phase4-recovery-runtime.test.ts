@@ -67,7 +67,7 @@ async function cleanupIdentityCheck(runtime: string, defect = '') {
   };
   const record = runtime === 'nvx' ? {
     runId, owner,
-    resources: { openvmm: defect === 'missing' ? undefined : vmm },
+    resources: { launcher: defect === 'missing' ? undefined : vmm },
     stages: { processStarted: defect !== 'pending' },
   } : {
     runId, owner: normalize(owner),
@@ -105,29 +105,72 @@ async function cleanupIdentityCheck(runtime: string, defect = '') {
   return { status: processState.exitCode, processMatches, recordedVmm };
 }
 
+async function cleanupSelectionCheck(recordCount: number, processChanged = false) {
+  const runId = 'a'.repeat(32);
+  const records = Array.from({ length: recordCount }, (_, index) => ({
+    path: `/cleanup/${String.fromCharCode(97 + index).repeat(32)}.json`,
+    value: {
+      runId,
+      owner: {
+        pid: 31 + index, startTimeTicks: '123', executable: '/usr/bin/node',
+        executableDevice: '1', executableInode: '2', uid: 0, gid: 0,
+        networkNamespace: 'net:[1]',
+      },
+      resources: {
+        launcher: {
+          pid: 41 + index, startTimeTicks: '456', executable: '/usr/bin/bwrap',
+          executableDevice: '3', executableInode: '4', uid: 0, gid: 0,
+          networkNamespace: 'net:[1]',
+        },
+      },
+      stages: { processStarted: true },
+    },
+  }));
+  const body = checks.split('awf_cleanup_identity() {')[1]
+    .split("<<'NODE'\n")[1].split('\nNODE')[0];
+  const output: string[] = [];
+  const processState = {
+    argv: ['node', '-', 'nvx', '/cleanup'],
+    exitCode: 0,
+    exit: (code: number) => {
+      processState.exitCode = code;
+      throw new Error('exit');
+    },
+  };
+  await vm.runInNewContext(body, {
+    require: (name: string) => {
+      if (name === 'path') return path;
+      if (name === 'fs') return {
+        readdirSync: () => records.map(({ path: recordPath }) => path.basename(recordPath)),
+        lstatSync: () => ({ isFile: () => true, uid: 0, mode: 0o600 }),
+        readFileSync: (recordPath: string) =>
+          JSON.stringify(records.find((entry) => entry.path === recordPath)?.value),
+        promises: {},
+      };
+      if (name.endsWith('/nvx/cleanup-record.js')) {
+        return {
+          parseNvxCleanupRecord: (contents: string) => JSON.parse(contents),
+        };
+      }
+      if (name.endsWith('/cloud-hypervisor/cleanup-process.js')) {
+        return {
+          processMatches: async (_dependencies: unknown, identity: { pid: number }) =>
+            !processChanged || identity.pid !== 41,
+        };
+      }
+      throw new Error(`Unexpected module: ${name}`);
+    },
+    process: processState,
+    console: {
+      log: (text: string) => output.push(text),
+      error: () => undefined,
+    },
+  });
+  return { status: processState.exitCode, output: output.join('\n') };
+}
+
 describe('Phase 4 recovery manager selection', () => {
-  const work = '/runner/recovery/sample/work';
-  const cli = '/repo/dist/cli.js';
-  const manager = processFiles(31, '/usr/bin/node', ['node', 'dist/cli.js', '--work-dir', work]);
-
-  it('selects the exact Node CLI, never the sudo wrapper or another work-dir', () => {
-    const files = {
-      ...processFiles(30, '/usr/bin/sudo', ['sudo', 'node', 'dist/cli.js', '--work-dir', work]),
-      ...processFiles(32, '/usr/bin/node', ['node', 'dist/cli.js', '--work-dir', `${work}-other`]),
-      ...processFiles(33, '/usr/bin/node', ['node', 'other/cli.js', '--work-dir', work]),
-      ...manager,
-    };
-    expect(nodeCheck('awf_manager_identity', [work, cli], files)).toEqual({
-      status: 0, output: '31 123',
-    });
-  });
-
-  it('fails closed on missing or ambiguous managers', () => {
-    expect(nodeCheck('awf_manager_identity', [work, cli], {}).status).toBe(1);
-    expect(nodeCheck('awf_manager_identity', [work, cli], {
-      ...manager, ...processFiles(34, '/usr/bin/node', ['node', cli, '--work-dir', work]),
-    }).status).toBe(1);
-  });
+  const manager = processFiles(31, '/usr/bin/node', ['node', 'dist/cli.js']);
 
   it('requires actual death and distinguishes PID reuse and zombies from a live manager', () => {
     expect(nodeCheck('awf_manager_alive', ['31', '123'], manager).status).toBe(0);
@@ -140,11 +183,23 @@ describe('Phase 4 recovery manager selection', () => {
     expect(recovery).not.toContain('sudo kill -KILL "$launcher_pid"');
   });
 
-  it('uses the matched cleanup-record process identity for readiness', () => {
+  it('uses cleanup-record launcher identity for run 38474851931 NVX readiness', () => {
     expect(recovery).not.toContain('pgrep -x cloud-hypervisor');
     expect(recovery).not.toContain('pgrep -x openvmm');
+    expect(recovery).not.toContain('awf_manager_identity');
+    expect(recovery).toContain('awf_cleanup_identity "$runtime" "$cleanup_root"');
     expect(recovery).toContain('awf_cleanup_identity_valid "$runtime" "$cleanup_record" "$cleanup_root"');
     expect(recovery).toContain('runtime_process_observed=true');
+  });
+
+  it('selects one authoritative cleanup owner and fails closed on ambiguity or launcher reuse', async () => {
+    await expect(cleanupSelectionCheck(1)).resolves.toEqual({
+      status: 0,
+      output: `/cleanup/${'a'.repeat(32)}.json\t31\t123`,
+    });
+    expect((await cleanupSelectionCheck(0)).status).toBe(1);
+    expect((await cleanupSelectionCheck(2)).status).toBe(1);
+    expect((await cleanupSelectionCheck(1, true)).status).toBe(1);
   });
 
   it('injects the exact recovery root and preserves bounded readiness diagnostics', () => {
@@ -179,7 +234,7 @@ describe('Phase 4 recovery manager selection', () => {
   });
 
   it.each(['nvx', 'cloud-hypervisor'])(
-    'matches the durable %s VMM process identity, not just the manager',
+    'matches the durable %s runtime process identity, not just the manager',
     async (runtime) => {
       const result = await cleanupIdentityCheck(runtime);
       expect(result.status).toBe(0);
@@ -196,7 +251,7 @@ describe('Phase 4 recovery manager selection', () => {
   );
 
   it.each([
-    ['nvx', 'missing'], ['nvx', 'pending'], ['nvx', 'changed-vmm'], ['nvx', 'wrong-executable'],
+    ['nvx', 'missing'], ['nvx', 'pending'], ['nvx', 'changed-vmm'],
     ['cloud-hypervisor', 'missing'], ['cloud-hypervisor', 'pending'],
     ['cloud-hypervisor', 'changed-vmm'], ['cloud-hypervisor', 'wrong-executable'],
   ])('rejects %s VMM identity defect: %s', async (runtime, defect) => {

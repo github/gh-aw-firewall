@@ -4,6 +4,10 @@ import {
   CLOUD_HYPERVISOR_ARTIFACT_SNAPSHOT_ROOT,
   type CloudHypervisorWorkloadIdentity,
 } from './manager-types';
+import {
+  parseDeviceAcl,
+  type CloudHypervisorDevicePath,
+} from './device-acl';
 
 export const CLEANUP_RECORD_VERSION = 1;
 
@@ -95,6 +99,7 @@ export interface CleanupRecord {
     uid?: number;
     gid?: number;
     aclPaths: string[];
+    aclBaselines?: Partial<Record<CloudHypervisorDevicePath, string[]>>;
   };
   mounts: MountIdentity[];
   updatedAt: string;
@@ -183,6 +188,22 @@ export function validateRecord(
       !Array.isArray(identity.aclPaths) ||
       identity.aclPaths.some((aclPath) => aclPath !== '/dev/kvm' && aclPath !== '/dev/net/tun') ||
       new Set(identity.aclPaths).size !== identity.aclPaths.length ||
+      (identity.aclBaselines !== undefined && (
+        typeof identity.aclBaselines !== 'object' ||
+        identity.aclBaselines === null ||
+        Array.isArray(identity.aclBaselines) ||
+        Object.keys(identity.aclBaselines).some((aclPath) =>
+          aclPath !== '/dev/kvm' && aclPath !== '/dev/net/tun') ||
+        Object.entries(identity.aclBaselines).some(([aclPath, baseline]) => {
+          try {
+            return !identity.aclPaths.includes(aclPath) ||
+              !Array.isArray(baseline) ||
+              parseDeviceAcl(baseline.join('\n')).length !== baseline.length;
+          } catch {
+            return true;
+          }
+        })
+      )) ||
       (identity.state === 'live' && (() => {
         const uid = identity.uid;
         const gid = identity.gid;

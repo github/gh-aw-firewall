@@ -16,6 +16,8 @@ const tools: CloudHypervisorVmmIdentityToolPaths = {
   useradd: '/usr/sbin/useradd',
   userdel: '/usr/sbin/userdel',
 };
+const baselineAcl = ['user::rw-', 'group::rw-', 'other::rw-'];
+const restoredAclArgument = `--set=${baselineAcl.join(',')}`;
 
 function dependencies(overrides: Partial<CloudHypervisorVmmIdentityDependencies> = {}) {
   let lockExists = false;
@@ -41,14 +43,20 @@ function dependencies(overrides: Partial<CloudHypervisorVmmIdentityDependencies>
       return { stdout: '', stderr: '' };
     }
     if (command === tools.setfacl) {
-      const devicePath = args[2];
+      const devicePath = args[0] === '--modify' ? args[2] : args[1];
       if (args[0] === '--modify') aclPaths.add(devicePath);
       else aclPaths.delete(devicePath);
       return { stdout: '', stderr: '' };
     }
     if (command === tools.getfacl) {
       return {
-        stdout: aclPaths.has(args[2]) ? 'user:23001:rw-\n' : '',
+        stdout: [
+          'user::rw-',
+          ...(aclPaths.has(args[2]) ? ['user:23001:rw-', 'mask::rw-'] : []),
+          'group::rw-',
+          'other::rw-',
+          '',
+        ].join('\n'),
         stderr: '',
       };
     }
@@ -142,7 +150,9 @@ describe('CloudHypervisorVmmIdentityManager', () => {
       expect(observer.prepareAcl.mock.invocationCallOrder[prepareCall])
         .toBeLessThan(run.mock.invocationCallOrder[grantCall]);
       const revokeCall = run.mock.calls.findIndex(([command, args]) =>
-        command === tools.setfacl && args[0] === '--remove' && args[2] === devicePath);
+        command === tools.setfacl &&
+        args[0] === restoredAclArgument &&
+        args[1] === devicePath);
       expect(run.mock.invocationCallOrder[grantCall])
         .toBeLessThan(operation.mock.invocationCallOrder[0]);
       expect(operation.mock.invocationCallOrder[0])
@@ -163,11 +173,11 @@ describe('CloudHypervisorVmmIdentityManager', () => {
     expect(run).not.toHaveBeenCalledWith(tools.groupdel, [identity.name]);
     expect(run).toHaveBeenCalledWith(
       tools.setfacl,
-      ['--remove', 'user:23001', '/dev/kvm'],
+      [restoredAclArgument, '/dev/kvm'],
     );
     expect(run).toHaveBeenCalledWith(
       tools.setfacl,
-      ['--remove', 'user:23001', '/dev/net/tun'],
+      [restoredAclArgument, '/dev/net/tun'],
     );
   });
 
@@ -226,7 +236,7 @@ describe('CloudHypervisorVmmIdentityManager', () => {
     for (const devicePath of ['/dev/kvm', '/dev/net/tun']) {
       expect(base.run).toHaveBeenCalledWith(
         tools.setfacl,
-        ['--remove', 'user:23001', devicePath],
+        [restoredAclArgument, devicePath],
       );
     }
   });
@@ -313,7 +323,9 @@ describe('CloudHypervisorVmmIdentityManager', () => {
     const grantOriginalRun = grantBase.deps.run;
     grantBase.deps.run = jest.fn(async (command, args) => {
       const result = await grantOriginalRun(command, args);
-      if (command === tools.getfacl) return { stdout: '', stderr: '' };
+      if (command === tools.getfacl) {
+        return { stdout: `${baselineAcl.join('\n')}\n`, stderr: '' };
+      }
       return result;
     });
     const grantManager = new CloudHypervisorVmmIdentityManager('acl-grant', tools, grantBase.deps);
@@ -330,14 +342,14 @@ describe('CloudHypervisorVmmIdentityManager', () => {
     const identity = await removalManager.allocate();
     const removalOriginalRun = removalBase.deps.run;
     removalBase.deps.run = jest.fn(async (command, args) => {
-      if (command === tools.setfacl && args[0] === '--remove') {
+      if (command === tools.setfacl && args[0] === restoredAclArgument) {
         return { stdout: '', stderr: '' };
       }
       return removalOriginalRun(command, args);
     });
 
     await expect(removalManager.withDeviceAccess(async () => undefined))
-      .rejects.toThrow(/ACL removal validation failed/);
+      .rejects.toThrow(/ACL restoration failed/);
     expect(removalBase.deps.run).not.toHaveBeenCalledWith(tools.userdel, [identity.name]);
   });
 
@@ -857,10 +869,10 @@ describe('CloudHypervisorVmmIdentityManager', () => {
     base.deps.run = jest.fn(async (command, args) => {
       if (
         command === tools.setfacl &&
-        args[0] === '--remove' &&
-        args[2] === '/dev/kvm'
+        args[0] === restoredAclArgument &&
+        args[1] === '/dev/kvm'
       ) {
-        throw new Error('ACL removal failed');
+        throw new Error('ACL restoration failed');
       }
       return originalRun(command, args);
     });

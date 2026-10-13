@@ -14,6 +14,10 @@ import {
   type MountIdentity,
   type ProcessIdentity,
 } from './cleanup-identity';
+import {
+  parseDeviceAcl,
+  type CloudHypervisorDevicePath,
+} from './device-acl';
 
 const PROCESS_IDENTITY_WAIT_MS = 2_000;
 const PROCESS_IDENTITY_INTERVAL_MS = 10;
@@ -98,25 +102,39 @@ export function createCleanupHandle(options: CleanupHandleFactoryOptions): Cloud
       record.vmmIdentity = { ...pending, state: 'live', uid: identity.uid, gid: identity.gid };
       await update();
     },
-    prepareVmmAcl: async (aclPath: string) => {
+    prepareVmmAcl: async (
+      aclPath: CloudHypervisorDevicePath,
+      baseline: readonly string[],
+    ) => {
       if (!record.vmmIdentity || record.vmmIdentity.state !== 'live') {
         throw new Error('VMM cleanup identity is not committed before ACL grant');
       }
       if (aclPath !== '/dev/kvm' && aclPath !== '/dev/net/tun') {
         throw new Error(`Unsafe VMM ACL cleanup path: ${aclPath}`);
       }
+      const validatedBaseline = parseDeviceAcl(baseline.join('\n'));
       if (!record.vmmIdentity.aclPaths.includes(aclPath)) {
         record.vmmIdentity.aclPaths.push(aclPath);
+        record.vmmIdentity.aclBaselines ??= {};
+        record.vmmIdentity.aclBaselines[aclPath] = validatedBaseline;
         await update();
+      } else if (
+        JSON.stringify(record.vmmIdentity.aclBaselines?.[aclPath]) !==
+        JSON.stringify(validatedBaseline)
+      ) {
+        throw new Error(`VMM ACL cleanup baseline changed for ${aclPath}`);
       }
     },
-    releaseVmmAcl: async (aclPath: string) => {
+    releaseVmmAcl: async (aclPath: CloudHypervisorDevicePath) => {
       if (!record.vmmIdentity || record.vmmIdentity.state !== 'live') {
         throw new Error('VMM cleanup identity is not committed before ACL release');
       }
       const index = record.vmmIdentity.aclPaths.indexOf(aclPath);
       if (index < 0) throw new Error(`VMM ACL cleanup intent is missing for ${aclPath}`);
       record.vmmIdentity.aclPaths.splice(index, 1);
+      if (record.vmmIdentity.aclBaselines) {
+        delete record.vmmIdentity.aclBaselines[aclPath];
+      }
       await update();
     },
     captureNetworkResource: async (resource: CloudHypervisorNetworkResource) => {
