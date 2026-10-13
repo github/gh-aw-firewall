@@ -113,6 +113,7 @@ describe('NVX benchmark campaign evidence', () => {
     expect(source).toContain('AWF_PHASE4_KVM_ACL_BASELINE');
     expect(source).toContain("getSafeHostUid()");
     expect(source).toContain("'awf:x:%s:%s:AWF workload:/home/awf:/bin/sh");
+    expect(source).toContain('install -d -o root -g root -m 1777 "$layer/tmp"');
     expect(source).toContain('promotionEligible == false');
     expect(source).not.toContain('mode: full');
 
@@ -129,7 +130,9 @@ describe('NVX benchmark campaign evidence', () => {
     expect(harness).toContain("copilot_placeholder=\"ghu_$(printf '%036s' '' | tr ' ' a)\"");
     expect(harness).toContain('"/proc/$runtime_pid/cgroup"');
     expect(harness).toContain('sudo test -r "/proc/$runtime_pid/cgroup"');
+    expect(harness).toContain('sudo test -f "$candidate/memory.max"');
     expect(harness).toContain("! -path '/sys/fs/cgroup/awf-nvx'");
+    expect(harness).toContain('setfacl --restore="$evidence_dir/kvm-acl-before.txt"');
     expect(harness).toContain('--cloud-hypervisor-vcpus 1');
     expect(harness).toContain('--nvx-memory-mib 4096');
     expect(harness).toContain('[ "$observed_memory_max" = 4563402752 ]');

@@ -200,6 +200,7 @@ jobs:
           fi
           sudo install -d -o "$workload_uid" -g "$workload_gid" -m 0700 \
             "$layer/home/awf"
+          sudo install -d -o root -g root -m 1777 "$layer/tmp"
           layer_sha256=$(tar --sort=name --mtime='@0' --owner=0 --group=0 --numeric-owner \
             -cf - -C "$layer" . | sha256sum | cut -d' ' -f1)
           package_inventory_sha256=$(sha256sum "$artifacts/packages.txt" | cut -d' ' -f1)

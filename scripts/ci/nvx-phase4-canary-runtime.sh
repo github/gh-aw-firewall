@@ -338,7 +338,7 @@ while kill -0 "$awf_pid" 2>/dev/null; do
     else
       runtime_pid=$(sudo pgrep -f \
         '/var/lib/awf-cloud-hypervisor/trusted-artifacts/run-[^/]*/[c]loud-hypervisor --api-socket' \
-        2>/dev/null | sed -n '1p')
+        2>/dev/null | sed -n '1p' || true)
     fi
     if [[ "$runtime_pid" =~ ^[0-9]+$ ]] &&
        sudo test -r "/proc/$runtime_pid/cgroup"; then
@@ -346,10 +346,10 @@ while kill -0 "$awf_pid" 2>/dev/null; do
         "/proc/$runtime_pid/cgroup")
       candidate="/sys/fs/cgroup$cgroup_membership"
       if [[ "$candidate" == "/sys/fs/cgroup/awf-$runtime/"* ]] &&
-         [ -f "$candidate/memory.max" ] &&
-         [ -f "$candidate/cpu.max" ] &&
-         [ -f "$candidate/pids.max" ] &&
-         [ -f "$candidate/cpu.stat" ]; then
+         sudo test -f "$candidate/memory.max" &&
+         sudo test -f "$candidate/cpu.max" &&
+         sudo test -f "$candidate/pids.max" &&
+         sudo test -f "$candidate/cpu.stat"; then
         observed_cgroup=$candidate
         preflight_completed=$(now_ms)
         observed_memory_max=$(sudo cat "$candidate/memory.max")
@@ -362,10 +362,10 @@ while kill -0 "$awf_pid" 2>/dev/null; do
     while IFS= read -r candidate; do
       [ -n "$candidate" ] || continue
       if ! grep -Fxq "$candidate" <<<"$cgroups_before" &&
-         [ -f "$candidate/memory.max" ] &&
-         [ -f "$candidate/cpu.max" ] &&
-         [ -f "$candidate/pids.max" ] &&
-         [ -f "$candidate/cpu.stat" ]; then
+         sudo test -f "$candidate/memory.max" &&
+         sudo test -f "$candidate/cpu.max" &&
+         sudo test -f "$candidate/pids.max" &&
+         sudo test -f "$candidate/cpu.stat"; then
         observed_cgroup=$candidate
         preflight_completed=$(now_ms)
         observed_memory_max=$(sudo cat "$candidate/memory.max")
@@ -377,7 +377,8 @@ while kill -0 "$awf_pid" 2>/dev/null; do
       \( -path '/sys/fs/cgroup/awf-nvx*' -o \
          -path '/sys/fs/cgroup/awf-cloud-hypervisor*' \) -print 2>/dev/null)
   fi
-  if [ -n "$observed_cgroup" ] && [ -f "$observed_cgroup/cpu.stat" ]; then
+  if [ -n "$observed_cgroup" ] &&
+     sudo test -f "$observed_cgroup/cpu.stat"; then
     current_cpu_micros=$(sudo awk '$1 == "usage_usec" { print $2 }' \
          "$observed_cgroup/cpu.stat")
     if [[ "$current_cpu_micros" =~ ^[0-9]+$ ]] &&
@@ -405,6 +406,7 @@ wait "$awf_pid"
 awf_status=$?
 set -e
 
+sudo setfacl --restore="$evidence_dir/kvm-acl-before.txt"
 for _cleanup_attempt in $(seq 1 50); do
   processes_after=$(runtime_process_snapshot)
   netns_after=$(sudo ip netns list 2>/dev/null || true)
