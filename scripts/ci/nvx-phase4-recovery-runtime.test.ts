@@ -140,11 +140,27 @@ describe('Phase 4 recovery manager selection', () => {
     expect(recovery).not.toContain('sudo kill -KILL "$launcher_pid"');
   });
 
-  it('uses the full trusted Cloud Hypervisor command for readiness', () => {
+  it('uses the matched cleanup-record process identity for readiness', () => {
     expect(recovery).not.toContain('pgrep -x cloud-hypervisor');
+    expect(recovery).not.toContain('pgrep -x openvmm');
+    expect(recovery).toContain('awf_cleanup_identity_valid "$runtime" "$cleanup_record" "$cleanup_root"');
+    expect(recovery).toContain('runtime_process_observed=true');
+  });
+
+  it('injects the exact recovery root and preserves bounded readiness diagnostics', () => {
+    expect(recovery).toContain('--env "AWF_PHASE4_RECOVERY_ROOT=$AWF_PHASE4_RECOVERY_ROOT"');
+    expect(recovery).toContain('--env "AWF_PHASE4_NODE_BIN=$node_guest"');
+    expect(recovery).toContain('node_guest="/workspace/.nvx-phase4-recovery/$sample_id/node"');
+    expect(recovery).toContain('node_version=$("$AWF_PHASE4_NODE_BIN" --version)');
+    expect(recovery).toContain('"$diagnostics_dir/first.log"');
+    expect(recovery).toContain('"$diagnostics_dir/recovery.log"');
+    expect(recovery).toContain('"$diagnostics_dir/readiness.json"');
+    expect(recovery).toContain('"guestTools":{"node":"%s","curl":"%s"}');
     expect(recovery).toContain(
-      "pgrep -f '/var/lib/awf-cloud-hypervisor/trusted-artifacts/run-[^/]*/[c]loud-hypervisor --api-socket'",
+      '--nvx-signer-workflow github/gh-aw-firewall/.github/workflows/nvx-phase-4-benchmark.yml',
     );
+    expect(recovery).toContain('runtime-$measurement_name');
+    expect(recovery).toContain('runtime_process_observed=true');
   });
 
   it('validates journal provenance against the actual manager and gates stale-recovery success', () => {
@@ -245,7 +261,7 @@ describe('Phase 4 runtime storage residue', () => {
     [2147483649, false],
   ])('requires a positive bounded scratch capacity (%s bytes)', (capacity, expected) => {
     const assertion = recovery.slice(recovery.indexOf('  if [ "$scratch_capacity"'),
-      recovery.indexOf('\nfi\nruntime_no_fallback=false'));
+      recovery.indexOf('\n  guest_tools_json='));
     const result = execFileSync('/bin/bash', ['-c', `
       set -euo pipefail
       scratch_capacity=$1

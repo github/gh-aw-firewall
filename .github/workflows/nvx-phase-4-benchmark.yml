@@ -463,6 +463,7 @@ jobs:
                 --argjson attempt "$attempt" --arg cwd "$GITHUB_WORKSPACE" \
                 --arg outputPath "$output" \
                 --arg measurementPath "$evidence/recovery-$sample_id-$attempt.json" \
+                --arg toolchainPath "$([[ "$CELL_RUNTIME" = nvx ]] && echo "$NVX_TOOLCHAIN" || true)" \
                 --arg workflowRunId "$GITHUB_RUN_ID" \
                 --arg jobId "$GITHUB_JOB-$CELL_RUNTIME-${{ matrix.cellId }}" \
                 --arg workflowAttemptId "$GITHUB_RUN_ATTEMPT" \
@@ -472,8 +473,10 @@ jobs:
                   command:["bash","scripts/ci/nvx-phase4-recovery-runtime.sh",
                     $runtime,$recoveryKind,$sampleId],
                   cwd:$cwd,outputPath:$outputPath,measurementPath:$measurementPath,
+                  toolchainPath:$toolchainPath,
                   workflowRunId:$workflowRunId,jobId:$jobId,
                   workflowAttemptId:$workflowAttemptId,rerunOf:$rerunOf,rerunReason:$rerunReason}
+                  | if .toolchainPath == "" then del(.toolchainPath) else . end
                   | if .rerunOf == "" then del(.rerunOf,.rerunReason) else . end' > "$input"
               npx tsx scripts/ci/nvx-matched-runtime-adapter.ts recovery "$input" || status=1
             fi

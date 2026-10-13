@@ -142,6 +142,9 @@ describe('NVX benchmark campaign evidence', () => {
     expect(source).toContain('pilot-100:10:10:100');
     expect(source).toContain('pilot-1000:52:100:1000');
     expect(source).toContain('full:76:1000:10000');
+    expect(source.match(/--arg toolchainPath/g)).toHaveLength(2);
+    expect(source).toContain('scripts/ci/nvx-phase4-recovery-runtime.sh');
+    expect(source).toContain('| if .toolchainPath == "" then del(.toolchainPath) else . end');
 
     const executeSteps = workflow.jobs.execute.steps;
     const cloudSetup = executeSteps.find((step) => step.name === 'Provision Cloud Hypervisor v53.0 artifacts');

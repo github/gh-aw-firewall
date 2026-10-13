@@ -21,8 +21,11 @@ config="$root/config.json"
 workspace="$GITHUB_WORKSPACE/.nvx-phase4-recovery/$sample_id"
 guest_status="$workspace/guest-status.json"
 ready_marker="$workspace/runtime-ready"
+measurement_name=$(basename "${AWF_BENCHMARK_RECOVERY_EVIDENCE%.json}")
+diagnostics_dir="$(dirname "$AWF_BENCHMARK_RECOVERY_EVIDENCE")/runtime-$measurement_name"
 mkdir -p "$root" "$workspace"
-chmod 0700 "$root" "$workspace"
+mkdir -p "$diagnostics_dir"
+chmod 0700 "$root" "$workspace" "$diagnostics_dir"
 
 cat > "$workspace/workload.sh" <<'EOF'
 #!/bin/sh
@@ -39,12 +42,24 @@ blocked=$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 https://example.co
 blocked=${blocked:-000}
 case "$blocked" in 000|403) ;; *) exit 42 ;; esac
 scratch_capacity=$(df -Pk /tmp | awk 'NR == 2 {print $2 * 1024}')
-printf '{"credentialIsolation":true,"egressPolicy":true,"workspaceOnlyExposure":true,"scratchCapacityBytes":%s}\n' \
-  "$scratch_capacity" > "$root/guest-status.json"
+node_version=$("$AWF_PHASE4_NODE_BIN" --version)
+curl_version=$(curl --version | sed -n '1p')
+printf '{"credentialIsolation":true,"egressPolicy":true,"workspaceOnlyExposure":true,"scratchCapacityBytes":%s,"guestTools":{"node":"%s","curl":"%s"}}\n' \
+  "$scratch_capacity" "$node_version" "$curl_version" > "$root/guest-status.json"
 printf '%s\n' ready > "$root/runtime-ready"
 sleep 300
 EOF
 chmod 0755 "$workspace/workload.sh"
+
+if [ "$runtime" = nvx ]; then
+  node_guest=node
+else
+  node_host=$(command -v node)
+  test -x "$node_host"
+  cp "$node_host" "$workspace/node"
+  chmod 0555 "$workspace/node"
+  node_guest="/workspace/.nvx-phase4-recovery/$sample_id/node"
+fi
 
 snapshot_processes() {
   {
@@ -131,6 +146,8 @@ run_awf() {
   sudo --preserve-env=GITHUB_ACTIONS,RUNNER_ENVIRONMENT,ImageOS,AWF_PHASE4_RECOVERY_ROOT \
     node dist/cli.js --config "$config" --work-dir "$work" \
     --container-workdir /workspace \
+    --env "AWF_PHASE4_RECOVERY_ROOT=$AWF_PHASE4_RECOVERY_ROOT" \
+    --env "AWF_PHASE4_NODE_BIN=$node_guest" \
     --image-tag \
     "0.28.54,squid=sha256:960930db796d005e63153b9ffd984b58ebda1ed8c26800c09eb7515dc94237db,agent=sha256:fc4f3d07d9f0479aa76d4a6d55f36735c29e0558f10a413fbd36e3d00b34a830,api-proxy=sha256:f8dff30ac37a8987b564f2872796a9c093b3ab281b1cdfc3493c1ea5fa84ff79" \
     --log-level debug "${runtime_args[@]}" -- "$command"
@@ -145,6 +162,7 @@ manager_start_time=
 readiness=false
 cleanup_record=
 cleanup_record_identity_valid=false
+runtime_process_observed=false
 for _ in $(seq 1 600); do
   if ! kill -0 "$launcher_pid" 2>/dev/null; then break; fi
   if [ -z "$manager_pid" ]; then
@@ -164,16 +182,14 @@ for _ in $(seq 1 600); do
     done < <(sudo find "$cleanup_root" -maxdepth 1 -name '*.json' -type f \
       -print 2>/dev/null || true)
   fi
-  if [ -f "$ready_marker" ] && [ -s "$guest_status" ] && [ -n "$cleanup_record" ] &&
-    { sudo pgrep -x openvmm >/dev/null 2>&1 ||
-      sudo pgrep -f '/var/lib/awf-cloud-hypervisor/trusted-artifacts/run-[^/]*/[c]loud-hypervisor --api-socket' \
-        >/dev/null 2>&1; }; then
+  if [ -f "$ready_marker" ] && [ -s "$guest_status" ] && [ -n "$cleanup_record" ]; then
     if awf_cleanup_identity_valid "$runtime" "$cleanup_record" "$cleanup_root" \
       "$manager_pid" "$manager_start_time"; then
       cleanup_record_identity_valid=true
+      runtime_process_observed=true
+      readiness=true
+      break
     fi
-    readiness=true
-    break
   fi
   sleep 0.1
 done
@@ -218,10 +234,47 @@ if [ "$kind" = stale-recovery ] && [ "$terminal_observed" = true ] &&
   if [ "$recovery_status" -eq 0 ]; then workload_after_recovery=true; fi
 fi
 
+if [ -f "$root/first.log" ]; then
+  cp --no-clobber "$root/first.log" "$diagnostics_dir/first.log"
+fi
+if [ -f "$root/recovery.log" ]; then
+  cp --no-clobber "$root/recovery.log" "$diagnostics_dir/recovery.log"
+fi
+if [ -s "$guest_status" ]; then
+  cp --no-clobber "$guest_status" "$diagnostics_dir/guest-status.json"
+fi
+jq -n \
+  --arg runtime "$runtime" \
+  --arg kind "$kind" \
+  --arg managerPid "$manager_pid" \
+  --arg managerStartTime "$manager_start_time" \
+  --arg cleanupRecord "$(basename "${cleanup_record:-}")" \
+  --argjson cleanupRecordIdentityValid "$cleanup_record_identity_valid" \
+  --argjson readyMarker "$([ -f "$ready_marker" ] && echo true || echo false)" \
+  --argjson guestStatus "$([ -s "$guest_status" ] && echo true || echo false)" \
+  --argjson runtimeProcessObserved "$runtime_process_observed" \
+  --argjson readinessConfirmed "$readiness" \
+  --argjson terminalObserved "$terminal_observed" \
+  --argjson managerKilledAfterCleanupRecord "$manager_killed_after_record" \
+  --argjson workloadAfterRecovery "$workload_after_recovery" \
+  '{
+    runtime:$runtime,kind:$kind,
+    manager:{pid:$managerPid,startTime:$managerStartTime},
+    cleanupRecord:{name:$cleanupRecord,identityValid:$cleanupRecordIdentityValid},
+    observed:{
+      readyMarker:$readyMarker,guestStatus:$guestStatus,
+      runtimeProcess:$runtimeProcessObserved,readiness:$readinessConfirmed,
+      terminal:$terminalObserved,managerKilledAfterCleanupRecord:$managerKilledAfterCleanupRecord,
+      workloadAfterRecovery:$workloadAfterRecovery
+    }
+  }' > "$diagnostics_dir/readiness.json"
+chmod 0600 "$diagnostics_dir"/*
+
 guest_egress=false
 guest_credential=false
 guest_workspace=false
 bounded_scratch=false
+guest_tools_json=null
 if [ -s "$guest_status" ]; then
   guest_egress=$(jq -r '.egressPolicy == true' "$guest_status")
   guest_credential=$(jq -r '.credentialIsolation == true' "$guest_status")
@@ -230,6 +283,7 @@ if [ -s "$guest_status" ]; then
   if [ "$scratch_capacity" -gt 0 ] && [ "$scratch_capacity" -le 2147483648 ]; then
     bounded_scratch=true
   fi
+  guest_tools_json=$(jq -c '.guestTools // null' "$guest_status")
 fi
 runtime_no_fallback=false
 if { [ "$runtime" = nvx ] && [ "$readiness" = true ] &&
@@ -352,6 +406,7 @@ jq -n \
   --argjson terminalObserved "$terminal_observed" \
   --argjson managerKilledAfterCleanupRecord "$manager_killed_after_record" \
   --argjson workloadAfterRecovery "$workload_after_recovery" \
+  --argjson guestTools "$guest_tools_json" \
   --argjson processTreeGone "$process_tree_gone" \
   --argjson mountsRestored "$mounts_restored" \
   --argjson namespacesRestored "$namespaces_restored" \
@@ -374,7 +429,7 @@ jq -n \
     assertionFailures:[],residue:$residue,
     readinessConfirmed:$readinessConfirmed,terminalObserved:$terminalObserved,
     managerKilledAfterCleanupRecord:$managerKilledAfterCleanupRecord,
-    workloadAfterRecovery:$workloadAfterRecovery,
+    workloadAfterRecovery:$workloadAfterRecovery,guestTools:$guestTools,
     assertions:{
       provenance:$provenance,runtimeFallback:$runtimeFallback,egressPolicy:$egressPolicy,
       credentialIsolation:$credentialIsolation,workspaceOnlyExposure:$workspaceOnlyExposure,

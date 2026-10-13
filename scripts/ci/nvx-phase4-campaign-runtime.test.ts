@@ -89,6 +89,7 @@ describe('Phase 4 campaign runtime evidence', () => {
     }
     expect(harness).not.toContain('CONCURRENT_ISOLATION=true');
     expect(harness).toContain('run_peer >"$peer_log"');
+    expect(harness).toContain('--network-isolation --enable-api-proxy');
     expect(harness).toContain('--env "AWF_PHASE4_CANARY_ROOT=$AWF_PHASE4_CANARY_ROOT/peer"');
     expect(harness).toMatch(/\n  fi\n  if \[ "\$mode" = concurrent \] && \[ -z "\$peer_pid" \]/);
   });
@@ -132,6 +133,7 @@ describe('Phase 4 campaign runtime evidence', () => {
     expect(buildConfig.mock.calls[0][0].additionalEnv).toEqual({
       AWF_PHASE4_CANARY_ROOT: '/workspace/peer',
     });
+    expect(buildConfig.mock.calls[0][0].options.networkIsolation).toBe(true);
     expect(backend.start).toHaveBeenCalledWith('/peer-awf', [], undefined);
     expect(backend.exec).toHaveBeenCalled();
     expect(backend.stop).toHaveBeenCalledTimes(1);
@@ -143,6 +145,9 @@ describe('Phase 4 campaign runtime evidence', () => {
       expect(remove).toHaveBeenCalledWith('/peer-awf', { recursive: true, force: true });
     }
     expect(harness).toContain('[ -f "$peer_workspace/workload-ended" ]');
+    expect(harness).toContain('peer-runtime-identity.json');
+    expect(harness).toContain('for marker in workload-ended workload-abort runtime-ready');
+    expect(harness).toContain('[ -e "$peer_workspace/$marker" ]');
   });
 
   it('compares positive scratch capacity against the configured limit, not usage', () => {

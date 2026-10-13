@@ -468,7 +468,22 @@ describe('matched runtime measurement adapter', () => {
       terminalObserved: true,
       managerKilledAfterCleanupRecord: true,
       workloadAfterRecovery: true,
+      guestTools: { node: 'v22.23.2', curl: 'curl 8.14.1' },
     };
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'nvx-recovery-adapter-test-'));
+    const toolchainPath = path.join(root, 'toolchain.json');
+    const packages = ['bash-5.2.37-r0', 'curl-8.14.1-r3', 'nodejs-22.23.2-r0', 'npm-11.6.4-r0'];
+    fs.writeFileSync(toolchainPath, JSON.stringify({
+      layerSha256: 'c'.repeat(64),
+      packageInventorySha256: createHash('sha256').update(`${packages.join('\n')}\n`).digest('hex'),
+      packages,
+      tools: {
+        bash: 'GNU bash 5.2.37',
+        curl: 'curl 8.14.1',
+        node: 'v22.23.2',
+        npm: '11.6.4',
+      },
+    }));
     const artifact = buildMeasuredRecoveryArtifact(
       campaign,
       sample,
@@ -477,6 +492,7 @@ describe('matched runtime measurement adapter', () => {
         workflowRunId: 'run',
         jobId: 'recovery',
         workflowAttemptId: '1',
+        toolchainPath,
       },
       measurement,
       thresholds,
@@ -489,6 +505,10 @@ describe('matched runtime measurement adapter', () => {
         durationMs: 1234,
         managerKilledAfterCleanupRecord: true,
         workloadAfterRecovery: true,
+        provenance: {
+          observedGuestTools: { node: 'v22.23.2', curl: 'curl 8.14.1' },
+          nvxGuestToolchain: { layerSha256: 'c'.repeat(64) },
+        },
       },
     });
     const incomplete = structuredClone(measurement);
@@ -502,6 +522,7 @@ describe('matched runtime measurement adapter', () => {
           workflowRunId: 'run',
           jobId: 'recovery',
           workflowAttemptId: '1',
+          toolchainPath,
         },
         incomplete,
         thresholds,

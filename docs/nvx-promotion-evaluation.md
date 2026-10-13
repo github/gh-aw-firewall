@@ -336,11 +336,17 @@ successful original attempt is never selected again.
 Concurrent samples run two inspected runtime instances, not two processes in
 one guest. The primary CLI owns the shared Squid/API-proxy infrastructure;
 the peer uses the same reviewed runtime backend without recreating those
-sidecars. Before either workload starts, host evidence must show distinct
+sidecars. The peer is built with explicit strict network isolation and a
+separate AWF work directory; each backend allocates an independent VMM account,
+run directory, cgroup and network namespace. Before either workload starts,
+host evidence must show distinct
 live VMM processes, accounts, run directories, cgroups and network namespaces,
 with the selected resource bounds applied to both. Infrastructure stays alive
 until both guest workloads have ended. Cleanup checks include durable records,
 runtime scratch/run directories and trusted-artifact snapshot roots.
+Concurrent artifacts retain bounded peer AWF logs, runtime identity and guest
+preflight/status/error markers even when the peer fails before the release
+handshake.
 
 Guest security checks and scratch capacity are saved before inference. A
 transient inference failure can therefore retain those completed checks and
@@ -418,12 +424,16 @@ API-proxy `token-usage.jsonl` for Copilot request and token counts. Missing,
 zero where a positive observation is required, malformed or contradictory
 evidence fails closed before an artifact is written.
 
-The same adapter has a `recovery` command for future reviewed full-campaign
-collection. It accepts only manifest-listed cancellation or stale-recovery
+The same adapter has a `recovery` command used by the reviewed pilot and full
+campaign tiers. It accepts only manifest-listed cancellation or stale-recovery
 sample IDs and requires measured duration, readiness/terminal evidence, the
 complete cleanup assertion set, residue, and (for stale recovery) proof that the
 manager was killed after its durable cleanup record and that a real workload
-ran after identity-checked recovery. The canary does not invoke this path.
+ran after identity-checked recovery. Recovery artifacts retain bounded initial
+and recovery AWF logs plus readiness and cleanup-record identity observations.
+Successful evidence also carries measured guest Node/curl versions and, for
+NVX, the same pinned guest toolchain provenance as primary samples. The canary
+does not invoke this path.
 
 ## Report status
 

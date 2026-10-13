@@ -70,6 +70,7 @@ export interface RecoveryAdapterInput {
   cwd: string;
   outputPath: string;
   measurementPath: string;
+  toolchainPath?: string;
   workflowRunId: string;
   jobId: string;
   workflowAttemptId: string;
@@ -88,6 +89,7 @@ interface RecoveryMeasurement {
   terminalObserved: boolean;
   managerKilledAfterCleanupRecord: boolean;
   workloadAfterRecovery: boolean;
+  guestTools?: { node: string; curl: string };
 }
 
 interface ProcessMetrics {
@@ -123,6 +125,35 @@ function requireOrderedLifecycle(value: LifecycleEvidence): void {
 function readJson<T>(file: string, label: string): T {
   if (!fs.existsSync(file)) throw new Error(`missing ${label}: ${file}`);
   return JSON.parse(fs.readFileSync(file, 'utf8')) as T;
+}
+
+function readNvxGuestToolchain(file: string): NvxGuestToolchain {
+  const toolchain = readJson<NvxGuestToolchain>(file, 'NVX guest toolchain');
+  if (
+    !/^[0-9a-f]{64}$/i.test(toolchain.layerSha256) ||
+    !/^[0-9a-f]{64}$/i.test(toolchain.packageInventorySha256) ||
+    !Array.isArray(toolchain.packages) ||
+    toolchain.packages.length === 0 ||
+    !toolchain.packages.every((entry) => typeof entry === 'string' && entry !== '') ||
+    !['bash', 'curl', 'node', 'npm'].every(
+      (name) =>
+        typeof toolchain.tools?.[name as keyof NvxGuestToolchain['tools']] === 'string' &&
+        toolchain.tools[name as keyof NvxGuestToolchain['tools']] !== '',
+    ) ||
+    createHash('sha256')
+      .update(`${toolchain.packages.join('\n')}\n`)
+      .digest('hex') !== toolchain.packageInventorySha256 ||
+    !['bash-5.2.37-r0', 'curl-8.14.1-r3', 'nodejs-22.23.2-r0', 'npm-11.6.4-r0'].every((version) =>
+      toolchain.packages.includes(version),
+    ) ||
+    toolchain.tools.node !== 'v22.23.2' ||
+    toolchain.tools.npm !== '11.6.4' ||
+    !toolchain.tools.bash.includes('5.2.37') ||
+    !toolchain.tools.curl.startsWith('curl 8.14.1')
+  ) {
+    throw new Error('invalid NVX guest toolchain provenance');
+  }
+  return toolchain;
 }
 
 function parseTokenUsage(
@@ -245,32 +276,7 @@ export function buildMeasuredArtifact(
   const provenance = structuredClone(manifest.provenance);
   if (sample.runtime === 'nvx') {
     if (!input.toolchainPath) throw new Error('missing NVX guest toolchain provenance');
-    const toolchain = readJson<NvxGuestToolchain>(input.toolchainPath, 'NVX guest toolchain');
-    if (
-      !/^[0-9a-f]{64}$/i.test(toolchain.layerSha256) ||
-      !/^[0-9a-f]{64}$/i.test(toolchain.packageInventorySha256) ||
-      !Array.isArray(toolchain.packages) ||
-      toolchain.packages.length === 0 ||
-      !toolchain.packages.every((entry) => typeof entry === 'string' && entry !== '') ||
-      !['bash', 'curl', 'node', 'npm'].every(
-        (name) =>
-          typeof toolchain.tools?.[name as keyof NvxGuestToolchain['tools']] === 'string' &&
-          toolchain.tools[name as keyof NvxGuestToolchain['tools']] !== '',
-      ) ||
-      createHash('sha256')
-        .update(`${toolchain.packages.join('\n')}\n`)
-        .digest('hex') !== toolchain.packageInventorySha256 ||
-      !['bash-5.2.37-r0', 'curl-8.14.1-r3', 'nodejs-22.23.2-r0', 'npm-11.6.4-r0'].every((version) =>
-        toolchain.packages.includes(version),
-      ) ||
-      toolchain.tools.node !== 'v22.23.2' ||
-      toolchain.tools.npm !== '11.6.4' ||
-      !toolchain.tools.bash.includes('5.2.37') ||
-      !toolchain.tools.curl.startsWith('curl 8.14.1')
-    ) {
-      throw new Error('invalid NVX guest toolchain provenance');
-    }
-    provenance.nvxGuestToolchain = toolchain;
+    provenance.nvxGuestToolchain = readNvxGuestToolchain(input.toolchainPath);
   } else if (input.toolchainPath) {
     throw new Error('Cloud Hypervisor sample unexpectedly included NVX guest toolchain provenance');
   }
@@ -330,7 +336,10 @@ export function buildMeasuredArtifact(
 export function buildMeasuredRecoveryArtifact(
   manifest: CampaignManifest,
   sample: RecoverySample,
-  input: Pick<RecoveryAdapterInput, 'attempt' | 'workflowRunId' | 'jobId' | 'workflowAttemptId' | 'rerunOf' | 'rerunReason'>,
+  input: Pick<
+    RecoveryAdapterInput,
+    'attempt' | 'workflowRunId' | 'jobId' | 'workflowAttemptId' | 'toolchainPath' | 'rerunOf' | 'rerunReason'
+  >,
   measurement: RecoveryMeasurement,
   thresholds: Thresholds,
 ): SampleArtifact {
@@ -389,6 +398,21 @@ export function buildMeasuredRecoveryArtifact(
   if ((success && measurement.failureCategory !== 'success') || (!success && measurement.failureCategory === 'success')) {
     throw new Error('measured recovery success and failure category are inconsistent');
   }
+  const provenance = structuredClone(manifest.provenance);
+  if (sample.runtime === 'nvx') {
+    if (!input.toolchainPath) throw new Error('missing NVX guest toolchain provenance');
+    provenance.nvxGuestToolchain = readNvxGuestToolchain(input.toolchainPath);
+  } else if (input.toolchainPath) {
+    throw new Error('Cloud Hypervisor recovery unexpectedly included NVX guest toolchain provenance');
+  }
+  const hasGuestTools =
+    measurement.guestTools &&
+    typeof measurement.guestTools.node === 'string' &&
+    measurement.guestTools.node !== '' &&
+    typeof measurement.guestTools.curl === 'string' &&
+    measurement.guestTools.curl !== '';
+  if (success && !hasGuestTools) throw new Error('missing measured recovery guest tool versions');
+  if (hasGuestTools) provenance.observedGuestTools = measurement.guestTools;
   const result: RecoveryEvidence = {
     ...sample,
     campaignId: manifest.campaignId,
@@ -411,7 +435,7 @@ export function buildMeasuredRecoveryArtifact(
     runnerImage: manifest.runnerImage,
     guestImage: manifest.guestImage,
     versions: { ...manifest.versions },
-    provenance: structuredClone(manifest.provenance),
+    provenance,
     evidenceKind: 'measured',
     ...(input.rerunOf === undefined
       ? {}

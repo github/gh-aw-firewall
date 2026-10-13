@@ -493,7 +493,7 @@ run_awf() {
 run_peer() {
   exec sudo --preserve-env=COPILOT_GITHUB_TOKEN,GITHUB_ACTIONS,RUNNER_ENVIRONMENT,ImageOS \
     node - --work-dir "$peer_work_dir" --container-workdir /workspace \
-    --enable-api-proxy --log-level debug "${runtime_args[@]}" \
+    --network-isolation --enable-api-proxy --log-level debug "${runtime_args[@]}" \
     --env "AWF_PHASE4_CANARY_ROOT=$AWF_PHASE4_CANARY_ROOT/peer" \
     --env "AWF_PHASE4_WORKLOAD=$workload" \
     --env "AWF_PHASE4_COPILOT_BIN=$AWF_PHASE4_COPILOT_BIN" \
@@ -508,7 +508,11 @@ program.parse(process.argv.slice(2), { from: "user" });
 const options = program.opts();
 logger.setLevel("debug");
 const config = buildConfig({
-  options: { ...options, filesystemAllowWrite: ["/workspace/.nvx-phase4-campaign"] },
+  options: {
+    ...options,
+    networkIsolation: true,
+    filesystemAllowWrite: ["/workspace/.nvx-phase4-campaign"],
+  },
   agentCommand: program.args.join(" "), logLevel: "debug",
   allowedDomains: [], blockedDomains: [], localhostDetected: false,
   additionalEnv: Object.fromEntries(options.env.map(value => {
@@ -923,6 +927,15 @@ if [ "$mode" = concurrent ]; then
       cp --no-clobber "$peer_workspace/$file" "$raw_evidence_dir/peer-$file"
     fi
   done
+  for marker in workload-ended workload-abort runtime-ready; do
+    if [ -e "$peer_workspace/$marker" ]; then
+      cp --no-clobber "$peer_workspace/$marker" "$raw_evidence_dir/peer-$marker"
+    fi
+  done
+  if [ -s "$evidence_dir/peer-runtime-identity.json" ]; then
+    cp --no-clobber "$evidence_dir/peer-runtime-identity.json" \
+      "$raw_evidence_dir/peer-runtime-identity.json"
+  fi
   test ! -e "$peer_work_dir" || residue+=("run-directory:$peer_work_dir")
 fi
 for proof in build-proof copilot-proof; do
