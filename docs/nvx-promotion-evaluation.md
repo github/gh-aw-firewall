@@ -27,9 +27,10 @@ does not remove the mandatory preview gate or change the default runtime.
 
 Every result record must also capture the compiler, AWF, runtime, upstream
 artifact (NVX/OpenVMM or Cloud Hypervisor), guest image, runner image and
-workload versions in `versions`. The evaluator requires every baseline key in
-`docs/nvx-promotion-thresholds.json` to match exactly and accepts only runner
-classes listed in `approvedRunnerClasses`.
+workload versions. Reviewed baseline keys remain in `versions`; exact
+compiler/AWF/runtime artifact/guest/workload identities are repeated in the
+structured `provenance` field. The aggregator rejects any mismatch and accepts
+only runner classes listed in `approvedRunnerClasses`.
 
 ## Promotion thresholds
 
@@ -195,6 +196,48 @@ artifacts without counting an attempt twice. A retry is accepted only for a
 documented runner/infrastructure category; the failed original remains the
 scored sample and the retry remains in `attempts`. Security failures, cleanup
 failures, and residue are never retryable.
+
+### Bounded measured canary
+
+The separate [NVX Phase 4 Matched Runtime Canary workflow](../.github/workflows/nvx-phase-4-canary.yml)
+is the only real-execution mode enabled by this change. Dispatch it manually
+with an immutable `campaign_id` and set `confirm_live_canary` to `true`. It runs
+exactly four serialized samples on `ubuntu-24.04`: one NVX and one Cloud
+Hypervisor sample for each of `build-test` and `copilot-inference`. All four use
+the `sequential/cold/default` lane, gh-aw v0.91.9, AWF v0.28.54, the same source
+commit, workspace-only exposure, deny-by-default networking, API proxy and the
+same one-guest-vCPU/two-host-CPU-quota, 4096-MiB, 256-PID and 2048-MiB scratch
+profile. The Copilot lane pins Copilot CLI 1.0.95 and the prompt workload is
+versioned independently from the source commit.
+
+Plan for approximately **40 runner-minutes** plus artifact setup time. Each
+matrix job uploads its immutable manifest, adapter input, lifecycle evidence,
+assertion evidence, residue list, token-usage log (for Copilot), AWF log and one
+`RunEvidence` JSON record. The aggregate job uploads the deterministic combined
+results, evaluator output and report.
+
+Canary manifests set `canary: true` and `promotionEligible: false`. The
+aggregator requires measured evidence but the evaluator must return
+`retain-preview`; canary records are never credited toward the 960-run/40-
+recovery promotion thresholds. The canary does not exercise concurrent,
+warm-cache, minimum/elevated-resource, cancellation or stale-recovery lanes,
+and it cannot enable `full` mode.
+
+The runner-side adapter is
+`scripts/ci/nvx-matched-runtime-adapter.ts`. The runtime harness must emit
+ordered lifecycle timestamps, measured scratch/host-disk bytes, every reviewed
+zero-tolerance assertion and a residue array. The adapter independently samples
+the launched process tree for CPU time, RSS and PID peaks and parses the
+API-proxy `token-usage.jsonl` for Copilot request and token counts. Missing,
+zero where a positive observation is required, malformed or contradictory
+evidence fails closed before an artifact is written.
+
+The same adapter has a `recovery` command for future reviewed full-campaign
+collection. It accepts only manifest-listed cancellation or stale-recovery
+sample IDs and requires measured duration, readiness/terminal evidence, the
+complete cleanup assertion set, residue, and (for stale recovery) proof that the
+manager was killed after its durable cleanup record and that a real workload
+ran after identity-checked recovery. The canary does not invoke this path.
 
 ## Report status
 

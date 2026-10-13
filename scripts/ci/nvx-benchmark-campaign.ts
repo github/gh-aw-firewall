@@ -11,7 +11,7 @@ import {
   evaluate,
 } from './nvx-promotion-evaluator';
 
-export type CampaignMode = 'dry-run' | 'full';
+export type CampaignMode = 'dry-run' | 'canary' | 'full';
 
 export interface CampaignSample {
   sampleId: string;
@@ -28,6 +28,14 @@ export interface ResourceLimits {
   memoryMiB: number;
   pidsMax: number;
   scratchMiB: number;
+}
+
+export interface CampaignProvenance {
+  compiler: string;
+  awf: string;
+  runtimeArtifacts: Record<RunResult['runtime'], string>;
+  guestImage: string;
+  workloadVersions: Record<string, string>;
 }
 
 export const RESOURCE_PROFILE_LIMITS: Record<RunResult['resourceProfile'], ResourceLimits> = {
@@ -48,11 +56,14 @@ export interface CampaignManifest {
   campaignId: string;
   mode: CampaignMode;
   dryRun: boolean;
+  canary: boolean;
+  promotionEligible: boolean;
   sourceCommit: string;
   runnerClass: string;
   runnerImage: string;
   guestImage: string;
   versions: Record<string, string>;
+  provenance: CampaignProvenance;
   estimatedRunnerMinutes: number;
   expectedRuns: CampaignSample[];
   expectedRecoveries: RecoverySample[];
@@ -71,6 +82,7 @@ export interface RunEvidence extends RunResult {
   runnerImage: string;
   guestImage: string;
   versions: Record<string, string>;
+  provenance: CampaignProvenance;
   assertions: Record<string, boolean>;
   cacheReadTokens: number;
   cachePreparation: 'cold-cache-flushed' | 'warm-cache-primed';
@@ -94,6 +106,7 @@ export interface RecoveryEvidence extends RecoveryResult {
   runnerImage: string;
   guestImage: string;
   versions: Record<string, string>;
+  provenance: CampaignProvenance;
   assertions: Record<string, boolean>;
   readinessConfirmed: boolean;
   terminalObserved: boolean;
@@ -113,6 +126,7 @@ export interface CampaignResults extends BenchmarkResults {
   sourceCommit: string;
   runnerImage: string;
   guestImage: string;
+  provenance: CampaignProvenance;
   attempts: RunEvidence[];
   recoveryAttempts: RecoveryEvidence[];
   expectedSampleIds: string[];
@@ -120,6 +134,8 @@ export interface CampaignResults extends BenchmarkResults {
   missingSampleIds: string[];
   unexpectedSampleIds: string[];
   dryRun: boolean;
+  canary: boolean;
+  promotionEligible: boolean;
 }
 
 const INFRASTRUCTURE_FAILURES = new Set([
@@ -171,7 +187,27 @@ export function createCampaignManifest(
   }
 
   const dryRun = input.mode === 'dry-run';
-  const expectedRuns = (['nvx', 'cloud-hypervisor'] as const).flatMap((runtime) =>
+  const canary = input.mode === 'canary';
+  const expectedRuns = canary
+    ? (['nvx', 'cloud-hypervisor'] as const).flatMap((runtime) =>
+      thresholds.matrix.workloads.map((workload) => {
+        const mode = 'sequential' as const;
+        const cache = 'cold' as const;
+        const resourceProfile = 'default' as const;
+        const ordinal = 1;
+        return {
+          sampleId: stableId(input.campaignId, [
+            'canary', runtime, workload, mode, cache, resourceProfile, String(ordinal),
+          ]),
+          runtime,
+          workload,
+          mode,
+          cache,
+          resourceProfile,
+          ordinal,
+        };
+      }))
+    : (['nvx', 'cloud-hypervisor'] as const).flatMap((runtime) =>
     thresholds.matrix.workloads.flatMap((workload) =>
       thresholds.matrix.modes.flatMap((mode) =>
         thresholds.matrix.caches.flatMap((cache) =>
@@ -198,7 +234,7 @@ export function createCampaignManifest(
       ),
     ),
   );
-  const expectedRecoveries = (['nvx', 'cloud-hypervisor'] as const).flatMap((runtime) =>
+  const expectedRecoveries = canary ? [] : (['nvx', 'cloud-hypervisor'] as const).flatMap((runtime) =>
     (['cancellation', 'stale-recovery'] as const).flatMap((kind) =>
       Array.from({ length: dryRun ? 1 : thresholds.sample.minRecoverySamplesPerKindRuntime }, (_, index) => {
         const ordinal = index + 1;
@@ -220,11 +256,26 @@ export function createCampaignManifest(
     campaignId: input.campaignId,
     mode: input.mode,
     dryRun,
+    canary,
+    promotionEligible: input.mode === 'full',
     sourceCommit: input.sourceCommit.toLowerCase(),
     runnerClass: input.runnerClass,
     runnerImage: input.runnerImage,
     guestImage: input.guestImage,
     versions: { ...thresholds.baseline },
+    provenance: {
+      compiler: thresholds.baseline.ghAw,
+      awf: thresholds.baseline.awf,
+      runtimeArtifacts: {
+        nvx: thresholds.baseline.nvxArtifact,
+        'cloud-hypervisor': thresholds.baseline.cloudHypervisorArtifact,
+      },
+      guestImage: input.guestImage,
+      workloadVersions: {
+        'build-test': `${input.sourceCommit.toLowerCase()}:phase4-build-v1`,
+        'copilot-inference': 'copilot-cli@1.0.95:phase4-prompt-v1',
+      },
+    },
     estimatedRunnerMinutes,
     expectedRuns,
     expectedRecoveries,
@@ -246,6 +297,10 @@ function assertRecord(record: Record<string, unknown>, label: string): void {
   }
   if (typeof record.versions !== 'object' || record.versions === null) {
     throw new Error(`${label} is missing versions`);
+  }
+  if (typeof record.provenance !== 'object' || record.provenance === null ||
+    Array.isArray(record.provenance)) {
+    throw new Error(`${label} is missing detailed provenance`);
   }
   if (typeof record.assertions !== 'object' || record.assertions === null ||
     Array.isArray(record.assertions)) {
@@ -273,6 +328,20 @@ function validateProvenance(
     if (versions[key] !== value) {
       throw new Error(`${label} baseline ${key} does not match the campaign`);
     }
+  }
+  const provenance = record.provenance as Record<string, unknown>;
+  const exactStringRecord = (actual: unknown, expected: Record<string, string>): boolean => {
+    if (!actual || typeof actual !== 'object' || Array.isArray(actual)) return false;
+    const values = actual as Record<string, unknown>;
+    return Object.keys(values).length === Object.keys(expected).length &&
+      Object.entries(expected).every(([key, value]) => values[key] === value);
+  };
+  if (provenance.compiler !== manifest.provenance.compiler ||
+    provenance.awf !== manifest.provenance.awf ||
+    provenance.guestImage !== manifest.provenance.guestImage ||
+    !exactStringRecord(provenance.runtimeArtifacts, manifest.provenance.runtimeArtifacts) ||
+    !exactStringRecord(provenance.workloadVersions, manifest.provenance.workloadVersions)) {
+    throw new Error(`${label} has mismatched compiler/runtime/guest/workload provenance`);
   }
   const assertions = record.assertions as Record<string, unknown>;
   for (const name of thresholds.zeroTolerance) {
@@ -421,7 +490,7 @@ export function aggregateCampaign(
     typeof manifest.versions !== 'object' || Array.isArray(manifest.versions)) {
     throw new Error('unsupported or incomplete campaign manifest');
   }
-  if (manifest.mode !== 'dry-run' && manifest.mode !== 'full') {
+  if (manifest.mode !== 'dry-run' && manifest.mode !== 'canary' && manifest.mode !== 'full') {
     throw new Error('unsupported or incomplete campaign manifest');
   }
   const canonicalManifest = createCampaignManifest({
@@ -442,8 +511,11 @@ export function aggregateCampaign(
       expected.every((sample) => isDeepStrictEqual(byId.get(sample.sampleId), sample));
   };
   if (manifest.dryRun !== canonicalManifest.dryRun ||
+    manifest.canary !== canonicalManifest.canary ||
+    manifest.promotionEligible !== canonicalManifest.promotionEligible ||
     manifest.estimatedRunnerMinutes !== canonicalManifest.estimatedRunnerMinutes ||
     !isDeepStrictEqual(manifest.versions, canonicalManifest.versions) ||
+    !isDeepStrictEqual(manifest.provenance, canonicalManifest.provenance) ||
     !samplesMatch(manifest.expectedRuns, canonicalManifest.expectedRuns) ||
     !samplesMatch(manifest.expectedRecoveries, canonicalManifest.expectedRecoveries)) {
     throw new Error('campaign manifest does not match canonical threshold-derived expectations');
@@ -554,6 +626,7 @@ export function aggregateCampaign(
     runnerImage: manifest.runnerImage,
     guestImage: manifest.guestImage,
     versions: { ...manifest.versions },
+    provenance: structuredClone(manifest.provenance),
     runs: primaryRuns.sort((a, b) => a.sampleId.localeCompare(b.sampleId)),
     recoveries: primaryRecoveries.sort((a, b) => a.sampleId.localeCompare(b.sampleId)),
     attempts: [...attempts.values()].flat().sort((a, b) =>
@@ -565,6 +638,8 @@ export function aggregateCampaign(
     missingSampleIds,
     unexpectedSampleIds,
     dryRun: manifest.dryRun,
+    canary: manifest.canary,
+    promotionEligible: manifest.promotionEligible,
   };
 }
 
@@ -615,6 +690,7 @@ export function generateDryRunArtifacts(
         runnerImage: manifest.runnerImage,
         guestImage: manifest.guestImage,
         versions: { ...manifest.versions },
+        provenance: structuredClone(manifest.provenance),
         evidenceKind: 'dry-run',
       },
     };
@@ -655,6 +731,7 @@ export function generateDryRunArtifacts(
         runnerImage: manifest.runnerImage,
         guestImage: manifest.guestImage,
         versions: { ...manifest.versions },
+        provenance: structuredClone(manifest.provenance),
         evidenceKind: 'dry-run',
       },
     };
@@ -668,7 +745,13 @@ function report(results: CampaignResults, thresholds: Thresholds): string {
     '# NVX Phase 4 campaign report',
     '',
     `- Campaign: \`${results.campaignId}\``,
-    `- Evidence: ${results.dryRun ? '**dry-run only (not benchmark data)**' : 'measured'}`,
+    `- Evidence: ${
+      results.dryRun
+        ? '**dry-run only (not benchmark data)**'
+        : results.canary
+          ? '**measured canary (excluded from promotion thresholds)**'
+          : 'measured promotion campaign'
+    }`,
     `- Runner: \`${results.runnerClass}\``,
     `- Samples: ${results.runs.length} primary runs; ${results.recoveries.length} recovery records`,
     `- Recommendation: **${evaluation.recommendation}**`,
@@ -700,7 +783,7 @@ function loadThresholds(): Thresholds {
 
 function usage(): never {
   throw new Error(
-    'usage: nvx-benchmark-campaign plan <manifest.json> <campaign-id> <dry-run|full> ' +
+    'usage: nvx-benchmark-campaign plan <manifest.json> <campaign-id> <dry-run|canary|full> ' +
     '<source-sha> <runner-class> <runner-image> <guest-image> | dry-run <manifest.json> ' +
     '<samples-dir> <workflow-run-id> <job-id> <workflow-attempt> | aggregate ' +
     '<manifest.json> <samples-dir> <results.json> <report.md>',
@@ -713,7 +796,9 @@ function main(): void {
   if (command === 'plan') {
     const [manifestPath, campaignId, mode, sourceCommit, runnerClass, runnerImage, guestImage] = args;
     if (!manifestPath || !campaignId || !mode || !sourceCommit || !runnerClass || !runnerImage || !guestImage) usage();
-    if (mode !== 'dry-run' && mode !== 'full') throw new Error('mode must be dry-run or full');
+    if (mode !== 'dry-run' && mode !== 'canary' && mode !== 'full') {
+      throw new Error('mode must be dry-run, canary, or full');
+    }
     const manifest = createCampaignManifest(
       { campaignId, mode, sourceCommit, runnerClass, runnerImage, guestImage },
       thresholds,

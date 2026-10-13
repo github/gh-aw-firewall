@@ -1,0 +1,285 @@
+name: NVX Phase 4 Matched Runtime Canary
+
+on:
+  workflow_dispatch:
+    inputs:
+      campaign_id:
+        description: Immutable canary identifier
+        required: true
+        type: string
+      confirm_live_canary:
+        description: Confirm four real KVM samples (about 40 runner-minutes)
+        required: true
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  copilot-requests: write
+  id-token: write
+  attestations: write
+
+concurrency:
+  group: nvx-phase-4-real-canary
+  cancel-in-progress: false
+
+jobs:
+  canary:
+    if: inputs.confirm_live_canary
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix:
+        runtime: [nvx, cloud-hypervisor]
+        workload: [build-test, copilot-inference]
+    steps:
+      - name: Checkout reviewed source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up gh-aw v0.91.9 runtime helpers
+        uses: github/gh-aw-actions/setup@a0486bb9f7e2d8b990201dc43e34e7d668f191a4 # v0.91.9
+        with:
+          destination: ${{ runner.temp }}/gh-aw/actions
+          job-name: ${{ github.job }}
+        env:
+          GH_AW_SETUP_WORKFLOW_NAME: NVX Phase 4 Matched Runtime Canary
+          GH_AW_CURRENT_WORKFLOW_REF: ${{ github.repository }}/.github/workflows/nvx-phase-4-canary.yml@${{ github.ref }}
+          GH_AW_INFO_AWF_VERSION: v0.28.54
+          GH_AW_INFO_ENGINE_ID: copilot
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install host tools and reviewed AWF build
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends \
+            acl bubblewrap e2fsprogs erofs-utils jq nftables shellcheck uidmap
+          npm version 0.28.54 --no-git-tag-version --allow-same-version
+          npm ci
+          npm run build
+
+      - name: Install reviewed Copilot CLI
+        if: matrix.workload == 'copilot-inference'
+        env:
+          GH_HOST: github.com
+          GH_AW_COMPILED_VERSION: v0.91.9
+          GH_AW_COPILOT_GUEST_LIBC: ${{ matrix.runtime == 'nvx' && 'musl' || 'gnu' }}
+        run: bash "${RUNNER_TEMP}/gh-aw/actions/install_copilot_cli.sh" 1.0.95
+
+      - name: Provision Cloud Hypervisor v53.0 artifacts
+        if: matrix.runtime == 'cloud-hypervisor'
+        env:
+          GH_AW_AWF_VERSION: v0.28.54
+        run: |
+          set -euo pipefail
+          bash "${RUNNER_TEMP}/gh-aw/actions/cloud_hypervisor_kvm_access.sh"
+          bash "${RUNNER_TEMP}/gh-aw/actions/cloud_hypervisor_host_preflight.sh"
+          bash "${RUNNER_TEMP}/gh-aw/actions/cloud_hypervisor_setup_bundle.sh"
+
+      - name: Make Cloud Hypervisor artifacts immutable
+        if: matrix.runtime == 'cloud-hypervisor'
+        run: |
+          set -euo pipefail
+          sudo chown root:root \
+            "$GH_AW_CLOUD_HYPERVISOR_BINARY" \
+            "$GH_AW_CLOUD_HYPERVISOR_KERNEL" \
+            "$GH_AW_CLOUD_HYPERVISOR_ROOTFS" \
+            "$GH_AW_CLOUD_HYPERVISOR_SUPERVISOR" \
+            "$GH_AW_CLOUD_HYPERVISOR_ARTIFACT_MANIFEST" \
+            "$GH_AW_CLOUD_HYPERVISOR_ARTIFACT_MANIFEST_BUNDLE"
+          sudo chmod 0555 "$GH_AW_CLOUD_HYPERVISOR_BINARY"
+          sudo chmod 0444 \
+            "$GH_AW_CLOUD_HYPERVISOR_KERNEL" \
+            "$GH_AW_CLOUD_HYPERVISOR_ROOTFS" \
+            "$GH_AW_CLOUD_HYPERVISOR_SUPERVISOR" \
+            "$GH_AW_CLOUD_HYPERVISOR_ARTIFACT_MANIFEST" \
+            "$GH_AW_CLOUD_HYPERVISOR_ARTIFACT_MANIFEST_BUNDLE"
+
+      - name: Provision pinned NVX artifacts and guest layer
+        if: matrix.runtime == 'nvx'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NVX_RELEASE: v0.1.0-dev.be859aa77ffa
+          NVX_ARCHIVE: nvx-0.1.0-linux-kvm.tar.gz
+          NVX_ARCHIVE_SHA256: ad6bf948d84d60d92f35103b52dc3ad33a421e9a4457ce0823d1890a6985a912
+        run: |
+          set -euo pipefail
+          package="$RUNNER_TEMP/nvx-package"
+          artifacts="$RUNNER_TEMP/nvx-artifacts"
+          layer="$RUNNER_TEMP/nvx-layer"
+          mkdir -p "$package" "$artifacts" "$layer"
+          gh release download "$NVX_RELEASE" --repo microsoft/nvx \
+            --pattern "$NVX_ARCHIVE" --dir "$package"
+          printf '%s  %s\n' "$NVX_ARCHIVE_SHA256" "$package/$NVX_ARCHIVE" |
+            sha256sum --check --status
+          tar -xzf "$package/$NVX_ARCHIVE" -C "$package"
+          extracted="$package/nvx-0.1.0-linux-kvm"
+          (cd "$extracted" && sha256sum --check SHA256SUMS)
+          sudo install -o root -g root -m 0555 "$extracted/bin/openvmm" "$artifacts/openvmm"
+          sudo install -o root -g root -m 0444 "$extracted/guest/vmlinux" "$artifacts/vmlinux"
+          sudo install -o root -g root -m 0444 "$extracted/guest/initramfs.cpio.gz" "$artifacts/initramfs.cpio.gz"
+          jq -n \
+            --arg source "$GITHUB_SHA" \
+            --arg openvmm "$(sha256sum "$artifacts/openvmm" | cut -d' ' -f1)" \
+            --arg kernel "$(sha256sum "$artifacts/vmlinux" | cut -d' ' -f1)" \
+            --arg initramfs "$(sha256sum "$artifacts/initramfs.cpio.gz" | cut -d' ' -f1)" \
+            --argjson openvmm_size "$(stat -c %s "$artifacts/openvmm")" \
+            --argjson kernel_size "$(stat -c %s "$artifacts/vmlinux")" \
+            --argjson initramfs_size "$(stat -c %s "$artifacts/initramfs.cpio.gz")" \
+            '{schemaVersion:2,release:{repository:"github/gh-aw-firewall",workflow:"github/gh-aw-firewall/.github/workflows/nvx-phase-4-canary.yml",tag:"v0.28.54",sourceCommit:$source},upstream:{releaseTag:"v0.1.0-dev.be859aa77ffa",nvxCommit:"be859aa77ffa7a20f9ef50f68c5386acdfca9955",openvmmCommit:"762bc1c7a203b16aee752324d6a4ab0bde1a713a"},architecture:"x86_64",artifacts:{openvmm:{file:"openvmm",sizeBytes:$openvmm_size,sha256:$openvmm},kernel:{file:"vmlinux",sizeBytes:$kernel_size,sha256:$kernel},initramfs:{file:"initramfs.cpio.gz",sizeBytes:$initramfs_size,sha256:$initramfs}}}' \
+            > "$artifacts/manifest.json"
+          sudo chown root:root "$artifacts/manifest.json"
+          sudo chmod 0444 "$artifacts/manifest.json"
+          image=alpine@sha256:eafc1edb577d2e9b458664a15f23ea1c370214193226069eb22921169fc7e43f
+          sudo docker pull "$image"
+          container=$(sudo docker create "$image" apk add --no-cache bash ca-certificates curl nodejs npm)
+          sudo docker start --attach "$container"
+          sudo docker export "$container" | tar -xf - -C "$layer"
+          sudo docker rm "$container"
+          sudo mount -o remount,size=8G /run
+          {
+            echo "NVX_OPENVMM=$artifacts/openvmm"
+            echo "NVX_KERNEL=$artifacts/vmlinux"
+            echo "NVX_INITRAMFS=$artifacts/initramfs.cpio.gz"
+            echo "NVX_LAYER=$layer"
+            echo "NVX_MANIFEST=$artifacts/manifest.json"
+          } >> "$GITHUB_ENV"
+
+      - name: Attest NVX manifest
+        if: matrix.runtime == 'nvx'
+        id: attest_nvx
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: ${{ runner.temp }}/nvx-artifacts/manifest.json
+
+      - name: Finalize NVX attestation paths
+        if: matrix.runtime == 'nvx'
+        env:
+          BUNDLE_PATH: ${{ steps.attest_nvx.outputs.bundle-path }}
+        run: |
+          set -euo pipefail
+          sudo cp "$BUNDLE_PATH" "$RUNNER_TEMP/nvx-artifacts/manifest.sigstore.jsonl"
+          sudo chown root:root "$RUNNER_TEMP/nvx-artifacts/manifest.sigstore.jsonl"
+          sudo chmod 0444 "$RUNNER_TEMP/nvx-artifacts/manifest.sigstore.jsonl"
+          echo "NVX_MANIFEST_BUNDLE=$RUNNER_TEMP/nvx-artifacts/manifest.sigstore.jsonl" >> "$GITHUB_ENV"
+
+      - name: Create bounded canary manifest and adapter input
+        id: sample
+        env:
+          CAMPAIGN_ID: ${{ inputs.campaign_id }}
+          RUNTIME: ${{ matrix.runtime }}
+          WORKLOAD: ${{ matrix.workload }}
+        run: |
+          set -euo pipefail
+          evidence="$RUNNER_TEMP/evidence"
+          mkdir -p "$evidence/raw"
+          chmod 0700 "$evidence" "$evidence/raw"
+          runner_image="${ImageOS:?}/${ImageVersion:?}"
+          npx tsx scripts/ci/nvx-benchmark-campaign.ts plan \
+            "$evidence/manifest.json" "$CAMPAIGN_ID" canary "$GITHUB_SHA" \
+            ubuntu-24.04 "$runner_image" \
+            "NVX microsoft/nvx@v0.1.0-dev.be859aa77ffa; Cloud Hypervisor v53.0"
+          sample_id=$(jq -er --arg runtime "$RUNTIME" --arg workload "$WORKLOAD" \
+            '.expectedRuns[] | select(.runtime == $runtime and .workload == $workload) | .sampleId' \
+            "$evidence/manifest.json")
+          output="$evidence/raw/run-$sample_id.json"
+          token_usage="$evidence/token-usage.jsonl"
+          jq -n \
+            --arg manifestPath "$evidence/manifest.json" \
+            --arg sampleId "$sample_id" \
+            --arg cwd "$GITHUB_WORKSPACE" \
+            --arg outputPath "$output" \
+            --arg lifecyclePath "$evidence/lifecycle.json" \
+            --arg assertionsPath "$evidence/assertions.json" \
+            --arg residuePath "$evidence/residue.json" \
+            --arg tokenUsagePath "$token_usage" \
+            --arg workflowRunId "$GITHUB_RUN_ID" \
+            --arg jobId "$GITHUB_JOB-$RUNTIME-$WORKLOAD" \
+            --arg workflowAttemptId "$GITHUB_RUN_ATTEMPT" \
+            --arg runtime "$RUNTIME" \
+            --arg workload "$WORKLOAD" \
+            '{manifestPath:$manifestPath,sampleId:$sampleId,attempt:1,command:["bash","scripts/ci/nvx-phase4-canary-runtime.sh",$runtime,$workload,$sampleId],cwd:$cwd,outputPath:$outputPath,lifecyclePath:$lifecyclePath,assertionsPath:$assertionsPath,residuePath:$residuePath,tokenUsagePath:$tokenUsagePath,workflowRunId:$workflowRunId,jobId:$jobId,workflowAttemptId:$workflowAttemptId}' \
+            > "$evidence/adapter-input.json"
+          echo "sample_id=$sample_id" >> "$GITHUB_OUTPUT"
+
+      - name: Execute measured runtime sample
+        env:
+          COPILOT_GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          AWF_PHASE4_TOKEN_USAGE_OUTPUT: ${{ runner.temp }}/evidence/token-usage.jsonl
+        run: npx tsx scripts/ci/nvx-matched-runtime-adapter.ts "$RUNNER_TEMP/evidence/adapter-input.json"
+
+      - name: Upload immutable sample evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: nvx-phase4-canary-${{ inputs.campaign_id }}-${{ matrix.runtime }}-${{ matrix.workload }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/evidence/
+          if-no-files-found: error
+          retention-days: 90
+
+  aggregate:
+    needs: canary
+    if: always() && inputs.confirm_live_canary
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout reviewed source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - name: Download canary evidence
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: nvx-phase4-canary-${{ inputs.campaign_id }}-*
+          path: ${{ runner.temp }}/samples
+      - name: Aggregate measured canary without promotion credit
+        env:
+          CAMPAIGN_ID: ${{ inputs.campaign_id }}
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/samples"
+          manifest=$(find "$root" -name manifest.json -print -quit)
+          mkdir -p "$RUNNER_TEMP/aggregate/raw"
+          chmod 0700 "$RUNNER_TEMP/aggregate" "$RUNNER_TEMP/aggregate/raw"
+          find "$root" -path '*/raw/run-*.json' -type f -exec cp {} "$RUNNER_TEMP/aggregate/raw/" \;
+          cp "$manifest" "$RUNNER_TEMP/aggregate/manifest.json"
+          set +e
+          npx tsx scripts/ci/nvx-benchmark-campaign.ts aggregate \
+            "$RUNNER_TEMP/aggregate/manifest.json" "$RUNNER_TEMP/aggregate/raw" \
+            "$RUNNER_TEMP/aggregate/benchmark-results.json" "$RUNNER_TEMP/aggregate/report.md"
+          status=$?
+          set -e
+          test "$status" -eq 1
+          jq -e '.canary == true and .promotionEligible == false and .dryRun == false' \
+            "$RUNNER_TEMP/aggregate/benchmark-results.json" >/dev/null
+          jq -e '
+            (.runs | length == 4) and
+            all(.runs[];
+              .success == true and
+              (.assertionFailures | length == 0) and
+              (.residue | length == 0))
+          ' "$RUNNER_TEMP/aggregate/benchmark-results.json" >/dev/null
+          jq -e '.recommendation == "retain-preview"' "$RUNNER_TEMP/aggregate/evaluation.json" >/dev/null
+          cat "$RUNNER_TEMP/aggregate/report.md" >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload aggregate canary evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: nvx-phase4-canary-aggregate-${{ inputs.campaign_id }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/aggregate/
+          if-no-files-found: error
+          retention-days: 90

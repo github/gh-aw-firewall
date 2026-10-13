@@ -76,6 +76,57 @@ describe('NVX benchmark campaign evidence', () => {
     expect(source).toContain('10,000-minute');
   });
 
+  it('keeps the real canary bounded, serialized, matched, and promotion-ineligible', () => {
+    const workflowPath = path.join(
+      __dirname, '..', '..', '.github', 'workflows', 'nvx-phase-4-canary.yml',
+    );
+    const source = fs.readFileSync(workflowPath, 'utf8');
+    const workflow = yaml.load(source) as {
+      on: Record<string, unknown>;
+      concurrency: { 'cancel-in-progress': boolean };
+      jobs: {
+        canary: {
+          strategy: {
+            'fail-fast': boolean;
+            'max-parallel': number;
+            matrix: { runtime: string[]; workload: string[] };
+          };
+          'runs-on': string;
+        };
+      };
+    };
+    expect(Object.keys(workflow.on)).toEqual(['workflow_dispatch']);
+    expect(workflow.concurrency['cancel-in-progress']).toBe(false);
+    expect(workflow.jobs.canary['runs-on']).toBe('ubuntu-24.04');
+    expect(workflow.jobs.canary.strategy).toMatchObject({
+      'fail-fast': false,
+      'max-parallel': 1,
+      matrix: {
+        runtime: ['nvx', 'cloud-hypervisor'],
+        workload: ['build-test', 'copilot-inference'],
+      },
+    });
+    expect(source).toContain('v0.91.9');
+    expect(source).toContain('v0.28.54');
+    expect(source).toContain('install_copilot_cli.sh" 1.0.95');
+    expect(source).toContain('promotionEligible == false');
+    expect(source).not.toContain('mode: full');
+
+    const harness = fs.readFileSync(path.join(
+      __dirname, '..', '..', 'scripts', 'ci', 'nvx-phase4-canary-runtime.sh',
+    ), 'utf8');
+    expect(harness).toContain('--container-workdir /workspace');
+    expect(harness).toContain('--cloud-hypervisor-vcpus 1');
+    expect(harness).toContain('--nvx-memory-mib 4096');
+    expect(harness).toContain('[ "$observed_memory_max" = 4563402752 ]');
+    expect(harness).toContain('[ "$cpu_quota" = 200000 ]');
+    expect(harness).toContain('runtime-ready');
+    expect(harness).toContain('resourceLimitsEnforced:$resourceLimitsEnforced');
+    expect(harness).toContain('residue+=("runtime-process")');
+    expect(harness).not.toContain('--argjson immutableArtifacts true');
+    expect(harness).not.toContain('--argjson boundedScratch true');
+  });
+
   it('expands every required matrix cell and uses the approved sample sizes', () => {
     const campaign = manifest('full');
     expect(campaign.expectedRuns).toHaveLength(960);
@@ -148,6 +199,11 @@ describe('NVX benchmark campaign evidence', () => {
     const stale = dryArtifacts(campaign);
     (stale[0].result as RunEvidence).versions.awf = 'v0.0.0';
     expect(() => aggregateCampaign(campaign, stale, thresholds)).toThrow('baseline awf');
+    const staleWorkload = dryArtifacts(campaign);
+    (staleWorkload[0].result as RunEvidence).provenance.workloadVersions['build-test'] =
+      'different-workload';
+    expect(() => aggregateCampaign(campaign, staleWorkload, thresholds))
+      .toThrow('mismatched compiler/runtime/guest/workload provenance');
 
     const wrongRunner = dryArtifacts(campaign);
     (wrongRunner[0].result as RunEvidence).runnerClass = 'unapproved-runner';
