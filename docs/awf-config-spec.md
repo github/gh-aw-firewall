@@ -1873,6 +1873,38 @@ The fallback is **NOT** activated when:
   OpenAI deployment endpoints), where deployment names are provider-local and
   must not be rewritten to catalog model IDs
 
+### 12.3.1 Custom-agent selectors at the firewall boundary
+
+Copilot custom agents declare `model` in `.agent.md` frontmatter, not in
+`plugin.json`. This applies to both Agent Plugins 1.0
+(`com.github.copilot/agents/`) and legacy Copilot plugins (`agents/`).
+The loader/surface owns parsing the scalar or prioritized list and must choose
+the first available entry in list order for the active surface/account.
+AWF does not load plugin files or select from frontmatter arrays; an array sent
+as an inference request's `model` is rejected with `unsupported_model_selector`.
+
+The API proxy resolves a selected scalar against the active provider's discovered
+IDs and advertised display names before model policy, pricing, upstream inference,
+and retry/fallback handling. For example, when Copilot advertises
+`name: "GPT-5.6 Terra"` for `id: "gpt-5.6-terra"`, both `GPT-5.6 Terra` and
+`GPT-5.6 Terra (copilot)` resolve to `gpt-5.6-terra`. Canonical IDs continue to
+work. The vendor qualifier must match the active proxy provider; it does not
+switch backends or become part of the upstream model ID.
+
+Unqualified display names must be unique within that provider's available
+catalog. Ambiguous or unknown display/qualified selectors fail with an actionable
+`unsupported_model_selector` error, including when discovery is unavailable;
+they never trigger an unrelated middle-power fallback. Explicit `apiProxy.models`
+aliases take precedence over advertised display names, but canonical catalog IDs
+remain authoritative. No spaces-to-hyphens rewriting is performed, and catalog
+deployment IDs (including IDs with spaces or parentheses) take precedence over
+selector syntax. Unknown ordinary API IDs retain existing provider behavior.
+
+The `model_selector_resolution` log/diagnostic event separates
+`requested_selector`, `selected_provider`, and `resolved_model`. End-to-end list
+availability and cross-provider selection require support in the consuming
+Copilot/GH-AW surface; they are not implemented by the firewall.
+
 ### 12.4 Extended Alias Syntax
 
 Model aliases now support an extended syntax that permits per-alias fallback
@@ -2260,7 +2292,9 @@ and `pathname` identifying the requested provider and endpoint) and
 include `request_id`, terminal `outcome` (`completed`, `rejected`, `failed`,
 or `aborted`), and `status` (final HTTP status). Request-side model fields
 use the wire representation used for comparison, unlike canonical selection
-model fields. Before the request body is observed, body-dependent comparisons
+model fields. A resolved custom-agent selector uses its canonical wire ID for
+comparison; the original selector is retained in `model_selector_resolution`
+diagnostics. Before the request body is observed, body-dependent comparisons
 MUST be listed in `unavailable` and omitted from `deviations`; known provider
 and endpoint differences remain reportable. Endpoint differences are
 informational and MUST NOT by themselves make `routed` `deviated`. A known

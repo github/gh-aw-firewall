@@ -19,6 +19,8 @@ const {
 } = require('./guards/model-policy-guard');
 const { isModelPriceable } = require('./guards/ai-credits-guard');
 const { parseScopedAutoRequest, rewriteScopedAutoRequest, pickerError } = require('./scoped-auto-model');
+const { parseBodyAsObject } = require('./body-utils');
+const { resolveModelSelector } = require('./model-selector');
 
 const MODEL_ALIASES_RAW = (process.env.AWF_MODEL_ALIASES || '').trim() || undefined;
 const MODEL_ALIASES = parseModelAliases(MODEL_ALIASES_RAW);
@@ -187,6 +189,43 @@ function makeModelBodyTransform(
         error.code = 'copilot_auto_responses_model_unavailable';
         error.type = 'service_unavailable';
         throw error;
+      }
+    }
+    if (!result) {
+      const parsed = parseBodyAsObject(body);
+      const selectModel = () => resolveModelSelector(
+        parsed?.model, provider, resolvableModels()[provider], getRuntimeModels(provider),
+        MODEL_ALIASES?.models,
+      );
+      let selectedModel;
+      try {
+        selectedModel = selectModel();
+      } catch (error) {
+        if (error.code !== 'unsupported_model_selector' || Array.isArray(parsed?.model)) throw error;
+        await refreshProviderModelsForResolution(provider);
+        selectedModel = selectModel();
+      }
+      if (selectedModel) {
+        const originalModel = req?.awfRequestedModelSelector ?? parsed.model;
+        parsed.model = selectedModel;
+        result = {
+          body: Buffer.from(JSON.stringify(parsed), 'utf8'),
+          originalModel,
+          resolvedModel: selectedModel,
+          candidates: [selectedModel],
+          log: [],
+        };
+        req?.awfRouting?.onModelSelectorResolution?.(result.body);
+        logRequest('info', 'model_selector_resolution', {
+          requested_selector: sanitizeForLog(originalModel),
+          selected_provider: provider,
+          resolved_model: sanitizeForLog(selectedModel),
+        });
+        diag('model_selector_resolution', {
+          requested_selector: sanitizeForLog(originalModel),
+          selected_provider: provider,
+          resolved_model: sanitizeForLog(selectedModel),
+        });
       }
     }
     if (!result && MODEL_ALIASES) {

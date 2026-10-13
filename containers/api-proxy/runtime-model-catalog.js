@@ -105,9 +105,11 @@ function parseProviderModelMetadata(provider, json, options = {}) {
     if (!id) return null;
     const pricing = format === 'copilot' ? normalizeCopilotPricing(entry) : null;
     const promotion = format === 'copilot' ? normalizePromotion(entry) : null;
+    const displayName = entry.display_name || entry.displayName || (entry.id ? entry.name : null);
     return {
       provider,
       id,
+      ...(typeof displayName === 'string' && displayName.length > 0 ? { displayName } : {}),
       source: 'provider',
       observedAt,
       ...(options.apiVersion ? { apiVersion: options.apiVersion } : {}),

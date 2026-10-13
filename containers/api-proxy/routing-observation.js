@@ -259,6 +259,7 @@ function createRoutingObservation({
       req.awfRouting = {
         requestId,
         bodyTransform,
+        onModelSelectorResolution: bodyTransform,
         onEndpointTranslation(compatibility) {
           if (!compatibility || compatibility.requestedEndpoint !== state.telemetry.requested_endpoint) return;
           state.telemetry = {

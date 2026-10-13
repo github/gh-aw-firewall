@@ -38,6 +38,7 @@ const {
 const { translateCodexCustomToolsForCopilot } = require('./codex-compat');
 const { endpointForPath, translateCopilotWireApi } = require('./wire-api-compat');
 const { stripRedundantModelPrefixInBody } = require('./model-body-rewriter');
+const { parseBodyAsObject } = require('./body-utils');
 
 /** Maximum request body size: 10 MB to prevent DoS via large payloads. */
 const MAX_BODY_SIZE = 10 * 1024 * 1024;
@@ -199,6 +200,8 @@ function createBodyHandler({ handleRequestError, otel }) {
     // model-resolver.js). Both call sites share the `stripRedundantProviderPrefix`
     // helper in model-utils.js; keep them in sync if that normalization changes.
     if (isWritableMethod) {
+      const requestedModel = parseBodyAsObject(body)?.model;
+      if (typeof requestedModel === 'string') req.awfRequestedModelSelector = requestedModel;
       const prefixStripped = stripRedundantModelPrefixInBody(body, provider);
       if (prefixStripped) body = prefixStripped;
     }
