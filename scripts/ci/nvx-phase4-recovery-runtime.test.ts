@@ -189,7 +189,7 @@ describe('Phase 4 recovery manager selection', () => {
       recovery.indexOf('immutable_artifacts=true\n'));
     const classification = recovery.slice(recovery.indexOf('success=false\n'),
       recovery.indexOf('if [ "${#residue[@]}" -eq 0 ]; then residue_json='));
-    const result = execFileSync('bash', ['-c', `
+    const result = execFileSync('/bin/bash', ['-c', `
       set -euo pipefail
       runtime=nvx kind=stale-recovery readiness=true cleanup_record_identity_valid=true
       terminal_observed=true manager_killed_after_record=true workload_after_recovery=true
@@ -214,7 +214,7 @@ describe('Phase 4 recovery manager selection', () => {
     (kind, recordValid) => {
       const classification = recovery.slice(recovery.indexOf('success=false\n'),
         recovery.indexOf('if [ "${#residue[@]}" -eq 0 ]; then residue_json='));
-      const result = execFileSync('bash', ['-c', `
+      const result = execFileSync('/bin/bash', ['-c', `
         set -euo pipefail
         kind=$1
         readiness=true terminal_observed=true cleanup_record_identity_valid=$2
@@ -246,7 +246,7 @@ describe('Phase 4 runtime storage residue', () => {
   ])('requires a positive bounded scratch capacity (%s bytes)', (capacity, expected) => {
     const assertion = recovery.slice(recovery.indexOf('  if [ "$scratch_capacity"'),
       recovery.indexOf('\nfi\nruntime_no_fallback=false'));
-    const result = execFileSync('bash', ['-c', `
+    const result = execFileSync('/bin/bash', ['-c', `
       set -euo pipefail
       scratch_capacity=$1
       bounded_scratch=false
@@ -269,23 +269,25 @@ describe('Phase 4 runtime storage residue', () => {
   ];
 
   it.each(cases)('detects %s %s residue in %s even after work-dir removal', (runtime, category, root) => {
-    const result = execFileSync('bash', ['-c', `
+    const result = execFileSync('/bin/bash', ['-s', '--', runtime, category, root], {
+      encoding: 'utf8',
+      input: `${checks}
       set -euo pipefail
-      source "$1"
       sudo() {
         if [ "$1" = test ]; then return 0; fi
         if [ "$1" = find ] && [ "$2" = "$RESIDUE_ROOT" ] && [ "$residue" = true ]; then
           printf '%s/owned-entry 1:42 f\\n' "$2"
         fi
       }
-      RESIDUE_ROOT=$4
+      RESIDUE_ROOT=$3
       residue=false
-      before=$(runtime_storage_snapshot "$2" "$3")
+      before=$(runtime_storage_snapshot "$1" "$2")
       residue=true
-      after=$(runtime_storage_snapshot "$2" "$3")
+      after=$(runtime_storage_snapshot "$1" "$2")
       test "$before" != "$after"
       printf '%s' "$after"
-    `, 'test', checksPath, runtime, category, root], { encoding: 'utf8' });
+    `,
+    });
     expect(result).toBe(`${root}/owned-entry 1:42 f`);
   });
 
@@ -302,7 +304,7 @@ describe('Phase 4 runtime storage residue', () => {
 
   it('passes bash syntax checks', () => {
     for (const script of [checksPath, recoveryPath, campaignPath]) {
-      execFileSync('bash', ['-n', script]);
+      execFileSync('/bin/bash', ['-n'], { input: fs.readFileSync(script, 'utf8') });
     }
   });
 });
