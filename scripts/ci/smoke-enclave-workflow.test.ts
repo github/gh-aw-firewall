@@ -133,6 +133,41 @@ describe('experimental Cloud Hypervisor enclave smoke workflow', () => {
     expect(source).toContain("uses AWF's finite-disclosure schema algebra, not JSON");
     expect(source).toContain('"package_json": { "type": "boolean" }');
     expect(source).toContain('"src": { "type": "boolean" }');
+    const toolInputMatch = source.match(
+      /Pass exactly this JSON object, with exactly the\nrequired `privateRepo`, `schema`, and `script` keys:\n\n```json\n([\s\S]*?)\n```/
+    );
+    if (!toolInputMatch) {
+      throw new Error('Missing the exact enclave MCP tool input object');
+    }
+    const toolInput = JSON.parse(toolInputMatch[1]) as {
+      privateRepo: string;
+      schema: { type: string; fields: Record<string, { type: string }> };
+      script: string;
+    };
+    expect(Object.keys(toolInput).sort()).toEqual(['privateRepo', 'schema', 'script']);
+    expect(toolInput.privateRepo).toBe('github/gh-aw-firewall');
+    expect(toolInput.schema).toEqual({
+      type: 'object',
+      fields: {
+        package_json: { type: 'boolean' },
+        src: { type: 'boolean' },
+      },
+    });
+    expect(toolInput.script).toBe(`import json
+import pathlib
+
+root = pathlib.Path("/query/repo")
+result = {
+    "package_json": (root / "package.json").is_file(),
+    "src": (root / "src").is_dir(),
+}
+pathlib.Path("/query/out").write_text(json.dumps(result), encoding="utf-8")`);
+    expect(source).toContain('Call the `enclave_run_script` MCP tool directly exactly once');
+    expect(source).toContain('Do not invoke the tool through a shell or CLI');
+    expect(source).toContain('inspect its help, probe its schema, send empty arguments');
+    expect(source).toMatch(/use `repo` instead\s+of `privateRepo`, or retry/);
+    expect(source).toContain('If the invocation fails, call\n`safeoutputs missing_data` immediately');
+    expect(source).toContain('never make a second attempt');
     expect(source).not.toContain('enclave_run_agent');
     expect(source).toContain('max-invocations: 1');
     expect(source).toContain('invocations.length !== 1');

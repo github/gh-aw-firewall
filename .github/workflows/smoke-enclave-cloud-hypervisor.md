@@ -90,35 +90,30 @@ acceptance paths. The binary, Docker images, and release-attested primary and
 script enclave artifacts all select that release. This workflow is compiled
 with gh-aw v0.91.9 and does not publish a release or authorize a live run.
 
-Use `enclave_run_script` exactly once for `github/gh-aw-firewall`.
-Do not use the current checkout, bash, GitHub tools, or network requests to answer.
-
-The `schema` argument uses AWF's finite-disclosure schema algebra, not JSON
-Schema. Pass exactly:
+Call the `enclave_run_script` MCP tool directly exactly once, selecting
+`github/gh-aw-firewall`. Pass exactly this JSON object, with exactly the
+required `privateRepo`, `schema`, and `script` keys:
 
 ```json
 {
-  "type": "object",
-  "fields": {
-    "package_json": { "type": "boolean" },
-    "src": { "type": "boolean" }
-  }
+  "privateRepo": "github/gh-aw-firewall",
+  "schema": {
+    "type": "object",
+    "fields": {
+      "package_json": { "type": "boolean" },
+      "src": { "type": "boolean" }
+    }
+  },
+  "script": "import json\nimport pathlib\n\nroot = pathlib.Path(\"/query/repo\")\nresult = {\n    \"package_json\": (root / \"package.json\").is_file(),\n    \"src\": (root / \"src\").is_dir(),\n}\npathlib.Path(\"/query/out\").write_text(json.dumps(result), encoding=\"utf-8\")"
 }
 ```
 
-Run this Python script inside the enclave:
-
-```python
-import json
-import pathlib
-
-root = pathlib.Path("/query/repo")
-result = {
-    "package_json": (root / "package.json").is_file(),
-    "src": (root / "src").is_dir(),
-}
-pathlib.Path("/query/out").write_text(json.dumps(result), encoding="utf-8")
-```
+The `schema` uses AWF's finite-disclosure schema algebra, not JSON Schema.
+Do not use the current checkout, shell commands, CLI commands, GitHub tools, or
+network requests to answer. Do not invoke the tool through a shell or CLI,
+inspect its help, probe its schema, send empty arguments, use `repo` instead
+of `privateRepo`, or retry. If the invocation fails, call
+`safeoutputs missing_data` immediately and never make a second attempt.
 
 Only if both returned booleans are `true`, call `noop` with exactly:
 
