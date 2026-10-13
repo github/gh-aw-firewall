@@ -125,6 +125,14 @@ describe('nvx promotion evaluator', () => {
     expect(e.recommendation).toBe('stop-promotion');
   });
 
+  it('stops promotion when either runtime fails to prove resource limits', () => {
+    const input = results();
+    input.runs.find((run) => run.runtime === 'cloud-hypervisor')!.assertionFailures = [
+      'resourceLimitsEnforced',
+    ];
+    expect(evaluate(input, thresholds).recommendation).toBe('stop-promotion');
+  });
+
   it('stops promotion on cleanup residue', () => {
     const e = evaluate(results({ residue: ['kvm-acl'] }), thresholds);
     expect(e.recommendation).toBe('stop-promotion');

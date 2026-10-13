@@ -4,33 +4,434 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: Dry-run validates the evidence pipeline; full creates the reviewed campaign manifest
+        description: Dry-run validates deterministically; full executes the reviewed campaign
         required: true
         type: choice
-        options:
-          - dry-run
-          - full
+        options: [dry-run, full]
         default: dry-run
       campaign_id:
-        description: Immutable campaign identifier; reuse it only to resume the same campaign
+        description: Immutable campaign identifier; reuse only to resume this exact campaign
         required: true
         type: string
       confirm_full_campaign:
-        description: Confirm review of the fixed thresholds and 10,000-minute (166.7-hour) runner estimate
+        description: 'For full mode enter exactly: I reviewed and approve the 10,000 runner-minute estimate'
+        required: false
+        type: string
+        default: ''
+      prior_run_id:
+        description: Optional prior workflow run ID containing immutable cell artifacts to resume
+        required: false
+        type: string
+        default: ''
+      allow_infrastructure_retry:
+        description: Permit one linked retry only for adapter-classified infrastructure failures
         required: true
         type: boolean
         default: false
+      infrastructure_retry_url:
+        description: Required issue or pull-request URL documenting explicitly approved retries
+        required: false
+        type: string
+        default: ''
 
 permissions:
+  actions: read
   contents: read
+  copilot-requests: write
+  id-token: write
+  attestations: write
 
 concurrency:
   group: nvx-phase-4-promotion-campaign
   cancel-in-progress: false
 
 jobs:
-  campaign:
-    name: Validate NVX promotion evidence
+  prepare:
+    name: Validate and plan campaign
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    outputs:
+      matrix: ${{ steps.plan.outputs.matrix }}
+    steps:
+      - name: Checkout reviewed source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4
+        with:
+          persist-credentials: false
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+      - name: Verify dispatch guardrails and reviewed pins
+        env:
+          CAMPAIGN_MODE: ${{ inputs.mode }}
+          CAMPAIGN_ID: ${{ inputs.campaign_id }}
+          CONFIRM_FULL_CAMPAIGN: ${{ inputs.confirm_full_campaign }}
+          PRIOR_RUN_ID: ${{ inputs.prior_run_id }}
+          ALLOW_INFRASTRUCTURE_RETRY: ${{ inputs.allow_infrastructure_retry }}
+          INFRASTRUCTURE_RETRY_URL: ${{ inputs.infrastructure_retry_url }}
+        run: |
+          set -euo pipefail
+          node -e '
+            const t = require("./docs/nvx-promotion-thresholds.json");
+            if (t.baseline.ghAw !== "v0.91.9" || t.baseline.awf !== "v0.28.54") {
+              throw new Error("reviewed gh-aw/AWF baseline changed");
+            }
+            if (t.baseline.nvxArtifact !== "microsoft/nvx@v0.1.0-dev.be859aa77ffa" ||
+                t.baseline.cloudHypervisorArtifact !== "Cloud Hypervisor v53.0") {
+              throw new Error("reviewed runtime artifact pins changed");
+            }
+            if (t.approvedRunnerClasses.length !== 1 ||
+                t.approvedRunnerClasses[0] !== "ubuntu-24.04") {
+              throw new Error("runner class does not match the reviewed baseline");
+            }
+          '
+          if [ "$CAMPAIGN_MODE" = full ]; then
+            test "$CONFIRM_FULL_CAMPAIGN" = \
+              "I reviewed and approve the 10,000 runner-minute estimate" || {
+                echo "::error::Full mode requires the exact reviewed 10,000 runner-minute confirmation."
+                exit 1
+              }
+          fi
+          if [ -n "$PRIOR_RUN_ID" ] && ! [[ "$PRIOR_RUN_ID" =~ ^[0-9]+$ ]]; then
+            echo "::error::prior_run_id must be a numeric workflow run ID."
+            exit 1
+          fi
+          if [ -n "$PRIOR_RUN_ID" ] && [ "$CAMPAIGN_MODE" != full ]; then
+            echo "::error::prior_run_id is only valid for a full campaign resume."
+            exit 1
+          fi
+          if [ "$ALLOW_INFRASTRUCTURE_RETRY" = true ]; then
+            [ "$CAMPAIGN_MODE" = full ] && [ -n "$PRIOR_RUN_ID" ] || {
+              echo "::error::Infrastructure retries require full mode and a prior run."
+              exit 1
+            }
+            [[ "$INFRASTRUCTURE_RETRY_URL" =~ ^https://github\.com/[^/]+/[^/]+/(issues|pull)/[0-9]+$ ]] || {
+              echo "::error::Infrastructure retries require a linked GitHub issue or pull request."
+              exit 1
+            }
+          elif [ -n "$INFRASTRUCTURE_RETRY_URL" ]; then
+            echo "::error::A retry link is only valid when infrastructure retries are opted in."
+            exit 1
+          fi
+      - name: Create deterministic campaign plan
+        id: plan
+        env:
+          CAMPAIGN_ID: ${{ inputs.campaign_id }}
+          CAMPAIGN_MODE: ${{ inputs.mode }}
+          PRIOR_RUN_ID: ${{ inputs.prior_run_id }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          plan="$RUNNER_TEMP/phase4-plan"
+          mkdir -m 0700 "$plan"
+          if [ "$CAMPAIGN_MODE" = full ] && [ -n "$PRIOR_RUN_ID" ]; then
+            prior_plan="$RUNNER_TEMP/prior-plan"
+            mkdir -m 0700 "$prior_plan"
+            gh run download "$PRIOR_RUN_ID" --repo "$GITHUB_REPOSITORY" \
+              --pattern "nvx-phase4-plan-$CAMPAIGN_ID-*" --dir "$prior_plan"
+            manifest=$(find "$prior_plan" -name manifest.json -type f -print -quit)
+            matrix=$(find "$prior_plan" -name matrix.json -type f -print -quit)
+            test -n "$manifest" && test -n "$matrix"
+            cp "$manifest" "$plan/manifest.json"
+            cp "$matrix" "$plan/matrix.json"
+            jq -e \
+              --arg campaign "$CAMPAIGN_ID" --arg source "$GITHUB_SHA" \
+              '.campaignId == $campaign and .sourceCommit == ($source | ascii_downcase)
+                and .mode == "full" and .promotionEligible == true
+                and .estimatedRunnerMinutes == 10000' \
+              "$plan/manifest.json" >/dev/null
+          else
+            runner_image="${ImageOS:?}/${ImageVersion:?}"
+            npx tsx scripts/ci/nvx-benchmark-campaign.ts plan \
+              "$plan/manifest.json" "$CAMPAIGN_ID" "$CAMPAIGN_MODE" "$GITHUB_SHA" \
+              ubuntu-24.04 "$runner_image" \
+              "NVX microsoft/nvx@v0.1.0-dev.be859aa77ffa; Cloud Hypervisor v53.0"
+          fi
+          if [ "$CAMPAIGN_MODE" = full ]; then
+            npx tsx scripts/ci/nvx-benchmark-campaign.ts matrix \
+              "$plan/manifest.json" "$plan/matrix.expected.json"
+            if [ -f "$plan/matrix.json" ]; then
+              cmp --silent "$plan/matrix.expected.json" "$plan/matrix.json"
+              rm "$plan/matrix.expected.json"
+            else
+              mv "$plan/matrix.expected.json" "$plan/matrix.json"
+            fi
+            test "$(jq '.include | length' "$plan/matrix.json")" -eq 76
+            test "$(jq '[.include[].sampleIds[]] | length' "$plan/matrix.json")" -eq 1000
+            echo "matrix=$(jq -c . "$plan/matrix.json")" >> "$GITHUB_OUTPUT"
+          else
+            echo 'matrix={"include":[]}' >> "$GITHUB_OUTPUT"
+            mkdir -m 0700 "$plan/raw"
+            npx tsx scripts/ci/nvx-benchmark-campaign.ts dry-run \
+              "$plan/manifest.json" "$plan/raw" \
+              "$GITHUB_RUN_ID" "$GITHUB_JOB" "$GITHUB_RUN_ATTEMPT"
+            cp "$plan/raw/benchmark-results.json" "$plan/benchmark-results.json"
+            cp "$plan/raw/evaluation.json" "$plan/evaluation.json"
+            cp "$plan/raw/report.md" "$plan/report.md"
+            cat "$plan/report.md" >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: Upload immutable campaign plan or dry-run evidence
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: nvx-phase4-plan-${{ inputs.campaign_id }}-${{ github.run_id }}
+          path: ${{ runner.temp }}/phase4-plan/
+          if-no-files-found: error
+          retention-days: 90
+
+  execute:
+    name: ${{ matrix.cellId }}
+    needs: prepare
+    if: inputs.mode == 'full'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 350
+    strategy:
+      fail-fast: false
+      max-parallel: 4
+      matrix: ${{ fromJson(needs.prepare.outputs.matrix) }}
+    steps:
+      - name: Reject UI job reruns in favor of immutable resume
+        if: github.run_attempt != 1
+        run: |
+          echo "::error::Do not use Re-run jobs for this campaign. Dispatch a new run with prior_run_id=${GITHUB_RUN_ID}."
+          exit 1
+      - name: Checkout reviewed source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4
+        with:
+          persist-credentials: false
+      - name: Download immutable campaign plan
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: nvx-phase4-plan-${{ inputs.campaign_id }}-${{ github.run_id }}
+          path: ${{ runner.temp }}/plan
+      - name: Set up gh-aw v0.91.9 runtime helpers
+        uses: github/gh-aw-actions/setup@a0486bb9f7e2d8b990201dc43e34e7d668f191a4 # v0.91.9
+        with:
+          destination: ${{ runner.temp }}/gh-aw/actions
+          job-name: ${{ github.job }}
+        env:
+          GH_AW_SETUP_WORKFLOW_NAME: NVX Phase 4 Promotion Benchmark
+          GH_AW_CURRENT_WORKFLOW_REF: ${{ github.repository }}/.github/workflows/nvx-phase-4-benchmark.yml@${{ github.ref }}
+          GH_AW_INFO_AWF_VERSION: v0.28.54
+          GH_AW_INFO_ENGINE_ID: copilot
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Install host tools and reviewed AWF build
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends \
+            acl bubblewrap e2fsprogs erofs-utils jq nftables shellcheck uidmap
+          npm version 0.28.54 --no-git-tag-version --allow-same-version
+          npm ci
+          npm run build
+      - name: Install reviewed Copilot CLI
+        if: matrix.kind == 'run' && matrix.workload == 'copilot-inference'
+        env:
+          GH_HOST: github.com
+          GH_AW_COMPILED_VERSION: v0.91.9
+          GH_AW_COPILOT_GUEST_LIBC: ${{ matrix.runtime == 'nvx' && 'musl' || 'glibc' }}
+        run: bash "${RUNNER_TEMP}/gh-aw/actions/install_copilot_cli.sh" 1.0.95
+      - name: Provision Cloud Hypervisor v53.0 artifacts
+        if: matrix.runtime == 'cloud-hypervisor'
+        env:
+          GH_AW_AWF_VERSION: v0.28.54
+        run: |
+          set -euo pipefail
+          sudo getfacl --absolute-names --numeric /dev/kvm |
+            sudo tee "$RUNNER_TEMP/phase4-kvm-acl-before.txt" >/dev/null
+          sudo chmod 0600 "$RUNNER_TEMP/phase4-kvm-acl-before.txt"
+          echo "AWF_PHASE4_KVM_ACL_BASELINE=$RUNNER_TEMP/phase4-kvm-acl-before.txt" >> "$GITHUB_ENV"
+          bash "${RUNNER_TEMP}/gh-aw/actions/cloud_hypervisor_kvm_access.sh"
+          bash "${RUNNER_TEMP}/gh-aw/actions/cloud_hypervisor_host_preflight.sh"
+          bash "${RUNNER_TEMP}/gh-aw/actions/cloud_hypervisor_setup_bundle.sh"
+          sudo chown root:root \
+            "$GH_AW_CLOUD_HYPERVISOR_BINARY" "$GH_AW_CLOUD_HYPERVISOR_KERNEL" \
+            "$GH_AW_CLOUD_HYPERVISOR_ROOTFS" "$GH_AW_CLOUD_HYPERVISOR_SUPERVISOR" \
+            "$GH_AW_CLOUD_HYPERVISOR_ARTIFACT_MANIFEST" \
+            "$GH_AW_CLOUD_HYPERVISOR_ARTIFACT_MANIFEST_BUNDLE"
+          sudo chmod 0555 "$GH_AW_CLOUD_HYPERVISOR_BINARY"
+          sudo chmod 0444 \
+            "$GH_AW_CLOUD_HYPERVISOR_KERNEL" "$GH_AW_CLOUD_HYPERVISOR_ROOTFS" \
+            "$GH_AW_CLOUD_HYPERVISOR_SUPERVISOR" \
+            "$GH_AW_CLOUD_HYPERVISOR_ARTIFACT_MANIFEST" \
+            "$GH_AW_CLOUD_HYPERVISOR_ARTIFACT_MANIFEST_BUNDLE"
+      - name: Provision exact NVX artifacts and guest layer
+        if: matrix.runtime == 'nvx'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: bash scripts/ci/nvx-phase4-provision-nvx.sh
+      - name: Attest exact NVX manifest
+        if: matrix.runtime == 'nvx'
+        id: attest_nvx
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: ${{ runner.temp }}/nvx-artifacts/manifest.json
+      - name: Finalize NVX attestation paths
+        if: matrix.runtime == 'nvx'
+        env:
+          BUNDLE_PATH: ${{ steps.attest_nvx.outputs.bundle-path }}
+        run: |
+          set -euo pipefail
+          sudo cp "$BUNDLE_PATH" "$RUNNER_TEMP/nvx-artifacts/manifest.sigstore.jsonl"
+          sudo chown root:root "$RUNNER_TEMP/nvx-artifacts/manifest.sigstore.jsonl"
+          sudo chmod 0444 "$RUNNER_TEMP/nvx-artifacts/manifest.sigstore.jsonl"
+          echo "NVX_MANIFEST_BUNDLE=$RUNNER_TEMP/nvx-artifacts/manifest.sigstore.jsonl" >> "$GITHUB_ENV"
+      - name: Restore and validate optional immutable prior evidence
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PRIOR_RUN_ID: ${{ inputs.prior_run_id }}
+          CAMPAIGN_ID: ${{ inputs.campaign_id }}
+          CELL_ID: ${{ matrix.cellId }}
+        run: |
+          set -euo pipefail
+          evidence="$RUNNER_TEMP/evidence"
+          install -d -m 0700 "$evidence/raw"
+          cp "$RUNNER_TEMP/plan/manifest.json" "$evidence/manifest.json"
+          jq -n '${{ toJson(matrix) }}' > "$evidence/cell.json"
+          jq -n --arg priorRunId "$PRIOR_RUN_ID" \
+            '{priorWorkflowRunId:$priorRunId}' > "$evidence/resume-source.json"
+          if [ -z "$PRIOR_RUN_ID" ]; then exit 0; fi
+          prior="$RUNNER_TEMP/prior"
+          mkdir -m 0700 "$prior"
+          if ! gh run download "$PRIOR_RUN_ID" \
+              --repo "$GITHUB_REPOSITORY" \
+              --pattern "nvx-phase4-cell-$CAMPAIGN_ID-$CELL_ID-*" \
+              --dir "$prior"; then
+            echo "No prior artifact exists for $CELL_ID; all cell samples remain pending."
+            exit 0
+          fi
+          found=false
+          while IFS= read -r manifest; do
+            found=true
+            cmp --silent "$evidence/manifest.json" "$manifest" || {
+              echo "::error::Prior evidence manifest does not match this immutable campaign."
+              exit 1
+            }
+          done < <(find "$prior" -name manifest.json -type f -print | sort)
+          [ "$found" = true ] || {
+            echo "::error::The selected prior artifact for $CELL_ID has no manifest."
+            exit 1
+          }
+          while IFS= read -r artifact; do
+            target="$evidence/raw/$(basename "$artifact")"
+            test ! -e "$target" || {
+              echo "::error::Duplicate prior sample artifact: $(basename "$artifact")"
+              exit 1
+            }
+            cp "$artifact" "$target"
+          done < <(find "$prior" -path '*/raw/*' -type f \
+            \( -name 'run-*.json' -o -name 'recovery-*.json' \) -print | sort)
+      - name: Select bounded pending sample IDs
+        env:
+          ALLOW_INFRASTRUCTURE_RETRY: ${{ inputs.allow_infrastructure_retry }}
+          RETRY_URL: ${{ inputs.infrastructure_retry_url }}
+        run: |
+          set -euo pipefail
+          npx tsx scripts/ci/nvx-benchmark-campaign.ts pending \
+            "$RUNNER_TEMP/evidence/manifest.json" "$RUNNER_TEMP/evidence/cell.json" \
+            "$RUNNER_TEMP/evidence/raw" "$ALLOW_INFRASTRUCTURE_RETRY" \
+            "$RUNNER_TEMP/evidence/pending.json"
+          test "$(jq 'length' "$RUNNER_TEMP/evidence/pending.json")" -le 20
+          jq -n --arg enabled "$ALLOW_INFRASTRUCTURE_RETRY" --arg url "$RETRY_URL" \
+            '{allowInfrastructureRetry:($enabled == "true"),approvalUrl:$url}' \
+            > "$RUNNER_TEMP/evidence/retry-policy.json"
+      - name: Execute every pending measured sample
+        env:
+          COPILOT_GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CELL_KIND: ${{ matrix.kind }}
+          CELL_RUNTIME: ${{ matrix.runtime }}
+          CELL_WORKLOAD: ${{ matrix.workload }}
+          CELL_MODE: ${{ matrix.mode }}
+          CELL_CACHE: ${{ matrix.cache }}
+          CELL_PROFILE: ${{ matrix.resourceProfile }}
+          CELL_RECOVERY_KIND: ${{ matrix.recoveryKind }}
+        run: |
+          set -uo pipefail
+          evidence="$RUNNER_TEMP/evidence"
+          status=0
+          while IFS= read -r item; do
+            sample_id=$(jq -r .sampleId <<<"$item")
+            attempt=$(jq -r .attempt <<<"$item")
+            rerun_of=$(jq -r '.rerunOf // empty' <<<"$item")
+            rerun_reason=$(jq -r '.rerunReason // empty' <<<"$item")
+            input="$evidence/adapter-$sample_id-$attempt.json"
+            if [ "$CELL_KIND" = run ]; then
+              output="$evidence/raw/run-$sample_id-attempt-$attempt.json"
+              token_usage="$evidence/token-usage-$sample_id-$attempt.jsonl"
+              token_audit="$evidence/token-audit-$sample_id-$attempt.jsonl"
+              jq -n \
+                --arg manifestPath "$evidence/manifest.json" --arg sampleId "$sample_id" \
+                --argjson attempt "$attempt" --arg cwd "$GITHUB_WORKSPACE" \
+                --arg outputPath "$output" \
+                --arg lifecyclePath "$evidence/lifecycle-$sample_id-$attempt.json" \
+                --arg assertionsPath "$evidence/assertions-$sample_id-$attempt.json" \
+                --arg residuePath "$evidence/residue-$sample_id-$attempt.json" \
+                --arg tokenUsagePath "$token_usage" --arg tokenTrackerAuditPath "$token_audit" \
+                --arg toolchainPath "$([[ "$CELL_RUNTIME" = nvx ]] && echo "$NVX_TOOLCHAIN" || true)" \
+                --arg workflowRunId "$GITHUB_RUN_ID" \
+                --arg jobId "$GITHUB_JOB-$CELL_RUNTIME-${{ matrix.cellId }}" \
+                --arg workflowAttemptId "$GITHUB_RUN_ATTEMPT" \
+                --arg runtime "$CELL_RUNTIME" --arg workload "$CELL_WORKLOAD" \
+                --arg mode "$CELL_MODE" --arg cache "$CELL_CACHE" --arg profile "$CELL_PROFILE" \
+                --arg rerunOf "$rerun_of" --arg rerunReason "$rerun_reason" \
+                '{manifestPath:$manifestPath,sampleId:$sampleId,attempt:$attempt,
+                  command:["bash","scripts/ci/nvx-phase4-campaign-runtime.sh",
+                    $runtime,$workload,$sampleId,$mode,$cache,$profile],
+                  cwd:$cwd,outputPath:$outputPath,lifecyclePath:$lifecyclePath,
+                  assertionsPath:$assertionsPath,residuePath:$residuePath,
+                  tokenUsagePath:$tokenUsagePath,tokenTrackerAuditPath:$tokenTrackerAuditPath,
+                  toolchainPath:$toolchainPath,workflowRunId:$workflowRunId,jobId:$jobId,
+                  workflowAttemptId:$workflowAttemptId,rerunOf:$rerunOf,rerunReason:$rerunReason}
+                  | if .toolchainPath == "" then del(.toolchainPath) else . end
+                  | if .rerunOf == "" then del(.rerunOf,.rerunReason) else . end' > "$input"
+              AWF_PHASE4_TOKEN_USAGE_OUTPUT="$token_usage" \
+              AWF_PHASE4_TOKEN_TRACKER_AUDIT_OUTPUT="$token_audit" \
+                npx tsx scripts/ci/nvx-matched-runtime-adapter.ts run "$input" || status=1
+            else
+              output="$evidence/raw/recovery-$sample_id-attempt-$attempt.json"
+              jq -n \
+                --arg manifestPath "$evidence/manifest.json" --arg sampleId "$sample_id" \
+                --argjson attempt "$attempt" --arg cwd "$GITHUB_WORKSPACE" \
+                --arg outputPath "$output" \
+                --arg measurementPath "$evidence/recovery-$sample_id-$attempt.json" \
+                --arg workflowRunId "$GITHUB_RUN_ID" \
+                --arg jobId "$GITHUB_JOB-$CELL_RUNTIME-${{ matrix.cellId }}" \
+                --arg workflowAttemptId "$GITHUB_RUN_ATTEMPT" \
+                --arg runtime "$CELL_RUNTIME" --arg recoveryKind "$CELL_RECOVERY_KIND" \
+                --arg rerunOf "$rerun_of" --arg rerunReason "$rerun_reason" \
+                '{manifestPath:$manifestPath,sampleId:$sampleId,attempt:$attempt,
+                  command:["bash","scripts/ci/nvx-phase4-recovery-runtime.sh",
+                    $runtime,$recoveryKind,$sampleId],
+                  cwd:$cwd,outputPath:$outputPath,measurementPath:$measurementPath,
+                  workflowRunId:$workflowRunId,jobId:$jobId,
+                  workflowAttemptId:$workflowAttemptId,rerunOf:$rerunOf,rerunReason:$rerunReason}
+                  | if .rerunOf == "" then del(.rerunOf,.rerunReason) else . end' > "$input"
+              npx tsx scripts/ci/nvx-matched-runtime-adapter.ts recovery "$input" || status=1
+            fi
+          done < <(jq -c '.[]' "$evidence/pending.json")
+          exit "$status"
+      - name: Restore runner /run mount options
+        if: always() && matrix.runtime == 'nvx'
+        run: sudo mount -o "remount,$AWF_PHASE4_RUN_MOUNT_OPTIONS" /run
+      - name: Upload immutable per-cell evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: nvx-phase4-cell-${{ inputs.campaign_id }}-${{ matrix.cellId }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/evidence/
+          if-no-files-found: error
+          retention-days: 90
+
+  aggregate:
+    name: Deterministically aggregate campaign
+    needs: [prepare, execute]
+    if: always() && inputs.mode == 'full' && needs.prepare.result == 'success'
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
@@ -38,91 +439,55 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4
         with:
           persist-credentials: false
-
       - name: Set up Node.js
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: '22'
           cache: npm
-
-      - name: Verify reviewed campaign baseline
-        env:
-          CAMPAIGN_MODE: ${{ inputs.mode }}
-          CAMPAIGN_ID: ${{ inputs.campaign_id }}
-          CONFIRM_FULL_CAMPAIGN: ${{ inputs.confirm_full_campaign }}
+      - run: npm ci
+      - name: Download immutable campaign plan
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: nvx-phase4-plan-${{ inputs.campaign_id }}-${{ github.run_id }}
+          path: ${{ runner.temp }}/plan
+      - name: Download all available cell evidence
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: nvx-phase4-cell-${{ inputs.campaign_id }}-*
+          path: ${{ runner.temp }}/cells
+      - name: Aggregate in canonical sample order
         run: |
           set -euo pipefail
-          node -e '
-            const fs = require("fs");
-            const p = require("./package.json");
-            const t = require("./docs/nvx-promotion-thresholds.json");
-            if (t.baseline.ghAw !== "v0.91.9" || t.baseline.awf !== "v0.28.54") {
-              throw new Error("reviewed gh-aw/AWF baseline changed");
+          aggregate="$RUNNER_TEMP/aggregate"
+          install -d -m 0700 "$aggregate/raw"
+          cp "$RUNNER_TEMP/plan/manifest.json" "$aggregate/manifest.json"
+          while IFS= read -r artifact; do
+            target="$aggregate/raw/$(basename "$artifact")"
+            test ! -e "$target" || {
+              echo "::error::Duplicate sample artifact: $(basename "$artifact")"
+              exit 1
             }
-            if (t.approvedRunnerClasses.length !== 1 || t.approvedRunnerClasses[0] !== "ubuntu-24.04") {
-              throw new Error("runner class does not match the reviewed baseline");
-            }
-            if (!p.version) throw new Error("AWF package version is missing");
-            if (!fs.existsSync("docs/nvx-promotion-thresholds.json")) throw new Error("missing thresholds");
-          '
-          if [ "$CAMPAIGN_MODE" = full ] && [ "$CONFIRM_FULL_CAMPAIGN" != true ]; then
-            echo "A full campaign requires explicit confirmation of the fixed thresholds and 10,000 runner-minute estimate." >&2
-            exit 1
-          fi
-          if [ "$CAMPAIGN_MODE" = full ]; then
-            echo "::error::Full sample execution is not enabled until the matched-runtime measurement adapter is reviewed and available. No benchmark samples were launched."
-            exit 1
-          fi
-          echo "Campaign ID: $CAMPAIGN_ID"
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Create immutable dry-run campaign manifest
-        env:
-          CAMPAIGN_ID: ${{ inputs.campaign_id }}
-        run: |
-          set -euo pipefail
-          runner_image="${ImageOS:?GitHub runner ImageOS is required}/${ImageVersion:?GitHub runner ImageVersion is required}"
-          guest_image="NVX microsoft/nvx@v0.1.0-dev.be859aa77ffa; Cloud Hypervisor v53.0"
-          npx tsx scripts/ci/nvx-benchmark-campaign.ts plan \
-            "$RUNNER_TEMP/campaign-manifest.json" \
-            "$CAMPAIGN_ID" dry-run "$GITHUB_SHA" ubuntu-24.04 "$runner_image" "$guest_image"
-
-      - name: Generate and validate every dry-run matrix shape
-        env:
-          CAMPAIGN_ID: ${{ inputs.campaign_id }}
-        run: |
-          set -euo pipefail
-          evidence_dir="$RUNNER_TEMP/nvx-phase-4-evidence"
-          mkdir -m 700 -p "$evidence_dir/raw"
-          npx tsx scripts/ci/nvx-benchmark-campaign.ts dry-run \
-            "$RUNNER_TEMP/campaign-manifest.json" \
-            "$evidence_dir/raw" "$GITHUB_RUN_ID" "$GITHUB_JOB" "$GITHUB_RUN_ATTEMPT"
-          cp "$RUNNER_TEMP/campaign-manifest.json" "$evidence_dir/campaign-manifest.json"
-          cp "$evidence_dir/raw/benchmark-results.json" "$evidence_dir/benchmark-results.json"
+            cp "$artifact" "$target"
+          done < <(find "$RUNNER_TEMP/cells" -path '*/raw/*' -type f \
+            \( -name 'run-*.json' -o -name 'recovery-*.json' \) -print | sort)
           set +e
-          npx tsx scripts/ci/nvx-promotion-evaluator.ts \
-            "$evidence_dir/benchmark-results.json" > "$evidence_dir/evaluator-output.json"
-          evaluator_status=$?
+          npx tsx scripts/ci/nvx-benchmark-campaign.ts aggregate \
+            "$aggregate/manifest.json" "$aggregate/raw" \
+            "$aggregate/benchmark-results.json" "$aggregate/report.md"
+          aggregate_status=$?
           set -e
-          test "$evaluator_status" -eq 1
-          jq -e '.recommendation == "retain-preview"' "$evidence_dir/evaluator-output.json" >/dev/null
-          cp "$evidence_dir/raw/report.md" "$GITHUB_STEP_SUMMARY"
-          {
-            echo
-            echo "## Estimated full-campaign runner time"
-            echo "The reviewed full matrix contains 960 primary runs and 40 recovery samples."
-            echo "At a conservative 10 minutes per sample, the estimate is 10,000 runner-minutes (166.7 runner-hours), before setup and infrastructure overhead."
-            echo "This workflow does not launch full samples; a separately reviewed matched-runtime measurement adapter is required."
-          } >> "$GITHUB_STEP_SUMMARY"
-          echo "NVX Phase 4 dry-run validated. This synthetic evidence is not benchmark data."
-
-      - name: Upload raw evidence, manifest, evaluator output, and report
+          if [ -f "$aggregate/report.md" ]; then cat "$aggregate/report.md" >> "$GITHUB_STEP_SUMMARY"; fi
+          jq -n \
+            --arg executeResult "${{ needs.execute.result }}" \
+            --argjson aggregateStatus "$aggregate_status" \
+            '{matrixResult:$executeResult,aggregateExitStatus:$aggregateStatus}' \
+            > "$aggregate/workflow-result.json"
+          exit "$aggregate_status"
+      - name: Upload deterministic aggregate
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: nvx-phase-4-${{ inputs.campaign_id }}-${{ github.run_id }}-${{ github.run_attempt }}
-          path: ${{ runner.temp }}/nvx-phase-4-evidence/
-          if-no-files-found: warn
+          name: nvx-phase4-aggregate-${{ inputs.campaign_id }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/aggregate/
+          if-no-files-found: error
           retention-days: 90

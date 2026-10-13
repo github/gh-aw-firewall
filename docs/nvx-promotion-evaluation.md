@@ -13,17 +13,18 @@ does not remove the mandatory preview gate or change the default runtime.
 
 ## Validated baseline
 
-| Item | Value |
-| ---- | ----- |
-| gh-aw | v0.91.9 |
-| AWF | v0.28.54 |
-| NVX workflow upgrade | github/gh-aw-firewall#9886 |
-| Automatic musl guest asset selection | github/gh-aw#67915 |
-| NVX artifact | microsoft/nvx@v0.1.0-dev.be859aa77ffa |
-| Cloud Hypervisor artifact | Cloud Hypervisor v53.0 |
-| NVX build smoke | [run 38320706390](https://github.com/github/gh-aw-firewall/actions/runs/38320706390) |
-| Official-release build confirmation | [run 38272330203](https://github.com/github/gh-aw-firewall/actions/runs/38272330203) |
-| NVX Copilot confirmation | [run 38295300049](https://github.com/github/gh-aw-firewall/actions/runs/38295300049) |
+| Item                                 | Value                                                                                |
+| ------------------------------------ | ------------------------------------------------------------------------------------ |
+| gh-aw                                | v0.91.9                                                                              |
+| AWF                                  | v0.28.54                                                                             |
+| NVX workflow upgrade                 | github/gh-aw-firewall#9886                                                           |
+| Automatic musl guest asset selection | github/gh-aw#67915                                                                   |
+| NVX artifact                         | microsoft/nvx@v0.1.0-dev.be859aa77ffa                                                |
+| Cloud Hypervisor artifact            | Cloud Hypervisor v53.0                                                               |
+| NVX build smoke                      | [run 38320706390](https://github.com/github/gh-aw-firewall/actions/runs/38320706390) |
+| Official-release build confirmation  | [run 38272330203](https://github.com/github/gh-aw-firewall/actions/runs/38272330203) |
+| NVX Copilot confirmation             | [run 38295300049](https://github.com/github/gh-aw-firewall/actions/runs/38295300049) |
+| Four-sample matched-runtime canary   | [run 38418583514](https://github.com/github/gh-aw-firewall/actions/runs/38418583514) |
 
 Every result record must also capture the compiler, AWF, runtime, upstream
 artifact (NVX/OpenVMM or Cloud Hypervisor), guest image, runner image and
@@ -39,24 +40,24 @@ the corresponding Cloud Hypervisor samples. The fixed matrix has 24 lanes:
 workload × mode × cache state × resource profile. Percentiles use nearest-rank
 over successful runs.
 
-| Gate | Threshold |
-| ---- | --------- |
-| Sequential sample size | ≥ 30 runs per lane per runtime |
-| Concurrent sample size | ≥ 10 runs per lane per runtime |
-| Cancellation / stale-recovery samples | ≥ 10 per kind per runtime |
-| Successful-run rate | ≥ 95% (and not below Cloud Hypervisor) |
-| VM startup to runtime-ready | p50 ≤ 10 s, p95 ≤ 20 s |
-| End-to-end workflow duration | p50 ≤ 300 s, p95 ≤ 600 s |
-| Peak memory | p95 ≤ 6144 MiB |
-| Scratch disk | p95 ≤ 4096 MiB |
-| PIDs | p95 ≤ 512 |
-| Cleanup duration | p95 ≤ 30 s |
-| Cancellation time | p95 ≤ 30 s |
-| Stale-resource recovery time | p95 ≤ 60 s |
-| Credential-isolation or egress-policy regressions | 0 |
-| Leaked processes, mounts, network namespaces, cgroups, run directories, scratch images, artifact snapshots, cleanup records or KVM ACL entries | 0 |
-| Measurable benefit over Cloud Hypervisor | ≥ 10% better on at least one of startup p50/p95, end-to-end p50/p95, peak-memory p95, scratch p95 |
-| Regression versus Cloud Hypervisor | ≤ 10% worse on startup, end-to-end, peak memory, scratch, CPU time, PIDs and cleanup duration |
+| Gate                                                                                                                                           | Threshold                                                                                         |
+| ---------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
+| Sequential sample size                                                                                                                         | ≥ 30 runs per lane per runtime                                                                    |
+| Concurrent sample size                                                                                                                         | ≥ 10 runs per lane per runtime                                                                    |
+| Cancellation / stale-recovery samples                                                                                                          | ≥ 10 per kind per runtime                                                                         |
+| Successful-run rate                                                                                                                            | ≥ 95% (and not below Cloud Hypervisor)                                                            |
+| VM startup to runtime-ready                                                                                                                    | p50 ≤ 10 s, p95 ≤ 20 s                                                                            |
+| End-to-end workflow duration                                                                                                                   | p50 ≤ 300 s, p95 ≤ 600 s                                                                          |
+| Peak memory                                                                                                                                    | p95 ≤ 6144 MiB                                                                                    |
+| Scratch disk                                                                                                                                   | p95 ≤ 4096 MiB                                                                                    |
+| PIDs                                                                                                                                           | p95 ≤ 512                                                                                         |
+| Cleanup duration                                                                                                                               | p95 ≤ 30 s                                                                                        |
+| Cancellation time                                                                                                                              | p95 ≤ 30 s                                                                                        |
+| Stale-resource recovery time                                                                                                                   | p95 ≤ 60 s                                                                                        |
+| Credential-isolation or egress-policy regressions                                                                                              | 0                                                                                                 |
+| Leaked processes, mounts, network namespaces, cgroups, run directories, scratch images, artifact snapshots, cleanup records or KVM ACL entries | 0                                                                                                 |
+| Measurable benefit over Cloud Hypervisor                                                                                                       | ≥ 10% better on at least one of startup p50/p95, end-to-end p50/p95, peak-memory p95, scratch p95 |
+| Regression versus Cloud Hypervisor                                                                                                             | ≤ 10% worse on startup, end-to-end, peak memory, scratch, CPU time, PIDs and cleanup duration     |
 
 Any security or cleanup assertion failure is an automatic **stop-promotion**
 result regardless of performance. Unmet sample-size, performance or advantage
@@ -68,13 +69,13 @@ gates yield **retain-preview**. Only when all gates pass is the recommendation
 Both runtimes run identical workloads, on the same GitHub-hosted Linux x86_64
 KVM runner class, with identical security policy and workload versions.
 
-| Dimension | Cases |
-| --------- | ----- |
-| Workload | `build-test`; `copilot-inference` |
-| Cache | `cold`; `warm` |
+| Dimension   | Cases                                                                                               |
+| ----------- | --------------------------------------------------------------------------------------------------- |
+| Workload    | `build-test`; `copilot-inference`                                                                   |
+| Cache       | `cold`; `warm`                                                                                      |
 | Concurrency | `sequential` (≥ 30) and `concurrent` (≥ 10), each verifying per-run identity and resource isolation |
-| Lifecycle | bounded cancellation; forced manager `SIGKILL` followed by stale-resource recovery |
-| Resources | `minimum`; `default`; `elevated` |
+| Lifecycle   | bounded cancellation; forced manager `SIGKILL` followed by stale-resource recovery                  |
+| Resources   | `minimum`; `default`; `elevated`                                                                    |
 
 Each `RunResult` includes `workload`, `mode`, `cache`, and `resourceProfile`;
 these four fields form the lane key. The evaluator enumerates the required
@@ -131,15 +132,15 @@ None of these may be weakened to improve success rates.
 
 ## Upstream and operational readiness
 
-| Topic | Assessment |
-| ----- | ---------- |
-| Artifact stability and cadence | NVX is pinned to `microsoft/nvx` release `v0.1.0-dev.be859aa77ffa`, a development pre-release. No stable release cadence exists yet. |
-| Supported runners | GitHub-hosted Ubuntu x86_64 runners with `/dev/kvm`; no ARM, self-hosted or nested-virtualization guarantees. |
-| Diagnostics and retention | Guest output, manager evidence and cleanup records are collected as workflow artifacts; retention quality is to be reviewed with the first benchmark data. |
-| Upgrade | Update the pinned release tag and SHA-256, rebuild the attested artifacts, and rerun the live-KVM and smoke workflows. |
-| Rollback | Revert the pin; no data migration is involved because runs are one-shot. |
-| Maintenance ownership | The AWF maintainers own the integration; the upstream NVX/OpenVMM maintainers own the VMM. A named long-term owner must be recorded before promotion. |
-| Known limitations vs Cloud Hypervisor | Experimental, opt-in only; fewer production hours; single pinned upstream dev artifact; x86_64 and KVM only. |
+| Topic                                 | Assessment                                                                                                                                                 |
+| ------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Artifact stability and cadence        | NVX is pinned to `microsoft/nvx` release `v0.1.0-dev.be859aa77ffa`, a development pre-release. No stable release cadence exists yet.                       |
+| Supported runners                     | GitHub-hosted Ubuntu x86_64 runners with `/dev/kvm`; no ARM, self-hosted or nested-virtualization guarantees.                                              |
+| Diagnostics and retention             | Guest output, manager evidence and cleanup records are collected as workflow artifacts; retention quality is to be reviewed with the first benchmark data. |
+| Upgrade                               | Update the pinned release tag and SHA-256, rebuild the attested artifacts, and rerun the live-KVM and smoke workflows.                                     |
+| Rollback                              | Revert the pin; no data migration is involved because runs are one-shot.                                                                                   |
+| Maintenance ownership                 | The AWF maintainers own the integration; the upstream NVX/OpenVMM maintainers own the VMM. A named long-term owner must be recorded before promotion.      |
+| Known limitations vs Cloud Hypervisor | Experimental, opt-in only; fewer production hours; single pinned upstream dev artifact; x86_64 and KVM only.                                               |
 
 ## Campaign workflow and evidence operation
 
@@ -154,11 +155,11 @@ not runtime measurements, and must never be included in a promotion report.
 
 The collector contract maps resource profiles identically for both runtimes:
 
-| Profile | CPU cores | Memory MiB | PID limit | Scratch MiB |
-| ------- | --------: | ---------: | --------: | ----------: |
-| minimum | 1 | 2048 | 128 | 1024 |
-| default | 2 | 4096 | 256 | 2048 |
-| elevated | 4 | 6144 | 512 | 4096 |
+| Profile  | CPU cores | Memory MiB | PID limit | Scratch MiB |
+| -------- | --------: | ---------: | --------: | ----------: |
+| minimum  |         1 |       2048 |       128 |        1024 |
+| default  |         2 |       4096 |       256 |        2048 |
+| elevated |         4 |       6144 |       512 |        4096 |
 
 Cold samples must report `cold-cache-flushed`; warm samples must report
 `warm-cache-primed`. Each run record carries the applied limits and preparation
@@ -170,18 +171,89 @@ runner-minutes (166.7 runner-hours) before setup or infrastructure overhead.
 The manifest prints the campaign identity, fixed baseline, runner image, guest
 image, source commit, expected stable sample IDs, and estimate. The workflow is
 serialized across campaigns and does not start an unbounded or PR-triggered
-campaign.
+campaign. A full dispatch requires the exact confirmation text
+`I reviewed and approve the 10,000 runner-minute estimate`.
 
-**Full sample execution remains fail-closed and is not enabled by this
-workflow yet.** Before a full campaign can be dispatched, a separately reviewed
-matched-runtime adapter must execute the NVX and Cloud Hypervisor workloads,
-emit the measured `RunEvidence` / `RecoveryEvidence` contract in
-`scripts/ci/nvx-benchmark-campaign.ts`, and implement the cleanup, cache,
-resource-limit, and credential-isolation checks described above. The workflow
-currently rejects `mode: full`, even when the cost-review confirmation is set;
-this prevents synthetic samples or the existing security smoke scripts from
-being misrepresented as a promotion dataset. Do not launch the full campaign
-until that adapter, the baseline, and the estimate have been reviewed.
+Full execution uses the reviewed matched-runtime adapter and a deterministic
+76-cell plan: 72 bounded runtime/lane parts and four runtime/recovery cells.
+Each cell contains at most 20 stable sample IDs and runs them serially; the
+workflow runs at most four cells in parallel. Before any live work starts, the
+planner requires exactly 76 cells, 1,000 unique sample IDs, and the canonical
+10,000-runner-minute estimate. Repository concurrency also permits only one
+promotion campaign at a time. These are hard stop conditions rather than
+advisory limits.
+
+Each cell uploads its manifest, canonical cell definition, pending list,
+adapter inputs, raw measured records, lifecycle/assertion/residue evidence and
+retry policy even when a sample fails. The raw result files use exclusive
+creation and stable sample/attempt IDs. Aggregation copies them in sorted order
+and rejects missing, unexpected, duplicate, cross-campaign, stale-baseline or
+malformed evidence.
+
+### Initial full-campaign dispatch
+
+Do not dispatch from a pull request. After this workflow change is merged to
+`main`, choose a new immutable campaign ID and run:
+
+```bash
+gh workflow run nvx-phase-4-benchmark.yml \
+  --ref FULL_CAMPAIGN_SOURCE_REF \
+  -f mode=full \
+  -f campaign_id=nvx-p4-full-2026-10 \
+  -f confirm_full_campaign='I reviewed and approve the 10,000 runner-minute estimate' \
+  -f prior_run_id='' \
+  -f allow_infrastructure_retry=false \
+  -f infrastructure_retry_url=''
+```
+
+`FULL_CAMPAIGN_SOURCE_REF` must resolve to the reviewed merge commit and must
+remain fixed for every resume. Record the resulting workflow run ID. Never
+dispatch the same campaign ID again without supplying that run ID as
+`prior_run_id`.
+Do not use the Actions **Re-run jobs** control: campaign jobs reject a second
+`run_attempt` because it can mix partial artifacts. Always use a new dispatch
+with `prior_run_id`.
+
+### Resume from immutable prior artifacts
+
+To resume interrupted or incomplete cells without rerunning completed sample
+IDs:
+
+```bash
+gh workflow run nvx-phase-4-benchmark.yml \
+  --ref FULL_CAMPAIGN_SOURCE_REF \
+  -f mode=full \
+  -f campaign_id=nvx-p4-full-2026-10 \
+  -f confirm_full_campaign='I reviewed and approve the 10,000 runner-minute estimate' \
+  -f prior_run_id=FULL_CAMPAIGN_RUN_ID \
+  -f allow_infrastructure_retry=false \
+  -f infrastructure_retry_url=''
+```
+
+The resume run downloads the prior immutable plan and per-cell artifacts,
+requires the same campaign ID and source commit, validates each existing
+record, and selects only missing stable sample IDs. A sample with a recorded
+security assertion failure, cleanup failure, residue, workload failure or
+successful original attempt is never selected again.
+
+One linked second attempt is allowed only when the original record has no
+assertion failures or residue and is classified as `runner-preempted`,
+`runner-unavailable`, or `network-infrastructure`. After documenting the
+infrastructure incident and approving the retry, dispatch:
+
+```bash
+gh workflow run nvx-phase-4-benchmark.yml \
+  --ref FULL_CAMPAIGN_SOURCE_REF \
+  -f mode=full \
+  -f campaign_id=nvx-p4-full-2026-10 \
+  -f confirm_full_campaign='I reviewed and approve the 10,000 runner-minute estimate' \
+  -f prior_run_id=FULL_CAMPAIGN_RUN_ID \
+  -f allow_infrastructure_retry=true \
+  -f infrastructure_retry_url=https://github.com/github/gh-aw-firewall/issues/ISSUE_NUMBER
+```
+
+The retry is linked to the failed attempt and retained alongside it. The
+original remains the scored sample; a third attempt is rejected.
 
 The campaign utility can validate a locally retained evidence directory with:
 
@@ -200,7 +272,7 @@ failures, and residue are never retryable.
 ### Bounded measured canary
 
 The separate [NVX Phase 4 Matched Runtime Canary workflow](../.github/workflows/nvx-phase-4-canary.yml)
-is the only real-execution mode enabled by this change. Dispatch it manually
+remains a distinct non-promotion workflow. Dispatch it manually
 with an immutable `campaign_id` and set `confirm_live_canary` to `true`. It runs
 exactly four serialized samples on `ubuntu-24.04`: one NVX and one Cloud
 Hypervisor sample for each of `build-test` and `copilot-inference`. All four use
@@ -216,7 +288,9 @@ assertion evidence, residue list, token-usage log (for Copilot), AWF log and one
 `RunEvidence` JSON record. The aggregate job uploads the deterministic combined
 results, evaluator output and report.
 
-Canary manifests set `canary: true` and `promotionEligible: false`. The
+Canary manifests set `canary: true` and `promotionEligible: false`. Successful
+run 38418583514 remains canary evidence only and is not imported by the full
+campaign workflow. The
 aggregator requires measured evidence but the evaluator must return
 `retain-preview`; canary records are never credited toward the 960-run/40-
 recovery promotion thresholds. The canary does not exercise concurrent,

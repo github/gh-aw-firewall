@@ -6,29 +6,29 @@ import {
   CampaignManifest,
   SampleArtifact,
   aggregateCampaign,
+  createCampaignCells,
   createCampaignManifest,
+  selectPendingCellSamples,
 } from './nvx-benchmark-campaign';
-import {
-  buildMeasuredArtifact,
-  buildMeasuredRecoveryArtifact,
-  matchedRuntimeAdapterTestHelpers,
-} from './nvx-matched-runtime-adapter';
+import { buildMeasuredArtifact, buildMeasuredRecoveryArtifact, matchedRuntimeAdapterTestHelpers } from './nvx-matched-runtime-adapter';
 import { Thresholds } from './nvx-promotion-evaluator';
 
-const thresholds = JSON.parse(fs.readFileSync(
-  path.join(__dirname, '..', '..', 'docs', 'nvx-promotion-thresholds.json'),
-  'utf8',
-)) as Thresholds;
+const thresholds = JSON.parse(
+  fs.readFileSync(path.join(__dirname, '..', '..', 'docs', 'nvx-promotion-thresholds.json'), 'utf8'),
+) as Thresholds;
 
 function manifest(): CampaignManifest {
-  return createCampaignManifest({
-    campaignId: 'real-canary-test',
-    mode: 'canary',
-    sourceCommit: 'a'.repeat(40),
-    runnerClass: 'ubuntu-24.04',
-    runnerImage: 'ubuntu24/20261001.1',
-    guestImage: 'matched-guest-v1',
-  }, thresholds);
+  return createCampaignManifest(
+    {
+      campaignId: 'real-canary-test',
+      mode: 'canary',
+      sourceCommit: 'a'.repeat(40),
+      runnerClass: 'ubuntu-24.04',
+      runnerImage: 'ubuntu24/20261001.1',
+      guestImage: 'matched-guest-v1',
+    },
+    thresholds,
+  );
 }
 
 function evidence(campaign = manifest(), sampleIndex = 0) {
@@ -38,37 +38,52 @@ function evidence(campaign = manifest(), sampleIndex = 0) {
   const toolchainPath = path.join(root, 'toolchain.json');
   const sample = campaign.expectedRuns[sampleIndex];
   if (sample.workload === 'copilot-inference') {
-    fs.writeFileSync(tokenUsagePath, [
-      JSON.stringify({
-        event: 'token_usage',
-        input_tokens: 12,
-        output_tokens: 3,
-        cache_read_tokens: 4,
-      }),
-      '',
-    ].join('\n'));
-    fs.writeFileSync(tokenTrackerAuditPath, [
-      JSON.stringify({ event: 'TRACK_START', rid: 'request-1' }),
-      JSON.stringify({ event: 'TRACK_END', rid: 'request-1', result: 'ok' }),
-      JSON.stringify({ event: 'TRACK_START', rid: 'request-2' }),
-      JSON.stringify({ event: 'TRACK_END', rid: 'request-2', result: 'no_usage' }),
-      JSON.stringify({ event: 'WS_TRACK_START', rid: 'request-3' }),
-      '',
-    ].join('\n'));
+    fs.writeFileSync(
+      tokenUsagePath,
+      [
+        JSON.stringify({
+          event: 'token_usage',
+          input_tokens: 12,
+          output_tokens: 3,
+          cache_read_tokens: 4,
+        }),
+        '',
+      ].join('\n'),
+    );
+    fs.writeFileSync(
+      tokenTrackerAuditPath,
+      [
+        JSON.stringify({ event: 'TRACK_START', rid: 'request-1' }),
+        JSON.stringify({ event: 'TRACK_END', rid: 'request-1', result: 'ok' }),
+        JSON.stringify({ event: 'TRACK_START', rid: 'request-2' }),
+        JSON.stringify({
+          event: 'TRACK_END',
+          rid: 'request-2',
+          result: 'no_usage',
+        }),
+        JSON.stringify({ event: 'WS_TRACK_START', rid: 'request-3' }),
+        '',
+      ].join('\n'),
+    );
   }
   if (sample.runtime === 'nvx') {
-    const packages = [
-      'bash-5.2.37-r0',
-      'curl-8.14.1-r3',
-      'nodejs-22.23.2-r0',
-      'npm-11.6.4-r0',
-    ];
-    fs.writeFileSync(toolchainPath, JSON.stringify({
-      layerSha256: 'c'.repeat(64),
-      packageInventorySha256: createHash('sha256').update(`${packages.join('\n')}\n`).digest('hex'),
-      packages,
-      tools: { bash: 'GNU bash 5.2.37', curl: 'curl 8.14.1', node: 'v22.23.2', npm: '11.6.4' },
-    }));
+    const packages = ['bash-5.2.37-r0', 'curl-8.14.1-r3', 'nodejs-22.23.2-r0', 'npm-11.6.4-r0'];
+    fs.writeFileSync(
+      toolchainPath,
+      JSON.stringify({
+        layerSha256: 'c'.repeat(64),
+        packageInventorySha256: createHash('sha256')
+          .update(`${packages.join('\n')}\n`)
+          .digest('hex'),
+        packages,
+        tools: {
+          bash: 'GNU bash 5.2.37',
+          curl: 'curl 8.14.1',
+          node: 'v22.23.2',
+          npm: '11.6.4',
+        },
+      }),
+    );
   }
   return {
     campaign,
@@ -115,21 +130,34 @@ describe('matched runtime measurement adapter', () => {
     expect(campaign.expectedRuns).toHaveLength(4);
     expect(campaign.expectedRecoveries).toEqual([]);
     expect(campaign.estimatedRunnerMinutes).toBe(40);
-    expect(new Set(campaign.expectedRuns.map((sample) =>
-      `${sample.runtime}/${sample.workload}/${sample.mode}/${sample.cache}/${sample.resourceProfile}`,
-    ))).toEqual(new Set([
-      'nvx/build-test/sequential/cold/default',
-      'nvx/copilot-inference/sequential/cold/default',
-      'cloud-hypervisor/build-test/sequential/cold/default',
-      'cloud-hypervisor/copilot-inference/sequential/cold/default',
-    ]));
+    expect(
+      new Set(
+        campaign.expectedRuns.map(
+          (sample) => `${sample.runtime}/${sample.workload}/${sample.mode}/${sample.cache}/${sample.resourceProfile}`,
+        ),
+      ),
+    ).toEqual(
+      new Set([
+        'nvx/build-test/sequential/cold/default',
+        'nvx/copilot-inference/sequential/cold/default',
+        'cloud-hypervisor/build-test/sequential/cold/default',
+        'cloud-hypervisor/copilot-inference/sequential/cold/default',
+      ]),
+    );
   });
 
   it('parses real lifecycle, process, disk, and API-proxy evidence', () => {
     const data = evidence(manifest(), 1);
     const artifact = buildMeasuredArtifact(
-      data.campaign, data.sample, data.input, data.lifecycle, data.assertions,
-      [], data.metrics, 0, thresholds,
+      data.campaign,
+      data.sample,
+      data.input,
+      data.lifecycle,
+      data.assertions,
+      [],
+      data.metrics,
+      0,
+      thresholds,
     );
     expect(artifact.kind).toBe('run');
     if (artifact.kind !== 'run') return;
@@ -163,8 +191,15 @@ describe('matched runtime measurement adapter', () => {
     const data = evidence(manifest(), 1);
     fs.writeFileSync(data.input.tokenUsagePath!, '');
     const artifact = buildMeasuredArtifact(
-      data.campaign, data.sample, data.input, data.lifecycle, data.assertions,
-      [], data.metrics, 0, thresholds,
+      data.campaign,
+      data.sample,
+      data.input,
+      data.lifecycle,
+      data.assertions,
+      [],
+      data.metrics,
+      0,
+      thresholds,
     );
     if (artifact.kind !== 'run') return;
     expect(artifact.result.apiProxyRequests).toBe(3);
@@ -174,32 +209,54 @@ describe('matched runtime measurement adapter', () => {
 
   it('fails closed for missing metrics, provenance assertions, and token evidence', () => {
     const data = evidence(manifest(), 1);
-    expect(() => buildMeasuredArtifact(
-      data.campaign, data.sample, data.input,
-      { ...data.lifecycle, cpuUsageMicros: 0 },
-      data.assertions, [], data.metrics, 0, thresholds,
-    )).toThrow('cpuUsageMicros');
-    expect(() => buildMeasuredArtifact(
-      data.campaign, data.sample, data.input,
-      { ...data.lifecycle, scratchBytes: Number.NaN },
-      data.assertions, [], data.metrics, 0, thresholds,
-    )).toThrow('scratchBytes');
-    expect(() => buildMeasuredArtifact(
-      data.campaign, data.sample, data.input,
-      { ...data.lifecycle, cachePreparation: 'warm-cache-primed' },
-      data.assertions, [], data.metrics, 0, thresholds,
-    )).toThrow('cache preparation');
+    expect(() =>
+      buildMeasuredArtifact(
+        data.campaign,
+        data.sample,
+        data.input,
+        { ...data.lifecycle, cpuUsageMicros: 0 },
+        data.assertions,
+        [],
+        data.metrics,
+        0,
+        thresholds,
+      ),
+    ).toThrow('cpuUsageMicros');
+    expect(() =>
+      buildMeasuredArtifact(
+        data.campaign,
+        data.sample,
+        data.input,
+        { ...data.lifecycle, scratchBytes: Number.NaN },
+        data.assertions,
+        [],
+        data.metrics,
+        0,
+        thresholds,
+      ),
+    ).toThrow('scratchBytes');
+    expect(() =>
+      buildMeasuredArtifact(
+        data.campaign,
+        data.sample,
+        data.input,
+        { ...data.lifecycle, cachePreparation: 'warm-cache-primed' },
+        data.assertions,
+        [],
+        data.metrics,
+        0,
+        thresholds,
+      ),
+    ).toThrow('cache preparation');
     const missingAssertion = structuredClone(data.assertions);
     delete missingAssertion.assertions.credentialIsolation;
-    expect(() => buildMeasuredArtifact(
-      data.campaign, data.sample, data.input, data.lifecycle,
-      missingAssertion, [], data.metrics, 0, thresholds,
-    )).toThrow('credentialIsolation');
+    expect(() =>
+      buildMeasuredArtifact(data.campaign, data.sample, data.input, data.lifecycle, missingAssertion, [], data.metrics, 0, thresholds),
+    ).toThrow('credentialIsolation');
     fs.unlinkSync(data.input.tokenUsagePath);
-    expect(() => buildMeasuredArtifact(
-      data.campaign, data.sample, data.input, data.lifecycle,
-      data.assertions, [], data.metrics, 0, thresholds,
-    )).toThrow('token usage');
+    expect(() =>
+      buildMeasuredArtifact(data.campaign, data.sample, data.input, data.lifecycle, data.assertions, [], data.metrics, 0, thresholds),
+    ).toThrow('token usage');
   });
 
   it('propagates security failures and residue into a failed measured record', () => {
@@ -207,8 +264,15 @@ describe('matched runtime measurement adapter', () => {
     data.assertions.assertions.egressPolicy = false;
     data.assertions.failureCategory = 'security-assertion';
     const artifact = buildMeasuredArtifact(
-      data.campaign, data.sample, data.input, data.lifecycle, data.assertions,
-      ['network-namespace'], data.metrics, 0, thresholds,
+      data.campaign,
+      data.sample,
+      data.input,
+      data.lifecycle,
+      data.assertions,
+      ['network-namespace'],
+      data.metrics,
+      0,
+      thresholds,
     );
     if (artifact.kind !== 'run') return;
     expect(artifact.result.success).toBe(false);
@@ -223,13 +287,109 @@ describe('matched runtime measurement adapter', () => {
     expect(stableAttemptId('sample-a', 1)).not.toBe(stableAttemptId('sample-b', 1));
   });
 
+  it('records only explicitly linked infrastructure reruns', () => {
+    const data = evidence();
+    const artifact = buildMeasuredArtifact(
+      data.campaign,
+      data.sample,
+      {
+        ...data.input,
+        attempt: 2,
+        rerunOf: 'original-attempt',
+        rerunReason: 'runner-preempted',
+      },
+      data.lifecycle,
+      data.assertions,
+      [],
+      data.metrics,
+      0,
+      thresholds,
+    );
+    if (artifact.kind !== 'run') return;
+    expect(artifact.result).toMatchObject({
+      rerunOf: 'original-attempt',
+      rerunReason: 'runner-preempted',
+    });
+  });
+
+  it('round-trips measured NVX toolchain provenance in a full campaign', () => {
+    const campaign = createCampaignManifest(
+      {
+        campaignId: 'full-measured-test',
+        mode: 'full',
+        sourceCommit: 'd'.repeat(40),
+        runnerClass: 'ubuntu-24.04',
+        runnerImage: 'ubuntu24/20261001.1',
+        guestImage: 'matched-guest-v1',
+      },
+      thresholds,
+    );
+    const data = evidence(campaign, 0);
+    const artifact = buildMeasuredArtifact(
+      data.campaign,
+      data.sample,
+      data.input,
+      data.lifecycle,
+      data.assertions,
+      [],
+      data.metrics,
+      0,
+      thresholds,
+    );
+    const cell = createCampaignCells(campaign).find((candidate) => candidate.sampleIds.includes(data.sample.sampleId))!;
+    expect(() => selectPendingCellSamples(campaign, cell, [artifact], false)).not.toThrow();
+    expect(selectPendingCellSamples(campaign, cell, [artifact], false)).toHaveLength(cell.sampleIds.length - 1);
+  });
+
+  it('persists failed assertion evidence without requiring successful-only metrics', () => {
+    const campaign = createCampaignManifest(
+      {
+        campaignId: 'failed-measured-test',
+        mode: 'full',
+        sourceCommit: 'e'.repeat(40),
+        runnerClass: 'ubuntu-24.04',
+        runnerImage: 'ubuntu24/20261001.1',
+        guestImage: 'matched-guest-v1',
+      },
+      thresholds,
+    );
+    const data = evidence(campaign, 0);
+    data.assertions.resourceLimitsEnforced = false;
+    data.assertions.failureCategory = 'workload-failure';
+    const artifact = buildMeasuredArtifact(
+      data.campaign,
+      data.sample,
+      data.input,
+      { ...data.lifecycle, cpuUsageMicros: 0, guestTools: { node: '', curl: '' } },
+      data.assertions,
+      [],
+      { peakMemoryMiB: 0, peakPids: 0 },
+      1,
+      thresholds,
+    );
+    if (artifact.kind !== 'run') return;
+    expect(artifact.result.success).toBe(false);
+    expect(artifact.result.resourceLimitsEnforced).toBe(false);
+    expect(artifact.result.assertionFailures).toContain('resourceLimitsEnforced');
+    expect(artifact.result.cpuSeconds).toBe(0);
+    const cell = createCampaignCells(campaign).find((candidate) => candidate.sampleIds.includes(data.sample.sampleId))!;
+    expect(selectPendingCellSamples(campaign, cell, [artifact], true)).toHaveLength(cell.sampleIds.length - 1);
+  });
+
   it('aggregates all four measured canary records deterministically', () => {
     const campaign = manifest();
     const artifacts = campaign.expectedRuns.map((_, index) => {
       const data = evidence(campaign, index);
       return buildMeasuredArtifact(
-        data.campaign, data.sample, data.input, data.lifecycle, data.assertions,
-        [], data.metrics, 0, thresholds,
+        data.campaign,
+        data.sample,
+        data.input,
+        data.lifecycle,
+        data.assertions,
+        [],
+        data.metrics,
+        0,
+        thresholds,
       );
     }) as SampleArtifact[];
     const forward = aggregateCampaign(campaign, artifacts, thresholds);
@@ -242,53 +402,48 @@ describe('matched runtime measurement adapter', () => {
     expect(reverse.observedSampleIds).toEqual(forward.observedSampleIds);
 
     const mismatchedTools = structuredClone(artifacts) as SampleArtifact[];
-    const cloudSample = mismatchedTools.find((artifact) =>
-      artifact.kind === 'run' && artifact.result.runtime === 'cloud-hypervisor',
-    );
+    const cloudSample = mismatchedTools.find((artifact) => artifact.kind === 'run' && artifact.result.runtime === 'cloud-hypervisor');
     if (cloudSample?.kind === 'run') {
       cloudSample.result.provenance.observedGuestTools!.node = 'v22.23.3';
     }
-    expect(() => aggregateCampaign(campaign, mismatchedTools, thresholds))
-      .toThrow('guest tool versions differ');
+    expect(() => aggregateCampaign(campaign, mismatchedTools, thresholds)).toThrow('guest tool versions differ');
 
     const workloadSpecificLayer = structuredClone(artifacts) as SampleArtifact[];
-    const secondNvxSample = workloadSpecificLayer.find((artifact) =>
-      artifact.kind === 'run' && artifact.result.runtime === 'nvx' &&
-      artifact.result.workload === 'copilot-inference',
+    const secondNvxSample = workloadSpecificLayer.find(
+      (artifact) => artifact.kind === 'run' && artifact.result.runtime === 'nvx' && artifact.result.workload === 'copilot-inference',
     );
     if (secondNvxSample?.kind === 'run') {
       secondNvxSample.result.provenance.nvxGuestToolchain!.layerSha256 = 'e'.repeat(64);
     }
-    expect(() => aggregateCampaign(campaign, workloadSpecificLayer, thresholds))
-      .not.toThrow();
+    expect(() => aggregateCampaign(campaign, workloadSpecificLayer, thresholds)).not.toThrow();
 
     const mismatchedToolchain = structuredClone(artifacts) as SampleArtifact[];
-    const secondNvxToolchain = mismatchedToolchain.find((artifact) =>
-      artifact.kind === 'run' && artifact.result.runtime === 'nvx' &&
-      artifact.result.workload === 'copilot-inference',
+    const secondNvxToolchain = mismatchedToolchain.find(
+      (artifact) => artifact.kind === 'run' && artifact.result.runtime === 'nvx' && artifact.result.workload === 'copilot-inference',
     );
     if (secondNvxToolchain?.kind === 'run') {
       const toolchain = secondNvxToolchain.result.provenance.nvxGuestToolchain!;
       toolchain.packages.push('phase4-extra-tool-1.0.0-r0');
       toolchain.packageInventorySha256 = createHash('sha256')
-        .update(`${toolchain.packages.join('\n')}\n`).digest('hex');
+        .update(`${toolchain.packages.join('\n')}\n`)
+        .digest('hex');
     }
-    expect(() => aggregateCampaign(campaign, mismatchedToolchain, thresholds))
-      .toThrow('NVX guest toolchain provenance differs');
+    expect(() => aggregateCampaign(campaign, mismatchedToolchain, thresholds)).toThrow('NVX guest toolchain provenance differs');
   });
 
   it('parses complete measured recovery evidence and fails closed on omissions', () => {
-    const campaign = createCampaignManifest({
-      campaignId: 'recovery-test',
-      mode: 'full',
-      sourceCommit: 'b'.repeat(40),
-      runnerClass: 'ubuntu-24.04',
-      runnerImage: 'ubuntu24/20261001.1',
-      guestImage: 'matched-guest-v1',
-    }, thresholds);
-    const sample = campaign.expectedRecoveries.find((item) =>
-      item.runtime === 'nvx' && item.kind === 'stale-recovery',
-    )!;
+    const campaign = createCampaignManifest(
+      {
+        campaignId: 'recovery-test',
+        mode: 'full',
+        sourceCommit: 'b'.repeat(40),
+        runnerClass: 'ubuntu-24.04',
+        runnerImage: 'ubuntu24/20261001.1',
+        guestImage: 'matched-guest-v1',
+      },
+      thresholds,
+    );
+    const sample = campaign.expectedRecoveries.find((item) => item.runtime === 'nvx' && item.kind === 'stale-recovery')!;
     const assertions = {
       ...Object.fromEntries(thresholds.zeroTolerance.map((name) => [name, true])),
       processTreeGone: true,
@@ -317,7 +472,12 @@ describe('matched runtime measurement adapter', () => {
     const artifact = buildMeasuredRecoveryArtifact(
       campaign,
       sample,
-      { attempt: 1, workflowRunId: 'run', jobId: 'recovery', workflowAttemptId: '1' },
+      {
+        attempt: 1,
+        workflowRunId: 'run',
+        jobId: 'recovery',
+        workflowAttemptId: '1',
+      },
       measurement,
       thresholds,
     );
@@ -333,12 +493,19 @@ describe('matched runtime measurement adapter', () => {
     });
     const incomplete = structuredClone(measurement);
     delete (incomplete.assertions as Record<string, boolean>).identityCheckedCleanup;
-    expect(() => buildMeasuredRecoveryArtifact(
-      campaign,
-      sample,
-      { attempt: 1, workflowRunId: 'run', jobId: 'recovery', workflowAttemptId: '1' },
-      incomplete,
-      thresholds,
-    )).toThrow('identityCheckedCleanup');
+    expect(() =>
+      buildMeasuredRecoveryArtifact(
+        campaign,
+        sample,
+        {
+          attempt: 1,
+          workflowRunId: 'run',
+          jobId: 'recovery',
+          workflowAttemptId: '1',
+        },
+        incomplete,
+        thresholds,
+      ),
+    ).toThrow('identityCheckedCleanup');
   });
 });

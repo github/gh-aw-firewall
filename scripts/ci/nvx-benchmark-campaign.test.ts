@@ -7,8 +7,10 @@ import {
   RunEvidence,
   SampleArtifact,
   aggregateCampaign,
+  createCampaignCells,
   createCampaignManifest,
   generateDryRunArtifacts,
+  selectPendingCellSamples,
 } from './nvx-benchmark-campaign';
 import { evaluate, Thresholds } from './nvx-promotion-evaluator';
 
@@ -22,14 +24,17 @@ const identifiers = {
 };
 
 function manifest(mode: 'dry-run' | 'full' = 'dry-run'): CampaignManifest {
-  return createCampaignManifest({
-    campaignId: 'campaign-test',
-    mode,
-    sourceCommit: 'a'.repeat(40),
-    runnerClass: 'ubuntu-24.04',
-    runnerImage: 'ubuntu-24.04-2026-01',
-    guestImage: 'pinned-guest-image',
-  }, thresholds);
+  return createCampaignManifest(
+    {
+      campaignId: 'campaign-test',
+      mode,
+      sourceCommit: 'a'.repeat(40),
+      runnerClass: 'ubuntu-24.04',
+      runnerImage: 'ubuntu-24.04-2026-01',
+      guestImage: 'pinned-guest-image',
+    },
+    thresholds,
+  );
 }
 
 function dryArtifacts(campaign = manifest()): SampleArtifact[] {
@@ -41,45 +46,60 @@ describe('NVX benchmark campaign evidence', () => {
     expect(RESOURCE_PROFILE_LIMITS).toEqual({
       minimum: { cpuCores: 1, memoryMiB: 2048, pidsMax: 128, scratchMiB: 1024 },
       default: { cpuCores: 2, memoryMiB: 4096, pidsMax: 256, scratchMiB: 2048 },
-      elevated: { cpuCores: 4, memoryMiB: 6144, pidsMax: 512, scratchMiB: 4096 },
+      elevated: {
+        cpuCores: 4,
+        memoryMiB: 6144,
+        pidsMax: 512,
+        scratchMiB: 4096,
+      },
     });
     const campaign = manifest();
     const artifacts = dryArtifacts(campaign);
-    const cold = artifacts.find((artifact) =>
-      artifact.kind === 'run' && artifact.result.cache === 'cold',
-    ) as Extract<SampleArtifact, { kind: 'run' }>;
-    const warm = artifacts.find((artifact) =>
-      artifact.kind === 'run' && artifact.result.cache === 'warm',
-    ) as Extract<SampleArtifact, { kind: 'run' }>;
+    const cold = artifacts.find((artifact) => artifact.kind === 'run' && artifact.result.cache === 'cold') as Extract<
+      SampleArtifact,
+      { kind: 'run' }
+    >;
+    const warm = artifacts.find((artifact) => artifact.kind === 'run' && artifact.result.cache === 'warm') as Extract<
+      SampleArtifact,
+      { kind: 'run' }
+    >;
     expect(cold.result.cachePreparation).toBe('cold-cache-flushed');
     expect(warm.result.cachePreparation).toBe('warm-cache-primed');
     const altered = dryArtifacts(campaign);
     (altered[0] as Extract<SampleArtifact, { kind: 'run' }>).result.resourceLimitsEnforced = false;
-    expect(() => aggregateCampaign(campaign, altered, thresholds))
-      .toThrow('resource limits do not match');
+    expect(() => aggregateCampaign(campaign, altered, thresholds)).toThrow('resource limits do not match');
   });
 
-  it('keeps campaign launches manual, serialized, and dry-run by default', () => {
-    const workflowPath = path.join(
-      __dirname, '..', '..', '.github', 'workflows', 'nvx-phase-4-benchmark.yml',
-    );
+  it('keeps campaign launches manual, serialized, bounded, resumable, and dry-run by default', () => {
+    const workflowPath = path.join(__dirname, '..', '..', '.github', 'workflows', 'nvx-phase-4-benchmark.yml');
     const workflow = yaml.load(fs.readFileSync(workflowPath, 'utf8')) as {
       on: Record<string, unknown>;
       concurrency: { 'cancel-in-progress': boolean };
-      jobs: Record<string, { steps: Array<{ run?: string }> }>;
+      jobs: Record<
+        string,
+        {
+          strategy?: { 'max-parallel'?: number };
+          steps: Array<{ run?: string }>;
+        }
+      >;
     };
     expect(Object.keys(workflow.on)).toEqual(['workflow_dispatch']);
     expect(workflow.concurrency['cancel-in-progress']).toBe(false);
     const source = fs.readFileSync(workflowPath, 'utf8');
     expect(source).toContain('default: dry-run');
-    expect(source).toContain('Full sample execution is not enabled');
-    expect(source).toContain('10,000-minute');
+    expect(source).toContain('I reviewed and approve the 10,000 runner-minute estimate');
+    expect(source).toContain('prior_run_id');
+    expect(source).toContain('allow_infrastructure_retry');
+    expect(source).toContain('infrastructure_retry_url');
+    expect(source).toContain('nvx-benchmark-campaign.ts matrix');
+    expect(source).toContain('nvx-benchmark-campaign.ts pending');
+    expect(workflow.jobs.execute.strategy?.['max-parallel']).toBe(4);
+    expect(source).toContain('test "$(jq \'.include | length\' "$plan/matrix.json")" -eq 76');
+    expect(source).toContain('test "$(jq \'[.include[].sampleIds[]] | length\' "$plan/matrix.json")" -eq 1000');
   });
 
   it('keeps the real canary bounded, serialized, matched, and promotion-ineligible', () => {
-    const workflowPath = path.join(
-      __dirname, '..', '..', '.github', 'workflows', 'nvx-phase-4-canary.yml',
-    );
+    const workflowPath = path.join(__dirname, '..', '..', '.github', 'workflows', 'nvx-phase-4-canary.yml');
     const source = fs.readFileSync(workflowPath, 'utf8');
     const workflow = yaml.load(source) as {
       on: Record<string, unknown>;
@@ -111,15 +131,13 @@ describe('NVX benchmark campaign evidence', () => {
     expect(source).toContain('install_copilot_cli.sh" 1.0.95');
     expect(source).toContain("matrix.runtime == 'nvx' && 'musl' || 'glibc'");
     expect(source).toContain('AWF_PHASE4_KVM_ACL_BASELINE');
-    expect(source).toContain("getSafeHostUid()");
+    expect(source).toContain('getSafeHostUid()');
     expect(source).toContain("'awf:x:%s:%s:AWF workload:/home/awf:/bin/sh");
     expect(source).toContain('install -d -o root -g root -m 1777 "$layer/tmp"');
     expect(source).toContain('promotionEligible == false');
     expect(source).not.toContain('mode: full');
 
-    const harness = fs.readFileSync(path.join(
-      __dirname, '..', '..', 'scripts', 'ci', 'nvx-phase4-canary-runtime.sh',
-    ), 'utf8');
+    const harness = fs.readFileSync(path.join(__dirname, '..', '..', 'scripts', 'ci', 'nvx-phase4-canary-runtime.sh'), 'utf8');
     expect(harness).toContain('--container-workdir /workspace');
     expect(harness).toContain('test -f dist/cli.js');
     expect(harness).not.toContain('test -x dist/cli.js');
@@ -162,9 +180,80 @@ describe('NVX benchmark campaign evidence', () => {
     expect(campaign.expectedRuns).toHaveLength(960);
     expect(campaign.expectedRecoveries).toHaveLength(40);
     expect(campaign.estimatedRunnerMinutes).toBe(10_000);
-    expect(new Set(campaign.expectedRuns.map((sample) =>
-      [sample.runtime, sample.workload, sample.mode, sample.cache, sample.resourceProfile].join('/'),
-    )).size).toBe(48);
+    expect(
+      new Set(
+        campaign.expectedRuns.map((sample) =>
+          [sample.runtime, sample.workload, sample.mode, sample.cache, sample.resourceProfile].join('/'),
+        ),
+      ).size,
+    ).toBe(48);
+  });
+
+  it('partitions the full campaign into bounded deterministic execution cells', () => {
+    const campaign = manifest('full');
+    const cells = createCampaignCells(campaign);
+    expect(cells).toHaveLength(76);
+    expect(cells.filter((cell) => cell.kind === 'run')).toHaveLength(72);
+    expect(cells.filter((cell) => cell.kind === 'recovery')).toHaveLength(4);
+    expect(cells.every((cell) => cell.sampleIds.length >= 10 && cell.sampleIds.length <= 20)).toBe(true);
+    expect(new Set(cells.flatMap((cell) => cell.sampleIds)).size).toBe(1_000);
+    expect(createCampaignCells(campaign)).toEqual(cells);
+  });
+
+  it('resumes immutable evidence without duplicate or unbounded execution', () => {
+    const campaign = manifest('full');
+    const cell = createCampaignCells(campaign).find(
+      (candidate) =>
+        candidate.kind === 'run' &&
+        candidate.runtime === 'cloud-hypervisor' &&
+        candidate.mode === 'sequential',
+    )!;
+    const dryRunCampaign = manifest();
+    const expected = campaign.expectedRuns.find((sample) => sample.sampleId === cell.sampleIds[0])!;
+    const template = dryArtifacts(dryRunCampaign).find(
+      (artifact) =>
+        artifact.kind === 'run' &&
+        artifact.result.runtime === expected.runtime &&
+        artifact.result.workload === expected.workload &&
+        artifact.result.mode === expected.mode &&
+        artifact.result.cache === expected.cache &&
+        artifact.result.resourceProfile === expected.resourceProfile,
+    ) as Extract<SampleArtifact, { kind: 'run' }>;
+    const first = {
+      kind: 'run' as const,
+      result: {
+        ...template.result,
+        ...expected,
+        campaignId: campaign.campaignId,
+        sourceCommit: campaign.sourceCommit,
+        runnerImage: campaign.runnerImage,
+        guestImage: campaign.guestImage,
+        versions: campaign.versions,
+        provenance: {
+          ...campaign.provenance,
+          observedGuestTools: { node: 'v22.23.2', curl: 'curl 8.14.1' },
+        },
+        evidenceKind: 'measured' as const,
+        attemptId: 'original-attempt',
+      },
+    };
+    const pending = selectPendingCellSamples(campaign, cell, [first], false);
+    expect(pending).toHaveLength(cell.sampleIds.length - 1);
+    expect(pending.some((sample) => sample.sampleId === first.result.sampleId)).toBe(false);
+
+    first.result.success = false;
+    first.result.failureCategory = 'runner-preempted';
+    const retry = selectPendingCellSamples(campaign, cell, [first], true).find((sample) => sample.sampleId === first.result.sampleId);
+    expect(retry).toEqual({
+      sampleId: first.result.sampleId,
+      attempt: 2,
+      rerunOf: 'original-attempt',
+      rerunReason: 'runner-preempted',
+    });
+
+    first.result.assertionFailures = ['credentialIsolation'];
+    expect(selectPendingCellSamples(campaign, cell, [first], true).some((sample) => sample.sampleId === first.result.sampleId)).toBe(false);
+    expect(() => selectPendingCellSamples(campaign, cell, [first, first], false)).toThrow('duplicate attemptId');
   });
 
   it('generates one explicitly marked pipeline sample for every dry-run shape', () => {
@@ -173,25 +262,30 @@ describe('NVX benchmark campaign evidence', () => {
     const result = aggregateCampaign(campaign, artifacts, thresholds);
     expect(result.runs).toHaveLength(48);
     expect(result.recoveries).toHaveLength(4);
-    expect(result.runs.every((run) =>
-      (run as RunEvidence).evidenceKind === 'dry-run' &&
-      run.assertionFailures.length === 0 && run.residue.length === 0,
-    )).toBe(true);
+    expect(
+      result.runs.every(
+        (run) => (run as RunEvidence).evidenceKind === 'dry-run' && run.assertionFailures.length === 0 && run.residue.length === 0,
+      ),
+    ).toBe(true);
     expect(result.expectedSampleIds).toEqual(result.observedSampleIds);
     expect(result.dryRun).toBe(true);
   });
 
   it('creates stable sample IDs for resume and rejects invalid campaign identifiers', () => {
-    expect(manifest().expectedRuns.map((sample) => sample.sampleId))
-      .toEqual(manifest().expectedRuns.map((sample) => sample.sampleId));
-    expect(() => createCampaignManifest({
-      campaignId: '../escape',
-      mode: 'dry-run',
-      sourceCommit: 'a'.repeat(40),
-      runnerClass: 'ubuntu-24.04',
-      runnerImage: 'runner',
-      guestImage: 'guest',
-    }, thresholds)).toThrow('immutable');
+    expect(manifest().expectedRuns.map((sample) => sample.sampleId)).toEqual(manifest().expectedRuns.map((sample) => sample.sampleId));
+    expect(() =>
+      createCampaignManifest(
+        {
+          campaignId: '../escape',
+          mode: 'dry-run',
+          sourceCommit: 'a'.repeat(40),
+          runnerClass: 'ubuntu-24.04',
+          runnerImage: 'runner',
+          guestImage: 'guest',
+        },
+        thresholds,
+      ),
+    ).toThrow('immutable');
   });
 
   it('rejects manifests that do not match the canonical campaign matrix', () => {
@@ -199,18 +293,15 @@ describe('NVX benchmark campaign evidence', () => {
     const artifacts = dryArtifacts(campaign);
     const missingRun = structuredClone(campaign);
     missingRun.expectedRuns.pop();
-    expect(() => aggregateCampaign(missingRun, artifacts, thresholds))
-      .toThrow('canonical threshold-derived expectations');
+    expect(() => aggregateCampaign(missingRun, artifacts, thresholds)).toThrow('canonical threshold-derived expectations');
 
     const missingRecovery = structuredClone(campaign);
     missingRecovery.expectedRecoveries.pop();
-    expect(() => aggregateCampaign(missingRecovery, artifacts, thresholds))
-      .toThrow('canonical threshold-derived expectations');
+    expect(() => aggregateCampaign(missingRecovery, artifacts, thresholds)).toThrow('canonical threshold-derived expectations');
 
     const wrongMode = structuredClone(campaign);
     wrongMode.dryRun = false;
-    expect(() => aggregateCampaign(wrongMode, artifacts, thresholds))
-      .toThrow('canonical threshold-derived expectations');
+    expect(() => aggregateCampaign(wrongMode, artifacts, thresholds)).toThrow('canonical threshold-derived expectations');
   });
 
   it('rejects missing, duplicate, and unexpected samples', () => {
@@ -230,10 +321,8 @@ describe('NVX benchmark campaign evidence', () => {
     (stale[0].result as RunEvidence).versions.awf = 'v0.0.0';
     expect(() => aggregateCampaign(campaign, stale, thresholds)).toThrow('baseline awf');
     const staleWorkload = dryArtifacts(campaign);
-    (staleWorkload[0].result as RunEvidence).provenance.workloadVersions['build-test'] =
-      'different-workload';
-    expect(() => aggregateCampaign(campaign, staleWorkload, thresholds))
-      .toThrow('mismatched compiler/runtime/guest/workload provenance');
+    (staleWorkload[0].result as RunEvidence).provenance.workloadVersions['build-test'] = 'different-workload';
+    expect(() => aggregateCampaign(campaign, staleWorkload, thresholds)).toThrow('mismatched compiler/runtime/guest/workload provenance');
 
     const wrongRunner = dryArtifacts(campaign);
     (wrongRunner[0].result as RunEvidence).runnerClass = 'unapproved-runner';
@@ -274,13 +363,11 @@ describe('NVX benchmark campaign evidence', () => {
     const result = aggregateCampaign(campaign, [...artifacts, rerun], thresholds);
     expect(result.attempts).toHaveLength(49);
     expect(result.runs).toHaveLength(48);
-    expect((result.runs as RunEvidence[])
-      .find((run) => run.sampleId === first.result.sampleId)?.success).toBe(false);
+    expect((result.runs as RunEvidence[]).find((run) => run.sampleId === first.result.sampleId)?.success).toBe(false);
 
     const forbidden = structuredClone(rerun);
     forbidden.result.rerunReason = 'security-failure';
-    expect(() => aggregateCampaign(campaign, [...artifacts, forbidden], thresholds))
-      .toThrow('infrastructure-only rerun');
+    expect(() => aggregateCampaign(campaign, [...artifacts, forbidden], thresholds)).toThrow('infrastructure-only rerun');
   });
 
   it('propagates assertion failures and residue rather than retrying them', () => {
@@ -293,18 +380,24 @@ describe('NVX benchmark campaign evidence', () => {
     const affected = (result.runs as RunEvidence[]).find((run) => run.sampleId === first.result.sampleId)!;
     expect(affected.assertionFailures).toContain('credentialIsolation');
     expect(affected.residue).toContain('run-directory');
-    expect(() => aggregateCampaign(campaign, [
-      ...artifacts,
-      {
-        kind: 'run',
-        result: {
-          ...first.result,
-          attemptId: `${first.result.sampleId}-attempt-2`,
-          rerunOf: first.result.attemptId,
-          rerunReason: 'runner-preempted',
-        },
-      },
-    ], thresholds)).toThrow('infrastructure-only rerun');
+    expect(() =>
+      aggregateCampaign(
+        campaign,
+        [
+          ...artifacts,
+          {
+            kind: 'run',
+            result: {
+              ...first.result,
+              attemptId: `${first.result.sampleId}-attempt-2`,
+              rerunOf: first.result.attemptId,
+              rerunReason: 'runner-preempted',
+            },
+          },
+        ],
+        thresholds,
+      ),
+    ).toThrow('infrastructure-only rerun');
 
     const contaminatedOriginal = structuredClone(first);
     contaminatedOriginal.result.sampleId = campaign.expectedRuns[1].sampleId;
@@ -329,49 +422,50 @@ describe('NVX benchmark campaign evidence', () => {
         failureCategory: 'success',
         assertionFailures: [],
         residue: [],
-        assertions: { ...contaminatedOriginal.result.assertions, credentialIsolation: true },
+        assertions: {
+          ...contaminatedOriginal.result.assertions,
+          credentialIsolation: true,
+        },
         rerunOf: contaminatedOriginal.result.attemptId,
         rerunReason: 'runner-preempted',
       },
     };
-    expect(() => aggregateCampaign(campaign, [
-      ...artifacts.filter((artifact) =>
-        artifact.result.sampleId !== contaminatedOriginal.result.sampleId,
+    expect(() =>
+      aggregateCampaign(
+        campaign,
+        [
+          ...artifacts.filter((artifact) => artifact.result.sampleId !== contaminatedOriginal.result.sampleId),
+          contaminatedOriginal,
+          contaminatedRetry,
+        ],
+        thresholds,
       ),
-      contaminatedOriginal,
-      contaminatedRetry,
-    ], thresholds)).toThrow('unauthorized rerun');
+    ).toThrow('unauthorized rerun');
   });
 
   it('requires readiness and complete identity-checked cleanup evidence for recovery', () => {
     const campaign = manifest();
     const artifacts = dryArtifacts(campaign);
-    const recovery = artifacts.find((artifact) => artifact.kind === 'recovery') as
-      Extract<SampleArtifact, { kind: 'recovery' }>;
+    const recovery = artifacts.find((artifact) => artifact.kind === 'recovery') as Extract<SampleArtifact, { kind: 'recovery' }>;
     recovery.result.readinessConfirmed = undefined as unknown as boolean;
-    expect(() => aggregateCampaign(campaign, artifacts, thresholds))
-      .toThrow('incomplete or does not match its expected recovery cell');
+    expect(() => aggregateCampaign(campaign, artifacts, thresholds)).toThrow('incomplete or does not match its expected recovery cell');
   });
 
   it('passes failed cleanup assertions to the evaluator as stop-promotion blockers', () => {
     const campaign = manifest();
     const artifacts = dryArtifacts(campaign);
-    const recovery = artifacts.find((artifact) => artifact.kind === 'recovery') as
-      Extract<SampleArtifact, { kind: 'recovery' }>;
+    const recovery = artifacts.find((artifact) => artifact.kind === 'recovery') as Extract<SampleArtifact, { kind: 'recovery' }>;
     recovery.result.assertions.cleanupRecordRemoved = false;
 
     const results = aggregateCampaign(campaign, artifacts, thresholds);
-    expect(results.recoveries.some((item) =>
-      item.assertionFailures.includes('cleanupRecordRemoved'),
-    )).toBe(true);
+    expect(results.recoveries.some((item) => item.assertionFailures.includes('cleanupRecordRemoved'))).toBe(true);
     expect(evaluate(results, thresholds).recommendation).toBe('stop-promotion');
   });
 
   it('allows one linked infrastructure-only recovery rerun but scores the original', () => {
     const campaign = manifest();
     const artifacts = dryArtifacts(campaign);
-    const first = artifacts.find((artifact) => artifact.kind === 'recovery') as
-      Extract<SampleArtifact, { kind: 'recovery' }>;
+    const first = artifacts.find((artifact) => artifact.kind === 'recovery') as Extract<SampleArtifact, { kind: 'recovery' }>;
     first.result.success = false;
     first.result.failureCategory = 'runner-preempted';
     const rerun: SampleArtifact = {
@@ -393,8 +487,7 @@ describe('NVX benchmark campaign evidence', () => {
 
     const unauthorized = structuredClone(rerun);
     if (unauthorized.kind === 'recovery') unauthorized.result.rerunReason = 'security-failure';
-    expect(() => aggregateCampaign(campaign, [...artifacts, unauthorized], thresholds))
-      .toThrow('infrastructure-only rerun');
+    expect(() => aggregateCampaign(campaign, [...artifacts, unauthorized], thresholds)).toThrow('infrastructure-only rerun');
   });
 
   it('aggregates independently of input artifact ordering', () => {

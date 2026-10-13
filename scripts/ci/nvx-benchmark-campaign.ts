@@ -3,13 +3,7 @@ import { execFileSync } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
 import { isDeepStrictEqual } from 'util';
-import {
-  BenchmarkResults,
-  RecoveryResult,
-  RunResult,
-  Thresholds,
-  evaluate,
-} from './nvx-promotion-evaluator';
+import { BenchmarkResults, RecoveryResult, RunResult, Thresholds, evaluate } from './nvx-promotion-evaluator';
 
 export type CampaignMode = 'dry-run' | 'canary' | 'full';
 
@@ -76,6 +70,18 @@ export interface CampaignManifest {
   expectedRecoveries: RecoverySample[];
 }
 
+export interface CampaignCell {
+  cellId: string;
+  kind: 'run' | 'recovery';
+  runtime: RunResult['runtime'];
+  workload?: string;
+  mode?: RunResult['mode'];
+  cache?: RunResult['cache'];
+  resourceProfile?: RunResult['resourceProfile'];
+  recoveryKind?: RecoveryResult['kind'];
+  sampleIds: string[];
+}
+
 export interface RunEvidence extends RunResult {
   sampleId: string;
   campaignId: string;
@@ -124,9 +130,7 @@ export interface RecoveryEvidence extends RecoveryResult {
   rerunReason?: string;
 }
 
-export type SampleArtifact =
-  | { kind: 'run'; result: RunEvidence }
-  | { kind: 'recovery'; result: RecoveryEvidence };
+export type SampleArtifact = { kind: 'run'; result: RunEvidence } | { kind: 'recovery'; result: RecoveryEvidence };
 
 export interface CampaignResults extends BenchmarkResults {
   campaignId: string;
@@ -145,11 +149,7 @@ export interface CampaignResults extends BenchmarkResults {
   promotionEligible: boolean;
 }
 
-const INFRASTRUCTURE_FAILURES = new Set([
-  'runner-preempted',
-  'runner-unavailable',
-  'network-infrastructure',
-]);
+const INFRASTRUCTURE_FAILURES = new Set(['runner-preempted', 'runner-unavailable', 'network-infrastructure']);
 const RECOVERY_ASSERTIONS = [
   'processTreeGone',
   'mountsRestored',
@@ -162,9 +162,14 @@ const RECOVERY_ASSERTIONS = [
   'kvmAclRestored',
 ];
 const RUNNER_MINUTES_PER_SAMPLE = 10;
+const MAX_CAMPAIGN_SAMPLES = 1_000;
+const MAX_CELL_SAMPLES = 20;
 
 function stableId(campaignId: string, parts: string[]): string {
-  return createHash('sha256').update([campaignId, ...parts].join('\0')).digest('hex').slice(0, 24);
+  return createHash('sha256')
+    .update([campaignId, ...parts].join('\0'))
+    .digest('hex')
+    .slice(0, 24);
 }
 
 export function createCampaignManifest(
@@ -197,63 +202,69 @@ export function createCampaignManifest(
   const canary = input.mode === 'canary';
   const expectedRuns = canary
     ? (['nvx', 'cloud-hypervisor'] as const).flatMap((runtime) =>
-      thresholds.matrix.workloads.map((workload) => {
-        const mode = 'sequential' as const;
-        const cache = 'cold' as const;
-        const resourceProfile = 'default' as const;
-        const ordinal = 1;
-        return {
-          sampleId: stableId(input.campaignId, [
-            'canary', runtime, workload, mode, cache, resourceProfile, String(ordinal),
-          ]),
-          runtime,
-          workload,
-          mode,
-          cache,
-          resourceProfile,
-          ordinal,
-        };
-      }))
+        thresholds.matrix.workloads.map((workload) => {
+          const mode = 'sequential' as const;
+          const cache = 'cold' as const;
+          const resourceProfile = 'default' as const;
+          const ordinal = 1;
+          return {
+            sampleId: stableId(input.campaignId, ['canary', runtime, workload, mode, cache, resourceProfile, String(ordinal)]),
+            runtime,
+            workload,
+            mode,
+            cache,
+            resourceProfile,
+            ordinal,
+          };
+        }),
+      )
     : (['nvx', 'cloud-hypervisor'] as const).flatMap((runtime) =>
-    thresholds.matrix.workloads.flatMap((workload) =>
-      thresholds.matrix.modes.flatMap((mode) =>
-        thresholds.matrix.caches.flatMap((cache) =>
-          thresholds.matrix.resourceProfiles.flatMap((resourceProfile) => {
-            const count = dryRun ? 1 : mode === 'sequential'
-              ? thresholds.sample.minSequentialRunsPerLaneRuntime
-              : thresholds.sample.minConcurrentRunsPerLaneRuntime;
-            return Array.from({ length: count }, (_, index) => {
+        thresholds.matrix.workloads.flatMap((workload) =>
+          thresholds.matrix.modes.flatMap((mode) =>
+            thresholds.matrix.caches.flatMap((cache) =>
+              thresholds.matrix.resourceProfiles.flatMap((resourceProfile) => {
+                const count = dryRun
+                  ? 1
+                  : mode === 'sequential'
+                    ? thresholds.sample.minSequentialRunsPerLaneRuntime
+                    : thresholds.sample.minConcurrentRunsPerLaneRuntime;
+                return Array.from({ length: count }, (_, index) => {
+                  const ordinal = index + 1;
+                  return {
+                    sampleId: stableId(input.campaignId, [runtime, workload, mode, cache, resourceProfile, String(ordinal)]),
+                    runtime,
+                    workload,
+                    mode,
+                    cache,
+                    resourceProfile,
+                    ordinal,
+                  };
+                });
+              }),
+            ),
+          ),
+        ),
+      );
+  const expectedRecoveries = canary
+    ? []
+    : (['nvx', 'cloud-hypervisor'] as const).flatMap((runtime) =>
+        (['cancellation', 'stale-recovery'] as const).flatMap((kind) =>
+          Array.from(
+            {
+              length: dryRun ? 1 : thresholds.sample.minRecoverySamplesPerKindRuntime,
+            },
+            (_, index) => {
               const ordinal = index + 1;
               return {
-                sampleId: stableId(input.campaignId, [
-                  runtime, workload, mode, cache, resourceProfile, String(ordinal),
-                ]),
+                sampleId: stableId(input.campaignId, [runtime, kind, String(ordinal)]),
                 runtime,
-                workload,
-                mode,
-                cache,
-                resourceProfile,
+                kind,
                 ordinal,
               };
-            });
-          }),
+            },
+          ),
         ),
-      ),
-    ),
-  );
-  const expectedRecoveries = canary ? [] : (['nvx', 'cloud-hypervisor'] as const).flatMap((runtime) =>
-    (['cancellation', 'stale-recovery'] as const).flatMap((kind) =>
-      Array.from({ length: dryRun ? 1 : thresholds.sample.minRecoverySamplesPerKindRuntime }, (_, index) => {
-        const ordinal = index + 1;
-        return {
-          sampleId: stableId(input.campaignId, [runtime, kind, String(ordinal)]),
-          runtime,
-          kind,
-          ordinal,
-        };
-      }),
-    ),
-  );
+      );
   const estimatedRunnerMinutes = dryRun
     ? expectedRuns.length + expectedRecoveries.length
     : (expectedRuns.length + expectedRecoveries.length) * RUNNER_MINUTES_PER_SAMPLE;
@@ -289,10 +300,146 @@ export function createCampaignManifest(
   };
 }
 
+export function createCampaignCells(manifest: CampaignManifest): CampaignCell[] {
+  if (manifest.mode !== 'full' || manifest.expectedRuns.length + manifest.expectedRecoveries.length !== MAX_CAMPAIGN_SAMPLES) {
+    throw new Error('execution cells require the canonical 1,000-sample full campaign');
+  }
+  const cells = new Map<string, CampaignCell>();
+  for (const sample of manifest.expectedRuns) {
+    const cellId = ['run', sample.runtime, sample.workload, sample.mode, sample.cache, sample.resourceProfile].join('-');
+    const cell = cells.get(cellId) ?? {
+      cellId,
+      kind: 'run' as const,
+      runtime: sample.runtime,
+      workload: sample.workload,
+      mode: sample.mode,
+      cache: sample.cache,
+      resourceProfile: sample.resourceProfile,
+      sampleIds: [],
+    };
+    cell.sampleIds.push(sample.sampleId);
+    cells.set(cellId, cell);
+  }
+  for (const sample of manifest.expectedRecoveries) {
+    const cellId = ['recovery', sample.runtime, sample.kind].join('-');
+    const cell = cells.get(cellId) ?? {
+      cellId,
+      kind: 'recovery' as const,
+      runtime: sample.runtime,
+      recoveryKind: sample.kind,
+      sampleIds: [],
+    };
+    cell.sampleIds.push(sample.sampleId);
+    cells.set(cellId, cell);
+  }
+  const result = [...cells.values()]
+    .flatMap((cell) =>
+      Array.from({ length: Math.ceil(cell.sampleIds.length / MAX_CELL_SAMPLES) }, (_, index) => ({
+        ...cell,
+        cellId: `${cell.cellId}-part-${String(index + 1).padStart(2, '0')}`,
+        sampleIds: cell.sampleIds.slice(index * MAX_CELL_SAMPLES, (index + 1) * MAX_CELL_SAMPLES),
+      })),
+    )
+    .sort((left, right) => left.cellId.localeCompare(right.cellId));
+  if (
+    result.length !== 76 ||
+    result.some((cell) => cell.sampleIds.length < 1 || cell.sampleIds.length > MAX_CELL_SAMPLES) ||
+    new Set(result.flatMap((cell) => cell.sampleIds)).size !== MAX_CAMPAIGN_SAMPLES
+  ) {
+    throw new Error('campaign execution cells are incomplete, duplicated, or unbounded');
+  }
+  return result;
+}
+
+export function selectPendingCellSamples(
+  manifest: CampaignManifest,
+  cell: CampaignCell,
+  artifacts: SampleArtifact[],
+  allowInfrastructureRetry: boolean,
+): Array<{
+  sampleId: string;
+  attempt: 1 | 2;
+  rerunOf?: string;
+  rerunReason?: string;
+}> {
+  const canonicalCell = createCampaignCells(manifest).find((candidate) => candidate.cellId === cell.cellId);
+  if (!canonicalCell || !isDeepStrictEqual(canonicalCell, cell)) {
+    throw new Error('campaign cell does not match the canonical full-campaign plan');
+  }
+  const attempts = new Map<string, Array<RunEvidence | RecoveryEvidence>>();
+  const attemptIds = new Set<string>();
+  const thresholds = loadThresholds();
+  for (const artifact of artifacts) {
+    const result = artifact.result;
+    if (artifact.kind === 'run') {
+      const sample = manifest.expectedRuns.find((candidate) => candidate.sampleId === result.sampleId);
+      if (!sample) throw new Error(`resume evidence contains unexpected run sample ${result.sampleId}`);
+      validateRun(artifact.result, sample, manifest, thresholds);
+    } else if (artifact.kind === 'recovery') {
+      const sample = manifest.expectedRecoveries.find((candidate) => candidate.sampleId === result.sampleId);
+      if (!sample) {
+        throw new Error(`resume evidence contains unexpected recovery sample ${result.sampleId}`);
+      }
+      validateRecovery(artifact.result, sample, manifest, thresholds);
+    } else {
+      throw new Error('resume evidence has an unknown kind');
+    }
+    if (attemptIds.has(result.attemptId)) throw new Error(`duplicate attemptId ${result.attemptId}`);
+    attemptIds.add(result.attemptId);
+    const values = attempts.get(result.sampleId) ?? [];
+    values.push(result);
+    attempts.set(result.sampleId, values);
+  }
+  const pending: Array<{
+    sampleId: string;
+    attempt: 1 | 2;
+    rerunOf?: string;
+    rerunReason?: string;
+  }> = [];
+  for (const sampleId of cell.sampleIds) {
+    const values = attempts.get(sampleId) ?? [];
+    const originals = values.filter((attempt) => attempt.rerunOf === undefined);
+    const reruns = values.filter((attempt) => attempt.rerunOf !== undefined);
+    if (originals.length > 1 || reruns.length > 1 || values.length > 2) {
+      throw new Error(`sample ${sampleId} has duplicate or unbounded attempts`);
+    }
+    if (originals.length === 0) {
+      pending.push({ sampleId, attempt: 1 });
+      continue;
+    }
+    const original = originals[0];
+    if (
+      original.success ||
+      original.assertionFailures.length > 0 ||
+      original.residue.length > 0 ||
+      !INFRASTRUCTURE_FAILURES.has(original.failureCategory)
+    ) {
+      continue;
+    }
+    if (allowInfrastructureRetry && reruns.length === 0) {
+      pending.push({
+        sampleId,
+        attempt: 2,
+        rerunOf: original.attemptId,
+        rerunReason: original.failureCategory,
+      });
+    }
+  }
+  return pending;
+}
+
 function assertRecord(record: Record<string, unknown>, label: string): void {
   const requiredStrings = [
-    'sampleId', 'campaignId', 'attemptId', 'workflowRunId', 'jobId',
-    'workflowAttemptId', 'sourceCommit', 'runnerClass', 'runnerImage', 'guestImage',
+    'sampleId',
+    'campaignId',
+    'attemptId',
+    'workflowRunId',
+    'jobId',
+    'workflowAttemptId',
+    'sourceCommit',
+    'runnerClass',
+    'runnerImage',
+    'guestImage',
   ];
   for (const key of requiredStrings) {
     if (typeof record[key] !== 'string' || record[key] === '') {
@@ -305,29 +452,24 @@ function assertRecord(record: Record<string, unknown>, label: string): void {
   if (typeof record.versions !== 'object' || record.versions === null) {
     throw new Error(`${label} is missing versions`);
   }
-  if (typeof record.provenance !== 'object' || record.provenance === null ||
-    Array.isArray(record.provenance)) {
+  if (typeof record.provenance !== 'object' || record.provenance === null || Array.isArray(record.provenance)) {
     throw new Error(`${label} is missing detailed provenance`);
   }
-  if (typeof record.assertions !== 'object' || record.assertions === null ||
-    Array.isArray(record.assertions)) {
+  if (typeof record.assertions !== 'object' || record.assertions === null || Array.isArray(record.assertions)) {
     throw new Error(`${label} is missing assertion results`);
   }
 }
 
-function validateProvenance(
-  record: Record<string, unknown>,
-  manifest: CampaignManifest,
-  thresholds: Thresholds,
-  label: string,
-): void {
+function validateProvenance(record: Record<string, unknown>, manifest: CampaignManifest, thresholds: Thresholds, label: string): void {
   assertRecord(record, label);
-  if (record.campaignId !== manifest.campaignId ||
+  if (
+    record.campaignId !== manifest.campaignId ||
     record.sourceCommit !== manifest.sourceCommit ||
     record.runnerClass !== manifest.runnerClass ||
     record.runnerImage !== manifest.runnerImage ||
     record.guestImage !== manifest.guestImage ||
-    record.evidenceKind !== (manifest.dryRun ? 'dry-run' : 'measured')) {
+    record.evidenceKind !== (manifest.dryRun ? 'dry-run' : 'measured')
+  ) {
     throw new Error(`${label} has cross-campaign, stale-baseline, or mismatched provenance`);
   }
   const versions = record.versions as Record<string, unknown>;
@@ -340,21 +482,27 @@ function validateProvenance(
   const exactStringRecord = (actual: unknown, expected: Record<string, string>): boolean => {
     if (!actual || typeof actual !== 'object' || Array.isArray(actual)) return false;
     const values = actual as Record<string, unknown>;
-    return Object.keys(values).length === Object.keys(expected).length &&
-      Object.entries(expected).every(([key, value]) => values[key] === value);
+    return (
+      Object.keys(values).length === Object.keys(expected).length && Object.entries(expected).every(([key, value]) => values[key] === value)
+    );
   };
-  if (provenance.compiler !== manifest.provenance.compiler ||
+  if (
+    provenance.compiler !== manifest.provenance.compiler ||
     provenance.awf !== manifest.provenance.awf ||
     provenance.guestImage !== manifest.provenance.guestImage ||
     !exactStringRecord(provenance.runtimeArtifacts, manifest.provenance.runtimeArtifacts) ||
-    !exactStringRecord(provenance.workloadVersions, manifest.provenance.workloadVersions)) {
+    !exactStringRecord(provenance.workloadVersions, manifest.provenance.workloadVersions)
+  ) {
     throw new Error(`${label} has mismatched compiler/runtime/guest/workload provenance`);
   }
   const nvxGuestToolchain = provenance.nvxGuestToolchain;
-  if (manifest.canary) {
+  if (!manifest.dryRun) {
     const observedGuestTools = provenance.observedGuestTools;
-    if (!isObservedGuestTools(observedGuestTools)) {
+    if (record.success === true && !isObservedGuestTools(observedGuestTools)) {
       throw new Error(`${label} is missing measured guest tool versions`);
+    }
+    if (observedGuestTools !== undefined && !isObservedGuestTools(observedGuestTools)) {
+      throw new Error(`${label} has invalid measured guest tool versions`);
     }
     if (record.runtime === 'nvx') {
       if (!isNvxGuestToolchain(nvxGuestToolchain)) {
@@ -363,7 +511,7 @@ function validateProvenance(
     } else if (nvxGuestToolchain !== undefined) {
       throw new Error(`${label} has unexpected NVX guest toolchain provenance`);
     }
-  } else if (nvxGuestToolchain !== undefined) {
+  } else if (nvxGuestToolchain !== undefined || provenance.observedGuestTools !== undefined) {
     throw new Error(`${label} has unexpected NVX guest toolchain provenance`);
   }
   const assertions = record.assertions as Record<string, unknown>;
@@ -373,44 +521,39 @@ function validateProvenance(
     }
   }
 
-  function isObservedGuestTools(
-    value: unknown,
-  ): value is NonNullable<CampaignProvenance['observedGuestTools']> {
+  function isObservedGuestTools(value: unknown): value is NonNullable<CampaignProvenance['observedGuestTools']> {
     if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
     const tools = value as NonNullable<CampaignProvenance['observedGuestTools']>;
-    return typeof tools.node === 'string' && tools.node !== '' &&
-      typeof tools.curl === 'string' && tools.curl !== '';
+    return typeof tools.node === 'string' && tools.node !== '' && typeof tools.curl === 'string' && tools.curl !== '';
   }
 
-  function isNvxGuestToolchain(
-    value: unknown,
-  ): value is NonNullable<CampaignProvenance['nvxGuestToolchain']> {
+  function isNvxGuestToolchain(value: unknown): value is NonNullable<CampaignProvenance['nvxGuestToolchain']> {
     if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
     const toolchain = value as NonNullable<CampaignProvenance['nvxGuestToolchain']>;
-    return /^[0-9a-f]{64}$/i.test(toolchain.layerSha256) &&
+    return (
+      /^[0-9a-f]{64}$/i.test(toolchain.layerSha256) &&
       /^[0-9a-f]{64}$/i.test(toolchain.packageInventorySha256) &&
-      Array.isArray(toolchain.packages) && toolchain.packages.length > 0 &&
+      Array.isArray(toolchain.packages) &&
+      toolchain.packages.length > 0 &&
       toolchain.packages.every((entry) => typeof entry === 'string' && entry !== '') &&
-      createHash('sha256').update(`${toolchain.packages.join('\n')}\n`).digest('hex') ===
-        toolchain.packageInventorySha256 &&
-      ['bash-5.2.37-r0', 'curl-8.14.1-r3', 'nodejs-22.23.2-r0', 'npm-11.6.4-r0']
-        .every((version) => toolchain.packages.includes(version)) &&
+      createHash('sha256')
+        .update(`${toolchain.packages.join('\n')}\n`)
+        .digest('hex') === toolchain.packageInventorySha256 &&
+      ['bash-5.2.37-r0', 'curl-8.14.1-r3', 'nodejs-22.23.2-r0', 'npm-11.6.4-r0'].every((version) => toolchain.packages.includes(version)) &&
       toolchain.tools?.node === 'v22.23.2' &&
       toolchain.tools?.npm === '11.6.4' &&
       toolchain.tools?.bash?.includes('5.2.37') === true &&
       toolchain.tools?.curl?.startsWith('curl 8.14.1') === true &&
-      ['bash', 'curl', 'node', 'npm'].every((tool) =>
-        typeof toolchain.tools?.[tool as 'bash' | 'curl' | 'node' | 'npm'] === 'string' &&
-        toolchain.tools[tool as 'bash' | 'curl' | 'node' | 'npm'] !== '');
+      ['bash', 'curl', 'node', 'npm'].every(
+        (tool) =>
+          typeof toolchain.tools?.[tool as 'bash' | 'curl' | 'node' | 'npm'] === 'string' &&
+          toolchain.tools[tool as 'bash' | 'curl' | 'node' | 'npm'] !== '',
+      )
+    );
   }
 }
 
-function validateRun(
-  run: RunEvidence,
-  sample: CampaignSample,
-  manifest: CampaignManifest,
-  thresholds: Thresholds,
-): void {
+function validateRun(run: RunEvidence, sample: CampaignSample, manifest: CampaignManifest, thresholds: Thresholds): void {
   const label = `run ${sample.sampleId}`;
   validateProvenance(run as unknown as Record<string, unknown>, manifest, thresholds, label);
   if (
@@ -423,30 +566,43 @@ function validateRun(
   ) {
     throw new Error(`${label} does not match its expected matrix cell`);
   }
-  if (typeof run.success !== 'boolean' || typeof run.failureCategory !== 'string' ||
-    run.failureCategory === '') {
+  if (typeof run.success !== 'boolean' || typeof run.failureCategory !== 'string' || run.failureCategory === '') {
     throw new Error(`${label} is missing a stable success/failure category`);
   }
   if (run.cachePreparation !== (sample.cache === 'cold' ? 'cold-cache-flushed' : 'warm-cache-primed')) {
     throw new Error(`${label} cache preparation does not match its cache state`);
   }
   const expectedLimits = RESOURCE_PROFILE_LIMITS[sample.resourceProfile];
-  if (!run.resourceLimits || Object.entries(expectedLimits).some(([key, value]) =>
-    run.resourceLimits[key as keyof ResourceLimits] !== value) ||
-    run.resourceLimitsEnforced !== true) {
+  if (
+    !run.resourceLimits ||
+    Object.entries(expectedLimits).some(([key, value]) => run.resourceLimits[key as keyof ResourceLimits] !== value) ||
+    typeof run.resourceLimitsEnforced !== 'boolean'
+  ) {
     throw new Error(`${label} resource limits do not match its resource profile`);
   }
   const numericMetrics = [
-    'artifactPreflightMs', 'startupMs', 'firstWorkloadMs', 'endToEndMs', 'cleanupMs',
-    'peakMemoryMiB', 'scratchMiB', 'hostDiskMiB', 'peakPids', 'cpuSeconds',
-    'apiProxyRequests', 'inputTokens', 'outputTokens', 'cacheReadTokens',
+    'artifactPreflightMs',
+    'startupMs',
+    'firstWorkloadMs',
+    'endToEndMs',
+    'cleanupMs',
+    'peakMemoryMiB',
+    'scratchMiB',
+    'hostDiskMiB',
+    'peakPids',
+    'cpuSeconds',
+    'apiProxyRequests',
+    'inputTokens',
+    'outputTokens',
+    'cacheReadTokens',
   ] as const;
-  const positiveMetrics = new Set([
-    'startupMs', 'endToEndMs', 'peakMemoryMiB', 'peakPids', 'cpuSeconds',
-  ]);
+  const positiveMetrics = new Set(['startupMs', 'endToEndMs', 'peakMemoryMiB', 'peakPids', 'cpuSeconds']);
   for (const metric of numericMetrics) {
-    if (!Number.isFinite(run[metric]) || run[metric] < 0 ||
-      (positiveMetrics.has(metric) && run[metric] === 0)) {
+    if (
+      !Number.isFinite(run[metric]) ||
+      run[metric] < 0 ||
+      (run.success && positiveMetrics.has(metric) && run[metric] === 0)
+    ) {
       throw new Error(`${label} has invalid or missing ${metric}`);
     }
   }
@@ -458,6 +614,12 @@ function validateRun(
       run.assertionFailures.push(name);
     }
   }
+  if (!run.resourceLimitsEnforced && !run.assertionFailures.includes('resourceLimitsEnforced')) {
+    run.assertionFailures.push('resourceLimitsEnforced');
+  }
+  if (run.success && !run.resourceLimitsEnforced) {
+    throw new Error(`${label} resource limits do not match its resource profile`);
+  }
   if (!run.success && run.failureCategory === 'success') {
     throw new Error(`${label} has an inconsistent failure category`);
   }
@@ -465,20 +627,18 @@ function validateRun(
     throw new Error(`${label} has an inconsistent success category`);
   }
   if (run.rerunOf !== undefined) {
-    if (typeof run.rerunReason !== 'string' ||
+    if (
+      typeof run.rerunReason !== 'string' ||
       !INFRASTRUCTURE_FAILURES.has(run.rerunReason) ||
-      run.assertionFailures.length > 0 || run.residue.length > 0) {
+      run.assertionFailures.length > 0 ||
+      run.residue.length > 0
+    ) {
       throw new Error(`${label} is not eligible for an infrastructure-only rerun`);
     }
   }
 }
 
-function validateRecovery(
-  recovery: RecoveryEvidence,
-  sample: RecoverySample,
-  manifest: CampaignManifest,
-  thresholds: Thresholds,
-): void {
+function validateRecovery(recovery: RecoveryEvidence, sample: RecoverySample, manifest: CampaignManifest, thresholds: Thresholds): void {
   const label = `recovery ${sample.sampleId}`;
   validateProvenance(recovery as unknown as Record<string, unknown>, manifest, thresholds, label);
   if (
@@ -499,79 +659,80 @@ function validateRecovery(
   ) {
     throw new Error(`${label} is incomplete or does not match its expected recovery cell`);
   }
-  if (RECOVERY_ASSERTIONS.some((name) => typeof recovery.assertions[name] !== 'boolean') ||
-    (recovery.kind === 'stale-recovery' &&
-      typeof recovery.assertions.identityCheckedCleanup !== 'boolean')) {
+  if (
+    RECOVERY_ASSERTIONS.some((name) => typeof recovery.assertions[name] !== 'boolean') ||
+    (recovery.kind === 'stale-recovery' && typeof recovery.assertions.identityCheckedCleanup !== 'boolean')
+  ) {
     throw new Error(`${label} is missing readiness or stale-recovery evidence`);
   }
   const failedAssertions = [
     ...RECOVERY_ASSERTIONS.filter((name) => recovery.assertions[name] === false),
     ...(recovery.readinessConfirmed ? [] : ['readinessConfirmed']),
     ...(recovery.terminalObserved ? [] : ['terminalObserved']),
-    ...(recovery.kind === 'stale-recovery' && !recovery.managerKilledAfterCleanupRecord
-      ? ['managerKilledAfterCleanupRecord'] : []),
-    ...(recovery.kind === 'stale-recovery' && !recovery.workloadAfterRecovery
-      ? ['workloadAfterRecovery'] : []),
-    ...(recovery.kind === 'stale-recovery' && recovery.assertions.identityCheckedCleanup === false
-      ? ['identityCheckedCleanup'] : []),
+    ...(recovery.kind === 'stale-recovery' && !recovery.managerKilledAfterCleanupRecord ? ['managerKilledAfterCleanupRecord'] : []),
+    ...(recovery.kind === 'stale-recovery' && !recovery.workloadAfterRecovery ? ['workloadAfterRecovery'] : []),
+    ...(recovery.kind === 'stale-recovery' && recovery.assertions.identityCheckedCleanup === false ? ['identityCheckedCleanup'] : []),
     ...Object.entries(recovery.assertions)
-      .filter(([name, passed]) => passed === false &&
-        (name !== 'identityCheckedCleanup' || recovery.kind === 'stale-recovery'))
+      .filter(([name, passed]) => passed === false && (name !== 'identityCheckedCleanup' || recovery.kind === 'stale-recovery'))
       .map(([name]) => name),
   ];
   for (const name of failedAssertions) {
     if (!recovery.assertionFailures.includes(name)) recovery.assertionFailures.push(name);
   }
-  if ((!recovery.success && recovery.failureCategory === 'success') ||
-    (recovery.success && recovery.failureCategory !== 'success')) {
+  if ((!recovery.success && recovery.failureCategory === 'success') || (recovery.success && recovery.failureCategory !== 'success')) {
     throw new Error(`${label} has an inconsistent success category`);
   }
   if (recovery.rerunOf !== undefined) {
-    if (typeof recovery.rerunReason !== 'string' ||
+    if (
+      typeof recovery.rerunReason !== 'string' ||
       !INFRASTRUCTURE_FAILURES.has(recovery.rerunReason) ||
-      recovery.assertionFailures.length > 0 || recovery.residue.length > 0) {
+      recovery.assertionFailures.length > 0 ||
+      recovery.residue.length > 0
+    ) {
       throw new Error(`${label} is not eligible for an infrastructure-only rerun`);
     }
   }
 }
 
-export function aggregateCampaign(
-  manifest: CampaignManifest,
-  artifacts: SampleArtifact[],
-  thresholds: Thresholds,
-): CampaignResults {
-  if (!manifest || manifest.schemaVersion !== 1 || !manifest.versions ||
-    typeof manifest.versions !== 'object' || Array.isArray(manifest.versions)) {
+export function aggregateCampaign(manifest: CampaignManifest, artifacts: SampleArtifact[], thresholds: Thresholds): CampaignResults {
+  if (
+    !manifest ||
+    manifest.schemaVersion !== 1 ||
+    !manifest.versions ||
+    typeof manifest.versions !== 'object' ||
+    Array.isArray(manifest.versions)
+  ) {
     throw new Error('unsupported or incomplete campaign manifest');
   }
   if (manifest.mode !== 'dry-run' && manifest.mode !== 'canary' && manifest.mode !== 'full') {
     throw new Error('unsupported or incomplete campaign manifest');
   }
-  const canonicalManifest = createCampaignManifest({
-    campaignId: manifest.campaignId,
-    mode: manifest.mode,
-    sourceCommit: manifest.sourceCommit,
-    runnerClass: manifest.runnerClass,
-    runnerImage: manifest.runnerImage,
-    guestImage: manifest.guestImage,
-  }, thresholds);
-  const samplesMatch = (
-    actual: CampaignSample[] | RecoverySample[],
-    expected: CampaignSample[] | RecoverySample[],
-  ): boolean => {
+  const canonicalManifest = createCampaignManifest(
+    {
+      campaignId: manifest.campaignId,
+      mode: manifest.mode,
+      sourceCommit: manifest.sourceCommit,
+      runnerClass: manifest.runnerClass,
+      runnerImage: manifest.runnerImage,
+      guestImage: manifest.guestImage,
+    },
+    thresholds,
+  );
+  const samplesMatch = (actual: CampaignSample[] | RecoverySample[], expected: CampaignSample[] | RecoverySample[]): boolean => {
     if (!Array.isArray(actual) || actual.length !== expected.length) return false;
     const byId = new Map(actual.map((sample) => [sample?.sampleId, sample]));
-    return byId.size === expected.length &&
-      expected.every((sample) => isDeepStrictEqual(byId.get(sample.sampleId), sample));
+    return byId.size === expected.length && expected.every((sample) => isDeepStrictEqual(byId.get(sample.sampleId), sample));
   };
-  if (manifest.dryRun !== canonicalManifest.dryRun ||
+  if (
+    manifest.dryRun !== canonicalManifest.dryRun ||
     manifest.canary !== canonicalManifest.canary ||
     manifest.promotionEligible !== canonicalManifest.promotionEligible ||
     manifest.estimatedRunnerMinutes !== canonicalManifest.estimatedRunnerMinutes ||
     !isDeepStrictEqual(manifest.versions, canonicalManifest.versions) ||
     !isDeepStrictEqual(manifest.provenance, canonicalManifest.provenance) ||
     !samplesMatch(manifest.expectedRuns, canonicalManifest.expectedRuns) ||
-    !samplesMatch(manifest.expectedRecoveries, canonicalManifest.expectedRecoveries)) {
+    !samplesMatch(manifest.expectedRecoveries, canonicalManifest.expectedRecoveries)
+  ) {
     throw new Error('campaign manifest does not match canonical threshold-derived expectations');
   }
   for (const [key, expected] of Object.entries(thresholds.baseline)) {
@@ -619,11 +780,11 @@ export function aggregateCampaign(
     }
   }
 
-  if (manifest.canary) {
+  if (!manifest.dryRun) {
     const canaryAttempts = [...attempts.values()].flat();
     for (const runtime of ['nvx', 'cloud-hypervisor'] as const) {
       const guestTools = canaryAttempts
-        .filter((attempt) => attempt.runtime === runtime)
+        .filter((attempt) => attempt.runtime === runtime && attempt.success)
         .map((attempt) => JSON.stringify(attempt.provenance.observedGuestTools));
       if (new Set(guestTools).size > 1) {
         throw new Error('guest tool versions differ across matched canary samples');
@@ -633,11 +794,13 @@ export function aggregateCampaign(
       .filter((attempt) => attempt.runtime === 'nvx')
       .map((attempt) => {
         const toolchain = attempt.provenance.nvxGuestToolchain;
-        return JSON.stringify(toolchain && {
-          packageInventorySha256: toolchain.packageInventorySha256,
-          packages: toolchain.packages,
-          tools: toolchain.tools,
-        });
+        return JSON.stringify(
+          toolchain && {
+            packageInventorySha256: toolchain.packageInventorySha256,
+            packages: toolchain.packages,
+            tools: toolchain.tools,
+          },
+        );
       });
     if (new Set(nvxToolchains).size > 1) {
       throw new Error('NVX guest toolchain provenance differs across canary samples');
@@ -651,11 +814,13 @@ export function aggregateCampaign(
       throw new Error(`sample ${sampleId} must have exactly one original attempt`);
     }
     for (const rerun of sampleAttempts.filter((attempt) => attempt.rerunOf !== undefined)) {
-      if (rerun.rerunOf !== primary[0].attemptId ||
+      if (
+        rerun.rerunOf !== primary[0].attemptId ||
         primary[0].success ||
         !INFRASTRUCTURE_FAILURES.has(primary[0].failureCategory) ||
         primary[0].assertionFailures.length > 0 ||
-        primary[0].residue.length > 0) {
+        primary[0].residue.length > 0
+      ) {
         throw new Error(`sample ${sampleId} has an unauthorized rerun`);
       }
     }
@@ -669,11 +834,13 @@ export function aggregateCampaign(
       throw new Error(`recovery sample ${sampleId} must have exactly one original attempt`);
     }
     for (const rerun of sampleAttempts.filter((attempt) => attempt.rerunOf !== undefined)) {
-      if (rerun.rerunOf !== primary[0].attemptId ||
+      if (
+        rerun.rerunOf !== primary[0].attemptId ||
         primary[0].success ||
         !INFRASTRUCTURE_FAILURES.has(primary[0].failureCategory) ||
         primary[0].assertionFailures.length > 0 ||
-        primary[0].residue.length > 0) {
+        primary[0].residue.length > 0
+      ) {
         throw new Error(`recovery sample ${sampleId} has an unauthorized rerun`);
       }
     }
@@ -685,10 +852,7 @@ export function aggregateCampaign(
     ...manifest.expectedRuns.map((sample) => sample.sampleId),
     ...manifest.expectedRecoveries.map((sample) => sample.sampleId),
   ].sort();
-  const observedSampleIds = [
-    ...attempts.keys(),
-    ...recoveryAttempts.keys(),
-  ].sort();
+  const observedSampleIds = [...attempts.keys(), ...recoveryAttempts.keys()].sort();
   const missingSampleIds = expectedSampleIds.filter((sampleId) => !observedSampleIds.includes(sampleId));
   const unexpectedSampleIds = observedSampleIds.filter((sampleId) => !expectedSampleIds.includes(sampleId));
   if (missingSampleIds.length > 0) {
@@ -708,10 +872,10 @@ export function aggregateCampaign(
     provenance: structuredClone(manifest.provenance),
     runs: primaryRuns.sort((a, b) => a.sampleId.localeCompare(b.sampleId)),
     recoveries: primaryRecoveries.sort((a, b) => a.sampleId.localeCompare(b.sampleId)),
-    attempts: [...attempts.values()].flat().sort((a, b) =>
-      a.sampleId.localeCompare(b.sampleId) || a.attemptId.localeCompare(b.attemptId)),
-    recoveryAttempts: [...recoveryAttempts.values()].flat().sort((a, b) =>
-      a.sampleId.localeCompare(b.sampleId) || a.attemptId.localeCompare(b.attemptId)),
+    attempts: [...attempts.values()].flat().sort((a, b) => a.sampleId.localeCompare(b.sampleId) || a.attemptId.localeCompare(b.attemptId)),
+    recoveryAttempts: [...recoveryAttempts.values()]
+      .flat()
+      .sort((a, b) => a.sampleId.localeCompare(b.sampleId) || a.attemptId.localeCompare(b.attemptId)),
     expectedSampleIds,
     observedSampleIds,
     missingSampleIds,
@@ -729,12 +893,18 @@ function dryRunAssertions(thresholds: Thresholds): Record<string, boolean> {
 export function generateDryRunArtifacts(
   manifest: CampaignManifest,
   thresholds: Thresholds,
-  identifiers: { workflowRunId: string; jobId: string; workflowAttemptId: string },
+  identifiers: {
+    workflowRunId: string;
+    jobId: string;
+    workflowAttemptId: string;
+  },
 ): SampleArtifact[] {
   if (!manifest.dryRun) throw new Error('dry-run evidence requires a dry-run campaign manifest');
   const assertions = dryRunAssertions(thresholds);
   const runs: SampleArtifact[] = manifest.expectedRuns.map((sample) => {
-    execFileSync(process.execPath, ['-e', 'process.exit(0)'], { stdio: 'ignore' });
+    execFileSync(process.execPath, ['-e', 'process.exit(0)'], {
+      stdio: 'ignore',
+    });
     return {
       kind: 'run',
       result: {
@@ -775,7 +945,9 @@ export function generateDryRunArtifacts(
     };
   });
   const recoveries: SampleArtifact[] = manifest.expectedRecoveries.map((sample) => {
-    execFileSync(process.execPath, ['-e', 'process.exit(0)'], { stdio: 'ignore' });
+    execFileSync(process.execPath, ['-e', 'process.exit(0)'], {
+      stdio: 'ignore',
+    });
     return {
       kind: 'recovery',
       result: {
@@ -842,8 +1014,8 @@ function report(results: CampaignResults, thresholds: Thresholds): string {
     const values = evaluation.summary[key];
     lines.push(
       `| ${key} | ${values.runs} | ${(values.successRate * 100).toFixed(1)}% | ` +
-      `${values['startupMs.p50']} / ${values['startupMs.p95']} | ` +
-      `${values['endToEndMs.p50']} / ${values['endToEndMs.p95']} |`,
+        `${values['startupMs.p50']} / ${values['startupMs.p95']} | ` +
+        `${values['endToEndMs.p50']} / ${values['endToEndMs.p95']} |`,
     );
   }
   lines.push('', '## Blockers', '');
@@ -854,18 +1026,17 @@ function report(results: CampaignResults, thresholds: Thresholds): string {
 }
 
 function loadThresholds(): Thresholds {
-  return JSON.parse(fs.readFileSync(
-    path.join(__dirname, '..', '..', 'docs', 'nvx-promotion-thresholds.json'),
-    'utf8',
-  )) as Thresholds;
+  return JSON.parse(fs.readFileSync(path.join(__dirname, '..', '..', 'docs', 'nvx-promotion-thresholds.json'), 'utf8')) as Thresholds;
 }
 
 function usage(): never {
   throw new Error(
     'usage: nvx-benchmark-campaign plan <manifest.json> <campaign-id> <dry-run|canary|full> ' +
-    '<source-sha> <runner-class> <runner-image> <guest-image> | dry-run <manifest.json> ' +
-    '<samples-dir> <workflow-run-id> <job-id> <workflow-attempt> | aggregate ' +
-    '<manifest.json> <samples-dir> <results.json> <report.md>',
+      '<source-sha> <runner-class> <runner-image> <guest-image> | dry-run <manifest.json> ' +
+      '<samples-dir> <workflow-run-id> <job-id> <workflow-attempt> | aggregate ' +
+      '<manifest.json> <samples-dir> <results.json> <report.md> | matrix <manifest.json> ' +
+      '<matrix.json> | pending <manifest.json> <cell.json> <samples-dir> <allow-infrastructure-retry> ' +
+      '<pending.json>',
   );
 }
 
@@ -878,15 +1049,15 @@ function main(): void {
     if (mode !== 'dry-run' && mode !== 'canary' && mode !== 'full') {
       throw new Error('mode must be dry-run, canary, or full');
     }
-    const manifest = createCampaignManifest(
-      { campaignId, mode, sourceCommit, runnerClass, runnerImage, guestImage },
-      thresholds,
-    );
-    fs.writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, { flag: 'wx', mode: 0o600 });
+    const manifest = createCampaignManifest({ campaignId, mode, sourceCommit, runnerClass, runnerImage, guestImage }, thresholds);
+    fs.writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, {
+      flag: 'wx',
+      mode: 0o600,
+    });
     process.stdout.write(
       `Campaign ${manifest.campaignId}: ${manifest.expectedRuns.length} runs + ` +
-      `${manifest.expectedRecoveries.length} recoveries; estimated ${manifest.estimatedRunnerMinutes} ` +
-      `runner-minutes (${(manifest.estimatedRunnerMinutes / 60).toFixed(1)} runner-hours).\n`,
+        `${manifest.expectedRecoveries.length} recoveries; estimated ${manifest.estimatedRunnerMinutes} ` +
+        `runner-minutes (${(manifest.estimatedRunnerMinutes / 60).toFixed(1)} runner-hours).\n`,
     );
     return;
   }
@@ -895,18 +1066,27 @@ function main(): void {
     if (!manifestPath || !samplesDir || !workflowRunId || !jobId || !workflowAttemptId) usage();
     const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8')) as CampaignManifest;
     const artifacts = generateDryRunArtifacts(manifest, thresholds, {
-      workflowRunId, jobId, workflowAttemptId,
+      workflowRunId,
+      jobId,
+      workflowAttemptId,
     });
     fs.mkdirSync(samplesDir, { recursive: true });
     for (const artifact of artifacts) {
       const result = artifact.result;
       const file = path.join(samplesDir, `${artifact.kind}-${result.sampleId}-${result.attemptId}.json`);
-      fs.writeFileSync(file, `${JSON.stringify(artifact, null, 2)}\n`, { flag: 'wx', mode: 0o600 });
+      fs.writeFileSync(file, `${JSON.stringify(artifact, null, 2)}\n`, {
+        flag: 'wx',
+        mode: 0o600,
+      });
     }
     const results = aggregateCampaign(manifest, artifacts, thresholds);
     const evaluation = evaluate(results, thresholds);
-    fs.writeFileSync(path.join(samplesDir, 'benchmark-results.json'), `${JSON.stringify(results, null, 2)}\n`, { mode: 0o600 });
-    fs.writeFileSync(path.join(samplesDir, 'evaluation.json'), `${JSON.stringify(evaluation, null, 2)}\n`, { mode: 0o600 });
+    fs.writeFileSync(path.join(samplesDir, 'benchmark-results.json'), `${JSON.stringify(results, null, 2)}\n`, {
+      mode: 0o600,
+    });
+    fs.writeFileSync(path.join(samplesDir, 'evaluation.json'), `${JSON.stringify(evaluation, null, 2)}\n`, {
+      mode: 0o600,
+    });
     fs.writeFileSync(path.join(samplesDir, 'report.md'), report(results, thresholds), { mode: 0o600 });
     if (evaluation.recommendation !== 'retain-preview') {
       throw new Error(`dry-run must retain preview; got ${evaluation.recommendation}`);
@@ -914,17 +1094,55 @@ function main(): void {
     process.stdout.write(`Validated ${artifacts.length} dry-run evidence records; evaluator returned retain-preview.\n`);
     return;
   }
+  if (command === 'matrix') {
+    const [manifestPath, matrixPath] = args;
+    if (!manifestPath || !matrixPath) usage();
+    const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8')) as CampaignManifest;
+    const cells = createCampaignCells(manifest);
+    fs.writeFileSync(matrixPath, `${JSON.stringify({ include: cells }, null, 2)}\n`, {
+      flag: 'wx',
+      mode: 0o600,
+    });
+    process.stdout.write(`Created ${cells.length} bounded execution cells.\n`);
+    return;
+  }
+  if (command === 'pending') {
+    const [manifestPath, cellPath, samplesDir, allowInfrastructureRetry, pendingPath] = args;
+    if (!manifestPath || !cellPath || !samplesDir || !allowInfrastructureRetry || !pendingPath) usage();
+    if (allowInfrastructureRetry !== 'true' && allowInfrastructureRetry !== 'false') {
+      throw new Error('allow-infrastructure-retry must be true or false');
+    }
+    const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8')) as CampaignManifest;
+    const cell = JSON.parse(fs.readFileSync(cellPath, 'utf8')) as CampaignCell;
+    const artifacts = fs.existsSync(samplesDir)
+      ? fs
+          .readdirSync(samplesDir)
+          .filter((file) => /^(run|recovery)-.+\.json$/.test(file))
+          .sort()
+          .map((file) => JSON.parse(fs.readFileSync(path.join(samplesDir, file), 'utf8')) as SampleArtifact)
+      : [];
+    const pending = selectPendingCellSamples(manifest, cell, artifacts, allowInfrastructureRetry === 'true');
+    fs.writeFileSync(pendingPath, `${JSON.stringify(pending, null, 2)}\n`, {
+      flag: 'wx',
+      mode: 0o600,
+    });
+    process.stdout.write(`Selected ${pending.length} pending samples for ${cell.cellId}.\n`);
+    return;
+  }
   if (command === 'aggregate') {
     const [manifestPath, samplesDir, resultsPath, reportPath] = args;
     if (!manifestPath || !samplesDir || !resultsPath || !reportPath) usage();
     const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8')) as CampaignManifest;
-    const artifacts = fs.readdirSync(samplesDir)
+    const artifacts = fs
+      .readdirSync(samplesDir)
       .filter((file) => file.endsWith('.json') && !['benchmark-results.json', 'evaluation.json'].includes(file))
       .sort()
       .map((file) => JSON.parse(fs.readFileSync(path.join(samplesDir, file), 'utf8')) as SampleArtifact);
     const results = aggregateCampaign(manifest, artifacts, thresholds);
     const evaluation = evaluate(results, thresholds);
-    fs.writeFileSync(resultsPath, `${JSON.stringify(results, null, 2)}\n`, { mode: 0o600 });
+    fs.writeFileSync(resultsPath, `${JSON.stringify(results, null, 2)}\n`, {
+      mode: 0o600,
+    });
     fs.writeFileSync(path.join(path.dirname(resultsPath), 'evaluation.json'), `${JSON.stringify(evaluation, null, 2)}\n`, { mode: 0o600 });
     fs.writeFileSync(reportPath, report(results, thresholds), { mode: 0o600 });
     process.stdout.write(`${JSON.stringify(evaluation, null, 2)}\n`);

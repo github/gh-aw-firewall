@@ -212,7 +212,11 @@ export function evaluate(results: BenchmarkResults, thresholds: Thresholds): Eva
       blockers.push(`${run.runtime}/${key}: assertion results missing`);
     }
     for (const name of Array.isArray(run.assertionFailures) ? run.assertionFailures : []) {
-      if (run.runtime === 'nvx' || thresholds.zeroTolerance.includes(name)) {
+      if (
+        run.runtime === 'nvx' ||
+        thresholds.zeroTolerance.includes(name) ||
+        name === 'resourceLimitsEnforced'
+      ) {
         blockers.push(`${run.runtime}/${key}: assertion failed: ${name}`);
       }
     }

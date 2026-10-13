@@ -40,9 +40,7 @@ interface TokenUsageRecord {
   cache_read_tokens: number;
 }
 
-type NvxGuestToolchain = NonNullable<
-  CampaignManifest['provenance']['nvxGuestToolchain']
->;
+type NvxGuestToolchain = NonNullable<CampaignManifest['provenance']['nvxGuestToolchain']>;
 
 export interface AdapterInput {
   manifestPath: string;
@@ -60,6 +58,8 @@ export interface AdapterInput {
   workflowRunId: string;
   jobId: string;
   workflowAttemptId: string;
+  rerunOf?: string;
+  rerunReason?: string;
 }
 
 export interface RecoveryAdapterInput {
@@ -73,6 +73,8 @@ export interface RecoveryAdapterInput {
   workflowRunId: string;
   jobId: string;
   workflowAttemptId: string;
+  rerunOf?: string;
+  rerunReason?: string;
 }
 
 interface RecoveryMeasurement {
@@ -127,6 +129,7 @@ function parseTokenUsage(
   file: string | undefined,
   auditFile: string | undefined,
   workload: string,
+  required: boolean,
 ): {
   apiProxyRequests: number;
   inputTokens: number;
@@ -140,13 +143,25 @@ function parseTokenUsage(
     if (auditFile && fs.existsSync(auditFile) && fs.readFileSync(auditFile, 'utf8').trim() !== '') {
       throw new Error('build-test sample unexpectedly emitted API-proxy request audit events');
     }
+    return {
+      apiProxyRequests: 0,
+      inputTokens: 0,
+      outputTokens: 0,
+      cacheReadTokens: 0,
+    };
+  }
+  if ((!file || !fs.existsSync(file)) && !required) {
     return { apiProxyRequests: 0, inputTokens: 0, outputTokens: 0, cacheReadTokens: 0 };
   }
   if (!file || !fs.existsSync(file)) throw new Error('missing Copilot API-proxy token usage');
+  if ((!auditFile || !fs.existsSync(auditFile)) && !required) {
+    return { apiProxyRequests: 0, inputTokens: 0, outputTokens: 0, cacheReadTokens: 0 };
+  }
   if (!auditFile || !fs.existsSync(auditFile)) {
     throw new Error('missing Copilot API-proxy request audit');
   }
-  const apiProxyRequests = fs.readFileSync(auditFile, 'utf8')
+  const apiProxyRequests = fs
+    .readFileSync(auditFile, 'utf8')
     .split(/\r?\n/)
     .filter(Boolean)
     .map((line, index) => {
@@ -156,19 +171,22 @@ function parseTokenUsage(
       }
       return record.event === 'TRACK_START' || record.event === 'WS_TRACK_START';
     })
+    .filter(Boolean).length;
+  if (apiProxyRequests === 0 && required) throw new Error('Copilot sample emitted no API-proxy request starts');
+  const records = fs
+    .readFileSync(file, 'utf8')
+    .split(/\r?\n/)
     .filter(Boolean)
-    .length;
-  if (apiProxyRequests === 0) throw new Error('Copilot sample emitted no API-proxy request starts');
-  const records = fs.readFileSync(file, 'utf8').split(/\r?\n/).filter(Boolean).map((line, index) => {
-    const record = JSON.parse(line) as Partial<TokenUsageRecord>;
-    if (record.event !== 'token_usage') throw new Error(`invalid token usage event at line ${index + 1}`);
-    return {
-      event: record.event,
-      input_tokens: requireFinite(record.input_tokens, 'input_tokens'),
-      output_tokens: requireFinite(record.output_tokens, 'output_tokens'),
-      cache_read_tokens: requireFinite(record.cache_read_tokens, 'cache_read_tokens'),
-    };
-  });
+    .map((line, index) => {
+      const record = JSON.parse(line) as Partial<TokenUsageRecord>;
+      if (record.event !== 'token_usage') throw new Error(`invalid token usage event at line ${index + 1}`);
+      return {
+        event: record.event,
+        input_tokens: requireFinite(record.input_tokens, 'input_tokens'),
+        output_tokens: requireFinite(record.output_tokens, 'output_tokens'),
+        cache_read_tokens: requireFinite(record.cache_read_tokens, 'cache_read_tokens'),
+      };
+    });
   return {
     apiProxyRequests,
     inputTokens: records.reduce((sum, record) => sum + record.input_tokens, 0),
@@ -197,8 +215,7 @@ export function buildMeasuredArtifact(
     throw new Error('the matched-runtime adapter rejects synthetic dry-run manifests');
   }
   requireOrderedLifecycle(lifecycle);
-  const expectedCachePreparation =
-    sample.cache === 'cold' ? 'cold-cache-flushed' : 'warm-cache-primed';
+  const expectedCachePreparation = sample.cache === 'cold' ? 'cold-cache-flushed' : 'warm-cache-primed';
   if (lifecycle.cachePreparation !== expectedCachePreparation) {
     throw new Error('measured cache preparation does not match the sample cache state');
   }
@@ -213,58 +230,60 @@ export function buildMeasuredArtifact(
       throw new Error(`missing zero-tolerance assertion ${assertion}`);
     }
   }
-  if (assertionEvidence.resourceLimitsEnforced !== true) {
-    throw new Error('resource limits were not proven enforced');
-  }
-  const tokens = parseTokenUsage(
-    input.tokenUsagePath,
-    input.tokenTrackerAuditPath,
-    sample.workload,
-  );
   const assertionFailures = Object.entries(assertionEvidence.assertions)
     .filter(([, passed]) => !passed)
     .map(([name]) => name);
+  if (assertionEvidence.resourceLimitsEnforced !== true) {
+    assertionFailures.push('resourceLimitsEnforced');
+  }
   const success = exitCode === 0 && assertionFailures.length === 0 && residue.length === 0;
+  const tokens = parseTokenUsage(input.tokenUsagePath, input.tokenTrackerAuditPath, sample.workload, success);
   const failureCategory = assertionEvidence.failureCategory;
-  if (!failureCategory || (success && failureCategory !== 'success') ||
-    (!success && failureCategory === 'success')) {
+  if (!failureCategory || (success && failureCategory !== 'success') || (!success && failureCategory === 'success')) {
     throw new Error('measured success and failure category are inconsistent');
   }
   const provenance = structuredClone(manifest.provenance);
   if (sample.runtime === 'nvx') {
     if (!input.toolchainPath) throw new Error('missing NVX guest toolchain provenance');
     const toolchain = readJson<NvxGuestToolchain>(input.toolchainPath, 'NVX guest toolchain');
-    if (!/^[0-9a-f]{64}$/i.test(toolchain.layerSha256) ||
+    if (
+      !/^[0-9a-f]{64}$/i.test(toolchain.layerSha256) ||
       !/^[0-9a-f]{64}$/i.test(toolchain.packageInventorySha256) ||
-      !Array.isArray(toolchain.packages) || toolchain.packages.length === 0 ||
+      !Array.isArray(toolchain.packages) ||
+      toolchain.packages.length === 0 ||
       !toolchain.packages.every((entry) => typeof entry === 'string' && entry !== '') ||
-      !['bash', 'curl', 'node', 'npm'].every((name) =>
-        typeof toolchain.tools?.[name as keyof NvxGuestToolchain['tools']] === 'string' &&
-        toolchain.tools[name as keyof NvxGuestToolchain['tools']] !== '') ||
-      createHash('sha256').update(`${toolchain.packages.join('\n')}\n`).digest('hex') !==
-        toolchain.packageInventorySha256 ||
-      ![
-        'bash-5.2.37-r0',
-        'curl-8.14.1-r3',
-        'nodejs-22.23.2-r0',
-        'npm-11.6.4-r0',
-      ].every((version) => toolchain.packages.includes(version)) ||
+      !['bash', 'curl', 'node', 'npm'].every(
+        (name) =>
+          typeof toolchain.tools?.[name as keyof NvxGuestToolchain['tools']] === 'string' &&
+          toolchain.tools[name as keyof NvxGuestToolchain['tools']] !== '',
+      ) ||
+      createHash('sha256')
+        .update(`${toolchain.packages.join('\n')}\n`)
+        .digest('hex') !== toolchain.packageInventorySha256 ||
+      !['bash-5.2.37-r0', 'curl-8.14.1-r3', 'nodejs-22.23.2-r0', 'npm-11.6.4-r0'].every((version) =>
+        toolchain.packages.includes(version),
+      ) ||
       toolchain.tools.node !== 'v22.23.2' ||
       toolchain.tools.npm !== '11.6.4' ||
       !toolchain.tools.bash.includes('5.2.37') ||
-      !toolchain.tools.curl.startsWith('curl 8.14.1')) {
+      !toolchain.tools.curl.startsWith('curl 8.14.1')
+    ) {
       throw new Error('invalid NVX guest toolchain provenance');
     }
     provenance.nvxGuestToolchain = toolchain;
   } else if (input.toolchainPath) {
     throw new Error('Cloud Hypervisor sample unexpectedly included NVX guest toolchain provenance');
   }
-  if (!lifecycle.guestTools ||
-    typeof lifecycle.guestTools.node !== 'string' || lifecycle.guestTools.node === '' ||
-    typeof lifecycle.guestTools.curl !== 'string' || lifecycle.guestTools.curl === '') {
+  const hasGuestTools =
+    lifecycle.guestTools &&
+    typeof lifecycle.guestTools.node === 'string' &&
+    lifecycle.guestTools.node !== '' &&
+    typeof lifecycle.guestTools.curl === 'string' &&
+    lifecycle.guestTools.curl !== '';
+  if (success && !hasGuestTools) {
     throw new Error('missing measured guest tool versions');
   }
-  provenance.observedGuestTools = lifecycle.guestTools;
+  if (hasGuestTools) provenance.observedGuestTools = lifecycle.guestTools;
   const result: RunEvidence = {
     ...sample,
     campaignId: manifest.campaignId,
@@ -279,18 +298,18 @@ export function buildMeasuredArtifact(
     firstWorkloadMs: lifecycle.firstWorkloadMs - lifecycle.runtimeReadyMs,
     endToEndMs: lifecycle.workloadCompletedMs - lifecycle.artifactPreflightStartedMs,
     cleanupMs: lifecycle.cleanupCompletedMs - lifecycle.workloadCompletedMs,
-    peakMemoryMiB: requireFinite(metrics.peakMemoryMiB, 'peakMemoryMiB', true),
+    peakMemoryMiB: requireFinite(metrics.peakMemoryMiB, 'peakMemoryMiB', success),
     scratchMiB: requireFinite(lifecycle.scratchBytes, 'scratchBytes') / MIB,
     hostDiskMiB: requireFinite(lifecycle.hostDiskBytes, 'hostDiskBytes') / MIB,
-    peakPids: requireFinite(metrics.peakPids, 'peakPids', true),
-    cpuSeconds: requireFinite(lifecycle.cpuUsageMicros, 'cpuUsageMicros', true) / 1_000_000,
+    peakPids: requireFinite(metrics.peakPids, 'peakPids', success),
+    cpuSeconds: requireFinite(lifecycle.cpuUsageMicros, 'cpuUsageMicros', success) / 1_000_000,
     ...tokens,
     assertionFailures,
     residue,
     assertions: assertionEvidence.assertions,
     cachePreparation: lifecycle.cachePreparation,
     resourceLimits: { ...RESOURCE_PROFILE_LIMITS[sample.resourceProfile] },
-    resourceLimitsEnforced: true,
+    resourceLimitsEnforced: assertionEvidence.resourceLimitsEnforced,
     sourceCommit: manifest.sourceCommit,
     runnerClass: manifest.runnerClass,
     runnerImage: manifest.runnerImage,
@@ -298,6 +317,12 @@ export function buildMeasuredArtifact(
     versions: { ...manifest.versions },
     provenance,
     evidenceKind: 'measured',
+    ...(input.rerunOf === undefined
+      ? {}
+      : {
+          rerunOf: input.rerunOf,
+          rerunReason: input.rerunReason,
+        }),
   };
   return { kind: 'run', result };
 }
@@ -305,10 +330,7 @@ export function buildMeasuredArtifact(
 export function buildMeasuredRecoveryArtifact(
   manifest: CampaignManifest,
   sample: RecoverySample,
-  input: Pick<
-    RecoveryAdapterInput,
-    'attempt' | 'workflowRunId' | 'jobId' | 'workflowAttemptId'
-  >,
+  input: Pick<RecoveryAdapterInput, 'attempt' | 'workflowRunId' | 'jobId' | 'workflowAttemptId' | 'rerunOf' | 'rerunReason'>,
   measurement: RecoveryMeasurement,
   thresholds: Thresholds,
 ): SampleArtifact {
@@ -316,9 +338,13 @@ export function buildMeasuredRecoveryArtifact(
     throw new Error('the matched-runtime adapter rejects synthetic dry-run manifests');
   }
   requireFinite(measurement.durationMs, 'recovery durationMs', true);
-  if (typeof measurement.success !== 'boolean' || !measurement.failureCategory ||
-    !Array.isArray(measurement.assertionFailures) || !Array.isArray(measurement.residue) ||
-    measurement.residue.some((item) => typeof item !== 'string')) {
+  if (
+    typeof measurement.success !== 'boolean' ||
+    !measurement.failureCategory ||
+    !Array.isArray(measurement.assertionFailures) ||
+    !Array.isArray(measurement.residue) ||
+    measurement.residue.some((item) => typeof item !== 'string')
+  ) {
     throw new Error('measured recovery evidence is incomplete');
   }
   if (!measurement.assertions || typeof measurement.assertions !== 'object') {
@@ -342,12 +368,7 @@ export function buildMeasuredRecoveryArtifact(
       throw new Error(`missing recovery assertion ${assertion}`);
     }
   }
-  for (const field of [
-    'readinessConfirmed',
-    'terminalObserved',
-    'managerKilledAfterCleanupRecord',
-    'workloadAfterRecovery',
-  ] as const) {
+  for (const field of ['readinessConfirmed', 'terminalObserved', 'managerKilledAfterCleanupRecord', 'workloadAfterRecovery'] as const) {
     if (typeof measurement[field] !== 'boolean') {
       throw new Error(`missing recovery evidence ${field}`);
     }
@@ -358,13 +379,14 @@ export function buildMeasuredRecoveryArtifact(
   for (const name of failed) {
     if (!measurement.assertionFailures.includes(name)) measurement.assertionFailures.push(name);
   }
-  const success = measurement.success && measurement.assertionFailures.length === 0 &&
-    measurement.residue.length === 0 && measurement.readinessConfirmed &&
+  const success =
+    measurement.success &&
+    measurement.assertionFailures.length === 0 &&
+    measurement.residue.length === 0 &&
+    measurement.readinessConfirmed &&
     measurement.terminalObserved &&
-    (sample.kind !== 'stale-recovery' ||
-      (measurement.managerKilledAfterCleanupRecord && measurement.workloadAfterRecovery));
-  if ((success && measurement.failureCategory !== 'success') ||
-    (!success && measurement.failureCategory === 'success')) {
+    (sample.kind !== 'stale-recovery' || (measurement.managerKilledAfterCleanupRecord && measurement.workloadAfterRecovery));
+  if ((success && measurement.failureCategory !== 'success') || (!success && measurement.failureCategory === 'success')) {
     throw new Error('measured recovery success and failure category are inconsistent');
   }
   const result: RecoveryEvidence = {
@@ -391,6 +413,12 @@ export function buildMeasuredRecoveryArtifact(
     versions: { ...manifest.versions },
     provenance: structuredClone(manifest.provenance),
     evidenceKind: 'measured',
+    ...(input.rerunOf === undefined
+      ? {}
+      : {
+          rerunOf: input.rerunOf,
+          rerunReason: input.rerunReason,
+        }),
   };
   return { kind: 'recovery', result };
 }
@@ -486,7 +514,10 @@ export async function executeMeasuredSample(input: AdapterInput): Promise<Sample
     exitCode,
     thresholds,
   );
-  fs.mkdirSync(path.dirname(input.outputPath), { recursive: true, mode: 0o700 });
+  fs.mkdirSync(path.dirname(input.outputPath), {
+    recursive: true,
+    mode: 0o700,
+  });
   fs.writeFileSync(input.outputPath, `${JSON.stringify(artifact, null, 2)}\n`, {
     flag: 'wx',
     mode: 0o600,
@@ -494,9 +525,7 @@ export async function executeMeasuredSample(input: AdapterInput): Promise<Sample
   return artifact;
 }
 
-export async function executeMeasuredRecovery(
-  input: RecoveryAdapterInput,
-): Promise<SampleArtifact> {
+export async function executeMeasuredRecovery(input: RecoveryAdapterInput): Promise<SampleArtifact> {
   const manifest = readJson<CampaignManifest>(input.manifestPath, 'campaign manifest');
   const sample = manifest.expectedRecoveries.find((candidate) => candidate.sampleId === input.sampleId);
   if (!sample) throw new Error(`recovery ${input.sampleId} is not in the campaign manifest`);
@@ -522,21 +551,15 @@ export async function executeMeasuredRecovery(
     path.join(__dirname, '..', '..', 'docs', 'nvx-promotion-thresholds.json'),
     'promotion thresholds',
   );
-  const measurement = readJson<RecoveryMeasurement>(
-    input.measurementPath,
-    'recovery measurement',
-  );
+  const measurement = readJson<RecoveryMeasurement>(input.measurementPath, 'recovery measurement');
   if ((exitCode === 0) !== measurement.success) {
     throw new Error('recovery command exit status contradicts measured success');
   }
-  const artifact = buildMeasuredRecoveryArtifact(
-    manifest,
-    sample,
-    input,
-    measurement,
-    thresholds,
-  );
-  fs.mkdirSync(path.dirname(input.outputPath), { recursive: true, mode: 0o700 });
+  const artifact = buildMeasuredRecoveryArtifact(manifest, sample, input, measurement, thresholds);
+  fs.mkdirSync(path.dirname(input.outputPath), {
+    recursive: true,
+    mode: 0o700,
+  });
   fs.writeFileSync(input.outputPath, `${JSON.stringify(artifact, null, 2)}\n`, {
     flag: 'wx',
     mode: 0o600,
@@ -549,9 +572,7 @@ function main(): void {
   const kind = maybePath ? kindOrPath : 'run';
   const inputPath = maybePath ?? kindOrPath;
   if (!inputPath || (kind !== 'run' && kind !== 'recovery')) {
-    throw new Error(
-      'usage: nvx-matched-runtime-adapter [run|recovery] <input.json>',
-    );
+    throw new Error('usage: nvx-matched-runtime-adapter [run|recovery] <input.json>');
   }
   if (kind === 'recovery') {
     const input = readJson<RecoveryAdapterInput>(inputPath, 'recovery adapter input');
