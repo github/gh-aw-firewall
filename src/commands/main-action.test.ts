@@ -23,6 +23,10 @@ jest.mock('../enclave/gateway');
 jest.mock('../enclave/startup-diagnostics');
 jest.mock('../enclave/github-gateway');
 jest.mock('../enclave/cloud-hypervisor-lifecycle');
+jest.mock('../enclave/manager', () => ({
+  ...jest.requireActual('../enclave/manager'),
+  prepareEnclaves: jest.fn(),
+}));
 jest.mock('../external-runtime-backend-resolver', () => {
   const actual = jest.requireActual('../external-runtime-backend-resolver');
   return {
@@ -44,6 +48,7 @@ import * as signalHandler from './signal-handler';
 import * as validateOptions from './validate-options';
 import * as sbxManager from '../sbx-manager';
 import * as enclaveGateway from '../enclave/gateway';
+import * as enclaveManager from '../enclave/manager';
 import { captureEnclaveStartupDiagnostics } from '../enclave/startup-diagnostics';
 import * as enclaveGithubGateway from '../enclave/github-gateway';
 import * as enclaveHostLifecycle from '../enclave/cloud-hypervisor-lifecycle';
@@ -84,6 +89,7 @@ const mockedEnclaveGithubGateway =
   enclaveGithubGateway as jest.Mocked<typeof enclaveGithubGateway>;
 const mockedExternalRuntimeResolver = externalRuntimeResolver as jest.Mocked<typeof externalRuntimeResolver>;
 const mockedEnclaveHostLifecycle = enclaveHostLifecycle as jest.Mocked<typeof enclaveHostLifecycle>;
+const mockedEnclaveManager = enclaveManager as jest.Mocked<typeof enclaveManager>;
 
 describe('createMainAction', () => {
   let processExitSpy: jest.SpyInstance;
@@ -103,6 +109,7 @@ describe('createMainAction', () => {
       mockedCliWorkflow,
       mockedSbxManager,
     });
+    mockedEnclaveManager.prepareEnclaves.mockResolvedValue(undefined);
     mockedDockerManager.runAgentCommand.mockResolvedValue({ exitCode: 0, blockedDomains: [] });
     mockedRedactSecrets.deriveSensitiveEndpointForms.mockImplementation((domains?: string[]) =>
       domains ?? []
@@ -821,6 +828,44 @@ describe('createMainAction', () => {
         await action(['echo hi'], {});
 
         expect(preflight).toHaveBeenCalledTimes(1);
+      });
+
+      it('hands successful primary preflight evidence to enclave preparation for the selected config', async () => {
+        const selectedConfig = {
+          ...MAIN_ACTION_STUB_CONFIG,
+          containerRuntime: 'cloud-hypervisor',
+          cloudHypervisor: { previewEnabled: true },
+          enclaves: { enabled: true },
+        } as WrapperConfig;
+        const preflight = jest.fn().mockResolvedValue(undefined);
+        mockedValidateOptions.validateOptions.mockReturnValueOnce(selectedConfig);
+        mockedExternalRuntimeResolver.resolveExternalRuntimeBackend.mockReturnValueOnce({
+          runtime: 'cloud-hypervisor',
+          preflight,
+          start: jest.fn(), exec: jest.fn(), collectDiagnostics: jest.fn(), stop: jest.fn(),
+        });
+        mockedEnclaveManager.prepareEnclaves.mockImplementation(async (candidate, dependencies) => {
+          await dependencies?.assertCloudHypervisorPrimaryPreflight?.(candidate);
+        });
+        mockedCliWorkflow.runMainWorkflow.mockImplementationOnce(async (_config, dependencies) => {
+          expect(preflight).toHaveBeenCalledTimes(1);
+          await dependencies.prepareEnclaves!(selectedConfig);
+          return 0;
+        });
+
+        try {
+          await createMainAction(getOptionValueSource)(['echo hi'], {});
+        } finally {
+          mockedEnclaveManager.prepareEnclaves.mockResolvedValue(undefined);
+        }
+
+        expect(preflight).toHaveBeenCalledTimes(1);
+        expect(mockedEnclaveManager.prepareEnclaves).toHaveBeenCalledWith(
+          selectedConfig,
+          expect.objectContaining({
+            assertCloudHypervisorPrimaryPreflight: expect.any(Function),
+          }),
+        );
       });
     });
   });
