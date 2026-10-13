@@ -49,12 +49,15 @@ RUN chmod 0555 /usr/local/bin/run-enclave-agent \
 
 FROM node:22.23.2-alpine3.24 AS enclave-mcp-server
 
+ARG AWF_SOURCE_REVISION=unavailable
+
 RUN apk upgrade --no-cache \
     && apk add --no-cache docker-cli \
     && test -x /usr/bin/docker \
     && rm -rf /usr/local/lib/node_modules/npm \
     && rm -f /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/corepack
 WORKDIR /opt/awf/enclave/mcp-server
+LABEL org.opencontainers.image.revision="${AWF_SOURCE_REVISION}"
 COPY bounded-execution/ /opt/awf/bounded-execution/
 COPY enclave/script-executor/ /opt/awf/enclave/script-executor/
 COPY enclave/agent-executor/ /opt/awf/enclave/agent-executor/

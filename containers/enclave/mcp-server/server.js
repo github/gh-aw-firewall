@@ -27,9 +27,10 @@ const { AGENT_TOOL_NAME, TOOL_NAME, dispatchJsonRpc, parseJsonRpcBody } = requir
 const { createDynamicDelegationClient } = require('./delegation-channel');
 const { createToolCallBudget } = require('./tool-call-budget');
 const { createHostExecutorRunner } = require('./host-executor-runner');
-const { startupDiagnostic } = require('./startup-diagnostics');
+const { createStartupReporter, runStartupStage, startupDiagnostic } = require('./startup-diagnostics');
+const { probeStartupEnvironment } = require('./environment-probes');
 
-let startupStage = 'server-config';
+let startupReporter;
 
 const MAX_HTTP_BODY_BYTES = 420 * 1024;
 const RESPONSE_HEADERS = {
@@ -185,37 +186,77 @@ function listenOnPrivateNetwork(server, config) {
 }
 
 async function main() {
-  startupStage = 'server-config';
-  const serverConfig = loadServerConfig();
-  startupStage = 'audit';
-  fs.rmSync(serverConfig.readyPath, { force: true });
-  const audit = createProtectedAuditLog(serverConfig.auditDir, 'enclave.jsonl');
-  const telemetry = createRuntimeTelemetry(serverConfig.auditDir);
-  const clock = createRealClock();
+  startupReporter = createStartupReporter();
+  const scriptConfigured = isScriptExecutorEnabled();
+  const agentConfigured = isAgentExecutorEnabled();
+  const configuredBackends = new Set([
+    scriptConfigured ? process.env.AWF_ENCLAVE_BACKEND : undefined,
+    agentConfigured ? process.env.AWF_ENCLAVE_AGENT_BACKEND : undefined,
+  ].filter(Boolean));
+  startupReporter.configure({
+    primaryBackend: process.env.AWF_ENCLAVE_PRIMARY_BACKEND,
+    executorBackend: configuredBackends.size > 1 ? 'mixed' : [...configuredBackends][0],
+    executorKind: scriptConfigured && agentConfigured ? 'both'
+      : scriptConfigured ? 'script' : agentConfigured ? 'agent' : 'none',
+  });
+  startupReporter.plan([
+    'server-config', 'audit', 'seed-map', 'executors', 'executor-state',
+    ...(scriptConfigured ? [
+      'script-config', 'script-selection', 'script-available', 'script-reconcile', 'script-handler',
+    ] : []),
+    ...(agentConfigured ? [
+      'agent-config', 'agent-selection', 'agent-available', 'agent-reconcile', 'agent-handler',
+    ] : []),
+    'backend-consistency', 'tool-budget', 'listener-binding', 'ready-file',
+  ]);
+
+  startupReporter.start('environment-probes', 'environment-probe-failed');
+  const probes = await probeStartupEnvironment();
+  startupReporter.passed('environment-probes', probes);
+
+  const serverConfig = await runStartupStage(
+    startupReporter, 'server-config', 'server-config-invalid', () => loadServerConfig(),
+  );
+  startupReporter.configure({ primaryBackend: serverConfig.primaryBackend });
+  const { audit, telemetry, clock } = await runStartupStage(
+    startupReporter, 'audit', 'audit-initialization-failed', () => {
+      fs.rmSync(serverConfig.readyPath, { force: true });
+      return {
+        audit: createProtectedAuditLog(serverConfig.auditDir, 'enclave.jsonl'),
+        telemetry: createRuntimeTelemetry(serverConfig.auditDir),
+        clock: createRealClock(),
+      };
+    },
+  );
   // A dynamic-only run stages no seed catalog at all: no clone, no seed map,
   // no /awf/seed mount, and no job token anywhere in the topology.
-  startupStage = 'seed-map';
-  const { runId, seeds } = serverConfig.seedMapEnabled
-    ? loadSeedMap(serverConfig.seedMapPath)
-    : { runId: serverConfig.runId, seeds: new Map() };
-  if (!runId) {
-    throw new Error('The enclave broker could not resolve this run identity');
-  }
+  const { runId, seeds } = await runStartupStage(
+    startupReporter, 'seed-map', 'seed-catalog-invalid', () => {
+      const seedData = serverConfig.seedMapEnabled
+        ? loadSeedMap(serverConfig.seedMapPath)
+        : { runId: serverConfig.runId, seeds: new Map() };
+      if (!seedData.runId) throw new Error('Run identity is unavailable');
+      return seedData;
+    },
+  );
 
-  startupStage = 'executors';
-  const scriptEnabled = isScriptExecutorEnabled();
-  const agentEnabled = isAgentExecutorEnabled();
-  if (!scriptEnabled && !agentEnabled) {
-    throw new Error('No enclave executor is enabled');
-  }
-
+  const { scriptEnabled, agentEnabled } = await runStartupStage(
+    startupReporter, 'executors', 'executor-selection-invalid', () => {
+      if (!scriptConfigured && !agentConfigured) throw new Error('No enclave executor is enabled');
+      return { scriptEnabled: scriptConfigured, agentEnabled: agentConfigured };
+    },
+  );
   // One ledger for the whole run. Script and agent invocations debit the same
   // live per-repository balance, so switching executor kinds can never reset or
   // fork a repository's disclosure budget.
-  const ledger = createEnclaveInformationBudgetLedger(seeds);
-  // One serialization lane for the whole run: at most one enclave — script or
-  // agent — holds private repository content at a time.
-  const lane = { tail: Promise.resolve() };
+  const { ledger, lane } = await runStartupStage(
+    startupReporter, 'executor-state', 'executor-state-initialization-failed', () => ({
+      ledger: createEnclaveInformationBudgetLedger(seeds),
+      // One serialization lane for the whole run: at most one enclave — script or
+      // agent — holds private repository content at a time.
+      lane: { tail: Promise.resolve() },
+    }),
+  );
   const handlers = {};
   const runners = [];
   const executors = [];
@@ -223,72 +264,107 @@ async function main() {
   let maxPromptBytes;
 
   if (scriptEnabled) {
-    startupStage = 'script-config';
-    const config = loadConfig();
-    const runner = config.executorBackend === 'cloud-hypervisor'
-      ? createHostExecutorRunner(config, { nowMs: clock.nowMs })
-      : createScriptRunner(config, { nowMs: clock.nowMs });
-    startupStage = 'script-available';
-    await runner.assertAvailable();
-    startupStage = 'script-reconcile';
-    await runner.reconcileRun(runId);
+    const config = await runStartupStage(
+      startupReporter, 'script-config', 'script-config-invalid', () => loadConfig(),
+      { executorKind: 'script' },
+    );
+    const runner = await runStartupStage(
+      startupReporter, 'script-selection', 'script-runner-initialization-failed', () =>
+        config.executorBackend === 'cloud-hypervisor'
+          ? createHostExecutorRunner(config, { nowMs: clock.nowMs })
+          : createScriptRunner(config, { nowMs: clock.nowMs }),
+      { executorKind: 'script' },
+    );
+    startupReporter.configure({
+      primaryBackend: serverConfig.primaryBackend,
+      executorBackend: agentEnabled
+        && process.env.AWF_ENCLAVE_AGENT_BACKEND !== config.executorBackend
+        ? 'mixed' : config.executorBackend,
+      executorKind: agentEnabled ? 'both' : 'script',
+    });
+    await runStartupStage(startupReporter, 'script-available', 'script-availability-failed',
+      () => runner.assertAvailable(), { executorKind: 'script' });
+    await runStartupStage(startupReporter, 'script-reconcile', 'script-reconciliation-failed',
+      () => runner.reconcileRun(runId), { executorKind: 'script' });
     runners.push({ runner, config });
     maxScriptBytes = config.maxScriptBytes;
-    handlers[TOOL_NAME] = createExecutorHandler({
-      config,
-      seedMap: seeds,
-      runId,
-      audit,
-      runner,
-      ledger,
-      telemetry,
-      lane,
-      executorKind: 'script',
-      uniformTiming: true,
-      clock,
-    });
+    handlers[TOOL_NAME] = await runStartupStage(
+      startupReporter, 'script-handler', 'script-handler-construction-failed', () =>
+        createExecutorHandler({
+          config,
+          seedMap: seeds,
+          runId,
+          audit,
+          runner,
+          ledger,
+          telemetry,
+          lane,
+          executorKind: 'script',
+          uniformTiming: true,
+          clock,
+        }),
+      { executorKind: 'script' },
+    );
     executors.push('script');
   }
 
   if (agentEnabled) {
-    startupStage = 'agent-config';
-    const config = loadAgentConfig(serverConfig);
-    const runner = config.executorBackend === 'cloud-hypervisor'
-      ? createHostExecutorRunner(config, { nowMs: clock.nowMs })
-      : createAgentRunner(config, { nowMs: clock.nowMs });
-    startupStage = 'agent-available';
-    await runner.assertAvailable();
-    startupStage = 'agent-reconcile';
-    await runner.reconcileRun(runId);
+    const config = await runStartupStage(
+      startupReporter, 'agent-config', 'agent-config-invalid', () => loadAgentConfig(serverConfig),
+      { executorKind: 'agent' },
+    );
+    const runner = await runStartupStage(
+      startupReporter, 'agent-selection', 'agent-runner-initialization-failed', () =>
+        config.executorBackend === 'cloud-hypervisor'
+          ? createHostExecutorRunner(config, { nowMs: clock.nowMs })
+          : createAgentRunner(config, { nowMs: clock.nowMs }),
+      { executorKind: 'agent' },
+    );
+    const selectedBackends = new Set([
+      ...runners.map(({ config: current }) => current.executorBackend), config.executorBackend,
+    ]);
+    startupReporter.configure({
+      primaryBackend: serverConfig.primaryBackend,
+      executorBackend: selectedBackends.size === 1 ? config.executorBackend : 'mixed',
+      executorKind: scriptEnabled ? 'both' : 'agent',
+    });
+    await runStartupStage(startupReporter, 'agent-available', 'agent-availability-failed',
+      () => runner.assertAvailable(), { executorKind: 'agent' });
+    await runStartupStage(startupReporter, 'agent-reconcile', 'agent-reconciliation-failed',
+      () => runner.reconcileRun(runId), { executorKind: 'agent' });
     runners.push({ runner, config });
     maxPromptBytes = config.maxPromptBytes;
-    handlers[AGENT_TOOL_NAME] = createExecutorHandler({
-      config,
-      seedMap: seeds,
-      runId,
-      audit,
-      runner,
-      ledger,
-      telemetry,
-      lane,
-      workspace: agentWorkspaceAdapter,
-      validateRequest: createAgentRequestValidator(config.maxPromptBytes, {
-        githubEnabled: config.githubEnabled,
-        dynamicEnabled: config.dynamicEnabled,
-      }),
-      payloadKey: 'prompt',
-      exitCategories: ENCLAVE_EXIT_CATEGORIES,
-      executorKind: 'agent',
-      uniformTiming: true,
-      clock,
-      // Dynamic entries route every selector through AWF's canonical
-      // admission before any repository content is exposed. `enclave_run_script`
-      // is never registered for a dynamic entry, so it is neither advertised
-      // nor dispatchable.
-      ...(config.dynamicEnabled
-        ? { admission: createDynamicDelegationClient(config) }
-        : {}),
-    });
+    handlers[AGENT_TOOL_NAME] = await runStartupStage(
+      startupReporter, 'agent-handler', 'agent-handler-construction-failed', () =>
+        createExecutorHandler({
+          config,
+          seedMap: seeds,
+          runId,
+          audit,
+          runner,
+          ledger,
+          telemetry,
+          lane,
+          workspace: agentWorkspaceAdapter,
+          validateRequest: createAgentRequestValidator(config.maxPromptBytes, {
+            githubEnabled: config.githubEnabled,
+            dynamicEnabled: config.dynamicEnabled,
+          }),
+          payloadKey: 'prompt',
+          exitCategories: ENCLAVE_EXIT_CATEGORIES,
+          executorKind: 'agent',
+          uniformTiming: true,
+          clock,
+          // Dynamic entries route every selector through AWF's canonical
+          // admission before any repository content is exposed. `enclave_run_script`
+          // is never registered for a dynamic entry, so it is neither advertised
+          // nor dispatchable.
+          ...(config.dynamicEnabled
+            ? { admission: createDynamicDelegationClient(config) }
+            : {}),
+        }),
+      { executorKind: 'agent' },
+    );
     executors.push('agent');
   }
 
@@ -296,37 +372,56 @@ async function main() {
   const startupExecutorBackend = executorBackends.size === 1
     ? runners[0].config.executorBackend
     : 'mixed';
-  telemetry.emit({
+  startupReporter.configure({
     primaryBackend: serverConfig.primaryBackend,
     executorBackend: startupExecutorBackend,
-    lifecycleClass: 'startup',
-    capabilityState: 'supported',
-    category: 'ready',
+    executorKind: scriptEnabled && agentEnabled ? 'both' : scriptEnabled ? 'script' : 'agent',
+  });
+  await runStartupStage(startupReporter, 'backend-consistency', 'backend-consistency-failed', () => {
+    if (executorBackends.size === 0 || !runners.length) throw new Error('No selected executor backend');
+    if (runners.some(({ config }) => config.primaryBackend !== serverConfig.primaryBackend)) {
+      throw new Error('Executor primary backend differs from server configuration');
+    }
+    if (executors.length !== runners.length) throw new Error('Executor and handler initialization differ');
   });
 
-  startupStage = 'tool-budget';
-  const toolCallBudget = createToolCallBudget({
-    maxToolCalls: serverConfig.maxToolCalls,
-    runId,
-    statePath: serverConfig.toolCallBudgetPath,
-  });
-  if (toolCallBudget) {
-    audit.lifecycle('tool-call-cap', `max=${toolCallBudget.limit} used=${toolCallBudget.used()}`);
-  }
+  const toolCallBudget = await runStartupStage(
+    startupReporter, 'tool-budget', 'tool-budget-initialization-failed', () => {
+      const budget = createToolCallBudget({
+        maxToolCalls: serverConfig.maxToolCalls,
+        runId,
+        statePath: serverConfig.toolCallBudgetPath,
+      });
+      if (budget) audit.lifecycle('tool-call-cap', `max=${budget.limit} used=${budget.used()}`);
+      return budget;
+    },
+  );
 
-  const server = createMcpServer({
-    handlers,
-    capability: serverConfig.capability,
-    maxScriptBytes,
-    maxPromptBytes,
-    toolCallBudget,
+  const server = await runStartupStage(
+    startupReporter, 'listener-binding', 'listener-binding-failed', async () => {
+      const mcpServer = createMcpServer({
+        handlers,
+        capability: serverConfig.capability,
+        maxScriptBytes,
+        maxPromptBytes,
+        toolCallBudget,
+      });
+      await listenOnPrivateNetwork(mcpServer, serverConfig);
+      return mcpServer;
+    },
+  );
+  await runStartupStage(startupReporter, 'ready-file', 'ready-file-publication-failed', () => {
+    fs.mkdirSync(serverConfig.controlDir, { recursive: true, mode: 0o700 });
+    fs.writeFileSync(serverConfig.readyPath, '', { mode: 0o600 });
+    audit.lifecycle('listening', { executors });
+    telemetry.emit({
+      primaryBackend: serverConfig.primaryBackend,
+      executorBackend: startupExecutorBackend,
+      lifecycleClass: 'startup',
+      capabilityState: 'supported',
+      category: 'ready',
+    });
   });
-  startupStage = 'listen';
-  await listenOnPrivateNetwork(server, serverConfig);
-  startupStage = 'ready-file';
-  fs.mkdirSync(serverConfig.controlDir, { recursive: true, mode: 0o700 });
-  fs.writeFileSync(serverConfig.readyPath, '', { mode: 0o600 });
-  audit.lifecycle('listening', { executors });
 
   let stopping = false;
   const shutdown = async () => {
@@ -364,7 +459,8 @@ async function main() {
 
 if (require.main === module) {
   main().catch((error) => {
-    process.stderr.write(`${JSON.stringify(startupDiagnostic(error, startupStage))}\n`);
+    const context = startupReporter?.failureContext() || {};
+    process.stderr.write(`${JSON.stringify(startupDiagnostic(error, startupReporter?.currentStage, context))}\n`);
     process.exit(1);
   });
 }

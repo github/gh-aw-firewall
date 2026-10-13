@@ -303,18 +303,59 @@ its firewall log directory. Without a configured log directory they are part of
 the preserved `squid-logs` tree. ARC/DinD capture is host-produced and stays in
 the runner-visible log directory, not the daemon's translated bind-mount path.
 
-Each snapshot includes status, running state, exit code, OOM state and whether
-Docker reported an error (not its text). Docker inspect and the last 50 log lines
-are each bounded to five seconds and 16 KiB. Raw logs are never saved or echoed:
-only closed-set error type/errno classifications and, for newer server images,
-startup stage and up to eight allowlisted AWF module/line/column frames survive.
-Messages, arbitrary paths, function names, environment, headers, capabilities
-and repository seed data are excluded. Module-load failures before the server's
-startup handler and older images yield coarse log classifications only.
-Unavailable/oversized capture is recorded without masking the startup failure;
-earlier attempts are not overwritten. These artifacts are distinct from mcpg's
-`mcp-logs/awf-enclave.log`, which records backend connection attempts rather than
-the enclave server's stderr.
+Each snapshot includes container state and an image identity obtained from the
+**executed container**, not inferred from its requested tag: the container's
+immutable image ID is compared with `docker image inspect`, validated repository
+digests are reduced to their digest values, and the OCI source revision is
+accepted only when it is a hexadecimal commit ID. Missing metadata is explicitly
+`unavailable`; an ID disagreement is `mismatch`. The release build stamps
+`org.opencontainers.image.revision`; custom or older images may not have it.
+Container/image inspection and the last 50 log lines each have a five-second
+timeout and 16 KiB output bound.
+Each retained JSON snapshot is capped at 32 KiB; if classified log evidence
+would exceed that record bound, the snapshot retains state/identity but marks
+the logs `oversized`.
+The same bounded host inspection captures the server's exact membership in
+`awf-enclave-mcp-control`: only this known network name is retained, while
+unexpected network names are replaced with a count; failed inspection is
+`unavailable`, not an empty/matching set.
+
+New server images emit one-line, schema-versioned `startup-progress` records to
+stderr. Each attempt has a fresh identifier, increasing sequence number,
+elapsed milliseconds, selected backends/executor kind, and per-operation
+`started`, `passed`, or `failed` state. The terminal `startup-error` carries the
+same attempt ID, a stable stage-level `reasonId`, allowlisted errno/type/frame
+classifications, and the planned stages not attempted. For example:
+
+```json
+{"schemaVersion":1,"component":"enclave-mcp-server","kind":"startup-progress","stage":"environment-probes","status":"passed","probes":[{"id":"host-executor-socket","presence":"present","observedType":"socket","expectedType":"socket","owner":"root","mode":"owner-only","access":"not-applicable","shape":"expected"}]}
+```
+
+Probe IDs identify a fixed prerequisite, never expose its path or contents.
+Observations report only presence, file type, owner/mode buckets, access result,
+and expected-vs-observed type; `unknown` and `absent` are distinct. Probe
+timeouts and access errors remain observations and do not block startup. The
+host-executor availability stage uses its existing bounded authenticated status
+protocol; diagnostics add no inference call, token exchange, or network scan.
+
+Interpret progress by boundary: process initialization and a passed host
+prerequisite probe do not establish listener readiness; `listener-binding`
+means the local HTTP socket bound; `ready-file` means its control marker was
+published. Neither is a successful gateway handshake or guest execution.
+Gateway handshake evidence remains in the host startup checklist, and only an
+actual invocation/audit result demonstrates guest execution. These evidence
+sources are intentionally distinct from mcpg's `mcp-logs/awf-enclave.log`,
+which records gateway backend connection attempts.
+
+Raw logs, messages, arbitrary paths, function names, environment, headers,
+capabilities and repository seed data are never retained. Only closed-set
+classifications, allowlisted AWF module/line/column frames and validated probe
+fields survive. Module-load failures before the server's startup handler and
+older images yield coarse log classifications only. Unavailable/oversized
+capture is recorded without masking the startup failure; earlier attempts are
+not overwritten. Retry publication failures are summarized by a bounded
+first/last safe-writer predicate and count, separately from the retained
+first-attempt record, without weakening safe-target validation.
 
 The experimental Cloud Hypervisor smoke installs **published AWF v0.28.55**
 with release-matched images and attested primary and script guest artifacts.

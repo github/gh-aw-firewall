@@ -109,6 +109,7 @@ function resolveServerImage(imageConfig: ImageBuildConfig): Record<string, unkno
       context: `${imageConfig.projectRoot}/containers`,
       dockerfile: 'enclave/Dockerfile',
       target: 'enclave-mcp-server',
+      args: { AWF_SOURCE_REVISION: process.env.GITHUB_SHA ?? 'unavailable' },
     },
   };
 }

@@ -143,16 +143,31 @@ const STARTUP_DIAGNOSTIC_MAX_BYTES = 64 * 1024;
 
 type StartupDiagnosticWriteOutcome =
   | 'written' | 'oversize' | 'unsafe-target' | 'io-error' | 'error' | 'not-attempted';
+type StartupDiagnosticWriteReason =
+  | 'record-too-large' | 'unsafe-directory' | 'unsafe-symlink' | 'unsafe-type'
+  | 'unsafe-link-count' | 'unsafe-owner' | 'permission-denied' | 'io-error' | 'unknown';
 
 function writeStartupFailureDiagnostic(
   config: WrapperConfig,
   error: unknown,
   phase = 'startup',
+  onRejected?: (reason: StartupDiagnosticWriteReason) => void,
 ): StartupDiagnosticWriteOutcome {
+  const rejected = (
+    outcome: StartupDiagnosticWriteOutcome,
+    reason: StartupDiagnosticWriteReason,
+  ): StartupDiagnosticWriteOutcome => {
+    onRejected?.(reason);
+    return outcome;
+  };
   try {
     const proxyLogsDir = config.proxyLogsDir || path.join(config.workDir, 'squid-logs');
     fs.mkdirSync(proxyLogsDir, { recursive: true, mode: 0o755 });
-    assertRealDirectory(proxyLogsDir);
+    try {
+      assertRealDirectory(proxyLogsDir);
+    } catch {
+      return rejected('unsafe-target', 'unsafe-directory');
+    }
     let enclaveStartup = getEnclaveStartupProgress(config);
     const redactedMessage = redactSensitiveValues(
       redactSecrets(error instanceof Error ? error.message : String(error)),
@@ -178,8 +193,7 @@ function writeStartupFailureDiagnostic(
       record = serialize();
     }
     if (enclaveStartup && Buffer.byteLength(record, 'utf8') > STARTUP_DIAGNOSTIC_MAX_BYTES) {
-      logger.debug('Failed to write AWF startup diagnostic: record exceeds the descriptor bound');
-      return 'oversize';
+      return rejected('oversize', 'record-too-large');
     }
     const flags =
       fs.constants.O_WRONLY |
@@ -189,10 +203,9 @@ function writeStartupFailureDiagnostic(
     const fd = fs.openSync(getStartupDiagnosticPath(proxyLogsDir), flags, 0o600);
     try {
       const stat = fs.fstatSync(fd);
-      if (!stat.isFile() || stat.nlink !== 1 || stat.uid !== process.getuid?.()) {
-        logger.debug('Refusing to write startup diagnostic to an unowned or non-regular file');
-        return 'unsafe-target';
-      }
+      if (!stat.isFile()) return rejected('unsafe-target', 'unsafe-type');
+      if (stat.nlink !== 1) return rejected('unsafe-target', 'unsafe-link-count');
+      if (stat.uid !== process.getuid?.()) return rejected('unsafe-target', 'unsafe-owner');
       fs.fchmodSync(fd, 0o600);
       fs.ftruncateSync(fd, 0);
       fs.writeFileSync(fd, record);
@@ -203,10 +216,11 @@ function writeStartupFailureDiagnostic(
     }
     return 'written';
   } catch (diagnosticError) {
-    logger.debug(`Failed to write AWF startup diagnostic: ${diagnosticError}`);
     const code = (diagnosticError as NodeJS.ErrnoException | undefined)?.code;
-    if (code === 'ELOOP') return 'unsafe-target';
-    return typeof code === 'string' ? 'io-error' : 'error';
+    if (code === 'ELOOP') return rejected('unsafe-target', 'unsafe-symlink');
+    if (code === 'EACCES' || code === 'EPERM') return rejected('io-error', 'permission-denied');
+    if (typeof code === 'string') return rejected('io-error', 'io-error');
+    return rejected('error', 'unknown');
   }
 }
 
@@ -214,6 +228,8 @@ interface StartupExitState {
   startedAt: number;
   lastProgressWrite: StartupDiagnosticWriteOutcome;
   progressWriteFailures: number;
+  firstProgressWriteFailure?: StartupDiagnosticWriteReason;
+  lastProgressWriteFailure?: StartupDiagnosticWriteReason;
 }
 
 function startupElapsedBucket(ms: number): string | null {
@@ -239,6 +255,7 @@ function emitStartupExitMarker(
     containersStarted: boolean;
     agentStarted: boolean;
     recordWrite: StartupDiagnosticWriteOutcome;
+    recordWriteReason?: StartupDiagnosticWriteReason | null;
     cleanup: 'pending' | 'completed' | 'failed';
   },
 ): void {
@@ -262,8 +279,11 @@ function emitStartupExitMarker(
       containersStarted: marker.containersStarted,
       agentStarted: marker.agentStarted,
       recordWrite: marker.recordWrite,
+      recordWriteReason: marker.recordWriteReason ?? null,
       lastProgressWrite: state.lastProgressWrite,
       progressWriteFailures: state.progressWriteFailures,
+      firstProgressWriteFailure: state.firstProgressWriteFailure ?? null,
+      lastProgressWriteFailure: state.lastProgressWriteFailure ?? null,
       cleanup: marker.cleanup,
       recordAfterCleanup,
       elapsed: startupElapsedBucket(Date.now() - state.startedAt),
@@ -528,9 +548,15 @@ export function createMainAction(getOptionValueSource: OptionSourceResolver) {
     initializeEnclaveStartupProgress(config, () => {
       const outcome = writeStartupFailureDiagnostic(
         config, new Error('Enclave startup in progress'), 'enclave-startup-progress',
+        reason => {
+          startupExitState.firstProgressWriteFailure ??= reason;
+          startupExitState.lastProgressWriteFailure = reason;
+        },
       );
       startupExitState.lastProgressWrite = outcome;
-      if (outcome !== 'written') startupExitState.progressWriteFailures += 1;
+      if (outcome !== 'written') {
+        startupExitState.progressWriteFailures = Math.min(startupExitState.progressWriteFailures + 1, 999999);
+      }
     });
     // Apply --docker-host override for AWF's own container operations.
     // This must be called before startContainers/stopContainers/runAgentCommand.
@@ -729,13 +755,14 @@ export function createMainAction(getOptionValueSource: OptionSourceResolver) {
     return;
   } catch (error) {
     logger.error('Fatal error:', error);
+    let recordWriteReason: StartupDiagnosticWriteReason | null = null;
     const recordWrite: StartupDiagnosticWriteOutcome = agentCommandStarted
       ? 'not-attempted'
-      : writeStartupFailureDiagnostic(config, error);
+      : writeStartupFailureDiagnostic(config, error, 'startup', reason => { recordWriteReason = reason; });
     const plannedExitCode = findRoutingFailure(error)?.exitCode ?? 1;
     const exitMarker = {
       path: 'fatal' as const, exitCode: plannedExitCode, containersStarted,
-      agentStarted: agentCommandStarted, recordWrite,
+      agentStarted: agentCommandStarted, recordWrite, recordWriteReason,
     };
     // Emit before cleanup too, so a hung or crashing teardown still leaves evidence.
     emitStartupExitMarker(config, startupExitState, { ...exitMarker, cleanup: 'pending' });

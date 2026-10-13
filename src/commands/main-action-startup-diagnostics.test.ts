@@ -49,13 +49,20 @@ describe('startup progress descriptor publication', () => {
     expect(fs.statSync(recordPath).mode & 0o777).toBe(0o644);
   });
 
-  it.each(['symlink', 'hardlink'])('refuses a %s record without modifying its target', (kind) => {
+  it.each([
+    ['symlink', 'unsafe-symlink'],
+    ['hardlink', 'unsafe-link-count'],
+  ] as const)('refuses a %s record without modifying its target', (kind, reason) => {
     const target = path.join(directory, 'private-target');
     fs.writeFileSync(target, 'PRIVATE_SENTINEL', { mode: 0o600 });
     if (kind === 'symlink') fs.symlinkSync(target, recordPath);
     else fs.linkSync(target, recordPath);
+    const rejected = jest.fn();
     expect(testHelpers.writeStartupFailureDiagnostic(config, new Error('startup failed')))
       .toBe('unsafe-target');
+    expect(testHelpers.writeStartupFailureDiagnostic(config, new Error('startup failed'), 'startup', rejected))
+      .toBe('unsafe-target');
+    expect(rejected).toHaveBeenCalledWith(reason);
     expect(fs.readFileSync(target, 'utf8')).toBe('PRIVATE_SENTINEL');
     expect(fs.statSync(target).mode & 0o777).toBe(0o600);
   });
@@ -63,9 +70,14 @@ describe('startup progress descriptor publication', () => {
   const markers = (write: jest.SpyInstance) => write.mock.calls.map(([line]) => String(line))
     .filter((line) => line.startsWith('AWF_STARTUP_EXIT '))
     .map((line) => JSON.parse(line.slice('AWF_STARTUP_EXIT '.length)));
-  const exitState = { startedAt: Date.now() - 9 * 60_000, lastProgressWrite: 'written' as const, progressWriteFailures: 2 };
+  const exitState = {
+    startedAt: Date.now() - 9 * 60_000, lastProgressWrite: 'unsafe-target' as const,
+    progressWriteFailures: 2, firstProgressWriteFailure: 'unsafe-symlink' as const,
+    lastProgressWriteFailure: 'unsafe-link-count' as const,
+  };
   const exitMarker = {
-    path: 'fatal' as const, exitCode: 1, containersStarted: true, agentStarted: false, recordWrite: 'written' as const,
+    path: 'fatal' as const, exitCode: 1, containersStarted: true, agentStarted: false,
+    recordWrite: 'written' as const, recordWriteReason: null,
   };
 
   it('emits fixed-code exit markers that reveal whether cleanup removed the record', () => {
@@ -82,8 +94,10 @@ describe('startup progress descriptor publication', () => {
       expect.objectContaining({ cleanup: 'pending', recordAfterCleanup: 'unknown' }),
       {
         schemaVersion: 1, path: 'fatal', exitCode: 1, stage: 'containers', failedCheck: 'startup/infrastructure',
-        containersStarted: true, agentStarted: false, recordWrite: 'written', lastProgressWrite: 'written',
-        progressWriteFailures: 2, cleanup: 'completed', recordAfterCleanup: 'missing', elapsed: '<10m',
+        containersStarted: true, agentStarted: false, recordWrite: 'written', recordWriteReason: null,
+        lastProgressWrite: 'unsafe-target', progressWriteFailures: 2,
+        firstProgressWriteFailure: 'unsafe-symlink', lastProgressWriteFailure: 'unsafe-link-count',
+        cleanup: 'completed', recordAfterCleanup: 'missing', elapsed: '<10m',
       },
     ]);
     expect(write.mock.calls.join('')).not.toContain('PRIVATE_SENTINEL');

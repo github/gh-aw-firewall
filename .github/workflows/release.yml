@@ -458,6 +458,7 @@ jobs:
           context: ./containers
           file: ./containers/enclave/Dockerfile
           target: enclave-mcp-server
+          build-args: AWF_SOURCE_REVISION=${{ github.sha }}
           push: true
           platforms: linux/amd64,linux/arm64
           tags: |
