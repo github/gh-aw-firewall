@@ -37,7 +37,7 @@ describe('experimental Cloud Hypervisor enclave smoke workflow', () => {
     expect(lock).not.toContain('--container-runtime docker');
     expect(lock).toContain('\\"cloudHypervisor\\":{\\"previewEnabled\\":true');
     expect(lock).toContain('--exclude-env AWF_CLOUD_HYPERVISOR_ENCLAVE_SCRIPT_ROOTFS');
-    expect(lock).toContain('"compiler_version":"v0.91.9"');
+    expect(lock).toContain('"compiler_version":"v0.91.10"');
   });
 
   it('pins the published AWF and its attested artifacts to the same release', () => {
