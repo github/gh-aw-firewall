@@ -82,11 +82,16 @@ jobs:
         run: |
           set -euo pipefail
           sudo getfacl --absolute-names --numeric /dev/kvm |
-            sudo tee "$RUNNER_TEMP/phase4-kvm-acl-before.txt" >/dev/null
-          sudo chmod 0600 "$RUNNER_TEMP/phase4-kvm-acl-before.txt"
-          echo "AWF_PHASE4_KVM_ACL_BASELINE=$RUNNER_TEMP/phase4-kvm-acl-before.txt" \
+            sudo tee "$RUNNER_TEMP/phase4-kvm-acl-original.txt" >/dev/null
+          sudo chmod 0600 "$RUNNER_TEMP/phase4-kvm-acl-original.txt"
+          echo "AWF_PHASE4_KVM_ACL_ORIGINAL_BASELINE=$RUNNER_TEMP/phase4-kvm-acl-original.txt" \
             >> "$GITHUB_ENV"
           bash "${RUNNER_TEMP}/gh-aw/actions/cloud_hypervisor_kvm_access.sh"
+          sudo getfacl --absolute-names --numeric /dev/kvm |
+            sudo tee "$RUNNER_TEMP/phase4-kvm-acl-runtime.txt" >/dev/null
+          sudo chmod 0600 "$RUNNER_TEMP/phase4-kvm-acl-runtime.txt"
+          echo "AWF_PHASE4_KVM_ACL_BASELINE=$RUNNER_TEMP/phase4-kvm-acl-runtime.txt" \
+            >> "$GITHUB_ENV"
           bash "${RUNNER_TEMP}/gh-aw/actions/cloud_hypervisor_host_preflight.sh"
           bash "${RUNNER_TEMP}/gh-aw/actions/cloud_hypervisor_setup_bundle.sh"
 
@@ -308,6 +313,20 @@ jobs:
           path: ${{ runner.temp }}/evidence/
           if-no-files-found: error
           retention-days: 90
+
+      - name: Restore original host KVM ACL
+        if: always() && matrix.runtime == 'cloud-hypervisor'
+        run: |
+          set -euo pipefail
+          baseline="${AWF_PHASE4_KVM_ACL_ORIGINAL_BASELINE:-$RUNNER_TEMP/phase4-kvm-acl-original.txt}"
+          if [ ! -e "$baseline" ]; then
+            exit 0
+          fi
+          test -s "$baseline"
+          sudo setfacl --restore="$baseline"
+          expected=$(sudo cat "$baseline")
+          actual=$(sudo getfacl --absolute-names --numeric /dev/kvm 2>/dev/null)
+          test "$actual" = "$expected"
 
   aggregate:
     needs: canary

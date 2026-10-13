@@ -120,7 +120,7 @@ describe('NVX benchmark campaign evidence', () => {
         string,
         {
           strategy?: { 'max-parallel'?: number };
-          steps: Array<{ name?: string; run?: string }>;
+          steps: Array<{ name?: string; run?: string; if?: string }>;
         }
       >;
     };
@@ -149,10 +149,28 @@ describe('NVX benchmark campaign evidence', () => {
     const executeSteps = workflow.jobs.execute.steps;
     const cloudSetup = executeSteps.find((step) => step.name === 'Provision Cloud Hypervisor v53.0 artifacts');
     const cloudImmutability = executeSteps.find((step) => step.name === 'Make Cloud Hypervisor artifacts immutable');
+    const cloudCleanup = executeSteps.find((step) => step.name === 'Restore original host KVM ACL');
+    const cloudSetupRun = cloudSetup?.run ?? '';
     expect(cloudSetup?.run).toContain('cloud_hypervisor_setup_bundle.sh');
     expect(cloudSetup?.run).not.toContain('GH_AW_CLOUD_HYPERVISOR_');
+    expect(cloudSetupRun).toContain('phase4-kvm-acl-original.txt');
+    expect(cloudSetupRun).toContain('phase4-kvm-acl-runtime.txt');
+    expect(cloudSetupRun.indexOf('phase4-kvm-acl-original.txt')).toBeLessThan(
+      cloudSetupRun.indexOf('cloud_hypervisor_kvm_access.sh'),
+    );
+    expect(cloudSetupRun.indexOf('cloud_hypervisor_kvm_access.sh')).toBeLessThan(
+      cloudSetupRun.indexOf('phase4-kvm-acl-runtime.txt'),
+    );
+    expect(cloudSetupRun).toContain(
+      'AWF_PHASE4_KVM_ACL_BASELINE=$RUNNER_TEMP/phase4-kvm-acl-runtime.txt',
+    );
     expect(cloudImmutability?.run).toContain('GH_AW_CLOUD_HYPERVISOR_BINARY');
     expect(executeSteps.indexOf(cloudImmutability!)).toBe(executeSteps.indexOf(cloudSetup!) + 1);
+    expect(cloudCleanup?.if).toBe("always() && matrix.runtime == 'cloud-hypervisor'");
+    expect(cloudCleanup?.run).toContain('AWF_PHASE4_KVM_ACL_ORIGINAL_BASELINE');
+    expect(cloudCleanup?.run).toContain('sudo setfacl --restore="$baseline"');
+    expect(cloudCleanup?.run).toContain('test "$actual" = "$expected"');
+    expect(executeSteps.indexOf(cloudCleanup!)).toBe(executeSteps.length - 1);
     const campaignSigner = 'github/gh-aw-firewall/.github/workflows/nvx-phase-4-benchmark.yml';
     for (const file of [
       'nvx-phase4-provision-nvx.sh',
@@ -177,6 +195,7 @@ describe('NVX benchmark campaign evidence', () => {
             matrix: { runtime: string[]; workload: string[] };
           };
           'runs-on': string;
+          steps: Array<{ name?: string; run?: string; if?: string }>;
         };
       };
     };
@@ -196,6 +215,7 @@ describe('NVX benchmark campaign evidence', () => {
     expect(source).toContain('install_copilot_cli.sh" 1.0.95');
     expect(source).toContain("matrix.runtime == 'nvx' && 'musl' || 'glibc'");
     expect(source).toContain('AWF_PHASE4_KVM_ACL_BASELINE');
+    expect(source).toContain('AWF_PHASE4_KVM_ACL_ORIGINAL_BASELINE');
     expect(source).toContain('getSafeHostUid()');
     expect(source).toContain("'awf:x:%s:%s:AWF workload:/home/awf:/bin/sh");
     expect(source).toContain('install -d -o root -g root -m 1777 "$layer/tmp"');
@@ -238,6 +258,30 @@ describe('NVX benchmark campaign evidence', () => {
     expect(harness).toContain('residue+=("runtime-process")');
     expect(harness).not.toContain('--argjson immutableArtifacts true');
     expect(harness).not.toContain('--argjson boundedScratch true');
+
+    const canarySetup = workflow.jobs.canary.steps.find(
+      (step) => step.name === 'Provision Cloud Hypervisor v53.0 artifacts',
+    );
+    const canaryCleanup = workflow.jobs.canary.steps.find(
+      (step) => step.name === 'Restore original host KVM ACL',
+    );
+    const canarySetupRun = canarySetup?.run ?? '';
+    expect(canarySetupRun.indexOf('phase4-kvm-acl-original.txt')).toBeLessThan(
+      canarySetupRun.indexOf('cloud_hypervisor_kvm_access.sh'),
+    );
+    expect(canarySetupRun.indexOf('cloud_hypervisor_kvm_access.sh')).toBeLessThan(
+      canarySetupRun.indexOf('phase4-kvm-acl-runtime.txt'),
+    );
+    expect(canarySetupRun).toContain(
+      'AWF_PHASE4_KVM_ACL_BASELINE=$RUNNER_TEMP/phase4-kvm-acl-runtime.txt',
+    );
+    expect(canaryCleanup?.if).toBe("always() && matrix.runtime == 'cloud-hypervisor'");
+    expect(canaryCleanup?.run).toContain('AWF_PHASE4_KVM_ACL_ORIGINAL_BASELINE');
+    expect(canaryCleanup?.run).toContain('sudo setfacl --restore="$baseline"');
+    expect(canaryCleanup?.run).toContain('test "$actual" = "$expected"');
+    expect(workflow.jobs.canary.steps.indexOf(canaryCleanup!)).toBe(
+      workflow.jobs.canary.steps.length - 1,
+    );
   });
 
   it('expands every required matrix cell and uses the approved sample sizes', () => {
