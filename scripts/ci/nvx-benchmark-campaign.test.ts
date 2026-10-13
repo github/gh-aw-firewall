@@ -1,7 +1,9 @@
 import * as fs from 'fs';
 import * as path from 'path';
+import * as yaml from 'js-yaml';
 import {
   CampaignManifest,
+  RESOURCE_PROFILE_LIMITS,
   RunEvidence,
   SampleArtifact,
   aggregateCampaign,
@@ -35,6 +37,45 @@ function dryArtifacts(campaign = manifest()): SampleArtifact[] {
 }
 
 describe('NVX benchmark campaign evidence', () => {
+  it('maps cache and resource profiles to fixed matched-runtime inputs', () => {
+    expect(RESOURCE_PROFILE_LIMITS).toEqual({
+      minimum: { cpuCores: 1, memoryMiB: 2048, pidsMax: 128, scratchMiB: 1024 },
+      default: { cpuCores: 2, memoryMiB: 4096, pidsMax: 256, scratchMiB: 2048 },
+      elevated: { cpuCores: 4, memoryMiB: 6144, pidsMax: 512, scratchMiB: 4096 },
+    });
+    const campaign = manifest();
+    const artifacts = dryArtifacts(campaign);
+    const cold = artifacts.find((artifact) =>
+      artifact.kind === 'run' && artifact.result.cache === 'cold',
+    ) as Extract<SampleArtifact, { kind: 'run' }>;
+    const warm = artifacts.find((artifact) =>
+      artifact.kind === 'run' && artifact.result.cache === 'warm',
+    ) as Extract<SampleArtifact, { kind: 'run' }>;
+    expect(cold.result.cachePreparation).toBe('cold-cache-flushed');
+    expect(warm.result.cachePreparation).toBe('warm-cache-primed');
+    const altered = dryArtifacts(campaign);
+    (altered[0] as Extract<SampleArtifact, { kind: 'run' }>).result.resourceLimitsEnforced = false;
+    expect(() => aggregateCampaign(campaign, altered, thresholds))
+      .toThrow('resource limits do not match');
+  });
+
+  it('keeps campaign launches manual, serialized, and dry-run by default', () => {
+    const workflowPath = path.join(
+      __dirname, '..', '..', '.github', 'workflows', 'nvx-phase-4-benchmark.yml',
+    );
+    const workflow = yaml.load(fs.readFileSync(workflowPath, 'utf8')) as {
+      on: Record<string, unknown>;
+      concurrency: { 'cancel-in-progress': boolean };
+      jobs: Record<string, { steps: Array<{ run?: string }> }>;
+    };
+    expect(Object.keys(workflow.on)).toEqual(['workflow_dispatch']);
+    expect(workflow.concurrency['cancel-in-progress']).toBe(false);
+    const source = fs.readFileSync(workflowPath, 'utf8');
+    expect(source).toContain('default: dry-run');
+    expect(source).toContain('Full sample execution is not enabled');
+    expect(source).toContain('10,000-minute');
+  });
+
   it('expands every required matrix cell and uses the approved sample sizes', () => {
     const campaign = manifest('full');
     expect(campaign.expectedRuns).toHaveLength(960);
@@ -149,6 +190,52 @@ describe('NVX benchmark campaign evidence', () => {
         },
       },
     ], thresholds)).toThrow('infrastructure-only rerun');
+
+    const contaminatedOriginal = structuredClone(first);
+    contaminatedOriginal.result.sampleId = campaign.expectedRuns[1].sampleId;
+    contaminatedOriginal.result.attemptId = `${contaminatedOriginal.result.sampleId}-attempt-1`;
+    contaminatedOriginal.result.runtime = campaign.expectedRuns[1].runtime;
+    contaminatedOriginal.result.workload = campaign.expectedRuns[1].workload;
+    contaminatedOriginal.result.mode = campaign.expectedRuns[1].mode;
+    contaminatedOriginal.result.cache = campaign.expectedRuns[1].cache;
+    contaminatedOriginal.result.resourceProfile = campaign.expectedRuns[1].resourceProfile;
+    contaminatedOriginal.result.resourceLimits = {
+      ...RESOURCE_PROFILE_LIMITS[campaign.expectedRuns[1].resourceProfile],
+    };
+    contaminatedOriginal.result.cachePreparation = 'cold-cache-flushed';
+    contaminatedOriginal.result.failureCategory = 'runner-preempted';
+    contaminatedOriginal.result.success = false;
+    const contaminatedRetry: SampleArtifact = {
+      kind: 'run',
+      result: {
+        ...contaminatedOriginal.result,
+        attemptId: `${contaminatedOriginal.result.sampleId}-attempt-2`,
+        success: true,
+        failureCategory: 'success',
+        assertionFailures: [],
+        residue: [],
+        assertions: { ...contaminatedOriginal.result.assertions, credentialIsolation: true },
+        rerunOf: contaminatedOriginal.result.attemptId,
+        rerunReason: 'runner-preempted',
+      },
+    };
+    expect(() => aggregateCampaign(campaign, [
+      ...artifacts.filter((artifact) =>
+        artifact.result.sampleId !== contaminatedOriginal.result.sampleId,
+      ),
+      contaminatedOriginal,
+      contaminatedRetry,
+    ], thresholds)).toThrow('unauthorized rerun');
+  });
+
+  it('requires readiness and complete identity-checked cleanup evidence for recovery', () => {
+    const campaign = manifest();
+    const artifacts = dryArtifacts(campaign);
+    const recovery = artifacts.find((artifact) => artifact.kind === 'recovery') as
+      Extract<SampleArtifact, { kind: 'recovery' }>;
+    recovery.result.readinessConfirmed = false;
+    expect(() => aggregateCampaign(campaign, artifacts, thresholds))
+      .toThrow('missing readiness or stale-recovery evidence');
   });
 
   it('aggregates independently of input artifact ordering', () => {

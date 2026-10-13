@@ -74,6 +74,7 @@ export interface RunEvidence extends RunResult {
   cacheReadTokens: number;
   cachePreparation: 'cold-cache-flushed' | 'warm-cache-primed';
   resourceLimits: ResourceLimits;
+  resourceLimitsEnforced: boolean;
   evidenceKind: 'measured' | 'dry-run';
   rerunOf?: string;
   rerunReason?: string;
@@ -93,6 +94,7 @@ export interface RecoveryEvidence extends RecoveryResult {
   versions: Record<string, string>;
   assertions: Record<string, boolean>;
   readinessConfirmed: boolean;
+  terminalObserved: boolean;
   managerKilledAfterCleanupRecord: boolean;
   workloadAfterRecovery: boolean;
   evidenceKind: 'measured' | 'dry-run';
@@ -121,6 +123,17 @@ const INFRASTRUCTURE_FAILURES = new Set([
   'runner-unavailable',
   'network-infrastructure',
 ]);
+const RECOVERY_ASSERTIONS = [
+  'processTreeGone',
+  'mountsRestored',
+  'namespacesRestored',
+  'cgroupsRestored',
+  'runDirectoryRemoved',
+  'scratchRemoved',
+  'snapshotRemoved',
+  'cleanupRecordRemoved',
+  'kvmAclRestored',
+];
 const RUNNER_MINUTES_PER_SAMPLE = 10;
 
 function stableId(campaignId: string, parts: string[]): string {
@@ -290,7 +303,10 @@ function validateRun(
   if (run.cachePreparation !== (sample.cache === 'cold' ? 'cold-cache-flushed' : 'warm-cache-primed')) {
     throw new Error(`${label} cache preparation does not match its cache state`);
   }
-  if (JSON.stringify(run.resourceLimits) !== JSON.stringify(RESOURCE_PROFILE_LIMITS[sample.resourceProfile])) {
+  const expectedLimits = RESOURCE_PROFILE_LIMITS[sample.resourceProfile];
+  if (!run.resourceLimits || Object.entries(expectedLimits).some(([key, value]) =>
+    run.resourceLimits[key as keyof ResourceLimits] !== value) ||
+    run.resourceLimitsEnforced !== true) {
     throw new Error(`${label} resource limits do not match its resource profile`);
   }
   const numericMetrics = [
@@ -346,9 +362,12 @@ function validateRecovery(
   ) {
     throw new Error(`${label} is incomplete or does not match its expected recovery cell`);
   }
-  if (!recovery.readinessConfirmed ||
+  if (recovery.readinessConfirmed !== true || recovery.terminalObserved !== true ||
+    RECOVERY_ASSERTIONS.some((name) => recovery.assertions[name] !== true) ||
     (recovery.kind === 'stale-recovery' &&
-      (!recovery.managerKilledAfterCleanupRecord || !recovery.workloadAfterRecovery))) {
+      (recovery.managerKilledAfterCleanupRecord !== true ||
+        recovery.workloadAfterRecovery !== true ||
+        recovery.assertions.identityCheckedCleanup !== true))) {
     throw new Error(`${label} is missing readiness or stale-recovery evidence`);
   }
   for (const [name, passed] of Object.entries(recovery.assertions)) {
@@ -420,7 +439,9 @@ export function aggregateCampaign(
     for (const rerun of sampleAttempts.filter((attempt) => attempt.rerunOf !== undefined)) {
       if (rerun.rerunOf !== primary[0].attemptId ||
         primary[0].success ||
-        !INFRASTRUCTURE_FAILURES.has(primary[0].failureCategory)) {
+        !INFRASTRUCTURE_FAILURES.has(primary[0].failureCategory) ||
+        primary[0].assertionFailures.length > 0 ||
+        primary[0].residue.length > 0) {
         throw new Error(`sample ${sampleId} has an unauthorized rerun`);
       }
     }
@@ -514,6 +535,7 @@ export function generateDryRunArtifacts(
         assertions: { ...assertions },
         cachePreparation: sample.cache === 'cold' ? 'cold-cache-flushed' : 'warm-cache-primed',
         resourceLimits: { ...RESOURCE_PROFILE_LIMITS[sample.resourceProfile] },
+        resourceLimitsEnforced: true,
         sourceCommit: manifest.sourceCommit,
         runnerClass: manifest.runnerClass,
         runnerImage: manifest.runnerImage,
@@ -536,10 +558,23 @@ export function generateDryRunArtifacts(
         durationMs: 1,
         assertionFailures: [],
         residue: [],
-        assertions: { ...assertions },
         readinessConfirmed: true,
+        terminalObserved: true,
         managerKilledAfterCleanupRecord: sample.kind === 'stale-recovery',
         workloadAfterRecovery: sample.kind === 'stale-recovery',
+        assertions: {
+          ...assertions,
+          processTreeGone: true,
+          mountsRestored: true,
+          namespacesRestored: true,
+          cgroupsRestored: true,
+          runDirectoryRemoved: true,
+          scratchRemoved: true,
+          snapshotRemoved: true,
+          cleanupRecordRemoved: true,
+          kvmAclRestored: true,
+          identityCheckedCleanup: sample.kind === 'stale-recovery',
+        },
         sourceCommit: manifest.sourceCommit,
         runnerClass: manifest.runnerClass,
         runnerImage: manifest.runnerImage,

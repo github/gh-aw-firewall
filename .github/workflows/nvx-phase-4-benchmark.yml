@@ -1,0 +1,128 @@
+name: NVX Phase 4 Promotion Benchmark
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: Dry-run validates the evidence pipeline; full creates the reviewed campaign manifest
+        required: true
+        type: choice
+        options:
+          - dry-run
+          - full
+        default: dry-run
+      campaign_id:
+        description: Immutable campaign identifier; reuse it only to resume the same campaign
+        required: true
+        type: string
+      confirm_full_campaign:
+        description: Confirm review of the fixed thresholds and 10,000-minute (166.7-hour) runner estimate
+        required: true
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nvx-phase-4-promotion-campaign
+  cancel-in-progress: false
+
+jobs:
+  campaign:
+    name: Validate NVX promotion evidence
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Checkout reviewed source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Verify reviewed campaign baseline
+        env:
+          CAMPAIGN_MODE: ${{ inputs.mode }}
+          CAMPAIGN_ID: ${{ inputs.campaign_id }}
+          CONFIRM_FULL_CAMPAIGN: ${{ inputs.confirm_full_campaign }}
+        run: |
+          set -euo pipefail
+          node -e '
+            const fs = require("fs");
+            const p = require("./package.json");
+            const t = require("./docs/nvx-promotion-thresholds.json");
+            if (t.baseline.ghAw !== "v0.91.9" || t.baseline.awf !== "v0.28.54") {
+              throw new Error("reviewed gh-aw/AWF baseline changed");
+            }
+            if (t.approvedRunnerClasses.length !== 1 || t.approvedRunnerClasses[0] !== "ubuntu-24.04") {
+              throw new Error("runner class does not match the reviewed baseline");
+            }
+            if (!p.version) throw new Error("AWF package version is missing");
+            if (!fs.existsSync("docs/nvx-promotion-thresholds.json")) throw new Error("missing thresholds");
+          '
+          if [ "$CAMPAIGN_MODE" = full ] && [ "$CONFIRM_FULL_CAMPAIGN" != true ]; then
+            echo "A full campaign requires explicit confirmation of the fixed thresholds and 10,000 runner-minute estimate." >&2
+            exit 1
+          fi
+          if [ "$CAMPAIGN_MODE" = full ]; then
+            echo "::error::Full sample execution is not enabled until the matched-runtime measurement adapter is reviewed and available. No benchmark samples were launched."
+            exit 1
+          fi
+          echo "Campaign ID: $CAMPAIGN_ID"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Create immutable dry-run campaign manifest
+        env:
+          CAMPAIGN_ID: ${{ inputs.campaign_id }}
+        run: |
+          set -euo pipefail
+          runner_image="${ImageOS:?GitHub runner ImageOS is required}/${ImageVersion:?GitHub runner ImageVersion is required}"
+          guest_image="NVX microsoft/nvx@v0.1.0-dev.be859aa77ffa; Cloud Hypervisor v53.0"
+          npx tsx scripts/ci/nvx-benchmark-campaign.ts plan \
+            "$RUNNER_TEMP/campaign-manifest.json" \
+            "$CAMPAIGN_ID" dry-run "$GITHUB_SHA" ubuntu-24.04 "$runner_image" "$guest_image"
+
+      - name: Generate and validate every dry-run matrix shape
+        env:
+          CAMPAIGN_ID: ${{ inputs.campaign_id }}
+        run: |
+          set -euo pipefail
+          evidence_dir="$RUNNER_TEMP/nvx-phase-4-evidence"
+          mkdir -m 700 -p "$evidence_dir/raw"
+          npx tsx scripts/ci/nvx-benchmark-campaign.ts dry-run \
+            "$RUNNER_TEMP/campaign-manifest.json" \
+            "$evidence_dir/raw" "$GITHUB_RUN_ID" "$GITHUB_JOB" "$GITHUB_RUN_ATTEMPT"
+          cp "$RUNNER_TEMP/campaign-manifest.json" "$evidence_dir/campaign-manifest.json"
+          cp "$evidence_dir/raw/benchmark-results.json" "$evidence_dir/benchmark-results.json"
+          set +e
+          npx tsx scripts/ci/nvx-promotion-evaluator.ts \
+            "$evidence_dir/benchmark-results.json" > "$evidence_dir/evaluator-output.json"
+          evaluator_status=$?
+          set -e
+          test "$evaluator_status" -eq 1
+          jq -e '.recommendation == "retain-preview"' "$evidence_dir/evaluator-output.json" >/dev/null
+          cp "$evidence_dir/raw/report.md" "$GITHUB_STEP_SUMMARY"
+          {
+            echo
+            echo "## Estimated full-campaign runner time"
+            echo "The reviewed full matrix contains 960 primary runs and 40 recovery samples."
+            echo "At a conservative 10 minutes per sample, the estimate is 10,000 runner-minutes (166.7 runner-hours), before setup and infrastructure overhead."
+            echo "This workflow does not launch full samples; a separately reviewed matched-runtime measurement adapter is required."
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "NVX Phase 4 dry-run validated. This synthetic evidence is not benchmark data."
+
+      - name: Upload raw evidence, manifest, evaluator output, and report
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: nvx-phase-4-${{ inputs.campaign_id }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/nvx-phase-4-evidence/
+          if-no-files-found: warn
+          retention-days: 90

@@ -137,12 +137,69 @@ None of these may be weakened to improve success rates.
 | Maintenance ownership | The AWF maintainers own the integration; the upstream NVX/OpenVMM maintainers own the VMM. A named long-term owner must be recorded before promotion. |
 | Known limitations vs Cloud Hypervisor | Experimental, opt-in only; fewer production hours; single pinned upstream dev artifact; x86_64 and KVM only. |
 
+## Campaign workflow and evidence operation
+
+The manually dispatched [NVX Phase 4 Promotion Benchmark workflow](../.github/workflows/nvx-phase-4-benchmark.yml)
+defaults to `dry-run`. Supply an immutable campaign ID, for example
+`nvx-p4-review-2026-10`, and retain the uploaded artifact named with that ID,
+workflow run, and attempt. The dry run expands all 24 lanes for both runtimes,
+creates one marked pipeline sample per lane and recovery kind, validates every
+metric and zero-tolerance assertion, invokes the evaluator, and requires the
+`retain-preview` recommendation. Its values are synthetic pipeline fixtures,
+not runtime measurements, and must never be included in a promotion report.
+
+The collector contract maps resource profiles identically for both runtimes:
+
+| Profile | CPU cores | Memory MiB | PID limit | Scratch MiB |
+| ------- | --------: | ---------: | --------: | ----------: |
+| minimum | 1 | 2048 | 128 | 1024 |
+| default | 2 | 4096 | 256 | 2048 |
+| elevated | 4 | 6144 | 512 | 4096 |
+
+Cold samples must report `cold-cache-flushed`; warm samples must report
+`warm-cache-primed`. Each run record carries the applied limits and preparation
+label, and the collector rejects a mismatch.
+
+The full matrix contains 960 run samples and 40 lifecycle-recovery samples. At
+the conservative 10-minute per-sample planning allowance, this is 10,000
+runner-minutes (166.7 runner-hours) before setup or infrastructure overhead.
+The manifest prints the campaign identity, fixed baseline, runner image, guest
+image, source commit, expected stable sample IDs, and estimate. The workflow is
+serialized across campaigns and does not start an unbounded or PR-triggered
+campaign.
+
+**Full sample execution remains fail-closed and is not enabled by this
+workflow yet.** Before a full campaign can be dispatched, a separately reviewed
+matched-runtime adapter must execute the NVX and Cloud Hypervisor workloads,
+emit the measured `RunEvidence` / `RecoveryEvidence` contract in
+`scripts/ci/nvx-benchmark-campaign.ts`, and implement the cleanup, cache,
+resource-limit, and credential-isolation checks described above. The workflow
+currently rejects `mode: full`, even when the cost-review confirmation is set;
+this prevents synthetic samples or the existing security smoke scripts from
+being misrepresented as a promotion dataset. Do not launch the full campaign
+until that adapter, the baseline, and the estimate have been reviewed.
+
+The campaign utility can validate a locally retained evidence directory with:
+
+```bash
+npx tsx scripts/ci/nvx-benchmark-campaign.ts aggregate \
+  campaign-manifest.json raw-samples benchmark-results.json report.md
+```
+
+It rejects missing, unexpected, duplicate, cross-campaign, stale-baseline, or
+malformed samples. Stable IDs allow a resumed collection to retain prior
+artifacts without counting an attempt twice. A retry is accepted only for a
+documented runner/infrastructure category; the failed original remains the
+scored sample and the retry remains in `attempts`. Security failures, cleanup
+failures, and residue are never retryable.
+
 ## Report status
 
 **Recommendation: retain preview.** The thresholds and tooling are published,
 but benchmark runs have not yet been executed, so no gate has demonstrated a
-pass. The mandatory preview gate must stay in place until the benchmark matrix
-has been run and a report from the evaluator is reviewed.
+pass. Dry-run pipeline fixtures are not benchmark runs. The mandatory preview
+gate must stay in place until the benchmark matrix has been run and a report
+from the evaluator is reviewed.
 
 Follow-up issues, one per unmet gate, are opened from the evaluator's
 `unmetGates` output when results are published:
