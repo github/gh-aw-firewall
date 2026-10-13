@@ -135,9 +135,10 @@ Implemented boundary:
   --user-group --no-create-home --home-dir /nonexistent --shell
   /usr/sbin/nologin`, validation through `id`/`getent`, and deletion only after
   re-validating the account identity;
-- serialized ACL-only device access for `/dev/kvm`, including
-  recorded device/inode identity, uid-specific `rw-` ACL evidence, validation
-  before launch, and exact revocation validation during cleanup;
+- serialized ACL grant and revocation for `/dev/kvm`, with per-run uid-specific
+  grants allowed to overlap while concurrent VMMs execute, including recorded
+  device/inode identity, `rw-` ACL evidence, validation before launch, and
+  exact revocation validation during cleanup;
 - cgroup v2 setup for the run subtree with explicit `memory.max`, `cpu.max`,
   and `pids.max` writes followed by read-back verification and exact
   `cgroup.procs` membership checks;

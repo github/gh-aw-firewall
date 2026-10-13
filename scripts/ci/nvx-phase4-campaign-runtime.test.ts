@@ -77,7 +77,8 @@ describe('Phase 4 campaign runtime evidence', () => {
     const first = captureIdentity('nvx');
     const second = {
       runId: 'b'.repeat(32), pid: 124, uid: 1002, account: 'awf-peer',
-      runDirectory: '/runs/peer', cgroup: '/cgroups/peer', networkNamespace: 'net:[790]',
+      runDirectory: '/runs/peer', cleanupRecord: '/cleanup/peer.json',
+      cgroup: '/cgroups/peer', networkNamespace: 'net:[790]',
     };
     const check = (peer: any) => execFileSync('jq', ['-s', filter], {
       input: `${JSON.stringify(first)}\n${JSON.stringify(peer)}`,
@@ -148,6 +149,11 @@ describe('Phase 4 campaign runtime evidence', () => {
     expect(harness).toContain('peer-runtime-identity.json');
     expect(harness).toContain('for marker in workload-ended workload-abort runtime-ready');
     expect(harness).toContain('[ -e "$peer_workspace/$marker" ]');
+    expect(harness).toContain('(map(.cleanupRecord) | unique | length == 2)');
+    expect(harness).toContain('! sudo test -e "$primary_cleanup_record"');
+    expect(harness).toContain('! sudo test -e "$peer_cleanup_record"');
+    expect(harness).toContain('residue+=("cleanup-record:primary")');
+    expect(harness).toContain('residue+=("cleanup-record:peer")');
   });
 
   it('compares positive scratch capacity against the configured limit, not usage', () => {

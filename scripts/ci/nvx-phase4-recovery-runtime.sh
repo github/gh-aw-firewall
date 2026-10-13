@@ -25,7 +25,8 @@ measurement_name=$(basename "${AWF_BENCHMARK_RECOVERY_EVIDENCE%.json}")
 diagnostics_dir="$(dirname "$AWF_BENCHMARK_RECOVERY_EVIDENCE")/runtime-$measurement_name"
 mkdir -p "$root" "$workspace"
 mkdir -p "$diagnostics_dir"
-chmod 0700 "$root" "$workspace" "$diagnostics_dir"
+mkdir -p "$work"
+chmod 0700 "$root" "$work" "$workspace" "$diagnostics_dir"
 
 cat > "$workspace/workload.sh" <<'EOF'
 #!/bin/sh
@@ -227,6 +228,8 @@ workload_after_recovery=false
 if [ "$kind" = stale-recovery ] && [ "$terminal_observed" = true ] &&
   [ "$manager_killed_after_record" = true ]; then
   sudo rm -rf -- "$work"
+  mkdir -p "$work"
+  chmod 0700 "$work"
   set +e
   run_awf 'true' >"$root/recovery.log" 2>&1
   recovery_status=$?

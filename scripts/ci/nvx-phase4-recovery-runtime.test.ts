@@ -161,6 +161,9 @@ describe('Phase 4 recovery manager selection', () => {
     );
     expect(recovery).toContain('runtime-$measurement_name');
     expect(recovery).toContain('runtime_process_observed=true');
+    expect(recovery).toContain('chmod 0700 "$root" "$work" "$workspace" "$diagnostics_dir"');
+    expect(recovery).toContain('mkdir -p "$work"');
+    expect(recovery).toContain('chmod 0700 "$work"');
   });
 
   it('validates journal provenance against the actual manager and gates stale-recovery success', () => {

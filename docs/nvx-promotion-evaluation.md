@@ -343,7 +343,10 @@ host evidence must show distinct
 live VMM processes, accounts, run directories, cgroups and network namespaces,
 with the selected resource bounds applied to both. Infrastructure stays alive
 until both guest workloads have ended. Cleanup checks include durable records,
-runtime scratch/run directories and trusted-artifact snapshot roots.
+runtime scratch/run directories and trusted-artifact snapshot roots. NVX
+serializes only `/dev/kvm` ACL mutation; each concurrent VMM retains its own ACL
+grant and durable cleanup record while both workloads run, and the harness
+requires both exact records to be removed before accepting cleanup.
 Concurrent artifacts retain bounded peer AWF logs, runtime identity and guest
 preflight/status/error markers even when the peer fails before the release
 handshake.
@@ -433,7 +436,9 @@ ran after identity-checked recovery. Recovery artifacts retain bounded initial
 and recovery AWF logs plus readiness and cleanup-record identity observations.
 Successful evidence also carries measured guest Node/curl versions and, for
 NVX, the same pinned guest toolchain provenance as primary samples. The canary
-does not invoke this path.
+does not invoke this path. Recovery work directories are created at mode
+`0700` before both the initial launch and stale-recovery probe so host preflight
+cannot reject the measured invocation before readiness.
 
 ## Report status
 

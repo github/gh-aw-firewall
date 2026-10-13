@@ -190,7 +190,11 @@ describe('NVX Phase 3d runtime lifecycle', () => {
     ]));
     expect(observer.captureIdentity).toHaveBeenCalledWith(identity);
 
-    const protectedOperation = jest.fn().mockResolvedValue('launched');
+    const protectedOperation = jest.fn(async () => {
+      await deps.mkdir('/run/awf-nvx/.device-acl-lock');
+      await deps.rm('/run/awf-nvx/.device-acl-lock', { recursive: true, force: true });
+      return 'launched';
+    });
     await expect(manager.withDeviceAccess(protectedOperation)).resolves.toBe('launched');
     expect(protectedOperation).toHaveBeenCalledWith([
       { path: '/dev/kvm', device: '5', inode: '10', uid: 23001, permissions: 'rw-' },
@@ -257,6 +261,22 @@ describe('NVX Phase 3d runtime lifecycle', () => {
     expect(run).not.toHaveBeenCalledWith(
       tools.setfacl,
       ['--modify', 'user:23001:rw', '/dev/net/tun'],
+    );
+    await expect(manager.cleanup()).resolves.toBeUndefined();
+  });
+
+  it('reacquires the ACL lock and revokes access when the protected operation fails', async () => {
+    const { deps } = identityDependencies();
+    const manager = new NvxVmmIdentityManager(RUN_ID, tools, deps);
+    await manager.allocate();
+
+    await expect(manager.withDeviceAccess(async () => {
+      throw new Error('launch failed');
+    })).rejects.toThrow('launch failed');
+
+    expect(deps.run).toHaveBeenCalledWith(
+      tools.setfacl,
+      ['--remove', 'user:23001', '/dev/kvm'],
     );
     await expect(manager.cleanup()).resolves.toBeUndefined();
   });

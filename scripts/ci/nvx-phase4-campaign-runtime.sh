@@ -125,7 +125,7 @@ try {
         cgroupStat.ino.toString() !== cgroupIdentity.inode || cgroupStat.dev.toString() !== cgroupIdentity.device) continue;
     fs.writeFileSync(output, JSON.stringify({
       runId: record.runId, pid: process.pid, uid, account: record.vmmIdentity.name,
-      runDirectory, cgroup, networkNamespace,
+      runDirectory, cleanupRecord: path.join(root, name), cgroup, networkNamespace,
     }), { mode: 0o600 });
     break;
   }
@@ -560,6 +560,8 @@ peer_cgroup=
 peer_memory_max=
 peer_cpu_max=
 peer_pids_max=
+primary_cleanup_record=
+peer_cleanup_record=
 concurrent_isolation=false
 if [ "$mode" = sequential ]; then concurrent_isolation=true; fi
 workload_released=false
@@ -594,6 +596,7 @@ while kill -0 "$awf_pid" 2>/dev/null ||
          sudo test -f "$candidate/pids.max" &&
          sudo test -f "$candidate/cpu.stat"; then
         observed_cgroup=$candidate
+        primary_cleanup_record=$(sudo jq -er '.cleanupRecord' "$evidence_dir/runtime-identity.json")
         preflight_completed=$(now_ms)
         tune_campaign_cgroup "$candidate"
         observed_memory_max=$(sudo cat "$candidate/memory.max")
@@ -611,6 +614,7 @@ while kill -0 "$awf_pid" 2>/dev/null ||
     capture_runtime_identity "$peer_work_dir" "$evidence_dir/peer-runtime-identity.json"
     if sudo test -s "$evidence_dir/peer-runtime-identity.json"; then
      peer_cgroup=$(sudo jq -er '.cgroup' "$evidence_dir/peer-runtime-identity.json")
+     peer_cleanup_record=$(sudo jq -er '.cleanupRecord' "$evidence_dir/peer-runtime-identity.json")
      tune_campaign_cgroup "$peer_cgroup"
      peer_memory_max=$(sudo cat "$peer_cgroup/memory.max")
      peer_cpu_max=$(sudo cat "$peer_cgroup/cpu.max")
@@ -642,6 +646,7 @@ while kill -0 "$awf_pid" 2>/dev/null ||
        (map(.uid) | unique | length == 2) and
        (map(.account) | unique | length == 2) and
        (map(.runDirectory) | unique | length == 2) and
+       (map(.cleanupRecord) | unique | length == 2) and
        (map(.cgroup) | unique | length == 2) and
        (map(.networkNamespace) | unique | length == 2)
      ' "$evidence_dir/runtime-identity.json" "$evidence_dir/peer-runtime-identity.json" >/dev/null; then
@@ -730,6 +735,10 @@ for _cleanup_attempt in $(seq 1 50); do
      [ "$cgroups_before" = "$cgroups_after" ] &&
      [ "$mounts_before" = "$mounts_after" ] &&
      [ "$cleanup_before" = "$cleanup_after" ] &&
+     { [ "$mode" = sequential ] ||
+       { [ -n "$primary_cleanup_record" ] && [ -n "$peer_cleanup_record" ] &&
+         ! sudo test -e "$primary_cleanup_record" &&
+         ! sudo test -e "$peer_cleanup_record"; }; } &&
      [ "$runs_before" = "$runs_after" ] &&
      [ "$scratch_before" = "$scratch_after" ] &&
      [ "$snapshots_before" = "$snapshots_after" ] &&
@@ -800,6 +809,14 @@ residue=()
 [ "$cgroups_before" = "$cgroups_after" ] || residue+=("cgroup")
 [ "$mounts_before" = "$mounts_after" ] || residue+=("mount")
 [ "$cleanup_before" = "$cleanup_after" ] || residue+=("cleanup-record")
+if [ "$mode" = concurrent ]; then
+  [ -n "$primary_cleanup_record" ] &&
+    ! sudo test -e "$primary_cleanup_record" ||
+    residue+=("cleanup-record:primary")
+  [ -n "$peer_cleanup_record" ] &&
+    ! sudo test -e "$peer_cleanup_record" ||
+    residue+=("cleanup-record:peer")
+fi
 [ "$runs_before" = "$runs_after" ] || residue+=("runtime-run-directory")
 [ "$scratch_before" = "$scratch_after" ] || residue+=("runtime-scratch")
 [ "$snapshots_before" = "$snapshots_after" ] || residue+=("trusted-artifact-snapshot")

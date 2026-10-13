@@ -180,30 +180,46 @@ export class NvxVmmIdentityManager {
   ): Promise<T> {
     const identity = this.requireIdentity();
     const requested = dedupeDevices(devicePaths);
-    return this.withLock(DEVICE_ACL_LOCK_DIRECTORY, DEVICE_ACL_LOCK_TIMEOUT_MS, async () => {
+    const acls = await this.withLock(DEVICE_ACL_LOCK_DIRECTORY, DEVICE_ACL_LOCK_TIMEOUT_MS, async () => {
       if (this.identity !== identity) throw new Error('NVX VMM identity changed before device ACL grant');
-      let result: T | undefined;
-      let operationError: unknown;
       try {
-        const acls = await this.grantDeviceAccessLocked(identity, requested);
-        result = await operation(acls);
+        return await this.grantDeviceAccessLocked(identity, requested);
       } catch (error) {
-        operationError = error;
-      }
-      try {
-        await this.revokeDeviceAccessLocked(identity);
-      } catch (revokeError) {
-        if (operationError) {
+        try {
+          await this.revokeDeviceAccessLocked(identity);
+        } catch (revokeError) {
           throw new Error(
-            `NVX device operation failed: ${formatError(operationError)}; ` +
+            `NVX device ACL grant failed: ${formatError(error)}; ` +
             `ACL revocation also failed: ${formatError(revokeError)}`,
           );
         }
-        throw revokeError;
+        throw error;
       }
-      if (operationError) throw operationError;
-      return result as T;
     });
+    let result: T | undefined;
+    let operationError: unknown;
+    try {
+      result = await operation(acls);
+    } catch (error) {
+      operationError = error;
+    }
+    try {
+      await this.withLock(
+        DEVICE_ACL_LOCK_DIRECTORY,
+        DEVICE_ACL_LOCK_TIMEOUT_MS,
+        () => this.revokeDeviceAccessLocked(identity),
+      );
+    } catch (revokeError) {
+      if (operationError) {
+        throw new Error(
+          `NVX device operation failed: ${formatError(operationError)}; ` +
+          `ACL revocation also failed: ${formatError(revokeError)}`,
+        );
+      }
+      throw revokeError;
+    }
+    if (operationError) throw operationError;
+    return result as T;
   }
 
   async cleanup(): Promise<void> {
