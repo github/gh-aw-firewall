@@ -309,6 +309,10 @@ jobs:
           bash "${RUNNER_TEMP}/gh-aw/actions/cloud_hypervisor_kvm_access.sh"
           bash "${RUNNER_TEMP}/gh-aw/actions/cloud_hypervisor_host_preflight.sh"
           bash "${RUNNER_TEMP}/gh-aw/actions/cloud_hypervisor_setup_bundle.sh"
+      - name: Make Cloud Hypervisor artifacts immutable
+        if: matrix.runtime == 'cloud-hypervisor'
+        run: |
+          set -euo pipefail
           sudo chown root:root \
             "$GH_AW_CLOUD_HYPERVISOR_BINARY" "$GH_AW_CLOUD_HYPERVISOR_KERNEL" \
             "$GH_AW_CLOUD_HYPERVISOR_ROOTFS" "$GH_AW_CLOUD_HYPERVISOR_SUPERVISOR" \

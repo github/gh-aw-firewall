@@ -120,7 +120,7 @@ describe('NVX benchmark campaign evidence', () => {
         string,
         {
           strategy?: { 'max-parallel'?: number };
-          steps: Array<{ run?: string }>;
+          steps: Array<{ name?: string; run?: string }>;
         }
       >;
     };
@@ -142,6 +142,22 @@ describe('NVX benchmark campaign evidence', () => {
     expect(source).toContain('pilot-100:10:10:100');
     expect(source).toContain('pilot-1000:52:100:1000');
     expect(source).toContain('full:76:1000:10000');
+
+    const executeSteps = workflow.jobs.execute.steps;
+    const cloudSetup = executeSteps.find((step) => step.name === 'Provision Cloud Hypervisor v53.0 artifacts');
+    const cloudImmutability = executeSteps.find((step) => step.name === 'Make Cloud Hypervisor artifacts immutable');
+    expect(cloudSetup?.run).toContain('cloud_hypervisor_setup_bundle.sh');
+    expect(cloudSetup?.run).not.toContain('GH_AW_CLOUD_HYPERVISOR_BINARY');
+    expect(cloudImmutability?.run).toContain('GH_AW_CLOUD_HYPERVISOR_BINARY');
+    expect(executeSteps.indexOf(cloudImmutability!)).toBe(executeSteps.indexOf(cloudSetup!) + 1);
+    const campaignSigner = 'github/gh-aw-firewall/.github/workflows/nvx-phase-4-benchmark.yml';
+    for (const file of [
+      'nvx-phase4-provision-nvx.sh',
+      'nvx-phase4-campaign-runtime.sh',
+      'nvx-phase4-recovery-runtime.sh',
+    ]) {
+      expect(fs.readFileSync(path.join(__dirname, file), 'utf8')).toContain(campaignSigner);
+    }
   });
 
   it('keeps the real canary bounded, serialized, matched, and promotion-ineligible', () => {

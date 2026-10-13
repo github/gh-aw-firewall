@@ -3,6 +3,7 @@ import {
   NVX_ARTIFACT_REPOSITORY,
   NVX_ARTIFACT_SIGNER_WORKFLOW,
   NVX_CANARY_SIGNER_WORKFLOW,
+  NVX_CAMPAIGN_SIGNER_WORKFLOW,
   NVX_COMMIT,
   NVX_OPENVMM_COMMIT,
   NVX_RELEASE_TAG,
@@ -61,6 +62,23 @@ describe('NVX artifact manifest', () => {
       NVX_ARTIFACT_RELEASE_TAG,
       NVX_CANARY_SIGNER_WORKFLOW,
     )).toEqual(value);
+  });
+
+  it('trusts only the exact Phase 4 campaign signer workflow', () => {
+    const value = manifest();
+    value.release.workflow = NVX_CAMPAIGN_SIGNER_WORKFLOW;
+    expect(parseNvxArtifactManifest(
+      JSON.stringify(value),
+      NVX_ARTIFACT_RELEASE_TAG,
+      NVX_CAMPAIGN_SIGNER_WORKFLOW,
+    )).toEqual(value);
+
+    value.release.workflow = `${NVX_CAMPAIGN_SIGNER_WORKFLOW}-other`;
+    expect(() => parseNvxArtifactManifest(
+      JSON.stringify(value),
+      NVX_ARTIFACT_RELEASE_TAG,
+      value.release.workflow,
+    )).toThrow(/Untrusted NVX artifact signer workflow/);
   });
 
   it.each([

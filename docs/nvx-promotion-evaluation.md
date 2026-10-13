@@ -277,6 +277,11 @@ Do not use the Actions **Re-run jobs** control: campaign jobs reject a second
 `run_attempt` because it can mix partial artifacts. Always use a new dispatch
 with `prior_run_id`.
 
+If a campaign-workflow wiring defect records non-infrastructure failures for
+the samples, do not mark them retryable and do not resume that campaign. After
+the fix is merged, dispatch a new immutable campaign ID from the fixed source
+commit with empty `prior_run_id`.
+
 ### Resume from immutable prior artifacts
 
 Resume a 100-minute pilot with:
