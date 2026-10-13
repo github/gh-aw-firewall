@@ -19,18 +19,24 @@ does not remove the mandatory preview gate or change the default runtime.
 | AWF | v0.28.54 |
 | NVX workflow upgrade | github/gh-aw-firewall#9886 |
 | Automatic musl guest asset selection | github/gh-aw#67915 |
+| NVX artifact | microsoft/nvx@v0.1.0-dev.be859aa77ffa |
+| Cloud Hypervisor artifact | Cloud Hypervisor v53.0 |
 | NVX build smoke | [run 38320706390](https://github.com/github/gh-aw-firewall/actions/runs/38320706390) |
 | Official-release build confirmation | [run 38272330203](https://github.com/github/gh-aw-firewall/actions/runs/38272330203) |
 | NVX Copilot confirmation | [run 38295300049](https://github.com/github/gh-aw-firewall/actions/runs/38295300049) |
 
 Every result record must also capture the compiler, AWF, runtime, upstream
 artifact (NVX/OpenVMM or Cloud Hypervisor), guest image, runner image and
-workload versions in `versions`, and the runner class in `runnerClass`.
+workload versions in `versions`. The evaluator requires every baseline key in
+`docs/nvx-promotion-thresholds.json` to match exactly and accepts only runner
+classes listed in `approvedRunnerClasses`.
 
 ## Promotion thresholds
 
-A gate is met only when **every** lane (workload × sequential/concurrent) meets
-it for NVX. Percentiles use nearest-rank over successful runs.
+A gate is met only when **every** required matrix cell meets it for NVX and has
+the corresponding Cloud Hypervisor samples. The fixed matrix has 24 lanes:
+workload × mode × cache state × resource profile. Percentiles use nearest-rank
+over successful runs.
 
 | Gate | Threshold |
 | ---- | --------- |
@@ -63,11 +69,16 @@ KVM runner class, with identical security policy and workload versions.
 
 | Dimension | Cases |
 | --------- | ----- |
-| Workload | deterministic build/test; Copilot/API-proxy inference |
-| Cache | cold and warm |
-| Concurrency | sequential repeats (≥ 30) and concurrent runs verifying per-run identity and resource isolation |
+| Workload | `build-test`; `copilot-inference` |
+| Cache | `cold`; `warm` |
+| Concurrency | `sequential` (≥ 30) and `concurrent` (≥ 10), each verifying per-run identity and resource isolation |
 | Lifecycle | bounded cancellation; forced manager `SIGKILL` followed by stale-resource recovery |
-| Resources | minimum/default and elevated configurations |
+| Resources | `minimum`; `default`; `elevated` |
+
+Each `RunResult` includes `workload`, `mode`, `cache`, and `resourceProfile`;
+these four fields form the lane key. The evaluator enumerates the required
+Cartesian product from the thresholds file instead of inferring lanes from the
+submitted results, so any missing cell fails its sample-size gate.
 
 Reruns: a run that fails is recorded as a failure and counted in the success
 rate. A rerun is permitted only for a demonstrated runner or network
@@ -78,13 +89,16 @@ security or cleanup assertion is never rerun away.
 ## Evidence collected per run
 
 Each run emits one `RunResult` record (see
-`scripts/ci/nvx-promotion-evaluator.ts`): artifact/preflight, startup,
-first-inference/workload, end-to-end and cleanup durations; CPU seconds, peak
-memory, scratch and host-disk use; peak PIDs; API-proxy request counts and
-token usage for inference workloads; the failed assertions; and residue found
-by the post-run checks. Cancellation and stale-recovery samples are emitted as
-`RecoveryResult` records. Raw records are retained as machine-readable JSON
-workflow artifacts alongside the report.
+`scripts/ci/nvx-promotion-evaluator.ts`): `artifactPreflightMs`, `startupMs`,
+`firstWorkloadMs`, `endToEndMs`, `cleanupMs`, `cpuSeconds`, `peakMemoryMiB`,
+`scratchMiB`, `hostDiskMiB`, `peakPids`, `apiProxyRequests`, `inputTokens`,
+`outputTokens`, failed assertions and post-run residue. The evaluator validates
+that every numeric evidence field is present, finite and non-negative.
+Cancellation and stale-recovery samples are emitted as `RecoveryResult`
+records with an explicit `success` status, `assertionFailures`, duration and
+residue. Any failed recovery or lifecycle assertion stops promotion before its
+duration is included in the percentile. Raw records are retained as
+machine-readable JSON workflow artifacts alongside the report.
 
 Evaluate a result set with:
 

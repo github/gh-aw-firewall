@@ -10,20 +10,30 @@ import * as path from 'path';
 
 export type Runtime = 'nvx' | 'cloud-hypervisor';
 export type Mode = 'sequential' | 'concurrent';
+export type CacheState = 'cold' | 'warm';
+export type ResourceProfile = 'minimum' | 'default' | 'elevated';
 export type Recommendation = 'promote' | 'retain-preview' | 'stop-promotion';
 
 export interface RunResult {
   runtime: Runtime;
   workload: string;
   mode: Mode;
+  cache: CacheState;
+  resourceProfile: ResourceProfile;
   success: boolean;
+  artifactPreflightMs: number;
   startupMs: number;
+  firstWorkloadMs: number;
   endToEndMs: number;
   cleanupMs: number;
   peakMemoryMiB: number;
   scratchMiB: number;
+  hostDiskMiB: number;
   peakPids: number;
   cpuSeconds: number;
+  apiProxyRequests: number;
+  inputTokens: number;
+  outputTokens: number;
   /** Failed zero-tolerance assertion names (see thresholds.zeroTolerance). */
   assertionFailures: string[];
   /** Leaked process/mount/netns/cgroup/run-dir/scratch/snapshot/record/ACL entries. */
@@ -33,7 +43,10 @@ export interface RunResult {
 export interface RecoveryResult {
   runtime: Runtime;
   kind: 'cancellation' | 'stale-recovery';
+  success: boolean;
   durationMs: number;
+  /** Failed lifecycle assertions, including cleanup and isolation checks. */
+  assertionFailures: string[];
   residue: string[];
 }
 
@@ -47,6 +60,14 @@ export interface BenchmarkResults {
 type Percentiles = { p50?: number; p95?: number };
 
 export interface Thresholds {
+  baseline: Record<string, string>;
+  approvedRunnerClasses: string[];
+  matrix: {
+    workloads: string[];
+    modes: Mode[];
+    caches: CacheState[];
+    resourceProfiles: ResourceProfile[];
+  };
   sample: {
     minSequentialRunsPerLaneRuntime: number;
     minConcurrentRunsPerLaneRuntime: number;
@@ -90,10 +111,48 @@ export function percentile(values: number[], p: number): number {
   return sorted[Math.min(sorted.length, Math.max(1, rank)) - 1];
 }
 
-const METRICS = ['startupMs', 'endToEndMs', 'cleanupMs', 'peakMemoryMiB', 'scratchMiB', 'peakPids', 'cpuSeconds'] as const;
+const METRICS = [
+  'artifactPreflightMs',
+  'startupMs',
+  'firstWorkloadMs',
+  'endToEndMs',
+  'cleanupMs',
+  'peakMemoryMiB',
+  'scratchMiB',
+  'hostDiskMiB',
+  'peakPids',
+  'cpuSeconds',
+  'apiProxyRequests',
+  'inputTokens',
+  'outputTokens',
+] as const;
 
-function lanes(runs: RunResult[]): string[] {
-  return [...new Set(runs.map((r) => `${r.workload}/${r.mode}`))].sort();
+interface Lane {
+  workload: string;
+  mode: Mode;
+  cache: CacheState;
+  resourceProfile: ResourceProfile;
+  key: string;
+}
+
+function laneKey(lane: Pick<RunResult, 'workload' | 'mode' | 'cache' | 'resourceProfile'>): string {
+  return `${lane.workload}/${lane.mode}/${lane.cache}/${lane.resourceProfile}`;
+}
+
+function lanes(thresholds: Thresholds): Lane[] {
+  return thresholds.matrix.workloads.flatMap((workload) =>
+    thresholds.matrix.modes.flatMap((mode) =>
+      thresholds.matrix.caches.flatMap((cache) =>
+        thresholds.matrix.resourceProfiles.map((resourceProfile) => ({
+          workload,
+          mode,
+          cache,
+          resourceProfile,
+          key: laneKey({ workload, mode, cache, resourceProfile }),
+        })),
+      ),
+    ),
+  );
 }
 
 function metricValue(summary: Record<string, number>, key: string): number | undefined {
@@ -119,41 +178,89 @@ export function evaluate(results: BenchmarkResults, thresholds: Thresholds): Eva
   const runtimes: Runtime[] = ['nvx', 'cloud-hypervisor'];
   const abs = thresholds.absolute;
   const rel = thresholds.relativeToCloudHypervisor;
+  const requiredLanes = lanes(thresholds);
+  const requiredLaneKeys = new Set(requiredLanes.map((lane) => lane.key));
+
+  if (!results.runnerClass || !thresholds.approvedRunnerClasses.includes(results.runnerClass)) {
+    unmetGates.push(`runner class ${JSON.stringify(results.runnerClass)} is not approved`);
+  }
+  for (const [key, expected] of Object.entries(thresholds.baseline)) {
+    const actual = results.versions?.[key];
+    if (!expected) {
+      unmetGates.push(`threshold baseline is missing value for ${key}`);
+    } else if (!actual || actual !== expected) {
+      unmetGates.push(`baseline ${key} ${JSON.stringify(actual)} does not match ${JSON.stringify(expected)}`);
+    }
+  }
 
   // Zero-tolerance gates apply to every run, including failed runs.
   for (const run of results.runs) {
-    for (const name of run.assertionFailures) {
-      if (run.runtime === 'nvx' || thresholds.zeroTolerance.includes(name)) {
-        blockers.push(`${run.runtime}/${run.workload}/${run.mode}: assertion failed: ${name}`);
+    const key = laneKey(run);
+    if (!requiredLaneKeys.has(key)) {
+      unmetGates.push(`${run.runtime}:${key}: lane is not in the required benchmark matrix`);
+    }
+    if (typeof run.success !== 'boolean') {
+      unmetGates.push(`${run.runtime}:${key}: missing success status`);
+    }
+    for (const metric of METRICS) {
+      const value = run[metric];
+      if (!Number.isFinite(value) || value < 0) {
+        unmetGates.push(`${run.runtime}:${key}: invalid or missing ${metric}`);
       }
     }
-    if (run.residue.length > 0) {
-      blockers.push(`${run.runtime}/${run.workload}/${run.mode}: residue: ${run.residue.join(',')}`);
+    if (!Array.isArray(run.assertionFailures)) {
+      blockers.push(`${run.runtime}/${key}: assertion results missing`);
+    }
+    for (const name of Array.isArray(run.assertionFailures) ? run.assertionFailures : []) {
+      if (run.runtime === 'nvx' || thresholds.zeroTolerance.includes(name)) {
+        blockers.push(`${run.runtime}/${key}: assertion failed: ${name}`);
+      }
+    }
+    if (!Array.isArray(run.residue)) {
+      blockers.push(`${run.runtime}/${key}: residue results missing`);
+    } else if (run.residue.length > 0) {
+      blockers.push(`${run.runtime}/${key}: residue: ${run.residue.join(',')}`);
     }
   }
   for (const rec of results.recoveries) {
-    if (rec.residue.length > 0) {
+    if (!rec.success) {
+      blockers.push(`${rec.runtime}/${rec.kind}: recovery failed`);
+    }
+    if (!Array.isArray(rec.assertionFailures)) {
+      blockers.push(`${rec.runtime}/${rec.kind}: assertion results missing`);
+    }
+    for (const name of Array.isArray(rec.assertionFailures) ? rec.assertionFailures : []) {
+      blockers.push(`${rec.runtime}/${rec.kind}: assertion failed: ${name}`);
+    }
+    if (!Number.isFinite(rec.durationMs) || rec.durationMs < 0) {
+      unmetGates.push(`${rec.runtime}:${rec.kind}: invalid or missing durationMs`);
+    }
+    if (!Array.isArray(rec.residue)) {
+      blockers.push(`${rec.runtime}/${rec.kind}: residue results missing`);
+    } else if (rec.residue.length > 0) {
       blockers.push(`${rec.runtime}/${rec.kind}: residue: ${rec.residue.join(',')}`);
     }
   }
 
-  const allLanes = lanes(results.runs);
-  for (const lane of allLanes) {
-    const [workload, mode] = lane.split('/');
+  for (const lane of requiredLanes) {
+    const { workload, mode, cache, resourceProfile, key } = lane;
     const minRuns = mode === 'concurrent'
       ? thresholds.sample.minConcurrentRunsPerLaneRuntime
       : thresholds.sample.minSequentialRunsPerLaneRuntime;
     for (const runtime of runtimes) {
-      const laneRuns = results.runs.filter((r) => r.runtime === runtime && r.workload === workload && r.mode === mode);
+      const laneRuns = results.runs.filter((r) =>
+        r.runtime === runtime && r.workload === workload && r.mode === mode &&
+        r.cache === cache && r.resourceProfile === resourceProfile,
+      );
       const s = summarize(laneRuns);
-      summary[`${runtime}:${lane}`] = s;
+      summary[`${runtime}:${key}`] = s;
       if (laneRuns.length < minRuns) {
-        unmetGates.push(`${runtime}:${lane}: sample size ${laneRuns.length} < ${minRuns}`);
+        unmetGates.push(`${runtime}:${key}: sample size ${laneRuns.length} < ${minRuns}`);
         continue;
       }
       if (runtime === 'nvx') {
         if (s.successRate < abs.minSuccessRate) {
-          unmetGates.push(`nvx:${lane}: success rate ${s.successRate.toFixed(3)} < ${abs.minSuccessRate}`);
+          unmetGates.push(`nvx:${key}: success rate ${s.successRate.toFixed(3)} < ${abs.minSuccessRate}`);
         }
         const limits: Array<[string, Percentiles]> = [
           ['startupMs', abs.startupMs],
@@ -168,21 +275,26 @@ export function evaluate(results: BenchmarkResults, thresholds: Thresholds): Eva
             const max = limit[p];
             const value = metricValue(s, `${metric}.${p}`);
             if (max !== undefined && (value === undefined || !(value <= max))) {
-              unmetGates.push(`nvx:${lane}: ${metric}.${p} ${value} > ${max}`);
+              unmetGates.push(`nvx:${key}: ${metric}.${p} ${value} > ${max}`);
             }
           }
         }
       }
     }
-    checkRelative(lane, summary, rel, unmetGates);
+    checkRelative(key, summary, rel, unmetGates);
   }
-  if (allLanes.length === 0) unmetGates.push('no benchmark runs supplied');
+  if (results.runs.length === 0) unmetGates.push('no benchmark runs supplied');
 
   for (const runtime of runtimes) {
     for (const kind of ['cancellation', 'stale-recovery'] as const) {
       const samples = results.recoveries.filter((r) => r.runtime === runtime && r.kind === kind);
       if (samples.length < thresholds.sample.minRecoverySamplesPerKindRuntime) {
         unmetGates.push(`${runtime}:${kind}: sample size ${samples.length} < ${thresholds.sample.minRecoverySamplesPerKindRuntime}`);
+        continue;
+      }
+      if (samples.some((sample) => !sample.success || !Array.isArray(sample.assertionFailures) ||
+        sample.assertionFailures.length > 0 || !Array.isArray(sample.residue) || sample.residue.length > 0 ||
+        !Number.isFinite(sample.durationMs) || sample.durationMs < 0)) {
         continue;
       }
       if (runtime !== 'nvx') continue;

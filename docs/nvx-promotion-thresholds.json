@@ -4,7 +4,16 @@
     "ghAw": "v0.91.9",
     "awf": "v0.28.54",
     "nvxWorkflowUpgrade": "github/gh-aw-firewall#9886",
-    "muslGuestAssetSelection": "github/gh-aw#67915"
+    "muslGuestAssetSelection": "github/gh-aw#67915",
+    "nvxArtifact": "microsoft/nvx@v0.1.0-dev.be859aa77ffa",
+    "cloudHypervisorArtifact": "Cloud Hypervisor v53.0"
+  },
+  "approvedRunnerClasses": ["ubuntu-24.04"],
+  "matrix": {
+    "workloads": ["build-test", "copilot-inference"],
+    "modes": ["sequential", "concurrent"],
+    "caches": ["cold", "warm"],
+    "resourceProfiles": ["minimum", "default", "elevated"]
   },
   "sample": {
     "minSequentialRunsPerLaneRuntime": 30,
