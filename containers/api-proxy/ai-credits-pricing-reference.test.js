@@ -35,14 +35,21 @@ function compareCuratedPricing(curated) {
   return { mismatches, unreferencedModels };
 }
 
+function assertCuratedPricingMatchesReference(curated) {
+  const { mismatches, unreferencedModels } = compareCuratedPricing(curated);
+  if (mismatches.length > 0) {
+    throw new Error(`Curated AI-credit prices differ from reference:\n${mismatches.join('\n')}`);
+  }
+  return unreferencedModels;
+}
+
 describe('curated AI-credit pricing reference', () => {
   it('every curated entry matches the reference price', () => {
-    const { mismatches, unreferencedModels } = compareCuratedPricing(curatedPricing);
+    const unreferencedModels = assertCuratedPricingMatchesReference(curatedPricing);
 
     if (unreferencedModels.length > 0) {
       console.log(`Curated models without reference prices: ${unreferencedModels.join(', ')}`);
     }
-    expect(mismatches).toEqual([]);
   });
 
   it('reports the model and rate when a curated entry differs from the reference', () => {
@@ -50,8 +57,8 @@ describe('curated AI-credit pricing reference', () => {
       ...curatedPricing,
       'claude-sonnet-5': { ...curatedPricing['claude-sonnet-5'], output: 15 },
     };
-    const { mismatches } = compareCuratedPricing(changedPricing);
 
-    expect(mismatches).toContain('claude-sonnet-5 output: curated 15, reference 10');
+    expect(() => assertCuratedPricingMatchesReference(changedPricing))
+      .toThrow('claude-sonnet-5 output: curated 15, reference 10');
   });
 });
