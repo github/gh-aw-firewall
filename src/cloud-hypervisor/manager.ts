@@ -56,6 +56,7 @@ import {
 } from './confinement-verifier';
 import { startCloudHypervisor } from './manager-start';
 import { stopCloudHypervisor } from './manager-stop';
+import { HostPreflightCleanupError } from './host-preflight-progress';
 import { VirtiofsdManager, type VirtiofsdDevice } from './virtiofsd';
 import {
   DurableCloudHypervisorCleanupRegistry,
@@ -236,6 +237,7 @@ export class CloudHypervisorManager {
   private readonly guestStdoutAudit = this.guestStdoutCapture.writable();
   private readonly guestStderrAudit = this.guestStderrCapture.writable();
   private readonly workloadProfile: CloudHypervisorWorkloadProfile;
+  private enclaveDebugDiagnosticsCollected = false;
 
   get guestIp(): string | undefined {
     return this.networkPlan?.guestIp;
@@ -288,6 +290,11 @@ export class CloudHypervisorManager {
     this.workloadProfile = isWorkloadProfile(profileOrNetworkConfig)
       ? profile
       : snapshotCloudHypervisorWorkloadProfile(profile);
+    if (profile.kind !== 'primary-agent' && profile.rawOutput === 'capture'
+      && (!config.enclaveDebugPublic || !dependencies.enclaveDebugArtifactDirectory
+        || !allowTrustedEnclaveExecution)) {
+      throw new Error('Raw enclave output requires host-authorized public fixture debug artifacts');
+    }
     this.paths = (dependencies.createRunPaths ?? createCloudHypervisorRunPaths)(
       config.cloudHypervisorBinary,
       runId,
@@ -389,43 +396,68 @@ export class CloudHypervisorManager {
   }
 
   async stop(options: { preserve?: boolean; beforeCleanup?: () => Promise<void> } = {}): Promise<void> {
-    return stopCloudHypervisor({
-      config: this.config,
-      dependencies: this.dependencies,
-      paths: this.paths,
-      process: this.process,
-      client: this.client,
-      network: this.network,
-      networkPlan: this.networkPlan,
-      rootfsPreparer: this.rootfsPreparer,
-      virtiofsd: this.virtiofsd,
-      fsDevices: this.fsDevices,
-      guest: this.guest,
-      cgroup: this.cgroup,
-      cleanupRecord: this.cleanupRecord,
-      deferCleanupRecordCompletion: Boolean(
-        this.verifiedArtifacts?.artifactSnapshotDirectory,
-      ),
-      vmmIdentity: this.vmmIdentity,
-      instanceStarted: this.instanceStarted,
-      lastVmInfo: this.lastVmInfo,
-      lastVmCounters: this.lastVmCounters,
-      ...options,
-      setProcess: (value) => { this.process = value; },
-      setClient: (value) => { this.client = value; },
-      setNetwork: (value) => { this.network = value; },
-      setNetworkPlan: (value) => { this.networkPlan = value; },
-      setRootfsPreparer: (value) => { this.rootfsPreparer = value; },
-      setVirtiofsd: (value) => { this.virtiofsd = value; },
-      setFsDevices: (value) => { this.fsDevices = value; },
-      setGuest: (value) => { this.guest = value; },
-      setCgroup: (value) => { this.cgroup = value; },
-      setVmmIdentity: (value) => { this.vmmIdentity = value; },
-      setCleanupRecordReady: (value) => { this.cleanupRecordReady = value; },
-      setInstanceStarted: (value) => { this.instanceStarted = value; },
-      setLastVmInfo: (value) => { this.lastVmInfo = value; },
-      setLastVmCounters: (value) => { this.lastVmCounters = value; },
-    });
+    const debugDirectory = this.workloadProfile.kind !== 'primary-agent'
+      && this.workloadProfile.rawOutput === 'capture'
+      ? this.dependencies.enclaveDebugArtifactDirectory
+      : undefined;
+    const collectDebug = async (): Promise<void> => {
+      if (!debugDirectory || this.enclaveDebugDiagnosticsCollected) return;
+      await this.collectDiagnostics(debugDirectory);
+      this.enclaveDebugDiagnosticsCollected = true;
+    };
+    try {
+      await stopCloudHypervisor({
+        config: this.config,
+        dependencies: this.dependencies,
+        paths: this.paths,
+        process: this.process,
+        client: this.client,
+        network: this.network,
+        networkPlan: this.networkPlan,
+        rootfsPreparer: this.rootfsPreparer,
+        virtiofsd: this.virtiofsd,
+        fsDevices: this.fsDevices,
+        guest: this.guest,
+        cgroup: this.cgroup,
+        cleanupRecord: this.cleanupRecord,
+        deferCleanupRecordCompletion: Boolean(
+          this.verifiedArtifacts?.artifactSnapshotDirectory,
+        ),
+        vmmIdentity: this.vmmIdentity,
+        instanceStarted: this.instanceStarted,
+        lastVmInfo: this.lastVmInfo,
+        lastVmCounters: this.lastVmCounters,
+        ...options,
+        ...(debugDirectory ? {
+          beforeCleanup: async () => {
+            await collectDebug();
+            await options.beforeCleanup?.();
+          },
+        } : {}),
+        setProcess: (value) => { this.process = value; },
+        setClient: (value) => { this.client = value; },
+        setNetwork: (value) => { this.network = value; },
+        setNetworkPlan: (value) => { this.networkPlan = value; },
+        setRootfsPreparer: (value) => { this.rootfsPreparer = value; },
+        setVirtiofsd: (value) => { this.virtiofsd = value; },
+        setFsDevices: (value) => { this.fsDevices = value; },
+        setGuest: (value) => { this.guest = value; },
+        setCgroup: (value) => { this.cgroup = value; },
+        setVmmIdentity: (value) => { this.vmmIdentity = value; },
+        setCleanupRecordReady: (value) => { this.cleanupRecordReady = value; },
+        setInstanceStarted: (value) => { this.instanceStarted = value; },
+        setLastVmInfo: (value) => { this.lastVmInfo = value; },
+        setLastVmCounters: (value) => { this.lastVmCounters = value; },
+      });
+    } catch (error) {
+      // A failed termination can stop cleanup before its evidence hook.
+      try {
+        await collectDebug();
+      } catch (evidenceError) {
+        throw new HostPreflightCleanupError(error, evidenceError);
+      }
+      throw error;
+    }
   }
 
   async completeCleanupRecord(): Promise<void> {

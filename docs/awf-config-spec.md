@@ -327,6 +327,7 @@ AWF settings MAY be supplied via config files, including stdin (`--config -`).
 - `cloudHypervisor.vcpuCount` → `--cloud-hypervisor-vcpus`
 - `cloudHypervisor.memoryMib` → `--cloud-hypervisor-memory-mib`
 - `cloudHypervisor.scratchMib` → `--cloud-hypervisor-scratch-mib` *(optional positive integer MiB; bounds primary guest `/tmp` with tmpfs before workload startup, leaving fixed enclave budgets unchanged)*
+- `cloudHypervisor.enclaveDebugPublic` → `--cloud-hypervisor-enclave-debug-public` *(default off; host-only bounded raw enclave artifacts for positively verified, static public fixtures; see [public enclave debugging](cloud-hypervisor-foundation.md#public-fixture-enclave-debugging))*
 - `cloudHypervisor.apiTimeoutMs` → `--cloud-hypervisor-api-timeout-ms`
 - `cloudHypervisor.sha256.cloudHypervisor` → `--cloud-hypervisor-binary-sha256` *(development bypass only)*
 - `cloudHypervisor.sha256.virtiofsd` → `--cloud-hypervisor-virtiofsd-sha256`

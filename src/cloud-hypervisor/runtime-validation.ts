@@ -3,6 +3,7 @@ import type { CloudHypervisorOptions, WrapperConfig } from '../types';
 import { CLOUD_HYPERVISOR_MOUNT_POLICIES } from '../types/runtime-options';
 import { assertGithubHostedRunnerEligibility } from './host-eligibility';
 import { isCloudHypervisorScriptAcceptanceWorkflow } from '../enclave/cloud-hypervisor-script-acceptance';
+import { validatePublicEnclaveDebug } from '../enclave/public-debug';
 
 /**
  * Explicit, fail-closed compatibility guards for the Cloud Hypervisor
@@ -43,6 +44,8 @@ function usesCloudHypervisorAgentRuntime(config: Pick<WrapperConfig, 'enclaves'>
 }
 
 export function assertCloudHypervisorSelection(config: WrapperConfig): void {
+  const debugErrors = validatePublicEnclaveDebug(config);
+  if (debugErrors.length) throw new Error(debugErrors.join('; '));
   const required = requiresCloudHypervisorInfrastructure(config);
   if (config.cloudHypervisor && !required) {
     throw new Error(

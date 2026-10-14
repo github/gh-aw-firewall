@@ -127,6 +127,7 @@ export function mapAwfFileConfigToCliOptions(config: AwfFileConfig): Record<stri
     runnerToolCachePath: config.container?.runnerToolCachePath,
     mount: config.container?.mounts,
     cloudHypervisorPreview: config.cloudHypervisor?.previewEnabled,
+    cloudHypervisorEnclaveDebugPublic: config.cloudHypervisor?.enclaveDebugPublic,
     cloudHypervisorMountPolicy: config.cloudHypervisor?.mountPolicy,
     cloudHypervisorBinary: config.cloudHypervisor?.cloudHypervisorBinary,
     cloudHypervisorKernel: config.cloudHypervisor?.kernelPath,

@@ -27,6 +27,7 @@ import type { EnclaveDynamicDelegationHandoffResolution } from './dynamic-delega
 import { normalizePrivateRepositoryKey } from '../bounded-execution/repository-staging';
 import { findDockerSocketExposingMount } from './mount-policy';
 import { isCloudHypervisorScriptAcceptanceWorkflow } from './cloud-hypervisor-script-acceptance';
+import { validatePublicEnclaveDebug } from './public-debug';
 
 const RUNTIMES = new Set(['docker', 'gvisor', 'sbx', 'cloud-hypervisor']);
 const ENGINES = new Set(['copilot', 'claude', 'codex', 'gemini']);
@@ -165,9 +166,10 @@ export function validateEnclavesStructure(
   options: ValidateEnclavesOptions = {},
 ): string[] {
   const enclaves = config.enclaves;
-  if (!enclaves?.enabled) return [];
+  const debugErrors = validatePublicEnclaveDebug(config);
+  if (!enclaves?.enabled) return debugErrors;
 
-  const errors: string[] = [];
+  const errors: string[] = [...debugErrors];
   if (config.enableDind) {
     errors.push(
       'enclaves cannot be combined with enableDind: exposing the Docker socket to the primary ' +

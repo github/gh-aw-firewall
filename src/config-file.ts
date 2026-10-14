@@ -187,6 +187,7 @@ export interface AwfFileConfig {
     artifactManifestBundlePath?: string;
     artifactReleaseTag?: string;
     developmentAllowUnattestedArtifacts?: boolean;
+    enclaveDebugPublic?: boolean;
     vcpuCount?: number;
     memoryMib?: number;
     scratchMib?: number;

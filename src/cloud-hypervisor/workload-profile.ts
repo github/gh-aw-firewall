@@ -84,7 +84,8 @@ export interface CloudHypervisorScriptEnclaveProfile
   readonly exportPlan: CloudHypervisorEnclaveExportPlan;
   readonly guest: CloudHypervisorManagerGuestConfig;
   readonly resources: CloudHypervisorEnclaveResourceProfile;
-  readonly rawOutput: 'discard';
+  readonly rawOutput: 'capture' | 'discard';
+  readonly publicFixtureDebug?: true;
 }
 
 export interface CloudHypervisorAgentEnclaveProfile
@@ -99,7 +100,8 @@ export interface CloudHypervisorAgentEnclaveProfile
   readonly exportPlan: CloudHypervisorEnclaveExportPlan;
   readonly guest: CloudHypervisorManagerGuestConfig;
   readonly resources: CloudHypervisorEnclaveResourceProfile;
-  readonly rawOutput: 'discard';
+  readonly rawOutput: 'capture' | 'discard';
+  readonly publicFixtureDebug?: true;
 }
 
 export type CloudHypervisorWorkloadProfile =
@@ -159,6 +161,7 @@ export function createPrimaryAgentCloudHypervisorProfile(options: {
 }
 
 export function createScriptEnclaveCloudHypervisorProfile(options: {
+  readonly publicFixtureDebug?: true;
   readonly enclaveId: string;
   readonly invocationId: string;
   readonly guest: Omit<CloudHypervisorManagerGuestConfig, 'exports' | 'workspaceMount'>;
@@ -184,11 +187,13 @@ export function createScriptEnclaveCloudHypervisorProfile(options: {
       }),
       workspaceMount: null,
     },
-    rawOutput: 'discard',
+    rawOutput: options.publicFixtureDebug ? 'capture' : 'discard',
+    ...(options.publicFixtureDebug ? { publicFixtureDebug: true as const } : {}),
   }) as CloudHypervisorScriptEnclaveProfile;
 }
 
 export function createAgentEnclaveCloudHypervisorProfile(options: {
+  readonly publicFixtureDebug?: true;
   readonly enclaveId: string;
   readonly invocationId: string;
   readonly guest: Omit<CloudHypervisorManagerGuestConfig, 'exports' | 'workspaceMount'>;
@@ -224,7 +229,8 @@ export function createAgentEnclaveCloudHypervisorProfile(options: {
       }),
       workspaceMount: null,
     },
-    rawOutput: 'discard',
+    rawOutput: options.publicFixtureDebug ? 'capture' : 'discard',
+    ...(options.publicFixtureDebug ? { publicFixtureDebug: true as const } : {}),
   }) as CloudHypervisorAgentEnclaveProfile;
 }
 
@@ -246,7 +252,12 @@ export function validateCloudHypervisorWorkloadProfile(
     'exportPlan',
     'rawOutput',
   ];
-  if (profile.kind !== 'primary-agent') allowedProfileKeys.push('resources');
+  if (profile.kind !== 'primary-agent') {
+    allowedProfileKeys.push('resources', 'publicFixtureDebug');
+    if (profile.publicFixtureDebug !== undefined && profile.publicFixtureDebug !== true) {
+      throw new Error('Invalid Cloud Hypervisor public fixture debug authorization');
+    }
+  }
   assertClosedObject(profile, allowedProfileKeys, 'workload profile');
   assertClosedObject(profile.identity, ['kind', 'ownerId', 'invocationId'], 'workload identity');
   assertSafeIdentity(profile.identity.ownerId, 'owner');
@@ -269,7 +280,7 @@ export function validateCloudHypervisorWorkloadProfile(
       if (
         !profile.identity.invocationId ||
         profile.network.mode !== 'none' ||
-        profile.rawOutput !== 'discard' ||
+        profile.rawOutput !== (profile.publicFixtureDebug === true ? 'capture' : 'discard') ||
         !sameResourceProfile(profile.resources, CLOUD_HYPERVISOR_ENCLAVE_RESOURCE_PROFILES.script)
       ) {
         throw new Error('Contradictory Cloud Hypervisor script-enclave workload profile');
@@ -281,7 +292,7 @@ export function validateCloudHypervisorWorkloadProfile(
       if (
         !profile.identity.invocationId ||
         profile.network.mode !== 'enclave-agent' ||
-        profile.rawOutput !== 'discard' ||
+        profile.rawOutput !== (profile.publicFixtureDebug === true ? 'capture' : 'discard') ||
         !sameResourceProfile(profile.resources, CLOUD_HYPERVISOR_ENCLAVE_RESOURCE_PROFILES.agent)
       ) {
         throw new Error('Contradictory Cloud Hypervisor agent-enclave workload profile');

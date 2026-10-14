@@ -18,6 +18,7 @@ describe('cli-options program', () => {
     program.setOptionValueWithSource('mount', [], 'default');
     program.setOptionValueWithSource('cloudHypervisorMountPolicy', undefined, 'default');
     program.setOptionValueWithSource('cloudHypervisorScratchMib', undefined, 'default');
+    program.setOptionValueWithSource('cloudHypervisorEnclaveDebugPublic', undefined, 'default');
   });
 
   it('exposes the expected metadata', () => {
@@ -81,6 +82,13 @@ describe('cli-options program', () => {
       { from: 'node' },
     );
     expect(program.opts().cloudHypervisorScratchMib).toBe('96');
+  });
+
+  it('keeps public enclave debugging opt-in', () => {
+    program.parse(['node', 'awf', '--', 'true'], { from: 'node' });
+    expect(program.opts().cloudHypervisorEnclaveDebugPublic).toBeUndefined();
+    program.parse(['node', 'awf', '--cloud-hypervisor-enclave-debug-public', '--', 'true'], { from: 'node' });
+    expect(program.opts().cloudHypervisorEnclaveDebugPublic).toBe(true);
   });
 
   it('parses vertex API routing flags', () => {

@@ -10,6 +10,7 @@ import { markHostPreflightError } from '../cloud-hypervisor/host-preflight-progr
 import type { CloudHypervisorDirectoryExport } from '../cloud-hypervisor/exports';
 import { resolveEnclavePaths } from './paths';
 import { HOST_EXECUTOR_STORAGE_ROOT } from './host-executor-journal';
+import { ENCLAVE_DEBUG_ARTIFACT_ROOT } from './public-debug';
 
 interface VisiblePath {
   label: string;
@@ -225,6 +226,7 @@ export function assertCloudHypervisorEnclaveExportsIsolated(
     paths.hostExecutorJournalDir,
     path.join(path.dirname(paths.hostExecutorJournalDir), 'host-invocations'),
     HOST_EXECUTOR_STORAGE_ROOT,
+    ENCLAVE_DEBUG_ARTIFACT_ROOT,
   ].map(resolvePathThroughExistingAncestor);
   for (const entry of directoryExports) {
     const source = resolvePathThroughExistingAncestor(entry.source);

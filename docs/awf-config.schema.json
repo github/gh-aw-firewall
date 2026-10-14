@@ -1114,6 +1114,10 @@
           "default": 512,
           "description": "Guest memory in MiB."
         },
+        "enclaveDebugPublic": {
+          "type": "boolean",
+          "description": "Opt in to bounded raw enclave logs in protected host-only artifacts. Requires static public repositories verified with unauthenticated GitHub metadata; rejects dynamic/private scopes and unattested artifacts."
+        },
         "scratchMib": {
           "type": "integer",
           "minimum": 1,

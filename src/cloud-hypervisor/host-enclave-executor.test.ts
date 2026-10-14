@@ -123,14 +123,17 @@ describe('readBoundedCloudHypervisorEnclaveResult', () => {
 
   describe('CloudHypervisorHostEnclaveExecutorBackend', () => {
     it.each([
-      { role: 'script', timeoutMs: 60_000, startupDelayMs: 0, expectedOutcome: 'success' },
-      { role: 'agent', timeoutMs: 60_000, startupDelayMs: 0, expectedOutcome: 'success' },
-      { role: 'script', timeoutMs: 1_000, startupDelayMs: 1_500, expectedOutcome: 'timeout' },
+      { role: 'script', timeoutMs: 60_000, startupDelayMs: 0, expectedOutcome: 'success', publicDebug: false },
+      { role: 'agent', timeoutMs: 60_000, startupDelayMs: 0, expectedOutcome: 'success', publicDebug: false },
+      { role: 'script', timeoutMs: 1_000, startupDelayMs: 1_500, expectedOutcome: 'timeout', publicDebug: false },
+      { role: 'script', timeoutMs: 60_000, startupDelayMs: 0, expectedOutcome: 'success', publicDebug: true },
+      { role: 'agent', timeoutMs: 60_000, startupDelayMs: 0, expectedOutcome: 'success', publicDebug: true },
     ] as const)('stages a static $role invocation and enforces its $expectedOutcome deadline', async ({
       role,
       timeoutMs,
       startupDelayMs,
       expectedOutcome,
+      publicDebug,
     }) => {
       // Invocation trust rejects /tmp; the home fixture also keeps Unix sockets short.
       const scratch = await fs.mkdtemp(path.join(os.homedir(), '.awf-backend-'));
@@ -241,6 +244,7 @@ describe('readBoundedCloudHypervisorEnclaveResult', () => {
         vcpuCount: 1,
         memoryMib: 768,
         apiTimeoutMs: 30_000,
+        ...(publicDebug ? { enclaveDebugPublic: true } : {}),
       };
       const uid = process.getuid?.() || 1000;
       const gid = process.getgid?.() || 1000;
@@ -266,6 +270,7 @@ describe('readBoundedCloudHypervisorEnclaveResult', () => {
         workDir: root,
         preflight,
         enclaveArtifacts: artifacts,
+        ...(publicDebug ? { publicDebugArtifactDirectory: '/protected/cloud-hypervisor' } : {}),
         ...(role === 'agent' ? { agentPolicies: { [entryId]: agentPolicy } } : {}),
       };
       const dependencies: Partial<HostEnclaveExecutorDependencies> = {
@@ -307,10 +312,17 @@ describe('readBoundedCloudHypervisorEnclaveResult', () => {
         unmount: async () => { unmounted = true; },
         chown: async (filePathValue) => { chownedPaths.push(filePathValue.toString()); },
         resolveIdentity: () => ({ uid, gid }),
-        createManager: (managerConfig, _workDir, profile) => {
+        createManager: (managerConfig, _workDir, profile, _runId, _artifacts, managerDependencies) => {
           managerBinary = managerConfig.cloudHypervisorBinary;
           workloadProfile = profile;
           expect(profile.guest?.identity).toEqual({ uid: 65534, gid: 65534 });
+          expect(profile.rawOutput).toBe(publicDebug ? 'capture' : 'discard');
+          if (publicDebug) {
+            expect(managerDependencies?.enclaveDebugArtifactDirectory).toMatch(
+              /^\/protected\/cloud-hypervisor\/[a-f0-9]+$/,
+            );
+            expect(profile.guest?.exports.every((entry) => !entry.source.startsWith('/protected'))).toBe(true);
+          }
           return {
             start: async () => {
               if (managerStartError) throw Object.assign(new Error('PRIVATE_LAUNCH_SENTINEL Bearer token'), { code: 'EPERM' });
@@ -593,6 +605,8 @@ describe('readBoundedCloudHypervisorEnclaveResult', () => {
           void _createManager;
           const defaultManagerBackend = new CloudHypervisorHostEnclaveExecutorBackend({
             ...backendOptions,
+            config: { ...config, enclaveDebugPublic: false },
+            publicDebugArtifactDirectory: undefined,
             managerDependencies: {
               ...cloudHypervisorManagerTestHelpers.defaultDependencies,
               cleanupRegistry,

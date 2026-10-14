@@ -422,11 +422,21 @@ invocation tombstones survive.
 
 Audit records contain opaque invocation/resource identifiers, policy and
 artifact versions, timing and resource buckets, terminal state, revocation, and
-cleanup state. They never preserve raw repository-derived guest stdout or
+cleanup state. By default they never preserve raw repository-derived guest stdout or
 stderr—not even in a private diagnostic tail. The live stream is filtered and
 discarded after byte count and digest accounting; free-form diagnostics are
 redacted. This is stricter than primary-agent microVM diagnostics because an
 enclave result crosses a private-repository boundary.
+
+The host-only `cloudHypervisor.enclaveDebugPublic` opt-in is a narrowly scoped
+exception for static public test fixtures, not private-repository execution.
+It requires unauthenticated positive GitHub visibility verification, rejects
+dynamic/private and conflicting configurations, and retains bounded raw tails
+only in mount-isolated host artifacts with private permissions. No raw output
+enters broker responses or primary-agent results; all invocation, network,
+credential, and resource limits remain unchanged. See
+[public-fixture debugging](../cloud-hypervisor-foundation.md#public-fixture-enclave-debugging)
+for bounds, lifecycle semantics, usage, and disclosure risks.
 
 ## Compatibility, gates, and non-goals
 

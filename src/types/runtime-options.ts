@@ -54,6 +54,8 @@ export interface CloudHypervisorOptions {
   artifactManifestBundlePath?: string;
   artifactReleaseTag?: string;
   developmentAllowUnattestedArtifacts?: boolean;
+  /** Host-only raw diagnostics for statically configured, verified public enclave fixtures. */
+  enclaveDebugPublic?: boolean;
   vcpuCount: number;
   memoryMib: number;
   /** Optional primary guest /tmp tmpfs capacity in MiB; enclave limits remain fixed. */

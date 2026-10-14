@@ -98,6 +98,17 @@ describe('Cloud Hypervisor configuration (foundation only)', () => {
     expect(validateAwfFileConfig({ cloudHypervisor: { scratchMib: 96 } })).toEqual([]);
   });
 
+  it('maps and validates host-only public enclave debug opt-in without enabling it by default', () => {
+    const options = mapAwfFileConfigToCliOptions({ cloudHypervisor: { enclaveDebugPublic: true } });
+    expect(options.cloudHypervisorEnclaveDebugPublic).toBe(true);
+    expect(buildCloudHypervisorConfig(options)?.enclaveDebugPublic).toBe(true);
+    expect(buildCloudHypervisorConfig({ cloudHypervisorPreview: true }))
+      .not.toHaveProperty('enclaveDebugPublic');
+    expect(buildCloudHypervisorConfig({ cloudHypervisorEnclaveDebugPublic: false })).toBeUndefined();
+    expect(validateAwfFileConfig({ cloudHypervisor: { enclaveDebugPublic: true } })).toEqual([]);
+    expect(validateAwfFileConfig({ cloudHypervisor: { enclaveDebugPublic: 'true' } })).not.toEqual([]);
+  });
+
   it.each([0, -1, 1.5, '', 'bad', Infinity, 4294967296])(
     'rejects invalid scratch bound %s from CLI and config file',
     (value) => {

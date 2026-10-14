@@ -294,6 +294,7 @@ function buildCloudHypervisorConfig(
   const selected = options.containerRuntime === 'cloud-hypervisor';
   const configured = options.cloudHypervisorPreview === true
     || options.cloudHypervisorDevelopmentAllowUnattestedArtifacts === true
+    || options.cloudHypervisorEnclaveDebugPublic === true
     || [
       'cloudHypervisorMountPolicy',
       'cloudHypervisorBinary',
@@ -337,6 +338,9 @@ function buildCloudHypervisorConfig(
     artifactReleaseTag: options.cloudHypervisorArtifactReleaseTag as string | undefined,
     developmentAllowUnattestedArtifacts:
       options.cloudHypervisorDevelopmentAllowUnattestedArtifacts === true,
+    ...(options.cloudHypervisorEnclaveDebugPublic !== undefined
+      ? { enclaveDebugPublic: options.cloudHypervisorEnclaveDebugPublic === true }
+      : {}),
     vcpuCount: parsePositiveIntegerOption(
       options.cloudHypervisorVcpus,
       '--cloud-hypervisor-vcpus',
