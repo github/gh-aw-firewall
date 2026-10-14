@@ -184,6 +184,41 @@ describe('NVX benchmark campaign evidence', () => {
     }
   });
 
+  it.each([
+    ['sequential build', 'nvx-phase4-campaign-runtime.sh'],
+    ['concurrent build', 'nvx-phase4-campaign-runtime.sh'],
+    ['Copilot', 'nvx-phase4-campaign-runtime.sh'],
+    ['cancellation', 'nvx-phase4-recovery-runtime.sh'],
+    ['stale recovery', 'nvx-phase4-recovery-runtime.sh'],
+  ])(
+    'keeps the Cloud Hypervisor %s sample on the post-provision runtime ACL baseline',
+    (_sample, harnessFile) => {
+      const workflowPath = path.join(
+        __dirname,
+        '..',
+        '..',
+        '.github',
+        'workflows',
+        'nvx-phase-4-benchmark.yml',
+      );
+      const workflow = yaml.load(fs.readFileSync(workflowPath, 'utf8')) as {
+        jobs: { execute: { steps: Array<{ name?: string; run?: string }> } };
+      };
+      const harness = fs.readFileSync(path.join(__dirname, harnessFile), 'utf8');
+      const cleanup = workflow.jobs.execute.steps.find(
+        (step) => step.name === 'Restore original host KVM ACL',
+      );
+      const nonCleanupSteps = workflow.jobs.execute.steps.filter((step) => step !== cleanup);
+
+      expect(harness).toContain('sudo cat "$AWF_PHASE4_KVM_RUNTIME_ACL_BASELINE"');
+      expect(harness).not.toContain('AWF_PHASE4_KVM_ACL_ORIGINAL_BASELINE');
+      expect(cleanup?.run).toContain('AWF_PHASE4_KVM_ACL_ORIGINAL_BASELINE');
+      expect(cleanup?.run).toContain('sudo setfacl --restore="$baseline"');
+      expect(nonCleanupSteps.every((step) =>
+        !step.run?.includes('sudo setfacl --restore="$baseline"'))).toBe(true);
+    },
+  );
+
   it('keeps the real canary bounded, serialized, matched, and promotion-ineligible', () => {
     const workflowPath = path.join(__dirname, '..', '..', '.github', 'workflows', 'nvx-phase-4-canary.yml');
     const source = fs.readFileSync(workflowPath, 'utf8');
