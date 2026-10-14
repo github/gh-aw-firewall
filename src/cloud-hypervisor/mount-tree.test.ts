@@ -371,7 +371,7 @@ describe('StagedHostMountTree', () => {
     );
   });
 
-  it('fails closed when a busy remount no longer has an owned mount', async () => {
+  it('fails closed when a busy remount no longer has exactly one owned record', async () => {
     const fake = mountTable();
     const real = fake.runTool.getMockImplementation() as (
       command: string,
@@ -387,8 +387,36 @@ describe('StagedHostMountTree', () => {
     const staged = tree(fake, plan([]));
 
     await expect(staged.stage()).rejects.toThrow(
-      /Refusing to retry busy remount for missing staged mount/,
+      /Refusing to reconcile busy remount.*found 0 exact-path records.*mount point is busy/,
     );
+  });
+
+  it('fails closed when a busy remount has stacked exact-path records', async () => {
+    const fake = mountTable();
+    const real = fake.runTool.getMockImplementation() as (
+      command: string,
+      args: readonly string[],
+    ) => Promise<void>;
+    const normalMountInfo = fake.readMountInfo.getMockImplementation() as () => Promise<string>;
+    let duplicateMountInfo = false;
+    fake.readMountInfo.mockImplementation(async () => {
+      const contents = await normalMountInfo();
+      return duplicateMountInfo ? `${contents}\n${contents}` : contents;
+    });
+    fake.runTool.mockImplementation(async (command: string, args: readonly string[]) => {
+      if (command === tools.mount && args[0] === '-o' && args[2] === ROOT) {
+        duplicateMountInfo = true;
+        throw new Error(`${ROOT}: mount point is busy`);
+      }
+      return real(command, args);
+    });
+    const staged = tree(fake, plan([]));
+
+    await expect(staged.stage()).rejects.toThrow(
+      /Refusing to reconcile busy remount.*found 2 exact-path records.*mount point is busy/,
+    );
+    expect(staged.hasResidue).toBe(false);
+    expect(fake.table.size).toBe(0);
   });
 
   it('stages a read-only export without overlays', async () => {

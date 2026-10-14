@@ -320,11 +320,8 @@ export class StagedHostMountTree {
         return;
       } catch (error) {
         if (!isBusyMountError(error)) throw error;
-        const entries = await this.readExactOwnedMounts(target);
-        if (
-          entries.length === 1 &&
-          remountOptionsSatisfied(entries[0], remountOptions)
-        ) return;
+        const entry = await this.readExactOwnedRemount(target, error);
+        if (remountOptionsSatisfied(entry, remountOptions)) return;
         if (attempt === BUSY_RETRY_ATTEMPTS) throw error;
         await dependencies.sleep(BUSY_RETRY_INTERVAL_MS);
       }
@@ -348,15 +345,19 @@ export class StagedHostMountTree {
     }
   }
 
-  private async readExactOwnedMounts(target: string): Promise<MountInfoEntry[]> {
+  private async readExactOwnedRemount(
+    target: string,
+    busyError: unknown,
+  ): Promise<MountInfoEntry> {
     const entries = await this.readExactMounts(target);
-    if (entries.length === 0) {
+    if (entries.length !== 1) {
       throw new Error(
-        `Refusing to retry busy remount for missing staged mount ${target}`,
+        `Refusing to reconcile busy remount for ambiguous staged mount ${target}: ` +
+        `found ${entries.length} exact-path records; original error: ${formatError(busyError)}`,
       );
     }
     this.assertOwnedTarget(target, 'remount');
-    return entries;
+    return entries[0];
   }
 
   private async readExactMounts(target: string): Promise<MountInfoEntry[]> {
