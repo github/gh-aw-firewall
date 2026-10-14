@@ -22,7 +22,7 @@ export async function deleteVmmIdentity(
   dependencies: ResolvedCleanupDependencies,
   record: CleanupRecord,
   tools: CloudHypervisorVmmIdentityToolPaths | undefined,
-  persist: () => Promise<void> = async () => undefined,
+  persist?: () => Promise<void>,
 ): Promise<void> {
   const identity = record.vmmIdentity;
   if (!identity) return;
@@ -57,7 +57,7 @@ async function prepareMissingVmmAclsLocked(
   identity: RecordedVmmIdentity,
   accessedAclPaths: readonly CloudHypervisorDevicePath[],
   tools: CloudHypervisorVmmIdentityToolPaths,
-  persist: () => Promise<void>,
+  persist?: () => Promise<void>,
 ): Promise<void> {
   for (const aclPath of accessedAclPaths) {
     if (identity.aclPaths.includes(aclPath)) continue;
@@ -81,7 +81,7 @@ async function prepareMissingVmmAclsLocked(
     identity.aclTemporaryUids ??= {};
     identity.aclTemporaryUids[aclPath] = temporaryUids;
     try {
-      await persist();
+      if (persist) await persist();
     } catch (error) {
       identity.aclPaths.pop();
       delete identity.aclBaselines[aclPath];

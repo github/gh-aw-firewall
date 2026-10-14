@@ -61,6 +61,11 @@ describe('DurableCloudHypervisorCleanupRegistry orchestration', () => {
     it('restores the exact /dev/kvm ACL baseline after run 38474851931 forced termination', async () => {
       const paths = harness.runPaths('vmm-account-recovery');
       const account = 'awfvmm-0123456789abcdef0123';
+      const recordPath = path.join(
+        harness.temporaryRoot,
+        'pending-cleanup',
+        `${paths.runId}.json`,
+      );
       let userExists = true;
       let groupExists = true;
       let aclExists = true;
@@ -91,6 +96,13 @@ describe('DurableCloudHypervisorCleanupRegistry orchestration', () => {
             : { exitCode: 2, stdout: '', stderr: '' };
         }
         if (command === tools.getfacl) {
+          if (args[args.length - 1] === '/dev/net/tun') {
+            return {
+              exitCode: 0,
+              stdout: 'user::rw-\ngroup::rw-\nmask::rw-\nother::rw-\n',
+              stderr: '',
+            };
+          }
           return {
             exitCode: 0,
             stdout: aclExists
@@ -111,7 +123,13 @@ describe('DurableCloudHypervisorCleanupRegistry orchestration', () => {
           ))).resolves.toBeUndefined();
           aclExists = false;
         }
-        if (command === tools.userdel) userExists = false;
+        if (command === tools.userdel) {
+          const persisted = JSON.parse(await fs.readFile(recordPath, 'utf8')) as {
+            vmmIdentity: { aclPaths: string[] };
+          };
+          expect(persisted.vmmIdentity.aclPaths).toEqual(['/dev/kvm', '/dev/net/tun']);
+          userExists = false;
+        }
         if (command === tools.groupdel) groupExists = false;
         return { exitCode: 0, stdout: '', stderr: '' };
       });
@@ -124,6 +142,8 @@ describe('DurableCloudHypervisorCleanupRegistry orchestration', () => {
       await handle.captureVmmIdentity({ name: account, uid: 23001, gid: 23002 });
       const baseline = ['user::rw-', 'group::rw-', 'mask::rw-', 'other::rw-'];
       await handle.prepareVmmAcl('/dev/kvm', baseline);
+      await handle.prepareVmmAcl('/dev/net/tun', baseline);
+      await handle.releaseVmmAcl('/dev/net/tun');
       harness.state.ownerStartTime = '2000';
 
       await registry.reapPending(tools.ip, '/usr/bin/umount', tools);
@@ -136,7 +156,7 @@ describe('DurableCloudHypervisorCleanupRegistry orchestration', () => {
       expect(run).toHaveBeenCalledWith(tools.groupdel, [account]);
       await expect(fs.access(snapshot)).rejects.toMatchObject({ code: 'ENOENT' });
       await expect(fs.access(
-        path.join(harness.temporaryRoot, 'pending-cleanup', `${paths.runId}.json`),
+        recordPath,
       )).rejects.toMatchObject({ code: 'ENOENT' });
     });
 
