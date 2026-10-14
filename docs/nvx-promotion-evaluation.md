@@ -212,7 +212,8 @@ runner patch versions are recorded per measured cell but do not define campaign
 compatibility. A different runner class or image family is rejected. All original
 run and recovery records must succeed with no assertion failures or residue. A
 1,000-minute pilot must cite the successful 100-minute workflow run ID; a full
-campaign must cite the successful 1,000-minute workflow run ID.
+campaign must cite the successful 1,000-minute workflow run ID. The standalone
+promotion evaluator applies the same runner-class and image-family gates.
 
 ### Initial 100-minute pilot dispatch
 
