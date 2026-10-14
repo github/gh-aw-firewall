@@ -256,8 +256,11 @@ describe('NVX one-shot execution adapter', () => {
   it('preserves guest exit 125, filters streamed output, and keeps bounded raw tails', async () => {
     const { root, request } = await fixture();
     const stdout = new PassThrough();
+    const stderr = new PassThrough();
     const presented: Buffer[] = [];
+    const presentedErrors: Buffer[] = [];
     stdout.on('data', (chunk: Buffer) => presented.push(chunk));
+    stderr.on('data', (chunk: Buffer) => presentedErrors.push(chunk));
     let hostEnvironment: NodeJS.ProcessEnv | undefined;
     const dependencies: NvxOneShotAdapterDependencies = {
       pythonBinary: '/usr/bin/python3',
@@ -282,6 +285,7 @@ describe('NVX one-shot execution adapter', () => {
       const result = await new NvxOneShotAdapter(dependencies).execute({
         ...request,
         stdout,
+        stderr,
         rawTailBytes: 8,
       });
 
@@ -294,6 +298,7 @@ describe('NVX one-shot execution adapter', () => {
       expect(Buffer.concat(presented).toString()).toContain(
         '[awf blocked workflow command] : :notice::unsafe',
       );
+      expect(Buffer.concat(presentedErrors).toString()).toBe('stderr-tail');
       expect(result.rawStdoutTail.length).toBe(8);
       expect(result.rawStderrTail.toString()).toBe('err-tail');
       expect(hostEnvironment?.GITHUB_TOKEN).toBeUndefined();
