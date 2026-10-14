@@ -9,6 +9,7 @@
     "cloudHypervisorArtifact": "Cloud Hypervisor v53.0"
   },
   "approvedRunnerClasses": ["ubuntu-24.04"],
+  "approvedRunnerImageFamilies": ["ubuntu24"],
   "matrix": {
     "workloads": ["build-test", "copilot-inference"],
     "modes": ["sequential", "concurrent"],

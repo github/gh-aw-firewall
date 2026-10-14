@@ -58,6 +58,7 @@ export interface AdapterInput {
   workflowRunId: string;
   jobId: string;
   workflowAttemptId: string;
+  runnerImage: string;
   rerunOf?: string;
   rerunReason?: string;
 }
@@ -74,6 +75,7 @@ export interface RecoveryAdapterInput {
   workflowRunId: string;
   jobId: string;
   workflowAttemptId: string;
+  runnerImage: string;
   rerunOf?: string;
   rerunReason?: string;
 }
@@ -318,7 +320,7 @@ export function buildMeasuredArtifact(
     resourceLimitsEnforced: assertionEvidence.resourceLimitsEnforced,
     sourceCommit: manifest.sourceCommit,
     runnerClass: manifest.runnerClass,
-    runnerImage: manifest.runnerImage,
+    runnerImage: input.runnerImage,
     guestImage: manifest.guestImage,
     versions: { ...manifest.versions },
     provenance,
@@ -338,7 +340,7 @@ export function buildMeasuredRecoveryArtifact(
   sample: RecoverySample,
   input: Pick<
     RecoveryAdapterInput,
-    'attempt' | 'workflowRunId' | 'jobId' | 'workflowAttemptId' | 'toolchainPath' | 'rerunOf' | 'rerunReason'
+    'attempt' | 'workflowRunId' | 'jobId' | 'workflowAttemptId' | 'runnerImage' | 'toolchainPath' | 'rerunOf' | 'rerunReason'
   >,
   measurement: RecoveryMeasurement,
   thresholds: Thresholds,
@@ -432,7 +434,7 @@ export function buildMeasuredRecoveryArtifact(
     workloadAfterRecovery: measurement.workloadAfterRecovery,
     sourceCommit: manifest.sourceCommit,
     runnerClass: manifest.runnerClass,
-    runnerImage: manifest.runnerImage,
+    runnerImage: input.runnerImage,
     guestImage: manifest.guestImage,
     versions: { ...manifest.versions },
     provenance,

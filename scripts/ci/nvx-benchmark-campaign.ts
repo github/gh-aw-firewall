@@ -174,6 +174,12 @@ const EXECUTION_SAMPLE_COUNTS: Partial<Record<CampaignMode, number>> = {
   full: 1_000,
 };
 
+export function getRunnerImageFamily(runnerImage: string): string {
+  const match = /^([A-Za-z0-9._-]+)(?:\/[A-Za-z0-9._-]+)?$/.exec(runnerImage);
+  if (!match) throw new Error(`runner image ${JSON.stringify(runnerImage)} is invalid`);
+  return match[1];
+}
+
 function stableId(campaignId: string, parts: string[]): string {
   return createHash('sha256')
     .update([campaignId, ...parts].join('\0'))
@@ -206,6 +212,10 @@ export function createCampaignManifest(
   }
   if (!thresholds.approvedRunnerClasses.includes(input.runnerClass)) {
     throw new Error(`runner class ${JSON.stringify(input.runnerClass)} is not approved`);
+  }
+  const runnerImageFamily = getRunnerImageFamily(input.runnerImage);
+  if (!thresholds.approvedRunnerImageFamilies.includes(runnerImageFamily)) {
+    throw new Error(`runner image family ${JSON.stringify(runnerImageFamily)} is not approved`);
   }
   if (!/^[0-9a-f]{40}$/i.test(input.sourceCommit)) {
     throw new Error('sourceCommit must be a full 40-character commit SHA');
@@ -507,11 +517,12 @@ function assertRecord(record: Record<string, unknown>, label: string): void {
 
 function validateProvenance(record: Record<string, unknown>, manifest: CampaignManifest, thresholds: Thresholds, label: string): void {
   assertRecord(record, label);
+  const runnerImage = record.runnerImage as string;
   if (
     record.campaignId !== manifest.campaignId ||
     record.sourceCommit !== manifest.sourceCommit ||
     record.runnerClass !== manifest.runnerClass ||
-    record.runnerImage !== manifest.runnerImage ||
+    getRunnerImageFamily(runnerImage) !== getRunnerImageFamily(manifest.runnerImage) ||
     record.guestImage !== manifest.guestImage ||
     record.evidenceKind !== (manifest.dryRun ? 'dry-run' : 'measured')
   ) {
@@ -794,6 +805,10 @@ export function aggregateCampaign(manifest: CampaignManifest, artifacts: SampleA
   if (!thresholds.approvedRunnerClasses.includes(manifest.runnerClass)) {
     throw new Error(`campaign runner class ${JSON.stringify(manifest.runnerClass)} is not approved`);
   }
+  const runnerImageFamily = getRunnerImageFamily(manifest.runnerImage);
+  if (!thresholds.approvedRunnerImageFamilies.includes(runnerImageFamily)) {
+    throw new Error(`campaign runner image family ${JSON.stringify(runnerImageFamily)} is not approved`);
+  }
 
   const expectedRuns = new Map(manifest.expectedRuns.map((sample) => [sample.sampleId, sample]));
   const expectedRecoveries = new Map(manifest.expectedRecoveries.map((sample) => [sample.sampleId, sample]));
@@ -977,12 +992,14 @@ export function validateProgressionEvidence(
   if (!isDeepStrictEqual(predecessor, canonicalPredecessor)) {
     throw new Error('progression manifest is not a canonical immutable campaign tier');
   }
+  const currentRunnerImageFamily = getRunnerImageFamily(current.runnerImage);
+  const predecessorRunnerImageFamily = getRunnerImageFamily(predecessor.runnerImage);
   if (
     predecessor.mode !== requiredMode ||
     predecessor.campaignId === current.campaignId ||
     predecessor.sourceCommit !== current.sourceCommit ||
     predecessor.runnerClass !== current.runnerClass ||
-    predecessor.runnerImage !== current.runnerImage ||
+    predecessorRunnerImageFamily !== currentRunnerImageFamily ||
     predecessor.guestImage !== current.guestImage ||
     !isDeepStrictEqual(predecessor.versions, current.versions) ||
     !isDeepStrictEqual(predecessor.provenance, current.provenance)
@@ -998,6 +1015,11 @@ export function validateProgressionEvidence(
     results.sourceCommit !== predecessor.sourceCommit && 'sourceCommit',
     results.runnerClass !== predecessor.runnerClass && 'runnerClass',
     results.runnerImage !== predecessor.runnerImage && 'runnerImage',
+    [...results.runs, ...results.recoveries].some(
+      (result) =>
+        result.runnerClass !== predecessor.runnerClass ||
+        getRunnerImageFamily(result.runnerImage) !== predecessorRunnerImageFamily,
+    ) && 'runnerImageFamily',
     results.guestImage !== predecessor.guestImage && 'guestImage',
     results.estimatedRunnerMinutes !== predecessor.estimatedRunnerMinutes && 'estimatedRunnerMinutes',
     !jsonEqual(results.versions, predecessor.versions) && 'versions',

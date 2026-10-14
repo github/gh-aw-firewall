@@ -93,6 +93,10 @@ jobs:
                 t.approvedRunnerClasses[0] !== "ubuntu-24.04") {
               throw new Error("runner class does not match the reviewed baseline");
             }
+            if (t.approvedRunnerImageFamilies.length !== 1 ||
+                t.approvedRunnerImageFamilies[0] !== "ubuntu24") {
+              throw new Error("runner image family does not match the reviewed baseline");
+            }
           '
           case "$CAMPAIGN_MODE" in
             dry-run)
@@ -182,10 +186,9 @@ jobs:
                 and .mode == $mode' \
               "$plan/manifest.json" >/dev/null
           else
-            runner_image="${ImageOS:?}/${ImageVersion:?}"
             npx tsx scripts/ci/nvx-benchmark-campaign.ts plan \
               "$plan/manifest.json" "$CAMPAIGN_ID" "$CAMPAIGN_MODE" "$GITHUB_SHA" \
-              ubuntu-24.04 "$runner_image" \
+              ubuntu-24.04 ubuntu24 \
               "NVX microsoft/nvx@v0.1.0-dev.be859aa77ffa; Cloud Hypervisor v53.0"
           fi
           if [ "$CAMPAIGN_MODE" != dry-run ]; then
@@ -446,6 +449,7 @@ jobs:
                 --arg workflowRunId "$GITHUB_RUN_ID" \
                 --arg jobId "$GITHUB_JOB-$CELL_RUNTIME-${{ matrix.cellId }}" \
                 --arg workflowAttemptId "$GITHUB_RUN_ATTEMPT" \
+                --arg runnerImage "${ImageOS:?}/${ImageVersion:?}" \
                 --arg runtime "$CELL_RUNTIME" --arg workload "$CELL_WORKLOAD" \
                 --arg mode "$CELL_MODE" --arg cache "$CELL_CACHE" --arg profile "$CELL_PROFILE" \
                 --arg rerunOf "$rerun_of" --arg rerunReason "$rerun_reason" \
@@ -456,7 +460,8 @@ jobs:
                   assertionsPath:$assertionsPath,residuePath:$residuePath,
                   tokenUsagePath:$tokenUsagePath,tokenTrackerAuditPath:$tokenTrackerAuditPath,
                   toolchainPath:$toolchainPath,workflowRunId:$workflowRunId,jobId:$jobId,
-                  workflowAttemptId:$workflowAttemptId,rerunOf:$rerunOf,rerunReason:$rerunReason}
+                  workflowAttemptId:$workflowAttemptId,runnerImage:$runnerImage,
+                  rerunOf:$rerunOf,rerunReason:$rerunReason}
                   | if .toolchainPath == "" then del(.toolchainPath) else . end
                   | if .rerunOf == "" then del(.rerunOf,.rerunReason) else . end' > "$input"
               AWF_PHASE4_TOKEN_USAGE_OUTPUT="$token_usage" \
@@ -473,6 +478,7 @@ jobs:
                 --arg workflowRunId "$GITHUB_RUN_ID" \
                 --arg jobId "$GITHUB_JOB-$CELL_RUNTIME-${{ matrix.cellId }}" \
                 --arg workflowAttemptId "$GITHUB_RUN_ATTEMPT" \
+                --arg runnerImage "${ImageOS:?}/${ImageVersion:?}" \
                 --arg runtime "$CELL_RUNTIME" --arg recoveryKind "$CELL_RECOVERY_KIND" \
                 --arg rerunOf "$rerun_of" --arg rerunReason "$rerun_reason" \
                 '{manifestPath:$manifestPath,sampleId:$sampleId,attempt:$attempt,
@@ -481,7 +487,8 @@ jobs:
                   cwd:$cwd,outputPath:$outputPath,measurementPath:$measurementPath,
                   toolchainPath:$toolchainPath,
                   workflowRunId:$workflowRunId,jobId:$jobId,
-                  workflowAttemptId:$workflowAttemptId,rerunOf:$rerunOf,rerunReason:$rerunReason}
+                  workflowAttemptId:$workflowAttemptId,runnerImage:$runnerImage,
+                  rerunOf:$rerunOf,rerunReason:$rerunReason}
                   | if .toolchainPath == "" then del(.toolchainPath) else . end
                   | if .rerunOf == "" then del(.rerunOf,.rerunReason) else . end' > "$input"
               npx tsx scripts/ci/nvx-matched-runtime-adapter.ts recovery "$input" || status=1

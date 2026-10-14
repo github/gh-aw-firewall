@@ -99,6 +99,7 @@ function evidence(campaign = manifest(), sampleIndex = 0) {
       workflowRunId: 'run-1',
       jobId: 'canary',
       workflowAttemptId: '1',
+      runnerImage: 'ubuntu24/20261005.85',
     },
     lifecycle: {
       artifactPreflightStartedMs: 100,
@@ -492,6 +493,7 @@ describe('matched runtime measurement adapter', () => {
         workflowRunId: 'run',
         jobId: 'recovery',
         workflowAttemptId: '1',
+        runnerImage: 'ubuntu24/20261005.85',
         toolchainPath,
       },
       measurement,
@@ -522,6 +524,7 @@ describe('matched runtime measurement adapter', () => {
           workflowRunId: 'run',
           jobId: 'recovery',
           workflowAttemptId: '1',
+          runnerImage: 'ubuntu24/20261005.85',
           toolchainPath,
         },
         incomplete,

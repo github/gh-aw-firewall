@@ -62,6 +62,7 @@ type Percentiles = { p50?: number; p95?: number };
 export interface Thresholds {
   baseline: Record<string, string>;
   approvedRunnerClasses: string[];
+  approvedRunnerImageFamilies: string[];
   matrix: {
     workloads: string[];
     modes: Mode[];

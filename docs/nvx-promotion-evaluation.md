@@ -206,10 +206,13 @@ permits only one Phase 4 campaign tier at a time.
 
 A progression run is accepted only when its aggregate is a complete,
 successful, measured pilot from the same source commit, runner class, runner
-image, guest image and reviewed baseline. All original run and recovery records
-must succeed with no assertion failures or residue. A 1,000-minute pilot must cite
-the successful 100-minute workflow run ID; a full campaign must cite the
-successful 1,000-minute workflow run ID.
+image family, guest image and reviewed baseline. The reviewed runner baseline is
+the deterministic `ubuntu-24.04` class and `ubuntu24` image family; GitHub-hosted
+runner patch versions are recorded per measured cell but do not define campaign
+compatibility. A different runner class or image family is rejected. All original
+run and recovery records must succeed with no assertion failures or residue. A
+1,000-minute pilot must cite the successful 100-minute workflow run ID; a full
+campaign must cite the successful 1,000-minute workflow run ID.
 
 ### Initial 100-minute pilot dispatch
 

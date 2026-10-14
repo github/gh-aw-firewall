@@ -33,7 +33,7 @@ function manifest(mode: 'dry-run' | 'pilot-100' | 'pilot-1000' | 'full' = 'dry-r
       mode,
       sourceCommit: 'a'.repeat(40),
       runnerClass: 'ubuntu-24.04',
-      runnerImage: 'ubuntu-24.04-2026-01',
+      runnerImage: 'ubuntu24',
       guestImage: 'pinned-guest-image',
     },
     thresholds,
@@ -48,6 +48,10 @@ function successfulPilotResults(campaign: CampaignManifest): CampaignResults {
   const expectedSampleIds = [...campaign.expectedRuns, ...campaign.expectedRecoveries]
     .map((sample) => sample.sampleId)
     .sort();
+  const evidenceProvenance = {
+    ...structuredClone(campaign.provenance),
+    observedGuestTools: { node: 'v22.23.2', curl: 'curl 8.14.1' },
+  };
   return {
     campaignId: campaign.campaignId,
     mode: campaign.mode,
@@ -59,12 +63,26 @@ function successfulPilotResults(campaign: CampaignManifest): CampaignResults {
     provenance: structuredClone(campaign.provenance),
     runs: campaign.expectedRuns.map((sample) => ({
       ...sample,
+      campaignId: campaign.campaignId,
+      sourceCommit: campaign.sourceCommit,
+      runnerClass: campaign.runnerClass,
+      runnerImage: campaign.runnerImage,
+      guestImage: campaign.guestImage,
+      versions: structuredClone(campaign.versions),
+      provenance: structuredClone(evidenceProvenance),
       success: true,
       assertionFailures: [],
       residue: [],
     })) as unknown as CampaignResults['runs'],
     recoveries: campaign.expectedRecoveries.map((sample) => ({
       ...sample,
+      campaignId: campaign.campaignId,
+      sourceCommit: campaign.sourceCommit,
+      runnerClass: campaign.runnerClass,
+      runnerImage: campaign.runnerImage,
+      guestImage: campaign.guestImage,
+      versions: structuredClone(campaign.versions),
+      provenance: structuredClone(evidenceProvenance),
       success: true,
       assertionFailures: [],
       residue: [],
@@ -142,6 +160,9 @@ describe('NVX benchmark campaign evidence', () => {
     expect(source).toContain('pilot-100:10:10:100');
     expect(source).toContain('pilot-1000:52:100:1000');
     expect(source).toContain('full:76:1000:10000');
+    expect(source).toContain('ubuntu-24.04 ubuntu24');
+    expect(source).not.toContain('runner_image="${ImageOS:?}/${ImageVersion:?}"');
+    expect(source.match(/--arg runnerImage "\$\{ImageOS:\?\}\/\$\{ImageVersion:\?\}"/g)).toHaveLength(2);
     expect(source.match(/--arg toolchainPath/g)).toHaveLength(2);
     expect(source).toContain('scripts/ci/nvx-phase4-recovery-runtime.sh');
     expect(source).toContain('| if .toolchainPath == "" then del(.toolchainPath) else . end');
@@ -396,10 +417,19 @@ describe('NVX benchmark campaign evidence', () => {
   });
 
   it('requires successful immutable pilot progression without mixing tiers', () => {
-    const small = manifest('pilot-100', 'pilot-small');
+    const small = {
+      ...manifest('pilot-100', 'pilot-small'),
+      runnerImage: 'ubuntu24/20261012.91',
+    };
     const broad = manifest('pilot-1000', 'pilot-broad');
     const full = manifest('full', 'campaign-full');
     const successfulSmall = successfulPilotResults(small);
+    successfulSmall.runs.forEach((result, index) => {
+      result.runnerImage = index % 2 === 0 ? 'ubuntu24/20261012.91' : 'ubuntu24/20261005.85';
+    });
+    successfulSmall.recoveries.forEach((result, index) => {
+      result.runnerImage = index % 2 === 0 ? 'ubuntu24/20261005.85' : 'ubuntu24/20261012.91';
+    });
     expect(isSuccessfulPilot(successfulSmall)).toBe(true);
     expect(() => validateProgressionEvidence(broad, small, successfulSmall)).not.toThrow();
     expect(() => validateProgressionEvidence(full, small, successfulSmall)).toThrow('pilot-1000');
@@ -410,10 +440,23 @@ describe('NVX benchmark campaign evidence', () => {
     expect(isSuccessfulPilot(missingRecords)).toBe(false);
     expect(() => validateProgressionEvidence(broad, small, missingRecords)).toThrow('successfulPilot');
 
-    const differentRunnerImage = { ...broad, runnerImage: 'ubuntu-24.04-different' };
+    const differentRunnerImage = { ...broad, runnerImage: 'ubuntu22/20261012.91' };
     expect(() => validateProgressionEvidence(differentRunnerImage, small, successfulSmall)).toThrow(
       'same reviewed source and baseline',
     );
+
+    const differentRunnerClass = { ...broad, runnerClass: 'ubuntu-22.04' };
+    expect(() => validateProgressionEvidence(differentRunnerClass, small, successfulSmall)).toThrow(
+      'same reviewed source and baseline',
+    );
+
+    successfulSmall.runs[0].runnerImage = 'ubuntu22/20261012.91';
+    expect(() => validateProgressionEvidence(broad, small, successfulSmall)).toThrow('runnerImageFamily');
+    successfulSmall.runs[0].runnerImage = 'ubuntu24/20261012.91';
+
+    successfulSmall.runs[0].runnerImage = '';
+    expect(() => validateProgressionEvidence(broad, small, successfulSmall)).toThrow('runner image');
+    successfulSmall.runs[0].runnerImage = 'ubuntu24/20261012.91';
 
     successfulSmall.runs[0].residue.push('run-directory');
     expect(isSuccessfulPilot(successfulSmall)).toBe(false);
@@ -506,6 +549,20 @@ describe('NVX benchmark campaign evidence', () => {
         thresholds,
       ),
     ).toThrow('immutable');
+
+    expect(() =>
+      createCampaignManifest(
+        {
+          campaignId: 'invalid-runner-image',
+          mode: 'dry-run',
+          sourceCommit: 'a'.repeat(40),
+          runnerClass: 'ubuntu-24.04',
+          runnerImage: 'ubuntu24/patch/extra',
+          guestImage: 'guest',
+        },
+        thresholds,
+      ),
+    ).toThrow('runner image');
   });
 
   it('rejects manifests that do not match the canonical campaign matrix', () => {
