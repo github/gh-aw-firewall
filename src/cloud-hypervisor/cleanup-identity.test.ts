@@ -93,6 +93,26 @@ describe('cleanup identity primitives', () => {
             },
           };
         }, /cleanup VMM identity is malformed/],
+        ['bad-accessed-acl-path', (record) => {
+          record.vmmIdentity = {
+            state: 'live',
+            name: 'awfvmm-0123456789abcdef0123',
+            uid: 23001,
+            gid: 23002,
+            aclPaths: [],
+            accessedAclPaths: ['/dev/other'],
+          };
+        }, /cleanup VMM identity is malformed/],
+        ['pending-acl-not-accessed', (record) => {
+          record.vmmIdentity = {
+            state: 'live',
+            name: 'awfvmm-0123456789abcdef0123',
+            uid: 23001,
+            gid: 23002,
+            aclPaths: ['/dev/kvm'],
+            accessedAclPaths: ['/dev/net/tun'],
+          };
+        }, /cleanup VMM identity is malformed/],
         ['bad-acl-baseline-shape', (record) => {
           record.vmmIdentity = {
             state: 'live',

@@ -25,13 +25,15 @@ const baseline = [
 ];
 
 function cleanupRecord(
-  aclBaselines?: Record<'/dev/kvm', string[]>,
+  aclBaselines?: Partial<Record<'/dev/kvm' | '/dev/net/tun', string[]>>,
   options: {
     runId?: string;
     name?: string;
     uid?: number;
     gid?: number;
-    aclTemporaryUids?: Record<'/dev/kvm', number[]>;
+    aclPaths?: Array<'/dev/kvm' | '/dev/net/tun'>;
+    accessedAclPaths?: Array<'/dev/kvm' | '/dev/net/tun'>;
+    aclTemporaryUids?: Partial<Record<'/dev/kvm' | '/dev/net/tun', number[]>>;
   } = {},
 ): CleanupRecord {
   const runId = options.runId ?? 'acl-recovery';
@@ -60,7 +62,10 @@ function cleanupRecord(
       name: options.name ?? 'awfvmm-0123456789abcdef0123',
       uid: options.uid ?? 23001,
       gid: options.gid ?? 23002,
-      aclPaths: ['/dev/kvm'],
+      aclPaths: options.aclPaths ?? ['/dev/kvm'],
+      ...(options.accessedAclPaths ? {
+        accessedAclPaths: options.accessedAclPaths,
+      } : {}),
       ...(aclBaselines ? { aclBaselines } : {}),
       ...(options.aclTemporaryUids ? {
         aclTemporaryUids: options.aclTemporaryUids,
@@ -162,6 +167,7 @@ describe('Cloud Hypervisor durable VMM identity cleanup', () => {
       }
       throw new Error(`Unexpected command: ${command} ${args.join(' ')}`);
     });
+
     const resolved = dependencies(root, run);
 
     await expect(deleteVmmIdentity(
@@ -183,6 +189,120 @@ describe('Cloud Hypervisor durable VMM identity cleanup', () => {
     await expect(fs.access(path.join(root, '.device-acl-lock')))
       .rejects.toMatchObject({ code: 'ENOENT' });
   });
+
+  it.each([
+    ['crash after launch restoration', [], false],
+    ['partial launch-intent release', ['/dev/kvm'], false],
+    ['partial preparation retry', [], true],
+  ] as const)(
+    'journals fresh baselines for every accessed device before account deletion: %s',
+    async (_name, pendingPaths, retryAfterPersistFailure) => {
+      const deviceAcls = new Map([
+        ['/dev/kvm', [...baseline]],
+        ['/dev/net/tun', [...baseline]],
+      ]);
+      let accountExists = true;
+      let groupExists = true;
+      const record = cleanupRecord(
+        pendingPaths.length > 0 ? { '/dev/kvm': [...baseline] } : undefined,
+        {
+          aclPaths: [...pendingPaths],
+          accessedAclPaths: ['/dev/kvm', '/dev/net/tun'],
+          aclTemporaryUids: pendingPaths.length > 0 ? { '/dev/kvm': [] } : undefined,
+        },
+      );
+      const run = jest.fn(async (command: string, args: readonly string[]) => {
+        if (command === tools.getfacl) {
+          return {
+            exitCode: 0,
+            stdout: `${deviceAcls.get(args[2])!.join('\n')}\n`,
+            stderr: '',
+          };
+        }
+        if (command === tools.setfacl && args[0].startsWith('--set=')) {
+          deviceAcls.set(args[1], args[0].slice('--set='.length).split(','));
+          return { exitCode: 0, stdout: '', stderr: '' };
+        }
+        if (command === tools.getent && args[0] === 'passwd') {
+          if (args[1] === '1001') {
+            return {
+              exitCode: 0,
+              stdout: 'runner:x:1001:1001:GitHub Actions:/home/runner:/bin/bash\n',
+              stderr: '',
+            };
+          }
+          if (!accountExists) return { exitCode: 2, stdout: '', stderr: '' };
+          return {
+            exitCode: 0,
+            stdout: `${record.vmmIdentity!.name}:x:23001:23002:` +
+              'AWF Cloud Hypervisor acl-recovery:/nonexistent:/usr/sbin/nologin\n',
+            stderr: '',
+          };
+        }
+        if (command === tools.getent && args[0] === 'group') {
+          if (!groupExists) return { exitCode: 2, stdout: '', stderr: '' };
+          return {
+            exitCode: 0,
+            stdout: `${record.vmmIdentity!.name}:x:23002:\n`,
+            stderr: '',
+          };
+        }
+        if (command === tools.id) {
+          if (!accountExists) return { exitCode: 1, stdout: '', stderr: '' };
+          if (args[0] === '-u') return { exitCode: 0, stdout: '23001\n', stderr: '' };
+          return { exitCode: 0, stdout: '23002\n', stderr: '' };
+        }
+        if (command === tools.userdel) {
+          accountExists = false;
+          deviceAcls.set('/dev/kvm', ['user::rw-', 'group::rw-', 'other::rw-']);
+          deviceAcls.set('/dev/net/tun', ['user::rw-', 'group::rw-', 'other::rw-']);
+          return { exitCode: 0, stdout: '', stderr: '' };
+        }
+        if (command === tools.groupdel) {
+          groupExists = false;
+          return { exitCode: 0, stdout: '', stderr: '' };
+        }
+        throw new Error(`Unexpected command: ${command} ${args.join(' ')}`);
+      });
+      let failNextPersist = retryAfterPersistFailure;
+      const persist = jest.fn(async () => {
+        if (failNextPersist) {
+          failNextPersist = false;
+          throw new Error('cleanup record persistence failed');
+        }
+      });
+      const cleanup = () => deleteVmmIdentity(
+        dependencies(root, run),
+        record,
+        tools,
+        persist,
+      );
+      if (retryAfterPersistFailure) {
+        await expect(cleanup()).rejects.toThrow(/cleanup record persistence failed/);
+        expect(record.vmmIdentity?.aclPaths).toEqual([]);
+      }
+      await expect(cleanup()).resolves.toBeUndefined();
+
+      expect(record.vmmIdentity?.aclPaths).toEqual(['/dev/kvm', '/dev/net/tun']);
+      expect(record.vmmIdentity?.aclBaselines).toEqual({
+        '/dev/kvm': baseline,
+        '/dev/net/tun': baseline,
+      });
+      expect(persist).toHaveBeenCalledTimes(
+        2 - pendingPaths.length + (retryAfterPersistFailure ? 1 : 0),
+      );
+      const userdelOrder = run.mock.invocationCallOrder[
+        run.mock.calls.findIndex(([command]) => command === tools.userdel)
+      ];
+      for (const persistOrder of persist.mock.invocationCallOrder) {
+        expect(persistOrder).toBeLessThan(userdelOrder);
+      }
+      expect(deviceAcls.get('/dev/kvm')).toEqual(baseline);
+      expect(deviceAcls.get('/dev/net/tun')).toEqual(baseline);
+      expect(accountExists).toBe(false);
+      expect(groupExists).toBe(false);
+    },
+  );
 
   it('fails closed when restored ACL evidence differs from the durable baseline', async () => {
     const run = jest.fn(async (command: string) => {

@@ -86,7 +86,7 @@ export function createCleanupHandle(options: CleanupHandleFactoryOptions): Cloud
       if (!/^awfvmm-[a-f0-9]{20}$/.test(name) || record.vmmIdentity) {
         throw new Error(`Unsafe or duplicate VMM cleanup account: ${name}`);
       }
-      record.vmmIdentity = { state: 'pending', name, aclPaths: [] };
+      record.vmmIdentity = { state: 'pending', name, aclPaths: [], accessedAclPaths: [] };
       await update();
     },
     captureVmmIdentity: async (identity: CloudHypervisorVmmIdentity) => {
@@ -114,6 +114,10 @@ export function createCleanupHandle(options: CleanupHandleFactoryOptions): Cloud
         throw new Error(`Unsafe VMM ACL cleanup path: ${aclPath}`);
       }
       const validatedBaseline = parseDeviceAcl(baseline.join('\n'));
+      record.vmmIdentity.accessedAclPaths ??= [];
+      if (!record.vmmIdentity.accessedAclPaths.includes(aclPath)) {
+        record.vmmIdentity.accessedAclPaths.push(aclPath);
+      }
       if (!record.vmmIdentity.aclPaths.includes(aclPath)) {
         record.vmmIdentity.aclPaths.push(aclPath);
         record.vmmIdentity.aclBaselines ??= {};

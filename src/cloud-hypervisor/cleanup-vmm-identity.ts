@@ -22,15 +22,24 @@ export async function deleteVmmIdentity(
   dependencies: ResolvedCleanupDependencies,
   record: CleanupRecord,
   tools: CloudHypervisorVmmIdentityToolPaths | undefined,
+  persist: () => Promise<void> = async () => undefined,
 ): Promise<void> {
   const identity = record.vmmIdentity;
   if (!identity) return;
   if (!tools) throw new Error('VMM cleanup tools are unavailable for a recorded account');
-  if (identity.aclPaths.length > 0 && identity.state !== 'live') {
+  const accessedAclPaths = identity.accessedAclPaths ?? identity.aclPaths;
+  if (accessedAclPaths.length > 0 && identity.state !== 'live') {
     throw new Error(`VMM ACL intent lacks a committed numeric identity: ${identity.name}`);
   }
-  if (identity.state === 'live' && identity.aclPaths.length > 0) {
+  if (identity.state === 'live' && accessedAclPaths.length > 0) {
     await withVmmAclLock(dependencies, tools, async () => {
+      await prepareMissingVmmAclsLocked(
+        dependencies,
+        identity,
+        accessedAclPaths,
+        tools,
+        persist,
+      );
       const restoredTargets = await restoreVmmAclsLocked(dependencies, identity, tools);
       const expectedGid = await deleteVmmAccount(dependencies, record, identity, tools);
       await deleteVmmGroup(dependencies, identity, tools, expectedGid);
@@ -38,8 +47,51 @@ export async function deleteVmmIdentity(
     });
     return;
   }
+
   const expectedGid = await deleteVmmAccount(dependencies, record, identity, tools);
   await deleteVmmGroup(dependencies, identity, tools, expectedGid);
+}
+
+async function prepareMissingVmmAclsLocked(
+  dependencies: ResolvedCleanupDependencies,
+  identity: RecordedVmmIdentity,
+  accessedAclPaths: readonly CloudHypervisorDevicePath[],
+  tools: CloudHypervisorVmmIdentityToolPaths,
+  persist: () => Promise<void>,
+): Promise<void> {
+  for (const aclPath of accessedAclPaths) {
+    if (identity.aclPaths.includes(aclPath)) continue;
+    const currentResult = await dependencies.run(tools.getfacl, [
+      '--absolute-names', '--numeric', aclPath,
+    ]);
+    if (currentResult.exitCode !== 0) {
+      throw new Error(
+        `VMM ACL baseline capture failed for ${aclPath}: ${currentResult.stderr.trim()}`,
+      );
+    }
+    const baseline = parseDeviceAcl(currentResult.stdout);
+    const temporaryUids = await resolveTemporaryVmmAclUids(
+      baseline,
+      tools,
+      dependencies.run,
+    );
+    identity.aclPaths.push(aclPath);
+    identity.aclBaselines ??= {};
+    identity.aclBaselines[aclPath] = baseline;
+    identity.aclTemporaryUids ??= {};
+    identity.aclTemporaryUids[aclPath] = temporaryUids;
+    try {
+      await persist();
+    } catch (error) {
+      identity.aclPaths.pop();
+      delete identity.aclBaselines[aclPath];
+      delete identity.aclTemporaryUids[aclPath];
+      throw error;
+    }
+    if (baseline.some((entry) => entry.startsWith(`user:${identity.uid}:`))) {
+      throw new Error(`VMM ACL still grants access to ${identity.uid} on ${aclPath}`);
+    }
+  }
 }
 
 async function withVmmAclLock(

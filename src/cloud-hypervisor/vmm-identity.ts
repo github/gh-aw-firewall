@@ -369,9 +369,9 @@ export class CloudHypervisorVmmIdentityManager {
   }
 
   private async prepareAccountDeletionAclIntentLocked(): Promise<void> {
-    if (this.aclPaths.size > 0) return;
     const identity = this.requireIdentity();
     for (const devicePath of this.accessedAclPaths) {
+      if (this.aclPaths.has(devicePath)) continue;
       const currentResult = await this.dependencies.run(this.tools.getfacl, [
         '--absolute-names', '--numeric', devicePath,
       ]);

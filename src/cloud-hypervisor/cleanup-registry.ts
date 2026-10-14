@@ -262,7 +262,12 @@ export class DurableCloudHypervisorCleanupRegistry implements CloudHypervisorCle
         record.identities.artifactSnapshotDirectory,
       );
     }
-    await deleteVmmIdentity(this.dependencies, record, vmmTools);
+    await deleteVmmIdentity(
+      this.dependencies,
+      record,
+      vmmTools,
+      () => writeRecord(this.dependencies, recordPath, record, false),
+    );
     await this.dependencies.unlink(recordPath);
   }
 

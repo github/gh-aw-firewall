@@ -39,8 +39,12 @@ describe('cleanup handle integration', () => {
         harness.temporaryRoot, 'pending-cleanup', `${paths.runId}.json`,
       );
       const preparedRecord = JSON.parse(await fs.readFile(recordPath, 'utf8')) as {
-        vmmIdentity: { aclTemporaryUids?: Record<string, number[]> };
+        vmmIdentity: {
+          accessedAclPaths?: string[];
+          aclTemporaryUids?: Record<string, number[]>;
+        };
       };
+      expect(preparedRecord.vmmIdentity.accessedAclPaths).toEqual(['/dev/kvm']);
       expect(preparedRecord.vmmIdentity.aclTemporaryUids).toEqual({ '/dev/kvm': temporaryUids });
 
       await handle.releaseVmmAcl('/dev/kvm');
@@ -48,11 +52,13 @@ describe('cleanup handle integration', () => {
       const record = JSON.parse(await fs.readFile(recordPath, 'utf8')) as {
         vmmIdentity: {
           aclPaths: string[];
+          accessedAclPaths?: string[];
           aclBaselines?: object;
           aclTemporaryUids?: object;
         };
       };
       expect(record.vmmIdentity.aclPaths).toEqual([]);
+      expect(record.vmmIdentity.accessedAclPaths).toEqual(['/dev/kvm']);
       expect(record.vmmIdentity.aclBaselines).toEqual({});
       expect(record.vmmIdentity.aclTemporaryUids).toEqual({});
       await expect(handle.releaseVmmAcl('/dev/kvm')).rejects.toThrow(/intent is missing/);

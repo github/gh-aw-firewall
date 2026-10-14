@@ -765,6 +765,50 @@ describe('CloudHypervisorVmmIdentityManager', () => {
     expect(base.run).not.toHaveBeenCalledWith(tools.userdel, [identity.name]);
   });
 
+  it('retries missing devices after partial deletion-intent preparation', async () => {
+    const base = dependencies();
+    let failTunPreparation = false;
+    const observer = {
+      prepareAccount: jest.fn().mockResolvedValue(undefined),
+      captureIdentity: jest.fn().mockResolvedValue(undefined),
+      prepareAcl: jest.fn(async (devicePath: string) => {
+        if (devicePath === '/dev/net/tun' && failTunPreparation) {
+          throw new Error('tun journal failed');
+        }
+      }),
+      releaseAcl: jest.fn().mockResolvedValue(undefined),
+    };
+    const manager = new CloudHypervisorVmmIdentityManager(
+      'partial-deletion-intent',
+      tools,
+      base.deps,
+      observer,
+    );
+    await manager.allocate();
+    await manager.withDeviceAccess(async () => undefined);
+    observer.prepareAcl.mockClear();
+    const aclPaths = Reflect.get(manager, 'aclPaths') as Set<string>;
+    const aclBaselines = Reflect.get(manager, 'aclBaselines') as Map<string, string[]>;
+    const aclTemporaryUids = Reflect.get(
+      manager,
+      'aclTemporaryUids',
+    ) as Map<string, number[]>;
+    aclPaths.add('/dev/kvm');
+    aclBaselines.set('/dev/kvm', baselineAcl);
+    aclTemporaryUids.set('/dev/kvm', []);
+    failTunPreparation = true;
+
+    await expect(manager.cleanup()).rejects.toThrow(/tun journal failed/);
+    expect(aclPaths).toEqual(new Set(['/dev/kvm']));
+
+    failTunPreparation = false;
+    await expect(manager.cleanup()).resolves.toBeUndefined();
+    expect(observer.prepareAcl.mock.calls.filter(([devicePath]) =>
+      devicePath === '/dev/net/tun',
+    )).toHaveLength(2);
+    expect(aclPaths.size).toBe(0);
+  });
+
   it('fails closed on a same-length final ACL mismatch after account deletion', async () => {
     const runnerBaseline = [
       'user::rw-',

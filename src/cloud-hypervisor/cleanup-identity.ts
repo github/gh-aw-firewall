@@ -98,7 +98,8 @@ export interface CleanupRecord {
     name: string;
     uid?: number;
     gid?: number;
-    aclPaths: string[];
+    aclPaths: CloudHypervisorDevicePath[];
+    accessedAclPaths?: CloudHypervisorDevicePath[];
     aclBaselines?: Partial<Record<CloudHypervisorDevicePath, string[]>>;
     aclTemporaryUids?: Partial<Record<CloudHypervisorDevicePath, number[]>>;
   };
@@ -189,6 +190,15 @@ export function validateRecord(
       !Array.isArray(identity.aclPaths) ||
       identity.aclPaths.some((aclPath) => aclPath !== '/dev/kvm' && aclPath !== '/dev/net/tun') ||
       new Set(identity.aclPaths).size !== identity.aclPaths.length ||
+      (identity.accessedAclPaths !== undefined && (
+        !Array.isArray(identity.accessedAclPaths) ||
+        identity.accessedAclPaths.some((aclPath) =>
+          aclPath !== '/dev/kvm' && aclPath !== '/dev/net/tun') ||
+        new Set(identity.accessedAclPaths).size !== identity.accessedAclPaths.length ||
+        identity.aclPaths.some((aclPath) => !identity.accessedAclPaths!.includes(
+          aclPath as CloudHypervisorDevicePath,
+        ))
+      )) ||
       (identity.aclBaselines !== undefined && (
         typeof identity.aclBaselines !== 'object' ||
         identity.aclBaselines === null ||
@@ -197,7 +207,7 @@ export function validateRecord(
           aclPath !== '/dev/kvm' && aclPath !== '/dev/net/tun') ||
         Object.entries(identity.aclBaselines).some(([aclPath, baseline]) => {
           try {
-            return !identity.aclPaths.includes(aclPath) ||
+            return !identity.aclPaths.includes(aclPath as CloudHypervisorDevicePath) ||
               !Array.isArray(baseline) ||
               parseDeviceAcl(baseline.join('\n')).length !== baseline.length;
           } catch {
@@ -212,7 +222,7 @@ export function validateRecord(
         Object.keys(identity.aclTemporaryUids).some((aclPath) =>
           aclPath !== '/dev/kvm' && aclPath !== '/dev/net/tun') ||
         Object.entries(identity.aclTemporaryUids).some(([aclPath, uids]) =>
-          !identity.aclPaths.includes(aclPath) ||
+          !identity.aclPaths.includes(aclPath as CloudHypervisorDevicePath) ||
           !Array.isArray(uids) ||
           uids.some((uid) => !Number.isSafeInteger(uid) || uid <= 0) ||
           new Set(uids).size !== uids.length ||
