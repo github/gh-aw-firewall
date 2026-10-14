@@ -28,6 +28,17 @@ const copilotSmokeWorkflows = [
 ];
 
 describe('smoke copilot workflow output requirements', () => {
+  it('runs token-usage verification only after the agent succeeds', () => {
+    for (const file of ['smoke-copilot.md', 'smoke-copilot.lock.yml']) {
+      const workflow = fs.readFileSync(path.join(workflowsDir, file), 'utf-8');
+
+      expect(workflow).toMatch(
+        /^[ \t]*verify_token_usage:[ \t]*\r?\n(?:[ \t]*name:[^\r\n]*\r?\n)?[ \t]*needs:[ \t]*agent[ \t]*\r?\n[ \t]*if:[ \t]*needs\.agent\.result == 'success'[ \t]*$/m,
+      );
+      expect(workflow).toContain('check-token-usage.js --artifact-root /tmp/gh-aw-agent --engine copilot');
+    }
+  });
+
   for (const workflow of copilotSmokeWorkflows) {
     it(`${workflow.name}: requires noop fallback when no pull request context exists`, () => {
       const source = fs.readFileSync(path.join(workflowsDir, workflow.file), 'utf-8');
