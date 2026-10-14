@@ -2166,12 +2166,14 @@ effort, and endpoint, `routed: "as_selected"` or `"deviated"`, and the list of
 
 For gh-aw workflows, `models.allowed` and `models.blocked` define the request
 policy enforced by AWF (`apiProxy.allowedModels` and
-`apiProxy.disallowedModels`). The workflow's
-`engine.model-routing.allowed-models` is only a router-candidate list: it narrows
-the models available for selection and does not authorize or restrict agent
-requests. That list is optional with AWF v0.28.33 or later; when omitted, AWF
-derives candidates from the request policy. Routed Claude and Codex workflows
-must set `engine.model-provider: github`. See the
+`apiProxy.disallowedModels`). On AWF v0.28.33 or later,
+`engine.model-routing.allowed-models` is only a router-candidate list: it
+narrows router choices without restricting agent requests. Older AWF releases
+require this field and also use it as the admitted-model allowlist. When the
+field is omitted on a supported release, the router uses the policy-filtered
+catalogue; gh-aw additionally limits Claude and Codex candidates to their
+engine model families. Routed Claude and Codex workflows must set
+`engine.model-provider: github`. See the
 [gh-aw model-routing reference](https://github.github.com/gh-aw/reference/model-routing/)
 for the workflow-side configuration.
 
