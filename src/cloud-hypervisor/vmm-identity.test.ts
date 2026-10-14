@@ -413,7 +413,7 @@ describe('CloudHypervisorVmmIdentityManager', () => {
         .toBeLessThan(operation.mock.invocationCallOrder[0]);
       expect(operation.mock.invocationCallOrder[0])
         .toBeLessThan(run.mock.invocationCallOrder[revokeCall]);
-      expect(observer.releaseAcl).not.toHaveBeenCalledWith(devicePath);
+      expect(observer.releaseAcl).toHaveBeenCalledWith(devicePath);
     }
     expect(run).toHaveBeenCalledWith(
       tools.setfacl,
@@ -427,6 +427,8 @@ describe('CloudHypervisorVmmIdentityManager', () => {
     await manager.cleanup();
     for (const devicePath of ['/dev/kvm', '/dev/net/tun']) {
       expect(observer.releaseAcl).toHaveBeenCalledWith(devicePath);
+      expect(observer.releaseAcl.mock.calls.filter(([value]) => value === devicePath))
+        .toHaveLength(2);
     }
     expect(run).toHaveBeenCalledWith(tools.userdel, [identity.name]);
     expect(run).not.toHaveBeenCalledWith(tools.groupdel, [identity.name]);
@@ -546,18 +548,221 @@ describe('CloudHypervisorVmmIdentityManager', () => {
 
     await manager.allocate();
     await manager.withDeviceAccess(async () => undefined, false);
-    expect(observer.releaseAcl).not.toHaveBeenCalled();
+    expect(observer.releaseAcl).toHaveBeenCalledTimes(1);
     lockedCommands.length = 0;
     await manager.cleanup();
 
     expect(currentAcl).toEqual(runnerBaseline);
     expect(lockedCommands).toEqual([
+      'getfacl',
       'getfacl', 'setfacl', 'getfacl',
       'userdel', 'groupdel',
       'setfacl', 'getfacl',
     ]);
-    expect(observer.releaseAcl).toHaveBeenCalledWith('/dev/kvm');
+    expect(observer.releaseAcl).toHaveBeenCalledTimes(2);
+    expect(observer.releaseAcl).toHaveBeenNthCalledWith(2, '/dev/kvm');
     expect(deviceLockHeld).toBe(false);
+  });
+
+  it.each([
+    ['primary then peer', [0, 1]],
+    ['peer then primary', [1, 0]],
+  ] as const)(
+    'completes two cleanup records after a successful launch restoration: %s',
+    async (_name, cleanupOrder) => {
+      const baseline = ['user::rw-', 'group::rw-', 'other::---'];
+      const finalBaseline = [
+        'user::rw-', 'user:1001:rw-',
+        'group::rw-', 'mask::rw-', 'other::---',
+      ];
+      const identities = [
+        { uid: 999, gid: 1999 },
+        { uid: 997, gid: 1997 },
+      ];
+      const accounts = new Map<string, {
+        uid: number;
+        gid: number;
+        exists: boolean;
+        groupExists: boolean;
+      }>();
+      let allocationIndex = 0;
+      let currentAcl = [...baseline];
+      const base = dependencies();
+      base.deps.run = jest.fn(async (command, args) => {
+        if (command === tools.useradd) {
+          const identity = identities[allocationIndex++];
+          accounts.set(args[args.length - 1], {
+            ...identity,
+            exists: true,
+            groupExists: true,
+          });
+          return { stdout: '', stderr: '' };
+        }
+        if (command === tools.getfacl) {
+          return { stdout: `${currentAcl.join('\n')}\n`, stderr: '' };
+        }
+        if (command === tools.setfacl && args[0] === '--modify') {
+          const uid = Number(args[1].split(':')[1]);
+          const ownerIndex = currentAcl.findIndex((entry) => entry.startsWith('user::'));
+          currentAcl.splice(ownerIndex + 1, 0, `user:${uid}:rw-`);
+          if (!currentAcl.some((entry) => entry.startsWith('mask::'))) {
+            const otherIndex = currentAcl.findIndex((entry) => entry.startsWith('other::'));
+            currentAcl.splice(otherIndex, 0, 'mask::rw-');
+          }
+          return { stdout: '', stderr: '' };
+        }
+        if (command === tools.setfacl && args[0].startsWith('--set=')) {
+          currentAcl = args[0].slice('--set='.length).split(',');
+          return { stdout: '', stderr: '' };
+        }
+        if (command === tools.id) {
+          const account = accounts.get(args[1]);
+          if (!account?.exists) throw Object.assign(new Error('missing account'), { exitCode: 1 });
+          if (args[0] === '-u') return { stdout: `${account.uid}\n`, stderr: '' };
+          if (args[0] === '-g') return { stdout: `${account.gid}\n`, stderr: '' };
+          return { stdout: `${account.gid}\n`, stderr: '' };
+        }
+        if (command === tools.getent && args[0] === 'passwd') {
+          if (args[1] === '1001') {
+            return {
+              stdout: 'runner:x:1001:1001:GitHub Actions:/home/runner:/bin/bash\n',
+              stderr: '',
+            };
+          }
+          const entry = [...accounts.entries()].find(([name, account]) =>
+            name === args[1] || String(account.uid) === args[1]);
+          if (!entry?.[1].exists) {
+            throw Object.assign(new Error('missing account'), { exitCode: 2 });
+          }
+          const [name, account] = entry;
+          return {
+            stdout: `${name}:x:${account.uid}:${account.gid}:` +
+              `AWF Cloud Hypervisor concurrent:/nonexistent:/usr/sbin/nologin\n`,
+            stderr: '',
+          };
+        }
+        if (command === tools.getent && args[0] === 'group') {
+          const entry = [...accounts.entries()].find(([name]) => name === args[1]);
+          if (!entry?.[1].groupExists) {
+            throw Object.assign(new Error('missing group'), { exitCode: 2 });
+          }
+          return {
+            stdout: `${entry[0]}:x:${entry[1].gid}:\n`,
+            stderr: '',
+          };
+        }
+        if (command === tools.userdel) {
+          accounts.get(args[0])!.exists = false;
+          return { stdout: '', stderr: '' };
+        }
+        if (command === tools.groupdel) {
+          accounts.get(args[0])!.groupExists = false;
+          return { stdout: '', stderr: '' };
+        }
+        throw new Error(`unexpected command: ${command} ${args.join(' ')}`);
+      });
+      const durableAclIntents = [new Set<string>(), new Set<string>()];
+      const managers = durableAclIntents.map((intents, index) =>
+        new CloudHypervisorVmmIdentityManager(
+          `concurrent-${index}`,
+          tools,
+          base.deps,
+          {
+            prepareAccount: jest.fn().mockResolvedValue(undefined),
+            captureIdentity: jest.fn().mockResolvedValue(undefined),
+            prepareAcl: jest.fn(async (devicePath) => { intents.add(devicePath); }),
+            releaseAcl: jest.fn(async (devicePath) => { intents.delete(devicePath); }),
+          },
+        ));
+
+      for (const manager of managers) {
+        await manager.allocate();
+        await manager.withDeviceAccess(async () => undefined, false);
+      }
+      expect(durableAclIntents.map((intents) => [...intents])).toEqual([[], []]);
+
+      currentAcl = [...finalBaseline];
+      for (const index of cleanupOrder) await managers[index].cleanup();
+
+      expect(currentAcl).toEqual(finalBaseline);
+      expect(durableAclIntents.map((intents) => [...intents])).toEqual([[], []]);
+      expect([...accounts.values()].every((account) =>
+        !account.exists && !account.groupExists,
+      )).toBe(true);
+    },
+  );
+
+  it('retains durable ACL evidence when launch cleanup completion fails', async () => {
+    const base = dependencies();
+    const durableAclIntents = new Set<string>();
+    const observer = {
+      prepareAccount: jest.fn().mockResolvedValue(undefined),
+      captureIdentity: jest.fn().mockResolvedValue(undefined),
+      prepareAcl: jest.fn(async (devicePath: string) => {
+        durableAclIntents.add(devicePath);
+      }),
+      releaseAcl: jest.fn(async () => {
+        throw new Error('cleanup record write failed');
+      }),
+    };
+    const manager = new CloudHypervisorVmmIdentityManager(
+      'release-failure',
+      tools,
+      base.deps,
+      observer,
+    );
+    const identity = await manager.allocate();
+
+    await expect(manager.withDeviceAccess(async () => undefined, false)).rejects.toThrow(
+      /cleanup record write failed/,
+    );
+
+    expect(durableAclIntents).toEqual(new Set(['/dev/kvm']));
+    expect(base.run).not.toHaveBeenCalledWith(tools.userdel, [identity.name]);
+  });
+
+  it('journals a lingering VMM ACL before failing closed', async () => {
+    const base = dependencies();
+    const originalRun = base.deps.run;
+    let exposeLingeringAcl = false;
+    base.deps.run = jest.fn(async (command, args) => {
+      if (command === tools.getfacl && exposeLingeringAcl) {
+        return {
+          stdout: [
+            'user::rw-', 'user:23001:rw-',
+            'group::rw-', 'mask::rw-', 'other::rw-', '',
+          ].join('\n'),
+          stderr: '',
+        };
+      }
+      return originalRun(command, args);
+    });
+    const durableAclIntents = new Set<string>();
+    const manager = new CloudHypervisorVmmIdentityManager(
+      'lingering-acl',
+      tools,
+      base.deps,
+      {
+        prepareAccount: jest.fn().mockResolvedValue(undefined),
+        captureIdentity: jest.fn().mockResolvedValue(undefined),
+        prepareAcl: jest.fn(async (devicePath) => {
+          durableAclIntents.add(devicePath);
+        }),
+        releaseAcl: jest.fn(async (devicePath) => {
+          durableAclIntents.delete(devicePath);
+        }),
+      },
+    );
+    const identity = await manager.allocate();
+    await manager.withDeviceAccess(async () => undefined, false);
+    exposeLingeringAcl = true;
+
+    await expect(manager.cleanup()).rejects.toThrow(
+      /ACL still grants access to 23001 on \/dev\/kvm/,
+    );
+
+    expect(durableAclIntents).toEqual(new Set(['/dev/kvm']));
+    expect(base.run).not.toHaveBeenCalledWith(tools.userdel, [identity.name]);
   });
 
   it('fails closed on a same-length final ACL mismatch after account deletion', async () => {
@@ -621,7 +826,7 @@ describe('CloudHypervisorVmmIdentityManager', () => {
       /before=user::rw-,user:<id>:rw-,group::rw-,mask::rw-,other::rw-.*after=user::rw-,user:<id>:rw-,group::rw-,mask::rw-,other::rw-/,
     );
     expect(restorationCount).toBe(3);
-    expect(observer.releaseAcl).not.toHaveBeenCalled();
+    expect(observer.releaseAcl).toHaveBeenCalledTimes(1);
   });
 
   it.each([
@@ -636,7 +841,7 @@ describe('CloudHypervisorVmmIdentityManager', () => {
       await expect(scenario.manager.cleanup()).rejects.toThrow(expectedError);
       expect(scenario.restorationAttempts()).toBe(3);
       expect(scenario.currentAcl()).toEqual(scenario.runnerBaseline);
-      expect(scenario.observer.releaseAcl).not.toHaveBeenCalled();
+      expect(scenario.observer.releaseAcl).toHaveBeenCalledTimes(1);
     },
   );
 
@@ -647,7 +852,7 @@ describe('CloudHypervisorVmmIdentityManager', () => {
       /userdel failed after mutation.*final ACL restoration also failed:.*final setfacl failed/,
     );
     expect(scenario.restorationAttempts()).toBe(3);
-    expect(scenario.observer.releaseAcl).not.toHaveBeenCalled();
+    expect(scenario.observer.releaseAcl).toHaveBeenCalledTimes(1);
   });
 
   it('propagates account existence probe failures instead of treating them as absence', async () => {

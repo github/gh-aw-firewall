@@ -77,6 +77,7 @@ type LockOwner = DirectoryLockOwner;
 export class CloudHypervisorVmmIdentityManager {
   private identity: CloudHypervisorVmmIdentity | undefined;
   private provisionalAccountName: string | undefined;
+  private readonly accessedAclPaths = new Set<CloudHypervisorDevicePath>();
   private readonly aclPaths = new Set<string>();
   private readonly aclBaselines = new Map<CloudHypervisorDevicePath, string[]>();
   private readonly aclTemporaryUids = new Map<CloudHypervisorDevicePath, number[]>();
@@ -163,6 +164,17 @@ export class CloudHypervisorVmmIdentityManager {
         }
         throw revokeError;
       }
+      try {
+        await this.releaseDeviceAclIntentLocked();
+      } catch (releaseError) {
+        if (operationError) {
+          throw new Error(
+            `Cloud Hypervisor device operation failed: ${formatError(operationError)}; ` +
+            `ACL cleanup completion also failed: ${formatError(releaseError)}`,
+          );
+        }
+        throw releaseError;
+      }
       if (operationError) throw operationError;
       return result as T;
     });
@@ -226,6 +238,7 @@ export class CloudHypervisorVmmIdentityManager {
             `Refusing to remove reused Cloud Hypervisor VMM account ${identity.name}`,
           );
         }
+        await this.prepareAccountDeletionAclIntentLocked();
         const restoredTargets = await this.restoreDeviceAccessLocked();
         let deletionError: unknown;
         try {
@@ -272,6 +285,7 @@ export class CloudHypervisorVmmIdentityManager {
         '--modify', `user:${identity.uid}:rw`, devicePath,
       ]);
       this.aclPaths.add(devicePath);
+      this.accessedAclPaths.add(devicePath);
       this.aclBaselines.set(devicePath, baseline);
       this.aclTemporaryUids.set(devicePath, temporaryUids);
       const { stdout } = await this.dependencies.run(this.tools.getfacl, [
@@ -351,6 +365,31 @@ export class CloudHypervisorVmmIdentityManager {
       this.aclPaths.delete(devicePath);
       this.aclBaselines.delete(devicePath as CloudHypervisorDevicePath);
       this.aclTemporaryUids.delete(devicePath as CloudHypervisorDevicePath);
+    }
+  }
+
+  private async prepareAccountDeletionAclIntentLocked(): Promise<void> {
+    if (this.aclPaths.size > 0) return;
+    const identity = this.requireIdentity();
+    for (const devicePath of this.accessedAclPaths) {
+      const currentResult = await this.dependencies.run(this.tools.getfacl, [
+        '--absolute-names', '--numeric', devicePath,
+      ]);
+      const baseline = parseDeviceAcl(currentResult.stdout);
+      const temporaryUids = await resolveTemporaryVmmAclUids(
+        baseline,
+        this.tools,
+        this.dependencies.run,
+      );
+      await this.observer?.prepareAcl(devicePath, baseline, temporaryUids);
+      this.aclPaths.add(devicePath);
+      this.aclBaselines.set(devicePath, baseline);
+      this.aclTemporaryUids.set(devicePath, temporaryUids);
+      if (baseline.some((entry) => namedUserAclUid(entry) === identity.uid)) {
+        throw new Error(
+          `Cloud Hypervisor VMM ACL still grants access to ${identity.uid} on ${devicePath}`,
+        );
+      }
     }
   }
 

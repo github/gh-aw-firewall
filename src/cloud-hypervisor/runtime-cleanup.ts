@@ -58,7 +58,7 @@ export async function stopManager({
 }
 
 export interface CleanupArtifactSnapshotOptions {
-  preflightResult: CloudHypervisorPreflightResult | undefined;
+  preflightResult: Pick<CloudHypervisorPreflightResult, 'artifactSnapshotDirectory'> | undefined;
   manager: RuntimeCleanupManager | undefined;
   cleanedManagers: Set<RuntimeCleanupManager>;
   removeArtifactSnapshot(directory: string): Promise<void>;
