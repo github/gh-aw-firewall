@@ -4,6 +4,7 @@ const { computeTokenBudgetUsage } = require('./token-budget-log');
 const { resetEffectiveTokenGuardForTests } = require('./guards/effective-token-guard');
 const { resetAiCreditsGuardForTests } = require('./guards/ai-credits-guard');
 const { resetModelPricingCatalogForTests } = require('./model-pricing-catalog');
+const { resetProviderPricingOverlaysForTests } = require('./provider-pricing-overlays');
 
 describe('computeTokenBudgetUsage', () => {
   let logRequest;
@@ -180,5 +181,113 @@ describe('computeTokenBudgetUsage', () => {
       fallback_pricing_used: true,
       dynamic_selector: 'copilot:auto',
     }));
+  });
+});
+
+describe('curated prices for default-model traffic', () => {
+  const originalEnvironment = {};
+  let logRequest;
+
+  beforeEach(() => {
+    for (const name of ['AWF_MAX_AI_CREDITS', 'AWF_API_PROXY_PROVIDERS', 'AWF_MODEL_PRICING_CATALOG']) {
+      originalEnvironment[name] = process.env[name];
+    }
+    process.env.AWF_MAX_AI_CREDITS = '1000';
+    delete process.env.AWF_API_PROXY_PROVIDERS;
+    delete process.env.AWF_MODEL_PRICING_CATALOG;
+    resetAiCreditsGuardForTests();
+    resetModelPricingCatalogForTests();
+    resetProviderPricingOverlaysForTests();
+    logRequest = jest.fn();
+  });
+
+  afterEach(() => {
+    for (const [name, value] of Object.entries(originalEnvironment)) {
+      if (value === undefined) delete process.env[name];
+      else process.env[name] = value;
+    }
+    resetAiCreditsGuardForTests();
+    resetModelPricingCatalogForTests();
+    resetProviderPricingOverlaysForTests();
+  });
+
+  const recordA = {
+    provider: 'anthropic',
+    path: '/v1/messages?beta=true',
+    model: 'claude-sonnet-5',
+    input_tokens: 2,
+    output_tokens: 1307,
+    cache_read_tokens: 189407,
+    cache_write_tokens: 59949,
+  };
+  const recordB = {
+    provider: 'openai',
+    path: '/responses',
+    model: 'gpt-6-luna',
+    input_tokens: 57001,
+    output_tokens: 2857,
+    cache_read_tokens: 56398,
+    cache_write_tokens: 0,
+  };
+
+  function computeForRecord(record) {
+    return computeTokenBudgetUsage({
+      logRequest,
+      requestId: 'request-1',
+      provider: record.provider,
+    }, record, record.model);
+  }
+
+  it('prices record A (anthropic claude-sonnet-5) at the published Sonnet 5 price', () => {
+    expect(computeForRecord(recordA)).toMatchObject({
+      ai_credits_this_response: 20.08279,
+      ai_credits_pricing_source: 'curated',
+    });
+  });
+
+  it('prices record B (openai gpt-6-luna /responses) at the published GPT-6 Luna price', () => {
+    expect(computeForRecord(recordB)).toMatchObject({
+      ai_credits_this_response: 0.205278,
+      ai_credits_pricing_source: 'curated',
+    });
+  });
+
+  it('prices gpt-6-sol at $2 / $0.20 / $10 per million tokens', () => {
+    expect(computeForRecord({ ...recordB, model: 'gpt-6-sol' })).toMatchObject({
+      ai_credits_this_response: 4.10556,
+      ai_credits_pricing_source: 'curated',
+    });
+  });
+
+  it('operator price takes precedence over the curated price for claude-sonnet-5, gpt-6-luna and gpt-6-sol', () => {
+    const operatorModelPrice = {
+      cost: {
+        input: '0.000001',
+        cache_read: '0.0000001',
+        cache_write: '0.00000125',
+        output: '0.000005',
+      },
+    };
+    process.env.AWF_API_PROXY_PROVIDERS = JSON.stringify({
+      anthropic: { models: { 'claude-sonnet-5': operatorModelPrice } },
+      openai: {
+        models: {
+          'gpt-6-luna': operatorModelPrice,
+          'gpt-6-sol': operatorModelPrice,
+        },
+      },
+    });
+    resetProviderPricingOverlaysForTests();
+
+    const sonnet5Usage = computeForRecord(recordA);
+    const lunaUsage = computeForRecord(recordB);
+    const solUsage = computeForRecord({ ...recordB, model: 'gpt-6-sol' });
+
+    expect(sonnet5Usage.ai_credits_this_response).toBeCloseTo(10.04, 2);
+    expect(sonnet5Usage.ai_credits_pricing_source).toBe('operator');
+    expect(lunaUsage.ai_credits_this_response).toBeCloseTo(2.05, 2);
+    expect(lunaUsage.ai_credits_pricing_source).toBe('operator');
+    expect(solUsage.ai_credits_this_response).toBeCloseTo(2.05, 2);
+    expect(solUsage.ai_credits_pricing_source).toBe('operator');
   });
 });

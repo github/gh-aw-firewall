@@ -179,7 +179,7 @@ describe('ai-credits-guard', () => {
       output_tokens: 100,
     }, 'claude-sonnet-5');
 
-    expect(usage.aiCreditsThisResponse).toBeCloseTo(0.5175, 10);
+    expect(usage.aiCreditsThisResponse).toBeCloseTo(0.345, 10);
     expect(checkUnknownModelRejection('claude-sonnet-5')).toBeNull();
   });
 
@@ -198,9 +198,12 @@ describe('ai-credits-guard', () => {
     expect(checkUnknownModelRejection('gpt-6-astra')).toBeNull();
   });
 
-  it.each(['gpt-6-luna', 'gpt-6-sol'])(
-    'resolves %s from conservative curated pricing without unknown-model rejection',
-    model => {
+  it.each([
+    ['gpt-6-luna', 0.016],
+    ['gpt-6-sol', 0.32],
+  ])(
+    'resolves %s from curated pricing without unknown-model rejection',
+    (model, expectedCredits) => {
       process.env.AWF_MAX_AI_CREDITS = '10';
       resetAiCreditsGuardForTests();
 
@@ -210,7 +213,7 @@ describe('ai-credits-guard', () => {
         output_tokens: 100,
       }, model);
 
-      expect(usage.aiCreditsThisResponse).toBeCloseTo(1.6, 10);
+      expect(usage.aiCreditsThisResponse).toBeCloseTo(expectedCredits, 10);
       expect(getAiCreditsReflectState().by_model[model]).toMatchObject({
         pricing_source: 'curated',
         pricing_tier: 'default',
@@ -822,12 +825,12 @@ describe('ai-credits-guard', () => {
       }, 'claude-sonnet-5?effort=high', PROVIDER_COPILOT);
 
       expect(usage).toMatchObject({
-        aiCreditsThisResponse: 0.9675,
+        aiCreditsThisResponse: 0.645,
         pricingSource: 'curated',
       });
       expect(checkUnknownModelRejection('claude-sonnet-5?effort=high', PROVIDER_COPILOT)).toBeNull();
       expect(canonicalizeModel('claude-sonnet-5?effort=high')).toBe('claude-sonnet-5');
-      expect(getAiCreditsReflectState().by_model['claude-sonnet-5?effort=high'].total).toBeCloseTo(0.9675, 10);
+      expect(getAiCreditsReflectState().by_model['claude-sonnet-5?effort=high'].total).toBeCloseTo(0.645, 10);
     });
   });
 
