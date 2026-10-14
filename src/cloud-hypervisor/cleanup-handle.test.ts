@@ -23,19 +23,38 @@ describe('cleanup handle integration', () => {
       const account = 'awfvmm-0123456789abcdef0123';
       await handle.prepareVmmAccount(account);
       await handle.captureVmmIdentity({ name: account, uid: 23001, gid: 23002 });
-      const baseline = ['user::rw-', 'group::rw-', 'other::rw-'];
-      await handle.prepareVmmAcl('/dev/kvm', baseline);
+      const baseline = [
+        'user::rw-', 'user:23003:rw-', 'group::rw-', 'mask::rw-', 'other::rw-',
+      ];
+      const temporaryUids = [23003];
+      await handle.prepareVmmAcl('/dev/kvm', baseline, temporaryUids);
+      await expect(handle.prepareVmmAcl('/dev/kvm', baseline, [23004])).rejects.toThrow(
+        /baseline changed/,
+      );
       await expect(handle.prepareVmmAcl('/dev/kvm', [
         'user::rw-', 'group::r--', 'other::---',
       ])).rejects.toThrow(/baseline changed/);
+
+      const recordPath = path.join(
+        harness.temporaryRoot, 'pending-cleanup', `${paths.runId}.json`,
+      );
+      const preparedRecord = JSON.parse(await fs.readFile(recordPath, 'utf8')) as {
+        vmmIdentity: { aclTemporaryUids?: Record<string, number[]> };
+      };
+      expect(preparedRecord.vmmIdentity.aclTemporaryUids).toEqual({ '/dev/kvm': temporaryUids });
+
       await handle.releaseVmmAcl('/dev/kvm');
 
-      const record = JSON.parse(await fs.readFile(
-        path.join(harness.temporaryRoot, 'pending-cleanup', `${paths.runId}.json`),
-        'utf8',
-      )) as { vmmIdentity: { aclPaths: string[]; aclBaselines?: object } };
+      const record = JSON.parse(await fs.readFile(recordPath, 'utf8')) as {
+        vmmIdentity: {
+          aclPaths: string[];
+          aclBaselines?: object;
+          aclTemporaryUids?: object;
+        };
+      };
       expect(record.vmmIdentity.aclPaths).toEqual([]);
       expect(record.vmmIdentity.aclBaselines).toEqual({});
+      expect(record.vmmIdentity.aclTemporaryUids).toEqual({});
       await expect(handle.releaseVmmAcl('/dev/kvm')).rejects.toThrow(/intent is missing/);
     });
 

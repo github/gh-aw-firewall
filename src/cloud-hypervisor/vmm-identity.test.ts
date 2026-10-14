@@ -2,6 +2,7 @@ import {
   CloudHypervisorVmmIdentityManager,
   cloudHypervisorVmmIdentityTestHelpers,
   createAccountName,
+  resolveTemporaryVmmAclUids,
   type CloudHypervisorVmmIdentityDependencies,
   type CloudHypervisorVmmIdentityToolPaths,
 } from './vmm-identity';
@@ -235,6 +236,20 @@ async function cleanupFailureScenario(failure: CleanupFailure) {
 }
 
 describe('CloudHypervisorVmmIdentityManager', () => {
+  it('does not classify similarly prefixed non-AWF accounts as temporary VMM identities', async () => {
+    const run = jest.fn(async () => ({
+      stdout: 'awfvmm-backup:x:23003:23002:AWF Cloud Hypervisor:/nonexistent:/usr/sbin/nologin\n',
+      stderr: '',
+    }));
+
+    await expect(resolveTemporaryVmmAclUids(
+      ['user:23003:rw-'],
+      tools,
+      run,
+    )).resolves.toEqual([]);
+    expect(run).toHaveBeenCalledTimes(1);
+  });
+
   it('creates a no-login system account, validates resources, grants ACLs, and removes exact state', async () => {
     const { deps, run } = dependencies();
     const observer = {

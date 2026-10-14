@@ -582,7 +582,7 @@ export async function resolveTemporaryVmmAclUids(
     }
     const passwd = passwdResult.stdout.trim().split(':');
     const name = passwd[0] ?? '';
-    if (!name.startsWith(ACCOUNT_PREFIX)) continue;
+    if (!/^awfvmm-[a-f0-9]{20}$/.test(name)) continue;
     if (passwd[2] !== String(uid)) {
       throw new Error(`Cloud Hypervisor device ACL account uid changed: ${name}`);
     }
