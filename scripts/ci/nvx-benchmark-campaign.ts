@@ -4,6 +4,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { isDeepStrictEqual } from 'util';
 import { BenchmarkResults, RecoveryResult, RunResult, Thresholds, evaluate } from './nvx-promotion-evaluator';
+import { getRunnerImageFamily } from './nvx-runner-baseline';
 
 export type CampaignMode = 'dry-run' | 'canary' | 'pilot-100' | 'pilot-1000' | 'full';
 
@@ -173,12 +174,6 @@ const EXECUTION_SAMPLE_COUNTS: Partial<Record<CampaignMode, number>> = {
   'pilot-1000': 100,
   full: 1_000,
 };
-
-export function getRunnerImageFamily(runnerImage: string): string {
-  const match = /^([A-Za-z0-9._-]+)(?:\/[A-Za-z0-9._-]+)?$/.exec(runnerImage);
-  if (!match) throw new Error(`runner image ${JSON.stringify(runnerImage)} is invalid`);
-  return match[1];
-}
 
 function stableId(campaignId: string, parts: string[]): string {
   return createHash('sha256')

@@ -7,6 +7,7 @@
  */
 import * as fs from 'fs';
 import * as path from 'path';
+import { getRunnerImageFamily } from './nvx-runner-baseline';
 
 export type Runtime = 'nvx' | 'cloud-hypervisor';
 export type Mode = 'sequential' | 'concurrent';
@@ -52,6 +53,7 @@ export interface RecoveryResult {
 
 export interface BenchmarkResults {
   runnerClass: string;
+  runnerImage: string;
   versions: Record<string, string>;
   runs: RunResult[];
   recoveries: RecoveryResult[];
@@ -184,6 +186,14 @@ export function evaluate(results: BenchmarkResults, thresholds: Thresholds): Eva
 
   if (!results.runnerClass || !thresholds.approvedRunnerClasses.includes(results.runnerClass)) {
     unmetGates.push(`runner class ${JSON.stringify(results.runnerClass)} is not approved`);
+  }
+  try {
+    const runnerImageFamily = getRunnerImageFamily(results.runnerImage);
+    if (!thresholds.approvedRunnerImageFamilies.includes(runnerImageFamily)) {
+      unmetGates.push(`runner image family ${JSON.stringify(runnerImageFamily)} is not approved`);
+    }
+  } catch {
+    unmetGates.push(`runner image ${JSON.stringify(results.runnerImage)} is invalid`);
   }
   for (const [key, expected] of Object.entries(thresholds.baseline)) {
     const actual = results.versions?.[key];
@@ -350,7 +360,13 @@ function main(): void {
   const results = JSON.parse(fs.readFileSync(resultsPath, 'utf8')) as BenchmarkResults;
   const thresholds = JSON.parse(fs.readFileSync(thresholdsPath ?? defaultThresholds, 'utf8')) as Thresholds;
   const evaluation = evaluate(results, thresholds);
-  process.stdout.write(`${JSON.stringify({ runnerClass: results.runnerClass, versions: results.versions, ...evaluation, summary: evaluation.summary }, null, 2)}\n`);
+  process.stdout.write(`${JSON.stringify({
+    runnerClass: results.runnerClass,
+    runnerImage: results.runnerImage,
+    versions: results.versions,
+    ...evaluation,
+    summary: evaluation.summary,
+  }, null, 2)}\n`);
   process.exit(evaluation.recommendation === 'promote' ? 0 : 1);
 }
 

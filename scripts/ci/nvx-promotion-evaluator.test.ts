@@ -55,6 +55,7 @@ function results(nvxOverrides: Partial<RunResult> = {}, count = 30): BenchmarkRe
   );
   return {
     runnerClass: 'ubuntu-24.04',
+    runnerImage: 'ubuntu24',
     versions: { ...thresholds.baseline },
     runs: (['nvx', 'cloud-hypervisor'] as const).flatMap((runtime) =>
       thresholds.matrix.workloads.flatMap((workload) =>
@@ -139,7 +140,7 @@ describe('nvx promotion evaluator', () => {
   });
 
   it('retains preview when there is no data', () => {
-    const e = evaluate({ runnerClass: '', versions: {}, runs: [], recoveries: [] }, thresholds);
+    const e = evaluate({ runnerClass: '', runnerImage: '', versions: {}, runs: [], recoveries: [] }, thresholds);
     expect(e.recommendation).toBe('retain-preview');
   });
 
@@ -151,6 +152,16 @@ describe('nvx promotion evaluator', () => {
     expect(e.recommendation).toBe('retain-preview');
     expect(e.unmetGates.join('\n')).toContain('runner class');
     expect(e.unmetGates.join('\n')).toContain('baseline awf');
+  });
+
+  it('retains preview when runner image family is missing, malformed, or unapproved', () => {
+    for (const runnerImage of ['', 'ubuntu24/patch/extra', 'ubuntu22/20261005.85']) {
+      const input = results();
+      input.runnerImage = runnerImage;
+      const e = evaluate(input, thresholds);
+      expect(e.recommendation).toBe('retain-preview');
+      expect(e.unmetGates.join('\n')).toContain('runner image');
+    }
   });
 
   it('stops promotion when any recovery fails or a lifecycle assertion fails', () => {

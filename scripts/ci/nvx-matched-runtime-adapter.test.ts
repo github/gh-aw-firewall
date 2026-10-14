@@ -178,6 +178,7 @@ describe('matched runtime measurement adapter', () => {
       cpuSeconds: 1.25,
       resourceProfile: 'default',
       cachePreparation: 'cold-cache-flushed',
+      runnerImage: 'ubuntu24/20261005.85',
       success: true,
     });
     expect(artifact.result.apiProxyRequests).toBe(3);
@@ -503,6 +504,7 @@ describe('matched runtime measurement adapter', () => {
       kind: 'recovery',
       result: {
         evidenceKind: 'measured',
+        runnerImage: 'ubuntu24/20261005.85',
         success: true,
         durationMs: 1234,
         managerKilledAfterCleanupRecord: true,
