@@ -85,6 +85,15 @@ request for `gpt-5.4`. An omitted allowlist does not restrict models; an
 empty list or invalid `AWF_ALLOWED_MODELS` value prevents the proxy from
 starting rather than silently disabling the policy.
 
+For gh-aw workflows, `models.allowed` and `models.blocked` set this request
+policy; `engine.model-routing.allowed-models` is a separate list of models the
+router may select, and does not restrict models the agent can request. The
+router candidate list is optional with AWF v0.28.33 or later and defaults to
+the models allowed by the request policy. Routed Claude and Codex workflows
+must set `engine.model-provider: github` to use GitHub Copilot routing. See the
+[gh-aw model-routing reference](https://github.github.com/gh-aw/reference/model-routing/)
+for the workflow configuration.
+
 ### Basic usage
 
 ```bash

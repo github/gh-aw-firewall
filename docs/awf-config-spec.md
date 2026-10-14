@@ -2164,6 +2164,17 @@ inference request the proxy logs a `model_routing` event with
 effort, and endpoint, `routed: "as_selected"` or `"deviated"`, and the list of
 `deviations`, so routing quality stays measurable without enforcement.
 
+For gh-aw workflows, `models.allowed` and `models.blocked` define the request
+policy enforced by AWF (`apiProxy.allowedModels` and
+`apiProxy.disallowedModels`). The workflow's
+`engine.model-routing.allowed-models` is only a router-candidate list: it narrows
+the models available for selection and does not authorize or restrict agent
+requests. That list is optional with AWF v0.28.33 or later; when omitted, AWF
+derives candidates from the request policy. Routed Claude and Codex workflows
+must set `engine.model-provider: github`. See the
+[gh-aw model-routing reference](https://github.github.com/gh-aw/reference/model-routing/)
+for the workflow-side configuration.
+
 A genuine routing failure still surfaces as host exit code `78` instead of the
 run silently continuing: no selection could be produced (`no_route`, router
 unreachable, contract or configuration errors), or an upstream failure on a
