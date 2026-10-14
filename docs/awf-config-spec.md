@@ -1353,10 +1353,17 @@ If none of these sources resolves the model, the `defaultAiCreditsPricing` fallb
 Models whose catalog entry carries zero-cost pricing are recognized as known
 models with zero AI credit impact, so they are never rejected as "unknown".
 
-Runtime tiered pricing uses the provider's default-tier prompt threshold. When
-the total input exceeds that threshold, all token categories use the
-long-context tier. Pricing source, API version, observation time, selected
-tier, and any provider-advertised promotion are retained in provenance.
+Tiered pricing uses the default-tier prompt threshold. When the applicable
+prompt-token count exceeds that threshold, all token categories use the
+long-context tier. Runtime Copilot prices, operator overlays, and the shared
+pricing catalog can provide this tier; curated prices may also define it.
+Overlay tier rates use dollars per token, while curated and shared-catalog rates
+use dollars per million tokens. Pricing source, API version, observation time,
+selected tier, and any provider-advertised promotion are retained in provenance.
+The prompt-token count follows runtime Copilot pricing: Anthropic and Copilot
+usage with separately reported cache counts sum input, cache-read, and
+cache-write tokens; usage whose input count already includes cached tokens uses
+the reported input count.
 Promotions are informational only because provider discovery does not prove
 that a discount applies to a specific request; they never reduce accounting.
 Failed or empty discovery responses do not replace the last successful runtime
@@ -1390,13 +1397,24 @@ apiProxy:
             cacheWrite: null
             output: 50
             reasoning: 50
+            longContext:
+              threshold: 100000
+              input: 20
+              cachedInput: 2
+              cacheWrite: null
+              output: 100
+              reasoning: 100
 ```
 
 Each catalog model MUST provide `input`, `output`, `cachedInput`, `cacheWrite`,
 and `reasoning`, all in USD per million tokens. Use `cacheWrite: null` when no
 separate cache-write price applies, and set `reasoning` equal to `output` when
-there is no distinct reasoning rate. Requiring explicit values makes the
-catalog consumer-independent rather than relying on different defaults.
+there is no distinct reasoning rate. A model MAY include a `longContext` object
+with the same five rates and a positive `threshold` in prompt tokens. When the
+prompt-token count is greater than the threshold, every token category uses
+that tier; at or below the threshold, the base rates apply. A malformed tier
+invalidates the catalog entry. Requiring explicit values makes the catalog
+consumer-independent rather than relying on different defaults.
 AI-credit accounting treats `reasoning_tokens` as a subset of
 `output_tokens`: it prices the remaining output tokens at `output` and the
 reasoning tokens at `reasoning`, without double-counting them. If reasoning
@@ -1423,11 +1441,19 @@ apiProxy:
             output: "1.5e-05"
             cache_read: "3e-07"
             cache_write: "3.75e-06"
+            long_context:
+              max_prompt_tokens: 100000
+              input: "3e-05"
+              output: "1.5e-04"
+              cache_read: "3e-06"
+              cache_write: "3.75e-05"
 ```
 
 The overlay is passed to both normal and threat-detection API proxy instances
 through `AWF_API_PROXY_PROVIDERS`. Provider aliases `github-copilot` and
-`copilot` resolve to the Copilot proxy.
+`copilot` resolve to the Copilot proxy. A `long_context` cost tier uses the
+same per-token dollar units as the base `cost` object and its
+`max_prompt_tokens` threshold.
 
 ### 10.7.2 Default AI Credits Pricing (Fallback)
 

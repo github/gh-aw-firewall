@@ -970,8 +970,11 @@ successful snapshot.
 Explicit `apiProxy.providers` model-cost overlays take precedence over all other
 pricing sources. A versioned `apiProxy.modelPricingCatalog` takes precedence
 over runtime and bundled pricing and records its catalog ID and version with
-AI-credit usage. Overlay costs use the models.dev format (dollars per token)
-and are normalized to dollars per million tokens inside the proxy.
+AI-credit usage. Both sources may define an optional long-context tier with a
+prompt-token threshold and rates for every token category; the tier applies
+only when the prompt count exceeds the threshold. Overlay costs use the
+models.dev format (dollars per token) and are normalized to dollars per million
+tokens inside the proxy. Shared-catalog rates use dollars per million tokens.
 
 ## Troubleshooting
 

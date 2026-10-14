@@ -63,6 +63,14 @@ export interface AwfFileConfig {
           cachedInput: number;
           cacheWrite: number | null;
           reasoning: number;
+          longContext?: {
+            threshold: number;
+            input: number;
+            output: number;
+            cachedInput: number;
+            cacheWrite: number | null;
+            reasoning: number;
+          };
         }>;
       }>;
     };

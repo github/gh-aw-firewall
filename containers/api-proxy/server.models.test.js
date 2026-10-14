@@ -16,6 +16,74 @@ const {
 const { buildModelsJson: buildModelsPayload } = require('./model-discovery');
 const { composeBodyTransforms } = require('./proxy-utils');
 
+async function resolveDetectionAlias(models, maxCredits, defaultPricing) {
+  const previous = {
+    aliases: process.env.AWF_MODEL_ALIASES,
+    maxCredits: process.env.AWF_MAX_AI_CREDITS,
+    defaultPricing: process.env.AWF_DEFAULT_AI_CREDITS_PRICING,
+    fallback: process.env.AWF_MODEL_FALLBACK,
+    anthropicKey: process.env.ANTHROPIC_API_KEY,
+  };
+  process.env.AWF_MODEL_ALIASES = JSON.stringify({
+    models: {
+      detection: ['small'],
+      small: ['mini'],
+      mini: ['haiku', 'gpt-5-mini', 'gpt-5-nano', 'gemini-flash-lite'],
+      haiku: ['copilot/*haiku*', 'anthropic/*haiku*'],
+      'gpt-5-mini': ['copilot/gpt-5*mini*', 'openai/gpt-5*mini*'],
+      'gpt-5-nano': ['copilot/gpt-5*nano*', 'openai/gpt-5*nano*'],
+      'gemini-flash-lite': ['copilot/gemini-*flash*lite*', 'gemini/gemini-*flash*lite*'],
+    },
+  });
+  if (maxCredits === undefined) delete process.env.AWF_MAX_AI_CREDITS;
+  else process.env.AWF_MAX_AI_CREDITS = maxCredits;
+  if (defaultPricing === undefined) delete process.env.AWF_DEFAULT_AI_CREDITS_PRICING;
+  else process.env.AWF_DEFAULT_AI_CREDITS_PRICING = defaultPricing;
+  process.env.AWF_MODEL_FALLBACK = JSON.stringify({ enabled: false });
+  process.env.ANTHROPIC_API_KEY = 'test-key';
+  const stdoutSpy = jest.spyOn(process.stdout, 'write').mockImplementation(() => true);
+
+  try {
+    let isolatedServer;
+    let checkUnknownModelRejection;
+    jest.isolateModules(() => {
+      isolatedServer = require('./server');
+      ({ checkUnknownModelRejection } = require('./guards/ai-credits-guard'));
+    });
+    isolatedServer.resetModelCacheState();
+    isolatedServer.cachedModels.anthropic = models;
+    const req = {};
+    const transform = isolatedServer.makeModelBodyTransform('anthropic');
+    const rewritten = await transform(Buffer.from(JSON.stringify({
+      model: 'detection',
+      messages: [],
+    })), req);
+    const records = stdoutSpy.mock.calls
+      .map(([line]) => String(line).trim())
+      .filter(Boolean)
+      .map(line => JSON.parse(line));
+    const resolvedModel = JSON.parse(rewritten.toString('utf8')).model;
+    return {
+      resolvedModel,
+      candidates: req.awfModelCandidates,
+      records,
+      rejection: checkUnknownModelRejection(resolvedModel, 'anthropic'),
+    };
+  } finally {
+    stdoutSpy.mockRestore();
+    for (const [key, value] of Object.entries({
+      AWF_MODEL_ALIASES: previous.aliases,
+      AWF_MAX_AI_CREDITS: previous.maxCredits,
+      AWF_DEFAULT_AI_CREDITS_PRICING: previous.defaultPricing,
+      AWF_MODEL_FALLBACK: previous.fallback,
+      ANTHROPIC_API_KEY: previous.anthropicKey,
+    })) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  }
+}
+
 describe('makeModelBodyTransform', () => {
   beforeEach(() => {
     resetModelCacheState();
@@ -169,6 +237,52 @@ describe('makeModelBodyTransform', () => {
       if (prevCopilotToken === undefined) delete process.env.COPILOT_GITHUB_TOKEN;
       else process.env.COPILOT_GITHUB_TOKEN = prevCopilotToken;
     }
+  });
+
+  it('resolves detection to the highest priced Haiku and logs skipped unpriced candidates with the AI-credit guard active', async () => {
+    const result = await resolveDetectionAlias([
+      'claude-haiku-4-5-20251001',
+      'claude-haiku-9-9',
+    ], '400');
+    expect(result.resolvedModel).toBe('claude-haiku-4-5-20251001');
+    expect(result.candidates).toEqual(['claude-haiku-4-5-20251001']);
+    expect(result.rejection).toBeNull();
+    expect(result.records.some(record =>
+      record.event === 'model_resolution' &&
+      record.message.includes('claude-haiku-9-9') &&
+      record.message.includes('"haiku"') &&
+      record.message.includes('no AI-credit price on this provider')
+    )).toBe(true);
+  });
+
+  it('keeps the highest-versioned alias candidate when none is priced, allowing the guard rejection', async () => {
+    const result = await resolveDetectionAlias(['claude-haiku-8-8', 'claude-haiku-9-9'], '400');
+    expect(result.resolvedModel).toBe('claude-haiku-9-9');
+    expect(result.candidates).toEqual(['claude-haiku-9-9']);
+    expect(result.rejection).toMatchObject({
+      rejected: true,
+      error: {
+        type: 'unknown_model_ai_credits',
+        model: 'claude-haiku-9-9',
+        message: expect.stringContaining('has no AI credits pricing'),
+      },
+    });
+  });
+
+  it.each([
+    ['guard off', undefined, undefined],
+    ['default pricing configured', '400', JSON.stringify({ input: 1, output: 1 })],
+  ])('keeps highest-version alias resolution without price filtering when %s', async (_label, maxCredits, defaultPricing) => {
+    const result = await resolveDetectionAlias([
+      'claude-haiku-4-5-20251001',
+      'claude-haiku-9-9',
+    ], maxCredits, defaultPricing);
+    expect(result.resolvedModel).toBe('claude-haiku-9-9');
+    expect(result.candidates).toEqual(['claude-haiku-9-9']);
+    expect(result.records.some(record =>
+      record.event === 'model_resolution' &&
+      record.message.includes('no AI-credit price on this provider')
+    )).toBe(false);
   });
 
   it('should write structured model alias diagnostics to token-diag.jsonl', async () => {

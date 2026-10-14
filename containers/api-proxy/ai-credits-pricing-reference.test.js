@@ -4,6 +4,7 @@ const curatedPricing = require('./ai-credits-pricing');
 const referenceCatalog = require('./ai-credits-pricing-reference.json');
 
 const RATE_FIELDS = ['input', 'cachedInput', 'cacheWrite', 'output'];
+const LONG_CONTEXT_RATE_FIELDS = [...RATE_FIELDS, 'reasoning'];
 
 function findReferencePrice(model) {
   for (const provider of Object.values(referenceCatalog.providers)) {
@@ -31,6 +32,30 @@ function compareCuratedPricing(curated) {
         mismatches.push(
           `${model} ${rate}: curated ${curatedPrice[rate]}, reference ${referenceRate}`,
         );
+      }
+    }
+
+    if (curatedPrice.longContext) {
+      const curatedTier = curatedPrice.longContext;
+      const referenceTier = referencePrice.longContext;
+      if (!referenceTier) {
+        mismatches.push(`${model} longContext: missing from reference`);
+        continue;
+      }
+      if (curatedTier.threshold !== referenceTier.threshold) {
+        mismatches.push(
+          `${model} longContext threshold: curated ${curatedTier.threshold}, reference ${referenceTier.threshold}`,
+        );
+      }
+      for (const rate of LONG_CONTEXT_RATE_FIELDS) {
+        const referenceRate = rate === 'cachedInput' && referenceTier[rate] === undefined
+          ? 0
+          : referenceTier[rate];
+        if (curatedTier[rate] !== referenceRate) {
+          mismatches.push(
+            `${model} longContext ${rate}: curated ${curatedTier[rate]}, reference ${referenceRate}`,
+          );
+        }
       }
     }
   }
@@ -63,5 +88,21 @@ describe('curated AI-credit pricing reference', () => {
 
     expect(() => assertCuratedPricingMatchesReference(changedPricing))
       .toThrow('claude-sonnet-5 output: curated 15, reference 10');
+  });
+
+  it('compares curated long-context thresholds and rates with the reference', () => {
+    const changedPricing = {
+      ...curatedPricing,
+      'claude-haiku-5-5': {
+        ...curatedPricing['claude-haiku-5-5'],
+        longContext: {
+          ...curatedPricing['claude-haiku-5-5'].longContext,
+          output: 3,
+        },
+      },
+    };
+
+    expect(() => assertCuratedPricingMatchesReference(changedPricing))
+      .toThrow('claude-haiku-5-5 longContext output: curated 3, reference 2.5');
   });
 });

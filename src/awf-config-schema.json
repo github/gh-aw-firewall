@@ -368,6 +368,48 @@
                           "type": "number",
                           "minimum": 0,
                           "description": "Reasoning token price per 1M tokens; set to output when no distinct reasoning rate applies."
+                        },
+                        "longContext": {
+                          "type": "object",
+                          "required": [
+                            "threshold",
+                            "input",
+                            "output",
+                            "cachedInput",
+                            "cacheWrite",
+                            "reasoning"
+                          ],
+                          "properties": {
+                            "threshold": {
+                              "type": "number",
+                              "exclusiveMinimum": 0,
+                              "description": "Prompt-token threshold above which this tier applies."
+                            },
+                            "input": {
+                              "type": "number",
+                              "minimum": 0
+                            },
+                            "output": {
+                              "type": "number",
+                              "minimum": 0
+                            },
+                            "cachedInput": {
+                              "type": "number",
+                              "minimum": 0
+                            },
+                            "cacheWrite": {
+                              "type": [
+                                "number",
+                                "null"
+                              ],
+                              "minimum": 0
+                            },
+                            "reasoning": {
+                              "type": "number",
+                              "minimum": 0
+                            }
+                          },
+                          "additionalProperties": false
                         }
                       },
                       "additionalProperties": false

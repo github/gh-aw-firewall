@@ -273,7 +273,28 @@ function _resolveAliasPatterns(aliasKey, aliasDefinition, requestedModel, aliase
     log.push(`[model-resolver] model policy filtered out ${blocked.length} candidate(s): ${blocked.slice(0, 5).join(', ')}${blocked.length > 5 ? ', …' : ''}`);
   }
 
-  if (filteredCandidates.length === 0) {
+  let priceFilteredCandidates = [...new Set(filteredCandidates)];
+  if (fallbackConfig.isModelPriceable) {
+    const priceable = priceFilteredCandidates.filter(model => {
+      try {
+        return fallbackConfig.isModelPriceable(model) === true;
+      } catch {
+        return true;
+      }
+    });
+    if (priceable.length > 0 && priceable.length < priceFilteredCandidates.length) {
+      const skipped = priceFilteredCandidates.filter(model => !priceable.includes(model));
+      for (const model of skipped) {
+        log.push(
+          `[model-resolver] skipped unpriced model "${model}" while resolving alias "${aliasKey}": ` +
+          'no AI-credit price on this provider'
+        );
+      }
+      priceFilteredCandidates = priceable;
+    }
+  }
+
+  if (priceFilteredCandidates.length === 0) {
     log.push(`[model-resolver] no candidates found for "${aliasKey}" on provider "${currentProvider}"`);
     const hasProviderPattern = patterns.some((pattern) => pattern.includes('/'));
     // Only fall back when this alias actually names the current provider. An alias
@@ -301,7 +322,7 @@ function _resolveAliasPatterns(aliasKey, aliasDefinition, requestedModel, aliase
   }
 
   // Deduplicate, sort by version (highest first), and pick the best
-  const unique = [...new Set(filteredCandidates)];
+  const unique = [...new Set(priceFilteredCandidates)];
   unique.sort(compareByVersion);
 
   const resolved = unique[0];

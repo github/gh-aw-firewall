@@ -14,19 +14,34 @@ function canonicalizeModel(model) {
 
 function normalizePricing(entry) {
   if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return null;
-  if (typeof entry.input !== 'number' || !Number.isFinite(entry.input) || entry.input < 0 ||
-      typeof entry.output !== 'number' || !Number.isFinite(entry.output) || entry.output < 0) {
-    return null;
-  }
+  const normalizeTier = (tier, requireThreshold = false) => {
+    if (!tier || typeof tier !== 'object' || Array.isArray(tier)) return null;
+    const { input, output, cachedInput, cacheWrite, reasoning } = tier;
+    if (typeof input !== 'number' || !Number.isFinite(input) || input < 0 ||
+        typeof output !== 'number' || !Number.isFinite(output) || output < 0 ||
+        typeof cachedInput !== 'number' || !Number.isFinite(cachedInput) || cachedInput < 0 ||
+        (cacheWrite !== null && (typeof cacheWrite !== 'number' || !Number.isFinite(cacheWrite) || cacheWrite < 0)) ||
+        typeof reasoning !== 'number' || !Number.isFinite(reasoning) || reasoning < 0) {
+      return null;
+    }
+    const threshold = Number(tier.threshold);
+    if (requireThreshold && (!Number.isFinite(threshold) || threshold <= 0)) return null;
+    return {
+      pricing: { input, cachedInput, cacheWrite, output, reasoning },
+      ...(requireThreshold ? { threshold } : {}),
+    };
+  };
 
-  const { cachedInput, cacheWrite, reasoning } = entry;
-  if (typeof cachedInput !== 'number' || !Number.isFinite(cachedInput) || cachedInput < 0 ||
-      (cacheWrite !== null && (typeof cacheWrite !== 'number' || !Number.isFinite(cacheWrite) || cacheWrite < 0)) ||
-      typeof reasoning !== 'number' || !Number.isFinite(reasoning) || reasoning < 0) {
-    return null;
-  }
+  const defaultTier = normalizeTier(entry);
+  if (!defaultTier) return null;
+  if (!Object.hasOwn(entry, 'longContext')) return { default: defaultTier.pricing };
 
-  return { input: entry.input, cachedInput, cacheWrite, output: entry.output, reasoning };
+  const longContext = normalizeTier(entry.longContext, true);
+  if (!longContext) return null;
+  return {
+    default: defaultTier.pricing,
+    longContext: { ...longContext.pricing, threshold: longContext.threshold },
+  };
 }
 
 function parseCatalog(raw) {
@@ -54,7 +69,7 @@ function getCatalog() {
   return cachedCatalog;
 }
 
-function resolveModelPricingCatalog(provider, model) {
+function resolveModelPricingCatalog(provider, model, inputTokens = 0) {
   const catalog = getCatalog();
   if (!catalog || !provider || !model) return null;
 
@@ -67,12 +82,16 @@ function resolveModelPricingCatalog(provider, model) {
     if (!models || typeof models !== 'object' || Array.isArray(models)) continue;
     for (const [catalogModel, entry] of Object.entries(models)) {
       if (canonicalizeModel(catalogModel) !== canonical) continue;
-      const pricing = normalizePricing(entry);
-      if (!pricing) return null;
+      const normalized = normalizePricing(entry);
+      if (!normalized) return null;
+      const useLongContext = !!normalized.longContext &&
+        inputTokens > normalized.longContext.threshold;
       return {
-        pricing,
+        pricing: useLongContext
+          ? normalized.longContext
+          : normalized.default,
         source: 'shared_catalog',
-        tier: 'default',
+        tier: useLongContext ? 'long_context' : 'default',
         pricingCatalogId: catalog.catalogId,
         pricingCatalogVersion: catalog.version,
       };

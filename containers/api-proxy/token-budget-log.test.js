@@ -189,7 +189,12 @@ describe('curated prices for default-model traffic', () => {
   let logRequest;
 
   beforeEach(() => {
-    for (const name of ['AWF_MAX_AI_CREDITS', 'AWF_API_PROXY_PROVIDERS', 'AWF_MODEL_PRICING_CATALOG']) {
+    for (const name of [
+      'AWF_MAX_AI_CREDITS',
+      'AWF_DEFAULT_AI_CREDITS_PRICING',
+      'AWF_API_PROXY_PROVIDERS',
+      'AWF_MODEL_PRICING_CATALOG',
+    ]) {
       originalEnvironment[name] = process.env[name];
     }
     process.env.AWF_MAX_AI_CREDITS = '1000';
@@ -229,6 +234,26 @@ describe('curated prices for default-model traffic', () => {
     cache_read_tokens: 56398,
     cache_write_tokens: 0,
   };
+  const haikuBaseUsage = {
+    provider: 'anthropic',
+    path: '/v1/messages',
+    model: 'claude-haiku-5-5',
+    input_tokens: 10000,
+    output_tokens: 2000,
+    cache_read_tokens: 30000,
+    cache_write_tokens: 10000,
+  };
+  const haikuLongUsage = {
+    ...haikuBaseUsage,
+    input_tokens: 30000,
+    cache_read_tokens: 100000,
+    cache_write_tokens: 20000,
+  };
+  const haikuThresholdUsage = {
+    ...haikuBaseUsage,
+    input_tokens: 20000,
+    cache_read_tokens: 70000,
+  };
 
   function computeForRecord(record) {
     return computeTokenBudgetUsage({
@@ -256,6 +281,24 @@ describe('curated prices for default-model traffic', () => {
     expect(computeForRecord({ ...recordB, model: 'gpt-6-sol' })).toMatchObject({
       ai_credits_this_response: 4.10556,
       ai_credits_pricing_source: 'curated',
+    });
+  });
+
+  it('prices claude-haiku-5-5 at base rates up to 100k prompt tokens and long-prompt rates above, recording the tier', () => {
+    expect(computeForRecord(haikuBaseUsage)).toMatchObject({
+      ai_credits_this_response: 0.355,
+      ai_credits_pricing_source: 'curated',
+      ai_credits_pricing_tier: 'default',
+    });
+    expect(computeForRecord(haikuLongUsage)).toMatchObject({
+      ai_credits_this_response: 3.75,
+      ai_credits_pricing_source: 'curated',
+      ai_credits_pricing_tier: 'long_context',
+    });
+    expect(computeForRecord(haikuThresholdUsage)).toMatchObject({
+      ai_credits_this_response: 0.495,
+      ai_credits_pricing_source: 'curated',
+      ai_credits_pricing_tier: 'default',
     });
   });
 
@@ -289,5 +332,145 @@ describe('curated prices for default-model traffic', () => {
     expect(lunaUsage.ai_credits_pricing_source).toBe('operator');
     expect(solUsage.ai_credits_this_response).toBeCloseTo(2.05, 2);
     expect(solUsage.ai_credits_pricing_source).toBe('operator');
+  });
+
+  it('applies an operator overlay long-prompt tier above its threshold and keeps untiered entries on the default tier', () => {
+    const modelPrice = {
+      cost: {
+        input: '0.0000001',
+        cache_read: '0.00000001',
+        cache_write: '0.000000125',
+        output: '0.0000005',
+        long_context: {
+          max_prompt_tokens: 100000,
+          input: '0.0000005',
+          cache_read: '0.00000005',
+          cache_write: '0.000000625',
+          output: '0.0000025',
+        },
+      },
+    };
+    process.env.AWF_API_PROXY_PROVIDERS = JSON.stringify({
+      anthropic: { models: { 'claude-haiku-5-5': modelPrice } },
+    });
+    resetProviderPricingOverlaysForTests();
+
+    expect(computeForRecord(haikuLongUsage)).toMatchObject({
+      ai_credits_this_response: 3.75,
+      ai_credits_pricing_source: 'operator',
+      ai_credits_pricing_tier: 'long_context',
+    });
+
+    const untieredPrice = {
+      ...modelPrice,
+      cost: {
+        input: modelPrice.cost.input,
+        cache_read: modelPrice.cost.cache_read,
+        cache_write: modelPrice.cost.cache_write,
+        output: modelPrice.cost.output,
+      },
+    };
+    process.env.AWF_API_PROXY_PROVIDERS = JSON.stringify({
+      anthropic: { models: { 'claude-haiku-5-5': untieredPrice } },
+    });
+    resetProviderPricingOverlaysForTests();
+
+    expect(computeForRecord(haikuLongUsage)).toMatchObject({
+      ai_credits_this_response: 0.75,
+      ai_credits_pricing_source: 'operator',
+      ai_credits_pricing_tier: 'default',
+    });
+  });
+
+  it('applies a shared-catalog long-prompt tier and records catalog provenance', () => {
+    process.env.AWF_MODEL_PRICING_CATALOG = JSON.stringify({
+      schemaVersion: 1,
+      unit: 'USD_PER_1M_TOKENS',
+      catalogId: 'shared-haiku-prices',
+      version: 'v2',
+      providers: {
+        anthropic: {
+          models: {
+            'claude-haiku-5-5': {
+              input: 0.1,
+              cachedInput: 0.01,
+              cacheWrite: 0.125,
+              output: 0.5,
+              reasoning: 0.5,
+              longContext: {
+                threshold: 100000,
+                input: 0.5,
+                cachedInput: 0.05,
+                cacheWrite: 0.625,
+                output: 2.5,
+                reasoning: 2.5,
+              },
+            },
+          },
+        },
+      },
+    });
+    resetModelPricingCatalogForTests();
+
+    expect(computeForRecord(haikuLongUsage)).toMatchObject({
+      ai_credits_this_response: 3.75,
+      ai_credits_pricing_source: 'shared_catalog',
+      ai_credits_pricing_tier: 'long_context',
+      ai_credits_pricing_catalog_id: 'shared-haiku-prices',
+      ai_credits_pricing_catalog_version: 'v2',
+    });
+  });
+
+  it('rejects malformed long-context tiers instead of silently using their base rates', () => {
+    const { resolveProviderPricingOverlay } = require('./provider-pricing-overlays');
+    const { resolveModelPricingCatalog } = require('./model-pricing-catalog');
+    process.env.AWF_API_PROXY_PROVIDERS = JSON.stringify({
+      anthropic: {
+        models: {
+          'overlay-invalid-tier': {
+            cost: {
+              input: '0.0000001',
+              output: '0.0000005',
+              long_context: {
+                max_prompt_tokens: 100000,
+                input: 'invalid',
+                output: '0.0000025',
+              },
+            },
+          },
+        },
+      },
+    });
+    process.env.AWF_MODEL_PRICING_CATALOG = JSON.stringify({
+      schemaVersion: 1,
+      unit: 'USD_PER_1M_TOKENS',
+      catalogId: 'invalid-tier-catalog',
+      version: 'v1',
+      providers: {
+        anthropic: {
+          models: {
+            'catalog-invalid-tier': {
+              input: 0.1,
+              cachedInput: 0.01,
+              cacheWrite: 0.125,
+              output: 0.5,
+              reasoning: 0.5,
+              longContext: {
+                threshold: 100000,
+                input: 0.5,
+                cachedInput: 0.05,
+                cacheWrite: 0.625,
+                output: 2.5,
+              },
+            },
+          },
+        },
+      },
+    });
+    resetProviderPricingOverlaysForTests();
+    resetModelPricingCatalogForTests();
+
+    expect(resolveProviderPricingOverlay('anthropic', 'overlay-invalid-tier')).toBeNull();
+    expect(resolveModelPricingCatalog('anthropic', 'catalog-invalid-tier')).toBeNull();
   });
 });

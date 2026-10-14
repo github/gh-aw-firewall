@@ -26,12 +26,37 @@ describe('validateAwfFileConfig', () => {
               cachedInput: 1,
               cacheWrite: null,
               reasoning: 50,
+              longContext: {
+                threshold: 100000,
+                input: 20,
+                output: 100,
+                cachedInput: 2,
+                cacheWrite: 25,
+                reasoning: 100,
+              },
             },
           },
         },
       },
     };
     expect(validateAwfFileConfig({ apiProxy: { modelPricingCatalog: validCatalog } })).toEqual([]);
+    expect(validateAwfFileConfig({
+      apiProxy: {
+        modelPricingCatalog: {
+          ...validCatalog,
+          providers: {
+            copilot: {
+              models: {
+                'gpt-6.1-sol': {
+                  ...validCatalog.providers.copilot.models['gpt-6.1-sol'],
+                  longContext: { threshold: 100000, input: 20 },
+                },
+              },
+            },
+          },
+        },
+      },
+    })).not.toEqual([]);
     expect(validateAwfFileConfig({
       apiProxy: {
         modelPricingCatalog: {
