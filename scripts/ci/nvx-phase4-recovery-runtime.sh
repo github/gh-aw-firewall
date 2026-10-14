@@ -96,7 +96,11 @@ cleanup_before=$(runtime_storage_snapshot "$runtime" cleanup)
 runs_before=$(runtime_storage_snapshot "$runtime" run)
 scratch_before=$(runtime_storage_snapshot "$runtime" scratch)
 snapshots_before=$(runtime_storage_snapshot "$runtime" snapshot)
-kvm_before=$(sudo getfacl --absolute-names --numeric /dev/kvm 2>/dev/null)
+if [ -n "${AWF_PHASE4_KVM_RUNTIME_ACL_BASELINE:-}" ]; then
+  kvm_before=$(sudo cat "$AWF_PHASE4_KVM_RUNTIME_ACL_BASELINE")
+else
+  kvm_before=$(sudo getfacl --absolute-names --numeric /dev/kvm 2>/dev/null)
+fi
 
 jq -n '{
   network:{allowDomains:[],isolation:true},

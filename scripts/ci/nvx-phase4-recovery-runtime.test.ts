@@ -172,6 +172,13 @@ async function cleanupSelectionCheck(recordCount: number, processChanged = false
 describe('Phase 4 recovery manager selection', () => {
   const manager = processFiles(31, '/usr/bin/node', ['node', 'dist/cli.js']);
 
+  it('compares recovery cleanup with the post-provision runtime ACL baseline', () => {
+    expect(recovery).toContain('sudo cat "$AWF_PHASE4_KVM_RUNTIME_ACL_BASELINE"');
+    expect(recovery).not.toContain('AWF_PHASE4_KVM_HOST_ACL_BASELINE');
+    expect(recovery.indexOf('kvm_before=')).toBeLessThan(recovery.indexOf('run_awf()'));
+    expect(recovery.indexOf('kvm_after=')).toBeLessThan(recovery.indexOf('kvm_restored=$('));
+  });
+
   it('requires actual death and distinguishes PID reuse and zombies from a live manager', () => {
     expect(nodeCheck('awf_manager_alive', ['31', '123'], manager).status).toBe(0);
     expect(nodeCheck('awf_manager_alive', ['31', '123'], {}).status).toBe(1);

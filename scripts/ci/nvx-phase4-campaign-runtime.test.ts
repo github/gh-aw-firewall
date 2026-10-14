@@ -53,6 +53,13 @@ function captureIdentity(runtime: 'nvx' | 'cloud-hypervisor', corrupt?: (record:
 }
 
 describe('Phase 4 campaign runtime evidence', () => {
+  it('uses the post-provision runtime ACL baseline for workload assertions and restoration', () => {
+    expect(harness).toContain('sudo cat "$AWF_PHASE4_KVM_RUNTIME_ACL_BASELINE"');
+    expect(harness).not.toContain('AWF_PHASE4_KVM_HOST_ACL_BASELINE');
+    expect(harness.indexOf('kvm_acl_before=')).toBeLessThan(harness.indexOf('trap restore_kvm_acl EXIT'));
+    expect(harness.indexOf('kvm_acl_after=')).toBeLessThan(harness.indexOf('restore_kvm_acl\n'));
+  });
+
   it.each(['nvx', 'cloud-hypervisor'] as const)('captures the exact live %s owner and runtime', runtime => {
     expect(captureIdentity(runtime)).toMatchObject({
       pid: 123, uid: 1001, account: 'awf-vmm', networkNamespace: 'net:[789]',

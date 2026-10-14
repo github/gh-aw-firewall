@@ -74,8 +74,8 @@ test -f dist/cli.js
 sudo sync
 sudo sh -c 'echo 3 > /proc/sys/vm/drop_caches'
 
-if [ -n "${AWF_PHASE4_KVM_ACL_BASELINE:-}" ]; then
-  kvm_acl_before=$(sudo cat "$AWF_PHASE4_KVM_ACL_BASELINE")
+if [ -n "${AWF_PHASE4_KVM_RUNTIME_ACL_BASELINE:-}" ]; then
+  kvm_acl_before=$(sudo cat "$AWF_PHASE4_KVM_RUNTIME_ACL_BASELINE")
 else
   kvm_acl_before=$(sudo getfacl --absolute-names --numeric /dev/kvm 2>/dev/null)
 fi

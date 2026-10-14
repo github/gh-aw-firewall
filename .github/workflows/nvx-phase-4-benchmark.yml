@@ -308,13 +308,13 @@ jobs:
           echo "AWF_PHASE4_KVM_ACL_ORIGINAL_BASELINE=$RUNNER_TEMP/phase4-kvm-acl-original.txt" \
             >> "$GITHUB_ENV"
           bash "${RUNNER_TEMP}/gh-aw/actions/cloud_hypervisor_kvm_access.sh"
+          bash "${RUNNER_TEMP}/gh-aw/actions/cloud_hypervisor_host_preflight.sh"
+          bash "${RUNNER_TEMP}/gh-aw/actions/cloud_hypervisor_setup_bundle.sh"
           sudo getfacl --absolute-names --numeric /dev/kvm |
             sudo tee "$RUNNER_TEMP/phase4-kvm-acl-runtime.txt" >/dev/null
           sudo chmod 0600 "$RUNNER_TEMP/phase4-kvm-acl-runtime.txt"
-          echo "AWF_PHASE4_KVM_ACL_BASELINE=$RUNNER_TEMP/phase4-kvm-acl-runtime.txt" \
+          echo "AWF_PHASE4_KVM_RUNTIME_ACL_BASELINE=$RUNNER_TEMP/phase4-kvm-acl-runtime.txt" \
             >> "$GITHUB_ENV"
-          bash "${RUNNER_TEMP}/gh-aw/actions/cloud_hypervisor_host_preflight.sh"
-          bash "${RUNNER_TEMP}/gh-aw/actions/cloud_hypervisor_setup_bundle.sh"
       - name: Make Cloud Hypervisor artifacts immutable
         if: matrix.runtime == 'cloud-hypervisor'
         run: |

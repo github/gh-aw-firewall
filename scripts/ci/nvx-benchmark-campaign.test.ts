@@ -159,10 +159,13 @@ describe('NVX benchmark campaign evidence', () => {
       cloudSetupRun.indexOf('cloud_hypervisor_kvm_access.sh'),
     );
     expect(cloudSetupRun.indexOf('cloud_hypervisor_kvm_access.sh')).toBeLessThan(
+      cloudSetupRun.indexOf('cloud_hypervisor_host_preflight.sh'),
+    );
+    expect(cloudSetupRun.indexOf('cloud_hypervisor_setup_bundle.sh')).toBeLessThan(
       cloudSetupRun.indexOf('phase4-kvm-acl-runtime.txt'),
     );
     expect(cloudSetupRun).toContain(
-      'AWF_PHASE4_KVM_ACL_BASELINE=$RUNNER_TEMP/phase4-kvm-acl-runtime.txt',
+      'AWF_PHASE4_KVM_RUNTIME_ACL_BASELINE=$RUNNER_TEMP/phase4-kvm-acl-runtime.txt',
     );
     expect(cloudImmutability?.run).toContain('GH_AW_CLOUD_HYPERVISOR_BINARY');
     expect(executeSteps.indexOf(cloudImmutability!)).toBe(executeSteps.indexOf(cloudSetup!) + 1);
@@ -214,7 +217,7 @@ describe('NVX benchmark campaign evidence', () => {
     expect(source).toContain('v0.28.54');
     expect(source).toContain('install_copilot_cli.sh" 1.0.95');
     expect(source).toContain("matrix.runtime == 'nvx' && 'musl' || 'glibc'");
-    expect(source).toContain('AWF_PHASE4_KVM_ACL_BASELINE');
+    expect(source).toContain('AWF_PHASE4_KVM_RUNTIME_ACL_BASELINE');
     expect(source).toContain('AWF_PHASE4_KVM_ACL_ORIGINAL_BASELINE');
     expect(source).toContain('getSafeHostUid()');
     expect(source).toContain("'awf:x:%s:%s:AWF workload:/home/awf:/bin/sh");
@@ -238,6 +241,7 @@ describe('NVX benchmark campaign evidence', () => {
     expect(harness).toContain("! -path '/sys/fs/cgroup/awf-nvx'");
     expect(harness.split("! -path '/sys/fs/cgroup/awf-nvx'").length - 1).toBe(3);
     expect(harness).toContain('setfacl --restore="$evidence_dir/kvm-acl-before.txt"');
+    expect(harness).toContain('sudo cat "$AWF_PHASE4_KVM_RUNTIME_ACL_BASELINE"');
     expect(harness).toContain('host-mount-visible');
     expect(harness).toContain('df -Pk /tmp');
     expect(harness).toContain('guest-error.txt');
@@ -272,10 +276,13 @@ describe('NVX benchmark campaign evidence', () => {
       canarySetupRun.indexOf('cloud_hypervisor_kvm_access.sh'),
     );
     expect(canarySetupRun.indexOf('cloud_hypervisor_kvm_access.sh')).toBeLessThan(
+      canarySetupRun.indexOf('cloud_hypervisor_host_preflight.sh'),
+    );
+    expect(canarySetupRun.indexOf('cloud_hypervisor_setup_bundle.sh')).toBeLessThan(
       canarySetupRun.indexOf('phase4-kvm-acl-runtime.txt'),
     );
     expect(canarySetupRun).toContain(
-      'AWF_PHASE4_KVM_ACL_BASELINE=$RUNNER_TEMP/phase4-kvm-acl-runtime.txt',
+      'AWF_PHASE4_KVM_RUNTIME_ACL_BASELINE=$RUNNER_TEMP/phase4-kvm-acl-runtime.txt',
     );
     expect(canaryCleanup?.if).toBe("always() && matrix.runtime == 'cloud-hypervisor'");
     expect(canaryCleanup?.run).toContain('AWF_PHASE4_KVM_ACL_ORIGINAL_BASELINE');
