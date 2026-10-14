@@ -22,7 +22,10 @@ import type { CloudHypervisorCleanupRegistry } from '../cloud-hypervisor/cleanup
 import type { CloudHypervisorVmmIdentityToolPaths } from '../cloud-hypervisor/vmm-identity';
 import {
   HostPreflightReporter, markHostPreflightError, type HostPreflightCheck,
+  hostPreflightReason, HostPreflightCleanupError, type HostPreflightProgress,
 } from '../cloud-hypervisor/host-preflight-progress';
+import type { EnclaveStartupChecklist } from './startup-progress';
+import { logger } from '../logger';
 
 export const HOST_EXECUTOR_DEFAULT_JOURNAL_DIRECTORY =
   '/var/lib/awf-cloud-hypervisor/host-executor-journal';
@@ -33,7 +36,7 @@ export function hostExecutorStorageDirectory(vmRunId: string): string {
   return path.join(HOST_EXECUTOR_STORAGE_ROOT, vmRunId);
 }
 
-export function hostExecutorJournalDirectory(run: HostExecutorRunState): string {
+export function hostExecutorJournalDirectory(run: Pick<HostExecutorRunState, 'journalDir'>): string {
   return run.journalDir ?? HOST_EXECUTOR_DEFAULT_JOURNAL_DIRECTORY;
 }
 
@@ -140,6 +143,128 @@ export class HostExecutorJournal {
       fs.fsyncSync(fd);
     } finally { fs.closeSync(fd); }
   }
+}
+
+/** Origin-only, finite evidence outside every invocation mount and cleanup root. */
+export class HostExecutorInvocationDiagnostics {
+  private readonly file: string;
+  private readonly started = Date.now();
+  private readonly classifiedFailures = new WeakSet<object>();
+  persistenceFailed = false;
+  private readonly snapshot: {
+    schemaVersion: 1;
+    runId: string;
+    invocationId: string;
+    executorKind: 'script' | 'agent';
+    sequence: number;
+    elapsedMs: number;
+    checks: EnclaveStartupChecklist['checks'];
+    failure?: { stage: string; reason: string; code: string; errorType: string; sequence: number };
+    cleanupFailure?: { stage: string; reason: string; code: string; errorType: string; sequence: number };
+  };
+
+  constructor(run: HostExecutorRunState, plan: HostExecutorInvocationPlan) {
+    if (!HOST_EXECUTOR_ID_PATTERN.test(run.runId)
+      || !HOST_EXECUTOR_ID_PATTERN.test(plan.invocationId)
+      || !['script', 'agent'].includes(plan.executorKind)) {
+      throw new Error('Invalid host executor diagnostic identity');
+    }
+    const directory = path.join(hostExecutorJournalDirectory(run), 'diagnostics');
+    prepareDirectory(directory);
+    this.file = path.join(directory, `${run.runId}-${hostExecutorVmRunId(plan)}.json`);
+    this.snapshot = {
+      schemaVersion: 1, runId: run.runId, invocationId: plan.invocationId,
+      executorKind: plan.executorKind, sequence: 0, elapsedMs: 0, checks: {},
+    };
+    persist(this.file, this.snapshot);
+  }
+
+  publish = (progress: HostPreflightProgress): void => {
+    for (const check of progress.checks) {
+      if (check.result === 'not-attempted' && this.snapshot.checks[`${progress.scope}/${check.id}`]) continue;
+      this.snapshot.checks[`${progress.scope}/${check.id}`] = [check.result, check.reason];
+      if (check.result === 'failed') {
+        const slot = progress.scope === 'host-invocation-cleanup' || progress.scope === 'bounded-cleanup'
+          ? 'cleanupFailure' : 'failure';
+        this.snapshot[slot] ??= {
+          stage: `${progress.scope}/${check.id}`, reason: check.reason,
+          code: /^E[A-Z]+$/.test(check.reason) ? check.reason : 'unknown',
+          errorType: 'unknown', sequence: this.snapshot.sequence + 1,
+        };
+      }
+    }
+    this.commit();
+  };
+
+  async check<T>(report: HostPreflightReporter, id: HostPreflightCheck, operation: () => Promise<T> | T): Promise<T> {
+    try {
+      return await report.check(id, operation);
+    } catch (error) {
+      this.classifyFailure(report, error);
+      throw error;
+    }
+  }
+
+  fail(report: HostPreflightReporter, id: HostPreflightCheck, error: unknown): void {
+    report.fail(id, error);
+    this.classifyFailure(report, error);
+  }
+
+  private classifyFailure(report: HostPreflightReporter, error: unknown): void {
+    const slot = report.scope === 'host-invocation-cleanup' ? 'cleanupFailure' : 'failure';
+    const original = error instanceof HostPreflightCleanupError ? error.cause : error;
+    const failure = this.snapshot[slot]!;
+    const classify = (value: unknown, target: typeof failure): void => {
+      if (this.classifiedFailures.has(target)) return;
+      this.classifiedFailures.add(target);
+      target.errorType = value instanceof TypeError ? 'TypeError'
+        : value instanceof RangeError ? 'RangeError'
+        : value instanceof SyntaxError ? 'SyntaxError'
+        : value instanceof Error ? 'Error' : 'unknown';
+      const code = hostPreflightReason(value);
+      if (/^E[A-Z]+$/.test(code)) target.code = code;
+    };
+    classify(original, failure);
+    if (error instanceof HostPreflightCleanupError && this.snapshot.cleanupFailure) {
+      classify(error.cleanupError, this.snapshot.cleanupFailure);
+    }
+    this.commit();
+  }
+
+  private commit(): void {
+    this.snapshot.sequence += 1;
+    this.snapshot.elapsedMs = Math.max(0, Date.now() - this.started);
+    try {
+      persist(this.file, this.snapshot);
+    } catch {
+      // Never strand resources because a later diagnostic write failed.
+      // The initial snapshot is mandatory, before any resources are created.
+      if (!this.persistenceFailed) logger.error('Host executor diagnostic persistence failed; earlier evidence is retained.');
+      this.persistenceFailed = true;
+    }
+  }
+}
+
+export function readHostExecutorInvocationDiagnostics(
+  run: Pick<HostExecutorRunState, 'runId' | 'journalDir'>,
+): Array<{ name: string; contents: string }> {
+  if (!HOST_EXECUTOR_ID_PATTERN.test(run.runId)) throw new Error('Invalid host executor diagnostic run identity');
+  const directory = path.join(hostExecutorJournalDirectory(run), 'diagnostics');
+  if (!fs.existsSync(directory)) return [];
+  prepareDirectory(directory);
+  return fs.readdirSync(directory).filter((name) =>
+    name.startsWith(`${run.runId}-`) && /^[a-f0-9]{32}-[a-f0-9]{32}\.json$/.test(name)).map((name) => {
+    const fd = fs.openSync(path.join(directory, name),
+      fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW | fs.constants.O_NONBLOCK);
+    try {
+      const stat = fs.fstatSync(fd);
+      if (!stat.isFile() || stat.uid !== process.getuid?.() || stat.nlink !== 1
+        || (stat.mode & 0o777) !== 0o600 || stat.size > 64 * 1024) {
+        throw new Error('Unsafe host executor invocation diagnostic');
+      }
+      return { name, contents: fs.readFileSync(fd, 'utf8') };
+    } finally { fs.closeSync(fd); }
+  });
 }
 
 interface ResourceRecord {

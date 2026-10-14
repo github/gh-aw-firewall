@@ -49,7 +49,7 @@ export class HostPreflightCleanupError extends Error {
 export class HostPreflightReporter {
   private readonly progress: HostPreflightProgress;
 
-  constructor(scope: HostPreflightScope, private readonly publish?: (value: HostPreflightProgress) => void) {
+  constructor(readonly scope: HostPreflightScope, private readonly publish?: (value: HostPreflightProgress) => void) {
     this.progress = {
       schemaVersion: 1, scope,
       checks: (Object.keys(schema.scopes[scope]) as HostPreflightCheck[])

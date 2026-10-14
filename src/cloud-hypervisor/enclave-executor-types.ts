@@ -73,6 +73,7 @@ export interface HostEnclaveExecutorDependencies {
     plan: HostExecutorInvocationPlan,
     journal: HostExecutorResourceJournal,
     tools: Pick<CloudHypervisorHostToolPaths, 'mount' | 'umount'>,
+    report?: import('./host-preflight-progress').HostPreflightReporter,
   ) => Promise<{
     dependencies: Partial<HostEnclaveExecutorDependencies>;
     managerDependencies: CloudHypervisorManagerDependencies;
@@ -83,6 +84,7 @@ export interface HostEnclaveExecutorDependencies {
     sources: CloudHypervisorArtifactSnapshotSources,
     copySparseFile: (source: string, destination: string) => Promise<void>,
     onDirectoryCreated?: (directory: string) => Promise<void>,
+    report?: import('./host-preflight-progress').HostPreflightReporter,
   ) => Promise<CloudHypervisorArtifactSnapshot>;
   readonly createResourceJournal: (
     run: HostExecutorRunState,

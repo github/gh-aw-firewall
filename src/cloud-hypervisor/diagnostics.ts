@@ -370,6 +370,22 @@ async function writeAuditFile(
   }
 }
 
+/** Host-owned finite evidence; independent of VM stop/diagnostic collection. */
+export async function preserveHostExecutorInvocationEvidence(
+  directory: string,
+  evidence: readonly { name: string; contents: string }[],
+  dependencies: AuditDependencies,
+): Promise<void> {
+  if (!evidence.length) return;
+  const prepared = await prepareAuditDirectory(directory, dependencies);
+  for (const item of evidence) {
+    if (!/^[a-f0-9]{32}-[a-f0-9]{32}\.json$/.test(item.name)) {
+      throw new Error('Invalid host executor diagnostic filename');
+    }
+    await writeAuditFile(dependencies, path.join(prepared.directory, item.name), item.contents, prepared.identity);
+  }
+}
+
 export async function writeGuestOutputAudit(
   directory: string,
   dependencies: AuditDependencies,

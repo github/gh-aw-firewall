@@ -1291,6 +1291,40 @@ shared by AWF and the harness.
 | `storage-mount-capture` | Snapshot mount canonical path, actual mount-table read/parse, exact match count, filesystem/source validation, and each durable journal commit operation |
 | `bounded-cleanup` | Identity-journaled storage close, captured invocation directory release, and journal completion; original failure evidence is retained if cleanup also fails |
 | `bounded-artifacts` | The same bounded allocation and invocation checks, rsync lookup, verification directory, and enclave artifact verification (distinct from runtime preflight) |
+| `host-invocation` | Invocation policy, filesystem, export plan, snapshot and digests, input staging, manager creation/start, VM instance start, guest execution, and result read |
+| `host-invocation-cleanup` | Pending-work drain, manager stop and cleanup record, snapshot/filesystem removal, storage close, and resource-journal completion |
+
+#### Host-executor invocation evidence
+
+After startup, the Cloud Hypervisor host executor uses the same check catalog
+and `[result, reason]` tuples in an invocation-scoped snapshot, separate from
+`enclaveStartup.startupChecks.ready`. Production storage and snapshot subchecks
+publish into that snapshot too; a more specific failed subcheck is retained
+instead of being replaced by its enclosing filesystem/snapshot gate.
+
+Snapshots are atomically committed and fsynced under the trusted recovery
+journal's `diagnostics/` directory before resource creation and at each
+check transition. They are outside invocation storage and VM teardown roots.
+The first `failure` and first `cleanupFailure` are independent: each contains
+an allowlisted stage/reason, an allowlisted errno `code` (otherwise `unknown`),
+a native error category, and a sequence number. Cumulative checks retain
+unexecuted stages as `not-attempted`; sequence and elapsed milliseconds record
+non-sensitive progress. No messages, stacks, stderr, environment, credentials,
+script/request/result bytes, or repository names/paths are included.
+
+Host shutdown copies these snapshots before and after teardown to
+`<auditDir>/diagnostics/cloud-hypervisor/host-executor/` even when executor
+shutdown or recovery verification rejects. Without `auditDir`, the existing
+default audit-artifact preservation applies. Files remain `0600` inside
+`0700` directories and are excluded from public artifact permission repair;
+the durable journal copy remains available if audit export itself fails.
+A later persistence failure is explicitly reported, resources still drain,
+and the executor fails closed rather than releasing a successful result.
+
+This is evidence instrumentation, not a fix or a root-cause attribution for
+an unresolved launch failure. Generic broker `launch-failed` or lifecycle
+errors and earlier transient gateway DNS/refusal logs do not identify the
+failed host operation.
 
 `bounded-runtime/artifact-snapshot` remains the enclosing gate.
 `bounded-runtime/snapshot-journal` identifies preparation of the recovery

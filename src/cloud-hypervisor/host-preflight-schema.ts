@@ -22,6 +22,29 @@ const boundedExecutorChecks = {
 
 export const schema = {
   "scopes": {
+    "host-invocation": {
+      "policy": null,
+      "filesystem": null,
+      "export-plan": null,
+      "snapshot": null,
+      "snapshot-digest": null,
+      "workload-profile": null,
+      "input-staging": null,
+      "manager-create": null,
+      "manager-start": null,
+      "instance-start": null,
+      "guest-execute": null,
+      "result-read": null
+    },
+    "host-invocation-cleanup": {
+      "pending-work": null,
+      "manager-stop": null,
+      "manager-record": null,
+      "snapshot-remove": null,
+      "filesystem-remove": null,
+      "storage-close": null,
+      "journal-complete": null
+    },
     "startup": {
       "configuration": null,
       "enclave-preparation": null,
@@ -222,6 +245,9 @@ export const schema = {
     "runner-not-github-hosted": null,
     "ubuntu-image-required": null,
     "command-failed": null,
+    "invocation-timeout": null,
+    "invocation-cancelled": null,
+    "result-invalid": null,
     "mount-noexec": null,
     "storage-mount-options": null,
     "storage-mount-propagation": null,

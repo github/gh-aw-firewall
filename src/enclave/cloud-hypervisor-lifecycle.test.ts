@@ -8,6 +8,10 @@ import type { HostExecutorServer } from './host-executor-server';
 import { assertAgentRuntimeAvailable, assertScriptRuntimeAvailable } from './runtime-preflight';
 import { startCloudHypervisorEnclaveHostService } from './cloud-hypervisor-host-service';
 import { getEnclaveStartupProgress } from './startup-progress';
+import { HostExecutorInvocationDiagnostics } from './host-executor-journal';
+import { HostPreflightReporter } from '../cloud-hypervisor/host-preflight-progress';
+import type { HostExecutorInvocationPlan } from './host-executor-server';
+import * as cloudHypervisorManager from '../cloud-hypervisor/manager';
 import { ProductionTrustedCloudHypervisorEnclaveStorageProvider } from '../cloud-hypervisor/trusted-enclave-storage';
 import {
   assertCloudHypervisorEnclaveLifecycleReady,
@@ -83,6 +87,7 @@ describe('trusted Cloud Hypervisor enclave lifecycle', () => {
   });
 
   afterEach(() => {
+    jest.restoreAllMocks();
     const paths = resolveEnclavePaths(workDir);
     fs.rmSync(paths.root, { recursive: true, force: true });
     fs.rmSync(paths.ingressRoot, { recursive: true, force: true });
@@ -285,6 +290,46 @@ describe('trusted Cloud Hypervisor enclave lifecycle', () => {
     expect(storage.close).not.toHaveBeenCalled();
     expect(fs.existsSync(resolveEnclavePaths(workDir).seedMapPath)).toBe(true);
     await expect(startCloudHypervisorEnclaveLifecycle(config, provider)).rejects.toThrow(/already exists/);
+  });
+
+  it('exports protected invocation evidence even when host shutdown rejects', async () => {
+    const dependencies = cloudHypervisorManager.resolveCloudHypervisorManagerDependencies();
+    jest.spyOn(cloudHypervisorManager, 'resolveCloudHypervisorManagerDependencies').mockReturnValue({
+      ...dependencies, resolveIdentity: () => ({ uid: process.getuid!(), gid: process.getgid!() }),
+    });
+    await startCloudHypervisorEnclaveLifecycle(config, provider, {});
+    const run = deriveCloudHypervisorEnclaveRunState(config, resolveEnclavePaths(workDir));
+    const diagnostic = new HostExecutorInvocationDiagnostics(run, {
+      runId, entryId: 'script', invocationId: 'b'.repeat(32), executorKind: 'script',
+    } as HostExecutorInvocationPlan);
+    const report = new HostPreflightReporter('host-invocation', diagnostic.publish);
+    const launchError = Object.assign(new Error('SECRET request/script/repository'), { code: 'EPERM' });
+    await expect(diagnostic.check(report, 'manager-start', () => { throw launchError; })).rejects.toBe(launchError);
+    const cleanup = report.fork('host-invocation-cleanup');
+    const cleanupError = Object.assign(new Error('SECRET Bearer token'), { code: 'EIO' });
+    const directory = path.join(workDir, 'audit', 'diagnostics', 'cloud-hypervisor', 'host-executor');
+    (server.close as jest.Mock).mockImplementation(async () => {
+      const [before] = fs.readdirSync(directory);
+      expect(JSON.parse(fs.readFileSync(path.join(directory, before), 'utf8'))).toMatchObject({
+        failure: { stage: 'host-invocation/manager-start', code: 'EPERM' },
+      });
+      await expect(diagnostic.check(cleanup, 'manager-stop', () => { throw cleanupError; })).rejects.toBe(cleanupError);
+      throw new Error('shutdown uncertain');
+    });
+    await expect(stopCloudHypervisorEnclaveLifecycle(config)).rejects.toThrow('shutdown uncertain');
+    const files = fs.readdirSync(directory);
+    expect(files).toHaveLength(1);
+    const file = path.join(directory, files[0]);
+    const contents = fs.readFileSync(file, 'utf8');
+    expect(JSON.parse(contents)).toMatchObject({
+      failure: { stage: 'host-invocation/manager-start', code: 'EPERM' },
+      cleanupFailure: { stage: 'host-invocation-cleanup/manager-stop', code: 'EIO' },
+    });
+    expect(contents).not.toMatch(/SECRET|Bearer|token|request\/script\/repository/);
+    expect(fs.statSync(file).mode & 0o777).toBe(0o600);
+    expect(fs.statSync(directory).mode & 0o777).toBe(0o700);
+    expect(fs.existsSync(path.join(run.journalDir!, 'diagnostics', files[0]))).toBe(true);
+    expect(storage.close).not.toHaveBeenCalled();
   });
 
   it('preserves recovery records even when backend close resolves with pending resources', async () => {

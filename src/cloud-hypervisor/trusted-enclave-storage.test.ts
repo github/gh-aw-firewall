@@ -233,7 +233,11 @@ describe('invocation-wide kernel-enforced storage', () => {
       {} as HostExecutorRunState, plan, {
         closeStorage: jest.fn().mockRejectedValue(new Error('mount setup unavailable')),
       } as unknown as HostExecutorResourceJournal, tools,
-    )).rejects.toThrow('mount setup unavailable');
+    )).rejects.toMatchObject({
+      message: 'Host preflight failed and cleanup failed',
+      cause: { message: 'mount setup unavailable' },
+      cleanupError: { message: 'mount setup unavailable' },
+    });
     await expect(prepared.close()).rejects.toThrow('enforcement is preserved');
   });
 

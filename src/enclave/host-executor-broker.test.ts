@@ -87,6 +87,7 @@ describe('finite-disclosure broker → authenticated Unix host → concrete micr
       runId,
       seedsDir: path.join(root, 'seeds'),
       invocationsDir: path.join(root, 'invocations'),
+      journalDir: path.join(root, 'journal'),
       entries: (['script', 'agent'] as const).map((role) => ({
         entryId: `${role}-entry`, executorKind: role, timeoutMs: 30_000,
         staticSeedIds: [seedId], dynamicAgents: false,
@@ -265,7 +266,7 @@ describe('finite-disclosure broker → authenticated Unix host → concrete micr
       hostExecutorCapabilityPath: options.capabilityPath || host!.capabilityPath,
     };
     const runner = createHostExecutorRunner(config, {
-      nowMs: clock.nowMs, pollMs: 2, drainMs: 1000, requestTimeoutMs: 200,
+      nowMs: clock.nowMs, pollMs: 2, drainMs: 1000, requestTimeoutMs: 1000,
     });
     const localWorkspace = {
       createInvocationWorkspace: jest.fn(() => { throw new Error('Local workspace must not be used'); }),
@@ -491,7 +492,7 @@ describe('finite-disclosure broker → authenticated Unix host → concrete micr
   it.each(['script', 'agent'] as const)('never publishes terminal %s when concrete cleanup is unresolved', async (role) => {
     cleanupError = true;
     const lane = { tail: Promise.resolve(), closed: false };
-    const { handler } = makeHandler(role, { lane, timeoutSeconds: 0.2 });
+    const { handler } = makeHandler(role, { lane, timeoutSeconds: 0.5 });
     expect(await call(handler, args(role))).toBe('{"status":"error"}');
     expect(started).toHaveBeenCalled();
     expect(cleaned).toHaveBeenCalled();

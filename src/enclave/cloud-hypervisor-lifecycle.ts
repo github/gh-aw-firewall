@@ -19,7 +19,11 @@ import { validateRunSandboxBackend } from './run-backend';
 import { updateEnclaveStartupProgress } from './startup-progress';
 import {
   HostPreflightReporter, markHostPreflightError, type HostPreflightProgress,
+  HostPreflightCleanupError,
 } from '../cloud-hypervisor/host-preflight-progress';
+import { readHostExecutorInvocationDiagnostics } from './host-executor-journal';
+import { preserveHostExecutorInvocationEvidence } from '../cloud-hypervisor/diagnostics';
+import { resolveCloudHypervisorManagerDependencies } from '../cloud-hypervisor/manager';
 
 export const CLOUD_HYPERVISOR_ENCLAVE_STORAGE_REQUIRED =
   'Cloud Hypervisor enclaves require the trusted hard-bounded writable-storage provider (#9394); '
@@ -269,10 +273,41 @@ export async function stopCloudHypervisorEnclaveLifecycle(config: WrapperConfig)
   closeCloudHypervisorEnclaveAdmissions(config);
   run.closePromise ??= (async () => {
     await run.startPromise?.catch(() => undefined);
-    await run.server?.close();
-    assertRecoveryComplete(paths, run.runId);
-    if (run.failed) throw new Error('Cloud Hypervisor enclave startup failed; private recovery state is preserved');
-    await run.storage?.close();
+    let cleanupError: unknown;
+    let evidenceError: unknown;
+    const preserveEvidence = async (): Promise<void> => {
+      const evidence = readHostExecutorInvocationDiagnostics({
+        runId: run.runId, journalDir: paths.hostExecutorJournalDir,
+      });
+      await preserveHostExecutorInvocationEvidence(
+        path.join(config.auditDir ?? path.join(config.workDir, 'audit'), 'diagnostics', 'cloud-hypervisor', 'host-executor'),
+        evidence,
+        resolveCloudHypervisorManagerDependencies(),
+      );
+    };
+    try {
+      await preserveEvidence();
+    } catch (error) {
+      evidenceError = error;
+    }
+    try {
+      await run.server?.close();
+      assertRecoveryComplete(paths, run.runId);
+      if (run.failed) throw new Error('Cloud Hypervisor enclave startup failed; private recovery state is preserved');
+      await run.storage?.close();
+    } catch (error) {
+      cleanupError = error;
+    }
+    try {
+      await preserveEvidence();
+    } catch (error) {
+      evidenceError ??= error;
+    }
+    if (evidenceError !== undefined) {
+      if (cleanupError !== undefined) throw new HostPreflightCleanupError(cleanupError, evidenceError);
+      throw evidenceError;
+    }
+    if (cleanupError !== undefined) throw cleanupError;
     completedRuns.set(paths.root, run.runId);
     runs.delete(paths.root);
   })();

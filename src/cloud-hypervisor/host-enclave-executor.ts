@@ -14,10 +14,12 @@ import type {
 import { HOST_EXECUTOR_MAX_RESULT_BYTES } from '../enclave/host-executor-protocol';
 import {
   HostExecutorResourceJournal,
+  HostExecutorInvocationDiagnostics,
   hostExecutorJournalDirectory,
   hostExecutorVmRunId,
   reapHostExecutorResources,
 } from '../enclave/host-executor-journal';
+import { HostPreflightReporter, markHostPreflightError } from './host-preflight-progress';
 import { DurableCloudHypervisorCleanupRegistry } from './cleanup-registry';
 import {
   assertBoundedEnclaveStorage, mountBoundedEnclaveStorage, unmountBoundedEnclaveStorage,
@@ -95,7 +97,8 @@ function hasControlCharacters(value: string): boolean {
 }
 
 const defaultDependencies: HostEnclaveExecutorDependencies = {
-  createArtifactSnapshot,
+  createArtifactSnapshot: (sources, copy, onDirectoryCreated, report) =>
+    createArtifactSnapshot(sources, copy, onDirectoryCreated, undefined, report),
   createResourceJournal: (run, plan, vmRunId) => HostExecutorResourceJournal.create(run, plan, vmRunId),
   copySparseFile: copySparseFileWithRsync,
   removeArtifactSnapshot: async (directory) => fs.rm(directory, { recursive: true, force: true }),
@@ -347,15 +350,19 @@ export class CloudHypervisorHostEnclaveExecutorBackend implements HostEnclaveExe
     if (plan.selector !== undefined || plan.seedHostPath === undefined) {
       return { outcome: 'executor-failure' };
     }
+    const diagnostic = new HostExecutorInvocationDiagnostics(this.options.runState, plan);
+    const report = new HostPreflightReporter('host-invocation', diagnostic.publish);
+    const check = <T>(id: Parameters<HostPreflightReporter['check']>[0], operation: () => Promise<T> | T) =>
+      diagnostic.check(report, id, operation);
     const role: CloudHypervisorEnclaveRole = plan.executorKind;
     const agentPolicies = this.options.agentPolicies;
     const rawAgentPolicy = agentPolicies &&
       Object.prototype.hasOwnProperty.call(agentPolicies, plan.entryId)
       ? agentPolicies[plan.entryId]
       : undefined;
-    const policy = role === 'agent'
+    const policy = await check('policy', () => role === 'agent'
       ? normalizeAgentPolicy(rawAgentPolicy, plan.timeoutMs)
-      : undefined;
+      : undefined);
     const verifiedRootfs = role === 'script'
       ? this.options.enclaveArtifacts.rootfs.script
       : this.options.enclaveArtifacts.rootfs.agent;
@@ -433,7 +440,8 @@ export class CloudHypervisorHostEnclaveExecutorBackend implements HostEnclaveExe
       filesystemState.aborted = true;
       void manager?.cancel('host executor cancelled').catch(() => undefined);
       if (manager) void stopManager().catch(() => undefined);
-      rejectInterruption?.(new Error('Host executor invocation was cancelled'));
+      rejectInterruption?.(markHostPreflightError(new Error('Host executor invocation was interrupted'),
+        filesystemState.timedOut ? 'invocation-timeout' : 'invocation-cancelled'));
     };
     signal.addEventListener('abort', abortManager, { once: true });
     const deadline = setTimeout(() => {
@@ -442,7 +450,7 @@ export class CloudHypervisorHostEnclaveExecutorBackend implements HostEnclaveExe
     }, plan.timeoutMs);
     try {
       if (filesystemState.aborted) throw new Error('Host executor invocation was cancelled');
-      await raceInterruption(trackFilesystemWork(prepareInvocationFilesystem(
+      await check('filesystem', () => raceInterruption(trackFilesystemWork(prepareInvocationFilesystem(
         this.options.runState,
         plan,
         role,
@@ -457,6 +465,7 @@ export class CloudHypervisorHostEnclaveExecutorBackend implements HostEnclaveExe
           if (this.dependencies.prepareInvocationStorage) {
             invocationStorage = await this.dependencies.prepareInvocationStorage(
               this.options.runState, plan, resourceJournal as HostExecutorResourceJournal, this.options.preflight.tools,
+              report.fork('bounded-runtime'),
             );
             dependencies = { ...dependencies, ...invocationStorage.dependencies };
           }
@@ -469,54 +478,63 @@ export class CloudHypervisorHostEnclaveExecutorBackend implements HostEnclaveExe
           filesystemState.mounted = true;
           await resourceJournal?.captureMount();
         },
-      )));
+      ))));
       if (filesystemState.aborted) throw new Error('Host executor invocation was cancelled');
-      const exportPlan = await raceInterruption(
+      const exportPlan = await check('export-plan', () => raceInterruption(
         resolveCloudHypervisorEnclaveExportPlan({
           runId: this.options.runState.runId,
           seedsDir: this.options.runState.seedsDir,
           invocationsDir: this.options.runState.invocationsDir,
           entries: this.options.runState.entries,
         }, plan),
-      );
-      await resourceJournal?.prepareSnapshot();
-      const snapshotPromise = trackFilesystemWork(dependencies.createArtifactSnapshot({
-        cloudHypervisorBinary: this.options.preflight.cloudHypervisorBinary,
-        virtiofsdBinary: this.options.preflight.virtiofsdBinary,
-        kernelPath: this.options.preflight.kernelPath,
-        rootfsPath: verifiedRootfs.path,
-        supervisorPath: this.options.preflight.supervisorPath,
-        manifestPath: this.options.enclaveArtifacts.manifestPath,
-        bundlePath: this.options.enclaveArtifacts.manifestBundlePath,
-      }, (source, destination) => dependencies.copySparseFile(
-        this.options.preflight.tools.rsync,
-        source,
-        destination,
-      ), async (directory) => resourceJournal?.captureSnapshot(directory)).then(async (created) => {
-        snapshot = created;
-        await resourceJournal?.captureSnapshot(created.directory);
-        return created;
-      }));
-      snapshot = await raceInterruption(snapshotPromise);
-      const snapshotRootfsStat = await raceInterruption(dependencies.lstat(snapshot.rootfsPath));
-      if (
-        snapshotRootfsStat.isSymbolicLink() ||
-        !snapshotRootfsStat.isFile() ||
-        snapshotRootfsStat.size !== verifiedRootfs.artifact.sizeBytes ||
-        await raceInterruption(calculateSha256(snapshot.rootfsPath)) !== verifiedRootfs.artifact.sha256
-      ) {
-        throw new Error('Enclave rootfs snapshot does not match its attested artifact digest');
-      }
-      if (invocationStorage) {
-        for (const [file, digest] of [
-          [snapshot.cloudHypervisorBinary, this.options.preflight.artifactDigests.cloudHypervisor],
-          [snapshot.virtiofsdBinary, this.options.preflight.artifactDigests.virtiofsd],
-          [snapshot.kernelPath, this.options.preflight.artifactDigests.kernel],
-          [snapshot.supervisorPath, this.options.preflight.artifactDigests.supervisor],
-        ]) {
-          if (!digest || await calculateSha256(file!) !== digest) throw new Error('Invocation artifact digest changed');
+      ));
+      snapshot = await check('snapshot', async () => {
+        await resourceJournal?.prepareSnapshot();
+        const snapshotPromise = trackFilesystemWork(dependencies.createArtifactSnapshot({
+          cloudHypervisorBinary: this.options.preflight.cloudHypervisorBinary,
+          virtiofsdBinary: this.options.preflight.virtiofsdBinary,
+          kernelPath: this.options.preflight.kernelPath,
+          rootfsPath: verifiedRootfs.path,
+          supervisorPath: this.options.preflight.supervisorPath,
+          manifestPath: this.options.enclaveArtifacts.manifestPath,
+          bundlePath: this.options.enclaveArtifacts.manifestBundlePath,
+        }, (source, destination) => dependencies.copySparseFile(
+          this.options.preflight.tools.rsync,
+          source,
+          destination,
+        ), async (directory) => resourceJournal?.captureSnapshot(directory),
+        report.fork('artifact-snapshot')).then(async (created) => {
+          snapshot = created;
+          await resourceJournal?.captureSnapshot(created.directory);
+          return created;
+        }));
+        return raceInterruption(snapshotPromise);
+      });
+      const createdSnapshot = snapshot;
+      await check('snapshot-digest', async () => {
+        const snapshotRootfsStat = await raceInterruption(dependencies.lstat(createdSnapshot.rootfsPath));
+        if (
+          snapshotRootfsStat.isSymbolicLink() ||
+          !snapshotRootfsStat.isFile() ||
+          snapshotRootfsStat.size !== verifiedRootfs.artifact.sizeBytes ||
+          await raceInterruption(calculateSha256(createdSnapshot.rootfsPath)) !== verifiedRootfs.artifact.sha256
+        ) {
+          throw markHostPreflightError(
+            new Error('Enclave rootfs snapshot does not match its attested artifact digest'), 'digest-mismatch');
         }
-      }
+        if (invocationStorage) {
+          for (const [file, digest] of [
+            [createdSnapshot.cloudHypervisorBinary, this.options.preflight.artifactDigests.cloudHypervisor],
+            [createdSnapshot.virtiofsdBinary, this.options.preflight.artifactDigests.virtiofsd],
+            [createdSnapshot.kernelPath, this.options.preflight.artifactDigests.kernel],
+            [createdSnapshot.supervisorPath, this.options.preflight.artifactDigests.supervisor],
+          ]) {
+            if (!digest || await calculateSha256(file!) !== digest) {
+              throw markHostPreflightError(new Error('Invocation artifact digest changed'), 'digest-mismatch');
+            }
+          }
+        }
+      });
       if (filesystemState.aborted) throw new Error('Host executor invocation was cancelled');
       const artifacts: CloudHypervisorPreflightResult = {
         ...this.options.preflight,
@@ -531,28 +549,28 @@ export class CloudHypervisorHostEnclaveExecutorBackend implements HostEnclaveExe
           rootfs: verifiedRootfs.artifact.sha256,
         },
       };
-      const profile = createWorkloadProfile(plan, exportPlan, artifacts, policy);
-      await raceInterruption(trackFilesystemWork(
+      const profile = await check('workload-profile', () => createWorkloadProfile(plan, exportPlan, artifacts, policy));
+      await check('input-staging', () => raceInterruption(trackFilesystemWork(
         stageInvocationInputs(plan, role, policy, dependencies),
-      ));
+      )));
       const managerConfig = {
         ...this.options.config,
         cloudHypervisorBinary: artifacts.cloudHypervisorBinary,
       };
-      manager = dependencies.createManager(
+      manager = await check('manager-create', () => dependencies.createManager(
         managerConfig,
         invocationStorage?.workDir ?? this.options.workDir,
         profile,
         runId,
         artifacts,
         invocationStorage?.managerDependencies ?? this.options.managerDependencies,
-      );
+      ));
       if (filesystemState.aborted) throw new Error('Host executor invocation was cancelled');
-      await raceInterruption(trackFilesystemWork(manager.start()));
+      await check('manager-start', () => raceInterruption(trackFilesystemWork(manager!.start())));
       if (filesystemState.aborted) throw new Error('Host executor invocation was cancelled');
-      await raceInterruption(trackFilesystemWork(manager.startInstance()));
+      await check('instance-start', () => raceInterruption(trackFilesystemWork(manager!.startInstance())));
       if (filesystemState.aborted) throw new Error('Host executor invocation was cancelled');
-      const executionResult = await raceInterruption(manager.execute({
+      const executionResult = await check('guest-execute', () => raceInterruption(manager!.execute({
         argv: [role === 'script'
           ? this.options.enclaveArtifacts.manifest.rootfs.script.entrypoint
           : this.options.enclaveArtifacts.manifest.rootfs.agent.entrypoint],
@@ -561,17 +579,26 @@ export class CloudHypervisorHostEnclaveExecutorBackend implements HostEnclaveExe
         gid: 65534,
         timeoutMs: plan.timeoutMs,
         env: role === 'agent' && policy ? agentEnvironment(policy, plan) : {},
-      }));
+      })));
       if (filesystemState.timedOut || executionResult.timedOut) {
+        diagnostic.fail(report, 'guest-execute', markHostPreflightError(
+          new Error('Host executor invocation timed out'), 'invocation-timeout'));
         outcome = { outcome: 'timeout' };
       } else if (filesystemState.aborted || signal.aborted) {
+        diagnostic.fail(report, 'guest-execute', markHostPreflightError(
+          new Error('Host executor invocation was cancelled'), 'invocation-cancelled'));
         outcome = { outcome: 'cancelled' };
       } else if (executionResult.exitCode !== 0 || executionResult.signal !== null) {
+        diagnostic.fail(report, 'guest-execute', markHostPreflightError(
+          new Error('Host executor guest command failed'), 'command-failed'));
         outcome = { outcome: 'executor-failure' };
       } else {
-        await raceInterruption(stopManager());
+        // Result reads require the VM to have stopped, but cleanup failures
+        // must remain distinct from the invocation's original failure.
+        const cleanupReport = report.fork('host-invocation-cleanup');
+        await diagnostic.check(cleanupReport, 'manager-stop', () => raceInterruption(stopManager()));
         managerStopped = true;
-        await raceInterruption(manager.completeCleanupRecord());
+        await diagnostic.check(cleanupReport, 'manager-record', () => raceInterruption(manager!.completeCleanupRecord()));
         if (filesystemState.timedOut || filesystemState.aborted || signal.aborted) {
           outcome = filesystemState.timedOut ? { outcome: 'timeout' } : { outcome: 'cancelled' };
         } else {
@@ -579,14 +606,18 @@ export class CloudHypervisorHostEnclaveExecutorBackend implements HostEnclaveExe
           const maxBytes = role === 'agent'
             ? policy?.maxOutputBytes ?? HOST_EXECUTOR_MAX_RESULT_BYTES
             : HOST_EXECUTOR_MAX_RESULT_BYTES;
-          const resultValue = await raceInterruption(readBoundedCloudHypervisorEnclaveResult(
+          const resultValue = await check('result-read', () => raceInterruption(readBoundedCloudHypervisorEnclaveResult(
             outputPath,
             plan.schema,
             maxBytes,
-          ));
+          )));
           outcome = resultValue === undefined
             ? { outcome: 'schema-failure' }
             : { outcome: 'success', result: resultValue };
+          if (resultValue === undefined) {
+            diagnostic.fail(report, 'result-read', markHostPreflightError(
+              new Error('Host executor result is invalid'), 'result-invalid'));
+          }
         }
       }
     } catch {
@@ -598,16 +629,19 @@ export class CloudHypervisorHostEnclaveExecutorBackend implements HostEnclaveExe
     } finally {
       signal.removeEventListener('abort', abortManager);
       clearTimeout(deadline);
+      const cleanupReport = report.fork('host-invocation-cleanup');
+      const cleanupCheck = <T>(id: Parameters<HostPreflightReporter['check']>[0], operation: () => Promise<T>) =>
+        diagnostic.check(cleanupReport, id, operation);
       // Interrupted staging/startup can still create resources. Drain every
       // such operation before removing exports or reporting terminal.
-      await Promise.allSettled([...pendingWork]);
+      await cleanupCheck('pending-work', () => Promise.allSettled([...pendingWork]));
       if (manager && stopPromise) {
         await stopPromise.catch(() => undefined);
         stopPromise = undefined;
       }
       if (manager && !managerStopped) {
         try {
-          await stopManager();
+          await cleanupCheck('manager-stop', stopManager);
           managerStopped = true;
         } catch (error) {
           cleanupError = error;
@@ -615,7 +649,7 @@ export class CloudHypervisorHostEnclaveExecutorBackend implements HostEnclaveExe
       }
       if (manager && managerStopped) {
         try {
-          await manager.completeCleanupRecord();
+          await cleanupCheck('manager-record', () => manager!.completeCleanupRecord());
         } catch (error) {
           cleanupError = cleanupError
             ? new Error(`${String(cleanupError)}; ${String(error)}`)
@@ -624,8 +658,10 @@ export class CloudHypervisorHostEnclaveExecutorBackend implements HostEnclaveExe
       }
       if (snapshot && (!manager || managerStopped) && cleanupError === undefined) {
         try {
-          await resourceJournal?.verifySnapshot();
-          await dependencies.removeArtifactSnapshot(snapshot.directory);
+          await cleanupCheck('snapshot-remove', async () => {
+            await resourceJournal?.verifySnapshot();
+            await dependencies.removeArtifactSnapshot(snapshot!.directory);
+          });
         } catch (error) {
           cleanupError = cleanupError
             ? new Error(`${String(cleanupError)}; ${String(error)}`)
@@ -634,9 +670,9 @@ export class CloudHypervisorHostEnclaveExecutorBackend implements HostEnclaveExe
       }
       if ((!manager || managerStopped) && cleanupError === undefined) {
         try {
-          await cleanupInvocationFilesystem();
-          await invocationStorage?.close();
-          await resourceJournal?.complete();
+          await cleanupCheck('filesystem-remove', cleanupInvocationFilesystem);
+          await cleanupCheck('storage-close', async () => invocationStorage?.close());
+          await cleanupCheck('journal-complete', async () => resourceJournal?.complete());
         } catch (error) {
           cleanupError = cleanupError
             ? new Error(`${String(cleanupError)}; ${String(error)}`)
@@ -644,14 +680,16 @@ export class CloudHypervisorHostEnclaveExecutorBackend implements HostEnclaveExe
         }
       } else if (filesystemState.invocationDirectoryCreated && !filesystemState.mounted) {
         try {
-          await resourceJournal?.verifyDirectory();
-          await this.dependencies.rm(plan.invocationHostDir, { recursive: true, force: true });
+          await cleanupCheck('filesystem-remove', async () => {
+            await resourceJournal?.verifyDirectory();
+            await this.dependencies.rm(plan.invocationHostDir, { recursive: true, force: true });
+          });
         } catch (error) {
           cleanupError = error;
         }
       }
     }
-    if (cleanupError !== undefined) {
+    if (cleanupError !== undefined || diagnostic.persistenceFailed) {
       this.closed = true;
       return { outcome: 'executor-failure', cleanupComplete: false };
     }

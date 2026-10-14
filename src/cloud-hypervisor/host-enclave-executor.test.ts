@@ -313,7 +313,7 @@ describe('readBoundedCloudHypervisorEnclaveResult', () => {
           expect(profile.guest?.identity).toEqual({ uid: 65534, gid: 65534 });
           return {
             start: async () => {
-              if (managerStartError) throw new Error('manager startup failed');
+              if (managerStartError) throw Object.assign(new Error('PRIVATE_LAUNCH_SENTINEL Bearer token'), { code: 'EPERM' });
               if (startupDelayMs > 0) {
                 await new Promise((resolve) => setTimeout(resolve, startupDelayMs));
               }
@@ -345,7 +345,7 @@ describe('readBoundedCloudHypervisorEnclaveResult', () => {
             cancel: async () => undefined,
             stop: async () => {
               stopped = true;
-              if (managerStopError) throw new Error('manager stop failed');
+              if (managerStopError) throw Object.assign(new Error('PRIVATE_CLEANUP_SENTINEL /private/repository'), { code: 'EIO' });
               const output = path.join(invocationHostDir, 'output', 'out');
               await fs.writeFile(output, managerResult);
             },
@@ -826,6 +826,45 @@ describe('readBoundedCloudHypervisorEnclaveResult', () => {
             .resolves.toEqual({ outcome: 'schema-failure' });
 
           managerStopError = true;
+          managerStartError = true;
+          const combinedFailureBackend = new CloudHypervisorHostEnclaveExecutorBackend(backendOptions, {
+            ...dependencies,
+            createManager: (...args) => {
+              const failingManager = dependencies.createManager!(...args);
+              return {
+                ...failingManager,
+                stop: async () => {
+                  const [persisted] = hostExecutorJournal.readHostExecutorInvocationDiagnostics(runState);
+                  expect(JSON.parse(persisted.contents)).toMatchObject({
+                    failure: { stage: 'host-invocation/manager-start', code: 'EPERM' },
+                    checks: { 'host-invocation/instance-start': ['not-attempted', 'none'] },
+                  });
+                  return failingManager.stop();
+                },
+              };
+            },
+          });
+          await expect(combinedFailureBackend.execute(plan, new AbortController().signal))
+            .resolves.toEqual({ outcome: 'executor-failure', cleanupComplete: false });
+          const [persisted] = hostExecutorJournal.readHostExecutorInvocationDiagnostics(runState);
+          const diagnostic = JSON.parse(persisted.contents);
+          expect(diagnostic).toMatchObject({
+            schemaVersion: 1,
+            failure: { stage: 'host-invocation/manager-start', reason: 'EPERM', code: 'EPERM', errorType: 'Error' },
+            cleanupFailure: { stage: 'host-invocation-cleanup/manager-stop', reason: 'EIO', code: 'EIO', errorType: 'Error' },
+            checks: {
+              'host-invocation/instance-start': ['not-attempted', 'none'],
+              'host-invocation-cleanup/snapshot-remove': ['not-attempted', 'none'],
+            },
+          });
+          expect(diagnostic.failure.sequence).toBeLessThan(diagnostic.cleanupFailure.sequence);
+          expect(persisted.contents).not.toMatch(/PRIVATE_|Bearer|token|\/private\/|print\(True\)/);
+          const diagnosticPath = path.join(runState.journalDir!, 'diagnostics', persisted.name);
+          expect((await fs.stat(diagnosticPath)).mode & 0o777).toBe(0o600);
+          await combinedFailureBackend.close();
+          expect(await fs.readFile(diagnosticPath, 'utf8')).toBe(persisted.contents);
+          await fs.rm(invocationHostDir, { recursive: true, force: true });
+          managerStartError = false;
           stopped = false;
           unmounted = false;
           snapshotRemoved = false;
@@ -853,7 +892,7 @@ describe('readBoundedCloudHypervisorEnclaveResult', () => {
         await backend.close();
         await fs.rm(scratch, { recursive: true, force: true });
       }
-    });
+    }, 30_000);
   });
 
   it('requires staged and verified enclave artifacts before creating the executor', async () => {

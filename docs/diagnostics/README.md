@@ -90,6 +90,16 @@ mount, not permission to select a topmost duplicate. See the
 [private allocation contract](../cloud-hypervisor-foundation.md#private-invocation-allocation-propagation).
 The fix does not change host-wide propagation or relax recovery identity checks.
 
+A post-startup Cloud Hypervisor enclave launch failure needs the protected
+`diagnostics/cloud-hypervisor/host-executor/` invocation snapshot, not only the
+MCP container's startup log classification. Read its first `failure` and
+separate `cleanupFailure`, cumulative catalog checks, and sequence ordering.
+The durable recovery-journal copy survives invocation teardown; host shutdown
+exports it even if cleanup rejects. See the
+[host-executor evidence contract](../cloud-hypervisor-foundation.md#host-executor-invocation-evidence).
+An `unknown` category/code remains unknown; this instrumentation asserts no
+new root-cause finding.
+
 A later `storage-verification` failure is not evidence that snapshot binding was
 attempted. Read its journal/read/observation and fixed mount-role checks, then
 `enclaveStartup.storagePropagation`. The compact observations distinguish a

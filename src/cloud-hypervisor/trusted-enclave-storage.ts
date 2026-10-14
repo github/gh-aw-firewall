@@ -28,7 +28,8 @@ import {
   observeStorageMount, observeMountTopology, type MountTopologyEvidence, type StoragePropagationSlot,
 } from './mount-topology';
 import {
-  HostPreflightReporter, markHostPreflightError, type HostPreflightProgress, type HostPreflightCheck,
+  HostPreflightReporter, HostPreflightCleanupError, markHostPreflightError,
+  type HostPreflightProgress, type HostPreflightCheck,
 } from './host-preflight-progress';
 
 export interface TrustedEnclaveStorageHostDependencies {
@@ -123,14 +124,19 @@ export class ProductionTrustedCloudHypervisorEnclaveStorageProvider implements T
       backendDependencies: {
         ...createBoundedEnclavePreflight(options, active),
         removeArtifactSnapshot: async () => undefined,
-        prepareInvocationStorage: async (run, plan, journal, tools) => {
+        prepareInvocationStorage: async (run, plan, journal, tools, report) => {
           const root = hostExecutorStorageDirectory(hostExecutorVmRunId(plan));
           active.add(root);
           let storage: Awaited<ReturnType<typeof prepareTrustedInvocationStorage>>;
           try {
-            storage = await prepareTrustedInvocationStorage(run, plan, journal, tools);
+            storage = await prepareTrustedInvocationStorage(run, plan, journal, tools, report);
           } catch (error) {
-            await journal.closeStorage(tools.umount);
+            try {
+              await (report ?? new HostPreflightReporter('bounded-runtime'))
+                .fork('bounded-cleanup').check('storage-close', () => journal.closeStorage(tools.umount));
+            } catch (cleanupError) {
+              throw new HostPreflightCleanupError(error, cleanupError);
+            }
             active.delete(root);
             throw error;
           }
@@ -349,8 +355,8 @@ export async function prepareTrustedInvocationStorage(
         assertPrivateStorageObservation(propagation.mounts.invocationAfterRemount);
       },
       verifyStorage,
-      createArtifactSnapshot: async (sources, copy, capture) => {
-        const snapshotReport = report.fork('artifact-snapshot');
+      createArtifactSnapshot: async (sources, copy, capture, invocationReport) => {
+        const snapshotReport = invocationReport ?? report.fork('artifact-snapshot');
         const snapshot = await createArtifactSnapshot(sources, copy, capture, artifacts, snapshotReport);
         await snapshotReport.check('mount-intent', () => journal.prepareStorageMount(snapshot.directory));
         const priorCalls = snapshotBindCalls.get(snapshot.directory) ?? 0;
