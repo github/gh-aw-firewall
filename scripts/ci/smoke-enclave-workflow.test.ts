@@ -272,7 +272,7 @@ describe('experimental Cloud Hypervisor enclave smoke workflow', () => {
   });
 
   it('selects the same Cloud Hypervisor backend for the primary and static script enclave', () => {
-    expect(source).toContain('version: v0.28.56\n    runtime: cloud-hypervisor');
+    expect(source).toContain('version: v0.28.57\n    runtime: cloud-hypervisor');
     expect(source).toContain('runtime: cloud-hypervisor');
     expect(lock).toContain('\\"runtime\\":\\"cloud-hypervisor\\"');
     expect(lock).toContain('--container-runtime cloud-hypervisor');
@@ -283,17 +283,18 @@ describe('experimental Cloud Hypervisor enclave smoke workflow', () => {
   });
 
   it('pins the published AWF and its attested artifacts to the same release', () => {
-    expect(lock).toContain('install_awf_binary.sh" v0.28.56');
-    expect(lock).toContain('GH_AW_AWF_VERSION: v0.28.56');
-    expect(lock).toContain('https://github.com/github/gh-aw-firewall/releases/download/v0.28.56/awf-config.schema.json');
+    expect(lock).toContain('install_awf_binary.sh" v0.28.57');
+    expect(lock).toContain('GH_AW_AWF_VERSION: v0.28.57');
+    expect(lock).toContain('https://github.com/github/gh-aw-firewall/releases/download/v0.28.57/awf-config.schema.json');
     expect(lock).toContain('Download and verify cloud-hypervisor enclave artifacts');
     expect(lock).toContain('cloud_hypervisor_setup_enclave_artifacts.sh');
     expect(lock).not.toContain('Install awf binary (local)');
     expect(lock).not.toContain('--build-local');
     expect(source).not.toContain('Do not dispatch this update yet');
     expect(source).toContain('installed host\nbinary authorizes this path');
-    expect(source).toContain('Do not retag v0.28.56 or bypass the acceptance gate.');
+    expect(source).toContain('Do not retag v0.28.57 or bypass the acceptance gate.');
     expect(source).toContain('diagnostics (#9898)');
+    expect(source).toContain('durable host-executor\ndiagnostics (#9955)');
     expect(source).toContain('After this update merges to `main`');
     expect(source).toContain('### Remaining manual dispatch prerequisite');
     expect(source).toContain('No further release or retag is required');
@@ -319,29 +320,32 @@ describe('experimental Cloud Hypervisor enclave smoke workflow', () => {
 
   it('sets up release-matched primary and script-role artifacts', () => {
     expect(lock).toContain('cloud_hypervisor_setup_bundle.sh');
-    expect(lock).toContain('GH_AW_AWF_VERSION: v0.28.56');
+    expect(lock).toContain('GH_AW_AWF_VERSION: v0.28.57');
     expect(lock).toContain('cloud_hypervisor_setup_enclave_artifacts.sh');
     expect(lock).toContain(
       'GH_AW_AWF_VERSION: ${{ steps.cloud-hypervisor-bundle.outputs.release_tag }}'
     );
-    expect(lock).toContain('ghcr.io/github/gh-aw-firewall/enclave-script:0.28.56');
-    expect(lock).toContain('ghcr.io/github/gh-aw-firewall/enclave-mcp-server:0.28.56');
+    expect(lock).toContain('ghcr.io/github/gh-aw-firewall/enclave-script:0.28.57');
+    expect(lock).toContain('ghcr.io/github/gh-aw-firewall/enclave-mcp-server:0.28.57');
     expect(lock).toContain('AWF_CLOUD_HYPERVISOR_ENCLAVE_SCRIPT_ROOTFS');
     const primarySetup = lock.slice(
       lock.indexOf('      - name: Download and verify cloud-hypervisor bundle'),
       lock.indexOf('      - name: Install AWF binary')
     );
-    expect(primarySetup).toContain('GH_AW_AWF_VERSION: v0.28.56');
+    expect(primarySetup).toContain('GH_AW_AWF_VERSION: v0.28.57');
     expect(primarySetup).toContain(
       'GH_AW_AWF_VERSION: ${{ steps.cloud-hypervisor-bundle.outputs.release_tag }}'
     );
   });
 
   it('keeps every first-party image digest pinned to the binary release', () => {
-    const pinCache = JSON.parse(fs.readFileSync(
-      path.resolve(__dirname, '../../.github/aw/actions-lock.json'), 'utf8'
-    )) as {
-      containers: Record<string, { image: string; digest: string; pinned_image: string }>;
+    // Official v0.28.57 release asset: containers.txt.
+    const releaseDigests: Record<string, string> = {
+      agent: 'sha256:a9861b2fad1d29c586bbbf98840a61056e30e2720d8d9ec2c0def9049566bd8a',
+      'api-proxy': 'sha256:f2925ff32dc972a5d8b90a7785b6ca68052efd2575fe896556ac457e22e86dcc',
+      'enclave-mcp-server': 'sha256:dfa422c17f2c6c26ee0d5a42d129deb77facba16af368fee5e8399a956a2306d',
+      'enclave-script': 'sha256:e65db5c27ec5f0887c75f3d8d4bdd60f59d6c941cf5d5d9c65e9e82bcfedb990',
+      squid: 'sha256:be808c16b535ebabd070eebe086fe6bffd5bb86b2e5fe8e5cdad30068eb9c0ac',
     };
     const manifestLine = lock.split('\n').find(line => line.startsWith('# gh-aw-manifest: '));
     if (!manifestLine) {
@@ -354,19 +358,21 @@ describe('experimental Cloud Hypervisor enclave smoke workflow', () => {
       container.image.startsWith('ghcr.io/github/gh-aw-firewall/')
     );
     expect(awfImages.map(container => container.image.split('/').pop()).sort()).toEqual([
-      'agent:0.28.56', 'api-proxy:0.28.56', 'enclave-mcp-server:0.28.56',
-      'enclave-script:0.28.56', 'squid:0.28.56',
+      'agent:0.28.57', 'api-proxy:0.28.57', 'enclave-mcp-server:0.28.57',
+      'enclave-script:0.28.57', 'squid:0.28.57',
     ]);
     for (const container of awfImages) {
-      expect(container).toEqual(pinCache.containers[container.image]);
+      const name = container.image.split('/').pop()!.split(':')[0];
+      expect(container.digest).toBe(releaseDigests[name]);
+      expect(container.pinned_image).toBe(`${container.image}@${releaseDigests[name]}`);
       expect(container.pinned_image).toMatch(
         new RegExp(`^${container.image.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}@sha256:[a-f0-9]{64}$`)
       );
       expect(lock).toContain(container.pinned_image);
     }
-    expect(lock).toContain('\\"imageTag\\":\\"0.28.56,');
-    expect(lock).not.toMatch(/0\.28\.(51|52|53|54|55)/);
-    expect(source).not.toContain('v0.28.55');
+    expect(lock).toContain('\\"imageTag\\":\\"0.28.57,');
+    expect(lock).not.toMatch(/0\.28\.(51|52|53|54|55|56)/);
+    expect(source).not.toContain('v0.28.56');
   });
 
   it('requires an audited invocation and exact successful output', () => {
