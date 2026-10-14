@@ -177,6 +177,11 @@ describe('Phase 4 recovery manager selection', () => {
     expect(recovery).not.toContain('AWF_PHASE4_KVM_HOST_ACL_BASELINE');
     expect(recovery.indexOf('kvm_before=')).toBeLessThan(recovery.indexOf('run_awf()'));
     expect(recovery.indexOf('kvm_after=')).toBeLessThan(recovery.indexOf('kvm_restored=$('));
+    expect(recovery).toContain('nvx-phase4-kvm-acl-evidence.ts');
+    expect(recovery).toContain('"$diagnostics_dir/kvm-acl-diagnostics.json"');
+    expect(recovery.indexOf('nvx-phase4-kvm-acl-evidence.ts')).toBeLessThan(
+      recovery.indexOf('kvm_restored=$('),
+    );
   });
 
   it('requires actual death and distinguishes PID reuse and zombies from a live manager', () => {

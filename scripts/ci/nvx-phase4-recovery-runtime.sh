@@ -97,10 +97,16 @@ runs_before=$(runtime_storage_snapshot "$runtime" run)
 scratch_before=$(runtime_storage_snapshot "$runtime" scratch)
 snapshots_before=$(runtime_storage_snapshot "$runtime" snapshot)
 if [ -n "${AWF_PHASE4_KVM_RUNTIME_ACL_BASELINE:-}" ]; then
+  kvm_expected_source="$AWF_PHASE4_KVM_RUNTIME_ACL_BASELINE"
   kvm_before=$(sudo cat "$AWF_PHASE4_KVM_RUNTIME_ACL_BASELINE")
 else
+  kvm_expected_source=/dev/kvm
   kvm_before=$(sudo getfacl --absolute-names --numeric /dev/kvm 2>/dev/null)
 fi
+kvm_before_snapshot="$root/kvm-acl-before.txt"
+kvm_after_snapshot="$root/kvm-acl-after.txt"
+printf '%s\n' "$kvm_before" > "$kvm_before_snapshot"
+chmod 0600 "$kvm_before_snapshot"
 
 jq -n '{
   network:{allowDomains:[],isolation:true},
@@ -329,6 +335,13 @@ for _ in $(seq 1 100); do
   sleep 0.1
 done
 ended_ms=$(date +%s%3N)
+printf '%s\n' "$kvm_after" > "$kvm_after_snapshot"
+chmod 0600 "$kvm_after_snapshot"
+npx tsx scripts/ci/nvx-phase4-kvm-acl-evidence.ts \
+  "$kvm_before_snapshot" "$kvm_expected_source" \
+  "$kvm_after_snapshot" /dev/kvm \
+  "$diagnostics_dir/kvm-acl-diagnostics.json"
+rm -f -- "$kvm_before_snapshot" "$kvm_after_snapshot"
 
 process_tree_gone=$([ "$processes_before" = "$processes_after" ] && echo true || echo false)
 mounts_restored=$([ "$mounts_before" = "$mounts_after" ] && echo true || echo false)

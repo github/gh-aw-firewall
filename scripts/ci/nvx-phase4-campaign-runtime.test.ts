@@ -58,6 +58,13 @@ describe('Phase 4 campaign runtime evidence', () => {
     expect(harness).not.toContain('AWF_PHASE4_KVM_HOST_ACL_BASELINE');
     expect(harness.indexOf('kvm_acl_before=')).toBeLessThan(harness.indexOf('trap restore_kvm_acl EXIT'));
     expect(harness.indexOf('kvm_acl_after=')).toBeLessThan(harness.indexOf('restore_kvm_acl\n'));
+    expect(harness).toContain('nvx-phase4-kvm-acl-evidence.ts');
+    expect(harness).toContain('"$evidence_dir/kvm-acl-diagnostics.json"');
+    expect(harness).not.toContain('"$evidence_dir/kvm-acl-before.txt"');
+    expect(harness).not.toContain('"$evidence_dir/kvm-acl-after.txt"');
+    expect(harness.indexOf('nvx-phase4-kvm-acl-evidence.ts')).toBeLessThan(
+      harness.indexOf('restore_kvm_acl\n'),
+    );
   });
 
   it.each(['nvx', 'cloud-hypervisor'] as const)('captures the exact live %s owner and runtime', runtime => {

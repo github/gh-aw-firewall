@@ -172,14 +172,18 @@ else
 fi
 
 if [ -n "${AWF_PHASE4_KVM_RUNTIME_ACL_BASELINE:-}" ]; then
+  kvm_acl_expected_source="$AWF_PHASE4_KVM_RUNTIME_ACL_BASELINE"
   kvm_acl_before=$(sudo cat "$AWF_PHASE4_KVM_RUNTIME_ACL_BASELINE")
 else
+  kvm_acl_expected_source=/dev/kvm
   kvm_acl_before=$(sudo getfacl --absolute-names --numeric /dev/kvm 2>/dev/null)
 fi
-printf '%s\n' "$kvm_acl_before" > "$evidence_dir/kvm-acl-before.txt"
-chmod 0600 "$evidence_dir/kvm-acl-before.txt"
+kvm_acl_before_snapshot="$RUNNER_TEMP/nvx-phase4-kvm-acl-before-$sample_id.txt"
+kvm_acl_after_snapshot="$RUNNER_TEMP/nvx-phase4-kvm-acl-after-$sample_id.txt"
+printf '%s\n' "$kvm_acl_before" > "$kvm_acl_before_snapshot"
+chmod 0600 "$kvm_acl_before_snapshot"
 restore_kvm_acl() {
-  sudo setfacl --restore="$evidence_dir/kvm-acl-before.txt" >/dev/null 2>&1 || true
+  sudo setfacl --restore="$kvm_acl_before_snapshot" >/dev/null 2>&1 || true
 }
 normalize_kvm_acl() {
   local acl=$1
@@ -749,10 +753,15 @@ for _cleanup_attempt in $(seq 1 50); do
   sleep 0.1
 done
 cleanup_completed=$(now_ms)
-printf '%s\n' "$kvm_acl_after" > "$evidence_dir/kvm-acl-after.txt"
-chmod 0600 "$evidence_dir/kvm-acl-after.txt"
+printf '%s\n' "$kvm_acl_after" > "$kvm_acl_after_snapshot"
+chmod 0600 "$kvm_acl_after_snapshot"
+npx tsx scripts/ci/nvx-phase4-kvm-acl-evidence.ts \
+  "$kvm_acl_before_snapshot" "$kvm_acl_expected_source" \
+  "$kvm_acl_after_snapshot" /dev/kvm \
+  "$evidence_dir/kvm-acl-diagnostics.json"
 restore_kvm_acl
 trap - EXIT
+rm -f -- "$kvm_acl_before_snapshot" "$kvm_acl_after_snapshot"
 
 preflight_completed=${preflight_completed:-$preflight_started}
 runtime_ready=${runtime_ready:-$preflight_completed}

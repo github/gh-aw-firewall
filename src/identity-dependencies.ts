@@ -17,6 +17,12 @@ export interface DefaultIdentityDependencies {
   readonly processStartTime: (pid: number) => Promise<string | undefined>;
 }
 
+export interface IdentityCommandError extends Error {
+  readonly exitCode: number;
+  readonly stdout: string;
+  readonly stderr: string;
+}
+
 /**
  * Creates hardened filesystem and process helpers for privileged identity and lock management.
  * Commands receive only a fixed system PATH, while callers provide their process start-time reader.
@@ -41,10 +47,14 @@ export function createDefaultIdentityDependencies(
         extendEnv: false,
       });
       if (result.exitCode !== 0) {
-        throw new Error(
+        throw Object.assign(new Error(
           `${command} ${args.join(' ')} exited with code ${result.exitCode}: ` +
           `${result.stderr.trim() || result.stdout.trim()}`,
-        );
+        ), {
+          exitCode: result.exitCode,
+          stdout: result.stdout,
+          stderr: result.stderr,
+        } satisfies Pick<IdentityCommandError, 'exitCode' | 'stdout' | 'stderr'>);
       }
       return { stdout: result.stdout, stderr: result.stderr };
     },

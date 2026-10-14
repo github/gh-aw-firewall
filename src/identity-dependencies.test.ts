@@ -21,8 +21,16 @@ describe('createDefaultIdentityDependencies', () => {
       'process.stdout.write(process.env.PATH ?? "")',
     ]);
     expect(result.stdout).toBe('/usr/sbin:/usr/bin:/sbin:/bin');
-    await expect(dependencies.run(process.execPath, ['-e', 'process.exit(1)']))
-      .rejects.toThrow(/exited with code 1/);
+    const missingAccount = dependencies.run(process.execPath, [
+      '-e',
+      'process.stderr.write("no such user"); process.exit(1)',
+    ]);
+    await expect(missingAccount).rejects.toMatchObject({
+      message: expect.stringMatching(/exited with code 1.*no such user/),
+      exitCode: 1,
+      stdout: '',
+      stderr: 'no such user',
+    });
     await expect(dependencies.sleep(0)).resolves.toBeUndefined();
   }, 30_000);
 });
