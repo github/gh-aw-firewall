@@ -82,6 +82,7 @@ export interface MountTreeDependencies {
   statPath(filePath: string): Promise<MountTreeStats>;
   realpath(filePath: string): Promise<string>;
   readMountInfo(): Promise<string>;
+  sleep(milliseconds: number): Promise<void>;
 }
 
 export interface MountTreeTools {
@@ -120,6 +121,8 @@ const WRITABLE_REMOUNT_OPTIONS = 'remount,bind,rw,nosuid,nodev';
 const HARDENED_REMOUNT_OPTIONS = 'remount,bind,nosuid,nodev';
 const MASK_MOUNT_OPTIONS = 'ro,nosuid,nodev,size=0,mode=000';
 const MINIMUM_UTIL_LINUX = { major: 2, minor: 23 } as const;
+const BUSY_RETRY_ATTEMPTS = 5;
+const BUSY_RETRY_INTERVAL_MS = 25;
 
 /**
  * Recursive read-only enforcement is applied one mount at a time rather than
@@ -247,17 +250,16 @@ export class StagedHostMountTree {
   }
 
   async unmount(): Promise<void> {
-    const { dependencies, tools } = this.options;
     for (const target of this.cleanupOrder()) {
       // The staged root is a recursive bind, so it can carry submounts of its
       // own; children are single non-recursive binds and unmount directly.
       const args = target === this.rootPath ? ['-R', target] : [target];
-      await dependencies.runTool(tools.umount, args);
+      await this.unmountOwnedTarget(args, target);
       this.pendingMounts.delete(target);
     }
     this.staged = false;
     if (this.rootDirectoryCreated) {
-      await dependencies.rmdir(this.rootPath);
+      await this.removeRootDirectory();
       this.rootDirectoryCreated = false;
     }
   }
@@ -305,7 +307,82 @@ export class StagedHostMountTree {
       .map((entry) => entry.mountPoint)
       .sort((left, right) => pathDepth(right) - pathDepth(left));
     for (const target of targets) {
-      await dependencies.runTool(tools.mount, ['-o', remountOptions, target]);
+      await this.remountOwnedTarget(remountOptions, target);
+    }
+  }
+
+  private async remountOwnedTarget(remountOptions: string, target: string): Promise<void> {
+    const { dependencies, tools } = this.options;
+    const args = ['-o', remountOptions, target];
+    for (let attempt = 1; attempt <= BUSY_RETRY_ATTEMPTS; attempt += 1) {
+      try {
+        await dependencies.runTool(tools.mount, args);
+        return;
+      } catch (error) {
+        if (!isBusyMountError(error)) throw error;
+        const entries = await this.readExactOwnedMounts(target);
+        if (entries.some((entry) => remountOptionsSatisfied(entry, remountOptions))) return;
+        if (attempt === BUSY_RETRY_ATTEMPTS) throw error;
+        await dependencies.sleep(BUSY_RETRY_INTERVAL_MS);
+      }
+    }
+  }
+
+  private async unmountOwnedTarget(args: readonly string[], target: string): Promise<void> {
+    const { dependencies, tools } = this.options;
+    for (let attempt = 1; attempt <= BUSY_RETRY_ATTEMPTS; attempt += 1) {
+      try {
+        await dependencies.runTool(tools.umount, args);
+        return;
+      } catch (error) {
+        if (!isBusyMountError(error)) throw error;
+        const entries = await this.readExactMounts(target);
+        if (entries.length === 0) return;
+        this.assertOwnedTarget(target, 'unmount');
+        if (attempt === BUSY_RETRY_ATTEMPTS) throw error;
+        await dependencies.sleep(BUSY_RETRY_INTERVAL_MS);
+      }
+    }
+  }
+
+  private async readExactOwnedMounts(target: string): Promise<MountInfoEntry[]> {
+    const entries = await this.readExactMounts(target);
+    if (entries.length === 0) {
+      throw new Error(
+        `Refusing to retry busy remount for missing staged mount ${target}`,
+      );
+    }
+    this.assertOwnedTarget(target, 'remount');
+    return entries;
+  }
+
+  private async readExactMounts(target: string): Promise<MountInfoEntry[]> {
+    return parseMountInfo(await this.options.dependencies.readMountInfo())
+      .filter((entry) => entry.mountPoint === target);
+  }
+
+  private assertOwnedTarget(target: string, operation: 'remount' | 'unmount'): void {
+    if (
+      !this.pendingMounts.has(this.rootPath) ||
+      (target !== this.rootPath && !containsPath(this.rootPath, target)) ||
+      (operation === 'unmount' && !this.pendingMounts.has(target))
+    ) {
+      throw new Error(
+        `Refusing to retry busy ${operation} outside the owned staged mount tree: ${target}`,
+      );
+    }
+  }
+
+  private async removeRootDirectory(): Promise<void> {
+    const { dependencies } = this.options;
+    for (let attempt = 1; attempt <= BUSY_RETRY_ATTEMPTS; attempt += 1) {
+      try {
+        await dependencies.rmdir(this.rootPath);
+        return;
+      } catch (error) {
+        if (!isBusyDirectoryError(error) || attempt === BUSY_RETRY_ATTEMPTS) throw error;
+        await dependencies.sleep(BUSY_RETRY_INTERVAL_MS);
+      }
     }
   }
 
@@ -332,11 +409,7 @@ export class StagedHostMountTree {
       // back into the host peer group and `assertPrivatePropagation()` would
       // (correctly) refuse to stage the tree at all.
       await dependencies.runTool(tools.mount, ['--make-rprivate', overlay.stagedDestination]);
-      await dependencies.runTool(tools.mount, [
-        '-o',
-        WRITABLE_REMOUNT_OPTIONS,
-        overlay.stagedDestination,
-      ]);
+      await this.remountOwnedTarget(WRITABLE_REMOUNT_OPTIONS, overlay.stagedDestination);
     }
     await this.assertOnlyOverlaysAreWritable(overlays);
   }
@@ -651,6 +724,30 @@ function assertHardenedOptions(entry: MountInfoEntry): void {
       throw new Error(`Staged mount ${entry.mountPoint} is missing ${option}`);
     }
   }
+}
+
+function remountOptionsSatisfied(entry: MountInfoEntry, remountOptions: string): boolean {
+  const requested = new Set(remountOptions.split(','));
+  const expectedMode = requested.has('ro') ? 'ro' : requested.has('rw') ? 'rw' : undefined;
+  if (expectedMode !== undefined && !entry.options.includes(expectedMode)) return false;
+  return ['nosuid', 'nodev'].every((option) => entry.options.includes(option)) &&
+    !entry.optionalFields.some(
+      (field) =>
+        field.startsWith('shared:') ||
+        field.startsWith('master:') ||
+        field.startsWith('propagate_from:'),
+    );
+}
+
+function isBusyMountError(error: unknown): boolean {
+  if ((error as NodeJS.ErrnoException | undefined)?.code === 'EBUSY') return true;
+  return error instanceof Error &&
+    /(?:(?:mount point|target|resource) is busy|device or resource busy)/i.test(error.message);
+}
+
+function isBusyDirectoryError(error: unknown): boolean {
+  const code = (error as NodeJS.ErrnoException | undefined)?.code;
+  return code === 'EBUSY' || code === 'ENOTEMPTY';
 }
 
 function assertStatsMatchKind(

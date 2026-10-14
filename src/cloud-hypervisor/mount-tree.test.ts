@@ -158,6 +158,7 @@ function dependencies(
     statPath: jest.fn(async (filePath: string) => stats(filePath.endsWith('.json') ? 'file' : 'directory')),
     realpath: jest.fn(async (filePath: string) => filePath),
     readMountInfo: fake.readMountInfo,
+    sleep: jest.fn().mockResolvedValue(undefined),
     ...overrides,
   };
 }
@@ -270,6 +271,124 @@ describe('StagedHostMountTree', () => {
     ]);
     expect(staged.isStaged).toBe(true);
     expect(staged.rootPath).toBe(ROOT);
+  });
+
+  it('revalidates and retries a transient concurrent remount EBUSY', async () => {
+    const fake = mountTable();
+    const real = fake.runTool.getMockImplementation() as (
+      command: string,
+      args: readonly string[],
+    ) => Promise<void>;
+    let rootRemountAttempts = 0;
+    fake.runTool.mockImplementation(async (command: string, args: readonly string[]) => {
+      if (
+        command === tools.mount &&
+        args[0] === '-o' &&
+        args[2] === ROOT &&
+        ++rootRemountAttempts === 1
+      ) {
+        throw new Error(`${ROOT}: mount point is busy`);
+      }
+      return real(command, args);
+    });
+    const deps = dependencies(fake);
+    const staged = new StagedHostMountTree({
+      directoryExport: workspace,
+      rootPath: ROOT,
+      plan: plan([]),
+      tools,
+      dependencies: deps,
+    });
+
+    await expect(staged.stage()).resolves.toBeUndefined();
+    expect(rootRemountAttempts).toBe(2);
+    expect(deps.sleep).toHaveBeenCalledTimes(1);
+    expect(deps.sleep).toHaveBeenCalledWith(25);
+    expect(fake.table.get(ROOT)?.options).toContain('ro');
+  });
+
+  it('bounds a persistent concurrent remount EBUSY and rolls back cleanly', async () => {
+    const fake = mountTable();
+    const real = fake.runTool.getMockImplementation() as (
+      command: string,
+      args: readonly string[],
+    ) => Promise<void>;
+    let rootRemountAttempts = 0;
+    fake.runTool.mockImplementation(async (command: string, args: readonly string[]) => {
+      if (command === tools.mount && args[0] === '-o' && args[2] === ROOT) {
+        rootRemountAttempts += 1;
+        throw new Error(`${ROOT}: mount point is busy`);
+      }
+      return real(command, args);
+    });
+    const deps = dependencies(fake);
+    const staged = new StagedHostMountTree({
+      directoryExport: workspace,
+      rootPath: ROOT,
+      plan: plan([]),
+      tools,
+      dependencies: deps,
+    });
+
+    await expect(staged.stage()).rejects.toThrow(/mount point is busy/);
+    expect(rootRemountAttempts).toBe(5);
+    expect(deps.sleep).toHaveBeenCalledTimes(4);
+    expect(staged.hasResidue).toBe(false);
+    expect(fake.table.size).toBe(0);
+  });
+
+  it('accepts a busy remount only when exact revalidation proves it already succeeded', async () => {
+    const fake = mountTable();
+    const real = fake.runTool.getMockImplementation() as (
+      command: string,
+      args: readonly string[],
+    ) => Promise<void>;
+    let rootRemountAttempts = 0;
+    fake.runTool.mockImplementation(async (command: string, args: readonly string[]) => {
+      if (command === tools.mount && args[0] === '-o' && args[2] === ROOT) {
+        rootRemountAttempts += 1;
+        await real(command, args);
+        const error = new Error(`${ROOT}: mount point is busy`) as NodeJS.ErrnoException;
+        error.code = 'EBUSY';
+        throw error;
+      }
+      return real(command, args);
+    });
+    const deps = dependencies(fake);
+    const staged = new StagedHostMountTree({
+      directoryExport: workspace,
+      rootPath: ROOT,
+      plan: plan([]),
+      tools,
+      dependencies: deps,
+    });
+
+    await expect(staged.stage()).resolves.toBeUndefined();
+    expect(rootRemountAttempts).toBe(1);
+    expect(deps.sleep).not.toHaveBeenCalled();
+    expect(fake.table.get(ROOT)?.options).toEqual(
+      expect.arrayContaining(['ro', 'nosuid', 'nodev']),
+    );
+  });
+
+  it('fails closed when a busy remount no longer has an owned mount', async () => {
+    const fake = mountTable();
+    const real = fake.runTool.getMockImplementation() as (
+      command: string,
+      args: readonly string[],
+    ) => Promise<void>;
+    fake.runTool.mockImplementation(async (command: string, args: readonly string[]) => {
+      if (command === tools.mount && args[0] === '-o' && args[2] === ROOT) {
+        fake.table.delete(ROOT);
+        throw new Error(`${ROOT}: mount point is busy`);
+      }
+      return real(command, args);
+    });
+    const staged = tree(fake, plan([]));
+
+    await expect(staged.stage()).rejects.toThrow(
+      /Refusing to retry busy remount for missing staged mount/,
+    );
   });
 
   it('stages a read-only export without overlays', async () => {
@@ -389,8 +508,9 @@ describe('StagedHostMountTree', () => {
       command: string,
       args: readonly string[],
     ) => Promise<void>;
-    fake.runTool.mockImplementationOnce(async () => {
-      throw new Error('target is busy');
+    fake.runTool.mockImplementation(async (command: string, args: readonly string[]) => {
+      if (command === tools.umount) throw new Error('target is busy');
+      return real(command, args);
     });
     await expect(staged.unmount()).rejects.toThrow(/target is busy/);
     expect(staged.hasResidue).toBe(true);
@@ -399,6 +519,111 @@ describe('StagedHostMountTree', () => {
     await expect(staged.unmount()).resolves.toBeUndefined();
     expect(staged.hasResidue).toBe(false);
     expect(fake.table.size).toBe(0);
+  });
+
+  it('reconciles a busy unmount that already removed the exact owned mount', async () => {
+    const fake = mountTable();
+    const staged = tree(fake, plan([]));
+    await staged.stage();
+    const real = fake.runTool.getMockImplementation() as (
+      command: string,
+      args: readonly string[],
+    ) => Promise<void>;
+    fake.runTool.mockImplementation(async (command: string, args: readonly string[]) => {
+      if (command === tools.umount) {
+        await real(command, args);
+        throw new Error(`${ROOT}: target is busy`);
+      }
+      return real(command, args);
+    });
+
+    await expect(staged.unmount()).resolves.toBeUndefined();
+    expect(staged.hasResidue).toBe(false);
+    expect(fake.table.size).toBe(0);
+  });
+
+  it('retries transient busy staging-directory removal after mounts are gone', async () => {
+    const fake = mountTable();
+    let rmdirAttempts = 0;
+    const deps = dependencies(fake, {
+      rmdir: jest.fn(async () => {
+        rmdirAttempts += 1;
+        if (rmdirAttempts === 1) {
+          const error = new Error('directory busy') as NodeJS.ErrnoException;
+          error.code = 'EBUSY';
+          throw error;
+        }
+      }),
+    });
+    const staged = new StagedHostMountTree({
+      directoryExport: workspace,
+      rootPath: ROOT,
+      plan: plan([]),
+      tools,
+      dependencies: deps,
+    });
+    await staged.stage();
+
+    await expect(staged.unmount()).resolves.toBeUndefined();
+    expect(rmdirAttempts).toBe(2);
+    expect(deps.sleep).toHaveBeenCalledTimes(1);
+    expect(staged.hasResidue).toBe(false);
+  });
+
+  it('bounds persistent staging-directory removal and retains residue', async () => {
+    const fake = mountTable();
+    let busy = true;
+    let rmdirAttempts = 0;
+    const deps = dependencies(fake, {
+      rmdir: jest.fn(async () => {
+        rmdirAttempts += 1;
+        if (busy) {
+          const error = new Error('directory not empty') as NodeJS.ErrnoException;
+          error.code = 'ENOTEMPTY';
+          throw error;
+        }
+      }),
+    });
+    const staged = new StagedHostMountTree({
+      directoryExport: workspace,
+      rootPath: ROOT,
+      plan: plan([]),
+      tools,
+      dependencies: deps,
+    });
+    await staged.stage();
+
+    await expect(staged.unmount()).rejects.toThrow(/directory not empty/);
+    expect(rmdirAttempts).toBe(5);
+    expect(deps.sleep).toHaveBeenCalledTimes(4);
+    expect(staged.hasResidue).toBe(true);
+
+    busy = false;
+    await expect(staged.unmount()).resolves.toBeUndefined();
+    expect(rmdirAttempts).toBe(6);
+    expect(staged.hasResidue).toBe(false);
+  });
+
+  it('keeps bounded retries when an owned path has stacked mount records', async () => {
+    const fake = mountTable();
+    const deps = dependencies(fake);
+    const staged = new StagedHostMountTree({
+      directoryExport: workspace,
+      rootPath: ROOT,
+      plan: plan([]),
+      tools,
+      dependencies: deps,
+    });
+    await staged.stage();
+    const mountInfo = await fake.readMountInfo();
+    (deps.readMountInfo as jest.Mock).mockResolvedValue(`${mountInfo}\n${mountInfo}`);
+    (deps.runTool as jest.Mock).mockImplementation(async (command: string) => {
+      if (command === tools.umount) throw new Error(`${ROOT}: target is busy`);
+    });
+
+    await expect(staged.unmount()).rejects.toThrow(/target is busy/);
+    expect(deps.sleep).toHaveBeenCalledTimes(4);
+    expect(staged.hasResidue).toBe(true);
   });
 
   it('fails closed when a remount silently leaves the tree writable', async () => {
@@ -643,25 +868,70 @@ describe('StagedHostMountTree', () => {
     expect(fake.table.size).toBe(0);
   });
 
-  it('reports both failures when rollback cannot complete', async () => {
+  it('retries a transient concurrent rollback EBUSY without touching a sibling tree', async () => {
+    const fake = mountTable();
+    const siblingRoot = '/run/awf-shares/run/1-workspace';
+    fake.table.set(siblingRoot, { options: ['ro', 'nosuid', 'nodev'], optionalFields: [] });
+    const real = fake.runTool.getMockImplementation() as (
+      command: string,
+      args: readonly string[],
+    ) => Promise<void>;
+    let rootUnmountAttempts = 0;
+    fake.runTool.mockImplementation(async (command: string, args: readonly string[]) => {
+      if (
+        command === tools.umount &&
+        args[args.length - 1] === ROOT &&
+        ++rootUnmountAttempts === 1
+      ) {
+        throw new Error(`${ROOT}: target is busy`);
+      }
+      return real(command, args);
+    });
+    const deps = dependencies(fake, { statPath: jest.fn(async () => stats('symlink')) });
+    const staged = new StagedHostMountTree({
+      directoryExport: workspace,
+      rootPath: ROOT,
+      plan: plan([
+        { source: '/host/workspace/out', destination: '/host/workspace/out', kind: 'directory' },
+      ]),
+      tools,
+      dependencies: deps,
+    });
+
+    await expect(staged.stage()).rejects.toThrow(/must not be a symbolic link/);
+    expect(rootUnmountAttempts).toBe(2);
+    expect(deps.sleep).toHaveBeenCalledTimes(1);
+    expect(staged.hasResidue).toBe(false);
+    expect(fake.table.has(siblingRoot)).toBe(true);
+    expect(fake.commands).not.toContainEqual([tools.umount, '-R', siblingRoot]);
+  });
+
+  it('reports both failures after bounded persistent rollback EBUSY retries', async () => {
     const fake = mountTable();
     const real = fake.runTool.getMockImplementation() as (
       command: string,
       args: readonly string[],
     ) => Promise<void>;
+    let rootUnmountAttempts = 0;
     fake.runTool.mockImplementation(async (command: string, args: readonly string[]) => {
-      if (command === tools.umount) throw new Error('target is busy');
+      if (command === tools.umount) {
+        rootUnmountAttempts += 1;
+        throw new Error('target is busy');
+      }
       return real(command, args);
     });
+    const deps = dependencies(fake, { statPath: jest.fn(async () => stats('symlink')) });
     const staged = tree(
       fake,
       plan([{ source: '/host/workspace/out', destination: '/host/workspace/out', kind: 'directory' }]),
       workspace,
-      { statPath: jest.fn(async () => stats('symlink')) },
+      deps,
     );
     await expect(staged.stage()).rejects.toThrow(
       /must not be a symbolic link; staged mount cleanup failed: target is busy/,
     );
+    expect(rootUnmountAttempts).toBe(5);
+    expect(deps.sleep).toHaveBeenCalledTimes(4);
     expect(staged.hasResidue).toBe(true);
   });
 
