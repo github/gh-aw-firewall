@@ -266,6 +266,8 @@ describe('NVX benchmark campaign evidence', () => {
       (step) => step.name === 'Restore original host KVM ACL',
     );
     const canarySetupRun = canarySetup?.run ?? '';
+    expect(canarySetupRun).toContain('phase4-kvm-acl-original.txt');
+    expect(canarySetupRun).toContain('phase4-kvm-acl-runtime.txt');
     expect(canarySetupRun.indexOf('phase4-kvm-acl-original.txt')).toBeLessThan(
       canarySetupRun.indexOf('cloud_hypervisor_kvm_access.sh'),
     );
