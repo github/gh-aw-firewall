@@ -78,6 +78,8 @@ export class CloudHypervisorVmmIdentityManager {
   private identity: CloudHypervisorVmmIdentity | undefined;
   private provisionalAccountName: string | undefined;
   private readonly accessedAclPaths = new Set<CloudHypervisorDevicePath>();
+  private readonly accessedAclBaselines = new Map<CloudHypervisorDevicePath, string[]>();
+  private readonly accessedAclTemporaryUids = new Map<CloudHypervisorDevicePath, number[]>();
   private readonly aclPaths = new Set<string>();
   private readonly aclBaselines = new Map<CloudHypervisorDevicePath, string[]>();
   private readonly aclTemporaryUids = new Map<CloudHypervisorDevicePath, number[]>();
@@ -281,6 +283,10 @@ export class CloudHypervisorVmmIdentityManager {
         this.dependencies.run,
       );
       await this.observer?.prepareAcl(devicePath, baseline, temporaryUids);
+      if (!this.accessedAclBaselines.has(devicePath)) {
+        this.accessedAclBaselines.set(devicePath, baseline);
+        this.accessedAclTemporaryUids.set(devicePath, temporaryUids);
+      }
       await this.dependencies.run(this.tools.setfacl, [
         '--modify', `user:${identity.uid}:rw`, devicePath,
       ]);
@@ -330,6 +336,8 @@ export class CloudHypervisorVmmIdentityManager {
             this.requireIdentity().uid,
             this.aclTemporaryUids.get(devicePath as CloudHypervisorDevicePath) ?? [],
             liveTemporaryUids,
+            this.accessedAclBaselines.get(devicePath as CloudHypervisorDevicePath) ?? baseline,
+            this.accessedAclTemporaryUids.get(devicePath as CloudHypervisorDevicePath) ?? [],
           );
         }
         restoredTargets.set(devicePath as CloudHypervisorDevicePath, restoredTarget);
@@ -382,6 +390,10 @@ export class CloudHypervisorVmmIdentityManager {
         this.dependencies.run,
       );
       await this.observer?.prepareAcl(devicePath, baseline, temporaryUids);
+      if (!this.accessedAclBaselines.has(devicePath)) {
+        this.accessedAclBaselines.set(devicePath, baseline);
+        this.accessedAclTemporaryUids.set(devicePath, temporaryUids);
+      }
       this.aclPaths.add(devicePath);
       this.aclBaselines.set(devicePath, baseline);
       this.aclTemporaryUids.set(devicePath, temporaryUids);

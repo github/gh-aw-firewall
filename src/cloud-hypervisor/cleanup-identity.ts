@@ -102,6 +102,8 @@ export interface CleanupRecord {
     accessedAclPaths?: CloudHypervisorDevicePath[];
     aclBaselines?: Partial<Record<CloudHypervisorDevicePath, string[]>>;
     aclTemporaryUids?: Partial<Record<CloudHypervisorDevicePath, number[]>>;
+    accessedAclBaselines?: Partial<Record<CloudHypervisorDevicePath, string[]>>;
+    accessedAclTemporaryUids?: Partial<Record<CloudHypervisorDevicePath, number[]>>;
   };
   mounts: MountIdentity[];
   updatedAt: string;
@@ -228,6 +230,44 @@ export function validateRecord(
           new Set(uids).size !== uids.length ||
           !uids.every((uid) =>
             identity.aclBaselines?.[aclPath as CloudHypervisorDevicePath]
+              ?.includes(`user:${uid}:rw-`)))
+      )) ||
+      (identity.accessedAclBaselines !== undefined && (
+        typeof identity.accessedAclBaselines !== 'object' ||
+        identity.accessedAclBaselines === null ||
+        Array.isArray(identity.accessedAclBaselines) ||
+        Object.keys(identity.accessedAclBaselines).some((aclPath) =>
+          aclPath !== '/dev/kvm' && aclPath !== '/dev/net/tun') ||
+        Object.entries(identity.accessedAclBaselines).some(([aclPath, baseline]) => {
+          try {
+            return !identity.accessedAclPaths?.includes(
+              aclPath as CloudHypervisorDevicePath,
+            ) ||
+              !Array.isArray(baseline) ||
+              parseDeviceAcl(baseline.join('\n')).length !== baseline.length;
+          } catch {
+            return true;
+          }
+        })
+      )) ||
+      (identity.accessedAclTemporaryUids !== undefined && (
+        typeof identity.accessedAclTemporaryUids !== 'object' ||
+        identity.accessedAclTemporaryUids === null ||
+        Array.isArray(identity.accessedAclTemporaryUids) ||
+        Object.keys(identity.accessedAclTemporaryUids).some((aclPath) =>
+          (aclPath !== '/dev/kvm' && aclPath !== '/dev/net/tun') ||
+          identity.accessedAclBaselines?.[
+            aclPath as CloudHypervisorDevicePath
+          ] === undefined) ||
+        Object.entries(identity.accessedAclTemporaryUids).some(([aclPath, uids]) =>
+          !identity.accessedAclPaths?.includes(
+            aclPath as CloudHypervisorDevicePath,
+          ) ||
+          !Array.isArray(uids) ||
+          uids.some((uid) => !Number.isSafeInteger(uid) || uid <= 0) ||
+          new Set(uids).size !== uids.length ||
+          !uids.every((uid) =>
+            identity.accessedAclBaselines?.[aclPath as CloudHypervisorDevicePath]
               ?.includes(`user:${uid}:rw-`)))
       )) ||
       (identity.state === 'live' && (() => {

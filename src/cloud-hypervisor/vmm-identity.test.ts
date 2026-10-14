@@ -515,10 +515,10 @@ describe('CloudHypervisorVmmIdentityManager', () => {
         ];
         return { stdout: '', stderr: '' };
       }
-      if (command === tools.setfacl) {
+      if (command === tools.setfacl && args[0].startsWith('--set=')) {
         expect(deviceLockHeld).toBe(true);
         lockedCommands.push('setfacl');
-        currentAcl = [...runnerBaseline];
+        currentAcl = args[0].slice('--set='.length).split(',');
         return { stdout: '', stderr: '' };
       }
       if (command === tools.userdel) {
@@ -549,6 +549,7 @@ describe('CloudHypervisorVmmIdentityManager', () => {
     await manager.allocate();
     await manager.withDeviceAccess(async () => undefined, false);
     expect(observer.releaseAcl).toHaveBeenCalledTimes(1);
+    currentAcl = ['user::rw-', 'group::rw-', 'mask::rw-', 'other::rw-'];
     lockedCommands.length = 0;
     await manager.cleanup();
 
@@ -570,11 +571,11 @@ describe('CloudHypervisorVmmIdentityManager', () => {
   ] as const)(
     'completes two cleanup records after a successful launch restoration: %s',
     async (_name, cleanupOrder) => {
-      const baseline = ['user::rw-', 'group::rw-', 'other::---'];
       const finalBaseline = [
         'user::rw-', 'user:1001:rw-',
         'group::rw-', 'mask::rw-', 'other::---',
       ];
+      const baseline = [...finalBaseline];
       const identities = [
         { uid: 999, gid: 1999 },
         { uid: 997, gid: 1997 },
@@ -681,7 +682,7 @@ describe('CloudHypervisorVmmIdentityManager', () => {
       }
       expect(durableAclIntents.map((intents) => [...intents])).toEqual([[], []]);
 
-      currentAcl = [...finalBaseline];
+      currentAcl = ['user::rw-', 'group::rw-', 'mask::rw-', 'other::---'];
       for (const index of cleanupOrder) await managers[index].cleanup();
 
       expect(currentAcl).toEqual(finalBaseline);

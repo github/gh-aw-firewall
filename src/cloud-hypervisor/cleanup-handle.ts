@@ -118,6 +118,10 @@ export function createCleanupHandle(options: CleanupHandleFactoryOptions): Cloud
       if (!record.vmmIdentity.accessedAclPaths.includes(aclPath)) {
         record.vmmIdentity.accessedAclPaths.push(aclPath);
       }
+      record.vmmIdentity.accessedAclBaselines ??= {};
+      record.vmmIdentity.accessedAclTemporaryUids ??= {};
+      record.vmmIdentity.accessedAclBaselines[aclPath] ??= validatedBaseline;
+      record.vmmIdentity.accessedAclTemporaryUids[aclPath] ??= [...temporaryUids];
       if (!record.vmmIdentity.aclPaths.includes(aclPath)) {
         record.vmmIdentity.aclPaths.push(aclPath);
         record.vmmIdentity.aclBaselines ??= {};

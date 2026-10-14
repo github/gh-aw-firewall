@@ -42,10 +42,18 @@ describe('cleanup handle integration', () => {
         vmmIdentity: {
           accessedAclPaths?: string[];
           aclTemporaryUids?: Record<string, number[]>;
+          accessedAclBaselines?: Record<string, string[]>;
+          accessedAclTemporaryUids?: Record<string, number[]>;
         };
       };
       expect(preparedRecord.vmmIdentity.accessedAclPaths).toEqual(['/dev/kvm']);
       expect(preparedRecord.vmmIdentity.aclTemporaryUids).toEqual({ '/dev/kvm': temporaryUids });
+      expect(preparedRecord.vmmIdentity.accessedAclBaselines).toEqual({
+        '/dev/kvm': baseline,
+      });
+      expect(preparedRecord.vmmIdentity.accessedAclTemporaryUids).toEqual({
+        '/dev/kvm': temporaryUids,
+      });
 
       await handle.releaseVmmAcl('/dev/kvm');
 
@@ -55,12 +63,18 @@ describe('cleanup handle integration', () => {
           accessedAclPaths?: string[];
           aclBaselines?: object;
           aclTemporaryUids?: object;
+          accessedAclBaselines?: object;
+          accessedAclTemporaryUids?: object;
         };
       };
       expect(record.vmmIdentity.aclPaths).toEqual([]);
       expect(record.vmmIdentity.accessedAclPaths).toEqual(['/dev/kvm']);
       expect(record.vmmIdentity.aclBaselines).toEqual({});
       expect(record.vmmIdentity.aclTemporaryUids).toEqual({});
+      expect(record.vmmIdentity.accessedAclBaselines).toEqual({ '/dev/kvm': baseline });
+      expect(record.vmmIdentity.accessedAclTemporaryUids).toEqual({
+        '/dev/kvm': temporaryUids,
+      });
       await expect(handle.releaseVmmAcl('/dev/kvm')).rejects.toThrow(/intent is missing/);
     });
 

@@ -117,6 +117,42 @@ describe('Cloud Hypervisor device ACLs', () => {
     ]);
   });
 
+  it('restores a durable runner ACE from accessed history without dropping mask residue', () => {
+    expect(composeDeviceAcl(
+      ['user::rw-', 'group::rw-', 'mask::rw-', 'other::---'],
+      ['user::rw-', 'group::rw-', 'mask::rw-', 'other::---'],
+      999,
+      [],
+      [],
+      [
+        'user::rw-', 'user:1001:rw-',
+        'group::rw-', 'mask::rw-', 'other::---',
+      ],
+      [],
+    )).toEqual([
+      'user::rw-', 'user:1001:rw-',
+      'group::rw-', 'mask::rw-', 'other::---',
+    ]);
+  });
+
+  it('retains the broader historical mask required by a durable runner ACE', () => {
+    expect(composeDeviceAcl(
+      ['user::rw-', 'group::r--', 'mask::r--', 'other::---'],
+      ['user::rw-', 'group::r--', 'mask::r--', 'other::---'],
+      999,
+      [],
+      [],
+      [
+        'user::rw-', 'user:1001:rw-',
+        'group::r--', 'mask::rw-', 'other::---',
+      ],
+      [],
+    )).toEqual([
+      'user::rw-', 'user:1001:rw-',
+      'group::r--', 'mask::rw-', 'other::---',
+    ]);
+  });
+
   it('rejects a named ACE that is neither durable nor a live VMM peer', () => {
     expect(() => composeDeviceAcl(
       [

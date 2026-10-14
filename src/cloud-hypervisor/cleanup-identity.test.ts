@@ -103,6 +103,47 @@ describe('cleanup identity primitives', () => {
             accessedAclPaths: ['/dev/other'],
           };
         }, /cleanup VMM identity is malformed/],
+        ['bad-accessed-acl-baseline-path', (record) => {
+          record.vmmIdentity = {
+            state: 'live',
+            name: 'awfvmm-0123456789abcdef0123',
+            uid: 23001,
+            gid: 23002,
+            aclPaths: [],
+            accessedAclPaths: ['/dev/kvm'],
+            accessedAclBaselines: {
+              '/dev/net/tun': ['user::rw-', 'group::rw-', 'other::---'],
+            },
+          };
+        }, /cleanup VMM identity is malformed/],
+        ['bad-accessed-acl-temporary-uid', (record) => {
+          record.vmmIdentity = {
+            state: 'live',
+            name: 'awfvmm-0123456789abcdef0123',
+            uid: 23001,
+            gid: 23002,
+            aclPaths: [],
+            accessedAclPaths: ['/dev/kvm'],
+            accessedAclBaselines: {
+              '/dev/kvm': [
+                'user::rw-', 'user:22001:rw-',
+                'group::rw-', 'mask::rw-', 'other::---',
+              ],
+            },
+            accessedAclTemporaryUids: { '/dev/kvm': [22002] },
+          };
+        }, /cleanup VMM identity is malformed/],
+        ['accessed-acl-temporary-list-without-baseline', (record) => {
+          record.vmmIdentity = {
+            state: 'live',
+            name: 'awfvmm-0123456789abcdef0123',
+            uid: 23001,
+            gid: 23002,
+            aclPaths: [],
+            accessedAclPaths: ['/dev/kvm'],
+            accessedAclTemporaryUids: { '/dev/kvm': [] },
+          };
+        }, /cleanup VMM identity is malformed/],
         ['pending-acl-not-accessed', (record) => {
           record.vmmIdentity = {
             state: 'live',

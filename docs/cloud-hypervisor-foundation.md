@@ -144,9 +144,13 @@ becomes live. The host bridge-forwarding
 rule is tagged with a per-run iptables comment and recorded by its exact tuple,
 so concurrent runs do not share an anonymously owned rule. Dedicated VMM
 account and device-ACL intent is persisted before `useradd`
-or `setfacl` runs. Recovery validates the account's random name, run-specific
-passwd metadata, numeric uid/gid, and exact numeric ACL entries before removing
-them.
+or `setfacl` runs. The durable record retains the first validated ACL baseline
+for every accessed device after launch-time revocation completes. Account
+deletion still journals a fresh baseline under the shared device lock, but
+restoration composes it with those durable non-VMM entries so runner access,
+mask semantics, and live peer VMM entries survive normal or stale cleanup.
+Recovery validates the account's random name, run-specific passwd metadata,
+numeric uid/gid, and exact numeric ACL entries before removing them.
 Any staged virtio-fs bind mounts are recorded by mount ID, device, root, target,
 filesystem type, and source; stale recovery revalidates and unmounts them
 deepest-first before removing their inode-validated share directory.

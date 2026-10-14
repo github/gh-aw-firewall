@@ -58,7 +58,7 @@ describe('DurableCloudHypervisorCleanupRegistry orchestration', () => {
       expect((await fs.stat(path.dirname(recordPath))).mode & 0o777).toBe(0o700);
     });
 
-    it('restores the exact /dev/kvm ACL baseline after run 38474851931 forced termination', async () => {
+    it('restores the durable runner ACE during stale recovery after launch intent release', async () => {
       const paths = harness.runPaths('vmm-account-recovery');
       const account = 'awfvmm-0123456789abcdef0123';
       const recordPath = path.join(
@@ -68,7 +68,15 @@ describe('DurableCloudHypervisorCleanupRegistry orchestration', () => {
       );
       let userExists = true;
       let groupExists = true;
-      let aclExists = true;
+      const runnerBaseline = [
+        'user::rw-', 'user:1001:rw-',
+        'group::rw-', 'mask::rw-', 'other::rw-',
+      ];
+      const maskOnly = ['user::rw-', 'group::rw-', 'mask::rw-', 'other::rw-'];
+      const deviceAcls = new Map([
+        ['/dev/kvm', [...maskOnly]],
+        ['/dev/net/tun', [...maskOnly]],
+      ]);
       const tools = {
         getfacl: '/usr/bin/getfacl',
         getent: '/usr/bin/getent',
@@ -96,18 +104,9 @@ describe('DurableCloudHypervisorCleanupRegistry orchestration', () => {
             : { exitCode: 2, stdout: '', stderr: '' };
         }
         if (command === tools.getfacl) {
-          if (args[args.length - 1] === '/dev/net/tun') {
-            return {
-              exitCode: 0,
-              stdout: 'user::rw-\ngroup::rw-\nmask::rw-\nother::rw-\n',
-              stderr: '',
-            };
-          }
           return {
             exitCode: 0,
-            stdout: aclExists
-              ? 'user::rw-\nuser:23001:rw-\ngroup::rw-\nmask::rw-\nother::rw-\n'
-              : 'user::rw-\ngroup::rw-\nmask::rw-\nother::rw-\n',
+            stdout: `${deviceAcls.get(args[args.length - 1])!.join('\n')}\n`,
             stderr: '',
           };
         }
@@ -116,12 +115,12 @@ describe('DurableCloudHypervisorCleanupRegistry orchestration', () => {
           if (args[0] === '-u') return { exitCode: 0, stdout: '23001\n', stderr: '' };
           return { exitCode: 0, stdout: '23002\n', stderr: '' };
         }
-        if (command === tools.setfacl) {
+        if (command === tools.setfacl && args[0].startsWith('--set=')) {
           await expect(fs.access(path.join(
             harness.temporaryRoot,
             '.device-acl-lock',
           ))).resolves.toBeUndefined();
-          aclExists = false;
+          deviceAcls.set(args[1], args[0].slice('--set='.length).split(','));
         }
         if (command === tools.userdel) {
           const persisted = JSON.parse(await fs.readFile(recordPath, 'utf8')) as {
@@ -140,18 +139,20 @@ describe('DurableCloudHypervisorCleanupRegistry orchestration', () => {
       await handle.captureArtifactSnapshot(snapshot);
       await handle.prepareVmmAccount(account);
       await handle.captureVmmIdentity({ name: account, uid: 23001, gid: 23002 });
-      const baseline = ['user::rw-', 'group::rw-', 'mask::rw-', 'other::rw-'];
-      await handle.prepareVmmAcl('/dev/kvm', baseline);
-      await handle.prepareVmmAcl('/dev/net/tun', baseline);
+      await handle.prepareVmmAcl('/dev/kvm', runnerBaseline);
+      await handle.prepareVmmAcl('/dev/net/tun', runnerBaseline);
+      await handle.releaseVmmAcl('/dev/kvm');
       await handle.releaseVmmAcl('/dev/net/tun');
       harness.state.ownerStartTime = '2000';
 
       await registry.reapPending(tools.ip, '/usr/bin/umount', tools);
 
       expect(run).toHaveBeenCalledWith(tools.setfacl, [
-        `--set=${baseline.join(',')}`,
+        `--set=${runnerBaseline.join(',')}`,
         '/dev/kvm',
       ]);
+      expect(deviceAcls.get('/dev/kvm')).toEqual(runnerBaseline);
+      expect(deviceAcls.get('/dev/net/tun')).toEqual(runnerBaseline);
       expect(run).toHaveBeenCalledWith(tools.userdel, [account]);
       expect(run).toHaveBeenCalledWith(tools.groupdel, [account]);
       await expect(fs.access(snapshot)).rejects.toMatchObject({ code: 'ENOENT' });

@@ -80,12 +80,20 @@ async function prepareMissingVmmAclsLocked(
     identity.aclBaselines[aclPath] = baseline;
     identity.aclTemporaryUids ??= {};
     identity.aclTemporaryUids[aclPath] = temporaryUids;
+    identity.accessedAclBaselines ??= {};
+    identity.accessedAclTemporaryUids ??= {};
+    identity.accessedAclBaselines[aclPath] ??= baseline;
+    identity.accessedAclTemporaryUids[aclPath] ??= temporaryUids;
     try {
       if (persist) await persist();
     } catch (error) {
       identity.aclPaths.pop();
       delete identity.aclBaselines[aclPath];
       delete identity.aclTemporaryUids[aclPath];
+      if (identity.accessedAclBaselines?.[aclPath] === baseline) {
+        delete identity.accessedAclBaselines[aclPath];
+        delete identity.accessedAclTemporaryUids?.[aclPath];
+      }
       throw error;
     }
     if (baseline.some((entry) => entry.startsWith(`user:${identity.uid}:`))) {
@@ -152,6 +160,12 @@ async function restoreVmmAclsLocked(
           identity.uid!,
           identity.aclTemporaryUids?.[aclPath as CloudHypervisorDevicePath] ?? [],
           liveTemporaryUids,
+          identity.accessedAclBaselines?.[aclPath as CloudHypervisorDevicePath] ?? baseline,
+          identity.accessedAclTemporaryUids?.[
+            aclPath as CloudHypervisorDevicePath
+          ] ?? identity.aclTemporaryUids?.[
+            aclPath as CloudHypervisorDevicePath
+          ] ?? [],
         );
       }
       restoredTargets.set(aclPath as CloudHypervisorDevicePath, restoredTarget);

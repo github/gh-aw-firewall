@@ -34,6 +34,8 @@ function cleanupRecord(
     aclPaths?: Array<'/dev/kvm' | '/dev/net/tun'>;
     accessedAclPaths?: Array<'/dev/kvm' | '/dev/net/tun'>;
     aclTemporaryUids?: Partial<Record<'/dev/kvm' | '/dev/net/tun', number[]>>;
+    accessedAclBaselines?: Partial<Record<'/dev/kvm' | '/dev/net/tun', string[]>>;
+    accessedAclTemporaryUids?: Partial<Record<'/dev/kvm' | '/dev/net/tun', number[]>>;
   } = {},
 ): CleanupRecord {
   const runId = options.runId ?? 'acl-recovery';
@@ -69,6 +71,12 @@ function cleanupRecord(
       ...(aclBaselines ? { aclBaselines } : {}),
       ...(options.aclTemporaryUids ? {
         aclTemporaryUids: options.aclTemporaryUids,
+      } : {}),
+      ...(options.accessedAclBaselines ? {
+        accessedAclBaselines: options.accessedAclBaselines,
+      } : {}),
+      ...(options.accessedAclTemporaryUids ? {
+        accessedAclTemporaryUids: options.accessedAclTemporaryUids,
       } : {}),
     },
     mounts: [],
@@ -191,15 +199,16 @@ describe('Cloud Hypervisor durable VMM identity cleanup', () => {
   });
 
   it.each([
-    ['crash after launch restoration', [], false],
-    ['partial launch-intent release', ['/dev/kvm'], false],
-    ['partial preparation retry', [], true],
+    ['cancellation recovery after launch restoration', [], false],
+    ['stale recovery after partial launch-intent release', ['/dev/kvm'], false],
+    ['partial preparation persistence retry', [], true],
   ] as const)(
-    'journals fresh baselines for every accessed device before account deletion: %s',
+    'preserves durable runner ACL history while journaling fresh deletion baselines: %s',
     async (_name, pendingPaths, retryAfterPersistFailure) => {
+      const maskOnly = ['user::rw-', 'group::rw-', 'mask::rw-', 'other::rw-'];
       const deviceAcls = new Map([
-        ['/dev/kvm', [...baseline]],
-        ['/dev/net/tun', [...baseline]],
+        ['/dev/kvm', [...maskOnly]],
+        ['/dev/net/tun', [...maskOnly]],
       ]);
       let accountExists = true;
       let groupExists = true;
@@ -209,6 +218,14 @@ describe('Cloud Hypervisor durable VMM identity cleanup', () => {
           aclPaths: [...pendingPaths],
           accessedAclPaths: ['/dev/kvm', '/dev/net/tun'],
           aclTemporaryUids: pendingPaths.length > 0 ? { '/dev/kvm': [] } : undefined,
+          accessedAclBaselines: {
+            '/dev/kvm': baseline,
+            '/dev/net/tun': baseline,
+          },
+          accessedAclTemporaryUids: {
+            '/dev/kvm': [],
+            '/dev/net/tun': [],
+          },
         },
       );
       const run = jest.fn(async (command: string, args: readonly string[]) => {
@@ -285,8 +302,8 @@ describe('Cloud Hypervisor durable VMM identity cleanup', () => {
 
       expect(record.vmmIdentity?.aclPaths).toEqual(['/dev/kvm', '/dev/net/tun']);
       expect(record.vmmIdentity?.aclBaselines).toEqual({
-        '/dev/kvm': baseline,
-        '/dev/net/tun': baseline,
+        '/dev/kvm': pendingPaths.length > 0 ? baseline : maskOnly,
+        '/dev/net/tun': maskOnly,
       });
       expect(persist).toHaveBeenCalledTimes(
         2 - pendingPaths.length + (retryAfterPersistFailure ? 1 : 0),
