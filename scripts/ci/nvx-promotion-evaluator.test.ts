@@ -155,6 +155,12 @@ describe('nvx promotion evaluator', () => {
   });
 
   it('retains preview when runner image family is missing, malformed, or unapproved', () => {
+    const missingImage = results();
+    delete (missingImage as Partial<BenchmarkResults>).runnerImage;
+    const missingImageEvaluation = evaluate(missingImage, thresholds);
+    expect(missingImageEvaluation.recommendation).toBe('retain-preview');
+    expect(missingImageEvaluation.unmetGates.join('\n')).toContain('runner image');
+
     for (const runnerImage of ['', 'ubuntu24/patch/extra', 'ubuntu22/20261005.85']) {
       const input = results();
       input.runnerImage = runnerImage;
