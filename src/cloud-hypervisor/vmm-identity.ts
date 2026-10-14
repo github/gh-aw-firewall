@@ -146,7 +146,7 @@ export class CloudHypervisorVmmIdentityManager {
         operationError = error;
       }
       try {
-        await this.restoreDeviceAccessLocked(false);
+        await this.restoreDeviceAccessLocked();
       } catch (revokeError) {
         if (operationError) {
           throw new Error(
@@ -219,9 +219,28 @@ export class CloudHypervisorVmmIdentityManager {
             `Refusing to remove reused Cloud Hypervisor VMM account ${identity.name}`,
           );
         }
-        await this.restoreDeviceAccessLocked(false);
-        await this.removeValidatedAccountState(identity);
-        await this.restoreDeviceAccessLocked(true);
+        await this.restoreDeviceAccessLocked();
+        let deletionError: unknown;
+        try {
+          await this.removeValidatedAccountState(identity);
+        } catch (error) {
+          deletionError = error;
+        }
+        let finalRestoreError: unknown;
+        try {
+          await this.restoreDeviceAccessLocked();
+        } catch (error) {
+          finalRestoreError = error;
+        }
+        if (deletionError && finalRestoreError) {
+          throw new Error(
+            `Cloud Hypervisor VMM identity cleanup failed: ${formatError(deletionError)}; ` +
+            `final ACL restoration also failed: ${formatError(finalRestoreError)}`,
+          );
+        }
+        if (deletionError) throw deletionError;
+        if (finalRestoreError) throw finalRestoreError;
+        await this.releaseDeviceAclIntentLocked();
       });
       this.identity = undefined;
     });
@@ -251,7 +270,7 @@ export class CloudHypervisorVmmIdentityManager {
     }
   }
 
-  private async restoreDeviceAccessLocked(releaseIntent: boolean): Promise<void> {
+  private async restoreDeviceAccessLocked(): Promise<void> {
     const errors: unknown[] = [];
     for (const devicePath of [...this.aclPaths].reverse()) {
       try {
@@ -273,19 +292,22 @@ export class CloudHypervisorVmmIdentityManager {
             `after=${describeDeviceAclShape(restored)}`,
           );
         }
-        if (releaseIntent) {
-          await this.observer?.releaseAcl(devicePath as CloudHypervisorDevicePath);
-          this.aclPaths.delete(devicePath);
-          this.aclBaselines.delete(devicePath as CloudHypervisorDevicePath);
-        }
       } catch (error) {
         errors.push(error);
       }
     }
-    if (errors.length > 0 || (releaseIntent && this.aclPaths.size > 0)) {
+    if (errors.length > 0) {
       throw new Error(
         `Cloud Hypervisor VMM ACL cleanup failed: ${errors.map(formatError).join('; ')}`,
       );
+    }
+  }
+
+  private async releaseDeviceAclIntentLocked(): Promise<void> {
+    for (const devicePath of [...this.aclPaths].reverse()) {
+      await this.observer?.releaseAcl(devicePath as CloudHypervisorDevicePath);
+      this.aclPaths.delete(devicePath);
+      this.aclBaselines.delete(devicePath as CloudHypervisorDevicePath);
     }
   }
 
@@ -330,8 +352,9 @@ export class CloudHypervisorVmmIdentityManager {
     try {
       await this.dependencies.run(this.tools.getent, ['group', name]);
       return true;
-    } catch {
-      return false;
+    } catch (error) {
+      if ((error as { exitCode?: unknown }).exitCode === 2) return false;
+      throw error;
     }
   }
 
@@ -349,8 +372,9 @@ export class CloudHypervisorVmmIdentityManager {
     try {
       await this.dependencies.run(this.tools.id, ['-u', name]);
       return true;
-    } catch {
-      return false;
+    } catch (error) {
+      if ((error as { exitCode?: unknown }).exitCode === 1) return false;
+      throw error;
     }
   }
 
