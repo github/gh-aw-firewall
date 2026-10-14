@@ -28,6 +28,7 @@ describe('Phase 4 KVM ACL evidence', () => {
       '# owner: 0',
       '# group: 993',
       'user::rw-',
+      'user:2002:rw- #effective:r--',
       'group::rw-',
       'mask::rw-',
       'other::---',
@@ -56,13 +57,15 @@ describe('Phase 4 KVM ACL evidence', () => {
         sha256: expect.stringMatching(/^[a-f0-9]{64}$/),
         entries: [
           { order: 0, type: 'user', qualifier: 'owner', permissions: 'rw-' },
-          { order: 1, type: 'group', qualifier: 'owner', permissions: 'rw-' },
-          { order: 2, type: 'mask', qualifier: 'none', permissions: 'rw-' },
-          { order: 3, type: 'other', qualifier: 'none', permissions: '---' },
+          { order: 1, type: 'user', qualifier: 'named', permissions: 'rw-' },
+          { order: 2, type: 'group', qualifier: 'owner', permissions: 'rw-' },
+          { order: 3, type: 'mask', qualifier: 'none', permissions: 'rw-' },
+          { order: 4, type: 'other', qualifier: 'none', permissions: '---' },
         ],
       },
     });
     expect(JSON.stringify(evidence)).not.toContain('1001');
+    expect(JSON.stringify(evidence)).not.toContain('2002');
     expect(evidence.expected.sourceIdentity).toMatchObject({
       device: expect.stringMatching(/^\d+$/),
       inode: expect.stringMatching(/^\d+$/),

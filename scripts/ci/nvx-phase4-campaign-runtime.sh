@@ -758,7 +758,7 @@ chmod 0600 "$kvm_acl_after_snapshot"
 npx tsx scripts/ci/nvx-phase4-kvm-acl-evidence.ts \
   "$kvm_acl_before_snapshot" "$kvm_acl_expected_source" \
   "$kvm_acl_after_snapshot" /dev/kvm \
-  "$evidence_dir/kvm-acl-diagnostics.json"
+  "$evidence_dir/kvm-acl-diagnostics-$sample_id.json"
 restore_kvm_acl
 trap - EXIT
 rm -f -- "$kvm_acl_before_snapshot" "$kvm_acl_after_snapshot"

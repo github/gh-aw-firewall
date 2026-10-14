@@ -13,7 +13,9 @@ function aclShape(contents: string): AclEntryShape[] {
     .map((line) => line.trim())
     .filter((line) => line !== '' && !line.startsWith('#'))
     .map((line, order) => {
-      const match = /^(user|group):([^:]*):([rwx-]{3})$|^(mask|other)::([rwx-]{3})$/.exec(line);
+      const normalized = line.replace(/\s+#effective:[rwx-]{3}$/, '');
+      const match =
+        /^(user|group):([^:]*):([rwx-]{3})$|^(mask|other)::([rwx-]{3})$/.exec(normalized);
       if (!match) throw new Error('KVM ACL evidence contains a malformed entry');
       if (match[1]) {
         return {
