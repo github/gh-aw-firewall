@@ -7,18 +7,14 @@ import {
   createCloudHypervisorInfrastructureSnapshot as infrastructure,
   createCloudHypervisorTestConfig as config,
 } from './cloud-hypervisor/test-fixtures.test-utils';
+import {
+  expectNoHostGitHubTokens,
+  githubTokenEnvNames,
+} from './test-helpers/github-token-env.test-utils';
 
 describe('Cloud Hypervisor runtime backend environment and path mapping', () => {
   it('never puts host GitHub tokens in the primary micro-VM guest environment', () => {
-    const names = [
-      'GH_TOKEN',
-      'GITHUB_TOKEN',
-      'GITHUB_PERSONAL_ACCESS_TOKEN',
-      'COPILOT_GITHUB_TOKEN',
-      'GITHUB_API_TOKEN',
-      'GITHUB_PAT',
-      'GH_ACCESS_TOKEN',
-    ];
+    const names = githubTokenEnvNames();
     const previous = Object.fromEntries(names.map((name) => [name, process.env[name]]));
     Object.assign(process.env, {
       GH_TOKEN: 'host-gh-token',
@@ -38,9 +34,7 @@ describe('Cloud Hypervisor runtime backend environment and path mapping', () => 
         infrastructure(),
       );
 
-      for (const name of names) {
-        expect(environment[name]).toBeUndefined();
-      }
+      expectNoHostGitHubTokens(environment, names);
     } finally {
       for (const name of names) {
         if (previous[name] === undefined) delete process.env[name];

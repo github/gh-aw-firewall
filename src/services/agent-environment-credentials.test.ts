@@ -2,6 +2,10 @@ import fs from 'fs';
 import path from 'path';
 
 import { normalizeEnclavesConfig } from '../parsers/enclave-parser';
+import {
+  expectNoHostGitHubTokens,
+  githubTokenEnvNames,
+} from '../test-helpers/github-token-env.test-utils';
 import { generateDockerCompose, WrapperConfig, baseConfig, mockNetworkConfig, useTempWorkDir } from './service-test-setup.test-utils';
 
 // Create mock functions (must remain per-file — jest.mock() is hoisted before imports)
@@ -300,15 +304,7 @@ describe('agent environment: credentials', () => {
   });
 
   it('should keep host GitHub tokens out of the primary container when enclaves are enabled', () => {
-    const names = [
-      'GH_TOKEN',
-      'GITHUB_TOKEN',
-      'GITHUB_PERSONAL_ACCESS_TOKEN',
-      'COPILOT_GITHUB_TOKEN',
-      'GITHUB_API_TOKEN',
-      'GITHUB_PAT',
-      'GH_ACCESS_TOKEN',
-    ];
+    const names = githubTokenEnvNames();
     const previous = Object.fromEntries(names.map((name) => [name, process.env[name]]));
     Object.assign(process.env, {
       GH_TOKEN: 'host-gh-token',
@@ -328,9 +324,7 @@ describe('agent environment: credentials', () => {
       const result = generateDockerCompose(configWithEnclaves, mockNetworkConfig);
       const env = result.services.agent.environment as Record<string, string>;
 
-      for (const name of names) {
-        expect(env[name]).toBeUndefined();
-      }
+      expectNoHostGitHubTokens(env, names);
     } finally {
       for (const name of names) {
         if (previous[name] === undefined) delete process.env[name];
