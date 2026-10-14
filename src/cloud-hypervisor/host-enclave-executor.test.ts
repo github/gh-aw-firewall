@@ -860,9 +860,14 @@ describe('readBoundedCloudHypervisorEnclaveResult', () => {
           expect(diagnostic.failure.sequence).toBeLessThan(diagnostic.cleanupFailure.sequence);
           expect(persisted.contents).not.toMatch(/PRIVATE_|Bearer|token|\/private\/|print\(True\)/);
           const diagnosticPath = path.join(runState.journalDir!, 'diagnostics', persisted.name);
-          expect((await fs.stat(diagnosticPath)).mode & 0o777).toBe(0o600);
-          await combinedFailureBackend.close();
-          expect(await fs.readFile(diagnosticPath, 'utf8')).toBe(persisted.contents);
+          const diagnosticFile = await fs.open(diagnosticPath, 'r');
+          try {
+            expect((await diagnosticFile.stat()).mode & 0o777).toBe(0o600);
+            await combinedFailureBackend.close();
+            expect(await diagnosticFile.readFile('utf8')).toBe(persisted.contents);
+          } finally {
+            await diagnosticFile.close();
+          }
           await fs.rm(invocationHostDir, { recursive: true, force: true });
           managerStartError = false;
           stopped = false;
