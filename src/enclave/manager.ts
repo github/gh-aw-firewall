@@ -229,9 +229,7 @@ export async function prepareEnclaves(
       [hostPaths.hostExecutorJournalDir, 'recovery journal', 'journal-isolation'],
       [path.join(path.dirname(hostPaths.hostExecutorJournalDir), 'host-invocations'), 'invocation mount points', 'invocation-isolation'],
       [HOST_EXECUTOR_STORAGE_ROOT, 'allocation domains', 'allocation-isolation'],
-      ...(config.cloudHypervisor?.enclaveDebugPublic
-        ? [[ENCLAVE_DEBUG_ARTIFACT_ROOT, 'debug artifacts', 'journal-isolation'] as const]
-        : []),
+      [ENCLAVE_DEBUG_ARTIFACT_ROOT, 'debug artifacts', 'debug-artifact-isolation'],
     ] as const) {
       await report.check(check, () => assertPrivateRootIsolated(config, {
         root, ingressRoot: hostPaths.ingressRoot,

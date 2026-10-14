@@ -233,6 +233,7 @@ export interface CloudHypervisorDiagnosticsContext {
   lastVmCounters: CloudHypervisorVmCounters | undefined;
   fsDevices: readonly VirtiofsdDevice[];
   confinementEvidence: CloudHypervisorConfinementEvidence | undefined;
+  debugArtifactProtectedRoot?: string;
 }
 
 type AuditDependencies = Pick<
@@ -318,11 +319,11 @@ async function realDirectoryPath(
 async function prepareAuditDirectory(
   directory: string,
   dependencies: AuditDependencies,
+  identity = dependencies.resolveIdentity(),
 ): Promise<{ identity: CloudHypervisorIdentity; directory: string }> {
-  const identity = dependencies.resolveIdentity();
   const parent = path.dirname(directory);
   if (path.basename(parent) === 'cloud-hypervisor') {
-    await prepareAuditDirectory(parent, dependencies);
+    await prepareAuditDirectory(parent, dependencies, identity);
   }
   await assertExistingDiagnosticComponents(dependencies, directory);
   await dependencies.mkdir(directory, { recursive: true, mode: 0o700 });
@@ -342,6 +343,43 @@ async function prepareAuditDirectory(
     await handle.close();
   }
   return { identity, directory: canonicalDirectory };
+}
+
+async function prepareRootOwnedDebugDirectory(
+  directory: string,
+  protectedRoot: string,
+  dependencies: AuditDependencies,
+): Promise<{ identity: CloudHypervisorIdentity; directory: string }> {
+  const canonicalRoot = path.resolve(protectedRoot);
+  const canonicalDirectory = path.resolve(directory);
+  const relative = path.relative(canonicalRoot, canonicalDirectory);
+  if (!relative || relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {
+    throw new Error('Public enclave debug artifacts must be stored below their protected root');
+  }
+  const identity = { uid: 0, gid: 0 };
+  await assertExistingDiagnosticComponents(dependencies, canonicalDirectory);
+  const components = relative.split(path.sep);
+  let current = canonicalRoot;
+  for (const component of ['', ...components]) {
+    if (component) current = path.join(current, component);
+    await dependencies.mkdir(current, { recursive: true, mode: 0o700 });
+    const canonicalCurrent = await realDirectoryPath(dependencies, current);
+    const handle = await dependencies.open(
+      canonicalCurrent,
+      constants.O_RDONLY | (constants.O_DIRECTORY ?? 0) | (constants.O_NOFOLLOW ?? 0),
+    );
+    try {
+      const stat = await handle.stat();
+      if (!stat.isDirectory()) {
+        throw new Error(`Refusing to use non-directory path: ${canonicalCurrent}`);
+      }
+      await handle.chmod(0o700);
+      await handle.chown(identity.uid, identity.gid);
+    } finally {
+      await handle.close();
+    }
+  }
+  return { identity, directory: await realDirectoryPath(dependencies, canonicalDirectory) };
 }
 
 async function writeAuditFile(
@@ -412,7 +450,9 @@ export async function collectCloudHypervisorDiagnostics(
   context: CloudHypervisorDiagnosticsContext,
 ): Promise<void> {
   const { dependencies, paths, config } = context;
-  const preparedAuditDirectory = await prepareAuditDirectory(directory, dependencies);
+  const preparedAuditDirectory = context.debugArtifactProtectedRoot
+    ? await prepareRootOwnedDebugDirectory(directory, context.debugArtifactProtectedRoot, dependencies)
+    : await prepareAuditDirectory(directory, dependencies);
   const identity = preparedAuditDirectory.identity;
   directory = preparedAuditDirectory.directory;
   // Prefer the snapshot stop() takes *before* any shutdown attempt (see

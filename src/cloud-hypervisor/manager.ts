@@ -238,6 +238,7 @@ export class CloudHypervisorManager {
   private readonly guestStderrAudit = this.guestStderrCapture.writable();
   private readonly workloadProfile: CloudHypervisorWorkloadProfile;
   private enclaveDebugDiagnosticsCollected = false;
+  private enclaveDebugDiagnosticsPromise: Promise<void> | undefined;
 
   get guestIp(): string | undefined {
     return this.networkPlan?.guestIp;
@@ -292,7 +293,8 @@ export class CloudHypervisorManager {
       : snapshotCloudHypervisorWorkloadProfile(profile);
     if (profile.kind !== 'primary-agent' && profile.rawOutput === 'capture'
       && (!config.enclaveDebugPublic || !dependencies.enclaveDebugArtifactDirectory
-        || !allowTrustedEnclaveExecution)) {
+      || !dependencies.enclaveDebugArtifactProtectedRoot
+      || !allowTrustedEnclaveExecution)) {
       throw new Error('Raw enclave output requires host-authorized public fixture debug artifacts');
     }
     this.paths = (dependencies.createRunPaths ?? createCloudHypervisorRunPaths)(
@@ -402,8 +404,13 @@ export class CloudHypervisorManager {
       : undefined;
     const collectDebug = async (): Promise<void> => {
       if (!debugDirectory || this.enclaveDebugDiagnosticsCollected) return;
-      await this.collectDiagnostics(debugDirectory);
-      this.enclaveDebugDiagnosticsCollected = true;
+      this.enclaveDebugDiagnosticsPromise ??= this.collectDiagnostics(debugDirectory)
+        .then(() => { this.enclaveDebugDiagnosticsCollected = true; })
+        .catch((error: unknown) => {
+          this.enclaveDebugDiagnosticsPromise = undefined;
+          throw error;
+        });
+      await this.enclaveDebugDiagnosticsPromise;
     };
     try {
       await stopCloudHypervisor({
@@ -429,6 +436,7 @@ export class CloudHypervisorManager {
         lastVmCounters: this.lastVmCounters,
         ...options,
         ...(debugDirectory ? {
+          preserveSourcesOnBeforeCleanupFailure: true,
           beforeCleanup: async () => {
             await collectDebug();
             await options.beforeCleanup?.();
@@ -477,6 +485,9 @@ export class CloudHypervisorManager {
       guestStdoutCapture: this.guestStdoutCapture,
       guestStderrCapture: this.guestStderrCapture,
       captureGuestRawOutput: this.workloadProfile.rawOutput === 'capture',
+      ...(this.dependencies.enclaveDebugArtifactProtectedRoot
+        ? { debugArtifactProtectedRoot: this.dependencies.enclaveDebugArtifactProtectedRoot }
+        : {}),
       network: this.network,
       networkPlan: this.networkPlan,
       client: this.client,

@@ -270,7 +270,10 @@ describe('readBoundedCloudHypervisorEnclaveResult', () => {
         workDir: root,
         preflight,
         enclaveArtifacts: artifacts,
-        ...(publicDebug ? { publicDebugArtifactDirectory: '/protected/cloud-hypervisor' } : {}),
+        ...(publicDebug ? {
+          publicDebugArtifactDirectory: '/protected/cloud-hypervisor',
+          publicDebugArtifactProtectedRoot: '/protected',
+        } : {}),
         ...(role === 'agent' ? { agentPolicies: { [entryId]: agentPolicy } } : {}),
       };
       const dependencies: Partial<HostEnclaveExecutorDependencies> = {
@@ -321,6 +324,7 @@ describe('readBoundedCloudHypervisorEnclaveResult', () => {
             expect(managerDependencies?.enclaveDebugArtifactDirectory).toMatch(
               /^\/protected\/cloud-hypervisor\/[a-f0-9]+$/,
             );
+            expect(managerDependencies?.enclaveDebugArtifactProtectedRoot).toBe('/protected');
             expect(profile.guest?.exports.every((entry) => !entry.source.startsWith('/protected'))).toBe(true);
           }
           return {
@@ -607,6 +611,7 @@ describe('readBoundedCloudHypervisorEnclaveResult', () => {
             ...backendOptions,
             config: { ...config, enclaveDebugPublic: false },
             publicDebugArtifactDirectory: undefined,
+            publicDebugArtifactProtectedRoot: undefined,
             managerDependencies: {
               ...cloudHypervisorManagerTestHelpers.defaultDependencies,
               cleanupRegistry,

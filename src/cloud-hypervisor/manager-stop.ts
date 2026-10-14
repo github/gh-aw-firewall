@@ -39,6 +39,7 @@ export interface CloudHypervisorStopContext {
   lastVmCounters?: CloudHypervisorVmCounters;
   preserve?: boolean;
   beforeCleanup?: () => Promise<void>;
+  preserveSourcesOnBeforeCleanupFailure?: boolean;
   setProcess(process: ExecaChildProcess<string> | undefined): void;
   setClient(client: CloudHypervisorApiClient | undefined): void;
   setNetwork(network: MicrovmNetworkLifecycle | undefined): void;
@@ -100,7 +101,7 @@ export async function stopCloudHypervisor(context: CloudHypervisorStopContext): 
   }
   if (!terminationConfirmed && context.process) {
     if (errors.length === 0) errors.push(new Error('Cloud Hypervisor process termination was not confirmed'));
-    try { await context.virtiofsd?.stop(); context.setVirtiofsd(undefined); context.setFsDevices([]); }
+    try { await context.virtiofsd?.stop(); context.setVirtiofsd(undefined); }
     catch (error) { errors.push(error); }
     throw new Error(`Cloud Hypervisor cleanup stopped before network/run-directory removal: ${errors.map(formatError).join('; ')}`);
   }
@@ -110,7 +111,16 @@ export async function stopCloudHypervisor(context: CloudHypervisorStopContext): 
   try { await context.virtiofsd?.stop(); context.setVirtiofsd(undefined); }
   catch (error) { virtiofsdTerminationConfirmed = false; errors.push(error); }
   if (context.beforeCleanup) {
-    try { await context.beforeCleanup(); } catch (error) { errors.push(error); }
+    try {
+      await context.beforeCleanup();
+    } catch (error) {
+      errors.push(error);
+      if (context.preserveSourcesOnBeforeCleanupFailure) {
+        throw new Error(
+          `Cloud Hypervisor cleanup stopped before diagnostic sources were removed: ${errors.map(formatError).join('; ')}`,
+        );
+      }
+    }
   }
   if (!virtiofsdTerminationConfirmed) {
     throw new Error(`Cloud Hypervisor cleanup stopped before cgroup/run-directory removal: ${errors.map(formatError).join('; ')}`);

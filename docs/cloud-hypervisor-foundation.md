@@ -196,9 +196,10 @@ enable capture.
 Artifacts persist outside the work directory under
 `/var/lib/awf-cloud-hypervisor/debug-artifacts/cloud-hypervisor/<opaque-invocation-id>/`.
 AWF checks this root against primary-agent mounts and actual virtio-fs exports,
-and never mounts it in the primary agent, broker, or enclave. Directories are
-`0700`; regular single-link files are handed to the host operator at `0600`,
-with symlink destinations rejected. They are **not** copied into ordinary
+on every startup regardless of the current debug flag or runtime, and never
+mounts it in the primary agent, broker, or enclave. The protected directory
+chain and artifacts are root-owned; directories are `0700`, regular single-link
+files are `0600`, and symlink destinations are rejected. They are **not** copied into ordinary
 audit/log collections or widened for upload. Inspect them on the host and remove
 the specific invocation directory when no longer needed.
 
@@ -1341,7 +1342,7 @@ shared by AWF and the harness.
 | `startup` | Common lifecycle gates and overall readiness before primary-agent startup |
 | `enclave-runtime` / `enclave-storage` | Enabled runtime prerequisites and the private seed/storage/capability staging gates |
 | `gateway-attachment` / `gateway-handshake` | Compiler contract, container identity, network attachment/membership, and actual bounded MCP requests and tool contract |
-| `host-isolation` / `provider-selection` | Recovery-journal, invocation, and allocation-root isolation from primary-agent mounts; missing trusted storage provider |
+| `host-isolation` / `provider-selection` | Recovery-journal, invocation, allocation-root, and persistent debug-artifact isolation from primary-agent mounts; missing trusted storage provider |
 | `storage-admission` | Root UID, existing GitHub-hosted eligibility helper, Ubuntu distribution, effective mount capability, kernel tmpfs support, KVM access/device/open, writable cgroup hierarchy, and CPU/memory/PID controllers |
 | `bounded-runtime` | Configured role, mount/umount lookup, invocation directory trust, journaled aggregate storage allocation/mount/private-propagation/layout/verification, artifact configuration/trust/snapshot/attestation/digests/versions, each required host tool, platform/architecture, KVM access/group, root/kernel controls/cgroup v2, Docker daemon and Compose |
 | `artifact-snapshot` | Actual staging root validation, directory creation/identity capture, per-artifact copy and chmod, directory mode, mount intent/bind/identity capture, read-only executable remount, and sealed aggregate storage verification |

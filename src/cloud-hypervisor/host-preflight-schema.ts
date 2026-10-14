@@ -89,7 +89,8 @@ export const schema = {
     "host-isolation": {
       "journal-isolation": null,
       "invocation-isolation": null,
-      "allocation-isolation": null
+      "allocation-isolation": null,
+      "debug-artifact-isolation": null
     },
     "provider-selection": {
       "storage-provider": null

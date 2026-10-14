@@ -2,6 +2,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { logger } from '../logger';
+import { assertPersistentDebugArtifactsIsolated } from '../enclave/mount-policy';
 import {
   writeConfigs,
   startContainers,
@@ -578,6 +579,7 @@ export function createMainAction(getOptionValueSource: OptionSourceResolver) {
 
       await runDindBootstrap(config);
     }
+    assertPersistentDebugArtifactsIsolated(config);
 
     // Log config with redacted secrets - remove API keys entirely
     // to prevent sensitive data from flowing to logger (CodeQL sensitive data logging)

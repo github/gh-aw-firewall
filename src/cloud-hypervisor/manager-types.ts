@@ -89,6 +89,8 @@ export interface CloudHypervisorRunPaths {
 export interface CloudHypervisorManagerDependencies {
   /** Host-derived, mount-isolated destination; never accepted from a guest request. */
   enclaveDebugArtifactDirectory?: string;
+  /** Root-owned parent that protects retained enclave debug artifacts. */
+  enclaveDebugArtifactProtectedRoot?: string;
   createRunPaths?: typeof createCloudHypervisorRunPaths;
   preflight: typeof runCloudHypervisorPreflight;
   launch(

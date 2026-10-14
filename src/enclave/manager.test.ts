@@ -17,6 +17,8 @@ import * as cloudHypervisorLifecycle from './cloud-hypervisor-lifecycle';
 
 import { typedDynamicEnclavePolicyFixture } from './dynamic-policy.test-utils';
 import * as runtimePreflight from './runtime-preflight';
+import { ENCLAVE_DEBUG_ARTIFACT_ROOT } from './public-debug';
+import { assertEnclaveStartupChecklistComplete } from './startup-progress';
 
 const gitRunner: GitRunner = async (args) => {
   if (args.includes('clone')) {
@@ -210,7 +212,7 @@ describe('prepareEnclaves fail-closed preflight', () => {
     expect(fs.existsSync(resolveEnclavePaths(workDir).hostExecutorDir)).toBe(false);
   });
 
-  it.each(['journal', 'invocations', 'storage'] as const)(
+  it.each(['journal', 'invocations', 'storage', 'debug'] as const)(
     'rejects primary-agent mounts exposing trusted %s paths before effects', async (resource) => {
     const wrapperConfig = config(workDir, [{
       script: {}, runtime: 'cloud-hypervisor', repos: [repository],
@@ -219,7 +221,8 @@ describe('prepareEnclaves fail-closed preflight', () => {
     const paths = resolveEnclavePaths(workDir);
     const root = resource === 'journal' ? paths.hostExecutorJournalDir :
       resource === 'invocations' ? path.join(path.dirname(paths.hostExecutorJournalDir), 'host-invocations') :
-        '/run/awf-cloud-hypervisor/enclave-storage';
+        resource === 'storage' ? '/run/awf-cloud-hypervisor/enclave-storage' :
+          ENCLAVE_DEBUG_ARTIFACT_ROOT;
     wrapperConfig.volumeMounts = [`${root}:/exposed-recovery:rw`];
     const primary = jest.fn();
     const clone = jest.fn();
@@ -236,11 +239,15 @@ describe('prepareEnclaves fail-closed preflight', () => {
       hostPreflight: {
         scope: 'host-isolation', checks: expect.arrayContaining([{
           id: resource === 'journal' ? 'journal-isolation' :
-            resource === 'invocations' ? 'invocation-isolation' : 'allocation-isolation',
+            resource === 'invocations' ? 'invocation-isolation' :
+              resource === 'storage' ? 'allocation-isolation' : 'debug-artifact-isolation',
           result: 'failed', reason: 'private-root-overlap',
         }]),
       },
     });
+    if (resource === 'debug') {
+      expect(() => assertEnclaveStartupChecklistComplete(wrapperConfig)).toThrow(/primary agent will not start/);
+    }
     expect(primary).not.toHaveBeenCalled();
     expect(clone).not.toHaveBeenCalled();
     expect(available).not.toHaveBeenCalled();

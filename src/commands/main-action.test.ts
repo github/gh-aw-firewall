@@ -59,6 +59,7 @@ import { CloudHypervisorUnsupportedHostError } from '../cloud-hypervisor/errors'
 import { RoutingFailureExitError } from '../routing/bootstrap';
 import { initializeEnclaveStartupProgress, updateEnclaveStartupProgress } from '../enclave/startup-progress';
 import { normalizeEnclavesConfig } from '../parsers/enclave-parser';
+import * as enclaveMountPolicy from '../enclave/mount-policy';
 
 const {
   mkdirSync: mockMkdirSync,
@@ -347,6 +348,20 @@ describe('createMainAction', () => {
       const action = createMainAction(getOptionValueSource);
       await action(['echo hi'], {});
       expect(mockedDindBootstrap.runDindBootstrap).toHaveBeenCalledWith(MAIN_ACTION_STUB_CONFIG);
+    });
+
+    it('checks retained debug artifacts before a primary run without enclaves', async () => {
+      const check = jest.spyOn(enclaveMountPolicy, 'assertPersistentDebugArtifactsIsolated')
+        .mockImplementation(() => undefined);
+      try {
+        const action = createMainAction(getOptionValueSource);
+        await action(['echo hi'], {});
+        expect(check).toHaveBeenCalledTimes(1);
+        expect(check.mock.calls[0][0].workDir).toBe(MAIN_ACTION_STUB_CONFIG.workDir);
+        expect(check.mock.calls[0][0].enclaves).toBeUndefined();
+      } finally {
+        check.mockRestore();
+      }
     });
 
     it('skips probe and DinD bootstrap when dockerHostPathPrefix is already set', async () => {

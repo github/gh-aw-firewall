@@ -6,6 +6,8 @@ import { HOST_EXECUTOR_DEFAULT_JOURNAL_DIRECTORY } from './host-executor-journal
 export const ENCLAVE_DEBUG_ARTIFACT_ROOT = path.join(
   path.dirname(HOST_EXECUTOR_DEFAULT_JOURNAL_DIRECTORY), 'debug-artifacts', 'cloud-hypervisor',
 );
+export const ENCLAVE_DEBUG_ARTIFACT_PROTECTED_ROOT =
+  path.dirname(path.dirname(ENCLAVE_DEBUG_ARTIFACT_ROOT));
 
 export function validatePublicEnclaveDebug(config: WrapperConfig): string[] {
   if (!config.cloudHypervisor?.enclaveDebugPublic) return [];

@@ -32,7 +32,10 @@ describe('public enclave debug manager lifecycle', () => {
       requestId: 'request', exitCode: 0, signal: null, timedOut: false,
     });
     const deps = dependencies({
-      ...(debug ? { enclaveDebugArtifactDirectory: '/protected/cloud-hypervisor/invocation' } : {}),
+      ...(debug ? {
+        enclaveDebugArtifactDirectory: '/protected/cloud-hypervisor/invocation',
+        enclaveDebugArtifactProtectedRoot: '/protected',
+      } : {}),
       createVsockClient: jest.fn().mockReturnValue(client),
     });
     const vm = new CloudHypervisorManager(config({ enclaveDebugPublic: debug }), '/tmp/awf',
@@ -63,6 +66,12 @@ describe('public enclave debug manager lifecycle', () => {
       expect(deps.writeFile).toHaveBeenCalledWith(
         '/protected/cloud-hypervisor/invocation/guest-stderr.raw.log',
         Buffer.from('RAW_GUEST_SECRET'), { mode: 0o600 });
+      for (const [filePath, uid, gid] of jest.mocked(deps.chown).mock.calls) {
+        if (filePath.startsWith('/protected/')) expect([uid, gid]).toEqual([0, 0]);
+      }
+      expect(deps.chown).toHaveBeenCalledWith('/protected', 0, 0);
+      expect(deps.chmod).toHaveBeenCalledWith('/protected/cloud-hypervisor', 0o700);
+      expect(deps.chmod).toHaveBeenCalledWith('/protected/cloud-hypervisor/invocation', 0o700);
       const writeOrder = jest.mocked(deps.writeFile).mock.invocationCallOrder[0];
       const deleteOrder = jest.mocked(deps.rm).mock.invocationCallOrder[0];
       expect(writeOrder).toBeLessThan(deleteOrder);
@@ -75,6 +84,7 @@ describe('public enclave debug manager lifecycle', () => {
   it('collects failed-start diagnostics before automatic partial-start cleanup', async () => {
     const deps = dependencies({
       enclaveDebugArtifactDirectory: '/protected/cloud-hypervisor/failed-start',
+      enclaveDebugArtifactProtectedRoot: '/protected',
       createClient: jest.fn(() => { throw new Error('API construction failed'); }),
     });
     const vm = new CloudHypervisorManager(config({ enclaveDebugPublic: true }), '/tmp/awf',
@@ -90,7 +100,10 @@ describe('public enclave debug manager lifecycle', () => {
   });
 
   it('surfaces protected artifact collection failures instead of reporting successful cleanup', async () => {
-    const deps = dependencies({ enclaveDebugArtifactDirectory: '/protected/cloud-hypervisor/failed-write' });
+    const deps = dependencies({
+      enclaveDebugArtifactDirectory: '/protected/cloud-hypervisor/failed-write',
+      enclaveDebugArtifactProtectedRoot: '/protected',
+    });
     const vm = new CloudHypervisorManager(config({ enclaveDebugPublic: true }), '/tmp/awf',
       deps, 'failed-write', profile(true), undefined, undefined, true);
     await vm.start();
@@ -101,16 +114,74 @@ describe('public enclave debug manager lifecycle', () => {
   it('retains evidence when failed termination prevents the normal cleanup hook', async () => {
     const child = processMock();
     jest.mocked(child.kill).mockImplementation(() => { throw new Error('termination failed'); });
+    const readFileTail = jest.fn(async (source: string) => Buffer.from(
+      source.includes('virtiofs') ? 'VIRTIOFS_EVIDENCE' : 'SOURCE_LOG',
+    ));
     const deps = dependencies({
       enclaveDebugArtifactDirectory: '/protected/cloud-hypervisor/failed-stop',
+      enclaveDebugArtifactProtectedRoot: '/protected',
       launch: jest.fn().mockReturnValue(child),
+      readFileTail,
     });
     const vm = new CloudHypervisorManager(config({ enclaveDebugPublic: true }), '/tmp/awf',
       deps, 'failed-stop', profile(true), undefined, undefined, true);
     await vm.start();
     await expect(vm.stop()).rejects.toThrow(/termination failed/);
+    expect(readFileTail).toHaveBeenCalledWith('/run/virtiofs-0.log', CLOUD_HYPERVISOR_CAPTURE_LIMIT_BYTES);
     expect(deps.writeFile).toHaveBeenCalledWith(
       '/protected/cloud-hypervisor/failed-stop/guest-stderr.raw.log', Buffer.alloc(0), { mode: 0o600 });
+    expect(deps.writeFile).toHaveBeenCalledWith(
+      '/protected/cloud-hypervisor/failed-stop/virtiofs-0-enclave-seed.log',
+      Buffer.from('VIRTIOFS_EVIDENCE'), { mode: 0o600 });
+    expect(deps.writeFile).toHaveBeenCalledWith(
+      '/protected/cloud-hypervisor/failed-stop/virtiofs-0-enclave-seed-confinement.json',
+      Buffer.from('VIRTIOFS_EVIDENCE'), { mode: 0o600 });
     expect(deps.rm).not.toHaveBeenCalled();
+  });
+
+  it('retries a transient write failure before removing diagnostic sources', async () => {
+    const readFileTail = jest.fn(async (source: string) =>
+      source.endsWith('/serial.log') ? Buffer.from('SERIAL_TAIL') : Buffer.from('SOURCE'));
+    const deps = dependencies({
+      enclaveDebugArtifactDirectory: '/protected/cloud-hypervisor/transient-write',
+      enclaveDebugArtifactProtectedRoot: '/protected',
+      readFileTail,
+    });
+    jest.mocked(deps.writeFile).mockRejectedValueOnce(new Error('transient write failure'));
+    const vm = new CloudHypervisorManager(config({ enclaveDebugPublic: true }), '/tmp/awf',
+      deps, 'transient-write', profile(true), undefined, undefined, true);
+    await vm.start();
+    await expect(vm.stop()).rejects.toThrow(/transient write failure/);
+    expect(deps.rm).not.toHaveBeenCalled();
+    expect(deps.writeFile).toHaveBeenCalledWith(
+      '/protected/cloud-hypervisor/transient-write/serial.log',
+      Buffer.from('SERIAL_TAIL'), { mode: 0o600 });
+
+    await vm.stop();
+    expect(readFileTail).toHaveBeenCalledWith(vm.paths.serialLogPath, CLOUD_HYPERVISOR_CAPTURE_LIMIT_BYTES);
+    expect(deps.rm).toHaveBeenCalledWith(vm.paths.runDirectory, { recursive: true, force: true });
+  });
+
+  it('shares an in-flight collection across overlapping stop calls', async () => {
+    const deps = dependencies({
+      enclaveDebugArtifactDirectory: '/protected/cloud-hypervisor/concurrent-stop',
+      enclaveDebugArtifactProtectedRoot: '/protected',
+    });
+    const vm = new CloudHypervisorManager(config({ enclaveDebugPublic: true }), '/tmp/awf',
+      deps, 'concurrent-stop', profile(true), undefined, undefined, true);
+    await vm.start();
+    let finishCollection!: () => void;
+    const collection = new Promise<void>((resolve) => { finishCollection = resolve; });
+    const collect = jest.spyOn(vm, 'collectDiagnostics').mockReturnValue(collection);
+    const first = vm.stop();
+    const second = vm.stop();
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    expect(collect).toHaveBeenCalledTimes(1);
+    let secondFinished = false;
+    void second.then(() => { secondFinished = true; }, () => { secondFinished = true; });
+    expect(secondFinished).toBe(false);
+    finishCollection();
+    await Promise.allSettled([first, second]);
+    expect(collect).toHaveBeenCalledTimes(1);
   });
 });

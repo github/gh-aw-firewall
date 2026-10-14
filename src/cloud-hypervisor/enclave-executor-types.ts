@@ -128,6 +128,7 @@ export interface CreateCloudHypervisorHostEnclaveExecutorOptions {
   readonly workDir: string;
   /** Set only by the trusted host lifecycle after public visibility and mount-isolation checks. */
   readonly publicDebugArtifactDirectory?: string;
+  readonly publicDebugArtifactProtectedRoot?: string;
   readonly agentPolicies?: Readonly<Record<string, HostExecutorAgentPolicy>>;
   readonly managerDependencies?: CloudHypervisorManagerDependencies;
   readonly environment?: NodeJS.ProcessEnv;

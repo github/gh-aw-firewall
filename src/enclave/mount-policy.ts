@@ -196,6 +196,29 @@ export function assertPrivateRootIsolated(
   }
 }
 
+export function assertPersistentDebugArtifactsIsolated(
+  config: WrapperConfig,
+  env: NodeJS.ProcessEnv = process.env,
+  cwd = process.cwd(),
+): void {
+  const debugRoot = resolvePathThroughExistingAncestor(ENCLAVE_DEBUG_ARTIFACT_ROOT);
+  const daemonDebugRoot = resolvePathThroughExistingAncestor(
+    daemonVisiblePath(ENCLAVE_DEBUG_ARTIFACT_ROOT, config.dockerHostPathPrefix),
+  );
+  for (const visible of collectAgentVisiblePaths(config, env, cwd)) {
+    const source = resolvePathThroughExistingAncestor(visible.source);
+    const daemonSource = resolvePathThroughExistingAncestor(
+      daemonVisiblePath(visible.source, config.dockerHostPathPrefix),
+    );
+    if (pathsOverlap(debugRoot, source) || pathsOverlap(daemonDebugRoot, daemonSource)) {
+      throw markHostPreflightError(new Error(
+        `Unsafe persistent debug artifact root "${ENCLAVE_DEBUG_ARTIFACT_ROOT}" overlaps agent-visible ` +
+        `${visible.label} "${visible.source}" after path and symlink resolution`,
+      ), 'private-root-overlap');
+    }
+  }
+}
+
 /**
  * Fails closed when the server-private root aliases, contains, or is contained
  * by any path visible to a primary agent in any supported sandbox backend.
@@ -218,19 +241,21 @@ export function assertCloudHypervisorEnclaveExportsIsolated(
   config: WrapperConfig,
   directoryExports: readonly CloudHypervisorDirectoryExport[],
 ): void {
-  if (!config.enclaves?.enabled) return;
-  const paths = resolveEnclavePaths(config.workDir);
-  const privateRoots = [
-    paths.root,
-    paths.ingressRoot,
-    paths.hostExecutorJournalDir,
-    path.join(path.dirname(paths.hostExecutorJournalDir), 'host-invocations'),
-    HOST_EXECUTOR_STORAGE_ROOT,
-    ENCLAVE_DEBUG_ARTIFACT_ROOT,
-  ].map(resolvePathThroughExistingAncestor);
+  const privateRoots = [ENCLAVE_DEBUG_ARTIFACT_ROOT];
+  if (config.enclaves?.enabled) {
+    const paths = resolveEnclavePaths(config.workDir);
+    privateRoots.push(
+      paths.root,
+      paths.ingressRoot,
+      paths.hostExecutorJournalDir,
+      path.join(path.dirname(paths.hostExecutorJournalDir), 'host-invocations'),
+      HOST_EXECUTOR_STORAGE_ROOT,
+    );
+  }
+  const resolvedPrivateRoots = privateRoots.map(resolvePathThroughExistingAncestor);
   for (const entry of directoryExports) {
     const source = resolvePathThroughExistingAncestor(entry.source);
-    if (privateRoots.some((root) => pathsOverlap(root, source))) {
+    if (resolvedPrivateRoots.some((root) => pathsOverlap(root, source))) {
       throw new Error(
         `Cloud Hypervisor export "${entry.tag}" overlaps enclave private or recovery state`,
       );

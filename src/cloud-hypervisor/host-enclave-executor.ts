@@ -183,6 +183,7 @@ export async function createCloudHypervisorHostEnclaveExecutor(
       config: options.config,
       workDir: options.workDir,
       publicDebugArtifactDirectory: options.publicDebugArtifactDirectory,
+      publicDebugArtifactProtectedRoot: options.publicDebugArtifactProtectedRoot,
       preflight,
       enclaveArtifacts,
       agentPolicies: options.agentPolicies,
@@ -320,6 +321,7 @@ export class CloudHypervisorHostEnclaveExecutorBackend implements HostEnclaveExe
       readonly config: CloudHypervisorOptions;
       readonly workDir: string;
       readonly publicDebugArtifactDirectory?: string;
+      readonly publicDebugArtifactProtectedRoot?: string;
       readonly preflight: CloudHypervisorPreflightResult;
       readonly enclaveArtifacts: VerifiedCloudHypervisorEnclaveArtifacts;
       readonly agentPolicies?: Readonly<Record<string, HostExecutorAgentPolicy>>;
@@ -336,7 +338,10 @@ export class CloudHypervisorHostEnclaveExecutorBackend implements HostEnclaveExe
       throw new Error('Host enclave execution requires the matching trusted Cloud Hypervisor release');
     }
     this.dependencies = { ...defaultDependencies, ...dependencies };
-    if (Boolean(options.config.enclaveDebugPublic) !== Boolean(options.publicDebugArtifactDirectory)) {
+    if (
+      Boolean(options.config.enclaveDebugPublic) !== Boolean(options.publicDebugArtifactDirectory)
+      || Boolean(options.publicDebugArtifactDirectory) !== Boolean(options.publicDebugArtifactProtectedRoot)
+    ) {
       throw new Error('Public enclave debug requires host-verified public fixtures and a protected artifact directory');
     }
   }
@@ -580,6 +585,7 @@ export class CloudHypervisorHostEnclaveExecutorBackend implements HostEnclaveExe
           ? {
               ...resolveCloudHypervisorManagerDependencies(managerDependencies),
               enclaveDebugArtifactDirectory: path.join(debugDirectory, runId),
+              enclaveDebugArtifactProtectedRoot: this.options.publicDebugArtifactProtectedRoot,
             }
           : managerDependencies,
       ));

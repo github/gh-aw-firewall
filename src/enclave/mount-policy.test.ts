@@ -3,6 +3,7 @@ import * as os from 'os';
 import * as path from 'path';
 import type { WrapperConfig } from '../types';
 import {
+  assertPersistentDebugArtifactsIsolated,
   assertEnclavePrivateRootIsolated,
   assertCloudHypervisorEnclaveExportsIsolated,
   findDockerSocketExposingMount,
@@ -11,6 +12,7 @@ import {
 import { resolveEnclavePaths } from './paths';
 import { normalizeEnclavesConfig } from '../parsers/enclave-parser';
 import { HOST_EXECUTOR_STORAGE_ROOT } from './host-executor-journal';
+import { ENCLAVE_DEBUG_ARTIFACT_ROOT } from './public-debug';
 
 function config(workDir: string, volumeMounts?: string[]): WrapperConfig {
   return { workDir, volumeMounts } as WrapperConfig;
@@ -60,6 +62,29 @@ describe('enclave private-root mount policy', () => {
       config(workDir, [`${alias}:/data:ro`]),
       paths,
     )).toThrow(/custom volume/);
+  });
+
+  it.each([
+    ENCLAVE_DEBUG_ARTIFACT_ROOT,
+    path.dirname(ENCLAVE_DEBUG_ARTIFACT_ROOT),
+    path.join(ENCLAVE_DEBUG_ARTIFACT_ROOT, 'retained-run'),
+  ])('rejects retained debug artifacts exposed by a later primary mount: %s', (source) => {
+    const primary = config(workDir, [`${source}:/debug:ro`]);
+    expect(() => assertPersistentDebugArtifactsIsolated(primary, {}, process.cwd())).toThrow(/overlaps/);
+    expect(() => assertCloudHypervisorEnclaveExportsIsolated(primary, [{
+      tag: 'debug', source, target: '/debug', mode: 'ro',
+    }])).toThrow(/private or recovery state/);
+  });
+
+  it('checks persistent debug artifacts for a Docker primary with no enclave configuration', () => {
+    const primary = {
+      ...config(workDir, [`${path.dirname(ENCLAVE_DEBUG_ARTIFACT_ROOT)}:/debug:ro`]),
+      containerRuntime: 'docker',
+    } as WrapperConfig;
+    expect(() => assertPersistentDebugArtifactsIsolated(primary, {}, process.cwd())).toThrow(/overlaps/);
+    expect(() => assertCloudHypervisorEnclaveExportsIsolated(primary, [{
+      tag: 'debug', source: ENCLAVE_DEBUG_ARTIFACT_ROOT, target: '/debug', mode: 'ro',
+    }])).toThrow(/private or recovery state/);
   });
 
   it('rejects the agent Docker socket inside private state', () => {
