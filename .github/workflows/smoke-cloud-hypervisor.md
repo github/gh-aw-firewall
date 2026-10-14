@@ -27,8 +27,7 @@ network:
     - defaults
     - github
 tools:
-  github:
-    toolsets: [context]
+  github: false
   bash:
     - curl
     - printf
@@ -101,13 +100,16 @@ for a focused rerun without reapplying the shared `ready-for-aw` label.
 
 Run these checks inside the Cloud Hypervisor sandbox:
 
-1. Read `/tmp/gh-aw/agent/merged-pr.json` with one `cat` command. PASS only if
-   the JSON array contains at least one merged PR.
+1. In the same bash invocation, read `/tmp/gh-aw/agent/merged-pr.json` with one
+   `cat` command. Initialize `MERGED_PR_RESULT=FAIL`; set it to `PASS` only if
+   `jq -e 'type == "array" and length > 0'` validates the contents.
 
-Set `MERGED_PR_RESULT` from that result, then make one bash invocation for
-checks 2–4 and the summary:
+Make one bash invocation for all four checks and the summary:
 
 ```bash
+MERGED_PR_RESULT=FAIL
+MERGED_PR_JSON=$(cat /tmp/gh-aw/agent/merged-pr.json 2>/dev/null || :)
+if [ -n "$MERGED_PR_JSON" ] && printf '%s' "$MERGED_PR_JSON" | jq -e 'type == "array" and length > 0' >/dev/null 2>&1; then MERGED_PR_RESULT=PASS; fi
 GITHUB_CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 https://github.com || :)
 [ -n "$GITHUB_CODE" ] || GITHUB_CODE=000
 if [ "$GITHUB_CODE" = 200 ] || [ "$GITHUB_CODE" = 301 ]; then GITHUB_RESULT=PASS; else GITHUB_RESULT=FAIL; fi
@@ -120,7 +122,7 @@ BLOCKED_CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 5 https://examp
 [ -n "$BLOCKED_CODE" ] || BLOCKED_CODE=000
 if [ "$BLOCKED_CODE" = 000 ] || [ "$BLOCKED_CODE" = 403 ]; then BLOCKED_RESULT=PASS; else BLOCKED_RESULT=FAIL; fi
 OVERALL_RESULT=PASS
-if [ "$MERGED_PR_RESULT" = FAIL ] || [ "$GITHUB_RESULT" = FAIL ] || [ "$FILE_RESULT" = FAIL ] || [ "$BLOCKED_RESULT" = FAIL ]; then OVERALL_RESULT=FAIL; fi
+if [ "$MERGED_PR_RESULT" != PASS ] || [ "$GITHUB_RESULT" != PASS ] || [ "$FILE_RESULT" != PASS ] || [ "$BLOCKED_RESULT" != PASS ]; then OVERALL_RESULT=FAIL; fi
 cat <<'EOF' > /tmp/gh-aw/agent/comment-body.md
 Cloud Hypervisor + Copilot smoke test
 EOF

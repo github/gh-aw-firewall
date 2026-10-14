@@ -27,7 +27,7 @@ interface WorkflowFrontmatter {
   };
   tools?: {
     bash?: string[];
-    github?: {
+    github?: boolean | {
       mode?: string;
       toolsets?: string[];
     };
@@ -93,7 +93,7 @@ describe('Smoke Cloud Hypervisor token-usage verification', () => {
     const lock = fs.readFileSync(workflowFiles[1], 'utf-8');
 
     expect(frontmatter.model).toBe('gpt-5.4-mini');
-    expect(frontmatter.tools?.github).toEqual({ toolsets: ['context'] });
+    expect(frontmatter.tools?.github).toBe(false);
     expect(frontmatter.steps).toEqual([
       {
         name: 'Pre-compute merged PR check',
@@ -107,8 +107,14 @@ describe('Smoke Cloud Hypervisor token-usage verification', () => {
     expect(lock).not.toContain('"list_pull_requests"');
 
     const prompt = fs.readFileSync(workflowFiles[0], 'utf-8');
-    expect(prompt).toContain('Read `/tmp/gh-aw/agent/merged-pr.json` with one `cat` command.');
-    expect(prompt).toContain('make one bash invocation for\nchecks 2–4 and the summary:');
+    expect(prompt).toContain('read `/tmp/gh-aw/agent/merged-pr.json` with one');
+    expect(prompt).toContain('`cat` command.');
+    expect(prompt).toContain('Make one bash invocation for all four checks and the summary:');
+    expect(prompt).toContain("MERGED_PR_JSON=$(cat /tmp/gh-aw/agent/merged-pr.json 2>/dev/null || :)");
+    expect(prompt).toContain("jq -e 'type == \"array\" and length > 0'");
+    expect(prompt).toContain(
+      'if [ "$MERGED_PR_RESULT" != PASS ] || [ "$GITHUB_RESULT" != PASS ] || [ "$FILE_RESULT" != PASS ] || [ "$BLOCKED_RESULT" != PASS ]; then OVERALL_RESULT=FAIL; fi',
+    );
     expect(prompt).toContain('cat <<\'EOF\'');
     expect(prompt).toContain('/tmp/gh-aw/agent/comment-body.md');
     expect(prompt).toContain('Use the existing summary file without rewriting it');
