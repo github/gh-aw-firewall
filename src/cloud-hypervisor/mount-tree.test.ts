@@ -654,10 +654,47 @@ describe('StagedHostMountTree', () => {
     expect(staged.hasResidue).toBe(true);
   });
 
+  it('fails closed when busy cleanup no longer owns the staged root', async () => {
+    const fake = mountTable();
+    const staged = tree(
+      fake,
+      plan([
+        { source: '/host/workspace/out', destination: '/host/workspace/out', kind: 'directory' },
+      ]),
+    );
+    await staged.stage();
+    const pending = (staged as unknown as { pendingMounts: Set<string> }).pendingMounts;
+    pending.delete(ROOT);
+    fake.runTool.mockImplementation(async (command: string) => {
+      if (command === tools.umount) throw new Error(`${ROOT}: target is busy`);
+    });
+
+    await expect(staged.unmount()).rejects.toThrow(
+      /Refusing to retry busy unmount outside the owned staged mount tree/,
+    );
+  });
+
   it('fails closed when a remount silently leaves the tree writable', async () => {
     const fake = mountTable({ ineffectiveRemount: true });
     const staged = tree(fake, plan([]));
     await expect(staged.stage()).rejects.toThrow(/not recursively read-only/);
+    expect(staged.hasResidue).toBe(false);
+    expect(fake.table.size).toBe(0);
+  });
+
+  it('fails closed when remount verification finds a missing hardening flag', async () => {
+    const fake = mountTable();
+    const normalMountInfo = fake.readMountInfo.getMockImplementation() as () => Promise<string>;
+    let reads = 0;
+    const staged = tree(fake, plan([]), workspace, {
+      readMountInfo: jest.fn(async () => {
+        const contents = await normalMountInfo();
+        reads += 1;
+        return reads >= 2 ? contents.split(',nodev').join('') : contents;
+      }),
+    });
+
+    await expect(staged.stage()).rejects.toThrow(/missing nodev/);
     expect(staged.hasResidue).toBe(false);
     expect(fake.table.size).toBe(0);
   });

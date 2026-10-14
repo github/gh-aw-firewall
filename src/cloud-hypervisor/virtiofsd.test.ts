@@ -888,6 +888,51 @@ describe('VirtiofsdManager', () => {
     await expect(manager.stop()).resolves.toBeUndefined();
     expect(unmountAttempts).toBe(2);
   });
+
+  it('aggregates diagnostic and socket cleanup failures and retries retained state', async () => {
+    let failCleanup = true;
+    const deps = dependencies({
+      writeFile: jest.fn(async (filePath: string) => {
+        if (failCleanup && filePath.endsWith('.log')) {
+          throw new Error('diagnostic write failed');
+        }
+      }),
+      rm: jest.fn(async () => {
+        if (failCleanup) throw new Error('socket removal failed');
+      }),
+    });
+    const started = manager(deps);
+    await started.start([workspace]);
+
+    await expect(started.stop()).rejects.toThrow(
+      /virtiofsd cleanup failed: diagnostic write failed; socket removal failed/,
+    );
+
+    failCleanup = false;
+    await expect(started.stop()).resolves.toBeUndefined();
+    expect(deps.writeFile).toHaveBeenCalledTimes(3);
+    expect(deps.rm).toHaveBeenCalledTimes(2);
+  });
+
+  it('surfaces non-ENOENT share-directory cleanup errors and retries them', async () => {
+    let rmdirAttempts = 0;
+    const deps = dependencies({
+      rmdir: jest.fn(async (directory: string) => {
+        if (directory === '/run/awf-shares/run' && ++rmdirAttempts === 1) {
+          const error = new Error('share directory busy') as NodeJS.ErrnoException;
+          error.code = 'EBUSY';
+          throw error;
+        }
+      }),
+    });
+    const started = manager(deps);
+    await started.start([workspace]);
+
+    await expect(started.stop()).rejects.toThrow(/share directory busy/);
+    await expect(started.stop()).resolves.toBeUndefined();
+    expect(rmdirAttempts).toBe(2);
+  });
+
 });
 
 describe('VirtiofsdManager host mount-tree enforcement', () => {
