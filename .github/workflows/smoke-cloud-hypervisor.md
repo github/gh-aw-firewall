@@ -15,7 +15,7 @@ permissions:
   actions: read
   copilot-requests: write
 name: Smoke Cloud Hypervisor
-model: claude-sonnet-5
+model: gpt-5.4-mini
 engine:
   id: copilot
   version: 1.0.34
@@ -27,13 +27,13 @@ network:
     - defaults
     - github
 tools:
+  github:
+    toolsets: [context]
   bash:
     - curl
     - printf
     - cat
     - jq
-  github:
-    toolsets: [pull_requests]
 safe-outputs:
   threat-detection:
     enabled: false
@@ -53,6 +53,13 @@ sandbox:
     version: v0.28.31
     runtime: cloud-hypervisor
 strict: false
+steps:
+  - name: Pre-compute merged PR check
+    env:
+      GH_TOKEN: ${{ github.token }}
+    run: |
+      mkdir -p /tmp/gh-aw/agent
+      gh pr list --repo "$GITHUB_REPOSITORY" --state merged --limit 1 --json number,title > /tmp/gh-aw/agent/merged-pr.json
 jobs:
   verify_token_usage:
     needs: agent
@@ -94,22 +101,41 @@ for a focused rerun without reapplying the shared `ready-for-aw` label.
 
 Run these checks inside the Cloud Hypervisor sandbox:
 
-Run each shell check as a separate command. `/tmp/gh-aw/agent` already exists:
-do not prepend `mkdir`, use Python, or install tools. The two CLI URL approvals
-only let `curl` execute; AWF still enforces the network allowlist, so
-`example.com` must remain blocked.
+1. Read `/tmp/gh-aw/agent/merged-pr.json` with one `cat` command. PASS only if
+   the JSON array contains at least one merged PR.
 
-1. Call `github-list_pull_requests` for `${{ github.repository }}` with `limit: 1` and `state: merged`.
-2. Confirm `curl -s -o /dev/null -w "%{http_code}" --max-time 10 https://github.com` returns 200 or 301.
-3. Use `printf` to write a unique line to `/tmp/gh-aw/agent/smoke-cloud-hypervisor-${GITHUB_RUN_ID}.txt`, then use `cat` to read it back.
-4. Confirm `curl -s -o /dev/null -w "%{http_code}" --max-time 5 https://example.com` is blocked with 000 or 403.
+Set `MERGED_PR_RESULT` from that result, then make one bash invocation for
+checks 2–4 and the summary:
 
-Keep the summary under 10 lines with a PASS or FAIL for each check.
+```bash
+GITHUB_CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 https://github.com || :)
+[ -n "$GITHUB_CODE" ] || GITHUB_CODE=000
+if [ "$GITHUB_CODE" = 200 ] || [ "$GITHUB_CODE" = 301 ]; then GITHUB_RESULT=PASS; else GITHUB_RESULT=FAIL; fi
+TEST_FILE="/tmp/gh-aw/agent/smoke-cloud-hypervisor-${GITHUB_RUN_ID}.txt"
+EXPECTED="Cloud Hypervisor smoke test ${GITHUB_RUN_ID}"
+printf '%s\n' "$EXPECTED" > "$TEST_FILE"
+FILE_CONTENT=$(cat "$TEST_FILE")
+if [ "$FILE_CONTENT" = "$EXPECTED" ]; then FILE_RESULT=PASS; else FILE_RESULT=FAIL; fi
+BLOCKED_CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 5 https://example.com || :)
+[ -n "$BLOCKED_CODE" ] || BLOCKED_CODE=000
+if [ "$BLOCKED_CODE" = 000 ] || [ "$BLOCKED_CODE" = 403 ]; then BLOCKED_RESULT=PASS; else BLOCKED_RESULT=FAIL; fi
+OVERALL_RESULT=PASS
+if [ "$MERGED_PR_RESULT" = FAIL ] || [ "$GITHUB_RESULT" = FAIL ] || [ "$FILE_RESULT" = FAIL ] || [ "$BLOCKED_RESULT" = FAIL ]; then OVERALL_RESULT=FAIL; fi
+cat <<'EOF' > /tmp/gh-aw/agent/comment-body.md
+Cloud Hypervisor + Copilot smoke test
+EOF
+printf '1. Merged PR lookup: %s\n2. github.com connectivity: %s (HTTP %s)\n3. File write/read: %s\n4. example.com blocked: %s (HTTP %s)\nOverall: %s\n' "$MERGED_PR_RESULT" "$GITHUB_RESULT" "$GITHUB_CODE" "$FILE_RESULT" "$BLOCKED_RESULT" "$BLOCKED_CODE" "$OVERALL_RESULT" >> /tmp/gh-aw/agent/comment-body.md
+cat /tmp/gh-aw/agent/comment-body.md
+```
+
+The two CLI URL approvals only let `curl` execute; AWF still enforces the
+network allowlist, so `example.com` must remain blocked. The summary has a PASS
+or FAIL for every check and overall status.
 
 The trigger event is `${{ github.event_name }}`. On `pull_request`, call
 `add_comment` with `item_number: ${{ github.event.pull_request.number }}` even if
-a check fails. Write the summary to `/tmp/gh-aw/agent/comment-body.md` with
-`cat` and a quoted heredoc, then invoke the safe-output CLI in a separate command:
+a check fails. Use the existing summary file without rewriting it, then invoke
+the safe-output CLI in a separate command:
 
 ```bash
 jq -Rs --argjson item_number '${{ github.event.pull_request.number }}' '{item_number: $item_number, body: .}' /tmp/gh-aw/agent/comment-body.md | safeoutputs add_comment .

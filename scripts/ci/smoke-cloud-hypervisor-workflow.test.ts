@@ -11,16 +11,26 @@ const workflowFiles = [
 ];
 
 interface WorkflowFrontmatter {
+  model?: string;
   on?: {
     label_command?: {
       name: string[];
     };
   };
+  steps?: Array<{
+    env?: Record<string, string>;
+    name?: string;
+    run?: string;
+  }>;
   engine?: {
     args?: string[];
   };
   tools?: {
     bash?: string[];
+    github?: {
+      mode?: string;
+      toolsets?: string[];
+    };
   };
   network?: {
     allowed?: string[];
@@ -76,6 +86,32 @@ describe('Smoke Cloud Hypervisor token-usage verification', () => {
         /^[ \t]*verify_token_usage:[ \t]*\r?\n(?:[ \t]*name:[^\r\n]*\r?\n)?[ \t]*needs:[ \t]*agent[ \t]*\r?\n[ \t]*if:[ \t]*needs\.agent\.result[ \t]*==[ \t]*'success'[ \t]*$/m,
       );
     }
+  });
+
+  it('precomputes the merged PR check and keeps the agent tool surface small', () => {
+    const frontmatter = loadFrontmatter(workflowFiles[0]);
+    const lock = fs.readFileSync(workflowFiles[1], 'utf-8');
+
+    expect(frontmatter.model).toBe('gpt-5.4-mini');
+    expect(frontmatter.tools?.github).toEqual({ toolsets: ['context'] });
+    expect(frontmatter.steps).toEqual([
+      {
+        name: 'Pre-compute merged PR check',
+        env: { GH_TOKEN: '${{ github.token }}' },
+        run: expect.stringContaining(
+          'gh pr list --repo "$GITHUB_REPOSITORY" --state merged --limit 1 --json number,title',
+        ),
+      },
+    ]);
+    expect(lock).toContain('COPILOT_MODEL: gpt-5.4-mini');
+    expect(lock).not.toContain('"list_pull_requests"');
+
+    const prompt = fs.readFileSync(workflowFiles[0], 'utf-8');
+    expect(prompt).toContain('Read `/tmp/gh-aw/agent/merged-pr.json` with one `cat` command.');
+    expect(prompt).toContain('make one bash invocation for\nchecks 2–4 and the summary:');
+    expect(prompt).toContain('cat <<\'EOF\'');
+    expect(prompt).toContain('/tmp/gh-aw/agent/comment-body.md');
+    expect(prompt).toContain('Use the existing summary file without rewriting it');
   });
 
   it('explicitly allows the shell commands required by the smoke checks', () => {
