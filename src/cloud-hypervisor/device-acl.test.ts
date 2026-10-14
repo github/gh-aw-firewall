@@ -135,10 +135,13 @@ describe('Cloud Hypervisor device ACLs', () => {
     ]);
   });
 
-  it('retains the broader historical mask required by a durable runner ACE', () => {
+  it('restores a durable runner ACE without widening the journaled baseline mask', () => {
     expect(composeDeviceAcl(
       ['user::rw-', 'group::r--', 'mask::r--', 'other::---'],
-      ['user::rw-', 'group::r--', 'mask::r--', 'other::---'],
+      [
+        'user::rw-', 'user:999:rw-',
+        'group::r--', 'mask::rw-', 'other::---',
+      ],
       999,
       [],
       [],
@@ -149,7 +152,25 @@ describe('Cloud Hypervisor device ACLs', () => {
       [],
     )).toEqual([
       'user::rw-', 'user:1001:rw-',
-      'group::r--', 'mask::rw-', 'other::---',
+      'group::r--', 'mask::r--', 'other::---',
+    ]);
+  });
+
+  it('keeps a runner and mask present only in the journaled deletion baseline', () => {
+    expect(composeDeviceAcl(
+      [
+        'user::rw-', 'user:1001:rw-',
+        'group::rw-', 'mask::rw-', 'other::---',
+      ],
+      ['user::rw-', 'group::rw-', 'other::---'],
+      999,
+      [],
+      [],
+      ['user::rw-', 'group::rw-', 'other::---'],
+      [],
+    )).toEqual([
+      'user::rw-', 'user:1001:rw-',
+      'group::rw-', 'mask::rw-', 'other::---',
     ]);
   });
 

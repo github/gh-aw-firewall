@@ -115,9 +115,11 @@ export function composeDeviceAcl(
   ];
 
   if (temporaryNamedUsers.size > 0 || durableNamedUsers.size > 0) {
-    const currentMask = current.find((entry) => entry.startsWith('mask::'));
-    const accessedMask = accessedBaseline.find((entry) => entry.startsWith('mask::'));
-    const requiredMask = mergeAclMasks(currentMask, accessedMask);
+    const baselineMask = baseline.find((entry) => entry.startsWith('mask::'));
+    const requiredMask = temporaryNamedUsers.size > 0
+      ? current.find((entry) => entry.startsWith('mask::'))!
+      : baselineMask ??
+        accessedBaseline.find((entry) => entry.startsWith('mask::'))!;
     const maskIndex = composed.findIndex((entry) => entry.startsWith('mask::'));
     if (maskIndex >= 0) composed[maskIndex] = requiredMask;
     else {
@@ -126,16 +128,4 @@ export function composeDeviceAcl(
     }
   }
   return parseDeviceAcl(composed.join('\n'));
-}
-
-function mergeAclMasks(
-  currentMask: string | undefined,
-  accessedMask: string | undefined,
-): string {
-  const permissions = [0, 1, 2].map((index) => {
-    const current = currentMask?.slice(-3)[index] ?? '-';
-    const accessed = accessedMask?.slice(-3)[index] ?? '-';
-    return current !== '-' ? current : accessed;
-  }).join('');
-  return `mask::${permissions}`;
 }
