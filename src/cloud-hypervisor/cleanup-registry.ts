@@ -49,7 +49,11 @@ export interface CloudHypervisorCleanupHandle {
   captureArtifactSnapshot(directory: string): Promise<void>;
   prepareVmmAccount(name: string): Promise<void>;
   captureVmmIdentity(identity: import('./vmm-identity').CloudHypervisorVmmIdentity): Promise<void>;
-  prepareVmmAcl(path: CloudHypervisorDevicePath, baseline: readonly string[]): Promise<void>;
+  prepareVmmAcl(
+    path: CloudHypervisorDevicePath,
+    baseline: readonly string[],
+    temporaryUids?: readonly number[],
+  ): Promise<void>;
   releaseVmmAcl(path: string): Promise<void>;
   captureNetworkResource(resource: CloudHypervisorNetworkResource): Promise<void>;
   captureRunDirectory(): Promise<void>;

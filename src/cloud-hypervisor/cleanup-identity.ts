@@ -100,6 +100,7 @@ export interface CleanupRecord {
     gid?: number;
     aclPaths: string[];
     aclBaselines?: Partial<Record<CloudHypervisorDevicePath, string[]>>;
+    aclTemporaryUids?: Partial<Record<CloudHypervisorDevicePath, number[]>>;
   };
   mounts: MountIdentity[];
   updatedAt: string;
@@ -203,6 +204,21 @@ export function validateRecord(
             return true;
           }
         })
+      )) ||
+      (identity.aclTemporaryUids !== undefined && (
+        typeof identity.aclTemporaryUids !== 'object' ||
+        identity.aclTemporaryUids === null ||
+        Array.isArray(identity.aclTemporaryUids) ||
+        Object.keys(identity.aclTemporaryUids).some((aclPath) =>
+          aclPath !== '/dev/kvm' && aclPath !== '/dev/net/tun') ||
+        Object.entries(identity.aclTemporaryUids).some(([aclPath, uids]) =>
+          !identity.aclPaths.includes(aclPath) ||
+          !Array.isArray(uids) ||
+          uids.some((uid) => !Number.isSafeInteger(uid) || uid <= 0) ||
+          new Set(uids).size !== uids.length ||
+          !uids.every((uid) =>
+            identity.aclBaselines?.[aclPath as CloudHypervisorDevicePath]
+              ?.includes(`user:${uid}:rw-`)))
       )) ||
       (identity.state === 'live' && (() => {
         const uid = identity.uid;

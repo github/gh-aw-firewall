@@ -1,12 +1,14 @@
 import type { CleanupRecord } from './cleanup-identity';
 import * as path from 'path';
 import {
+  resolveTemporaryVmmAclUids,
   withCloudHypervisorDeviceAclLock,
   type CloudHypervisorVmmIdentityDependencies,
   type CloudHypervisorVmmIdentityToolPaths,
 } from './vmm-identity';
 import { runChecked, type ResolvedCleanupDependencies } from './cleanup-dependencies';
 import {
+  composeDeviceAcl,
   describeDeviceAclShape,
   deviceAclArgument,
   parseDeviceAcl,
@@ -29,10 +31,10 @@ export async function deleteVmmIdentity(
   }
   if (identity.state === 'live' && identity.aclPaths.length > 0) {
     await withVmmAclLock(dependencies, tools, async () => {
-      await restoreVmmAclsLocked(dependencies, identity, tools);
+      const restoredTargets = await restoreVmmAclsLocked(dependencies, identity, tools);
       const expectedGid = await deleteVmmAccount(dependencies, record, identity, tools);
       await deleteVmmGroup(dependencies, identity, tools, expectedGid);
-      await restoreVmmAclsLocked(dependencies, identity, tools);
+      await restoreVmmAclsLocked(dependencies, identity, tools, restoredTargets);
     });
     return;
   }
@@ -67,12 +69,42 @@ async function restoreVmmAclsLocked(
   dependencies: ResolvedCleanupDependencies,
   identity: RecordedVmmIdentity,
   tools: CloudHypervisorVmmIdentityToolPaths,
-): Promise<void> {
+  retainedTargets?: ReadonlyMap<CloudHypervisorDevicePath, readonly string[]>,
+): Promise<Map<CloudHypervisorDevicePath, string[]>> {
+  const restoredTargets = new Map<CloudHypervisorDevicePath, string[]>();
   for (const aclPath of [...identity.aclPaths].reverse()) {
     const baseline = identity.aclBaselines?.[aclPath as CloudHypervisorDevicePath];
     if (baseline) {
+      const retainedTarget = retainedTargets?.get(aclPath as CloudHypervisorDevicePath);
+      let restoredTarget: string[];
+      if (retainedTarget) {
+        restoredTarget = [...retainedTarget];
+      } else {
+        const before = await dependencies.run(tools.getfacl, [
+          '--absolute-names', '--numeric', aclPath,
+        ]);
+        if (before.exitCode !== 0) {
+          throw new Error(
+            `VMM ACL restoration validation failed for ${aclPath}: ${before.stderr.trim()}`,
+          );
+        }
+        const current = parseDeviceAcl(before.stdout);
+        const liveTemporaryUids = await resolveTemporaryVmmAclUids(
+          current,
+          tools,
+          dependencies.run,
+        );
+        restoredTarget = composeDeviceAcl(
+          baseline,
+          current,
+          identity.uid!,
+          identity.aclTemporaryUids?.[aclPath as CloudHypervisorDevicePath] ?? [],
+          liveTemporaryUids,
+        );
+      }
+      restoredTargets.set(aclPath as CloudHypervisorDevicePath, restoredTarget);
       await runChecked(dependencies.run, tools.setfacl, [
-        `--set=${deviceAclArgument(baseline)}`, aclPath,
+        `--set=${deviceAclArgument(restoredTarget)}`, aclPath,
       ]);
       const restored = await dependencies.run(tools.getfacl, [
         '--absolute-names', '--numeric', aclPath,
@@ -83,10 +115,10 @@ async function restoreVmmAclsLocked(
         );
       }
       const restoredAcl = parseDeviceAcl(restored.stdout);
-      if (!sameDeviceAcl(restoredAcl, baseline)) {
+      if (!sameDeviceAcl(restoredAcl, restoredTarget)) {
         throw new Error(
           `VMM ACL restoration validation failed for ${aclPath}: ` +
-          `before=${describeDeviceAclShape(baseline)} ` +
+          `before=${describeDeviceAclShape(restoredTarget)} ` +
           `after=${describeDeviceAclShape(restoredAcl)}`,
         );
       }
@@ -109,6 +141,7 @@ async function restoreVmmAclsLocked(
       ) throw new Error(`VMM ACL removal validation failed for ${aclPath}`);
     }
   }
+  return restoredTargets;
 }
 
 /**

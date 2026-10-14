@@ -1,4 +1,5 @@
 import {
+  composeDeviceAcl,
   deviceAclArgument,
   describeDeviceAclShape,
   parseDeviceAcl,
@@ -46,6 +47,59 @@ describe('Cloud Hypervisor device ACLs', () => {
     expect(parseDeviceAcl(
       'user::rw-\ngroup::rw-\nmask::rw-\nother::rw-\n',
     )).toEqual(['user::rw-', 'group::rw-', 'mask::rw-', 'other::rw-']);
+  });
+
+  it.each([
+    {
+      name: 'earlier identity cleans first',
+      baseline: [
+        'user::rw-', 'user:1001:rw-', 'group::rw-', 'mask::rw-', 'other::---',
+      ],
+      current: [
+        'user::rw-', 'user:997:rw-', 'user:999:rw-', 'user:1001:rw-',
+        'group::rw-', 'mask::rw-', 'other::---',
+      ],
+      ownerUid: 999,
+      capturedTemporaryUids: [],
+      liveTemporaryUids: [997, 999],
+      expected: [
+        'user::rw-', 'user:997:rw-', 'user:1001:rw-',
+        'group::rw-', 'mask::rw-', 'other::---',
+      ],
+    },
+    {
+      name: 'later identity cleans after its captured peer is gone',
+      baseline: [
+        'user::rw-', 'user:999:rw-', 'user:1001:rw-',
+        'group::rw-', 'mask::rw-', 'other::---',
+      ],
+      current: [
+        'user::rw-', 'user:997:rw-', 'user:1001:rw-',
+        'group::rw-', 'mask::rw-', 'other::---',
+      ],
+      ownerUid: 997,
+      capturedTemporaryUids: [999],
+      liveTemporaryUids: [997],
+      expected: [
+        'user::rw-', 'user:1001:rw-',
+        'group::rw-', 'mask::rw-', 'other::---',
+      ],
+    },
+  ])('composes overlapping baselines when $name', ({
+    baseline,
+    current,
+    ownerUid,
+    capturedTemporaryUids,
+    liveTemporaryUids,
+    expected,
+  }) => {
+    expect(composeDeviceAcl(
+      baseline,
+      current,
+      ownerUid,
+      capturedTemporaryUids,
+      liveTemporaryUids,
+    )).toEqual(expected);
   });
 
   it.each([

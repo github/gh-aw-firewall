@@ -5,8 +5,10 @@ import { createDefaultIdentityDependencies } from '../identity-dependencies';
 import { withDirectoryLock, type DirectoryLockOwner } from '../microvm/directory-lock';
 import { resolveAndValidateVmmAccount } from '../vmm-account-validation';
 import {
+  composeDeviceAcl,
   describeDeviceAclShape,
   deviceAclArgument,
+  namedUserAclUid,
   parseDeviceAcl,
   sameDeviceAcl,
   type CloudHypervisorDevicePath,
@@ -41,7 +43,11 @@ export interface CloudHypervisorVmmIdentityToolPaths {
 export interface CloudHypervisorVmmIdentityObserver {
   prepareAccount(name: string): Promise<void>;
   captureIdentity(identity: CloudHypervisorVmmIdentity): Promise<void>;
-  prepareAcl(path: CloudHypervisorDevicePath, baseline: readonly string[]): Promise<void>;
+  prepareAcl(
+    path: CloudHypervisorDevicePath,
+    baseline: readonly string[],
+    temporaryUids: readonly number[],
+  ): Promise<void>;
   releaseAcl(path: CloudHypervisorDevicePath): Promise<void>;
 }
 
@@ -73,6 +79,7 @@ export class CloudHypervisorVmmIdentityManager {
   private provisionalAccountName: string | undefined;
   private readonly aclPaths = new Set<string>();
   private readonly aclBaselines = new Map<CloudHypervisorDevicePath, string[]>();
+  private readonly aclTemporaryUids = new Map<CloudHypervisorDevicePath, number[]>();
 
   constructor(
     private readonly runId: string,
@@ -219,7 +226,7 @@ export class CloudHypervisorVmmIdentityManager {
             `Refusing to remove reused Cloud Hypervisor VMM account ${identity.name}`,
           );
         }
-        await this.restoreDeviceAccessLocked();
+        const restoredTargets = await this.restoreDeviceAccessLocked();
         let deletionError: unknown;
         try {
           await this.removeValidatedAccountState(identity);
@@ -228,7 +235,7 @@ export class CloudHypervisorVmmIdentityManager {
         }
         let finalRestoreError: unknown;
         try {
-          await this.restoreDeviceAccessLocked();
+          await this.restoreDeviceAccessLocked(restoredTargets);
         } catch (error) {
           finalRestoreError = error;
         }
@@ -255,12 +262,18 @@ export class CloudHypervisorVmmIdentityManager {
         '--absolute-names', '--numeric', devicePath,
       ]);
       const baseline = parseDeviceAcl(before.stdout);
-      await this.observer?.prepareAcl(devicePath, baseline);
+      const temporaryUids = await resolveTemporaryVmmAclUids(
+        baseline,
+        this.tools,
+        this.dependencies.run,
+      );
+      await this.observer?.prepareAcl(devicePath, baseline, temporaryUids);
       await this.dependencies.run(this.tools.setfacl, [
         '--modify', `user:${identity.uid}:rw`, devicePath,
       ]);
       this.aclPaths.add(devicePath);
       this.aclBaselines.set(devicePath, baseline);
+      this.aclTemporaryUids.set(devicePath, temporaryUids);
       const { stdout } = await this.dependencies.run(this.tools.getfacl, [
         '--absolute-names', '--numeric', devicePath,
       ]);
@@ -270,25 +283,53 @@ export class CloudHypervisorVmmIdentityManager {
     }
   }
 
-  private async restoreDeviceAccessLocked(): Promise<void> {
+  private async restoreDeviceAccessLocked(
+    retainedTargets?: ReadonlyMap<CloudHypervisorDevicePath, readonly string[]>,
+  ): Promise<Map<CloudHypervisorDevicePath, string[]>> {
     const errors: unknown[] = [];
+    const restoredTargets = new Map<CloudHypervisorDevicePath, string[]>();
     for (const devicePath of [...this.aclPaths].reverse()) {
       try {
         const baseline = this.aclBaselines.get(devicePath as CloudHypervisorDevicePath);
         if (!baseline) {
           throw new Error(`Cloud Hypervisor VMM ACL baseline is missing for ${devicePath}`);
         }
+        const retainedTarget = retainedTargets?.get(
+          devicePath as CloudHypervisorDevicePath,
+        );
+        let restoredTarget: string[];
+        if (retainedTarget) {
+          restoredTarget = [...retainedTarget];
+        } else {
+          const currentResult = await this.dependencies.run(this.tools.getfacl, [
+            '--absolute-names', '--numeric', devicePath,
+          ]);
+          const current = parseDeviceAcl(currentResult.stdout);
+          const liveTemporaryUids = await resolveTemporaryVmmAclUids(
+            current,
+            this.tools,
+            this.dependencies.run,
+          );
+          restoredTarget = composeDeviceAcl(
+            baseline,
+            current,
+            this.requireIdentity().uid,
+            this.aclTemporaryUids.get(devicePath as CloudHypervisorDevicePath) ?? [],
+            liveTemporaryUids,
+          );
+        }
+        restoredTargets.set(devicePath as CloudHypervisorDevicePath, restoredTarget);
         await this.dependencies.run(this.tools.setfacl, [
-          `--set=${deviceAclArgument(baseline)}`, devicePath,
+          `--set=${deviceAclArgument(restoredTarget)}`, devicePath,
         ]);
         const { stdout } = await this.dependencies.run(this.tools.getfacl, [
           '--absolute-names', '--numeric', devicePath,
         ]);
         const restored = parseDeviceAcl(stdout);
-        if (!sameDeviceAcl(restored, baseline)) {
+        if (!sameDeviceAcl(restored, restoredTarget)) {
           throw new Error(
             `Cloud Hypervisor VMM ACL restoration failed for ${devicePath}: ` +
-            `before=${describeDeviceAclShape(baseline)} ` +
+            `before=${describeDeviceAclShape(restoredTarget)} ` +
             `after=${describeDeviceAclShape(restored)}`,
           );
         }
@@ -301,6 +342,7 @@ export class CloudHypervisorVmmIdentityManager {
         `Cloud Hypervisor VMM ACL cleanup failed: ${errors.map(formatError).join('; ')}`,
       );
     }
+    return restoredTargets;
   }
 
   private async releaseDeviceAclIntentLocked(): Promise<void> {
@@ -308,6 +350,7 @@ export class CloudHypervisorVmmIdentityManager {
       await this.observer?.releaseAcl(devicePath as CloudHypervisorDevicePath);
       this.aclPaths.delete(devicePath);
       this.aclBaselines.delete(devicePath as CloudHypervisorDevicePath);
+      this.aclTemporaryUids.delete(devicePath as CloudHypervisorDevicePath);
     }
   }
 
@@ -512,6 +555,63 @@ export class CloudHypervisorVmmIdentityManager {
     }
     await this.dependencies.rm(lockDirectory, { recursive: true, force: true });
   }
+}
+
+export async function resolveTemporaryVmmAclUids(
+  entries: readonly string[],
+  tools: Pick<CloudHypervisorVmmIdentityToolPaths, 'getent' | 'id'>,
+  run: CloudHypervisorVmmIdentityDependencies['run'],
+): Promise<number[]> {
+  const temporaryUids: number[] = [];
+  for (const entry of entries) {
+    const uid = namedUserAclUid(entry);
+    if (uid === undefined) continue;
+    let passwdResult: { stdout: string; stderr: string; exitCode?: number };
+    try {
+      passwdResult = await run(tools.getent, ['passwd', String(uid)]);
+    } catch (error) {
+      if ((error as { exitCode?: unknown }).exitCode === 2) continue;
+      throw error;
+    }
+    if (passwdResult.exitCode === 2) continue;
+    if (passwdResult.exitCode !== undefined && passwdResult.exitCode !== 0) {
+      throw new Error(
+        `Could not classify Cloud Hypervisor device ACL uid ${uid}: ` +
+        `${passwdResult.stderr.trim()}`,
+      );
+    }
+    const passwd = passwdResult.stdout.trim().split(':');
+    const name = passwd[0] ?? '';
+    if (!name.startsWith(ACCOUNT_PREFIX)) continue;
+    if (passwd[2] !== String(uid)) {
+      throw new Error(`Cloud Hypervisor device ACL account uid changed: ${name}`);
+    }
+    const identity = await resolveAndValidateVmmAccount({
+      name,
+      accountLabel: 'Cloud Hypervisor VMM',
+      tools,
+      run: async (command, args) => {
+        const result = await run(command, args) as {
+          stdout: string;
+          stderr: string;
+          exitCode?: number;
+        };
+        if (result.exitCode !== undefined && result.exitCode !== 0) {
+          throw Object.assign(new Error(result.stderr.trim()), { exitCode: result.exitCode });
+        }
+        return result;
+      },
+      parsePositiveInteger,
+      assertPasswdState: (fields) => {
+        if (!fields[4].startsWith('AWF Cloud Hypervisor')) throw new Error('invalid comment');
+      },
+    });
+    if (identity.uid !== uid) {
+      throw new Error(`Cloud Hypervisor device ACL account uid changed: ${name}`);
+    }
+    temporaryUids.push(uid);
+  }
+  return temporaryUids;
 }
 
 export function withCloudHypervisorDeviceAclLock<T>(

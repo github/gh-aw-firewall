@@ -46,3 +46,74 @@ export function describeDeviceAclShape(entries: readonly string[]): string {
     .join(',');
   return shape.length <= 512 ? shape : `${shape.slice(0, 509)}...`;
 }
+
+export function namedUserAclUid(entry: string): number | undefined {
+  const match = /^user:([0-9]+):[rwx-]{3}$/.exec(entry);
+  if (!match) return undefined;
+  const uid = Number(match[1]);
+  return Number.isSafeInteger(uid) && uid > 0 ? uid : undefined;
+}
+
+export function composeDeviceAcl(
+  baseline: readonly string[],
+  current: readonly string[],
+  ownerUid: number,
+  capturedTemporaryUids: readonly number[],
+  liveTemporaryUids: readonly number[],
+): string[] {
+  parseDeviceAcl(baseline.join('\n'));
+  parseDeviceAcl(current.join('\n'));
+  const capturedTemporary = new Set(capturedTemporaryUids);
+  const liveTemporary = new Set(liveTemporaryUids);
+  capturedTemporary.add(ownerUid);
+  liveTemporary.delete(ownerUid);
+
+  const durable = baseline.filter((entry) => {
+    const uid = namedUserAclUid(entry);
+    return uid === undefined || !capturedTemporary.has(uid);
+  });
+  const durableNamedUsers = new Map<number, string>();
+  for (const entry of durable) {
+    const uid = namedUserAclUid(entry);
+    if (uid !== undefined) durableNamedUsers.set(uid, entry);
+  }
+  const temporaryNamedUsers = new Map<number, string>();
+  for (const entry of current) {
+    const uid = namedUserAclUid(entry);
+    if (uid === undefined || uid === ownerUid) continue;
+    if (liveTemporary.has(uid)) {
+      temporaryNamedUsers.set(uid, entry);
+      continue;
+    }
+    if (!durableNamedUsers.has(uid)) {
+      throw new Error(`Cloud Hypervisor device ACL contains an unowned user ACE: ${uid}`);
+    }
+  }
+
+  const namedUsers = [
+    ...durableNamedUsers.entries(),
+    ...temporaryNamedUsers.entries(),
+  ].sort(([left], [right]) => left - right)
+    .map(([, entry]) => entry);
+  const withoutNamedUsers = durable.filter((entry) => namedUserAclUid(entry) === undefined);
+  const ownerIndex = withoutNamedUsers.findIndex((entry) => entry.startsWith('user::'));
+  const composed = [
+    ...withoutNamedUsers.slice(0, ownerIndex + 1),
+    ...namedUsers,
+    ...withoutNamedUsers.slice(ownerIndex + 1),
+  ];
+
+  if (temporaryNamedUsers.size > 0) {
+    const currentMask = current.find((entry) => entry.startsWith('mask::'));
+    const maskIndex = composed.findIndex((entry) => entry.startsWith('mask::'));
+    if (!currentMask) {
+      throw new Error('Cloud Hypervisor device ACL mask is missing for a live VMM ACE');
+    }
+    if (maskIndex >= 0) composed[maskIndex] = currentMask;
+    else {
+      const otherIndex = composed.findIndex((entry) => entry.startsWith('other::'));
+      composed.splice(otherIndex < 0 ? composed.length : otherIndex, 0, currentMask);
+    }
+  }
+  return parseDeviceAcl(composed.join('\n'));
+}

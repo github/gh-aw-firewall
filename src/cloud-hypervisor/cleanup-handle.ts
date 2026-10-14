@@ -105,6 +105,7 @@ export function createCleanupHandle(options: CleanupHandleFactoryOptions): Cloud
     prepareVmmAcl: async (
       aclPath: CloudHypervisorDevicePath,
       baseline: readonly string[],
+      temporaryUids: readonly number[] = [],
     ) => {
       if (!record.vmmIdentity || record.vmmIdentity.state !== 'live') {
         throw new Error('VMM cleanup identity is not committed before ACL grant');
@@ -117,10 +118,14 @@ export function createCleanupHandle(options: CleanupHandleFactoryOptions): Cloud
         record.vmmIdentity.aclPaths.push(aclPath);
         record.vmmIdentity.aclBaselines ??= {};
         record.vmmIdentity.aclBaselines[aclPath] = validatedBaseline;
+        record.vmmIdentity.aclTemporaryUids ??= {};
+        record.vmmIdentity.aclTemporaryUids[aclPath] = [...temporaryUids];
         await update();
       } else if (
         JSON.stringify(record.vmmIdentity.aclBaselines?.[aclPath]) !==
-        JSON.stringify(validatedBaseline)
+        JSON.stringify(validatedBaseline) ||
+        JSON.stringify(record.vmmIdentity.aclTemporaryUids?.[aclPath] ?? []) !==
+        JSON.stringify(temporaryUids)
       ) {
         throw new Error(`VMM ACL cleanup baseline changed for ${aclPath}`);
       }
@@ -134,6 +139,9 @@ export function createCleanupHandle(options: CleanupHandleFactoryOptions): Cloud
       record.vmmIdentity.aclPaths.splice(index, 1);
       if (record.vmmIdentity.aclBaselines) {
         delete record.vmmIdentity.aclBaselines[aclPath];
+      }
+      if (record.vmmIdentity.aclTemporaryUids) {
+        delete record.vmmIdentity.aclTemporaryUids[aclPath];
       }
       await update();
     },

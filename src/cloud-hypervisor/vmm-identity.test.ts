@@ -68,6 +68,9 @@ function dependencies(
         if (!groupExists) throw Object.assign(new Error('missing group'), { exitCode: 2 });
         return { stdout: `${accountName}:x:23002:\n`, stderr: '' };
       }
+      if (/^\d+$/.test(args[1]) && args[1] !== '23001') {
+        throw Object.assign(new Error('missing account'), { exitCode: 2 });
+      }
       return {
         stdout: `${accountName}:x:23001:23002:AWF Cloud Hypervisor:/nonexistent:/usr/sbin/nologin\n`,
         stderr: '',
@@ -151,6 +154,9 @@ async function cleanupFailureScenario(failure: CleanupFailure) {
       return { stdout: '23002\n', stderr: '' };
     }
     if (command === tools.getent && args[0] === 'passwd') {
+      if (/^\d+$/.test(args[1]) && args[1] !== '23001') {
+        throw Object.assign(new Error('missing account'), { exitCode: 2 });
+      }
       if (!accountExists) {
         throw Object.assign(new Error('missing account'), { exitCode: 2 });
       }
@@ -348,6 +354,9 @@ describe('CloudHypervisorVmmIdentityManager', () => {
         return { stdout: '23002\n', stderr: '' };
       }
       if (command === tools.getent && args[0] === 'passwd') {
+        if (/^\d+$/.test(args[1]) && args[1] !== '23001') {
+          throw Object.assign(new Error('missing account'), { exitCode: 2 });
+        }
         if (!accountExists) throw Object.assign(new Error('missing account'), { exitCode: 2 });
         return {
           stdout: `${accountName}:x:23001:23002:AWF Cloud Hypervisor:/nonexistent:/usr/sbin/nologin\n`,
@@ -412,7 +421,7 @@ describe('CloudHypervisorVmmIdentityManager', () => {
 
     expect(currentAcl).toEqual(runnerBaseline);
     expect(lockedCommands).toEqual([
-      'setfacl', 'getfacl',
+      'getfacl', 'setfacl', 'getfacl',
       'userdel', 'groupdel',
       'setfacl', 'getfacl',
     ]);

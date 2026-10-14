@@ -24,10 +24,20 @@ const baseline = [
   'other::rw-',
 ];
 
-function cleanupRecord(aclBaselines?: Record<'/dev/kvm', string[]>): CleanupRecord {
+function cleanupRecord(
+  aclBaselines?: Record<'/dev/kvm', string[]>,
+  options: {
+    runId?: string;
+    name?: string;
+    uid?: number;
+    gid?: number;
+    aclTemporaryUids?: Record<'/dev/kvm', number[]>;
+  } = {},
+): CleanupRecord {
+  const runId = options.runId ?? 'acl-recovery';
   return {
     version: 1,
-    runId: 'acl-recovery',
+    runId,
     owner: {
       pid: process.pid,
       startTime: '1',
@@ -39,19 +49,22 @@ function cleanupRecord(aclBaselines?: Record<'/dev/kvm', string[]>): CleanupReco
     },
     cloudHypervisorBinary: process.execPath,
     paths: {
-      runDirectory: '/run/awf-cloud-hypervisor/cloud-hypervisor/acl-recovery',
-      cgroupPath: '/sys/fs/cgroup/awf-cloud-hypervisor/acl-recovery',
-      virtiofsdShareDirectory: '/run/awf-cloud-hypervisor/virtiofsd/acl-recovery',
+      runDirectory: `/run/awf-cloud-hypervisor/cloud-hypervisor/${runId}`,
+      cgroupPath: `/sys/fs/cgroup/awf-cloud-hypervisor/${runId}`,
+      virtiofsdShareDirectory: `/run/awf-cloud-hypervisor/virtiofsd/${runId}`,
     },
     identities: {},
     processes: {},
     vmmIdentity: {
       state: 'live',
-      name: 'awfvmm-0123456789abcdef0123',
-      uid: 23001,
-      gid: 23002,
+      name: options.name ?? 'awfvmm-0123456789abcdef0123',
+      uid: options.uid ?? 23001,
+      gid: options.gid ?? 23002,
       aclPaths: ['/dev/kvm'],
       ...(aclBaselines ? { aclBaselines } : {}),
+      ...(options.aclTemporaryUids ? {
+        aclTemporaryUids: options.aclTemporaryUids,
+      } : {}),
     },
     mounts: [],
     updatedAt: new Date(0).toISOString(),
@@ -116,6 +129,9 @@ describe('Cloud Hypervisor durable VMM identity cleanup', () => {
         return { exitCode: 0, stdout: `${currentAcl.join('\n')}\n`, stderr: '' };
       }
       if (command === tools.getent && args[0] === 'passwd' && !accountDeleted) {
+        if (/^\d+$/.test(args[1]) && args[1] !== '23001') {
+          return { exitCode: 2, stdout: '', stderr: '' };
+        }
         return {
           exitCode: 0,
           stdout:
@@ -222,4 +238,131 @@ describe('Cloud Hypervisor durable VMM identity cleanup', () => {
       ['--remove', 'user:23001', '/dev/kvm'],
     );
   });
+
+  it.each([
+    ['earlier identity first', [999, 997]],
+    ['later identity first', [997, 999]],
+  ] as const)(
+    'preserves the exact runner baseline for two overlapping identities: %s',
+    async (_name, cleanupOrder) => {
+      const runnerUid = 1001;
+      const identities = new Map([
+        [999, {
+          runId: 'first-run',
+          name: 'awfvmm-11111111111111111111',
+          gid: 1999,
+          baseline: [
+            'user::rw-', `user:${runnerUid}:rw-`,
+            'group::rw-', 'mask::rw-', 'other::---',
+          ],
+          temporaryUids: [],
+        }],
+        [997, {
+          runId: 'second-run',
+          name: 'awfvmm-22222222222222222222',
+          gid: 1997,
+          baseline: [
+            'user::rw-', 'user:999:rw-', `user:${runnerUid}:rw-`,
+            'group::rw-', 'mask::rw-', 'other::---',
+          ],
+          temporaryUids: [999],
+        }],
+      ]);
+      const accountExists = new Map([[999, true], [997, true]]);
+      const groupExists = new Map([[999, true], [997, true]]);
+      let currentAcl = [
+        'user::rw-', 'user:997:rw-', 'user:999:rw-', `user:${runnerUid}:rw-`,
+        'group::rw-', 'mask::rw-', 'other::---',
+      ];
+      const run = jest.fn(async (command: string, args: readonly string[]) => {
+        if (command === tools.getfacl) {
+          return { exitCode: 0, stdout: `${currentAcl.join('\n')}\n`, stderr: '' };
+        }
+        if (command === tools.setfacl && args[0].startsWith('--set=')) {
+          currentAcl = args[0].slice('--set='.length).split(',');
+          return { exitCode: 0, stdout: '', stderr: '' };
+        }
+        if (command === tools.getent && args[0] === 'passwd') {
+          const query = args[1];
+          const entry = [...identities.entries()].find(([uid, identity]) =>
+            String(uid) === query || identity.name === query);
+          if (!entry || !accountExists.get(entry[0])) {
+            return { exitCode: 2, stdout: '', stderr: '' };
+          }
+          const [uid, identity] = entry;
+          return {
+            exitCode: 0,
+            stdout: `${identity.name}:x:${uid}:${identity.gid}:` +
+              `AWF Cloud Hypervisor ${identity.runId}:/nonexistent:/usr/sbin/nologin\n`,
+            stderr: '',
+          };
+        }
+        if (command === tools.getent && args[0] === 'group') {
+          const entry = [...identities.entries()].find(([, identity]) =>
+            identity.name === args[1]);
+          if (!entry || !groupExists.get(entry[0])) {
+            return { exitCode: 2, stdout: '', stderr: '' };
+          }
+          return {
+            exitCode: 0,
+            stdout: `${entry[1].name}:x:${entry[1].gid}:\n`,
+            stderr: '',
+          };
+        }
+        if (command === tools.id) {
+          const entry = [...identities.entries()].find(([, identity]) =>
+            identity.name === args[1]);
+          if (!entry || !accountExists.get(entry[0])) {
+            return { exitCode: 1, stdout: '', stderr: '' };
+          }
+          const [uid, identity] = entry;
+          return {
+            exitCode: 0,
+            stdout: `${args[0] === '-u' ? uid : identity.gid}\n`,
+            stderr: '',
+          };
+        }
+        if (command === tools.userdel) {
+          const entry = [...identities.entries()].find(([, identity]) =>
+            identity.name === args[0])!;
+          accountExists.set(entry[0], false);
+          currentAcl = ['user::rw-', 'group::rw-', 'mask::rw-', 'other::---'];
+          return { exitCode: 0, stdout: '', stderr: '' };
+        }
+        if (command === tools.groupdel) {
+          const entry = [...identities.entries()].find(([, identity]) =>
+            identity.name === args[0])!;
+          groupExists.set(entry[0], false);
+          return { exitCode: 0, stdout: '', stderr: '' };
+        }
+        throw new Error(`Unexpected command: ${command} ${args.join(' ')}`);
+      });
+      const resolved = dependencies(root, run);
+
+      for (const uid of cleanupOrder) {
+        const identity = identities.get(uid)!;
+        await deleteVmmIdentity(
+          resolved,
+          cleanupRecord(
+            { '/dev/kvm': identity.baseline },
+            {
+              runId: identity.runId,
+              name: identity.name,
+              uid,
+              gid: identity.gid,
+              aclTemporaryUids: { '/dev/kvm': identity.temporaryUids },
+            },
+          ),
+          tools,
+        );
+      }
+
+      expect(currentAcl).toEqual([
+        'user::rw-', `user:${runnerUid}:rw-`,
+        'group::rw-', 'mask::rw-', 'other::---',
+      ]);
+      expect(currentAcl).not.toContain('user:999:rw-');
+      expect(currentAcl).not.toContain('user:997:rw-');
+    },
+  );
 });

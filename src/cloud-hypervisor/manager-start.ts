@@ -135,7 +135,8 @@ export async function startCloudHypervisor(
     const vmmIdentityManager = dependencies.createVmmIdentity(paths.runId, vmmTools, {
       prepareAccount: (name) => cleanupRecord.prepareVmmAccount(name),
       captureIdentity: (identity) => cleanupRecord.captureVmmIdentity(identity),
-      prepareAcl: (aclPath, baseline) => cleanupRecord.prepareVmmAcl(aclPath, baseline),
+      prepareAcl: (aclPath, baseline, temporaryUids) =>
+        cleanupRecord.prepareVmmAcl(aclPath, baseline, temporaryUids),
       releaseAcl: (aclPath) => cleanupRecord.releaseVmmAcl(aclPath),
     });
     context.setVmmIdentity(vmmIdentityManager);
