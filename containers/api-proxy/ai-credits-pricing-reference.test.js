@@ -24,9 +24,12 @@ function compareCuratedPricing(curated) {
     }
 
     for (const rate of RATE_FIELDS) {
-      if (curatedPrice[rate] !== referencePrice[rate]) {
+      const referenceRate = rate === 'cachedInput' && referencePrice[rate] === undefined
+        ? 0
+        : referencePrice[rate];
+      if (curatedPrice[rate] !== referenceRate) {
         mismatches.push(
-          `${model} ${rate}: curated ${curatedPrice[rate]}, reference ${referencePrice[rate]}`,
+          `${model} ${rate}: curated ${curatedPrice[rate]}, reference ${referenceRate}`,
         );
       }
     }
