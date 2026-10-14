@@ -105,6 +105,70 @@ describe('cleanup identity primitives', () => {
             },
           };
         }, /cleanup VMM identity is malformed/],
+        ['bad-acl-temporary-path', (record) => {
+          record.vmmIdentity = {
+            state: 'live',
+            name: 'awfvmm-0123456789abcdef0123',
+            uid: 23001,
+            gid: 23002,
+            aclPaths: ['/dev/kvm'],
+            aclBaselines: {
+              '/dev/kvm': [
+                'user::rw-', 'user:22001:rw-',
+                'group::rw-', 'mask::rw-', 'other::---',
+              ],
+            },
+            aclTemporaryUids: { '/dev/net/tun': [22001] },
+          };
+        }, /cleanup VMM identity is malformed/],
+        ['bad-acl-temporary-list', (record) => {
+          record.vmmIdentity = {
+            state: 'live',
+            name: 'awfvmm-0123456789abcdef0123',
+            uid: 23001,
+            gid: 23002,
+            aclPaths: ['/dev/kvm'],
+            aclBaselines: {
+              '/dev/kvm': [
+                'user::rw-', 'user:22001:rw-',
+                'group::rw-', 'mask::rw-', 'other::---',
+              ],
+            },
+            aclTemporaryUids: { '/dev/kvm': '22001' },
+          };
+        }, /cleanup VMM identity is malformed/],
+        ['duplicate-acl-temporary-uid', (record) => {
+          record.vmmIdentity = {
+            state: 'live',
+            name: 'awfvmm-0123456789abcdef0123',
+            uid: 23001,
+            gid: 23002,
+            aclPaths: ['/dev/kvm'],
+            aclBaselines: {
+              '/dev/kvm': [
+                'user::rw-', 'user:22001:rw-',
+                'group::rw-', 'mask::rw-', 'other::---',
+              ],
+            },
+            aclTemporaryUids: { '/dev/kvm': [22001, 22001] },
+          };
+        }, /cleanup VMM identity is malformed/],
+        ['unmatched-acl-temporary-uid', (record) => {
+          record.vmmIdentity = {
+            state: 'live',
+            name: 'awfvmm-0123456789abcdef0123',
+            uid: 23001,
+            gid: 23002,
+            aclPaths: ['/dev/kvm'],
+            aclBaselines: {
+              '/dev/kvm': [
+                'user::rw-', 'user:22001:rw-',
+                'group::rw-', 'mask::rw-', 'other::---',
+              ],
+            },
+            aclTemporaryUids: { '/dev/kvm': [22002] },
+          };
+        }, /cleanup VMM identity is malformed/],
         ['bad-mount', (record) => {
           record.mounts = [{
             mountId: 0,

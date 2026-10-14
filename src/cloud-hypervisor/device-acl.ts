@@ -104,15 +104,12 @@ export function composeDeviceAcl(
   ];
 
   if (temporaryNamedUsers.size > 0) {
-    const currentMask = current.find((entry) => entry.startsWith('mask::'));
+    const currentMask = current.find((entry) => entry.startsWith('mask::'))!;
     const maskIndex = composed.findIndex((entry) => entry.startsWith('mask::'));
-    if (!currentMask) {
-      throw new Error('Cloud Hypervisor device ACL mask is missing for a live VMM ACE');
-    }
     if (maskIndex >= 0) composed[maskIndex] = currentMask;
     else {
       const otherIndex = composed.findIndex((entry) => entry.startsWith('other::'));
-      composed.splice(otherIndex < 0 ? composed.length : otherIndex, 0, currentMask);
+      composed.splice(otherIndex, 0, currentMask);
     }
   }
   return parseDeviceAcl(composed.join('\n'));

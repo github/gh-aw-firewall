@@ -102,6 +102,37 @@ describe('Cloud Hypervisor device ACLs', () => {
     )).toEqual(expected);
   });
 
+  it('adds a live peer mask to a baseline that had no named entries', () => {
+    expect(composeDeviceAcl(
+      ['user::rw-', 'group::r--', 'other::---'],
+      [
+        'user::rw-', 'user:997:rw-', 'user:999:rw-',
+        'group::r--', 'mask::rw-', 'other::---',
+      ],
+      999,
+      [],
+      [997, 999],
+    )).toEqual([
+      'user::rw-', 'user:997:rw-', 'group::r--', 'mask::rw-', 'other::---',
+    ]);
+  });
+
+  it('rejects a named ACE that is neither durable nor a live VMM peer', () => {
+    expect(() => composeDeviceAcl(
+      [
+        'user::rw-', 'user:1001:rw-',
+        'group::rw-', 'mask::rw-', 'other::---',
+      ],
+      [
+        'user::rw-', 'user:1001:rw-', 'user:2001:rw-',
+        'group::rw-', 'mask::rw-', 'other::---',
+      ],
+      999,
+      [],
+      [],
+    )).toThrow(/unowned user ACE: 2001/);
+  });
+
   it.each([
     ['missing base entry', 'user::rw-\ngroup::rw-'],
     ['named entry without mask', 'user::rw-\nuser:1000:rw-\ngroup::rw-\nother::---'],
