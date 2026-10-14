@@ -321,7 +321,10 @@ export class StagedHostMountTree {
       } catch (error) {
         if (!isBusyMountError(error)) throw error;
         const entries = await this.readExactOwnedMounts(target);
-        if (entries.some((entry) => remountOptionsSatisfied(entry, remountOptions))) return;
+        if (
+          entries.length === 1 &&
+          remountOptionsSatisfied(entries[0], remountOptions)
+        ) return;
         if (attempt === BUSY_RETRY_ATTEMPTS) throw error;
         await dependencies.sleep(BUSY_RETRY_INTERVAL_MS);
       }
