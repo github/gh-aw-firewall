@@ -420,6 +420,26 @@ Imported data can supply lower-confidence pricing or capabilities according to
 policy. It cannot establish first-party Copilot CLI availability, retirement,
 or replacement.
 
+AWF MUST use governed `models.dev` snapshots as the pricing fallback for
+inference providers without native AWF pricing support, including configured
+custom providers, when an applicable provider/model entry exists. This allows
+accounting without requiring a maintained pricing table or native pricing
+adapter for every inference provider. Higher-priority sources still win under
+the field-level precedence contract.
+
+Lookup preserves the `models.dev` provider identity and exact model scope,
+using explicit provider mappings or aliases where necessary. A matching model
+slug at a different provider is not a pricing match. Imported rates are
+normalized to the canonical accounting unit and tariff structure, retaining
+source revision, confidence, freshness, and per-component provenance.
+
+Using imported pricing does not add provider execution support or establish
+availability, harness compatibility, or wire compatibility. Missing or
+inapplicable prices remain unresolved and use the explicit unpriceable-model
+policy, never a silent zero price. Bundled snapshots and configured local or
+mirrored sources support this fallback without requiring runtime access to
+`models.dev`.
+
 ### Operator overlays
 
 Operator configuration can define deployment-specific:
@@ -864,10 +884,14 @@ The implementation includes:
     network requests in offline/local-only mode, and no default-endpoint
     contact after source replacement;
 20. central refresh accounting tests proving request-level tariff/revision
-    consistency and no retroactive repricing; and
+    consistency and no retroactive repricing;
 21. harness version boundary, prerelease, missing/unparsable version,
     execution-environment detection, explicit-request rejection, and
-    routing/fallback eligibility tests.
+    routing/fallback eligibility tests; and
+22. `models.dev` pricing for providers without native pricing support, including
+    exact provider/model matching, cross-provider collision rejection, unit and
+    tariff normalization, higher-priority overrides, missing-price handling,
+    provenance, and blocked-network operation.
 
 The #10029 and #10030 cases are named fixtures. They do not disappear into broad
 family tests.
@@ -923,6 +947,10 @@ source-partitioned caching, user-replaceable URL or local-snapshot sources,
 blocked-by-default feed assumptions, bounded offline/stale fallbacks, and
 request-level tariff revision tracking. Central updates include harness
 constraints and trigger eligibility re-evaluation before subsequent dispatch.
+
+Wire governed `models.dev` imports into provider-qualified pricing fallback for
+inference providers without native AWF pricing support, including custom
+providers, without requiring runtime access to the upstream catalogue.
 
 ### Gate 6: Reasoning and compatibility
 
