@@ -738,7 +738,7 @@ export function applyGeneralWorkflowPatches(
       log.push('  Enabled public enclave debug on the effective host AWF invocation');
     }
     // The compiler substitutes the repository retention variable even for custom uploads.
-    const upload = /(        name: Upload public enclave debug evidence\n(?:(?!      -)[^\n]*\n)*?          retention-days: )[^\n]+/;
+    const upload = /( {8}name: Upload public enclave debug evidence\n(?:(?! {6}-)[^\n]*\n)*? {10}retention-days: )[^\n]+/;
     if (!upload.test(content)) {
       throw new Error('Could not find the separate public enclave debug artifact retention');
     }
