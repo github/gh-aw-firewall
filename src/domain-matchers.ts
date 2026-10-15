@@ -169,11 +169,11 @@ export function parseUrlPatterns(patterns: string[]): string[] {
     hostPart = hostPart.replace(/\*/g, HOST_CHAR_PATTERN);
     pathPart = pathPart.replace(/\*/g, URL_CHAR_PATTERN);
 
+    // Restore preserved patterns using the wildcard class for their URL component.
+    hostPart = hostPart.replace(new RegExp(WILDCARD_PLACEHOLDER, 'g'), HOST_CHAR_PATTERN);
+    pathPart = pathPart.replace(new RegExp(WILDCARD_PLACEHOLDER, 'g'), URL_CHAR_PATTERN);
+
     p = hostPart + pathPart;
-
-    // Restore preserved patterns from placeholder
-    p = p.replace(new RegExp(WILDCARD_PLACEHOLDER, 'g'), URL_CHAR_PATTERN);
-
     // Anchor the pattern
     // If pattern ends with a wildcard char pattern, don't add end anchor
     if (p.endsWith(URL_CHAR_PATTERN) || p.endsWith(HOST_CHAR_PATTERN)) {

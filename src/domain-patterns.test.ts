@@ -588,4 +588,13 @@ describe('parseUrlPatterns', () => {
     expect(patterns[0]).not.toContain('\\.\\*');
     expect(new RegExp(patterns[0]).test('https://github.com/path/anything')).toBe(true);
   });
+
+  it('should prevent preserved hostname wildcards from matching path separators', () => {
+    const patterns = parseUrlPatterns(['https://.*.example.com/*']);
+    const regex = new RegExp(patterns[0]);
+
+    expect(patterns[0]).toBe(`^https://${HOST_CHAR_PATTERN}\\.example\\.com/${URL_CHAR_PATTERN}`);
+    expect(regex.test('https://api.example.com/path')).toBe(true);
+    expect(regex.test('https://evil.example/?x=.example.com/')).toBe(false);
+  });
 });
