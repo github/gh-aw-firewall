@@ -8,7 +8,7 @@ ARG OPENAPI_SHA256
 ARG PIP_INDEX_URL=https://pypi.org/simple
 LABEL org.opencontainers.image.title="gh-aw-router HTTP sidecar" \
     org.opencontainers.image.description="Stateless classification planning and model routing" \
-    org.opencontainers.image.source="https://github.com/githubnext/gh-aw-router" \
+    org.opencontainers.image.source="https://github.com/github/gh-aw-firewall" \
     org.opencontainers.image.revision="${VCS_REF}" \
     org.opencontainers.image.version="${VERSION}" \
     org.opencontainers.image.licenses="MIT" \
@@ -44,11 +44,9 @@ COPY routing /routing
 # Fails the build unless the label matches the shipped contract, so the label cannot drift from it.
 COPY openapi.yaml /app/openapi.yaml
 RUN printf '%s  /app/openapi.yaml\n' "${OPENAPI_SHA256}" | sha256sum --check --strict --quiet
-COPY LICENSE /usr/share/doc/gh-aw-router/LICENSE
 
 RUN find /app /routing -type d -exec chmod 0555 {} + \
-    && find /app /routing -type f -exec chmod 0444 {} + \
-    && chmod 0444 /usr/share/doc/gh-aw-router/LICENSE
+    && find /app /routing -type f -exec chmod 0444 {} +
 
 USER 10001:10001
 WORKDIR /home/gh-aw-router

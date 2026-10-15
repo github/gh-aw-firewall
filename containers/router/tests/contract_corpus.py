@@ -129,7 +129,7 @@ def source_identity(root: Path, *, development: bool) -> dict[str, Any]:
     git = shutil.which("git")
     source_sha = None
     dirty = None
-    if git is not None and (root / ".git").exists():
+    if git is not None and _inside_work_tree(git, root):
         revision = subprocess.run(  # noqa: S603
             [git, "rev-parse", "HEAD"],
             cwd=root,
@@ -138,8 +138,9 @@ def source_identity(root: Path, *, development: bool) -> dict[str, Any]:
             check=True,
             timeout=10,
         )
+        # The checkout can hold other projects; only changes under root affect the archive.
         status = subprocess.run(  # noqa: S603
-            [git, "status", "--porcelain=v1", "--untracked-files=all"],
+            [git, "status", "--porcelain=v1", "--untracked-files=all", "--", "."],
             cwd=root,
             capture_output=True,
             text=True,
@@ -151,6 +152,18 @@ def source_identity(root: Path, *, development: bool) -> dict[str, Any]:
     if not development and (source_sha is None or dirty is not False):
         raise ValueError("release provenance requires a clean, identified Git checkout")
     return {"sha": source_sha, "dirty": dirty, "development": development}
+
+
+def _inside_work_tree(git: str, root: Path) -> bool:
+    result = subprocess.run(  # noqa: S603
+        [git, "rev-parse", "--is-inside-work-tree"],
+        cwd=root,
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=10,
+    )
+    return result.stdout.strip() == "true"
 
 
 def export_archive(

@@ -4,7 +4,6 @@ version = "0.1.3"
 description = "Standalone classification planning and model routing service"
 readme = "README.md"
 license = "MIT"
-license-files = ["LICENSE"]
 requires-python = ">=3.12,<3.13"
 keywords = ["ai", "model-routing", "llm", "fastapi"]
 classifiers = [
@@ -26,9 +25,9 @@ dependencies = [
 gh-aw-router = "gh_aw_router.cli:main"
 
 [project.urls]
-Homepage = "https://github.com/githubnext/gh-aw-router"
-Issues = "https://github.com/githubnext/gh-aw-router/issues"
-Repository = "https://github.com/githubnext/gh-aw-router"
+Homepage = "https://github.com/github/gh-aw-firewall"
+Issues = "https://github.com/github/gh-aw-firewall/issues"
+Repository = "https://github.com/github/gh-aw-firewall"
 
 [build-system]
 requires = ["uv_build>=0.8.4,<0.13.0"]
@@ -38,12 +37,8 @@ build-backend = "uv_build"
 source-include = [
     ".dockerignore",
     ".gitattributes",
-    ".github/**",
     ".gitignore",
-    "CODE_OF_CONDUCT.md",
-    "CONTRIBUTING.md",
     "Dockerfile",
-    "SECURITY.md",
     "examples/**",
     "openapi.yaml",
     "requirements.lock",

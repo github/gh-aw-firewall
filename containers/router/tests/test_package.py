@@ -50,7 +50,7 @@ def test_package_metadata_matches_the_runtime() -> None:
     assert installed["Requires-Python"].replace(" ", "") == project["requires-python"]
     image_python = _dockerfile_value(dockerfile, r"\nFROM python:(\d+\.\d+\.\d+)-")
     assert image_python in SpecifierSet(project["requires-python"])
-    repository = "https://github.com/githubnext/gh-aw-router"
+    repository = "https://github.com/github/gh-aw-firewall"
     assert project["urls"] == {
         "Homepage": repository,
         "Issues": f"{repository}/issues",
@@ -122,33 +122,6 @@ def _dockerfile_value(dockerfile: str, pattern: str) -> str:
     match = re.search(pattern, dockerfile)
     assert match, pattern
     return match.group(1)
-
-
-def test_release_ci_pins_actions_and_covers_dependency_ecosystems() -> None:
-    workflow = yaml.safe_load((PROJECT_ROOT / ".github/workflows/ci.yml").read_bytes())
-    assert workflow["permissions"] == {"contents": "read"}
-    assert workflow["on"]["schedule"]
-    assert {"checks", "container", "advisories"} <= workflow["jobs"].keys()
-    assert "image-security" not in workflow["jobs"]
-    for job in workflow["jobs"].values():
-        for step in job["steps"]:
-            if "uses" in step:
-                assert re.fullmatch(r"[^@]+@[0-9a-f]{40}", step["uses"])
-    dependabot = yaml.safe_load((PROJECT_ROOT / ".github/dependabot.yml").read_bytes())
-    assert {item["package-ecosystem"] for item in dependabot["updates"]} == {
-        "github-actions",
-        "uv",
-        "docker",
-    }
-    docker_updates = next(
-        item for item in dependabot["updates"] if item["package-ecosystem"] == "docker"
-    )
-    assert docker_updates.get("ignore") == [
-        {
-            "dependency-name": "python",
-            "update-types": ["version-update:semver-major", "version-update:semver-minor"],
-        }
-    ]
 
 
 def test_package_declares_inline_type_information() -> None:
@@ -289,6 +262,16 @@ def test_contract_archive_distinguishes_clean_and_dirty_source(tmp_path: Path) -
         "dirty": True,
         "development": True,
     }
+    # A project inside a larger checkout ignores changes outside its own directory.
+    project = tmp_path / "containers" / "router"
+    project.mkdir(parents=True)
+    assert source_identity(project, development=False) == {
+        "sha": expected,
+        "dirty": False,
+        "development": False,
+    }
+    (project / "untracked.txt").write_text("changed", encoding="utf-8")
+    assert source_identity(project, development=True)["dirty"] is True
 
 
 @pytest.mark.release
@@ -323,7 +306,6 @@ def release_artifacts(tmp_path_factory: pytest.TempPathFactory) -> tuple[Path, P
     with zipfile.ZipFile(wheel) as package:
         names = package.namelist()
         assert "gh_aw_router/py.typed" in names
-        assert any(name.endswith("/licenses/LICENSE") for name in names)
         assert not any(name.startswith(("routing/", "tests/")) for name in names)
     with tarfile.open(archive) as source:
         names = source.getnames()
@@ -334,10 +316,6 @@ def release_artifacts(tmp_path_factory: pytest.TempPathFactory) -> tuple[Path, P
     for filename in (
         ".gitignore",
         ".gitattributes",
-        ".github/workflows/ci.yml",
-        "CONTRIBUTING.md",
-        "SECURITY.md",
-        "CODE_OF_CONDUCT.md",
         "README.md",
         "tests/contract_corpus.py",
         "tests/fixtures/routing-contract/classify-response.json",
