@@ -63,7 +63,7 @@ timeout-minutes: 20
 sandbox:
   agent:
     id: awf
-    version: v0.28.58
+    version: v0.28.59
     runtime: cloud-hypervisor
 strict: false
 concurrency:
@@ -139,13 +139,17 @@ single-use Cloud Hypervisor script enclave through the real compiler-launched
 MCP Gateway. The primary and every enclave invocation must use separate VMs;
 no Docker enclave fallback is permitted.
 
-The v0.28.58 published AWF release includes public-fixture debug capture (#9995),
+The v0.28.59 published AWF release includes redacted pre-agent visibility
+reason/status/transport diagnostics (#10009) and the safe early resolved-config
+publication follow-up (#10014), as well as public-fixture debug capture (#9995),
 durable host-executor
 diagnostics (#9955), bounded enclave MCP startup diagnostics (#9898),
 and the narrowly scoped official-main and tagged-workflow
 acceptance paths. The binary, Docker images, and release-attested primary and
 script enclave artifacts all select that release. This workflow is compiled
-with gh-aw v0.91.12 and does not publish a release or authorize a live run.
+with gh-aw v0.92.0 and does not publish a release or authorize a live run.
+This is diagnostic enablement, not a verified fix for the original host-executor
+launch failure; that failure remains untested with this release.
 The agent and built-in safe-outputs jobs have 20-minute timeouts; other
 generated jobs, including custom reporting, do not. GitHub Actions does not
 provide an enforceable 20-minute wall-clock limit for the entire workflow run.
@@ -163,6 +167,25 @@ debug artifact has one-day retention. These unredacted public-fixture logs are
 intentionally disclosed to Actions artifact readers; public-repository artifact
 access is not private or owner-only. No secret values or environment dumps are
 collected. A failure before debug capture starts produces only a status record.
+
+## Unresolved compiler collection dependency
+
+AWF v0.28.59 safely publishes early resolved configuration under
+`/run/awf-config-audit` and exports its path as `AWF_RESOLVED_CONFIG` through
+`GITHUB_ENV`. The normal audit compatibility JSON is published only after
+successful privileged cleanup. The pinned gh-aw v0.92.0 setup action
+(`github/gh-aw-actions` at `458b269006dcf88e3b5496b6fbecabe4b9a0f954`)
+redacts only `/tmp/gh-aw` and `${RUNNER_TEMP}/gh-aw`; the compiled artifact
+upload includes the old audit tree, not the new early path. Neither consumer
+uses `AWF_RESOLVED_CONFIG`, so evidence after failed cleanup remains incomplete.
+
+Keep this update draft until a verified compiler/actions contract supports
+both safe redaction and collection of that early artifact. Do not copy raw
+resolved JSON into normal artifact paths, disable redaction, or relax ownership
+or guest-mount protections. The separate bounded raw public-fixture artifact
+above is unchanged and does not close this collection gap.
+
+## Enclave invocation
 
 The enclave server is mounted as the `awf-enclave` CLI command on `PATH`,
 not as a direct MCP tool. Make exactly one enclave call from shell/Bash:
@@ -220,7 +243,7 @@ remain visible in workflow status, summaries, logs, and artifacts.
 ## Usage
 
 After this update merges to `main`, the reviewed official workflow can manually
-test the independently pinned published v0.28.58 release. That release contains
+test the independently pinned published v0.28.59 release. That release contains
 the official-main acceptance policy merged in #9878, so the installed host
 binary authorizes this path without requiring the workflow to run from the
 artifact release tag. A live run still requires separate explicit authorization;
@@ -253,16 +276,17 @@ Both paths enforce strict fail-closed constraints:
 
 ### Remaining manual dispatch prerequisite
 
-Merge this reviewed workflow update to `main` and obtain separate live-run
+First resolve the compiler collection dependency above. Then merge this
+reviewed workflow update to `main` and obtain separate live-run
 authorization. No further release or retag is required: the binary, images,
-and attested artifacts are pinned to the policy-containing published v0.28.58.
-Only after both prerequisites are satisfied, dispatch with:
+and attested artifacts are pinned to the policy-containing published v0.28.59.
+Only after all prerequisites are satisfied, dispatch with:
 
 ```bash
 gh aw run smoke-enclave-cloud-hypervisor --ref main
 ```
 
-Do not retag v0.28.58 or bypass the acceptance gate. The runner must be
+Do not retag v0.28.59 or bypass the acceptance gate. The runner must be
 GitHub-hosted Ubuntu x86_64 with KVM. Use the real mcpg and AWF artifacts
 captured by the compiled workflow to investigate failures; this test does not
 use the standalone probe's mock gateway.
