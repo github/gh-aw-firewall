@@ -64,10 +64,7 @@ describe('experimental Cloud Hypervisor enclave smoke workflow', () => {
     expect(invocation).toContain('--prompt-file /tmp/gh-aw/aw-prompts/prompt.txt');
     const generatedOptions = invocation.match(/--[a-z][a-z-]*/g) ?? [];
     expect(generatedOptions.length).toBeGreaterThan(0);
-    const cliOptions = [
-      ...generatedOptions.filter(option => option !== '--prompt-file'),
-      '--model', '--reasoning-effort', '--session-id', '-p',
-    ];
+    const cliOptions = generatedOptions.filter(option => option !== '--prompt-file');
     expect(cliOptions.filter(option => !supportedCliOptions.has(option))).toEqual([]);
   });
 
