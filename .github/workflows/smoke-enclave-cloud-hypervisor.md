@@ -151,12 +151,21 @@ diagnostics (#9955), bounded enclave MCP startup diagnostics (#9898),
 and the narrowly scoped official-main and tagged-workflow
 acceptance paths. The binary, Docker images, and release-attested primary and
 script enclave artifacts all select that release. This workflow is compiled
-with gh-aw v0.92.0 and does not publish a release or authorize a live run.
+with the user-selected local `/Users/lpcox/projects/gh-aw/gh-aw` binary, reporting
+`gh-aw/work-queue/5eb4c298ecba515924d30bd7989113dd79d7d421-14-g7dc6abab7a-dirty`,
+and pins `github/gh-aw/actions/setup` to
+`0abe2d9b233658150bc05ea968f1736b94093cf7`. The action ref selects runtime
+scripts, not the local compiler build. That premerge commit contains the
+scanner-generation fixes from github/gh-aw#69079; its two implementation blobs
+match the squash merge, although it is not a descendant of that merge.
+The binary reports build revision `7dc6abab7ad723cd98f18b5c521d896ed7ffcdc7`
+and modified source; this metadata does not establish its exact build source.
+This update does not publish a release or authorize a live run.
 This is diagnostic enablement, not a verified fix for the original host-executor
 launch failure; that failure remains untested with this release.
-Copilot CLI is independently pinned to 1.0.96, the pinned gh-aw v0.92.0
-installer's default. Its help advertises every generated CLI option and the
-harness-added `--session-id` used for model verification; 1.0.34 rejects that
+Copilot CLI remains independently pinned to 1.0.96. Its help advertises every
+generated CLI option and the harness-added `--session-id` used for model
+verification; 1.0.34 rejects that
 option before the agent can invoke an enclave. Credential-free offline argument
 checks do not verify a live smoke run or the original enclave launch failure.
 The pinned model-verification harness updates `/tmp/gh-aw/aw_info.json` in
@@ -193,8 +202,8 @@ collected. A failure before debug capture starts produces only a status record.
 AWF v0.28.59 safely publishes early resolved configuration under
 `/run/awf-config-audit` and exports its path as `AWF_RESOLVED_CONFIG` through
 `GITHUB_ENV`. The normal audit compatibility JSON is published only after
-successful privileged cleanup. The pinned gh-aw v0.92.0 setup action
-(`github/gh-aw-actions` at `458b269006dcf88e3b5496b6fbecabe4b9a0f954`)
+successful privileged cleanup. The selected setup action
+(`github/gh-aw/actions/setup` at `0abe2d9b233658150bc05ea968f1736b94093cf7`)
 redacts only the framework-managed AWF temp root and `${RUNNER_TEMP}/gh-aw`; the
 compiled artifact upload includes the old audit tree, not the new early path.
 Neither consumer uses `AWF_RESOLVED_CONFIG`, so evidence after failed cleanup
@@ -205,6 +214,15 @@ both safe redaction and collection of that early artifact. Do not copy raw
 resolved JSON into normal artifact paths, disable redaction, or relax ownership
 or guest-mount protections. The separate bounded raw public-fixture artifact
 above is unchanged and does not close this collection gap.
+
+Compile-only dry-run validation now passes actionlint and shellcheck, including
+the formerly invalid empty environment and removed daily-credit output
+references. Its scanner gate still fails: zizmor flags the premerge setup ref
+as `impostor-commit`, its SHA-only version comments, and activation secret
+references without a dedicated environment. The ref is the head of merged
+github/gh-aw#69079, but is not on a current branch or tag; commit existence and
+matching fix blobs do not make the scanner gate pass. These findings are not
+suppressed, and this update does not change environment or approval policy.
 
 ## Enclave invocation
 
