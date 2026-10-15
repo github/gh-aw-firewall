@@ -6,6 +6,9 @@ import { execFileSync } from 'child_process';
 
 const harness = fs.readFileSync(path.join(__dirname, 'nvx-phase4-campaign-runtime.sh'), 'utf8');
 const identityCode = harness.split("<<'IDENTITY'\n")[1].split('\nIDENTITY')[0];
+const workloadCode = harness
+  .split("cat > \"$workspace_dir/workload.sh\" <<'EOF'\n")[1]
+  .split('\nEOF')[0];
 
 function extractShellFunction(name: string): string {
   const start = harness.indexOf(`${name}() {`);
@@ -359,6 +362,43 @@ describe('Phase 4 campaign runtime evidence', () => {
     );
     expect(workload).not.toContain('<<<');
     expect(workload).not.toContain('guest_pids_evidence=$(');
+  });
+
+  it.each([
+    ['nvx', 128],
+    ['nvx', 256],
+    ['nvx', 512],
+    ['cloud-hypervisor', 128],
+    ['cloud-hypervisor', 256],
+    ['cloud-hypervisor', 512],
+  ])('uses POSIX direct PID evidence collection for %s profile %s', (runtime, profilePidsMax) => {
+    expect(() => execFileSync('sh', ['-n'], { input: workloadCode })).not.toThrow();
+    const start = workloadCode.indexOf('guest_pids_max=\n');
+    const end = workloadCode.indexOf('scratch_before_bytes=', start);
+    const evidenceBlock = workloadCode.slice(start, end);
+    const output = execFileSync('sh', ['-c', `
+      reader_called=false
+      read_nvx_guest_pids_evidence() {
+        reader_called=true
+        printf '%s %s %s %s\\n' "$2" "$(($2 + 1))" "$(($2 * 2))" "$(($2 - 2))"
+      }
+      AWF_PHASE4_RUNTIME=$1
+      AWF_PHASE4_PROFILE_PIDS_MAX=$2
+      ${evidenceBlock}
+      printf '%s|%s|%s|%s|%s' "$reader_called" "$guest_pids_max" \
+        "$guest_kernel_pids_max" "$guest_probe_target" "$guest_probe_started"
+    `, '-', runtime, String(profilePidsMax)], { encoding: 'utf8' });
+    if (runtime === 'nvx') {
+      expect(output).toBe(
+        `true|${profilePidsMax}|${profilePidsMax + 1}|${profilePidsMax * 2}|${profilePidsMax - 2}`,
+      );
+    } else {
+      expect(output).toBe('false||||');
+    }
+    expect(evidenceBlock).not.toContain('<<<');
+    expect(evidenceBlock).not.toContain('guest_pids_evidence=$(');
+    expect(evidenceBlock).toContain('>"$guest_pids_evidence_file"');
+    expect(evidenceBlock).toContain('<"$guest_pids_evidence_file"');
   });
 
   it.each([

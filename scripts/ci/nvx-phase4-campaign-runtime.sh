@@ -468,11 +468,11 @@ guest_kernel_pids_max=
 guest_probe_target=
 guest_probe_started=
 if [ "$AWF_PHASE4_RUNTIME" = nvx ]; then
-  guest_pids_evidence_file=/tmp/nvx-pids-evidence
+  guest_pids_evidence_file="/tmp/nvx-pids-evidence-$$"
   read_nvx_guest_pids_evidence \
     /proc/cmdline "$AWF_PHASE4_PROFILE_PIDS_MAX" /tmp/nvx-pids-probe-started \
     >"$guest_pids_evidence_file"
-  read -r guest_pids_max guest_kernel_pids_max \
+  IFS=' ' read -r guest_pids_max guest_kernel_pids_max \
     guest_probe_target guest_probe_started <"$guest_pids_evidence_file"
   rm -f "$guest_pids_evidence_file"
 fi
