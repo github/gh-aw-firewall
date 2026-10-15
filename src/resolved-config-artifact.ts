@@ -100,6 +100,7 @@ export function publishEarlyResolvedConfig(contents: string): string {
     }
     if (created) fs.fchmodSync(rootFd, 0o711);
     const allocated = fs.mkdtempSync(`/proc/self/fd/${rootFd}/run-`);
+    fs.chmodSync(allocated, 0o700);
     const name = path.basename(allocated);
     directoryFd = fs.openSync(allocated, fs.constants.O_RDONLY | fs.constants.O_DIRECTORY | fs.constants.O_NOFOLLOW);
     fs.fchmodSync(directoryFd, 0o700);
