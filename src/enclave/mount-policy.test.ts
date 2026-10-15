@@ -13,6 +13,7 @@ import { resolveEnclavePaths } from './paths';
 import { normalizeEnclavesConfig } from '../parsers/enclave-parser';
 import { HOST_EXECUTOR_STORAGE_ROOT } from './host-executor-journal';
 import { ENCLAVE_DEBUG_ARTIFACT_ROOT } from './public-debug';
+import { RESOLVED_CONFIG_PUBLICATION_ROOT } from '../resolved-config-artifact';
 
 function config(workDir: string, volumeMounts?: string[]): WrapperConfig {
   return { workDir, volumeMounts } as WrapperConfig;
@@ -73,6 +74,18 @@ describe('enclave private-root mount policy', () => {
     expect(() => assertPersistentDebugArtifactsIsolated(primary, {}, process.cwd())).toThrow(/overlaps/);
     expect(() => assertCloudHypervisorEnclaveExportsIsolated(primary, [{
       tag: 'debug', source, target: '/debug', mode: 'ro',
+    }])).toThrow(/private or recovery state/);
+  });
+
+  it.each([
+    RESOLVED_CONFIG_PUBLICATION_ROOT,
+    '/run',
+    `${RESOLVED_CONFIG_PUBLICATION_ROOT}/run-example`,
+  ])('rejects caller-owned config publications exposed by a guest export: %s', (source) => {
+    const primary = config(workDir, [`${source}:/config:ro`]);
+    expect(() => assertPersistentDebugArtifactsIsolated(primary, {}, process.cwd())).toThrow(/overlaps/);
+    expect(() => assertCloudHypervisorEnclaveExportsIsolated(primary, [{
+      tag: 'config', source, target: '/config', mode: 'ro',
     }])).toThrow(/private or recovery state/);
   });
 

@@ -32,6 +32,7 @@ export function buildExclusionSet(config: WrapperConfig): Set<string> {
     'AWF_ENCLAVE_GITHUB_DELEGATION_CONTROL_CAPABILITY',
     'AWF_ENCLAVE_GITHUB_DELEGATION_CONTROL_ENDPOINT',
     'AWF_ROUTING_CONFIG',
+    'AWF_RESOLVED_CONFIG',
   ]);
 
   if (config.enableApiProxy) {

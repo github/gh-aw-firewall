@@ -224,12 +224,38 @@ evidence. An artifact write failure is surfaced as an executor cleanup failure,
 not a successful invocation. Abrupt host termination/SIGKILL cannot guarantee
 collection; existing resource-recovery rules still apply.
 
-Before startup, the resolved configuration audit artifact is handed to the
-sudo runner at `0600` (with its audit directory traversable by that owner), so
-the runner can read and rewrite it for secret redaction even if fatal cleanup
-stops to preserve recovery state. This is not a recursive ownership or mode
-repair: private control/recovery data and the raw debug artifacts remain
-protected. An absent `enclave.jsonl` when containers never started is not
+Before startup on privileged Linux hosts, the resolved configuration is
+published as `/run/awf-config-audit/run-*/awf-resolved-config.json`.
+The root-controlled `0711` publication root is outside the guest's writable
+`/tmp` export; overlapping custom mounts and VM exports are rejected.
+Only the fresh per-run directory (`0700`) and JSON (`0600`) are handed to the
+actual sudo caller, including valid root or low UID/GID callers. No subsequent
+privileged writer touches that publication. The shared audit destination is
+not chowned, and private workDir, control/recovery data and raw debug artifacts
+are not opened or permission-widened.
+
+The path is logged and exported as `AWF_RESOLVED_CONFIG` through `GITHUB_ENV`
+when available, before startup/cleanup can fail. Collectors must explicitly
+include this variable's path in **both redaction and artifact collection**.
+The host-only variable is excluded from sandbox environment forwarding; the
+export does not create or widen permissions on runner command files.
+Existing gh-aw compilers that collect only the configured audit tree do not
+automatically collect this early publication; updating that upstream contract
+is still required for fail-closed cleanup failures. An environment export
+alone does not change those compilers' collection globs. The caller can read,
+rewrite, atomically replace and remove the isolated file without traversing
+private state. Publications survive failed cleanup and must be removed by the
+host runner after collection.
+
+After successful cleanup finishes all privileged audit writers, a separate
+`awf-resolved-config.json` compatibility snapshot is exclusively created in the
+final audit tree and only that file is handed off. This snapshot is absent
+when cleanup fails or `--keep-containers` is used. Non-Linux/unprivileged hosts
+cannot allocate the root-controlled early publication and emit a warning.
+Final config and iptables publication reject existing files (including links)
+rather than overwriting them; unsafe destinations warn and preservation is
+reported as incomplete.
+An absent `enclave.jsonl` when containers never started is not
 evidence of an enclave invocation; retain the startup exit marker separately.
 Release-pinned workflows need an AWF release containing these diagnostics and
 handoff changes before they can use them.

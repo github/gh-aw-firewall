@@ -23,7 +23,11 @@ import { runMainWorkflow } from '../cli-workflow';
 import { deriveSensitiveEndpointForms, redactSecrets, redactSensitiveValues } from '../redact-secrets';
 import { joinShellArgs } from '../option-parsers';
 import { assertRealDirectory, writeFileNoFollow } from '../fs-utils';
-import { getSafeHostGid, getSafeHostUid } from '../host-identity';
+import {
+  exportResolvedConfigPath,
+  publishEarlyResolvedConfig,
+  publishFinalResolvedConfig,
+} from '../resolved-config-artifact';
 import { applyConfigFilePrecedence } from './preflight';
 import { registerSignalHandlers } from './signal-handler';
 import { validateOptions } from './validate-options';
@@ -86,6 +90,7 @@ const SENSITIVE_CONFIG_KEYS = new Set([
 ]);
 
 const REFLECT_COMMAND = 'curl --fail --silent --show-error --noproxy "*" http://api-proxy:10000/reflect';
+const resolvedConfigSnapshots = new WeakMap<WrapperConfig, string>();
 
 function findRoutingFailure(error: unknown): RoutingFailureExitError | undefined {
   const seen = new Set<unknown>();
@@ -125,34 +130,10 @@ function persistConfigAuditArtifact(
   redactedConfig: Record<string, unknown>,
 ): void {
   try {
-    const configArtifactDir = config.auditDir || path.join(config.workDir, 'audit');
-    fs.mkdirSync(configArtifactDir, { recursive: true, mode: 0o700 });
-    assertRealDirectory(configArtifactDir);
-    const owner = process.getuid?.() === 0 && process.env.SUDO_UID
-      ? { uid: Number(getSafeHostUid()), gid: Number(getSafeHostGid()) } : undefined;
-    // Cleanup can intentionally stop before generic artifact permission repair.
-    // Hand this runner diagnostic off now, without exposing private recovery state.
-    if (owner) {
-      const directoryFd = fs.openSync(configArtifactDir,
-        fs.constants.O_RDONLY | fs.constants.O_DIRECTORY | fs.constants.O_NOFOLLOW);
-      try {
-        if (!fs.fstatSync(directoryFd).isDirectory()) throw new Error('Unsafe audit directory');
-        fs.fchownSync(directoryFd, owner.uid, owner.gid);
-      } finally {
-        fs.closeSync(directoryFd);
-      }
-    }
-    const configArtifactPath = path.join(configArtifactDir, 'awf-resolved-config.json');
-    const fd = fs.openSync(configArtifactPath, 'wx', 0o600);
-    try {
-      const stat = fs.fstatSync(fd);
-      if (!stat.isFile() || stat.nlink !== 1) throw new Error('Unsafe resolved config artifact');
-      fs.writeFileSync(fd, JSON.stringify(redactedConfig, null, 2) + '\n');
-      fs.fsyncSync(fd);
-      if (owner) fs.fchownSync(fd, owner.uid, owner.gid);
-    } finally {
-      fs.closeSync(fd);
-    }
+    const contents = JSON.stringify(redactedConfig, null, 2) + '\n';
+    resolvedConfigSnapshots.set(config, contents);
+    const file = publishEarlyResolvedConfig(contents);
+    exportResolvedConfigPath(file);
   } catch (err) {
     logger.warn('Failed to publish resolved config artifact:', err);
   }
@@ -465,6 +446,16 @@ async function runCleanup(
       config.images,
       config.tokenLogDir,
     );
+    const resolvedConfigSnapshot = resolvedConfigSnapshots.get(config);
+    if (!externalRuntimeCleanupError && resolvedConfigSnapshot !== undefined) {
+      const finalAuditDir = config.auditDir ||
+        path.join(os.tmpdir(), `awf-audit-${path.basename(config.workDir).replace('awf-', '')}`);
+      try {
+        publishFinalResolvedConfig(finalAuditDir, resolvedConfigSnapshot);
+      } catch (error) {
+        logger.warn('Failed to publish finalized resolved config artifact:', error);
+      }
+    }
     // Note: We don't remove the firewall network here since it can be reused
     // across multiple runs. Cleanup script will handle removal if needed.
   } else {

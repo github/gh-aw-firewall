@@ -12,6 +12,7 @@ jest.mock('../docker-manager');
 jest.mock('../host-iptables');
 jest.mock('../cli-workflow');
 jest.mock('../redact-secrets');
+jest.mock('../resolved-config-artifact');
 jest.mock('../option-parsers');
 jest.mock('../dind-probe');
 jest.mock('../dind-bootstrap');
@@ -40,6 +41,7 @@ import * as dockerManager from '../docker-manager';
 import * as hostIptables from '../host-iptables';
 import * as cliWorkflow from '../cli-workflow';
 import * as redactSecrets from '../redact-secrets';
+import { publishEarlyResolvedConfig } from '../resolved-config-artifact';
 import * as optionParsers from '../option-parsers';
 import * as dindProbe from '../dind-probe';
 import * as dindBootstrap from '../dind-bootstrap';
@@ -156,8 +158,8 @@ describe('createMainAction', () => {
         expect.anything(),
         expect.anything(),
       );
-      const persistedConfig = mockWriteFileSync.mock.calls
-        .map((call) => String(call[1]))
+      const persistedConfig = jest.mocked(publishEarlyResolvedConfig).mock.calls
+        .map((call) => call[0])
         .find((contents) => contents.includes('"allowedDomains"'));
       expect(persistedConfig).toBeDefined();
       expect(persistedConfig).not.toContain('"containerRuntime": "cloud-hypervisor"');
@@ -1272,7 +1274,7 @@ describe('createMainAction', () => {
 
     afterEach(() => jest.restoreAllMocks());
 
-    it('writes awf-resolved-config.json to audit dir when set', async () => {
+    it('publishes independently of the shared audit directory', async () => {
       const configWithAudit = {
         ...MAIN_ACTION_STUB_CONFIG,
         auditDir: '/tmp/awf-audit',
@@ -1283,18 +1285,9 @@ describe('createMainAction', () => {
       const action = createMainAction(getOptionValueSource);
       await action(['echo hi'], {});
 
-      expect(mockMkdirSync).toHaveBeenCalledWith('/tmp/awf-audit', { recursive: true, mode: 0o700 });
-      expect(mockOpenSync).toHaveBeenCalledWith('/tmp/awf-audit/awf-resolved-config.json', 'wx', 0o600);
-      expect(mockWriteFileSync).toHaveBeenCalledWith(
-        42,
-        expect.stringContaining('"allowedDomains"'),
-      );
-      // Verify secret key names are excluded from the artifact
-      const written = mockWriteFileSync.mock.calls.find(
-        (c) => typeof c[0] === 'number'
-      );
-      expect(written).toBeDefined();
-      const writtenJson = String(written![1]);
+      expect(publishEarlyResolvedConfig).toHaveBeenCalledWith(expect.stringContaining('"allowedDomains"'));
+      const calls = jest.mocked(publishEarlyResolvedConfig).mock.calls;
+      const writtenJson = calls[calls.length - 1][0];
       expect(writtenJson).not.toContain('ApiKey');
       expect(writtenJson).not.toContain('GithubToken');
     });
@@ -1317,29 +1310,20 @@ describe('createMainAction', () => {
       const action = createMainAction(getOptionValueSource);
       await action(['echo hi'], {});
 
-      const written = mockWriteFileSync.mock.calls.find(
-        (c) => typeof c[0] === 'number'
-      );
-      expect(written).toBeDefined();
-      const writtenJson = String(written![1]);
+      const calls = jest.mocked(publishEarlyResolvedConfig).mock.calls;
+      const writtenJson = calls[calls.length - 1][0];
       expect(writtenJson).not.toContain(secretValue);
       expect(writtenJson).toContain('[REDACTED]');
     });
 
-    it('falls back to workDir/audit when auditDir is not set', async () => {
+    it('does not place the early artifact beneath a private workDir', async () => {
       mockedValidateOptions.validateOptions.mockReturnValue(MAIN_ACTION_STUB_CONFIG);
       const action = createMainAction(getOptionValueSource);
       await action(['echo hi'], {});
 
-      expect(mockOpenSync).toHaveBeenCalledWith(
-        '/synthetic/awf-test/audit/awf-resolved-config.json',
-        'wx',
-        0o600,
-      );
-      expect(mockWriteFileSync).toHaveBeenCalledWith(
-        42,
-        expect.any(String),
-      );
+      expect(publishEarlyResolvedConfig).toHaveBeenCalledWith(expect.any(String));
+      expect(mockOpenSync).not.toHaveBeenCalledWith(
+        '/synthetic/awf-test/audit/awf-resolved-config.json', 'wx', 0o600);
     });
   });
 
@@ -1393,7 +1377,7 @@ describe('createMainAction', () => {
     });
 
     it('persistConfigAuditArtifact warns when publishing the artifact fails', () => {
-      mockMkdirSync.mockImplementationOnce(() => {
+      jest.mocked(publishEarlyResolvedConfig).mockImplementationOnce(() => {
         throw new Error('write failed');
       });
 

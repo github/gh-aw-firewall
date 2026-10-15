@@ -13,6 +13,7 @@ import { resolveEnclavePaths } from './enclave/paths';
 import { ENCLAVE_MCP_SERVER_CONTAINER_NAME } from './constants';
 import { resolveRunnerVisibleHostPath } from './services/host-path-prefix';
 import { getStartupDiagnosticPath } from './logs/startup-diagnostics';
+import { openArtifactDirectory } from './resolved-config-artifact';
 
 const ENCLAVE_SESSION_DIR = 'sessions';
 const ENCLAVE_AUDIT_FILES = [
@@ -37,11 +38,22 @@ export function preserveIptablesAudit(
 
   if (fs.existsSync(iptablesAuditSrc)) {
     try {
-      fs.copyFileSync(iptablesAuditSrc, path.join(targetAuditDir, 'iptables-audit.txt'));
-      fs.chmodSync(path.join(targetAuditDir, 'iptables-audit.txt'), 0o644);
+      const directoryFd = openArtifactDirectory(targetAuditDir);
+      try {
+        const fd = fs.openSync(`/proc/self/fd/${directoryFd}/iptables-audit.txt`, 'wx', 0o600);
+        try {
+          fs.writeFileSync(fd, fs.readFileSync(iptablesAuditSrc));
+          fs.fchmodSync(fd, 0o644);
+        } finally {
+          fs.closeSync(fd);
+        }
+      } finally {
+        fs.closeSync(directoryFd);
+      }
       logger.debug('Copied iptables audit state to audit directory');
     } catch (error) {
-      logger.debug('Could not copy iptables audit file:', error);
+      complete = false;
+      logger.warn('Could not safely preserve iptables audit file:', error);
     }
   }
 

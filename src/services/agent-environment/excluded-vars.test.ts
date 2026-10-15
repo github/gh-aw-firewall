@@ -64,6 +64,7 @@ describe('buildExclusionSet', () => {
       expect(set.has('AWF_PREFLIGHT_BINARY')).toBe(true);
       expect(set.has('AWF_STAGED_RUNNER_BINARY_NAME')).toBe(true);
       expect(set.has('AWF_GEMINI_ENABLED')).toBe(true);
+      expect(set.has('AWF_RESOLVED_CONFIG')).toBe(true);
       expect(set.has('MCP_GATEWAY_HOST_DOMAIN')).toBe(true);
     });
 

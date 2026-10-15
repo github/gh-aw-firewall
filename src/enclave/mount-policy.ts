@@ -11,6 +11,7 @@ import type { CloudHypervisorDirectoryExport } from '../cloud-hypervisor/exports
 import { resolveEnclavePaths } from './paths';
 import { HOST_EXECUTOR_STORAGE_ROOT } from './host-executor-journal';
 import { ENCLAVE_DEBUG_ARTIFACT_ROOT } from './public-debug';
+import { RESOLVED_CONFIG_PUBLICATION_ROOT } from '../resolved-config-artifact';
 
 interface VisiblePath {
   label: string;
@@ -201,20 +202,22 @@ export function assertPersistentDebugArtifactsIsolated(
   env: NodeJS.ProcessEnv = process.env,
   cwd = process.cwd(),
 ): void {
-  const debugRoot = resolvePathThroughExistingAncestor(ENCLAVE_DEBUG_ARTIFACT_ROOT);
-  const daemonDebugRoot = resolvePathThroughExistingAncestor(
-    daemonVisiblePath(ENCLAVE_DEBUG_ARTIFACT_ROOT, config.dockerHostPathPrefix),
-  );
-  for (const visible of collectAgentVisiblePaths(config, env, cwd)) {
-    const source = resolvePathThroughExistingAncestor(visible.source);
-    const daemonSource = resolvePathThroughExistingAncestor(
-      daemonVisiblePath(visible.source, config.dockerHostPathPrefix),
+  for (const root of [ENCLAVE_DEBUG_ARTIFACT_ROOT, RESOLVED_CONFIG_PUBLICATION_ROOT]) {
+    const debugRoot = resolvePathThroughExistingAncestor(root);
+    const daemonDebugRoot = resolvePathThroughExistingAncestor(
+      daemonVisiblePath(root, config.dockerHostPathPrefix),
     );
-    if (pathsOverlap(debugRoot, source) || pathsOverlap(daemonDebugRoot, daemonSource)) {
-      throw markHostPreflightError(new Error(
-        `Unsafe persistent debug artifact root "${ENCLAVE_DEBUG_ARTIFACT_ROOT}" overlaps agent-visible ` +
-        `${visible.label} "${visible.source}" after path and symlink resolution`,
-      ), 'private-root-overlap');
+    for (const visible of collectAgentVisiblePaths(config, env, cwd)) {
+      const source = resolvePathThroughExistingAncestor(visible.source);
+      const daemonSource = resolvePathThroughExistingAncestor(
+        daemonVisiblePath(visible.source, config.dockerHostPathPrefix),
+      );
+      if (pathsOverlap(debugRoot, source) || pathsOverlap(daemonDebugRoot, daemonSource)) {
+        throw markHostPreflightError(new Error(
+          `Unsafe persistent debug artifact root "${root}" overlaps agent-visible ` +
+          `${visible.label} "${visible.source}" after path and symlink resolution`,
+        ), 'private-root-overlap');
+      }
     }
   }
 }
@@ -241,7 +244,7 @@ export function assertCloudHypervisorEnclaveExportsIsolated(
   config: WrapperConfig,
   directoryExports: readonly CloudHypervisorDirectoryExport[],
 ): void {
-  const privateRoots = [ENCLAVE_DEBUG_ARTIFACT_ROOT];
+  const privateRoots = [ENCLAVE_DEBUG_ARTIFACT_ROOT, RESOLVED_CONFIG_PUBLICATION_ROOT];
   if (config.enclaves?.enabled) {
     const paths = resolveEnclavePaths(config.workDir);
     privateRoots.push(

@@ -2,7 +2,7 @@
  * Error-path and uncovered-branch coverage for artifact-preservation.ts.
  *
  * Targets the following uncovered lines identified in the coverage report:
- *   21  – catch block in preserveIptablesAudit (fs.copyFileSync throws)
+ *   preserveIptablesAudit – safe destination open failure
  *   62  – catch block in preserveDirectory when runtimeDir chmod fails
  *   78  – catch block in preserveDirectory when no-runtimeDir renameSync fails
  *  101  – catch block for agent-logs renameSync in preserveCleanupArtifacts
@@ -23,6 +23,11 @@ jest.mock('./artifact-permissions', () => {
   };
 });
 
+jest.mock('./resolved-config-artifact', () => ({
+  ...jest.requireActual('./resolved-config-artifact'),
+  openArtifactDirectory: jest.fn(jest.requireActual('./resolved-config-artifact').openArtifactDirectory),
+}));
+
 // Wrap the fs methods we need to control with jest.fn() so individual tests
 // can inject one-shot errors without using jest.spyOn (which fails on non-
 // configurable properties in Jest's module sandbox).
@@ -42,6 +47,7 @@ import * as path from 'path';
 import * as os from 'os';
 import { fixArtifactPermissionsForRootless } from './artifact-permissions';
 import { logger } from './logger';
+import { openArtifactDirectory } from './resolved-config-artifact';
 import { mockExecaSync } from './test-helpers/mock-execa.test-utils';
 import {
   preserveIptablesAudit,
@@ -77,7 +83,7 @@ describe('artifact-preservation – error paths', () => {
   // ─── preserveIptablesAudit ──────────────────────────────────────────────
 
   describe('preserveIptablesAudit', () => {
-    it('does not throw when fs.copyFileSync errors (line 21)', () => {
+    it('reports incomplete preservation when safe destination open fails', () => {
       const workDir = makeTempDir('awf-audit-');
       try {
         const initSignalDir = path.join(workDir, 'init-signal');
@@ -87,11 +93,12 @@ describe('artifact-preservation – error paths', () => {
         const auditDir = path.join(workDir, 'audit');
         realFs.mkdirSync(auditDir);
 
-        mockCopyFileSync.mockImplementationOnce(() => {
-          throw new Error('ENOSPC: no space left on device');
+        jest.mocked(openArtifactDirectory).mockImplementationOnce(() => {
+          throw new Error('EACCES: permission denied');
         });
 
-        expect(() => preserveIptablesAudit(workDir, auditDir)).not.toThrow();
+        expect(preserveIptablesAudit(workDir, auditDir)).toBe(false);
+        expect(fs.existsSync(path.join(auditDir, 'iptables-audit.txt'))).toBe(false);
       } finally {
         realFs.rmSync(workDir, { recursive: true, force: true });
       }

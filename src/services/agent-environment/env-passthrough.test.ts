@@ -2,6 +2,8 @@ import * as fs from 'fs';
 import * as hostIdentity from '../../host-identity';
 import { passthroughHostEnvironment } from './env-passthrough';
 import { WrapperConfig } from '../../types';
+import { buildExclusionSet } from './excluded-vars';
+import { buildGitHubActionsEnvironment } from './github-actions-environment';
 
 jest.mock('fs', () => {
   const actual = jest.requireActual<typeof import('fs')>('fs');
@@ -57,6 +59,20 @@ describe('passthroughHostEnvironment', () => {
   }
 
   describe('alwaysForwardVars respect the exclusion set (root-cause fix)', () => {
+    it('never forwards the host-only resolved-config path, including explicit additional env', () => {
+      const environment: Record<string, string> = {};
+      const config = makeConfig({
+        envAll: true,
+        additionalEnv: { AWF_RESOLVED_CONFIG: '/run/awf-config-audit/run-abcdef/awf-resolved-config.json' },
+      });
+      const excludedEnvVars = buildExclusionSet(config);
+      withEnv(config.additionalEnv!, () => {
+        passthroughHostEnvironment({ config, environment, excludedEnvVars });
+        buildGitHubActionsEnvironment({ config, environment, excludedEnvVars });
+      });
+      expect(environment).not.toHaveProperty('AWF_RESOLVED_CONFIG');
+    });
+
     it('does not forward GITHUB_TOKEN when it is in the exclusion set', () => {
       const environment: Record<string, string> = {};
       const excludedEnvVars = new Set(['GITHUB_TOKEN']);

@@ -42,6 +42,10 @@ jobs:
       - name: Build TypeScript
         run: npm run build
 
+      - name: Test privileged audit publication
+        if: matrix.node-version == '20'
+        run: sudo "$(command -v node)" node_modules/jest/bin/jest.js --runInBand src/resolved-config-artifact-linux.test.ts
+
       - name: Verify build output
         run: |
           # Verify dist directory exists
