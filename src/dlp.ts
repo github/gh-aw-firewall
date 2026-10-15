@@ -20,8 +20,10 @@ interface DlpPattern {
   name: string;
   /** Description of what this pattern detects */
   description: string;
-  /** Regex pattern string (Squid url_regex compatible, case-insensitive) */
+  /** Regex pattern string (Squid url_regex compatible) */
   regex: string;
+  /** Whether Squid should match the pattern case-insensitively */
+  caseInsensitive?: boolean;
 }
 
 /**
@@ -29,7 +31,7 @@ interface DlpPattern {
  *
  * These patterns detect common credential formats that should never
  * appear in URLs. Each regex is designed to be used with Squid's
- * url_regex ACL type (POSIX extended regex, case-insensitive).
+ * url_regex ACL type (POSIX extended regex).
  *
  * Pattern design principles:
  * - Match the distinctive prefix of each credential type
@@ -89,6 +91,7 @@ const DLP_PATTERNS: DlpPattern[] = [
     name: 'AWS Access Key ID',
     description: 'AWS access key ID (AKIA or ASIA)',
     regex: '(AKIA|ASIA)[0-9A-Z]{16}',
+    caseInsensitive: false,
   },
 
   // Google Cloud
@@ -147,7 +150,8 @@ export function generateDlpSquidConfig(): { aclLines: string[]; accessRules: str
   ];
 
   for (const pattern of DLP_PATTERNS) {
-    aclLines.push(`acl dlp_blocked url_regex -i ${pattern.regex}`);
+    const caseFlag = pattern.caseInsensitive === false ? '' : ' -i';
+    aclLines.push(`acl dlp_blocked url_regex${caseFlag} ${pattern.regex}`);
   }
 
   const accessRules: string[] = [

@@ -82,6 +82,7 @@ describe('DLP Integration', () => {
     // Check for a few key patterns
     expect(result).toContain('ghp_');
     expect(result).toContain('(AKIA|ASIA)[0-9A-Z]{16}');
+    expect(result).toContain('acl dlp_blocked url_regex (AKIA|ASIA)[0-9A-Z]{16}');
     expect(result).toContain('sk-ant-');
   });
 

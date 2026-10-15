@@ -1,16 +1,25 @@
 import { generateDlpSquidConfig } from './dlp';
 
-const DLP_ACL_REGEX = /^acl\s+dlp_blocked\s+url_regex\s+-i\s+(.+)$/;
+const DLP_ACL_REGEX = /^acl\s+dlp_blocked\s+url_regex(?:\s+(-i))?\s+(.+)$/;
 
-function getDlpRegexPatterns(): string[] {
+function getDlpAclPatterns(): Array<{ regex: string; flags: string }> {
   const { aclLines } = generateDlpSquidConfig();
   return aclLines
-    .map(line => line.match(DLP_ACL_REGEX)?.[1] ?? null)
-    .filter((regex): regex is string => regex !== null);
+    .map(line => {
+      const match = line.match(DLP_ACL_REGEX);
+      return match ? { regex: match[2], flags: match[1] ?? '' } : null;
+    })
+    .filter((pattern): pattern is { regex: string; flags: string } => pattern !== null);
+}
+
+function getDlpRegexPatterns(): string[] {
+  return getDlpAclPatterns().map(pattern => pattern.regex);
 }
 
 function findMatchingDlpRegexes(input: string): string[] {
-  return getDlpRegexPatterns().filter(regex => new RegExp(regex, 'i').test(input));
+  return getDlpAclPatterns()
+    .filter(({ regex, flags }) => new RegExp(regex, flags.includes('i') ? 'i' : '').test(input))
+    .map(({ regex }) => regex);
 }
 
 describe('DLP Patterns', () => {
@@ -116,6 +125,17 @@ describe('DLP Patterns', () => {
       expect(matchingRegexes).toContain('(AKIA|ASIA)[0-9A-Z]{16}');
     });
 
+    it('should not match lowercase AWS-like strings in URLs', () => {
+      const urls = [
+        'https://asiapacificdatalake01.blob.core.windows.net:443',
+        'https://example.com/regions/asiapacificheadquarters',
+        'https://api.example.com/?key=asiaiosfodnn7example',
+      ];
+      for (const url of urls) {
+        expect(findMatchingDlpRegexes(url)).not.toContain('(AKIA|ASIA)[0-9A-Z]{16}');
+      }
+    });
+
     // Google
     it('should detect Google API key (AIza)', () => {
       const matchingRegexes = findMatchingDlpRegexes(
@@ -213,9 +233,13 @@ describe('DLP Patterns', () => {
       const aclEntries = aclLines.filter(l => l.startsWith('acl dlp_blocked'));
       expect(aclEntries.length).toBeGreaterThanOrEqual(10);
 
-      // Each ACL should use url_regex -i
+      // ACLs should be case-insensitive except for the AWS access key pattern.
       for (const entry of aclEntries) {
-        expect(entry).toMatch(/^acl dlp_blocked url_regex -i .+/);
+        if (entry.endsWith('(AKIA|ASIA)[0-9A-Z]{16}')) {
+          expect(entry).toBe('acl dlp_blocked url_regex (AKIA|ASIA)[0-9A-Z]{16}');
+        } else {
+          expect(entry).toMatch(/^acl dlp_blocked url_regex -i .+/);
+        }
       }
     });
 
