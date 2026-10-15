@@ -104,6 +104,41 @@ guest_resource_limits_match() {
   ' "$@" >/dev/null
 }
 
+read_guest_pids_observations() {
+  local evidence_file=$1
+  [ -s "$evidence_file" ] || return 1
+  jq -er '
+    [.pidsMax, .cgroupPidsMax] |
+    map(if . == null then "" else tostring end) |
+    @tsv
+  ' "$evidence_file"
+}
+
+collect_guest_pids_observations() {
+  local primary_observations peer_observations
+  guest_pids_max=
+  guest_cgroup_pids_max=
+  peer_guest_pids_max=
+  peer_guest_cgroup_pids_max=
+  if primary_observations=$(
+    read_guest_pids_observations "$workspace_dir/guest-preflight.json"
+  ); then
+    IFS=$'\t' read -r guest_pids_max guest_cgroup_pids_max <<<"$primary_observations"
+  else
+    resource_limits=false
+  fi
+  if [ "$mode" = concurrent ]; then
+    if peer_observations=$(
+      read_guest_pids_observations "$peer_workspace/guest-preflight.json"
+    ); then
+      IFS=$'\t' read -r peer_guest_pids_max peer_guest_cgroup_pids_max \
+        <<<"$peer_observations"
+    else
+      resource_limits=false
+    fi
+  fi
+}
+
 campaign_resource_limits_enforced() {
   local execution_mode=$1
   local expected_memory_max=$2 expected_cpu_max=$3 expected_host_pids_max=$4
@@ -1026,14 +1061,7 @@ if campaign_resource_limits_enforced \
   "$peer_cpu_max" "$peer_pids_max"; then
   resource_limits=true
 fi
-guest_pids_max=$(jq -er '.pidsMax // ""' "$workspace_dir/guest-preflight.json")
-guest_cgroup_pids_max=$(jq -er '.cgroupPidsMax // ""' "$workspace_dir/guest-preflight.json")
-peer_guest_pids_max=
-peer_guest_cgroup_pids_max=
-if [ "$mode" = concurrent ]; then
-  peer_guest_pids_max=$(jq -er '.pidsMax // ""' "$peer_workspace/guest-preflight.json")
-  peer_guest_cgroup_pids_max=$(jq -er '.cgroupPidsMax // ""' "$peer_workspace/guest-preflight.json")
-fi
+collect_guest_pids_observations
 jq -n \
   --arg cgroup "$observed_cgroup" \
   --arg memoryMax "$observed_memory_max" \

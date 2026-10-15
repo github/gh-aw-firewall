@@ -315,6 +315,43 @@ describe('Phase 4 campaign runtime evidence', () => {
     expect(harness).toContain('observedCgroupPidsMax:$guestCgroupPidsMax');
   });
 
+  it.each([
+    ['sequential', 'primary'],
+    ['concurrent', 'primary'],
+    ['concurrent', 'peer'],
+  ])('keeps %s failure collection alive when %s guest evidence is missing', (mode, missing) => {
+    const readObservations = extractShellFunction('read_guest_pids_observations');
+    const collectObservations = extractShellFunction('collect_guest_pids_observations');
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'phase4-missing-evidence-'));
+    const primary = path.join(root, 'primary');
+    const peer = path.join(root, 'peer');
+    fs.mkdirSync(primary);
+    fs.mkdirSync(peer);
+    const evidence = JSON.stringify({ pidsMax: 256, cgroupPidsMax: 257 });
+    if (missing !== 'primary') fs.writeFileSync(path.join(primary, 'guest-preflight.json'), evidence);
+    if (missing !== 'peer') fs.writeFileSync(path.join(peer, 'guest-preflight.json'), evidence);
+    try {
+      const output = execFileSync('bash', ['-c', `
+        set -e
+        ${readObservations}
+        ${collectObservations}
+        mode="$1"; workspace_dir="$2"; peer_workspace="$3"; resource_limits=true
+        guest_pids_max=stale guest_cgroup_pids_max=stale
+        peer_guest_pids_max=stale peer_guest_cgroup_pids_max=stale
+        collect_guest_pids_observations
+        printf '%s|%s|%s|%s|%s' "$resource_limits" "$guest_pids_max" \
+          "$guest_cgroup_pids_max" "$peer_guest_pids_max" "$peer_guest_cgroup_pids_max"
+        printf '|collection-continued'
+      `, '-', mode, primary, peer], { encoding: 'utf8' });
+      expect(output).toContain('false|');
+      expect(output).toContain('|collection-continued');
+      if (missing === 'primary') expect(output).toMatch(/^false\|\|/);
+      if (missing === 'peer') expect(output).toMatch(/\|\|collection-continued$/);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it('aborts both release handshakes when a peer fails preflight or dies during launch', () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'phase4-abort-'));
     const abortBlock = harness.split('  if [ "$mode" = concurrent ] && [ -n "$peer_pid" ] &&')[1]
