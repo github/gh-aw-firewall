@@ -18,7 +18,6 @@ permissions:
 name: Smoke Copilot Network Isolation
 engine:
   id: copilot
-  version: 1.0.34
   args:
     - --allow-url=api.github.com
     - --allow-url=example.com
