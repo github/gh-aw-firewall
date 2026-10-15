@@ -1,0 +1,551 @@
+openapi: 3.1.0
+info:
+  title: gh-aw-router HTTP API
+  version: 0.1.3
+  license:
+    name: MIT
+    identifier: MIT
+  description: |
+    Stateless classification planning and model routing for trusted host adapters.
+    gh-aw-router does not call model providers. The caller executes the returned
+    classifier prompts and dispatches one of the returned route choices.
+    This document describes the matching router release. Clients pin a tested
+    image digest; requests do not negotiate an independent API version.
+    Each route request supplies a goal, either cost or cost-speed, and a mode, either
+    economy, balanced, robust, or auto. Auto uses the supplied classification's mode,
+    falling back to balanced when classification is absent or its mode is unknown.
+    /capabilities lists the fixed profiles the loaded tables serve.
+    Schema-5 tables each carry one fixed profile.
+    Older schemas are rejected. Unserved profiles return invalid_request without fallback.
+    Planning requests contain only decision inputs. Execution identity and
+    outcome correlation remain with the caller; the router stores no task state.
+    Every application error uses the Error envelope, including unknown paths,
+    which return 404 with code not_found. Under overload the server may return a
+    bare 503 before the application runs.
+servers:
+  - url: http://gh-aw-router:8737
+    description: Private sidecar network
+  - url: http://127.0.0.1:8737
+    description: Local development
+security: []
+
+x-gh-aw-router-classifier-output-schema:
+  $ref: "#/components/schemas/ClassifierOutput"
+
+paths:
+  /healthz:
+    get:
+      operationId: health
+      summary: Check process readiness
+      responses:
+        "204":
+          description: Routing lookup table loaded successfully.
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "413":
+          $ref: "#/components/responses/BodyTooLarge"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "504":
+          $ref: "#/components/responses/RequestTimeout"
+
+  /capabilities:
+    get:
+      operationId: getCapabilities
+      summary: Read release identity, profiles, models, and efforts
+      responses:
+        "200":
+          description: Current service capabilities.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ServiceCapabilities"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "413":
+          $ref: "#/components/responses/BodyTooLarge"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "504":
+          $ref: "#/components/responses/RequestTimeout"
+
+  /classify:
+    post:
+      operationId: classify
+      summary: Create a provider-neutral classification call plan
+      description: |
+        The caller installs system_prompt as the classifier call's only system
+        or developer instruction, sends prompt unchanged as the user message,
+        advertises no tools, and validates the model output against
+        x-gh-aw-router-classifier-output-schema.
+        Model choices follow the embedded classification_choices list, filtered
+        to exact offered models and efforts. The first returned choice is preferred.
+        Reasoning models require an explicit effort. No default effort is inferred.
+        If no offered choice is in the classifier cell, the response is 422 with
+        code no_route. Malformed requests are still rejected with invalid_request.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ClassifyRequest"
+      responses:
+        "200":
+          description: Classification call plan.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ClassifyResponse"
+        "400":
+          $ref: "#/components/responses/InvalidJson"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "413":
+          $ref: "#/components/responses/BodyTooLarge"
+        "415":
+          $ref: "#/components/responses/UnsupportedMediaType"
+        "422":
+          description: >-
+            Request schema violation (invalid_json), unsupported operation
+            (invalid_request), or no eligible classifier choice (no_route).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "504":
+          $ref: "#/components/responses/RequestTimeout"
+
+  /route:
+    post:
+      operationId: route
+      summary: Rank exact offered model and effort choices
+      description: |
+        The caller may forward classifier output unchanged in classification.
+        Its labels select the routing cell. When objective.mode is auto, its mode
+        selects economy, balanced, or robust. An absent or null classification,
+        or a classification mode of unknown, resolves auto to balanced. An explicit
+        objective mode always wins. The requested goal never changes.
+        Task labels are supplied only in classification.labels.
+        Without classification, deterministic heuristics infer task type
+        and scope from the last authored user message and leave complexity unknown.
+        Every uninferred field remains unknown, including all three fields when
+        no heuristic cues match. Invalid non-null classification is rejected.
+        The resolved profile must be loaded or the request returns invalid_request.
+        Every returned choice is one of the exact choices supplied by the caller.
+        Model-effort pairs absent from the routing table are ignored, including
+        omitted efforts for models that require one. Supported choices must also
+        satisfy context-window filtering. If no eligible choices remain, the response
+        is 422 with code no_route. Malformed requests and unsupported objectives
+        are still rejected.
+        The caller tries choices in order and fails closed after exhausting them.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RouteRequest"
+      responses:
+        "200":
+          description: Exact offered choices in descending preference order.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RouteResponse"
+        "400":
+          $ref: "#/components/responses/InvalidJson"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "413":
+          $ref: "#/components/responses/BodyTooLarge"
+        "415":
+          $ref: "#/components/responses/UnsupportedMediaType"
+        "422":
+          description: >-
+            Request schema violation (invalid_json), unsupported operation
+            (invalid_request), or no eligible route (no_route).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "504":
+          $ref: "#/components/responses/RequestTimeout"
+
+components:
+  responses:
+    InvalidJson:
+      description: The body is malformed JSON.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    BodyTooLarge:
+      description: The request body exceeds 1 MiB, or declares a larger length.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    UnsupportedMediaType:
+      description: >-
+        The supplied content type is not application/json or application/*+json.
+        An absent content type is accepted as JSON.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    MethodNotAllowed:
+      description: The path does not support the request method.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    InvalidRequest:
+      description: >-
+        The body violates the closed request schema (invalid_json), or decoded
+        values are unsupported or cannot produce an operation (invalid_request).
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    InternalError:
+      description: The service encountered an internal error.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    RequestTimeout:
+      description: The operation exceeded the 30-second response deadline.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+
+  schemas:
+    ClassifyRequest:
+      type: object
+      additionalProperties: false
+      required: [conversation, models]
+      properties:
+        conversation:
+          $ref: "#/components/schemas/Conversation"
+        models:
+          type: array
+          description: Offered choices. Every id must be unique.
+          items:
+            $ref: "#/components/schemas/ModelChoice"
+
+    ClassifyResponse:
+      type: object
+      additionalProperties: false
+      required: [system_prompt, prompt, ranked_choices]
+      properties:
+        system_prompt:
+          type: string
+          minLength: 1
+        prompt:
+          type: string
+        ranked_choices:
+          type: array
+          minItems: 1
+          items:
+            $ref: "#/components/schemas/ModelChoice"
+
+    ClassifierOutput:
+      type: object
+      additionalProperties: false
+      required: [labels, mode]
+      properties:
+        labels:
+          $ref: "#/components/schemas/Labels"
+        mode:
+          $ref: "#/components/schemas/RoutingModeRecommendation"
+
+    RouteRequest:
+      type: object
+      additionalProperties: false
+      required: [objective, conversation]
+      properties:
+        objective:
+          $ref: "#/components/schemas/RoutingObjective"
+        conversation:
+          $ref: "#/components/schemas/Conversation"
+          description: Must contain at least one user message with nonblank text.
+        current_id:
+          type: [string, "null"]
+          minLength: 1
+        classification:
+          description: >-
+            Validated classifier output, forwarded unchanged by the caller.
+            Omit or use null if classification is unavailable.
+          anyOf:
+            - $ref: "#/components/schemas/ClassifierOutput"
+            - type: "null"
+        models:
+          type: array
+          default: []
+          description: Offered candidates. Every id must be unique.
+          items:
+            $ref: "#/components/schemas/ModelCandidate"
+
+    RouteResponse:
+      type: object
+      additionalProperties: false
+      required: [ranked_choices]
+      properties:
+        ranked_choices:
+          type: array
+          minItems: 1
+          items:
+            $ref: "#/components/schemas/ModelChoice"
+
+    RoutingObjective:
+      type: object
+      description: >-
+        Select a fixed profile advertised by /capabilities, or resolve auto from
+        classification.mode with balanced as the fallback. Auto is a selection rule,
+        not a published profile. The resolved profile must be served.
+      additionalProperties: false
+      required: [goal, mode]
+      properties:
+        goal:
+          $ref: "#/components/schemas/RoutingGoal"
+        mode:
+          $ref: "#/components/schemas/RoutingMode"
+
+    RoutingProfile:
+      type: object
+      description: A goal and mode pair naming one compiled routing table.
+      additionalProperties: false
+      required: [goal, mode]
+      properties:
+        goal:
+          $ref: "#/components/schemas/RoutingGoal"
+        mode:
+          $ref: "#/components/schemas/PublishedRoutingMode"
+
+    RoutingGoal:
+      type: string
+      enum: [cost, cost-speed]
+
+    RoutingMode:
+      type: string
+      enum: [economy, balanced, robust, auto]
+
+    PublishedRoutingMode:
+      type: string
+      enum: [economy, balanced, robust]
+
+    RoutingModeRecommendation:
+      type: string
+      enum: [economy, balanced, robust, unknown]
+
+    Labels:
+      type: object
+      additionalProperties: false
+      required: [task_type, scope, task_complexity]
+      properties:
+        task_type:
+          type: string
+          enum: [explain, plan, fix, refactor, chore, implement, unknown]
+        scope:
+          type: string
+          enum: [local, multi_file, subsystem, cross_system, unknown]
+        task_complexity:
+          $ref: "#/components/schemas/TaskComplexity"
+
+    TaskComplexity:
+      type: string
+      enum: [trivial, easy, medium, hard, expert, unknown]
+
+    ModelChoice:
+      type: object
+      description: >-
+        An exact executable identity. Models with effort settings require an explicit
+        supported effort. Omit effort only for models without effort settings.
+        The string none is an explicit effort value, not an omission.
+      additionalProperties: false
+      required: [id, model]
+      properties:
+        id:
+          type: string
+          minLength: 1
+        model:
+          type: string
+          minLength: 1
+          pattern: "^[^/]+/[^/]+$"
+        effort:
+          anyOf:
+            - $ref: "#/components/schemas/ReasoningEffort"
+            - type: "null"
+
+    ModelCandidate:
+      type: object
+      description: >-
+        An exact executable identity with an optional context limit. Models with effort
+        settings require an explicit supported effort. Omit effort only for models
+        without effort settings. Routing ignores model-effort pairs absent from the table,
+        including omitted efforts for models that require one. If no supported,
+        context-eligible choices remain, routing returns no_route.
+      additionalProperties: false
+      required: [id, model]
+      properties:
+        id:
+          type: string
+          minLength: 1
+        model:
+          type: string
+          minLength: 1
+          pattern: "^[^/]+/[^/]+$"
+        effort:
+          anyOf:
+            - $ref: "#/components/schemas/ReasoningEffort"
+            - type: "null"
+        context_window:
+          type: [integer, "null"]
+          format: int64
+          minimum: 1
+
+    ReasoningEffort:
+      type: string
+      enum: [none, minimal, low, medium, high, xhigh, max]
+
+    Conversation:
+      type: array
+      items:
+        $ref: "#/components/schemas/Message"
+
+    Message:
+      type: object
+      additionalProperties: false
+      required: [role]
+      properties:
+        role:
+          type: string
+          enum: [system, user, assistant]
+        parts:
+          type: array
+          default: []
+          items:
+            $ref: "#/components/schemas/Part"
+
+    Part:
+      oneOf:
+        - $ref: "#/components/schemas/TextPart"
+        - $ref: "#/components/schemas/ToolCallPart"
+        - $ref: "#/components/schemas/ToolResultPart"
+
+    TextPart:
+      type: object
+      additionalProperties: false
+      required: [text]
+      properties:
+        text:
+          type: string
+
+    ToolCallPart:
+      type: object
+      additionalProperties: false
+      required: [tool_call]
+      properties:
+        tool_call:
+          $ref: "#/components/schemas/ToolCall"
+
+    ToolCall:
+      type: object
+      additionalProperties: false
+      required: [id, name]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        input: {}
+
+    ToolResultPart:
+      type: object
+      additionalProperties: false
+      required: [tool_result]
+      properties:
+        tool_result:
+          $ref: "#/components/schemas/ToolResult"
+
+    ToolResult:
+      type: object
+      additionalProperties: false
+      required: [id]
+      properties:
+        id:
+          type: string
+        text:
+          type: [string, "null"]
+        ok:
+          type: [boolean, "null"]
+
+    ServiceCapabilities:
+      type: object
+      additionalProperties: false
+      required:
+        - name
+        - version
+        - routing_profiles
+        - execution_catalogue
+      properties:
+        name:
+          type: string
+        version:
+          type: string
+        routing_profiles:
+          type: array
+          minItems: 1
+          description: Goal and mode pairs served by the loaded tables.
+          items:
+            $ref: "#/components/schemas/RoutingProfile"
+        execution_catalogue:
+          $ref: "#/components/schemas/ExecutionCatalogue"
+
+    ExecutionCatalogue:
+      type: object
+      additionalProperties: false
+      required: [models]
+      properties:
+        models:
+          type: array
+          items:
+            $ref: "#/components/schemas/ExecutionModel"
+
+    ExecutionModel:
+      type: object
+      additionalProperties: false
+      required: [model, efforts]
+      properties:
+        model:
+          type: string
+          pattern: "^[^/]+/[^/]+$"
+        efforts:
+          type: array
+          items:
+            $ref: "#/components/schemas/ReasoningEffort"
+
+    Error:
+      type: object
+      additionalProperties: false
+      required: [code, detail]
+      properties:
+        code:
+          type: string
+          enum:
+            - invalid_json
+            - invalid_request
+            - payload_too_large
+            - unsupported_media_type
+            - not_found
+            - method_not_allowed
+            - no_route
+            - internal_error
+            - request_timeout
+        detail:
+          type: string
+          maxLength: 500

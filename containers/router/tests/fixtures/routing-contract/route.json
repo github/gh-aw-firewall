@@ -1,0 +1,257 @@
+[
+  {
+    "id": "auto-omitted-unknown-cost", "method": "POST", "path": "/route",
+    "request": {
+      "conversation": [{"role": "user", "parts": [{"text": "Proceed."}]}],
+      "models": [{"id": "fast", "model": "github-copilot/router-fast"}, {"id": "reasoning-medium", "model": "github-copilot/router-reasoning", "effort": "medium"}],
+      "objective": {"goal": "cost", "mode": "auto"}
+    },
+    "status": 200,
+    "response": {"ranked_choices": [{"id": "fast", "model": "github-copilot/router-fast"}, {"id": "reasoning-medium", "model": "github-copilot/router-reasoning", "effort": "medium"}]}
+  },
+  {
+    "id": "auto-null-unknown-cost", "method": "POST", "path": "/route",
+    "request": {
+      "conversation": [{"role": "user", "parts": [{"text": "Proceed."}]}],
+      "models": [{"id": "fast", "model": "github-copilot/router-fast"}, {"id": "reasoning-medium", "model": "github-copilot/router-reasoning", "effort": "medium"}],
+      "objective": {"goal": "cost", "mode": "auto"}, "classification": null
+    },
+    "status": 200,
+    "response": {"ranked_choices": [{"id": "fast", "model": "github-copilot/router-fast"}, {"id": "reasoning-medium", "model": "github-copilot/router-reasoning", "effort": "medium"}]}
+  },
+  {
+    "id": "auto-omitted-unknown-cost-speed", "method": "POST", "path": "/route",
+    "request": {
+      "conversation": [{"role": "user", "parts": [{"text": "Proceed."}]}],
+      "models": [{"id": "fast", "model": "github-copilot/router-fast"}, {"id": "reasoning-medium", "model": "github-copilot/router-reasoning", "effort": "medium"}],
+      "objective": {"goal": "cost-speed", "mode": "auto"}
+    },
+    "status": 200,
+    "response": {"ranked_choices": [{"id": "reasoning-medium", "model": "github-copilot/router-reasoning", "effort": "medium"}, {"id": "fast", "model": "github-copilot/router-fast"}]}
+  },
+  {
+    "id": "auto-null-unknown-cost-speed", "method": "POST", "path": "/route",
+    "request": {
+      "conversation": [{"role": "user", "parts": [{"text": "Proceed."}]}],
+      "models": [{"id": "fast", "model": "github-copilot/router-fast"}, {"id": "reasoning-medium", "model": "github-copilot/router-reasoning", "effort": "medium"}],
+      "objective": {"goal": "cost-speed", "mode": "auto"}, "classification": null
+    },
+    "status": 200,
+    "response": {"ranked_choices": [{"id": "reasoning-medium", "model": "github-copilot/router-reasoning", "effort": "medium"}, {"id": "fast", "model": "github-copilot/router-fast"}]}
+  },
+  {
+    "id": "auto-heuristic-fix", "method": "POST", "path": "/route",
+    "request": {
+      "conversation": [{"role": "user", "parts": [{"text": "Fix this function."}]}],
+      "models": [{"id": "fast", "model": "github-copilot/router-fast"}, {"id": "reasoning-medium", "model": "github-copilot/router-reasoning", "effort": "medium"}],
+      "objective": {"goal": "cost", "mode": "auto"}
+    },
+    "status": 200,
+    "response": {"ranked_choices": [{"id": "reasoning-medium", "model": "github-copilot/router-reasoning", "effort": "medium"}, {"id": "fast", "model": "github-copilot/router-fast"}]}
+  },
+  {
+    "id": "auto-null-heuristic-fix", "method": "POST", "path": "/route",
+    "request": {
+      "conversation": [{"role": "user", "parts": [{"text": "Fix this function."}]}],
+      "models": [{"id": "fast", "model": "github-copilot/router-fast"}, {"id": "reasoning-medium", "model": "github-copilot/router-reasoning", "effort": "medium"}],
+      "objective": {"goal": "cost", "mode": "auto"}, "classification": null
+    },
+    "status": 200,
+    "response": {"ranked_choices": [{"id": "reasoning-medium", "model": "github-copilot/router-reasoning", "effort": "medium"}, {"id": "fast", "model": "github-copilot/router-fast"}]}
+  },
+  {
+    "id": "last-authored-user-message", "method": "POST", "path": "/route",
+    "request": {
+      "conversation": [
+        {"role": "user", "parts": [{"text": "Fix this function."}]},
+        {"role": "user", "parts": [{"text": "Proceed."}]},
+        {"role": "assistant", "parts": [{"text": "Fix this function."}]}
+      ],
+      "models": [{"id": "fast", "model": "github-copilot/router-fast"}, {"id": "reasoning-medium", "model": "github-copilot/router-reasoning", "effort": "medium"}],
+      "objective": {"goal": "cost", "mode": "auto"}
+    },
+    "status": 200,
+    "response": {"ranked_choices": [{"id": "fast", "model": "github-copilot/router-fast"}, {"id": "reasoning-medium", "model": "github-copilot/router-reasoning", "effort": "medium"}]}
+  },
+  {
+    "id": "auto-unknown-recommendation", "method": "POST", "path": "/route",
+    "request": {
+      "conversation": [{"role": "user", "parts": [{"text": "Fix this function."}]}],
+      "models": [{"id": "fast", "model": "github-copilot/router-fast"}, {"id": "reasoning-medium", "model": "github-copilot/router-reasoning", "effort": "medium"}],
+      "objective": {"goal": "cost", "mode": "auto"},
+      "classification": {"labels": {"task_type": "unknown", "scope": "unknown", "task_complexity": "unknown"}, "mode": "unknown"}
+    },
+    "status": 200,
+    "response": {"ranked_choices": [{"id": "fast", "model": "github-copilot/router-fast"}, {"id": "reasoning-medium", "model": "github-copilot/router-reasoning", "effort": "medium"}]}
+  },
+  {
+    "id": "auto-recommends-economy", "method": "POST", "path": "/route",
+    "request": {
+      "conversation": [{"role": "user", "parts": [{"text": "Proceed."}]}],
+      "models": [{"id": "fast", "model": "github-copilot/router-fast"}, {"id": "reasoning-medium", "model": "github-copilot/router-reasoning", "effort": "medium"}],
+      "objective": {"goal": "cost", "mode": "auto"},
+      "classification": {"labels": {"task_type": "fix", "scope": "local", "task_complexity": "unknown"}, "mode": "economy"}
+    },
+    "status": 200,
+    "response": {"ranked_choices": [{"id": "fast", "model": "github-copilot/router-fast"}, {"id": "reasoning-medium", "model": "github-copilot/router-reasoning", "effort": "medium"}]}
+  },
+  {
+    "id": "auto-recommends-balanced", "method": "POST", "path": "/route",
+    "request": {
+      "conversation": [{"role": "user", "parts": [{"text": "Proceed."}]}],
+      "models": [{"id": "fast", "model": "github-copilot/router-fast"}, {"id": "reasoning-medium", "model": "github-copilot/router-reasoning", "effort": "medium"}],
+      "objective": {"goal": "cost", "mode": "auto"},
+      "classification": {"labels": {"task_type": "fix", "scope": "local", "task_complexity": "unknown"}, "mode": "balanced"}
+    },
+    "status": 200,
+    "response": {"ranked_choices": [{"id": "reasoning-medium", "model": "github-copilot/router-reasoning", "effort": "medium"}, {"id": "fast", "model": "github-copilot/router-fast"}]}
+  },
+  {
+    "id": "auto-recommends-robust", "method": "POST", "path": "/route",
+    "request": {
+      "conversation": [{"role": "user", "parts": [{"text": "Proceed."}]}],
+      "models": [{"id": "fast", "model": "github-copilot/router-fast"}, {"id": "reasoning-medium", "model": "github-copilot/router-reasoning", "effort": "medium"}],
+      "objective": {"goal": "cost", "mode": "auto"},
+      "classification": {"labels": {"task_type": "unknown", "scope": "unknown", "task_complexity": "unknown"}, "mode": "robust"}
+    },
+    "status": 200,
+    "response": {"ranked_choices": [{"id": "reasoning-medium", "model": "github-copilot/router-reasoning", "effort": "medium"}, {"id": "fast", "model": "github-copilot/router-fast"}]}
+  },
+  {
+    "id": "explicit-cost-economy", "method": "POST", "path": "/route",
+    "request": {
+      "conversation": [{"role": "user", "parts": [{"text": "Fix this function."}]}],
+      "models": [{"id": "fast", "model": "github-copilot/router-fast"}, {"id": "reasoning-medium", "model": "github-copilot/router-reasoning", "effort": "medium"}],
+      "objective": {"goal": "cost", "mode": "economy"},
+      "classification": {"labels": {"task_type": "fix", "scope": "local", "task_complexity": "hard"}, "mode": "robust"}
+    },
+    "status": 200,
+    "response": {"ranked_choices": [{"id": "fast", "model": "github-copilot/router-fast"}, {"id": "reasoning-medium", "model": "github-copilot/router-reasoning", "effort": "medium"}]}
+  },
+  {
+    "id": "explicit-cost-balanced", "method": "POST", "path": "/route",
+    "request": {
+      "conversation": [{"role": "user", "parts": [{"text": "Proceed."}]}],
+      "models": [{"id": "fast", "model": "github-copilot/router-fast"}, {"id": "reasoning-medium", "model": "github-copilot/router-reasoning", "effort": "medium"}],
+      "objective": {"goal": "cost", "mode": "balanced"}, "classification": null
+    },
+    "status": 200,
+    "response": {"ranked_choices": [{"id": "fast", "model": "github-copilot/router-fast"}, {"id": "reasoning-medium", "model": "github-copilot/router-reasoning", "effort": "medium"}]}
+  },
+  {
+    "id": "explicit-cost-robust", "method": "POST", "path": "/route",
+    "request": {
+      "conversation": [{"role": "user", "parts": [{"text": "Proceed."}]}],
+      "models": [{"id": "fast", "model": "github-copilot/router-fast"}, {"id": "reasoning-medium", "model": "github-copilot/router-reasoning", "effort": "medium"}],
+      "objective": {"goal": "cost", "mode": "robust"}, "classification": null
+    },
+    "status": 200,
+    "response": {"ranked_choices": [{"id": "reasoning-medium", "model": "github-copilot/router-reasoning", "effort": "medium"}, {"id": "fast", "model": "github-copilot/router-fast"}]}
+  },
+  {
+    "id": "explicit-cost-speed-economy", "method": "POST", "path": "/route",
+    "request": {
+      "conversation": [{"role": "user", "parts": [{"text": "Proceed."}]}],
+      "models": [{"id": "fast", "model": "github-copilot/router-fast"}, {"id": "reasoning-medium", "model": "github-copilot/router-reasoning", "effort": "medium"}],
+      "objective": {"goal": "cost-speed", "mode": "economy"}, "classification": null
+    },
+    "status": 200,
+    "response": {"ranked_choices": [{"id": "reasoning-medium", "model": "github-copilot/router-reasoning", "effort": "medium"}, {"id": "fast", "model": "github-copilot/router-fast"}]}
+  },
+  {
+    "id": "explicit-cost-speed-balanced", "method": "POST", "path": "/route",
+    "request": {
+      "conversation": [{"role": "user", "parts": [{"text": "Proceed."}]}],
+      "models": [{"id": "fast", "model": "github-copilot/router-fast"}, {"id": "reasoning-medium", "model": "github-copilot/router-reasoning", "effort": "medium"}],
+      "objective": {"goal": "cost-speed", "mode": "balanced"}, "classification": null
+    },
+    "status": 200,
+    "response": {"ranked_choices": [{"id": "reasoning-medium", "model": "github-copilot/router-reasoning", "effort": "medium"}, {"id": "fast", "model": "github-copilot/router-fast"}]}
+  },
+  {
+    "id": "explicit-cost-speed-robust", "method": "POST", "path": "/route",
+    "request": {
+      "conversation": [{"role": "user", "parts": [{"text": "Proceed."}]}],
+      "models": [{"id": "fast", "model": "github-copilot/router-fast"}, {"id": "reasoning-medium", "model": "github-copilot/router-reasoning", "effort": "medium"}],
+      "objective": {"goal": "cost-speed", "mode": "robust"}, "classification": null
+    },
+    "status": 200,
+    "response": {"ranked_choices": [{"id": "fast", "model": "github-copilot/router-fast"}, {"id": "reasoning-medium", "model": "github-copilot/router-reasoning", "effort": "medium"}]}
+  },
+  {
+    "id": "context-excludes-current", "method": "POST", "path": "/route",
+    "request": {
+      "conversation": [{"role": "user", "parts": [{"text": "Proceed."}]}],
+      "models": [{"id": "fast", "model": "github-copilot/router-fast", "context_window": 1}, {"id": "reasoning-medium", "model": "github-copilot/router-reasoning", "effort": "medium", "context_window": 100000}],
+      "objective": {"goal": "cost", "mode": "auto"}, "current_id": "fast", "classification": null
+    },
+    "status": 200,
+    "response": {"ranked_choices": [{"id": "reasoning-medium", "model": "github-copilot/router-reasoning", "effort": "medium"}]}
+  },
+  {
+    "id": "eligible-current-first", "method": "POST", "path": "/route",
+    "request": {
+      "conversation": [{"role": "user", "parts": [{"text": "Proceed."}]}],
+      "models": [{"id": "fast", "model": "github-copilot/router-fast"}, {"id": "reasoning-medium", "model": "github-copilot/router-reasoning", "effort": "medium"}],
+      "objective": {"goal": "cost", "mode": "auto"}, "current_id": "reasoning-medium"
+    },
+    "status": 200,
+    "response": {"ranked_choices": [{"id": "reasoning-medium", "model": "github-copilot/router-reasoning", "effort": "medium"}, {"id": "fast", "model": "github-copilot/router-fast"}]}
+  },
+  {
+    "id": "unsupported-choices-filtered", "method": "POST", "path": "/route",
+    "request": {
+      "conversation": [{"role": "user", "parts": [{"text": "Proceed."}]}],
+      "models": [{"id": "absent", "model": "github-copilot/router-absent"}, {"id": "missing-effort", "model": "github-copilot/router-reasoning"}, {"id": "fast", "model": "github-copilot/router-fast"}],
+      "objective": {"goal": "cost", "mode": "auto"}, "current_id": "absent"
+    },
+    "status": 200,
+    "response": {"ranked_choices": [{"id": "fast", "model": "github-copilot/router-fast"}]}
+  },
+  {
+    "id": "none-effort-is-not-omission", "method": "POST", "path": "/route",
+    "request": {
+      "conversation": [{"role": "user", "parts": [{"text": "Proceed."}]}],
+      "models": [{"id": "reasoning-none", "model": "github-copilot/router-reasoning", "effort": "none"}],
+      "objective": {"goal": "cost", "mode": "auto"}
+    },
+    "status": 422, "response": {"code": "no_route", "detail": "no route: no eligible offered model-effort pair"}
+  },
+  {
+    "id": "no-supported-route", "method": "POST", "path": "/route",
+    "request": {
+      "conversation": [{"role": "user", "parts": [{"text": "Proceed."}]}],
+      "models": [{"id": "absent", "model": "github-copilot/router-absent"}],
+      "objective": {"goal": "cost", "mode": "auto"}, "classification": null
+    },
+    "status": 422, "response": {"code": "no_route", "detail": "no route: no eligible offered model-effort pair"}
+  },
+  {
+    "id": "no-context-eligible-route", "method": "POST", "path": "/route",
+    "request": {
+      "conversation": [{"role": "user", "parts": [{"text": "Proceed."}]}],
+      "models": [{"id": "fast", "model": "github-copilot/router-fast", "context_window": 1}],
+      "objective": {"goal": "cost", "mode": "auto"}, "classification": null
+    },
+    "status": 422, "response": {"code": "no_route", "detail": "no route: no eligible offered model-effort pair"}
+  },
+  {
+    "id": "missing-fallback-profile", "method": "POST", "path": "/route", "profiles": ["cost-economy.json"],
+    "request": {
+      "conversation": [{"role": "user", "parts": [{"text": "Proceed."}]}],
+      "models": [{"id": "fast", "model": "github-copilot/router-fast"}],
+      "objective": {"goal": "cost", "mode": "auto"}, "classification": null
+    },
+    "status": 422, "response": {"code": "invalid_request", "detail": "invalid request: routing profile is not served: cost/balanced"}
+  },
+  {
+    "id": "missing-recommended-profile", "method": "POST", "path": "/route", "profiles": ["cost-balanced.json"],
+    "request": {
+      "conversation": [{"role": "user", "parts": [{"text": "Proceed."}]}],
+      "models": [{"id": "fast", "model": "github-copilot/router-fast"}],
+      "objective": {"goal": "cost", "mode": "auto"},
+      "classification": {"labels": {"task_type": "unknown", "scope": "unknown", "task_complexity": "unknown"}, "mode": "robust"}
+    },
+    "status": 422, "response": {"code": "invalid_request", "detail": "invalid request: routing profile is not served: cost/robust"}
+  }
+]

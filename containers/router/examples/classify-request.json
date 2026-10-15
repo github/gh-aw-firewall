@@ -1,0 +1,22 @@
+{
+  "conversation": [
+    {
+      "role": "user",
+      "parts": [
+        {"text": "Fix the parser race and add a regression test"}
+      ]
+    }
+  ],
+  "models": [
+    {
+      "id": "copilot-luna-medium",
+      "model": "github-copilot/gpt-5.6-luna",
+      "effort": "medium"
+    },
+    {
+      "id": "openai-luna-medium",
+      "model": "openai/gpt-5.6-luna",
+      "effort": "medium"
+    }
+  ]
+}

@@ -1,0 +1,42 @@
+[
+  {
+    "id": "classify-exact-plan", "method": "POST", "path": "/classify",
+    "request": {
+      "conversation": [{"role": "user", "parts": [{"text": "Proceed."}]}],
+      "models": [{"id": "reasoning-medium", "model": "github-copilot/router-reasoning", "effort": "medium"}, {"id": "fast", "model": "github-copilot/router-fast"}]
+    },
+    "status": 200, "response_file": "classify-response.json"
+  },
+  {
+    "id": "classify-profile-independent", "method": "POST", "path": "/classify", "profiles": ["cost-speed-robust.json"],
+    "request": {
+      "conversation": [{"role": "user", "parts": [{"text": "Proceed."}]}],
+      "models": [{"id": "fast", "model": "github-copilot/router-fast"}, {"id": "reasoning-medium", "model": "github-copilot/router-reasoning", "effort": "medium"}]
+    },
+    "status": 200, "response_file": "classify-response.json"
+  },
+  {
+    "id": "classify-no-supported-choice", "method": "POST", "path": "/classify",
+    "request": {
+      "conversation": [{"role": "user", "parts": [{"text": "Proceed."}]}],
+      "models": []
+    },
+    "status": 422, "response": {"code": "no_route", "detail": "no route: none of the available models is in the classifier routing cell"}
+  },
+  {
+    "id": "classify-missing-effort", "method": "POST", "path": "/classify",
+    "request": {
+      "conversation": [{"role": "user", "parts": [{"text": "Proceed."}]}],
+      "models": [{"id": "reasoning", "model": "github-copilot/router-reasoning"}]
+    },
+    "status": 422, "response": {"code": "invalid_request", "detail": "invalid request: reasoning effort must be specified for 'github-copilot/router-reasoning'"}
+  },
+  {
+    "id": "classify-unrecognised-choices", "method": "POST", "path": "/classify",
+    "request": {
+      "conversation": [{"role": "user", "parts": [{"text": "Proceed."}]}],
+      "models": [{"id": "absent", "model": "github-copilot/router-absent"}]
+    },
+    "status": 422, "response": {"code": "no_route", "detail": "no route: none of the available models is in the classifier routing cell"}
+  }
+]

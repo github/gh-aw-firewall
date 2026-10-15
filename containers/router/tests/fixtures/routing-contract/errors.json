@@ -1,0 +1,123 @@
+[
+  {
+    "id": "malformed-classify-json", "method": "POST", "path": "/classify", "raw_request": "{",
+    "status": 400, "response": {"code": "invalid_json", "detail": "Failed to parse the request body as JSON"}
+  },
+  {
+    "id": "malformed-route-json", "method": "POST", "path": "/route", "raw_request": "{",
+    "status": 400, "response": {"code": "invalid_json", "detail": "Failed to parse the request body as JSON"}
+  },
+  {
+    "id": "unknown-path", "method": "GET", "path": "/absent",
+    "status": 404, "response": {"code": "not_found", "detail": "Not Found"}
+  },
+  {
+    "id": "unsupported-method", "method": "GET", "path": "/route",
+    "status": 405, "response": {"code": "method_not_allowed", "detail": "Method Not Allowed"}
+  },
+  {
+    "id": "unsupported-media-type", "method": "POST", "path": "/classify",
+    "headers": {"content-type": "text/plain"}, "raw_request": "{}",
+    "status": 415, "response": {"code": "unsupported_media_type", "detail": "Expected a JSON request body"}
+  },
+  {
+    "id": "missing-conversation", "method": "POST", "path": "/route", "request_valid": false,
+    "request": {"objective": {"goal": "cost", "mode": "balanced"}},
+    "status": 422, "response": {"code": "invalid_json", "detail": "request does not match the contract: conversation: Field required"}
+  },
+  {
+    "id": "unexpected-version-field", "method": "POST", "path": "/classify", "request_valid": false,
+    "request": {
+      "api_version": "0.2.0",
+      "conversation": [{"role": "user", "parts": [{"text": "Proceed."}]}],
+      "models": [{"id": "fast", "model": "github-copilot/router-fast"}]
+    },
+    "status": 422, "response": {"code": "invalid_json", "detail": "request does not match the contract: api_version: Extra inputs are not permitted"}
+  },
+  {
+    "id": "classify-rejects-repository", "method": "POST", "path": "/classify", "request_valid": false,
+    "request": {
+      "repository": "acme/widgets",
+      "conversation": [{"role": "user", "parts": [{"text": "Proceed."}]}],
+      "models": [{"id": "fast", "model": "github-copilot/router-fast"}]
+    },
+    "status": 422, "response": {"code": "invalid_json", "detail": "request does not match the contract: repository: Extra inputs are not permitted"}
+  },
+  {
+    "id": "classify-rejects-task-id", "method": "POST", "path": "/classify", "request_valid": false,
+    "request": {
+      "task_id": "contract-task",
+      "conversation": [{"role": "user", "parts": [{"text": "Proceed."}]}],
+      "models": [{"id": "fast", "model": "github-copilot/router-fast"}]
+    },
+    "status": 422, "response": {"code": "invalid_json", "detail": "request does not match the contract: task_id: Extra inputs are not permitted"}
+  },
+  {
+    "id": "route-rejects-repository", "method": "POST", "path": "/route", "request_valid": false,
+    "request": {
+      "repository": "acme/widgets",
+      "conversation": [{"role": "user", "parts": [{"text": "Proceed."}]}],
+      "objective": {"goal": "cost", "mode": "auto"},
+      "models": [{"id": "fast", "model": "github-copilot/router-fast"}]
+    },
+    "status": 422, "response": {"code": "invalid_json", "detail": "request does not match the contract: repository: Extra inputs are not permitted"}
+  },
+  {
+    "id": "route-rejects-task-id", "method": "POST", "path": "/route", "request_valid": false,
+    "request": {
+      "task_id": "contract-task",
+      "conversation": [{"role": "user", "parts": [{"text": "Proceed."}]}],
+      "objective": {"goal": "cost", "mode": "auto"},
+      "models": [{"id": "fast", "model": "github-copilot/router-fast"}]
+    },
+    "status": 422, "response": {"code": "invalid_json", "detail": "request does not match the contract: task_id: Extra inputs are not permitted"}
+  },
+  {
+    "id": "invalid-effort", "method": "POST", "path": "/route", "request_valid": false,
+    "request": {
+      "conversation": [{"role": "user", "parts": [{"text": "Proceed."}]}],
+      "objective": {"goal": "cost", "mode": "auto"},
+      "models": [{"id": "reasoning", "model": "github-copilot/router-reasoning", "effort": "turbo"}]
+    },
+    "status": 422, "response": {"code": "invalid_json", "detail": "request does not match the contract: models.0.effort: Input should be 'none', 'minimal', 'low', 'medium', 'high', 'xhigh' or 'max'"}
+  },
+  {
+    "id": "invalid-classification-empty", "method": "POST", "path": "/route", "request_valid": false,
+    "request": {
+      "conversation": [{"role": "user", "parts": [{"text": "Proceed."}]}],
+      "objective": {"goal": "cost", "mode": "auto"},
+      "models": [{"id": "fast", "model": "github-copilot/router-fast"}], "classification": {}
+    },
+    "status": 422, "response": {"code": "invalid_json", "detail": "request does not match the contract: classification.labels: Field required; classification.mode: Field required"}
+  },
+  {
+    "id": "invalid-classification-mode", "method": "POST", "path": "/route", "request_valid": false,
+    "request": {
+      "conversation": [{"role": "user", "parts": [{"text": "Proceed."}]}],
+      "objective": {"goal": "cost", "mode": "auto"},
+      "models": [{"id": "fast", "model": "github-copilot/router-fast"}],
+      "classification": {"labels": {"task_type": "unknown", "scope": "unknown", "task_complexity": "unknown"}, "mode": "auto"}
+    },
+    "status": 422, "response": {"code": "invalid_json", "detail": "request does not match the contract: classification.mode: Input should be 'economy', 'balanced', 'robust' or 'unknown'"}
+  },
+  {
+    "id": "invalid-classification-extra", "method": "POST", "path": "/route", "request_valid": false,
+    "request": {
+      "conversation": [{"role": "user", "parts": [{"text": "Proceed."}]}],
+      "objective": {"goal": "cost", "mode": "auto"},
+      "models": [{"id": "fast", "model": "github-copilot/router-fast"}],
+      "classification": {"labels": {"task_type": "unknown", "scope": "unknown", "task_complexity": "unknown"}, "mode": "balanced", "explanation": "fixture"}
+    },
+    "status": 422, "response": {"code": "invalid_json", "detail": "request does not match the contract: classification.explanation: Extra inputs are not permitted"}
+  },
+  {
+    "id": "invalid-classification-label", "method": "POST", "path": "/route", "request_valid": false,
+    "request": {
+      "conversation": [{"role": "user", "parts": [{"text": "Proceed."}]}],
+      "objective": {"goal": "cost", "mode": "auto"},
+      "models": [{"id": "fast", "model": "github-copilot/router-fast"}],
+      "classification": {"labels": {"task_type": "invented", "scope": "unknown", "task_complexity": "unknown"}, "mode": "balanced"}
+    },
+    "status": 422, "response": {"code": "invalid_json", "detail": "request does not match the contract: classification.labels.task_type: Input should be 'explain', 'plan', 'fix', 'refactor', 'chore', 'implement' or 'unknown'"}
+  }
+]
