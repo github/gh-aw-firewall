@@ -68,15 +68,40 @@ describe('experimental Cloud Hypervisor enclave smoke workflow', () => {
         .split('/tmp/gh-aw').join(path.join(directory, 'gh-aw'));
       expect(() => execFileSync('/bin/sh', ['-c', localPreparation],
         { stdio: 'pipe' })).not.toThrow();
-      expect(fs.lstatSync(metadataPath).isFile()).toBe(true);
       expect(fs.readFileSync(metadataPath, 'utf8')).toBe('{"model":"auto"}');
       expect(() => execFileSync('mkdir', ['-p', metadataPath], { stdio: 'pipe' }))
         .toThrow();
-      expect(lock.indexOf('path: /tmp/gh-aw/aw_info.json'))
-        .toBeLessThan(lock.indexOf(preparation));
     } finally {
       fs.rmSync(directory, { recursive: true, force: true });
     }
+  });
+
+  it('downloads activation metadata to the agent before preparing writable paths', () => {
+    const compiled = yaml.load(lock) as {
+      jobs: Record<string, {
+        steps: Array<{
+          name?: string;
+          uses?: string;
+          with?: Record<string, string>;
+          run?: string;
+        }>;
+      }>;
+    };
+    const upload = compiled.jobs.activation.steps.find(step =>
+      step.name === 'Upload activation artifact');
+    expect(upload?.uses).toMatch(/^actions\/upload-artifact@/);
+    expect(upload?.with?.name).toBe('activation');
+    expect(upload?.with?.path.split('\n').map(value => value.trim()))
+      .toContain('/tmp/gh-aw/aw_info.json');
+
+    const steps = compiled.jobs.agent.steps;
+    const downloadIndex = steps.findIndex(step => step.name === 'Download activation artifact');
+    const preparationIndex = steps.findIndex(step =>
+      step.run?.includes('mkdir -p "${GITHUB_WORKSPACE}/.awf-home"'));
+    expect(downloadIndex).toBeGreaterThanOrEqual(0);
+    expect(preparationIndex).toBeGreaterThan(downloadIndex);
+    expect(steps[downloadIndex]?.uses).toMatch(/^actions\/download-artifact@/);
+    expect(steps[downloadIndex]?.with).toMatchObject({ name: 'activation', path: '/tmp/gh-aw' });
   });
 
   const linuxMountTest = process.env.AWF_TEST_LINUX_MOUNTS === '1' ? it : it.skip;
