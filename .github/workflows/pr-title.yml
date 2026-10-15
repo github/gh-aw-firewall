@@ -45,5 +45,6 @@ jobs:
             squid
             proxy
             api-proxy
+            router
             ci
             deps

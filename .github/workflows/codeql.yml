@@ -27,12 +27,13 @@ jobs:
       fail-fast: false
       matrix:
         # Only analyze languages that exist in this repository
-        # Note: Python files found in node_modules should not trigger Python analysis
-        language: ['javascript-typescript', 'actions']
+        language: ['javascript-typescript', 'actions', 'python']
         include:
           - language: javascript-typescript
             build-mode: none
           - language: actions
+            build-mode: none
+          - language: python
             build-mode: none
 
     steps:

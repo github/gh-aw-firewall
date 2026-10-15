@@ -6,6 +6,7 @@
 
 # Container definitions (security-sensitive)
 /containers/ @Mossaka
+/containers/router/ @Mossaka @lpcox @rabeckett @SivaKesava1
 
 # CI/CD workflows
 /.github/workflows/ @Mossaka

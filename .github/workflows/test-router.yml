@@ -1,0 +1,111 @@
+name: Router Tests
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'containers/router/**'
+      - '.github/workflows/test-router.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'containers/router/**'
+      - '.github/workflows/test-router.yml'
+  schedule:
+    # Weekly, so that pip-audit reports new advisories without a code change
+    - cron: '23 7 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: test-router-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    working-directory: containers/router
+
+jobs:
+  checks:
+    name: Lint, type-check and test (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        with:
+          python-version: '3.12'
+          working-directory: containers/router
+
+      - name: Install dependencies
+        run: uv sync --locked --dev
+
+      - name: Check formatting
+        run: uv run --locked ruff format --check .
+
+      - name: Lint
+        run: uv run --locked ruff check .
+
+      - name: Type-check
+        run: uv run --locked ty check
+
+      - name: Run tests
+        run: uv run --locked python -m pytest
+
+      - name: Run release tests
+        run: uv run --locked python -m pytest --run-release -m release
+
+  container:
+    name: Container contract tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        with:
+          python-version: '3.12'
+          working-directory: containers/router
+
+      - name: Install dependencies
+        run: uv sync --locked --dev
+
+      - name: Run Docker contract tests
+        run: uv run --locked python -m pytest --run-docker -m docker
+
+  advisories:
+    name: Dependency advisories
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        with:
+          python-version: '3.12'
+          working-directory: containers/router
+
+      - name: Audit locked runtime dependencies
+        run: uvx pip-audit==2.10.1 --disable-pip --no-deps --requirement requirements.lock

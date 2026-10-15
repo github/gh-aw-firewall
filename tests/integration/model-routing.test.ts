@@ -6,7 +6,8 @@ import { afterAll, beforeAll, describe, expect, test } from '@jest/globals';
 import { ROUTER_HEALTHCHECK_TEST } from '../../src/services/router-service';
 import { cleanup } from '../fixtures/cleanup';
 
-const ROUTER_IMAGE = 'ghcr.io/githubnext/gh-aw-router:latest@sha256:d1612d0eaec3fa8f14c38bbd0a6a0682732fc9f83b7fec94219d3e757a048270';
+// The model-routing smoke workflow sets ROUTER_IMAGE to a digest-pinned build of containers/router.
+const ROUTER_IMAGE = process.env.ROUTER_IMAGE || 'ghcr.io/githubnext/gh-aw-router:latest@sha256:d1612d0eaec3fa8f14c38bbd0a6a0682732fc9f83b7fec94219d3e757a048270';
 const API_PROXY_IMAGE = 'ghcr.io/github/gh-aw-firewall/api-proxy:latest@sha256:9569f2c75545c4af0583b433fa5e3c477089fd1300b109d2b2358f4aa9702c6b';
 const ROUTER_SMOKE_SCRIPT = `
 const assert = require('node:assert/strict');
