@@ -9,7 +9,7 @@ name: Smoke Enclave Cloud Hypervisor (Experimental)
 runs-on: ubuntu-24.04
 engine:
   id: copilot
-  version: 1.0.34
+  version: 1.0.96
   env:
     GH_TOKEN: ${{ github.token }}
     GH_AW_HARNESS_STARTUP_RETRIES: "0"
@@ -150,6 +150,11 @@ script enclave artifacts all select that release. This workflow is compiled
 with gh-aw v0.92.0 and does not publish a release or authorize a live run.
 This is diagnostic enablement, not a verified fix for the original host-executor
 launch failure; that failure remains untested with this release.
+Copilot CLI is independently pinned to 1.0.96, the pinned gh-aw v0.92.0
+installer's default. Its help advertises every generated CLI option and the
+harness-added `--session-id` used for model verification; 1.0.34 rejects that
+option before the agent can invoke an enclave. Credential-free offline argument
+checks do not verify a live smoke run or the original enclave launch failure.
 The agent and built-in safe-outputs jobs have 20-minute timeouts; other
 generated jobs, including custom reporting, do not. GitHub Actions does not
 provide an enforceable 20-minute wall-clock limit for the entire workflow run.

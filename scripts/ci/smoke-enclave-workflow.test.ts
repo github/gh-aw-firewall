@@ -23,6 +23,54 @@ describe('experimental Cloud Hypervisor enclave smoke workflow', () => {
   const workflowPath = path.join(workflowsDir, 'smoke-enclave-cloud-hypervisor.lock.yml');
   const lock = fs.readFileSync(workflowPath, 'utf8');
 
+  it('pins the CLI verified against the compiler harness and invokes that staged binary', () => {
+    const frontmatter = yaml.load(source.split('---')[1]) as {
+      engine: { id: string; version: string };
+    };
+    const compiled = yaml.load(lock) as {
+      jobs: Record<string, {
+        env?: Record<string, string>;
+        steps: Array<{ name: string; run?: string }>;
+      }>;
+    };
+    const agent = compiled.jobs.agent;
+    const install = agent.steps.find(step => step.name === 'Install GitHub Copilot CLI');
+    const execute = agent.steps.find(step => step.name === 'Execute GitHub Copilot CLI');
+    const harnessCommand =
+      '"${RUNNER_TEMP}/gh-aw/actions/copilot_harness.cjs" "${RUNNER_TEMP}/gh-aw/bin/copilot"';
+
+    expect(frontmatter.engine).toMatchObject({ id: 'copilot', version: '1.0.96' });
+    expect(agent.env?.GH_AW_ENGINE_VERSION).toBe('1.0.96');
+    expect(install?.run).toBe(
+      'bash "${RUNNER_TEMP}/gh-aw/actions/install_copilot_cli.sh" 1.0.96'
+    );
+    expect(lock).toContain('"engine_versions":{"copilot":"1.0.96"}');
+    expect(lock).toContain('"compiler_version":"v0.92.0"');
+    expect(lock).toContain('github/gh-aw-actions/setup@458b269006dcf88e3b5496b6fbecabe4b9a0f954');
+    expect(execute?.run).toContain('GH_AW_COPILOT_SRC="$(command -v copilot 2>/dev/null || true)"');
+    expect(execute?.run).toContain('GH_AW_COPILOT_BIN="${RUNNER_TEMP}/gh-aw/bin/copilot"');
+    expect(execute?.run).toContain('cp "$GH_AW_COPILOT_SRC" "$GH_AW_COPILOT_BIN"');
+    expect(execute?.run).toContain(harnessCommand);
+
+    // Option contract checked against checksum-verified official v1.0.96 --help.
+    // The pinned harness consumes --prompt-file and adds -p, model routing and session identity.
+    const supportedCliOptions = new Set([
+      '--add-dir', '--log-level', '--log-dir', '--disable-builtin-mcps',
+      '--no-ask-user', '--allow-tool', '--deny-tool', '--allow-all-paths',
+      '--model', '--reasoning-effort', '--session-id', '-p',
+    ]);
+    const invocation = execute!.run!.split(harnessCommand)[1];
+    expect(invocation).toBeDefined();
+    expect(invocation).toContain('--prompt-file /tmp/gh-aw/aw-prompts/prompt.txt');
+    const generatedOptions = invocation.match(/--[a-z][a-z-]*/g) ?? [];
+    expect(generatedOptions.length).toBeGreaterThan(0);
+    const cliOptions = [
+      ...generatedOptions.filter(option => option !== '--prompt-file'),
+      '--model', '--reasoning-effort', '--session-id', '-p',
+    ];
+    expect(cliOptions.filter(option => !supportedCliOptions.has(option))).toEqual([]);
+  });
+
   it('provides the staging token to the trusted host without exposing it to the agent', () => {
     const compiled = yaml.load(lock) as {
       env?: Record<string, unknown>;
