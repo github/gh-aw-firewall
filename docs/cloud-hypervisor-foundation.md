@@ -1635,7 +1635,7 @@ destination mount. The kernel
 tests the destination and calls `set_mnt_shared()` on the attached tree.
 This kernel reference establishes the mechanism, not the probe's unrecorded
 exact kernel version. A
-[`remount,bind`](https://man7.org/linux/man-pages/man8/mount.8.html)
+[`remount,bind`](https://github.com/util-linux/util-linux/blob/master/sys-utils/mount.8.adoc)
 changes per-mount flags, not automatically its propagation class.
 
 These are five hypotheses, ordered by code/semantic support, not five findings:
