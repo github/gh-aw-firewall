@@ -347,6 +347,20 @@ describe('Phase 4 campaign runtime evidence', () => {
     },
   );
 
+  it('keeps generated guest PID evidence collection POSIX-compatible and within the probe budget', () => {
+    const workload = harness.split('cat > "$workspace_dir/workload.sh" <<\'EOF\'\n')[1]
+      .split('\nEOF')[0];
+    expect(() => execFileSync('sh', ['-n'], { input: workload })).not.toThrow();
+    expect(workload).toMatch(
+      /read_nvx_guest_pids_evidence \\\n\s+\/proc\/cmdline "\$AWF_PHASE4_PROFILE_PIDS_MAX" \/tmp\/nvx-pids-probe-started \\\n\s+>"\$guest_pids_evidence_file"/,
+    );
+    expect(workload).toMatch(
+      /read -r guest_pids_max guest_kernel_pids_max \\\n\s+guest_probe_target guest_probe_started <"\$guest_pids_evidence_file"/,
+    );
+    expect(workload).not.toContain('<<<');
+    expect(workload).not.toContain('guest_pids_evidence=$(');
+  });
+
   it.each([
     ['sequential', 'primary'],
     ['concurrent', 'primary'],
