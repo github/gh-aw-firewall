@@ -180,9 +180,10 @@ AWF v0.28.59 safely publishes early resolved configuration under
 `GITHUB_ENV`. The normal audit compatibility JSON is published only after
 successful privileged cleanup. The pinned gh-aw v0.92.0 setup action
 (`github/gh-aw-actions` at `458b269006dcf88e3b5496b6fbecabe4b9a0f954`)
-redacts only `/tmp/gh-aw` and `${RUNNER_TEMP}/gh-aw`; the compiled artifact
-upload includes the old audit tree, not the new early path. Neither consumer
-uses `AWF_RESOLVED_CONFIG`, so evidence after failed cleanup remains incomplete.
+redacts only the framework-managed AWF temp root and `${RUNNER_TEMP}/gh-aw`; the
+compiled artifact upload includes the old audit tree, not the new early path.
+Neither consumer uses `AWF_RESOLVED_CONFIG`, so evidence after failed cleanup
+remains incomplete.
 
 Keep this update draft until a verified compiler/actions contract supports
 both safe redaction and collection of that early artifact. Do not copy raw

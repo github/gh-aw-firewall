@@ -378,7 +378,9 @@ describe('experimental Cloud Hypervisor enclave smoke workflow', () => {
     expect(source).toContain('diagnostic enablement, not a verified fix');
     expect(source).toContain('Keep this update draft until a verified compiler/actions contract supports');
     expect(source).toContain('both safe redaction and collection of that early artifact');
-    expect(source).toContain('Neither consumer\nuses `AWF_RESOLVED_CONFIG`');
+    expect(source).toContain(
+      'Neither consumer uses `AWF_RESOLVED_CONFIG`, so evidence after failed cleanup'
+    );
     expect(source).toContain('successful privileged cleanup');
     expect(source).toContain('Do not copy raw\nresolved JSON into normal artifact paths');
     expect(source).toContain('compiled\nwith gh-aw v0.92.0');
