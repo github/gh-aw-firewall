@@ -46,6 +46,7 @@ case "$resource_profile" in
 esac
 memory_bytes=$((memory_mib * 1024 * 1024))
 readonly scratch_limit_bytes=$((scratch_mib * 1024 * 1024))
+readonly nvx_host_pids_max=256
 
 now_ms() {
   date +%s%3N
@@ -84,6 +85,46 @@ tune_campaign_cgroup() {
     sudo tee "$cgroup/cpu.max" >/dev/null
   if [ "$runtime" = cloud-hypervisor ]; then
     printf '%s\n' "$pids_max" | sudo tee "$cgroup/pids.max" >/dev/null
+  fi
+}
+
+guest_resource_limits_match() {
+  local expected_runtime=$1 expected_pids_max=$2
+  shift 2
+  jq -se --arg runtime "$expected_runtime" --argjson pidsMax "$expected_pids_max" '
+    all(.[];
+      .runtime == $runtime and
+      .configuredPidsMax == $pidsMax and
+      (if $runtime == "nvx" then
+        .pidsMax == $pidsMax and .cgroupPidsMax == ($pidsMax + 1)
+      else
+        .pidsMax == null and .cgroupPidsMax == null
+      end)
+    )
+  ' "$@" >/dev/null
+}
+
+campaign_resource_limits_enforced() {
+  local execution_mode=$1
+  local expected_memory_max=$2 expected_cpu_max=$3 expected_host_pids_max=$4
+  local guest_limits=$5
+  local observed_cgroup=$6 observed_memory_max=$7 observed_cpu_max=$8 observed_pids_max=$9
+  local peer_guest_limits=${10} peer_cgroup=${11} peer_memory_max=${12}
+  local peer_cpu_max=${13} peer_pids_max=${14}
+
+  [ "$guest_limits" = true ] &&
+    [ -n "$observed_cgroup" ] &&
+    [ "$observed_memory_max" = "$expected_memory_max" ] &&
+    [ "$observed_cpu_max" = "$expected_cpu_max" ] &&
+    [ "$observed_pids_max" = "$expected_host_pids_max" ] ||
+    return 1
+  if [ "$execution_mode" = concurrent ]; then
+    [ "$peer_guest_limits" = true ] &&
+      [ -n "$peer_cgroup" ] &&
+      [ "$peer_memory_max" = "$expected_memory_max" ] &&
+      [ "$peer_cpu_max" = "$expected_cpu_max" ] &&
+      [ "$peer_pids_max" = "$expected_host_pids_max" ] ||
+      return 1
   fi
 }
 
@@ -282,6 +323,36 @@ guest_exit() {
   printf '%s\n' "$status" > "$root/workload-ended"
   while [ ! -f "$root/cleanup-release" ]; do sleep 0.1; done
 }
+read_nvx_guest_pids_limits() {
+  cmdline_file=$1
+  cgroup_membership_file=$2
+  cgroup_root=$3
+  kernel_pids_max=$(
+    tr ' ' '\n' < "$cmdline_file" |
+      sed -n 's/^nvx_pids_max=//p' |
+      tail -n 1
+  )
+  case "$kernel_pids_max" in
+    ''|*[!0-9]*|0) guest_fail 48 nvx-guest-pids-limit-missing ;;
+  esac
+  guest_cgroup=$(awk -F: '$1 == "0" { print $3 }' "$cgroup_membership_file")
+  case "$guest_cgroup" in
+    /*) ;;
+    *) guest_fail 49 nvx-guest-cgroup-missing ;;
+  esac
+  guest_cgroup_pids_file="$cgroup_root${guest_cgroup%/}/pids.max"
+  if [ ! -r "$guest_cgroup_pids_file" ]; then
+    guest_fail 50 nvx-guest-cgroup-pids-limit-missing
+  fi
+  guest_cgroup_pids_max=$(cat "$guest_cgroup_pids_file")
+  case "$guest_cgroup_pids_max" in
+    ''|*[!0-9]*|0) guest_fail 51 nvx-guest-cgroup-pids-limit-invalid ;;
+  esac
+  if [ "$guest_cgroup_pids_max" != "$kernel_pids_max" ]; then
+    guest_fail 52 nvx-guest-cgroup-pids-limit-mismatch
+  fi
+  printf '%s %s\n' "$guest_cgroup_pids_max" "$((guest_cgroup_pids_max - 1))"
+}
 trap guest_exit EXIT
 guest_stage=workspace
 test "$(pwd)" = /workspace
@@ -317,15 +388,31 @@ guest_stage=toolchain
 guest_node_version=$("$AWF_PHASE4_NODE_BIN" --version)
 guest_curl_version=$(curl --version | awk 'NR == 1 {print $1, $2}')
 scratch_capacity=$(df -Pk /tmp | awk 'NR == 2 {printf "%.0f\n", $2 * 1024}')
+guest_pids_max=
+guest_cgroup_pids_max=
+if [ "$AWF_PHASE4_RUNTIME" = nvx ]; then
+  guest_pids_limits=$(
+    read_nvx_guest_pids_limits /proc/cmdline /proc/self/cgroup /sys/fs/cgroup
+  )
+  guest_cgroup_pids_max=${guest_pids_limits%% *}
+  guest_pids_max=${guest_pids_limits#* }
+fi
 scratch_before_bytes=$(du -sb /tmp 2>/dev/null | awk '{print $1}')
 scratch_before_bytes=${scratch_before_bytes:-0}
 scratch_peak_bytes=$scratch_before_bytes
 GUEST_NODE_VERSION=$guest_node_version \
 GUEST_CURL_VERSION=$guest_curl_version \
 SCRATCH_CAPACITY_BYTES=$scratch_capacity \
+GUEST_PIDS_MAX=$guest_pids_max \
+GUEST_CGROUP_PIDS_MAX=$guest_cgroup_pids_max \
 "$AWF_PHASE4_NODE_BIN" -e '
   require("node:fs").writeFileSync(process.argv[1], JSON.stringify({
     credentialIsolation: true, egressPolicy: true, workspaceOnlyExposure: true,
+    runtime: process.env.AWF_PHASE4_RUNTIME,
+    configuredPidsMax: Number(process.env.AWF_PHASE4_PROFILE_PIDS_MAX),
+    pidsMax: process.env.GUEST_PIDS_MAX ? Number(process.env.GUEST_PIDS_MAX) : null,
+    cgroupPidsMax: process.env.GUEST_CGROUP_PIDS_MAX ?
+      Number(process.env.GUEST_CGROUP_PIDS_MAX) : null,
     nodeVersion: process.env.GUEST_NODE_VERSION,
     curlVersion: process.env.GUEST_CURL_VERSION,
     scratchCapacityBytes: Number(process.env.SCRATCH_CAPACITY_BYTES),
@@ -404,12 +491,19 @@ GUEST_NODE_VERSION=$guest_node_version \
 GUEST_CURL_VERSION=$guest_curl_version \
 SCRATCH_CAPACITY_BYTES=$scratch_capacity \
 SCRATCH_USAGE_BYTES=$scratch_usage_bytes \
+GUEST_PIDS_MAX=$guest_pids_max \
+GUEST_CGROUP_PIDS_MAX=$guest_cgroup_pids_max \
 "$AWF_PHASE4_NODE_BIN" -e '
   const fs = require("node:fs");
   fs.writeFileSync(process.argv[1], JSON.stringify({
     credentialIsolation: true,
     egressPolicy: true,
     workspaceOnlyExposure: true,
+    runtime: process.env.AWF_PHASE4_RUNTIME,
+    configuredPidsMax: Number(process.env.AWF_PHASE4_PROFILE_PIDS_MAX),
+    pidsMax: process.env.GUEST_PIDS_MAX ? Number(process.env.GUEST_PIDS_MAX) : null,
+    cgroupPidsMax: process.env.GUEST_CGROUP_PIDS_MAX ?
+      Number(process.env.GUEST_CGROUP_PIDS_MAX) : null,
     nodeVersion: process.env.GUEST_NODE_VERSION,
     curlVersion: process.env.GUEST_CURL_VERSION,
     scratchCapacityBytes: Number(process.env.SCRATCH_CAPACITY_BYTES),
@@ -462,6 +556,8 @@ jq -n \
 
 export AWF_PHASE4_CANARY_ROOT="/workspace/.nvx-phase4-campaign/$sample_id"
 export AWF_PHASE4_WORKLOAD="$workload"
+export AWF_PHASE4_RUNTIME="$runtime"
+export AWF_PHASE4_PROFILE_PIDS_MAX="$pids_max"
 export AWF_PHASE4_MODE="$mode"
 export AWF_PHASE4_COPILOT_BIN="$AWF_PHASE4_CANARY_ROOT/copilot"
 export AWF_PHASE4_NODE_BIN="$node_guest"
@@ -478,7 +574,7 @@ fi
 
 run_awf() {
   local instance_root=$1 instance_work=$2 instance_config=$3
-  exec sudo --preserve-env=AWF_PHASE4_WORKLOAD,AWF_PHASE4_COPILOT_BIN,AWF_PHASE4_NODE_BIN,COPILOT_GITHUB_TOKEN,GITHUB_ACTIONS,RUNNER_ENVIRONMENT,ImageOS \
+  exec sudo --preserve-env=AWF_PHASE4_WORKLOAD,AWF_PHASE4_RUNTIME,AWF_PHASE4_PROFILE_PIDS_MAX,AWF_PHASE4_COPILOT_BIN,AWF_PHASE4_NODE_BIN,COPILOT_GITHUB_TOKEN,GITHUB_ACTIONS,RUNNER_ENVIRONMENT,ImageOS \
   node dist/cli.js \
   --config "$instance_config" \
   --work-dir "$instance_work" \
@@ -487,6 +583,8 @@ run_awf() {
   --image-tag "0.28.54,squid=sha256:960930db796d005e63153b9ffd984b58ebda1ed8c26800c09eb7515dc94237db,agent=sha256:fc4f3d07d9f0479aa76d4a6d55f36735c29e0558f10a413fbd36e3d00b34a830,api-proxy=sha256:f8dff30ac37a8987b564f2872796a9c093b3ab281b1cdfc3493c1ea5fa84ff79" \
   --env "AWF_PHASE4_CANARY_ROOT=$instance_root" \
   --env "AWF_PHASE4_WORKLOAD=$workload" \
+  --env "AWF_PHASE4_RUNTIME=$runtime" \
+  --env "AWF_PHASE4_PROFILE_PIDS_MAX=$pids_max" \
   --env "AWF_PHASE4_COPILOT_BIN=$AWF_PHASE4_COPILOT_BIN" \
   --env "AWF_PHASE4_NODE_BIN=$AWF_PHASE4_NODE_BIN" \
   --log-level debug \
@@ -500,6 +598,8 @@ run_peer() {
     --network-isolation --enable-api-proxy --log-level debug "${runtime_args[@]}" \
     --env "AWF_PHASE4_CANARY_ROOT=$AWF_PHASE4_CANARY_ROOT/peer" \
     --env "AWF_PHASE4_WORKLOAD=$workload" \
+    --env "AWF_PHASE4_RUNTIME=$runtime" \
+    --env "AWF_PHASE4_PROFILE_PIDS_MAX=$pids_max" \
     --env "AWF_PHASE4_COPILOT_BIN=$AWF_PHASE4_COPILOT_BIN" \
     --env "AWF_PHASE4_NODE_BIN=$AWF_PHASE4_NODE_BIN" \
     -- "/bin/sh $AWF_PHASE4_CANARY_ROOT/workload.sh" <<'PEER'
@@ -907,18 +1007,32 @@ resource_limits=false
 # Both launchers add 256 MiB of host-runtime headroom to the matched guest
 # limit.
 expected_memory_max=$((memory_bytes + 256 * 1024 * 1024))
-if [ -n "$observed_cgroup" ] && [ "$observed_pids_max" = "$pids_max" ]; then
-  read -r cpu_quota cpu_period <<<"$observed_cpu_max"
-  if [ "$observed_memory_max" = "$expected_memory_max" ] &&
-     [ "$cpu_period" = 100000 ] &&
-     [ "$cpu_quota" = "$((cpu_cores * 100000))" ]; then
-    resource_limits=true
-  fi
-  if [ "$mode" = concurrent ] &&
-     { [ -z "$peer_cgroup" ] || [ "$peer_memory_max" != "$expected_memory_max" ] ||
-       [ "$peer_pids_max" != "$pids_max" ] || [ "$peer_cpu_max" != "$observed_cpu_max" ]; }; then
-    resource_limits=false
-  fi
+expected_cpu_max="$((cpu_cores * 100000)) 100000"
+expected_host_pids_max=$pids_max
+if [ "$runtime" = nvx ]; then expected_host_pids_max=$nvx_host_pids_max; fi
+guest_limits=false
+peer_guest_limits=true
+if guest_resource_limits_match "$runtime" "$pids_max" "$workspace_dir/guest-preflight.json"; then
+  guest_limits=true
+fi
+if [ "$mode" = concurrent ] &&
+   ! guest_resource_limits_match "$runtime" "$pids_max" "$peer_workspace/guest-preflight.json"; then
+  peer_guest_limits=false
+fi
+if campaign_resource_limits_enforced \
+  "$mode" "$expected_memory_max" "$expected_cpu_max" "$expected_host_pids_max" \
+  "$guest_limits" "$observed_cgroup" "$observed_memory_max" "$observed_cpu_max" \
+  "$observed_pids_max" "$peer_guest_limits" "$peer_cgroup" "$peer_memory_max" \
+  "$peer_cpu_max" "$peer_pids_max"; then
+  resource_limits=true
+fi
+guest_pids_max=$(jq -er '.pidsMax // ""' "$workspace_dir/guest-preflight.json")
+guest_cgroup_pids_max=$(jq -er '.cgroupPidsMax // ""' "$workspace_dir/guest-preflight.json")
+peer_guest_pids_max=
+peer_guest_cgroup_pids_max=
+if [ "$mode" = concurrent ]; then
+  peer_guest_pids_max=$(jq -er '.pidsMax // ""' "$peer_workspace/guest-preflight.json")
+  peer_guest_cgroup_pids_max=$(jq -er '.cgroupPidsMax // ""' "$peer_workspace/guest-preflight.json")
 fi
 jq -n \
   --arg cgroup "$observed_cgroup" \
@@ -930,9 +1044,20 @@ jq -n \
   --arg peerCpuMax "$peer_cpu_max" \
   --arg peerPidsMax "$peer_pids_max" \
   --arg expectedMemoryMax "$expected_memory_max" \
+  --arg expectedHostPidsMax "$expected_host_pids_max" \
+  --arg configuredGuestPidsMax "$pids_max" \
+  --arg guestPidsMax "$guest_pids_max" \
+  --arg guestCgroupPidsMax "$guest_cgroup_pids_max" \
+  --arg peerGuestPidsMax "$peer_guest_pids_max" \
+  --arg peerGuestCgroupPidsMax "$peer_guest_cgroup_pids_max" \
   '{cgroup:$cgroup,memoryMax:$memoryMax,cpuMax:$cpuMax,pidsMax:$pidsMax,
-    expectedMemoryMax:$expectedMemoryMax,
-    peer:{cgroup:$peerCgroup,memoryMax:$peerMemoryMax,cpuMax:$peerCpuMax,pidsMax:$peerPidsMax}}' \
+    expectedMemoryMax:$expectedMemoryMax,expectedPidsMax:$expectedHostPidsMax,
+    guest:{configuredPidsMax:$configuredGuestPidsMax,observedPidsMax:$guestPidsMax,
+      observedCgroupPidsMax:$guestCgroupPidsMax},
+    peer:{cgroup:$peerCgroup,memoryMax:$peerMemoryMax,cpuMax:$peerCpuMax,pidsMax:$peerPidsMax,
+      expectedPidsMax:$expectedHostPidsMax,
+      guest:{configuredPidsMax:$configuredGuestPidsMax,observedPidsMax:$peerGuestPidsMax,
+        observedCgroupPidsMax:$peerGuestCgroupPidsMax}}}' \
   > "$evidence_dir/resources.json"
 chmod 0600 "$evidence_dir/resources.json"
 

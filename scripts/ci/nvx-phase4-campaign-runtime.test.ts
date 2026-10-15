@@ -7,6 +7,13 @@ import { execFileSync } from 'child_process';
 const harness = fs.readFileSync(path.join(__dirname, 'nvx-phase4-campaign-runtime.sh'), 'utf8');
 const identityCode = harness.split("<<'IDENTITY'\n")[1].split('\nIDENTITY')[0];
 
+function extractShellFunction(name: string): string {
+  const start = harness.indexOf(`${name}() {`);
+  const next = harness.indexOf('\n}\n', start);
+  if (start < 0 || next < 0) throw new Error(`missing shell function ${name}`);
+  return harness.slice(start, next + 3);
+}
+
 function captureIdentity(runtime: 'nvx' | 'cloud-hypervisor', corrupt?: (record: any) => void): any {
   const runId = 'a'.repeat(32);
   const cgroup = `/sys/fs/cgroup/awf-${runtime}/${runId}`;
@@ -190,6 +197,122 @@ describe('Phase 4 campaign runtime evidence', () => {
     expect(harness).toContain('--nvx-scratch-bytes "$scratch_limit_bytes"');
     expect(harness).toContain('--cloud-hypervisor-scratch-mib "$scratch_mib"');
     expect(harness.indexOf(`' "$root/guest-preflight.json"`)).toBeLessThan(harness.indexOf('guest_stage=workload'));
+  });
+
+  it.each([
+    ['nvx', 'sequential', 128, 256],
+    ['nvx', 'sequential', 256, 256],
+    ['nvx', 'sequential', 512, 256],
+    ['nvx', 'concurrent', 128, 256],
+    ['nvx', 'concurrent', 256, 256],
+    ['nvx', 'concurrent', 512, 256],
+    ['cloud-hypervisor', 'sequential', 128, 128],
+    ['cloud-hypervisor', 'sequential', 256, 256],
+    ['cloud-hypervisor', 'sequential', 512, 512],
+    ['cloud-hypervisor', 'concurrent', 128, 128],
+    ['cloud-hypervisor', 'concurrent', 256, 256],
+    ['cloud-hypervisor', 'concurrent', 512, 512],
+  ])(
+    'validates %s %s host and guest PID limits independently for profile %s',
+    (runtime, mode, profilePidsMax, hostPidsMax) => {
+      const guestFunction = extractShellFunction('guest_resource_limits_match');
+      const resourceFunction = extractShellFunction('campaign_resource_limits_enforced');
+      const root = fs.mkdtempSync(path.join(os.tmpdir(), 'phase4-resources-'));
+      const primary = path.join(root, 'primary.json');
+      const peer = path.join(root, 'peer.json');
+      const guestPidsMax = runtime === 'nvx' ? profilePidsMax : null;
+      const guestCgroupPidsMax = runtime === 'nvx' ? profilePidsMax + 1 : null;
+      for (const file of [primary, peer]) {
+        fs.writeFileSync(file, JSON.stringify({
+          runtime, configuredPidsMax: profilePidsMax, pidsMax: guestPidsMax,
+          cgroupPidsMax: guestCgroupPidsMax,
+        }));
+      }
+      const run = (hostPids: number, guestFile = primary, peerHostPids = hostPidsMax) =>
+        execFileSync('bash', ['-c', `
+          ${guestFunction}
+          ${resourceFunction}
+          guest=false peer_guest=true
+          if guest_resource_limits_match "$1" "$2" "$3"; then guest=true; fi
+          if [ "$4" = concurrent ] &&
+             ! guest_resource_limits_match "$1" "$2" "$5"; then peer_guest=false; fi
+          campaign_resource_limits_enforced "$4" 4563402752 "200000 100000" "$6" \
+            "$guest" /cgroup 4563402752 "200000 100000" "$7" \
+            "$peer_guest" /peer 4563402752 "200000 100000" "$8"
+        `, '-', runtime, String(profilePidsMax), guestFile, mode, peer,
+        String(hostPidsMax), String(hostPids), String(peerHostPids)]);
+      try {
+        expect(() => run(hostPidsMax)).not.toThrow();
+        expect(() => run(profilePidsMax === hostPidsMax ? hostPidsMax + 1 : profilePidsMax)).toThrow();
+        fs.writeFileSync(primary, JSON.stringify({
+          runtime, configuredPidsMax: profilePidsMax + 1, pidsMax: guestPidsMax,
+          cgroupPidsMax: guestCgroupPidsMax,
+        }));
+        expect(() => run(hostPidsMax)).toThrow();
+        if (mode === 'concurrent') {
+          fs.writeFileSync(primary, JSON.stringify({
+            runtime, configuredPidsMax: profilePidsMax, pidsMax: guestPidsMax,
+            cgroupPidsMax: guestCgroupPidsMax,
+          }));
+          expect(() => run(hostPidsMax, peer, hostPidsMax + 1)).toThrow();
+          if (runtime === 'nvx') {
+            fs.writeFileSync(peer, JSON.stringify({
+              runtime, configuredPidsMax: profilePidsMax, pidsMax: guestPidsMax,
+              cgroupPidsMax: profilePidsMax + 2,
+            }));
+            expect(() => run(hostPidsMax)).toThrow();
+            fs.writeFileSync(peer, JSON.stringify({
+              runtime, configuredPidsMax: profilePidsMax, pidsMax: guestPidsMax,
+              cgroupPidsMax: guestCgroupPidsMax,
+            }));
+          }
+        }
+        if (runtime === 'nvx') {
+          fs.writeFileSync(primary, JSON.stringify({
+            runtime, configuredPidsMax: profilePidsMax, pidsMax: guestPidsMax,
+            cgroupPidsMax: profilePidsMax + 2,
+          }));
+          expect(() => run(hostPidsMax)).toThrow();
+        }
+      } finally {
+        fs.rmSync(root, { recursive: true, force: true });
+      }
+    },
+  );
+
+  it('captures the configured NVX guest PID ceiling from the kernel command line', () => {
+    const readGuestLimits = extractShellFunction('read_nvx_guest_pids_limits');
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'phase4-guest-cgroup-'));
+    const cmdline = path.join(root, 'cmdline');
+    const membership = path.join(root, 'cgroup');
+    const cgroup = path.join(root, 'workload');
+    fs.mkdirSync(cgroup);
+    fs.writeFileSync(cmdline, 'quiet nvx_pids_max=513 console=ttyS0');
+    fs.writeFileSync(membership, '0::/workload\n');
+    fs.writeFileSync(path.join(cgroup, 'pids.max'), '513\n');
+    const run = () => execFileSync('bash', ['-c', `
+      guest_fail() { exit "$1"; }
+      ${readGuestLimits}
+      read_nvx_guest_pids_limits "$1" "$2" "$3"
+    `, '-', cmdline, membership, root], { encoding: 'utf8' }).trim();
+    try {
+      expect(run()).toBe('513 512');
+      fs.writeFileSync(path.join(cgroup, 'pids.max'), '512\n');
+      expect(run).toThrow();
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+    expect(harness).toContain("sed -n 's/^nvx_pids_max=//p'");
+    expect(harness).toContain('guest_cgroup_pids_max=$(cat "$guest_cgroup_pids_file")');
+    expect(harness).toContain('[ "$guest_cgroup_pids_max" != "$kernel_pids_max" ]');
+    expect(harness).toContain('"$((guest_cgroup_pids_max - 1))"');
+    expect(harness).toContain('configuredPidsMax: Number(process.env.AWF_PHASE4_PROFILE_PIDS_MAX)');
+    expect(harness).toContain('pidsMax: process.env.GUEST_PIDS_MAX ? Number(process.env.GUEST_PIDS_MAX) : null');
+    expect(harness).toContain('Number(process.env.GUEST_CGROUP_PIDS_MAX) : null');
+    expect(harness).toContain('--env "AWF_PHASE4_PROFILE_PIDS_MAX=$pids_max"');
+    expect(harness).toContain('--env "AWF_PHASE4_RUNTIME=$runtime"');
+    expect(harness).toContain('expectedPidsMax:$expectedHostPidsMax');
+    expect(harness).toContain('observedCgroupPidsMax:$guestCgroupPidsMax');
   });
 
   it('aborts both release handshakes when a peer fails preflight or dies during launch', () => {

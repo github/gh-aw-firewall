@@ -153,7 +153,7 @@ metric and zero-tolerance assertion, invokes the evaluator, and requires the
 `retain-preview` recommendation. Its values are synthetic pipeline fixtures,
 not runtime measurements, and must never be included in a promotion report.
 
-The collector contract maps resource profiles identically for both runtimes:
+The collector contract maps workload resource profiles identically for both runtimes:
 
 | Profile  | CPU cores | Memory MiB | PID limit | Scratch MiB |
 | -------- | --------: | ---------: | --------: | ----------: |
@@ -163,7 +163,11 @@ The collector contract maps resource profiles identically for both runtimes:
 
 Cold samples must report `cold-cache-flushed`; warm samples must report
 `warm-cache-primed`. Each run record carries the applied limits and preparation
-label, and the collector rejects a mismatch.
+label, and the collector rejects a mismatch. For NVX, the PID profile is the
+guest/workload cgroup ceiling while the host OpenVMM cgroup remains independently
+fail-closed at 256 processes. The campaign records and validates both limits.
+Cloud Hypervisor campaign samples continue to apply the profile PID ceiling to
+the observed host runtime cgroup.
 
 The measured campaign has three strictly separated tiers. Every manifest and
 aggregate records its tier, exact stable sample IDs, estimated runner minutes,
