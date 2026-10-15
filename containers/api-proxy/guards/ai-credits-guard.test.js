@@ -507,6 +507,36 @@ describe('ai-credits-guard', () => {
     });
   });
 
+  it('fills missing runtime rates from the runtime-selected tier', () => {
+    replaceRuntimeModels('copilot', parseProviderModelMetadata('copilot', {
+      data: [{
+        id: 'claude-haiku-5-5',
+        billing: {
+          token_prices: {
+            batch_size: 1_000_000,
+            default: { input_price: 100, output_price: 600 },
+          },
+        },
+      }],
+    }, { format: 'copilot' }));
+
+    const usage = applyAiCreditsUsage({
+      input_tokens: 150_000,
+      cache_read_tokens: 1000,
+      cache_write_tokens: 1000,
+      output_tokens: 1000,
+    }, 'claude-haiku-5-5', PROVIDER_COPILOT);
+
+    expect(usage).toMatchObject({
+      inputCreditsThisResponse: 15,
+      cachedInputCreditsThisResponse: 0.001,
+      cacheWriteCreditsThisResponse: 0.0125,
+      outputCreditsThisResponse: 0.6,
+      pricingSource: 'provider',
+      pricingTier: 'default',
+    });
+  });
+
   it('fails closed when incomplete runtime pricing has no lower-priority fallback', () => {
     process.env.AWF_MAX_AI_CREDITS = '10';
     resetAiCreditsGuardForTests();

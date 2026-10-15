@@ -12,6 +12,8 @@ function canonicalizeModel(model) {
 }
 
 function parseDollarsPerToken(value) {
+  if ((typeof value !== 'number' && typeof value !== 'string') ||
+      (typeof value === 'string' && value.trim() === '')) return null;
   const parsed = Number(value);
   if (!Number.isFinite(parsed) || parsed < 0) return null;
   return parsed * DOLLARS_PER_TOKEN_TO_DOLLARS_PER_MILLION;
@@ -55,7 +57,7 @@ function normalizeCost(cost) {
     return null;
   }
   const longContext = normalizeCostRates(rawLongContext);
-  const threshold = Number(rawLongContext.max_prompt_tokens);
+  const threshold = rawLongContext.max_prompt_tokens;
   if (!longContext || !Number.isFinite(threshold) || threshold <= 0) return null;
   return { default: defaultTier, longContext: { ...longContext, threshold } };
 }

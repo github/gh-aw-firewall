@@ -24,7 +24,7 @@ function normalizePricing(entry) {
         typeof reasoning !== 'number' || !Number.isFinite(reasoning) || reasoning < 0) {
       return null;
     }
-    const threshold = Number(tier.threshold);
+    const threshold = tier.threshold;
     if (requireThreshold && (!Number.isFinite(threshold) || threshold <= 0)) return null;
     return {
       pricing: { input, cachedInput, cacheWrite, output, reasoning },

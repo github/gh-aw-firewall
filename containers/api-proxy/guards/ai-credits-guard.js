@@ -184,7 +184,8 @@ function resolveModelPricing(model, state = aiCreditsState, provider = undefined
     ...options,
     provider,
     originalModel: model,
-    inputTokens,
+    inputTokens: runtime ? 0 : inputTokens,
+    preferredTier: runtime?.tier,
   });
   if (!runtime) return fallback;
   const mergedPricing = {};
@@ -200,9 +201,11 @@ function resolveModelPricing(model, state = aiCreditsState, provider = undefined
   return { ...runtime, pricing: mergedPricing };
 }
 
-function resolveCuratedPricing(pricing, inputTokens) {
+function resolveCuratedPricing(pricing, inputTokens, preferredTier) {
   const longContext = pricing.longContext;
-  const useLongContext = !!longContext && inputTokens > longContext.threshold;
+  const useLongContext = !!longContext && (preferredTier
+    ? preferredTier === 'long_context'
+    : inputTokens > longContext.threshold);
   if (!useLongContext) {
     const { longContext: _longContext, ...defaultPricing } = pricing;
     return { pricing: defaultPricing, source: 'curated', tier: 'default' };
@@ -213,7 +216,7 @@ function resolveCuratedPricing(pricing, inputTokens) {
 
 function resolveLowerPriorityPricing(model, state, options = {}) {
   if (Object.hasOwn(pricingByModel, model)) {
-    return resolveCuratedPricing(pricingByModel[model], options.inputTokens || 0);
+    return resolveCuratedPricing(pricingByModel[model], options.inputTokens || 0, options.preferredTier);
   }
 
   const canonical = canonicalizeModel(model);
@@ -222,7 +225,7 @@ function resolveLowerPriorityPricing(model, state, options = {}) {
   for (const [configuredModel, pricing] of Object.entries(pricingByModel)) {
     const canonicalKey = canonicalizeModel(configuredModel);
     if (canonical === canonicalKey) {
-      return resolveCuratedPricing(pricing, options.inputTokens || 0);
+      return resolveCuratedPricing(pricing, options.inputTokens || 0, options.preferredTier);
     }
   }
 

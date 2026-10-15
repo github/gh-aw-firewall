@@ -195,7 +195,7 @@ function makeModelBodyTransform(
       const parsed = parseBodyAsObject(body);
       const selectModel = () => resolveModelSelector(
         parsed?.model, provider, resolvableModels()[provider], getRuntimeModels(provider),
-        MODEL_ALIASES?.models, MODEL_POLICY_CONFIG,
+        MODEL_ALIASES?.models, MODEL_POLICY_CONFIG, providerModelFallback.isModelPriceable,
       );
       let selectedModel;
       try {

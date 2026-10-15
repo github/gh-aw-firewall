@@ -473,4 +473,97 @@ describe('curated prices for default-model traffic', () => {
     expect(resolveProviderPricingOverlay('anthropic', 'overlay-invalid-tier')).toBeNull();
     expect(resolveModelPricingCatalog('anthropic', 'catalog-invalid-tier')).toBeNull();
   });
+
+  it.each([true, [100000], '100000', null, 0, -1])(
+    'rejects malformed shared-catalog long-context threshold %j',
+    threshold => {
+      const { resolveModelPricingCatalog } = require('./model-pricing-catalog');
+      process.env.AWF_MODEL_PRICING_CATALOG = JSON.stringify({
+        schemaVersion: 1,
+        unit: 'USD_PER_1M_TOKENS',
+        catalogId: 'threshold-validation',
+        version: 'v1',
+        providers: {
+          anthropic: {
+            models: {
+              'claude-haiku-5-5': {
+                input: 0.1,
+                cachedInput: 0.01,
+                cacheWrite: 0.125,
+                output: 0.5,
+                reasoning: 0.5,
+                longContext: {
+                  threshold,
+                  input: 0.5,
+                  cachedInput: 0.05,
+                  cacheWrite: 0.625,
+                  output: 2.5,
+                  reasoning: 2.5,
+                },
+              },
+            },
+          },
+        },
+      });
+      resetModelPricingCatalogForTests();
+
+      expect(resolveModelPricingCatalog('anthropic', 'claude-haiku-5-5')).toBeNull();
+    },
+  );
+
+  it.each(['input', 'output', 'cache_read', 'cache_write'])(
+    'rejects malformed operator pricing values for %s',
+    field => {
+      const { resolveProviderPricingOverlay } = require('./provider-pricing-overlays');
+      for (const invalid of [null, '', false]) {
+        const cost = {
+          input: '0.0000001',
+          output: '0.0000005',
+          cache_read: '0.00000001',
+          cache_write: '0.000000125',
+          [field]: invalid,
+        };
+        process.env.AWF_API_PROXY_PROVIDERS = JSON.stringify({
+          anthropic: { models: { 'claude-haiku-5-5': { cost } } },
+        });
+        resetProviderPricingOverlaysForTests();
+
+        expect(resolveProviderPricingOverlay('anthropic', 'claude-haiku-5-5')).toBeNull();
+      }
+    },
+  );
+
+  it('preserves explicit zero operator rates and requires a numeric long-context threshold', () => {
+    const { resolveProviderPricingOverlay } = require('./provider-pricing-overlays');
+    const baseCost = {
+      input: 0,
+      output: '0.0000005',
+      cache_read: 0,
+      cache_write: 0,
+      long_context: {
+        max_prompt_tokens: true,
+        input: '0.0000005',
+        cache_read: '0.00000005',
+        cache_write: '0.000000625',
+        output: '0.0000025',
+      },
+    };
+    process.env.AWF_API_PROXY_PROVIDERS = JSON.stringify({
+      anthropic: { models: { 'claude-haiku-5-5': { cost: baseCost } } },
+    });
+    resetProviderPricingOverlaysForTests();
+
+    expect(resolveProviderPricingOverlay('anthropic', 'claude-haiku-5-5')).toBeNull();
+
+    delete baseCost.long_context;
+    process.env.AWF_API_PROXY_PROVIDERS = JSON.stringify({
+      anthropic: { models: { 'claude-haiku-5-5': { cost: baseCost } } },
+    });
+    resetProviderPricingOverlaysForTests();
+    expect(resolveProviderPricingOverlay('anthropic', 'claude-haiku-5-5').pricing).toMatchObject({
+      input: 0,
+      cachedInput: 0,
+      cacheWrite: 0,
+    });
+  });
 });

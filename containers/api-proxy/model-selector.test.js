@@ -96,6 +96,29 @@ describe('selected scalar model selectors', () => {
     expect(permitted.candidates).toEqual(['claude-sonnet-5']);
   });
 
+  it.each(['detection (copilot)', 'Team Detection'])(
+    'filters unpriced candidates from alias selector %s and its retries',
+    selector => {
+      const models = ['claude-haiku-5-5', 'claude-haiku-9-9'];
+      const aliases = {
+        detection: ['copilot/claude-haiku-*'],
+        'Team Detection': ['copilot/claude-haiku-*'],
+      };
+      const selection = resolveSelector(
+        selector,
+        'copilot',
+        models,
+        [],
+        aliases,
+        null,
+        model => model === 'claude-haiku-5-5',
+      );
+
+      expect(selection.resolvedModel).toBe('claude-haiku-5-5');
+      expect(selection.candidates).toEqual(['claude-haiku-5-5']);
+    },
+  );
+
   it('never applies middle-power fallback to an unresolved display-name alias', () => {
     expect(() => resolveModelSelector('Unknown Model', 'copilot', ids, records, {
       'Unknown Model': ['copilot/nonexistent'],
