@@ -724,6 +724,12 @@ export function applyGeneralWorkflowPatches(
   }
 
   if (workflowPath.endsWith('smoke-enclave-cloud-hypervisor.lock.yml')) {
+    // gh-aw v0.92.0 treats every allow-write entry as a directory. The metadata
+    // file is already downloaded before execution and must not be mkdir'd.
+    content = content.replace(
+      /^([ \t]*mkdir -p "\$\{GITHUB_WORKSPACE\}\/\.awf-home"[^\n]*) "\/tmp\/gh-aw\/aw_info\.json"([^\n]*)$/gm,
+      '$1$2',
+    );
     const invocation = 'sudo --preserve-env awf --config ';
     const debugInvocation = 'sudo --preserve-env awf --cloud-hypervisor-enclave-debug-public --config ';
     if (content.split(debugInvocation).length > 2 ||

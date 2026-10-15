@@ -65,6 +65,10 @@ sandbox:
     id: awf
     version: v0.28.59
     runtime: cloud-hypervisor
+    config:
+      filesystem:
+        allow-write:
+          - /tmp/gh-aw/aw_info.json
 strict: false
 concurrency:
   group: smoke-enclave-cloud-hypervisor
@@ -155,6 +159,17 @@ installer's default. Its help advertises every generated CLI option and the
 harness-added `--session-id` used for model verification; 1.0.34 rejects that
 option before the agent can invoke an enclave. Credential-free offline argument
 checks do not verify a live smoke run or the original enclave launch failure.
+The pinned model-verification harness updates `/tmp/gh-aw/aw_info.json` in
+place after inference. Allow that existing metadata file to remain writable
+through the host-backed export; the compiler's default writable agent and
+workspace paths are retained, but neighboring framework files remain read-only.
+This fixes the metadata-write EROFS boundary without disabling verification or
+changing the AWF release pin. It does not establish that the separate failed
+enclave attempt in run 38772667249 is repaired.
+The smoke postprocessor also removes that file from gh-aw v0.92.0's generated
+`mkdir -p` operands: activation already supplies a regular metadata file, not a
+directory. The local mount-boundary regression checks host persistence and
+neighboring protections, not a KVM/virtio-fs boot or a live enclave run.
 The agent and built-in safe-outputs jobs have 20-minute timeouts; other
 generated jobs, including custom reporting, do not. GitHub Actions does not
 provide an enforceable 20-minute wall-clock limit for the entire workflow run.

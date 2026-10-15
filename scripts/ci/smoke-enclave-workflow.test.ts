@@ -1,4 +1,5 @@
 import * as fs from 'fs';
+import * as os from 'os';
 import * as path from 'path';
 import { execFileSync } from 'child_process';
 import * as yaml from 'js-yaml';
@@ -22,6 +23,137 @@ describe('experimental Cloud Hypervisor enclave smoke workflow', () => {
   );
   const workflowPath = path.join(workflowsDir, 'smoke-enclave-cloud-hypervisor.lock.yml');
   const lock = fs.readFileSync(workflowPath, 'utf8');
+
+  function compiledWritablePaths(): string[] {
+    const match = lock.match(/\\"filesystem\\":\{\\"allowWrite\\":(\[.*?\])\}/);
+    if (!match) throw new Error('Missing compiled filesystem write policy');
+    return JSON.parse(match[1].replace(/\\"/g, '"')) as string[];
+  }
+
+  it('allows in-place model metadata updates without opening the framework directory', () => {
+    const frontmatter = yaml.load(source.split('---')[1]) as {
+      sandbox: { agent: { config: { filesystem: { 'allow-write': string[] } } } };
+    };
+    expect(frontmatter.sandbox.agent.config.filesystem['allow-write'])
+      .toEqual(['/tmp/gh-aw/aw_info.json']);
+    expect(compiledWritablePaths()).toEqual([
+      '/tmp/gh-aw/aw_info.json',
+      '/tmp/gh-aw/agent',
+      '/tmp/gh-aw/sandbox/agent/logs',
+      '/workspace',
+      '/workspace/.awf-home',
+    ]);
+    const preparation = lock.split('\n').find(line =>
+      line.includes('mkdir -p "${GITHUB_WORKSPACE}/.awf-home"'));
+    expect(preparation).toBeDefined();
+    expect(preparation).not.toContain('"/tmp/gh-aw/aw_info.json"');
+    const compilerPreparation = preparation!.replace(
+      '"/tmp/gh-aw/agent"', '"/tmp/gh-aw/agent" "/tmp/gh-aw/aw_info.json"',
+    );
+    const raw = lock.replace(preparation!, compilerPreparation);
+    expect(applyGeneralWorkflowPatches(raw, workflowPath).content).toBe(lock);
+  });
+
+  it('prepares directories without treating the downloaded metadata file as a directory', () => {
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-info-preparation-'));
+    try {
+      const metadataPath = path.join(directory, 'gh-aw/aw_info.json');
+      fs.mkdirSync(path.dirname(metadataPath));
+      fs.writeFileSync(metadataPath, '{"model":"auto"}');
+      const preparation = lock.split('\n').find(line =>
+        line.includes('mkdir -p "${GITHUB_WORKSPACE}/.awf-home"'));
+      if (!preparation) throw new Error('Missing directory preparation');
+      const localPreparation = preparation
+        .split('${GITHUB_WORKSPACE}').join(directory)
+        .split('/tmp/gh-aw').join(path.join(directory, 'gh-aw'));
+      expect(() => execFileSync('/bin/sh', ['-c', localPreparation],
+        { stdio: 'pipe' })).not.toThrow();
+      expect(fs.lstatSync(metadataPath).isFile()).toBe(true);
+      expect(fs.readFileSync(metadataPath, 'utf8')).toBe('{"model":"auto"}');
+      expect(() => execFileSync('mkdir', ['-p', metadataPath], { stdio: 'pipe' }))
+        .toThrow();
+      expect(lock.indexOf('path: /tmp/gh-aw/aw_info.json'))
+        .toBeLessThan(lock.indexOf(preparation));
+    } finally {
+      fs.rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
+  const linuxMountTest = process.env.AWF_TEST_LINUX_MOUNTS === '1' ? it : it.skip;
+  linuxMountTest('persists metadata through the real host mount boundary while protecting neighbors', () => {
+    const script = `
+      const fs = require('fs');
+      const { execFileSync } = require('child_process');
+      const assert = require('assert/strict');
+      const { planCloudHypervisorFilesystemWriteEnforcement: plan } =
+        require('/awf/cloud-hypervisor/filesystem-write-enforcement');
+      const { StagedHostMountTree } = require('/awf/cloud-hypervisor/mount-tree');
+      const source = fs.mkdtempSync('/tmp/metadata-boundary-');
+      const info = source + '/aw_info.json';
+      fs.mkdirSync(source + '/agent');
+      fs.mkdirSync(source + '/sandbox/agent/logs', { recursive: true });
+      fs.writeFileSync(info, '{"model":"auto","run_id":123}');
+      fs.writeFileSync(source + '/protected.json', 'protected');
+      const entry = { tag: 'tmp-gh-aw', source, target: '/tmp/gh-aw', mode: 'rw' };
+      const allowed = ${JSON.stringify(compiledWritablePaths())}
+        .filter(p => p.startsWith('/tmp/gh-aw/'));
+      const deps = {
+        mkdir: (p, o) => fs.promises.mkdir(p, o),
+        rmdir: p => fs.promises.rmdir(p),
+        runTool: async (c, a) => { execFileSync(c, a); },
+        captureTool: async (c, a) => execFileSync(c, a, { encoding: 'utf8' }),
+        statPath: p => fs.promises.lstat(p),
+        realpath: p => fs.promises.realpath(p),
+        readMountInfo: () => fs.promises.readFile('/proc/self/mountinfo', 'utf8'),
+        sleep: ms => new Promise(r => setTimeout(r, ms)),
+      };
+      async function stage(paths) {
+        const result = plan([entry], paths);
+        const tree = new StagedHostMountTree({
+          directoryExport: result.exports[0], rootPath: source + '-staged',
+          plan: result.mountEnforcement.plans[0],
+          tools: { mount: '/bin/mount', umount: '/bin/umount' }, dependencies: deps,
+        });
+        await tree.stage();
+        return tree;
+      }
+      (async () => {
+        const old = await stage(allowed.filter(p => !p.endsWith('/aw_info.json')));
+        try {
+          assert.throws(() => fs.writeFileSync(old.rootPath + '/aw_info.json', '{}'),
+            { code: 'EROFS' });
+        } finally { await old.unmount(); }
+        const tree = await stage(allowed);
+        try {
+          const file = tree.rootPath + '/aw_info.json';
+          const metadata = JSON.parse(fs.readFileSync(file, 'utf8'));
+          metadata.model = 'verified-model';
+          fs.mkdirSync(tree.rootPath, { recursive: true });
+          fs.writeFileSync(file, JSON.stringify(metadata, null, 2));
+          assert.deepEqual(JSON.parse(fs.readFileSync(info)), metadata);
+          assert.throws(() => fs.writeFileSync(tree.rootPath + '/protected.json', 'bad'),
+            { code: 'EROFS' });
+          assert.throws(() => fs.writeFileSync(tree.rootPath + '/new.json', 'bad'),
+            { code: 'EROFS' });
+          assert.deepEqual(fs.readdirSync(tree.rootPath + '/mcp-logs'), []);
+          fs.writeFileSync(source + '/mcp-logs/private', 'credential-fixture');
+          assert.deepEqual(fs.readdirSync(tree.rootPath + '/mcp-logs'), []);
+        } finally { await tree.unmount(); }
+        assert.equal(JSON.parse(fs.readFileSync(info)).model, 'verified-model');
+        assert.equal(fs.readFileSync(source + '/protected.json', 'utf8'), 'protected');
+        fs.rmSync(source, { recursive: true });
+        console.log('EROFS reproduced; metadata persisted; neighbors and credentials protected');
+      })().catch(e => { console.error(e); process.exitCode = 1; });
+    `;
+    const output = execFileSync('docker', [
+      'run', '--rm', '-i', '--network', 'none', '--cap-add', 'SYS_ADMIN',
+      '--security-opt', 'apparmor=unconfined',
+      '--mount', `type=bind,src=${path.resolve(__dirname, '../../dist')},dst=/awf,readonly`,
+      'node:22-bookworm-slim@sha256:c3de60bf2f9dd0ac6370e6117950ff62d6e339527e7472301c9c78a017978392',
+      'node',
+    ], { input: script, encoding: 'utf8', timeout: 60000 });
+    expect(output).toContain('EROFS reproduced; metadata persisted; neighbors and credentials protected');
+  }, 70000);
 
   it('pins the CLI verified against the compiler harness and invokes that staged binary', () => {
     const frontmatter = yaml.load(source.split('---')[1]) as {
