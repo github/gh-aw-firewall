@@ -476,12 +476,26 @@ model-to-harness version constraints. It uses the canonical pricing and harness
 schemas; it does not introduce another normalization or accounting path.
 Fetched data cannot by itself establish provider availability.
 
-AWF configuration specifies the feed URL, enabled/offline mode, bounded fetch
-timeout, refresh interval, and maximum acceptable snapshot age. The feed URL
-is explicit operator configuration, not a destination inferred from model
-metadata. Retrieval uses an approved transport and network policy, validates
-the configured source and payload, and keeps authentication material out of
-logs, cache metadata, and exports.
+AWF MUST assume that the default pricing feed is blocked or unreachable.
+Reaching that endpoint is not a startup prerequisite when approved workflow,
+operator, cached, or bundled pricing is available. AWF must not implicitly
+allowlist the feed, relax egress policy, or retry through a different network
+path to bypass a denial.
+
+Users can replace the pricing source through direct AWF configuration or
+workflow frontmatter passed through the gh-aw config handoff. Supported sources
+include a configurable feed URL, such as an internal mirror, and an explicitly
+configured local snapshot using the same versioned schema. The source
+selection replaces the default endpoint; a failed custom source does not cause
+AWF to contact the default feed or another unconfigured endpoint.
+
+AWF configuration specifies the source, enabled/offline mode, bounded fetch
+timeout, refresh interval, and maximum acceptable snapshot age. Source URLs and
+local snapshot paths are explicit configuration, not destinations or paths
+inferred from model metadata. Retrieval uses an approved transport and network
+policy, validates the configured source and payload, and keeps authentication
+material out of logs, cache metadata, and exports. Offline mode and local-only
+sources perform no pricing-feed network requests.
 
 Each snapshot includes schema version, catalogue revision, publication time,
 effective dates, source provenance, and an integrity digest. Source
@@ -489,7 +503,7 @@ authentication is a separate requirement; a content digest alone does not
 authenticate the publisher. Malformed, unsupported, or inconsistent updates
 are rejected atomically with an explicit diagnostic, never partially applied.
 The shared cache is partitioned by configured source and schema version so
-changing feed endpoints cannot reuse an unrelated source's last-known-good
+changing pricing sources cannot reuse an unrelated source's last-known-good
 snapshot.
 
 When the feed is enabled, AWF resolves an initial snapshot or approved fallback
@@ -499,10 +513,12 @@ subsequent requests. Each request's accounting retains its resolved tariff,
 effective time, revision, and provenance; refreshes do not retroactively reprice
 recorded usage.
 
-Timeouts and rejected updates can retain a last-known-good snapshot only within
-the configured age policy. Offline mode and expired or absent caches use
-explicit bundled or conservative fallback policy, or fail closed when no
-approved price exists. They do not silently treat an old snapshot as fresh.
+Network denials, timeouts, and rejected updates are expected operating
+conditions, reported with the fallback used. They can retain a last-known-good
+snapshot only within the configured age policy. Offline mode and expired or
+absent caches use applicable workflow/operator pricing, explicit bundled or
+conservative fallback policy, or fail closed when no approved price exists.
+They do not silently treat an old snapshot as fresh.
 Reflection and diagnostics expose the active source/revision, snapshot age,
 refresh failure, and fallback reason without exposing credentials.
 
@@ -805,9 +821,10 @@ The redesign preserves existing safeguards and adds the following requirements:
 The compiler and runtime resolver treat source data as untrusted input for
 validation purposes. URLs within model metadata, notes, model IDs, aliases,
 and provider payloads do not become executable code, filesystem paths,
-request destinations, or credentials. The explicitly configured central feed
-URL is used only by its dedicated retrieval path under the transport and
-network policy above; feed records cannot redirect that path.
+request destinations, or credentials. Explicitly configured pricing-source
+URLs or local snapshot paths are used only by the dedicated source loader under
+explicit source configuration and applicable transport, network, and
+file-access policies; feed records cannot redirect that loader.
 
 ## Validation and CI requirements
 
@@ -838,10 +855,14 @@ The implementation includes:
 16. gh-aw and gh-aw-router-training export parity tests;
 17. malformed, ambiguous, and unknown-field fail-closed tests;
 18. workflow frontmatter-to-AWF-config round-trip, duplicate/conflicting entry,
-    overlay precedence, provenance, and older-pinned-AWF compatibility tests;
+    overlay precedence, pricing-source replacement, provenance, and
+    older-pinned-AWF compatibility tests;
 19. central feed configuration, initial fetch, periodic refresh, atomic update,
-    source-partitioned cache, schema rejection, timeout, offline, expiry, and
-    last-known-good/fail-closed tests;
+    source-partitioned cache, schema rejection, network denial, timeout, offline,
+    local-snapshot, expiry, and last-known-good/fail-closed tests, including
+    blocked-feed startup with no cache and approved bundled pricing, zero
+    network requests in offline/local-only mode, and no default-endpoint
+    contact after source replacement;
 20. central refresh accounting tests proving request-level tariff/revision
     consistency and no retroactive repricing; and
 21. harness version boundary, prerelease, missing/unparsable version,
@@ -898,9 +919,10 @@ credit calculations. Add provider/channel scope, tier selection, effective
 dates, exact arithmetic, field provenance, and freshness.
 
 Add configurable central pricing refresh, validated atomic snapshots,
-source-partitioned caching, bounded offline/stale fallbacks, and request-level
-tariff revision tracking. Central updates include harness constraints and trigger
-eligibility re-evaluation before subsequent dispatch.
+source-partitioned caching, user-replaceable URL or local-snapshot sources,
+blocked-by-default feed assumptions, bounded offline/stale fallbacks, and
+request-level tariff revision tracking. Central updates include harness
+constraints and trigger eligibility re-evaluation before subsequent dispatch.
 
 ### Gate 6: Reasoning and compatibility
 
