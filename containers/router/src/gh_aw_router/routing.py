@@ -47,4 +47,4 @@ def _part_characters(part: Part) -> int:
         return len(part.tool_call.name) + input_size
     if isinstance(part, ToolResultPart):
         return len(part.tool_result.text or "")
-    assert_never(part)
+    return assert_never(part)

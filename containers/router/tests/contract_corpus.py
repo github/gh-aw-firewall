@@ -233,6 +233,7 @@ def main() -> None:
         )
     except (OSError, ValueError, subprocess.SubprocessError) as error:
         parser.error(str(error))
+        return
     arguments.output.parent.mkdir(parents=True, exist_ok=True)
     arguments.output.write_bytes(archive)
     print(

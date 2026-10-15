@@ -7,9 +7,9 @@ from typing import Any
 import pytest
 
 from gh_aw_router import __version__
-from gh_aw_router.classification import CLASSIFICATION_LABELS
 from gh_aw_router.contracts import (
     ClassifyRequest,
+    Labels,
     Message,
     ModelCandidate,
     ModelChoice,
@@ -22,6 +22,8 @@ from gh_aw_router.contracts import (
 )
 from gh_aw_router.routing_table import PROFILES, RoutingTable, label_key, profile_key
 from gh_aw_router.service import GhAwRouterService, InvalidRequestError
+
+CLASSIFICATION_LABELS = Labels(task_type="explain", scope="local", task_complexity="trivial")
 
 
 def test_service_owns_its_profile_index(routing_table: RoutingTable) -> None:

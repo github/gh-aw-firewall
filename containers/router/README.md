@@ -147,7 +147,7 @@ Forward the validated classifier output unchanged in `/route`'s `classification`
 as the routing example does. `/classify` itself returns a call plan, not this inferred result.
 The caller runs the classifier and passes its output to `/route`.
 Successful classification plans always contain at least one eligible choice.
-If no offered classifier choice is supported, `/classify` returns `422 invalid_request`.
+If no offered classifier choice is supported, `/classify` returns `422 no_route`.
 An empty successful ranking is not a signal to continue without classification.
 Before executing a plan, the caller must check the complete generated messages against
 the classifier model's context capacity, including output and reasoning allowance.
@@ -222,7 +222,9 @@ can be supplied through a file or mount without replacing the router image.
 Build from this directory. The Docker build context is self-contained.
 
 ```bash
-docker build --tag gh-aw-router:dev .
+docker build \
+  --build-arg OPENAPI_SHA256="$(sha256sum openapi.yaml | cut -d ' ' -f 1)" \
+  --tag gh-aw-router:dev .
 ```
 
 The optional `VERSION` build argument must match the package version. A mismatch fails

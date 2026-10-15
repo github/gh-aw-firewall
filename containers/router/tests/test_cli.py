@@ -13,7 +13,6 @@ from typing import Any
 import pytest
 
 import gh_aw_router.cli as cli
-from gh_aw_router.cli import run
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
@@ -37,7 +36,7 @@ def test_planning_commands_write_only_the_response(
     stdout = io.StringIO()
     stderr = io.StringIO()
 
-    status = run(
+    status = cli.run(
         ["--routing-tables", str(synthetic_table_path), command],
         stdin=io.StringIO(json.dumps(request)),
         stdout=stdout,
@@ -67,7 +66,7 @@ def test_cli_preserves_unicode_across_console_encodings(
     stdout = io.TextIOWrapper(output, encoding="cp1252")
     stderr = io.StringIO()
 
-    status = run(
+    status = cli.run(
         ["--routing-tables", str(synthetic_table_path), command],
         stdin=stdin,
         stdout=stdout,
@@ -87,7 +86,7 @@ def test_invalid_request_uses_stderr_and_nonzero_status(synthetic_table_path: Pa
     stdout = io.StringIO()
     stderr = io.StringIO()
 
-    status = run(
+    status = cli.run(
         ["--routing-tables", str(synthetic_table_path), "route"],
         stdin=io.StringIO("{}"),
         stdout=stdout,
@@ -103,7 +102,7 @@ def test_missing_model_data_is_reported_separately_from_bad_requests(tmp_path: P
     stdout = io.StringIO()
     stderr = io.StringIO()
 
-    status = run(
+    status = cli.run(
         [
             "--routing-tables",
             str(tmp_path / "routing.json"),
@@ -121,7 +120,7 @@ def test_missing_model_data_is_reported_separately_from_bad_requests(tmp_path: P
 def test_empty_routing_directory_is_reported_as_missing_data(tmp_path: Path) -> None:
     stderr = io.StringIO()
 
-    status = run(["--routing-tables", str(tmp_path), "validate-data"], stderr=stderr)
+    status = cli.run(["--routing-tables", str(tmp_path), "validate-data"], stderr=stderr)
 
     assert status == 2
     assert "holds no tables" in stderr.getvalue()
@@ -131,7 +130,7 @@ def test_validate_data_reports_the_loaded_table_summary() -> None:
     stdout = io.StringIO()
     stderr = io.StringIO()
 
-    status = run([*common_args(), "validate-data"], stdout=stdout, stderr=stderr)
+    status = cli.run([*common_args(), "validate-data"], stdout=stdout, stderr=stderr)
 
     assert status == 0
     assert stderr.getvalue() == ""
@@ -162,7 +161,7 @@ def test_no_route_has_a_distinct_exit_status(
     stdout = io.StringIO()
     stderr = io.StringIO()
 
-    status = run(
+    status = cli.run(
         ["--routing-tables", str(synthetic_table_path), command],
         stdin=io.StringIO(json.dumps(request)),
         stdout=stdout,
@@ -210,7 +209,7 @@ def test_serve_bounds_concurrency_and_idle_connections(
     captured: dict[str, object] = {}
     monkeypatch.setattr(uvicorn, "run", lambda _app, **kwargs: captured.update(kwargs))
 
-    status = run(
+    status = cli.run(
         ["--routing-tables", str(synthetic_table_path), "serve", "--bind", "127.0.0.1:9999"],
     )
 

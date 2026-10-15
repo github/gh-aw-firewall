@@ -29,7 +29,7 @@ from fastapi.testclient import TestClient
 from packaging.specifiers import SpecifierSet
 
 import gh_aw_router
-from gh_aw_router import cli
+import gh_aw_router.cli as cli
 from gh_aw_router.http import create_app
 from gh_aw_router.routing_table import DEFAULT_TABLE_DIRECTORY
 from gh_aw_router.service import GhAwRouterService
