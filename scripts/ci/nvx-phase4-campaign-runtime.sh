@@ -96,9 +96,15 @@ guest_resource_limits_match() {
       .runtime == $runtime and
       .configuredPidsMax == $pidsMax and
       (if $runtime == "nvx" then
-        .pidsMax == $pidsMax and .cgroupPidsMax == ($pidsMax + 1)
+        .pidsMax == $pidsMax and
+        .kernelPidsMax == ($pidsMax + 1) and
+        .probeTarget == ($pidsMax * 2) and
+        .probeStarted == ($pidsMax - 2)
       else
-        .pidsMax == null and .cgroupPidsMax == null
+        .pidsMax == null and
+        .kernelPidsMax == null and
+        .probeTarget == null and
+        .probeStarted == null
       end)
     )
   ' "$@" >/dev/null
@@ -108,7 +114,7 @@ read_guest_pids_observations() {
   local evidence_file=$1
   [ -s "$evidence_file" ] || return 1
   jq -er '
-    [.pidsMax, .cgroupPidsMax] |
+    [.pidsMax, .kernelPidsMax, .probeTarget, .probeStarted] |
     map(if . == null then "" else tostring end) |
     @tsv
   ' "$evidence_file"
@@ -117,13 +123,18 @@ read_guest_pids_observations() {
 collect_guest_pids_observations() {
   local primary_observations peer_observations
   guest_pids_max=
-  guest_cgroup_pids_max=
+  guest_kernel_pids_max=
+  guest_probe_target=
+  guest_probe_started=
   peer_guest_pids_max=
-  peer_guest_cgroup_pids_max=
+  peer_guest_kernel_pids_max=
+  peer_guest_probe_target=
+  peer_guest_probe_started=
   if primary_observations=$(
     read_guest_pids_observations "$workspace_dir/guest-preflight.json"
   ); then
-    IFS=$'\t' read -r guest_pids_max guest_cgroup_pids_max <<<"$primary_observations"
+    IFS=$'\t' read -r guest_pids_max guest_kernel_pids_max \
+      guest_probe_target guest_probe_started <<<"$primary_observations"
   else
     resource_limits=false
   fi
@@ -131,8 +142,8 @@ collect_guest_pids_observations() {
     if peer_observations=$(
       read_guest_pids_observations "$peer_workspace/guest-preflight.json"
     ); then
-      IFS=$'\t' read -r peer_guest_pids_max peer_guest_cgroup_pids_max \
-        <<<"$peer_observations"
+      IFS=$'\t' read -r peer_guest_pids_max peer_guest_kernel_pids_max \
+        peer_guest_probe_target peer_guest_probe_started <<<"$peer_observations"
     else
       resource_limits=false
     fi
@@ -358,35 +369,64 @@ guest_exit() {
   printf '%s\n' "$status" > "$root/workload-ended"
   while [ ! -f "$root/cleanup-release" ]; do sleep 0.1; done
 }
-read_nvx_guest_pids_limits() {
+probe_nvx_guest_pids_limit() {
+  configured_pids_max=$1
+  record_file=$2
+  # NVX adds one cgroup slot for its launcher. The workload shell and this
+  # subshell consume two of the requested slots, so exactly N-2 sleepers start.
+  # A 2N target keeps an ineffective-controller failure bounded.
+  probe_target=$((configured_pids_max * 2))
+  probe_started=0
+  probe_pids=
+  trap 'kill $probe_pids 2>/dev/null || :; wait || :; printf "%s\n" "$probe_started" >"$record_file"' EXIT
+  while [ "$probe_started" -lt "$probe_target" ]; do
+    sleep 600 &
+    probe_pids="$probe_pids $!"
+    probe_started=$((probe_started + 1))
+  done
+}
+read_nvx_guest_pids_evidence() {
   cmdline_file=$1
-  cgroup_membership_file=$2
-  cgroup_root=$3
-  kernel_pids_max=$(
-    tr ' ' '\n' < "$cmdline_file" |
-      sed -n 's/^nvx_pids_max=//p' |
-      tail -n 1
-  )
+  configured_pids_max=$2
+  probe_record=$3
+  case "$configured_pids_max" in
+    ''|*[!0-9]*|0|1|2) guest_fail 48 nvx-guest-pids-profile-invalid ;;
+  esac
+  kernel_pids_max=$(awk '
+    {
+      for (field = 1; field <= NF; field++) {
+        if ($field ~ /^nvx_pids_max=/) {
+          count++
+          value = substr($field, length("nvx_pids_max=") + 1)
+        }
+      }
+    }
+    END {
+      if (count == 1) print value
+      else exit 1
+    }
+  ' "$cmdline_file") || guest_fail 49 nvx-guest-pids-limit-missing
   case "$kernel_pids_max" in
-    ''|*[!0-9]*|0) guest_fail 48 nvx-guest-pids-limit-missing ;;
+    ''|*[!0-9]*|0) guest_fail 50 nvx-guest-pids-limit-invalid ;;
   esac
-  guest_cgroup=$(awk -F: '$1 == "0" { print $3 }' "$cgroup_membership_file")
-  case "$guest_cgroup" in
-    /*) ;;
-    *) guest_fail 49 nvx-guest-cgroup-missing ;;
-  esac
-  guest_cgroup_pids_file="$cgroup_root${guest_cgroup%/}/pids.max"
-  if [ ! -r "$guest_cgroup_pids_file" ]; then
-    guest_fail 50 nvx-guest-cgroup-pids-limit-missing
+  if [ "$kernel_pids_max" != "$((configured_pids_max + 1))" ]; then
+    guest_fail 51 nvx-guest-pids-limit-mismatch
   fi
-  guest_cgroup_pids_max=$(cat "$guest_cgroup_pids_file")
-  case "$guest_cgroup_pids_max" in
-    ''|*[!0-9]*|0) guest_fail 51 nvx-guest-cgroup-pids-limit-invalid ;;
-  esac
-  if [ "$guest_cgroup_pids_max" != "$kernel_pids_max" ]; then
-    guest_fail 52 nvx-guest-cgroup-pids-limit-mismatch
+  rm -f "$probe_record"
+  (probe_nvx_guest_pids_limit "$configured_pids_max" "$probe_record") 2>/dev/null || :
+  if ! read -r probe_started <"$probe_record"; then
+    guest_fail 52 nvx-guest-pids-probe-missing
   fi
-  printf '%s %s\n' "$guest_cgroup_pids_max" "$((guest_cgroup_pids_max - 1))"
+  case "$probe_started" in
+    ''|*[!0-9]*) guest_fail 53 nvx-guest-pids-probe-invalid ;;
+  esac
+  if [ "$probe_started" != "$((configured_pids_max - 2))" ]; then
+    guest_fail 54 nvx-guest-pids-limit-ineffective
+  fi
+  rm -f "$probe_record"
+  printf '%s %s %s %s\n' \
+    "$configured_pids_max" "$kernel_pids_max" \
+    "$((configured_pids_max * 2))" "$probe_started"
 }
 trap guest_exit EXIT
 guest_stage=workspace
@@ -424,13 +464,16 @@ guest_node_version=$("$AWF_PHASE4_NODE_BIN" --version)
 guest_curl_version=$(curl --version | awk 'NR == 1 {print $1, $2}')
 scratch_capacity=$(df -Pk /tmp | awk 'NR == 2 {printf "%.0f\n", $2 * 1024}')
 guest_pids_max=
-guest_cgroup_pids_max=
+guest_kernel_pids_max=
+guest_probe_target=
+guest_probe_started=
 if [ "$AWF_PHASE4_RUNTIME" = nvx ]; then
-  guest_pids_limits=$(
-    read_nvx_guest_pids_limits /proc/cmdline /proc/self/cgroup /sys/fs/cgroup
+  guest_pids_evidence=$(
+    read_nvx_guest_pids_evidence \
+      /proc/cmdline "$AWF_PHASE4_PROFILE_PIDS_MAX" /tmp/nvx-pids-probe-started
   )
-  guest_cgroup_pids_max=${guest_pids_limits%% *}
-  guest_pids_max=${guest_pids_limits#* }
+  read -r guest_pids_max guest_kernel_pids_max \
+    guest_probe_target guest_probe_started <<<"$guest_pids_evidence"
 fi
 scratch_before_bytes=$(du -sb /tmp 2>/dev/null | awk '{print $1}')
 scratch_before_bytes=${scratch_before_bytes:-0}
@@ -439,15 +482,21 @@ GUEST_NODE_VERSION=$guest_node_version \
 GUEST_CURL_VERSION=$guest_curl_version \
 SCRATCH_CAPACITY_BYTES=$scratch_capacity \
 GUEST_PIDS_MAX=$guest_pids_max \
-GUEST_CGROUP_PIDS_MAX=$guest_cgroup_pids_max \
+GUEST_KERNEL_PIDS_MAX=$guest_kernel_pids_max \
+GUEST_PID_PROBE_TARGET=$guest_probe_target \
+GUEST_PID_PROBE_STARTED=$guest_probe_started \
 "$AWF_PHASE4_NODE_BIN" -e '
   require("node:fs").writeFileSync(process.argv[1], JSON.stringify({
     credentialIsolation: true, egressPolicy: true, workspaceOnlyExposure: true,
     runtime: process.env.AWF_PHASE4_RUNTIME,
     configuredPidsMax: Number(process.env.AWF_PHASE4_PROFILE_PIDS_MAX),
     pidsMax: process.env.GUEST_PIDS_MAX ? Number(process.env.GUEST_PIDS_MAX) : null,
-    cgroupPidsMax: process.env.GUEST_CGROUP_PIDS_MAX ?
-      Number(process.env.GUEST_CGROUP_PIDS_MAX) : null,
+    kernelPidsMax: process.env.GUEST_KERNEL_PIDS_MAX ?
+      Number(process.env.GUEST_KERNEL_PIDS_MAX) : null,
+    probeTarget: process.env.GUEST_PID_PROBE_TARGET ?
+      Number(process.env.GUEST_PID_PROBE_TARGET) : null,
+    probeStarted: process.env.GUEST_PID_PROBE_STARTED ?
+      Number(process.env.GUEST_PID_PROBE_STARTED) : null,
     nodeVersion: process.env.GUEST_NODE_VERSION,
     curlVersion: process.env.GUEST_CURL_VERSION,
     scratchCapacityBytes: Number(process.env.SCRATCH_CAPACITY_BYTES),
@@ -527,7 +576,9 @@ GUEST_CURL_VERSION=$guest_curl_version \
 SCRATCH_CAPACITY_BYTES=$scratch_capacity \
 SCRATCH_USAGE_BYTES=$scratch_usage_bytes \
 GUEST_PIDS_MAX=$guest_pids_max \
-GUEST_CGROUP_PIDS_MAX=$guest_cgroup_pids_max \
+GUEST_KERNEL_PIDS_MAX=$guest_kernel_pids_max \
+GUEST_PID_PROBE_TARGET=$guest_probe_target \
+GUEST_PID_PROBE_STARTED=$guest_probe_started \
 "$AWF_PHASE4_NODE_BIN" -e '
   const fs = require("node:fs");
   fs.writeFileSync(process.argv[1], JSON.stringify({
@@ -537,8 +588,12 @@ GUEST_CGROUP_PIDS_MAX=$guest_cgroup_pids_max \
     runtime: process.env.AWF_PHASE4_RUNTIME,
     configuredPidsMax: Number(process.env.AWF_PHASE4_PROFILE_PIDS_MAX),
     pidsMax: process.env.GUEST_PIDS_MAX ? Number(process.env.GUEST_PIDS_MAX) : null,
-    cgroupPidsMax: process.env.GUEST_CGROUP_PIDS_MAX ?
-      Number(process.env.GUEST_CGROUP_PIDS_MAX) : null,
+    kernelPidsMax: process.env.GUEST_KERNEL_PIDS_MAX ?
+      Number(process.env.GUEST_KERNEL_PIDS_MAX) : null,
+    probeTarget: process.env.GUEST_PID_PROBE_TARGET ?
+      Number(process.env.GUEST_PID_PROBE_TARGET) : null,
+    probeStarted: process.env.GUEST_PID_PROBE_STARTED ?
+      Number(process.env.GUEST_PID_PROBE_STARTED) : null,
     nodeVersion: process.env.GUEST_NODE_VERSION,
     curlVersion: process.env.GUEST_CURL_VERSION,
     scratchCapacityBytes: Number(process.env.SCRATCH_CAPACITY_BYTES),
@@ -1075,17 +1130,23 @@ jq -n \
   --arg expectedHostPidsMax "$expected_host_pids_max" \
   --arg configuredGuestPidsMax "$pids_max" \
   --arg guestPidsMax "$guest_pids_max" \
-  --arg guestCgroupPidsMax "$guest_cgroup_pids_max" \
+  --arg guestKernelPidsMax "$guest_kernel_pids_max" \
+  --arg guestProbeTarget "$guest_probe_target" \
+  --arg guestProbeStarted "$guest_probe_started" \
   --arg peerGuestPidsMax "$peer_guest_pids_max" \
-  --arg peerGuestCgroupPidsMax "$peer_guest_cgroup_pids_max" \
+  --arg peerGuestKernelPidsMax "$peer_guest_kernel_pids_max" \
+  --arg peerGuestProbeTarget "$peer_guest_probe_target" \
+  --arg peerGuestProbeStarted "$peer_guest_probe_started" \
   '{cgroup:$cgroup,memoryMax:$memoryMax,cpuMax:$cpuMax,pidsMax:$pidsMax,
     expectedMemoryMax:$expectedMemoryMax,expectedPidsMax:$expectedHostPidsMax,
     guest:{configuredPidsMax:$configuredGuestPidsMax,observedPidsMax:$guestPidsMax,
-      observedCgroupPidsMax:$guestCgroupPidsMax},
+      observedKernelPidsMax:$guestKernelPidsMax,
+      probeTarget:$guestProbeTarget,probeStarted:$guestProbeStarted},
     peer:{cgroup:$peerCgroup,memoryMax:$peerMemoryMax,cpuMax:$peerCpuMax,pidsMax:$peerPidsMax,
       expectedPidsMax:$expectedHostPidsMax,
       guest:{configuredPidsMax:$configuredGuestPidsMax,observedPidsMax:$peerGuestPidsMax,
-        observedCgroupPidsMax:$peerGuestCgroupPidsMax}}}' \
+        observedKernelPidsMax:$peerGuestKernelPidsMax,
+        probeTarget:$peerGuestProbeTarget,probeStarted:$peerGuestProbeStarted}}}' \
   > "$evidence_dir/resources.json"
 chmod 0600 "$evidence_dir/resources.json"
 

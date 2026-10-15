@@ -221,11 +221,13 @@ describe('Phase 4 campaign runtime evidence', () => {
       const primary = path.join(root, 'primary.json');
       const peer = path.join(root, 'peer.json');
       const guestPidsMax = runtime === 'nvx' ? profilePidsMax : null;
-      const guestCgroupPidsMax = runtime === 'nvx' ? profilePidsMax + 1 : null;
+      const guestKernelPidsMax = runtime === 'nvx' ? profilePidsMax + 1 : null;
+      const probeTarget = runtime === 'nvx' ? profilePidsMax * 2 : null;
+      const probeStarted = runtime === 'nvx' ? profilePidsMax - 2 : null;
       for (const file of [primary, peer]) {
         fs.writeFileSync(file, JSON.stringify({
           runtime, configuredPidsMax: profilePidsMax, pidsMax: guestPidsMax,
-          cgroupPidsMax: guestCgroupPidsMax,
+          kernelPidsMax: guestKernelPidsMax, probeTarget, probeStarted,
         }));
       }
       const run = (hostPids: number, guestFile = primary, peerHostPids = hostPidsMax) =>
@@ -246,31 +248,47 @@ describe('Phase 4 campaign runtime evidence', () => {
         expect(() => run(profilePidsMax === hostPidsMax ? hostPidsMax + 1 : profilePidsMax)).toThrow();
         fs.writeFileSync(primary, JSON.stringify({
           runtime, configuredPidsMax: profilePidsMax + 1, pidsMax: guestPidsMax,
-          cgroupPidsMax: guestCgroupPidsMax,
+          kernelPidsMax: guestKernelPidsMax, probeTarget, probeStarted,
         }));
         expect(() => run(hostPidsMax)).toThrow();
         if (mode === 'concurrent') {
           fs.writeFileSync(primary, JSON.stringify({
             runtime, configuredPidsMax: profilePidsMax, pidsMax: guestPidsMax,
-            cgroupPidsMax: guestCgroupPidsMax,
+            kernelPidsMax: guestKernelPidsMax, probeTarget, probeStarted,
           }));
           expect(() => run(hostPidsMax, peer, hostPidsMax + 1)).toThrow();
           if (runtime === 'nvx') {
             fs.writeFileSync(peer, JSON.stringify({
               runtime, configuredPidsMax: profilePidsMax, pidsMax: guestPidsMax,
-              cgroupPidsMax: profilePidsMax + 2,
+              kernelPidsMax: profilePidsMax + 2, probeTarget, probeStarted,
             }));
             expect(() => run(hostPidsMax)).toThrow();
             fs.writeFileSync(peer, JSON.stringify({
               runtime, configuredPidsMax: profilePidsMax, pidsMax: guestPidsMax,
-              cgroupPidsMax: guestCgroupPidsMax,
+              kernelPidsMax: guestKernelPidsMax, probeTarget, probeStarted,
+            }));
+            fs.writeFileSync(peer, JSON.stringify({
+              runtime, configuredPidsMax: profilePidsMax, pidsMax: guestPidsMax,
+              kernelPidsMax: guestKernelPidsMax, probeTarget,
+              probeStarted: profilePidsMax - 1,
+            }));
+            expect(() => run(hostPidsMax)).toThrow();
+            fs.writeFileSync(peer, JSON.stringify({
+              runtime, configuredPidsMax: profilePidsMax, pidsMax: guestPidsMax,
+              kernelPidsMax: guestKernelPidsMax, probeTarget, probeStarted,
             }));
           }
         }
         if (runtime === 'nvx') {
           fs.writeFileSync(primary, JSON.stringify({
             runtime, configuredPidsMax: profilePidsMax, pidsMax: guestPidsMax,
-            cgroupPidsMax: profilePidsMax + 2,
+            kernelPidsMax: profilePidsMax + 2, probeTarget, probeStarted,
+          }));
+          expect(() => run(hostPidsMax)).toThrow();
+          fs.writeFileSync(primary, JSON.stringify({
+            runtime, configuredPidsMax: profilePidsMax, pidsMax: guestPidsMax,
+            kernelPidsMax: guestKernelPidsMax, probeTarget,
+            probeStarted: profilePidsMax * 2,
           }));
           expect(() => run(hostPidsMax)).toThrow();
         }
@@ -280,40 +298,54 @@ describe('Phase 4 campaign runtime evidence', () => {
     },
   );
 
-  it('captures the configured NVX guest PID ceiling from the kernel command line', () => {
-    const readGuestLimits = extractShellFunction('read_nvx_guest_pids_limits');
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'phase4-guest-cgroup-'));
-    const cmdline = path.join(root, 'cmdline');
-    const membership = path.join(root, 'cgroup');
-    const cgroup = path.join(root, 'workload');
-    fs.mkdirSync(cgroup);
-    fs.writeFileSync(cmdline, 'quiet nvx_pids_max=513 console=ttyS0');
-    fs.writeFileSync(membership, '0::/workload\n');
-    fs.writeFileSync(path.join(cgroup, 'pids.max'), '513\n');
-    const run = () => execFileSync('bash', ['-c', `
-      guest_fail() { exit "$1"; }
-      ${readGuestLimits}
-      read_nvx_guest_pids_limits "$1" "$2" "$3"
-    `, '-', cmdline, membership, root], { encoding: 'utf8' }).trim();
-    try {
-      expect(run()).toBe('513 512');
-      fs.writeFileSync(path.join(cgroup, 'pids.max'), '512\n');
-      expect(run).toThrow();
-    } finally {
-      fs.rmSync(root, { recursive: true, force: true });
-    }
-    expect(harness).toContain("sed -n 's/^nvx_pids_max=//p'");
-    expect(harness).toContain('guest_cgroup_pids_max=$(cat "$guest_cgroup_pids_file")');
-    expect(harness).toContain('[ "$guest_cgroup_pids_max" != "$kernel_pids_max" ]');
-    expect(harness).toContain('"$((guest_cgroup_pids_max - 1))"');
-    expect(harness).toContain('configuredPidsMax: Number(process.env.AWF_PHASE4_PROFILE_PIDS_MAX)');
-    expect(harness).toContain('pidsMax: process.env.GUEST_PIDS_MAX ? Number(process.env.GUEST_PIDS_MAX) : null');
-    expect(harness).toContain('Number(process.env.GUEST_CGROUP_PIDS_MAX) : null');
-    expect(harness).toContain('--env "AWF_PHASE4_PROFILE_PIDS_MAX=$pids_max"');
-    expect(harness).toContain('--env "AWF_PHASE4_RUNTIME=$runtime"');
-    expect(harness).toContain('expectedPidsMax:$expectedHostPidsMax');
-    expect(harness).toContain('observedCgroupPidsMax:$guestCgroupPidsMax');
-  });
+  it.each([128, 256, 512])(
+    'validates NVX profile %s from immutable command line and bounded probe evidence',
+    profilePidsMax => {
+      const readGuestEvidence = extractShellFunction('read_nvx_guest_pids_evidence');
+      const root = fs.mkdtempSync(path.join(os.tmpdir(), 'phase4-guest-cgroup-'));
+      const cmdline = path.join(root, 'cmdline');
+      const probe = path.join(root, 'probe');
+      fs.writeFileSync(cmdline, `quiet nvx_pids_max=${profilePidsMax + 1} console=ttyS0`);
+      const run = (probeStarted = profilePidsMax - 2) => execFileSync('bash', ['-c', `
+        guest_fail() { exit "$1"; }
+        probe_nvx_guest_pids_limit() { printf '%s\\n' "$PROBE_STARTED" >"$2"; }
+        ${readGuestEvidence}
+        read_nvx_guest_pids_evidence "$1" "$2" "$3"
+      `, '-', cmdline, String(profilePidsMax), probe], {
+        encoding: 'utf8',
+        env: { ...process.env, PROBE_STARTED: String(probeStarted) },
+      }).trim();
+      try {
+        expect(run()).toBe(
+          `${profilePidsMax} ${profilePidsMax + 1} ${profilePidsMax * 2} ${profilePidsMax - 2}`,
+        );
+        expect(() => run(profilePidsMax - 1)).toThrow();
+        for (const invalid of [
+          '', 'quiet', 'nvx_pids_max=0', 'nvx_pids_max=bad',
+          `nvx_pids_max=${profilePidsMax}`,
+          `nvx_pids_max=${profilePidsMax + 1} nvx_pids_max=${profilePidsMax + 1}`,
+        ]) {
+          fs.writeFileSync(cmdline, invalid);
+          expect(run).toThrow();
+        }
+      } finally {
+        fs.rmSync(root, { recursive: true, force: true });
+      }
+      expect(harness).not.toContain('/proc/self/cgroup');
+      expect(harness).not.toContain('guest_cgroup_pids_file');
+      expect(harness).toContain('probe_nvx_guest_pids_limit');
+      expect(harness).toContain('sleep 600 &');
+      expect(harness).toContain('"$((configured_pids_max - 2))"');
+      expect(harness).toContain('configuredPidsMax: Number(process.env.AWF_PHASE4_PROFILE_PIDS_MAX)');
+      expect(harness).toContain('pidsMax: process.env.GUEST_PIDS_MAX ? Number(process.env.GUEST_PIDS_MAX) : null');
+      expect(harness).toContain('Number(process.env.GUEST_KERNEL_PIDS_MAX) : null');
+      expect(harness).toContain('Number(process.env.GUEST_PID_PROBE_STARTED) : null');
+      expect(harness).toContain('--env "AWF_PHASE4_PROFILE_PIDS_MAX=$pids_max"');
+      expect(harness).toContain('--env "AWF_PHASE4_RUNTIME=$runtime"');
+      expect(harness).toContain('expectedPidsMax:$expectedHostPidsMax');
+      expect(harness).toContain('observedKernelPidsMax:$guestKernelPidsMax');
+    },
+  );
 
   it.each([
     ['sequential', 'primary'],
@@ -327,7 +359,9 @@ describe('Phase 4 campaign runtime evidence', () => {
     const peer = path.join(root, 'peer');
     fs.mkdirSync(primary);
     fs.mkdirSync(peer);
-    const evidence = JSON.stringify({ pidsMax: 256, cgroupPidsMax: 257 });
+    const evidence = JSON.stringify({
+      pidsMax: 256, kernelPidsMax: 257, probeTarget: 512, probeStarted: 254,
+    });
     if (missing !== 'primary') fs.writeFileSync(path.join(primary, 'guest-preflight.json'), evidence);
     if (missing !== 'peer') fs.writeFileSync(path.join(peer, 'guest-preflight.json'), evidence);
     try {
@@ -336,17 +370,57 @@ describe('Phase 4 campaign runtime evidence', () => {
         ${readObservations}
         ${collectObservations}
         mode="$1"; workspace_dir="$2"; peer_workspace="$3"; resource_limits=true
-        guest_pids_max=stale guest_cgroup_pids_max=stale
-        peer_guest_pids_max=stale peer_guest_cgroup_pids_max=stale
+        guest_pids_max=stale guest_kernel_pids_max=stale
+        guest_probe_target=stale guest_probe_started=stale
+        peer_guest_pids_max=stale peer_guest_kernel_pids_max=stale
+        peer_guest_probe_target=stale peer_guest_probe_started=stale
         collect_guest_pids_observations
         printf '%s|%s|%s|%s|%s' "$resource_limits" "$guest_pids_max" \
-          "$guest_cgroup_pids_max" "$peer_guest_pids_max" "$peer_guest_cgroup_pids_max"
+          "$guest_kernel_pids_max" "$peer_guest_pids_max" "$peer_guest_kernel_pids_max"
         printf '|collection-continued'
       `, '-', mode, primary, peer], { encoding: 'utf8' });
       expect(output).toContain('false|');
       expect(output).toContain('|collection-continued');
       if (missing === 'primary') expect(output).toMatch(/^false\|\|/);
       if (missing === 'peer') expect(output).toMatch(/\|\|collection-continued$/);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it.each([
+    ['sequential', 'primary'],
+    ['concurrent', 'primary'],
+    ['concurrent', 'peer'],
+  ])('keeps %s failure collection alive when %s guest evidence is malformed', (mode, malformed) => {
+    const readObservations = extractShellFunction('read_guest_pids_observations');
+    const collectObservations = extractShellFunction('collect_guest_pids_observations');
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'phase4-malformed-evidence-'));
+    const primary = path.join(root, 'primary');
+    const peer = path.join(root, 'peer');
+    fs.mkdirSync(primary);
+    fs.mkdirSync(peer);
+    const evidence = JSON.stringify({
+      pidsMax: 256, kernelPidsMax: 257, probeTarget: 512, probeStarted: 254,
+    });
+    fs.writeFileSync(
+      path.join(primary, 'guest-preflight.json'),
+      malformed === 'primary' ? '{"pidsMax":' : evidence,
+    );
+    fs.writeFileSync(
+      path.join(peer, 'guest-preflight.json'),
+      malformed === 'peer' ? '{"kernelPidsMax":' : evidence,
+    );
+    try {
+      const output = execFileSync('bash', ['-c', `
+        set -e
+        ${readObservations}
+        ${collectObservations}
+        mode="$1"; workspace_dir="$2"; peer_workspace="$3"; resource_limits=true
+        collect_guest_pids_observations 2>/dev/null
+        printf '%s|collection-continued' "$resource_limits"
+      `, '-', mode, primary, peer], { encoding: 'utf8' });
+      expect(output).toBe('false|collection-continued');
     } finally {
       fs.rmSync(root, { recursive: true, force: true });
     }

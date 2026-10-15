@@ -165,7 +165,15 @@ Cold samples must report `cold-cache-flushed`; warm samples must report
 `warm-cache-primed`. Each run record carries the applied limits and preparation
 label, and the collector rejects a mismatch. For NVX, the PID profile is the
 guest/workload cgroup ceiling while the host OpenVMM cgroup remains independently
-fail-closed at 256 processes. The campaign records and validates both limits.
+fail-closed at 256 processes. The workload cannot read the guest agent's cgroup
+mount because NVX gives the chrooted workload a fresh read-only sysfs mount.
+The campaign therefore validates the immutable `nvx_pids_max=profile+1` kernel
+command line and runs a bounded process-creation probe derived from NVX's pinned
+upstream smoke test. The probe must stop at exactly `profile-2` child sleepers,
+accounting for the workload shell, probe subshell, and the guest launcher's
+one-process allowance; missing, malformed, mismatched, or ineffective evidence
+fails closed. The campaign records this separately from the fixed host OpenVMM
+cgroup limit.
 Cloud Hypervisor campaign samples continue to apply the profile PID ceiling to
 the observed host runtime cgroup.
 
