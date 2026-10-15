@@ -77,6 +77,31 @@
     }
   },
   "containers": {
+    "ghcr.io/github/gh-aw-firewall/agent:0.28.58": {
+      "image": "ghcr.io/github/gh-aw-firewall/agent:0.28.58",
+      "digest": "sha256:563f836617e23b97591971059d0ed93067a3397b599daa79249257e0a430eb7d",
+      "pinned_image": "ghcr.io/github/gh-aw-firewall/agent:0.28.58@sha256:563f836617e23b97591971059d0ed93067a3397b599daa79249257e0a430eb7d"
+    },
+    "ghcr.io/github/gh-aw-firewall/api-proxy:0.28.58": {
+      "image": "ghcr.io/github/gh-aw-firewall/api-proxy:0.28.58",
+      "digest": "sha256:a47f00f8f52b40cc0708dd928f0e2cde18d55ab646de599d7b88ef704d303715",
+      "pinned_image": "ghcr.io/github/gh-aw-firewall/api-proxy:0.28.58@sha256:a47f00f8f52b40cc0708dd928f0e2cde18d55ab646de599d7b88ef704d303715"
+    },
+    "ghcr.io/github/gh-aw-firewall/enclave-mcp-server:0.28.58": {
+      "image": "ghcr.io/github/gh-aw-firewall/enclave-mcp-server:0.28.58",
+      "digest": "sha256:7b1d20b9111ba5db37a8abaa5fd2cf419b91d5d11a67a3a58bf670d0a9a5be8c",
+      "pinned_image": "ghcr.io/github/gh-aw-firewall/enclave-mcp-server:0.28.58@sha256:7b1d20b9111ba5db37a8abaa5fd2cf419b91d5d11a67a3a58bf670d0a9a5be8c"
+    },
+    "ghcr.io/github/gh-aw-firewall/enclave-script:0.28.58": {
+      "image": "ghcr.io/github/gh-aw-firewall/enclave-script:0.28.58",
+      "digest": "sha256:c7d14c602309ba8b4b5c9e32dd3a9890af57992c2604bd93927c4d8c4547fcdc",
+      "pinned_image": "ghcr.io/github/gh-aw-firewall/enclave-script:0.28.58@sha256:c7d14c602309ba8b4b5c9e32dd3a9890af57992c2604bd93927c4d8c4547fcdc"
+    },
+    "ghcr.io/github/gh-aw-firewall/squid:0.28.58": {
+      "image": "ghcr.io/github/gh-aw-firewall/squid:0.28.58",
+      "digest": "sha256:545267d0f175e9967fac2f3379de9cadad742ac7593cbda353b2f9e5bbf57692",
+      "pinned_image": "ghcr.io/github/gh-aw-firewall/squid:0.28.58@sha256:545267d0f175e9967fac2f3379de9cadad742ac7593cbda353b2f9e5bbf57692"
+    },
     "alpine:latest": {
       "image": "alpine:latest",
       "digest": "sha256:28bd5fe8b56d1bd048e5babf5b10710ebe0bae67db86916198a6eec434943f8b",

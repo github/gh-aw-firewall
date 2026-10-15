@@ -63,7 +63,7 @@ timeout-minutes: 20
 sandbox:
   agent:
     id: awf
-    version: v0.28.57
+    version: v0.28.58
     runtime: cloud-hypervisor
 strict: false
 concurrency:
@@ -72,7 +72,30 @@ concurrency:
 jobs:
   agent:
     timeout-minutes: 20
+steps:
+  - name: Prepare host-only enclave debug collection
+    env:
+      DEBUG_RUN_KEY: ${{ github.run_id }}-${{ github.run_attempt }}
+    run: |
+      sudo install -d -m 0711 -o root -g root /var/lib/awf-enclave-smoke-export
+      sudo install -m 0600 -o root -g root scripts/ci/collect-enclave-smoke-debug.cjs /var/lib/awf-enclave-smoke-export/collector.cjs
+      sudo node /var/lib/awf-enclave-smoke-export/collector.cjs prepare "$DEBUG_RUN_KEY"
 post-steps:
+  - name: Collect host-only public enclave debug evidence
+    id: collect-enclave-debug
+    if: always()
+    env:
+      DEBUG_RUN_KEY: ${{ github.run_id }}-${{ github.run_attempt }}
+    run: |
+      sudo node /var/lib/awf-enclave-smoke-export/collector.cjs collect "$DEBUG_RUN_KEY" "$(id -u)" "$(id -g)"
+  - name: Upload public enclave debug evidence
+    if: always() && steps.collect-enclave-debug.outcome == 'success'
+    uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+    with:
+      name: public-enclave-debug-${{ github.run_id }}-${{ github.run_attempt }}
+      path: /var/lib/awf-enclave-smoke-export/${{ github.run_id }}-${{ github.run_attempt }}/upload/
+      retention-days: 1
+      if-no-files-found: error
   - name: Validate enclave invocation and result
     if: always()
     env:
@@ -116,15 +139,30 @@ single-use Cloud Hypervisor script enclave through the real compiler-launched
 MCP Gateway. The primary and every enclave invocation must use separate VMs;
 no Docker enclave fallback is permitted.
 
-The v0.28.57 published AWF release includes durable host-executor
+The v0.28.58 published AWF release includes public-fixture debug capture (#9995),
+durable host-executor
 diagnostics (#9955), bounded enclave MCP startup diagnostics (#9898),
 and the narrowly scoped official-main and tagged-workflow
 acceptance paths. The binary, Docker images, and release-attested primary and
 script enclave artifacts all select that release. This workflow is compiled
-with gh-aw v0.91.9 and does not publish a release or authorize a live run.
+with gh-aw v0.91.12 and does not publish a release or authorize a live run.
 The agent and built-in safe-outputs jobs have 20-minute timeouts; other
 generated jobs, including custom reporting, do not. GitHub Actions does not
 provide an enforceable 20-minute wall-clock limit for the entire workflow run.
+
+Trusted host post-processing enables AWF's public-fixture enclave debugging on
+the effective invocation. AWF requires static public sensitivities and verifies
+the repository's public identity through a bounded, unauthenticated GitHub check.
+Raw logs remain outside guest mounts and the enclave result protocol.
+After the agent exits, including on failure, the host collector matches the
+new invocation journal to this run's opaque VM identity; pre-existing logs are
+excluded. It accepts only owner-protected regular, single-link files with no
+symlinks, an explicit filename allowlist, at most 32 files and 1 MiB per file
+(32 MiB total, plus a fixed collection-status record). The separate Actions
+debug artifact has one-day retention. These unredacted public-fixture logs are
+intentionally disclosed to Actions artifact readers; public-repository artifact
+access is not private or owner-only. No secret values or environment dumps are
+collected. A failure before debug capture starts produces only a status record.
 
 The enclave server is mounted as the `awf-enclave` CLI command on `PATH`,
 not as a direct MCP tool. Make exactly one enclave call from shell/Bash:
@@ -182,7 +220,7 @@ remain visible in workflow status, summaries, logs, and artifacts.
 ## Usage
 
 After this update merges to `main`, the reviewed official workflow can manually
-test the independently pinned published v0.28.57 release. That release contains
+test the independently pinned published v0.28.58 release. That release contains
 the official-main acceptance policy merged in #9878, so the installed host
 binary authorizes this path without requiring the workflow to run from the
 artifact release tag. A live run still requires separate explicit authorization;
@@ -217,14 +255,14 @@ Both paths enforce strict fail-closed constraints:
 
 Merge this reviewed workflow update to `main` and obtain separate live-run
 authorization. No further release or retag is required: the binary, images,
-and attested artifacts are pinned to the policy-containing published v0.28.57.
+and attested artifacts are pinned to the policy-containing published v0.28.58.
 Only after both prerequisites are satisfied, dispatch with:
 
 ```bash
 gh aw run smoke-enclave-cloud-hypervisor --ref main
 ```
 
-Do not retag v0.28.57 or bypass the acceptance gate. The runner must be
+Do not retag v0.28.58 or bypass the acceptance gate. The runner must be
 GitHub-hosted Ubuntu x86_64 with KVM. Use the real mcpg and AWF artifacts
 captured by the compiled workflow to investigate failures; this test does not
 use the standalone probe's mock gateway.

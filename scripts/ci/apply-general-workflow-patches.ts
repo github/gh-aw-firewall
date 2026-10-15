@@ -723,5 +723,27 @@ export function applyGeneralWorkflowPatches(
     log.push(`  Cache key/restore-keys already include CACHE_MEMORY_DATE`);
   }
 
+  if (workflowPath.endsWith('smoke-enclave-cloud-hypervisor.lock.yml')) {
+    const invocation = 'sudo --preserve-env awf --config ';
+    const debugInvocation = 'sudo --preserve-env awf --cloud-hypervisor-enclave-debug-public --config ';
+    if (content.split(debugInvocation).length > 2 ||
+        (content.includes(debugInvocation) && content.includes(invocation))) {
+      throw new Error('Expected exactly one trusted host AWF invocation for public enclave debug');
+    }
+    if (!content.includes(debugInvocation)) {
+      if (content.split(invocation).length !== 2) {
+        throw new Error('Expected exactly one trusted host AWF invocation for public enclave debug');
+      }
+      content = content.replace(invocation, debugInvocation);
+      log.push('  Enabled public enclave debug on the effective host AWF invocation');
+    }
+    // The compiler substitutes the repository retention variable even for custom uploads.
+    const upload = /(        name: Upload public enclave debug evidence\n(?:(?!      -)[^\n]*\n)*?          retention-days: )[^\n]+/;
+    if (!upload.test(content)) {
+      throw new Error('Could not find the separate public enclave debug artifact retention');
+    }
+    content = content.replace(upload, (_match, prefix: string) => `${prefix}1`);
+  }
+
   return { content, log };
 }

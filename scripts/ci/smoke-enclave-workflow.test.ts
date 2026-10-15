@@ -272,7 +272,7 @@ describe('experimental Cloud Hypervisor enclave smoke workflow', () => {
   });
 
   it('selects the same Cloud Hypervisor backend for the primary and static script enclave', () => {
-    expect(source).toContain('version: v0.28.57\n    runtime: cloud-hypervisor');
+    expect(source).toContain('version: v0.28.58\n    runtime: cloud-hypervisor');
     expect(source).toContain('runtime: cloud-hypervisor');
     expect(lock).toContain('\\"runtime\\":\\"cloud-hypervisor\\"');
     expect(lock).toContain('--container-runtime cloud-hypervisor');
@@ -283,16 +283,16 @@ describe('experimental Cloud Hypervisor enclave smoke workflow', () => {
   });
 
   it('pins the published AWF and its attested artifacts to the same release', () => {
-    expect(lock).toContain('install_awf_binary.sh" v0.28.57');
-    expect(lock).toContain('GH_AW_AWF_VERSION: v0.28.57');
-    expect(lock).toContain('https://github.com/github/gh-aw-firewall/releases/download/v0.28.57/awf-config.schema.json');
+    expect(lock).toContain('install_awf_binary.sh" v0.28.58');
+    expect(lock).toContain('GH_AW_AWF_VERSION: v0.28.58');
+    expect(lock).toContain('https://github.com/github/gh-aw-firewall/releases/download/v0.28.58/awf-config.schema.json');
     expect(lock).toContain('Download and verify cloud-hypervisor enclave artifacts');
     expect(lock).toContain('cloud_hypervisor_setup_enclave_artifacts.sh');
     expect(lock).not.toContain('Install awf binary (local)');
     expect(lock).not.toContain('--build-local');
     expect(source).not.toContain('Do not dispatch this update yet');
     expect(source).toContain('installed host\nbinary authorizes this path');
-    expect(source).toContain('Do not retag v0.28.57 or bypass the acceptance gate.');
+    expect(source).toContain('Do not retag v0.28.58 or bypass the acceptance gate.');
     expect(source).toContain('diagnostics (#9898)');
     expect(source).toContain('durable host-executor\ndiagnostics (#9955)');
     expect(source).toContain('After this update merges to `main`');
@@ -320,32 +320,32 @@ describe('experimental Cloud Hypervisor enclave smoke workflow', () => {
 
   it('sets up release-matched primary and script-role artifacts', () => {
     expect(lock).toContain('cloud_hypervisor_setup_bundle.sh');
-    expect(lock).toContain('GH_AW_AWF_VERSION: v0.28.57');
+    expect(lock).toContain('GH_AW_AWF_VERSION: v0.28.58');
     expect(lock).toContain('cloud_hypervisor_setup_enclave_artifacts.sh');
     expect(lock).toContain(
       'GH_AW_AWF_VERSION: ${{ steps.cloud-hypervisor-bundle.outputs.release_tag }}'
     );
-    expect(lock).toContain('ghcr.io/github/gh-aw-firewall/enclave-script:0.28.57');
-    expect(lock).toContain('ghcr.io/github/gh-aw-firewall/enclave-mcp-server:0.28.57');
+    expect(lock).toContain('ghcr.io/github/gh-aw-firewall/enclave-script:0.28.58');
+    expect(lock).toContain('ghcr.io/github/gh-aw-firewall/enclave-mcp-server:0.28.58');
     expect(lock).toContain('AWF_CLOUD_HYPERVISOR_ENCLAVE_SCRIPT_ROOTFS');
     const primarySetup = lock.slice(
       lock.indexOf('      - name: Download and verify cloud-hypervisor bundle'),
       lock.indexOf('      - name: Install AWF binary')
     );
-    expect(primarySetup).toContain('GH_AW_AWF_VERSION: v0.28.57');
+    expect(primarySetup).toContain('GH_AW_AWF_VERSION: v0.28.58');
     expect(primarySetup).toContain(
       'GH_AW_AWF_VERSION: ${{ steps.cloud-hypervisor-bundle.outputs.release_tag }}'
     );
   });
 
   it('keeps every first-party image digest pinned to the binary release', () => {
-    // Official v0.28.57 release asset: containers.txt.
+    // Official v0.28.58 release asset: containers.txt.
     const releaseDigests: Record<string, string> = {
-      agent: 'sha256:a9861b2fad1d29c586bbbf98840a61056e30e2720d8d9ec2c0def9049566bd8a',
-      'api-proxy': 'sha256:f2925ff32dc972a5d8b90a7785b6ca68052efd2575fe896556ac457e22e86dcc',
-      'enclave-mcp-server': 'sha256:dfa422c17f2c6c26ee0d5a42d129deb77facba16af368fee5e8399a956a2306d',
-      'enclave-script': 'sha256:e65db5c27ec5f0887c75f3d8d4bdd60f59d6c941cf5d5d9c65e9e82bcfedb990',
-      squid: 'sha256:be808c16b535ebabd070eebe086fe6bffd5bb86b2e5fe8e5cdad30068eb9c0ac',
+      agent: 'sha256:563f836617e23b97591971059d0ed93067a3397b599daa79249257e0a430eb7d',
+      'api-proxy': 'sha256:a47f00f8f52b40cc0708dd928f0e2cde18d55ab646de599d7b88ef704d303715',
+      'enclave-mcp-server': 'sha256:7b1d20b9111ba5db37a8abaa5fd2cf419b91d5d11a67a3a58bf670d0a9a5be8c',
+      'enclave-script': 'sha256:c7d14c602309ba8b4b5c9e32dd3a9890af57992c2604bd93927c4d8c4547fcdc',
+      squid: 'sha256:545267d0f175e9967fac2f3379de9cadad742ac7593cbda353b2f9e5bbf57692',
     };
     const manifestLine = lock.split('\n').find(line => line.startsWith('# gh-aw-manifest: '));
     if (!manifestLine) {
@@ -358,8 +358,8 @@ describe('experimental Cloud Hypervisor enclave smoke workflow', () => {
       container.image.startsWith('ghcr.io/github/gh-aw-firewall/')
     );
     expect(awfImages.map(container => container.image.split('/').pop()).sort()).toEqual([
-      'agent:0.28.57', 'api-proxy:0.28.57', 'enclave-mcp-server:0.28.57',
-      'enclave-script:0.28.57', 'squid:0.28.57',
+      'agent:0.28.58', 'api-proxy:0.28.58', 'enclave-mcp-server:0.28.58',
+      'enclave-script:0.28.58', 'squid:0.28.58',
     ]);
     for (const container of awfImages) {
       const name = container.image.split('/').pop()!.split(':')[0];
@@ -370,8 +370,8 @@ describe('experimental Cloud Hypervisor enclave smoke workflow', () => {
       );
       expect(lock).toContain(container.pinned_image);
     }
-    expect(lock).toContain('\\"imageTag\\":\\"0.28.57,');
-    expect(lock).not.toMatch(/0\.28\.(51|52|53|54|55|56)/);
+    expect(lock).toContain('\\"imageTag\\":\\"0.28.58,');
+    expect(lock).not.toMatch(/0\.28\.(51|52|53|54|55|56|57)/);
     expect(source).not.toContain('v0.28.56');
   });
 
@@ -469,9 +469,13 @@ pathlib.Path("/query/out").write_text(json.dumps(result), encoding="utf-8")`);
       '                "type": "http",',
       '                "url": "http://awf-enclave-mcp:8080/mcp"',
       '      - name: Execute GitHub Copilot CLI',
-      '        run: awf --env-all --exclude-env MCP_GATEWAY_AGENT_ID',
+      '        run: sudo --preserve-env awf --config "/trusted/awf-config.json" --env-all --exclude-env MCP_GATEWAY_AGENT_ID',
       '        env:',
       '          GH_TOKEN: ${{ github.token }}',
+      '      - name: Upload debug',
+      '        name: Upload public enclave debug evidence',
+      '        with:',
+      '          retention-days: 1',
     ].join('\n');
     const first = applyGeneralWorkflowPatches(compiled, workflowPath).content;
     const second = applyGeneralWorkflowPatches(first, workflowPath).content;
@@ -480,6 +484,56 @@ pathlib.Path("/query/out").write_text(json.dumps(result), encoding="utf-8")`);
       '--exclude-env GH_TOKEN --exclude-env MCP_GATEWAY_API_KEY --exclude-env MCP_GATEWAY_AGENT_ID',
     );
     expect(second).toBe(first);
+  });
+
+  it('enables debugging on the real AWF command and collects only after the agent, including failure', () => {
+    const compiled = yaml.load(lock) as {
+      jobs: Record<string, {
+        steps: Array<{ name: string; id?: string; if?: string; run?: string;
+          env?: Record<string, string>; uses?: string; with?: Record<string, unknown> }>;
+      }>;
+    };
+    const steps = compiled.jobs.agent.steps;
+    const prepare = steps.findIndex(step => step.name === 'Prepare host-only enclave debug collection');
+    const execute = steps.findIndex(step => step.name === 'Execute GitHub Copilot CLI');
+    const collect = steps.findIndex(step => step.name === 'Collect host-only public enclave debug evidence');
+    const upload = steps.findIndex(step => step.name === 'Upload public enclave debug evidence');
+    expect(prepare).toBeGreaterThan(-1);
+    expect(execute).toBeGreaterThan(prepare);
+    expect(collect).toBeGreaterThan(execute);
+    expect(upload).toBeGreaterThan(collect);
+    expect(steps[execute].run).toContain(
+      'sudo --preserve-env awf --cloud-hypervisor-enclave-debug-public --config'
+    );
+    expect(countOccurrences(steps[execute].run!, '--cloud-hypervisor-enclave-debug-public')).toBe(1);
+    expect(steps[execute].env?.DEBUG_RUN_KEY).toBeUndefined();
+    expect(steps[prepare].run).toContain('sudo install -m 0600 -o root -g root');
+    expect(steps[collect].if).toBe('always()');
+    expect(steps[collect].run).toContain('sudo node /var/lib/awf-enclave-smoke-export/collector.cjs collect');
+    expect(steps[upload].if).toBe("always() && steps.collect-enclave-debug.outcome == 'success'");
+    expect(steps[upload].with?.['retention-days']).toBe(1);
+    expect(steps[upload].with?.path).toBe(
+      '/var/lib/awf-enclave-smoke-export/${{ github.run_id }}-${{ github.run_attempt }}/upload/'
+    );
+    expect(steps[upload].with?.['if-no-files-found']).toBe('error');
+    expect(source).toContain('intentionally disclosed to Actions artifact readers');
+    expect(source.split('---').slice(2).join('---')).not.toContain('/var/lib/');
+    expect(() => applyGeneralWorkflowPatches(
+      lock.replace('sudo --preserve-env awf --cloud-hypervisor-enclave-debug-public --config', 'missing-awf'),
+      workflowPath,
+    )).toThrow(/exactly one trusted host AWF/);
+    expect(() => applyGeneralWorkflowPatches(
+      `${lock}\nsudo --preserve-env awf --cloud-hypervisor-enclave-debug-public --config duplicate`,
+      workflowPath,
+    )).toThrow(/exactly one trusted host AWF/);
+    const uploadBlock = lock.slice(
+      lock.indexOf('        name: Upload public enclave debug evidence'),
+      lock.indexOf('      - name: Validate enclave invocation and result'),
+    );
+    expect(() => applyGeneralWorkflowPatches(
+      lock.replace(uploadBlock, uploadBlock.replace('          retention-days: 1\n', '')),
+      workflowPath,
+    )).toThrow(/debug artifact retention/);
   });
 });
 
