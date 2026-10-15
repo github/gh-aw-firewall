@@ -78,13 +78,27 @@ describe('resolved configuration startup artifact handoff', () => {
     expect(handoffs).toEqual(['directory', expect.stringContaining('"preflight"')]);
     expect(fs.statSync(auditDir).mode & 0o777).toBe(0o700);
     const file = path.join(auditDir, 'awf-resolved-config.json');
-    expect(fs.statSync(file).mode & 0o777).toBe(0o600);
-    // The runner's redactor needs to read and replace this file, not just upload it.
-    fs.writeFileSync(file, '[REDACTED]');
-    expect(fs.readFileSync(file, 'utf8')).toBe('[REDACTED]');
+    const artifactFd = fs.openSync(file, fs.constants.O_RDWR | fs.constants.O_NOFOLLOW);
+    try {
+      expect(fs.fstatSync(artifactFd).mode & 0o777).toBe(0o600);
+      // The runner's redactor needs to read and replace this file, not just upload it.
+      expect(fs.readFileSync(artifactFd, 'utf8')).toContain('"preflight"');
+      fs.ftruncateSync(artifactFd, 0);
+      fs.writeSync(artifactFd, '[REDACTED]', 0, 'utf8');
+      const redacted = Buffer.alloc(Buffer.byteLength('[REDACTED]'));
+      fs.readSync(artifactFd, redacted, 0, redacted.length, 0);
+      expect(redacted.toString('utf8')).toBe('[REDACTED]');
+    } finally {
+      fs.closeSync(artifactFd);
+    }
     expect(fs.statSync(privateRoot).mode & 0o777).toBe(0o700);
-    expect(fs.statSync(journal).mode & 0o777).toBe(0o600);
-    expect(fs.readFileSync(journal, 'utf8')).toBe('PRIVATE_SENTINEL');
+    const journalFd = fs.openSync(journal, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
+    try {
+      expect(fs.fstatSync(journalFd).mode & 0o777).toBe(0o600);
+      expect(fs.readFileSync(journalFd, 'utf8')).toBe('PRIVATE_SENTINEL');
+    } finally {
+      fs.closeSync(journalFd);
+    }
   });
 
   it('keeps exclusive creation and reports a failed handoff instead of claiming preservation', () => {
