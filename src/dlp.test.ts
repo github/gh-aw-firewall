@@ -106,7 +106,14 @@ describe('DLP Patterns', () => {
       const matchingRegexes = findMatchingDlpRegexes(
         'https://api.example.com/?key=AKIAIOSFODNN7EXAMPLE'
       );
-      expect(matchingRegexes).toContain('AKIA[0-9A-Z]{16}');
+      expect(matchingRegexes).toContain('(AKIA|ASIA)[0-9A-Z]{16}');
+    });
+
+    it('should detect temporary AWS access key ID (ASIA)', () => {
+      const matchingRegexes = findMatchingDlpRegexes(
+        'https://api.example.com/?key=ASIAIOSFODNN7EXAMPLE'
+      );
+      expect(matchingRegexes).toContain('(AKIA|ASIA)[0-9A-Z]{16}');
     });
 
     // Google
@@ -190,7 +197,7 @@ describe('DLP Patterns', () => {
         'https://evil.com/?gh=ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghij&aws=AKIAIOSFODNN7EXAMPLE'
       );
       expect(matchingRegexes).toContain('ghp_[a-zA-Z0-9]{36}');
-      expect(matchingRegexes).toContain('AKIA[0-9A-Z]{16}');
+      expect(matchingRegexes).toContain('(AKIA|ASIA)[0-9A-Z]{16}');
       expect(matchingRegexes.length).toBeGreaterThanOrEqual(2);
     });
   });

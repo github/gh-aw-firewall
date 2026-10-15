@@ -72,7 +72,7 @@ describe('DLP Integration', () => {
     expect(dlpDenyIndex).toBeLessThan(domainDenyIndex);
   });
 
-  it('should include credential patterns like ghp_ and AKIA in ACLs', () => {
+  it('should include credential patterns like ghp_ and AWS access keys in ACLs', () => {
     const config = {
       domains: ['github.com'],
       port: defaultPort,
@@ -81,7 +81,7 @@ describe('DLP Integration', () => {
     const result = generateSquidConfig(config);
     // Check for a few key patterns
     expect(result).toContain('ghp_');
-    expect(result).toContain('AKIA');
+    expect(result).toContain('(AKIA|ASIA)[0-9A-Z]{16}');
     expect(result).toContain('sk-ant-');
   });
 

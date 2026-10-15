@@ -87,8 +87,8 @@ const DLP_PATTERNS: DlpPattern[] = [
   // AWS
   {
     name: 'AWS Access Key ID',
-    description: 'AWS access key ID (AKIA)',
-    regex: 'AKIA[0-9A-Z]{16}',
+    description: 'AWS access key ID (AKIA or ASIA)',
+    regex: '(AKIA|ASIA)[0-9A-Z]{16}',
   },
 
   // Google Cloud

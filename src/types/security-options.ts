@@ -69,7 +69,7 @@ export interface SecurityOptions {
    *
    * Detected patterns include: GitHub tokens (ghp_, gho_, ghs_, ghu_,
    * github_pat_), OpenAI keys (sk-), Anthropic keys (sk-ant-),
-   * AWS access keys (AKIA), Google API keys (AIza), Slack tokens,
+   * AWS access keys (AKIA, ASIA), Google API keys (AIza), Slack tokens,
    * and generic credential patterns.
    *
    * @default false
