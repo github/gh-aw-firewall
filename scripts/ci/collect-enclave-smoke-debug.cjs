@@ -14,9 +14,20 @@ const ROOTS = {
   debug: '/var/lib/awf-cloud-hypervisor/debug-artifacts/cloud-hypervisor',
 };
 
-function directory(target, uid) {
-  let current = path.parse(target).root;
-  for (const component of target.slice(current.length).split(path.sep).filter(Boolean)) {
+function directory(target, uid, trustedRoot = '/') {
+  const root = path.resolve(trustedRoot);
+  const resolvedTarget = path.resolve(target);
+  const relative = path.relative(root, resolvedTarget);
+  if (relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {
+    throw new Error('Debug collection path escapes trusted root');
+  }
+  const rootStat = fs.lstatSync(root);
+  if (!rootStat.isDirectory() || rootStat.isSymbolicLink() ||
+      (rootStat.uid !== uid && rootStat.uid !== 0) || (rootStat.mode & 0o022) !== 0) {
+    throw new Error('Unsafe debug collection directory');
+  }
+  let current = root;
+  for (const component of relative.split(path.sep).filter(Boolean)) {
     current = path.join(current, component);
     const stat = fs.lstatSync(current);
     if (!stat.isDirectory() || stat.isSymbolicLink() || (stat.uid !== uid && stat.uid !== 0) ||
@@ -26,9 +37,9 @@ function directory(target, uid) {
   }
 }
 
-function inventory(target, uid) {
+function inventory(target, uid, trustedRoot) {
   try {
-    directory(target, uid);
+    directory(target, uid, trustedRoot);
   } catch (error) {
     if (error.code === 'ENOENT') return [];
     throw error;
@@ -61,23 +72,23 @@ function readRegular(target, limit, uid) {
   }
 }
 
-function prepare(runDirectory, roots = ROOTS, uid = 0) {
-  directory(path.dirname(runDirectory), uid);
+function prepare(runDirectory, roots = ROOTS, uid = 0, trustedRoot = '/') {
+  directory(path.dirname(runDirectory), uid, trustedRoot);
   fs.mkdirSync(runDirectory, { mode: 0o700 });
   const baseline = {
-    journals: inventory(roots.journal, uid).filter(name => name.endsWith('.journal')),
-    debug: inventory(roots.debug, uid),
+    journals: inventory(roots.journal, uid, trustedRoot).filter(name => name.endsWith('.journal')),
+    debug: inventory(roots.debug, uid, trustedRoot),
   };
   fs.writeFileSync(path.join(runDirectory, 'baseline.json'), JSON.stringify(baseline),
     { mode: 0o600, flag: 'wx' });
 }
 
-function collect(runDirectory, runnerUid, runnerGid, roots = ROOTS, uid = 0) {
-  directory(runDirectory, uid);
+function collect(runDirectory, runnerUid, runnerGid, roots = ROOTS, uid = 0, trustedRoot = '/') {
+  directory(runDirectory, uid, trustedRoot);
   const baseline = JSON.parse(readRegular(path.join(runDirectory, 'baseline.json'), 1024 * 1024, uid));
-  const journals = inventory(roots.journal, uid)
+  const journals = inventory(roots.journal, uid, trustedRoot)
     .filter(name => name.endsWith('.journal') && !baseline.journals.includes(name));
-  const debug = inventory(roots.debug, uid).filter(name => !baseline.debug.includes(name));
+  const debug = inventory(roots.debug, uid, trustedRoot).filter(name => !baseline.debug.includes(name));
   if (journals.length > 1 || debug.length > 1) throw new Error('Unexpected concurrent enclave runs');
   let invocation;
   if (journals.length) {
@@ -108,8 +119,8 @@ function collect(runDirectory, runnerUid, runnerGid, roots = ROOTS, uid = 0) {
   const files = [];
   if (debug.length) {
     const source = path.join(roots.debug, invocation);
-    directory(source, uid);
-    const names = inventory(source, uid);
+    directory(source, uid, trustedRoot);
+    const names = inventory(source, uid, trustedRoot);
     if (names.length > MAX_FILES) throw new Error('Debug file count exceeds bound');
     for (const name of names) {
       if (!LOG_NAME.test(name)) throw new Error('Unexpected debug artifact name');

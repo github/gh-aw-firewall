@@ -1,4 +1,5 @@
 import * as fs from 'fs';
+import * as os from 'os';
 import * as path from 'path';
 import { createHash } from 'crypto';
 
@@ -18,13 +19,14 @@ describe('host-only public enclave debug collector', () => {
   ])).digest('hex').slice(0, 32);
 
   beforeEach(() => {
-    temp = fs.mkdtempSync(path.join(__dirname, 'enclave-debug-test-'));
+    temp = fs.mkdtempSync(path.join(os.tmpdir(), 'enclave-debug-test-'));
     run = path.join(temp, 'run');
     roots = { journal: path.join(temp, 'journal'), debug: path.join(temp, 'debug') };
     for (const directory of Object.values(roots)) fs.mkdirSync(directory, { mode: 0o700 });
   });
   afterEach(() => fs.rmSync(temp, { recursive: true, force: true }));
 
+  const prepareRun = () => prepare(run, roots, uid, temp);
   function invocation() {
     fs.writeFileSync(path.join(roots.journal, `${runId}.journal`), [
       JSON.stringify({ runId, state: 'open' }),
@@ -35,12 +37,12 @@ describe('host-only public enclave debug collector', () => {
     fs.writeFileSync(path.join(source, 'guest-stderr.raw.log'), 'failed guest evidence', { mode: 0o600 });
     return source;
   }
-  const collectRun = () => collect(run, uid, gid, roots, uid);
+  const collectRun = () => collect(run, uid, gid, roots, uid, temp);
 
   it('collects a failed invocation but excludes stale directories and journals', () => {
     fs.mkdirSync(path.join(roots.debug, 'c'.repeat(32)), { mode: 0o700 });
     fs.writeFileSync(path.join(roots.journal, `${'d'.repeat(32)}.journal`), 'stale', { mode: 0o600 });
-    prepare(run, roots, uid);
+    prepareRun();
     invocation();
     for (const suffix of ['resources.json', 'diagnostics.json']) {
       fs.writeFileSync(path.join(roots.journal, `${runId}-${invocationId}.${suffix}`),
@@ -56,14 +58,14 @@ describe('host-only public enclave debug collector', () => {
   });
 
   it('explicitly records an early failure with no debug logs', () => {
-    prepare(run, roots, uid);
+    prepareRun();
     expect(collectRun()).toBe(0);
     expect(fs.readFileSync(path.join(run, 'upload/collection-status.txt'), 'utf8'))
       .toContain('No public-fixture debug logs were produced');
   });
 
   it('accepts exactly the stream size limit and rejects oversized streams without staging', () => {
-    prepare(run, roots, uid);
+    prepareRun();
     const source = invocation();
     const log = path.join(source, 'guest-stderr.raw.log');
     fs.writeFileSync(log, Buffer.alloc(MAX_STREAM_BYTES + 1));
@@ -76,7 +78,7 @@ describe('host-only public enclave debug collector', () => {
 
   it.each(['file-symlink', 'directory-symlink', 'hardlink', 'unknown-name', 'count', 'wrong-run',
     'traversal', 'permissions', 'journal-symlink'])('rejects %s before publishing', kind => {
-    prepare(run, roots, uid);
+    prepareRun();
     const source = invocation();
     const log = path.join(source, 'guest-stderr.raw.log');
     if (kind === 'file-symlink') {
@@ -88,7 +90,17 @@ describe('host-only public enclave debug collector', () => {
     } else if (kind === 'hardlink') fs.linkSync(log, path.join(temp, 'hardlink'));
     else if (kind === 'unknown-name') fs.writeFileSync(path.join(source, 'environment.txt'), 'no', { mode: 0o600 });
     else if (kind === 'count') {
-      for (let i = 0; i < MAX_FILES; i++) fs.writeFileSync(path.join(source, `extra-${i}`), '', { mode: 0o600 });
+      const logNames = ['launcher-stdout.log', 'launcher-stderr.log', 'guest-stdout.raw.log',
+        'cloud-hypervisor.log', 'serial.log', 'network-plan.json', 'network-diagnostics.txt',
+        'counters.json', 'vm-info.json', 'runtime.json', 'confinement.json'];
+      for (let i = 0; i < 8; i++) {
+        for (const name of ['enclave-seed', 'enclave-request', 'enclave-output', 'enclave-runtime']) {
+          logNames.push(`virtiofs-${i}-${name}`);
+        }
+      }
+      for (const name of logNames.slice(0, MAX_FILES)) {
+        fs.writeFileSync(path.join(source, name), '', { mode: 0o600 });
+      }
     } else if (kind === 'wrong-run') fs.renameSync(source, path.join(roots.debug, 'e'.repeat(32)));
     else if (kind === 'traversal') {
       fs.writeFileSync(path.join(roots.journal, `${runId}.journal`), [
@@ -101,13 +113,14 @@ describe('host-only public enclave debug collector', () => {
       fs.unlinkSync(journal);
       fs.symlinkSync(path.join(run, 'baseline.json'), journal);
     }
-    expect(collectRun).toThrow();
+    if (kind === 'count') expect(collectRun).toThrow(/Debug file count exceeds bound/);
+    else expect(collectRun).toThrow();
     expect(fs.existsSync(path.join(run, 'upload'))).toBe(false);
   });
 
   it('fails closed on overlapping runs and reusing the snapshot identity', () => {
-    prepare(run, roots, uid);
-    expect(() => prepare(run, roots, uid)).toThrow();
+    prepareRun();
+    expect(prepareRun).toThrow();
     invocation();
     fs.mkdirSync(path.join(roots.debug, 'f'.repeat(32)), { mode: 0o700 });
     expect(collectRun).toThrow(/concurrent/);
