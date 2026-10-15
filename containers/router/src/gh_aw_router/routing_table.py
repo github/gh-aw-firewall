@@ -38,6 +38,7 @@ type _PairIdentity = tuple[str, ReasoningEffort | None]
 type _PositionIndex = dict[str, dict[str, dict[_PairIdentity, int]]]
 
 DEFAULT_TABLE_DIRECTORY: Final = Path("routing")
+DEFAULT_PROFILE: Final = RoutingObjective(goal=RoutingGoal.COST, mode=RoutingMode.BALANCED)
 COST_PROFILES: Final = tuple(
     RoutingObjective(goal=RoutingGoal.COST, mode=mode)
     for mode in (RoutingMode.ECONOMY, RoutingMode.BALANCED, RoutingMode.ROBUST)

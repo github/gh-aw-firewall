@@ -8,10 +8,14 @@ from typing import Final
 from gh_aw_router.contracts import (
     ClassifyRequest,
     ClassifyResponse,
+    Labels,
     Message,
     ModelArm,
     ModelChoice,
     Role,
+    TaskComplexity,
+    TaskScope,
+    TaskType,
     TextPart,
 )
 from gh_aw_router.routing import NoRouteError
@@ -22,6 +26,10 @@ SYSTEM_PROMPT: Final = (
     "You are a software-request classifier. Follow the classification contract in the user "
     "message exactly. Never answer the request or use tools."
 )
+CLASSIFICATION_LABELS: Final = Labels(
+    task_type=TaskType.EXPLAIN, scope=TaskScope.LOCAL, task_complexity=TaskComplexity.TRIVIAL
+)
+
 _INSTRUCTIONS: Final = (
     "<instructions>\n"
     "Classify the current software-development request. Do not answer it, solve it, or use"
