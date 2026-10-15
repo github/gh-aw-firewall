@@ -239,7 +239,8 @@ describe('trusted Cloud Hypervisor enclave lifecycle', () => {
       full_name: repository.repo, private: !isPublic, visibility: isPublic ? 'public' : 'private',
     })));
     if (!isPublic) {
-      await expect(startCloudHypervisorEnclaveLifecycle(config, provider, {})).rejects.toThrow(/public/);
+      await expect(startCloudHypervisorEnclaveLifecycle(config, provider, {}))
+        .rejects.toThrow('reason=unverified-metadata');
       expect(provider.prepareRun).not.toHaveBeenCalled();
       expect(start).not.toHaveBeenCalled();
     } else {

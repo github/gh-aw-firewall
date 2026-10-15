@@ -23,6 +23,7 @@ import { runMainWorkflow } from '../cli-workflow';
 import { deriveSensitiveEndpointForms, redactSecrets, redactSensitiveValues } from '../redact-secrets';
 import { joinShellArgs } from '../option-parsers';
 import { assertRealDirectory, writeFileNoFollow } from '../fs-utils';
+import { getSafeHostGid, getSafeHostUid } from '../host-identity';
 import { applyConfigFilePrecedence } from './preflight';
 import { registerSignalHandlers } from './signal-handler';
 import { validateOptions } from './validate-options';
@@ -126,15 +127,34 @@ function persistConfigAuditArtifact(
   try {
     const configArtifactDir = config.auditDir || path.join(config.workDir, 'audit');
     fs.mkdirSync(configArtifactDir, { recursive: true, mode: 0o700 });
+    assertRealDirectory(configArtifactDir);
+    const owner = process.getuid?.() === 0 && process.env.SUDO_UID
+      ? { uid: Number(getSafeHostUid()), gid: Number(getSafeHostGid()) } : undefined;
+    // Cleanup can intentionally stop before generic artifact permission repair.
+    // Hand this runner diagnostic off now, without exposing private recovery state.
+    if (owner) {
+      const directoryFd = fs.openSync(configArtifactDir,
+        fs.constants.O_RDONLY | fs.constants.O_DIRECTORY | fs.constants.O_NOFOLLOW);
+      try {
+        if (!fs.fstatSync(directoryFd).isDirectory()) throw new Error('Unsafe audit directory');
+        fs.fchownSync(directoryFd, owner.uid, owner.gid);
+      } finally {
+        fs.closeSync(directoryFd);
+      }
+    }
     const configArtifactPath = path.join(configArtifactDir, 'awf-resolved-config.json');
     const fd = fs.openSync(configArtifactPath, 'wx', 0o600);
     try {
+      const stat = fs.fstatSync(fd);
+      if (!stat.isFile() || stat.nlink !== 1) throw new Error('Unsafe resolved config artifact');
       fs.writeFileSync(fd, JSON.stringify(redactedConfig, null, 2) + '\n');
+      fs.fsyncSync(fd);
+      if (owner) fs.fchownSync(fd, owner.uid, owner.gid);
     } finally {
       fs.closeSync(fd);
     }
   } catch (err) {
-    logger.debug(`Failed to write resolved config artifact: ${err}`);
+    logger.warn('Failed to publish resolved config artifact:', err);
   }
 }
 

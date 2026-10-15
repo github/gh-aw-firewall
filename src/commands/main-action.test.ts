@@ -1392,15 +1392,15 @@ describe('createMainAction', () => {
       expect(redacted.additionalEnv).toBe('raw-env-string');
     });
 
-    it('persistConfigAuditArtifact logs debug when writing the artifact fails', () => {
+    it('persistConfigAuditArtifact warns when publishing the artifact fails', () => {
       mockMkdirSync.mockImplementationOnce(() => {
         throw new Error('write failed');
       });
 
       testHelpers.persistConfigAuditArtifact(MAIN_ACTION_STUB_CONFIG, { foo: 'bar' });
 
-      expect(mockedLogger.debug).toHaveBeenCalledWith(
-        expect.stringContaining('Failed to write resolved config artifact:')
+      expect(mockedLogger.warn).toHaveBeenCalledWith(
+        'Failed to publish resolved config artifact:', expect.any(Error),
       );
     });
 

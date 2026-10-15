@@ -56,11 +56,68 @@ describe('host-only public enclave debug admission', () => {
   it('rejects unavailable, malformed and oversized visibility evidence', async () => {
     await expect(verifyPublicEnclaveDebugRepositories(config(), requester({}, 404))).rejects.toThrow(/verified/);
     const request: jest.MockedFunction<typeof fetch> = jest.fn().mockRejectedValue(new Error('network timeout'));
-    await expect(verifyPublicEnclaveDebugRepositories(config(), request)).rejects.toThrow('network timeout');
+    await expect(verifyPublicEnclaveDebugRepositories(config(), request)).rejects.toThrow('reason=request-failed');
     await expect(verifyPublicEnclaveDebugRepositories(config(), requester('x'.repeat(65537))))
       .rejects.toThrow(/bound/);
     request.mockResolvedValue(new Response('not json'));
     await expect(verifyPublicEnclaveDebugRepositories(config(), request)).rejects.toThrow();
+  });
+
+  it.each([301, 302, 401, 403, 404, 429, 503])('reports HTTP %s without exposing response contents or headers', async (status) => {
+    const request = jest.fn().mockResolvedValue(new Response('PRIVATE_SENTINEL', {
+      status, headers: { 'x-private-header': 'PRIVATE_SENTINEL' },
+    }));
+    await expect(verifyPublicEnclaveDebugRepositories(config(), request))
+      .rejects.toThrow(`reason=http-status; status=${status}`);
+    await expect(verifyPublicEnclaveDebugRepositories(config(), request))
+      .rejects.not.toThrow('PRIVATE_SENTINEL');
+    expect(request).toHaveBeenCalledTimes(2);
+  });
+
+  it.each([
+    [new DOMException('PRIVATE_SENTINEL', 'TimeoutError'), 'reason=timeout'],
+    [Object.assign(new TypeError('PRIVATE_SENTINEL'), { cause: { code: 'ENOTFOUND' } }), 'code=ENOTFOUND'],
+    [Object.assign(new TypeError('PRIVATE_SENTINEL'), { cause: { code: 'CERT_HAS_EXPIRED' } }), 'code=CERT_HAS_EXPIRED'],
+    [Object.assign(new TypeError('PRIVATE_SENTINEL'), { cause: { code: 'PRIVATE_SENTINEL' } }), 'code=unknown'],
+  ])('reports only allowlisted transport evidence for %p', async (error, expected) => {
+    const request = jest.fn().mockRejectedValue(error);
+    let failure: unknown;
+    try {
+      await verifyPublicEnclaveDebugRepositories(config(), request);
+    } catch (caught) {
+      failure = caught;
+    }
+    expect(failure).toBeInstanceOf(Error);
+    expect(String(failure)).toContain(expected);
+    expect(String(failure)).not.toContain('PRIVATE_SENTINEL');
+    expect(failure).not.toHaveProperty('cause');
+    expect(request).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    [() => new Response(null), 'missing-body'],
+    [() => new Response('PRIVATE_SENTINEL'), 'invalid-json'],
+    [() => new Response(JSON.stringify({ private: true })), 'unverified-metadata'],
+    [() => new Response('x'.repeat(65537)), 'metadata-bound'],
+    [() => new Response(new ReadableStream({
+      start(controller) { controller.error(new Error('PRIVATE_SENTINEL')); },
+    })), 'body-read'],
+  ])('classifies failed metadata evidence as %s', async (response, reason) => {
+    const request = jest.fn().mockResolvedValue(response());
+    await expect(verifyPublicEnclaveDebugRepositories(config(), request)).rejects.toThrow(`reason=${reason}`);
+  });
+
+  it('allows exactly 64 KiB and keeps the five-second request deadline', async () => {
+    const timeout = jest.spyOn(AbortSignal, 'timeout');
+    const metadata = JSON.stringify({ full_name: 'octo/fixture', private: false, visibility: 'public' });
+    const request = jest.fn().mockResolvedValue(new Response(metadata.padEnd(64 * 1024, ' ')));
+    try {
+      await verifyPublicEnclaveDebugRepositories(config(), request);
+      expect(timeout).toHaveBeenCalledWith(5000);
+      expect(request).toHaveBeenCalledTimes(1);
+    } finally {
+      timeout.mockRestore();
+    }
   });
 
   it.each([

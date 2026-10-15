@@ -192,6 +192,12 @@ and requires matching repository identity, `private: false`, and
 `visibility: "public"`. Each check has a five-second timeout and a 64 KiB
 response ceiling; unavailable, rate-limited, malformed, private, or unverified
 metadata prevents launch. The host needs HTTPS access to `api.github.com`.
+Failures report a bounded reason (`http-status`, `missing-body`, `timeout`,
+`request-failed`, `body-read`, `metadata-bound`, `invalid-json`, or
+`unverified-metadata`), the HTTP status when available, and only allowlisted
+transport codes. Response bodies, headers, repository names, and raw transport
+errors are not included. A `403` alone does not establish rate limiting, and
+an unknown transport code must not be treated as a diagnosed network cause.
 Dynamic repository admission, non-public sensitivities (including `trusted`),
 custom enclave images, unattested development artifacts, and non-Cloud-Hypervisor
 executors are rejected. A guest request, payload, or environment variable cannot
@@ -217,6 +223,16 @@ be empty or absent. Once collected, cleanup retries do not overwrite the
 evidence. An artifact write failure is surfaced as an executor cleanup failure,
 not a successful invocation. Abrupt host termination/SIGKILL cannot guarantee
 collection; existing resource-recovery rules still apply.
+
+Before startup, the resolved configuration audit artifact is handed to the
+sudo runner at `0600` (with its audit directory traversable by that owner), so
+the runner can read and rewrite it for secret redaction even if fatal cleanup
+stops to preserve recovery state. This is not a recursive ownership or mode
+repair: private control/recovery data and the raw debug artifacts remain
+protected. An absent `enclave.jsonl` when containers never started is not
+evidence of an enclave invocation; retain the startup exit marker separately.
+Release-pinned workflows need an AWF release containing these diagnostics and
+handoff changes before they can use them.
 
 **Disclosure risk:** public repository visibility does not make raw output safe.
 Payloads, model responses, URLs, and incidental data may still contain secrets
