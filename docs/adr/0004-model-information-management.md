@@ -25,6 +25,11 @@ AWF needs model information for several independent decisions:
   diagnostics; and
 - maintaining documentation and generated container assets.
 
+Downstream consumers include `gh-aw`, which maintains models.dev-derived
+`models.json` copies for AIC estimates, and gh-aw-router-training, which needs
+pricing and reasoning-effort facts. They are planned consumers of the generated
+export or package API, not independent sources of model facts.
+
 These facts are currently distributed across:
 
 - `src/copilot-model.ts`;
@@ -322,9 +327,13 @@ Estimated cache-read prices remain permitted only when policy explicitly allows
 them. They are labeled `estimated` and never presented as provider-published
 pricing.
 
-Promotional pricing is time-bounded data. It MUST include an expiry or effective
-end and, where known, the successor tariff. A source-code reminder is not an
-acceptable expiry mechanism.
+Reviewed promotional list-price tariffs are time-bounded data. They MUST include
+an expiry or effective end and, where known, the successor tariff. A source-code
+reminder is not an acceptable expiry mechanism. Runtime-advertised discounts are
+informational observations only: discovery does not prove request-level
+eligibility, so they MUST NOT reduce the effective tariff or `maxAiCredits`
+accounting. Supporting request-level discounts in the future requires a
+separately reviewed contract; discovery alone never makes a discount billable.
 
 Long-context pricing is a first-class tariff selected by the same normalized
 input-token semantics used for runtime provider pricing. Threshold boundaries
@@ -380,10 +389,14 @@ Operator configuration can define deployment-specific:
 - target protocol; and
 - source labels.
 
-Overlays are validated against a versioned overlay schema at startup. Unknown
-fields and invalid prices fail before requests are accepted. Operator overlays
-have highest configured authority within their declared provider, channel, and
-deployment scope.
+New, explicitly versioned overlays are validated against the versioned overlay
+schema at startup; unknown fields and invalid prices fail before requests are
+accepted. Existing unversioned `apiProxy.providers` overlays retain their
+currently supported open, models.dev-shaped input contract during migration and
+are not subjected to strict unknown-field rejection. A compatibility reader
+continues to interpret these overlays until they are translated or explicitly
+migrated to the versioned format. Operator overlays have highest configured
+authority within their declared provider, channel, and deployment scope.
 
 ### Runtime observations
 
@@ -409,6 +422,8 @@ provider-published values when complete and fresh. A later incomplete response
 does not silently erase a complete tariff, but retained data is subject to a
 maximum age and is marked stale. Safety-sensitive consumers decide whether stale
 data is acceptable under an explicit policy.
+Provider-advertised promotions remain informational and do not override a
+reviewed effective tariff.
 
 ## Field-level resolution
 
@@ -422,6 +437,15 @@ Precedence is resolved per field, not by replacing an entire record:
 
 Availability may have a different safe fallback rule from pricing or
 compatibility. The resolver therefore applies a policy per field group.
+
+Pricing is merged one tier at a time. A higher-priority tier defines the
+threshold and tariff scope; lower-priority sources may fill only components it
+omits, never replace components it supplies. A tier completed from multiple
+sources is labeled `assembled`, with provenance retained for every component.
+This prevents a result from silently combining values from different tiers or
+presenting an unpublished component combination as a single source tariff.
+Runtime-advertised discounts are excluded from this merge and remain
+informational as described above.
 
 Every resolved value retains:
 
@@ -495,13 +519,21 @@ Initial projections include:
 - public documentation mapping;
 - static catalogue export;
 - generated documentation tables; and
-- manifests containing schema version, catalogue revision, and generation time.
+- manifests containing schema version, catalogue revision, and a reproducible
+  static generation timestamp.
 
 The host and API proxy may consume different projections, but both derive from
 the same source records and identity rules.
 
 Because the API proxy is CommonJS JavaScript and the host is TypeScript, JSON is
 the interoperability format. Consumers do not reimplement canonicalization.
+
+The catalogue revision is a deterministic digest of the normalized source
+records, schema version, and compiler version. The static generation timestamp
+is derived from versioned source metadata (the latest included review or import
+timestamp), never the compiler's wall-clock time. `/reflect/v2` reuses that
+static timestamp and reports live observation times separately. Optional build
+wall-clock timestamps are not included in checked-in projections.
 
 CI validates source schemas, compiles projections, and fails when checked-in
 generated files differ from compiler output.
@@ -528,6 +560,13 @@ AWF will add a versioned reflection contract containing:
 - warnings for stale, estimated, incomplete, or conflicting information; and
 - sanitized runtime provenance.
 
+Each exported value, including every pricing component, carries its source and
+freshness state (for example, `estimated` or `stale`), so consumers need not
+reconstruct those labels from a summary. The version field identifies the
+`/reflect/v2` schema; clients first try v2 and fall back to `/reflect` when the
+endpoint is unavailable on an older pinned AWF version. AWF retains the v1
+contract during consumer migration.
+
 The default representation is compact. A detail mode may expose field-level
 provenance when payload size requires separation.
 
@@ -538,7 +577,10 @@ fields are never reflected.
 
 AWF will version `models.json` or add a sibling `model-catalog.json`. Persisted
 snapshots include schema and catalogue revisions so tooling can distinguish
-static data from run-specific observations.
+static data from run-specific observations. The generated export or npm package
+is the planned source for gh-aw's AIC `models.json` copies and
+gh-aw-router-training's pricing and effort data; their consumers may switch at
+Gate 7 after export compatibility and accounting-parity tests pass.
 
 ### CLI and package API
 
@@ -565,6 +607,13 @@ One model catalogue updater replaces endpoint-only and ad hoc update paths. It:
 5. includes every generated projection in the same pull request;
 6. emits a machine-readable change report; and
 7. applies review gates for high-impact changes.
+
+On each scheduled run, the updater compares available live provider model data
+with the maintained registry. It reports missing models, price changes beyond
+the documented provider-specific rounding tolerance, and changed reasoning
+efforts or limits. Drift findings propose reviewed source updates; they do not
+silently promote runtime observations into maintained facts or make runtime
+discounts billable.
 
 The report identifies:
 
@@ -632,17 +681,25 @@ The implementation includes:
 2. provider-prefix, separator, date-suffix, query, and case fixtures;
 3. exact versus family-pattern collision tests;
 4. supported, retired, mapped, priced, and excluded model fixtures;
-5. complete pricing precedence and mixed-component provenance tests;
-6. default, threshold, boundary, promotion-expiry, and successor-tariff tests;
+5. pricing precedence, same-tier component filling, and assembled-tier provenance
+   tests;
+6. default, threshold, boundary, reviewed-promotion expiry, and successor-tariff
+   tests, plus proof that runtime-advertised discounts never reduce
+   `maxAiCredits` accounting;
 7. exact reasoning-effort positive and negative fixtures;
 8. unknown future effort round-trip tests;
 9. routing and direct-request validation parity tests;
 10. compatibility declaration and translator rejection parity tests;
-11. deterministic generation and stale-output tests;
-12. source-schema, overlay-schema, and snapshot-metadata tests;
+11. deterministic generation-revision and source-derived timestamp tests;
+12. source-schema, strict versioned-overlay, legacy unversioned-overlay
+    compatibility, and snapshot-metadata tests;
 13. freshness and stale-fallback tests;
-14. `/reflect/v2` and persisted-export contract tests; and
-15. malformed, ambiguous, and unknown-field fail-closed tests.
+14. `/reflect/v2` schema-version, v1 fallback, per-value provenance, and
+    persisted-export contract tests;
+15. recurring drift-check tests for missing models, price tolerance, efforts,
+    and limits;
+16. gh-aw and gh-aw-router-training export parity tests; and
+17. malformed, ambiguous, and unknown-field fail-closed tests.
 
 The #10029 and #10030 cases are named fixtures. They do not disappear into broad
 family tests.
@@ -668,7 +725,11 @@ and parity fixtures pass.
 
 Add deterministic compilation, migrate maintained facts, and represent the
 current pricing and reasoning gaps as canonical records. Generate existing
-legacy formats without requiring consumers to change.
+legacy formats without requiring consumers to change. Before the compiler
+generates `docs/model-api-mapping.json`, retarget the daily endpoint-mapping
+updater to update source records and all generated outputs in one change, or
+pause it until that replacement is ready. It must not keep opening PRs that edit
+generated output without its source.
 
 ### Gate 4: Lifecycle consumers
 
@@ -690,12 +751,16 @@ requirements.
 ### Gate 7: Exports
 
 Add `/reflect/v2`, versioned persisted snapshots, CLI inspection, and package
-exports while retaining legacy contracts.
+exports while retaining legacy contracts. Publish the v2 schema version,
+per-value provenance and freshness contract, and documented fallback to v1 for
+older pinned AWF versions. This gate enables gh-aw and gh-aw-router-training to
+adopt generated pricing and effort data after parity tests pass.
 
 ### Gate 8: Unified updater
 
-Replace the endpoint-only updater and govern imported snapshots. One pull
-request updates sources and every generated output.
+Complete the source-aware updater and govern imported snapshots. One pull
+request updates sources and every generated output. The endpoint-only updater
+must already have been retargeted or paused at Gate 3.
 
 ### Gate 9: Legacy removal
 
