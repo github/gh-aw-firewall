@@ -120,6 +120,18 @@ describe('routing bootstrap', () => {
     expect(config.modelRoutingBootstrap).toBeUndefined();
   });
 
+  it('accepts a router built from the checkout with --build-local without a digest pin', () => {
+    const conversationFile = path.join(tempDir, 'conversation.json');
+    writeConversation(conversationFile);
+    const config = { ...makeConfig(path.join(tempDir, 'work'), conversationFile), buildLocal: true };
+    delete config.images;
+
+    const state = stageRoutingConversation(config)!;
+
+    expect(config.modelRoutingBootstrap).toBe(state);
+    cleanupRoutingState(config);
+  });
+
   it('refuses routing with preserved containers before staging', () => {
     const conversationFile = path.join(tempDir, 'conversation.json');
     writeConversation(conversationFile);

@@ -132,6 +132,8 @@ function assertRoutingHostSupported(config: WrapperConfig): void {
   if (exposingMount) {
     throw new Error('Model routing is not supported when the agent can access the Docker socket');
   }
+  // --build-local builds containers/router from the same checkout as this CLI, so only pulled images need a pin.
+  if (config.buildLocal) return;
   const routerImage = resolveRuntimeImageFor(config, 'router');
   if (!isDigestPinnedImageReference(routerImage)) {
     throw new Error('Model routing requires container.images.router to be pinned by digest');

@@ -1,3 +1,6 @@
+import * as crypto from 'crypto';
+import * as fs from 'fs';
+import * as path from 'path';
 import { ROUTER_CONTAINER_NAME } from '../constants';
 import { assignImageSource } from '../image-tag';
 import { buildContainerSecurityHardening } from './service-security';
@@ -47,6 +50,13 @@ export function buildRouterService({ imageConfig }: RouterServiceParams): any {
     containerDir: 'router',
   });
   if (useGHCR && resolveImage) service.image = resolveImage('router');
+  if (service.build) {
+    // The Dockerfile verifies the shipped contract against this digest, as the release workflow does.
+    const contract = fs.readFileSync(path.join(service.build.context, 'openapi.yaml'));
+    service.build.args = {
+      OPENAPI_SHA256: crypto.createHash('sha256').update(contract).digest('hex'),
+    };
+  }
 
   return service;
 }

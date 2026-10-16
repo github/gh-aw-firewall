@@ -2264,7 +2264,9 @@ boundaries. A supported routed run also requires a complete
 and every other enabled image role. Without a manifest, the router image
 resolves like the other AWF images, from `--image-registry` and `--image-tag`
 (`ghcr.io/github/gh-aw-firewall/router:<tag>` by default), and routing still
-fails unless that reference is pinned by digest.
+fails unless that reference is pinned by digest. With `--build-local`, AWF
+builds the router from `containers/router` in the same checkout instead, and
+no digest pin is required.
 
 The candidate pool uses models discovered for the selected native provider.
 The `/reflect` `model_api_mapping` includes maintained routing metadata for

@@ -2,6 +2,7 @@ import { generateDockerCompose } from './compose-generator';
 import { ACT_PRESET_BASE_IMAGE } from './host-identity';
 import { WrapperConfig } from './types';
 import { baseConfig, mockNetworkConfig } from './test-helpers/docker-test-fixtures.test-utils';
+import * as crypto from 'crypto';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
@@ -89,6 +90,43 @@ describe('generateDockerCompose', () => {
       );
       expect(agentEnvironment.AWF_ROUTING_CONFIG).toBeUndefined();
       expect(result.networks['awf-routing']).toMatchObject({ internal: true });
+    });
+
+    it('builds the router from the checkout with the contract digest under --build-local', () => {
+      const routingConfig: WrapperConfig = {
+        ...mockConfig,
+        buildLocal: true,
+        enableApiProxy: true,
+        experimentalModelRouting: true,
+        modelRouting: {
+          objective: { goal: 'cost', mode: 'balanced' },
+          task: { conversationFile: '/run/awf-routing/input/conversation.json' },
+        },
+        modelRoutingBootstrap: {
+          root: `${mockConfig.workDir}-routing`,
+          inputDir: `${mockConfig.workDir}-routing/input`,
+          outputDir: `${mockConfig.workDir}-routing/output`,
+          inputFile: `${mockConfig.workDir}-routing/input/conversation.json`,
+          containerInputFile: '/run/awf-routing/input/conversation.json',
+          containerOutputDir: '/run/awf-routing/output',
+        },
+      };
+      const routerDir = path.join(__dirname, '..', 'containers', 'router');
+      const contractDigest = crypto.createHash('sha256')
+        .update(fs.readFileSync(path.join(routerDir, 'openapi.yaml')))
+        .digest('hex');
+
+      const router = generateDockerCompose(routingConfig, {
+        ...mockNetworkConfig,
+        proxyIp: '172.30.0.30',
+      }).services.router;
+
+      expect(router.image).toBeUndefined();
+      expect(router.build).toEqual({
+        context: routerDir,
+        dockerfile: 'Dockerfile',
+        args: { OPENAPI_SHA256: contractDigest },
+      });
     });
 
     it('fails routed compose generation when host staging has not happened', () => {
