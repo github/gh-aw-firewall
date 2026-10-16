@@ -731,6 +731,11 @@ export function applyGeneralWorkflowPatches(
   );
 
   if (workflowPath.endsWith('smoke-enclave-cloud-hypervisor.lock.yml')) {
+    // gh-aw v0.92.1 gates uploads on this ID but omits it from the redaction step.
+    content = content.replace(
+      /^( {6}- name: Redact secrets in logs\n)( {8}if: always\(\)\n)/gm,
+      '$1        id: redact_secrets\n$2',
+    );
     const invocation = 'sudo --preserve-env awf --config ';
     const debugInvocation = 'sudo --preserve-env awf --cloud-hypervisor-enclave-debug-public --config ';
     if (content.split(debugInvocation).length > 2 ||

@@ -171,6 +171,32 @@ describe('docker-manager (barrel re-exports)', () => {
     });
   });
 
+  describe('parseDifcProxyHost via barrel', () => {
+    it.each(['', '   '])('defaults for empty input %j', (v) => {
+      expect(dockerManager.parseDifcProxyHost(v)).toEqual({ host: 'host.docker.internal', port: '18443' });
+    });
+
+    it('parses host:port and defaults missing port', () => {
+      expect(dockerManager.parseDifcProxyHost('example.com:9000')).toEqual({ host: 'example.com', port: '9000' });
+      expect(dockerManager.parseDifcProxyHost('example.com')).toEqual({ host: 'example.com', port: '18443' });
+    });
+
+    it('strips scheme and preserves default scheme ports', () => {
+      expect(dockerManager.parseDifcProxyHost('https://example.com:443')).toEqual({ host: 'example.com', port: '443' });
+    });
+
+    it('handles bracketed IPv6', () => {
+      expect(dockerManager.parseDifcProxyHost('[::1]:18443')).toEqual({ host: '::1', port: '18443' });
+    });
+
+    it('rejects malformed values and bad ports', () => {
+      expect(() => dockerManager.parseDifcProxyHost('http://')).not.toThrow();
+      expect(() => dockerManager.parseDifcProxyHost('ex ample:80')).toThrow(/Invalid --difc-proxy-host/);
+      expect(() => dockerManager.parseDifcProxyHost('host:99999')).toThrow(/Invalid --difc-proxy-host/);
+      expect(() => dockerManager.parseDifcProxyHost('host:0')).toThrow(/Between 1 and 65535|between 1 and 65535/);
+    });
+  });
+
   describe('filterCapDrop via barrel', () => {
     it('returns empty for undefined or empty lists', () => {
       expect(dockerManager.filterCapDrop(undefined, null)).toEqual([]);

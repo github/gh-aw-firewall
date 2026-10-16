@@ -74,6 +74,16 @@
       "repo": "github/gh-aw-actions/setup",
       "version": "v0.92.0",
       "sha": "458b269006dcf88e3b5496b6fbecabe4b9a0f954"
+    },
+    "github/gh-aw/actions/setup@0abe2d9b233658150bc05ea968f1736b94093cf7": {
+      "repo": "github/gh-aw/actions/setup",
+      "version": "0abe2d9b233658150bc05ea968f1736b94093cf7",
+      "sha": "0abe2d9b233658150bc05ea968f1736b94093cf7"
+    },
+    "github/gh-aw/actions/setup@2687cab90c7b034aca6a2ad588928604025ad4b5": {
+      "repo": "github/gh-aw/actions/setup",
+      "version": "2687cab90c7b034aca6a2ad588928604025ad4b5",
+      "sha": "2687cab90c7b034aca6a2ad588928604025ad4b5"
     }
   },
   "containers": {

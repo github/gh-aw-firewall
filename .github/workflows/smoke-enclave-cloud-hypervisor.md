@@ -151,12 +151,23 @@ diagnostics (#9955), bounded enclave MCP startup diagnostics (#9898),
 and the narrowly scoped official-main and tagged-workflow
 acceptance paths. The binary, Docker images, and release-attested primary and
 script enclave artifacts all select that release. This workflow is compiled
-with gh-aw v0.92.0 and does not publish a release or authorize a live run.
+with the checksum-verified official gh-aw v0.92.1 prerelease and pins
+`github/gh-aw/actions/setup` to its matching release commit
+`2687cab90c7b034aca6a2ad588928604025ad4b5` using `--gh-aw-ref v0.92.1`.
+The action ref selects runtime scripts, not the compiler binary.
+The official release includes github/gh-aw#69079's diagnostic generator fixes
+and github/gh-aw#69109's safe resolved-config collection. Release compiler
+version checks remain enabled; development-build bypasses are not used.
+The MCP Gateway adopts the compiler's digest-pinned v0.4.33 default.
+An explicit v0.4.31 override was rejected by compile-only strict validation
+because `sandbox.mcp.version` is an internal field; no validation bypass is used.
+AWF, Copilot, and primary/enclave artifact versions remain unchanged.
+This update does not publish a release or authorize a live run.
 This is diagnostic enablement, not a verified fix for the original host-executor
 launch failure; that failure remains untested with this release.
-Copilot CLI is independently pinned to 1.0.96, the pinned gh-aw v0.92.0
-installer's default. Its help advertises every generated CLI option and the
-harness-added `--session-id` used for model verification; 1.0.34 rejects that
+Copilot CLI remains independently pinned to 1.0.96. Its help advertises every
+generated CLI option and the harness-added `--session-id` used for model
+verification; 1.0.34 rejects that
 option before the agent can invoke an enclave. Credential-free offline argument
 checks do not verify a live smoke run or the original enclave launch failure.
 The pinned model-verification harness updates `/tmp/gh-aw/aw_info.json` in
@@ -166,7 +177,7 @@ workspace paths are retained, but neighboring framework files remain read-only.
 This fixes the metadata-write EROFS boundary without disabling verification or
 changing the AWF release pin. It does not establish that the separate failed
 enclave attempt in run 38772667249 is repaired.
-The smoke postprocessor also removes that file from gh-aw v0.92.0's generated
+The smoke postprocessor also removes that file from gh-aw's generated
 `mkdir -p` operands: activation already supplies a regular metadata file, not a
 directory. The local mount-boundary regression checks host persistence and
 neighboring protections, not a KVM/virtio-fs boot or a live enclave run.
@@ -188,23 +199,36 @@ intentionally disclosed to Actions artifact readers; public-repository artifact
 access is not private or owner-only. No secret values or environment dumps are
 collected. A failure before debug capture starts produces only a status record.
 
-## Unresolved compiler collection dependency
+## Resolved-config collection wiring and remaining verification
 
 AWF v0.28.59 safely publishes early resolved configuration under
 `/run/awf-config-audit` and exports its path as `AWF_RESOLVED_CONFIG` through
 `GITHUB_ENV`. The normal audit compatibility JSON is published only after
-successful privileged cleanup. The pinned gh-aw v0.92.0 setup action
-(`github/gh-aw-actions` at `458b269006dcf88e3b5496b6fbecabe4b9a0f954`)
-redacts only the framework-managed AWF temp root and `${RUNNER_TEMP}/gh-aw`; the
-compiled artifact upload includes the old audit tree, not the new early path.
-Neither consumer uses `AWF_RESOLVED_CONFIG`, so evidence after failed cleanup
-remains incomplete.
+successful privileged cleanup. The release-matched setup action's
+`redact_secrets.cjs` consumes the host-only `AWF_RESOLVED_CONFIG` path. It accepts
+only `/run/awf-config-audit/run-XXXXXX/awf-resolved-config.json`, validates
+ownership, permissions, file type and link count, and opens without following
+symlinks. It parses JSON and applies sensitive-key, built-in credential,
+custom-secret and runtime-mask redaction before atomically staging a mode-0600
+`/tmp/gh-aw/awf-resolved-config.json`. Invalid publication removes stale staged
+output and fails redaction. Both normal and fallback agent artifact uploads
+include only the staged path and require successful redaction.
+The smoke postprocessor supplies the missing `redact_secrets` step ID in
+v0.92.1's generated lock so these upload guards reference the actual redactor;
+it does not remove or weaken the guards.
 
-Keep this update draft until a verified compiler/actions contract supports
-both safe redaction and collection of that early artifact. Do not copy raw
+This is verified source wiring, not verified live failed-cleanup retrieval.
+`AWF_RESOLVED_CONFIG` remains excluded from the guest environment; the host
+publication tree is not mounted into the sandbox. Do not copy raw
 resolved JSON into normal artifact paths, disable redaction, or relax ownership
 or guest-mount protections. The separate bounded raw public-fixture artifact
-above is unchanged and does not close this collection gap.
+above is unchanged and is not the resolved-config artifact.
+
+The release fixes the six previous diagnostic-generator actionlint errors
+(empty telemetry `env` and undefined daily-credit outputs). Scanner findings
+still require independent reassessment; a released compiler does not establish
+a clean scanner or live-execution gate. Do not suppress findings or change
+environment or approval policy to obtain a passing gate.
 
 ## Enclave invocation
 
@@ -297,7 +321,7 @@ Both paths enforce strict fail-closed constraints:
 
 ### Remaining manual dispatch prerequisite
 
-First resolve the compiler collection dependency above. Then merge this
+First resolve the remaining scanner/live-validation gates above. Then merge this
 reviewed workflow update to `main` and obtain separate live-run
 authorization. No further release or retag is required: the binary, images,
 and attested artifacts are pinned to the policy-containing published v0.28.59.
