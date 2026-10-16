@@ -24,16 +24,13 @@ def find_squid_logs() -> Optional[str]:
         Path to access.log file, or None if not found
     """
     # Try running container first
-    try:
-        result = run_command(
-            ['docker', 'inspect', 'awf-squid', '--format={{.State.Running}}'],
-            capture=True,
-            check=False
-        )
-        if result and result.strip() == 'true':
-            return 'docker:awf-squid:/var/log/squid/access.log'
-    except:
-        pass
+    result = run_command(
+        ['docker', 'inspect', 'awf-squid', '--format={{.State.Running}}'],
+        capture=True,
+        check=False
+    )
+    if result and result.strip() == 'true':
+        return 'docker:awf-squid:/var/log/squid/access.log'
 
     # Try preserved logs (most recent)
     log_dirs = glob.glob('/tmp/squid-logs-*')
@@ -76,7 +73,7 @@ def read_squid_logs(log_path: str) -> List[str]:
         try:
             with open(log_path, 'r') as f:
                 return f.readlines()
-        except Exception as e:
+        except (OSError, UnicodeError):
             return []
 
 
@@ -170,7 +167,7 @@ def get_container_status(name: str) -> Tuple[str, int]:
         exit_code = int(result.strip()) if result else -1
         return ('stopped', exit_code)
 
-    except Exception:
+    except ValueError:
         return ('missing', -1)
 
 
@@ -181,16 +178,13 @@ def get_container_ip(name: str) -> Optional[str]:
     Returns:
         IP address or None if container not found/not connected
     """
-    try:
-        result = run_command(
-            ['docker', 'inspect', name, '--format={{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}'],
-            capture=True,
-            check=False
-        )
-        ip = result.strip() if result else None
-        return ip if ip and ip != '' else None
-    except Exception:
-        return None
+    result = run_command(
+        ['docker', 'inspect', name, '--format={{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}'],
+        capture=True,
+        check=False
+    )
+    ip = result.strip() if result else None
+    return ip if ip and ip != '' else None
 
 
 def check_container_health(name: str) -> Optional[str]:
@@ -200,20 +194,17 @@ def check_container_health(name: str) -> Optional[str]:
     Returns:
         'healthy', 'unhealthy', 'starting', or None if no healthcheck
     """
-    try:
-        result = run_command(
-            ['docker', 'inspect', name, '--format={{.State.Health.Status}}'],
-            capture=True,
-            check=False
-        )
-        status = result.strip() if result else None
+    result = run_command(
+        ['docker', 'inspect', name, '--format={{.State.Health.Status}}'],
+        capture=True,
+        check=False
+    )
+    status = result.strip() if result else None
 
-        # If no healthcheck, result is '<no value>'
-        if status and status != '<no value>':
-            return status
-        return None
-    except Exception:
-        return None
+    # If no healthcheck, result is '<no value>'
+    if status and status != '<no value>':
+        return status
+    return None
 
 
 def get_container_processes(name: str, limit: int = 5) -> List[Dict[str, str]]:
@@ -223,31 +214,28 @@ def get_container_processes(name: str, limit: int = 5) -> List[Dict[str, str]]:
     Returns:
         List of dicts with 'name', 'pid', 'cpu' keys
     """
-    try:
-        result = run_command(
-            ['docker', 'exec', name, 'ps', 'aux'],
-            capture=True,
-            check=False
-        )
+    result = run_command(
+        ['docker', 'exec', name, 'ps', 'aux'],
+        capture=True,
+        check=False
+    )
 
-        if not result:
-            return []
-
-        lines = result.splitlines()[1:]  # Skip header
-        processes = []
-
-        for line in lines[:limit]:
-            parts = line.split()
-            if len(parts) >= 11:
-                processes.append({
-                    'name': parts[10],
-                    'pid': parts[1],
-                    'cpu': parts[2]
-                })
-
-        return processes
-    except Exception:
+    if not result:
         return []
+
+    lines = result.splitlines()[1:]  # Skip header
+    processes = []
+
+    for line in lines[:limit]:
+        parts = line.split()
+        if len(parts) >= 11:
+            processes.append({
+                'name': parts[10],
+                'pid': parts[1],
+                'cpu': parts[2]
+            })
+
+    return processes
 
 
 def get_container_logs(name: str, tail: int = 5) -> List[str]:
@@ -257,15 +245,12 @@ def get_container_logs(name: str, tail: int = 5) -> List[str]:
     Returns:
         List of log lines
     """
-    try:
-        result = run_command(
-            ['docker', 'logs', '--tail', str(tail), name],
-            capture=True,
-            check=False
-        )
-        return result.splitlines() if result else []
-    except Exception:
-        return []
+    result = run_command(
+        ['docker', 'logs', '--tail', str(tail), name],
+        capture=True,
+        check=False
+    )
+    return result.splitlines() if result else []
 
 
 # ============================================================================
@@ -308,7 +293,7 @@ def read_squid_config(config_path: Optional[str] = None) -> Optional[str]:
     try:
         with open(config_path, 'r') as f:
             return f.read()
-    except Exception:
+    except (OSError, UnicodeError):
         return None
 
 
@@ -382,11 +367,11 @@ def run_command(cmd: List[str], capture: bool = True, check: bool = True) -> Opt
         else:
             subprocess.run(cmd, check=check)
             return None
-    except subprocess.CalledProcessError as e:
+    except subprocess.CalledProcessError:
         if check:
             raise
         return None if capture else None
-    except Exception:
+    except (OSError, UnicodeError):
         return None
 
 
@@ -464,7 +449,7 @@ def check_network_exists(network_name: str = 'awf-net') -> bool:
             check=False
         )
         return result and result.strip() == network_name
-    except Exception:
+    except OSError:
         return False
 
 
@@ -475,14 +460,11 @@ def test_connectivity(host: str, port: int, container: str = 'awf-agent') -> boo
     Returns:
         True if connection successful
     """
-    try:
-        result = run_command(
-            ['docker', 'exec', container, 'nc', '-zv', '-w', '2', host, str(port)],
-            capture=True,
-            check=False
-        )
-        # nc returns 0 on success
-        # Check if "succeeded" or "open" in output
-        return result is not None and ('succeeded' in result.lower() or 'open' in result.lower())
-    except Exception:
-        return False
+    result = run_command(
+        ['docker', 'exec', container, 'nc', '-zv', '-w', '2', host, str(port)],
+        capture=True,
+        check=False
+    )
+    # nc returns 0 on success
+    # Check if "succeeded" or "open" in output
+    return result is not None and ('succeeded' in result.lower() or 'open' in result.lower())

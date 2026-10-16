@@ -6,6 +6,7 @@ Reports issues concisely with actionable fixes.
 
 import sys
 import os
+import subprocess
 import argparse
 from typing import List, Dict, Tuple
 
@@ -98,7 +99,7 @@ def check_network() -> DiagnosticCheck:
                 f"awf-net exists ({subnet})",
                 ""
             )
-        except:
+        except (OSError, subprocess.SubprocessError, UnicodeError):
             return DiagnosticCheck(
                 "Network",
                 True,
@@ -175,7 +176,7 @@ def check_dns_config() -> DiagnosticCheck:
                     f"DNS servers: {', '.join(nameservers)}",
                     ""
                 )
-    except:
+    except (OSError, subprocess.SubprocessError, IndexError):
         pass
 
     return DiagnosticCheck(
@@ -240,7 +241,7 @@ def check_common_issues() -> List[DiagnosticCheck]:
                 "Port 3128 in use by another process",
                 "Stop other process using port 3128"
             ))
-    except:
+    except (OSError, subprocess.SubprocessError):
         pass
 
     # Check for orphaned containers
@@ -259,7 +260,7 @@ def check_common_issues() -> List[DiagnosticCheck]:
                     f"{len(containers)} awf containers found (expected 2)",
                     "Clean up with: docker rm -f $(docker ps -a --filter name=awf- -q)"
                 ))
-    except:
+    except (OSError, subprocess.SubprocessError):
         pass
 
     return checks

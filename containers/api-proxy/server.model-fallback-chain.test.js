@@ -162,7 +162,7 @@ describe('proxyRequest ordered model fallback chain', () => {
       expect(sentModel(2)).toBe('fallback-b');
 
       // Chain exhausted: the final error is streamed straight to the client.
-      const last = respond(2, 500, '{"error":"still broken"}');
+      respond(2, 500, '{"error":"still broken"}');
       await flushPromises();
       expect(capturedOptions).toHaveLength(3);
       expect(res.writeHead).toHaveBeenCalledWith(500, expect.any(Object));

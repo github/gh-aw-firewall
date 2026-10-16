@@ -11,7 +11,6 @@
  */
 
 const {
-  normalizeBasePath,
   parseApiTargetAndBasePath,
 } = require('../proxy-utils');
 const { validateAuthHeaderEnv, buildOidcUnavailableScaffold } = require('../oidc-adapter-utils');

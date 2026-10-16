@@ -43,9 +43,9 @@ function generateSslSections(options: {
 } {
   const { port, sslBump, caFiles, sslDbPath, urlPatterns, domainsByProto, patternsByProto, cliProxyIp } = options;
 
-  let sslBumpSection = '';
+  let sslBumpSection: string;
   let sslBumpUrlAccessSection = '';
-  let portConfig = `http_port ${port}\nhttp_port [::]:${port}`;
+  let portConfig: string;
 
   const hasPlainDomainsForSslBump = domainsByProto.both.length > 0;
   const hasPatternsForSslBump = patternsByProto.both.length > 0;

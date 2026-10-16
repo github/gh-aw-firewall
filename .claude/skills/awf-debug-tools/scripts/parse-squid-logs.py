@@ -236,7 +236,7 @@ Examples:
 
     try:
         data = parse_logs(log_path, options)
-    except Exception as e:
+    except (OSError, UnicodeError, ValueError) as e:
         print(f"Error parsing logs: {e}", file=sys.stderr)
         sys.exit(2)
 

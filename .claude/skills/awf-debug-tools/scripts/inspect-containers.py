@@ -7,6 +7,7 @@ Shows status, health, processes, logs without verbose docker output.
 import sys
 import os
 import argparse
+import subprocess
 from typing import Dict, List
 
 # Add scripts directory to path
@@ -103,7 +104,7 @@ def get_network_info() -> Dict:
             'gateway': gateway,
             'containers': containers
         }
-    except:
+    except (OSError, subprocess.SubprocessError, ValueError):
         return {'exists': True, 'subnet': 'unknown'}
 
 

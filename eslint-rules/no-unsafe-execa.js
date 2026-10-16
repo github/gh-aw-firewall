@@ -65,46 +65,6 @@ module.exports = {
     }
 
     /**
-     * Checks if a node is a "safe" literal value
-     */
-    function isLiteralOrSafe(node) {
-      if (!node) return true;
-
-      // Literal strings/numbers
-      if (node.type === 'Literal') {
-        return true;
-      }
-
-      // Simple template literal without expressions
-      if (node.type === 'TemplateLiteral' && node.expressions.length === 0) {
-        return true;
-      }
-
-      // Method calls that return safe values (e.g., toString() on a number)
-      if (
-        node.type === 'CallExpression' &&
-        node.callee.type === 'MemberExpression' &&
-        node.callee.property.name === 'toString' &&
-        node.arguments.length === 0
-      ) {
-        // Check if calling toString on a safe base
-        const obj = node.callee.object;
-        if (obj.type === 'Literal' && typeof obj.value === 'number') {
-          return true;
-        }
-        // Calling toString() on a variable is a common pattern for converting
-        // numeric values to strings (e.g., port.toString(), lineNum.toString())
-        // This is generally safe as toString() doesn't introduce shell metacharacters
-        if (obj.type === 'Identifier') {
-          // We'll allow identifiers calling toString() - common safe pattern
-          return true;
-        }
-      }
-
-      return false;
-    }
-
-    /**
      * Checks if a node contains template literal expressions
      */
     function hasTemplateExpressions(node) {
@@ -154,7 +114,7 @@ module.exports = {
     /**
      * Validates arguments array for unsafe patterns
      */
-    function checkArgsArray(argsNode, reportNode) {
+    function checkArgsArray(argsNode) {
       if (!argsNode || argsNode.type !== 'ArrayExpression') return;
 
       for (const element of argsNode.elements) {
@@ -208,7 +168,7 @@ module.exports = {
         // Check arguments array (second argument) for unsafe patterns
         if (args.length >= 2) {
           const argsArray = args[1];
-          checkArgsArray(argsArray, node);
+          checkArgsArray(argsArray);
         }
 
         // Check for shell: true in options

@@ -167,7 +167,6 @@ const RECOVERY_ASSERTIONS = [
   'kvmAclRestored',
 ];
 const RUNNER_MINUTES_PER_SAMPLE = 10;
-const MAX_CAMPAIGN_SAMPLES = 1_000;
 const MAX_CELL_SAMPLES = 20;
 const EXECUTION_SAMPLE_COUNTS: Partial<Record<CampaignMode, number>> = {
   'pilot-100': 10,

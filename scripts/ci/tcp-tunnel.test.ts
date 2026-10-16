@@ -1,4 +1,4 @@
-import { describe, expect, it } from '@jest/globals';
+import { describe, it } from '@jest/globals';
 import net from 'net';
 import path from 'path';
 import { spawn, ChildProcess } from 'child_process';

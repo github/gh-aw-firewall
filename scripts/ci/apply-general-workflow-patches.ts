@@ -673,7 +673,6 @@ export function applyGeneralWorkflowPatches(
   if (!content.includes(cacheDateStepSentinel)) {
     const createCacheMatch = content.match(createCacheDirStepRegex);
     if (createCacheMatch) {
-      const indent = createCacheMatch[1];
       content = content.replace(
         createCacheDirStepRegex,
         (_m, ind, createStep, cacheStep) =>
@@ -689,16 +688,13 @@ export function applyGeneralWorkflowPatches(
   // for a 1-day TTL. Apply each transformation independently so partially
   // updated workflows are repaired correctly and repeated runs stay idempotent.
   if (content.includes(cacheDateStepSentinel)) {
-    let updatedCacheKey = false;
-    let updatedRestoreKeys = false;
-
     // Update main key: insert date before run_id
     const beforeKeyUpdate = content;
     content = content.replace(
       cacheMemoryKeyLineRegex,
       (_m, prefix) => `${prefix}\${{ env.CACHE_MEMORY_DATE }}-\${{ github.run_id }}`
     );
-    updatedCacheKey = content !== beforeKeyUpdate;
+    const updatedCacheKey = content !== beforeKeyUpdate;
 
     // Update restore-keys prefix: append date segment
     const beforeRestoreKeysUpdate = content;
@@ -707,7 +703,7 @@ export function applyGeneralWorkflowPatches(
       (_m, prefixWithWorkflowId, newline) =>
         `${prefixWithWorkflowId}\${{ env.CACHE_MEMORY_DATE }}-${newline}`
     );
-    updatedRestoreKeys = content !== beforeRestoreKeysUpdate;
+    const updatedRestoreKeys = content !== beforeRestoreKeysUpdate;
 
     if (updatedCacheKey || updatedRestoreKeys) {
       if (updatedCacheKey && updatedRestoreKeys) {
