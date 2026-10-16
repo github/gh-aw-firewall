@@ -220,23 +220,32 @@ jobs:
                   print(f'::error::docker build failed for {name}', flush=True)
                   rc = b.returncode
                   continue
-              subprocess.run(['docker', 'save', '-o', tar, tag], check=True)
-              print(f'::group::grype {name} (PR build)', flush=True)
-              r = subprocess.run([
-                  'docker', 'run', '--rm',
-                  '-v', f'{tar}:{tar}:ro',
-                  '-v', f'{db_cache}:/cache',
-                  '-e', 'GRYPE_DB_CACHE_DIR=/cache',
-                  '-e', 'GRYPE_DB_AUTO_UPDATE=false',
-                  '-e', 'GRYPE_CHECK_FOR_APP_UPDATE=false',
-                  '-v', f'{cwd}/.grype.yaml:/root/.grype.yaml:ro',
-                  'ghcr.io/anchore/grype@sha256:fd4ab4d1042b522c896e73bdf09ab8bf384fa417df99d6dd0d6e1008c7e7c821',
-                  f'docker-archive:{tar}', '--fail-on', 'high',
-                  '--config', '/root/.grype.yaml',
-              ])
-              print('::endgroup::', flush=True)
-              if r.returncode != 0:
-                  rc = r.returncode
+              try:
+                  subprocess.run(['docker', 'save', '-o', tar, tag], check=True)
+                  print(f'::group::grype {name} (PR build)', flush=True)
+                  r = subprocess.run([
+                      'docker', 'run', '--rm',
+                      '-v', f'{tar}:{tar}:ro',
+                      '-v', f'{db_cache}:/cache',
+                      '-e', 'GRYPE_DB_CACHE_DIR=/cache',
+                      '-e', 'GRYPE_DB_AUTO_UPDATE=false',
+                      '-e', 'GRYPE_CHECK_FOR_APP_UPDATE=false',
+                      '-v', f'{cwd}/.grype.yaml:/root/.grype.yaml:ro',
+                      'ghcr.io/anchore/grype@sha256:fd4ab4d1042b522c896e73bdf09ab8bf384fa417df99d6dd0d6e1008c7e7c821',
+                      f'docker-archive:{tar}', '--fail-on', 'high',
+                      '--config', '/root/.grype.yaml',
+                  ])
+                  print('::endgroup::', flush=True)
+                  if r.returncode != 0:
+                      rc = r.returncode
+              finally:
+                  if os.path.exists(tar):
+                      os.remove(tar)
+                  subprocess.run(
+                      ['docker', 'image', 'rm', '--force', tag],
+                      stdout=subprocess.DEVNULL,
+                      stderr=subprocess.DEVNULL,
+                  )
           sys.exit(rc)
           PYEOF
 

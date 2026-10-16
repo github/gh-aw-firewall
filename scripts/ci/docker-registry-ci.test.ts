@@ -57,6 +57,9 @@ describe('CI registry retrieval', () => {
     expect(blocking?.run).toContain(grype);
     expect(blocking?.run).toContain("'--fail-on', 'high'");
     expect(blocking?.run).toContain('sys.exit(rc)');
+    expect(blocking?.run).toContain('finally:');
+    expect(blocking?.run).toContain('os.remove(tar)');
+    expect(blocking?.run).toContain("'docker', 'image', 'rm', '--force', tag");
     expect(blocking?.['continue-on-error']).toBeUndefined();
     expect(steps.find((step) => step.run?.includes(`'${grant}'`))?.run).toContain(grant);
   });
