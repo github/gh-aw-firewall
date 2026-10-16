@@ -1,3 +1,5 @@
+import { requireObject } from '../json-validation';
+
 export const NVX_OUTCOME_SCHEMA_VERSION = 1;
 export const NVX_TEARDOWN_STAGES = [
   'control_channels_closed',
@@ -135,13 +137,6 @@ export function parseNvxOneShotOutcome(contents: string): NvxOneShotOutcome {
       NVX_TEARDOWN_STAGES.map((stage) => [stage, true]),
     ) as Record<typeof NVX_TEARDOWN_STAGES[number], true>,
   };
-}
-
-function requireObject(value: unknown, label: string): Record<string, unknown> {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) {
-    throw new Error(`${label} must be a JSON object`);
-  }
-  return value as Record<string, unknown>;
 }
 
 function requireString(value: unknown, label: string): string {

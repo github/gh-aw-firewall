@@ -3,6 +3,7 @@ import {
   type CloudHypervisorArtifactDigests,
 } from '../types/runtime-options';
 import { version as AWF_VERSION } from '../../package.json';
+import { requireObject } from '../json-validation';
 
 const VIRTIOFSD_RELEASE_VERSION = '1.13.3';
 export const CLOUD_HYPERVISOR_ARTIFACT_RELEASE_TAG = `v${AWF_VERSION}`;
@@ -35,13 +36,6 @@ export interface CloudHypervisorArtifactManifest {
     version: string;
     sha256: string;
   }>;
-}
-
-function requireObject(value: unknown, label: string): Record<string, unknown> {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) {
-    throw new Error(`${label} must be a JSON object`);
-  }
-  return value as Record<string, unknown>;
 }
 
 function requireString(value: unknown, label: string): string {
