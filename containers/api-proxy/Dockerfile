@@ -6,7 +6,7 @@ FROM node:26.11.1-alpine3.24@sha256:143494b1da2945f061539253adc65e4f1569ddf07da2
 RUN apk upgrade --no-cache \
     && apk add --no-cache "curl>=8.21.0-r0"
 
-# Replace the vulnerable npm 10.x bundled with Node 22.23.2 with npm 11.18.0.
+# Replace the bundled npm with npm 11.18.0.
 # npm 11.18.0 bundles vulnerable copies of undici, brace-expansion, and
 # ip-address; the pinned replacements below install fixed releases.
 # Install from the registry tarball (same method as the agent image) for a clean
@@ -23,7 +23,7 @@ RUN set -eux; \
              /usr/local/lib/node_modules/npm/bin/npx-cli.js; \
     ln -sf /usr/local/lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm; \
     ln -sf /usr/local/lib/node_modules/npm/bin/npx-cli.js /usr/local/bin/npx; \
-    node --version | grep -qE '^v22\.23\.2' || (echo "ERROR: expected Node.js v22.23.2" && exit 1); \
+    node --version | grep -qE '^v26\.11\.1' || (echo "ERROR: expected Node.js v26.11.1" && exit 1); \
     npm --version | grep -qE '^11\.18\.0' || (echo "ERROR: expected npm 11.18.0" && exit 1); \
     rm -f /tmp/npm-11.18.0.tgz
 
