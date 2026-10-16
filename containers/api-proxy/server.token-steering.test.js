@@ -15,6 +15,7 @@ const { setupServerTestEnv, flushPromises, makeProxyReq, completeUpstreamRespons
 let proxyRequest;
 let closeTokenUsageLog;
 let getAndClearPendingTimeoutSteeringMessage;
+let getAiCreditsReflectState;
 let injectSteeringMessage;
 let resetAiCreditsGuardForTests;
 let resetTimeoutSteeringForTests;
@@ -30,11 +31,12 @@ setupServerTestEnv(() => {
     injectSteeringMessage,
     resetTimeoutSteeringForTests,
   } = require('./proxy-request'));
-  ({ resetAiCreditsGuardForTests } = require('./guards/ai-credits-guard'));
+  ({ getAiCreditsReflectState, resetAiCreditsGuardForTests } = require('./guards/ai-credits-guard'));
   ({ replaceRuntimeModels, clearRuntimeModels } = require('./runtime-model-catalog'));
   return {
     proxyRequest,
     getAndClearPendingTimeoutSteeringMessage,
+    getAiCreditsReflectState,
     injectSteeringMessage,
     resetAiCreditsGuardForTests,
     resetTimeoutSteeringForTests,
@@ -303,6 +305,7 @@ describe('budget steering and injectSteeringMessage', () => {
   });
 
   it('rejects an unsupported effort after model routing and token steering', async () => {
+    process.env.AWF_MAX_AI_CREDITS = '1';
     replaceRuntimeModels('copilot', [{
       id: 'gpt-5-mini',
       supportedReasoningEfforts: ['low', 'medium', 'high'],
@@ -324,8 +327,9 @@ describe('budget steering and injectSteeringMessage', () => {
     await flushPromises();
     completeUpstreamResponse(responseHandler, {
       statusCode: 200,
-      body: { model: 'gpt-4o', usage: { prompt_tokens: 0, completion_tokens: 21 } },
+      body: { model: 'gpt-5-mini', usage: { prompt_tokens: 32_000, completion_tokens: 0 } },
     });
+    expect(getAiCreditsReflectState().thresholds_pending).toEqual([80]);
 
     const invalidBody = Buffer.from(JSON.stringify({
       model: 'routed-model',
@@ -359,6 +363,7 @@ describe('budget steering and injectSteeringMessage', () => {
         message: 'reasoning_effort "short" is not supported by model gpt-5-mini; supported values: [low medium high]',
       },
     });
+    expect(getAiCreditsReflectState().thresholds_pending).toEqual([]);
   });
 
   it('does not inject any warning when AWF_ENABLE_TOKEN_STEERING is not set', async () => {

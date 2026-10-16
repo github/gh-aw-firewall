@@ -77,6 +77,8 @@ describe('API proxy sidecar: rate limiting and token guard', () => {
         expect(env.AWF_MAX_AI_CREDITS).toBe('1.25');
         expect(env.AWF_MODEL_MULTIPLIERS).toBe('{"gpt-4o":2,"claude-sonnet-4":1.5}');
         expect(env.AWF_DEFAULT_MODEL_MULTIPLIER).toBe('27');
+        expect(env.AWF_EFFECTIVE_TOKEN_MODEL_MULTIPLIERS).toBe(env.AWF_MODEL_MULTIPLIERS);
+        expect(env.AWF_EFFECTIVE_TOKEN_DEFAULT_MODEL_MULTIPLIER).toBe(env.AWF_DEFAULT_MODEL_MULTIPLIER);
         expect(env.AWF_MAX_MODEL_MULTIPLIER).toBe('4');
       });
 

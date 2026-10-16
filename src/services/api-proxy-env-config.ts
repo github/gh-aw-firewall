@@ -235,9 +235,11 @@ function buildRateLimitEnv(config: WrapperConfig): Record<string, string> {
     }),
     ...(config.modelMultipliers && {
       AWF_MODEL_MULTIPLIERS: JSON.stringify(config.modelMultipliers),
+      AWF_EFFECTIVE_TOKEN_MODEL_MULTIPLIERS: JSON.stringify(config.modelMultipliers),
     }),
     ...(config.defaultModelMultiplier !== undefined && {
       AWF_DEFAULT_MODEL_MULTIPLIER: String(config.defaultModelMultiplier),
+      AWF_EFFECTIVE_TOKEN_DEFAULT_MODEL_MULTIPLIER: String(config.defaultModelMultiplier),
     }),
     ...(config.maxModelMultiplierCap !== undefined && {
       AWF_MAX_MODEL_MULTIPLIER: String(config.maxModelMultiplierCap),

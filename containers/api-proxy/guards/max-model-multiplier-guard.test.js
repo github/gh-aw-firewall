@@ -12,6 +12,8 @@ describe('max-model-multiplier-guard', () => {
     delete process.env.AWF_MAX_MODEL_MULTIPLIER;
     delete process.env.AWF_MODEL_MULTIPLIERS;
     delete process.env.AWF_DEFAULT_MODEL_MULTIPLIER;
+    delete process.env.AWF_EFFECTIVE_TOKEN_MODEL_MULTIPLIERS;
+    delete process.env.AWF_EFFECTIVE_TOKEN_DEFAULT_MODEL_MULTIPLIER;
     resetMaxModelMultiplierGuardForTests();
   });
 
@@ -19,6 +21,8 @@ describe('max-model-multiplier-guard', () => {
     delete process.env.AWF_MAX_MODEL_MULTIPLIER;
     delete process.env.AWF_MODEL_MULTIPLIERS;
     delete process.env.AWF_DEFAULT_MODEL_MULTIPLIER;
+    delete process.env.AWF_EFFECTIVE_TOKEN_MODEL_MULTIPLIERS;
+    delete process.env.AWF_EFFECTIVE_TOKEN_DEFAULT_MODEL_MULTIPLIER;
     resetMaxModelMultiplierGuardForTests();
   });
 
@@ -56,6 +60,15 @@ describe('max-model-multiplier-guard', () => {
       expect(state.multiplier).toBe(27);
       expect(state.maxModelMultiplier).toBe(4);
       expect(state.model).toBe('claude-opus-4.7');
+    });
+
+    it('reads legacy multiplier settings when new environment names are absent', () => {
+      process.env.AWF_MAX_MODEL_MULTIPLIER = '5';
+      process.env.AWF_EFFECTIVE_TOKEN_MODEL_MULTIPLIERS = JSON.stringify({ 'gpt-4o': 27 });
+      process.env.AWF_EFFECTIVE_TOKEN_DEFAULT_MODEL_MULTIPLIER = '27';
+
+      expect(getModelMultiplierCapBlockState('gpt-4o').multiplier).toBe(27);
+      expect(getModelMultiplierCapBlockState('unknown-model').multiplier).toBe(27);
     });
 
     it('returns null when model multiplier is below the cap', () => {
