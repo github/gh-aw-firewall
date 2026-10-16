@@ -10,7 +10,7 @@ COPY enclave/script-entrypoint.py /usr/local/bin/run-enclave-script
 RUN chmod 0555 /usr/local/bin/run-enclave-script \
     && mkdir -p /script /awf/seed
 
-FROM node:24.18.1-trixie-slim@sha256:ac39e4b5fcb2b1b34b20364fd58b2e898f3bb80731ee6f62a7536f9df3d6aadc AS enclave-agent-build
+FROM node:26.11.1-trixie-slim@sha256:193fe51b64e77981119c98c2002c9e32a70e2f006fb4d25068ce0558998917f0 AS enclave-agent-build
 
 ARG NPM_CONFIG_REGISTRY=https://registry.npmjs.org/
 COPY enclave/package*.json /tmp/copilot-cli/
@@ -51,7 +51,7 @@ RUN chmod 0555 /usr/local/bin/run-enclave-agent \
     && mkdir -p /agent /awf/seed /run/awf-enclave-github \
     && ! command -v gh
 
-FROM node:22.23.2-alpine3.24@sha256:b6f26b36c8ff49624cfdac716b8ea1138d606df02586a77d364bb5536a634f85 AS enclave-mcp-server
+FROM node:26.11.1-alpine3.24@sha256:143494b1da2945f061539253adc65e4f1569ddf07da2d384c022c791a9d90a4a AS enclave-mcp-server
 
 ARG AWF_SOURCE_REVISION=unavailable
 
