@@ -10,6 +10,7 @@ import { useTempDir } from './test-helpers/docker-test-fixtures.test-utils';
 jest.mock('execa', () => require('./test-helpers/mock-execa.test-utils').execaMockFactory());
 
 describe('docker-manager diagnostics', () => {
+  const linuxIt = process.platform === 'linux' ? it : it.skip;
   describe('collectDiagnosticLogs', () => {
     const { getDir } = useTempDir('awf-');
 
@@ -114,7 +115,7 @@ describe('docker-manager diagnostics', () => {
   describe('preserveIptablesAudit', () => {
     const { getDir } = useTempDir('awf-audit-');
 
-    it('should copy iptables audit file when both source and target directory exist', () => {
+    linuxIt('should copy iptables audit file when both source and target directory exist', () => {
       const initSignalDir = path.join(getDir(), 'init-signal');
       fs.mkdirSync(initSignalDir, { recursive: true });
       fs.writeFileSync(path.join(initSignalDir, 'iptables-audit.txt'), 'iptables rules here');
@@ -148,7 +149,7 @@ describe('docker-manager diagnostics', () => {
       expect(fs.existsSync(path.join(getDir(), 'nonexistent-audit', 'iptables-audit.txt'))).toBe(false);
     });
 
-    it('should use default audit dir (workDir/audit) when auditDir is not specified', () => {
+    linuxIt('should use default audit dir (workDir/audit) when auditDir is not specified', () => {
       const initSignalDir = path.join(getDir(), 'init-signal');
       fs.mkdirSync(initSignalDir, { recursive: true });
       fs.writeFileSync(path.join(initSignalDir, 'iptables-audit.txt'), 'default audit');

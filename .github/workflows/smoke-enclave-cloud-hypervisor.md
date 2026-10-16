@@ -151,9 +151,9 @@ diagnostics (#9955), bounded enclave MCP startup diagnostics (#9898),
 and the narrowly scoped official-main and tagged-workflow
 acceptance paths. The binary, Docker images, and release-attested primary and
 script enclave artifacts all select that release. This workflow is compiled
-with the checksum-verified official gh-aw v0.92.1 prerelease and pins
-`github/gh-aw/actions/setup` to its matching release commit
-`2687cab90c7b034aca6a2ad588928604025ad4b5` using `--gh-aw-ref v0.92.1`.
+with the checksum-verified official gh-aw v0.92.3 prerelease and pins
+`github/gh-aw-actions/setup` to its matching release commit
+`26e5d7e7d2345ae4c8dfa3d9017ca2ff9bbf2c82` using `--gh-aw-ref v0.92.3`.
 The action ref selects runtime scripts, not the compiler binary.
 The official release includes github/gh-aw#69079's diagnostic generator fixes
 and github/gh-aw#69109's safe resolved-config collection. Release compiler
@@ -222,7 +222,7 @@ custom-secret and runtime-mask redaction before atomically staging a mode-0600
 output and fails redaction. Both normal and fallback agent artifact uploads
 include only the staged path and require successful redaction.
 The smoke postprocessor supplies the missing `redact_secrets` step ID in
-v0.92.1's generated lock so these upload guards reference the actual redactor;
+v0.92.3's generated lock so these upload guards reference the actual redactor;
 it does not remove or weaken the guards.
 
 This is verified source wiring, not verified live failed-cleanup retrieval.
