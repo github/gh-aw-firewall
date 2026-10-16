@@ -1,6 +1,6 @@
 # Node.js API proxy for credential management
 # Routes through Squid to respect domain whitelisting
-FROM node:22.23.2-alpine3.24@sha256:b6f26b36c8ff49624cfdac716b8ea1138d606df02586a77d364bb5536a634f85
+FROM node:26.11.1-alpine3.24@sha256:143494b1da2945f061539253adc65e4f1569ddf07da2d384c022c791a9d90a4a
 
 # Install current Alpine security updates and curl for healthchecks.
 RUN apk upgrade --no-cache \
