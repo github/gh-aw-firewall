@@ -151,6 +151,15 @@ export type HostExecutorControlPhase =
   | 'backend-complete' | 'backend-failed' | 'cleanup-pending' | 'settled' | 'shutdown'
   | 'plan-run-identity' | 'plan-entry-policy' | 'plan-static-seed' | 'plan-selector-policy' | 'plan-path';
 
+interface HostExecutorControlEvent {
+  phase: string;
+  elapsedMs: number;
+  reason: string;
+  errorType: string;
+  sequence: number;
+  invocationId?: string;
+}
+
 export class HostExecutorControlDiagnostics {
   private readonly file: string;
   private readonly started = Date.now();
@@ -161,10 +170,8 @@ export class HostExecutorControlDiagnostics {
     runId: string;
     sequence: number;
     dropped: number;
-    events: Array<{
-      phase: string; elapsedMs: number; reason: string; errorType: string;
-    }>;
-    failure?: { phase: string; elapsedMs: number; reason: string; errorType: string };
+    events: HostExecutorControlEvent[];
+    failure?: HostExecutorControlEvent;
   };
 
   constructor(run: HostExecutorRunState) {
@@ -184,9 +191,13 @@ export class HostExecutorControlDiagnostics {
     phase: HostExecutorControlPhase,
     error?: unknown,
     rejection?: HostExecutorError,
+    invocationId?: string,
   ): void {
     const event = {
       phase, elapsedMs: Math.max(0, Date.now() - this.started),
+      sequence: this.snapshot.sequence + 1,
+      ...(typeof invocationId === 'string' && HOST_EXECUTOR_ID_PATTERN.test(invocationId)
+        ? { invocationId } : {}),
       reason: rejection ?? (error === undefined ? 'none' : hostPreflightReason(error)),
       errorType: error instanceof TypeError ? 'TypeError'
         : error instanceof RangeError ? 'RangeError'

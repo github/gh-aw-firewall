@@ -103,7 +103,7 @@ const defaultDependencies: HostEnclaveExecutorDependencies = {
   createResourceJournal: (run, plan, vmRunId) => HostExecutorResourceJournal.create(run, plan, vmRunId),
   copySparseFile: copySparseFileWithRsync,
   removeArtifactSnapshot: async (directory) => fs.rm(directory, { recursive: true, force: true }),
-  createManager: (config, workDir, profile, runId, artifacts, managerDependencies) => new CloudHypervisorManager(
+  createManager: (config, workDir, profile, runId, artifacts, managerDependencies, launchReport) => new CloudHypervisorManager(
     config,
     workDir,
     managerDependencies,
@@ -112,6 +112,7 @@ const defaultDependencies: HostEnclaveExecutorDependencies = {
     undefined,
     artifacts,
     true,
+    launchReport,
   ),
   mountTmpfs: mountBoundedEnclaveStorage,
   unmount: unmountBoundedEnclaveStorage,
@@ -588,6 +589,7 @@ export class CloudHypervisorHostEnclaveExecutorBackend implements HostEnclaveExe
               enclaveDebugArtifactProtectedRoot: this.options.publicDebugArtifactProtectedRoot,
             }
           : managerDependencies,
+        report.fork('vm-launch'),
       ));
       if (filesystemState.aborted) throw new Error('Host executor invocation was cancelled');
       await check('manager-start', () => raceInterruption(trackFilesystemWork(manager!.start())));

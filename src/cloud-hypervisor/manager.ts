@@ -56,7 +56,7 @@ import {
 } from './confinement-verifier';
 import { startCloudHypervisor } from './manager-start';
 import { stopCloudHypervisor } from './manager-stop';
-import { HostPreflightCleanupError } from './host-preflight-progress';
+import { HostPreflightCleanupError, type HostPreflightReporter } from './host-preflight-progress';
 import { VirtiofsdManager, type VirtiofsdDevice } from './virtiofsd';
 import {
   DurableCloudHypervisorCleanupRegistry,
@@ -269,6 +269,7 @@ export class CloudHypervisorManager {
     legacyGuestConfig?: CloudHypervisorManagerGuestConfig,
     private readonly verifiedArtifacts?: CloudHypervisorPreflightResult,
     private readonly allowTrustedEnclaveExecution = false,
+    private readonly launchReport?: HostPreflightReporter,
   ) {
     const profile: CloudHypervisorWorkloadProfile = isWorkloadProfile(profileOrNetworkConfig)
       ? sealCloudHypervisorWorkloadProfile(profileOrNetworkConfig)
@@ -313,6 +314,7 @@ export class CloudHypervisorManager {
       workloadProfile: this.workloadProfile,
       allowTrustedEnclaveExecution: this.allowTrustedEnclaveExecution,
       verifiedArtifacts: this.verifiedArtifacts,
+      launchReport: this.launchReport,
       stdoutCapture: this.stdoutCapture,
       stderrCapture: this.stderrCapture,
       setNetworkPlan: (value) => { this.networkPlan = value; },
@@ -332,20 +334,28 @@ export class CloudHypervisorManager {
   }
 
   async startInstance(): Promise<void> {
-    if (!this.client) throw new Error('Cloud Hypervisor API is not configured');
-    await this.client.vmBoot();
+    const client = this.client;
+    if (!client) throw new Error('Cloud Hypervisor API is not configured');
+    if (this.launchReport) await this.launchReport.check('vm-boot', () => client.vmBoot());
+    else await client.vmBoot();
     this.instanceStarted = true;
-    if (this.workloadProfile.guest) {
-      if (!this.vmmIdentity) {
+    const guestConfig = this.workloadProfile.guest;
+    if (guestConfig) {
+      const identity = this.vmmIdentity;
+      if (!identity) {
         throw new Error('Cloud Hypervisor VMM identity is not configured');
       }
-      await this.vmmIdentity.validateOwnedPaths([this.paths.vsockSocketPath]);
-      this.guest = await CloudHypervisorGuestChannel.connect(
-        this.dependencies,
-        this.paths.vsockSocketPath,
-        this.workloadProfile.guest.vsockPort ?? CLOUD_HYPERVISOR_GUEST_VSOCK_PORT,
-        this.config.apiTimeoutMs,
-      );
+      const connect = async (): Promise<CloudHypervisorGuestChannel> => {
+        await identity.validateOwnedPaths([this.paths.vsockSocketPath]);
+        return CloudHypervisorGuestChannel.connect(
+          this.dependencies,
+          this.paths.vsockSocketPath,
+          guestConfig.vsockPort ?? CLOUD_HYPERVISOR_GUEST_VSOCK_PORT,
+          this.config.apiTimeoutMs,
+        );
+      };
+      this.guest = this.launchReport
+        ? await this.launchReport.check('guest-connect', connect) : await connect();
     }
   }
 

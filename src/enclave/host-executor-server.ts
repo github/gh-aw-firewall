@@ -393,7 +393,7 @@ export async function startHostExecutorServer(options: HostExecutorServerOptions
   };
 
   const launch = (plan: HostExecutorInvocationPlan): InvocationRecord => {
-    diagnostics.record('invocation-register');
+    diagnostics.record('invocation-register', undefined, undefined, plan.invocationId);
     const controller = new AbortController();
     const record: InvocationRecord = {
       plan,
@@ -415,7 +415,7 @@ export async function startHostExecutorServer(options: HostExecutorServerOptions
     record.deadline.unref();
     renewLease(record);
     const cleanupFailed = (): void => {
-      diagnostics.record('cleanup-pending');
+      diagnostics.record('cleanup-pending', undefined, undefined, plan.invocationId);
       clearTimeout(record.deadline);
       clearTimeout(record.lease);
       admissionsOpen = false;
@@ -428,12 +428,12 @@ export async function startHostExecutorServer(options: HostExecutorServerOptions
     };
     record.completion = Promise.resolve()
       .then(() => {
-        diagnostics.record('backend-start');
+        diagnostics.record('backend-start', undefined, undefined, plan.invocationId);
         return backend.execute(plan, controller.signal);
       })
       .then(
         (outcome) => {
-          diagnostics.record('backend-complete');
+          diagnostics.record('backend-complete', undefined, undefined, plan.invocationId);
           if (outcome?.cleanupComplete === false) {
             cleanupFailed();
           } else if (outcome && isValidHostExecutorResult(outcome.outcome, outcome.result)) {
@@ -443,7 +443,7 @@ export async function startHostExecutorServer(options: HostExecutorServerOptions
           }
         },
         (error: unknown) => {
-          diagnostics.record('backend-failed', error);
+          diagnostics.record('backend-failed', error, undefined, plan.invocationId);
           cleanupFailed();
         },
       ).catch(() => {
@@ -475,7 +475,7 @@ export async function startHostExecutorServer(options: HostExecutorServerOptions
       admissionsOpen = false;
       throw new RequestRejection('closed');
     }
-    diagnostics.record('invoke-plan');
+    diagnostics.record('invoke-plan', undefined, undefined, request.invocationId);
     return launch(deriveHostExecutorInvocationPlan(runState, request));
   };
 
@@ -504,7 +504,7 @@ export async function startHostExecutorServer(options: HostExecutorServerOptions
       // Settlement is the broker's acknowledgement; the host no longer
       // retains the result payload afterwards.
       record.result = undefined;
-      diagnostics.record('settled');
+      diagnostics.record('settled', undefined, undefined, request.invocationId);
     }
   };
 
@@ -549,6 +549,7 @@ export async function startHostExecutorServer(options: HostExecutorServerOptions
       diagnostics.record(
         error instanceof RequestRejection ? error.diagnosticPhase ?? 'request-rejected' : 'request-rejected',
         error, error instanceof RequestRejection ? error.code : undefined,
+        request.invocationId,
       );
       if (!(error instanceof RequestRejection)) {
         admissionsOpen = false;

@@ -89,17 +89,35 @@ describe('protected host invocation evidence', () => {
     for (let i = 0; i < 140; i++) diagnostic.record('invoke-plan');
     diagnostic.record('backend-failed', Object.assign(new TypeError('PRIVATE_TOKEN PRIVATE_PAYLOAD'), {
       code: 'EACCES', stderr: 'PRIVATE_STDERR',
-    }));
+    }), undefined, plan.invocationId);
+    diagnostic.record('cleanup-pending', undefined, undefined, 'c'.repeat(32));
     diagnostic.record('shutdown');
     const [file] = readHostExecutorInvocationDiagnostics(run);
     const snapshot = JSON.parse(file.contents);
     expect(snapshot).toMatchObject({
-      component: 'host-executor-control', sequence: 142, dropped: 14,
-      failure: { phase: 'backend-failed', reason: 'EACCES', errorType: 'TypeError' },
+      component: 'host-executor-control', sequence: 143, dropped: 15,
+      failure: {
+        phase: 'backend-failed', reason: 'EACCES', errorType: 'TypeError',
+        invocationId: plan.invocationId, sequence: 141,
+      },
     });
     expect(snapshot.events).toHaveLength(128);
     expect(file.contents).not.toMatch(/PRIVATE_|TOKEN|payload|stderr/);
     expect(Buffer.byteLength(file.contents)).toBeLessThan(64 * 1024);
     expect(fs.statSync(path.join(run.journalDir!, 'diagnostics', file.name)).mode & 0o777).toBe(0o600);
+  });
+
+  it('correlates admitted invocations without retaining malformed identifiers', () => {
+    const diagnostic = new HostExecutorControlDiagnostics(run);
+    diagnostic.record('invoke-plan', undefined, undefined, plan.invocationId);
+    diagnostic.record('backend-start', undefined, undefined, plan.invocationId);
+    diagnostic.record('request-rejected', new Error('PRIVATE_ERROR'), 'denied', 'PRIVATE_ID');
+    const snapshot = JSON.parse(readHostExecutorInvocationDiagnostics(run)[0].contents);
+    expect(snapshot.events.slice(0, 2)).toEqual([
+      expect.objectContaining({ phase: 'invoke-plan', invocationId: plan.invocationId, sequence: 1 }),
+      expect.objectContaining({ phase: 'backend-start', invocationId: plan.invocationId, sequence: 2 }),
+    ]);
+    expect(snapshot.failure).not.toHaveProperty('invocationId');
+    expect(JSON.stringify(snapshot)).not.toContain('PRIVATE_');
   });
 });

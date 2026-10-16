@@ -371,6 +371,16 @@ describe('finite-disclosure broker → authenticated Unix host → concrete micr
       'version', 'type', 'requestId', 'runId', 'entryId', 'invocationId', 'capability',
       'executorKind', 'seedId', 'payload', 'schema', 'schemaHash', 'admissionId',
     ].sort());
+    const files = await fs.readdir(path.join(root, 'journal', 'diagnostics'));
+    const snapshots = await Promise.all(files.map(async (file) =>
+      JSON.parse(await fs.readFile(path.join(root, 'journal', 'diagnostics', file), 'utf8'))));
+    const control = snapshots.find(snapshot => snapshot.component === 'host-executor-control');
+    expect(control.events).toEqual(expect.arrayContaining([
+      expect.objectContaining({ phase: 'invoke-plan', invocationId: plans[0].invocationId }),
+      expect.objectContaining({ phase: 'backend-start', invocationId: plans[0].invocationId }),
+      expect.objectContaining({ phase: 'settled', invocationId: plans[0].invocationId }),
+    ]));
+    expect(control).not.toHaveProperty('failure');
   });
 
   it.each(['script', 'agent'] as const)('rejects invalid %s calls before host invocation', async (role) => {
@@ -462,8 +472,13 @@ describe('finite-disclosure broker → authenticated Unix host → concrete micr
       JSON.parse(await fs.readFile(path.join(root, 'journal', 'diagnostics', file), 'utf8'))));
     expect(snapshots).toEqual(expect.arrayContaining([expect.objectContaining({
       component: 'host-executor-control',
-      failure: expect.objectContaining({ phase: 'plan-entry-policy', reason: 'denied' }),
+      failure: expect.objectContaining({
+        phase: 'plan-entry-policy', reason: 'denied',
+        invocationId: requests.find(request => request.type === 'invoke')!.invocationId,
+      }),
     })]));
+    expect(snapshots.flatMap(snapshot => snapshot.events ?? [])
+      .some(event => event.phase === 'backend-start')).toBe(false);
   });
 
   it.each(['script', 'agent'] as const)('does not disclose raw %s output or errors', async (role) => {

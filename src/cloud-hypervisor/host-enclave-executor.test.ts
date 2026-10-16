@@ -315,7 +315,8 @@ describe('readBoundedCloudHypervisorEnclaveResult', () => {
         unmount: async () => { unmounted = true; },
         chown: async (filePathValue) => { chownedPaths.push(filePathValue.toString()); },
         resolveIdentity: () => ({ uid, gid }),
-        createManager: (managerConfig, _workDir, profile, _runId, _artifacts, managerDependencies) => {
+        createManager: (managerConfig, _workDir, profile, _runId, _artifacts, managerDependencies, launchReport) => {
+          expect(launchReport?.scope).toBe('vm-launch');
           managerBinary = managerConfig.cloudHypervisorBinary;
           workloadProfile = profile;
           expect(profile.guest?.identity).toEqual({ uid: 65534, gid: 65534 });
@@ -689,7 +690,8 @@ describe('readBoundedCloudHypervisorEnclaveResult', () => {
             .resolves.toEqual({ outcome: 'success', result: 'true' });
           expect(boundedManager).toHaveBeenCalledWith(expect.objectContaining({
             cloudHypervisorBinary: expect.stringContaining('/snapshot-'),
-          }), root, expect.anything(), expect.anything(), expect.anything(), expect.anything());
+          }), root, expect.anything(), expect.anything(), expect.anything(), expect.anything(),
+          expect.objectContaining({ scope: 'vm-launch' }));
           for (const file of ['cloudHypervisorBinary', 'virtiofsdBinary', 'kernelPath', 'supervisorPath', 'rootfsPath'] as const) {
             replacement = file;
             boundedManager.mockClear();

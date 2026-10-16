@@ -22,6 +22,25 @@ const boundedExecutorChecks = {
 
 export const schema = {
   "scopes": {
+    "vm-launch": {
+      "artifact-preflight": null,
+      "recovery": null,
+      "identity": null,
+      "network": null,
+      "rootfs": null,
+      "run-directory": null,
+      "cgroup": null,
+      "kernel-stage": null,
+      "rootfs-stage": null,
+      "vmm-launch": null,
+      "api-socket": null,
+      "api-ping": null,
+      "confinement": null,
+      "virtiofsd": null,
+      "vm-create": null,
+      "vm-boot": null,
+      "guest-connect": null
+    },
     "host-invocation": {
       "policy": null,
       "filesystem": null,

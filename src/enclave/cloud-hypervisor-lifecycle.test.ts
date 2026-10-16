@@ -363,13 +363,15 @@ describe('trusted Cloud Hypervisor enclave lifecycle', () => {
     await startCloudHypervisorEnclaveLifecycle(config, provider, {});
     const run = deriveCloudHypervisorEnclaveRunState(config, resolveEnclavePaths(workDir));
     const control = new HostExecutorControlDiagnostics(run);
-    control.record('plan-entry-policy', new Error('PRIVATE_REQUEST_BYTES'), 'denied');
+    control.record('plan-entry-policy', new Error('PRIVATE_REQUEST_BYTES'), 'denied', 'b'.repeat(32));
     const diagnostic = new HostExecutorInvocationDiagnostics(run, {
       runId, entryId: 'script', invocationId: 'b'.repeat(32), executorKind: 'script',
     } as HostExecutorInvocationPlan);
     const report = new HostPreflightReporter('host-invocation', diagnostic.publish);
+    const launch = report.fork('vm-launch');
     const launchError = Object.assign(new Error('SECRET request/script/repository'), { code: 'EPERM' });
-    await expect(diagnostic.check(report, 'manager-start', () => { throw launchError; })).rejects.toBe(launchError);
+    await expect(diagnostic.check(report, 'manager-start', () =>
+      launch.check('vm-create', () => { throw launchError; }))).rejects.toBe(launchError);
     const cleanup = report.fork('host-invocation-cleanup');
     const cleanupError = Object.assign(new Error('SECRET Bearer token'), { code: 'EIO' });
     const directory = path.join(workDir, 'audit', 'diagnostics', 'cloud-hypervisor', 'host-executor');
@@ -377,7 +379,7 @@ describe('trusted Cloud Hypervisor enclave lifecycle', () => {
       const before = fs.readdirSync(directory).find(name =>
         JSON.parse(fs.readFileSync(path.join(directory, name), 'utf8')).invocationId)!;
       expect(JSON.parse(fs.readFileSync(path.join(directory, before), 'utf8'))).toMatchObject({
-        failure: { stage: 'host-invocation/manager-start', code: 'EPERM' },
+        failure: { stage: 'vm-launch/vm-create', code: 'EPERM' },
       });
       await expect(diagnostic.check(cleanup, 'manager-stop', () => { throw cleanupError; })).rejects.toBe(cleanupError);
       throw new Error('shutdown uncertain');
@@ -389,14 +391,14 @@ describe('trusted Cloud Hypervisor enclave lifecycle', () => {
       JSON.parse(fs.readFileSync(path.join(directory, name), 'utf8')).component === 'host-executor-control')!;
     const controlContents = fs.readFileSync(path.join(directory, controlFile), 'utf8');
     expect(JSON.parse(controlContents)).toMatchObject({
-      failure: { phase: 'plan-entry-policy', reason: 'denied' },
+      failure: { phase: 'plan-entry-policy', reason: 'denied', invocationId: 'b'.repeat(32) },
     });
     expect(controlContents).not.toContain('PRIVATE_REQUEST_BYTES');
     const invocationFile = files.find(name => name !== controlFile)!;
     const file = path.join(directory, invocationFile);
     const contents = fs.readFileSync(file, 'utf8');
     expect(JSON.parse(contents)).toMatchObject({
-      failure: { stage: 'host-invocation/manager-start', code: 'EPERM' },
+      failure: { stage: 'vm-launch/vm-create', code: 'EPERM' },
       cleanupFailure: { stage: 'host-invocation-cleanup/manager-stop', code: 'EIO' },
     });
     expect(contents).not.toMatch(/SECRET|Bearer|token|request\/script\/repository/);

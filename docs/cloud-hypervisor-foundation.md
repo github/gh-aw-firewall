@@ -1449,6 +1449,37 @@ It retains 128 events and the first failure independently, using only finite
 reason/error categories. Later persistence failures report a fixed error
 without preventing resource cleanup.
 
+Control events carry a sequence number and the validated `invocationId` when
+available, including plan rejection before backend entry. Join that ID to the
+broker audit and invocation snapshot; run-wide shutdown and undecodable requests
+have no invocation ID. `invoke-plan` is an attempt, `invocation-register` precedes
+the durable registration write, and only `backend-start` proves the backend was
+entered. Missing events alone prove nothing if `dropped` is nonzero, the runtime
+predates this instrumentation, or artifact export is incomplete.
+
+Within an invocation, `vm-launch/*` checks split the shared manager path into
+artifact/preflight, recovery, identity, network setup, rootfs preparation,
+run-directory/cgroup/artifact staging, VMM spawn, API socket readiness and ping,
+confinement, virtiofsd, `vm-create`, `vm-boot`, and `guest-connect`.
+These are the actual host operations, not probes or retries. A passed
+`vmm-launch` means the spawn call returned, not that the VMM became ready.
+A passed `vm-create` does not mean boot succeeded; a passed `vm-boot` does not
+mean the guest supervisor connected. Unreached checks remain `not-attempted`;
+operations between these gates can still fail at the enclosing
+`host-invocation/manager-start` or `instance-start` gate. The first origin
+failure is recorded before partial-start cleanup, whose failure is retained
+separately as `host-invocation-cleanup/manager-stop`. All these records use the
+same durable protected export, even without public-fixture raw guest capture.
+
+Activation follows the executing artifacts, not the workflow checkout's SHA.
+Host control correlation and `vm-launch` checks require an AWF host binary
+built with this instrumentation; broker exchange diagnostics require the
+corresponding enclave MCP image. Merging source into main does not update a
+run pinned to an older published AWF binary/image. Absence of these fields in
+such a run cannot identify its failing stage. These host checks need no guest
+rootfs rebuild and do not change artifact acceptance, launch policy, or caller
+errors.
+
 For script guests, the entrypoint emits bounded JSON lifecycle records on stderr:
 startup identity, seed copy, output link, working-directory setup, and script
 execution, with elapsed time and native error category/errno on failure.
