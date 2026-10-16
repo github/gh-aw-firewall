@@ -24,17 +24,31 @@ function redactAuditDetail(detail) {
 
 const DEFAULT_AUDIT_FILENAME = 'enclave.jsonl';
 
-function createAuditLog(auditDir, fileName = DEFAULT_AUDIT_FILENAME) {
+function createAuditLog(auditDir, fileName = DEFAULT_AUDIT_FILENAME, protectedOnly = false) {
   let fd;
   try {
     fs.mkdirSync(auditDir, { recursive: true, mode: 0o700 });
     const auditPath = path.join(auditDir, fileName);
-    fd = fs.openSync(auditPath, 'a', 0o600);
+    fd = fs.openSync(auditPath,
+      fs.constants.O_WRONLY | fs.constants.O_APPEND | fs.constants.O_CREAT | fs.constants.O_NOFOLLOW |
+      fs.constants.O_NONBLOCK, 0o600);
+    const stat = fs.fstatSync(fd);
+    if (!stat.isFile() || stat.nlink !== 1 || stat.uid !== process.getuid() ||
+        (stat.mode & 0o777) !== 0o600) {
+      throw new Error('Unsafe audit file');
+    }
   } catch (error) {
-    // Losing the audit file must not take the broker down; fall back to
-    // stderr, which is captured by `docker logs` on the broker container
-    // (also outside the agent's reach).
-    process.stderr.write(`[awf-enclave] audit log unavailable: ${error.message}\n`);
+    // Protected records must never fall back to ordinary container logs.
+    process.stderr.write(protectedOnly
+      ? '[awf-enclave] protected audit unavailable (reason=storage-unavailable)\n'
+      : `[awf-enclave] audit log unavailable: ${error.message}\n`);
+    if (fd !== undefined) {
+      try {
+        fs.closeSync(fd);
+      } catch {
+        process.stderr.write('[awf-enclave] audit close failed (reason=storage-unavailable)\n');
+      }
+    }
     fd = undefined;
   }
 
@@ -45,9 +59,12 @@ function createAuditLog(auditDir, fileName = DEFAULT_AUDIT_FILENAME) {
         // Keep diagnostics durable when the broker is stopped immediately
         // after an invocation fails.
         fs.writeSync(fd, line);
+        if (protectedOnly) fs.fsyncSync(fd);
         return;
       } catch (error) {
-        process.stderr.write(`[awf-enclave] audit log unavailable: ${error.message}\n`);
+        process.stderr.write(protectedOnly
+          ? '[awf-enclave] protected audit unavailable (reason=write-failed)\n'
+          : `[awf-enclave] audit log unavailable: ${error.message}\n`);
         try {
           fs.closeSync(fd);
         } catch {
@@ -56,7 +73,7 @@ function createAuditLog(auditDir, fileName = DEFAULT_AUDIT_FILENAME) {
         fd = undefined;
       }
     }
-    process.stderr.write(line);
+    if (!protectedOnly) process.stderr.write(line);
   }
 
   return {
@@ -83,7 +100,7 @@ function createAuditLog(auditDir, fileName = DEFAULT_AUDIT_FILENAME) {
 module.exports = {
   DEFAULT_AUDIT_FILENAME,
   createAuditLog,
-  createProtectedAuditLog: createAuditLog,
+  createProtectedAuditLog: (auditDir, fileName) => createAuditLog(auditDir, fileName, true),
   redactAuditDetail,
   MAX_REASON_LENGTH,
 };

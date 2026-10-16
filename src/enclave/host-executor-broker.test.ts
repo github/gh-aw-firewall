@@ -58,6 +58,7 @@ describe('finite-disclosure broker → authenticated Unix host → concrete micr
   let corrupt: 'digest' | 'schema' | 'settle' | 'truncate' | 'wire-schema' | 'schema-hash' | undefined;
   let resolveExecution: (() => void) | undefined;
   let offset: number;
+  let workClockAdvanceMs: number;
   const started = jest.fn();
   const stopped = jest.fn();
   const cancelled = jest.fn();
@@ -91,6 +92,7 @@ describe('finite-disclosure broker → authenticated Unix host → concrete micr
     executionResult = { exitCode: 0, timedOut: false, signal: null };
     corrupt = undefined;
     offset = 0;
+    workClockAdvanceMs = 0;
     resolveExecution = undefined;
     plans.length = 0;
     requests.length = 0;
@@ -171,6 +173,7 @@ describe('finite-disclosure broker → authenticated Unix host → concrete micr
         },
         startInstance: noop,
         execute: async () => {
+          offset += workClockAdvanceMs;
           if (executeError) throw new Error('PRIVATE_RAW_HOST_ERROR');
           if (hanging) await new Promise<void>((resolve) => { resolveExecution = resolve; });
           const source = profile.guest?.exports.find(({ tag }) => tag === 'enclave-output')?.source;
@@ -279,6 +282,7 @@ describe('finite-disclosure broker → authenticated Unix host → concrete micr
   function makeHandler(role: Role, options: {
     capabilityPath?: string; entryId?: string; timeoutSeconds?: number; lane?: object; ledger?: object;
     socketPath?: string; admission?: object;
+    jitterMs?: number;
   } = {}) {
     const clock = {
       nowMs: () => performance.now() + offset,
@@ -303,7 +307,8 @@ describe('finite-disclosure broker → authenticated Unix host → concrete micr
     const handler = createExecutorHandler({
       config, runId, seedMap, runner, workspace: localWorkspace,
       audit: { failure: auditFailure, invocation: auditInvocation },
-      clock, responseJitterSource: () => 0, uniformTiming: true,
+      diagnosticAudit: { lifecycle: auditLifecycle },
+      clock, responseJitterSource: () => options.jitterMs ?? 0, uniformTiming: true,
       executorKind: role, payloadKey: role === 'script' ? 'script' : 'prompt',
       ...(role === 'agent' ? { validateRequest: createAgentRequestValidator(4096) } : {}),
       ...(options.lane ? { lane: options.lane } : {}),
@@ -376,6 +381,48 @@ describe('finite-disclosure broker → authenticated Unix host → concrete micr
     ]) expect(() => createHostExecutorRunner(config, deps)).toThrow(/polling bounds/);
   });
 
+  it('correlates HTTP → authenticated host → backend failure with pre-padding evidence, without a VM', async () => {
+    workClockAdvanceMs = 65_000;
+    executionResult.exitCode = 1;
+    const { handler } = makeHandler('script', { timeoutSeconds: 120, jitterMs: 821 });
+    httpServer = createMcpServer({
+      handlers: { enclave_run_script: handler }, capability: 'capability', maxScriptBytes: 65536,
+    });
+    await new Promise<void>(resolve => httpServer!.listen(0, '127.0.0.1', resolve));
+    const address = httpServer!.address() as net.AddressInfo;
+    const response = await new Promise<string>((resolve, reject) => {
+      const request = http.request({
+        host: '127.0.0.1', port: address.port, path: '/mcp', method: 'POST',
+        headers: { Authorization: 'Bearer capability', 'Content-Type': 'application/json' },
+      }, result => {
+        let body = '';
+        result.on('data', chunk => { body += chunk; });
+        result.on('end', () => resolve(body));
+      });
+      request.on('error', reject);
+      request.end(JSON.stringify({
+        jsonrpc: '2.0', id: 1, method: 'tools/call',
+        params: { name: 'enclave_run_script', arguments: args('script') },
+      }));
+    });
+    expect(JSON.parse(response).result.structuredContent).toEqual({ status: 'error' });
+    expect(plans).toHaveLength(1);
+    const timings = auditLifecycle.mock.calls.filter(([event]) => event === 'invocation-timing')
+      .map(([, record]) => record);
+    const work = timings.find(record => record.phase === 'work-complete');
+    expect(work).toMatchObject({ reason: 'non-zero-exit', status: 'error' });
+    expect(work.elapsedMs).toBeGreaterThanOrEqual(65_000);
+    expect(work.elapsedMs).toBeLessThan(66_000);
+    expect(timings).toEqual(expect.arrayContaining([
+      expect.objectContaining({ phase: 'bucket-selected', bucketMs: 120_000 }),
+      expect.objectContaining({ phase: 'padding-complete', bucketMs: 120_000, jitterMs: 821 }),
+      expect.objectContaining({ phase: 'response', status: 'error' }),
+    ]));
+    expect(timings.find(record => record.phase === 'response').elapsedMs).toBeGreaterThanOrEqual(120_821);
+    expect(lifecycleEvents).toContain('settle');
+    await assertPrivateDiagnostics();
+  });
+
   it.each(['script', 'agent'] as const)('validates and settles %s before disclosure without local files', async (role) => {
     const { handler, runner, localWorkspace } = makeHandler(role);
     await expect(runner.assertAvailable()).resolves.toBeUndefined();
@@ -406,6 +453,13 @@ describe('finite-disclosure broker → authenticated Unix host → concrete micr
       expect.objectContaining({ phase: 'settled', invocationId: plans[0].invocationId }),
     ]));
     expect(control).not.toHaveProperty('failure');
+    const invocation = snapshots.find(snapshot => snapshot.component !== 'host-executor-control');
+    expect(invocation.milestones.map((event: { phase: string }) => event.phase)).toEqual([
+      'guest-complete', 'manager-stop-start', 'manager-stop-complete',
+      'result-read-start', 'result-read-complete', 'work-complete', 'cleanup-start', 'cleanup-complete',
+    ]);
+    expect(auditLifecycle).toHaveBeenCalledWith('invocation-timing',
+      expect.objectContaining({ phase: 'response', status: 'ok', invocationId: plans[0].invocationId }));
   });
 
   it.each(['script', 'agent'] as const)('rejects invalid %s calls before host invocation', async (role) => {

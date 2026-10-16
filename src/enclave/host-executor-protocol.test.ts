@@ -729,10 +729,10 @@ describe('host executor server', () => {
         entryId: ENTRY_ID, executorKind: 'script', timeoutMs: reason === 'timeout' ? 30 : 60_000,
         staticSeedIds: [SEED_ID], dynamicAgents: false,
       }],
-    }, { statusLeaseMs: reason === 'lease' ? 30 : 1000 });
+    }, { statusLeaseMs: reason === 'lease' ? 30 : 5000 });
     const broker = client();
     await broker.invoke(invokeArgs);
-    await new Promise((resolve) => setTimeout(resolve, 70));
+    await new Promise((resolve) => setTimeout(resolve, reason === 'timeout' ? 1070 : 70));
     expect(signals[0].aborted).toBe(true);
     expect(await broker.status({ entryId: ENTRY_ID, invocationId: INVOCATION_ID })).toEqual(
       expect.objectContaining({ state: 'cancelling' }),
@@ -742,6 +742,29 @@ describe('host executor server', () => {
     expect(await broker.status({ entryId: ENTRY_ID, invocationId: INVOCATION_ID })).toEqual(
       expect.objectContaining({ state: 'terminal', outcome: reason === 'timeout' ? 'timeout' : 'cancelled' }),
     );
+  });
+
+  it.each([0, 999, 1000, 1001])('bounds the configured host deadline grace at +%sms', async (offset) => {
+    await start({
+      entries: [{
+        entryId: ENTRY_ID, executorKind: 'script', timeoutMs: 1000,
+        staticSeedIds: [SEED_ID], dynamicAgents: false,
+      }],
+    }, { statusLeaseMs: 5000 });
+    jest.useFakeTimers({ doNotFake: ['nextTick', 'setImmediate', 'hrtime', 'performance'] });
+    try {
+      const broker = client();
+      await broker.invoke(invokeArgs);
+      await jest.advanceTimersByTimeAsync(1000 + offset);
+      expect(signals[0].aborted).toBe(offset >= 1000);
+      pending[0].resolve({ outcome: 'success', result: 'true' });
+      await new Promise((resolve) => setImmediate(resolve));
+      expect(await broker.status({ entryId: ENTRY_ID, invocationId: INVOCATION_ID })).toEqual(
+        expect.objectContaining({ state: 'terminal', outcome: offset >= 1000 ? 'timeout' : 'success' }),
+      );
+    } finally {
+      jest.useRealTimers();
+    }
   });
 
   it('renews liveness only with fresh authenticated status, not invoke retries', async () => {

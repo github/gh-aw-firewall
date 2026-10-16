@@ -11,7 +11,7 @@ import type {
   HostExecutorRunState,
   HostExecutorBackendResult,
 } from '../enclave/host-executor-server';
-import { HOST_EXECUTOR_MAX_RESULT_BYTES } from '../enclave/host-executor-protocol';
+import { HOST_EXECUTOR_MAX_RESULT_BYTES, HOST_EXECUTOR_TIMEOUT_GRACE_MS } from '../enclave/host-executor-protocol';
 import {
   HostExecutorResourceJournal,
   HostExecutorInvocationDiagnostics,
@@ -443,7 +443,10 @@ export class CloudHypervisorHostEnclaveExecutorBackend implements HostEnclaveExe
     };
     const stopManager = async (): Promise<void> => {
       if (!manager) return;
-      if (!stopPromise) stopPromise = manager.stop();
+      if (!stopPromise) {
+        diagnostic.milestone('manager-stop-start');
+        stopPromise = manager.stop().then(() => { diagnostic.milestone('manager-stop-complete'); });
+      }
       try {
         await stopPromise;
       } catch (error) {
@@ -460,6 +463,7 @@ export class CloudHypervisorHostEnclaveExecutorBackend implements HostEnclaveExe
       Promise.race([operation, interruption]);
     const abortManager = (): void => {
       filesystemState.aborted = true;
+      diagnostic.milestone(filesystemState.timedOut ? 'deadline-expired' : 'cancellation');
       void manager?.cancel('host executor cancelled').catch(() => undefined);
       if (manager) void stopManager().catch(() => undefined);
       rejectInterruption?.(markHostPreflightError(new Error('Host executor invocation was interrupted'),
@@ -469,7 +473,7 @@ export class CloudHypervisorHostEnclaveExecutorBackend implements HostEnclaveExe
     const deadline = setTimeout(() => {
       filesystemState.timedOut = true;
       abortManager();
-    }, plan.timeoutMs);
+    }, plan.timeoutMs + HOST_EXECUTOR_TIMEOUT_GRACE_MS);
     try {
       if (filesystemState.aborted) throw new Error('Host executor invocation was cancelled');
       await check('filesystem', () => raceInterruption(trackFilesystemWork(prepareInvocationFilesystem(
@@ -611,9 +615,10 @@ export class CloudHypervisorHostEnclaveExecutorBackend implements HostEnclaveExe
         cwd: '/',
         uid: 65534,
         gid: 65534,
-        timeoutMs: plan.timeoutMs,
+        timeoutMs: plan.timeoutMs + HOST_EXECUTOR_TIMEOUT_GRACE_MS,
         env: role === 'agent' && policy ? agentEnvironment(policy, plan) : {},
       })));
+      diagnostic.milestone('guest-complete');
       if (filesystemState.timedOut || executionResult.timedOut) {
         diagnostic.fail(report, 'guest-execute', markHostPreflightError(
           new Error('Host executor invocation timed out'), 'invocation-timeout'));
@@ -640,11 +645,13 @@ export class CloudHypervisorHostEnclaveExecutorBackend implements HostEnclaveExe
           const maxBytes = role === 'agent'
             ? policy?.maxOutputBytes ?? HOST_EXECUTOR_MAX_RESULT_BYTES
             : HOST_EXECUTOR_MAX_RESULT_BYTES;
+          diagnostic.milestone('result-read-start');
           const resultValue = await check('result-read', () => raceInterruption(readBoundedCloudHypervisorEnclaveResult(
             outputPath,
             plan.schema,
             maxBytes,
           )));
+          diagnostic.milestone('result-read-complete');
           outcome = resultValue === undefined
             ? { outcome: 'schema-failure' }
             : { outcome: 'success', result: resultValue };
@@ -661,6 +668,8 @@ export class CloudHypervisorHostEnclaveExecutorBackend implements HostEnclaveExe
         ? { outcome: 'cancelled' }
         : { outcome: 'executor-failure' };
     } finally {
+      diagnostic.milestone('work-complete', outcome.outcome);
+      diagnostic.milestone('cleanup-start');
       signal.removeEventListener('abort', abortManager);
       clearTimeout(deadline);
       const cleanupReport = report.fork('host-invocation-cleanup');
@@ -723,6 +732,7 @@ export class CloudHypervisorHostEnclaveExecutorBackend implements HostEnclaveExe
         }
       }
     }
+    diagnostic.milestone('cleanup-complete', cleanupError === undefined ? outcome.outcome : 'executor-failure');
     if (cleanupError !== undefined || diagnostic.persistenceFailed) {
       this.closed = true;
       return { outcome: 'executor-failure', cleanupComplete: false };

@@ -53,6 +53,9 @@ import { CANONICAL_DYNAMIC_REPOSITORY_PATTERN } from '../types/enclave-options';
 /** Exact-match protocol version. There is no downgrade or feature probing. */
 export const HOST_EXECUTOR_PROTOCOL_VERSION = 2;
 
+/** Bounded scheduling/transport grace; never changes the configured policy. */
+export const HOST_EXECUTOR_TIMEOUT_GRACE_MS = 1_000;
+
 /** Largest accepted request frame payload, in bytes. */
 export const HOST_EXECUTOR_MAX_REQUEST_BYTES = 512 * 1024;
 

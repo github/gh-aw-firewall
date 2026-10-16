@@ -125,7 +125,8 @@ describe('readBoundedCloudHypervisorEnclaveResult', () => {
     it.each([
       { role: 'script', timeoutMs: 60_000, startupDelayMs: 0, expectedOutcome: 'success', publicDebug: false },
       { role: 'agent', timeoutMs: 60_000, startupDelayMs: 0, expectedOutcome: 'success', publicDebug: false },
-      { role: 'script', timeoutMs: 1_000, startupDelayMs: 1_500, expectedOutcome: 'timeout', publicDebug: false },
+      { role: 'script', timeoutMs: 1_000, startupDelayMs: 1_500, expectedOutcome: 'success', publicDebug: false },
+      { role: 'script', timeoutMs: 1_000, startupDelayMs: 2_500, expectedOutcome: 'timeout', publicDebug: false },
       { role: 'script', timeoutMs: 60_000, startupDelayMs: 0, expectedOutcome: 'success', publicDebug: true },
       { role: 'agent', timeoutMs: 60_000, startupDelayMs: 0, expectedOutcome: 'success', publicDebug: true },
     ] as const)('stages a static $role invocation and enforces its $expectedOutcome deadline', async ({
@@ -332,7 +333,11 @@ describe('readBoundedCloudHypervisorEnclaveResult', () => {
             start: async () => {
               if (managerStartError) throw Object.assign(new Error('PRIVATE_LAUNCH_SENTINEL Bearer token'), { code: 'EPERM' });
               if (startupDelayMs > 0) {
-                await new Promise((resolve) => setTimeout(resolve, startupDelayMs));
+                if (timeoutMs === 1000) {
+                  await jest.advanceTimersByTimeAsync(startupDelayMs);
+                } else {
+                  await new Promise((resolve) => setTimeout(resolve, startupDelayMs));
+                }
               }
             },
             startInstance: async () => undefined,
@@ -372,6 +377,9 @@ describe('readBoundedCloudHypervisorEnclaveResult', () => {
       };
       const backend = new CloudHypervisorHostEnclaveExecutorBackend(backendOptions, dependencies);
 
+      if (timeoutMs === 1000) {
+        jest.useFakeTimers({ doNotFake: ['nextTick', 'setImmediate', 'hrtime', 'performance'] });
+      }
       try {
         expect(() => new CloudHypervisorHostEnclaveExecutorBackend({
           ...backendOptions,
@@ -411,6 +419,7 @@ describe('readBoundedCloudHypervisorEnclaveResult', () => {
         expect(snapshotRemoved).toBe(true);
         expect(unmounted).toBe(true);
         await expect(fs.lstat(invocationHostDir)).rejects.toMatchObject({ code: 'ENOENT' });
+        if (timeoutMs === 1000) return;
         if (role === 'agent' && expectedOutcome === 'success') {
           expect(workloadProfile?.kind).toBe('agent-enclave');
           expect(workloadProfile?.network).toMatchObject({
@@ -428,6 +437,7 @@ describe('readBoundedCloudHypervisorEnclaveResult', () => {
             AWF_ENCLAVE_AGENT_GITHUB_ENABLED: 'true',
             AWF_ENCLAVE_AGENT_MAX_MODEL_REQUESTS: '5',
             AWF_ENCLAVE_AGENT_MAX_MODEL_TOKENS: '1000',
+            AWF_ENCLAVE_AGENT_DEADLINE_SECONDS: '61',
           });
           expect(executionRequest?.env.COPILOT_API_URL)
             .toBe(`http://${ENCLAVE_AGENT_API_PROXY_IP}:10002`);
@@ -919,6 +929,7 @@ describe('readBoundedCloudHypervisorEnclaveResult', () => {
         await expect(fs.lstat(ownedSnapshotPath)).rejects.toMatchObject({ code: 'ENOENT' });
       } finally {
         await backend.close();
+        if (timeoutMs === 1000) jest.useRealTimers();
         await fs.rm(scratch, { recursive: true, force: true });
       }
     }, 30_000);

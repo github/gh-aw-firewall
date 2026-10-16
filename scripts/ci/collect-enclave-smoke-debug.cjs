@@ -8,6 +8,8 @@ const MAX_STREAM_BYTES = 1024 * 1024;
 const MAX_FILES = 32;
 const MAX_DIRECTORY_ENTRIES = 4096;
 const ID = /^[a-f0-9]{32}$/;
+const INVOCATION_ID = /^[a-f0-9]{16,64}$/;
+const ENTRY_ID = /^[a-z0-9](?:[a-z0-9-]{0,62})$/;
 const LOG_NAME = /^(?:launcher-(?:stdout|stderr)\.log|guest-(?:stdout|stderr)\.raw\.log|cloud-hypervisor\.log|serial\.log|network-plan\.json|network-diagnostics\.txt|counters\.json|vm-info\.json|runtime\.json|confinement\.json|virtiofs-[0-9]-(?:enclave-seed|enclave-request|enclave-output|enclave-runtime)(?:\.log|-confinement\.json))$/;
 const ROOTS = {
   journal: '/var/lib/awf-cloud-hypervisor/host-executor-journal',
@@ -72,6 +74,15 @@ function readRegular(target, limit, uid) {
   }
 }
 
+function parseRecord(line) {
+  try {
+    const record = JSON.parse(line);
+    return record && typeof record === 'object' && !Array.isArray(record) ? record : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 function prepare(runDirectory, roots = ROOTS, uid = 0, trustedRoot = '/') {
   directory(path.dirname(runDirectory), uid, trustedRoot);
   fs.mkdirSync(runDirectory, { mode: 0o700 });
@@ -91,20 +102,31 @@ function collect(runDirectory, runnerUid, runnerGid, roots = ROOTS, uid = 0, tru
   const debug = inventory(roots.debug, uid, trustedRoot).filter(name => !baseline.debug.includes(name));
   if (journals.length > 1 || debug.length > 1) throw new Error('Unexpected concurrent enclave runs');
   let invocation;
+  let nonInvocationRecords = 0;
+  let invalidIdentityRecords = 0;
   if (journals.length) {
     const journal = journals[0];
     if (!/^[a-f0-9]{32}\.journal$/.test(journal)) throw new Error('Invalid journal identity');
     const records = readRegular(path.join(roots.journal, journal), 64 * 1024, uid)
-      .toString('utf8').trim().split('\n').map(line => JSON.parse(line));
+      .toString('utf8').trim().split('\n').map(parseRecord);
     const runId = journal.slice(0, 32);
-    if (records[0].runId !== runId || records[0].state !== 'open') {
+    if (records[0]?.runId !== runId || records[0]?.state !== 'open') {
       throw new Error('Journal run identity mismatch');
     }
-    const invocations = records.filter(record => record.invocationId !== undefined);
-    for (const record of invocations) {
-      if (!ID.test(record.invocationId) ||
-          !/^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$/.test(record.entryId)) {
-        throw new Error('Invalid invocation identity');
+    for (const record of records.slice(1)) {
+      if (!record) {
+        invalidIdentityRecords += 1;
+        continue;
+      }
+      if (record.invocationId === undefined || record.invocationId === 'queue' ||
+          record.invocationId === 'budget') {
+        nonInvocationRecords += 1;
+        continue;
+      }
+      if (typeof record.invocationId !== 'string' || !INVOCATION_ID.test(record.invocationId) ||
+          typeof record.entryId !== 'string' || !ENTRY_ID.test(record.entryId)) {
+        invalidIdentityRecords += 1;
+        continue;
       }
       const candidate = createHash('sha256').update(JSON.stringify([
         'awf-host-enclave-v1', runId, record.entryId, record.invocationId,
@@ -136,9 +158,11 @@ function collect(runDirectory, runnerUid, runnerGid, roots = ROOTS, uid = 0, tru
     fs.chownSync(target, runnerUid, runnerGid);
   }
   const status = path.join(upload, 'collection-status.txt');
-  fs.writeFileSync(status, files.length
+  fs.writeFileSync(status, (files.length
     ? `Collected ${files.length} bounded public-fixture debug files.\n`
-    : 'No public-fixture debug logs were produced for this run.\n', { mode: 0o600, flag: 'wx' });
+    : 'No public-fixture debug logs were produced for this run.\n') +
+    `Non-invocation records: ${nonInvocationRecords}; invalid identity records: ${invalidIdentityRecords}.\n`,
+  { mode: 0o600, flag: 'wx' });
   fs.chownSync(status, runnerUid, runnerGid);
   fs.chownSync(upload, runnerUid, runnerGid);
   fs.chmodSync(runDirectory, 0o711);

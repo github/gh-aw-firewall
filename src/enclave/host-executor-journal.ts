@@ -1,6 +1,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { createHash, randomBytes } from 'crypto';
+import { performance } from 'perf_hooks';
 import type { HostExecutorInvocationPlan, HostExecutorRunState } from './host-executor-server';
 import {
   HOST_EXECUTOR_ID_PATTERN, HOST_EXECUTOR_ENTRY_ID_PATTERN, HOST_EXECUTOR_REJECTION_STAGES,
@@ -153,6 +154,7 @@ export type HostExecutorControlPhase =
   | 'request-rejected' | 'invoke-plan' | 'invocation-register' | 'backend-start'
   | 'backend-complete' | 'backend-failed' | 'cleanup-pending' | 'settled' | 'shutdown'
   | 'shutdown-failed'
+  | 'deadline-expired' | 'cancellation'
   | 'plan-run-identity' | 'plan-entry-policy' | 'plan-static-seed' | 'plan-selector-policy' | 'plan-path';
 
 interface HostExecutorControlEvent {
@@ -167,7 +169,7 @@ interface HostExecutorControlEvent {
 
 export class HostExecutorControlDiagnostics {
   private readonly file: string;
-  private readonly started = Date.now();
+  private readonly started = performance.now();
   private persistenceFailed = false;
   private readonly snapshot: {
     schemaVersion: 1;
@@ -201,7 +203,7 @@ export class HostExecutorControlDiagnostics {
     rejectionStage?: HostExecutorRejectionStage,
   ): void {
     const event = {
-      phase, elapsedMs: Math.max(0, Date.now() - this.started),
+      phase, elapsedMs: Math.max(0, Math.round(performance.now() - this.started)),
       sequence: this.snapshot.sequence + 1,
       ...(typeof invocationId === 'string' && HOST_EXECUTOR_ID_PATTERN.test(invocationId)
         ? { invocationId } : {}),
@@ -232,7 +234,7 @@ export class HostExecutorControlDiagnostics {
 /** Origin-only, finite evidence outside every invocation mount and cleanup root. */
 export class HostExecutorInvocationDiagnostics {
   private readonly file: string;
-  private readonly started = Date.now();
+  private readonly started = performance.now();
   private readonly classifiedFailures = new WeakSet<object>();
   persistenceFailed = false;
   private readonly snapshot: {
@@ -243,6 +245,13 @@ export class HostExecutorInvocationDiagnostics {
     sequence: number;
     elapsedMs: number;
     checks: EnclaveStartupChecklist['checks'];
+    milestones: Array<{
+      phase: 'guest-complete' | 'work-complete' | 'cleanup-start' | 'cleanup-complete'
+        | 'deadline-expired' | 'cancellation' | 'manager-stop-start' | 'manager-stop-complete'
+        | 'result-read-start' | 'result-read-complete';
+      elapsedMs: number;
+      outcome?: 'success' | 'schema-failure' | 'executor-failure' | 'timeout' | 'cancelled';
+    }>;
     failure?: { stage: string; reason: string; code: string; errorType: string; sequence: number };
     cleanupFailure?: { stage: string; reason: string; code: string; errorType: string; sequence: number };
   };
@@ -258,9 +267,21 @@ export class HostExecutorInvocationDiagnostics {
     this.file = path.join(directory, `${run.runId}-${hostExecutorVmRunId(plan)}.json`);
     this.snapshot = {
       schemaVersion: 1, runId: run.runId, invocationId: plan.invocationId,
-      executorKind: plan.executorKind, sequence: 0, elapsedMs: 0, checks: {},
+      executorKind: plan.executorKind, sequence: 0, elapsedMs: 0, checks: {}, milestones: [],
     };
     persist(this.file, this.snapshot);
+  }
+
+  milestone(
+    phase: (typeof this.snapshot.milestones)[number]['phase'],
+    outcome?: (typeof this.snapshot.milestones)[number]['outcome'],
+  ): void {
+    if (this.snapshot.milestones.length >= 32) return;
+    this.snapshot.milestones.push({
+      phase, elapsedMs: Math.max(0, Math.round(performance.now() - this.started)),
+      ...(outcome === undefined ? {} : { outcome }),
+    });
+    this.commit();
   }
 
   publish = (progress: HostPreflightProgress): void => {
@@ -317,7 +338,7 @@ export class HostExecutorInvocationDiagnostics {
 
   private commit(): void {
     this.snapshot.sequence += 1;
-    this.snapshot.elapsedMs = Math.max(0, Date.now() - this.started);
+    this.snapshot.elapsedMs = Math.max(0, Math.round(performance.now() - this.started));
     try {
       persist(this.file, this.snapshot);
     } catch {

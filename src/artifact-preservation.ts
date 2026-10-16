@@ -13,7 +13,7 @@ import { resolveEnclavePaths } from './enclave/paths';
 import { ENCLAVE_MCP_SERVER_CONTAINER_NAME } from './constants';
 import { resolveRunnerVisibleHostPath } from './services/host-path-prefix';
 import { getStartupDiagnosticPath } from './logs/startup-diagnostics';
-import { openArtifactDirectory } from './resolved-config-artifact';
+import { openArtifactDirectory, resolveArtifactOwner } from './resolved-config-artifact';
 
 const ENCLAVE_SESSION_DIR = 'sessions';
 const ENCLAVE_AUDIT_FILES = [
@@ -22,6 +22,39 @@ const ENCLAVE_AUDIT_FILES = [
   { source: 'enclave-host-executor.jsonl', destination: 'enclave-host-executor.jsonl' },
 ] as const;
 const PRIVATE_ENCLAVE_AUDIT_FILE = 'enclave-host-executor.jsonl';
+
+/** @internal Final broker copy only: never widen access to its payload-bearing records. */
+// ts-prune-ignore-next
+export function handoffPrivateEnclaveAudit(
+  directory: string,
+  fileName: (typeof ENCLAVE_AUDIT_FILES)[number]['destination'] = PRIVATE_ENCLAVE_AUDIT_FILE,
+): void {
+  if (!ENCLAVE_AUDIT_FILES.some(file => file.destination === fileName)) {
+    throw new Error('Invalid enclave audit role');
+  }
+  const owner = resolveArtifactOwner();
+  const directoryFd = openArtifactDirectory(directory);
+  try {
+    const fd = fs.openSync(`/proc/self/fd/${directoryFd}/${fileName}`,
+      fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW | fs.constants.O_NONBLOCK);
+    try {
+      const stat = fs.fstatSync(fd);
+      const mode = stat.mode & 0o777;
+      if (!stat.isFile() || stat.nlink !== 1 ||
+          (mode !== 0o600 && !(mode === 0o644 && fileName !== PRIVATE_ENCLAVE_AUDIT_FILE)) ||
+          (stat.uid !== process.getuid?.() && stat.uid !== owner.uid) ||
+          stat.size > 32 * 1024 * 1024) {
+        throw new Error('Unsafe private enclave audit handoff');
+      }
+      fs.fchmodSync(fd, 0o600);
+      fs.fchownSync(fd, owner.uid, owner.gid);
+    } finally {
+      fs.closeSync(fd);
+    }
+  } finally {
+    fs.closeSync(directoryFd);
+  }
+}
 /**
  * Copies the iptables audit dump from the init-signal volume to the audit directory.
  * Must be called BEFORE stopContainers() because `docker compose down -v` destroys
@@ -70,14 +103,15 @@ export function preserveIptablesAudit(
           { env: getLocalDockerEnv(), reject: false },
         );
         if (result.exitCode === 0) {
+          handoffPrivateEnclaveAudit(targetAuditDir, auditFile.destination);
           logger.debug(`Copied enclave MCP server ${auditFile.source} to audit directory`);
         } else {
           complete = false;
           logger.debug(`Could not copy enclave ${auditFile.source}:`, result.stderr);
         }
-      } catch (error) {
+      } catch {
         complete = false;
-        logger.debug(`Could not copy enclave ${auditFile.source}:`, error);
+        logger.error('Protected enclave audit handoff failed (role=broker-audit, reason=unsafe-or-inaccessible).');
       }
     }
     try {

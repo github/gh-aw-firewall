@@ -71,11 +71,31 @@ describe('resolved configuration startup artifact handoff', () => {
     expect(publishFinalResolvedConfig).not.toHaveBeenCalled();
   });
 
+  it('recovers the final broker audit after failed host shutdown without destroying recovery state', async () => {
+    jest.mocked(stopCloudHypervisorEnclaveLifecycle).mockRejectedValueOnce(new Error('cleanup uncertain'));
+    await expect(testHelpers.buildCleanupFn(
+      MAIN_ACTION_STUB_CONFIG, () => true, () => false,
+    )()).rejects.toThrow('cleanup uncertain');
+    expect(preserveIptablesAudit).toHaveBeenCalledTimes(1);
+    expect(stopContainers).not.toHaveBeenCalled();
+    expect(cleanupWorkDirectory).not.toHaveBeenCalled();
+  });
+
   it('does not publish a compatibility snapshot when generic cleanup fails', async () => {
     jest.mocked(cleanupWorkDirectory).mockRejectedValueOnce(new Error('cleanup failed'));
     await expect(testHelpers.buildCleanupFn(
       MAIN_ACTION_STUB_CONFIG, () => false, () => false,
     )()).rejects.toThrow('cleanup failed');
     expect(publishFinalResolvedConfig).not.toHaveBeenCalled();
+  });
+
+  it('retains the host shutdown failure if final audit recovery also throws', async () => {
+    jest.mocked(stopCloudHypervisorEnclaveLifecycle).mockRejectedValueOnce(new Error('cleanup uncertain'));
+    jest.mocked(preserveIptablesAudit).mockImplementationOnce(() => { throw new Error('recovery failed'); });
+    await expect(testHelpers.buildCleanupFn(
+      MAIN_ACTION_STUB_CONFIG, () => true, () => false,
+    )()).rejects.toThrow('cleanup uncertain');
+    expect(stopContainers).not.toHaveBeenCalled();
+    expect(cleanupWorkDirectory).not.toHaveBeenCalled();
   });
 });

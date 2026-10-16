@@ -28,6 +28,7 @@ import {
   HOST_EXECUTOR_KINDS,
   HOST_EXECUTOR_MAX_REQUEST_BYTES,
   HOST_EXECUTOR_PROTOCOL_VERSION,
+  HOST_EXECUTOR_TIMEOUT_GRACE_MS,
   type HostExecutorCancelRequest,
   type HostExecutorError,
   type HostExecutorInvocationView,
@@ -373,6 +374,8 @@ export async function startHostExecutorServer(options: HostExecutorServerOptions
 
   const interrupt = (record: InvocationRecord, outcome: 'cancelled' | 'timeout'): void => {
     if (record.state !== 'running') return;
+    diagnostics.record(outcome === 'timeout' ? 'deadline-expired' : 'cancellation',
+      undefined, undefined, record.plan.invocationId);
     record.state = 'cancelling';
     record.interruptedOutcome = outcome;
     try {
@@ -412,7 +415,8 @@ export async function startHostExecutorServer(options: HostExecutorServerOptions
     invocations.set(invocationKey(plan.entryId, plan.invocationId), record);
     admissionIds.add(plan.admissionId);
     invocationIds.add(plan.invocationId);
-    record.deadline = setTimeout(() => interrupt(record, 'timeout'), plan.timeoutMs);
+    record.deadline = setTimeout(() => interrupt(record, 'timeout'),
+      plan.timeoutMs + HOST_EXECUTOR_TIMEOUT_GRACE_MS);
     record.deadline.unref();
     renewLease(record);
     const cleanupFailed = (): void => {

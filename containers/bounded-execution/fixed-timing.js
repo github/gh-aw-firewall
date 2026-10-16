@@ -48,6 +48,7 @@ const TIMER_WAKE_TOLERANCE_MS = 1_000;
 
 /** Maximum secret-independent delay added after reaching a timing bucket. */
 const MAX_RESPONSE_JITTER_MS = 1_000;
+const TIMEOUT_BOUNDARY_GRACE_MS = 1_000;
 
 /** Returns an integer jitter in the inclusive range 0..MAX_RESPONSE_JITTER_MS. */
 function randomResponseJitterMs() {
@@ -81,18 +82,21 @@ function createRealClock() {
  * @returns `{ bucketMs, overflowed }`. When `overflowed` is `true`, the
  *   caller must fail closed (canonical error) rather than waiting further.
  */
-async function waitForBucket(startMs, elapsedMs, clock, jitterSource = randomResponseJitterMs) {
+async function waitForBucket(startMs, elapsedMs, clock, jitterSource = randomResponseJitterMs, diagnose = () => {}) {
   let observedElapsedMs = Math.max(elapsedMs, clock.nowMs() - startMs);
 
   while (true) {
     const { bucketMs, overflowed } = resolveTimingBucket(observedElapsedMs);
+    diagnose({ phase: 'bucket-selected', bucketMs, elapsedMs: clock.nowMs() - startMs, overflowed });
     if (overflowed) return { bucketMs, overflowed };
 
     const targetMs = startMs + bucketMs;
     const remainingMs = targetMs - clock.nowMs();
     if (remainingMs === 0) {
       const jitterMs = jitterSource();
+      diagnose({ phase: 'jitter-start', bucketMs, jitterMs, elapsedMs: clock.nowMs() - startMs });
       if (jitterMs > 0) await clock.sleep(jitterMs);
+      diagnose({ phase: 'padding-complete', bucketMs, jitterMs, elapsedMs: clock.nowMs() - startMs });
       return { bucketMs, overflowed: false };
     }
     if (remainingMs < 0) {
@@ -100,12 +104,16 @@ async function waitForBucket(startMs, elapsedMs, clock, jitterSource = randomRes
       continue;
     }
 
+    diagnose({ phase: 'padding-start', bucketMs, elapsedMs: clock.nowMs() - startMs });
     await clock.sleep(remainingMs);
     const wakeMs = clock.nowMs();
+    diagnose({ phase: 'padding-wake', bucketMs, lateWakeMs: Math.max(0, wakeMs - targetMs), elapsedMs: wakeMs - startMs });
     const isFinalBucket = bucketMs === TIMING_BUCKETS_MS[TIMING_BUCKETS_MS.length - 1];
     if (wakeMs <= targetMs + TIMER_WAKE_TOLERANCE_MS || isFinalBucket) {
       const jitterMs = jitterSource();
+      diagnose({ phase: 'jitter-start', bucketMs, jitterMs, elapsedMs: wakeMs - startMs });
       if (jitterMs > 0) await clock.sleep(jitterMs);
+      diagnose({ phase: 'padding-complete', bucketMs, jitterMs, elapsedMs: clock.nowMs() - startMs });
       return { bucketMs, overflowed: false };
     }
 
@@ -117,6 +125,7 @@ module.exports = {
   TIMING_BUCKETS_MS,
   TIMER_WAKE_TOLERANCE_MS,
   MAX_RESPONSE_JITTER_MS,
+  TIMEOUT_BOUNDARY_GRACE_MS,
   randomResponseJitterMs,
   resolveTimingBucket,
   createRealClock,

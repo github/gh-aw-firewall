@@ -26,6 +26,7 @@ const {
     elapsedMs: number,
     clock: { nowMs: () => number; sleep: (ms: number) => Promise<void> },
     jitterSource?: () => number,
+    diagnose?: (record: Record<string, unknown>) => void,
   ) => Promise<{ bucketMs: number; overflowed: boolean }>;
 };
 /* eslint-enable @typescript-eslint/no-require-imports */
@@ -120,5 +121,24 @@ describe('finite-disclosure timing buckets', () => {
 
     expect(result).toEqual({ bucketMs: 60_000, overflowed: false });
     expect(nowMs).toBe(61_000);
+  });
+
+  it.each([0, 999, 1000, 1001])('keeps fixed buckets at scheduler wake +%sms, independently of maximum jitter', async (lateWake) => {
+    let now = 65_000;
+    let firstSleep = true;
+    const events: Array<Record<string, unknown>> = [];
+    const result = await waitForBucket(0, now, {
+      nowMs: () => now,
+      sleep: async ms => {
+        now += ms + (firstSleep ? lateWake : 0);
+        firstSleep = false;
+      },
+    }, () => 1000, record => { events.push(record); });
+    const bucketMs = lateWake <= 1000 ? 120_000 : 180_000;
+    expect(result).toEqual({ bucketMs, overflowed: false });
+    expect(now).toBe(bucketMs + (lateWake <= 1000 ? lateWake : 0) + 1000);
+    expect(events).toContainEqual(expect.objectContaining({
+      phase: 'padding-wake', bucketMs: 120_000, lateWakeMs: lateWake,
+    }));
   });
 });

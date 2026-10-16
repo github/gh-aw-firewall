@@ -10,7 +10,7 @@ const {
   validateEnclaveScriptRequest,
 } = require('../../bounded-execution/finite-disclosure');
 const { createEnclaveInformationBudgetLedger } = require('../../bounded-execution/sensitivity-ledger');
-const { createRealClock, waitForBucket } = require('../../bounded-execution/fixed-timing');
+const { createRealClock, waitForBucket, TIMEOUT_BOUNDARY_GRACE_MS } = require('../../bounded-execution/fixed-timing');
 const defaultWorkspace = require('./workspace');
 
 /**
@@ -71,6 +71,22 @@ function createExecutorHandler(params) {
   // Optional trusted exit-status → protected-audit category map. Categories
   // never reach the caller; every failure is still the canonical error.
   const exitCategories = params.exitCategories || {};
+  let diagnosticRecords = 0;
+  function timing(invocationId, startMs, record) {
+    if (!params.diagnosticAudit || diagnosticRecords > 4096) return;
+    diagnosticRecords += 1;
+    params.diagnosticAudit.lifecycle('invocation-timing', diagnosticRecords === 4097
+      ? { phase: 'diagnostics', status: 'limit-reached' }
+      : { invocationId, executorKind, elapsedMs: Math.max(0, Math.round(clock.nowMs() - startMs)), ...record });
+  }
+  const diagnosticReason = (failure) => {
+    const reason = failure?.[0];
+    return [
+      'workspace-create-failed', 'timeout', 'cancelled', 'non-zero-exit', 'unreadable-output',
+      'nonconformant-output', 'launch-failed', 'artifact-preservation-failed', 'cleanup-failed',
+      'dynamic-revocation-unresolved', ...Object.values(exitCategories),
+    ].includes(reason) ? reason : reason === undefined ? 'none' : 'unknown';
+  };
 
   // Optional dynamic repository admission client (ADR 0001). When present the
   // executor has no static seed catalog: each invocation's selector is routed
@@ -254,6 +270,7 @@ function createExecutorHandler(params) {
     let layout;
     let failureReason;
     let canonicalResult;
+    timing(invocationId, startMs, { phase: 'work-start' });
 
     try {
       layout = runner.hostOwned ? {} : workspace.createInvocationWorkspace({
@@ -273,11 +290,14 @@ function createExecutorHandler(params) {
     }
 
     if (layout) {
-      const remainingMs = config.timeoutSeconds * 1000 - (clock.nowMs() - startMs);
+      const remainingMs = config.timeoutSeconds * 1000 +
+        (runner.hostOwned ? TIMEOUT_BOUNDARY_GRACE_MS : 0) - (clock.nowMs() - startMs);
       if (remainingMs <= 0) {
         failureReason = ['timeout', 'workspace-creation-overran-deadline'];
       } else {
         try {
+          timing(invocationId, startMs, { phase: 'runner-start',
+            timeoutMs: config.timeoutSeconds * 1000, graceMs: runner.hostOwned ? TIMEOUT_BOUNDARY_GRACE_MS : 0 });
           const run = await runner.runInvocation({
             runId,
             invocationId,
@@ -295,10 +315,10 @@ function createExecutorHandler(params) {
               ? { binding: { repository: admitted.repo, readMode: admitted.readMode } }
               : {}),
           });
-          if (run.status === 'cancelled') {
-            failureReason = ['cancelled'];
-          } else if (run.timedOut) {
+          if (run.timedOut) {
             failureReason = ['timeout'];
+          } else if (run.status === 'cancelled') {
+            failureReason = ['cancelled'];
           } else if (run.exitCode !== 0) {
             failureReason = [
               exitCategories[run.exitCode] || 'non-zero-exit',
@@ -331,6 +351,10 @@ function createExecutorHandler(params) {
       }
     }
 
+    timing(invocationId, startMs, { phase: 'work-complete',
+      status: canonicalResult === undefined ? 'error' : 'ok', reason: diagnosticReason(failureReason) });
+    timing(invocationId, startMs, { phase: 'cleanup-start' });
+    let cleanupFailed = false;
     // Teardown is part of the observable operation: repository size and tree
     // shape can affect deletion time, and queued requests must not expose that
     // duration outside the charged timing bucket. Destroy by invocation id
@@ -341,6 +365,7 @@ function createExecutorHandler(params) {
       try {
         workspace.preserveInvocationArtifacts({ layout, config, invocationId });
       } catch (error) {
+        cleanupFailed = true;
         if (failureReason === undefined) {
           failureReason = ['artifact-preservation-failed', error.message];
         } else {
@@ -350,8 +375,10 @@ function createExecutorHandler(params) {
       }
     }
     if (!safeDestroy(invocationId)) {
-      failureReason = ['cleanup-failed'];
+      cleanupFailed = true;
+      failureReason ??= ['cleanup-failed'];
       canonicalResult = undefined;
+      timing(invocationId, startMs, { phase: 'cleanup-failed', reason: 'cleanup-failed' });
     }
 
     // Settle the dynamic reservation and revoke the delegated identity on
@@ -366,18 +393,26 @@ function createExecutorHandler(params) {
         Math.ceil((clock.nowMs() - startMs) / 1000),
       );
       if (!settled.revoked) {
-        failureReason = ['dynamic-revocation-unresolved'];
+        cleanupFailed = true;
+        failureReason ??= ['dynamic-revocation-unresolved'];
         canonicalResult = undefined;
+        timing(invocationId, startMs, { phase: 'cleanup-failed', reason: 'dynamic-revocation-unresolved' });
       }
     }
 
     const elapsedMs = clock.nowMs() - startMs;
+    timing(invocationId, startMs, { phase: 'cleanup-complete',
+      status: cleanupFailed ? 'error' : 'ok' });
     const { bucketMs, overflowed } = await waitForBucket(
       startMs,
       elapsedMs,
       clock,
       responseJitterSource,
+      (record) => timing(invocationId, startMs, record),
     );
+    timing(invocationId, startMs, { phase: 'response',
+      status: overflowed || canonicalResult === undefined ? 'error' : 'ok',
+      reason: overflowed ? 'timing-bucket-overflow' : diagnosticReason(failureReason), bucketMs });
 
     if (overflowed) {
       // Fail closed: processing (not the script itself, whose timeout

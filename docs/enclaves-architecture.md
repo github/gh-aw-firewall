@@ -364,11 +364,69 @@ The broker's bounded lifecycle log is also preserved as
 `audit/enclave-host-executor.jsonl`. Both control evidence paths retain
 owner-only file modes (`0600`) through artifact cleanup.
 
+The broker also writes bounded `invocation-timing` milestones to that protected
+file **before** response padding: work completion and its closed failure reason,
+cleanup start/completion, selected bucket, padding start/wake/completion, actual
+late wake, bounded jitter, and final response status. Host invocation snapshots
+separately retain guest completion, interruption origin, and work/cleanup
+milestones using monotonic elapsed times. Host-owned runner completion includes
+host teardown; inspect the host snapshot to split that work from broker cleanup.
+Neither stream contains payloads or raw exceptions, and protected-audit
+persistence failures emit only a fixed storage-failure marker to ordinary stderr,
+never the protected record. A response at 120.821 seconds could represent an
+earlier failure padded to the 120-second bucket plus jitter; it does **not**
+establish a 120-second execution timeout or that a VM booted.
+
+Cloud Hypervisor invocation deadlines have exactly **1,000 ms** of boundary
+grace. The broker passes that one effective deadline; host watchdogs and guest
+execution requests apply the same allowance, not successive extensions.
+Expiration occurs at the configured duration plus 1,000 ms: +999 ms remains
+eligible, +1,000/+1,001 ms is expired. Cancellation, status leases, quotas,
+authentication, isolation, maximum configured duration, and timing buckets are
+unchanged. Grace consumes one second of the existing final processing margin.
+Cleanup still precedes bucket selection; work finishing beyond a bucket moves to
+the next fixed bucket, not an unbucketed "grace" response.
+
+The existing one-second **scheduler-wake tolerance** and independent 0..1,000 ms
+jitter are separate from execution grace. Together they can put a 120-second
+bucket response at 122 seconds. The smoke's observed 120,000 ms MCP CLI HTTP
+deadline is compiler/client-owned; no supported override exists in the current
+workflow or AWF postprocessor. A client-only increase to 121,000 ms covers the
+observed 120.821 seconds but not maximum wake+jitter or later buckets. Upstream
+must honor the already advertised enclave operation timeout (currently 4,860
+seconds, including its existing transport margin) and implement the requested
+one-second boundary grace there. These AWF changes do not fix that HTTP caller.
+
+Final broker audit copies are validated through no-follow directory/file
+descriptors with owner/type/link/mode/size checks, then handed to the invoking
+runner (`SUDO_UID`/`SUDO_GID` when privileged) at `0600`. They remain in the
+standard audit tree for compiler-owned secret redaction; read access is not
+widened to other users. Broker evidence is copied even when host shutdown fails,
+without deleting unreconciled host state. The Linux root-to-nonroot regression
+reproduces `read`/`EACCES` before this handoff and verifies redaction afterward.
+This demonstrates a log-loss mechanism, not the exact unreadable file in the
+incident. Redaction and upload guards remain mandatory.
+
+The host-only public-fixture collector accepts the host protocol's 16..64-hex
+invocation IDs (the broker generates 24 hex), independently of 32-hex VM/run IDs.
+It classifies global/sentinel and invalid-identity journal records without using
+them as paths or copying their bytes; valid invocation evidence is retained.
+Debug directories must still match the hash of a validated invocation in the
+current run, and unsafe sources fail closed before publication. Public-fixture
+authorization, private modes, file/byte/count bounds and one-day artifact
+retention are unchanged.
+
 Activating changes to the host decoder and broker serializer requires a
 published AWF binary and matching broker image containing the changes; merging
 source alone does not change release-pinned runs. Guest rootfs artifacts only
 need rebuilding if guest code changed. A local schema-wire reproduction does
 not by itself prove the root cause of a previously failed live run.
+The log-handoff, timing and grace changes likewise require the updated host CLI
+and enclave MCP image. No workflow source or generated lock is changed here:
+the current smoke still pins AWF v0.28.61 on main/tags. The collector runs from
+the checkout, whereas runtime changes require local host/broker builds or a
+separately authorized release/pin update. No new guest rootfs is needed for these
+host-derived deadline and diagnostic changes.
 
 Interpret progress by boundary: process initialization and a passed host
 prerequisite probe do not establish listener readiness; `listener-binding`

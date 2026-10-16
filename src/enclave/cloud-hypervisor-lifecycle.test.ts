@@ -4,7 +4,7 @@ import type { WrapperConfig } from '../types';
 import { PRIVATE_REPOSITORY_SEED_MAP_VERSION } from '../bounded-execution';
 import { normalizeEnclavesConfig } from '../parsers/enclave-parser';
 import { deriveEnclaveSeedId, resolveEnclavePaths } from './paths';
-import type { HostExecutorServer } from './host-executor-server';
+import { startHostExecutorServer, type HostExecutorServer } from './host-executor-server';
 import { assertAgentRuntimeAvailable, assertScriptRuntimeAvailable } from './runtime-preflight';
 import { startCloudHypervisorEnclaveHostService } from './cloud-hypervisor-host-service';
 import { getEnclaveStartupProgress } from './startup-progress';
@@ -360,6 +360,7 @@ describe('trusted Cloud Hypervisor enclave lifecycle', () => {
     jest.spyOn(cloudHypervisorManager, 'resolveCloudHypervisorManagerDependencies').mockReturnValue({
       ...dependencies, resolveIdentity: () => ({ uid: process.getuid!(), gid: process.getgid!() }),
     });
+
     await startCloudHypervisorEnclaveLifecycle(config, provider, {});
     const run = deriveCloudHypervisorEnclaveRunState(config, resolveEnclavePaths(workDir));
     const control = new HostExecutorControlDiagnostics(run);
@@ -412,6 +413,39 @@ describe('trusted Cloud Hypervisor enclave lifecycle', () => {
       expect(fs.statSync(path.join(directory, name)).mode & 0o777).toBe(0o600);
     }
     expect(storage.close).not.toHaveBeenCalled();
+  });
+
+  it('exports the real host server shutdown-failure snapshot without releasing uncertain storage', async () => {
+    const runtime = fs.realpathSync(fs.mkdtempSync('/tmp/awf-host-export-'));
+    const dependencies = cloudHypervisorManager.resolveCloudHypervisorManagerDependencies();
+    jest.spyOn(cloudHypervisorManager, 'resolveCloudHypervisorManagerDependencies').mockReturnValue({
+      ...dependencies, resolveIdentity: () => ({ uid: process.getuid!(), gid: process.getgid!() }),
+    });
+    start.mockImplementationOnce(options => startHostExecutorServer({
+      runtimeDir: runtime,
+      runState: options.runState,
+      backend: {
+        execute: async () => ({ outcome: 'executor-failure' }),
+        close: async () => { throw Object.assign(new Error('PRIVATE_SHUTDOWN_PATH'), { code: 'EACCES' }); },
+      },
+    }));
+    try {
+      await startCloudHypervisorEnclaveLifecycle(config, provider, {});
+      await expect(stopCloudHypervisorEnclaveLifecycle(config)).rejects.toThrow('PRIVATE_SHUTDOWN_PATH');
+      const directory = path.join(workDir, 'audit/diagnostics/cloud-hypervisor/host-executor');
+      const [name] = fs.readdirSync(directory);
+      const contents = fs.readFileSync(path.join(directory, name), 'utf8');
+      expect(JSON.parse(contents)).toMatchObject({
+        component: 'host-executor-control',
+        cleanupFailure: { phase: 'shutdown-failed', reason: 'EACCES' },
+      });
+      expect(contents).not.toContain('PRIVATE_SHUTDOWN_PATH');
+      expect(fs.statSync(path.join(directory, name)).mode & 0o777).toBe(0o600);
+      expect(fs.existsSync(path.join(resolveEnclavePaths(workDir).hostExecutorJournalDir, `${runId}.journal`))).toBe(true);
+      expect(storage.close).not.toHaveBeenCalled();
+    } finally {
+      fs.rmSync(runtime, { recursive: true, force: true });
+    }
   });
 
   it('preserves recovery records even when backend close resolves with pending resources', async () => {

@@ -9,6 +9,7 @@ import type {
   HostExecutorInvocationPlan,
   HostExecutorRunState,
 } from '../enclave/host-executor-server';
+import { HOST_EXECUTOR_TIMEOUT_GRACE_MS } from '../enclave/host-executor-protocol';
 import {
   assertTrustedAncestorChain,
   calculateSha256,
@@ -244,7 +245,8 @@ export function agentEnvironment(
     AWF_ENCLAVE_AGENT_PROFILE: policy.profile,
     AWF_ENCLAVE_AGENT_MODEL: policy.model,
     AWF_ENCLAVE_AGENT_MAX_OUTPUT_BYTES: String(policy.maxOutputBytes),
-    AWF_ENCLAVE_AGENT_DEADLINE_SECONDS: String(Math.max(1, Math.floor(plan.timeoutMs / 1000))),
+    AWF_ENCLAVE_AGENT_DEADLINE_SECONDS: String(Math.max(1,
+      Math.floor((plan.timeoutMs + HOST_EXECUTOR_TIMEOUT_GRACE_MS) / 1000))),
     AWF_ENCLAVE_AGENT_API_ENDPOINT: `http://${ENCLAVE_AGENT_API_PROXY_IP}:10002`,
     AWF_ENCLAVE_AGENT_GITHUB_ENABLED: String(policy.githubAgentId !== undefined),
     ...(policy.githubAgentId !== undefined ? {

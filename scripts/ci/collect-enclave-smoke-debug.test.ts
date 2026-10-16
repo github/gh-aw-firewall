@@ -13,7 +13,8 @@ describe('host-only public enclave debug collector', () => {
   const uid = process.getuid!();
   const gid = process.getgid!();
   const runId = 'a'.repeat(32);
-  const invocationId = 'b'.repeat(32);
+  // The broker uses randomBytes(12), not the VM's 32-hex identity.
+  const invocationId = 'b'.repeat(24);
   const vmId = createHash('sha256').update(JSON.stringify([
     'awf-host-enclave-v1', runId, 'script', invocationId,
   ])).digest('hex').slice(0, 32);
@@ -62,6 +63,20 @@ describe('host-only public enclave debug collector', () => {
     expect(collectRun()).toBe(0);
     expect(fs.readFileSync(path.join(run, 'upload/collection-status.txt'), 'utf8'))
       .toContain('No public-fixture debug logs were produced');
+  });
+
+  it('retains eligible evidence alongside global and malformed identities without using them as paths', () => {
+    prepareRun();
+    invocation();
+    fs.appendFileSync(path.join(roots.journal, `${runId}.journal`), '\n' + [
+      { invocationId: 'queue' }, { invocationId: 'budget' }, { state: 'closed' },
+      { invocationId: '../../PRIVATE_PATH', entryId: 'script' },
+      { invocationId, entryId: '../../PRIVATE_ENTRY' },
+    ].map(record => JSON.stringify(record)).join('\n') + '\nnull\nPRIVATE_INVALID_JSON');
+    expect(collectRun()).toBe(1);
+    const status = fs.readFileSync(path.join(run, 'upload/collection-status.txt'), 'utf8');
+    expect(status).toContain('Non-invocation records: 3; invalid identity records: 4.');
+    expect(status).not.toContain('PRIVATE');
   });
 
   it('accepts exactly the stream size limit and rejects oversized streams without staging', () => {

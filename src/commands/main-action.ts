@@ -359,6 +359,7 @@ async function runCleanup(
   // until the subsequent compose down removes them.
   let containersStarted = false;
   let enclaveAuditComplete = true;
+  let auditRecoveryFailure: { error: unknown } | undefined;
   try {
     containersStarted = getContainersStarted();
     if (containersStarted) {
@@ -388,20 +389,29 @@ async function runCleanup(
   } finally {
     // VM cancellation/cleanup must complete before disconnecting its peers or
     // tearing down sidecars/networks, even when broker draining fails.
-    await stopCloudHypervisorEnclaveLifecycle(config);
+    try {
+      await stopCloudHypervisorEnclaveLifecycle(config);
+    } finally {
+      // Recover broker evidence even when host shutdown must retain resources.
+      if (containersStarted) {
+        try {
+          if (preserveIptablesAudit(config.workDir, config.auditDir) === false) {
+            enclaveAuditComplete = false;
+            logger.warn('One or more protected enclave audit artifacts could not be preserved.');
+          }
+        } catch (error) {
+          logger.error('Protected audit recovery failed (role=broker-audit, reason=preservation).');
+          auditRecoveryFailure = { error };
+        }
+      }
+    }
   }
+  if (auditRecoveryFailure) throw auditRecoveryFailure.error;
   if (externalRuntimeCleanupError
     && config.containerRuntime === 'cloud-hypervisor' && config.enclaves?.enabled) {
     throw externalRuntimeCleanupError;
   }
   if (containersStarted) {
-    if (preserveIptablesAudit(
-      config.workDir,
-      config.auditDir,
-    ) === false) {
-      enclaveAuditComplete = false;
-      logger.warn('One or more protected enclave audit artifacts could not be preserved.');
-    }
     try {
       await disconnectEnclaveGithubGateway(config);
     } catch (error) {
