@@ -84,6 +84,44 @@ function attachedGateway(
   });
 }
 
+function mockGatewayNetworkChecks(attempts = 1): void {
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    mockExeca
+      .mockResolvedValueOnce({ exitCode: 0, stdout: network(), stderr: '' })
+      .mockResolvedValueOnce({ exitCode: 0, stdout: attachedGateway(), stderr: '' });
+  }
+}
+
+function githubGatewayHandler(
+  onInitialize?: (response: http.ServerResponse) => boolean,
+): http.RequestListener {
+  return (request, response) => {
+    const chunks: Buffer[] = [];
+    request.on('data', chunk => chunks.push(Buffer.from(chunk)));
+    request.on('end', () => {
+      const message = JSON.parse(Buffer.concat(chunks).toString('utf8')) as {
+        id?: unknown;
+        method: string;
+      };
+      response.setHeader('content-type', 'application/json');
+      if (message.method === 'initialize' && onInitialize?.(response)) return;
+      if (message.method === 'initialize') {
+        response.setHeader('mcp-session-id', 'session-test');
+        response.end(JSON.stringify({ jsonrpc: '2.0', id: message.id, result: {} }));
+      } else if (message.method === 'notifications/initialized') {
+        response.statusCode = 202;
+        response.end();
+      } else {
+        response.end(JSON.stringify({
+          jsonrpc: '2.0',
+          id: message.id,
+          result: { tools: [{ name: 'issue_read' }, { name: 'list_issues' }] },
+        }));
+      }
+    });
+  };
+}
+
 describe('direct enclave GitHub MCP handoff', () => {
   beforeEach(() => {
     mockExeca.mockReset();
@@ -420,5 +458,79 @@ describe('direct enclave GitHub MCP handoff', () => {
         AWF_ENCLAVE_MCP_GATEWAY_ENDPOINT: endpoint,
       }, 2_000)).rejects.toThrow(/malformed tools\/list entry/);
     });
+  });
+
+  it('rejects GitHub gateway readiness responses above the framing bound', async () => {
+    mockGatewayNetworkChecks();
+    await withGatewayServer(githubGatewayHandler((response) => {
+      response.end('x'.repeat(256 * 1024 + 1));
+      return true;
+    }), async endpoint => {
+      await expect(assertEnclaveGithubGatewayReady(enabledConfig(), {
+        ...handoff(),
+        AWF_ENCLAVE_MCP_GATEWAY_ENDPOINT: endpoint,
+      }, 2_000)).rejects.toThrow(/response exceeded its framing bound/);
+    });
+    expect(mockExeca).toHaveBeenCalledTimes(2);
+  });
+
+  it('retries retryable GitHub backend_unavailable responses until readiness succeeds', async () => {
+    mockGatewayNetworkChecks(2);
+    let initializeAttempts = 0;
+    await withGatewayServer(githubGatewayHandler((response) => {
+      initializeAttempts += 1;
+      if (initializeAttempts > 1) return false;
+      response.statusCode = 503;
+      response.end(JSON.stringify({ error: 'backend_unavailable' }));
+      return true;
+    }), async endpoint => {
+      await expect(assertEnclaveGithubGatewayReady(enabledConfig(), {
+        ...handoff(),
+        AWF_ENCLAVE_MCP_GATEWAY_ENDPOINT: endpoint,
+      }, 2_000)).resolves.toBeUndefined();
+    });
+    expect(initializeAttempts).toBe(2);
+    expect(mockExeca).toHaveBeenCalledTimes(4);
+  });
+
+  it.each([
+    ['explicitly non-retryable', JSON.stringify({
+      error: 'backend_unavailable',
+      retryable: false,
+    })],
+    ['malformed', '{'],
+  ])('does not retry %s GitHub backend_unavailable responses', async (_case, body) => {
+    mockGatewayNetworkChecks();
+    let initializeAttempts = 0;
+    await withGatewayServer(githubGatewayHandler((response) => {
+      initializeAttempts += 1;
+      response.statusCode = 503;
+      response.end(body);
+      return true;
+    }), async endpoint => {
+      await expect(assertEnclaveGithubGatewayReady(enabledConfig(), {
+        ...handoff(),
+        AWF_ENCLAVE_MCP_GATEWAY_ENDPOINT: endpoint,
+      }, 2_000)).rejects.toThrow(/request failed/);
+    });
+    expect(initializeAttempts).toBe(1);
+    expect(mockExeca).toHaveBeenCalledTimes(2);
+  });
+
+  it('promptly rejects a GitHub gateway response interrupted after a partial body', async () => {
+    mockGatewayNetworkChecks();
+    const started = Date.now();
+    await withGatewayServer(githubGatewayHandler((response) => {
+      response.write('{"jsonrpc":"2.0","id":1,');
+      response.socket?.destroy();
+      return true;
+    }), async endpoint => {
+      await expect(assertEnclaveGithubGatewayReady(enabledConfig(), {
+        ...handoff(),
+        AWF_ENCLAVE_MCP_GATEWAY_ENDPOINT: endpoint,
+      }, 2_000)).rejects.toThrow(/aborted|premature|socket|reset/i);
+    });
+    expect(Date.now() - started).toBeLessThan(500);
+    expect(mockExeca).toHaveBeenCalledTimes(2);
   });
 });

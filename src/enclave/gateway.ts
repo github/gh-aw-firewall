@@ -13,6 +13,7 @@ import { HostPreflightReporter } from '../cloud-hypervisor/host-preflight-progre
 import {
   ENCLAVE_MCP_CONTROL_NETWORK,
 } from './network';
+import { readGatewayReadinessResponse } from './gateway-readiness';
 
 export const ENCLAVE_MCP_CAPABILITY_ENV = 'AWF_ENCLAVE_MCP_CAPABILITY';
 export const ENCLAVE_MCP_GATEWAY_CONTAINER_ENV = 'AWF_ENCLAVE_MCP_GATEWAY_CONTAINER';
@@ -362,55 +363,44 @@ function postJsonRpc(
       },
       timeout: timeoutMs,
     }, (response) => {
-      const chunks: Buffer[] = [];
-      let total = 0;
-      response.on('error', (error) => rejectBounded(new GatewayReadinessError(
-        'Gateway readiness transport failed', false, gatewayTransportCode(error),
-      )));
-      response.on('data', (chunk: Buffer) => {
-        total += chunk.length;
-        if (total > 256 * 1024) {
-          request.destroy(new GatewayReadinessError(
-            'Gateway readiness response exceeded its framing bound', false, 'response-too-large',
-          ));
-          return;
-        }
-        chunks.push(chunk);
-      });
-      response.on('end', () => {
-        try {
-          const raw = Buffer.concat(chunks).toString('utf8');
-          if (response.statusCode !== 200 && response.statusCode !== 202) {
-            if (response.statusCode === 503) {
-              try {
-                const unavailable = JSON.parse(raw) as {
-                  error?: unknown;
-                  retryable?: unknown;
-                };
-                if (
-                  unavailable.error === 'backend_unavailable'
-                  && unavailable.retryable !== false
-                ) {
-                  rejectBounded(new GatewayReadinessError(
-                    'Gateway backend is not yet available',
-                    true,
-                    'backend-unavailable',
-                    503,
-                  ));
-                  return;
-                }
-              } catch {
-                // The response is permanent unless it matches the documented recovery shape.
+      void readGatewayReadinessResponse(response, request, {
+        framing: () => new GatewayReadinessError(
+          'Gateway readiness response exceeded its framing bound', false, 'response-too-large',
+        ),
+        response: error => new GatewayReadinessError(
+          'Gateway readiness transport failed', false, gatewayTransportCode(error),
+        ),
+        status: (status, raw) => {
+          if (status === 503) {
+            try {
+              const unavailable = JSON.parse(raw) as {
+                error?: unknown;
+                retryable?: unknown;
+              };
+              if (
+                unavailable.error === 'backend_unavailable'
+                && unavailable.retryable !== false
+              ) {
+                return new GatewayReadinessError(
+                  'Gateway backend is not yet available',
+                  true,
+                  'backend-unavailable',
+                  503,
+                );
               }
+            } catch {
+              // The response is permanent unless it matches the documented recovery shape.
             }
-            rejectBounded(new GatewayReadinessError(
-              'Gateway readiness request failed', false,
-              response.statusCode === 401 || response.statusCode === 403 ? 'http-auth' : 'http-status',
-              response.statusCode ?? null,
-            ));
-            return;
           }
-          const contentType = String(response.headers['content-type'] ?? '');
+          return new GatewayReadinessError(
+            'Gateway readiness request failed', false,
+            status === 401 || status === 403 ? 'http-auth' : 'http-status',
+            status,
+          );
+        },
+      }, 256 * 1024).then(({ response: readinessResponse, raw }) => {
+        try {
+          const contentType = String(readinessResponse.headers['content-type'] ?? '');
           const events = raw
             .split(/\r?\n/)
             .filter((line) => line.startsWith('data:'))
@@ -426,7 +416,7 @@ function postJsonRpc(
             ));
             return;
           }
-          const returnedSession = response.headers['mcp-session-id'];
+          const returnedSession = readinessResponse.headers['mcp-session-id'];
           resolveBounded({
             response: parsed,
             sessionId: typeof returnedSession === 'string' ? returnedSession : sessionId,
@@ -437,7 +427,7 @@ function postJsonRpc(
             false, 'malformed-json',
           ));
         }
-      });
+      }).catch(rejectBounded);
     });
     request.on('timeout', () => request.destroy(
       new GatewayReadinessError('Gateway readiness request timed out', false, 'request-timeout'),

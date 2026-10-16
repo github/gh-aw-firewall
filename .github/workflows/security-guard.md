@@ -12,7 +12,7 @@ permissions:
   contents: read
   pull-requests: read
   issues: read
-max-turns: 6
+max-turns: 10
 concurrency:
   group: "security-guard-${{ github.event.pull_request.number || github.ref }}"
   cancel-in-progress: true

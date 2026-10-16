@@ -21,6 +21,7 @@ import {
 } from './network';
 export { ENCLAVE_GITHUB_MCP_PORT } from './network';
 import { resolveEnclavePaths } from './paths';
+import { readGatewayReadinessResponse } from './gateway-readiness';
 
 export const ENCLAVE_GITHUB_MCP_AGENT_ID_ENV = 'AWF_ENCLAVE_GITHUB_MCP_AGENT_ID';
 export const ENCLAVE_GITHUB_MCP_SERVER_NAME = 'github';
@@ -302,46 +303,36 @@ function postJsonRpc(
       },
       timeout: timeoutMs,
     }, response => {
-      const chunks: Buffer[] = [];
-      let total = 0;
-      response.on('data', chunk => {
-        total += chunk.length;
-        if (total > MAX_RESPONSE_BYTES) {
-          request.destroy(new GithubGatewayReadinessError(
-            'Shared MCP gateway response exceeded its framing bound',
-          ));
-          return;
-        }
-        chunks.push(Buffer.from(chunk));
-      });
-      response.on('end', () => {
-        try {
-          const raw = Buffer.concat(chunks).toString('utf8');
-          if (response.statusCode !== 200 && response.statusCode !== 202) {
-            if (response.statusCode === 503) {
-              try {
-                const unavailable = JSON.parse(raw) as {
-                  error?: unknown;
-                  retryable?: unknown;
-                };
-                if (
-                  unavailable.error === 'backend_unavailable'
-                  && unavailable.retryable !== false
-                ) {
-                  rejectBounded(new GithubGatewayReadinessError(
-                    'Shared MCP gateway backend is not yet available',
-                    true,
-                  ));
-                  return;
-                }
-              } catch {
-                // Treat every undocumented response shape as a terminal failure.
+      void readGatewayReadinessResponse(response, request, {
+        framing: () => new GithubGatewayReadinessError(
+          'Shared MCP gateway response exceeded its framing bound',
+        ),
+        response: error => error,
+        status: (status, raw) => {
+          if (status === 503) {
+            try {
+              const unavailable = JSON.parse(raw) as {
+                error?: unknown;
+                retryable?: unknown;
+              };
+              if (
+                unavailable.error === 'backend_unavailable'
+                && unavailable.retryable !== false
+              ) {
+                return new GithubGatewayReadinessError(
+                  'Shared MCP gateway backend is not yet available',
+                  true,
+                );
               }
+            } catch {
+              // Treat every undocumented response shape as a terminal failure.
             }
-            rejectBounded(new GithubGatewayReadinessError('Shared MCP gateway request failed'));
-            return;
           }
-          const contentType = String(response.headers['content-type'] ?? '');
+          return new GithubGatewayReadinessError('Shared MCP gateway request failed');
+        },
+      }, MAX_RESPONSE_BYTES).then(({ response: readinessResponse, raw }) => {
+        try {
+          const contentType = String(readinessResponse.headers['content-type'] ?? '');
           const events = raw
             .split(/\r?\n/)
             .filter(line => line.startsWith('data:'))
@@ -350,7 +341,7 @@ function postJsonRpc(
           const jsonText = contentType.includes('text/event-stream')
             ? events[events.length - 1]
             : raw;
-          const returnedSession = response.headers['mcp-session-id'];
+          const returnedSession = readinessResponse.headers['mcp-session-id'];
           clearTimeout(deadlineTimer);
           resolve({
             body: !jsonText ? {} : JSON.parse(jsonText) as JsonRpcResponse,
@@ -361,7 +352,7 @@ function postJsonRpc(
             'Shared MCP gateway returned invalid bounded JSON',
           ));
         }
-      });
+      }).catch(rejectBounded);
     });
     request.on('timeout', () => request.destroy(
       new GithubGatewayReadinessError('Shared MCP gateway request timed out'),
