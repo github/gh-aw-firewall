@@ -30,7 +30,7 @@ RUN npm_config_ignore_scripts=false npm ci --prefix /tmp/copilot-cli --install-s
 FROM ubuntu:26.04@sha256:f144425ff09be612d6d9ad965196e9cdc23dae1f42110a8a11a3e9a8198759f7 AS enclave-agent
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends bash ca-certificates git python3 ripgrep \
+    && apt-get install -y --no-install-recommends bash ca-certificates git libatomic1 python3 ripgrep \
     && test -r /etc/ssl/certs/ca-certificates.crt \
     && rm -rf /var/lib/apt/lists/* \
     && rm -f /usr/bin/apt /usr/bin/apt-get /usr/bin/apt-cache
@@ -39,7 +39,7 @@ COPY --from=enclave-agent-build /usr/local/lib/node_modules/@github/copilot/ /us
 # Avoid uutils env's executable-name check on shebangs under BuildKit's QEMU.
 RUN sed -i '1c#!/usr/local/bin/node' /usr/local/lib/node_modules/@github/copilot/npm-loader.js \
     && ln -s ../lib/node_modules/@github/copilot/npm-loader.js /usr/local/bin/copilot \
-    && node --version | grep -qE '^v24\.' \
+    && node --version | grep -qE '^v26\.' \
     && COPILOT_CLI_VERSION="$(node -p 'require("/usr/local/lib/node_modules/@github/copilot/package.json").version')" \
     && copilot --version | grep -q "GitHub Copilot CLI ${COPILOT_CLI_VERSION}" \
     && rm -f /usr/bin/pebble \
