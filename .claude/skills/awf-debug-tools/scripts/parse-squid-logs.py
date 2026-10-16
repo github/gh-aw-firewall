@@ -7,6 +7,7 @@ Provides actionable insights on blocked traffic.
 import sys
 import os
 import argparse
+import subprocess
 from collections import defaultdict
 from datetime import datetime
 from typing import Dict, List
@@ -236,7 +237,7 @@ Examples:
 
     try:
         data = parse_logs(log_path, options)
-    except (OSError, UnicodeError, ValueError) as e:
+    except (OSError, UnicodeError, ValueError, subprocess.SubprocessError, IndexError) as e:
         print(f"Error parsing logs: {e}", file=sys.stderr)
         sys.exit(2)
 

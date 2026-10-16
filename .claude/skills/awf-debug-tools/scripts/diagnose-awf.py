@@ -177,6 +177,7 @@ def check_dns_config() -> DiagnosticCheck:
                     ""
                 )
     except (OSError, subprocess.SubprocessError, IndexError):
+        # A bare nameserver line falls through to the failed-DNS result below.
         pass
 
     return DiagnosticCheck(
@@ -228,40 +229,34 @@ def check_common_issues() -> List[DiagnosticCheck]:
     checks = []
 
     # Check for port conflicts
-    try:
-        result = common.run_command(
-            ['lsof', '-i', ':3128'],
-            capture=True,
-            check=False
-        )
-        if result and 'squid' not in result.lower():
-            checks.append(DiagnosticCheck(
-                "Port 3128",
-                False,
-                "Port 3128 in use by another process",
-                "Stop other process using port 3128"
-            ))
-    except (OSError, subprocess.SubprocessError):
-        pass
+    result = common.run_command(
+        ['lsof', '-i', ':3128'],
+        capture=True,
+        check=False
+    )
+    if result and 'squid' not in result.lower():
+        checks.append(DiagnosticCheck(
+            "Port 3128",
+            False,
+            "Port 3128 in use by another process",
+            "Stop other process using port 3128"
+        ))
 
     # Check for orphaned containers
-    try:
-        result = common.run_command(
-            ['docker', 'ps', '-a', '--filter', 'name=awf-', '--format={{.Names}}'],
-            capture=True,
-            check=False
-        )
-        if result:
-            containers = result.strip().splitlines()
-            if len(containers) > 2:
-                checks.append(DiagnosticCheck(
-                    "Orphaned",
-                    False,
-                    f"{len(containers)} awf containers found (expected 2)",
-                    "Clean up with: docker rm -f $(docker ps -a --filter name=awf- -q)"
-                ))
-    except (OSError, subprocess.SubprocessError):
-        pass
+    result = common.run_command(
+        ['docker', 'ps', '-a', '--filter', 'name=awf-', '--format={{.Names}}'],
+        capture=True,
+        check=False
+    )
+    if result:
+        containers = result.strip().splitlines()
+        if len(containers) > 2:
+            checks.append(DiagnosticCheck(
+                "Orphaned",
+                False,
+                f"{len(containers)} awf containers found (expected 2)",
+                "Clean up with: docker rm -f $(docker ps -a --filter name=awf- -q)"
+            ))
 
     return checks
 
