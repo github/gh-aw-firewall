@@ -237,8 +237,10 @@ def test_table_rejects_auto_profile(table_document: dict[str, Any]) -> None:
         _routing_table(table_document)
 
 
-@pytest.mark.parametrize("schema_version", [3, 4])
-def test_table_rejects_legacy_schemas(table_document: dict[str, Any], schema_version: int) -> None:
+@pytest.mark.parametrize("schema_version", [0, 2, 3, 4, 5])
+def test_table_rejects_other_schema_versions(
+    table_document: dict[str, Any], schema_version: int
+) -> None:
     document = table_document
     document["schema_version"] = schema_version
     with pytest.raises(ValueError, match="schema_version"):

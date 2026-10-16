@@ -36,7 +36,7 @@ def synthetic_table_document(
     choices: tuple[str, str] = ("provider/fast", "provider/reasoning:medium"),
 ) -> dict[str, Any]:
     return {
-        "schema_version": 5,
+        "schema_version": 1,
         "profile": {"goal": "cost", "mode": "balanced"},
         "repository": "global",
         "classification_choices": list(choices),

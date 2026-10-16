@@ -322,6 +322,7 @@ def release_artifacts(tmp_path_factory: pytest.TempPathFactory) -> tuple[Path, P
         "tests/fixtures/routing-contract/route.json",
         "routing/cost-balanced.json",
         "routing/cost-speed-robust.json",
+        "schemas/routing-table.v1.schema.json",
     ):
         assert (extracted / filename).is_file(), filename
     assert not (extracted / "docs").exists()

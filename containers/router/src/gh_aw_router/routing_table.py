@@ -7,7 +7,7 @@ from itertools import product
 from pathlib import Path
 from typing import Final, Literal
 
-from pydantic import Field
+from pydantic import Field, field_validator
 
 from gh_aw_router.classification import authored_messages
 from gh_aw_router.contracts import (
@@ -101,7 +101,7 @@ class RankingGroup(StrictModel):
 class TableDocument(StrictModel):
     """One generated profile with offline provenance and an independent classifier order."""
 
-    schema_version: Literal[5] = 5
+    schema_version: Literal[1] = 1
     profile: RoutingObjective
     repository: str = Field(min_length=1)
     classification_choices: tuple[str, ...] = Field(min_length=1)
@@ -111,6 +111,14 @@ class TableDocument(StrictModel):
     def profiles(self) -> tuple[RoutingObjective, ...]:
         """Expose the sole profile through the shared compiler/serving interface."""
         return (self.profile,)
+
+    @field_validator("schema_version", mode="before")
+    @classmethod
+    def _reject_boolean_version(cls, value: object) -> object:
+        """Reject JSON true, which Literal[1] would otherwise accept because True == 1."""
+        if isinstance(value, bool):
+            raise ValueError("schema_version must be an integer")
+        return value
 
 
 @dataclass(frozen=True)

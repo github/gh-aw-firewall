@@ -213,9 +213,22 @@ order, so they differ only in their routing order. Select a directory or a singl
 `--routing-tables` or `GH_AW_ROUTER_ROUTING_TABLES`, and mount or publish generated tables
 read-only.
 
-Only schema 5 is supported. A schema-5 table declares one fixed `cost` or `cost-speed` profile
-and carries no default-effort aliases. This format marker remains independent because tables
-can be supplied through a file or mount without replacing the router image.
+Only `schema_version` 1 is supported, and the loader rejects any other value. A table declares
+one fixed `cost` or `cost-speed` profile and carries no default-effort aliases. This format
+marker remains independent because tables can be supplied through a file or mount without
+replacing the router image.
+
+[schemas/routing-table.v1.schema.json](schemas/routing-table.v1.schema.json) specifies the
+table file format as a JSON Schema. The loader also enforces rules that relate parts of a table
+to each other, which the schema can't express: every label cell appears in exactly one ranking
+group, every ranking and the classifier order are permutations of the first group's choices,
+no two groups have the same ranking, and a model listed with explicit efforts isn't also listed
+without one. The schema requires `schema_version`, which the loader defaults to 1 when it's
+missing.
+
+A published schema file never changes. A format change adds a new schema file, such as
+`routing-table.v2.schema.json`, and bumps `schema_version`. Every table must validate against
+the schema for its `schema_version`.
 
 ## Container
 
@@ -350,6 +363,7 @@ configured to run both groups separately.
 - `src/gh_aw_router/` contains request contracts, classification, table lookup, and CLI and HTTP adapters.
 - `tests/` mirrors the runtime modules, with shared synthetic fixtures in `conftest.py`.
 - `routing/` contains generated routing tables from training.
+- `schemas/` contains the versioned JSON Schema for routing table files.
 - `examples/` contains executable planning requests.
 - The repository root's `.github/workflows/test-router.yml` and `.github/dependabot.yml` contain
   CI and dependency-update configuration.
@@ -368,6 +382,10 @@ The committed `openapi.yaml` is the authoritative HTTP contract. It distinguishe
 modes from published profiles and includes the classifier-output schema used by callers.
 Update it alongside contract changes and extend the schema/runtime parity
 tests in `tests/test_openapi.py`. Do not add a second generated public contract.
+
+The hand-written schema in `schemas/` is the authoritative routing-table contract. Change the
+table format only by adding a new schema version, and update the parity tests in
+`tests/test_table_schema.py` alongside it.
 
 Use the shared synthetic table and request fixtures in `tests/conftest.py` for generic routing,
 service, and transport tests. Reserve the bundled-table `service` fixture for release-data and

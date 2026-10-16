@@ -1,5 +1,5 @@
 {
-  "schema_version": 5,
+  "schema_version": 1,
   "profile": {
     "goal": "cost",
     "mode": "robust"

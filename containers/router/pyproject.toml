@@ -43,6 +43,7 @@ source-include = [
     "openapi.yaml",
     "requirements.lock",
     "routing/**",
+    "schemas/**",
     "tests/**",
     "uv.lock",
 ]

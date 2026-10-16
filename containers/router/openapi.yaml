@@ -15,8 +15,8 @@ info:
     economy, balanced, robust, or auto. Auto uses the supplied classification's mode,
     falling back to balanced when classification is absent or its mode is unknown.
     /capabilities lists the fixed profiles the loaded tables serve.
-    Schema-5 tables each carry one fixed profile.
-    Older schemas are rejected. Unserved profiles return invalid_request without fallback.
+    Routing tables (schema_version 1) each carry one fixed profile.
+    Other schema versions are rejected. Unserved profiles return invalid_request without fallback.
     Planning requests contain only decision inputs. Execution identity and
     outcome correlation remain with the caller; the router stores no task state.
     Every application error uses the Error envelope, including unknown paths,
