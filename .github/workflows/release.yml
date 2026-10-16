@@ -752,28 +752,25 @@ jobs:
           node release/awf-bundle.js --version
           node release/awf-bundle.js --help | head -5
 
-      - name: Install pkg for binary creation
-        run: npm install -g pkg
-
       - name: Create binaries
         run: |
           mkdir -p release
 
           # Create standalone executables for Linux (x64 and arm64)
-          pkg . \
+          ./node_modules/.bin/pkg . \
             --targets node18-linux-x64 \
             --output release/awf-linux-x64
 
-          pkg . \
+          ./node_modules/.bin/pkg . \
             --targets node18-linux-arm64 \
             --output release/awf-linux-arm64
 
           # Create standalone executables for macOS (x64 and arm64)
-          pkg . \
+          ./node_modules/.bin/pkg . \
             --targets node18-macos-x64 \
             --output release/awf-darwin-x64
 
-          pkg . \
+          ./node_modules/.bin/pkg . \
             --targets node18-macos-arm64 \
             --output release/awf-darwin-arm64
 

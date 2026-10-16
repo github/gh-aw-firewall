@@ -1,4 +1,4 @@
-FROM alpine:3.24 AS squid-builder
+FROM alpine:3.24@sha256:294b683cb724975bec92580e1e685676bd4b50bda910ddb8c51d4cabeaec77e6 AS squid-builder
 
 # Keep the source version aligned with the runtime package below.
 ARG SQUID_VERSION=7.6
@@ -31,7 +31,7 @@ RUN patch -p1 < clienthello-eof.patch && \
     make -j2 && \
     make DESTDIR=/install install-strip
 
-FROM alpine:3.24
+FROM alpine:3.24@sha256:294b683cb724975bec92580e1e685676bd4b50bda910ddb8c51d4cabeaec77e6
 ARG SQUID_VERSION=7.6
 
 # Install Squid and supporting tools needed by runtime health checks and diagnostics.

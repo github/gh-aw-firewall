@@ -29,7 +29,7 @@ RUN wget -q "https://github.com/cli/cli/archive/refs/tags/v${GH_VERSION}.tar.gz"
     && /tmp/cli-${GH_VERSION}/bin/gh --version
 
 # Pin to a specific alpine version so the curl constraint below is stable.
-FROM node:22.23.2-alpine3.24
+FROM node:22.23.2-alpine3.24@sha256:b6f26b36c8ff49624cfdac716b8ea1138d606df02586a77d364bb5536a634f85
 
 # Install system packages.
 # Pin curl >= 8.21.0-r0 to fix CVE-2026-8924/8925/8926/8927/9079/10536/11564/11856

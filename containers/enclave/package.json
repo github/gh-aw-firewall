@@ -1,0 +1,9 @@
+{
+  "name": "@github/awf-enclave-agent-tools",
+  "version": "1.0.0",
+  "private": true,
+  "dependencies": {
+    "@github/copilot": "1.0.77",
+    "adm-zip": "0.6.1"
+  }
+}

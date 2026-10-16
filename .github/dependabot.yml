@@ -39,6 +39,86 @@ updates:
   schedule:
     day: monday
     interval: weekly
+- directory: /containers/gh-aw-node
+  groups:
+    all-docker-gh-aw-node:
+      patterns:
+      - "*"
+  open-pull-requests-limit: 1
+  package-ecosystem: docker
+  schedule:
+    day: monday
+    interval: weekly
+- directory: /containers/enclave
+  groups:
+    all-docker-enclave:
+      patterns:
+      - "*"
+  open-pull-requests-limit: 1
+  package-ecosystem: docker
+  schedule:
+    day: monday
+    interval: weekly
+- directory: /containers/dind-ubuntu
+  groups:
+    all-docker-dind-ubuntu:
+      patterns:
+      - "*"
+  open-pull-requests-limit: 1
+  package-ecosystem: docker
+  schedule:
+    day: monday
+    interval: weekly
+- directory: /containers/cli-proxy
+  groups:
+    all-docker-cli-proxy:
+      patterns:
+      - "*"
+  open-pull-requests-limit: 1
+  package-ecosystem: docker
+  schedule:
+    day: monday
+    interval: weekly
+- directory: /containers/build-tools
+  groups:
+    all-docker-build-tools:
+      patterns:
+      - "*"
+  open-pull-requests-limit: 1
+  package-ecosystem: docker
+  schedule:
+    day: monday
+    interval: weekly
+- directory: /containers/api-proxy
+  groups:
+    all-docker-api-proxy:
+      patterns:
+      - "*"
+  open-pull-requests-limit: 1
+  package-ecosystem: docker
+  schedule:
+    day: monday
+    interval: weekly
+- directory: /containers/enclave
+  groups:
+    all-npm-enclave-tools:
+      patterns:
+      - "*"
+  open-pull-requests-limit: 1
+  package-ecosystem: npm
+  schedule:
+    day: monday
+    interval: weekly
+- directory: /scripts/ci/copilot-cli
+  groups:
+    all-npm-copilot-cli:
+      patterns:
+      - "*"
+  open-pull-requests-limit: 1
+  package-ecosystem: npm
+  schedule:
+    day: monday
+    interval: weekly
 - directory: /containers/router
   groups:
     all-uv-router:

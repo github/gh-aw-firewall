@@ -1,6 +1,6 @@
 # AWF enclave images. Build context: containers/.
 
-FROM python:3.14.8-alpine3.24 AS enclave-script
+FROM python:3.14.8-alpine3.24@sha256:f6a589d43c42b9e7f7dc67a12d37132491f362859a5d750607710cc56da3bc72 AS enclave-script
 
 RUN apk upgrade --no-cache \
     && python3 -c 'import json, pathlib, sys; sys.exit(0)' \
@@ -10,20 +10,24 @@ COPY enclave/script-entrypoint.py /usr/local/bin/run-enclave-script
 RUN chmod 0555 /usr/local/bin/run-enclave-script \
     && mkdir -p /script /awf/seed
 
-FROM node:24.18.1-trixie-slim AS enclave-agent-build
+FROM node:24.18.1-trixie-slim@sha256:ac39e4b5fcb2b1b34b20364fd58b2e898f3bb80731ee6f62a7536f9df3d6aadc AS enclave-agent-build
 
 ARG COPILOT_CLI_VERSION=1.0.77
 ARG NPM_CONFIG_REGISTRY=https://registry.npmjs.org/
-RUN npm_config_ignore_scripts=false npm install -g "@github/copilot@${COPILOT_CLI_VERSION}" \
-    && npm_config_ignore_scripts=true npm install \
-         --prefix /usr/local/lib/node_modules/@github/copilot \
-         --omit=dev adm-zip@0.6.1 \
+COPY enclave/package*.json /tmp/copilot-cli/
+RUN npm_config_ignore_scripts=false npm ci --prefix /tmp/copilot-cli --install-strategy=nested \
+    && mkdir -p /usr/local/lib/node_modules/@github/copilot \
+    && cp -a /tmp/copilot-cli/node_modules/@github/copilot/. /usr/local/lib/node_modules/@github/copilot/ \
+    && mkdir -p /usr/local/lib/node_modules/@github/copilot/node_modules \
+    && cp -a /tmp/copilot-cli/node_modules/. /usr/local/lib/node_modules/@github/copilot/node_modules/ \
+    && rm -rf /usr/local/lib/node_modules/@github/copilot/node_modules/@github/copilot \
+    && ln -s ../lib/node_modules/@github/copilot/npm-loader.js /usr/local/bin/copilot \
     && find /usr/local/lib/node_modules/@github/copilot \
          -path '*/foundry-local-sdk/node_modules/adm-zip' -prune -type d \
          -exec sh -c 'rm -rf "$1" && cp -a /usr/local/lib/node_modules/@github/copilot/node_modules/adm-zip "$1"' sh {} \; \
     && copilot --version | grep -q "GitHub Copilot CLI ${COPILOT_CLI_VERSION}"
 
-FROM ubuntu:26.04 AS enclave-agent
+FROM ubuntu:26.04@sha256:f144425ff09be612d6d9ad965196e9cdc23dae1f42110a8a11a3e9a8198759f7 AS enclave-agent
 
 ARG COPILOT_CLI_VERSION=1.0.77
 RUN apt-get update \
@@ -47,7 +51,7 @@ RUN chmod 0555 /usr/local/bin/run-enclave-agent \
     && mkdir -p /agent /awf/seed /run/awf-enclave-github \
     && ! command -v gh
 
-FROM node:22.23.2-alpine3.24 AS enclave-mcp-server
+FROM node:22.23.2-alpine3.24@sha256:b6f26b36c8ff49624cfdac716b8ea1138d606df02586a77d364bb5536a634f85 AS enclave-mcp-server
 
 ARG AWF_SOURCE_REVISION=unavailable
 

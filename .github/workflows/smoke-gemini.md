@@ -15,7 +15,9 @@ permissions:
   issues: read
   actions: read
 name: Smoke Gemini
-engine: gemini
+engine:
+  id: gemini
+  version: "0.64.0"
 network:
   allowed:
     - defaults

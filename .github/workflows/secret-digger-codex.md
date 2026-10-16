@@ -8,7 +8,9 @@ permissions:
   actions: read
   issues: read
   pull-requests: read
-engine: codex
+engine:
+  id: codex
+  version: "0.163.0"
 imports:
   - shared/secret-audit.md
   - shared/version-reporting.md

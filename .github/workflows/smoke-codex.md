@@ -18,6 +18,7 @@ name: Smoke Codex
 model: gpt-5.4
 engine:
   id: codex
+  version: "0.163.0"
 strict: false
 jobs:
   verify_token_usage:

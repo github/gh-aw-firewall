@@ -16,6 +16,7 @@ name: Smoke Cloud Hypervisor Codex
 model: gpt-5.4
 engine:
   id: codex
+  version: "0.163.0"
 network:
   allowed:
     - defaults

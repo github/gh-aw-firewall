@@ -68,6 +68,7 @@
     "@types/node": "^26.5.0",
     "@typescript-eslint/eslint-plugin": "8.69.0",
     "@typescript-eslint/parser": "8.69.0",
+    "@yao-pkg/pkg": "6.23.0",
     "babel-jest": "^30.5.1",
     "esbuild": "^0.28.1",
     "eslint": "10.10.0",

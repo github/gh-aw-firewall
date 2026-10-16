@@ -19,7 +19,7 @@
 #
 #   curl >= 8.21.0-r0 (CVE-2026-8924/8925/8926/8927/9079/10536/11564/11856):
 #     resolved by pinning the apk constraint below.
-FROM node:22.23.2-alpine3.24
+FROM node:22.23.2-alpine3.24@sha256:b6f26b36c8ff49624cfdac716b8ea1138d606df02586a77d364bb5536a634f85
 
 # Install curl for healthchecks and the npm tarball download below.
 # Pin >= 8.21.0-r0 to fix CVE-2026-8924/8925/8926/8927/9079/10536/11564/11856
