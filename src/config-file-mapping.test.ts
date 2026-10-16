@@ -234,10 +234,9 @@ describe('mapAwfFileConfigToCliOptions', () => {
     expect(mapAwfFileConfigToCliOptions({}).experimentalModelRouting).toBeUndefined();
   });
 
-  it('maps effective-token guard fields', () => {
+  it('maps AI-credit and model multiplier settings', () => {
     const result = mapAwfFileConfigToCliOptions({
       apiProxy: {
-        maxEffectiveTokens: 6000,
         maxAiCredits: 1.2,
         providers: {
           anthropic: {
@@ -254,7 +253,6 @@ describe('mapAwfFileConfigToCliOptions', () => {
         enableTokenSteering: true,
       },
     });
-    expect(result.maxEffectiveTokens).toBe(6000);
     expect(result.maxAiCredits).toBe(1.2);
     expect(result.apiProxyProviders).toEqual({
       anthropic: {
@@ -263,11 +261,11 @@ describe('mapAwfFileConfigToCliOptions', () => {
         },
       },
     });
-    expect(result.effectiveTokenModelMultipliers).toEqual({
+    expect(result.modelMultipliers).toEqual({
       'gpt-4o': 2,
       'claude-sonnet-4': 1.5,
     });
-    expect(result.effectiveTokenDefaultModelMultiplier).toBe(27);
+    expect(result.defaultModelMultiplier).toBe(27);
     expect(result.enableTokenSteering).toBe(true);
   });
 

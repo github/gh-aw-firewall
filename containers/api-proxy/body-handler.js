@@ -24,10 +24,6 @@ const { sanitizeNullToolCallTypes, injectSteeringMessage, injectStreamOptions } 
 const { sanitizeForLog, logRequest } = require('./logging');
 const metrics = require('./metrics');
 const {
-  getPendingSteeringWarning,
-  acknowledgeSteeringWarning,
-} = require('./guards/effective-token-guard');
-const {
   getPendingTimeoutSteeringWarning,
   acknowledgeTimeoutSteeringWarning,
 } = require('./guards/timeout-steering');
@@ -267,12 +263,6 @@ function createBodyHandler({ handleRequestError, otel }) {
           priority: 2,
           warning: getPendingAiCreditSteeringWarning(),
           acknowledge: acknowledgeAiCreditSteeringWarning,
-        },
-        {
-          type: 'token',
-          priority: 1,
-          warning: getPendingSteeringWarning(),
-          acknowledge: acknowledgeSteeringWarning,
         },
       ];
       const nextWarning = steeringMessages

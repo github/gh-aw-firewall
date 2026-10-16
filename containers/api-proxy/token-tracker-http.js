@@ -329,7 +329,7 @@ function buildAndWriteTokenRecord(normalized, { requestId, provider, model, reqP
   // chain switched away from the requested model.
   if (modelFallback) record.model_fallback = modelFallback;
 
-  // Include effective token and AI credit budget fields when computed
+  // Include AI credit budget fields when computed
   mergeBudgetFields(record, budgetResult);
 
   // Write to JSONL log file

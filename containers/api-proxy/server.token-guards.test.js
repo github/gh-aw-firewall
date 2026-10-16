@@ -1,6 +1,6 @@
 /**
  * Tests for proxyRequest token and permission guard behavior, including
- * effective-token, max-runs, max-cache-misses, AI-credits, and
+ * max-runs, max-cache-misses, AI-credits, and
  * permission-denied enforcement paths.
  *
  * Extracted from server.proxy.test.js.
@@ -19,7 +19,6 @@ const {
 } = require('./test-helpers/server-mock-factories');
 
 let proxyRequest;
-let resetEffectiveTokenGuardForTests;
 let resetMaxRunsGuardForTests;
 let resetMaxCacheMissesGuardForTests;
 let resetPermissionDeniedGuardForTests;
@@ -29,66 +28,22 @@ let resetAiCreditsGuardForTests;
 setupServerTestEnv(() => {
   ({ proxyRequest } = require('./server'));
   ({
-    resetEffectiveTokenGuardForTests,
     resetMaxRunsGuardForTests,
     resetMaxCacheMissesGuardForTests,
     resetPermissionDeniedGuardForTests,
     resetMaxModelMultiplierGuardForTests,
     resetAiCreditsGuardForTests,
   } = require('./proxy-request'));
-  return { proxyRequest, resetEffectiveTokenGuardForTests, resetMaxRunsGuardForTests, resetMaxCacheMissesGuardForTests, resetPermissionDeniedGuardForTests, resetMaxModelMultiplierGuardForTests, resetAiCreditsGuardForTests };
+  return { proxyRequest, resetMaxRunsGuardForTests, resetMaxCacheMissesGuardForTests, resetPermissionDeniedGuardForTests, resetMaxModelMultiplierGuardForTests, resetAiCreditsGuardForTests };
 });
 
-describe('proxyRequest effective token guard', () => {
+describe('proxyRequest AI credit guard', () => {
   function makeReq(headers = {}) {
     return makeReqFactory('/v1/chat/completions', headers);
   }
 
-  beforeEach(() => {
-    // Keep the cap small so one tiny mocked usage payload deterministically exceeds it.
-    // Environment variables are strings; parser converts this to Number(10).
-    process.env.AWF_MAX_EFFECTIVE_TOKENS = '10';
-    delete process.env.AWF_EFFECTIVE_TOKEN_MODEL_MULTIPLIERS;
-    resetEffectiveTokenGuardForTests();
-    resetAiCreditsGuardForTests();
-  });
-
   afterEach(() => {
-    delete process.env.AWF_MAX_EFFECTIVE_TOKENS;
-    delete process.env.AWF_EFFECTIVE_TOKEN_MODEL_MULTIPLIERS;
-    resetEffectiveTokenGuardForTests();
-    resetAiCreditsGuardForTests();
     jest.restoreAllMocks();
-  });
-
-  it('returns 403 with structured payload when effective token limit is reached', async () => {
-    const cycle = createMockUpstreamCycle(https);
-
-    const req1 = makeReq();
-    const res1 = makeRes();
-    proxyRequest(req1, res1, 'api.openai.com', { Authorization: '******' }, 'openai');
-    req1.emit('end');
-    await flushPromises();
-
-    completeUpstreamResponse(cycle.responseHandler, {
-      statusCode: 200,
-      body: { model: 'gpt-4o', usage: { prompt_tokens: 2, completion_tokens: 3 } },
-    });
-
-    const req2 = makeReq();
-    const res2 = makeRes();
-    proxyRequest(req2, res2, 'api.openai.com', { Authorization: '******' }, 'openai');
-    req2.emit('end');
-    await flushPromises();
-
-    expect(cycle.spy).toHaveBeenCalledTimes(1);
-    expect(res2.writeHead).toHaveBeenCalledWith(403, expect.objectContaining({
-      'Content-Type': 'application/json',
-    }));
-    const payload = JSON.parse(res2.end.mock.calls[0][0]);
-    expect(payload.error.type).toBe('effective_tokens_limit_exceeded');
-    expect(payload.error.max_effective_tokens).toBe(10);
-    expect(payload.error.total_effective_tokens).toBeGreaterThanOrEqual(10);
   });
 
   it('logs ai credits for each response usage update', async () => {
@@ -114,8 +69,6 @@ describe('proxyRequest effective token guard', () => {
       }),
     ]));
     expect(process.env.AWF_AI_CREDITS_USED).toBe('0.125');
-
-    writeSpy.mockRestore();
   });
 });
 
@@ -315,14 +268,11 @@ describe('proxyRequest max-ai-credits guard', () => {
 
   beforeEach(() => {
     process.env.AWF_MAX_AI_CREDITS = '0.1';
-    delete process.env.AWF_MAX_EFFECTIVE_TOKENS;
-    resetEffectiveTokenGuardForTests();
     resetAiCreditsGuardForTests();
   });
 
   afterEach(() => {
     delete process.env.AWF_MAX_AI_CREDITS;
-    resetEffectiveTokenGuardForTests();
     resetAiCreditsGuardForTests();
     jest.restoreAllMocks();
   });
@@ -473,7 +423,7 @@ describe('proxyRequest max-model-multiplier guard', () => {
 
   beforeEach(() => {
     process.env.AWF_MAX_MODEL_MULTIPLIER = '5';
-    process.env.AWF_EFFECTIVE_TOKEN_MODEL_MULTIPLIERS = JSON.stringify({
+    process.env.AWF_MODEL_MULTIPLIERS = JSON.stringify({
       'claude-opus-4.7': 27,
       'gpt-4o': 2,
     });
@@ -482,7 +432,7 @@ describe('proxyRequest max-model-multiplier guard', () => {
 
   afterEach(() => {
     delete process.env.AWF_MAX_MODEL_MULTIPLIER;
-    delete process.env.AWF_EFFECTIVE_TOKEN_MODEL_MULTIPLIERS;
+    delete process.env.AWF_MODEL_MULTIPLIERS;
     resetMaxModelMultiplierGuardForTests();
     jest.restoreAllMocks();
   });

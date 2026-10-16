@@ -78,10 +78,9 @@ interface BuildConfigInputs {
   modelAliases: Record<string, string[]> | undefined;
   allowedModels: string[] | undefined;
   disallowedModels: string[] | undefined;
-  maxEffectiveTokens: number | undefined;
   maxAiCredits: number | undefined;
-  effectiveTokenModelMultipliers: Record<string, number> | undefined;
-  effectiveTokenDefaultModelMultiplier: number | undefined;
+  modelMultipliers: Record<string, number> | undefined;
+  defaultModelMultiplier: number | undefined;
   maxModelMultiplierCap?: number;
   maxRuns: number | undefined;
   maxPermissionDenied: number | undefined;
@@ -119,10 +118,9 @@ export function buildConfig(inputs: BuildConfigInputs): WrapperConfig {
     modelAliases,
     allowedModels,
     disallowedModels,
-    maxEffectiveTokens,
     maxAiCredits,
-    effectiveTokenModelMultipliers,
-    effectiveTokenDefaultModelMultiplier,
+    modelMultipliers,
+    defaultModelMultiplier,
     maxModelMultiplierCap,
     maxRuns,
     maxPermissionDenied,
@@ -204,13 +202,12 @@ export function buildConfig(inputs: BuildConfigInputs): WrapperConfig {
     modelAliases,
     allowedModels,
     disallowedModels,
-    maxEffectiveTokens,
     maxAiCredits,
     defaultAiCreditsPricing: options.defaultAiCreditsPricing as WrapperConfig['defaultAiCreditsPricing'],
     apiProxyProviders: options.apiProxyProviders as WrapperConfig['apiProxyProviders'],
     modelPricingCatalog: options.modelPricingCatalog as WrapperConfig['modelPricingCatalog'],
-    effectiveTokenModelMultipliers,
-    effectiveTokenDefaultModelMultiplier,
+    modelMultipliers,
+    defaultModelMultiplier,
     maxModelMultiplierCap,
     maxRuns,
     maxPermissionDenied,

@@ -1,11 +1,10 @@
 'use strict';
 
-const { applyEffectiveTokenUsage } = require('./guards/effective-token-guard');
 const { applyAiCreditsUsage } = require('./guards/ai-credits-guard');
 const { applyMaxCacheMissesUsage } = require('./guards/max-cache-misses-guard');
 
 /**
- * Apply effective-token and AI-credits usage guards, emit a token_budget_usage
+ * Apply the AI-credits usage guard, emit a token_budget_usage
  * log entry when AI credits are consumed, and return the budget fields to be
  * persisted in the token-usage JSONL record.
  *
@@ -18,7 +17,6 @@ const { applyMaxCacheMissesUsage } = require('./guards/max-cache-misses-guard');
  * @returns {object|undefined} Budget fields for JSONL persistence, or undefined if neither guard is active.
  */
 function computeTokenBudgetUsage({ logRequest, requestId, provider, purpose }, normalizedUsage, model) {
-  const effectiveTokenUsage = applyEffectiveTokenUsage(normalizedUsage, model);
   const aiCreditsUsage = applyAiCreditsUsage(normalizedUsage, model, provider);
   if (purpose !== 'routing_classification') applyMaxCacheMissesUsage(normalizedUsage);
   if (aiCreditsUsage) {
@@ -41,11 +39,6 @@ function computeTokenBudgetUsage({ logRequest, requestId, provider, purpose }, n
     });
   }
   const budgetFields = {};
-  if (effectiveTokenUsage) {
-    budgetFields.effective_tokens_this_response = effectiveTokenUsage.effectiveTokensThisResponse;
-    budgetFields.effective_tokens_total = effectiveTokenUsage.totalEffectiveTokens;
-    budgetFields.model_multiplier = effectiveTokenUsage.modelMultiplier;
-  }
   if (aiCreditsUsage) {
     budgetFields.ai_credits_this_response = aiCreditsUsage.aiCreditsThisResponse;
     budgetFields.ai_credits_total = aiCreditsUsage.totalAiCredits;

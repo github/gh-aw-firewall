@@ -10,15 +10,15 @@ const { PROVIDER_COPILOT, PROVIDER_OPENAI } = require('../provider-names');
 describe('max-model-multiplier-guard', () => {
   beforeEach(() => {
     delete process.env.AWF_MAX_MODEL_MULTIPLIER;
-    delete process.env.AWF_EFFECTIVE_TOKEN_MODEL_MULTIPLIERS;
-    delete process.env.AWF_EFFECTIVE_TOKEN_DEFAULT_MODEL_MULTIPLIER;
+    delete process.env.AWF_MODEL_MULTIPLIERS;
+    delete process.env.AWF_DEFAULT_MODEL_MULTIPLIER;
     resetMaxModelMultiplierGuardForTests();
   });
 
   afterEach(() => {
     delete process.env.AWF_MAX_MODEL_MULTIPLIER;
-    delete process.env.AWF_EFFECTIVE_TOKEN_MODEL_MULTIPLIERS;
-    delete process.env.AWF_EFFECTIVE_TOKEN_DEFAULT_MODEL_MULTIPLIER;
+    delete process.env.AWF_MODEL_MULTIPLIERS;
+    delete process.env.AWF_DEFAULT_MODEL_MULTIPLIER;
     resetMaxModelMultiplierGuardForTests();
   });
 
@@ -39,14 +39,14 @@ describe('max-model-multiplier-guard', () => {
 
     it('returns null when model multiplier equals the cap', () => {
       process.env.AWF_MAX_MODEL_MULTIPLIER = '4';
-      process.env.AWF_EFFECTIVE_TOKEN_MODEL_MULTIPLIERS = JSON.stringify({ 'gpt-4o': 4 });
+      process.env.AWF_MODEL_MULTIPLIERS = JSON.stringify({ 'gpt-4o': 4 });
 
       expect(getModelMultiplierCapBlockState('gpt-4o')).toBeNull();
     });
 
     it('returns block state when model multiplier exceeds the cap', () => {
       process.env.AWF_MAX_MODEL_MULTIPLIER = '4';
-      process.env.AWF_EFFECTIVE_TOKEN_MODEL_MULTIPLIERS = JSON.stringify({
+      process.env.AWF_MODEL_MULTIPLIERS = JSON.stringify({
         'claude-opus-4.7': 27,
         'gpt-4o': 2,
       });
@@ -60,7 +60,7 @@ describe('max-model-multiplier-guard', () => {
 
     it('returns null when model multiplier is below the cap', () => {
       process.env.AWF_MAX_MODEL_MULTIPLIER = '4';
-      process.env.AWF_EFFECTIVE_TOKEN_MODEL_MULTIPLIERS = JSON.stringify({
+      process.env.AWF_MODEL_MULTIPLIERS = JSON.stringify({
         'claude-opus-4.7': 27,
         'gpt-4o': 2,
       });
@@ -70,7 +70,7 @@ describe('max-model-multiplier-guard', () => {
 
     it('resolves multiplier via prefix match and blocks when exceeds cap', () => {
       process.env.AWF_MAX_MODEL_MULTIPLIER = '5';
-      process.env.AWF_EFFECTIVE_TOKEN_MODEL_MULTIPLIERS = JSON.stringify({
+      process.env.AWF_MODEL_MULTIPLIERS = JSON.stringify({
         'claude-opus-4.7': 27,
       });
 
@@ -81,7 +81,7 @@ describe('max-model-multiplier-guard', () => {
 
     it('returns null when model is unknown and default multiplier (1) is within cap', () => {
       process.env.AWF_MAX_MODEL_MULTIPLIER = '5';
-      process.env.AWF_EFFECTIVE_TOKEN_MODEL_MULTIPLIERS = JSON.stringify({ 'gpt-4o': 2 });
+      process.env.AWF_MODEL_MULTIPLIERS = JSON.stringify({ 'gpt-4o': 2 });
 
       expect(getModelMultiplierCapBlockState('unknown-model')).toBeNull();
     });
@@ -101,7 +101,7 @@ describe('max-model-multiplier-guard', () => {
 
     it('allows auto when its explicit multiplier is within the cap', () => {
       process.env.AWF_MAX_MODEL_MULTIPLIER = '5';
-      process.env.AWF_EFFECTIVE_TOKEN_MODEL_MULTIPLIERS = JSON.stringify({ auto: 5 });
+      process.env.AWF_MODEL_MULTIPLIERS = JSON.stringify({ auto: 5 });
 
       expect(getModelMultiplierCapBlockState('auto', PROVIDER_COPILOT)).toBeNull();
     });
@@ -114,8 +114,8 @@ describe('max-model-multiplier-guard', () => {
 
     it('blocks when configured default multiplier for unknown model exceeds cap', () => {
       process.env.AWF_MAX_MODEL_MULTIPLIER = '5';
-      process.env.AWF_EFFECTIVE_TOKEN_MODEL_MULTIPLIERS = JSON.stringify({ 'gpt-4o': 2 });
-      process.env.AWF_EFFECTIVE_TOKEN_DEFAULT_MODEL_MULTIPLIER = '10';
+      process.env.AWF_MODEL_MULTIPLIERS = JSON.stringify({ 'gpt-4o': 2 });
+      process.env.AWF_DEFAULT_MODEL_MULTIPLIER = '10';
 
       const state = getModelMultiplierCapBlockState('unknown-model');
       expect(state).not.toBeNull();
@@ -124,7 +124,7 @@ describe('max-model-multiplier-guard', () => {
 
     it('blocks unknown models when default multiplier exceeds cap', () => {
       process.env.AWF_MAX_MODEL_MULTIPLIER = '3';
-      process.env.AWF_EFFECTIVE_TOKEN_DEFAULT_MODEL_MULTIPLIER = '27';
+      process.env.AWF_DEFAULT_MODEL_MULTIPLIER = '27';
 
       const state = getModelMultiplierCapBlockState('any-model');
       expect(state).not.toBeNull();
@@ -133,7 +133,7 @@ describe('max-model-multiplier-guard', () => {
 
     it('caches config across calls with same env vars', () => {
       process.env.AWF_MAX_MODEL_MULTIPLIER = '1';
-      process.env.AWF_EFFECTIVE_TOKEN_MODEL_MULTIPLIERS = JSON.stringify({ 'gpt-4o': 2 });
+      process.env.AWF_MODEL_MULTIPLIERS = JSON.stringify({ 'gpt-4o': 2 });
 
       const state1 = getModelMultiplierCapBlockState('gpt-4o');
       const state2 = getModelMultiplierCapBlockState('gpt-4o');
@@ -143,19 +143,19 @@ describe('max-model-multiplier-guard', () => {
 
     it('invalidates cache when env vars change', () => {
       process.env.AWF_MAX_MODEL_MULTIPLIER = '1';
-      process.env.AWF_EFFECTIVE_TOKEN_MODEL_MULTIPLIERS = JSON.stringify({ 'gpt-4o': 2 });
+      process.env.AWF_MODEL_MULTIPLIERS = JSON.stringify({ 'gpt-4o': 2 });
       const state1 = getModelMultiplierCapBlockState('gpt-4o');
       expect(state1).not.toBeNull();
       expect(state1.multiplier).toBe(2);
 
-      process.env.AWF_EFFECTIVE_TOKEN_MODEL_MULTIPLIERS = JSON.stringify({ 'gpt-4o': 0.5 });
+      process.env.AWF_MODEL_MULTIPLIERS = JSON.stringify({ 'gpt-4o': 0.5 });
       resetMaxModelMultiplierGuardForTests();
       expect(getModelMultiplierCapBlockState('gpt-4o')).toBeNull(); // 0.5 <= 1 cap
     });
 
     it('uses longest prefix match when multiple prefixes match', () => {
       process.env.AWF_MAX_MODEL_MULTIPLIER = '10';
-      process.env.AWF_EFFECTIVE_TOKEN_MODEL_MULTIPLIERS = JSON.stringify({
+      process.env.AWF_MODEL_MULTIPLIERS = JSON.stringify({
         'claude-opus': 20,
         'claude-opus-4.7': 27,
       });
@@ -185,7 +185,7 @@ describe('max-model-multiplier-guard', () => {
   describe('resetMaxModelMultiplierGuardForTests', () => {
     it('clears cached config so new env vars take effect', () => {
       process.env.AWF_MAX_MODEL_MULTIPLIER = '5';
-      process.env.AWF_EFFECTIVE_TOKEN_MODEL_MULTIPLIERS = JSON.stringify({ 'gpt-4o': 10 });
+      process.env.AWF_MODEL_MULTIPLIERS = JSON.stringify({ 'gpt-4o': 10 });
       getModelMultiplierCapBlockState('gpt-4o'); // populate cache
 
       // Reset and change env

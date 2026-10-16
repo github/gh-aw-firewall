@@ -14,10 +14,6 @@ const { logRequest, sanitizeForLog } = require('./logging');
 const { writeBlockedRequestDiag } = require('./blocked-request-diagnostics');
 const { buildCommonGuardChecks } = require('./guards/common-guard-checks');
 const {
-  getEffectiveTokenBlockState,
-  buildEffectiveTokenLimitError,
-} = require('./guards/effective-token-guard');
-const {
   getMaxRunsBlockState,
   buildMaxRunsExceededError,
 } = require('./guards/max-runs-guard');
@@ -155,8 +151,6 @@ function sendGuardBlockedResponse(block, {
  */
 function getCurrentGuardChecks(model, provider) {
   return buildCommonGuardChecks({
-    getEffectiveTokenBlockState,
-    buildEffectiveTokenLimitError,
     getMaxRunsBlockState,
     buildMaxRunsExceededError,
     getMaxCacheMissesBlockState,

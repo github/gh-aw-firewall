@@ -404,9 +404,6 @@ describe('token-usage JSONL record schema field', () => {
       startTime: Date.now(),
       metrics: null,
       onUsage: () => ({
-        effective_tokens_this_response: 40,
-        effective_tokens_total: 140,
-        model_multiplier: 2,
         ai_credits_this_response: 0.01,
         ai_credits_total: 0.05,
         ai_credits_pricing_catalog_id: 'github/gh-aw/model-pricing',
@@ -426,9 +423,6 @@ describe('token-usage JSONL record schema field', () => {
       const parsed = usageRecords[0];
       expect(parsed).toMatchObject({
         request_id: 'budget-fields-http',
-        effective_tokens_this_response: 40,
-        effective_tokens_total: 140,
-        model_multiplier: 2,
         ai_credits_this_response: 0.01,
         ai_credits_total: 0.05,
         ai_credits_pricing_catalog_id: 'github/gh-aw/model-pricing',
@@ -463,9 +457,6 @@ describe('token-usage JSONL record schema field', () => {
       const usageRecords = mockStream.writtenRecords.filter(r => r._schema);
       expect(usageRecords).toHaveLength(1);
       const parsed = usageRecords[0];
-      expect(parsed.effective_tokens_this_response).toBeUndefined();
-      expect(parsed.effective_tokens_total).toBeUndefined();
-      expect(parsed.model_multiplier).toBeUndefined();
       expect(parsed.ai_credits_this_response).toBeUndefined();
       expect(parsed.ai_credits_total).toBeUndefined();
       expect(parsed.ai_credits_pricing_catalog_id).toBeUndefined();
@@ -484,9 +475,6 @@ describe('token-usage JSONL record schema field', () => {
       startTime: Date.now(),
       metrics: null,
       onUsage: () => ({
-        effective_tokens_this_response: 112,
-        effective_tokens_total: 224,
-        model_multiplier: 4,
         ai_credits_this_response: 0.02,
         ai_credits_total: 0.08,
         ai_credits_pricing_catalog_id: 'github/gh-aw/model-pricing',
@@ -503,9 +491,6 @@ describe('token-usage JSONL record schema field', () => {
       const parsed = usageRecords[0];
       expect(parsed).toMatchObject({
         request_id: 'budget-fields-ws',
-        effective_tokens_this_response: 112,
-        effective_tokens_total: 224,
-        model_multiplier: 4,
         ai_credits_this_response: 0.02,
         ai_credits_total: 0.08,
         ai_credits_pricing_catalog_id: 'github/gh-aw/model-pricing',
@@ -535,9 +520,6 @@ describe('token-usage JSONL record schema field', () => {
       const usageRecords = mockStream.writtenRecords.filter(r => r._schema);
       expect(usageRecords).toHaveLength(1);
       const parsed = usageRecords[0];
-      expect(parsed.effective_tokens_this_response).toBeUndefined();
-      expect(parsed.effective_tokens_total).toBeUndefined();
-      expect(parsed.model_multiplier).toBeUndefined();
       expect(parsed.ai_credits_this_response).toBeUndefined();
       expect(parsed.ai_credits_total).toBeUndefined();
       expect(parsed.ai_credits_pricing_catalog_id).toBeUndefined();

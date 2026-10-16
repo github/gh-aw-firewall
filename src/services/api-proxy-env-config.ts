@@ -210,7 +210,7 @@ function buildOtelEnv(): Record<string, string> {
 
 /**
  * Builds rate limiting and token guard environment variables.
- * Controls request rates, effective token budgets, run limits, and agent timeout.
+ * Controls request rates, AI-credit budgets, run limits, and agent timeout.
  */
 function buildRateLimitEnv(config: WrapperConfig): Record<string, string> {
   return {
@@ -220,9 +220,6 @@ function buildRateLimitEnv(config: WrapperConfig): Record<string, string> {
       AWF_RATE_LIMIT_RPM: String(config.rateLimitConfig.rpm),
       AWF_RATE_LIMIT_RPH: String(config.rateLimitConfig.rph),
       AWF_RATE_LIMIT_BYTES_PM: String(config.rateLimitConfig.bytesPm),
-    }),
-    ...(config.maxEffectiveTokens !== undefined && {
-      AWF_MAX_EFFECTIVE_TOKENS: String(config.maxEffectiveTokens),
     }),
     ...(config.maxAiCredits !== undefined && {
       AWF_MAX_AI_CREDITS: String(config.maxAiCredits),
@@ -236,11 +233,11 @@ function buildRateLimitEnv(config: WrapperConfig): Record<string, string> {
     ...(config.modelPricingCatalog && {
       AWF_MODEL_PRICING_CATALOG: JSON.stringify(config.modelPricingCatalog),
     }),
-    ...(config.effectiveTokenModelMultipliers && {
-      AWF_EFFECTIVE_TOKEN_MODEL_MULTIPLIERS: JSON.stringify(config.effectiveTokenModelMultipliers),
+    ...(config.modelMultipliers && {
+      AWF_MODEL_MULTIPLIERS: JSON.stringify(config.modelMultipliers),
     }),
-    ...(config.effectiveTokenDefaultModelMultiplier !== undefined && {
-      AWF_EFFECTIVE_TOKEN_DEFAULT_MODEL_MULTIPLIER: String(config.effectiveTokenDefaultModelMultiplier),
+    ...(config.defaultModelMultiplier !== undefined && {
+      AWF_DEFAULT_MODEL_MULTIPLIER: String(config.defaultModelMultiplier),
     }),
     ...(config.maxModelMultiplierCap !== undefined && {
       AWF_MAX_MODEL_MULTIPLIER: String(config.maxModelMultiplierCap),

@@ -171,10 +171,9 @@ describe('validateAwfFileConfig', () => {
     expect(errors).toContain('config.apiProxy.anthropicCacheTailTtl must be one of: 5m, 1h');
   });
 
-  it('validates effective-token guard fields in apiProxy', () => {
+  it('validates AI-credit and model multiplier fields in apiProxy', () => {
     expect(validateAwfFileConfig({
       apiProxy: {
-        maxEffectiveTokens: 5000,
         maxAiCredits: 1.5,
         modelMultipliers: { 'gpt-4o': 2, 'claude-sonnet-4': 1.5 },
         defaultModelMultiplier: 27,
@@ -182,8 +181,7 @@ describe('validateAwfFileConfig', () => {
       },
     })).toEqual([]);
 
-    expect(validateAwfFileConfig({ apiProxy: { maxEffectiveTokens: 0 } }))
-      .toContain('config.apiProxy.maxEffectiveTokens must be a positive integer');
+    expect(validateAwfFileConfig({ apiProxy: { maxEffectiveTokens: 0 } })).not.toEqual([]);
     expect(validateAwfFileConfig({ apiProxy: { maxAiCredits: 0 } }))
       .toContain('config.apiProxy.maxAiCredits must be > 0');
     expect(validateAwfFileConfig({ apiProxy: { modelMultipliers: { 'gpt-4o': 0 } } }))

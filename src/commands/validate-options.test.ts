@@ -70,10 +70,9 @@ const STUB_CONFIG = {
   anthropicAutoCache: false,
   anthropicCacheTailTtl: undefined,
   modelAliases: undefined,
-  maxEffectiveTokens: undefined,
   maxAiCredits: undefined,
-  effectiveTokenModelMultipliers: undefined,
-  effectiveTokenDefaultModelMultiplier: undefined,
+  modelMultipliers: undefined,
+  defaultModelMultiplier: undefined,
   maxRuns: undefined,
   maxPermissionDenied: undefined,
   maxCacheMisses: undefined,
@@ -213,16 +212,7 @@ describe('validateOptions', () => {
   // Numeric option validation
   // ---------------------------------------------------------------------------
 
-  describe('maxEffectiveTokens validation', () => {
-    it('exits when maxEffectiveTokens is not a positive integer', () => {
-      const consoleSpy = jest.spyOn(console, 'error').mockImplementation(() => undefined);
-      expect(() =>
-        validateOptions({ logLevel: 'info', maxEffectiveTokens: 'abc' }, 'echo hi'),
-      ).toThrow('process.exit called');
-      expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining('Invalid maxEffectiveTokens'));
-      consoleSpy.mockRestore();
-    });
-
+  describe('numeric option validation', () => {
     describe('maxAiCredits validation', () => {
       it('exits when maxAiCredits is not a positive number', () => {
         const consoleSpy = jest.spyOn(console, 'error').mockImplementation(() => undefined);
@@ -242,13 +232,6 @@ describe('validateOptions', () => {
       });
     });
 
-    it('exits when maxEffectiveTokens is zero', () => {
-      const consoleSpy = jest.spyOn(console, 'error').mockImplementation(() => undefined);
-      expect(() =>
-        validateOptions({ logLevel: 'info', maxEffectiveTokens: 0 }, 'echo hi'),
-      ).toThrow('process.exit called');
-      consoleSpy.mockRestore();
-    });
   });
 
   describe('maxRuns validation', () => {

@@ -18,10 +18,9 @@ export interface LogAndLimitsResult {
   modelAliases: Record<string, string[]> | undefined;
   allowedModels: string[] | undefined;
   disallowedModels: string[] | undefined;
-  maxEffectiveTokens: number | undefined;
   maxAiCredits: number | undefined;
-  effectiveTokenModelMultipliers: Record<string, number> | undefined;
-  effectiveTokenDefaultModelMultiplier: number | undefined;
+  modelMultipliers: Record<string, number> | undefined;
+  defaultModelMultiplier: number | undefined;
   maxModelMultiplierCap?: number;
   maxRuns: number | undefined;
   maxPermissionDenied: number | undefined;
@@ -38,10 +37,9 @@ type ModelMultiplierOptionsResult = Pick<
   | 'modelAliases'
   | 'allowedModels'
   | 'disallowedModels'
-  | 'maxEffectiveTokens'
   | 'maxAiCredits'
-  | 'effectiveTokenModelMultipliers'
-  | 'effectiveTokenDefaultModelMultiplier'
+  | 'modelMultipliers'
+  | 'defaultModelMultiplier'
   | 'maxModelMultiplierCap'
 >;
 
@@ -77,12 +75,10 @@ function validateModelMultiplierOptions(options: ValidatorOptions): ModelMultipl
   const modelAliases = options.modelAliases as Record<string, string[]> | undefined;
   const allowedModels = options.allowedModels as string[] | undefined;
   const disallowedModels = options.disallowedModels as string[] | undefined;
-  const maxEffectiveTokensOption = options.maxEffectiveTokens as string | number | undefined;
   const maxAiCreditsOption = options.maxAiCredits as string | number | undefined;
-  const effectiveTokenDefaultModelMultiplierOption = options
-    .effectiveTokenDefaultModelMultiplier as string | number | undefined;
+  const defaultModelMultiplierOption = options.defaultModelMultiplier as string | number | undefined;
   // Config-file multipliers (already a Record<string, number>)
-  const configFileMultipliers = options.effectiveTokenModelMultipliers as
+  const configFileMultipliers = options.modelMultipliers as
     | Record<string, number>
     | undefined;
   // CLI multipliers via --max-model-multiplier (model:multiplier,... format)
@@ -96,35 +92,27 @@ function validateModelMultiplierOptions(options: ValidatorOptions): ModelMultipl
     cliMultipliers = parsed.multipliers;
   }
 
-  const effectiveTokenModelMultipliers =
+  const modelMultipliers =
     configFileMultipliers || cliMultipliers
       ? { ...configFileMultipliers, ...cliMultipliers }
       : undefined;
-  const maxEffectiveTokens = parseOptionalNumber(maxEffectiveTokensOption);
   const maxAiCredits = parseOptionalNumber(maxAiCreditsOption);
-  const effectiveTokenDefaultModelMultiplier = parseOptionalNumber(
-    effectiveTokenDefaultModelMultiplierOption,
-  );
+  const defaultModelMultiplier = parseOptionalNumber(defaultModelMultiplierOption);
   const maxModelMultiplierCap = parseOptionalNumber(
     options.maxModelMultiplierCap as string | number | undefined,
   );
 
-  validatePositiveIntegerOption('maxEffectiveTokens', maxEffectiveTokens);
   validatePositiveNumberOption('maxAiCredits', maxAiCredits);
-  validatePositiveNumberOption(
-    'effectiveTokenDefaultModelMultiplier',
-    effectiveTokenDefaultModelMultiplier,
-  );
+  validatePositiveNumberOption('defaultModelMultiplier', defaultModelMultiplier);
   validatePositiveNumberOption('maxModelMultiplierCap', maxModelMultiplierCap);
 
   return {
     modelAliases,
     allowedModels,
     disallowedModels,
-    maxEffectiveTokens,
     maxAiCredits,
-    effectiveTokenModelMultipliers,
-    effectiveTokenDefaultModelMultiplier,
+    modelMultipliers,
+    defaultModelMultiplier,
     maxModelMultiplierCap,
   };
 }
@@ -153,7 +141,7 @@ function validateRunLimits(options: ValidatorOptions): RunLimitsResult {
  * Covers the following option groups:
  *  - `--log-level` / `logLevel`
  *  - `--anthropic-cache-tail-ttl`
- *  - `--max-effective-tokens`, `--max-ai-credits`, `--effective-token-default-model-multiplier`, `--max-model-multiplier`, `--max-model-multiplier-cap`
+ *  - `--max-ai-credits`, `apiProxy.defaultModelMultiplier`, `--max-model-multiplier`, `--max-model-multiplier-cap`
  *  - `--max-runs`, `--max-permission-denied`, `--max-cache-misses`
  *  - `--memory-limit`, `--pids-limit`, `--agent-image`, `--build-local`
  *

@@ -170,7 +170,6 @@ describe('getModelPolicyBlockState', () => {
     const { buildCommonGuardChecks } = require('./common-guard-checks');
     const deps = {
       ...guard,
-      getEffectiveTokenBlockState: () => null,
       getMaxRunsBlockState: () => null,
       getMaxCacheMissesBlockState: () => null,
       getPermissionDeniedBlockState: () => null,

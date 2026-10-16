@@ -400,7 +400,6 @@ describe('proxyWebSocket security guards', () => {
   let wsProxy;
   let applyMaxRunsInvocation, resetMaxRunsGuardForTests;
   let applyMaxCacheMissesUsage, resetMaxCacheMissesGuardForTests;
-  let applyEffectiveTokenUsage, resetEffectiveTokenGuardForTests;
   let applyPermissionDenied, resetPermissionDeniedGuardForTests;
   let applyAiCreditsUsage, resetAiCreditsGuardForTests;
   let resetMaxModelMultiplierGuardForTests;
@@ -410,7 +409,6 @@ describe('proxyWebSocket security guards', () => {
     wsProxy = require('./server').proxyWebSocket;
     ({ applyMaxRunsInvocation, resetMaxRunsGuardForTests } = require('./guards/max-runs-guard'));
     ({ applyMaxCacheMissesUsage, resetMaxCacheMissesGuardForTests } = require('./guards/max-cache-misses-guard'));
-    ({ applyEffectiveTokenUsage, resetEffectiveTokenGuardForTests } = require('./guards/effective-token-guard'));
     ({ applyPermissionDenied, resetPermissionDeniedGuardForTests } = require('./guards/max-permission-denied-guard'));
     ({ applyAiCreditsUsage, resetAiCreditsGuardForTests } = require('./guards/ai-credits-guard'));
     ({ resetMaxModelMultiplierGuardForTests } = require('./guards/max-model-multiplier-guard'));
@@ -423,14 +421,11 @@ describe('proxyWebSocket security guards', () => {
   afterEach(() => {
     delete process.env.AWF_MAX_RUNS;
     delete process.env.AWF_MAX_CACHE_MISSES;
-    delete process.env.AWF_MAX_EFFECTIVE_TOKENS;
     delete process.env.AWF_MAX_PERMISSION_DENIED;
     delete process.env.AWF_MAX_AI_CREDITS;
     delete process.env.AWF_MAX_MODEL_MULTIPLIER;
-    delete process.env.AWF_EFFECTIVE_TOKEN_MODEL_MULTIPLIERS;
     resetMaxRunsGuardForTests();
     resetMaxCacheMissesGuardForTests();
-    resetEffectiveTokenGuardForTests();
     resetPermissionDeniedGuardForTests();
     resetAiCreditsGuardForTests();
     resetMaxModelMultiplierGuardForTests();
@@ -446,18 +441,6 @@ describe('proxyWebSocket security guards', () => {
 
     expect(socket.write).toHaveBeenCalledWith(expect.stringContaining('HTTP/1.1 429 Too Many Requests'));
     expect(socket.write).toHaveBeenCalledWith(expect.stringContaining('"max_runs_exceeded"'));
-    expect(socket.destroy).toHaveBeenCalled();
-  });
-
-  it('blocks with 403 when effective-token limit is exceeded', () => {
-    process.env.AWF_MAX_EFFECTIVE_TOKENS = '1';
-    applyEffectiveTokenUsage({ output_tokens: 5 }, 'gpt-4o'); // exceeds cap of 1
-
-    const socket = makeMockSocket();
-    wsProxy(makeUpgradeReq(), socket, Buffer.alloc(0), 'api.openai.com', {}, 'openai');
-
-    expect(socket.write).toHaveBeenCalledWith(expect.stringContaining('HTTP/1.1 403 Forbidden'));
-    expect(socket.write).toHaveBeenCalledWith(expect.stringContaining('"effective_tokens_limit_exceeded"'));
     expect(socket.destroy).toHaveBeenCalled();
   });
 

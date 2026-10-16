@@ -1,7 +1,6 @@
 'use strict';
 
 const { computeTokenBudgetUsage } = require('./token-budget-log');
-const { resetEffectiveTokenGuardForTests } = require('./guards/effective-token-guard');
 const { resetAiCreditsGuardForTests } = require('./guards/ai-credits-guard');
 const { resetModelPricingCatalogForTests } = require('./model-pricing-catalog');
 const { resetProviderPricingOverlaysForTests } = require('./provider-pricing-overlays');
@@ -14,11 +13,8 @@ describe('computeTokenBudgetUsage', () => {
   });
 
   afterEach(() => {
-    delete process.env.AWF_MAX_EFFECTIVE_TOKENS;
-    delete process.env.AWF_EFFECTIVE_TOKEN_MODEL_MULTIPLIERS;
     delete process.env.AWF_MAX_AI_CREDITS;
     delete process.env.AWF_MODEL_PRICING_CATALOG;
-    resetEffectiveTokenGuardForTests();
     resetAiCreditsGuardForTests();
     resetModelPricingCatalogForTests();
   });
@@ -30,22 +26,6 @@ describe('computeTokenBudgetUsage', () => {
       'brand-new-model-xyz',
     );
     expect(result).toBeUndefined();
-    expect(logRequest).not.toHaveBeenCalled();
-  });
-
-  it('returns effective token fields when effective token guard is active', () => {
-    process.env.AWF_MAX_EFFECTIVE_TOKENS = '1000';
-    const result = computeTokenBudgetUsage(
-      { logRequest, requestId: 'req-1', provider: 'openai' },
-      { input_tokens: 10, output_tokens: 5 },
-      'brand-new-model-xyz',
-    );
-    expect(result).toMatchObject({
-      effective_tokens_this_response: expect.any(Number),
-      effective_tokens_total: expect.any(Number),
-      model_multiplier: expect.any(Number),
-    });
-    // No AI credits → no token_budget_usage log
     expect(logRequest).not.toHaveBeenCalled();
   });
 
@@ -139,8 +119,7 @@ describe('computeTokenBudgetUsage', () => {
     }
   });
 
-  it('returns both effective token and AI credits fields when both guards are active', () => {
-    process.env.AWF_MAX_EFFECTIVE_TOKENS = '100000';
+  it('returns AI credits fields when the AI credits guard is active', () => {
     process.env.AWF_MAX_AI_CREDITS = '100';
     const result = computeTokenBudgetUsage(
       { logRequest, requestId: 'req-5', provider: 'openai' },
@@ -148,9 +127,6 @@ describe('computeTokenBudgetUsage', () => {
       'gpt-5-mini',
     );
     expect(result).toMatchObject({
-      effective_tokens_this_response: expect.any(Number),
-      effective_tokens_total: expect.any(Number),
-      model_multiplier: expect.any(Number),
       ai_credits_this_response: expect.any(Number),
       ai_credits_total: expect.any(Number),
     });

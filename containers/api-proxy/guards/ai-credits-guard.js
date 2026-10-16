@@ -8,7 +8,7 @@ const { resolveProviderPricingOverlay } = require('../provider-pricing-overlays'
 const { resolveModelPricingCatalog } = require('../model-pricing-catalog');
 const { parsePositiveNumber } = require('./guard-utils');
 const { PROVIDER_ANTHROPIC, PROVIDER_COPILOT } = require('../provider-names');
-const { ET_WARNING_THRESHOLDS } = require('./effective-token-guard');
+const { BUDGET_WARNING_THRESHOLDS } = require('./steering-thresholds');
 
 const TOKENS_PER_MILLION = 1_000_000;
 const DOLLARS_PER_CREDIT = 0.01;
@@ -87,7 +87,7 @@ function updateAiCreditSteeringThresholds() {
   }
 
   const percentUsed = (aiCreditsState.totalAiCredits / ceiling) * 100;
-  for (const threshold of ET_WARNING_THRESHOLDS) {
+  for (const threshold of BUDGET_WARNING_THRESHOLDS) {
     if (percentUsed >= threshold && !aiCreditsState.emittedThresholds.has(threshold)) {
       aiCreditsState.emittedThresholds.add(threshold);
       aiCreditsState.uninjectedThresholds.add(threshold);

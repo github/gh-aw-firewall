@@ -221,18 +221,17 @@ AWF settings MAY be supplied via config files, including stdin (`--config -`).
 - `network.topologyAttach[]` → `--topology-attach <name>` *(repeatable; requires `network.isolation: true`)*
 - `apiProxy.enabled` → `--enable-api-proxy` *([DEPRECATED] API proxy is always enabled; this flag is ignored)*
 - `apiProxy.caCert` → `--api-proxy-ca-cert <path>` *(mounts an additional CA certificate into the api-proxy sidecar and sets `NODE_EXTRA_CA_CERTS` for upstream TLS verification)*
-- `apiProxy.enableTokenSteering` → `--enable-token-steering` *(maps to `AWF_ENABLE_TOKEN_STEERING`; opts into runtime, effective-token, and AI-credit advisory warnings; omit or set to `false` to opt out)*
+- `apiProxy.enableTokenSteering` → `--enable-token-steering` *(maps to `AWF_ENABLE_TOKEN_STEERING`; opts into runtime and AI-credit advisory warnings; omit or set to `false` to opt out)*
 - `apiProxy.anthropicAutoCache` → `--anthropic-auto-cache`
 - `apiProxy.anthropicCacheTailTtl` → `--anthropic-cache-tail-ttl <5m|1h>`
 - `apiProxy.hostedWeb.claude` → *(config-only; maps to `AWF_CLAUDE_HOSTED_WEB_POLICY` — AWF-owned domain policy for Anthropic-hosted `web_search_*`/`web_fetch_*` server tools; see [§9.8 Claude Hosted Web Search and Fetch](#98-claude-hosted-web-search-and-fetch))*
 - `apiProxy.hostedWeb.codex` → *(config-only; maps to `AWF_CODEX_HOSTED_WEB_POLICY` — AWF-owned domain policy for OpenAI Responses `web_search` and Codex `/v1/alpha/search`; see [§9.9 Codex/OpenAI Hosted Web Policy](#99-codexopenai-hosted-web-policy))*
-- `apiProxy.maxEffectiveTokens` → *(config-only; no CLI equivalent)*
 - `apiProxy.maxAiCredits` → *(config-only; maps to `AWF_MAX_AI_CREDITS`)*
 - `apiProxy.defaultAiCreditsPricing` → *(config-only; maps to `AWF_DEFAULT_AI_CREDITS_PRICING`)*
 - `apiProxy.modelPricingCatalog` → *(config-only; maps to `AWF_MODEL_PRICING_CATALOG` — versioned, provider-scoped model prices; see the AI credits pricing section)*
 - `apiProxy.providers` → *(config-only; maps to `AWF_API_PROXY_PROVIDERS`)*
 - `apiProxy.modelMultipliers` → `--max-model-multiplier <model:multiplier,...>`
-- `apiProxy.defaultModelMultiplier` → *(config-only; maps to `AWF_EFFECTIVE_TOKEN_DEFAULT_MODEL_MULTIPLIER`)*
+- `apiProxy.defaultModelMultiplier` → *(config-only; maps to `AWF_DEFAULT_MODEL_MULTIPLIER`)*
 - `apiProxy.maxTurns` → *(config-only; no CLI equivalent)*
 - `apiProxy.maxRuns` → *(deprecated alias for `maxTurns`; maps to `AWF_MAX_RUNS`)*
 - `apiProxy.maxModelMultiplierCap` → `--max-model-multiplier-cap <number>`
@@ -1134,107 +1133,9 @@ Compiler integrations only emit the stable config and pipe it to
 `awf --config - -- <command>`; they do not need to understand provider routes,
 body fields, tool versions, or internal environment variables.
 
-## 10. Effective Token Budget Enforcement
+## 10. AI Credit and Runtime Controls
 
-*This section is normative.*
-
-When `apiProxy.maxEffectiveTokens` is configured, the API proxy MUST enforce
-a cumulative effective-token budget across all LLM API requests in a single
-run. The budget limits total *weighted* token consumption, not raw token
-counts.
-
-### 10.1 Token Weighting
-
-Each upstream response's `usage` object is decomposed into four categories,
-each with a fixed weight:
-
-| Category | Weight | Usage field |
-|----------|--------|-------------|
-| Input | 1.0 | `input_tokens` / `prompt_tokens` |
-| Cache read | 0.1 | `cache_read_input_tokens` / `prompt_tokens_details.cached_tokens` |
-| Output | 4.0 | `output_tokens` / `completion_tokens` |
-| Reasoning | 4.0 | `reasoning_tokens` / `completion_tokens_details.reasoning_tokens` |
-
-The base weighted tokens for a single response are:
-
-```
-base = (1.0 × input) + (0.1 × cache_read) + (4.0 × output) + (4.0 × reasoning)
-```
-
-### 10.2 Model Multipliers
-
-When `apiProxy.modelMultipliers` is configured, each model name MAY have
-an associated positive multiplier. The effective tokens for a response are:
-
-```
-effective_tokens = model_multiplier × base_weighted_tokens
-```
-
-If no exact multiplier is configured, AWF MUST attempt to match
-`apiProxy.modelMultipliers` keys against the request model using a hyphen-suffix
-prefix match so family keys like `claude-opus-4.7` apply to concrete model IDs
-like `claude-opus-4.7-20260501`.
-
-If no exact or prefix match is found, and `apiProxy.defaultModelMultiplier` is
-configured, that default multiplier MUST be used.
-
-Otherwise, if no exact or prefix match is found, the multiplier MUST default to
-the highest configured model multiplier. If no model multipliers are configured
-at all, the multiplier defaults to `1`.
-
-When AWF falls back to the default multiplier because no configured model key
-matched, it MUST emit a warning log entry.
-
-### 10.3 Enforcement Behavior
-
-The API proxy MUST enforce the budget as follows:
-
-1. **Accumulation**: After each successful upstream response, the proxy
-   extracts the `usage` object, computes effective tokens, and adds them
-   to a running total for the session.
-
-2. **Pre-request check**: Before forwarding each subsequent request to the
-   upstream provider, the proxy checks whether the cumulative total has
-   reached or exceeded `maxEffectiveTokens`.
-
-3. **Rejection**: When the budget is reached or exceeded, the proxy MUST reject the
-   request with:
-   - **HTTP status**: `403 Forbidden`
-   - **Content-Type**: `application/json`
-   - **Response body**:
-     ```json
-     {
-       "error": {
-         "type": "effective_tokens_limit_exceeded",
-         "message": "Maximum effective tokens exceeded (1234.56 / 1000).",
-         "total_effective_tokens": 1234.56,
-         "max_effective_tokens": 1000
-       }
-     }
-     ```
-
-4. **WebSocket rejection**: For WebSocket upgrade requests, the proxy MUST
-   reject with `HTTP/1.1 403 Forbidden` and include the same JSON
-   error body before destroying the socket.
-
-5. **Finality**: Once the budget is reached or exceeded, all subsequent requests in
-   the same run MUST be rejected. The budget is not recoverable.
-
-### 10.4 Threshold Tracking
-
-The proxy MUST track when cumulative effective tokens cross the following
-percentage thresholds of `maxEffectiveTokens`:
-
-| Threshold |
-|-----------|
-| 80% |
-| 90% |
-| 95% |
-| 99% |
-
-Each threshold MUST be recorded at most once per run.
-
-### 10.5 Budget Steering
+### 10.1 Budget Steering
 
 Budget steering is **opt-in**. It is active only when `apiProxy.enableTokenSteering`
 is `true` (CLI: `--enable-token-steering`), which sets
@@ -1242,7 +1143,7 @@ is `true` (CLI: `--enable-token-steering`), which sets
 default), thresholds remain observable but no warning messages are injected.
 Setting the field to `false`, or omitting it, opts out.
 
-When enabled, the proxy tracks effective-token, AI-credit, and runtime thresholds
+When enabled, the proxy tracks AI-credit and runtime thresholds
 at 80%, 90%, 95%, and 99%. Credit thresholds use the lower of configured
 `maxAiCredits` and the non-overridable 10,000-credit hard cap (the hard cap is
 the ceiling when `maxAiCredits` is not configured). Runtime thresholds use the
@@ -1258,7 +1159,7 @@ exhausted, normal terminal rejection remains in effect.
 Each threshold is recorded once per run. At most one warning is injected per
 request: the largest crossed percentage is delivered first, then other pending
 warnings are delivered on later eligible requests. For equal percentages, time
-warnings precede AI-credit warnings, which precede effective-token warnings.
+warnings precede AI-credit warnings.
 Classifier requests, malformed JSON, unsupported body shapes, or any request
 that cannot be modified do not consume pending warnings. A warning is consumed
 only after successful body injection.
@@ -1266,20 +1167,12 @@ only after successful body injection.
 The warning formats are:
 
 ```
-[AWF TOKEN WARNING] <threshold-specific text>
 [AWF AI CREDIT WARNING] <threshold-specific text>
 [AWF TIME WARNING] <threshold-specific text>
 ```
 
-| Threshold | Effective-token text |
-|-----------|-----------------------|
-| 80% | You have used 80% of your effective token budget. Begin planning to wrap up your current work. |
-| 90% | You have used 90% of your effective token budget. Complete your current task and prepare final output. |
-| 95% | You have used 95% of your effective token budget. Finalize and submit your work now. |
-| 99% | You have used 99% of your effective token budget. You are about to be cut off. Submit immediately. |
-
-AI-credit and time messages use the matching threshold-specific wording for the
-AI-credit budget and allotted run time, respectively.
+AI-credit and time messages use threshold-specific wording for the AI-credit
+budget and allotted run time.
 
 **Provider-specific injection rules:**
 
@@ -1288,7 +1181,7 @@ AI-credit budget and allotted run time, respectively.
 - **Anthropic** — the proxy appends the warning to the `system` field: if `system` is a string it is concatenated (separated by `\n\n`); if `system` is an array of content blocks a `{ "type": "text", "text": "<message>" }` block is appended; if `system` is absent it is created as the warning string.
 - **Gemini** — the proxy appends a `{ "text": "<message>" }` part to `systemInstruction.parts`; if `systemInstruction` is absent it is created.
 
-### 10.6 Introspection
+### 10.2 Introspection
 
 The API proxy exposes a `GET /reflect` endpoint on every provider port
 (10000–10004). Each port returns the same aggregate reflection payload, whose
@@ -1296,15 +1189,14 @@ The API proxy exposes a `GET /reflect` endpoint on every provider port
 (10000, OpenAI) serves `/metrics` and the aggregate `/health`; non-management
 ports still serve provider-local `/health` responses.
 
-### 10.7 Max AI Credits Configuration
+### 10.3 Max AI Credits Configuration
 
 `maxAiCredits` is a positive number. It is supplied via the AWF config file
 (including stdin config via `--config -`) and maps to the
 `AWF_MAX_AI_CREDITS` environment variable injected into the api-proxy
 container.
 
-When configured, the proxy MUST enforce this budget in addition to any
-configured `maxEffectiveTokens` budget. Once cumulative AI credits reach or
+When configured, the proxy MUST enforce this budget. Once cumulative AI credits reach or
 exceed `maxAiCredits`, subsequent requests MUST be rejected with HTTP `403`
 and error type `ai_credits_limit_exceeded`.
 
@@ -1324,7 +1216,7 @@ If both limits are present, the effective enforcement threshold is the lower of:
 
 Setting `maxAiCredits` above 10,000 MUST NOT raise the effective limit.
 
-### 10.7.1 Model Name Resolution for Pricing
+### 10.3.1 Model Name Resolution for Pricing
 
 The AI credits guard resolves model names using this lookup order:
 
@@ -1370,7 +1262,7 @@ that a discount applies to a specific request; they never reduce accounting.
 Failed or empty discovery responses do not replace the last successful runtime
 snapshot.
 
-### 10.7.1.1 Versioned Shared Pricing Catalog
+### 10.3.1.1 Versioned Shared Pricing Catalog
 
 Compilers that report inference cost SHOULD pass the exact provider/model rates
 they use through `apiProxy.modelPricingCatalog`. AWF consumes the supplied
@@ -1456,7 +1348,7 @@ through `AWF_API_PROXY_PROVIDERS`. Provider aliases `github-copilot` and
 same per-token dollar units as the base `cost` object and its
 `max_prompt_tokens` threshold.
 
-### 10.7.2 Default AI Credits Pricing (Fallback)
+### 10.3.2 Default AI Credits Pricing (Fallback)
 
 `defaultAiCreditsPricing` is an optional object with `input` and `output`
 fields (both required, in $/1M tokens), plus optional `cachedInput` and
@@ -1471,7 +1363,7 @@ When configured, any model not found in the operator overlay, shared catalog,
 runtime provider metadata, curated built-in pricing table, or bundled models.dev
 catalog uses these rates as a fallback for AI credits calculation.
 
-### 10.7.3 Unknown Model Rejection
+### 10.3.3 Unknown Model Rejection
 
 When `maxAiCredits` is active and the proxy encounters a request whose model
 cannot be resolved from the curated built-in pricing table or the bundled
@@ -1507,20 +1399,17 @@ spend. Token-usage records for these requests set `pricing_source` and
 recognized Copilot `auto` selector; other unresolved models still follow the
 fallback/rejection behavior above.
 
-### 10.7.4 Token Usage JSONL Schema Extensions
+### 10.3.4 Token Usage JSONL Schema Extensions
 
-When AI credits and/or effective tokens are computed, the `token-usage.jsonl`
-records include additional optional fields:
+When AI credits are computed, the `token-usage.jsonl` records include additional
+optional fields:
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `effective_tokens_this_response` | number | Weighted tokens for this request |
-| `effective_tokens_total` | number | Running total of effective tokens |
-| `model_multiplier` | number | Cost multiplier applied for this model |
 | `ai_credits_this_response` | number | AI credits consumed by this request |
 | `ai_credits_total` | number | Running total of AI credits |
 
-These fields are only present when the respective guard is active.
+These fields are only present when AI-credit accounting is active.
 
 ## 11. Max-Runs Enforcement
 
@@ -1569,7 +1458,7 @@ The API proxy MUST enforce the max-runs limit as follows:
 ### 11.3 Introspection
 
 The `/reflect` endpoint (available on all provider ports 10000–10004; see
-§10.6) MUST include the current max-runs state:
+§10.2) MUST include the current max-runs state:
 
 ```json
 {
@@ -1633,7 +1522,7 @@ The API proxy MUST enforce the permission-denied limit as follows:
 ### 11a.3 Introspection
 
 The `/reflect` endpoint (available on all provider ports 10000–10004; see
-§10.6) MUST include the current permission-denied guard state:
+§10.2) MUST include the current permission-denied guard state:
 
 ```json
 {
@@ -1722,7 +1611,7 @@ The API proxy MUST enforce the cache-miss limit as follows:
 ### 11b.3 Introspection
 
 The `/reflect` endpoint (available on all provider ports 10000–10004; see
-§10.6) MUST include the current cache-miss guard state:
+§10.2) MUST include the current cache-miss guard state:
 
 ```json
 {
@@ -1763,8 +1652,7 @@ forwarding the request to the upstream provider.
 
 ### 12.1 Multiplier Resolution
 
-The proxy resolves the effective multiplier for the requested model using the
-same algorithm as the effective-token guard:
+The proxy resolves the multiplier for the requested model as follows:
 
 1. **Exact match**: if `apiProxy.modelMultipliers` contains the exact model
    name, use its multiplier.
@@ -1780,7 +1668,7 @@ Before forwarding each POST/PUT/PATCH request to an upstream LLM provider,
 the proxy MUST:
 
 1. Extract the `model` field from the request body.
-2. Resolve the model's effective multiplier (§12.1).
+2. Resolve the model's multiplier (§12.1).
 3. If the multiplier exceeds `maxModelMultiplierCap`, reject the request with:
    - **HTTP status**: `400 Bad Request`
    - **Content-Type**: `application/json`
@@ -2463,7 +2351,7 @@ without hardcoding a path (see [ARC + DinD](arc-dind.md#locating-api-proxy-token
 | `token-usage.jsonl` | JSONL (`token-usage/v<version>` schema) | Per-API-call token usage and cost records | Yes (when API proxy is active) |
 | `model-routing.jsonl` | JSONL (`model-routing/v<AWF_VERSION>` schema) | Routing classification, selection, failure, and terminal request audit records; metadata only | Yes (when task-level routing is active) |
 | `token-diag.jsonl` | JSONL (`token-diag/v<version>` schema) | Diagnostic events: model resolution steps, alias rewrites, token budget decisions | Only when `apiProxy.logging.debugTokens: true` |
-| `blocked-request-diag.jsonl` | JSONL (`blocked-request-diag/v<version>` schema) | Body-shape diagnostics for guard-blocked requests (effective tokens, AI credits, etc.) | Only when `apiProxy.diagnostics.captureBlockedRequests` is set |
+| `blocked-request-diag.jsonl` | JSONL (`blocked-request-diag/v<version>` schema) | Body-shape diagnostics for guard-blocked requests (AI credits, run limits, etc.) | Only when `apiProxy.diagnostics.captureBlockedRequests` is set |
 | `otel.jsonl` | JSONL (OpenTelemetry spans) | Distributed tracing spans; written as local fallback when no OTLP collector is configured | Only when OTEL is active and no collector endpoint set |
 
 #### CLI Proxy Logs
@@ -2490,8 +2378,8 @@ initial release.
 
 ### 13.6 Blocked Request Diagnostics (blocked-request-diag.jsonl)
 
-When a guard hard-rails a request (e.g. `effective_tokens_limit_exceeded`,
-`ai_credits_limit_exceeded`, `max_runs_exceeded`), the api-proxy can write a
+When a guard hard-rails a request (e.g. `ai_credits_limit_exceeded`,
+`max_runs_exceeded`), the api-proxy can write a
 structured diagnostic record to `blocked-request-diag.jsonl`.  This is
 **opt-in and disabled by default**.
 
@@ -2542,10 +2430,10 @@ Each record follows the `blocked-request-diag/v<version>` schema:
   "request_id": "bc446626-a67b-4a78-a8c3-7293a2bc7306",
   "provider": "anthropic",
   "path": "/v1/messages",
-  "guard_type": "effective_tokens_limit_exceeded",
+  "guard_type": "ai_credits_limit_exceeded",
   "guard_totals": {
-    "total_effective_tokens": 27198679,
-    "max_effective_tokens": 25000000
+    "total_ai_credits": 250,
+    "max_ai_credits": 250
   },
   "body_transformed": true,
   "inbound_bytes": 184320,

@@ -480,7 +480,7 @@ program
   )
   .option(
     '--max-model-multiplier <model:multiplier,...>',
-    'Per-model cost multipliers for effective token accounting (requires --enable-api-proxy).\n' +
+    'Per-model cost multipliers used by --max-model-multiplier-cap (requires --enable-api-proxy).\n' +
     '                                       Format: comma-separated model:multiplier pairs, e.g.\n' +
     '                                       claude-opus-4-5-1m:10,claude-opus-4-5-200k:2.5\n' +
     '                                       Multipliers must be positive numbers. Models without\n' +
@@ -510,7 +510,7 @@ program
   )
   .option(
     '--enable-token-steering',
-    'Enable runtime, effective-token, and AI-credit steering in the API proxy (requires --enable-api-proxy).\n' +
+    'Enable runtime and AI-credit steering in the API proxy (requires --enable-api-proxy).\n' +
     '                                       Injects advisory warnings at 80%, 90%, 95%, and 99% of configured budgets/deadlines\n' +
     '                                       into the next eligible request; it does not interrupt work or guarantee completion.',
     false

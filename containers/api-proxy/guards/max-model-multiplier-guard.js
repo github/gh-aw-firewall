@@ -13,8 +13,8 @@ const maxModelMultiplierConfigCache = {
 
 function getMaxModelMultiplierConfig() {
   const rawCap = process.env.AWF_MAX_MODEL_MULTIPLIER;
-  const rawMultipliers = process.env.AWF_EFFECTIVE_TOKEN_MODEL_MULTIPLIERS;
-  const rawDefaultMultiplier = process.env.AWF_EFFECTIVE_TOKEN_DEFAULT_MODEL_MULTIPLIER;
+  const rawMultipliers = process.env.AWF_MODEL_MULTIPLIERS;
+  const rawDefaultMultiplier = process.env.AWF_DEFAULT_MODEL_MULTIPLIER;
 
   if (
     maxModelMultiplierConfigCache.rawCap === rawCap &&

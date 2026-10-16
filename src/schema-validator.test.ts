@@ -64,9 +64,8 @@ describe('schema-validator', () => {
       expect(errors).toContain('config.apiProxy.anthropicCacheTailTtl must be one of: 5m, 1h');
     });
 
-    it('formats effective-token guard validation errors', () => {
-      expect(validateWithSchema({ apiProxy: { maxEffectiveTokens: 0 } }))
-        .toContain('config.apiProxy.maxEffectiveTokens must be a positive integer');
+    it('rejects removed effective-token budget configuration', () => {
+      expect(validateWithSchema({ apiProxy: { maxEffectiveTokens: 0 } })).not.toEqual([]);
       expect(validateWithSchema({ apiProxy: { modelMultipliers: { 'gpt-4o': 0 } } }))
         .toContain('config.apiProxy.modelMultipliers.gpt-4o must be > 0');
       expect(validateWithSchema({ apiProxy: { defaultModelMultiplier: 0 } }))

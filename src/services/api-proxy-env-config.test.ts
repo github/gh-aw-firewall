@@ -374,14 +374,20 @@ describe('buildRateLimitEnv', () => {
     expect(env.AWF_RATE_LIMIT_RPM).toBeUndefined();
   });
 
-  it('sets AWF_MAX_EFFECTIVE_TOKENS when configured', () => {
-    const env = buildRateLimitEnv({ ...baseConfig, workDir: '/tmp/awf-test', maxEffectiveTokens: 5000 });
-    expect(env.AWF_MAX_EFFECTIVE_TOKENS).toBe('5000');
-  });
-
   it('sets AWF_MAX_AI_CREDITS when configured', () => {
     const env = buildRateLimitEnv({ ...baseConfig, workDir: '/tmp/awf-test', maxAiCredits: 1.25 });
     expect(env.AWF_MAX_AI_CREDITS).toBe('1.25');
+  });
+
+  it('sets model multiplier environment variables when configured', () => {
+    const env = buildRateLimitEnv({
+      ...baseConfig,
+      workDir: '/tmp/awf-test',
+      modelMultipliers: { 'gpt-4o': 2 },
+      defaultModelMultiplier: 1.5,
+    });
+    expect(env.AWF_MODEL_MULTIPLIERS).toBe('{"gpt-4o":2}');
+    expect(env.AWF_DEFAULT_MODEL_MULTIPLIER).toBe('1.5');
   });
 
   it('sets AWF_API_PROXY_PROVIDERS when provider pricing overlays are configured', () => {

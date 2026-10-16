@@ -123,7 +123,7 @@
         },
         "enableTokenSteering": {
           "type": "boolean",
-          "description": "Enable advisory runtime, effective-token, and AI-credit steering. When true, the proxy injects warnings at 80%, 90%, 95%, and 99% of configured budgets/deadlines into the next eligible agent request. Warnings do not interrupt running work or guarantee completion. Set to false (or omit) to opt out. Default: false."
+          "description": "Enable advisory runtime and AI-credit steering. When true, the proxy injects warnings at 80%, 90%, 95%, and 99% of configured budgets/deadlines into the next eligible agent request. Warnings do not interrupt running work or guarantee completion. Set to false (or omit) to opt out. Default: false."
         },
         "anthropicAutoCache": {
           "type": "boolean",
@@ -242,11 +242,6 @@
               "description": "Codex/OpenAI hosted web policy. Uses the same closed config contract, normalization, source precedence, and immutable-upper-bound rule as claude. Applies to Responses API hosted web-search tools and the standalone /v1/alpha/search route, including request filters, every per-query domains scope, and literal URL operations. enabled:false rejects any hosted-search intent, including external_web_access. Request filters may only narrow policy: same-mode allowlists intersect and blocklists union; cross-mode filters are combined because OpenAI can represent both simultaneously. Every retrieval is governed by the most restrictive applicable request, query, and URL scope. maxUses is enforced as max_uses on Responses tools; /v1/alpha/search has no equivalent cap and is rejected when maxUses is configured rather than silently ignoring it. Unknown hosted-search shapes fail closed. Requests without a hosted-web surface are unchanged. Omission preserves pass-through behavior and does NOT constrain Codex-hosted egress. JSON/YAML files and JSON/YAML via --config - behave identically; stdin errors identify stdin before containers start. Hosted-web domains are explicit and are never copied from network.allowDomains or network.sensitiveAllowDomains."
             }
           }
-        },
-        "maxEffectiveTokens": {
-          "type": "integer",
-          "minimum": 1,
-          "description": "Maximum cumulative effective tokens allowed for a run. When reached, the API proxy rejects subsequent requests with HTTP 403 and error type 'effective_tokens_limit_exceeded'. Tokens are weighted: input ×1, cache-read ×0.1, output ×4, reasoning ×4. See spec §10."
         },
         "maxAiCredits": {
           "type": "number",
@@ -429,7 +424,7 @@
         },
         "modelMultipliers": {
           "type": "object",
-          "description": "Per-model multipliers for effective token accounting. Each model's weighted tokens are multiplied by this value before accumulation. Unlisted models use defaultModelMultiplier when set, otherwise the highest configured multiplier. See spec §10.2.",
+          "description": "Per-model multipliers used by maxModelMultiplierCap. Model multipliers are resolved by exact match, then longest hyphen-suffix prefix match; unlisted models use defaultModelMultiplier when set, otherwise 1.",
           "additionalProperties": {
             "type": "number",
             "exclusiveMinimum": 0
@@ -438,7 +433,7 @@
         "defaultModelMultiplier": {
           "type": "number",
           "exclusiveMinimum": 0,
-          "description": "Default multiplier applied when a model is not present in modelMultipliers. When omitted, AWF uses the highest configured model multiplier as a conservative fallback."
+          "description": "Default multiplier applied when a model is not present in modelMultipliers. When omitted, the model multiplier cap guard uses 1."
         },
         "maxModelMultiplierCap": {
           "type": "number",

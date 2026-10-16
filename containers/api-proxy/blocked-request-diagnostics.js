@@ -5,7 +5,7 @@
  *
  * When AWF_CAPTURE_BLOCKED_LLM_REQUESTS is set, writes a JSONL record to
  * blocked-request-diag.jsonl for every request that is rejected by a guard
- * (effective_tokens_limit_exceeded, ai_credits_limit_exceeded, etc.).
+ * (ai_credits_limit_exceeded, etc.).
  *
  * Capture modes:
  *   false / not set : disabled (default)

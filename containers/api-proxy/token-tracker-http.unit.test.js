@@ -612,17 +612,12 @@ describe('buildAndWriteTokenRecord', () => {
   test('merges budgetResult fields when provided', () => {
     buildAndWriteTokenRecord(normalizedUsage, baseParams({
       budgetResult: {
-        effective_tokens_this_response: 130,
-        effective_tokens_total: 2000,
-        model_multiplier: 1.0,
         ai_credits_this_response: 0.002,
         ai_credits_total: 0.05,
       },
     }));
 
     const record = mockStream.writtenRecords[0];
-    expect(record.effective_tokens_this_response).toBe(130);
-    expect(record.effective_tokens_total).toBe(2000);
     expect(record.ai_credits_this_response).toBe(0.002);
     expect(record.ai_credits_total).toBe(0.05);
   });
@@ -661,4 +656,3 @@ describe('buildAndWriteTokenRecord', () => {
     }))).not.toThrow();
   });
 });
-

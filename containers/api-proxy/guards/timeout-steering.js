@@ -1,6 +1,6 @@
 'use strict';
 
-const { ET_WARNING_THRESHOLDS } = require('./effective-token-guard');
+const { BUDGET_WARNING_THRESHOLDS } = require('./steering-thresholds');
 const { parsePositiveInteger } = require('./guard-utils');
 const fs = require('fs');
 
@@ -64,7 +64,7 @@ function updateTimeoutSteeringThresholds(state, timeoutMinutes) {
   const elapsedMs = Math.max(0, Date.now() - state.startTimeMs);
   const timeoutMs = timeoutMinutes * 60 * 1000;
   const percentElapsed = (elapsedMs / timeoutMs) * 100;
-  for (const threshold of ET_WARNING_THRESHOLDS) {
+  for (const threshold of BUDGET_WARNING_THRESHOLDS) {
     if (percentElapsed >= threshold && !state.emittedThresholds.has(threshold)) {
       state.emittedThresholds.add(threshold);
       state.uninjectedThresholds.add(threshold);

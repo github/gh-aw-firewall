@@ -262,7 +262,7 @@ function trackWebSocketTokenUsage(upstreamSocket, opts) {
       responseBytes: totalBytes - headerBytes,
     });
 
-    // Include effective token and AI credit budget fields when computed
+    // Include AI credit budget fields when computed
     mergeBudgetFields(record, budgetResult);
 
     writeTokenUsage(record);

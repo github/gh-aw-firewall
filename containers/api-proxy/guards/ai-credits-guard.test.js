@@ -104,7 +104,7 @@ describe('ai-credits-guard', () => {
     });
   });
 
-  it('steers fractional AI-credit budgets without requiring an effective-token budget', () => {
+  it('steers fractional AI-credit budgets independently', () => {
     process.env.AWF_MAX_AI_CREDITS = '0.001';
     applyAiCreditsUsage({ input_tokens: 32 }, 'gpt-5-mini');
 

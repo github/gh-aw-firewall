@@ -16,14 +16,6 @@ export interface RateLimitOptions {
   rateLimitConfig?: RateLimitConfig;
 
   /**
-   * Maximum total effective tokens allowed for the current AWF run.
-   *
-   * When set, the API proxy tracks effective token usage across requests and
-   * rejects additional requests once this limit is reached.
-   */
-  maxEffectiveTokens?: number;
-
-  /**
    * Maximum total AI credits allowed for the current AWF run.
    *
    * When set, the API proxy tracks AI credits across responses using
@@ -77,27 +69,26 @@ export interface RateLimitOptions {
   };
 
   /**
-   * Model-specific multipliers used by effective token accounting.
+   * Model-specific multipliers used by the model multiplier cap.
    *
    * Keys are model names and values are positive numeric multipliers.
    * Resolution uses exact match first, then a hyphen-suffix prefix match
    * (for example `claude-opus-4.7` matches `claude-opus-4.7-20260501`).
-   * Models that still do not match use `effectiveTokenDefaultModelMultiplier`
-   * when set, otherwise the highest configured multiplier.
+   * Models that still do not match use `defaultModelMultiplier` when set,
+   * otherwise the multiplier defaults to 1.
    */
-  effectiveTokenModelMultipliers?: Record<string, number>;
+  modelMultipliers?: Record<string, number>;
 
   /**
-   * Default multiplier used for models not present in
-   * `effectiveTokenModelMultipliers`.
+   * Default multiplier used for models not present in `modelMultipliers`.
    */
-  effectiveTokenDefaultModelMultiplier?: number;
+  defaultModelMultiplier?: number;
 
   /**
    * Maximum allowed model multiplier for the current AWF run.
    *
    * When set, the API proxy resolves each incoming request's model against the
-   * configured `effectiveTokenModelMultipliers` (and `effectiveTokenDefaultModelMultiplier`)
+   * configured `modelMultipliers` (and `defaultModelMultiplier`)
    * and rejects any request whose resolved multiplier exceeds this cap with
    * HTTP 400 and error type `model_multiplier_cap_exceeded`.
    *
@@ -141,7 +132,7 @@ export interface RateLimitOptions {
   maxCacheMisses?: number;
 
   /**
-   * Enable runtime, effective-token, and AI-credit steering warnings in the API proxy.
+   * Enable runtime and AI-credit steering warnings in the API proxy.
    *
    * When true, the api-proxy injects advisory messages into the next eligible
    * outbound request at 80%, 90%, 95%, and 99% of configured budgets/deadlines.

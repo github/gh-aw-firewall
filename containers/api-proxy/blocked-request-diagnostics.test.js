@@ -315,8 +315,8 @@ describe('writeBlockedRequestDiag()', () => {
         requestId: 'req-1',
         provider: 'openai',
         path: '/v1/chat/completions',
-        guardType: 'effective_tokens_limit_exceeded',
-        guardLogFields: { total_effective_tokens: 100, max_effective_tokens: 50 },
+        guardType: 'ai_credits_limit_exceeded',
+        guardLogFields: { total_ai_credits: 100, max_ai_credits: 50 },
         body: Buffer.from(JSON.stringify({ model: 'gpt-4o', messages: [] })),
         inboundBytes: 40,
       });
@@ -340,8 +340,8 @@ describe('writeBlockedRequestDiag()', () => {
           requestId: 'req-abc',
           provider: 'openai',
           path: '/v1/chat/completions',
-          guardType: 'effective_tokens_limit_exceeded',
-          guardLogFields: { total_effective_tokens: 1500, max_effective_tokens: 1000 },
+          guardType: 'ai_credits_limit_exceeded',
+          guardLogFields: { total_ai_credits: 1500, max_ai_credits: 1000 },
           body,
           inboundBytes: body.length,
         });
@@ -360,10 +360,10 @@ describe('writeBlockedRequestDiag()', () => {
             expect(rec.request_id).toBe('req-abc');
             expect(rec.provider).toBe('openai');
             expect(rec.path).toBe('/v1/chat/completions');
-            expect(rec.guard_type).toBe('effective_tokens_limit_exceeded');
+            expect(rec.guard_type).toBe('ai_credits_limit_exceeded');
             expect(rec.guard_totals).toEqual({
-              total_effective_tokens: 1500,
-              max_effective_tokens: 1000,
+              total_ai_credits: 1500,
+              max_ai_credits: 1000,
             });
             expect(rec.model).toBe('gpt-4o');
             expect(rec.message_count).toBe(1);
@@ -447,7 +447,7 @@ describe('writeBlockedRequestDiag()', () => {
         const writeOpts = {
           provider: 'openai',
           path: '/v1/chat/completions',
-          guardType: 'effective_tokens_limit_exceeded',
+          guardType: 'ai_credits_limit_exceeded',
           guardLogFields: {},
           body,
           inboundBytes: body.length,
@@ -480,7 +480,7 @@ describe('writeBlockedRequestDiag()', () => {
           requestId: 'req-safe',
           provider: 'openai',
           path: '/v1/chat/completions',
-          guardType: 'effective_tokens_limit_exceeded',
+          guardType: 'ai_credits_limit_exceeded',
           guardLogFields: {},
           body,
           inboundBytes: body.length,
@@ -511,7 +511,7 @@ describe('writeBlockedRequestDiag()', () => {
           requestId: 'req-bad-body',
           provider: 'openai',
           path: '/v1/chat/completions',
-          guardType: 'effective_tokens_limit_exceeded',
+          guardType: 'ai_credits_limit_exceeded',
           guardLogFields: {},
           body,
           inboundBytes: body.length,

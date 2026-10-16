@@ -70,7 +70,6 @@ describe('validateLogAndLimits – success paths', () => {
   it('returns defaults for a minimal valid options object', () => {
     const result = validateLogAndLimits(minimalOptions());
     expect(result.logLevel).toBe('info');
-    expect(result.maxEffectiveTokens).toBeUndefined();
     expect(result.maxRuns).toBeUndefined();
     expect(result.maxCacheMisses).toBeUndefined();
     expect(result.allowedModels).toBeUndefined();
@@ -87,11 +86,6 @@ describe('validateLogAndLimits – success paths', () => {
     }
   });
 
-  it('returns valid maxEffectiveTokens as a number', () => {
-    const result = validateLogAndLimits(minimalOptions({ maxEffectiveTokens: '1000' }));
-    expect(result.maxEffectiveTokens).toBe(1000);
-  });
-
   it('returns valid maxRuns as a number', () => {
     const result = validateLogAndLimits(minimalOptions({ maxRuns: 5 }));
     expect(result.maxRuns).toBe(5);
@@ -99,20 +93,20 @@ describe('validateLogAndLimits – success paths', () => {
 
   it('merges configFile and CLI model multipliers, CLI takes precedence', () => {
     const result = validateLogAndLimits(minimalOptions({
-      effectiveTokenModelMultipliers: { 'gpt-4': 2 },
+      modelMultipliers: { 'gpt-4': 2 },
       maxModelMultiplier: 'claude-3:3',
     }));
-    expect(result.effectiveTokenModelMultipliers).toEqual({ 'gpt-4': 2, 'claude-3': 3 });
+    expect(result.modelMultipliers).toEqual({ 'gpt-4': 2, 'claude-3': 3 });
   });
 
   it('returns CLI-only multipliers when no config-file multipliers are present', () => {
     const result = validateLogAndLimits(minimalOptions({ maxModelMultiplier: 'gpt-4:1.5' }));
-    expect(result.effectiveTokenModelMultipliers).toEqual({ 'gpt-4': 1.5 });
+    expect(result.modelMultipliers).toEqual({ 'gpt-4': 1.5 });
   });
 
-  it('returns undefined effectiveTokenModelMultipliers when neither source is set', () => {
+  it('returns undefined modelMultipliers when neither source is set', () => {
     const result = validateLogAndLimits(minimalOptions());
-    expect(result.effectiveTokenModelMultipliers).toBeUndefined();
+    expect(result.modelMultipliers).toBeUndefined();
   });
 
   it('returns valid memoryLimit string', () => {
@@ -171,10 +165,9 @@ describe('logAndLimitsTestHelpers', () => {
       modelAliases: { fast: ['gpt-4.1-mini'] },
       allowedModels: ['gpt-5.6-sol'],
       disallowedModels: ['gpt-5.6-luna'],
-      maxEffectiveTokens: '1000',
       maxAiCredits: '2.5',
-      effectiveTokenDefaultModelMultiplier: '1.25',
-      effectiveTokenModelMultipliers: { 'gpt-4': 2 },
+      defaultModelMultiplier: '1.25',
+      modelMultipliers: { 'gpt-4': 2 },
       maxModelMultiplier: 'gpt-4:3,claude-3:4',
       maxModelMultiplierCap: '5',
     });
@@ -183,10 +176,9 @@ describe('logAndLimitsTestHelpers', () => {
       modelAliases: { fast: ['gpt-4.1-mini'] },
       allowedModels: ['gpt-5.6-sol'],
       disallowedModels: ['gpt-5.6-luna'],
-      maxEffectiveTokens: 1000,
       maxAiCredits: 2.5,
-      effectiveTokenModelMultipliers: { 'gpt-4': 3, 'claude-3': 4 },
-      effectiveTokenDefaultModelMultiplier: 1.25,
+      modelMultipliers: { 'gpt-4': 3, 'claude-3': 4 },
+      defaultModelMultiplier: 1.25,
       maxModelMultiplierCap: 5,
     });
   });
@@ -212,21 +204,6 @@ describe('validateLogAndLimits – validation failures', () => {
     expect(() => validateLogAndLimits(minimalOptions({ logLevel: 'verbose' }))).toThrow('process.exit called');
   });
 
-  it('exits when maxEffectiveTokens is not a positive integer (non-integer)', () => {
-    spyExit();
-    expect(() => validateLogAndLimits(minimalOptions({ maxEffectiveTokens: '1.5' }))).toThrow('process.exit called');
-  });
-
-  it('exits when maxEffectiveTokens is zero', () => {
-    spyExit();
-    expect(() => validateLogAndLimits(minimalOptions({ maxEffectiveTokens: 0 }))).toThrow('process.exit called');
-  });
-
-  it('exits when maxEffectiveTokens is negative', () => {
-    spyExit();
-    expect(() => validateLogAndLimits(minimalOptions({ maxEffectiveTokens: -1 }))).toThrow('process.exit called');
-  });
-
   it('exits when maxAiCredits is zero', () => {
     spyExit();
     expect(() => validateLogAndLimits(minimalOptions({ maxAiCredits: 0 }))).toThrow('process.exit called');
@@ -237,14 +214,14 @@ describe('validateLogAndLimits – validation failures', () => {
     expect(() => validateLogAndLimits(minimalOptions({ maxAiCredits: -5 }))).toThrow('process.exit called');
   });
 
-  it('exits when effectiveTokenDefaultModelMultiplier is zero', () => {
+  it('exits when defaultModelMultiplier is zero', () => {
     spyExit();
-    expect(() => validateLogAndLimits(minimalOptions({ effectiveTokenDefaultModelMultiplier: 0 }))).toThrow('process.exit called');
+    expect(() => validateLogAndLimits(minimalOptions({ defaultModelMultiplier: 0 }))).toThrow('process.exit called');
   });
 
-  it('exits when effectiveTokenDefaultModelMultiplier is negative', () => {
+  it('exits when defaultModelMultiplier is negative', () => {
     spyExit();
-    expect(() => validateLogAndLimits(minimalOptions({ effectiveTokenDefaultModelMultiplier: -1 }))).toThrow('process.exit called');
+    expect(() => validateLogAndLimits(minimalOptions({ defaultModelMultiplier: -1 }))).toThrow('process.exit called');
   });
 
   it('exits when maxModelMultiplierCap is zero', () => {

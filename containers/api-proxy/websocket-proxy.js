@@ -13,8 +13,6 @@ function createProxyWebSocket({
   buildUpstreamPath,
   shouldStripHeader,
   isValidRequestId,
-  getEffectiveTokenBlockState,
-  buildEffectiveTokenLimitError,
   getMaxRunsBlockState,
   buildMaxRunsExceededError,
   getMaxCacheMissesBlockState,
@@ -33,8 +31,6 @@ function createProxyWebSocket({
   trackWebSocketTokenUsage,
 }) {
   const guardDeps = {
-    getEffectiveTokenBlockState,
-    buildEffectiveTokenLimitError,
     getMaxRunsBlockState,
     buildMaxRunsExceededError,
     getMaxCacheMissesBlockState,

@@ -1,6 +1,5 @@
 /**
- * Tests for token steering: getAndClearPendingSteeringMessage,
- * getAndClearPendingTimeoutSteeringMessage, and injectSteeringMessage.
+ * Tests for runtime/AI-credit steering and injectSteeringMessage.
  *
  * Extracted from server.proxy.test.js.
  */
@@ -15,10 +14,8 @@ const { setupServerTestEnv, flushPromises, makeProxyReq, completeUpstreamRespons
 
 let proxyRequest;
 let closeTokenUsageLog;
-let getAndClearPendingSteeringMessage;
 let getAndClearPendingTimeoutSteeringMessage;
 let injectSteeringMessage;
-let resetEffectiveTokenGuardForTests;
 let resetAiCreditsGuardForTests;
 let resetTimeoutSteeringForTests;
 let replaceRuntimeModels;
@@ -29,20 +26,16 @@ setupServerTestEnv(() => {
   ({ proxyRequest } = require('./server'));
   ({ closeLogStream: closeTokenUsageLog } = require('./token-tracker'));
   ({
-    getAndClearPendingSteeringMessage,
     getAndClearPendingTimeoutSteeringMessage,
     injectSteeringMessage,
-    resetEffectiveTokenGuardForTests,
     resetTimeoutSteeringForTests,
   } = require('./proxy-request'));
   ({ resetAiCreditsGuardForTests } = require('./guards/ai-credits-guard'));
   ({ replaceRuntimeModels, clearRuntimeModels } = require('./runtime-model-catalog'));
   return {
     proxyRequest,
-    getAndClearPendingSteeringMessage,
     getAndClearPendingTimeoutSteeringMessage,
     injectSteeringMessage,
-    resetEffectiveTokenGuardForTests,
     resetAiCreditsGuardForTests,
     resetTimeoutSteeringForTests,
     replaceRuntimeModels,
@@ -50,34 +43,32 @@ setupServerTestEnv(() => {
   };
 });
 
-describe('token steering — getAndClearPendingSteeringMessage and injectSteeringMessage', () => {
-  // getAndClearPendingSteeringMessage and injectSteeringMessage are loaded here
-  // for unit-level tests (pure function tests and "returns null" guard checks).
+describe('budget steering and injectSteeringMessage', () => {
+  // injectSteeringMessage is loaded here
+  // for unit-level tests (pure function tests).
   // Integration tests that verify steering injection end-to-end use two
   // proxyRequest calls so that the same module instance that runs inside the
   // proxy handles both the threshold crossing and the body injection.
 
   beforeEach(() => {
     timeoutRuntimeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-timeout-steering-'));
-    process.env.AWF_MAX_EFFECTIVE_TOKENS = '100';
     process.env.AWF_ENABLE_TOKEN_STEERING = 'true';
     delete process.env.AWF_MAX_AI_CREDITS;
-    delete process.env.AWF_EFFECTIVE_TOKEN_MODEL_MULTIPLIERS;
+    delete process.env.AWF_MODEL_MULTIPLIERS;
+    delete process.env.AWF_DEFAULT_MODEL_MULTIPLIER;
     delete process.env.AWF_AGENT_TIMEOUT_MINUTES;
     process.env.AWF_AGENT_RUNTIME_START_FILE = path.join(timeoutRuntimeDir, 'started-at-ms');
-    resetEffectiveTokenGuardForTests();
     resetAiCreditsGuardForTests();
     resetTimeoutSteeringForTests();
   });
 
   afterEach(() => {
-    delete process.env.AWF_MAX_EFFECTIVE_TOKENS;
     delete process.env.AWF_MAX_AI_CREDITS;
     delete process.env.AWF_ENABLE_TOKEN_STEERING;
-    delete process.env.AWF_EFFECTIVE_TOKEN_MODEL_MULTIPLIERS;
+    delete process.env.AWF_MODEL_MULTIPLIERS;
+    delete process.env.AWF_DEFAULT_MODEL_MULTIPLIER;
     delete process.env.AWF_AGENT_TIMEOUT_MINUTES;
     delete process.env.AWF_AGENT_RUNTIME_START_FILE;
-    resetEffectiveTokenGuardForTests();
     resetAiCreditsGuardForTests();
     resetTimeoutSteeringForTests();
     clearRuntimeModels();
@@ -87,10 +78,6 @@ describe('token steering — getAndClearPendingSteeringMessage and injectSteerin
 
   afterAll(async () => {
     await closeTokenUsageLog();
-  });
-
-  it('returns null when no thresholds have been crossed', () => {
-    expect(getAndClearPendingSteeringMessage()).toBeNull();
   });
 
   it('uses the runtime start marker when the first timeout check is delayed', () => {
@@ -203,84 +190,8 @@ describe('token steering — getAndClearPendingSteeringMessage and injectSteerin
     expect(writtenBody.messages).toEqual([{ role: 'user', content: 'Second request' }]);
   });
 
-  it('injects 80% warning into an OpenAI request body and clears it on the next request', async () => {
-    // Two upstream request objects — one per proxyRequest call.
-    let responseHandler;
-    const upstreamReq1 = makeProxyReq();
-    const upstreamReq2 = makeProxyReq();
-    const upstreamReq3 = makeProxyReq();
-
-    jest.spyOn(https, 'request')
-      .mockImplementationOnce((_opts, cb) => { responseHandler = cb; return upstreamReq1; })
-      .mockImplementationOnce(() => upstreamReq2)
-      .mockImplementationOnce(() => upstreamReq3);
-
-    // Request 1: triggers 84 effective tokens (21 output × 4.0) → 84% of 100 → crosses 80%
-    const req1 = new EventEmitter();
-    req1.url = '/v1/chat/completions';
-    req1.method = 'POST';
-    req1.headers = { 'content-type': 'application/json' };
-    const res1 = { headersSent: false, setHeader: jest.fn(), writeHead: jest.fn(), end: jest.fn() };
-
-    proxyRequest(req1, res1, 'api.openai.com', { Authorization: 'Bearer token' }, 'openai');
-    req1.emit('end');
-    await flushPromises();
-
-    completeUpstreamResponse(responseHandler, {
-      statusCode: 200,
-      body: { model: 'gpt-4o', usage: { prompt_tokens: 0, completion_tokens: 21 } },
-    });
-
-    // Request 2: the proxy should inject the 80% warning into the outgoing body.
-    // We send a minimal OpenAI chat body and inspect what the proxy writes upstream.
-    const req2Body = Buffer.from(JSON.stringify({
-      messages: [{ role: 'user', content: 'Hello' }],
-    }));
-    const req2 = new EventEmitter();
-    req2.url = '/v1/chat/completions';
-    req2.method = 'POST';
-    req2.headers = { 'content-type': 'application/json', 'content-length': String(req2Body.length) };
-    const res2 = { headersSent: false, setHeader: jest.fn(), writeHead: jest.fn(), end: jest.fn() };
-
-    proxyRequest(req2, res2, 'api.openai.com', { Authorization: 'Bearer token' }, 'openai');
-    req2.emit('data', req2Body);
-    req2.emit('end');
-    await flushPromises();
-
-    // The proxy writes the (modified) body to the upstream request.
-    expect(upstreamReq2.write).toHaveBeenCalledTimes(1);
-    const writtenBody2 = JSON.parse(upstreamReq2.write.mock.calls[0][0].toString());
-    // A system message with the budget warning should be prepended.
-    expect(writtenBody2.messages[0].role).toBe('system');
-    expect(writtenBody2.messages[0].content).toContain('[AWF TOKEN WARNING]');
-    expect(writtenBody2.messages[0].content).toContain('80%');
-    // The original user message should follow.
-    expect(writtenBody2.messages[1]).toMatchObject({ role: 'user', content: 'Hello' });
-
-    // Request 3: the 80% threshold has already been injected; no further steering.
-    const req3Body = Buffer.from(JSON.stringify({
-      messages: [{ role: 'user', content: 'Hello again' }],
-    }));
-    const req3 = new EventEmitter();
-    req3.url = '/v1/chat/completions';
-    req3.method = 'POST';
-    req3.headers = { 'content-type': 'application/json', 'content-length': String(req3Body.length) };
-    const res3 = { headersSent: false, setHeader: jest.fn(), writeHead: jest.fn(), end: jest.fn() };
-
-    proxyRequest(req3, res3, 'api.openai.com', { Authorization: 'Bearer token' }, 'openai');
-    req3.emit('data', req3Body);
-    req3.emit('end');
-    await flushPromises();
-
-    expect(upstreamReq3.write).toHaveBeenCalledTimes(1);
-    const writtenBody3 = JSON.parse(upstreamReq3.write.mock.calls[0][0].toString());
-    const systemMessages3 = writtenBody3.messages.filter(m => m.role === 'system' && m.content.includes('[AWF TOKEN WARNING]'));
-    expect(systemMessages3).toHaveLength(0);
-  });
-
   it('steers gh-aw default AI-credit-only Copilot Responses requests end to end', async () => {
     process.env.AWF_MAX_AI_CREDITS = '1000';
-    delete process.env.AWF_MAX_EFFECTIVE_TOKENS;
     delete process.env.AWF_AGENT_TIMEOUT_MINUTES;
     const cycles = [];
     jest.spyOn(https, 'request').mockImplementation((_options, callback) => {
@@ -438,7 +349,6 @@ describe('token steering — getAndClearPendingSteeringMessage and injectSteerin
     await flushPromises();
 
     expect(https.request).toHaveBeenCalledTimes(1);
-    expect(getAndClearPendingSteeringMessage()).toBeNull();
     expect(res.writeHead).toHaveBeenCalledWith(400, expect.objectContaining({
       'Content-Type': 'application/json',
     }));
@@ -454,6 +364,7 @@ describe('token steering — getAndClearPendingSteeringMessage and injectSteerin
   it('does not inject any warning when AWF_ENABLE_TOKEN_STEERING is not set', async () => {
     // Disable token steering for this test
     delete process.env.AWF_ENABLE_TOKEN_STEERING;
+    process.env.AWF_MAX_AI_CREDITS = '1000';
 
     // Re-require proxyRequest from the cached server module so it shares the same
     // proxy-request module instance as the steering functions (set in top-level beforeAll).
@@ -469,7 +380,7 @@ describe('token steering — getAndClearPendingSteeringMessage and injectSteerin
       .mockImplementationOnce((_opts, cb) => { responseHandler = cb; return upstreamReq1; })
       .mockImplementationOnce(() => upstreamReq2);
 
-    // Request 1: triggers 84 effective tokens (21 output × 4.0) → 84% of 100 → would cross 80% if steering enabled
+    // Cross the AI-credit threshold, but keep steering disabled.
     const req1 = new EventEmitter();
     req1.url = '/v1/chat/completions';
     req1.method = 'POST';
@@ -482,7 +393,7 @@ describe('token steering — getAndClearPendingSteeringMessage and injectSteerin
 
     completeUpstreamResponse(responseHandler, {
       statusCode: 200,
-      body: { model: 'gpt-4o', usage: { prompt_tokens: 0, completion_tokens: 21 } },
+      body: { model: 'gpt-4o', usage: { prompt_tokens: 3_200_000, completion_tokens: 0 } },
     });
 
     // Request 2: steering is disabled, so no warning should be injected.
@@ -502,12 +413,12 @@ describe('token steering — getAndClearPendingSteeringMessage and injectSteerin
 
     expect(upstreamReq2.write).toHaveBeenCalledTimes(1);
     const writtenBody2 = JSON.parse(upstreamReq2.write.mock.calls[0][0].toString());
-    const systemMessages = writtenBody2.messages.filter(m => m.role === 'system' && m.content.includes('[AWF TOKEN WARNING]'));
+    const systemMessages = writtenBody2.messages.filter(m => m.role === 'system' && m.content.includes('[AWF AI CREDIT WARNING]'));
     expect(systemMessages).toHaveLength(0);
   });
 
   describe('injectSteeringMessage', () => {
-    const WARNING = '[AWF TOKEN WARNING] Test warning message.';
+    const WARNING = '[AWF AI CREDIT WARNING] Test warning message.';
 
     it('injects into OpenAI messages array after existing system messages', () => {
       const body = Buffer.from(JSON.stringify({

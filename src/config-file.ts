@@ -41,7 +41,6 @@ export interface AwfFileConfig {
       claude?: ClaudeHostedWebConfig;
       codex?: CodexHostedWebConfig;
     };
-    maxEffectiveTokens?: number;
     maxAiCredits?: number;
     defaultAiCreditsPricing?: {
       input: number;

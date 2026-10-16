@@ -1212,107 +1212,29 @@ jobs:
                 -- your-agent-command
 ```
 
-## Effective token budget
-
-The API proxy can enforce a cumulative **effective token budget** per run. When enabled, the proxy tracks weighted token usage across all LLM requests and rejects new requests once the budget is exhausted.
-
-### Configuration
-
-Set in the AWF config file or via the `--max-model-multiplier` CLI flag:
-
-```json
-{
-  "apiProxy": {
-    "maxEffectiveTokens": 500000,
-    "modelMultipliers": {
-      "o3-pro": 15,
-      "o3": 4,
-      "claude-sonnet-4-20250514": 1,
-      "gpt-4.1-mini": 0.5
-    },
-    "defaultModelMultiplier": 15
-  }
-}
-```
-
-Or equivalently from the command line:
-
-```bash
-awf --max-model-multiplier o3-pro:15,o3:4,claude-sonnet-4-20250514:1,gpt-4.1-mini:0.5 ...
-```
-
-When both the config file and the CLI flag specify a multiplier for the same model, the **CLI flag takes precedence**.
-
-### How tokens are weighted
-
-Raw token counts from upstream responses are not treated equally. Each category has a fixed weight that reflects its relative cost:
-
-| Category | Weight | Example fields |
-|----------|--------|----------------|
-| Input | ×1.0 | `prompt_tokens`, `input_tokens` |
-| Cache read | ×0.1 | `cache_read_input_tokens` |
-| Output | ×4.0 | `completion_tokens`, `output_tokens` |
-| Reasoning | ×4.0 | `reasoning_tokens` |
-
-The formula for a single response is:
-
-```
-effective_tokens = model_multiplier × (1.0×input + 0.1×cache_read + 4.0×output + 4.0×reasoning)
-```
-
-If no model multiplier is configured, it defaults to `1`.
-
-### Enforcement
-
-After each successful upstream response, the proxy accumulates the effective tokens. Before forwarding the *next* request, the proxy checks the running total:
-
-- **Under budget**: Request is forwarded normally.
-- **Budget reached or exceeded**: Request is rejected immediately with:
-  - **HTTP `403 Forbidden`**
-  - **Error body**:
-
-    ```json
-    {
-      "error": {
-        "type": "effective_tokens_limit_exceeded",
-        "message": "Maximum effective tokens exceeded (512345.67 / 500000).",
-        "total_effective_tokens": 512345.67,
-        "max_effective_tokens": 500000
-      }
-    }
-    ```
-
-WebSocket upgrade requests are also rejected with `403` when the budget is reached or exceeded.
-
-:::caution
-Once the budget is reached or exceeded, **all subsequent requests in the run are rejected**. The budget is not recoverable — there is no way to "free up" tokens within a single run. The rejection uses **HTTP `403`** (not `429`) precisely because the limit is terminal: a `429` would invite LLM SDK clients to retry with backoff against a cap that never recovers, burning the remaining run budget until the step times out.
-:::
-
-### Runtime, token, and AI-credit steering
+## Runtime and AI-credit steering
 
 Budget steering is **opt-in**. Pass `--enable-token-steering` on the CLI or set `apiProxy.enableTokenSteering: true` in the config file:
 
 ```yaml
 apiProxy:
   maxAiCredits: 25
-  # maxEffectiveTokens: 500000  # optional
   enableTokenSteering: true
 ```
 
-This one switch enables advisory warnings for effective-token, AI-credit, and runtime thresholds at 80%, 90%, 95%, and 99%. Credit thresholds use the lower of `maxAiCredits` and the non-overridable 10,000-credit hard cap (or the hard cap alone when no credit budget is configured). Runtime steering uses the actual agent start marker, not the first model request. Host timeout enforcement uses a separate host-controlled deadline and does not trust the agent-writable marker.
+This one switch enables advisory warnings for AI-credit and runtime thresholds at 80%, 90%, 95%, and 99%. Credit thresholds use the lower of `maxAiCredits` and the non-overridable 10,000-credit hard cap (or the hard cap alone when no credit budget is configured). Runtime steering uses the actual agent start marker, not the first model request. Host timeout enforcement uses a separate host-controlled deadline and does not trust the agent-writable marker.
 
 To opt a workflow out explicitly, set `apiProxy.enableTokenSteering: false` (or omit the field). The CLI/config value is the only source of the sidecar's `AWF_ENABLE_TOKEN_STEERING` env var, which is emitted only when steering is enabled.
 
 Steering is advisory and delivered only in the body of a later eligible outbound model request. It cannot interrupt a running model request or tool, extend the timeout, raise a budget, guarantee a subsequent request, or guarantee completion/submission. Terminal budget exhaustion still rejects requests normally. The proxy cannot reliably distinguish main-agent requests from sub-agent requests: the recorded `x-initiator` value identifies billing class (`agent` or `user`), not which agent made the request. A notice may therefore be delivered to whichever agent or sub-agent request is next.
 
-Each threshold is tracked once per run. At most one warning is injected per eligible request; the largest crossed percentage is delivered first, then pending warnings on later requests. Equal percentages are ordered time, AI credits, then effective tokens. Classifier, malformed, unsupported, or otherwise unmodifiable requests leave warnings pending; a warning is consumed only after successful injection.
+Each threshold is tracked once per run. At most one warning is injected per eligible request; the largest crossed percentage is delivered first, then pending warnings on later requests. Equal percentages are ordered time, then AI credits. Classifier, malformed, unsupported, or otherwise unmodifiable requests leave warnings pending; a warning is consumed only after successful injection.
 
-When a usage record is available for a request carrying a notice, its `token-usage.jsonl` record includes `steering: { "type": "ai_credit", "threshold": 90 }` (with `type` set to `timeout`, `ai_credit`, or `token`, and `threshold` to 80, 90, 95, or 99). This lets consumers correlate the delivered notice with its request ID without recording prompt content.
+When a usage record is available for a request carrying a notice, its `token-usage.jsonl` record includes `steering: { "type": "ai_credit", "threshold": 90 }` (with `type` set to `timeout` or `ai_credit`, and `threshold` to 80, 90, 95, or 99). This lets consumers correlate the delivered notice with its request ID without recording prompt content.
 
 The message formats are:
 
 ```
-[AWF TOKEN WARNING] You have used 90% of your effective token budget. Complete your current task and prepare final output.
 [AWF AI CREDIT WARNING] You have used 90% of your AI-credit budget. Complete your current task and prepare final output.
 [AWF TIME WARNING] You have used 90% of your allotted run time. Complete your current task and prepare final output.
 ```
@@ -1326,11 +1248,11 @@ Injection is protocol-aware and preserves caller content and tool exchanges:
 | Anthropic / Copilot Messages | Appends a text block to `system` |
 | Gemini | Appends a text part to `systemInstruction.parts` |
 
-`/reflect` exposes effective-token `thresholds_crossed`, AI-credit `thresholds_crossed` and `thresholds_pending`, and runtime deadline state at `time_steering` (`started_at_ms`, `percent_elapsed`, and threshold fields).
+`/reflect` exposes AI-credit `thresholds_crossed` and `thresholds_pending`, and runtime deadline state at `time_steering` (`started_at_ms`, `percent_elapsed`, and threshold fields).
 
 ### Introspection
 
-Query the `/reflect` endpoint on any provider port to see the current budget state:
+Query the `/reflect` endpoint on any provider port to see the current AI-credit state:
 
 ```bash
 curl http://172.30.0.30:10000/reflect
@@ -1340,27 +1262,13 @@ The response includes:
 
 ```json
 {
-  "effective_tokens": {
-    "enabled": true,
-    "max_effective_tokens": 500000,
-    "total_effective_tokens": 234567.89,
-    "remaining_effective_tokens": 265432.11,
-    "percent_used": 46.91,
-    "thresholds_crossed": []
-  }
-}
-```
-
-### Detecting budget exhaustion
-
-Agents and orchestrators should detect the `403` response and the `effective_tokens_limit_exceeded` error type. The error body is structured JSON and can be parsed programmatically:
-
-```javascript
-if (response.status === 403) {
-  const body = await response.json();
-  if (body.error?.type === 'effective_tokens_limit_exceeded') {
-    // Budget exhausted — stop making API calls
-    console.log(`Token budget exceeded: ${body.error.total_effective_tokens} / ${body.error.max_effective_tokens}`);
+  "ai_credits": {
+    "total": 0.234567,
+    "max_ai_credits": 25,
+    "effective_max_ai_credits": 25,
+    "percent_used": 0.94,
+    "thresholds_crossed": [],
+    "thresholds_pending": []
   }
 }
 ```
@@ -1533,7 +1441,7 @@ awf --max-model-multiplier-cap 5 --max-model-multiplier claude-opus-4.7:27,gpt-4
 
 ### Enforcement
 
-Before forwarding each POST/PUT/PATCH request, the proxy resolves the model's effective multiplier using the same lookup used by the effective-token guard (exact match → longest-prefix match → default). If the resolved multiplier exceeds the cap:
+Before forwarding each POST/PUT/PATCH request, the proxy resolves the model's multiplier using the configured exact match, longest-prefix match, and default. If the resolved multiplier exceeds the cap:
 
 - **HTTP `400 Bad Request`**
 - **Error body**:

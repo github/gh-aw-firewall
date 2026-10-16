@@ -22,20 +22,11 @@ function warnCacheReadRollupMismatch({ logRequest, diag, requestId, provider, mo
 }
 
 /**
- * Merge budget result fields (effective tokens, AI credits, model multiplier)
+ * Merge AI-credit budget result fields
  * onto a token usage log record.
  */
 function mergeBudgetFields(record, budgetResult) {
   if (!budgetResult) return;
-  if (budgetResult.effective_tokens_this_response != null) {
-    record.effective_tokens_this_response = budgetResult.effective_tokens_this_response;
-  }
-  if (budgetResult.effective_tokens_total != null) {
-    record.effective_tokens_total = budgetResult.effective_tokens_total;
-  }
-  if (budgetResult.model_multiplier != null) {
-    record.model_multiplier = budgetResult.model_multiplier;
-  }
   if (budgetResult.ai_credits_this_response != null) {
     record.ai_credits_this_response = budgetResult.ai_credits_this_response;
   }

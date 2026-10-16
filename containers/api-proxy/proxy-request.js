@@ -30,13 +30,6 @@ const { replaceUpstreamEndpoint } = require('./wire-api-compat');
 const { createRateLimitChecker } = require('./rate-limit');
 const { createProxyWebSocket } = require('./websocket-proxy');
 const {
-  getEffectiveTokenBlockState,
-  getEffectiveTokenReflectState,
-  resetEffectiveTokenGuardForTests,
-  buildEffectiveTokenLimitError,
-  getAndClearPendingSteeringMessage,
-} = require('./guards/effective-token-guard');
-const {
   applyMaxRunsInvocation,
   getMaxRunsBlockState,
   getMaxRunsReflectState,
@@ -156,8 +149,6 @@ const proxyWebSocket = createProxyWebSocket({
   buildUpstreamPath,
   shouldStripHeader,
   isValidRequestId,
-  getEffectiveTokenBlockState,
-  buildEffectiveTokenLimitError,
   getMaxRunsBlockState,
   buildMaxRunsExceededError,
   getMaxCacheMissesBlockState,
@@ -360,13 +351,11 @@ module.exports = {
   limiter,
   proxyAgent,
   HTTPS_PROXY,
-  getEffectiveTokenReflectState,
   getAiCreditsReflectState,
   getTimeoutSteeringReflectState,
   getMaxRunsReflectState,
   getMaxCacheMissesReflectState,
   getPermissionDeniedReflectState,
-  resetEffectiveTokenGuardForTests,
   resetAiCreditsGuardForTests,
   resetMaxRunsGuardForTests,
   resetMaxCacheMissesGuardForTests,
@@ -374,7 +363,6 @@ module.exports = {
   resetMaxModelMultiplierGuardForTests,
   resetTimeoutSteeringForTests,
   resetAnthropicDeprecatedBetaHeadersForTests: resetDeprecatedHeaderValuesForTests,
-  getAndClearPendingSteeringMessage,
   getAndClearPendingTimeoutSteeringMessage,
   injectSteeringMessage,
   _setSleepForTests,
