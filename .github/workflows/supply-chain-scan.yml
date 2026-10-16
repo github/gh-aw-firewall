@@ -14,7 +14,7 @@ name: Supply Chain Scan
 #
 # Blocking vs. report-only:
 #   * BLOCKING gate = "Build and scan PR container images". It rebuilds the
-#     first-party images (agent, api-proxy, cli-proxy, gh-aw-node) from the
+#     first-party images (agent, api-proxy, router, cli-proxy, gh-aw-node) from the
 #     Dockerfiles in the PR and fails on any High/Critical CVE. This is the
 #     only step that reflects the changes in a PR, so it is the one that gates merges.
 #   * REPORT-ONLY = the Grype and Grant scans of the `gh-aw-manifest` digests.
@@ -197,12 +197,16 @@ jobs:
           GRYPE_DB: ${{ runner.temp }}/grype-db
         run: |
           python3 - <<'PYEOF'
-          import os, subprocess, sys
+          import hashlib, os, subprocess, sys
           cwd = os.getcwd()
           db_cache = os.environ['GRYPE_DB']
+          # The router build requires the SHA-256 of its OpenAPI contract.
+          with open('containers/router/openapi.yaml', 'rb') as f:
+              router_openapi_sha256 = hashlib.sha256(f.read()).hexdigest()
           containers = [
               ('agent',               'containers/agent',     []),
               ('api-proxy',           'containers/api-proxy', []),
+              ('router',              'containers/router',    ['--build-arg', f'OPENAPI_SHA256={router_openapi_sha256}']),
               ('cli-proxy',           'containers/cli-proxy', []),
               ('gh-aw-node',          'containers/gh-aw-node', []),
               ('enclave-script',      'containers', ['-f', 'containers/enclave/Dockerfile', '--target', 'enclave-script']),
