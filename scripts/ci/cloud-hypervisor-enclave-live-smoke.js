@@ -1743,11 +1743,16 @@ function stopAwf(child, graceMs = 60_000, terminateMs = 5000) {
   });
 }
 
+function reportFailure(_error) {
+  console.error(
+    'Live enclave acceptance failed; raw error details were suppressed. '
+    + 'Review any AWF_HOST_STARTUP_DIAGNOSTIC records above.',
+  );
+  process.exitCode = 1;
+}
+
 if (require.main === module) {
-  main().catch((error) => {
-    console.error(error instanceof Error ? error.message : 'Live enclave acceptance failed');
-    process.exitCode = 1;
-  });
+  main().catch(reportFailure);
 }
 
 module.exports = {
@@ -1767,6 +1772,7 @@ module.exports = {
   failedSpawns,
   removePrivateAwfLogs,
   stopAwf,
+  reportFailure,
   trackAwfChild,
   assertNoVmResidue,
   RELEASE_ASSETS,

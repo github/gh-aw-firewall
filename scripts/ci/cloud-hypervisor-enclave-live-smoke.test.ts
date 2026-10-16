@@ -47,6 +47,7 @@ const harness = require(harnessPath) as {
   failedSpawns: WeakSet<StartupChild>;
   removePrivateAwfLogs(stdoutFile: string, stderrFile: string, startupErrorFiles?: string[]): void;
   stopAwf(child: EventEmitter & { kill(signal: string): void }, graceMs: number, terminateMs: number): Promise<void>;
+  reportFailure(error: unknown): void;
   trackAwfChild(child: ChildProcess): ChildProcess;
   RELEASE_ASSETS: string[];
   assertReleaseAssets(required: string[], published: string[]): void;
@@ -1244,5 +1245,33 @@ describe('Cloud Hypervisor enclave live acceptance harness', () => {
     expect(source).toContain("'tools/call'");
     expect(source).not.toContain('executor.sock');
     expect(source).not.toContain('host-executor-client');
+  });
+});
+
+describe('sanitized live acceptance failure reporting', () => {
+  const sentinel = 'AWF_PASSWD_SENTINEL_sensitive-user-record';
+  const expected = 'Live enclave acceptance failed; raw error details were suppressed. '
+    + 'Review any AWF_HOST_STARTUP_DIAGNOSTIC records above.';
+
+  afterEach(() => jest.restoreAllMocks());
+
+  it.each([
+    new Error(sentinel),
+    Object.assign(new Error('outer failure'), { cause: new Error(sentinel) }),
+    { message: sentinel },
+    sentinel,
+  ])('does not emit raw error variants and preserves failure status', (failure) => {
+    const originalExitCode = process.exitCode;
+    const output = jest.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      process.exitCode = 0;
+      harness.reportFailure(failure);
+      expect(output).toHaveBeenCalledTimes(1);
+      expect(output).toHaveBeenCalledWith(expected);
+      expect(JSON.stringify(output.mock.calls)).not.toContain(sentinel);
+      expect(process.exitCode).toBe(1);
+    } finally {
+      process.exitCode = originalExitCode;
+    }
   });
 });
