@@ -197,6 +197,33 @@ describe('docker-manager (barrel re-exports)', () => {
     });
   });
 
+  describe('getLocalDockerEnv via barrel', () => {
+    const original = process.env.DOCKER_HOST;
+    afterEach(() => {
+      dockerManager.setAwfDockerHost(undefined);
+      if (original === undefined) delete process.env.DOCKER_HOST;
+      else process.env.DOCKER_HOST = original;
+    });
+
+    it('uses the explicit override over the environment', () => {
+      process.env.DOCKER_HOST = 'tcp://remote.example.com:2375';
+      dockerManager.setAwfDockerHost('unix:///custom.sock');
+      expect(dockerManager.getLocalDockerEnv().DOCKER_HOST).toBe('unix:///custom.sock');
+    });
+
+    it('passes through unix and loopback tcp DOCKER_HOST', () => {
+      process.env.DOCKER_HOST = 'unix:///var/run/docker.sock';
+      expect(dockerManager.getLocalDockerEnv().DOCKER_HOST).toBe('unix:///var/run/docker.sock');
+      process.env.DOCKER_HOST = 'tcp://localhost:2375';
+      expect(dockerManager.getLocalDockerEnv().DOCKER_HOST).toBe('tcp://localhost:2375');
+    });
+
+    it('removes remote tcp DOCKER_HOST', () => {
+      process.env.DOCKER_HOST = 'tcp://remote.example.com:2375';
+      expect(dockerManager.getLocalDockerEnv().DOCKER_HOST).toBeUndefined();
+    });
+  });
+
   describe('filterCapDrop via barrel', () => {
     it('returns empty for undefined or empty lists', () => {
       expect(dockerManager.filterCapDrop(undefined, null)).toEqual([]);
