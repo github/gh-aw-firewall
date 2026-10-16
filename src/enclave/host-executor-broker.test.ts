@@ -12,6 +12,8 @@ import type {
 } from '../cloud-hypervisor/host-enclave-executor';
 import type { CloudHypervisorPreflightResult } from '../cloud-hypervisor/preflight';
 import { startHostExecutorServer, type HostExecutorServer, type HostExecutorRunState } from './host-executor-server';
+import { validateSchema } from '../bounded-execution/finite-schema';
+import { finiteSchemaHash } from '../bounded-execution/schema-hash';
 
 /* eslint-disable @typescript-eslint/no-require-imports */
 const { createHostExecutorRunner } = require('../../containers/enclave/mcp-server/host-executor-runner');
@@ -25,6 +27,18 @@ const { loadConfig, loadAgentConfig, HOST_EXECUTOR_DIR } = require('../../contai
 const runId = 'a'.repeat(32);
 const seedId = 'b'.repeat(32);
 const schema = { type: 'boolean' };
+const smokeSchema = {
+  type: 'object', fields: { package_json: { type: 'boolean' }, src: { type: 'boolean' } },
+};
+const compoundSchema = {
+  type: 'union', variants: {
+    found: { type: 'tuple', items: [
+      { type: 'array', length: 1, items: smokeSchema },
+      { type: 'union', variants: { yes: { type: 'boolean' } } },
+    ] },
+    missing: { type: 'const', value: null },
+  },
+};
 const noop = async () => undefined;
 type Role = 'script' | 'agent';
 
@@ -41,7 +55,7 @@ describe('finite-disclosure broker → authenticated Unix host → concrete micr
   let executionResult: { exitCode: number; timedOut: boolean; signal: string | null };
   let hanging: boolean;
   let startupHanging: boolean;
-  let corrupt: 'digest' | 'schema' | 'settle' | 'truncate' | undefined;
+  let corrupt: 'digest' | 'schema' | 'settle' | 'truncate' | 'wire-schema' | 'schema-hash' | undefined;
   let resolveExecution: (() => void) | undefined;
   let offset: number;
   const started = jest.fn();
@@ -204,7 +218,18 @@ describe('finite-disclosure broker → authenticated Unix host → concrete micr
         const request = JSON.parse(frame.subarray(4).toString());
         requests.push(request);
         if (request.type === 'settle') lifecycleEvents.push('settle');
-        upstream.end(frame);
+        if (request.type === 'invoke' && (corrupt === 'wire-schema' || corrupt === 'schema-hash')) {
+          if (corrupt === 'wire-schema') {
+            const parsed = validateSchema(request.schema);
+            if (!parsed.valid) throw new Error('Invalid proxy fixture');
+            request.schema = parsed.schema;
+            request.schemaHash = finiteSchemaHash(parsed.schema);
+          } else request.schemaHash = '0'.repeat(64);
+          const payload = Buffer.from(JSON.stringify(request));
+          const header = Buffer.alloc(4);
+          header.writeUInt32BE(payload.length);
+          upstream.end(Buffer.concat([header, payload]));
+        } else upstream.end(frame);
       });
       upstream.on('data', (chunk) => responseChunks.push(Buffer.from(chunk)));
       upstream.on('end', () => {
@@ -393,6 +418,54 @@ describe('finite-disclosure broker → authenticated Unix host → concrete micr
     ]) expect(await call(handler, request)).toBe('{"status":"error"}');
     expect(requests).toHaveLength(0);
     expect(plans).toHaveLength(0);
+  });
+
+  describe.each(['script', 'agent'] as const)('%s compound schema wire contract', (role) => {
+    it.each([
+      { name: 'smoke object', wireSchema: smokeSchema, value: { package_json: true, src: true } },
+      { name: 'nested union/object/tuple/array', wireSchema: compoundSchema, value: {
+        tag: 'found', value: [[{ package_json: true, src: false }], { tag: 'yes', value: true }],
+      } },
+    ])('admits, validates and settles the real handler with $name', async ({ wireSchema, value }) => {
+      output = JSON.stringify(value);
+      const { handler, runner } = makeHandler(role);
+      await runner.assertAvailable();
+      const before = handler.ledger.remainingBits('octo/private');
+      expect(await call(handler, args(role, { schema: wireSchema })))
+        .toBe(`{"status":"ok","result":${output}}`);
+      expect(handler.ledger.remainingBits('octo/private')).toBeLessThan(before);
+      expect(plans).toHaveLength(1);
+      const parsed = validateSchema(wireSchema);
+      if (!parsed.valid) throw new Error('Invalid schema fixture');
+      expect(plans[0]).toMatchObject({ executorKind: role, schema: parsed.schema });
+      expect(started).toHaveBeenCalledTimes(1);
+      expect(requests.find(({ type }) => type === 'invoke')).toMatchObject({
+        schema: wireSchema, schemaHash: finiteSchemaHash(wireSchema),
+      });
+      expect(lifecycleEvents.indexOf('settle')).toBeGreaterThan(lifecycleEvents.indexOf('remove-invocation'));
+      expect(auditLifecycle).toHaveBeenCalledWith('host-executor', expect.objectContaining({
+        phase: 'settle', status: 'passed', outcome: 'success',
+      }));
+    });
+
+    it.each(['wire-schema', 'schema-hash'] as const)(
+      'keeps %s rejection canonical after authenticated availability passes', async (tampering) => {
+        corrupt = tampering;
+        const { handler, runner } = makeHandler(role);
+        await runner.assertAvailable();
+        expect(await call(handler, args(role, { schema: smokeSchema }))).toBe('{"status":"error"}');
+        expect(plans).toHaveLength(0);
+        expect(started).not.toHaveBeenCalled();
+        const files = await fs.readdir(path.join(root, 'journal', 'diagnostics'));
+        const contents = await fs.readFile(path.join(root, 'journal', 'diagnostics', files[0]), 'utf8');
+        expect(JSON.parse(contents).failure).toMatchObject({
+          phase: 'request-rejected', reason: 'denied',
+          rejectionStage: tampering === 'wire-schema' ? 'schema' : 'schema-hash',
+        });
+        expect(JSON.parse(contents).failure).not.toHaveProperty('invocationId');
+        expect(contents).not.toMatch(/package_json|octo|Return true|capability|payload/);
+      },
+    );
   });
 
   it.each(['script', 'agent'] as const)('denies unauthenticated %s and closes the shared admission lane', async (role) => {

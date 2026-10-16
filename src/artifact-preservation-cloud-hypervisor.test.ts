@@ -115,6 +115,8 @@ describe('Cloud Hypervisor diagnostic artifact handoff', () => {
       await writeGuestOutputAudit(source, deps, capture, capture);
       const ordinary = path.join(container, 'ordinary.log');
       createPrivateFile(ordinary, 'public diagnostic');
+      const brokerFile = path.join(container, 'enclave-host-executor.jsonl');
+      createPrivateFile(brokerFile, '{"phase":"invoke","status":"failed","reason":"rejected"}\n');
       const outsideFile = path.join(scratch, 'outside.log');
       createPrivateFile(outsideFile, 'outside target');
       const outsideLink = path.join(container, 'outside-link');
@@ -154,12 +156,26 @@ describe('Cloud Hypervisor diagnostic artifact handoff', () => {
         }
       }
       expect(fs.statSync(path.join(destinationContainer, 'ordinary.log')).mode & 0o777).toBe(0o644);
+      expect(fs.statSync(path.join(destinationContainer, 'enclave-host-executor.jsonl')).mode & 0o777)
+        .toBe(0o600);
       expect(fs.statSync(outsideFile).mode & 0o777).toBe(0o600);
       const repairDirectories = jest.mocked(fixArtifactPermissionsForRootless).mock.calls[0][0];
       if (auditDir) expect(repairDirectories).not.toContain(auditDir);
       expect(repairDirectories).not.toContain(destination);
       expect(repairDirectories).not.toContain(path.dirname(destination));
       expect(repairDirectories).not.toContain(outsideLink);
+      expect(repairDirectories).not.toContain(path.join(destinationContainer, 'enclave-host-executor.jsonl'));
     },
   );
+
+  it('keeps broker control evidence private even when no host diagnostic directory exists', () => {
+    const workDir = path.join(scratch, 'awf-broker-only');
+    const auditDir = path.join(workDir, 'audit');
+    fs.mkdirSync(auditDir, { recursive: true });
+    const file = path.join(auditDir, 'enclave-host-executor.jsonl');
+    createPrivateFile(file, '{"phase":"availability","status":"passed"}\n');
+    preserveCleanupArtifacts(workDir, { auditDir });
+    expect(fs.statSync(file).mode & 0o777).toBe(0o600);
+    expect(jest.mocked(fixArtifactPermissionsForRootless).mock.calls[0][0]).not.toContain(auditDir);
+  });
 });

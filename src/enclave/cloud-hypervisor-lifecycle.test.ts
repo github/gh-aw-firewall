@@ -363,7 +363,7 @@ describe('trusted Cloud Hypervisor enclave lifecycle', () => {
     await startCloudHypervisorEnclaveLifecycle(config, provider, {});
     const run = deriveCloudHypervisorEnclaveRunState(config, resolveEnclavePaths(workDir));
     const control = new HostExecutorControlDiagnostics(run);
-    control.record('plan-entry-policy', new Error('PRIVATE_REQUEST_BYTES'), 'denied', 'b'.repeat(32));
+    control.record('request-rejected', new Error('PRIVATE_REQUEST_BYTES'), 'denied', undefined, 'schema');
     const diagnostic = new HostExecutorInvocationDiagnostics(run, {
       runId, entryId: 'script', invocationId: 'b'.repeat(32), executorKind: 'script',
     } as HostExecutorInvocationPlan);
@@ -382,6 +382,7 @@ describe('trusted Cloud Hypervisor enclave lifecycle', () => {
         failure: { stage: 'vm-launch/vm-create', code: 'EPERM' },
       });
       await expect(diagnostic.check(cleanup, 'manager-stop', () => { throw cleanupError; })).rejects.toBe(cleanupError);
+      control.record('shutdown-failed', cleanupError);
       throw new Error('shutdown uncertain');
     });
     await expect(stopCloudHypervisorEnclaveLifecycle(config)).rejects.toThrow('shutdown uncertain');
@@ -391,8 +392,10 @@ describe('trusted Cloud Hypervisor enclave lifecycle', () => {
       JSON.parse(fs.readFileSync(path.join(directory, name), 'utf8')).component === 'host-executor-control')!;
     const controlContents = fs.readFileSync(path.join(directory, controlFile), 'utf8');
     expect(JSON.parse(controlContents)).toMatchObject({
-      failure: { phase: 'plan-entry-policy', reason: 'denied', invocationId: 'b'.repeat(32) },
+      failure: { phase: 'request-rejected', reason: 'denied', rejectionStage: 'schema' },
+      cleanupFailure: { phase: 'shutdown-failed', reason: 'EIO' },
     });
+    expect(JSON.parse(controlContents).failure).not.toHaveProperty('invocationId');
     expect(controlContents).not.toContain('PRIVATE_REQUEST_BYTES');
     const invocationFile = files.find(name => name !== controlFile)!;
     const file = path.join(directory, invocationFile);

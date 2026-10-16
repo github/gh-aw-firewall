@@ -36,6 +36,7 @@ import {
   type HostExecutorOutcome,
   type HostExecutorRequest,
   type HostExecutorResponse,
+  type HostExecutorRejectionStage,
   type HostExecutorSettleRequest,
   type HostExecutorState,
   canonicalDeniedResponse,
@@ -559,11 +560,16 @@ export async function startHostExecutorServer(options: HostExecutorServerOptions
     }
   };
 
+  const recordDecodeRejection = (stage: HostExecutorRejectionStage): void => {
+    diagnostics.record('request-rejected', new Error('Invalid request'), 'denied', undefined, stage);
+  };
+
   const processFrame = (payload: Buffer): Buffer => {
     if (closing) return canonicalDeniedResponse();
-    const decoded = decodeHostExecutorRequest(payload, { capability, runId: runState.runId });
+    const decoded = decodeHostExecutorRequest(payload, {
+      capability, runId: runState.runId, onRejection: recordDecodeRejection,
+    });
     if (!decoded.ok) {
-      diagnostics.record('request-rejected', new Error('Invalid authenticated request'), 'denied');
       return canonicalDeniedResponse();
     }
     return encodeHostExecutorResponse(handle(decoded.request));
@@ -573,7 +579,10 @@ export async function startHostExecutorServer(options: HostExecutorServerOptions
     sockets.add(socket);
     socket.on('close', () => sockets.delete(socket));
     socket.on('error', () => undefined);
-    socket.setTimeout(connectionTimeoutMs, () => socket.destroy());
+    socket.setTimeout(connectionTimeoutMs, () => {
+      recordDecodeRejection('connection-timeout');
+      socket.destroy();
+    });
 
     const chunks: Buffer[] = [];
     let received = 0;
@@ -593,6 +602,7 @@ export async function startHostExecutorServer(options: HostExecutorServerOptions
       if (expected < 0 && received >= HOST_EXECUTOR_FRAME_HEADER_BYTES) {
         expected = Buffer.concat(chunks).readUInt32BE(0);
         if (expected === 0 || expected > HOST_EXECUTOR_MAX_REQUEST_BYTES) {
+          recordDecodeRejection('size');
           respond(canonicalDeniedResponse());
           return;
         }
@@ -601,6 +611,7 @@ export async function startHostExecutorServer(options: HostExecutorServerOptions
       const total = HOST_EXECUTOR_FRAME_HEADER_BYTES + expected;
       if (received > total) {
         // Exactly one request per connection; trailing bytes are a violation.
+        recordDecodeRejection('framing');
         respond(canonicalDeniedResponse());
         return;
       }
@@ -609,6 +620,7 @@ export async function startHostExecutorServer(options: HostExecutorServerOptions
     const onEnd = (): void => {
       if (answered) return;
       if (expected < 0 || received !== HOST_EXECUTOR_FRAME_HEADER_BYTES + expected) {
+        recordDecodeRejection('framing');
         respond(canonicalDeniedResponse());
         return;
       }
@@ -661,6 +673,9 @@ export async function startHostExecutorServer(options: HostExecutorServerOptions
         try {
           await backend.close?.();
           journal.record({ state: 'closed' });
+        } catch (error) {
+          diagnostics.record('shutdown-failed', error);
+          throw error;
         } finally {
           capability.fill(0);
           fs.rmSync(capabilityPath, { force: true });

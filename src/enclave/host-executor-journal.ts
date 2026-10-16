@@ -2,7 +2,10 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { createHash, randomBytes } from 'crypto';
 import type { HostExecutorInvocationPlan, HostExecutorRunState } from './host-executor-server';
-import { HOST_EXECUTOR_ID_PATTERN, HOST_EXECUTOR_ENTRY_ID_PATTERN, type HostExecutorError } from './host-executor-protocol';
+import {
+  HOST_EXECUTOR_ID_PATTERN, HOST_EXECUTOR_ENTRY_ID_PATTERN, HOST_EXECUTOR_REJECTION_STAGES,
+  type HostExecutorError, type HostExecutorRejectionStage,
+} from './host-executor-protocol';
 import {
   resolveCleanupDependencies,
   type CleanupRegistryDependencies,
@@ -149,6 +152,7 @@ export class HostExecutorJournal {
 export type HostExecutorControlPhase =
   | 'request-rejected' | 'invoke-plan' | 'invocation-register' | 'backend-start'
   | 'backend-complete' | 'backend-failed' | 'cleanup-pending' | 'settled' | 'shutdown'
+  | 'shutdown-failed'
   | 'plan-run-identity' | 'plan-entry-policy' | 'plan-static-seed' | 'plan-selector-policy' | 'plan-path';
 
 interface HostExecutorControlEvent {
@@ -158,6 +162,7 @@ interface HostExecutorControlEvent {
   errorType: string;
   sequence: number;
   invocationId?: string;
+  rejectionStage?: HostExecutorRejectionStage;
 }
 
 export class HostExecutorControlDiagnostics {
@@ -172,6 +177,7 @@ export class HostExecutorControlDiagnostics {
     dropped: number;
     events: HostExecutorControlEvent[];
     failure?: HostExecutorControlEvent;
+    cleanupFailure?: HostExecutorControlEvent;
   };
 
   constructor(run: HostExecutorRunState) {
@@ -192,12 +198,15 @@ export class HostExecutorControlDiagnostics {
     error?: unknown,
     rejection?: HostExecutorError,
     invocationId?: string,
+    rejectionStage?: HostExecutorRejectionStage,
   ): void {
     const event = {
       phase, elapsedMs: Math.max(0, Date.now() - this.started),
       sequence: this.snapshot.sequence + 1,
       ...(typeof invocationId === 'string' && HOST_EXECUTOR_ID_PATTERN.test(invocationId)
         ? { invocationId } : {}),
+      ...(rejectionStage !== undefined && HOST_EXECUTOR_REJECTION_STAGES.includes(rejectionStage)
+        ? { rejectionStage } : {}),
       reason: rejection ?? (error === undefined ? 'none' : hostPreflightReason(error)),
       errorType: error instanceof TypeError ? 'TypeError'
         : error instanceof RangeError ? 'RangeError'
@@ -207,9 +216,10 @@ export class HostExecutorControlDiagnostics {
     this.snapshot.sequence += 1;
     const firstFailure = !this.snapshot.failure && (error !== undefined || phase === 'cleanup-pending');
     if (firstFailure) this.snapshot.failure = event;
+    if (phase === 'shutdown-failed') this.snapshot.cleanupFailure ??= event;
     if (this.snapshot.events.length < 128) this.snapshot.events.push(event);
     else this.snapshot.dropped += 1;
-    if (this.snapshot.dropped > 0 && !firstFailure && phase !== 'shutdown') return;
+    if (this.snapshot.dropped > 0 && !firstFailure && phase !== 'shutdown' && phase !== 'shutdown-failed') return;
     try {
       persist(this.file, this.snapshot);
     } catch {

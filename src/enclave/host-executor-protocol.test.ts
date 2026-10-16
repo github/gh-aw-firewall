@@ -2,7 +2,7 @@ import * as fs from 'fs';
 import * as net from 'net';
 import * as path from 'path';
 import * as os from 'os';
-import { HostExecutorJournal } from './host-executor-journal';
+import { HostExecutorJournal, readHostExecutorInvocationDiagnostics } from './host-executor-journal';
 import {
   HOST_EXECUTOR_PROTOCOL_VERSION,
   HOST_EXECUTOR_MAX_REQUEST_BYTES,
@@ -127,6 +127,32 @@ const PROHIBITED_FIELDS: Record<string, unknown> = {
 };
 
 describe('host executor protocol decoding', () => {
+  it.each([
+    ['size', Buffer.alloc(0)],
+    ['encoding', Buffer.from([0xff])],
+    ['json', Buffer.from('{"capability":"PRIVATE_CAPABILITY","capability":0}')],
+    ['authentication', encode(invokeRequest({ capability: 'f'.repeat(64), version: -1 }))],
+    ['protocol-version', encode(invokeRequest({ version: -1, type: 'PRIVATE_TYPE' }))],
+    ['type', encode(invokeRequest({ type: 'PRIVATE_TYPE', extra: 'PRIVATE_FIELD' }))],
+    ['field-set', encode(invokeRequest({ extra: 'PRIVATE_FIELD', invocationId: 'PRIVATE_ID' }))],
+    ['identity', encode(invokeRequest({ invocationId: 'PRIVATE_ID', payload: '' }))],
+    ['executor-kind', encode(invokeRequest({ executorKind: 'PRIVATE_KIND' }))],
+    ['selector', encode(invokeRequest({ seedId: 'PRIVATE_SEED' }))],
+    ['payload', encode(invokeRequest({ payload: '' }))],
+    ['schema-hash', encode(invokeRequest({ schemaHash: 'PRIVATE_HASH' }))],
+    ['admission-identity', encode(invokeRequest({ admissionId: 'PRIVATE_ADMISSION' }))],
+    ['schema', encode(invokeRequest({ schema: { type: 'object', fields: [
+      { name: 'PRIVATE_SCHEMA_FIELD', schema: { type: 'boolean' } },
+    ] } }))],
+    ['schema-hash', encode(invokeRequest({ schemaHash: '0'.repeat(64) }))],
+  ])('reports only the first host-only %s classification without changing denial', (stage, payload) => {
+    const onRejection = jest.fn();
+    expect(decodeHostExecutorRequest(payload, { capability: CAPABILITY, runId: RUN_ID, onRejection }))
+      .toEqual({ ok: false });
+    expect(onRejection.mock.calls).toEqual([[stage]]);
+    expect(JSON.stringify(onRejection.mock.calls)).not.toContain('PRIVATE_');
+  });
+
   it('accepts each closed request type', () => {
     const invoke = decode(encode(invokeRequest()));
     expect(invoke).toEqual({
@@ -424,6 +450,48 @@ describe('host executor server', () => {
     server = undefined;
     expect(fs.existsSync(started.socketPath)).toBe(false);
     expect(fs.existsSync(started.capabilityPath)).toBe(false);
+  });
+
+  it('retains redacted predecode origin and separate failed-shutdown evidence over the real socket', async () => {
+    await start({}, { backend: {
+      execute: backend.execute,
+      close: async () => { throw Object.assign(new Error('PRIVATE_PATH_TOKEN'), { code: 'EACCES' }); },
+    } });
+    const capability = fs.readFileSync(server!.capabilityPath, 'utf8');
+    const valid = invokeRequest({ capability });
+    const frame = (raw: unknown) => frameHostExecutorMessage(encode(raw));
+    const empty = Buffer.alloc(4);
+    const truncated = frame(valid).subarray(0, 10);
+    const trailing = Buffer.concat([frame(valid), Buffer.from('PRIVATE_TRAILING')]);
+    const attempts: Array<[string, Buffer]> = [
+      ['size', empty],
+      ['framing', truncated],
+      ['framing', trailing],
+      ['encoding', frameHostExecutorMessage(Buffer.from([0xff]))],
+      ['json', frameHostExecutorMessage(Buffer.from('PRIVATE_JSON'))],
+      ['authentication', frame({ ...valid, capability: 'f'.repeat(64) })],
+      ['identity', frame({ ...valid, invocationId: 'PRIVATE_ID' })],
+      ['schema', frame({ ...valid, schema: { type: 'union', variants: [] } })],
+      ['schema-hash', frame({ ...valid, schemaHash: '0'.repeat(64) })],
+    ];
+    for (const [, bytes] of attempts) {
+      expect(await rawExchange(server!.socketPath, bytes)).toEqual(canonicalDeniedResponse());
+    }
+    expect(executions).toHaveLength(0);
+    const started = server!;
+    server = undefined;
+    await expect(started.close()).rejects.toThrow('PRIVATE_PATH_TOKEN');
+    const run = { runId: RUN_ID, journalDir: path.join(root, 'host-executor-journal') };
+    const [file] = readHostExecutorInvocationDiagnostics(run);
+    const snapshot = JSON.parse(file.contents);
+    expect(snapshot.events.filter((event: { phase: string }) => event.phase === 'request-rejected')
+      .map((event: { rejectionStage: string }) => event.rejectionStage)).toEqual(attempts.map(([stage]) => stage));
+    expect(snapshot.failure).toMatchObject({ rejectionStage: 'size', reason: 'denied', sequence: 1 });
+    expect(snapshot.failure).not.toHaveProperty('invocationId');
+    expect(snapshot.cleanupFailure).toMatchObject({ phase: 'shutdown-failed', reason: 'EACCES' });
+    expect(file.contents).not.toMatch(/PRIVATE_|capability|payload|schemaHash/);
+    expect(file.contents).not.toContain(capability);
+    expect(fs.statSync(path.join(run.journalDir, 'diagnostics', file.name)).mode & 0o777).toBe(0o600);
   });
 
   it('refuses to reuse an existing socket or capability', async () => {

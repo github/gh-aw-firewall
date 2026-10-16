@@ -47,6 +47,11 @@ describe('bounded actual-host preflight progress', () => {
     expect(hostPreflightReason(error)).toBe('unknown');
   });
 
+  it.each(['EACCES', 'EPERM', 'ENOSPC', 'EDQUOT'])('distinguishes allowlisted permission/storage code %s', (code) => {
+    const error = Object.assign(new Error('PRIVATE_PATH_TOKEN'), { code });
+    expect(hostPreflightReason(error)).toBe(code);
+  });
+
   it('uses origin classification without modifying an error or replacing its identity', () => {
     const error = Object.freeze(new Error('unchanged private diagnostic'));
     expect(markHostPreflightError(error, 'ancestor-owner')).toBe(error);

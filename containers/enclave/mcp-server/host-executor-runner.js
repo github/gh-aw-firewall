@@ -4,7 +4,7 @@ const crypto = require('crypto');
 const { performance } = require('perf_hooks');
 const { createHostExecutorClient } = require('./host-executor-client');
 const { finiteSchemaHash } = require('../../bounded-execution/schema-hash');
-const { parseAndValidateFiniteOutput } = require('../../bounded-execution/finite-disclosure');
+const { parseAndValidateFiniteOutput, serializeFiniteSchema } = require('../../bounded-execution/finite-disclosure');
 
 const FAILURE_REASONS = new Map([
   ['Host executor invoke contains an unsupported field', 'unsupported-field'],
@@ -134,13 +134,14 @@ function createHostExecutorRunner(config, deps = {}) {
         }
         invoked = true;
         progress('invoke');
+        const wireSchema = serializeFiniteSchema(schema);
         let response = checked(await client.invoke({
           ...identity,
           executorKind,
           ...(seedId === undefined ? { selector: privateRepo } : { seedId }),
           payload,
-          schema,
-          schemaHash: finiteSchemaHash(schema),
+          schema: wireSchema,
+          schemaHash: finiteSchemaHash(wireSchema),
           admissionId,
         }));
         registered = true;

@@ -11,6 +11,7 @@ import {
 } from './dynamic-delegation-protocol';
 import { DynamicDelegationService } from './dynamic-delegation-service';
 import { startDynamicDelegationChannel } from './dynamic-delegation-channel';
+import { validateSchema } from '../bounded-execution/finite-schema';
 
 /* eslint-disable @typescript-eslint/no-require-imports */
 const nativeFs = require('fs');
@@ -173,11 +174,15 @@ describe('dynamic delegation channel end to end', () => {
     const service = buildService();
     await service.recover();
     const broker = brokerClient();
-    const schema = { type: 'object', properties: { b: { type: 'boolean' }, a: { type: 'boolean' } } };
+    const schema = { type: 'object', fields: {
+      b: { type: 'union', variants: { yes: { type: 'boolean' } } }, a: { type: 'boolean' },
+    } };
+    const validation = validateSchema(schema);
+    if (!validation.valid) throw new Error('Invalid schema fixture');
     const pending = broker.admit({
       invocationId: 'def456def456def4',
       selector: 'octo-org/service',
-      schema,
+      schema: validation.schema,
     });
     // Read the request document before the host consumes it.
     let raw: string | undefined;
@@ -195,7 +200,7 @@ describe('dynamic delegation channel end to end', () => {
     // Key order must not change the hash.
     expect(finiteSchemaHash({
       type: 'object',
-      properties: { a: { type: 'boolean' }, b: { type: 'boolean' } },
+      fields: { a: { type: 'boolean' }, b: { type: 'union', variants: { yes: { type: 'boolean' } } } },
     })).toBe(finiteSchemaHash(schema));
 
     const channel = startDynamicDelegationChannel({ directory, service, pollIntervalMs: 1 });

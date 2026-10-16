@@ -308,6 +308,7 @@ export const schema = {
     "ENOEXEC": null,
     "EISDIR": null,
     "ENOSPC": null,
+    "EDQUOT": null,
     "EROFS": null,
     "EIO": null,
     "dns-not-found": null,

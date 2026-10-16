@@ -92,19 +92,40 @@ describe('protected host invocation evidence', () => {
     }), undefined, plan.invocationId);
     diagnostic.record('cleanup-pending', undefined, undefined, 'c'.repeat(32));
     diagnostic.record('shutdown');
+    diagnostic.record('shutdown-failed', Object.assign(new Error('PRIVATE_SHUTDOWN'), { code: 'EDQUOT' }));
     const [file] = readHostExecutorInvocationDiagnostics(run);
     const snapshot = JSON.parse(file.contents);
     expect(snapshot).toMatchObject({
-      component: 'host-executor-control', sequence: 143, dropped: 15,
+      component: 'host-executor-control', sequence: 144, dropped: 16,
       failure: {
         phase: 'backend-failed', reason: 'EACCES', errorType: 'TypeError',
         invocationId: plan.invocationId, sequence: 141,
       },
+      cleanupFailure: { phase: 'shutdown-failed', reason: 'EDQUOT', sequence: 144 },
     });
     expect(snapshot.events).toHaveLength(128);
     expect(file.contents).not.toMatch(/PRIVATE_|TOKEN|payload|stderr/);
     expect(Buffer.byteLength(file.contents)).toBeLessThan(64 * 1024);
     expect(fs.statSync(path.join(run.journalDir!, 'diagnostics', file.name)).mode & 0o777).toBe(0o600);
+  });
+
+  it('retains bounded decode classifications without accepting arbitrary diagnostic labels', () => {
+    const diagnostic = new HostExecutorControlDiagnostics(run);
+    diagnostic.record('request-rejected', new Error('PRIVATE_SCHEMA'), 'denied', undefined, 'schema');
+    for (let i = 0; i < 140; i++) {
+      diagnostic.record('request-rejected', new Error('PRIVATE_AUTH'), 'denied', undefined, 'authentication');
+    }
+    // @ts-expect-error Runtime callers cannot widen the closed diagnostic vocabulary.
+    diagnostic.record('request-rejected', new Error('PRIVATE_ERROR'), 'denied', undefined, 'PRIVATE_STAGE');
+    diagnostic.record('shutdown');
+    const [file] = readHostExecutorInvocationDiagnostics(run);
+    const snapshot = JSON.parse(file.contents);
+    expect(snapshot.failure).toMatchObject({ rejectionStage: 'schema', sequence: 1 });
+    expect(snapshot.events).toHaveLength(128);
+    expect(snapshot.dropped).toBe(15);
+    expect(snapshot.failure).not.toHaveProperty('invocationId');
+    expect(file.contents).not.toMatch(/PRIVATE_|capability|payload/);
+    expect(Buffer.byteLength(file.contents)).toBeLessThan(64 * 1024);
   });
 
   it('correlates admitted invocations without retaining malformed identifiers', () => {

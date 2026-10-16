@@ -338,6 +338,38 @@ timeouts and access errors remain observations and do not block startup. The
 host-executor availability stage uses its existing bounded authenticated status
 protocol; diagnostics add no inference call, token exchange, or network scan.
 
+In particular, a passed authenticated `status` availability check proves only
+that the broker can reach and authenticate to the host. It does not validate an
+`invoke` schema, admit an invocation, reserve execution resources, or start a
+guest. The broker serializes validated internal schemas back to the finite
+wire grammar (object `fields` and union `variants` are maps, not parsed arrays),
+and hashes that wire grammar consistently for host invocation and dynamic
+delegation. The host still validates the grammar and hash independently.
+
+Protected `host-executor-control` snapshots under
+`audit/diagnostics/cloud-hypervisor/host-executor/` distinguish rejected frame
+size/framing, UTF-8/JSON, authentication, protocol version/type, field set,
+identity, payload, schema, and schema-hash checks using closed `rejectionStage`
+labels. These predecode events deliberately omit invocation identity. The
+first failure survives subsequent cancellation/shutdown events; a failed
+shutdown is retained separately as `cleanupFailure`. These labels never change
+the canonical `denied` wire response or tool error. They contain no schema,
+script, result, repository, capability, environment, raw exception, or path.
+A schema rejection occurs before invocation planning/backend startup, so it is
+not evidence of VM permissions or quota failure. Later host-preflight stages
+can separately identify allowlisted permission/storage error codes (`EACCES`,
+`EPERM`, `ENOSPC`, `EDQUOT`); interpret
+them at their recorded boundary rather than inferring a cause from `denied`.
+The broker's bounded lifecycle log is also preserved as
+`audit/enclave-host-executor.jsonl`. Both control evidence paths retain
+owner-only file modes (`0600`) through artifact cleanup.
+
+Activating changes to the host decoder and broker serializer requires a
+published AWF binary and matching broker image containing the changes; merging
+source alone does not change release-pinned runs. Guest rootfs artifacts only
+need rebuilding if guest code changed. A local schema-wire reproduction does
+not by itself prove the root cause of a previously failed live run.
+
 Interpret progress by boundary: process initialization and a passed host
 prerequisite probe do not establish listener readiness; `listener-binding`
 means the local HTTP socket bound; `ready-file` means its control marker was

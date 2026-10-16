@@ -100,6 +100,34 @@ export type FiniteSchemaNode =
   | ArraySchemaNode
   | UnionSchemaNode;
 
+/** Agent-authored/wire grammar, distinct from the parsed object/union arrays. */
+export type FiniteSchemaWireNode =
+  | ConstSchemaNode | BooleanSchemaNode | StringSchemaNode | EnumSchemaNode | IntegerSchemaNode
+  | { readonly type: 'object'; readonly fields: Readonly<Record<string, FiniteSchemaWireNode>> }
+  | { readonly type: 'tuple'; readonly items: readonly FiniteSchemaWireNode[] }
+  | { readonly type: 'array'; readonly items: FiniteSchemaWireNode; readonly length: number }
+  | { readonly type: 'union'; readonly variants: Readonly<Record<string, FiniteSchemaWireNode>> };
+
+/** Serializes an already validated schema; receivers must still validate independently. */
+export function serializeFiniteSchema(schema: FiniteSchemaNode): FiniteSchemaWireNode {
+  switch (schema.type) {
+    case 'object':
+      return { type: 'object', fields: Object.fromEntries(
+        schema.fields.map(({ name, schema: child }) => [name, serializeFiniteSchema(child)]),
+      ) };
+    case 'union':
+      return { type: 'union', variants: Object.fromEntries(
+        schema.variants.map(({ tag, schema: child }) => [tag, serializeFiniteSchema(child)]),
+      ) };
+    case 'tuple':
+      return { type: 'tuple', items: schema.items.map(serializeFiniteSchema) };
+    case 'array':
+      return { type: 'array', items: serializeFiniteSchema(schema.items), length: schema.length };
+    default:
+      return schema;
+  }
+}
+
 export type FiniteSchemaValidation =
   | { valid: true; schema: FiniteSchemaNode }
   | { valid: false; errors: string[] };

@@ -164,7 +164,7 @@ export interface HostExecutorInvokeRequest extends HostExecutorRequestBase {
   selector?: string;
   /** Bounded script (script executor) or task (agent executor) text. */
   payload: string;
-  /** Original finite-schema grammar; the host validates and normalizes it independently. */
+  /** Parsed internal schema, independently validated from the original wire grammar. */
   schema: FiniteSchemaNode;
   schemaHash: string;
   admissionId: string;
@@ -216,6 +216,14 @@ export type HostExecutorResponse =
 export type HostExecutorDecodeResult =
   | { ok: true; request: HostExecutorRequest }
   | { ok: false };
+
+/** Host-only classifications; never included in protocol responses or caller errors. */
+export const HOST_EXECUTOR_REJECTION_STAGES = Object.freeze([
+  'size', 'framing', 'connection-timeout', 'encoding', 'json', 'authentication',
+  'protocol-version', 'type', 'field-set', 'identity', 'executor-kind', 'selector',
+  'payload', 'schema', 'schema-hash', 'admission-identity', 'cancel-generation', 'result-digest',
+] as const);
+export type HostExecutorRejectionStage = typeof HOST_EXECUTOR_REJECTION_STAGES[number];
 
 const utf8Decoder = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true });
 
@@ -273,56 +281,63 @@ export function capabilityMatches(expected: Buffer, presented: unknown): boolean
  * Validation order is size → UTF-8 → strict JSON (no duplicate keys, no
  * trailing data) → capability → version → type → closed field set → field
  * values. Every failure returns the same `{ ok: false }` so the caller emits
- * the single canonical `denied` response.
+ * the single canonical `denied` response. The optional origin-only observer
+ * receives a closed classification, never raw input or unvalidated identities.
  */
 export function decodeHostExecutorRequest(
   payload: Buffer,
-  context: { capability: Buffer; runId: string },
+  context: {
+    capability: Buffer; runId: string;
+    onRejection?: (stage: HostExecutorRejectionStage) => void;
+  },
 ): HostExecutorDecodeResult {
-  const denied: HostExecutorDecodeResult = { ok: false };
-  if (payload.length === 0 || payload.length > HOST_EXECUTOR_MAX_REQUEST_BYTES) return denied;
+  const deny = (stage: HostExecutorRejectionStage): HostExecutorDecodeResult => {
+    context.onRejection?.(stage);
+    return { ok: false };
+  };
+  if (payload.length === 0 || payload.length > HOST_EXECUTOR_MAX_REQUEST_BYTES) return deny('size');
 
   let text: string;
   try {
     text = utf8Decoder.decode(payload);
   } catch {
-    return denied;
+    return deny('encoding');
   }
 
   // The strict parser rejects duplicate keys and trailing data; `JSON.parse`
   // then produces the value with own-property semantics, so a `__proto__`
   // key surfaces as an ordinary (and therefore unknown) field instead of
   // altering the prototype.
-  if (!strictParseJson(text)) return denied;
+  if (!strictParseJson(text)) return deny('json');
   let raw: unknown;
   try {
     raw = JSON.parse(text);
   } catch {
-    return denied;
+    return deny('json');
   }
-  if (!isPlainObject(raw)) return denied;
+  if (!isPlainObject(raw)) return deny('json');
 
-  if (!capabilityMatches(context.capability, raw.capability)) return denied;
+  if (!capabilityMatches(context.capability, raw.capability)) return deny('authentication');
 
-  if (raw.version !== HOST_EXECUTOR_PROTOCOL_VERSION) return denied;
+  if (raw.version !== HOST_EXECUTOR_PROTOCOL_VERSION) return deny('protocol-version');
   const type = raw.type;
   if (typeof type !== 'string' || !(HOST_EXECUTOR_REQUEST_TYPES as readonly string[]).includes(type)) {
-    return denied;
+    return deny('type');
   }
   const allowed = REQUEST_FIELDS[type as HostExecutorRequestType];
   for (const key of Object.keys(raw)) {
-    if (!allowed.includes(key)) return denied;
+    if (!allowed.includes(key)) return deny('field-set');
   }
   for (const key of allowed) {
-    if (!hasOwn(raw, key) && !(type === 'invoke' && OPTIONAL_INVOKE_FIELDS.has(key))) return denied;
+    if (!hasOwn(raw, key) && !(type === 'invoke' && OPTIONAL_INVOKE_FIELDS.has(key))) return deny('field-set');
   }
 
   const { requestId, runId, entryId, invocationId } = raw;
-  if (typeof requestId !== 'string' || !HOST_EXECUTOR_REQUEST_ID_PATTERN.test(requestId)) return denied;
-  if (typeof runId !== 'string' || !HOST_EXECUTOR_ID_PATTERN.test(runId)) return denied;
-  if (runId !== context.runId) return denied;
-  if (typeof entryId !== 'string' || !HOST_EXECUTOR_ENTRY_ID_PATTERN.test(entryId)) return denied;
-  if (typeof invocationId !== 'string' || !HOST_EXECUTOR_ID_PATTERN.test(invocationId)) return denied;
+  if (typeof requestId !== 'string' || !HOST_EXECUTOR_REQUEST_ID_PATTERN.test(requestId)) return deny('identity');
+  if (typeof runId !== 'string' || !HOST_EXECUTOR_ID_PATTERN.test(runId)) return deny('identity');
+  if (runId !== context.runId) return deny('identity');
+  if (typeof entryId !== 'string' || !HOST_EXECUTOR_ENTRY_ID_PATTERN.test(entryId)) return deny('identity');
+  if (typeof invocationId !== 'string' || !HOST_EXECUTOR_ID_PATTERN.test(invocationId)) return deny('identity');
 
   const base: HostExecutorRequestBase = {
     version: HOST_EXECUTOR_PROTOCOL_VERSION,
@@ -339,28 +354,27 @@ export function decodeHostExecutorRequest(
       } = raw;
       if (typeof executorKind !== 'string'
         || !(HOST_EXECUTOR_KINDS as readonly string[]).includes(executorKind)) {
-        return denied;
+        return deny('executor-kind');
       }
       const hasSeed = hasOwn(raw, 'seedId');
       const hasSelector = hasOwn(raw, 'selector');
-      if (hasSeed === hasSelector) return denied;
-      if (hasSeed && (typeof seedId !== 'string' || !HOST_EXECUTOR_ID_PATTERN.test(seedId))) return denied;
+      if (hasSeed === hasSelector) return deny('selector');
+      if (hasSeed && (typeof seedId !== 'string' || !HOST_EXECUTOR_ID_PATTERN.test(seedId))) return deny('selector');
       if (hasSelector) {
-        if (executorKind !== 'agent') return denied;
+        if (executorKind !== 'agent') return deny('selector');
         if (typeof selector !== 'string'
           || selector.length > HOST_EXECUTOR_MAX_SELECTOR_LENGTH
           || !CANONICAL_DYNAMIC_REPOSITORY_PATTERN.test(selector)) {
-          return denied;
+          return deny('selector');
         }
       }
-      if (typeof body !== 'string' || body.length === 0 || !isWellFormedString(body)) return denied;
-      if (Buffer.byteLength(body, 'utf8') > HOST_EXECUTOR_MAX_PAYLOAD_BYTES) return denied;
-      if (typeof schemaHash !== 'string' || !HOST_EXECUTOR_SHA256_PATTERN.test(schemaHash)) return denied;
-      if (typeof admissionId !== 'string' || !HOST_EXECUTOR_ID_PATTERN.test(admissionId)) return denied;
+      if (typeof body !== 'string' || body.length === 0 || !isWellFormedString(body)) return deny('payload');
+      if (Buffer.byteLength(body, 'utf8') > HOST_EXECUTOR_MAX_PAYLOAD_BYTES) return deny('payload');
+      if (typeof schemaHash !== 'string' || !HOST_EXECUTOR_SHA256_PATTERN.test(schemaHash)) return deny('schema-hash');
+      if (typeof admissionId !== 'string' || !HOST_EXECUTOR_ID_PATTERN.test(admissionId)) return deny('admission-identity');
       const schemaValidation = validateSchema(rawSchema);
-      if (!schemaValidation.valid || finiteSchemaHash(rawSchema) !== schemaHash) {
-        return denied;
-      }
+      if (!schemaValidation.valid) return deny('schema');
+      if (finiteSchemaHash(rawSchema) !== schemaHash) return deny('schema-hash');
       const request: HostExecutorInvokeRequest = {
         ...base,
         type: 'invoke',
@@ -376,19 +390,19 @@ export function decodeHostExecutorRequest(
     }
     case 'cancel': {
       const { cancelGeneration } = raw;
-      if (!Number.isSafeInteger(cancelGeneration) || (cancelGeneration as number) < 1) return denied;
+      if (!Number.isSafeInteger(cancelGeneration) || (cancelGeneration as number) < 1) return deny('cancel-generation');
       return { ok: true, request: { ...base, type: 'cancel', cancelGeneration: cancelGeneration as number } };
     }
     case 'settle': {
       const { resultDigest } = raw;
-      if (typeof resultDigest !== 'string' || !HOST_EXECUTOR_SHA256_PATTERN.test(resultDigest)) return denied;
+      if (typeof resultDigest !== 'string' || !HOST_EXECUTOR_SHA256_PATTERN.test(resultDigest)) return deny('result-digest');
       return { ok: true, request: { ...base, type: 'settle', resultDigest } };
     }
     case 'status':
       return { ok: true, request: { ...base, type: 'status' } };
   }
   /* istanbul ignore next -- exhaustive switch */
-  return denied;
+  return deny('type');
 }
 
 /**

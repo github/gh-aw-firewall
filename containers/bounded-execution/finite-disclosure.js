@@ -678,6 +678,26 @@ function canonicalSuccessJson(canonicalResultJson) {
   return `{"status":"ok","result":${canonicalResultJson}}`;
 }
 
+/** Mirrors finite-schema.ts: only validated parsed schemas may be serialized. */
+function serializeFiniteSchema(schema) {
+  switch (schema.type) {
+    case 'object':
+      return { type: 'object', fields: Object.fromEntries(
+        schema.fields.map(({ name, schema: child }) => [name, serializeFiniteSchema(child)]),
+      ) };
+    case 'union':
+      return { type: 'union', variants: Object.fromEntries(
+        schema.variants.map(({ tag, schema: child }) => [tag, serializeFiniteSchema(child)]),
+      ) };
+    case 'tuple':
+      return { type: 'tuple', items: schema.items.map(serializeFiniteSchema) };
+    case 'array':
+      return { type: 'array', items: serializeFiniteSchema(schema.items), length: schema.length };
+    default:
+      return schema;
+  }
+}
+
 function parseAndValidateFiniteOutput(raw, schema) {
   if (utf8ByteLength(raw) > MAX_RESULT_BYTES) return { ok: false };
   const parsed = strictParseJson(raw);
@@ -708,6 +728,7 @@ module.exports = {
   PRIVATE_REPOSITORY_PATTERN,
   CANONICAL_ERROR_RESPONSE_JSON,
   validateSchema,
+  serializeFiniteSchema,
   ceilLog2BigInt,
   schemaCardinality,
   informationChargeForSchema,

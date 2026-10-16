@@ -3,6 +3,7 @@
 const fs = require('fs');
 const path = require('path');
 const { finiteSchemaHash } = require('../../bounded-execution/schema-hash');
+const { serializeFiniteSchema } = require('../../bounded-execution/finite-disclosure');
 
 /**
  * Broker side of the AWF-private dynamic delegation channel.
@@ -123,7 +124,7 @@ function createDynamicDelegationClient(config, deps = {}) {
           version: CHANNEL_VERSION,
           invocationId,
           selector,
-          schemaHash: finiteSchemaHash(schema),
+          schemaHash: finiteSchemaHash(serializeFiniteSchema(schema)),
         });
       } catch {
         return { admitted: false };

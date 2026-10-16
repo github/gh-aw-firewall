@@ -19,7 +19,9 @@ const ENCLAVE_SESSION_DIR = 'sessions';
 const ENCLAVE_AUDIT_FILES = [
   { source: 'enclave.jsonl', destination: 'enclave.jsonl' },
   { source: 'runtime-telemetry.jsonl', destination: 'enclave-runtime.jsonl' },
+  { source: 'enclave-host-executor.jsonl', destination: 'enclave-host-executor.jsonl' },
 ] as const;
+const PRIVATE_ENCLAVE_AUDIT_FILE = 'enclave-host-executor.jsonl';
 /**
  * Copies the iptables audit dump from the init-signal volume to the audit directory.
  * Must be called BEFORE stopContainers() because `docker compose down -v` destroys
@@ -137,6 +139,7 @@ function publicArtifactPaths(directory: string): string[] {
   return entries.flatMap((entry) => {
     const entryPath = path.join(directory, entry.name);
     if (entry.isSymbolicLink()) return [];
+    if (entry.name === PRIVATE_ENCLAVE_AUDIT_FILE) return [];
     if (entry.isDirectory() && entry.name === 'cloud-hypervisor') return [];
     if (entry.isDirectory() && entry.name === 'diagnostics') {
       return publicArtifactPaths(entryPath);
@@ -155,7 +158,8 @@ function isRealDirectory(directory: string): boolean {
 }
 
 function hasPrivateDiagnostics(directory: string): boolean {
-  return isRealDirectory(path.join(directory, 'cloud-hypervisor')) ||
+  return fs.existsSync(path.join(directory, PRIVATE_ENCLAVE_AUDIT_FILE)) ||
+    isRealDirectory(path.join(directory, 'cloud-hypervisor')) ||
     (isRealDirectory(path.join(directory, 'diagnostics')) &&
       isRealDirectory(path.join(directory, 'diagnostics', 'cloud-hypervisor')));
 }
@@ -164,7 +168,7 @@ function chmodPublicArtifacts(directory: string): void {
   if (!isRealDirectory(directory)) {
     throw new Error(`Refusing to change permissions for non-directory path: ${directory}`);
   }
-  // Cloud Hypervisor diagnostics are private, runner-owned artifacts.
+  // Host and broker control diagnostics are private, runner-owned artifacts.
   // Preserve their modes rather than applying the legacy public-log repair.
   if (hasPrivateDiagnostics(directory)) {
     execa.sync('chmod', ['a+rX', directory]);
