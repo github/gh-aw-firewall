@@ -174,8 +174,8 @@ milestones for startup, seed copy, output link, working-directory setup, and
 script execution. Host instrumentation requires the released host binary, and
 broker diagnostics require the matching enclave MCP image; source-only merges
 do not activate either. The verified release manifest binds the rebuilt rootfs
-to release commit `4616cdc6de7ca6b6a6d44b2ead47a4f341494747`, which includes
-#10066. Branch runs must not claim that published guests include later changes.
+to release commit `4616cdc6de7ca6b6a6d44b2ead47a4f341494747`, which includes #10066.
+Branch runs must not claim that published guests include later changes.
 This update does not publish a release or authorize a live run.
 This is diagnostic enablement, not a verified fix for the original host-executor
 launch failure; that failure remains untested with this release.
