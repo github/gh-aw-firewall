@@ -212,10 +212,16 @@ describe('docker-manager diagnostics', () => {
       fs.mkdirSync(resolveEnclavePaths(getDir()).root, { recursive: true });
       const auditDir = path.join(getDir(), 'audit');
       fs.mkdirSync(auditDir);
+      const mockAuditCopy = (mode: number) => mockExecaSync.mockImplementationOnce(
+        (_command, args) => {
+          fs.writeFileSync(args[2], '', { mode });
+          return { exitCode: 0, stdout: '', stderr: '' };
+        },
+      );
+      mockAuditCopy(0o644);
+      mockAuditCopy(0o644);
+      mockAuditCopy(0o600);
       mockExecaSync
-        .mockReturnValueOnce({ exitCode: 0, stdout: '', stderr: '' })
-        .mockReturnValueOnce({ exitCode: 0, stdout: '', stderr: '' })
-        .mockReturnValueOnce({ exitCode: 0, stdout: '', stderr: '' })
         .mockReturnValueOnce({ exitCode: 1, stdout: '', stderr: 'sessions missing' });
 
       expect(preserveIptablesAudit(getDir(), auditDir)).toBe(true);
