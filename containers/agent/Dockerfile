@@ -189,6 +189,7 @@ RUN set -eux; \
       | sort -u > /usr/local/share/awf/browser-libs.manifest && \
     rm -f /tmp/pkgs-before-browser.txt /tmp/pkgs-after-browser.txt /tmp/browser-pkgs-installed.txt && \
     apt_upgrade_retry && \
+    rm -f /usr/bin/pebble && \
     # Raw sockets are unavailable to the agent; remove stale file capabilities
     # inherited from runner-like base images so they cannot be reactivated.
     for binary in /usr/bin/ping /usr/bin/mtr-packet; do \
