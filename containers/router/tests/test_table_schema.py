@@ -38,9 +38,10 @@ SCHEMA_DIRECTORY = PROJECT_ROOT / "schemas"
 CURRENT_VERSION = get_args(TableDocument.model_fields["schema_version"].annotation)[0]
 # A published schema never changes. A format change adds a new file and pins its hash here.
 PUBLISHED_SCHEMAS = {
-    1: "e522d397a8b595dba741189dbafbe00ebc369e0f196bf02280a5d85f008e5bcd",
+    1: "c76de15239db5d6ee9bfc3fa4f4b797887efe04f40334e2ca9e8afe5377461cd",
 }
-PATTERN_END = r"$(?!\n)"
+# The loader trims with str.strip(), which removes exactly the characters str.isspace() accepts.
+WHITESPACE = "".join(chr(code) for code in range(0x110000) if chr(code).isspace())
 
 type Mutation = Callable[[dict[str, Any]], None]
 
@@ -79,6 +80,29 @@ def _loader_accepts(document: dict[str, Any]) -> bool:
 
 def _alternation(enum: type[Any]) -> str:
     return "(" + "|".join(item.value for item in enum) + ")"
+
+
+def _character_class_body(characters: str) -> str:
+    """List characters as literals, collapsing runs of three or more into ranges."""
+    runs: list[list[int]] = []
+    for code in map(ord, characters):
+        if runs and code == runs[-1][1] + 1:
+            runs[-1][1] = code
+        else:
+            runs.append([code, code])
+    return "".join(
+        chr(first) + ("-" + chr(last) if last - first > 1 else chr(last) if last > first else "")
+        for first, last in runs
+    )
+
+
+def _patterns(node: object) -> list[str]:
+    if isinstance(node, dict):
+        found = [node["pattern"]] if isinstance(node.get("pattern"), str) else []
+        return found + [pattern for value in node.values() for pattern in _patterns(value)]
+    if isinstance(node, list):
+        return [pattern for value in node for pattern in _patterns(value)]
+    return []
 
 
 @functools.cache
@@ -124,10 +148,63 @@ def test_schema_constants_match_the_runtime() -> None:
 def test_schema_patterns_are_built_from_the_runtime_enums() -> None:
     definitions = _schema()["$defs"]
     labels = "/".join(_alternation(enum) for enum in (TaskType, TaskScope, TaskComplexity))
-    assert definitions["labelKey"]["pattern"] == f"^{labels}{PATTERN_END}"
+    space = _character_class_body(WHITESPACE)
+    assert definitions["labelKey"]["pattern"] == f"^{labels}$"
     assert definitions["modelIdentity"]["pattern"] == (
-        rf"^[^/:\s][^/:]*/[^/:]*[^/:\s](:{_alternation(ReasoningEffort)})?{PATTERN_END}"
+        f"^[^/:{space}][^/:]*/[^/:]*[^/:{space}](:{_alternation(ReasoningEffort)})?$"
     )
+    assert definitions["trimmed"] == {
+        "description": definitions["trimmed"]["description"],
+        "not": {"pattern": f"^[{space}]|[{space}]$"},
+    }
+
+
+def test_schema_patterns_use_only_syntax_that_every_engine_shares() -> None:
+    # No escapes (\s differs between Python and ECMA-262, \u is not RE2) and no lookaround.
+    patterns = _patterns(_schema())
+    assert len(patterns) == 3
+    for pattern in patterns:
+        assert "\\" not in pattern, pattern
+        assert "(?" not in pattern, pattern
+        re.compile(pattern)
+
+
+def test_pattern_checked_strings_also_reject_outer_whitespace() -> None:
+    definitions = _schema()["$defs"]
+    trimmed = {"$ref": "#/$defs/trimmed"}
+    assert _schema()["properties"]["repository"]["$ref"] == trimmed["$ref"]
+    for name in ("labelKey", "modelIdentity"):
+        assert definitions[name]["$ref"] == trimmed["$ref"]
+
+
+# Every character the loader strips, plus format and separator characters it keeps.
+EDGE_CHARACTERS = [*WHITESPACE, "\ufeff", "\u200b", "\u180e"]
+
+
+@pytest.mark.parametrize("character", EDGE_CHARACTERS, ids=lambda c: f"U+{ord(c):04X}")
+def test_schema_and_loader_agree_on_outer_whitespace(character: str) -> None:
+    candidates: list[tuple[str, str]] = [
+        ("repository", f"{character}global"),
+        ("repository", f"global{character}"),
+        ("identity", f"{character}provider/fast"),
+        ("identity", f"provider/fast{character}"),
+        ("identity", f"provider/reasoning{character}:medium"),
+    ]
+    for field, value in candidates:
+        document = synthetic_table_document()
+        if field == "repository":
+            document["repository"] = value
+        else:
+            original = "provider/reasoning:medium" if ":" in value else "provider/fast"
+            document["classification_choices"] = [
+                value if choice == original else choice
+                for choice in document["classification_choices"]
+            ]
+            for group in document["rankings"]:
+                group["choices"] = [
+                    value if choice == original else choice for choice in group["choices"]
+                ]
+        assert _validator().is_valid(document) is _loader_accepts(document), (field, value)
 
 
 @pytest.mark.parametrize(

@@ -19,11 +19,18 @@ from jsonschema import Draft202012Validator
 
 from gh_aw_router import __version__
 from gh_aw_router.contracts import RoutingGoal, RoutingMode, TaskType
-from gh_aw_router.routing_table import PROFILES, all_labels, label_key, profile_filename
+from gh_aw_router.routing_table import (
+    PROFILES,
+    TableDocument,
+    all_labels,
+    label_key,
+    profile_filename,
+)
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 CORPUS_DIRECTORY = Path(__file__).parent / "fixtures" / "routing-contract"
 CONTRACT_CHOICES = ("github-copilot/router-fast", "github-copilot/router-reasoning:medium")
+TABLE_SCHEMA_VERSION: int = TableDocument.model_fields["schema_version"].default
 
 
 def json_bytes(value: object) -> bytes:
@@ -36,7 +43,7 @@ def synthetic_table_document(
     choices: tuple[str, str] = ("provider/fast", "provider/reasoning:medium"),
 ) -> dict[str, Any]:
     return {
-        "schema_version": 1,
+        "schema_version": TABLE_SCHEMA_VERSION,
         "profile": {"goal": "cost", "mode": "balanced"},
         "repository": "global",
         "classification_choices": list(choices),
@@ -197,7 +204,7 @@ def export_archive(
         {
             "archive_format": 1,
             "router_version": __version__,
-            "routing_table_schema": 5,
+            "routing_table_schema": TABLE_SCHEMA_VERSION,
             "source": source,
             "integration_contract_revision": revision.group(1),
             "files": {

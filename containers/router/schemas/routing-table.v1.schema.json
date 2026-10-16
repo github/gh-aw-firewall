@@ -3,7 +3,7 @@
   "$id": "https://raw.githubusercontent.com/github/gh-aw-firewall/main/containers/router/schemas/routing-table.v1.schema.json",
   "title": "gh-aw-router routing table, schema version 1",
   "description": "One routing table file for one fixed profile. A document that validates against this schema can still be rejected by the router, which also enforces these cross-reference rules: (1) every label cell, 210 in total, appears in exactly one ranking group's applies_to; (2) the first ranking group's choices define the model catalogue, and every other group's choices and classification_choices are permutations of it; (3) no two ranking groups have the same choices, so cells with the same ranking share one group; (4) a model listed with an explicit effort is not also listed without one. Tables loaded together must also share the same repository, catalogue and classification_choices, and serve each profile at most once. This file is frozen once published: a format change adds a new schema file and a new schema_version.",
-  "$comment": "Every pattern ends with $(?!\\n) so that validators using Python regular expressions, where $ also matches before a final newline, behave like ECMA-262.",
+  "$comment": "Patterns use only literal characters, explicit character classes, groups, alternation, quantifiers, ^ and $, with no \\s or lookaround, so ECMA-262, Python re and RE2 validators agree. Whitespace is listed explicitly, as literal characters written with JSON \\u escapes, and is the set that Python's str.strip() removes, which is what the router checks. In Python, $ also matches before a final newline, so every pattern-checked string also references trimmed, which rejects a trailing newline in every engine.",
   "type": "object",
   "additionalProperties": false,
   "required": ["schema_version", "profile", "repository", "classification_choices", "rankings"],
@@ -26,7 +26,7 @@
       "description": "The repository the rankings were generated for, or global. No leading or trailing whitespace.",
       "type": "string",
       "minLength": 1,
-      "pattern": "^(?!\\s)[\\s\\S]*(?<!\\s)$(?!\\n)"
+      "$ref": "#/$defs/trimmed"
     },
     "classification_choices": {
       "description": "Model identities in the order to try for the classifier call.",
@@ -64,12 +64,20 @@
     "labelKey": {
       "description": "A label cell as task_type/scope/task_complexity.",
       "type": "string",
-      "pattern": "^(explain|plan|fix|refactor|chore|implement|unknown)/(local|multi_file|subsystem|cross_system|unknown)/(trivial|easy|medium|hard|expert|unknown)$(?!\\n)"
+      "pattern": "^(explain|plan|fix|refactor|chore|implement|unknown)/(local|multi_file|subsystem|cross_system|unknown)/(trivial|easy|medium|hard|expert|unknown)$",
+      "$ref": "#/$defs/trimmed"
     },
     "modelIdentity": {
       "description": "A provider-qualified model, provider/model, optionally followed by :effort. The model part has exactly one slash, no colon, and no leading or trailing whitespace.",
       "type": "string",
-      "pattern": "^[^/:\\s][^/:]*/[^/:]*[^/:\\s](:(none|minimal|low|medium|high|xhigh|max))?$(?!\\n)"
+      "pattern": "^[^/:\u0009-\u000d\u001c-\u0020\u0085\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000][^/:]*/[^/:]*[^/:\u0009-\u000d\u001c-\u0020\u0085\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000](:(none|minimal|low|medium|high|xhigh|max))?$",
+      "$ref": "#/$defs/trimmed"
+    },
+    "trimmed": {
+      "description": "No leading or trailing whitespace, where whitespace is every character that Python's str.isspace() accepts.",
+      "not": {
+        "pattern": "^[\u0009-\u000d\u001c-\u0020\u0085\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000]|[\u0009-\u000d\u001c-\u0020\u0085\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000]$"
+      }
     }
   }
 }

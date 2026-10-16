@@ -31,7 +31,7 @@ from packaging.specifiers import SpecifierSet
 import gh_aw_router
 import gh_aw_router.cli as cli
 from gh_aw_router.http import create_app
-from gh_aw_router.routing_table import DEFAULT_TABLE_DIRECTORY
+from gh_aw_router.routing_table import DEFAULT_TABLE_DIRECTORY, TableDocument
 from gh_aw_router.service import GhAwRouterService
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -173,7 +173,12 @@ def test_contract_archive_is_reproducible_and_replays_reviewed_cases(
     manifest = json.loads(files.pop("manifest.json"))
     assert manifest["archive_format"] == 1
     assert manifest["router_version"] == gh_aw_router.__version__
-    assert manifest["routing_table_schema"] == 5
+    assert manifest["routing_table_schema"] == TableDocument.model_fields["schema_version"].default
+    assert {
+        json.loads(data)["schema_version"]
+        for name, data in files.items()
+        if name.startswith("tables/")
+    } == {manifest["routing_table_schema"]}
     assert manifest["source"]["development"] is True
     assert manifest["integration_contract_revision"] == "test/v1"
     assert manifest["files"] == {
