@@ -626,8 +626,11 @@ describe('finite-disclosure broker → authenticated Unix host → concrete micr
   it.each(['script', 'agent'] as const)('never publishes terminal %s when concrete cleanup is unresolved', async (role) => {
     cleanupError = true;
     const lane = { tail: Promise.resolve(), closed: false };
-    const { handler } = makeHandler(role, { lane, timeoutSeconds: 0.5 });
-    expect(await call(handler, args(role))).toBe('{"status":"error"}');
+    const { handler } = makeHandler(role, { lane, timeoutSeconds: 30 });
+    const pending = call(handler, args(role));
+    await until(() => started.mock.calls.length > 0);
+    offset += 31_000;
+    expect(await pending).toBe('{"status":"error"}');
     expect(started).toHaveBeenCalled();
     expect(cleaned).toHaveBeenCalled();
     expect(lane.closed).toBe(true);
