@@ -284,7 +284,7 @@ export class HostExecutorInvocationDiagnostics {
     this.classifyFailure(report, error);
   }
 
-  private classifyFailure(report: HostPreflightReporter, error: unknown): void {
+  classifyFailure(report: HostPreflightReporter, error: unknown): void {
     const slot = report.scope === 'host-invocation-cleanup' ? 'cleanupFailure' : 'failure';
     const original = error instanceof HostPreflightCleanupError ? error.cause : error;
     const failure = this.snapshot[slot]!;

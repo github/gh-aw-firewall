@@ -103,7 +103,9 @@ const defaultDependencies: HostEnclaveExecutorDependencies = {
   createResourceJournal: (run, plan, vmRunId) => HostExecutorResourceJournal.create(run, plan, vmRunId),
   copySparseFile: copySparseFileWithRsync,
   removeArtifactSnapshot: async (directory) => fs.rm(directory, { recursive: true, force: true }),
-  createManager: (config, workDir, profile, runId, artifacts, managerDependencies, launchReport) => new CloudHypervisorManager(
+  createManager: (
+    config, workDir, profile, runId, artifacts, managerDependencies, launchReport, managerStartReport,
+  ) => new CloudHypervisorManager(
     config,
     workDir,
     managerDependencies,
@@ -113,6 +115,7 @@ const defaultDependencies: HostEnclaveExecutorDependencies = {
     artifacts,
     true,
     launchReport,
+    managerStartReport,
   ),
   mountTmpfs: mountBoundedEnclaveStorage,
   unmount: unmountBoundedEnclaveStorage,
@@ -366,7 +369,11 @@ export class CloudHypervisorHostEnclaveExecutorBackend implements HostEnclaveExe
       return { outcome: 'executor-failure' };
     }
     const diagnostic = new HostExecutorInvocationDiagnostics(this.options.runState, plan);
-    const report = new HostPreflightReporter('host-invocation', diagnostic.publish);
+    const report = new HostPreflightReporter(
+      'host-invocation',
+      diagnostic.publish,
+      (failedReport, _id, error) => diagnostic.classifyFailure(failedReport, error),
+    );
     const check = <T>(id: Parameters<HostPreflightReporter['check']>[0], operation: () => Promise<T> | T) =>
       diagnostic.check(report, id, operation);
     const role: CloudHypervisorEnclaveRole = plan.executorKind;
@@ -590,6 +597,7 @@ export class CloudHypervisorHostEnclaveExecutorBackend implements HostEnclaveExe
             }
           : managerDependencies,
         report.fork('vm-launch'),
+        report,
       ));
       if (filesystemState.aborted) throw new Error('Host executor invocation was cancelled');
       await check('manager-start', () => raceInterruption(trackFilesystemWork(manager!.start())));

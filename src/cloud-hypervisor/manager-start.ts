@@ -55,6 +55,7 @@ export interface CloudHypervisorStartContext {
   allowTrustedEnclaveExecution?: boolean;
   verifiedArtifacts?: CloudHypervisorPreflightResult;
   launchReport?: HostPreflightReporter;
+  managerStartReport?: HostPreflightReporter;
   stdoutCapture: BoundedOutputCapture;
   stderrCapture: BoundedOutputCapture;
   setNetworkPlan(plan: MicrovmNetworkPlan | undefined): void;
@@ -77,6 +78,7 @@ export async function startCloudHypervisor(
 ): Promise<CloudHypervisorApiClient> {
   const {
     config, workDir, dependencies, paths, workloadProfile, verifiedArtifacts,
+    managerStartReport,
     allowTrustedEnclaveExecution,
   } = context;
   assertCloudHypervisorWorkloadLaunchable(workloadProfile, allowTrustedEnclaveExecution);
@@ -86,7 +88,8 @@ export async function startCloudHypervisor(
 
   let startupError: unknown;
   try {
-    const artifacts = await check('artifact-preflight', () => verifiedArtifacts ?? dependencies.preflight(config));
+    const artifacts = verifiedArtifacts
+      ?? await check('artifact-preflight', () => dependencies.preflight(config));
     const networkConfig: (CloudHypervisorManagerNetworkConfig & Pick<
       MicrovmNetworkPlanOptions, 'enclaveAgent'
     >) | undefined =
@@ -290,14 +293,22 @@ export async function startCloudHypervisor(
         extendEnv: false,
         env: { PATH: '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin' },
       });
-      const child = context.launchReport
-        ? context.launchReport.checkSync('vmm-launch', launch) : launch();
-      context.setProcess(child);
+      const registerLaunchedProcess = (): { child: ExecaChildProcess<string>; pid: number } => {
+        const launched = launch();
+        context.setProcess(launched);
+        if (launched.pid === undefined) {
+          throw new Error('Cloud Hypervisor process did not expose a PID');
+        }
+        return { child: launched, pid: launched.pid };
+      };
+      const launchedProcess = context.launchReport
+        ? context.launchReport.checkSync('vmm-launch', registerLaunchedProcess)
+        : registerLaunchedProcess();
+      const { child, pid: processId } = launchedProcess;
       child.stdout?.on('data', (chunk: Buffer | string) => context.stdoutCapture.append(chunk));
       child.stderr?.on('data', (chunk: Buffer | string) => context.stderrCapture.append(chunk));
-      if (child.pid === undefined) throw new Error('Cloud Hypervisor process did not expose a PID');
-      await cgroup.assign(child.pid);
-      await cleanupRecord.captureProcess('vmm', child.pid);
+      await cgroup.assign(processId);
+      await cleanupRecord.captureProcess('vmm', processId);
 
       await check('api-socket', () => waitForApiSocket(dependencies, paths, config.apiTimeoutMs, child));
       await vmmIdentityManager.validateOwnedPaths([paths.apiSocketPath]);
@@ -357,6 +368,8 @@ export async function startCloudHypervisor(
   } catch (error) {
     startupError = error;
   }
+
+  managerStartReport?.fail('manager-start', startupError);
 
   const startupEvidenceDirectory = path.join(
     workDir,

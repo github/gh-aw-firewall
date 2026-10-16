@@ -49,7 +49,15 @@ export class HostPreflightCleanupError extends Error {
 export class HostPreflightReporter {
   private readonly progress: HostPreflightProgress;
 
-  constructor(readonly scope: HostPreflightScope, private readonly publish?: (value: HostPreflightProgress) => void) {
+  constructor(
+    readonly scope: HostPreflightScope,
+    private readonly publish?: (value: HostPreflightProgress) => void,
+    private readonly onFailure?: (
+      report: HostPreflightReporter,
+      id: HostPreflightCheck,
+      error: unknown,
+    ) => void,
+  ) {
     this.progress = {
       schemaVersion: 1, scope,
       checks: (Object.keys(schema.scopes[scope]) as HostPreflightCheck[])
@@ -68,7 +76,7 @@ export class HostPreflightReporter {
   }
 
   fork(scope: HostPreflightScope): HostPreflightReporter {
-    return new HostPreflightReporter(scope, this.publish);
+    return new HostPreflightReporter(scope, this.publish, this.onFailure);
   }
 
   topology(value: MountTopologyEvidence): void {
@@ -107,6 +115,7 @@ export class HostPreflightReporter {
     check.result = 'failed';
     check.reason = hostPreflightReason(error);
     this.emit();
+    this.onFailure?.(this, id, error);
   }
 
   private pass(id: HostPreflightCheck): void {

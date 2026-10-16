@@ -270,6 +270,7 @@ export class CloudHypervisorManager {
     private readonly verifiedArtifacts?: CloudHypervisorPreflightResult,
     private readonly allowTrustedEnclaveExecution = false,
     private readonly launchReport?: HostPreflightReporter,
+    private readonly managerStartReport?: HostPreflightReporter,
   ) {
     const profile: CloudHypervisorWorkloadProfile = isWorkloadProfile(profileOrNetworkConfig)
       ? sealCloudHypervisorWorkloadProfile(profileOrNetworkConfig)
@@ -315,6 +316,7 @@ export class CloudHypervisorManager {
       allowTrustedEnclaveExecution: this.allowTrustedEnclaveExecution,
       verifiedArtifacts: this.verifiedArtifacts,
       launchReport: this.launchReport,
+      managerStartReport: this.managerStartReport,
       stdoutCapture: this.stdoutCapture,
       stderrCapture: this.stderrCapture,
       setNetworkPlan: (value) => { this.networkPlan = value; },

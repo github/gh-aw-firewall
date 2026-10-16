@@ -691,7 +691,8 @@ describe('readBoundedCloudHypervisorEnclaveResult', () => {
           expect(boundedManager).toHaveBeenCalledWith(expect.objectContaining({
             cloudHypervisorBinary: expect.stringContaining('/snapshot-'),
           }), root, expect.anything(), expect.anything(), expect.anything(), expect.anything(),
-          expect.objectContaining({ scope: 'vm-launch' }));
+          expect.objectContaining({ scope: 'vm-launch' }),
+          expect.objectContaining({ scope: 'host-invocation' }));
           for (const file of ['cloudHypervisorBinary', 'virtiofsdBinary', 'kernelPath', 'supervisorPath', 'rootfsPath'] as const) {
             replacement = file;
             boundedManager.mockClear();

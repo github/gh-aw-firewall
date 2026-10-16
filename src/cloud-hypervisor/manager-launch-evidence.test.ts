@@ -8,7 +8,9 @@ import {
   HostExecutorInvocationDiagnostics, readHostExecutorInvocationDiagnostics,
 } from '../enclave/host-executor-journal';
 import type { HostExecutorInvocationPlan, HostExecutorRunState } from '../enclave/host-executor-server';
-import { config, dependencies, networkConfig, enclaveExportPlan } from './manager.test-utils';
+import {
+  config, dependencies, networkConfig, enclaveExportPlan, processMock, vmmIdentityMock,
+} from './manager.test-utils';
 
 describe('protected shared VMM launch evidence', () => {
   let root: string;
@@ -25,7 +27,11 @@ describe('protected shared VMM launch evidence', () => {
     diagnostic = new HostExecutorInvocationDiagnostics(run, {
       runId: run.runId, invocationId: 'b'.repeat(32), entryId: 'script', executorKind: 'script',
     } as HostExecutorInvocationPlan);
-    report = new HostPreflightReporter('host-invocation', diagnostic.publish);
+    report = new HostPreflightReporter(
+      'host-invocation',
+      diagnostic.publish,
+      (failedReport, _id, error) => diagnostic.classifyFailure(failedReport, error),
+    );
   });
 
   afterEach(() => {
@@ -102,6 +108,38 @@ describe('protected shared VMM launch evidence', () => {
     await manager.stop();
   });
 
+  it('leaves preverified artifact preflight not-attempted', async () => {
+    const deps = dependencies();
+    const verifiedArtifacts = await deps.preflight(config());
+    const manager = new CloudHypervisorManager(
+      config(), '/tmp/awf', deps, 'evidence', networkConfig(), undefined, verifiedArtifacts, false,
+      report.fork('vm-launch'),
+    );
+    await manager.start();
+    const snapshot = JSON.parse(readHostExecutorInvocationDiagnostics(run)[0].contents);
+    expect(snapshot.checks['vm-launch/artifact-preflight']).toEqual(['not-attempted', 'none']);
+    expect(deps.preflight).toHaveBeenCalledTimes(1);
+    await manager.stop();
+  });
+
+  it('records a returned process without a PID as a failed VMM launch', async () => {
+    const deps = dependencies();
+    const child = processMock();
+    Object.assign(child, { pid: undefined });
+    (deps.launch as jest.Mock).mockReturnValue(child);
+    const manager = new CloudHypervisorManager(
+      config(), '/tmp/awf', deps, 'evidence', networkConfig(), undefined, undefined, false,
+      report.fork('vm-launch'),
+      report,
+    );
+    await expect(diagnostic.check(report, 'manager-start', () => manager.start()))
+      .rejects.toThrow('Cloud Hypervisor process did not expose a PID');
+    expect(JSON.parse(readHostExecutorInvocationDiagnostics(run)[0].contents)).toMatchObject({
+      failure: { stage: 'vm-launch/vmm-launch', reason: 'unknown' },
+      checks: { 'vm-launch/vmm-launch': ['failed', 'unknown'] },
+    });
+  });
+
   it('distinguishes script enclave no-network setup and boot from guest supervisor connection', async () => {
     const deps = dependencies();
     const original = failure();
@@ -136,11 +174,10 @@ describe('protected shared VMM launch evidence', () => {
   it('persists the create failure before the manager attempts its own failing partial-start cleanup', async () => {
     const deps = dependencies();
     const original = failure();
+    let snapshotAtCleanup: unknown;
     (deps.createClient('/unused', 1).vmCreate as jest.Mock).mockRejectedValue(original);
     (deps.rm as jest.Mock).mockImplementation(async () => {
-      expect(JSON.parse(readHostExecutorInvocationDiagnostics(run)[0].contents)).toMatchObject({
-        failure: { stage: 'vm-launch/vm-create', reason: 'EACCES' },
-      });
+      snapshotAtCleanup = JSON.parse(readHostExecutorInvocationDiagnostics(run)[0].contents);
       throw Object.assign(new Error('PRIVATE_CLEANUP'), { code: 'EIO' });
     });
     const manager = new CloudHypervisorManager(
@@ -149,6 +186,9 @@ describe('protected shared VMM launch evidence', () => {
     );
     await expect(diagnostic.check(report, 'manager-start', () => manager.start()))
       .rejects.toThrow('partial-start cleanup also failed');
+    expect(snapshotAtCleanup).toMatchObject({
+      failure: { stage: 'vm-launch/vm-create', reason: 'EACCES', code: 'EACCES' },
+    });
     const [file] = readHostExecutorInvocationDiagnostics(run);
     const snapshot = JSON.parse(file.contents);
     expect(snapshot).toMatchObject({
@@ -157,5 +197,43 @@ describe('protected shared VMM launch evidence', () => {
     });
     expect(snapshot.failure.sequence).toBeLessThan(snapshot.cleanupFailure.sequence);
     expect(file.contents).not.toMatch(/PRIVATE_|\/private\/repo/);
+  });
+
+  it('publishes an ungated startup failure before partial cleanup fails', async () => {
+    const deps = dependencies();
+    const original = Object.assign(new Error('original identity validation failed'), { code: 'EIO' });
+    const identity = vmmIdentityMock();
+    (identity.validateOwnedPaths as jest.Mock).mockRejectedValue(original);
+    (deps.createVmmIdentity as jest.Mock).mockReturnValue(identity);
+    (deps.rm as jest.Mock).mockRejectedValue(Object.assign(new Error('cleanup failed'), { code: 'EACCES' }));
+    const manager = new CloudHypervisorManager(
+      config(), '/tmp/awf', deps, 'evidence', networkConfig(), undefined, undefined, false,
+      report.fork('vm-launch'),
+      report,
+    );
+
+    await expect(diagnostic.check(report, 'manager-start', () => manager.start()))
+      .rejects.toThrow('partial-start cleanup also failed');
+    expect(JSON.parse(readHostExecutorInvocationDiagnostics(run)[0].contents)).toMatchObject({
+      failure: { stage: 'host-invocation/manager-start', reason: 'EIO', code: 'EIO' },
+      cleanupFailure: { stage: 'host-invocation-cleanup/manager-stop' },
+    });
+  });
+
+  it('keeps the first cleanup error classification when a retry fails differently', async () => {
+    const cleanup = report.fork('host-invocation-cleanup');
+    const first = Object.assign(new Error('first cleanup failure'), { code: 'EIO' });
+    const retry = Object.assign(new Error('retry cleanup failure'), { code: 'EACCES' });
+    await expect(cleanup.check('manager-stop', () => Promise.reject(first))).rejects.toBe(first);
+    await expect(diagnostic.check(cleanup, 'manager-stop', () => Promise.reject(retry)))
+      .rejects.toBe(retry);
+
+    expect(JSON.parse(readHostExecutorInvocationDiagnostics(run)[0].contents)).toMatchObject({
+      cleanupFailure: {
+        stage: 'host-invocation-cleanup/manager-stop',
+        reason: 'EIO',
+        code: 'EIO',
+      },
+    });
   });
 });
