@@ -1,8 +1,9 @@
 'use strict';
 
-// Responses recorded from githubnext/gh-aw-router. Refreshing means taking a new
-// export from that repo; never edit a case to make a test pass. A case names the
-// routing tables it was recorded against, and that repo owns those tables.
+// Responses recorded from the router in containers/router. Refreshing means taking a
+// new export with its contract exporter (see containers/router/README.md); never edit
+// a case to make a test pass. A case names the routing tables it was recorded
+// against, and containers/router owns those tables.
 
 const assert = require('node:assert/strict');
 const { readFileSync } = require('node:fs');

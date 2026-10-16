@@ -38,7 +38,6 @@ const MANIFEST_KEY: Record<RuntimeImageName, ManifestKey> = {
 const DEFAULT_IMAGE_REGISTRY = 'ghcr.io/github/gh-aw-firewall';
 const DEFAULT_DIND_STAGING_IMAGE = 'ghcr.io/github/gh-aw-firewall/agent:latest';
 const DEFAULT_DOH_PROXY_IMAGE = 'cloudflare/cloudflared:latest';
-const DEFAULT_ROUTER_IMAGE = 'ghcr.io/githubnext/gh-aw-router:latest';
 
 /**
  * Roles whose default (non-manifest) image is not published under the AWF
@@ -47,7 +46,6 @@ const DEFAULT_ROUTER_IMAGE = 'ghcr.io/githubnext/gh-aw-router:latest';
 const EXTERNAL_DEFAULT_IMAGE: Partial<Record<RuntimeImageName, string>> = {
   'doh-proxy': DEFAULT_DOH_PROXY_IMAGE,
   'dind-staging': DEFAULT_DIND_STAGING_IMAGE,
-  router: DEFAULT_ROUTER_IMAGE,
 };
 
 export interface ResolvedRuntimeImage {

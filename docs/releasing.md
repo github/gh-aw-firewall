@@ -92,6 +92,7 @@ Once the workflow completes:
    - `squid:<version>` and `squid:latest`
    - `agent:<version>` and `agent:latest`
    - `api-proxy:<version>` and `api-proxy:latest`
+   - `router:<version>` and `router:latest`
    - `cli-proxy:<version>` and `cli-proxy:latest`
    - `agent-act:<version>` and `agent-act:latest` (GitHub Actions parity image)
    - `enclave-script:<version>` and `enclave-script:latest`
@@ -142,6 +143,7 @@ Docker images are published to `ghcr.io/github/gh-aw-firewall`:
 - `squid:<version>` and `squid:latest` - Squid proxy container
 - `agent:<version>` and `agent:latest` - Agent execution environment (minimal, ~200MB)
 - `api-proxy:<version>` and `api-proxy:latest` - API proxy sidecar for credential isolation
+- `router:<version>` and `router:latest` - Model router sidecar for routed runs, built from `containers/router`. Its `org.opencontainers.image.version` label is the router's own version (`__version__` in `containers/router/src/gh_aw_router/__init__.py`), not the AWF version, so the release doesn't pass a `VERSION` build argument
 - `cli-proxy:<version>` and `cli-proxy:latest` - CLI proxy sidecar for gh CLI access via mcpg DIFC proxy
 - `agent-act:<version>` and `agent-act:latest` - Agent with GitHub Actions parity (~2GB)
 - `enclave-script:<version>` and `enclave-script:latest` - No-network script executor, built from `containers/enclave/Dockerfile` target `enclave-script`
@@ -180,6 +182,9 @@ pkg . --targets node18-linux-x64 --output release/awf
 docker build -t awf-test/squid:local ./containers/squid
 docker build -t awf-test/agent:local ./containers/agent
 docker build -t awf-test/api-proxy:local ./containers/api-proxy
+docker build -t awf-test/router:local \
+  --build-arg OPENAPI_SHA256="$(sha256sum containers/router/openapi.yaml | cut -d ' ' -f 1)" \
+  ./containers/router
 docker build -t awf-test/cli-proxy:local ./containers/cli-proxy
 
 # Test with local images
@@ -222,7 +227,7 @@ If users report that Docker images can't be pulled:
 
 To make packages public:
 1. Go to repository **Packages** page
-2. Click on the package (squid, agent, api-proxy, cli-proxy, or agent-act)
+2. Click on the package (squid, agent, api-proxy, router, cli-proxy, or agent-act)
 3. Go to **Package settings**
 4. Change visibility to **Public**
 

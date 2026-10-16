@@ -2261,9 +2261,10 @@ require the native `api.openai.com` or `api.anthropic.com` target; AWF does not
 route custom gateways or translate or forward requests across provider
 boundaries. A supported routed run also requires a complete
 `container.images` manifest containing digest-pinned references for `router`
-and every other enabled image role. The legacy `latest` router default is kept
-only for resolver compatibility and is not a supported tag-only routed
-configuration.
+and every other enabled image role. Without a manifest, the router image
+resolves like the other AWF images, from `--image-registry` and `--image-tag`
+(`ghcr.io/github/gh-aw-firewall/router:<tag>` by default), and routing still
+fails unless that reference is pinned by digest.
 
 The candidate pool uses models discovered for the selected native provider.
 The `/reflect` `model_api_mapping` includes maintained routing metadata for

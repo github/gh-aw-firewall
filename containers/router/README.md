@@ -230,6 +230,10 @@ docker build \
 The optional `VERSION` build argument must match the package version. A mismatch fails
 the build rather than publishing image metadata that disagrees with the CLI or service.
 
+Each AWF release publishes the image for `linux/amd64` and `linux/arm64` as
+`ghcr.io/github/gh-aw-firewall/router:<awf-version>`, signed with cosign and with an attested
+SPDX SBOM. The tag is the AWF version, while the image's version label stays the package version.
+
 The image bundles every published table under `/routing` and serves all six profiles. It runs as
 user `10001:10001` and needs no credentials or outbound network. This invocation uses a private
 network, a read-only filesystem, and no published host port. The service listens on port `8737`
@@ -305,11 +309,12 @@ OpenAPI text uses LF in the archive, while the external attachment retains its o
 Ordinary PR CI runs corpus, packaging, and native Linux amd64 Docker checks without
 provider credentials. Use the exporter above to create a local contract archive.
 
-Publication requires a separate reviewed source and registry authorization. A deployment pin
-has the form `<approved-registry>/<repository>:<reviewed-tag>@sha256:<manifest-digest>`.
+AWF's release workflow, `.github/workflows/release.yml`, publishes the image together with the
+other AWF images and lists its digest in the release's `containers.txt`. A deployment pin has
+the form `ghcr.io/github/gh-aw-firewall/router:<awf-version>@sha256:<manifest-digest>`.
 A local image ID or Docker archive checksum is not that registry manifest digest. Retain
 supported immutable images and matching contract archives. Deliver security fixes through
-supported release updates and tested client pin changes, not replacement bytes under old pins.
+new AWF releases and tested client pin changes, not replacement bytes under old pins.
 
 ## Development
 
@@ -373,7 +378,7 @@ Use the shared synthetic table and request fixtures in `tests/conftest.py` for g
 service, and transport tests. Reserve the bundled-table `service` fixture for release-data and
 example integration checks so ranking refreshes do not affect unrelated behavior tests.
 
-The HTTP contract follows the router release. There is no API-version request field or
+The HTTP contract follows the router version. There is no API-version request field or
 negotiation layer. Review breaking changes with affected consumers, include migration notes,
 and test the client, immutable image, OpenAPI document, and corpus as one release combination.
 Keep the table format marker because files and mounts can change independently of the image.
@@ -386,8 +391,14 @@ must not derive expectations from the current service. Review classifier prompt 
 contract fixture changes. Invalid non-null classifier output belongs in rejection cases;
 caller-authorized degradation uses omitted or null classification.
 
+Router changes ship in the next AWF release. Bump the router version in the same pull request
+as any change to routing behaviour or the HTTP contract. The version appears in
+`pyproject.toml`, `uv.lock`, `src/gh_aw_router/__init__.py`, the Dockerfile's `VERSION`
+default, and `openapi.yaml`.
+
 Keep release publication and credentialed attestations in separately reviewed,
-explicitly permissioned jobs. Do not execute untrusted PR code through `pull_request_target`.
+explicitly permissioned jobs, which today means AWF's `.github/workflows/release.yml`.
+Do not execute untrusted PR code through `pull_request_target`.
 
 ### Dependencies and routing data
 
@@ -427,6 +438,7 @@ Request size and deadline limits are not a substitute for network isolation, con
 or proxy timeouts. Context-window estimation is approximate. Frozen Python models do not make
 nested containers deeply immutable, so in-process callers must not mutate shared routing data.
 
-Report vulnerabilities through the repository's
-[security policy](https://github.com/github/gh-aw-firewall/security/policy). The code is licensed
+Supported router versions follow AWF releases. Report vulnerabilities through the repository's
+[security policy](https://github.com/github/gh-aw-firewall/security/policy), and include the AWF
+version and the router version that `GET /capabilities` reports. The code is licensed
 under [MIT](https://github.com/github/gh-aw-firewall/blob/main/LICENSE).

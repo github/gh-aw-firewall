@@ -119,13 +119,25 @@ describe('custom runtime image manifest', () => {
     expect(resolveDohProxyImage(config())).toBe('cloudflare/cloudflared:latest');
   });
 
-  it('defaults the router to the published upstream image', () => {
+  it('defaults the router to the AWF registry and image tag', () => {
     expect(resolveRuntimeImage(
       config(),
       'router',
       'ghcr.io/github/gh-aw-firewall',
       parseImageTag('latest'),
-    )).toBe('ghcr.io/githubnext/gh-aw-router:latest');
+    )).toBe('ghcr.io/github/gh-aw-firewall/router:latest');
+    expect(resolveRuntimeImage(
+      config(),
+      'router',
+      'registry.example.com/mirror',
+      parseImageTag('0.28.61'),
+    )).toBe('registry.example.com/mirror/router:0.28.61');
+    expect(resolveRuntimeImage(
+      config(),
+      'router',
+      'ghcr.io/github/gh-aw-firewall',
+      parseImageTag(`0.28.61,router=${digest}`),
+    )).toBe(`ghcr.io/github/gh-aw-firewall/router:0.28.61@${digest}`);
     expect(resolveRuntimeImage(
       config({ router: image('router') }),
       'router',
