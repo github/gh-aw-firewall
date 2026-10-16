@@ -1,6 +1,7 @@
 # Agent image OS advisory inventory
 
-**Triage date:** 2026-10-16  
+**Triage date:** 2026-10-16
+
 **Disposition:** Open. No alerts are closed or accepted as residual risk by this inventory.
 
 This inventory records package evidence for the historical agent OS advisory
