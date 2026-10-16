@@ -35,6 +35,8 @@ IMAGE=ghcr.io/github/gh-aw-firewall/agent:0.28.60@sha256:a749124bee61fa88af7883c
 docker pull "$IMAGE"
 docker run --rm --entrypoint /bin/sh "$IMAGE" -c \
   'cat /etc/os-release; dpkg-query -W -f="\${Package}\t\${Version}\n" | sort'
+docker run --rm --entrypoint /bin/sh "$IMAGE" -c \
+  'for x in pcre2test zstd genrb mdb_load nm-new nm; do command -v "$x" || echo "$x absent"; done'
 ```
 
 The Dockerfile runs `apt-get update` and `apt-get upgrade` during image builds
@@ -42,26 +44,34 @@ The Dockerfile runs `apt-get update` and `apt-get upgrade` during image builds
 does not prove these findings are fixed: the versions below remain present in
 the published images.
 
+Ubuntu status below comes from Canonical's
+[Ubuntu Vulnerability Data](https://github.com/canonical/ubuntu-security-notices/blob/main/README.md)
+OSV/OpenVEX records, not the live Ubuntu CVE Tracker, which was inaccessible
+during triage. “Affected” is the Ubuntu source-package status; it does not prove
+that every listed binary contains the vulnerable code or that code is reachable
+in AWF. Where the record or package-to-binary mapping could not be verified, the
+finding remains unresolved.
+
 ## Reproduced package matches
 
 The repeated packages are grouped by CVE. Each row applies to both image
 digests above.
 
-| CVE | Package(s) and installed version(s) | Grype severity | Applicability / disposition |
+| CVE | Package(s) and installed version(s) | Grype severity | Ubuntu and image applicability / disposition |
 | --- | --- | --- | --- |
-| CVE-2016-2781 | `coreutils` 8.32-4.1ubuntu1.4 | Low; Grype reports “won't fix” | Package present; Ubuntu advisory applicability and runtime reachability not established. Open; no risk acceptance. |
-| CVE-2017-11164 | `libpcre3` 2:8.39-13ubuntu0.22.04.1 | Negligible; Grype reports “won't fix” | Package present; Ubuntu advisory applicability and runtime reachability not established. Open; no risk acceptance. |
-| CVE-2022-27943 | `gcc-12-base`, `libgcc-s1`, `libstdc++6` 12.3.0-1ubuntu1~22.04.3 | Low | All packages present; Ubuntu advisory applicability and runtime reachability not established. Open; no risk acceptance. |
-| CVE-2022-3219 | `dirmngr`, `gnupg`, `gnupg-l10n`, `gnupg-utils`, `gpg`, `gpg-agent`, `gpg-wks-client`, `gpg-wks-server`, `gpgconf`, `gpgsm`, `gpgv` 2.2.27-3ubuntu2.5 | Low; Grype reports “won't fix” | Packages present; Ubuntu advisory applicability and runtime reachability not established. GnuPG is explicitly installed and documented as an agent tool. Open; no risk acceptance. |
-| CVE-2022-41409 | `libpcre2-8-0` 10.39-3ubuntu0.1 | Low | Package present; Ubuntu advisory applicability and runtime reachability not established. Open; no risk acceptance. |
-| CVE-2022-4899 | `libzstd1` 1.4.8+dfsg-3build1 | Low | Package present; Ubuntu advisory applicability and runtime reachability not established. Open; no risk acceptance. |
-| CVE-2023-29383 | `login`, `passwd` 1:4.8.1-2ubuntu2.2 | Low | Packages present; account-management packages support the image's `useradd`/`groupadd` setup. Ubuntu advisory applicability and runtime reachability not established. Open; no risk acceptance. |
-| CVE-2023-50495 | `libncurses6`, `libncursesw6`, `libtinfo6`, `ncurses-base`, `ncurses-bin` 6.3-2ubuntu0.3 | Low | Packages present; Ubuntu advisory applicability and runtime reachability not established. Open; no risk acceptance. |
-| CVE-2024-52005 | `git`, `git-man` 1:2.34.1-1ubuntu1.17 | Medium | Packages present; Git is an explicitly installed agent tool. Ubuntu advisory applicability and runtime reachability not established. Open; no risk acceptance. |
-| CVE-2024-56433 | `login`, `passwd` 1:4.8.1-2ubuntu2.2 | Low | Packages present; account-management packages support the image's `useradd`/`groupadd` setup. Ubuntu advisory applicability and runtime reachability not established. Open; no risk acceptance. |
-| CVE-2025-5222 | `libicu70` 70.1-2 | Low | Package present as a dependency of the documented `php-intl` runtime package. Ubuntu advisory applicability and runtime reachability not established. Open; no risk acceptance. |
-| CVE-2025-66382 | `libexpat1` 2.4.7-1ubuntu0.9 | Medium | Package present, including as a Git dependency. Ubuntu advisory applicability and runtime reachability not established. Open; no risk acceptance. |
-| CVE-2026-22185 | `liblmdb0` 0.9.24-1build2 | Medium | Package present as a dependency of `bind9-libs` used by the DNS tools. Ubuntu advisory applicability and runtime reachability not established. Open; no risk acceptance. |
+| CVE-2016-2781 | `coreutils` 8.32-4.1ubuntu1.4 | Low; Grype reports “won't fix” | [Canonical VEX](https://github.com/canonical/ubuntu-security-notices/blob/main/vex/cve/2016/CVE-2016-2781) lists Jammy as affected and explicitly ignored because there is no viable fix. The image contains `coreutils`; image-level exploitability is unresolved. Open; no risk acceptance. |
+| CVE-2017-11164 | `libpcre3` 2:8.39-13ubuntu0.22.04.1 | Negligible; Grype reports “won't fix” | [Canonical VEX](https://github.com/canonical/ubuntu-security-notices/blob/main/vex/cve/2017/CVE-2017-11164) lists Jammy as affected and ignored because of a PCRE1 limitation. The image contains `libpcre3`; image-level applicability is unresolved. Open; no risk acceptance. |
+| CVE-2022-27943 | `gcc-12-base`, `libgcc-s1`, `libstdc++6` 12.3.0-1ubuntu1~22.04.3 | Low | The exact Jammy status for these GCC 12 binaries is [unverified](https://github.com/canonical/ubuntu-security-notices/blob/main/osv/cve/2022/UBUNTU-CVE-2022-27943.json). The reported flaw concerns GCC's Rust demangler; `nm-new` and `nm` are absent from the image, but this does not establish the tracker status of the matched packages. Open; no risk acceptance. |
+| CVE-2022-3219 | `dirmngr`, `gnupg`, `gnupg-l10n`, `gnupg-utils`, `gpg`, `gpg-agent`, `gpg-wks-client`, `gpg-wks-server`, `gpgconf`, `gpgsm`, `gpgv` 2.2.27-3ubuntu2.5 | Low; Grype reports “won't fix” | [Canonical OSV](https://github.com/canonical/ubuntu-security-notices/blob/main/osv/cve/2022/UBUNTU-CVE-2022-3219.json) lists the Jammy version as affected; the exact VEX disposition was not verified. GnuPG is explicitly installed and documented as an agent tool. Open; no risk acceptance. |
+| CVE-2022-41409 | `libpcre2-8-0` 10.39-3ubuntu0.1 | Low | [Canonical VEX](https://github.com/canonical/ubuntu-security-notices/blob/main/vex/cve/2022/CVE-2022-41409) lists Jammy as affected; the described flaw is in the `pcre2test` utility. `pcre2test` and `pcre2-utils` are absent from this image. Candidate package-level false positive; keep the alert open until its ID is crosswalked. |
+| CVE-2022-4899 | `libzstd1` 1.4.8+dfsg-3build1 | Low | [Canonical VEX](https://github.com/canonical/ubuntu-security-notices/blob/main/vex/cve/2022/CVE-2022-4899) lists Jammy as affected; the flaw is in the `zstd` command-line utility. `zstd` is absent from this image while `libzstd1` remains a system dependency. Candidate package-level false positive; keep the alert open until its ID is crosswalked. |
+| CVE-2023-29383 | `login`, `passwd` 1:4.8.1-2ubuntu2.2 | Low | [Canonical VEX](https://github.com/canonical/ubuntu-security-notices/blob/main/vex/cve/2023/CVE-2023-29383) lists the Jammy packages as affected and low priority; no fixed Jammy version was found in the record. These packages support account setup. Open; no risk acceptance. |
+| CVE-2023-50495 | `libncurses6`, `libncursesw6`, `libtinfo6`, `ncurses-base`, `ncurses-bin` 6.3-2ubuntu0.3 | Low | [Canonical VEX](https://github.com/canonical/ubuntu-security-notices/blob/main/vex/cve/2023/CVE-2023-50495) lists Jammy as affected and low priority; the issue concerns terminfo parsing. Runtime applicability is unresolved. Open; no risk acceptance. |
+| CVE-2024-52005 | `git`, `git-man` 1:2.34.1-1ubuntu1.17 | Medium | [Canonical OSV](https://github.com/canonical/ubuntu-security-notices/blob/main/osv/cve/2024/UBUNTU-CVE-2024-52005.json) lists the Jammy version as affected. Git is an explicitly installed agent tool. Open; no risk acceptance. |
+| CVE-2024-56433 | `login`, `passwd` 1:4.8.1-2ubuntu2.2 | Low | [Canonical VEX](https://github.com/canonical/ubuntu-security-notices/blob/main/vex/cve/2024/CVE-2024-56433) lists Jammy as affected; its action statement says Ubuntu understood but had not fixed the issue. These packages support account setup. Open; no risk acceptance. |
+| CVE-2025-5222 | `libicu70` 70.1-2 | Low | [Canonical VEX](https://github.com/canonical/ubuntu-security-notices/blob/main/vex/cve/2025/CVE-2025-5222) lists Jammy as affected and says Ubuntu will not fix this low-priority flaw in the `genrb` command-line tool. `genrb` and `icu-devtools` are absent; candidate package-level false positive. Keep the alert open until its ID is crosswalked. |
+| CVE-2025-66382 | `libexpat1` 2.4.7-1ubuntu0.9 | Medium | [Canonical OSV](https://github.com/canonical/ubuntu-security-notices/blob/main/osv/cve/2025/UBUNTU-CVE-2025-66382.json) lists Jammy versions through the installed version as affected. The VEX record's exact Jammy status/action was not verified. Open; no risk acceptance. |
+| CVE-2026-22185 | `liblmdb0` 0.9.24-1build2 | Medium | [Canonical VEX](https://github.com/canonical/ubuntu-security-notices/blob/main/vex/cve/2026/CVE-2026-22185) marks the Jammy `liblmdb0` entry under investigation; the described `mdb_load` utility and `lmdb-utils` package are absent. This is evidence against that vulnerable component being present, not an Ubuntu “not affected” disposition. Keep the alert open until its ID is crosswalked. |
 
 These 13 CVEs account for 32 package/advisory matches. The issue lists the
 following 32 still-reported code-scanning alert IDs:
@@ -95,11 +105,12 @@ from the image include GnuPG and Git (explicitly installed and documented),
 `passwd` (used by the image's user/group creation), `libicu70` (used by
 `php-intl`), `liblmdb0` (required by `bind9-libs`/DNS tools), and `libpcre2`,
 `libexpat1`, and `libzstd1` (dependencies of Git or core system packages).
-Removing these packages without replacing their function would change the
-supported agent image. No package was removed or downgraded as part of this
-triage.
+The `pcre2test`, `zstd`, `genrb`, and `mdb_load` commands named by four
+advisories are not present in the pinned image. Removing the corresponding
+libraries would still remove runtime dependencies; no package was removed or
+downgraded as part of this triage.
 
 No exception was added to `.grype.yaml`, no residual risk was accepted, and no
 alert closure is proposed. Complete per-alert dispositions require the missing
-alert crosswalk and historical Trivy export, plus Ubuntu advisory/backport
-verification and explicit maintainer approval for any accepted residual risk.
+alert crosswalk and historical Trivy export, plus explicit maintainer approval
+for any accepted residual risk.
