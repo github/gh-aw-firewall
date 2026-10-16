@@ -758,20 +758,20 @@ jobs:
 
           # Create standalone executables for Linux (x64 and arm64)
           ./node_modules/.bin/pkg . \
-            --targets node18-linux-x64 \
+            --targets node24-linux-x64 \
             --output release/awf-linux-x64
 
           ./node_modules/.bin/pkg . \
-            --targets node18-linux-arm64 \
+            --targets node24-linux-arm64 \
             --output release/awf-linux-arm64
 
           # Create standalone executables for macOS (x64 and arm64)
           ./node_modules/.bin/pkg . \
-            --targets node18-macos-x64 \
+            --targets node24-macos-x64 \
             --output release/awf-darwin-x64
 
           ./node_modules/.bin/pkg . \
-            --targets node18-macos-arm64 \
+            --targets node24-macos-arm64 \
             --output release/awf-darwin-arm64
 
           # Verify the binaries were created

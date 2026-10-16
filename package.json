@@ -102,10 +102,10 @@
       "dist/awf-config-schema.json"
     ],
     "targets": [
-      "node18-linux-x64",
-      "node18-linux-arm64",
-      "node18-macos-x64",
-      "node18-macos-arm64"
+      "node24-linux-x64",
+      "node24-linux-arm64",
+      "node24-macos-x64",
+      "node24-macos-arm64"
     ]
   }
 }

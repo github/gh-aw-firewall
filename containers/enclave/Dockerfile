@@ -12,7 +12,6 @@ RUN chmod 0555 /usr/local/bin/run-enclave-script \
 
 FROM node:24.18.1-trixie-slim@sha256:ac39e4b5fcb2b1b34b20364fd58b2e898f3bb80731ee6f62a7536f9df3d6aadc AS enclave-agent-build
 
-ARG COPILOT_CLI_VERSION=1.0.77
 ARG NPM_CONFIG_REGISTRY=https://registry.npmjs.org/
 COPY enclave/package*.json /tmp/copilot-cli/
 RUN npm_config_ignore_scripts=false npm ci --prefix /tmp/copilot-cli --install-strategy=nested \
@@ -25,11 +24,11 @@ RUN npm_config_ignore_scripts=false npm ci --prefix /tmp/copilot-cli --install-s
     && find /usr/local/lib/node_modules/@github/copilot \
          -path '*/foundry-local-sdk/node_modules/adm-zip' -prune -type d \
          -exec sh -c 'rm -rf "$1" && cp -a /usr/local/lib/node_modules/@github/copilot/node_modules/adm-zip "$1"' sh {} \; \
+    && COPILOT_CLI_VERSION="$(node -p 'require("/usr/local/lib/node_modules/@github/copilot/package.json").version')" \
     && copilot --version | grep -q "GitHub Copilot CLI ${COPILOT_CLI_VERSION}"
 
 FROM ubuntu:26.04@sha256:f144425ff09be612d6d9ad965196e9cdc23dae1f42110a8a11a3e9a8198759f7 AS enclave-agent
 
-ARG COPILOT_CLI_VERSION=1.0.77
 RUN apt-get update \
     && apt-get install -y --no-install-recommends bash ca-certificates git python3 ripgrep \
     && test -r /etc/ssl/certs/ca-certificates.crt \
@@ -41,6 +40,7 @@ COPY --from=enclave-agent-build /usr/local/lib/node_modules/@github/copilot/ /us
 RUN sed -i '1c#!/usr/local/bin/node' /usr/local/lib/node_modules/@github/copilot/npm-loader.js \
     && ln -s ../lib/node_modules/@github/copilot/npm-loader.js /usr/local/bin/copilot \
     && node --version | grep -qE '^v24\.' \
+    && COPILOT_CLI_VERSION="$(node -p 'require("/usr/local/lib/node_modules/@github/copilot/package.json").version')" \
     && copilot --version | grep -q "GitHub Copilot CLI ${COPILOT_CLI_VERSION}" \
     && rm -f /usr/bin/pebble \
     && rm -rf /root/.cache/copilot

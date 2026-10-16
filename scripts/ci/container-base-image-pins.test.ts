@@ -41,8 +41,11 @@ describe('container base image pins', () => {
       }
 
       if (source.includes('FROM ${BASE_IMAGE}')) {
-        expect(source).toMatch(
-          /^ARG BASE_IMAGE=ubuntu:22\.04@sha256:[a-f0-9]{64}$/m,
+        expect(source).toMatch(/^ARG BASE_IMAGE=default-base$/m);
+        expect(fromLines).toContainEqual(
+          expect.stringMatching(
+            /^FROM ubuntu:22\.04@sha256:[a-f0-9]{64} AS default-base$/,
+          ),
         );
       }
     }

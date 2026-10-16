@@ -615,7 +615,9 @@ jobs:
         run: |
           set -euo pipefail
           npm ci --prefix "${GITHUB_WORKSPACE}/scripts/ci/copilot-cli" --no-audit --no-fund
-          echo "${GITHUB_WORKSPACE}/scripts/ci/copilot-cli/node_modules/.bin" >> "$GITHUB_PATH"
+          COPILOT_CLI_BIN="${GITHUB_WORKSPACE}/scripts/ci/copilot-cli/node_modules/.bin"
+          echo "$COPILOT_CLI_BIN" >> "$GITHUB_PATH"
+          export PATH="${COPILOT_CLI_BIN}:${PATH}"
           copilot --version
 
       - name: Run the Copilot CLI agent on the routed selection

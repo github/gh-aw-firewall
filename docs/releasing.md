@@ -159,18 +159,18 @@ Before releasing, you can test the build process locally:
 ### Test Binary Creation
 
 ```bash
-# Install pkg globally
-npm install -g pkg
+# Install the lockfile-pinned local packager
+npm ci
 
 # Build TypeScript
 npm run build
 
 # Create Linux binary
 mkdir -p release
-pkg . --targets node18-linux-x64 --output release/awf
+./node_modules/.bin/pkg . --targets node24-linux-x64 --output release/awf-linux-x64
 
 # Test the binary (requires Docker images - see below)
-./release/awf-linux --help
+./release/awf-linux-x64 --help
 ```
 
 ### Test Docker Images Locally

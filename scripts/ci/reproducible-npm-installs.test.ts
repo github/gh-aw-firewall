@@ -3,8 +3,23 @@ import * as path from 'path';
 
 const repositoryRoot = path.resolve(__dirname, '../..');
 
-function readJson(relativePath: string): Record<string, any> {
+function readJson(relativePath: string): Record<string, unknown> {
   return JSON.parse(fs.readFileSync(path.join(repositoryRoot, relativePath), 'utf-8'));
+}
+
+function expectExactLockEntry(
+  manifest: Record<string, unknown>,
+  lock: Record<string, unknown>,
+  dependencyName: string,
+  dependencySection: string,
+): void {
+  const version = (manifest[dependencySection] as Record<string, unknown>)[dependencyName];
+  expect(version).toMatch(/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/);
+  const lockEntry = (lock.packages as Record<string, Record<string, unknown>>)[
+    `node_modules/${dependencyName}`
+  ];
+  expect(lockEntry.version).toBe(version);
+  expect(lockEntry.integrity).toMatch(/^sha(?:256|384|512)-[A-Za-z0-9+/]+={0,2}$/);
 }
 
 describe('reproducible npm CLI installs', () => {
@@ -16,11 +31,13 @@ describe('reproducible npm CLI installs', () => {
       'utf-8',
     );
 
-    expect(packageJson.devDependencies['@yao-pkg/pkg']).toBe('6.23.0');
-    expect(packageLock.packages['node_modules/@yao-pkg/pkg']).toMatchObject({
-      version: '6.23.0',
-      integrity: expect.any(String),
-    });
+    expectExactLockEntry(packageJson, packageLock, '@yao-pkg/pkg', 'devDependencies');
+    expect((packageJson.pkg as { targets: string[] }).targets).toEqual([
+      'node24-linux-x64',
+      'node24-linux-arm64',
+      'node24-macos-x64',
+      'node24-macos-arm64',
+    ]);
     expect(workflow).toContain('./node_modules/.bin/pkg .');
     expect(workflow).not.toContain('npm install -g pkg');
   });
@@ -39,29 +56,15 @@ describe('reproducible npm CLI installs', () => {
       'utf-8',
     );
 
-    expect(enclavePackage.dependencies).toEqual({
-      '@github/copilot': '1.0.77',
-      'adm-zip': '0.6.1',
-    });
-    expect(enclaveLock.packages['node_modules/@github/copilot']).toMatchObject({
-      version: '1.0.77',
-      integrity: expect.any(String),
-    });
-    expect(enclaveLock.packages['node_modules/adm-zip']).toMatchObject({
-      version: '0.6.1',
-      integrity: expect.any(String),
-    });
+    expectExactLockEntry(enclavePackage, enclaveLock, '@github/copilot', 'dependencies');
+    expectExactLockEntry(enclavePackage, enclaveLock, 'adm-zip', 'dependencies');
     expect(enclaveDockerfile).toContain('npm ci --prefix /tmp/copilot-cli --install-strategy=nested');
     expect(enclaveDockerfile).toContain(
       'cp -a /tmp/copilot-cli/node_modules/. /usr/local/lib/node_modules/@github/copilot/node_modules/',
     );
     expect(enclaveDockerfile).not.toContain('npm install -g');
 
-    expect(routingPackage.dependencies['@github/copilot']).toBe('1.0.89');
-    expect(routingLock.packages['node_modules/@github/copilot']).toMatchObject({
-      version: '1.0.89',
-      integrity: expect.any(String),
-    });
+    expectExactLockEntry(routingPackage, routingLock, '@github/copilot', 'dependencies');
     expect(routingWorkflow).toContain(
       'npm ci --prefix "${GITHUB_WORKSPACE}/scripts/ci/copilot-cli"',
     );

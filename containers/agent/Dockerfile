@@ -5,7 +5,7 @@
 #   - ghcr.io/catthehacker/ubuntu:full-22.04: Near-identical to GitHub Actions runner (~20GB compressed)
 # Use --build-arg BASE_IMAGE=<image> to customize
 # NOTE: ARG declared before first FROM is global and available in all FROM statements
-ARG BASE_IMAGE=ubuntu:22.04@sha256:5ec03bb3441e8b0bf3b4f9cd4629a1ae763010dc3035bb8da3ae6cf026486401
+ARG BASE_IMAGE=default-base
 
 FROM golang:1.27.2-alpine@sha256:f92b6ef800e499660581efdabdf25d9d817a9d124eaf900924f0504e7e27e12d AS gh-build
 
@@ -29,6 +29,8 @@ RUN wget -q "https://github.com/cli/cli/archive/refs/tags/v${GH_VERSION}.tar.gz"
     && go version -m bin/gh | awk -v version="v${GH_X_NET_VERSION}" \
          '$1 == "dep" && $2 == "golang.org/x/net" && $3 == version { found=1 } END { exit !found }' \
     && /tmp/cli-${GH_VERSION}/bin/gh --version
+
+FROM ubuntu:22.04@sha256:5ec03bb3441e8b0bf3b4f9cd4629a1ae763010dc3035bb8da3ae6cf026486401 AS default-base
 
 FROM ${BASE_IMAGE} AS one-shot-token-build
 

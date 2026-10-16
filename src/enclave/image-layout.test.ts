@@ -65,8 +65,8 @@ describe('enclave image contract', () => {
     expect(dockerfile).toContain(
       'ln -s ../lib/node_modules/@github/copilot/npm-loader.js /usr/local/bin/copilot',
     );
-    expect(dockerfile.match(/copilot --version \| grep -q "GitHub Copilot CLI \$\{COPILOT_CLI_VERSION\}"/g))
-      .toHaveLength(2);
+    expect(dockerfile.match(/COPILOT_CLI_VERSION="\$\(node -p/g)).toHaveLength(2);
+    expect(dockerfile).not.toContain('ARG COPILOT_CLI_VERSION');
     expect(dockerfile).toContain("node --version | grep -qE '^v24\\.'");
 
     const stage = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-copilot-launcher-'));
