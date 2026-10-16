@@ -47,7 +47,7 @@ const harness = require(harnessPath) as {
   failedSpawns: WeakSet<StartupChild>;
   removePrivateAwfLogs(stdoutFile: string, stderrFile: string, startupErrorFiles?: string[]): void;
   stopAwf(child: EventEmitter & { kill(signal: string): void }, graceMs: number, terminateMs: number): Promise<void>;
-  reportFailure(error: unknown): void;
+  reportFailure(error: unknown, stage?: string): void;
   trackAwfChild(child: ChildProcess): ChildProcess;
   RELEASE_ASSETS: string[];
   assertReleaseAssets(required: string[], published: string[]): void;
@@ -1250,8 +1250,8 @@ describe('Cloud Hypervisor enclave live acceptance harness', () => {
 
 describe('sanitized live acceptance failure reporting', () => {
   const sentinel = 'AWF_PASSWD_SENTINEL_sensitive-user-record';
-  const expected = 'Live enclave acceptance failed; raw error details were suppressed. '
-    + 'Review any AWF_HOST_STARTUP_DIAGNOSTIC records above.';
+  const expected = (stage: string) => `Live enclave acceptance failed during ${stage}; `
+    + 'raw error details were suppressed. Review any AWF_HOST_STARTUP_DIAGNOSTIC records above.';
 
   afterEach(() => jest.restoreAllMocks());
 
@@ -1265,9 +1265,51 @@ describe('sanitized live acceptance failure reporting', () => {
     const output = jest.spyOn(console, 'error').mockImplementation(() => {});
     try {
       process.exitCode = 0;
-      harness.reportFailure(failure);
+      harness.reportFailure(failure, 'GH_TOKEN/GITHUB_TOKEN prerequisites');
       expect(output).toHaveBeenCalledTimes(1);
-      expect(output).toHaveBeenCalledWith(expected);
+      expect(output).toHaveBeenCalledWith(expected('GH_TOKEN/GITHUB_TOKEN prerequisites'));
+      expect(JSON.stringify(output.mock.calls)).not.toContain(sentinel);
+      expect(process.exitCode).toBe(1);
+    } finally {
+      process.exitCode = originalExitCode;
+    }
+  });
+
+  it('identifies later acceptance checks with their fixed stage labels', () => {
+    const originalExitCode = process.exitCode;
+    const output = jest.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      process.exitCode = 0;
+      harness.reportFailure(new Error(sentinel), 'agent enclave checks');
+      expect(output).toHaveBeenCalledWith(expected('agent enclave checks'));
+      expect(JSON.stringify(output.mock.calls)).not.toContain(sentinel);
+      expect(process.exitCode).toBe(1);
+    } finally {
+      process.exitCode = originalExitCode;
+    }
+  });
+
+  it('identifies the Copilot token prerequisite with its fixed stage label', () => {
+    const originalExitCode = process.exitCode;
+    const output = jest.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      process.exitCode = 0;
+      harness.reportFailure(new Error(sentinel), 'COPILOT_GITHUB_TOKEN prerequisite');
+      expect(output).toHaveBeenCalledWith(expected('COPILOT_GITHUB_TOKEN prerequisite'));
+      expect(JSON.stringify(output.mock.calls)).not.toContain(sentinel);
+      expect(process.exitCode).toBe(1);
+    } finally {
+      process.exitCode = originalExitCode;
+    }
+  });
+
+  it('falls back to a constant label for unrecognized stages', () => {
+    const originalExitCode = process.exitCode;
+    const output = jest.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      process.exitCode = 0;
+      harness.reportFailure(new Error('failure'), sentinel);
+      expect(output).toHaveBeenCalledWith(expected('unknown stage'));
       expect(JSON.stringify(output.mock.calls)).not.toContain(sentinel);
       expect(process.exitCode).toBe(1);
     } finally {

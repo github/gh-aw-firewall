@@ -1262,19 +1262,43 @@ function removeGatewayFixture(identity) {
   return false;
 }
 
-async function main() {
+const FAILURE_STAGES = Object.freeze({
+  RUNNER: 'runner eligibility',
+  CHECKOUT: 'acceptance checkout',
+  PUBLIC_SEED_TOKENS: 'GH_TOKEN/GITHUB_TOKEN prerequisites',
+  COPILOT_TOKEN: 'COPILOT_GITHUB_TOKEN prerequisite',
+  RELEASE: 'release artifact setup',
+  GATEWAY: 'gateway setup',
+  BROKER: 'broker readiness',
+  MCP_ROUTE: 'public MCP route',
+  SCRIPT: 'script enclave checks',
+  AGENT: 'agent enclave checks',
+  RESOURCE_LIMITS: 'resource-limit checks',
+  FAILURE_HANDLING: 'failure, timeout, and cancellation checks',
+  STARTUP_FAULTS: 'startup fault checks',
+  CRASH_RECOVERY: 'VMM crash recovery',
+  OUTPUT_REDACTION: 'output redaction checks',
+  CLEANUP: 'fixture cleanup',
+});
+
+async function main(failureContext = { stage: FAILURE_STAGES.RUNNER }) {
+  failureContext.stage = FAILURE_STAGES.RUNNER;
   if (process.getuid?.() !== 0 || process.env.GITHUB_ACTIONS !== 'true'
       || process.env.RUNNER_ENVIRONMENT !== 'github-hosted'
       || !/^ubuntu/.test(process.env.ImageOS || '')) {
     throw new Error('Live enclave acceptance requires an opted-in GitHub-hosted Ubuntu runner as root');
   }
+  failureContext.stage = FAILURE_STAGES.CHECKOUT;
   const checkout = require('./cloud-hypervisor-enclave-release-gate').verifyAcceptanceCheckout();
+  failureContext.stage = FAILURE_STAGES.PUBLIC_SEED_TOKENS;
   if (!process.env.GH_TOKEN || !process.env.GITHUB_TOKEN) {
     throw new Error('Live enclave acceptance requires GH_TOKEN and GITHUB_TOKEN for public seed staging');
   }
+  failureContext.stage = FAILURE_STAGES.COPILOT_TOKEN;
   if (!process.env.COPILOT_GITHUB_TOKEN) {
     throw new Error('Live agent-enclave acceptance requires the COPILOT_GITHUB_TOKEN repository secret');
   }
+  failureContext.stage = FAILURE_STAGES.RELEASE;
   const environment = { ...process.env };
   const tag = releaseTag();
   const runnerTemp = environment.RUNNER_TEMP || os.tmpdir();
@@ -1292,6 +1316,7 @@ async function main() {
   let awf;
   let gatewayStarted = false;
   let keepArtifacts = false;
+  let acceptancePassed = false;
   let preRestartLogContents;
   let awfConfigPath = path.join(root, 'awf-config.json');
   const runDirectories = [workDir];
@@ -1318,6 +1343,7 @@ async function main() {
     'down', '--volumes', '--remove-orphans', '--timeout', '5',
   ]);
   try {
+    failureContext.stage = FAILURE_STAGES.RELEASE;
     const artifacts = prepareReleaseArtifacts(tag, artifactsDir, environment);
     const { assertManifestSource } = require('./cloud-hypervisor-enclave-release-gate');
     for (const manifestPath of [
@@ -1331,6 +1357,7 @@ async function main() {
     fs.chmodSync(workspace, 0o755);
     fs.mkdirSync(path.join(workDir, 'audit'), { recursive: true, mode: 0o700 });
     fs.mkdirSync(path.join(workDir, 'proxy-logs'), { recursive: true, mode: 0o700 });
+    failureContext.stage = FAILURE_STAGES.GATEWAY;
     const handoff = startGatewayFixture({
       gatewayEnv, gatewayKey, capability, identity: gatewayIdentity,
       onStarted: () => { gatewayStarted = true; },
@@ -1360,6 +1387,7 @@ async function main() {
       GH_TOKEN: environment.GH_TOKEN,
       GITHUB_TOKEN: environment.GITHUB_TOKEN,
     };
+    failureContext.stage = FAILURE_STAGES.BROKER;
     awf = launchAwf('initial');
     await waitForBroker(awf, 'awf-enclave-mcp-server', Date.now() + 15 * 60_000, {
       stage: 'initial', stderrFile: awfErr,
@@ -1370,6 +1398,7 @@ async function main() {
       startupErrorFile: path.join(workDir, 'proxy-logs', 'awf-startup-error.json'),
     });
 
+    failureContext.stage = FAILURE_STAGES.MCP_ROUTE;
     const initialized = await requestMcp(
       endpoint, gatewayKey, 1, 'initialize', {
         protocolVersion: '2025-11-25',
@@ -1386,6 +1415,7 @@ async function main() {
       throw new Error('Public enclave MCP tool list did not expose exactly the static executors');
     }
 
+    failureContext.stage = FAILURE_STAGES.SCRIPT;
     const sentinel = `${SENTINEL_PREFIX}${crypto.randomBytes(12).toString('hex')}`;
     const scriptProbe = buildScriptGuestProbe();
     const python = [
@@ -1439,6 +1469,7 @@ async function main() {
     }
     await waitForVmCleanup(15_000);
 
+    failureContext.stage = FAILURE_STAGES.AGENT;
     const agentResultValue = 'AWF_ENCLAVE_LIVE_AGENT_RESULT';
     const agentResponse = await requestMcp(endpoint, gatewayKey, 4, 'tools/call', {
       name: 'enclave_run_agent',
@@ -1466,6 +1497,7 @@ async function main() {
     assertExpectedToolResult(agentProbeResponse, 5, agentProbe.expected, 'agent identity and network');
     await waitForVmCleanup(15_000);
 
+    failureContext.stage = FAILURE_STAGES.RESOURCE_LIMITS;
     const agentEnospcProbe = buildAgentEnospcProbe();
     const agentEnospcResponse = await requestMcp(endpoint, gatewayKey, 6, 'tools/call', {
       name: 'enclave_run_agent',
@@ -1502,6 +1534,7 @@ async function main() {
     assertExpectedToolResult(oomResponse, 8, oomExpected, 'guest OOM');
     await waitForVmCleanup(15_000);
 
+    failureContext.stage = FAILURE_STAGES.FAILURE_HANDLING;
     const errorSchema = { type: 'const', value: true };
     const guestFailure = await requestMcp(endpoint, gatewayKey, 9, 'tools/call', {
       name: 'enclave_run_script',
@@ -1552,6 +1585,7 @@ async function main() {
     }
     await waitForVmCleanup(15_000);
 
+    failureContext.stage = FAILURE_STAGES.STARTUP_FAULTS;
     try {
       await require('./cloud-hypervisor-enclave-startup-faults').runStartupFaultProbes({
         directory: root,
@@ -1564,6 +1598,7 @@ async function main() {
     }
     await waitForVmCleanup(15_000);
 
+    failureContext.stage = FAILURE_STAGES.CRASH_RECOVERY;
     const existingResources = new Set(resourceRecords(journalRoot).map(({ file }) => file));
     const crashProbe = [
       'import time',
@@ -1642,6 +1677,7 @@ async function main() {
       throw error;
     }
 
+    failureContext.stage = FAILURE_STAGES.OUTPUT_REDACTION;
     const logContents = [
       ...preRestartLogContents,
       fs.readFileSync(awfOut, 'utf8'),
@@ -1666,8 +1702,10 @@ async function main() {
     ], [
       ...logContents,
     ], sentinel);
+    acceptancePassed = true;
     console.log('Live script and agent identity/network, aggregate ENOSPC, guest OOM, failure/timeout/cancellation, real partial-startup failure, VMM crash recovery, cleanup, and output redaction checks passed.');
   } finally {
+    if (acceptancePassed) failureContext.stage = FAILURE_STAGES.CLEANUP;
     try {
       if (awf && awf.exitCode === null && awf.signalCode === null && !failedSpawns.has(awf)) {
         try {
@@ -1743,16 +1781,18 @@ function stopAwf(child, graceMs = 60_000, terminateMs = 5000) {
   });
 }
 
-function reportFailure(_error) {
+function reportFailure(_error, stage) {
+  const safeStage = Object.values(FAILURE_STAGES).includes(stage) ? stage : 'unknown stage';
   console.error(
-    'Live enclave acceptance failed; raw error details were suppressed. '
+    `Live enclave acceptance failed during ${safeStage}; raw error details were suppressed. `
     + 'Review any AWF_HOST_STARTUP_DIAGNOSTIC records above.',
   );
   process.exitCode = 1;
 }
 
 if (require.main === module) {
-  main().catch(reportFailure);
+  const failureContext = { stage: FAILURE_STAGES.RUNNER };
+  main(failureContext).catch((error) => reportFailure(error, failureContext.stage));
 }
 
 module.exports = {
