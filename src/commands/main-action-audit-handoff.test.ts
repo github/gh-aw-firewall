@@ -18,8 +18,11 @@ jest.mock('../enclave/dynamic-delegation', () => ({ stopEnclaveDynamicDelegation
 describe('resolved configuration startup artifact handoff', () => {
   beforeEach(() => {
     jest.resetAllMocks();
+    jest.spyOn(process, 'geteuid').mockReturnValue(0);
     jest.mocked(publishEarlyResolvedConfig).mockReturnValue('/run/awf-config-audit/run-test/awf-resolved-config.json');
   });
+
+  afterEach(() => jest.restoreAllMocks());
 
   it('publishes independently before visibility rejection and uncertain cleanup', async () => {
     const config: WrapperConfig = {
@@ -61,6 +64,21 @@ describe('resolved configuration startup artifact handoff', () => {
     expect(events).toEqual(['audit', 'stop', 'cleanup', 'final']);
     expect(publishFinalResolvedConfig).toHaveBeenCalledWith(
       '/tmp/audit', '{\n  "state": "initial-redacted-snapshot"\n}\n',
+    );
+  });
+
+  it('keeps rootless resolved config in the standard audit tree without exporting an early path', async () => {
+    jest.mocked(process.geteuid!).mockReturnValue(1001);
+    const config = { ...MAIN_ACTION_STUB_CONFIG, auditDir: '/tmp/audit' };
+    const snapshot = { state: 'preflight' };
+
+    testHelpers.persistConfigAuditArtifact(config, snapshot);
+
+    expect(publishEarlyResolvedConfig).not.toHaveBeenCalled();
+    expect(exportResolvedConfigPath).not.toHaveBeenCalled();
+    await testHelpers.buildCleanupFn(config, () => false, () => false)();
+    expect(publishFinalResolvedConfig).toHaveBeenCalledWith(
+      '/tmp/audit', '{\n  "state": "preflight"\n}\n',
     );
   });
 

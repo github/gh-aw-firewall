@@ -250,11 +250,12 @@ host runner after collection.
 After successful cleanup finishes all privileged audit writers, a separate
 `awf-resolved-config.json` compatibility snapshot is exclusively created in the
 final audit tree and only that file is handed off. This snapshot is absent
-when cleanup fails or `--keep-containers` is used. Non-Linux/unprivileged hosts
-cannot allocate the root-controlled early publication and emit a warning.
-Final config and iptables publication reject existing files (including links)
-rather than overwriting them; unsafe destinations warn and preservation is
-reported as incomplete.
+when cleanup fails or `--keep-containers` is used. Rootless and non-Linux runs
+skip the early `/run` publication and path export without warning; after
+successful cleanup, their resolved config remains in the configured or default
+audit tree for standard collection. Final config and iptables publication reject
+existing files (including links) rather than overwrite them. Unsafe
+destinations warn and preservation is reported as incomplete.
 An absent `enclave.jsonl` when containers never started is not
 evidence of an enclave invocation; retain the startup exit marker separately.
 Release-pinned workflows need an AWF release containing these diagnostics and

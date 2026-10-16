@@ -97,9 +97,11 @@ const mockedEnclaveManager = enclaveManager as jest.Mocked<typeof enclaveManager
 describe('createMainAction', () => {
   let processExitSpy: jest.SpyInstance;
   let consoleErrorSpy: jest.SpyInstance;
+  let effectiveUidSpy: jest.SpyInstance;
   let getOptionValueSource: jest.Mock;
 
   beforeEach(() => {
+    effectiveUidSpy = jest.spyOn(process, 'geteuid').mockReturnValue(0);
     const harness = setupMainActionTestHarness({
       mockedPreflight,
       mockedValidateOptions,
@@ -128,6 +130,7 @@ describe('createMainAction', () => {
   afterEach(() => {
     processExitSpy.mockRestore();
     consoleErrorSpy.mockRestore();
+    effectiveUidSpy.mockRestore();
   });
 
   describe('when args is empty', () => {

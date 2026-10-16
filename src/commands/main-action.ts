@@ -132,8 +132,10 @@ function persistConfigAuditArtifact(
   try {
     const contents = JSON.stringify(redactedConfig, null, 2) + '\n';
     resolvedConfigSnapshots.set(config, contents);
-    const file = publishEarlyResolvedConfig(contents);
-    exportResolvedConfigPath(file);
+    if (process.platform === 'linux' && process.geteuid?.() === 0) {
+      const file = publishEarlyResolvedConfig(contents);
+      exportResolvedConfigPath(file);
+    }
   } catch (err) {
     logger.warn('Failed to publish resolved config artifact:', err);
   }
