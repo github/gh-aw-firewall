@@ -25,7 +25,13 @@ module.exports = Object.freeze({
   'gpt-6-astra':       { input: 10.00, cachedInput: 1.00,  cacheWrite: 12.50, output: 50.00 },
   'gpt-6-luna':        { input: 0.10,  cachedInput: 0.01,  cacheWrite: 0.125, output: 0.50 },
   'gpt-6-sol':         { input: 2.00,  cachedInput: 0.20,  cacheWrite: 2.50,  output: 10.00 },
-  'gpt-6.1-sol':       { input: 2.00, cachedInput: 0.10, cacheWrite: 2.50, output: 10.00 },
+  'gpt-6.1-sol': {
+    input: 2.00, cachedInput: 0.10, cacheWrite: 2.50, output: 10.00, reasoning: 10.00,
+    longContext: {
+      threshold: 272_000,
+      input: 4.00, cachedInput: 0.20, cacheWrite: 5.00, output: 15.00, reasoning: 15.00,
+    },
+  },
   'claude-haiku-5-5': {
     input: 0.10, cachedInput: 0.01, cacheWrite: 0.125, output: 0.50, reasoning: 0.50,
     longContext: {

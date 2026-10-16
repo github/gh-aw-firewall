@@ -201,7 +201,6 @@ describe('ai-credits-guard', () => {
   it.each([
     ['gpt-6-luna', 0.016],
     ['gpt-6-sol', 0.32],
-    ['gpt-6.1-sol', 0.31],
   ])(
     'resolves %s from curated pricing without unknown-model rejection',
     (model, expectedCredits) => {
@@ -223,6 +222,57 @@ describe('ai-credits-guard', () => {
       expect(checkUnknownModelRejection(model, PROVIDER_COPILOT)).toBeNull();
     },
   );
+
+  it('resolves gpt-6.1-sol with OpenAI pricing despite fallback-only provider overlays', () => {
+    process.env.AWF_MAX_AI_CREDITS = '10';
+    process.env.AWF_API_PROXY_PROVIDERS = JSON.stringify({
+      openai: {
+        models: {
+          'gpt-5.4': { cost: { input: '0.0000025', output: '0.000015' } },
+          'gpt-5.4-mini': { cost: { input: '0.00000075', output: '0.0000045' } },
+        },
+      },
+    });
+    resetProviderPricingOverlaysForTests();
+    resetAiCreditsGuardForTests();
+
+    const usage = applyAiCreditsUsage({
+      input_tokens: 2000,
+      cache_read_tokens: 1000,
+      output_tokens: 100,
+    }, 'gpt-6.1-sol', PROVIDER_OPENAI);
+
+    expect(usage.aiCreditsThisResponse).toBeCloseTo(0.31, 10);
+    expect(getAiCreditsReflectState().by_model['gpt-6.1-sol']).toMatchObject({
+      pricing_source: 'curated',
+      pricing_tier: 'default',
+      fallback_pricing_used: false,
+    });
+    expect(checkUnknownModelRejection('gpt-6.1-sol', PROVIDER_OPENAI)).toBeNull();
+  });
+
+  it('applies gpt-6.1-sol long-context pricing above 272,000 input tokens', () => {
+    const atThreshold = applyAiCreditsUsage({
+      input_tokens: 272_000,
+      output_tokens: 10_000,
+    }, 'gpt-6.1-sol', PROVIDER_OPENAI);
+
+    expect(atThreshold.aiCreditsThisResponse).toBeCloseTo(64.4, 10);
+    expect(getAiCreditsReflectState().by_model['gpt-6.1-sol'].pricing_tier).toBe('default');
+
+    resetAiCreditsGuardForTests();
+    const aboveThreshold = applyAiCreditsUsage({
+      input_tokens: 300_000,
+      output_tokens: 10_000,
+    }, 'gpt-6.1-sol', PROVIDER_OPENAI);
+
+    expect(aboveThreshold.aiCreditsThisResponse).toBeCloseTo(135, 10);
+    expect(getAiCreditsReflectState().by_model['gpt-6.1-sol']).toMatchObject({
+      pricing_source: 'curated',
+      pricing_tier: 'long_context',
+      fallback_pricing_used: false,
+    });
+  });
 
   it('uses a supplied versioned catalog for AI-credit enforcement and records provenance', () => {
     process.env.AWF_MAX_AI_CREDITS = '10';
