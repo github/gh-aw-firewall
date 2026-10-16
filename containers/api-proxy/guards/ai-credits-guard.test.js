@@ -201,6 +201,7 @@ describe('ai-credits-guard', () => {
   it.each([
     ['gpt-6-luna', 0.016],
     ['gpt-6-sol', 0.32],
+    ['gpt-6.1-sol', 0.31],
   ])(
     'resolves %s from curated pricing without unknown-model rejection',
     (model, expectedCredits) => {
