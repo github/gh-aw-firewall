@@ -68,6 +68,41 @@ describe('applyGeneralWorkflowPatches Copilot CLI copy step gating', () => {
   });
 });
 
+describe('applyGeneralWorkflowPatches Cloud Hypervisor writable metadata', () => {
+  const compilerOutput =
+    'jobs:\n' +
+    '  agent:\n' +
+    '    steps:\n' +
+    '      - name: Prepare Cloud Hypervisor writable paths\n' +
+    '        run: |\n' +
+    '          mkdir -p "${GITHUB_WORKSPACE}/.awf-home" "/tmp/gh-aw/agent" "/tmp/gh-aw/aw_info.json" "/tmp/gh-aw/sandbox/agent/logs"\n';
+
+  it('does not treat the existing aw_info.json metadata file as a directory', () => {
+    const { content } = applyGeneralWorkflowPatches(
+      compilerOutput,
+      '/tmp/workflows/smoke-cloud-hypervisor.lock.yml',
+    );
+
+    expect(content).toContain(
+      'mkdir -p "${GITHUB_WORKSPACE}/.awf-home" "/tmp/gh-aw/agent" "/tmp/gh-aw/sandbox/agent/logs"',
+    );
+    expect(content).not.toContain('"/tmp/gh-aw/aw_info.json"');
+  });
+
+  it('is idempotent', () => {
+    const first = applyGeneralWorkflowPatches(
+      compilerOutput,
+      '/tmp/workflows/smoke-cloud-hypervisor.lock.yml',
+    );
+    const second = applyGeneralWorkflowPatches(
+      first.content,
+      '/tmp/workflows/smoke-cloud-hypervisor.lock.yml',
+    );
+
+    expect(second.content).toBe(first.content);
+  });
+});
+
 describe('applyGeneralWorkflowPatches published AWF maintenance workflows', () => {
   const compilerOutput =
     'jobs:\n' +

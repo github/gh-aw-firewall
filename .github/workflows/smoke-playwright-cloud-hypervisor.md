@@ -18,7 +18,6 @@ env:
 name: Smoke Playwright Cloud Hypervisor
 engine:
   id: copilot
-  version: 1.0.34
 network:
   allowed:
     - packagefeedproxy.microsoft.io
@@ -43,6 +42,10 @@ sandbox:
     id: awf
     version: v0.28.31
     runtime: cloud-hypervisor
+    config:
+      filesystem:
+        allow-write:
+          - /tmp/gh-aw/aw_info.json
 strict: false
 post-steps:
   - name: Validate Playwright loopback result

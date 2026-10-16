@@ -50,6 +50,10 @@ sandbox:
     id: awf
     version: v0.28.31
     runtime: cloud-hypervisor
+    config:
+      filesystem:
+        allow-write:
+          - /tmp/gh-aw/aw_info.json
 strict: false
 steps:
   - name: Pre-compute merged PR check

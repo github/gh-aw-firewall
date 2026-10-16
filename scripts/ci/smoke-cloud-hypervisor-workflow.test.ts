@@ -23,6 +23,8 @@ interface WorkflowFrontmatter {
     run?: string;
   }>;
   engine?: {
+    id?: string;
+    version?: string;
     args?: string[];
   };
   tools?: {
@@ -38,6 +40,11 @@ interface WorkflowFrontmatter {
   sandbox?: {
     agent?: {
       version?: string;
+      config?: {
+        filesystem?: {
+          'allow-write'?: string[];
+        };
+      };
     };
   };
 }
@@ -74,6 +81,34 @@ describe('Cloud Hypervisor smoke artifact bundles', () => {
 
     const lock = fs.readFileSync(path.join(workflowsDir, `${name}.lock.yml`), 'utf-8');
     expect(lock).toContain(`GH_AW_AWF_VERSION: ${version}`);
+  });
+});
+
+describe('Copilot Cloud Hypervisor smoke compatibility', () => {
+  const workflowNames = [
+    'smoke-cloud-hypervisor',
+    'smoke-cloud-hypervisor-build-test',
+    'smoke-playwright-cloud-hypervisor',
+  ];
+
+  it.each(workflowNames)('%s uses compiler-managed Copilot with writable model metadata', (name) => {
+    const sourcePath = path.join(workflowsDir, `${name}.md`);
+    const lockPath = path.join(workflowsDir, `${name}.lock.yml`);
+    const frontmatter = loadFrontmatter(sourcePath);
+    const lock = fs.readFileSync(lockPath, 'utf-8');
+
+    expect(frontmatter.engine?.id).toBe('copilot');
+    expect(frontmatter.engine?.version).toBeUndefined();
+    expect(lock.split('\n', 1)[0]).toContain('"copilot":"1.0.96"');
+    expect(frontmatter.sandbox?.agent?.config?.filesystem?.['allow-write'])
+      .toEqual(['/tmp/gh-aw/aw_info.json']);
+    expect(lock).toContain(
+      '\\"filesystem\\":{\\"allowWrite\\":[\\"/tmp/gh-aw/aw_info.json\\",',
+    );
+    const preparation = lock.split('\n').find(line =>
+      line.includes('mkdir -p "${GITHUB_WORKSPACE}/.awf-home"'));
+    expect(preparation).toBeDefined();
+    expect(preparation).not.toContain('"/tmp/gh-aw/aw_info.json"');
   });
 });
 
