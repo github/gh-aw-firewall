@@ -25,7 +25,10 @@
   "overrides": {
     "diff": "8.0.3",
     "esbuild": "^0.28.1",
-    "smol-toml": "1.8.0",
+    "@expressive-code/core": {
+      "postcss-nested": "7.0.2"
+    },
+    "fast-uri": "3.1.8",
     "ajv": "8.18.0",
     "nanoid": "5.1.16",
     "postcss": "8.5.23",
