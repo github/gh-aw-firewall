@@ -27,7 +27,7 @@ sandbox:
 strict: false
 concurrency:
   group: "test-coverage-reporter-${{ github.ref }}"
-  cancel-in-progress: true
+  cancel-in-progress: false
 network:
   allowed:
     - github

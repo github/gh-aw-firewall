@@ -36,6 +36,14 @@ describe('test coverage reporter workflow token optimization config', () => {
     expect(lock).not.toContain('EXPR_STEPS_DISCUSSION_TEMPLATE_OUTPUTS_DISCUSSION_BODY');
   });
 
+  it('does not cancel an active report when a newer push arrives', () => {
+    const source = fs.readFileSync(sourcePath, 'utf-8');
+    const lock = fs.readFileSync(lockPath, 'utf-8');
+
+    expect(source).toMatch(/concurrency:\n  group: "test-coverage-reporter-\$\{\{ github\.ref \}\}"\n  cancel-in-progress: false/);
+    expect(lock).toMatch(/concurrency:\n  cancel-in-progress: false\n  group: test-coverage-reporter-\$\{\{ github\.ref \}\}/);
+  });
+
   it('removes unused tool injection and trims precomputed coverage context in source workflow', () => {
     const source = fs.readFileSync(sourcePath, 'utf-8');
 
