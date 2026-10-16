@@ -444,8 +444,16 @@ describe('host executor server', () => {
     const started = await start();
     expect(fs.statSync(path.join(root, 'runtime')).mode & 0o777).toBe(0o700);
     expect(fs.statSync(started.socketPath).mode & 0o777).toBe(0o600);
-    expect(fs.statSync(started.capabilityPath).mode & 0o777).toBe(0o600);
-    expect(fs.readFileSync(started.capabilityPath, 'utf8')).toMatch(/^[0-9a-f]{64}$/);
+    const capabilityFd = fs.openSync(
+      started.capabilityPath,
+      fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW,
+    );
+    try {
+      expect(fs.fstatSync(capabilityFd).mode & 0o777).toBe(0o600);
+      expect(fs.readFileSync(capabilityFd, 'utf8')).toMatch(/^[0-9a-f]{64}$/);
+    } finally {
+      fs.closeSync(capabilityFd);
+    }
     await started.close();
     server = undefined;
     expect(fs.existsSync(started.socketPath)).toBe(false);
