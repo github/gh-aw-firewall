@@ -155,15 +155,12 @@ describe('Smoke Cloud Hypervisor token-usage verification', () => {
     expect(prompt).toContain('Use the existing summary file without rewriting it');
   });
 
-  it('explicitly allows the shell commands required by the smoke checks', () => {
+  it('allows all shell commands required by the smoke checks', () => {
     const frontmatter = loadFrontmatter(workflowFiles[0]);
     const lock = fs.readFileSync(workflowFiles[1], 'utf-8');
 
-    expect(frontmatter.tools?.bash).toEqual(['curl', 'printf', 'cat', 'jq']);
-    expect(lock).toContain("--allow-tool '\\''shell(curl:*)'\\''");
-    expect(lock).toContain("--allow-tool '\\''shell(printf)'\\''");
-    expect(lock).toContain("--allow-tool '\\''shell(cat)'\\''");
-    expect(lock).toContain("--allow-tool '\\''shell(jq)'\\''");
+    expect(frontmatter.tools?.bash).toEqual(['*']);
+    expect(lock).toContain('--allow-tool shell');
   });
 
   it('approves only the probe URLs at the CLI while preserving firewall denial', () => {
@@ -203,7 +200,7 @@ describe('Smoke Cloud Hypervisor token-usage verification', () => {
         '{item_number: $item_number, body: .}', file,
       ], { encoding: 'utf8' });
       expect(JSON.parse(output)).toEqual({ item_number: 9445, body });
-      expect(loadFrontmatter(workflowFiles[0]).tools?.bash).toContain('jq');
+      expect(loadFrontmatter(workflowFiles[0]).tools?.bash).toEqual(['*']);
     } finally {
       fs.rmSync(directory, { recursive: true, force: true });
     }

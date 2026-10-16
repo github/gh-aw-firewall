@@ -28,10 +28,7 @@ network:
 tools:
   github: false
   bash:
-    - curl
-    - printf
-    - cat
-    - jq
+    - "*"
 safe-outputs:
   threat-detection:
     enabled: false
