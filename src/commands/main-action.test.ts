@@ -95,10 +95,19 @@ const mockedEnclaveHostLifecycle = enclaveHostLifecycle as jest.Mocked<typeof en
 const mockedEnclaveManager = enclaveManager as jest.Mocked<typeof enclaveManager>;
 
 describe('createMainAction', () => {
+  const originalPlatform = process.platform;
   let processExitSpy: jest.SpyInstance;
   let consoleErrorSpy: jest.SpyInstance;
   let effectiveUidSpy: jest.SpyInstance;
   let getOptionValueSource: jest.Mock;
+
+  beforeAll(() => {
+    Object.defineProperty(process, 'platform', { value: 'linux' });
+  });
+
+  afterAll(() => {
+    Object.defineProperty(process, 'platform', { value: originalPlatform });
+  });
 
   beforeEach(() => {
     effectiveUidSpy = jest.spyOn(process, 'geteuid').mockReturnValue(0);

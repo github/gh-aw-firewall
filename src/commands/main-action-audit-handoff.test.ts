@@ -16,6 +16,16 @@ jest.mock('../enclave/github-gateway', () => ({ disconnectEnclaveGithubGateway: 
 jest.mock('../enclave/dynamic-delegation', () => ({ stopEnclaveDynamicDelegation: jest.fn() }));
 
 describe('resolved configuration startup artifact handoff', () => {
+  const originalPlatform = process.platform;
+
+  beforeAll(() => {
+    Object.defineProperty(process, 'platform', { value: 'linux' });
+  });
+
+  afterAll(() => {
+    Object.defineProperty(process, 'platform', { value: originalPlatform });
+  });
+
   beforeEach(() => {
     jest.resetAllMocks();
     jest.spyOn(process, 'geteuid').mockReturnValue(0);
