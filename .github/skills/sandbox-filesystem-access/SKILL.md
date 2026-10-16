@@ -72,11 +72,19 @@ Check each layer independently, using the actual host source and guest path:
    Cloud Hypervisor, inspect the corresponding generated command/export plan
    and runtime-specific diagnostics. Confirm the source, destination, and
    read-only/read-write mode.
-3. **Guest identity and effective access:** In the sandbox, check `id`, inspect
-   the target with `stat`, and test the intended operation (`test -r`,
-   `test -w`, `test -x`, or a harmless write to a disposable file when write access
-   is expected). Use `findmnt -T <path>` when available to confirm which mount
-   supplies the path. A mount declaration alone does not prove access works.
+3. **Guest identity and effective access:** Run checks inside the command AWF
+   wraps, with the agent's actual user, groups, privileges, and guest path.
+   In compose, a plain `docker exec awf-agent ...` runs as container root
+   outside the `/host` chroot and can bypass mode/ACL restrictions; it is not
+   equivalent to the agent command. Check `id`, inspect the target with `stat`,
+   and use `test -r`, `test -w`, or `test -x` as preliminary permission probes.
+   When write access is expected, confirm it by creating and removing a
+   disposable file in the intended output directory. Use `findmnt -T <path>`
+   when available to identify the supplying mount, not to prove write access:
+   Cloud Hypervisor exports narrowed by `filesystem.allowWrite` can remain
+   `rw` in the guest while the host mount tree denies writes outside allowed
+   paths. A mount declaration or permission probe alone does not prove the
+   intended operation works.
 
 Keep verification non-destructive. Never read, print, or copy credential
 contents while checking access; verify sensitive paths by checking existence,
