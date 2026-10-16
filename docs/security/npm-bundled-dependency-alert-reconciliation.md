@@ -3,9 +3,9 @@
 ## Evidence snapshot
 
 The source remediation replaces Node's bundled npm with checksum-pinned npm
-11.18.0 and removes the old npm trees. The fix was introduced in
-[`02c53c8399de3ca8473b19a00bb9dac4a4b77dc5`](https://github.com/github/gh-aw-firewall/commit/02c53c8399de3ca8473b19a00bb9dac4a4b77dc5)
-([PR #6545](https://github.com/github/gh-aw-firewall/pull/6545)); the current
+11.18.0 and removes the old npm trees. This fix was introduced in
+[`2bd68503cc35088e4b506354f204a1f2a2a1a385`](https://github.com/github/gh-aw-firewall/commit/2bd68503cc35088e4b506354f204a1f2a2a1a385)
+([PR #6505](https://github.com/github/gh-aw-firewall/pull/6505)); the current
 implementation is in [`containers/agent/Dockerfile`](../../containers/agent/Dockerfile).
 
 The latest GitHub release at verification time was `v0.28.60` (published
@@ -33,10 +33,13 @@ trees were:
 The amd64 inventory was obtained by pulling and running the image by digest,
 checking npm's version and enumerating the matching manifests below
 `/usr/lib/node_modules` and `/usr/local/lib/node_modules`. The arm64 image was
-pulled by the release tag and its merged root filesystem inspected; runtime
-execution was unavailable on the amd64 host. The historical findings are
-therefore verified as removed or replaced in both published platform
-filesystems, not merely in the Dockerfile or the npm tarball.
+pulled by its immutable manifest digest
+`sha256:367ecf900cd8f133c4d471e580d5cc66d4075fd2d5eda57933efb25535774ff7`,
+which is the Linux arm64 manifest listed in the index above, and its merged
+root filesystem inspected; runtime execution was unavailable on the amd64
+host. The historical findings are therefore verified as removed or replaced
+in both published platform filesystems, not merely in the Dockerfile or the npm
+tarball.
 
 ## Proposed dispositions
 
