@@ -724,6 +724,11 @@ export function applyGeneralWorkflowPatches(
   }
 
   if (workflowPath.endsWith('smoke-enclave-cloud-hypervisor.lock.yml')) {
+    // gh-aw v0.92.1 gates uploads on this ID but omits it from the redaction step.
+    content = content.replace(
+      /^( {6}- name: Redact secrets in logs\n)( {8}if: always\(\)\n)/gm,
+      '$1        id: redact_secrets\n$2',
+    );
     // gh-aw v0.92.0 treats every allow-write entry as a directory. The metadata
     // file is already downloaded before execution and must not be mkdir'd.
     content = content.replace(

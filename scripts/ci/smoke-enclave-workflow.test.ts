@@ -19,9 +19,9 @@ function countOccurrences(content: string, value: string): number {
 
 describe('experimental Cloud Hypervisor enclave smoke workflow', () => {
   const compilerVersion =
-    'v0.92.0';
+    'v0.92.1';
   const setupAction =
-    'github/gh-aw/actions/setup@56a8d2b93f37634d540b6731ff84050f9dba27b3';
+    'github/gh-aw/actions/setup@2687cab90c7b034aca6a2ad588928604025ad4b5';
   const source = fs.readFileSync(
     path.join(workflowsDir, 'smoke-enclave-cloud-hypervisor.md'), 'utf8'
   );
@@ -522,7 +522,7 @@ describe('experimental Cloud Hypervisor enclave smoke workflow', () => {
     expect(countOccurrences(lock, '- name: Start MCP Gateway')).toBe(1);
     expect(lock).toContain('ghcr.io/github/gh-aw-mcpg:');
     expect(lock).toContain(
-      'ghcr.io/github/gh-aw-mcpg:v0.4.31@sha256:dbec0f2ddef6adf83b7764019323096e3e5cc0f3886255f6320555b7fe2a7caf'
+      'ghcr.io/github/gh-aw-mcpg:v0.4.33@sha256:2b278f891b4566d27494658b37f628810f93da4caf510e266892ca344e55f8e0'
     );
     expect(lock).toContain('"awf-enclave": {\n                "required": false,');
     expect(lock).toContain('GH_AW_MCP_DEFERRED_SERVERS="awf-enclave"');
@@ -534,36 +534,64 @@ describe('experimental Cloud Hypervisor enclave smoke workflow', () => {
     expect(lock).not.toContain('cloud-hypervisor-enclave-gateway.js');
   });
 
-  it('keeps the early resolved-config collection dependency explicit without bypassing redaction', () => {
+  it('collects only staged resolved configuration after successful host redaction', () => {
     const compiled = yaml.load(lock) as {
       jobs: Record<string, {
-        steps: Array<{ name: string; uses?: string; run?: string;
+        steps: Array<{ name: string; id?: string; if?: string; uses?: string; run?: string;
           env?: Record<string, string>; with?: Record<string, string> }>;
       }>;
     };
     const steps = compiled.jobs.agent.steps;
     const redact = steps.find(step => step.name === 'Redact secrets in logs');
-    const upload = steps.find(step => step.name === 'Upload agent artifacts');
     expect(source).toContain('reason/status/transport diagnostics (#10009)');
     expect(source).toContain('publication follow-up (#10014)');
     expect(source).toContain('diagnostic enablement, not a verified fix');
-    expect(source).toContain('Keep this update draft until a verified compiler/actions contract supports');
-    expect(source).toContain('both safe redaction and collection of that early artifact');
-    expect(source).toContain(
-      'Neither consumer uses `AWF_RESOLVED_CONFIG`, so evidence after failed cleanup'
-    );
+    expect(source).toContain('verified source wiring, not verified live failed-cleanup retrieval');
+    expect(source).toContain('consumes the host-only `AWF_RESOLVED_CONFIG` path');
     expect(source).toContain('successful privileged cleanup');
     expect(source).toContain('Do not copy raw\nresolved JSON into normal artifact paths');
-    expect(source).toContain('with released gh-aw v0.92.0');
+    expect(source).toContain('official gh-aw v0.92.1 prerelease');
     expect(source).toContain(compilerVersion);
     expect(steps.some(step =>
       step.uses === setupAction
     )).toBe(true);
     expect(redact?.with?.script).toContain("require(path.join(actionsDir, 'redact_secrets.cjs'))");
-    expect(upload?.with?.path).toContain('/tmp/gh-aw/sandbox/firewall/audit/');
-    expect(upload?.with?.path).not.toMatch(/AWF_RESOLVED_CONFIG|\/run\/awf-config-audit/);
+    expect(redact?.id).toBe('redact_secrets');
+    expect(redact?.if).toBe('always()');
+    const missingId = lock.replace(
+      '- name: Redact secrets in logs\n        id: redact_secrets\n',
+      '- name: Redact secrets in logs\n',
+    );
+    expect(missingId).not.toBe(lock);
+    expect(applyGeneralWorkflowPatches(missingId, workflowPath).content).toBe(lock);
+    expect(applyGeneralWorkflowPatches(lock, workflowPath).content).toBe(lock);
+    expect(applyGeneralWorkflowPatches(
+      missingId, path.join(workflowsDir, 'unrelated.lock.yml'),
+    ).content).not.toContain('- name: Redact secrets in logs\n        id: redact_secrets\n');
+    for (const name of ['Upload agent artifacts', 'Upload agent output fallback artifact']) {
+      const upload = steps.find(step => step.name === name);
+      expect(upload?.if).toBe("always() && steps.redact_secrets.outcome == 'success'");
+      expect(upload?.with?.path.split('\n')).toContain('/tmp/gh-aw/awf-resolved-config.json');
+      expect(upload?.with?.path).not.toMatch(/AWF_RESOLVED_CONFIG|\/run\/awf-config-audit/);
+      expect(steps.indexOf(upload!)).toBeGreaterThan(steps.indexOf(redact!));
+    }
     expect(steps.map(step => step.run ?? '').join('\n'))
       .not.toMatch(/AWF_RESOLVED_CONFIG|\/run\/awf-config-audit/);
+    expect(compiledWritablePaths()).not.toContain('/run/awf-config-audit');
+  });
+
+  it('retains official release revocation and minimum-version enforcement without issue writes', () => {
+    const compiled = yaml.load(lock) as {
+      jobs: Record<string, {
+        steps: Array<{ name: string; env?: Record<string, string>;
+          with?: Record<string, string> }>;
+      }>;
+    };
+    const check = compiled.jobs.activation.steps.find(step =>
+      step.name === 'Check compile-agentic version');
+    expect(check?.env?.GH_AW_COMPILED_VERSION).toBe(compilerVersion);
+    expect(check?.env?.GH_AW_BLOCKED_VERSION_REPORT_AS_ISSUE).toBe('false');
+    expect(check?.with?.script).toContain("require(path.join(actionsDir, 'check_version_updates.cjs'))");
   });
 
   it('sets up release-matched primary and script-role artifacts', () => {
