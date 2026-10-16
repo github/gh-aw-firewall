@@ -31,6 +31,19 @@ describe('build-test-artifacts.sh', () => {
     expect(() => execFileSync('bash', ['-n', artifactBuildPath])).not.toThrow();
   });
 
+  it('keeps guest distribution metadata and verification aligned with the build-tools base', () => {
+    const dockerfile = fs.readFileSync(
+      path.resolve(__dirname, '../../containers/build-tools/Dockerfile'),
+      'utf-8',
+    );
+    const version = dockerfile.match(/^FROM ubuntu:(\d+\.\d+)@sha256:/m)?.[1];
+    expect(version).toBeDefined();
+    const source = fs.readFileSync(artifactBuildPath, 'utf-8');
+    const verifier = fs.readFileSync(artifactVerifyPath, 'utf-8');
+    expect(source).toContain(`"distribution": "ubuntu:${version}"`);
+    expect(verifier).toContain(`grep -F 'Ubuntu ${version}'`);
+  });
+
   it('resumes interrupted downloads with bounded retries and verifies before publishing', () => {
     const source = fs.readFileSync(artifactBuildPath, 'utf-8');
     expect(source).toContain('--continue-at -');

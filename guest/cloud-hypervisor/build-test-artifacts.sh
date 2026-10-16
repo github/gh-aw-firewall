@@ -596,7 +596,7 @@ cat >"$OUTPUT/manifest.json" <<EOF
     "image": "${BUILD_TOOLS_IMAGE}",
     "imageId": "${build_tools_image_id}",
     "dockerfileSha256": "${build_tools_dockerfile_sha256}",
-    "distribution": "ubuntu:22.04"
+    "distribution": "ubuntu:26.04"
   }
 }
 EOF
