@@ -1,5 +1,4 @@
 import { randomBytes } from 'crypto';
-import { constants } from 'fs';
 import type { BigIntStats } from 'fs';
 import * as path from 'path';
 import {
@@ -18,6 +17,7 @@ import {
   runChecked,
   type ResolvedCleanupDependencies,
 } from './cleanup-dependencies';
+import { writePrivateFile } from '../private-file';
 
 const CGROUP_REMOVAL_WAIT_MS = 5_000;
 const CGROUP_REMOVAL_INTERVAL_MS = 100;
@@ -67,7 +67,7 @@ export async function writeRecord(
   exclusive: boolean,
 ): Promise<void> {
   const temporaryPath = `${recordPath}.tmp-${dependencies.processId}-${randomBytes(6).toString('hex')}`;
-  await writePrivateFile(dependencies, temporaryPath, `${JSON.stringify(record, null, 2)}\n`);
+  await writePrivateFile(dependencies.open, temporaryPath, `${JSON.stringify(record, null, 2)}\n`);
   try {
     if (exclusive) {
       try {
@@ -91,24 +91,6 @@ export async function writeRecord(
   } catch (error) {
     await dependencies.unlink(temporaryPath).catch(() => undefined);
     throw error;
-  }
-}
-
-async function writePrivateFile(
-  dependencies: ResolvedCleanupDependencies,
-  filePath: string,
-  contents: string,
-): Promise<void> {
-  const handle = await dependencies.open(
-    filePath,
-    constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL,
-    0o600,
-  );
-  try {
-    await handle.writeFile(contents);
-    await handle.sync();
-  } finally {
-    await handle.close();
   }
 }
 
@@ -200,7 +182,7 @@ export async function claimRecord(
   for (let attempt = 0; attempt < 3; attempt += 1) {
     if (await hasActiveRenamedClaim(dependencies, recordPath)) return undefined;
     const temporaryPath = `${lockPath}.tmp-${dependencies.processId}-${randomBytes(6).toString('hex')}`;
-    await writePrivateFile(dependencies, temporaryPath, `${JSON.stringify(owner)}\n`);
+    await writePrivateFile(dependencies.open, temporaryPath, `${JSON.stringify(owner)}\n`);
     let acquired = false;
     try {
       await dependencies.link(temporaryPath, lockPath);
@@ -240,7 +222,7 @@ export async function claimRecord(
     if (await processMatches(dependencies, existing)) return undefined;
     const claimedPath = `${lockPath}-claimed-owner`;
     const claimedTemporaryPath = `${claimedPath}.tmp-${dependencies.processId}-${randomBytes(6).toString('hex')}`;
-    await writePrivateFile(dependencies, claimedTemporaryPath, `${JSON.stringify(owner)}\n`);
+    await writePrivateFile(dependencies.open, claimedTemporaryPath, `${JSON.stringify(owner)}\n`);
     try {
       await dependencies.link(claimedTemporaryPath, claimedPath);
     } catch (error) {

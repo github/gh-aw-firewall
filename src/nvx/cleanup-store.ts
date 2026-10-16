@@ -1,5 +1,5 @@
 import { randomBytes } from 'crypto';
-import { constants, promises as fs } from 'fs';
+import { promises as fs } from 'fs';
 import * as path from 'path';
 import {
   NVX_CLEANUP_ROOT,
@@ -8,6 +8,7 @@ import {
   type NvxCleanupProcessIdentity,
   type NvxCleanupRecord,
 } from './cleanup-record';
+import { writePrivateFile } from '../private-file';
 
 export interface NvxCleanupStoreDependencies {
   readonly effectiveUid: number;
@@ -114,7 +115,7 @@ export class NvxCleanupStore {
   ): Promise<(() => Promise<void>) | undefined> {
     const lockPath = `${recordPath}.lock`;
     const temporaryPath = `${lockPath}.${this.dependencies.pid}.${randomBytes(6).toString('hex')}`;
-    await writePrivate(this.dependencies, temporaryPath, `${JSON.stringify(owner)}\n`);
+    await writePrivateFile(this.dependencies.open, temporaryPath, `${JSON.stringify(owner)}\n`);
     try {
       await this.dependencies.link(temporaryPath, lockPath);
       return async () => {
@@ -164,8 +165,8 @@ export class NvxCleanupStore {
   private async write(record: NvxCleanupRecord, exclusive: boolean): Promise<void> {
     const recordPath = this.recordPath(record.runId);
     const temporaryPath = `${recordPath}.tmp-${this.dependencies.pid}-${randomBytes(6).toString('hex')}`;
-    await writePrivate(
-      this.dependencies,
+    await writePrivateFile(
+      this.dependencies.open,
       temporaryPath,
       `${JSON.stringify(record, null, 2)}\n`,
     );
@@ -193,24 +194,6 @@ export class NvxCleanupStore {
       await this.dependencies.unlink(temporaryPath).catch(() => undefined);
       throw error;
     }
-  }
-}
-
-async function writePrivate(
-  dependencies: NvxCleanupStoreDependencies,
-  filePath: string,
-  contents: string,
-): Promise<void> {
-  const handle = await dependencies.open(
-    filePath,
-    constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL,
-    0o600,
-  );
-  try {
-    await handle.writeFile(contents);
-    await handle.sync();
-  } finally {
-    await handle.close();
   }
 }
 
