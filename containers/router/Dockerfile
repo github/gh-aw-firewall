@@ -1,6 +1,8 @@
 # syntax=docker/dockerfile:1.7
 
-FROM python:3.12.15-slim-trixie@sha256:a6e34c598f2467ed0e9a8d349809fcd8b5c603269512df273a0bb1784edc11b1
+# Alpine, like the other AWF images: Debian slim carries High CVEs that Debian won't fix,
+# which the blocking supply-chain scan rejects.
+FROM python:3.12.15-alpine3.24@sha256:1b668429b3511ab407d8e00648891631b0b1a4d7e15e3ca70f38ab5b91ad4ab4
 
 ARG VERSION=0.1.3
 ARG VCS_REF=unknown
@@ -20,14 +22,11 @@ ENV HOME=/home/gh-aw-router \
     PYTHONUNBUFFERED=1 \
     GH_AW_ROUTER_ROUTING_TABLES=/routing
 
-RUN apt-get update \
-    && apt-get upgrade --yes --no-install-recommends \
-    && rm -rf /var/lib/apt/lists/* \
-    && groupadd --system --gid 10001 gh-aw-router \
-    && useradd --system --uid 10001 --gid gh-aw-router \
-        --create-home --home-dir /home/gh-aw-router \
-        --shell /usr/sbin/nologin gh-aw-router \
-    && mkdir --parents /app/src /routing
+RUN apk upgrade --no-cache \
+    && addgroup -S -g 10001 gh-aw-router \
+    && adduser -S -D -u 10001 -G gh-aw-router \
+        -h /home/gh-aw-router -s /sbin/nologin gh-aw-router \
+    && mkdir -p /app/src /routing
 
 COPY requirements.lock /tmp/requirements.lock
 RUN python -m pip install \
@@ -43,7 +42,7 @@ RUN python -c "import sys; from gh_aw_router import __version__; sys.exit(0 if s
 COPY routing /routing
 # Fails the build unless the label matches the shipped contract, so the label cannot drift from it.
 COPY openapi.yaml /app/openapi.yaml
-RUN printf '%s  /app/openapi.yaml\n' "${OPENAPI_SHA256}" | sha256sum --check --strict --quiet
+RUN printf '%s  /app/openapi.yaml\n' "${OPENAPI_SHA256}" | sha256sum -c -s
 
 RUN find /app /routing -type d -exec chmod 0555 {} + \
     && find /app /routing -type f -exec chmod 0444 {} +
