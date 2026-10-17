@@ -174,6 +174,55 @@ const tools = {
     await expect(fs.lstat(storage.workDir)).rejects.toMatchObject({ code: 'ENOENT' });
   }, 120_000);
 
+  it('seals a fully allocated primary runtime snapshot without using the agent invocation budget', async () => {
+    const { run, plan } = await invocation('agent');
+    const journal = await HostExecutorResourceJournal.create(run, plan, hostExecutorVmRunId(plan));
+    const storage = await prepareTrustedArtifactVerificationStorage(run, plan, journal, tools);
+    const close = async () => {
+      await storage.close();
+      await journal.verifyDirectory();
+      await fs.rm(plan.invocationHostDir, { recursive: true, force: true });
+      await journal.complete();
+    };
+    cleanup.add(close);
+    await fs.mkdir(plan.invocationHostDir, { mode: 0o700 });
+    await journal.captureDirectory();
+    const { writableStorageBytes: capacity, uid, gid } = ENCLAVE_ARTIFACT_VERIFICATION_STORAGE_PROFILE;
+    await storage.dependencies.mountTmpfs!(plan.invocationHostDir, capacity, uid, gid, tools);
+    await journal.captureMount();
+    await journal.prepareSnapshot();
+    const rootfsBytes = 1536 * 1024 ** 2;
+    const snapshot = await storage.dependencies.createArtifactSnapshot!({
+      cloudHypervisorBinary: '/usr/bin/true', virtiofsdBinary: '/usr/bin/true',
+      kernelPath: '/usr/bin/true', rootfsPath: '/synthetic-primary-rootfs',
+      supervisorPath: '/usr/bin/true',
+    }, async (_source, destination) => {
+      const handle = await fs.open(destination, 'wx');
+      const chunk = Buffer.alloc(1024 ** 2, 1);
+      try {
+        for (let index = 0; index < 1536; index++) {
+          expect((await handle.write(chunk)).bytesWritten).toBe(chunk.length);
+        }
+      } finally {
+        await handle.close();
+      }
+    }, (directory) => journal.captureSnapshot(directory));
+    const image = await fs.stat(snapshot.rootfsPath);
+    expect(image.size).toBe(rootfsBytes);
+    expect(image.blocks * 512).toBe(rootfsBytes);
+    expect(image.size).toBeGreaterThan(profiles.agent.writableStorageBytes);
+    expect(image.uid).toBe(0);
+    expect(image.mode & 0o777).toBe(0o444);
+    await expect(fs.writeFile(snapshot.rootfsPath, 'changed')).rejects.toMatchObject({ code: 'EROFS' });
+    expect((await execa(snapshot.cloudHypervisorBinary)).exitCode).toBe(0);
+    await storage.dependencies.verifyStorage!(plan.invocationHostDir, capacity);
+    await expect(storage.dependencies.verifyStorage!(plan.invocationHostDir, profiles.agent.writableStorageBytes))
+      .rejects.toThrow('escape');
+    await close();
+    cleanup.delete(close);
+    await expect(fs.lstat(storage.workDir)).rejects.toMatchObject({ code: 'ENOENT' });
+  }, 120_000);
+
   it.each(['script', 'agent'] as const)(
     '%s charges snapshots, rootfs preparation/staging, runtime and sparse concurrent exports to one ceiling',
     async (role) => {

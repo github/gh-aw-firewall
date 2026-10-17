@@ -223,7 +223,7 @@ describe('bounded immutable enclave preflight', () => {
       });
     }
     if (gate === 'resource-journal') (HostExecutorResourceJournal.create as jest.Mock).mockImplementation(reject);
-    if (gate === 'storage-allocation') (prepareTrustedInvocationStorage as jest.Mock).mockImplementation(reject);
+    if (gate === 'storage-allocation') (prepareTrustedArtifactVerificationStorage as jest.Mock).mockImplementation(reject);
     if (gate === 'invocation-directory') journal.captureDirectory.mockImplementation(reject);
     if (gate === 'invocation-mount') mountTmpfs.mockImplementation(reject);
     if (gate === 'storage-verification') verifyStorage.mockImplementation(reject);
@@ -258,18 +258,39 @@ describe('bounded immutable enclave preflight', () => {
     expect(plan.entryId).toBe('configured-script');
     expect(plan.invocationId).toMatch(/^[0-9a-f]{32}$/);
     expect(root).toBe(hostExecutorStorageDirectory(hostExecutorVmRunId(plan)));
-    expect(mountTmpfs).toHaveBeenCalledWith(plan.invocationHostDir, profiles.script.writableStorageBytes,
-      profiles.script.uid, profiles.script.gid, { mount: '/trusted/mount', umount: '/trusted/umount' });
+    expect(mountTmpfs).toHaveBeenCalledWith(plan.invocationHostDir, artifactProfile.writableStorageBytes,
+      0, 0, { mount: '/trusted/mount', umount: '/trusted/umount' });
   });
 
-  it.each([{ roles: ['script'] }, { roles: ['agent'] }, { roles: ['script', 'agent'] }] as {
+  it.each([
+    { roles: ['script'] }, { roles: ['agent'] },
+    { roles: ['script', 'agent'] }, { roles: ['agent', 'script'] },
+  ] as {
     roles: ('script' | 'agent')[];
   }[])(
-    'uses only the actual configured role cap for $roles', async ({ roles }) => {
+    'verifies a primary runtime snapshot larger than the agent invocation cap for $roles', async ({ roles }) => {
+      const original = createSnapshot.getMockImplementation()!;
+      createSnapshot.mockImplementation(async (...args) => {
+        // Measured with rsync --sparse on the v0.28.62 primary rootfs:
+        // 1,561,341,952 logical bytes allocate 825,294,848 tmpfs bytes.
+        const allocatedRootfsBytes = 825_294_848;
+        expect(allocatedRootfsBytes).toBeGreaterThan(profiles.agent.writableStorageBytes);
+        expect(allocatedRootfsBytes).toBeLessThan(1_561_341_952);
+        if (mountTmpfs.mock.calls[0][1] < allocatedRootfsBytes) {
+          throw Object.assign(new Error('primary rootfs snapshot exceeds preflight cap'), { code: 'ENOSPC' });
+        }
+        return original(...args);
+      });
       await createBoundedEnclavePreflight(options(roles), active).preflight(config);
-      const role = roles.includes('agent') ? 'agent' : 'script';
-      expect(plan.executorKind).toBe(role);
-      expect(mountTmpfs.mock.calls[0][1]).toBe(profiles[role].writableStorageBytes);
+      expect(prepareTrustedArtifactVerificationStorage).toHaveBeenCalledTimes(1);
+      expect(prepareTrustedInvocationStorage).not.toHaveBeenCalled();
+      expect(mountTmpfs).toHaveBeenCalledWith(plan.invocationHostDir,
+        artifactProfile.writableStorageBytes, 0, 0, { mount: '/trusted/mount', umount: '/trusted/umount' });
+      expect(verifyStorage).toHaveBeenCalledWith(plan.invocationHostDir, artifactProfile.writableStorageBytes);
+      expect(profiles.script.writableStorageBytes).toBe(1024 ** 3);
+      expect(profiles.agent.writableStorageBytes).toBe(512 * 1024 ** 2);
+      expect(journal.complete).toHaveBeenCalled();
+      expect(active.size).toBe(0);
     },
   );
 
@@ -489,7 +510,7 @@ describe('bounded immutable enclave preflight', () => {
   });
 
   it('tries identity-journal cleanup after allocation fails, retaining active enforcement if it fails', async () => {
-    (prepareTrustedInvocationStorage as jest.Mock).mockRejectedValue(new Error('partial mount'));
+    (prepareTrustedArtifactVerificationStorage as jest.Mock).mockRejectedValue(new Error('partial mount'));
     journal.closeStorage.mockRejectedValue(new Error('uncommitted mount'));
     await expect(createBoundedEnclavePreflight(options(), active).preflight(config))
       .rejects.toMatchObject({
@@ -506,7 +527,7 @@ describe('bounded immutable enclave preflight', () => {
     await expect(createBoundedEnclavePreflight(options(), active).preflight(config))
       .rejects.toThrow('journal write failed');
     expect(active.size).toBe(1);
-    expect(prepareTrustedInvocationStorage).not.toHaveBeenCalled();
+    expect(prepareTrustedArtifactVerificationStorage).not.toHaveBeenCalled();
   });
 
   it('resolves trusted mount tools before creating resources and rejects missing roles', async () => {

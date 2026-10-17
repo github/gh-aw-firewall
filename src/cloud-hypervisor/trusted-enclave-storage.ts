@@ -156,8 +156,9 @@ export class ProductionTrustedCloudHypervisorEnclaveStorageProvider implements T
   }
 }
 
-// Both role images are verified sequentially, so this covers one full (not
-// necessarily sparse) release image plus manifest, attestation and SBOM bytes.
+// Host preflight verifies the primary runtime snapshot and both enclave roles
+// in separate domains. Cover one full (not necessarily sparse) release image
+// plus tools, kernel, manifest, attestation and SBOM bytes.
 // This host-only budget must never change the guest invocation profiles.
 export const ENCLAVE_ARTIFACT_VERIFICATION_STORAGE_PROFILE = Object.freeze({
   writableStorageBytes: 2 * 1024 * 1024 * 1024,

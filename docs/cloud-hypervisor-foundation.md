@@ -558,9 +558,13 @@ anything when the mount carries `noexec`, instead of surfacing an opaque
 `EACCES` from the later `--version` probe. Enclaves instead stage the snapshot in
 their invocation-owned allocation domain, using an executable read-only view of
 the same bounded superblock. Run-level enclave preflight verifies immutable
-copies in short-lived, journaled preflight domains. Role-artifact verification
-has a separate root-owned 2 GiB host-only tmpfs, including the temporary
-manifest/bundle files used for role attestation. It verifies both roles
+copies in short-lived, journaled preflight domains. Runtime-artifact and
+role-artifact verification each use a root-owned 2 GiB host-only tmpfs,
+independent of the configured enclave role. The runtime snapshot includes
+the primary rootfs, VMM, virtiofsd, kernel, supervisor, manifest, and bundle;
+it must not be charged to an agent enclave's 512 MiB invocation budget.
+Role verification includes the temporary manifest/bundle files used for
+attestation and verifies both roles
 sequentially even for script-only runs, so it must fit the larger agent image
 without relying on sparse allocation. Invocation storage remains capped at
 1 GiB for scripts and 512 MiB for agents; neither guests nor broker requests can
