@@ -41,8 +41,15 @@ evidence of successful live inference or general production readiness.
 The checked-in agent smoke lock was generated with the explicitly experimental
 `dev-v0.92.3-enclave-agent-acceptance.c483bd2e10ac` compiler: official v0.92.3
 source (`aa629a8f04fc27f6024cc49d9935d3b882c37880`) plus the companion
-acceptance patch (SHA-256
+acceptance patch from
+[github/gh-aw#69777](https://github.com/github/gh-aw/pull/69777)
+([source commit](https://github.com/github/gh-aw/commit/2b19ccffd0694750e8e2bdcb20bf882e9bb440f2);
+SHA-256
 `c483bd2e10ac94aa1c9b37fd82e2c55e09f6b11ebc8e44f8c5b1950f644e57b9`).
+The patch concatenates that commit's individual diffs for
+`pkg/workflow/enclaves_runtime.go` followed by
+`pkg/workflow/enclaves_agent_acceptance_test.go`; the companion PR includes
+complete reproduction commands.
 It is not an official release binary. The Darwin arm64 build used for generation
 has SHA-256 `478142026cf767c53d5678a76bf511f4237468c2f662dd07117a3a4045e75239`.
 Compile only this workflow with `--action-mode action`, explicit
