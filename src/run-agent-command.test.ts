@@ -8,6 +8,8 @@ import * as path from 'path';
 // Mock execa module
 import { mockExecaFn } from './test-helpers/mock-execa.test-utils';
 import { useTempDir } from './test-helpers/docker-test-fixtures.test-utils';
+import { PassThrough } from 'stream';
+import type { ProtectedCommandOutputCapture } from './protected-command-output-capture';
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 jest.mock('execa', () => require('./test-helpers/mock-execa.test-utils').execaMockFactory());
 
@@ -139,6 +141,62 @@ describe('runAgentCommand', () => {
 
     expect(result.exitCode).toBe(0);
     expect(result.blockedDomains).toEqual([]);
+  });
+
+  it('captures raw stdout and stderr while forwarding them to the existing console streams', async () => {
+    const stdout = new PassThrough();
+    const stderr = new PassThrough();
+    let endedStreams = 0;
+    let resolveLogs: ((value: { stdout: Buffer; stderr: Buffer; exitCode: number }) => void) | undefined;
+    const logsProcess = Object.assign(
+      new Promise<{ stdout: Buffer; stderr: Buffer; exitCode: number }>(resolve => { resolveLogs = resolve; }),
+      { stdout, stderr },
+    );
+    stdout.on('end', () => {
+      if (++endedStreams === 2) resolveLogs?.({ stdout: Buffer.alloc(0), stderr: Buffer.alloc(0), exitCode: 0 });
+    });
+    stderr.on('end', () => {
+      if (++endedStreams === 2) resolveLogs?.({ stdout: Buffer.alloc(0), stderr: Buffer.alloc(0), exitCode: 0 });
+    });
+    mockExecaFn
+      .mockReturnValueOnce(logsProcess as any)
+      .mockResolvedValueOnce({ stdout: '7', stderr: '', exitCode: 0 } as any);
+    const capture = {
+      invocationId: 'test-invocation',
+      beginAttempt: jest.fn(),
+      recordOutput: jest.fn(),
+      finishAttempt: jest.fn(),
+      finishCommand: jest.fn(),
+      waitForCommandCompletion: jest.fn().mockResolvedValue(undefined),
+      setTeardown: jest.fn(),
+      close: jest.fn(),
+    } as ProtectedCommandOutputCapture;
+    const stdoutWrite = jest.spyOn(process.stdout, 'write').mockReturnValue(true);
+    const stderrWrite = jest.spyOn(process.stderr, 'write').mockReturnValue(true);
+
+    try {
+      setImmediate(() => {
+        stdout.end(Buffer.from([0x00, 0xff, 0x41]));
+        stderr.end(Buffer.from([0x0a, 0x00, 0x42]));
+      });
+      const result = await runAgentCommand(getDir(), ['github.com'], undefined, undefined, undefined, capture);
+
+      expect(result.exitCode).toBe(7);
+      expect(capture.beginAttempt).toHaveBeenCalledWith(1);
+      expect(capture.recordOutput).toHaveBeenCalledWith(1, 'stdout', Buffer.from([0x00, 0xff, 0x41]));
+      expect(capture.recordOutput).toHaveBeenCalledWith(1, 'stderr', Buffer.from([0x0a, 0x00, 0x42]));
+      expect(capture.finishAttempt).toHaveBeenCalledWith(1, {
+        exitCode: 7,
+        outcome: 'exited',
+        logsDrained: true,
+      });
+      expect(capture.finishCommand).toHaveBeenCalledWith(7, 'exited');
+      expect(stdoutWrite).toHaveBeenCalledWith(Buffer.from([0x00, 0xff, 0x41]));
+      expect(stderrWrite).toHaveBeenCalledWith(Buffer.from([0x0a, 0x00, 0x42]));
+    } finally {
+      stdoutWrite.mockRestore();
+      stderrWrite.mockRestore();
+    }
   });
 
   it('should return exit code 124 when agent times out', async () => {

@@ -173,6 +173,10 @@ export function buildConfig(inputs: BuildConfigInputs): WrapperConfig {
     auditDir: (options.auditDir as string | undefined) || process.env.AWF_AUDIT_DIR,
     sessionStateDir:
       (options.sessionStateDir as string | undefined) || process.env.AWF_SESSION_STATE_DIR,
+    commandOutputCaptureDir: options.captureCommandOutput as string | undefined,
+    commandOutputCaptureMaxBytes: options.captureCommandOutputMaxBytes === undefined
+      ? undefined
+      : Number(options.captureCommandOutputMaxBytes),
     runnerToolCachePath: options.runnerToolCachePath as string | undefined,
     enableHostAccess: options.enableHostAccess as boolean,
     networkIsolation: options.networkIsolation as boolean | undefined,

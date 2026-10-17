@@ -293,6 +293,14 @@ program
     'Allocate a pseudo-TTY (required for interactive tools like Claude Code)',
     false
   )
+  .option(
+    '--capture-command-output <directory>',
+    'Capture raw stdout/stderr into protected host-only storage (non-TTY Compose runtimes only)',
+  )
+  .option(
+    '--capture-command-output-max-bytes <bytes>',
+    'Maximum total bytes retained across command output capture (default: 67108864; max: 67108864)',
+  )
 
   // -- Network & Security --
   .option(

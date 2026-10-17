@@ -115,6 +115,14 @@ export interface VolumeOptions {
   sessionStateDir?: string;
 
   /**
+   * Host-only directory for opt-in full command stdout/stderr capture.
+   * The directory must be new, absolute, and outside every agent-visible mount.
+   * AWF writes `metadata.json` and per-attempt stream files there.
+   */
+  commandOutputCaptureDir?: string;
+  commandOutputCaptureMaxBytes?: number;
+
+  /**
    * Host runner tool cache directory to mount read-only into chroot mode.
    *
    * When specified, AWF prefers this path over auto-detection and mounts it as:

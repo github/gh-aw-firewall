@@ -43,6 +43,7 @@ use `awf --reflect`. It prints the `/reflect` JSON response to stdout.
 - **Data protection controls**: DLP scanning (`--enable-dlp`), DNS-over-HTTPS, and agent runtime limits (`--agent-timeout`)
 - **API proxy capabilities**: OpenAI, Anthropic, Copilot, Gemini, and Google Vertex AI targets with rate limits, token steering, Anthropic auto-cache, and `apiProxy.hostedWeb.{claude,codex}` domain policies
 - **Infrastructure flexibility**: upstream proxy chaining, host service access, Docker-in-Docker, custom mounts, memory limits, and TTY mode
+- **Protected output capture**: opt-in, host-only command stdout/stderr capture with attempt and completeness metadata
 - **Operational tooling**: pre-download images and inspect logs/stats/summaries/audits from live or saved runs
 
 ## CLI subcommands
@@ -83,6 +84,7 @@ See [GitHub Actions](docs/github_actions.md) for advanced setup and `awf logs su
 - [API proxy sidecar](docs/api-proxy-sidecar.md) — secure credential management for LLM APIs
 - [Authentication architecture](docs/authentication-architecture.md) — deep dive into token handling and credential isolation
 - [Authentication matrix](docs/auth-matrix.md) — supported static, BYOK, and OIDC provider combinations
+- [Protected command output capture](docs/protected-command-output.md) — isolated raw stdout/stderr capture and completion metadata
 - [SSL Bump](docs/ssl-bump.md) — HTTPS content inspection for URL path filtering
 - [GitHub Actions](docs/github_actions.md) — CI/CD integration and MCP server setup
 - [Environment variables](docs/environment.md) — passing environment variables to containers

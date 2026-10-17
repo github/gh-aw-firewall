@@ -166,7 +166,7 @@ function collectAgentVisiblePaths(
  */
 export function assertPrivateRootIsolated(
   config: WrapperConfig,
-  roots: Pick<EnclavePaths, 'root' | 'ingressRoot'>,
+  roots: Pick<EnclavePaths, 'root'> & Partial<Pick<EnclavePaths, 'ingressRoot'>>,
   env: NodeJS.ProcessEnv = process.env,
   cwd = process.cwd(),
   label = 'enclave',
@@ -177,7 +177,7 @@ export function assertPrivateRootIsolated(
   );
   const visiblePaths = [
     ...collectAgentVisiblePaths(config, env, cwd),
-    { label: `${label} ingress`, source: roots.ingressRoot },
+    ...(roots.ingressRoot ? [{ label: `${label} ingress`, source: roots.ingressRoot }] : []),
   ];
 
   for (const visible of visiblePaths) {
@@ -233,6 +233,34 @@ export function assertEnclavePrivateRootIsolated(
   cwd = process.cwd(),
 ): void {
   assertPrivateRootIsolated(config, paths, env, cwd, 'enclave');
+}
+
+export function assertPrivateCommandOutputRootIsolated(
+  config: WrapperConfig,
+  root: string,
+  env: NodeJS.ProcessEnv = process.env,
+  cwd = process.cwd(),
+): void {
+  assertPrivateRootIsolated(config, { root }, env, cwd, 'protected command output');
+  const resolvedRoot = resolvePathThroughExistingAncestor(root);
+  const managedDirectories = [
+    { label: 'AWF debug artifacts', source: ENCLAVE_DEBUG_ARTIFACT_ROOT },
+    { label: 'resolved config publication', source: RESOLVED_CONFIG_PUBLICATION_ROOT },
+    { label: 'host executor storage', source: HOST_EXECUTOR_STORAGE_ROOT },
+    { label: 'audit directory', source: config.auditDir },
+    { label: 'proxy logs directory', source: config.proxyLogsDir },
+    { label: 'token log directory', source: config.tokenLogDir },
+  ];
+  for (const managed of managedDirectories) {
+    if (!managed.source) continue;
+    const resolvedManaged = resolvePathThroughExistingAncestor(path.resolve(managed.source));
+    if (pathsOverlap(resolvedRoot, resolvedManaged)) {
+      throw markHostPreflightError(new Error(
+        `Unsafe protected command output root "${root}" overlaps AWF-managed ${managed.label} ` +
+        `"${managed.source}"`,
+      ), 'private-root-overlap');
+    }
+  }
 }
 
 /**

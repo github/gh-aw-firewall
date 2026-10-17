@@ -22,6 +22,7 @@ import {
   assertNvxSelection,
   isPrimaryNvxRuntime,
 } from '../../nvx/runtime-validation';
+import { assertProtectedCommandOutputCaptureSupported } from '../../protected-command-output-capture';
 import { assertFilesystemWritePolicyCompatibility } from '../../filesystem-policy';
 import {
   formatCloudHypervisorDockerFallbackWarning,
@@ -93,6 +94,12 @@ export function assembleAndValidateConfig(
     dockerHostPathPrefix: networkOptions.dockerHostPathPrefixResolution.dockerHostPathPrefix,
   });
 
+  try {
+    assertProtectedCommandOutputCaptureSupported(config);
+  } catch (error) {
+    logger.error(`❌ ${error instanceof Error ? error.message : String(error)}`);
+    process.exit(1);
+  }
   validateInfrastructureOptions(config);
   try {
     assertCloudHypervisorSelection(config);

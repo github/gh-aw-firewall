@@ -55,6 +55,19 @@ describe('buildConfig', () => {
     }))).toThrow(/primary backend "docker"/);
   });
 
+  it('maps protected command output CLI options into the runtime config', () => {
+    const config = buildConfig(makeInputs({
+      options: {
+        ...makeInputs().options,
+        captureCommandOutput: '/var/tmp/awf-output',
+        captureCommandOutputMaxBytes: '1024',
+      },
+    }));
+
+    expect(config.commandOutputCaptureDir).toBe('/var/tmp/awf-output');
+    expect(config.commandOutputCaptureMaxBytes).toBe(1024);
+  });
+
   let savedEnv: Partial<Record<(typeof ENV_KEYS)[number], string | undefined>>;
 
   beforeEach(() => {

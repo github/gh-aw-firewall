@@ -15,6 +15,7 @@ import {
 import { HostPreflightReporter } from './cloud-hypervisor/host-preflight-progress';
 import { isCloudHypervisorEnclaveSelected } from './enclave/cloud-hypervisor-lifecycle';
 import { ensureAgentRuntimeStartMarker } from './agent-runtime-start';
+import type { ProtectedCommandOutputCapture } from './protected-command-output-capture';
 
 /**
  * Dependencies injected into the main workflow.
@@ -39,7 +40,8 @@ export interface WorkflowDependencies {
     workDir: string,
     allowedDomains: string[],
     proxyLogsDir?: string,
-    agentTimeoutMinutes?: number
+    agentTimeoutMinutes?: number,
+    commandOutputCapture?: ProtectedCommandOutputCapture,
   ) => Promise<{ exitCode: number }>;
   collectDiagnosticLogs?: (workDir: string) => Promise<void>;
   /** Trusted unified enclave preflight and staging. */
@@ -91,6 +93,7 @@ interface WorkflowLogger {
 interface WorkflowOptions extends WorkflowCallbacks {
   logger: WorkflowLogger;
   performCleanup: () => Promise<void>;
+  commandOutputCapture?: ProtectedCommandOutputCapture;
 }
 
 /**
@@ -363,7 +366,20 @@ export async function runMainWorkflow(
   if (config.enableApiProxy && config.agentTimeout !== undefined) {
     ensureAgentRuntimeStartMarker(config.workDir, config.proxyLogsDir);
   }
-  const result = await dependencies.runAgentCommand(config.workDir, config.allowedDomains, config.proxyLogsDir, config.agentTimeout);
+  const result = options.commandOutputCapture
+    ? await dependencies.runAgentCommand(
+      config.workDir,
+      config.allowedDomains,
+      config.proxyLogsDir,
+      config.agentTimeout,
+      options.commandOutputCapture,
+    )
+    : await dependencies.runAgentCommand(
+      config.workDir,
+      config.allowedDomains,
+      config.proxyLogsDir,
+      config.agentTimeout,
+    );
 
   // Step 3.5: Collect diagnostic logs before containers are stopped
   // Must run BEFORE performCleanup() which calls docker compose down -v.
