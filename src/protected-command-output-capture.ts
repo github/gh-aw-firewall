@@ -2,6 +2,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { randomUUID } from 'crypto';
 import type { WrapperConfig } from './types';
+import { resolveArtifactOwner } from './resolved-config-artifact';
 import {
   assertPrivateCommandOutputRootIsolated,
   findDockerSocketExposingMount,
@@ -9,6 +10,7 @@ import {
 import { isGvisorRuntime, runtimeUsesComposeAgent } from './container-runtime';
 
 export const PROTECTED_COMMAND_OUTPUT_MAX_BYTES = 64 * 1024 * 1024;
+const COMMAND_COMPLETION_WAIT_TIMEOUT_MS = 2_000;
 
 export type CapturedOutputStream = 'stdout' | 'stderr';
 export type CommandAttemptOutcome =
@@ -35,7 +37,7 @@ export interface ProtectedCommandOutputCapture {
   readonly invocationId: string;
   beginAttempt(attempt: number): void;
   recordOutput(attempt: number, stream: CapturedOutputStream, chunk: Buffer): void;
-  recordPresentationFailure(stream: CapturedOutputStream, reason: 'error' | 'closed'): void;
+  recordPresentationFailure(stream: CapturedOutputStream, reason: 'error' | 'closed' | 'backpressure'): void;
   finishAttempt(
     attempt: number,
     result: { exitCode: number; outcome: Exclude<CommandAttemptOutcome, 'running'>; logsDrained: boolean },
@@ -72,12 +74,21 @@ interface CaptureMetadata {
   }>;
 }
 
-function writeAll(fd: number, bytes: Buffer, position?: number): void {
+type SyncWriter = (fd: number, bytes: Buffer, offset: number, length: number, position: number | null) => number;
+
+function writeAll(
+  fd: number,
+  bytes: Buffer,
+  position?: number,
+  onWrite?: (bytes: number) => void,
+  writer: SyncWriter = fs.writeSync,
+): void {
   let offset = 0;
   while (offset < bytes.length) {
-    const written = fs.writeSync(fd, bytes, offset, bytes.length - offset, position === undefined ? null : position + offset);
+    const written = writer(fd, bytes, offset, bytes.length - offset, position === undefined ? null : position + offset);
     if (written <= 0) throw new Error('zero-byte write');
     offset += written;
+    onWrite?.(written);
   }
 }
 
@@ -96,6 +107,7 @@ function openPrivateFile(file: string): number {
 class ProtectedCommandOutputCaptureSession implements ProtectedCommandOutputCapture {
   readonly invocationId = randomUUID();
   private readonly metadataFd: number;
+  private readonly directoryFd: number;
   private readonly attempts: AttemptState[];
   private currentAttempt?: number;
   private commandOutcome: CaptureMetadata['command']['outcome'] = 'pending';
@@ -124,21 +136,25 @@ class ProtectedCommandOutputCaptureSession implements ProtectedCommandOutputCapt
       throw new Error(`Refusing unsafe protected output directory: ${directory}`);
     }
     fs.chmodSync(directory, 0o700);
+    const directoryFd = fs.openSync(
+      directory,
+      fs.constants.O_RDONLY | fs.constants.O_DIRECTORY | (fs.constants.O_NOFOLLOW ?? 0),
+    );
 
     const openedFds: number[] = [];
     let metadataFd: number | undefined;
     const attempts: AttemptState[] = [];
     try {
-      metadataFd = openPrivateFile(path.join(directory, 'metadata.json'));
+      metadataFd = openPrivateFile(`/proc/self/fd/${directoryFd}/metadata.json`);
       openedFds.push(metadataFd);
       for (let index = 1; index <= maxAttempts; index++) {
         const prefix = `attempt-${String(index).padStart(3, '0')}`;
         const stdoutFile = `${prefix}.stdout.bin`;
         const stderrFile = `${prefix}.stderr.bin`;
-        const stdoutPath = path.join(directory, stdoutFile);
+        const stdoutPath = `/proc/self/fd/${directoryFd}/${stdoutFile}`;
         const stdoutFd = openPrivateFile(stdoutPath);
         openedFds.push(stdoutFd);
-        const stderrPath = path.join(directory, stderrFile);
+        const stderrPath = `/proc/self/fd/${directoryFd}/${stderrFile}`;
         const stderrFd = openPrivateFile(stderrPath);
         openedFds.push(stderrFd);
         attempts.push({
@@ -152,10 +168,12 @@ class ProtectedCommandOutputCaptureSession implements ProtectedCommandOutputCapt
       }
     } catch (error) {
       for (const fd of openedFds) fs.closeSync(fd);
+      fs.closeSync(directoryFd);
       fs.rmSync(directory, { recursive: true, force: true });
       throw error;
     }
 
+    this.directoryFd = directoryFd;
     this.metadataFd = metadataFd!;
     this.attempts = attempts;
     try {
@@ -166,6 +184,7 @@ class ProtectedCommandOutputCaptureSession implements ProtectedCommandOutputCapt
         for (const stream of Object.values(attempt.streams)) fs.closeSync(stream.fd);
       }
       fs.closeSync(this.metadataFd);
+      fs.closeSync(this.directoryFd);
       fs.rmSync(directory, { recursive: true, force: true });
       throw error;
     }
@@ -192,14 +211,15 @@ class ProtectedCommandOutputCaptureSession implements ProtectedCommandOutputCapt
     if (length === 0) return;
 
     try {
-      writeAll(state.fd, chunk.subarray(0, length));
-      state.capturedBytes += length;
+      writeAll(state.fd, chunk.subarray(0, length), undefined, written => {
+        state.capturedBytes += written;
+      });
     } catch (error) {
       this.captureFailure = `write ${stream} failed: ${error instanceof Error ? error.message : String(error)}`;
     }
   }
 
-  recordPresentationFailure(stream: CapturedOutputStream, reason: 'error' | 'closed'): void {
+  recordPresentationFailure(stream: CapturedOutputStream, reason: 'error' | 'closed' | 'backpressure'): void {
     this.presentationFailures.add(`${stream}: ${reason}`);
     this.writeMetadata();
   }
@@ -240,7 +260,19 @@ class ProtectedCommandOutputCaptureSession implements ProtectedCommandOutputCapt
   }
 
   waitForCommandCompletion(): Promise<void> {
-    return this.commandStarted ? this.commandCompletion : Promise.resolve();
+    if (!this.commandStarted) return Promise.resolve();
+    let timeout: ReturnType<typeof setTimeout> | undefined;
+    return Promise.race([
+      this.commandCompletion,
+      new Promise<void>(resolve => {
+        timeout = setTimeout(() => {
+          this.finishCommand(undefined, 'interrupted');
+          resolve();
+        }, COMMAND_COMPLETION_WAIT_TIMEOUT_MS);
+      }),
+    ]).finally(() => {
+      if (timeout) clearTimeout(timeout);
+    });
   }
 
   setTeardown(outcome: 'complete' | 'failed'): void {
@@ -250,6 +282,30 @@ class ProtectedCommandOutputCaptureSession implements ProtectedCommandOutputCapt
 
   close(): void {
     if (this.closed) return;
+    this.writeMetadata();
+    let ownershipHandoffFailed = false;
+    const transferOwnership = (fd: number, owner: { uid: number; gid: number }): void => {
+      try {
+        fs.fchownSync(fd, owner.uid, owner.gid);
+      } catch (error) {
+        ownershipHandoffFailed = true;
+        this.captureFailure ??= `ownership handoff failed: ${error instanceof Error ? error.message : String(error)}`;
+      }
+    };
+    try {
+      const owner = resolveArtifactOwner();
+      for (const attempt of this.attempts) {
+        for (const stream of Object.values(attempt.streams)) transferOwnership(stream.fd, owner);
+      }
+      transferOwnership(this.metadataFd, owner);
+      transferOwnership(this.directoryFd, owner);
+    } catch (error) {
+      ownershipHandoffFailed = true;
+      this.captureFailure ??= `ownership handoff failed: ${error instanceof Error ? error.message : String(error)}`;
+    }
+    if (ownershipHandoffFailed) {
+      this.writeMetadata();
+    }
     for (const attempt of this.attempts) {
       for (const stream of Object.values(attempt.streams)) {
         try {
@@ -267,6 +323,7 @@ class ProtectedCommandOutputCaptureSession implements ProtectedCommandOutputCapt
     } finally {
       this.closed = true;
     }
+    fs.closeSync(this.directoryFd);
   }
 
   private getAttempt(number: number): AttemptState {
@@ -375,3 +432,7 @@ export function assertProtectedCommandOutputCaptureSupported(config: WrapperConf
     throw new Error(`Protected command output capture is not supported by the "${config.containerRuntime}" runtime`);
   }
 }
+
+/** @internal Exported for focused short-write accounting tests. */
+// ts-prune-ignore-next
+export const protectedCommandOutputCaptureTestHelpers = { writeAll };

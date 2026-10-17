@@ -115,9 +115,9 @@ describe('enclave private-root mount policy', () => {
     fs.writeFileSync(socket, '');
     fs.symlinkSync(socket, alias);
     expect(findDockerSocketExposingMount({
-      ...config(workDir, [`${alias}:/run/docker.sock`]),
+      ...config(workDir, [`${alias}:/data/docker.sock`]),
       awfDockerHost: `unix://${socket}`,
-    })).toBe(`${alias}:/run/docker.sock`);
+    })).toBe(`${alias}:/data/docker.sock`);
   });
 
   it('resolves a missing suffix through a symlinked ancestor', () => {

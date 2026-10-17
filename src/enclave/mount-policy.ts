@@ -43,8 +43,10 @@ export function resolvePathThroughExistingAncestor(candidate: string): string {
 function pathsOverlap(left: string, right: string): boolean {
   const relativeLeft = path.relative(left, right);
   const relativeRight = path.relative(right, left);
-  const leftContainsRight = relativeLeft === '' || (!relativeLeft.startsWith('..') && !path.isAbsolute(relativeLeft));
-  const rightContainsLeft = relativeRight === '' || (!relativeRight.startsWith('..') && !path.isAbsolute(relativeRight));
+  const leftContainsRight = relativeLeft === '' ||
+    (relativeLeft !== '..' && !relativeLeft.startsWith(`..${path.sep}`) && !path.isAbsolute(relativeLeft));
+  const rightContainsLeft = relativeRight === '' ||
+    (relativeRight !== '..' && !relativeRight.startsWith(`..${path.sep}`) && !path.isAbsolute(relativeRight));
   return leftContainsRight || rightContainsLeft;
 }
 
@@ -59,7 +61,7 @@ function daemonVisiblePath(source: string, prefix: string | undefined): string {
 }
 
 /**
- * Returns the first custom bind that exposes the Docker socket (or a parent
+ * Returns the first effective bind that exposes the Docker socket (or a parent
  * directory containing it) to the primary agent.
  */
 export function findDockerSocketExposingMount(config: WrapperConfig): string | undefined {
@@ -72,30 +74,67 @@ export function findDockerSocketExposingMount(config: WrapperConfig): string | u
     hostLiteral: path.resolve(socketPath),
     hostResolved: resolvePathThroughExistingAncestor(socketPath),
     daemonLiteral: path.resolve(daemonVisiblePath(socketPath, config.dockerHostPathPrefix)),
-    daemonResolved: resolvePathThroughExistingAncestor(
-      daemonVisiblePath(socketPath, config.dockerHostPathPrefix),
-    ),
+    daemonResolved: resolvePathThroughExistingAncestor(daemonVisiblePath(socketPath, config.dockerHostPathPrefix)),
   }));
-  for (const volume of config.volumeMounts ?? []) {
-    const source = mountSource(volume);
-    if (!source) continue;
+  const mounts: Array<{ label: string; source: string; target: string; result: string }> = [
+    ...collectAgentVisiblePaths(config, process.env, process.cwd())
+      .filter(({ label }) => !label.startsWith('custom volume '))
+      .map(({ label, source }) => ({
+        label,
+        source,
+        target: source,
+        result: label,
+      })),
+    ...(config.volumeMounts ?? []).flatMap((volume) => {
+      const [source, target] = volume.split(':');
+      return source && target && path.isAbsolute(source) && path.isAbsolute(target)
+        ? [{
+          label: `custom volume ${volume}`,
+          source,
+          target: target.startsWith('/host/') ? target : `/host${target}`,
+          result: volume,
+        }]
+        : [];
+    }),
+  ];
+
+  const isMaskedSocket = (source: string, target: string, socketPath: string): boolean => {
+    const relativeSocket = path.relative(source, socketPath);
+    if (
+      relativeSocket === '..'
+      || relativeSocket.startsWith(`..${path.sep}`)
+      || path.isAbsolute(relativeSocket)
+    ) return false;
+    const exposedPath = path.posix.join(
+      target.startsWith('/host/') ? target : `/host${target}`,
+      relativeSocket,
+    );
+    return exposedPath === '/host/var/run/docker.sock' || exposedPath === '/host/run/docker.sock';
+  };
+
+  for (const mount of mounts) {
+    const source = mount.source;
+    if (!path.isAbsolute(source)) continue;
     const literalSource = path.resolve(source);
     const resolvedSource = resolvePathThroughExistingAncestor(source);
-    const literalDaemonSource = path.resolve(
-      daemonVisiblePath(source, config.dockerHostPathPrefix),
-    );
-    const daemonSource = resolvePathThroughExistingAncestor(
-      daemonVisiblePath(source, config.dockerHostPathPrefix),
-    );
-    if (sockets.some(
-      (socket) => pathsOverlap(literalSource, socket.hostLiteral)
-        || pathsOverlap(resolvedSource, socket.hostResolved)
-        || pathsOverlap(literalDaemonSource, socket.daemonLiteral)
-        || pathsOverlap(daemonSource, socket.daemonResolved),
-    )) {
-      return volume;
+    const literalDaemonSource = path.resolve(daemonVisiblePath(source, config.dockerHostPathPrefix));
+    const daemonSource = resolvePathThroughExistingAncestor(daemonVisiblePath(source, config.dockerHostPathPrefix));
+    for (const socket of sockets) {
+      const candidates = [
+        { source: literalSource, socket: socket.hostLiteral },
+        { source: resolvedSource, socket: socket.hostResolved },
+        { source: literalDaemonSource, socket: socket.daemonLiteral },
+        { source: daemonSource, socket: socket.daemonResolved },
+      ];
+      if (candidates.some(({ source: candidateSource, socket: candidateSocket }) =>
+        pathsOverlap(candidateSource, candidateSocket) &&
+        !isMaskedSocket(candidateSource, mount.target, candidateSocket)
+      )) {
+        return mount.result;
+      }
     }
   }
+
   return undefined;
 }
 
@@ -118,6 +157,9 @@ function collectAgentVisiblePaths(
     { label: 'sbx system tools', source: '/usr/local/bin' },
     { label: 'Compose chroot home', source: `${config.workDir}-chroot-home` },
     { label: 'AWF work directory', source: config.workDir },
+    ...(config.containerWorkDir && path.isAbsolute(config.containerWorkDir)
+      ? [{ label: 'container working directory', source: config.containerWorkDir }]
+      : []),
     ...[...systemDirectories(false), ...systemDirectories(true)].map((source) => ({
       label: 'Compose system mount',
       source,
@@ -172,21 +214,27 @@ export function assertPrivateRootIsolated(
   label = 'enclave',
 ): void {
   const privateRoot = resolvePathThroughExistingAncestor(roots.root);
+  const privateLiteralRoot = path.resolve(roots.root);
   const privateDaemonRoot = resolvePathThroughExistingAncestor(
     daemonVisiblePath(roots.root, config.dockerHostPathPrefix),
   );
+  const privateLiteralDaemonRoot = path.resolve(daemonVisiblePath(roots.root, config.dockerHostPathPrefix));
   const visiblePaths = [
     ...collectAgentVisiblePaths(config, env, cwd),
     ...(roots.ingressRoot ? [{ label: `${label} ingress`, source: roots.ingressRoot }] : []),
   ];
 
   for (const visible of visiblePaths) {
+    const literalVisible = path.resolve(visible.source);
     const resolvedVisible = resolvePathThroughExistingAncestor(visible.source);
+    const literalDaemonVisible = path.resolve(daemonVisiblePath(visible.source, config.dockerHostPathPrefix));
     const resolvedDaemonVisible = resolvePathThroughExistingAncestor(
       daemonVisiblePath(visible.source, config.dockerHostPathPrefix),
     );
     if (
-      pathsOverlap(privateRoot, resolvedVisible)
+      pathsOverlap(privateLiteralRoot, literalVisible)
+      || pathsOverlap(privateRoot, resolvedVisible)
+      || pathsOverlap(privateLiteralDaemonRoot, literalDaemonVisible)
       || pathsOverlap(privateDaemonRoot, resolvedDaemonVisible)
     ) {
       throw markHostPreflightError(new Error(

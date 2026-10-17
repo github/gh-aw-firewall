@@ -1,7 +1,10 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import type { WrapperConfig } from './types';
-import { prepareProtectedCommandOutputCapture } from './protected-command-output-capture';
+import {
+  prepareProtectedCommandOutputCapture,
+  protectedCommandOutputCaptureTestHelpers,
+} from './protected-command-output-capture';
 import { assertPrivateCommandOutputRootIsolated } from './enclave/mount-policy';
 
 describe('protected command output capture', () => {
@@ -11,8 +14,68 @@ describe('protected command output capture', () => {
     testRoot = fs.mkdtempSync(path.join('/var/tmp', 'awf-output-capture-'));
   });
 
+  it('rejects capture roots under automatically mounted container working directories', () => {
+    const containerWorkDir = path.join(testRoot, 'container-work');
+    fs.mkdirSync(containerWorkDir);
+    expect(() => assertPrivateCommandOutputRootIsolated(
+      config({ containerWorkDir }),
+      path.join(containerWorkDir, 'capture'),
+    )).toThrow(/container working directory/);
+    expect(() => prepareProtectedCommandOutputCapture(config({
+      commandOutputCaptureDir: path.join(testRoot, 'capture-workdir'),
+      containerWorkDir: path.join(testRoot, 'capture-workdir'),
+    }))).toThrow(/container working directory/);
+  });
+
   afterEach(() => {
     fs.rmSync(testRoot, { recursive: true, force: true });
+  });
+
+  it('accounts for successful short writes before a later write fails', () => {
+    let capturedBytes = 0;
+    let firstWrite = true;
+    const writer = (_fd: number, _bytes: Buffer, _offset: number, _length: number, _position: number | null): number => {
+      if (firstWrite) {
+        firstWrite = false;
+        return 2;
+      }
+      throw new Error('disk full');
+    };
+
+    expect(() => protectedCommandOutputCaptureTestHelpers.writeAll(
+      1,
+      Buffer.from('abcd'),
+      undefined,
+      written => { capturedBytes += written; },
+      writer,
+    )).toThrow('disk full');
+    expect(capturedBytes).toBe(2);
+  });
+
+  it('hands private artifacts back to the sudo invoking identity without widening permissions', () => {
+    if (process.getuid?.() !== 0) return;
+    const uid = process.env.SUDO_UID;
+    const gid = process.env.SUDO_GID;
+    process.env.SUDO_UID = '12345';
+    process.env.SUDO_GID = '12345';
+    try {
+      const capture = prepareProtectedCommandOutputCapture(config())!;
+      capture.close();
+    } finally {
+      if (uid === undefined) delete process.env.SUDO_UID;
+      else process.env.SUDO_UID = uid;
+      if (gid === undefined) delete process.env.SUDO_GID;
+      else process.env.SUDO_GID = gid;
+    }
+
+    const directory = path.join(testRoot, 'capture');
+    expect(fs.statSync(directory).uid).toBe(12345);
+    for (const name of ['metadata.json', 'attempt-001.stdout.bin', 'attempt-001.stderr.bin']) {
+      const stat = fs.statSync(path.join(directory, name));
+      expect(stat.uid).toBe(12345);
+      expect(stat.mode & 0o777).toBe(0o600);
+    }
+    expect(fs.statSync(directory).mode & 0o777).toBe(0o700);
   });
 
   function config(overrides: Partial<WrapperConfig> = {}): WrapperConfig {
@@ -39,6 +102,22 @@ describe('protected command output capture', () => {
       config({ volumeMounts: [`${testRoot}:/data:ro`] }),
       captureRoot,
     )).toThrow(/custom volume/);
+
+    expect(() => assertPrivateCommandOutputRootIsolated(
+      config(),
+      path.join('/tmp', '..awf-capture'),
+    )).toThrow(/temporary directory/);
+
+    const workspace = path.join(testRoot, 'workspace');
+    const external = path.join(testRoot, 'external');
+    fs.mkdirSync(workspace);
+    fs.mkdirSync(external);
+    fs.symlinkSync(external, path.join(workspace, 'alias'));
+    expect(() => assertPrivateCommandOutputRootIsolated(
+      config(),
+      path.join(workspace, 'alias', 'capture'),
+      { GITHUB_WORKSPACE: workspace },
+    )).toThrow(/workspace/);
 
     const alias = path.join(testRoot, 'alias');
     fs.symlinkSync(testRoot, alias);
@@ -199,6 +278,29 @@ describe('protected command output capture', () => {
     capture.close();
   });
 
+  it('bounds cancellation waiting when command collection never completes', async () => {
+    jest.useFakeTimers();
+    const capture = prepareProtectedCommandOutputCapture(config())!;
+    capture.beginAttempt(1);
+
+    try {
+      const completion = capture.waitForCommandCompletion();
+      await jest.advanceTimersByTimeAsync(2_000);
+      await completion;
+    } finally {
+      jest.useRealTimers();
+    }
+    capture.setTeardown('complete');
+    capture.close();
+
+    const metadata = JSON.parse(fs.readFileSync(path.join(testRoot, 'capture', 'metadata.json'), 'utf8'));
+    expect(metadata).toMatchObject({
+      status: 'incomplete',
+      command: { outcome: 'interrupted' },
+      attempts: [{ outcome: 'interrupted', logsDrained: false }],
+    });
+  });
+
   it('records interrupted commands without claiming their output was drained', () => {
     const capture = prepareProtectedCommandOutputCapture(config())!;
     capture.beginAttempt(1);
@@ -240,7 +342,21 @@ describe('protected command output capture', () => {
     expect(() => prepareProtectedCommandOutputCapture(config({ enableDind: true })))
       .toThrow(/agent can access a Docker socket/);
     expect(() => prepareProtectedCommandOutputCapture(config({
+      volumeMounts: ['/var/run/docker.sock:/data/docker.sock'],
+    }))).toThrow(/agent can access a Docker socket/);
+    const maskedSocketMount = prepareProtectedCommandOutputCapture(config({
       volumeMounts: ['/var/run/docker.sock:/run/docker.sock'],
+    }));
+    expect(maskedSocketMount).toBeDefined();
+    maskedSocketMount?.close();
+    expect(() => prepareProtectedCommandOutputCapture(config({
+      awfDockerHost: 'unix:///tmp/docker.sock',
+    }))).toThrow(/agent can access a Docker socket/);
+    const mountedWorkDir = path.join(testRoot, 'socket-workdir');
+    fs.mkdirSync(mountedWorkDir);
+    expect(() => prepareProtectedCommandOutputCapture(config({
+      containerWorkDir: mountedWorkDir,
+      awfDockerHost: `unix://${path.join(mountedWorkDir, 'docker.sock')}`,
     }))).toThrow(/agent can access a Docker socket/);
     expect(() => prepareProtectedCommandOutputCapture(config({ commandOutputCaptureDir: 'relative/path' })))
       .toThrow(/absolute path/);

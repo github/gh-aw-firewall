@@ -607,6 +607,12 @@ export function createMainAction(getOptionValueSource: OptionSourceResolver) {
     }
     assertPersistentDebugArtifactsIsolated(config);
     commandOutputCapture = prepareProtectedCommandOutputCapture(config);
+    if (commandOutputCapture) {
+      config.additionalEnv = {
+        ...config.additionalEnv,
+        AWF_CAPTURE_COMMAND_OUTPUT: '1',
+      };
+    }
 
     // Log config with redacted secrets - remove API keys entirely
     // to prevent sensitive data from flowing to logger (CodeQL sensitive data logging)

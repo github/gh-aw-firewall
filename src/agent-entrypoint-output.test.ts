@@ -49,4 +49,28 @@ describe('agent entrypoint output routing', () => {
     expect(result.stdout).toContain('[entrypoint] Agentic Workflow Firewall');
     expect(result.stdout).toContain('command-output');
   });
+
+  it('keeps setup diagnostics out of both command capture streams', () => {
+    const entrypoint = path.join(__dirname, '..', 'containers', 'agent', 'entrypoint.sh');
+    const result = spawnSync(
+      '/bin/bash',
+      [
+        '-c',
+        [
+          'source "$1"',
+          'export AWF_CAPTURE_COMMAND_OUTPUT=1',
+          'configure_output_routing',
+          'print_banner',
+          'run_command_with_stdout bash -c \'printf stdout-bytes; printf stderr-bytes >&2\'',
+        ].join('\n'),
+        'entrypoint-output-test',
+        entrypoint,
+      ],
+      { encoding: 'utf8' },
+    );
+
+    expect(result.status).toBe(0);
+    expect(result.stdout).toBe('stdout-bytes');
+    expect(result.stderr).toBe('stderr-bytes');
+  });
 });

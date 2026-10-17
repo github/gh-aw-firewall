@@ -434,7 +434,7 @@ export async function runAgentCommand(
       commandOutputCapture?.beginAttempt(currentAttempt);
       const logsProcess = execa('docker', logArgs, {
         stdio: commandOutputCapture ? ['ignore', 'pipe', 'pipe'] : 'inherit',
-        ...(commandOutputCapture ? { encoding: null } : {}),
+        ...(commandOutputCapture ? { encoding: null, buffer: false } : {}),
         reject: false,
         env: getLocalDockerEnv(),
       });
@@ -443,33 +443,53 @@ export async function runAgentCommand(
         source: NodeJS.ReadableStream | null,
         destination: NodeJS.WriteStream,
         stream: CapturedOutputStream,
-      ): void => {
+      ): Promise<void> => new Promise(resolve => {
         if (!source) {
           outputStreamFailed = true;
+          resolve();
           return;
         }
         let destinationUnavailable = false;
-        let resumeAfterDrain: (() => void) | undefined;
-        const markDestinationUnavailable = (reason: 'error' | 'closed'): void => {
-          if (destinationUnavailable) return;
+        let sourceEnded = false;
+        let pendingWrites = 0;
+        let settled = false;
+        const presentationFailures = new Set<'error' | 'closed' | 'backpressure'>();
+        const cleanupDestinationListeners = (): void => {
+          if (!sourceEnded || pendingWrites !== 0) return;
+          destination.off('error', onDestinationError);
+          destination.off('close', onDestinationClose);
+        };
+        const settle = (): void => {
+          cleanupDestinationListeners();
+          if (sourceEnded && (pendingWrites === 0 || destinationUnavailable) && !settled) {
+            settled = true;
+            resolve();
+          }
+        };
+        const markDestinationUnavailable = (reason: 'error' | 'closed' | 'backpressure'): void => {
+          if (presentationFailures.has(reason)) return;
+          presentationFailures.add(reason);
           destinationUnavailable = true;
           commandOutputCapture!.recordPresentationFailure(stream, reason);
-          if (resumeAfterDrain) destination.off('drain', resumeAfterDrain);
-          source.resume();
+          settle();
         };
         const onDestinationError = (): void => markDestinationUnavailable('error');
         const onDestinationClose = (): void => {
           if (!destination.writableFinished) markDestinationUnavailable('closed');
         };
-        const removeDestinationListeners = (): void => {
-          destination.off('error', onDestinationError);
-          destination.off('close', onDestinationClose);
-          if (resumeAfterDrain) destination.off('drain', resumeAfterDrain);
-        };
         destination.on('error', onDestinationError);
         destination.once('close', onDestinationClose);
-        source.once('end', removeDestinationListeners);
-        source.once('close', removeDestinationListeners);
+        source.once('end', () => {
+          sourceEnded = true;
+          settle();
+        });
+        source.once('close', () => {
+          if (!(source as NodeJS.ReadableStream & { readableEnded?: boolean }).readableEnded) {
+            outputStreamFailed = true;
+          }
+          sourceEnded = true;
+          settle();
+        });
         source.on('data', (value: Buffer | string) => {
           const chunk = Buffer.isBuffer(value) ? value : Buffer.from(value);
           commandOutputCapture!.recordOutput(currentAttempt, stream, chunk);
@@ -479,32 +499,55 @@ export async function runAgentCommand(
             return;
           }
           try {
-            if (!destination.write(chunk) && !destinationUnavailable) {
-              source.pause();
-              resumeAfterDrain = () => {
-                resumeAfterDrain = undefined;
-                if (!destinationUnavailable) source.resume();
-              };
-              destination.once('drain', resumeAfterDrain);
+            pendingWrites++;
+            const writeCompleted = (error?: Error | null): void => {
+              if (error) markDestinationUnavailable('error');
+              pendingWrites--;
+              settle();
+            };
+            const canContinue = destination.write(chunk, writeCompleted);
+            if (!canContinue && !destinationUnavailable) {
+              markDestinationUnavailable('backpressure');
             }
           } catch {
             markDestinationUnavailable('error');
+            pendingWrites = Math.max(0, pendingWrites - 1);
+            settle();
           }
         });
         source.on('error', () => {
           outputStreamFailed = true;
+          sourceEnded = true;
+          settle();
         });
-      };
+      });
+      const outputDrainPromises: Promise<void>[] = [];
       if (commandOutputCapture) {
-        forwardOutput(logsProcess.stdout, process.stdout, 'stdout');
-        forwardOutput(logsProcess.stderr, process.stderr, 'stderr');
+        outputDrainPromises.push(forwardOutput(logsProcess.stdout, process.stdout, 'stdout'));
+        outputDrainPromises.push(forwardOutput(logsProcess.stderr, process.stderr, 'stderr'));
       }
       const recordAttemptCompletion = async (
         exitCode: number,
         outcome: Exclude<CommandAttemptOutcome, 'running'>,
       ): Promise<{ exitCode: number; outcome: Exclude<CommandAttemptOutcome, 'running'> }> => {
-        const logsResult = await logsProcess;
-        const logsDrained = !outputStreamFailed && logsResult.exitCode === 0;
+        let drainTimeout: ReturnType<typeof setTimeout> | undefined;
+        const drainResult = await Promise.race([
+          Promise.all([logsProcess, ...outputDrainPromises]).then(([logsResult]) => ({
+            completed: true as const,
+            logsDrained: !outputStreamFailed && logsResult.exitCode === 0,
+          })),
+          new Promise<{ completed: false; logsDrained: false }>(resolve => {
+            drainTimeout = setTimeout(() => resolve({ completed: false, logsDrained: false }), 5_000);
+          }),
+        ]);
+        if (drainTimeout) clearTimeout(drainTimeout);
+        if (!drainResult.completed) {
+          const processWithKill = logsProcess as typeof logsProcess & { kill?: (signal?: string) => void };
+          processWithKill.kill?.('SIGTERM');
+          logsProcess.stdout?.destroy();
+          logsProcess.stderr?.destroy();
+        }
+        const logsDrained = drainResult.logsDrained;
         commandOutputCapture?.finishAttempt(currentAttempt, { exitCode, outcome, logsDrained });
         return { exitCode, outcome };
       };
@@ -593,6 +636,10 @@ export async function runAgentCommand(
             reject: false,
             env: getLocalDockerEnv(),
           });
+          if (commandOutputCapture) {
+            attemptResult = await executeAgentAttempt(logsSince);
+            exitCode = attemptResult.exitCode;
+          }
           break;
         }
         attemptResult = await executeAgentAttempt(logsSince);

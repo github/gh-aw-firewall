@@ -2,6 +2,13 @@
 set -e
 
 configure_output_routing() {
+if [ "${AWF_CAPTURE_COMMAND_OUTPUT:-}" = "1" ]; then
+  # Preserve the container streams for command bytes and keep AWF setup
+  # diagnostics out of both captured streams.
+  exec 3>&1 4>&2
+  exec >/dev/null 2>&1
+  return
+fi
 if [ "${AWF_COMMAND_STDOUT_ONLY:-}" != "1" ]; then
   return
 fi
@@ -12,7 +19,9 @@ exec 1>&2
 }
 
 run_command_with_stdout() {
-if [ "${AWF_COMMAND_STDOUT_ONLY:-}" = "1" ]; then
+if [ "${AWF_CAPTURE_COMMAND_OUTPUT:-}" = "1" ]; then
+  "$@" >&3 2>&4 3>&- 4>&-
+elif [ "${AWF_COMMAND_STDOUT_ONLY:-}" = "1" ]; then
   "$@" >&3 3>&-
 else
   "$@"
