@@ -60,6 +60,13 @@ The lock metadata identifies the source build; setup scripts still come from the
 unchanged official action SHA. Do not regenerate it with an unmodified v0.92.3
 compiler or hand-edit the topology.
 
+The supply-chain gate retains its separate NVX-aware compiler source pin
+`6cc24f363363eedf2e405a31ec39495508c0c07f`. Before building, it checksum-verifies
+the immutable companion commit patch and applies only the acceptance validator
+and its tests, then runs those tests. This lets all workflows reach the existing
+Syft/Grype/Grant scans without upgrading compiler main or skipping this smoke.
+The patched scanner compiler is explicitly identified as a development build.
+
 :::caution[Preview support]
 This runtime requires both `--container-runtime cloud-hypervisor` and
 `--cloud-hypervisor-preview`. It supports only GitHub-hosted Ubuntu x86_64
