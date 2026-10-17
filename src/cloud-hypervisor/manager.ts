@@ -30,6 +30,7 @@ import {
 } from './diagnostics';
 import {
   CloudHypervisorGuestChannel,
+  type GuestConnectionDiagnostics,
 } from './guest-execution';
 import {
   CloudHypervisorCgroup,
@@ -218,6 +219,7 @@ export class CloudHypervisorManager {
   private virtiofsd: VirtiofsdManager | undefined;
   private fsDevices: VirtiofsdDevice[] = [];
   private guest: CloudHypervisorGuestChannel | undefined;
+  private guestConnection: GuestConnectionDiagnostics | undefined;
   private cgroup: CloudHypervisorCgroup | undefined;
   private cleanupRecord: CloudHypervisorCleanupHandle | undefined;
   private cleanupRecordReady = false;
@@ -354,6 +356,7 @@ export class CloudHypervisorManager {
           this.paths.vsockSocketPath,
           guestConfig.vsockPort ?? CLOUD_HYPERVISOR_GUEST_VSOCK_PORT,
           this.config.apiTimeoutMs,
+          (progress) => { this.guestConnection = progress; },
         );
       };
       this.guest = this.launchReport
@@ -504,6 +507,7 @@ export class CloudHypervisorManager {
       networkPlan: this.networkPlan,
       client: this.client,
       instanceStarted: this.instanceStarted,
+      guestConnection: this.guestConnection,
       lastVmInfo: this.lastVmInfo,
       lastVmCounters: this.lastVmCounters,
       fsDevices: this.fsDevices,

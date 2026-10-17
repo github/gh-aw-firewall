@@ -1,6 +1,7 @@
 import type { MicrovmVsockClient } from '../microvm/vsock-client';
 import { CloudHypervisorGuestChannel, connectGuestWithRetry } from './guest-execution';
 import type { CloudHypervisorManagerDependencies } from './manager-types';
+import type { GuestConnectionDiagnostics } from './guest-execution';
 
 function vsockClientMock(overrides: Partial<MicrovmVsockClient> = {}): MicrovmVsockClient {
   return {
@@ -35,11 +36,40 @@ describe('connectGuestWithRetry', () => {
       .mockReturnValueOnce(failing)
       .mockReturnValueOnce(ready);
     const deps = dependencies(createVsockClient);
+    const progress: GuestConnectionDiagnostics[] = [];
 
-    await expect(connectGuestWithRetry(deps, '/run/vsock.socket', 52, 10)).resolves.toBe(ready);
+    await expect(connectGuestWithRetry(deps, '/run/vsock.socket', 52, 10,
+      (value) => progress.push(value))).resolves.toBe(ready);
+    expect(progress.map(({ status }) => status)).toEqual([
+      'connecting', 'retrying', 'connecting', 'connected',
+    ]);
+    expect(progress[progress.length - 1]).toMatchObject({
+      port: 52, attempts: 2, budgetMs: 90000, elapsedMs: expect.any(Number),
+      lastError: 'guest disconnected before readiness',
+    });
     expect(createVsockClient).toHaveBeenCalledTimes(2);
     expect(failing.destroy).toHaveBeenCalledTimes(1);
     expect(deps.sleep).toHaveBeenCalled();
+  });
+
+  it('records bounded error details and elapsed retry exhaustion without changing the thrown error', async () => {
+    const failure = Object.assign(new Error('x'.repeat(1024)), { code: 'ECONNRESET' });
+    const client = vsockClientMock({ connect: jest.fn().mockRejectedValue(failure) });
+    const progress: GuestConnectionDiagnostics[] = [];
+    const clock = jest.spyOn(Date, 'now').mockReturnValue(0);
+    const deps = dependencies(jest.fn().mockReturnValue(client));
+    deps.sleep = jest.fn(async () => { clock.mockReturnValue(90000); });
+    try {
+      await expect(connectGuestWithRetry(deps, '/run/vsock.socket', 1024, 5000,
+        (value) => progress.push(value))).rejects.toBe(failure);
+      expect(progress[progress.length - 1]).toEqual({
+        port: 1024, attempts: 1, budgetMs: 90000, elapsedMs: 90000, status: 'failed',
+        lastError: 'x'.repeat(512), lastErrorCode: 'ECONNRESET',
+      });
+      expect(client.destroy).toHaveBeenCalledTimes(1);
+    } finally {
+      clock.mockRestore();
+    }
   });
 });
 

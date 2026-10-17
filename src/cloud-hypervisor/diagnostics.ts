@@ -24,6 +24,7 @@ import {
 } from './manager-types';
 import type { VirtiofsdDevice } from './virtiofsd';
 import type { CloudHypervisorConfinementEvidence } from './confinement-verifier';
+import type { GuestConnectionDiagnostics } from './guest-execution';
 
 /** Reads at most `maxBytes` from the end of `filePath`. */
 export async function readBoundedTail(filePath: string, maxBytes: number): Promise<Buffer> {
@@ -227,6 +228,7 @@ export interface CloudHypervisorDiagnosticsContext {
   networkPlan: MicrovmNetworkPlan | undefined;
   client: CloudHypervisorApiClient | undefined;
   instanceStarted: boolean;
+  guestConnection?: GuestConnectionDiagnostics;
   // Snapshotted by stop(), before any shutdown attempt, since the API
   // socket becomes unresponsive once the process is asked to exit.
   lastVmInfo: CloudHypervisorVmInfo | undefined;
@@ -555,6 +557,7 @@ export async function collectCloudHypervisorDiagnostics(
       vcpuCount: config.vcpuCount,
       memoryMib: config.memoryMib,
       instanceStarted: context.instanceStarted,
+      guestConnection: context.guestConnection ?? null,
     }, null, 2)}\n`,
   );
   await writeBounded(

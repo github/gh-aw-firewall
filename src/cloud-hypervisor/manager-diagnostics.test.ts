@@ -1,11 +1,42 @@
 import { PassThrough } from 'stream';
 import { CloudHypervisorManager } from './manager';
+import { CloudHypervisorGuestChannel } from './guest-execution';
 
 import {
-  config, processMock, networkConfig, networkLifecycle, dependencies,
+  config, processMock, networkConfig, networkLifecycle, dependencies, guestConfig,
 } from './manager.test-utils';
 
   describe('diagnostics collection', () => {
+  it('preserves failed guest connection diagnostics in the protected runtime artifact', async () => {
+    const failure = new Error('guest disconnected before readiness');
+    const progress = {
+      port: 1024, attempts: 360, elapsedMs: 90001, budgetMs: 90000,
+      status: 'failed' as const, lastError: failure.message,
+    };
+    const connect = jest.spyOn(CloudHypervisorGuestChannel, 'connect')
+      .mockImplementation(async (_deps, _socket, _port, _timeout, onProgress) => {
+        onProgress?.(progress);
+        throw failure;
+      });
+    try {
+      const deps = dependencies();
+      const manager = new CloudHypervisorManager(
+        config(), '/tmp/awf', deps, 'vsock-diagnostics', networkConfig(), guestConfig(),
+      );
+      await manager.start();
+      await expect(manager.startInstance()).rejects.toBe(failure);
+      await manager.collectDiagnostics('/tmp/diagnostics');
+      const write = (deps.writeFile as jest.Mock).mock.calls.find(
+        ([file]: [string]) => file === '/tmp/diagnostics/runtime.json',
+      );
+      expect(JSON.parse(write[1])).toMatchObject({ guestConnection: progress });
+      expect(write[2]).toEqual({ mode: 0o600 });
+      await manager.stop();
+    } finally {
+      connect.mockRestore();
+    }
+  });
+
   it('collects bounded diagnostics including VM counters', async () => {
     const oversized = Buffer.alloc(1024 * 1024 + 128, 0x61);
     const child = processMock();

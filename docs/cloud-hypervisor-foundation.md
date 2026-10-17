@@ -592,6 +592,15 @@ release or production use.
 
 ### Iterating on host code with released guests
 
+`runtime.json` includes `guestConnection` diagnostics: target vsock port,
+attempt count, elapsed time, retry budget, final status and bounded last host
+transport error/code. This is host-observed state, not guest syscall evidence.
+Correlate it with the protected serial log to distinguish transport readiness
+failures from guest supervisor startup failures. Branch builds can add these
+host diagnostics without replacing the attested guest supervisor; distinguishing
+the guest's individual `socket`, `bind` and `listen` syscalls requires a newly
+attested supervisor with that instrumentation.
+
 `src/cloud-hypervisor/artifact-compatibility.json` records the exact reviewed
 guest artifact release supported by the source tree. This is distinct from the
 host package version: main retains a stale package version because release

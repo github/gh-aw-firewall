@@ -38,6 +38,16 @@ export interface GuestShutdownOutcome {
   error?: unknown;
 }
 
+export interface GuestConnectionDiagnostics {
+  readonly port: number;
+  readonly attempts: number;
+  readonly elapsedMs: number;
+  readonly budgetMs: number;
+  readonly status: 'connecting' | 'retrying' | 'connected' | 'failed';
+  readonly lastError?: string;
+  readonly lastErrorCode?: string;
+}
+
 /**
  * Connects to the guest supervisor over vsock, retrying on the
  * "guest disconnected before readiness" boot-timing race documented on
@@ -50,21 +60,41 @@ export async function connectGuestWithRetry(
   vsockSocketPath: string,
   port: number,
   timeoutMs: number,
+  onProgress?: (diagnostics: GuestConnectionDiagnostics) => void,
 ): Promise<MicrovmVsockClient> {
-  const deadline = Date.now() + CLOUD_HYPERVISOR_GUEST_READY_MAX_WAIT_MS;
+  const startedAt = Date.now();
+  const deadline = startedAt + CLOUD_HYPERVISOR_GUEST_READY_MAX_WAIT_MS;
   let lastError: unknown;
+  let attempts = 0;
+  const publish = (status: GuestConnectionDiagnostics['status']): void => {
+    const code = lastError instanceof Error && 'code' in lastError ? lastError.code : undefined;
+    onProgress?.({
+      port,
+      attempts,
+      elapsedMs: Date.now() - startedAt,
+      budgetMs: CLOUD_HYPERVISOR_GUEST_READY_MAX_WAIT_MS,
+      status,
+      ...(lastError instanceof Error ? { lastError: lastError.message.slice(0, 512) } : {}),
+      ...(typeof code === 'string' ? { lastErrorCode: code.slice(0, 64) } : {}),
+    });
+  };
   do {
+    attempts++;
+    publish('connecting');
     const client = dependencies.createVsockClient(vsockSocketPath, port, timeoutMs);
     try {
       await client.connect();
+      publish('connected');
       return client;
     } catch (error) {
       lastError = error;
       client.destroy();
+      publish('retrying');
       if (Date.now() >= deadline) break;
       await dependencies.sleep(CLOUD_HYPERVISOR_GUEST_READY_RETRY_INTERVAL_MS);
     }
   } while (Date.now() < deadline);
+  publish('failed');
   throw lastError instanceof Error
     ? lastError
     : new Error('Cloud Hypervisor guest vsock connection failed');
@@ -83,9 +113,10 @@ export class CloudHypervisorGuestChannel {
     vsockSocketPath: string,
     port: number,
     timeoutMs: number,
+    onProgress?: (diagnostics: GuestConnectionDiagnostics) => void,
   ): Promise<CloudHypervisorGuestChannel> {
     return new CloudHypervisorGuestChannel(
-      await connectGuestWithRetry(dependencies, vsockSocketPath, port, timeoutMs),
+      await connectGuestWithRetry(dependencies, vsockSocketPath, port, timeoutMs, onProgress),
     );
   }
 
