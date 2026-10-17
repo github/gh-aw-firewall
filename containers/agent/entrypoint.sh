@@ -6,7 +6,8 @@ if [ "${AWF_CAPTURE_COMMAND_OUTPUT:-}" = "1" ]; then
   # Preserve the container streams for command bytes and keep AWF setup
   # diagnostics out of both captured streams.
   exec 3>&1 4>&2
-  exec >/dev/null 2>&1
+  # Keep entrypoint diagnostics visible on the original stderr stream.
+  exec 1>&4 2>&4
   return
 fi
 if [ "${AWF_COMMAND_STDOUT_ONLY:-}" != "1" ]; then
