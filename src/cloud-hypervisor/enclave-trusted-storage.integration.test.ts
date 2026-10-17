@@ -102,34 +102,30 @@ const tools = {
       cloudHypervisorBinary: '/usr/bin/true', virtiofsdBinary: '/usr/bin/true',
       kernelPath: source, rootfsPath: source, supervisorPath: '/usr/bin/true',
     }, async (_source, destination) => {
-      const handle = await fs.open(destination, 'wx');
+      const handle = await fs.open(destination,
+        constants.O_RDWR | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, 0o600);
       const chunk = Buffer.alloc(Math.min(rootfsBytes, 1024 ** 2), 1);
       try {
         for (let offset = 0; offset < rootfsBytes; offset += chunk.length) {
           expect((await handle.write(chunk.subarray(0, Math.min(chunk.length, rootfsBytes - offset)))).bytesWritten)
             .toBe(Math.min(chunk.length, rootfsBytes - offset));
         }
+        if (formatRootfs) {
+          await execa('/usr/sbin/mkfs.ext4', ['-F', '-E',
+            'nodiscard,lazy_itable_init=0,lazy_journal_init=0', destination]);
+          for (const directory of ['/usr', '/usr/sbin']) {
+            await execa(tools.debugfs, ['-w', '-R', `mkdir ${directory}`, destination]);
+          }
+          // Formatting may punch zero-filled holes; materialize every page
+          // through the original exclusive descriptor, without reopening a path.
+          for (let offset = 0; offset < rootfsBytes; offset += chunk.length) {
+            const { bytesRead } = await handle.read(chunk, 0, chunk.length, offset);
+            expect(bytesRead).toBe(chunk.length);
+            expect((await handle.write(chunk, 0, bytesRead, offset)).bytesWritten).toBe(bytesRead);
+          }
+        }
       } finally {
         await handle.close();
-      }
-      if (formatRootfs) {
-        await execa('/usr/sbin/mkfs.ext4', ['-F', '-E',
-          'nodiscard,lazy_itable_init=0,lazy_journal_init=0', destination]);
-        for (const directory of ['/usr', '/usr/sbin']) {
-          await execa(tools.debugfs, ['-w', '-R', `mkdir ${directory}`, destination]);
-        }
-        // Formatting may punch zero-filled holes; materialize every page so
-        // this regression cannot pass by relying on sparse image allocation.
-        const image = await fs.open(destination, constants.O_RDWR | constants.O_NOFOLLOW);
-        try {
-          for (let offset = 0; offset < rootfsBytes; offset += chunk.length) {
-            const { bytesRead } = await image.read(chunk, 0, chunk.length, offset);
-            expect(bytesRead).toBe(chunk.length);
-            expect((await image.write(chunk, 0, bytesRead, offset)).bytesWritten).toBe(bytesRead);
-          }
-        } finally {
-          await image.close();
-        }
       }
     }, (directory) => journal.captureSnapshot(directory));
     snapshotDirectory = snapshot.directory;
