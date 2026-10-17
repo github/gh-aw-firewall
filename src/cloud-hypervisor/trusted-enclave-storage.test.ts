@@ -566,7 +566,7 @@ describe('invocation-wide kernel-enforced storage', () => {
     { role: 'script', gate: 'sealed-storage', verification: 'symlink' },
     { role: 'script', gate: 'sealed-storage', verification: 'type' },
     { role: 'script', gate: 'sealed-storage', verification: 'propagation' },
-    ...['artifact-cap', 'shared-device', 'snapshot-device', 'export-device'].map((verification) =>
+    ...['artifact-cap', 'runs-cap', 'preparation-cap', 'shared-host-device', 'shared-device', 'snapshot-device', 'export-device'].map((verification) =>
       ({ role: 'agent', gate: 'sealed-storage', verification })),
   ] as { role: 'script' | 'agent'; gate?: string; commandExit?: number; verification?: string }[])(
     'accounts for every $role path and identifies snapshot sealing failure $gate $verification $commandExit',
@@ -604,18 +604,20 @@ describe('invocation-wide kernel-enforced storage', () => {
       ? actualRealpath(value)
       : String(value));
     const isArtifact = (value: unknown) => String(value) === `${root}/artifacts` || String(value) === snapshotDirectory;
+    const deviceFor = (value: unknown) => isArtifact(value) ? 51 :
+      String(value) === `${root}/runs` ? 52 : String(value) === `${root}/cloud-hypervisor-rootfs` ? 53 : 50;
     const stat = jest.spyOn(fs, 'stat').mockImplementation(async (value) =>
-      ({ dev: isArtifact(value) ? 51 : 50 }) as Awaited<ReturnType<typeof fs.stat>>);
+      ({ dev: deviceFor(value) }) as Awaited<ReturnType<typeof fs.stat>>);
     const statfs = jest.spyOn(fs, 'statfs').mockImplementation(async (value) => ({
       type: 0x01021994n, bsize: 4096n,
-      blocks: BigInt((isArtifact(value)
+      blocks: BigInt((deviceFor(value) !== 50
         ? ENCLAVE_ARTIFACT_VERIFICATION_STORAGE_PROFILE.writableStorageBytes : profiles[role].writableStorageBytes) / 4096),
     }) as Awaited<ReturnType<typeof fs.statfs>>);
     const readMounts = jest.spyOn(fs, 'readFile').mockResolvedValue(
       `901 1 0:50 / ${root} rw,nosuid,nodev,noexec - tmpfs awf-enclave-invocation rw\n` +
       `902 1 0:50 /state ${plan.invocationHostDir} rw,nosuid,nodev,noexec - tmpfs awf-enclave-invocation rw\n` +
-      `903 1 0:50 /runs ${root}/runs rw,nosuid,nodev,noexec - tmpfs awf-enclave-invocation rw\n` +
-      `904 1 0:50 /cloud-hypervisor-rootfs ${root}/cloud-hypervisor-rootfs rw,nosuid,nodev,noexec - tmpfs awf-enclave-invocation rw\n` +
+      `903 1 0:52 / ${root}/runs rw,nosuid,nodev,noexec - tmpfs awf-enclave-invocation rw\n` +
+      `904 1 0:53 / ${root}/cloud-hypervisor-rootfs rw,nosuid,nodev,noexec - tmpfs awf-enclave-invocation rw\n` +
       `905 1 0:51 / ${root}/artifacts rw,nosuid,nodev - tmpfs awf-enclave-invocation rw\n` +
       `906 1 0:51 /run-fixture ${snapshotDirectory} ro,nosuid,nodev - tmpfs awf-enclave-invocation rw\n`,
     );
@@ -644,10 +646,18 @@ describe('invocation-wide kernel-enforced storage', () => {
       'awf-enclave-invocation', `${root}/artifacts`,
     ], expect.anything());
     expect(journal.prepareStorageMount).toHaveBeenCalledWith(`${root}/artifacts`);
+    for (const name of ['runs', 'cloud-hypervisor-rootfs']) {
+      expect(command).toHaveBeenCalledWith(tools.mount, [
+        '-t', 'tmpfs', '-o',
+        `size=${ENCLAVE_ARTIFACT_VERIFICATION_STORAGE_PROFILE.writableStorageBytes},mode=0711,uid=0,gid=0,nosuid,nodev,noexec`,
+        'awf-enclave-invocation', `${root}/${name}`,
+      ], expect.anything());
+      expect(journal.prepareStorageMount).toHaveBeenCalledWith(`${root}/${name}`);
+    }
     const commands = command.mock.calls.map(([, args]) => args as string[]);
     expect(commands.filter((args) => args[0].startsWith('--make-'))).toEqual([['--make-private', root]]);
     expect(commands.findIndex((args) => args[0] === '--make-private'))
-      .toBeLessThan(commands.findIndex((args) => args[0] === '--bind'));
+      .toBeLessThan(commands.findIndex((args) => args[0] === '-t' && args[args.length - 1] === `${root}/artifacts`));
     expect((journal.verifyStorage as jest.Mock).mock.invocationCallOrder[0])
       .toBeLessThan(command.mock.invocationCallOrder[commands.findIndex((args) => args[0] === '--make-private')]);
     await allocation.dependencies.mountTmpfs!(
@@ -689,14 +699,18 @@ describe('invocation-wide kernel-enforced storage', () => {
     if (verification === 'cap') (fs.statfs as jest.Mock).mockResolvedValue({
       type: 0x01021994n, bsize: 4096n, blocks: BigInt(profiles[role].writableStorageBytes / 4096) + 1n,
     });
-    if (verification === 'artifact-cap') statfs.mockImplementation(async (value) => ({
+    if (['artifact-cap', 'runs-cap', 'preparation-cap'].includes(verification ?? '')) statfs.mockImplementation(async (value) => ({
       type: 0x01021994n, bsize: 4096n,
-      blocks: BigInt(profiles[role].writableStorageBytes / 4096) + (isArtifact(value) ? 1n : 0n),
+      blocks: BigInt((deviceFor(value) !== 50
+        ? ENCLAVE_ARTIFACT_VERIFICATION_STORAGE_PROFILE.writableStorageBytes : profiles[role].writableStorageBytes) / 4096) +
+        ((verification === 'artifact-cap' ? isArtifact(value) : String(value) === `${root}/${verification === 'runs-cap' ? 'runs' : 'cloud-hypervisor-rootfs'}`) ? 1n : 0n),
     }) as Awaited<ReturnType<typeof fs.statfs>>);
+    if (verification === 'shared-host-device') stat.mockImplementation(async (value) =>
+      ({ dev: deviceFor(value) === 53 ? 52 : deviceFor(value) }) as Awaited<ReturnType<typeof fs.stat>>);
     if (verification === 'shared-device') stat.mockResolvedValue({ dev: 50 } as Awaited<ReturnType<typeof fs.stat>>);
     if (verification === 'snapshot-device' || verification === 'export-device') stat.mockImplementation(async (value) => ({
       dev: String(value) === (verification === 'snapshot-device' ? snapshotDirectory : plan.invocationHostDir)
-        ? 52 : isArtifact(value) ? 51 : 50,
+        ? 54 : deviceFor(value),
     }) as Awaited<ReturnType<typeof fs.stat>>);
     if (verification === 'path') (fs.realpath as jest.Mock).mockImplementation(async (file) =>
       String(file) === root ? '/outside' : String(file));
@@ -719,7 +733,7 @@ describe('invocation-wide kernel-enforced storage', () => {
       expect(record.checks.filter((check) => check.result === 'failed')).toEqual([{
         id: gate, result: 'failed', reason: gate === 'sealed-storage'
           ? verification === 'propagation' ? 'storage-mount-propagation' :
-            ['cap', 'artifact-cap', 'shared-device', 'snapshot-device', 'export-device'].includes(verification ?? '')
+            ['cap', 'artifact-cap', 'runs-cap', 'preparation-cap', 'shared-host-device', 'shared-device', 'snapshot-device', 'export-device'].includes(verification ?? '')
               ? 'storage-cap-changed' : verification === 'path' ? 'storage-path-changed' :
             verification === 'symlink' ? 'file-symlink' : verification === 'type' ? 'file-type' : 'storage-mount-options'
           : commandExit ? 'command-failed' : 'EPERM',

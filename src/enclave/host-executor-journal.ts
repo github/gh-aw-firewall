@@ -800,16 +800,34 @@ function validateResourceRecord(record: ResourceRecord, file: string): void {
         mount.filesystemType !== 'tmpfs' || mount.source !== 'awf-enclave-invocation' ||
         !/^\d+:\d+$/.test(mount.device) ||
         !mount.device.split(':').every((value) => Number.isSafeInteger(Number(value))) ||
-        mount.root !== (mount.mountPoint === storage.directory ? '/' :
-          mount.mountPoint === record.directory ? '/state' :
-          path.dirname(mount.mountPoint) === storage.directory ? `/${path.basename(mount.mountPoint)}` :
-            `/artifacts/${path.basename(mount.mountPoint)}`) ||
         !Number.isSafeInteger(mount.mountId) || mount.mountId <= 0) ||
       new Set(storage.mounts.map((mount) => mount.mountPoint)).size !== storage.mounts.length ||
-      storage.mounts.some((mount) => mount.device !== storage.mounts[0].device)) {
+      !validStorageBackingLayout(record)) {
       throw new Error('Invalid invocation storage record');
     }
   }
+}
+
+function validStorageBackingLayout(record: ResourceRecord): boolean {
+  const storage = record.storage!;
+  if (!storage.mounts.length) return true;
+  const allocation = storage.mounts[0];
+  if (allocation.mountPoint !== storage.directory || allocation.root !== '/') return false;
+  const artifacts = storage.mounts.find((mount) => mount.mountPoint === path.join(storage.directory, 'artifacts'));
+  const independent = storage.mounts.filter((mount) =>
+    path.dirname(mount.mountPoint) === storage.directory && mount.root === '/');
+  if (new Set([allocation.device, ...independent.map((mount) => mount.device)]).size !== independent.length + 1) {
+    return false;
+  }
+  return storage.mounts.every((mount) => {
+    if (mount === allocation || independent.includes(mount)) return true;
+    const snapshot = path.dirname(mount.mountPoint) === path.join(storage.directory, 'artifacts');
+    const backing = snapshot ? artifacts ?? allocation : allocation;
+    const expectedRoot = mount.mountPoint === record.directory ? '/state' :
+      snapshot ? path.posix.join(artifacts?.root ?? '/artifacts', path.basename(mount.mountPoint)) :
+        `/${path.basename(mount.mountPoint)}`;
+    return mount.device === backing.device && mount.root === expectedRoot;
+  });
 }
 
 function storageAncestors(): string[] {

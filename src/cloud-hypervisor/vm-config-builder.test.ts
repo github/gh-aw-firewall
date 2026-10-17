@@ -53,8 +53,8 @@ describe('buildCloudHypervisorVmConfig', () => {
     ]));
   });
 
-  it('applies only the closed enclave VM budget and boots its rootfs read-only', () => {
-    const resources = CLOUD_HYPERVISOR_ENCLAVE_RESOURCE_PROFILES.script;
+  it.each(['script', 'agent'] as const)('applies only the closed %s enclave VM budget and boots its rootfs read-only', (role) => {
+    const resources = CLOUD_HYPERVISOR_ENCLAVE_RESOURCE_PROFILES[role];
     const vmConfig = buildCloudHypervisorVmConfig({
       config: config({ vcpuCount: 8, memoryMib: 4096, scratchMib: 512 }),
       paths,
@@ -76,7 +76,7 @@ describe('buildCloudHypervisorVmConfig', () => {
     expect(vmConfig.cpus).toEqual({ boot_vcpus: 1, max_vcpus: 1 });
     expect(vmConfig.memory.size).toBe(768 * 1024 * 1024);
     expect(vmConfig.disks[0].readonly).toBe(true);
-    expect(vmConfig.payload.cmdline).toContain('awf.enclave-role=script');
+    expect(vmConfig.payload.cmdline).toContain(`awf.enclave-role=${role}`);
     expect(vmConfig.payload.cmdline).not.toContain('awf.scratch-mib=');
     expect(vmConfig.payload.cmdline).toContain('init=/usr/sbin/awf-supervisor');
     expect(vmConfig.payload.cmdline).toContain(' ro ');

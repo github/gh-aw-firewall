@@ -1,4 +1,4 @@
-import { randomBytes } from 'crypto';
+import { createHash, randomBytes } from 'crypto';
 import { constants, promises as fs } from 'fs';
 import * as os from 'os';
 import * as path from 'path';
@@ -19,6 +19,7 @@ import {
   prepareTrustedInvocationStorage,
 } from './trusted-enclave-storage';
 import { CLOUD_HYPERVISOR_ENCLAVE_RESOURCE_PROFILES as profiles } from './workload-profile';
+import { stageArtifact } from './diagnostics';
 
 const live = process.env.AWF_TEST_ENCLAVE_STORAGE === '1';
 const tools = {
@@ -26,6 +27,7 @@ const tools = {
   ip: '/usr/sbin/ip', getfacl: '/usr/bin/getfacl', getent: '/usr/bin/getent',
   groupdel: '/usr/sbin/groupdel', id: '/usr/bin/id', setfacl: '/usr/bin/setfacl',
   useradd: '/usr/sbin/useradd', userdel: '/usr/sbin/userdel',
+  debugfs: '/usr/sbin/debugfs', e2fsck: '/usr/sbin/e2fsck',
 } as CloudHypervisorHostToolPaths;
 
 (live ? describe : describe.skip)('production invocation allocation domain', () => {
@@ -62,7 +64,7 @@ const tools = {
     return { run, plan };
   }
 
-  async function provision(role: 'script' | 'agent', rootfsBytes = 4096) {
+  async function provision(role: 'script' | 'agent', rootfsBytes = 4096, formatRootfs = false) {
     const { run, plan } = await invocation(role);
     const journal = await HostExecutorResourceJournal.create(run, plan, hostExecutorVmRunId(plan));
     await fs.mkdir(plan.invocationHostDir, { mode: 0o700 });
@@ -109,6 +111,25 @@ const tools = {
         }
       } finally {
         await handle.close();
+      }
+      if (formatRootfs) {
+        await execa('/usr/sbin/mkfs.ext4', ['-F', '-E',
+          'nodiscard,lazy_itable_init=0,lazy_journal_init=0', destination]);
+        for (const directory of ['/usr', '/usr/sbin']) {
+          await execa(tools.debugfs, ['-w', '-R', `mkdir ${directory}`, destination]);
+        }
+        // Formatting may punch zero-filled holes; materialize every page so
+        // this regression cannot pass by relying on sparse image allocation.
+        const image = await fs.open(destination, constants.O_RDWR | constants.O_NOFOLLOW);
+        try {
+          for (let offset = 0; offset < rootfsBytes; offset += chunk.length) {
+            const { bytesRead } = await image.read(chunk, 0, chunk.length, offset);
+            expect(bytesRead).toBe(chunk.length);
+            expect((await image.write(chunk, 0, bytesRead, offset)).bytesWritten).toBe(bytesRead);
+          }
+        } finally {
+          await image.close();
+        }
       }
     }, (directory) => journal.captureSnapshot(directory));
     snapshotDirectory = snapshot.directory;
@@ -248,22 +269,29 @@ const tools = {
   }, 120_000);
 
   it.each(['script', 'agent'] as const)(
-    '%s separates host snapshots from the shared rootfs preparation/staging, runtime and writable export ceiling',
+    '%s isolates host image budgets from the aggregate writable export ceiling',
     async (role) => {
       const domain = await provision(role);
       const root = hostExecutorStorageDirectory(hostExecutorVmRunId(domain.plan));
       const size = profiles[role].writableStorageBytes;
       const writable = [
-        path.join(domain.rootfsPreparation, 'prepared.ext4'), domain.paths.rootfsPath,
-        domain.paths.logPath, path.join(domain.paths.virtiofsdShareDirectory, 'state'),
+        path.join(root, 'state', 'sparse'),
         ...domain.exports.map((directory) => path.join(directory, 'sparse')),
       ];
       const devices = await Promise.all([
-        domain.rootfsPreparation, domain.paths.runDirectory,
-        domain.paths.virtiofsdShareDirectory, ...domain.exports,
+        path.join(root, 'state'), ...domain.exports,
       ].map(async (directory) => (await fs.stat(directory)).dev));
       expect(new Set(devices).size).toBe(1);
       expect((await fs.stat(domain.snapshot.directory)).dev).not.toBe(devices[0]);
+      const hostDevices = await Promise.all([
+        domain.snapshot.directory, domain.rootfsPreparation, domain.paths.runDirectory,
+      ].map(async (directory) => {
+        const capacity = await fs.statfs(directory, { bigint: true });
+        expect(capacity.blocks * capacity.bsize)
+          .toBe(BigInt(ENCLAVE_ARTIFACT_VERIFICATION_STORAGE_PROFILE.writableStorageBytes));
+        return (await fs.stat(directory)).dev;
+      }));
+      expect(new Set([...hostDevices, devices[0]]).size).toBe(4);
       expect(domain.storage.workDir).toBe(root);
       await expect(fs.writeFile(path.join(domain.snapshot.directory, 'forbidden'), 'x'))
         .rejects.toMatchObject({ code: 'EROFS' });
@@ -295,11 +323,9 @@ const tools = {
         const capacity = await fs.statfs(root, { bigint: true });
         expect(capacity.blocks * capacity.bsize).toBe(BigInt(size));
         expect(capacity.bfree).toBe(0n);
-        // Run directories consume metadata pages, but immutable snapshot bytes
-        // are charged only to their separate host staging filesystem.
         const stats = await Promise.all(files.map((file) => file.stat()));
         const written = stats.reduce((bytes, stat) => bytes + stat.blocks * 512, 0);
-        expect(written).toBeLessThan(size);
+        expect(written).toBe(size);
         expect(written).toBeGreaterThan(size - 1024 * 1024);
         for (const file of files) {
           await expect(file.write(Buffer.alloc(4096), 0, 4096, 0))
@@ -311,9 +337,9 @@ const tools = {
     }, 120_000,
   );
 
-  it('snapshots a fully allocated 1.5 GiB agent image while exports remain bounded to 512 MiB', async () => {
+  it('snapshots, prepares and stages a full 1.5 GiB agent image while exports remain bounded to 512 MiB', async () => {
     const rootfsBytes = 1536 * 1024 ** 2;
-    const domain = await provision('agent', rootfsBytes);
+    const domain = await provision('agent', rootfsBytes, true);
     await expect((async () => {
       const handle = await fs.open(domain.snapshot.rootfsPath, constants.O_RDWR | constants.O_NOFOLLOW);
       try {
@@ -341,6 +367,52 @@ const tools = {
     const guest = await fs.statfs(output, { bigint: true });
     expect(guest.blocks * guest.bsize).toBe(BigInt(512 * 1024 ** 2));
     expect((await fs.stat(output)).dev).not.toBe(snapshot.dev);
+    const dependencies = domain.storage.managerDependencies;
+    const preparer = dependencies.createRootfsPreparer({
+      runDirectory: domain.rootfsPreparation,
+      baseRootfsPath: domain.snapshot.rootfsPath,
+      supervisorBinaryPath: domain.snapshot.supervisorPath,
+      supervisorSha256: createHash('sha256').update(await fs.readFile('/usr/bin/true')).digest('hex'),
+      supervisorGuestPath: '/usr/sbin/awf-supervisor',
+      hostAliases: { 'api-proxy': '172.30.0.30' },
+    }, tools, (source, destination) => fs.copyFile(source, destination));
+    const prepared = await preparer.prepare();
+    await stageArtifact(dependencies, prepared, domain.paths.rootfsPath, 0o600,
+      { uid: 65534, gid: 65534 }, () => fs.copyFile(prepared, domain.paths.rootfsPath));
+    const images = [domain.snapshot.rootfsPath, prepared, domain.paths.rootfsPath];
+    const imageDevices: number[] = [];
+    for (const image of images) {
+      const handle = await fs.open(image, constants.O_RDONLY | constants.O_NOFOLLOW);
+      try {
+        const stat = await handle.stat();
+        expect(stat.size).toBe(rootfsBytes);
+        expect(stat.blocks * 512).toBe(rootfsBytes);
+        imageDevices.push(stat.dev);
+      } finally {
+        await handle.close();
+      }
+    }
+    expect(new Set([...imageDevices, (await fs.stat(output)).dev]).size).toBe(4);
+    const injected = await execa(tools.debugfs, ['-R', 'stat /usr/sbin/awf-supervisor', domain.paths.rootfsPath]);
+    expect(injected.stdout).toContain('Type: regular');
+    for (const directory of [domain.rootfsPreparation, domain.paths.runDirectory]) {
+      const capacity = await fs.statfs(directory, { bigint: true });
+      expect(capacity.blocks * capacity.bsize)
+        .toBe(BigInt(ENCLAVE_ARTIFACT_VERIFICATION_STORAGE_PROFILE.writableStorageBytes));
+      const fill = path.join(directory, 'fill');
+      const handle = await fs.open(fill, 'wx');
+      try {
+        const chunk = Buffer.alloc(1024 ** 2, 1);
+        await expect((async () => {
+          for (;;) await handle.write(chunk);
+        })()).rejects.toMatchObject({ code: 'ENOSPC' });
+        expect((await fs.statfs(directory, { bigint: true })).bfree).toBe(0n);
+        expect((await fs.statfs(output, { bigint: true })).bfree).toBe(guest.bfree);
+      } finally {
+        await handle.close();
+        await fs.unlink(fill);
+      }
+    }
     const stagingFill = path.join(domain.storage.workDir, 'artifacts', 'fill');
     const stagingFile = await fs.open(stagingFill, 'wx');
     try {
@@ -381,7 +453,7 @@ const tools = {
       await domain.storage.dependencies.verifyStorage!(
         domain.plan.invocationHostDir, profiles.agent.writableStorageBytes, domain.exports,
       );
-      const capacity = await fs.statfs(domain.paths.runDirectory, { bigint: true });
+      const capacity = await fs.statfs(domain.plan.invocationHostDir, { bigint: true });
       expect(capacity.blocks * capacity.bsize)
         .toBe(BigInt(profiles.agent.writableStorageBytes));
     } finally {
@@ -444,6 +516,9 @@ const tools = {
         await storage.dependencies.mountTmpfs(plan.invocationHostDir, size, 65534, 65534, tools);
         await journal.captureMount();
         await fs.writeFile(plan.invocationHostDir + '/orphan', 'synthetic');
+        for (const name of ['artifacts', 'runs', 'cloud-hypervisor-rootfs']) {
+          await fs.writeFile(storage.workDir + '/' + name + '/orphan', 'synthetic');
+        }
         process.stdin.resume();
         console.log('READY');
       })().catch(() => { process.exitCode = 1; });
@@ -463,13 +538,15 @@ const tools = {
       await child.catch(() => undefined);
     }
 
-    await execa(tools.mount, ['-t', 'tmpfs', '-o', 'size=4194304,nosuid,nodev,noexec', 'foreign', root]);
-    try {
-      await fs.writeFile(path.join(root, 'unrelated'), 'preserve');
-      await expect(reap()).rejects.toThrow(/identity|Unrecorded|changed/);
-      expect(await fs.readFile(path.join(root, 'unrelated'), 'utf8')).toBe('preserve');
-    } finally {
-      await execa(tools.umount, [root]);
+    for (const directory of [root, ...['artifacts', 'runs', 'cloud-hypervisor-rootfs'].map((name) => path.join(root, name))]) {
+      await execa(tools.mount, ['-t', 'tmpfs', '-o', 'size=4194304,mode=0711,nosuid,nodev,noexec', 'foreign', directory]);
+      try {
+        await fs.writeFile(path.join(directory, 'unrelated'), 'preserve');
+        await expect(reap()).rejects.toThrow(/identity|Unrecorded|changed/);
+        expect(await fs.readFile(path.join(directory, 'unrelated'), 'utf8')).toBe('preserve');
+      } finally {
+        await execa(tools.umount, [directory]);
+      }
     }
     await reap();
     await expect(fs.lstat(root)).rejects.toMatchObject({ code: 'ENOENT' });

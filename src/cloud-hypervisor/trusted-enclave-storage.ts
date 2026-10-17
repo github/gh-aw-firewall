@@ -157,7 +157,8 @@ export class ProductionTrustedCloudHypervisorEnclaveStorageProvider implements T
 }
 
 // Cover one full (not necessarily sparse) release image plus tools, kernel,
-// manifest, attestation and SBOM bytes, for preflight and invocation snapshots.
+// manifest, attestation and SBOM bytes. Invocation snapshot, preparation and
+// final run staging each need an independent copy-sized host allocation.
 // This host-only budget must never change the guest invocation profiles.
 export const ENCLAVE_ARTIFACT_VERIFICATION_STORAGE_PROFILE = Object.freeze({
   writableStorageBytes: 2 * 1024 * 1024 * 1024,
@@ -196,7 +197,7 @@ async function prepareTrustedStorage(
   tools: Pick<CloudHypervisorHostToolPaths, 'mount' | 'umount'>,
   report: HostPreflightReporter,
   profile: { readonly writableStorageBytes: number; readonly uid: number; readonly gid: number },
-  isolateArtifactStorage: boolean,
+  isolateHostStorage: boolean,
 ): Promise<NonNullable<Awaited<ReturnType<NonNullable<
   import('./enclave-executor-types').HostEnclaveExecutorDependencies['prepareInvocationStorage']
 >>>>> {
@@ -268,7 +269,7 @@ async function prepareTrustedStorage(
   });
   await report.check('storage-artifact-mount', async () => {
     await journal.prepareStorageMount(artifacts);
-    await mount(tools, isolateArtifactStorage
+    await mount(tools, isolateHostStorage
       ? ['-t', 'tmpfs', '-o',
         `size=${ENCLAVE_ARTIFACT_VERIFICATION_STORAGE_PROFILE.writableStorageBytes},mode=0711,uid=0,gid=0,nosuid,nodev,exec`,
         ENCLAVE_STORAGE_SOURCE, artifacts]
@@ -281,7 +282,11 @@ async function prepareTrustedStorage(
       const directory = path.join(root, name);
       await fs.mkdir(directory, { mode: 0o711 });
       await journal.prepareStorageMount(directory);
-      await mount(tools, ['--bind', directory, directory]);
+      await mount(tools, isolateHostStorage
+        ? ['-t', 'tmpfs', '-o',
+          `size=${ENCLAVE_ARTIFACT_VERIFICATION_STORAGE_PROFILE.writableStorageBytes},mode=0711,uid=0,gid=0,nosuid,nodev,noexec`,
+          ENCLAVE_STORAGE_SOURCE, directory]
+        : ['--bind', directory, directory]);
       await journal.captureStorageMount();
       await mount(tools, ['-o', 'remount,bind,rw,nosuid,nodev,noexec', directory]);
     }
@@ -337,7 +342,10 @@ async function prepareTrustedStorage(
         }
       });
     }
-    for (const candidate of [root, directory, ...writable, artifacts, ...(snapshotMount ? [snapshotMount] : [])]) {
+    const hostRoots = [artifacts, path.join(root, 'runs'), path.join(root, 'cloud-hypervisor-rootfs')];
+    const rootDevice = (await fs.stat(root)).dev;
+    const hostDevices = new Set<number>();
+    for (const candidate of [root, directory, ...writable, ...hostRoots, ...(snapshotMount ? [snapshotMount] : [])]) {
       const identity = await fs.lstat(candidate);
       if (!identity.isDirectory() || identity.isSymbolicLink()) {
         throw markHostPreflightError(new Error('Invocation export is not a real directory'),
@@ -347,14 +355,18 @@ async function prepareTrustedStorage(
         throw markHostPreflightError(new Error('Invocation storage path changed'), 'storage-path-changed');
       }
       const stat = await fs.statfs(candidate, { bigint: true });
-      const hostArtifact = isolateArtifactStorage && (candidate === artifacts || candidate === snapshotMount);
-      const capacity = hostArtifact ? ENCLAVE_ARTIFACT_VERIFICATION_STORAGE_PROFILE.writableStorageBytes : maximumBytes;
+      const hostStorage = isolateHostStorage && (hostRoots.includes(candidate) || candidate === snapshotMount);
+      const capacity = hostStorage ? ENCLAVE_ARTIFACT_VERIFICATION_STORAGE_PROFILE.writableStorageBytes : maximumBytes;
       const device = (await fs.stat(candidate)).dev;
-      const rootDevice = (await fs.stat(root)).dev;
+      const invalidDevice = hostStorage
+        ? device === rootDevice || (candidate === snapshotMount
+          ? device !== (await fs.stat(artifacts)).dev : hostDevices.has(device))
+        : device !== rootDevice;
       if (stat.type !== 0x01021994n || stat.blocks * stat.bsize !== BigInt(capacity) ||
-        (hostArtifact ? device === rootDevice || device !== (await fs.stat(artifacts)).dev : device !== rootDevice)) {
+        invalidDevice) {
         throw markHostPreflightError(new Error('Invocation storage cap changed'), 'storage-cap-changed');
       }
+      if (hostStorage && candidate !== snapshotMount) hostDevices.add(device);
     }
   };
   const managerDependencies = resolveCloudHypervisorManagerDependencies({

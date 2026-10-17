@@ -47,13 +47,16 @@ x86_64 hosts with privileged KVM access and writable cgroup v2. Unsupported
 hosts retain the missing-prerequisite error before staging or constructing a
 listener or VM. No configuration/environment switch bypasses it, and AWF never
 falls back to a different runtime. Each invocation owns one kernel-bounded
-allocation domain for writable state: script 1 GiB, agent 512 MiB. Rootfs
-preparation and staging, VM runtime state, and writable exports all consume that
+allocation domain for writable guest exports: script 1 GiB, agent 512 MiB.
+Exports, request and handoff state all consume that
 same capacity, including sparse-file allocations and concurrent writers.
 Artifact snapshots use a separate root-owned, host-only 2 GiB tmpfs beneath the
 allocation root, sharing the preflight artifact budget but not the writable-state
 filesystem. Executable snapshots are sealed read-only and never exported as
-writable guest storage; writable state remains `noexec`. Both filesystems retain
+writable guest storage; writable state remains `noexec`. Rootfs preparation
+and final image/VM run-state each use another independent 2 GiB `noexec` tmpfs,
+allowing all three full images to coexist without charging guest exports.
+The enclave root disk remains guest-read-only. All four filesystems retain
 invocation-private propagation, exact capacity/device verification, identity
 journaling, sealing, cleanup and dead-owner recovery.
 Preflight captures immutable artifacts in short-lived domains before attestation
