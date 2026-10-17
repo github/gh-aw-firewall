@@ -124,6 +124,13 @@ interface RunningDaemon extends VirtiofsdDevice {
   readonlyBindPath?: string;
   mountTree?: StagedHostMountTree;
   socketRemoved: boolean;
+  cleanupStarted: boolean;
+  exit?: {
+    code: number | null;
+    signal: string | null;
+    elapsedMs: number;
+    cleanupStarted: boolean;
+  };
 }
 
 export class VirtiofsdManager {
@@ -212,6 +219,7 @@ export class VirtiofsdManager {
       }
     }
     for (const daemon of [...this.running].reverse()) {
+      daemon.cleanupStarted = true;
       let processTerminated = daemon.process.exitCode !== null || daemon.process.signalCode !== null;
       try {
         if (!processTerminated) {
@@ -231,6 +239,11 @@ export class VirtiofsdManager {
       }
       try {
         const diagnostic = Buffer.concat([
+          Buffer.from(`${JSON.stringify({
+            exportTag: daemon.export.tag,
+            parentPid: daemon.process.pid,
+            exit: daemon.exit ?? null,
+          })}\n`),
           Buffer.from('--- stdout ---\n'),
           daemon.stdout.contents(),
           Buffer.from('\n--- stderr ---\n'),
@@ -368,6 +381,7 @@ export class VirtiofsdManager {
       env: VIRTIOFSD_ENVIRONMENT,
       extendEnv: false,
     });
+    const launchedAt = Date.now();
     const stdout = new BoundedCapture(CAPTURE_LIMIT_BYTES);
     const stderr = new BoundedCapture(CAPTURE_LIMIT_BYTES);
     child.stdout?.on('data', (chunk: Buffer | string) => stdout.append(chunk));
@@ -383,7 +397,16 @@ export class VirtiofsdManager {
       readonlyBindPath,
       mountTree,
       socketRemoved: false,
+      cleanupStarted: false,
     };
+    child.once('exit', (code: number | null, signal: string | null) => {
+      daemon.exit = {
+        code,
+        signal,
+        elapsedMs: Date.now() - launchedAt,
+        cleanupStarted: daemon.cleanupStarted,
+      };
+    });
     this.running.push(daemon);
     this.diagnosticDevices.push({
       export: directoryExport,

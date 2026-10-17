@@ -127,6 +127,13 @@ export async function verifyVirtiofsdSandbox(
     expectedEnvironment: Object.keys(VIRTIOFSD_ENVIRONMENT).sort(),
     parent: null,
     worker: null,
+    parentIdentity: {
+      pid: options.parentIdentity.pid,
+      startTime: options.parentIdentity.startTime,
+      executable: options.parentIdentity.executable,
+    },
+    workerIdentity: null,
+    phase: 'parent-identity',
     namespaces: null,
     root: null,
   };
@@ -141,6 +148,7 @@ export async function verifyVirtiofsdSandbox(
     assertSameIdentity(options.parentIdentity, currentParent, 'parent');
     assertLaunchCommand(currentParent, options);
 
+    evidence.phase = 'worker-discovery';
     const workerIdentity = await waitForWorker(
       options.parentIdentity.pid,
       options.expectedExecutable,
@@ -149,12 +157,20 @@ export async function verifyVirtiofsdSandbox(
     );
     const workerPid = workerIdentity.pid;
     const currentWorker = workerIdentity;
+    evidence.workerIdentity = {
+      pid: workerIdentity.pid,
+      startTime: workerIdentity.startTime,
+      executable: workerIdentity.executable,
+    };
 
+    evidence.phase = 'parent-proc-evidence';
     const parent = await collectProcessEvidence(currentParent, options.cgroupPath, dependencies);
-    const worker = await collectProcessEvidence(currentWorker, options.cgroupPath, dependencies);
     evidence.parent = parent;
+    evidence.phase = 'worker-proc-evidence';
+    const worker = await collectProcessEvidence(currentWorker, options.cgroupPath, dependencies);
     evidence.worker = worker;
 
+    evidence.phase = 'sandbox-policy';
     assertRootIdentity(parent, 'parent');
     assertRootIdentity(worker, 'worker');
     for (const field of CAPABILITY_FIELDS) {
@@ -191,6 +207,7 @@ export async function verifyVirtiofsdSandbox(
     }
 
     const namespaces: Record<string, { host: string; worker: string }> = {};
+    evidence.phase = 'worker-namespaces';
     for (const name of REQUIRED_NAMESPACES) {
       const host = await dependencies.readlink(`/proc/self/ns/${name}`);
       const sandbox = await dependencies.readlink(`/proc/${workerPid}/ns/${name}`);
@@ -201,6 +218,7 @@ export async function verifyVirtiofsdSandbox(
     }
     evidence.namespaces = namespaces;
 
+    evidence.phase = 'worker-root';
     const actualRoot = await inodeIdentity(`/proc/${workerPid}/root`, dependencies);
     const expectedRoot = await inodeIdentity(options.sharedDirectory, dependencies);
     evidence.root = { actual: actualRoot, expected: expectedRoot };
@@ -208,11 +226,13 @@ export async function verifyVirtiofsdSandbox(
       throw new Error('virtiofsd worker root is not its declared export');
     }
 
+    evidence.phase = 'parent-revalidation';
     assertSameIdentity(
       options.parentIdentity,
       await captureVirtiofsdProcessIdentity(options.parentIdentity.pid, dependencies),
       'parent',
     );
+    evidence.phase = 'worker-revalidation';
     assertSameIdentity(
       workerIdentity,
       await captureVirtiofsdProcessIdentity(workerPid, dependencies),
@@ -220,6 +240,7 @@ export async function verifyVirtiofsdSandbox(
     );
     verifiedWorker = workerIdentity;
     evidence.verified = true;
+    evidence.phase = 'complete';
   } catch (error) {
     verificationError = error;
     evidence.error = formatError(error);

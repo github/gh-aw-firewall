@@ -1,5 +1,6 @@
 import type { ExecaChildProcess } from 'execa';
 import { PassThrough } from 'stream';
+import { EventEmitter } from 'events';
 import type { CloudHypervisorCgroup } from './launcher';
 import type { CloudHypervisorCleanupHandle } from './cleanup-registry';
 import {
@@ -45,6 +46,11 @@ function processMock(pid: number): ExecaChildProcess<string> {
       Object.assign(child, { exitCode: 0, killed: true });
       return true;
     }),
+  });
+  const events = new EventEmitter();
+  Object.assign(child, {
+    once: events.once.bind(events),
+    emit: events.emit.bind(events),
   });
   return child;
 }
@@ -390,6 +396,68 @@ describe('VirtiofsdManager', () => {
       }),
     ]);
     expect(deps.rm).toHaveBeenCalledWith('/run/awf/run/virtiofs-0.sock', { force: true });
+  });
+
+  it.each([
+    { pid: 100, phase: 'parent-proc-evidence', parentRecorded: false },
+    { pid: 1100, phase: 'worker-proc-evidence', parentRecorded: true },
+  ])('retains identities and the failing role when PID $pid disappears', async ({
+    pid, phase, parentRecorded,
+  }) => {
+    const deps = dependencies();
+    const readFile = deps.readFile;
+    deps.readFile = jest.fn(async (filePath: string, encoding: BufferEncoding) => {
+      if (filePath === `/proc/${pid}/status`) {
+        throw Object.assign(new Error(`missing ${filePath}`), { code: 'ENOENT' });
+      }
+      return readFile(filePath, encoding);
+    });
+    await expect(manager(deps).start([workspace])).rejects.toThrow(/missing/);
+    const write = (deps.writeFile as jest.Mock).mock.calls.find(
+      ([file]: [string]) => file.endsWith('-confinement.json'),
+    );
+    const evidence = JSON.parse(write[1]);
+    expect(evidence).toMatchObject({
+      verified: false,
+      phase,
+      parentIdentity: { pid: 100, startTime: '1000', executable: '/opt/virtiofsd' },
+      workerIdentity: { pid: 1100, startTime: '11000', executable: '/opt/virtiofsd' },
+      worker: null,
+    });
+    expect(evidence.parent !== null).toBe(parentRecorded);
+    expect(deps.chown).not.toHaveBeenCalled();
+  });
+
+  it.each([false, true])('records whether the parent exited during cleanup (%s)', async (duringCleanup) => {
+    const deps = dependencies();
+    const started = manager(deps);
+    await started.start([workspace]);
+    const child = (deps.launch as jest.Mock).mock.results[0].value as ExecaChildProcess<string>;
+    if (duringCleanup) {
+      (child.kill as jest.Mock).mockImplementation(() => {
+        Object.assign(child, { signalCode: 'SIGTERM' });
+        child.emit('exit', null, 'SIGTERM');
+        return true;
+      });
+    } else {
+      Object.assign(child, { exitCode: 1 });
+      child.emit('exit', 1, null);
+    }
+    await started.stop();
+    const write = (deps.writeFile as jest.Mock).mock.calls.find(
+      ([file]: [string]) => file.endsWith('virtiofs-0.log'),
+    );
+    const diagnostic = JSON.parse(write[1].toString().split('\n')[0]);
+    expect(diagnostic).toMatchObject({
+      parentPid: 100,
+      exportTag: 'workspace',
+      exit: {
+        code: duringCleanup ? null : 1,
+        signal: duringCleanup ? 'SIGTERM' : null,
+        cleanupStarted: duringCleanup,
+        elapsedMs: expect.any(Number),
+      },
+    });
   });
 
   it('rejects a sandbox worker outside the assigned cgroup', async () => {

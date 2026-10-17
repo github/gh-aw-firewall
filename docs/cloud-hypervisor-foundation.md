@@ -657,6 +657,14 @@ reused as the host VMM identity.
 
 ### virtiofsd confinement
 
+Each confinement record retains the host parent and discovered worker PID,
+process start time and executable independently of subsequent procfs reads.
+The `phase` identifies which inspection failed, and completed parent evidence
+is retained if worker inspection fails. Daemon logs also record the parent exit
+code/signal, elapsed time since launch and whether cleanup had begun. These
+diagnostics distinguish an early process disappearance from intentional teardown
+without exposing process environment values or relaxing confinement checks.
+
 AWF launches the pinned `virtiofsd` binary as root because its namespace
 sandbox must create the export mount tree, unshare namespaces, and pivot its
 worker root. Root launch is not treated as proof that the sandbox succeeded.
