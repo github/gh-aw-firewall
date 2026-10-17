@@ -11,7 +11,8 @@ import { isGvisorRuntime, runtimeUsesComposeAgent } from './container-runtime';
 export const PROTECTED_COMMAND_OUTPUT_MAX_BYTES = 64 * 1024 * 1024;
 
 export type CapturedOutputStream = 'stdout' | 'stderr';
-export type CommandAttemptOutcome = 'running' | 'exited' | 'timed_out' | 'cancelled' | 'failed';
+export type CommandAttemptOutcome =
+  | 'running' | 'exited' | 'timed_out' | 'cancelled' | 'interrupted' | 'failed';
 
 interface StreamState {
   file: string;
@@ -34,6 +35,7 @@ export interface ProtectedCommandOutputCapture {
   readonly invocationId: string;
   beginAttempt(attempt: number): void;
   recordOutput(attempt: number, stream: CapturedOutputStream, chunk: Buffer): void;
+  recordPresentationFailure(stream: CapturedOutputStream, reason: 'error' | 'closed'): void;
   finishAttempt(
     attempt: number,
     result: { exitCode: number; outcome: Exclude<CommandAttemptOutcome, 'running'>; logsDrained: boolean },
@@ -57,6 +59,7 @@ interface CaptureMetadata {
   capturedBytes: number;
   truncated: boolean;
   captureFailure?: string;
+  presentationFailures: string[];
   attempts: Array<{
     attemptId: string;
     stdout: { file: string; observedBytes: number; capturedBytes: number };
@@ -100,6 +103,7 @@ class ProtectedCommandOutputCaptureSession implements ProtectedCommandOutputCapt
   private teardown: CaptureMetadata['teardown'] = 'pending';
   private truncated = false;
   private captureFailure?: string;
+  private readonly presentationFailures = new Set<string>();
   private closed = false;
   private metadataInitialized = false;
   private commandStarted = false;
@@ -177,6 +181,7 @@ class ProtectedCommandOutputCaptureSession implements ProtectedCommandOutputCapt
   }
 
   recordOutput(attempt: number, stream: CapturedOutputStream, chunk: Buffer): void {
+    if (this.closed) return;
     const state = this.getAttempt(attempt).streams[stream];
     state.observedBytes += chunk.length;
     if (this.captureFailure) return;
@@ -192,6 +197,11 @@ class ProtectedCommandOutputCaptureSession implements ProtectedCommandOutputCapt
     } catch (error) {
       this.captureFailure = `write ${stream} failed: ${error instanceof Error ? error.message : String(error)}`;
     }
+  }
+
+  recordPresentationFailure(stream: CapturedOutputStream, reason: 'error' | 'closed'): void {
+    this.presentationFailures.add(`${stream}: ${reason}`);
+    this.writeMetadata();
   }
 
   finishAttempt(
@@ -218,10 +228,10 @@ class ProtectedCommandOutputCaptureSession implements ProtectedCommandOutputCapt
     if (this.commandOutcome !== 'pending') return;
     if (exitCode !== undefined) this.commandExitCode = exitCode;
     this.commandOutcome = outcome;
-    if (outcome === 'failed' && this.currentAttempt !== undefined) {
+    if (outcome !== 'exited' && this.currentAttempt !== undefined) {
       const attempt = this.getAttempt(this.currentAttempt);
       attempt.endedAt = new Date().toISOString();
-      attempt.outcome = 'failed';
+      attempt.outcome = outcome;
       attempt.logsDrained = false;
       this.currentAttempt = undefined;
     }
@@ -293,6 +303,7 @@ class ProtectedCommandOutputCaptureSession implements ProtectedCommandOutputCapt
       capturedBytes,
       truncated: this.truncated,
       ...(this.captureFailure ? { captureFailure: this.captureFailure } : {}),
+      presentationFailures: [...this.presentationFailures],
       attempts: this.attempts.map(attempt => ({
         attemptId: attempt.attemptId,
         stdout: {

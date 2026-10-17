@@ -9,8 +9,7 @@ awf --capture-command-output "$RUNNER_TEMP/awf-capture-$GITHUB_RUN_ID" \
 ```
 
 The directory must be an absolute path whose parent exists; the directory itself
-must not already exist. AWF
-resolves symlinks and checks the candidate against agent-visible mounts,
+must not already exist. AWF resolves symlinks and checks the candidate against agent-visible mounts,
 including custom read-only mounts and Docker host-path-prefix translations.
 It fails before starting the command if the directory could be exposed. A
 caller must not assume that `$RUNNER_TEMP` or any other chosen path is private.
@@ -20,8 +19,9 @@ runtime attempt with private permissions. Capture is bounded to 64 MiB total by
 default; `--capture-command-output-max-bytes <bytes>` can lower that limit.
 Output continues to drain and appear on the usual console streams after the
 limit is reached. Metadata reports observed and retained byte counts, truncation,
-log-drain status, per-attempt exit/outcome, command outcome, and teardown
-outcome. A capture is `complete` only when the command exit was observed, all
+log-drain status, per-attempt exit/outcome, command outcome, console-presentation
+failures, and teardown outcome. An interrupted capture records incomplete draining.
+A capture is `complete` only when the command exit was observed, all
 logs drained, no capture failure or truncation occurred, and teardown completed.
 A nonzero command exit can still have a complete capture.
 

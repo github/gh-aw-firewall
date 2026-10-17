@@ -654,6 +654,12 @@ export function createMainAction(getOptionValueSource: OptionSourceResolver) {
           commandOutputCapture?.setTeardown('failed');
           throw error;
         } finally {
+          if (signal) {
+            commandOutputCapture?.finishCommand(
+              undefined,
+              config.keepContainers && agentCommandStarted ? 'interrupted' : 'cancelled',
+            );
+          }
           commandOutputCapture?.close();
         }
       },

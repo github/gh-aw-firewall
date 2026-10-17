@@ -199,6 +199,40 @@ describe('protected command output capture', () => {
     capture.close();
   });
 
+  it('records interrupted commands without claiming their output was drained', () => {
+    const capture = prepareProtectedCommandOutputCapture(config())!;
+    capture.beginAttempt(1);
+    capture.recordOutput(1, 'stdout', Buffer.from('partial'));
+    capture.finishCommand(undefined, 'interrupted');
+    capture.setTeardown('complete');
+    capture.close();
+
+    const metadata = JSON.parse(fs.readFileSync(path.join(testRoot, 'capture', 'metadata.json'), 'utf8'));
+    expect(metadata).toMatchObject({
+      status: 'incomplete',
+      command: { outcome: 'interrupted' },
+      attempts: [{ outcome: 'interrupted', logsDrained: false }],
+    });
+  });
+
+  it('keeps captured-byte completeness independent from console presentation failure', () => {
+    const capture = prepareProtectedCommandOutputCapture(config())!;
+    capture.beginAttempt(1);
+    capture.recordOutput(1, 'stdout', Buffer.from('raw'));
+    capture.recordPresentationFailure('stdout', 'error');
+    capture.finishAttempt(1, { exitCode: 0, outcome: 'exited', logsDrained: true });
+    capture.finishCommand(0, 'exited');
+    capture.setTeardown('complete');
+    capture.close();
+
+    const metadata = JSON.parse(fs.readFileSync(path.join(testRoot, 'capture', 'metadata.json'), 'utf8'));
+    expect(metadata).toMatchObject({
+      status: 'complete',
+      capturedBytes: 3,
+      presentationFailures: ['stdout: error'],
+    });
+  });
+
   it('rejects TTY and external runtime capture requests explicitly', () => {
     expect(() => prepareProtectedCommandOutputCapture(config({ tty: true }))).toThrow(/does not support TTY/);
     expect(() => prepareProtectedCommandOutputCapture(config({ containerRuntime: 'sbx' })))

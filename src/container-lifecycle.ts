@@ -448,12 +448,47 @@ export async function runAgentCommand(
           outputStreamFailed = true;
           return;
         }
+        let destinationUnavailable = false;
+        let resumeAfterDrain: (() => void) | undefined;
+        const markDestinationUnavailable = (reason: 'error' | 'closed'): void => {
+          if (destinationUnavailable) return;
+          destinationUnavailable = true;
+          commandOutputCapture!.recordPresentationFailure(stream, reason);
+          if (resumeAfterDrain) destination.off('drain', resumeAfterDrain);
+          source.resume();
+        };
+        const onDestinationError = (): void => markDestinationUnavailable('error');
+        const onDestinationClose = (): void => {
+          if (!destination.writableFinished) markDestinationUnavailable('closed');
+        };
+        const removeDestinationListeners = (): void => {
+          destination.off('error', onDestinationError);
+          destination.off('close', onDestinationClose);
+          if (resumeAfterDrain) destination.off('drain', resumeAfterDrain);
+        };
+        destination.on('error', onDestinationError);
+        destination.once('close', onDestinationClose);
+        source.once('end', removeDestinationListeners);
+        source.once('close', removeDestinationListeners);
         source.on('data', (value: Buffer | string) => {
           const chunk = Buffer.isBuffer(value) ? value : Buffer.from(value);
           commandOutputCapture!.recordOutput(currentAttempt, stream, chunk);
-          if (!destination.write(chunk)) {
-            source.pause();
-            destination.once('drain', () => source.resume());
+          if (destinationUnavailable) return;
+          if (destination.destroyed || !destination.writable) {
+            markDestinationUnavailable('closed');
+            return;
+          }
+          try {
+            if (!destination.write(chunk) && !destinationUnavailable) {
+              source.pause();
+              resumeAfterDrain = () => {
+                resumeAfterDrain = undefined;
+                if (!destinationUnavailable) source.resume();
+              };
+              destination.once('drain', resumeAfterDrain);
+            }
+          } catch {
+            markDestinationUnavailable('error');
           }
         });
         source.on('error', () => {

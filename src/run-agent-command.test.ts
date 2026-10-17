@@ -143,7 +143,7 @@ describe('runAgentCommand', () => {
     expect(result.blockedDomains).toEqual([]);
   });
 
-  it('captures raw stdout and stderr while forwarding them to the existing console streams', async () => {
+  it('captures raw streams and drains them if a runner-facing output stream fails', async () => {
     const stdout = new PassThrough();
     const stderr = new PassThrough();
     let endedStreams = 0;
@@ -165,13 +165,19 @@ describe('runAgentCommand', () => {
       invocationId: 'test-invocation',
       beginAttempt: jest.fn(),
       recordOutput: jest.fn(),
+      recordPresentationFailure: jest.fn(),
       finishAttempt: jest.fn(),
       finishCommand: jest.fn(),
       waitForCommandCompletion: jest.fn().mockResolvedValue(undefined),
       setTeardown: jest.fn(),
       close: jest.fn(),
     } as ProtectedCommandOutputCapture;
-    const stdoutWrite = jest.spyOn(process.stdout, 'write').mockReturnValue(true);
+    const stdoutWrite = jest.spyOn(process.stdout, 'write')
+      .mockImplementationOnce(() => {
+        setImmediate(() => process.stdout.emit('error', Object.assign(new Error('broken pipe'), { code: 'EPIPE' })));
+        return false;
+      })
+      .mockReturnValue(true);
     const stderrWrite = jest.spyOn(process.stderr, 'write').mockReturnValue(true);
 
     try {
@@ -185,13 +191,13 @@ describe('runAgentCommand', () => {
       expect(capture.beginAttempt).toHaveBeenCalledWith(1);
       expect(capture.recordOutput).toHaveBeenCalledWith(1, 'stdout', Buffer.from([0x00, 0xff, 0x41]));
       expect(capture.recordOutput).toHaveBeenCalledWith(1, 'stderr', Buffer.from([0x0a, 0x00, 0x42]));
+      expect(capture.recordPresentationFailure).toHaveBeenCalledWith('stdout', 'error');
       expect(capture.finishAttempt).toHaveBeenCalledWith(1, {
         exitCode: 7,
         outcome: 'exited',
         logsDrained: true,
       });
       expect(capture.finishCommand).toHaveBeenCalledWith(7, 'exited');
-      expect(stdoutWrite).toHaveBeenCalledWith(Buffer.from([0x00, 0xff, 0x41]));
       expect(stderrWrite).toHaveBeenCalledWith(Buffer.from([0x0a, 0x00, 0x42]));
     } finally {
       stdoutWrite.mockRestore();
