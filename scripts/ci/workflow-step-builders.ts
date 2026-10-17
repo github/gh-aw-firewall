@@ -17,7 +17,7 @@ export function buildLocalInstallSteps(indent: string): string {
 
   return [
     `${stepIndent}- name: Setup Node.js`,
-    `${runIndent}uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0`,
+    `${runIndent}uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0`,
     `${runIndent}with:`,
     `${scriptIndent}node-version: '24'`,
     `${scriptIndent}package-manager-cache: false`,

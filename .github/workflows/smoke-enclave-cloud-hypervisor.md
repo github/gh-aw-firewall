@@ -63,7 +63,7 @@ timeout-minutes: 20
 sandbox:
   agent:
     id: awf
-    version: v0.28.61
+    version: v0.28.62
     runtime: cloud-hypervisor
     config:
       filesystem:
@@ -143,7 +143,8 @@ single-use Cloud Hypervisor script enclave through the real compiler-launched
 MCP Gateway. The primary and every enclave invocation must use separate VMs;
 no Docker enclave fallback is permitted.
 
-The v0.28.61 published AWF release includes recursive wire-schema serialization
+The v0.28.62 published AWF release includes safe host-only log recovery and
+one shared second of invocation grace (#10133), recursive wire-schema serialization
 and host-only rejection-stage diagnostics (#10103), plus correlated enclave handoff and
 VMM launch diagnostics (#10066), redacted pre-agent visibility
 reason/status/transport diagnostics (#10009) and the safe early resolved-config
@@ -166,21 +167,26 @@ because `sandbox.mcp.version` is an internal field; no validation bypass is used
 On main and release tags, AWF, Copilot, and primary/enclave artifact versions
 remain unchanged. Manual non-main branch runs instead build the checked-out
 host CLI and infrastructure containers, including the enclave MCP broker,
-using `--build-local`. They still use the verified v0.28.61 VM artifacts:
+using `--build-local`. They still use the verified v0.28.62 VM artifacts:
 no attestation, digest, or VM isolation checks are disabled.
 The branch runtime emits `enclave-host-executor.jsonl` in the protected audit,
 plus a durable `host-executor-control` snapshot covering pre-launch failures.
-The v0.28.61 release-attested script rootfs includes the existing script-entrypoint
+The v0.28.62 release-attested script rootfs includes the existing script-entrypoint
 milestones for startup, seed copy, output link, working-directory setup, and
 script execution. Host instrumentation requires the released host binary, and
 broker diagnostics require the matching enclave MCP image; source-only merges
 do not activate either. The verified release manifest binds the rebuilt rootfs
-to release commit `82d050ae14d410ac89c96035ef23bed8104dcf83`, which includes #10103
-and #10066. The schema fix changes the host CLI and broker, not guest code.
+to release commit `e0105efb6286762aa73518a956a9497ed300d9a8`, which includes #10133,
+#10103 and #10066. The schema fix changes the host CLI and broker, not guest code.
 Branch runs must not claim that published guests include later changes.
 This update does not publish a release or authorize a live run.
 This is diagnostic enablement, not a verified fix for the original host-executor
 launch failure; that failure remains untested with this release.
+The separate compiler/client-owned 120000ms HTTP timeout remains unresolved.
+Invocation timing can include bucket padding, up to one second of wake tolerance,
+and one second of jitter; the shared invocation grace does not extend that
+client deadline. AWF's advertised maximum operation deadline remains 4860s.
+This pins-only update is not evidence of a successful live enclave invocation.
 Copilot CLI remains independently pinned to 1.0.96. Its help advertises every
 generated CLI option and the harness-added `--session-id` used for model
 verification; 1.0.34 rejects that
@@ -217,7 +223,7 @@ collected. A failure before debug capture starts produces only a status record.
 
 ## Resolved-config collection wiring and remaining verification
 
-AWF v0.28.61 safely publishes early resolved configuration under
+AWF v0.28.62 safely publishes early resolved configuration under
 `/run/awf-config-audit` and exports its path as `AWF_RESOLVED_CONFIG` through
 `GITHUB_ENV`. The normal audit compatibility JSON is published only after
 successful privileged cleanup. The release-matched setup action's
@@ -304,7 +310,7 @@ remain visible in workflow status, summaries, logs, and artifacts.
 ## Usage
 
 After this update merges to `main`, the reviewed official workflow can manually
-test the independently pinned published v0.28.61 release. That release contains
+test the independently pinned published v0.28.62 release. That release contains
 the official-main acceptance policy merged in #9878, so the installed host
 binary authorizes this path without requiring the workflow to run from the
 artifact release tag. A live run still requires separate explicit authorization;
@@ -339,7 +345,7 @@ Both paths enforce strict fail-closed constraints:
 ### Remaining manual dispatch prerequisite
 
 No further release or retag is required for manual branch iteration: the
-branch builds its own CLI and broker while keeping the attested v0.28.61
+branch builds its own CLI and broker while keeping the attested v0.28.62
 VM artifacts. Main/tag runs continue to select the published binary/images.
 With explicit live-run authorization, select main or a same-repository PR head:
 
@@ -348,7 +354,7 @@ gh aw run smoke-enclave-cloud-hypervisor --ref main
 gh aw run smoke-enclave-cloud-hypervisor --ref your-pr-head-branch
 ```
 
-Do not retag v0.28.61 or bypass the acceptance gate. The runner must be
+Do not retag v0.28.62 or bypass the acceptance gate. The runner must be
 GitHub-hosted Ubuntu x86_64 with KVM. Use the real mcpg and AWF artifacts
 captured by the compiled workflow to investigate failures; this test does not
 use the standalone probe's mock gateway.
