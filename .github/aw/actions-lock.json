@@ -502,6 +502,11 @@
       "digest": "sha256:ed025f4dc216fd5940ea2f8787db666bc093de58070458f857b569e851142dd3",
       "pinned_image": "ghcr.io/github/gh-aw-firewall/enclave-agent:0.28.14@sha256:ed025f4dc216fd5940ea2f8787db666bc093de58070458f857b569e851142dd3"
     },
+    "ghcr.io/github/gh-aw-firewall/enclave-agent:0.28.62": {
+      "image": "ghcr.io/github/gh-aw-firewall/enclave-agent:0.28.62",
+      "digest": "sha256:fe426be36b64144107f4895f43b91f3053e6eb3c6a55c7c6e2f69a42e86a6f96",
+      "pinned_image": "ghcr.io/github/gh-aw-firewall/enclave-agent:0.28.62@sha256:fe426be36b64144107f4895f43b91f3053e6eb3c6a55c7c6e2f69a42e86a6f96"
+    },
     "ghcr.io/github/gh-aw-firewall/enclave-agent:0.28.8": {
       "image": "ghcr.io/github/gh-aw-firewall/enclave-agent:0.28.8",
       "digest": "sha256:d76fc00b001352d0ec59fb539aec953006ff9a4e7741caf7f6942249b68f1c79",

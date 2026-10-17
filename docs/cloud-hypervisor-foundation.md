@@ -17,6 +17,19 @@ pending real end-to-end acceptance. See
 [ADR 0004](adr/0004-unified-workload-sandbox-backends.md#cloud-hypervisor-lifecycle-integration-gated)
 for readiness, export isolation, shutdown ownership, and the remaining gates.
 
+The manual-only
+[`smoke-enclave-cloud-hypervisor-copilot`](../.github/workflows/smoke-enclave-cloud-hypervisor-copilot.md)
+preview tests one real Copilot agent inside a separate Cloud Hypervisor enclave,
+using a Docker-sandboxed primary as required by the pinned compiler. It checks
+two public repository file facts through a finite result schema, with no GitHub
+MCP tools in the enclave and no script fallback. The existing script enclave
+smoke remains separate. Branch dispatches build host/infra code from that branch
+while retaining attested v0.28.62 guests; the published main/tag host binary does
+not yet contain the merged verification-storage and enclave vsock-port fixes.
+The compiler/client 120-second HTTP deadline remains an independent limitation.
+Creating or merging the workflow does not demonstrate successful live inference;
+an explicitly authorized manual run is required.
+
 :::caution[Preview support]
 This runtime requires both `--container-runtime cloud-hypervisor` and
 `--cloud-hypervisor-preview`. It supports only GitHub-hosted Ubuntu x86_64
