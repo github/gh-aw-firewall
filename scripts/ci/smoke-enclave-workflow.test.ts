@@ -538,6 +538,7 @@ describe('experimental Cloud Hypervisor enclave smoke workflow', () => {
     expect(source).toContain('e0105efb6286762aa73518a956a9497ed300d9a8');
     expect(source).toContain('host-only rejection-stage diagnostics (#10103)');
     expect(source).toContain('one shared second of invocation grace (#10133)');
+    expect(source).not.toMatch(/^#[0-9]/m);
     expect(source).toContain('compiler/client-owned 120000ms HTTP timeout remains unresolved');
     expect(source).toContain('pins-only update is not evidence of a successful live enclave invocation');
     expect(source).toContain('source-only merges\ndo not activate either');

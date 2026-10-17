@@ -176,8 +176,9 @@ milestones for startup, seed copy, output link, working-directory setup, and
 script execution. Host instrumentation requires the released host binary, and
 broker diagnostics require the matching enclave MCP image; source-only merges
 do not activate either. The verified release manifest binds the rebuilt rootfs
-to release commit `e0105efb6286762aa73518a956a9497ed300d9a8`, which includes #10133,
-#10103 and #10066. The schema fix changes the host CLI and broker, not guest code.
+to release commit `e0105efb6286762aa73518a956a9497ed300d9a8`, which includes
+PRs #10133, #10103 and #10066. The schema fix changes the host CLI and broker,
+not guest code.
 Branch runs must not claim that published guests include later changes.
 This update does not publish a release or authorize a live run.
 This is diagnostic enablement, not a verified fix for the original host-executor
