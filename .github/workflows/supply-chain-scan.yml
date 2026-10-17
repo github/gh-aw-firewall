@@ -60,12 +60,13 @@ jobs:
       - name: Configure Docker Hub cache
         run: bash scripts/ci/configure-docker-mirror.sh
 
-      # Includes automatic checksum-verified NVX musl guest selection.
-      - name: Checkout NVX-aware compiler
+      # This pinned source includes the narrowly gated Cloud Hypervisor agent
+      # acceptance support used by the checked-in smoke workflow.
+      - name: Checkout acceptance-aware compiler
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: github/gh-aw
-          ref: 6cc24f363363eedf2e405a31ec39495508c0c07f
+          ref: 2b19ccffd0694750e8e2bdcb20bf882e9bb440f2
           path: .tmp/gh-aw-compiler
           persist-credentials: false
 
@@ -75,12 +76,12 @@ jobs:
           go-version-file: .tmp/gh-aw-compiler/go.mod
           cache: false
 
-      - name: Install NVX-aware gh-aw
+      - name: Install acceptance-aware gh-aw
         run: |
           mkdir -p "$HOME/.local/share/gh/extensions/gh-aw"
           go build \
             -C .tmp/gh-aw-compiler \
-            -ldflags="-X main.version=v0.91.8-37-g6cc24f3633 -X main.isRelease=true" \
+            -ldflags="-X main.version=dev-v0.92.3-enclave-agent-acceptance.c483bd2e10ac" \
             -o "$HOME/.local/share/gh/extensions/gh-aw/gh-aw" \
             ./cmd/gh-aw
           rm -rf .tmp/gh-aw-compiler
