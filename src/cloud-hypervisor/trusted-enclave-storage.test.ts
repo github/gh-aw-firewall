@@ -11,6 +11,7 @@ import { CLOUD_HYPERVISOR_ENCLAVE_STORAGE_REQUIRED } from '../enclave/cloud-hype
 import { createArtifactSnapshot } from './artifact-snapshot';
 import {
   ProductionTrustedCloudHypervisorEnclaveStorageProvider, prepareTrustedInvocationStorage,
+  prepareTrustedArtifactVerificationStorage, ENCLAVE_ARTIFACT_VERIFICATION_STORAGE_PROFILE,
   type TrustedEnclaveStorageHostDependencies,
 } from './trusted-enclave-storage';
 import { CLOUD_HYPERVISOR_ENCLAVE_RESOURCE_PROFILES as profiles } from './workload-profile';
@@ -156,6 +157,61 @@ describe('invocation-wide kernel-enforced storage', () => {
     (execa as unknown as jest.Mock).mockReset();
     await Promise.all(temporaryPaths.splice(0).map((temporaryPath) =>
       fs.rm(temporaryPath, { recursive: true, force: true })));
+  });
+
+  it('uses the dedicated host cap and root ownership without weakening mount or capacity checks', async () => {
+    const plan = {
+      runId: 'a'.repeat(32), entryId: 'script', invocationId: 'b'.repeat(32), executorKind: 'script',
+      invocationHostDir: '/private/invocations/script/verification',
+    } as HostExecutorInvocationPlan;
+    const root = hostExecutorStorageDirectory(hostExecutorVmRunId(plan));
+    const journal = {
+      prepareStorage: jest.fn(), captureStorageDirectory: jest.fn(), prepareStorageMount: jest.fn(),
+      captureStorageMount: jest.fn(), verifyStorage: jest.fn(), closeStorage: jest.fn(),
+    } as unknown as HostExecutorResourceJournal;
+    jest.spyOn(fs, 'mkdir').mockResolvedValue(undefined);
+    jest.spyOn(fs, 'chown').mockResolvedValue(undefined);
+    jest.spyOn(fs, 'lstat').mockResolvedValue({
+      uid: 0, mode: 0o40711, isDirectory: () => true, isSymbolicLink: () => false,
+    } as Awaited<ReturnType<typeof fs.lstat>>);
+    jest.spyOn(fs, 'realpath').mockImplementation(async (file) => String(file));
+    jest.spyOn(fs, 'stat').mockResolvedValue({ dev: 50 } as Awaited<ReturnType<typeof fs.stat>>);
+    const capacity = ENCLAVE_ARTIFACT_VERIFICATION_STORAGE_PROFILE.writableStorageBytes;
+    const statfs = jest.spyOn(fs, 'statfs').mockResolvedValue({
+      type: 0x01021994n, blocks: BigInt(capacity / 4096), bsize: 4096n,
+    } as Awaited<ReturnType<typeof fs.statfs>>);
+    const table = [
+      [root, '/', true], [plan.invocationHostDir, '/state', true],
+      [`${root}/runs`, '/runs', true], [`${root}/cloud-hypervisor-rootfs`, '/cloud-hypervisor-rootfs', true],
+      [`${root}/artifacts`, '/artifacts', false],
+    ].map(([target, source, noexec], index) =>
+      `${901 + index} 1 0:50 ${source} ${target} rw,nosuid,nodev${noexec ? ',noexec' : ''} - tmpfs awf-enclave-invocation rw\n`,
+    ).join('');
+    const read = jest.spyOn(fs, 'readFile').mockResolvedValue(table);
+    (execa as unknown as jest.Mock).mockResolvedValue({ exitCode: 0, stderr: '' });
+    const storage = await prepareTrustedArtifactVerificationStorage({} as HostExecutorRunState, plan, journal, tools);
+    expect(execa).toHaveBeenCalledWith(tools.mount, [
+      '-t', 'tmpfs', '-o', `size=${capacity},mode=0711,uid=0,gid=0,nosuid,nodev,noexec`,
+      'awf-enclave-invocation', root,
+    ], expect.anything());
+    expect(fs.chown).toHaveBeenCalledWith(`${root}/state`, 0, 0);
+    await storage.dependencies.mountTmpfs!(plan.invocationHostDir, capacity, 0, 0, tools);
+    await storage.dependencies.verifyStorage!(plan.invocationHostDir, capacity);
+    expect(journal.verifyStorage).toHaveBeenCalled();
+    await expect(storage.dependencies.mountTmpfs!(
+      plan.invocationHostDir, capacity, profiles.script.uid, profiles.script.gid, tools,
+    )).rejects.toThrow('identity mismatch');
+    await expect(storage.dependencies.verifyStorage!(plan.invocationHostDir, profiles.script.writableStorageBytes))
+      .rejects.toThrow('escape');
+    statfs.mockResolvedValueOnce({
+      type: 0x01021994n, blocks: BigInt(profiles.script.writableStorageBytes / 4096), bsize: 4096n,
+    } as Awaited<ReturnType<typeof fs.statfs>>);
+    await expect(storage.dependencies.verifyStorage!(plan.invocationHostDir, capacity)).rejects.toThrow('cap changed');
+    read.mockResolvedValueOnce(table.replace(' - tmpfs', ' shared:19 - tmpfs'));
+    await expect(storage.dependencies.verifyStorage!(plan.invocationHostDir, capacity))
+      .rejects.toThrow('propagation is not private');
+    await storage.close();
+    expect(journal.closeStorage).toHaveBeenCalledWith(tools.umount);
   });
 
   it.each([

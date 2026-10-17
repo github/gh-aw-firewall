@@ -156,19 +156,51 @@ export class ProductionTrustedCloudHypervisorEnclaveStorageProvider implements T
   }
 }
 
+// Both role images are verified sequentially, so this covers one full (not
+// necessarily sparse) release image plus manifest, attestation and SBOM bytes.
+// This host-only budget must never change the guest invocation profiles.
+export const ENCLAVE_ARTIFACT_VERIFICATION_STORAGE_PROFILE = Object.freeze({
+  writableStorageBytes: 2 * 1024 * 1024 * 1024,
+  uid: 0,
+  gid: 0,
+});
+
+/** @internal Host-only verification reuses invocation journal/mount protections. */
+export function prepareTrustedArtifactVerificationStorage(
+  run: HostExecutorRunState,
+  plan: HostExecutorInvocationPlan,
+  journal: HostExecutorResourceJournal,
+  tools: Pick<CloudHypervisorHostToolPaths, 'mount' | 'umount'>,
+  report = new HostPreflightReporter('bounded-artifacts'),
+): ReturnType<typeof prepareTrustedInvocationStorage> {
+  return prepareTrustedStorage(run, plan, journal, tools, report,
+    ENCLAVE_ARTIFACT_VERIFICATION_STORAGE_PROFILE);
+}
+
 /** @internal Privileged probes use the same allocation, journal and sealing path as production. */
 export async function prepareTrustedInvocationStorage(
-  _run: HostExecutorRunState,
+  run: HostExecutorRunState,
   plan: HostExecutorInvocationPlan,
   journal: HostExecutorResourceJournal,
   tools: Pick<CloudHypervisorHostToolPaths, 'mount' | 'umount'>,
   report = new HostPreflightReporter('bounded-runtime'),
+): ReturnType<typeof prepareTrustedStorage> {
+  return prepareTrustedStorage(run, plan, journal, tools, report,
+    CLOUD_HYPERVISOR_ENCLAVE_RESOURCE_PROFILES[plan.executorKind]);
+}
+
+async function prepareTrustedStorage(
+  _run: HostExecutorRunState,
+  plan: HostExecutorInvocationPlan,
+  journal: HostExecutorResourceJournal,
+  tools: Pick<CloudHypervisorHostToolPaths, 'mount' | 'umount'>,
+  report: HostPreflightReporter,
+  profile: { readonly writableStorageBytes: number; readonly uid: number; readonly gid: number },
 ): Promise<NonNullable<Awaited<ReturnType<NonNullable<
   import('./enclave-executor-types').HostEnclaveExecutorDependencies['prepareInvocationStorage']
 >>>>> {
   const vmRunId = hostExecutorVmRunId(plan);
   const root = hostExecutorStorageDirectory(vmRunId);
-  const profile = CLOUD_HYPERVISOR_ENCLAVE_RESOURCE_PROFILES[plan.executorKind];
   const propagation = createStoragePropagationEvidence(root, plan.invocationHostDir);
   report.propagation(propagation);
   await report.check('storage-ancestor', () => assertTrustedAncestorChain('invocation storage parent', path.dirname(HOST_EXECUTOR_STORAGE_ROOT), {

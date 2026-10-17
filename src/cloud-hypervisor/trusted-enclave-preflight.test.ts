@@ -12,7 +12,11 @@ import { preflightCloudHypervisorEnclaveArtifacts } from './enclave-artifact-pre
 import type { CloudHypervisorEnclaveArtifactPreflightOptions } from './enclave-executor-types';
 import { runCloudHypervisorPreflight, type CloudHypervisorPreflightDependencies } from './preflight';
 import { createBoundedEnclavePreflight } from './trusted-enclave-preflight';
-import { prepareTrustedInvocationStorage } from './trusted-enclave-storage';
+import {
+  ENCLAVE_ARTIFACT_VERIFICATION_STORAGE_PROFILE as artifactProfile,
+  prepareTrustedArtifactVerificationStorage,
+  prepareTrustedInvocationStorage,
+} from './trusted-enclave-storage';
 import { CLOUD_HYPERVISOR_ENCLAVE_RESOURCE_PROFILES as profiles } from './workload-profile';
 import type { HostPreflightProgress } from './host-preflight-progress';
 
@@ -21,7 +25,11 @@ jest.mock('./artifact-trust', () => ({
   assertTrustedAncestorChain: jest.fn(),
   assertTrustedHostTool: jest.fn(),
 }));
-jest.mock('./trusted-enclave-storage', () => ({ prepareTrustedInvocationStorage: jest.fn() }));
+jest.mock('./trusted-enclave-storage', () => ({
+  ...jest.requireActual('./trusted-enclave-storage'),
+  prepareTrustedInvocationStorage: jest.fn(),
+  prepareTrustedArtifactVerificationStorage: jest.fn(),
+}));
 jest.mock('./enclave-artifact-preflight', () => ({ preflightCloudHypervisorEnclaveArtifacts: jest.fn() }));
 jest.mock('./preflight', () => ({
   ...jest.requireActual('./preflight'), runCloudHypervisorPreflight: jest.fn(),
@@ -149,6 +157,8 @@ describe('bounded immutable enclave preflight', () => {
         managerDependencies: {}, close,
       };
     });
+    (prepareTrustedArtifactVerificationStorage as jest.Mock)
+      .mockImplementation((prepareTrustedInvocationStorage as jest.Mock).getMockImplementation()!);
     probes = {
       platform: 'linux', arch: 'x64', uid: 1000,
       access: jest.fn(async () => undefined),
@@ -263,7 +273,8 @@ describe('bounded immutable enclave preflight', () => {
     },
   );
 
-  it('bounds captured role attestation bytes within a separate owned domain', async () => {
+  it.each([['script'], ['agent'], ['script', 'agent']] as ('script' | 'agent')[][])(
+    'bounds both role attestations independently of configured roles %j', async (...roles) => {
     const artifactOptions = { manifestPath: '/operator/enclave-manifest' } as CloudHypervisorEnclaveArtifactPreflightOptions;
     const result = { verified: true };
     (preflightCloudHypervisorEnclaveArtifacts as jest.Mock).mockImplementation(async (input, verificationRoot) => {
@@ -272,12 +283,43 @@ describe('bounded immutable enclave preflight', () => {
       expect(active.has(root)).toBe(true);
       return result;
     });
-    await expect(createBoundedEnclavePreflight(options(['agent']), active)
+    await expect(createBoundedEnclavePreflight(options(roles), active)
       .preflightEnclaveArtifacts(artifactOptions)).resolves.toBe(result);
+    expect(prepareTrustedArtifactVerificationStorage).toHaveBeenCalledTimes(1);
+    expect(prepareTrustedInvocationStorage).not.toHaveBeenCalled();
+    expect(mountTmpfs).toHaveBeenCalledWith(plan.invocationHostDir,
+      artifactProfile.writableStorageBytes, 0, 0, { mount: '/trusted/mount', umount: '/trusted/umount' });
+    expect(verifyStorage).toHaveBeenCalledWith(plan.invocationHostDir, artifactProfile.writableStorageBytes);
+    expect(artifactProfile.writableStorageBytes).toBe(2 * 1024 ** 3);
+    // No sparse-hole assumption: one fully allocated representative image and
+    // maximum bounded metadata must fit even for a script-only configuration.
+    const metadataBytes = (1 + 8 + 8 + 16) * 1024 ** 2;
+    expect(1536 * 1024 ** 2 + metadataBytes).toBeLessThan(artifactProfile.writableStorageBytes);
+    expect(profiles.script.writableStorageBytes).toBe(1024 ** 3);
+    expect(profiles.agent.writableStorageBytes).toBe(512 * 1024 ** 2);
     expect(fs.mkdir).toHaveBeenCalledWith(`${root}/verification`, { mode: 0o700 });
     expect(createSnapshot).not.toHaveBeenCalled();
     expect(journal.complete).toHaveBeenCalled();
     expect(active.size).toBe(0);
+  });
+
+  it.each(['copy', 'allocation', 'cleanup'])('retains artifact %s failures and journal cleanup protections', async (failure) => {
+    const primary = Object.assign(new Error('artifact copy failed'), { code: 'ENOSPC' });
+    (preflightCloudHypervisorEnclaveArtifacts as jest.Mock).mockRejectedValue(primary);
+    if (failure === 'allocation') (prepareTrustedArtifactVerificationStorage as jest.Mock).mockRejectedValue(primary);
+    if (failure === 'cleanup') close.mockRejectedValue(new Error('busy mount'));
+    const operation = createBoundedEnclavePreflight(options(), active)
+      .preflightEnclaveArtifacts({} as CloudHypervisorEnclaveArtifactPreflightOptions);
+    if (failure === 'cleanup') {
+      await expect(operation).rejects.toMatchObject({ cause: primary, cleanupError: { message: 'busy mount' } });
+      expect(active.has(root)).toBe(true);
+      expect(journal.complete).not.toHaveBeenCalled();
+    } else {
+      await expect(operation).rejects.toBe(primary);
+      expect(failure === 'allocation' ? journal.closeStorage : close).toHaveBeenCalled();
+      expect(journal.complete).toHaveBeenCalled();
+      expect(active.size).toBe(0);
+    }
   });
 
   it('stages captured role manifest and bundle bytes only beneath the trusted optional verification root', async () => {

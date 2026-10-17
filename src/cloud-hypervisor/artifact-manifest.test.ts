@@ -31,6 +31,26 @@ function manifest(overrides: Record<string, unknown> = {}): string {
 }
 
 describe('Cloud Hypervisor artifact manifest', () => {
+  it('uses a reviewed guest compatibility pin independently of the host package identity', () => {
+    jest.isolateModules(() => {
+      jest.doMock('../../package.json', () => ({ version: '99.0.0-dev' }));
+      try {
+        const parser: typeof import('./artifact-manifest') = jest.requireActual('./artifact-manifest');
+        const enclaveParser: typeof import('./enclave-artifact-manifest') =
+          jest.requireActual('./enclave-artifact-manifest');
+        expect(parser.CLOUD_HYPERVISOR_ARTIFACT_RELEASE_TAG).toBe(releaseTag);
+        expect(parser.parseCloudHypervisorArtifactManifest(manifest(), releaseTag).release.tag)
+          .toBe(releaseTag);
+        expect(() => parser.parseCloudHypervisorArtifactManifest(manifest(), 'v99.0.0-dev'))
+          .toThrow(/compatibility pin/);
+        expect(() => enclaveParser.parseCloudHypervisorEnclaveArtifactManifest('{}', 'v99.0.0-dev'))
+          .toThrow(/compatibility pin/);
+      } finally {
+        jest.dontMock('../../package.json');
+      }
+    });
+  });
+
   it('binds release metadata, versions, filenames, and all five digests', () => {
     const parsed = parseCloudHypervisorArtifactManifest(manifest(), releaseTag);
     expect(artifactDigestsFromManifest(parsed)).toEqual({

@@ -14,6 +14,26 @@ const dockerfilePath = path.join(root, 'containers/enclave/Dockerfile');
 const releaseWorkflowPath = path.join(root, '.github/workflows/release.yml');
 
 describe('Cloud Hypervisor enclave rootfs artifacts', () => {
+  it('updates and commits the guest compatibility pin with each release version', () => {
+    const release = fs.readFileSync(releaseWorkflowPath, 'utf8');
+    const update = release.split('\n').find((line) =>
+      line.includes('node -e') && line.includes('artifact-compatibility.json'));
+    expect(update).toBeDefined();
+    expect(release).toContain(
+      'git add package.json package-lock.json src/cloud-hypervisor/artifact-compatibility.json',
+    );
+    const directory = fs.mkdtempSync(path.join(process.env.TMPDIR ?? '/tmp', 'awf-compatibility-'));
+    try {
+      fs.mkdirSync(path.join(directory, 'src/cloud-hypervisor'), { recursive: true });
+      execFileSync('bash', ['-eu', '-c', `VERSION=1.2.3\n${update!}`], { cwd: directory });
+      expect(JSON.parse(fs.readFileSync(
+        path.join(directory, 'src/cloud-hypervisor/artifact-compatibility.json'), 'utf8',
+      ))).toEqual({ releaseTag: 'v1.2.3' });
+    } finally {
+      fs.rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
   it.each([buildPath, verifyPath, setupPath])('%s passes bash syntax validation', (file) => {
     expect(() => execFileSync('bash', ['-n', file])).not.toThrow();
   });

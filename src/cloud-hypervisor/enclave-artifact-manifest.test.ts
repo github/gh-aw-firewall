@@ -1,11 +1,11 @@
-import { version as AWF_VERSION } from '../../package.json';
+import { CLOUD_HYPERVISOR_ARTIFACT_RELEASE_TAG } from './artifact-manifest';
 import {
   enclaveRootfsArtifactForRole,
   parseCloudHypervisorEnclaveArtifactManifest,
 } from './enclave-artifact-manifest';
 
 const digest = 'a'.repeat(64);
-const releaseTag = `v${AWF_VERSION}`;
+const releaseTag = CLOUD_HYPERVISOR_ARTIFACT_RELEASE_TAG;
 
 function role(role: 'script' | 'agent'): Record<string, unknown> {
   return {

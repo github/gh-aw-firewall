@@ -13,7 +13,11 @@ import {
 import type { HostExecutorInvocationPlan, HostExecutorRunState } from '../enclave/host-executor-server';
 import { DurableCloudHypervisorCleanupRegistry } from './cleanup-registry';
 import type { CloudHypervisorHostToolPaths } from './preflight';
-import { prepareTrustedInvocationStorage } from './trusted-enclave-storage';
+import {
+  ENCLAVE_ARTIFACT_VERIFICATION_STORAGE_PROFILE,
+  prepareTrustedArtifactVerificationStorage,
+  prepareTrustedInvocationStorage,
+} from './trusted-enclave-storage';
 import { CLOUD_HYPERVISOR_ENCLAVE_RESOURCE_PROFILES as profiles } from './workload-profile';
 
 const live = process.env.AWF_TEST_ENCLAVE_STORAGE === '1';
@@ -110,6 +114,65 @@ const tools = {
     await storage.dependencies.verifyStorage!(plan.invocationHostDir, profiles[role].writableStorageBytes, exports);
     return { run, plan, journal, storage, snapshot, paths, rootfsPreparation, exports, close };
   }
+
+  it('allocates full release-sized verification images sequentially, then enforces the independent host cap', async () => {
+    const { run, plan } = await invocation('script');
+    const journal = await HostExecutorResourceJournal.create(run, plan, hostExecutorVmRunId(plan));
+    const storage = await prepareTrustedArtifactVerificationStorage(run, plan, journal, tools);
+    const close = async () => {
+      await storage.close();
+      await journal.verifyDirectory();
+      await fs.rm(plan.invocationHostDir, { recursive: true, force: true });
+      await journal.complete();
+    };
+    cleanup.add(close);
+    await fs.mkdir(plan.invocationHostDir, { mode: 0o700 });
+    await journal.captureDirectory();
+    const { writableStorageBytes: capacity, uid, gid } = ENCLAVE_ARTIFACT_VERIFICATION_STORAGE_PROFILE;
+    await storage.dependencies.mountTmpfs!(plan.invocationHostDir, capacity, uid, gid, tools);
+    await journal.captureMount();
+    await storage.dependencies.verifyStorage!(plan.invocationHostDir, capacity);
+    const verification = path.join(storage.workDir, 'verification');
+    await fs.mkdir(verification, { mode: 0o700 });
+    const chunk = Buffer.alloc(1024 * 1024, 1);
+    const metadata = path.join(verification, 'bounded-metadata');
+    const metadataFile = await fs.open(metadata, 'wx');
+    try {
+      for (let index = 0; index < 33; index++) await metadataFile.write(chunk);
+    } finally {
+      await metadataFile.close();
+    }
+    for (const [role, imageMiB] of [['script', 512], ['agent', 1536]] as const) {
+      const file = path.join(verification, `${role}.ext4`);
+      const handle = await fs.open(file, 'wx');
+      try {
+        for (let index = 0; index < imageMiB; index++) {
+          expect((await handle.write(chunk)).bytesWritten).toBe(chunk.length);
+        }
+        const stat = await handle.stat();
+        expect(stat.size).toBe(imageMiB * chunk.length);
+        expect(stat.blocks * 512).toBe(stat.size);
+        if (role === 'agent') {
+          expect(stat.size).toBeGreaterThan(profiles.script.writableStorageBytes);
+          await expect((async () => {
+            for (;;) await handle.write(chunk);
+          })()).rejects.toMatchObject({ code: 'ENOSPC' });
+          const full = await fs.statfs(verification, { bigint: true });
+          expect(full.blocks * full.bsize).toBe(BigInt(capacity));
+          expect(full.bfree).toBe(0n);
+        }
+      } finally {
+        await handle.close();
+        await fs.unlink(file);
+      }
+    }
+    expect((await fs.stat(verification)).uid).toBe(0);
+    expect((await fs.stat(verification)).dev).toBe((await fs.stat(plan.invocationHostDir)).dev);
+    await storage.dependencies.verifyStorage!(plan.invocationHostDir, capacity);
+    await close();
+    cleanup.delete(close);
+    await expect(fs.lstat(storage.workDir)).rejects.toMatchObject({ code: 'ENOENT' });
+  }, 120_000);
 
   it.each(['script', 'agent'] as const)(
     '%s charges snapshots, rootfs preparation/staging, runtime and sparse concurrent exports to one ceiling',

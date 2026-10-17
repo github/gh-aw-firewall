@@ -77,10 +77,12 @@ jobs:
             exit 0
           fi
 
+          node -e 'require("fs").writeFileSync("src/cloud-hypervisor/artifact-compatibility.json", JSON.stringify({releaseTag: process.argv[1]}, null, 2) + "\n")' "v$VERSION"
+
           # Create a commit with the bumped version and tag it.
           # Only push the tag — branch protection prevents pushing to main.
           # Downstream jobs checkout by tag, so they get the correct package.json.
-          git add package.json package-lock.json
+          git add package.json package-lock.json src/cloud-hypervisor/artifact-compatibility.json
           git commit -m "$VERSION"
           git tag "v$VERSION"
           git push origin "v$VERSION"

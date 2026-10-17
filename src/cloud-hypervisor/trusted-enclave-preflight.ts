@@ -15,7 +15,11 @@ import {
 import { preflightCloudHypervisorEnclaveArtifacts } from './enclave-artifact-preflight';
 import type { CloudHypervisorEnclaveArtifactPreflightOptions } from './enclave-executor-types';
 import { copySparseFileWithRsync, runCloudHypervisorPreflight, type CloudHypervisorHostToolPaths } from './preflight';
-import { prepareTrustedInvocationStorage } from './trusted-enclave-storage';
+import {
+  ENCLAVE_ARTIFACT_VERIFICATION_STORAGE_PROFILE,
+  prepareTrustedArtifactVerificationStorage,
+  prepareTrustedInvocationStorage,
+} from './trusted-enclave-storage';
 import { CLOUD_HYPERVISOR_ENCLAVE_RESOURCE_PROFILES } from './workload-profile';
 
 async function trustedDirectory(directory: string): Promise<void> {
@@ -70,7 +74,7 @@ async function storageTools(
   };
 }
 
-/** Internal preflight uses the same role-sized, journaled domain as execution. */
+/** Internal preflight uses journaled domains; artifact verification has its own host-only cap. */
 export function createBoundedEnclavePreflight(
   options: CloudHypervisorEnclaveHostServiceOptions,
   active: Set<string>,
@@ -87,6 +91,7 @@ export function createBoundedEnclavePreflight(
   ): Promise<T> => {
     const run = options.runState;
     const report = new HostPreflightReporter(scope, options.onHostPreflight);
+    const artifactVerification = scope === 'bounded-artifacts';
     const entries = run.entries.filter((entry) => entry.executorKind === 'script' || entry.executorKind === 'agent');
     const entry = entries.sort((left, right) =>
       CLOUD_HYPERVISOR_ENCLAVE_RESOURCE_PROFILES[left.executorKind].writableStorageBytes -
@@ -97,6 +102,10 @@ export function createBoundedEnclavePreflight(
         throw markHostPreflightError(new Error('Bounded enclave preflight requires a configured static role'), 'requirement-not-met');
       }
     });
+    const profile = artifactVerification ? ENCLAVE_ARTIFACT_VERIFICATION_STORAGE_PROFILE :
+      CLOUD_HYPERVISOR_ENCLAVE_RESOURCE_PROFILES[entry.executorKind];
+    const prepareStorage = artifactVerification ?
+      prepareTrustedArtifactVerificationStorage : prepareTrustedInvocationStorage;
     const tools = await storageTools(options.environment ?? process.env, report);
     await report.check('invocation-root', () => prepareInvocationRoot(run.invocationsDir));
     const parent = path.join(run.invocationsDir, entry.entryId);
@@ -123,13 +132,12 @@ export function createBoundedEnclavePreflight(
         HostExecutorResourceJournal.create(run, plan, hostExecutorVmRunId(plan)));
       const capturedJournal = journal;
       allocation = await report.check('storage-allocation', () =>
-        prepareTrustedInvocationStorage(run, plan, capturedJournal, tools, report));
+        prepareStorage(run, plan, capturedJournal, tools, report));
       await report.check('invocation-directory', async () => {
         await fs.mkdir(plan.invocationHostDir, { mode: 0o700 });
         await capturedJournal.captureDirectory();
       });
       directoryCaptured = true;
-      const profile = CLOUD_HYPERVISOR_ENCLAVE_RESOURCE_PROFILES[entry.executorKind];
       const capturedAllocation = allocation;
       await report.check('invocation-mount', async () => {
         await capturedAllocation.dependencies.mountTmpfs!(

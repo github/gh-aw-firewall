@@ -2,11 +2,11 @@ import {
   CLOUD_HYPERVISOR_RELEASE_VERSION,
   type CloudHypervisorArtifactDigests,
 } from '../types/runtime-options';
-import { version as AWF_VERSION } from '../../package.json';
+import { releaseTag } from './artifact-compatibility.json';
 import { requireObject } from '../json-validation';
 
 const VIRTIOFSD_RELEASE_VERSION = '1.13.3';
-export const CLOUD_HYPERVISOR_ARTIFACT_RELEASE_TAG = `v${AWF_VERSION}`;
+export const CLOUD_HYPERVISOR_ARTIFACT_RELEASE_TAG = releaseTag;
 
 export const CLOUD_HYPERVISOR_ARTIFACT_REPOSITORY = 'github/gh-aw-firewall';
 export const CLOUD_HYPERVISOR_ARTIFACT_SIGNER_WORKFLOW =
@@ -51,7 +51,7 @@ export function parseCloudHypervisorArtifactManifest(
 ): CloudHypervisorArtifactManifest {
   if (expectedReleaseTag !== CLOUD_HYPERVISOR_ARTIFACT_RELEASE_TAG) {
     throw new Error(
-      `Cloud Hypervisor artifacts must match this AWF release: expected ${
+      `Cloud Hypervisor artifacts must match this AWF release compatibility pin: expected ${
         CLOUD_HYPERVISOR_ARTIFACT_RELEASE_TAG}, got ${expectedReleaseTag}`,
     );
   }

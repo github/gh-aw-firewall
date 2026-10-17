@@ -6,7 +6,7 @@ import {
   ENCLAVE_AGENT_API_PROXY_IP,
   ENCLAVE_GITHUB_MCP_PORT,
 } from '../enclave/network';
-import { version as AWF_VERSION } from '../../package.json';
+import { CLOUD_HYPERVISOR_ARTIFACT_RELEASE_TAG } from './artifact-manifest';
 import * as artifactTrust from './artifact-trust';
 import * as cloudHypervisorPreflight from './preflight';
 import {
@@ -962,7 +962,7 @@ describe('readBoundedCloudHypervisorEnclaveResult', () => {
     await fs.writeFile(path.join(scratch, 'gh'), '', { mode: 0o700 });
     const options = {
       runState: { journalDir: path.join(scratch, 'journal') } as HostExecutorRunState,
-      config: { artifactReleaseTag: `v${AWF_VERSION}` } as CloudHypervisorOptions,
+      config: { artifactReleaseTag: CLOUD_HYPERVISOR_ARTIFACT_RELEASE_TAG } as CloudHypervisorOptions,
       workDir: scratch,
       managerDependencies: {
         ...cloudHypervisorManagerTestHelpers.defaultDependencies,
@@ -1039,7 +1039,7 @@ describe('readBoundedCloudHypervisorEnclaveResult', () => {
 
   it('verifies a release-pinned artifact set and rejects a rootfs digest mismatch', async () => {
     const scratch = await fs.mkdtemp(path.join(process.cwd(), '.awf-enclave-preflight-'));
-    const releaseTag = `v${AWF_VERSION}`;
+    const releaseTag = CLOUD_HYPERVISOR_ARTIFACT_RELEASE_TAG;
     const hash = (contents: string) => createHash('sha256').update(contents).digest('hex');
     const writeTrustedFile = async (name: string, contents: string): Promise<string> => {
       const filePath = path.join(scratch, name);

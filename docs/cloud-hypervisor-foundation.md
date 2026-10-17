@@ -498,8 +498,8 @@ Preflight first verifies the manifest itself with the bundled attestation,
 constraining the certificate identity to this repository's release workflow
 and rejecting self-hosted signers. Only after that succeeds does AWF parse the
 manifest, require its release tag to match both the operator's expected tag and
-the running AWF version, and verify every local artifact. Before verification,
-AWF copies the manifest, bundle, VMM, `virtiofsd`, kernel, rootfs, and
+the checked-in guest compatibility pin, and verify every local artifact. Before
+verification, AWF copies the manifest, bundle, VMM, `virtiofsd`, kernel, rootfs, and
 supervisor into a root-owned, non-writable snapshot under
 `/var/lib/awf-cloud-hypervisor/trusted-artifacts/`. That root must be on an
 exec-capable filesystem: AWF resolves its mount and fails closed before copying
@@ -507,8 +507,13 @@ anything when the mount carries `noexec`, instead of surfacing an opaque
 `EACCES` from the later `--version` probe. Enclaves instead stage the snapshot in
 their invocation-owned allocation domain, using an executable read-only view of
 the same bounded superblock. Run-level enclave preflight verifies immutable
-copies in short-lived, journaled, role-bounded preflight domains, including the
-temporary manifest/bundle files used for role attestation. Role rootfs, provenance,
+copies in short-lived, journaled preflight domains. Role-artifact verification
+has a separate root-owned 2 GiB host-only tmpfs, including the temporary
+manifest/bundle files used for role attestation. It verifies both roles
+sequentially even for script-only runs, so it must fit the larger agent image
+without relying on sparse allocation. Invocation storage remains capped at
+1 GiB for scripts and 512 MiB for agents; neither guests nor broker requests can
+select the verification budget. Role rootfs, provenance,
 and SBOM inputs are captured into root-private bounded storage before hashing
 and attestation, with each role copy removed before staging the next. These domains close
 before listener startup; no unbounded shared snapshot remains. Attestation,
@@ -584,6 +589,25 @@ Ephemeral same-run development artifacts can use
 `AWF_CLOUD_HYPERVISOR_DEVELOPMENT_ALLOW_UNATTESTED_ARTIFACTS=1` and all five
 legacy hashes. This conspicuous dual opt-in is preview-only and unsuitable for
 release or production use.
+
+### Iterating on host code with released guests
+
+`src/cloud-hypervisor/artifact-compatibility.json` records the exact reviewed
+guest artifact release supported by the source tree. This is distinct from the
+host package version: main retains a stale package version because release
+version bumps are tag-only. Both primary and enclave manifest preflight require
+the operator's selected release and signed manifest to match this pin. There is
+no environment override, and signature, hash, signer and guest protocol checks
+remain mandatory. The release workflow updates the pin in its version-bump
+commit so published binaries continue to select their own release artifacts.
+
+For host CLI or broker changes, the branch smoke path builds the checked-out
+source and can reuse the pinned, officially attested guest artifacts. Review the
+compatibility pin when changing guest code or its protocol; source guest changes
+are not tested by reusing an older guest. Do not relabel local artifacts or
+disable verification. The separately release-gated live acceptance harness
+retains its tag-only prerequisites. This development path does not dispatch
+tests automatically or change those prerequisites.
 
 ### VMM confinement
 
