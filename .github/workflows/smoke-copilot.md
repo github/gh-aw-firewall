@@ -23,10 +23,9 @@ network:
     - defaults
     - github
 tools:
-  bash:
-    - "*"
   github:
     toolsets: [pull_requests]
+    allowed: [list_pull_requests]
 safe-outputs:
   threat-detection:
     enabled: false
@@ -62,6 +61,7 @@ jobs:
         run: node scripts/ci/check-token-usage.js --artifact-root /tmp/gh-aw-agent --engine copilot
 steps:
   - name: Pre-compute smoke test data
+    id: smoke
     run: |
       echo "::group::Fetching last 2 merged PRs"
       PR_DATA=$(gh pr list --repo "$GITHUB_REPOSITORY" --state merged --limit 2 \
@@ -84,12 +84,27 @@ steps:
       echo "Wrote and read back: $FILE_CONTENT"
       echo "::endgroup::"
 
-      # Write results to files for agent context
-      mkdir -p /tmp/gh-aw/agent
-      echo "$HTTP_CODE" > /tmp/gh-aw/agent/smoke-http-code.txt
-      echo "$FILE_CONTENT" > /tmp/gh-aw/agent/smoke-file-content.txt
-      echo "$TEST_FILE" > /tmp/gh-aw/agent/smoke-file-path.txt
-      echo "$PR_DATA" > /tmp/gh-aw/agent/smoke-pr-data.txt
+      PR_AUTHOR=""
+      PR_ASSIGNEES=""
+      if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
+        PR_AUTHOR=$(jq -r '.pull_request.user.login // ""' "$GITHUB_EVENT_PATH")
+        PR_ASSIGNEES=$(jq -r '[.pull_request.assignees[]?.login] | join(", ")' "$GITHUB_EVENT_PATH")
+      fi
+
+      DELIMITER="gh_aw_smoke_pr_data_${GITHUB_RUN_ID}_${RANDOM}"
+      while grep -Fqx "$DELIMITER" <<< "$PR_DATA"; do
+        DELIMITER="gh_aw_smoke_pr_data_${GITHUB_RUN_ID}_${RANDOM}"
+      done
+
+      {
+        echo "http_code=$HTTP_CODE"
+        echo "file_content=$FILE_CONTENT"
+        echo "pr_author=$PR_AUTHOR"
+        echo "pr_assignees=$PR_ASSIGNEES"
+        echo "pr_data<<$DELIMITER"
+        printf '%s\n' "$PR_DATA"
+        echo "$DELIMITER"
+      } >> "$GITHUB_OUTPUT"
     env:
       GH_TOKEN: ${{ github.token }}
 post-steps:
@@ -115,41 +130,39 @@ post-steps:
 
 # Smoke Test: Copilot Engine Validation
 
-**CRITICAL REQUIREMENT: You MUST call `add_comment` on pull_request triggers. This is the primary success criterion. Do this FIRST before any other analysis.**
+**CRITICAL: On pull_request triggers, call `add_comment` first. Keep all outputs extremely short, using single lines where possible.**
 
-**Keep all outputs extremely short and concise. Use single-line responses where possible. No verbose explanations.**
+## Tests
 
-## Pre-Computed Test Results
-
-The following tests were already executed in a deterministic pre-agent step. Your job is to verify the results and produce the summary comment.
-
-### 1. GitHub MCP Testing
-Verify MCP connectivity by calling `github-list_pull_requests` for ${{ github.repository }} (limit 1, state merged). Confirm the result matches the pre-fetched data below.
+### 1. GitHub MCP
+Make exactly one GitHub MCP call: `github-list_pull_requests` for the run-specific repository below, with `perPage: 1` and `fields: [number, title]`. Do not call `pull_request_read` or any other GitHub MCP tool. A successful response confirms MCP connectivity.
 
 ### 2. GitHub.com Connectivity
-Pre-step result: HTTP (see `/tmp/gh-aw/agent/smoke-http-code.txt`) from github.com.
-✅ if HTTP 200 or 301, ❌ otherwise.
+✅ if the pre-computed HTTP status is 200 or 301, ❌ otherwise.
 
-### 3. File Write/Read Test
-Pre-step wrote and read back: "(see `/tmp/gh-aw/agent/smoke-file-content.txt`)"
-File path: (see `/tmp/gh-aw/agent/smoke-file-path.txt`)
-Verify by running `cat` on the file path using bash to confirm it exists.
-
-## Pre-Fetched PR Data
-
-```
-(see `/tmp/gh-aw/agent/smoke-pr-data.txt`)
-```
+### 3. File Write/Read
+The pre-step confirmed the test file was written and read back successfully.
 
 ## Output (MANDATORY)
 
-**If triggered by a pull request** (check: `${{ github.event_name }}` equals "pull_request"), you MUST call `add_comment` to post a **very brief** comment (max 5-10 lines) on the current pull request with:
+If triggered by a pull request, call `add_comment` to post a very brief comment (max 5–10 lines) on the current pull request with:
 - PR titles only (no descriptions)
 - ✅ or ❌ for each test result
 - Overall status: PASS or FAIL
-- Mention the pull request author and any assignees
+- Mention the current pull request author and any assignees listed below
 
 If all tests pass on a pull request trigger:
 - Use the `add_labels` safe-output tool to add the label `smoke-copilot` to the pull request
 
-**If triggered by workflow_dispatch or schedule** (no PR context), call `noop` with a concise PASS/FAIL summary instead. Do NOT attempt to add pull request comments or labels when there is no pull request.
+If triggered by workflow_dispatch or schedule, call `noop` with a concise PASS/FAIL summary instead. Do not attempt pull request comments or labels when there is no pull request.
+
+## Run-specific data
+
+- Repository: ${{ github.repository }}
+- Trigger: ${{ github.event_name }}
+- GitHub.com HTTP status: ${{ steps.smoke.outputs.http_code }}
+- File write/read content: ${{ steps.smoke.outputs.file_content }}
+- Current pull request author: ${{ steps.smoke.outputs.pr_author }}
+- Current pull request assignees: ${{ steps.smoke.outputs.pr_assignees }}
+- Pre-fetched merged PRs:
+${{ steps.smoke.outputs.pr_data }}
