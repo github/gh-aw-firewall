@@ -173,7 +173,7 @@ describe('Cloud Hypervisor Copilot agent enclave smoke', () => {
 
   it('identifies the compiler backport and preserves CLI and immutable release pins', () => {
     expect(frontmatter.engine.version).toBe('1.0.96');
-    expect(lock).toContain('"compiler_version":"dev-v0.92.3-enclave-agent-acceptance.49106b25afe1"');
+    expect(lock).toContain('"compiler_version":"dev-v0.92.3-enclave-agent-acceptance.c483bd2e10ac"');
     expect(lock).toContain('github/gh-aw-actions/setup@26e5d7e7d2345ae4c8dfa3d9017ca2ff9bbf2c82');
     expect(lock).toContain('actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1');
     expect(lock).toContain('ghcr.io/github/gh-aw-mcpg:v0.4.33@sha256:2b278f891b4566d27494658b37f628810f93da4caf510e266892ca344e55f8e0');

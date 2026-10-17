@@ -39,12 +39,12 @@ HTTP deadline remains an independent limitation. Local compilation is not
 evidence of successful live inference or general production readiness.
 
 The checked-in agent smoke lock was generated with the explicitly experimental
-`dev-v0.92.3-enclave-agent-acceptance.49106b25afe1` compiler: official v0.92.3
+`dev-v0.92.3-enclave-agent-acceptance.c483bd2e10ac` compiler: official v0.92.3
 source (`aa629a8f04fc27f6024cc49d9935d3b882c37880`) plus the companion
 acceptance patch (SHA-256
-`49106b25afe14be3c097d956ad5fc383374ca5bfd8b9ed27b89085c1b8b3f75e`).
+`c483bd2e10ac94aa1c9b37fd82e2c55e09f6b11ebc8e44f8c5b1950f644e57b9`).
 It is not an official release binary. The Darwin arm64 build used for generation
-has SHA-256 `aa4e18a3150a996d74d8a8a693b7fe2aa9061cd92bb7996acea105d8676f2829`.
+has SHA-256 `478142026cf767c53d5678a76bf511f4237468c2f662dd07117a3a4045e75239`.
 Compile only this workflow with `--action-mode action`, explicit
 `--action-tag 26e5d7e7d2345ae4c8dfa3d9017ca2ff9bbf2c82`,
 `--schedule-seed github/gh-aw-firewall` and `--no-check-update`, then run
