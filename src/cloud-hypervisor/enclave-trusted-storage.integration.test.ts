@@ -1,5 +1,5 @@
 import { randomBytes } from 'crypto';
-import { promises as fs } from 'fs';
+import { constants, promises as fs } from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import execa from 'execa';
@@ -207,13 +207,26 @@ const tools = {
         await handle.close();
       }
     }, (directory) => journal.captureSnapshot(directory));
-    const image = await fs.stat(snapshot.rootfsPath);
+    await expect((async () => {
+      const handle = await fs.open(snapshot.rootfsPath, constants.O_RDWR | constants.O_NOFOLLOW);
+      try {
+        await handle.writeFile('changed');
+      } finally {
+        await handle.close();
+      }
+    })()).rejects.toMatchObject({ code: 'EROFS' });
+    const handle = await fs.open(snapshot.rootfsPath, constants.O_RDONLY | constants.O_NOFOLLOW);
+    let image;
+    try {
+      image = await handle.stat();
+    } finally {
+      await handle.close();
+    }
     expect(image.size).toBe(rootfsBytes);
     expect(image.blocks * 512).toBe(rootfsBytes);
     expect(image.size).toBeGreaterThan(profiles.agent.writableStorageBytes);
     expect(image.uid).toBe(0);
     expect(image.mode & 0o777).toBe(0o444);
-    await expect(fs.writeFile(snapshot.rootfsPath, 'changed')).rejects.toMatchObject({ code: 'EROFS' });
     expect((await execa(snapshot.cloudHypervisorBinary)).exitCode).toBe(0);
     await storage.dependencies.verifyStorage!(plan.invocationHostDir, capacity);
     await expect(storage.dependencies.verifyStorage!(plan.invocationHostDir, profiles.agent.writableStorageBytes))
