@@ -208,7 +208,7 @@ describe('docker-manager diagnostics', () => {
       fs.rmSync(resolveEnclavePaths(getDir()).root, { recursive: true, force: true });
     });
 
-    it('does not mark audit incomplete when no agent session directory exists', () => {
+    linuxIt('does not mark audit incomplete when no agent session directory exists', () => {
       fs.mkdirSync(resolveEnclavePaths(getDir()).root, { recursive: true });
       const auditDir = path.join(getDir(), 'audit');
       fs.mkdirSync(auditDir);
