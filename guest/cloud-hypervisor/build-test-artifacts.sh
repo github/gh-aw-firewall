@@ -339,6 +339,8 @@ build_enclave_rootfs() {
     sudo mkdir -p "$tree/bin" "$tree/query"
   else
     sudo mkdir -p "$tree/agent" "$tree/run/awf-enclave-github"
+    # Network setup runs as guest init before the unprivileged agent starts.
+    sudo chroot "$tree" /usr/bin/ip -Version
   fi
 
   test -x "$tree$entrypoint"

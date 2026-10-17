@@ -67,6 +67,23 @@ describe('Cloud Hypervisor enclave rootfs artifacts', () => {
     expect(generator).toContain("checksums: [{ algorithm: 'SHA256'");
   });
 
+  it('requires the agent networking utility in the image, exported tree, and ext4 artifact', () => {
+    const dockerfile = fs.readFileSync(dockerfilePath, 'utf8');
+    const agent = dockerfile.split(' AS enclave-agent\n')[1].split(' AS enclave-mcp-server')[0];
+    expect(agent).toMatch(/apt-get install[^\n]* iproute2 /);
+    expect(agent).toContain('/usr/bin/ip -Version');
+    const build = fs.readFileSync(buildPath, 'utf8');
+    expect(build).toContain('sudo chroot "$tree" /usr/bin/ip -Version');
+    const verify = fs.readFileSync(verifyPath, 'utf8');
+    expect(verify).toContain('if [ "$role" = agent ]; then');
+    expect(verify).toContain("debugfs -R 'stat /usr/bin/ip'");
+    expect(verify).toContain("grep -E 'Mode:[[:space:]]+0[1357][0-7][0-7]'");
+    const runtime = fs.readFileSync(
+      path.join(root, 'guest/microvm-supervisor/runtime_linux.go'), 'utf8',
+    );
+    expect(runtime).toContain('"/usr/bin/ip"');
+  });
+
   it('emits installed packages and the rootfs checksum in generated SPDX', () => {
     const directory = fs.mkdtempSync(path.join(process.env.TMPDIR ?? '/tmp', 'awf-sbom-'));
     try {

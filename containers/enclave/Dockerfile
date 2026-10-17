@@ -30,7 +30,8 @@ RUN npm_config_ignore_scripts=false npm ci --prefix /tmp/copilot-cli --install-s
 FROM ubuntu:26.04@sha256:f144425ff09be612d6d9ad965196e9cdc23dae1f42110a8a11a3e9a8198759f7 AS enclave-agent
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends bash ca-certificates git libatomic1 python3 ripgrep \
+    && apt-get install -y --no-install-recommends bash ca-certificates git iproute2 libatomic1 python3 ripgrep \
+    && /usr/bin/ip -Version \
     && test -r /etc/ssl/certs/ca-certificates.crt \
     && rm -rf /var/lib/apt/lists/* \
     && rm -f /usr/bin/apt /usr/bin/apt-get /usr/bin/apt-cache

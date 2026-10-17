@@ -533,6 +533,14 @@ the verifier checks required supervisor/runtime paths and the absence of those
 modules in every Python library tree. The build also checks that no privilege
 bits or file capabilities remain.
 
+The agent image includes `iproute2` for PID 1 network setup. The image build and
+exported-tree build both execute `/usr/bin/ip -Version` (including its dynamic
+loader and libraries); the ext4 verifier requires that executable. The supervisor
+uses fixed bin/sbin paths, not ambient `PATH`. Script guests remain no-network and
+do not require this utility. Existing attested images are immutable: this packaging
+fix requires rebuilt, release-attested agent artifacts, not a host binary overlay
+or bypass of artifact verification.
+
 `TestEnclaveGuestLimitsLive` (run as root by the Cloud Hypervisor preview
 workflow) applies the real agent-role tmpfs, rlimit, read-only root, and
 all-thread privilege setup in a private mount namespace and launches a workload

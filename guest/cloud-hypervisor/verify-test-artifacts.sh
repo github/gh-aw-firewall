@@ -132,6 +132,12 @@ verify_enclave_rootfs() {
   grep -F '"spdxVersion": "SPDX-2.3"' "$ARTIFACT_DIR/$sbom"
 
   e2fsck -f -n "$image"
+  if [ "$role" = agent ]; then
+    local ip_stat
+    ip_stat=$(debugfs -R 'stat /usr/bin/ip' "$image" 2>&1)
+    printf '%s\n' "$ip_stat" | grep -F 'Type: regular'
+    printf '%s\n' "$ip_stat" | grep -E 'Mode:[[:space:]]+0[1357][0-7][0-7]'
+  fi
   debugfs -R "stat $entrypoint" "$image" 2>&1 | grep -F 'Type: regular'
   debugfs -R 'stat /usr/sbin/awf-supervisor' "$image" 2>&1 | grep -F 'Type: regular'
   debugfs -R 'stat /dev/shm' "$image" 2>&1 | grep -F 'Type: directory'

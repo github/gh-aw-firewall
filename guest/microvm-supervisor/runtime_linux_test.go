@@ -14,6 +14,30 @@ import (
 	"time"
 )
 
+func TestIPCommandRequiresExecutableFromFixedPaths(t *testing.T) {
+	root := t.TempDir()
+	missing := filepath.Join(root, "missing")
+	directory := filepath.Join(root, "directory")
+	nonExecutable := filepath.Join(root, "non-executable")
+	executable := filepath.Join(root, "ip")
+	if err := os.Mkdir(directory, 0755); err != nil {
+		t.Fatal(err)
+	}
+	for file, mode := range map[string]os.FileMode{nonExecutable: 0644, executable: 0755} {
+		if err := os.WriteFile(file, []byte("#!/bin/sh\nexit 0\n"), mode); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Setenv("PATH", root)
+	if _, err := findIPCommand([]string{missing, directory, nonExecutable}); err == nil {
+		t.Fatal("accepted a missing, directory, non-executable or ambient PATH candidate")
+	}
+	got, err := findIPCommand([]string{missing, directory, nonExecutable, executable})
+	if err != nil || got != executable {
+		t.Fatalf("executable fixed path: got %q, %v", got, err)
+	}
+}
+
 func TestWorkspaceLessNoNetworkSupervisorBootReachesVsock(t *testing.T) {
 	target := filepath.Join(t.TempDir(), "seed")
 	originalMount := mountFilesystem
