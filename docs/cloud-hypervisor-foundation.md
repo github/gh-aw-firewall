@@ -403,7 +403,8 @@ raise these fields. The role budgets are:
 | Open files (`RLIMIT_NOFILE`) | 1024 | 1024 |
 | Role work tmpfs | `/query`, 256 MiB | `/tmp`, 96 MiB |
 | Additional tmpfs | `/tmp` 16 MiB, `/run` 16 MiB, `/dev/shm` 32 MiB | `/home/awf-enclave` 32 MiB, `/run` 16 MiB, `/dev/shm` 32 MiB |
-| Aggregate invocation storage ceiling (including artifacts and VM state) | 1 GiB | 512 MiB |
+| Aggregate writable invocation storage ceiling (including VM state) | 1 GiB | 512 MiB |
+| Host-only immutable snapshot staging ceiling | 2 GiB | 2 GiB |
 | Guest UID/GID | 65534:65534 | 65534:65534 |
 
 The VM receives exactly the profile's vCPU count and memory. The host cgroup
@@ -440,17 +441,26 @@ without a limit.
 
 The trusted host executor mounts one invocation-private Linux **tmpfs** at
 `/run/awf-cloud-hypervisor/enclave-storage/<vmRunId>`, with `size=1073741824` for scripts (1 GiB) or
-`size=536870912` for agents (512 MiB). The production provider routes artifact
-snapshots, rootfs preparation and staging, VM run paths, and the closed writable
+`size=536870912` for agents (512 MiB). The production provider routes
+rootfs preparation and staging, VM run paths, and the closed writable
 virtio-fs exports through this single allocation domain. Request and handoff
-files also consume its budget. Executable artifacts use a sealed read-only view;
-writable state uses `nosuid,nodev,noexec`. These views share one tmpfs
-superblock, not independent capacity limits. Linux charges allocated pages
-atomically, including concurrent writes and writes into sparse-file holes;
+files also consume its budget. Writable state uses `nosuid,nodev,noexec`
+and shares one tmpfs superblock, not independent capacity limits.
+Linux charges allocated pages atomically, including concurrent writes and writes into sparse-file holes;
 allocation beyond the aggregate ceiling returns `ENOSPC`.
-Artifact and rootfs pages reduce the capacity available to workload writes.
-An artifact set or prepared image that cannot fit fails closed with the same
+Prepared and staged rootfs pages reduce the capacity available to workload writes.
+A prepared image that cannot fit fails closed with the same
 ceiling; AWF does not enlarge the profile to accommodate it.
+Immutable invocation snapshots instead use a separate root-owned 2 GiB tmpfs
+at the allocation's `artifacts` child, reusing the host-only artifact verification
+budget. It fits a full 1.5 GiB agent image plus tools and metadata without
+relying on sparse allocation. The snapshot is sealed read-only and executable;
+neither this filesystem nor its writable parent is exported to the guest.
+The combined host storage bound is therefore the role ceiling plus 2 GiB.
+Both filesystems remain invocation-private and identity-journaled, with the
+same fail-closed mount verification, sealing, reverse-order cleanup and recovery.
+Verification checks the exact artifact capacity, a different device from writable
+state, and the sealed snapshot's membership in that artifact filesystem.
 Sparse logical lengths do not allocate pages and do not bypass the allocation
 limit. No disk quota, loop device, or guest-only `size=` limit is required, so
 the mechanism uses the supported GitHub-hosted Linux/KVM runner's existing
@@ -556,9 +566,9 @@ supervisor into a root-owned, non-writable snapshot under
 exec-capable filesystem: AWF resolves its mount and fails closed before copying
 anything when the mount carries `noexec`, instead of surfacing an opaque
 `EACCES` from the later `--version` probe. Enclaves instead stage the snapshot in
-their invocation-owned allocation domain, using an executable read-only view of
-the same bounded superblock. Run-level enclave preflight verifies immutable
-copies in short-lived, journaled preflight domains. Runtime-artifact and
+their invocation-owned, host-only 2 GiB artifact tmpfs, using an executable
+read-only view separate from role-sized writable state. Run-level enclave preflight
+verifies immutable copies in short-lived, journaled preflight domains. Runtime-artifact and
 role-artifact verification each use a root-owned 2 GiB host-only tmpfs,
 independent of the configured enclave role. The runtime snapshot includes
 the primary rootfs, VMM, virtiofsd, kernel, supervisor, manifest, and bundle;
@@ -566,7 +576,7 @@ it must not be charged to an agent enclave's 512 MiB invocation budget.
 Role verification includes the temporary manifest/bundle files used for
 attestation and verifies both roles
 sequentially even for script-only runs, so it must fit the larger agent image
-without relying on sparse allocation. Invocation storage remains capped at
+without relying on sparse allocation. Writable invocation storage remains capped at
 1 GiB for scripts and 512 MiB for agents; neither guests nor broker requests can
 select the verification budget. Role rootfs, provenance,
 and SBOM inputs are captured into root-private bounded storage before hashing
@@ -1244,8 +1254,8 @@ hierarchy. A missing prerequisite after opt-in fails the job; it does not skip,
 fall back to Docker, grant the runner user KVM access, or relax limits.
 
 These probes exercise the real role-sized host tmpfs stores (script 1 GiB,
-agent 512 MiB), aggregate sparse/concurrent ENOSPC across snapshots, prepared
-and staged rootfs, manager state and exports, memory-cgroup accounting,
+agent 512 MiB), independent 2 GiB snapshot staging, aggregate sparse/concurrent
+ENOSPC across prepared and staged rootfs, manager state and exports, memory-cgroup accounting,
 busy-unmount failure, and invocation isolation. They check executable/read-only
 artifact views, `noexec` state, and dead-owner recovery that refuses a replaced
 mount and preserves no-replay tombstones. They also send real TCP packets
@@ -1264,15 +1274,16 @@ remains a separate live-VM gate after implementation PRs
 | Required boundary | Current implementation evidence |
 | --- | --- |
 | Production storage admission | `prepareEnclaves()` supplies the trusted production provider on eligible GitHub-hosted Ubuntu x86_64 KVM/cgroup-v2 hosts. Unsupported hosts retain the existing admission error before seeds, runtime probes, listener, or VM creation. |
-| Aggregate invocation storage | One invocation-owned tmpfs superblock enforces script 1 GiB or agent 512 MiB across snapshots, rootfs copies, runtime state, and writable exports. Sparse and concurrent writes share the kernel allocation ceiling, which remains enforced until successful close. |
-| Snapshot allocation and executable artifacts | Invocation-local executable artifact staging is sealed read-only and shares allocation accounting with `noexec` writable state. Release attestation, digest verification, and launch confinement remain mandatory. |
+| Aggregate writable invocation storage | One invocation-owned tmpfs superblock enforces script 1 GiB or agent 512 MiB across rootfs copies, runtime state, and writable exports. Sparse and concurrent writes share the kernel allocation ceiling, which remains enforced until successful close. |
+| Snapshot allocation and executable artifacts | Invocation-local executable artifact staging uses a separate, bounded 2 GiB host-only tmpfs and is sealed read-only. It cannot be used as a writable export. Release attestation, digest verification, and launch confinement remain mandatory. |
 | Writable VM and preparation state | Trusted dependency hooks derive rootfs preparation, staged disk, manager run paths, and virtio-fs staging within the invocation domain; no independent runner-filesystem copies are used for enclaves. |
 | Recovery ownership | Durable journals capture invocation-owned mount/device/inode identities. Recovery reaps VM resources first and refuses changed identities or uncommitted mount intents; it never replays work or uses a global bind mount. |
 
 An empty provider, a free-space check, an export-only tmpfs, or a mock manager
 does not meet this contract. The gated privileged storage probes exercise the
-production domain, including aggregate exhaustion across snapshots, rootfs,
-runtime state, and exports. They do not establish live VM acceptance.
+production domains, including a fully allocated 1.5 GiB agent snapshot alongside
+aggregate exhaustion across rootfs, runtime state, and exports. They do not
+establish live VM acceptance.
 
 The integrated privileged storage suite must pass on an eligible Linux runner.
 Until that gated job runs successfully, deterministic coverage is not a
@@ -1659,8 +1670,8 @@ The published enclave manifest records script/agent rootfs logical sizes of
 127,422,464 / 1,026,367,488 bytes, respectively. The main runtime archive's
 tar header records `rootfs.ext4` at 1,314,160,640 bytes; that main runtime
 image is also staged before enclave-specific verification. These are
-**logical sizes**, not allocated bytes. The role-sized aggregate caps remain
-1 GiB (script) and 512 MiB (agent), including artifacts and writable state.
+**logical sizes**, not allocated bytes. At that revision, the role-sized aggregate
+caps were 1 GiB (script) and 512 MiB (agent), including artifacts and writable state.
 Sparse copying can fit an image whose logical size exceeds its cap, so neither
 the manifest sizes nor the compressed archive size establishes exhaustion.
 The failed subcheck and its reason are the next discriminating evidence;

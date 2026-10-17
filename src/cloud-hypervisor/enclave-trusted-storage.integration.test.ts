@@ -62,7 +62,7 @@ const tools = {
     return { run, plan };
   }
 
-  async function provision(role: 'script' | 'agent') {
+  async function provision(role: 'script' | 'agent', rootfsBytes = 4096) {
     const { run, plan } = await invocation(role);
     const journal = await HostExecutorResourceJournal.create(run, plan, hostExecutorVmRunId(plan));
     await fs.mkdir(plan.invocationHostDir, { mode: 0o700 });
@@ -99,7 +99,18 @@ const tools = {
     const snapshot = await storage.dependencies.createArtifactSnapshot!({
       cloudHypervisorBinary: '/usr/bin/true', virtiofsdBinary: '/usr/bin/true',
       kernelPath: source, rootfsPath: source, supervisorPath: '/usr/bin/true',
-    }, fs.copyFile, (directory) => journal.captureSnapshot(directory));
+    }, async (_source, destination) => {
+      const handle = await fs.open(destination, 'wx');
+      const chunk = Buffer.alloc(Math.min(rootfsBytes, 1024 ** 2), 1);
+      try {
+        for (let offset = 0; offset < rootfsBytes; offset += chunk.length) {
+          expect((await handle.write(chunk.subarray(0, Math.min(chunk.length, rootfsBytes - offset)))).bytesWritten)
+            .toBe(Math.min(chunk.length, rootfsBytes - offset));
+        }
+      } finally {
+        await handle.close();
+      }
+    }, (directory) => journal.captureSnapshot(directory));
     snapshotDirectory = snapshot.directory;
     await journal.captureSnapshot(snapshot.directory);
     const paths = storage.managerDependencies.createRunPaths!(
@@ -237,7 +248,7 @@ const tools = {
   }, 120_000);
 
   it.each(['script', 'agent'] as const)(
-    '%s charges snapshots, rootfs preparation/staging, runtime and sparse concurrent exports to one ceiling',
+    '%s separates host snapshots from the shared rootfs preparation/staging, runtime and writable export ceiling',
     async (role) => {
       const domain = await provision(role);
       const root = hostExecutorStorageDirectory(hostExecutorVmRunId(domain.plan));
@@ -248,10 +259,11 @@ const tools = {
         ...domain.exports.map((directory) => path.join(directory, 'sparse')),
       ];
       const devices = await Promise.all([
-        domain.snapshot.directory, domain.rootfsPreparation, domain.paths.runDirectory,
+        domain.rootfsPreparation, domain.paths.runDirectory,
         domain.paths.virtiofsdShareDirectory, ...domain.exports,
       ].map(async (directory) => (await fs.stat(directory)).dev));
       expect(new Set(devices).size).toBe(1);
+      expect((await fs.stat(domain.snapshot.directory)).dev).not.toBe(devices[0]);
       expect(domain.storage.workDir).toBe(root);
       await expect(fs.writeFile(path.join(domain.snapshot.directory, 'forbidden'), 'x'))
         .rejects.toMatchObject({ code: 'EROFS' });
@@ -283,8 +295,8 @@ const tools = {
         const capacity = await fs.statfs(root, { bigint: true });
         expect(capacity.blocks * capacity.bsize).toBe(BigInt(size));
         expect(capacity.bfree).toBe(0n);
-        // Immutable snapshots still consume pages: writers cannot allocate the
-        // entire budget in addition to the pre-existing artifact copies.
+        // Run directories consume metadata pages, but immutable snapshot bytes
+        // are charged only to their separate host staging filesystem.
         const stats = await Promise.all(files.map((file) => file.stat()));
         const written = stats.reduce((bytes, stat) => bytes + stat.blocks * 512, 0);
         expect(written).toBeLessThan(size);
@@ -298,6 +310,68 @@ const tools = {
       }
     }, 120_000,
   );
+
+  it('snapshots a fully allocated 1.5 GiB agent image while exports remain bounded to 512 MiB', async () => {
+    const rootfsBytes = 1536 * 1024 ** 2;
+    const domain = await provision('agent', rootfsBytes);
+    await expect((async () => {
+      const handle = await fs.open(domain.snapshot.rootfsPath, constants.O_RDWR | constants.O_NOFOLLOW);
+      try {
+        await handle.writeFile('changed');
+      } finally {
+        await handle.close();
+      }
+    })()).rejects.toMatchObject({ code: 'EROFS' });
+    const snapshotFile = await fs.open(domain.snapshot.rootfsPath, constants.O_RDONLY | constants.O_NOFOLLOW);
+    let snapshot;
+    try {
+      snapshot = await snapshotFile.stat();
+    } finally {
+      await snapshotFile.close();
+    }
+    expect(snapshot.size).toBe(rootfsBytes);
+    expect(snapshot.blocks * 512).toBe(rootfsBytes);
+    expect(snapshot.uid).toBe(0);
+    expect(snapshot.mode & 0o777).toBe(0o444);
+    const staging = await fs.statfs(domain.snapshot.directory, { bigint: true });
+    expect(staging.blocks * staging.bsize)
+      .toBe(BigInt(ENCLAVE_ARTIFACT_VERIFICATION_STORAGE_PROFILE.writableStorageBytes));
+    expect((await execa(domain.snapshot.cloudHypervisorBinary)).exitCode).toBe(0);
+    const output = domain.exports[0];
+    const guest = await fs.statfs(output, { bigint: true });
+    expect(guest.blocks * guest.bsize).toBe(BigInt(512 * 1024 ** 2));
+    expect((await fs.stat(output)).dev).not.toBe(snapshot.dev);
+    const stagingFill = path.join(domain.storage.workDir, 'artifacts', 'fill');
+    const stagingFile = await fs.open(stagingFill, 'wx');
+    try {
+      const chunk = Buffer.alloc(1024 ** 2, 1);
+      await expect((async () => {
+        for (;;) await stagingFile.write(chunk);
+      })()).rejects.toMatchObject({ code: 'ENOSPC' });
+      expect((await fs.statfs(domain.snapshot.directory, { bigint: true })).bfree).toBe(0n);
+      expect((await fs.statfs(output, { bigint: true })).bfree).toBe(guest.bfree);
+    } finally {
+      await stagingFile.close();
+      await fs.unlink(stagingFill);
+    }
+    const file = await fs.open(path.join(output, 'fill'), 'wx');
+    try {
+      const chunk = Buffer.alloc(1024 ** 2, 1);
+      await expect((async () => {
+        for (;;) await file.write(chunk);
+      })()).rejects.toMatchObject({ code: 'ENOSPC' });
+      expect((await file.stat()).blocks * 512).toBeLessThanOrEqual(profiles.agent.writableStorageBytes);
+    } finally {
+      await file.close();
+    }
+    expect((await fs.statfs(output, { bigint: true })).bfree).toBe(0n);
+    expect((await fs.statfs(domain.snapshot.directory, { bigint: true })).bfree).toBe(staging.bfree);
+    await domain.storage.dependencies.verifyStorage!(domain.plan.invocationHostDir,
+      profiles.agent.writableStorageBytes, domain.exports);
+    await domain.close();
+    cleanup.delete(domain.close);
+    await expect(fs.lstat(domain.storage.workDir)).rejects.toMatchObject({ code: 'ENOENT' });
+  }, 120_000);
 
   it('retains the allocation ceiling when close encounters a busy snapshot', async () => {
     const domain = await provision('agent');

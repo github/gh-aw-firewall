@@ -156,9 +156,8 @@ export class ProductionTrustedCloudHypervisorEnclaveStorageProvider implements T
   }
 }
 
-// Host preflight verifies the primary runtime snapshot and both enclave roles
-// in separate domains. Cover one full (not necessarily sparse) release image
-// plus tools, kernel, manifest, attestation and SBOM bytes.
+// Cover one full (not necessarily sparse) release image plus tools, kernel,
+// manifest, attestation and SBOM bytes, for preflight and invocation snapshots.
 // This host-only budget must never change the guest invocation profiles.
 export const ENCLAVE_ARTIFACT_VERIFICATION_STORAGE_PROFILE = Object.freeze({
   writableStorageBytes: 2 * 1024 * 1024 * 1024,
@@ -175,7 +174,7 @@ export function prepareTrustedArtifactVerificationStorage(
   report = new HostPreflightReporter('bounded-artifacts'),
 ): ReturnType<typeof prepareTrustedInvocationStorage> {
   return prepareTrustedStorage(run, plan, journal, tools, report,
-    ENCLAVE_ARTIFACT_VERIFICATION_STORAGE_PROFILE);
+    ENCLAVE_ARTIFACT_VERIFICATION_STORAGE_PROFILE, false);
 }
 
 /** @internal Privileged probes use the same allocation, journal and sealing path as production. */
@@ -187,7 +186,7 @@ export async function prepareTrustedInvocationStorage(
   report = new HostPreflightReporter('bounded-runtime'),
 ): ReturnType<typeof prepareTrustedStorage> {
   return prepareTrustedStorage(run, plan, journal, tools, report,
-    CLOUD_HYPERVISOR_ENCLAVE_RESOURCE_PROFILES[plan.executorKind]);
+    CLOUD_HYPERVISOR_ENCLAVE_RESOURCE_PROFILES[plan.executorKind], true);
 }
 
 async function prepareTrustedStorage(
@@ -197,6 +196,7 @@ async function prepareTrustedStorage(
   tools: Pick<CloudHypervisorHostToolPaths, 'mount' | 'umount'>,
   report: HostPreflightReporter,
   profile: { readonly writableStorageBytes: number; readonly uid: number; readonly gid: number },
+  isolateArtifactStorage: boolean,
 ): Promise<NonNullable<Awaited<ReturnType<NonNullable<
   import('./enclave-executor-types').HostEnclaveExecutorDependencies['prepareInvocationStorage']
 >>>>> {
@@ -268,7 +268,11 @@ async function prepareTrustedStorage(
   });
   await report.check('storage-artifact-mount', async () => {
     await journal.prepareStorageMount(artifacts);
-    await mount(tools, ['--bind', artifacts, artifacts]);
+    await mount(tools, isolateArtifactStorage
+      ? ['-t', 'tmpfs', '-o',
+        `size=${ENCLAVE_ARTIFACT_VERIFICATION_STORAGE_PROFILE.writableStorageBytes},mode=0711,uid=0,gid=0,nosuid,nodev,exec`,
+        ENCLAVE_STORAGE_SOURCE, artifacts]
+      : ['--bind', artifacts, artifacts]);
     await journal.captureStorageMount();
     await mount(tools, ['-o', 'remount,bind,rw,nosuid,nodev,exec', artifacts]);
   });
@@ -333,7 +337,7 @@ async function prepareTrustedStorage(
         }
       });
     }
-    for (const candidate of [root, directory, ...writable]) {
+    for (const candidate of [root, directory, ...writable, artifacts, ...(snapshotMount ? [snapshotMount] : [])]) {
       const identity = await fs.lstat(candidate);
       if (!identity.isDirectory() || identity.isSymbolicLink()) {
         throw markHostPreflightError(new Error('Invocation export is not a real directory'),
@@ -343,8 +347,12 @@ async function prepareTrustedStorage(
         throw markHostPreflightError(new Error('Invocation storage path changed'), 'storage-path-changed');
       }
       const stat = await fs.statfs(candidate, { bigint: true });
-      if (stat.type !== 0x01021994n || stat.blocks * stat.bsize !== BigInt(maximumBytes) ||
-        (await fs.stat(candidate)).dev !== (await fs.stat(root)).dev) {
+      const hostArtifact = isolateArtifactStorage && (candidate === artifacts || candidate === snapshotMount);
+      const capacity = hostArtifact ? ENCLAVE_ARTIFACT_VERIFICATION_STORAGE_PROFILE.writableStorageBytes : maximumBytes;
+      const device = (await fs.stat(candidate)).dev;
+      const rootDevice = (await fs.stat(root)).dev;
+      if (stat.type !== 0x01021994n || stat.blocks * stat.bsize !== BigInt(capacity) ||
+        (hostArtifact ? device === rootDevice || device !== (await fs.stat(artifacts)).dev : device !== rootDevice)) {
         throw markHostPreflightError(new Error('Invocation storage cap changed'), 'storage-cap-changed');
       }
     }
