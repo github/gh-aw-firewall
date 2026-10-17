@@ -23,6 +23,7 @@ network:
     - defaults
     - github
 tools:
+  bash: [cat]
   github:
     toolsets: [pull_requests]
     allowed: [list_pull_requests]
@@ -61,7 +62,6 @@ jobs:
         run: node scripts/ci/check-token-usage.js --artifact-root /tmp/gh-aw-agent --engine copilot
 steps:
   - name: Pre-compute smoke test data
-    id: smoke
     run: |
       echo "::group::Fetching last 2 merged PRs"
       PR_DATA=$(gh pr list --repo "$GITHUB_REPOSITORY" --state merged --limit 2 \
@@ -91,20 +91,15 @@ steps:
         PR_ASSIGNEES=$(jq -r '[.pull_request.assignees[]?.login] | join(", ")' "$GITHUB_EVENT_PATH")
       fi
 
-      DELIMITER="gh_aw_smoke_pr_data_${GITHUB_RUN_ID}_${RANDOM}"
-      while grep -Fqx "$DELIMITER" <<< "$PR_DATA"; do
-        DELIMITER="gh_aw_smoke_pr_data_${GITHUB_RUN_ID}_${RANDOM}"
-      done
-
       {
-        echo "http_code=$HTTP_CODE"
-        echo "file_content=$FILE_CONTENT"
-        echo "pr_author=$PR_AUTHOR"
-        echo "pr_assignees=$PR_ASSIGNEES"
-        echo "pr_data<<$DELIMITER"
-        printf '%s\n' "$PR_DATA"
-        echo "$DELIMITER"
-      } >> "$GITHUB_OUTPUT"
+        printf 'Repository: %s\n' "$GITHUB_REPOSITORY"
+        printf 'Trigger: %s\n' "$GITHUB_EVENT_NAME"
+        printf 'github.com HTTP status: %s\n' "$HTTP_CODE"
+        printf 'File write/read content: %s\n' "$FILE_CONTENT"
+        printf 'Current pull request author: %s\n' "$PR_AUTHOR"
+        printf 'Current pull request assignees: %s\n' "$PR_ASSIGNEES"
+        printf 'Pre-fetched merged PRs:\n%s\n' "$PR_DATA"
+      } > "$TEST_DIR/smoke-test-data.txt"
     env:
       GH_TOKEN: ${{ github.token }}
 post-steps:
@@ -135,34 +130,27 @@ post-steps:
 ## Tests
 
 ### 1. GitHub MCP
-Make exactly one GitHub MCP call: `github-list_pull_requests` for the run-specific repository below, with `perPage: 1` and `fields: [number, title]`. Do not call `pull_request_read` or any other GitHub MCP tool. A successful response confirms MCP connectivity.
+Make exactly one GitHub MCP call: `github-list_pull_requests` for the repository listed in the pre-computed data, with `perPage: 1` and `fields: [number, title]`. Do not call `pull_request_read` or any other GitHub MCP tool. A successful response confirms MCP connectivity.
 
 ### 2. GitHub.com Connectivity
-✅ if the pre-computed HTTP status is 200 or 301, ❌ otherwise.
+Use the pre-computed HTTP status; ✅ for 200 or 301, ❌ otherwise.
 
 ### 3. File Write/Read
-The pre-step confirmed the test file was written and read back successfully.
+Use the pre-step's write/read result.
 
 ## Output (MANDATORY)
 
-If triggered by a pull request, call `add_comment` to post a very brief comment (max 5–10 lines) on the current pull request with:
+If the pre-computed trigger is `pull_request`, call `add_comment` to post a very brief comment (max 5–10 lines) on the current pull request with:
 - PR titles only (no descriptions)
 - ✅ or ❌ for each test result
 - Overall status: PASS or FAIL
-- Mention the current pull request author and any assignees listed below
+- Mention the current pull request author and any assignees listed in the pre-computed data
 
-If all tests pass on a pull request trigger:
+If all tests pass on a `pull_request` trigger:
 - Use the `add_labels` safe-output tool to add the label `smoke-copilot` to the pull request
 
-If triggered by workflow_dispatch or schedule, call `noop` with a concise PASS/FAIL summary instead. Do not attempt pull request comments or labels when there is no pull request.
+For a `workflow_dispatch` or `schedule` trigger, call `noop` with a concise PASS/FAIL summary instead. Do not attempt pull request comments or labels when there is no pull request.
 
-## Run-specific data
+## Pre-computed data
 
-- Repository: ${{ github.repository }}
-- Trigger: ${{ github.event_name }}
-- GitHub.com HTTP status: ${{ steps.smoke.outputs.http_code }}
-- File write/read content: ${{ steps.smoke.outputs.file_content }}
-- Current pull request author: ${{ steps.smoke.outputs.pr_author }}
-- Current pull request assignees: ${{ steps.smoke.outputs.pr_assignees }}
-- Pre-fetched merged PRs:
-${{ steps.smoke.outputs.pr_data }}
+Read `/tmp/gh-aw/agent/smoke-test-data.txt` once with `cat` and use its results.
