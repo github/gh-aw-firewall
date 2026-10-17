@@ -65,6 +65,17 @@ describe('host-only public enclave debug collector', () => {
       .toContain('No public-fixture debug logs were produced');
   });
 
+  it('collects agent session-export server diagnostics without exporting session contents', () => {
+    prepareRun();
+    const source = invocation();
+    const names = ['virtiofs-4-enclave-session-handoff.log', 'virtiofs-4-enclave-session-handoff-confinement.json',
+      'virtiofs-5-enclave-session-state.log', 'virtiofs-5-enclave-session-state-confinement.json'];
+    for (const name of names) fs.writeFileSync(path.join(source, name), '{}', { mode: 0o600 });
+    expect(collectRun()).toBe(5);
+    expect(fs.readdirSync(path.join(run, 'upload')).sort())
+      .toEqual(['collection-status.txt', 'guest-stderr.raw.log', ...names].sort());
+  });
+
   it('retains eligible evidence alongside global and malformed identities without using them as paths', () => {
     prepareRun();
     invocation();
