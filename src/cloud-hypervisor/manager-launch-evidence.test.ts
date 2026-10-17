@@ -156,6 +156,13 @@ describe('protected shared VMM launch evidence', () => {
     await diagnostic.check(report, 'manager-start', () => manager.start());
     await expect(diagnostic.check(report, 'instance-start', () => manager.startInstance())).rejects.toBe(original);
     expect(deps.createEmptyNetworkNamespace).toHaveBeenCalledTimes(1);
+    expect(CloudHypervisorGuestChannel.connect).toHaveBeenCalledWith(
+      deps, expect.any(String), 1024, expect.any(Number), expect.any(Function),
+    );
+    const client = (deps.createClient as jest.Mock).mock.results[0].value;
+    expect(client.vmCreate).toHaveBeenCalledWith(expect.objectContaining({
+      payload: expect.objectContaining({ cmdline: expect.stringContaining('awf.vsock-port=1024') }),
+    }));
     expect(deps.reserveNetwork).not.toHaveBeenCalled();
     expect(JSON.parse(readHostExecutorInvocationDiagnostics(run)[0].contents)).toMatchObject({
       failure: { stage: 'vm-launch/guest-connect', reason: 'EACCES' },

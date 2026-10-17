@@ -592,6 +592,12 @@ release or production use.
 
 ### Iterating on host code with released guests
 
+Script and agent enclave profiles explicitly default their supervisor listener
+to vsock port 1024 and reject ports below 1024. The supervisor drops
+`CAP_NET_BIND_SERVICE` before listening, so the primary VM's port 52 default
+cannot be reused for enclaves. The same profile port drives guest boot arguments
+and host readiness connections; the primary VM default is unchanged.
+
 `runtime.json` includes `guestConnection` diagnostics: target vsock port,
 attempt count, elapsed time, retry budget, final status and bounded last host
 transport error/code. This is host-observed state, not guest syscall evidence.

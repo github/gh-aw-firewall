@@ -91,6 +91,20 @@ function agentProfile(): Record<string, any> {
 }
 
 describe('Cloud Hypervisor workload profiles', () => {
+  it.each([scriptProfile, agentProfile])('requires an explicit unprivileged enclave listener port', (create) => {
+    const profile = create();
+    expect(profile.guest.vsockPort).toBe(1024);
+    for (const port of [undefined, 0, 52, 1023]) {
+      profile.guest.vsockPort = port;
+      expect(() => validateCloudHypervisorWorkloadProfile(profile as never))
+        .toThrow(/unprivileged vsock port/);
+    }
+    for (const port of [1024, 65535]) {
+      profile.guest.vsockPort = port;
+      expect(() => validateCloudHypervisorWorkloadProfile(profile as never)).not.toThrow();
+    }
+  });
+
   it.each([
     [
       'primary-agent',
@@ -283,7 +297,7 @@ describe('Cloud Hypervisor workload profiles', () => {
       'an invalid vsock port',
       scriptProfile,
       (profile: Record<string, any>) => { profile.guest.vsockPort = 0; },
-      /vsock port must be in 1-65535/,
+      /unprivileged vsock port/,
     ],
     [
       'an increased enclave memory budget',

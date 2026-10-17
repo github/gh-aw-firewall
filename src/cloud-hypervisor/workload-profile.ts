@@ -160,6 +160,9 @@ export function createPrimaryAgentCloudHypervisorProfile(options: {
   }) as CloudHypervisorPrimaryAgentProfile;
 }
 
+// Enclave supervisors drop CAP_NET_BIND_SERVICE before opening their listener.
+export const CLOUD_HYPERVISOR_ENCLAVE_VSOCK_PORT = 1024;
+
 export function createScriptEnclaveCloudHypervisorProfile(options: {
   readonly publicFixtureDebug?: true;
   readonly enclaveId: string;
@@ -180,6 +183,7 @@ export function createScriptEnclaveCloudHypervisorProfile(options: {
     resources: CLOUD_HYPERVISOR_ENCLAVE_RESOURCE_PROFILES.script,
     guest: {
       ...options.guest,
+      vsockPort: options.guest.vsockPort ?? CLOUD_HYPERVISOR_ENCLAVE_VSOCK_PORT,
       enclaveResources: CLOUD_HYPERVISOR_ENCLAVE_RESOURCE_PROFILES.script,
       exports: validateCloudHypervisorEnclaveExportPlan(options.exportPlan, 'script', {
         entryId: options.enclaveId,
@@ -222,6 +226,7 @@ export function createAgentEnclaveCloudHypervisorProfile(options: {
     resources: CLOUD_HYPERVISOR_ENCLAVE_RESOURCE_PROFILES.agent,
     guest: {
       ...options.guest,
+      vsockPort: options.guest.vsockPort ?? CLOUD_HYPERVISOR_ENCLAVE_VSOCK_PORT,
       enclaveResources: CLOUD_HYPERVISOR_ENCLAVE_RESOURCE_PROFILES.agent,
       exports: validateCloudHypervisorEnclaveExportPlan(options.exportPlan, 'agent', {
         entryId: options.enclaveId,
@@ -416,6 +421,9 @@ function validateGuest(profile: CloudHypervisorWorkloadProfile): void {
       throw new Error(`Cloud Hypervisor ${profile.kind} must use its closed export access modes`);
     }
 
+    if (profile.guest.vsockPort === undefined || profile.guest.vsockPort < 1024) {
+      throw new Error(`Cloud Hypervisor ${profile.kind} requires an unprivileged vsock port (1024-65535)`);
+    }
     const role = profile.kind === 'script-enclave' ? 'script' : 'agent';
     const plannedExports = validateCloudHypervisorEnclaveExportPlan(profile.exportPlan, role, {
       entryId: profile.identity.ownerId,
