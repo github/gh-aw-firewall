@@ -125,6 +125,10 @@ export const legacyApiProxyLogsDirRegex =
 export const copilotModelOverrideRegex =
   /^(\s*COPILOT_MODEL:\s*)\$\{\{\s*(?:vars\.GH_AW_MODEL_AGENT_COPILOT\s*\|\|\s*)?(?:vars\.GH_AW_DEFAULT_MODEL_COPILOT\s*\|\|\s*)?(?:env\.COPILOT_MODEL|''|'[^']*')\s*\}\}[ \t]*$/gm;
 
+export function removeCopilotGithubCliPermission(workflow: string): string {
+  return workflow.replace(" --allow-tool '\\''shell(github:*)'\\''", '');
+}
+
 // Sentinel used to detect whether the "Copy Copilot session state" step has
 // already been replaced with the AWF-aware inline script.
 export const copySessionStateSentinel = 'SESSION_STATE_SRC=';

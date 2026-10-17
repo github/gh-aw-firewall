@@ -43,16 +43,46 @@ describe('smoke copilot workflow output requirements', () => {
     it(`${workflow.name}: requires noop fallback when no pull request context exists`, () => {
       const source = fs.readFileSync(path.join(workflowsDir, workflow.file), 'utf-8');
 
-      expect(source).toContain('**If triggered by a pull request**');
-      expect(source).toContain('If all tests pass on a pull request trigger:');
-      expect(source).toContain(
-        '**If triggered by workflow_dispatch or schedule** (no PR context), call `noop`'
-      );
-      expect(source).toContain(
-        'Do NOT attempt to add pull request comments or labels when there is no pull request.'
-      );
+      if (workflow.file === 'smoke-copilot.md') {
+        expect(source).toContain(
+          'For a `workflow_dispatch` or `schedule` trigger, call `noop`',
+        );
+        expect(source).toContain(
+          'Do not attempt pull request comments or labels when there is no pull request.',
+        );
+      } else {
+        expect(source).toContain('**If triggered by a pull request**');
+        expect(source).toContain('If all tests pass on a pull request trigger:');
+        expect(source).toContain(
+          '**If triggered by workflow_dispatch or schedule** (no PR context), call `noop`',
+        );
+        expect(source).toContain(
+          'Do NOT attempt to add pull request comments or labels when there is no pull request.',
+        );
+      }
     });
   }
+
+  it('smoke-copilot: reports PR context and uses noop without a PR', () => {
+    const source = fs.readFileSync(
+      path.join(workflowsDir, 'smoke-copilot.md'),
+      'utf-8',
+    );
+    const lock = fs.readFileSync(
+      path.join(workflowsDir, 'smoke-copilot.lock.yml'),
+      'utf-8',
+    );
+
+    expect(source).toContain(
+      'If the pre-computed trigger is `pull_request`, call `add_comment`',
+    );
+    expect(source).toContain('Mention the current pull request author and any assignees');
+    expect(source).toContain(
+      'For a `workflow_dispatch` or `schedule` trigger, call `noop`',
+    );
+    expect(lock).not.toContain("--allow-tool '\\''shell(github:*)'\\''");
+    expect(lock).toContain("github(list_pull_requests)");
+  });
 
   it('smoke-copilot-network-isolation: grants granular curl shell permission', () => {
     const frontmatter = loadFrontmatter('smoke-copilot-network-isolation.md');

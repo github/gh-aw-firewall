@@ -5,7 +5,10 @@ import * as path from 'path';
 
 import { applyGeneralWorkflowPatches } from './apply-general-workflow-patches';
 import { applyCodexWorkflowPatches } from './apply-codex-workflow-patches';
-import { assertCloudHypervisorSmokePrimaryRuntime } from './workflow-patch-patterns';
+import {
+  assertCloudHypervisorSmokePrimaryRuntime,
+  removeCopilotGithubCliPermission,
+} from './workflow-patch-patterns';
 
 
 const repoRoot = path.resolve(__dirname, '../..');
@@ -43,8 +46,17 @@ const workflowPaths = fs.readdirSync(workflowsDir)
 
 for (const workflowPath of workflowPaths) {
   const original = fs.readFileSync(workflowPath, 'utf-8');
-  const { content, log } = applyGeneralWorkflowPatches(original, workflowPath);
+  const { content: generallyPatched, log } = applyGeneralWorkflowPatches(
+    original,
+    workflowPath,
+  );
   log.forEach(msg => console.log(msg));
+  const content = path.basename(workflowPath) === 'smoke-copilot.lock.yml'
+    ? removeCopilotGithubCliPermission(generallyPatched)
+    : generallyPatched;
+  if (content !== generallyPatched) {
+    console.log('Removed broad GitHub MCP CLI permission from Smoke Copilot.');
+  }
   if (content !== original) {
     fs.writeFileSync(workflowPath, content);
     console.log(`Updated ${workflowPath}`);

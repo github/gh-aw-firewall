@@ -32,6 +32,7 @@ import {
   ripgrepInstallStepRegex,
   patchLocalBuildCloudHypervisorArtifacts,
   assertCloudHypervisorSmokePrimaryRuntime,
+  removeCopilotGithubCliPermission,
 } from './workflow-patch-patterns';
 import {
   buildCopySessionStateStep,
@@ -62,6 +63,18 @@ describe('assertCloudHypervisorSmokePrimaryRuntime', () => {
     expect(() => assertCloudHypervisorSmokePrimaryRuntime(
       String.raw`awf --container-runtime docker --config config.json`,
     )).toThrow('Cloud Hypervisor enclave smoke must select the Cloud Hypervisor primary runtime');
+  });
+});
+
+describe('removeCopilotGithubCliPermission', () => {
+  it('removes the broad GitHub CLI route but preserves the explicit MCP tool', () => {
+    const input = String.raw`--allow-tool '\''github(list_pull_requests)'\'' --allow-tool '\''shell(github:*)'\'' --allow-tool '\''shell(cat)'\''`;
+    const result = removeCopilotGithubCliPermission(input);
+
+    expect(result).toBe(
+      String.raw`--allow-tool '\''github(list_pull_requests)'\'' --allow-tool '\''shell(cat)'\''`,
+    );
+    expect(removeCopilotGithubCliPermission(result)).toBe(result);
   });
 });
 
