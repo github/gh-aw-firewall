@@ -71,28 +71,30 @@ for (const workflowPath of codexWorkflowPaths) {
   }
 }
 
-const enclaveDefaultRuntimeLockPath = path.join(
-  workflowsDir,
+for (const lockFile of [
   'smoke-enclave-cloud-hypervisor.lock.yml',
-);
-let enclaveDefaultRuntimeLock: string | undefined;
-try {
-  enclaveDefaultRuntimeLock = fs.readFileSync(enclaveDefaultRuntimeLockPath, 'utf-8');
-} catch (error) {
-  if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
-    throw error;
+  'smoke-enclave-cloud-hypervisor-copilot.lock.yml',
+]) {
+  const enclaveDefaultRuntimeLockPath = path.join(workflowsDir, lockFile);
+  let enclaveDefaultRuntimeLock: string | undefined;
+  try {
+    enclaveDefaultRuntimeLock = fs.readFileSync(enclaveDefaultRuntimeLockPath, 'utf-8');
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+      throw error;
+    }
+    console.log(`Skipping ${enclaveDefaultRuntimeLockPath}: file not found.`);
   }
-  console.log(`Skipping ${enclaveDefaultRuntimeLockPath}: file not found.`);
-}
-if (enclaveDefaultRuntimeLock !== undefined) {
-  const original = enclaveDefaultRuntimeLock;
-  const content = assertCloudHypervisorSmokePrimaryRuntime(original);
-  if (content !== original) {
-    fs.writeFileSync(enclaveDefaultRuntimeLockPath, content);
-    console.log(`  Verified the Cloud Hypervisor primary runtime for the enclave smoke`);
-    console.log(`Updated ${enclaveDefaultRuntimeLockPath}`);
-  } else {
-    console.log(`Skipping ${enclaveDefaultRuntimeLockPath}: primary runtime is verified.`);
+  if (enclaveDefaultRuntimeLock !== undefined) {
+    const original = enclaveDefaultRuntimeLock;
+    const content = assertCloudHypervisorSmokePrimaryRuntime(original);
+    if (content !== original) {
+      fs.writeFileSync(enclaveDefaultRuntimeLockPath, content);
+      console.log(`  Verified the Cloud Hypervisor primary runtime for the enclave smoke`);
+      console.log(`Updated ${enclaveDefaultRuntimeLockPath}`);
+    } else {
+      console.log(`Skipping ${enclaveDefaultRuntimeLockPath}: primary runtime is verified.`);
+    }
   }
 }
 

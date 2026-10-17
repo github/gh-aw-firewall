@@ -6,6 +6,8 @@ import * as yaml from 'js-yaml';
 import { applyGeneralWorkflowPatches, usesPublishedAwfRelease } from './apply-general-workflow-patches';
 import { normalizeEnclavesConfig } from '../../src/parsers/enclave-parser';
 import type { RawEnclavesConfig } from '../../src/types/enclave-options';
+import { isCloudHypervisorAgentAcceptanceWorkflow } from '../../src/enclave/cloud-hypervisor-script-acceptance';
+import { buildBranchEnclaveInstallSteps } from './workflow-step-builders';
 
 const workflowPath = path.resolve(__dirname,
   '../../.github/workflows/smoke-enclave-cloud-hypervisor-copilot.lock.yml');
@@ -22,6 +24,7 @@ interface Step {
 const frontmatter = yaml.load(source.split('---')[1]) as {
   on: Record<string, unknown>;
   if: string;
+  features: Record<string, boolean>;
   permissions: Record<string, string>;
   'runs-on': string;
   engine: { id: string; version: string; args: string[]; env: Record<string, string> };
@@ -36,10 +39,25 @@ const compiled = yaml.load(lock) as {
 const agentSteps = compiled.jobs.agent.steps;
 
 describe('Cloud Hypervisor Copilot agent enclave smoke', () => {
+  it('includes main in source builds only when explicitly requested by the agent smoke', () => {
+    const scriptBuild = buildBranchEnclaveInstallSteps('      ');
+    const agentBuild = buildBranchEnclaveInstallSteps('      ', true);
+    expect(scriptBuild).toContain("github.ref != 'refs/heads/main'");
+    expect(agentBuild).not.toContain("github.ref != 'refs/heads/main'");
+    for (const build of [scriptBuild, agentBuild]) {
+      expect(build).toContain("github.event_name == 'workflow_dispatch'");
+      expect(build).toContain("github.repository == 'github/gh-aw-firewall'");
+      expect(build).toContain("github.ref_type == 'branch'");
+      expect(build).toContain('--build-local');
+    }
+  });
+
   it('is a separate manual-only public-fixture test with no GitHub tools or script executor', () => {
     expect(frontmatter.on).toEqual({ workflow_dispatch: null });
-    expect(frontmatter.if).toBe("github.repository == 'github/gh-aw-firewall'");
+    expect(frontmatter.if)
+      .toBe("github.repository == 'github/gh-aw-firewall' && github.ref_type == 'branch'");
     expect(frontmatter['runs-on']).toBe('ubuntu-24.04');
+    expect(frontmatter.features).toEqual({ 'cloud-hypervisor-agent-acceptance': true });
     expect(frontmatter.permissions).toEqual({ contents: 'read', 'copilot-requests': 'write' });
     expect(frontmatter.tools).toEqual({ github: false });
     expect(frontmatter.engine.args).toEqual(['--allow-tool', 'awf-enclave(enclave_run_agent)']);
@@ -55,7 +73,7 @@ describe('Cloud Hypervisor Copilot agent enclave smoke', () => {
     expect(compiled.jobs.activation.if).toBe(frontmatter.if);
   });
 
-  it('compiles the proposed VM agent and Docker primary without claiming runtime support', () => {
+  it('selects Cloud Hypervisor for both the primary and the Copilot agent enclave', () => {
     const enclave = {
       agent: {
         engine: 'copilot', model: 'claude-sonnet-5',
@@ -66,7 +84,10 @@ describe('Cloud Hypervisor Copilot agent enclave smoke', () => {
       timeout: 90, 'max-output-bytes': 256, 'max-invocations': 1,
     };
     expect(frontmatter.enclaves).toEqual([enclave]);
-    expect(frontmatter.sandbox.agent).toEqual({ id: 'awf', version: 'v0.28.62' });
+    expect(frontmatter.sandbox.agent).toEqual({
+      id: 'awf', version: 'v0.28.62', runtime: 'cloud-hypervisor',
+      config: { filesystem: { 'allow-write': ['/tmp/gh-aw/aw_info.json'] } },
+    });
     const match = lock.match(/\\"enclaves\\":(\[.+?\]),\\"container\\"/);
     expect(match).not.toBeNull();
     expect(JSON.parse(match![1].replace(/\\"/g, '"'))).toEqual([{
@@ -77,7 +98,16 @@ describe('Cloud Hypervisor Copilot agent enclave smoke', () => {
       runtime: 'cloud-hypervisor', repos: enclave.repos,
       timeout: 90, maxOutputBytes: 256, maxInvocations: 1,
     }]);
-    expect(lock).toContain('\\"containerRuntime\\":\\"docker\\"');
+    expect(lock).toContain('--container-runtime cloud-hypervisor');
+    expect(lock).not.toContain('--container-runtime docker');
+    expect(lock).not.toContain('\\"containerRuntime\\":\\"docker\\"');
+    expect(lock).toContain('--cloud-hypervisor-preview');
+    const writes = lock.match(/\\"filesystem\\":\{\\"allowWrite\\":(\[.*?\])\}/);
+    expect(writes).not.toBeNull();
+    expect(JSON.parse(writes![1].replace(/\\"/g, '"'))).toEqual([
+      '/tmp/gh-aw/aw_info.json', '/tmp/gh-aw/agent',
+      '/tmp/gh-aw/sandbox/agent/logs', '/workspace', '/workspace/.awf-home',
+    ]);
     expect(lock).toContain('COPILOT_GITHUB_TOKEN: ${{ github.token }}');
     expect(lock).toContain('--exclude-env COPILOT_GITHUB_TOKEN');
     expect(lock).toContain('--exclude-env GH_TOKEN');
@@ -85,10 +115,43 @@ describe('Cloud Hypervisor Copilot agent enclave smoke', () => {
     expect(lock).toContain('export GH_AW_MCP_DEFERRED_SERVERS="awf-enclave"');
     expect(lock).not.toContain('"github": {');
     const entries: RawEnclavesConfig = JSON.parse(match![1].replace(/\\"/g, '"'));
+    const normalized = normalizeEnclavesConfig(entries, { primaryRuntime: 'cloud-hypervisor' });
+    expect(normalized?.executors.agent.enabled).toBe(true);
+    expect(normalized?.executors.agent.runtime).toBe('cloud-hypervisor');
+    expect(normalized?.executors.script.enabled).toBe(false);
+    const original = process.env;
+    try {
+      const sha = 'a'.repeat(40);
+      process.env = {
+        ...original,
+        GITHUB_ACTIONS: 'true',
+        GITHUB_REPOSITORY: 'github/gh-aw-firewall',
+        GITHUB_EVENT_NAME: 'workflow_dispatch',
+        GITHUB_REF_TYPE: 'branch',
+        GITHUB_REF_NAME: 'test-agent-enclave',
+        GITHUB_REF: 'refs/heads/test-agent-enclave',
+        GITHUB_SHA: sha,
+        GITHUB_WORKFLOW_SHA: sha,
+        GITHUB_WORKFLOW_REF: 'github/gh-aw-firewall/.github/workflows/smoke-enclave-cloud-hypervisor-copilot.lock.yml@refs/heads/test-agent-enclave',
+      };
+      expect(isCloudHypervisorAgentAcceptanceWorkflow({
+        containerRuntime: 'cloud-hypervisor',
+        enclaves: normalized,
+        cloudHypervisor: {
+          previewEnabled: true,
+          mountPolicy: 'workspace-and-tool-cache',
+          artifactReleaseTag: 'v0.28.62',
+          cloudHypervisorBinary: '/usr/local/bin/cloud-hypervisor',
+          vcpuCount: 2,
+          memoryMib: 512,
+          apiTimeoutMs: 5000,
+        },
+      })).toBe(true);
+    } finally {
+      process.env = original;
+    }
     expect(() => normalizeEnclavesConfig(entries, { primaryRuntime: 'docker' }))
-      .toThrow(/differs from primary backend.*one sandbox backend is required/);
-    expect(source).toContain('Blocked scaffold, not a runnable smoke');
-    expect(source).toContain('Compilation success is not runtime acceptance');
+      .toThrow(/differs from primary backend/);
     expect(source).toContain('settings are **advisory only**');
   });
 
@@ -108,9 +171,9 @@ describe('Cloud Hypervisor Copilot agent enclave smoke', () => {
     expect(Buffer.byteLength(request.prompt, 'utf8')).toBeLessThanOrEqual(4096);
   });
 
-  it('preserves compiler, CLI and immutable official release pins without guest bypasses', () => {
+  it('identifies the compiler backport and preserves CLI and immutable release pins', () => {
     expect(frontmatter.engine.version).toBe('1.0.96');
-    expect(lock).toContain('"compiler_version":"v0.92.3"');
+    expect(lock).toContain('"compiler_version":"dev-v0.92.3-enclave-agent-acceptance.49106b25afe1"');
     expect(lock).toContain('github/gh-aw-actions/setup@26e5d7e7d2345ae4c8dfa3d9017ca2ff9bbf2c82');
     expect(lock).toContain('actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1');
     expect(lock).toContain('ghcr.io/github/gh-aw-mcpg:v0.4.33@sha256:2b278f891b4566d27494658b37f628810f93da4caf510e266892ca344e55f8e0');
@@ -128,7 +191,8 @@ describe('Cloud Hypervisor Copilot agent enclave smoke', () => {
     expect(usesPublishedAwfRelease(workflowPath)).toBe(true);
     const install = agentSteps.find(step => step.name === 'Install awf binary (local)');
     expect(install?.if).toContain("github.repository == 'github/gh-aw-firewall'");
-    expect(install?.if).toContain("github.ref != 'refs/heads/main'");
+    expect(install?.if).toContain("github.ref_type == 'branch'");
+    expect(install?.if).not.toContain("github.ref != 'refs/heads/main'");
     expect(install?.run).toContain('--build-local');
     expect(install?.run).toContain('"\\$arg" = "--skip-pull"');
     expect(lock).toContain('sudo --preserve-env awf --cloud-hypervisor-enclave-debug-public --config ');

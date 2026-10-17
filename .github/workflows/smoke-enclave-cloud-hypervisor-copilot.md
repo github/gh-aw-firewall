@@ -1,13 +1,15 @@
 ---
-description: Blocked Copilot enclave smoke scaffold awaiting coordinated compiler and runtime topology support
+description: Experimental Copilot execution with a Cloud Hypervisor primary and single-use Cloud Hypervisor agent enclave
 on:
   workflow_dispatch:
-if: github.repository == 'github/gh-aw-firewall'
+if: github.repository == 'github/gh-aw-firewall' && github.ref_type == 'branch'
 permissions:
   contents: read
   copilot-requests: write
 name: Smoke Enclave Cloud Hypervisor Copilot (Experimental)
 runs-on: ubuntu-24.04
+features:
+  cloud-hypervisor-agent-acceptance: true
 engine:
   id: copilot
   version: 1.0.96
@@ -71,6 +73,11 @@ sandbox:
   agent:
     id: awf
     version: v0.28.62
+    runtime: cloud-hypervisor
+    config:
+      filesystem:
+        allow-write:
+          - /tmp/gh-aw/aw_info.json
 strict: false
 concurrency:
   group: smoke-enclave-cloud-hypervisor-copilot
@@ -141,18 +148,9 @@ post-steps:
 
 # Experimental Cloud Hypervisor Copilot Agent Enclave Smoke
 
-**Blocked scaffold, not a runnable smoke.** Do not dispatch or merge as an
-acceptance test until coordinated compiler and AWF topology support is available.
-The pinned compiler accepts the Docker-primary/Cloud-Hypervisor-agent-enclave
-combination below, but AWF rejects mixed backends during configuration parsing.
-Changing only the primary to Cloud Hypervisor is not a fix: the pinned compiler
-rejects that agent-enclave topology, and AWF's current Cloud Hypervisor
-primary-with-enclave acceptance gate permits only the separate static script
-smoke with the agent executor disabled. No guard or guest verification bypass
-is authorized by this scaffold. Compilation success is not runtime acceptance.
-
 Test a real Copilot CLI inside a fresh Cloud Hypervisor **agent** enclave,
-not a Python script enclave. The primary Copilot requests exactly one
+not a Python script enclave. The primary Copilot also runs in a separate
+Cloud Hypervisor VM and requests exactly one
 `enclave_run_agent` invocation through the compiler-launched MCP Gateway.
 Only the enclave agent may inspect the repository seed.
 
@@ -188,28 +186,33 @@ failures, absent invocations, contradictory diagnostics and missing pass output.
 
 ## Trust and iteration boundaries
 
-This manual-only public-fixture scaffold preserves the script smoke separately.
-Its proposed Docker primary and Cloud Hypervisor agent enclave are currently
-incompatible with AWF; no runnable topology is claimed here. If coordinated
-support is added, the intended enclave's only network peer is its dedicated credential-injecting
+This manual-only public-fixture acceptance test preserves the script smoke
+separately. Both primary and enclave select Cloud Hypervisor; mixed backends and
+Docker enclave fallback are prohibited. AWF admits this exact workflow identity,
+static public repository and single-use Copilot policy through a narrow
+acceptance gate, not general production support. The enclave's only network
+peer is its dedicated credential-injecting
 API proxy; no GitHub MCP access, direct model credentials, primary workspace,
 or safe-output tools are granted to it. The finite result schema, one-invocation
 limit, task/output sizes and execution timeout are enforced independently of the
 model settings. The eight-request and 2,048-token settings are **advisory only**:
 the pinned guest validates positivity but does not apply these limits to Copilot.
 The dedicated API proxy inherits general proxy limits (including `maxRuns: 500`),
-not those per-enclave settings. This scaffold does not claim an enforced
+not those per-enclave settings. This workflow does not claim an enforced
 eight-request or 2,048-token inference ceiling.
 
 AWF and guest assets remain pinned to verified v0.28.62, with the official
-gh-aw v0.92.3 compiler/setup, mcpg v0.4.33 and primary Copilot 1.0.96.
+gh-aw v0.92.3 setup, mcpg v0.4.33 and primary Copilot 1.0.96.
 The guest Copilot CLI is the version baked into the attested agent rootfs,
 not installed or upgraded by this workflow.
-Manual non-main branch runs build source host/infra code and use the checked-in
-v0.28.62 guest compatibility pin. They include the merged bounded-verification
-storage and unprivileged enclave vsock-port fixes; neither those fixes nor branch
-builds remove the topology blocker. Main/tag published v0.28.62 host runs do not
-yet contain those fixes and are not equivalent.
+Manual branch runs, including main, build source host/infra code and use the
+checked-in v0.28.62 guest compatibility pin. This is required for the new
+agent-acceptance gate and the merged bounded-verification storage and
+unprivileged enclave vsock-port fixes without publishing another release.
+Tag runs are not admitted; the published v0.28.62 host predates these fixes.
+Compilation additionally requires the companion compiler agent-acceptance
+support; unmodified v0.92.3 rejects this topology. Generated compiler provenance
+must identify that support rather than claim an unchanged official compiler.
 No local or unattested guest replacement is permitted.
 
 The existing host-only collector exports only allowlisted, bounded diagnostics

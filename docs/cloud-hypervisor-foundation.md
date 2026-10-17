@@ -19,22 +19,39 @@ for readiness, export isolation, shutdown ownership, and the remaining gates.
 
 The manual-only
 [`smoke-enclave-cloud-hypervisor-copilot`](../.github/workflows/smoke-enclave-cloud-hypervisor-copilot.md)
-is a **blocked scaffold, not a runnable acceptance test**. The pinned compiler
-accepts its Docker primary with a Cloud Hypervisor agent enclave, but AWF rejects
-mixed backends during configuration parsing. A Cloud Hypervisor primary is not
-an alternative yet: the compiler rejects that agent-enclave topology and AWF's
-acceptance gate only admits the separate static script smoke with agent execution
-disabled. Coordinated compiler/runtime support must precede dispatch or merge
-as an acceptance test; no runtime guard is bypassed here.
-The intended test checks two public repository file facts through a finite result
+selects a **Cloud Hypervisor primary and a separate Cloud Hypervisor agent
+enclave running Copilot**. AWF admits this experimental topology only for the
+exact official-repository manual branch workflow, single public repository,
+single-use Copilot policy and attested guest artifacts. The script acceptance
+gate remains separate and unchanged; mixed backends are still rejected.
+The test checks two public repository file facts through a finite result
 schema, with no enclave GitHub MCP tools or script fallback. Its request/token
 settings are advisory: the pinned guest checks positivity without enforcing them
 in Copilot, and the dedicated proxy inherits general rather than per-enclave
 limits. The existing passing script smoke remains separate.
-Branch builds retain attested v0.28.62 guests and the merged host storage/vsock
-fixes but do not resolve topology support. The published main/tag host binary
-lacks those fixes, and the compiler/client 120-second HTTP deadline remains an
-independent limitation. Local compilation is not evidence of live inference.
+All admitted branch runs, including main, build host/infra code from the checkout
+to include the agent acceptance gate and merged host storage/vsock fixes without
+a release. Guests remain attested v0.28.62; tag dispatch is excluded because
+published v0.28.62 host code lacks these changes. Regeneration requires the
+companion compiler agent-acceptance support, not an unchanged official v0.92.3
+compiler. Setup/action/CLI pins remain unchanged. The compiler/client 120-second
+HTTP deadline remains an independent limitation. Local compilation is not
+evidence of successful live inference or general production readiness.
+
+The checked-in agent smoke lock was generated with the explicitly experimental
+`dev-v0.92.3-enclave-agent-acceptance.49106b25afe1` compiler: official v0.92.3
+source (`aa629a8f04fc27f6024cc49d9935d3b882c37880`) plus the companion
+acceptance patch (SHA-256
+`49106b25afe14be3c097d956ad5fc383374ca5bfd8b9ed27b89085c1b8b3f75e`).
+It is not an official release binary. The Darwin arm64 build used for generation
+has SHA-256 `aa4e18a3150a996d74d8a8a693b7fe2aa9061cd92bb7996acea105d8676f2829`.
+Compile only this workflow with `--action-mode action`, explicit
+`--action-tag 26e5d7e7d2345ae4c8dfa3d9017ca2ff9bbf2c82`,
+`--schedule-seed github/gh-aw-firewall` and `--no-check-update`, then run
+`npx --no-install tsx scripts/ci/postprocess-smoke-workflows.ts`.
+The lock metadata identifies the source build; setup scripts still come from the
+unchanged official action SHA. Do not regenerate it with an unmodified v0.92.3
+compiler or hand-edit the topology.
 
 :::caution[Preview support]
 This runtime requires both `--container-runtime cloud-hypervisor` and

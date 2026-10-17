@@ -737,7 +737,10 @@ export function applyGeneralWorkflowPatches(
       if (!installStepRegexGlobal.test(content)) throw new Error('Missing released AWF install anchor for branch diagnostics');
       installStepRegexGlobal.lastIndex = 0;
       content = content.replace(installStepRegexGlobal, (match, indent: string) =>
-        match + buildBranchEnclaveInstallSteps(indent));
+        match + buildBranchEnclaveInstallSteps(
+          indent,
+          workflowPath.endsWith('smoke-enclave-cloud-hypervisor-copilot.lock.yml'),
+        ));
       log.push('  Added branch-only source runtime build for enclave diagnostics');
     }
     // gh-aw v0.92.1 gates uploads on this ID but omits it from the redaction step.
