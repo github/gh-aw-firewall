@@ -4,6 +4,8 @@ import * as path from 'path';
 import { execFileSync } from 'child_process';
 import * as yaml from 'js-yaml';
 import { applyGeneralWorkflowPatches, usesPublishedAwfRelease } from './apply-general-workflow-patches';
+import { normalizeEnclavesConfig } from '../../src/parsers/enclave-parser';
+import type { RawEnclavesConfig } from '../../src/types/enclave-options';
 
 const workflowPath = path.resolve(__dirname,
   '../../.github/workflows/smoke-enclave-cloud-hypervisor-copilot.lock.yml');
@@ -53,7 +55,7 @@ describe('Cloud Hypervisor Copilot agent enclave smoke', () => {
     expect(compiled.jobs.activation.if).toBe(frontmatter.if);
   });
 
-  it('compiles one bounded VM agent with a model route and a Docker primary', () => {
+  it('compiles the proposed VM agent and Docker primary without claiming runtime support', () => {
     const enclave = {
       agent: {
         engine: 'copilot', model: 'claude-sonnet-5',
@@ -82,6 +84,28 @@ describe('Cloud Hypervisor Copilot agent enclave smoke', () => {
     expect(lock).toContain('--exclude-env MCP_GATEWAY_API_KEY');
     expect(lock).toContain('export GH_AW_MCP_DEFERRED_SERVERS="awf-enclave"');
     expect(lock).not.toContain('"github": {');
+    const entries: RawEnclavesConfig = JSON.parse(match![1].replace(/\\"/g, '"'));
+    expect(() => normalizeEnclavesConfig(entries, { primaryRuntime: 'docker' }))
+      .toThrow(/differs from primary backend.*one sandbox backend is required/);
+    expect(source).toContain('Blocked scaffold, not a runnable smoke');
+    expect(source).toContain('Compilation success is not runtime acceptance');
+    expect(source).toContain('settings are **advisory only**');
+  });
+
+  it('uses the exact static agent tool request contract', () => {
+    const match = source.match(/awf-enclave enclave_run_agent \. <<'JSON'\n([\s\S]*?)\nJSON/);
+    expect(match).not.toBeNull();
+    const request = JSON.parse(match![1]) as {
+      privateRepo: string; schema: unknown; prompt: string;
+    };
+    expect(Object.keys(request).sort()).toEqual(['privateRepo', 'prompt', 'schema']);
+    expect(request.privateRepo).toBe('github/gh-aw-firewall');
+    expect(request.schema).toEqual({
+      type: 'object',
+      fields: { package_json: { type: 'boolean' }, src: { type: 'boolean' } },
+    });
+    expect(request.prompt).toContain('/awf/seed/package.json');
+    expect(Buffer.byteLength(request.prompt, 'utf8')).toBeLessThanOrEqual(4096);
   });
 
   it('preserves compiler, CLI and immutable official release pins without guest bypasses', () => {
@@ -153,7 +177,8 @@ describe('Cloud Hypervisor Copilot agent enclave smoke', () => {
         expect(() => validate(audit, [result])).toThrow();
       }
       for (const outputs of [[], [result, result], [{ ...result, result: 'false result' }],
-        [result, { type: 'missing_tool' }], [result, { type: 'missing_data' }]]) {
+        [result, { type: 'missing_tool' }], [result, { type: 'missing_data' }],
+        [result, { type: 'noop' }], [result, { type: 'report_incomplete' }]]) {
         expect(() => validate([invocation], outputs)).toThrow();
       }
       fs.writeFileSync(auditPath, 'not JSON');

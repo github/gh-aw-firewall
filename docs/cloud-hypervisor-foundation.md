@@ -19,16 +19,22 @@ for readiness, export isolation, shutdown ownership, and the remaining gates.
 
 The manual-only
 [`smoke-enclave-cloud-hypervisor-copilot`](../.github/workflows/smoke-enclave-cloud-hypervisor-copilot.md)
-preview tests one real Copilot agent inside a separate Cloud Hypervisor enclave,
-using a Docker-sandboxed primary as required by the pinned compiler. It checks
-two public repository file facts through a finite result schema, with no GitHub
-MCP tools in the enclave and no script fallback. The existing script enclave
-smoke remains separate. Branch dispatches build host/infra code from that branch
-while retaining attested v0.28.62 guests; the published main/tag host binary does
-not yet contain the merged verification-storage and enclave vsock-port fixes.
-The compiler/client 120-second HTTP deadline remains an independent limitation.
-Creating or merging the workflow does not demonstrate successful live inference;
-an explicitly authorized manual run is required.
+is a **blocked scaffold, not a runnable acceptance test**. The pinned compiler
+accepts its Docker primary with a Cloud Hypervisor agent enclave, but AWF rejects
+mixed backends during configuration parsing. A Cloud Hypervisor primary is not
+an alternative yet: the compiler rejects that agent-enclave topology and AWF's
+acceptance gate only admits the separate static script smoke with agent execution
+disabled. Coordinated compiler/runtime support must precede dispatch or merge
+as an acceptance test; no runtime guard is bypassed here.
+The intended test checks two public repository file facts through a finite result
+schema, with no enclave GitHub MCP tools or script fallback. Its request/token
+settings are advisory: the pinned guest checks positivity without enforcing them
+in Copilot, and the dedicated proxy inherits general rather than per-enclave
+limits. The existing passing script smoke remains separate.
+Branch builds retain attested v0.28.62 guests and the merged host storage/vsock
+fixes but do not resolve topology support. The published main/tag host binary
+lacks those fixes, and the compiler/client 120-second HTTP deadline remains an
+independent limitation. Local compilation is not evidence of live inference.
 
 :::caution[Preview support]
 This runtime requires both `--container-runtime cloud-hypervisor` and
