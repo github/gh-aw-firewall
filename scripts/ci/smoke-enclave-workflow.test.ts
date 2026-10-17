@@ -519,7 +519,7 @@ describe('experimental Cloud Hypervisor enclave smoke workflow', () => {
     for (const step of branchSteps) {
       expect(step.if).toBe("github.event_name == 'workflow_dispatch' && github.repository == 'github/gh-aw-firewall' && github.ref_type == 'branch' && github.ref != 'refs/heads/main'");
     }
-    expect(branchSteps[3].run).toContain('/dist/cli.js" --build-local "\\$@"');
+    expect(branchSteps[3].run).toContain('/dist/cli.js" --build-local "\\${args[@]}"');
     expect(lock).toContain('exec "${NODE_BIN}" "${WORKSPACE_PATH}/dist/cli.js" --build-local');
     expect(countOccurrences(lock, '--build-local')).toBe(1);
     expect(source).not.toContain('Do not dispatch this update yet');
@@ -542,6 +542,37 @@ describe('experimental Cloud Hypervisor enclave smoke workflow', () => {
     expect(source).toContain('compiler/client-owned 120000ms HTTP timeout remains unresolved');
     expect(source).toContain('pins-only update is not evidence of a successful live enclave invocation');
     expect(source).toContain('source-only merges\ndo not activate either');
+  });
+
+  it('removes skip-pull only from branch-build AWF options, preserving command arguments', () => {
+    const steps = buildBranchEnclaveInstallSteps('      ');
+    const wrapper = steps.slice(
+      steps.indexOf('          #!/bin/bash\n'),
+      steps.indexOf('          EOF\n'),
+    ).split('\n').map(line => line.replace(/^ {10}/, '')).join('\n');
+    const installedWrapper = execFileSync('bash', ['-c', `cat <<EOF\n${wrapper}EOF`], {
+      encoding: 'utf8',
+      env: { ...process.env, NODE_BIN: '/bin/echo', WORKSPACE_PATH: '/workspace with spaces' },
+    });
+    for (const args of [
+      ['--skip-pull', '--config', 'config with spaces.json', '--', 'echo', '--skip-pull'],
+      ['--config', 'config with spaces.json', '--skip-pull', '--', 'echo', '--skip-pull'],
+      ['--config', 'config with spaces.json', '--', 'echo', '--skip-pull'],
+    ]) {
+      const capture = installedWrapper.replace(
+        'exec "/bin/echo"',
+        'printf "%s\\\\0"',
+      );
+      const result = execFileSync('bash', ['-c', capture, 'awf', ...args]);
+      expect(result.toString().split('\0').slice(0, -1)).toEqual([
+        '/workspace with spaces/dist/cli.js', '--build-local',
+        '--config', 'config with spaces.json', '--', 'echo', '--skip-pull',
+      ]);
+    }
+    expect(execFileSync('bash', ['-c', installedWrapper, 'awf', '--skip-pull'], {
+      encoding: 'utf8',
+    })).toBe('/workspace with spaces/dist/cli.js --build-local\n');
+    expect(buildLocalInstallSteps('      ')).not.toContain('awf_options=');
   });
 
   it('uses one real gateway with late enclave discovery and host authentication', () => {

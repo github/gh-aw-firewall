@@ -167,7 +167,10 @@ because `sandbox.mcp.version` is an internal field; no validation bypass is used
 On main and release tags, AWF, Copilot, and primary/enclave artifact versions
 remain unchanged. Manual non-main branch runs instead build the checked-out
 host CLI and infrastructure containers, including the enclave MCP broker,
-using `--build-local`. They still use the verified v0.28.62 VM artifacts:
+using `--build-local`. The branch-only wrapper removes the compiler's
+incompatible `--skip-pull` option before the command separator, retaining
+command arguments and published-release behavior on main/tags.
+They still use the verified v0.28.62 VM artifacts:
 no attestation, digest, or VM isolation checks are disabled.
 The branch runtime emits `enclave-host-executor.jsonl` in the protected audit,
 plus a durable `host-executor-control` snapshot covering pre-launch failures.
