@@ -1,5 +1,6 @@
 import { runAgentCommand, fastKillAgentContainer } from './container-lifecycle';
 import { containerLifecycleTestHelpers } from './container-lifecycle.test-utils';
+import { markAgentExternallyKilled } from './container-lifecycle-state';
 import { logger } from './logger';
 import { SQUID_CONTAINER_NAME } from './constants';
 import * as fs from 'fs';
@@ -203,6 +204,50 @@ describe('runAgentCommand', () => {
       stdoutWrite.mockRestore();
       stderrWrite.mockRestore();
     }
+  });
+
+  it('does not retry a gVisor startup exit after external cancellation', async () => {
+    const stdout = new PassThrough();
+    const stderr = new PassThrough();
+    let endedStreams = 0;
+    let resolveLogs: ((value: { stdout: Buffer; stderr: Buffer; exitCode: number }) => void) | undefined;
+    const logsProcess = Object.assign(
+      new Promise<{ stdout: Buffer; stderr: Buffer; exitCode: number }>(resolve => { resolveLogs = resolve; }),
+      { stdout, stderr },
+    );
+    const finishLogs = (): void => {
+      if (++endedStreams === 2) resolveLogs?.({ stdout: Buffer.alloc(0), stderr: Buffer.alloc(0), exitCode: 0 });
+    };
+    stdout.on('end', finishLogs);
+    stderr.on('end', finishLogs);
+    mockExecaFn
+      .mockReturnValueOnce(logsProcess as any)
+      .mockResolvedValueOnce({ stdout: '139', stderr: '', exitCode: 0 } as any);
+    const capture = {
+      invocationId: 'cancelled-gvisor',
+      beginAttempt: jest.fn(),
+      recordOutput: jest.fn(),
+      recordPresentationFailure: jest.fn(),
+      finishAttempt: jest.fn(),
+      finishCommand: jest.fn(),
+      waitForCommandCompletion: jest.fn().mockResolvedValue(undefined),
+      setTeardown: jest.fn(),
+      close: jest.fn(),
+    } as ProtectedCommandOutputCapture;
+    markAgentExternallyKilled();
+
+    setImmediate(() => {
+      stdout.end();
+      stderr.end();
+    });
+    const result = await runAgentCommand(
+      getDir(), ['github.com'], undefined, undefined, 'gvisor', capture,
+    );
+
+    expect(result.exitCode).toBe(139);
+    expect(mockExecaFn).not.toHaveBeenCalledWith('docker', ['inspect', '--format', expect.any(String), 'awf-agent'], expect.anything());
+    expect(mockExecaFn).not.toHaveBeenCalledWith('docker', ['start', 'awf-agent'], expect.anything());
+    expect(capture.finishCommand).toHaveBeenCalledWith(139, 'cancelled');
   });
 
   it('should return exit code 124 when agent times out', async () => {

@@ -561,8 +561,9 @@ export async function runAgentCommand(
     let attemptResult = await executeAgentAttempt();
     let exitCode = attemptResult.exitCode;
 
-    if (isGvisorRuntime(containerRuntime)) {
+    if (isGvisorRuntime(containerRuntime) && !isAgentExternallyKilled()) {
       for (let attempt = 1; attempt <= MAX_GVISOR_AGENT_RETRIES; attempt++) {
+        if (isAgentExternallyKilled()) break;
         if (!GVISOR_RETRYABLE_AGENT_EXIT_CODES.has(exitCode)) {
           break;
         }
@@ -576,6 +577,7 @@ export async function runAgentCommand(
           );
           break;
         }
+        if (isAgentExternallyKilled()) break;
 
         logger.warn(
           `gVisor agent exited with code ${exitCode} before startup completed; retrying container launch (${attempt}/${MAX_GVISOR_AGENT_RETRIES})...`
@@ -586,6 +588,13 @@ export async function runAgentCommand(
           stderr: 'inherit',
           env: getLocalDockerEnv(),
         });
+        if (isAgentExternallyKilled()) {
+          await execa('docker', ['stop', '-t', '3', AGENT_CONTAINER_NAME], {
+            reject: false,
+            env: getLocalDockerEnv(),
+          });
+          break;
+        }
         attemptResult = await executeAgentAttempt(logsSince);
         exitCode = attemptResult.exitCode;
       }
