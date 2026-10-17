@@ -60,8 +60,8 @@ jobs:
       - name: Configure Docker Hub cache
         run: bash scripts/ci/configure-docker-mirror.sh
 
-      # Includes automatic checksum-verified NVX musl guest selection.
-      - name: Checkout NVX-aware compiler
+      # Retain NVX support and backport only the narrow agent acceptance guard.
+      - name: Checkout acceptance-aware compiler
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: github/gh-aw
@@ -75,7 +75,7 @@ jobs:
           go-version-file: .tmp/gh-aw-compiler/go.mod
           cache: false
 
-      - name: Install NVX-aware gh-aw
+      - name: Install acceptance-aware gh-aw
         run: |
           # Backport only the reviewed acceptance guard and its tests, not compiler main.
           # github/gh-aw#69777; keep the existing NVX-aware source/runtime pins.

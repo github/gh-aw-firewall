@@ -64,11 +64,11 @@ describe('CI registry retrieval', () => {
     expect(steps.find((step) => step.run?.includes(`'${grant}'`))?.run).toContain(grant);
   });
 
-  it('builds the pinned NVX-aware compiler before scanning', () => {
+  it('builds the pinned acceptance-aware compiler before scanning', () => {
     const steps = jobs('supply-chain-scan.yml').scan.steps;
     const checkout = steps.findIndex((step) => step.with?.repository === 'github/gh-aw');
     const install = steps.findIndex(
-      (step) => step.name === 'Install NVX-aware gh-aw',
+      (step) => step.name === 'Install acceptance-aware gh-aw',
     );
     const compile = steps.findIndex((step) => step.run === 'gh aw compile --syft .github/workflows/*.md');
     expect(checkout).toBeGreaterThanOrEqual(0);
