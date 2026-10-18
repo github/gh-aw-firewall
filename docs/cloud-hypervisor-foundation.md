@@ -1653,6 +1653,46 @@ such a run cannot identify its failing stage. These host checks need no guest
 rootfs rebuild and do not change artifact acceptance, launch policy, or caller
 errors.
 
+Script and Copilot enclaves share the host/storage/artifact/VM/guest-connection
+checklist and execution transport diagnostics. `guestExecution` records bounded
+host elapsed times, execute-send completion, first response, last frame type,
+frame/stream byte counters, partial-frame bytes, and whether an actual result
+arrived. Typed failure reasons distinguish disconnect, socket error, read/write
+timeout, output-capture failure, protocol failure, and guest rejection. A guest
+error retains its protocol code and a finite rejection stage for recognized
+supervisor message prefixes (workspace/cwd/command resolution, identity,
+process start/wait, or request validation), never the message itself. Unknown
+formats remain `unknown`; these are guest-reported categories, not host proof.
+Actual result
+exit/signal/timeout fields are separate from the broker's generic exit 1.
+A host-synthesized timeout has `resultReceived: false`. No heartbeat or
+inactivity timeout is added for silent commands.
+
+Copilot additionally publishes `enclave-network/*` origin checks for compiler
+gateway identity (when enabled), Docker topology and exact membership, dedicated
+API-proxy running/healthy status, optional gateway identity/running status, and
+the Docker bridge. These are host-side readiness checks, not proof of a guest
+TCP connection, provider authentication, or inference. They send no API request
+and do not open additional network paths.
+
+After confirmed VM stop and before invocation storage removal, `guestSession`
+projects the agent's existing `/runtime/session.jsonl` onto bounded, closed
+event/path/stage/category vocabularies. It retains up to 32 events, the last
+milestone, first failure, and last resource snapshot independently. Missing,
+empty, unsafe, oversized, invalid, or unreadable evidence is explicit and does
+not replace the invocation or cleanup failure. The reader checks canonical
+runtime directory identity, owner/mode, non-symlink regular file, device and
+single-link identity, and a 1 MiB input bound. No raw engine streams, stream
+hashes, exception text, prompts, repository contents or bearer files are copied.
+Guest events remain untrusted evidence, not authoritative execution outcomes.
+The existing protected host snapshot export carries this projection, without
+requiring public raw-log capture or widening artifact permissions.
+
+These host additions work with existing attested guests that emit session
+events. New supervisor milestones or guest-origin TCP/API-proxy probes require
+a separately rebuilt and verified guest artifact; updating the host alone
+cannot add those guest events to a release-pinned run.
+
 For script guests, the entrypoint emits bounded JSON lifecycle records on stderr:
 startup identity, seed copy, output link, working-directory setup, and script
 execution, with elapsed time and native error category/errno on failure.

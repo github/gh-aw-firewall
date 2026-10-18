@@ -11,6 +11,7 @@ import {
   type GuestProtocolFrame,
 } from './guest-protocol';
 import { GuestExecutionError, MicrovmVsockClient } from './vsock-client';
+import { classifyGuestRejection, type GuestExecutionDiagnostics } from './execution-diagnostics';
 
 async function createServer(
   handler: (frame: GuestProtocolFrame, socket: net.Socket) => void,
@@ -80,6 +81,95 @@ async function createRawServer(
 }
 
 describe('MicrovmVsockClient', () => {
+  it.each([
+    ['resolve workspace mount: PRIVATE_PATH PRIVATE_TOKEN', 'workspace-resolution'],
+    ['resolve cwd: PRIVATE_PATH', 'cwd-resolution'],
+    ['cwd must remain under the workspace mount', 'cwd-validation'],
+    ['command not found in PATH: PRIVATE_ARGV', 'command-resolution'],
+    ['fork/exec /PRIVATE_COMMAND: permission denied', 'process-start'],
+    ['PRIVATE_ERROR', 'unknown'],
+  ])('classifies existing guest errors without retaining dynamic details: %s', (message, expected) => {
+    expect(classifyGuestRejection(message)).toBe(expected);
+  });
+  it.each(['disconnect', 'guest-error', 'output-failure', 'partial-frame', 'exit', 'signal', 'timeout'] as const)(
+    'reports bounded execution metadata for %s without disclosing payload or error text', async (scenario) => {
+      const events: GuestExecutionDiagnostics[] = [];
+      const server = await createServer((frame, socket) => {
+        if (frame.type !== 'execute') return;
+        if (scenario === 'disconnect') return socket.destroy();
+        if (scenario === 'timeout') return;
+        if (scenario === 'guest-error') {
+          socket.write(encodeGuestFrame({
+            version: 1, type: 'error', requestId: frame.requestId,
+            code: 'invalid_request', message: 'resolve workspace mount: PRIVATE_ERROR /private/repository',
+          }));
+          return;
+        }
+        const result = encodeGuestFrame({
+          version: 1, type: 'result', requestId: frame.requestId,
+          exitCode: scenario === 'signal' ? null : 24,
+          signal: scenario === 'signal' ? 'SIGKILL' : null, timedOut: false,
+        });
+        if (scenario === 'partial-frame') {
+          socket.write(result.subarray(0, 2));
+          return;
+        }
+        socket.write(encodeGuestFrame({
+          version: 1, type: 'stderr', requestId: frame.requestId,
+          data: Buffer.from('PRIVATE_STDERR').toString('base64'),
+        }));
+        socket.write(result);
+      });
+      const client = new MicrovmVsockClient({
+        socketPath: server.socketPath, guestPort: 52, readTimeoutMs: 10, cancellationGraceMs: 5,
+      });
+      const output = new Writable({
+        write: (_chunk, _encoding, callback) => callback(new Error('PRIVATE_CAPTURE_ERROR')),
+      });
+      output.on('error', () => undefined);
+      try {
+        await client.connect();
+        const result = client.execute({
+          requestId: 'PRIVATE_ID', argv: ['PRIVATE_COMMAND'], env: { TOKEN: 'PRIVATE_TOKEN' },
+          cwd: '/PRIVATE_CWD', uid: 65534, gid: 65534,
+          ...(scenario === 'output-failure' ? { rawStderr: output } : {}),
+          ...(scenario === 'timeout' ? { timeoutMs: 10 } : {}),
+          onDiagnostics: (value) => events.push(value),
+        });
+        if (['exit', 'signal', 'timeout'].includes(scenario)) await expect(result).resolves.toBeDefined();
+        else await expect(result).rejects.toThrow();
+        const last = events[events.length - 1];
+        if (scenario === 'exit' || scenario === 'signal') {
+          expect(last).toMatchObject({
+            phase: 'result', framesReceived: 2, stderrBytes: 14, resultReceived: true,
+            exitCode: scenario === 'exit' ? 24 : null,
+            signal: scenario === 'signal' ? 'SIGKILL' : null, timedOut: false,
+          });
+        } else if (scenario === 'timeout') {
+          expect(last).toMatchObject({ phase: 'result', resultReceived: false, timedOut: true });
+        } else {
+          expect(last).toMatchObject({
+            phase: 'failed', resultReceived: false,
+            failureReason: {
+              disconnect: 'guest-disconnected', 'guest-error': 'guest-rejected',
+              'output-failure': 'guest-output-failed', 'partial-frame': 'guest-read-timeout',
+            }[scenario],
+          });
+          if (scenario === 'guest-error') {
+            expect(last.protocolCode).toBe('invalid_request');
+            expect(last.rejectionStage).toBe('workspace-resolution');
+          }
+          if (scenario === 'partial-frame') expect(last.pendingFrameBytes).toBe(2);
+        }
+        expect(events.length).toBeLessThanOrEqual(6);
+        expect(JSON.stringify(events)).not.toContain('PRIVATE_');
+      } finally {
+        client.destroy();
+        await server.close();
+      }
+    },
+  );
+
   it('streams output, stdin, and exact terminal status', async () => {
     const received: GuestProtocolFrame[] = [];
     const server = await createServer((frame, socket) => {

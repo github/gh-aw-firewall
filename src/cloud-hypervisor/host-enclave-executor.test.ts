@@ -16,6 +16,8 @@ import {
   readBoundedCloudHypervisorEnclaveResult,
 } from './host-enclave-executor';
 import { agentEnvironment, stageInvocationInputs } from './enclave-invocation-staging';
+import { readEnclaveSessionDiagnostics } from './enclave-session-diagnostics';
+import { GuestTransportError } from '../microvm/execution-diagnostics';
 import type { FiniteSchemaNode } from '../bounded-execution/finite-schema';
 import type {
   HostExecutorInvocationPlan,
@@ -257,6 +259,7 @@ describe('readBoundedCloudHypervisorEnclaveResult', () => {
       const chownedPaths: string[] = [];
       let snapshotNumber = 0;
       let managerStartError = false;
+      let managerExecuteError = false;
       let managerStopError = false;
       let managerResult = 'true';
       let managerExecutionResult = { exitCode: 0, signal: null as string | null, timedOut: false };
@@ -265,6 +268,7 @@ describe('readBoundedCloudHypervisorEnclaveResult', () => {
       let executionRequest: Parameters<HostEnclaveExecutorManager['execute']>[0] | undefined;
       let workloadProfile: CloudHypervisorWorkloadProfile | undefined;
       let stagedHandoff: { agentId: string; bearer: string } | undefined;
+      const sessionReads: Array<{ stopped: boolean; unmounted: boolean }> = [];
       const backendOptions = {
         runState,
         config,
@@ -278,6 +282,13 @@ describe('readBoundedCloudHypervisorEnclaveResult', () => {
         ...(role === 'agent' ? { agentPolicies: { [entryId]: agentPolicy } } : {}),
       };
       const dependencies: Partial<HostEnclaveExecutorDependencies> = {
+        readSessionDiagnostics: async (directory) => {
+          const runtime = path.join(directory, 'runtime');
+          const dir = await fs.stat(runtime);
+          sessionReads.push({ stopped, unmounted });
+          // chown is intentionally mocked in this unprivileged backend fixture.
+          return readEnclaveSessionDiagnostics(directory, dir.uid, dir.gid);
+        },
         createResourceJournal: async () => ({
           captureDirectory: async () => undefined,
           captureMount: async () => undefined,
@@ -343,6 +354,15 @@ describe('readBoundedCloudHypervisorEnclaveResult', () => {
             startInstance: async () => undefined,
             execute: async (request) => {
               executionRequest = request;
+              request.onDiagnostics?.({
+                phase: 'sending', elapsedMs: 0, framesReceived: 0, stdoutBytes: 0,
+                stderrBytes: 0, pendingFrameBytes: 0, resultReceived: false,
+              });
+              if (role === 'agent') {
+                await fs.writeFile(path.join(invocationHostDir, 'runtime', 'session.jsonl'),
+                  '{"event":"progress","stage":"engine-started","secret":"PRIVATE_SESSION_TOKEN"}\n');
+              }
+              if (managerExecuteError) throw new GuestTransportError('guest-disconnected');
               if (role === 'agent' && expectHandoffCredentials) {
                 stagedHandoff = {
                   agentId: await fs.readFile(
@@ -449,6 +469,27 @@ describe('readBoundedCloudHypervisorEnclaveResult', () => {
             agentId: 'agent_123\n',
             bearer: `${agentPolicy.githubBearer}\n`,
           });
+          const [file] = hostExecutorJournal.readHostExecutorInvocationDiagnostics(runState);
+          const evidence = JSON.parse(file.contents);
+          expect(sessionReads).toEqual([{ stopped: true, unmounted: false }]);
+          expect(evidence.guestSession).toMatchObject({
+            status: 'captured', lastEvent: { event: 'progress', stage: 'engine-started' },
+          });
+          expect(file.contents).not.toContain('PRIVATE_SESSION_TOKEN');
+          expect(evidence.guestExecution).toMatchObject({ phase: 'sending', resultReceived: false });
+          managerExecuteError = true;
+          stopped = false;
+          unmounted = false;
+          await expect(backend.execute(plan, new AbortController().signal))
+            .resolves.toEqual({ outcome: 'executor-failure' });
+          const failed = JSON.parse(hostExecutorJournal.readHostExecutorInvocationDiagnostics(runState)[0].contents);
+          expect(failed.failure).toMatchObject({
+            stage: 'host-invocation/guest-execute', reason: 'guest-disconnected',
+          });
+          expect(failed.milestones).not.toContainEqual(expect.objectContaining({ phase: 'guest-complete' }));
+          expect(failed.guestSession).toMatchObject({ status: 'captured' });
+          await expect(fs.stat(invocationHostDir)).rejects.toMatchObject({ code: 'ENOENT' });
+          managerExecuteError = false;
         } else if (expectedOutcome === 'success') {
           stopped = false;
           unmounted = false;

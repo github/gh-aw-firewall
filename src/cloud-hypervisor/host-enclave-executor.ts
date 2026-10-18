@@ -20,6 +20,8 @@ import {
   reapHostExecutorResources,
 } from '../enclave/host-executor-journal';
 import { HostPreflightReporter, markHostPreflightError } from './host-preflight-progress';
+import { guestExecutionFailureReason } from '../microvm/vsock-client';
+import { readEnclaveSessionDiagnostics } from './enclave-session-diagnostics';
 import { DurableCloudHypervisorCleanupRegistry } from './cleanup-registry';
 import {
   assertBoundedEnclaveStorage, mountBoundedEnclaveStorage, unmountBoundedEnclaveStorage,
@@ -617,6 +619,10 @@ export class CloudHypervisorHostEnclaveExecutorBackend implements HostEnclaveExe
         gid: 65534,
         timeoutMs: plan.timeoutMs + HOST_EXECUTOR_TIMEOUT_GRACE_MS,
         env: role === 'agent' && policy ? agentEnvironment(policy, plan) : {},
+        onDiagnostics: diagnostic.guestExecution,
+      }).catch((error: unknown) => {
+        const reason = guestExecutionFailureReason(error);
+        throw reason ? markHostPreflightError(error, reason) : error;
       })));
       diagnostic.milestone('guest-complete');
       if (filesystemState.timedOut || executionResult.timedOut) {
@@ -698,6 +704,18 @@ export class CloudHypervisorHostEnclaveExecutorBackend implements HostEnclaveExe
             ? new Error(`${String(cleanupError)}; ${String(error)}`)
             : error;
         }
+      }
+      if (role === 'agent' && managerStopped && filesystemState.mounted) {
+        try {
+          await resourceJournal?.verifyMount();
+          diagnostic.guestSession(await (dependencies.readSessionDiagnostics ?? readEnclaveSessionDiagnostics)(
+            plan.invocationHostDir,
+          ));
+        } catch {
+          diagnostic.guestSession({ status: 'read-failed' });
+        }
+      } else if (role === 'agent' && manager && !managerStopped) {
+        diagnostic.guestSession({ status: 'not-stopped' });
       }
       if (snapshot && (!manager || managerStopped) && cleanupError === undefined) {
         try {
