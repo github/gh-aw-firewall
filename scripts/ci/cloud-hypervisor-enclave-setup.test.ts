@@ -76,8 +76,10 @@ describe('release enclave artifact setup', () => {
         for (let i = 0; i < args.length; i++) {
           if (args[i] !== '--pattern') continue;
           const pattern = args[++i];
-          const names = fs.readdirSync(process.env.FIXTURE_ASSETS).filter(name =>
-            pattern.endsWith('*') ? name.startsWith(pattern.slice(0, -1)) : name === pattern);
+          const matcher = new RegExp('^' + pattern.split('*')
+            .map(part => part.replace(/\\./g, '\\\\.'))
+            .join('.*') + '$');
+          const names = fs.readdirSync(process.env.FIXTURE_ASSETS).filter(name => matcher.test(name));
           if (!names.length) throw new Error('No matching release asset: ' + pattern);
           for (const name of names) {
             fs.copyFileSync(path.join(process.env.FIXTURE_ASSETS, name), path.join(target, name));
@@ -104,21 +106,32 @@ describe('release enclave artifact setup', () => {
 
   afterEach(() => fs.rmSync(directory, { recursive: true, force: true }));
 
-  function fixture(compressed: boolean) {
+  function fixture(compressed: boolean, legacy = false) {
     const rootfs: Record<string, unknown> = {};
-    const name = 'enclave-rootfs.ext4';
-    const contents = 'verified shared rootfs';
-    fs.writeFileSync(path.join(assets, `${name}${compressed ? '.gz' : ''}`),
-      compressed ? gzipSync(contents) : contents);
-    fs.writeFileSync(path.join(assets, 'enclave-rootfs.provenance.sigstore.jsonl'), '{}');
+    const sharedContents = 'verified shared rootfs';
+    if (!legacy) {
+      fs.writeFileSync(path.join(assets, `enclave-rootfs.ext4${compressed ? '.gz' : ''}`),
+        compressed ? gzipSync(sharedContents) : sharedContents);
+      fs.writeFileSync(path.join(assets, 'enclave-rootfs.provenance.sigstore.jsonl'), '{}');
+    }
     for (const role of ['script', 'agent']) {
+      const name = legacy ? `enclave-${role}-rootfs.ext4` : 'enclave-rootfs.ext4';
+      const contents = legacy ? `verified ${role} rootfs` : sharedContents;
+      if (legacy) {
+        fs.writeFileSync(path.join(assets, `${name}${compressed ? '.gz' : ''}`),
+          compressed ? gzipSync(contents) : contents);
+        fs.writeFileSync(
+          path.join(assets, `${name.slice(0, -'.ext4'.length)}.provenance.sigstore.jsonl`),
+          '{}',
+        );
+      }
       const sbomName = `enclave-${role}-rootfs.sbom.spdx.json`;
       fs.writeFileSync(path.join(assets, sbomName), '{}');
       rootfs[role] = {
         role, file: name, version: tag, uid: 65534, gid: 65534,
         entrypoint: `/usr/local/bin/run-enclave-${role}`,
-        sourceImage: `ghcr.io/github/gh-aw-firewall/cloud-hypervisor-enclave@sha256:${'a'.repeat(64)}`,
-        sourceImageDigest: 'a'.repeat(64),
+        sourceImage: `ghcr.io/github/gh-aw-firewall/${legacy ? `enclave-${role}` : 'cloud-hypervisor-enclave'}@sha256:${role === 'agent' && legacy ? 'c'.repeat(64) : 'a'.repeat(64)}`,
+        sourceImageDigest: role === 'agent' && legacy ? 'c'.repeat(64) : 'a'.repeat(64),
         sha256: digest(contents), sizeBytes: Buffer.byteLength(contents),
         sbom: { file: sbomName, sha256: digest('{}') },
       };
@@ -134,10 +147,12 @@ describe('release enclave artifact setup', () => {
       compatibility: {
         cloudHypervisorVersion: '53.0', kernelVersion: '6.1.141', supervisorVersion: tag,
       },
-      guestBase: {
-        image: `ghcr.io/github/gh-aw-firewall/cloud-hypervisor-guest-base@sha256:${'a'.repeat(64)}`,
-        imageId: `sha256:${'a'.repeat(64)}`,
-      },
+      ...(!legacy ? {
+        guestBase: {
+          image: `ghcr.io/github/gh-aw-firewall/cloud-hypervisor-guest-base@sha256:${'a'.repeat(64)}`,
+          imageId: `sha256:${'a'.repeat(64)}`,
+        },
+      } : {}),
       rootfs,
     }));
     fs.writeFileSync(path.join(assets, manifestName.replace('.json', '.sigstore.jsonl')), '{}');
@@ -167,6 +182,21 @@ describe('release enclave artifact setup', () => {
       .map((line) => JSON.parse(line) as string[]);
     expect(calls.filter((args) => args[0] === 'release')).toHaveLength(1);
     expect(calls.filter((args) => args[0] === 'attestation')).toHaveLength(4);
+  }, 30000);
+
+  it('continues to verify and cache the pinned legacy role-specific artifacts', () => {
+    fixture(true, true);
+    const result = runSetup();
+    expect(result.status).toBe(0);
+    expect(fs.readFileSync(path.join(cache, 'enclave-script-rootfs.ext4'), 'utf8'))
+      .toBe('verified script rootfs');
+    expect(fs.readFileSync(path.join(cache, 'enclave-agent-rootfs.ext4'), 'utf8'))
+      .toBe('verified agent rootfs');
+    expect(result.stdout).toContain(path.join(cache, 'enclave-script-rootfs.ext4'));
+    expect(result.stdout).toContain(path.join(cache, 'enclave-agent-rootfs.ext4'));
+    const calls = fs.readFileSync(log, 'utf8').trim().split('\n')
+      .map((line) => JSON.parse(line) as string[]);
+    expect(calls.filter((args) => args[0] === 'attestation')).toHaveLength(3);
   }, 30000);
 
   it.each(['gzip', 'digest', 'attestation', 'size'] as const)('does not install a cache after %s failure', (failure) => {

@@ -256,6 +256,16 @@ if ! docker image inspect "$GUEST_BASE_IMAGE" >/dev/null 2>&1; then
   fi
 fi
 guest_base_image_id=$(docker image inspect --format '{{.Id}}' "$GUEST_BASE_IMAGE")
+if [[ "$ENCLAVE_IMAGE" != *@sha256:* && "$ENCLAVE_AGENT_IMAGE" == "awf-enclave-agent:local" ]] \
+  && ! docker image inspect "$ENCLAVE_AGENT_IMAGE" >/dev/null 2>&1; then
+  docker build \
+    --platform linux/amd64 \
+    --file "$ROOT/containers/enclave/Dockerfile" \
+    --target enclave-agent \
+    --build-arg "BUILD_TOOLS_IMAGE=$BUILD_TOOLS_IMAGE" \
+    --tag "$ENCLAVE_AGENT_IMAGE" \
+    "$ROOT/containers"
+fi
 primary_runtime_image=$(resolve_guest_image "$PRIMARY_IMAGE" primary)
 enclave_runtime_image=$(resolve_guest_image "$ENCLAVE_IMAGE" enclave)
 if [ "${AWF_CH_PRUNE_DOCKER_BUILD_CACHE:-0}" = 1 ]; then

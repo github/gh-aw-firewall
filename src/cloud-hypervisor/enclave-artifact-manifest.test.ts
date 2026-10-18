@@ -54,6 +54,26 @@ function manifest(overrides: Record<string, unknown> = {}): string {
   });
 }
 
+function legacyManifest(): string {
+  return manifest({
+    guestBase: undefined,
+    rootfs: {
+      script: {
+        ...role('script'),
+        file: 'enclave-script-rootfs.ext4',
+        sourceImage: `ghcr.io/github/gh-aw-firewall/enclave-script@sha256:${digest}`,
+      },
+      agent: {
+        ...role('agent'),
+        file: 'enclave-agent-rootfs.ext4',
+        sourceImage: `ghcr.io/github/gh-aw-firewall/enclave-agent@sha256:${'c'.repeat(64)}`,
+        sourceImageDigest: 'c'.repeat(64),
+        sha256: 'c'.repeat(64),
+      },
+    },
+  });
+}
+
 describe('Cloud Hypervisor enclave artifact manifest', () => {
   it.each(['v0.28.62', 'v0.28.63', 'v0.28.64', 'v0.28.65', 'v0.28.67', 'latest'])(
     'rejects a release outside the reviewed v0.28.66 compatibility pin: %s', tag => {
@@ -81,6 +101,15 @@ describe('Cloud Hypervisor enclave artifact manifest', () => {
         entrypoint: '/usr/local/bin/run-enclave-agent',
       }),
     );
+  });
+
+  it('accepts the pinned legacy role-specific rootfs layout', () => {
+    const parsed = parseCloudHypervisorEnclaveArtifactManifest(legacyManifest(), releaseTag);
+    expect(parsed.guestBase).toBeUndefined();
+    expect(enclaveRootfsArtifactForRole(parsed, 'script').file)
+      .toBe('enclave-script-rootfs.ext4');
+    expect(enclaveRootfsArtifactForRole(parsed, 'agent').file)
+      .toBe('enclave-agent-rootfs.ext4');
   });
 
   it('rejects role entries that do not share the exact same rootfs and source image', () => {

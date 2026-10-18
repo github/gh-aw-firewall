@@ -63,6 +63,7 @@ describe('Cloud Hypervisor CI workflow', () => {
       expect.arrayContaining([
         'guest/cloud-hypervisor/**',
         'containers/build-tools/**',
+        'containers/cloud-hypervisor/**',
         'src/cloud-hypervisor/**',
         'scripts/ci/cloud-hypervisor-*.sh',
       ]),

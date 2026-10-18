@@ -121,6 +121,10 @@ describe('Cloud Hypervisor enclave rootfs artifacts', () => {
     expect(build).toContain('"gid": 65534');
     expect(build).toContain('generate-enclave-rootfs-sbom.mjs');
     expect(build).toContain('--file "$ROOT/containers/cloud-hypervisor/Dockerfile"');
+    expect(build).toContain('--target enclave-agent');
+    expect(build).toContain(
+      'if [[ "$ENCLAVE_IMAGE" != *@sha256:* && "$ENCLAVE_AGENT_IMAGE" == "awf-enclave-agent:local" ]]',
+    );
     expect(build).toContain('docker manifest inspect --verbose "$requested_image"');
     expect(build).toContain('.Descriptor.platform.architecture == "amd64"');
     expect(build).toContain('resolved_image="${requested_image%@sha256:*}@${child_digest}"');
@@ -341,7 +345,7 @@ describe('Cloud Hypervisor enclave rootfs artifacts', () => {
     expect(setup).toContain('.compatibility.supervisorVersion');
     expect(setup).toContain('.sourceImageDigest | test');
     expect(setup).toContain("'repository,workflow,tag,sourceCommit'");
-    expect(setup).toContain('enclave-rootfs.provenance.sigstore.jsonl');
+    expect(setup).toContain('enclave-*rootfs.provenance.sigstore.jsonl');
     expect(setup).toContain('AWF_CLOUD_HYPERVISOR_ENCLAVE_SCRIPT_ROOTFS');
     expect(setup).toContain('AWF_CLOUD_HYPERVISOR_ENCLAVE_AGENT_ROOTFS');
   });
@@ -368,6 +372,19 @@ describe('Cloud Hypervisor enclave rootfs artifacts', () => {
       'release/cloud-hypervisor-enclave-rootfs-x86_64.manifest.sigstore.jsonl',
     );
     expect(release).toContain('release/setup-cloud-hypervisor-enclave-artifacts.sh');
+  });
+
+  it('signs and attests SPDX SBOMs for every Cloud Hypervisor guest image digest', () => {
+    const release = fs.readFileSync(releaseWorkflowPath, 'utf8');
+    for (const image of [
+      'cloud-hypervisor-guest-base',
+      'cloud-hypervisor-primary',
+      'cloud-hypervisor-enclave',
+    ]) {
+      expect(release).toContain(`ghcr.io/\${{ github.repository }}/${image}@\${{ steps.build_${image === 'cloud-hypervisor-guest-base' ? 'guest_base' : image === 'cloud-hypervisor-primary' ? 'primary' : 'enclave'}.outputs.digest }}`);
+      expect(release).toContain(`--predicate ${image}-sbom.spdx.json`);
+      expect(release).toContain(`--type spdxjson`);
+    }
   });
 
   it('stages compressed rootfs assets without changing their attested contents', () => {

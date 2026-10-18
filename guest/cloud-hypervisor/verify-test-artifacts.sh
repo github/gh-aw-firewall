@@ -242,9 +242,9 @@ test "$(jq -r '.userspace.baseImageId' "$ARTIFACT_DIR/manifest.json")" = \
 
 tar -tzf "$ARTIFACT_DIR/awf-cloud-hypervisor-enclave-rootfs-x86_64.tar.gz" \
   | sort \
-  | diff -u - <(printf '%s\n' \
+  | diff -u <(printf '%s\n' \
       enclave-rootfs.ext4 \
       enclave-agent-rootfs.sbom.spdx.json \
       enclave-manifest.json \
       enclave-rootfs.SHA256SUMS \
-      enclave-script-rootfs.sbom.spdx.json)
+      enclave-script-rootfs.sbom.spdx.json | sort) -

@@ -14,6 +14,7 @@ on:
       - '.github/workflows/test-cloud-hypervisor.yml'
       - 'guest/cloud-hypervisor/**'
       - 'containers/build-tools/**'
+      - 'containers/cloud-hypervisor/**'
       - 'containers/enclave/**'
       - 'guest/microvm-supervisor/**'
       - 'src/cloud-hypervisor/**'

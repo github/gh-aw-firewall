@@ -141,41 +141,56 @@ export async function preflightCloudHypervisorEnclaveArtifacts(
       script: { path: '', artifact: manifest.rootfs.script },
       agent: { path: '', artifact: manifest.rootfs.agent },
     };
-    const expectedRootfs = filePath(manifestDir, manifest.rootfs.script.file);
-    const provenance = filePath(manifestDir, 'enclave-rootfs.provenance.sigstore.jsonl');
-    if (options.scriptRootfsPath !== expectedRootfs || options.agentRootfsPath !== expectedRootfs) {
+    const rootfsPaths = {
+      script: filePath(manifestDir, manifest.rootfs.script.file),
+      agent: filePath(manifestDir, manifest.rootfs.agent.file),
+    };
+    if (
+      options.scriptRootfsPath !== rootfsPaths.script
+      || options.agentRootfsPath !== rootfsPaths.agent
+    ) {
       throw new Error('Configured enclave rootfs does not match the trusted manifest path');
     }
-    for (const [label, file] of [
-      ['enclave rootfs', expectedRootfs],
-      ['enclave rootfs provenance', provenance],
-    ] as const) {
-      await assertTrustedRegularFile(label, file, constants.R_OK, {
-        uid, access: fs.access, lstat: fs.lstat, sha256: calculateSha256,
-      });
+    const sharedRootfs = manifest.rootfs.script.file === manifest.rootfs.agent.file;
+    for (const role of ['script', 'agent'] as const) {
+      if (sharedRootfs && role === 'agent') continue;
+      const artifact = manifest.rootfs[role];
+      const rootfsPath = rootfsPaths[role];
+      const provenanceName = sharedRootfs
+        ? 'enclave-rootfs.provenance.sigstore.jsonl'
+        : `${artifact.file.replace(/\.ext4$/, '')}.provenance.sigstore.jsonl`;
+      const provenance = filePath(manifestDir, provenanceName);
+      for (const [label, file] of [
+        [`${role} enclave rootfs`, rootfsPath],
+        [`${role} enclave rootfs provenance`, provenance],
+      ] as const) {
+        await assertTrustedRegularFile(label, file, constants.R_OK, {
+          uid, access: fs.access, lstat: fs.lstat, sha256: calculateSha256,
+        });
+      }
+      const rootfsStat = await fs.lstat(rootfsPath);
+      if ((await fs.lstat(provenance)).size > 8 * 1024 * 1024) {
+        throw new Error(`${role} enclave rootfs provenance exceeds its size limit`);
+      }
+      const roleDirectory = path.join(verificationDirectory, sharedRootfs ? 'shared' : role);
+      if (copyRootfs) await fs.mkdir(roleDirectory, { mode: 0o700 });
+      let verifiedRootfs = rootfsPath;
+      let verifiedProvenance = provenance;
+      if (copyRootfs) {
+        verifiedRootfs = path.join(roleDirectory, artifact.file);
+        verifiedProvenance = path.join(roleDirectory, path.basename(provenance));
+        await copyRootfs(rootfsPath, verifiedRootfs);
+        await fs.chmod(verifiedRootfs, 0o400);
+        await fs.writeFile(verifiedProvenance, await readTrustedArtifactBytes(provenance, uid, 8 * 1024 * 1024),
+          { flag: 'wx', mode: 0o400 });
+      }
+      if (rootfsStat.size !== artifact.sizeBytes
+        || (await fs.lstat(verifiedRootfs)).size !== artifact.sizeBytes
+        || await calculateSha256(verifiedRootfs) !== artifact.sha256) {
+        throw new Error(`${role} enclave rootfs does not match its trusted manifest digest and size`);
+      }
+      await verifyAttestation(options.attestationToolPath, verifiedRootfs, verifiedProvenance);
     }
-    const rootfsStat = await fs.lstat(expectedRootfs);
-    if ((await fs.lstat(provenance)).size > 8 * 1024 * 1024) {
-      throw new Error('Enclave rootfs provenance exceeds its size limit');
-    }
-    const sharedDirectory = path.join(verificationDirectory, 'shared');
-    if (copyRootfs) await fs.mkdir(sharedDirectory, { mode: 0o700 });
-    let verifiedRootfs = expectedRootfs;
-    let verifiedProvenance = provenance;
-    if (copyRootfs) {
-      verifiedRootfs = path.join(sharedDirectory, manifest.rootfs.script.file);
-      verifiedProvenance = path.join(sharedDirectory, path.basename(provenance));
-      await copyRootfs(expectedRootfs, verifiedRootfs);
-      await fs.chmod(verifiedRootfs, 0o400);
-      await fs.writeFile(verifiedProvenance, await readTrustedArtifactBytes(provenance, uid, 8 * 1024 * 1024),
-        { flag: 'wx', mode: 0o400 });
-    }
-    if (rootfsStat.size !== manifest.rootfs.script.sizeBytes ||
-      (await fs.lstat(verifiedRootfs)).size !== manifest.rootfs.script.sizeBytes ||
-      await calculateSha256(verifiedRootfs) !== manifest.rootfs.script.sha256) {
-      throw new Error('Enclave rootfs does not match its trusted manifest digest and size');
-    }
-    await verifyAttestation(options.attestationToolPath, verifiedRootfs, verifiedProvenance);
     for (const role of ['script', 'agent'] as const) {
       const artifact = enclaveRootfsArtifactForRole(manifest, role);
       const sbom = filePath(manifestDir, artifact.sbom.file);
@@ -200,8 +215,8 @@ export async function preflightCloudHypervisorEnclaveArtifacts(
       } finally {
         if (copyRootfs) await fs.rm(roleDirectory, { recursive: true, force: true });
       }
-      if (role === 'script') rootfs.script = { path: expectedRootfs, artifact };
-      else rootfs.agent = { path: expectedRootfs, artifact };
+      if (role === 'script') rootfs.script = { path: rootfsPaths.script, artifact };
+      else rootfs.agent = { path: rootfsPaths.agent, artifact };
     }
     return Object.freeze({
       manifest,

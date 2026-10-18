@@ -1196,6 +1196,8 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - name: Install cosign
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
       - name: Set up guest supervisor Go toolchain
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
@@ -1219,6 +1221,22 @@ jobs:
           push: true
           platforms: linux/amd64
           tags: ghcr.io/${{ github.repository }}/cloud-hypervisor-guest-base:${{ needs.bump-version.outputs.version_number }}
+      - name: Sign guest base image with cosign
+        run: |
+          cosign sign --yes \
+            ghcr.io/${{ github.repository }}/cloud-hypervisor-guest-base@${{ steps.build_guest_base.outputs.digest }}
+      - name: Generate SBOM for guest base image
+        uses: anchore/sbom-action@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c # v0.24.3
+        with:
+          image: ghcr.io/${{ github.repository }}/cloud-hypervisor-guest-base@${{ steps.build_guest_base.outputs.digest }}
+          format: spdx-json
+          output-file: cloud-hypervisor-guest-base-sbom.spdx.json
+      - name: Attest SBOM for guest base image
+        run: |
+          cosign attest --yes \
+            --predicate cloud-hypervisor-guest-base-sbom.spdx.json \
+            --type spdxjson \
+            ghcr.io/${{ github.repository }}/cloud-hypervisor-guest-base@${{ steps.build_guest_base.outputs.digest }}
 
   build-cloud-hypervisor-profiles:
     name: Build Cloud Hypervisor Guest Profiles
@@ -1240,6 +1258,8 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - name: Install cosign
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
       - name: Build and push primary guest
         id: build_primary
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
@@ -1253,6 +1273,22 @@ jobs:
             GUEST_BASE_IMAGE=ghcr.io/${{ github.repository }}/cloud-hypervisor-guest-base@${{ needs.build-cloud-hypervisor-guest-base.outputs.digest }}
             BUILD_TOOLS_IMAGE=ghcr.io/${{ github.repository }}/build-tools@${{ needs.build-build-tools.outputs.digest }}
           tags: ghcr.io/${{ github.repository }}/cloud-hypervisor-primary:${{ needs.bump-version.outputs.version_number }}
+      - name: Sign primary guest image with cosign
+        run: |
+          cosign sign --yes \
+            ghcr.io/${{ github.repository }}/cloud-hypervisor-primary@${{ steps.build_primary.outputs.digest }}
+      - name: Generate SBOM for primary guest image
+        uses: anchore/sbom-action@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c # v0.24.3
+        with:
+          image: ghcr.io/${{ github.repository }}/cloud-hypervisor-primary@${{ steps.build_primary.outputs.digest }}
+          format: spdx-json
+          output-file: cloud-hypervisor-primary-sbom.spdx.json
+      - name: Attest SBOM for primary guest image
+        run: |
+          cosign attest --yes \
+            --predicate cloud-hypervisor-primary-sbom.spdx.json \
+            --type spdxjson \
+            ghcr.io/${{ github.repository }}/cloud-hypervisor-primary@${{ steps.build_primary.outputs.digest }}
       - name: Build and push shared enclave guest
         id: build_enclave
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
@@ -1266,6 +1302,22 @@ jobs:
             GUEST_BASE_IMAGE=ghcr.io/${{ github.repository }}/cloud-hypervisor-guest-base@${{ needs.build-cloud-hypervisor-guest-base.outputs.digest }}
             ENCLAVE_AGENT_IMAGE=ghcr.io/${{ github.repository }}/enclave-agent@${{ needs.build-enclaves.outputs.enclave_agent_digest }}
           tags: ghcr.io/${{ github.repository }}/cloud-hypervisor-enclave:${{ needs.bump-version.outputs.version_number }}
+      - name: Sign shared enclave guest image with cosign
+        run: |
+          cosign sign --yes \
+            ghcr.io/${{ github.repository }}/cloud-hypervisor-enclave@${{ steps.build_enclave.outputs.digest }}
+      - name: Generate SBOM for shared enclave guest image
+        uses: anchore/sbom-action@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c # v0.24.3
+        with:
+          image: ghcr.io/${{ github.repository }}/cloud-hypervisor-enclave@${{ steps.build_enclave.outputs.digest }}
+          format: spdx-json
+          output-file: cloud-hypervisor-enclave-sbom.spdx.json
+      - name: Attest SBOM for shared enclave guest image
+        run: |
+          cosign attest --yes \
+            --predicate cloud-hypervisor-enclave-sbom.spdx.json \
+            --type spdxjson \
+            ghcr.io/${{ github.repository }}/cloud-hypervisor-enclave@${{ steps.build_enclave.outputs.digest }}
 
   build-cloud-hypervisor-test-artifacts:
     name: Build Cloud Hypervisor Preview Test Artifacts

@@ -90,8 +90,16 @@ verify_manifest() {
   assert_trusted_file "$manifest_bundle" "enclave artifact manifest bundle" || return 1
   verify_attestation "$manifest" "$manifest_bundle" || return 1
 
+  local shared_layout=false
+  if jq -e 'has("guestBase")' "$manifest" >/dev/null; then
+    shared_layout=true
+  fi
+  local manifest_keys='schemaVersion,artifactType,architecture,release,compatibility,rootfs'
+  if [ "$shared_layout" = true ]; then
+    manifest_keys+=',guestBase'
+  fi
   assert_closed_keys "$manifest" '' \
-    'schemaVersion,artifactType,architecture,release,compatibility,guestBase,rootfs' \
+    "$manifest_keys" \
     "enclave artifact manifest" || return 1
   assert_closed_keys "$manifest" '.release' \
     'repository,workflow,tag,sourceCommit' \
@@ -99,12 +107,14 @@ verify_manifest() {
   assert_closed_keys "$manifest" '.compatibility' \
     'cloudHypervisorVersion,kernelVersion,supervisorVersion' \
     "enclave artifact manifest compatibility" || return 1
-  assert_closed_keys "$manifest" '.guestBase' \
-    'image,imageId' "enclave guest base" || return 1
-  jq -e '.guestBase.image | test("^ghcr.io/github/gh-aw-firewall/cloud-hypervisor-guest-base@sha256:[a-f0-9]{64}$")' \
-    "$manifest" >/dev/null || return 1
-  jq -e '.guestBase.imageId | test("^sha256:[a-f0-9]{64}$")' \
-    "$manifest" >/dev/null || return 1
+  if [ "$shared_layout" = true ]; then
+    assert_closed_keys "$manifest" '.guestBase' \
+      'image,imageId' "enclave guest base" || return 1
+    jq -e '.guestBase.image | test("^ghcr.io/github/gh-aw-firewall/cloud-hypervisor-guest-base@sha256:[a-f0-9]{64}$")' \
+      "$manifest" >/dev/null || return 1
+    jq -e '.guestBase.imageId | test("^sha256:[a-f0-9]{64}$")' \
+      "$manifest" >/dev/null || return 1
+  fi
   assert_closed_keys "$manifest" '.rootfs' \
     'script,agent' \
     "enclave artifact manifest rootfs" || return 1
@@ -131,9 +141,12 @@ verify_manifest() {
 
   local role
   for role in script agent; do
-    local rootfs_name="enclave-rootfs.ext4"
+    local rootfs_name="enclave-${role}-rootfs.ext4"
     local sbom_name="enclave-${role}-rootfs.sbom.spdx.json"
     local selector=".rootfs.${role}"
+    if [ "$shared_layout" = true ]; then
+      rootfs_name=enclave-rootfs.ext4
+    fi
 
     assert_closed_keys "$manifest" "$selector" \
       'role,file,version,uid,gid,entrypoint,sourceImage,sourceImageDigest,sha256,sizeBytes,sbom' \
@@ -156,7 +169,11 @@ verify_manifest() {
     jq -e "${selector}.sourceImageDigest | test(\"^[a-f0-9]{64}$\")" "$manifest" \
       >/dev/null \
       || { echo "$role enclave rootfs source image digest is invalid" >&2; return 1; }
-    jq -e "${selector}.sourceImage | test(\"^ghcr.io/github/gh-aw-firewall/cloud-hypervisor-enclave@sha256:[a-f0-9]{64}$\")" \
+    local source_image_pattern="^ghcr.io/github/gh-aw-firewall/enclave-${role}@sha256:[a-f0-9]{64}$"
+    if [ "$shared_layout" = true ]; then
+      source_image_pattern='^ghcr.io/github/gh-aw-firewall/cloud-hypervisor-enclave@sha256:[a-f0-9]{64}$'
+    fi
+    jq -e "${selector}.sourceImage | test(\"${source_image_pattern}\")" \
       "$manifest" >/dev/null \
       || { echo "$role enclave rootfs source image is not release-pinned" >&2; return 1; }
     jq -e "${selector}.sizeBytes | type == \"number\" and . > 0 and . <= 9007199254740991 and floor == ." \
@@ -165,26 +182,33 @@ verify_manifest() {
     [ "$(jq -r "${selector}.sbom.file" "$manifest")" = "$sbom_name" ] \
       || { echo "$role enclave rootfs SBOM filename mismatch" >&2; return 1; }
   done
-  jq -e '.rootfs.script.sha256 == .rootfs.agent.sha256
-    and .rootfs.script.sizeBytes == .rootfs.agent.sizeBytes
-    and .rootfs.script.sourceImage == .rootfs.agent.sourceImage
-    and .rootfs.script.sourceImageDigest == .rootfs.agent.sourceImageDigest' \
-    "$manifest" >/dev/null || return 1
+  if [ "$shared_layout" = true ]; then
+    jq -e '.rootfs.script.sha256 == .rootfs.agent.sha256
+      and .rootfs.script.sizeBytes == .rootfs.agent.sizeBytes
+      and .rootfs.script.sourceImage == .rootfs.agent.sourceImage
+      and .rootfs.script.sourceImageDigest == .rootfs.agent.sourceImageDigest' \
+      "$manifest" >/dev/null || return 1
+  fi
 }
 
 verify_rootfs_files() {
   local directory=$1
   local manifest="$directory/$manifest_name"
-  local rootfs="$directory/enclave-rootfs.ext4"
-  local provenance="$directory/enclave-rootfs.provenance.sigstore.jsonl"
-  assert_trusted_file "$rootfs" "shared enclave rootfs" || return 1
-  assert_trusted_file "$provenance" "shared enclave rootfs provenance" || return 1
-  verify_attestation "$rootfs" "$provenance" || return 1
   local role
   for role in script agent; do
+    local rootfs_name
+    rootfs_name=$(jq -r ".rootfs.${role}.file" "$manifest")
+    local rootfs="$directory/$rootfs_name"
+    if [ "$rootfs_name" = enclave-rootfs.ext4 ] && [ "$role" = agent ]; then
+      continue
+    fi
+    local provenance="$directory/${rootfs_name%.ext4}.provenance.sigstore.jsonl"
     local sbom="$directory/enclave-${role}-rootfs.sbom.spdx.json"
     local selector=".rootfs.${role}"
 
+    assert_trusted_file "$rootfs" "$role enclave rootfs" || return 1
+    assert_trusted_file "$provenance" "$role enclave rootfs provenance" || return 1
+    verify_attestation "$rootfs" "$provenance" || return 1
     assert_trusted_file "$sbom" "$role enclave rootfs SBOM" || return 1
     [ "$(jq -r "${selector}.sha256" "$manifest")" = \
         "$(sha256sum "$rootfs" | awk '{print $1}')" ] \
@@ -218,46 +242,56 @@ else
     --dir "$staging" \
     --pattern "$manifest_name" \
     --pattern "$manifest_bundle_name" \
-    --pattern 'enclave-rootfs.ext4*' \
+    --pattern 'enclave-*rootfs.ext4*' \
     --pattern 'enclave-script-rootfs.sbom.spdx.json' \
     --pattern 'enclave-agent-rootfs.sbom.spdx.json' \
-    --pattern 'enclave-rootfs.provenance.sigstore.jsonl'
+    --pattern 'enclave-*rootfs.provenance.sigstore.jsonl'
   verify_manifest "$staging"
-  compressed_rootfs="$staging/enclave-rootfs.ext4.gz"
-  if [ -f "$compressed_rootfs" ]; then
-    rootfs="$staging/enclave-rootfs.ext4"
-    size_bytes=$(jq -r '.rootfs.script.sizeBytes' "$staging/$manifest_name")
-    python3 - "$compressed_rootfs" "$rootfs" "$size_bytes" <<'PY'
+  for role in script agent; do
+    rootfs_name=$(jq -r ".rootfs.${role}.file" "$staging/$manifest_name")
+    if [ "$rootfs_name" = enclave-rootfs.ext4 ] && [ "$role" = agent ]; then
+      continue
+    fi
+    compressed_rootfs="$staging/$rootfs_name.gz"
+    if [ -f "$compressed_rootfs" ]; then
+      rootfs="$staging/$rootfs_name"
+      size_bytes=$(jq -r ".rootfs.${role}.sizeBytes" "$staging/$manifest_name")
+      rootfs_label="$role"
+      if [ "$rootfs_name" = enclave-rootfs.ext4 ]; then
+        rootfs_label=shared
+      fi
+      python3 - "$compressed_rootfs" "$rootfs" "$size_bytes" "$rootfs_label" <<'PY'
 import gzip
 import sys
 
-source, destination, size = sys.argv[1:]
+source, destination, size, label = sys.argv[1:]
 remaining = int(size)
 try:
     with gzip.open(source, "rb") as stream, open(destination, "xb") as output:
         while remaining:
             chunk = stream.read(min(1024 * 1024, remaining))
             if not chunk:
-                sys.exit("shared enclave rootfs size mismatch")
+                sys.exit(f"{label} enclave rootfs size mismatch")
             output.write(chunk)
             remaining -= len(chunk)
         if stream.read(1):
-            sys.exit("shared enclave rootfs exceeds attested size")
+            sys.exit(f"{label} enclave rootfs exceeds attested size")
 except (OSError, EOFError) as error:
-    sys.exit(f"shared enclave rootfs decompression failed: {error}")
+    sys.exit(f"{label} enclave rootfs decompression failed: {error}")
 PY
-    rm -- "$compressed_rootfs"
-  fi
+      rm -- "$compressed_rootfs"
+    fi
+  done
   find "$staging" -type f -exec chmod 0400 {} +
   verify_rootfs_files "$staging"
   mv "$staging" "$cache_dir"
   trap - EXIT
 fi
 
-script_rootfs="$cache_dir/enclave-rootfs.ext4"
-agent_rootfs="$script_rootfs"
 manifest="$cache_dir/$manifest_name"
 manifest_bundle="$cache_dir/$manifest_bundle_name"
+script_rootfs="$cache_dir/$(jq -r '.rootfs.script.file' "$manifest")"
+agent_rootfs="$cache_dir/$(jq -r '.rootfs.agent.file' "$manifest")"
 
 if [ -n "${GITHUB_ENV:-}" ]; then
   {

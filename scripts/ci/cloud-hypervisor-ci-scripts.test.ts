@@ -126,6 +126,14 @@ describe('cloud-hypervisor-host-preflight.sh', () => {
     expect(source).toContain('sha256sum --check --strict SHA256SUMS');
   });
 
+  it('preflights one shared enclave rootfs while checking both role metadata entries', () => {
+    const source = fs.readFileSync(preflightPath, 'utf-8');
+    expect(source).toContain('rootfs_name=enclave-rootfs.ext4');
+    expect(source).toContain('for role in script agent; do');
+    expect(source).toContain('.rootfs.${role}.role');
+    expect(source).toContain('.rootfs.${role}.file');
+  });
+
   (shellcheckAvailable() ? it : it.skip)('has no shellcheck errors', () => {
     expect(() =>
       execFileSync('shellcheck', ['--severity=error', preflightPath]),

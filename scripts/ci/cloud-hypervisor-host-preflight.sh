@@ -108,10 +108,10 @@ test "$(jq -r '.architecture' "$ARTIFACT_DIR/enclave-manifest.json")" = x86_64 \
 test "$(jq -r '.compatibility.cloudHypervisorVersion' "$ARTIFACT_DIR/enclave-manifest.json")" = 53.0 \
   || fail "Cloud Hypervisor enclave rootfs compatibility version is invalid."
 
+rootfs_name=enclave-rootfs.ext4
+rootfs="$ARTIFACT_DIR/$rootfs_name"
+require_regular_file "$rootfs" "Cloud Hypervisor shared enclave rootfs"
 for role in script agent; do
-  rootfs_name="enclave-${role}-rootfs.ext4"
-  rootfs="$ARTIFACT_DIR/$rootfs_name"
-  require_regular_file "$rootfs" "Cloud Hypervisor $role enclave rootfs"
   test "$(jq -r ".rootfs.${role}.role" "$ARTIFACT_DIR/enclave-manifest.json")" = "$role" \
     || fail "Cloud Hypervisor $role enclave rootfs role metadata is invalid."
   test "$(jq -r ".rootfs.${role}.file" "$ARTIFACT_DIR/enclave-manifest.json")" = "$rootfs_name" \
