@@ -73,7 +73,7 @@ COPY server.js logging.js metrics.js rate-limiter.js rate-limiter-window.js \
      anthropic-cache.js otel.js otel-exporters.js otel-serialization.js otel-workload-identity.js \
      token-budget-log.js blocked-request-diagnostics.js \
      provider-env-constants.js provider-env-constants.json provider-names.js \
-     model-api-mapping.js model-api-mapping.json \
+     model-api-mapping.js model-api-mapping.json provider-error-fields.js \
      routing-candidates.js routing-catalogue.js routing-classifier.js routing-config.js \
      routing-contract.js routing-controller.js routing-errors.js routing-observation.js \
      routing-planner.js routing-provider-executor.js routing-router-client.js routing-runtime.js routing-persistence.js ./

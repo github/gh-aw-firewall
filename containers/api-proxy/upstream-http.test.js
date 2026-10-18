@@ -5,6 +5,8 @@ const {
 } = require('./upstream-http');
 const { clearRuntimeModels, replaceRuntimeModels } = require('./runtime-model-catalog');
 const { translateCopilotWireApi } = require('./wire-api-compat');
+const { EventEmitter } = require('events');
+const { createRoutingObservation } = require('./routing-observation');
 
 describe('upstream-http', () => {
   afterEach(() => clearRuntimeModels());
@@ -457,6 +459,78 @@ describe('upstream-http', () => {
       body: retryBody,
       headers: expect.objectContaining({ 'content-length': String(retryBody.length) }),
     }));
+  });
+
+  test('marks a local unsupported_reasoning_effort rejection on req.awfRouting', () => {
+    replaceRuntimeModels('copilot', [{ id: 'low-only-model', supportedReasoningEfforts: ['low'] }]);
+    const records = [];
+    const observation = createRoutingObservation({
+      getSelection: () => ({
+        schema: 'awf-routing-selection/v1',
+        engine: 'copilot',
+        provider: 'copilot',
+        choice: { id: 'choice-0001', model: 'github-copilot/low-only-model' },
+        wire_model: 'low-only-model',
+      }),
+      recordFailure: jest.fn(),
+      observer: { record: record => records.push(record) },
+      generateRequestId: () => 'req-1',
+    });
+    const res = new EventEmitter();
+    const written = [];
+    res.statusCode = 200;
+    res.headersSent = false;
+    res.writeHead = jest.fn((statusCode) => { res.statusCode = statusCode; });
+    res.write = jest.fn();
+    res.end = jest.fn((chunk) => {
+      written.push(chunk);
+      res.writableFinished = true;
+      res.emit('finish');
+    });
+    const req = { method: 'POST', url: '/v1/chat/completions', headers: {} };
+    observation.observeRequest(req, res, { name: 'copilot' });
+    const body = Buffer.from(JSON.stringify({ model: 'low-only-model', reasoning_effort: 'high', messages: [] }));
+    req.awfRouting.bodyTransform(body);
+    const httpsRequest = jest.fn();
+    const handleUpstreamResponse = jest.fn();
+    const sendUpstreamRequest = createSendUpstreamRequest({
+      https: { request: httpsRequest },
+      proxyAgent: {},
+      handleUpstreamResponse,
+      sleep: jest.fn(),
+      otel: { endSpanError: jest.fn(), endSpan: jest.fn() },
+      handleRequestError: jest.fn(),
+      metrics: { gaugeDec: jest.fn(), increment: jest.fn(), observe: jest.fn() },
+    });
+
+    sendUpstreamRequest({ 'content-length': String(body.length) }, createContext({
+      body,
+      requestBytes: body.length,
+      req,
+      res,
+    }));
+
+    expect(httpsRequest).not.toHaveBeenCalled();
+    expect(handleUpstreamResponse).not.toHaveBeenCalled();
+    expect(req.awfRouting.localError).toEqual({
+      code: 'unsupported_reasoning_effort',
+      type: 'invalid_request_error',
+    });
+    expect(res.writeHead).toHaveBeenCalledWith(400, { 'Content-Type': 'application/json', 'X-Request-ID': 'req-1' });
+    expect(written).toEqual([JSON.stringify({
+      error: {
+        message: 'reasoning_effort "high" is not supported by model low-only-model; supported values: [low]',
+        type: 'invalid_request_error',
+        code: 'unsupported_reasoning_effort',
+      },
+    })]);
+    expect(records).toEqual([expect.objectContaining({
+      outcome: 'failed',
+      status: 400,
+      error_code: 'unsupported_reasoning_effort',
+      error_type: 'invalid_request_error',
+      error_source: 'awf',
+    })]);
   });
 
   test.each(['ordered fallback', 'endpoint-blocked fallback'])(

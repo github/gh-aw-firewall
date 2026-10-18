@@ -210,6 +210,106 @@ describe('upstream-log', () => {
     expect(auditTrack).toHaveBeenCalledWith('UPSTREAM_ERROR_RESPONSE', expect.any(Object));
   });
 
+  // Recorded verbatim from github/gh-aw run 38327292581 (upstream-errors.jsonl).
+  const COPILOT_INVALID_REASONING_EFFORT_BODY = '{"error":{"message":"output_config.effort \\"high\\" was provided, but model claude-haiku-4.5 does not support reasoning effort","code":"invalid_reasoning_effort"}}';
+  const ERROR_FIELD_KEYS = ['error_code', 'error_type', 'error_param', 'error_source'];
+
+  function logCopilotError(body, { contentType = 'text/plain; charset=utf-8', bytes } = {}) {
+    const auditTrack = jest.fn();
+    const sanitizeForLog = (value, maxLen = 200) => String(value || '').slice(0, maxLen);
+    const logUpstreamErrorResponse = createLogUpstreamErrorResponse({
+      logRequest: jest.fn(),
+      sanitizeForLog,
+      auditTrack,
+    });
+    const responseBody = Buffer.from(body);
+    logUpstreamErrorResponse(400, {
+      requestId: 'req-1',
+      provider: 'copilot',
+      targetHost: 'api.githubcopilot.com',
+      req: { method: 'POST', url: '/v1/messages?beta=true' },
+      requestModel: 'claude-haiku-4.5',
+      transformed: false,
+      responseHeaders: { 'content-type': contentType },
+      responseBody,
+      responseBodyBytes: bytes ?? responseBody.length,
+    });
+    expect(auditTrack).toHaveBeenCalledWith('UPSTREAM_ERROR_RESPONSE', expect.any(Object));
+    const record = auditTrack.mock.calls[0][1];
+    // The record main produces for the same input.
+    const base = {
+      request_id: 'req-1',
+      provider: 'copilot',
+      model: 'claude-haiku-4.5',
+      method: 'POST',
+      endpoint: '/v1/messages?beta=true',
+      status: 400,
+      upstream_host: 'api.githubcopilot.com',
+      upstream_request_ids: {},
+      response_content_type: contentType,
+      response_headers: { 'content-type': contentType },
+      response_streaming: false,
+      response_transformed: false,
+      ..._testing.buildResponseBodyLogFields({
+        responseBody,
+        responseBodyBytes: bytes ?? responseBody.length,
+        sanitizeForLog,
+      }),
+    };
+    return { record, base };
+  }
+
+  function withoutErrorFields(record) {
+    return Object.fromEntries(Object.entries(record).filter(([key]) => !ERROR_FIELD_KEYS.includes(key)));
+  }
+
+  test('logUpstreamErrorResponse adds error_code from the recorded Copilot invalid_reasoning_effort 400', () => {
+    const { record, base } = logCopilotError(COPILOT_INVALID_REASONING_EFFORT_BODY);
+    expect(record).toEqual({ ...base, error_code: 'invalid_reasoning_effort' });
+    expect(record.status).toBe(400);
+    expect(record).not.toHaveProperty('error_type');
+    expect(record).not.toHaveProperty('error_param');
+  });
+
+  test('logUpstreamErrorResponse adds no error fields for non-JSON, truncated, or non-identifier error bodies', () => {
+    const envelope = JSON.parse(COPILOT_INVALID_REASONING_EFFORT_BODY);
+    const cases = [
+      () => logCopilotError('The requested model is not supported'),
+      () => {
+        const prev = process.env.AWF_MAX_ERROR_RESPONSE_CAPTURE_BYTES;
+        process.env.AWF_MAX_ERROR_RESPONSE_CAPTURE_BYTES = String(COPILOT_INVALID_REASONING_EFFORT_BODY.length - 1);
+        try {
+          const result = logCopilotError(COPILOT_INVALID_REASONING_EFFORT_BODY);
+          expect(result.record.response_body_truncated).toBe(true);
+          return result;
+        } finally {
+          if (prev === undefined) delete process.env.AWF_MAX_ERROR_RESPONSE_CAPTURE_BYTES;
+          else process.env.AWF_MAX_ERROR_RESPONSE_CAPTURE_BYTES = prev;
+        }
+      },
+      () => logCopilotError(JSON.stringify({ error: { ...envelope.error, code: 'bad code with spaces' } })),
+      () => logCopilotError(JSON.stringify({ error: { ...envelope.error, code: 'a'.repeat(65) } })),
+      () => logCopilotError('{"error":"rate limited"}'),
+    ];
+    for (const run of cases) {
+      const { record, base } = run();
+      for (const key of ERROR_FIELD_KEYS) expect(record).not.toHaveProperty(key);
+      expect(record).toEqual(base);
+    }
+  });
+
+  test('logUpstreamErrorResponse never copies error.message into error fields', () => {
+    const { record, base } = logCopilotError(COPILOT_INVALID_REASONING_EFFORT_BODY);
+    const errorFields = Object.fromEntries(Object.entries(record).filter(([key]) => ERROR_FIELD_KEYS.includes(key)));
+    expect(errorFields).toEqual({ error_code: 'invalid_reasoning_effort' });
+    const serialized = JSON.stringify(errorFields);
+    for (const fragment of ['output_config', '"high"', 'does not support', 'private error output']) {
+      expect(serialized).not.toContain(fragment);
+    }
+    expect(record.response_body).toBe(COPILOT_INVALID_REASONING_EFFORT_BODY);
+    expect(withoutErrorFields(record)).toEqual(base);
+  });
+
   test('buildResponseBodyLogFields marks truncation explicitly', () => {
     const prev = process.env.AWF_MAX_ERROR_RESPONSE_CAPTURE_BYTES;
     process.env.AWF_MAX_ERROR_RESPONSE_CAPTURE_BYTES = '8';

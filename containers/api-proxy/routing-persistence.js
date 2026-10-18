@@ -14,6 +14,7 @@ const FIELDS = new Set([
   'router', 'ranked_choices', 'conversation_sha256', 'phase', 'code', 'detail',
   'request_id', 'routed', 'deviations', 'unavailable', 'method', 'pathname',
   'requested_model', 'requested_effort', 'requested_endpoint', 'upstream_endpoint', 'outcome', 'status',
+  'error_code', 'error_type', 'error_source',
 ]);
 
 /**

@@ -80,6 +80,21 @@ array:
 - `request_tool_names` - first 32 tool names (names only; no descriptions or schemas)
 - `request_unnamed_tool_count` - tool entries with no resolvable name
 
+When the captured body is complete (not truncated and not omitted) and parses
+as JSON - regardless of `Content-Type`, since Copilot sends JSON error
+envelopes as `text/plain` - the record also carries the provider's error
+identifiers as their own fields, so consumers never need to read
+`response_body`:
+
+- `error_code` - `error.code` (or `response.error.code` for Responses
+  `response.failed`, or the top-level `code` of a `type: "error"` event)
+- `error_type` - the matching `type`
+- `error_param` - the matching `param`
+
+Only string values matching `^[A-Za-z0-9_.:-]{1,64}$` are kept; `message` and
+all other fields are never copied. Keys without a valid value are omitted
+(never `null`).
+
 ## Security
 
 - Runs as non-root user (apiproxy)

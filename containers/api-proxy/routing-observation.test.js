@@ -443,6 +443,160 @@ describe('advisory routing observation', () => {
     expect(harness.failures).toEqual(provider === 'copilot' ? ['rate_limited'] : []);
   });
 
+  describe('request record error fields', () => {
+    const HAIKU_SELECTION = Object.freeze({
+      ...SELECTION,
+      endpoint: '/v1/messages',
+      choice: Object.freeze({ id: 'choice-0006', model: 'github-copilot/claude-haiku-4.5', effort: 'high' }),
+      wire_model: 'claude-haiku-4.5',
+    });
+    // Recorded verbatim from github/gh-aw run 38327292581 (upstream-errors.jsonl).
+    const COPILOT_INVALID_REASONING_EFFORT_BODY = '{"error":{"message":"output_config.effort \\"high\\" was provided, but model claude-haiku-4.5 does not support reasoning effort","code":"invalid_reasoning_effort"}}';
+    const ERROR_FIELD_KEYS = ['error_code', 'error_type', 'error_param', 'error_source'];
+    // The failed request record main produces for a selected Copilot Messages request.
+    const BASE_FAILED_RECORD = Object.freeze({
+      stage: 'request',
+      request_id: 'generated-inference-123',
+      outcome: 'failed',
+      status: 400,
+      routed: 'as_selected',
+      deviations: [],
+      unavailable: [],
+      method: 'POST',
+      pathname: '/v1/messages',
+      provider: 'copilot',
+      requested_model: 'claude-haiku-4.5',
+      requested_effort: 'high',
+      selected_provider: 'copilot',
+      selected_model: 'claude-haiku-4.5',
+      selected_effort: 'high',
+      selected_endpoint: '/v1/messages',
+      requested_endpoint: '/v1/messages',
+      upstream_endpoint: '/v1/messages',
+    });
+
+    function failSelected(status, payload, effort = 'high') {
+      const harness = createHarness({ ...HAIKU_SELECTION, choice: { ...HAIKU_SELECTION.choice, effort } });
+      const { req, res } = observe(harness, request({ url: '/v1/messages' }));
+      send(req, { model: 'claude-haiku-4.5', output_config: { effort } });
+      res.statusCode = status;
+      res.end(payload);
+      res.emit('close');
+      expect(res.body()).toBe(payload);
+      expect(harness.records).toHaveLength(1);
+      return { harness, record: harness.records[0], req };
+    }
+
+    it('records the provider error code on a failed request record', () => {
+      const { harness, record } = failSelected(400, COPILOT_INVALID_REASONING_EFFORT_BODY);
+      expect(record).toEqual({
+        ...BASE_FAILED_RECORD,
+        error_code: 'invalid_reasoning_effort',
+        error_source: 'upstream',
+      });
+      expect(record).not.toHaveProperty('error_type');
+      expect(harness.failures).toEqual(['invalid_reasoning_effort']);
+    });
+
+    it('records the provider error code on a deviating request record', () => {
+      const harness = createHarness(HAIKU_SELECTION);
+      const { req, res } = observe(harness, request({ url: '/v1/messages' }), { name: 'anthropic' });
+      send(req, { model: 'claude-x' });
+      res.statusCode = 400;
+      res.end(COPILOT_INVALID_REASONING_EFFORT_BODY);
+      expect(harness.records[0]).toMatchObject({
+        routed: 'deviated', outcome: 'failed', error_code: 'invalid_reasoning_effort', error_source: 'upstream',
+      });
+      expect(harness.failures).toEqual([]);
+    });
+
+    // No recorded Copilot `rate_limited` SSE event exists in this repo or in
+    // github/gh-aw; this is the existing hand-written fixture shape, not a capture.
+    const RATE_LIMITED_SSE_FIXTURE = JSON.stringify({
+      type: 'response.failed', response: { error: { code: 'rate_limited' } },
+    });
+
+    it.each([429, 200])('records the SSE error code on a failed streaming request record (HTTP %s)', status => {
+      const harness = createHarness();
+      const { req, res } = observe(harness, request());
+      send(req, { model: 'gpt-test', reasoning: { effort: 'low' } });
+      res.statusCode = status;
+      req.awfRouting.onSseInspectionStart();
+      const stream = `event: response.failed\ndata: ${RATE_LIMITED_SSE_FIXTURE}\n\n`;
+      res.write(stream);
+      req.awfRouting.onSseData(RATE_LIMITED_SSE_FIXTURE);
+      res.end();
+      req.awfRouting.onSseInspectionComplete();
+      expect(res.body()).toBe(stream);
+      expect(harness.records).toEqual([expect.objectContaining({
+        outcome: 'failed', status, error_code: 'rate_limited', error_source: 'upstream',
+      })]);
+      expect(harness.records[0]).not.toHaveProperty('error_type');
+      expect(harness.failures[0]).toBe('rate_limited');
+    });
+
+    it('records an AWF-originated error code for a local rejection', () => {
+      const harness = createHarness(HAIKU_SELECTION);
+      const { req, res } = observe(harness, request({ url: '/v1/messages' }));
+      send(req, { model: 'claude-haiku-4.5', output_config: { effort: 'high' } });
+      req.awfRouting.localError = { code: 'unsupported_reasoning_effort', type: 'invalid_request_error' };
+      const payload = JSON.stringify({ error: {
+        message: 'output_config.effort "high" is not supported by model claude-haiku-4.5; supported values: []',
+        type: 'invalid_request_error',
+        code: 'unsupported_reasoning_effort',
+      } });
+      res.statusCode = 400;
+      res.end(payload);
+      expect(res.body()).toBe(payload);
+      expect(harness.records).toEqual([{
+        ...BASE_FAILED_RECORD,
+        error_code: 'unsupported_reasoning_effort',
+        error_type: 'invalid_request_error',
+        error_source: 'awf',
+      }]);
+    });
+
+    it('omits error fields when a failed response has no identifier-shaped code', () => {
+      const envelope = JSON.parse(COPILOT_INVALID_REASONING_EFFORT_BODY);
+      for (const payload of [
+        'The requested model is not supported',
+        JSON.stringify({ error: { ...envelope.error, message: 'x'.repeat(16_384) } }),
+        JSON.stringify({ error: { ...envelope.error, code: 'bad code with spaces' } }),
+        JSON.stringify({ error: { ...envelope.error, code: 'a'.repeat(65) } }),
+        '{"error":"rate limited"}',
+      ]) {
+        const { record } = failSelected(400, payload);
+        for (const key of ERROR_FIELD_KEYS) expect(record).not.toHaveProperty(key);
+        expect(record).toEqual(BASE_FAILED_RECORD);
+      }
+    });
+
+    it('never copies error.message into request record error fields', () => {
+      const forbidden = ['output_config', '"high"', 'does not support', 'private error output'];
+      // Request a different effort so that "high" can only come from the message.
+      const { record } = failSelected(400, COPILOT_INVALID_REASONING_EFFORT_BODY, 'medium');
+
+      const harness = createHarness();
+      const { req, res } = observe(harness, request());
+      send(req, { model: 'gpt-test', reasoning: { effort: 'low' } });
+      req.awfRouting.onSseData(JSON.stringify({
+        type: 'response.failed',
+        response: { error: { code: 'rate_limited', message: 'private error output' } },
+      }));
+      res.end('unchanged response');
+
+      for (const [entry, expected] of [
+        [record, { error_code: 'invalid_reasoning_effort', error_source: 'upstream' }],
+        [harness.records[0], { error_code: 'rate_limited', error_source: 'upstream' }],
+      ]) {
+        const errorFields = Object.fromEntries(Object.entries(entry).filter(([key]) => ERROR_FIELD_KEYS.includes(key)));
+        expect(errorFields).toEqual(expected);
+        const serialized = JSON.stringify(entry);
+        for (const fragment of forbidden) expect(serialized).not.toContain(fragment);
+      }
+    });
+  });
+
   it('records an early rejection without inspecting a request payload', () => {
     const harness = createHarness();
     const { req, res } = observe(harness, request());

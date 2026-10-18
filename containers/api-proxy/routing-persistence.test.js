@@ -64,6 +64,17 @@ describe('routing persistence', () => {
     expect(consoleLog).toHaveBeenCalledTimes(records.length);
   });
 
+  test('persists error_code, error_type and error_source on request records', () => {
+    writeRoutingRecord({
+      stage: 'request', request_id: 'request-1', outcome: 'failed', status: 400,
+      error_code: 'unsupported_reasoning_effort', error_type: 'invalid_request_error', error_source: 'awf',
+    });
+    expect(readRecords()[0]).toMatchObject({
+      stage: 'request', request_id: 'request-1', outcome: 'failed', status: 400,
+      error_code: 'unsupported_reasoning_effort', error_type: 'invalid_request_error', error_source: 'awf',
+    });
+  });
+
   test('selection carries the stable interaction and optional Actions identity', () => {
     process.env.GITHUB_RUN_ID = '12345';
     process.env.GITHUB_RUN_ATTEMPT = '2';

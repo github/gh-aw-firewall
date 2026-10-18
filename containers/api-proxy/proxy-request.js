@@ -306,6 +306,12 @@ function proxyRequest(req, res, targetHost, injectHeaders, provider, basePath = 
         error_code: err && err.code ? err.code : 'request_transform_failed',
       });
       otel.endSpan(span, statusCode);
+      if (req.awfRouting) {
+        req.awfRouting.localError = {
+          code: err && err.code ? err.code : 'request_transform_failed',
+          type: err && err.type ? err.type : 'invalid_request_error',
+        };
+      }
       res.writeHead(statusCode, { 'Content-Type': 'application/json', 'X-Request-ID': requestId });
       res.end(JSON.stringify({
         error: {

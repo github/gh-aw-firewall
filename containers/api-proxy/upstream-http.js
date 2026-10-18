@@ -131,6 +131,9 @@ function createSendUpstreamRequest({
         error_code: err.code,
       });
       otel.endSpan(span, statusCode);
+      if (req.awfRouting) {
+        req.awfRouting.localError = { code: err.code, type: err.type || 'invalid_request_error' };
+      }
       res.writeHead(statusCode, { 'Content-Type': 'application/json', 'X-Request-ID': requestId });
       res.end(JSON.stringify({
         error: {
@@ -345,6 +348,9 @@ function createSendUpstreamRequest({
                 request_id: requestId, provider, status: 502, duration_ms: duration,
               });
               otel.endSpan(span, 502);
+              if (req.awfRouting) {
+                req.awfRouting.localError = { code: 'model_fallback_exhausted', type: 'model_fallback_exhausted' };
+              }
               res.writeHead(502, { 'Content-Type': 'application/json', 'X-Request-ID': requestId });
               res.end(JSON.stringify({
                 error: {

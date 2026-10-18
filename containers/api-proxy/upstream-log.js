@@ -3,6 +3,7 @@
 const zlib = require('zlib');
 const { COPILOT_PLACEHOLDER_TOKEN } = require('./providers/copilot-byok');
 const { stripBearerPrefix } = require('./providers/copilot-auth');
+const { extractProviderErrorFields } = require('./provider-error-fields');
 
 const DEFAULT_MAX_ERROR_RESPONSE_CAPTURE_BYTES = 64 * 1024;
 const REDACTED = '[REDACTED]';
@@ -146,12 +147,11 @@ function resolveMaxErrorBodyBytes() {
   return DEFAULT_MAX_ERROR_RESPONSE_CAPTURE_BYTES;
 }
 
-function buildResponseBodyLogFields({
+function captureResponseBody({
   responseBody,
   responseBodyBytes,
   responseBodyTruncated = false,
   contentEncoding = '',
-  sanitizeForLog,
 }) {
   const maxBodyBytes = resolveMaxErrorBodyBytes();
   const rawBytes = Number.isFinite(responseBodyBytes) ? responseBodyBytes : (Buffer.isBuffer(responseBody) ? responseBody.length : 0);
@@ -174,6 +174,11 @@ function buildResponseBodyLogFields({
       bodyOmitted = true;
     }
   }
+  return { maxBodyBytes, rawBytes, captureBytes, truncated, compressed, bodyValue, bodyOmitted };
+}
+
+function formatResponseBodyLogFields(capture, sanitizeForLog) {
+  const { maxBodyBytes, rawBytes, captureBytes, truncated, compressed, bodyValue, bodyOmitted } = capture;
   const redactedBody = redactSecretsInText(sanitizeForLog(bodyValue, maxBodyBytes * 4));
   return {
     response_body_content_encoding: bodyOmitted ? 'omitted' : 'utf8',
@@ -187,6 +192,24 @@ function buildResponseBodyLogFields({
     response_body_truncated: truncated,
     response_compressed: compressed,
   };
+}
+
+function buildResponseBodyLogFields({ sanitizeForLog, ...body }) {
+  return formatResponseBodyLogFields(captureResponseBody(body), sanitizeForLog);
+}
+
+/**
+ * Parse the provider's error identifiers from a fully captured, decoded
+ * response body. Content-Type is ignored because Copilot sends JSON error
+ * envelopes as text/plain. Truncated or omitted captures yield nothing.
+ */
+function extractCapturedErrorFields(capture) {
+  if (capture.truncated || capture.bodyOmitted) return {};
+  try {
+    return extractProviderErrorFields(JSON.parse(capture.bodyValue));
+  } catch {
+    return {};
+  }
 }
 
 /**
@@ -219,13 +242,13 @@ function createLogUpstreamErrorResponse({
     const upstreamRequestIds = extractUpstreamRequestIds(safeHeaders);
     const contentType = safeHeaders['content-type'] || '';
     const isStreaming = contentType.includes('text/event-stream');
-    const bodyFields = buildResponseBodyLogFields({
+    const bodyCapture = captureResponseBody({
       responseBody,
       responseBodyBytes,
       responseBodyTruncated,
       contentEncoding: safeHeaders['content-encoding'],
-      sanitizeForLog,
     });
+    const bodyFields = formatResponseBodyLogFields(bodyCapture, sanitizeForLog);
     const fields = {
       request_id: requestId,
       provider,
@@ -241,6 +264,7 @@ function createLogUpstreamErrorResponse({
       response_transformed: !!transformed,
       ...buildRequestToolLogFields(requestTools, sanitizeForLog),
       ...bodyFields,
+      ...extractCapturedErrorFields(bodyCapture),
     };
     logRequest('warn', 'upstream_error_response', fields);
     if (typeof auditTrack === 'function') {

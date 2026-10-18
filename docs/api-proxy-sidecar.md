@@ -954,6 +954,15 @@ does not change the `routed` classification. Translated token-usage records
 carry the same endpoint pair, and usage is extracted from the upstream response.
 Join `request_id` to `token-usage.jsonl` when a usage record is available;
 rejected or aborted calls may have no token-usage record.
+`failed` request records also carry `error_code` and `error_type` when an
+identifier-shaped value (`^[A-Za-z0-9_.:-]{1,64}$`) is available, plus
+`error_source`: `upstream` when the identifiers come from the provider's JSON
+error body (up to 16 KiB) or the first SSE error event, and `awf` when AWF
+produced the error response itself (for example a local
+`unsupported_reasoning_effort` rejection) and the provider never saw that
+attempt. These fields are recorded for deviating requests too; they never
+include the provider's error `message`, and they are omitted when no valid
+value exists.
 Classifier usage rows have `purpose: "routing_classification"` and are not
 primary inference request records.
 
