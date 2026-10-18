@@ -209,7 +209,7 @@ export async function collectSharingRows(): Promise<SharingRow[]> {
 }
 
 export function renderSharingRows(rows: readonly SharingRow[]): string {
-  const cell = (value: string) => value.replace(/&/g, '&amp;')
+  const cell = (value: string) => value.replace(/\\/g, '\\\\').replace(/&/g, '&amp;')
     .replace(/</g, '&lt;').replace(/>/g, '&gt;')
     .replace(/\|/g, '\\|').replace(/\n/g, ' ');
   const hostRule = (row: SharingRow): [string, string] => {
