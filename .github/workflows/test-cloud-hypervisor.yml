@@ -46,6 +46,15 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4
 
+      - name: Free unused hosted-runner disk space
+        # Kernel, virtiofsd, three ext4 images and their bundles need room on the
+        # hosted runner. Remove preinstalled SDKs this job never uses.
+        run: |
+          df -h /
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /usr/local/.ghcup \
+            /opt/hostedtoolcache/CodeQL
+          df -h /
+
       - name: Configure Docker Hub cache
         run: bash scripts/ci/configure-docker-mirror.sh
 
@@ -101,6 +110,7 @@ jobs:
             --tag awf-cloud-hypervisor-build-tools:test \
             containers/build-tools
           BUILD_TOOLS_IMAGE=awf-cloud-hypervisor-build-tools:test \
+            AWF_CH_PRUNE_DOCKER_BUILD_CACHE=1 \
             ./guest/cloud-hypervisor/build-test-artifacts.sh
           ./guest/cloud-hypervisor/verify-test-artifacts.sh \
             release/cloud-hypervisor-test-x86_64

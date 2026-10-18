@@ -66,6 +66,14 @@ sudo rm -rf "$BUILD"
 rm -rf "$OUTPUT"
 mkdir -p "$BUILD/downloads" "$OUTPUT"
 
+# Hosted runners have limited disk. Intermediates are deleted as soon as their
+# verified outputs exist, and usage is logged at each checkpoint.
+report_disk() {
+  echo "disk usage after $1:" >&2
+  df -h "$BUILD" "$OUTPUT" >&2 || true
+}
+report_disk setup
+
 download_verified() {
   local url=$1
   local expected=$2
@@ -145,6 +153,8 @@ virtiofsd_built="$BUILD/virtiofsd-target/release/virtiofsd"
 "$virtiofsd_built" --version 2>&1 | grep -Eq "(^| )${VIRTIOFSD_VERSION}($| )"
 "$virtiofsd_built" --help 2>&1 | grep -Fq -- '--translate-uid'
 install -m 0755 "$virtiofsd_built" "$OUTPUT/virtiofsd"
+rm -rf "$BUILD/virtiofsd-target" "$BUILD/cargo-home" "$virtiofsd_src" "$virtiofsd_crate"
+report_disk virtiofsd
 
 linux_tar="$BUILD/downloads/linux-${LINUX_VERSION}.tar.xz"
 kernel_config="$ROOT/guest/cloud-hypervisor/kernel.config"
@@ -179,6 +189,8 @@ install -m 0644 \
   "$BUILD/linux-${LINUX_VERSION}/arch/x86/boot/bzImage" \
   "$OUTPUT/vmlinux.bin"
 install -m 0644 "$BUILD/linux-${LINUX_VERSION}/.config" "$OUTPUT/kernel.config"
+sudo rm -rf "$BUILD/linux-${LINUX_VERSION}" "$linux_tar"
+report_disk kernel
 
 # Build the VMM-neutral AWF guest supervisor.
 supervisor="$OUTPUT/awf-supervisor"
@@ -235,6 +247,11 @@ enclave_script_runtime_image=$(
 enclave_agent_runtime_image=$(
   resolve_enclave_image "$ENCLAVE_AGENT_IMAGE" enclave-agent
 )
+if [ "${AWF_CH_PRUNE_DOCKER_BUILD_CACHE:-0}" = 1 ]; then
+  # CI-only: builder stages are not artifacts. Tagged images are retained.
+  docker builder prune --all --force >/dev/null
+fi
+report_disk 'enclave images'
 
 build_enclave_rootfs() {
   local role=$1
@@ -444,6 +461,9 @@ node "$ROOT/guest/cloud-hypervisor/generate-enclave-rootfs-sbom.mjs" \
   --source-image "$ENCLAVE_AGENT_IMAGE" \
   --source-image-digest "$agent_image_digest" \
   --source-date-epoch "$SOURCE_DATE_EPOCH"
+# The SBOMs bind file inventories to the ext4 digests; the trees are now unused.
+sudo rm -rf "$BUILD/enclave-script-rootfs" "$BUILD/enclave-agent-rootfs"
+report_disk 'enclave rootfs SBOMs'
 install -m 0755 \
   "$ROOT/guest/cloud-hypervisor/setup-enclave-artifacts.sh" \
   "$OUTPUT/setup-cloud-hypervisor-enclave-artifacts.sh"
@@ -514,6 +534,8 @@ sudo env E2FSPROGS_FAKE_TIME="$SOURCE_DATE_EPOCH" mke2fs \
 sudo env E2FSPROGS_FAKE_TIME="$SOURCE_DATE_EPOCH" e2fsck -f -y "$rootfs" >/dev/null
 sudo chown "$(id -u):$(id -g)" "$rootfs"
 chmod 0600 "$rootfs"
+sudo rm -rf "$rootfs_tree"
+report_disk 'primary rootfs'
 
 (
   cd "$OUTPUT"
@@ -758,3 +780,4 @@ tar \
   enclave-agent-rootfs.sbom.spdx.json \
   enclave-rootfs.SHA256SUMS \
   enclave-manifest.json
+report_disk packaging

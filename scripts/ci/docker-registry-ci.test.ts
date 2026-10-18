@@ -55,7 +55,9 @@ from unittest.mock import patch
 code = sys.stdin.read()
 live = set()
 archives = set()
+cache = set()
 calls = []
+saves = []
 failure = sys.argv[1]
 base = 'awf-pr-scan-build-tools:pr'
 agent = 'awf-pr-scan-enclave-agent:pr'
@@ -66,11 +68,16 @@ def run(args, **kwargs):
         tag = args[args.index('-t') + 1]
         if tag == agent and base not in live:
             raise AssertionError('base removed before enclave-agent build')
+        cache.add(tag)
         if (failure == 'base-build' and tag == base) or (failure == 'agent-build' and tag == agent):
             rc = 1
         else:
             live.add(tag)
     elif args[:2] == ['docker', 'save']:
+        # Disk-lifetime invariant: only the retained base and the image being saved
+        # may remain, with no builder cache or earlier archive on the runner.
+        saves.append({'tag': args[4], 'live': sorted(live), 'cache': sorted(cache),
+                      'archives': sorted(archives)})
         archives.add(args[3])
         if failure == 'save':
             raise subprocess.CalledProcessError(1, args)
@@ -78,6 +85,12 @@ def run(args, **kwargs):
         rc = 2
     elif args[:3] == ['docker', 'image', 'rm']:
         live.discard(args[-1])
+    elif args[:3] == ['docker', 'builder', 'prune']:
+        if args != ['docker', 'builder', 'prune', '--all', '--force']:
+            raise AssertionError(args)
+        cache.clear()
+    elif 'prune' in args:
+        raise AssertionError('unexpected image/system prune: ' + ' '.join(args))
     return subprocess.CompletedProcess(args, rc)
 exit_code = 0
 with patch('subprocess.run', run), patch.dict(os.environ, {'GRYPE_DB': '/tmp/mock-db'}), \\
@@ -89,15 +102,28 @@ with patch('subprocess.run', run), patch.dict(os.environ, {'GRYPE_DB': '/tmp/moc
             exit_code = error.code
         except subprocess.CalledProcessError as error:
             exit_code = error.returncode
-print(json.dumps({'live': sorted(live), 'archives': sorted(archives), 'calls': calls, 'exit': exit_code}))
+print(json.dumps({'live': sorted(live), 'archives': sorted(archives), 'cache': sorted(cache),
+                  'saves': saves, 'calls': calls, 'exit': exit_code}))
 `, failure], { cwd: root, input: python, encoding: 'utf8' });
       expect(result.stderr).toBe('');
       expect(result.status).toBe(0);
       const trace = JSON.parse(result.stdout) as {
-        live: string[]; archives: string[]; calls: string[][]; exit: number;
+        live: string[]; archives: string[]; cache: string[]; calls: string[][]; exit: number;
+        saves: { tag: string; live: string[]; cache: string[]; archives: string[] }[];
       };
       expect(trace.live).toEqual([]);
       expect(trace.archives).toEqual([]);
+      expect(trace.cache).toEqual([]);
+      for (const save of trace.saves) {
+        expect(save.cache).toEqual([]);
+        expect(save.archives).toEqual([]);
+        const base = failure === 'base-build' ? [] : ['awf-pr-scan-build-tools:pr'];
+        expect(save.live).toEqual([...new Set([...base, save.tag])].sort());
+      }
+      expect(trace.saves.length).toBeGreaterThan(0);
+      if (failure === 'success' || failure === 'scan') {
+        expect(trace.saves[trace.saves.length - 2]?.tag).toBe('awf-pr-scan-enclave-agent:pr');
+      }
       expect(trace.exit).toBe(failure === 'success' ? 0 : failure === 'scan' ? 2 : 1);
       const agentBuild = trace.calls.find((args) =>
         args[1] === 'build' && args.includes('awf-pr-scan-enclave-agent:pr'));
@@ -152,7 +178,14 @@ print(json.dumps({'live': sorted(live), 'archives': sorted(archives), 'calls': c
     expect(blocking?.run).toContain('finally:');
     expect(blocking?.run).toContain('os.remove(tar)');
     expect(blocking?.run).toContain("'docker', 'image', 'rm', '--force', tag");
+    expect(blocking?.run).toContain("['docker', 'builder', 'prune', '--all', '--force']");
+    expect(blocking?.run).not.toMatch(/image', 'prune|system', 'prune/);
     expect(blocking?.['continue-on-error']).toBeUndefined();
+    const free = steps.findIndex((step) => step.name === 'Free unused hosted-runner disk space');
+    expect(free).toBeGreaterThanOrEqual(0);
+    expect(free).toBeLessThan(prepare);
+    expect(steps[free].run).not.toContain('docker');
+    expect(steps[free].run).not.toContain('hostedtoolcache/go');
     expect(steps.find((step) => step.run?.includes(`'${grant}'`))?.run).toContain(grant);
   });
 

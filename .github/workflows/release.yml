@@ -1178,6 +1178,15 @@ jobs:
         with:
           ref: ${{ needs.bump-version.outputs.version }}
 
+      - name: Free unused hosted-runner disk space
+        # Kernel, virtiofsd, three ext4 images and their bundles need room on the
+        # hosted runner. Remove preinstalled SDKs this job never uses.
+        run: |
+          df -h /
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /usr/local/.ghcup \
+            /opt/hostedtoolcache/CodeQL
+          df -h /
+
       - name: Set up Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
@@ -1208,6 +1217,7 @@ jobs:
             ENCLAVE_SCRIPT_IMAGE="ghcr.io/${{ github.repository }}/enclave-script@${{ needs.build-enclaves.outputs.enclave_script_digest }}" \
             ENCLAVE_AGENT_IMAGE="ghcr.io/${{ github.repository }}/enclave-agent@${{ needs.build-enclaves.outputs.enclave_agent_digest }}" \
             VERSION="${{ needs.bump-version.outputs.version }}" \
+            AWF_CH_PRUNE_DOCKER_BUILD_CACHE=1 \
             ./guest/cloud-hypervisor/build-test-artifacts.sh
           ./guest/cloud-hypervisor/verify-test-artifacts.sh \
             release/cloud-hypervisor-test-x86_64

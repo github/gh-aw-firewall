@@ -57,6 +57,15 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Free unused hosted-runner disk space
+        # The blocking gate builds, saves and scans every PR image, including the
+        # large shared enclave-agent image. Remove preinstalled SDKs this job never uses.
+        run: |
+          df -h /
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /usr/local/.ghcup \
+            /opt/hostedtoolcache/CodeQL
+          df -h /
+
       - name: Configure Docker Hub cache
         run: bash scripts/ci/configure-docker-mirror.sh
 
@@ -226,9 +235,23 @@ jobs:
               ('enclave-agent',       'containers', ['-f', 'containers/enclave/Dockerfile', '--target', 'enclave-agent', '--build-arg', 'BUILD_TOOLS_IMAGE=awf-pr-scan-build-tools:pr']),
               ('enclave-mcp-server',  'containers', ['-f', 'containers/enclave/Dockerfile', '--target', 'enclave-mcp-server']),
           ]
+          def report_disk(label):
+              print(f'::group::disk usage ({label})', flush=True)
+              subprocess.run(['df', '-h', '/', '/tmp'])
+              subprocess.run(['docker', 'system', 'df'])
+              print('::endgroup::', flush=True)
+          def prune_build_cache():
+              # Builder stages are not needed after the exact image exists. Images,
+              # including the retained base and pinned scanners, are not pruned.
+              subprocess.run(
+                  ['docker', 'builder', 'prune', '--all', '--force'],
+                  stdout=subprocess.DEVNULL,
+                  check=True,
+              )
           rc = 0
           build_tools_ready = False
           retained_base = None
+          report_disk('before PR image builds')
           try:
               for name, context, build_args in containers:
                   if name == 'enclave-agent' and not build_tools_ready:
@@ -240,6 +263,7 @@ jobs:
                   print(f'::group::docker build {name}', flush=True)
                   b = subprocess.run(['docker', 'build', *build_args, '-t', tag, context])
                   print('::endgroup::', flush=True)
+                  prune_build_cache()
                   if b.returncode != 0:
                       print(f'::error::docker build failed for {name}', flush=True)
                       rc = b.returncode
@@ -282,6 +306,7 @@ jobs:
                       stdout=subprocess.DEVNULL,
                       stderr=subprocess.DEVNULL,
                   )
+              report_disk('after PR image scans')
           sys.exit(rc)
           PYEOF
 

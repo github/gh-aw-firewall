@@ -34,6 +34,59 @@ describe('Cloud Hypervisor enclave rootfs artifacts', () => {
     }
   });
 
+  it('deletes each guest build intermediate only after its last consumer', () => {
+    const lines = fs.readFileSync(buildPath, 'utf8').split('\n');
+    const index = (pattern: string, from = 0) => {
+      const found = lines.findIndex((line, i) => i >= from && line.includes(pattern));
+      expect(found).toBeGreaterThanOrEqual(0);
+      return found;
+    };
+    const lastUse = (pattern: string, before: number) =>
+      lines.slice(0, before).map((line, i) => (line.includes(pattern) ? i : -1))
+        .reduce((a, b) => Math.max(a, b), -1);
+    const packaging = index('--file "$OUTPUT/awf-cloud-hypervisor-test-x86_64.tar.gz"');
+    const cases: [string, string[]][] = [
+      ['rm -rf "$BUILD/virtiofsd-target"', ['$virtiofsd_built', '$virtiofsd_src', 'cargo-home']],
+      ['sudo rm -rf "$BUILD/linux-${LINUX_VERSION}"', ['$BUILD/linux-${LINUX_VERSION}/', '$linux_tar']],
+      ['sudo rm -rf "$BUILD/enclave-script-rootfs"', ['--rootfs-tree']],
+      ['sudo rm -rf "$rootfs_tree"\n', ['-d "$rootfs_tree"']],
+    ];
+    for (const [removal, consumers] of cases) {
+      const at = removal.endsWith('\n')
+        ? lines.findIndex((line) => line === removal.trim())
+        : index(removal);
+      expect(at).toBeGreaterThan(0);
+      expect(at).toBeLessThan(packaging);
+      for (const consumer of consumers) {
+        expect(lastUse(consumer, at)).toBeGreaterThanOrEqual(0);
+        expect(lines.slice(at + 1).some((line) => line.includes(consumer))).toBe(false);
+      }
+      expect(lines[at + 1]).toMatch(/^report_disk /);
+    }
+    // Outputs and archive encoding are unchanged; only intermediates are removed.
+    const build = lines.join('\n');
+    expect(lines.slice(index('report_disk setup')).join('\n')).not.toMatch(/rm [^\n]*\$OUTPUT/);
+    expect(build).not.toContain('--sparse');
+    expect(build).not.toMatch(/docker (image|system) prune|docker rmi/);
+    const prune = index('docker builder prune --all --force');
+    expect(lines[prune - 2]).toContain('AWF_CH_PRUNE_DOCKER_BUILD_CACHE:-0}" = 1');
+    expect(prune).toBeGreaterThan(index('resolve_enclave_image "$ENCLAVE_AGENT_IMAGE"'));
+  });
+
+  it.each([
+    ['test-cloud-hypervisor.yml', 'Build and verify pinned artifacts'],
+    ['release.yml', 'Build and verify pinned test artifacts'],
+  ])('reclaims hosted-runner disk before building guest artifacts in %s', (file, name) => {
+    const workflow = fs.readFileSync(path.join(root, '.github/workflows', file), 'utf8');
+    const build = workflow.indexOf(`- name: ${name}`);
+    const free = workflow.lastIndexOf('- name: Free unused hosted-runner disk space', build);
+    expect(free).toBeGreaterThan(0);
+    expect(workflow.slice(free, build)).not.toContain('hostedtoolcache/go');
+    const step = workflow.slice(build, workflow.indexOf('- name:', build + 1));
+    expect(step).toContain('AWF_CH_PRUNE_DOCKER_BUILD_CACHE=1');
+    expect(step).toContain('./guest/cloud-hypervisor/verify-test-artifacts.sh');
+  });
+
   it.each([buildPath, verifyPath, setupPath])('%s passes bash syntax validation', (file) => {
     expect(() => execFileSync('bash', ['-n', file])).not.toThrow();
   });

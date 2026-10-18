@@ -560,6 +560,17 @@ holes, so images larger than Node's 2 GiB whole-file read limit retain the same
 SHA-256 checksum and digest-derived document namespace. Read failures abort
 generation rather than producing an unbound or partial SBOM.
 
+The larger shared image raises hosted-runner disk use. Both the guest artifact
+build and the blocking PR image scan delete intermediates once they are consumed
+and log `df` checkpoints. The guest build removes the virtiofsd cargo tree, kernel
+source/object tree, enclave rootfs trees (after their SBOMs), and primary rootfs
+tree (after its ext4). CI opts in to pruning Docker build cache
+(`AWF_CH_PRUNE_DOCKER_BUILD_CACHE=1`). The PR scan prunes build cache after each
+image build, so only the retained base and current image remain when the archive
+is saved. Tagged images, published outputs, archive encoding, digests, SBOM and
+attestation bindings, and scanner thresholds are unchanged. Both jobs first
+remove preinstalled runner SDKs they never use.
+
 `TestEnclaveGuestLimitsLive` (run as root by the Cloud Hypervisor preview
 workflow) applies the real agent-role tmpfs, rlimit, read-only root, and
 all-thread privilege setup in a private mount namespace and launches a workload
