@@ -1,11 +1,13 @@
 'use strict';
 
+const zlib = require('zlib');
 const { stripRedundantProviderPrefix } = require('./model-utils');
 const { isValidRequestId } = require('./request-headers');
 const { generateRequestId } = require('./logging');
 const { extractProviderErrorFields } = require('./provider-error-fields');
 
 const MAX_TELEMETRY_VALUE_LENGTH = 200;
+const MAX_ERROR_INSPECTION_BYTES = 16_384;
 const TELEMETRY_EFFORTS = new Set(['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max']);
 
 /**
@@ -57,6 +59,22 @@ function requestErrorFields(localError, upstreamFields) {
   if (fields.error_type) result.error_type = fields.error_type;
   if (Object.keys(result).length > 0) result.error_source = source;
   return result;
+}
+
+/**
+ * Parse a bounded, decoded copy of an error body. Only gzip, deflate, and
+ * Brotli are decoded, and decoding stops at MAX_ERROR_INSPECTION_BYTES.
+ * Throws when the body cannot be decoded or parsed.
+ */
+function parseEncodedErrorBody(buffer, contentEncoding) {
+  const encoding = typeof contentEncoding === 'string' ? contentEncoding.trim().toLowerCase() : '';
+  const options = { maxOutputLength: MAX_ERROR_INSPECTION_BYTES };
+  let decoded;
+  if (encoding === 'gzip' || encoding === 'x-gzip') decoded = zlib.gunzipSync(buffer, options);
+  else if (encoding === 'deflate') decoded = zlib.inflateSync(buffer, options);
+  else if (encoding === 'br') decoded = zlib.brotliDecompressSync(buffer, options);
+  else return null;
+  return JSON.parse(decoded.toString('utf8'));
 }
 
 /** Keep the first set of provider error fields observed for a request. */
@@ -173,7 +191,10 @@ function createRoutingObservation({
           parsed = bytes <= 16_384 ? JSON.parse(Buffer.concat(chunks).toString('utf8')) : null;
         } catch {}
         try {
-          rememberErrorFields(state, parsed);
+          // The client receives the bytes unchanged; a compressed upstream
+          // body is inspected only through a bounded, decoded copy.
+          rememberErrorFields(state, parsed ?? (bytes <= MAX_ERROR_INSPECTION_BYTES
+            ? parseEncodedErrorBody(Buffer.concat(chunks), state.upstreamContentEncoding) : null));
         } catch {
           // Observability must not change the live response.
         }
@@ -298,6 +319,9 @@ function createRoutingObservation({
             ...state.telemetry,
             upstream_endpoint: compatibility.upstreamEndpoint,
           };
+        },
+        onUpstreamResponseHeaders(headers) {
+          state.upstreamContentEncoding = headers?.['content-encoding'];
         },
         onSseData,
         onSseInspectionStart: responseHooks.sseInspectionStart,

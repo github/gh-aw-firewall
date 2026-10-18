@@ -3,6 +3,7 @@
 const { EventEmitter } = require('events');
 const { createProviderServer } = require('./server-factory');
 const { createRoutingObservation } = require('./routing-observation');
+const { makeProviderNotConfiguredResponse } = require('./proxy-utils');
 
 function makeTrackedSocket() {
   const socket = new EventEmitter();
@@ -229,6 +230,82 @@ describe('createProviderServer routing enforcement', () => {
       'X-Request-ID': 'generated-request-123',
     });
     expect(end).toHaveBeenCalled();
+  });
+
+  describe('provider_not_configured request records', () => {
+    function runUnconfigured({ adapterName, selectionProvider, response }) {
+      const records = [];
+      const failures = [];
+      const routing = createRoutingObservation({
+        getSelection: () => ({
+          provider: selectionProvider,
+          choice: { effort: 'low' },
+          wire_model: 'gpt-test',
+        }),
+        recordFailure: code => failures.push(code),
+        observer: { record: record => records.push(record) },
+        generateRequestId: () => 'generated-request-123',
+      });
+      const chunks = [];
+      const res = new EventEmitter();
+      res.statusCode = 200;
+      res.writableFinished = false;
+      res.write = jest.fn(chunk => { chunks.push(Buffer.from(chunk)); return true; });
+      res.writeHead = jest.fn(function(statusCode) { this.statusCode = statusCode; });
+      res.end = jest.fn(function(chunk) {
+        if (chunk) chunks.push(Buffer.from(chunk));
+        this.writableFinished = true;
+        this.emit('finish');
+      });
+      const server = createProviderServer({
+        ...routedAdapter(),
+        name: adapterName,
+        isEnabled: () => false,
+        getUnconfiguredResponse: () => response,
+      }, {
+        handleManagementEndpoint: () => false,
+        reflectEndpoints: () => [],
+        checkRateLimit: jest.fn(),
+        proxyRequest: jest.fn(),
+        proxyWebSocket: jest.fn(),
+        routing,
+      });
+      const req = new EventEmitter();
+      req.url = '/responses';
+      req.method = 'POST';
+      req.headers = {};
+      server.emit('request', req, res);
+      return { records, failures, res, body: Buffer.concat(chunks).toString('utf8') };
+    }
+
+    test.each([
+      ['missing credential (403)', 'copilot', 'copilot', makeProviderNotConfiguredResponse('copilot', 10002, 'missing token')],
+      ['credential temporarily unavailable (503)', 'copilot', 'copilot',
+        makeProviderNotConfiguredResponse('copilot', 10002, 'token not ready', { retryable: true })],
+      ['missing credential on a deviating request (403)', 'anthropic', 'copilot',
+        makeProviderNotConfiguredResponse('anthropic', 10001, 'missing key')],
+    ])('records %s as an AWF-originated error', (_label, adapterName, selectionProvider, response) => {
+      const { records, failures, res, body } = runUnconfigured({ adapterName, selectionProvider, response });
+
+      expect(res.writeHead).toHaveBeenCalledWith(response.statusCode, {
+        'Content-Type': 'application/json',
+        'X-Request-ID': 'generated-request-123',
+      });
+      expect(body).toBe(JSON.stringify(response.body));
+      expect(records).toHaveLength(1);
+      expect(records[0]).toMatchObject({
+        request_id: 'generated-request-123',
+        provider: adapterName,
+        routed: adapterName === selectionProvider ? 'unobserved' : 'deviated',
+        outcome: 'failed',
+        status: response.statusCode,
+        error_type: 'provider_not_configured',
+        error_source: 'awf',
+      });
+      expect(records[0]).not.toHaveProperty('error_code');
+      expect(JSON.stringify(records[0])).not.toContain(response.body.error.message);
+      expect(failures).toEqual([]);
+    });
   });
 
   test('proxies an upgrade while routing is active', () => {

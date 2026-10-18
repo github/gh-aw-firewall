@@ -32,6 +32,7 @@ function sendBufferedUpstreamResponse(proxyRes, responseBody, {
     'content-length': String(responseBody.length),
   };
   delete resHeaders['transfer-encoding'];
+  authErrCtx?.req?.awfRouting?.onUpstreamResponseHeaders?.(proxyRes.headers);
   res.writeHead(proxyRes.statusCode, resHeaders);
   res.end(responseBody);
   otel.endSpan(span, proxyRes.statusCode);

@@ -1,6 +1,7 @@
 'use strict';
 
 const { EventEmitter } = require('events');
+const zlib = require('zlib');
 const { createRoutingObservation } = require('./routing-observation');
 const { createRateLimitChecker } = require('./rate-limit');
 const { isValidRequestId } = require('./request-headers');
@@ -554,6 +555,46 @@ describe('advisory routing observation', () => {
         error_type: 'invalid_request_error',
         error_source: 'awf',
       }]);
+    });
+
+    function failSelectedEncoded(encoding, payload) {
+      const harness = createHarness(HAIKU_SELECTION);
+      const { req, res } = observe(harness, request({ url: '/v1/messages' }));
+      send(req, { model: 'claude-haiku-4.5', output_config: { effort: 'high' } });
+      req.awfRouting.onUpstreamResponseHeaders({ 'content-type': 'application/json', 'content-encoding': encoding });
+      res.statusCode = 400;
+      res.end(payload);
+      expect(Buffer.concat(res.chunks).equals(payload)).toBe(true);
+      expect(harness.records).toHaveLength(1);
+      return { harness, record: harness.records[0] };
+    }
+
+    it.each([
+      ['gzip', zlib.gzipSync],
+      ['deflate', zlib.deflateSync],
+      ['br', zlib.brotliCompressSync],
+    ])('records the provider error code from a %s-encoded error body', (encoding, compress) => {
+      const payload = compress(Buffer.from(COPILOT_INVALID_REASONING_EFFORT_BODY));
+      const { harness, record } = failSelectedEncoded(encoding, payload);
+      expect(record).toEqual({
+        ...BASE_FAILED_RECORD,
+        error_code: 'invalid_reasoning_effort',
+        error_source: 'upstream',
+      });
+      // recordNativeFailure keeps parsing the raw bytes, as before.
+      expect(harness.failures).toEqual(['provider_unavailable']);
+    });
+
+    it('omits error fields when a compressed error body cannot be decoded within bounds', () => {
+      const oversized = JSON.stringify({ error: { code: 'invalid_reasoning_effort', message: 'x'.repeat(20_000) } });
+      for (const [encoding, payload] of [
+        ['gzip', zlib.gzipSync(Buffer.from(oversized))],
+        ['zstd', zlib.gzipSync(Buffer.from(COPILOT_INVALID_REASONING_EFFORT_BODY))],
+        ['gzip', Buffer.from('not gzip')],
+      ]) {
+        const { record } = failSelectedEncoded(encoding, payload);
+        expect(record).toEqual(BASE_FAILED_RECORD);
+      }
     });
 
     it('omits error fields when a failed response has no identifier-shaped code', () => {

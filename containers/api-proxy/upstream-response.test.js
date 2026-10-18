@@ -1,5 +1,7 @@
 const { EventEmitter } = require('events');
+const zlib = require('zlib');
 const { createUpstreamResponseHandlers } = require('./upstream-response');
+const { createRoutingObservation } = require('./routing-observation');
 
 function createDependencies() {
   return {
@@ -273,5 +275,77 @@ describe('upstream-response', () => {
       response_body_bytes: prefix.length + overflow.length + tail.length,
       response_body_truncated: true,
     }));
+  });
+
+  // Recorded verbatim from github/gh-aw run 38327292581 (upstream-errors.jsonl).
+  const INVALID_REASONING_EFFORT_BODY = '{"error":{"message":"output_config.effort \\"high\\" was provided, but model claude-haiku-4.5 does not support reasoning effort","code":"invalid_reasoning_effort"}}';
+
+  test.each([
+    ['gzip', zlib.gzipSync, 'copilot'],
+    ['gzip', zlib.gzipSync, 'openai'],
+    ['br', zlib.brotliCompressSync, 'copilot'],
+    ['deflate', zlib.deflateSync, 'openai'],
+  ])('records error fields from a %s-encoded 400 forwarded by %s unchanged', (encoding, compress, provider) => {
+    const deps = createDependencies();
+    const { handleUpstreamResponse } = createUpstreamResponseHandlers(deps);
+    const records = [];
+    const observation = createRoutingObservation({
+      getSelection: () => ({
+        provider,
+        endpoint: '/v1/messages',
+        choice: { effort: 'high' },
+        wire_model: 'claude-haiku-4.5',
+      }),
+      recordFailure: jest.fn(),
+      observer: { record: record => records.push(record) },
+      generateRequestId: () => 'local-req-5',
+    });
+    const chunks = [];
+    const res = new EventEmitter();
+    res.statusCode = 200;
+    res.writableFinished = false;
+    res.writeHead = jest.fn(function(statusCode) { this.statusCode = statusCode; });
+    res.write = jest.fn(chunk => { chunks.push(Buffer.from(chunk)); return true; });
+    res.end = jest.fn(function(chunk) {
+      if (chunk) chunks.push(Buffer.from(chunk));
+      this.writableFinished = true;
+      this.emit('finish');
+    });
+    const req = { method: 'POST', url: '/v1/messages', headers: {} };
+    observation.observeRequest(req, res, { name: provider });
+    const upstreamBody = compress(Buffer.from(INVALID_REASONING_EFFORT_BODY));
+    const proxyRes = createProxyRes({
+      statusCode: 400,
+      headers: { 'content-type': 'application/json', 'content-encoding': encoding },
+    });
+    const body = Buffer.from('{"model":"claude-haiku-4.5","output_config":{"effort":"high"}}');
+
+    handleUpstreamResponse(proxyRes, {}, {
+      body,
+      res,
+      provider,
+      requestId: 'local-req-5',
+      req,
+      targetHost: 'api.example.com',
+      startTime: Date.now() - 10,
+      span: {},
+      requestBytes: body.length,
+      hasRetried: false,
+      onRetry: jest.fn(),
+    });
+    proxyRes.emit('data', upstreamBody);
+    proxyRes.emit('end');
+
+    expect(res.writeHead).toHaveBeenCalledWith(400, expect.objectContaining({ 'content-encoding': encoding }));
+    expect(Buffer.concat(chunks).equals(upstreamBody)).toBe(true);
+    expect(records).toEqual([expect.objectContaining({
+      request_id: 'local-req-5',
+      outcome: 'failed',
+      status: 400,
+      error_code: 'invalid_reasoning_effort',
+      error_source: 'upstream',
+    })]);
+    expect(records[0]).not.toHaveProperty('error_type');
+    expect(JSON.stringify(records[0])).not.toContain('does not support');
   });
 });
