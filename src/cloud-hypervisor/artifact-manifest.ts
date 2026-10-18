@@ -35,7 +35,9 @@ export interface CloudHypervisorArtifactManifest {
     file: string;
     version: string;
     sha256: string;
-  }>;
+  }> & {
+    rootfs: { file: string; version: string; sha256: string; sbom?: { file: string; sha256: string } };
+  };
 }
 
 function requireString(value: unknown, label: string): string {
@@ -115,6 +117,18 @@ export function parseCloudHypervisorArtifactManifest(
       throw new Error(`manifest.artifacts.${name}.sha256 must be a lowercase SHA-256 digest`);
     }
     normalized[name] = { file, version, sha256 };
+  }
+  const rootfs = requireObject(artifacts.rootfs, 'manifest.artifacts.rootfs');
+  if (rootfs.sbom !== undefined) {
+    const sbom = requireObject(rootfs.sbom, 'manifest.artifacts.rootfs.sbom');
+    if (sbom.file !== 'rootfs.sbom.spdx.json') {
+      throw new Error('manifest.artifacts.rootfs.sbom.file must be rootfs.sbom.spdx.json');
+    }
+    const sha256 = requireString(sbom.sha256, 'manifest.artifacts.rootfs.sbom.sha256');
+    if (!/^[a-f0-9]{64}$/.test(sha256)) {
+      throw new Error('manifest.artifacts.rootfs.sbom.sha256 must be a lowercase SHA-256 digest');
+    }
+    normalized.rootfs.sbom = { file: sbom.file, sha256 };
   }
   if (normalized.cloudHypervisor.version !== CLOUD_HYPERVISOR_RELEASE_VERSION) {
     throw new Error(

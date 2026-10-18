@@ -159,6 +159,7 @@ export const schema = {
       "tool-userdel": null,
       "kernel-trust": null,
       "rootfs-trust": null,
+      "sbom-trust": null,
       "supervisor-trust": null,
       "manifest-trust": null,
       "bundle-trust": null,
@@ -173,6 +174,8 @@ export const schema = {
       "virtiofsd-version": null,
       "kernel-digest": null,
       "rootfs-digest": null,
+      "sbom-digest": null,
+      "sbom-contents": null,
       "supervisor-digest": null,
       "platform": null,
       "architecture": null,
@@ -212,6 +215,8 @@ export const schema = {
       "kernel-mode": null,
       "rootfs-copy": null,
       "rootfs-mode": null,
+      "sbom-copy": null,
+      "sbom-mode": null,
       "supervisor-copy": null,
       "supervisor-mode": null,
       "manifest-copy": null,
@@ -263,6 +268,7 @@ export const schema = {
     "enclave-storage/seed-catalog", "enclave-storage/github-identity", "enclave-storage/delegation-custody",
     "artifact-snapshot/manifest-copy", "artifact-snapshot/manifest-mode",
     "artifact-snapshot/bundle-copy", "artifact-snapshot/bundle-mode",
+    "artifact-snapshot/sbom-copy", "artifact-snapshot/sbom-mode",
     "artifact-snapshot/partial-remove", "bounded-cleanup/directory-release"
   ],
   "reasons": {

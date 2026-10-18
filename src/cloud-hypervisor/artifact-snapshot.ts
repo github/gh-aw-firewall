@@ -22,6 +22,7 @@ export interface CloudHypervisorArtifactSnapshotSources {
   kernelPath: string;
   rootfsPath: string;
   supervisorPath: string;
+  rootfsSbomPath?: string;
   manifestPath?: string;
   bundlePath?: string;
 }
@@ -104,7 +105,7 @@ export async function createArtifactSnapshot(
     source: string,
     name: string,
     mode: number,
-    gate: 'vmm' | 'virtiofsd' | 'kernel' | 'rootfs' | 'supervisor' | 'manifest' | 'bundle',
+    gate: 'vmm' | 'virtiofsd' | 'kernel' | 'rootfs' | 'supervisor' | 'manifest' | 'bundle' | 'sbom',
   ): Promise<string> => {
     const destination = path.join(directory, name);
     await check(`${gate}-copy`, async () => {
@@ -132,6 +133,12 @@ export async function createArtifactSnapshot(
       rootfsPath: await copy(sources.rootfsPath, 'rootfs.ext4', 0o444, 'rootfs'),
       supervisorPath: await copy(sources.supervisorPath, 'awf-supervisor', 0o555, 'supervisor'),
     };
+    if (sources.rootfsSbomPath) {
+      snapshot.rootfsSbomPath = await copy(sources.rootfsSbomPath, 'rootfs.sbom.spdx.json', 0o444, 'sbom');
+    } else {
+      report?.notRequired('sbom-copy');
+      report?.notRequired('sbom-mode');
+    }
     if (sources.manifestPath) {
       snapshot.manifestPath = await copy(sources.manifestPath, 'manifest.json', 0o444, 'manifest');
     } else {

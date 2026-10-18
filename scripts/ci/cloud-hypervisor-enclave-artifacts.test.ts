@@ -141,6 +141,47 @@ describe('Cloud Hypervisor enclave rootfs artifacts', () => {
     expect(generator).toContain("checksums: [{ algorithm: 'SHA256'");
   });
 
+  it.each([true, false])('binds the primary SBOM to its resolved image (digest-pinned: %s)', (pinned) => {
+    const build = fs.readFileSync(buildPath, 'utf8');
+    const configDigest = 'a'.repeat(64);
+    const manifestDigest = 'b'.repeat(64);
+    const image = 'ghcr.io/github/gh-aw-firewall/cloud-hypervisor-primary';
+    const runtimeImage = pinned ? `${image}@sha256:${manifestDigest}` : `${image}:local`;
+    const selection = build.slice(
+      build.indexOf('primary_image_id=$(docker image inspect'),
+      build.indexOf('guest_dockerfile_sha256='),
+    );
+    const invocation = build.match(
+      /sudo node "\$ROOT\/guest\/cloud-hypervisor\/generate-enclave-rootfs-sbom\.mjs" \\\n  --role primary [\s\S]*?--source-date-epoch "\$SOURCE_DATE_EPOCH"/,
+    );
+    expect(selection).not.toBe('');
+    expect(invocation).not.toBeNull();
+    const args = execFileSync('bash', ['-eu', '-c', [
+      `docker() { printf '%s\\n' 'sha256:${configDigest}'; }`,
+      'sudo() { printf "%s\\n" "$@"; }',
+      selection,
+      invocation![0],
+      'printf "%s\\n" "$primary_image_id"',
+    ].join('\n')], {
+      encoding: 'utf8',
+      env: {
+        ...process.env,
+        primary_runtime_image: runtimeImage,
+        PRIMARY_IMAGE: pinned ? `${image}@sha256:${'c'.repeat(64)}` : runtimeImage,
+        ROOT: root,
+        rootfs_tree: 'rootfs',
+        rootfs: 'rootfs.ext4',
+        OUTPUT: '.',
+        RELEASE_TAG: 'v1.2.3',
+        SOURCE_DATE_EPOCH: '1767225600',
+      },
+    }).trim().split('\n');
+    expect(args[args.indexOf('--source-image-digest') + 1])
+      .toBe(pinned ? manifestDigest : configDigest);
+    expect(args[args.length - 1]).toBe(`sha256:${configDigest}`);
+    expect(build).toContain('"imageId": "${primary_image_id}"');
+  });
+
   it('requires the agent networking utility in the image, exported tree, and ext4 artifact', () => {
     const dockerfile = fs.readFileSync(dockerfilePath, 'utf8');
     const agent = dockerfile.split(' AS enclave-agent\n')[1].split(' AS enclave-mcp-server')[0];
@@ -230,11 +271,22 @@ describe('Cloud Hypervisor enclave rootfs artifacts', () => {
       }).split(/\s/)[0];
       const spdx = JSON.parse(fs.readFileSync(output, 'utf8')) as {
         documentNamespace: string;
-        packages: Array<{ name: string; checksums?: Array<{ algorithm: string; checksumValue: string }> }>;
+        packages: Array<{ name: string; filesAnalyzed: boolean; checksums?: Array<{ algorithm: string; checksumValue: string }> }>;
+        files: Array<{ SPDXID: string }>;
         relationships: Array<{ spdxElementId: string; relationshipType: string; relatedSpdxElement: string }>;
       };
       expect(spdx.packages.map((entry) => entry.name)).toContain('ca-certificates');
       expect(spdx.packages[0].checksums).toEqual([{ algorithm: 'SHA256', checksumValue: digest }]);
+      expect(spdx.packages[0].filesAnalyzed).toBe(true);
+      expect(spdx.packages.slice(1).every((entry) => entry.filesAnalyzed === false)).toBe(true);
+      expect(spdx.files.length).toBeGreaterThan(0);
+      for (const file of spdx.files) {
+        expect(spdx.relationships).toContainEqual({
+          spdxElementId: 'SPDXRef-Rootfs',
+          relationshipType: 'CONTAINS',
+          relatedSpdxElement: file.SPDXID,
+        });
+      }
       expect(spdx.documentNamespace).toBe(
         `https://github.com/github/gh-aw-firewall/cloud-hypervisor/enclave/v1.2.3/${digest}`,
       );

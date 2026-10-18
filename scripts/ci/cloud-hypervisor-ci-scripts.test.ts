@@ -3,6 +3,7 @@ import * as path from 'path';
 import * as os from 'os';
 import { execFileSync } from 'child_process';
 import { runInNewContext } from 'vm';
+import { createHash } from 'crypto';
 
 const preflightPath = path.resolve(__dirname, 'cloud-hypervisor-host-preflight.sh');
 const smokePath = path.resolve(__dirname, 'cloud-hypervisor-live-smoke.sh');
@@ -128,12 +129,86 @@ describe('cloud-hypervisor-host-preflight.sh', () => {
     expect(source).toContain('sha256sum --check --strict SHA256SUMS');
   });
 
-  it('preflights one shared enclave rootfs while checking both role metadata entries', () => {
+  it('preflights one shared enclave rootfs and fixed entrypoints for v2 and compatible v1 manifests', () => {
     const source = fs.readFileSync(preflightPath, 'utf-8');
     expect(source).toContain('rootfs_name=enclave-rootfs.ext4');
-    expect(source).toContain('for role in script agent; do');
-    expect(source).toContain('.rootfs.${role}.role');
-    expect(source).toContain('.rootfs.${role}.file');
+    expect(source).toContain('if .schemaVersion == 2 then');
+    expect(source).toContain('elif .schemaVersion == 1 then');
+    expect(source).toContain('.entrypoints.script == "/usr/local/bin/run-enclave-script"');
+    expect(source).toContain('.entrypoints.agent == "/usr/local/bin/run-enclave-agent"');
+  });
+
+  describe.each([2, 1])('schema v%s artifact validation', schemaVersion => {
+    const source = fs.readFileSync(preflightPath, 'utf-8');
+    const functions = source.slice(source.indexOf('fail() {'), source.indexOf('[ "$(uname -s)"'));
+    const validation = source.slice(source.indexOf('require_regular_file "$ARTIFACT_DIR/enclave-manifest.json"'));
+
+    function validate(mutate: (manifest: any) => void = () => {}): void {
+      const scratch = fs.mkdtempSync(path.resolve('.awf-preflight-test-'));
+      try {
+        const contents = Buffer.from('shared enclave rootfs fixture');
+        const sha256 = createHash('sha256').update(contents).digest('hex');
+        const filename = 'enclave-rootfs.ext4';
+        const identity = {
+          file: filename, sha256, sizeBytes: contents.length,
+          uid: 65534, gid: 65534,
+        };
+        const entrypoints = {
+          script: '/usr/local/bin/run-enclave-script',
+          agent: '/usr/local/bin/run-enclave-agent',
+        };
+        const manifest = {
+          schemaVersion,
+          artifactType: 'awf-cloud-hypervisor-enclave-rootfs-set',
+          architecture: 'x86_64',
+          compatibility: { cloudHypervisorVersion: '53.0' },
+          ...(schemaVersion === 2
+            ? { rootfs: identity, entrypoints }
+            : { rootfs: {
+              script: { ...identity, role: 'script', entrypoint: entrypoints.script },
+              agent: { ...identity, role: 'agent', entrypoint: entrypoints.agent },
+            } }),
+        };
+        mutate(manifest);
+        fs.writeFileSync(path.join(scratch, filename), contents);
+        fs.writeFileSync(path.join(scratch, 'enclave-rootfs.SHA256SUMS'), `${sha256}  ${filename}\n`);
+        fs.writeFileSync(path.join(scratch, 'enclave-manifest.json'), JSON.stringify(manifest));
+        execFileSync('bash', ['-c', [
+          'set -euo pipefail', 'ARTIFACT_DIR=$1', functions, validation,
+        ].join('\n'), 'preflight-artifact-test', scratch], { stdio: 'pipe' });
+      } finally {
+        fs.rmSync(scratch, { recursive: true, force: true });
+      }
+    }
+
+    it('accepts the shared filesystem identity', () => {
+      expect(() => validate()).not.toThrow();
+    });
+
+    it.each([
+      ['file', 'other.ext4'],
+      ['sha256', '0'.repeat(64)],
+      ['sizeBytes', 1],
+      ['uid', 0],
+      ['gid', 0],
+    ])('rejects incorrect %s metadata', (field, value) => {
+      expect(() => validate(manifest => {
+        const identity = schemaVersion === 2 ? manifest.rootfs : manifest.rootfs.agent;
+        identity[field] = value;
+      })).toThrow(/identity or fixed entrypoints are invalid/);
+    });
+
+    it.each(['script', 'agent'])('rejects a changed %s entrypoint', role => {
+      expect(() => validate(manifest => {
+        if (schemaVersion === 2) manifest.entrypoints[role] = '/bin/sh';
+        else manifest.rootfs[role].entrypoint = '/bin/sh';
+      })).toThrow(/identity or fixed entrypoints are invalid/);
+    });
+
+    it('rejects an unsupported schema', () => {
+      expect(() => validate(manifest => { manifest.schemaVersion = 3; }))
+        .toThrow(/identity or fixed entrypoints are invalid/);
+    });
   });
 
   (shellcheckAvailable() ? it : it.skip)('has no shellcheck errors', () => {

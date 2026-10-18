@@ -91,6 +91,7 @@ function dependencies(
       kernelPath: '/snapshot/vmlinux.bin',
       rootfsPath: '/snapshot/rootfs.ext4',
       supervisorPath: '/snapshot/awf-supervisor',
+      ...(sources.rootfsSbomPath ? { rootfsSbomPath: '/snapshot/rootfs.sbom.spdx.json' } : {}),
       ...(sources.manifestPath ? { manifestPath: '/snapshot/manifest.json' } : {}),
       ...(sources.bundlePath
         ? { bundlePath: '/snapshot/manifest.sigstore.jsonl' }
@@ -669,8 +670,8 @@ describe('Cloud Hypervisor preflight (foundation only)', () => {
     )).rejects.toThrow(/must contain exactly 64 hexadecimal/);
   });
 
-  it('fails closed when attestation verification fails before reading the manifest', async () => {
-    const readFile = jest.fn();
+  it('fails closed when attestation verification fails before consuming snapshot contents', async () => {
+    const readFile = jest.fn().mockResolvedValue(manifest());
     const removeArtifactSnapshot = jest.fn().mockResolvedValue(undefined);
     await expect(runCloudHypervisorPreflight(
       config(),
@@ -680,10 +681,68 @@ describe('Cloud Hypervisor preflight (foundation only)', () => {
         verifyManifestAttestation: jest.fn().mockRejectedValue(new Error('bad signature')),
       }),
     )).rejects.toThrow(/bad signature/);
-    expect(readFile).not.toHaveBeenCalled();
+    expect(readFile).toHaveBeenCalledTimes(1);
+    expect(readFile).toHaveBeenCalledWith('/opt/manifest.json');
     expect(removeArtifactSnapshot).toHaveBeenCalledWith(
       `${CLOUD_HYPERVISOR_ARTIFACT_SNAPSHOT_ROOT}/run-test`,
     );
+  });
+
+  describe('primary rootfs inventory', () => {
+    function inventoryDependencies(
+      overrides: Partial<CloudHypervisorPreflightDependencies> = {},
+      rootfsDigest = digest,
+    ): Partial<CloudHypervisorPreflightDependencies> {
+      const input = JSON.parse(manifest());
+      input.artifacts.rootfs.sbom = { file: 'rootfs.sbom.spdx.json', sha256: digest };
+      const inventory = JSON.stringify({
+        spdxVersion: 'SPDX-2.3',
+        packages: [{
+          SPDXID: 'SPDXRef-Rootfs',
+          checksums: [{ algorithm: 'SHA256', checksumValue: rootfsDigest }],
+        }],
+        files: [{ fileName: '/bin/bash' }],
+      });
+      return dependencies({
+        readFile: jest.fn(async file => file.endsWith('.spdx.json') ? inventory : JSON.stringify(input)),
+        ...overrides,
+      });
+    }
+
+    it('stages and verifies the inventory from the immutable snapshot on every use', async () => {
+      const deps = inventoryDependencies();
+      await runCloudHypervisorPreflight(config(), deps);
+      await runCloudHypervisorPreflight(config(), deps);
+      expect(deps.createArtifactSnapshot).toHaveBeenCalledWith(
+        expect.objectContaining({ rootfsSbomPath: '/opt/rootfs.sbom.spdx.json' }), expect.any(Function),
+      );
+      expect((deps.sha256 as jest.Mock).mock.calls.filter(([file]) =>
+        file === '/snapshot/rootfs.sbom.spdx.json')).toHaveLength(2);
+      expect(deps.readFile).toHaveBeenCalledWith('/snapshot/rootfs.sbom.spdx.json');
+    });
+
+    it.each(['initial use', 'cache reuse'])('rejects a missing inventory on %s', async phase => {
+      const deps = inventoryDependencies();
+      if (phase === 'cache reuse') await runCloudHypervisorPreflight(config(), deps);
+      (deps.access as jest.Mock).mockImplementation(async file => {
+        if (file === '/opt/rootfs.sbom.spdx.json') throw new Error('missing inventory');
+      });
+      await expect(runCloudHypervisorPreflight(config(), deps)).rejects.toThrow('missing inventory');
+    });
+
+    it.each(['initial use', 'cache reuse'])('rejects a tampered inventory on %s', async phase => {
+      const deps = inventoryDependencies();
+      if (phase === 'cache reuse') await runCloudHypervisorPreflight(config(), deps);
+      (deps.sha256 as jest.Mock).mockImplementation(async file =>
+        file.endsWith('.spdx.json') ? 'f'.repeat(64) : digest);
+      await expect(runCloudHypervisorPreflight(config(), deps)).rejects.toThrow(/SBOM.*SHA-256 mismatch/);
+      expect(deps.removeArtifactSnapshot).toHaveBeenCalled();
+    });
+
+    it('rejects an inventory that does not bind the final rootfs digest', async () => {
+      await expect(runCloudHypervisorPreflight(config(), inventoryDependencies({}, 'f'.repeat(64))))
+        .rejects.toThrow(/SBOM does not bind its final filesystem digest/);
+    });
   });
 
   it('requires conspicuous dual opt-in for development-only legacy digests', async () => {

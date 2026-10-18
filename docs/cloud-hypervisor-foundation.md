@@ -669,6 +669,10 @@ child registry manifest, and `sourceImageId` is the separate Docker image/config
 ID; these digests must not be assumed equal.
 The primary rootfs has its own `rootfs.sbom.spdx.json`. Both final-filesystem
 SBOMs inventory the normalized export's files and bind the final ext4 SHA-256.
+Primary runtime preflight snapshots any inventory declared by the attested
+manifest and verifies its checksum and rootfs digest binding on every use,
+including reuse of staged artifacts. Older pinned manifests without an
+inventory descriptor remain supported.
 These inventories complement, rather than replace, the OCI image SBOMs.
 The rootfs and manifest each have an offline provenance bundle. Runtime network,
 mounts, credentials, limits and cleanup remain role-specific.

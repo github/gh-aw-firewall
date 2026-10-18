@@ -155,7 +155,7 @@ const document = {
       SPDXID: 'SPDXRef-Rootfs',
       versionInfo: args['release-tag'],
       downloadLocation: 'NOASSERTION',
-      filesAnalyzed: false,
+      filesAnalyzed: true,
       checksums: [{ algorithm: 'SHA256', checksumValue: rootfsDigest }],
       licenseConcluded: 'NOASSERTION',
       licenseDeclared: 'NOASSERTION',

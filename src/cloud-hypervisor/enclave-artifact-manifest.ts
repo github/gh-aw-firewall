@@ -162,7 +162,10 @@ function parseRole(
   if (!expectedImage.test(sourceImage)) {
     throw new Error(`${label}.sourceImage must be the release-pinned ${role} enclave image`);
   }
-  if (sharedSbom && !/^sha256:[a-f0-9]{64}$/.test(String(artifact.sourceImageId))) {
+  if (sharedSbom && (
+    typeof artifact.sourceImageId !== 'string'
+    || !/^sha256:[a-f0-9]{64}$/.test(artifact.sourceImageId)
+  )) {
     throw new Error(`${label}.sourceImageId must be a SHA-256 Docker image/config ID`);
   }
 

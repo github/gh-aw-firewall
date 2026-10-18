@@ -42,6 +42,7 @@ describe('Cloud Hypervisor artifact snapshots', () => {
     const files = [
       ['vmm', 'cloud-hypervisor'], ['virtiofsd', 'virtiofsd'], ['kernel', 'vmlinux.bin'],
       ['rootfs', 'rootfs.ext4'], ['supervisor', 'awf-supervisor'],
+      ['sbom', 'rootfs.sbom.spdx.json'],
       ['manifest', 'manifest.json'], ['bundle', 'manifest.sigstore.jsonl'],
     ] as const;
     let published: HostPreflightProgress[];
@@ -50,6 +51,7 @@ describe('Cloud Hypervisor artifact snapshots', () => {
     let sparse: jest.Mock;
     const sources = {
       ...snapshotSources(), manifestPath: '/source/manifest.json', bundlePath: '/source/bundle.jsonl',
+      rootfsSbomPath: '/source/rootfs.sbom.spdx.json',
     };
     const latest = () => published[published.length - 1];
     const run = () => createArtifactSnapshot(sources, sparse, capture, root, report);
@@ -141,7 +143,12 @@ describe('Cloud Hypervisor artifact snapshots', () => {
     });
 
     it('reports each successful copy and mode transition, without claiming the bind view is sealed', async () => {
-      await run();
+      const snapshot = await run();
+      expect(snapshot.rootfsSbomPath).toBe(`${directory}/rootfs.sbom.spdx.json`);
+      expect(fs.copyFile).toHaveBeenCalledWith(
+        sources.rootfsSbomPath, snapshot.rootfsSbomPath, constants.COPYFILE_EXCL,
+      );
+      expect(fs.chmod).toHaveBeenCalledWith(snapshot.rootfsSbomPath, 0o444);
       for (const [gate] of files) {
         for (const id of [`${gate}-copy`, `${gate}-mode`]) {
           expect(published.map((value) => value.checks.find((check) => check.id === id)?.result))

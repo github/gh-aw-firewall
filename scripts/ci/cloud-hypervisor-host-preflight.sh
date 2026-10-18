@@ -111,20 +111,28 @@ test "$(jq -r '.compatibility.cloudHypervisorVersion' "$ARTIFACT_DIR/enclave-man
 rootfs_name=enclave-rootfs.ext4
 rootfs="$ARTIFACT_DIR/$rootfs_name"
 require_regular_file "$rootfs" "Cloud Hypervisor shared enclave rootfs"
-for role in script agent; do
-  test "$(jq -r ".rootfs.${role}.role" "$ARTIFACT_DIR/enclave-manifest.json")" = "$role" \
-    || fail "Cloud Hypervisor $role enclave rootfs role metadata is invalid."
-  test "$(jq -r ".rootfs.${role}.file" "$ARTIFACT_DIR/enclave-manifest.json")" = "$rootfs_name" \
-    || fail "Cloud Hypervisor $role enclave rootfs filename metadata is invalid."
-  test "$(jq -r ".rootfs.${role}.sha256" "$ARTIFACT_DIR/enclave-manifest.json")" = \
-    "$(sha256sum "$rootfs" | awk '{print $1}')" \
-    || fail "Cloud Hypervisor $role enclave rootfs manifest digest mismatch."
-  test "$(jq -r ".rootfs.${role}.sizeBytes" "$ARTIFACT_DIR/enclave-manifest.json")" = \
-    "$(stat -c '%s' "$rootfs")" \
-    || fail "Cloud Hypervisor $role enclave rootfs manifest size mismatch."
-  test "$(jq -r ".rootfs.${role}.uid" "$ARTIFACT_DIR/enclave-manifest.json")" = 65534 \
-    && test "$(jq -r ".rootfs.${role}.gid" "$ARTIFACT_DIR/enclave-manifest.json")" = 65534 \
-    || fail "Cloud Hypervisor $role enclave rootfs uid/gid metadata is invalid."
-done
+rootfs_sha256=$(sha256sum "$rootfs" | awk '{print $1}')
+rootfs_size=$(stat -c '%s' "$rootfs")
+jq -e --arg file "$rootfs_name" --arg sha256 "$rootfs_sha256" \
+  --argjson size "$rootfs_size" '
+  def valid_identity:
+    .file == $file and .sha256 == $sha256 and .sizeBytes == $size
+    and .uid == 65534 and .gid == 65534;
+  if .schemaVersion == 2 then
+    (.rootfs | valid_identity)
+    and (.entrypoints | keys == ["agent", "script"])
+    and .entrypoints.script == "/usr/local/bin/run-enclave-script"
+    and .entrypoints.agent == "/usr/local/bin/run-enclave-agent"
+  elif .schemaVersion == 1 then
+    # Compatibility with the earlier shared-rootfs manifest, not two files.
+    (.rootfs | keys == ["agent", "script"])
+    and (.rootfs.script | valid_identity)
+    and (.rootfs.agent | valid_identity)
+    and .rootfs.script.role == "script" and .rootfs.agent.role == "agent"
+    and .rootfs.script.entrypoint == "/usr/local/bin/run-enclave-script"
+    and .rootfs.agent.entrypoint == "/usr/local/bin/run-enclave-agent"
+  else false end
+' "$ARTIFACT_DIR/enclave-manifest.json" >/dev/null \
+  || fail "Cloud Hypervisor shared enclave rootfs identity or fixed entrypoints are invalid."
 
 echo "Cloud Hypervisor host preflight passed on GitHub-hosted Ubuntu x86_64 with accessible KVM."

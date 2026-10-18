@@ -153,6 +153,13 @@ describe('Cloud Hypervisor enclave artifact manifest', () => {
         sbom: { file: 'enclave-rootfs.sbom.spdx.json', sha256: digest },
       },
     }, /sourceImageId/],
+    ['array Docker config ID', {
+      rootfs: {
+        ...role('script'), role: undefined, entrypoint: undefined,
+        sourceImageId: [`sha256:${digest}`],
+        sbom: { file: 'enclave-rootfs.sbom.spdx.json', sha256: digest },
+      },
+    }, /sourceImageId/],
     ['unexpected entrypoint', {
       entrypoints: { script: '/usr/local/bin/run-enclave-script', agent: '/usr/local/bin/run-enclave-agent', other: '/bin/sh' },
     }, /entrypoints must contain exactly/],

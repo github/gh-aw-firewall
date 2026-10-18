@@ -3,6 +3,8 @@ import {
   usesPublishedAwfRelease,
 } from './apply-general-workflow-patches';
 import { copilotCliDaemonCopyStepSentinel } from './workflow-patch-patterns';
+import * as fs from 'fs';
+import * as path from 'path';
 
 // The gh-aw compiler emits this step for every firewall + arc-dind workflow
 // regardless of engine.id (github/gh-aw-firewall#7505), so for non-Copilot
@@ -226,6 +228,27 @@ describe('applyGeneralWorkflowPatches Cloud Hypervisor bundle retries', () => {
 });
 
 describe('applyGeneralWorkflowPatches shared enclave gateway policy', () => {
+  it.each([
+    'smoke-enclave-cloud-hypervisor.lock.yml',
+    'smoke-enclave-cloud-hypervisor-copilot.lock.yml',
+  ])('restores the host-only rootfs exclusion in %s idempotently', filename => {
+    const workflowPath = path.resolve(__dirname, '../../.github/workflows', filename);
+    const exclusion = '--exclude-env AWF_CLOUD_HYPERVISOR_ENCLAVE_ROOTFS';
+    const checkedIn = fs.readFileSync(workflowPath, 'utf-8');
+    expect(checkedIn).toContain(exclusion);
+    const compiled = checkedIn.replace(`${exclusion} `, '');
+    expect(compiled).not.toContain(exclusion);
+
+    const first = applyGeneralWorkflowPatches(compiled, workflowPath);
+    const invocation = first.content.split('\n').find(line =>
+      line.includes('sudo --preserve-env awf --cloud-hypervisor-enclave-debug-public --config '));
+    expect(invocation).toContain('--env-all');
+    expect(invocation?.split(exclusion).length).toBe(2);
+    expect(first.log).toContain('  Excluded host-only enclave rootfs from the primary agent');
+    expect(applyGeneralWorkflowPatches(first.content, workflowPath).content).toBe(first.content);
+    expect(applyGeneralWorkflowPatches(checkedIn, workflowPath).content).toBe(checkedIn);
+  });
+
   it('normalizes the generated shared gateway handoff', () => {
     const compiled =
       '              "safeoutputs": {"type": "stdio"},\n' +

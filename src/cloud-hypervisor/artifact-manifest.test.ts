@@ -126,4 +126,23 @@ describe('Cloud Hypervisor artifact manifest', () => {
       supervisor: '/opt/awf-supervisor',
     })).toThrow(/must be named cloud-hypervisor/);
   });
+
+  it('preserves the primary inventory descriptor when present', () => {
+    const input = JSON.parse(manifest());
+    input.artifacts.rootfs.sbom = { file: 'rootfs.sbom.spdx.json', sha256: digest };
+    expect(parseCloudHypervisorArtifactManifest(JSON.stringify(input), releaseTag).artifacts.rootfs.sbom)
+      .toEqual(input.artifacts.rootfs.sbom);
+  });
+
+  it.each([
+    null,
+    { file: '../rootfs.sbom.spdx.json', sha256: digest },
+    { file: 'rootfs.sbom.spdx.json', sha256: [digest] },
+    { file: 'rootfs.sbom.spdx.json', sha256: 'bad' },
+  ])('rejects an invalid primary inventory descriptor: %j', (sbom) => {
+    const input = JSON.parse(manifest());
+    input.artifacts.rootfs.sbom = sbom;
+    expect(() => parseCloudHypervisorArtifactManifest(JSON.stringify(input), releaseTag))
+      .toThrow(/rootfs.sbom/);
+  });
 });

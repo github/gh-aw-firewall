@@ -267,6 +267,17 @@ export function applyGeneralWorkflowPatches(
     }
 
     if (isCloudHypervisorEnclaveSmoke) {
+      const rootfsExclusion = '--exclude-env AWF_CLOUD_HYPERVISOR_ENCLAVE_ROOTFS';
+      if (!content.includes(rootfsExclusion)) {
+        if (!content.includes(gatewayKeyExclusion)) {
+          throw new Error('Could not find the primary-agent environment exclusion anchor');
+        }
+        content = content.replace(
+          gatewayKeyExclusion,
+          `${rootfsExclusion} ${gatewayKeyExclusion}`
+        );
+        log.push(`  Excluded host-only enclave rootfs from the primary agent`);
+      }
       const stagingTokenExclusion = '--exclude-env GH_TOKEN';
       if (!content.includes(stagingTokenExclusion)) {
         if (!content.includes(gatewayKeyExclusion)) {

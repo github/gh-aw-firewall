@@ -468,6 +468,11 @@ install -m 0755 \
 
 rootfs_tree="$BUILD/rootfs"
 primary_image_id=$(docker image inspect --format '{{.Id}}' "$primary_runtime_image")
+if [[ "$primary_runtime_image" == *@sha256:* ]]; then
+  primary_image_digest=${primary_runtime_image##*@sha256:}
+else
+  primary_image_digest=${primary_image_id#sha256:}
+fi
 guest_dockerfile_sha256=$(sha256sum "$ROOT/containers/cloud-hypervisor/Dockerfile" | awk '{print $1}')
 cleanup_build_tools_container() {
   if [ -n "${rootfs_tree:-}" ] && [ -d "$rootfs_tree" ]; then
@@ -500,7 +505,7 @@ sudo node "$ROOT/guest/cloud-hypervisor/generate-enclave-rootfs-sbom.mjs" \
   --output "$OUTPUT/rootfs.sbom.spdx.json" \
   --release-tag "$RELEASE_TAG" \
   --source-image "$PRIMARY_IMAGE" \
-  --source-image-digest "${primary_image_id#sha256:}" \
+  --source-image-digest "$primary_image_digest" \
   --source-date-epoch "$SOURCE_DATE_EPOCH"
 sudo chown "$(id -u):$(id -g)" "$OUTPUT/rootfs.sbom.spdx.json"
 sudo rm -rf "$rootfs_tree"
