@@ -539,7 +539,13 @@ toolchain, libraries, `gh`, and `iproute2` for PID 1 network setup. Release buil
 use the same-release build-tools digest; local builds must supply the base
 explicitly (`--build-arg BUILD_TOOLS_IMAGE=<local-image-or-digest>`) or use AWF's
 Compose BuildKit service context (Compose 2.17 or newer). Production release and
-local Compose wiring do not select a registry `latest` base. The image build and
+local Compose wiring do not select a registry `latest` base. The PR scan retains
+the locally built base until dependent builds finish, including
+cleanup on failed scans/builds. The shared base builds `gh` from the same
+checksum-pinned source and patched Go/dependency versions as the primary agent
+image, rather than Ubuntu's older binary, and removes the unused inherited
+Pebble service manager. Both the base and enclave image remain subject to the
+unchanged High/Critical vulnerability gate. The image build and
 exported-tree build both execute `/usr/bin/ip -Version` (including its dynamic
 loader and libraries); the ext4 verifier requires that executable. The supervisor
 uses fixed bin/sbin paths, not ambient `PATH`. The exported-tree builder also

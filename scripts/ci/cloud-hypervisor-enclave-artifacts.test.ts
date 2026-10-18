@@ -109,7 +109,7 @@ describe('Cloud Hypervisor enclave rootfs artifacts', () => {
     expect(scan.indexOf("('build-tools',")).toBeLessThan(scan.indexOf("('enclave-agent',"));
     expect(scan).toContain('BUILD_TOOLS_IMAGE=awf-pr-scan-build-tools:pr');
     expect(scan).toContain("if name == 'enclave-agent' and not build_tools_ready:");
-    expect(scan).toContain("if name == 'build-tools':\n                  build_tools_ready = True");
+    expect(scan).toMatch(/if name == 'build-tools':\n\s+build_tools_ready = True/);
   });
 
   it.each([13, 2294165504])('emits identical SPDX bindings for a %i-byte rootfs with bounded hashing', (size) => {

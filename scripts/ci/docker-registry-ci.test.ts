@@ -26,6 +26,98 @@ function jobs(file: string): Record<string, { steps: Step[] }> {
 }
 
 describe('CI registry retrieval', () => {
+  it('uses the reviewed patched gh build and removes the unused inherited service manager', () => {
+    const buildTools = fs.readFileSync(path.join(root, 'containers/build-tools/Dockerfile'), 'utf8');
+    const agent = fs.readFileSync(path.join(root, 'containers/agent/Dockerfile'), 'utf8');
+    const ghStage = (dockerfile: string) => dockerfile.slice(
+      dockerfile.indexOf('FROM golang:'),
+      dockerfile.indexOf('\nFROM ubuntu:'),
+    ).trim();
+    expect(ghStage(buildTools)).toBe(ghStage(agent));
+    expect(buildTools).toContain('COPY --from=gh-build /tmp/cli-*/bin/gh /usr/bin/gh');
+    expect(buildTools).not.toContain('gnupg gh');
+    for (const dockerfile of [buildTools, agent]) {
+      expect(dockerfile).toContain('rm -f /usr/bin/pebble');
+    }
+    expect(buildTools).toContain('test "$(gosu nobody id -u)" = 65534');
+  });
+
+  it.each(['success', 'base-build', 'agent-build', 'scan', 'save'])(
+    'retains the shared PR base through dependent builds and cleans up on %s',
+    (failure) => {
+      const step = jobs('supply-chain-scan.yml').scan.steps.find(
+        (entry) => entry.name?.startsWith('Build and scan PR container images'),
+      )!;
+      const python = step.run!.split("<<'PYEOF'\n")[1].split('\nPYEOF')[0];
+      const result = spawnSync('python3', ['-c', `
+import contextlib, io, json, os, subprocess, sys
+from unittest.mock import patch
+code = sys.stdin.read()
+live = set()
+archives = set()
+calls = []
+failure = sys.argv[1]
+base = 'awf-pr-scan-build-tools:pr'
+agent = 'awf-pr-scan-enclave-agent:pr'
+def run(args, **kwargs):
+    calls.append(args)
+    rc = 0
+    if args[:2] == ['docker', 'build']:
+        tag = args[args.index('-t') + 1]
+        if tag == agent and base not in live:
+            raise AssertionError('base removed before enclave-agent build')
+        if (failure == 'base-build' and tag == base) or (failure == 'agent-build' and tag == agent):
+            rc = 1
+        else:
+            live.add(tag)
+    elif args[:2] == ['docker', 'save']:
+        archives.add(args[3])
+        if failure == 'save':
+            raise subprocess.CalledProcessError(1, args)
+    elif args[:2] == ['docker', 'run'] and failure == 'scan':
+        rc = 2
+    elif args[:3] == ['docker', 'image', 'rm']:
+        live.discard(args[-1])
+    return subprocess.CompletedProcess(args, rc)
+exit_code = 0
+with patch('subprocess.run', run), patch.dict(os.environ, {'GRYPE_DB': '/tmp/mock-db'}), \\
+     patch('os.path.exists', lambda file: file in archives), patch('os.remove', archives.remove):
+    with contextlib.redirect_stdout(io.StringIO()):
+        try:
+            exec(compile(code, '<workflow>', 'exec'))
+        except SystemExit as error:
+            exit_code = error.code
+        except subprocess.CalledProcessError as error:
+            exit_code = error.returncode
+print(json.dumps({'live': sorted(live), 'archives': sorted(archives), 'calls': calls, 'exit': exit_code}))
+`, failure], { cwd: root, input: python, encoding: 'utf8' });
+      expect(result.stderr).toBe('');
+      expect(result.status).toBe(0);
+      const trace = JSON.parse(result.stdout) as {
+        live: string[]; archives: string[]; calls: string[][]; exit: number;
+      };
+      expect(trace.live).toEqual([]);
+      expect(trace.archives).toEqual([]);
+      expect(trace.exit).toBe(failure === 'success' ? 0 : failure === 'scan' ? 2 : 1);
+      const agentBuild = trace.calls.find((args) =>
+        args[1] === 'build' && args.includes('awf-pr-scan-enclave-agent:pr'));
+      if (failure === 'base-build' || failure === 'save') {
+        expect(agentBuild).toBeUndefined();
+      } else {
+        expect(agentBuild).toBeDefined();
+      }
+      const scans = trace.calls.filter((args) => args[1] === 'run');
+      for (const args of scans) {
+        expect(args).toContain(grype);
+        expect(args.slice(args.indexOf('--fail-on'), args.indexOf('--fail-on') + 2))
+          .toEqual(['--fail-on', 'high']);
+      }
+      if (failure === 'success' || failure === 'scan') {
+        expect(scans).toHaveLength(9);
+      }
+    },
+  );
+
   const affected = [
     ...Object.keys(jobs('test-chroot.yml')).map((job) => ['test-chroot.yml', job]),
     ['test-examples.yml', 'test-examples'],
