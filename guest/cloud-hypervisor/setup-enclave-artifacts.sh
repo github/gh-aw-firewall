@@ -199,22 +199,26 @@ verify_rootfs_files() {
     local rootfs_name
     rootfs_name=$(jq -r ".rootfs.${role}.file" "$manifest")
     local rootfs="$directory/$rootfs_name"
-    if [ "$rootfs_name" = enclave-rootfs.ext4 ] && [ "$role" = agent ]; then
-      continue
-    fi
     local provenance="$directory/${rootfs_name%.ext4}.provenance.sigstore.jsonl"
     local sbom="$directory/enclave-${role}-rootfs.sbom.spdx.json"
     local selector=".rootfs.${role}"
+    local skip_shared_rootfs_checks=false
+    if [ "$rootfs_name" = enclave-rootfs.ext4 ] && [ "$role" = agent ]; then
+      skip_shared_rootfs_checks=true
+    fi
 
-    assert_trusted_file "$rootfs" "$role enclave rootfs" || return 1
-    assert_trusted_file "$provenance" "$role enclave rootfs provenance" || return 1
-    verify_attestation "$rootfs" "$provenance" || return 1
+    if [ "$skip_shared_rootfs_checks" = false ]; then
+      assert_trusted_file "$rootfs" "$role enclave rootfs" || return 1
+      assert_trusted_file "$provenance" "$role enclave rootfs provenance" || return 1
+      verify_attestation "$rootfs" "$provenance" || return 1
+      [ "$(jq -r "${selector}.sha256" "$manifest")" = \
+          "$(sha256sum "$rootfs" | awk '{print $1}')" ] \
+        || { echo "$role enclave rootfs digest mismatch" >&2; return 1; }
+      [ "$(jq -r "${selector}.sizeBytes" "$manifest")" = "$(stat -c '%s' "$rootfs")" ] \
+        || { echo "$role enclave rootfs size mismatch" >&2; return 1; }
+    fi
+
     assert_trusted_file "$sbom" "$role enclave rootfs SBOM" || return 1
-    [ "$(jq -r "${selector}.sha256" "$manifest")" = \
-        "$(sha256sum "$rootfs" | awk '{print $1}')" ] \
-      || { echo "$role enclave rootfs digest mismatch" >&2; return 1; }
-    [ "$(jq -r "${selector}.sizeBytes" "$manifest")" = "$(stat -c '%s' "$rootfs")" ] \
-      || { echo "$role enclave rootfs size mismatch" >&2; return 1; }
     [ "$(jq -r "${selector}.sbom.sha256" "$manifest")" = \
         "$(sha256sum "$sbom" | awk '{print $1}')" ] \
       || { echo "$role enclave rootfs SBOM digest mismatch" >&2; return 1; }
