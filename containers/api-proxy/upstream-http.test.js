@@ -6,7 +6,6 @@ const {
 } = require('./upstream-http');
 const { clearRuntimeModels, replaceRuntimeModels } = require('./runtime-model-catalog');
 const { translateCopilotWireApi } = require('./wire-api-compat');
-const { EventEmitter } = require('events');
 const { createRoutingObservation } = require('./routing-observation');
 
 describe('upstream-http', () => {
