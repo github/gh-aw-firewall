@@ -1,5 +1,4 @@
 import * as fs from 'fs';
-import * as os from 'os';
 import * as path from 'path';
 import { PassThrough } from 'stream';
 import { normalizeEnclavesConfig } from '../parsers/enclave-parser';
@@ -22,8 +21,20 @@ import {
   createCloudHypervisorTestConfig,
   createCloudHypervisorInfrastructureSnapshot,
 } from './test-fixtures.test-utils';
+import * as cloudHypervisorManager from './manager';
+import { readHostExecutorInvocationDiagnostics } from '../enclave/host-executor-journal';
 
 jest.mock('../enclave/cloud-hypervisor-host-service');
+jest.mock('../enclave/paths', () => {
+  const actual = jest.requireActual('../enclave/paths');
+  return {
+    ...actual,
+    resolveEnclavePaths: (workDir: string) => {
+      const paths = actual.resolveEnclavePaths(workDir, path.dirname(workDir));
+      return { ...paths, hostExecutorJournalDir: path.join(paths.root, 'journal') };
+    },
+  };
+});
 
 // Exercises internal composition, not production authorization or live KVM/mcpg.
 describe('unified Cloud Hypervisor primary boot and enclave lifecycle', () => {
@@ -53,7 +64,11 @@ describe('unified Cloud Hypervisor primary boot and enclave lifecycle', () => {
   }
 
   beforeEach(() => {
-    directory = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'ch-unified-')));
+    directory = fs.realpathSync(fs.mkdtempSync(path.join(process.cwd(), '.ch-unified-')));
+    const managerDependencies = cloudHypervisorManager.resolveCloudHypervisorManagerDependencies();
+    jest.spyOn(cloudHypervisorManager, 'resolveCloudHypervisorManagerDependencies').mockReturnValue({
+      ...managerDependencies, resolveIdentity: () => ({ uid: process.getuid!(), gid: process.getgid!() }),
+    });
     order = [];
     stopped = false;
     const config = createCloudHypervisorTestConfig({
@@ -142,6 +157,7 @@ describe('unified Cloud Hypervisor primary boot and enclave lifecycle', () => {
     fs.rmSync(paths.root, { recursive: true, force: true });
     fs.rmSync(paths.ingressRoot, { recursive: true, force: true });
     fs.rmSync(directory, { recursive: true, force: true });
+    jest.restoreAllMocks();
   });
 
   it('requires an authenticated host lifecycle before supporting infrastructure starts', async () => {
@@ -170,6 +186,19 @@ describe('unified Cloud Hypervisor primary boot and enclave lifecycle', () => {
       stopCloudHypervisorEnclaveLifecycle(options.config),
     ]);
     expect(order.slice(-3)).toEqual(['close-admissions', 'drain-invocations', 'release-storage']);
+    const paths = resolveEnclavePaths(directory);
+    const [summary] = readHostExecutorInvocationDiagnostics({
+      runId, journalDir: paths.hostExecutorJournalDir,
+    });
+    expect(JSON.parse(summary.contents)).toMatchObject({
+      component: 'enclave-proxy-usage',
+      usage: {
+        scope: 'run-cumulative',
+        requests: { status: 'not-applicable' }, tokens: { status: 'not-applicable' },
+      },
+    });
+    expect(fs.readFileSync(path.join(directory,
+      'audit/diagnostics/cloud-hypervisor/host-executor', summary.name), 'utf8')).toBe(summary.contents);
   });
 
   it.each(['missing', 'skipped', 'failed'] as const)(
@@ -206,7 +235,7 @@ describe('unified Cloud Hypervisor primary boot and enclave lifecycle', () => {
   it('rejects actual exports containing broker credentials before any primary VM exists', async () => {
     await startCloudHypervisorEnclaveLifecycle(options.config, provider, {});
     dependencies.resolveExports = jest.fn(async () => [{
-      tag: 'workspace', source: '/var/tmp', target: '/workspace', mode: 'rw' as const,
+      tag: 'workspace', source: path.dirname(directory), target: '/workspace', mode: 'rw' as const,
     }]);
     await expect(runCloudHypervisorBootLoop(options)).rejects.toThrow(/private or recovery state/);
     expect(dependencies.createManager).not.toHaveBeenCalled();
