@@ -49,9 +49,8 @@ export function buildLocalInstallSteps(indent: string): string {
   ].join('\n') + '\n';
 }
 
-export function buildBranchEnclaveInstallSteps(indent: string, includeMain = false): string {
-  const condition = "github.event_name == 'workflow_dispatch' && github.repository == 'github/gh-aw-firewall' && github.ref_type == 'branch'"
-    + (includeMain ? '' : " && github.ref != 'refs/heads/main'");
+export function buildBranchEnclaveInstallSteps(indent: string): string {
+  const condition = "github.event_name == 'workflow_dispatch' && github.repository == 'github/gh-aw-firewall' && github.ref_type == 'branch' && github.ref != 'refs/heads/main'";
   const scriptIndent = `${indent}    `;
   const wrapper = [
     'args=()',

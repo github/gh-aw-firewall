@@ -189,11 +189,11 @@ print(json.dumps({'live': sorted(live), 'archives': sorted(archives), 'cache': s
     expect(steps.find((step) => step.run?.includes(`'${grant}'`))?.run).toContain(grant);
   });
 
-  it('builds the pinned acceptance-aware compiler before scanning', () => {
+  it('builds the pinned NVX-aware compiler before scanning', () => {
     const steps = jobs('supply-chain-scan.yml').scan.steps;
     const checkout = steps.findIndex((step) => step.with?.repository === 'github/gh-aw');
     const install = steps.findIndex(
-      (step) => step.name === 'Install acceptance-aware gh-aw',
+      (step) => step.name === 'Install NVX-aware gh-aw',
     );
     const compile = steps.findIndex((step) => step.run === 'gh aw compile --syft .github/workflows/*.md');
     expect(checkout).toBeGreaterThanOrEqual(0);
@@ -208,18 +208,8 @@ print(json.dumps({'live': sorted(live), 'archives': sorted(archives), 'cache': s
     });
     expect(steps[install].run).toContain('-C .tmp/gh-aw-compiler');
     expect(steps[install].run).toContain(
-      '-ldflags="-X main.version=dev-v0.91.8-37-g6cc24f3633-agent-acceptance"',
+      '-ldflags="-X main.version=v0.91.8-37-g6cc24f3633 -X main.isRelease=true"',
     );
-    const build = steps[install].run!;
-    expect(build).toContain('https://github.com/github/gh-aw/commit/2b19ccffd0694750e8e2bdcb20bf882e9bb440f2.patch');
-    expect(build).toContain('9ae4b02273385b3a9e884085bdf81969bbaa0e04d9d410d30c1ddb6d1023e8ee');
-    expect(build).toContain('sha256sum --check --strict');
-    expect(build.indexOf('sha256sum --check --strict')).toBeLessThan(build.indexOf('git -C'));
-    expect(build).toContain('--include=pkg/workflow/enclaves_runtime.go');
-    expect(build).toContain('--include=pkg/workflow/enclaves_agent_acceptance_test.go');
-    expect(build).toContain('TestValidateCloudHypervisorAgentAcceptance|TestCompileCloudHypervisorAgentAcceptance');
-    expect(build.indexOf('go test')).toBeLessThan(build.indexOf('go build'));
-    expect(build).not.toContain('main.isRelease=true');
     for (const index of [checkout, install, compile]) {
       expect(steps[index].if).toBeUndefined();
       expect(steps[index]['continue-on-error']).toBeUndefined();

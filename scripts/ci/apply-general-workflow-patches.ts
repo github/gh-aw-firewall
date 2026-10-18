@@ -54,7 +54,6 @@ export interface PatchResult {
 const publishedAwfWorkflowLockFiles = new Set([
   // The experimental enclave smoke keeps binary and attested VM artifacts release-matched.
   'smoke-enclave-cloud-hypervisor.lock.yml',
-  'smoke-enclave-cloud-hypervisor-copilot.lock.yml',
   'auth-doctor-updater.lock.yml',
   'doc-maintainer.lock.yml',
   'model-api-mapping-updater.lock.yml',
@@ -174,8 +173,7 @@ export function applyGeneralWorkflowPatches(
   // gateway config but exempt it from the eager startup connectivity check so
   // mcpg can rediscover it once AWF attaches and launches the backend.
   const isCloudHypervisorEnclaveSmoke =
-    workflowPath.endsWith('smoke-enclave-cloud-hypervisor.lock.yml') ||
-    workflowPath.endsWith('smoke-enclave-cloud-hypervisor-copilot.lock.yml');
+    workflowPath.endsWith('smoke-enclave-cloud-hypervisor.lock.yml');
   const isEnclaveSmoke =
     isCloudHypervisorEnclaveSmoke ||
     workflowPath.endsWith('smoke-enclave-build-test.lock.yml') ||
@@ -737,10 +735,7 @@ export function applyGeneralWorkflowPatches(
       if (!installStepRegexGlobal.test(content)) throw new Error('Missing released AWF install anchor for branch diagnostics');
       installStepRegexGlobal.lastIndex = 0;
       content = content.replace(installStepRegexGlobal, (match, indent: string) =>
-        match + buildBranchEnclaveInstallSteps(
-          indent,
-          workflowPath.endsWith('smoke-enclave-cloud-hypervisor-copilot.lock.yml'),
-        ));
+        match + buildBranchEnclaveInstallSteps(indent));
       log.push('  Added branch-only source runtime build for enclave diagnostics');
     }
     // gh-aw v0.92.1 gates uploads on this ID but omits it from the redaction step.
