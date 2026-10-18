@@ -91,6 +91,7 @@ See [GitHub Actions](docs/github_actions.md) for advanced setup and `awf logs su
 - [Logging quick reference](docs/logging_quickref.md) and [Squid log filtering](docs/squid_log_filtering.md) — view and filter traffic
 - [Security model](docs/security.md) — what the firewall protects and how
 - [Architecture](docs/architecture.md) — how Squid, Docker, and iptables fit together
+- [Filesystem Sharing Contract](docs/filesystem-sharing-contract.md) — component identities, host permissions, generated access inventory, and runtime verification
 - [Compatibility](docs/compatibility.md) — supported Node.js, OS, and Docker versions
 - [Troubleshooting](docs/troubleshooting.md) — common issues and fixes
 - [Diagnosing AWF failures](docs/diagnosing-awf-failures.md) — use the Self-Hosted Runner Doctor agent to triage self-hosted/ARC/GHES/GHEC failures

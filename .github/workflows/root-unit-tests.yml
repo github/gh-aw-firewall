@@ -27,3 +27,6 @@ jobs:
 
       - name: Run root test suite
         run: npm test
+
+      - name: Check generated filesystem sharing contract
+        run: npm run sharing:check

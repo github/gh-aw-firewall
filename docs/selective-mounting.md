@@ -2,7 +2,7 @@
 
 ## Overview
 
-AWF implements **granular selective mounting** to protect against credential exfiltration via prompt injection attacks. Instead of mounting the entire host filesystem or home directory, only the workspace directory and essential paths are mounted, and sensitive credential files are explicitly hidden.
+AWF implements **granular selective mounting** to protect against credential exfiltration via prompt injection attacks. Instead of mounting the entire host filesystem or home directory, only the workspace directory and essential paths are mounted, and sensitive credential files are explicitly hidden. See the [Filesystem Sharing Contract](filesystem-sharing-contract.md) for the current component-by-component inventory and runtime differences.
 
 ## Security Fix (v0.14.1)
 
@@ -14,11 +14,11 @@ AWF implements **granular selective mounting** to protect against credential exf
 
 **Fixed Implementation**: As of v0.14.1, AWF uses **granular mounting**:
 - Mount **only** the workspace directory (`$GITHUB_WORKSPACE` or current working directory)
-- Mount `~/.copilot/logs` separately for Copilot CLI logging
+- Mount selected home tool directories and `~/.copilot/logs` separately for agent state
 - Apply `/dev/null` overlays as defense-in-depth
 - Never mount the entire `$HOME` directory
 
-This eliminates the root cause by ensuring credential files in `$HOME` are never mounted at all.
+This avoids a blanket `$HOME` bind. Files inside individually mounted tool directories still need credential overlays.
 
 ## Threat Model: Prompt Injection Attacks
 
@@ -77,80 +77,24 @@ The agent's legitimate tools (Read, Bash) become attack vectors when credentials
 
 AWF uses chroot mode with granular selective mounting. Instead of mounting the entire `$HOME`, an empty writable home directory is mounted with only specific subdirectories (`.cargo`, `.claude`, `.config`, etc.) overlaid on top. Credential files are hidden via `/dev/null` overlays as defense-in-depth:
 
-**What gets mounted:**
+**What gets mounted:** the workspace at both its direct and `/host`-prefixed
+destinations, selected system paths (including narrow `/etc` files), a new
+empty writable chroot home, and separately selected `$HOME` tool subdirectories.
+The *real* `$HOME` is not mounted wholesale. Actual mounts and modes vary with
+runtime and options; consult the generated relationships in the contract,
+not a copied sample Compose configuration.
 
-```typescript
-// System paths for chroot environment
-const chrootVolumes = [
-  '/usr:/host/usr:ro',                        // Binaries and libraries
-  '/bin:/host/bin:ro',
-  '/sbin:/host/sbin:ro',
-  '/lib:/host/lib:ro',
-  '/lib64:/host/lib64:ro',
-  '/opt:/host/opt:ro',                        // Language runtimes
-  '/sys:/host/sys:ro',                        // System information
-  '/dev:/host/dev:ro',                        // Device nodes
-  '/tmp:/host/tmp:rw',                        // Temporary files
-  `${HOME}:/host${HOME}:rw`,                  // User home at /host path
-  `${HOME}:${HOME}:rw`,                       // User home at direct path (for container env)
-
-  // Minimal /etc (no /etc/shadow)
-  '/etc/ssl:/host/etc/ssl:ro',
-  '/etc/ca-certificates:/host/etc/ca-certificates:ro',
-  '/etc/alternatives:/host/etc/alternatives:ro',
-  '/etc/passwd:/host/etc/passwd:ro',
-  '/etc/group:/host/etc/group:ro',
-];
-// Note: $HOME itself is NOT mounted, preventing access to credential directories
-```
-
-**What gets hidden:**
-
-```typescript
-// IMPORTANT: Home directory is mounted at TWO locations in chroot mode
-// Credentials MUST be hidden at BOTH paths to prevent bypass attacks
-
-// 1. Direct home mount (for container environment)
-const directHomeCredentials = [
-  '/dev/null:${HOME}/.docker/config.json:ro',
-  '/dev/null:${HOME}/.npmrc:ro',
-  '/dev/null:${HOME}/.cargo/credentials:ro',
-  '/dev/null:${HOME}/.composer/auth.json:ro',
-  '/dev/null:${HOME}/.config/gh/hosts.yml:ro',
-  '/dev/null:${HOME}/.ssh/id_rsa:ro',
-  '/dev/null:${HOME}/.ssh/id_ed25519:ro',
-  '/dev/null:${HOME}/.ssh/id_ecdsa:ro',
-  '/dev/null:${HOME}/.ssh/id_dsa:ro',
-  '/dev/null:${HOME}/.aws/credentials:ro',
-  '/dev/null:${HOME}/.aws/config:ro',
-  '/dev/null:${HOME}/.kube/config:ro',
-  '/dev/null:${HOME}/.azure/credentials:ro',
-  '/dev/null:${HOME}/.config/gcloud/credentials.db:ro',
-];
-
-// 2. Chroot /host mount (for chroot operations)
-const chrootHiddenCredentials = [
-  '/dev/null:/host${HOME}/.docker/config.json:ro',
-  '/dev/null:/host${HOME}/.npmrc:ro',
-  '/dev/null:/host${HOME}/.cargo/credentials:ro',
-  '/dev/null:/host${HOME}/.composer/auth.json:ro',
-  '/dev/null:/host${HOME}/.config/gh/hosts.yml:ro',
-  '/dev/null:/host${HOME}/.ssh/id_rsa:ro',
-  '/dev/null:/host${HOME}/.ssh/id_ed25519:ro',
-  '/dev/null:/host${HOME}/.ssh/id_ecdsa:ro',
-  '/dev/null:/host${HOME}/.ssh/id_dsa:ro',
-  '/dev/null:/host${HOME}/.aws/credentials:ro',
-  '/dev/null:/host${HOME}/.aws/config:ro',
-  '/dev/null:/host${HOME}/.kube/config:ro',
-  '/dev/null:/host${HOME}/.azure/credentials:ro',
-  '/dev/null:/host${HOME}/.config/gcloud/credentials.db:ro',
-];
-```
+**What gets hidden:** known credential paths are overlaid with `/dev/null:ro`
+at direct and `/host` destinations when mountable. Missing paths under
+read-only binds may have unmountable overlays pruned; they must not exist
+behind that bind. Other credential locations outside mounted directories
+remain invisible. A custom bind or symlink alias can defeat an otherwise
+narrow mount policy and must be reviewed separately.
 
 **Additional security:**
 - Docker socket hidden: `/dev/null:/host/var/run/docker.sock:ro`
 - Prevents `docker run` firewall bypass
-- **Dual-mount protection**: Credentials hidden at both `$HOME` and `/host$HOME` paths
+- **Dual-path protection**: Credentials hidden at applicable direct and `/host` paths
 
 ## Usage Examples
 
@@ -223,15 +167,14 @@ services:
   agent:
     volumes:
       - /home/runner/work/repo/repo:/home/runner/work/repo/repo:rw  # ✓ Only workspace
-      - /dev/null:/home/runner/.docker/config.json:ro  # Defense-in-depth
+      - /dev/null:/home/runner/.docker/config.json:ro  # Defense-in-depth at direct path
 ```
 
 **Attack fails:**
 ```bash
 # Inside agent container
 $ cat ~/.docker/config.json
-cat: /home/runner/.docker/config.json: No such file or directory
-# ✓ Credentials protected! ($HOME not mounted)
+# Masked empty file or absent path, depending on mount topology
 
 $ cat ~/.config/hub/config
 cat: /home/runner/.config/hub/config: No such file or directory
@@ -246,8 +189,7 @@ cat: /home/runner/.netrc: No such file or directory
 # ✓ Credentials protected! ($HOME not mounted)
 
 $ ls ~/
-ls: cannot access '/home/runner/': No such file or directory
-# ✓ HOME directory not mounted at all!
+# Empty chroot home with individually selected tool subdirectories
 ```
 
 ## Testing Security
@@ -276,7 +218,7 @@ docker inspect awf-agent --format '{{json .Mounts}}' | jq
 
 # You should see:
 # - /tmp mounted
-# - $HOME mounted
+# - empty chroot home and selected tool directories (not real $HOME wholesale)
 # - /dev/null mounted over credential files
 # - NO /:/host mount
 ```
@@ -320,9 +262,8 @@ awf --mount /etc/custom:/etc/custom:ro --allow-domains github.com -- cat /etc/cu
    ```
    If a tool needs to write output under a directory you otherwise mount
    `:ro` (for example a shared staging directory on ARC/DinD runners), add a
-   separate, more specific `:rw` mount for just that output subpath — a
-   `:ro` mount of a parent directory never grants write access to paths
-   underneath it. See [ARC + DinD Configuration](arc-dind.md#staging-additional-cli-tools-not-just-the-invoking-engine-binary)
+   separate, more specific `:rw` mount for just that output subpath. The
+   parent remains read-only outside that child. See [ARC + DinD Configuration](arc-dind.md#staging-additional-cli-tools-not-just-the-invoking-engine-binary)
    and [`--mount` guidance](environment.md#--mount-and-read-only-vs-writable-output-paths)
    for the full pattern.
 
@@ -370,13 +311,13 @@ volumes:
 
 ## Implementation Details
 
-See `src/services/agent-volumes.ts` for the complete implementation with detailed comments explaining the threat model and mitigation strategy.
+See `src/services/agent-volumes/` and the [contract](filesystem-sharing-contract.md) for the current implementation and verification coverage.
 
 ## FAQ
 
 **Q: Will this break my existing workflows?**
 
-A: Most workflows will work unchanged. Selective mounting provides access to your workspace directory, home directory, and temporary files - covering 99% of use cases.
+A: Most workflows will work unchanged. Selective mounting provides access to your workspace, empty home with selected tool state, and temporary files.
 
 **Q: What if I need access to a specific file?**
 

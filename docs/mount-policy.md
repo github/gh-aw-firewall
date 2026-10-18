@@ -1,5 +1,8 @@
 # Sandbox Mount Policy
 
+For component identities, host permissions, final mounts and backend-specific
+exports, see the [Filesystem Sharing Contract](filesystem-sharing-contract.md).
+
 AWF exposes a curated slice of the host filesystem to the agent. The **allow
 lists** (what gets mounted in) and **deny lists** (what must stay out) used to be
 hand-maintained in several TypeScript modules, one per runtime, which let them
