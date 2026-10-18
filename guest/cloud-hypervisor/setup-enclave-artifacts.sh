@@ -18,7 +18,7 @@ ARCHITECTURE=x86_64
   exit 1
 }
 
-for tool in gh jq sha256sum stat flock mktemp; do
+for tool in gh jq sha256sum stat flock mktemp python3; do
   command -v "$tool" >/dev/null || {
     echo "required setup tool not found: $tool" >&2
     exit 1
@@ -81,7 +81,7 @@ verify_attestation() {
     --deny-self-hosted-runners >/dev/null
 }
 
-verify_cache() {
+verify_manifest() {
   local directory=$1
   local manifest="$directory/$manifest_name"
   local manifest_bundle="$directory/$manifest_bundle_name"
@@ -126,16 +126,9 @@ verify_cache() {
   local role
   for role in script agent; do
     local rootfs_name="enclave-${role}-rootfs.ext4"
-    local rootfs="$directory/$rootfs_name"
-    local provenance="$directory/enclave-${role}-rootfs.provenance.sigstore.jsonl"
     local sbom_name="enclave-${role}-rootfs.sbom.spdx.json"
-    local sbom="$directory/$sbom_name"
     local selector=".rootfs.${role}"
 
-    assert_trusted_file "$rootfs" "$role enclave rootfs" || return 1
-    assert_trusted_file "$provenance" "$role enclave rootfs provenance" || return 1
-    assert_trusted_file "$sbom" "$role enclave rootfs SBOM" || return 1
-    verify_attestation "$rootfs" "$provenance" || return 1
     assert_closed_keys "$manifest" "$selector" \
       'role,file,version,uid,gid,entrypoint,sourceImage,sourceImageDigest,sha256,sizeBytes,sbom' \
       "$role enclave rootfs manifest entry" || return 1
@@ -160,17 +153,42 @@ verify_cache() {
     jq -e "${selector}.sourceImage | test(\"^ghcr.io/github/gh-aw-firewall/enclave-${role}@sha256:[a-f0-9]{64}$\")" \
       "$manifest" >/dev/null \
       || { echo "$role enclave rootfs source image is not release-pinned" >&2; return 1; }
+    jq -e "${selector}.sizeBytes | type == \"number\" and . > 0 and . <= 9007199254740991 and floor == ." \
+      "$manifest" >/dev/null \
+      || { echo "$role enclave rootfs size is invalid" >&2; return 1; }
+    [ "$(jq -r "${selector}.sbom.file" "$manifest")" = "$sbom_name" ] \
+      || { echo "$role enclave rootfs SBOM filename mismatch" >&2; return 1; }
+  done
+}
+
+verify_rootfs_files() {
+  local directory=$1
+  local manifest="$directory/$manifest_name"
+  local role
+  for role in script agent; do
+    local rootfs="$directory/enclave-${role}-rootfs.ext4"
+    local provenance="$directory/enclave-${role}-rootfs.provenance.sigstore.jsonl"
+    local sbom="$directory/enclave-${role}-rootfs.sbom.spdx.json"
+    local selector=".rootfs.${role}"
+
+    assert_trusted_file "$rootfs" "$role enclave rootfs" || return 1
+    assert_trusted_file "$provenance" "$role enclave rootfs provenance" || return 1
+    assert_trusted_file "$sbom" "$role enclave rootfs SBOM" || return 1
+    verify_attestation "$rootfs" "$provenance" || return 1
     [ "$(jq -r "${selector}.sha256" "$manifest")" = \
         "$(sha256sum "$rootfs" | awk '{print $1}')" ] \
       || { echo "$role enclave rootfs digest mismatch" >&2; return 1; }
     [ "$(jq -r "${selector}.sizeBytes" "$manifest")" = "$(stat -c '%s' "$rootfs")" ] \
       || { echo "$role enclave rootfs size mismatch" >&2; return 1; }
-    [ "$(jq -r "${selector}.sbom.file" "$manifest")" = "$sbom_name" ] \
-      || { echo "$role enclave rootfs SBOM filename mismatch" >&2; return 1; }
     [ "$(jq -r "${selector}.sbom.sha256" "$manifest")" = \
         "$(sha256sum "$sbom" | awk '{print $1}')" ] \
       || { echo "$role enclave rootfs SBOM digest mismatch" >&2; return 1; }
   done
+}
+
+verify_cache() {
+  verify_manifest "$1" || return 1
+  verify_rootfs_files "$1" || return 1
 }
 
 if [ -e "$cache_dir" ]; then
@@ -189,14 +207,42 @@ else
     --dir "$staging" \
     --pattern "$manifest_name" \
     --pattern "$manifest_bundle_name" \
-    --pattern 'enclave-script-rootfs.ext4' \
-    --pattern 'enclave-agent-rootfs.ext4' \
+    --pattern 'enclave-script-rootfs.ext4*' \
+    --pattern 'enclave-agent-rootfs.ext4*' \
     --pattern 'enclave-script-rootfs.sbom.spdx.json' \
     --pattern 'enclave-agent-rootfs.sbom.spdx.json' \
     --pattern 'enclave-script-rootfs.provenance.sigstore.jsonl' \
     --pattern 'enclave-agent-rootfs.provenance.sigstore.jsonl'
+  verify_manifest "$staging"
+  for role in script agent; do
+    compressed_rootfs="$staging/enclave-${role}-rootfs.ext4.gz"
+    if [ -f "$compressed_rootfs" ]; then
+      rootfs="$staging/enclave-${role}-rootfs.ext4"
+      size_bytes=$(jq -r ".rootfs.${role}.sizeBytes" "$staging/$manifest_name")
+      python3 - "$compressed_rootfs" "$rootfs" "$size_bytes" "$role" <<'PY'
+import gzip
+import sys
+
+source, destination, size, role = sys.argv[1:]
+remaining = int(size)
+try:
+    with gzip.open(source, "rb") as stream, open(destination, "xb") as output:
+        while remaining:
+            chunk = stream.read(min(1024 * 1024, remaining))
+            if not chunk:
+                sys.exit(f"{role} enclave rootfs size mismatch")
+            output.write(chunk)
+            remaining -= len(chunk)
+        if stream.read(1):
+            sys.exit(f"{role} enclave rootfs exceeds attested size")
+except (OSError, EOFError) as error:
+    sys.exit(f"{role} enclave rootfs decompression failed: {error}")
+PY
+      rm -- "$compressed_rootfs"
+    fi
+  done
   find "$staging" -type f -exec chmod 0400 {} +
-  verify_cache "$staging"
+  verify_rootfs_files "$staging"
   mv "$staging" "$cache_dir"
   trap - EXIT
 fi

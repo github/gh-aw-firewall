@@ -17,6 +17,56 @@ pending real end-to-end acceptance. See
 [ADR 0004](adr/0004-unified-workload-sandbox-backends.md#cloud-hypervisor-lifecycle-integration-gated)
 for readiness, export isolation, shutdown ownership, and the remaining gates.
 
+The manual-only
+[`smoke-enclave-cloud-hypervisor-copilot`](../.github/workflows/smoke-enclave-cloud-hypervisor-copilot.md)
+selects a **Cloud Hypervisor primary and a separate Cloud Hypervisor agent
+enclave running Copilot**. AWF admits this experimental topology only for the
+exact official-repository manual branch workflow, single public repository,
+single-use Copilot policy and attested guest artifacts. The script acceptance
+gate remains separate and unchanged; mixed backends are still rejected.
+The test checks two public repository file facts through a finite result
+schema, with no enclave GitHub MCP tools or script fallback. Its request/token
+settings are advisory: the pinned guest checks positivity without enforcing them
+in Copilot, and the dedicated proxy inherits general rather than per-enclave
+limits. The existing passing script smoke remains separate.
+All admitted branch runs, including main, build host/infra code from the checkout
+to include the agent acceptance gate and merged host storage/vsock fixes without
+a release. Guests remain attested v0.28.62; tag dispatch is excluded because
+published v0.28.62 host code lacks these changes. Regeneration requires the
+companion compiler agent-acceptance support, not an unchanged official v0.92.3
+compiler. Setup/action/CLI pins remain unchanged. The compiler/client 120-second
+HTTP deadline remains an independent limitation. Local compilation is not
+evidence of successful live inference or general production readiness.
+
+The checked-in agent smoke lock was generated with the explicitly experimental
+`dev-v0.92.3-enclave-agent-acceptance.c483bd2e10ac` compiler: official v0.92.3
+source (`aa629a8f04fc27f6024cc49d9935d3b882c37880`) plus the companion
+acceptance patch from
+[github/gh-aw#69777](https://github.com/github/gh-aw/pull/69777)
+([source commit](https://github.com/github/gh-aw/commit/2b19ccffd0694750e8e2bdcb20bf882e9bb440f2);
+SHA-256
+`c483bd2e10ac94aa1c9b37fd82e2c55e09f6b11ebc8e44f8c5b1950f644e57b9`).
+The patch concatenates that commit's individual diffs for
+`pkg/workflow/enclaves_runtime.go` followed by
+`pkg/workflow/enclaves_agent_acceptance_test.go`; the companion PR includes
+complete reproduction commands.
+It is not an official release binary. The Darwin arm64 build used for generation
+has SHA-256 `478142026cf767c53d5678a76bf511f4237468c2f662dd07117a3a4045e75239`.
+Compile only this workflow with `--action-mode action`, explicit
+`--action-tag 26e5d7e7d2345ae4c8dfa3d9017ca2ff9bbf2c82`,
+`--schedule-seed github/gh-aw-firewall` and `--no-check-update`, then run
+`npx --no-install tsx scripts/ci/postprocess-smoke-workflows.ts`.
+The lock metadata identifies the source build; setup scripts still come from the
+unchanged official action SHA. Do not regenerate it with an unmodified v0.92.3
+compiler or hand-edit the topology.
+
+The supply-chain gate retains its separate NVX-aware compiler source pin
+`6cc24f363363eedf2e405a31ec39495508c0c07f`. Before building, it checksum-verifies
+the immutable companion commit patch and applies only the acceptance validator
+and its tests, then runs those tests. This lets all workflows reach the existing
+Syft/Grype/Grant scans without upgrading compiler main or skipping this smoke.
+The patched scanner compiler is explicitly identified as a development build.
+
 :::caution[Preview support]
 This runtime requires both `--container-runtime cloud-hypervisor` and
 `--cloud-hypervisor-preview`. It supports only GitHub-hosted Ubuntu x86_64
@@ -250,11 +300,12 @@ host runner after collection.
 After successful cleanup finishes all privileged audit writers, a separate
 `awf-resolved-config.json` compatibility snapshot is exclusively created in the
 final audit tree and only that file is handed off. This snapshot is absent
-when cleanup fails or `--keep-containers` is used. Non-Linux/unprivileged hosts
-cannot allocate the root-controlled early publication and emit a warning.
-Final config and iptables publication reject existing files (including links)
-rather than overwriting them; unsafe destinations warn and preservation is
-reported as incomplete.
+when cleanup fails or `--keep-containers` is used. Rootless and non-Linux runs
+skip the early `/run` publication and path export without warning; after
+successful cleanup, their resolved config remains in the configured or default
+audit tree for standard collection. Final config and iptables publication reject
+existing files (including links) rather than overwrite them. Unsafe
+destinations warn and preservation is reported as incomplete.
 An absent `enclave.jsonl` when containers never started is not
 evidence of an enclave invocation; retain the startup exit marker separately.
 Release-pinned workflows need an AWF release containing these diagnostics and
@@ -268,6 +319,58 @@ artifacts. The flag changes only host diagnostics: structured results, finite
 schemas and disclosure budgets, invocation counts/deadlines, credential
 isolation, resource/confinement limits, and no-network script behavior are
 unchanged. Raw logs and error text are never returned to the primary agent.
+
+### Redacted enclave-proxy usage evidence
+
+Trusted Cloud Hypervisor enclave shutdown retains one **run-cumulative** usage
+snapshot after host-executor admissions and invocations drain, before Compose
+and the enclave-private proxy log directory are removed. It reads only the
+dedicated proxy's `token-tracker-audit.jsonl` and `token-usage.jsonl`; it never
+exports these raw logs, request IDs, model names, URLs/paths, messages, headers,
+credentials, or request/response payloads.
+
+The summary contains HTTP **tracked upstream response** counts and numeric
+status-code counts, WebSocket tracking-session counts, closed-vocabulary
+tracking outcomes, and summed input/output/cache-read/cache-write token counts.
+These are observed accounting records, **not** attempted-client-request totals,
+per-invocation charges, or proof that all upstream usage was reported.
+Pre-response transport failures are not tracked responses. Token totals cover
+only usage records emitted by the proxy; missing provider usage, dropped writes,
+and logging failures cannot be recovered. No inference is drawn from an absent
+file. The proxy remains running during this capture, so it is a bounded snapshot
+after host drain, not a finalized proxy-shutdown receipt.
+
+Each source has an explicit status: `captured`, `empty`, `missing`, `unsafe`,
+`oversized`, `record-limit`, `malformed`, or `read-failed`. Undrained host shutdown
+uses `not-drained`; a script-only run uses `not-applicable`. Unavailable or
+invalid sources omit counters/totals rather than claiming zero. A malformed
+record, invalid/overflowing count, unfinished line, or invalid UTF-8 rejects the
+entire affected source, not just its last record.
+
+Capture opens exactly two fixed filenames, at most **1 MiB each**, **4096 records
+per source**, and **16 KiB per line**. It rejects symlinked directory chains,
+non-regular/multiply-linked files, unexpected ownership/device/modes, and reads
+with `O_NOFOLLOW | O_NONBLOCK`. The log root must be `0700`; audit files must be
+`0600`. The token log's existing `0644` mode is also accepted only inside that
+private directory. No permissions on raw logs are widened.
+
+The closed projection is atomically persisted as component
+`enclave-proxy-usage` under
+`/var/lib/awf-cloud-hypervisor/host-executor-journal/diagnostics/`, in a `0600`
+file beneath `0700` protected directories. It survives invocation/private-root
+and ordinary work-directory cleanup. The existing protected evidence handoff
+also copies it to `audit/diagnostics/cloud-hypervisor/host-executor/`. Persistence
+or handoff failure is surfaced, not treated as a successful evidence capture.
+SIGKILL/host loss before capture cannot guarantee a summary.
+
+The host-only public-fixture collector
+`scripts/ci/collect-enclave-smoke-debug.cjs` resolves the exact run-owned summary,
+reads at most **16 KiB**, independently re-projects its closed fields, and exports
+only `enclave-proxy-usage.json` (no run identity) alongside the bounded debug
+artifacts. Missing summaries are explicit in `collection-status.txt`; unsafe
+sources abort collection before publishing. This adds at most one summary to
+the existing 32-file raw-debug bound. It does not enable raw debug collection or
+change any execution, admission, credential, or disclosure policy.
 
 ### No-network script-enclave profile
 
@@ -352,7 +455,10 @@ raise these fields. The role budgets are:
 | Open files (`RLIMIT_NOFILE`) | 1024 | 1024 |
 | Role work tmpfs | `/query`, 256 MiB | `/tmp`, 96 MiB |
 | Additional tmpfs | `/tmp` 16 MiB, `/run` 16 MiB, `/dev/shm` 32 MiB | `/home/awf-enclave` 32 MiB, `/run` 16 MiB, `/dev/shm` 32 MiB |
-| Aggregate invocation storage ceiling (including artifacts and VM state) | 1 GiB | 512 MiB |
+| Aggregate writable guest-export storage ceiling | 1 GiB | 512 MiB |
+| Host-only immutable snapshot staging ceiling | 2 GiB | 2 GiB |
+| Host-only rootfs preparation ceiling | 2 GiB | 2 GiB |
+| Host-only final image and VM run-state ceiling | 2 GiB | 2 GiB |
 | Guest UID/GID | 65534:65534 | 65534:65534 |
 
 The VM receives exactly the profile's vCPU count and memory. The host cgroup
@@ -389,17 +495,33 @@ without a limit.
 
 The trusted host executor mounts one invocation-private Linux **tmpfs** at
 `/run/awf-cloud-hypervisor/enclave-storage/<vmRunId>`, with `size=1073741824` for scripts (1 GiB) or
-`size=536870912` for agents (512 MiB). The production provider routes artifact
-snapshots, rootfs preparation and staging, VM run paths, and the closed writable
-virtio-fs exports through this single allocation domain. Request and handoff
-files also consume its budget. Executable artifacts use a sealed read-only view;
-writable state uses `nosuid,nodev,noexec`. These views share one tmpfs
-superblock, not independent capacity limits. Linux charges allocated pages
-atomically, including concurrent writes and writes into sparse-file holes;
+`size=536870912` for agents (512 MiB). The production provider routes the closed
+writable virtio-fs exports through this single allocation domain. Request and handoff
+files also consume its budget. Writable state uses `nosuid,nodev,noexec`
+and shares one tmpfs superblock, not independent capacity limits.
+Linux charges allocated pages atomically, including concurrent writes and writes into sparse-file holes;
 allocation beyond the aggregate ceiling returns `ENOSPC`.
-Artifact and rootfs pages reduce the capacity available to workload writes.
-An artifact set or prepared image that cannot fit fails closed with the same
-ceiling; AWF does not enlarge the profile to accommodate it.
+Immutable invocation snapshots instead use a separate root-owned 2 GiB tmpfs
+at the allocation's `artifacts` child, reusing the host-only artifact verification
+budget. It fits a full 1.5 GiB agent image plus tools and metadata without
+relying on sparse allocation. The snapshot is sealed read-only and executable;
+neither this filesystem nor its writable parent is exported to the guest.
+Rootfs preparation (`cloud-hypervisor-rootfs`) and final image/VM run state
+(`runs`) each use another independent 2 GiB tmpfs with `nosuid,nodev,noexec`.
+The snapshot, prepared image, and final staged image coexist, so they cannot
+share a single 2 GiB budget. Preparation still uses the normal supervisor/hosts
+injection and filesystem checks; final staging still uses the normal VMM
+identity handoff. The enclave root disk remains guest-read-only, and these
+host staging directories are not writable guest exports.
+The combined host storage bound is therefore the role ceiling plus 6 GiB.
+All four filesystems remain invocation-private and identity-journaled, with the
+same fail-closed mount verification, sealing, reverse-order cleanup and recovery.
+Verification checks each exact capacity, four distinct backing devices, and
+the sealed snapshot's membership in the artifact filesystem. Recovery validates
+each mount's expected backing device and filesystem-relative root, retaining
+support for older single-filesystem journals without permitting changed identities.
+An image or host staging set that cannot fit fails closed; AWF does not
+enlarge the guest profile to accommodate it.
 Sparse logical lengths do not allocate pages and do not bypass the allocation
 limit. No disk quota, loop device, or guest-only `size=` limit is required, so
 the mechanism uses the supported GitHub-hosted Linux/KVM runner's existing
@@ -463,6 +585,44 @@ the verifier checks required supervisor/runtime paths and the absence of those
 modules in every Python library tree. The build also checks that no privilege
 bits or file capabilities remain.
 
+The agent image layers Copilot, Python and runtime dependencies on the primary's
+build-tools OCI image (not its ext4 rootfs), sharing the existing development
+toolchain, libraries, `gh`, and `iproute2` for PID 1 network setup. Release builds
+use the same-release build-tools digest; local builds must supply the base
+explicitly (`--build-arg BUILD_TOOLS_IMAGE=<local-image-or-digest>`) or use AWF's
+Compose BuildKit service context (Compose 2.17 or newer). Production release and
+local Compose wiring do not select a registry `latest` base. The PR scan retains
+the locally built base until dependent builds finish, including
+cleanup on failed scans/builds. The shared base builds `gh` from the same
+checksum-pinned source and patched Go/dependency versions as the primary agent
+image, rather than Ubuntu's older binary, and removes the unused inherited
+Pebble service manager. Both the base and enclave image remain subject to the
+unchanged High/Critical vulnerability gate. The image build and
+exported-tree build both execute `/usr/bin/ip -Version` (including its dynamic
+loader and libraries); the ext4 verifier requires that executable. The supervisor
+uses fixed bin/sbin paths, not ambient `PATH`. The exported-tree builder also
+executes the shared compilers/build utilities after package-manager
+removal. Script guests remain no-network and
+do not require this utility. Existing attested images are immutable: this packaging
+fix requires rebuilt, release-attested agent artifacts, not a host binary overlay
+or bypass of artifact verification.
+
+Rootfs SPDX generation hashes the image as a bounded stream, including sparse
+holes, so images larger than Node's 2 GiB whole-file read limit retain the same
+SHA-256 checksum and digest-derived document namespace. Read failures abort
+generation rather than producing an unbound or partial SBOM.
+
+The larger shared image raises hosted-runner disk use. Both the guest artifact
+build and the blocking PR image scan delete intermediates once they are consumed
+and log `df` checkpoints. The guest build removes the virtiofsd cargo tree, kernel
+source/object tree, enclave rootfs trees (after their SBOMs), and primary rootfs
+tree (after its ext4). CI opts in to pruning Docker build cache
+(`AWF_CH_PRUNE_DOCKER_BUILD_CACHE=1`). The PR scan prunes build cache after each
+image build, so only the retained base and current image remain when the archive
+is saved. Tagged images, published outputs, archive encoding, digests, SBOM and
+attestation bindings, and scanner thresholds are unchanged. Both jobs first
+remove preinstalled runner SDKs they never use.
+
 `TestEnclaveGuestLimitsLive` (run as root by the Cloud Hypervisor preview
 workflow) applies the real agent-role tmpfs, rlimit, read-only root, and
 all-thread privilege setup in a private mount namespace and launches a workload
@@ -505,13 +665,17 @@ supervisor into a root-owned, non-writable snapshot under
 exec-capable filesystem: AWF resolves its mount and fails closed before copying
 anything when the mount carries `noexec`, instead of surfacing an opaque
 `EACCES` from the later `--version` probe. Enclaves instead stage the snapshot in
-their invocation-owned allocation domain, using an executable read-only view of
-the same bounded superblock. Run-level enclave preflight verifies immutable
-copies in short-lived, journaled preflight domains. Role-artifact verification
-has a separate root-owned 2 GiB host-only tmpfs, including the temporary
-manifest/bundle files used for role attestation. It verifies both roles
+their invocation-owned, host-only 2 GiB artifact tmpfs, using an executable
+read-only view separate from role-sized writable state. Run-level enclave preflight
+verifies immutable copies in short-lived, journaled preflight domains. Runtime-artifact and
+role-artifact verification each use a root-owned 2 GiB host-only tmpfs,
+independent of the configured enclave role. The runtime snapshot includes
+the primary rootfs, VMM, virtiofsd, kernel, supervisor, manifest, and bundle;
+it must not be charged to an agent enclave's 512 MiB invocation budget.
+Role verification includes the temporary manifest/bundle files used for
+attestation and verifies both roles
 sequentially even for script-only runs, so it must fit the larger agent image
-without relying on sparse allocation. Invocation storage remains capped at
+without relying on sparse allocation. Writable invocation storage remains capped at
 1 GiB for scripts and 512 MiB for agents; neither guests nor broker requests can
 select the verification budget. Role rootfs, provenance,
 and SBOM inputs are captured into root-private bounded storage before hashing
@@ -538,10 +702,22 @@ digest, fixed uid/gid, entrypoint, source-image digest, SBOM, architecture, and
 Cloud Hypervisor/kernel/supervisor compatibility. Each rootfs and the manifest
 have separate offline provenance bundles.
 
+Releases publish the role images as `enclave-script-rootfs.ext4.gz` and
+`enclave-agent-rootfs.ext4.gz` so images whose raw logical size exceeds GitHub's
+per-asset limit can still be uploaded. The release job rejects any upload asset
+of 2 GiB or larger before creating or updating the release.
+
 `setup-cloud-hypervisor-enclave-artifacts.sh` downloads that set for an exact
-release tag, verifies the release-workflow identity with
-`gh attestation verify --deny-self-hosted-runners`, verifies manifest metadata,
-size, digest, and SBOM bindings, and then atomically installs the cache entry.
+release tag and authenticates the manifest with
+`gh attestation verify --deny-self-hosted-runners` before decompression. It
+validates the release, compatibility, role metadata, and positive integer image
+sizes, then decompresses each role in its private staging directory with disk
+output capped at that role's attested size using Python 3's standard-library
+streaming gzip reader (Python 3 is required on the setup host). Oversized,
+truncated, or corrupt streams fail without installing a cache entry. Older releases with
+uncompressed `.ext4` assets remain supported. The unchanged raw images still
+undergo release-workflow attestation, size, digest, and SBOM binding checks
+before the cache entry is atomically installed.
 An existing cache entry is fully reverified before reuse; an invalid entry is a
 terminal error and is never silently replaced. The script exports the
 role-specific `AWF_CLOUD_HYPERVISOR_ENCLAVE_SCRIPT_ROOTFS` and
@@ -1189,8 +1365,8 @@ hierarchy. A missing prerequisite after opt-in fails the job; it does not skip,
 fall back to Docker, grant the runner user KVM access, or relax limits.
 
 These probes exercise the real role-sized host tmpfs stores (script 1 GiB,
-agent 512 MiB), aggregate sparse/concurrent ENOSPC across snapshots, prepared
-and staged rootfs, manager state and exports, memory-cgroup accounting,
+agent 512 MiB), independent 2 GiB snapshot/preparation/run-state stores,
+aggregate sparse/concurrent ENOSPC across writable exports, memory-cgroup accounting,
 busy-unmount failure, and invocation isolation. They check executable/read-only
 artifact views, `noexec` state, and dead-owner recovery that refuses a replaced
 mount and preserves no-replay tombstones. They also send real TCP packets
@@ -1209,15 +1385,17 @@ remains a separate live-VM gate after implementation PRs
 | Required boundary | Current implementation evidence |
 | --- | --- |
 | Production storage admission | `prepareEnclaves()` supplies the trusted production provider on eligible GitHub-hosted Ubuntu x86_64 KVM/cgroup-v2 hosts. Unsupported hosts retain the existing admission error before seeds, runtime probes, listener, or VM creation. |
-| Aggregate invocation storage | One invocation-owned tmpfs superblock enforces script 1 GiB or agent 512 MiB across snapshots, rootfs copies, runtime state, and writable exports. Sparse and concurrent writes share the kernel allocation ceiling, which remains enforced until successful close. |
-| Snapshot allocation and executable artifacts | Invocation-local executable artifact staging is sealed read-only and shares allocation accounting with `noexec` writable state. Release attestation, digest verification, and launch confinement remain mandatory. |
-| Writable VM and preparation state | Trusted dependency hooks derive rootfs preparation, staged disk, manager run paths, and virtio-fs staging within the invocation domain; no independent runner-filesystem copies are used for enclaves. |
+| Aggregate writable invocation storage | One invocation-owned tmpfs superblock enforces script 1 GiB or agent 512 MiB across writable exports, requests, and handoff state. Sparse and concurrent writes share the kernel allocation ceiling, which remains enforced until successful close. |
+| Snapshot allocation and executable artifacts | Invocation-local executable artifact staging uses a separate, bounded 2 GiB host-only tmpfs and is sealed read-only. It cannot be used as a writable export. Release attestation, digest verification, and launch confinement remain mandatory. |
+| Host image preparation and VM state | Trusted dependency hooks derive rootfs preparation and final staged disk/run paths within independent 2 GiB invocation-owned tmpfs stores. All three image copies can coexist without consuming writable-export capacity; no unbounded runner-filesystem copies are used for enclaves. |
 | Recovery ownership | Durable journals capture invocation-owned mount/device/inode identities. Recovery reaps VM resources first and refuses changed identities or uncommitted mount intents; it never replays work or uses a global bind mount. |
 
 An empty provider, a free-space check, an export-only tmpfs, or a mock manager
 does not meet this contract. The gated privileged storage probes exercise the
-production domain, including aggregate exhaustion across snapshots, rootfs,
-runtime state, and exports. They do not establish live VM acceptance.
+production domains, including a fully allocated 1.5 GiB ext4 image through real
+snapshot, preparation (`debugfs`/`e2fsck`), and final VMM staging alongside
+independent exhaustion of each host store and aggregate writable exports. They do not
+establish live VM acceptance.
 
 The integrated privileged storage suite must pass on an eligible Linux runner.
 Until that gated job runs successfully, deterministic coverage is not a
@@ -1447,6 +1625,18 @@ shared by AWF and the harness.
 
 #### Host-executor invocation evidence
 
+Enclave execution validates the initial working directory against the guest
+root, for both no-network script and networked agent roles. Enclaves have no
+primary workspace export; the agent entrypoint subsequently launches Copilot
+in its admitted read-only seed (or its private agent directory for dynamic
+admission). Primary-agent execution remains confined to its workspace mount.
+Older supervisors that select the guest root only for no-network execution
+can reject agent-enclave startup with `guest-rejected`, `invalid_request`, and
+`cwd-validation`, before the entrypoint runs. The v0.28.66 verified release supervisor includes this correction (#10189).
+Both enclave smokes select that release's attested artifacts; the temporary
+exact-PR development-supervisor override has been removed. Rebuilding the host
+CLI does not replace the release supervisor or relax artifact verification.
+
 After startup, the Cloud Hypervisor host executor uses the same check catalog
 and `[result, reason]` tuples in an invocation-scoped snapshot, separate from
 `enclaveStartup.startupChecks.ready`. Production storage and snapshot subchecks
@@ -1527,6 +1717,46 @@ such a run cannot identify its failing stage. These host checks need no guest
 rootfs rebuild and do not change artifact acceptance, launch policy, or caller
 errors.
 
+Script and Copilot enclaves share the host/storage/artifact/VM/guest-connection
+checklist and execution transport diagnostics. `guestExecution` records bounded
+host elapsed times, execute-send completion, first response, last frame type,
+frame/stream byte counters, partial-frame bytes, and whether an actual result
+arrived. Typed failure reasons distinguish disconnect, socket error, read/write
+timeout, output-capture failure, protocol failure, and guest rejection. A guest
+error retains its protocol code and a finite rejection stage for recognized
+supervisor message prefixes (workspace/cwd/command resolution, identity,
+process start/wait, or request validation), never the message itself. Unknown
+formats remain `unknown`; these are guest-reported categories, not host proof.
+Actual result
+exit/signal/timeout fields are separate from the broker's generic exit 1.
+A host-synthesized timeout has `resultReceived: false`. No heartbeat or
+inactivity timeout is added for silent commands.
+
+Copilot additionally publishes `enclave-network/*` origin checks for compiler
+gateway identity (when enabled), Docker topology and exact membership, dedicated
+API-proxy running/healthy status, optional gateway identity/running status, and
+the Docker bridge. These are host-side readiness checks, not proof of a guest
+TCP connection, provider authentication, or inference. They send no API request
+and do not open additional network paths.
+
+After confirmed VM stop and before invocation storage removal, `guestSession`
+projects the agent's existing `/runtime/session.jsonl` onto bounded, closed
+event/path/stage/category vocabularies. It retains up to 32 events, the last
+milestone, first failure, and last resource snapshot independently. Missing,
+empty, unsafe, oversized, invalid, or unreadable evidence is explicit and does
+not replace the invocation or cleanup failure. The reader checks canonical
+runtime directory identity, owner/mode, non-symlink regular file, device and
+single-link identity, and a 1 MiB input bound. No raw engine streams, stream
+hashes, exception text, prompts, repository contents or bearer files are copied.
+Guest events remain untrusted evidence, not authoritative execution outcomes.
+The existing protected host snapshot export carries this projection, without
+requiring public raw-log capture or widening artifact permissions.
+
+These host additions work with existing attested guests that emit session
+events. New supervisor milestones or guest-origin TCP/API-proxy probes require
+a separately rebuilt and verified guest artifact; updating the host alone
+cannot add those guest events to a release-pinned run.
+
 For script guests, the entrypoint emits bounded JSON lifecycle records on stderr:
 startup identity, seed copy, output link, working-directory setup, and script
 execution, with elapsed time and native error category/errno on failure.
@@ -1604,8 +1834,8 @@ The published enclave manifest records script/agent rootfs logical sizes of
 127,422,464 / 1,026,367,488 bytes, respectively. The main runtime archive's
 tar header records `rootfs.ext4` at 1,314,160,640 bytes; that main runtime
 image is also staged before enclave-specific verification. These are
-**logical sizes**, not allocated bytes. The role-sized aggregate caps remain
-1 GiB (script) and 512 MiB (agent), including artifacts and writable state.
+**logical sizes**, not allocated bytes. At that revision, the role-sized aggregate
+caps were 1 GiB (script) and 512 MiB (agent), including artifacts and writable state.
 Sparse copying can fit an image whose logical size exceeds its cap, so neither
 the manifest sizes nor the compressed archive size establishes exhaustion.
 The failed subcheck and its reason are the next discriminating evidence;

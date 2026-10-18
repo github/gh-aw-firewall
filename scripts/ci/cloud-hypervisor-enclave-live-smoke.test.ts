@@ -850,6 +850,14 @@ describe('Cloud Hypervisor enclave live acceptance harness', () => {
   it('requires the package-matched release assets, never development artifacts', () => {
     expect(() => harness.assertReleaseAssets(harness.RELEASE_ASSETS, harness.RELEASE_ASSETS))
       .not.toThrow();
+    const compressedAssets = harness.RELEASE_ASSETS.map((asset) => (
+      asset.endsWith('.ext4') ? `${asset}.gz` : asset
+    ));
+    expect(() => harness.assertReleaseAssets(harness.RELEASE_ASSETS, compressedAssets))
+      .not.toThrow();
+    expect(() => harness.assertReleaseAssets(harness.RELEASE_ASSETS,
+      compressedAssets.filter((asset) => asset !== 'enclave-agent-rootfs.ext4.gz')))
+      .toThrow(/enclave-agent-rootfs\.ext4/);
     expect(() => harness.assertReleaseAssets(harness.RELEASE_ASSETS, []))
       .toThrow(/release-attested.*not accepted/);
     const source = fs.readFileSync(harnessPath, 'utf8');

@@ -121,7 +121,7 @@ describe('durable host executor journal', () => {
     return journal;
   }
 
-  async function aggregateStorageJournal(captureSnapshotMount = true) {
+  async function aggregateStorageJournal(captureSnapshotMount = true, isolatedHostStorage = false) {
     const storageRoot = hostExecutorStorageDirectory(vmRunId());
     let storageExists = true;
     const originalLstat = fs.promises.lstat;
@@ -133,7 +133,10 @@ describe('durable host executor journal', () => {
           throw Object.assign(new Error('missing'), { code: 'ENOENT' });
         }
         return {
-          uid: process.getuid?.() ?? 0, mode: 0o40711, dev: 50,
+          uid: process.getuid?.() ?? 0, mode: 0o40711,
+          dev: isolatedHostStorage && directory.startsWith(`${storageRoot}/artifacts`) ? 51 :
+            isolatedHostStorage && directory.startsWith(`${storageRoot}/runs`) ? 52 :
+              isolatedHostStorage && directory.startsWith(`${storageRoot}/cloud-hypervisor-rootfs`) ? 53 : 50,
           ino: directory === HOST_EXECUTOR_STORAGE_ROOT ? 600 : 700,
           isDirectory: () => true, isSymbolicLink: () => false,
         };
@@ -162,11 +165,19 @@ describe('durable host executor journal', () => {
     mountInfo += `1001 1 0:50 /state ${plan.invocationHostDir} rw,nosuid,nodev,noexec - tmpfs awf-enclave-invocation rw\n`;
     await journal.captureStorageMount();
     await journal.captureMount();
+    if (isolatedHostStorage) {
+      for (const [index, name] of ['artifacts', 'runs', 'cloud-hypervisor-rootfs'].entries()) {
+        const directory = path.join(storageRoot, name);
+        await journal.prepareStorageMount(directory);
+        mountInfo += `${1003 + index} 1000 0:${51 + index} / ${directory} rw,nosuid,nodev - tmpfs awf-enclave-invocation rw\n`;
+        await journal.captureStorageMount();
+      }
+    }
     const snapshot = path.join(storageRoot, 'artifacts', 'run-fixture');
     await journal.prepareSnapshot();
     await journal.captureSnapshot(snapshot);
     await journal.prepareStorageMount(snapshot);
-    mountInfo += `1002 1 0:50 /artifacts/run-fixture ${snapshot} ro,nosuid,nodev - tmpfs awf-enclave-invocation rw\n`;
+    mountInfo += `1002 1 0:${isolatedHostStorage ? 51 : 50} ${isolatedHostStorage ? '/run-fixture' : '/artifacts/run-fixture'} ${snapshot} ro,nosuid,nodev - tmpfs awf-enclave-invocation rw\n`;
     if (captureSnapshotMount) await journal.captureStorageMount();
     return { journal, storageRoot, snapshot };
   }
@@ -343,6 +354,40 @@ describe('durable host executor journal', () => {
     expect(readRecord().state).toBe('cleaned');
     await expect(resourceJournal()).rejects.toThrow('EEXIST');
   });
+
+  it('recovers independent host image mounts in reverse order while retaining legacy journal support', async () => {
+    const { storageRoot, snapshot } = await aggregateStorageJournal(true, true);
+    const stale = readRecord();
+    stale.owner.startTime = '999';
+    fs.writeFileSync(recordFile(), JSON.stringify(stale), { mode: 0o600 });
+    await reap();
+    expect((dependencies.run as jest.Mock).mock.calls.map(([, args]) => args[0])).toEqual([
+      plan.invocationHostDir, snapshot, `${storageRoot}/cloud-hypervisor-rootfs`,
+      `${storageRoot}/runs`, `${storageRoot}/artifacts`, storageRoot,
+    ]);
+    expect(readRecord().state).toBe('cleaned');
+  });
+
+  it.each(['snapshot-device', 'snapshot-root', 'export-device', 'shared-host-device'])(
+    'rejects inconsistent isolated backing layout %s without reclaiming resources', async (fault) => {
+      const { storageRoot, snapshot } = await aggregateStorageJournal(true, true);
+      const record = readRecord();
+      record.owner.startTime = '999';
+      const snapshotMount = record.storage.mounts.find((mount: { mountPoint: string }) => mount.mountPoint === snapshot);
+      if (fault === 'snapshot-device') snapshotMount.device = '0:52';
+      if (fault === 'snapshot-root') snapshotMount.root = '/artifacts/run-fixture';
+      if (fault === 'export-device') {
+        record.storage.mounts.find((mount: { mountPoint: string }) => mount.mountPoint === plan.invocationHostDir).device = '0:51';
+      }
+      if (fault === 'shared-host-device') {
+        record.storage.mounts.find((mount: { mountPoint: string }) => mount.mountPoint === `${storageRoot}/runs`).device = '0:51';
+      }
+      fs.writeFileSync(recordFile(), JSON.stringify(record), { mode: 0o600 });
+      await expect(reap()).rejects.toThrow('Invalid invocation storage record');
+      expect(dependencies.run).not.toHaveBeenCalled();
+      expect(dependencies.rm).not.toHaveBeenCalled();
+    },
+  );
 
   it('retains the enforcing superblock and durable intent on a failed close', async () => {
     const { journal, storageRoot } = await aggregateStorageJournal();

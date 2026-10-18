@@ -54,6 +54,7 @@ export interface PatchResult {
 const publishedAwfWorkflowLockFiles = new Set([
   // The experimental enclave smoke keeps binary and attested VM artifacts release-matched.
   'smoke-enclave-cloud-hypervisor.lock.yml',
+  'smoke-enclave-cloud-hypervisor-copilot.lock.yml',
   'auth-doctor-updater.lock.yml',
   'doc-maintainer.lock.yml',
   'model-api-mapping-updater.lock.yml',
@@ -172,8 +173,11 @@ export function applyGeneralWorkflowPatches(
   // The enclave backend starts inside AWF, after mcpg. Keep it in the agent's
   // gateway config but exempt it from the eager startup connectivity check so
   // mcpg can rediscover it once AWF attaches and launches the backend.
-  const isEnclaveSmoke =
+  const isCloudHypervisorEnclaveSmoke =
     workflowPath.endsWith('smoke-enclave-cloud-hypervisor.lock.yml') ||
+    workflowPath.endsWith('smoke-enclave-cloud-hypervisor-copilot.lock.yml');
+  const isEnclaveSmoke =
+    isCloudHypervisorEnclaveSmoke ||
     workflowPath.endsWith('smoke-enclave-build-test.lock.yml') ||
     workflowPath.endsWith('smoke-enclave-issues-read.lock.yml') ||
     workflowPath.endsWith('smoke-enclave-dynamic-issues-read.lock.yml');
@@ -262,7 +266,7 @@ export function applyGeneralWorkflowPatches(
       }
     }
 
-    if (workflowPath.endsWith('smoke-enclave-cloud-hypervisor.lock.yml')) {
+    if (isCloudHypervisorEnclaveSmoke) {
       const stagingTokenExclusion = '--exclude-env GH_TOKEN';
       if (!content.includes(stagingTokenExclusion)) {
         if (!content.includes(gatewayKeyExclusion)) {
@@ -727,13 +731,16 @@ export function applyGeneralWorkflowPatches(
     '$1$2',
   );
 
-  if (workflowPath.endsWith('smoke-enclave-cloud-hypervisor.lock.yml')) {
+  if (isCloudHypervisorEnclaveSmoke) {
     if (!content.includes('exec "${NODE_BIN}" "${WORKSPACE_PATH}/dist/cli.js" --build-local')) {
       installStepRegexGlobal.lastIndex = 0;
       if (!installStepRegexGlobal.test(content)) throw new Error('Missing released AWF install anchor for branch diagnostics');
       installStepRegexGlobal.lastIndex = 0;
       content = content.replace(installStepRegexGlobal, (match, indent: string) =>
-        match + buildBranchEnclaveInstallSteps(indent));
+        match + buildBranchEnclaveInstallSteps(
+          indent,
+          workflowPath.endsWith('smoke-enclave-cloud-hypervisor-copilot.lock.yml'),
+        ));
       log.push('  Added branch-only source runtime build for enclave diagnostics');
     }
     // gh-aw v0.92.1 gates uploads on this ID but omits it from the redaction step.

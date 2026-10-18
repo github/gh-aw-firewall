@@ -463,7 +463,7 @@ jobs:
   build-enclaves:
     name: Build Enclave Images
     runs-on: ubuntu-latest
-    needs: bump-version
+    needs: [bump-version, build-build-tools]
     outputs:
       enclave_script_digest: ${{ steps.build_enclave_script.outputs.digest }}
       enclave_agent_digest: ${{ steps.build_enclave_agent.outputs.digest }}
@@ -533,6 +533,8 @@ jobs:
           context: ./containers
           file: ./containers/enclave/Dockerfile
           target: enclave-agent
+          build-args: |
+            BUILD_TOOLS_IMAGE=ghcr.io/${{ github.repository }}/build-tools@${{ needs.build-build-tools.outputs.digest }}
           push: true
           platforms: linux/amd64,linux/arm64
           tags: |
@@ -939,10 +941,10 @@ jobs:
             release/cloud-hypervisor-test-x86_64.sbom.spdx.json
           cp cloud-hypervisor-release-assets/awf-cloud-hypervisor-enclave-rootfs-x86_64.tar.gz \
             release/cloud-hypervisor-enclave-rootfs-x86_64.tar.gz
-          cp cloud-hypervisor-release-assets/enclave-script-rootfs.ext4 \
-            release/enclave-script-rootfs.ext4
-          cp cloud-hypervisor-release-assets/enclave-agent-rootfs.ext4 \
-            release/enclave-agent-rootfs.ext4
+          gzip -n -c cloud-hypervisor-release-assets/enclave-script-rootfs.ext4 \
+            > release/enclave-script-rootfs.ext4.gz
+          gzip -n -c cloud-hypervisor-release-assets/enclave-agent-rootfs.ext4 \
+            > release/enclave-agent-rootfs.ext4.gz
           cp cloud-hypervisor-release-assets/enclave-script-rootfs.sbom.spdx.json \
             release/enclave-script-rootfs.sbom.spdx.json
           cp cloud-hypervisor-release-assets/enclave-agent-rootfs.sbom.spdx.json \
@@ -1115,6 +1117,19 @@ jobs:
           echo "Release notes preview (first 20 lines):"
           head -20 release_notes.md
 
+      - name: Validate release asset sizes
+        run: |
+          node <<'NODE'
+          const fs = require('node:fs');
+          const limit = 2147483648;
+          for (const name of fs.readdirSync('release')) {
+            const size = fs.statSync(`release/${name}`).size;
+            if (size >= limit) {
+              throw new Error(`Release asset ${name} is ${size} bytes; size must be less than ${limit}`);
+            }
+          }
+          NODE
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
         with:
@@ -1141,8 +1156,8 @@ jobs:
             release/nvx-test-x86_64.tar.gz
             release/nvx-test-x86_64.manifest.json
             release/nvx-test-x86_64.manifest.sigstore.jsonl
-            release/enclave-script-rootfs.ext4
-            release/enclave-agent-rootfs.ext4
+            release/enclave-script-rootfs.ext4.gz
+            release/enclave-agent-rootfs.ext4.gz
             release/enclave-script-rootfs.sbom.spdx.json
             release/enclave-agent-rootfs.sbom.spdx.json
             release/enclave-script-rootfs.provenance.sigstore.jsonl
@@ -1176,6 +1191,15 @@ jobs:
         with:
           ref: ${{ needs.bump-version.outputs.version }}
 
+      - name: Free unused hosted-runner disk space
+        # Kernel, virtiofsd, three ext4 images and their bundles need room on the
+        # hosted runner. Remove preinstalled SDKs this job never uses.
+        run: |
+          df -h /
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /usr/local/.ghcup \
+            /opt/hostedtoolcache/CodeQL
+          df -h /
+
       - name: Set up Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
@@ -1206,6 +1230,7 @@ jobs:
             ENCLAVE_SCRIPT_IMAGE="ghcr.io/${{ github.repository }}/enclave-script@${{ needs.build-enclaves.outputs.enclave_script_digest }}" \
             ENCLAVE_AGENT_IMAGE="ghcr.io/${{ github.repository }}/enclave-agent@${{ needs.build-enclaves.outputs.enclave_agent_digest }}" \
             VERSION="${{ needs.bump-version.outputs.version }}" \
+            AWF_CH_PRUNE_DOCKER_BUILD_CACHE=1 \
             ./guest/cloud-hypervisor/build-test-artifacts.sh
           ./guest/cloud-hypervisor/verify-test-artifacts.sh \
             release/cloud-hypervisor-test-x86_64

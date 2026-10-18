@@ -87,6 +87,7 @@ function githubToolsEnclaves() {
 describe('unified enclave agent executor compose assembly', () => {
   it('pins the published enclave-agent image and its one-shot pull service', () => {
     const result = build();
+    expect(result.toolchainImageService).toBeUndefined();
     expect(result.agentImageService).toMatchObject({
       image: 'ghcr.io/github/gh-aw-firewall/enclave-agent:v1',
       network_mode: 'none',
@@ -114,7 +115,13 @@ describe('unified enclave agent executor compose assembly', () => {
         context: '/repo/containers',
         dockerfile: 'enclave/Dockerfile',
         target: 'enclave-agent',
+        additional_contexts: { 'awf-build-tools': 'service:enclave-build-tools-image' },
       },
+    });
+    expect(local.toolchainImageService).toMatchObject({
+      build: { context: '/repo/containers/build-tools' },
+      network_mode: 'none',
+      entrypoint: ['/bin/true'],
     });
     expect(local.service).toMatchObject({
       build: {
@@ -123,6 +130,18 @@ describe('unified enclave agent executor compose assembly', () => {
         target: 'enclave-mcp-server',
       },
     });
+  });
+
+  it('does not build a toolchain for an explicitly supplied local enclave image', () => {
+    const wrapper = config();
+    wrapper.enclaves!.executors.agent.image = 'reviewed-enclave:test';
+    const result = buildEnclaveMcpService({
+      config: wrapper,
+      imageConfig: { ...ghcr, useGHCR: false },
+      networkConfig,
+    });
+    expect(result.toolchainImageService).toBeUndefined();
+    expect(result.agentImageService).not.toHaveProperty('build');
   });
 
   it('keeps the MCP server on only the private control network and free of provider credentials', () => {
@@ -368,6 +387,19 @@ describe('unified enclave compose topology', () => {
       driver: 'bridge',
     });
     expect(compose.networks[ENCLAVE_AGENT_EGRESS_NETWORK]).not.toHaveProperty('internal');
+  });
+
+  it('assembles the local toolchain dependency without adding an enclave network peer', () => {
+    const compose = generateDockerCompose(composeConfig({ buildLocal: true }), networkConfig);
+    expect(compose.services['enclave-build-tools-image']).toMatchObject({
+      network_mode: 'none',
+      build: { context: expect.stringContaining('/containers/build-tools') },
+    });
+    expect(compose.services['enclave-agent-image']).toMatchObject({
+      build: {
+        additional_contexts: { 'awf-build-tools': 'service:enclave-build-tools-image' },
+      },
+    });
   });
 
   it('puts nothing except the dedicated proxy on the enclave network', () => {

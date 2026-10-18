@@ -8,7 +8,9 @@ import { startHostExecutorServer, type HostExecutorServer } from './host-executo
 import { assertAgentRuntimeAvailable, assertScriptRuntimeAvailable } from './runtime-preflight';
 import { startCloudHypervisorEnclaveHostService } from './cloud-hypervisor-host-service';
 import { getEnclaveStartupProgress } from './startup-progress';
-import { HostExecutorInvocationDiagnostics, HostExecutorControlDiagnostics } from './host-executor-journal';
+import {
+  HostExecutorInvocationDiagnostics, HostExecutorControlDiagnostics, readHostExecutorInvocationDiagnostics,
+} from './host-executor-journal';
 import { HostPreflightReporter } from '../cloud-hypervisor/host-preflight-progress';
 import type { HostExecutorInvocationPlan } from './host-executor-server';
 import * as cloudHypervisorManager from '../cloud-hypervisor/manager';
@@ -24,8 +26,13 @@ import {
   type TrustedCloudHypervisorEnclaveStorageProvider,
 } from './cloud-hypervisor-lifecycle';
 
-jest.mock('./cloud-hypervisor-host-service');
+jest.mock('./cloud-hypervisor-host-service', () => ({ startCloudHypervisorEnclaveHostService: jest.fn() }));
 const start = jest.mocked(startCloudHypervisorEnclaveHostService);
+jest.mock('../host-identity', () => ({
+  ...jest.requireActual('../host-identity'),
+  getSafeHostUid: () => String(process.getuid!()),
+  getSafeHostGid: () => String(process.getgid!()),
+}));
 
 jest.mock('./paths', () => {
   const actual = jest.requireActual('./paths');
@@ -48,6 +55,10 @@ describe('trusted Cloud Hypervisor enclave lifecycle', () => {
   const runId = 'a'.repeat(32);
 
   beforeEach(() => {
+    const dependencies = cloudHypervisorManager.resolveCloudHypervisorManagerDependencies();
+    jest.spyOn(cloudHypervisorManager, 'resolveCloudHypervisorManagerDependencies').mockReturnValue({
+      ...dependencies, resolveIdentity: () => ({ uid: process.getuid!(), gid: process.getgid!() }),
+    });
     workDir = fs.mkdtempSync(path.join(process.cwd(), '.ch-lifecycle-test-'));
     config = {
       workDir,
@@ -388,7 +399,12 @@ describe('trusted Cloud Hypervisor enclave lifecycle', () => {
     });
     await expect(stopCloudHypervisorEnclaveLifecycle(config)).rejects.toThrow('shutdown uncertain');
     const files = fs.readdirSync(directory);
-    expect(files).toHaveLength(2);
+    expect(files).toHaveLength(3);
+    const usageFile = files.find(name =>
+      JSON.parse(fs.readFileSync(path.join(directory, name), 'utf8')).component === 'enclave-proxy-usage')!;
+    expect(JSON.parse(fs.readFileSync(path.join(directory, usageFile), 'utf8')).usage).toEqual({
+      scope: 'run-cumulative', requests: { status: 'not-drained' }, tokens: { status: 'not-drained' },
+    });
     const controlFile = files.find(name =>
       JSON.parse(fs.readFileSync(path.join(directory, name), 'utf8')).component === 'host-executor-control')!;
     const controlContents = fs.readFileSync(path.join(directory, controlFile), 'utf8');
@@ -398,7 +414,7 @@ describe('trusted Cloud Hypervisor enclave lifecycle', () => {
     });
     expect(JSON.parse(controlContents).failure).not.toHaveProperty('invocationId');
     expect(controlContents).not.toContain('PRIVATE_REQUEST_BYTES');
-    const invocationFile = files.find(name => name !== controlFile)!;
+    const invocationFile = files.find(name => name !== controlFile && name !== usageFile)!;
     const file = path.join(directory, invocationFile);
     const contents = fs.readFileSync(file, 'utf8');
     expect(JSON.parse(contents)).toMatchObject({
@@ -415,8 +431,41 @@ describe('trusted Cloud Hypervisor enclave lifecycle', () => {
     expect(storage.close).not.toHaveBeenCalled();
   });
 
+  it('captures final proxy usage after host drain and retains protected evidence after private-root removal', async () => {
+    const dependencies = cloudHypervisorManager.resolveCloudHypervisorManagerDependencies();
+    jest.spyOn(cloudHypervisorManager, 'resolveCloudHypervisorManagerDependencies').mockReturnValue({
+      ...dependencies, resolveIdentity: () => ({ uid: process.getuid!(), gid: process.getgid!() }),
+    });
+    const paths = resolveEnclavePaths(workDir);
+    fs.mkdirSync(paths.apiProxyLogsDir, { mode: 0o700 });
+    (server.close as jest.Mock).mockImplementation(async () => {
+      fs.writeFileSync(path.join(paths.apiProxyLogsDir, 'token-tracker-audit.jsonl'), [
+        { event: 'TRACK_START', status: 401, path: '/PRIVATE_PATH' },
+        { event: 'TRACK_END', result: 'skip_status', error: 'PRIVATE_ERROR' },
+      ].map(value => JSON.stringify(value) + '\n').join(''), { mode: 0o600 });
+    });
+    await startCloudHypervisorEnclaveLifecycle(config, provider, {});
+    await stopCloudHypervisorEnclaveLifecycle(config);
+    fs.rmSync(paths.root, { recursive: true, force: true });
+    const evidence = readHostExecutorInvocationDiagnostics({ runId, journalDir: paths.hostExecutorJournalDir });
+    const summary = evidence.find(file => JSON.parse(file.contents).component === 'enclave-proxy-usage')!;
+    expect(JSON.parse(summary.contents).usage).toEqual({
+      scope: 'run-cumulative',
+      requests: {
+        status: 'captured', records: 2, trackedResponses: 1, websocketSessions: 0,
+        statuses: { '401': 1 }, results: { skip_status: 1 },
+      },
+      tokens: { status: 'missing' },
+    });
+    expect(summary.contents).not.toMatch(/PRIVATE|error|path|model|payload|credential/);
+    const copied = path.join(workDir, 'audit/diagnostics/cloud-hypervisor/host-executor', summary.name);
+    expect(fs.readFileSync(copied, 'utf8')).toBe(summary.contents);
+    expect(fs.statSync(copied).mode & 0o777).toBe(0o600);
+    expect(storage.close).toHaveBeenCalledTimes(1);
+  });
+
   it('exports the real host server shutdown-failure snapshot without releasing uncertain storage', async () => {
-    const runtime = fs.realpathSync(fs.mkdtempSync('/tmp/awf-host-export-'));
+    const runtime = fs.realpathSync(fs.mkdtempSync(path.join(process.cwd(), '.he-')));
     const dependencies = cloudHypervisorManager.resolveCloudHypervisorManagerDependencies();
     jest.spyOn(cloudHypervisorManager, 'resolveCloudHypervisorManagerDependencies').mockReturnValue({
       ...dependencies, resolveIdentity: () => ({ uid: process.getuid!(), gid: process.getgid!() }),
@@ -433,7 +482,8 @@ describe('trusted Cloud Hypervisor enclave lifecycle', () => {
       await startCloudHypervisorEnclaveLifecycle(config, provider, {});
       await expect(stopCloudHypervisorEnclaveLifecycle(config)).rejects.toThrow('PRIVATE_SHUTDOWN_PATH');
       const directory = path.join(workDir, 'audit/diagnostics/cloud-hypervisor/host-executor');
-      const [name] = fs.readdirSync(directory);
+      const name = fs.readdirSync(directory).find(file =>
+        JSON.parse(fs.readFileSync(path.join(directory, file), 'utf8')).component === 'host-executor-control')!;
       const contents = fs.readFileSync(path.join(directory, name), 'utf8');
       expect(JSON.parse(contents)).toMatchObject({
         component: 'host-executor-control',

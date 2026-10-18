@@ -114,7 +114,7 @@ export async function startCloudHypervisor(
           ? await resolveCloudHypervisorEnclaveNetwork(workloadProfile, {
               docker: artifacts.tools.docker,
               ip: artifacts.tools.ip,
-            })
+            }, undefined, process.env, context.launchReport?.fork('enclave-network'))
           : undefined;
     const vmmTools = {
       getfacl: artifacts.tools.getfacl,
@@ -155,7 +155,7 @@ export async function startCloudHypervisor(
         const verified = await resolveCloudHypervisorEnclaveNetwork(workloadProfile, {
           docker: artifacts.tools.docker,
           ip: artifacts.tools.ip,
-        });
+        }, undefined, process.env, context.launchReport?.fork('enclave-network'));
         if (verified.infrastructureBridge !== networkConfig.infrastructureBridge) {
           throw new Error('Agent-enclave Docker bridge changed before network setup');
         }

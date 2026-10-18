@@ -351,7 +351,11 @@ func networkSetupCommands(config bootConfig) [][]string {
 }
 
 func ipCommand() (string, error) {
-	for _, path := range []string{"/sbin/ip", "/usr/sbin/ip"} {
+	return findIPCommand([]string{"/sbin/ip", "/usr/sbin/ip", "/usr/bin/ip", "/bin/ip"})
+}
+
+func findIPCommand(paths []string) (string, error) {
+	for _, path := range paths {
 		if info, err := os.Stat(path); err == nil && !info.IsDir() && info.Mode()&0111 != 0 {
 			return path, nil
 		}
@@ -479,7 +483,7 @@ func (s *session) start(frame Frame) error {
 		}
 	}
 	workspace := s.config.WorkspaceMount
-	if s.config.NoNetwork {
+	if s.config.NoNetwork || s.config.EnclaveRole != "" {
 		workspace = "/"
 	}
 	cwd, err := resolveCWD(workspace, frame.Cwd)

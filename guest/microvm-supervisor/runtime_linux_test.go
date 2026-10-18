@@ -9,10 +9,78 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"syscall"
 	"testing"
 	"time"
 )
+
+func TestStartValidatesCWDForEnclaveAndPrimaryRoles(t *testing.T) {
+	workspace := t.TempDir()
+	seed := t.TempDir()
+	nonDirectory := filepath.Join(seed, "file")
+	if err := os.WriteFile(nonDirectory, nil, 0600); err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range []struct {
+		name   string
+		config bootConfig
+		cwd    string
+		want   string
+	}{
+		{"networked-agent-root", bootConfig{EnclaveRole: "agent"}, "/", "command not found in PATH:"},
+		{"networked-agent-seed", bootConfig{EnclaveRole: "agent"}, seed, "command not found in PATH:"},
+		{"script-root", bootConfig{EnclaveRole: "script", NoNetwork: true}, "/", "command not found in PATH:"},
+		{"legacy-no-network-root", bootConfig{NoNetwork: true}, "/", "command not found in PATH:"},
+		{"primary-workspace", bootConfig{WorkspaceMount: workspace}, workspace, "command not found in PATH:"},
+		{"primary-root-denied", bootConfig{WorkspaceMount: workspace}, "/", "cwd must remain under the workspace mount"},
+		{"primary-outside-denied", bootConfig{WorkspaceMount: workspace}, seed, "cwd must remain under the workspace mount"},
+		{"agent-relative-denied", bootConfig{EnclaveRole: "agent"}, ".", "cwd must be an absolute path"},
+		{"agent-file-denied", bootConfig{EnclaveRole: "agent"}, nonDirectory, "cwd is not a directory"},
+		{"agent-missing-denied", bootConfig{EnclaveRole: "agent"}, filepath.Join(seed, "missing"), "resolve cwd:"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			s := session{config: test.config}
+			err := s.start(Frame{
+				Argv: []string{"awf-test-missing-command"},
+				Env:  map[string]string{"PATH": t.TempDir()},
+				Cwd:  test.cwd,
+				UID:  65534,
+				GID:  65534,
+			})
+			if err == nil || !strings.HasPrefix(err.Error(), test.want) {
+				t.Fatalf("start returned %v, want prefix %q", err, test.want)
+			}
+			if s.active != nil {
+				t.Fatal("validation test unexpectedly started a process")
+			}
+		})
+	}
+}
+
+func TestIPCommandRequiresExecutableFromFixedPaths(t *testing.T) {
+	root := t.TempDir()
+	missing := filepath.Join(root, "missing")
+	directory := filepath.Join(root, "directory")
+	nonExecutable := filepath.Join(root, "non-executable")
+	executable := filepath.Join(root, "ip")
+	if err := os.Mkdir(directory, 0755); err != nil {
+		t.Fatal(err)
+	}
+	for file, mode := range map[string]os.FileMode{nonExecutable: 0644, executable: 0755} {
+		if err := os.WriteFile(file, []byte("#!/bin/sh\nexit 0\n"), mode); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Setenv("PATH", root)
+	if _, err := findIPCommand([]string{missing, directory, nonExecutable}); err == nil {
+		t.Fatal("accepted a missing, directory, non-executable or ambient PATH candidate")
+	}
+	got, err := findIPCommand([]string{missing, directory, nonExecutable, executable})
+	if err != nil || got != executable {
+		t.Fatalf("executable fixed path: got %q, %v", got, err)
+	}
+}
 
 func TestWorkspaceLessNoNetworkSupervisorBootReachesVsock(t *testing.T) {
 	target := filepath.Join(t.TempDir(), "seed")

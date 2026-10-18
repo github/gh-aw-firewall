@@ -67,7 +67,8 @@ describe('enclave image contract', () => {
     );
     expect(dockerfile.match(/COPILOT_CLI_VERSION="\$\(node -p/g)).toHaveLength(2);
     expect(dockerfile).not.toContain('ARG COPILOT_CLI_VERSION');
-    expect(dockerfile).toContain('git libatomic1 python3');
+    expect(dockerfile).toContain('FROM ${BUILD_TOOLS_IMAGE} AS enclave-agent');
+    expect(dockerfile).toContain('libatomic1 python3 ripgrep');
     expect(dockerfile).toContain("node --version | grep -qE '^v26\\.'");
 
     const stage = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-copilot-launcher-'));

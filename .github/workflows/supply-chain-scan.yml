@@ -57,11 +57,20 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Free unused hosted-runner disk space
+        # The blocking gate builds, saves and scans every PR image, including the
+        # large shared enclave-agent image. Remove preinstalled SDKs this job never uses.
+        run: |
+          df -h /
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /usr/local/.ghcup \
+            /opt/hostedtoolcache/CodeQL
+          df -h /
+
       - name: Configure Docker Hub cache
         run: bash scripts/ci/configure-docker-mirror.sh
 
-      # Includes automatic checksum-verified NVX musl guest selection.
-      - name: Checkout NVX-aware compiler
+      # Retain NVX support and backport only the narrow agent acceptance guard.
+      - name: Checkout acceptance-aware compiler
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: github/gh-aw
@@ -75,12 +84,28 @@ jobs:
           go-version-file: .tmp/gh-aw-compiler/go.mod
           cache: false
 
-      - name: Install NVX-aware gh-aw
+      - name: Install acceptance-aware gh-aw
         run: |
+          # Backport only the reviewed acceptance guard and its tests, not compiler main.
+          # github/gh-aw#69777; keep the existing NVX-aware source/runtime pins.
+          curl --fail --silent --show-error --location \
+            https://github.com/github/gh-aw/commit/2b19ccffd0694750e8e2bdcb20bf882e9bb440f2.patch \
+            --output "${RUNNER_TEMP}/gh-aw-agent-acceptance.patch"
+          echo "9ae4b02273385b3a9e884085bdf81969bbaa0e04d9d410d30c1ddb6d1023e8ee  ${RUNNER_TEMP}/gh-aw-agent-acceptance.patch" | sha256sum --check --strict
+          git -C .tmp/gh-aw-compiler apply \
+            --include=pkg/workflow/enclaves_runtime.go \
+            --include=pkg/workflow/enclaves_agent_acceptance_test.go \
+            "${RUNNER_TEMP}/gh-aw-agent-acceptance.patch"
+          # Keep the fixture's exact release gate aligned with its v0.28.66 pin.
+          # Do not broaden the topology, policy, or accepted version range.
+          git -C .tmp/gh-aw-compiler apply \
+            "${GITHUB_WORKSPACE}/scripts/ci/compiler-agent-acceptance-v0.28.66.patch"
+          go test -C .tmp/gh-aw-compiler ./pkg/workflow \
+            -run 'TestValidateCloudHypervisorAgentAcceptance|TestCompileCloudHypervisorAgentAcceptance' -count=1
           mkdir -p "$HOME/.local/share/gh/extensions/gh-aw"
           go build \
             -C .tmp/gh-aw-compiler \
-            -ldflags="-X main.version=v0.91.8-37-g6cc24f3633 -X main.isRelease=true" \
+            -ldflags="-X main.version=dev-v0.91.8-37-g6cc24f3633-agent-acceptance-v0.28.66" \
             -o "$HOME/.local/share/gh/extensions/gh-aw/gh-aw" \
             ./cmd/gh-aw
           rm -rf .tmp/gh-aw-compiler
@@ -204,52 +229,88 @@ jobs:
           with open('containers/router/openapi.yaml', 'rb') as f:
               router_openapi_sha256 = hashlib.sha256(f.read()).hexdigest()
           containers = [
+              ('build-tools',         'containers/build-tools', []),
               ('agent',               'containers/agent',     []),
               ('api-proxy',           'containers/api-proxy', []),
               ('router',              'containers/router',    ['--build-arg', f'OPENAPI_SHA256={router_openapi_sha256}']),
               ('cli-proxy',           'containers/cli-proxy', []),
               ('gh-aw-node',          'containers/gh-aw-node', []),
               ('enclave-script',      'containers', ['-f', 'containers/enclave/Dockerfile', '--target', 'enclave-script']),
-              ('enclave-agent',       'containers', ['-f', 'containers/enclave/Dockerfile', '--target', 'enclave-agent']),
+              ('enclave-agent',       'containers', ['-f', 'containers/enclave/Dockerfile', '--target', 'enclave-agent', '--build-arg', 'BUILD_TOOLS_IMAGE=awf-pr-scan-build-tools:pr']),
               ('enclave-mcp-server',  'containers', ['-f', 'containers/enclave/Dockerfile', '--target', 'enclave-mcp-server']),
           ]
-          rc = 0
-          for name, context, build_args in containers:
-              tag = f'awf-pr-scan-{name}:pr'
-              tar = f'/tmp/awf-pr-scan-{name}.tar'
-              print(f'::group::docker build {name}', flush=True)
-              b = subprocess.run(['docker', 'build', *build_args, '-t', tag, context])
+          def report_disk(label):
+              print(f'::group::disk usage ({label})', flush=True)
+              subprocess.run(['df', '-h', '/', '/tmp'])
+              subprocess.run(['docker', 'system', 'df'])
               print('::endgroup::', flush=True)
-              if b.returncode != 0:
-                  print(f'::error::docker build failed for {name}', flush=True)
-                  rc = b.returncode
-                  continue
-              try:
-                  subprocess.run(['docker', 'save', '-o', tar, tag], check=True)
-                  print(f'::group::grype {name} (PR build)', flush=True)
-                  r = subprocess.run([
-                      'docker', 'run', '--rm',
-                      '-v', f'{tar}:{tar}:ro',
-                      '-v', f'{db_cache}:/cache',
-                      '-e', 'GRYPE_DB_CACHE_DIR=/cache',
-                      '-e', 'GRYPE_DB_AUTO_UPDATE=false',
-                      '-e', 'GRYPE_CHECK_FOR_APP_UPDATE=false',
-                      '-v', f'{cwd}/.grype.yaml:/root/.grype.yaml:ro',
-                      'ghcr.io/anchore/grype@sha256:fd4ab4d1042b522c896e73bdf09ab8bf384fa417df99d6dd0d6e1008c7e7c821',
-                      f'docker-archive:{tar}', '--fail-on', 'high',
-                      '--config', '/root/.grype.yaml',
-                  ])
+          def prune_build_cache():
+              # Builder stages are not needed after the exact image exists. Images,
+              # including the retained base and pinned scanners, are not pruned.
+              subprocess.run(
+                  ['docker', 'builder', 'prune', '--all', '--force'],
+                  stdout=subprocess.DEVNULL,
+                  check=True,
+              )
+          rc = 0
+          build_tools_ready = False
+          retained_base = None
+          report_disk('before PR image builds')
+          try:
+              for name, context, build_args in containers:
+                  if name == 'enclave-agent' and not build_tools_ready:
+                      print('::error::enclave-agent requires the successful PR build-tools build', flush=True)
+                      rc = 1
+                      continue
+                  tag = f'awf-pr-scan-{name}:pr'
+                  tar = f'/tmp/awf-pr-scan-{name}.tar'
+                  print(f'::group::docker build {name}', flush=True)
+                  b = subprocess.run(['docker', 'build', *build_args, '-t', tag, context])
                   print('::endgroup::', flush=True)
-                  if r.returncode != 0:
-                      rc = r.returncode
-              finally:
-                  if os.path.exists(tar):
-                      os.remove(tar)
+                  prune_build_cache()
+                  if b.returncode != 0:
+                      print(f'::error::docker build failed for {name}', flush=True)
+                      rc = b.returncode
+                      continue
+                  if name == 'build-tools':
+                      build_tools_ready = True
+                      # Keep the exact locally built base until all dependents finish.
+                      retained_base = tag
+                  try:
+                      subprocess.run(['docker', 'save', '-o', tar, tag], check=True)
+                      print(f'::group::grype {name} (PR build)', flush=True)
+                      r = subprocess.run([
+                          'docker', 'run', '--rm',
+                          '-v', f'{tar}:{tar}:ro',
+                          '-v', f'{db_cache}:/cache',
+                          '-e', 'GRYPE_DB_CACHE_DIR=/cache',
+                          '-e', 'GRYPE_DB_AUTO_UPDATE=false',
+                          '-e', 'GRYPE_CHECK_FOR_APP_UPDATE=false',
+                          '-v', f'{cwd}/.grype.yaml:/root/.grype.yaml:ro',
+                          'ghcr.io/anchore/grype@sha256:fd4ab4d1042b522c896e73bdf09ab8bf384fa417df99d6dd0d6e1008c7e7c821',
+                          f'docker-archive:{tar}', '--fail-on', 'high',
+                          '--config', '/root/.grype.yaml',
+                      ])
+                      print('::endgroup::', flush=True)
+                      if r.returncode != 0:
+                          rc = r.returncode
+                  finally:
+                      if os.path.exists(tar):
+                          os.remove(tar)
+                      if tag != retained_base:
+                          subprocess.run(
+                              ['docker', 'image', 'rm', '--force', tag],
+                              stdout=subprocess.DEVNULL,
+                              stderr=subprocess.DEVNULL,
+                          )
+          finally:
+              if retained_base is not None:
                   subprocess.run(
-                      ['docker', 'image', 'rm', '--force', tag],
+                      ['docker', 'image', 'rm', '--force', retained_base],
                       stdout=subprocess.DEVNULL,
                       stderr=subprocess.DEVNULL,
                   )
+              report_disk('after PR image scans')
           sys.exit(rc)
           PYEOF
 

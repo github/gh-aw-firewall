@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import { createHash } from 'node:crypto';
+import { createReadStream } from 'node:fs';
 import { readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
@@ -80,7 +81,9 @@ function spdxId(name, index) {
 }
 
 async function sha256(file) {
-  return createHash('sha256').update(await readFile(file)).digest('hex');
+  const hash = createHash('sha256');
+  for await (const chunk of createReadStream(file)) hash.update(chunk);
+  return hash.digest('hex');
 }
 
 const args = parseArguments(process.argv.slice(2));

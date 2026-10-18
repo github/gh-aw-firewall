@@ -59,6 +59,7 @@ export interface HostEnclaveExecutorManager {
     readonly uid: number;
     readonly gid: number;
     readonly timeoutMs: number;
+    readonly onDiagnostics?: (value: import('../microvm/execution-diagnostics').GuestExecutionDiagnostics) => void;
   }): Promise<{ readonly exitCode: number; readonly signal: string | null; readonly timedOut: boolean }>;
   cancel(reason?: string): Promise<void>;
   stop(): Promise<void>;
@@ -66,6 +67,7 @@ export interface HostEnclaveExecutorManager {
 }
 
 export interface HostEnclaveExecutorDependencies {
+  readonly readSessionDiagnostics?: typeof import('./enclave-session-diagnostics').readEnclaveSessionDiagnostics;
   readonly preflight?: typeof import('./preflight').runCloudHypervisorPreflight;
   readonly preflightEnclaveArtifacts?: typeof import('./enclave-artifact-preflight').preflightCloudHypervisorEnclaveArtifacts;
   readonly prepareInvocationStorage?: (

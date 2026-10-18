@@ -37,12 +37,6 @@ module.SHARED_MEMORY_DIR = root / "shm"
 module.COPILOT_BIN = str(root / "copilot")
 module.GITHUB_AGENT_ID_PATH = root / "github-agent-id"
 module.GITHUB_MCP_CONFIG_PATH = module.AGENT_DIR / "github-mcp.json"
-original_which = module.shutil.which
-module.shutil.which = lambda executable: (
-    str(root / "gh") if executable == "gh" and scenario == "unexpected-gh"
-    else None if executable == "gh"
-    else original_which(executable)
-)
 
 if scenario == "github-config":
     module.AGENT_DIR.mkdir()
@@ -125,7 +119,7 @@ if scenario != "missing-copilot":
         )
     copilot.chmod(0o644 if scenario == "non-executable-copilot" else 0o755)
 
-if scenario == "unexpected-gh":
+if scenario == "installed-gh":
     gh = root / "gh"
     gh.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
     gh.chmod(0o755)
@@ -244,17 +238,16 @@ describe('enclave agent protected entrypoint diagnostics', () => {
       .toEqual({ event: 'failure', category: 'engine-failed' });
   });
 
-  it('fails closed when a gh executable is available', () => {
-    const result = runHarness('unexpected-gh');
+  it('accepts an installed gh tool without changing the protected execution path', () => {
+    const result = runHarness('installed-gh');
     const transcript = events(result);
 
-    expect(result.exitCode).toBe(24);
-    expect(transcript).toContainEqual({
-      event: 'preflight',
+    expect(result.exitCode).toBe(0);
+    expect(result.output).toBe('true');
+    expect(transcript).not.toContainEqual(expect.objectContaining({
       path: 'github-cli',
-      exists: true,
       type: 'forbidden-executable',
-    });
+    }));
   });
 
   it('writes a private MCP-only configuration and redacts its agent identity', () => {

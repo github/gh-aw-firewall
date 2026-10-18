@@ -47,10 +47,18 @@ x86_64 hosts with privileged KVM access and writable cgroup v2. Unsupported
 hosts retain the missing-prerequisite error before staging or constructing a
 listener or VM. No configuration/environment switch bypasses it, and AWF never
 falls back to a different runtime. Each invocation owns one kernel-bounded
-allocation domain: script 1 GiB, agent 512 MiB. Artifact snapshots, rootfs
-preparation and staging, VM runtime state, and writable exports all consume that
+allocation domain for writable guest exports: script 1 GiB, agent 512 MiB.
+Exports, request and handoff state all consume that
 same capacity, including sparse-file allocations and concurrent writers.
-Executable artifacts are sealed read-only; writable state remains `noexec`.
+Artifact snapshots use a separate root-owned, host-only 2 GiB tmpfs beneath the
+allocation root, sharing the preflight artifact budget but not the writable-state
+filesystem. Executable snapshots are sealed read-only and never exported as
+writable guest storage; writable state remains `noexec`. Rootfs preparation
+and final image/VM run-state each use another independent 2 GiB `noexec` tmpfs,
+allowing all three full images to coexist without charging guest exports.
+The enclave root disk remains guest-read-only. All four filesystems retain
+invocation-private propagation, exact capacity/device verification, identity
+journaling, sealing, cleanup and dead-owner recovery.
 Preflight captures immutable artifacts in short-lived domains before attestation
 or executable probes; invocation copies are checked against those digests.
 Host-only mount points use the trusted `/var/lib/awf-cloud-hypervisor/host-invocations`
@@ -544,8 +552,18 @@ mcpg access; AWF still isolates each identity file and enclave process and
 retains its own per-invocation seed, admission, ledger, output-schema, and
 timing controls.
 
-The enclave image contains no `gh` executable and fails preflight if one is
-available. Copilot receives one invocation-private MCP configuration exposing
+The agent enclave layers its Copilot/runtime on the primary's build-tools OCI
+image, sharing compilers, build libraries and utilities (including `gh`). The
+release build uses the same-release immutable build-tools digest; local Compose
+builds use a BuildKit service context built from this checkout, not `latest`.
+The script and MCP-server images remain separate. Package-manager stripping in
+the immutable guest rootfs is unchanged; installing tools at image build time
+does not authorize runtime package installation.
+
+An installed GitHub CLI is not inherently inert or a security boundary. The
+enclave receives no GitHub CLI credentials or direct GitHub network access;
+GitHub reads must use the delegated, repository-scoped MCP tools. Copilot
+receives one invocation-private MCP configuration exposing
 only the compiler-policy-limited direct mcpg endpoint. mcpg injects its GitHub
 credential and enforces the configured tools and repositories. GitHub response
 data remains inside the enclave.

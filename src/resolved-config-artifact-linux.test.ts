@@ -12,6 +12,7 @@ import { MAIN_ACTION_STUB_CONFIG } from './commands/main-action.test-utils';
 jest.mock('fs', () => ({ __esModule: true, ...jest.requireActual('fs') }));
 
 const describeRootLinux = process.platform === 'linux' && process.getuid?.() === 0 ? describe : describe.skip;
+const describeUnprivilegedLinux = process.platform === 'linux' && process.geteuid?.() !== 0 ? describe : describe.skip;
 
 describeRootLinux('real Linux root-to-runner config publication', () => {
   let directory: string;
@@ -24,6 +25,7 @@ describeRootLinux('real Linux root-to-runner config publication', () => {
     process.env.SUDO_GID = '20';
     delete process.env.GITHUB_ENV;
   });
+
   afterEach(() => {
     jest.restoreAllMocks();
     for (const file of publications) fs.rmSync(path.dirname(file), { recursive: true, force: true });
@@ -253,5 +255,26 @@ describeRootLinux('real Linux root-to-runner config publication', () => {
     expect(preserveIptablesAudit(directory, audit)).toBe(false);
     expect(fs.readFileSync(target, 'utf8')).toBe('UNCHANGED');
     expect(fs.statSync(target).mode & 0o777).toBe(0o600);
+  });
+});
+
+describeUnprivilegedLinux('real Linux rootless config publication', () => {
+  let directory: string;
+
+  beforeEach(() => {
+    directory = fs.mkdtempSync('/tmp/awf-rootless-publication-test-');
+  });
+
+  afterEach(() => {
+    fs.rmSync(directory, { recursive: true, force: true });
+  });
+
+  it('publishes the resolved config into the standard audit tree for collection', () => {
+    const file = path.join(directory, 'awf-resolved-config.json');
+    publishFinalResolvedConfig(directory, '{"redacted":true}\n');
+
+    expect(fs.readFileSync(file, 'utf8')).toBe('{"redacted":true}\n');
+    expect(fs.statSync(file).uid).toBe(process.getuid?.());
+    expect(fs.statSync(file).mode & 0o777).toBe(0o600);
   });
 });

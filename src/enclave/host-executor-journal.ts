@@ -30,6 +30,9 @@ import {
 } from '../cloud-hypervisor/host-preflight-progress';
 import type { EnclaveStartupChecklist } from './startup-progress';
 import { logger } from '../logger';
+import type { GuestExecutionDiagnostics } from '../microvm/execution-diagnostics';
+import type { EnclaveSessionDiagnostics } from '../cloud-hypervisor/enclave-session-diagnostics';
+import { projectEnclaveProxyUsage, type EnclaveProxyUsage } from './proxy-usage';
 
 export const HOST_EXECUTOR_DEFAULT_JOURNAL_DIRECTORY =
   '/var/lib/awf-cloud-hypervisor/host-executor-journal';
@@ -254,6 +257,8 @@ export class HostExecutorInvocationDiagnostics {
     }>;
     failure?: { stage: string; reason: string; code: string; errorType: string; sequence: number };
     cleanupFailure?: { stage: string; reason: string; code: string; errorType: string; sequence: number };
+    guestExecution?: GuestExecutionDiagnostics;
+    guestSession?: EnclaveSessionDiagnostics;
   };
 
   constructor(run: HostExecutorRunState, plan: HostExecutorInvocationPlan) {
@@ -281,6 +286,16 @@ export class HostExecutorInvocationDiagnostics {
       phase, elapsedMs: Math.max(0, Math.round(performance.now() - this.started)),
       ...(outcome === undefined ? {} : { outcome }),
     });
+    this.commit();
+  }
+
+  guestExecution = (value: GuestExecutionDiagnostics): void => {
+    this.snapshot.guestExecution = { ...value };
+    this.commit();
+  };
+
+  guestSession(value: EnclaveSessionDiagnostics): void {
+    this.snapshot.guestSession = value;
     this.commit();
   }
 
@@ -348,6 +363,21 @@ export class HostExecutorInvocationDiagnostics {
       this.persistenceFailed = true;
     }
   }
+}
+
+/** One bounded, run-wide proxy summary, separate from per-invocation accounting. */
+export function persistHostExecutorProxyUsage(
+  run: Pick<HostExecutorRunState, 'runId' | 'journalDir'>,
+  usage: EnclaveProxyUsage,
+): void {
+  if (!HOST_EXECUTOR_ID_PATTERN.test(run.runId)) throw new Error('Invalid host executor run identity');
+  const directory = path.join(hostExecutorJournalDirectory(run), 'diagnostics');
+  prepareDirectory(directory);
+  const id = createHash('sha256').update(`awf-enclave-proxy-usage-v1:${run.runId}`).digest('hex').slice(0, 32);
+  persist(path.join(directory, `${run.runId}-${id}.json`), {
+    schemaVersion: 1, component: 'enclave-proxy-usage', runId: run.runId,
+    usage: projectEnclaveProxyUsage(usage),
+  });
 }
 
 export function readHostExecutorInvocationDiagnostics(
@@ -800,16 +830,34 @@ function validateResourceRecord(record: ResourceRecord, file: string): void {
         mount.filesystemType !== 'tmpfs' || mount.source !== 'awf-enclave-invocation' ||
         !/^\d+:\d+$/.test(mount.device) ||
         !mount.device.split(':').every((value) => Number.isSafeInteger(Number(value))) ||
-        mount.root !== (mount.mountPoint === storage.directory ? '/' :
-          mount.mountPoint === record.directory ? '/state' :
-          path.dirname(mount.mountPoint) === storage.directory ? `/${path.basename(mount.mountPoint)}` :
-            `/artifacts/${path.basename(mount.mountPoint)}`) ||
         !Number.isSafeInteger(mount.mountId) || mount.mountId <= 0) ||
       new Set(storage.mounts.map((mount) => mount.mountPoint)).size !== storage.mounts.length ||
-      storage.mounts.some((mount) => mount.device !== storage.mounts[0].device)) {
+      !validStorageBackingLayout(record)) {
       throw new Error('Invalid invocation storage record');
     }
   }
+}
+
+function validStorageBackingLayout(record: ResourceRecord): boolean {
+  const storage = record.storage!;
+  if (!storage.mounts.length) return true;
+  const allocation = storage.mounts[0];
+  if (allocation.mountPoint !== storage.directory || allocation.root !== '/') return false;
+  const artifacts = storage.mounts.find((mount) => mount.mountPoint === path.join(storage.directory, 'artifacts'));
+  const independent = storage.mounts.filter((mount) =>
+    path.dirname(mount.mountPoint) === storage.directory && mount.root === '/');
+  if (new Set([allocation.device, ...independent.map((mount) => mount.device)]).size !== independent.length + 1) {
+    return false;
+  }
+  return storage.mounts.every((mount) => {
+    if (mount === allocation || independent.includes(mount)) return true;
+    const snapshot = path.dirname(mount.mountPoint) === path.join(storage.directory, 'artifacts');
+    const backing = snapshot ? artifacts ?? allocation : allocation;
+    const expectedRoot = mount.mountPoint === record.directory ? '/state' :
+      snapshot ? path.posix.join(artifacts?.root ?? '/artifacts', path.basename(mount.mountPoint)) :
+        `/${path.basename(mount.mountPoint)}`;
+    return mount.device === backing.device && mount.root === expectedRoot;
+  });
 }
 
 function storageAncestors(): string[] {

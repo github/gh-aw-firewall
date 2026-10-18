@@ -1,4 +1,5 @@
-# Build-tools sysroot image for ARC/DinD deployments.
+# Shared development toolchain: primary Cloud Hypervisor rootfs, ARC/DinD
+# sysroot, and the enclave-agent OCI base. Role runtimes are layered separately.
 #
 # Provides system-level build infrastructure (compilers, linkers, dev libraries)
 # that requires root to install. On ARC/DinD, the agent container cannot run as
@@ -21,6 +22,33 @@
 #       sysroot-stage: { condition: service_completed_successfully }
 #     volumes:
 #       - sysroot:/host:ro
+
+# Match the reviewed CLI build in containers/agent/Dockerfile rather than
+# inheriting Ubuntu's gh binary built with a vulnerable Go runtime.
+FROM golang:1.27.2-alpine@sha256:f92b6ef800e499660581efdabdf25d9d817a9d124eaf900924f0504e7e27e12d AS gh-build
+
+ENV GOTOOLCHAIN=go1.27.2
+
+ARG GH_VERSION=2.98.0
+ARG GH_SOURCE_SHA256=abada9e8b550547ac93f99250f3ad4d90ad623fa245cb54cb058f78030a6a5f6
+ARG GH_SOURCE_DATE_EPOCH=1787263311
+ARG GH_GRPC_VERSION=1.83.2
+ARG GH_X_CRYPTO_VERSION=0.57.0
+ARG GH_X_NET_VERSION=0.60.0
+RUN wget -q "https://github.com/cli/cli/archive/refs/tags/v${GH_VERSION}.tar.gz" -O /tmp/gh.tar.gz \
+    && echo "${GH_SOURCE_SHA256}  /tmp/gh.tar.gz" | sha256sum -c - \
+    && tar -xzf /tmp/gh.tar.gz -C /tmp \
+    && cd "/tmp/cli-${GH_VERSION}" \
+    && go get "google.golang.org/grpc@v${GH_GRPC_VERSION}" "golang.org/x/crypto@v${GH_X_CRYPTO_VERSION}" "golang.org/x/net@v${GH_X_NET_VERSION}" \
+    && CGO_ENABLED=0 GH_VERSION="${GH_VERSION}" SOURCE_DATE_EPOCH="${GH_SOURCE_DATE_EPOCH}" \
+         go run ./script/build.go bin/gh \
+    && go version -m bin/gh | awk -v version="v${GH_GRPC_VERSION}" \
+         '$1 == "dep" && $2 == "google.golang.org/grpc" && $3 == version { found=1 } END { exit !found }' \
+    && go version -m bin/gh | awk -v version="v${GH_X_CRYPTO_VERSION}" \
+         '$1 == "dep" && $2 == "golang.org/x/crypto" && $3 == version { found=1 } END { exit !found }' \
+    && go version -m bin/gh | awk -v version="v${GH_X_NET_VERSION}" \
+         '$1 == "dep" && $2 == "golang.org/x/net" && $3 == version { found=1 } END { exit !found }' \
+    && /tmp/cli-${GH_VERSION}/bin/gh --version
 
 FROM ubuntu:26.04@sha256:f144425ff09be612d6d9ad965196e9cdc23dae1f42110a8a11a3e9a8198759f7
 
@@ -89,8 +117,13 @@ RUN set -eux; \
       ca-certificates curl wget git jq \
       dnsutils iproute2 net-tools netcat-openbsd \
       # Agent container dependencies (must match containers/agent/Dockerfile)
-      libcap2-bin gosu gnupg gh \
+      libcap2-bin gosu gnupg \
     && \
     # Upgrade all packages for security patches
     apt-get upgrade -y && \
+    # Match the agent image: the inherited Pebble service manager is not used.
+    rm -f /usr/bin/pebble && \
     rm -rf /var/lib/apt/lists/* /tmp/*
+
+COPY --from=gh-build /tmp/cli-*/bin/gh /usr/bin/gh
+RUN gh --version && gosu --version && test "$(gosu nobody id -u)" = 65534
