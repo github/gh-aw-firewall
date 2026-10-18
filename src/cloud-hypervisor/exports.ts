@@ -62,6 +62,7 @@ export async function resolveCloudHypervisorExports(
   environment: CloudHypervisorExportEnvironment = process.env,
   cwd = process.cwd(),
   mountPolicy: CloudHypervisorMountPolicy = CLOUD_HYPERVISOR_DEFAULT_MOUNT_POLICY,
+  sharedTmpGhAwSource = '/tmp/gh-aw',
 ): Promise<CloudHypervisorDirectoryExport[]> {
   if (!CLOUD_HYPERVISOR_MOUNT_POLICIES.includes(mountPolicy)) {
     throw new Error(`Unsupported Cloud Hypervisor mount policy: ${String(mountPolicy)}`);
@@ -102,7 +103,7 @@ export async function resolveCloudHypervisorExports(
     // compile to `exports.<name>` and throw a TDZ error (see the comment on
     // WORKSPACE_EXPORT_TAG above for the same reason `'workspace'` is inlined).
     tag: 'tmp-gh-aw',
-    source: '/tmp/gh-aw',
+    source: sharedTmpGhAwSource,
     target: '/tmp/gh-aw',
     mode: 'rw',
     required: false,

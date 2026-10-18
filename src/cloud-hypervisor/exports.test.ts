@@ -51,6 +51,18 @@ describe('Cloud Hypervisor directory exports', () => {
     ]));
   });
 
+  it('resolves a synthetic shared tmp source without changing its guest destination', async () => {
+    const workspace = path.join(directory, 'workspace');
+    const sharedTmp = path.join(directory, 'shared-tmp');
+    await Promise.all([fs.mkdir(workspace), fs.mkdir(sharedTmp)]);
+    const exports = await resolveCloudHypervisorExports(
+      { GITHUB_WORKSPACE: workspace }, workspace, 'workspace-only', sharedTmp,
+    );
+    expect(exports).toContainEqual({
+      tag: 'tmp-gh-aw', source: sharedTmp, target: '/tmp/gh-aw', mode: 'rw',
+    });
+  });
+
   it('mounts RUNNER_TOOL_CACHE read-only only under the explicit opt-in policy', async () => {
     const workspace = path.join(directory, 'workspace');
     const tools = path.join(directory, 'tools');

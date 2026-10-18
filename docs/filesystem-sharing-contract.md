@@ -26,6 +26,9 @@ In the generated inventory, `<FIXTURE>` is a temporary synthetic fixture root
 invoking user's resolved home, and `<REPO>` is the checked-out source tree.
 `chroot-<ID>/hosts` replaces only the random `mkdtemp` suffix of the generated
 hosts-file directory; the source location and target remain visible.
+The optional Cloud Hypervisor `/tmp/gh-aw` source is resolved from a synthetic
+directory for the fixture and displayed at its production path; production
+exports it only when that directory exists.
 No secrets, live home directories, or user-specific paths are embedded in the
 document. `<WORKDIR>` below means the per-run work directory; `<UID>:<GID>`
 means the invoking user's recovered IDs. A `:ro` parent with a narrower `:rw`
@@ -113,7 +116,7 @@ the mechanism; Compose rows are produced by `src/compose-generator.ts` and its
 | compose/default | &lt;HOME&gt;/.rustup | agent → /host&lt;HOME&gt;/.rustup | existing DAC/modes preserved | rw | host-owned / not removed | component runtime input / tool state; Compose bind/volume |
 | compose/default | &lt;HOME&gt;/.npm | agent → /host&lt;HOME&gt;/.npm | existing DAC/modes preserved | rw | host-owned / not removed | component runtime input / tool state; Compose bind/volume |
 | compose/default | &lt;HOME&gt;/.nvm | agent → /host&lt;HOME&gt;/.nvm | existing DAC/modes preserved | rw | host-owned / not removed | component runtime input / tool state; Compose bind/volume |
-| compose/default | /opt/hostedtoolcache | agent → /host/opt/hostedtoolcache | existing DAC/modes preserved | ro | host-owned / not removed | component runtime input / tool state; Compose bind/volume |
+| compose/default | &lt;FIXTURE&gt;/tools | agent → /host&lt;FIXTURE&gt;/tools | existing DAC/modes preserved | ro | host-owned / not removed | component runtime input / tool state; Compose bind/volume |
 | compose/default | /etc/ssl | agent → /host/etc/ssl | existing DAC/modes preserved | ro | host-owned / not removed | component runtime input / tool state; Compose bind/volume |
 | compose/default | /etc/ca-certificates | agent → /host/etc/ca-certificates | existing DAC/modes preserved | ro | host-owned / not removed | component runtime input / tool state; Compose bind/volume |
 | compose/default | /etc/alternatives | agent → /host/etc/alternatives | existing DAC/modes preserved | ro | host-owned / not removed | component runtime input / tool state; Compose bind/volume |
@@ -231,7 +234,7 @@ the mechanism; Compose rows are produced by `src/compose-generator.ts` and its
 | compose/api-proxy | &lt;HOME&gt;/.rustup | agent → /host&lt;HOME&gt;/.rustup | existing DAC/modes preserved | rw | host-owned / not removed | component runtime input / tool state; Compose bind/volume |
 | compose/api-proxy | &lt;HOME&gt;/.npm | agent → /host&lt;HOME&gt;/.npm | existing DAC/modes preserved | rw | host-owned / not removed | component runtime input / tool state; Compose bind/volume |
 | compose/api-proxy | &lt;HOME&gt;/.nvm | agent → /host&lt;HOME&gt;/.nvm | existing DAC/modes preserved | rw | host-owned / not removed | component runtime input / tool state; Compose bind/volume |
-| compose/api-proxy | /opt/hostedtoolcache | agent → /host/opt/hostedtoolcache | existing DAC/modes preserved | ro | host-owned / not removed | component runtime input / tool state; Compose bind/volume |
+| compose/api-proxy | &lt;FIXTURE&gt;/tools | agent → /host&lt;FIXTURE&gt;/tools | existing DAC/modes preserved | ro | host-owned / not removed | component runtime input / tool state; Compose bind/volume |
 | compose/api-proxy | /etc/ssl | agent → /host/etc/ssl | existing DAC/modes preserved | ro | host-owned / not removed | component runtime input / tool state; Compose bind/volume |
 | compose/api-proxy | /etc/ca-certificates | agent → /host/etc/ca-certificates | existing DAC/modes preserved | ro | host-owned / not removed | component runtime input / tool state; Compose bind/volume |
 | compose/api-proxy | /etc/alternatives | agent → /host/etc/alternatives | existing DAC/modes preserved | ro | host-owned / not removed | component runtime input / tool state; Compose bind/volume |
@@ -349,7 +352,7 @@ the mechanism; Compose rows are produced by `src/compose-generator.ts` and its
 | compose/allowWrite-empty | &lt;HOME&gt;/.rustup | agent → /host&lt;HOME&gt;/.rustup | existing DAC/modes preserved | ro | host-owned / not removed | component runtime input / tool state; Compose bind/volume |
 | compose/allowWrite-empty | &lt;HOME&gt;/.npm | agent → /host&lt;HOME&gt;/.npm | existing DAC/modes preserved | ro | host-owned / not removed | component runtime input / tool state; Compose bind/volume |
 | compose/allowWrite-empty | &lt;HOME&gt;/.nvm | agent → /host&lt;HOME&gt;/.nvm | existing DAC/modes preserved | ro | host-owned / not removed | component runtime input / tool state; Compose bind/volume |
-| compose/allowWrite-empty | /opt/hostedtoolcache | agent → /host/opt/hostedtoolcache | existing DAC/modes preserved | ro | host-owned / not removed | component runtime input / tool state; Compose bind/volume |
+| compose/allowWrite-empty | &lt;FIXTURE&gt;/tools | agent → /host&lt;FIXTURE&gt;/tools | existing DAC/modes preserved | ro | host-owned / not removed | component runtime input / tool state; Compose bind/volume |
 | compose/allowWrite-empty | /etc/ssl | agent → /host/etc/ssl | existing DAC/modes preserved | ro | host-owned / not removed | component runtime input / tool state; Compose bind/volume |
 | compose/allowWrite-empty | /etc/ca-certificates | agent → /host/etc/ca-certificates | existing DAC/modes preserved | ro | host-owned / not removed | component runtime input / tool state; Compose bind/volume |
 | compose/allowWrite-empty | /etc/alternatives | agent → /host/etc/alternatives | existing DAC/modes preserved | ro | host-owned / not removed | component runtime input / tool state; Compose bind/volume |
@@ -419,8 +422,10 @@ the mechanism; Compose rows are produced by `src/compose-generator.ts` and its
 | compose/allowWrite-empty | &lt;FIXTURE&gt;/work/init-signal | iptables-init → /run/awf-init | AWF setup; see lifecycle table | rw | per-run cleanup / optional preservation | init handshake channel; Compose bind/volume |
 | compose/allowWrite-empty | &lt;FIXTURE&gt;/work/init-signal | iptables-init → /tmp/awf-init | AWF setup; see lifecycle table | rw | per-run cleanup / optional preservation | init handshake channel; Compose bind/volume |
 | cloud-hypervisor/workspace-only | &lt;FIXTURE&gt;/workspace | primary agent → /workspace | existing DAC/modes preserved | rw | host-owned / not removed | workload workspace; virtio-fs export (write narrowing separate) |
+| cloud-hypervisor/workspace-only | /tmp/gh-aw | primary agent → /tmp/gh-aw | existing DAC/modes preserved | rw | host-owned / not removed | component runtime input / tool state; virtio-fs export (write narrowing separate) |
 | cloud-hypervisor/workspace-and-tool-cache | &lt;FIXTURE&gt;/workspace | primary agent → /workspace | existing DAC/modes preserved | rw | host-owned / not removed | workload workspace; virtio-fs export (write narrowing separate) |
 | cloud-hypervisor/workspace-and-tool-cache | &lt;FIXTURE&gt;/tools | primary agent → &lt;FIXTURE&gt;/tools | existing DAC/modes preserved | ro | host-owned / not removed | component runtime input / tool state; virtio-fs export (write narrowing separate) |
+| cloud-hypervisor/workspace-and-tool-cache | /tmp/gh-aw | primary agent → /tmp/gh-aw | existing DAC/modes preserved | rw | host-owned / not removed | component runtime input / tool state; virtio-fs export (write narrowing separate) |
 | nvx/workspace-only | &lt;FIXTURE&gt;/workspace | primary agent → /workspace | existing DAC/modes preserved | rw | host-owned / not removed | workload workspace; virtio-fs export (write narrowing separate) |
 | nvx/workspace-and-tool-cache | &lt;FIXTURE&gt;/workspace | primary agent → /workspace | existing DAC/modes preserved | rw | host-owned / not removed | workload workspace; virtio-fs export (write narrowing separate) |
 | nvx/workspace-and-tool-cache | &lt;FIXTURE&gt;/tools | primary agent → &lt;FIXTURE&gt;/tools | existing DAC/modes preserved | ro | host-owned / not removed | component runtime input / tool state; virtio-fs export (write narrowing separate) |

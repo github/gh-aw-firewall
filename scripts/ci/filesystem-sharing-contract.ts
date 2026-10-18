@@ -49,13 +49,16 @@ export async function collectSharingRows(): Promise<SharingRow[]> {
   const previousWorkspace = process.env.GITHUB_WORKSPACE;
   const previousHome = process.env.HOME;
   const previousSudoUser = process.env.SUDO_USER;
+  const previousToolCache = process.env.RUNNER_TOOL_CACHE;
   try {
     const workspace = path.join(root, 'workspace');
     const tools = path.join(root, 'tools');
     const home = path.join(root, 'home');
+    const sharedTmp = path.join(root, 'shared-tmp-gh-aw');
     fs.mkdirSync(workspace);
     fs.mkdirSync(tools);
     fs.mkdirSync(home);
+    fs.mkdirSync(sharedTmp);
     for (const credential of credentialFilesToHide()) {
       const filename = path.join(home, credential);
       fs.mkdirSync(path.dirname(filename), { recursive: true });
@@ -63,6 +66,7 @@ export async function collectSharingRows(): Promise<SharingRow[]> {
     }
     process.env.GITHUB_WORKSPACE = workspace;
     process.env.HOME = home;
+    process.env.RUNNER_TOOL_CACHE = tools;
     delete process.env.SUDO_USER;
     const base: WrapperConfig = {
       allowedDomains: [], agentCommand: 'echo test', logLevel: 'error',
@@ -76,14 +80,12 @@ export async function collectSharingRows(): Promise<SharingRow[]> {
       ['compose/allowWrite-empty', { filesystemAllowWrite: [] }],
     ];
     const rows = scenarios.flatMap(([name, overrides]) => composeRows({ ...base, ...overrides }, name));
-    for (const [runtime, resolve] of [
-      ['cloud-hypervisor', resolveCloudHypervisorExports],
-      ['nvx', resolveNvxExports],
-    ] as const) {
+    for (const runtime of ['cloud-hypervisor', 'nvx'] as const) {
       for (const policy of ['workspace-only', 'workspace-and-tool-cache'] as const) {
-        const exports = await resolve(
-          { GITHUB_WORKSPACE: workspace, RUNNER_TOOL_CACHE: tools }, workspace, policy,
-        );
+        const environment = { GITHUB_WORKSPACE: workspace, RUNNER_TOOL_CACHE: tools };
+        const exports = runtime === 'cloud-hypervisor'
+          ? await resolveCloudHypervisorExports(environment, workspace, policy, sharedTmp)
+          : await resolveNvxExports(environment, workspace, policy);
         rows.push(...exports.map(entry => ({
           scenario: `${runtime}/${policy}`, source: entry.source,
           consumer: 'primary agent', destination: entry.target,
@@ -92,7 +94,7 @@ export async function collectSharingRows(): Promise<SharingRow[]> {
       }
     }
     const replacements: Array<[string, string]> = [
-      [getRealUserHome(), '<HOME>'], [root, '<FIXTURE>'],
+      [getRealUserHome(), '<HOME>'], [sharedTmp, '/tmp/gh-aw'], [root, '<FIXTURE>'],
       [path.resolve(__dirname, '../..'), '<REPO>'],
     ];
     return rows.map(row => {
@@ -112,6 +114,8 @@ export async function collectSharingRows(): Promise<SharingRow[]> {
     else process.env.HOME = previousHome;
     if (previousSudoUser === undefined) delete process.env.SUDO_USER;
     else process.env.SUDO_USER = previousSudoUser;
+    if (previousToolCache === undefined) delete process.env.RUNNER_TOOL_CACHE;
+    else process.env.RUNNER_TOOL_CACHE = previousToolCache;
     fs.rmSync(root, { recursive: true, force: true });
   }
 }

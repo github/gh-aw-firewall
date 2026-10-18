@@ -5,6 +5,19 @@ describe('filesystem sharing contract', () => {
     await expect(updateContract(false)).resolves.toBeUndefined();
   });
 
+  it('does not depend on a runner tool-cache environment value', async () => {
+    const original = process.env.RUNNER_TOOL_CACHE;
+    try {
+      process.env.RUNNER_TOOL_CACHE = '/nonexistent-sharing-fixture-cache';
+      const rows = await collectSharingRows();
+      expect(rows.some(row => row.source === '/nonexistent-sharing-fixture-cache')).toBe(false);
+      await expect(updateContract(false)).resolves.toBeUndefined();
+    } finally {
+      if (original === undefined) delete process.env.RUNNER_TOOL_CACHE;
+      else process.env.RUNNER_TOOL_CACHE = original;
+    }
+  });
+
   it('renders symbolic fixture paths as literal text rather than HTML', () => {
     expect(renderSharingRows([{
       scenario: 'test', source: '<HOME>', consumer: 'agent',
