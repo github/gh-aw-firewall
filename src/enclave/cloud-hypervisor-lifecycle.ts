@@ -314,8 +314,8 @@ export async function stopCloudHypervisorEnclaveLifecycle(config: WrapperConfig)
       await run.server?.close();
       assertRecoveryComplete(paths, run.runId);
       hostDrained = Boolean(run.server);
-      if (run.failed) throw new Error('Cloud Hypervisor enclave startup failed; private recovery state is preserved');
       await run.storage?.close();
+      if (run.failed) throw new Error('Cloud Hypervisor enclave startup failed; private recovery state is preserved');
     } catch (error) {
       cleanupError = error;
     }

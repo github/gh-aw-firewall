@@ -16,20 +16,26 @@ const CLOUD_HYPERVISOR_ARTIFACT_SNAPSHOT_PARENT = path.dirname(
   CLOUD_HYPERVISOR_ARTIFACT_SNAPSHOT_ROOT,
 );
 
-export interface CloudHypervisorArtifactSnapshotSources {
+export interface CloudHypervisorCommonArtifactSnapshotSources {
   cloudHypervisorBinary: string;
   virtiofsdBinary: string;
   kernelPath: string;
-  rootfsPath: string;
   supervisorPath: string;
-  rootfsSbomPath?: string;
   manifestPath?: string;
   bundlePath?: string;
 }
 
-export interface CloudHypervisorArtifactSnapshot extends CloudHypervisorArtifactSnapshotSources {
+export interface CloudHypervisorArtifactSnapshotSources extends CloudHypervisorCommonArtifactSnapshotSources {
+  rootfsPath: string;
+  rootfsSbomPath?: string;
+}
+
+export interface CloudHypervisorCommonArtifactSnapshot extends CloudHypervisorCommonArtifactSnapshotSources {
   directory: string;
 }
+
+export interface CloudHypervisorArtifactSnapshot extends CloudHypervisorCommonArtifactSnapshot,
+  CloudHypervisorArtifactSnapshotSources {}
 
 /**
  * Fails closed before any artifact is staged when the trusted-artifact root
@@ -73,6 +79,40 @@ export async function createArtifactSnapshot(
   invocationRoot?: string,
   report?: HostPreflightReporter,
 ): Promise<CloudHypervisorArtifactSnapshot> {
+  return stageArtifactSnapshot(sources, copySparseFile, onDirectoryCreated, invocationRoot, report);
+}
+
+export async function createCommonArtifactSnapshot(
+  sources: CloudHypervisorCommonArtifactSnapshotSources,
+  copySparseFile: (source: string, destination: string) => Promise<void>,
+  onDirectoryCreated?: (directory: string) => Promise<void>,
+  invocationRoot?: string,
+  report?: HostPreflightReporter,
+): Promise<CloudHypervisorCommonArtifactSnapshot> {
+  return stageArtifactSnapshot(sources, copySparseFile, onDirectoryCreated, invocationRoot, report);
+}
+
+function stageArtifactSnapshot(
+  sources: CloudHypervisorArtifactSnapshotSources,
+  copySparseFile: (source: string, destination: string) => Promise<void>,
+  onDirectoryCreated?: (directory: string) => Promise<void>,
+  invocationRoot?: string,
+  report?: HostPreflightReporter,
+): Promise<CloudHypervisorArtifactSnapshot>;
+function stageArtifactSnapshot(
+  sources: CloudHypervisorCommonArtifactSnapshotSources,
+  copySparseFile: (source: string, destination: string) => Promise<void>,
+  onDirectoryCreated?: (directory: string) => Promise<void>,
+  invocationRoot?: string,
+  report?: HostPreflightReporter,
+): Promise<CloudHypervisorCommonArtifactSnapshot>;
+async function stageArtifactSnapshot(
+  sources: CloudHypervisorArtifactSnapshotSources | CloudHypervisorCommonArtifactSnapshotSources,
+  copySparseFile: (source: string, destination: string) => Promise<void>,
+  onDirectoryCreated?: (directory: string) => Promise<void>,
+  invocationRoot?: string,
+  report?: HostPreflightReporter,
+): Promise<CloudHypervisorArtifactSnapshot | CloudHypervisorCommonArtifactSnapshot> {
   const check = async <T>(
     id: Parameters<HostPreflightReporter['check']>[0], operation: () => Promise<T>,
   ): Promise<T> => report ? report.check(id, operation) : operation();
@@ -120,7 +160,7 @@ export async function createArtifactSnapshot(
   };
   try {
     await check('identity', async () => { await onDirectoryCreated?.(directory); });
-    const snapshot: CloudHypervisorArtifactSnapshot = {
+    const common = {
       directory,
       cloudHypervisorBinary: await copy(
         sources.cloudHypervisorBinary,
@@ -130,36 +170,47 @@ export async function createArtifactSnapshot(
       ),
       virtiofsdBinary: await copy(sources.virtiofsdBinary, 'virtiofsd', 0o555, 'virtiofsd'),
       kernelPath: await copy(sources.kernelPath, 'vmlinux.bin', 0o444, 'kernel'),
-      rootfsPath: await copy(sources.rootfsPath, 'rootfs.ext4', 0o444, 'rootfs'),
-      supervisorPath: await copy(sources.supervisorPath, 'awf-supervisor', 0o555, 'supervisor'),
     };
-    if (sources.rootfsSbomPath) {
-      snapshot.rootfsSbomPath = await copy(sources.rootfsSbomPath, 'rootfs.sbom.spdx.json', 0o444, 'sbom');
+    async function copyOptionalArtifacts(snapshot: CloudHypervisorCommonArtifactSnapshot): Promise<void> {
+      if (sources.manifestPath) {
+        snapshot.manifestPath = await copy(sources.manifestPath, 'manifest.json', 0o444, 'manifest');
+      } else {
+        report?.notRequired('manifest-copy');
+        report?.notRequired('manifest-mode');
+      }
+      if (sources.bundlePath) {
+        snapshot.bundlePath = await copy(sources.bundlePath, 'manifest.sigstore.jsonl', 0o444, 'bundle');
+      } else {
+        report?.notRequired('bundle-copy');
+        report?.notRequired('bundle-mode');
+      }
+      await check('directory-mode', () => fs.chmod(directory, 0o555));
+      report?.notRequired('partial-remove');
+    }
+    if ('rootfsPath' in sources) {
+      const rootfsPath = await copy(sources.rootfsPath, 'rootfs.ext4', 0o444, 'rootfs');
+      const snapshot: CloudHypervisorArtifactSnapshot = {
+        ...common, rootfsPath,
+        supervisorPath: await copy(sources.supervisorPath, 'awf-supervisor', 0o555, 'supervisor'),
+      };
+      if (sources.rootfsSbomPath) {
+        snapshot.rootfsSbomPath = await copy(sources.rootfsSbomPath, 'rootfs.sbom.spdx.json', 0o444, 'sbom');
+      } else {
+        report?.notRequired('sbom-copy');
+        report?.notRequired('sbom-mode');
+      }
+      await copyOptionalArtifacts(snapshot);
+      return snapshot;
     } else {
+      const snapshot: CloudHypervisorCommonArtifactSnapshot = {
+        ...common,
+        supervisorPath: await copy(sources.supervisorPath, 'awf-supervisor', 0o555, 'supervisor'),
+      };
       report?.notRequired('sbom-copy');
       report?.notRequired('sbom-mode');
+      await copyOptionalArtifacts(snapshot);
+      return snapshot;
     }
-    if (sources.manifestPath) {
-      snapshot.manifestPath = await copy(sources.manifestPath, 'manifest.json', 0o444, 'manifest');
-    } else {
-      report?.notRequired('manifest-copy');
-      report?.notRequired('manifest-mode');
-    }
-
-    if (sources.bundlePath) {
-      snapshot.bundlePath = await copy(
-        sources.bundlePath,
-        'manifest.sigstore.jsonl',
-        0o444,
-        'bundle',
-      );
-    } else {
-      report?.notRequired('bundle-copy');
-      report?.notRequired('bundle-mode');
-    }
-    await check('directory-mode', () => fs.chmod(directory, 0o555));
-    report?.notRequired('partial-remove');
-    return snapshot;
   } catch (error) {
     try {
       await check('partial-remove', () => fs.rm(directory, { recursive: true, force: true }));

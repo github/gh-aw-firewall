@@ -50,8 +50,8 @@ import type {
   CloudHypervisorManagerDependencies,
   CloudHypervisorManagerGuestConfig,
 } from './manager-types';
-import type { CloudHypervisorPreflightResult } from './preflight';
-import { copySparseFileWithRsync, runCloudHypervisorPreflight } from './preflight';
+import type { CloudHypervisorCommonPreflightResult, CloudHypervisorPreflightResult } from './preflight';
+import { copySparseFileWithRsync, runCloudHypervisorCommonPreflight } from './preflight';
 import {
   preflightCloudHypervisorEnclaveArtifacts,
   resolveTrustedAttestationTool,
@@ -169,7 +169,7 @@ export async function createCloudHypervisorHostEnclaveExecutor(
   }
   const attestationToolPath = await resolveTrustedAttestationTool(environment);
   options.onPreflightStage?.('host-preflight');
-  const preflight = await (dependencies.preflight ?? runCloudHypervisorPreflight)(options.config);
+  const preflight = await (dependencies.preflight ?? runCloudHypervisorCommonPreflight)(options.config);
   try {
     options.onPreflightStage?.('recovery');
     await reapHostExecutorResources(
@@ -331,7 +331,7 @@ export class CloudHypervisorHostEnclaveExecutorBackend implements HostEnclaveExe
       readonly workDir: string;
       readonly publicDebugArtifactDirectory?: string;
       readonly publicDebugArtifactProtectedRoot?: string;
-      readonly preflight: CloudHypervisorPreflightResult;
+      readonly preflight: CloudHypervisorCommonPreflightResult;
       readonly enclaveArtifacts: VerifiedCloudHypervisorEnclaveArtifacts;
       readonly agentPolicies?: Readonly<Record<string, HostExecutorAgentPolicy>>;
       readonly managerDependencies?: CloudHypervisorManagerDependencies;

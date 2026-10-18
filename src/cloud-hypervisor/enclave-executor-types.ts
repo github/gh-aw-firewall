@@ -16,7 +16,9 @@ import type {
   CloudHypervisorArtifactSnapshotSources,
 } from './artifact-snapshot';
 import type { CloudHypervisorManagerDependencies } from './manager-types';
-import type { CloudHypervisorHostToolPaths, CloudHypervisorPreflightResult } from './preflight';
+import type {
+  CloudHypervisorCommonPreflightResult, CloudHypervisorHostToolPaths, CloudHypervisorPreflightResult,
+} from './preflight';
 import type { assertBoundedEnclaveStorage } from './enclave-storage';
 import type { CloudHypervisorWorkloadProfile } from './workload-profile';
 
@@ -70,7 +72,7 @@ export interface HostEnclaveExecutorManager {
 
 export interface HostEnclaveExecutorDependencies {
   readonly readSessionDiagnostics?: typeof import('./enclave-session-diagnostics').readEnclaveSessionDiagnostics;
-  readonly preflight?: typeof import('./preflight').runCloudHypervisorPreflight;
+  readonly preflight?: typeof import('./preflight').runCloudHypervisorCommonPreflight;
   readonly preflightEnclaveArtifacts?: typeof import('./enclave-artifact-preflight').preflightCloudHypervisorEnclaveArtifacts;
   readonly prepareInvocationStorage?: (
     run: HostExecutorRunState,
