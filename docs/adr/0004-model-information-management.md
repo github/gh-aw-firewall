@@ -25,6 +25,11 @@ AWF needs model information for several independent decisions:
   diagnostics; and
 - maintaining documentation and generated container assets.
 
+Downstream consumers include `gh-aw`, which maintains models.dev-derived
+`models.json` copies for AIC estimates, and gh-aw-router-training, which needs
+pricing and reasoning-effort facts. They are planned consumers of the generated
+export or package API, not independent sources of model facts.
+
 These facts are currently distributed across:
 
 - `src/copilot-model.ts`;
@@ -101,9 +106,9 @@ without continuing the synchronized-table pattern.
 ## Decision
 
 AWF will introduce one versioned, provider-qualified model information
-subsystem. Maintained records, imported snapshots, operator overlays, and
-runtime observations will use schema-validated inputs and compile or resolve
-into one normalized record model.
+subsystem. Maintained records, imported snapshots, operator overlays, central
+catalogue updates, and runtime observations will use schema-validated inputs
+and compile or resolve into one normalized record model.
 
 Existing consumers will migrate to generated projections or a shared resolver.
 No consumer may become a new independent source of model facts.
@@ -114,8 +119,8 @@ The subsystem has these architectural parts:
 2. one provider-qualified identity and matching implementation;
 3. reviewed maintained source records;
 4. governed imported snapshots;
-5. validated operator overlays;
-6. normalized runtime observations;
+5. validated operator overlays, including workflow-defined model entries;
+6. configurable central catalogue refresh and normalized runtime observations;
 7. field-level merge, precedence, freshness, and provenance;
 8. deterministic generated projections for existing consumers;
 9. versioned runtime and offline export contracts; and
@@ -225,6 +230,40 @@ concrete JSON Schema may split these into reusable definitions.
 Availability and lifecycle are channel-specific when necessary. A model priced
 for BYOK is not thereby a valid Copilot CLI completion model.
 
+### Harness version constraints
+
+Model records can declare channel-specific harness requirements:
+
+- harness identifier, such as `copilot-cli`;
+- minimum supported version and its version-comparison scheme;
+- optional additional version-range restrictions;
+- source, review time, and freshness; and
+- an actionable incompatibility reason.
+
+For example, a Sol model can require `copilot-cli` at or above a documented
+minimum version. The actual floor is sourced and reviewed model data, not a
+version guessed from the model name or hard-coded in a consumer.
+
+AWF validates the version of the harness that will actually execute, including
+the selected binary and execution environment, before launching the agent.
+A host installation with a different version is not sufficient evidence.
+Version comparison defines boundary and prerelease behavior. If an applicable
+requirement exists, an unknown, unavailable, or unparsable harness version does
+not satisfy it.
+
+Explicit incompatible model requests fail with the model, harness, required
+version, detected version or detection failure, and upgrade guidance. Routing,
+dynamic selectors, and fallback selection exclude incompatible candidates
+before dispatch and fail explicitly when no eligible candidate remains.
+Runtime catalogue refreshes re-evaluate eligibility before subsequent dispatch;
+they do not upgrade the harness or silently substitute a different model for an
+explicit request.
+
+These requirements are supported in maintained records, central catalogue
+updates, and workflow/operator entries, and are exposed in resolved exports.
+Model availability or native protocol support does not establish harness
+compatibility.
+
 ### Limits and modalities
 
 - context-window tokens;
@@ -269,6 +308,13 @@ For each protocol, the record distinguishes:
 - lossy translation;
 - unsupported; and
 - unknown.
+
+AWF translation support is additionally declared for each directed source and
+target protocol pair, with per-feature conditions and the translator version or
+capability revision. Responses-to-Chat support does not imply Chat-to-Responses
+support. A model supporting both endpoints does not establish that either
+translation preserves every feature. Routing and validation use the applicable
+directed pair and actual request features.
 
 Feature compatibility can include:
 
@@ -322,9 +368,13 @@ Estimated cache-read prices remain permitted only when policy explicitly allows
 them. They are labeled `estimated` and never presented as provider-published
 pricing.
 
-Promotional pricing is time-bounded data. It MUST include an expiry or effective
-end and, where known, the successor tariff. A source-code reminder is not an
-acceptable expiry mechanism.
+Reviewed promotional list-price tariffs are time-bounded data. They MUST include
+an expiry or effective end and, where known, the successor tariff. A source-code
+reminder is not an acceptable expiry mechanism. Runtime-advertised discounts are
+informational observations only: discovery does not prove request-level
+eligibility, so they MUST NOT reduce the effective tariff or `maxAiCredits`
+accounting. Supporting request-level discounts in the future requires a
+separately reviewed contract; discovery alone never makes a discount billable.
 
 Long-context pricing is a first-class tariff selected by the same normalized
 input-token semantics used for runtime provider pricing. Threshold boundaries
@@ -335,7 +385,8 @@ conservative ceilings are policy tariffs, not ordinary model prices.
 
 ## Data layers and precedence
 
-The subsystem uses four input layers.
+The subsystem uses five input layers. Workflow-defined entries are a
+run-scoped form of operator overlay, not an independent authority level.
 
 ### Maintained base registry
 
@@ -369,6 +420,26 @@ Imported data can supply lower-confidence pricing or capabilities according to
 policy. It cannot establish first-party Copilot CLI availability, retirement,
 or replacement.
 
+AWF MUST use governed `models.dev` snapshots as the pricing fallback for
+inference providers without native AWF pricing support, including configured
+custom providers, when an applicable provider/model entry exists. This allows
+accounting without requiring a maintained pricing table or native pricing
+adapter for every inference provider. Higher-priority sources still win under
+the field-level precedence contract.
+
+Lookup preserves the `models.dev` provider identity and exact model scope,
+using explicit provider mappings or aliases where necessary. A matching model
+slug at a different provider is not a pricing match. Imported rates are
+normalized to the canonical accounting unit and tariff structure, retaining
+source revision, confidence, freshness, and per-component provenance.
+
+Using imported pricing does not add provider execution support or establish
+availability, harness compatibility, or wire compatibility. Missing or
+inapplicable prices remain unresolved and use the explicit unpriceable-model
+policy, never a silent zero price. Bundled snapshots and configured local or
+mirrored sources support this fallback without requiring runtime access to
+`models.dev`.
+
 ### Operator overlays
 
 Operator configuration can define deployment-specific:
@@ -376,14 +447,105 @@ Operator configuration can define deployment-specific:
 - model IDs and aliases;
 - prices;
 - compatibility restrictions;
+- harness version requirements;
 - availability;
 - target protocol; and
 - source labels.
 
-Overlays are validated against a versioned overlay schema at startup. Unknown
-fields and invalid prices fail before requests are accepted. Operator overlays
-have highest configured authority within their declared provider, channel, and
-deployment scope.
+New, explicitly versioned overlays are validated against the versioned overlay
+schema at startup; unknown fields and invalid prices fail before requests are
+accepted. Existing unversioned `apiProxy.providers` overlays retain their
+currently supported open, models.dev-shaped input contract during migration and
+are not subjected to strict unknown-field rejection. A compatibility reader
+continues to interpret these overlays until they are translated or explicitly
+migrated to the versioned format. Operator overlays have highest configured
+authority within their declared provider, channel, and deployment scope.
+
+#### Workflow-defined model entries
+
+Users can define model entries in the YAML frontmatter of a gh-aw workflow
+`.md` file. Entries use the versioned model-overlay schema to add custom models
+or override scoped facts, including pricing, reasoning, limits, protocol
+compatibility, and harness version requirements.
+
+The gh-aw compiler validates these entries and passes the versioned structured
+payload through the AWF configuration file. AWF validates that payload again
+before accepting requests. Model definitions are not encoded in prompt text or
+passed through ad hoc environment-variable conventions. The concrete
+frontmatter and config field names are specified by the coordinated gh-aw/AWF
+schema change.
+
+Workflow entries have operator-overlay precedence within their declared
+provider, channel, and deployment scope. The config handoff defines one
+unambiguous effective overlay: conflicting same-scope workflow and operator
+entries fail validation unless their override order is explicitly configured.
+Entries remain run-local, do not modify the bundled registry or shared cache,
+and retain sanitized workflow provenance in reflection and persisted exports.
+Overrides do not bypass model-policy, network, or harness checks.
+
+The compiler and AWF must agree on the overlay schema version. Workflows that
+use this feature with an older pinned AWF version fail with an explicit
+unsupported-config error rather than silently losing model entries. Existing
+workflows without model entries retain their current behavior.
+
+### Central catalogue updates
+
+AWF can dynamically refresh pricing from a configurable central catalogue
+without an AWF or container-image release. The versioned feed can also publish
+model-to-harness version constraints. It uses the canonical pricing and harness
+schemas; it does not introduce another normalization or accounting path.
+Fetched data cannot by itself establish provider availability.
+
+AWF MUST assume that the default pricing feed is blocked or unreachable.
+Reaching that endpoint is not a startup prerequisite when approved workflow,
+operator, cached, or bundled pricing is available. AWF must not implicitly
+allowlist the feed, relax egress policy, or retry through a different network
+path to bypass a denial.
+
+Users can replace the pricing source through direct AWF configuration or
+workflow frontmatter passed through the gh-aw config handoff. Supported sources
+include a configurable feed URL, such as an internal mirror, and an explicitly
+configured local snapshot using the same versioned schema. The source
+selection replaces the default endpoint; a failed custom source does not cause
+AWF to contact the default feed or another unconfigured endpoint.
+
+AWF configuration specifies the source, enabled/offline mode, bounded fetch
+timeout, refresh interval, and maximum acceptable snapshot age. Source URLs and
+local snapshot paths are explicit configuration, not destinations or paths
+inferred from model metadata. Retrieval uses an approved transport and network
+policy, validates the configured source and payload, and keeps authentication
+material out of logs, cache metadata, and exports. Offline mode and local-only
+sources perform no pricing-feed network requests.
+
+Each snapshot includes schema version, catalogue revision, publication time,
+effective dates, source provenance, and an integrity digest. Source
+authentication is a separate requirement; a content digest alone does not
+authenticate the publisher. Malformed, unsupported, or inconsistent updates
+are rejected atomically with an explicit diagnostic, never partially applied.
+The shared cache is partitioned by configured source and schema version so
+changing pricing sources cannot reuse an unrelated source's last-known-good
+snapshot.
+
+When the feed is enabled, AWF resolves an initial snapshot or approved fallback
+before price-dependent requests are accepted and refreshes at the configured
+interval during long runs. A validated update becomes available atomically for
+subsequent requests. Each request's accounting retains its resolved tariff,
+effective time, revision, and provenance; refreshes do not retroactively reprice
+recorded usage.
+
+Network denials, timeouts, and rejected updates are expected operating
+conditions, reported with the fallback used. They can retain a last-known-good
+snapshot only within the configured age policy. Offline mode and expired or
+absent caches use applicable workflow/operator pricing, explicit bundled or
+conservative fallback policy, or fail closed when no approved price exists.
+They do not silently treat an old snapshot as fresh.
+Reflection and diagnostics expose the active source/revision, snapshot age,
+refresh failure, and fallback reason without exposing credentials.
+
+Central updates preserve reviewed promotion expiry and informational-only
+treatment of runtime-advertised discounts. Workflow/operator overlays retain
+precedence. Downloaded updates remain separate from reproducible checked-in
+projections and never rewrite package assets.
 
 ### Runtime observations
 
@@ -409,6 +571,8 @@ provider-published values when complete and fresh. A later incomplete response
 does not silently erase a complete tariff, but retained data is subject to a
 maximum age and is marked stale. Safety-sensitive consumers decide whether stale
 data is acceptable under an explicit policy.
+Provider-advertised promotions remain informational and do not override a
+reviewed effective tariff.
 
 ## Field-level resolution
 
@@ -416,12 +580,31 @@ Precedence is resolved per field, not by replacing an entire record:
 
 1. operator overlay within its declared scope;
 2. complete, fresh runtime provider observation;
-3. reviewed maintained record;
-4. governed imported snapshot;
-5. explicit policy fallback.
+3. validated, fresh central catalogue update within its declared scope;
+4. reviewed maintained record;
+5. governed imported snapshot;
+6. explicit policy fallback.
 
 Availability may have a different safe fallback rule from pricing or
 compatibility. The resolver therefore applies a policy per field group.
+
+Pricing is merged one tier at a time. A higher-priority tier defines the
+threshold and tariff scope; lower-priority sources may fill only components it
+omits, never replace components it supplies. A tier completed from multiple
+sources is labeled `assembled`, with provenance retained for every component.
+This prevents a result from silently combining values from different tiers or
+presenting an unpublished component combination as a single source tariff.
+Runtime-advertised discounts are excluded from this merge and remain
+informational as described above.
+
+Component filling requires compatible provider, channel, deployment, currency,
+accounting unit, prompt-token applicability, and effective-date scope. A shared
+tier name alone is not a match. For example, a cache price applicable only
+through 128k prompt tokens cannot fill a live tier extending to 200k for a 160k
+request, nor can an expired promotional component fill a current tariff.
+Without an applicable component, resolution remains incomplete or invokes an
+explicit approved fallback; `assembled` provenance does not make an
+incompatible component eligible.
 
 Every resolved value retains:
 
@@ -495,13 +678,21 @@ Initial projections include:
 - public documentation mapping;
 - static catalogue export;
 - generated documentation tables; and
-- manifests containing schema version, catalogue revision, and generation time.
+- manifests containing schema version, catalogue revision, and a reproducible
+  static generation timestamp.
 
 The host and API proxy may consume different projections, but both derive from
 the same source records and identity rules.
 
 Because the API proxy is CommonJS JavaScript and the host is TypeScript, JSON is
 the interoperability format. Consumers do not reimplement canonicalization.
+
+The catalogue revision is a deterministic digest of the normalized source
+records, schema version, and compiler version. The static generation timestamp
+is derived from versioned source metadata (the latest included review or import
+timestamp), never the compiler's wall-clock time. `/reflect/v2` reuses that
+static timestamp and reports live observation times separately. Optional build
+wall-clock timestamps are not included in checked-in projections.
 
 CI validates source schemas, compiles projections, and fails when checked-in
 generated files differ from compiler output.
@@ -525,8 +716,17 @@ AWF will add a versioned reflection contract containing:
 - provider-qualified resolved model records;
 - source and freshness summaries;
 - routing-selectability reasons;
+- model-to-harness constraints and detected compatibility;
+- central catalogue revision, freshness, and refresh/fallback diagnostics;
 - warnings for stale, estimated, incomplete, or conflicting information; and
 - sanitized runtime provenance.
+
+Each exported value, including every pricing component, carries its source and
+freshness state (for example, `estimated` or `stale`), so consumers need not
+reconstruct those labels from a summary. The version field identifies the
+`/reflect/v2` schema; clients first try v2 and fall back to `/reflect` when the
+endpoint is unavailable on an older pinned AWF version. AWF retains the v1
+contract during consumer migration.
 
 The default representation is compact. A detail mode may expose field-level
 provenance when payload size requires separation.
@@ -538,7 +738,10 @@ fields are never reflected.
 
 AWF will version `models.json` or add a sibling `model-catalog.json`. Persisted
 snapshots include schema and catalogue revisions so tooling can distinguish
-static data from run-specific observations.
+static data from run-specific observations. The generated export or npm package
+is the planned source for gh-aw's AIC `models.json` copies and
+gh-aw-router-training's pricing and effort data; their consumers may switch at
+Gate 7 after export compatibility and accounting-parity tests pass.
 
 ### CLI and package API
 
@@ -566,6 +769,17 @@ One model catalogue updater replaces endpoint-only and ad hoc update paths. It:
 6. emits a machine-readable change report; and
 7. applies review gates for high-impact changes.
 
+On each scheduled run, the updater compares available live provider model data
+with the maintained registry. It reports missing models, price changes beyond
+the documented provider-specific rounding tolerance, and changed reasoning
+efforts or limits. Drift findings propose reviewed source updates; they do not
+silently promote runtime observations into maintained facts or make runtime
+discounts billable.
+
+After review and validation, the same canonical source pipeline can publish
+versioned central catalogue snapshots. This distribution step is distinct from
+provider discovery and does not bypass the update review gates.
+
 The report identifies:
 
 - added and removed models;
@@ -576,6 +790,7 @@ The report identifies:
 - promotion expiry;
 - effort-set and context-limit changes;
 - protocol and feature compatibility changes;
+- harness minimum-version and version-range changes;
 - source-confidence changes;
 - stale or missing sources; and
 - import collisions or rejected records.
@@ -592,6 +807,8 @@ Each fact group has a policy-appropriate maximum age:
 
 - current provider availability and picker state are run-local observations;
 - runtime prices use a provider-specific freshness window;
+- central catalogue snapshots use configured maximum ages and preserve
+  component effective dates independently of fetch time;
 - maintained compatibility is reviewed when provider documentation changes;
 - imported fallback prices have an explicit snapshot age; and
 - operator overlays remain valid until configuration changes or an optional
@@ -603,13 +820,15 @@ data can be used and fail closed when their policy requires fresh data.
 
 ## Security and reliability requirements
 
-The redesign preserves these existing safeguards:
+The redesign preserves existing safeguards and adds the following requirements:
 
 - operator overlays outrank bundled defaults only within validated scope;
 - live provider availability outranks maintained assumptions;
 - routing fails closed when authoritative discovery is required and unavailable;
 - custom or non-native provider targets do not inherit native-provider claims;
 - model policy and picker exclusions apply before routing;
+- harness requirements apply to explicit requests, routing, and fallbacks;
+- central refresh is validated and atomic, with bounded stale-cache fallback;
 - lossy wire translation is rejected rather than silently dropping features;
 - AI-credit enforcement rejects unpriceable models when no approved fallback
   exists;
@@ -620,9 +839,12 @@ The redesign preserves these existing safeguards:
   produce explicit failures rather than success-shaped fallbacks.
 
 The compiler and runtime resolver treat source data as untrusted input for
-validation purposes. URLs, notes, model IDs, aliases, and provider payloads do
-not become executable code, filesystem paths, request destinations, or
-credentials.
+validation purposes. URLs within model metadata, notes, model IDs, aliases,
+and provider payloads do not become executable code, filesystem paths,
+request destinations, or credentials. Explicitly configured pricing-source
+URLs or local snapshot paths are used only by the dedicated source loader under
+explicit source configuration and applicable transport, network, and
+file-access policies; feed records cannot redirect that loader.
 
 ## Validation and CI requirements
 
@@ -632,17 +854,44 @@ The implementation includes:
 2. provider-prefix, separator, date-suffix, query, and case fixtures;
 3. exact versus family-pattern collision tests;
 4. supported, retired, mapped, priced, and excluded model fixtures;
-5. complete pricing precedence and mixed-component provenance tests;
-6. default, threshold, boundary, promotion-expiry, and successor-tariff tests;
+5. pricing precedence, same-tier component filling, and assembled-tier provenance
+   tests, including mismatched token ranges, effective dates, and units;
+6. default, threshold, boundary, reviewed-promotion expiry, and successor-tariff
+   tests, plus proof that runtime-advertised discounts never reduce
+   `maxAiCredits` accounting;
 7. exact reasoning-effort positive and negative fixtures;
 8. unknown future effort round-trip tests;
 9. routing and direct-request validation parity tests;
-10. compatibility declaration and translator rejection parity tests;
-11. deterministic generation and stale-output tests;
-12. source-schema, overlay-schema, and snapshot-metadata tests;
+10. directed protocol-pair feature declarations, translator-version coverage,
+    and translator rejection parity tests;
+11. deterministic generation-revision and source-derived timestamp tests;
+12. source-schema, strict versioned-overlay, legacy unversioned-overlay
+    compatibility, and snapshot-metadata tests;
 13. freshness and stale-fallback tests;
-14. `/reflect/v2` and persisted-export contract tests; and
-15. malformed, ambiguous, and unknown-field fail-closed tests.
+14. `/reflect/v2` schema-version, v1 fallback, per-value provenance, and
+    persisted-export contract tests;
+15. recurring drift-check tests for missing models, price tolerance, efforts,
+    and limits;
+16. gh-aw and gh-aw-router-training export parity tests;
+17. malformed, ambiguous, and unknown-field fail-closed tests;
+18. workflow frontmatter-to-AWF-config round-trip, duplicate/conflicting entry,
+    overlay precedence, pricing-source replacement, provenance, and
+    older-pinned-AWF compatibility tests;
+19. central feed configuration, initial fetch, periodic refresh, atomic update,
+    source-partitioned cache, schema rejection, network denial, timeout, offline,
+    local-snapshot, expiry, and last-known-good/fail-closed tests, including
+    blocked-feed startup with no cache and approved bundled pricing, zero
+    network requests in offline/local-only mode, and no default-endpoint
+    contact after source replacement;
+20. central refresh accounting tests proving request-level tariff/revision
+    consistency and no retroactive repricing;
+21. harness version boundary, prerelease, missing/unparsable version,
+    execution-environment detection, explicit-request rejection, and
+    routing/fallback eligibility tests; and
+22. `models.dev` pricing for providers without native pricing support, including
+    exact provider/model matching, cross-provider collision rejection, unit and
+    tariff normalization, higher-priority overrides, missing-price handling,
+    provenance, and blocked-network operation.
 
 The #10029 and #10030 cases are named fixtures. They do not disappear into broad
 family tests.
@@ -664,16 +913,28 @@ Land the canonical, overlay, and snapshot schemas plus one provider-qualified
 identity and specificity implementation. No consumer migrates before collision
 and parity fixtures pass.
 
+Define the workflow frontmatter and AWF-config handoff schemas with gh-aw,
+including schema-version negotiation and conflict handling. Include central
+feed metadata and harness constraints in the canonical schema.
+
 ### Gate 3: Compiler and maintained records
 
 Add deterministic compilation, migrate maintained facts, and represent the
 current pricing and reasoning gaps as canonical records. Generate existing
-legacy formats without requiring consumers to change.
+legacy formats without requiring consumers to change. Before the compiler
+generates `docs/model-api-mapping.json`, retarget the daily endpoint-mapping
+updater to update source records and all generated outputs in one change, or
+pause it until that replacement is ready. It must not keep opening PRs that edit
+generated output without its source.
 
 ### Gate 4: Lifecycle consumers
 
 Migrate host validation and proxy retirement handling to generated projections.
 Host and proxy can no longer disagree about support or retirement.
+
+Wire workflow-defined entries through the gh-aw compiler and AWF config reader
+as run-scoped overlays. Enforce harness requirements against the actual
+execution environment for explicit models and routing/fallback candidates.
 
 ### Gate 5: Pricing resolver
 
@@ -681,21 +942,40 @@ Migrate static pricing, then operator and runtime pricing, preserving current
 credit calculations. Add provider/channel scope, tier selection, effective
 dates, exact arithmetic, field provenance, and freshness.
 
+Add configurable central pricing refresh, validated atomic snapshots,
+source-partitioned caching, user-replaceable URL or local-snapshot sources,
+blocked-by-default feed assumptions, bounded offline/stale fallbacks, and
+request-level tariff revision tracking. Central updates include harness
+constraints and trigger eligibility re-evaluation before subsequent dispatch.
+
+Wire governed `models.dev` imports into provider-qualified pricing fallback for
+inference providers without native AWF pricing support, including custom
+providers, without requiring runtime access to the upstream catalogue.
+
 ### Gate 6: Reasoning and compatibility
 
 Unify routing, validation, and reflection on resolved reasoning data. Add the
 feature compatibility model and connect translator rejection to declared
-requirements.
+requirements for each directed protocol pair and translator revision.
 
 ### Gate 7: Exports
 
 Add `/reflect/v2`, versioned persisted snapshots, CLI inspection, and package
-exports while retaining legacy contracts.
+exports while retaining legacy contracts. Publish the v2 schema version,
+per-value provenance and freshness contract, and documented fallback to v1 for
+older pinned AWF versions. Export workflow-overlay provenance, central feed
+state, and resolved harness constraints. This gate enables gh-aw and
+gh-aw-router-training to adopt generated pricing and effort data after parity
+tests pass.
 
 ### Gate 8: Unified updater
 
-Replace the endpoint-only updater and govern imported snapshots. One pull
-request updates sources and every generated output.
+Complete the source-aware updater and govern imported snapshots. One pull
+request updates sources and every generated output. The endpoint-only updater
+must already have been retargeted or paused at Gate 3.
+
+Publish reviewed versioned central snapshots through the same source-aware
+pipeline used for bundled projections.
 
 ### Gate 9: Legacy removal
 
