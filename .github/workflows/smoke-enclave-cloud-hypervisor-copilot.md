@@ -72,7 +72,7 @@ timeout-minutes: 20
 sandbox:
   agent:
     id: awf
-    version: v0.28.62
+    version: v0.28.64
     runtime: cloud-hypervisor
     config:
       filesystem:
@@ -201,19 +201,27 @@ The dedicated API proxy inherits general proxy limits (including `maxRuns: 500`)
 not those per-enclave settings. This workflow does not claim an enforced
 eight-request or 2,048-token inference ceiling.
 
-AWF and guest assets remain pinned to verified v0.28.62, with the official
+AWF and guest assets remain pinned to verified v0.28.64, with the official
 gh-aw v0.92.3 setup, mcpg v0.4.33 and primary Copilot 1.0.96.
 The guest Copilot CLI is the version baked into the attested agent rootfs,
 not installed or upgraded by this workflow.
 Manual branch runs, including main, build source host/infra code and use the
-checked-in v0.28.62 guest compatibility pin. This is required for the new
-agent-acceptance gate and the merged bounded-verification storage and
-unprivileged enclave vsock-port fixes without publishing another release.
-Tag runs are not admitted; the published v0.28.62 host predates these fixes.
+checked-in v0.28.64 guest artifact pin, including the merged bounded-verification
+storage and unprivileged enclave vsock-port fixes (#10181).
+Tag runs are not admitted.
 Compilation additionally requires the companion compiler agent-acceptance
 support; unmodified v0.92.3 rejects this topology. Generated compiler provenance
 must identify that support rather than claim an unchanged official compiler.
 No local or unattested guest replacement is permitted.
+
+The v0.28.64 release pins in the lock were manually updated under an explicit
+pins-only exception, not regenerated with an official compiler. The recorded
+development compiler identifies the original generation only; its exact binary
+is not available as a verified official download. Source hashes are refreshed
+without changing compiler provenance. Both that compiler's acceptance gate and
+the current AWF host gate still require v0.28.62 for this agent fixture.
+The v0.28.64 pin therefore remains blocked by host acceptance; this update does
+not widen that gate or claim the PR branch can successfully execute the enclave.
 
 The existing host-only collector exports only allowlisted, bounded diagnostics
 for this static public repository. Public fixture logs are intentionally visible
