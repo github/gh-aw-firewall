@@ -5,6 +5,7 @@ const { stripRedundantProviderPrefix } = require('./model-utils');
 const { isValidRequestId } = require('./request-headers');
 const { generateRequestId } = require('./logging');
 const { extractProviderErrorFields } = require('./provider-error-fields');
+const { callerRecordFields } = require('./caller-header');
 
 const MAX_TELEMETRY_VALUE_LENGTH = 200;
 const MAX_ERROR_INSPECTION_BYTES = 16_384;
@@ -251,6 +252,8 @@ function createRoutingObservation({
       selected_endpoint: selectedEndpoint,
       requested_endpoint: endpoint,
       upstream_endpoint: endpoint,
+      // Same attribution fields as the token record for this request_id.
+      ...callerRecordFields(req.awfRequestContext?.purpose, req.awfCaller),
     };
   }
 

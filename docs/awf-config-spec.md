@@ -2247,6 +2247,24 @@ body in the response, including when AWF replaced a provider's rejection with
 its own envelope. These fields MUST NOT contain the provider's error `message`
 and MUST be omitted, not `null`, when no valid value exists.
 
+A request record MUST carry the same `purpose`, `agent_name`, and
+`caller_source` as the `token-usage.jsonl` record with the same `request_id`.
+A trusted AWF purpose (router classifier calls) MUST be recorded as
+`purpose: "routing_classification"` with `caller_source: "awf"` and no
+`agent_name`, regardless of any caller header. Otherwise, a valid optional
+`x-awf-caller` request header MUST be recorded as `purpose: "agent"` for
+`main`, or `purpose: "subagent"` with `agent_name: "<agentName>"` for
+`subagent/<agentName>`, each with `caller_source: "caller_header"`. A value is
+valid only when it is at most 128 characters and fully matches
+`^(?:main|subagent/[A-Za-z0-9_.:/-]+)$`; any other value MUST be treated as
+absent and MUST NOT be logged. With no valid header and no AWF purpose, all
+three fields MUST be omitted. The header MUST always be stripped before
+forwarding upstream. It is an unauthenticated declaration from inside the
+sandbox: consumers MUST take credits, token counts, and served models from
+AWF's own record and use the caller fields only to attribute that record, and
+the header MUST NOT change routing, model policy, steering, guards, budget
+accounting, or cost.
+
 These records MUST NOT contain raw conversation or prompt text, raw classifier
 output, or request/response bodies. Optional conversation capture is not
 implemented and remains outside the routing audit contract. AWF MUST attempt to preserve

@@ -85,6 +85,42 @@ describe('routing provider executor', () => {
     expect(Object.isFrozen(captured.req.awfRequestContext)).toBe(true);
   });
 
+  it('classifier requests carry no x-awf-caller and record caller_source awf', async () => {
+    const { setupTokenTracking } = require('./upstream-token');
+    const { buildTokenUsageRecord } = require('./token-persistence');
+    let captured = null;
+    const proxyRequest = jest.fn((req, res) => {
+      captured = req;
+      respond(res, 200, '{"ok":true}');
+    });
+    await createExecutor({ proxyRequest }).execute(request);
+
+    expect(Object.keys(captured.headers).map(name => name.toLowerCase())).not.toContain('x-awf-caller');
+    expect(captured.awfCaller).toBeUndefined();
+
+    const trackTokenUsage = jest.fn();
+    setupTokenTracking({}, Buffer.from('{}'), {
+      requestId: 'classifier-1',
+      provider: 'copilot',
+      req: captured,
+      startTime: Date.now(),
+      span: {},
+      isStreaming: false,
+      trackTokenUsage,
+      sanitizeForLog: value => value,
+      metrics: {},
+      otel: {},
+      logRequest: jest.fn(),
+    });
+    const { purpose, caller } = trackTokenUsage.mock.calls[0][1];
+    const record = buildTokenUsageRecord(
+      { input_tokens: 1, output_tokens: 1, cache_read_tokens: 0, cache_write_tokens: 0 },
+      { requestId: 'classifier-1', provider: 'copilot', model: 'gpt-5.4', reqPath: '/chat/completions', status: 200, streaming: false, duration: 1, responseBytes: 1, purpose, caller },
+    );
+    expect(record).toMatchObject({ purpose: 'routing_classification', caller_source: 'awf' });
+    expect(record).not.toHaveProperty('agent_name');
+  });
+
   it('executes classifier requests only through the explicitly selected native provider', async () => {
     let capturedProvider;
     const adapter = {

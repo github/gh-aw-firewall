@@ -347,6 +347,56 @@ describe('createProviderServer routing enforcement', () => {
     });
   });
 
+  test('parses x-awf-caller at ingress before routing observation, separately from the trusted context', () => {
+    const proxyRequest = jest.fn();
+    const seen = [];
+    const routing = { observeRequest: jest.fn(req => seen.push(req.awfCaller)) };
+    const server = createProviderServer(routedAdapter(), {
+      handleManagementEndpoint: () => false,
+      reflectEndpoints: () => [],
+      checkRateLimit: () => false,
+      proxyRequest,
+      proxyWebSocket: jest.fn(),
+      routing,
+    });
+    const stdout = jest.spyOn(process.stdout, 'write').mockImplementation(() => true);
+    try {
+      for (const value of ['subagent/file-summarizer', undefined, 'subagent/secret value']) {
+        const req = new EventEmitter();
+        req.url = '/v1/chat/completions';
+        req.method = 'POST';
+        req.headers = value === undefined ? {} : { 'x-awf-caller': value };
+        server.emit('request', req, {});
+        expect(req.awfRequestContext).toBeUndefined();
+      }
+      const logged = stdout.mock.calls.map(([line]) => String(line)).join('');
+      expect(logged).toContain('caller_header_rejected');
+      expect(logged).toContain('invalid_format');
+      expect(logged).not.toContain('secret value');
+    } finally {
+      stdout.mockRestore();
+    }
+    expect(seen).toEqual([
+      { purpose: 'subagent', agent_name: 'file-summarizer', caller_source: 'caller_header' },
+      null,
+      null,
+    ]);
+  });
+
+  test('parses x-awf-caller on WebSocket upgrades', () => {
+    const proxyWebSocket = jest.fn();
+    const server = createProviderServer(routedAdapter(), {
+      handleManagementEndpoint: () => false,
+      reflectEndpoints: () => [],
+      checkRateLimit: () => false,
+      proxyRequest: jest.fn(),
+      proxyWebSocket,
+    });
+    const req = { url: '/v1/realtime', headers: { 'x-awf-caller': 'main' } };
+    server.emit('upgrade', req, makeTrackedSocket(), Buffer.alloc(0));
+    expect(proxyWebSocket.mock.calls[0][0].awfCaller).toEqual({ purpose: 'agent', caller_source: 'caller_header' });
+  });
+
   test('proxies an upgrade while routing is active', () => {
     const proxyWebSocket = jest.fn();
     const routing = { observeRequest: jest.fn() };

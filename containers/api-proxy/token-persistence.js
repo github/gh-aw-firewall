@@ -11,6 +11,7 @@
 const fs = require('fs');
 const path = require('path');
 const { logRequest } = require('./logging');
+const { callerRecordFields } = require('./caller-header');
 
 // Token usage log file path (inside the mounted log volume)
 const TOKEN_LOG_DIR = process.env.AWF_TOKEN_LOG_DIR || '/var/log/api-proxy';
@@ -236,12 +237,14 @@ function validateTokenUsageRecord(record) {
  * @param {boolean} opts.streaming
  * @param {number} opts.duration
  * @param {number} opts.responseBytes
+ * @param {string} [opts.purpose] - Trusted AWF purpose from req.awfRequestContext; wins over any caller
+ * @param {object|null} [opts.caller] - Parsed x-awf-caller from req.awfCaller (untrusted attribution metadata)
  * @returns {object}
  */
 function buildTokenUsageRecord(normalized, opts) {
   const {
     requestId, provider, model, reqPath, status, streaming, duration, responseBytes, purpose,
-    requestedEndpoint, upstreamEndpoint, steering,
+    caller, requestedEndpoint, upstreamEndpoint, steering,
   } = opts;
   return {
     _schema: TOKEN_USAGE_SCHEMA,
@@ -259,7 +262,7 @@ function buildTokenUsageRecord(normalized, opts) {
     cache_write_tokens: normalized.cache_write_tokens,
     duration_ms: duration,
     response_bytes: responseBytes,
-    ...(purpose ? { purpose } : {}),
+    ...callerRecordFields(purpose, caller),
     ...(steering ? { steering } : {}),
     ...(requestedEndpoint ? { requested_endpoint: requestedEndpoint } : {}),
     ...(upstreamEndpoint ? { upstream_endpoint: upstreamEndpoint } : {}),

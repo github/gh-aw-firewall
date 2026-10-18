@@ -22,6 +22,7 @@ function setupTokenTracking(proxyRes, body, {
   }
   trackTokenUsage(proxyRes, {
     requestId, provider, path: sanitizeForLog(req.url), res, startTime, metrics, billingInfo, initiatorSent, requestModel, purpose, steering,
+    caller: req.awfCaller || null,
     ...(requestedEndpoint ? { requestedEndpoint, upstreamEndpoint } : {}),
     ...(req.awfModelFallback ? { modelFallback: req.awfModelFallback } : {}),
     ...(req.awfRouting ? {

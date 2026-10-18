@@ -168,6 +168,47 @@ describe('advisory routing observation', () => {
     }]);
   });
 
+  it('request records carry the same caller fields as the token record', () => {
+    const { parseCallerHeader } = require('./caller-header');
+    const { buildTokenUsageRecord } = require('./token-persistence');
+    const usage = { input_tokens: 1, output_tokens: 1, cache_read_tokens: 0, cache_write_tokens: 0 };
+    const callerKeys = ['purpose', 'agent_name', 'caller_source'];
+    const pick = record => Object.fromEntries(callerKeys.filter(key => key in record).map(key => [key, record[key]]));
+    const cases = [
+      ['subagent/file-summarizer', { purpose: 'subagent', agent_name: 'file-summarizer', caller_source: 'caller_header' }],
+      ['main', { purpose: 'agent', caller_source: 'caller_header' }],
+      [undefined, {}],
+      ['subagent/file summarizer', {}],
+      ['admin', {}],
+      ['main, main', {}],
+    ];
+    for (const [value, expected] of cases) {
+      const harness = createHarness();
+      const headers = value === undefined ? {} : { 'x-awf-caller': value };
+      // Simulates server-factory ingress, which parses the header before observeRequest.
+      const { req, res } = observe(harness, request({ headers, awfCaller: parseCallerHeader(value) }));
+      send(req, { model: 'gpt-test', reasoning: { effort: 'low' } });
+      res.end();
+
+      const routingRecord = harness.records[0];
+      const tokenRecord = buildTokenUsageRecord(usage, {
+        requestId: routingRecord.request_id,
+        provider: 'copilot',
+        model: 'gpt-test',
+        reqPath: '/responses',
+        status: 200,
+        streaming: false,
+        duration: 1,
+        responseBytes: 1,
+        purpose: req.awfRequestContext?.purpose,
+        caller: req.awfCaller,
+      });
+      expect(tokenRecord.request_id).toBe(routingRecord.request_id);
+      expect(pick(routingRecord)).toEqual(expected);
+      expect(pick(tokenRecord)).toEqual(expected);
+    }
+  });
+
   it('records a translated upstream endpoint without treating it as a routing deviation', () => {
     const harness = createHarness();
     const { req, res } = observe(harness, request({ url: '/v1/responses' }));

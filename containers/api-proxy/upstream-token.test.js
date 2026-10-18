@@ -45,6 +45,36 @@ describe('upstream-token', () => {
     expect(otel.endSpan).toHaveBeenCalledWith({ id: 'span-1' }, 200);
   });
 
+  test('passes the parsed x-awf-caller from the request to trackTokenUsage', () => {
+    const { parseCallerHeader } = require('./caller-header');
+    const trackTokenUsage = jest.fn();
+    const caller = parseCallerHeader('subagent/file-summarizer');
+    const options = {
+      requestId: 'req-caller',
+      provider: 'copilot',
+      startTime: 123,
+      billingInfo: null,
+      initiatorSent: null,
+      span: {},
+      isStreaming: false,
+      trackTokenUsage,
+      sanitizeForLog: (value) => value,
+      metrics: {},
+      otel: {},
+      logRequest: jest.fn(),
+    };
+
+    setupTokenTracking({}, Buffer.from('{}'), {
+      ...options,
+      req: { url: '/chat/completions', headers: { 'x-awf-caller': 'subagent/file-summarizer' }, awfCaller: caller },
+    });
+    expect(trackTokenUsage.mock.calls[0][1].caller).toBe(caller);
+    expect(trackTokenUsage.mock.calls[0][1].purpose).toBeUndefined();
+
+    setupTokenTracking({}, Buffer.from('{}'), { ...options, req: { url: '/chat/completions' } });
+    expect(trackTokenUsage.mock.calls[1][1].caller).toBeNull();
+  });
+
   test('settles enclave usage only through the token tracker finalizer', () => {
     const trackTokenUsage = jest.fn();
     const res = new EventEmitter();

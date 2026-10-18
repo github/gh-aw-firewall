@@ -75,6 +75,24 @@ describe('routing persistence', () => {
     });
   });
 
+  test('persists agent_name and caller_source on request records', () => {
+    writeRoutingRecord({
+      stage: 'request', request_id: 'request-1', outcome: 'completed', status: 200,
+      purpose: 'subagent', agent_name: 'file-summarizer', caller_source: 'caller_header',
+    });
+    writeRoutingRecord({
+      stage: 'request', request_id: 'request-2', outcome: 'completed', status: 200,
+      purpose: 'agent', caller_source: 'caller_header',
+    });
+    const [subagent, main] = readRecords();
+    expect(subagent).toMatchObject({
+      stage: 'request', request_id: 'request-1',
+      purpose: 'subagent', agent_name: 'file-summarizer', caller_source: 'caller_header',
+    });
+    expect(main).toMatchObject({ stage: 'request', request_id: 'request-2', purpose: 'agent', caller_source: 'caller_header' });
+    expect(main).not.toHaveProperty('agent_name');
+  });
+
   test('selection carries the stable interaction and optional Actions identity', () => {
     process.env.GITHUB_RUN_ID = '12345';
     process.env.GITHUB_RUN_ATTEMPT = '2';

@@ -20,6 +20,7 @@ const {
   incrementTokenMetrics,
   validateTokenDiagRecord,
   TOKEN_DIAG_SCHEMA,
+  TOKEN_USAGE_SCHEMA,
 } = require('./token-persistence');
 const { EventEmitter } = require('events');
 const { buildAnthropicUsageFrames } = require('./test-helpers/websocket-frame-helpers');
@@ -176,6 +177,95 @@ describe('shared token usage helpers', () => {
 
     const schema = JSON.parse(fs.readFileSync(require('path').join(__dirname, '..', '..', 'schemas', 'token-usage.schema.json'), 'utf8'));
     expect(schema.properties.purpose.enum).toContain('routing_classification');
+  });
+
+  describe('caller attribution', () => {
+    const { parseCallerHeader } = require('./caller-header');
+    const schema = JSON.parse(fs.readFileSync(require('path').join(__dirname, '..', '..', 'schemas', 'token-usage.schema.json'), 'utf8'));
+    const usage = { input_tokens: 7, output_tokens: 3, cache_read_tokens: 1, cache_write_tokens: 0 };
+    const opts = {
+      requestId: 'caller-record-test',
+      provider: 'copilot',
+      model: 'gpt-5.4',
+      reqPath: '/chat/completions',
+      status: 200,
+      streaming: true,
+      duration: 42,
+      responseBytes: 99,
+    };
+
+    function expectSchemaCompatible(record) {
+      expect(validateTokenUsageRecord(record)).toBe(true);
+      if ('purpose' in record) expect(schema.properties.purpose.enum).toContain(record.purpose);
+      if ('caller_source' in record) expect(schema.properties.caller_source.enum).toContain(record.caller_source);
+      if ('agent_name' in record) {
+        expect(record.agent_name).toMatch(new RegExp(schema.properties.agent_name.pattern));
+        expect(record.agent_name.length).toBeLessThanOrEqual(schema.properties.agent_name.maxLength);
+      }
+    }
+
+    test('buildTokenUsageRecord records a sub-agent caller', () => {
+      const record = buildTokenUsageRecord(usage, { ...opts, caller: parseCallerHeader('subagent/file-summarizer') });
+      expect(record).toMatchObject({
+        purpose: 'subagent',
+        agent_name: 'file-summarizer',
+        caller_source: 'caller_header',
+      });
+      expectSchemaCompatible(record);
+    });
+
+    test('buildTokenUsageRecord records the main-agent caller without agent_name', () => {
+      const record = buildTokenUsageRecord(usage, { ...opts, caller: parseCallerHeader('main') });
+      expect(record).toMatchObject({ purpose: 'agent', caller_source: 'caller_header' });
+      expect(record).not.toHaveProperty('agent_name');
+      expectSchemaCompatible(record);
+    });
+
+    test('buildTokenUsageRecord is unchanged when no caller is present', () => {
+      jest.useFakeTimers({ now: new Date('2026-01-02T03:04:05.678Z') });
+      try {
+        const expected = {
+          _schema: TOKEN_USAGE_SCHEMA,
+          timestamp: '2026-01-02T03:04:05.678Z',
+          event: 'token_usage',
+          request_id: 'caller-record-test',
+          provider: 'copilot',
+          model: 'gpt-5.4',
+          path: '/chat/completions',
+          status: 200,
+          streaming: true,
+          input_tokens: 7,
+          output_tokens: 3,
+          cache_read_tokens: 1,
+          cache_write_tokens: 0,
+          duration_ms: 42,
+          response_bytes: 99,
+        };
+        expect(buildTokenUsageRecord(usage, opts)).toStrictEqual(expected);
+        expect(buildTokenUsageRecord(usage, { ...opts, caller: null })).toStrictEqual(expected);
+        for (const value of ['x'.repeat(129), 'subagent/file summarizer', 'subagent/', 'admin', 'main, main']) {
+          expect(buildTokenUsageRecord(usage, { ...opts, caller: parseCallerHeader(value) })).toStrictEqual(expected);
+        }
+      } finally {
+        jest.useRealTimers();
+      }
+    });
+
+    test('buildTokenUsageRecord prefers the AWF purpose over a caller header', () => {
+      const classifier = buildTokenUsageRecord(usage, { ...opts, purpose: 'routing_classification' });
+      expect(classifier).toMatchObject({ purpose: 'routing_classification', caller_source: 'awf' });
+      expect(classifier).not.toHaveProperty('agent_name');
+      expectSchemaCompatible(classifier);
+
+      const spoofed = buildTokenUsageRecord(usage, {
+        ...opts,
+        purpose: 'routing_classification',
+        caller: parseCallerHeader('subagent/x'),
+      });
+      expect(spoofed).toMatchObject({ purpose: 'routing_classification', caller_source: 'awf' });
+      expect(spoofed).not.toHaveProperty('agent_name');
+      expectSchemaCompatible(spoofed);
+    });
   });
 
   test('incrementTokenMetrics is a no-op when metrics sink is missing', () => {
@@ -388,6 +478,58 @@ describe('token-usage JSONL record schema field', () => {
       const parsed = usageRecords[0];
       expect(parsed._schema).toMatch(/^token-usage\/v\d+\.\d+\.\d+(-\w+)?$/);
       expect(parsed.request_id).toBe('schema-field-ws');
+      done();
+    }, 20);
+  });
+
+  test('trackTokenUsage HTTP path persists the caller fields', (done) => {
+    const { parseCallerHeader } = require('./caller-header');
+    const proxyRes = new EventEmitter();
+    proxyRes.headers = { 'content-type': 'application/json' };
+    proxyRes.statusCode = 200;
+
+    trackTokenUsage(proxyRes, {
+      requestId: 'caller-http',
+      provider: 'openai',
+      path: '/v1/chat/completions',
+      startTime: Date.now(),
+      metrics: null,
+      caller: parseCallerHeader('subagent/file-summarizer'),
+    });
+
+    proxyRes.emit('data', Buffer.from(JSON.stringify({
+      model: 'gpt-4o',
+      usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
+    })));
+    proxyRes.emit('end');
+
+    setTimeout(() => {
+      const [parsed] = mockStream.writtenRecords.filter(r => r.request_id === 'caller-http');
+      expect(parsed).toMatchObject({ purpose: 'subagent', agent_name: 'file-summarizer', caller_source: 'caller_header' });
+      done();
+    }, 20);
+  });
+
+  test('trackWebSocketTokenUsage path persists the caller fields', (done) => {
+    const { parseCallerHeader } = require('./caller-header');
+    const socket = new EventEmitter();
+
+    trackWebSocketTokenUsage(socket, {
+      requestId: 'caller-ws',
+      provider: 'anthropic',
+      path: '/v1/messages',
+      startTime: Date.now(),
+      metrics: null,
+      caller: parseCallerHeader('main'),
+    });
+
+    socket.emit('data', buildAnthropicUsageFrames());
+    socket.emit('close');
+
+    setTimeout(() => {
+      const [parsed] = mockStream.writtenRecords.filter(r => r.request_id === 'caller-ws');
+      expect(parsed).toMatchObject({ purpose: 'agent', caller_source: 'caller_header' });
+      expect(parsed).not.toHaveProperty('agent_name');
       done();
     }, 20);
   });

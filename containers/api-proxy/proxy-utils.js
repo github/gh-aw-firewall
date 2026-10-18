@@ -218,6 +218,8 @@ const STRIPPED_HEADERS = new Set([
   'x-goog-api-key',
   'forwarded',
   'via',
+  // Caller attribution metadata for AWF only; never forwarded, valid or not.
+  'x-awf-caller',
 ]);
 
 /** Returns true if the header name should be stripped (case-insensitive). */

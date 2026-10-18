@@ -974,8 +974,13 @@ record carries AWF's code with `error_source: "awf"`. The matching
 `error_code`/`error_type`/`error_param` (omitted when the original body has
 none), sets `response_transformed: true`, and logs AWF's replacement as
 `response_body`.
-Classifier usage rows have `purpose: "routing_classification"` and are not
-primary inference request records.
+Classifier usage rows have `purpose: "routing_classification"` and
+`caller_source: "awf"`, and are not primary inference request records.
+When a request carries a valid `x-awf-caller` header, its request record
+carries the same `purpose`, `agent_name`, and `caller_source` as the
+token-usage record with the same `request_id` (see
+[Caller attribution](#caller-attribution-x-awf-caller)); otherwise none of these
+fields is present.
 
 The log contains routing metadata only: no raw conversation, prompt,
 classifier response text, or request/response body is captured. Optional
@@ -995,6 +1000,43 @@ prompt-token threshold and rates for every token category; the tier applies
 only when the prompt count exceeds the threshold. Overlay costs use the
 models.dev format (dollars per token) and are normalized to dollars per million
 tokens inside the proxy. Shared-catalog rates use dollars per million tokens.
+
+### Caller attribution (`x-awf-caller`)
+
+The agent harness may set an optional `x-awf-caller` request header so that
+`token-usage.jsonl` and `model-routing.jsonl` request records say which agent
+made each request:
+
+| Header value | `purpose` | `agent_name` | `caller_source` |
+|---|---|---|---|
+| `main` | `agent` | — | `caller_header` |
+| `subagent/<agentName>` | `subagent` | `<agentName>` | `caller_header` |
+| *(AWF router classifier call)* | `routing_classification` | — | `awf` |
+| absent or invalid | — | — | — |
+
+`<agentName>` is the sub-agent definition name. A value is valid only when it
+is at most 128 characters and the whole value matches
+`^(?:main|subagent/[A-Za-z0-9_.:/-]+)$`. Any other value — too long, containing
+illegal characters (including the `, ` Node inserts when the header is sent
+twice), `subagent/` with an empty name, or an unknown form such as `admin` — is
+ignored as if the header were absent. AWF logs only a
+`caller_header_rejected` event with a fixed `reason` (`too_long`,
+`invalid_format`, or `not_a_string`); the rejected value is never logged.
+
+The header is parsed once at ingress (HTTP requests and WebSocket upgrades)
+and is always stripped before forwarding upstream, valid or not, including on
+cross-provider fallback and WebSocket tunnels. A trusted AWF purpose always
+wins: classifier calls record `purpose: "routing_classification"` with
+`caller_source: "awf"` and never an `agent_name`. Without a valid header and
+AWF purpose, records contain none of these keys.
+
+**Trust model.** The header is a caller declaration from inside the sandbox,
+not an authenticated identity; a compromised agent can label its own requests
+however it likes. Consumers must take credits, token counts, and served models
+from AWF's own record and use the caller fields only to attribute that record
+to an agent. The header is metadata only: it never changes routing, model
+policy, steering, guards, budget accounting, or cost, and it is kept separate
+from AWF's trusted in-process request context.
 
 ## Troubleshooting
 

@@ -132,10 +132,11 @@ function parseWebSocketFrames(buf, fragments) {
  * @param {number} opts.startTime - Request start time (Date.now())
  * @param {object} opts.metrics - Metrics module reference
  * @param {string|null} [opts.requestModel] - Model extracted from the request context, used when response metadata omits model
+ * @param {object|null} [opts.caller] - Parsed x-awf-caller (req.awfCaller), attribution metadata only
  * @param {(normalizedUsage: object, model: string|null) => Record<string, number>|void} [opts.onUsage] - Optional callback invoked after normalized usage is extracted
  */
 function trackWebSocketTokenUsage(upstreamSocket, opts) {
-  const { requestId, provider, path: reqPath, startTime, metrics: metricsRef, onUsage, requestModel } = opts;
+  const { requestId, provider, path: reqPath, startTime, metrics: metricsRef, onUsage, requestModel, caller } = opts;
 
   auditTrack('WS_TRACK_START', { rid: requestId, provider, path: reqPath });
   logRequest('debug', 'ws_token_track_start', {
@@ -260,6 +261,7 @@ function trackWebSocketTokenUsage(upstreamSocket, opts) {
       streaming: true,
       duration,
       responseBytes: totalBytes - headerBytes,
+      caller,
     });
 
     // Include AI credit budget fields when computed

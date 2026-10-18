@@ -313,9 +313,10 @@ function hasCompleteModelUsage(usage) {
  * @param {string|null} params.initiatorSent
  * @param {object|undefined} params.budgetResult
  * @param {{ type: string, threshold: number }|undefined} [params.steering]
+ * @param {object|null} [params.caller] - Parsed x-awf-caller (req.awfCaller)
  * @param {object|undefined} [params.modelFallback] - Ordered-fallback details when the request was served by a fallback model
  */
-function buildAndWriteTokenRecord(normalized, { requestId, provider, model, reqPath, status, streaming, duration, responseBytes, billingInfo, initiatorSent, budgetResult, purpose, steering, modelFallback, requestedEndpoint, upstreamEndpoint }) {
+function buildAndWriteTokenRecord(normalized, { requestId, provider, model, reqPath, status, streaming, duration, responseBytes, billingInfo, initiatorSent, budgetResult, purpose, caller, steering, modelFallback, requestedEndpoint, upstreamEndpoint }) {
   const record = buildTokenUsageRecord(normalized, {
     requestId,
     provider,
@@ -326,6 +327,7 @@ function buildAndWriteTokenRecord(normalized, { requestId, provider, model, reqP
     duration,
     responseBytes,
     purpose,
+    caller,
     steering,
     requestedEndpoint,
     upstreamEndpoint,
@@ -391,7 +393,7 @@ function reportUnsupportedCursorAccounting(requestId, provider, status, reason, 
 function finalizeHttpTracking(state, proxyRes, opts) {
   const {
     requestId, provider, path: reqPath, startTime, metrics: metricsRef, billingInfo, initiatorSent,
-    requestModel, onUsage, onSpanEnd, purpose, modelFallback, requestedEndpoint, upstreamEndpoint,
+    requestModel, onUsage, onSpanEnd, purpose, caller, modelFallback, requestedEndpoint, upstreamEndpoint,
     steering,
   } = opts;
   const { streaming, compressed, contentEncoding } = state;
@@ -496,6 +498,7 @@ function finalizeHttpTracking(state, proxyRes, opts) {
     initiatorSent,
     budgetResult,
     purpose,
+    caller,
     steering,
     modelFallback,
     requestedEndpoint,

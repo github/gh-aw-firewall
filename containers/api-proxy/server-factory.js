@@ -2,6 +2,23 @@
 
 const http = require('http');
 const { composeBodyTransforms } = require('./proxy-utils');
+const { logRequest } = require('./logging');
+const { CALLER_HEADER, callerHeaderRejection, parseCallerHeader } = require('./caller-header');
+
+/**
+ * Parse the optional x-awf-caller header once at ingress and attach it as
+ * req.awfCaller. The caller is untrusted attribution metadata and is kept
+ * separate from the trusted req.awfRequestContext. An invalid value is
+ * ignored as if absent and never logged; only the rejection reason is.
+ */
+function attachCaller(req, adapter) {
+  const value = req.headers?.[CALLER_HEADER];
+  const reason = callerHeaderRejection(value);
+  if (reason) {
+    logRequest('warn', 'caller_header_rejected', { provider: adapter.name, reason });
+  }
+  req.awfCaller = parseCallerHeader(value);
+}
 
 function createHealthCheckHandler(adapter, modelBudgetEnabled = false) {
   return (_req, res) => {
@@ -165,6 +182,8 @@ function createProviderServer(adapter, deps) {
       return;
     }
 
+    attachCaller(req, adapter);
+
     // The routing selection is advisory: this never rejects. It may attach
     // req.awfRouting, which records deviation telemetry and observes upstream failures.
     routing?.observeRequest(req, res, adapter);
@@ -189,6 +208,7 @@ function createProviderServer(adapter, deps) {
   });
 
   server.on('upgrade', (req, socket, head) => {
+    attachCaller(req, adapter);
     handleUpgrade(req, socket, head);
   });
   server.shutdownConnections = () => handleUpgrade.shutdownConnections();

@@ -42,6 +42,32 @@ describe('request-headers', () => {
     expect(headers['x-request-id']).toBe('req-1');
   });
 
+  test('buildRequestHeaders strips x-awf-caller before forwarding upstream', () => {
+    const headers = buildRequestHeaders(Buffer.from('{}'), 2, {
+      headers: { 'x-awf-caller': 'subagent/file-summarizer', 'X-AWF-Caller': 'main', 'x-custom': 'keep-me' },
+    }, {
+      injectHeaders: {},
+      provider: 'openai',
+      targetHost: 'api.openai.com',
+      requestId: 'req-caller',
+    });
+
+    expect(Object.keys(headers).map(name => name.toLowerCase())).not.toContain('x-awf-caller');
+    expect(headers['x-custom']).toBe('keep-me');
+  });
+
+  test('buildRequestHeaders strips an invalid x-awf-caller', () => {
+    for (const value of ['x'.repeat(129), 'subagent/file summarizer', 'subagent/', 'admin', 'main, main']) {
+      const headers = buildRequestHeaders(Buffer.from('{}'), 2, { headers: { 'x-awf-caller': value } }, {
+        injectHeaders: {},
+        provider: 'openai',
+        targetHost: 'api.openai.com',
+        requestId: 'req-invalid-caller',
+      });
+      expect(headers).not.toHaveProperty('x-awf-caller');
+    }
+  });
+
   test('buildRequestHeaders applies copilot initiator and content length rewrite', () => {
     const req = {
       headers: {

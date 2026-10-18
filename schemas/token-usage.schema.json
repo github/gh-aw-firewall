@@ -120,9 +120,25 @@
     "purpose": {
       "type": "string",
       "enum": [
-        "routing_classification"
+        "routing_classification",
+        "agent",
+        "subagent"
       ],
-      "description": "Trusted in-process purpose of the request. Present only for AWF-internal requests such as router classification calls; absent for agent-originated requests."
+      "description": "Who the request is attributed to. \"routing_classification\" is an AWF-internal router classifier call (caller_source \"awf\"); it always wins over any caller header. \"agent\" (x-awf-caller: main) and \"subagent\" (x-awf-caller: subagent/<name>) come from the optional, unauthenticated x-awf-caller request header (caller_source \"caller_header\"). Absent when the request carries no AWF purpose and no valid x-awf-caller header."
+    },
+    "agent_name": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_.:/-]+$",
+      "maxLength": 119,
+      "description": "Sub-agent definition name declared by x-awf-caller: subagent/<name>. Present only when purpose is \"subagent\". Caller-declared attribution metadata, not an authenticated identity."
+    },
+    "caller_source": {
+      "type": "string",
+      "enum": [
+        "caller_header",
+        "awf"
+      ],
+      "description": "Source of purpose: \"awf\" for a trusted AWF in-process purpose, \"caller_header\" for a valid x-awf-caller header declared from inside the sandbox. Present exactly when purpose is present."
     },
     "steering": {
       "type": "object",
