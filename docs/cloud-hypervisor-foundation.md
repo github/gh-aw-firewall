@@ -410,11 +410,16 @@ per-asset limit can still be uploaded. The release job rejects any upload asset
 of 2 GiB or larger before creating or updating the release.
 
 `setup-cloud-hypervisor-enclave-artifacts.sh` downloads that set for an exact
-release tag and decompresses the role images in its private staging directory
-(older releases with uncompressed `.ext4` assets remain supported). It verifies
-the unchanged raw images against the release-workflow identity with
-`gh attestation verify --deny-self-hosted-runners`, verifies manifest metadata,
-size, digest, and SBOM bindings, and then atomically installs the cache entry.
+release tag and authenticates the manifest with
+`gh attestation verify --deny-self-hosted-runners` before decompression. It
+validates the release, compatibility, role metadata, and positive integer image
+sizes, then decompresses each role in its private staging directory with disk
+output capped at that role's attested size using Python 3's standard-library
+streaming gzip reader (Python 3 is required on the setup host). Oversized,
+truncated, or corrupt streams fail without installing a cache entry. Older releases with
+uncompressed `.ext4` assets remain supported. The unchanged raw images still
+undergo release-workflow attestation, size, digest, and SBOM binding checks
+before the cache entry is atomically installed.
 An existing cache entry is fully reverified before reuse; an invalid entry is a
 terminal error and is never silently replaced. The script exports the
 role-specific `AWF_CLOUD_HYPERVISOR_ENCLAVE_SCRIPT_ROOTFS` and
