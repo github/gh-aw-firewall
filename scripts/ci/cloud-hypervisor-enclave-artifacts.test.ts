@@ -3,6 +3,7 @@ import { gunzipSync } from 'zlib';
 import * as fs from 'fs';
 import * as path from 'path';
 import { execFileSync, spawnSync } from 'child_process';
+import { createHash } from 'crypto';
 
 const root = path.resolve(__dirname, '../..');
 const buildPath = path.join(root, 'guest/cloud-hypervisor/build-test-artifacts.sh');
@@ -232,13 +233,16 @@ describe('Cloud Hypervisor enclave rootfs artifacts', () => {
     try {
       const tree = path.join(directory, 'rootfs');
       fs.mkdirSync(path.join(tree, 'var/lib/dpkg'), { recursive: true });
-      fs.writeFileSync(path.join(tree, 'var/lib/dpkg/status'), [
+      const packageStatus = [
         'Package: ca-certificates',
         'Status: install ok installed',
         'Architecture: all',
         'Version: 20250419',
         '',
-      ].join('\n'));
+      ].join('\n');
+      fs.writeFileSync(path.join(tree, 'var/lib/dpkg/status'), packageStatus);
+      fs.symlinkSync('var/lib/dpkg/status', path.join(tree, 'status-link'));
+      fs.symlinkSync('missing-target', path.join(tree, 'dangling-link'));
       const rootfs = path.join(directory, 'rootfs.ext4');
       const output = path.join(directory, 'sbom.json');
       const descriptor = fs.openSync(rootfs, 'wx', 0o600);
@@ -271,14 +275,32 @@ describe('Cloud Hypervisor enclave rootfs artifacts', () => {
       }).split(/\s/)[0];
       const spdx = JSON.parse(fs.readFileSync(output, 'utf8')) as {
         documentNamespace: string;
-        packages: Array<{ name: string; filesAnalyzed: boolean; checksums?: Array<{ algorithm: string; checksumValue: string }> }>;
-        files: Array<{ SPDXID: string }>;
+        packages: Array<{
+          name: string;
+          filesAnalyzed: boolean;
+          checksums?: Array<{ algorithm: string; checksumValue: string }>;
+          packageVerificationCode?: { packageVerificationCodeValue: string };
+        }>;
+        files: Array<{ SPDXID: string; fileName: string; checksums: Array<{ algorithm: string; checksumValue: string }> }>;
         relationships: Array<{ spdxElementId: string; relationshipType: string; relatedSpdxElement: string }>;
       };
       expect(spdx.packages.map((entry) => entry.name)).toContain('ca-certificates');
       expect(spdx.packages[0].checksums).toEqual([{ algorithm: 'SHA256', checksumValue: digest }]);
       expect(spdx.packages[0].filesAnalyzed).toBe(true);
       expect(spdx.packages.slice(1).every((entry) => entry.filesAnalyzed === false)).toBe(true);
+      expect(spdx.packages.slice(1).every((entry) => entry.packageVerificationCode === undefined)).toBe(true);
+      const sha1 = (contents: string) => createHash('sha1').update(contents).digest('hex');
+      const expectedSha1s = [packageStatus, 'var/lib/dpkg/status', 'missing-target'].map(sha1);
+      expect(spdx.packages[0].packageVerificationCode).toEqual({
+        packageVerificationCodeValue: sha1(expectedSha1s.sort().join('')),
+      });
+      expect(spdx.files.find((file) => file.fileName === './status-link')?.checksums).toEqual([
+        {
+          algorithm: 'SHA256',
+          checksumValue: createHash('sha256').update('var/lib/dpkg/status').digest('hex'),
+        },
+        { algorithm: 'SHA1', checksumValue: sha1('var/lib/dpkg/status') },
+      ]);
       expect(spdx.files.length).toBeGreaterThan(0);
       for (const file of spdx.files) {
         expect(spdx.relationships).toContainEqual({

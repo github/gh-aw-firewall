@@ -670,8 +670,8 @@ describe('Cloud Hypervisor preflight (foundation only)', () => {
     )).rejects.toThrow(/must contain exactly 64 hexadecimal/);
   });
 
-  it('fails closed when attestation verification fails before consuming snapshot contents', async () => {
-    const readFile = jest.fn().mockResolvedValue(manifest());
+  it('fails closed when attestation verification fails before reading the manifest', async () => {
+    const readFile = jest.fn();
     const removeArtifactSnapshot = jest.fn().mockResolvedValue(undefined);
     await expect(runCloudHypervisorPreflight(
       config(),
@@ -681,8 +681,7 @@ describe('Cloud Hypervisor preflight (foundation only)', () => {
         verifyManifestAttestation: jest.fn().mockRejectedValue(new Error('bad signature')),
       }),
     )).rejects.toThrow(/bad signature/);
-    expect(readFile).toHaveBeenCalledTimes(1);
-    expect(readFile).toHaveBeenCalledWith('/opt/manifest.json');
+    expect(readFile).not.toHaveBeenCalled();
     expect(removeArtifactSnapshot).toHaveBeenCalledWith(
       `${CLOUD_HYPERVISOR_ARTIFACT_SNAPSHOT_ROOT}/run-test`,
     );
@@ -742,6 +741,18 @@ describe('Cloud Hypervisor preflight (foundation only)', () => {
     it('rejects an inventory that does not bind the final rootfs digest', async () => {
       await expect(runCloudHypervisorPreflight(config(), inventoryDependencies({}, 'f'.repeat(64))))
         .rejects.toThrow(/SBOM does not bind its final filesystem digest/);
+    });
+
+    it('rejects a declared inventory missing before snapshot creation', async () => {
+      const deps = inventoryDependencies();
+      const lstat = deps.lstat!;
+      deps.lstat = async file => {
+        if (file.endsWith('.spdx.json')) throw Object.assign(new Error('missing'), { code: 'ENOENT' });
+        return lstat(file);
+      };
+      await expect(runCloudHypervisorPreflight(config(), deps)).rejects.toThrow(/SBOM snapshot is missing/);
+      expect(deps.verifyManifestAttestation).toHaveBeenCalled();
+      expect(deps.removeArtifactSnapshot).toHaveBeenCalled();
     });
   });
 

@@ -575,17 +575,19 @@ export async function runCloudHypervisorPreflight(
       constants.R_OK,
       dependencies,
     ));
-    // Discover only the fixed inventory path here; trust comes from the attested snapshot below.
-    const manifest = await report.check('manifest-contents', async () => parseCloudHypervisorArtifactManifest(
-      await dependencies.readFile(config.artifactManifestPath!), config.artifactReleaseTag!,
-    ));
-    if (manifest.artifacts.rootfs.sbom) {
-      rootfsSbomPath = path.join(path.dirname(config.rootfsPath!), manifest.artifacts.rootfs.sbom.file);
-      await report.check('sbom-trust', () => assertTrustedRegularFile(
-        'Cloud Hypervisor rootfs SBOM', rootfsSbomPath!, constants.R_OK, dependencies,
-      ));
-    }
+    const candidate = path.join(path.dirname(config.rootfsPath!), 'rootfs.sbom.spdx.json');
+    rootfsSbomPath = await report.check('sbom-trust', async () => {
+      try {
+        await dependencies.lstat(candidate);
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined;
+        throw error;
+      }
+      await assertTrustedRegularFile('Cloud Hypervisor rootfs SBOM', candidate, constants.R_OK, dependencies);
+      return candidate;
+    });
   }
+  if (!rootfsSbomPath) report.notRequired('sbom-trust');
 
   const snapshot = await report.check('artifact-snapshot', () => dependencies.createArtifactSnapshot(
     {
@@ -658,7 +660,14 @@ export async function runCloudHypervisorPreflight(
             throw new Error('Cloud Hypervisor rootfs SBOM does not bind its final filesystem digest');
           }
         });
+      } else {
+        report.notRequired('sbom-digest');
+        report.notRequired('sbom-contents');
       }
+    }
+    if (developmentBypass) {
+      report.notRequired('sbom-digest');
+      report.notRequired('sbom-contents');
     }
     await report.check('cloud-hypervisor-digest', () => assertDigest(
       'Cloud Hypervisor binary',

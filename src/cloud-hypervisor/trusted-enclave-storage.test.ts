@@ -758,7 +758,8 @@ describe('invocation-wide kernel-enforced storage', () => {
     const snapshotProgress = published[published.length - 1];
     expect(snapshotProgress.scope).toBe('artifact-snapshot');
     expect(snapshotProgress.checks.every((check) =>
-      check.result === 'passed' || (check.id === 'partial-remove' && check.result === 'not-required'))).toBe(true);
+      check.result === 'passed' || (['partial-remove', 'sbom-copy', 'sbom-mode'].includes(check.id)
+        && check.result === 'not-required'))).toBe(true);
     expect(createArtifactSnapshot).toHaveBeenCalledWith(
       expect.anything(), expect.anything(), expect.anything(), path.join(root, 'artifacts'),
       expect.any(HostPreflightReporter),

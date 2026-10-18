@@ -102,6 +102,7 @@ if (packages.length === 0) {
 
 const rootfsDigest = await sha256(args.rootfs);
 const files = [];
+const fileSha1s = [];
 async function inventory(directory, relative = '') {
   for (const name of (await readdir(directory)).sort()) {
     const filename = path.join(directory, name);
@@ -110,13 +111,24 @@ async function inventory(directory, relative = '') {
     if (stat.isDirectory()) {
       await inventory(filename, entry);
     } else if (stat.isFile() || stat.isSymbolicLink()) {
-      const checksum = stat.isSymbolicLink()
-        ? createHash('sha256').update(await readlink(filename)).digest('hex')
-        : await sha256(filename);
+      const sha256Hash = createHash('sha256');
+      const sha1Hash = createHash('sha1');
+      const contents = stat.isSymbolicLink()
+        ? [await readlink(filename)]
+        : createReadStream(filename);
+      for await (const chunk of contents) {
+        sha256Hash.update(chunk);
+        sha1Hash.update(chunk);
+      }
+      const sha1Digest = sha1Hash.digest('hex');
+      fileSha1s.push(sha1Digest);
       files.push({
         fileName: `.${entry}`,
         SPDXID: `SPDXRef-File-${files.length}`,
-        checksums: [{ algorithm: 'SHA256', checksumValue: checksum }],
+        checksums: [
+          { algorithm: 'SHA256', checksumValue: sha256Hash.digest('hex') },
+          { algorithm: 'SHA1', checksumValue: sha1Digest },
+        ],
         fileTypes: ['OTHER'],
         licenseConcluded: 'NOASSERTION',
         copyrightText: 'NOASSERTION',
@@ -156,6 +168,10 @@ const document = {
       versionInfo: args['release-tag'],
       downloadLocation: 'NOASSERTION',
       filesAnalyzed: true,
+      packageVerificationCode: {
+        packageVerificationCodeValue: createHash('sha1')
+          .update(fileSha1s.sort().join('')).digest('hex'),
+      },
       checksums: [{ algorithm: 'SHA256', checksumValue: rootfsDigest }],
       licenseConcluded: 'NOASSERTION',
       licenseDeclared: 'NOASSERTION',
