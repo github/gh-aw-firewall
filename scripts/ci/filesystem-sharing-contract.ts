@@ -122,7 +122,11 @@ export function renderSharingRows(rows: readonly SharingRow[]): string {
     .replace(/\|/g, '\\|').replace(/\n/g, ' ');
   const hostRule = (row: SharingRow): [string, string] => {
     if (row.source === 'ephemeral tmpfs') return ['container-created; mode per tmpfs options', 'container lifetime'];
-    if (row.source.startsWith('<FIXTURE>/work')) return ['AWF setup; see lifecycle table', 'per-run cleanup / optional preservation'];
+    if (row.source === '<FIXTURE>/work' ||
+      row.source.startsWith('<FIXTURE>/work/') ||
+      row.source.startsWith('<FIXTURE>/work-')) {
+      return ['AWF setup; see lifecycle table', 'per-run cleanup / optional preservation'];
+    }
     if (!row.source.startsWith('/') && !row.source.startsWith('<')) {
       return ['Docker-managed; see lifecycle table', 'Compose down -v'];
     }

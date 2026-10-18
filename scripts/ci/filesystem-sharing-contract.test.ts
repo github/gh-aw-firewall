@@ -10,6 +10,10 @@ describe('filesystem sharing contract', () => {
       scenario: 'test', source: '<HOME>', consumer: 'agent',
       destination: '/host<HOME>', access: 'ro', mechanism: 'bind',
     }])).toContain('&lt;HOME&gt;');
+    expect(renderSharingRows([{
+      scenario: 'test', source: '<FIXTURE>/workspace', consumer: 'agent',
+      destination: '/workspace', access: 'rw', mechanism: 'export',
+    }])).toContain('existing DAC/modes preserved');
   });
 
   it('keeps private roots out of every primary agent share and masks credentials', async () => {
