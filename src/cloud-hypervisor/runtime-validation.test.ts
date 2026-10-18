@@ -110,6 +110,40 @@ describe('Cloud Hypervisor runtime validation', () => {
       .toBe(chScriptWithDockerAgent.cloudHypervisor);
   });
 
+  it.each([
+    [{ script: {}, runtime: 'cloud-hypervisor' }],
+    [{ agent: { model: 'trusted-model' }, runtime: 'cloud-hypervisor' }],
+    [
+      { script: {}, runtime: 'cloud-hypervisor' },
+      { agent: { model: 'trusted-model' }, runtime: 'cloud-hypervisor' },
+    ],
+  ])('allows enclave-only artifact selection without a primary rootfs', (...entries) => {
+    const enclaveOnly = config({
+      containerRuntime: 'docker',
+      enclaves: normalizeEnclavesConfig(entries.map(entry => ({
+        ...entry,
+        runtime: 'cloud-hypervisor' as const,
+        repos: [{ repo: 'octo/private', sensitivity: 'internal' }],
+      }))),
+      cloudHypervisor: { ...config().cloudHypervisor!, rootfsPath: undefined },
+    });
+    expect(() => assertCloudHypervisorRuntimeCompatibility(enclaveOnly)).not.toThrow();
+    expect(() => assertCloudHypervisorRuntimeCompatibility({
+      ...enclaveOnly,
+      cloudHypervisor: { ...enclaveOnly.cloudHypervisor!, developmentAllowUnattestedArtifacts: true },
+    })).toThrow(/enclaves require attested common artifacts/);
+    expect(() => assertCloudHypervisorRuntimeCompatibility({
+      ...enclaveOnly,
+      cloudHypervisor: { ...enclaveOnly.cloudHypervisor!, kernelPath: undefined },
+    })).toThrow(/explicit kernel and guest supervisor/);
+  });
+
+  it('still requires a primary rootfs when the primary Cloud Hypervisor runtime is selected', () => {
+    expect(() => assertCloudHypervisorRuntimeCompatibility(config({
+      cloudHypervisor: { ...config().cloudHypervisor!, rootfsPath: undefined },
+    }))).toThrow(/explicit kernel, rootfs, and guest supervisor/);
+  });
+
   it('requires API-proxy isolation for a Cloud Hypervisor agent executor alongside Docker scripts', () => {
     const chAgentWithDockerScript = config({
       containerRuntime: 'docker',

@@ -87,12 +87,19 @@ export function assertCloudHypervisorRuntimeCompatibility(
     throw new Error('Cloud Hypervisor preview requires API proxy credential isolation');
   }
   assertCloudHypervisorPreSecurityCompatibility(config);
-  if (!cloudHypervisor.kernelPath || !cloudHypervisor.rootfsPath || !cloudHypervisor.supervisorPath) {
+  if (!cloudHypervisor.kernelPath ||
+      (isPrimaryCloudHypervisorRuntime(config) && !cloudHypervisor.rootfsPath) ||
+      !cloudHypervisor.supervisorPath) {
     throw new Error(
-      'Cloud Hypervisor preview requires explicit kernel, rootfs, and guest supervisor artifacts',
+      isPrimaryCloudHypervisorRuntime(config)
+        ? 'Cloud Hypervisor preview requires explicit kernel, rootfs, and guest supervisor artifacts'
+        : 'Cloud Hypervisor enclave preview requires explicit kernel and guest supervisor artifacts',
     );
   }
   if (cloudHypervisor.developmentAllowUnattestedArtifacts) {
+    if (!isPrimaryCloudHypervisorRuntime(config)) {
+      throw new Error('Cloud Hypervisor enclaves require attested common artifacts');
+    }
     if (
       process.env.AWF_CLOUD_HYPERVISOR_DEVELOPMENT_ALLOW_UNATTESTED_ARTIFACTS !== '1'
     ) {
