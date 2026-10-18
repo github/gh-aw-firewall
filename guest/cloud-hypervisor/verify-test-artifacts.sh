@@ -137,6 +137,9 @@ verify_enclave_rootfs() {
     ip_stat=$(debugfs -R 'stat /usr/bin/ip' "$image" 2>&1)
     printf '%s\n' "$ip_stat" | grep -F 'Type: regular'
     printf '%s\n' "$ip_stat" | grep -E 'Mode:[[:space:]]+0[1357][0-7][0-7]'
+    for tool in make cmake gh; do
+      debugfs -R "stat /usr/bin/$tool" "$image" 2>&1 | grep -F 'Type: regular'
+    done
   fi
   debugfs -R "stat $entrypoint" "$image" 2>&1 | grep -F 'Type: regular'
   debugfs -R 'stat /usr/sbin/awf-supervisor' "$image" 2>&1 | grep -F 'Type: regular'

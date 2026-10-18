@@ -221,6 +221,7 @@ resolve_enclave_image() {
         --platform linux/amd64 \
         --file "$ROOT/containers/enclave/Dockerfile" \
         --target "$target" \
+        --build-arg "BUILD_TOOLS_IMAGE=$BUILD_TOOLS_IMAGE" \
         --tag "$resolved_image" \
         "$ROOT/containers" >&2
     fi
@@ -341,6 +342,9 @@ build_enclave_rootfs() {
     sudo mkdir -p "$tree/agent" "$tree/run/awf-enclave-github"
     # Network setup runs as guest init before the unprivileged agent starts.
     sudo chroot "$tree" /usr/bin/ip -Version
+    for tool in gcc g++ make cmake pkg-config; do
+      sudo chroot "$tree" /usr/bin/"$tool" --version
+    done
   fi
 
   test -x "$tree$entrypoint"

@@ -2814,8 +2814,10 @@ replaces that policy.
 AWF stores the enclave identity in a mode-0600 private file, removes it from
 the host environment, and gives each invocation a read-only private copy. The
 enclave sends the identity directly as `Authorization` to
-`http://172.31.0.40:8080/mcp/github`. It contains no `gh` executable and fails
-preflight if one is present. Before primary-agent work begins, AWF initializes
+`http://172.31.0.40:8080/mcp/github`. The shared toolchain includes `gh`, but the
+enclave receives no GitHub CLI credentials or direct GitHub network route;
+GitHub reads must use the repository-scoped MCP tools. Tool presence is not a
+security boundary. Before primary-agent work begins, AWF initializes
 the endpoint and fails closed unless `tools/list` advertises exactly the
 configured `allowed` tools — no more, no fewer.
 

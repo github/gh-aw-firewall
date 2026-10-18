@@ -34,6 +34,10 @@ describe('container base image pins', () => {
         expect(match).not.toBeNull();
         const image = match![1];
         if (image.startsWith('$')) {
+          if (dockerfile.endsWith('/enclave/Dockerfile') && image === '${BUILD_TOOLS_IMAGE}') {
+            expect(source).toContain('ARG BUILD_TOOLS_IMAGE=awf-build-tools');
+            continue;
+          }
           expect(image).toBe('${BASE_IMAGE}');
           continue;
         }

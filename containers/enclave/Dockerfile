@@ -1,4 +1,6 @@
 # AWF enclave images. Build context: containers/.
+# Supply the release's build-tools digest, or a locally built base via BuildKit context.
+ARG BUILD_TOOLS_IMAGE=awf-build-tools
 
 FROM python:3.14.8-alpine3.24@sha256:f6a589d43c42b9e7f7dc67a12d37132491f362859a5d750607710cc56da3bc72 AS enclave-script
 
@@ -27,11 +29,15 @@ RUN npm_config_ignore_scripts=false npm ci --prefix /tmp/copilot-cli --install-s
     && COPILOT_CLI_VERSION="$(node -p 'require("/usr/local/lib/node_modules/@github/copilot/package.json").version')" \
     && copilot --version | grep -q "GitHub Copilot CLI ${COPILOT_CLI_VERSION}"
 
-FROM ubuntu:26.04@sha256:f144425ff09be612d6d9ad965196e9cdc23dae1f42110a8a11a3e9a8198759f7 AS enclave-agent
+FROM ${BUILD_TOOLS_IMAGE} AS enclave-agent
+
+ARG BUILD_TOOLS_IMAGE
+LABEL org.opencontainers.image.base.name="${BUILD_TOOLS_IMAGE}"
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends bash ca-certificates git iproute2 libatomic1 python3 ripgrep \
+    && apt-get install -y --no-install-recommends libatomic1 python3 ripgrep \
     && /usr/bin/ip -Version \
+    && gcc --version && make --version && cmake --version && gh --version \
     && test -r /etc/ssl/certs/ca-certificates.crt \
     && rm -rf /var/lib/apt/lists/* \
     && rm -f /usr/bin/apt /usr/bin/apt-get /usr/bin/apt-cache
@@ -49,8 +55,7 @@ COPY enclave/agent-entrypoint.py /usr/local/bin/run-enclave-agent
 RUN chmod 0555 /usr/local/bin/run-enclave-agent \
     && python3 -m py_compile /usr/local/bin/run-enclave-agent \
     && rm -rf /usr/local/bin/__pycache__ \
-    && mkdir -p /agent /awf/seed /run/awf-enclave-github \
-    && ! command -v gh
+    && mkdir -p /agent /awf/seed /run/awf-enclave-github
 
 FROM node:26.11.1-alpine3.24@sha256:143494b1da2945f061539253adc65e4f1569ddf07da2d384c022c791a9d90a4a AS enclave-mcp-server
 

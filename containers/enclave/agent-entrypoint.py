@@ -8,7 +8,6 @@ import hashlib
 import json
 import os
 import re
-import shutil
 import signal
 import stat
 import subprocess
@@ -347,14 +346,6 @@ def run_preflight(copilot_logs: Path) -> bool:
             "type": "forbidden-seed-mount",
         })
         valid = False
-    if shutil.which("gh") is not None:
-        append_event({
-            "event": "preflight",
-            "path": "github-cli",
-            "exists": True,
-            "type": "forbidden-executable",
-        })
-        valid = False
     for identifier, path, expected_type, executable, writable in checks:
         error = preflight_path(
             identifier,
@@ -431,7 +422,8 @@ def build_prompt(task: str, schema_text: str) -> str:
             " A credential-isolated GitHub MCP server exposes only `list_issues` and "
             "`issue_read`. For `issue_read`, only methods `get` and `get_comments` are "
             "available. Use those MCP tools for GitHub reads. GitHub CLI, GraphQL, search, "
-            "writes, and all other GitHub tools are unavailable."
+            "writes, and all other GitHub access are prohibited. The installed GitHub CLI "
+            "has no credentials or direct GitHub network route."
         )
     if is_dynamic_enabled():
         repository = os.environ.get("AWF_ENCLAVE_AGENT_DYNAMIC_REPO", "")

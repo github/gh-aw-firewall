@@ -463,7 +463,7 @@ jobs:
   build-enclaves:
     name: Build Enclave Images
     runs-on: ubuntu-latest
-    needs: bump-version
+    needs: [bump-version, build-build-tools]
     outputs:
       enclave_script_digest: ${{ steps.build_enclave_script.outputs.digest }}
       enclave_agent_digest: ${{ steps.build_enclave_agent.outputs.digest }}
@@ -533,6 +533,8 @@ jobs:
           context: ./containers
           file: ./containers/enclave/Dockerfile
           target: enclave-agent
+          build-args: |
+            BUILD_TOOLS_IMAGE=ghcr.io/${{ github.repository }}/build-tools@${{ needs.build-build-tools.outputs.digest }}
           push: true
           platforms: linux/amd64,linux/arm64
           tags: |

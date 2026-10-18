@@ -28,6 +28,7 @@ const tools = {
   groupdel: '/usr/sbin/groupdel', id: '/usr/bin/id', setfacl: '/usr/bin/setfacl',
   useradd: '/usr/sbin/useradd', userdel: '/usr/sbin/userdel',
   debugfs: '/usr/sbin/debugfs', e2fsck: '/usr/sbin/e2fsck',
+  rsync: '/usr/bin/rsync',
 } as CloudHypervisorHostToolPaths;
 
 (live ? describe : describe.skip)('production invocation allocation domain', () => {
@@ -64,7 +65,10 @@ const tools = {
     return { run, plan };
   }
 
-  async function provision(role: 'script' | 'agent', rootfsBytes = 4096, formatRootfs = false) {
+  async function provision(
+    role: 'script' | 'agent', rootfsBytes = 4096, formatRootfs = false,
+    logicalRootfsBytes = rootfsBytes,
+  ) {
     const { run, plan } = await invocation(role);
     const journal = await HostExecutorResourceJournal.create(run, plan, hostExecutorVmRunId(plan));
     await fs.mkdir(plan.invocationHostDir, { mode: 0o700 });
@@ -111,13 +115,14 @@ const tools = {
             .toBe(Math.min(chunk.length, rootfsBytes - offset));
         }
         if (formatRootfs) {
+          await handle.truncate(logicalRootfsBytes);
           await execa('/usr/sbin/mkfs.ext4', ['-F', '-E',
             'nodiscard,lazy_itable_init=0,lazy_journal_init=0', destination]);
           for (const directory of ['/usr', '/usr/sbin']) {
             await execa(tools.debugfs, ['-w', '-R', `mkdir ${directory}`, destination]);
           }
-          // Formatting may punch zero-filled holes; materialize every page
-          // through the original exclusive descriptor, without reopening a path.
+          // Materialize the payload through its original descriptor, retaining
+          // only the explicitly requested sparse tail.
           for (let offset = 0; offset < rootfsBytes; offset += chunk.length) {
             const { bytesRead } = await handle.read(chunk, 0, chunk.length, offset);
             expect(bytesRead).toBe(chunk.length);
@@ -333,9 +338,13 @@ const tools = {
     }, 120_000,
   );
 
-  it('snapshots, prepares and stages a full 1.5 GiB agent image while exports remain bounded to 512 MiB', async () => {
+  it.each([
+    ['dense 1.5 GiB', 1536 * 1024 ** 2],
+    ['sparse 2.25 GiB', 2304 * 1024 ** 2],
+  ])('snapshots, prepares and stages a %s agent image while exports remain bounded to 512 MiB',
+    async (_label, logicalBytes) => {
     const rootfsBytes = 1536 * 1024 ** 2;
-    const domain = await provision('agent', rootfsBytes, true);
+    const domain = await provision('agent', rootfsBytes, true, logicalBytes);
     await expect((async () => {
       const handle = await fs.open(domain.snapshot.rootfsPath, constants.O_RDWR | constants.O_NOFOLLOW);
       try {
@@ -351,8 +360,9 @@ const tools = {
     } finally {
       await snapshotFile.close();
     }
-    expect(snapshot.size).toBe(rootfsBytes);
-    expect(snapshot.blocks * 512).toBe(rootfsBytes);
+    expect(snapshot.size).toBe(logicalBytes);
+    expect(snapshot.blocks * 512).toBeGreaterThanOrEqual(rootfsBytes);
+    expect(snapshot.blocks * 512).toBeLessThan(2 * 1024 ** 3);
     expect(snapshot.uid).toBe(0);
     expect(snapshot.mode & 0o777).toBe(0o444);
     const staging = await fs.statfs(domain.snapshot.directory, { bigint: true });
@@ -371,18 +381,21 @@ const tools = {
       supervisorSha256: createHash('sha256').update(await fs.readFile('/usr/bin/true')).digest('hex'),
       supervisorGuestPath: '/usr/sbin/awf-supervisor',
       hostAliases: { 'api-proxy': '172.30.0.30' },
-    }, tools, (source, destination) => fs.copyFile(source, destination));
+    }, tools, (source, destination) =>
+      dependencies.copySparseFile(tools.rsync, source, destination));
     const prepared = await preparer.prepare();
     await stageArtifact(dependencies, prepared, domain.paths.rootfsPath, 0o600,
-      { uid: 65534, gid: 65534 }, () => fs.copyFile(prepared, domain.paths.rootfsPath));
+      { uid: 65534, gid: 65534 },
+      () => dependencies.copySparseFile(tools.rsync, prepared, domain.paths.rootfsPath));
     const images = [domain.snapshot.rootfsPath, prepared, domain.paths.rootfsPath];
     const imageDevices: number[] = [];
     for (const image of images) {
       const handle = await fs.open(image, constants.O_RDONLY | constants.O_NOFOLLOW);
       try {
         const stat = await handle.stat();
-        expect(stat.size).toBe(rootfsBytes);
-        expect(stat.blocks * 512).toBe(rootfsBytes);
+        expect(stat.size).toBe(logicalBytes);
+        expect(stat.blocks * 512).toBeGreaterThan(profiles.agent.writableStorageBytes);
+        expect(stat.blocks * 512).toBeLessThan(2 * 1024 ** 3);
         imageDevices.push(stat.dev);
       } finally {
         await handle.close();

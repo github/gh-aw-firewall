@@ -216,17 +216,23 @@ jobs:
           with open('containers/router/openapi.yaml', 'rb') as f:
               router_openapi_sha256 = hashlib.sha256(f.read()).hexdigest()
           containers = [
+              ('build-tools',         'containers/build-tools', []),
               ('agent',               'containers/agent',     []),
               ('api-proxy',           'containers/api-proxy', []),
               ('router',              'containers/router',    ['--build-arg', f'OPENAPI_SHA256={router_openapi_sha256}']),
               ('cli-proxy',           'containers/cli-proxy', []),
               ('gh-aw-node',          'containers/gh-aw-node', []),
               ('enclave-script',      'containers', ['-f', 'containers/enclave/Dockerfile', '--target', 'enclave-script']),
-              ('enclave-agent',       'containers', ['-f', 'containers/enclave/Dockerfile', '--target', 'enclave-agent']),
+              ('enclave-agent',       'containers', ['-f', 'containers/enclave/Dockerfile', '--target', 'enclave-agent', '--build-arg', 'BUILD_TOOLS_IMAGE=awf-pr-scan-build-tools:pr']),
               ('enclave-mcp-server',  'containers', ['-f', 'containers/enclave/Dockerfile', '--target', 'enclave-mcp-server']),
           ]
           rc = 0
+          build_tools_ready = False
           for name, context, build_args in containers:
+              if name == 'enclave-agent' and not build_tools_ready:
+                  print('::error::enclave-agent requires the successful PR build-tools build', flush=True)
+                  rc = 1
+                  continue
               tag = f'awf-pr-scan-{name}:pr'
               tar = f'/tmp/awf-pr-scan-{name}.tar'
               print(f'::group::docker build {name}', flush=True)
@@ -236,6 +242,8 @@ jobs:
                   print(f'::error::docker build failed for {name}', flush=True)
                   rc = b.returncode
                   continue
+              if name == 'build-tools':
+                  build_tools_ready = True
               try:
                   subprocess.run(['docker', 'save', '-o', tar, tag], check=True)
                   print(f'::group::grype {name} (PR build)', flush=True)

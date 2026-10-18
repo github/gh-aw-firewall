@@ -533,10 +533,18 @@ the verifier checks required supervisor/runtime paths and the absence of those
 modules in every Python library tree. The build also checks that no privilege
 bits or file capabilities remain.
 
-The agent image includes `iproute2` for PID 1 network setup. The image build and
+The agent image layers Copilot, Python and runtime dependencies on the primary's
+build-tools OCI image (not its ext4 rootfs), sharing the existing development
+toolchain, libraries, `gh`, and `iproute2` for PID 1 network setup. Release builds
+use the same-release build-tools digest; local builds must supply the base
+explicitly (`--build-arg BUILD_TOOLS_IMAGE=<local-image-or-digest>`) or use AWF's
+Compose BuildKit service context (Compose 2.17 or newer). Production release and
+local Compose wiring do not select a registry `latest` base. The image build and
 exported-tree build both execute `/usr/bin/ip -Version` (including its dynamic
 loader and libraries); the ext4 verifier requires that executable. The supervisor
-uses fixed bin/sbin paths, not ambient `PATH`. Script guests remain no-network and
+uses fixed bin/sbin paths, not ambient `PATH`. The exported-tree builder also
+executes the shared compilers/build utilities after package-manager
+removal. Script guests remain no-network and
 do not require this utility. Existing attested images are immutable: this packaging
 fix requires rebuilt, release-attested agent artifacts, not a host binary overlay
 or bypass of artifact verification.

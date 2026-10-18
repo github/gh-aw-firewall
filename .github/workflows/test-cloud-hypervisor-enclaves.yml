@@ -38,6 +38,7 @@ on:
       - 'src/cli-workflow*'
       - 'src/services/enclave-mcp-service*'
       - 'containers/enclave/**'
+      - 'containers/build-tools/**'
       - 'containers/bounded-execution/**'
       - 'guest/microvm-supervisor/**'
       - 'scripts/ci/*cloud-hypervisor*.test.ts'

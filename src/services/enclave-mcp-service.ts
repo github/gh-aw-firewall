@@ -87,6 +87,8 @@ interface EnclaveMcpServiceParams {
 }
 
 export interface EnclaveMcpBuildResult {
+  /** BuildKit source for the locally built agent's shared toolchain base. */
+  toolchainImageService?: Record<string, unknown>;
   /** One-shot service making the script sandbox image locally available. */
   scriptImageService?: Record<string, unknown>;
   /** One-shot service making the agent enclave image locally available. */
@@ -155,6 +157,7 @@ function resolveAgentImage(
         context: `${imageConfig.projectRoot}/containers`,
         dockerfile: 'enclave/Dockerfile',
         target: 'enclave-agent',
+        additional_contexts: { 'awf-build-tools': 'service:enclave-build-tools-image' },
       },
     },
   };
@@ -325,6 +328,16 @@ export function buildEnclaveMcpService(params: EnclaveMcpServiceParams): Enclave
       : undefined;
     if (agent.runtime !== 'cloud-hypervisor') {
       const { imageRef, source } = resolveAgentImage(imageConfig, agent.image);
+      if (!imageConfig.useGHCR && !agent.image) {
+        result.toolchainImageService = {
+          image: 'awf-enclave-build-tools:local',
+          build: { context: `${imageConfig.projectRoot}/containers/build-tools` },
+          network_mode: 'none',
+          entrypoint: ['/bin/true'],
+          ...buildContainerSecurityHardening(imageServiceHardening),
+          restart: 'no',
+        };
+      }
       result.agentImageService = {
         ...source,
         network_mode: 'none',

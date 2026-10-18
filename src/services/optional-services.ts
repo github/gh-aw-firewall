@@ -363,11 +363,13 @@ function assembleEnclaveMcpService(params: AssembleOptionalServicesParams): void
   if (!config.enclaves?.enabled) return;
   if (!executors?.script.enabled && !executors?.agent.enabled) return;
   const {
+    toolchainImageService,
     scriptImageService,
     agentImageService,
     agentApiProxyService,
     service,
   } = buildEnclaveMcpService({ config, imageConfig, networkConfig: params.networkConfig });
+  if (toolchainImageService) services['enclave-build-tools-image'] = toolchainImageService;
   if (scriptImageService) services['enclave-script-image'] = scriptImageService;
   if (agentImageService) services['enclave-agent-image'] = agentImageService;
   if (agentApiProxyService) services['enclave-agent-api-proxy'] = agentApiProxyService;

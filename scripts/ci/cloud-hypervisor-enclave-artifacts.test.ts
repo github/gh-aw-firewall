@@ -70,7 +70,10 @@ describe('Cloud Hypervisor enclave rootfs artifacts', () => {
   it('requires the agent networking utility in the image, exported tree, and ext4 artifact', () => {
     const dockerfile = fs.readFileSync(dockerfilePath, 'utf8');
     const agent = dockerfile.split(' AS enclave-agent\n')[1].split(' AS enclave-mcp-server')[0];
-    expect(agent).toMatch(/apt-get install[^\n]* iproute2 /);
+    expect(dockerfile).toContain('FROM ${BUILD_TOOLS_IMAGE} AS enclave-agent');
+    const base = fs.readFileSync(path.join(root, 'containers/build-tools/Dockerfile'), 'utf8');
+    expect(base).toContain('dnsutils iproute2 net-tools netcat-openbsd');
+    expect(base).toContain('build-essential gcc g++ make cmake');
     expect(agent).toContain('/usr/bin/ip -Version');
     const build = fs.readFileSync(buildPath, 'utf8');
     expect(build).toContain('sudo chroot "$tree" /usr/bin/ip -Version');
@@ -82,6 +85,31 @@ describe('Cloud Hypervisor enclave rootfs artifacts', () => {
       path.join(root, 'guest/microvm-supervisor/runtime_linux.go'), 'utf8',
     );
     expect(runtime).toContain('"/usr/bin/ip"');
+  });
+
+  it('uses the same-release immutable primary toolchain base and explicitly supplies local bases', () => {
+    const release = fs.readFileSync(releaseWorkflowPath, 'utf8');
+    expect(release).toContain('needs: [bump-version, build-build-tools]');
+    expect(release).toContain(
+      'BUILD_TOOLS_IMAGE=ghcr.io/${{ github.repository }}/build-tools@${{ needs.build-build-tools.outputs.digest }}',
+    );
+    const build = fs.readFileSync(buildPath, 'utf8');
+    expect(build).toContain('--build-arg "BUILD_TOOLS_IMAGE=$BUILD_TOOLS_IMAGE"');
+    expect(build).toContain('sudo chroot "$tree" /usr/bin/ip -Version');
+    expect(release).toContain(
+      'ENCLAVE_AGENT_IMAGE="ghcr.io/${{ github.repository }}/enclave-agent@${{ needs.build-enclaves.outputs.enclave_agent_digest }}"',
+    );
+    const dockerfile = fs.readFileSync(dockerfilePath, 'utf8');
+    expect(dockerfile).not.toContain('&& ! command -v gh');
+    expect(dockerfile).toContain('gcc --version && make --version && cmake --version && gh --version');
+  });
+
+  it('builds the PR scan toolchain first and does not use a stale base after failure', () => {
+    const scan = fs.readFileSync(path.join(root, '.github/workflows/supply-chain-scan.yml'), 'utf8');
+    expect(scan.indexOf("('build-tools',")).toBeLessThan(scan.indexOf("('enclave-agent',"));
+    expect(scan).toContain('BUILD_TOOLS_IMAGE=awf-pr-scan-build-tools:pr');
+    expect(scan).toContain("if name == 'enclave-agent' and not build_tools_ready:");
+    expect(scan).toContain("if name == 'build-tools':\n                  build_tools_ready = True");
   });
 
   it('emits installed packages and the rootfs checksum in generated SPDX', () => {

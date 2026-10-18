@@ -1,4 +1,5 @@
-# Build-tools sysroot image for ARC/DinD deployments.
+# Shared development toolchain: primary Cloud Hypervisor rootfs, ARC/DinD
+# sysroot, and the enclave-agent OCI base. Role runtimes are layered separately.
 #
 # Provides system-level build infrastructure (compilers, linkers, dev libraries)
 # that requires root to install. On ARC/DinD, the agent container cannot run as
