@@ -34,8 +34,9 @@ export interface CloudHypervisorEnclaveArtifactPreflightOptions {
   readonly releaseTag: string;
   readonly manifestPath: string;
   readonly manifestBundlePath: string;
-  readonly scriptRootfsPath: string;
-  readonly agentRootfsPath: string;
+  readonly rootfsPath?: string;
+  readonly scriptRootfsPath?: string;
+  readonly agentRootfsPath?: string;
   readonly attestationToolPath: string;
 }
 

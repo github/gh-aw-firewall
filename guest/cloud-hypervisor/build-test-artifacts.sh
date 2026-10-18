@@ -274,12 +274,9 @@ if [ "${AWF_CH_PRUNE_DOCKER_BUILD_CACHE:-0}" = 1 ]; then
 fi
 report_disk 'enclave images'
 
-build_enclave_rootfs() {
-  local image=$1
-  local tree="$BUILD/enclave-rootfs"
-  local rootfs="$OUTPUT/enclave-rootfs.ext4"
+export_guest_tree() {
+  local image=$1 tree=$2
   local container
-
   container=$(docker create --platform linux/amd64 "$image")
   sudo mkdir -p "$tree"
   if ! docker export "$container" \
@@ -297,11 +294,43 @@ build_enclave_rootfs() {
   sudo rm -f "$tree/.dockerenv"
   sudo find "$tree/dev" "$tree/proc" "$tree/sys" \
     -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +
+  sudo mkdir -p "$tree/dev" "$tree/proc" "$tree/sys"
+  test -z "$(sudo find "$tree/proc" "$tree/sys" -mindepth 1 -print -quit)"
+  sudo cmp "$supervisor" "$tree/usr/sbin/awf-supervisor"
+}
+
+assemble_guest_rootfs() {
+  local tree=$1 rootfs=$2 uuid=$3 headroom=$4
+  sudo find "$tree" -print0 \
+    | sudo xargs -0 touch --no-dereference --date="@${SOURCE_DATE_EPOCH}"
+  local usage_bytes rootfs_bytes rootfs_blocks available_bytes staging_bytes
+  usage_bytes=$(sudo du --summarize --block-size=1 "$tree" | awk '{print $1}')
+  staging_bytes=$(sudo du --summarize --block-size=1 "$BUILD" | awk '{print $1}')
+  rootfs_bytes=$((usage_bytes + usage_bytes / 4 + headroom))
+  rootfs_blocks=$(((rootfs_bytes + 4095) / 4096))
+  available_bytes=$(df -B1 --output=avail "$OUTPUT" | tail -1 | tr -d ' ')
+  echo "rootfs staging: allocated=${staging_bytes}B tree=${usage_bytes}B target=${rootfs_bytes}B free=${available_bytes}B" >&2
+  if (( available_bytes < rootfs_bytes )); then
+    echo "insufficient disk for rootfs peak staging usage" >&2
+    return 1
+  fi
+  sudo env E2FSPROGS_FAKE_TIME="$SOURCE_DATE_EPOCH" mke2fs \
+    -t ext4 -F -q -b 4096 -d "$tree" -U "$uuid" \
+    -E lazy_itable_init=0,lazy_journal_init=0 "$rootfs" "$rootfs_blocks"
+  sudo env E2FSPROGS_FAKE_TIME="$SOURCE_DATE_EPOCH" e2fsck -f -y "$rootfs" >/dev/null
+  sudo chown "$(id -u):$(id -g)" "$rootfs"
+  chmod 0600 "$rootfs"
+  echo "rootfs final allocated blocks: $(du --block-size=4096 "$rootfs" | awk '{print $1}')" >&2
+}
+
+build_enclave_rootfs() {
+  local image=$1
+  local tree="$BUILD/enclave-rootfs"
+  local rootfs="$OUTPUT/enclave-rootfs.ext4"
+
+  export_guest_tree "$image" "$tree"
   sudo mkdir -p \
-    "$tree/dev" \
     "$tree/dev/shm" \
-    "$tree/proc" \
-    "$tree/sys" \
     "$tree/run" \
     "$tree/tmp" \
     "$tree/query" \
@@ -314,9 +343,7 @@ build_enclave_rootfs() {
     "$tree/awf/seed" \
     "$tree/awf/out" \
     "$tree/etc/awf"
-  test -z "$(sudo find "$tree/proc" "$tree/sys" -mindepth 1 -print -quit)"
   test -z "$(sudo find "$tree/dev" -mindepth 1 ! -path "$tree/dev/shm" -print -quit)"
-  sudo cmp "$supervisor" "$tree/usr/sbin/awf-supervisor"
 
   # Package-management and image-build tooling is never part of an enclave
   # invocation. The role runtime is fixed and cannot install more software.
@@ -407,27 +434,8 @@ EOF
 # Direct DNS is intentionally unavailable in Cloud Hypervisor enclave guests.
 EOF
 
-  sudo find "$tree" -print0 \
-    | sudo xargs -0 touch --no-dereference --date="@${SOURCE_DATE_EPOCH}"
-  local usage_bytes
-  local rootfs_bytes
-  local rootfs_blocks
-  usage_bytes=$(sudo du --summarize --block-size=1 "$tree" | awk '{print $1}')
-  rootfs_bytes=$((usage_bytes + usage_bytes / 4 + 64 * 1024 * 1024))
-  rootfs_blocks=$(((rootfs_bytes + 4095) / 4096))
-  sudo env E2FSPROGS_FAKE_TIME="$SOURCE_DATE_EPOCH" mke2fs \
-    -t ext4 \
-    -F \
-    -q \
-    -b 4096 \
-    -d "$tree" \
-    -U 1862c171-7198-4f19-a07d-8eeb61d1ed01 \
-    -E lazy_itable_init=0,lazy_journal_init=0 \
-    "$rootfs" \
-    "$rootfs_blocks"
-  sudo env E2FSPROGS_FAKE_TIME="$SOURCE_DATE_EPOCH" e2fsck -f -y "$rootfs" >/dev/null
-  sudo chown "$(id -u):$(id -g)" "$rootfs"
-  chmod 0600 "$rootfs"
+  assemble_guest_rootfs "$tree" "$rootfs" \
+    1862c171-7198-4f19-a07d-8eeb61d1ed01 $((64 * 1024 * 1024))
 }
 
 build_enclave_rootfs "$enclave_runtime_image"
@@ -440,24 +448,15 @@ else
 fi
 
 node "$ROOT/guest/cloud-hypervisor/generate-enclave-rootfs-sbom.mjs" \
-  --role script \
+  --role enclave \
   --rootfs-tree "$BUILD/enclave-rootfs" \
   --rootfs "$OUTPUT/enclave-rootfs.ext4" \
-  --output "$OUTPUT/enclave-script-rootfs.sbom.spdx.json" \
+  --output "$OUTPUT/enclave-rootfs.sbom.spdx.json" \
   --release-tag "$RELEASE_TAG" \
   --source-image "$ENCLAVE_IMAGE" \
   --source-image-digest "$enclave_image_digest" \
   --source-date-epoch "$SOURCE_DATE_EPOCH"
-node "$ROOT/guest/cloud-hypervisor/generate-enclave-rootfs-sbom.mjs" \
-  --role agent \
-  --rootfs-tree "$BUILD/enclave-rootfs" \
-  --rootfs "$OUTPUT/enclave-rootfs.ext4" \
-  --output "$OUTPUT/enclave-agent-rootfs.sbom.spdx.json" \
-  --release-tag "$RELEASE_TAG" \
-  --source-image "$ENCLAVE_IMAGE" \
-  --source-image-digest "$enclave_image_digest" \
-  --source-date-epoch "$SOURCE_DATE_EPOCH"
-# The SBOMs bind file inventories to the ext4 digests; the trees are now unused.
+# The inventory binds normalized file contents to the final ext4 digest.
 sudo rm -rf "$BUILD/enclave-rootfs"
 report_disk 'enclave rootfs SBOMs'
 install -m 0755 \
@@ -467,35 +466,16 @@ install -m 0755 \
 rootfs_tree="$BUILD/rootfs"
 primary_image_id=$(docker image inspect --format '{{.Id}}' "$primary_runtime_image")
 guest_dockerfile_sha256=$(sha256sum "$ROOT/containers/cloud-hypervisor/Dockerfile" | awk '{print $1}')
-build_tools_container=$(docker create --platform linux/amd64 "$primary_runtime_image")
 cleanup_build_tools_container() {
-  docker rm -f "$build_tools_container" >/dev/null 2>&1 || true
   if [ -n "${rootfs_tree:-}" ] && [ -d "$rootfs_tree" ]; then
     sudo rm -rf "$rootfs_tree"
   fi
 }
 trap cleanup_build_tools_container EXIT
-sudo mkdir -p \
-  "$rootfs_tree/dev" \
-  "$rootfs_tree/proc" \
-  "$rootfs_tree/sys" \
-  "$rootfs_tree/tmp" \
-  "$rootfs_tree/home/awf" \
-  "$rootfs_tree/workspace"
-docker export "$build_tools_container" \
-  | sudo tar \
-      --extract \
-      --directory "$rootfs_tree" \
-      --numeric-owner \
-      --preserve-permissions \
-      --same-owner
-sudo rm -f "$rootfs_tree/.dockerenv"
-sudo find "$rootfs_tree/dev" "$rootfs_tree/proc" "$rootfs_tree/sys" \
-  -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +
-sudo mkdir -p "$rootfs_tree/dev" "$rootfs_tree/proc" "$rootfs_tree/sys" "$rootfs_tree/workspace"
+export_guest_tree "$primary_runtime_image" "$rootfs_tree"
+sudo mkdir -p "$rootfs_tree/tmp" "$rootfs_tree/workspace"
 sudo mkdir -p "$rootfs_tree/home/awf"
 sudo chown 1000:1000 "$rootfs_tree/home/awf"
-sudo cmp "$supervisor" "$rootfs_tree/usr/sbin/awf-supervisor"
 if ! grep -q '^awf:' "$rootfs_tree/etc/passwd"; then
   printf 'awf:x:1000:1000:AWF guest:/workspace:/bin/bash\n' \
     | sudo tee -a "$rootfs_tree/etc/passwd" >/dev/null
@@ -507,26 +487,18 @@ sudo tee "$rootfs_tree/etc/resolv.conf" >/dev/null <<'EOF'
 # Direct DNS is intentionally unavailable in the Cloud Hypervisor foundation guest.
 EOF
 sudo chmod 01777 "$rootfs_tree/tmp"
-sudo find "$rootfs_tree" -print0 \
-  | sudo xargs -0 touch --no-dereference --date="@${SOURCE_DATE_EPOCH}"
-
 rootfs="$OUTPUT/rootfs.ext4"
-rootfs_usage_bytes=$(sudo du --summarize --block-size=1 "$rootfs_tree" | awk '{print $1}')
-rootfs_bytes=$((rootfs_usage_bytes + rootfs_usage_bytes / 4 + 512 * 1024 * 1024))
-rootfs_blocks=$(((rootfs_bytes + 4095) / 4096))
-sudo env E2FSPROGS_FAKE_TIME="$SOURCE_DATE_EPOCH" mke2fs \
-  -t ext4 \
-  -F \
-  -q \
-  -b 4096 \
-  -d "$rootfs_tree" \
-  -U 2f6f6e8f-2f2a-4b6a-9b9a-7d6a4a1c5c3a \
-  -E lazy_itable_init=0,lazy_journal_init=0 \
-  "$rootfs" \
-  "$rootfs_blocks"
-sudo env E2FSPROGS_FAKE_TIME="$SOURCE_DATE_EPOCH" e2fsck -f -y "$rootfs" >/dev/null
-sudo chown "$(id -u):$(id -g)" "$rootfs"
-chmod 0600 "$rootfs"
+assemble_guest_rootfs "$rootfs_tree" "$rootfs" \
+  2f6f6e8f-2f2a-4b6a-9b9a-7d6a4a1c5c3a $((512 * 1024 * 1024))
+node "$ROOT/guest/cloud-hypervisor/generate-enclave-rootfs-sbom.mjs" \
+  --role primary \
+  --rootfs-tree "$rootfs_tree" \
+  --rootfs "$rootfs" \
+  --output "$OUTPUT/rootfs.sbom.spdx.json" \
+  --release-tag "$RELEASE_TAG" \
+  --source-image "$PRIMARY_IMAGE" \
+  --source-image-digest "${primary_image_id#sha256:}" \
+  --source-date-epoch "$SOURCE_DATE_EPOCH"
 sudo rm -rf "$rootfs_tree"
 report_disk 'primary rootfs'
 
@@ -538,12 +510,12 @@ report_disk 'primary rootfs'
     vmlinux.bin \
     kernel.config \
     rootfs.ext4 \
+    rootfs.sbom.spdx.json \
     awf-supervisor \
     > SHA256SUMS
   sha256sum \
     enclave-rootfs.ext4 \
-    enclave-script-rootfs.sbom.spdx.json \
-    enclave-agent-rootfs.sbom.spdx.json \
+    enclave-rootfs.sbom.spdx.json \
     > enclave-rootfs.SHA256SUMS
 )
 
@@ -578,7 +550,11 @@ cat >"$OUTPUT/manifest.json" <<EOF
     "rootfs": {
       "file": "rootfs.ext4",
       "version": "${RELEASE_TAG}",
-      "sha256": "$(sha256sum "$OUTPUT/rootfs.ext4" | awk '{print $1}')"
+      "sha256": "$(sha256sum "$OUTPUT/rootfs.ext4" | awk '{print $1}')",
+      "sbom": {
+        "file": "rootfs.sbom.spdx.json",
+        "sha256": "$(sha256sum "$OUTPUT/rootfs.sbom.spdx.json" | awk '{print $1}')"
+      }
     },
     "supervisor": {
       "file": "awf-supervisor",
@@ -625,7 +601,7 @@ EOF
 
 cat >"$OUTPUT/enclave-manifest.json" <<EOF
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "artifactType": "awf-cloud-hypervisor-enclave-rootfs-set",
   "architecture": "x86_64",
   "release": {
@@ -643,38 +619,22 @@ cat >"$OUTPUT/enclave-manifest.json" <<EOF
     "image": "${GUEST_BASE_IMAGE}",
     "imageId": "${guest_base_image_id}"
   },
+  "entrypoints": {
+    "script": "/usr/local/bin/run-enclave-script",
+    "agent": "/usr/local/bin/run-enclave-agent"
+  },
   "rootfs": {
-    "script": {
-      "file": "enclave-rootfs.ext4",
-      "role": "script",
-      "version": "${RELEASE_TAG}",
-      "sha256": "$(sha256sum "$OUTPUT/enclave-rootfs.ext4" | awk '{print $1}')",
-      "sizeBytes": $(stat -c '%s' "$OUTPUT/enclave-rootfs.ext4"),
-      "uid": 65534,
-      "gid": 65534,
-      "entrypoint": "/usr/local/bin/run-enclave-script",
-      "sourceImage": "${ENCLAVE_IMAGE}",
-      "sourceImageDigest": "${enclave_image_digest}",
-      "sbom": {
-        "file": "enclave-script-rootfs.sbom.spdx.json",
-        "sha256": "$(sha256sum "$OUTPUT/enclave-script-rootfs.sbom.spdx.json" | awk '{print $1}')"
-      }
-    },
-    "agent": {
-      "file": "enclave-rootfs.ext4",
-      "role": "agent",
-      "version": "${RELEASE_TAG}",
-      "sha256": "$(sha256sum "$OUTPUT/enclave-rootfs.ext4" | awk '{print $1}')",
-      "sizeBytes": $(stat -c '%s' "$OUTPUT/enclave-rootfs.ext4"),
-      "uid": 65534,
-      "gid": 65534,
-      "entrypoint": "/usr/local/bin/run-enclave-agent",
-      "sourceImage": "${ENCLAVE_IMAGE}",
-      "sourceImageDigest": "${enclave_image_digest}",
-      "sbom": {
-        "file": "enclave-agent-rootfs.sbom.spdx.json",
-        "sha256": "$(sha256sum "$OUTPUT/enclave-agent-rootfs.sbom.spdx.json" | awk '{print $1}')"
-      }
+    "file": "enclave-rootfs.ext4",
+    "version": "${RELEASE_TAG}",
+    "sha256": "$(sha256sum "$OUTPUT/enclave-rootfs.ext4" | awk '{print $1}')",
+    "sizeBytes": $(stat -c '%s' "$OUTPUT/enclave-rootfs.ext4"),
+    "uid": 65534,
+    "gid": 65534,
+    "sourceImage": "${ENCLAVE_IMAGE}",
+    "sourceImageDigest": "${enclave_image_digest}",
+    "sbom": {
+      "file": "enclave-rootfs.sbom.spdx.json",
+      "sha256": "$(sha256sum "$OUTPUT/enclave-rootfs.sbom.spdx.json" | awk '{print $1}')"
     }
   }
 }
@@ -757,6 +717,7 @@ tar \
   vmlinux.bin \
   kernel.config \
   rootfs.ext4 \
+  rootfs.sbom.spdx.json \
   awf-supervisor \
   SHA256SUMS \
   manifest.json \
@@ -773,8 +734,7 @@ tar \
   --file "$OUTPUT/awf-cloud-hypervisor-enclave-rootfs-x86_64.tar.gz" \
   --directory "$OUTPUT" \
   enclave-rootfs.ext4 \
-  enclave-script-rootfs.sbom.spdx.json \
-  enclave-agent-rootfs.sbom.spdx.json \
+  enclave-rootfs.sbom.spdx.json \
   enclave-rootfs.SHA256SUMS \
   enclave-manifest.json
 report_disk packaging

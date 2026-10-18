@@ -145,13 +145,22 @@ export async function preflightCloudHypervisorEnclaveArtifacts(
       script: filePath(manifestDir, manifest.rootfs.script.file),
       agent: filePath(manifestDir, manifest.rootfs.agent.file),
     };
-    if (
-      options.scriptRootfsPath !== rootfsPaths.script
+    const sharedRootfs = manifest.rootfs.script.file === manifest.rootfs.agent.file;
+    if (sharedRootfs) {
+      if (
+        (options.rootfsPath ?? options.scriptRootfsPath) !== rootfsPaths.script
+        || (options.scriptRootfsPath && options.scriptRootfsPath !== rootfsPaths.script)
+        || (options.agentRootfsPath && options.agentRootfsPath !== rootfsPaths.agent)
+      ) {
+        throw new Error('Configured enclave rootfs does not match the trusted manifest path (shared)');
+      }
+    } else if (
+      options.rootfsPath
+      || options.scriptRootfsPath !== rootfsPaths.script
       || options.agentRootfsPath !== rootfsPaths.agent
     ) {
-      throw new Error('Configured enclave rootfs does not match the trusted manifest path');
+      throw new Error('Configured enclave rootfs does not match the trusted manifest path (split)');
     }
-    const sharedRootfs = manifest.rootfs.script.file === manifest.rootfs.agent.file;
     for (const role of ['script', 'agent'] as const) {
       if (sharedRootfs && role === 'agent') continue;
       const artifact = manifest.rootfs[role];
@@ -192,6 +201,11 @@ export async function preflightCloudHypervisorEnclaveArtifacts(
       await verifyAttestation(options.attestationToolPath, verifiedRootfs, verifiedProvenance);
     }
     for (const role of ['script', 'agent'] as const) {
+      if (sharedRootfs && role === 'agent'
+        && manifest.rootfs.script.sbom.file === manifest.rootfs.agent.sbom.file) {
+        rootfs.agent = { path: rootfsPaths.agent, artifact: manifest.rootfs.agent };
+        continue;
+      }
       const artifact = enclaveRootfsArtifactForRole(manifest, role);
       const sbom = filePath(manifestDir, artifact.sbom.file);
       await assertTrustedRegularFile(`${role} enclave rootfs SBOM`, sbom, constants.R_OK, {
@@ -211,6 +225,23 @@ export async function preflightCloudHypervisorEnclaveArtifacts(
         }
         if (await calculateSha256(verifiedSbom) !== artifact.sbom.sha256) {
           throw new Error(`${role} enclave rootfs SBOM does not match its trusted manifest digest`);
+        }
+        if (manifest.schemaVersion === 2) {
+          const document: unknown = JSON.parse(new TextDecoder('utf-8', { fatal: true })
+            .decode(await readTrustedArtifactBytes(verifiedSbom, uid, 16 * 1024 * 1024)));
+          const sbom = document as {
+            spdxVersion?: unknown;
+            packages?: Array<{ SPDXID?: string; checksums?: Array<{ algorithm?: string; checksumValue?: string }> }>;
+            files?: unknown[];
+          };
+          if (sbom.spdxVersion !== 'SPDX-2.3'
+            || !Array.isArray(sbom.files) || sbom.files.length === 0
+            || !Array.isArray(sbom.packages)
+            || sbom.packages.filter(pkg => pkg.SPDXID === 'SPDXRef-Rootfs'
+              && pkg.checksums?.some(check => check.algorithm === 'SHA256'
+                && check.checksumValue === artifact.sha256)).length !== 1) {
+            throw new Error(`${role} enclave rootfs SBOM does not bind its final filesystem digest`);
+          }
         }
       } finally {
         if (copyRootfs) await fs.rm(roleDirectory, { recursive: true, force: true });

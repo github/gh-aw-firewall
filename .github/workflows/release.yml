@@ -943,10 +943,10 @@ jobs:
             release/cloud-hypervisor-enclave-rootfs-x86_64.tar.gz
           gzip -n -c cloud-hypervisor-release-assets/enclave-rootfs.ext4 \
             > release/enclave-rootfs.ext4.gz
-          cp cloud-hypervisor-release-assets/enclave-script-rootfs.sbom.spdx.json \
-            release/enclave-script-rootfs.sbom.spdx.json
-          cp cloud-hypervisor-release-assets/enclave-agent-rootfs.sbom.spdx.json \
-            release/enclave-agent-rootfs.sbom.spdx.json
+          cp cloud-hypervisor-release-assets/enclave-rootfs.sbom.spdx.json \
+            release/enclave-rootfs.sbom.spdx.json
+          cp cloud-hypervisor-release-assets/rootfs.sbom.spdx.json \
+            release/cloud-hypervisor-rootfs.sbom.spdx.json
           cp cloud-hypervisor-release-assets/enclave-rootfs.provenance.sigstore.jsonl \
             release/enclave-rootfs.provenance.sigstore.jsonl
           cp cloud-hypervisor-release-assets/enclave-manifest.json \
@@ -1156,8 +1156,8 @@ jobs:
             release/nvx-test-x86_64.manifest.json
             release/nvx-test-x86_64.manifest.sigstore.jsonl
             release/enclave-rootfs.ext4.gz
-            release/enclave-script-rootfs.sbom.spdx.json
-            release/enclave-agent-rootfs.sbom.spdx.json
+            release/enclave-rootfs.sbom.spdx.json
+            release/cloud-hypervisor-rootfs.sbom.spdx.json
             release/enclave-rootfs.provenance.sigstore.jsonl
             release/setup-cloud-hypervisor-enclave-artifacts.sh
             release/containers.txt

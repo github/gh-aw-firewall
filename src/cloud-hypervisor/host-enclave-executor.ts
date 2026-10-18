@@ -162,7 +162,9 @@ export async function createCloudHypervisorHostEnclaveExecutor(
   const manifestBundlePath = environment.AWF_CLOUD_HYPERVISOR_ENCLAVE_MANIFEST_BUNDLE;
   const scriptRootfsPath = environment.AWF_CLOUD_HYPERVISOR_ENCLAVE_SCRIPT_ROOTFS;
   const agentRootfsPath = environment.AWF_CLOUD_HYPERVISOR_ENCLAVE_AGENT_ROOTFS;
-  if (!releaseTag || !manifestPath || !manifestBundlePath || !scriptRootfsPath || !agentRootfsPath) {
+  const rootfsPath = environment.AWF_CLOUD_HYPERVISOR_ENCLAVE_ROOTFS;
+  if (!releaseTag || !manifestPath || !manifestBundlePath
+    || (!rootfsPath && (!scriptRootfsPath || !agentRootfsPath))) {
     throw new Error('Cloud Hypervisor enclave artifacts have not been staged and verified');
   }
   const attestationToolPath = await resolveTrustedAttestationTool(environment);
@@ -180,6 +182,7 @@ export async function createCloudHypervisorHostEnclaveExecutor(
       releaseTag,
       manifestPath,
       manifestBundlePath,
+      rootfsPath,
       scriptRootfsPath,
       agentRootfsPath,
       attestationToolPath,

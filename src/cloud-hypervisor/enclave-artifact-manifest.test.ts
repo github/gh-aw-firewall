@@ -74,6 +74,25 @@ function legacyManifest(): string {
   });
 }
 
+function sharedV2(overrides: Record<string, unknown> = {}): string {
+  const old = JSON.parse(manifest());
+  return JSON.stringify({
+    ...old,
+    schemaVersion: 2,
+    rootfs: {
+      ...role('script'),
+      role: undefined,
+      entrypoint: undefined,
+      sbom: { file: 'enclave-rootfs.sbom.spdx.json', sha256: digest },
+    },
+    entrypoints: {
+      script: '/usr/local/bin/run-enclave-script',
+      agent: '/usr/local/bin/run-enclave-agent',
+    },
+    ...overrides,
+  });
+}
+
 describe('Cloud Hypervisor enclave artifact manifest', () => {
   it.each(['v0.28.62', 'v0.28.63', 'v0.28.64', 'v0.28.65', 'v0.28.67', 'latest'])(
     'rejects a release outside the reviewed v0.28.66 compatibility pin: %s', tag => {
@@ -110,6 +129,28 @@ describe('Cloud Hypervisor enclave artifact manifest', () => {
       .toBe('enclave-script-rootfs.ext4');
     expect(enclaveRootfsArtifactForRole(parsed, 'agent').file)
       .toBe('enclave-agent-rootfs.ext4');
+  });
+
+  it('accepts one shared v2 filesystem and fixed distinct role entrypoints', () => {
+    const parsed = parseCloudHypervisorEnclaveArtifactManifest(sharedV2(), releaseTag);
+    expect(parsed.schemaVersion).toBe(2);
+    expect(parsed.rootfs.script.sha256).toBe(parsed.rootfs.agent.sha256);
+    expect(parsed.rootfs.script.sbom.file).toBe('enclave-rootfs.sbom.spdx.json');
+    expect(parsed.rootfs.agent.entrypoint).toBe('/usr/local/bin/run-enclave-agent');
+  });
+
+  it.each([
+    ['unexpected rootfs field', { rootfs: { ...role('script'), unexpected: 1 } }, /must contain exactly/],
+    ['missing base', { guestBase: undefined }, /must contain exactly/],
+    ['wrong entrypoint', {
+      entrypoints: { script: '/bin/sh', agent: '/usr/local/bin/run-enclave-agent' },
+    }, /entrypoints.script/],
+    ['unexpected entrypoint', {
+      entrypoints: { script: '/usr/local/bin/run-enclave-script', agent: '/usr/local/bin/run-enclave-agent', other: '/bin/sh' },
+    }, /entrypoints must contain exactly/],
+  ])('rejects invalid v2 %s', (_name, overrides, expected) => {
+    expect(() => parseCloudHypervisorEnclaveArtifactManifest(sharedV2(overrides), releaseTag))
+      .toThrow(expected);
   });
 
   it('rejects role entries that do not share the exact same rootfs and source image', () => {
@@ -176,7 +217,7 @@ describe('Cloud Hypervisor enclave artifact manifest', () => {
   it.each([
     ['invalid JSON', '{', /not valid JSON/],
     ['array document', '[]', /must be a JSON object/],
-    ['wrong schema', manifest({ schemaVersion: 2 }), /schemaVersion must be 1/],
+    ['wrong schema', manifest({ schemaVersion: 3 }), /schemaVersion must be 1 or 2/],
     ['wrong artifact type', manifest({ artifactType: 'other' }), /artifactType/],
     ['wrong architecture', manifest({ architecture: 'aarch64' }), /architecture/],
     ['non-object release', manifest({ release: null }), /release must be a JSON object/],

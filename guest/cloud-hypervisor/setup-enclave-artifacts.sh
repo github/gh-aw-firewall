@@ -90,13 +90,20 @@ verify_manifest() {
   assert_trusted_file "$manifest_bundle" "enclave artifact manifest bundle" || return 1
   verify_attestation "$manifest" "$manifest_bundle" || return 1
 
+  local schema
+  schema=$(jq -r '.schemaVersion' "$manifest")
+  [[ "$schema" = 1 || "$schema" = 2 ]] \
+    || { echo "unsupported enclave artifact manifest schema" >&2; return 1; }
   local shared_layout=false
-  if jq -e 'has("guestBase")' "$manifest" >/dev/null; then
+  if [ "$schema" = 2 ] || jq -e 'has("guestBase")' "$manifest" >/dev/null; then
     shared_layout=true
   fi
   local manifest_keys='schemaVersion,artifactType,architecture,release,compatibility,rootfs'
   if [ "$shared_layout" = true ]; then
     manifest_keys+=',guestBase'
+  fi
+  if [ "$schema" = 2 ]; then
+    manifest_keys+=',entrypoints'
   fi
   assert_closed_keys "$manifest" '' \
     "$manifest_keys" \
@@ -115,12 +122,18 @@ verify_manifest() {
     jq -e '.guestBase.imageId | test("^sha256:[a-f0-9]{64}$")' \
       "$manifest" >/dev/null || return 1
   fi
-  assert_closed_keys "$manifest" '.rootfs' \
-    'script,agent' \
-    "enclave artifact manifest rootfs" || return 1
-
-  [ "$(jq -r '.schemaVersion' "$manifest")" = 1 ] \
-    || { echo "unsupported enclave artifact manifest schema" >&2; return 1; }
+  if [ "$schema" = 2 ]; then
+    assert_closed_keys "$manifest" '.rootfs' \
+      'file,version,sha256,sizeBytes,uid,gid,sourceImage,sourceImageDigest,sbom' \
+      "enclave artifact manifest rootfs" || return 1
+    assert_closed_keys "$manifest" '.rootfs.sbom' 'file,sha256' \
+      "enclave artifact manifest SBOM" || return 1
+    assert_closed_keys "$manifest" '.entrypoints' 'script,agent' \
+      "enclave artifact manifest entrypoints" || return 1
+  else
+    assert_closed_keys "$manifest" '.rootfs' 'script,agent' \
+      "enclave artifact manifest rootfs" || return 1
+  fi
   [ "$(jq -r '.artifactType' "$manifest")" = \
       awf-cloud-hypervisor-enclave-rootfs-set ] \
     || { echo "unexpected enclave artifact manifest type" >&2; return 1; }
@@ -139,6 +152,21 @@ verify_manifest() {
   [ "$(jq -r '.compatibility.supervisorVersion' "$manifest")" = "$RELEASE_TAG" ] \
     || { echo "enclave artifact supervisor compatibility mismatch" >&2; return 1; }
 
+  if [ "$schema" = 2 ]; then
+    jq -e --arg tag "$RELEASE_TAG" '
+      .rootfs.file == "enclave-rootfs.ext4"
+      and .rootfs.version == $tag and .rootfs.uid == 65534 and .rootfs.gid == 65534
+      and (.rootfs.sha256 | type == "string" and test("^[a-f0-9]{64}$"))
+      and (.rootfs.sizeBytes | type == "number" and . > 0 and . <= 9007199254740991 and floor == .)
+      and (.rootfs.sourceImage | type == "string" and test("^ghcr.io/github/gh-aw-firewall/cloud-hypervisor-enclave@sha256:[a-f0-9]{64}$"))
+      and (.rootfs.sourceImageDigest | type == "string" and test("^[a-f0-9]{64}$"))
+      and .rootfs.sbom.file == "enclave-rootfs.sbom.spdx.json"
+      and (.rootfs.sbom.sha256 | type == "string" and test("^[a-f0-9]{64}$"))
+      and .entrypoints.script == "/usr/local/bin/run-enclave-script"
+      and .entrypoints.agent == "/usr/local/bin/run-enclave-agent"
+    ' "$manifest" >/dev/null || { echo "invalid shared enclave rootfs identity or entrypoints" >&2; return 1; }
+    return
+  fi
   local role
   for role in script agent; do
     local rootfs_name="enclave-${role}-rootfs.ext4"
@@ -197,11 +225,14 @@ verify_rootfs_files() {
   local role
   for role in script agent; do
     local rootfs_name
-    rootfs_name=$(jq -r ".rootfs.${role}.file" "$manifest")
+    local selector=".rootfs.${role}"
+    if [ "$(jq -r '.schemaVersion' "$manifest")" = 2 ]; then
+      selector='.rootfs'
+    fi
+    rootfs_name=$(jq -r "${selector}.file" "$manifest")
     local rootfs="$directory/$rootfs_name"
     local provenance="$directory/${rootfs_name%.ext4}.provenance.sigstore.jsonl"
-    local sbom="$directory/enclave-${role}-rootfs.sbom.spdx.json"
-    local selector=".rootfs.${role}"
+    local sbom="$directory/$(jq -r "${selector}.sbom.file" "$manifest")"
     local skip_shared_rootfs_checks=false
     if [ "$rootfs_name" = enclave-rootfs.ext4 ] && [ "$role" = agent ]; then
       skip_shared_rootfs_checks=true
@@ -222,6 +253,15 @@ verify_rootfs_files() {
     [ "$(jq -r "${selector}.sbom.sha256" "$manifest")" = \
         "$(sha256sum "$sbom" | awk '{print $1}')" ] \
       || { echo "$role enclave rootfs SBOM digest mismatch" >&2; return 1; }
+    if [ "$(jq -r '.schemaVersion' "$manifest")" = 2 ]; then
+      jq -e --arg digest "$(jq -r '.rootfs.sha256' "$manifest")" '
+        .spdxVersion == "SPDX-2.3"
+        and ([.packages[] | select(.SPDXID == "SPDXRef-Rootfs")
+          | .checksums[] | select(.algorithm == "SHA256") | .checksumValue] == [$digest])
+        and (.files | type == "array" and length > 0)
+      ' "$sbom" >/dev/null || { echo "enclave rootfs SBOM inventory or binding mismatch" >&2; return 1; }
+      break
+    fi
   done
 }
 
@@ -247,19 +287,22 @@ else
     --pattern "$manifest_name" \
     --pattern "$manifest_bundle_name" \
     --pattern 'enclave-*rootfs.ext4*' \
-    --pattern 'enclave-script-rootfs.sbom.spdx.json' \
-    --pattern 'enclave-agent-rootfs.sbom.spdx.json' \
+    --pattern 'enclave-*rootfs.sbom.spdx.json' \
     --pattern 'enclave-*rootfs.provenance.sigstore.jsonl'
   verify_manifest "$staging"
   for role in script agent; do
-    rootfs_name=$(jq -r ".rootfs.${role}.file" "$staging/$manifest_name")
+    selector=".rootfs.${role}"
+    if [ "$(jq -r '.schemaVersion' "$staging/$manifest_name")" = 2 ]; then
+      selector='.rootfs'
+    fi
+    rootfs_name=$(jq -r "${selector}.file" "$staging/$manifest_name")
     if [ "$rootfs_name" = enclave-rootfs.ext4 ] && [ "$role" = agent ]; then
       continue
     fi
     compressed_rootfs="$staging/$rootfs_name.gz"
     if [ -f "$compressed_rootfs" ]; then
       rootfs="$staging/$rootfs_name"
-      size_bytes=$(jq -r ".rootfs.${role}.sizeBytes" "$staging/$manifest_name")
+      size_bytes=$(jq -r "${selector}.sizeBytes" "$staging/$manifest_name")
       rootfs_label="$role"
       if [ "$rootfs_name" = enclave-rootfs.ext4 ]; then
         rootfs_label=shared
@@ -294,17 +337,28 @@ fi
 
 manifest="$cache_dir/$manifest_name"
 manifest_bundle="$cache_dir/$manifest_bundle_name"
-script_rootfs="$cache_dir/$(jq -r '.rootfs.script.file' "$manifest")"
-agent_rootfs="$cache_dir/$(jq -r '.rootfs.agent.file' "$manifest")"
+if [ "$(jq -r '.schemaVersion' "$manifest")" = 2 ]; then
+  script_rootfs="$cache_dir/$(jq -r '.rootfs.file' "$manifest")"
+  agent_rootfs=$script_rootfs
+else
+  script_rootfs="$cache_dir/$(jq -r '.rootfs.script.file' "$manifest")"
+  agent_rootfs="$cache_dir/$(jq -r '.rootfs.agent.file' "$manifest")"
+fi
 
 if [ -n "${GITHUB_ENV:-}" ]; then
   {
+    if [ "$script_rootfs" = "$agent_rootfs" ]; then
+      printf 'AWF_CLOUD_HYPERVISOR_ENCLAVE_ROOTFS=%s\n' "$script_rootfs"
+    fi
     printf 'AWF_CLOUD_HYPERVISOR_ENCLAVE_SCRIPT_ROOTFS=%s\n' "$script_rootfs"
     printf 'AWF_CLOUD_HYPERVISOR_ENCLAVE_AGENT_ROOTFS=%s\n' "$agent_rootfs"
     printf 'AWF_CLOUD_HYPERVISOR_ENCLAVE_MANIFEST=%s\n' "$manifest"
     printf 'AWF_CLOUD_HYPERVISOR_ENCLAVE_MANIFEST_BUNDLE=%s\n' "$manifest_bundle"
   } >>"$GITHUB_ENV"
 else
+  if [ "$script_rootfs" = "$agent_rootfs" ]; then
+    printf 'export AWF_CLOUD_HYPERVISOR_ENCLAVE_ROOTFS=%q\n' "$script_rootfs"
+  fi
   printf 'export AWF_CLOUD_HYPERVISOR_ENCLAVE_SCRIPT_ROOTFS=%q\n' "$script_rootfs"
   printf 'export AWF_CLOUD_HYPERVISOR_ENCLAVE_AGENT_ROOTFS=%q\n' "$agent_rootfs"
   printf 'export AWF_CLOUD_HYPERVISOR_ENCLAVE_MANIFEST=%q\n' "$manifest"

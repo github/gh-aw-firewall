@@ -15,9 +15,9 @@ for file in \
   enclave-rootfs.SHA256SUMS \
   manifest.json \
   enclave-manifest.json \
+  rootfs.sbom.spdx.json \
   sbom.spdx.json \
-  enclave-script-rootfs.sbom.spdx.json \
-  enclave-agent-rootfs.sbom.spdx.json \
+  enclave-rootfs.sbom.spdx.json \
   awf-cloud-hypervisor-enclave-rootfs-x86_64.tar.gz; do
   test -f "$ARTIFACT_DIR/$file" || {
     echo "missing Cloud Hypervisor artifact: $file" >&2
@@ -86,6 +86,20 @@ done
 grep -F '"configOverlay": "scripts/config --enable FUSE_FS --enable VIRTIO_FS followed by olddefconfig"' \
   "$ARTIFACT_DIR/manifest.json"
 grep -F '"spdxVersion": "SPDX-2.3"' "$ARTIFACT_DIR/sbom.spdx.json"
+test "$(jq -r '.artifacts.rootfs.sbom.sha256' "$ARTIFACT_DIR/manifest.json")" = \
+  "$(sha256sum "$ARTIFACT_DIR/rootfs.sbom.spdx.json" | awk '{print $1}')"
+
+verify_inventory() {
+  local sbom=$1 digest=$2
+  jq -e --arg digest "$digest" '
+    .spdxVersion == "SPDX-2.3"
+    and ([.packages[] | select(.SPDXID == "SPDXRef-Rootfs")
+      | .checksums[] | select(.algorithm == "SHA256") | .checksumValue] == [$digest])
+    and (.files | type == "array" and length > 0)
+  ' "$sbom" >/dev/null
+}
+verify_inventory "$ARTIFACT_DIR/rootfs.sbom.spdx.json" \
+  "$(sha256sum "$ARTIFACT_DIR/rootfs.ext4" | awk '{print $1}')"
 
 test "$(jq -r '.artifactType' "$ARTIFACT_DIR/enclave-manifest.json")" = \
   'awf-cloud-hypervisor-enclave-rootfs-set'
@@ -109,9 +123,9 @@ verify_enclave_rootfs() {
   local entrypoint=$2
   local file="enclave-rootfs.ext4"
   local image="$ARTIFACT_DIR/$file"
-  local manifest=".rootfs.${role}"
+  local manifest=".rootfs"
 
-  test "$(jq -r "${manifest}.role" "$ARTIFACT_DIR/enclave-manifest.json")" = "$role"
+  test "$(jq -r ".entrypoints.${role}" "$ARTIFACT_DIR/enclave-manifest.json")" = "$entrypoint"
   test "$(jq -r "${manifest}.file" "$ARTIFACT_DIR/enclave-manifest.json")" = "$file"
   test "$(jq -r "${manifest}.sha256" "$ARTIFACT_DIR/enclave-manifest.json")" = \
     "$(sha256sum "$image" | awk '{print $1}')"
@@ -119,7 +133,6 @@ verify_enclave_rootfs() {
     "$(stat -c '%s' "$image")"
   test "$(jq -r "${manifest}.uid" "$ARTIFACT_DIR/enclave-manifest.json")" = 65534
   test "$(jq -r "${manifest}.gid" "$ARTIFACT_DIR/enclave-manifest.json")" = 65534
-  test "$(jq -r "${manifest}.entrypoint" "$ARTIFACT_DIR/enclave-manifest.json")" = "$entrypoint"
   test "$(jq -r "${manifest}.sourceImageDigest" "$ARTIFACT_DIR/enclave-manifest.json")" \
     != null
   test "$(jq -r "${manifest}.sourceImageDigest" "$ARTIFACT_DIR/enclave-manifest.json")" \
@@ -127,10 +140,11 @@ verify_enclave_rootfs() {
 
   local sbom
   sbom=$(jq -r "${manifest}.sbom.file" "$ARTIFACT_DIR/enclave-manifest.json")
-  test "$sbom" = "enclave-${role}-rootfs.sbom.spdx.json"
+  test "$sbom" = "enclave-rootfs.sbom.spdx.json"
   test "$(jq -r "${manifest}.sbom.sha256" "$ARTIFACT_DIR/enclave-manifest.json")" = \
     "$(sha256sum "$ARTIFACT_DIR/$sbom" | awk '{print $1}')"
   grep -F '"spdxVersion": "SPDX-2.3"' "$ARTIFACT_DIR/$sbom"
+  verify_inventory "$ARTIFACT_DIR/$sbom" "$(sha256sum "$image" | awk '{print $1}')"
 
   e2fsck -f -n "$image"
   if [ "$role" = agent ]; then
@@ -231,12 +245,9 @@ verify_enclave_rootfs() {
   fi
 }
 
+test "$(jq -r '.schemaVersion' "$ARTIFACT_DIR/enclave-manifest.json")" = 2
 verify_enclave_rootfs script /usr/local/bin/run-enclave-script
 verify_enclave_rootfs agent /usr/local/bin/run-enclave-agent
-test "$(jq -r '.rootfs.script.sha256' "$ARTIFACT_DIR/enclave-manifest.json")" = \
-  "$(jq -r '.rootfs.agent.sha256' "$ARTIFACT_DIR/enclave-manifest.json")"
-test "$(jq -r '.rootfs.script.sourceImage' "$ARTIFACT_DIR/enclave-manifest.json")" = \
-  "$(jq -r '.rootfs.agent.sourceImage' "$ARTIFACT_DIR/enclave-manifest.json")"
 test "$(jq -r '.userspace.baseImageId' "$ARTIFACT_DIR/manifest.json")" = \
   "$(jq -r '.guestBase.imageId' "$ARTIFACT_DIR/enclave-manifest.json")"
 
@@ -244,7 +255,6 @@ tar -tzf "$ARTIFACT_DIR/awf-cloud-hypervisor-enclave-rootfs-x86_64.tar.gz" \
   | sort \
   | diff -u <(printf '%s\n' \
       enclave-rootfs.ext4 \
-      enclave-agent-rootfs.sbom.spdx.json \
+      enclave-rootfs.sbom.spdx.json \
       enclave-manifest.json \
-      enclave-rootfs.SHA256SUMS \
-      enclave-script-rootfs.sbom.spdx.json | sort) -
+      enclave-rootfs.SHA256SUMS | sort) -

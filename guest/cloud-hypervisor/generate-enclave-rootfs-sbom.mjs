@@ -2,7 +2,7 @@
 
 import { createHash } from 'node:crypto';
 import { createReadStream } from 'node:fs';
-import { readFile, writeFile } from 'node:fs/promises';
+import { lstat, readFile, readdir, readlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
 function parseArguments(argv) {
@@ -27,7 +27,7 @@ function parseArguments(argv) {
   ]) {
     if (!values[required]) throw new Error(`missing --${required}`);
   }
-  if (!['script', 'agent'].includes(values.role)) throw new Error('invalid role');
+  if (!['primary', 'enclave'].includes(values.role)) throw new Error('invalid filesystem profile');
   if (!/^[a-f0-9]{64}$/.test(values['source-image-digest'])) {
     throw new Error('source image digest must be lowercase SHA-256');
   }
@@ -101,6 +101,30 @@ if (packages.length === 0) {
 }
 
 const rootfsDigest = await sha256(args.rootfs);
+const files = [];
+async function inventory(directory, relative = '') {
+  for (const name of (await readdir(directory)).sort()) {
+    const filename = path.join(directory, name);
+    const entry = `${relative}/${name}`;
+    const stat = await lstat(filename);
+    if (stat.isDirectory()) {
+      await inventory(filename, entry);
+    } else if (stat.isFile() || stat.isSymbolicLink()) {
+      const checksum = stat.isSymbolicLink()
+        ? createHash('sha256').update(await readlink(filename)).digest('hex')
+        : await sha256(filename);
+      files.push({
+        fileName: `.${entry}`,
+        SPDXID: `SPDXRef-File-${files.length}`,
+        checksums: [{ algorithm: 'SHA256', checksumValue: checksum }],
+        fileTypes: [stat.isSymbolicLink() ? 'OTHER' : 'BINARY'],
+        licenseConcluded: 'NOASSERTION',
+        copyrightText: 'NOASSERTION',
+      });
+    }
+  }
+}
+await inventory(tree);
 const packageEntries = packages.map((item, index) => ({
   name: item.name,
   SPDXID: spdxId(item.name, index),
@@ -117,9 +141,9 @@ const document = {
   spdxVersion: 'SPDX-2.3',
   dataLicense: 'CC0-1.0',
   SPDXID: 'SPDXRef-DOCUMENT',
-  name: `awf-cloud-hypervisor-enclave-${args.role}-rootfs-x86_64`,
+  name: `awf-cloud-hypervisor-${args.role}-rootfs-x86_64`,
   documentNamespace:
-    `https://github.com/github/gh-aw-firewall/cloud-hypervisor/enclave-${args.role}/`
+    `https://github.com/github/gh-aw-firewall/cloud-hypervisor/${args.role}/`
     + `${args['release-tag']}/${rootfsDigest}`,
   creationInfo: {
     created,
@@ -127,7 +151,7 @@ const document = {
   },
   packages: [
     {
-      name: `awf-cloud-hypervisor-enclave-${args.role}-rootfs`,
+      name: `awf-cloud-hypervisor-${args.role}-rootfs`,
       SPDXID: 'SPDXRef-Rootfs',
       versionInfo: args['release-tag'],
       downloadLocation: 'NOASSERTION',
@@ -154,6 +178,7 @@ const document = {
     },
     ...packageEntries,
   ],
+  files,
   relationships: [
     {
       spdxElementId: 'SPDXRef-DOCUMENT',
@@ -166,6 +191,11 @@ const document = {
       relatedSpdxElement: 'SPDXRef-SourceImage',
     },
     ...packageEntries.map((item) => ({
+      spdxElementId: 'SPDXRef-Rootfs',
+      relationshipType: 'CONTAINS',
+      relatedSpdxElement: item.SPDXID,
+    })),
+    ...files.map((item) => ({
       spdxElementId: 'SPDXRef-Rootfs',
       relationshipType: 'CONTAINS',
       relatedSpdxElement: item.SPDXID,
