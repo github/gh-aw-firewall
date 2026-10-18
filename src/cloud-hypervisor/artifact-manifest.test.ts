@@ -31,6 +31,13 @@ function manifest(overrides: Record<string, unknown> = {}): string {
 }
 
 describe('Cloud Hypervisor artifact manifest', () => {
+  it.each(['v0.28.62', 'v0.28.63', 'v0.28.65', 'latest'])(
+    'rejects a release outside the reviewed v0.28.64 compatibility pin: %s', tag => {
+      expect(() => parseCloudHypervisorArtifactManifest(manifest(), tag))
+        .toThrow(/compatibility pin/);
+    },
+  );
+
   it('uses a reviewed guest compatibility pin independently of the host package identity', () => {
     jest.isolateModules(() => {
       jest.doMock('../../package.json', () => ({ version: '99.0.0-dev' }));

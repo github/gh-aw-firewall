@@ -8,6 +8,7 @@ import { normalizeEnclavesConfig } from '../../src/parsers/enclave-parser';
 import type { RawEnclavesConfig } from '../../src/types/enclave-options';
 import { isCloudHypervisorAgentAcceptanceWorkflow } from '../../src/enclave/cloud-hypervisor-script-acceptance';
 import { buildBranchEnclaveInstallSteps } from './workflow-step-builders';
+import { CLOUD_HYPERVISOR_ARTIFACT_RELEASE_TAG } from '../../src/cloud-hypervisor/artifact-manifest';
 
 const workflowPath = path.resolve(__dirname,
   '../../.github/workflows/smoke-enclave-cloud-hypervisor-copilot.lock.yml');
@@ -88,6 +89,7 @@ describe('Cloud Hypervisor Copilot agent enclave smoke', () => {
       id: 'awf', version: 'v0.28.64', runtime: 'cloud-hypervisor',
       config: { filesystem: { 'allow-write': ['/tmp/gh-aw/aw_info.json'] } },
     });
+    expect(CLOUD_HYPERVISOR_ARTIFACT_RELEASE_TAG).toBe(frontmatter.sandbox.agent.version);
     const match = lock.match(/\\"enclaves\\":(\[.+?\]),\\"container\\"/);
     expect(match).not.toBeNull();
     expect(JSON.parse(match![1].replace(/\\"/g, '"'))).toEqual([{
