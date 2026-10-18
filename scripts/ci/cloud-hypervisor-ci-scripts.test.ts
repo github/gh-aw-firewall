@@ -175,6 +175,20 @@ describe('cloud-hypervisor-live-smoke.sh', () => {
     expect(() => execFileSync('bash', ['-n', smokePath])).not.toThrow();
   });
 
+  it('checks workload identity and denied host paths from inside the guest', () => {
+    const source = fs.readFileSync(smokePath, 'utf-8');
+    const probe = source.match(/run_case workspace-live-share 0 \\\n\s+'([^']+)'/)?.[1];
+    expect(probe).toBeDefined();
+    expect(probe).toContain('test "$(id -u)" -ge 1000');
+    expect(probe).toContain('test "$(id -g)" -ge 1000');
+    for (const deniedPath of [
+      '/host/etc/shadow', '/host/etc/gshadow', '/root/.ssh',
+      '/var/lib/awf-cloud-hypervisor/trusted-artifacts',
+    ]) {
+      expect(probe).toContain(`! test -e ${deniedPath}`);
+    }
+  });
+
   describe('keep-mode trusted-artifact teardown', () => {
     const snapshotRoot = '/var/lib/awf-cloud-hypervisor/trusted-artifacts';
     const directory = `${snapshotRoot}/run-Ab1234`;

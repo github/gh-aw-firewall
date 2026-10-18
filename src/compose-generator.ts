@@ -33,7 +33,17 @@ export function generateDockerCompose(
   config: WrapperConfig,
   networkConfig: { subnet: string; squidIp: string; agentIp: string; proxyIp?: string; dohProxyIp?: string; cliProxyIp?: string },
   sslConfig?: SslConfig,
-  squidConfigContent?: string
+  squidConfigContent?: string,
+  options: {
+    effectiveHome?: string;
+    pathExists?: (candidate: string) => boolean;
+    prepareNestedMountpoints?: (
+      volumes: string[],
+      uid: number,
+      gid: number,
+      localSourceResolver: (source: string) => string | undefined,
+    ) => string[];
+  } = {},
 ): DockerComposeConfig {
   validateCustomImageManifest(config);
   const projectRoot = path.join(__dirname, '..');
@@ -102,7 +112,7 @@ export function generateDockerCompose(
     sslConfig,
   });
 
-  const effectiveHome = getRealUserHome();
+  const effectiveHome = options.effectiveHome ?? getRealUserHome();
   const workspaceDir = process.env.GITHUB_WORKSPACE || process.cwd();
 
   const agentVolumes = buildAgentVolumes({
@@ -121,6 +131,8 @@ export function generateDockerCompose(
     agentLogsPath: logPaths.agentLogs,
     sessionStatePath: logPaths.sessionState,
     initSignalDir,
+    pathExists: options.pathExists,
+    prepareNestedMountpoints: options.prepareNestedMountpoints,
   });
 
   const agentService = buildAgentService({

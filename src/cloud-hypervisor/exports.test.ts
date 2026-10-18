@@ -55,11 +55,12 @@ describe('Cloud Hypervisor directory exports', () => {
     const workspace = path.join(directory, 'workspace');
     const sharedTmp = path.join(directory, 'shared-tmp');
     await Promise.all([fs.mkdir(workspace), fs.mkdir(sharedTmp)]);
+    const realSharedTmp = await fs.realpath(sharedTmp);
     const exports = await resolveCloudHypervisorExports(
       { GITHUB_WORKSPACE: workspace }, workspace, 'workspace-only', sharedTmp,
     );
     expect(exports).toContainEqual({
-      tag: 'tmp-gh-aw', source: sharedTmp, target: '/tmp/gh-aw', mode: 'rw',
+      tag: 'tmp-gh-aw', source: realSharedTmp, target: '/tmp/gh-aw', mode: 'rw',
     });
   });
 

@@ -408,7 +408,7 @@ run_case api-proxy-reflect 0 \
   'wget -qO /tmp/reflect http://172.30.0.30:10000/reflect && grep -q "providers" /tmp/reflect && ! env | grep -F "awf-cloud-hypervisor-real-secret-do-not-expose"'
 
 run_case workspace-live-share 0 \
-  'id && test "$(id -u)" -ne 0 && test -w /workspace && ! test -e /host/etc/shadow && ! test -e /var/lib/awf-cloud-hypervisor/trusted-artifacts && printf changed > .hidden && mkdir -p bin && printf "#!/bin/sh\necho ok\n" > bin/run && chmod 755 bin/run && ln -s bin/run run-link'
+  'id && test "$(id -u)" -ge 1000 && test "$(id -g)" -ge 1000 && test -w /workspace && ! test -e /host/etc/shadow && ! test -e /host/etc/gshadow && ! test -e /root/.ssh && ! test -e /var/lib/awf-cloud-hypervisor/trusted-artifacts && printf changed > .hidden && mkdir -p bin && printf "#!/bin/sh\necho ok\n" > bin/run && chmod 755 bin/run && ln -s bin/run run-link'
 test "$(cat "$RUN_ROOT/workspace-live-share/workspace/.hidden")" = changed
 test -x "$RUN_ROOT/workspace-live-share/workspace/bin/run"
 test "$(readlink "$RUN_ROOT/workspace-live-share/workspace/run-link")" = bin/run

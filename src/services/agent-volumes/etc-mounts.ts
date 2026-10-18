@@ -18,8 +18,12 @@ function normalizeDockerHostPathPrefix(prefix: string): string {
   return withLeadingSlash.replace(/\/+$/, '') || '/';
 }
 
-function bindMountSourceExists(hostPath: string, config: WrapperConfig): boolean {
-  if (fs.existsSync(hostPath)) {
+function bindMountSourceExists(
+  hostPath: string,
+  config: WrapperConfig,
+  sourceExists: (candidate: string) => boolean,
+): boolean {
+  if (sourceExists(hostPath)) {
     return true;
   }
 
@@ -32,7 +36,7 @@ function bindMountSourceExists(hostPath: string, config: WrapperConfig): boolean
     return false;
   }
 
-  return fs.existsSync(`${normalizedPrefix}${hostPath}`);
+  return sourceExists(`${normalizedPrefix}${hostPath}`);
 }
 
 /**
@@ -88,7 +92,10 @@ function resolveUniqueName(content: string, preferredName: string, id: string): 
   return `${baseName}-${counter}`;
 }
 
-export function buildEtcMounts(config: WrapperConfig): string[] {
+export function buildEtcMounts(
+  config: WrapperConfig,
+  sourceExists: (candidate: string) => boolean = fs.existsSync,
+): string[] {
   // When sysroot-stage is active (arc-dind), the sysroot volume already provides
   // a complete /etc from the build-tools image. Bind-mounting the host's /etc files
   // on top would fail on split-fs (Docker daemon can't resolve runner paths).
@@ -97,7 +104,7 @@ export function buildEtcMounts(config: WrapperConfig): string[] {
   }
 
   const mounts: string[] = etcAllowlist()
-    .filter((p) => !OPTIONAL_ETC_CA_MOUNTS.has(p) || bindMountSourceExists(p, config))
+    .filter((p) => !OPTIONAL_ETC_CA_MOUNTS.has(p) || bindMountSourceExists(p, config, sourceExists))
     .map((p) => `${p}:/host${p}:ro`);
 
   if (!shouldUseDockerHostStaging(config.dockerHostPathPrefix)) {

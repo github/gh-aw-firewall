@@ -14,6 +14,7 @@ import { buildSslMounts } from './ssl-mounts';
 import { buildSystemMounts } from './system-mounts';
 import { buildCustomVolumeMounts, buildWorkspaceMounts } from './workspace-mounts';
 import { applyFilesystemWritePolicy, resolveComposeFilesystemAllowWrite } from './filesystem-write-policy';
+import type { LocalSourceResolver } from './mount-topology';
 
 interface AgentVolumesParams {
   config: WrapperConfig;
@@ -25,6 +26,13 @@ interface AgentVolumesParams {
   agentLogsPath: string;
   sessionStatePath: string;
   initSignalDir: string;
+  pathExists?: (candidate: string) => boolean;
+  prepareNestedMountpoints?: (
+    volumes: string[],
+    uid: number,
+    gid: number,
+    localSourceResolver: LocalSourceResolver,
+  ) => string[];
 }
 
 export function buildAgentVolumes(params: AgentVolumesParams): string[] {
@@ -55,8 +63,10 @@ export function buildAgentVolumes(params: AgentVolumesParams): string[] {
 
   const useSysroot = config.runnerTopology === 'arc-dind';
   agentVolumes.push(...buildSystemMounts(workspaceDir, config.chrootBinariesSourcePath, useSysroot));
-  agentVolumes.push(...buildHomeMounts({ config, effectiveHome, agentLogsPath, sessionStatePath }));
-  agentVolumes.push(...buildEtcMounts(config));
+  agentVolumes.push(...buildHomeMounts({
+    config, effectiveHome, agentLogsPath, sessionStatePath, pathExists: params.pathExists,
+  }));
+  agentVolumes.push(...buildEtcMounts(config, params.pathExists));
   // When sysroot-stage is active, the sysroot volume provides /etc/hosts.
   // The generated chroot hosts file lives on the runner's /tmp which the
   // Docker daemon cannot see on split-fs. DNS pre-resolution is skipped;
@@ -103,7 +113,7 @@ export function buildAgentVolumes(params: AgentVolumesParams): string[] {
   // A read-only bind cannot host a mountpoint runc still has to create, so any
   // internal mount nested inside one must exist up front. Derived from the final
   // topology, so mounts added later are covered without another targeted fix.
-  ensureNestedMountpoints(
+  (params.prepareNestedMountpoints ?? ensureNestedMountpoints)(
     policyVolumes,
     parseInt(getSafeHostUid(), 10),
     parseInt(getSafeHostGid(), 10),

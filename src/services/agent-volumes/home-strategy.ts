@@ -10,6 +10,7 @@ interface HomeMountsParams {
   effectiveHome: string;
   agentLogsPath: string;
   sessionStatePath: string;
+  pathExists?: (candidate: string) => boolean;
 }
 
 export function buildHomeMounts(params: HomeMountsParams): string[] {
@@ -29,7 +30,7 @@ function buildToolDirectoryMounts(params: HomeMountsParams): string[] {
   const mounts: string[] = [];
 
   const copilotHomeDir = path.join(effectiveHome, '.copilot');
-  if (fs.existsSync(copilotHomeDir)) {
+  if ((params.pathExists ?? fs.existsSync)(copilotHomeDir)) {
     try {
       fs.accessSync(copilotHomeDir, fs.constants.R_OK | fs.constants.W_OK);
       mounts.push(`${copilotHomeDir}:/host${effectiveHome}/.copilot:rw`);
