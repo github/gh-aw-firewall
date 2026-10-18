@@ -114,7 +114,11 @@ describe('Cloud Hypervisor enclave conformance CI boundary', () => {
       .toContain('src/cloud-hypervisor/enclave-trusted-storage.integration.test.ts');
     expect(job.steps.find((step) => step.name === 'Remove probe executable')?.if).toBe('always()');
     const admission = job.steps.find((step) => step.name.startsWith('Probe production host admission'))!;
-    expect(admission.run).toContain('sudo -n env "PATH=$PATH"');
+    expect(admission.run).toContain('sudo -n --preserve-env=GITHUB_ACTIONS,RUNNER_ENVIRONMENT,ImageOS');
+    expect(admission.run).toContain('env "PATH=$PATH" "$(command -v node)"');
+    expect(admission.run?.match(/--preserve-env=([^\s]+)/)?.[1].split(',')).toEqual([
+      'GITHUB_ACTIONS', 'RUNNER_ENVIRONMENT', 'ImageOS',
+    ]);
     expect(admission.run).toContain('cloud-hypervisor-enclave-host-preflight.js');
     expect(job.steps.indexOf(admission)).toBeGreaterThan(gateIndex);
     expect(admission['continue-on-error']).toBeUndefined();

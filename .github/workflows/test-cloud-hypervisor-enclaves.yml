@@ -173,7 +173,7 @@ jobs:
           sudo -n test -w /sys/fs/cgroup
       - name: Probe production host admission (not AWF or guest execution)
         run: |
-          sudo -n env "PATH=$PATH" "$(command -v node)" \
+          sudo -n --preserve-env=GITHUB_ACTIONS,RUNNER_ENVIRONMENT,ImageOS env "PATH=$PATH" "$(command -v node)" \
             scripts/ci/cloud-hypervisor-enclave-host-preflight.js
       - name: Install host probe prerequisites
         run: |
