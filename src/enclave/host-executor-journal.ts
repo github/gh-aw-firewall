@@ -258,6 +258,7 @@ export class HostExecutorInvocationDiagnostics {
     cleanupFailure?: { stage: string; reason: string; code: string; errorType: string; sequence: number };
     guestExecution?: GuestExecutionDiagnostics;
     guestSession?: EnclaveSessionDiagnostics;
+    developmentSupervisor?: { provenance: 'unattested-development'; sha256: string };
   };
 
   constructor(run: HostExecutorRunState, plan: HostExecutorInvocationPlan) {
@@ -292,6 +293,12 @@ export class HostExecutorInvocationDiagnostics {
     this.snapshot.guestExecution = { ...value };
     this.commit();
   };
+
+  developmentSupervisor(sha256: string): void {
+    if (!/^[a-f0-9]{64}$/.test(sha256)) throw new Error('Invalid development supervisor digest');
+    this.snapshot.developmentSupervisor = { provenance: 'unattested-development', sha256 };
+    this.commit();
+  }
 
   guestSession(value: EnclaveSessionDiagnostics): void {
     this.snapshot.guestSession = value;

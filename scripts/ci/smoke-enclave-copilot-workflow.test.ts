@@ -214,6 +214,25 @@ describe('Cloud Hypervisor Copilot agent enclave smoke', () => {
     expect(applyGeneralWorkflowPatches(lock, workflowPath).content).toBe(lock);
   });
 
+  it('builds an explicitly unattested enclave-only supervisor on the exact PR branch', () => {
+    const setup = agentSteps.find(step => step.name === 'Setup Go for development enclave supervisor');
+    const build = agentSteps.find(step => step.name === 'Build UNATTESTED development enclave supervisor');
+    expect(setup?.uses).toBe('actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e');
+    expect(setup?.with).toEqual({ 'go-version': '1.25.0', cache: false });
+    for (const step of [setup, build]) {
+      expect(step?.if).toContain("github.ref == 'refs/heads/lpcox-smoke-pins-v0-28-64'");
+      expect(step?.if).toContain("github.event_name == 'workflow_dispatch'");
+      expect(step?.if).toContain("github.repository == 'github/gh-aw-firewall'");
+    }
+    expect(build?.run).toContain('GOTOOLCHAIN=local go test ./...');
+    expect(build?.run).toContain('VERSION="development-${GITHUB_SHA}"');
+    expect(build?.run).toContain('sudo install -m 0555 -o root -g root');
+    expect(build?.run).toContain('AWF_CH_ENCLAVE_TEST_SUPERVISOR_SHA256');
+    expect(build?.run).toContain('UNATTESTED DEVELOPMENT enclave supervisor');
+    expect(lock).not.toContain('--cloud-hypervisor-development-allow-unattested-artifacts');
+    expect(source).toContain('unattested development supervisor');
+  });
+
   it('only publishes a fixed summary after successful host validation', () => {
     const job = compiled.jobs.report_smoke_result;
     expect(job.if).toContain("needs.agent.result == 'success'");

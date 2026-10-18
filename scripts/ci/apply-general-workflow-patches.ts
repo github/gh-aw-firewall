@@ -39,6 +39,7 @@ import {
 import {
   buildLocalInstallSteps,
   buildBranchEnclaveInstallSteps,
+  buildDevelopmentEnclaveSupervisorSteps,
   buildCopySessionStateStep,
   buildCopilotCliDaemonCopyStep,
   buildStripExecBitsStep,
@@ -742,6 +743,28 @@ export function applyGeneralWorkflowPatches(
           workflowPath.endsWith('smoke-enclave-cloud-hypervisor-copilot.lock.yml'),
         ));
       log.push('  Added branch-only source runtime build for enclave diagnostics');
+    }
+    if (workflowPath.endsWith('smoke-enclave-cloud-hypervisor-copilot.lock.yml') &&
+        !content.includes('- name: Build UNATTESTED development enclave supervisor')) {
+      const anchor = '      - name: Install awf binary (local)\n';
+      if (content.split(anchor).length !== 2) {
+        throw new Error('Missing branch install anchor for development enclave supervisor');
+      }
+      content = content.replace(anchor, buildDevelopmentEnclaveSupervisorSteps('      ') + anchor);
+      log.push('  Added exact-PR public smoke development enclave supervisor');
+    }
+    if (workflowPath.endsWith('smoke-enclave-cloud-hypervisor-copilot.lock.yml')) {
+      content = content.replace(/^# gh-aw-manifest: (.+)$/m, (_line, json: string) => {
+        const manifest: { actions: Array<{ repo: string; sha: string; version: string }> } = JSON.parse(json);
+        if (!manifest.actions.some(action => action.repo === 'actions/setup-go')) {
+          manifest.actions.push({
+            repo: 'actions/setup-go',
+            sha: 'b7ad1dad31e06c5925ef5d2fc7ad053ef454303e',
+            version: 'v7.0.0',
+          });
+        }
+        return `# gh-aw-manifest: ${JSON.stringify(manifest)}`;
+      });
     }
     // gh-aw v0.92.1 gates uploads on this ID but omits it from the redaction step.
     content = content.replace(

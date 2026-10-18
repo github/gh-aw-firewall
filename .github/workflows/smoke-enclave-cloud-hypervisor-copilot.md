@@ -212,7 +212,18 @@ Tag runs are not admitted.
 Compilation additionally requires the companion compiler agent-acceptance
 support; unmodified v0.92.3 rejects this topology. Generated compiler provenance
 must identify that support rather than claim an unchanged official compiler.
-No local or unattested guest replacement is permitted.
+By explicit user authorization, manual runs on the exact PR branch
+`lpcox-smoke-pins-v0-28-64` additionally build the enclave supervisor with the
+repository's pinned Go 1.25.0 toolchain. The postprocessor installs it in a
+root-owned host-only path and records its checksum and source commit in the
+Actions summary. The host admits this **unattested development supervisor**
+only for that exact workflow/branch and verified public-fixture debug mode;
+it checks the checksum again after snapshotting and records the development
+provenance in protected invocation evidence. This tests the enclave cwd fix
+before a release. It does not replace the primary supervisor, change the
+attested rootfs, or claim release provenance for the development supervisor.
+All other branches retain the verified release supervisor. No general
+unattested-artifact flag is enabled.
 
 The v0.28.64 release pins in the lock were manually updated under an explicit
 pins-only exception, not regenerated with an official compiler. The recorded

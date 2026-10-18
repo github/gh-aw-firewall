@@ -483,7 +483,7 @@ func (s *session) start(frame Frame) error {
 		}
 	}
 	workspace := s.config.WorkspaceMount
-	if s.config.NoNetwork {
+	if s.config.NoNetwork || s.config.EnclaveRole != "" {
 		workspace = "/"
 	}
 	cwd, err := resolveCWD(workspace, frame.Cwd)

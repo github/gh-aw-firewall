@@ -1573,6 +1573,29 @@ shared by AWF and the harness.
 
 #### Host-executor invocation evidence
 
+Enclave execution validates the initial working directory against the guest
+root, for both no-network script and networked agent roles. Enclaves have no
+primary workspace export; the agent entrypoint subsequently launches Copilot
+in its admitted read-only seed (or its private agent directory for dynamic
+admission). Primary-agent execution remains confined to its workspace mount.
+Older supervisors that select the guest root only for no-network execution
+can reject agent-enclave startup with `guest-rejected`, `invalid_request`, and
+`cwd-validation`, before the entrypoint runs. This guest-side correction needs
+a new verified supervisor artifact for release use; rebuilding only the host
+CLI does not update a smoke workflow's pinned release supervisor.
+
+The explicitly authorized pre-release exception is confined to manual runs of
+`smoke-enclave-cloud-hypervisor-copilot.lock.yml` on
+`lpcox-smoke-pins-v0-28-64` in this repository, with matching workflow/source
+commits and host-verified public-fixture debug isolation. Only the enclave
+supervisor is replaced: Go 1.25.0 builds it from the checked-out commit, a
+root-owned non-writable host-only file is checksum-checked before admission,
+and its private invocation snapshot is checksum-checked again before VM
+startup. The run summary, host warning, and protected invocation record label
+it **unattested development**. The primary supervisor, VMM, kernel, rootfs
+and manifest verification remain release-based. No general attestation bypass
+is enabled; absent the explicit checksum opt-in the release path is unchanged.
+
 After startup, the Cloud Hypervisor host executor uses the same check catalog
 and `[result, reason]` tuples in an invocation-scoped snapshot, separate from
 `enclaveStartup.startupChecks.ready`. Production storage and snapshot subchecks
