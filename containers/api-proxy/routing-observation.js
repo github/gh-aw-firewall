@@ -42,7 +42,6 @@ function selectedEndpointFor(selection, provider, effort) {
   return effort === null ? '/chat/completions' : '/responses';
 }
 
-/** Extract the effort a request body asks for, in the shape of its endpoint. */
 /**
  * Error identifiers for a failed request record. AWF's own rejection of the
  * attempt wins over anything observed in the response body, because the
@@ -67,6 +66,7 @@ function rememberErrorFields(state, value) {
   if (fields.error_code || fields.error_type) state.errorFields = fields;
 }
 
+/** Extract the effort a request body asks for, in the shape of its endpoint. */
 function requestedEffortFor(parsed, endpoint) {
   const effort = endpoint === '/v1/messages'
     ? parsed.output_config?.effort
@@ -178,12 +178,8 @@ function createRoutingObservation({
           // Observability must not change the live response.
         }
         if (recordsRoutingFailure && state.selectedModel) {
-          let code;
-          try {
-            const error = parsed?.error;
-            code = error?.code || error?.type;
-          } catch {}
-          recordNativeFailure(code);
+          const error = parsed?.error;
+          recordNativeFailure(error?.code || error?.type);
         }
       }
       return originalEnd.call(this, chunk, encoding, callback);
