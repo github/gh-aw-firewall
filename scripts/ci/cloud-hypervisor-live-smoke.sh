@@ -711,6 +711,48 @@ done < <(sudo ip netns list)
 # cleanup below; normal runtime cleanup uses the lease-checked release path.
 sudo find /run/awf-microvm-network/reservations -name '*.json' -delete 2>/dev/null || true
 sudo docker compose -f "$keep_work/docker-compose.yml" down --volumes --remove-orphans
+# Keep mode completes its recovery record, so remove only the snapshot named
+# by this VM's confinement evidence, using the runtime's identity/mount guards.
+sudo node - "$ROOT" "$keep_audit/cloud-hypervisor/confinement.json" <<'KEEP_SNAPSHOT_CLEANUP'
+const { promises: fs } = require("fs");
+const path = require("path");
+const [root, evidencePath] = process.argv.slice(2);
+const { CLOUD_HYPERVISOR_ARTIFACT_SNAPSHOT_ROOT } = require(
+  path.join(root, "dist/cloud-hypervisor/manager-types")
+);
+const { resolveCleanupDependencies } = require(
+  path.join(root, "dist/cloud-hypervisor/cleanup-dependencies")
+);
+const { captureFileIdentity } = require(
+  path.join(root, "dist/cloud-hypervisor/cleanup-process")
+);
+const { assertNoMountsUnder, removeExactDirectory } = require(
+  path.join(root, "dist/cloud-hypervisor/cleanup-record-store")
+);
+(async () => {
+  const evidence = JSON.parse(await fs.readFile(evidencePath, "utf8"));
+  const executable = evidence.process.executable;
+  if (typeof executable !== "string") throw new Error("Missing preserved VMM executable");
+  const directory = path.dirname(executable);
+  if (path.basename(executable) !== "cloud-hypervisor" ||
+      path.dirname(directory) !== CLOUD_HYPERVISOR_ARTIFACT_SNAPSHOT_ROOT ||
+      !/^run-[A-Za-z0-9]{6}$/.test(path.basename(directory)) ||
+      await fs.realpath(directory) !== directory) {
+    throw new Error("Unsafe preserved trusted-artifact snapshot path");
+  }
+  const stat = await fs.lstat(directory);
+  if (!stat.isDirectory() || stat.uid !== 0) {
+    throw new Error("Preserved trusted-artifact snapshot must be a root-owned directory");
+  }
+  const dependencies = resolveCleanupDependencies();
+  const identity = await captureFileIdentity(dependencies.lstat, directory);
+  await assertNoMountsUnder(dependencies, directory);
+  await removeExactDirectory(directory, identity, dependencies, true);
+})().catch((error) => {
+  console.error(error);
+  process.exitCode = 1;
+});
+KEEP_SNAPSHOT_CLEANUP
 # --keep-containers intentionally preserves the private run directory (see
 # CLOUD_HYPERVISOR_RUN_ROOT in src/cloud-hypervisor/manager.ts); clean it up
 # here so assert_no_residue below reflects steady-state, not this case's
