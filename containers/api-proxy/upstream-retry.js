@@ -9,7 +9,7 @@ const { getFallbackReason } = require('./model-fallback-chain');
 function sendBufferedUpstreamResponse(proxyRes, responseBody, {
   completionCtx, authErrCtx, initiatorSent, billingInfo, res, span, requestId,
   logRequestCompletion, logUpstreamAuthError, logUpstreamErrorResponse, otel,
-  requestModel = null, requestTools = null,
+  requestModel = null, requestTools = null, providerErrorBody,
 }) {
   logRequestCompletion(proxyRes.statusCode, responseBody.length, initiatorSent, billingInfo, completionCtx);
   logUpstreamAuthError(proxyRes.statusCode, { ...authErrCtx, responseBody });
@@ -18,11 +18,12 @@ function sendBufferedUpstreamResponse(proxyRes, responseBody, {
       ...authErrCtx,
       requestModel,
       requestTools,
-      transformed: false,
+      transformed: providerErrorBody !== undefined,
       responseHeaders: proxyRes.headers,
       responseBody,
       responseBodyBytes: responseBody.length,
       responseBodyTruncated: false,
+      ...(providerErrorBody !== undefined ? { providerErrorBody } : {}),
     });
   }
 
@@ -150,10 +151,18 @@ function handle400WithRetry(proxyRes, requestHeaders, responseBody, {
     if (reason && onModelFallback({ statusCode: proxyRes.statusCode, reason, abandon })) return true;
   }
 
+  // AWF replaces the provider's rejection with its own envelope. The
+  // upstream-errors record keeps the provider's error identifiers, while the
+  // routing request record attributes the rewritten response to AWF.
+  let providerErrorBody;
   if (endpointBlocked) {
+    providerErrorBody = { responseBody, contentEncoding: proxyRes.headers?.['content-encoding'] };
+    const code = compatibilityError?.code || 'model_endpoint_incompatible';
+    const req = authErrCtx?.req;
+    if (req?.awfRouting) req.awfRouting.localError = { code, type: 'invalid_request_error' };
     responseBody = Buffer.from(JSON.stringify({
       error: {
-        code: compatibilityError?.code || 'model_endpoint_incompatible',
+        code,
         type: 'invalid_request_error',
         message: compatibilityError?.message ||
           `Copilot model "${requestModel || '(unknown)'}" is unavailable on the selected wire API. ` +
@@ -182,7 +191,7 @@ function handle400WithRetry(proxyRes, requestHeaders, responseBody, {
   sendBufferedUpstreamResponse(proxyRes, responseBody, {
     completionCtx, authErrCtx, initiatorSent, billingInfo, res, span, requestId,
     logRequestCompletion, logUpstreamAuthError, logUpstreamErrorResponse, otel,
-    requestModel, requestTools,
+    requestModel, requestTools, providerErrorBody,
   });
   return false;
 }

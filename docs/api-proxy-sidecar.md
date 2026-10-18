@@ -957,12 +957,23 @@ rejected or aborted calls may have no token-usage record.
 `failed` request records also carry `error_code` and `error_type` when an
 identifier-shaped value (`^[A-Za-z0-9_.:-]{1,64}$`) is available, plus
 `error_source`: `upstream` when the identifiers come from the provider's JSON
-error body (up to 16 KiB) or the first SSE error event, and `awf` when AWF
+error body (up to 16 KiB; a `gzip`, `deflate`, or `br` encoded body is
+inspected through a decoded copy bounded to 16 KiB, and the client still
+receives the original bytes) or the first SSE error event, and `awf` when AWF
 produced the error response itself (for example a local
-`unsupported_reasoning_effort` rejection) and the provider never saw that
-attempt. These fields are recorded for deviating requests too; they never
-include the provider's error `message`, and they are omitted when no valid
-value exists.
+`unsupported_reasoning_effort` rejection, a `provider_not_configured`
+response for a provider without usable credentials, or
+`model_fallback_exhausted`). These fields are recorded for deviating requests
+too; they never include the provider's error `message`, and they are omitted
+when no valid value exists.
+When the provider rejects a request and AWF replaces that rejection with its
+own envelope (Copilot's endpoint rejection rewritten to
+`model_endpoint_incompatible` or `unsupported_wire_api_feature`), the request
+record carries AWF's code with `error_source: "awf"`. The matching
+`upstream-errors.jsonl` entry keeps the provider's original identifiers in
+`error_code`/`error_type`/`error_param` (omitted when the original body has
+none), sets `response_transformed: true`, and logs AWF's replacement as
+`response_body`.
 Classifier usage rows have `purpose: "routing_classification"` and are not
 primary inference request records.
 

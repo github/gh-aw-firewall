@@ -236,6 +236,10 @@ function createLogUpstreamErrorResponse({
     responseHeaders, responseBody, responseBodyBytes,
     responseBodyTruncated = false,
     requestModel = null, requestTools = null, transformed = false,
+    // Set when AWF replaced the provider's response: the provider's original
+    // { responseBody, contentEncoding }, or null when there is none. Error
+    // identifiers come only from it, never from AWF's replacement body.
+    providerErrorBody,
   }) {
     if (statusCode >= 200 && statusCode < 300) return;
     const safeHeaders = sanitizeResponseHeaders(responseHeaders, sanitizeForLog);
@@ -264,7 +268,8 @@ function createLogUpstreamErrorResponse({
       response_transformed: !!transformed,
       ...buildRequestToolLogFields(requestTools, sanitizeForLog),
       ...bodyFields,
-      ...extractCapturedErrorFields(bodyCapture),
+      ...extractCapturedErrorFields(providerErrorBody === undefined ? bodyCapture
+        : providerErrorBody ? captureResponseBody(providerErrorBody) : { bodyOmitted: true }),
     };
     logRequest('warn', 'upstream_error_response', fields);
     if (typeof auditTrack === 'function') {

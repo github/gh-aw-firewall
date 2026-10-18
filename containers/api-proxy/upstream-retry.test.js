@@ -1,4 +1,8 @@
+const { EventEmitter } = require('events');
+const zlib = require('zlib');
 const { handle400WithRetry } = require('./upstream-retry');
+const { createLogUpstreamErrorResponse } = require('./upstream-log');
+const { createRoutingObservation } = require('./routing-observation');
 
 describe('upstream-retry', () => {
   function createBaseOptions() {
@@ -173,6 +177,98 @@ describe('upstream-retry', () => {
       const didRetry = handle400WithRetry(proxyRes, {}, endpointBlockedBody, opts);
 
       expect(didRetry).toBe(false);
+    });
+  });
+
+  describe('AWF rewrite of an endpoint-blocked rejection', () => {
+    // Shape used by the model-fallback-chain fixtures for a Copilot endpoint rejection.
+    const UPSTREAM_BODY = '{"error":{"message":"model \\"gpt-5.4-mini\\" is not accessible via the /chat/completions endpoint","code":"unsupported_api_for_model"}}';
+    const CODES = [
+      ['model_endpoint_incompatible', undefined],
+      ['unsupported_wire_api_feature', () => { throw new TypeError('internal detail'); }],
+    ];
+
+    function rewrite({ upstreamBody, headers = { 'content-type': 'application/json' }, onWireApiEndpointRetry }) {
+      const records = [];
+      const logRequest = jest.fn();
+      const observation = createRoutingObservation({
+        getSelection: () => ({ provider: 'copilot', choice: {}, wire_model: 'gpt-5.4-mini' }),
+        recordFailure: jest.fn(),
+        observer: { record: record => records.push(record) },
+        generateRequestId: () => 'req-1',
+      });
+      const chunks = [];
+      const res = new EventEmitter();
+      res.statusCode = 200;
+      res.writableFinished = false;
+      res.writeHead = jest.fn(function(statusCode) { this.statusCode = statusCode; });
+      res.write = jest.fn(chunk => { chunks.push(Buffer.from(chunk)); return true; });
+      res.end = jest.fn(function(chunk) {
+        if (chunk) chunks.push(Buffer.from(chunk));
+        this.writableFinished = true;
+        this.emit('finish');
+      });
+      const req = { method: 'POST', url: '/v1/chat/completions', headers: {} };
+      observation.observeRequest(req, res, { name: 'copilot' });
+      req.awfRouting.onUpstreamResponseHeaders(headers);
+      const opts = {
+        ...createBaseOptions(),
+        authErrCtx: { requestId: 'req-1', provider: 'copilot', targetHost: 'api.githubcopilot.com', req },
+        res,
+        requestModel: 'gpt-5.4-mini',
+        logUpstreamErrorResponse: createLogUpstreamErrorResponse({ logRequest, sanitizeForLog: value => value }),
+      };
+      opts.parseModelEndpointBlockedFromBody.mockReturnValue(true);
+      opts.onModelEndpointBlockedRetry.mockReturnValue(false);
+      if (onWireApiEndpointRetry) opts.onWireApiEndpointRetry = jest.fn(onWireApiEndpointRetry);
+
+      expect(handle400WithRetry({ statusCode: 400, headers }, {}, upstreamBody, opts)).toBe(false);
+      const upstreamError = logRequest.mock.calls.find(([, event]) => event === 'upstream_error_response')[2];
+      return { records, upstreamError, sent: Buffer.concat(chunks).toString('utf8') };
+    }
+
+    test.each(CODES)('records %s as AWF-originated and keeps provider fields in upstream-errors', (code, retry) => {
+      const { records, upstreamError, sent } = rewrite({
+        upstreamBody: Buffer.from(UPSTREAM_BODY), onWireApiEndpointRetry: retry,
+      });
+
+      const clientError = JSON.parse(sent).error;
+      expect(clientError).toMatchObject({ code, type: 'invalid_request_error' });
+      expect(upstreamError).toMatchObject({
+        status: 400,
+        response_transformed: true,
+        error_code: 'unsupported_api_for_model',
+      });
+      expect(JSON.parse(upstreamError.response_body).error.code).toBe(code);
+      expect(upstreamError).not.toHaveProperty('error_type');
+      expect(records).toEqual([expect.objectContaining({
+        outcome: 'failed',
+        status: 400,
+        error_code: code,
+        error_type: 'invalid_request_error',
+        error_source: 'awf',
+      })]);
+      expect(JSON.stringify(records[0])).not.toContain('not accessible');
+    });
+
+    test.each(CODES)('decodes the provider body and never attributes %s to the provider', (code, retry) => {
+      const encoded = rewrite({
+        upstreamBody: zlib.gzipSync(Buffer.from(UPSTREAM_BODY)),
+        headers: { 'content-type': 'application/json', 'content-encoding': 'gzip' },
+        onWireApiEndpointRetry: retry,
+      });
+      expect(encoded.upstreamError.error_code).toBe('unsupported_api_for_model');
+      expect(encoded.records[0]).toMatchObject({ error_code: code, error_source: 'awf' });
+
+      const withoutCode = rewrite({
+        upstreamBody: Buffer.from('{"error":{"message":"model \\"gpt-5.4-mini\\" is not accessible via the /chat/completions endpoint"}}'),
+        onWireApiEndpointRetry: retry,
+      });
+      expect(withoutCode.upstreamError).toMatchObject({ response_transformed: true });
+      for (const key of ['error_code', 'error_type', 'error_param']) {
+        expect(withoutCode.upstreamError).not.toHaveProperty(key);
+      }
+      expect(withoutCode.records[0]).toMatchObject({ error_code: code, error_source: 'awf' });
     });
   });
 });

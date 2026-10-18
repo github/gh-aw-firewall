@@ -95,6 +95,13 @@ Only string values matching `^[A-Za-z0-9_.:-]{1,64}$` are kept; `message` and
 all other fields are never copied. Keys without a valid value are omitted
 (never `null`).
 
+When AWF replaces the provider's rejection with its own envelope (Copilot's
+endpoint rejection rewritten to `model_endpoint_incompatible` or
+`unsupported_wire_api_feature`), `response_body` is AWF's replacement and
+`response_transformed` is `true`, but the error fields are taken from the
+provider's original body (and omitted when it has none), so AWF's code is
+never attributed to the provider.
+
 ## Security
 
 - Runs as non-root user (apiproxy)
