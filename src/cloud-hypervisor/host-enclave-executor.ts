@@ -37,10 +37,6 @@ import {
   type CloudHypervisorArtifactSnapshot,
 } from './artifact-snapshot';
 import { calculateSha256 } from './artifact-trust';
-import {
-  resolveDevelopmentEnclaveSupervisor,
-  type DevelopmentEnclaveSupervisor,
-} from './development-enclave-supervisor';
 import type { CloudHypervisorEnclaveRole } from './enclave-artifact-manifest';
 import {
   resolveCloudHypervisorEnclaveExportPlan,
@@ -188,11 +184,6 @@ export async function createCloudHypervisorHostEnclaveExecutor(
       agentRootfsPath,
       attestationToolPath,
     });
-    const developmentSupervisor = await resolveDevelopmentEnclaveSupervisor(
-      environment,
-      Boolean(options.config.enclaveDebugPublic &&
-        options.publicDebugArtifactDirectory && options.publicDebugArtifactProtectedRoot),
-    );
     return new CloudHypervisorHostEnclaveExecutorBackend({
       runState: options.runState,
       config: options.config,
@@ -204,7 +195,6 @@ export async function createCloudHypervisorHostEnclaveExecutor(
       agentPolicies: options.agentPolicies,
       managerDependencies: options.managerDependencies,
       ownsPreflightSnapshot: dependencies.preflight === undefined,
-      developmentSupervisor,
     }, dependencies);
   } catch (error) {
     await (dependencies.removeArtifactSnapshot ?? defaultDependencies.removeArtifactSnapshot)(
@@ -343,7 +333,6 @@ export class CloudHypervisorHostEnclaveExecutorBackend implements HostEnclaveExe
       readonly agentPolicies?: Readonly<Record<string, HostExecutorAgentPolicy>>;
       readonly managerDependencies?: CloudHypervisorManagerDependencies;
       readonly ownsPreflightSnapshot?: boolean;
-      readonly developmentSupervisor?: DevelopmentEnclaveSupervisor;
     },
     dependencies: Partial<HostEnclaveExecutorDependencies> = {},
   ) {
@@ -382,9 +371,6 @@ export class CloudHypervisorHostEnclaveExecutorBackend implements HostEnclaveExe
       return { outcome: 'executor-failure' };
     }
     const diagnostic = new HostExecutorInvocationDiagnostics(this.options.runState, plan);
-    if (this.options.developmentSupervisor) {
-      diagnostic.developmentSupervisor(this.options.developmentSupervisor.sha256);
-    }
     const report = new HostPreflightReporter(
       'host-invocation',
       diagnostic.publish,
@@ -537,7 +523,7 @@ export class CloudHypervisorHostEnclaveExecutorBackend implements HostEnclaveExe
           virtiofsdBinary: this.options.preflight.virtiofsdBinary,
           kernelPath: this.options.preflight.kernelPath,
           rootfsPath: verifiedRootfs.path,
-          supervisorPath: this.options.developmentSupervisor?.path ?? this.options.preflight.supervisorPath,
+          supervisorPath: this.options.preflight.supervisorPath,
           manifestPath: this.options.enclaveArtifacts.manifestPath,
           bundlePath: this.options.enclaveArtifacts.manifestBundlePath,
         }, (source, destination) => dependencies.copySparseFile(
@@ -564,13 +550,12 @@ export class CloudHypervisorHostEnclaveExecutorBackend implements HostEnclaveExe
           throw markHostPreflightError(
             new Error('Enclave rootfs snapshot does not match its attested artifact digest'), 'digest-mismatch');
         }
-        if (invocationStorage || this.options.developmentSupervisor) {
+        if (invocationStorage) {
           for (const [file, digest] of [
             [createdSnapshot.cloudHypervisorBinary, this.options.preflight.artifactDigests.cloudHypervisor],
             [createdSnapshot.virtiofsdBinary, this.options.preflight.artifactDigests.virtiofsd],
             [createdSnapshot.kernelPath, this.options.preflight.artifactDigests.kernel],
-            [createdSnapshot.supervisorPath,
-              this.options.developmentSupervisor?.sha256 ?? this.options.preflight.artifactDigests.supervisor],
+            [createdSnapshot.supervisorPath, this.options.preflight.artifactDigests.supervisor],
           ]) {
             if (!digest || await calculateSha256(file!) !== digest) {
               throw markHostPreflightError(new Error('Invocation artifact digest changed'), 'digest-mismatch');
@@ -590,7 +575,7 @@ export class CloudHypervisorHostEnclaveExecutorBackend implements HostEnclaveExe
         artifactDigests: {
           ...this.options.preflight.artifactDigests,
           rootfs: verifiedRootfs.artifact.sha256,
-          supervisor: this.options.developmentSupervisor?.sha256 ?? this.options.preflight.artifactDigests.supervisor,
+          supervisor: this.options.preflight.artifactDigests.supervisor,
         },
       };
       const profile = await check('workload-profile', () => createWorkloadProfile(

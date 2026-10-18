@@ -269,26 +269,12 @@ describe('readBoundedCloudHypervisorEnclaveResult', () => {
       let workloadProfile: CloudHypervisorWorkloadProfile | undefined;
       let stagedHandoff: { agentId: string; bearer: string } | undefined;
       const sessionReads: Array<{ stopped: boolean; unmounted: boolean }> = [];
-      const developmentSupervisor = role === 'agent' && publicDebug
-        ? { path: '/development/supervisor', sha256: 'f'.repeat(64) } : undefined;
-      const realHash = artifactTrust.calculateSha256;
-      const hashSpy = developmentSupervisor
-        ? jest.spyOn(artifactTrust, 'calculateSha256').mockImplementation(async (file) => {
-          const fixedDigests: Record<string, string> = {
-            '/snapshot/cloud-hypervisor': preflight.artifactDigests.cloudHypervisor,
-            '/snapshot/virtiofsd': preflight.artifactDigests.virtiofsd,
-            '/snapshot/vmlinux': preflight.artifactDigests.kernel,
-            '/snapshot/supervisor': developmentSupervisor.sha256,
-          };
-          return fixedDigests[file] ?? realHash(file);
-        }) : undefined;
       const backendOptions = {
         runState,
         config,
         workDir: root,
         preflight,
         enclaveArtifacts: artifacts,
-        developmentSupervisor,
         ...(publicDebug ? {
           publicDebugArtifactDirectory: '/protected/cloud-hypervisor',
           publicDebugArtifactProtectedRoot: '/protected',
@@ -314,7 +300,7 @@ describe('readBoundedCloudHypervisorEnclaveResult', () => {
           complete: async () => undefined,
         }),
         createArtifactSnapshot: async (_sources, _copy, onDirectoryCreated) => {
-          if (developmentSupervisor) expect(_sources.supervisorPath).toBe(developmentSupervisor.path);
+          expect(_sources.supervisorPath).toBe(preflight.supervisorPath);
           const directory = path.join(root, `snapshot-${++snapshotNumber}`);
           await fs.mkdir(directory, { mode: 0o700 });
           expect(typeof onDirectoryCreated).toBe('function');
@@ -343,9 +329,6 @@ describe('readBoundedCloudHypervisorEnclaveResult', () => {
         chown: async (filePathValue) => { chownedPaths.push(filePathValue.toString()); },
         resolveIdentity: () => ({ uid, gid }),
         createManager: (managerConfig, _workDir, profile, _runId, _artifacts, managerDependencies, launchReport) => {
-          if (developmentSupervisor) {
-            expect(_artifacts.artifactDigests.supervisor).toBe(developmentSupervisor.sha256);
-          }
           expect(launchReport?.scope).toBe('vm-launch');
           managerBinary = managerConfig.cloudHypervisorBinary;
           workloadProfile = profile;
@@ -489,29 +472,13 @@ describe('readBoundedCloudHypervisorEnclaveResult', () => {
           });
           const [file] = hostExecutorJournal.readHostExecutorInvocationDiagnostics(runState);
           const evidence = JSON.parse(file.contents);
-          if (developmentSupervisor) {
-            expect(evidence.developmentSupervisor).toEqual({
-              provenance: 'unattested-development', sha256: developmentSupervisor.sha256,
-            });
-          }
+          expect(evidence).not.toHaveProperty('developmentSupervisor');
           expect(sessionReads).toEqual([{ stopped: true, unmounted: false }]);
           expect(evidence.guestSession).toMatchObject({
             status: 'captured', lastEvent: { event: 'progress', stage: 'engine-started' },
           });
           expect(file.contents).not.toContain('PRIVATE_SESSION_TOKEN');
           expect(evidence.guestExecution).toMatchObject({ phase: 'sending', resultReceived: false });
-          if (developmentSupervisor && hashSpy) {
-            const implementation = hashSpy.getMockImplementation()!;
-            hashSpy.mockImplementation(async (file) => file === '/snapshot/supervisor'
-              ? '0'.repeat(64) : implementation(file));
-            await expect(backend.execute(plan, new AbortController().signal))
-              .resolves.toEqual({ outcome: 'executor-failure' });
-            const changed = JSON.parse(hostExecutorJournal.readHostExecutorInvocationDiagnostics(runState)[0].contents);
-            expect(changed.failure).toMatchObject({
-              stage: 'host-invocation/snapshot-digest', reason: 'digest-mismatch',
-            });
-            hashSpy.mockImplementation(implementation);
-          }
           managerExecuteError = true;
           stopped = false;
           unmounted = false;
@@ -1004,7 +971,6 @@ describe('readBoundedCloudHypervisorEnclaveResult', () => {
         await ownedSnapshotBackend.close();
         await expect(fs.lstat(ownedSnapshotPath)).rejects.toMatchObject({ code: 'ENOENT' });
       } finally {
-        hashSpy?.mockRestore();
         await backend.close();
         if (timeoutMs === 1000) jest.useRealTimers();
         await fs.rm(scratch, { recursive: true, force: true });

@@ -96,16 +96,16 @@ jobs:
             --include=pkg/workflow/enclaves_runtime.go \
             --include=pkg/workflow/enclaves_agent_acceptance_test.go \
             "${RUNNER_TEMP}/gh-aw-agent-acceptance.patch"
-          # Keep the fixture's exact release gate aligned with its v0.28.64 pin.
+          # Keep the fixture's exact release gate aligned with its v0.28.66 pin.
           # Do not broaden the topology, policy, or accepted version range.
           git -C .tmp/gh-aw-compiler apply \
-            "${GITHUB_WORKSPACE}/scripts/ci/compiler-agent-acceptance-v0.28.64.patch"
+            "${GITHUB_WORKSPACE}/scripts/ci/compiler-agent-acceptance-v0.28.66.patch"
           go test -C .tmp/gh-aw-compiler ./pkg/workflow \
             -run 'TestValidateCloudHypervisorAgentAcceptance|TestCompileCloudHypervisorAgentAcceptance' -count=1
           mkdir -p "$HOME/.local/share/gh/extensions/gh-aw"
           go build \
             -C .tmp/gh-aw-compiler \
-            -ldflags="-X main.version=dev-v0.91.8-37-g6cc24f3633-agent-acceptance-v0.28.64" \
+            -ldflags="-X main.version=dev-v0.91.8-37-g6cc24f3633-agent-acceptance-v0.28.66" \
             -o "$HOME/.local/share/gh/extensions/gh-aw/gh-aw" \
             ./cmd/gh-aw
           rm -rf .tmp/gh-aw-compiler

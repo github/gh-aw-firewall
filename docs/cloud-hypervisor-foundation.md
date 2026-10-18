@@ -320,6 +320,58 @@ schemas and disclosure budgets, invocation counts/deadlines, credential
 isolation, resource/confinement limits, and no-network script behavior are
 unchanged. Raw logs and error text are never returned to the primary agent.
 
+### Redacted enclave-proxy usage evidence
+
+Trusted Cloud Hypervisor enclave shutdown retains one **run-cumulative** usage
+snapshot after host-executor admissions and invocations drain, before Compose
+and the enclave-private proxy log directory are removed. It reads only the
+dedicated proxy's `token-tracker-audit.jsonl` and `token-usage.jsonl`; it never
+exports these raw logs, request IDs, model names, URLs/paths, messages, headers,
+credentials, or request/response payloads.
+
+The summary contains HTTP **tracked upstream response** counts and numeric
+status-code counts, WebSocket tracking-session counts, closed-vocabulary
+tracking outcomes, and summed input/output/cache-read/cache-write token counts.
+These are observed accounting records, **not** attempted-client-request totals,
+per-invocation charges, or proof that all upstream usage was reported.
+Pre-response transport failures are not tracked responses. Token totals cover
+only usage records emitted by the proxy; missing provider usage, dropped writes,
+and logging failures cannot be recovered. No inference is drawn from an absent
+file. The proxy remains running during this capture, so it is a bounded snapshot
+after host drain, not a finalized proxy-shutdown receipt.
+
+Each source has an explicit status: `captured`, `empty`, `missing`, `unsafe`,
+`oversized`, `record-limit`, `malformed`, or `read-failed`. Undrained host shutdown
+uses `not-drained`; a script-only run uses `not-applicable`. Unavailable or
+invalid sources omit counters/totals rather than claiming zero. A malformed
+record, invalid/overflowing count, unfinished line, or invalid UTF-8 rejects the
+entire affected source, not just its last record.
+
+Capture opens exactly two fixed filenames, at most **1 MiB each**, **4096 records
+per source**, and **16 KiB per line**. It rejects symlinked directory chains,
+non-regular/multiply-linked files, unexpected ownership/device/modes, and reads
+with `O_NOFOLLOW | O_NONBLOCK`. The log root must be `0700`; audit files must be
+`0600`. The token log's existing `0644` mode is also accepted only inside that
+private directory. No permissions on raw logs are widened.
+
+The closed projection is atomically persisted as component
+`enclave-proxy-usage` under
+`/var/lib/awf-cloud-hypervisor/host-executor-journal/diagnostics/`, in a `0600`
+file beneath `0700` protected directories. It survives invocation/private-root
+and ordinary work-directory cleanup. The existing protected evidence handoff
+also copies it to `audit/diagnostics/cloud-hypervisor/host-executor/`. Persistence
+or handoff failure is surfaced, not treated as a successful evidence capture.
+SIGKILL/host loss before capture cannot guarantee a summary.
+
+The host-only public-fixture collector
+`scripts/ci/collect-enclave-smoke-debug.cjs` resolves the exact run-owned summary,
+reads at most **16 KiB**, independently re-projects its closed fields, and exports
+only `enclave-proxy-usage.json` (no run identity) alongside the bounded debug
+artifacts. Missing summaries are explicit in `collection-status.txt`; unsafe
+sources abort collection before publishing. This adds at most one summary to
+the existing 32-file raw-debug bound. It does not enable raw debug collection or
+change any execution, admission, credential, or disclosure policy.
+
 ### No-network script-enclave profile
 
 The script-enclave workload profile selects `network.mode: none`. Trusted
@@ -1580,21 +1632,10 @@ in its admitted read-only seed (or its private agent directory for dynamic
 admission). Primary-agent execution remains confined to its workspace mount.
 Older supervisors that select the guest root only for no-network execution
 can reject agent-enclave startup with `guest-rejected`, `invalid_request`, and
-`cwd-validation`, before the entrypoint runs. This guest-side correction needs
-a new verified supervisor artifact for release use; rebuilding only the host
-CLI does not update a smoke workflow's pinned release supervisor.
-
-The explicitly authorized pre-release exception is confined to manual runs of
-`smoke-enclave-cloud-hypervisor-copilot.lock.yml` on
-`lpcox-smoke-pins-v0-28-64` in this repository, with matching workflow/source
-commits and host-verified public-fixture debug isolation. Only the enclave
-supervisor is replaced: Go 1.25.0 builds it from the checked-out commit, a
-root-owned non-writable host-only file is checksum-checked before admission,
-and its private invocation snapshot is checksum-checked again before VM
-startup. The run summary, host warning, and protected invocation record label
-it **unattested development**. The primary supervisor, VMM, kernel, rootfs
-and manifest verification remain release-based. No general attestation bypass
-is enabled; absent the explicit checksum opt-in the release path is unchanged.
+`cwd-validation`, before the entrypoint runs. The v0.28.66 verified release supervisor includes this correction (#10189).
+Both enclave smokes select that release's attested artifacts; the temporary
+exact-PR development-supervisor override has been removed. Rebuilding the host
+CLI does not replace the release supervisor or relax artifact verification.
 
 After startup, the Cloud Hypervisor host executor uses the same check catalog
 and `[result, reason]` tuples in an invocation-scoped snapshot, separate from

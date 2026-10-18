@@ -51,8 +51,8 @@ function manifest(overrides: Record<string, unknown> = {}): string {
 }
 
 describe('Cloud Hypervisor enclave artifact manifest', () => {
-  it.each(['v0.28.62', 'v0.28.63', 'v0.28.65', 'latest'])(
-    'rejects a release outside the reviewed v0.28.64 compatibility pin: %s', tag => {
+  it.each(['v0.28.62', 'v0.28.63', 'v0.28.64', 'v0.28.65', 'v0.28.67', 'latest'])(
+    'rejects a release outside the reviewed v0.28.66 compatibility pin: %s', tag => {
       expect(() => parseCloudHypervisorEnclaveArtifactManifest(manifest(), tag))
         .toThrow(/compatibility pin/);
     },

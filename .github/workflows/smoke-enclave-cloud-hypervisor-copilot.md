@@ -72,7 +72,7 @@ timeout-minutes: 20
 sandbox:
   agent:
     id: awf
-    version: v0.28.64
+    version: v0.28.66
     runtime: cloud-hypervisor
     config:
       filesystem:
@@ -201,39 +201,36 @@ The dedicated API proxy inherits general proxy limits (including `maxRuns: 500`)
 not those per-enclave settings. This workflow does not claim an enforced
 eight-request or 2,048-token inference ceiling.
 
-AWF and guest assets remain pinned to verified v0.28.64, with the official
+AWF and guest assets remain pinned to verified v0.28.66, with the official
 gh-aw v0.92.3 setup, mcpg v0.4.33 and primary Copilot 1.0.96.
 The guest Copilot CLI is the version baked into the attested agent rootfs,
 not installed or upgraded by this workflow.
 Manual branch runs, including main, build source host/infra code and use the
-checked-in v0.28.64 guest artifact pin, including the merged bounded-verification
+checked-in v0.28.66 guest artifact pin, including the merged bounded-verification
 storage and unprivileged enclave vsock-port fixes (#10181).
 Tag runs are not admitted.
 Compilation additionally requires the companion compiler agent-acceptance
 support; unmodified v0.92.3 rejects this topology. Generated compiler provenance
 must identify that support rather than claim an unchanged official compiler.
-By explicit user authorization, manual runs on the exact PR branch
-`lpcox-smoke-pins-v0-28-64` additionally build the enclave supervisor with the
-repository's pinned Go 1.25.0 toolchain. The postprocessor installs it in a
-root-owned host-only path and records its checksum and source commit in the
-Actions summary. The host admits this **unattested development supervisor**
-only for that exact workflow/branch and verified public-fixture debug mode;
-it checks the checksum again after snapshotting and records the development
-provenance in protected invocation evidence. This tests the enclave cwd fix
-before a release. It does not replace the primary supervisor, change the
-attested rootfs, or claim release provenance for the development supervisor.
-All other branches retain the verified release supervisor. No general
-unattested-artifact flag is enabled.
+The verified v0.28.66 release includes #10189's enclave cwd correction.
+The exact-PR unattested supervisor override and its build steps are removed;
+both primary and enclave supervisors must come from verified release artifacts.
+No unattested-artifact flag is enabled.
 
-The v0.28.64 release pins in the lock were manually updated under an explicit
+The v0.28.66 release pins in the lock were manually updated under an explicit
 pins-only exception, not regenerated with an official compiler. The recorded
 development compiler identifies the original generation only; its exact binary
 is not available as a verified official download. Source hashes are refreshed
 without changing compiler provenance. That compiler's acceptance gate still
-requires v0.28.62, so it cannot regenerate this v0.28.64 source unchanged.
+requires v0.28.62, so it cannot regenerate this v0.28.66 source unchanged.
+The installed official v0.92.5 likewise rejects agent enclaves with this primary.
+This update continues the narrow manual pin/hash exception, preserves the
+original compiler metadata, and runs the mandatory smoke postprocessor.
+The supply-chain compiler's checksum-verified acceptance backport is separately
+aligned to the exact v0.28.66 fixture without broadening accepted policies.
 Under a separate explicit user authorization, the branch-built AWF
-host acceptance gate now selects only v0.28.64 for this exact agent fixture;
-v0.28.62 and other releases are rejected. All identity, branch-only, topology,
+host acceptance gate now selects only v0.28.66 for this exact agent fixture;
+v0.28.64 and other releases are rejected. All identity, branch-only, topology,
 credential-isolation, artifact-attestation and invocation constraints remain
 unchanged. Admission is not evidence that the enclave executes successfully.
 

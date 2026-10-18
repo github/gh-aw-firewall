@@ -32,6 +32,7 @@ import type { EnclaveStartupChecklist } from './startup-progress';
 import { logger } from '../logger';
 import type { GuestExecutionDiagnostics } from '../microvm/execution-diagnostics';
 import type { EnclaveSessionDiagnostics } from '../cloud-hypervisor/enclave-session-diagnostics';
+import { projectEnclaveProxyUsage, type EnclaveProxyUsage } from './proxy-usage';
 
 export const HOST_EXECUTOR_DEFAULT_JOURNAL_DIRECTORY =
   '/var/lib/awf-cloud-hypervisor/host-executor-journal';
@@ -258,7 +259,6 @@ export class HostExecutorInvocationDiagnostics {
     cleanupFailure?: { stage: string; reason: string; code: string; errorType: string; sequence: number };
     guestExecution?: GuestExecutionDiagnostics;
     guestSession?: EnclaveSessionDiagnostics;
-    developmentSupervisor?: { provenance: 'unattested-development'; sha256: string };
   };
 
   constructor(run: HostExecutorRunState, plan: HostExecutorInvocationPlan) {
@@ -293,12 +293,6 @@ export class HostExecutorInvocationDiagnostics {
     this.snapshot.guestExecution = { ...value };
     this.commit();
   };
-
-  developmentSupervisor(sha256: string): void {
-    if (!/^[a-f0-9]{64}$/.test(sha256)) throw new Error('Invalid development supervisor digest');
-    this.snapshot.developmentSupervisor = { provenance: 'unattested-development', sha256 };
-    this.commit();
-  }
 
   guestSession(value: EnclaveSessionDiagnostics): void {
     this.snapshot.guestSession = value;
@@ -369,6 +363,21 @@ export class HostExecutorInvocationDiagnostics {
       this.persistenceFailed = true;
     }
   }
+}
+
+/** One bounded, run-wide proxy summary, separate from per-invocation accounting. */
+export function persistHostExecutorProxyUsage(
+  run: Pick<HostExecutorRunState, 'runId' | 'journalDir'>,
+  usage: EnclaveProxyUsage,
+): void {
+  if (!HOST_EXECUTOR_ID_PATTERN.test(run.runId)) throw new Error('Invalid host executor run identity');
+  const directory = path.join(hostExecutorJournalDirectory(run), 'diagnostics');
+  prepareDirectory(directory);
+  const id = createHash('sha256').update(`awf-enclave-proxy-usage-v1:${run.runId}`).digest('hex').slice(0, 32);
+  persist(path.join(directory, `${run.runId}-${id}.json`), {
+    schemaVersion: 1, component: 'enclave-proxy-usage', runId: run.runId,
+    usage: projectEnclaveProxyUsage(usage),
+  });
 }
 
 export function readHostExecutorInvocationDiagnostics(

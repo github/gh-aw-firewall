@@ -76,28 +76,6 @@ export function buildBranchEnclaveInstallSteps(indent: string, includeMain = fal
     );
 }
 
-export function buildDevelopmentEnclaveSupervisorSteps(indent: string): string {
-  const condition = "github.event_name == 'workflow_dispatch' && github.repository == 'github/gh-aw-firewall' && github.ref == 'refs/heads/lpcox-smoke-pins-v0-28-64'";
-  const i = `${indent}    `;
-  return [
-    `${indent}- name: Setup Go for development enclave supervisor`,
-    `${indent}  if: ${condition}`,
-    `${indent}  uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0`,
-    `${indent}  with:`,
-    `${i}go-version: '1.25.0'`,
-    `${i}cache: false`,
-    `${indent}- name: Build UNATTESTED development enclave supervisor`,
-    `${indent}  if: ${condition}`,
-    `${indent}  run: |`,
-    `${i}(cd guest/microvm-supervisor && GOTOOLCHAIN=local go test ./...)`,
-    `${i}OUTPUT="\${RUNNER_TEMP}/awf-supervisor-development" VERSION="development-\${GITHUB_SHA}" GOARCH=amd64 GOTOOLCHAIN=local sh guest/microvm-supervisor/build.sh`,
-    `${i}sudo install -m 0555 -o root -g root "\${RUNNER_TEMP}/awf-supervisor-development" /var/lib/awf-enclave-smoke-export/awf-supervisor-development`,
-    `${i}DIGEST="$(sha256sum /var/lib/awf-enclave-smoke-export/awf-supervisor-development | cut -d ' ' -f 1)"`,
-    `${i}printf 'AWF_CH_ENCLAVE_TEST_SUPERVISOR_SHA256=%s\\n' "$DIGEST" >> "$GITHUB_ENV"`,
-    `${i}printf '**UNATTESTED DEVELOPMENT enclave supervisor**: commit=%s sha256=%s. Release rootfs and primary supervisor remain attested.\\n' "$GITHUB_SHA" "$DIGEST" >> "$GITHUB_STEP_SUMMARY"`,
-  ].join('\n') + '\n';
-}
-
 // Builds the replacement step that copies session state from the AWF-managed
 // host path (populated via --session-state-dir) into the agent logs directory
 // so it is captured by the existing artifact upload step.

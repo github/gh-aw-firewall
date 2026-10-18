@@ -86,7 +86,7 @@ describe('Cloud Hypervisor Copilot agent enclave smoke', () => {
     };
     expect(frontmatter.enclaves).toEqual([enclave]);
     expect(frontmatter.sandbox.agent).toEqual({
-      id: 'awf', version: 'v0.28.64', runtime: 'cloud-hypervisor',
+      id: 'awf', version: 'v0.28.66', runtime: 'cloud-hypervisor',
       config: { filesystem: { 'allow-write': ['/tmp/gh-aw/aw_info.json'] } },
     });
     expect(CLOUD_HYPERVISOR_ARTIFACT_RELEASE_TAG).toBe(frontmatter.sandbox.agent.version);
@@ -145,7 +145,7 @@ describe('Cloud Hypervisor Copilot agent enclave smoke', () => {
         cloudHypervisor: {
           previewEnabled: true,
           mountPolicy: 'workspace-and-tool-cache',
-          artifactReleaseTag: 'v0.28.64',
+          artifactReleaseTag: 'v0.28.66',
           cloudHypervisorBinary: '/usr/local/bin/cloud-hypervisor',
           vcpuCount: 2,
           memoryMib: 512,
@@ -157,7 +157,7 @@ describe('Cloud Hypervisor Copilot agent enclave smoke', () => {
         ...acceptanceConfig,
         cloudHypervisor: { ...acceptanceConfig.cloudHypervisor, artifactReleaseTag: 'v0.28.62' },
       })).toBe(false);
-      expect(source).toContain('host acceptance gate now selects only v0.28.64');
+      expect(source).toContain('host acceptance gate now selects only v0.28.66');
     } finally {
       process.env = original;
     }
@@ -188,8 +188,8 @@ describe('Cloud Hypervisor Copilot agent enclave smoke', () => {
     expect(lock).toContain('github/gh-aw-actions/setup@26e5d7e7d2345ae4c8dfa3d9017ca2ff9bbf2c82');
     expect(lock).toContain('actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1');
     expect(lock).toContain('ghcr.io/github/gh-aw-mcpg:v0.4.33@sha256:2b278f891b4566d27494658b37f628810f93da4caf510e266892ca344e55f8e0');
-    const digest = 'sha256:f691024f84f14d2720185ed21ebebcbc11b10e943df5c54080e14733ec3121c3';
-    expect(lock).toContain(`ghcr.io/github/gh-aw-firewall/enclave-agent:0.28.64@${digest}`);
+    const digest = 'sha256:d8c895817a8580197f2f97c19dfa37720acdc608e857d8f73a8201f3d552d5eb';
+    expect(lock).toContain(`ghcr.io/github/gh-aw-firewall/enclave-agent:0.28.66@${digest}`);
     expect(lock).not.toContain('resolution_failures');
     expect(agentSteps.find(step => step.name === 'Download and verify cloud-hypervisor enclave artifacts')?.run)
       .toContain('cloud_hypervisor_setup_enclave_artifacts.sh');
@@ -214,23 +214,19 @@ describe('Cloud Hypervisor Copilot agent enclave smoke', () => {
     expect(applyGeneralWorkflowPatches(lock, workflowPath).content).toBe(lock);
   });
 
-  it('builds an explicitly unattested enclave-only supervisor on the exact PR branch', () => {
-    const setup = agentSteps.find(step => step.name === 'Setup Go for development enclave supervisor');
-    const build = agentSteps.find(step => step.name === 'Build UNATTESTED development enclave supervisor');
-    expect(setup?.uses).toBe('actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e');
-    expect(setup?.with).toEqual({ 'go-version': '1.25.0', cache: false });
-    for (const step of [setup, build]) {
-      expect(step?.if).toContain("github.ref == 'refs/heads/lpcox-smoke-pins-v0-28-64'");
-      expect(step?.if).toContain("github.event_name == 'workflow_dispatch'");
-      expect(step?.if).toContain("github.repository == 'github/gh-aw-firewall'");
-    }
-    expect(build?.run).toContain('GOTOOLCHAIN=local go test ./...');
-    expect(build?.run).toContain('VERSION="development-${GITHUB_SHA}"');
-    expect(build?.run).toContain('sudo install -m 0555 -o root -g root');
-    expect(build?.run).toContain('AWF_CH_ENCLAVE_TEST_SUPERVISOR_SHA256');
-    expect(build?.run).toContain('UNATTESTED DEVELOPMENT enclave supervisor');
+  it('requires release supervisors without an exact-PR development override', () => {
+    expect(agentSteps.some(step => step.name.includes('development enclave supervisor'))).toBe(false);
+    expect(lock).not.toContain('AWF_CH_ENCLAVE_TEST_SUPERVISOR_SHA256');
+    expect(lock).not.toContain('awf-supervisor-development');
+    expect(lock).not.toContain('actions/setup-go@');
+    expect(lock).not.toContain('lpcox-smoke-pins-v0-28-64');
     expect(lock).not.toContain('--cloud-hypervisor-development-allow-unattested-artifacts');
-    expect(source).toContain('unattested development supervisor');
+    expect(source).toContain('both primary and enclave supervisors must come from verified release artifacts');
+    const executor = fs.readFileSync(path.resolve(__dirname,
+      '../../src/cloud-hypervisor/host-enclave-executor.ts'), 'utf8');
+    expect(executor).not.toContain('developmentSupervisor');
+    expect(executor).not.toContain('resolveDevelopmentEnclaveSupervisor');
+    expect(executor).toContain('supervisorPath: this.options.preflight.supervisorPath');
   });
 
   it('only publishes a fixed summary after successful host validation', () => {
