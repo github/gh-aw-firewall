@@ -117,11 +117,36 @@ export async function collectSharingRows(): Promise<SharingRow[]> {
 }
 
 export function renderSharingRows(rows: readonly SharingRow[]): string {
-  const cell = (value: string) => value.replace(/\|/g, '\\|').replace(/\n/g, ' ');
+  const cell = (value: string) => value.replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/\|/g, '\\|').replace(/\n/g, ' ');
+  const hostRule = (row: SharingRow): [string, string] => {
+    if (row.source === 'ephemeral tmpfs') return ['container-created; mode per tmpfs options', 'container lifetime'];
+    if (row.source.startsWith('<FIXTURE>/work')) return ['AWF setup; see lifecycle table', 'per-run cleanup / optional preservation'];
+    if (!row.source.startsWith('/') && !row.source.startsWith('<')) {
+      return ['Docker-managed; see lifecycle table', 'Compose down -v'];
+    }
+    return ['existing DAC/modes preserved', 'host-owned / not removed'];
+  };
+  const purpose = (row: SharingRow): string => {
+    if (row.source === '/dev/null') return 'credential/socket mask or virtual device';
+    if (row.destination.includes('logs') || row.destination.includes('session-state')) return 'logs / state channel';
+    if (row.destination.includes('init')) return 'init handshake channel';
+    if (row.destination.includes('workspace')) return 'workload workspace';
+    if (row.consumer === 'squid-proxy') return 'proxy configuration / logs';
+    return 'component runtime input / tool state';
+  };
   return [
-    '| Scenario | Source | Component / destination | Mount access | Mechanism |',
-    '| --- | --- | --- | --- | --- |',
-    ...rows.map(row => `| ${[row.scenario, row.source, `${row.consumer} → ${row.destination}`, row.access, row.mechanism].map(cell).join(' | ')} |`),
+    '| Runtime / activation | Source | Component / destination (identity above) | Owner / mode | Mount/export access | Lifecycle | Purpose / implementation |',
+    '| --- | --- | --- | --- | --- | --- | --- |',
+    ...rows.map(row => {
+      const [owner, lifecycle] = hostRule(row);
+      return `| ${[
+        row.scenario, row.source, `${row.consumer} → ${row.destination}`,
+        owner, row.access, lifecycle,
+        `${purpose(row)}; ${row.mechanism}`,
+      ].map(cell).join(' | ')} |`;
+    }),
   ].join('\n');
 }
 

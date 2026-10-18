@@ -69,357 +69,361 @@ is the activation condition; the identity is the corresponding row above.
 Host ownership is **preserved** unless the source is named in the lifecycle
 table. Mode is the mount boundary, not proof of effective write permission.
 The generator intentionally does not infer final host modes or post-entrypoint
-IDs from the plans.
+IDs from the plans. The owner/mode and lifecycle cells point to setup rules
+above; they are not observations from `stat`. The implementation cell names
+the mechanism; Compose rows are produced by `src/compose-generator.ts` and its
+`src/services/` builders, while microVM rows come from
+`src/cloud-hypervisor/exports.ts` and `src/nvx/workspace-export.ts`.
 
 <!-- sharing-plan:start -->
-| Scenario | Source | Component / destination | Mount access | Mechanism |
-| --- | --- | --- | --- | --- |
-| compose/default | <FIXTURE>/work/squid-logs | squid-proxy → /var/log/squid | rw | Compose bind/volume |
-| compose/default | /tmp | agent → /tmp | rw | Compose bind/volume |
-| compose/default | <FIXTURE>/workspace | agent → <FIXTURE>/workspace | rw | Compose bind/volume |
-| compose/default | <FIXTURE>/work/agent-logs | agent → <HOME>/.copilot/logs | rw | Compose bind/volume |
-| compose/default | <FIXTURE>/work/agent-session-state | agent → <HOME>/.copilot/session-state | rw | Compose bind/volume |
-| compose/default | <FIXTURE>/work/init-signal | agent → /run/awf-init | rw | Compose bind/volume |
-| compose/default | <FIXTURE>/work/init-signal | agent → /tmp/awf-init | ro | Compose bind/volume |
-| compose/default | /usr | agent → /host/usr | ro | Compose bind/volume |
-| compose/default | /bin | agent → /host/bin | ro | Compose bind/volume |
-| compose/default | /sbin | agent → /host/sbin | ro | Compose bind/volume |
-| compose/default | /lib | agent → /host/lib | ro | Compose bind/volume |
-| compose/default | /lib64 | agent → /host/lib64 | ro | Compose bind/volume |
-| compose/default | /opt | agent → /host/opt | ro | Compose bind/volume |
-| compose/default | /sys | agent → /host/sys | ro | Compose bind/volume |
-| compose/default | /dev | agent → /host/dev | ro | Compose bind/volume |
-| compose/default | /dev/null | agent → /host/dev/null | rw | Compose bind/volume |
-| compose/default | <FIXTURE>/workspace | agent → /host<FIXTURE>/workspace | rw | Compose bind/volume |
-| compose/default | /tmp | agent → /host/tmp | rw | Compose bind/volume |
-| compose/default | <FIXTURE>/work-chroot-home | agent → /host<HOME> | rw | Compose bind/volume |
-| compose/default | <FIXTURE>/work/agent-session-state | agent → /host<HOME>/.copilot/session-state | rw | Compose bind/volume |
-| compose/default | <FIXTURE>/work/agent-logs | agent → /host<HOME>/.copilot/logs | rw | Compose bind/volume |
-| compose/default | <HOME>/.cache | agent → /host<HOME>/.cache | rw | Compose bind/volume |
-| compose/default | <HOME>/.config | agent → /host<HOME>/.config | rw | Compose bind/volume |
-| compose/default | <HOME>/.local/bin | agent → /host<HOME>/.local/bin | rw | Compose bind/volume |
-| compose/default | <HOME>/.local/lib | agent → /host<HOME>/.local/lib | rw | Compose bind/volume |
-| compose/default | <HOME>/.local/lib64 | agent → /host<HOME>/.local/lib64 | rw | Compose bind/volume |
-| compose/default | <HOME>/.local/share | agent → /host<HOME>/.local/share | rw | Compose bind/volume |
-| compose/default | <HOME>/.local/pipx | agent → /host<HOME>/.local/pipx | rw | Compose bind/volume |
-| compose/default | <HOME>/.azure | agent → /host<HOME>/.azure | rw | Compose bind/volume |
-| compose/default | <HOME>/.anthropic | agent → /host<HOME>/.anthropic | rw | Compose bind/volume |
-| compose/default | <HOME>/.claude | agent → /host<HOME>/.claude | rw | Compose bind/volume |
-| compose/default | <HOME>/.cargo | agent → /host<HOME>/.cargo | rw | Compose bind/volume |
-| compose/default | <HOME>/.rustup | agent → /host<HOME>/.rustup | rw | Compose bind/volume |
-| compose/default | <HOME>/.npm | agent → /host<HOME>/.npm | rw | Compose bind/volume |
-| compose/default | <HOME>/.nvm | agent → /host<HOME>/.nvm | rw | Compose bind/volume |
-| compose/default | /opt/hostedtoolcache | agent → /host/opt/hostedtoolcache | ro | Compose bind/volume |
-| compose/default | /etc/ssl | agent → /host/etc/ssl | ro | Compose bind/volume |
-| compose/default | /etc/ca-certificates | agent → /host/etc/ca-certificates | ro | Compose bind/volume |
-| compose/default | /etc/alternatives | agent → /host/etc/alternatives | ro | Compose bind/volume |
-| compose/default | /etc/ld.so.cache | agent → /host/etc/ld.so.cache | ro | Compose bind/volume |
-| compose/default | /etc/nsswitch.conf | agent → /host/etc/nsswitch.conf | ro | Compose bind/volume |
-| compose/default | /etc/passwd | agent → /host/etc/passwd | ro | Compose bind/volume |
-| compose/default | /etc/group | agent → /host/etc/group | ro | Compose bind/volume |
-| compose/default | <FIXTURE>/work/chroot-<ID>/hosts | agent → /host/etc/hosts | ro | Compose bind/volume |
-| compose/default | /dev/null | agent → /host/var/run/docker.sock | ro | Compose bind/volume |
-| compose/default | /dev/null | agent → /host/run/docker.sock | ro | Compose bind/volume |
-| compose/default | /dev/null | agent → <HOME>/.docker/config.json | ro | Compose bind/volume |
-| compose/default | /dev/null | agent → <HOME>/.npmrc | ro | Compose bind/volume |
-| compose/default | /dev/null | agent → <HOME>/.composer/auth.json | ro | Compose bind/volume |
-| compose/default | /dev/null | agent → <HOME>/.ssh/id_rsa | ro | Compose bind/volume |
-| compose/default | /dev/null | agent → <HOME>/.ssh/id_ed25519 | ro | Compose bind/volume |
-| compose/default | /dev/null | agent → <HOME>/.ssh/id_ecdsa | ro | Compose bind/volume |
-| compose/default | /dev/null | agent → <HOME>/.ssh/id_dsa | ro | Compose bind/volume |
-| compose/default | /dev/null | agent → <HOME>/.aws/credentials | ro | Compose bind/volume |
-| compose/default | /dev/null | agent → <HOME>/.aws/config | ro | Compose bind/volume |
-| compose/default | /dev/null | agent → <HOME>/.kube/config | ro | Compose bind/volume |
-| compose/default | /dev/null | agent → <HOME>/.azure/credentials | ro | Compose bind/volume |
-| compose/default | /dev/null | agent → <HOME>/.azure/msal_token_cache.bin | ro | Compose bind/volume |
-| compose/default | /dev/null | agent → <HOME>/.azure/msal_token_cache.json | ro | Compose bind/volume |
-| compose/default | /dev/null | agent → <HOME>/.azure/accessTokens.json | ro | Compose bind/volume |
-| compose/default | /dev/null | agent → <HOME>/.azure/service_principal_entries.json | ro | Compose bind/volume |
-| compose/default | /dev/null | agent → <HOME>/.cargo/credentials | ro | Compose bind/volume |
-| compose/default | /dev/null | agent → <HOME>/.cargo/credentials.toml | ro | Compose bind/volume |
-| compose/default | /dev/null | agent → <HOME>/.claude/.credentials.json | ro | Compose bind/volume |
-| compose/default | /dev/null | agent → <HOME>/.gemini/oauth_creds.json | ro | Compose bind/volume |
-| compose/default | /dev/null | agent → <HOME>/.gemini/google_accounts.json | ro | Compose bind/volume |
-| compose/default | /dev/null | agent → <HOME>/.gemini/access_tokens.json | ro | Compose bind/volume |
-| compose/default | /dev/null | agent → <HOME>/.config/gh/hosts.yml | ro | Compose bind/volume |
-| compose/default | /dev/null | agent → <HOME>/.config/gcloud/credentials.db | ro | Compose bind/volume |
-| compose/default | /dev/null | agent → <HOME>/.config/gcloud/access_tokens.db | ro | Compose bind/volume |
-| compose/default | /dev/null | agent → <HOME>/.config/gcloud/application_default_credentials.json | ro | Compose bind/volume |
-| compose/default | /dev/null | agent → <HOME>/.config/doctl/config.yaml | ro | Compose bind/volume |
-| compose/default | /dev/null | agent → <HOME>/.config/rclone/rclone.conf | ro | Compose bind/volume |
-| compose/default | /dev/null | agent → <HOME>/.config/containers/auth.json | ro | Compose bind/volume |
-| compose/default | /dev/null | agent → <HOME>/.config/pulumi/credentials.json | ro | Compose bind/volume |
-| compose/default | /dev/null | agent → <HOME>/.config/helm/repositories.yaml | ro | Compose bind/volume |
-| compose/default | /dev/null | agent → /host<HOME>/.docker/config.json | ro | Compose bind/volume |
-| compose/default | /dev/null | agent → /host<HOME>/.npmrc | ro | Compose bind/volume |
-| compose/default | /dev/null | agent → /host<HOME>/.composer/auth.json | ro | Compose bind/volume |
-| compose/default | /dev/null | agent → /host<HOME>/.ssh/id_rsa | ro | Compose bind/volume |
-| compose/default | /dev/null | agent → /host<HOME>/.ssh/id_ed25519 | ro | Compose bind/volume |
-| compose/default | /dev/null | agent → /host<HOME>/.ssh/id_ecdsa | ro | Compose bind/volume |
-| compose/default | /dev/null | agent → /host<HOME>/.ssh/id_dsa | ro | Compose bind/volume |
-| compose/default | /dev/null | agent → /host<HOME>/.aws/credentials | ro | Compose bind/volume |
-| compose/default | /dev/null | agent → /host<HOME>/.aws/config | ro | Compose bind/volume |
-| compose/default | /dev/null | agent → /host<HOME>/.kube/config | ro | Compose bind/volume |
-| compose/default | /dev/null | agent → /host<HOME>/.azure/credentials | ro | Compose bind/volume |
-| compose/default | /dev/null | agent → /host<HOME>/.azure/msal_token_cache.bin | ro | Compose bind/volume |
-| compose/default | /dev/null | agent → /host<HOME>/.azure/msal_token_cache.json | ro | Compose bind/volume |
-| compose/default | /dev/null | agent → /host<HOME>/.azure/accessTokens.json | ro | Compose bind/volume |
-| compose/default | /dev/null | agent → /host<HOME>/.azure/service_principal_entries.json | ro | Compose bind/volume |
-| compose/default | /dev/null | agent → /host<HOME>/.cargo/credentials | ro | Compose bind/volume |
-| compose/default | /dev/null | agent → /host<HOME>/.cargo/credentials.toml | ro | Compose bind/volume |
-| compose/default | /dev/null | agent → /host<HOME>/.claude/.credentials.json | ro | Compose bind/volume |
-| compose/default | /dev/null | agent → /host<HOME>/.gemini/oauth_creds.json | ro | Compose bind/volume |
-| compose/default | /dev/null | agent → /host<HOME>/.gemini/google_accounts.json | ro | Compose bind/volume |
-| compose/default | /dev/null | agent → /host<HOME>/.gemini/access_tokens.json | ro | Compose bind/volume |
-| compose/default | /dev/null | agent → /host<HOME>/.config/gh/hosts.yml | ro | Compose bind/volume |
-| compose/default | /dev/null | agent → /host<HOME>/.config/gcloud/credentials.db | ro | Compose bind/volume |
-| compose/default | /dev/null | agent → /host<HOME>/.config/gcloud/access_tokens.db | ro | Compose bind/volume |
-| compose/default | /dev/null | agent → /host<HOME>/.config/gcloud/application_default_credentials.json | ro | Compose bind/volume |
-| compose/default | /dev/null | agent → /host<HOME>/.config/doctl/config.yaml | ro | Compose bind/volume |
-| compose/default | /dev/null | agent → /host<HOME>/.config/rclone/rclone.conf | ro | Compose bind/volume |
-| compose/default | /dev/null | agent → /host<HOME>/.config/containers/auth.json | ro | Compose bind/volume |
-| compose/default | /dev/null | agent → /host<HOME>/.config/pulumi/credentials.json | ro | Compose bind/volume |
-| compose/default | /dev/null | agent → /host<HOME>/.config/helm/repositories.yaml | ro | Compose bind/volume |
-| compose/default | ephemeral tmpfs | agent → /tmp/gh-aw/mcp-logs:rw,noexec,nosuid,size=1m | rw (tmpfs) | Compose tmpfs |
-| compose/default | ephemeral tmpfs | agent → /host/tmp/gh-aw/mcp-logs:rw,noexec,nosuid,size=1m | rw (tmpfs) | Compose tmpfs |
-| compose/default | ephemeral tmpfs | agent → <FIXTURE>/work:rw,noexec,nosuid,size=1m | rw (tmpfs) | Compose tmpfs |
-| compose/default | ephemeral tmpfs | agent → /host<FIXTURE>/work:rw,noexec,nosuid,size=1m | rw (tmpfs) | Compose tmpfs |
-| compose/default | ephemeral tmpfs | agent → /tmp/gh-aw/sandbox/firewall/logs:rw,noexec,nosuid,size=1m | rw (tmpfs) | Compose tmpfs |
-| compose/default | ephemeral tmpfs | agent → /host/tmp/gh-aw/sandbox/firewall/logs:rw,noexec,nosuid,size=1m | rw (tmpfs) | Compose tmpfs |
-| compose/default | ephemeral tmpfs | agent → /tmp/gh-aw/sandbox/firewall/audit:rw,noexec,nosuid,size=1m | rw (tmpfs) | Compose tmpfs |
-| compose/default | ephemeral tmpfs | agent → /host/tmp/gh-aw/sandbox/firewall/audit:rw,noexec,nosuid,size=1m | rw (tmpfs) | Compose tmpfs |
-| compose/default | ephemeral tmpfs | agent → /host/dev/shm:rw,noexec,nosuid,nodev,size=65536k | rw (tmpfs) | Compose tmpfs |
-| compose/default | <FIXTURE>/work/init-signal | iptables-init → /run/awf-init | rw | Compose bind/volume |
-| compose/default | <FIXTURE>/work/init-signal | iptables-init → /tmp/awf-init | rw | Compose bind/volume |
-| compose/api-proxy | <FIXTURE>/work/squid-logs | squid-proxy → /var/log/squid | rw | Compose bind/volume |
-| compose/api-proxy | /tmp | agent → /tmp | rw | Compose bind/volume |
-| compose/api-proxy | <FIXTURE>/workspace | agent → <FIXTURE>/workspace | rw | Compose bind/volume |
-| compose/api-proxy | <FIXTURE>/work/agent-logs | agent → <HOME>/.copilot/logs | rw | Compose bind/volume |
-| compose/api-proxy | <FIXTURE>/work/agent-session-state | agent → <HOME>/.copilot/session-state | rw | Compose bind/volume |
-| compose/api-proxy | <FIXTURE>/work/init-signal | agent → /run/awf-init | rw | Compose bind/volume |
-| compose/api-proxy | <FIXTURE>/work/init-signal | agent → /tmp/awf-init | ro | Compose bind/volume |
-| compose/api-proxy | <REPO>/containers/agent/api-proxy-health-check.sh | agent → /usr/local/bin/api-proxy-health-check.sh | ro | Compose bind/volume |
-| compose/api-proxy | /usr | agent → /host/usr | ro | Compose bind/volume |
-| compose/api-proxy | /bin | agent → /host/bin | ro | Compose bind/volume |
-| compose/api-proxy | /sbin | agent → /host/sbin | ro | Compose bind/volume |
-| compose/api-proxy | /lib | agent → /host/lib | ro | Compose bind/volume |
-| compose/api-proxy | /lib64 | agent → /host/lib64 | ro | Compose bind/volume |
-| compose/api-proxy | /opt | agent → /host/opt | ro | Compose bind/volume |
-| compose/api-proxy | /sys | agent → /host/sys | ro | Compose bind/volume |
-| compose/api-proxy | /dev | agent → /host/dev | ro | Compose bind/volume |
-| compose/api-proxy | /dev/null | agent → /host/dev/null | rw | Compose bind/volume |
-| compose/api-proxy | <FIXTURE>/workspace | agent → /host<FIXTURE>/workspace | rw | Compose bind/volume |
-| compose/api-proxy | /tmp | agent → /host/tmp | rw | Compose bind/volume |
-| compose/api-proxy | <FIXTURE>/work-chroot-home | agent → /host<HOME> | rw | Compose bind/volume |
-| compose/api-proxy | <FIXTURE>/work/agent-session-state | agent → /host<HOME>/.copilot/session-state | rw | Compose bind/volume |
-| compose/api-proxy | <FIXTURE>/work/agent-logs | agent → /host<HOME>/.copilot/logs | rw | Compose bind/volume |
-| compose/api-proxy | <HOME>/.cache | agent → /host<HOME>/.cache | rw | Compose bind/volume |
-| compose/api-proxy | <HOME>/.config | agent → /host<HOME>/.config | rw | Compose bind/volume |
-| compose/api-proxy | <HOME>/.local/bin | agent → /host<HOME>/.local/bin | rw | Compose bind/volume |
-| compose/api-proxy | <HOME>/.local/lib | agent → /host<HOME>/.local/lib | rw | Compose bind/volume |
-| compose/api-proxy | <HOME>/.local/lib64 | agent → /host<HOME>/.local/lib64 | rw | Compose bind/volume |
-| compose/api-proxy | <HOME>/.local/share | agent → /host<HOME>/.local/share | rw | Compose bind/volume |
-| compose/api-proxy | <HOME>/.local/pipx | agent → /host<HOME>/.local/pipx | rw | Compose bind/volume |
-| compose/api-proxy | <HOME>/.azure | agent → /host<HOME>/.azure | rw | Compose bind/volume |
-| compose/api-proxy | <HOME>/.anthropic | agent → /host<HOME>/.anthropic | rw | Compose bind/volume |
-| compose/api-proxy | <HOME>/.claude | agent → /host<HOME>/.claude | rw | Compose bind/volume |
-| compose/api-proxy | <HOME>/.cargo | agent → /host<HOME>/.cargo | rw | Compose bind/volume |
-| compose/api-proxy | <HOME>/.rustup | agent → /host<HOME>/.rustup | rw | Compose bind/volume |
-| compose/api-proxy | <HOME>/.npm | agent → /host<HOME>/.npm | rw | Compose bind/volume |
-| compose/api-proxy | <HOME>/.nvm | agent → /host<HOME>/.nvm | rw | Compose bind/volume |
-| compose/api-proxy | /opt/hostedtoolcache | agent → /host/opt/hostedtoolcache | ro | Compose bind/volume |
-| compose/api-proxy | /etc/ssl | agent → /host/etc/ssl | ro | Compose bind/volume |
-| compose/api-proxy | /etc/ca-certificates | agent → /host/etc/ca-certificates | ro | Compose bind/volume |
-| compose/api-proxy | /etc/alternatives | agent → /host/etc/alternatives | ro | Compose bind/volume |
-| compose/api-proxy | /etc/ld.so.cache | agent → /host/etc/ld.so.cache | ro | Compose bind/volume |
-| compose/api-proxy | /etc/nsswitch.conf | agent → /host/etc/nsswitch.conf | ro | Compose bind/volume |
-| compose/api-proxy | /etc/passwd | agent → /host/etc/passwd | ro | Compose bind/volume |
-| compose/api-proxy | /etc/group | agent → /host/etc/group | ro | Compose bind/volume |
-| compose/api-proxy | <FIXTURE>/work/chroot-<ID>/hosts | agent → /host/etc/hosts | ro | Compose bind/volume |
-| compose/api-proxy | /dev/null | agent → /host/var/run/docker.sock | ro | Compose bind/volume |
-| compose/api-proxy | /dev/null | agent → /host/run/docker.sock | ro | Compose bind/volume |
-| compose/api-proxy | /dev/null | agent → <HOME>/.docker/config.json | ro | Compose bind/volume |
-| compose/api-proxy | /dev/null | agent → <HOME>/.npmrc | ro | Compose bind/volume |
-| compose/api-proxy | /dev/null | agent → <HOME>/.composer/auth.json | ro | Compose bind/volume |
-| compose/api-proxy | /dev/null | agent → <HOME>/.ssh/id_rsa | ro | Compose bind/volume |
-| compose/api-proxy | /dev/null | agent → <HOME>/.ssh/id_ed25519 | ro | Compose bind/volume |
-| compose/api-proxy | /dev/null | agent → <HOME>/.ssh/id_ecdsa | ro | Compose bind/volume |
-| compose/api-proxy | /dev/null | agent → <HOME>/.ssh/id_dsa | ro | Compose bind/volume |
-| compose/api-proxy | /dev/null | agent → <HOME>/.aws/credentials | ro | Compose bind/volume |
-| compose/api-proxy | /dev/null | agent → <HOME>/.aws/config | ro | Compose bind/volume |
-| compose/api-proxy | /dev/null | agent → <HOME>/.kube/config | ro | Compose bind/volume |
-| compose/api-proxy | /dev/null | agent → <HOME>/.azure/credentials | ro | Compose bind/volume |
-| compose/api-proxy | /dev/null | agent → <HOME>/.azure/msal_token_cache.bin | ro | Compose bind/volume |
-| compose/api-proxy | /dev/null | agent → <HOME>/.azure/msal_token_cache.json | ro | Compose bind/volume |
-| compose/api-proxy | /dev/null | agent → <HOME>/.azure/accessTokens.json | ro | Compose bind/volume |
-| compose/api-proxy | /dev/null | agent → <HOME>/.azure/service_principal_entries.json | ro | Compose bind/volume |
-| compose/api-proxy | /dev/null | agent → <HOME>/.cargo/credentials | ro | Compose bind/volume |
-| compose/api-proxy | /dev/null | agent → <HOME>/.cargo/credentials.toml | ro | Compose bind/volume |
-| compose/api-proxy | /dev/null | agent → <HOME>/.claude/.credentials.json | ro | Compose bind/volume |
-| compose/api-proxy | /dev/null | agent → <HOME>/.gemini/oauth_creds.json | ro | Compose bind/volume |
-| compose/api-proxy | /dev/null | agent → <HOME>/.gemini/google_accounts.json | ro | Compose bind/volume |
-| compose/api-proxy | /dev/null | agent → <HOME>/.gemini/access_tokens.json | ro | Compose bind/volume |
-| compose/api-proxy | /dev/null | agent → <HOME>/.config/gh/hosts.yml | ro | Compose bind/volume |
-| compose/api-proxy | /dev/null | agent → <HOME>/.config/gcloud/credentials.db | ro | Compose bind/volume |
-| compose/api-proxy | /dev/null | agent → <HOME>/.config/gcloud/access_tokens.db | ro | Compose bind/volume |
-| compose/api-proxy | /dev/null | agent → <HOME>/.config/gcloud/application_default_credentials.json | ro | Compose bind/volume |
-| compose/api-proxy | /dev/null | agent → <HOME>/.config/doctl/config.yaml | ro | Compose bind/volume |
-| compose/api-proxy | /dev/null | agent → <HOME>/.config/rclone/rclone.conf | ro | Compose bind/volume |
-| compose/api-proxy | /dev/null | agent → <HOME>/.config/containers/auth.json | ro | Compose bind/volume |
-| compose/api-proxy | /dev/null | agent → <HOME>/.config/pulumi/credentials.json | ro | Compose bind/volume |
-| compose/api-proxy | /dev/null | agent → <HOME>/.config/helm/repositories.yaml | ro | Compose bind/volume |
-| compose/api-proxy | /dev/null | agent → /host<HOME>/.docker/config.json | ro | Compose bind/volume |
-| compose/api-proxy | /dev/null | agent → /host<HOME>/.npmrc | ro | Compose bind/volume |
-| compose/api-proxy | /dev/null | agent → /host<HOME>/.composer/auth.json | ro | Compose bind/volume |
-| compose/api-proxy | /dev/null | agent → /host<HOME>/.ssh/id_rsa | ro | Compose bind/volume |
-| compose/api-proxy | /dev/null | agent → /host<HOME>/.ssh/id_ed25519 | ro | Compose bind/volume |
-| compose/api-proxy | /dev/null | agent → /host<HOME>/.ssh/id_ecdsa | ro | Compose bind/volume |
-| compose/api-proxy | /dev/null | agent → /host<HOME>/.ssh/id_dsa | ro | Compose bind/volume |
-| compose/api-proxy | /dev/null | agent → /host<HOME>/.aws/credentials | ro | Compose bind/volume |
-| compose/api-proxy | /dev/null | agent → /host<HOME>/.aws/config | ro | Compose bind/volume |
-| compose/api-proxy | /dev/null | agent → /host<HOME>/.kube/config | ro | Compose bind/volume |
-| compose/api-proxy | /dev/null | agent → /host<HOME>/.azure/credentials | ro | Compose bind/volume |
-| compose/api-proxy | /dev/null | agent → /host<HOME>/.azure/msal_token_cache.bin | ro | Compose bind/volume |
-| compose/api-proxy | /dev/null | agent → /host<HOME>/.azure/msal_token_cache.json | ro | Compose bind/volume |
-| compose/api-proxy | /dev/null | agent → /host<HOME>/.azure/accessTokens.json | ro | Compose bind/volume |
-| compose/api-proxy | /dev/null | agent → /host<HOME>/.azure/service_principal_entries.json | ro | Compose bind/volume |
-| compose/api-proxy | /dev/null | agent → /host<HOME>/.cargo/credentials | ro | Compose bind/volume |
-| compose/api-proxy | /dev/null | agent → /host<HOME>/.cargo/credentials.toml | ro | Compose bind/volume |
-| compose/api-proxy | /dev/null | agent → /host<HOME>/.claude/.credentials.json | ro | Compose bind/volume |
-| compose/api-proxy | /dev/null | agent → /host<HOME>/.gemini/oauth_creds.json | ro | Compose bind/volume |
-| compose/api-proxy | /dev/null | agent → /host<HOME>/.gemini/google_accounts.json | ro | Compose bind/volume |
-| compose/api-proxy | /dev/null | agent → /host<HOME>/.gemini/access_tokens.json | ro | Compose bind/volume |
-| compose/api-proxy | /dev/null | agent → /host<HOME>/.config/gh/hosts.yml | ro | Compose bind/volume |
-| compose/api-proxy | /dev/null | agent → /host<HOME>/.config/gcloud/credentials.db | ro | Compose bind/volume |
-| compose/api-proxy | /dev/null | agent → /host<HOME>/.config/gcloud/access_tokens.db | ro | Compose bind/volume |
-| compose/api-proxy | /dev/null | agent → /host<HOME>/.config/gcloud/application_default_credentials.json | ro | Compose bind/volume |
-| compose/api-proxy | /dev/null | agent → /host<HOME>/.config/doctl/config.yaml | ro | Compose bind/volume |
-| compose/api-proxy | /dev/null | agent → /host<HOME>/.config/rclone/rclone.conf | ro | Compose bind/volume |
-| compose/api-proxy | /dev/null | agent → /host<HOME>/.config/containers/auth.json | ro | Compose bind/volume |
-| compose/api-proxy | /dev/null | agent → /host<HOME>/.config/pulumi/credentials.json | ro | Compose bind/volume |
-| compose/api-proxy | /dev/null | agent → /host<HOME>/.config/helm/repositories.yaml | ro | Compose bind/volume |
-| compose/api-proxy | ephemeral tmpfs | agent → /tmp/gh-aw/mcp-logs:rw,noexec,nosuid,size=1m | rw (tmpfs) | Compose tmpfs |
-| compose/api-proxy | ephemeral tmpfs | agent → /host/tmp/gh-aw/mcp-logs:rw,noexec,nosuid,size=1m | rw (tmpfs) | Compose tmpfs |
-| compose/api-proxy | ephemeral tmpfs | agent → <FIXTURE>/work:rw,noexec,nosuid,size=1m | rw (tmpfs) | Compose tmpfs |
-| compose/api-proxy | ephemeral tmpfs | agent → /host<FIXTURE>/work:rw,noexec,nosuid,size=1m | rw (tmpfs) | Compose tmpfs |
-| compose/api-proxy | ephemeral tmpfs | agent → /tmp/gh-aw/sandbox/firewall/logs:rw,noexec,nosuid,size=1m | rw (tmpfs) | Compose tmpfs |
-| compose/api-proxy | ephemeral tmpfs | agent → /host/tmp/gh-aw/sandbox/firewall/logs:rw,noexec,nosuid,size=1m | rw (tmpfs) | Compose tmpfs |
-| compose/api-proxy | ephemeral tmpfs | agent → /tmp/gh-aw/sandbox/firewall/audit:rw,noexec,nosuid,size=1m | rw (tmpfs) | Compose tmpfs |
-| compose/api-proxy | ephemeral tmpfs | agent → /host/tmp/gh-aw/sandbox/firewall/audit:rw,noexec,nosuid,size=1m | rw (tmpfs) | Compose tmpfs |
-| compose/api-proxy | ephemeral tmpfs | agent → /host/dev/shm:rw,noexec,nosuid,nodev,size=65536k | rw (tmpfs) | Compose tmpfs |
-| compose/api-proxy | <FIXTURE>/work/init-signal | iptables-init → /run/awf-init | rw | Compose bind/volume |
-| compose/api-proxy | <FIXTURE>/work/init-signal | iptables-init → /tmp/awf-init | rw | Compose bind/volume |
-| compose/api-proxy | <FIXTURE>/work/api-proxy-logs | api-proxy → /var/log/api-proxy | rw | Compose bind/volume |
-| compose/allowWrite-empty | <FIXTURE>/work/squid-logs | squid-proxy → /var/log/squid | rw | Compose bind/volume |
-| compose/allowWrite-empty | /tmp | agent → /tmp | ro | Compose bind/volume |
-| compose/allowWrite-empty | <FIXTURE>/workspace | agent → <FIXTURE>/workspace | ro | Compose bind/volume |
-| compose/allowWrite-empty | <FIXTURE>/work/agent-logs | agent → <HOME>/.copilot/logs | rw | Compose bind/volume |
-| compose/allowWrite-empty | <FIXTURE>/work/agent-session-state | agent → <HOME>/.copilot/session-state | rw | Compose bind/volume |
-| compose/allowWrite-empty | <FIXTURE>/work/init-signal | agent → /run/awf-init | rw | Compose bind/volume |
-| compose/allowWrite-empty | <FIXTURE>/work/init-signal | agent → /tmp/awf-init | ro | Compose bind/volume |
-| compose/allowWrite-empty | /usr | agent → /host/usr | ro | Compose bind/volume |
-| compose/allowWrite-empty | /bin | agent → /host/bin | ro | Compose bind/volume |
-| compose/allowWrite-empty | /sbin | agent → /host/sbin | ro | Compose bind/volume |
-| compose/allowWrite-empty | /lib | agent → /host/lib | ro | Compose bind/volume |
-| compose/allowWrite-empty | /lib64 | agent → /host/lib64 | ro | Compose bind/volume |
-| compose/allowWrite-empty | /opt | agent → /host/opt | ro | Compose bind/volume |
-| compose/allowWrite-empty | /sys | agent → /host/sys | ro | Compose bind/volume |
-| compose/allowWrite-empty | /dev | agent → /host/dev | ro | Compose bind/volume |
-| compose/allowWrite-empty | /dev/null | agent → /host/dev/null | rw | Compose bind/volume |
-| compose/allowWrite-empty | <FIXTURE>/workspace | agent → /host<FIXTURE>/workspace | ro | Compose bind/volume |
-| compose/allowWrite-empty | /tmp | agent → /host/tmp | ro | Compose bind/volume |
-| compose/allowWrite-empty | <FIXTURE>/work-chroot-home | agent → /host<HOME> | ro | Compose bind/volume |
-| compose/allowWrite-empty | <FIXTURE>/work/agent-session-state | agent → /host<HOME>/.copilot/session-state | rw | Compose bind/volume |
-| compose/allowWrite-empty | <FIXTURE>/work/agent-logs | agent → /host<HOME>/.copilot/logs | rw | Compose bind/volume |
-| compose/allowWrite-empty | <HOME>/.cache | agent → /host<HOME>/.cache | ro | Compose bind/volume |
-| compose/allowWrite-empty | <HOME>/.config | agent → /host<HOME>/.config | ro | Compose bind/volume |
-| compose/allowWrite-empty | <HOME>/.local/bin | agent → /host<HOME>/.local/bin | ro | Compose bind/volume |
-| compose/allowWrite-empty | <HOME>/.local/lib | agent → /host<HOME>/.local/lib | ro | Compose bind/volume |
-| compose/allowWrite-empty | <HOME>/.local/lib64 | agent → /host<HOME>/.local/lib64 | ro | Compose bind/volume |
-| compose/allowWrite-empty | <HOME>/.local/share | agent → /host<HOME>/.local/share | ro | Compose bind/volume |
-| compose/allowWrite-empty | <HOME>/.local/pipx | agent → /host<HOME>/.local/pipx | ro | Compose bind/volume |
-| compose/allowWrite-empty | <HOME>/.azure | agent → /host<HOME>/.azure | ro | Compose bind/volume |
-| compose/allowWrite-empty | <HOME>/.anthropic | agent → /host<HOME>/.anthropic | ro | Compose bind/volume |
-| compose/allowWrite-empty | <HOME>/.claude | agent → /host<HOME>/.claude | ro | Compose bind/volume |
-| compose/allowWrite-empty | <HOME>/.cargo | agent → /host<HOME>/.cargo | ro | Compose bind/volume |
-| compose/allowWrite-empty | <HOME>/.rustup | agent → /host<HOME>/.rustup | ro | Compose bind/volume |
-| compose/allowWrite-empty | <HOME>/.npm | agent → /host<HOME>/.npm | ro | Compose bind/volume |
-| compose/allowWrite-empty | <HOME>/.nvm | agent → /host<HOME>/.nvm | ro | Compose bind/volume |
-| compose/allowWrite-empty | /opt/hostedtoolcache | agent → /host/opt/hostedtoolcache | ro | Compose bind/volume |
-| compose/allowWrite-empty | /etc/ssl | agent → /host/etc/ssl | ro | Compose bind/volume |
-| compose/allowWrite-empty | /etc/ca-certificates | agent → /host/etc/ca-certificates | ro | Compose bind/volume |
-| compose/allowWrite-empty | /etc/alternatives | agent → /host/etc/alternatives | ro | Compose bind/volume |
-| compose/allowWrite-empty | /etc/ld.so.cache | agent → /host/etc/ld.so.cache | ro | Compose bind/volume |
-| compose/allowWrite-empty | /etc/nsswitch.conf | agent → /host/etc/nsswitch.conf | ro | Compose bind/volume |
-| compose/allowWrite-empty | /etc/passwd | agent → /host/etc/passwd | ro | Compose bind/volume |
-| compose/allowWrite-empty | /etc/group | agent → /host/etc/group | ro | Compose bind/volume |
-| compose/allowWrite-empty | <FIXTURE>/work/chroot-<ID>/hosts | agent → /host/etc/hosts | ro | Compose bind/volume |
-| compose/allowWrite-empty | /dev/null | agent → /host/var/run/docker.sock | ro | Compose bind/volume |
-| compose/allowWrite-empty | /dev/null | agent → /host/run/docker.sock | ro | Compose bind/volume |
-| compose/allowWrite-empty | /dev/null | agent → <HOME>/.docker/config.json | ro | Compose bind/volume |
-| compose/allowWrite-empty | /dev/null | agent → <HOME>/.npmrc | ro | Compose bind/volume |
-| compose/allowWrite-empty | /dev/null | agent → <HOME>/.composer/auth.json | ro | Compose bind/volume |
-| compose/allowWrite-empty | /dev/null | agent → <HOME>/.ssh/id_rsa | ro | Compose bind/volume |
-| compose/allowWrite-empty | /dev/null | agent → <HOME>/.ssh/id_ed25519 | ro | Compose bind/volume |
-| compose/allowWrite-empty | /dev/null | agent → <HOME>/.ssh/id_ecdsa | ro | Compose bind/volume |
-| compose/allowWrite-empty | /dev/null | agent → <HOME>/.ssh/id_dsa | ro | Compose bind/volume |
-| compose/allowWrite-empty | /dev/null | agent → <HOME>/.aws/credentials | ro | Compose bind/volume |
-| compose/allowWrite-empty | /dev/null | agent → <HOME>/.aws/config | ro | Compose bind/volume |
-| compose/allowWrite-empty | /dev/null | agent → <HOME>/.kube/config | ro | Compose bind/volume |
-| compose/allowWrite-empty | /dev/null | agent → <HOME>/.azure/credentials | ro | Compose bind/volume |
-| compose/allowWrite-empty | /dev/null | agent → <HOME>/.azure/msal_token_cache.bin | ro | Compose bind/volume |
-| compose/allowWrite-empty | /dev/null | agent → <HOME>/.azure/msal_token_cache.json | ro | Compose bind/volume |
-| compose/allowWrite-empty | /dev/null | agent → <HOME>/.azure/accessTokens.json | ro | Compose bind/volume |
-| compose/allowWrite-empty | /dev/null | agent → <HOME>/.azure/service_principal_entries.json | ro | Compose bind/volume |
-| compose/allowWrite-empty | /dev/null | agent → <HOME>/.cargo/credentials | ro | Compose bind/volume |
-| compose/allowWrite-empty | /dev/null | agent → <HOME>/.cargo/credentials.toml | ro | Compose bind/volume |
-| compose/allowWrite-empty | /dev/null | agent → <HOME>/.claude/.credentials.json | ro | Compose bind/volume |
-| compose/allowWrite-empty | /dev/null | agent → <HOME>/.gemini/oauth_creds.json | ro | Compose bind/volume |
-| compose/allowWrite-empty | /dev/null | agent → <HOME>/.gemini/google_accounts.json | ro | Compose bind/volume |
-| compose/allowWrite-empty | /dev/null | agent → <HOME>/.gemini/access_tokens.json | ro | Compose bind/volume |
-| compose/allowWrite-empty | /dev/null | agent → <HOME>/.config/gh/hosts.yml | ro | Compose bind/volume |
-| compose/allowWrite-empty | /dev/null | agent → <HOME>/.config/gcloud/credentials.db | ro | Compose bind/volume |
-| compose/allowWrite-empty | /dev/null | agent → <HOME>/.config/gcloud/access_tokens.db | ro | Compose bind/volume |
-| compose/allowWrite-empty | /dev/null | agent → <HOME>/.config/gcloud/application_default_credentials.json | ro | Compose bind/volume |
-| compose/allowWrite-empty | /dev/null | agent → <HOME>/.config/doctl/config.yaml | ro | Compose bind/volume |
-| compose/allowWrite-empty | /dev/null | agent → <HOME>/.config/rclone/rclone.conf | ro | Compose bind/volume |
-| compose/allowWrite-empty | /dev/null | agent → <HOME>/.config/containers/auth.json | ro | Compose bind/volume |
-| compose/allowWrite-empty | /dev/null | agent → <HOME>/.config/pulumi/credentials.json | ro | Compose bind/volume |
-| compose/allowWrite-empty | /dev/null | agent → <HOME>/.config/helm/repositories.yaml | ro | Compose bind/volume |
-| compose/allowWrite-empty | /dev/null | agent → /host<HOME>/.azure/credentials | ro | Compose bind/volume |
-| compose/allowWrite-empty | /dev/null | agent → /host<HOME>/.azure/msal_token_cache.bin | ro | Compose bind/volume |
-| compose/allowWrite-empty | /dev/null | agent → /host<HOME>/.azure/msal_token_cache.json | ro | Compose bind/volume |
-| compose/allowWrite-empty | /dev/null | agent → /host<HOME>/.azure/accessTokens.json | ro | Compose bind/volume |
-| compose/allowWrite-empty | /dev/null | agent → /host<HOME>/.azure/service_principal_entries.json | ro | Compose bind/volume |
-| compose/allowWrite-empty | /dev/null | agent → /host<HOME>/.cargo/credentials | ro | Compose bind/volume |
-| compose/allowWrite-empty | /dev/null | agent → /host<HOME>/.cargo/credentials.toml | ro | Compose bind/volume |
-| compose/allowWrite-empty | /dev/null | agent → /host<HOME>/.claude/.credentials.json | ro | Compose bind/volume |
-| compose/allowWrite-empty | /dev/null | agent → /host<HOME>/.config/gh/hosts.yml | ro | Compose bind/volume |
-| compose/allowWrite-empty | /dev/null | agent → /host<HOME>/.config/gcloud/credentials.db | ro | Compose bind/volume |
-| compose/allowWrite-empty | /dev/null | agent → /host<HOME>/.config/gcloud/access_tokens.db | ro | Compose bind/volume |
-| compose/allowWrite-empty | /dev/null | agent → /host<HOME>/.config/gcloud/application_default_credentials.json | ro | Compose bind/volume |
-| compose/allowWrite-empty | /dev/null | agent → /host<HOME>/.config/doctl/config.yaml | ro | Compose bind/volume |
-| compose/allowWrite-empty | /dev/null | agent → /host<HOME>/.config/rclone/rclone.conf | ro | Compose bind/volume |
-| compose/allowWrite-empty | /dev/null | agent → /host<HOME>/.config/containers/auth.json | ro | Compose bind/volume |
-| compose/allowWrite-empty | /dev/null | agent → /host<HOME>/.config/pulumi/credentials.json | ro | Compose bind/volume |
-| compose/allowWrite-empty | /dev/null | agent → /host<HOME>/.config/helm/repositories.yaml | ro | Compose bind/volume |
-| compose/allowWrite-empty | ephemeral tmpfs | agent → /tmp/gh-aw/mcp-logs:rw,noexec,nosuid,size=1m | rw (tmpfs) | Compose tmpfs |
-| compose/allowWrite-empty | ephemeral tmpfs | agent → /host/tmp/gh-aw/mcp-logs:rw,noexec,nosuid,size=1m | rw (tmpfs) | Compose tmpfs |
-| compose/allowWrite-empty | ephemeral tmpfs | agent → <FIXTURE>/work:rw,noexec,nosuid,size=1m | rw (tmpfs) | Compose tmpfs |
-| compose/allowWrite-empty | ephemeral tmpfs | agent → /host<FIXTURE>/work:rw,noexec,nosuid,size=1m | rw (tmpfs) | Compose tmpfs |
-| compose/allowWrite-empty | ephemeral tmpfs | agent → /tmp/gh-aw/sandbox/firewall/logs:rw,noexec,nosuid,size=1m | rw (tmpfs) | Compose tmpfs |
-| compose/allowWrite-empty | ephemeral tmpfs | agent → /host/tmp/gh-aw/sandbox/firewall/logs:rw,noexec,nosuid,size=1m | rw (tmpfs) | Compose tmpfs |
-| compose/allowWrite-empty | ephemeral tmpfs | agent → /tmp/gh-aw/sandbox/firewall/audit:rw,noexec,nosuid,size=1m | rw (tmpfs) | Compose tmpfs |
-| compose/allowWrite-empty | ephemeral tmpfs | agent → /host/tmp/gh-aw/sandbox/firewall/audit:rw,noexec,nosuid,size=1m | rw (tmpfs) | Compose tmpfs |
-| compose/allowWrite-empty | ephemeral tmpfs | agent → /host/dev/shm:rw,noexec,nosuid,nodev,size=65536k | rw (tmpfs) | Compose tmpfs |
-| compose/allowWrite-empty | <FIXTURE>/work/init-signal | iptables-init → /run/awf-init | rw | Compose bind/volume |
-| compose/allowWrite-empty | <FIXTURE>/work/init-signal | iptables-init → /tmp/awf-init | rw | Compose bind/volume |
-| cloud-hypervisor/workspace-only | <FIXTURE>/workspace | primary agent → /workspace | rw | virtio-fs export (write narrowing separate) |
-| cloud-hypervisor/workspace-and-tool-cache | <FIXTURE>/workspace | primary agent → /workspace | rw | virtio-fs export (write narrowing separate) |
-| cloud-hypervisor/workspace-and-tool-cache | <FIXTURE>/tools | primary agent → <FIXTURE>/tools | ro | virtio-fs export (write narrowing separate) |
-| nvx/workspace-only | <FIXTURE>/workspace | primary agent → /workspace | rw | virtio-fs export (write narrowing separate) |
-| nvx/workspace-and-tool-cache | <FIXTURE>/workspace | primary agent → /workspace | rw | virtio-fs export (write narrowing separate) |
-| nvx/workspace-and-tool-cache | <FIXTURE>/tools | primary agent → <FIXTURE>/tools | ro | virtio-fs export (write narrowing separate) |
+| Runtime / activation | Source | Component / destination (identity above) | Owner / mode | Mount/export access | Lifecycle | Purpose / implementation |
+| --- | --- | --- | --- | --- | --- | --- |
+| compose/default | &lt;FIXTURE&gt;/work/squid-logs | squid-proxy → /var/log/squid | AWF setup; see lifecycle table | rw | per-run cleanup / optional preservation | proxy configuration / logs; Compose bind/volume |
+| compose/default | /tmp | agent → /tmp | existing DAC/modes preserved | rw | host-owned / not removed | component runtime input / tool state; Compose bind/volume |
+| compose/default | &lt;FIXTURE&gt;/workspace | agent → &lt;FIXTURE&gt;/workspace | AWF setup; see lifecycle table | rw | per-run cleanup / optional preservation | workload workspace; Compose bind/volume |
+| compose/default | &lt;FIXTURE&gt;/work/agent-logs | agent → &lt;HOME&gt;/.copilot/logs | AWF setup; see lifecycle table | rw | per-run cleanup / optional preservation | logs / state channel; Compose bind/volume |
+| compose/default | &lt;FIXTURE&gt;/work/agent-session-state | agent → &lt;HOME&gt;/.copilot/session-state | AWF setup; see lifecycle table | rw | per-run cleanup / optional preservation | logs / state channel; Compose bind/volume |
+| compose/default | &lt;FIXTURE&gt;/work/init-signal | agent → /run/awf-init | AWF setup; see lifecycle table | rw | per-run cleanup / optional preservation | init handshake channel; Compose bind/volume |
+| compose/default | &lt;FIXTURE&gt;/work/init-signal | agent → /tmp/awf-init | AWF setup; see lifecycle table | ro | per-run cleanup / optional preservation | init handshake channel; Compose bind/volume |
+| compose/default | /usr | agent → /host/usr | existing DAC/modes preserved | ro | host-owned / not removed | component runtime input / tool state; Compose bind/volume |
+| compose/default | /bin | agent → /host/bin | existing DAC/modes preserved | ro | host-owned / not removed | component runtime input / tool state; Compose bind/volume |
+| compose/default | /sbin | agent → /host/sbin | existing DAC/modes preserved | ro | host-owned / not removed | component runtime input / tool state; Compose bind/volume |
+| compose/default | /lib | agent → /host/lib | existing DAC/modes preserved | ro | host-owned / not removed | component runtime input / tool state; Compose bind/volume |
+| compose/default | /lib64 | agent → /host/lib64 | existing DAC/modes preserved | ro | host-owned / not removed | component runtime input / tool state; Compose bind/volume |
+| compose/default | /opt | agent → /host/opt | existing DAC/modes preserved | ro | host-owned / not removed | component runtime input / tool state; Compose bind/volume |
+| compose/default | /sys | agent → /host/sys | existing DAC/modes preserved | ro | host-owned / not removed | component runtime input / tool state; Compose bind/volume |
+| compose/default | /dev | agent → /host/dev | existing DAC/modes preserved | ro | host-owned / not removed | component runtime input / tool state; Compose bind/volume |
+| compose/default | /dev/null | agent → /host/dev/null | existing DAC/modes preserved | rw | host-owned / not removed | credential/socket mask or virtual device; Compose bind/volume |
+| compose/default | &lt;FIXTURE&gt;/workspace | agent → /host&lt;FIXTURE&gt;/workspace | AWF setup; see lifecycle table | rw | per-run cleanup / optional preservation | workload workspace; Compose bind/volume |
+| compose/default | /tmp | agent → /host/tmp | existing DAC/modes preserved | rw | host-owned / not removed | component runtime input / tool state; Compose bind/volume |
+| compose/default | &lt;FIXTURE&gt;/work-chroot-home | agent → /host&lt;HOME&gt; | AWF setup; see lifecycle table | rw | per-run cleanup / optional preservation | component runtime input / tool state; Compose bind/volume |
+| compose/default | &lt;FIXTURE&gt;/work/agent-session-state | agent → /host&lt;HOME&gt;/.copilot/session-state | AWF setup; see lifecycle table | rw | per-run cleanup / optional preservation | logs / state channel; Compose bind/volume |
+| compose/default | &lt;FIXTURE&gt;/work/agent-logs | agent → /host&lt;HOME&gt;/.copilot/logs | AWF setup; see lifecycle table | rw | per-run cleanup / optional preservation | logs / state channel; Compose bind/volume |
+| compose/default | &lt;HOME&gt;/.cache | agent → /host&lt;HOME&gt;/.cache | existing DAC/modes preserved | rw | host-owned / not removed | component runtime input / tool state; Compose bind/volume |
+| compose/default | &lt;HOME&gt;/.config | agent → /host&lt;HOME&gt;/.config | existing DAC/modes preserved | rw | host-owned / not removed | component runtime input / tool state; Compose bind/volume |
+| compose/default | &lt;HOME&gt;/.local/bin | agent → /host&lt;HOME&gt;/.local/bin | existing DAC/modes preserved | rw | host-owned / not removed | component runtime input / tool state; Compose bind/volume |
+| compose/default | &lt;HOME&gt;/.local/lib | agent → /host&lt;HOME&gt;/.local/lib | existing DAC/modes preserved | rw | host-owned / not removed | component runtime input / tool state; Compose bind/volume |
+| compose/default | &lt;HOME&gt;/.local/lib64 | agent → /host&lt;HOME&gt;/.local/lib64 | existing DAC/modes preserved | rw | host-owned / not removed | component runtime input / tool state; Compose bind/volume |
+| compose/default | &lt;HOME&gt;/.local/share | agent → /host&lt;HOME&gt;/.local/share | existing DAC/modes preserved | rw | host-owned / not removed | component runtime input / tool state; Compose bind/volume |
+| compose/default | &lt;HOME&gt;/.local/pipx | agent → /host&lt;HOME&gt;/.local/pipx | existing DAC/modes preserved | rw | host-owned / not removed | component runtime input / tool state; Compose bind/volume |
+| compose/default | &lt;HOME&gt;/.azure | agent → /host&lt;HOME&gt;/.azure | existing DAC/modes preserved | rw | host-owned / not removed | component runtime input / tool state; Compose bind/volume |
+| compose/default | &lt;HOME&gt;/.anthropic | agent → /host&lt;HOME&gt;/.anthropic | existing DAC/modes preserved | rw | host-owned / not removed | component runtime input / tool state; Compose bind/volume |
+| compose/default | &lt;HOME&gt;/.claude | agent → /host&lt;HOME&gt;/.claude | existing DAC/modes preserved | rw | host-owned / not removed | component runtime input / tool state; Compose bind/volume |
+| compose/default | &lt;HOME&gt;/.cargo | agent → /host&lt;HOME&gt;/.cargo | existing DAC/modes preserved | rw | host-owned / not removed | component runtime input / tool state; Compose bind/volume |
+| compose/default | &lt;HOME&gt;/.rustup | agent → /host&lt;HOME&gt;/.rustup | existing DAC/modes preserved | rw | host-owned / not removed | component runtime input / tool state; Compose bind/volume |
+| compose/default | &lt;HOME&gt;/.npm | agent → /host&lt;HOME&gt;/.npm | existing DAC/modes preserved | rw | host-owned / not removed | component runtime input / tool state; Compose bind/volume |
+| compose/default | &lt;HOME&gt;/.nvm | agent → /host&lt;HOME&gt;/.nvm | existing DAC/modes preserved | rw | host-owned / not removed | component runtime input / tool state; Compose bind/volume |
+| compose/default | /opt/hostedtoolcache | agent → /host/opt/hostedtoolcache | existing DAC/modes preserved | ro | host-owned / not removed | component runtime input / tool state; Compose bind/volume |
+| compose/default | /etc/ssl | agent → /host/etc/ssl | existing DAC/modes preserved | ro | host-owned / not removed | component runtime input / tool state; Compose bind/volume |
+| compose/default | /etc/ca-certificates | agent → /host/etc/ca-certificates | existing DAC/modes preserved | ro | host-owned / not removed | component runtime input / tool state; Compose bind/volume |
+| compose/default | /etc/alternatives | agent → /host/etc/alternatives | existing DAC/modes preserved | ro | host-owned / not removed | component runtime input / tool state; Compose bind/volume |
+| compose/default | /etc/ld.so.cache | agent → /host/etc/ld.so.cache | existing DAC/modes preserved | ro | host-owned / not removed | component runtime input / tool state; Compose bind/volume |
+| compose/default | /etc/nsswitch.conf | agent → /host/etc/nsswitch.conf | existing DAC/modes preserved | ro | host-owned / not removed | component runtime input / tool state; Compose bind/volume |
+| compose/default | /etc/passwd | agent → /host/etc/passwd | existing DAC/modes preserved | ro | host-owned / not removed | component runtime input / tool state; Compose bind/volume |
+| compose/default | /etc/group | agent → /host/etc/group | existing DAC/modes preserved | ro | host-owned / not removed | component runtime input / tool state; Compose bind/volume |
+| compose/default | &lt;FIXTURE&gt;/work/chroot-&lt;ID&gt;/hosts | agent → /host/etc/hosts | AWF setup; see lifecycle table | ro | per-run cleanup / optional preservation | component runtime input / tool state; Compose bind/volume |
+| compose/default | /dev/null | agent → /host/var/run/docker.sock | existing DAC/modes preserved | ro | host-owned / not removed | credential/socket mask or virtual device; Compose bind/volume |
+| compose/default | /dev/null | agent → /host/run/docker.sock | existing DAC/modes preserved | ro | host-owned / not removed | credential/socket mask or virtual device; Compose bind/volume |
+| compose/default | /dev/null | agent → &lt;HOME&gt;/.docker/config.json | existing DAC/modes preserved | ro | host-owned / not removed | credential/socket mask or virtual device; Compose bind/volume |
+| compose/default | /dev/null | agent → &lt;HOME&gt;/.npmrc | existing DAC/modes preserved | ro | host-owned / not removed | credential/socket mask or virtual device; Compose bind/volume |
+| compose/default | /dev/null | agent → &lt;HOME&gt;/.composer/auth.json | existing DAC/modes preserved | ro | host-owned / not removed | credential/socket mask or virtual device; Compose bind/volume |
+| compose/default | /dev/null | agent → &lt;HOME&gt;/.ssh/id_rsa | existing DAC/modes preserved | ro | host-owned / not removed | credential/socket mask or virtual device; Compose bind/volume |
+| compose/default | /dev/null | agent → &lt;HOME&gt;/.ssh/id_ed25519 | existing DAC/modes preserved | ro | host-owned / not removed | credential/socket mask or virtual device; Compose bind/volume |
+| compose/default | /dev/null | agent → &lt;HOME&gt;/.ssh/id_ecdsa | existing DAC/modes preserved | ro | host-owned / not removed | credential/socket mask or virtual device; Compose bind/volume |
+| compose/default | /dev/null | agent → &lt;HOME&gt;/.ssh/id_dsa | existing DAC/modes preserved | ro | host-owned / not removed | credential/socket mask or virtual device; Compose bind/volume |
+| compose/default | /dev/null | agent → &lt;HOME&gt;/.aws/credentials | existing DAC/modes preserved | ro | host-owned / not removed | credential/socket mask or virtual device; Compose bind/volume |
+| compose/default | /dev/null | agent → &lt;HOME&gt;/.aws/config | existing DAC/modes preserved | ro | host-owned / not removed | credential/socket mask or virtual device; Compose bind/volume |
+| compose/default | /dev/null | agent → &lt;HOME&gt;/.kube/config | existing DAC/modes preserved | ro | host-owned / not removed | credential/socket mask or virtual device; Compose bind/volume |
+| compose/default | /dev/null | agent → &lt;HOME&gt;/.azure/credentials | existing DAC/modes preserved | ro | host-owned / not removed | credential/socket mask or virtual device; Compose bind/volume |
+| compose/default | /dev/null | agent → &lt;HOME&gt;/.azure/msal_token_cache.bin | existing DAC/modes preserved | ro | host-owned / not removed | credential/socket mask or virtual device; Compose bind/volume |
+| compose/default | /dev/null | agent → &lt;HOME&gt;/.azure/msal_token_cache.json | existing DAC/modes preserved | ro | host-owned / not removed | credential/socket mask or virtual device; Compose bind/volume |
+| compose/default | /dev/null | agent → &lt;HOME&gt;/.azure/accessTokens.json | existing DAC/modes preserved | ro | host-owned / not removed | credential/socket mask or virtual device; Compose bind/volume |
+| compose/default | /dev/null | agent → &lt;HOME&gt;/.azure/service_principal_entries.json | existing DAC/modes preserved | ro | host-owned / not removed | credential/socket mask or virtual device; Compose bind/volume |
+| compose/default | /dev/null | agent → &lt;HOME&gt;/.cargo/credentials | existing DAC/modes preserved | ro | host-owned / not removed | credential/socket mask or virtual device; Compose bind/volume |
+| compose/default | /dev/null | agent → &lt;HOME&gt;/.cargo/credentials.toml | existing DAC/modes preserved | ro | host-owned / not removed | credential/socket mask or virtual device; Compose bind/volume |
+| compose/default | /dev/null | agent → &lt;HOME&gt;/.claude/.credentials.json | existing DAC/modes preserved | ro | host-owned / not removed | credential/socket mask or virtual device; Compose bind/volume |
+| compose/default | /dev/null | agent → &lt;HOME&gt;/.gemini/oauth_creds.json | existing DAC/modes preserved | ro | host-owned / not removed | credential/socket mask or virtual device; Compose bind/volume |
+| compose/default | /dev/null | agent → &lt;HOME&gt;/.gemini/google_accounts.json | existing DAC/modes preserved | ro | host-owned / not removed | credential/socket mask or virtual device; Compose bind/volume |
+| compose/default | /dev/null | agent → &lt;HOME&gt;/.gemini/access_tokens.json | existing DAC/modes preserved | ro | host-owned / not removed | credential/socket mask or virtual device; Compose bind/volume |
+| compose/default | /dev/null | agent → &lt;HOME&gt;/.config/gh/hosts.yml | existing DAC/modes preserved | ro | host-owned / not removed | credential/socket mask or virtual device; Compose bind/volume |
+| compose/default | /dev/null | agent → &lt;HOME&gt;/.config/gcloud/credentials.db | existing DAC/modes preserved | ro | host-owned / not removed | credential/socket mask or virtual device; Compose bind/volume |
+| compose/default | /dev/null | agent → &lt;HOME&gt;/.config/gcloud/access_tokens.db | existing DAC/modes preserved | ro | host-owned / not removed | credential/socket mask or virtual device; Compose bind/volume |
+| compose/default | /dev/null | agent → &lt;HOME&gt;/.config/gcloud/application_default_credentials.json | existing DAC/modes preserved | ro | host-owned / not removed | credential/socket mask or virtual device; Compose bind/volume |
+| compose/default | /dev/null | agent → &lt;HOME&gt;/.config/doctl/config.yaml | existing DAC/modes preserved | ro | host-owned / not removed | credential/socket mask or virtual device; Compose bind/volume |
+| compose/default | /dev/null | agent → &lt;HOME&gt;/.config/rclone/rclone.conf | existing DAC/modes preserved | ro | host-owned / not removed | credential/socket mask or virtual device; Compose bind/volume |
+| compose/default | /dev/null | agent → &lt;HOME&gt;/.config/containers/auth.json | existing DAC/modes preserved | ro | host-owned / not removed | credential/socket mask or virtual device; Compose bind/volume |
+| compose/default | /dev/null | agent → &lt;HOME&gt;/.config/pulumi/credentials.json | existing DAC/modes preserved | ro | host-owned / not removed | credential/socket mask or virtual device; Compose bind/volume |
+| compose/default | /dev/null | agent → &lt;HOME&gt;/.config/helm/repositories.yaml | existing DAC/modes preserved | ro | host-owned / not removed | credential/socket mask or virtual device; Compose bind/volume |
+| compose/default | /dev/null | agent → /host&lt;HOME&gt;/.docker/config.json | existing DAC/modes preserved | ro | host-owned / not removed | credential/socket mask or virtual device; Compose bind/volume |
+| compose/default | /dev/null | agent → /host&lt;HOME&gt;/.npmrc | existing DAC/modes preserved | ro | host-owned / not removed | credential/socket mask or virtual device; Compose bind/volume |
+| compose/default | /dev/null | agent → /host&lt;HOME&gt;/.composer/auth.json | existing DAC/modes preserved | ro | host-owned / not removed | credential/socket mask or virtual device; Compose bind/volume |
+| compose/default | /dev/null | agent → /host&lt;HOME&gt;/.ssh/id_rsa | existing DAC/modes preserved | ro | host-owned / not removed | credential/socket mask or virtual device; Compose bind/volume |
+| compose/default | /dev/null | agent → /host&lt;HOME&gt;/.ssh/id_ed25519 | existing DAC/modes preserved | ro | host-owned / not removed | credential/socket mask or virtual device; Compose bind/volume |
+| compose/default | /dev/null | agent → /host&lt;HOME&gt;/.ssh/id_ecdsa | existing DAC/modes preserved | ro | host-owned / not removed | credential/socket mask or virtual device; Compose bind/volume |
+| compose/default | /dev/null | agent → /host&lt;HOME&gt;/.ssh/id_dsa | existing DAC/modes preserved | ro | host-owned / not removed | credential/socket mask or virtual device; Compose bind/volume |
+| compose/default | /dev/null | agent → /host&lt;HOME&gt;/.aws/credentials | existing DAC/modes preserved | ro | host-owned / not removed | credential/socket mask or virtual device; Compose bind/volume |
+| compose/default | /dev/null | agent → /host&lt;HOME&gt;/.aws/config | existing DAC/modes preserved | ro | host-owned / not removed | credential/socket mask or virtual device; Compose bind/volume |
+| compose/default | /dev/null | agent → /host&lt;HOME&gt;/.kube/config | existing DAC/modes preserved | ro | host-owned / not removed | credential/socket mask or virtual device; Compose bind/volume |
+| compose/default | /dev/null | agent → /host&lt;HOME&gt;/.azure/credentials | existing DAC/modes preserved | ro | host-owned / not removed | credential/socket mask or virtual device; Compose bind/volume |
+| compose/default | /dev/null | agent → /host&lt;HOME&gt;/.azure/msal_token_cache.bin | existing DAC/modes preserved | ro | host-owned / not removed | credential/socket mask or virtual device; Compose bind/volume |
+| compose/default | /dev/null | agent → /host&lt;HOME&gt;/.azure/msal_token_cache.json | existing DAC/modes preserved | ro | host-owned / not removed | credential/socket mask or virtual device; Compose bind/volume |
+| compose/default | /dev/null | agent → /host&lt;HOME&gt;/.azure/accessTokens.json | existing DAC/modes preserved | ro | host-owned / not removed | credential/socket mask or virtual device; Compose bind/volume |
+| compose/default | /dev/null | agent → /host&lt;HOME&gt;/.azure/service_principal_entries.json | existing DAC/modes preserved | ro | host-owned / not removed | credential/socket mask or virtual device; Compose bind/volume |
+| compose/default | /dev/null | agent → /host&lt;HOME&gt;/.cargo/credentials | existing DAC/modes preserved | ro | host-owned / not removed | credential/socket mask or virtual device; Compose bind/volume |
+| compose/default | /dev/null | agent → /host&lt;HOME&gt;/.cargo/credentials.toml | existing DAC/modes preserved | ro | host-owned / not removed | credential/socket mask or virtual device; Compose bind/volume |
+| compose/default | /dev/null | agent → /host&lt;HOME&gt;/.claude/.credentials.json | existing DAC/modes preserved | ro | host-owned / not removed | credential/socket mask or virtual device; Compose bind/volume |
+| compose/default | /dev/null | agent → /host&lt;HOME&gt;/.gemini/oauth_creds.json | existing DAC/modes preserved | ro | host-owned / not removed | credential/socket mask or virtual device; Compose bind/volume |
+| compose/default | /dev/null | agent → /host&lt;HOME&gt;/.gemini/google_accounts.json | existing DAC/modes preserved | ro | host-owned / not removed | credential/socket mask or virtual device; Compose bind/volume |
+| compose/default | /dev/null | agent → /host&lt;HOME&gt;/.gemini/access_tokens.json | existing DAC/modes preserved | ro | host-owned / not removed | credential/socket mask or virtual device; Compose bind/volume |
+| compose/default | /dev/null | agent → /host&lt;HOME&gt;/.config/gh/hosts.yml | existing DAC/modes preserved | ro | host-owned / not removed | credential/socket mask or virtual device; Compose bind/volume |
+| compose/default | /dev/null | agent → /host&lt;HOME&gt;/.config/gcloud/credentials.db | existing DAC/modes preserved | ro | host-owned / not removed | credential/socket mask or virtual device; Compose bind/volume |
+| compose/default | /dev/null | agent → /host&lt;HOME&gt;/.config/gcloud/access_tokens.db | existing DAC/modes preserved | ro | host-owned / not removed | credential/socket mask or virtual device; Compose bind/volume |
+| compose/default | /dev/null | agent → /host&lt;HOME&gt;/.config/gcloud/application_default_credentials.json | existing DAC/modes preserved | ro | host-owned / not removed | credential/socket mask or virtual device; Compose bind/volume |
+| compose/default | /dev/null | agent → /host&lt;HOME&gt;/.config/doctl/config.yaml | existing DAC/modes preserved | ro | host-owned / not removed | credential/socket mask or virtual device; Compose bind/volume |
+| compose/default | /dev/null | agent → /host&lt;HOME&gt;/.config/rclone/rclone.conf | existing DAC/modes preserved | ro | host-owned / not removed | credential/socket mask or virtual device; Compose bind/volume |
+| compose/default | /dev/null | agent → /host&lt;HOME&gt;/.config/containers/auth.json | existing DAC/modes preserved | ro | host-owned / not removed | credential/socket mask or virtual device; Compose bind/volume |
+| compose/default | /dev/null | agent → /host&lt;HOME&gt;/.config/pulumi/credentials.json | existing DAC/modes preserved | ro | host-owned / not removed | credential/socket mask or virtual device; Compose bind/volume |
+| compose/default | /dev/null | agent → /host&lt;HOME&gt;/.config/helm/repositories.yaml | existing DAC/modes preserved | ro | host-owned / not removed | credential/socket mask or virtual device; Compose bind/volume |
+| compose/default | ephemeral tmpfs | agent → /tmp/gh-aw/mcp-logs:rw,noexec,nosuid,size=1m | container-created; mode per tmpfs options | rw (tmpfs) | container lifetime | logs / state channel; Compose tmpfs |
+| compose/default | ephemeral tmpfs | agent → /host/tmp/gh-aw/mcp-logs:rw,noexec,nosuid,size=1m | container-created; mode per tmpfs options | rw (tmpfs) | container lifetime | logs / state channel; Compose tmpfs |
+| compose/default | ephemeral tmpfs | agent → &lt;FIXTURE&gt;/work:rw,noexec,nosuid,size=1m | container-created; mode per tmpfs options | rw (tmpfs) | container lifetime | component runtime input / tool state; Compose tmpfs |
+| compose/default | ephemeral tmpfs | agent → /host&lt;FIXTURE&gt;/work:rw,noexec,nosuid,size=1m | container-created; mode per tmpfs options | rw (tmpfs) | container lifetime | component runtime input / tool state; Compose tmpfs |
+| compose/default | ephemeral tmpfs | agent → /tmp/gh-aw/sandbox/firewall/logs:rw,noexec,nosuid,size=1m | container-created; mode per tmpfs options | rw (tmpfs) | container lifetime | logs / state channel; Compose tmpfs |
+| compose/default | ephemeral tmpfs | agent → /host/tmp/gh-aw/sandbox/firewall/logs:rw,noexec,nosuid,size=1m | container-created; mode per tmpfs options | rw (tmpfs) | container lifetime | logs / state channel; Compose tmpfs |
+| compose/default | ephemeral tmpfs | agent → /tmp/gh-aw/sandbox/firewall/audit:rw,noexec,nosuid,size=1m | container-created; mode per tmpfs options | rw (tmpfs) | container lifetime | component runtime input / tool state; Compose tmpfs |
+| compose/default | ephemeral tmpfs | agent → /host/tmp/gh-aw/sandbox/firewall/audit:rw,noexec,nosuid,size=1m | container-created; mode per tmpfs options | rw (tmpfs) | container lifetime | component runtime input / tool state; Compose tmpfs |
+| compose/default | ephemeral tmpfs | agent → /host/dev/shm:rw,noexec,nosuid,nodev,size=65536k | container-created; mode per tmpfs options | rw (tmpfs) | container lifetime | component runtime input / tool state; Compose tmpfs |
+| compose/default | &lt;FIXTURE&gt;/work/init-signal | iptables-init → /run/awf-init | AWF setup; see lifecycle table | rw | per-run cleanup / optional preservation | init handshake channel; Compose bind/volume |
+| compose/default | &lt;FIXTURE&gt;/work/init-signal | iptables-init → /tmp/awf-init | AWF setup; see lifecycle table | rw | per-run cleanup / optional preservation | init handshake channel; Compose bind/volume |
+| compose/api-proxy | &lt;FIXTURE&gt;/work/squid-logs | squid-proxy → /var/log/squid | AWF setup; see lifecycle table | rw | per-run cleanup / optional preservation | proxy configuration / logs; Compose bind/volume |
+| compose/api-proxy | /tmp | agent → /tmp | existing DAC/modes preserved | rw | host-owned / not removed | component runtime input / tool state; Compose bind/volume |
+| compose/api-proxy | &lt;FIXTURE&gt;/workspace | agent → &lt;FIXTURE&gt;/workspace | AWF setup; see lifecycle table | rw | per-run cleanup / optional preservation | workload workspace; Compose bind/volume |
+| compose/api-proxy | &lt;FIXTURE&gt;/work/agent-logs | agent → &lt;HOME&gt;/.copilot/logs | AWF setup; see lifecycle table | rw | per-run cleanup / optional preservation | logs / state channel; Compose bind/volume |
+| compose/api-proxy | &lt;FIXTURE&gt;/work/agent-session-state | agent → &lt;HOME&gt;/.copilot/session-state | AWF setup; see lifecycle table | rw | per-run cleanup / optional preservation | logs / state channel; Compose bind/volume |
+| compose/api-proxy | &lt;FIXTURE&gt;/work/init-signal | agent → /run/awf-init | AWF setup; see lifecycle table | rw | per-run cleanup / optional preservation | init handshake channel; Compose bind/volume |
+| compose/api-proxy | &lt;FIXTURE&gt;/work/init-signal | agent → /tmp/awf-init | AWF setup; see lifecycle table | ro | per-run cleanup / optional preservation | init handshake channel; Compose bind/volume |
+| compose/api-proxy | &lt;REPO&gt;/containers/agent/api-proxy-health-check.sh | agent → /usr/local/bin/api-proxy-health-check.sh | existing DAC/modes preserved | ro | host-owned / not removed | component runtime input / tool state; Compose bind/volume |
+| compose/api-proxy | /usr | agent → /host/usr | existing DAC/modes preserved | ro | host-owned / not removed | component runtime input / tool state; Compose bind/volume |
+| compose/api-proxy | /bin | agent → /host/bin | existing DAC/modes preserved | ro | host-owned / not removed | component runtime input / tool state; Compose bind/volume |
+| compose/api-proxy | /sbin | agent → /host/sbin | existing DAC/modes preserved | ro | host-owned / not removed | component runtime input / tool state; Compose bind/volume |
+| compose/api-proxy | /lib | agent → /host/lib | existing DAC/modes preserved | ro | host-owned / not removed | component runtime input / tool state; Compose bind/volume |
+| compose/api-proxy | /lib64 | agent → /host/lib64 | existing DAC/modes preserved | ro | host-owned / not removed | component runtime input / tool state; Compose bind/volume |
+| compose/api-proxy | /opt | agent → /host/opt | existing DAC/modes preserved | ro | host-owned / not removed | component runtime input / tool state; Compose bind/volume |
+| compose/api-proxy | /sys | agent → /host/sys | existing DAC/modes preserved | ro | host-owned / not removed | component runtime input / tool state; Compose bind/volume |
+| compose/api-proxy | /dev | agent → /host/dev | existing DAC/modes preserved | ro | host-owned / not removed | component runtime input / tool state; Compose bind/volume |
+| compose/api-proxy | /dev/null | agent → /host/dev/null | existing DAC/modes preserved | rw | host-owned / not removed | credential/socket mask or virtual device; Compose bind/volume |
+| compose/api-proxy | &lt;FIXTURE&gt;/workspace | agent → /host&lt;FIXTURE&gt;/workspace | AWF setup; see lifecycle table | rw | per-run cleanup / optional preservation | workload workspace; Compose bind/volume |
+| compose/api-proxy | /tmp | agent → /host/tmp | existing DAC/modes preserved | rw | host-owned / not removed | component runtime input / tool state; Compose bind/volume |
+| compose/api-proxy | &lt;FIXTURE&gt;/work-chroot-home | agent → /host&lt;HOME&gt; | AWF setup; see lifecycle table | rw | per-run cleanup / optional preservation | component runtime input / tool state; Compose bind/volume |
+| compose/api-proxy | &lt;FIXTURE&gt;/work/agent-session-state | agent → /host&lt;HOME&gt;/.copilot/session-state | AWF setup; see lifecycle table | rw | per-run cleanup / optional preservation | logs / state channel; Compose bind/volume |
+| compose/api-proxy | &lt;FIXTURE&gt;/work/agent-logs | agent → /host&lt;HOME&gt;/.copilot/logs | AWF setup; see lifecycle table | rw | per-run cleanup / optional preservation | logs / state channel; Compose bind/volume |
+| compose/api-proxy | &lt;HOME&gt;/.cache | agent → /host&lt;HOME&gt;/.cache | existing DAC/modes preserved | rw | host-owned / not removed | component runtime input / tool state; Compose bind/volume |
+| compose/api-proxy | &lt;HOME&gt;/.config | agent → /host&lt;HOME&gt;/.config | existing DAC/modes preserved | rw | host-owned / not removed | component runtime input / tool state; Compose bind/volume |
+| compose/api-proxy | &lt;HOME&gt;/.local/bin | agent → /host&lt;HOME&gt;/.local/bin | existing DAC/modes preserved | rw | host-owned / not removed | component runtime input / tool state; Compose bind/volume |
+| compose/api-proxy | &lt;HOME&gt;/.local/lib | agent → /host&lt;HOME&gt;/.local/lib | existing DAC/modes preserved | rw | host-owned / not removed | component runtime input / tool state; Compose bind/volume |
+| compose/api-proxy | &lt;HOME&gt;/.local/lib64 | agent → /host&lt;HOME&gt;/.local/lib64 | existing DAC/modes preserved | rw | host-owned / not removed | component runtime input / tool state; Compose bind/volume |
+| compose/api-proxy | &lt;HOME&gt;/.local/share | agent → /host&lt;HOME&gt;/.local/share | existing DAC/modes preserved | rw | host-owned / not removed | component runtime input / tool state; Compose bind/volume |
+| compose/api-proxy | &lt;HOME&gt;/.local/pipx | agent → /host&lt;HOME&gt;/.local/pipx | existing DAC/modes preserved | rw | host-owned / not removed | component runtime input / tool state; Compose bind/volume |
+| compose/api-proxy | &lt;HOME&gt;/.azure | agent → /host&lt;HOME&gt;/.azure | existing DAC/modes preserved | rw | host-owned / not removed | component runtime input / tool state; Compose bind/volume |
+| compose/api-proxy | &lt;HOME&gt;/.anthropic | agent → /host&lt;HOME&gt;/.anthropic | existing DAC/modes preserved | rw | host-owned / not removed | component runtime input / tool state; Compose bind/volume |
+| compose/api-proxy | &lt;HOME&gt;/.claude | agent → /host&lt;HOME&gt;/.claude | existing DAC/modes preserved | rw | host-owned / not removed | component runtime input / tool state; Compose bind/volume |
+| compose/api-proxy | &lt;HOME&gt;/.cargo | agent → /host&lt;HOME&gt;/.cargo | existing DAC/modes preserved | rw | host-owned / not removed | component runtime input / tool state; Compose bind/volume |
+| compose/api-proxy | &lt;HOME&gt;/.rustup | agent → /host&lt;HOME&gt;/.rustup | existing DAC/modes preserved | rw | host-owned / not removed | component runtime input / tool state; Compose bind/volume |
+| compose/api-proxy | &lt;HOME&gt;/.npm | agent → /host&lt;HOME&gt;/.npm | existing DAC/modes preserved | rw | host-owned / not removed | component runtime input / tool state; Compose bind/volume |
+| compose/api-proxy | &lt;HOME&gt;/.nvm | agent → /host&lt;HOME&gt;/.nvm | existing DAC/modes preserved | rw | host-owned / not removed | component runtime input / tool state; Compose bind/volume |
+| compose/api-proxy | /opt/hostedtoolcache | agent → /host/opt/hostedtoolcache | existing DAC/modes preserved | ro | host-owned / not removed | component runtime input / tool state; Compose bind/volume |
+| compose/api-proxy | /etc/ssl | agent → /host/etc/ssl | existing DAC/modes preserved | ro | host-owned / not removed | component runtime input / tool state; Compose bind/volume |
+| compose/api-proxy | /etc/ca-certificates | agent → /host/etc/ca-certificates | existing DAC/modes preserved | ro | host-owned / not removed | component runtime input / tool state; Compose bind/volume |
+| compose/api-proxy | /etc/alternatives | agent → /host/etc/alternatives | existing DAC/modes preserved | ro | host-owned / not removed | component runtime input / tool state; Compose bind/volume |
+| compose/api-proxy | /etc/ld.so.cache | agent → /host/etc/ld.so.cache | existing DAC/modes preserved | ro | host-owned / not removed | component runtime input / tool state; Compose bind/volume |
+| compose/api-proxy | /etc/nsswitch.conf | agent → /host/etc/nsswitch.conf | existing DAC/modes preserved | ro | host-owned / not removed | component runtime input / tool state; Compose bind/volume |
+| compose/api-proxy | /etc/passwd | agent → /host/etc/passwd | existing DAC/modes preserved | ro | host-owned / not removed | component runtime input / tool state; Compose bind/volume |
+| compose/api-proxy | /etc/group | agent → /host/etc/group | existing DAC/modes preserved | ro | host-owned / not removed | component runtime input / tool state; Compose bind/volume |
+| compose/api-proxy | &lt;FIXTURE&gt;/work/chroot-&lt;ID&gt;/hosts | agent → /host/etc/hosts | AWF setup; see lifecycle table | ro | per-run cleanup / optional preservation | component runtime input / tool state; Compose bind/volume |
+| compose/api-proxy | /dev/null | agent → /host/var/run/docker.sock | existing DAC/modes preserved | ro | host-owned / not removed | credential/socket mask or virtual device; Compose bind/volume |
+| compose/api-proxy | /dev/null | agent → /host/run/docker.sock | existing DAC/modes preserved | ro | host-owned / not removed | credential/socket mask or virtual device; Compose bind/volume |
+| compose/api-proxy | /dev/null | agent → &lt;HOME&gt;/.docker/config.json | existing DAC/modes preserved | ro | host-owned / not removed | credential/socket mask or virtual device; Compose bind/volume |
+| compose/api-proxy | /dev/null | agent → &lt;HOME&gt;/.npmrc | existing DAC/modes preserved | ro | host-owned / not removed | credential/socket mask or virtual device; Compose bind/volume |
+| compose/api-proxy | /dev/null | agent → &lt;HOME&gt;/.composer/auth.json | existing DAC/modes preserved | ro | host-owned / not removed | credential/socket mask or virtual device; Compose bind/volume |
+| compose/api-proxy | /dev/null | agent → &lt;HOME&gt;/.ssh/id_rsa | existing DAC/modes preserved | ro | host-owned / not removed | credential/socket mask or virtual device; Compose bind/volume |
+| compose/api-proxy | /dev/null | agent → &lt;HOME&gt;/.ssh/id_ed25519 | existing DAC/modes preserved | ro | host-owned / not removed | credential/socket mask or virtual device; Compose bind/volume |
+| compose/api-proxy | /dev/null | agent → &lt;HOME&gt;/.ssh/id_ecdsa | existing DAC/modes preserved | ro | host-owned / not removed | credential/socket mask or virtual device; Compose bind/volume |
+| compose/api-proxy | /dev/null | agent → &lt;HOME&gt;/.ssh/id_dsa | existing DAC/modes preserved | ro | host-owned / not removed | credential/socket mask or virtual device; Compose bind/volume |
+| compose/api-proxy | /dev/null | agent → &lt;HOME&gt;/.aws/credentials | existing DAC/modes preserved | ro | host-owned / not removed | credential/socket mask or virtual device; Compose bind/volume |
+| compose/api-proxy | /dev/null | agent → &lt;HOME&gt;/.aws/config | existing DAC/modes preserved | ro | host-owned / not removed | credential/socket mask or virtual device; Compose bind/volume |
+| compose/api-proxy | /dev/null | agent → &lt;HOME&gt;/.kube/config | existing DAC/modes preserved | ro | host-owned / not removed | credential/socket mask or virtual device; Compose bind/volume |
+| compose/api-proxy | /dev/null | agent → &lt;HOME&gt;/.azure/credentials | existing DAC/modes preserved | ro | host-owned / not removed | credential/socket mask or virtual device; Compose bind/volume |
+| compose/api-proxy | /dev/null | agent → &lt;HOME&gt;/.azure/msal_token_cache.bin | existing DAC/modes preserved | ro | host-owned / not removed | credential/socket mask or virtual device; Compose bind/volume |
+| compose/api-proxy | /dev/null | agent → &lt;HOME&gt;/.azure/msal_token_cache.json | existing DAC/modes preserved | ro | host-owned / not removed | credential/socket mask or virtual device; Compose bind/volume |
+| compose/api-proxy | /dev/null | agent → &lt;HOME&gt;/.azure/accessTokens.json | existing DAC/modes preserved | ro | host-owned / not removed | credential/socket mask or virtual device; Compose bind/volume |
+| compose/api-proxy | /dev/null | agent → &lt;HOME&gt;/.azure/service_principal_entries.json | existing DAC/modes preserved | ro | host-owned / not removed | credential/socket mask or virtual device; Compose bind/volume |
+| compose/api-proxy | /dev/null | agent → &lt;HOME&gt;/.cargo/credentials | existing DAC/modes preserved | ro | host-owned / not removed | credential/socket mask or virtual device; Compose bind/volume |
+| compose/api-proxy | /dev/null | agent → &lt;HOME&gt;/.cargo/credentials.toml | existing DAC/modes preserved | ro | host-owned / not removed | credential/socket mask or virtual device; Compose bind/volume |
+| compose/api-proxy | /dev/null | agent → &lt;HOME&gt;/.claude/.credentials.json | existing DAC/modes preserved | ro | host-owned / not removed | credential/socket mask or virtual device; Compose bind/volume |
+| compose/api-proxy | /dev/null | agent → &lt;HOME&gt;/.gemini/oauth_creds.json | existing DAC/modes preserved | ro | host-owned / not removed | credential/socket mask or virtual device; Compose bind/volume |
+| compose/api-proxy | /dev/null | agent → &lt;HOME&gt;/.gemini/google_accounts.json | existing DAC/modes preserved | ro | host-owned / not removed | credential/socket mask or virtual device; Compose bind/volume |
+| compose/api-proxy | /dev/null | agent → &lt;HOME&gt;/.gemini/access_tokens.json | existing DAC/modes preserved | ro | host-owned / not removed | credential/socket mask or virtual device; Compose bind/volume |
+| compose/api-proxy | /dev/null | agent → &lt;HOME&gt;/.config/gh/hosts.yml | existing DAC/modes preserved | ro | host-owned / not removed | credential/socket mask or virtual device; Compose bind/volume |
+| compose/api-proxy | /dev/null | agent → &lt;HOME&gt;/.config/gcloud/credentials.db | existing DAC/modes preserved | ro | host-owned / not removed | credential/socket mask or virtual device; Compose bind/volume |
+| compose/api-proxy | /dev/null | agent → &lt;HOME&gt;/.config/gcloud/access_tokens.db | existing DAC/modes preserved | ro | host-owned / not removed | credential/socket mask or virtual device; Compose bind/volume |
+| compose/api-proxy | /dev/null | agent → &lt;HOME&gt;/.config/gcloud/application_default_credentials.json | existing DAC/modes preserved | ro | host-owned / not removed | credential/socket mask or virtual device; Compose bind/volume |
+| compose/api-proxy | /dev/null | agent → &lt;HOME&gt;/.config/doctl/config.yaml | existing DAC/modes preserved | ro | host-owned / not removed | credential/socket mask or virtual device; Compose bind/volume |
+| compose/api-proxy | /dev/null | agent → &lt;HOME&gt;/.config/rclone/rclone.conf | existing DAC/modes preserved | ro | host-owned / not removed | credential/socket mask or virtual device; Compose bind/volume |
+| compose/api-proxy | /dev/null | agent → &lt;HOME&gt;/.config/containers/auth.json | existing DAC/modes preserved | ro | host-owned / not removed | credential/socket mask or virtual device; Compose bind/volume |
+| compose/api-proxy | /dev/null | agent → &lt;HOME&gt;/.config/pulumi/credentials.json | existing DAC/modes preserved | ro | host-owned / not removed | credential/socket mask or virtual device; Compose bind/volume |
+| compose/api-proxy | /dev/null | agent → &lt;HOME&gt;/.config/helm/repositories.yaml | existing DAC/modes preserved | ro | host-owned / not removed | credential/socket mask or virtual device; Compose bind/volume |
+| compose/api-proxy | /dev/null | agent → /host&lt;HOME&gt;/.docker/config.json | existing DAC/modes preserved | ro | host-owned / not removed | credential/socket mask or virtual device; Compose bind/volume |
+| compose/api-proxy | /dev/null | agent → /host&lt;HOME&gt;/.npmrc | existing DAC/modes preserved | ro | host-owned / not removed | credential/socket mask or virtual device; Compose bind/volume |
+| compose/api-proxy | /dev/null | agent → /host&lt;HOME&gt;/.composer/auth.json | existing DAC/modes preserved | ro | host-owned / not removed | credential/socket mask or virtual device; Compose bind/volume |
+| compose/api-proxy | /dev/null | agent → /host&lt;HOME&gt;/.ssh/id_rsa | existing DAC/modes preserved | ro | host-owned / not removed | credential/socket mask or virtual device; Compose bind/volume |
+| compose/api-proxy | /dev/null | agent → /host&lt;HOME&gt;/.ssh/id_ed25519 | existing DAC/modes preserved | ro | host-owned / not removed | credential/socket mask or virtual device; Compose bind/volume |
+| compose/api-proxy | /dev/null | agent → /host&lt;HOME&gt;/.ssh/id_ecdsa | existing DAC/modes preserved | ro | host-owned / not removed | credential/socket mask or virtual device; Compose bind/volume |
+| compose/api-proxy | /dev/null | agent → /host&lt;HOME&gt;/.ssh/id_dsa | existing DAC/modes preserved | ro | host-owned / not removed | credential/socket mask or virtual device; Compose bind/volume |
+| compose/api-proxy | /dev/null | agent → /host&lt;HOME&gt;/.aws/credentials | existing DAC/modes preserved | ro | host-owned / not removed | credential/socket mask or virtual device; Compose bind/volume |
+| compose/api-proxy | /dev/null | agent → /host&lt;HOME&gt;/.aws/config | existing DAC/modes preserved | ro | host-owned / not removed | credential/socket mask or virtual device; Compose bind/volume |
+| compose/api-proxy | /dev/null | agent → /host&lt;HOME&gt;/.kube/config | existing DAC/modes preserved | ro | host-owned / not removed | credential/socket mask or virtual device; Compose bind/volume |
+| compose/api-proxy | /dev/null | agent → /host&lt;HOME&gt;/.azure/credentials | existing DAC/modes preserved | ro | host-owned / not removed | credential/socket mask or virtual device; Compose bind/volume |
+| compose/api-proxy | /dev/null | agent → /host&lt;HOME&gt;/.azure/msal_token_cache.bin | existing DAC/modes preserved | ro | host-owned / not removed | credential/socket mask or virtual device; Compose bind/volume |
+| compose/api-proxy | /dev/null | agent → /host&lt;HOME&gt;/.azure/msal_token_cache.json | existing DAC/modes preserved | ro | host-owned / not removed | credential/socket mask or virtual device; Compose bind/volume |
+| compose/api-proxy | /dev/null | agent → /host&lt;HOME&gt;/.azure/accessTokens.json | existing DAC/modes preserved | ro | host-owned / not removed | credential/socket mask or virtual device; Compose bind/volume |
+| compose/api-proxy | /dev/null | agent → /host&lt;HOME&gt;/.azure/service_principal_entries.json | existing DAC/modes preserved | ro | host-owned / not removed | credential/socket mask or virtual device; Compose bind/volume |
+| compose/api-proxy | /dev/null | agent → /host&lt;HOME&gt;/.cargo/credentials | existing DAC/modes preserved | ro | host-owned / not removed | credential/socket mask or virtual device; Compose bind/volume |
+| compose/api-proxy | /dev/null | agent → /host&lt;HOME&gt;/.cargo/credentials.toml | existing DAC/modes preserved | ro | host-owned / not removed | credential/socket mask or virtual device; Compose bind/volume |
+| compose/api-proxy | /dev/null | agent → /host&lt;HOME&gt;/.claude/.credentials.json | existing DAC/modes preserved | ro | host-owned / not removed | credential/socket mask or virtual device; Compose bind/volume |
+| compose/api-proxy | /dev/null | agent → /host&lt;HOME&gt;/.gemini/oauth_creds.json | existing DAC/modes preserved | ro | host-owned / not removed | credential/socket mask or virtual device; Compose bind/volume |
+| compose/api-proxy | /dev/null | agent → /host&lt;HOME&gt;/.gemini/google_accounts.json | existing DAC/modes preserved | ro | host-owned / not removed | credential/socket mask or virtual device; Compose bind/volume |
+| compose/api-proxy | /dev/null | agent → /host&lt;HOME&gt;/.gemini/access_tokens.json | existing DAC/modes preserved | ro | host-owned / not removed | credential/socket mask or virtual device; Compose bind/volume |
+| compose/api-proxy | /dev/null | agent → /host&lt;HOME&gt;/.config/gh/hosts.yml | existing DAC/modes preserved | ro | host-owned / not removed | credential/socket mask or virtual device; Compose bind/volume |
+| compose/api-proxy | /dev/null | agent → /host&lt;HOME&gt;/.config/gcloud/credentials.db | existing DAC/modes preserved | ro | host-owned / not removed | credential/socket mask or virtual device; Compose bind/volume |
+| compose/api-proxy | /dev/null | agent → /host&lt;HOME&gt;/.config/gcloud/access_tokens.db | existing DAC/modes preserved | ro | host-owned / not removed | credential/socket mask or virtual device; Compose bind/volume |
+| compose/api-proxy | /dev/null | agent → /host&lt;HOME&gt;/.config/gcloud/application_default_credentials.json | existing DAC/modes preserved | ro | host-owned / not removed | credential/socket mask or virtual device; Compose bind/volume |
+| compose/api-proxy | /dev/null | agent → /host&lt;HOME&gt;/.config/doctl/config.yaml | existing DAC/modes preserved | ro | host-owned / not removed | credential/socket mask or virtual device; Compose bind/volume |
+| compose/api-proxy | /dev/null | agent → /host&lt;HOME&gt;/.config/rclone/rclone.conf | existing DAC/modes preserved | ro | host-owned / not removed | credential/socket mask or virtual device; Compose bind/volume |
+| compose/api-proxy | /dev/null | agent → /host&lt;HOME&gt;/.config/containers/auth.json | existing DAC/modes preserved | ro | host-owned / not removed | credential/socket mask or virtual device; Compose bind/volume |
+| compose/api-proxy | /dev/null | agent → /host&lt;HOME&gt;/.config/pulumi/credentials.json | existing DAC/modes preserved | ro | host-owned / not removed | credential/socket mask or virtual device; Compose bind/volume |
+| compose/api-proxy | /dev/null | agent → /host&lt;HOME&gt;/.config/helm/repositories.yaml | existing DAC/modes preserved | ro | host-owned / not removed | credential/socket mask or virtual device; Compose bind/volume |
+| compose/api-proxy | ephemeral tmpfs | agent → /tmp/gh-aw/mcp-logs:rw,noexec,nosuid,size=1m | container-created; mode per tmpfs options | rw (tmpfs) | container lifetime | logs / state channel; Compose tmpfs |
+| compose/api-proxy | ephemeral tmpfs | agent → /host/tmp/gh-aw/mcp-logs:rw,noexec,nosuid,size=1m | container-created; mode per tmpfs options | rw (tmpfs) | container lifetime | logs / state channel; Compose tmpfs |
+| compose/api-proxy | ephemeral tmpfs | agent → &lt;FIXTURE&gt;/work:rw,noexec,nosuid,size=1m | container-created; mode per tmpfs options | rw (tmpfs) | container lifetime | component runtime input / tool state; Compose tmpfs |
+| compose/api-proxy | ephemeral tmpfs | agent → /host&lt;FIXTURE&gt;/work:rw,noexec,nosuid,size=1m | container-created; mode per tmpfs options | rw (tmpfs) | container lifetime | component runtime input / tool state; Compose tmpfs |
+| compose/api-proxy | ephemeral tmpfs | agent → /tmp/gh-aw/sandbox/firewall/logs:rw,noexec,nosuid,size=1m | container-created; mode per tmpfs options | rw (tmpfs) | container lifetime | logs / state channel; Compose tmpfs |
+| compose/api-proxy | ephemeral tmpfs | agent → /host/tmp/gh-aw/sandbox/firewall/logs:rw,noexec,nosuid,size=1m | container-created; mode per tmpfs options | rw (tmpfs) | container lifetime | logs / state channel; Compose tmpfs |
+| compose/api-proxy | ephemeral tmpfs | agent → /tmp/gh-aw/sandbox/firewall/audit:rw,noexec,nosuid,size=1m | container-created; mode per tmpfs options | rw (tmpfs) | container lifetime | component runtime input / tool state; Compose tmpfs |
+| compose/api-proxy | ephemeral tmpfs | agent → /host/tmp/gh-aw/sandbox/firewall/audit:rw,noexec,nosuid,size=1m | container-created; mode per tmpfs options | rw (tmpfs) | container lifetime | component runtime input / tool state; Compose tmpfs |
+| compose/api-proxy | ephemeral tmpfs | agent → /host/dev/shm:rw,noexec,nosuid,nodev,size=65536k | container-created; mode per tmpfs options | rw (tmpfs) | container lifetime | component runtime input / tool state; Compose tmpfs |
+| compose/api-proxy | &lt;FIXTURE&gt;/work/init-signal | iptables-init → /run/awf-init | AWF setup; see lifecycle table | rw | per-run cleanup / optional preservation | init handshake channel; Compose bind/volume |
+| compose/api-proxy | &lt;FIXTURE&gt;/work/init-signal | iptables-init → /tmp/awf-init | AWF setup; see lifecycle table | rw | per-run cleanup / optional preservation | init handshake channel; Compose bind/volume |
+| compose/api-proxy | &lt;FIXTURE&gt;/work/api-proxy-logs | api-proxy → /var/log/api-proxy | AWF setup; see lifecycle table | rw | per-run cleanup / optional preservation | component runtime input / tool state; Compose bind/volume |
+| compose/allowWrite-empty | &lt;FIXTURE&gt;/work/squid-logs | squid-proxy → /var/log/squid | AWF setup; see lifecycle table | rw | per-run cleanup / optional preservation | proxy configuration / logs; Compose bind/volume |
+| compose/allowWrite-empty | /tmp | agent → /tmp | existing DAC/modes preserved | ro | host-owned / not removed | component runtime input / tool state; Compose bind/volume |
+| compose/allowWrite-empty | &lt;FIXTURE&gt;/workspace | agent → &lt;FIXTURE&gt;/workspace | AWF setup; see lifecycle table | ro | per-run cleanup / optional preservation | workload workspace; Compose bind/volume |
+| compose/allowWrite-empty | &lt;FIXTURE&gt;/work/agent-logs | agent → &lt;HOME&gt;/.copilot/logs | AWF setup; see lifecycle table | rw | per-run cleanup / optional preservation | logs / state channel; Compose bind/volume |
+| compose/allowWrite-empty | &lt;FIXTURE&gt;/work/agent-session-state | agent → &lt;HOME&gt;/.copilot/session-state | AWF setup; see lifecycle table | rw | per-run cleanup / optional preservation | logs / state channel; Compose bind/volume |
+| compose/allowWrite-empty | &lt;FIXTURE&gt;/work/init-signal | agent → /run/awf-init | AWF setup; see lifecycle table | rw | per-run cleanup / optional preservation | init handshake channel; Compose bind/volume |
+| compose/allowWrite-empty | &lt;FIXTURE&gt;/work/init-signal | agent → /tmp/awf-init | AWF setup; see lifecycle table | ro | per-run cleanup / optional preservation | init handshake channel; Compose bind/volume |
+| compose/allowWrite-empty | /usr | agent → /host/usr | existing DAC/modes preserved | ro | host-owned / not removed | component runtime input / tool state; Compose bind/volume |
+| compose/allowWrite-empty | /bin | agent → /host/bin | existing DAC/modes preserved | ro | host-owned / not removed | component runtime input / tool state; Compose bind/volume |
+| compose/allowWrite-empty | /sbin | agent → /host/sbin | existing DAC/modes preserved | ro | host-owned / not removed | component runtime input / tool state; Compose bind/volume |
+| compose/allowWrite-empty | /lib | agent → /host/lib | existing DAC/modes preserved | ro | host-owned / not removed | component runtime input / tool state; Compose bind/volume |
+| compose/allowWrite-empty | /lib64 | agent → /host/lib64 | existing DAC/modes preserved | ro | host-owned / not removed | component runtime input / tool state; Compose bind/volume |
+| compose/allowWrite-empty | /opt | agent → /host/opt | existing DAC/modes preserved | ro | host-owned / not removed | component runtime input / tool state; Compose bind/volume |
+| compose/allowWrite-empty | /sys | agent → /host/sys | existing DAC/modes preserved | ro | host-owned / not removed | component runtime input / tool state; Compose bind/volume |
+| compose/allowWrite-empty | /dev | agent → /host/dev | existing DAC/modes preserved | ro | host-owned / not removed | component runtime input / tool state; Compose bind/volume |
+| compose/allowWrite-empty | /dev/null | agent → /host/dev/null | existing DAC/modes preserved | rw | host-owned / not removed | credential/socket mask or virtual device; Compose bind/volume |
+| compose/allowWrite-empty | &lt;FIXTURE&gt;/workspace | agent → /host&lt;FIXTURE&gt;/workspace | AWF setup; see lifecycle table | ro | per-run cleanup / optional preservation | workload workspace; Compose bind/volume |
+| compose/allowWrite-empty | /tmp | agent → /host/tmp | existing DAC/modes preserved | ro | host-owned / not removed | component runtime input / tool state; Compose bind/volume |
+| compose/allowWrite-empty | &lt;FIXTURE&gt;/work-chroot-home | agent → /host&lt;HOME&gt; | AWF setup; see lifecycle table | ro | per-run cleanup / optional preservation | component runtime input / tool state; Compose bind/volume |
+| compose/allowWrite-empty | &lt;FIXTURE&gt;/work/agent-session-state | agent → /host&lt;HOME&gt;/.copilot/session-state | AWF setup; see lifecycle table | rw | per-run cleanup / optional preservation | logs / state channel; Compose bind/volume |
+| compose/allowWrite-empty | &lt;FIXTURE&gt;/work/agent-logs | agent → /host&lt;HOME&gt;/.copilot/logs | AWF setup; see lifecycle table | rw | per-run cleanup / optional preservation | logs / state channel; Compose bind/volume |
+| compose/allowWrite-empty | &lt;HOME&gt;/.cache | agent → /host&lt;HOME&gt;/.cache | existing DAC/modes preserved | ro | host-owned / not removed | component runtime input / tool state; Compose bind/volume |
+| compose/allowWrite-empty | &lt;HOME&gt;/.config | agent → /host&lt;HOME&gt;/.config | existing DAC/modes preserved | ro | host-owned / not removed | component runtime input / tool state; Compose bind/volume |
+| compose/allowWrite-empty | &lt;HOME&gt;/.local/bin | agent → /host&lt;HOME&gt;/.local/bin | existing DAC/modes preserved | ro | host-owned / not removed | component runtime input / tool state; Compose bind/volume |
+| compose/allowWrite-empty | &lt;HOME&gt;/.local/lib | agent → /host&lt;HOME&gt;/.local/lib | existing DAC/modes preserved | ro | host-owned / not removed | component runtime input / tool state; Compose bind/volume |
+| compose/allowWrite-empty | &lt;HOME&gt;/.local/lib64 | agent → /host&lt;HOME&gt;/.local/lib64 | existing DAC/modes preserved | ro | host-owned / not removed | component runtime input / tool state; Compose bind/volume |
+| compose/allowWrite-empty | &lt;HOME&gt;/.local/share | agent → /host&lt;HOME&gt;/.local/share | existing DAC/modes preserved | ro | host-owned / not removed | component runtime input / tool state; Compose bind/volume |
+| compose/allowWrite-empty | &lt;HOME&gt;/.local/pipx | agent → /host&lt;HOME&gt;/.local/pipx | existing DAC/modes preserved | ro | host-owned / not removed | component runtime input / tool state; Compose bind/volume |
+| compose/allowWrite-empty | &lt;HOME&gt;/.azure | agent → /host&lt;HOME&gt;/.azure | existing DAC/modes preserved | ro | host-owned / not removed | component runtime input / tool state; Compose bind/volume |
+| compose/allowWrite-empty | &lt;HOME&gt;/.anthropic | agent → /host&lt;HOME&gt;/.anthropic | existing DAC/modes preserved | ro | host-owned / not removed | component runtime input / tool state; Compose bind/volume |
+| compose/allowWrite-empty | &lt;HOME&gt;/.claude | agent → /host&lt;HOME&gt;/.claude | existing DAC/modes preserved | ro | host-owned / not removed | component runtime input / tool state; Compose bind/volume |
+| compose/allowWrite-empty | &lt;HOME&gt;/.cargo | agent → /host&lt;HOME&gt;/.cargo | existing DAC/modes preserved | ro | host-owned / not removed | component runtime input / tool state; Compose bind/volume |
+| compose/allowWrite-empty | &lt;HOME&gt;/.rustup | agent → /host&lt;HOME&gt;/.rustup | existing DAC/modes preserved | ro | host-owned / not removed | component runtime input / tool state; Compose bind/volume |
+| compose/allowWrite-empty | &lt;HOME&gt;/.npm | agent → /host&lt;HOME&gt;/.npm | existing DAC/modes preserved | ro | host-owned / not removed | component runtime input / tool state; Compose bind/volume |
+| compose/allowWrite-empty | &lt;HOME&gt;/.nvm | agent → /host&lt;HOME&gt;/.nvm | existing DAC/modes preserved | ro | host-owned / not removed | component runtime input / tool state; Compose bind/volume |
+| compose/allowWrite-empty | /opt/hostedtoolcache | agent → /host/opt/hostedtoolcache | existing DAC/modes preserved | ro | host-owned / not removed | component runtime input / tool state; Compose bind/volume |
+| compose/allowWrite-empty | /etc/ssl | agent → /host/etc/ssl | existing DAC/modes preserved | ro | host-owned / not removed | component runtime input / tool state; Compose bind/volume |
+| compose/allowWrite-empty | /etc/ca-certificates | agent → /host/etc/ca-certificates | existing DAC/modes preserved | ro | host-owned / not removed | component runtime input / tool state; Compose bind/volume |
+| compose/allowWrite-empty | /etc/alternatives | agent → /host/etc/alternatives | existing DAC/modes preserved | ro | host-owned / not removed | component runtime input / tool state; Compose bind/volume |
+| compose/allowWrite-empty | /etc/ld.so.cache | agent → /host/etc/ld.so.cache | existing DAC/modes preserved | ro | host-owned / not removed | component runtime input / tool state; Compose bind/volume |
+| compose/allowWrite-empty | /etc/nsswitch.conf | agent → /host/etc/nsswitch.conf | existing DAC/modes preserved | ro | host-owned / not removed | component runtime input / tool state; Compose bind/volume |
+| compose/allowWrite-empty | /etc/passwd | agent → /host/etc/passwd | existing DAC/modes preserved | ro | host-owned / not removed | component runtime input / tool state; Compose bind/volume |
+| compose/allowWrite-empty | /etc/group | agent → /host/etc/group | existing DAC/modes preserved | ro | host-owned / not removed | component runtime input / tool state; Compose bind/volume |
+| compose/allowWrite-empty | &lt;FIXTURE&gt;/work/chroot-&lt;ID&gt;/hosts | agent → /host/etc/hosts | AWF setup; see lifecycle table | ro | per-run cleanup / optional preservation | component runtime input / tool state; Compose bind/volume |
+| compose/allowWrite-empty | /dev/null | agent → /host/var/run/docker.sock | existing DAC/modes preserved | ro | host-owned / not removed | credential/socket mask or virtual device; Compose bind/volume |
+| compose/allowWrite-empty | /dev/null | agent → /host/run/docker.sock | existing DAC/modes preserved | ro | host-owned / not removed | credential/socket mask or virtual device; Compose bind/volume |
+| compose/allowWrite-empty | /dev/null | agent → &lt;HOME&gt;/.docker/config.json | existing DAC/modes preserved | ro | host-owned / not removed | credential/socket mask or virtual device; Compose bind/volume |
+| compose/allowWrite-empty | /dev/null | agent → &lt;HOME&gt;/.npmrc | existing DAC/modes preserved | ro | host-owned / not removed | credential/socket mask or virtual device; Compose bind/volume |
+| compose/allowWrite-empty | /dev/null | agent → &lt;HOME&gt;/.composer/auth.json | existing DAC/modes preserved | ro | host-owned / not removed | credential/socket mask or virtual device; Compose bind/volume |
+| compose/allowWrite-empty | /dev/null | agent → &lt;HOME&gt;/.ssh/id_rsa | existing DAC/modes preserved | ro | host-owned / not removed | credential/socket mask or virtual device; Compose bind/volume |
+| compose/allowWrite-empty | /dev/null | agent → &lt;HOME&gt;/.ssh/id_ed25519 | existing DAC/modes preserved | ro | host-owned / not removed | credential/socket mask or virtual device; Compose bind/volume |
+| compose/allowWrite-empty | /dev/null | agent → &lt;HOME&gt;/.ssh/id_ecdsa | existing DAC/modes preserved | ro | host-owned / not removed | credential/socket mask or virtual device; Compose bind/volume |
+| compose/allowWrite-empty | /dev/null | agent → &lt;HOME&gt;/.ssh/id_dsa | existing DAC/modes preserved | ro | host-owned / not removed | credential/socket mask or virtual device; Compose bind/volume |
+| compose/allowWrite-empty | /dev/null | agent → &lt;HOME&gt;/.aws/credentials | existing DAC/modes preserved | ro | host-owned / not removed | credential/socket mask or virtual device; Compose bind/volume |
+| compose/allowWrite-empty | /dev/null | agent → &lt;HOME&gt;/.aws/config | existing DAC/modes preserved | ro | host-owned / not removed | credential/socket mask or virtual device; Compose bind/volume |
+| compose/allowWrite-empty | /dev/null | agent → &lt;HOME&gt;/.kube/config | existing DAC/modes preserved | ro | host-owned / not removed | credential/socket mask or virtual device; Compose bind/volume |
+| compose/allowWrite-empty | /dev/null | agent → &lt;HOME&gt;/.azure/credentials | existing DAC/modes preserved | ro | host-owned / not removed | credential/socket mask or virtual device; Compose bind/volume |
+| compose/allowWrite-empty | /dev/null | agent → &lt;HOME&gt;/.azure/msal_token_cache.bin | existing DAC/modes preserved | ro | host-owned / not removed | credential/socket mask or virtual device; Compose bind/volume |
+| compose/allowWrite-empty | /dev/null | agent → &lt;HOME&gt;/.azure/msal_token_cache.json | existing DAC/modes preserved | ro | host-owned / not removed | credential/socket mask or virtual device; Compose bind/volume |
+| compose/allowWrite-empty | /dev/null | agent → &lt;HOME&gt;/.azure/accessTokens.json | existing DAC/modes preserved | ro | host-owned / not removed | credential/socket mask or virtual device; Compose bind/volume |
+| compose/allowWrite-empty | /dev/null | agent → &lt;HOME&gt;/.azure/service_principal_entries.json | existing DAC/modes preserved | ro | host-owned / not removed | credential/socket mask or virtual device; Compose bind/volume |
+| compose/allowWrite-empty | /dev/null | agent → &lt;HOME&gt;/.cargo/credentials | existing DAC/modes preserved | ro | host-owned / not removed | credential/socket mask or virtual device; Compose bind/volume |
+| compose/allowWrite-empty | /dev/null | agent → &lt;HOME&gt;/.cargo/credentials.toml | existing DAC/modes preserved | ro | host-owned / not removed | credential/socket mask or virtual device; Compose bind/volume |
+| compose/allowWrite-empty | /dev/null | agent → &lt;HOME&gt;/.claude/.credentials.json | existing DAC/modes preserved | ro | host-owned / not removed | credential/socket mask or virtual device; Compose bind/volume |
+| compose/allowWrite-empty | /dev/null | agent → &lt;HOME&gt;/.gemini/oauth_creds.json | existing DAC/modes preserved | ro | host-owned / not removed | credential/socket mask or virtual device; Compose bind/volume |
+| compose/allowWrite-empty | /dev/null | agent → &lt;HOME&gt;/.gemini/google_accounts.json | existing DAC/modes preserved | ro | host-owned / not removed | credential/socket mask or virtual device; Compose bind/volume |
+| compose/allowWrite-empty | /dev/null | agent → &lt;HOME&gt;/.gemini/access_tokens.json | existing DAC/modes preserved | ro | host-owned / not removed | credential/socket mask or virtual device; Compose bind/volume |
+| compose/allowWrite-empty | /dev/null | agent → &lt;HOME&gt;/.config/gh/hosts.yml | existing DAC/modes preserved | ro | host-owned / not removed | credential/socket mask or virtual device; Compose bind/volume |
+| compose/allowWrite-empty | /dev/null | agent → &lt;HOME&gt;/.config/gcloud/credentials.db | existing DAC/modes preserved | ro | host-owned / not removed | credential/socket mask or virtual device; Compose bind/volume |
+| compose/allowWrite-empty | /dev/null | agent → &lt;HOME&gt;/.config/gcloud/access_tokens.db | existing DAC/modes preserved | ro | host-owned / not removed | credential/socket mask or virtual device; Compose bind/volume |
+| compose/allowWrite-empty | /dev/null | agent → &lt;HOME&gt;/.config/gcloud/application_default_credentials.json | existing DAC/modes preserved | ro | host-owned / not removed | credential/socket mask or virtual device; Compose bind/volume |
+| compose/allowWrite-empty | /dev/null | agent → &lt;HOME&gt;/.config/doctl/config.yaml | existing DAC/modes preserved | ro | host-owned / not removed | credential/socket mask or virtual device; Compose bind/volume |
+| compose/allowWrite-empty | /dev/null | agent → &lt;HOME&gt;/.config/rclone/rclone.conf | existing DAC/modes preserved | ro | host-owned / not removed | credential/socket mask or virtual device; Compose bind/volume |
+| compose/allowWrite-empty | /dev/null | agent → &lt;HOME&gt;/.config/containers/auth.json | existing DAC/modes preserved | ro | host-owned / not removed | credential/socket mask or virtual device; Compose bind/volume |
+| compose/allowWrite-empty | /dev/null | agent → &lt;HOME&gt;/.config/pulumi/credentials.json | existing DAC/modes preserved | ro | host-owned / not removed | credential/socket mask or virtual device; Compose bind/volume |
+| compose/allowWrite-empty | /dev/null | agent → &lt;HOME&gt;/.config/helm/repositories.yaml | existing DAC/modes preserved | ro | host-owned / not removed | credential/socket mask or virtual device; Compose bind/volume |
+| compose/allowWrite-empty | /dev/null | agent → /host&lt;HOME&gt;/.azure/credentials | existing DAC/modes preserved | ro | host-owned / not removed | credential/socket mask or virtual device; Compose bind/volume |
+| compose/allowWrite-empty | /dev/null | agent → /host&lt;HOME&gt;/.azure/msal_token_cache.bin | existing DAC/modes preserved | ro | host-owned / not removed | credential/socket mask or virtual device; Compose bind/volume |
+| compose/allowWrite-empty | /dev/null | agent → /host&lt;HOME&gt;/.azure/msal_token_cache.json | existing DAC/modes preserved | ro | host-owned / not removed | credential/socket mask or virtual device; Compose bind/volume |
+| compose/allowWrite-empty | /dev/null | agent → /host&lt;HOME&gt;/.azure/accessTokens.json | existing DAC/modes preserved | ro | host-owned / not removed | credential/socket mask or virtual device; Compose bind/volume |
+| compose/allowWrite-empty | /dev/null | agent → /host&lt;HOME&gt;/.azure/service_principal_entries.json | existing DAC/modes preserved | ro | host-owned / not removed | credential/socket mask or virtual device; Compose bind/volume |
+| compose/allowWrite-empty | /dev/null | agent → /host&lt;HOME&gt;/.cargo/credentials | existing DAC/modes preserved | ro | host-owned / not removed | credential/socket mask or virtual device; Compose bind/volume |
+| compose/allowWrite-empty | /dev/null | agent → /host&lt;HOME&gt;/.cargo/credentials.toml | existing DAC/modes preserved | ro | host-owned / not removed | credential/socket mask or virtual device; Compose bind/volume |
+| compose/allowWrite-empty | /dev/null | agent → /host&lt;HOME&gt;/.claude/.credentials.json | existing DAC/modes preserved | ro | host-owned / not removed | credential/socket mask or virtual device; Compose bind/volume |
+| compose/allowWrite-empty | /dev/null | agent → /host&lt;HOME&gt;/.config/gh/hosts.yml | existing DAC/modes preserved | ro | host-owned / not removed | credential/socket mask or virtual device; Compose bind/volume |
+| compose/allowWrite-empty | /dev/null | agent → /host&lt;HOME&gt;/.config/gcloud/credentials.db | existing DAC/modes preserved | ro | host-owned / not removed | credential/socket mask or virtual device; Compose bind/volume |
+| compose/allowWrite-empty | /dev/null | agent → /host&lt;HOME&gt;/.config/gcloud/access_tokens.db | existing DAC/modes preserved | ro | host-owned / not removed | credential/socket mask or virtual device; Compose bind/volume |
+| compose/allowWrite-empty | /dev/null | agent → /host&lt;HOME&gt;/.config/gcloud/application_default_credentials.json | existing DAC/modes preserved | ro | host-owned / not removed | credential/socket mask or virtual device; Compose bind/volume |
+| compose/allowWrite-empty | /dev/null | agent → /host&lt;HOME&gt;/.config/doctl/config.yaml | existing DAC/modes preserved | ro | host-owned / not removed | credential/socket mask or virtual device; Compose bind/volume |
+| compose/allowWrite-empty | /dev/null | agent → /host&lt;HOME&gt;/.config/rclone/rclone.conf | existing DAC/modes preserved | ro | host-owned / not removed | credential/socket mask or virtual device; Compose bind/volume |
+| compose/allowWrite-empty | /dev/null | agent → /host&lt;HOME&gt;/.config/containers/auth.json | existing DAC/modes preserved | ro | host-owned / not removed | credential/socket mask or virtual device; Compose bind/volume |
+| compose/allowWrite-empty | /dev/null | agent → /host&lt;HOME&gt;/.config/pulumi/credentials.json | existing DAC/modes preserved | ro | host-owned / not removed | credential/socket mask or virtual device; Compose bind/volume |
+| compose/allowWrite-empty | /dev/null | agent → /host&lt;HOME&gt;/.config/helm/repositories.yaml | existing DAC/modes preserved | ro | host-owned / not removed | credential/socket mask or virtual device; Compose bind/volume |
+| compose/allowWrite-empty | ephemeral tmpfs | agent → /tmp/gh-aw/mcp-logs:rw,noexec,nosuid,size=1m | container-created; mode per tmpfs options | rw (tmpfs) | container lifetime | logs / state channel; Compose tmpfs |
+| compose/allowWrite-empty | ephemeral tmpfs | agent → /host/tmp/gh-aw/mcp-logs:rw,noexec,nosuid,size=1m | container-created; mode per tmpfs options | rw (tmpfs) | container lifetime | logs / state channel; Compose tmpfs |
+| compose/allowWrite-empty | ephemeral tmpfs | agent → &lt;FIXTURE&gt;/work:rw,noexec,nosuid,size=1m | container-created; mode per tmpfs options | rw (tmpfs) | container lifetime | component runtime input / tool state; Compose tmpfs |
+| compose/allowWrite-empty | ephemeral tmpfs | agent → /host&lt;FIXTURE&gt;/work:rw,noexec,nosuid,size=1m | container-created; mode per tmpfs options | rw (tmpfs) | container lifetime | component runtime input / tool state; Compose tmpfs |
+| compose/allowWrite-empty | ephemeral tmpfs | agent → /tmp/gh-aw/sandbox/firewall/logs:rw,noexec,nosuid,size=1m | container-created; mode per tmpfs options | rw (tmpfs) | container lifetime | logs / state channel; Compose tmpfs |
+| compose/allowWrite-empty | ephemeral tmpfs | agent → /host/tmp/gh-aw/sandbox/firewall/logs:rw,noexec,nosuid,size=1m | container-created; mode per tmpfs options | rw (tmpfs) | container lifetime | logs / state channel; Compose tmpfs |
+| compose/allowWrite-empty | ephemeral tmpfs | agent → /tmp/gh-aw/sandbox/firewall/audit:rw,noexec,nosuid,size=1m | container-created; mode per tmpfs options | rw (tmpfs) | container lifetime | component runtime input / tool state; Compose tmpfs |
+| compose/allowWrite-empty | ephemeral tmpfs | agent → /host/tmp/gh-aw/sandbox/firewall/audit:rw,noexec,nosuid,size=1m | container-created; mode per tmpfs options | rw (tmpfs) | container lifetime | component runtime input / tool state; Compose tmpfs |
+| compose/allowWrite-empty | ephemeral tmpfs | agent → /host/dev/shm:rw,noexec,nosuid,nodev,size=65536k | container-created; mode per tmpfs options | rw (tmpfs) | container lifetime | component runtime input / tool state; Compose tmpfs |
+| compose/allowWrite-empty | &lt;FIXTURE&gt;/work/init-signal | iptables-init → /run/awf-init | AWF setup; see lifecycle table | rw | per-run cleanup / optional preservation | init handshake channel; Compose bind/volume |
+| compose/allowWrite-empty | &lt;FIXTURE&gt;/work/init-signal | iptables-init → /tmp/awf-init | AWF setup; see lifecycle table | rw | per-run cleanup / optional preservation | init handshake channel; Compose bind/volume |
+| cloud-hypervisor/workspace-only | &lt;FIXTURE&gt;/workspace | primary agent → /workspace | AWF setup; see lifecycle table | rw | per-run cleanup / optional preservation | workload workspace; virtio-fs export (write narrowing separate) |
+| cloud-hypervisor/workspace-and-tool-cache | &lt;FIXTURE&gt;/workspace | primary agent → /workspace | AWF setup; see lifecycle table | rw | per-run cleanup / optional preservation | workload workspace; virtio-fs export (write narrowing separate) |
+| cloud-hypervisor/workspace-and-tool-cache | &lt;FIXTURE&gt;/tools | primary agent → &lt;FIXTURE&gt;/tools | existing DAC/modes preserved | ro | host-owned / not removed | component runtime input / tool state; virtio-fs export (write narrowing separate) |
+| nvx/workspace-only | &lt;FIXTURE&gt;/workspace | primary agent → /workspace | AWF setup; see lifecycle table | rw | per-run cleanup / optional preservation | workload workspace; virtio-fs export (write narrowing separate) |
+| nvx/workspace-and-tool-cache | &lt;FIXTURE&gt;/workspace | primary agent → /workspace | AWF setup; see lifecycle table | rw | per-run cleanup / optional preservation | workload workspace; virtio-fs export (write narrowing separate) |
+| nvx/workspace-and-tool-cache | &lt;FIXTURE&gt;/tools | primary agent → &lt;FIXTURE&gt;/tools | existing DAC/modes preserved | ro | host-owned / not removed | component runtime input / tool state; virtio-fs export (write narrowing separate) |
 <!-- sharing-plan:end -->
 
 ### Other conditional relationships and gaps

@@ -166,7 +166,9 @@ machine github.com
 services:
   agent:
     volumes:
-      - /home/runner/work/repo/repo:/home/runner/work/repo/repo:rw  # ✓ Only workspace
+      - /home/runner/work/repo/repo:/host/home/runner/work/repo/repo:rw
+      - /tmp/awf-chroot-home:/host/home/runner:rw  # Empty home, not real HOME
+      - /home/runner/.config:/host/home/runner/.config:rw  # Selected tool dir
       - /dev/null:/home/runner/.docker/config.json:ro  # Defense-in-depth at direct path
 ```
 
@@ -176,17 +178,16 @@ services:
 $ cat ~/.docker/config.json
 # Masked empty file or absent path, depending on mount topology
 
-$ cat ~/.config/hub/config
-cat: /home/runner/.config/hub/config: No such file or directory
-# ✓ Credentials protected! ($HOME not mounted)
+# ~/.config is a selected tool directory. Do not place unmasked secrets there:
+# an unrecognized file such as ~/.config/hub/config can remain reachable.
 
 $ cat ~/.npmrc
 cat: /home/runner/.npmrc: No such file or directory
-# ✓ Credentials protected! ($HOME not mounted)
+# Real $HOME is not mounted wholesale
 
 $ cat ~/.netrc
 cat: /home/runner/.netrc: No such file or directory
-# ✓ Credentials protected! ($HOME not mounted)
+# Real $HOME is not mounted wholesale
 
 $ ls ~/
 # Empty chroot home with individually selected tool subdirectories
@@ -204,7 +205,8 @@ sudo awf --allow-domains github.com -- bash -c 'cat ~/.docker/config.json; echo 
 # (empty line)
 # Exit: 0
 
-# The file exists (no "No such file" error) but is empty
+# Depending on whether the mask is mountable, the file is empty or absent.
+# Do not print credential contents when verifying access.
 ```
 
 ### Verify Selective Mounting

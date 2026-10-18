@@ -1,5 +1,8 @@
 # Environment Variables
 
+For mount destinations, service identities, host modes and runtime-specific
+sharing, see the [Filesystem Sharing Contract](filesystem-sharing-contract.md).
+
 ## Usage
 
 ```bash

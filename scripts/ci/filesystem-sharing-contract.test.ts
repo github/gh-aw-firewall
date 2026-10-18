@@ -1,8 +1,15 @@
-import { collectSharingRows, updateContract } from './filesystem-sharing-contract';
+import { collectSharingRows, renderSharingRows, updateContract } from './filesystem-sharing-contract';
 
 describe('filesystem sharing contract', () => {
   it('matches final builder/export plans', async () => {
     await expect(updateContract(false)).resolves.toBeUndefined();
+  });
+
+  it('renders symbolic fixture paths as literal text rather than HTML', () => {
+    expect(renderSharingRows([{
+      scenario: 'test', source: '<HOME>', consumer: 'agent',
+      destination: '/host<HOME>', access: 'ro', mechanism: 'bind',
+    }])).toContain('&lt;HOME&gt;');
   });
 
   it('keeps private roots out of every primary agent share and masks credentials', async () => {

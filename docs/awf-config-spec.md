@@ -91,6 +91,9 @@ normatively by `docs/awf-config.schema.json`.
 
 ### 4.1 Filesystem write boundary
 
+The [Filesystem Sharing Contract](filesystem-sharing-contract.md) maps this
+boundary to each component, identity, host permission and runtime export.
+
 When `filesystem.allowWrite` is present, AWF MUST mount existing writable host
 binds read-only except at the listed guest-visible absolute paths. The list
 narrows existing access: it MUST NOT expose a new host path or make an

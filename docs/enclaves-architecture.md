@@ -1,5 +1,9 @@
 # Unified Enclave Architecture
 
+The [Filesystem Sharing Contract](filesystem-sharing-contract.md) records
+private-path sharing boundaries, identities and verification gaps across
+enclave backends.
+
 ## Status
 
 Layer 5 establishes one `enclaves` subsystem, one AWF-owned MCP server, and mcpg-only access through the compiler handoff contract.
