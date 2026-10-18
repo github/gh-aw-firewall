@@ -41,6 +41,15 @@ export const schema = {
       "vm-boot": null,
       "guest-connect": null
     },
+    "enclave-network": {
+      "gateway-identity": null,
+      "network-inspect": null,
+      "network-topology": null,
+      "network-membership": null,
+      "api-proxy-ready": null,
+      "gateway-ready": null,
+      "bridge-ready": null
+    },
     "host-invocation": {
       "policy": null,
       "filesystem": null,
@@ -247,6 +256,7 @@ export const schema = {
     },
   },
   "optionalChecks": [
+    "enclave-network/gateway-identity", "enclave-network/gateway-ready",
     "storage-verification/sealed-snapshot",
     "startup/github-attachment", "startup/github-ready", "startup/delegation",
     "enclave-runtime/script-runtime", "enclave-runtime/agent-runtime", "enclave-runtime/host-service",
@@ -265,6 +275,14 @@ export const schema = {
     "runner-not-github-hosted": null,
     "ubuntu-image-required": null,
     "command-failed": null,
+    "guest-disconnected": null,
+    "guest-socket-error": null,
+    "guest-read-timeout": null,
+    "guest-write-timeout": null,
+    "guest-not-writable": null,
+    "guest-output-failed": null,
+    "guest-protocol-error": null,
+    "guest-rejected": null,
     "invocation-timeout": null,
     "invocation-cancelled": null,
     "result-invalid": null,

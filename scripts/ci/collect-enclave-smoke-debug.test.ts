@@ -1,5 +1,4 @@
 import * as fs from 'fs';
-import * as os from 'os';
 import * as path from 'path';
 import { createHash } from 'crypto';
 
@@ -20,7 +19,7 @@ describe('host-only public enclave debug collector', () => {
   ])).digest('hex').slice(0, 32);
 
   beforeEach(() => {
-    temp = fs.mkdtempSync(path.join(os.tmpdir(), 'enclave-debug-test-'));
+    temp = fs.mkdtempSync(path.join(process.cwd(), '.enclave-debug-test-'));
     run = path.join(temp, 'run');
     roots = { journal: path.join(temp, 'journal'), debug: path.join(temp, 'debug') };
     for (const directory of Object.values(roots)) fs.mkdirSync(directory, { mode: 0o700 });
@@ -63,6 +62,84 @@ describe('host-only public enclave debug collector', () => {
     expect(collectRun()).toBe(0);
     expect(fs.readFileSync(path.join(run, 'upload/collection-status.txt'), 'utf8'))
       .toContain('No public-fixture debug logs were produced');
+    expect(fs.readFileSync(path.join(run, 'upload/collection-status.txt'), 'utf8'))
+      .toContain('Enclave proxy usage (requests/tokens): missing');
+  });
+
+  function proxySummary(value: unknown) {
+    const diagnostics = path.join(roots.journal, 'diagnostics');
+    fs.mkdirSync(diagnostics, { mode: 0o700 });
+    const id = createHash('sha256').update(`awf-enclave-proxy-usage-v1:${runId}`).digest('hex').slice(0, 32);
+    const target = path.join(diagnostics, `${runId}-${id}.json`);
+    fs.writeFileSync(target, JSON.stringify({
+      schemaVersion: 1, component: 'enclave-proxy-usage', runId, usage: value,
+      payload: 'PRIVATE_PAYLOAD', credential: 'PRIVATE_CREDENTIAL',
+    }), { mode: 0o600 });
+    return target;
+  }
+
+  it('publishes only allowlisted usage accounting from protected run evidence, independently of raw logs', () => {
+    prepareRun();
+    invocation();
+    fs.rmSync(path.join(roots.debug, vmId), { recursive: true });
+    proxySummary({
+      requests: {
+        status: 'captured', records: 4, trackedResponses: 2, websocketSessions: 0,
+        statuses: { '200': 1, '401': 1, PRIVATE_STATUS: 1 },
+        results: { ok: 1, skip_status: 1, PRIVATE_ERROR: 1 }, path: '/PRIVATE_PATH',
+      },
+      tokens: {
+        status: 'captured', records: 1, usageRecords: 1,
+        totals: { input_tokens: 1, output_tokens: 2, cache_read_tokens: 3, cache_write_tokens: 4,
+          PRIVATE_FIELD: 'PRIVATE_SECRET' },
+        model: 'PRIVATE_MODEL',
+      },
+    });
+    expect(collectRun()).toBe(1);
+    const target = path.join(run, 'upload/enclave-proxy-usage.json');
+    const text = fs.readFileSync(target, 'utf8');
+    expect(JSON.parse(text).usage).toEqual({
+      scope: 'run-cumulative',
+      requests: {
+        status: 'captured', records: 4, trackedResponses: 2, websocketSessions: 0,
+        statuses: { '200': 1, '401': 1 }, results: { ok: 1, skip_status: 1 },
+      },
+      tokens: { status: 'captured', records: 1, usageRecords: 1,
+        totals: { input_tokens: 1, output_tokens: 2, cache_read_tokens: 3, cache_write_tokens: 4 } },
+    });
+    expect(text).not.toMatch(/PRIVATE|credential|model|payload|path|runId/);
+    expect(fs.statSync(target).mode & 0o777).toBe(0o600);
+    expect(fs.readFileSync(path.join(run, 'upload/collection-status.txt'), 'utf8'))
+      .toContain('Enclave proxy usage (requests/tokens): captured/captured');
+  });
+
+  it('exports malformed/unavailable classifications without fabricating zero token totals', () => {
+    prepareRun();
+    invocation();
+    proxySummary({
+      requests: { status: 'oversized', trackedResponses: 0 },
+      tokens: { status: 'captured', records: 5000, usageRecords: 0, totals: {} },
+    });
+    expect(collectRun()).toBe(2);
+    const text = fs.readFileSync(path.join(run, 'upload/enclave-proxy-usage.json'), 'utf8');
+    expect(JSON.parse(text).usage).toEqual({
+      scope: 'run-cumulative', requests: { status: 'oversized' }, tokens: { status: 'malformed' },
+    });
+    expect(text).not.toContain('totals');
+  });
+
+  it.each(['symlink', 'mode', 'oversized', 'hardlink'])('rejects unsafe usage %s before public export', kind => {
+    prepareRun();
+    invocation();
+    const source = proxySummary({});
+    if (kind === 'symlink') {
+      fs.unlinkSync(source);
+      fs.symlinkSync(path.join(run, 'baseline.json'), source);
+    } else if (kind === 'mode') fs.chmodSync(source, 0o644);
+    else if (kind === 'oversized') fs.writeFileSync(source, Buffer.alloc(16 * 1024 + 1));
+    else fs.linkSync(source, path.join(temp, 'duplicate'));
+    expect(collectRun).toThrow();
+    expect(fs.existsSync(path.join(run, 'upload'))).toBe(false);
   });
 
   it('collects agent session-export server diagnostics without exporting session contents', () => {

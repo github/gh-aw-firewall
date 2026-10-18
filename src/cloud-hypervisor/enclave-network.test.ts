@@ -9,6 +9,7 @@ import {
   ENCLAVE_MCP_GATEWAY_RUN_LABEL,
 } from '../enclave/gateway';
 import { enclaveExportPlan } from './manager.test-utils';
+import { HostPreflightReporter, type HostPreflightProgress } from './host-preflight-progress';
 
 const guest = {
   supervisorBinaryPath: '/opt/awf-supervisor',
@@ -47,9 +48,9 @@ function inspection(github = false) {
   };
   const dependencies = {
     inspectNetwork: jest.fn(async () => [network]),
-    inspectContainer: jest.fn(async () => ({
-      Name: '/awmg-mcpg',
-      State: { Running: true },
+    inspectContainer: jest.fn(async (_docker?: string, name = 'awmg-mcpg') => ({
+      Name: `/${name}`,
+      State: { Running: true, Health: { Status: 'healthy' } },
       Config: { Labels: { [ENCLAVE_MCP_GATEWAY_RUN_LABEL]: 'run-identity-123' } },
     })),
     inspectBridge: jest.fn(async () => [
@@ -62,6 +63,29 @@ function inspection(github = false) {
 const tools = { docker: '/usr/bin/docker', ip: '/usr/sbin/ip' };
 
 describe('Cloud Hypervisor agent-enclave host network boundary', () => {
+  it.each(['healthy', 'unhealthy', 'starting', 'missing'] as const)(
+    'records the exact API proxy readiness boundary (%s) without exporting inspect data', async (health) => {
+      const { dependencies } = inspection();
+      dependencies.inspectContainer.mockImplementation(async (_docker, name = 'awmg-mcpg') => ({
+        Name: `/${name}`, State: { Running: true, Health: { Status: health } },
+        Config: { Labels: { [ENCLAVE_MCP_GATEWAY_RUN_LABEL]: 'PRIVATE_LABEL' }, Env: ['TOKEN=PRIVATE_TOKEN'] },
+      }));
+      let progress: HostPreflightProgress | undefined;
+      const report = new HostPreflightReporter('enclave-network', (value) => { progress = value; });
+      const result = resolveCloudHypervisorEnclaveNetwork(profile(), tools, dependencies, {}, report);
+      if (health === 'healthy') await expect(result).resolves.toBeDefined();
+      else await expect(result).rejects.toThrow(/API proxy/);
+      expect(progress?.checks).toEqual(expect.arrayContaining([
+        { id: 'gateway-identity', result: 'not-required', reason: 'none' },
+        { id: 'network-membership', result: 'passed', reason: 'none' },
+        { id: 'api-proxy-ready', result: health === 'healthy' ? 'passed' : 'failed',
+          reason: health === 'healthy' ? 'none' : 'requirement-not-met' },
+        { id: 'bridge-ready', result: health === 'healthy' ? 'passed' : 'not-attempted', reason: 'none' },
+      ]));
+      expect(JSON.stringify(progress)).not.toMatch(/PRIVATE_|TOKEN|172\\.31/);
+    },
+  );
+
   it.each([false, true])('admits only selected proxy and optional GitHub data plane (github=%s)', async (github) => {
     const { dependencies } = inspection(github);
     const options = await resolveCloudHypervisorEnclaveNetwork(profile(github), tools, dependencies, {
@@ -70,7 +94,7 @@ describe('Cloud Hypervisor agent-enclave host network boundary', () => {
     });
     expect(dependencies.inspectNetwork).toHaveBeenCalledWith(tools.docker);
     expect(dependencies.inspectBridge).toHaveBeenCalledWith(tools.ip, 'br-aaaaaaaaaaaa');
-    expect(dependencies.inspectContainer).toHaveBeenCalledTimes(github ? 1 : 0);
+    expect(dependencies.inspectContainer).toHaveBeenCalledTimes(github ? 2 : 1);
     const plan = createMicrovmNetworkPlan('enclave-run', {
       ...options, tapOwnerUid: 2001, tapOwnerGid: 2002, tapVnetHdr: true,
     });
@@ -188,7 +212,9 @@ describe('Cloud Hypervisor agent-enclave host network boundary', () => {
     const { dependencies } = inspection(true);
     const details = await dependencies.inspectContainer();
     mutate(details);
-    dependencies.inspectContainer.mockResolvedValueOnce(details);
+    const inspectContainer = dependencies.inspectContainer.getMockImplementation()!;
+    dependencies.inspectContainer.mockImplementation(async (docker, name) =>
+      name === 'awmg-mcpg' ? details : inspectContainer(docker, name));
     await expect(resolveCloudHypervisorEnclaveNetwork(
       profile(true),
       tools,

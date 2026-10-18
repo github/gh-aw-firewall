@@ -270,6 +270,58 @@ schemas and disclosure budgets, invocation counts/deadlines, credential
 isolation, resource/confinement limits, and no-network script behavior are
 unchanged. Raw logs and error text are never returned to the primary agent.
 
+### Redacted enclave-proxy usage evidence
+
+Trusted Cloud Hypervisor enclave shutdown retains one **run-cumulative** usage
+snapshot after host-executor admissions and invocations drain, before Compose
+and the enclave-private proxy log directory are removed. It reads only the
+dedicated proxy's `token-tracker-audit.jsonl` and `token-usage.jsonl`; it never
+exports these raw logs, request IDs, model names, URLs/paths, messages, headers,
+credentials, or request/response payloads.
+
+The summary contains HTTP **tracked upstream response** counts and numeric
+status-code counts, WebSocket tracking-session counts, closed-vocabulary
+tracking outcomes, and summed input/output/cache-read/cache-write token counts.
+These are observed accounting records, **not** attempted-client-request totals,
+per-invocation charges, or proof that all upstream usage was reported.
+Pre-response transport failures are not tracked responses. Token totals cover
+only usage records emitted by the proxy; missing provider usage, dropped writes,
+and logging failures cannot be recovered. No inference is drawn from an absent
+file. The proxy remains running during this capture, so it is a bounded snapshot
+after host drain, not a finalized proxy-shutdown receipt.
+
+Each source has an explicit status: `captured`, `empty`, `missing`, `unsafe`,
+`oversized`, `record-limit`, `malformed`, or `read-failed`. Undrained host shutdown
+uses `not-drained`; a script-only run uses `not-applicable`. Unavailable or
+invalid sources omit counters/totals rather than claiming zero. A malformed
+record, invalid/overflowing count, unfinished line, or invalid UTF-8 rejects the
+entire affected source, not just its last record.
+
+Capture opens exactly two fixed filenames, at most **1 MiB each**, **4096 records
+per source**, and **16 KiB per line**. It rejects symlinked directory chains,
+non-regular/multiply-linked files, unexpected ownership/device/modes, and reads
+with `O_NOFOLLOW | O_NONBLOCK`. The log root must be `0700`; audit files must be
+`0600`. The token log's existing `0644` mode is also accepted only inside that
+private directory. No permissions on raw logs are widened.
+
+The closed projection is atomically persisted as component
+`enclave-proxy-usage` under
+`/var/lib/awf-cloud-hypervisor/host-executor-journal/diagnostics/`, in a `0600`
+file beneath `0700` protected directories. It survives invocation/private-root
+and ordinary work-directory cleanup. The existing protected evidence handoff
+also copies it to `audit/diagnostics/cloud-hypervisor/host-executor/`. Persistence
+or handoff failure is surfaced, not treated as a successful evidence capture.
+SIGKILL/host loss before capture cannot guarantee a summary.
+
+The host-only public-fixture collector
+`scripts/ci/collect-enclave-smoke-debug.cjs` resolves the exact run-owned summary,
+reads at most **16 KiB**, independently re-projects its closed fields, and exports
+only `enclave-proxy-usage.json` (no run identity) alongside the bounded debug
+artifacts. Missing summaries are explicit in `collection-status.txt`; unsafe
+sources abort collection before publishing. This adds at most one summary to
+the existing 32-file raw-debug bound. It does not enable raw debug collection or
+change any execution, admission, credential, or disclosure policy.
+
 ### No-network script-enclave profile
 
 The script-enclave workload profile selects `network.mode: none`. Trusted
@@ -1523,6 +1575,18 @@ shared by AWF and the harness.
 
 #### Host-executor invocation evidence
 
+Enclave execution validates the initial working directory against the guest
+root, for both no-network script and networked agent roles. Enclaves have no
+primary workspace export; the agent entrypoint subsequently launches Copilot
+in its admitted read-only seed (or its private agent directory for dynamic
+admission). Primary-agent execution remains confined to its workspace mount.
+Older supervisors that select the guest root only for no-network execution
+can reject agent-enclave startup with `guest-rejected`, `invalid_request`, and
+`cwd-validation`, before the entrypoint runs. The v0.28.66 verified release supervisor includes this correction (#10189).
+Both enclave smokes select that release's attested artifacts; the temporary
+exact-PR development-supervisor override has been removed. Rebuilding the host
+CLI does not replace the release supervisor or relax artifact verification.
+
 After startup, the Cloud Hypervisor host executor uses the same check catalog
 and `[result, reason]` tuples in an invocation-scoped snapshot, separate from
 `enclaveStartup.startupChecks.ready`. Production storage and snapshot subchecks
@@ -1602,6 +1666,46 @@ run pinned to an older published AWF binary/image. Absence of these fields in
 such a run cannot identify its failing stage. These host checks need no guest
 rootfs rebuild and do not change artifact acceptance, launch policy, or caller
 errors.
+
+Script and Copilot enclaves share the host/storage/artifact/VM/guest-connection
+checklist and execution transport diagnostics. `guestExecution` records bounded
+host elapsed times, execute-send completion, first response, last frame type,
+frame/stream byte counters, partial-frame bytes, and whether an actual result
+arrived. Typed failure reasons distinguish disconnect, socket error, read/write
+timeout, output-capture failure, protocol failure, and guest rejection. A guest
+error retains its protocol code and a finite rejection stage for recognized
+supervisor message prefixes (workspace/cwd/command resolution, identity,
+process start/wait, or request validation), never the message itself. Unknown
+formats remain `unknown`; these are guest-reported categories, not host proof.
+Actual result
+exit/signal/timeout fields are separate from the broker's generic exit 1.
+A host-synthesized timeout has `resultReceived: false`. No heartbeat or
+inactivity timeout is added for silent commands.
+
+Copilot additionally publishes `enclave-network/*` origin checks for compiler
+gateway identity (when enabled), Docker topology and exact membership, dedicated
+API-proxy running/healthy status, optional gateway identity/running status, and
+the Docker bridge. These are host-side readiness checks, not proof of a guest
+TCP connection, provider authentication, or inference. They send no API request
+and do not open additional network paths.
+
+After confirmed VM stop and before invocation storage removal, `guestSession`
+projects the agent's existing `/runtime/session.jsonl` onto bounded, closed
+event/path/stage/category vocabularies. It retains up to 32 events, the last
+milestone, first failure, and last resource snapshot independently. Missing,
+empty, unsafe, oversized, invalid, or unreadable evidence is explicit and does
+not replace the invocation or cleanup failure. The reader checks canonical
+runtime directory identity, owner/mode, non-symlink regular file, device and
+single-link identity, and a 1 MiB input bound. No raw engine streams, stream
+hashes, exception text, prompts, repository contents or bearer files are copied.
+Guest events remain untrusted evidence, not authoritative execution outcomes.
+The existing protected host snapshot export carries this projection, without
+requiring public raw-log capture or widening artifact permissions.
+
+These host additions work with existing attested guests that emit session
+events. New supervisor milestones or guest-origin TCP/API-proxy probes require
+a separately rebuilt and verified guest artifact; updating the host alone
+cannot add those guest events to a release-pinned run.
 
 For script guests, the entrypoint emits bounded JSON lifecycle records on stderr:
 startup identity, seed copy, output link, working-directory setup, and script

@@ -21,7 +21,8 @@ import {
   HostPreflightReporter, markHostPreflightError, type HostPreflightProgress,
   HostPreflightCleanupError,
 } from '../cloud-hypervisor/host-preflight-progress';
-import { readHostExecutorInvocationDiagnostics } from './host-executor-journal';
+import { persistHostExecutorProxyUsage, readHostExecutorInvocationDiagnostics } from './host-executor-journal';
+import { readEnclaveProxyUsage, unavailableEnclaveProxyUsage } from './proxy-usage';
 import { preserveHostExecutorInvocationEvidence } from '../cloud-hypervisor/diagnostics';
 import { resolveCloudHypervisorManagerDependencies } from '../cloud-hypervisor/manager';
 import {
@@ -291,6 +292,7 @@ export async function stopCloudHypervisorEnclaveLifecycle(config: WrapperConfig)
     await run.startPromise?.catch(() => undefined);
     let cleanupError: unknown;
     let evidenceError: unknown;
+    let hostDrained = false;
     const preserveEvidence = async (): Promise<void> => {
       const evidence = readHostExecutorInvocationDiagnostics({
         runId: run.runId, journalDir: paths.hostExecutorJournalDir,
@@ -309,10 +311,24 @@ export async function stopCloudHypervisorEnclaveLifecycle(config: WrapperConfig)
     try {
       await run.server?.close();
       assertRecoveryComplete(paths, run.runId);
+      hostDrained = Boolean(run.server);
       if (run.failed) throw new Error('Cloud Hypervisor enclave startup failed; private recovery state is preserved');
       await run.storage?.close();
     } catch (error) {
       cleanupError = error;
+    }
+    // The dedicated proxy is shared across invocations. Capture only run-wide
+    // counters after host execution drains, before compose/private-root teardown.
+    try {
+      persistHostExecutorProxyUsage({
+        runId: run.runId, journalDir: paths.hostExecutorJournalDir,
+      }, !config.enclaves?.executors.agent.enabled
+        ? unavailableEnclaveProxyUsage('not-applicable')
+        : hostDrained
+          ? await readEnclaveProxyUsage(paths.apiProxyLogsDir)
+          : unavailableEnclaveProxyUsage('not-drained'));
+    } catch (error) {
+      evidenceError ??= error;
     }
     try {
       await preserveEvidence();

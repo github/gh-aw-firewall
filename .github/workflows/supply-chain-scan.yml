@@ -86,10 +86,26 @@ jobs:
 
       - name: Install NVX-aware gh-aw
         run: |
+          # Backport only the reviewed acceptance guard and its tests, not compiler main.
+          # github/gh-aw#69777; keep the existing NVX-aware source/runtime pins.
+          curl --fail --silent --show-error --location \
+            https://github.com/github/gh-aw/commit/2b19ccffd0694750e8e2bdcb20bf882e9bb440f2.patch \
+            --output "${RUNNER_TEMP}/gh-aw-agent-acceptance.patch"
+          echo "9ae4b02273385b3a9e884085bdf81969bbaa0e04d9d410d30c1ddb6d1023e8ee  ${RUNNER_TEMP}/gh-aw-agent-acceptance.patch" | sha256sum --check --strict
+          git -C .tmp/gh-aw-compiler apply \
+            --include=pkg/workflow/enclaves_runtime.go \
+            --include=pkg/workflow/enclaves_agent_acceptance_test.go \
+            "${RUNNER_TEMP}/gh-aw-agent-acceptance.patch"
+          # Keep the fixture's exact release gate aligned with its v0.28.66 pin.
+          # Do not broaden the topology, policy, or accepted version range.
+          git -C .tmp/gh-aw-compiler apply \
+            "${GITHUB_WORKSPACE}/scripts/ci/compiler-agent-acceptance-v0.28.66.patch"
+          go test -C .tmp/gh-aw-compiler ./pkg/workflow \
+            -run 'TestValidateCloudHypervisorAgentAcceptance|TestCompileCloudHypervisorAgentAcceptance' -count=1
           mkdir -p "$HOME/.local/share/gh/extensions/gh-aw"
           go build \
             -C .tmp/gh-aw-compiler \
-            -ldflags="-X main.version=v0.91.8-37-g6cc24f3633 -X main.isRelease=true" \
+            -ldflags="-X main.version=dev-v0.91.8-37-g6cc24f3633-agent-acceptance-v0.28.66" \
             -o "$HOME/.local/share/gh/extensions/gh-aw/gh-aw" \
             ./cmd/gh-aw
           rm -rf .tmp/gh-aw-compiler
