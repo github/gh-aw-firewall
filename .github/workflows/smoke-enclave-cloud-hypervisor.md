@@ -155,14 +155,14 @@ diagnostics (#9955), bounded enclave MCP startup diagnostics (#9898),
 and the narrowly scoped official-main and tagged-workflow
 acceptance paths. The binary, Docker images, and release-attested primary and
 script enclave artifacts all select that release. This workflow is compiled
-with the checksum-verified official gh-aw v0.92.4 prerelease and pins
+with the checksum-verified official gh-aw v0.92.5 prerelease and pins
 `github/gh-aw-actions/setup` to its matching release commit
-`dc455073a216c68be9fe9a292c4371243c036d25` using the official compiler's default action mode.
+`ebb97091a4afcc9bf2d594071dbabe861e9a34fc` using the official compiler's default action mode.
 The action ref selects runtime scripts, not the compiler binary.
 The official release includes github/gh-aw#69079's diagnostic generator fixes
 and github/gh-aw#69109's safe resolved-config collection. Release compiler
 version checks remain enabled; development-build bypasses are not used.
-The MCP Gateway adopts the compiler's digest-pinned v0.4.33 default.
+The MCP Gateway adopts the compiler's digest-pinned v0.4.35 default.
 An explicit v0.4.31 override was rejected by compile-only strict validation
 because `sandbox.mcp.version` is an internal field; no validation bypass is used.
 On main and release tags, AWF, Copilot, and primary/enclave artifact versions
@@ -246,7 +246,7 @@ custom-secret and runtime-mask redaction before atomically staging a mode-0600
 output and fails redaction. Both normal and fallback agent artifact uploads
 include only the staged path and require successful redaction.
 The smoke postprocessor supplies the missing `redact_secrets` step ID in
-v0.92.4's generated lock so these upload guards reference the actual redactor;
+v0.92.5's generated lock so these upload guards reference the actual redactor;
 it does not remove or weaken the guards.
 
 This is verified source wiring, not verified live failed-cleanup retrieval.
