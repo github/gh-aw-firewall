@@ -223,33 +223,31 @@ else
     --pattern 'enclave-agent-rootfs.sbom.spdx.json' \
     --pattern 'enclave-rootfs.provenance.sigstore.jsonl'
   verify_manifest "$staging"
-  for role in shared; do
-    compressed_rootfs="$staging/enclave-rootfs.ext4.gz"
-    if [ -f "$compressed_rootfs" ]; then
-      rootfs="$staging/enclave-rootfs.ext4"
-      size_bytes=$(jq -r '.rootfs.script.sizeBytes' "$staging/$manifest_name")
-      python3 - "$compressed_rootfs" "$rootfs" "$size_bytes" "$role" <<'PY'
+  compressed_rootfs="$staging/enclave-rootfs.ext4.gz"
+  if [ -f "$compressed_rootfs" ]; then
+    rootfs="$staging/enclave-rootfs.ext4"
+    size_bytes=$(jq -r '.rootfs.script.sizeBytes' "$staging/$manifest_name")
+    python3 - "$compressed_rootfs" "$rootfs" "$size_bytes" <<'PY'
 import gzip
 import sys
 
-source, destination, size, role = sys.argv[1:]
+source, destination, size = sys.argv[1:]
 remaining = int(size)
 try:
     with gzip.open(source, "rb") as stream, open(destination, "xb") as output:
         while remaining:
             chunk = stream.read(min(1024 * 1024, remaining))
             if not chunk:
-                sys.exit(f"{role} enclave rootfs size mismatch")
+                sys.exit("shared enclave rootfs size mismatch")
             output.write(chunk)
             remaining -= len(chunk)
         if stream.read(1):
-            sys.exit(f"{role} enclave rootfs exceeds attested size")
+            sys.exit("shared enclave rootfs exceeds attested size")
 except (OSError, EOFError) as error:
-    sys.exit(f"{role} enclave rootfs decompression failed: {error}")
+    sys.exit(f"shared enclave rootfs decompression failed: {error}")
 PY
-      rm -- "$compressed_rootfs"
-    fi
-  done
+    rm -- "$compressed_rootfs"
+  fi
   find "$staging" -type f -exec chmod 0400 {} +
   verify_rootfs_files "$staging"
   mv "$staging" "$cache_dir"

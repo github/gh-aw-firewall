@@ -1089,14 +1089,14 @@ describe('readBoundedCloudHypervisorEnclaveResult', () => {
       await fs.writeFile(filePath, contents, { mode: 0o400 });
       return filePath;
     };
-    const scriptRootfs = 'script-rootfs-fixture';
-    const agentRootfs = 'agent-rootfs-fixture';
+    const scriptRootfs = 'shared-rootfs-fixture';
+    const agentRootfs = scriptRootfs;
     const scriptSbom = JSON.stringify({ name: 'enclave-script' });
     const agentSbom = JSON.stringify({ name: 'enclave-agent' });
     const artifacts = (role: 'script' | 'agent', rootfs: string, sbom: string) => {
       const digest = 'a'.repeat(64);
       return {
-        file: `enclave-${role}-rootfs.ext4`,
+        file: 'enclave-rootfs.ext4',
         role,
         version: releaseTag,
         sha256: hash(rootfs),
@@ -1104,7 +1104,7 @@ describe('readBoundedCloudHypervisorEnclaveResult', () => {
         uid: 65534,
         gid: 65534,
         entrypoint: `/usr/local/bin/run-enclave-${role}`,
-        sourceImage: `ghcr.io/github/gh-aw-firewall/enclave-${role}@sha256:${digest}`,
+        sourceImage: `ghcr.io/github/gh-aw-firewall/cloud-hypervisor-enclave@sha256:${digest}`,
         sourceImageDigest: digest,
         sbom: {
           file: `enclave-${role}-rootfs.sbom.spdx.json`,
@@ -1116,7 +1116,7 @@ describe('readBoundedCloudHypervisorEnclaveResult', () => {
     const agentArtifact = artifacts('agent', agentRootfs, agentSbom);
     const manifestPath = path.join(scratch, 'cloud-hypervisor-enclave-rootfs-x86_64.manifest.json');
     const scriptRootfsPath = await writeTrustedFile(scriptArtifact.file, scriptRootfs);
-    const agentRootfsPath = await writeTrustedFile(agentArtifact.file, agentRootfs);
+    const agentRootfsPath = scriptRootfsPath;
     await writeTrustedFile(scriptArtifact.sbom.file, scriptSbom);
     await writeTrustedFile(agentArtifact.sbom.file, agentSbom);
     const manifestBundlePath = await writeTrustedFile(
@@ -1128,13 +1128,9 @@ describe('readBoundedCloudHypervisorEnclaveResult', () => {
     const attestationToolPath = await writeTrustedFile('gh',
       `#!/bin/sh\nprintf '%s\\n' "$@" >> '${attestationTracePath}'\nprintf '\\n' >> '${attestationTracePath}'\n`);
     await fs.chmod(attestationToolPath, 0o700);
-    const scriptProvenancePath = await writeTrustedFile(
-      'enclave-script-rootfs.provenance.sigstore.jsonl',
-      '{"fixture":"script"}\n',
-    );
-    const agentProvenancePath = await writeTrustedFile(
-      'enclave-agent-rootfs.provenance.sigstore.jsonl',
-      '{"fixture":"agent"}\n',
+    const rootfsProvenancePath = await writeTrustedFile(
+      'enclave-rootfs.provenance.sigstore.jsonl',
+      '{"fixture":"shared"}\n',
     );
     await fs.writeFile(manifestPath, JSON.stringify({
       schemaVersion: 1,
@@ -1150,6 +1146,10 @@ describe('readBoundedCloudHypervisorEnclaveResult', () => {
         cloudHypervisorVersion: '53.0',
         kernelVersion: '6.1.141',
         supervisorVersion: releaseTag,
+      },
+      guestBase: {
+        image: `ghcr.io/github/gh-aw-firewall/cloud-hypervisor-guest-base@sha256:${'a'.repeat(64)}`,
+        imageId: `sha256:${'a'.repeat(64)}`,
       },
       rootfs: { script: scriptArtifact, agent: agentArtifact },
     }), { mode: 0o400 });
@@ -1171,7 +1171,7 @@ describe('readBoundedCloudHypervisorEnclaveResult', () => {
       });
       const verifications = (await fs.readFile(attestationTracePath, 'utf8')).trim().split('\n\n')
         .map((invocation) => invocation.split('\n'));
-      expect(verifications).toHaveLength(3);
+      expect(verifications).toHaveLength(2);
       for (const args of verifications) {
         expect(args.slice(0, 2)).toEqual(['attestation', 'verify']);
         expect(args.slice(3)).toEqual([
@@ -1182,9 +1182,7 @@ describe('readBoundedCloudHypervisorEnclaveResult', () => {
         ]);
       }
       expect(verifications[1][2]).toBe(scriptRootfsPath);
-      expect(verifications[1][6]).toBe(scriptProvenancePath);
-      expect(verifications[2][2]).toBe(agentRootfsPath);
-      expect(verifications[2][6]).toBe(agentProvenancePath);
+      expect(verifications[1][6]).toBe(rootfsProvenancePath);
 
       const verificationRoot = path.join(scratch, 'bounded');
       await fs.mkdir(verificationRoot, { mode: 0o700 });
@@ -1217,9 +1215,6 @@ describe('readBoundedCloudHypervisorEnclaveResult', () => {
       await fs.chmod(scriptRootfsPath, 0o600);
       await fs.writeFile(scriptRootfsPath, scriptRootfs);
       await fs.chmod(scriptRootfsPath, 0o400);
-      await fs.chmod(agentRootfsPath, 0o600);
-      await fs.writeFile(agentRootfsPath, agentRootfs);
-      await fs.chmod(agentRootfsPath, 0o400);
 
       await fs.chmod(manifestBundlePath, 0o600);
       await fs.writeFile(manifestBundlePath, '');
@@ -1253,9 +1248,9 @@ describe('readBoundedCloudHypervisorEnclaveResult', () => {
         attestationToolPath,
       })).rejects.toThrow('does not match the trusted manifest path');
 
-      await fs.chmod(scriptProvenancePath, 0o600);
-      await fs.truncate(scriptProvenancePath, 8 * 1024 * 1024 + 1);
-      await fs.chmod(scriptProvenancePath, 0o400);
+      await fs.chmod(rootfsProvenancePath, 0o600);
+      await fs.truncate(rootfsProvenancePath, 8 * 1024 * 1024 + 1);
+      await fs.chmod(rootfsProvenancePath, 0o400);
       await expect(preflightCloudHypervisorEnclaveArtifacts({
         releaseTag,
         manifestPath,
@@ -1263,11 +1258,11 @@ describe('readBoundedCloudHypervisorEnclaveResult', () => {
         scriptRootfsPath,
         agentRootfsPath,
         attestationToolPath,
-      })).rejects.toThrow('provenance or SBOM exceeds its size limit');
+      })).rejects.toThrow('provenance exceeds its size limit');
 
-      await fs.chmod(scriptProvenancePath, 0o600);
-      await fs.writeFile(scriptProvenancePath, '{"fixture":"script"}\n');
-      await fs.chmod(scriptProvenancePath, 0o400);
+      await fs.chmod(rootfsProvenancePath, 0o600);
+      await fs.writeFile(rootfsProvenancePath, '{"fixture":"shared"}\n');
+      await fs.chmod(rootfsProvenancePath, 0o400);
       const agentSbomPath = path.join(scratch, agentArtifact.sbom.file);
       await fs.chmod(agentSbomPath, 0o600);
       await fs.truncate(agentSbomPath, 16 * 1024 * 1024 + 1);
@@ -1279,7 +1274,7 @@ describe('readBoundedCloudHypervisorEnclaveResult', () => {
         scriptRootfsPath,
         agentRootfsPath,
         attestationToolPath,
-      })).rejects.toThrow('provenance or SBOM exceeds its size limit');
+      })).rejects.toThrow('SBOM exceeds its size limit');
 
       await fs.writeFile(attestationToolPath, '#!/bin/sh\nexit 1\n');
       await expect(preflightCloudHypervisorEnclaveArtifacts({

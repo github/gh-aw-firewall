@@ -702,6 +702,9 @@ images from its exact digest. ARC/DinD continues to use its existing
 `build-tools` image. The guest supervisor is built once into the common base;
 both flattened exports verify the same binary. No container image contains an invocation's credentials,
 repository seed, or runtime caches.
+The primary derivative retains its package manager and development libraries
+for tooling compatibility; the enclave export removes package-manager launchers
+and Python installer modules, as well as setuid bits and file capabilities.
 
 The separately gated enclave executor uses one release-attested
 `enclave-rootfs.ext4` for both script and agent VMs; this does not replace
