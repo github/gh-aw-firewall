@@ -1,4 +1,4 @@
-import * as fs from 'fs';
+import fs from 'fs';
 import * as path from 'path';
 import type { WrapperConfig } from './types';
 import {
@@ -28,8 +28,98 @@ describe('protected command output capture', () => {
   });
 
   afterEach(() => {
+    jest.restoreAllMocks();
     fs.rmSync(testRoot, { recursive: true, force: true });
   });
+
+  it('rejects a symlink substituted before opening without changing its target', () => {
+    const directory = path.join(testRoot, 'capture');
+    const target = path.join(testRoot, 'target');
+    fs.mkdirSync(target, { mode: 0o755 });
+    fs.writeFileSync(path.join(target, 'sentinel'), 'untouched');
+    const originalMode = fs.statSync(target).mode;
+    const openSync = fs.openSync;
+    jest.spyOn(fs, 'openSync').mockImplementation((file, flags, mode) => {
+      if (file === directory) {
+        fs.rmdirSync(directory);
+        fs.symlinkSync(target, directory);
+      }
+      return openSync(file, flags, mode);
+    });
+
+    expect(() => prepareProtectedCommandOutputCapture(config())).toThrow();
+    expect(fs.statSync(target).mode).toBe(originalMode);
+    expect(fs.readdirSync(target)).toEqual(['sentinel']);
+    expect(fs.readFileSync(path.join(target, 'sentinel'), 'utf8')).toBe('untouched');
+  });
+
+  it('validates directory ownership through the descriptor before changing permissions', () => {
+    const fstatSync = fs.fstatSync;
+    const statSpy = jest.spyOn(fs, 'fstatSync').mockImplementationOnce(fd => ({
+      ...fstatSync(fd),
+      isDirectory: () => true,
+      uid: (process.getuid?.() ?? 0) + 1,
+    } as fs.Stats));
+    const chmodSpy = jest.spyOn(fs, 'fchmodSync');
+    const closeSpy = jest.spyOn(fs, 'closeSync');
+
+    expect(() => prepareProtectedCommandOutputCapture(config())).toThrow(/unsafe protected output directory/);
+    expect(chmodSpy).not.toHaveBeenCalled();
+    expect(closeSpy).toHaveBeenCalledWith(statSpy.mock.calls[0][0]);
+    expect(fs.readdirSync(path.join(testRoot, 'capture'))).toEqual([]);
+  });
+
+  it('pins permissions and capture files to the opened directory after pathname replacement', () => {
+    const directory = path.join(testRoot, 'capture');
+    const original = path.join(testRoot, 'original');
+    const fchmodSync = fs.fchmodSync;
+    jest.spyOn(fs, 'fchmodSync').mockImplementationOnce((fd, mode) => {
+      fs.renameSync(directory, original);
+      fs.mkdirSync(directory, { mode: 0o755 });
+      return fchmodSync(fd, mode);
+    });
+
+    const capture = prepareProtectedCommandOutputCapture(config())!;
+    capture.beginAttempt(1);
+    capture.recordOutput(1, 'stdout', Buffer.from('pinned'));
+    capture.close();
+
+    expect(fs.readdirSync(directory)).toEqual([]);
+    expect(fs.statSync(directory).mode & 0o777).not.toBe(0o700);
+    expect(fs.statSync(original).mode & 0o777).toBe(0o700);
+    expect(fs.readFileSync(path.join(original, 'attempt-001.stdout.bin'), 'utf8')).toBe('pinned');
+  });
+
+  it.each(['fstatSync', 'fchmodSync', 'fsyncSync'] as const)(
+    'closes all acquired descriptors when %s fails without deleting a replacement directory',
+    operation => {
+      const directory = path.join(testRoot, 'capture');
+      const original = path.join(testRoot, 'original');
+      const failure = new Error(`${operation} failed`);
+      const openSpy = jest.spyOn(fs, 'openSync');
+      const closeSync = fs.closeSync;
+      const closeSpy = jest.spyOn(fs, 'closeSync').mockImplementationOnce(fd => {
+        closeSync(fd);
+        throw new Error('close failed');
+      });
+      jest.spyOn(fs, operation).mockImplementationOnce(() => {
+        fs.renameSync(directory, original);
+        fs.mkdirSync(directory);
+        fs.writeFileSync(path.join(directory, 'sentinel'), 'untouched');
+        throw failure;
+      });
+
+      expect(() => prepareProtectedCommandOutputCapture(config())).toThrow(failure);
+      const acquiredFds = openSpy.mock.results
+        .filter(result => result.type === 'return')
+        .map(result => result.value);
+      for (const fd of acquiredFds) {
+        expect(closeSpy).toHaveBeenCalledWith(fd);
+        expect(() => fs.fstatSync(fd)).toThrow();
+      }
+      expect(fs.readFileSync(path.join(directory, 'sentinel'), 'utf8')).toBe('untouched');
+    },
+  );
 
   it('accounts for successful short writes before a later write fails', () => {
     let capturedBytes = 0;

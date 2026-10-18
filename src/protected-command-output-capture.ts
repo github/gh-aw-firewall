@@ -131,20 +131,20 @@ class ProtectedCommandOutputCaptureSession implements ProtectedCommandOutputCapt
     maxAttempts: number,
   ) {
     fs.mkdirSync(directory, { mode: 0o700 });
-    const dirStat = fs.lstatSync(directory);
-    if (dirStat.isSymbolicLink() || !dirStat.isDirectory() || dirStat.uid !== (process.getuid?.() ?? dirStat.uid)) {
-      throw new Error(`Refusing unsafe protected output directory: ${directory}`);
-    }
-    fs.chmodSync(directory, 0o700);
     const directoryFd = fs.openSync(
       directory,
       fs.constants.O_RDONLY | fs.constants.O_DIRECTORY | (fs.constants.O_NOFOLLOW ?? 0),
     );
 
-    const openedFds: number[] = [];
+    const openedFds: number[] = [directoryFd];
     let metadataFd: number | undefined;
     const attempts: AttemptState[] = [];
     try {
+      const dirStat = fs.fstatSync(directoryFd);
+      if (!dirStat.isDirectory() || dirStat.uid !== (process.getuid?.() ?? dirStat.uid)) {
+        throw new Error(`Refusing unsafe protected output directory: ${directory}`);
+      }
+      fs.fchmodSync(directoryFd, 0o700);
       metadataFd = openPrivateFile(`/proc/self/fd/${directoryFd}/metadata.json`);
       openedFds.push(metadataFd);
       for (let index = 1; index <= maxAttempts; index++) {
@@ -166,26 +166,20 @@ class ProtectedCommandOutputCaptureSession implements ProtectedCommandOutputCapt
           },
         });
       }
-    } catch (error) {
-      for (const fd of openedFds) fs.closeSync(fd);
-      fs.closeSync(directoryFd);
-      fs.rmSync(directory, { recursive: true, force: true });
-      throw error;
-    }
-
-    this.directoryFd = directoryFd;
-    this.metadataFd = metadataFd!;
-    this.attempts = attempts;
-    try {
+      this.directoryFd = directoryFd;
+      this.metadataFd = metadataFd;
+      this.attempts = attempts;
       this.writeMetadata();
       this.metadataInitialized = true;
     } catch (error) {
-      for (const attempt of this.attempts) {
-        for (const stream of Object.values(attempt.streams)) fs.closeSync(stream.fd);
+      for (const fd of openedFds.reverse()) {
+        try {
+          fs.closeSync(fd);
+        } catch {
+          // Keep closing remaining descriptors without masking the initialization error.
+        }
       }
-      fs.closeSync(this.metadataFd);
-      fs.closeSync(this.directoryFd);
-      fs.rmSync(directory, { recursive: true, force: true });
+      // The pathname may have been replaced; never recursively delete it on failure.
       throw error;
     }
   }
