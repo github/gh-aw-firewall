@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
+umask 077
 
 # Live GitHub-hosted Ubuntu x86_64 KVM smoke/security suite for the Cloud
 # Hypervisor preview backend.

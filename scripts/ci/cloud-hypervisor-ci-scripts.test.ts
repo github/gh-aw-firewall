@@ -1,5 +1,6 @@
 import * as fs from 'fs';
 import * as path from 'path';
+import * as os from 'os';
 import { execFileSync } from 'child_process';
 
 const preflightPath = path.resolve(__dirname, 'cloud-hypervisor-host-preflight.sh');
@@ -142,8 +143,59 @@ describe('cloud-hypervisor-host-preflight.sh', () => {
 });
 
 describe('cloud-hypervisor-live-smoke.sh', () => {
+  it('creates private work directories even with a permissive runner umask', () => {
+    const source = fs.readFileSync(smokePath, 'utf-8');
+    const headerEnd = source.indexOf('\nARTIFACT_DIR=');
+    expect(headerEnd).toBeGreaterThan(0);
+    const header = source.slice(0, headerEnd);
+    const runCase = source.match(/^run_case\(\) \{[\s\S]*?^\}/m)?.[0];
+    expect(runCase).toBeDefined();
+    const scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-smoke-permissions-'));
+    try {
+      execFileSync('bash', ['-c', [
+        'umask 022',
+        header,
+        'RUN_ROOT="$1"',
+        'ROOT=fixture',
+        'SECRET_SENTINEL=fixture-sentinel',
+        'COMMON=()',
+        'sudo() { test "$1" = -E && test "$2" = node; }',
+        'assert_no_residue() { :; }',
+        runCase!,
+        'run_case fixture 0 true',
+      ].join('\n'), 'awf-smoke-permissions', scratch], { stdio: 'pipe' });
+      expect(fs.statSync(path.join(scratch, 'fixture/work')).mode & 0o777).toBe(0o700);
+    } finally {
+      fs.rmSync(scratch, { recursive: true, force: true });
+    }
+  });
+
   it('passes bash syntax check', () => {
     expect(() => execFileSync('bash', ['-n', smokePath])).not.toThrow();
+  });
+
+  describe('enclave network packet fixture', () => {
+    const source = fs.readFileSync(path.resolve(
+      __dirname, '../../src/cloud-hypervisor/enclave-network.integration.test.ts',
+    ), 'utf-8');
+
+    it('enables loopback in every namespace before probing the peer locally', () => {
+      expect(source).toMatch(
+        /for \(const namespace of \[plan\.namespaceName, guestNs, peerNs\]\) \{\s*await inNs\(namespace, 'ip', \['link', 'set', 'lo', 'up'\]\);/,
+      );
+      expect(source.indexOf("['link', 'set', 'lo', 'up']"))
+        .toBeLessThan(source.indexOf('const probe ='));
+    });
+
+    it('bounds peer readiness retries below the setup hook timeout', () => {
+      const readiness = source.slice(source.indexOf('let ready = false'), source.indexOf('if (!ready) throw'));
+      const attempts = Number(readiness.match(/attempt < (\d+)/)?.[1]);
+      const requestSeconds = Number(readiness.match(/'--max-time', '([\d.]+)'/)?.[1]);
+      const hookTimeout = Number(source.match(/\}, ([\d_]+)\);/)?.[1].replace(/_/g, ''));
+      expect(attempts).toBeGreaterThan(0);
+      expect(requestSeconds).toBeGreaterThan(0);
+      expect((requestSeconds * 1000 + 100) * attempts).toBeLessThan(hookTimeout);
+    });
   });
 
   it('covers the shared behavioral/security contract plus virtio-fs semantics', () => {

@@ -37,6 +37,9 @@ const live = process.env.AWF_TEST_ENCLAVE_NETWORK === '1';
     await ip(['netns', 'add', plan.namespaceName]);
     await ip(['netns', 'add', guestNs]);
     await ip(['netns', 'add', peerNs]);
+    for (const namespace of [plan.namespaceName, guestNs, peerNs]) {
+      await inNs(namespace, 'ip', ['link', 'set', 'lo', 'up']);
+    }
     await ip(['link', 'add', bridge, 'type', 'bridge']);
     await ip(['link', 'set', bridge, 'up']);
     await ip(['link', 'add', plan.hostVethName, 'type', 'veth',
@@ -73,7 +76,7 @@ const live = process.env.AWF_TEST_ENCLAVE_NETWORK === '1';
       'require("http").createServer((_,r)=>r.end("allowed")).listen(port,"0.0.0.0")'],
     { stdio: 'ignore' });
     let ready = false;
-    for (let attempt = 0; attempt < 20 && !ready; attempt += 1) {
+    for (let attempt = 0; attempt < 10 && !ready; attempt += 1) {
       const probe = await inNs(peerNs, 'curl', [
         '--noproxy', '*', '--max-time', '1', '-s', 'http://172.31.0.30:10002/',
       ]).catch(() => undefined);
