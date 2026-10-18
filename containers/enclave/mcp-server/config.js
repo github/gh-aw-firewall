@@ -308,6 +308,15 @@ function loadAgentConfig(server, files = fs) {
   if (!/^(?:[0-9]{1,2})(?:\.[0-9]{1,3})?$/.test(cpuLimit) || Number(cpuLimit) <= 0) {
     throw new Error('AWF_ENCLAVE_AGENT_CPU must be a positive decimal');
   }
+  const maxModelRequests = optionalPositiveInt('AWF_ENCLAVE_AGENT_MAX_MODEL_REQUESTS');
+  const maxModelTokens = optionalPositiveInt('AWF_ENCLAVE_AGENT_MAX_MODEL_TOKENS');
+  const modelBudgetSecret = process.env.AWF_ENCLAVE_AGENT_MODEL_BUDGET_SECRET;
+  if (
+    (maxModelRequests !== undefined || maxModelTokens !== undefined) &&
+    !/^[0-9a-f]{64}$/.test(modelBudgetSecret || '')
+  ) {
+    throw new Error('Model budget enforcement requires a trusted proxy capability secret');
+  }
 
   return {
     seedsDir: SEEDS_DIR,
@@ -340,8 +349,9 @@ function loadAgentConfig(server, files = fs) {
     maxOutputBytes: positiveInt('AWF_ENCLAVE_AGENT_MAX_OUTPUT_BYTES', MAX_RESULT_BYTES, MAX_RESULT_BYTES),
     maxPromptBytes: positiveInt('AWF_ENCLAVE_AGENT_MAX_PROMPT_BYTES', 4096, MAX_TASK_BYTES),
     maxInvocations: positiveInt('AWF_ENCLAVE_AGENT_MAX_INVOCATIONS', 8),
-    maxModelRequests: optionalPositiveInt('AWF_ENCLAVE_AGENT_MAX_MODEL_REQUESTS'),
-    maxModelTokens: optionalPositiveInt('AWF_ENCLAVE_AGENT_MAX_MODEL_TOKENS'),
+    maxModelRequests,
+    maxModelTokens,
+    modelBudgetSecret,
     githubEnabled,
     githubProfile: githubEnabled ? githubProfile : undefined,
     githubMcpUrl: githubEnabled ? githubMcpUrl : undefined,

@@ -3,11 +3,15 @@
 const http = require('http');
 const { composeBodyTransforms } = require('./proxy-utils');
 
-function createHealthCheckHandler(adapter) {
+function createHealthCheckHandler(adapter, modelBudgetEnabled = false) {
   return (_req, res) => {
     if (adapter.isEnabled()) {
       res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ status: 'healthy', service: `awf-api-proxy-${adapter.name}` }));
+      res.end(JSON.stringify({
+        status: 'healthy',
+        service: `awf-api-proxy-${adapter.name}`,
+        ...(modelBudgetEnabled ? { model_budget_enforcement: true } : {}),
+      }));
     } else if (adapter.getUnconfiguredHealthResponse) {
       const { statusCode, body } = adapter.getUnconfiguredHealthResponse();
       res.writeHead(statusCode, { 'Content-Type': 'application/json' });
@@ -47,7 +51,7 @@ function createProxyHandler(adapter, checkRateLimit, proxyRequest) {
   };
 }
 
-function createWebSocketUpgradeHandler(adapter, proxyWebSocket) {
+function createWebSocketUpgradeHandler(adapter, proxyWebSocket, { modelBudgetEnabled = false } = {}) {
   const activeUpgradeSockets = new Set();
 
   function trackUpgradeSocket(socket) {
@@ -90,6 +94,11 @@ function createWebSocketUpgradeHandler(adapter, proxyWebSocket) {
   }
 
   const handler = (req, socket, head) => {
+    if (modelBudgetEnabled) {
+      socket.write('HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n');
+      socket.destroy();
+      return;
+    }
     if (!adapter.isEnabled()) {
       socket.write('HTTP/1.1 503 Service Unavailable\r\nConnection: close\r\n\r\n');
       socket.destroy();
@@ -135,11 +144,12 @@ function createProviderServer(adapter, deps) {
     proxyRequest,
     proxyWebSocket,
     routing,
+    modelBudgetEnabled = false,
   } = deps;
 
-  const handleHealthCheck = createHealthCheckHandler(adapter);
+  const handleHealthCheck = createHealthCheckHandler(adapter, modelBudgetEnabled);
   const handleProxy = createProxyHandler(adapter, checkRateLimit, proxyRequest);
-  const handleUpgrade = createWebSocketUpgradeHandler(adapter, proxyWebSocket);
+  const handleUpgrade = createWebSocketUpgradeHandler(adapter, proxyWebSocket, { modelBudgetEnabled });
 
   const server = http.createServer((req, res) => {
     if (adapter.isManagementPort && handleManagementEndpoint(req, res)) return;

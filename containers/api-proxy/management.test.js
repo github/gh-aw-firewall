@@ -4,6 +4,22 @@ const { buildRoutingModelMetadata, createManagementHandlers } = require('./manag
 const { normalizeModel } = require('./routing-catalogue');
 const { buildRoutingCandidates } = require('./routing-candidates');
 
+describe('model-budget health capability', () => {
+  it('advertises enforcement only when the dedicated proxy is configured to enforce budgets', () => {
+    const getHealth = modelBudgetEnabled => createManagementHandlers({
+      getAdapters: () => [],
+      isModelFetchComplete: () => true,
+      getKeyValidationState: () => ({ complete: true, results: {} }),
+      getLimiter: () => ({ getAllStatus: () => ({}) }),
+      httpsProxy: undefined,
+      modelBudgetEnabled,
+    }).healthResponse();
+
+    expect(getHealth(true).model_budget_enforcement).toBe(true);
+    expect(getHealth(false)).not.toHaveProperty('model_budget_enforcement');
+  });
+});
+
 describe('routing metadata in /reflect', () => {
   it('combines discovered IDs with maintained provider metadata and marks incomplete models', () => {
     expect(buildRoutingModelMetadata('openai', ['gpt-5.4', 'o3'], [])).toEqual([

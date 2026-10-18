@@ -23,6 +23,7 @@ import type {
 } from './enclave-executor-types';
 import type { CloudHypervisorHostToolPaths } from './preflight';
 import { CLOUD_HYPERVISOR_ENCLAVE_RESOURCE_PROFILES } from './workload-profile';
+import { createEnclaveModelBudgetToken } from '../enclave/model-budget-capability';
 import {
   assertNoHostGithubTokenValue,
   enforceGithubTokenIsolation,
@@ -229,13 +230,19 @@ export function agentEnvironment(
   policy: HostExecutorAgentPolicy,
   plan: HostExecutorInvocationPlan,
 ): Readonly<Record<string, string>> {
+  const modelBudgetToken = createEnclaveModelBudgetToken(
+    policy.modelBudgetSecret,
+    plan.invocationId,
+    policy.maxModelRequests,
+    policy.maxModelTokens,
+  );
   const environment = {
     PATH: '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin',
     HOME: '/agent/home',
     COPILOT_HOME: '/agent/copilot',
     COPILOT_OFFLINE: 'true',
     COPILOT_GITHUB_TOKEN: '******',
-    COPILOT_TOKEN: '******',
+    COPILOT_TOKEN: modelBudgetToken || '******',
     COPILOT_API_URL: `http://${ENCLAVE_AGENT_API_PROXY_IP}:10002`,
     COPILOT_PROVIDER_BASE_URL: `http://${ENCLAVE_AGENT_API_PROXY_IP}:10002`,
     COPILOT_MODEL: policy.model,

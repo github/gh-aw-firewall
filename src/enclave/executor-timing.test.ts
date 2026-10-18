@@ -20,6 +20,10 @@ describe('protected execution versus cleanup and padding evidence', () => {
       }),
     };
     const audit = { failure: jest.fn(), invocation: jest.fn() };
+    const destroyWorkspace = jest.fn(() => {
+      now += options.cleanupMs ?? 0;
+      if (options.cleanupFails) throw new Error('PRIVATE_CLEANUP_PATH');
+    });
     const handler = createExecutorHandler({
       config: { timeoutSeconds: 120, maxInvocations: 2, maxOutputBytes: 8192 },
       seedMap: new Map([['octo/fixture', { seedId: 'seed', sensitivity: 'public' }]]),
@@ -27,16 +31,13 @@ describe('protected execution versus cleanup and padding evidence', () => {
       diagnosticAudit: { lifecycle: (_event: string, record: Record<string, unknown>) => { events.push(record); } },
       workspace: {
         createInvocationWorkspace: () => ({}),
-        destroyInvocationWorkspace: () => {
-          now += options.cleanupMs ?? 0;
-          if (options.cleanupFails) throw new Error('PRIVATE_CLEANUP_PATH');
-        },
+        destroyInvocationWorkspace: destroyWorkspace,
       },
       clock: { nowMs: () => now, sleep: async (ms: number) => { now += ms; } },
       responseJitterSource: () => options.jitter ?? 821,
     });
     const request = { privateRepo: 'octo/fixture', schema: { type: 'boolean' }, script: 'PRIVATE_SCRIPT' };
-    return { handler, request, events, audit, runner, now: () => now };
+    return { handler, request, events, audit, runner, destroyWorkspace, now: () => now };
   }
 
   it('persists the actual 65s failure before waiting to return at 120.821s', async () => {
@@ -45,6 +46,9 @@ describe('protected execution versus cleanup and padding evidence', () => {
     await f.handler.handle(f.request, (json: string) => { response = json; });
     expect(response).toBe('{"status":"error"}');
     expect(f.now()).toBe(120_821);
+    expect(f.now()).toBeGreaterThan(120_000);
+    expect(f.runner.runInvocation).toHaveBeenCalledTimes(1);
+    expect(f.destroyWorkspace).toHaveBeenCalledTimes(1);
     expect(f.events).toEqual(expect.arrayContaining([
       expect.objectContaining({ phase: 'work-complete', elapsedMs: 65_000, reason: 'non-zero-exit' }),
       expect.objectContaining({ phase: 'cleanup-complete', elapsedMs: 65_000, status: 'ok' }),

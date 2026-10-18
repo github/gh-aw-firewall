@@ -24,6 +24,11 @@ const {
   replaceUpstreamEndpoint,
   translateCopilotWireApi,
 } = require('./wire-api-compat');
+const { createInvocationModelBudget } = require('./enclave-model-budget');
+
+const invocationModelBudget = createInvocationModelBudget(
+  process.env.AWF_ENCLAVE_AGENT_MODEL_BUDGET_SECRET,
+);
 
 /**
  * Backoff delays (ms) between successive model-not-supported retries.
@@ -96,6 +101,7 @@ function createSendUpstreamRequest({
   isFallbackModelPermitted = null,
   getFallbackModels: getFallbackModelsDep = getFallbackModels,
   getProviderAdapter = null,
+  modelBudget = invocationModelBudget,
 }) {
   return function sendUpstreamRequest(requestHeaders, {
     body, targetHost, upstreamPath, req, res, provider, requestId, startTime, span, requestBytes,
@@ -444,6 +450,50 @@ function createSendUpstreamRequest({
         }
       }
     }
+    const budgetAttempt = modelBudget.beginAttempt({
+      authorization: req.headers?.authorization,
+      method: req.method,
+      path: upstreamPath,
+      body,
+    });
+    if (!budgetAttempt.allowed) {
+      const statusCode = budgetAttempt.reason === 'invalid_capability' ? 403 : 429;
+      metrics.gaugeDec('active_requests', { provider });
+      metrics.increment('requests_total', {
+        provider,
+        method: req.method,
+        status_class: '4xx',
+      });
+      logRequest?.('warn', 'enclave_model_budget_rejected', {
+        request_id: requestId,
+        provider,
+        reason: budgetAttempt.reason,
+      });
+      otel.endSpan(span, statusCode);
+      if (res.headersSent) {
+        res.destroy?.();
+        return;
+      }
+      res.writeHead(statusCode, {
+        'Content-Type': 'application/json',
+        'X-Request-ID': requestId,
+      });
+      res.end(JSON.stringify({
+        error: {
+          message: 'Enclave model budget exhausted or invalid',
+          type: 'awf_enclave_model_budget_error',
+          code: `awf_enclave_model_budget_${budgetAttempt.reason}`,
+        },
+      }));
+      return;
+    }
+    if (budgetAttempt.body) {
+      body = budgetAttempt.body;
+      requestHeaders = rebuildBodyFramingHeaders(requestHeaders, body.length);
+      requestBytes = body.length;
+    }
+    req.awfEnclaveModelBudgetAttempt = budgetAttempt;
+
     let outboundHeaders = requestHeaders;
     if (requestSigner) {
       try {
@@ -455,6 +505,7 @@ function createSendUpstreamRequest({
           targetHost,
         });
       } catch (err) {
+        budgetAttempt.settleMissing();
         otel.endSpanError(span, err, 503);
         handleRequestError(err, {
           res, requestId, provider, req, targetHost, startTime,
@@ -641,6 +692,7 @@ function createSendUpstreamRequest({
     });
 
     proxyReq.on('error', (err) => {
+      budgetAttempt.settleMissing();
       const failRequest = () => {
         otel.endSpanError(span, err, 502);
         handleRequestError(err, {

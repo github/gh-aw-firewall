@@ -97,6 +97,32 @@ describe('buildEnclaveMcpService', () => {
     });
   });
 
+  it('requires a budget-capable dedicated proxy when model ceilings are configured', () => {
+    const enclaves = normalizeEnclavesConfig([
+      {
+        agent: { engine: 'copilot', model: 'trusted-model', maxModelRequests: 2, maxModelTokens: 128 },
+        runtime: 'docker',
+        repos: [{ repo: 'octo/private', sensitivity: 'internal' }],
+      },
+    ]);
+    const result = buildEnclaveMcpService({
+      config: config({ enclaves, enableApiProxy: true }),
+      imageConfig: ghcr,
+      networkConfig: {
+        subnet: '172.30.0.0/24', squidIp: '172.30.0.10', agentIp: '172.30.0.20', proxyIp: '172.30.0.30',
+      },
+    });
+    const secret = (result.service.environment as Record<string, string>)
+      .AWF_ENCLAVE_AGENT_MODEL_BUDGET_SECRET;
+    const proxy = result.agentApiProxyService!;
+    const proxyEnvironment = proxy.environment as Record<string, string>;
+
+    expect(secret).toMatch(/^[0-9a-f]{64}$/);
+    expect(proxyEnvironment.AWF_ENCLAVE_AGENT_MODEL_BUDGET_SECRET).toBe(secret);
+    expect((proxy.healthcheck as { test: string[] }).test.join(' '))
+      .toContain('model_budget_enforcement');
+  });
+
   it('fails closed for the not-yet-proven sbx script runtime', () => {
     const enclaves = normalizeEnclavesConfig([
       { script: {}, runtime: 'sbx', repos: [{ repo: 'octo/private', sensitivity: 'internal' }] },

@@ -25,10 +25,14 @@ exact official-repository manual branch workflow, single public repository,
 single-use Copilot policy and attested guest artifacts. The script acceptance
 gate remains separate and unchanged; mixed backends are still rejected.
 The test checks two public repository file facts through a finite result
-schema, with no enclave GitHub MCP tools or script fallback. Its request/token
-settings are advisory: the pinned guest checks positivity without enforcing them
-in Copilot, and the dedicated proxy inherits general rather than per-enclave
-limits. The existing passing script smoke remains separate.
+schema, with no enclave GitHub MCP tools or script fallback. The current
+v0.28.66 smoke pins an API-proxy image that predates invocation-scoped model
+budget enforcement, so that run is not evidence of request/token ceilings.
+New AWF code signs per-invocation limits and requires the dedicated proxy to
+advertise enforcement at healthcheck; an older proxy fails closed before the
+agent starts. On the older v0.28.66 release-backed stack, these settings remain
+advisory; repin the smoke to a compatible API-proxy image before exercising the
+new enforcement. The existing passing script smoke remains separate.
 All admitted branch runs, including main, build host/infra code from the checkout
 to include the agent acceptance gate and merged host storage/vsock fixes without
 a release. Guests remain attested v0.28.62; tag dispatch is excluded because

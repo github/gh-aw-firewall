@@ -1,7 +1,7 @@
 'use strict';
 
 const { EventEmitter } = require('events');
-const { createProviderServer } = require('./server-factory');
+const { createProviderServer, createHealthCheckHandler } = require('./server-factory');
 const { createRoutingObservation } = require('./routing-observation');
 
 function makeTrackedSocket() {
@@ -17,6 +17,20 @@ function makeTrackedSocket() {
 }
 
 describe('createProviderServer', () => {
+  test('advertises model-budget enforcement to budgeted service healthchecks', () => {
+    const response = { writeHead: jest.fn(), end: jest.fn() };
+    createHealthCheckHandler({
+      name: 'copilot',
+      isEnabled: () => true,
+    }, true)({}, response);
+
+    expect(JSON.parse(response.end.mock.calls[0][0])).toEqual({
+      status: 'healthy',
+      service: 'awf-api-proxy-copilot',
+      model_budget_enforcement: true,
+    });
+  });
+
   test('passes the adapter request signer to the HTTP proxy pipeline', () => {
     const requestSigner = jest.fn();
     const proxyRequest = jest.fn();
@@ -80,6 +94,31 @@ describe('createProviderServer', () => {
 
     expect(proxyWebSocket).not.toHaveBeenCalled();
     expect(clientSocket.write).toHaveBeenCalledWith(expect.stringContaining('503 Service Unavailable'));
+    expect(clientSocket.destroy).toHaveBeenCalled();
+  });
+
+  test('rejects WebSocket upgrades when invocation-scoped model budgets are enabled', () => {
+    const clientSocket = makeTrackedSocket();
+    const proxyWebSocket = jest.fn();
+    const server = createProviderServer({
+      name: 'copilot',
+      isEnabled: () => true,
+      getTargetHost: () => 'api.githubcopilot.com',
+      getAuthHeaders: () => ({}),
+      getBasePath: () => '',
+    }, {
+      handleManagementEndpoint: () => false,
+      reflectEndpoints: () => [],
+      checkRateLimit: () => false,
+      proxyRequest: jest.fn(),
+      proxyWebSocket,
+      modelBudgetEnabled: true,
+    });
+
+    server.emit('upgrade', { url: '/v1/realtime', headers: {} }, clientSocket, Buffer.alloc(0));
+
+    expect(proxyWebSocket).not.toHaveBeenCalled();
+    expect(clientSocket.write).toHaveBeenCalledWith(expect.stringContaining('403 Forbidden'));
     expect(clientSocket.destroy).toHaveBeenCalled();
   });
 

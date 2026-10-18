@@ -3,7 +3,7 @@ import {
   ENCLAVE_MCP_SERVER_CONTAINER_NAME,
   LOCAL_ENCLAVE_MCP_SERVER_IMAGE,
 } from '../constants';
-import type { WrapperConfig } from '../types';
+import { API_PROXY_HEALTH_PORT, type WrapperConfig } from '../types';
 import {
   isEnclaveAgentGithubRouteEnabled,
   isEnclaveAgentGithubToolsEnabled,
@@ -52,6 +52,7 @@ import {
   ENCLAVE_GITHUB_MCP_INTERNAL_URL,
   resolveEnclaveGithubGatewayContract,
 } from '../enclave/github-gateway';
+import { getOrCreateEnclaveModelBudgetSecret } from '../enclave/model-budget-capability';
 
 /**
  * Compose assembly for the unified enclave MCP server and its executors.
@@ -187,6 +188,7 @@ function buildAgentApiProxyService(params: {
   apiProxyLogsPath: string;
   engine: EnclaveAgentEngine;
   profile: EnclaveAgentProfile;
+  modelBudgetSecret?: string;
 }): Record<string, unknown> {
   const service = buildApiProxyServiceConfig({
     config: params.config,
@@ -205,6 +207,18 @@ function buildAgentApiProxyService(params: {
   };
 
   const environment = service.environment as Record<string, string>;
+  if (params.modelBudgetSecret !== undefined) {
+    environment.AWF_ENCLAVE_AGENT_MODEL_BUDGET_SECRET = params.modelBudgetSecret;
+    service.healthcheck = {
+      ...(service.healthcheck as Record<string, unknown>),
+      test: [
+        'CMD',
+        'node',
+        '-e',
+        `fetch('http://localhost:${API_PROXY_HEALTH_PORT}/health').then(async response => { const health = await response.json(); if (!response.ok || health.model_budget_enforcement !== true) process.exit(1); }).catch(() => process.exit(1))`,
+      ],
+    };
+  }
   // The dedicated proxy has direct upstream egress; it is never routed through
   // Squid or the primary agent's proxy chain.
   for (const key of ['HTTP_PROXY', 'HTTPS_PROXY', 'https_proxy']) delete environment[key];
@@ -238,6 +252,7 @@ export function buildEnclaveMcpService(params: EnclaveMcpServiceParams): Enclave
   const enclaves = config.enclaves;
   const script = enclaves?.executors.script;
   const agent = enclaves?.executors.agent;
+  const modelBudgetSecret = getOrCreateEnclaveModelBudgetSecret(config);
   if (!enclaves?.enabled || (!script?.enabled && !agent?.enabled)) {
     throw new Error('buildEnclaveMcpService: at least one enclave executor must be enabled');
   }
@@ -356,6 +371,7 @@ export function buildEnclaveMcpService(params: EnclaveMcpServiceParams): Enclave
       apiProxyLogsPath: paths.apiProxyLogsDir,
       engine: agent.engine,
       profile: agent.profile,
+      modelBudgetSecret,
     });
     const apiPort = resolveEnclaveAgentApiPort(agent.engine, agent.profile);
     Object.assign(environment, {
@@ -400,6 +416,9 @@ export function buildEnclaveMcpService(params: EnclaveMcpServiceParams): Enclave
       }),
       ...(agent.maxModelTokens !== undefined && {
         AWF_ENCLAVE_AGENT_MAX_MODEL_TOKENS: String(agent.maxModelTokens),
+      }),
+      ...(modelBudgetSecret !== undefined && {
+        AWF_ENCLAVE_AGENT_MODEL_BUDGET_SECRET: modelBudgetSecret,
       }),
       // Enclave bind-mount sources are handed to the daemon, not opened by the
       // server, so they must be daemon-visible paths.

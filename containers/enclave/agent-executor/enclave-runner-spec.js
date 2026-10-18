@@ -1,5 +1,7 @@
 'use strict';
 
+const crypto = require('crypto');
+
 /**
  * Fixed enclave container specification.
  *
@@ -85,6 +87,20 @@ function assertTrustedSeedId(value) {
   }
 }
 
+function createModelBudgetToken(config, invocationId) {
+  if (config.modelBudgetSecret === undefined) return undefined;
+  const payload = Buffer.from(JSON.stringify({
+    v: 1,
+    invocationId,
+    maxRequests: config.maxModelRequests ?? null,
+    maxTokens: config.maxModelTokens ?? null,
+  })).toString('base64url');
+  const signature = crypto.createHmac('sha256', Buffer.from(config.modelBudgetSecret, 'hex'))
+    .update(payload)
+    .digest('base64url');
+  return 'Bearer ' + payload + '.' + signature;
+}
+
 function freezeArray(values) {
   return Object.freeze(values);
 }
@@ -130,6 +146,7 @@ function deriveEnclaveContainerSpec({ config, runId, invocationId, seedId, runti
   const containerPrefix = config.containerPrefix || 'awf-enclave-agent';
   const containerName = `${containerPrefix}-${runId.slice(0, 12)}-${invocationId}`;
   const hostInvocationDir = `${config.hostWorkDir}/${invocationId}`;
+  const modelBudgetToken = createModelBudgetToken(config, invocationId);
   const runLabel = `${runLabelKey}=${runId}`;
   const invocationLabel = `${invocationLabelKey}=${invocationId}`;
   const launchArgs = [
@@ -159,7 +176,7 @@ function deriveEnclaveContainerSpec({ config, runId, invocationId, seedId, runti
     '--env', `COPILOT_HOME=${config.enclaveMountDir}/copilot`,
     '--env', 'COPILOT_OFFLINE=true',
     '--env', 'COPILOT_GITHUB_TOKEN=******',
-    '--env', 'COPILOT_TOKEN=******',
+    '--env', `COPILOT_TOKEN=${modelBudgetToken || '******'}`,
     '--env', `COPILOT_API_URL=${config.apiEndpoint}`,
     '--env', `COPILOT_PROVIDER_BASE_URL=${config.apiEndpoint}`,
     '--env', `COPILOT_MODEL=${config.model}`,

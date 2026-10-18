@@ -219,6 +219,7 @@ describe('trusted Cloud Hypervisor enclave lifecycle', () => {
         agent: {
           model: 'trusted-model', profile: 'openai', maxOutputBytes: 512,
           maxModelRequests: 4, maxModelTokens: 128,
+          modelBudgetSecret: expect.stringMatching(/^[0-9a-f]{64}$/),
         },
       },
     }));

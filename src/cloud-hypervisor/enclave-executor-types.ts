@@ -45,6 +45,7 @@ export interface HostExecutorAgentPolicy {
   readonly maxOutputBytes: number;
   readonly maxModelRequests?: number;
   readonly maxModelTokens?: number;
+  readonly modelBudgetSecret?: string;
   readonly githubAgentId?: string;
   readonly githubBearer?: string;
 }

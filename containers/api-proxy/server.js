@@ -214,6 +214,7 @@ const { healthResponse, reflectEndpoints, handleManagementEndpoint } = createMan
   getMaxCacheMissesUsage: () => getMaxCacheMissesReflectState(),
   getPermissionDeniedUsage: () => getPermissionDeniedReflectState(),
   getRoutingState: () => routing?.getReflectState() ?? null,
+  modelBudgetEnabled: Boolean(process.env.AWF_ENCLAVE_AGENT_MODEL_BUDGET_SECRET),
 });
 
 function buildModelsJson() {
@@ -233,6 +234,7 @@ function createProviderServer(adapter) {
     proxyRequest,
     proxyWebSocket,
     routing,
+    modelBudgetEnabled: Boolean(process.env.AWF_ENCLAVE_AGENT_MODEL_BUDGET_SECRET),
   });
 }
 

@@ -282,6 +282,15 @@ function extractUsageFromTrackedState(state) {
   return { usage, model };
 }
 
+function hasCompleteModelUsage(usage) {
+  if (!usage || typeof usage !== 'object') return false;
+  const hasInput = Number.isSafeInteger(usage.input_tokens) ||
+    Number.isSafeInteger(usage.prompt_tokens);
+  const hasOutput = Number.isSafeInteger(usage.output_tokens) ||
+    Number.isSafeInteger(usage.completion_tokens);
+  return hasInput && hasOutput;
+}
+
 /**
  * Build a token usage record and persist it.
  *
@@ -389,6 +398,7 @@ function finalizeHttpTracking(state, proxyRes, opts) {
 
   // Only process successful responses (2xx)
   if (proxyRes.statusCode < 200 || proxyRes.statusCode >= 300) {
+    try { opts.onUsageMissing?.(); } catch { /* best-effort enforcement observer */ }
     auditTrack('TRACK_END', { rid: requestId, result: 'skip_status', status: proxyRes.statusCode });
     logRequest('debug', 'token_track_skip_status', {
       request_id: requestId,
@@ -428,6 +438,7 @@ function finalizeHttpTracking(state, proxyRes, opts) {
         proxyRes.statusCode,
         'native_usage_contract_unverified',
       );
+      try { opts.onUsageMissing?.(); } catch { /* best-effort enforcement observer */ }
       if (typeof onSpanEnd === 'function') onSpanEnd(proxyRes.statusCode);
       return;
     }
@@ -445,6 +456,7 @@ function finalizeHttpTracking(state, proxyRes, opts) {
       message: 'No token usage extracted from 2xx response',
     });
     if (typeof onSpanEnd === 'function') onSpanEnd(proxyRes.statusCode);
+    try { opts.onUsageMissing?.(); } catch { /* best-effort enforcement observer */ }
     return;
   }
 
@@ -455,12 +467,15 @@ function finalizeHttpTracking(state, proxyRes, opts) {
   }
 
   let budgetResult;
-  if (typeof onUsage === 'function') {
+  const completeModelUsage = hasCompleteModelUsage(usage);
+  if (completeModelUsage && typeof onUsage === 'function') {
     try {
       budgetResult = onUsage(normalized, model || requestModel || provider || 'unknown');
     } catch {
       // best-effort callback
     }
+  } else if (!completeModelUsage) {
+    try { opts.onUsageMissing?.(); } catch { /* best-effort enforcement observer */ }
   }
 
   // Update metrics
@@ -512,6 +527,7 @@ function finalizeHttpTracking(state, proxyRes, opts) {
  * @param {string|null} [opts.requestModel] - Model extracted from the request body, used as fallback when response omits model
  * @param {object} [opts.modelFallback] - Ordered-fallback details ({ requested_model, model, attempt, reason, status }) when a fallback model served the request
  * @param {(normalizedUsage: object, model: string|null) => Record<string, number>|void} [opts.onUsage] - Optional callback invoked after normalized usage is extracted
+ * @param {() => void} [opts.onUsageMissing] - Optional callback invoked when usage cannot be trusted for enforcement
  * @param {(statusCode: number) => void} [opts.onSpanEnd] - Optional callback invoked at end of finalizeHttpTracking() to signal span completion
  * @param {object} [opts.res] - Downstream client response; watched for 'close' so usage is finalized when the client (e.g. Codex) tears down the connection before the upstream stream ends cleanly
  */
@@ -571,6 +587,7 @@ function trackTokenUsage(proxyRes, opts) {
       );
     }
     completeSseInspection();
+    try { opts.onUsageMissing?.(); } catch { /* best-effort enforcement observer */ }
     if (typeof opts.onSpanEnd === 'function') opts.onSpanEnd(proxyRes.statusCode);
     return;
   }
@@ -605,4 +622,11 @@ function trackTokenUsage(proxyRes, opts) {
   wireListeners(proxyRes, decompressor, state, onChunk, onFinalize, res);
 }
 
-module.exports = { trackTokenUsage, createChunkHandler, finalizeHttpTracking, extractUsageFromTrackedState, buildAndWriteTokenRecord };
+module.exports = {
+  trackTokenUsage,
+  createChunkHandler,
+  finalizeHttpTracking,
+  extractUsageFromTrackedState,
+  buildAndWriteTokenRecord,
+  hasCompleteModelUsage,
+};

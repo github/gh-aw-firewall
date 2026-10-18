@@ -250,12 +250,13 @@ describe('finalizeHttpTracking', () => {
   }
 
   test('skips non-2xx responses without updating metrics', () => {
-    const opts = makeOpts();
+    const opts = makeOpts({ onUsageMissing: jest.fn() });
     const state = makeState();
 
     finalizeHttpTracking(state, makeProxyRes(401), opts);
 
     expect(opts.metrics.increment).not.toHaveBeenCalled();
+    expect(opts.onUsageMissing).toHaveBeenCalledTimes(1);
   });
 
   test('calls onSpanEnd with status code when response is non-2xx', () => {
@@ -311,6 +312,23 @@ describe('finalizeHttpTracking', () => {
 
     expect(onSpanEnd).toHaveBeenCalledWith(200);
     expect(opts.metrics.increment).not.toHaveBeenCalled();
+  });
+
+  test('fails closed when a successful response has partial token usage', () => {
+    const onUsage = jest.fn();
+    const onUsageMissing = jest.fn();
+    const opts = makeOpts({ onUsage, onUsageMissing });
+    const body = JSON.stringify({ usage: { prompt_tokens: 10 } });
+    const state = makeState({
+      chunks: [Buffer.from(body)],
+      bufferedBytes: body.length,
+      totalBytes: body.length,
+    });
+
+    finalizeHttpTracking(state, makeProxyRes(200), opts);
+
+    expect(onUsage).not.toHaveBeenCalled();
+    expect(onUsageMissing).toHaveBeenCalledTimes(1);
   });
 
   test('non-streaming: skips metric update when overflow is set', () => {

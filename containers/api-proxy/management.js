@@ -131,6 +131,7 @@ function createManagementHandlers(deps) {
     getPermissionDeniedUsage,
     getRoutingState = () => null,
     modelPolicy = null,
+    modelBudgetEnabled = false,
   } = deps;
   const getPrivateRoutingModelMetadata = getRoutingModelMetadata || getRuntimeModelMetadata;
 
@@ -148,6 +149,7 @@ function createManagementHandlers(deps) {
     return {
       status: 'healthy',
       service: 'awf-api-proxy',
+      ...(modelBudgetEnabled ? { model_budget_enforcement: true } : {}),
       squid_proxy: httpsProxy || 'not configured',
       providers,
       key_validation: { complete: kvComplete, results: kvResults },

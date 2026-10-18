@@ -70,6 +70,44 @@ describe('upstream-http', () => {
     expect(handleUpstreamResponse).toHaveBeenCalled();
   });
 
+  test('rejects exhausted invocation budgets before dispatching another upstream request', () => {
+    const httpsRequest = jest.fn();
+    const response = { headersSent: false, writeHead: jest.fn(), end: jest.fn() };
+    const metrics = {
+      gaugeDec: jest.fn(),
+      increment: jest.fn(),
+    };
+    const modelBudget = {
+      beginAttempt: jest.fn(() => ({ allowed: false, reason: 'request_limit' })),
+    };
+    const sendUpstreamRequest = createSendUpstreamRequest({
+      https: { request: httpsRequest },
+      proxyAgent: {},
+      handleUpstreamResponse: jest.fn(),
+      sleep: jest.fn(),
+      otel: { endSpan: jest.fn() },
+      handleRequestError: jest.fn(),
+      metrics,
+      modelBudget,
+    });
+    const ctx = createContext({
+      req: { method: 'POST', headers: { authorization: 'invocation-capability' } },
+      res: response,
+    });
+
+    sendUpstreamRequest({}, ctx);
+
+    expect(modelBudget.beginAttempt).toHaveBeenCalledWith(expect.objectContaining({
+      authorization: 'invocation-capability',
+      method: 'POST',
+      path: '/v1/chat/completions',
+      body: ctx.body,
+    }));
+    expect(response.writeHead).toHaveBeenCalledWith(429, expect.any(Object));
+    expect(response.end).toHaveBeenCalledWith(expect.stringContaining('awf_enclave_model_budget_request_limit'));
+    expect(httpsRequest).not.toHaveBeenCalled();
+  });
+
   test('does not let a scoped auto request escape through the global fallback chain', () => {
     const proxyReq = { on: jest.fn(), write: jest.fn(), end: jest.fn() };
     const handleUpstreamResponse = jest.fn();

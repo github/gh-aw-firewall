@@ -29,6 +29,7 @@ const { agentWorkspaceAdapter } = require(path.join(
   'mcp-server',
   'agent-executor.js',
 ));
+const { decodeCapability } = require(path.join(containersRoot, 'api-proxy', 'enclave-model-budget.js'));
 /* eslint-enable @typescript-eslint/no-require-imports */
 
 const trustedConfig = {
@@ -107,6 +108,33 @@ describe('unified enclave agent runner specification', () => {
       '/daemon/private/enclave/work/0123456789abcdef/session.jsonl:/awf/session.jsonl:rw',
     );
     expect(spec.launchArgs).toContain('--entrypoint');
+  });
+
+  it('passes a signed invocation budget without passing the signing secret to the guest', () => {
+    const secret = 'a'.repeat(64);
+    const budgetSpec = deriveEnclaveContainerSpec({
+      config: {
+        ...trustedConfig,
+        modelBudgetSecret: secret,
+        maxModelRequests: 3,
+        maxModelTokens: 128,
+      },
+      runId: 'abcdef1234567890',
+      invocationId: '0123456789abcdef',
+      seedId: 'b'.repeat(32),
+    });
+    const tokenEntry = budgetSpec.launchArgs.find((argument: string) =>
+      argument.startsWith('COPILOT_TOKEN='),
+    );
+    const token = tokenEntry.slice('COPILOT_TOKEN='.length);
+
+    expect(decodeCapability(token, secret)).toEqual({
+      v: 1,
+      invocationId: '0123456789abcdef',
+      maxRequests: 3,
+      maxTokens: 128,
+    });
+    expect(budgetSpec.launchArgs.join(' ')).not.toContain(secret);
   });
 
   it('mounts only the gateway agent identity for issues-read-v1', () => {

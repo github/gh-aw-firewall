@@ -39,6 +39,9 @@ import type {
   VerifiedCloudHypervisorEnclaveArtifacts,
 } from './host-enclave-executor';
 import type { CloudHypervisorWorkloadProfile } from './workload-profile';
+/* eslint-disable @typescript-eslint/no-require-imports */
+const { decodeCapability } = require('../../containers/api-proxy/enclave-model-budget');
+/* eslint-enable @typescript-eslint/no-require-imports */
 
 describe('readBoundedCloudHypervisorEnclaveResult', () => {
   let directory: string;
@@ -117,6 +120,43 @@ describe('readBoundedCloudHypervisorEnclaveResult', () => {
       if (previousToken === undefined) delete process.env.GITHUB_PAT;
       else process.env.GITHUB_PAT = previousToken;
     }
+  });
+
+  it('hands the guest only an invocation-scoped signed model-budget capability', () => {
+    const secret = 'a'.repeat(64);
+    const policy: HostExecutorAgentPolicy = {
+      model: 'trusted-model',
+      profile: 'openai',
+      maxOutputBytes: 4096,
+      maxModelRequests: 2,
+      maxModelTokens: 128,
+      modelBudgetSecret: secret,
+    };
+    const plan: HostExecutorInvocationPlan = {
+      runId: 'a'.repeat(32),
+      entryId: 'agent-entry',
+      invocationId: 'b'.repeat(32),
+      executorKind: 'agent',
+      timeoutMs: 1000,
+      requestHash: 'c'.repeat(64),
+      admissionId: 'd'.repeat(32),
+      schemaHash: 'e'.repeat(64),
+      schema: { type: 'boolean' },
+      payload: 'test',
+      invocationHostDir: '/tmp/awf-enclave-invocation',
+      seedId: 'f'.repeat(32),
+      seedHostPath: '/tmp/awf-enclave-seed',
+    };
+
+    const environment = agentEnvironment(policy, plan);
+    expect(environment.COPILOT_GITHUB_TOKEN).toBe('******');
+    expect(environment.COPILOT_TOKEN).not.toContain(secret);
+    expect(decodeCapability(environment.COPILOT_TOKEN, secret)).toEqual({
+      v: 1,
+      invocationId: plan.invocationId,
+      maxRequests: 2,
+      maxTokens: 128,
+    });
   });
 
   beforeEach(async () => {

@@ -7,6 +7,9 @@ function setupTokenTracking(proxyRes, body, {
   initiatorSent, span, isStreaming,
   trackTokenUsage, sanitizeForLog, metrics, otel, logRequest, wireApiCompatibility,
 }) {
+  if (res && typeof res.once === 'function') {
+    res.once('close', () => req.awfEnclaveModelBudgetAttempt?.settleMissing());
+  }
   const purpose = req.awfRequestContext?.purpose;
   const steering = req.awfSteering;
   const requestedEndpoint = wireApiCompatibility?.requestedEndpoint || null;
@@ -30,11 +33,13 @@ function setupTokenTracking(proxyRes, body, {
       onSseInspectionComplete: req.awfRouting.onSseInspectionComplete,
     } : {}),
     onUsage: (normalizedUsage, model) => {
+      req.awfEnclaveModelBudgetAttempt?.settle(normalizedUsage);
       otel.setTokenAttributes(span, { provider, model, normalizedUsage, streaming: isStreaming });
       const budgetResult = computeTokenBudgetUsage({ logRequest, requestId, provider, purpose }, normalizedUsage, model);
       otel.setBudgetAttributes(span, budgetResult);
       return budgetResult;
     },
+    onUsageMissing: () => req.awfEnclaveModelBudgetAttempt?.settleMissing(),
     onSpanEnd: (statusCode) => {
       otel.endSpan(span, statusCode);
     },

@@ -190,6 +190,9 @@ function createUpstreamResponseHandlers({
     const initiatorSent = requestHeaders['x-initiator'] || null;
     const requestModel = extractRequestModel(body);
     const requestTools = summarizeRequestTools(body);
+    if (proxyRes.statusCode < 200 || proxyRes.statusCode >= 300) {
+      req.awfEnclaveModelBudgetAttempt?.settleMissing();
+    }
 
     // Buffer the 400 response body when we may need to inspect it for either:
     //   (a) a deprecated Anthropic/Copilot beta-header value (first attempt only),
@@ -249,6 +252,7 @@ function createUpstreamResponseHandlers({
     }
 
     proxyRes.on('error', (err) => {
+      req.awfEnclaveModelBudgetAttempt?.settleMissing();
       otel.endSpanError(span, err, 502);
       handleRequestError(err, {
         res, requestId, provider, req, targetHost, startTime,

@@ -31,6 +31,7 @@ import {
   ENCLAVE_DEBUG_ARTIFACT_ROOT,
 } from './public-debug';
 import { logger } from '../logger';
+import { getOrCreateEnclaveModelBudgetSecret } from './model-budget-capability';
 
 export const CLOUD_HYPERVISOR_ENCLAVE_STORAGE_REQUIRED =
   'Cloud Hypervisor enclaves require the trusted hard-bounded writable-storage provider (#9394); '
@@ -148,6 +149,7 @@ function deriveAgentPolicies(
       maxOutputBytes: agent.maxOutputBytes,
       maxModelRequests: agent.maxModelRequests,
       maxModelTokens: agent.maxModelTokens,
+      modelBudgetSecret: getOrCreateEnclaveModelBudgetSecret(config),
     }),
   };
 }

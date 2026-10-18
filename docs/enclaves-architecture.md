@@ -249,10 +249,23 @@ no permissive fallback.
 The compiler-generated upstream uses `connectTimeout: 120` and
 `toolTimeout: 4860`, covering the maximum 4800-second disclosure bucket, up to
 one second of secret-independent response jitter, and a bounded transport
-allowance. Its tool allowlist contains only the enabled
-executor tools. The compiler generates a fresh 64-character lowercase
-hexadecimal capability, substitutes it into the mcpg authorization header, and
-passes it to AWF without exposing it to the primary agent.
+allowance. The smoke lock pins
+`github/gh-aw-actions/setup@26e5d7e7d2345ae4c8dfa3d9017ca2ff9bbf2c82`. Its
+`setup/js/mcp_cli_bridge.cjs` is the owning caller transport: for every
+non-`logs` tool, including `enclave_run_agent`, `getToolCallTimeoutMs` returns
+the fixed `TOOL_CALL_TIMEOUT_MS` of 120,000 ms. The bridge sends the MCP
+JSON-RPC call over HTTP and destroys that request when the deadline expires.
+This fixed caller deadline is not extended by the compiler-generated
+`toolTimeout: 4860`; no override is wired by the checked-in workflow. The
+gateway's `connectTimeout: 120`, readiness timeout, and startup timeout govern
+connection/startup only. Therefore, a slow enclave can finish execution and
+cleanup yet have its response withheld by finite disclosure past the caller's
+120-second deadline. The full client deadline must cover admission, execution,
+cancellation/settlement, cleanup, and disclosure padding/jitter; do not disable
+finite disclosure to fit a shorter client timeout. The tool allowlist contains
+only the enabled executor tools. The compiler generates a fresh 64-character
+lowercase hexadecimal capability, substitutes it into the mcpg authorization
+header, and passes it to AWF without exposing it to the primary agent.
 
 ### Gateway authorization boundaries
 
@@ -397,13 +410,18 @@ the next fixed bucket, not an unbucketed "grace" response.
 
 The existing one-second **scheduler-wake tolerance** and independent 0..1,000 ms
 jitter are separate from execution grace. Together they can put a 120-second
-bucket response at 122 seconds. The smoke's observed 120,000 ms MCP CLI HTTP
-deadline is compiler/client-owned; no supported override exists in the current
-workflow or AWF postprocessor. A client-only increase to 121,000 ms covers the
-observed 120.821 seconds but not maximum wake+jitter or later buckets. Upstream
-must honor the already advertised enclave operation timeout (currently 4,860
-seconds, including its existing transport margin) and implement the requested
-one-second boundary grace there. These AWF changes do not fix that HTTP caller.
+bucket response at 122 seconds. The smoke's 120,000 ms deadline is the fixed non-`logs` tool-call timeout in the
+pinned `gh-aw-actions/setup` MCP CLI bridge, not the `connectTimeout`, readiness
+timeout, gateway startup timeout, or advertised 4,860-second operation timeout.
+The bridge destroys its HTTP request when that timer fires; the AWF host broker's
+HTTP-disconnect path cancels active work and settles it after cleanup, without
+automatically replaying the invocation. This does not make the canonical,
+deliberately padded response available before the bridge deadline. A
+client-only increase to 121,000 ms covers the observed 120.821-second example
+but not maximum wake+jitter or later buckets. The pinned bridge has no
+workflow-configurable timeout override, so resolving this mismatch requires an
+upstream bridge change or a supported client deadline that covers the complete
+lifecycle.
 
 Final broker audit copies are validated through no-follow directory/file
 descriptors with owner/type/link/mode/size checks, then handed to the invoking
