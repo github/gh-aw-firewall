@@ -106,7 +106,7 @@ describe('release enclave artifact setup', () => {
 
   afterEach(() => fs.rmSync(directory, { recursive: true, force: true }));
 
-  function fixture(compressed: boolean, legacy = false) {
+  function fixture(compressed: boolean, legacy = false, version = 1) {
     const rootfs: Record<string, unknown> = {};
     const sharedContents = 'verified shared rootfs';
     if (!legacy) {
@@ -126,7 +126,7 @@ describe('release enclave artifact setup', () => {
         );
       }
       const sbomName = `enclave-${role}-rootfs.sbom.spdx.json`;
-      fs.writeFileSync(path.join(assets, sbomName), '{}');
+      if (version === 1) fs.writeFileSync(path.join(assets, sbomName), '{}');
       rootfs[role] = {
         role, file: name, version: tag, uid: 65534, gid: 65534,
         entrypoint: `/usr/local/bin/run-enclave-${role}`,
@@ -136,8 +136,33 @@ describe('release enclave artifact setup', () => {
         sbom: { file: sbomName, sha256: digest('{}') },
       };
     }
+    if (version === 2) {
+      const sbom = JSON.stringify({
+        spdxVersion: 'SPDX-2.3',
+        packages: [{ SPDXID: 'SPDXRef-Rootfs', checksums: [
+          { algorithm: 'SHA256', checksumValue: digest(sharedContents) },
+        ] }],
+        files: [{ fileName: './etc/passwd' }],
+      });
+      fs.writeFileSync(path.join(assets, 'enclave-rootfs.sbom.spdx.json'), sbom);
+      const shared = rootfs.script as Record<string, unknown>;
+      rootfs.file = shared.file;
+      rootfs.version = shared.version;
+      rootfs.sha256 = shared.sha256;
+      rootfs.sizeBytes = shared.sizeBytes;
+      rootfs.uid = shared.uid;
+      rootfs.gid = shared.gid;
+      rootfs.sourceImage = shared.sourceImage;
+      rootfs.sourceImageDigest = shared.sourceImageDigest;
+      rootfs.sourceImageId = `sha256:${'a'.repeat(64)}`;
+      rootfs.sbom = {
+        file: 'enclave-rootfs.sbom.spdx.json', sha256: digest(sbom),
+      };
+      delete rootfs.script;
+      delete rootfs.agent;
+    }
     fs.writeFileSync(path.join(assets, manifestName), JSON.stringify({
-      schemaVersion: 1, artifactType: 'awf-cloud-hypervisor-enclave-rootfs-set',
+      schemaVersion: version, artifactType: 'awf-cloud-hypervisor-enclave-rootfs-set',
       architecture: 'x86_64',
       release: {
         repository: 'github/gh-aw-firewall',
@@ -154,6 +179,10 @@ describe('release enclave artifact setup', () => {
         },
       } : {}),
       rootfs,
+      ...(version === 2 ? { entrypoints: {
+        script: '/usr/local/bin/run-enclave-script',
+        agent: '/usr/local/bin/run-enclave-agent',
+      } } : {}),
     }));
     fs.writeFileSync(path.join(assets, manifestName.replace('.json', '.sigstore.jsonl')), '{}');
     for (const file of fs.readdirSync(assets)) {
@@ -198,6 +227,67 @@ describe('release enclave artifact setup', () => {
       .map((line) => JSON.parse(line) as string[]);
     expect(calls.filter((args) => args[0] === 'attestation')).toHaveLength(3);
   }, 30000);
+
+  it('caches one v2 shared rootfs and inventory and rejects a tampered cached SBOM', () => {
+    fixture(true, false, 2);
+    const result = runSetup();
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain('AWF_CLOUD_HYPERVISOR_ENCLAVE_ROOTFS=');
+    expect(fs.existsSync(path.join(cache, 'enclave-rootfs.sbom.spdx.json'))).toBe(true);
+    expect(fs.existsSync(path.join(cache, 'enclave-script-rootfs.sbom.spdx.json'))).toBe(false);
+    fs.chmodSync(path.join(cache, 'enclave-rootfs.sbom.spdx.json'), 0o600);
+    fs.writeFileSync(path.join(cache, 'enclave-rootfs.sbom.spdx.json'), '{}');
+    expect(runSetup().stderr).toMatch(/cache is untrusted/);
+  }, 30000);
+
+  it('rejects conflicting canonical and role aliases without silently choosing an artifact', () => {
+    fixture(false, false, 2);
+    env.AWF_CLOUD_HYPERVISOR_ENCLAVE_AGENT_ROOTFS = '/different/rootfs.ext4';
+    expect(runSetup().stderr).toMatch(/conflicts with the trusted manifest/);
+    delete env.AWF_CLOUD_HYPERVISOR_ENCLAVE_AGENT_ROOTFS;
+    expect(runSetup().status).toBe(0);
+    env.AWF_CLOUD_HYPERVISOR_ENCLAVE_ROOTFS = '/different/rootfs.ext4';
+    expect(runSetup().stderr).toMatch(/conflicts with the trusted manifest/);
+  }, 30000);
+
+  it('does not treat the pinned legacy split layout as a shared rootfs', () => {
+    fixture(false, true);
+    env.AWF_CLOUD_HYPERVISOR_ENCLAVE_ROOTFS = '/different/rootfs.ext4';
+    expect(runSetup().stderr).toMatch(/conflicts with the trusted manifest/);
+    delete env.AWF_CLOUD_HYPERVISOR_ENCLAVE_ROOTFS;
+    const result = runSetup();
+    expect(result.status).toBe(0);
+    expect(result.stdout).not.toContain('AWF_CLOUD_HYPERVISOR_ENCLAVE_ROOTFS=');
+  }, 30000);
+
+  it.each(['binding', 'entrypoint', 'version', 'field'] as const)(
+    'rejects an attested v2 %s mismatch before caching', (failure) => {
+      fixture(true, false, 2);
+      const file = path.join(assets, manifestName);
+      const manifest = JSON.parse(fs.readFileSync(file, 'utf8')) as {
+        schemaVersion: number;
+        entrypoints: { script: string };
+        rootfs: { sbom: { sha256: string }; unexpected?: boolean };
+      };
+      if (failure === 'binding') {
+        const sbomFile = path.join(assets, 'enclave-rootfs.sbom.spdx.json');
+        const sbom = JSON.parse(fs.readFileSync(sbomFile, 'utf8')) as {
+          packages: Array<{ checksums: Array<{ checksumValue: string }> }>;
+        };
+        sbom.packages[0].checksums[0].checksumValue = 'f'.repeat(64);
+        const contents = JSON.stringify(sbom);
+        fs.writeFileSync(sbomFile, contents);
+        manifest.rootfs.sbom.sha256 = digest(contents);
+      }
+      if (failure === 'entrypoint') manifest.entrypoints.script = '/bin/sh';
+      if (failure === 'version') manifest.schemaVersion = 3;
+      if (failure === 'field') manifest.rootfs.unexpected = true;
+      fs.writeFileSync(file, JSON.stringify(manifest));
+      const result = runSetup();
+      expect(result.status).not.toBe(0);
+      expect(fs.existsSync(cache)).toBe(false);
+    },
+  );
 
   it.each(['gzip', 'digest', 'attestation', 'size'] as const)('does not install a cache after %s failure', (failure) => {
     fixture(true);

@@ -146,6 +146,9 @@ export async function preflightCloudHypervisorEnclaveArtifacts(
       agent: filePath(manifestDir, manifest.rootfs.agent.file),
     };
     const sharedRootfs = manifest.rootfs.script.file === manifest.rootfs.agent.file;
+    if (manifest.schemaVersion === 2 && !options.rootfsPath) {
+      throw new Error('Canonical enclave rootfs path is required for schema version 2');
+    }
     if (sharedRootfs) {
       if (
         (options.rootfsPath ?? options.scriptRootfsPath) !== rootfsPaths.script

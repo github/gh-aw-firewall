@@ -117,7 +117,7 @@ async function inventory(directory, relative = '') {
         fileName: `.${entry}`,
         SPDXID: `SPDXRef-File-${files.length}`,
         checksums: [{ algorithm: 'SHA256', checksumValue: checksum }],
-        fileTypes: [stat.isSymbolicLink() ? 'OTHER' : 'BINARY'],
+        fileTypes: ['OTHER'],
         licenseConcluded: 'NOASSERTION',
         copyrightText: 'NOASSERTION',
       });

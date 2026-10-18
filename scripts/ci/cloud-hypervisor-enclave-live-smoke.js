@@ -15,8 +15,7 @@ const RELEASE_ASSETS = [
   'cloud-hypervisor-enclave-rootfs-x86_64.manifest.json',
   'cloud-hypervisor-enclave-rootfs-x86_64.manifest.sigstore.jsonl',
   'enclave-rootfs.ext4',
-  'enclave-script-rootfs.sbom.spdx.json',
-  'enclave-agent-rootfs.sbom.spdx.json',
+  'enclave-rootfs.sbom.spdx.json',
   'enclave-rootfs.provenance.sigstore.jsonl',
 ];
 const GATEWAY_IMAGE = 'awf-cloud-hypervisor-enclave-live-gateway:test';
@@ -1113,6 +1112,7 @@ function prepareReleaseArtifacts(tag, directory, environment) {
   const enclaveDirectory = path.join(enclaveCache, tag, 'x86_64');
   const enclaveArtifactEnvironment = {
   AWF_CLOUD_HYPERVISOR_ENCLAVE_SCRIPT_ROOTFS: path.join(enclaveDirectory, 'enclave-rootfs.ext4'),
+  AWF_CLOUD_HYPERVISOR_ENCLAVE_ROOTFS: path.join(enclaveDirectory, 'enclave-rootfs.ext4'),
   AWF_CLOUD_HYPERVISOR_ENCLAVE_AGENT_ROOTFS: path.join(enclaveDirectory, 'enclave-rootfs.ext4'),
   AWF_CLOUD_HYPERVISOR_ENCLAVE_MANIFEST: path.join(enclaveDirectory, 'cloud-hypervisor-enclave-rootfs-x86_64.manifest.json'),
   AWF_CLOUD_HYPERVISOR_ENCLAVE_MANIFEST_BUNDLE: path.join(enclaveDirectory, 'cloud-hypervisor-enclave-rootfs-x86_64.manifest.sigstore.jsonl'),

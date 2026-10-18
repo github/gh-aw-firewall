@@ -303,14 +303,15 @@ assemble_guest_rootfs() {
   local tree=$1 rootfs=$2 uuid=$3 headroom=$4
   sudo find "$tree" -print0 \
     | sudo xargs -0 touch --no-dereference --date="@${SOURCE_DATE_EPOCH}"
-  local usage_bytes rootfs_bytes rootfs_blocks available_bytes staging_bytes
+  local usage_bytes rootfs_bytes rootfs_blocks available_bytes staging_bytes estimated_allocated_bytes
   usage_bytes=$(sudo du --summarize --block-size=1 "$tree" | awk '{print $1}')
   staging_bytes=$(sudo du --summarize --block-size=1 "$BUILD" | awk '{print $1}')
   rootfs_bytes=$((usage_bytes + usage_bytes / 4 + headroom))
   rootfs_blocks=$(((rootfs_bytes + 4095) / 4096))
+  estimated_allocated_bytes=$((usage_bytes + usage_bytes / 4 + 64 * 1024 * 1024))
   available_bytes=$(df -B1 --output=avail "$OUTPUT" | tail -1 | tr -d ' ')
-  echo "rootfs staging: allocated=${staging_bytes}B tree=${usage_bytes}B target=${rootfs_bytes}B free=${available_bytes}B" >&2
-  if (( available_bytes < rootfs_bytes )); then
+  echo "rootfs staging: allocated=${staging_bytes}B tree=${usage_bytes}B logical_target=${rootfs_bytes}B estimated_peak=$((staging_bytes + estimated_allocated_bytes))B free=${available_bytes}B" >&2
+  if (( available_bytes < estimated_allocated_bytes )); then
     echo "insufficient disk for rootfs peak staging usage" >&2
     return 1
   fi
@@ -446,6 +447,7 @@ else
   enclave_image_digest=$(docker image inspect --format '{{.Id}}' "$enclave_runtime_image")
   enclave_image_digest=${enclave_image_digest#sha256:}
 fi
+enclave_image_id=$(docker image inspect --format '{{.Id}}' "$enclave_runtime_image")
 
 node "$ROOT/guest/cloud-hypervisor/generate-enclave-rootfs-sbom.mjs" \
   --role enclave \
@@ -632,6 +634,7 @@ cat >"$OUTPUT/enclave-manifest.json" <<EOF
     "gid": 65534,
     "sourceImage": "${ENCLAVE_IMAGE}",
     "sourceImageDigest": "${enclave_image_digest}",
+    "sourceImageId": "${enclave_image_id}",
     "sbom": {
       "file": "enclave-rootfs.sbom.spdx.json",
       "sha256": "$(sha256sum "$OUTPUT/enclave-rootfs.sbom.spdx.json" | awk '{print $1}')"

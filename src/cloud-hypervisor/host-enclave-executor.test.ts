@@ -1224,6 +1224,59 @@ describe('readBoundedCloudHypervisorEnclaveResult', () => {
       }
       expect(verifications[1][2]).toBe(scriptRootfsPath);
       expect(verifications[1][6]).toBe(rootfsProvenancePath);
+      if (shared) {
+        const originalManifest = await fs.readFile(manifestPath, 'utf8');
+        const v2 = JSON.parse(originalManifest) as Record<string, unknown>;
+        const sharedArtifact: Record<string, unknown> = { ...scriptArtifact };
+        delete sharedArtifact.role;
+        delete sharedArtifact.entrypoint;
+        const inventory = JSON.stringify({
+          spdxVersion: 'SPDX-2.3',
+          packages: [{ SPDXID: 'SPDXRef-Rootfs', checksums: [
+            { algorithm: 'SHA256', checksumValue: hash(scriptRootfs) },
+          ] }],
+          files: [{ fileName: './etc/passwd' }],
+        });
+        await writeTrustedFile('enclave-rootfs.sbom.spdx.json', inventory);
+        v2.schemaVersion = 2;
+        v2.entrypoints = {
+          script: '/usr/local/bin/run-enclave-script',
+          agent: '/usr/local/bin/run-enclave-agent',
+        };
+        v2.rootfs = {
+          ...sharedArtifact, sourceImageId: `sha256:${'c'.repeat(64)}`,
+          sbom: { file: 'enclave-rootfs.sbom.spdx.json', sha256: hash(inventory) },
+        };
+        await fs.chmod(manifestPath, 0o600);
+        await fs.writeFile(manifestPath, JSON.stringify(v2));
+        await fs.chmod(manifestPath, 0o400);
+        const canonical = {
+          releaseTag, manifestPath, manifestBundlePath,
+          rootfsPath: scriptRootfsPath, attestationToolPath,
+        };
+        await expect(preflightCloudHypervisorEnclaveArtifacts(canonical))
+          .resolves.toMatchObject({
+            rootfs: {
+              script: { path: scriptRootfsPath },
+              agent: { path: scriptRootfsPath },
+            },
+          });
+        await expect(preflightCloudHypervisorEnclaveArtifacts({
+          ...canonical, rootfsPath: undefined,
+          scriptRootfsPath, agentRootfsPath,
+        })).rejects.toThrow('Canonical enclave rootfs path is required');
+        await expect(preflightCloudHypervisorEnclaveArtifacts({
+          ...canonical, agentRootfsPath: path.join(scratch, 'wrong-rootfs'),
+        })).rejects.toThrow('does not match the trusted manifest path');
+        await fs.chmod(manifestPath, 0o600);
+        await fs.writeFile(manifestPath, originalManifest);
+        await fs.chmod(manifestPath, 0o400);
+      } else {
+        await expect(preflightCloudHypervisorEnclaveArtifacts({
+          releaseTag, manifestPath, manifestBundlePath,
+          rootfsPath: scriptRootfsPath, scriptRootfsPath, agentRootfsPath, attestationToolPath,
+        })).rejects.toThrow('does not match the trusted manifest path');
+      }
 
       const verificationRoot = path.join(scratch, 'bounded');
       await fs.mkdir(verificationRoot, { mode: 0o700 });

@@ -46,6 +46,7 @@ export interface CloudHypervisorEnclaveRootfsArtifact {
   readonly entrypoint: string;
   readonly sourceImage: string;
   readonly sourceImageDigest: string;
+  readonly sourceImageId?: string;
   readonly sbom: {
     readonly file: string;
     readonly sha256: string;
@@ -123,6 +124,7 @@ function parseRole(
     'sizeBytes',
     'sourceImage',
     'sourceImageDigest',
+    ...(sharedSbom ? ['sourceImageId'] : []),
     'uid',
     'version',
   ], label);
@@ -160,6 +162,9 @@ function parseRole(
   if (!expectedImage.test(sourceImage)) {
     throw new Error(`${label}.sourceImage must be the release-pinned ${role} enclave image`);
   }
+  if (sharedSbom && !/^sha256:[a-f0-9]{64}$/.test(String(artifact.sourceImageId))) {
+    throw new Error(`${label}.sourceImageId must be a SHA-256 Docker image/config ID`);
+  }
 
   return {
     file: metadata.file,
@@ -175,6 +180,7 @@ function parseRole(
       artifact.sourceImageDigest,
       `${label}.sourceImageDigest`,
     ),
+    ...(sharedSbom ? { sourceImageId: artifact.sourceImageId as string } : {}),
     sbom: {
       file: sbomFile,
       sha256: requireDigest(sbom.sha256, `${label}.sbom.sha256`),
@@ -282,7 +288,7 @@ export function parseCloudHypervisorEnclaveArtifactManifest(
 
   const rootfs = requireObject(manifest.rootfs, 'manifest.rootfs');
   requireClosedKeys(rootfs, schemaVersion === 2
-    ? ['file', 'version', 'sha256', 'sizeBytes', 'uid', 'gid', 'sourceImage', 'sourceImageDigest', 'sbom']
+    ? ['file', 'version', 'sha256', 'sizeBytes', 'uid', 'gid', 'sourceImage', 'sourceImageDigest', 'sourceImageId', 'sbom']
     : ['agent', 'script'], 'manifest.rootfs');
   let guestBase: CloudHypervisorEnclaveArtifactManifest['guestBase'];
   if (sharedLayout) {

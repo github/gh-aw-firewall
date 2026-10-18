@@ -124,7 +124,7 @@ verify_manifest() {
   fi
   if [ "$schema" = 2 ]; then
     assert_closed_keys "$manifest" '.rootfs' \
-      'file,version,sha256,sizeBytes,uid,gid,sourceImage,sourceImageDigest,sbom' \
+      'file,version,sha256,sizeBytes,uid,gid,sourceImage,sourceImageDigest,sourceImageId,sbom' \
       "enclave artifact manifest rootfs" || return 1
     assert_closed_keys "$manifest" '.rootfs.sbom' 'file,sha256' \
       "enclave artifact manifest SBOM" || return 1
@@ -160,6 +160,7 @@ verify_manifest() {
       and (.rootfs.sizeBytes | type == "number" and . > 0 and . <= 9007199254740991 and floor == .)
       and (.rootfs.sourceImage | type == "string" and test("^ghcr.io/github/gh-aw-firewall/cloud-hypervisor-enclave@sha256:[a-f0-9]{64}$"))
       and (.rootfs.sourceImageDigest | type == "string" and test("^[a-f0-9]{64}$"))
+      and (.rootfs.sourceImageId | type == "string" and test("^sha256:[a-f0-9]{64}$"))
       and .rootfs.sbom.file == "enclave-rootfs.sbom.spdx.json"
       and (.rootfs.sbom.sha256 | type == "string" and test("^[a-f0-9]{64}$"))
       and .entrypoints.script == "/usr/local/bin/run-enclave-script"
@@ -343,6 +344,17 @@ if [ "$(jq -r '.schemaVersion' "$manifest")" = 2 ]; then
 else
   script_rootfs="$cache_dir/$(jq -r '.rootfs.script.file' "$manifest")"
   agent_rootfs="$cache_dir/$(jq -r '.rootfs.agent.file' "$manifest")"
+fi
+
+if { [ -n "${AWF_CLOUD_HYPERVISOR_ENCLAVE_ROOTFS:-}" ] \
+  && { [ "$script_rootfs" != "$agent_rootfs" ] \
+    || [ "$AWF_CLOUD_HYPERVISOR_ENCLAVE_ROOTFS" != "$script_rootfs" ]; }; } \
+  || { [ -n "${AWF_CLOUD_HYPERVISOR_ENCLAVE_SCRIPT_ROOTFS:-}" ] \
+    && [ "$AWF_CLOUD_HYPERVISOR_ENCLAVE_SCRIPT_ROOTFS" != "$script_rootfs" ]; } \
+  || { [ -n "${AWF_CLOUD_HYPERVISOR_ENCLAVE_AGENT_ROOTFS:-}" ] \
+    && [ "$AWF_CLOUD_HYPERVISOR_ENCLAVE_AGENT_ROOTFS" != "$agent_rootfs" ]; }; then
+  echo "configured enclave rootfs path conflicts with the trusted manifest" >&2
+  exit 1
 fi
 
 if [ -n "${GITHUB_ENV:-}" ]; then

@@ -59,7 +59,7 @@ describe('Cloud Hypervisor enclave rootfs artifacts', () => {
     const cases: [string, string[]][] = [
       ['rm -rf "$BUILD/virtiofsd-target"', ['$virtiofsd_built', '$virtiofsd_src', 'cargo-home']],
       ['sudo rm -rf "$BUILD/linux-${LINUX_VERSION}"', ['$BUILD/linux-${LINUX_VERSION}/', '$linux_tar']],
-      ['sudo rm -rf "$BUILD/enclave-rootfs"', ['--rootfs-tree']],
+      ['sudo rm -rf "$BUILD/enclave-rootfs"', ['--rootfs-tree "$BUILD/enclave-rootfs"']],
       ['sudo rm -rf "$rootfs_tree"\n', ['-d "$rootfs_tree"']],
     ];
     for (const [removal, consumers] of cases) {
@@ -109,8 +109,10 @@ describe('Cloud Hypervisor enclave rootfs artifacts', () => {
     for (const role of ['script', 'agent']) {
       expect(dockerfile).toContain(`AS enclave-${role}`);
       expect(guest).toContain(`run-enclave-${role}`);
-      expect(build).toContain(`enclave-${role}-rootfs.sbom.spdx.json`);
+      expect(build).toContain(`run-enclave-${role}`);
     }
+    expect(build).toContain('enclave-rootfs.sbom.spdx.json');
+    expect(build).toContain('rootfs.sbom.spdx.json');
     expect(guest).toContain('FROM ${GUEST_BASE_IMAGE} AS primary');
     expect(guest).toContain('FROM ${GUEST_BASE_IMAGE} AS enclave');
     expect(build).toContain('enclave-rootfs.ext4');
@@ -211,7 +213,7 @@ describe('Cloud Hypervisor enclave rootfs artifacts', () => {
       const args = [
         '--max-old-space-size=64',
         sbomGeneratorPath,
-        '--role', 'agent',
+        '--role', 'enclave',
         '--rootfs-tree', tree,
         '--rootfs', rootfs,
         '--output', output,
@@ -234,7 +236,7 @@ describe('Cloud Hypervisor enclave rootfs artifacts', () => {
       expect(spdx.packages.map((entry) => entry.name)).toContain('ca-certificates');
       expect(spdx.packages[0].checksums).toEqual([{ algorithm: 'SHA256', checksumValue: digest }]);
       expect(spdx.documentNamespace).toBe(
-        `https://github.com/github/gh-aw-firewall/cloud-hypervisor/enclave-agent/v1.2.3/${digest}`,
+        `https://github.com/github/gh-aw-firewall/cloud-hypervisor/enclave/v1.2.3/${digest}`,
       );
       expect(spdx.relationships).toContainEqual({
         spdxElementId: 'SPDXRef-Rootfs',
@@ -359,8 +361,9 @@ describe('Cloud Hypervisor enclave rootfs artifacts', () => {
       'subject-path: release/cloud-hypervisor-test-x86_64/enclave-rootfs.ext4',
     );
     expect(release).toContain('release/enclave-rootfs.provenance.sigstore.jsonl');
+    expect(release).toContain('release/enclave-rootfs.sbom.spdx.json');
+    expect(release).toContain('release/cloud-hypervisor-rootfs.sbom.spdx.json');
     for (const role of ['script', 'agent']) {
-      expect(release).toContain(`release/enclave-${role}-rootfs.sbom.spdx.json`);
       expect(release).toContain(
         `ghcr.io/\${{ github.repository }}/enclave-${role}@\${{ steps.build_enclave_${role}.outputs.digest }}`,
       );

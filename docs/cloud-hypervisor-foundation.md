@@ -659,9 +659,17 @@ and Python installer modules, as well as setuid bits and file capabilities.
 The separately gated enclave executor uses one release-attested
 `enclave-rootfs.ext4` for both script and agent VMs; this does not replace
 `rootfs.ext4` for the primary agent. Script enclaves intentionally retain the
-shared shell/toolbox. The closed enclave manifest binds each role's entrypoint,
-the same rootfs digest and source-image digest, the common base image and image
-ID, fixed uid/gid, SBOM, and Cloud Hypervisor/kernel/supervisor compatibility.
+shared shell/toolbox. The closed enclave manifest schema version 2 records one `rootfs` identity and
+two fixed `entrypoints` (script and agent), rather than repeating the filesystem
+under each role. It binds the rootfs digest and size, source image, common base,
+fixed uid/gid, `enclave-rootfs.sbom.spdx.json`, and
+Cloud Hypervisor/kernel/supervisor compatibility. `sourceImage` is the pinned
+registry manifest reference, `sourceImageDigest` identifies its linux/amd64
+child registry manifest, and `sourceImageId` is the separate Docker image/config
+ID; these digests must not be assumed equal.
+The primary rootfs has its own `rootfs.sbom.spdx.json`. Both final-filesystem
+SBOMs inventory the normalized export's files and bind the final ext4 SHA-256.
+These inventories complement, rather than replace, the OCI image SBOMs.
 The rootfs and manifest each have an offline provenance bundle. Runtime network,
 mounts, credentials, limits and cleanup remain role-specific.
 
@@ -681,10 +689,17 @@ truncated, or corrupt streams fail without installing a cache entry. Uncompresse
 undergo release-workflow attestation, size, digest, and SBOM binding checks
 before the cache entry is atomically installed.
 An existing cache entry is fully reverified before reuse; an invalid entry is a
-terminal error and is never silently replaced. The script exports the
-`AWF_CLOUD_HYPERVISOR_ENCLAVE_SCRIPT_ROOTFS` and
-`AWF_CLOUD_HYPERVISOR_ENCLAVE_AGENT_ROOTFS` paths (both pointing to the same
-authenticated file) through `GITHUB_ENV`.
+terminal error and is never silently replaced. The script exports `AWF_CLOUD_HYPERVISOR_ENCLAVE_ROOTFS` for a shared layout
+through `GITHUB_ENV`. Transitional `AWF_CLOUD_HYPERVISOR_ENCLAVE_SCRIPT_ROOTFS`
+and `AWF_CLOUD_HYPERVISOR_ENCLAVE_AGENT_ROOTFS` aliases must, when present,
+resolve to that same authenticated path; conflicting aliases fail closed.
+Version 1 artifacts remain supported only for the exact running release pin:
+the original split layout (without `guestBase`) keeps two distinct role paths
+and no canonical shared path, while the version 1 shared layout (with
+`guestBase`) may use the canonical path or the original matching role paths.
+Version 2 requires the canonical path. Unknown schemas, incompatible
+entrypoints, or missing attestations are rejected; no older-release fallback
+is attempted.
 The host-side artifact preflight, one-shot VM backend, authenticated broker
 dispatch, and per-run runtime wiring are implemented. Production execution
 uses the trusted bounded-storage provider (#9394) on eligible hosts and remains

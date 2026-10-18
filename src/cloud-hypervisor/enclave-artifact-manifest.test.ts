@@ -83,6 +83,7 @@ function sharedV2(overrides: Record<string, unknown> = {}): string {
       ...role('script'),
       role: undefined,
       entrypoint: undefined,
+      sourceImageId: `sha256:${digest}`,
       sbom: { file: 'enclave-rootfs.sbom.spdx.json', sha256: digest },
     },
     entrypoints: {
@@ -145,6 +146,13 @@ describe('Cloud Hypervisor enclave artifact manifest', () => {
     ['wrong entrypoint', {
       entrypoints: { script: '/bin/sh', agent: '/usr/local/bin/run-enclave-agent' },
     }, /entrypoints.script/],
+    ['invalid Docker config ID', {
+      rootfs: {
+        ...role('script'), role: undefined, entrypoint: undefined,
+        sourceImageId: 'sha256:invalid',
+        sbom: { file: 'enclave-rootfs.sbom.spdx.json', sha256: digest },
+      },
+    }, /sourceImageId/],
     ['unexpected entrypoint', {
       entrypoints: { script: '/usr/local/bin/run-enclave-script', agent: '/usr/local/bin/run-enclave-agent', other: '/bin/sh' },
     }, /entrypoints must contain exactly/],
