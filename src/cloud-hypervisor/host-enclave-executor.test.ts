@@ -1080,7 +1080,7 @@ describe('readBoundedCloudHypervisorEnclaveResult', () => {
     })).rejects.toThrow();
   });
 
-  it('verifies a release-pinned artifact set and rejects a rootfs digest mismatch', async () => {
+  it.each([true, false])('verifies a release-pinned artifact set and rejects a rootfs digest mismatch (shared=%s)', async (shared) => {
     const scratch = await fs.mkdtemp(path.join(process.cwd(), '.awf-enclave-preflight-'));
     const releaseTag = CLOUD_HYPERVISOR_ARTIFACT_RELEASE_TAG;
     const hash = (contents: string) => createHash('sha256').update(contents).digest('hex');
@@ -1089,14 +1089,14 @@ describe('readBoundedCloudHypervisorEnclaveResult', () => {
       await fs.writeFile(filePath, contents, { mode: 0o400 });
       return filePath;
     };
-    const scriptRootfs = 'shared-rootfs-fixture';
-    const agentRootfs = scriptRootfs;
+    const scriptRootfs = shared ? 'shared-rootfs-fixture' : 'script-rootfs-fixture';
+    const agentRootfs = shared ? scriptRootfs : 'agent-rootfs-fixture';
     const scriptSbom = JSON.stringify({ name: 'enclave-script' });
     const agentSbom = JSON.stringify({ name: 'enclave-agent' });
     const artifacts = (role: 'script' | 'agent', rootfs: string, sbom: string) => {
       const digest = 'a'.repeat(64);
       return {
-        file: 'enclave-rootfs.ext4',
+        file: shared ? 'enclave-rootfs.ext4' : `enclave-${role}-rootfs.ext4`,
         role,
         version: releaseTag,
         sha256: hash(rootfs),
@@ -1104,7 +1104,7 @@ describe('readBoundedCloudHypervisorEnclaveResult', () => {
         uid: 65534,
         gid: 65534,
         entrypoint: `/usr/local/bin/run-enclave-${role}`,
-        sourceImage: `ghcr.io/github/gh-aw-firewall/cloud-hypervisor-enclave@sha256:${digest}`,
+        sourceImage: `ghcr.io/github/gh-aw-firewall/${shared ? 'cloud-hypervisor-enclave' : `enclave-${role}`}@sha256:${digest}`,
         sourceImageDigest: digest,
         sbom: {
           file: `enclave-${role}-rootfs.sbom.spdx.json`,
@@ -1116,7 +1116,7 @@ describe('readBoundedCloudHypervisorEnclaveResult', () => {
     const agentArtifact = artifacts('agent', agentRootfs, agentSbom);
     const manifestPath = path.join(scratch, 'cloud-hypervisor-enclave-rootfs-x86_64.manifest.json');
     const scriptRootfsPath = await writeTrustedFile(scriptArtifact.file, scriptRootfs);
-    const agentRootfsPath = scriptRootfsPath;
+    const agentRootfsPath = shared ? scriptRootfsPath : await writeTrustedFile(agentArtifact.file, agentRootfs);
     await writeTrustedFile(scriptArtifact.sbom.file, scriptSbom);
     await writeTrustedFile(agentArtifact.sbom.file, agentSbom);
     const manifestBundlePath = await writeTrustedFile(
@@ -1129,9 +1129,10 @@ describe('readBoundedCloudHypervisorEnclaveResult', () => {
       `#!/bin/sh\nprintf '%s\\n' "$@" >> '${attestationTracePath}'\nprintf '\\n' >> '${attestationTracePath}'\n`);
     await fs.chmod(attestationToolPath, 0o700);
     const rootfsProvenancePath = await writeTrustedFile(
-      'enclave-rootfs.provenance.sigstore.jsonl',
+      shared ? 'enclave-rootfs.provenance.sigstore.jsonl' : 'enclave-script-rootfs.provenance.sigstore.jsonl',
       '{"fixture":"shared"}\n',
     );
+    if (!shared) await writeTrustedFile('enclave-agent-rootfs.provenance.sigstore.jsonl', '{"fixture":"agent"}\n');
     await fs.writeFile(manifestPath, JSON.stringify({
       schemaVersion: 1,
       artifactType: 'awf-cloud-hypervisor-enclave-rootfs-set',
@@ -1147,10 +1148,10 @@ describe('readBoundedCloudHypervisorEnclaveResult', () => {
         kernelVersion: '6.1.141',
         supervisorVersion: releaseTag,
       },
-      guestBase: {
+      ...(shared ? { guestBase: {
         image: `ghcr.io/github/gh-aw-firewall/cloud-hypervisor-guest-base@sha256:${'a'.repeat(64)}`,
         imageId: `sha256:${'a'.repeat(64)}`,
-      },
+      } } : {}),
       rootfs: { script: scriptArtifact, agent: agentArtifact },
     }), { mode: 0o400 });
     const toolTrust = jest.spyOn(artifactTrust, 'assertTrustedHostTool').mockResolvedValue();
@@ -1171,7 +1172,7 @@ describe('readBoundedCloudHypervisorEnclaveResult', () => {
       });
       const verifications = (await fs.readFile(attestationTracePath, 'utf8')).trim().split('\n\n')
         .map((invocation) => invocation.split('\n'));
-      expect(verifications).toHaveLength(2);
+      expect(verifications).toHaveLength(shared ? 2 : 3);
       for (const args of verifications) {
         expect(args.slice(0, 2)).toEqual(['attestation', 'verify']);
         expect(args.slice(3)).toEqual([
@@ -1215,6 +1216,11 @@ describe('readBoundedCloudHypervisorEnclaveResult', () => {
       await fs.chmod(scriptRootfsPath, 0o600);
       await fs.writeFile(scriptRootfsPath, scriptRootfs);
       await fs.chmod(scriptRootfsPath, 0o400);
+      if (!shared) {
+        await fs.chmod(agentRootfsPath, 0o600);
+        await fs.writeFile(agentRootfsPath, agentRootfs);
+        await fs.chmod(agentRootfsPath, 0o400);
+      }
 
       await fs.chmod(manifestBundlePath, 0o600);
       await fs.writeFile(manifestBundlePath, '');

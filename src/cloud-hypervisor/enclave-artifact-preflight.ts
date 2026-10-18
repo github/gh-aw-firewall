@@ -200,7 +200,7 @@ export async function preflightCloudHypervisorEnclaveArtifacts(
       if ((await fs.lstat(sbom)).size > 16 * 1024 * 1024) {
         throw new Error(`${role} enclave rootfs SBOM exceeds its size limit`);
       }
-      const roleDirectory = path.join(verificationDirectory, role);
+      const roleDirectory = path.join(verificationDirectory, `${role}-sbom`);
       if (copyRootfs) await fs.mkdir(roleDirectory, { mode: 0o700 });
       try {
         let verifiedSbom = sbom;
