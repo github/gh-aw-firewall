@@ -449,7 +449,7 @@ else
 fi
 enclave_image_id=$(docker image inspect --format '{{.Id}}' "$enclave_runtime_image")
 
-node "$ROOT/guest/cloud-hypervisor/generate-enclave-rootfs-sbom.mjs" \
+sudo node "$ROOT/guest/cloud-hypervisor/generate-enclave-rootfs-sbom.mjs" \
   --role enclave \
   --rootfs-tree "$BUILD/enclave-rootfs" \
   --rootfs "$OUTPUT/enclave-rootfs.ext4" \
@@ -458,6 +458,7 @@ node "$ROOT/guest/cloud-hypervisor/generate-enclave-rootfs-sbom.mjs" \
   --source-image "$ENCLAVE_IMAGE" \
   --source-image-digest "$enclave_image_digest" \
   --source-date-epoch "$SOURCE_DATE_EPOCH"
+sudo chown "$(id -u):$(id -g)" "$OUTPUT/enclave-rootfs.sbom.spdx.json"
 # The inventory binds normalized file contents to the final ext4 digest.
 sudo rm -rf "$BUILD/enclave-rootfs"
 report_disk 'enclave rootfs SBOMs'
@@ -492,7 +493,7 @@ sudo chmod 01777 "$rootfs_tree/tmp"
 rootfs="$OUTPUT/rootfs.ext4"
 assemble_guest_rootfs "$rootfs_tree" "$rootfs" \
   2f6f6e8f-2f2a-4b6a-9b9a-7d6a4a1c5c3a $((512 * 1024 * 1024))
-node "$ROOT/guest/cloud-hypervisor/generate-enclave-rootfs-sbom.mjs" \
+sudo node "$ROOT/guest/cloud-hypervisor/generate-enclave-rootfs-sbom.mjs" \
   --role primary \
   --rootfs-tree "$rootfs_tree" \
   --rootfs "$rootfs" \
@@ -501,6 +502,7 @@ node "$ROOT/guest/cloud-hypervisor/generate-enclave-rootfs-sbom.mjs" \
   --source-image "$PRIMARY_IMAGE" \
   --source-image-digest "${primary_image_id#sha256:}" \
   --source-date-epoch "$SOURCE_DATE_EPOCH"
+sudo chown "$(id -u):$(id -g)" "$OUTPUT/rootfs.sbom.spdx.json"
 sudo rm -rf "$rootfs_tree"
 report_disk 'primary rootfs'
 
