@@ -30,7 +30,9 @@
     "generate:schema": "node scripts/generate-schema.mjs",
     "diagnostics:validate": "npx tsx scripts/diagnostics/cli.ts validate",
     "diagnostics:render": "npx tsx scripts/diagnostics/cli.ts render",
-    "diagnostics:check": "npx tsx scripts/diagnostics/cli.ts check-sync"
+    "diagnostics:check": "npx tsx scripts/diagnostics/cli.ts check-sync",
+    "sharing:write": "tsx scripts/ci/filesystem-sharing-contract.ts --write",
+    "sharing:check": "tsx scripts/ci/filesystem-sharing-contract.ts --check"
   },
   "keywords": [
     "agentic-workflows",
