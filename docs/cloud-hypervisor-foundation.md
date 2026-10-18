@@ -608,9 +608,12 @@ Preflight first verifies the manifest itself with the bundled attestation,
 constraining the certificate identity to this repository's release workflow
 and rejecting self-hosted signers. Only after that succeeds does AWF parse the
 manifest, require its release tag to match both the operator's expected tag and
-the checked-in guest compatibility pin, and verify every local artifact. Before
-verification, AWF copies the manifest, bundle, VMM, `virtiofsd`, kernel, rootfs, and
-supervisor into a root-owned, non-writable snapshot under
+the checked-in guest compatibility pin, and verify the artifacts selected for
+the workload. Primary startup requires its rootfs and any manifest-declared
+rootfs SBOM; enclave-only startup does not require either primary file. Before
+verification, AWF copies the manifest, bundle, VMM, `virtiofsd`, kernel,
+supervisor, and (for primary startup) rootfs and declared SBOM into a
+root-owned, non-writable snapshot under
 `/var/lib/awf-cloud-hypervisor/trusted-artifacts/`. That root must be on an
 exec-capable filesystem: AWF resolves its mount and fails closed before copying
 anything when the mount carries `noexec`, instead of surfacing an opaque
@@ -619,9 +622,10 @@ their invocation-owned, host-only 2 GiB artifact tmpfs, using an executable
 read-only view separate from role-sized writable state. Run-level enclave preflight
 verifies immutable copies in short-lived, journaled preflight domains. Runtime-artifact and
 role-artifact verification each use a root-owned 2 GiB host-only tmpfs,
-independent of the configured enclave role. The runtime snapshot includes
-the primary rootfs, VMM, virtiofsd, kernel, supervisor, manifest, and bundle;
-it must not be charged to an agent enclave's 512 MiB invocation budget.
+independent of the configured enclave role. The enclave common-artifact
+snapshot includes VMM, virtiofsd, kernel, supervisor, manifest, and bundle,
+but not the unused primary rootfs or its SBOM. Verification storage must not
+be charged to an agent enclave's 512 MiB invocation budget.
 Role verification includes the temporary manifest/bundle files used for
 attestation and verifies both roles
 sequentially even for script-only runs, so it must fit the larger agent image
@@ -681,7 +685,7 @@ Releases publish the shared image as `enclave-rootfs.ext4.gz` so images whose ra
 per-asset limit can still be uploaded. The release job rejects any upload asset
 of 2 GiB or larger before creating or updating the release.
 
-`setup-cloud-hypervisor-enclave-artifacts.sh` downloads that set for an exact
+`guest/cloud-hypervisor/setup-enclave-artifacts.sh` downloads that set for an exact
 release tag and authenticates the manifest with
 `gh attestation verify --deny-self-hosted-runners` before decompression. It
 validates the release, compatibility, role metadata, and positive integer image
@@ -704,6 +708,21 @@ and no canonical shared path, while the version 1 shared layout (with
 Version 2 requires the canonical path. Unknown schemas, incompatible
 entrypoints, or missing attestations are rejected; no older-release fallback
 is attempted.
+The setup script can run before the package's compiled production verifier is
+available. Its downloader, archive/decompression limits, cache checks, and
+manifest authentication are bootstrap gates, not an alternative authorization
+for VM execution. The CI shell host-preflight wrapper likewise checks runner
+eligibility and locally built test artifacts before `npm ci` and compilation;
+those fixture checks cannot authenticate a release manifest. After bootstrap,
+production preflight independently parses the release-pinned manifests, verifies
+attestations and selected artifact digests, and enforces host admission before
+accepting an enclave invocation.
+The enclave lifecycle admits the host before allocating bounded verification
+storage; it then verifies common artifacts, reconciles owned recovery records,
+verifies enclave artifacts, and opens the authenticated listener only after
+the required checks complete. A failed startup keeps admission closed.
+Shutdown releases verification storage only after backend cleanup and recovery evidence confirm
+that no owned VM resources remain.
 The host-side artifact preflight, one-shot VM backend, authenticated broker
 dispatch, and per-run runtime wiring are implemented. Production execution
 uses the trusted bounded-storage provider (#9394) on eligible hosts and remains

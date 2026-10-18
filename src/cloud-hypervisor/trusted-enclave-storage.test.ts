@@ -8,7 +8,7 @@ import {
 } from '../enclave/host-executor-journal';
 import type { HostExecutorInvocationPlan, HostExecutorRunState } from '../enclave/host-executor-server';
 import { CLOUD_HYPERVISOR_ENCLAVE_STORAGE_REQUIRED } from '../enclave/cloud-hypervisor-lifecycle';
-import { createArtifactSnapshot } from './artifact-snapshot';
+import { createArtifactSnapshot, createCommonArtifactSnapshot } from './artifact-snapshot';
 import {
   ProductionTrustedCloudHypervisorEnclaveStorageProvider, prepareTrustedInvocationStorage,
   prepareTrustedArtifactVerificationStorage, ENCLAVE_ARTIFACT_VERIFICATION_STORAGE_PROFILE,
@@ -20,7 +20,8 @@ import { HostPreflightReporter, hostPreflightReason, type HostPreflightProgress 
 
 jest.mock('execa');
 jest.mock('./artifact-snapshot', () => ({
-  ...jest.requireActual('./artifact-snapshot'), createArtifactSnapshot: jest.fn(),
+  ...jest.requireActual('./artifact-snapshot'),
+  createArtifactSnapshot: jest.fn(), createCommonArtifactSnapshot: jest.fn(),
 }));
 
 const config = {} as WrapperConfig;
@@ -557,6 +558,8 @@ describe('invocation-wide kernel-enforced storage', () => {
 
   it.each([
     { role: 'script' }, { role: 'agent' },
+    { role: 'script', common: true },
+    { role: 'script', common: true, gate: 'readonly-exec' },
     ...['mount-intent', 'topology-before', 'bind', 'mount-capture', 'readonly-exec', 'sealed-storage']
       .map((gate) => ({ role: 'script', gate })),
     { role: 'script', gate: 'bind', commandExit: 32 },
@@ -568,9 +571,9 @@ describe('invocation-wide kernel-enforced storage', () => {
     { role: 'script', gate: 'sealed-storage', verification: 'propagation' },
     ...['artifact-cap', 'runs-cap', 'preparation-cap', 'shared-host-device', 'shared-device', 'snapshot-device', 'export-device'].map((verification) =>
       ({ role: 'agent', gate: 'sealed-storage', verification })),
-  ] as { role: 'script' | 'agent'; gate?: string; commandExit?: number; verification?: string }[])(
+  ] as { role: 'script' | 'agent'; gate?: string; commandExit?: number; verification?: string; common?: boolean }[])(
     'accounts for every $role path and identifies snapshot sealing failure $gate $verification $commandExit',
-    async ({ role, gate, commandExit, verification }) => {
+    async ({ role, gate, commandExit, verification, common }) => {
     const temporaryPath = verification === 'symlink' ? await fs.mkdtemp(path.join(os.tmpdir(), 'ch-storage-symlink-')) : undefined;
     if (temporaryPath) {
       temporaryPaths.push(temporaryPath);
@@ -627,7 +630,10 @@ describe('invocation-wide kernel-enforced storage', () => {
     jest.spyOn(fs, 'copyFile').mockResolvedValue(undefined);
     jest.spyOn(fs, 'chmod').mockResolvedValue(undefined);
     const snapshotImplementation = jest.requireActual<typeof import('./artifact-snapshot')>('./artifact-snapshot');
+    (createArtifactSnapshot as jest.Mock).mockClear();
+    (createCommonArtifactSnapshot as jest.Mock).mockClear();
     (createArtifactSnapshot as jest.Mock).mockImplementation(snapshotImplementation.createArtifactSnapshot);
+    (createCommonArtifactSnapshot as jest.Mock).mockImplementation(snapshotImplementation.createCommonArtifactSnapshot);
 
     const published: HostPreflightProgress[] = [];
     const allocation = await prepareTrustedInvocationStorage(run, plan, journal, tools,
@@ -720,11 +726,16 @@ describe('invocation-wide kernel-enforced storage', () => {
         uid: 0, mode: 0o40711,
       });
     }
-    const creating = allocation.dependencies.createArtifactSnapshot!({
+    const sharedSources = {
       cloudHypervisorBinary: '/trusted/cloud-hypervisor', virtiofsdBinary: '/trusted/virtiofsd',
-      kernelPath: '/trusted/kernel', rootfsPath: '/trusted/rootfs', supervisorPath: '/trusted/supervisor',
+      kernelPath: '/trusted/kernel', supervisorPath: '/trusted/supervisor',
       manifestPath: '/trusted/manifest', bundlePath: '/trusted/bundle',
-    }, jest.fn(), jest.fn());
+    };
+    const creating = common
+      ? allocation.dependencies.createCommonArtifactSnapshot!(sharedSources, jest.fn(), jest.fn())
+      : allocation.dependencies.createArtifactSnapshot!({
+        ...sharedSources, rootfsPath: '/trusted/rootfs',
+      }, jest.fn(), jest.fn());
     if (gate) {
       if (gate === 'sealed-storage' || commandExit) await expect(creating).rejects.toThrow();
       else await expect(creating).rejects.toBe(primary);
@@ -741,6 +752,12 @@ describe('invocation-wide kernel-enforced storage', () => {
       const gates = ['mount-intent', 'topology-before', 'bind', 'mount-capture', 'readonly-exec', 'sealed-storage'];
       for (const later of gates.slice(gates.indexOf(gate) + 1)) {
         expect(record.checks.find((check) => check.id === later)?.result).toBe('not-attempted');
+      }
+      if (common) {
+        expect(createCommonArtifactSnapshot).toHaveBeenCalledTimes(1);
+        expect(createArtifactSnapshot).not.toHaveBeenCalled();
+        expect(command).toHaveBeenCalledWith(tools.mount,
+          ['--bind', snapshotDirectory, snapshotDirectory], expect.anything());
       }
       expect(JSON.stringify(published)).not.toMatch(/SECRET|Bearer|token/);
       await allocation.close();
@@ -759,11 +776,20 @@ describe('invocation-wide kernel-enforced storage', () => {
     expect(snapshotProgress.scope).toBe('artifact-snapshot');
     expect(snapshotProgress.checks.every((check) =>
       check.result === 'passed' || (['partial-remove', 'sbom-copy', 'sbom-mode'].includes(check.id)
-        && check.result === 'not-required'))).toBe(true);
-    expect(createArtifactSnapshot).toHaveBeenCalledWith(
+        && check.result === 'not-required')
+      || (common && ['rootfs-copy', 'rootfs-mode'].includes(check.id)
+        && check.result === 'not-attempted'))).toBe(true);
+    expect(common ? createCommonArtifactSnapshot : createArtifactSnapshot).toHaveBeenCalledWith(
       expect.anything(), expect.anything(), expect.anything(), path.join(root, 'artifacts'),
       expect.any(HostPreflightReporter),
     );
+    if (common) {
+      expect(createArtifactSnapshot).not.toHaveBeenCalled();
+      expect(await creating).not.toHaveProperty('rootfsPath');
+      expect(fs.copyFile).not.toHaveBeenCalledWith('/trusted/rootfs', expect.anything(), expect.anything());
+    } else {
+      expect(createCommonArtifactSnapshot).not.toHaveBeenCalled();
+    }
     expect(command).toHaveBeenCalledWith(tools.mount,
       ['-o', 'remount,bind,ro,nosuid,nodev,exec', snapshotDirectory], expect.anything());
     expect(command).toHaveBeenCalledWith(tools.mount,

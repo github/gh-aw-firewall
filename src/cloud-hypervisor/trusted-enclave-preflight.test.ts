@@ -5,12 +5,12 @@ import type { CloudHypervisorEnclaveHostServiceOptions } from '../enclave/cloud-
 import { HostExecutorResourceJournal, hostExecutorStorageDirectory, hostExecutorVmRunId } from '../enclave/host-executor-journal';
 import type { HostExecutorInvocationPlan } from '../enclave/host-executor-server';
 import type { CloudHypervisorOptions } from '../types/runtime-options';
-import type { CloudHypervisorArtifactSnapshotSources } from './artifact-snapshot';
+import type { CloudHypervisorCommonArtifactSnapshotSources } from './artifact-snapshot';
 import { CLOUD_HYPERVISOR_ARTIFACT_RELEASE_TAG } from './artifact-manifest';
 import { assertTrustedHostTool } from './artifact-trust';
 import { preflightCloudHypervisorEnclaveArtifacts } from './enclave-artifact-preflight';
 import type { CloudHypervisorEnclaveArtifactPreflightOptions } from './enclave-executor-types';
-import { runCloudHypervisorPreflight, type CloudHypervisorPreflightDependencies } from './preflight';
+import { runCloudHypervisorCommonPreflight, type CloudHypervisorPreflightDependencies } from './preflight';
 import { createBoundedEnclavePreflight } from './trusted-enclave-preflight';
 import {
   ENCLAVE_ARTIFACT_VERIFICATION_STORAGE_PROFILE as artifactProfile,
@@ -32,14 +32,14 @@ jest.mock('./trusted-enclave-storage', () => ({
 }));
 jest.mock('./enclave-artifact-preflight', () => ({ preflightCloudHypervisorEnclaveArtifacts: jest.fn() }));
 jest.mock('./preflight', () => ({
-  ...jest.requireActual('./preflight'), runCloudHypervisorPreflight: jest.fn(),
+  ...jest.requireActual('./preflight'), runCloudHypervisorCommonPreflight: jest.fn(),
 }));
 
 const sha256 = (value: string): string => createHash('sha256').update(value).digest('hex');
 const config: CloudHypervisorOptions = {
   previewEnabled: true, mountPolicy: 'workspace-only',
   cloudHypervisorBinary: '/operator/cloud-hypervisor',
-  kernelPath: '/operator/vmlinux.bin', rootfsPath: '/operator/rootfs.ext4',
+  kernelPath: '/operator/vmlinux.bin',
   supervisorPath: '/operator/awf-supervisor',
   artifactManifestPath: '/operator/manifest.json',
   artifactManifestBundlePath: '/operator/manifest.sigstore.jsonl',
@@ -130,14 +130,14 @@ describe('bounded immutable enclave preflight', () => {
     close = jest.fn(async () => { events.push('close'); });
     mountTmpfs = jest.fn(async () => { events.push('mount'); });
     verifyStorage = jest.fn(async () => { events.push('verify-storage'); });
-    createSnapshot = jest.fn(async (input: CloudHypervisorArtifactSnapshotSources, _copy, capture) => {
+    createSnapshot = jest.fn(async (input: CloudHypervisorCommonArtifactSnapshotSources, _copy, capture) => {
       expect(active.has(root)).toBe(true);
       expect(journal.prepareSnapshot).toHaveBeenCalled();
       const directory = path.join(root, 'artifacts', 'run-snapshot');
       await capture(directory);
       const copied = Object.fromEntries(Object.entries(input).map(([key, source]) => {
-        const destination = path.join(directory, path.basename(source as string));
-        snapshot.set(destination, sources.get(source as string)!);
+        const destination = path.join(directory, path.basename(source));
+        snapshot.set(destination, sources.get(source)!);
         return [key, destination];
       }));
       sealed = true;
@@ -151,7 +151,7 @@ describe('bounded immutable enclave preflight', () => {
       events.push('allocate');
       return {
         workDir: root, dependencies: {
-          createArtifactSnapshot: createSnapshot, mountTmpfs,
+          createArtifactSnapshot: createSnapshot, createCommonArtifactSnapshot: createSnapshot, mountTmpfs,
           verifyStorage,
         },
         managerDependencies: {}, close,
@@ -196,8 +196,8 @@ describe('bounded immutable enclave preflight', () => {
       assertDockerInfrastructure: jest.fn(),
       resolveKvmGid: jest.fn(async () => 978),
     };
-    (runCloudHypervisorPreflight as jest.Mock).mockImplementation((input, overrides) =>
-      jest.requireActual('./preflight').runCloudHypervisorPreflight(input, { ...probes, ...overrides }));
+    (runCloudHypervisorCommonPreflight as jest.Mock).mockImplementation((input, overrides) =>
+      jest.requireActual('./preflight').runCloudHypervisorCommonPreflight(input, { ...probes, ...overrides }));
   });
 
   afterEach(() => jest.restoreAllMocks());
@@ -236,7 +236,7 @@ describe('bounded immutable enclave preflight', () => {
       id: gate, result: 'failed', reason: gate === 'configured-role' ? 'requirement-not-met' : 'EPERM',
     }]);
     expect(last.checks.find((check) => check.id === 'operator-identity')?.result).toBe('not-attempted');
-    expect(runCloudHypervisorPreflight).not.toHaveBeenCalled();
+    expect(runCloudHypervisorCommonPreflight).not.toHaveBeenCalled();
     expect(JSON.stringify(last)).not.toMatch(/SECRET|Bearer|token/);
   });
 
@@ -244,10 +244,18 @@ describe('bounded immutable enclave preflight', () => {
     const result = await createBoundedEnclavePreflight(options(), active).preflight(config);
     expect(result).toMatchObject({
       cloudHypervisorBinary: config.cloudHypervisorBinary, virtiofsdBinary: '/operator/virtiofsd',
-      kernelPath: config.kernelPath, rootfsPath: config.rootfsPath, supervisorPath: config.supervisorPath,
+      kernelPath: config.kernelPath, supervisorPath: config.supervisorPath,
       artifactDigests: { cloudHypervisor: sha256('cloud-hypervisor') },
       version: '53.0', kvmGid: 978, cgroupVersion: 2,
     });
+    expect(result).not.toHaveProperty('rootfsPath');
+    expect(result.artifactDigests).not.toHaveProperty('rootfs');
+    expect(createSnapshot.mock.calls[0][0]).not.toHaveProperty('rootfsPath');
+    expect(createSnapshot.mock.calls[0][0]).not.toHaveProperty('rootfsSbomPath');
+    expect(probes.lstat).not.toHaveBeenCalledWith('/operator/rootfs.ext4');
+    expect(probes.lstat).not.toHaveBeenCalledWith('/operator/rootfs.sbom.spdx.json');
+    expect([...snapshot.keys()].some((file) => file.endsWith('/rootfs.ext4')
+      || file.endsWith('/rootfs.sbom.spdx.json'))).toBe(false);
     expect(sources.get(config.cloudHypervisorBinary)).toBe('malicious-binary');
     expect(sources.get(config.artifactManifestPath!)).toBe('{"swapped":true}');
     expect(events.indexOf('seal')).toBeLessThan(events.indexOf('attest'));
@@ -268,20 +276,10 @@ describe('bounded immutable enclave preflight', () => {
   ] as {
     roles: ('script' | 'agent')[];
   }[])(
-    'verifies a primary runtime snapshot larger than the agent invocation cap for $roles', async ({ roles }) => {
-      const original = createSnapshot.getMockImplementation()!;
-      createSnapshot.mockImplementation(async (...args) => {
-        // Measured with rsync --sparse on the v0.28.62 primary rootfs:
-        // 1,561,341,952 logical bytes allocate 825,294,848 tmpfs bytes.
-        const allocatedRootfsBytes = 825_294_848;
-        expect(allocatedRootfsBytes).toBeGreaterThan(profiles.agent.writableStorageBytes);
-        expect(allocatedRootfsBytes).toBeLessThan(1_561_341_952);
-        if (mountTmpfs.mock.calls[0][1] < allocatedRootfsBytes) {
-          throw Object.assign(new Error('primary rootfs snapshot exceeds preflight cap'), { code: 'ENOSPC' });
-        }
-        return original(...args);
-      });
+    'verifies only common runtime artifacts within bounded storage for $roles', async ({ roles }) => {
       await createBoundedEnclavePreflight(options(roles), active).preflight(config);
+      expect(createSnapshot.mock.calls[0][0]).not.toHaveProperty('rootfsPath');
+      expect(createSnapshot.mock.calls[0][0]).not.toHaveProperty('rootfsSbomPath');
       expect(prepareTrustedArtifactVerificationStorage).toHaveBeenCalledTimes(1);
       expect(prepareTrustedInvocationStorage).not.toHaveBeenCalled();
       expect(mountTmpfs).toHaveBeenCalledWith(plan.invocationHostDir,
@@ -403,7 +401,7 @@ describe('bounded immutable enclave preflight', () => {
     { gate: 'attestation', error: /attestation failed/ },
     { gate: 'digest', error: /SHA-256 mismatch/ },
     { gate: 'version', error: /pinned to v53\.0/ },
-    { gate: 'basename', error: /must be named cloud-hypervisor/ },
+    { gate: 'basename', error: /cloudHypervisor artifact basename mismatch/ },
     { gate: 'KVM', error: /KVM unavailable/ },
     { gate: 'release', error: /must match this AWF release/ },
   ])(

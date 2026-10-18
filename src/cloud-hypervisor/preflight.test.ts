@@ -17,6 +17,7 @@ import {
   parseCloudHypervisorVersion,
   parseVirtiofsdVersion,
   runCloudHypervisorPreflight,
+  runCloudHypervisorCommonPreflight,
   VIRTIOFSD_RELEASE_VERSION,
   type CloudHypervisorPreflightDependencies,
 } from './preflight';
@@ -97,6 +98,15 @@ function dependencies(
         ? { bundlePath: '/snapshot/manifest.sigstore.jsonl' }
         : {}),
     })),
+    createCommonArtifactSnapshot: jest.fn(async (sources) => ({
+      directory: `${CLOUD_HYPERVISOR_ARTIFACT_SNAPSHOT_ROOT}/run-common`,
+      cloudHypervisorBinary: '/snapshot/cloud-hypervisor',
+      virtiofsdBinary: '/snapshot/virtiofsd',
+      kernelPath: '/snapshot/vmlinux.bin',
+      supervisorPath: '/snapshot/awf-supervisor',
+      ...(sources.manifestPath ? { manifestPath: '/snapshot/manifest.json' } : {}),
+      ...(sources.bundlePath ? { bundlePath: '/snapshot/manifest.sigstore.jsonl' } : {}),
+    })),
     copySparseFile: jest.fn().mockResolvedValue(undefined),
     removeArtifactSnapshot: jest.fn().mockResolvedValue(undefined),
     verifyManifestAttestation: jest.fn().mockResolvedValue(undefined),
@@ -109,6 +119,79 @@ function dependencies(
 }
 
 describe('Cloud Hypervisor preflight (foundation only)', () => {
+  it('attests common artifacts without trusting, staging, or hashing the primary rootfs or SBOM', async () => {
+    const checked: string[] = [];
+    const deps = dependencies();
+    const originalLstat = deps.lstat!;
+    deps.lstat = jest.fn(async (file) => {
+      checked.push(file);
+      if (file.includes('rootfs')) throw new Error('primary rootfs must not be checked');
+      return originalLstat(file);
+    });
+    const result = await runCloudHypervisorCommonPreflight(config({ rootfsPath: undefined }), deps);
+    expect(result).not.toHaveProperty('rootfsPath');
+    expect(result.artifactDigests).not.toHaveProperty('rootfs');
+    expect(deps.createArtifactSnapshot).not.toHaveBeenCalled();
+    expect(deps.createCommonArtifactSnapshot).toHaveBeenCalledWith(
+      expect.not.objectContaining({ rootfsPath: expect.anything(), rootfsSbomPath: expect.anything() }),
+      expect.any(Function),
+    );
+    expect(checked.some((file) => file.includes('rootfs'))).toBe(false);
+    expect(deps.verifyManifestAttestation).toHaveBeenCalledWith(
+      '/usr/bin/gh', '/snapshot/manifest.json', '/snapshot/manifest.sigstore.jsonl',
+    );
+  });
+
+  it('fails closed on a common artifact digest mismatch and removes its snapshot', async () => {
+    const deps = dependencies({
+      sha256: jest.fn(async (file) => file.includes('vmlinux') ? 'f'.repeat(64) : digest),
+    });
+    await expect(runCloudHypervisorCommonPreflight(config({ rootfsPath: undefined }), deps))
+      .rejects.toThrow(/guest kernel.*SHA-256 mismatch/);
+    expect(deps.removeArtifactSnapshot).toHaveBeenCalledWith(
+      `${CLOUD_HYPERVISOR_ARTIFACT_SNAPSHOT_ROOT}/run-common`,
+    );
+  });
+
+  it.each([
+    {
+      failure: 'attestation',
+      override: { verifyManifestAttestation: async () => { throw new Error('attestation rejected'); } },
+      message: /attestation rejected/,
+    },
+    {
+      failure: 'version',
+      override: { runVersion: async () => 'v52.0' },
+      message: /pinned to v53.0/,
+    },
+    {
+      failure: 'host',
+      override: { platform: 'darwin' as const },
+      message: /requires Linux with KVM/,
+    },
+  ])('fails closed when common $failure validation fails', async ({ override, message }) => {
+    const deps = dependencies(override);
+    await expect(runCloudHypervisorCommonPreflight(config({ rootfsPath: undefined }), deps))
+      .rejects.toThrow(message);
+    expect(deps.removeArtifactSnapshot).toHaveBeenCalledWith(
+      `${CLOUD_HYPERVISOR_ARTIFACT_SNAPSHOT_ROOT}/run-common`,
+    );
+  });
+
+  it('rejects unattested enclave common preflight even when the development bypass is configured', async () => {
+    const publish = jest.fn();
+    const deps = dependencies({
+      hostPreflightReporter: new HostPreflightReporter('bounded-runtime', publish),
+    });
+    await expect(runCloudHypervisorCommonPreflight(config({
+      rootfsPath: undefined, developmentAllowUnattestedArtifacts: true,
+    }), deps)).rejects.toThrow(/attested primary manifest/);
+    const progress: HostPreflightProgress = publish.mock.lastCall[0];
+    expect(progress.checks.filter((check) => check.result === 'failed')).toEqual([
+      { id: 'artifact-configuration', result: 'failed', reason: 'unknown' },
+    ]);
+    expect(deps.createCommonArtifactSnapshot).not.toHaveBeenCalled();
+  });
   let originalPath: string | undefined;
 
   beforeEach(() => {

@@ -14,6 +14,8 @@ import type {
 import type {
   CloudHypervisorArtifactSnapshot,
   CloudHypervisorArtifactSnapshotSources,
+  CloudHypervisorCommonArtifactSnapshot,
+  CloudHypervisorCommonArtifactSnapshotSources,
 } from './artifact-snapshot';
 import type { CloudHypervisorManagerDependencies } from './manager-types';
 import type {
@@ -92,6 +94,12 @@ export interface HostEnclaveExecutorDependencies {
     onDirectoryCreated?: (directory: string) => Promise<void>,
     report?: import('./host-preflight-progress').HostPreflightReporter,
   ) => Promise<CloudHypervisorArtifactSnapshot>;
+  readonly createCommonArtifactSnapshot: (
+    sources: CloudHypervisorCommonArtifactSnapshotSources,
+    copySparseFile: (source: string, destination: string) => Promise<void>,
+    onDirectoryCreated?: (directory: string) => Promise<void>,
+    report?: import('./host-preflight-progress').HostPreflightReporter,
+  ) => Promise<CloudHypervisorCommonArtifactSnapshot>;
   readonly createResourceJournal: (
     run: HostExecutorRunState,
     plan: HostExecutorInvocationPlan,

@@ -12,7 +12,10 @@ import {
 } from '../enclave/host-executor-journal';
 import type { CloudHypervisorEnclaveHostServiceOptions } from '../enclave/cloud-hypervisor-host-service';
 import type { HostExecutorInvocationPlan, HostExecutorRunState } from '../enclave/host-executor-server';
-import { createArtifactSnapshot } from './artifact-snapshot';
+import {
+  createArtifactSnapshot, createCommonArtifactSnapshot,
+  type CloudHypervisorCommonArtifactSnapshot,
+} from './artifact-snapshot';
 import { assertTrustedAncestorChain } from './artifact-trust';
 import { ENCLAVE_STORAGE_SOURCE } from './enclave-storage';
 import { resolveCloudHypervisorManagerDependencies } from './manager';
@@ -381,6 +384,43 @@ async function prepareTrustedStorage(
         await verifyStorage(plan.invocationHostDir, bytes, writable);
       }, ...args),
   });
+  const sealSnapshot = async <T extends CloudHypervisorCommonArtifactSnapshot>(
+    stage: (snapshotReport: HostPreflightReporter) => Promise<T>,
+    invocationReport?: HostPreflightReporter,
+  ): Promise<T> => {
+    const snapshotReport = invocationReport ?? report.fork('artifact-snapshot');
+    const snapshot = await stage(snapshotReport);
+    await snapshotReport.check('mount-intent', () => journal.prepareStorageMount(snapshot.directory));
+    const priorCalls = snapshotBindCalls.get(snapshot.directory) ?? 0;
+    const topology: MountTopologyEvidence = {
+      schemaVersion: 1, bindCalls: priorCalls === 0 ? 'zero' : priorCalls === 1 ? 'one' : 'multiple',
+      before: null, after: null,
+    };
+    snapshotReport.topology(topology);
+    await snapshotReport.check('topology-before', async () => {
+      topology.before = observeMountTopology(await fs.readFile('/proc/self/mountinfo', 'utf8'),
+        root, artifacts, snapshot.directory);
+      snapshotReport.topology(topology);
+    });
+    await snapshotReport.check('bind', async () => {
+      const count = Math.min(2, (snapshotBindCalls.get(snapshot.directory) ?? 0) + 1);
+      snapshotBindCalls.set(snapshot.directory, count);
+      topology.bindCalls = count === 1 ? 'one' : 'multiple';
+      snapshotReport.topology(topology);
+      await mount(tools, ['--bind', snapshot.directory, snapshot.directory]);
+    });
+    await snapshotReport.check('mount-capture', () =>
+      journal.captureStorageMount(snapshotReport.fork('storage-mount-capture'), (text) => {
+        topology.after = observeMountTopology(text, root, artifacts, snapshot.directory);
+        snapshotReport.topology(topology);
+      }));
+    await snapshotReport.check('readonly-exec', () =>
+      mount(tools, ['-o', 'remount,bind,ro,nosuid,nodev,exec', snapshot.directory]));
+    snapshotMount = snapshot.directory;
+    await snapshotReport.check('sealed-storage', () =>
+      verifyStorage(plan.invocationHostDir, profile.writableStorageBytes));
+    return snapshot;
+  };
   return {
     workDir: root,
     managerDependencies,
@@ -408,40 +448,12 @@ async function prepareTrustedStorage(
         assertPrivateStorageObservation(propagation.mounts.invocationAfterRemount);
       },
       verifyStorage,
-      createArtifactSnapshot: async (sources, copy, capture, invocationReport) => {
-        const snapshotReport = invocationReport ?? report.fork('artifact-snapshot');
-        const snapshot = await createArtifactSnapshot(sources, copy, capture, artifacts, snapshotReport);
-        await snapshotReport.check('mount-intent', () => journal.prepareStorageMount(snapshot.directory));
-        const priorCalls = snapshotBindCalls.get(snapshot.directory) ?? 0;
-        const topology: MountTopologyEvidence = {
-          schemaVersion: 1, bindCalls: priorCalls === 0 ? 'zero' : priorCalls === 1 ? 'one' : 'multiple',
-          before: null, after: null,
-        };
-        snapshotReport.topology(topology);
-        await snapshotReport.check('topology-before', async () => {
-          topology.before = observeMountTopology(await fs.readFile('/proc/self/mountinfo', 'utf8'),
-            root, artifacts, snapshot.directory);
-          snapshotReport.topology(topology);
-        });
-        await snapshotReport.check('bind', async () => {
-          const count = Math.min(2, (snapshotBindCalls.get(snapshot.directory) ?? 0) + 1);
-          snapshotBindCalls.set(snapshot.directory, count);
-          topology.bindCalls = count === 1 ? 'one' : 'multiple';
-          snapshotReport.topology(topology);
-          await mount(tools, ['--bind', snapshot.directory, snapshot.directory]);
-        });
-        await snapshotReport.check('mount-capture', () =>
-          journal.captureStorageMount(snapshotReport.fork('storage-mount-capture'), (text) => {
-            topology.after = observeMountTopology(text, root, artifacts, snapshot.directory);
-            snapshotReport.topology(topology);
-          }));
-        await snapshotReport.check('readonly-exec', () =>
-          mount(tools, ['-o', 'remount,bind,ro,nosuid,nodev,exec', snapshot.directory]));
-        snapshotMount = snapshot.directory;
-        await snapshotReport.check('sealed-storage', () =>
-          verifyStorage(plan.invocationHostDir, profile.writableStorageBytes));
-        return snapshot;
-      },
+      createArtifactSnapshot: (sources, copy, capture, invocationReport) =>
+        sealSnapshot((snapshotReport) =>
+          createArtifactSnapshot(sources, copy, capture, artifacts, snapshotReport), invocationReport),
+      createCommonArtifactSnapshot: (sources, copy, capture, invocationReport) =>
+        sealSnapshot((snapshotReport) =>
+          createCommonArtifactSnapshot(sources, copy, capture, artifacts, snapshotReport), invocationReport),
       removeArtifactSnapshot: async (directory) => {
         if (directory !== snapshotMount) throw new Error('Unowned artifact snapshot');
         await journal.verifyStorage();

@@ -28,8 +28,8 @@ import * as hostExecutorJournal from '../enclave/host-executor-journal';
 import type { CloudHypervisorOptions } from '../types/runtime-options';
 import type { CloudHypervisorCleanupRegistry } from './cleanup-registry';
 import type {
+  CloudHypervisorCommonPreflightResult,
   CloudHypervisorHostToolPaths,
-  CloudHypervisorPreflightResult,
 } from './preflight';
 import { cloudHypervisorManagerTestHelpers } from './manager';
 import type {
@@ -225,21 +225,22 @@ describe('readBoundedCloudHypervisorEnclaveResult', () => {
         umount: '/usr/bin/umount',
       } as CloudHypervisorHostToolPaths;
       const preflight = {
+        version: '53.0',
         cloudHypervisorBinary: '/trusted/cloud-hypervisor',
         virtiofsdBinary: '/trusted/virtiofsd',
         kernelPath: '/trusted/vmlinux',
-        rootfsPath: '/trusted/primary-rootfs',
         supervisorPath: '/trusted/supervisor',
         artifactSnapshotDirectory: '/trusted/preflight',
         artifactDigests: {
           cloudHypervisor: 'a'.repeat(64),
           virtiofsd: 'b'.repeat(64),
           kernel: 'c'.repeat(64),
-          rootfs: 'd'.repeat(64),
           supervisor: 'e'.repeat(64),
         },
         tools,
-      } as CloudHypervisorPreflightResult;
+        cgroupVersion: 2,
+        kvmGid: 978,
+      } satisfies CloudHypervisorCommonPreflightResult;
       const makeArtifact = (artifactRole: 'script' | 'agent') => ({
         file: `enclave-${artifactRole}-rootfs.ext4`,
         role: artifactRole,
@@ -761,8 +762,13 @@ describe('readBoundedCloudHypervisorEnclaveResult', () => {
             await Promise.all(Object.values(files).map((file) => fs.writeFile(file, 'verified-binary')));
             const snapshot = { ...created, ...files };
             if (replacement) {
-              await fs.chmod(snapshot[replacement], 0o600);
-              await fs.writeFile(snapshot[replacement], 'source-replaced-after-attestation');
+              const replacedFile = replacement === 'rootfsPath'
+                ? ('rootfsPath' in snapshot && typeof snapshot.rootfsPath === 'string'
+                  ? snapshot.rootfsPath : undefined)
+                : files[replacement];
+              if (!replacedFile) throw new Error('Invocation rootfs snapshot is missing');
+              await fs.chmod(replacedFile, 0o600);
+              await fs.writeFile(replacedFile, 'source-replaced-after-attestation');
             }
             return snapshot;
           };
@@ -1059,12 +1065,23 @@ describe('readBoundedCloudHypervisorEnclaveResult', () => {
       environment,
     };
     const preflight = {
+      version: '53.0',
+      cloudHypervisorBinary: '/trusted/cloud-hypervisor',
+      virtiofsdBinary: '/trusted/virtiofsd',
+      kernelPath: '/trusted/vmlinux.bin',
+      supervisorPath: '/trusted/awf-supervisor',
       artifactSnapshotDirectory: path.join(scratch, 'preflight-snapshot'),
-      tools: { ip: '/trusted/ip', umount: '/trusted/umount' },
-    } as CloudHypervisorPreflightResult;
+      artifactDigests: {
+        cloudHypervisor: 'a'.repeat(64), virtiofsd: 'b'.repeat(64),
+        kernel: 'c'.repeat(64), supervisor: 'd'.repeat(64),
+      },
+      tools: { ip: '/trusted/ip', umount: '/trusted/umount' } as CloudHypervisorHostToolPaths,
+      cgroupVersion: 2,
+      kvmGid: 978,
+    } satisfies CloudHypervisorCommonPreflightResult;
     const runPreflight = jest.spyOn(
       cloudHypervisorPreflight,
-      'runCloudHypervisorPreflight',
+      'runCloudHypervisorCommonPreflight',
     ).mockResolvedValue(preflight);
     const trustedTool = jest.spyOn(
       artifactTrust,

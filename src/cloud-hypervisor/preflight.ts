@@ -506,10 +506,13 @@ export async function runCloudHypervisorCommonPreflight(
   config: CloudHypervisorOptions,
   overrides: Partial<CloudHypervisorPreflightDependencies> = {},
 ): Promise<CloudHypervisorCommonPreflightResult> {
-  if (config.developmentAllowUnattestedArtifacts === true) {
-    throw new Error('Enclave common artifacts require an attested primary manifest');
-  }
   return runPreflight(config, overrides, true);
+}
+
+function hasPrimaryRootfs(
+  snapshot: CloudHypervisorCommonArtifactSnapshot,
+): snapshot is CloudHypervisorArtifactSnapshot {
+  return 'rootfsPath' in snapshot && typeof snapshot.rootfsPath === 'string';
 }
 
 function runPreflight(
@@ -535,6 +538,9 @@ async function runPreflight(
   };
   const developmentBypass = config.developmentAllowUnattestedArtifacts === true;
   await report.check('artifact-configuration', () => {
+    if (commonOnly && developmentBypass) {
+      throw new Error('Enclave common artifacts require an attested primary manifest');
+    }
     if (!config.kernelPath || (!commonOnly && !config.rootfsPath) || !config.supervisorPath) {
       throw new Error(
         'Cloud Hypervisor requires guest kernel, rootfs, and supervisor artifact paths',
@@ -654,6 +660,9 @@ async function runPreflight(
       ...(rootfsSbomPath ? { rootfsSbomPath } : {}),
     }, copy));
   try {
+    if (!commonOnly && !hasPrimaryRootfs(snapshot)) {
+      throw new Error('Primary Cloud Hypervisor rootfs snapshot is missing');
+    }
     let artifactDigests: Required<CloudHypervisorArtifactDigests>;
     if (developmentBypass) {
       if (!hasCompleteArtifactDigests(config.sha256)) {
@@ -663,15 +672,20 @@ async function runPreflight(
       }
       artifactDigests = config.sha256;
     } else {
+      if (!snapshot.manifestPath || !snapshot.bundlePath) {
+        throw new Error('Cloud Hypervisor attested artifact snapshot is missing its manifest or bundle');
+      }
+      const manifestPath = snapshot.manifestPath;
+      const bundlePath = snapshot.bundlePath;
       const ghBinaryPath = await report.check('tool-gh', () => dependencies.assertToolAvailable('gh'));
       await report.check('manifest-attestation', () => dependencies.verifyManifestAttestation(
         ghBinaryPath,
-        snapshot.manifestPath!,
-        snapshot.bundlePath!,
+        manifestPath,
+        bundlePath,
       ));
       const manifest = await report.check('manifest-contents', async () => {
         const parsed = parseCloudHypervisorArtifactManifest(
-          await dependencies.readFile(snapshot.manifestPath!),
+          await dependencies.readFile(manifestPath),
           config.artifactReleaseTag!,
         );
         const basenames = {
@@ -693,13 +707,16 @@ async function runPreflight(
       });
       artifactDigests = artifactDigestsFromManifest(manifest);
       if (!commonOnly && manifest.artifacts.rootfs.sbom) {
-        if (!snapshot.rootfsSbomPath) throw new Error('Cloud Hypervisor rootfs SBOM snapshot is missing');
+        if (!hasPrimaryRootfs(snapshot) || !snapshot.rootfsSbomPath) {
+          throw new Error('Cloud Hypervisor rootfs SBOM snapshot is missing');
+        }
+        const sbomPath = snapshot.rootfsSbomPath;
         await report.check('sbom-digest', () => assertDigest(
-          'Cloud Hypervisor rootfs SBOM', snapshot.rootfsSbomPath!,
+          'Cloud Hypervisor rootfs SBOM', sbomPath,
           manifest.artifacts.rootfs.sbom!.sha256, dependencies,
         ));
         await report.check('sbom-contents', async () => {
-          const document: unknown = JSON.parse(await dependencies.readFile(snapshot.rootfsSbomPath!));
+          const document: unknown = JSON.parse(await dependencies.readFile(sbomPath));
           const sbom = document as {
             spdxVersion?: unknown;
             packages?: Array<{ SPDXID?: string; checksums?: Array<{ algorithm?: string; checksumValue?: string }> }>;
@@ -765,9 +782,10 @@ async function runPreflight(
       dependencies,
     ));
     if (!commonOnly) {
-      if (!('rootfsPath' in snapshot)) throw new Error('Primary Cloud Hypervisor rootfs snapshot is missing');
+      if (!hasPrimaryRootfs(snapshot)) throw new Error('Primary Cloud Hypervisor rootfs snapshot is missing');
+      const rootfsPath = snapshot.rootfsPath;
       await report.check('rootfs-digest', () => assertDigest(
-        'Cloud Hypervisor rootfs', snapshot.rootfsPath, artifactDigests.rootfs, dependencies,
+        'Cloud Hypervisor rootfs', rootfsPath, artifactDigests.rootfs, dependencies,
       ));
     }
     await report.check('supervisor-digest', () => assertDigest(
@@ -844,7 +862,7 @@ async function runPreflight(
       kvmGid,
     };
     if (commonOnly) return commonResult;
-    if (!('rootfsPath' in snapshot)) throw new Error('Primary Cloud Hypervisor rootfs snapshot is missing');
+    if (!hasPrimaryRootfs(snapshot)) throw new Error('Primary Cloud Hypervisor rootfs snapshot is missing');
     return {
       ...commonResult, rootfsPath: snapshot.rootfsPath,
       artifactDigests: { ...commonResult.artifactDigests, rootfs: artifactDigests.rootfs },

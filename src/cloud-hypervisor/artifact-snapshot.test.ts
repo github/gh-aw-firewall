@@ -2,7 +2,9 @@ import { constants, promises as fs } from 'fs';
 import * as path from 'path';
 import execa from 'execa';
 import { CLOUD_HYPERVISOR_ARTIFACT_SNAPSHOT_ROOT } from './manager-types';
-import { copySparseFileWithRsync, createArtifactSnapshot } from './artifact-snapshot';
+import {
+  copySparseFileWithRsync, createArtifactSnapshot, createCommonArtifactSnapshot,
+} from './artifact-snapshot';
 import {
   HostPreflightReporter, hostPreflightReason, HostPreflightCleanupError,
   type HostPreflightCheck, type HostPreflightProgress,
@@ -157,6 +159,25 @@ describe('Cloud Hypervisor artifact snapshots', () => {
       }
       expect(latest().checks.find((check) => check.id === 'partial-remove')?.result).toBe('not-required');
       expect(latest().checks.find((check) => check.id === 'readonly-exec')?.result).toBe('not-attempted');
+    });
+
+    it('stages only common artifacts for enclave startup, without copying a primary rootfs or SBOM', async () => {
+      const common = await createCommonArtifactSnapshot({
+        cloudHypervisorBinary: sources.cloudHypervisorBinary,
+        virtiofsdBinary: sources.virtiofsdBinary,
+        kernelPath: sources.kernelPath,
+        supervisorPath: sources.supervisorPath,
+        manifestPath: sources.manifestPath,
+        bundlePath: sources.bundlePath,
+      }, sparse, capture, root, report);
+      expect(common).not.toHaveProperty('rootfsPath');
+      expect(common).not.toHaveProperty('rootfsSbomPath');
+      expect(sparse).not.toHaveBeenCalled();
+      expect(fs.copyFile).not.toHaveBeenCalledWith(
+        sources.rootfsSbomPath, expect.anything(), expect.anything(),
+      );
+      expect(latest().checks.find((check) => check.id === 'rootfs-copy')?.result).toBe('not-attempted');
+      expect(latest().checks.find((check) => check.id === 'sbom-copy')?.result).toBe('not-required');
     });
 
     it('retains a trusted rsync spawn errno rather than interpreting the message', async () => {

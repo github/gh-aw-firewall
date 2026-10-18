@@ -14,7 +14,9 @@ import {
 } from './host-preflight-progress';
 import { preflightCloudHypervisorEnclaveArtifacts } from './enclave-artifact-preflight';
 import type { CloudHypervisorEnclaveArtifactPreflightOptions } from './enclave-executor-types';
-import { copySparseFileWithRsync, runCloudHypervisorPreflight, type CloudHypervisorHostToolPaths } from './preflight';
+import {
+  copySparseFileWithRsync, runCloudHypervisorCommonPreflight, type CloudHypervisorHostToolPaths,
+} from './preflight';
 import {
   ENCLAVE_ARTIFACT_VERIFICATION_STORAGE_PROFILE,
   prepareTrustedArtifactVerificationStorage,
@@ -77,7 +79,7 @@ export function createBoundedEnclavePreflight(
   options: CloudHypervisorEnclaveHostServiceOptions,
   active: Set<string>,
 ): {
-  preflight(config: CloudHypervisorOptions): ReturnType<typeof runCloudHypervisorPreflight>;
+  preflight(config: CloudHypervisorOptions): ReturnType<typeof runCloudHypervisorCommonPreflight>;
   preflightEnclaveArtifacts(
     artifactOptions: CloudHypervisorEnclaveArtifactPreflightOptions,
   ): ReturnType<typeof preflightCloudHypervisorEnclaveArtifacts>;
@@ -172,11 +174,11 @@ export function createBoundedEnclavePreflight(
   return {
     preflight: async (config) => {
       const verified = await withStorage(async (allocation, journal, report) =>
-        runCloudHypervisorPreflight(config, {
+        runCloudHypervisorCommonPreflight(config, {
           hostPreflightReporter: report,
-          createArtifactSnapshot: async (sources, copy) => {
+          createCommonArtifactSnapshot: async (sources, copy) => {
             await report.check('snapshot-journal', () => journal.prepareSnapshot());
-            return allocation.dependencies.createArtifactSnapshot!(
+            return allocation.dependencies.createCommonArtifactSnapshot!(
               sources, copy, (directory) => journal.captureSnapshot(directory),
             );
           },
@@ -188,7 +190,6 @@ export function createBoundedEnclavePreflight(
         cloudHypervisorBinary: config.cloudHypervisorBinary,
         virtiofsdBinary: path.join(path.dirname(config.cloudHypervisorBinary), 'virtiofsd'),
         kernelPath: config.kernelPath!,
-        rootfsPath: config.rootfsPath!,
         supervisorPath: config.supervisorPath!,
         artifactSnapshotDirectory: path.dirname(config.cloudHypervisorBinary),
       };
