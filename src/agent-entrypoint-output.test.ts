@@ -71,7 +71,6 @@ describe('agent entrypoint output routing', () => {
 
     expect(result.status).toBe(0);
     expect(result.stdout).toBe('stdout-bytes');
-    expect(result.stderr).toContain('[entrypoint] Agentic Workflow Firewall');
-    expect(result.stderr).toContain('stderr-bytes');
+    expect(result.stderr).toBe('stderr-bytes');
   });
 });
