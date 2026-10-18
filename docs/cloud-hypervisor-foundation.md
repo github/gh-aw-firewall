@@ -404,8 +404,15 @@ digest, fixed uid/gid, entrypoint, source-image digest, SBOM, architecture, and
 Cloud Hypervisor/kernel/supervisor compatibility. Each rootfs and the manifest
 have separate offline provenance bundles.
 
+Releases publish the role images as `enclave-script-rootfs.ext4.gz` and
+`enclave-agent-rootfs.ext4.gz` so images whose raw logical size exceeds GitHub's
+per-asset limit can still be uploaded. The release job rejects any upload asset
+of 2 GiB or larger before creating or updating the release.
+
 `setup-cloud-hypervisor-enclave-artifacts.sh` downloads that set for an exact
-release tag, verifies the release-workflow identity with
+release tag and decompresses the role images in its private staging directory
+(older releases with uncompressed `.ext4` assets remain supported). It verifies
+the unchanged raw images against the release-workflow identity with
 `gh attestation verify --deny-self-hosted-runners`, verifies manifest metadata,
 size, digest, and SBOM bindings, and then atomically installs the cache entry.
 An existing cache entry is fully reverified before reuse; an invalid entry is a

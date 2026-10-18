@@ -832,10 +832,10 @@ jobs:
             release/cloud-hypervisor-test-x86_64.sbom.spdx.json
           cp cloud-hypervisor-release-assets/awf-cloud-hypervisor-enclave-rootfs-x86_64.tar.gz \
             release/cloud-hypervisor-enclave-rootfs-x86_64.tar.gz
-          cp cloud-hypervisor-release-assets/enclave-script-rootfs.ext4 \
-            release/enclave-script-rootfs.ext4
-          cp cloud-hypervisor-release-assets/enclave-agent-rootfs.ext4 \
-            release/enclave-agent-rootfs.ext4
+          gzip -n -c cloud-hypervisor-release-assets/enclave-script-rootfs.ext4 \
+            > release/enclave-script-rootfs.ext4.gz
+          gzip -n -c cloud-hypervisor-release-assets/enclave-agent-rootfs.ext4 \
+            > release/enclave-agent-rootfs.ext4.gz
           cp cloud-hypervisor-release-assets/enclave-script-rootfs.sbom.spdx.json \
             release/enclave-script-rootfs.sbom.spdx.json
           cp cloud-hypervisor-release-assets/enclave-agent-rootfs.sbom.spdx.json \
@@ -1007,6 +1007,19 @@ jobs:
           echo "Release notes preview (first 20 lines):"
           head -20 release_notes.md
 
+      - name: Validate release asset sizes
+        run: |
+          node <<'NODE'
+          const fs = require('node:fs');
+          const limit = 2147483648;
+          for (const name of fs.readdirSync('release')) {
+            const size = fs.statSync(`release/${name}`).size;
+            if (size >= limit) {
+              throw new Error(`Release asset ${name} is ${size} bytes; size must be less than ${limit}`);
+            }
+          }
+          NODE
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
         with:
@@ -1033,8 +1046,8 @@ jobs:
             release/nvx-test-x86_64.tar.gz
             release/nvx-test-x86_64.manifest.json
             release/nvx-test-x86_64.manifest.sigstore.jsonl
-            release/enclave-script-rootfs.ext4
-            release/enclave-agent-rootfs.ext4
+            release/enclave-script-rootfs.ext4.gz
+            release/enclave-agent-rootfs.ext4.gz
             release/enclave-script-rootfs.sbom.spdx.json
             release/enclave-agent-rootfs.sbom.spdx.json
             release/enclave-script-rootfs.provenance.sigstore.jsonl

@@ -18,7 +18,7 @@ ARCHITECTURE=x86_64
   exit 1
 }
 
-for tool in gh jq sha256sum stat flock mktemp; do
+for tool in gh jq sha256sum stat flock mktemp gzip; do
   command -v "$tool" >/dev/null || {
     echo "required setup tool not found: $tool" >&2
     exit 1
@@ -189,12 +189,18 @@ else
     --dir "$staging" \
     --pattern "$manifest_name" \
     --pattern "$manifest_bundle_name" \
-    --pattern 'enclave-script-rootfs.ext4' \
-    --pattern 'enclave-agent-rootfs.ext4' \
+    --pattern 'enclave-script-rootfs.ext4*' \
+    --pattern 'enclave-agent-rootfs.ext4*' \
     --pattern 'enclave-script-rootfs.sbom.spdx.json' \
     --pattern 'enclave-agent-rootfs.sbom.spdx.json' \
     --pattern 'enclave-script-rootfs.provenance.sigstore.jsonl' \
     --pattern 'enclave-agent-rootfs.provenance.sigstore.jsonl'
+  for role in script agent; do
+    compressed_rootfs="$staging/enclave-${role}-rootfs.ext4.gz"
+    if [ -f "$compressed_rootfs" ]; then
+      gzip -d -- "$compressed_rootfs"
+    fi
+  done
   find "$staging" -type f -exec chmod 0400 {} +
   verify_cache "$staging"
   mv "$staging" "$cache_dir"

@@ -27,7 +27,8 @@ const SENTINEL_PREFIX = 'AWF_ENCLAVE_LIVE_OUTPUT_SENTINEL_';
 
 function assertReleaseAssets(required, published) {
   const available = new Set(published);
-  const missing = required.filter((asset) => !available.has(asset));
+  const missing = required.filter((asset) => !available.has(asset)
+    && !(asset.endsWith('.ext4') && available.has(`${asset}.gz`)));
   if (missing.length) {
     throw new Error(
       `Package-matched AWF release is missing required release-attested Cloud Hypervisor assets: ${missing.join(', ')}. `

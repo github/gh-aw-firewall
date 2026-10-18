@@ -1,6 +1,8 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { execFileSync } from 'child_process';
+import * as yaml from 'js-yaml';
+import { gunzipSync } from 'zlib';
 
 const root = path.resolve(__dirname, '../..');
 const buildPath = path.join(root, 'guest/cloud-hypervisor/build-test-artifacts.sh');
@@ -12,6 +14,15 @@ const sbomGeneratorPath = path.join(
 );
 const dockerfilePath = path.join(root, 'containers/enclave/Dockerfile');
 const releaseWorkflowPath = path.join(root, '.github/workflows/release.yml');
+
+function releaseStep(name: string): string {
+  const workflow = yaml.load(fs.readFileSync(releaseWorkflowPath, 'utf8')) as {
+    jobs: { release: { steps: Array<{ name: string; run?: string }> } };
+  };
+  const step = workflow.jobs.release.steps.find((entry) => entry.name === name);
+  if (!step?.run) throw new Error(`Missing release step: ${name}`);
+  return step.run;
+}
 
 describe('Cloud Hypervisor enclave rootfs artifacts', () => {
   it.each([buildPath, verifyPath, setupPath])('%s passes bash syntax validation', (file) => {
@@ -205,5 +216,61 @@ describe('Cloud Hypervisor enclave rootfs artifacts', () => {
       'release/cloud-hypervisor-enclave-rootfs-x86_64.manifest.sigstore.jsonl',
     );
     expect(release).toContain('release/setup-cloud-hypervisor-enclave-artifacts.sh');
+  });
+
+  it('stages compressed rootfs assets without changing their attested contents', () => {
+    const stage = releaseStep('Stage Cloud Hypervisor preview test assets');
+    expect(stage).toContain('gzip -n -c');
+    const directory = fs.mkdtempSync(path.join(process.env.TMPDIR ?? '/tmp', 'awf-release-'));
+    try {
+      const source = path.join(directory, 'cloud-hypervisor-release-assets');
+      fs.mkdirSync(source);
+      fs.mkdirSync(path.join(directory, 'release'));
+      for (const match of stage.matchAll(/cloud-hypervisor-release-assets\/([\w.-]+)/g)) {
+        fs.writeFileSync(path.join(source, match[1]), `fixture: ${match[1]}`);
+      }
+      execFileSync('bash', ['-euo', 'pipefail', '-c', stage], { cwd: directory });
+      for (const role of ['script', 'agent']) {
+        const name = `enclave-${role}-rootfs.ext4`;
+        expect(fs.existsSync(path.join(directory, 'release', name))).toBe(false);
+        expect(gunzipSync(fs.readFileSync(path.join(directory, 'release', `${name}.gz`))))
+          .toEqual(fs.readFileSync(path.join(source, name)));
+      }
+      const release = fs.readFileSync(releaseWorkflowPath, 'utf8');
+      expect(release).toMatch(/^\s+release\/enclave-agent-rootfs\.ext4\.gz$/m);
+      expect(release).toMatch(/^\s+release\/enclave-script-rootfs\.ext4\.gz$/m);
+      expect(release).not.toMatch(/^\s+release\/enclave-(agent|script)-rootfs\.ext4$/m);
+    } finally {
+      fs.rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
+  it('rejects release assets at or above the upload limit before creating the release', () => {
+    const check = releaseStep('Validate release asset sizes');
+    const release = fs.readFileSync(releaseWorkflowPath, 'utf8');
+    expect(release.indexOf('name: Validate release asset sizes'))
+      .toBeLessThan(release.indexOf('name: Create GitHub Release'));
+    const directory = fs.mkdtempSync(path.join(process.env.TMPDIR ?? '/tmp', 'awf-size-'));
+    try {
+      fs.mkdirSync(path.join(directory, 'release'));
+      const asset = path.join(directory, 'release', 'fixture.ext4.gz');
+      const fd = fs.openSync(asset, 'w');
+      try {
+        fs.ftruncateSync(fd, 2147483647);
+        expect(() => execFileSync('bash', ['-euo', 'pipefail', '-c', check], {
+          cwd: directory, stdio: 'pipe',
+        })).not.toThrow();
+        for (const size of [2147483648, 2147483649, 2319572992]) {
+          fs.ftruncateSync(fd, size);
+          expect(() => execFileSync('bash', ['-euo', 'pipefail', '-c', check], {
+            cwd: directory, stdio: 'pipe',
+          })).toThrow(/fixture\.ext4\.gz.*must be less than 2147483648/);
+        }
+      } finally {
+        fs.closeSync(fd);
+      }
+    } finally {
+      fs.rmSync(directory, { recursive: true, force: true });
+    }
   });
 });
