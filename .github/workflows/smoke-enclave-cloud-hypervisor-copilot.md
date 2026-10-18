@@ -218,10 +218,13 @@ The v0.28.64 release pins in the lock were manually updated under an explicit
 pins-only exception, not regenerated with an official compiler. The recorded
 development compiler identifies the original generation only; its exact binary
 is not available as a verified official download. Source hashes are refreshed
-without changing compiler provenance. Both that compiler's acceptance gate and
-the current AWF host gate still require v0.28.62 for this agent fixture.
-The v0.28.64 pin therefore remains blocked by host acceptance; this update does
-not widen that gate or claim the PR branch can successfully execute the enclave.
+without changing compiler provenance. That compiler's acceptance gate still
+requires v0.28.62, so it cannot regenerate this v0.28.64 source unchanged.
+Under a separate explicit user authorization, the branch-built AWF
+host acceptance gate now selects only v0.28.64 for this exact agent fixture;
+v0.28.62 and other releases are rejected. All identity, branch-only, topology,
+credential-isolation, artifact-attestation and invocation constraints remain
+unchanged. Admission is not evidence that the enclave executes successfully.
 
 The existing host-only collector exports only allowlisted, bounded diagnostics
 for this static public repository. Public fixture logs are intentionally visible

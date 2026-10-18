@@ -134,8 +134,11 @@ describe('Cloud Hypervisor Copilot agent enclave smoke', () => {
         GITHUB_WORKFLOW_SHA: sha,
         GITHUB_WORKFLOW_REF: 'github/gh-aw-firewall/.github/workflows/smoke-enclave-cloud-hypervisor-copilot.lock.yml@refs/heads/test-agent-enclave',
       };
+      const imageTag = lock.match(/\\"imageTag\\":\\"([^"]+)\\"/);
+      expect(imageTag).not.toBeNull();
       const acceptanceConfig = {
         containerRuntime: 'cloud-hypervisor',
+        imageTag: imageTag![1],
         enclaves: normalized,
         cloudHypervisor: {
           previewEnabled: true,
@@ -147,12 +150,12 @@ describe('Cloud Hypervisor Copilot agent enclave smoke', () => {
           apiTimeoutMs: 5000,
         },
       } satisfies Parameters<typeof isCloudHypervisorAgentAcceptanceWorkflow>[0];
-      expect(isCloudHypervisorAgentAcceptanceWorkflow(acceptanceConfig)).toBe(false);
+      expect(isCloudHypervisorAgentAcceptanceWorkflow(acceptanceConfig)).toBe(true);
       expect(isCloudHypervisorAgentAcceptanceWorkflow({
         ...acceptanceConfig,
         cloudHypervisor: { ...acceptanceConfig.cloudHypervisor, artifactReleaseTag: 'v0.28.62' },
-      })).toBe(true);
-      expect(source).toContain('remains blocked by host acceptance');
+      })).toBe(false);
+      expect(source).toContain('host acceptance gate now selects only v0.28.64');
     } finally {
       process.env = original;
     }

@@ -19,7 +19,7 @@ export function isCloudHypervisorAgentAcceptanceWorkflow(
 ): boolean {
   if (
     process.env.GITHUB_REF_TYPE !== 'branch'
-    || config.cloudHypervisor?.artifactReleaseTag !== 'v0.28.62'
+    || config.cloudHypervisor?.artifactReleaseTag !== 'v0.28.64'
   ) return false;
   return isAcceptanceWorkflow(
     config,
