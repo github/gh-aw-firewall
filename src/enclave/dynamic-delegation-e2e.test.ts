@@ -764,6 +764,7 @@ describe('dynamic repository enclave delegation service integration suite', () =
       // Invalid sensitivity
       const badSensitivity = dynamicEnclavePolicyFixture({ sensitivity: 'invalid-sens' });
       const errors = validateEnclavesConfig({
+        workDir: makeWorkDir(),
         enclaves: normalizeEnclavesConfig([
           { agent: { model: 'gpt-4o-mini' }, dynamic: badSensitivity as never },
         ]),

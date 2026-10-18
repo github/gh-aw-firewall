@@ -16,6 +16,7 @@ const digest = 'a'.repeat(64);
 
 function config(overrides: Partial<WrapperConfig> = {}): WrapperConfig {
   return {
+    workDir: '/tmp/awf',
     containerRuntime: 'cloud-hypervisor',
     networkIsolation: true,
     legacySecurity: false,

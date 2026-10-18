@@ -49,7 +49,18 @@ diff --git a/pkg/workflow/enclaves_agent_acceptance_test.go b/pkg/workflow/encla
    mcp:
      version: v0.4.33
  enclaves:
-@@ -196,7 +200,7 @@
+@@ -183,6 +187,10 @@
+ 	require.NoError(t, os.WriteFile(path, []byte(content), 0o600))
+ 	compiler := NewCompiler()
+ 	compiler.SetStrictMode(false)
++	require.True(t, compiler.GetSharedActionCache().Set(
++		"github/gh-aw-actions/setup", "v0.92.3",
++		"26e5d7e7d2345ae4c8dfa3d9017ca2ff9bbf2c82",
++	))
+ 	require.NoError(t, compiler.CompileWorkflow(path))
+ 	lockBytes, err := os.ReadFile(stringutil.MarkdownToLockFile(path))
+ 	require.NoError(t, err)
+@@ -196,7 +204,7 @@
  		`\"topologyAttach\":[\"awmg-mcpg\"]`,
  		`--exclude-env AWF_ENCLAVE_MCP_CAPABILITY`,
  		`--exclude-env AWF_CLOUD_HYPERVISOR_ENCLAVE_AGENT_ROOTFS`,

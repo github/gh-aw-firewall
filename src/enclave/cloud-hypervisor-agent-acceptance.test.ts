@@ -14,6 +14,7 @@ const sha = '0123456789abcdef0123456789abcdef01234567';
 
 function config(): WrapperConfig {
   return {
+    workDir: '/tmp/awf',
     containerRuntime: 'cloud-hypervisor',
     networkIsolation: true,
     enableApiProxy: true,

@@ -468,6 +468,14 @@ describe('validateEnclavesConfig', () => {
 
   it.each([
     '/var/run/docker.sock:/var/run/docker.sock',
+    '/var/run/docker.sock:/run/docker.sock',
+  ])('accepts a custom socket bind covered by the Docker socket mask: %s', (volume) => {
+    expect(validateEnclavesConfig(config({ volumeMounts: [volume] }))).toEqual([]);
+  });
+
+  it.each([
+    '/var/run/docker.sock:/data/docker.sock',
+    '/run/docker.sock:/data/docker.sock',
     '/var/run:/host-run:ro',
   ])('rejects a custom bind that exposes the Docker socket: %s', (volume) => {
     expect(validateEnclavesConfig(config({ volumeMounts: [volume] })).join('\n'))
