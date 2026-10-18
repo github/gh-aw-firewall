@@ -1,8 +1,8 @@
+import * as yaml from 'js-yaml';
+import { gunzipSync } from 'zlib';
 import * as fs from 'fs';
 import * as path from 'path';
 import { execFileSync } from 'child_process';
-import * as yaml from 'js-yaml';
-import { gunzipSync } from 'zlib';
 
 const root = path.resolve(__dirname, '../..');
 const buildPath = path.join(root, 'guest/cloud-hypervisor/build-test-artifacts.sh');
