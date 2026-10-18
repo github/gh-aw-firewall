@@ -109,7 +109,12 @@ jobs:
             --platform linux/amd64 \
             --tag awf-cloud-hypervisor-build-tools:test \
             containers/build-tools
+          docker build --platform linux/amd64 \
+            --file containers/enclave/Dockerfile --target enclave-agent \
+            --build-arg BUILD_TOOLS_IMAGE=awf-cloud-hypervisor-build-tools:test \
+            --tag awf-cloud-hypervisor-enclave-agent:test containers
           BUILD_TOOLS_IMAGE=awf-cloud-hypervisor-build-tools:test \
+            ENCLAVE_AGENT_IMAGE=awf-cloud-hypervisor-enclave-agent:test \
             AWF_CH_PRUNE_DOCKER_BUILD_CACHE=1 \
             ./guest/cloud-hypervisor/build-test-artifacts.sh
           ./guest/cloud-hypervisor/verify-test-artifacts.sh \
@@ -125,17 +130,11 @@ jobs:
         with:
           subject-path: release/cloud-hypervisor-test-x86_64/awf-cloud-hypervisor-enclave-rootfs-x86_64.tar.gz
 
-      - name: Attest script enclave rootfs provenance
-        id: attest_enclave_script_rootfs
+      - name: Attest shared enclave rootfs provenance
+        id: attest_enclave_rootfs
         uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
-          subject-path: release/cloud-hypervisor-test-x86_64/enclave-script-rootfs.ext4
-
-      - name: Attest agent enclave rootfs provenance
-        id: attest_enclave_agent_rootfs
-        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
-        with:
-          subject-path: release/cloud-hypervisor-test-x86_64/enclave-agent-rootfs.ext4
+          subject-path: release/cloud-hypervisor-test-x86_64/enclave-rootfs.ext4
 
       - name: Attest enclave rootfs manifest
         id: attest_enclave_manifest
@@ -145,14 +144,11 @@ jobs:
 
       - name: Bundle enclave attestations for offline verification
         env:
-          SCRIPT_ROOTFS_BUNDLE: ${{ steps.attest_enclave_script_rootfs.outputs.bundle-path }}
-          AGENT_ROOTFS_BUNDLE: ${{ steps.attest_enclave_agent_rootfs.outputs.bundle-path }}
+          ROOTFS_BUNDLE: ${{ steps.attest_enclave_rootfs.outputs.bundle-path }}
           MANIFEST_BUNDLE: ${{ steps.attest_enclave_manifest.outputs.bundle-path }}
         run: |
-          cp "$SCRIPT_ROOTFS_BUNDLE" \
-            release/cloud-hypervisor-test-x86_64/enclave-script-rootfs.provenance.sigstore.jsonl
-          cp "$AGENT_ROOTFS_BUNDLE" \
-            release/cloud-hypervisor-test-x86_64/enclave-agent-rootfs.provenance.sigstore.jsonl
+          cp "$ROOTFS_BUNDLE" \
+            release/cloud-hypervisor-test-x86_64/enclave-rootfs.provenance.sigstore.jsonl
           cp "$MANIFEST_BUNDLE" \
             release/cloud-hypervisor-test-x86_64/enclave-manifest.sigstore.jsonl
 

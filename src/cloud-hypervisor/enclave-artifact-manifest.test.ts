@@ -9,7 +9,7 @@ const releaseTag = CLOUD_HYPERVISOR_ARTIFACT_RELEASE_TAG;
 
 function role(role: 'script' | 'agent'): Record<string, unknown> {
   return {
-    file: `enclave-${role}-rootfs.ext4`,
+    file: 'enclave-rootfs.ext4',
     role,
     version: releaseTag,
     sha256: digest,
@@ -17,7 +17,7 @@ function role(role: 'script' | 'agent'): Record<string, unknown> {
     uid: 65534,
     gid: 65534,
     entrypoint: `/usr/local/bin/run-enclave-${role}`,
-    sourceImage: `ghcr.io/github/gh-aw-firewall/enclave-${role}@sha256:${digest}`,
+    sourceImage: `ghcr.io/github/gh-aw-firewall/cloud-hypervisor-enclave@sha256:${digest}`,
     sourceImageDigest: digest,
     sbom: {
       file: `enclave-${role}-rootfs.sbom.spdx.json`,
@@ -42,6 +42,10 @@ function manifest(overrides: Record<string, unknown> = {}): string {
       kernelVersion: '6.1.141',
       supervisorVersion: releaseTag,
     },
+    guestBase: {
+      image: `ghcr.io/github/gh-aw-firewall/cloud-hypervisor-guest-base@sha256:${digest}`,
+      imageId: `sha256:${digest}`,
+    },
     rootfs: {
       script: role('script'),
       agent: role('agent'),
@@ -58,11 +62,11 @@ describe('Cloud Hypervisor enclave artifact manifest', () => {
     },
   );
 
-  it('binds distinct script and agent rootfs metadata to this release', () => {
+  it('binds both role entrypoints to the same enclave rootfs', () => {
     const parsed = parseCloudHypervisorEnclaveArtifactManifest(manifest(), releaseTag);
     expect(enclaveRootfsArtifactForRole(parsed, 'script')).toEqual(
       expect.objectContaining({
-        file: 'enclave-script-rootfs.ext4',
+        file: 'enclave-rootfs.ext4',
         role: 'script',
         uid: 65534,
         gid: 65534,
@@ -72,16 +76,31 @@ describe('Cloud Hypervisor enclave artifact manifest', () => {
     );
     expect(enclaveRootfsArtifactForRole(parsed, 'agent')).toEqual(
       expect.objectContaining({
-        file: 'enclave-agent-rootfs.ext4',
+        file: 'enclave-rootfs.ext4',
         role: 'agent',
         entrypoint: '/usr/local/bin/run-enclave-agent',
       }),
     );
   });
 
+  it('rejects role entries that do not share the exact same rootfs and source image', () => {
+    expect(() => parseCloudHypervisorEnclaveArtifactManifest(manifest({
+      rootfs: {
+        script: role('script'),
+        agent: { ...role('agent'), sha256: 'c'.repeat(64) },
+      },
+    }), releaseTag)).toThrow(/same enclave guest image and rootfs/);
+    expect(() => parseCloudHypervisorEnclaveArtifactManifest(manifest({
+      rootfs: {
+        script: role('script'),
+        agent: { ...role('agent'), sourceImageDigest: 'c'.repeat(64) },
+      },
+    }), releaseTag)).toThrow(/same enclave guest image and rootfs/);
+  });
+
   it.each([
     ['wrong role', { ...role('script'), role: 'agent' }, /role must be script/],
-    ['wrong file', { ...role('script'), file: 'rootfs.ext4' }, /file must be enclave-script/],
+    ['wrong file', { ...role('script'), file: 'rootfs.ext4' }, /file must be enclave-rootfs/],
     ['wrong entrypoint', { ...role('script'), entrypoint: '/bin/sh' }, /entrypoint/],
     ['wrong version', { ...role('script'), version: 'v0.0.0' }, /version must match/],
     ['wrong uid', { ...role('script'), uid: 0 }, /fixed uid\/gid/],

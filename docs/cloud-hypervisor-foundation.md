@@ -693,17 +693,26 @@ refresh Sigstore trust-root material unless that material is already cached or
 provisioned on the runner. Missing, mutable, incorrectly owned, renamed, or
 digest-mismatched artifacts fail closed.
 
-The separately gated enclave executor uses a distinct, release-attested artifact
-set. `enclave-script-rootfs.ext4` and `enclave-agent-rootfs.ext4` are derived
-from the audited `enclave-script` and `enclave-agent` container stages,
-respectively, and do not replace `rootfs.ext4` for the primary agent. Their
-closed enclave manifest binds each role, canonical filename, logical size,
-digest, fixed uid/gid, entrypoint, source-image digest, SBOM, architecture, and
-Cloud Hypervisor/kernel/supervisor compatibility. Each rootfs and the manifest
-have separate offline provenance bundles.
+The Cloud Hypervisor-only `cloud-hypervisor-guest-base` image uses pinned Ubuntu
+26.04/glibc, certificates, distribution Python (`/usr/bin/python3`), Node 26,
+shell utilities, and common runtime libraries. The release builds it once,
+then derives both the primary (build-tools sysroot, development tools and `gh`)
+and shared enclave (pinned Copilot, agent build tools and both entrypoints)
+images from its exact digest. ARC/DinD continues to use its existing
+`build-tools` image. The guest supervisor is built once into the common base;
+both flattened exports verify the same binary. No container image contains an invocation's credentials,
+repository seed, or runtime caches.
 
-Releases publish the role images as `enclave-script-rootfs.ext4.gz` and
-`enclave-agent-rootfs.ext4.gz` so images whose raw logical size exceeds GitHub's
+The separately gated enclave executor uses one release-attested
+`enclave-rootfs.ext4` for both script and agent VMs; this does not replace
+`rootfs.ext4` for the primary agent. Script enclaves intentionally retain the
+shared shell/toolbox. The closed enclave manifest binds each role's entrypoint,
+the same rootfs digest and source-image digest, the common base image and image
+ID, fixed uid/gid, SBOM, and Cloud Hypervisor/kernel/supervisor compatibility.
+The rootfs and manifest each have an offline provenance bundle. Runtime network,
+mounts, credentials, limits and cleanup remain role-specific.
+
+Releases publish the shared image as `enclave-rootfs.ext4.gz` so images whose raw logical size exceeds GitHub's
 per-asset limit can still be uploaded. The release job rejects any upload asset
 of 2 GiB or larger before creating or updating the release.
 
@@ -711,17 +720,18 @@ of 2 GiB or larger before creating or updating the release.
 release tag and authenticates the manifest with
 `gh attestation verify --deny-self-hosted-runners` before decompression. It
 validates the release, compatibility, role metadata, and positive integer image
-sizes, then decompresses each role in its private staging directory with disk
-output capped at that role's attested size using Python 3's standard-library
+sizes, then decompresses the shared image in its private staging directory with disk
+output capped at its attested size using Python 3's standard-library
 streaming gzip reader (Python 3 is required on the setup host). Oversized,
-truncated, or corrupt streams fail without installing a cache entry. Older releases with
-uncompressed `.ext4` assets remain supported. The unchanged raw images still
+truncated, or corrupt streams fail without installing a cache entry. Uncompressed
+`.ext4` assets remain supported. The unchanged raw image still
 undergo release-workflow attestation, size, digest, and SBOM binding checks
 before the cache entry is atomically installed.
 An existing cache entry is fully reverified before reuse; an invalid entry is a
 terminal error and is never silently replaced. The script exports the
-role-specific `AWF_CLOUD_HYPERVISOR_ENCLAVE_SCRIPT_ROOTFS` and
-`AWF_CLOUD_HYPERVISOR_ENCLAVE_AGENT_ROOTFS` paths through `GITHUB_ENV`.
+`AWF_CLOUD_HYPERVISOR_ENCLAVE_SCRIPT_ROOTFS` and
+`AWF_CLOUD_HYPERVISOR_ENCLAVE_AGENT_ROOTFS` paths (both pointing to the same
+authenticated file) through `GITHUB_ENV`.
 The host-side artifact preflight, one-shot VM backend, authenticated broker
 dispatch, and per-run runtime wiring are implemented. Production execution
 uses the trusted bounded-storage provider (#9394) on eligible hosts and remains

@@ -833,7 +833,7 @@ jobs:
   release:
     name: Create Release
     runs-on: ubuntu-latest
-    needs: [bump-version, build-squid, build-agent, build-api-proxy, build-router, build-cli-proxy, build-agent-act, build-build-tools, build-enclaves, build-gh-aw-node, build-cloud-hypervisor-test-artifacts, build-nvx-test-artifacts]
+    needs: [bump-version, build-squid, build-agent, build-api-proxy, build-router, build-cli-proxy, build-agent-act, build-build-tools, build-enclaves, build-gh-aw-node, build-cloud-hypervisor-guest-base, build-cloud-hypervisor-profiles, build-cloud-hypervisor-test-artifacts, build-nvx-test-artifacts]
     steps:
       - name: Checkout code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4
@@ -941,18 +941,14 @@ jobs:
             release/cloud-hypervisor-test-x86_64.sbom.spdx.json
           cp cloud-hypervisor-release-assets/awf-cloud-hypervisor-enclave-rootfs-x86_64.tar.gz \
             release/cloud-hypervisor-enclave-rootfs-x86_64.tar.gz
-          gzip -n -c cloud-hypervisor-release-assets/enclave-script-rootfs.ext4 \
-            > release/enclave-script-rootfs.ext4.gz
-          gzip -n -c cloud-hypervisor-release-assets/enclave-agent-rootfs.ext4 \
-            > release/enclave-agent-rootfs.ext4.gz
+          gzip -n -c cloud-hypervisor-release-assets/enclave-rootfs.ext4 \
+            > release/enclave-rootfs.ext4.gz
           cp cloud-hypervisor-release-assets/enclave-script-rootfs.sbom.spdx.json \
             release/enclave-script-rootfs.sbom.spdx.json
           cp cloud-hypervisor-release-assets/enclave-agent-rootfs.sbom.spdx.json \
             release/enclave-agent-rootfs.sbom.spdx.json
-          cp cloud-hypervisor-release-assets/enclave-script-rootfs.provenance.sigstore.jsonl \
-            release/enclave-script-rootfs.provenance.sigstore.jsonl
-          cp cloud-hypervisor-release-assets/enclave-agent-rootfs.provenance.sigstore.jsonl \
-            release/enclave-agent-rootfs.provenance.sigstore.jsonl
+          cp cloud-hypervisor-release-assets/enclave-rootfs.provenance.sigstore.jsonl \
+            release/enclave-rootfs.provenance.sigstore.jsonl
           cp cloud-hypervisor-release-assets/enclave-manifest.json \
             release/cloud-hypervisor-enclave-rootfs-x86_64.manifest.json
           cp cloud-hypervisor-release-assets/enclave-manifest.sigstore.jsonl \
@@ -989,6 +985,9 @@ jobs:
             "ghcr.io/${{ github.repository }}/enclave-script@${{ needs['build-enclaves'].outputs.enclave_script_digest }}" \
             "ghcr.io/${{ github.repository }}/enclave-agent@${{ needs['build-enclaves'].outputs.enclave_agent_digest }}" \
             "ghcr.io/${{ github.repository }}/enclave-mcp-server@${{ needs['build-enclaves'].outputs.enclave_mcp_server_digest }}" \
+            "ghcr.io/${{ github.repository }}/cloud-hypervisor-guest-base@${{ needs['build-cloud-hypervisor-guest-base'].outputs.digest }}" \
+            "ghcr.io/${{ github.repository }}/cloud-hypervisor-primary@${{ needs['build-cloud-hypervisor-profiles'].outputs.primary_digest }}" \
+            "ghcr.io/${{ github.repository }}/cloud-hypervisor-enclave@${{ needs['build-cloud-hypervisor-profiles'].outputs.enclave_digest }}" \
             "ghcr.io/${{ github.repository }}/gh-aw-node@${{ needs['build-gh-aw-node'].outputs.digest }}" \
             > release/containers.txt
           echo "Generated containers.txt:"
@@ -1156,12 +1155,10 @@ jobs:
             release/nvx-test-x86_64.tar.gz
             release/nvx-test-x86_64.manifest.json
             release/nvx-test-x86_64.manifest.sigstore.jsonl
-            release/enclave-script-rootfs.ext4.gz
-            release/enclave-agent-rootfs.ext4.gz
+            release/enclave-rootfs.ext4.gz
             release/enclave-script-rootfs.sbom.spdx.json
             release/enclave-agent-rootfs.sbom.spdx.json
-            release/enclave-script-rootfs.provenance.sigstore.jsonl
-            release/enclave-agent-rootfs.provenance.sigstore.jsonl
+            release/enclave-rootfs.provenance.sigstore.jsonl
             release/setup-cloud-hypervisor-enclave-artifacts.sh
             release/containers.txt
             release/awf-config.schema.json
@@ -1180,10 +1177,100 @@ jobs:
           path: release/
           retention-days: 7
 
+  build-cloud-hypervisor-guest-base:
+    name: Build Cloud Hypervisor Guest Base
+    runs-on: ubuntu-latest
+    needs: bump-version
+    outputs:
+      digest: ${{ steps.build_guest_base.outputs.digest }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4
+        with:
+          ref: ${{ needs.bump-version.outputs.version }}
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - name: Set up guest supervisor Go toolchain
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: '1.25.0'
+          cache-dependency-path: guest/microvm-supervisor/go.mod
+      - name: Build shared guest supervisor
+        run: |
+          mkdir -p /tmp/awf-guest-supervisor
+          VERSION="${{ needs.bump-version.outputs.version }}" \
+            OUTPUT=/tmp/awf-guest-supervisor/awf-supervisor \
+            ./guest/microvm-supervisor/build.sh
+      - name: Build and push guest base
+        id: build_guest_base
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: ./containers
+          file: ./containers/cloud-hypervisor/Dockerfile
+          build-contexts: |
+            supervisor=/tmp/awf-guest-supervisor
+          target: guest-base
+          push: true
+          platforms: linux/amd64
+          tags: ghcr.io/${{ github.repository }}/cloud-hypervisor-guest-base:${{ needs.bump-version.outputs.version_number }}
+
+  build-cloud-hypervisor-profiles:
+    name: Build Cloud Hypervisor Guest Profiles
+    runs-on: ubuntu-latest
+    needs: [bump-version, build-build-tools, build-enclaves, build-cloud-hypervisor-guest-base]
+    outputs:
+      primary_digest: ${{ steps.build_primary.outputs.digest }}
+      enclave_digest: ${{ steps.build_enclave.outputs.digest }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4
+        with:
+          ref: ${{ needs.bump-version.outputs.version }}
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - name: Build and push primary guest
+        id: build_primary
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: ./containers
+          file: ./containers/cloud-hypervisor/Dockerfile
+          target: primary
+          platforms: linux/amd64
+          push: true
+          build-args: |
+            GUEST_BASE_IMAGE=ghcr.io/${{ github.repository }}/cloud-hypervisor-guest-base@${{ needs.build-cloud-hypervisor-guest-base.outputs.digest }}
+            BUILD_TOOLS_IMAGE=ghcr.io/${{ github.repository }}/build-tools@${{ needs.build-build-tools.outputs.digest }}
+          tags: ghcr.io/${{ github.repository }}/cloud-hypervisor-primary:${{ needs.bump-version.outputs.version_number }}
+      - name: Build and push shared enclave guest
+        id: build_enclave
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: ./containers
+          file: ./containers/cloud-hypervisor/Dockerfile
+          target: enclave
+          platforms: linux/amd64
+          push: true
+          build-args: |
+            GUEST_BASE_IMAGE=ghcr.io/${{ github.repository }}/cloud-hypervisor-guest-base@${{ needs.build-cloud-hypervisor-guest-base.outputs.digest }}
+            ENCLAVE_AGENT_IMAGE=ghcr.io/${{ github.repository }}/enclave-agent@${{ needs.build-enclaves.outputs.enclave_agent_digest }}
+          tags: ghcr.io/${{ github.repository }}/cloud-hypervisor-enclave:${{ needs.bump-version.outputs.version_number }}
+
   build-cloud-hypervisor-test-artifacts:
     name: Build Cloud Hypervisor Preview Test Artifacts
     runs-on: ubuntu-24.04
-    needs: [bump-version, build-build-tools, build-enclaves]
+    needs: [bump-version, build-cloud-hypervisor-guest-base, build-cloud-hypervisor-profiles]
     timeout-minutes: 60
     steps:
       - name: Checkout code
@@ -1226,9 +1313,9 @@ jobs:
 
       - name: Build and verify pinned test artifacts
         run: |
-          BUILD_TOOLS_IMAGE="ghcr.io/${{ github.repository }}/build-tools@${{ needs.build-build-tools.outputs.digest }}" \
-            ENCLAVE_SCRIPT_IMAGE="ghcr.io/${{ github.repository }}/enclave-script@${{ needs.build-enclaves.outputs.enclave_script_digest }}" \
-            ENCLAVE_AGENT_IMAGE="ghcr.io/${{ github.repository }}/enclave-agent@${{ needs.build-enclaves.outputs.enclave_agent_digest }}" \
+          GUEST_BASE_IMAGE="ghcr.io/${{ github.repository }}/cloud-hypervisor-guest-base@${{ needs.build-cloud-hypervisor-guest-base.outputs.digest }}" \
+            PRIMARY_IMAGE="ghcr.io/${{ github.repository }}/cloud-hypervisor-primary@${{ needs.build-cloud-hypervisor-profiles.outputs.primary_digest }}" \
+            ENCLAVE_IMAGE="ghcr.io/${{ github.repository }}/cloud-hypervisor-enclave@${{ needs.build-cloud-hypervisor-profiles.outputs.enclave_digest }}" \
             VERSION="${{ needs.bump-version.outputs.version }}" \
             AWF_CH_PRUNE_DOCKER_BUILD_CACHE=1 \
             ./guest/cloud-hypervisor/build-test-artifacts.sh
@@ -1245,17 +1332,11 @@ jobs:
         with:
           subject-path: release/cloud-hypervisor-test-x86_64/awf-cloud-hypervisor-enclave-rootfs-x86_64.tar.gz
 
-      - name: Attest script enclave rootfs provenance
-        id: attest_cloud_hypervisor_enclave_script_rootfs
+      - name: Attest shared enclave rootfs provenance
+        id: attest_cloud_hypervisor_enclave_rootfs
         uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
-          subject-path: release/cloud-hypervisor-test-x86_64/enclave-script-rootfs.ext4
-
-      - name: Attest agent enclave rootfs provenance
-        id: attest_cloud_hypervisor_enclave_agent_rootfs
-        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
-        with:
-          subject-path: release/cloud-hypervisor-test-x86_64/enclave-agent-rootfs.ext4
+          subject-path: release/cloud-hypervisor-test-x86_64/enclave-rootfs.ext4
 
       - name: Attest release-pinned guest artifact manifest
         id: attest_cloud_hypervisor_manifest
@@ -1278,14 +1359,11 @@ jobs:
 
       - name: Bundle enclave provenance for offline verification
         env:
-          SCRIPT_ROOTFS_BUNDLE: ${{ steps.attest_cloud_hypervisor_enclave_script_rootfs.outputs.bundle-path }}
-          AGENT_ROOTFS_BUNDLE: ${{ steps.attest_cloud_hypervisor_enclave_agent_rootfs.outputs.bundle-path }}
+          ROOTFS_BUNDLE: ${{ steps.attest_cloud_hypervisor_enclave_rootfs.outputs.bundle-path }}
           MANIFEST_BUNDLE: ${{ steps.attest_cloud_hypervisor_enclave_manifest.outputs.bundle-path }}
         run: |
-          cp "$SCRIPT_ROOTFS_BUNDLE" \
-            release/cloud-hypervisor-test-x86_64/enclave-script-rootfs.provenance.sigstore.jsonl
-          cp "$AGENT_ROOTFS_BUNDLE" \
-            release/cloud-hypervisor-test-x86_64/enclave-agent-rootfs.provenance.sigstore.jsonl
+          cp "$ROOTFS_BUNDLE" \
+            release/cloud-hypervisor-test-x86_64/enclave-rootfs.provenance.sigstore.jsonl
           cp "$MANIFEST_BUNDLE" \
             release/cloud-hypervisor-test-x86_64/enclave-manifest.sigstore.jsonl
 

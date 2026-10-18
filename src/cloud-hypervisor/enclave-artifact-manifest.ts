@@ -11,12 +11,12 @@ export const CLOUD_HYPERVISOR_ENCLAVE_KERNEL_VERSION = '6.1.141';
 
 const ROLE_METADATA = {
   script: {
-    file: 'enclave-script-rootfs.ext4',
+    file: 'enclave-rootfs.ext4',
     entrypoint: '/usr/local/bin/run-enclave-script',
     sbomFile: 'enclave-script-rootfs.sbom.spdx.json',
   },
   agent: {
-    file: 'enclave-agent-rootfs.ext4',
+    file: 'enclave-rootfs.ext4',
     entrypoint: '/usr/local/bin/run-enclave-agent',
     sbomFile: 'enclave-agent-rootfs.sbom.spdx.json',
   },
@@ -53,6 +53,10 @@ export interface CloudHypervisorEnclaveArtifactManifest {
     readonly cloudHypervisorVersion: string;
     readonly kernelVersion: string;
     readonly supervisorVersion: string;
+  };
+  readonly guestBase: {
+    readonly image: string;
+    readonly imageId: string;
   };
   readonly rootfs: Readonly<Record<
     CloudHypervisorEnclaveRole,
@@ -135,7 +139,7 @@ function parseRole(
   }
   const sourceImage = requireString(artifact.sourceImage, `${label}.sourceImage`);
   const expectedImage = new RegExp(
-    `^ghcr\\.io/github/gh-aw-firewall/enclave-${role}@sha256:[a-f0-9]{64}$`,
+    '^ghcr\\.io/github/gh-aw-firewall/cloud-hypervisor-enclave@sha256:[a-f0-9]{64}$',
   );
   if (!expectedImage.test(sourceImage)) {
     throw new Error(`${label}.sourceImage must be the release-pinned ${role} enclave image`);
@@ -188,6 +192,7 @@ export function parseCloudHypervisorEnclaveArtifactManifest(
     'architecture',
     'artifactType',
     'compatibility',
+    'guestBase',
     'release',
     'rootfs',
     'schemaVersion',
@@ -257,6 +262,23 @@ export function parseCloudHypervisorEnclaveArtifactManifest(
 
   const rootfs = requireObject(manifest.rootfs, 'manifest.rootfs');
   requireClosedKeys(rootfs, ['agent', 'script'], 'manifest.rootfs');
+  const guestBase = requireObject(manifest.guestBase, 'manifest.guestBase');
+  requireClosedKeys(guestBase, ['image', 'imageId'], 'manifest.guestBase');
+  const baseImage = requireString(guestBase.image, 'manifest.guestBase.image');
+  if (!/^ghcr\.io\/github\/gh-aw-firewall\/cloud-hypervisor-guest-base@sha256:[a-f0-9]{64}$/.test(baseImage)) {
+    throw new Error('manifest.guestBase.image must be release-pinned');
+  }
+  const baseImageId = requireString(guestBase.imageId, 'manifest.guestBase.imageId');
+  if (!/^sha256:[a-f0-9]{64}$/.test(baseImageId)) {
+    throw new Error('manifest.guestBase.imageId must be a SHA-256 image ID');
+  }
+  const script = parseRole(rootfs.script, 'script', expectedReleaseTag);
+  const agent = parseRole(rootfs.agent, 'agent', expectedReleaseTag);
+  if (script.sha256 !== agent.sha256 || script.sizeBytes !== agent.sizeBytes
+    || script.sourceImage !== agent.sourceImage
+    || script.sourceImageDigest !== agent.sourceImageDigest) {
+    throw new Error('script and agent must reference the same enclave guest image and rootfs');
+  }
   return {
     schemaVersion: 1,
     artifactType: 'awf-cloud-hypervisor-enclave-rootfs-set',
@@ -272,9 +294,10 @@ export function parseCloudHypervisorEnclaveArtifactManifest(
       kernelVersion: CLOUD_HYPERVISOR_ENCLAVE_KERNEL_VERSION,
       supervisorVersion: expectedReleaseTag,
     },
+    guestBase: { image: baseImage, imageId: baseImageId },
     rootfs: {
-      script: parseRole(rootfs.script, 'script', expectedReleaseTag),
-      agent: parseRole(rootfs.agent, 'agent', expectedReleaseTag),
+      script,
+      agent,
     },
   };
 }

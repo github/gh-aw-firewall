@@ -1,4 +1,4 @@
-#!/usr/local/bin/python3
+#!/usr/bin/python3
 """Materialize the assigned seed into bounded tmpfs, then run the script."""
 
 import os

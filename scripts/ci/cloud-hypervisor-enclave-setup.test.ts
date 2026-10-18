@@ -106,18 +106,18 @@ describe('release enclave artifact setup', () => {
 
   function fixture(compressed: boolean) {
     const rootfs: Record<string, unknown> = {};
+    const name = 'enclave-rootfs.ext4';
+    const contents = 'verified shared rootfs';
+    fs.writeFileSync(path.join(assets, `${name}${compressed ? '.gz' : ''}`),
+      compressed ? gzipSync(contents) : contents);
+    fs.writeFileSync(path.join(assets, 'enclave-rootfs.provenance.sigstore.jsonl'), '{}');
     for (const role of ['script', 'agent']) {
-      const name = `enclave-${role}-rootfs.ext4`;
-      const contents = `verified ${role} rootfs`;
       const sbomName = `enclave-${role}-rootfs.sbom.spdx.json`;
-      fs.writeFileSync(path.join(assets, `${name}${compressed ? '.gz' : ''}`),
-        compressed ? gzipSync(contents) : contents);
       fs.writeFileSync(path.join(assets, sbomName), '{}');
-      fs.writeFileSync(path.join(assets, `enclave-${role}-rootfs.provenance.sigstore.jsonl`), '{}');
       rootfs[role] = {
         role, file: name, version: tag, uid: 65534, gid: 65534,
         entrypoint: `/usr/local/bin/run-enclave-${role}`,
-        sourceImage: `ghcr.io/github/gh-aw-firewall/enclave-${role}@sha256:${'a'.repeat(64)}`,
+        sourceImage: `ghcr.io/github/gh-aw-firewall/cloud-hypervisor-enclave@sha256:${'a'.repeat(64)}`,
         sourceImageDigest: 'a'.repeat(64),
         sha256: digest(contents), sizeBytes: Buffer.byteLength(contents),
         sbom: { file: sbomName, sha256: digest('{}') },
@@ -134,9 +134,16 @@ describe('release enclave artifact setup', () => {
       compatibility: {
         cloudHypervisorVersion: '53.0', kernelVersion: '6.1.141', supervisorVersion: tag,
       },
+      guestBase: {
+        image: `ghcr.io/github/gh-aw-firewall/cloud-hypervisor-guest-base@sha256:${'a'.repeat(64)}`,
+        imageId: `sha256:${'a'.repeat(64)}`,
+      },
       rootfs,
     }));
     fs.writeFileSync(path.join(assets, manifestName.replace('.json', '.sigstore.jsonl')), '{}');
+    for (const file of fs.readdirSync(assets)) {
+      fs.chmodSync(path.join(assets, file), 0o600);
+    }
   }
 
   function runSetup() {
@@ -150,41 +157,40 @@ describe('release enclave artifact setup', () => {
     const result = runSetup();
     expect(result.stderr).toBe('');
     expect(result.status).toBe(0);
-    for (const role of ['script', 'agent']) {
-      const name = `enclave-${role}-rootfs.ext4`;
-      expect(fs.readFileSync(path.join(cache, name), 'utf8')).toBe(`verified ${role} rootfs`);
-      expect(fs.existsSync(path.join(cache, `${name}.gz`))).toBe(false);
-      expect(fs.statSync(path.join(cache, name)).mode & 0o777).toBe(0o400);
-      expect(result.stdout).toContain(path.join(cache, name));
-    }
+    const name = 'enclave-rootfs.ext4';
+    expect(fs.readFileSync(path.join(cache, name), 'utf8')).toBe('verified shared rootfs');
+    expect(fs.existsSync(path.join(cache, `${name}.gz`))).toBe(false);
+    expect(fs.statSync(path.join(cache, name)).mode & 0o777).toBe(0o400);
+    expect(result.stdout).toContain(path.join(cache, name));
     expect(runSetup().status).toBe(0);
     const calls = fs.readFileSync(log, 'utf8').trim().split('\n')
       .map((line) => JSON.parse(line) as string[]);
     expect(calls.filter((args) => args[0] === 'release')).toHaveLength(1);
-    expect(calls.filter((args) => args[0] === 'attestation')).toHaveLength(6);
+    expect(calls.filter((args) => args[0] === 'attestation')).toHaveLength(4);
   }, 30000);
 
   it.each(['gzip', 'digest', 'attestation', 'size'] as const)('does not install a cache after %s failure', (failure) => {
     fixture(true);
-    const agent = path.join(assets, 'enclave-agent-rootfs.ext4.gz');
+    const agent = path.join(assets, 'enclave-rootfs.ext4.gz');
     if (failure === 'gzip') fs.writeFileSync(agent, 'not gzip');
-    if (failure === 'digest') fs.writeFileSync(agent, gzipSync('tampered agent rootfs'));
-    if (failure === 'attestation') env.FIXTURE_REJECT_SUBJECT = 'enclave-agent-rootfs.ext4';
+    if (failure === 'digest') fs.writeFileSync(agent, gzipSync('tampered shared rootfs'));
+    if (failure === 'attestation') env.FIXTURE_REJECT_SUBJECT = 'enclave-rootfs.ext4';
     if (failure === 'size') {
       const file = path.join(assets, manifestName);
       const manifest = JSON.parse(fs.readFileSync(file, 'utf8')) as {
-        rootfs: { agent: { sizeBytes: number } };
+        rootfs: { agent: { sizeBytes: number }; script: { sizeBytes: number } };
       };
       manifest.rootfs.agent.sizeBytes++;
+      manifest.rootfs.script.sizeBytes = manifest.rootfs.agent.sizeBytes;
       fs.writeFileSync(file, JSON.stringify(manifest));
     }
     const result = runSetup();
     expect(result.status).not.toBe(0);
     expect(result.stderr).toMatch({
       gzip: /not.*gzip/i,
-      digest: /agent enclave rootfs digest mismatch/,
+      digest: /script enclave rootfs digest mismatch/,
       attestation: /fixture attestation rejected/,
-      size: /agent enclave rootfs size mismatch/,
+      size: /shared enclave rootfs size mismatch/,
     }[failure]);
     expect(fs.existsSync(cache)).toBe(false);
     expect(fs.readdirSync(path.dirname(cache)).filter((name) => name.startsWith('.staging.')))
@@ -238,20 +244,20 @@ describe('release enclave artifact setup', () => {
     'caps decompressed output at the attested size for %s overflow',
     (overflow) => {
       fixture(true);
-      const contents = 'verified agent rootfs';
+      const contents = 'verified shared rootfs';
       const payload = overflow === 'concatenated members'
         ? Buffer.concat([gzipSync(contents), gzipSync('extra')])
         : gzipSync(overflow === 'one byte' ? `${contents}!` : Buffer.alloc(8 * 1024 * 1024));
-      fs.writeFileSync(path.join(assets, 'enclave-agent-rootfs.ext4.gz'), payload);
+      fs.writeFileSync(path.join(assets, 'enclave-rootfs.ext4.gz'), payload);
       const result = runSetup();
       expect(result.status).not.toBe(0);
-      expect(result.stderr).toMatch(/agent enclave rootfs exceeds attested size/);
+      expect(result.stderr).toMatch(/shared enclave rootfs exceeds attested size/);
       const calls = fs.readFileSync(log, 'utf8').trim().split('\n')
         .map((line) => JSON.parse(line) as Array<string | number>);
       expect(calls.find((args) => args[0] === 'attestation')?.[2])
         .toContain(manifestName);
       expect(calls.find((args) => args[0] === 'cleanup'
-        && args[1] === 'enclave-agent-rootfs.ext4')?.[2])
+        && args[1] === 'enclave-rootfs.ext4')?.[2])
         .toBe(Buffer.byteLength(contents));
       expect(fs.existsSync(cache)).toBe(false);
       expect(fs.readdirSync(path.dirname(cache)).filter((name) => name.startsWith('.staging.')))
@@ -263,9 +269,9 @@ describe('release enclave artifact setup', () => {
 
   it('rejects a corrupt gzip trailer even when the output has the attested size', () => {
     fixture(true);
-    const compressed = gzipSync('verified agent rootfs');
+    const compressed = gzipSync('verified shared rootfs');
     compressed[compressed.length - 8] ^= 0xff;
-    fs.writeFileSync(path.join(assets, 'enclave-agent-rootfs.ext4.gz'), compressed);
+    fs.writeFileSync(path.join(assets, 'enclave-rootfs.ext4.gz'), compressed);
     const result = runSetup();
     expect(result.status).not.toBe(0);
     expect(result.stderr).toMatch(/(checksum|crc|length)/i);

@@ -89,6 +89,16 @@ updates:
   schedule:
     day: monday
     interval: weekly
+- directory: /containers/cloud-hypervisor
+  groups:
+    all-docker-cloud-hypervisor:
+      patterns:
+      - "*"
+  open-pull-requests-limit: 1
+  package-ecosystem: docker
+  schedule:
+    day: monday
+    interval: weekly
 - directory: /containers/api-proxy
   groups:
     all-docker-api-proxy:

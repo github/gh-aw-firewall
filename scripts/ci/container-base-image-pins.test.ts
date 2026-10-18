@@ -7,6 +7,7 @@ const containerDirectories = [
   'agent',
   'api-proxy',
   'build-tools',
+  'cloud-hypervisor',
   'cli-proxy',
   'dind-ubuntu',
   'enclave',
@@ -34,6 +35,13 @@ describe('container base image pins', () => {
         expect(match).not.toBeNull();
         const image = match![1];
         if (image.startsWith('$')) {
+          if (dockerfile.endsWith('/cloud-hypervisor/Dockerfile')) {
+            expect([
+              '${BUILD_TOOLS_IMAGE}', '${ENCLAVE_AGENT_IMAGE}', '${GUEST_BASE_IMAGE}',
+            ]).toContain(image);
+            expect(source).toContain(`ARG ${image.slice(2, -1)}=`);
+            continue;
+          }
           if (dockerfile.endsWith('/enclave/Dockerfile') && image === '${BUILD_TOOLS_IMAGE}') {
             expect(source).toContain('ARG BUILD_TOOLS_IMAGE=awf-build-tools');
             continue;

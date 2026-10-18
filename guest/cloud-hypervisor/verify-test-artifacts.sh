@@ -9,8 +9,7 @@ for file in \
   vmlinux.bin \
   kernel.config \
   rootfs.ext4 \
-  enclave-script-rootfs.ext4 \
-  enclave-agent-rootfs.ext4 \
+  enclave-rootfs.ext4 \
   awf-supervisor \
   SHA256SUMS \
   enclave-rootfs.SHA256SUMS \
@@ -50,6 +49,8 @@ for tool in \
   /usr/bin/gh \
   /usr/bin/jq \
   /usr/bin/make \
+  /usr/bin/python3 \
+  /usr/local/bin/node \
   /usr/sbin/capsh \
   /usr/sbin/gosu \
   /usr/sbin/ip; do
@@ -66,7 +67,7 @@ debugfs -R 'cat /usr/lib/os-release' "$ARTIFACT_DIR/rootfs.ext4" 2>/dev/null \
   | grep -F 'Ubuntu 26.04'
 grep -F '"purpose": "AWF Cloud Hypervisor preview test artifacts; not production defaults"' \
   "$ARTIFACT_DIR/manifest.json"
-grep -F '"base": "awf-build-tools"' "$ARTIFACT_DIR/manifest.json"
+grep -F '"base": "awf-cloud-hypervisor-guest-base"' "$ARTIFACT_DIR/manifest.json"
 test "$(jq -r '.release.repository' "$ARTIFACT_DIR/manifest.json")" = 'github/gh-aw-firewall'
 test "$(jq -r '.release.workflow' "$ARTIFACT_DIR/manifest.json")" = \
   'github/gh-aw-firewall/.github/workflows/release.yml'
@@ -106,7 +107,7 @@ debugfs_listing_has_non_dot_entries() {
 verify_enclave_rootfs() {
   local role=$1
   local entrypoint=$2
-  local file="enclave-${role}-rootfs.ext4"
+  local file="enclave-rootfs.ext4"
   local image="$ARTIFACT_DIR/$file"
   local manifest=".rootfs.${role}"
 
@@ -142,6 +143,12 @@ verify_enclave_rootfs() {
     done
   fi
   debugfs -R "stat $entrypoint" "$image" 2>&1 | grep -F 'Type: regular'
+  debugfs -R 'stat /usr/bin/python3' "$image" 2>&1 | grep -F 'Inode:'
+  debugfs -R 'stat /bin/bash' "$image" 2>&1 | grep -F 'Inode:'
+  for shared_entrypoint in run-enclave-script run-enclave-agent; do
+    debugfs -R "stat /usr/local/bin/$shared_entrypoint" "$image" 2>&1 \
+      | grep -F 'Type: regular'
+  done
   debugfs -R 'stat /usr/sbin/awf-supervisor' "$image" 2>&1 | grep -F 'Type: regular'
   debugfs -R 'stat /dev/shm' "$image" 2>&1 | grep -F 'Type: directory'
   device_listing=$(debugfs -R 'ls -p /dev' "$image" 2>/dev/null)
@@ -153,10 +160,11 @@ verify_enclave_rootfs() {
     return 1
   fi
   role_metadata=$(debugfs -R 'cat /etc/awf/enclave-role.json' "$image" 2>/dev/null)
-  test "$(printf '%s' "$role_metadata" | jq -r '.role')" = "$role"
+  test "$(printf '%s' "$role_metadata" | jq -r '.role')" = shared
   test "$(printf '%s' "$role_metadata" | jq -r '.uid')" = 65534
   test "$(printf '%s' "$role_metadata" | jq -r '.gid')" = 65534
-  test "$(printf '%s' "$role_metadata" | jq -r '.entrypoint')" = "$entrypoint"
+  printf '%s' "$role_metadata" | jq -e --arg entrypoint "$entrypoint" \
+    '.entrypoints | index($entrypoint) != null' >/dev/null
   debugfs -R 'cat /etc/passwd' "$image" 2>/dev/null \
     | grep -Eq '^[^:]+:x:65534:65534:'
 
@@ -225,13 +233,18 @@ verify_enclave_rootfs() {
 
 verify_enclave_rootfs script /usr/local/bin/run-enclave-script
 verify_enclave_rootfs agent /usr/local/bin/run-enclave-agent
+test "$(jq -r '.rootfs.script.sha256' "$ARTIFACT_DIR/enclave-manifest.json")" = \
+  "$(jq -r '.rootfs.agent.sha256' "$ARTIFACT_DIR/enclave-manifest.json")"
+test "$(jq -r '.rootfs.script.sourceImage' "$ARTIFACT_DIR/enclave-manifest.json")" = \
+  "$(jq -r '.rootfs.agent.sourceImage' "$ARTIFACT_DIR/enclave-manifest.json")"
+test "$(jq -r '.userspace.baseImageId' "$ARTIFACT_DIR/manifest.json")" = \
+  "$(jq -r '.guestBase.imageId' "$ARTIFACT_DIR/enclave-manifest.json")"
 
 tar -tzf "$ARTIFACT_DIR/awf-cloud-hypervisor-enclave-rootfs-x86_64.tar.gz" \
   | sort \
   | diff -u - <(printf '%s\n' \
-      enclave-agent-rootfs.ext4 \
+      enclave-rootfs.ext4 \
       enclave-agent-rootfs.sbom.spdx.json \
       enclave-manifest.json \
       enclave-rootfs.SHA256SUMS \
-      enclave-script-rootfs.ext4 \
       enclave-script-rootfs.sbom.spdx.json)

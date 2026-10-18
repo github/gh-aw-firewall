@@ -59,7 +59,7 @@ describe('Cloud Hypervisor enclave rootfs artifacts', () => {
     const cases: [string, string[]][] = [
       ['rm -rf "$BUILD/virtiofsd-target"', ['$virtiofsd_built', '$virtiofsd_src', 'cargo-home']],
       ['sudo rm -rf "$BUILD/linux-${LINUX_VERSION}"', ['$BUILD/linux-${LINUX_VERSION}/', '$linux_tar']],
-      ['sudo rm -rf "$BUILD/enclave-script-rootfs"', ['--rootfs-tree']],
+      ['sudo rm -rf "$BUILD/enclave-rootfs"', ['--rootfs-tree']],
       ['sudo rm -rf "$rootfs_tree"\n', ['-d "$rootfs_tree"']],
     ];
     for (const [removal, consumers] of cases) {
@@ -81,7 +81,7 @@ describe('Cloud Hypervisor enclave rootfs artifacts', () => {
     expect(build).not.toMatch(/docker (image|system) prune|docker rmi/);
     const prune = index('docker builder prune --all --force');
     expect(lines[prune - 2]).toContain('AWF_CH_PRUNE_DOCKER_BUILD_CACHE:-0}" = 1');
-    expect(prune).toBeGreaterThan(index('resolve_enclave_image "$ENCLAVE_AGENT_IMAGE"'));
+    expect(prune).toBeGreaterThan(index('resolve_guest_image "$ENCLAVE_IMAGE" enclave'));
   });
 
   it.each([
@@ -102,21 +102,25 @@ describe('Cloud Hypervisor enclave rootfs artifacts', () => {
     expect(() => execFileSync('bash', ['-n', file])).not.toThrow();
   });
 
-  it('derives distinct role rootfs images from the audited enclave container stages', () => {
+  it('derives both role entrypoints from one guest-base-backed enclave image', () => {
     const build = fs.readFileSync(buildPath, 'utf8');
     const dockerfile = fs.readFileSync(dockerfilePath, 'utf8');
+    const guest = fs.readFileSync(path.join(root, 'containers/cloud-hypervisor/Dockerfile'), 'utf8');
     for (const role of ['script', 'agent']) {
       expect(dockerfile).toContain(`AS enclave-${role}`);
-      expect(build).toContain(`enclave-${role}`);
-      expect(build).toContain(`enclave-${role}-rootfs.ext4`);
+      expect(guest).toContain(`run-enclave-${role}`);
       expect(build).toContain(`enclave-${role}-rootfs.sbom.spdx.json`);
     }
+    expect(guest).toContain('FROM ${GUEST_BASE_IMAGE} AS primary');
+    expect(guest).toContain('FROM ${GUEST_BASE_IMAGE} AS enclave');
+    expect(build).toContain('enclave-rootfs.ext4');
+    expect(build).toContain('"guestBase": {');
     expect(build).toContain('awf-cloud-hypervisor-enclave-rootfs-x86_64.tar.gz');
     expect(build).toContain('"artifactType": "awf-cloud-hypervisor-enclave-rootfs-set"');
     expect(build).toContain('"uid": 65534');
     expect(build).toContain('"gid": 65534');
     expect(build).toContain('generate-enclave-rootfs-sbom.mjs');
-    expect(build).toContain('--file "$ROOT/containers/enclave/Dockerfile"');
+    expect(build).toContain('--file "$ROOT/containers/cloud-hypervisor/Dockerfile"');
     expect(build).toContain('docker manifest inspect --verbose "$requested_image"');
     expect(build).toContain('.Descriptor.platform.architecture == "amd64"');
     expect(build).toContain('resolved_image="${requested_image%@sha256:*}@${child_digest}"');
@@ -161,7 +165,7 @@ describe('Cloud Hypervisor enclave rootfs artifacts', () => {
     expect(build).toContain('--build-arg "BUILD_TOOLS_IMAGE=$BUILD_TOOLS_IMAGE"');
     expect(build).toContain('sudo chroot "$tree" /usr/bin/ip -Version');
     expect(release).toContain(
-      'ENCLAVE_AGENT_IMAGE="ghcr.io/${{ github.repository }}/enclave-agent@${{ needs.build-enclaves.outputs.enclave_agent_digest }}"',
+      'ENCLAVE_IMAGE="ghcr.io/${{ github.repository }}/cloud-hypervisor-enclave@${{ needs.build-cloud-hypervisor-profiles.outputs.enclave_digest }}"',
     );
     const dockerfile = fs.readFileSync(dockerfilePath, 'utf8');
     expect(dockerfile).not.toContain('&& ! command -v gh');
@@ -337,29 +341,22 @@ describe('Cloud Hypervisor enclave rootfs artifacts', () => {
     expect(setup).toContain('.compatibility.supervisorVersion');
     expect(setup).toContain('.sourceImageDigest | test');
     expect(setup).toContain("'repository,workflow,tag,sourceCommit'");
-    expect(setup).toContain('enclave-script-rootfs.provenance.sigstore.jsonl');
-    expect(setup).toContain('enclave-agent-rootfs.provenance.sigstore.jsonl');
+    expect(setup).toContain('enclave-rootfs.provenance.sigstore.jsonl');
     expect(setup).toContain('AWF_CLOUD_HYPERVISOR_ENCLAVE_SCRIPT_ROOTFS');
     expect(setup).toContain('AWF_CLOUD_HYPERVISOR_ENCLAVE_AGENT_ROOTFS');
   });
 
-  it('publishes and independently attests each role artifact without replacing container images', () => {
+  it('publishes one shared enclave image and rootfs without replacing OCI enclave images', () => {
     const release = fs.readFileSync(releaseWorkflowPath, 'utf8');
     expect(release).toContain(
-      'ENCLAVE_SCRIPT_IMAGE="ghcr.io/${{ github.repository }}/enclave-script@${{ needs.build-enclaves.outputs.enclave_script_digest }}"',
+      'GUEST_BASE_IMAGE="ghcr.io/${{ github.repository }}/cloud-hypervisor-guest-base@${{ needs.build-cloud-hypervisor-guest-base.outputs.digest }}"',
     );
     expect(release).toContain(
-      'ENCLAVE_AGENT_IMAGE="ghcr.io/${{ github.repository }}/enclave-agent@${{ needs.build-enclaves.outputs.enclave_agent_digest }}"',
+      'subject-path: release/cloud-hypervisor-test-x86_64/enclave-rootfs.ext4',
     );
+    expect(release).toContain('release/enclave-rootfs.provenance.sigstore.jsonl');
     for (const role of ['script', 'agent']) {
-      expect(release).toContain(
-        `subject-path: release/cloud-hypervisor-test-x86_64/enclave-${role}-rootfs.ext4`,
-      );
-      expect(release).toContain(`release/enclave-${role}-rootfs.ext4`);
       expect(release).toContain(`release/enclave-${role}-rootfs.sbom.spdx.json`);
-      expect(release).toContain(
-        `release/enclave-${role}-rootfs.provenance.sigstore.jsonl`,
-      );
       expect(release).toContain(
         `ghcr.io/\${{ github.repository }}/enclave-${role}@\${{ steps.build_enclave_${role}.outputs.digest }}`,
       );
@@ -385,15 +382,12 @@ describe('Cloud Hypervisor enclave rootfs artifacts', () => {
         fs.writeFileSync(path.join(source, match[1]), `fixture: ${match[1]}`);
       }
       execFileSync('bash', ['-euo', 'pipefail', '-c', stage], { cwd: directory });
-      for (const role of ['script', 'agent']) {
-        const name = `enclave-${role}-rootfs.ext4`;
-        expect(fs.existsSync(path.join(directory, 'release', name))).toBe(false);
-        expect(gunzipSync(fs.readFileSync(path.join(directory, 'release', `${name}.gz`))))
-          .toEqual(fs.readFileSync(path.join(source, name)));
-      }
+      const name = 'enclave-rootfs.ext4';
+      expect(fs.existsSync(path.join(directory, 'release', name))).toBe(false);
+      expect(gunzipSync(fs.readFileSync(path.join(directory, 'release', `${name}.gz`))))
+        .toEqual(fs.readFileSync(path.join(source, name)));
       const release = fs.readFileSync(releaseWorkflowPath, 'utf8');
-      expect(release).toMatch(/^\s+release\/enclave-agent-rootfs\.ext4\.gz$/m);
-      expect(release).toMatch(/^\s+release\/enclave-script-rootfs\.ext4\.gz$/m);
+      expect(release).toMatch(/^\s+release\/enclave-rootfs\.ext4\.gz$/m);
       expect(release).not.toMatch(/^\s+release\/enclave-(agent|script)-rootfs\.ext4$/m);
     } finally {
       fs.rmSync(directory, { recursive: true, force: true });
