@@ -1,6 +1,6 @@
 import * as fs from 'fs';
 import * as path from 'path';
-import { execFileSync } from 'child_process';
+import { execFileSync, spawnSync } from 'child_process';
 
 const root = path.resolve(__dirname, '../..');
 const buildPath = path.join(root, 'guest/cloud-hypervisor/build-test-artifacts.sh');
@@ -112,7 +112,7 @@ describe('Cloud Hypervisor enclave rootfs artifacts', () => {
     expect(scan).toContain("if name == 'build-tools':\n                  build_tools_ready = True");
   });
 
-  it('emits installed packages and the rootfs checksum in generated SPDX', () => {
+  it.each([13, 2294165504])('emits identical SPDX bindings for a %i-byte rootfs with bounded hashing', (size) => {
     const directory = fs.mkdtempSync(path.join(process.env.TMPDIR ?? '/tmp', 'awf-sbom-'));
     try {
       const tree = path.join(directory, 'rootfs');
@@ -126,8 +126,18 @@ describe('Cloud Hypervisor enclave rootfs artifacts', () => {
       ].join('\n'));
       const rootfs = path.join(directory, 'rootfs.ext4');
       const output = path.join(directory, 'sbom.json');
-      fs.writeFileSync(rootfs, 'rootfs fixture');
-      execFileSync(process.execPath, [
+      const descriptor = fs.openSync(rootfs, 'wx', 0o600);
+      try {
+        fs.ftruncateSync(descriptor, size);
+        fs.writeSync(descriptor, Buffer.from('rootfs fixture'), 0, 13, 0);
+        if (size > 13) {
+          fs.writeSync(descriptor, Buffer.from('end'), 0, 3, size - 3);
+        }
+      } finally {
+        fs.closeSync(descriptor);
+      }
+      const args = [
+        '--max-old-space-size=64',
         sbomGeneratorPath,
         '--role', 'agent',
         '--rootfs-tree', tree,
@@ -137,16 +147,43 @@ describe('Cloud Hypervisor enclave rootfs artifacts', () => {
         '--source-image', 'ghcr.io/github/gh-aw-firewall/enclave-agent@sha256:fixture',
         '--source-image-digest', 'a'.repeat(64),
         '--source-date-epoch', '1767225600',
-      ]);
+      ];
+      execFileSync(process.execPath, args, { timeout: 120_000 });
+      const checksumCommand = process.platform === 'darwin' ? 'shasum' : 'sha256sum';
+      const checksumArgs = process.platform === 'darwin' ? ['-a', '256', rootfs] : [rootfs];
+      const digest = execFileSync(checksumCommand, checksumArgs, {
+        encoding: 'utf8', timeout: 120_000,
+      }).split(/\s/)[0];
       const spdx = JSON.parse(fs.readFileSync(output, 'utf8')) as {
-        packages: Array<{ name: string; checksums?: Array<{ checksumValue: string }> }>;
+        documentNamespace: string;
+        packages: Array<{ name: string; checksums?: Array<{ algorithm: string; checksumValue: string }> }>;
+        relationships: Array<{ spdxElementId: string; relationshipType: string; relatedSpdxElement: string }>;
       };
       expect(spdx.packages.map((entry) => entry.name)).toContain('ca-certificates');
-      expect(spdx.packages[0].checksums?.[0].checksumValue).toMatch(/^[a-f0-9]{64}$/);
+      expect(spdx.packages[0].checksums).toEqual([{ algorithm: 'SHA256', checksumValue: digest }]);
+      expect(spdx.documentNamespace).toBe(
+        `https://github.com/github/gh-aw-firewall/cloud-hypervisor/enclave-agent/v1.2.3/${digest}`,
+      );
+      expect(spdx.relationships).toContainEqual({
+        spdxElementId: 'SPDXRef-Rootfs',
+        relationshipType: 'GENERATED_FROM',
+        relatedSpdxElement: 'SPDXRef-SourceImage',
+      });
+      fs.unlinkSync(rootfs);
+      fs.unlinkSync(output);
+      const missing = spawnSync(process.execPath, args, { encoding: 'utf8' });
+      expect(missing.status).not.toBe(0);
+      expect(missing.stderr).toContain('ENOENT');
+      expect(fs.existsSync(output)).toBe(false);
+      fs.mkdirSync(rootfs);
+      const directoryInput = spawnSync(process.execPath, args, { encoding: 'utf8' });
+      expect(directoryInput.status).not.toBe(0);
+      expect(directoryInput.stderr).toContain('EISDIR');
+      expect(fs.existsSync(output)).toBe(false);
     } finally {
       fs.rmSync(directory, { recursive: true, force: true });
     }
-  });
+  }, 120_000);
 
   it('hardens both role trees before creating immutable ext4 images', () => {
     const build = fs.readFileSync(buildPath, 'utf8');

@@ -549,6 +549,11 @@ do not require this utility. Existing attested images are immutable: this packag
 fix requires rebuilt, release-attested agent artifacts, not a host binary overlay
 or bypass of artifact verification.
 
+Rootfs SPDX generation hashes the image as a bounded stream, including sparse
+holes, so images larger than Node's 2 GiB whole-file read limit retain the same
+SHA-256 checksum and digest-derived document namespace. Read failures abort
+generation rather than producing an unbound or partial SBOM.
+
 `TestEnclaveGuestLimitsLive` (run as root by the Cloud Hypervisor preview
 workflow) applies the real agent-role tmpfs, rlimit, read-only root, and
 all-thread privilege setup in a private mount namespace and launches a workload
