@@ -314,7 +314,7 @@ describe('finalizeHttpTracking', () => {
     expect(opts.metrics.increment).not.toHaveBeenCalled();
   });
 
-  test('fails closed when a successful response has partial token usage', () => {
+  test('fails closed and reports known usage when a successful response has partial token usage', () => {
     const onUsage = jest.fn();
     const onUsageMissing = jest.fn();
     const opts = makeOpts({ onUsage, onUsageMissing });
@@ -327,8 +327,14 @@ describe('finalizeHttpTracking', () => {
 
     finalizeHttpTracking(state, makeProxyRes(200), opts);
 
-    expect(onUsage).not.toHaveBeenCalled();
+    expect(onUsage).toHaveBeenCalledWith(
+      expect.objectContaining({ input_tokens: 10 }),
+      'openai',
+    );
     expect(onUsageMissing).toHaveBeenCalledTimes(1);
+    expect(onUsageMissing.mock.invocationCallOrder[0]).toBeLessThan(
+      onUsage.mock.invocationCallOrder[0],
+    );
   });
 
   test('non-streaming: skips metric update when overflow is set', () => {

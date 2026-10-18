@@ -62,7 +62,7 @@ function inferenceEndpoint(method, requestPath) {
   } catch {
     return null;
   }
-  if (/\/models(?:\/|$)/.test(pathname) || /\/(?:health|status)$/.test(pathname)) return null;
+  if (/\/(?:health|status)$/.test(pathname)) return null;
   if (/\/chat\/completions$/.test(pathname)) return 'chat';
   if (/\/responses$/.test(pathname)) return 'responses';
   return 'unsupported';

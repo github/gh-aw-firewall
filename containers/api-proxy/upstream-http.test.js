@@ -1,3 +1,4 @@
+const { EventEmitter } = require('events');
 const {
   createSendUpstreamRequest,
   MODEL_NOT_SUPPORTED_RETRY_DELAYS_MS,
@@ -106,6 +107,95 @@ describe('upstream-http', () => {
     expect(response.writeHead).toHaveBeenCalledWith(429, expect.any(Object));
     expect(response.end).toHaveBeenCalledWith(expect.stringContaining('awf_enclave_model_budget_request_limit'));
     expect(httpsRequest).not.toHaveBeenCalled();
+  });
+
+  test('aborts admitted work and suppresses retries and fallbacks after downstream close', async () => {
+    const proxyReq = { on: jest.fn(), write: jest.fn(), end: jest.fn() };
+    const responseCallbacks = [];
+    const httpsRequest = jest.fn((_options, callback) => {
+      responseCallbacks.push(callback);
+      return proxyReq;
+    });
+    const handleUpstreamResponse = jest.fn();
+    const settleMissing = jest.fn();
+    const modelBudget = {
+      beginAttempt: jest.fn(() => ({ allowed: true, body: null, settleMissing, settle: jest.fn() })),
+    };
+    const sendUpstreamRequest = createSendUpstreamRequest({
+      https: { request: httpsRequest },
+      proxyAgent: {},
+      handleUpstreamResponse,
+      sleep: jest.fn(() => Promise.resolve()),
+      otel: { endSpanError: jest.fn(), endSpan: jest.fn() },
+      handleRequestError: jest.fn(),
+      metrics: { gaugeDec: jest.fn(), increment: jest.fn(), observe: jest.fn() },
+      modelBudget,
+      getFallbackModels: () => ['gpt-5.4-mini'],
+    });
+    const req = {
+      method: 'POST',
+      url: '/v1/chat/completions',
+      headers: {},
+    };
+    const res = new EventEmitter();
+    Object.assign(res, { headersSent: false, destroyed: false, writableFinished: false });
+
+    sendUpstreamRequest({}, createContext({
+      body: Buffer.from('{"model":"gpt-5.4"}'),
+      req,
+      res,
+    }));
+
+    const signal = httpsRequest.mock.calls[0][0].signal;
+    expect(signal.aborted).toBe(false);
+    responseCallbacks[0]({ statusCode: 400, headers: {} });
+    const responseOptions = handleUpstreamResponse.mock.calls[0][2];
+
+    res.emit('close');
+    expect(signal.aborted).toBe(true);
+    expect(settleMissing).toHaveBeenCalledTimes(1);
+
+    expect(responseOptions.onModelFallback({ statusCode: 400, reason: 'model_not_supported' }))
+      .toBe(false);
+    responseOptions.onModelNotSupportedRetry();
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(httpsRequest).toHaveBeenCalledTimes(1);
+  });
+
+  test('aborts an admitted upstream request when the client closes before headers', () => {
+    const proxyReq = { on: jest.fn(), write: jest.fn(), end: jest.fn() };
+    const responseCallbacks = [];
+    const httpsRequest = jest.fn((_options, callback) => {
+      responseCallbacks.push(callback);
+      return proxyReq;
+    });
+    const proxyRes = { destroy: jest.fn() };
+    const handleUpstreamResponse = jest.fn();
+    const settleMissing = jest.fn();
+    const sendUpstreamRequest = createSendUpstreamRequest({
+      https: { request: httpsRequest },
+      proxyAgent: {},
+      handleUpstreamResponse,
+      sleep: jest.fn(),
+      otel: { endSpanError: jest.fn(), endSpan: jest.fn() },
+      handleRequestError: jest.fn(),
+      metrics: { gaugeDec: jest.fn(), increment: jest.fn(), observe: jest.fn() },
+      modelBudget: {
+        beginAttempt: jest.fn(() => ({ allowed: true, body: null, settleMissing })),
+      },
+    });
+    const res = new EventEmitter();
+    Object.assign(res, { headersSent: false, destroyed: false, writableFinished: false });
+
+    sendUpstreamRequest({}, createContext({ res }));
+    res.emit('close');
+
+    expect(httpsRequest.mock.calls[0][0].signal.aborted).toBe(true);
+    expect(settleMissing).toHaveBeenCalledTimes(1);
+    responseCallbacks[0](proxyRes);
+    expect(proxyRes.destroy).toHaveBeenCalledTimes(1);
+    expect(handleUpstreamResponse).not.toHaveBeenCalled();
+    expect(httpsRequest).toHaveBeenCalledTimes(1);
   });
 
   test('does not let a scoped auto request escape through the global fallback chain', () => {

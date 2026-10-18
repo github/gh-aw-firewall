@@ -1,3 +1,4 @@
+const { EventEmitter } = require('events');
 const { setupTokenTracking } = require('./upstream-token');
 
 describe('upstream-token', () => {
@@ -42,5 +43,50 @@ describe('upstream-token', () => {
     );
     expect(otel.setBudgetAttributes).toHaveBeenCalled();
     expect(otel.endSpan).toHaveBeenCalledWith({ id: 'span-1' }, 200);
+  });
+
+  test('settles enclave usage only through the token tracker finalizer', () => {
+    const trackTokenUsage = jest.fn();
+    const res = new EventEmitter();
+    const budgetAttempt = {
+      settle: jest.fn(),
+      settleMissing: jest.fn(),
+    };
+    const req = {
+      url: '/v1/chat/completions',
+      awfEnclaveModelBudgetAttempt: budgetAttempt,
+    };
+
+    setupTokenTracking({}, Buffer.from('{}'), {
+      requestId: 'req-close',
+      provider: 'openai',
+      req,
+      res,
+      startTime: Date.now(),
+      billingInfo: null,
+      initiatorSent: null,
+      span: {},
+      isStreaming: true,
+      trackTokenUsage,
+      sanitizeForLog: (value) => value,
+      metrics: { increment: jest.fn(), observe: jest.fn() },
+      otel: {
+        setTokenAttributes: jest.fn(),
+        setBudgetAttributes: jest.fn(),
+        endSpan: jest.fn(),
+      },
+      logRequest: jest.fn(),
+    });
+
+    res.emit('close');
+    expect(budgetAttempt.settleMissing).not.toHaveBeenCalled();
+
+    const trackingOptions = trackTokenUsage.mock.calls[0][1];
+    trackingOptions.onUsage({ input_tokens: 15, output_tokens: 0 }, 'gpt-5.4');
+    expect(budgetAttempt.settle).toHaveBeenCalledWith({
+      input_tokens: 15,
+      output_tokens: 0,
+    });
+    expect(budgetAttempt.settleMissing).not.toHaveBeenCalled();
   });
 });

@@ -468,14 +468,15 @@ function finalizeHttpTracking(state, proxyRes, opts) {
 
   let budgetResult;
   const completeModelUsage = hasCompleteModelUsage(usage);
-  if (completeModelUsage && typeof onUsage === 'function') {
+  if (!completeModelUsage) {
+    try { opts.onUsageMissing?.(); } catch { /* best-effort enforcement observer */ }
+  }
+  if (typeof onUsage === 'function') {
     try {
       budgetResult = onUsage(normalized, model || requestModel || provider || 'unknown');
     } catch {
       // best-effort callback
     }
-  } else if (!completeModelUsage) {
-    try { opts.onUsageMissing?.(); } catch { /* best-effort enforcement observer */ }
   }
 
   // Update metrics

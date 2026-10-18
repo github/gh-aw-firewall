@@ -417,7 +417,7 @@ export function buildEnclaveMcpService(params: EnclaveMcpServiceParams): Enclave
       ...(agent.maxModelTokens !== undefined && {
         AWF_ENCLAVE_AGENT_MAX_MODEL_TOKENS: String(agent.maxModelTokens),
       }),
-      ...(modelBudgetSecret !== undefined && {
+      ...(modelBudgetSecret !== undefined && !hostExecutor && {
         AWF_ENCLAVE_AGENT_MODEL_BUDGET_SECRET: modelBudgetSecret,
       }),
       // Enclave bind-mount sources are handed to the daemon, not opened by the

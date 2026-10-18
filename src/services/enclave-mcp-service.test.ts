@@ -138,7 +138,11 @@ describe('buildEnclaveMcpService', () => {
       const entries: RawEnclaveEntry[] = [];
       if (kind !== 'agent') entries.push({ script: {}, runtime: 'cloud-hypervisor', repos });
       if (kind !== 'script') {
-        entries.push({ agent: { engine: 'copilot', model: 'gpt-4.1' }, runtime: 'cloud-hypervisor', repos });
+        entries.push({
+          agent: { engine: 'copilot', model: 'gpt-4.1', maxModelRequests: 2 },
+          runtime: 'cloud-hypervisor',
+          repos,
+        });
       }
       const enclaves = normalizeEnclavesConfig(entries);
       const result = buildEnclaveMcpService({
@@ -160,7 +164,9 @@ describe('buildEnclaveMcpService', () => {
       if (kind !== 'agent') expect(environment.AWF_ENCLAVE_ENTRY_ID).toBe('script');
       if (kind !== 'script') {
         expect(environment.AWF_ENCLAVE_AGENT_ENTRY_ID).toBe('agent');
-        expect(result.agentApiProxyService).toBeDefined();
+        expect(environment.AWF_ENCLAVE_AGENT_MODEL_BUDGET_SECRET).toBeUndefined();
+        const proxyEnvironment = result.agentApiProxyService!.environment as Record<string, string>;
+        expect(proxyEnvironment.AWF_ENCLAVE_AGENT_MODEL_BUDGET_SECRET).toMatch(/^[0-9a-f]{64}$/);
       }
       const paths = resolveEnclavePaths(workDir);
       const volumes = result.service.volumes as string[];

@@ -40,6 +40,33 @@ describe('invocation-scoped enclave model budgets', () => {
     expect(attempt(budget, token)).toMatchObject({ allowed: false, reason: 'request_limit' });
   });
 
+  test('enforces budgets on inference routes below a /models API prefix', () => {
+    const budget = createInvocationModelBudget(secret);
+    const token = capability('invocation-prefix0001', 1);
+    const prefixed = attempt(
+      budget,
+      token,
+      Buffer.from('{"model":"test"}'),
+      '/models/chat/completions',
+    );
+
+    expect(prefixed.allowed).toBe(true);
+    expect(attempt(budget, token, Buffer.from('{}'), '/models/responses'))
+      .toMatchObject({ allowed: false, reason: 'request_limit' });
+
+    const tokenBudget = createInvocationModelBudget(secret);
+    const bounded = attempt(
+      tokenBudget,
+      capability('invocation-prefix0002', null, 128),
+      Buffer.from('{"model":"test"}'),
+      '/models/chat/completions',
+    );
+    expect(bounded.allowed).toBe(true);
+    expect(JSON.parse(bounded.body.toString('utf8')).max_tokens).toBe(
+      128 - Buffer.byteLength('{"model":"test"}'),
+    );
+  });
+
   test('bounds chat and responses output and requires usage for streaming', () => {
     const budget = createInvocationModelBudget(secret);
     const chat = attempt(
