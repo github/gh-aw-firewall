@@ -126,7 +126,9 @@ describe('host-only public enclave debug collector', () => {
       expect(fs.existsSync(path.join(run, 'upload'))).toBe(false);
     });
 
-  it.each(['rate_limited', 'request_validation_failed', 'model_fallback_exhausted'])(
+  it.each(['rate_limited', 'request_validation_failed', 'model_fallback_exhausted',
+    'enclave_model_capability_missing', 'enclave_model_capability_scheme', 'enclave_model_capability_format',
+    'enclave_model_capability_signature', 'enclave_model_capability_claims', 'enclave_model_capability_claims_changed'])(
     'collects the fixed %s event without free-form data', async event => {
       prepareRun();
       fs.writeFileSync(path.join(roots.journal, `${runId}.journal`),

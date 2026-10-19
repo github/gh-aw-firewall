@@ -195,6 +195,8 @@ function projectProxyContainerLog(bytes) {
     'request_transform_failed', 'key_validation_error', 'oidc_startup_failed',
     'model_fetch_error', 'model_routing_bootstrap_error',
     'enclave_model_budget_rejected', 'rate_limited', 'request_validation_failed', 'model_fallback_exhausted',
+    'enclave_model_capability_missing', 'enclave_model_capability_scheme', 'enclave_model_capability_format',
+    'enclave_model_capability_signature', 'enclave_model_capability_claims', 'enclave_model_capability_claims_changed',
   ]);
   if (lines.at(-1) !== '' ||
       !/^capture_status=(?:captured dropped=(?:[0-9]{1,5})|empty|unavailable)$/.test(trailer ?? '') ||

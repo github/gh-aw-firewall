@@ -14,6 +14,8 @@ const SAFE_LOG_EVENTS = new Set([
   'request_transform_failed', 'key_validation_error', 'oidc_startup_failed',
   'model_fetch_error', 'model_routing_bootstrap_error',
   'enclave_model_budget_rejected', 'rate_limited', 'request_validation_failed', 'model_fallback_exhausted',
+  'enclave_model_capability_missing', 'enclave_model_capability_scheme', 'enclave_model_capability_format',
+  'enclave_model_capability_signature', 'enclave_model_capability_claims', 'enclave_model_capability_claims_changed',
 ]);
 const SAFE_LEVELS = new Set(['info', 'warn', 'error']);
 const SAFE_PROJECTED_LOG_LINE =

@@ -8,12 +8,14 @@ const MAX_MODEL_REQUESTS = 10_000;
 const MAX_MODEL_TOKENS = 10_000_000;
 const CLAIM_KEYS = ['v', 'invocationId', 'maxRequests', 'maxTokens'];
 
-function decodeCapability(authorization, secret) {
-  if (typeof authorization !== 'string' || !authorization.startsWith('Bearer ')) return null;
+function decodeCapability(authorization, secret, onRejected = () => {}) {
+  const reject = reason => { onRejected(reason); return null; };
+  if (typeof authorization !== 'string' || authorization.length === 0) return reject('missing');
+  if (!authorization.startsWith('Bearer ')) return reject('scheme');
   const token = authorization.slice(7);
-  if (token.length > 2048) return null;
+  if (token.length > 2048) return reject('format');
   const parts = token.split('.');
-  if (parts.length !== 2) return null;
+  if (parts.length !== 2) return reject('format');
   const [payload, signature] = parts;
   const key = Buffer.from(secret, 'hex');
   const expected = crypto.createHmac('sha256', key).update(payload).digest();
@@ -21,21 +23,21 @@ function decodeCapability(authorization, secret) {
   try {
     actual = Buffer.from(signature, 'base64url');
   } catch {
-    return null;
+    return reject('signature');
   }
   if (
     actual.length !== expected.length ||
     actual.toString('base64url') !== signature ||
     !crypto.timingSafeEqual(actual, expected)
-  ) return null;
+  ) return reject('signature');
 
   let claims;
   try {
     const encoded = Buffer.from(payload, 'base64url');
-    if (encoded.toString('base64url') !== payload) return null;
+    if (encoded.toString('base64url') !== payload) return reject('claims');
     claims = JSON.parse(encoded.toString('utf8'));
   } catch {
-    return null;
+    return reject('claims');
   }
   if (
     !claims || typeof claims !== 'object' || Array.isArray(claims) ||
@@ -50,7 +52,7 @@ function decodeCapability(authorization, secret) {
       (!Number.isSafeInteger(claims.maxTokens) || claims.maxTokens < 1 ||
         claims.maxTokens > MAX_MODEL_TOKENS)) ||
     (claims.maxRequests === null && claims.maxTokens === null)
-  ) return null;
+  ) return reject('claims');
   return claims;
 }
 
@@ -143,8 +145,9 @@ function createInvocationModelBudget(secret, { maxStates = MAX_INVOCATION_STATES
     if (endpoint === null) {
       return { allowed: true, body: null, settle: () => {}, settleMissing: () => {} };
     }
-    const claims = decodeCapability(authorization, secret);
-    if (!claims) return { allowed: false, reason: 'invalid_capability' };
+    let capabilityFailure;
+    const claims = decodeCapability(authorization, secret, reason => { capabilityFailure = reason; });
+    if (!claims) return { allowed: false, reason: 'invalid_capability', capabilityFailure };
     if (endpoint === 'unsupported' && claims.maxTokens !== null) {
       return { allowed: false, reason: 'unsupported_token_accounting' };
     }
@@ -153,7 +156,7 @@ function createInvocationModelBudget(secret, { maxStates = MAX_INVOCATION_STATES
     if (state && (
       state.maxRequests !== claims.maxRequests ||
       state.maxTokens !== claims.maxTokens
-    )) return { allowed: false, reason: 'invalid_capability' };
+    )) return { allowed: false, reason: 'invalid_capability', capabilityFailure: 'claims_changed' };
     if (!state) {
       if (invocations.size >= maxStates) return { allowed: false, reason: 'accounting_capacity' };
       state = {

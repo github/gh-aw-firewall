@@ -527,6 +527,17 @@ function createSendUpstreamRequest({
         provider,
         reason: budgetAttempt.reason,
       });
+      const capabilityEvent = {
+        missing: 'enclave_model_capability_missing',
+        scheme: 'enclave_model_capability_scheme',
+        format: 'enclave_model_capability_format',
+        signature: 'enclave_model_capability_signature',
+        claims: 'enclave_model_capability_claims',
+        claims_changed: 'enclave_model_capability_claims_changed',
+      }[budgetAttempt.capabilityFailure];
+      if (budgetAttempt.reason === 'invalid_capability' && capabilityEvent) {
+        logRequest?.('warn', capabilityEvent, { status: statusCode });
+      }
       otel.endSpan(span, statusCode);
       if (res.headersSent) {
         res.destroy?.();

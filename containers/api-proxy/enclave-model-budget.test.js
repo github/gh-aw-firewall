@@ -31,6 +31,35 @@ function attempt(budget, token, body = Buffer.from('{"model":"test"}'), path = '
 }
 
 describe('invocation-scoped enclave model budgets', () => {
+  test.each([
+    [undefined, 'missing'],
+    ['', 'missing'],
+    ['Basic PRIVATE_CREDENTIAL', 'scheme'],
+    ['Bearer PRIVATE_CREDENTIAL', 'format'],
+    ['Bearer PRIVATE_PAYLOAD.PRIVATE_SIGNATURE', 'signature'],
+  ])('classifies rejected capabilities without returning credential material (%s)', (authorization, failure) => {
+    const result = attempt(createInvocationModelBudget(secret), authorization);
+    expect(result).toEqual({
+      allowed: false, reason: 'invalid_capability', capabilityFailure: failure,
+    });
+    expect(JSON.stringify(result)).not.toMatch(/PRIVATE/);
+  });
+
+  test('distinguishes signed invalid claims from a signature mismatch', () => {
+    expect(attempt(createInvocationModelBudget(secret), capability('short', 1))).toEqual({
+      allowed: false, reason: 'invalid_capability', capabilityFailure: 'claims',
+    });
+    const changedSecret = createInvocationModelBudget('b'.repeat(64));
+    expect(attempt(changedSecret, capability('invocation-00000001', 1))).toEqual({
+      allowed: false, reason: 'invalid_capability', capabilityFailure: 'signature',
+    });
+    const budget = createInvocationModelBudget(secret);
+    expect(attempt(budget, capability('invocation-00000001', 1)).allowed).toBe(true);
+    expect(attempt(budget, capability('invocation-00000001', 2))).toEqual({
+      allowed: false, reason: 'invalid_capability', capabilityFailure: 'claims_changed',
+    });
+  });
+
   test('counts each admitted upstream attempt, including retries, against the request ceiling', () => {
     const budget = createInvocationModelBudget(secret);
     const token = capability('invocation-00000001', 2);

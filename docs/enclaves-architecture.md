@@ -886,6 +886,11 @@ accounting is not evidence of no request. Proxy events and container projections
 are run-cumulative, retained once under the protected run journal even before
 the first invocation, and never attributed to an individual invocation.
 Auditing does not depend on configuring model-budget limits.
+Capability rejections additionally retain fixed event names distinguishing
+missing authorization, an invalid scheme or format, signature rejection, invalid
+claims, and changed invocation claims. They never retain authorization values,
+capability payloads, signatures, or token hashes. These local authentication
+failures return HTTP 403; exhausted model budgets return HTTP 429.
 The primary proxy's logs are separate
 and do not explain an enclave proxy rejection. See
 [the diagnostic retention contract](cloud-hypervisor-foundation.md#redacted-enclave-proxy-usage-evidence).

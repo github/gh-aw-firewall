@@ -93,7 +93,9 @@ describe('public run-cumulative enclave proxy diagnostics', () => {
       });
     });
 
-  it.each(['enclave_model_budget_rejected', 'rate_limited', 'request_validation_failed', 'model_fallback_exhausted'])(
+  it.each(['enclave_model_budget_rejected', 'rate_limited', 'request_validation_failed', 'model_fallback_exhausted',
+    'enclave_model_capability_missing', 'enclave_model_capability_scheme', 'enclave_model_capability_format',
+    'enclave_model_capability_signature', 'enclave_model_capability_claims', 'enclave_model_capability_claims_changed'])(
     'retains only the fixed %s rejection event and drops free-form fields', async event => {
       const log = await captureEnclaveProxyContainerLog(async () => ({
         exitCode: 0, stdout: '', stderr: JSON.stringify({
