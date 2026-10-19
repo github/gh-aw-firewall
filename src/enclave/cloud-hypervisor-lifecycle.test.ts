@@ -223,6 +223,7 @@ describe('trusted Cloud Hypervisor enclave lifecycle', () => {
         },
       },
     }));
+    expect(start.mock.calls[0][0].publicDebugArtifactDirectory).toBeUndefined();
     expect((provider.prepareRun as jest.Mock).mock.invocationCallOrder[0])
       .toBeLessThan(start.mock.invocationCallOrder[0]);
     await expect(assertCloudHypervisorEnclaveLifecycleReady(config)).resolves.toBeUndefined();
@@ -240,8 +241,13 @@ describe('trusted Cloud Hypervisor enclave lifecycle', () => {
     await stopCloudHypervisorEnclaveLifecycle(config);
   });
 
-  it.each([true, false])('verifies public fixtures before exposing a debug-enabled listener (public=%s)', async (isPublic) => {
-    config.cloudHypervisor!.enclaveDebugPublic = true;
+  it.each([
+    { isPublic: true, explicit: true },
+    { isPublic: false, explicit: true },
+    { isPublic: true, explicit: undefined },
+    { isPublic: false, explicit: undefined },
+  ])('verifies public fixtures before retention (public=$isPublic, explicit=$explicit)', async ({ isPublic, explicit }) => {
+    config.cloudHypervisor!.enclaveDebugPublic = explicit;
     config.enclaves!.privateRepos[0].sensitivity = 'public';
     const paths = resolveEnclavePaths(workDir);
     const seedMap = JSON.parse(fs.readFileSync(paths.seedMapPath, 'utf8'));
@@ -258,6 +264,7 @@ describe('trusted Cloud Hypervisor enclave lifecycle', () => {
     } else {
       await startCloudHypervisorEnclaveLifecycle(config, provider, {});
       expect(start).toHaveBeenCalledWith(expect.objectContaining({
+        config: expect.objectContaining({ enclaveDebugPublic: true }),
         publicDebugArtifactDirectory: ENCLAVE_DEBUG_ARTIFACT_ROOT,
         publicDebugArtifactProtectedRoot: path.dirname(path.dirname(ENCLAVE_DEBUG_ARTIFACT_ROOT)),
       }));
@@ -265,6 +272,20 @@ describe('trusted Cloud Hypervisor enclave lifecycle', () => {
         .toBeLessThan((provider.prepareRun as jest.Mock).mock.invocationCallOrder[0]);
       await stopCloudHypervisorEnclaveLifecycle(config);
     }
+  });
+
+  it('honors an explicit public log opt-out without requesting visibility', async () => {
+    config.cloudHypervisor!.enclaveDebugPublic = false;
+    config.enclaves!.privateRepos[0].sensitivity = 'public';
+    const paths = resolveEnclavePaths(workDir);
+    const seedMap = JSON.parse(fs.readFileSync(paths.seedMapPath, 'utf8'));
+    seedMap.seeds[0].sensitivity = 'public';
+    fs.writeFileSync(paths.seedMapPath, JSON.stringify(seedMap));
+    const request = jest.spyOn(globalThis, 'fetch');
+    await startCloudHypervisorEnclaveLifecycle(config, provider, {});
+    expect(request).not.toHaveBeenCalled();
+    expect(start.mock.calls[0][0].publicDebugArtifactDirectory).toBeUndefined();
+    await stopCloudHypervisorEnclaveLifecycle(config);
   });
 
   it('tracks deferred public visibility verification for duplicate startup and shutdown', async () => {

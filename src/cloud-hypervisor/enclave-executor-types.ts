@@ -74,6 +74,7 @@ export interface HostEnclaveExecutorManager {
 
 export interface HostEnclaveExecutorDependencies {
   readonly readSessionDiagnostics?: typeof import('./enclave-session-diagnostics').readEnclaveSessionDiagnostics;
+  readonly preservePublicSession?: typeof import('./diagnostics').preservePublicEnclaveSession;
   readonly preflight?: typeof import('./preflight').runCloudHypervisorCommonPreflight;
   readonly preflightEnclaveArtifacts?: typeof import('./enclave-artifact-preflight').preflightCloudHypervisorEnclaveArtifacts;
   readonly prepareInvocationStorage?: (

@@ -4,6 +4,7 @@ import * as path from 'path';
 import {
   BoundedOutputCapture,
   collectCloudHypervisorDiagnostics,
+  preservePublicEnclaveSession,
   preserveVirtiofsdStartupEvidence,
   writeGuestOutputAudit,
 } from './diagnostics';
@@ -212,4 +213,54 @@ describe('Cloud Hypervisor diagnostic ownership', () => {
     });
     expect(await fs.readFile(target, 'utf8')).toBe('preserve me');
   });
+
+  it.each(['regular', 'file-symlink', 'directory-symlink', 'hardlink'] as const)(
+    'protects public session retention destinations (%s)', async (kind) => {
+      const protectedRoot = path.join(scratch, 'protected');
+      const directory = path.join(protectedRoot, 'invocation');
+      await fs.mkdir(directory, { recursive: true, mode: 0o700 });
+      const target = path.join(scratch, 'outside.log');
+      const destination = path.join(directory, 'enclave-session.log');
+      await fs.writeFile(target, 'preserve me', { mode: 0o600 });
+      if (kind === 'file-symlink') await fs.symlink(target, destination);
+      if (kind === 'hardlink') await fs.link(target, destination);
+      if (kind === 'directory-symlink') {
+        await fs.rename(directory, path.join(scratch, 'moved'));
+        await fs.symlink(path.join(scratch, 'moved'), directory);
+      }
+      const chown = jest.fn().mockResolvedValue(undefined);
+      const deps = dependencies({
+        mkdir: fs.mkdir,
+        lstat: fs.lstat,
+        realpath: fs.realpath,
+        open: async (...args: Parameters<typeof fs.open>) => {
+          const handle = await fs.open(...args);
+          handle.chown = chown;
+          return handle;
+        },
+      });
+      const secret = 'invocation-capability-secret';
+      const result = preservePublicEnclaveSession(directory, protectedRoot, [
+        'PUBLIC_ENGINE_ERROR',
+        `Authorization: Bearer ${secret}`,
+        `{"credential":"${secret}","message":"copilot exited"}`,
+        'github_pat_example123 sk-example123',
+        'x'.repeat(1024 * 1024),
+      ].join('\n'), [secret], deps);
+      if (kind !== 'regular') {
+        await expect(result).rejects.toThrow();
+        expect(await fs.readFile(target, 'utf8')).toBe('preserve me');
+        return;
+      }
+      await result;
+      const text = await fs.readFile(destination, 'utf8');
+      expect(text).toContain('PUBLIC_ENGINE_ERROR');
+      expect(text).toContain('copilot exited');
+      expect(text).not.toMatch(/invocation-capability-secret|github_pat_example123|sk-example123/);
+      expect((await fs.stat(destination)).size).toBe(1024 * 1024);
+      expect((await fs.stat(destination)).mode & 0o777).toBe(0o600);
+      expect((await fs.stat(directory)).mode & 0o777).toBe(0o700);
+      expect(chown.mock.calls.every(([uid, gid]) => uid === 0 && gid === 0)).toBe(true);
+    },
+  );
 });

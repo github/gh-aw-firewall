@@ -1153,7 +1153,7 @@
         },
         "enclaveDebugPublic": {
           "type": "boolean",
-          "description": "Opt in to bounded raw enclave logs in protected host-only artifacts. Requires static public repositories verified with unauthenticated GitHub metadata; rejects dynamic/private scopes and unattested artifacts."
+          "description": "Retain bounded enclave logs in protected host-only artifacts. Defaults on for attested, static public-only Cloud Hypervisor enclaves after unauthenticated GitHub visibility verification. Set false to opt out. Explicit true rejects dynamic/private scopes and unattested artifacts."
         },
         "scratchMib": {
           "type": "integer",

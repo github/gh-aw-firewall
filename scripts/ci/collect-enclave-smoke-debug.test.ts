@@ -153,6 +153,17 @@ describe('host-only public enclave debug collector', () => {
       .toEqual(['collection-status.txt', 'guest-stderr.raw.log', ...names].sort());
   });
 
+  it('includes the bounded host-retained public Copilot session in smoke debug artifacts', () => {
+    prepareRun();
+    const source = invocation();
+    fs.writeFileSync(path.join(source, 'enclave-session.log'),
+      '{"event":"engine-result","stderr":{"raw":"public engine error"}}\n', { mode: 0o600 });
+    expect(collectRun()).toBe(2);
+    const session = path.join(run, 'upload/enclave-session.log');
+    expect(fs.readFileSync(session, 'utf8')).toContain('public engine error');
+    expect(fs.statSync(session).mode & 0o777).toBe(0o600);
+  });
+
   it('retains eligible evidence alongside global and malformed identities without using them as paths', () => {
     prepareRun();
     invocation();

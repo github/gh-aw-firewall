@@ -26,6 +26,7 @@ import { readEnclaveProxyUsage, unavailableEnclaveProxyUsage } from './proxy-usa
 import { preserveHostExecutorInvocationEvidence } from '../cloud-hypervisor/diagnostics';
 import { resolveCloudHypervisorManagerDependencies } from '../cloud-hypervisor/manager';
 import {
+  resolvePublicEnclaveDebugConfig,
   verifyPublicEnclaveDebugRepositories,
   ENCLAVE_DEBUG_ARTIFACT_PROTECTED_ROOT,
   ENCLAVE_DEBUG_ARTIFACT_ROOT,
@@ -175,13 +176,14 @@ export async function startCloudHypervisorEnclaveLifecycle(
   const paths = resolveEnclavePaths(config.workDir);
   if (runs.has(paths.root)) throw new Error('Cloud Hypervisor enclave host executor already exists for this run');
   if (!config.cloudHypervisor) throw new Error('Cloud Hypervisor enclave runtime configuration is missing');
+  const debugConfig = resolvePublicEnclaveDebugConfig(config);
   const options: CloudHypervisorEnclaveHostServiceOptions = {
     runtimeDir: paths.hostExecutorDir,
     runState: deriveCloudHypervisorEnclaveRunState(config, paths),
-    config: config.cloudHypervisor,
+    config: debugConfig.cloudHypervisor!,
     workDir: paths.workDir,
     agentPolicies: deriveAgentPolicies(config),
-    ...(config.cloudHypervisor.enclaveDebugPublic
+    ...(debugConfig.cloudHypervisor!.enclaveDebugPublic
       ? {
           publicDebugArtifactDirectory: ENCLAVE_DEBUG_ARTIFACT_ROOT,
           publicDebugArtifactProtectedRoot: ENCLAVE_DEBUG_ARTIFACT_PROTECTED_ROOT,
@@ -196,8 +198,8 @@ export async function startCloudHypervisorEnclaveLifecycle(
   run.startPromise = (async () => {
     try {
       updateEnclaveStartupProgress(config, { stage: 'host-preflight' });
-      if (config.cloudHypervisor!.enclaveDebugPublic) {
-        await verifyPublicEnclaveDebugRepositories(config);
+      if (debugConfig.cloudHypervisor!.enclaveDebugPublic) {
+        await verifyPublicEnclaveDebugRepositories(debugConfig);
         logger.warn(`Public enclave debug retains unredacted raw logs in ${ENCLAVE_DEBUG_ARTIFACT_ROOT}; do not publish these artifacts.`);
       }
       await assertCloudHypervisorEnclavePrerequisites(config, storageProvider);

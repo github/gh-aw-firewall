@@ -153,11 +153,11 @@ function projectSession(bytes: Buffer): EnclaveSessionDiagnostics {
 }
 
 /** Called only after confirmed VM stop, before the invocation-private mount is removed. */
-export async function readEnclaveSessionDiagnostics(
+async function readSession(
   invocationDirectory: string,
-  uid = 65534,
-  gid = 65534,
-): Promise<EnclaveSessionDiagnostics> {
+  uid: number,
+  gid: number,
+): Promise<EnclaveSessionDiagnostics | Buffer> {
   let handle: Awaited<ReturnType<typeof fs.open>> | undefined;
   try {
     const runtime = path.join(invocationDirectory, 'runtime');
@@ -179,11 +179,24 @@ export async function readEnclaveSessionDiagnostics(
       total += bytesRead;
     }
     if (total > MAX_SESSION_BYTES) return { status: 'oversized' };
-    return projectSession(bytes.subarray(0, total));
+    return bytes.subarray(0, total);
   } catch (error) {
     const code = (error as NodeJS.ErrnoException).code;
     return { status: code === 'ENOENT' ? 'missing' : code === 'ELOOP' ? 'unsafe' : 'read-failed' };
   } finally {
     await handle?.close();
   }
+}
+
+/** Public text is handed only to a trusted host sink, never included in the audit projection. */
+export async function readEnclaveSessionDiagnostics(
+  invocationDirectory: string,
+  uid = 65534,
+  gid = 65534,
+  retainPublicSession?: (contents: string) => Promise<void>,
+): Promise<EnclaveSessionDiagnostics> {
+  const session = await readSession(invocationDirectory, uid, gid);
+  if (!Buffer.isBuffer(session)) return session;
+  if (retainPublicSession) await retainPublicSession(session.toString('utf8'));
+  return projectSession(session);
 }

@@ -24,6 +24,7 @@ import {
 } from './manager-types';
 import type { VirtiofsdDevice } from './virtiofsd';
 import type { CloudHypervisorConfinementEvidence } from './confinement-verifier';
+import { redactSensitiveValues } from '../redact-secrets';
 import type { GuestConnectionDiagnostics } from './guest-execution';
 
 /** Reads at most `maxBytes` from the end of `filePath`. */
@@ -424,6 +425,28 @@ export async function preserveHostExecutorInvocationEvidence(
     }
     await writeAuditFile(dependencies, path.join(prepared.directory, item.name), item.contents, prepared.identity);
   }
+}
+
+/** Retain public-only engine evidence without widening ordinary audit disclosure. */
+export async function preservePublicEnclaveSession(
+  directory: string,
+  protectedRoot: string,
+  contents: string,
+  secrets: string[],
+  dependencies: AuditDependencies,
+): Promise<void> {
+  const prepared = await prepareRootOwnedDebugDirectory(directory, protectedRoot, dependencies);
+  const forms = secrets.flatMap((secret) => [secret, JSON.stringify(secret).slice(1, -1)]);
+  const redacted = redactSensitiveValues(contents, forms)
+    .replace(/\b((?:proxy-)?authorization\s*[:=]\s*)[^\r\n"\\]+/gi, '$1[REDACTED]')
+    .replace(/\bbearer\s+[^\s"\\]+/gi, 'Bearer [REDACTED]')
+    .replace(/\b(?:github_pat_[A-Za-z0-9_]+|gh[pousr]_[A-Za-z0-9_]+|sk-[A-Za-z0-9_-]+)\b/g, '[REDACTED]');
+  await writeAuditFile(
+    dependencies,
+    path.join(prepared.directory, 'enclave-session.log'),
+    Buffer.from(redacted).subarray(0, 1024 * 1024),
+    prepared.identity,
+  );
 }
 
 export async function writeGuestOutputAudit(

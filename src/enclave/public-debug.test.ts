@@ -3,6 +3,7 @@ import { normalizeEnclavesConfig } from '../parsers/enclave-parser';
 import { assertCloudHypervisorEnclaveExportsIsolated, assertPrivateRootIsolated } from './mount-policy';
 import {
   ENCLAVE_DEBUG_ARTIFACT_ROOT,
+  resolvePublicEnclaveDebugConfig,
   validatePublicEnclaveDebug,
   verifyPublicEnclaveDebugRepositories,
 } from './public-debug';
@@ -23,7 +24,18 @@ function requester(metadata: unknown, status = 200): jest.MockedFunction<typeof 
 }
 
 describe('host-only public enclave debug admission', () => {
-  it('does not check visibility or enable artifacts by default', async () => {
+  it('defaults eligible public-only configurations to retention without mutating caller state', () => {
+    const c = config();
+    delete c.cloudHypervisor!.enclaveDebugPublic;
+    const resolved = resolvePublicEnclaveDebugConfig(c);
+    expect(resolved.cloudHypervisor!.enclaveDebugPublic).toBe(true);
+    expect(c.cloudHypervisor!.enclaveDebugPublic).toBeUndefined();
+    c.cloudHypervisor!.enclaveDebugPublic = false;
+    expect(resolvePublicEnclaveDebugConfig(c)).toBe(c);
+    expect(c.cloudHypervisor!.enclaveDebugPublic).toBe(false);
+  });
+
+  it('leaves visibility verification to the lifecycle after default resolution', async () => {
     const c = config();
     delete c.cloudHypervisor!.enclaveDebugPublic;
     const request = requester({});
@@ -142,6 +154,8 @@ describe('host-only public enclave debug admission', () => {
     expect(validatePublicEnclaveDebug(c)).not.toEqual([]);
     await expect(verifyPublicEnclaveDebugRepositories(c, request)).rejects.toThrow(/public-only/);
     expect(request).not.toHaveBeenCalled();
+    if (c.cloudHypervisor) delete c.cloudHypervisor.enclaveDebugPublic;
+    expect(resolvePublicEnclaveDebugConfig(c)).toBe(c);
   });
 
   it('rejects primary-agent mounts and exports overlapping protected debug artifacts', () => {

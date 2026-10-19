@@ -22,6 +22,7 @@ import {
 import { HostPreflightReporter, markHostPreflightError } from './host-preflight-progress';
 import { guestExecutionFailureReason } from '../microvm/vsock-client';
 import { readEnclaveSessionDiagnostics } from './enclave-session-diagnostics';
+import { preservePublicEnclaveSession } from './diagnostics';
 import { DurableCloudHypervisorCleanupRegistry } from './cleanup-registry';
 import {
   assertBoundedEnclaveStorage, mountBoundedEnclaveStorage, unmountBoundedEnclaveStorage,
@@ -627,7 +628,10 @@ export class CloudHypervisorHostEnclaveExecutorBackend implements HostEnclaveExe
         uid: CLOUD_HYPERVISOR_ENCLAVE_RESOURCE_PROFILES[role].uid,
         gid: CLOUD_HYPERVISOR_ENCLAVE_RESOURCE_PROFILES[role].gid,
         timeoutMs: plan.timeoutMs + HOST_EXECUTOR_TIMEOUT_GRACE_MS,
-        env: role === 'agent' && policy ? agentEnvironment(policy, plan) : {},
+        env: role === 'agent' && policy ? {
+          ...agentEnvironment(policy, plan),
+          ...(debugDirectory ? { AWF_ENCLAVE_AGENT_DEBUG_RAW_SESSION_LOGS: 'true' } : {}),
+        } : {},
         onDiagnostics: diagnostic.guestExecution,
       }).catch((error: unknown) => {
         const reason = guestExecutionFailureReason(error);
@@ -719,9 +723,26 @@ export class CloudHypervisorHostEnclaveExecutorBackend implements HostEnclaveExe
           await resourceJournal?.verifyMount();
           diagnostic.guestSession(await (dependencies.readSessionDiagnostics ?? readEnclaveSessionDiagnostics)(
             plan.invocationHostDir,
+            undefined,
+            undefined,
+            this.options.publicDebugArtifactDirectory
+              ? (contents) => (dependencies.preservePublicSession ?? preservePublicEnclaveSession)(
+                  path.join(this.options.publicDebugArtifactDirectory!, runId),
+                  this.options.publicDebugArtifactProtectedRoot!,
+                  contents,
+                  policy ? [
+                    policy.githubBearer ?? '', policy.githubAgentId ?? '', policy.modelBudgetSecret ?? '',
+                    agentEnvironment(policy, plan).COPILOT_TOKEN,
+                  ] : [],
+                  resolveCloudHypervisorManagerDependencies(
+                    invocationStorage?.managerDependencies ?? this.options.managerDependencies,
+                  ),
+                )
+              : undefined,
           ));
-        } catch {
+        } catch (error) {
           diagnostic.guestSession({ status: 'read-failed' });
+          cleanupError ??= error;
         }
       } else if (role === 'agent' && manager && !managerStopped) {
         diagnostic.guestSession({ status: 'not-stopped' });

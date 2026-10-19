@@ -47,7 +47,8 @@ EXIT_RESULT_WRITE_FAILED = 30
 # text is never part of the enclave's approved disclosure contract (the
 # schema-validated bounded result written to /awf/out), so it must not cross
 # the enclave boundary into the broker-audited session transcript by default.
-# Only an explicit, broker-controlled privileged opt-in restores raw text,
+# Only trusted host/broker authorization restores raw text (automatic for
+# verified public-only Cloud Hypervisor enclaves, otherwise an explicit opt-in),
 # and even then it stays subject to redact_diagnostics().
 ALLOW_RAW_SESSION_LOGS = (
     os.environ.get("AWF_ENCLAVE_AGENT_DEBUG_RAW_SESSION_LOGS") == "true"
@@ -121,8 +122,8 @@ def summarize_enclave_stream(value: str) -> dict:
     boundary into the broker-audited session transcript, so an invocation can
     still be diagnosed and correlated without exposing private repository
     content, tool results, or model transcripts. `sensitivity` records
-    whether the raw text was withheld ("redacted") or included under an
-    explicit privileged debugging opt-in ("raw-debug").
+    whether the raw text was withheld ("redacted") or included under trusted
+    host/broker debugging authorization ("raw-debug").
     """
     encoded = value.encode("utf-8")
     summary = {

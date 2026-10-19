@@ -314,6 +314,7 @@ describe('readBoundedCloudHypervisorEnclaveResult', () => {
       let workloadProfile: CloudHypervisorWorkloadProfile | undefined;
       let stagedHandoff: { agentId: string; bearer: string } | undefined;
       const sessionReads: Array<{ stopped: boolean; unmounted: boolean }> = [];
+      const preservePublicSession = jest.fn().mockResolvedValue(undefined);
       const backendOptions = {
         runState,
         config,
@@ -327,12 +328,13 @@ describe('readBoundedCloudHypervisorEnclaveResult', () => {
         ...(role === 'agent' ? { agentPolicies: { [entryId]: agentPolicy } } : {}),
       };
       const dependencies: Partial<HostEnclaveExecutorDependencies> = {
-        readSessionDiagnostics: async (directory) => {
+        preservePublicSession,
+        readSessionDiagnostics: async (directory, _uid, _gid, retain) => {
           const runtime = path.join(directory, 'runtime');
           const dir = await fs.stat(runtime);
           sessionReads.push({ stopped, unmounted });
           // chown is intentionally mocked in this unprivileged backend fixture.
-          return readEnclaveSessionDiagnostics(directory, dir.uid, dir.gid);
+          return readEnclaveSessionDiagnostics(directory, dir.uid, dir.gid, retain);
         },
         createResourceJournal: async () => ({
           captureDirectory: async () => undefined,
@@ -511,6 +513,19 @@ describe('readBoundedCloudHypervisorEnclaveResult', () => {
             AWF_ENCLAVE_AGENT_MAX_MODEL_TOKENS: '1000',
             AWF_ENCLAVE_AGENT_DEADLINE_SECONDS: '61',
           });
+          expect(executionRequest?.env.AWF_ENCLAVE_AGENT_DEBUG_RAW_SESSION_LOGS)
+            .toBe(publicDebug ? 'true' : undefined);
+          if (publicDebug) {
+            expect(preservePublicSession).toHaveBeenCalledWith(
+              expect.stringMatching(/^\/protected\/cloud-hypervisor\/[a-f0-9]+$/),
+              '/protected',
+              expect.stringContaining('PRIVATE_SESSION_TOKEN'),
+              expect.arrayContaining([agentPolicy.githubBearer]),
+              expect.anything(),
+            );
+          } else {
+            expect(preservePublicSession).not.toHaveBeenCalled();
+          }
           expect(executionRequest?.env.COPILOT_API_URL)
             .toBe(`http://${ENCLAVE_AGENT_API_PROXY_IP}:10002`);
           expect(executionRequest?.env).toMatchObject({
@@ -541,6 +556,7 @@ describe('readBoundedCloudHypervisorEnclaveResult', () => {
           });
           expect(failed.milestones).not.toContainEqual(expect.objectContaining({ phase: 'guest-complete' }));
           expect(failed.guestSession).toMatchObject({ status: 'captured' });
+          expect(preservePublicSession).toHaveBeenCalledTimes(publicDebug ? 2 : 0);
           await expect(fs.stat(invocationHostDir)).rejects.toMatchObject({ code: 'ENOENT' });
           managerExecuteError = false;
         } else if (expectedOutcome === 'success') {
@@ -663,6 +679,20 @@ describe('readBoundedCloudHypervisorEnclaveResult', () => {
           expect(workloadProfile?.network).not.toHaveProperty('githubDataPlane');
           expect(executionRequest?.env.AWF_ENCLAVE_AGENT_GITHUB_ENABLED).toBe('false');
           await noGithubBackend.close();
+
+          if (publicDebug) {
+            preservePublicSession.mockRejectedValueOnce(new Error('protected session write failed'));
+            stopped = false;
+            unmounted = false;
+            snapshotRemoved = false;
+            await expect(backend.execute(plan, new AbortController().signal))
+              .resolves.toEqual({ outcome: 'executor-failure', cleanupComplete: false });
+            expect(stopped).toBe(true);
+            expect(unmounted).toBe(false);
+            expect(snapshotRemoved).toBe(false);
+            await expect(fs.stat(path.join(invocationHostDir, 'runtime', 'session.jsonl')))
+              .resolves.toBeDefined();
+          }
         } else if (expectedOutcome === 'success') {
           const mountFailureBackend = new CloudHypervisorHostEnclaveExecutorBackend({
             ...backendOptions,

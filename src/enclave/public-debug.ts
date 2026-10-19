@@ -30,6 +30,16 @@ export function validatePublicEnclaveDebug(config: WrapperConfig): string[] {
   return [];
 }
 
+/** Default to retention only for the same scopes admitted by the explicit public-debug gate. */
+export function resolvePublicEnclaveDebugConfig(config: WrapperConfig): WrapperConfig {
+  if (!config.cloudHypervisor || config.cloudHypervisor.enclaveDebugPublic !== undefined) return config;
+  const candidate: WrapperConfig = {
+    ...config,
+    cloudHypervisor: { ...config.cloudHypervisor, enclaveDebugPublic: true },
+  };
+  return validatePublicEnclaveDebug(candidate).length === 0 ? candidate : config;
+}
+
 const VISIBILITY_TRANSPORT_CODES = new Set([
   'ENOTFOUND', 'EAI_AGAIN', 'ECONNREFUSED', 'ECONNRESET', 'ETIMEDOUT',
   'UND_ERR_CONNECT_TIMEOUT', 'UND_ERR_HEADERS_TIMEOUT', 'UND_ERR_BODY_TIMEOUT',

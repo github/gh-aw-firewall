@@ -66,6 +66,42 @@ describe('bounded guest session evidence', () => {
     expect(Buffer.byteLength(JSON.stringify(result))).toBeLessThan(8192);
   });
 
+  it('hands stopped public-session text only to the protected sink, not the audit projection', async () => {
+    await write([
+      { event: 'engine-result', exitCode: 1, stderr: { raw: 'PUBLIC_ENGINE_FAILURE' } },
+      { event: 'engine-diagnostics', files: [{ raw: 'PUBLIC_COPILOT_DIAGNOSTICS' }] },
+      { event: 'failure', category: 'engine-failed' },
+    ]);
+    const retain = jest.fn().mockResolvedValue(undefined);
+    const result = await readEnclaveSessionDiagnostics(directory, uid, gid, retain);
+    expect(retain).toHaveBeenCalledWith(expect.stringContaining('PUBLIC_ENGINE_FAILURE'));
+    expect(retain).toHaveBeenCalledWith(expect.stringContaining('PUBLIC_COPILOT_DIAGNOSTICS'));
+    expect(JSON.stringify(result)).not.toMatch(/PUBLIC_/);
+    expect(result.failure).toEqual({ event: 'failure', category: 'engine-failed' });
+    await fs.rm(runtime, { recursive: true });
+    expect(retain.mock.calls[0][0]).toContain('PUBLIC_COPILOT_DIAGNOSTICS');
+  });
+
+  it('does not send missing, oversized, or unsafe sessions to the public sink', async () => {
+    const retain = jest.fn();
+    const publicRead = () => readEnclaveSessionDiagnostics(directory, uid, gid, retain);
+    await expect(publicRead()).resolves.toEqual({ status: 'missing' });
+    await write([{ event: 'success' }]);
+    await fs.truncate(file, 1024 * 1024 + 1);
+    await expect(publicRead()).resolves.toEqual({ status: 'oversized' });
+    await fs.chmod(file, 0o644);
+    await expect(publicRead()).resolves.toEqual({ status: 'unsafe' });
+    expect(retain).not.toHaveBeenCalled();
+  });
+
+  it('propagates retention failure so the executor cannot destroy the only remaining session', async () => {
+    await write([{ event: 'success' }]);
+    const retain = jest.fn().mockRejectedValue(new Error('protected write failed'));
+    await expect(readEnclaveSessionDiagnostics(directory, uid, gid, retain))
+      .rejects.toThrow('protected write failed');
+    await expect(fs.stat(file)).resolves.toBeDefined();
+  });
+
   it('distinguishes missing, empty, invalid and oversized evidence', async () => {
     await expect(read()).resolves.toEqual({ status: 'missing' });
     await fs.writeFile(file, '', { mode: 0o600 });

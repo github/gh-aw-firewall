@@ -11,7 +11,7 @@ const MAX_USAGE_BYTES = 16 * 1024;
 const ID = /^[a-f0-9]{32}$/;
 const INVOCATION_ID = /^[a-f0-9]{16,64}$/;
 const ENTRY_ID = /^[a-z0-9](?:[a-z0-9-]{0,62})$/;
-const LOG_NAME = /^(?:launcher-(?:stdout|stderr)\.log|guest-(?:stdout|stderr)\.raw\.log|cloud-hypervisor\.log|serial\.log|network-plan\.json|network-diagnostics\.txt|counters\.json|vm-info\.json|runtime\.json|confinement\.json|virtiofs-[0-9]-enclave-(?:seed|request|output|runtime|session-handoff|session-state)(?:\.log|-confinement\.json))$/;
+const LOG_NAME = /^(?:enclave-session\.log|launcher-(?:stdout|stderr)\.log|guest-(?:stdout|stderr)\.raw\.log|cloud-hypervisor\.log|serial\.log|network-plan\.json|network-diagnostics\.txt|counters\.json|vm-info\.json|runtime\.json|confinement\.json|virtiofs-[0-9]-enclave-(?:seed|request|output|runtime|session-handoff|session-state)(?:\.log|-confinement\.json))$/;
 const ROOTS = {
   journal: '/var/lib/awf-cloud-hypervisor/host-executor-journal',
   debug: '/var/lib/awf-cloud-hypervisor/debug-artifacts/cloud-hypervisor',
