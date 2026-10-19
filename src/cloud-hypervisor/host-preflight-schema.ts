@@ -269,6 +269,8 @@ export const schema = {
     "artifact-snapshot/manifest-copy", "artifact-snapshot/manifest-mode",
     "artifact-snapshot/bundle-copy", "artifact-snapshot/bundle-mode",
     "artifact-snapshot/sbom-copy", "artifact-snapshot/sbom-mode",
+    "artifact-snapshot/rootfs-copy", "artifact-snapshot/rootfs-mode",
+    "bounded-runtime/rootfs-trust", "bounded-runtime/rootfs-digest",
     "bounded-runtime/sbom-trust", "bounded-runtime/sbom-digest", "bounded-runtime/sbom-contents",
     "artifact-snapshot/partial-remove", "bounded-cleanup/directory-release"
   ],

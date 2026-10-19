@@ -206,6 +206,8 @@ async function stageArtifactSnapshot(
         ...common,
         supervisorPath: await copy(sources.supervisorPath, 'awf-supervisor', 0o555, 'supervisor'),
       };
+      report?.notRequired('rootfs-copy');
+      report?.notRequired('rootfs-mode');
       report?.notRequired('sbom-copy');
       report?.notRequired('sbom-mode');
       await copyOptionalArtifacts(snapshot);

@@ -553,7 +553,7 @@ describe('trusted Cloud Hypervisor enclave lifecycle', () => {
     start.mockRejectedValueOnce(new Error('artifact preflight failed'));
     await expect(startCloudHypervisorEnclaveLifecycle(config, provider, {})).rejects.toThrow(/artifact preflight/);
     await expect(stopCloudHypervisorEnclaveLifecycle(config)).rejects.toThrow(/startup failed/);
-    expect(storage.close).not.toHaveBeenCalled();
+    expect(storage.close).toHaveBeenCalledTimes(1);
     const other = { ...config, workDir: path.join(workDir, 'restarted') };
     const paths = resolveEnclavePaths(other.workDir);
     fs.mkdirSync(paths.root, { recursive: true });

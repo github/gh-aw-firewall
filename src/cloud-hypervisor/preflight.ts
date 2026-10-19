@@ -602,6 +602,8 @@ async function runPreflight(
     await report.check('rootfs-trust', () => assertTrustedRegularFile(
       'Cloud Hypervisor rootfs', config.rootfsPath!, constants.R_OK, dependencies,
     ));
+  } else {
+    report.notRequired('rootfs-trust');
   }
   await report.check('supervisor-trust', () => assertTrustedRegularFile(
     'Cloud Hypervisor guest supervisor',
@@ -787,6 +789,8 @@ async function runPreflight(
       await report.check('rootfs-digest', () => assertDigest(
         'Cloud Hypervisor rootfs', rootfsPath, artifactDigests.rootfs, dependencies,
       ));
+    } else {
+      report.notRequired('rootfs-digest');
     }
     await report.check('supervisor-digest', () => assertDigest(
       'Cloud Hypervisor guest supervisor',

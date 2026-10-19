@@ -176,8 +176,10 @@ describe('Cloud Hypervisor artifact snapshots', () => {
       expect(fs.copyFile).not.toHaveBeenCalledWith(
         sources.rootfsSbomPath, expect.anything(), expect.anything(),
       );
-      expect(latest().checks.find((check) => check.id === 'rootfs-copy')?.result).toBe('not-attempted');
-      expect(latest().checks.find((check) => check.id === 'sbom-copy')?.result).toBe('not-required');
+      for (const id of ['rootfs-copy', 'rootfs-mode', 'sbom-copy', 'sbom-mode']) {
+        expect(latest().checks.find((check) => check.id === id))
+          .toEqual({ id, result: 'not-required', reason: 'none' });
+      }
     });
 
     it('retains a trusted rsync spawn errno rather than interpreting the message', async () => {

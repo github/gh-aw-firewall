@@ -4,13 +4,19 @@ import { promises as fs } from 'fs';
 import execa from 'execa';
 import * as os from 'os';
 import * as path from 'path';
+import type { WrapperConfig } from '../types';
 import type { CloudHypervisorOptions } from '../types/runtime-options';
+import { normalizeEnclavesConfig } from '../parsers/enclave-parser';
+import {
+  assertEnclaveStartupChecklistComplete, getEnclaveStartupProgress, updateEnclaveStartupProgress,
+} from '../enclave/startup-progress';
 import { CLOUD_HYPERVISOR_ARTIFACT_RELEASE_TAG } from './artifact-manifest';
 import { CloudHypervisorUnsupportedHostError } from './errors';
 import { CLOUD_HYPERVISOR_ARTIFACT_SNAPSHOT_ROOT } from './manager-types';
 import {
   HostPreflightReporter, type HostPreflightProgress, type HostPreflightCheck,
 } from './host-preflight-progress';
+import { schema } from './host-preflight-schema';
 import {
   calculateSha256,
   cloudHypervisorPreflightTestHelpers,
@@ -119,6 +125,43 @@ function dependencies(
 }
 
 describe('Cloud Hypervisor preflight (foundation only)', () => {
+  it.each(['common', 'primary'] as const)('completes readiness after successful %s preflight', async (profile) => {
+    const wrapper = { enclaves: normalizeEnclavesConfig([{ script: {}, repos: [] }]) } as WrapperConfig;
+    const publish = (hostPreflight: HostPreflightProgress) =>
+      updateEnclaveStartupProgress(wrapper, { hostPreflight });
+    const report = new HostPreflightReporter('bounded-runtime', publish);
+    const deps = dependencies({ hostPreflightReporter: report });
+    if (profile === 'common') {
+      await runCloudHypervisorCommonPreflight(config({ rootfsPath: undefined }), deps);
+    } else {
+      await runCloudHypervisorPreflight(config(), deps);
+    }
+    for (const id of ['rootfs-trust', 'rootfs-digest']) {
+      expect(getEnclaveStartupProgress(wrapper)?.startupChecks?.checks[`bounded-runtime/${id}`])
+        .toEqual([profile === 'common' ? 'not-required' : 'passed', 'none']);
+    }
+    expect(deps.sha256).toHaveBeenCalledTimes(profile === 'common' ? 4 : 5);
+
+    // These gates belong to the bounded-storage wrapper or the mocked host probes.
+    for (const id of [
+      'configured-role', 'tool-mount', 'tool-umount', 'invocation-root', 'invocation-parent',
+      'resource-journal', 'storage-allocation', 'storage-ancestor', 'storage-parent', 'storage-root',
+      'storage-tmpfs', 'storage-propagation-set', 'storage-propagation', 'storage-layout',
+      'storage-artifact-mount', 'storage-run-mounts', 'invocation-directory', 'invocation-mount',
+      'storage-verification', 'snapshot-journal', 'root', 'ipv4-control', 'ipv6-control',
+      'seccomp-control', 'cgroup-v2', 'docker-info', 'docker-compose',
+    ] as const) {
+      report.checkSync(id, () => undefined);
+    }
+    const startup = new HostPreflightReporter('startup', publish);
+    for (const id of Object.keys(schema.scopes.startup) as HostPreflightCheck[]) {
+      if (id !== 'readiness') startup.checkSync(id, () => undefined);
+    }
+    startup.checkSync('readiness', () => assertEnclaveStartupChecklistComplete(wrapper, true));
+    expect(() => assertEnclaveStartupChecklistComplete(wrapper)).not.toThrow();
+    expect(getEnclaveStartupProgress(wrapper)?.startupChecks?.ready).toBe(true);
+  });
+
   it('attests common artifacts without trusting, staging, or hashing the primary rootfs or SBOM', async () => {
     const checked: string[] = [];
     const deps = dependencies();

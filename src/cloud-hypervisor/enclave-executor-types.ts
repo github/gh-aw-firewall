@@ -19,7 +19,7 @@ import type {
 } from './artifact-snapshot';
 import type { CloudHypervisorManagerDependencies } from './manager-types';
 import type {
-  CloudHypervisorCommonPreflightResult, CloudHypervisorHostToolPaths, CloudHypervisorPreflightResult,
+  CloudHypervisorHostToolPaths, CloudHypervisorPreflightResult,
 } from './preflight';
 import type { assertBoundedEnclaveStorage } from './enclave-storage';
 import type { CloudHypervisorWorkloadProfile } from './workload-profile';

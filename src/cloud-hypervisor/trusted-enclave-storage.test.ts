@@ -778,7 +778,7 @@ describe('invocation-wide kernel-enforced storage', () => {
       check.result === 'passed' || (['partial-remove', 'sbom-copy', 'sbom-mode'].includes(check.id)
         && check.result === 'not-required')
       || (common && ['rootfs-copy', 'rootfs-mode'].includes(check.id)
-        && check.result === 'not-attempted'))).toBe(true);
+        && check.result === 'not-required'))).toBe(true);
     expect(common ? createCommonArtifactSnapshot : createArtifactSnapshot).toHaveBeenCalledWith(
       expect.anything(), expect.anything(), expect.anything(), path.join(root, 'artifacts'),
       expect.any(HostPreflightReporter),
