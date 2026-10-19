@@ -17,6 +17,7 @@ import { prepareWorkDirectories, workdirSetupTestHelpers } from './workdir-setup
 import { resolveLogPaths } from './log-paths';
 import { getRealUserHome } from './host-identity';
 import { getGeminiSystemSettingsSourcePath } from './services/credentials/gemini-cli-settings';
+import { prepareGeminiSystemSettings } from './chroot-home-setup';
 
 function setupWorkdirFixture({ cleanupChrootHome = true } = {}) {
   let tempDir = '';
@@ -79,6 +80,7 @@ describe('prepareWorkDirectories', () => {
     try {
       const config = buildConfig({ enableApiProxy: true, geminiApiKey: 'fake-key' });
       prepareWorkDirectories(config, resolveLogPaths(config));
+      prepareGeminiSystemSettings(config);
 
       const source = getGeminiSystemSettingsSourcePath(config.workDir);
       expect(JSON.parse(fs.readFileSync(source, 'utf8'))).toEqual({
@@ -99,6 +101,7 @@ describe('prepareWorkDirectories', () => {
     try {
       const config = buildConfig({ enableApiProxy: true, geminiApiKey: 'fake-key' });
       prepareWorkDirectories(config, resolveLogPaths(config));
+      prepareGeminiSystemSettings(config);
       expect(fs.existsSync(getGeminiSystemSettingsSourcePath(config.workDir))).toBe(false);
     } finally {
       nonRootSpy.mockRestore();
@@ -407,7 +410,8 @@ describe('prepareWorkDirectories', () => {
         const config = buildConfig({ enableApiProxy: true, geminiApiKey: 'test-key' });
         const logPaths = resolveLogPaths(config);
 
-        expect(() => prepareWorkDirectories(config, logPaths)).toThrow();
+        prepareWorkDirectories(config, logPaths);
+        expect(() => prepareGeminiSystemSettings(config)).toThrow();
         expect(fs.readFileSync(target, 'utf8')).toBe('unchanged');
       } finally {
         rootSpy.mockRestore();
@@ -632,9 +636,9 @@ describe('prepareChrootHomeMounts (sub-function)', () => {
     });
 
     it('pins the API-key auth type when Gemini is routed through the api-proxy', () => {
-      workdirSetupTestHelpers.prepareChrootHomeMounts(
-        buildConfig({ enableApiProxy: true, geminiApiKey: 'key' }),
-      );
+      const config = buildConfig({ enableApiProxy: true, geminiApiKey: 'key' });
+      workdirSetupTestHelpers.prepareChrootHomeMounts(config);
+      prepareGeminiSystemSettings(config);
 
       expect(JSON.parse(fs.readFileSync(settingsPath(), 'utf8'))).toEqual({
         security: { auth: { selectedType: 'gemini-api-key' } },
@@ -642,19 +646,21 @@ describe('prepareChrootHomeMounts (sub-function)', () => {
     });
 
     it('does not write the settings file when the api-proxy is disabled', () => {
-      workdirSetupTestHelpers.prepareChrootHomeMounts(buildConfig({ geminiApiKey: 'key' }));
+      const config = buildConfig({ geminiApiKey: 'key' });
+      workdirSetupTestHelpers.prepareChrootHomeMounts(config);
+      prepareGeminiSystemSettings(config);
 
       expect(fs.existsSync(settingsPath())).toBe(false);
     });
 
     it('does not pin the auth type for Vertex AI runs', () => {
-      workdirSetupTestHelpers.prepareChrootHomeMounts(
-        buildConfig({
-          enableApiProxy: true,
-          geminiApiKey: 'key',
-          additionalEnv: { GOOGLE_GENAI_USE_VERTEXAI: 'true' },
-        }),
-      );
+      const config = buildConfig({
+        enableApiProxy: true,
+        geminiApiKey: 'key',
+        additionalEnv: { GOOGLE_GENAI_USE_VERTEXAI: 'true' },
+      });
+      workdirSetupTestHelpers.prepareChrootHomeMounts(config);
+      prepareGeminiSystemSettings(config);
 
       expect(fs.existsSync(settingsPath())).toBe(false);
     });

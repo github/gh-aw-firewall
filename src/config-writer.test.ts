@@ -12,6 +12,7 @@ import execa from 'execa';
 import { writeConfigs } from './config-writer';
 import { generateDockerCompose } from './compose-generator';
 import { isOpenSslAvailable } from './ssl-bump';
+import { getGeminiSystemSettingsSourcePath } from './services/credentials/gemini-cli-settings';
 import { getRealUserHome, isNativeRootWithoutSudo } from './host-identity';
 import {
   buildWriteConfig,
@@ -160,6 +161,26 @@ describe('writeConfigs', () => {
         ['-h', '-P', '-R', '--', '1000:1000', ghAwRoot],
         expect.objectContaining({ reject: false })
       );
+    });
+
+    it('stages root-owned Gemini settings after the runner-temp ownership repair', async () => {
+      Object.defineProperty(process, 'getuid', { value: () => 0, configurable: true });
+      process.env.RUNNER_TEMP = tempDir;
+      fs.mkdirSync(path.join(tempDir, 'gh-aw'), { recursive: true });
+
+      await writeConfigs(buildWriteConfig(tempDir, { enableApiProxy: true, geminiApiKey: 'fake-key' }));
+
+      const repairCall = (execa.sync as jest.Mock).mock.calls.findIndex(
+        (call) => call[0] === 'chown' && call[1].includes(path.join(tempDir, 'gh-aw')),
+      );
+      const rootFileCall = (fs.fchownSync as jest.Mock).mock.calls.findIndex(
+        (call) => call[1] === 0 && call[2] === 0,
+      );
+      expect(repairCall).toBeGreaterThanOrEqual(0);
+      expect(rootFileCall).toBeGreaterThanOrEqual(0);
+      expect((execa.sync as jest.Mock).mock.invocationCallOrder[repairCall])
+        .toBeLessThan((fs.fchownSync as jest.Mock).mock.invocationCallOrder[rootFileCall]);
+      expect(fs.existsSync(getGeminiSystemSettingsSourcePath(tempDir))).toBe(true);
     });
 
     it('chowns the host workspace on native-root runners', async () => {

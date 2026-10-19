@@ -17,6 +17,7 @@ import { NetworkConfig, ImageBuildConfig } from './squid-service';
 import { resolveLogPaths } from '../log-paths';
 import { AGENT_RUNTIME_START_FILE } from '../agent-runtime-start';
 import { isGeminiProxyRoutingEnabled, shouldPinGeminiAuthType } from './credentials/gemini-cli-settings';
+import { isSysrootEnabled } from './sysroot-service';
 
 // Re-export functions for backwards compatibility
 export { buildAgentEnvironment } from './agent-environment/environment-builder';
@@ -114,7 +115,7 @@ export function buildAgentService(params: AgentServiceParams): any {
     environment.AWF_AGENT_RUNTIME_START_FILE = AGENT_RUNTIME_START_FILE;
   }
   delete environment.AWF_GEMINI_SYSTEM_SETTINGS_FALLBACK;
-  if (process.getuid?.() !== 0 && isGeminiProxyRoutingEnabled(config) && shouldPinGeminiAuthType(config)) {
+  if (process.getuid?.() !== 0 && !isSysrootEnabled(config) && isGeminiProxyRoutingEnabled(config) && shouldPinGeminiAuthType(config)) {
     environment.AWF_GEMINI_SYSTEM_SETTINGS_FALLBACK = '1';
   }
 

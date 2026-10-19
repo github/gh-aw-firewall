@@ -19,6 +19,7 @@ import { resolveNetworkAddressing } from './network-subnet';
 import { readEnvFile } from './github-env';
 import { extractOtlpEndpointsFromEnv, resolveOtlpEndpointEnv } from './api-proxy-config-domains';
 import { prepareWorkDirectories } from './workdir-setup';
+import { prepareGeminiSystemSettings } from './chroot-home-setup';
 import { writeFileNoFollow } from './fs-utils';
 import {
   createSensitivePathAudit,
@@ -550,6 +551,7 @@ export async function writeConfigs(config: WrapperConfig): Promise<void> {
   prepareWorkDirectories(config, logPaths);
   repairRunnerTempGhAwOwnership();
   repairContainerWorkDirOwnership(config);
+  prepareGeminiSystemSettings(config);
 
   // Network addressing: policy defaults unless relocated with --network-subnet
   // (the network itself is created by compose, or by host-iptables.ts in the

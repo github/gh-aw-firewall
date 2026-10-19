@@ -25,6 +25,7 @@ describe('agent service', () => {
     expect(volumes).toContain('sysroot:/host:rw');
     expect(volumes.some((volume) => volume.includes(`:/host${GEMINI_CLI_SYSTEM_SETTINGS_PATH}:`))).toBe(false);
     expect(compose.services.agent.environment?.GEMINI_CLI_SYSTEM_SETTINGS_PATH).toBe(GEMINI_CLI_SYSTEM_SETTINGS_PATH);
+    expect(compose.services.agent.environment?.AWF_GEMINI_SYSTEM_SETTINGS_FALLBACK).toBeUndefined();
     expect(compose.services['sysroot-stage']?.command?.[0])
       .toContain(`> /sysroot${GEMINI_CLI_SYSTEM_SETTINGS_PATH}`);
   });

@@ -6,13 +6,13 @@ import { getSafeHostUid, getSafeHostGid, getRealUserHome } from './host-env';
 import { assertRealDirectory, createMissingOwnedDirectorySegments, writeFileNoFollow } from './fs-utils';
 import { resolveRunnerToolCachePath } from './runner-tool-cache';
 import { HOME_TOOL_PATHS } from './config/mount-policy';
+import { isSysrootEnabled } from './services/sysroot-service';
 import {
   getGeminiSystemSettingsSourcePath,
   buildGeminiSystemSettingsContent,
   isGeminiProxyRoutingEnabled,
   shouldPinGeminiAuthType,
 } from './services/credentials/gemini-cli-settings';
-import { isSysrootEnabled } from './services/sysroot-service';
 
 // Prepare a nested bind-mount destination inside the empty chroot home before
 // Docker sees it. Without this, Docker may create intermediate parents such as
@@ -60,6 +60,12 @@ function writeGeminiSystemSettings(workDir: string): void {
   logger.debug(`Wrote Gemini CLI system settings: ${settingsPath} (0:0)`);
 }
 
+export function prepareGeminiSystemSettings(config: WrapperConfig): void {
+  if (process.getuid?.() === 0 && !isSysrootEnabled(config) && isGeminiProxyRoutingEnabled(config) && shouldPinGeminiAuthType(config)) {
+    writeGeminiSystemSettings(config.workDir);
+  }
+}
+
 /**
  * Creates the empty chroot home directory placeholder, all whitelisted ~/.
  * subdirectories on the host, and any runner tool-cache mountpoints so Docker
@@ -87,10 +93,6 @@ export function prepareChrootHomeMounts(config: WrapperConfig): void {
   }
   fs.chownSync(emptyHomeDir, uid, gid);
   logger.debug(`Created chroot home directory: ${emptyHomeDir} (${uid}:${gid})`);
-
-  if (process.getuid?.() === 0 && !isSysrootEnabled(config) && isGeminiProxyRoutingEnabled(config) && shouldPinGeminiAuthType(config)) {
-    writeGeminiSystemSettings(config.workDir);
-  }
 
   // Ensure source directories and nested chroot mountpoints exist before Docker
   // sees them, so it cannot create either side as root-owned.
