@@ -45,6 +45,11 @@ const INTENTIONALLY_EXCLUDED_FROM_SUPPORTED = new Set([
   'claude-opus-4-6',
   'claude-opus-4-7',
 
+  // ── Claude models priced for OpenRouter/BYOK, not in the Copilot CLI picker ─
+  'claude-sonnet-5-5',
+  'claude-opus-5-5',
+  'claude-fable-5-1',
+
   // ── Unversioned Claude Sonnet 4 base alias ────────────────────────────────
   // Use explicit versioned models (claude-sonnet-4.5, claude-sonnet-4.6) instead.
   'claude-sonnet-4',

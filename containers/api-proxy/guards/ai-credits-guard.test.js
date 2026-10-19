@@ -188,6 +188,9 @@ describe('ai-credits-guard', () => {
     ['claude-opus-5.5', 0.67],
     ['claude-fable-5.1', 1.65],
   ])('prices anthropic/%s from the curated table without unknown-model rejection', (model, credits) => {
+    process.env.AWF_MAX_AI_CREDITS = '10';
+    resetAiCreditsGuardForTests();
+
     const prefixedModel = `anthropic/${model}`;
     const usage = applyAiCreditsUsage({
       input_tokens: 2000,
