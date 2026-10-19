@@ -1583,15 +1583,27 @@ input. Its `environment-probe` job runs only the script-only public
 [environment probe](../examples/enclave-environment-probe/README.md) through
 `scripts/ci/cloud-hypervisor-enclave-environment-probe.js`. It reuses the live
 harness's release-asset setup, gateway fixture, AWF launch, startup diagnostics,
-readiness waits, and cleanup, but configures no agent executor or API proxy and
+readiness waits, and cleanup, but configures no agent executor and
 receives no Copilot or model secret; only the job's `github.token` is used for
-release metadata and public seed staging. It does not depend on the full
+release metadata and public seed staging. The primary and script workloads both
+use Cloud Hypervisor; Squid, mcpg and the mandatory primary API proxy remain
+Docker infrastructure. The credential-free API proxy makes no model calls.
+The workspace uses `GITHUB_WORKSPACE`, not an additional host mount.
+It does not depend on the full
 acceptance or host-limit jobs, yet repeats their release, host, and artifact
 prerequisites: the release gate runs with `--environment-probe`, so the
 published package-matched tag must contain `acceptance_commit`, the
 startup-fault harness, the probe harness, and the probe example. Both
 downloaded manifests must name the checked-out tag commit, and the runner must
 be an eligible GitHub-hosted Ubuntu 24.04 x86_64 KVM/cgroup-v2 host.
+
+Both native live jobs preserve the non-secret GitHub workflow/ref/SHA identity
+through sudo. Production admission recognizes only this manual, package-matched
+release-tag workflow with its fixed public repository and bounded script-only,
+agent-only, combined or probe profile. It does not authorize arbitrary
+primary-with-enclave configurations, branch dispatches, mixed workload backends,
+unattested artifacts or model-budget changes. The harness's exact-checkout,
+reviewed-commit ancestry and manifest-source checks remain mandatory.
 
 After AWF reports actual host gateway readiness, the harness requires the
 public tool list to be exactly `enclave_run_script` and submits the request

@@ -763,18 +763,30 @@ describe('sanitized host startup diagnostics', () => {
     fs.writeFileSync(stderrFile, `[ERROR] Fatal error: Error: ${known}\n`);
     jest.spyOn(console, 'error').mockImplementation(() => {});
     const running = { exitCode: null as number | null, signalCode: null };
-    setTimeout(() => {
+    const inspect = jest.fn(() => {
       fs.rmSync(file);
       running.exitCode = 1;
-    }, 50);
-    await expect(harness.waitForBroker(running, 'awf-test-missing-container', Date.now() + 10_000, {
-      stage: 'initial', stderrFile, startupErrorFile: file,
-    })).rejects.toThrow(/AWF exited/);
-    const evidence = harness.startupEvidence(running, 'exit', 'initial', stderrFile, file);
-    expect(evidence.record).toMatchObject({ final: 'missing', source: 'cached' });
-    expect(evidence.record.cachedPolls).toBeGreaterThan(0);
-    expect(harness.startupDiagnostic(running, 'exit', 'initial', stderrFile, file))
-      .toMatchObject({ category: 'container-runtime', logInspection: 'structured', enclaveStartup: value });
+      return { status: 1, stdout: '' };
+    });
+    jest.doMock('child_process', () => ({
+      ...jest.requireActual('child_process'),
+      spawnSync: inspect,
+    }));
+    try {
+      let isolatedHarness!: typeof harness;
+      jest.isolateModules(() => { isolatedHarness = require(harnessPath); });
+      await expect(isolatedHarness.waitForBroker(running, 'awf-test-missing-container', Date.now() + 10_000, {
+        stage: 'initial', stderrFile, startupErrorFile: file,
+      })).rejects.toThrow(/AWF exited/);
+      expect(inspect).toHaveBeenCalledTimes(1);
+      const evidence = isolatedHarness.startupEvidence(running, 'exit', 'initial', stderrFile, file);
+      expect(evidence.record).toMatchObject({ final: 'missing', source: 'cached' });
+      expect(evidence.record.cachedPolls).toBeGreaterThan(0);
+      expect(isolatedHarness.startupDiagnostic(running, 'exit', 'initial', stderrFile, file))
+        .toMatchObject({ category: 'container-runtime', logInspection: 'structured', enclaveStartup: value });
+    } finally {
+      jest.dontMock('child_process');
+    }
   });
 
   it('bounds all metadata even for malformed child state', () => {

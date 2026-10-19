@@ -115,7 +115,7 @@ describe('public enclave environment probe live harness (no KVM)', () => {
       .toThrow();
   });
 
-  it('runs the shipped script-only example config, adding only compiler-owned wiring', () => {
+  it('runs the shipped single-backend script-only example config with release and gateway wiring', () => {
     const example = harness.loadExampleConfig();
     expect(example.enclaves).toEqual(harness.EXPECTED_ENCLAVES);
     const config = harness.makeProbeConfig(
@@ -129,8 +129,9 @@ describe('public enclave environment probe live harness (no KVM)', () => {
       artifactManifestPath: '/opt/artifacts/cloud-hypervisor-test-x86_64.manifest.json',
       artifactManifestBundlePath: '/opt/artifacts/cloud-hypervisor-test-x86_64.manifest.sigstore.jsonl',
     });
-    expect(config).not.toHaveProperty('apiProxy');
-    expect(JSON.stringify(config)).not.toMatch(/"agent"|copilot|api-proxy/i);
+    expect(config.container).toEqual({ containerRuntime: 'cloud-hypervisor', imageTag: 'v1.2.3' });
+    expect(config.apiProxy).toEqual({ enabled: true });
+    expect(JSON.stringify(config)).not.toMatch(/"agent"|copilot/i);
   });
 
   it('uses the release-attested public MCP route without agent, model, or Copilot credentials', () => {
@@ -144,6 +145,8 @@ describe('public enclave environment probe live harness (no KVM)', () => {
     expect(source).not.toMatch(/enable-api-proxy|enclave_run_agent|COPILOT_GITHUB_TOKEN|executor\.sock|host-executor-client/);
     expect(source).not.toMatch(/DEVELOPMENT_ALLOW_UNATTESTED|allow-unattested|upload-artifact/i);
     expect(source).toContain('removePrivateAwfLogs(awfOut, awfErr');
+    expect(source).not.toContain("'--mount'");
+    expect(source).toContain('GITHUB_WORKSPACE: workspace');
     expect(source.indexOf('${RESULT_PREFIX}${assertProbeResult(')).toBeGreaterThan(0);
     expect(source).not.toMatch(/console\.(log|error)\([^)]*(gatewayKey|capability|GH_TOKEN)/);
   });

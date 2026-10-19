@@ -31,6 +31,8 @@ import {
   isCloudHypervisorScriptAcceptanceWorkflow,
 } from './cloud-hypervisor-script-acceptance';
 import { validatePublicEnclaveDebug } from './public-debug';
+import { isCloudHypervisorConformanceAcceptanceWorkflow } from './cloud-hypervisor-conformance-acceptance';
+import { validateRunSandboxBackend } from './run-backend';
 
 const RUNTIMES = new Set(['docker', 'gvisor', 'sbx', 'cloud-hypervisor']);
 const ENGINES = new Set(['copilot', 'claude', 'codex', 'gemini']);
@@ -153,11 +155,13 @@ export function validateEnclavesConfig(
   options: ValidateEnclavesOptions = {},
 ): string[] {
   const errors = validateEnclavesStructure(config, options);
+  if (config.enclaves) errors.push(...validateRunSandboxBackend(config.containerRuntime, config.enclaves));
   if (
     config.enclaves?.enabled
     && config.containerRuntime === 'cloud-hypervisor'
     && !isCloudHypervisorScriptAcceptanceWorkflow(config)
     && !isCloudHypervisorAgentAcceptanceWorkflow(config)
+    && !isCloudHypervisorConformanceAcceptanceWorkflow(config)
   ) {
     errors.unshift('The primary-agent cloud-hypervisor runtime cannot be combined with enclaves');
   }

@@ -90,10 +90,12 @@ control independently of cooperative client proxy settings.
 
 VMs persist until explicitly removed; stopping an agent does not delete the VM.
 
-### Enclave runtimes are independent
+### One backend, independent workload instances
 
 `container.containerRuntime: "sbx"` selects the primary agent's execution
-model. `enclaves[].runtime: "sbx"` on a keyed enclave entry is a separate enclave backend
+model. Every enabled enclave must use that same workload backend; an omitted
+enclave runtime inherits it, and explicit mismatches are rejected. An
+`enclaves[].runtime: "sbx"` entry would use a separate instance
 behind the AWF-owned MCP server and must never reuse the primary agent VM,
 agent-ingress capability, gateway capability, or agent credentials.
 

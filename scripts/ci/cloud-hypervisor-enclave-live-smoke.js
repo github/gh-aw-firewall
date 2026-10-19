@@ -1184,7 +1184,7 @@ function makeConfig(artifacts, workDir, workspace, handoff, profile = 'combined'
     ].filter((entry) => profile === 'combined'
       || (profile === 'script-only' && entry.script)
       || (profile === 'agent-only' && entry.agent)),
-    container: { containerRuntime: 'docker' },
+    container: { containerRuntime: 'cloud-hypervisor', imageTag: artifacts.tag },
     apiProxy: { enabled: true },
     logging: {
       auditDir: path.join(workDir, 'audit'),
@@ -1196,10 +1196,10 @@ function makeConfig(artifacts, workDir, workspace, handoff, profile = 'combined'
 }
 
 function toAwfConfig(config) {
-  const { testWorkspace, testGateway, ...awfConfig } = config;
+  const { testWorkspace, testGateway, enclaves, ...awfConfig } = config;
   void testWorkspace;
   void testGateway;
-  return awfConfig;
+  return enclaves.length ? { ...awfConfig, enclaves } : awfConfig;
 }
 
 function assertUnifiedProfiles(artifacts, primaryManifest, enclaveManifest, enclaveSbom) {
@@ -1235,7 +1235,9 @@ function assertUnifiedProfiles(artifacts, primaryManifest, enclaveManifest, encl
   for (const [name, count] of [['primary', 0], ['script-only', 1], ['agent-only', 1], ['combined', 2]]) {
     const config = makeConfig(artifacts, 'profile-work', 'profile-workspace', {}, name);
     const enclaves = config.enclaves;
-    if (config.cloudHypervisor.rootfsPath !== path.join(artifacts.directory, primaryRootfs.file)
+    if (config.container.containerRuntime !== 'cloud-hypervisor'
+        || config.container.imageTag !== artifacts.tag
+        || config.cloudHypervisor.rootfsPath !== path.join(artifacts.directory, primaryRootfs.file)
         || enclaves.length !== count
         || enclaves.some((entry) => entry.runtime !== 'cloud-hypervisor')
         || (name === 'script-only' && !enclaves[0]?.script)
@@ -1948,6 +1950,8 @@ module.exports = {
   RELEASE_ASSETS,
   assertReleaseAssets,
   assertUnifiedProfiles,
+  makeConfig,
+  toAwfConfig,
   assertProfileTools,
   assertNoSentinelLeak,
   assertExpectedToolResult,

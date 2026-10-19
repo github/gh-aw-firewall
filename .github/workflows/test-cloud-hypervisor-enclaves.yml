@@ -100,6 +100,7 @@ jobs:
             src/enclave/startup-progress.test.ts \
             src/enclave/workflow-integration.test.ts \
             src/enclave/preflight.test.ts \
+            scripts/ci/cloud-hypervisor-conformance-admission.test.ts \
             src/enclave/runtime-preflight.test.ts \
             src/services/enclave-mcp-service.test.ts \
             src/commands/main-action.test.ts \
@@ -262,7 +263,7 @@ jobs:
           AWF_ACCEPTANCE_COMMIT: ${{ inputs.acceptance_commit }}
         run: |
           set -euo pipefail
-          sudo -n --preserve-env=PATH,HOME,GITHUB_ACTIONS,GITHUB_REF,RUNNER_ENVIRONMENT,ImageOS,RUNNER_TEMP,GITHUB_RUN_ID,GITHUB_RUN_ATTEMPT,GH_TOKEN,GITHUB_TOKEN,COPILOT_GITHUB_TOKEN,AWF_ACCEPTANCE_COMMIT \
+          sudo -n --preserve-env=PATH,HOME,GITHUB_ACTIONS,GITHUB_REPOSITORY,GITHUB_EVENT_NAME,GITHUB_REF,GITHUB_REF_TYPE,GITHUB_REF_NAME,GITHUB_SHA,GITHUB_WORKFLOW_REF,GITHUB_WORKFLOW_SHA,RUNNER_ENVIRONMENT,ImageOS,RUNNER_TEMP,GITHUB_RUN_ID,GITHUB_RUN_ATTEMPT,GH_TOKEN,GITHUB_TOKEN,COPILOT_GITHUB_TOKEN,AWF_ACCEPTANCE_COMMIT \
             node scripts/ci/cloud-hypervisor-enclave-live-smoke.js
       - name: Remove only this job's gateway fixture
         if: always()
@@ -341,7 +342,7 @@ jobs:
           AWF_ACCEPTANCE_COMMIT: ${{ inputs.acceptance_commit }}
         run: |
           set -euo pipefail
-          sudo -n --preserve-env=PATH,HOME,GITHUB_ACTIONS,GITHUB_REF,RUNNER_ENVIRONMENT,ImageOS,RUNNER_TEMP,GITHUB_RUN_ID,GITHUB_RUN_ATTEMPT,GH_TOKEN,GITHUB_TOKEN,AWF_ACCEPTANCE_COMMIT \
+          sudo -n --preserve-env=PATH,HOME,GITHUB_ACTIONS,GITHUB_REPOSITORY,GITHUB_EVENT_NAME,GITHUB_REF,GITHUB_REF_TYPE,GITHUB_REF_NAME,GITHUB_SHA,GITHUB_WORKFLOW_REF,GITHUB_WORKFLOW_SHA,RUNNER_ENVIRONMENT,ImageOS,RUNNER_TEMP,GITHUB_RUN_ID,GITHUB_RUN_ATTEMPT,GH_TOKEN,GITHUB_TOKEN,AWF_ACCEPTANCE_COMMIT \
             node scripts/ci/cloud-hypervisor-enclave-environment-probe.js
       - name: Remove only this job's gateway fixture
         if: always()

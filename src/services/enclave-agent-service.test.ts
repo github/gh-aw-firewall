@@ -190,7 +190,7 @@ describe('unified enclave agent executor compose assembly', () => {
         timeout: 77,
       },
     ]);
-    const environment = build({ enclaves }).service.environment as Record<string, string>;
+    const environment = build({ enclaves, containerRuntime: 'gvisor' }).service.environment as Record<string, string>;
     expect(environment).toMatchObject({
       AWF_ENCLAVE_AGENT_ENABLED: 'true',
       AWF_ENCLAVE_SCRIPT_ENABLED: 'false',

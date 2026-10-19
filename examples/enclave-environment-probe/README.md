@@ -13,61 +13,36 @@ verification. The script enclave remains single-use, noNIC, with AWF's pinned
 role UID/GID, capabilities and resource limits. The public repository catalog
 entry limits enclave staging to this repository; the network allowlist separately
 permits GitHub-domain egress for the run.
-The primary agent uses AWF's default Docker backend; `containerRuntime: docker`
-is not a valid explicit config enum and is intentionally omitted.
+The primary agent and script enclave both select Cloud Hypervisor. Omitting
+the primary runtime would select Docker and is rejected: one workload backend
+is required per run. Squid, the MCP gateway, and the API proxy remain Docker
+infrastructure, not workload backends. The primary VM requires the API proxy
+for credential isolation even though this probe makes no model requests.
 
 ## Supported invocation
 
-Use an already configured compiler-launched MCP gateway and the normal
-release-attested production enclave path on an eligible GitHub-hosted Ubuntu
-x86_64 KVM runner. This is not a standalone host diagnostic, Docker probe, or
-primary-agent Cloud Hypervisor command. See
+Use the narrowly admitted, release-tagged native conformance workflow on an
+eligible GitHub-hosted Ubuntu x86_64 KVM runner. General primary-with-enclave
+execution remains gated pending real end-to-end acceptance; this example is
+not a standalone CLI invocation, host diagnostic, or Docker workload. See
 [the configuration contract](../../docs/awf-config-spec.md#14-unified-enclaves)
 and [artifact setup](../../docs/cloud-hypervisor-foundation.md#host-eligibility-and-artifact-trust).
 
-1. Install AWF and the package-matched published Cloud Hypervisor archive,
-   manifest and attestation bundle in a trusted absolute directory. Set
-   `RELEASE_TAG` to that installed AWF version's published tag and
-   `ARTIFACT_DIR` to its extracted directory. The directory contains
-   `cloud-hypervisor`, sibling `virtiofsd`, `vmlinux.bin`, `rootfs.ext4`,
-   `awf-supervisor`, and both `cloud-hypervisor-test-x86_64.manifest.*` files.
-   Missing assets, invalid attestations, or unsupported hosts fail closed.
-2. Run the existing enclave artifact setup for the same tag. On Actions,
-   it exports the four role-artifact variables via `GITHUB_ENV` for subsequent
-   steps; outside Actions it prints exports for the trusted operator to apply.
+The workflow requires an exact published, package-matched release tag containing
+the reviewed `acceptance_commit` and this fix. The harness verifies tag ancestry,
+manifest source commits and signed artifacts, adds the release-matched image tag
+and gateway handoff, and exports its isolated workspace via `GITHUB_WORKSPACE`.
+It does not add unsupported host mounts or require an agent executor, model key,
+or Copilot secret. Missing identity, assets, attestations or host support fail
+closed; no backend fallback is allowed.
 
-   ```bash
-   bash guest/cloud-hypervisor/setup-enclave-artifacts.sh "$RELEASE_TAG"
-   ```
-
-3. In the compiler-managed run, use this config and the explicit main artifact
-   arguments below. `your-primary-agent-command` represents the existing
-   primary agent with its compiler-owned MCP connection, not a broker URL.
-   Preserve the compiler's gateway handoff and topology attachment settings;
-   merge this example into that trusted run configuration rather than replacing
-   them. No agent executor or API proxy is required by this script example.
-
-   ```bash
-   sudo -E awf --config examples/enclave-environment-probe/awf.yaml \
-     --cloud-hypervisor-binary "$ARTIFACT_DIR/cloud-hypervisor" \
-     --cloud-hypervisor-kernel "$ARTIFACT_DIR/vmlinux.bin" \
-     --cloud-hypervisor-rootfs "$ARTIFACT_DIR/rootfs.ext4" \
-     --cloud-hypervisor-supervisor "$ARTIFACT_DIR/awf-supervisor" \
-     --cloud-hypervisor-artifact-release-tag "$RELEASE_TAG" \
-     --cloud-hypervisor-artifact-manifest \
-       "$ARTIFACT_DIR/cloud-hypervisor-test-x86_64.manifest.json" \
-     --cloud-hypervisor-artifact-manifest-bundle \
-       "$ARTIFACT_DIR/cloud-hypervisor-test-x86_64.manifest.sigstore.jsonl" \
-     -- your-primary-agent-command
-   ```
-
-4. Generate `tools/call` parameters locally (this does not dispatch anything):
+Generate `tools/call` parameters locally (this does not dispatch anything):
 
    ```bash
    python3 -B examples/enclave-environment-probe/build-request.py
    ```
 
-   Submit that object's `name` and `arguments` through the primary agent's
+Submit that object's `name` and `arguments` through the primary agent's
    supported `enclave_run_script` MCP tool. The arguments are exactly
    `privateRepo: "github/gh-aw-firewall"`, `schema: probe.schema()`, and the
    full UTF-8 `probe.py` source as `script`. Do not pass the script's filename
@@ -78,9 +53,10 @@ and [artifact setup](../../docs/cloud-hypervisor-foundation.md#host-eligibility-
 ### Repository workflow dispatch
 
 The Cloud Hypervisor enclave conformance workflow runs this probe in a distinct
-`run_environment_probe` job without an agent executor, API proxy, or Copilot
-secret. It requires a future published release tag containing this probe and
-its integration; see
+`run_environment_probe` job without an agent executor or Copilot secret.
+Its mandatory primary API proxy has no model credential or model traffic.
+It requires a future published release tag containing this single-backend fix;
+see
 [the dispatch guide](../../docs/cloud-hypervisor-foundation.md#public-enclave-environment-probe-dispatch).
 
 The guest probe **cannot run until host startup and broker readiness succeed**.

@@ -42,6 +42,18 @@ const source = fs.readFileSync(workflowPath, 'utf8');
 const workflow = yaml.load(source) as Workflow;
 
 describe('Cloud Hypervisor enclave conformance CI boundary', () => {
+  it.each(['live-kvm', 'environment-probe'])('preserves real admission identity across sudo in %s', jobName => {
+    const command = workflow.jobs[jobName].steps.find(step =>
+      step.run?.includes('--preserve-env=') && step.run.includes('node scripts/ci/'))!.run!;
+    const preserved = command.match(/--preserve-env=([^\s]+)/)![1].split(',');
+    expect(preserved).toEqual(expect.arrayContaining([
+      'GITHUB_ACTIONS', 'GITHUB_REPOSITORY', 'GITHUB_EVENT_NAME',
+      'GITHUB_REF', 'GITHUB_REF_TYPE', 'GITHUB_REF_NAME', 'GITHUB_SHA',
+      'GITHUB_WORKFLOW_REF', 'GITHUB_WORKFLOW_SHA', 'AWF_ACCEPTANCE_COMMIT',
+    ]));
+    expect(preserved).not.toContain('GITHUB_*');
+  });
+
   it('runs deterministic conformance without privileged probes or KVM artifacts', () => {
     expect(Object.keys(workflow.jobs)).toEqual(['deterministic', 'host-probes', 'live-kvm', 'environment-probe']);
     expect(workflow.permissions).toEqual({ contents: 'read' });

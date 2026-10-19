@@ -2,7 +2,8 @@
 
 // Script-only live run of examples/enclave-environment-probe through the public
 // enclave MCP route. It reuses the release-attested live acceptance harness and
-// needs no agent executor, API proxy, model, or Copilot credential.
+// needs no agent executor, model, or Copilot credential. The Cloud Hypervisor
+// primary still requires API-proxy infrastructure for credential isolation.
 
 const crypto = require('crypto');
 const fs = require('fs');
@@ -83,6 +84,8 @@ function loadExampleConfig() {
   const yaml = require('js-yaml');
   const config = yaml.load(fs.readFileSync(path.join(PROBE_DIRECTORY, 'awf.yaml'), 'utf8'));
   if (!isDeepStrictEqual(config?.enclaves, EXPECTED_ENCLAVES)
+      || config.container?.containerRuntime !== 'cloud-hypervisor'
+      || config.apiProxy?.enabled !== true
       || config.cloudHypervisor?.previewEnabled !== true
       || config.network?.isolation !== true) {
     throw new Error('Environment probe example config does not match the reviewed script-only contract');
@@ -94,11 +97,12 @@ function defaultApiTimeoutMs() {
   return require('../../dist/types/runtime-options').CLOUD_HYPERVISOR_DEFAULT_API_TIMEOUT_MS;
 }
 
-// Merges only compiler-owned gateway attachment, artifact paths, and private log dirs into the example.
+// Merges release identity, gateway attachment, artifact paths, and private log dirs into the example.
 function makeProbeConfig(example, artifacts, workDir, apiTimeoutMs = defaultApiTimeoutMs()) {
   const main = artifacts.directory;
   return {
     ...example,
+    container: { ...example.container, imageTag: artifacts.tag },
     network: { ...example.network, topologyAttach: [live.GATEWAY_CONTAINER] },
     cloudHypervisor: {
       ...example.cloudHypervisor,
@@ -195,7 +199,6 @@ async function main() {
       '--work-dir', workDir,
       '--log-level', 'error',
       '--agent-timeout', '30',
-      '--mount', `${workspace}:/workspace:rw`,
       '--',
       'while [ ! -f /workspace/.awf-enclave-probe-stop ]; do sleep 1; done',
     ], {

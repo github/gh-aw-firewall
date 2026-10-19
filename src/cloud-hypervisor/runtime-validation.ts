@@ -7,6 +7,8 @@ import {
   isCloudHypervisorScriptAcceptanceWorkflow,
 } from '../enclave/cloud-hypervisor-script-acceptance';
 import { validatePublicEnclaveDebug } from '../enclave/public-debug';
+import { isCloudHypervisorConformanceAcceptanceWorkflow } from '../enclave/cloud-hypervisor-conformance-acceptance';
+import { validateRunSandboxBackend } from '../enclave/run-backend';
 
 /**
  * Explicit, fail-closed compatibility guards for the Cloud Hypervisor
@@ -47,6 +49,7 @@ function usesCloudHypervisorAgentRuntime(config: Pick<WrapperConfig, 'enclaves'>
 }
 
 export function assertCloudHypervisorSelection(config: WrapperConfig): void {
+  assertUnifiedWorkloadBackend(config);
   const debugErrors = validatePublicEnclaveDebug(config);
   if (debugErrors.length) throw new Error(debugErrors.join('; '));
   const required = requiresCloudHypervisorInfrastructure(config);
@@ -137,6 +140,7 @@ export function assertCloudHypervisorRuntimeCompatibility(
 }
 
 export function assertCloudHypervisorPreSecurityCompatibility(config: WrapperConfig): void {
+  assertUnifiedWorkloadBackend(config);
   if (config.networkIsolation === false) {
     throw new Error('Cloud Hypervisor preview cannot disable --network-isolation');
   }
@@ -162,6 +166,7 @@ export function assertCloudHypervisorPreSecurityCompatibility(config: WrapperCon
     && config.enclaves?.enabled
     && !isCloudHypervisorScriptAcceptanceWorkflow(config)
     && !isCloudHypervisorAgentAcceptanceWorkflow(config)
+    && !isCloudHypervisorConformanceAcceptanceWorkflow(config)
   ) {
     throw new Error(
       'Cloud Hypervisor primary-agent execution with enclaves is reserved until the '
@@ -180,6 +185,13 @@ export function assertCloudHypervisorPreSecurityCompatibility(config: WrapperCon
       'Cloud Hypervisor preview requires a local Unix-socket Docker daemon so its bridge is host-visible',
     );
   }
+}
+
+function assertUnifiedWorkloadBackend(config: WrapperConfig): void {
+  const errors = config.enclaves
+    ? validateRunSandboxBackend(config.containerRuntime, config.enclaves)
+    : [];
+  if (errors.length) throw new Error(errors.join('; '));
 }
 
 export function requireCloudHypervisorConfig(config: WrapperConfig): CloudHypervisorOptions {

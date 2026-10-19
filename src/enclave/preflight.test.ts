@@ -25,7 +25,7 @@ describe('validateEnclavesConfig', () => {
     expect(validateEnclavesConfig(config())).toEqual([]);
   });
 
-  it('accepts static cloud-hypervisor entries at the configuration layer', () => {
+  it('rejects static cloud-hypervisor entries with an omitted Docker-default primary', () => {
     const enclaves = normalizeEnclavesConfig([
       {
         script: {},
@@ -36,7 +36,7 @@ describe('validateEnclavesConfig', () => {
     expect(validateEnclavesConfig(config({
       enclaves,
       cloudHypervisor: { previewEnabled: true } as WrapperConfig['cloudHypervisor'],
-    }))).toEqual([]);
+    })).join('\n')).toMatch(/one sandbox backend/);
   });
 
   it('rejects cloud-hypervisor image overrides and dynamic agents without fallback', () => {
