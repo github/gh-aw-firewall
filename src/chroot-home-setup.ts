@@ -88,7 +88,7 @@ export function prepareChrootHomeMounts(config: WrapperConfig): void {
   fs.chownSync(emptyHomeDir, uid, gid);
   logger.debug(`Created chroot home directory: ${emptyHomeDir} (${uid}:${gid})`);
 
-  if (!isSysrootEnabled(config) && isGeminiProxyRoutingEnabled(config) && shouldPinGeminiAuthType(config)) {
+  if (process.getuid?.() === 0 && !isSysrootEnabled(config) && isGeminiProxyRoutingEnabled(config) && shouldPinGeminiAuthType(config)) {
     writeGeminiSystemSettings(config.workDir);
   }
 

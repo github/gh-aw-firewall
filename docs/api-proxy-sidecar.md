@@ -1065,7 +1065,7 @@ When `GEMINI_API_KEY` is provided to the AWF runner, `GOOGLE_GEMINI_BASE_URL`, `
 
 Gemini CLI **0.44.0 and newer** resolve *any* non-empty `GOOGLE_GEMINI_BASE_URL` to the internal `gateway` auth type in `getAuthTypeFromEnv()`, but their own `validateAuthMethod()` has no branch for that type and aborts with `Invalid auth method selected.` (exit code **41**) before a single request is issued. Because AWF must set `GOOGLE_GEMINI_BASE_URL` to route the CLI through the api-proxy sidecar, every proxied Gemini run hit this upstream regression (see [google-gemini/gemini-cli#27550](https://github.com/google-gemini/gemini-cli/issues/27550)). The placeholder `GEMINI_API_KEY` value is not involved — the CLI performs no key-format validation.
 
-**Resolution:** For Compose-backed agent runtimes, AWF provides a root-owned Gemini CLI *system* settings file under the agent's root-controlled `/etc` subtree (`/etc/awf/gemini-cli/settings.json`). Standard Compose uses a read-only file bind; ARC/DinD writes the file into the root-owned sysroot volume before the agent starts (workDir binds are excluded there). AWF points the CLI at this location with `GEMINI_CLI_SYSTEM_SETTINGS_PATH`:
+**Resolution:** For Compose-backed agent runtimes, AWF provides a root-owned Gemini CLI *system* settings file under the agent's root-controlled `/etc` subtree (`/etc/awf/gemini-cli/settings.json`). Privileged standard Compose uses a read-only file bind; ARC/DinD writes the file into the root-owned sysroot volume before the agent starts (workDir binds are excluded there). When the host process is unprivileged, the container entrypoint writes the pin as root before dropping to the agent UID. AWF points the CLI at this location with `GEMINI_CLI_SYSTEM_SETTINGS_PATH`:
 
 ```json
 {

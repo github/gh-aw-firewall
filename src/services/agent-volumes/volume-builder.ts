@@ -69,7 +69,7 @@ export function buildAgentVolumes(params: AgentVolumesParams): string[] {
     config, effectiveHome, agentLogsPath, sessionStatePath, pathExists: params.pathExists,
   }));
   agentVolumes.push(...buildEtcMounts(config, params.pathExists));
-  if (!isSysrootEnabled(config) && isGeminiProxyRoutingEnabled(config) && shouldPinGeminiAuthType(config)) {
+  if (process.getuid?.() === 0 && !isSysrootEnabled(config) && isGeminiProxyRoutingEnabled(config) && shouldPinGeminiAuthType(config)) {
     agentVolumes.push(`${getGeminiSystemSettingsSourcePath(config.workDir)}:/host${GEMINI_CLI_SYSTEM_SETTINGS_PATH}:ro`);
   }
   // When sysroot-stage is active, the sysroot volume provides /etc/hosts.

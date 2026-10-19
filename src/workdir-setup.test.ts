@@ -75,18 +75,34 @@ describe('prepareWorkDirectories', () => {
   const { buildConfig } = fixture;
 
   it('stages the Gemini auth pin as a root-owned file outside the writable home', () => {
-    const config = buildConfig({ enableApiProxy: true, geminiApiKey: 'fake-key' });
-    prepareWorkDirectories(config, resolveLogPaths(config));
+    const rootSpy = jest.spyOn(process, 'getuid').mockReturnValue(0);
+    try {
+      const config = buildConfig({ enableApiProxy: true, geminiApiKey: 'fake-key' });
+      prepareWorkDirectories(config, resolveLogPaths(config));
 
-    const source = getGeminiSystemSettingsSourcePath(config.workDir);
-    expect(JSON.parse(fs.readFileSync(source, 'utf8'))).toEqual({
-      security: { auth: { selectedType: 'gemini-api-key' } },
-    });
-    expect(fs.statSync(path.dirname(source)).mode & 0o777).toBe(0o700);
-    expect(fs.statSync(source).mode & 0o777).toBe(0o644);
-    expect(fs.chownSync).toHaveBeenCalledWith(path.dirname(source), 0, 0);
-    expect(fs.fchownSync).toHaveBeenCalledWith(expect.any(Number), 0, 0);
-    expect(fs.existsSync(path.join(`${config.workDir}-chroot-home`, '.awf'))).toBe(false);
+      const source = getGeminiSystemSettingsSourcePath(config.workDir);
+      expect(JSON.parse(fs.readFileSync(source, 'utf8'))).toEqual({
+        security: { auth: { selectedType: 'gemini-api-key' } },
+      });
+      expect(fs.statSync(path.dirname(source)).mode & 0o777).toBe(0o700);
+      expect(fs.statSync(source).mode & 0o777).toBe(0o644);
+      expect(fs.chownSync).toHaveBeenCalledWith(path.dirname(source), 0, 0);
+      expect(fs.fchownSync).toHaveBeenCalledWith(expect.any(Number), 0, 0);
+      expect(fs.existsSync(path.join(`${config.workDir}-chroot-home`, '.awf'))).toBe(false);
+    } finally {
+      rootSpy.mockRestore();
+    }
+  });
+
+  it('defers Gemini settings staging to the privileged container on non-root hosts', () => {
+    const nonRootSpy = jest.spyOn(process, 'getuid').mockReturnValue(1001);
+    try {
+      const config = buildConfig({ enableApiProxy: true, geminiApiKey: 'fake-key' });
+      prepareWorkDirectories(config, resolveLogPaths(config));
+      expect(fs.existsSync(getGeminiSystemSettingsSourcePath(config.workDir))).toBe(false);
+    } finally {
+      nonRootSpy.mockRestore();
+    }
   });
 
   describe('log/state directory setup', () => {
@@ -380,17 +396,22 @@ describe('prepareWorkDirectories', () => {
     });
 
     it('writes Gemini system settings without following a pre-existing symlink', () => {
-      const target = path.join(fixture.tempDir, 'target');
-      const settingsPath = getGeminiSystemSettingsSourcePath(fixture.tempDir);
-      fs.mkdirSync(path.dirname(settingsPath), { recursive: true });
-      fs.writeFileSync(target, 'unchanged');
-      fs.symlinkSync(target, settingsPath);
+      const rootSpy = jest.spyOn(process, 'getuid').mockReturnValue(0);
+      try {
+        const target = path.join(fixture.tempDir, 'target');
+        const settingsPath = getGeminiSystemSettingsSourcePath(fixture.tempDir);
+        fs.mkdirSync(path.dirname(settingsPath), { recursive: true });
+        fs.writeFileSync(target, 'unchanged');
+        fs.symlinkSync(target, settingsPath);
 
-      const config = buildConfig({ enableApiProxy: true, geminiApiKey: 'test-key' });
-      const logPaths = resolveLogPaths(config);
+        const config = buildConfig({ enableApiProxy: true, geminiApiKey: 'test-key' });
+        const logPaths = resolveLogPaths(config);
 
-      expect(() => prepareWorkDirectories(config, logPaths)).toThrow();
-      expect(fs.readFileSync(target, 'utf8')).toBe('unchanged');
+        expect(() => prepareWorkDirectories(config, logPaths)).toThrow();
+        expect(fs.readFileSync(target, 'utf8')).toBe('unchanged');
+      } finally {
+        rootSpy.mockRestore();
+      }
     });
 
     it('creates .gemini directory when googleApiKey is provided', () => {
@@ -598,8 +619,14 @@ describe('prepareChrootHomeMounts (sub-function)', () => {
   describe('Gemini CLI system settings', () => {
     const settingsPath = () => getGeminiSystemSettingsSourcePath(fixture.tempDir);
     const originalVertex = process.env.GOOGLE_GENAI_USE_VERTEXAI;
+    let rootSpy: jest.SpyInstance;
+
+    beforeEach(() => {
+      rootSpy = jest.spyOn(process, 'getuid').mockReturnValue(0);
+    });
 
     afterEach(() => {
+      rootSpy.mockRestore();
       if (originalVertex === undefined) delete process.env.GOOGLE_GENAI_USE_VERTEXAI;
       else process.env.GOOGLE_GENAI_USE_VERTEXAI = originalVertex;
     });

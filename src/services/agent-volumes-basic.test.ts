@@ -14,16 +14,36 @@ describe('agent service', () => {
   it.each([undefined, '/host', '/tmp/gh-aw'])(
     'mounts the Gemini auth pin read-only under /etc with prefix %s',
     (dockerHostPathPrefix) => {
-      const config = {
-        ...getConfig(), enableApiProxy: true, geminiApiKey: 'fake-key', dockerHostPathPrefix,
-      };
-      const volumes = generateDockerCompose(config, mockNetworkConfig).services.agent.volumes as string[];
-      const source = getGeminiSystemSettingsSourcePath(config.workDir);
-      const translated = dockerHostPathPrefix ? `${dockerHostPathPrefix}${source}` : source;
-      expect(volumes).toContain(`${translated}:/host${GEMINI_CLI_SYSTEM_SETTINGS_PATH}:ro`);
-      expect(volumes.some((volume) => volume.includes(':/host/home/') && volume.includes('settings.json'))).toBe(false);
+      const rootSpy = jest.spyOn(process, 'getuid').mockReturnValue(0);
+      try {
+        const config = {
+          ...getConfig(), enableApiProxy: true, geminiApiKey: 'fake-key', dockerHostPathPrefix,
+        };
+        const volumes = generateDockerCompose(config, mockNetworkConfig).services.agent.volumes as string[];
+        const source = getGeminiSystemSettingsSourcePath(config.workDir);
+        const translated = dockerHostPathPrefix ? `${dockerHostPathPrefix}${source}` : source;
+        expect(volumes).toContain(`${translated}:/host${GEMINI_CLI_SYSTEM_SETTINGS_PATH}:ro`);
+        expect(volumes.some((volume) => volume.includes(':/host/home/') && volume.includes('settings.json'))).toBe(false);
+      } finally {
+        rootSpy.mockRestore();
+      }
     },
   );
+
+  it('uses privileged entrypoint staging instead of a host bind for non-root Compose', () => {
+    const nonRootSpy = jest.spyOn(process, 'getuid').mockReturnValue(1001);
+    try {
+      const compose = generateDockerCompose({
+        ...getConfig(), enableApiProxy: true, geminiApiKey: 'fake-key', networkIsolation: true,
+      }, { ...mockNetworkConfig, proxyIp: '172.30.0.30' });
+      const volumes = compose.services.agent.volumes as string[];
+      expect(volumes.some((volume) => volume.includes(`:/host${GEMINI_CLI_SYSTEM_SETTINGS_PATH}:`))).toBe(false);
+      expect(compose.services.agent.environment?.GEMINI_CLI_SYSTEM_SETTINGS_PATH).toBe(GEMINI_CLI_SYSTEM_SETTINGS_PATH);
+      expect(compose.services.agent.environment?.AWF_GEMINI_SYSTEM_SETTINGS_FALLBACK).toBe('1');
+    } finally {
+      nonRootSpy.mockRestore();
+    }
+  });
 
   it.each<Partial<WrapperConfig>>([
     { enableApiProxy: false, geminiApiKey: 'fake-key' },
