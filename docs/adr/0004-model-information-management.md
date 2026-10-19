@@ -800,6 +800,18 @@ One model catalogue updater replaces endpoint-only and ad hoc update paths. It:
 6. emits a machine-readable change report; and
 7. applies review gates for high-impact changes.
 
+For Copilot models, use GitHub's
+[supported models reference](https://docs.github.com/en/copilot/reference/ai-models/supported-models)
+as the authority for the currently supported-model list. Also review
+[Copilot changelog announcements](https://github.blog/changelog/2026-09-18-upcoming-deprecation-of-selected-github-copilot-models-in-mid-october/)
+for announced lifecycle changes that may precede updates to that reference,
+including the [October 15, 2026 announcement](https://github.blog/changelog/2026-10-15-upcoming-deprecation-of-selected-github-copilot-models-in-mid-november/).
+Treat an announcement as evidence for a reviewed, dated lifecycle change, not
+as proof that a model is already unsupported: preserve the current support
+status until the announced effective date and reconcile it with the supported
+models reference and provider data. Record the sources and effective date so
+conflicts or delayed changes are visible to reviewers.
+
 On each scheduled run, the updater compares available live provider model data
 with the maintained registry. It reports missing models, price changes beyond
 the documented provider-specific rounding tolerance, and changed reasoning
