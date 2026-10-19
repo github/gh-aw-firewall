@@ -107,7 +107,8 @@ describe('Cloud Hypervisor primary and Copilot agent enclave acceptance', () => 
     const agent = value.enclaves!.executors.agent;
     Object.assign(agent, { [field]: typeof agent[field] === 'number' ? 999 : 'other' });
     expect(isCloudHypervisorAgentAcceptanceWorkflow(value)).toBe(false);
-    expect(() => assertCloudHypervisorPreSecurityCompatibility(value)).toThrow(/reserved until/);
+    expect(() => assertCloudHypervisorPreSecurityCompatibility(value))
+      .toThrow(field === 'runtime' ? /one sandbox backend/ : /reserved until/);
   });
 
   it('rejects private fixtures, extra executors, GitHub tooling and unattested guests', () => {

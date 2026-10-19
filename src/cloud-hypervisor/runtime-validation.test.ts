@@ -287,7 +287,9 @@ describe('Cloud Hypervisor runtime validation', () => {
     [{ allowHostServicePorts: ['5432'] }, /host access/],
     [{ volumeMounts: ['/tmp:/tmp'] }, /additional host volume mounts/],
     [{ difcProxyHost: 'proxy:443' }, /DIFC proxies/],
-    [{ enclaves: { enabled: true } }, /real end-to-end isolation acceptance/],
+    [{ enclaves: normalizeEnclavesConfig([{
+      script: {}, repos: [{ repo: 'octo/private', sensitivity: 'internal' }],
+    }], { primaryRuntime: 'cloud-hypervisor' }) }, /real end-to-end isolation acceptance/],
     [{ dnsOverHttps: 'https://dns.example/dns-query' }, /DNS-over-HTTPS/],
     [{ tty: true }, /does not support --tty/],
     [{ awfDockerHost: 'tcp://localhost:2375' }, /local Unix-socket Docker daemon/],

@@ -29,7 +29,7 @@ describe('Cloud Hypervisor runtime backend environment and path mapping', () => 
           envAll: true,
           enclaves: normalizeEnclavesConfig([
             { script: {}, repos: [{ repo: 'github/gh-aw-firewall', sensitivity: 'public' }] },
-          ]),
+          ], { primaryRuntime: 'cloud-hypervisor' }),
         }),
         infrastructure(),
       );
@@ -53,7 +53,7 @@ describe('Cloud Hypervisor runtime backend environment and path mapping', () => 
           enableApiProxy: false,
           enclaves: normalizeEnclavesConfig([
             { script: {}, repos: [{ repo: 'github/gh-aw-firewall', sensitivity: 'public' }] },
-          ]),
+          ], { primaryRuntime: 'cloud-hypervisor' }),
           additionalEnv: { STAGING_TOKEN_COPY: 'host-gh-token-value' },
         }),
         infrastructure(),
@@ -183,7 +183,9 @@ describe('Cloud Hypervisor runtime backend environment and path mapping', () => 
       config({ enableHostAccess: true }),
     )).toThrow(/host access/);
     expect(() => assertCloudHypervisorPreSecurityCompatibility(
-      config({ enclaves: { enabled: true } } as Partial<WrapperConfig>),
+      config({ enclaves: normalizeEnclavesConfig([{
+        script: {}, repos: [{ repo: 'github/gh-aw-firewall', sensitivity: 'public' }],
+      }], { primaryRuntime: 'cloud-hypervisor' }) }),
     )).toThrow(/real end-to-end isolation acceptance/);
     expect(() => assertCloudHypervisorSelection(
       config({ containerRuntime: 'gvisor' }),

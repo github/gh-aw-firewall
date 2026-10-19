@@ -19,6 +19,7 @@ import { typedDynamicEnclavePolicyFixture } from './dynamic-policy.test-utils';
 import * as runtimePreflight from './runtime-preflight';
 import { ENCLAVE_DEBUG_ARTIFACT_ROOT } from './public-debug';
 import { assertEnclaveStartupChecklistComplete } from './startup-progress';
+import { releaseTag } from '../cloud-hypervisor/artifact-compatibility.json';
 
 const gitRunner: GitRunner = async (args) => {
   if (args.includes('clone')) {
@@ -92,22 +93,69 @@ function cloudHypervisorPrimaryConfig(workDir: string): WrapperConfig {
   } as WrapperConfig;
 }
 
-function enableCloudHypervisorAcceptanceContext(): () => void {
+function enableCloudHypervisorAcceptanceContext(
+  workflowPath = 'github/gh-aw-firewall/.github/workflows/smoke-enclave-cloud-hypervisor.lock.yml',
+  tag = 'v0.28.54',
+): () => void {
   const original = process.env;
   process.env = {
     ...original,
     GITHUB_ACTIONS: 'true',
     GITHUB_REPOSITORY: 'github/gh-aw-firewall',
     GITHUB_EVENT_NAME: 'workflow_dispatch',
-    GITHUB_WORKFLOW_REF:
-      'github/gh-aw-firewall/.github/workflows/smoke-enclave-cloud-hypervisor.lock.yml@refs/tags/v0.28.54',
-    GITHUB_REF: 'refs/tags/v0.28.54',
+    GITHUB_WORKFLOW_REF: `${workflowPath}@refs/tags/${tag}`,
+    GITHUB_REF: `refs/tags/${tag}`,
     GITHUB_REF_TYPE: 'tag',
-    GITHUB_REF_NAME: 'v0.28.54',
+    GITHUB_REF_NAME: tag,
+    GITHUB_SHA: 'a'.repeat(40),
+    GITHUB_WORKFLOW_SHA: 'a'.repeat(40),
+    AWF_ACCEPTANCE_COMMIT: 'b'.repeat(40),
   };
   return () => {
     process.env = original;
   };
+}
+
+function cloudHypervisorConformanceConfig(
+  workDir: string,
+  role: 'script' | 'agent' | 'both' = 'script',
+): WrapperConfig {
+  const repos = [{ repo: 'github/gh-aw-firewall', sensitivity: 'public' as const }];
+  const entries: EnclaveEntries = [];
+  if (role !== 'agent') entries.push({
+    script: { maxScriptBytes: 16_384 },
+    runtime: 'cloud-hypervisor',
+    timeout: 120,
+    maxInvocations: 8,
+    repos,
+  });
+  if (role !== 'script') entries.push({
+    agent: { model: 'gpt-4.1', engine: 'copilot', profile: 'openai',
+      maxModelRequests: 1, maxModelTokens: 256, maxTaskBytes: 4096 },
+    runtime: 'cloud-hypervisor',
+    timeout: 180,
+    maxInvocations: 3,
+    repos,
+  });
+  return {
+    ...agentConfig(workDir, entries),
+    containerRuntime: 'cloud-hypervisor',
+    imageTag: releaseTag,
+    cloudHypervisor: { previewEnabled: true, artifactReleaseTag: releaseTag },
+    enclaves: normalizeEnclavesConfig(entries, { primaryRuntime: 'cloud-hypervisor' }),
+  } as WrapperConfig;
+}
+
+async function withCloudHypervisorConformanceContext(operation: () => Promise<void>): Promise<void> {
+  const restore = enableCloudHypervisorAcceptanceContext(
+    'github/gh-aw-firewall/.github/workflows/test-cloud-hypervisor-enclaves.yml',
+    releaseTag,
+  );
+  try {
+    await operation();
+  } finally {
+    restore();
+  }
 }
 
 /** A configuration whose agent executor has a routed API-proxy model target. */
@@ -163,14 +211,8 @@ describe('prepareEnclaves fail-closed preflight', () => {
     })).rejects.toThrow(/Unix-socket Docker host/);
   });
 
-  it.each(['script', 'agent', 'both'] as const)('fails %s closed on missing hard-bounded storage before probes, seeds, or host effects', async (role) => {
-    const entries: EnclaveEntries = [];
-    if (role !== 'agent') entries.push({ script: {}, runtime: 'cloud-hypervisor', repos: [repository] });
-    if (role !== 'script') entries.push({
-      agent: { model: 'trusted-model' }, runtime: 'cloud-hypervisor', repos: [repository],
-    });
-    const wrapperConfig = agentConfig(workDir, entries);
-    wrapperConfig.cloudHypervisor = { previewEnabled: true } as WrapperConfig['cloudHypervisor'];
+  it.each(['script', 'agent', 'both'] as const)('fails %s closed on missing hard-bounded storage before probes, seeds, or host effects', role => withCloudHypervisorConformanceContext(async () => {
+    const wrapperConfig = cloudHypervisorConformanceConfig(workDir, role);
     const primary = jest.fn();
     const executor = jest.fn();
     const clone = jest.fn();
@@ -186,13 +228,10 @@ describe('prepareEnclaves fail-closed preflight', () => {
     expect(clone).not.toHaveBeenCalled();
     expect(fs.existsSync(resolveEnclavePaths(workDir).root)).toBe(false);
     expect(fs.existsSync(resolveEnclavePaths(workDir).hostExecutorDir)).toBe(false);
-  });
+  }));
 
-  it('rejects unavailable trusted storage before runtime probes or private state effects', async () => {
-    const wrapperConfig = config(workDir, [{
-      script: {}, runtime: 'cloud-hypervisor', repos: [repository],
-    }]);
-    wrapperConfig.cloudHypervisor = { previewEnabled: true } as WrapperConfig['cloudHypervisor'];
+  it('rejects unavailable trusted storage before runtime probes or private state effects', () => withCloudHypervisorConformanceContext(async () => {
+    const wrapperConfig = cloudHypervisorConformanceConfig(workDir);
     const primary = jest.fn();
     const clone = jest.fn();
     const prepareRun = jest.fn();
@@ -210,14 +249,11 @@ describe('prepareEnclaves fail-closed preflight', () => {
     expect(prepareRun).not.toHaveBeenCalled();
     expect(fs.existsSync(resolveEnclavePaths(workDir).root)).toBe(false);
     expect(fs.existsSync(resolveEnclavePaths(workDir).hostExecutorDir)).toBe(false);
-  });
+  }));
 
   it.each(['journal', 'invocations', 'storage', 'debug'] as const)(
-    'rejects primary-agent mounts exposing trusted %s paths before effects', async (resource) => {
-    const wrapperConfig = config(workDir, [{
-      script: {}, runtime: 'cloud-hypervisor', repos: [repository],
-    }]);
-    wrapperConfig.cloudHypervisor = { previewEnabled: true } as WrapperConfig['cloudHypervisor'];
+    'rejects primary-agent mounts exposing trusted %s paths before effects', resource => withCloudHypervisorConformanceContext(async () => {
+    const wrapperConfig = cloudHypervisorConformanceConfig(workDir);
     const paths = resolveEnclavePaths(workDir);
     const root = resource === 'journal' ? paths.hostExecutorJournalDir :
       resource === 'invocations' ? path.join(path.dirname(paths.hostExecutorJournalDir), 'host-invocations') :
@@ -253,7 +289,7 @@ describe('prepareEnclaves fail-closed preflight', () => {
     expect(available).not.toHaveBeenCalled();
     expect(prepareRun).not.toHaveBeenCalled();
     expect(fs.existsSync(paths.root)).toBe(false);
-  });
+  }));
 
   it('requires the compiler topology handoff before staging', async () => {
     const wrapperConfig = config(workDir);

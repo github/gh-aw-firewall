@@ -5,6 +5,7 @@ import {
   mockBuildConfigOnce,
   setupConfigAssemblyTestSuite,
 } from './config-assembly.test-utils';
+import { normalizeEnclavesConfig } from '../../parsers/enclave-parser';
 
 describe('config-assembly', () => {
   setupConfigAssemblyTestSuite();
@@ -56,7 +57,9 @@ describe('config-assembly', () => {
   });
 
   describe('--max-num-tool-calls', () => {
-    const enclaves = { enabled: true } as never;
+    const enclaves = normalizeEnclavesConfig([{
+      script: {}, repos: [{ repo: 'octo/private', sensitivity: 'internal' }],
+    }], { primaryRuntime: 'docker' });
 
     it('rejects a non-positive tool-call cap', () => {
       mockBuildConfigOnce({ maxNumToolCalls: 0, enclaves });
