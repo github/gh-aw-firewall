@@ -407,6 +407,15 @@ describe('Cloud Hypervisor workload profiles', () => {
       .toThrow(/identity and artifact/);
   });
 
+  it.each([scriptProfile, agentProfile])('rejects caller-selected enclave entrypoints and legacy rootfs roles', (create) => {
+    for (const field of ['entrypoint', 'rootfsRole']) {
+      const profile = create();
+      profile[field] = '/usr/local/bin/run-enclave-agent';
+      expect(() => validateCloudHypervisorWorkloadProfile(profile as never))
+        .toThrow(/Unknown Cloud Hypervisor workload profile field/);
+    }
+  });
+
   it('accepts singular and repeated primary control peers', () => {
     expect(createPrimaryAgentCloudHypervisorProfile({
       network: {
