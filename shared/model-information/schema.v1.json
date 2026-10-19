@@ -25,11 +25,17 @@
         "authority": { "enum": ["maintained", "operator", "configured_catalog", "central_feed", "runtime", "imported", "policy"] },
         "source": { "type": "string", "minLength": 1 },
         "revision": { "type": "string", "minLength": 1 },
+        "catalogId": { "type": "string", "minLength": 1 },
+        "catalogVersion": { "type": "string", "minLength": 1 },
         "at": { "type": "string", "format": "date-time" },
         "freshUntil": { "type": "string", "format": "date-time" },
         "confidence": { "enum": ["verified", "imported", "estimated", "policy_fallback"] },
         "freshness": { "enum": ["fresh", "stale", "unknown"] },
         "stale": { "type": "boolean" }
+      },
+      "dependentRequired": {
+        "catalogId": ["catalogVersion"],
+        "catalogVersion": ["catalogId"]
       },
       "additionalProperties": false
     },
@@ -113,7 +119,7 @@
       "properties": {
         "key": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]*/[^/?#/]+(/[^/?#/]+)*$" },
         "provider": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$" },
-        "rawId": { "type": "string", "minLength": 1 },
+        "rawId": { "type": "string", "minLength": 1, "pattern": "^(?!.*[?#])(?!.*//)(?!.*(?:^|/)(?:\\.|\\.\\.)(?:/|$)).+$" },
         "lookupId": { "type": "string", "minLength": 1 },
         "family": { "type": "string", "minLength": 1 },
         "aliases": { "type": "array", "items": { "$ref": "#/$defs/alias" } }
@@ -140,9 +146,9 @@
         "harnesses": { "type": "array", "items": { "$ref": "#/$defs/harness" } },
         "limits": { "type": "object", "properties": { "contextTokens": { "type": "integer", "minimum": 1 }, "outputTokens": { "type": "integer", "minimum": 1 }, "tokenizer": { "type": "string" }, "provenance": { "$ref": "#/$defs/provenance" } }, "required": ["provenance"], "additionalProperties": false },
         "modalities": { "type": "object", "properties": { "input": { "type": "array", "items": { "type": "string" }, "uniqueItems": true }, "output": { "type": "array", "items": { "type": "string" }, "uniqueItems": true }, "provenance": { "$ref": "#/$defs/provenance" } }, "required": ["provenance"], "additionalProperties": false },
-        "reasoning": { "type": "object", "required": ["support", "rawEfforts", "selectableEfforts", "mode", "provenance"], "properties": { "support": { "$ref": "#/$defs/state" }, "condition": { "type": "string" }, "rawEfforts": { "type": "array", "items": { "type": "string" } }, "selectableEfforts": { "type": "array", "items": { "type": "string" } }, "default": { "type": "string" }, "mode": { "enum": ["optional", "required", "forbidden"] }, "requestFields": { "type": "object", "additionalProperties": { "type": "string" } }, "effortAliases": { "type": "object", "additionalProperties": { "type": "string" } }, "provenance": { "$ref": "#/$defs/provenance" } }, "additionalProperties": false },
+        "reasoning": { "type": "object", "required": ["support", "rawEfforts", "selectableEfforts", "mode", "provenance"], "properties": { "support": { "$ref": "#/$defs/state" }, "condition": { "type": "string", "minLength": 1 }, "rawEfforts": { "type": "array", "items": { "type": "string" } }, "selectableEfforts": { "type": "array", "items": { "type": "string" } }, "default": { "type": "string" }, "mode": { "enum": ["optional", "required", "forbidden"] }, "requestFields": { "type": "object", "additionalProperties": { "type": "string" } }, "effortAliases": { "type": "object", "additionalProperties": { "type": "string" } }, "provenance": { "$ref": "#/$defs/provenance" } }, "if": { "properties": { "support": { "const": "conditional" } }, "required": ["support"] }, "then": { "required": ["condition"] }, "else": { "not": { "required": ["condition"] } }, "additionalProperties": false },
         "protocols": { "type": "array", "items": { "type": "object", "required": ["protocol", "support"], "properties": { "protocol": { "type": "string", "minLength": 1 }, "support": { "$ref": "#/$defs/fact" }, "features": { "type": "object", "additionalProperties": { "$ref": "#/$defs/fact" } } }, "additionalProperties": false } },
-        "translations": { "type": "array", "items": { "type": "object", "required": ["from", "to", "revision", "support", "features"], "properties": { "from": { "type": "string", "minLength": 1 }, "to": { "type": "string", "minLength": 1 }, "revision": { "type": "string", "minLength": 1 }, "support": { "enum": ["supported", "lossy", "unsupported", "unknown", "conditional"] }, "features": { "type": "object", "additionalProperties": { "$ref": "#/$defs/fact" } } }, "additionalProperties": false } },
+        "translations": { "type": "array", "items": { "type": "object", "required": ["from", "to", "revision", "support", "features"], "properties": { "from": { "type": "string", "minLength": 1 }, "to": { "type": "string", "minLength": 1 }, "revision": { "type": "string", "minLength": 1 }, "support": { "enum": ["supported", "lossy", "unsupported", "unknown", "conditional"] }, "condition": { "type": "string", "minLength": 1 }, "features": { "type": "object", "additionalProperties": { "$ref": "#/$defs/fact" } } }, "if": { "properties": { "support": { "const": "conditional" } }, "required": ["support"] }, "then": { "required": ["condition"] }, "else": { "not": { "required": ["condition"] } }, "additionalProperties": false } },
         "tariffs": { "type": "array", "items": { "$ref": "#/$defs/tariff" } },
         "provenance": { "$ref": "#/$defs/provenance" }
       },

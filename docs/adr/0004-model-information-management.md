@@ -1015,7 +1015,7 @@ describe the **legacy baseline**, not a new universal normalization policy.
 | Unversioned operator overlay | Exact dated cost wins before base prefix; a base can match specialized suffixes; queries do not match in Phase 1 fixtures. | Keep the open legacy reader; new strict overlays use deterministic exact/alias/family specificity with declared exclusions for specialized variants. |
 | Configured shared catalogue | `AWF_MODEL_PRICING_CATALOG` v1 strips prefix/date, normalizes separators/case, uses configured provider aliases, selects long tier only when input tokens **exceed** threshold. Carries `shared_catalog`, ID and version; outranks complete runtime pricing. | Map to `configured_catalog` pricing authority, **not** fetched-feed authority. Preserve existing acceptance, provider aliases, component rates, threshold boundary and accounting. Never apply new strict-format rejection retroactively. |
 | Fetched central feed | No corresponding Phase 1 loader exists. | Explicit source/revision, freshness, integrity and offline policy; price and harness only, below complete fresh runtime pricing and the existing configured catalogue. A failed custom source never triggers an unconfigured default. |
-| Curated and `models.dev` | Curated precedes bundled import; `models.dev` retains case differences and provider identity, and rejects query suffixes. The same slug at another provider is not a match. | Use reviewed facts ahead of governed imports, with source revision and per-component provenance; no cross-provider slug match or imported availability. |
+| Curated and `models.dev` | Curated precedes bundled import. The legacy `models.dev` resolver strips any provider prefix and indexes the bare normalized slug; the credit guard calls it without a provider, so the same slug at another provider can resolve. | Preserve reviewed facts ahead of governed imports. Provider-qualified imported pricing is a future behavior change and requires parity review; do not imply that legacy lookup preserves provider identity. |
 | Specialized family variants | `gpt-5.5-pro` has mapping but no routing metadata; `gpt-5.6-cyber` is not a host-supported model. | Explicit exact exceptions or exclusions; family rules cannot manufacture capabilities, availability or verified pricing. |
 | `/reflect` and `models.json` | Phase 1 fixtures freeze current fields and meanings. | Extend **the existing `/reflect`** additively with an optional versioned model-information section. Do not negotiate endpoints or change the legacy snapshot shape in place. |
 
@@ -1029,10 +1029,17 @@ capture of declared exact variants. Providers/families can be reviewed in
 separate source files before Gate 3 compiles their JSON projections; no
 maintained catalogue is migrated by this gate.
 
+An overlay's provider and channel are exact scope boundaries. An omitted
+deployment means all deployments and may contain facts scoped to one deployment;
+a deployment-specific overlay may contain only facts with that same deployment,
+not broader facts with deployment omitted.
+
 The configured shared catalogue remains an operator-supplied pricing-only
 input: `projectConfiguredCatalogResolution()` maps its **existing resolver's**
 selected tier into decimal-string canonical prices and per-component
-`shared_catalog`/ID/version provenance without changing its parser. A
+`shared_catalog` provenance with catalogue ID and version kept as separate
+fields, without changing its parser. Null cache-write prices project to zero,
+matching current accounting. A
 downloaded central snapshot has `central_feed` authority regardless of whether
 its tariff has the same shape. The v1 catalogue has no review timestamp;
 projection reports unknown freshness rather than inventing an observation time.

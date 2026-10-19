@@ -52,7 +52,7 @@
     }],
     "translations": [{
       "from": "responses", "to": "chat-completions", "revision": "translator-1",
-      "support": "conditional",
+      "support": "conditional", "condition": "translation is available when the source protocol is enabled",
       "features": {
         "functionTools": { "state": "conditional", "condition": "no hosted tools", "provenance": { "authority": "maintained", "source": "review", "at": "2026-10-01T00:00:00Z" } }
       }

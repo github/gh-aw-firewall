@@ -42,17 +42,38 @@ function matchModel(record, candidate, scope, policy = {}) {
   return null;
 }
 
+function familyMatches(familyName, candidate) {
+  const family = normalizeId(familyName, { caseInsensitive: true, separators: true });
+  const id = normalizeId(candidate, { caseInsensitive: true, separators: true });
+  return id === family || id.startsWith(`${family}-`);
+}
+
+function familyRuleExcludes(rule, candidate) {
+  const id = normalizeId(candidate, { caseInsensitive: true, separators: true });
+  return rule.excludes.some(key => {
+    const separator = key.indexOf('/');
+    return separator >= 0 && key.slice(0, separator).toLowerCase() === rule.provider &&
+      normalizeId(key.slice(separator + 1), { caseInsensitive: true, separators: true }) === id;
+  });
+}
+
+function familyRuleHasException(rule, candidate, declaredModels = []) {
+  const id = normalizeId(candidate, { caseInsensitive: true, separators: true });
+  const family = normalizeId(rule.family, { caseInsensitive: true, separators: true });
+  return declaredModels.some(model => model.identity.provider === rule.provider &&
+    model.identity.lookupId === id &&
+    normalizeId(model.identity.family || '', { caseInsensitive: true, separators: true }) !== family);
+}
+
 function matchFamilyRule(rule, candidate, scope, declaredModels = []) {
   if (scope.provider !== rule.provider || scope.channel !== rule.scope.channel ||
       scope.deployment !== rule.scope.deployment || typeof candidate !== 'string') return null;
-  const family = normalizeId(rule.family, { caseInsensitive: true, separators: true });
   const id = normalizeId(candidate, { caseInsensitive: true, separators: true });
-  if (id !== family && !id.startsWith(`${family}-`)) return null;
-  if (rule.excludes.some(key =>
-    normalizeId(key, { caseInsensitive: true, separators: true }) === `${rule.provider}/${id}`) ||
-      declaredModels.some(model => model.identity.provider === rule.provider &&
-        model.identity.lookupId === id && model.identity.family !== rule.family)) return null;
+  if (!familyMatches(rule.family, id) || familyRuleExcludes(rule, id) ||
+      familyRuleHasException(rule, id, declaredModels)) return null;
   return { kind: 'family', rule };
 }
 
-module.exports = { identity, normalizeId, matchModel, matchFamilyRule };
+module.exports = {
+  identity, normalizeId, matchModel, familyMatches, familyRuleExcludes, familyRuleHasException, matchFamilyRule,
+};

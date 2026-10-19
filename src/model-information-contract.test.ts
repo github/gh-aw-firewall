@@ -4,6 +4,24 @@ import { identity, matchModel, matchFamilyRule, normalizeId } from '../shared/mo
 
 const copy = <T>(value: T): T => JSON.parse(JSON.stringify(value));
 const provenance = fixtures.model.provenance;
+const setCentralAuthorities = (value: any): void => {
+  if (Array.isArray(value)) value.forEach(setCentralAuthorities);
+  else if (value && typeof value === 'object') {
+    if (Object.prototype.hasOwnProperty.call(value, 'authority')) value.authority = 'central_feed';
+    Object.values(value).forEach(setCentralAuthorities);
+  }
+};
+const centralFeedRecord = (): any => {
+  const model: any = copy(fixtures.model);
+  for (const field of ['availability', 'limits', 'modalities', 'reasoning', 'protocols', 'translations']) {
+    delete model[field];
+  }
+  delete model.identity.aliases;
+  delete model.identity.family;
+  model.lifecycle = { status: 'active' };
+  setCentralAuthorities(model);
+  return model;
+};
 
 describe('versioned model information contracts', () => {
   it.each(['model', 'overlay', 'importedSnapshot', 'centralFeed', 'resolvedExport'] as const)(
@@ -30,6 +48,20 @@ describe('versioned model information contracts', () => {
     delete (model.availability[0].fact as { condition?: string }).condition;
     model.availability[0].fact.state = 'conditional';
     expect(validate('model', model)).not.toEqual([]);
+    model.availability[0].fact.condition = 'deployment enabled';
+    model.reasoning.support = 'conditional';
+    delete model.reasoning.condition;
+    expect(validate('model', model)).not.toEqual([]);
+    model.reasoning.condition = '';
+    expect(validate('model', model)).not.toEqual([]);
+    model.reasoning.condition = 'reasoning enabled';
+    expect(validate('model', model)).toEqual([]);
+    delete model.translations[0].condition;
+    expect(validate('model', model)).not.toEqual([]);
+    model.translations[0].condition = '';
+    expect(validate('model', model)).not.toEqual([]);
+    model.translations[0].condition = 'source protocol enabled';
+    expect(validate('model', model)).toEqual([]);
   });
 
   it('enforces decimal precision, unavailable versus zero, promotion expiry and component provenance', () => {
@@ -103,6 +135,96 @@ describe('versioned model information contracts', () => {
     expect(validateRecords([model], [{
       ...rule, scope: { provider: 'copilot', channel: 'native-api' },
     }]).join(' ')).toContain('Rule provider/scope mismatch');
+    rule.excludes = [];
+    expect(validateRecords([model], [rule])).toEqual([]);
+    expect(matchFamilyRule(rule, 'gpt-5.5-pro', rule.scope, [model])).toMatchObject({ kind: 'family' });
+    const normalizedException: any = copy(other);
+    normalizedException.identity = {
+      ...identity('openai', 'gpt-5.5-cyber'), family: 'gpt-5.5-cyber',
+    };
+    normalizedException.lifecycle.replacement = null;
+    rule.excludes = ['OPENAI/GPT_5_5_CYBER'];
+    expect(validateRecords([model, normalizedException], [rule]).join(' '))
+      .not.toContain(`Family captures declared exception: ${normalizedException.identity.key}`);
+    expect(matchFamilyRule(rule, 'GPT_5_5_CYBER', rule.scope, [normalizedException])).toBeNull();
+    expect(validateRecords([null] as any).join(' ')).toContain('must be object');
+    const invalidIdentity: any = copy(model);
+    invalidIdentity.identity = { ...identity('openai', 'safe'), rawId: '../model' };
+    expect(() => validateRecords([invalidIdentity])).not.toThrow();
+  });
+
+  it('rejects alias overlaps across mixed normalization policies', () => {
+    const first: any = copy(fixtures.model);
+    first.identity = {
+      ...identity('openai', 'first'),
+      aliases: [{ id: 'Foo_Bar', scope: { provider: 'openai', channel: 'native-api' }, match: 'separators' }],
+    };
+    const second: any = copy(fixtures.model);
+    second.identity = {
+      ...identity('openai', 'second'),
+      aliases: [{ id: 'foo-bar', scope: { provider: 'openai', channel: 'native-api' }, match: 'case-insensitive' }],
+    };
+    expect(validateRecords([first, second]).join(' ')).toContain('Ambiguous scoped alias');
+  });
+
+  it('limits overlay records and rules to their declared provider, channel, and deployment scope', () => {
+    const overlay: any = copy(fixtures.overlay);
+    overlay.models = [copy(fixtures.model)];
+    expect(validate('overlay', overlay)).toEqual([]);
+    overlay.models[0].identity.provider = 'copilot';
+    expect(validate('overlay', overlay).join(' ')).toContain('Overlay model provider is outside scope');
+
+    const deploymentScoped: any = copy(fixtures.overlay);
+    deploymentScoped.scope.deployment = 'production';
+    deploymentScoped.models = [copy(fixtures.model)];
+    expect(validate('overlay', deploymentScoped).join(' ')).toContain('Overlay scope does not contain model fact');
+    for (const entry of deploymentScoped.models[0].availability) entry.scope.deployment = 'production';
+    for (const entry of deploymentScoped.models[0].harnesses) entry.scope.deployment = 'production';
+    for (const entry of deploymentScoped.models[0].tariffs) entry.scope.deployment = 'production';
+    for (const entry of deploymentScoped.models[0].identity.aliases) entry.scope.deployment = 'production';
+    expect(validate('overlay', deploymentScoped)).toEqual([]);
+
+    const broadOverlay: any = copy(fixtures.overlay);
+    broadOverlay.models = [copy(fixtures.model)];
+    broadOverlay.models[0].tariffs[0].scope.deployment = 'production';
+    expect(validate('overlay', broadOverlay)).toEqual([]);
+    broadOverlay.rules = [{
+      provider: 'openai', family: 'gpt-5.5',
+      scope: { provider: 'openai', channel: 'copilot-api' },
+      field: 'reasoning', value: { state: 'supported', provenance },
+      excludes: [], provenance,
+    }];
+    expect(validate('overlay', broadOverlay).join(' ')).toContain('Overlay scope does not contain rule');
+  });
+
+  it('restricts central feed records to central-feed pricing and harness facts', () => {
+    const feedWithModel = (): any => {
+      const feed: any = copy(fixtures.centralFeed);
+      feed.models = [centralFeedRecord()];
+      return feed;
+    };
+    expect(validate('centralFeed', feedWithModel())).toEqual([]);
+
+    const cases: Array<[string, (model: any) => void]> = [
+      ['availability', model => { model.availability = []; }],
+      ['lifecycle', model => { model.lifecycle.replacement = 'openai/replacement'; }],
+      ['reasoning', model => { model.reasoning = copy(fixtures.model.reasoning); }],
+      ['protocols', model => { model.protocols = copy(fixtures.model.protocols); }],
+      ['operator authority', model => { model.provenance.authority = 'operator'; }],
+      ['configured_catalog authority', model => { model.tariffs[0].provenance.authority = 'configured_catalog'; }],
+      ['configured_catalog authority', model => {
+        model.tariffs[0].components.input.provenance.authority = 'configured_catalog';
+      }],
+      ['operator authority', model => { model.harnesses[0].provenance.authority = 'operator'; }],
+    ];
+    for (const [message, mutate] of cases) {
+      const feed = feedWithModel();
+      mutate(feed.models[0]);
+      expect(validate('centralFeed', feed).join(' ')).toContain(message);
+    }
+    const feed = feedWithModel();
+    feed.provenance.authority = 'operator';
+    expect(validate('centralFeed', feed).join(' ')).toContain('Central feed provenance');
   });
 });
 
