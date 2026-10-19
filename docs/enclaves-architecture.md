@@ -903,6 +903,8 @@ and do not explain an enclave proxy rejection. See
 Virtiofsd worker discovery is not sandbox readiness: host verification waits a
 bounded five seconds for the reviewed capability sets, empty bounding set,
 NoNewPrivs, and seccomp policy, rechecking process identity while waiting.
+Discovery follows replacement children when virtiofsd's temporary setup child
+exits, and waits for the parent capability drop before taking final evidence.
 An unsettled or changed worker still fails closed before its socket reaches
 the VM; namespace, root, environment, and cgroup checks remain mandatory.
 ## Coverage after legacy smoke removal

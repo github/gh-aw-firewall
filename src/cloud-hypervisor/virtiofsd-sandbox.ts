@@ -149,14 +149,20 @@ export async function verifyVirtiofsdSandbox(
     assertLaunchCommand(currentParent, options);
 
     evidence.phase = 'worker-discovery';
-    const workerIdentity = await waitForWorker(
+    const discoveredWorker = await waitForWorker(
       options.parentIdentity.pid,
       options.expectedExecutable,
+      options.cgroupPath,
       options.assignToCgroup,
+      identity => {
+        evidence.workerIdentity = {
+          pid: identity.pid, startTime: identity.startTime, executable: identity.executable,
+        };
+      },
       dependencies,
     );
+    const workerIdentity = discoveredWorker.identity;
     const workerPid = workerIdentity.pid;
-    const currentWorker = workerIdentity;
     evidence.workerIdentity = {
       pid: workerIdentity.pid,
       startTime: workerIdentity.startTime,
@@ -167,7 +173,7 @@ export async function verifyVirtiofsdSandbox(
     const parent = await collectProcessEvidence(currentParent, options.cgroupPath, dependencies);
     evidence.parent = parent;
     evidence.phase = 'worker-proc-evidence';
-    const worker = await waitForWorkerPolicy(currentWorker, options.cgroupPath, dependencies);
+    const worker = discoveredWorker.evidence;
     evidence.worker = worker;
 
     evidence.phase = 'sandbox-policy';
@@ -270,35 +276,19 @@ function hasReviewedWorkerCapabilities(capabilities: Record<string, string>): bo
     ZERO_CAPABILITIES.test(capabilities.CapAmb ?? '');
 }
 
-async function waitForWorkerPolicy(
-  identity: VirtiofsdProcessIdentity,
-  cgroupPath: string,
-  dependencies: VirtiofsdSandboxDependencies,
-): Promise<ProcessEvidence> {
-  const deadline = Date.now() + WORKER_READY_TIMEOUT_MS;
-  const maxAttempts = WORKER_READY_TIMEOUT_MS / WORKER_READY_INTERVAL_MS;
-  for (let attempt = 0; ; attempt++) {
-    assertSameIdentity(identity,
-      await captureVirtiofsdProcessIdentity(identity.pid, dependencies), 'worker');
-    const worker = await collectProcessEvidence(identity, cgroupPath, dependencies);
-    if (
-      (hasReviewedWorkerCapabilities(worker.capabilities) &&
-        ZERO_CAPABILITIES.test(worker.capabilities.CapBnd ?? '') &&
-        worker.noNewPrivs === 1 && worker.seccomp === 2) ||
-      attempt >= maxAttempts || Date.now() >= deadline
-    ) return worker;
-    // The worker exists before virtiofsd finishes dropping its capability sets.
-    await dependencies.sleep(WORKER_READY_INTERVAL_MS);
-  }
-}
-
 async function waitForWorker(
   parentPid: number,
   expectedExecutable: string,
+  cgroupPath: string,
   assignToCgroup: (pid: number) => Promise<void>,
+  recordCandidate: (identity: VirtiofsdProcessIdentity) => void,
   dependencies: VirtiofsdSandboxDependencies,
-): Promise<VirtiofsdProcessIdentity> {
+): Promise<{ identity: VirtiofsdProcessIdentity; evidence: ProcessEvidence }> {
   const deadline = Date.now() + WORKER_READY_TIMEOUT_MS;
+  const maxAttempts = WORKER_READY_TIMEOUT_MS / WORKER_READY_INTERVAL_MS;
+  let attempts = 0;
+  let lastWorker: { identity: VirtiofsdProcessIdentity; evidence: ProcessEvidence } | undefined;
+  let lastDisappearance: unknown;
   do {
     const children = (
       await dependencies.readFile(`/proc/${parentPid}/task/${parentPid}/children`, 'utf8')
@@ -336,15 +326,38 @@ async function waitForWorker(
       try {
         const current = await captureVirtiofsdProcessIdentity(candidate, dependencies);
         assertSameIdentity(identity, current, 'worker');
-        return current;
+        if (lastWorker?.identity.pid === candidate) {
+          assertSameIdentity(lastWorker.identity, current, 'worker');
+        }
+        recordCandidate(current);
+        const evidence = await collectProcessEvidence(current, cgroupPath, dependencies);
+        assertSameIdentity(current,
+          await captureVirtiofsdProcessIdentity(candidate, dependencies), 'worker');
+        lastWorker = { identity: current, evidence };
+        const parentStatus = parseStatus(
+          await dependencies.readFile(`/proc/${parentPid}/status`, 'utf8'),
+        );
+        if (
+          CAPABILITY_FIELDS.every(field => ZERO_CAPABILITIES.test(parentStatus[field] ?? '')) &&
+          hasReviewedWorkerCapabilities(evidence.capabilities) &&
+          ZERO_CAPABILITIES.test(evidence.capabilities.CapBnd ?? '') &&
+          evidence.noNewPrivs === 1 && evidence.seccomp === 2
+        ) return lastWorker;
       } catch (error) {
         const code = (error as NodeJS.ErrnoException).code;
-        if (code === 'ENOENT' || code === 'ESRCH') continue;
+        if (code === 'ENOENT' || code === 'ESRCH') {
+          lastDisappearance = error;
+          continue;
+        }
         throw error;
       }
     }
+    if (Date.now() >= deadline || attempts++ >= maxAttempts) break;
+    // Rediscover across virtiofsd's transient setup child before pinning the sandbox worker.
     await dependencies.sleep(WORKER_READY_INTERVAL_MS);
-  } while (Date.now() < deadline);
+  } while (attempts <= maxAttempts && Date.now() < deadline);
+  if (lastWorker) return lastWorker;
+  if (lastDisappearance !== undefined) throw lastDisappearance;
   throw new Error('virtiofsd did not create its sandbox worker');
 }
 

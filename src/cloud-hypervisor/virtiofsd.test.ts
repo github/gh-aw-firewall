@@ -400,7 +400,7 @@ describe('VirtiofsdManager', () => {
 
   it.each([
     { pid: 100, phase: 'parent-proc-evidence', parentRecorded: false },
-    { pid: 1100, phase: 'worker-proc-evidence', parentRecorded: true },
+    { pid: 1100, phase: 'worker-discovery', parentRecorded: false },
   ])('retains identities and the failing role when PID $pid disappears', async ({
     pid, phase, parentRecorded,
   }) => {
@@ -526,6 +526,44 @@ describe('VirtiofsdManager', () => {
       await expect(manager(deps).start([workspace])).rejects.toThrow(/worker capabilities differ/);
       expect(deps.sleep).toHaveBeenCalledTimes(100);
       expect(deps.chown).not.toHaveBeenCalled();
+    });
+
+    it.each(['ENOENT', 'ESRCH'])(
+      'rediscovers the sandbox worker when the transient setup child exits during evidence capture (%s)',
+      async code => {
+        const deps = dependencies();
+        const readFile = deps.readFile;
+        let discovery = 0;
+        deps.readFile = jest.fn(async (filePath: string, encoding: BufferEncoding) => {
+          if (filePath.endsWith('/children')) return ++discovery === 1 ? '1099' : '1100';
+          if (filePath === '/proc/1099/environ') {
+            throw Object.assign(new Error('setup child exited'), { code });
+          }
+          return readFile(filePath, encoding);
+        });
+        await expect(manager(deps).start([workspace])).resolves.toHaveLength(1);
+        expect(deps.sleep).toHaveBeenCalledWith(50);
+        const evidence = jest.mocked(deps.writeFile).mock.calls.find(
+          ([name]) => name.endsWith('-confinement.json'),
+        );
+        expect(JSON.parse(evidence![1].toString())).toMatchObject({
+          verified: true, workerIdentity: { pid: 1100 },
+        });
+      },
+    );
+
+    it('waits for both parent and worker capability drops before collecting final evidence', async () => {
+      const deps = dependencies();
+      const readFile = deps.readFile;
+      let parentStatusReads = 0;
+      deps.readFile = jest.fn(async (filePath: string, encoding: BufferEncoding) => {
+        const contents = await readFile(filePath, encoding);
+        return filePath === '/proc/100/status' && ++parentStatusReads === 1
+          ? contents.replace('CapEff:\t0000000000000000', 'CapEff:\t000001ffffffffff')
+          : contents;
+      });
+      await expect(manager(deps).start([workspace])).resolves.toHaveLength(1);
+      expect(deps.sleep).toHaveBeenCalledWith(50);
     });
 
   it('rejects malformed and unsafe process identities', async () => {
