@@ -12,12 +12,13 @@ const GEMINI_CLI_API_KEY_AUTH_TYPE = 'gemini-api-key';
  * directory read-only in the chroot, without exposing host system settings.
  */
 export const GEMINI_CLI_SYSTEM_SETTINGS_DIRECTORY = '/etc/awf/gemini-cli';
+export const GEMINI_CLI_SYSTEM_SETTINGS_PATH = `${GEMINI_CLI_SYSTEM_SETTINGS_DIRECTORY}/settings.json`;
 
 /**
  * Absolute path of the system settings file as seen by the chrooted agent.
  */
 export function getGeminiSystemSettingsPath(): string {
-  return `${GEMINI_CLI_SYSTEM_SETTINGS_DIRECTORY}/settings.json`;
+  return GEMINI_CLI_SYSTEM_SETTINGS_PATH;
 }
 
 /**

@@ -1,4 +1,4 @@
-import { stripScheme, normalizeApiTargetScheme } from './host-env';
+import { normalizeApiTargetScheme } from './host-env';
 import { hostEnvTestHelpers } from './host-env.test-utils';
 import { ACT_PRESET_BASE_IMAGE } from './host-identity';
 import { extractGhHostFromServerUrl } from './github-env';
@@ -87,40 +87,6 @@ describe('docker-manager string/network utilities', () => {
 
     it('should return null for malformed URL', () => {
       expect(extractGhHostFromServerUrl('http://')).toBeNull();
-    });
-  });
-
-  describe('stripScheme', () => {
-    it('should strip https:// prefix', () => {
-      expect(stripScheme('https://my-gateway.example.com')).toBe('my-gateway.example.com');
-    });
-
-    it('should strip http:// prefix', () => {
-      expect(stripScheme('http://my-gateway.example.com')).toBe('my-gateway.example.com');
-    });
-
-    it('should preserve bare hostname', () => {
-      expect(stripScheme('api.openai.com')).toBe('api.openai.com');
-    });
-
-    it('should normalize URL with path to hostname only', () => {
-      expect(stripScheme('https://my-gateway.example.com/some-path')).toBe('my-gateway.example.com');
-    });
-
-    it('should not strip scheme-like substrings in the middle', () => {
-      expect(stripScheme('api.https.example.com')).toBe('api.https.example.com');
-    });
-
-    it('should strip query and fragment', () => {
-      expect(stripScheme('https://example.com/path?x=1#frag')).toBe('example.com');
-    });
-
-    it('should strip credentials and port', () => {
-      expect(stripScheme('https://user:pass@example.com:8443/path')).toBe('example.com');
-    });
-
-    it('should trim surrounding whitespace before processing', () => {
-      expect(stripScheme('  api.openai.com  ')).toBe('api.openai.com');
     });
   });
 

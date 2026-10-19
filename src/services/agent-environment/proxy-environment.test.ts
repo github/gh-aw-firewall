@@ -46,6 +46,33 @@ describe('buildProxyEnvironment', () => {
     expect(env.NO_PROXY.split(',')).not.toContain('host.docker.internal');
   });
 
+  it('bypasses Squid for the CLI proxy sidecar when enabled', () => {
+    const env = run({
+      ...baseConfig,
+      difcProxyHost: 'host.docker.internal:18443',
+    });
+    const environment: Record<string, string> = {};
+    buildProxyEnvironment({
+      config: { ...baseConfig, workDir: '/tmp/awf-work', difcProxyHost: 'host.docker.internal:18443' },
+      networkConfig: { ...mockNetworkConfig, cliProxyIp: '10.88.0.50' },
+      environment,
+    });
+    expect(env.NO_PROXY.split(',')).not.toContain('cli-proxy');
+    expect(environment.NO_PROXY.split(',')).toEqual(expect.arrayContaining(['10.88.0.50', 'cli-proxy']));
+    expect(environment.no_proxy).toBe(environment.NO_PROXY);
+  });
+
+  it('does not bypass the CLI proxy when the sidecar is disabled', () => {
+    const environment: Record<string, string> = {};
+    buildProxyEnvironment({
+      config: { ...baseConfig, workDir: '/tmp/awf-work' },
+      networkConfig: { ...mockNetworkConfig, cliProxyIp: '172.30.0.50' },
+      environment,
+    });
+    expect(environment.NO_PROXY.split(',')).not.toContain('172.30.0.50');
+    expect(environment.NO_PROXY.split(',')).not.toContain('cli-proxy');
+  });
+
   describe('topology-attached peers', () => {
     it('exempts topology peers from proxy routing for a compose agent in isolation mode', () => {
       const env = run({

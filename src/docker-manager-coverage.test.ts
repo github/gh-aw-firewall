@@ -22,7 +22,6 @@ jest.mock('./host-env', () => ({
   getSafeHostUid: jest.fn().mockReturnValue('1000'),
   getSafeHostGid: jest.fn().mockReturnValue('1000'),
   getRealUserHome: jest.fn().mockReturnValue('/home/testuser'),
-  stripScheme: jest.fn((v: string) => v),
 }));
 
 jest.mock('./config-writer', () => ({
