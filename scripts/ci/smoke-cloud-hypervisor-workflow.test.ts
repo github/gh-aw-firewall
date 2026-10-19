@@ -2,7 +2,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as yaml from 'js-yaml';
 import * as os from 'os';
-import { execFileSync } from 'child_process';
+import { execFileSync, spawnSync } from 'child_process';
 
 const workflowsDir = path.resolve(__dirname, '../../.github/workflows');
 const workflowFiles = [
@@ -40,6 +40,12 @@ interface WorkflowFrontmatter {
   network?: {
     allowed?: string[];
   };
+  'safe-outputs'?: {
+    'add-comment'?: { max?: number; target?: string; 'hide-older-comments'?: boolean };
+    'add-labels'?: { max?: number; allowed?: string[] };
+    noop?: { max?: number; 'report-as-issue'?: boolean };
+  };
+  'post-steps'?: Array<{ name?: string; run?: string }>;
   sandbox?: {
     agent?: {
       version?: string;
@@ -173,7 +179,7 @@ describe('Smoke Cloud Hypervisor token-usage verification', () => {
     const prompt = fs.readFileSync(workflowFiles[0], 'utf-8');
     expect(prompt).toContain('read `/tmp/gh-aw/agent/merged-pr.json` with one');
     expect(prompt).toContain('`cat` command.');
-    expect(prompt).toContain('Make one bash invocation for all four checks and the summary:');
+    expect(prompt).toContain('Make exactly one bash invocation for all four checks, the summary, and safe');
     expect(prompt).toContain("MERGED_PR_JSON=$(cat /tmp/gh-aw/agent/merged-pr.json 2>/dev/null || :)");
     expect(prompt).toContain("jq -e 'type == \"array\" and length > 0'");
     expect(prompt).toContain(
@@ -181,7 +187,119 @@ describe('Smoke Cloud Hypervisor token-usage verification', () => {
     );
     expect(prompt).toContain('cat <<\'EOF\'');
     expect(prompt).toContain('/tmp/gh-aw/agent/comment-body.md');
-    expect(prompt).toContain('Use the existing summary file without rewriting it');
+    expect(prompt).toContain('Use the existing summary file');
+    expect(prompt).toContain('without rewriting it');
+  });
+
+  describe('Cloud Hypervisor smoke safe-output contract', () => {
+    const source = fs.readFileSync(workflowFiles[0], 'utf8');
+    const frontmatter = loadFrontmatter(workflowFiles[0]);
+
+    it('bounds comments, labels and noops and fixes the comment target', () => {
+      expect(frontmatter['safe-outputs']?.['add-comment']).toEqual({
+        max: 1, target: 'triggering', 'hide-older-comments': true,
+      });
+      expect(frontmatter['safe-outputs']?.['add-labels']).toEqual({
+        max: 1, allowed: ['smoke-cloud-hypervisor'],
+      });
+      expect(frontmatter['safe-outputs']?.noop).toEqual({ max: 1, 'report-as-issue': false });
+      expect(frontmatter.concurrency?.['job-discriminator']).toBe('${{ github.run_id }}');
+
+      const lock = fs.readFileSync(workflowFiles[1], 'utf8');
+      expect(lock).toContain('\\"target\\":\\"triggering\\"');
+      expect(lock).toContain('\\"add_labels\\":{\\"allowed\\":[\\"smoke-cloud-hypervisor\\"],\\"max\\":1}');
+      expect(lock).toContain('\\"noop\\":{\\"max\\":1,');
+      expect(lock).toContain('GH_AW_NOOP_REPORT_AS_ISSUE: "false"');
+    });
+
+    it.each([
+      ['pull_request', '200', '', ['add_comment', 'add_labels'], 'PASS', 0],
+      ['pull_request', '503', '', ['add_comment'], 'FAIL', 0],
+      ['workflow_dispatch', '200', '', ['noop'], 'PASS', 0],
+      ['workflow_dispatch', '503', '', ['noop'], 'FAIL', 0],
+      ['pull_request', '200', 'add_comment', ['add_comment'], 'PASS', 9],
+      ['pull_request', '200', 'add_labels', ['add_comment', 'add_labels'], 'PASS', 9],
+      ['workflow_dispatch', '200', 'noop', ['noop'], 'PASS', 9],
+    ])('reports %s HTTP%s with %s failure as %j', (event, http, failedTool, expectedTypes, overall, status) => {
+      const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-smoke-outputs-'));
+      try {
+        const blocks = [...source.matchAll(/```bash\n([\s\S]*?)\n```/g)];
+        expect(blocks).toHaveLength(1);
+        const command = blocks[0][1]
+          .split('/tmp/gh-aw/agent').join(directory)
+          .split('${{ github.event_name }}').join(event)
+          .split('${{ github.event.pull_request.number }}').join(event === 'pull_request' ? '10240' : '');
+        fs.writeFileSync(path.join(directory, 'merged-pr.json'), '[{"number":1,"title":"fixture"}]');
+        const records = path.join(directory, 'outputs.jsonl');
+        const mocks = `
+          curl() {
+            local url arg
+            for arg in "$@"; do url="$arg"; done
+            case "$url" in
+              https://github.com) printf '%s' "$PROBE_HTTP" ;;
+              https://example.com) printf '000'; return 56 ;;
+              *) return 2 ;;
+            esac
+          }
+          safeoutputs() {
+            [ "$#" = 2 ] && [ "$2" = . ] || return 2
+            jq -c --arg type "$1" '. + {type: $type}' >> "$CALLS_FILE" || return
+            if [ "$1" = "$FAILED_SAFE_OUTPUT" ]; then return 9; fi
+          }
+        `;
+        const result = spawnSync('bash', ['-c', mocks + command], {
+          encoding: 'utf8',
+          timeout: 10000,
+          env: {
+            ...process.env, GITHUB_RUN_ID: 'fixture', PROBE_HTTP: http,
+            FAILED_SAFE_OUTPUT: failedTool, CALLS_FILE: records,
+          },
+        });
+        expect(result.error).toBeUndefined();
+        expect(result.status).toBe(status);
+        const calls = fs.readFileSync(records, 'utf8').trim().split('\n')
+          .map(line => JSON.parse(line) as {
+            type: string; item_number?: number; body?: string; message?: string; labels?: string[];
+          });
+        expect(calls.map(call => call.type)).toEqual(expectedTypes);
+        const summary = fs.readFileSync(path.join(directory, 'comment-body.md'), 'utf8');
+        expect(summary).toContain(`Overall: ${overall}`);
+        expect(calls[0]).toEqual(event === 'pull_request'
+          ? { type: 'add_comment', item_number: 10240, body: summary }
+          : { type: 'noop', message: summary });
+        if (calls.length === 2) {
+          expect(calls[1]).toEqual({
+            type: 'add_labels', item_number: 10240, labels: ['smoke-cloud-hypervisor'],
+          });
+        }
+      } finally {
+        fs.rmSync(directory, { recursive: true, force: true });
+      }
+    });
+
+    it.each([
+      ['label only', { type: 'add_labels', item_number: 10240, labels: ['smoke-cloud-hypervisor'] }, 1],
+      ['comment name in message', { type: 'noop', message: '"add_comment"' }, 1],
+      ['real comment', { type: 'add_comment', item_number: 10240, body: 'Overall: PASS' }, 0],
+    ])('validates actual output types: %s', (_name, record, status) => {
+      const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-smoke-validator-'));
+      try {
+        const outputs = path.join(directory, 'outputs.jsonl');
+        fs.writeFileSync(outputs, JSON.stringify(record) + '\n');
+        const validator = frontmatter['post-steps']?.find(step =>
+          step.name === 'Validate safe outputs were invoked')?.run;
+        if (!validator) throw new Error('Missing safe-output validator');
+        const result = spawnSync('bash', ['-e', '-c', validator], {
+          encoding: 'utf8',
+          timeout: 10000,
+          env: { ...process.env, GITHUB_EVENT_NAME: 'pull_request', OUTPUTS_FILE: outputs },
+        });
+        expect(result.error).toBeUndefined();
+        expect(result.status).toBe(status);
+      } finally {
+        fs.rmSync(directory, { recursive: true, force: true });
+      }
+    });
   });
 
   it('allows all shell commands required by the smoke checks', () => {
