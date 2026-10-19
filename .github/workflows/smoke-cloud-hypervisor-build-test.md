@@ -14,8 +14,13 @@ permissions:
   actions: read
   copilot-requests: write
 name: Smoke Cloud Hypervisor Build Test
+concurrency:
+  job-discriminator: ${{ github.run_id }}
 engine:
   id: copilot
+  args:
+    - --allow-url=https://github.com
+    - --allow-url=https://example.com
 runtimes:
   node:
     version: "20"
@@ -140,6 +145,10 @@ This workflow validates that the Cloud Hypervisor sandbox can handle real-world 
 ## Step 1: Run Workload
 
 Run this entire script in one Bash invocation. It intentionally records each result instead of exiting on the first failure.
+
+The CLI URL approvals let the two `curl` probes execute without interactive
+permission prompts. They do not change AWF's network allowlist: `example.com`
+must still be blocked by Squid.
 
 ```bash
 mkdir -p /tmp/gh-aw/agent

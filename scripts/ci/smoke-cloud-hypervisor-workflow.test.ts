@@ -12,6 +12,9 @@ const workflowFiles = [
 
 interface WorkflowFrontmatter {
   model?: string;
+  concurrency?: {
+    'job-discriminator'?: string;
+  };
   on?: {
     label_command?: {
       name: string[];
@@ -109,6 +112,32 @@ describe('Copilot Cloud Hypervisor smoke compatibility', () => {
       line.includes('mkdir -p "${GITHUB_WORKSPACE}/.awf-home"'));
     expect(preparation).toBeDefined();
     expect(preparation).not.toContain('"/tmp/gh-aw/aw_info.json"');
+  });
+
+  it('approves build-test probe URLs without allowing the blocked domain through AWF', () => {
+    const name = 'smoke-cloud-hypervisor-build-test';
+    const frontmatter = loadFrontmatter(path.join(workflowsDir, `${name}.md`));
+    const lock = fs.readFileSync(path.join(workflowsDir, `${name}.lock.yml`), 'utf-8');
+
+    expect(frontmatter.engine?.args).toEqual([
+      '--allow-url=https://github.com',
+      '--allow-url=https://example.com',
+    ]);
+    expect(frontmatter.concurrency?.['job-discriminator']).toBe('${{ github.run_id }}');
+    expect(frontmatter.tools?.bash).toEqual(['*']);
+    expect(frontmatter.network?.allowed).toContain('github');
+    expect(frontmatter.network?.allowed).not.toContain('example.com');
+    expect(frontmatter.network?.allowed).not.toContain('*');
+    const launch = lock.split('\n').find(line => line.includes('copilot_harness.cjs'));
+    expect(launch).toBeDefined();
+    expect(launch).toContain('--allow-tool shell');
+    expect(launch).toContain('--allow-url=https://github.com');
+    expect(launch).toContain('--allow-url=https://example.com');
+    expect(lock).not.toContain('--allow-all-urls');
+    expect(lock).not.toContain('--allow-all-tools');
+    expect(lock).toContain('GH_AW_INFO_AGENT_RUNTIME: "cloud-hypervisor"');
+    expect(lock).toContain('Build test results not found:');
+    expect(lock).toContain('network_isolation:');
   });
 });
 
