@@ -16,6 +16,7 @@ const actualFs = jest.requireActual<typeof import('fs')>('fs');
 import { prepareWorkDirectories, workdirSetupTestHelpers } from './workdir-setup';
 import { resolveLogPaths } from './log-paths';
 import { getRealUserHome } from './host-identity';
+import { getSafeHostGid } from './host-env';
 
 function setupWorkdirFixture({ cleanupChrootHome = true } = {}) {
   let tempDir = '';
@@ -564,6 +565,19 @@ describe('prepareChrootHomeMounts (sub-function)', () => {
     expect(fs.existsSync(logPaths.squidLogs)).toBe(false);
     expect(fs.existsSync(logPaths.apiProxyLogs)).toBe(false);
     expect(fs.existsSync(logPaths.cliProxyLogs)).toBe(false);
+  });
+
+  it('uses the caller’s primary GID for chroot home and nested mountpoints', () => {
+    (getSafeHostGid as jest.Mock).mockReturnValue('986');
+    try {
+      workdirSetupTestHelpers.prepareChrootHomeMounts(buildConfig());
+
+      const chrootHome = `${fixture.tempDir}-chroot-home`;
+      expect(fs.chownSync).toHaveBeenCalledWith(chrootHome, 1000, 986);
+      expect(fs.chownSync).toHaveBeenCalledWith(path.join(chrootHome, '.cache'), 1000, 986);
+    } finally {
+      (getSafeHostGid as jest.Mock).mockReturnValue('1000');
+    }
   });
 
   it('creates .gemini directory only when geminiApiKey is provided', () => {

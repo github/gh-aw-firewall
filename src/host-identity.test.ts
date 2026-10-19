@@ -124,6 +124,29 @@ describe('getSafeHostGid', () => {
     expect(getSafeHostGid()).toBe('2000');
   });
 
+  it('preserves a regular unprivileged user’s primary system-range GID', () => {
+    const originalGetuid = process.getuid;
+    try {
+      Object.defineProperty(process, 'getuid', { value: () => 1001, configurable: true });
+      Object.defineProperty(process, 'getgid', { value: () => 986, configurable: true });
+      process.env.SUDO_GID = '1000';
+      expect(getSafeHostGid()).toBe('986');
+    } finally {
+      Object.defineProperty(process, 'getuid', { value: originalGetuid, configurable: true });
+    }
+  });
+
+  it('does not expose the root group to an unprivileged user', () => {
+    const originalGetuid = process.getuid;
+    try {
+      Object.defineProperty(process, 'getuid', { value: () => 1001, configurable: true });
+      Object.defineProperty(process, 'getgid', { value: () => 0, configurable: true });
+      expect(getSafeHostGid()).toBe('1000');
+    } finally {
+      Object.defineProperty(process, 'getuid', { value: originalGetuid, configurable: true });
+    }
+  });
+
   it('returns "1000" when GID is 0 and no SUDO_GID', () => {
     Object.defineProperty(process, 'getgid', { value: () => 0, configurable: true });
     expect(getSafeHostGid()).toBe('1000');

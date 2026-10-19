@@ -59,13 +59,20 @@ export function isNativeRootWithoutSudo(): boolean {
 
 /**
  * Gets the host user's GID, with fallback to 1000 if unavailable, root (0),
- * or in the system GID range (0-999).
+ * or in the system GID range (0-999) when running as root. A regular
+ * unprivileged user may have a primary GID in that range; preserve it so
+ * ownership changes and the sandbox identity match the actual caller.
  * When running with sudo, uses SUDO_GID to get the actual user's GID.
  * @internal Exported for testing
  */
 export function getSafeHostGid(): string {
   const gid = process.getgid?.();
-  
+  const uid = process.getuid?.();
+
+  if (uid !== undefined && uid >= MIN_REGULAR_UID && gid !== undefined && gid > 0) {
+    return gid.toString();
+  }
+
   // When running as root (sudo), try to get the original user's GID
   if (!gid || gid === 0) {
     const sudoGid = process.env.SUDO_GID;
