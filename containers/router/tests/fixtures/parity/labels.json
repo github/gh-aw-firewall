@@ -1,0 +1,3777 @@
+{
+  "cases": [
+    {
+      "description": "The explain-lead cue 'explain'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "explain"
+      },
+      "id": "explain-lead-explain",
+      "text": "explain the widget"
+    },
+    {
+      "description": "The explain-lead cue 'summarize'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "explain"
+      },
+      "id": "explain-lead-summarize",
+      "text": "summarize the widget"
+    },
+    {
+      "description": "The explain-lead cue 'summarise'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "explain"
+      },
+      "id": "explain-lead-summarise",
+      "text": "summarise the widget"
+    },
+    {
+      "description": "The explain-lead cue 'describe'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "explain"
+      },
+      "id": "explain-lead-describe",
+      "text": "describe the widget"
+    },
+    {
+      "description": "The explain-lead cue 'walk me through'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "explain"
+      },
+      "id": "explain-lead-walk_me_through",
+      "text": "walk me through the widget"
+    },
+    {
+      "description": "The explain-lead cue 'walk through'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "explain"
+      },
+      "id": "explain-lead-walk_through",
+      "text": "walk through the widget"
+    },
+    {
+      "description": "The explain-lead cue 'clarify'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "explain"
+      },
+      "id": "explain-lead-clarify",
+      "text": "clarify the widget"
+    },
+    {
+      "description": "The explain-lead cue 'elaborate'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "explain"
+      },
+      "id": "explain-lead-elaborate",
+      "text": "elaborate the widget"
+    },
+    {
+      "description": "The fix-lead cue 'fix'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "fix"
+      },
+      "id": "fix-lead-fix",
+      "text": "fix the widget"
+    },
+    {
+      "description": "The fix-lead cue 'debug'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "fix"
+      },
+      "id": "fix-lead-debug",
+      "text": "debug the widget"
+    },
+    {
+      "description": "The fix-lead cue 'repair'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "fix"
+      },
+      "id": "fix-lead-repair",
+      "text": "repair the widget"
+    },
+    {
+      "description": "The fix-lead cue 'resolve'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "fix"
+      },
+      "id": "fix-lead-resolve",
+      "text": "resolve the widget"
+    },
+    {
+      "description": "The fix-lead cue 'troubleshoot'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "fix"
+      },
+      "id": "fix-lead-troubleshoot",
+      "text": "troubleshoot the widget"
+    },
+    {
+      "description": "The fix-lead cue 'diagnose'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "fix"
+      },
+      "id": "fix-lead-diagnose",
+      "text": "diagnose the widget"
+    },
+    {
+      "description": "The fix-lead cue 'correct'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "fix"
+      },
+      "id": "fix-lead-correct",
+      "text": "correct the widget"
+    },
+    {
+      "description": "The plan-lead cue 'plan'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "plan"
+      },
+      "id": "plan-lead-plan",
+      "text": "plan the widget"
+    },
+    {
+      "description": "The plan-lead cue 'design'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "plan"
+      },
+      "id": "plan-lead-design",
+      "text": "design the widget"
+    },
+    {
+      "description": "The plan-lead cue 'architect'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "plan"
+      },
+      "id": "plan-lead-architect",
+      "text": "architect the widget"
+    },
+    {
+      "description": "The plan-lead cue 'propose'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "plan"
+      },
+      "id": "plan-lead-propose",
+      "text": "propose the widget"
+    },
+    {
+      "description": "The plan-lead cue 'compare'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "plan"
+      },
+      "id": "plan-lead-compare",
+      "text": "compare the widget"
+    },
+    {
+      "description": "The plan-lead cue 'evaluate'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "plan"
+      },
+      "id": "plan-lead-evaluate",
+      "text": "evaluate the widget"
+    },
+    {
+      "description": "The chore-lead cue 'bump'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "chore"
+      },
+      "id": "chore-lead-bump",
+      "text": "bump the widget"
+    },
+    {
+      "description": "The chore-lead cue 'upgrade'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "chore"
+      },
+      "id": "chore-lead-upgrade",
+      "text": "upgrade the widget"
+    },
+    {
+      "description": "The chore-lead cue 'downgrade'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "chore"
+      },
+      "id": "chore-lead-downgrade",
+      "text": "downgrade the widget"
+    },
+    {
+      "description": "The chore-lead cue 'format'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "chore"
+      },
+      "id": "chore-lead-format",
+      "text": "format the widget"
+    },
+    {
+      "description": "The chore-lead cue 'reformat'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "chore"
+      },
+      "id": "chore-lead-reformat",
+      "text": "reformat the widget"
+    },
+    {
+      "description": "The chore-lead cue 'pin'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "chore"
+      },
+      "id": "chore-lead-pin",
+      "text": "pin the widget"
+    },
+    {
+      "description": "The refactor-lead cue 'refactor'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "refactor"
+      },
+      "id": "refactor-lead-refactor",
+      "text": "refactor the widget"
+    },
+    {
+      "description": "The refactor-lead cue 'rename'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "refactor"
+      },
+      "id": "refactor-lead-rename",
+      "text": "rename the widget"
+    },
+    {
+      "description": "The refactor-lead cue 'clean up'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "refactor"
+      },
+      "id": "refactor-lead-clean_up",
+      "text": "clean up the widget"
+    },
+    {
+      "description": "The refactor-lead cue 'cleanup'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "refactor"
+      },
+      "id": "refactor-lead-cleanup",
+      "text": "cleanup the widget"
+    },
+    {
+      "description": "The refactor-lead cue 'restructure'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "refactor"
+      },
+      "id": "refactor-lead-restructure",
+      "text": "restructure the widget"
+    },
+    {
+      "description": "The refactor-lead cue 'extract'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "refactor"
+      },
+      "id": "refactor-lead-extract",
+      "text": "extract the widget"
+    },
+    {
+      "description": "The refactor-lead cue 'simplify'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "refactor"
+      },
+      "id": "refactor-lead-simplify",
+      "text": "simplify the widget"
+    },
+    {
+      "description": "The refactor-lead cue 'reorganize'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "refactor"
+      },
+      "id": "refactor-lead-reorganize",
+      "text": "reorganize the widget"
+    },
+    {
+      "description": "The refactor-lead cue 'deduplicate'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "refactor"
+      },
+      "id": "refactor-lead-deduplicate",
+      "text": "deduplicate the widget"
+    },
+    {
+      "description": "The refactor-lead cue 'de-duplicate'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "refactor"
+      },
+      "id": "refactor-lead-de-duplicate",
+      "text": "de-duplicate the widget"
+    },
+    {
+      "description": "The refactor-lead cue 'tidy'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "refactor"
+      },
+      "id": "refactor-lead-tidy",
+      "text": "tidy the widget"
+    },
+    {
+      "description": "The refactor-lead cue 'consolidate'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "refactor"
+      },
+      "id": "refactor-lead-consolidate",
+      "text": "consolidate the widget"
+    },
+    {
+      "description": "The refactor-lead cue 'modularize'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "refactor"
+      },
+      "id": "refactor-lead-modularize",
+      "text": "modularize the widget"
+    },
+    {
+      "description": "The refactor-lead cue 'modularise'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "refactor"
+      },
+      "id": "refactor-lead-modularise",
+      "text": "modularise the widget"
+    },
+    {
+      "description": "The refactor-lead cue 'decouple'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "refactor"
+      },
+      "id": "refactor-lead-decouple",
+      "text": "decouple the widget"
+    },
+    {
+      "description": "The refactor-lead cue 'encapsulate'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "refactor"
+      },
+      "id": "refactor-lead-encapsulate",
+      "text": "encapsulate the widget"
+    },
+    {
+      "description": "The refactor-lead cue 'untangle'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "refactor"
+      },
+      "id": "refactor-lead-untangle",
+      "text": "untangle the widget"
+    },
+    {
+      "description": "The refactor-lead cue 'factor out'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "refactor"
+      },
+      "id": "refactor-lead-factor_out",
+      "text": "factor out the widget"
+    },
+    {
+      "description": "The refactor-lead cue 'pull out'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "refactor"
+      },
+      "id": "refactor-lead-pull_out",
+      "text": "pull out the widget"
+    },
+    {
+      "description": "The refactor-lead cue 'split up'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "refactor"
+      },
+      "id": "refactor-lead-split_up",
+      "text": "split up the widget"
+    },
+    {
+      "description": "The chore-update cue 'bump'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "chore"
+      },
+      "id": "chore-update-bump",
+      "text": "update the bump"
+    },
+    {
+      "description": "The chore-update cue 'upgrade'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "chore"
+      },
+      "id": "chore-update-upgrade",
+      "text": "update the upgrade"
+    },
+    {
+      "description": "The chore-update cue 'downgrade'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "chore"
+      },
+      "id": "chore-update-downgrade",
+      "text": "update the downgrade"
+    },
+    {
+      "description": "The chore-update cue 'update deps'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "chore"
+      },
+      "id": "chore-update-update_deps",
+      "text": "update the update deps"
+    },
+    {
+      "description": "The chore-update cue 'dependency'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "chore"
+      },
+      "id": "chore-update-dependency",
+      "text": "update the dependency"
+    },
+    {
+      "description": "The chore-update cue 'dependencies'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "chore"
+      },
+      "id": "chore-update-dependencies",
+      "text": "update the dependencies"
+    },
+    {
+      "description": "The chore-update cue 'lockfile'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "chore"
+      },
+      "id": "chore-update-lockfile",
+      "text": "update the lockfile"
+    },
+    {
+      "description": "The chore-update cue 'lock file'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "chore"
+      },
+      "id": "chore-update-lock_file",
+      "text": "update the lock file"
+    },
+    {
+      "description": "The chore-update cue 'version bump'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "chore"
+      },
+      "id": "chore-update-version_bump",
+      "text": "update the version bump"
+    },
+    {
+      "description": "The chore-update cue 'pin the'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "chore"
+      },
+      "id": "chore-update-pin_the",
+      "text": "update the pin the"
+    },
+    {
+      "description": "The chore-update cue 'ci config'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "chore"
+      },
+      "id": "chore-update-ci_config",
+      "text": "update the ci config"
+    },
+    {
+      "description": "The chore-update cue 'config file'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "chore"
+      },
+      "id": "chore-update-config_file",
+      "text": "update the config file"
+    },
+    {
+      "description": "The chore-update cue 'gitignore'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "chore"
+      },
+      "id": "chore-update-gitignore",
+      "text": "update the gitignore"
+    },
+    {
+      "description": "The chore-update cue 'rustfmt'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "chore"
+      },
+      "id": "chore-update-rustfmt",
+      "text": "update the rustfmt"
+    },
+    {
+      "description": "The chore-update cue 'clippy'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "chore"
+      },
+      "id": "chore-update-clippy",
+      "text": "update the clippy"
+    },
+    {
+      "description": "The chore-update cue 'prettier'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "chore"
+      },
+      "id": "chore-update-prettier",
+      "text": "update the prettier"
+    },
+    {
+      "description": "The chore-update cue 'eslint'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "chore"
+      },
+      "id": "chore-update-eslint",
+      "text": "update the eslint"
+    },
+    {
+      "description": "The chore-update cue 'reformat'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "chore"
+      },
+      "id": "chore-update-reformat",
+      "text": "update the reformat"
+    },
+    {
+      "description": "The chore-update cue 'formatting'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "chore"
+      },
+      "id": "chore-update-formatting",
+      "text": "update the formatting"
+    },
+    {
+      "description": "The chore-update cue 'cargo update'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "chore"
+      },
+      "id": "chore-update-cargo_update",
+      "text": "update the cargo update"
+    },
+    {
+      "description": "The chore-update cue 'npm update'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "chore"
+      },
+      "id": "chore-update-npm_update",
+      "text": "update the npm update"
+    },
+    {
+      "description": "The chore-update cue 'workflow file'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "chore"
+      },
+      "id": "chore-update-workflow_file",
+      "text": "update the workflow file"
+    },
+    {
+      "description": "The chore-update cue 'github action'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "chore"
+      },
+      "id": "chore-update-github_action",
+      "text": "update the github action"
+    },
+    {
+      "description": "The chore-update cue 'typo'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "chore"
+      },
+      "id": "chore-update-typo",
+      "text": "update the typo"
+    },
+    {
+      "description": "The imperative cue 'add'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "implement"
+      },
+      "id": "imperative-add",
+      "text": "add the widget"
+    },
+    {
+      "description": "The imperative cue 'create'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "implement"
+      },
+      "id": "imperative-create",
+      "text": "create the widget"
+    },
+    {
+      "description": "The imperative cue 'implement'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "implement"
+      },
+      "id": "imperative-implement",
+      "text": "implement the widget"
+    },
+    {
+      "description": "The imperative cue 'build'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "implement"
+      },
+      "id": "imperative-build",
+      "text": "build the widget"
+    },
+    {
+      "description": "The imperative cue 'write'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "implement"
+      },
+      "id": "imperative-write",
+      "text": "write the widget"
+    },
+    {
+      "description": "The imperative cue 'make'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "implement"
+      },
+      "id": "imperative-make",
+      "text": "make the widget"
+    },
+    {
+      "description": "The imperative cue 'update'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "implement"
+      },
+      "id": "imperative-update",
+      "text": "update the widget"
+    },
+    {
+      "description": "The imperative cue 'change'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "implement"
+      },
+      "id": "imperative-change",
+      "text": "change the widget"
+    },
+    {
+      "description": "The imperative cue 'remove'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "implement"
+      },
+      "id": "imperative-remove",
+      "text": "remove the widget"
+    },
+    {
+      "description": "The imperative cue 'delete'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "implement"
+      },
+      "id": "imperative-delete",
+      "text": "delete the widget"
+    },
+    {
+      "description": "The imperative cue 'support'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "implement"
+      },
+      "id": "imperative-support",
+      "text": "support the widget"
+    },
+    {
+      "description": "The imperative cue 'handle'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "implement"
+      },
+      "id": "imperative-handle",
+      "text": "handle the widget"
+    },
+    {
+      "description": "The imperative cue 'wire'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "implement"
+      },
+      "id": "imperative-wire",
+      "text": "wire the widget"
+    },
+    {
+      "description": "The imperative cue 'generate'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "implement"
+      },
+      "id": "imperative-generate",
+      "text": "generate the widget"
+    },
+    {
+      "description": "The imperative cue 'introduce'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "implement"
+      },
+      "id": "imperative-introduce",
+      "text": "introduce the widget"
+    },
+    {
+      "description": "The imperative cue 'set up'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "implement"
+      },
+      "id": "imperative-set_up",
+      "text": "set up the widget"
+    },
+    {
+      "description": "The imperative cue 'replace'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "implement"
+      },
+      "id": "imperative-replace",
+      "text": "replace the widget"
+    },
+    {
+      "description": "The imperative cue 'rewrite'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "implement"
+      },
+      "id": "imperative-rewrite",
+      "text": "rewrite the widget"
+    },
+    {
+      "description": "The imperative cue 'extend'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "implement"
+      },
+      "id": "imperative-extend",
+      "text": "extend the widget"
+    },
+    {
+      "description": "The imperative cue 'expose'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "implement"
+      },
+      "id": "imperative-expose",
+      "text": "expose the widget"
+    },
+    {
+      "description": "The imperative cue 'enable'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "implement"
+      },
+      "id": "imperative-enable",
+      "text": "enable the widget"
+    },
+    {
+      "description": "The imperative cue 'disable'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "implement"
+      },
+      "id": "imperative-disable",
+      "text": "disable the widget"
+    },
+    {
+      "description": "The imperative cue 'convert'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "implement"
+      },
+      "id": "imperative-convert",
+      "text": "convert the widget"
+    },
+    {
+      "description": "The imperative cue 'migrate'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "implement"
+      },
+      "id": "imperative-migrate",
+      "text": "migrate the widget"
+    },
+    {
+      "description": "The imperative cue 'improve'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "implement"
+      },
+      "id": "imperative-improve",
+      "text": "improve the widget"
+    },
+    {
+      "description": "The imperative cue 'optimize'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "implement"
+      },
+      "id": "imperative-optimize",
+      "text": "optimize the widget"
+    },
+    {
+      "description": "The imperative cue 'optimise'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "implement"
+      },
+      "id": "imperative-optimise",
+      "text": "optimise the widget"
+    },
+    {
+      "description": "The imperative cue 'ensure'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "implement"
+      },
+      "id": "imperative-ensure",
+      "text": "ensure the widget"
+    },
+    {
+      "description": "The imperative cue 'allow'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "implement"
+      },
+      "id": "imperative-allow",
+      "text": "allow the widget"
+    },
+    {
+      "description": "The imperative cue 'port'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "implement"
+      },
+      "id": "imperative-port",
+      "text": "port the widget"
+    },
+    {
+      "description": "The follow-up cue 'execute this plan'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "implement"
+      },
+      "id": "follow-up-execute_this_plan",
+      "text": "ok, execute this plan now"
+    },
+    {
+      "description": "The follow-up cue 'execute that plan'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "implement"
+      },
+      "id": "follow-up-execute_that_plan",
+      "text": "ok, execute that plan now"
+    },
+    {
+      "description": "The follow-up cue 'execute the plan'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "implement"
+      },
+      "id": "follow-up-execute_the_plan",
+      "text": "ok, execute the plan now"
+    },
+    {
+      "description": "The follow-up cue 'execute the proposed plan'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "implement"
+      },
+      "id": "follow-up-execute_the_proposed_plan",
+      "text": "ok, execute the proposed plan now"
+    },
+    {
+      "description": "The follow-up cue 'make this change'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "implement"
+      },
+      "id": "follow-up-make_this_change",
+      "text": "ok, make this change now"
+    },
+    {
+      "description": "The follow-up cue 'make that change'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "implement"
+      },
+      "id": "follow-up-make_that_change",
+      "text": "ok, make that change now"
+    },
+    {
+      "description": "The follow-up cue 'make the change'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "implement"
+      },
+      "id": "follow-up-make_the_change",
+      "text": "ok, make the change now"
+    },
+    {
+      "description": "The follow-up cue 'make these changes'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "implement"
+      },
+      "id": "follow-up-make_these_changes",
+      "text": "ok, make these changes now"
+    },
+    {
+      "description": "The follow-up cue 'make those changes'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "implement"
+      },
+      "id": "follow-up-make_those_changes",
+      "text": "ok, make those changes now"
+    },
+    {
+      "description": "The follow-up cue 'make the proposed change'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "implement"
+      },
+      "id": "follow-up-make_the_proposed_change",
+      "text": "ok, make the proposed change now"
+    },
+    {
+      "description": "The follow-up cue 'make the proposed changes'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "implement"
+      },
+      "id": "follow-up-make_the_proposed_changes",
+      "text": "ok, make the proposed changes now"
+    },
+    {
+      "description": "The follow-up cue 'make proposed change'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "implement"
+      },
+      "id": "follow-up-make_proposed_change",
+      "text": "ok, make proposed change now"
+    },
+    {
+      "description": "The follow-up cue 'make proposed changes'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "implement"
+      },
+      "id": "follow-up-make_proposed_changes",
+      "text": "ok, make proposed changes now"
+    },
+    {
+      "description": "The follow-up cue 'apply this change'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "implement"
+      },
+      "id": "follow-up-apply_this_change",
+      "text": "ok, apply this change now"
+    },
+    {
+      "description": "The follow-up cue 'apply that change'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "implement"
+      },
+      "id": "follow-up-apply_that_change",
+      "text": "ok, apply that change now"
+    },
+    {
+      "description": "The follow-up cue 'apply the change'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "implement"
+      },
+      "id": "follow-up-apply_the_change",
+      "text": "ok, apply the change now"
+    },
+    {
+      "description": "The follow-up cue 'apply these changes'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "implement"
+      },
+      "id": "follow-up-apply_these_changes",
+      "text": "ok, apply these changes now"
+    },
+    {
+      "description": "The follow-up cue 'apply those changes'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "implement"
+      },
+      "id": "follow-up-apply_those_changes",
+      "text": "ok, apply those changes now"
+    },
+    {
+      "description": "The follow-up cue 'apply the proposed change'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "implement"
+      },
+      "id": "follow-up-apply_the_proposed_change",
+      "text": "ok, apply the proposed change now"
+    },
+    {
+      "description": "The follow-up cue 'apply the proposed changes'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "implement"
+      },
+      "id": "follow-up-apply_the_proposed_changes",
+      "text": "ok, apply the proposed changes now"
+    },
+    {
+      "description": "The follow-up cue 'apply proposed change'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "implement"
+      },
+      "id": "follow-up-apply_proposed_change",
+      "text": "ok, apply proposed change now"
+    },
+    {
+      "description": "The follow-up cue 'apply proposed changes'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "implement"
+      },
+      "id": "follow-up-apply_proposed_changes",
+      "text": "ok, apply proposed changes now"
+    },
+    {
+      "description": "The follow-up cue 'apply these'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "implement"
+      },
+      "id": "follow-up-apply_these",
+      "text": "ok, apply these now"
+    },
+    {
+      "description": "The follow-up cue 'apply those'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "implement"
+      },
+      "id": "follow-up-apply_those",
+      "text": "ok, apply those now"
+    },
+    {
+      "description": "The plan-cue cue 'plan'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "plan"
+      },
+      "id": "plan-cue-plan",
+      "text": "we need plan for the widget"
+    },
+    {
+      "description": "The plan-cue cue 'planning'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "plan"
+      },
+      "id": "plan-cue-planning",
+      "text": "we need planning for the widget"
+    },
+    {
+      "description": "The plan-cue cue 'design'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "plan"
+      },
+      "id": "plan-cue-design",
+      "text": "we need design for the widget"
+    },
+    {
+      "description": "The plan-cue cue 'architect'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "plan"
+      },
+      "id": "plan-cue-architect",
+      "text": "we need architect for the widget"
+    },
+    {
+      "description": "The plan-cue cue 'architecture'",
+      "expect": {
+        "scope": "subsystem",
+        "task_type": "plan"
+      },
+      "id": "plan-cue-architecture",
+      "text": "we need architecture for the widget"
+    },
+    {
+      "description": "The plan-cue cue 'propose an approach'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "plan"
+      },
+      "id": "plan-cue-propose_an_approach",
+      "text": "we need propose an approach for the widget"
+    },
+    {
+      "description": "The plan-cue cue 'implementation approach'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "plan"
+      },
+      "id": "plan-cue-implementation_approach",
+      "text": "we need implementation approach for the widget"
+    },
+    {
+      "description": "The plan-cue cue 'implementation plan'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "plan"
+      },
+      "id": "plan-cue-implementation_plan",
+      "text": "we need implementation plan for the widget"
+    },
+    {
+      "description": "The plan-cue cue 'break down'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "plan"
+      },
+      "id": "plan-cue-break_down",
+      "text": "we need break down for the widget"
+    },
+    {
+      "description": "The plan-cue cue 'tradeoff'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "plan"
+      },
+      "id": "plan-cue-tradeoff",
+      "text": "we need tradeoff for the widget"
+    },
+    {
+      "description": "The plan-cue cue 'what would it take'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "plan"
+      },
+      "id": "plan-cue-what_would_it_take",
+      "text": "we need what would it take for the widget"
+    },
+    {
+      "description": "The plan-cue cue 'how should we'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "plan"
+      },
+      "id": "plan-cue-how_should_we",
+      "text": "we need how should we for the widget"
+    },
+    {
+      "description": "The plan-cue cue 'before implementing'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "plan"
+      },
+      "id": "plan-cue-before_implementing",
+      "text": "we need before implementing for the widget"
+    },
+    {
+      "description": "The plan-cue cue 'possible approaches'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "plan"
+      },
+      "id": "plan-cue-possible_approaches",
+      "text": "we need possible approaches for the widget"
+    },
+    {
+      "description": "The fix-symptom cue 'error'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "fix"
+      },
+      "id": "fix-symptom-error",
+      "text": "the widget error today"
+    },
+    {
+      "description": "The fix-symptom cue 'stack trace'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "fix"
+      },
+      "id": "fix-symptom-stack_trace",
+      "text": "the widget stack trace today"
+    },
+    {
+      "description": "The fix-symptom cue 'traceback'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "fix"
+      },
+      "id": "fix-symptom-traceback",
+      "text": "the widget traceback today"
+    },
+    {
+      "description": "The fix-symptom cue 'panic'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "fix"
+      },
+      "id": "fix-symptom-panic",
+      "text": "the widget panic today"
+    },
+    {
+      "description": "The fix-symptom cue 'exception'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "fix"
+      },
+      "id": "fix-symptom-exception",
+      "text": "the widget exception today"
+    },
+    {
+      "description": "The fix-symptom cue 'failing'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "fix"
+      },
+      "id": "fix-symptom-failing",
+      "text": "the widget failing today"
+    },
+    {
+      "description": "The fix-symptom cue 'fails'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "fix"
+      },
+      "id": "fix-symptom-fails",
+      "text": "the widget fails today"
+    },
+    {
+      "description": "The fix-symptom cue 'failed'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "fix"
+      },
+      "id": "fix-symptom-failed",
+      "text": "the widget failed today"
+    },
+    {
+      "description": "The fix-symptom cue 'broken'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "fix"
+      },
+      "id": "fix-symptom-broken",
+      "text": "the widget broken today"
+    },
+    {
+      "description": "The fix-symptom cue \"doesn't work\"",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "fix"
+      },
+      "id": "fix-symptom-doesn-t_work",
+      "text": "the widget doesn't work today"
+    },
+    {
+      "description": "The fix-symptom cue 'not working'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "fix"
+      },
+      "id": "fix-symptom-not_working",
+      "text": "the widget not working today"
+    },
+    {
+      "description": "The fix-symptom cue 'crash'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "fix"
+      },
+      "id": "fix-symptom-crash",
+      "text": "the widget crash today"
+    },
+    {
+      "description": "The fix-symptom cue 'regression'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "fix"
+      },
+      "id": "fix-symptom-regression",
+      "text": "the widget regression today"
+    },
+    {
+      "description": "The fix-symptom cue 'bug'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "fix"
+      },
+      "id": "fix-symptom-bug",
+      "text": "the widget bug today"
+    },
+    {
+      "description": "The fix-symptom cue 'wrong'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "fix"
+      },
+      "id": "fix-symptom-wrong",
+      "text": "the widget wrong today"
+    },
+    {
+      "description": "The fix-symptom cue 'incorrect'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "fix"
+      },
+      "id": "fix-symptom-incorrect",
+      "text": "the widget incorrect today"
+    },
+    {
+      "description": "The fix-symptom cue 'unexpected'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "fix"
+      },
+      "id": "fix-symptom-unexpected",
+      "text": "the widget unexpected today"
+    },
+    {
+      "description": "The fix-symptom cue 'times out'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "fix"
+      },
+      "id": "fix-symptom-times_out",
+      "text": "the widget times out today"
+    },
+    {
+      "description": "The fix-symptom cue 'deadlock'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "fix"
+      },
+      "id": "fix-symptom-deadlock",
+      "text": "the widget deadlock today"
+    },
+    {
+      "description": "The fix-symptom cue 'memory leak'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "fix"
+      },
+      "id": "fix-symptom-memory_leak",
+      "text": "the widget memory leak today"
+    },
+    {
+      "description": "The fix-symptom cue 'segfault'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "fix"
+      },
+      "id": "fix-symptom-segfault",
+      "text": "the widget segfault today"
+    },
+    {
+      "description": "The fix-symptom cue 'null pointer'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "fix"
+      },
+      "id": "fix-symptom-null_pointer",
+      "text": "the widget null pointer today"
+    },
+    {
+      "description": "The fix-symptom cue 'flaky'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "fix"
+      },
+      "id": "fix-symptom-flaky",
+      "text": "the widget flaky today"
+    },
+    {
+      "description": "The fix-symptom cue \"won't compile\"",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "fix"
+      },
+      "id": "fix-symptom-won-t_compile",
+      "text": "the widget won't compile today"
+    },
+    {
+      "description": "The fix-symptom cue \"doesn't compile\"",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "fix"
+      },
+      "id": "fix-symptom-doesn-t_compile",
+      "text": "the widget doesn't compile today"
+    },
+    {
+      "description": "The fix-symptom cue 'stopped working'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "fix"
+      },
+      "id": "fix-symptom-stopped_working",
+      "text": "the widget stopped working today"
+    },
+    {
+      "description": "The fix-symptom cue 'no longer works'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "fix"
+      },
+      "id": "fix-symptom-no_longer_works",
+      "text": "the widget no longer works today"
+    },
+    {
+      "description": "The fix-symptom cue 'hangs'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "fix"
+      },
+      "id": "fix-symptom-hangs",
+      "text": "the widget hangs today"
+    },
+    {
+      "description": "The fix-symptom cue 'freezes'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "fix"
+      },
+      "id": "fix-symptom-freezes",
+      "text": "the widget freezes today"
+    },
+    {
+      "description": "The fix-symptom cue 'infinite loop'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "fix"
+      },
+      "id": "fix-symptom-infinite_loop",
+      "text": "the widget infinite loop today"
+    },
+    {
+      "description": "The fix-symptom cue 'stuck'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "fix"
+      },
+      "id": "fix-symptom-stuck",
+      "text": "the widget stuck today"
+    },
+    {
+      "description": "The explain-cue cue 'explain'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "explain"
+      },
+      "id": "explain-cue-explain",
+      "text": "i would like to explain the widget"
+    },
+    {
+      "description": "The explain-cue cue 'summarize'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "explain"
+      },
+      "id": "explain-cue-summarize",
+      "text": "i would like to summarize the widget"
+    },
+    {
+      "description": "The explain-cue cue 'summarise'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "explain"
+      },
+      "id": "explain-cue-summarise",
+      "text": "i would like to summarise the widget"
+    },
+    {
+      "description": "The explain-cue cue 'summary of'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "explain"
+      },
+      "id": "explain-cue-summary_of",
+      "text": "i would like to summary of the widget"
+    },
+    {
+      "description": "The explain-cue cue 'describe'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "explain"
+      },
+      "id": "explain-cue-describe",
+      "text": "i would like to describe the widget"
+    },
+    {
+      "description": "The explain-cue cue 'clarify'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "explain"
+      },
+      "id": "explain-cue-clarify",
+      "text": "i would like to clarify the widget"
+    },
+    {
+      "description": "The explain-cue cue 'elaborate'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "explain"
+      },
+      "id": "explain-cue-elaborate",
+      "text": "i would like to elaborate the widget"
+    },
+    {
+      "description": "The explain-cue cue 'walk me through'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "explain"
+      },
+      "id": "explain-cue-walk_me_through",
+      "text": "i would like to walk me through the widget"
+    },
+    {
+      "description": "The explain-cue cue 'walk through'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "explain"
+      },
+      "id": "explain-cue-walk_through",
+      "text": "i would like to walk through the widget"
+    },
+    {
+      "description": "The explain-cue cue 'tell me about'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "explain"
+      },
+      "id": "explain-cue-tell_me_about",
+      "text": "i would like to tell me about the widget"
+    },
+    {
+      "description": "The explain-cue cue 'understand'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "explain"
+      },
+      "id": "explain-cue-understand",
+      "text": "i would like to understand the widget"
+    },
+    {
+      "description": "The explain-cue cue 'overview'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "explain"
+      },
+      "id": "explain-cue-overview",
+      "text": "i would like to overview the widget"
+    },
+    {
+      "description": "The explain-cue cue 'high level'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "explain"
+      },
+      "id": "explain-cue-high_level",
+      "text": "i would like to high level the widget"
+    },
+    {
+      "description": "The question-lead cue 'why'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "explain"
+      },
+      "id": "question-lead-why",
+      "text": "why the widget"
+    },
+    {
+      "description": "The question-lead cue 'what'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "explain"
+      },
+      "id": "question-lead-what",
+      "text": "what the widget"
+    },
+    {
+      "description": "The question-lead cue 'how'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "explain"
+      },
+      "id": "question-lead-how",
+      "text": "how the widget"
+    },
+    {
+      "description": "The question-lead cue \"what's\"",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "explain"
+      },
+      "id": "question-lead-what-s",
+      "text": "what's the widget"
+    },
+    {
+      "description": "The question-lead cue 'whats'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "explain"
+      },
+      "id": "question-lead-whats",
+      "text": "whats the widget"
+    },
+    {
+      "description": "The question-cue cue 'why'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "explain"
+      },
+      "id": "question-cue-why",
+      "text": "so why the widget"
+    },
+    {
+      "description": "The question-cue cue 'what is'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "explain"
+      },
+      "id": "question-cue-what_is",
+      "text": "so what is the widget"
+    },
+    {
+      "description": "The question-cue cue 'what are'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "explain"
+      },
+      "id": "question-cue-what_are",
+      "text": "so what are the widget"
+    },
+    {
+      "description": "The question-cue cue 'what does'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "explain"
+      },
+      "id": "question-cue-what_does",
+      "text": "so what does the widget"
+    },
+    {
+      "description": "The question-cue cue 'what it does'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "explain"
+      },
+      "id": "question-cue-what_it_does",
+      "text": "so what it does the widget"
+    },
+    {
+      "description": "The question-cue cue 'what it is'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "explain"
+      },
+      "id": "question-cue-what_it_is",
+      "text": "so what it is the widget"
+    },
+    {
+      "description": "The question-cue cue \"what's\"",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "explain"
+      },
+      "id": "question-cue-what-s",
+      "text": "so what's the widget"
+    },
+    {
+      "description": "The question-cue cue 'how does'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "explain"
+      },
+      "id": "question-cue-how_does",
+      "text": "so how does the widget"
+    },
+    {
+      "description": "The question-cue cue 'how do'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "explain"
+      },
+      "id": "question-cue-how_do",
+      "text": "so how do the widget"
+    },
+    {
+      "description": "The question-cue cue 'where is'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "explain"
+      },
+      "id": "question-cue-where_is",
+      "text": "so where is the widget"
+    },
+    {
+      "description": "The chore-cue cue 'bump'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "chore"
+      },
+      "id": "chore-cue-bump",
+      "text": "the bump needs attention"
+    },
+    {
+      "description": "The chore-cue cue 'upgrade'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "chore"
+      },
+      "id": "chore-cue-upgrade",
+      "text": "the upgrade needs attention"
+    },
+    {
+      "description": "The chore-cue cue 'downgrade'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "chore"
+      },
+      "id": "chore-cue-downgrade",
+      "text": "the downgrade needs attention"
+    },
+    {
+      "description": "The chore-cue cue 'update deps'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "chore"
+      },
+      "id": "chore-cue-update_deps",
+      "text": "the update deps needs attention"
+    },
+    {
+      "description": "The chore-cue cue 'dependency'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "chore"
+      },
+      "id": "chore-cue-dependency",
+      "text": "the dependency needs attention"
+    },
+    {
+      "description": "The chore-cue cue 'dependencies'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "chore"
+      },
+      "id": "chore-cue-dependencies",
+      "text": "the dependencies needs attention"
+    },
+    {
+      "description": "The chore-cue cue 'lockfile'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "chore"
+      },
+      "id": "chore-cue-lockfile",
+      "text": "the lockfile needs attention"
+    },
+    {
+      "description": "The chore-cue cue 'lock file'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "chore"
+      },
+      "id": "chore-cue-lock_file",
+      "text": "the lock file needs attention"
+    },
+    {
+      "description": "The chore-cue cue 'version bump'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "chore"
+      },
+      "id": "chore-cue-version_bump",
+      "text": "the version bump needs attention"
+    },
+    {
+      "description": "The chore-cue cue 'pin the'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "chore"
+      },
+      "id": "chore-cue-pin_the",
+      "text": "the pin the needs attention"
+    },
+    {
+      "description": "The chore-cue cue 'ci config'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "chore"
+      },
+      "id": "chore-cue-ci_config",
+      "text": "the ci config needs attention"
+    },
+    {
+      "description": "The chore-cue cue 'config file'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "chore"
+      },
+      "id": "chore-cue-config_file",
+      "text": "the config file needs attention"
+    },
+    {
+      "description": "The chore-cue cue 'gitignore'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "chore"
+      },
+      "id": "chore-cue-gitignore",
+      "text": "the gitignore needs attention"
+    },
+    {
+      "description": "The chore-cue cue 'rustfmt'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "chore"
+      },
+      "id": "chore-cue-rustfmt",
+      "text": "the rustfmt needs attention"
+    },
+    {
+      "description": "The chore-cue cue 'clippy'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "chore"
+      },
+      "id": "chore-cue-clippy",
+      "text": "the clippy needs attention"
+    },
+    {
+      "description": "The chore-cue cue 'prettier'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "chore"
+      },
+      "id": "chore-cue-prettier",
+      "text": "the prettier needs attention"
+    },
+    {
+      "description": "The chore-cue cue 'eslint'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "chore"
+      },
+      "id": "chore-cue-eslint",
+      "text": "the eslint needs attention"
+    },
+    {
+      "description": "The chore-cue cue 'reformat'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "chore"
+      },
+      "id": "chore-cue-reformat",
+      "text": "the reformat needs attention"
+    },
+    {
+      "description": "The chore-cue cue 'formatting'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "chore"
+      },
+      "id": "chore-cue-formatting",
+      "text": "the formatting needs attention"
+    },
+    {
+      "description": "The chore-cue cue 'cargo update'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "chore"
+      },
+      "id": "chore-cue-cargo_update",
+      "text": "the cargo update needs attention"
+    },
+    {
+      "description": "The chore-cue cue 'npm update'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "chore"
+      },
+      "id": "chore-cue-npm_update",
+      "text": "the npm update needs attention"
+    },
+    {
+      "description": "The chore-cue cue 'workflow file'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "chore"
+      },
+      "id": "chore-cue-workflow_file",
+      "text": "the workflow file needs attention"
+    },
+    {
+      "description": "The chore-cue cue 'github action'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "chore"
+      },
+      "id": "chore-cue-github_action",
+      "text": "the github action needs attention"
+    },
+    {
+      "description": "The chore-cue cue 'typo'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "chore"
+      },
+      "id": "chore-cue-typo",
+      "text": "the typo needs attention"
+    },
+    {
+      "description": "The refactor-cue cue 'refactor'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "refactor"
+      },
+      "id": "refactor-cue-refactor",
+      "text": "the widget needs refactor"
+    },
+    {
+      "description": "The refactor-cue cue 'rename'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "refactor"
+      },
+      "id": "refactor-cue-rename",
+      "text": "the widget needs rename"
+    },
+    {
+      "description": "The refactor-cue cue 'clean up'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "refactor"
+      },
+      "id": "refactor-cue-clean_up",
+      "text": "the widget needs clean up"
+    },
+    {
+      "description": "The refactor-cue cue 'cleanup'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "refactor"
+      },
+      "id": "refactor-cue-cleanup",
+      "text": "the widget needs cleanup"
+    },
+    {
+      "description": "The refactor-cue cue 'restructure'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "refactor"
+      },
+      "id": "refactor-cue-restructure",
+      "text": "the widget needs restructure"
+    },
+    {
+      "description": "The refactor-cue cue 'extract'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "refactor"
+      },
+      "id": "refactor-cue-extract",
+      "text": "the widget needs extract"
+    },
+    {
+      "description": "The refactor-cue cue 'simplify'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "refactor"
+      },
+      "id": "refactor-cue-simplify",
+      "text": "the widget needs simplify"
+    },
+    {
+      "description": "The refactor-cue cue 'reorganize'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "refactor"
+      },
+      "id": "refactor-cue-reorganize",
+      "text": "the widget needs reorganize"
+    },
+    {
+      "description": "The refactor-cue cue 'deduplicate'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "refactor"
+      },
+      "id": "refactor-cue-deduplicate",
+      "text": "the widget needs deduplicate"
+    },
+    {
+      "description": "The refactor-cue cue 'de-duplicate'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "refactor"
+      },
+      "id": "refactor-cue-de-duplicate",
+      "text": "the widget needs de-duplicate"
+    },
+    {
+      "description": "The refactor-cue cue 'tidy'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "refactor"
+      },
+      "id": "refactor-cue-tidy",
+      "text": "the widget needs tidy"
+    },
+    {
+      "description": "The refactor-cue cue 'consolidate'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "refactor"
+      },
+      "id": "refactor-cue-consolidate",
+      "text": "the widget needs consolidate"
+    },
+    {
+      "description": "The refactor-cue cue 'modularize'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "refactor"
+      },
+      "id": "refactor-cue-modularize",
+      "text": "the widget needs modularize"
+    },
+    {
+      "description": "The refactor-cue cue 'modularise'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "refactor"
+      },
+      "id": "refactor-cue-modularise",
+      "text": "the widget needs modularise"
+    },
+    {
+      "description": "The refactor-cue cue 'decouple'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "refactor"
+      },
+      "id": "refactor-cue-decouple",
+      "text": "the widget needs decouple"
+    },
+    {
+      "description": "The refactor-cue cue 'encapsulate'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "refactor"
+      },
+      "id": "refactor-cue-encapsulate",
+      "text": "the widget needs encapsulate"
+    },
+    {
+      "description": "The refactor-cue cue 'untangle'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "refactor"
+      },
+      "id": "refactor-cue-untangle",
+      "text": "the widget needs untangle"
+    },
+    {
+      "description": "The refactor-cue cue 'factor out'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "refactor"
+      },
+      "id": "refactor-cue-factor_out",
+      "text": "the widget needs factor out"
+    },
+    {
+      "description": "The refactor-cue cue 'pull out'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "refactor"
+      },
+      "id": "refactor-cue-pull_out",
+      "text": "the widget needs pull out"
+    },
+    {
+      "description": "The refactor-cue cue 'split up'",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "refactor"
+      },
+      "id": "refactor-cue-split_up",
+      "text": "the widget needs split up"
+    },
+    {
+      "description": "The cross_system cue 'cross-system'",
+      "expect": {
+        "scope": "cross_system",
+        "task_type": "unknown"
+      },
+      "id": "scope-cross-system",
+      "text": "look at cross-system"
+    },
+    {
+      "description": "The cross_system cue 'cross system'",
+      "expect": {
+        "scope": "cross_system",
+        "task_type": "unknown"
+      },
+      "id": "scope-cross_system",
+      "text": "look at cross system"
+    },
+    {
+      "description": "The cross_system cue 'end-to-end'",
+      "expect": {
+        "scope": "cross_system",
+        "task_type": "unknown"
+      },
+      "id": "scope-end-to-end",
+      "text": "look at end-to-end"
+    },
+    {
+      "description": "The cross_system cue 'end to end'",
+      "expect": {
+        "scope": "cross_system",
+        "task_type": "unknown"
+      },
+      "id": "scope-end_to_end",
+      "text": "look at end to end"
+    },
+    {
+      "description": "The cross_system cue 'multiple services'",
+      "expect": {
+        "scope": "cross_system",
+        "task_type": "unknown"
+      },
+      "id": "scope-multiple_services",
+      "text": "look at multiple services"
+    },
+    {
+      "description": "The cross_system cue 'across services'",
+      "expect": {
+        "scope": "cross_system",
+        "task_type": "unknown"
+      },
+      "id": "scope-across_services",
+      "text": "look at across services"
+    },
+    {
+      "description": "The cross_system cue 'frontend and backend'",
+      "expect": {
+        "scope": "cross_system",
+        "task_type": "unknown"
+      },
+      "id": "scope-frontend_and_backend",
+      "text": "look at frontend and backend"
+    },
+    {
+      "description": "The cross_system cue 'client and server'",
+      "expect": {
+        "scope": "cross_system",
+        "task_type": "unknown"
+      },
+      "id": "scope-client_and_server",
+      "text": "look at client and server"
+    },
+    {
+      "description": "The cross_system cue 'all crates'",
+      "expect": {
+        "scope": "cross_system",
+        "task_type": "unknown"
+      },
+      "id": "scope-all_crates",
+      "text": "look at all crates"
+    },
+    {
+      "description": "The cross_system cue 'all packages'",
+      "expect": {
+        "scope": "cross_system",
+        "task_type": "unknown"
+      },
+      "id": "scope-all_packages",
+      "text": "look at all packages"
+    },
+    {
+      "description": "The cross_system cue 'entire workspace'",
+      "expect": {
+        "scope": "cross_system",
+        "task_type": "unknown"
+      },
+      "id": "scope-entire_workspace",
+      "text": "look at entire workspace"
+    },
+    {
+      "description": "The subsystem cue 'subsystem'",
+      "expect": {
+        "scope": "subsystem",
+        "task_type": "unknown"
+      },
+      "id": "scope-subsystem",
+      "text": "look at subsystem"
+    },
+    {
+      "description": "The subsystem cue 'service'",
+      "expect": {
+        "scope": "subsystem",
+        "task_type": "unknown"
+      },
+      "id": "scope-service",
+      "text": "look at service"
+    },
+    {
+      "description": "The subsystem cue 'module'",
+      "expect": {
+        "scope": "subsystem",
+        "task_type": "unknown"
+      },
+      "id": "scope-module",
+      "text": "look at module"
+    },
+    {
+      "description": "The subsystem cue 'crate'",
+      "expect": {
+        "scope": "subsystem",
+        "task_type": "unknown"
+      },
+      "id": "scope-crate",
+      "text": "look at crate"
+    },
+    {
+      "description": "The subsystem cue 'package'",
+      "expect": {
+        "scope": "subsystem",
+        "task_type": "unknown"
+      },
+      "id": "scope-package",
+      "text": "look at package"
+    },
+    {
+      "description": "The subsystem cue 'architecture'",
+      "expect": {
+        "scope": "subsystem",
+        "task_type": "plan"
+      },
+      "id": "scope-architecture",
+      "text": "look at architecture"
+    },
+    {
+      "description": "The subsystem cue 'codebase'",
+      "expect": {
+        "scope": "subsystem",
+        "task_type": "unknown"
+      },
+      "id": "scope-codebase",
+      "text": "look at codebase"
+    },
+    {
+      "description": "The subsystem cue 'repository'",
+      "expect": {
+        "scope": "subsystem",
+        "task_type": "unknown"
+      },
+      "id": "scope-repository",
+      "text": "look at repository"
+    },
+    {
+      "description": "The subsystem cue 'this repo'",
+      "expect": {
+        "scope": "subsystem",
+        "task_type": "unknown"
+      },
+      "id": "scope-this_repo",
+      "text": "look at this repo"
+    },
+    {
+      "description": "The subsystem cue 'the repo'",
+      "expect": {
+        "scope": "subsystem",
+        "task_type": "unknown"
+      },
+      "id": "scope-the_repo",
+      "text": "look at the repo"
+    },
+    {
+      "description": "The subsystem cue 'whole repo'",
+      "expect": {
+        "scope": "subsystem",
+        "task_type": "unknown"
+      },
+      "id": "scope-whole_repo",
+      "text": "look at whole repo"
+    },
+    {
+      "description": "The subsystem cue 'entire repo'",
+      "expect": {
+        "scope": "subsystem",
+        "task_type": "unknown"
+      },
+      "id": "scope-entire_repo",
+      "text": "look at entire repo"
+    },
+    {
+      "description": "The subsystem cue 'repo-wide'",
+      "expect": {
+        "scope": "subsystem",
+        "task_type": "unknown"
+      },
+      "id": "scope-repo-wide",
+      "text": "look at repo-wide"
+    },
+    {
+      "description": "The subsystem cue 'repo wide'",
+      "expect": {
+        "scope": "subsystem",
+        "task_type": "unknown"
+      },
+      "id": "scope-repo_wide",
+      "text": "look at repo wide"
+    },
+    {
+      "description": "The subsystem cue 'this project'",
+      "expect": {
+        "scope": "subsystem",
+        "task_type": "unknown"
+      },
+      "id": "scope-this_project",
+      "text": "look at this project"
+    },
+    {
+      "description": "The subsystem cue 'the project'",
+      "expect": {
+        "scope": "subsystem",
+        "task_type": "unknown"
+      },
+      "id": "scope-the_project",
+      "text": "look at the project"
+    },
+    {
+      "description": "The subsystem cue 'whole project'",
+      "expect": {
+        "scope": "subsystem",
+        "task_type": "unknown"
+      },
+      "id": "scope-whole_project",
+      "text": "look at whole project"
+    },
+    {
+      "description": "The subsystem cue 'entire project'",
+      "expect": {
+        "scope": "subsystem",
+        "task_type": "unknown"
+      },
+      "id": "scope-entire_project",
+      "text": "look at entire project"
+    },
+    {
+      "description": "The subsystem cue 'project-wide'",
+      "expect": {
+        "scope": "subsystem",
+        "task_type": "unknown"
+      },
+      "id": "scope-project-wide",
+      "text": "look at project-wide"
+    },
+    {
+      "description": "The subsystem cue 'project wide'",
+      "expect": {
+        "scope": "subsystem",
+        "task_type": "unknown"
+      },
+      "id": "scope-project_wide",
+      "text": "look at project wide"
+    },
+    {
+      "description": "The multi_file cue 'multiple files'",
+      "expect": {
+        "scope": "multi_file",
+        "task_type": "unknown"
+      },
+      "id": "scope-multiple_files",
+      "text": "look at multiple files"
+    },
+    {
+      "description": "The multi_file cue 'several files'",
+      "expect": {
+        "scope": "multi_file",
+        "task_type": "unknown"
+      },
+      "id": "scope-several_files",
+      "text": "look at several files"
+    },
+    {
+      "description": "The multi_file cue 'across files'",
+      "expect": {
+        "scope": "multi_file",
+        "task_type": "unknown"
+      },
+      "id": "scope-across_files",
+      "text": "look at across files"
+    },
+    {
+      "description": "The multi_file cue 'components'",
+      "expect": {
+        "scope": "multi_file",
+        "task_type": "unknown"
+      },
+      "id": "scope-components",
+      "text": "look at components"
+    },
+    {
+      "description": "The multi_file cue 'call sites'",
+      "expect": {
+        "scope": "multi_file",
+        "task_type": "unknown"
+      },
+      "id": "scope-call_sites",
+      "text": "look at call sites"
+    },
+    {
+      "description": "The multi_file cue 'implementations'",
+      "expect": {
+        "scope": "multi_file",
+        "task_type": "unknown"
+      },
+      "id": "scope-implementations",
+      "text": "look at implementations"
+    },
+    {
+      "description": "The multi_file cue 'all files'",
+      "expect": {
+        "scope": "multi_file",
+        "task_type": "unknown"
+      },
+      "id": "scope-all_files",
+      "text": "look at all files"
+    },
+    {
+      "description": "The multi_file cue 'every file'",
+      "expect": {
+        "scope": "multi_file",
+        "task_type": "unknown"
+      },
+      "id": "scope-every_file",
+      "text": "look at every file"
+    },
+    {
+      "description": "The multi_file cue 'both files'",
+      "expect": {
+        "scope": "multi_file",
+        "task_type": "unknown"
+      },
+      "id": "scope-both_files",
+      "text": "look at both files"
+    },
+    {
+      "description": "The multi_file cue 'two files'",
+      "expect": {
+        "scope": "multi_file",
+        "task_type": "unknown"
+      },
+      "id": "scope-two_files",
+      "text": "look at two files"
+    },
+    {
+      "description": "The local cue 'this function'",
+      "expect": {
+        "scope": "local",
+        "task_type": "unknown"
+      },
+      "id": "scope-this_function",
+      "text": "look at this function"
+    },
+    {
+      "description": "The local cue 'this method'",
+      "expect": {
+        "scope": "local",
+        "task_type": "unknown"
+      },
+      "id": "scope-this_method",
+      "text": "look at this method"
+    },
+    {
+      "description": "The local cue 'this file'",
+      "expect": {
+        "scope": "local",
+        "task_type": "unknown"
+      },
+      "id": "scope-this_file",
+      "text": "look at this file"
+    },
+    {
+      "description": "The local cue 'this test'",
+      "expect": {
+        "scope": "local",
+        "task_type": "unknown"
+      },
+      "id": "scope-this_test",
+      "text": "look at this test"
+    },
+    {
+      "description": "The local cue 'this type'",
+      "expect": {
+        "scope": "local",
+        "task_type": "unknown"
+      },
+      "id": "scope-this_type",
+      "text": "look at this type"
+    },
+    {
+      "description": "The local cue 'this component'",
+      "expect": {
+        "scope": "local",
+        "task_type": "unknown"
+      },
+      "id": "scope-this_component",
+      "text": "look at this component"
+    },
+    {
+      "description": "The local cue 'one file'",
+      "expect": {
+        "scope": "local",
+        "task_type": "unknown"
+      },
+      "id": "scope-one_file",
+      "text": "look at one file"
+    },
+    {
+      "description": "The local cue 'single file'",
+      "expect": {
+        "scope": "local",
+        "task_type": "unknown"
+      },
+      "id": "scope-single_file",
+      "text": "look at single file"
+    },
+    {
+      "description": "A lead cue alone",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "fix"
+      },
+      "id": "lead-alone",
+      "text": "fix"
+    },
+    {
+      "description": "A lead cue followed by punctuation",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "fix"
+      },
+      "id": "lead-end-punctuation",
+      "text": "fix!"
+    },
+    {
+      "description": "A lead cue followed by a word character",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "unknown"
+      },
+      "id": "lead-word-suffix",
+      "text": "fixes the widget"
+    },
+    {
+      "description": "A hyphen ends a lead cue",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "fix"
+      },
+      "id": "lead-hyphen",
+      "text": "fix-it now"
+    },
+    {
+      "description": "An apostrophe ends a lead cue",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "fix"
+      },
+      "id": "lead-apostrophe",
+      "text": "fix's widget"
+    },
+    {
+      "description": "A lead cue must start the request",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "unknown"
+      },
+      "id": "lead-not-first",
+      "text": "now fix the widget"
+    },
+    {
+      "description": "A quote before a lead cue",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "unknown"
+      },
+      "id": "lead-after-quote",
+      "text": "\"fix\" the widget"
+    },
+    {
+      "description": "A symptom at the start",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "fix"
+      },
+      "id": "symptom-start",
+      "text": "error in the widget"
+    },
+    {
+      "description": "A symptom at the end",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "fix"
+      },
+      "id": "symptom-end",
+      "text": "the widget has an error"
+    },
+    {
+      "description": "A word character before a symptom",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "unknown"
+      },
+      "id": "symptom-prefixed",
+      "text": "the widget xerror"
+    },
+    {
+      "description": "A word character after a symptom",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "unknown"
+      },
+      "id": "symptom-suffixed",
+      "text": "the widget errors"
+    },
+    {
+      "description": "Underscore is a word character",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "unknown"
+      },
+      "id": "symptom-underscore",
+      "text": "the widget _error"
+    },
+    {
+      "description": "Punctuation around a symptom",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "fix"
+      },
+      "id": "symptom-punctuation",
+      "text": "the widget (error)."
+    },
+    {
+      "description": "A scope cue at the start",
+      "expect": {
+        "scope": "local",
+        "task_type": "unknown"
+      },
+      "id": "scope-start",
+      "text": "this function is slow"
+    },
+    {
+      "description": "A word character before a scope cue",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "unknown"
+      },
+      "id": "scope-glued",
+      "text": "xthis function is slow"
+    },
+    {
+      "description": "Punctuation after a scope cue",
+      "expect": {
+        "scope": "local",
+        "task_type": "unknown"
+      },
+      "id": "scope-punctuation",
+      "text": "look at this function."
+    },
+    {
+      "description": "A polite prefix",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "fix"
+      },
+      "id": "polite-please",
+      "text": "please fix the widget"
+    },
+    {
+      "description": "kindly",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "fix"
+      },
+      "id": "polite-kindly",
+      "text": "kindly fix the widget"
+    },
+    {
+      "description": "can you",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "fix"
+      },
+      "id": "polite-can-you",
+      "text": "can you fix the widget"
+    },
+    {
+      "description": "could you",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "fix"
+      },
+      "id": "polite-could-you",
+      "text": "could you fix the widget"
+    },
+    {
+      "description": "would you",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "fix"
+      },
+      "id": "polite-would-you",
+      "text": "would you fix the widget"
+    },
+    {
+      "description": "will you",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "fix"
+      },
+      "id": "polite-will-you",
+      "text": "will you fix the widget"
+    },
+    {
+      "description": "Repeated polite prefixes",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "fix"
+      },
+      "id": "polite-repeated",
+      "text": "could you please kindly fix the widget"
+    },
+    {
+      "description": "A polite prefix needs whitespace",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "unknown"
+      },
+      "id": "polite-no-space",
+      "text": "pleasefix the widget"
+    },
+    {
+      "description": "A comma stops polite prefix removal",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "unknown"
+      },
+      "id": "polite-comma",
+      "text": "please, fix the widget"
+    },
+    {
+      "description": "A polite prefix alone",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "unknown"
+      },
+      "id": "polite-alone",
+      "text": "please"
+    },
+    {
+      "description": "can you without a cue",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "unknown"
+      },
+      "id": "polite-you-alone",
+      "text": "can you"
+    },
+    {
+      "description": "Polite words after the start stay",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "unknown"
+      },
+      "id": "polite-middle",
+      "text": "now please fix it"
+    },
+    {
+      "description": "One imperative word is not enough",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "unknown"
+      },
+      "id": "imperative-one-word",
+      "text": "add"
+    },
+    {
+      "description": "Punctuation doesn't add a word",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "unknown"
+      },
+      "id": "imperative-one-word-punctuation",
+      "text": "add."
+    },
+    {
+      "description": "Two words with an imperative lead",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "implement"
+      },
+      "id": "imperative-two-words",
+      "text": "add it"
+    },
+    {
+      "description": "A two-word imperative alone",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "implement"
+      },
+      "id": "imperative-two-word-verb",
+      "text": "set up"
+    },
+    {
+      "description": "Polite prefix plus one word",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "unknown"
+      },
+      "id": "imperative-polite-one-word",
+      "text": "please add"
+    },
+    {
+      "description": "Polite prefix plus two words",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "implement"
+      },
+      "id": "imperative-polite-two-words",
+      "text": "please add it"
+    },
+    {
+      "description": "update without a chore cue",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "implement"
+      },
+      "id": "update-without-chore",
+      "text": "update the widget"
+    },
+    {
+      "description": "update alone",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "unknown"
+      },
+      "id": "update-alone",
+      "text": "update"
+    },
+    {
+      "description": "update with a later chore cue",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "chore"
+      },
+      "id": "update-chore-later",
+      "text": "update the widget dependency"
+    },
+    {
+      "description": "A chore cue after another imperative",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "implement"
+      },
+      "id": "chore-cue-not-update",
+      "text": "change the lockfile"
+    },
+    {
+      "description": "A lead beats a symptom",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "explain"
+      },
+      "id": "order-lead-over-symptom",
+      "text": "explain the error"
+    },
+    {
+      "description": "A plan cue beats a symptom",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "plan"
+      },
+      "id": "order-plan-over-symptom",
+      "text": "the error in the plan"
+    },
+    {
+      "description": "An imperative beats a symptom",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "implement"
+      },
+      "id": "order-imperative-over-symptom",
+      "text": "add a fix for the error"
+    },
+    {
+      "description": "A follow-up cue beats a plan cue",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "implement"
+      },
+      "id": "order-follow-up-over-plan",
+      "text": "ok, execute the plan"
+    },
+    {
+      "description": "A symptom beats a question",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "fix"
+      },
+      "id": "order-symptom-over-question",
+      "text": "why does this crash"
+    },
+    {
+      "description": "A question beats a chore cue",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "explain"
+      },
+      "id": "order-question-over-chore",
+      "text": "what is the lockfile"
+    },
+    {
+      "description": "A chore cue beats a refactor cue",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "chore"
+      },
+      "id": "order-chore-over-refactor",
+      "text": "the typo needs cleanup"
+    },
+    {
+      "description": "Cross-system beats other scopes",
+      "expect": {
+        "scope": "cross_system",
+        "task_type": "unknown"
+      },
+      "id": "order-cross-system-first",
+      "text": "this function across services module"
+    },
+    {
+      "description": "Subsystem beats multi-file",
+      "expect": {
+        "scope": "subsystem",
+        "task_type": "unknown"
+      },
+      "id": "order-subsystem-over-files",
+      "text": "several files in the module"
+    },
+    {
+      "description": "Multi-file beats local",
+      "expect": {
+        "scope": "multi_file",
+        "task_type": "unknown"
+      },
+      "id": "order-files-over-local",
+      "text": "this function and both files"
+    },
+    {
+      "description": "Matching is case-insensitive",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "fix"
+      },
+      "id": "normalize-uppercase",
+      "text": "FIX THE WIDGET"
+    },
+    {
+      "description": "Whitespace runs collapse",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "explain"
+      },
+      "id": "normalize-whitespace",
+      "text": "  walk \t\n through   the parser  "
+    },
+    {
+      "description": "A newline inside a multi-word cue",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "explain"
+      },
+      "id": "normalize-split-cue",
+      "text": "walk me\nthrough the parser"
+    },
+    {
+      "description": "No cue at all",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "unknown"
+      },
+      "id": "unknown-everything",
+      "text": "hello there"
+    },
+    {
+      "description": "U+0009 separates words",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "explain"
+      },
+      "id": "whitespace-0009",
+      "text": "walk\tthrough the parser"
+    },
+    {
+      "description": "U+000A separates words",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "explain"
+      },
+      "id": "whitespace-000A",
+      "text": "walk\nthrough the parser"
+    },
+    {
+      "description": "U+000B separates words",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "explain"
+      },
+      "id": "whitespace-000B",
+      "text": "walk\u000bthrough the parser"
+    },
+    {
+      "description": "U+000C separates words",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "explain"
+      },
+      "id": "whitespace-000C",
+      "text": "walk\fthrough the parser"
+    },
+    {
+      "description": "U+000D separates words",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "explain"
+      },
+      "id": "whitespace-000D",
+      "text": "walk\rthrough the parser"
+    },
+    {
+      "description": "U+001C separates words",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "explain"
+      },
+      "id": "whitespace-001C",
+      "text": "walk\u001cthrough the parser"
+    },
+    {
+      "description": "U+001D separates words",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "explain"
+      },
+      "id": "whitespace-001D",
+      "text": "walk\u001dthrough the parser"
+    },
+    {
+      "description": "U+001E separates words",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "explain"
+      },
+      "id": "whitespace-001E",
+      "text": "walk\u001ethrough the parser"
+    },
+    {
+      "description": "U+001F separates words",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "explain"
+      },
+      "id": "whitespace-001F",
+      "text": "walk\u001fthrough the parser"
+    },
+    {
+      "description": "U+0020 separates words",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "explain"
+      },
+      "id": "whitespace-0020",
+      "text": "walk through the parser"
+    },
+    {
+      "description": "U+0085 separates words",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "explain"
+      },
+      "id": "whitespace-0085",
+      "text": "walk\u0085through the parser"
+    },
+    {
+      "description": "U+00A0 separates words",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "explain"
+      },
+      "id": "whitespace-00A0",
+      "text": "walk\u00a0through the parser"
+    },
+    {
+      "description": "U+1680 separates words",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "explain"
+      },
+      "id": "whitespace-1680",
+      "text": "walk\u1680through the parser"
+    },
+    {
+      "description": "U+2000 separates words",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "explain"
+      },
+      "id": "whitespace-2000",
+      "text": "walk\u2000through the parser"
+    },
+    {
+      "description": "U+2001 separates words",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "explain"
+      },
+      "id": "whitespace-2001",
+      "text": "walk\u2001through the parser"
+    },
+    {
+      "description": "U+2002 separates words",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "explain"
+      },
+      "id": "whitespace-2002",
+      "text": "walk\u2002through the parser"
+    },
+    {
+      "description": "U+2003 separates words",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "explain"
+      },
+      "id": "whitespace-2003",
+      "text": "walk\u2003through the parser"
+    },
+    {
+      "description": "U+2004 separates words",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "explain"
+      },
+      "id": "whitespace-2004",
+      "text": "walk\u2004through the parser"
+    },
+    {
+      "description": "U+2005 separates words",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "explain"
+      },
+      "id": "whitespace-2005",
+      "text": "walk\u2005through the parser"
+    },
+    {
+      "description": "U+2006 separates words",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "explain"
+      },
+      "id": "whitespace-2006",
+      "text": "walk\u2006through the parser"
+    },
+    {
+      "description": "U+2007 separates words",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "explain"
+      },
+      "id": "whitespace-2007",
+      "text": "walk\u2007through the parser"
+    },
+    {
+      "description": "U+2008 separates words",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "explain"
+      },
+      "id": "whitespace-2008",
+      "text": "walk\u2008through the parser"
+    },
+    {
+      "description": "U+2009 separates words",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "explain"
+      },
+      "id": "whitespace-2009",
+      "text": "walk\u2009through the parser"
+    },
+    {
+      "description": "U+200A separates words",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "explain"
+      },
+      "id": "whitespace-200A",
+      "text": "walk\u200athrough the parser"
+    },
+    {
+      "description": "U+2028 separates words",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "explain"
+      },
+      "id": "whitespace-2028",
+      "text": "walk\u2028through the parser"
+    },
+    {
+      "description": "U+2029 separates words",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "explain"
+      },
+      "id": "whitespace-2029",
+      "text": "walk\u2029through the parser"
+    },
+    {
+      "description": "U+202F separates words",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "explain"
+      },
+      "id": "whitespace-202F",
+      "text": "walk\u202fthrough the parser"
+    },
+    {
+      "description": "U+205F separates words",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "explain"
+      },
+      "id": "whitespace-205F",
+      "text": "walk\u205fthrough the parser"
+    },
+    {
+      "description": "U+3000 separates words",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "explain"
+      },
+      "id": "whitespace-3000",
+      "text": "walk\u3000through the parser"
+    },
+    {
+      "description": "U+200B doesn't separate words",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "unknown"
+      },
+      "id": "not-whitespace-200B",
+      "text": "walk\u200bthrough the parser"
+    },
+    {
+      "description": "U+180E doesn't separate words",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "unknown"
+      },
+      "id": "not-whitespace-180E",
+      "text": "walk\u180ethrough the parser"
+    },
+    {
+      "description": "U+FEFF doesn't separate words",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "unknown"
+      },
+      "id": "not-whitespace-FEFF",
+      "text": "walk\ufeffthrough the parser"
+    },
+    {
+      "description": "U+2060 doesn't separate words",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "unknown"
+      },
+      "id": "not-whitespace-2060",
+      "text": "walk\u2060through the parser"
+    },
+    {
+      "description": "U+10D50 after a lead cue",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "fix"
+      },
+      "id": "unassigned-after-lead-10D50",
+      "text": "fix\ud803\udd50 the widget"
+    },
+    {
+      "description": "U+10D50 before a symptom",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "fix"
+      },
+      "id": "unassigned-before-cue-10D50",
+      "text": "the widget \ud803\udd50crash"
+    },
+    {
+      "description": "U+16100 after a lead cue",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "fix"
+      },
+      "id": "unassigned-after-lead-16100",
+      "text": "fix\ud818\udd00 the widget"
+    },
+    {
+      "description": "U+16100 before a symptom",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "fix"
+      },
+      "id": "unassigned-before-cue-16100",
+      "text": "the widget \ud818\udd00crash"
+    },
+    {
+      "description": "U+1E5D0 after a lead cue",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "fix"
+      },
+      "id": "unassigned-after-lead-1E5D0",
+      "text": "fix\ud839\uddd0 the widget"
+    },
+    {
+      "description": "U+1E5D0 before a symptom",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "fix"
+      },
+      "id": "unassigned-before-cue-1E5D0",
+      "text": "the widget \ud839\uddd0crash"
+    },
+    {
+      "description": "U+A7CB after a lead cue",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "fix"
+      },
+      "id": "unassigned-after-lead-A7CB",
+      "text": "fix\ua7cb the widget"
+    },
+    {
+      "description": "U+A7CB before a symptom",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "fix"
+      },
+      "id": "unassigned-before-cue-A7CB",
+      "text": "the widget \ua7cbcrash"
+    },
+    {
+      "description": "U+10D40 after a lead cue",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "fix"
+      },
+      "id": "unassigned-after-lead-10D40",
+      "text": "fix\ud803\udd40 the widget"
+    },
+    {
+      "description": "U+10D40 before a symptom",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "fix"
+      },
+      "id": "unassigned-before-cue-10D40",
+      "text": "the widget \ud803\udd40crash"
+    },
+    {
+      "description": "U+1CCF0 after a lead cue",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "fix"
+      },
+      "id": "unassigned-after-lead-1CCF0",
+      "text": "fix\ud833\udcf0 the widget"
+    },
+    {
+      "description": "U+1CCF0 before a symptom",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "fix"
+      },
+      "id": "unassigned-before-cue-1CCF0",
+      "text": "the widget \ud833\udcf0crash"
+    },
+    {
+      "description": "underscore after a lead cue",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "unknown"
+      },
+      "id": "neighbour-after-lead-underscore",
+      "text": "fix_ the widget"
+    },
+    {
+      "description": "underscore before a symptom",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "unknown"
+      },
+      "id": "neighbour-before-cue-underscore",
+      "text": "the widget _crash"
+    },
+    {
+      "description": "digit after a lead cue",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "unknown"
+      },
+      "id": "neighbour-after-lead-digit",
+      "text": "fix2 the widget"
+    },
+    {
+      "description": "digit before a symptom",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "unknown"
+      },
+      "id": "neighbour-before-cue-digit",
+      "text": "the widget 2crash"
+    },
+    {
+      "description": "arabic-indic-digit after a lead cue",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "unknown"
+      },
+      "id": "neighbour-after-lead-arabic-indic-digit",
+      "text": "fix\u0662 the widget"
+    },
+    {
+      "description": "arabic-indic-digit before a symptom",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "unknown"
+      },
+      "id": "neighbour-before-cue-arabic-indic-digit",
+      "text": "the widget \u0662crash"
+    },
+    {
+      "description": "superscript-two after a lead cue",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "unknown"
+      },
+      "id": "neighbour-after-lead-superscript-two",
+      "text": "fix\u00b2 the widget"
+    },
+    {
+      "description": "superscript-two before a symptom",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "unknown"
+      },
+      "id": "neighbour-before-cue-superscript-two",
+      "text": "the widget \u00b2crash"
+    },
+    {
+      "description": "vulgar-half after a lead cue",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "unknown"
+      },
+      "id": "neighbour-after-lead-vulgar-half",
+      "text": "fix\u00bd the widget"
+    },
+    {
+      "description": "vulgar-half before a symptom",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "unknown"
+      },
+      "id": "neighbour-before-cue-vulgar-half",
+      "text": "the widget \u00bdcrash"
+    },
+    {
+      "description": "roman-twelve after a lead cue",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "unknown"
+      },
+      "id": "neighbour-after-lead-roman-twelve",
+      "text": "fix\u216b the widget"
+    },
+    {
+      "description": "roman-twelve before a symptom",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "unknown"
+      },
+      "id": "neighbour-before-cue-roman-twelve",
+      "text": "the widget \u216bcrash"
+    },
+    {
+      "description": "ideographic-zero after a lead cue",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "unknown"
+      },
+      "id": "neighbour-after-lead-ideographic-zero",
+      "text": "fix\u3007 the widget"
+    },
+    {
+      "description": "ideographic-zero before a symptom",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "unknown"
+      },
+      "id": "neighbour-before-cue-ideographic-zero",
+      "text": "the widget \u3007crash"
+    },
+    {
+      "description": "e-acute after a lead cue",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "unknown"
+      },
+      "id": "neighbour-after-lead-e-acute",
+      "text": "fix\u00e9 the widget"
+    },
+    {
+      "description": "e-acute before a symptom",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "unknown"
+      },
+      "id": "neighbour-before-cue-e-acute",
+      "text": "the widget \u00e9crash"
+    },
+    {
+      "description": "combining-acute after a lead cue",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "fix"
+      },
+      "id": "neighbour-after-lead-combining-acute",
+      "text": "fix\u0301 the widget"
+    },
+    {
+      "description": "combining-acute before a symptom",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "fix"
+      },
+      "id": "neighbour-before-cue-combining-acute",
+      "text": "the widget \u0301crash"
+    },
+    {
+      "description": "bold-a after a lead cue",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "unknown"
+      },
+      "id": "neighbour-after-lead-bold-a",
+      "text": "fix\ud835\udc00 the widget"
+    },
+    {
+      "description": "bold-a before a symptom",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "unknown"
+      },
+      "id": "neighbour-before-cue-bold-a",
+      "text": "the widget \ud835\udc00crash"
+    },
+    {
+      "description": "emoji after a lead cue",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "fix"
+      },
+      "id": "neighbour-after-lead-emoji",
+      "text": "fix\ud83d\ude42 the widget"
+    },
+    {
+      "description": "emoji before a symptom",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "fix"
+      },
+      "id": "neighbour-before-cue-emoji",
+      "text": "the widget \ud83d\ude42crash"
+    },
+    {
+      "description": "The fi ligature folds to fi",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "fix"
+      },
+      "id": "casefold-ligature",
+      "text": "\ufb01x the widget"
+    },
+    {
+      "description": "Long s folds to s",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "explain"
+      },
+      "id": "casefold-long-s",
+      "text": "\u017fummarize the widget"
+    },
+    {
+      "description": "Sharp s folds to ss",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "plan"
+      },
+      "id": "casefold-sharp-s",
+      "text": "po\u00dfible approaches"
+    },
+    {
+      "description": "Dotted capital I folds to i and a combining dot",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "unknown"
+      },
+      "id": "casefold-dotted-i",
+      "text": "\u0130mprove the widget"
+    },
+    {
+      "description": "Fullwidth letters don't fold to ASCII",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "unknown"
+      },
+      "id": "casefold-fullwidth",
+      "text": "\uff26\uff29\uff38 the widget"
+    },
+    {
+      "description": "The Kelvin sign folds to k",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "fix"
+      },
+      "id": "casefold-kelvin",
+      "text": "\u212aindly fix the widget"
+    },
+    {
+      "description": "Final sigma folds like sigma",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "unknown"
+      },
+      "id": "casefold-greek-sigma",
+      "text": "\u03a3\u03c2 fix"
+    },
+    {
+      "description": "An emoji after the request",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "fix"
+      },
+      "id": "astral-after-text",
+      "text": "fix the widget \ud83d\ude42"
+    },
+    {
+      "description": "An emoji before a lead cue",
+      "expect": {
+        "scope": "unknown",
+        "task_type": "unknown"
+      },
+      "id": "astral-before-lead",
+      "text": "\ud83d\ude42 fix the widget"
+    }
+  ],
+  "description": "infer_labels(text): the heuristic labels for the text of the latest authored user turn. task_complexity is always unknown, so only task_type and scope are recorded",
+  "kind": "labels"
+}

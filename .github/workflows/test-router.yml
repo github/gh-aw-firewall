@@ -61,6 +61,9 @@ jobs:
       - name: Type-check
         run: uv run --locked ty check
 
+      - name: Check the parity corpus
+        run: uv run --locked python tests/parity_corpus.py --check
+
       - name: Run tests
         run: uv run --locked python -m pytest
 

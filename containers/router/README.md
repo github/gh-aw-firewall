@@ -329,6 +329,23 @@ A local image ID or Docker archive checksum is not that registry manifest digest
 supported immutable images and matching contract archives. Deliver security fixes through
 new AWF releases and tested client pin changes, not replacement bytes under old pins.
 
+## Parity corpus
+
+[The parity corpus](tests/fixtures/parity) records what this Python implementation returns from
+the functions whose behavior comes from Python itself: heuristic labels, request decoding
+(including the parser's depth and digit limits), context estimates and classifier prompts, plus
+the Unicode properties they rely on. The Go port
+([#10261](https://github.com/github/gh-aw-firewall/issues/10261)) replays these fixtures as unit
+tests. Unlike the portable corpus above, it is generated from the current implementation by
+`tests/parity_corpus.py`, and it isn't part of the contract archive.
+
+`python -m pytest` replays the corpus, and CI fails when it is stale. After an intended behavior
+change, regenerate it and review the diff:
+
+```bash
+uv run --locked python tests/parity_corpus.py --write
+```
+
 ## Development
 
 Follow the repository's
@@ -345,6 +362,7 @@ uv sync --locked --dev
 uv run ruff format --check .
 uv run ruff check .
 uv run ty check
+uv run python tests/parity_corpus.py --check
 uv run python -m pytest
 ```
 

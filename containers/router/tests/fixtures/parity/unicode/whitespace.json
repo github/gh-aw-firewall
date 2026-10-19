@@ -1,0 +1,17 @@
+{
+  "definition": "Code points where str.isspace() is true. str.split(), str.strip() and the regular expression \\s use this set.",
+  "python_version": "3.12",
+  "ranges": [
+    "0009-000D",
+    "001C-0020",
+    "0085-0085",
+    "00A0-00A0",
+    "1680-1680",
+    "2000-200A",
+    "2028-2029",
+    "202F-202F",
+    "205F-205F",
+    "3000-3000"
+  ],
+  "unicode_version": "15.0.0"
+}
