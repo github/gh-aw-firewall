@@ -473,6 +473,61 @@ describe('VirtiofsdManager', () => {
     );
   });
 
+    it('waits for the discovered worker to finish dropping capabilities before exposing its socket', async () => {
+      const deps = dependencies();
+      const readFile = deps.readFile;
+      let statusReads = 0;
+      deps.readFile = jest.fn(async (filePath: string, encoding: BufferEncoding) => {
+        const contents = await readFile(filePath, encoding);
+        if (filePath === '/proc/1100/status' && ++statusReads === 1) {
+          return contents.replace(/Cap(?:Prm|Eff|Bnd):\t[0-9a-f]+/g,
+            match => `${match.split(':')[0]}:\t000001ffffffffff`);
+        }
+        return contents;
+      });
+      deps.chown = jest.fn(async () => { expect(statusReads).toBeGreaterThanOrEqual(2); });
+      await manager(deps).start([workspace]);
+      expect(deps.sleep).toHaveBeenCalledWith(50);
+      expect(deps.chown).toHaveBeenCalledTimes(1);
+      const writes = jest.mocked(deps.writeFile).mock.calls;
+      const evidence = writes.find(([name]) => name.endsWith('-confinement.json'));
+      expect(JSON.parse(evidence![1].toString())).toMatchObject({
+        verified: true, worker: { capabilities: { CapBnd: '0000000000000000' } },
+      });
+    });
+
+    it('rejects a worker whose identity changes while its sandbox policy is becoming ready', async () => {
+      const deps = dependencies();
+      const readFile = deps.readFile;
+      let waiting = false;
+      deps.readFile = jest.fn(async (filePath: string, encoding: BufferEncoding) => {
+        const contents = await readFile(filePath, encoding);
+        if (filePath === '/proc/1100/status') {
+          return contents.replace('CapEff:\t00000000880000db', 'CapEff:\t000001ffffffffff');
+        }
+        if (waiting && filePath === '/proc/1100/stat') return contents.replace('11000', '11001');
+        return contents;
+      });
+      deps.sleep = jest.fn(async () => { waiting = true; });
+      await expect(manager(deps).start([workspace])).rejects.toThrow(/worker process identity changed/);
+      expect(deps.chown).not.toHaveBeenCalled();
+    });
+
+    it('bounds sandbox readiness polling and rejects a worker that never drops capabilities', async () => {
+      const deps = dependencies();
+      const readFile = deps.readFile;
+      deps.readFile = jest.fn(async (filePath: string, encoding: BufferEncoding) => {
+        const contents = await readFile(filePath, encoding);
+        return filePath === '/proc/1100/status'
+          ? contents.replace(/Cap(?:Prm|Eff|Bnd):\t[0-9a-f]+/g,
+            match => `${match.split(':')[0]}:\t000001ffffffffff`)
+          : contents;
+      });
+      await expect(manager(deps).start([workspace])).rejects.toThrow(/worker capabilities differ/);
+      expect(deps.sleep).toHaveBeenCalledTimes(100);
+      expect(deps.chown).not.toHaveBeenCalled();
+    });
+
   it('rejects malformed and unsafe process identities', async () => {
     const deps = dependencies();
     await expect(captureVirtiofsdProcessIdentity(1, deps)).rejects.toThrow(/invalid PID/);

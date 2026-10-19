@@ -900,6 +900,11 @@ The primary proxy's logs are separate
 and do not explain an enclave proxy rejection. See
 [the diagnostic retention contract](cloud-hypervisor-foundation.md#redacted-enclave-proxy-usage-evidence).
 
+Virtiofsd worker discovery is not sandbox readiness: host verification waits a
+bounded five seconds for the reviewed capability sets, empty bounding set,
+NoNewPrivs, and seccomp policy, rechecking process identity while waiting.
+An unsettled or changed worker still fails closed before its socket reaches
+the VM; namespace, root, environment, and cgroup checks remain mandatory.
 ## Coverage after legacy smoke removal
 
 The experimental Cloud Hypervisor Copilot enclave smoke is distinct from
