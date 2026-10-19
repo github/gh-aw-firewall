@@ -935,9 +935,10 @@ target contract):
   unknown-model fallback (only for the `unknown` sentinel). Compare selected
   tier, tariff, source, and accounting/reflection fields, not only a model ID.
 - Known gaps: #10029 is not fully landed: six proposed models are absent from
-  the host allowlist and six from curated pricing; `gpt-6.1-sol` already has a
-  curated entry, while four entries still appear in the stale
-  `SUPPORTED_WITHOUT_CURATED_PRICING` exception set. #10030 is not landed:
+  the host allowlist and four from curated pricing (`gemini-3.8-flash` and
+  `grok-4.5`/`4.6`/`4.7`). `claude-opus-5.5`, `claude-sonnet-5.5`, and
+  `gpt-6.1-sol` already have curated entries. Four entries still appear in the
+  stale `SUPPORTED_WITHOUT_CURATED_PRICING` exception set. #10030 is not landed:
   `gpt-5.4-mini`, `gpt-5.5`, `gpt-5.6` (including Sol, Terra, and Luna),
   `gpt-6-astra`, `gpt-6-sol`, `gpt-6-luna`, and `gpt-6.1-sol` lack mapping
   routing metadata, as does the `claude-haiku-5` family. The mapping currently

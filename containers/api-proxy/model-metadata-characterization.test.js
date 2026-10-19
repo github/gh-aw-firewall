@@ -133,8 +133,6 @@ describe('model identity is intentionally different between consumers', () => {
   });
 
   it.each([
-    ['claude-opus-5-5', true],
-    ['claude-sonnet-5-5', true],
     ['gemini-3.8-flash', true],
     ['grok-4.5', true],
     ['grok-4.6', true],
@@ -143,6 +141,14 @@ describe('model identity is intentionally different between consumers', () => {
   ])('#10029: %s currently lacks a curated tariff', (model, absent) => {
     const curated = require('./ai-credits-pricing');
     expect(Object.hasOwn(curated, model)).toBe(!absent);
+  });
+
+  it.each([
+    'claude-opus-5-5',
+    'claude-sonnet-5-5',
+  ])('#10029: %s currently has a curated tariff', model => {
+    const curated = require('./ai-credits-pricing');
+    expect(Object.hasOwn(curated, model)).toBe(true);
   });
 
   it.each([

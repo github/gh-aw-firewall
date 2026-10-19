@@ -160,9 +160,17 @@ describe('SUPPORTED_COPILOT_MODELS ↔ ai-credits-pricing catalog sync', () => {
       'grok-4.6',
       'grok-4.7',
     ]);
-    expect(proposed.filter(model => !normalizedPricing.has(normalizeSeparators(model)))).toEqual(
-      proposed.filter(model => model !== 'gpt-6.1-sol'),
-    );
+    expect(proposed.filter(model => normalizedPricing.has(normalizeSeparators(model)))).toEqual([
+      'claude-opus-5.5',
+      'claude-sonnet-5.5',
+      'gpt-6.1-sol',
+    ]);
+    expect(proposed.filter(model => !normalizedPricing.has(normalizeSeparators(model)))).toEqual([
+      'gemini-3.8-flash',
+      'grok-4.5',
+      'grok-4.6',
+      'grok-4.7',
+    ]);
     // These entries are already priced despite still appearing in the fallback exception list.
     expect([...SUPPORTED_WITHOUT_CURATED_PRICING].filter(model => normalizedPricing.has(model))).toEqual([
       'gpt-6-1-sol',
