@@ -36,6 +36,11 @@ export interface NestedMountpointRequirement {
   credentialOverlay: boolean;
 }
 
+export interface NestedMountpointOptions {
+  directoryVolumeSources?: string[];
+  rootOwnedTargets?: string[];
+}
+
 function statKind(candidate: string): 'directory' | 'file' | 'missing' | 'unknown' {
   try {
     const stats = fs.statSync(candidate);
@@ -51,7 +56,9 @@ function statKind(candidate: string): 'directory' | 'file' | 'missing' | 'unknow
 function resolveSourceKind(
   source: string,
   localSource: string | undefined,
+  directoryVolumeSources: string[],
 ): 'directory' | 'file' | 'unknown' {
+  if (directoryVolumeSources.includes(source)) return 'directory';
   // Staged files sit under the daemon prefix, so `localSource` is deliberately
   // undefined for them. The staging record is the only surviving evidence of
   // their type.
@@ -90,6 +97,7 @@ function resolveSourceKind(
 export function planNestedMountpoints(
   volumes: string[],
   localSourceResolver: LocalSourceResolver = identityLocalSourceResolver,
+  options: NestedMountpointOptions = {},
 ): NestedMountpointRequirement[] {
   const mounts = volumes
     .map(parseMount)
@@ -119,7 +127,11 @@ export function planNestedMountpoints(
       hostPath: localCoverSource === undefined ? undefined : `${localCoverSource}${suffix}`,
       kind: credentialOverlay
         ? 'file'
-        : resolveSourceKind(mount.source, localSourceResolver(mount.source)),
+        : resolveSourceKind(
+            mount.source,
+            localSourceResolver(mount.source),
+            options.directoryVolumeSources ?? [],
+          ),
       credentialOverlay,
     });
   }
@@ -221,9 +233,10 @@ export function ensureNestedMountpoints(
   uid: number,
   gid: number,
   localSourceResolver: LocalSourceResolver = identityLocalSourceResolver,
+  options: NestedMountpointOptions = {},
 ): string[] {
   const created: string[] = [];
-  const requirements = planNestedMountpoints(volumes, localSourceResolver);
+  const requirements = planNestedMountpoints(volumes, localSourceResolver, options);
   const unmet: string[] = [];
 
   for (const requirement of requirements) {
@@ -241,6 +254,9 @@ export function ensureNestedMountpoints(
     // The cover resolved, so `planNestedMountpoints` always produced a hostPath.
     if (hostPath === undefined) continue;
     if (fs.existsSync(hostPath)) {
+      if (options.rootOwnedTargets?.includes(requirement.containerTarget)) {
+        assertRootOwnedSecureAncestors(hostPath, localCoverSource);
+      }
       // An existing directory mountpoint is the overwhelmingly common case and
       // is left exactly as it was found. A *file* mountpoint is different: the
       // daemon rejects the bind outright if the entry is the wrong type, so the
@@ -270,7 +286,9 @@ export function ensureNestedMountpoints(
       createMissingOwnedDirectorySegments(path.dirname(hostPath), uid, gid);
       createOwnedPlaceholderFile(hostPath, uid, gid);
     } else {
-      createMissingOwnedDirectorySegments(hostPath, uid, gid);
+      const rootOwned = options.rootOwnedTargets?.includes(requirement.containerTarget) ?? false;
+      createMissingOwnedDirectorySegments(hostPath, rootOwned ? 0 : uid, rootOwned ? 0 : gid);
+      if (rootOwned) assertRootOwnedSecureAncestors(hostPath, localCoverSource);
     }
 
     created.push(hostPath);
@@ -292,4 +310,27 @@ export function ensureNestedMountpoints(
   }
 
   return created;
+}
+
+function assertRootOwnedSecureAncestors(targetPath: string, coveringPath: string): void {
+  let current = targetPath;
+  while (true) {
+    const entry = fs.lstatSync(current);
+    const stats = fs.statSync(current);
+    if (
+      entry.isSymbolicLink() ||
+      !stats.isDirectory() ||
+      stats.uid !== 0 ||
+      stats.gid !== 0 ||
+      (stats.mode & 0o022) !== 0
+    ) {
+      throw new Error(`Gemini settings mountpoint ancestor is not root-owned and secure: ${current}`);
+    }
+    if (path.resolve(current) === path.resolve(coveringPath)) break;
+    const parent = path.dirname(current);
+    if (parent === current) {
+      throw new Error(`Could not reach the read-only covering mount for ${targetPath}`);
+    }
+    current = parent;
+  }
 }

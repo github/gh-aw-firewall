@@ -15,6 +15,7 @@ import { buildSystemMounts } from './system-mounts';
 import { buildCustomVolumeMounts, buildWorkspaceMounts } from './workspace-mounts';
 import { applyFilesystemWritePolicy, resolveComposeFilesystemAllowWrite } from './filesystem-write-policy';
 import type { LocalSourceResolver } from './mount-topology';
+import type { NestedMountpointOptions } from './nested-mountpoints';
 
 interface AgentVolumesParams {
   config: WrapperConfig;
@@ -32,7 +33,10 @@ interface AgentVolumesParams {
     uid: number,
     gid: number,
     localSourceResolver: LocalSourceResolver,
+    options?: NestedMountpointOptions,
   ) => string[];
+  additionalMounts?: string[];
+  nestedMountpointOptions?: NestedMountpointOptions;
 }
 
 export function buildAgentVolumes(params: AgentVolumesParams): string[] {
@@ -49,6 +53,7 @@ export function buildAgentVolumes(params: AgentVolumesParams): string[] {
   } = params;
 
   const agentVolumes: string[] = [];
+  agentVolumes.push(...(params.additionalMounts ?? []));
   agentVolumes.push(...buildWorkspaceMounts({
     config,
     projectRoot,
@@ -118,6 +123,7 @@ export function buildAgentVolumes(params: AgentVolumesParams): string[] {
     parseInt(getSafeHostUid(), 10),
     parseInt(getSafeHostGid(), 10),
     localSourceResolver,
+    params.nestedMountpointOptions,
   );
 
   if (config.dockerHostPathPrefix) {

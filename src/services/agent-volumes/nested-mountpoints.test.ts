@@ -172,6 +172,32 @@ describe('nested mountpoint preparation', () => {
       ]);
     });
 
+    it('treats the Gemini named volume as a directory under a read-only /etc bind', () => {
+      const etc = path.join(tmpRoot, 'etc');
+      fs.mkdirSync(etc);
+      const volumes = [
+        `${etc}:/host/etc:ro`,
+        'gemini-system-settings:/host/etc/awf/gemini-cli:ro',
+      ];
+
+      expect(planNestedMountpoints(
+        volumes,
+        (source) => source === etc ? etc : undefined,
+        {
+          directoryVolumeSources: ['gemini-system-settings'],
+          rootOwnedTargets: ['/host/etc/awf/gemini-cli'],
+        },
+      )).toEqual([
+        expect.objectContaining({
+          containerTarget: '/host/etc/awf/gemini-cli',
+          coveringTarget: '/host/etc',
+          coveringSource: etc,
+          hostPath: path.join(etc, 'awf/gemini-cli'),
+          kind: 'directory',
+        }),
+      ]);
+    });
+
     it('cannot classify a source that this filesystem cannot see at all', () => {
       const volumes = [
         '/empty-home:/host/home/runner:ro',

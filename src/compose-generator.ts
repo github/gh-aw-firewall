@@ -24,6 +24,15 @@ import {
 import { buildInternalServiceHosts } from './services/internal-service-hosts';
 import { filterComposeCapDrop } from './capability-filter';
 import { ROUTING_NETWORK_NAME } from './services/router-service';
+import {
+  GEMINI_SETTINGS_MOUNT,
+  GEMINI_SETTINGS_VOLUME,
+} from './services/gemini-settings-service';
+import {
+  isGeminiProxyRoutingEnabled,
+  shouldPinGeminiAuthType,
+  GEMINI_CLI_SYSTEM_SETTINGS_DIRECTORY,
+} from './services/credentials/gemini-cli-settings';
 
 /**
  * Generates Docker Compose configuration
@@ -114,6 +123,7 @@ export function generateDockerCompose(
 
   const effectiveHome = options.effectiveHome ?? getRealUserHome();
   const workspaceDir = process.env.GITHUB_WORKSPACE || process.cwd();
+  const stageGeminiSettings = isGeminiProxyRoutingEnabled(config) && shouldPinGeminiAuthType(config);
 
   const agentVolumes = buildAgentVolumes({
     config,
@@ -133,6 +143,11 @@ export function generateDockerCompose(
     initSignalDir,
     pathExists: options.pathExists,
     prepareNestedMountpoints: options.prepareNestedMountpoints,
+    additionalMounts: stageGeminiSettings ? [GEMINI_SETTINGS_MOUNT] : [],
+    nestedMountpointOptions: stageGeminiSettings ? {
+      directoryVolumeSources: [GEMINI_SETTINGS_VOLUME],
+      rootOwnedTargets: [`/host${GEMINI_CLI_SYSTEM_SETTINGS_DIRECTORY}`],
+    } : undefined,
   });
 
   const agentService = buildAgentService({

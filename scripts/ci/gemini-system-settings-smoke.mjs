@@ -229,7 +229,7 @@ try {
     assert.match(rejected.stderr, /Refusing unsafe Gemini system settings file/);
     compose(['run', '--rm', '--no-deps', '--pull', 'never', '--entrypoint', '/bin/sh',
       GEMINI_SETTINGS_SERVICE, '-c',
-      'if [ -f /settings/sentinel ]; then test "$(cat /settings/sentinel)" = unchanged; fi; ' +
+    'set -eu; if [ -f /settings/sentinel ]; then test "$(cat /settings/sentinel)" = unchanged; fi; ' +
       'if [ -d /settings/settings.json ]; then rmdir /settings/settings.json; else rm -f /settings/settings.json; fi']);
   }
   console.log('Initializer: idempotence and symlink/hardlink/FIFO/directory rejection passed');

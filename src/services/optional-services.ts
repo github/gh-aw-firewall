@@ -17,7 +17,6 @@ import { NetworkConfig, ImageBuildConfig } from './squid-service';
 import { isGeminiProxyRoutingEnabled, shouldPinGeminiAuthType } from './credentials/gemini-cli-settings';
 import {
   buildGeminiSettingsService,
-  GEMINI_SETTINGS_MOUNT,
   GEMINI_SETTINGS_SERVICE,
   GEMINI_SETTINGS_VOLUME,
 } from './gemini-settings-service';
@@ -440,9 +439,6 @@ export function assembleOptionalServices(
     params.agentService.depends_on[GEMINI_SETTINGS_SERVICE] = {
       condition: 'service_completed_successfully',
     };
-    // Add after sysroot filtering and path-prefix translation: this is a
-    // daemon-owned named volume, not a runner-side bind mount.
-    agentVolumes.push(GEMINI_SETTINGS_MOUNT);
     namedVolumes = { ...namedVolumes, [GEMINI_SETTINGS_VOLUME]: {} };
   }
   return { namedVolumes };

@@ -12,6 +12,9 @@ import {
 } from './gemini-settings-service';
 import { buildGeminiSystemSettingsContent, getGeminiSystemSettingsPath } from './credentials/gemini-cli-settings';
 
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+jest.mock('execa', () => require('../test-helpers/mock-execa.test-utils').execaMockFactory());
+
 jest.mock('../logger', () => ({
   logger: { debug: jest.fn(), info: jest.fn(), warn: jest.fn(), error: jest.fn() },
 }));
@@ -27,7 +30,12 @@ describe('Gemini system settings contract', () => {
     fs.rmSync(workDir, { recursive: true, force: true });
   });
 
-  function compose(overrides: Partial<WrapperConfig> = {}) {
+  function compose(
+    overrides: Partial<WrapperConfig> = {},
+    prepareNestedMountpoints: NonNullable<
+      NonNullable<Parameters<typeof generateDockerCompose>[4]>['prepareNestedMountpoints']
+    > = () => [],
+  ) {
     return generateDockerCompose({
       ...baseConfig,
       workDir,
@@ -37,7 +45,7 @@ describe('Gemini system settings contract', () => {
     }, { ...mockNetworkConfig, proxyIp: '172.30.0.30' }, undefined, undefined, {
       effectiveHome: '/home/runner',
       pathExists: () => false,
-      prepareNestedMountpoints: () => [],
+      prepareNestedMountpoints,
     });
   }
 
@@ -84,6 +92,23 @@ describe('Gemini system settings contract', () => {
 
   it('leaves the ordinary chroot home writable', () => {
     expect(compose().services.agent.volumes).toContain(`${workDir}-chroot-home:/host/home/runner:rw`);
+  });
+
+  it('plans the named settings mount beneath a read-only /etc bind', () => {
+    const prepareNestedMountpoints = jest.fn(() => []);
+    const result = compose({ volumeMounts: ['/etc:/etc:ro'] }, prepareNestedMountpoints);
+
+    expect(result.services.agent.volumes).toContain(GEMINI_SETTINGS_MOUNT);
+    expect(prepareNestedMountpoints).toHaveBeenCalledWith(
+      expect.arrayContaining(['/etc:/host/etc:ro', GEMINI_SETTINGS_MOUNT]),
+      expect.any(Number),
+      expect.any(Number),
+      expect.any(Function),
+      {
+        directoryVolumeSources: [GEMINI_SETTINGS_VOLUME],
+        rootOwnedTargets: ['/host/etc/awf/gemini-cli'],
+      },
+    );
   });
 
   it('uses the local agent build when requested instead of pulling another image', () => {
