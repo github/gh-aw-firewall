@@ -33,18 +33,29 @@ describe('Cloud Hypervisor enclave rootfs artifacts', () => {
   it('keeps guest enforcement and shared build metadata aligned with trusted host policy', () => {
     const guest = fs.readFileSync(path.join(root, 'guest/microvm-supervisor/resources_linux.go'), 'utf8');
     const build = fs.readFileSync(buildPath, 'utf8');
+    const setup = fs.readFileSync(setupPath, 'utf8');
+    const verify = fs.readFileSync(verifyPath, 'utf8');
     const sharedManifest = build.slice(build.indexOf('"schemaVersion": 2,'));
     expect(sharedManifest).not.toBe(build);
     expect(sharedManifest).toContain('"file": "enclave-rootfs.ext4"');
+    const scriptProfile = CLOUD_HYPERVISOR_ENCLAVE_RESOURCE_PROFILES.script;
+    const entrypoints = CLOUD_HYPERVISOR_ENCLAVE_ENTRYPOINTS;
+    const sharedUid = scriptProfile.uid;
+    const sharedGid = scriptProfile.gid;
+    expect(CLOUD_HYPERVISOR_ENCLAVE_RESOURCE_PROFILES.agent.uid).toBe(sharedUid);
+    expect(CLOUD_HYPERVISOR_ENCLAVE_RESOURCE_PROFILES.agent.gid).toBe(sharedGid);
+
     for (const role of ['script', 'agent'] as const) {
       const profile = CLOUD_HYPERVISOR_ENCLAVE_RESOURCE_PROFILES[role];
       const match = guest.match(new RegExp(`case "${role}":\\s*return enclaveResourceProfile\\{([^}]+)\\}, nil`));
       expect(match).not.toBeNull();
       const fields = match![1];
       const guestValue = (name: string) => {
-        const value = fields.match(new RegExp(`\\b${name}:\\s*(\\d+)(\\s*\\*\\s*1024\\s*\\*\\s*1024)?`));
+        const value = fields.match(new RegExp(
+          `\\b${name}:\\s*(\\d+(?:\\s*\\*\\s*1024\\s*\\*\\s*1024)?),`,
+        ));
         expect(value).not.toBeNull();
-        return Number(value![1]) * (value![2] ? 1024 * 1024 : 1);
+        return Number(value![1].split('*')[0].trim()) * (value![1].includes('*') ? 1024 * 1024 : 1);
       };
       expect(guestValue('uid')).toBe(profile.uid);
       expect(guestValue('gid')).toBe(profile.gid);
@@ -53,11 +64,39 @@ describe('Cloud Hypervisor enclave rootfs artifacts', () => {
       expect(guestValue('maxOpenFiles')).toBe(profile.maxOpenFiles);
       expect(guestValue('primaryTmpfsMax')).toBe(profile.tmpfsBytes);
       expect(fields).toMatch(new RegExp(`primaryTmpfs:\\s*"${role === 'script' ? '/query' : '/tmp'}"`));
-      expect(sharedManifest).toContain(`"${role}": "${CLOUD_HYPERVISOR_ENCLAVE_ENTRYPOINTS[role]}"`);
-      expect(build).toContain(`test -x "$tree${CLOUD_HYPERVISOR_ENCLAVE_ENTRYPOINTS[role]}"`);
+      expect(sharedManifest).toContain(`"${role}": "${entrypoints[role]}"`);
+      expect(build).toContain(`test -x "$tree${entrypoints[role]}"`);
     }
-    expect(sharedManifest).toContain(`"uid": ${CLOUD_HYPERVISOR_ENCLAVE_RESOURCE_PROFILES.script.uid}`);
-    expect(sharedManifest).toContain(`"gid": ${CLOUD_HYPERVISOR_ENCLAVE_RESOURCE_PROFILES.script.gid}`);
+    expect(sharedManifest).toContain(`"uid": ${sharedUid},`);
+    expect(sharedManifest).toContain(`"gid": ${sharedGid},`);
+    expect(build).toContain(
+      `{"schemaVersion":1,"role":"shared","uid":${sharedUid},"gid":${sharedGid},` +
+      `"entrypoints":[${JSON.stringify(entrypoints.script)},${JSON.stringify(entrypoints.agent)}]}`,
+    );
+
+    expect(setup).toContain(`and .rootfs.uid == ${sharedUid} and .rootfs.gid == ${sharedGid}`);
+    for (const role of ['script', 'agent'] as const) {
+      const profile = CLOUD_HYPERVISOR_ENCLAVE_RESOURCE_PROFILES[role];
+      expect(setup).toContain(`and .entrypoints.${role} == "${entrypoints[role]}"`);
+      expect(setup).toContain(
+        `[ "$(jq -r "\${selector}.uid" "$manifest")" = ${profile.uid} ]`,
+      );
+      expect(setup).toContain(
+        `&& [ "$(jq -r "\${selector}.gid" "$manifest")" = ${profile.gid} ]`,
+      );
+      expect(setup).toContain(`"/usr/local/bin/run-enclave-\${role}" ]`);
+      expect(verify).toContain(`verify_enclave_rootfs ${role} ${entrypoints[role]}`);
+    }
+    expect(verify).toContain(
+      `test "$(jq -r "\${manifest}.uid" "$ARTIFACT_DIR/enclave-manifest.json")" = ${sharedUid}`,
+    );
+    expect(verify).toContain(
+      `test "$(jq -r "\${manifest}.gid" "$ARTIFACT_DIR/enclave-manifest.json")" = ${sharedGid}`,
+    );
+    expect(verify).toContain(`.uid')" = ${sharedUid}`);
+    expect(verify).toContain(`.gid')" = ${sharedGid}`);
+    expect(verify).toContain("'.role')\" = shared");
+    expect(verify).toContain("'.entrypoints | index($entrypoint) != null'");
   });
 
   it('updates and commits the guest compatibility pin with each release version', () => {

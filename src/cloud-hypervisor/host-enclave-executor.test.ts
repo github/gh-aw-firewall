@@ -165,12 +165,12 @@ describe('readBoundedCloudHypervisorEnclaveResult', () => {
 
   describe('CloudHypervisorHostEnclaveExecutorBackend', () => {
     it.each([
-      { role: 'script', timeoutMs: 60_000, startupDelayMs: 0, expectedOutcome: 'success', publicDebug: false },
-      { role: 'agent', timeoutMs: 60_000, startupDelayMs: 0, expectedOutcome: 'success', publicDebug: false },
-      { role: 'script', timeoutMs: 1_000, startupDelayMs: 1_500, expectedOutcome: 'success', publicDebug: false },
-      { role: 'script', timeoutMs: 1_000, startupDelayMs: 2_500, expectedOutcome: 'timeout', publicDebug: false },
-      { role: 'script', timeoutMs: 60_000, startupDelayMs: 0, expectedOutcome: 'success', publicDebug: true },
-      { role: 'agent', timeoutMs: 60_000, startupDelayMs: 0, expectedOutcome: 'success', publicDebug: true },
+      { role: 'script', timeoutMs: 60_000, startupDelayMs: 0, expectedOutcome: 'success', publicDebug: false, shared: false },
+      { role: 'agent', timeoutMs: 60_000, startupDelayMs: 0, expectedOutcome: 'success', publicDebug: false, shared: false },
+      { role: 'script', timeoutMs: 1_000, startupDelayMs: 1_500, expectedOutcome: 'success', publicDebug: false, shared: false },
+      { role: 'script', timeoutMs: 1_000, startupDelayMs: 2_500, expectedOutcome: 'timeout', publicDebug: false, shared: false },
+      { role: 'script', timeoutMs: 60_000, startupDelayMs: 0, expectedOutcome: 'success', publicDebug: true, shared: false },
+      { role: 'agent', timeoutMs: 60_000, startupDelayMs: 0, expectedOutcome: 'success', publicDebug: true, shared: false },
       { role: 'script', timeoutMs: 60_000, startupDelayMs: 0, expectedOutcome: 'success', publicDebug: false, shared: true },
       { role: 'agent', timeoutMs: 60_000, startupDelayMs: 0, expectedOutcome: 'success', publicDebug: false, shared: true },
     ] as const)('stages a static $role invocation and enforces its $expectedOutcome deadline', async ({
