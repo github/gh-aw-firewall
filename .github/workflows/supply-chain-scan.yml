@@ -96,7 +96,7 @@ jobs:
             --include=pkg/workflow/enclaves_runtime.go \
             --include=pkg/workflow/enclaves_agent_acceptance_test.go \
             "${RUNNER_TEMP}/gh-aw-agent-acceptance.patch"
-          # Align the exact v0.28.66 release and 32768-token fixture budget.
+          # Align the exact v0.28.66 release and bounded 131072-token acceptance exception.
           # Do not broaden the topology, other limits, or accepted version range.
           git -C .tmp/gh-aw-compiler apply \
             "${GITHUB_WORKSPACE}/scripts/ci/compiler-agent-acceptance-v0.28.66.patch"

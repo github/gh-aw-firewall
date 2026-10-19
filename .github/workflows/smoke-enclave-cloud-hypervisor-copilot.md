@@ -30,7 +30,7 @@ enclaves:
       model: claude-sonnet-5
       max-task-bytes: 4096
       max-model-requests: 8
-      max-model-tokens: 32768
+      max-model-tokens: 131072
     runtime: cloud-hypervisor
     repos:
       - repo: github/gh-aw-firewall
@@ -196,11 +196,13 @@ API proxy; no GitHub MCP access, direct model credentials, primary workspace,
 or safe-output tools are granted to it. The finite result schema, one-invocation
 limit, task/output sizes and execution timeout are enforced independently of the
 model settings. The source-built host enforces the eight-request and
-32,768-token invocation budgets at the dedicated API proxy. Its conservative
+131,072-token invocation budgets at the dedicated API proxy. Its conservative
 input reservation counts serialized request bytes, including Copilot's built-in
-system prompt and tool definitions; the previous 2,048-token fixture rejected
-requests before upstream dispatch. The larger, still finite fixture budget
-accommodates that overhead without changing production accounting or defaults.
+system prompt and tool definitions. Live diagnostics confirmed that even the
+32,768-token fixture rejected input reservation before upstream dispatch.
+The larger, still finite fixture allowance leaves more room for that overhead
+without changing production accounting or defaults; live acceptance must still
+prove it sufficient.
 The proxy clamps output allowance, accounts cumulative provider usage, and
 fails closed on missing usage. The pinned guest does not itself enforce these
 budgets; request/output limits and proxy credential isolation remain mandatory.
@@ -225,12 +227,14 @@ Compilation uses official `github/gh-aw@v0.92.3` with only the companion
 acceptance guard and tests backported from
 `github/gh-aw@2b19ccffd0694750e8e2bdcb20bf882e9bb440f2`, followed by
 `scripts/ci/compiler-agent-acceptance-v0.28.66.patch` to align the exact release
-and token budget. The generated development-compiler metadata identifies this
+and token budget. Its schema exception requires the explicit acceptance feature
+and a Cloud Hypervisor primary; ordinary workflows retain the 32,768 ceiling.
+The generated development-compiler metadata identifies this
 patched build; action/runtime pins remain on the reviewed releases.
 The installed official v0.92.5 likewise rejects agent enclaves with this primary.
 Regeneration runs the mandatory smoke postprocessor.
 The supply-chain compiler's checksum-verified acceptance backport is separately
-aligned to the exact v0.28.66 fixture and its 32,768-token budget. The AWF and
+aligned to the exact v0.28.66 fixture and its 131,072-token budget. The AWF and
 compiler gates still reject every other token value, topology, or release.
 Under a separate explicit user authorization, the branch-built AWF
 host acceptance gate now selects only v0.28.66 for this exact agent fixture;

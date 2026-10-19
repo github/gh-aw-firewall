@@ -220,7 +220,10 @@ print(json.dumps({'live': sorted(live), 'archives': sorted(archives), 'cache': s
     expect(build.indexOf(localPatch)).toBeLessThan(build.indexOf('go test'));
     const patch = fs.readFileSync(path.join(root, 'scripts/ci/compiler-agent-acceptance-v0.28.66.patch'), 'utf8');
     expect(patch).toContain('firewall.Version != "v0.28.66"');
-    expect(patch).toContain('MaxModelTokens != 32768');
+    expect(patch).toContain('MaxModelTokens != 131072');
+    expect(patch).toContain('pkg/parser/schemas/main_workflow_schema.json');
+    expect(patch).toContain('TestValidateCloudHypervisorAgentAcceptanceSchemaBudget');
+    expect(patch).toContain('{"previous schema ceiling"');
     expect(patch).toContain('{"old token budget"');
     expect(patch).toContain('{"smaller token budget"');
     expect(patch).toContain('{"previous acceptance version"');

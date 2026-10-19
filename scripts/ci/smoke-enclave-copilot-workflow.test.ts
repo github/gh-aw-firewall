@@ -78,7 +78,7 @@ describe('Cloud Hypervisor Copilot agent enclave smoke', () => {
     const enclave = {
       agent: {
         engine: 'copilot', model: 'claude-sonnet-5',
-        'max-task-bytes': 4096, 'max-model-requests': 8, 'max-model-tokens': 32768,
+        'max-task-bytes': 4096, 'max-model-requests': 8, 'max-model-tokens': 131072,
       },
       runtime: 'cloud-hypervisor',
       repos: [{ repo: 'github/gh-aw-firewall', sensitivity: 'public' }],
@@ -95,7 +95,7 @@ describe('Cloud Hypervisor Copilot agent enclave smoke', () => {
     expect(JSON.parse(match![1].replace(/\\"/g, '"'))).toEqual([{
       agent: {
         engine: 'copilot', model: 'claude-sonnet-5',
-        maxTaskBytes: 4096, maxModelRequests: 8, maxModelTokens: 32768,
+        maxTaskBytes: 4096, maxModelRequests: 8, maxModelTokens: 131072,
       },
       runtime: 'cloud-hypervisor', repos: enclave.repos,
       timeout: 90, maxOutputBytes: 256, maxInvocations: 1,
@@ -163,7 +163,8 @@ describe('Cloud Hypervisor Copilot agent enclave smoke', () => {
     }
     expect(() => normalizeEnclavesConfig(entries, { primaryRuntime: 'docker' }))
       .toThrow(/differs from primary backend/);
-    expect(source).toContain('32,768-token invocation budgets at the dedicated API proxy');
+    expect(source).toContain('131,072-token invocation budgets at the dedicated API proxy');
+    expect(source).toContain('ordinary workflows retain the 32,768 ceiling');
     expect(source).not.toContain('settings are **advisory only**');
   });
 
@@ -185,7 +186,7 @@ describe('Cloud Hypervisor Copilot agent enclave smoke', () => {
 
   it('identifies the compiler backport and preserves CLI and immutable release pins', () => {
     expect(frontmatter.engine.version).toBe('1.0.96');
-    expect(lock).toContain('"compiler_version":"dev-v0.92.3-enclave-agent-acceptance-v0.28.66-budget32768.2b19ccff"');
+    expect(lock).toContain('"compiler_version":"dev-v0.92.3-enclave-agent-acceptance-v0.28.66-budget131072.2b19ccff"');
     expect(lock).toContain('github/gh-aw-actions/setup@26e5d7e7d2345ae4c8dfa3d9017ca2ff9bbf2c82');
     expect(lock).toContain('actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1');
     expect(lock).toContain('ghcr.io/github/gh-aw-mcpg:v0.4.33@sha256:2b278f891b4566d27494658b37f628810f93da4caf510e266892ca344e55f8e0');
