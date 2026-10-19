@@ -192,7 +192,7 @@ same process.
 | ≤ 0.43.x | Supported | `GOOGLE_GEMINI_BASE_URL` selects API-key auth directly. |
 | ≥ 0.44.0 (incl. 0.55.1) | Supported | Without a pinned auth type the CLI maps `GOOGLE_GEMINI_BASE_URL` to its unsupported `gateway` auth type and exits 41 with `Invalid auth method selected.` ([gemini-cli#27550](https://github.com/google-gemini/gemini-cli/issues/27550)). AWF pins `security.auth.selectedType` to `gemini-api-key` via `GEMINI_CLI_SYSTEM_SETTINGS_PATH`, so these versions run normally and no CLI downgrade is needed. |
 
-The pinned settings file lives at `$HOME/.awf/gemini-cli-system-settings.json` inside the agent's chroot home; the host's `~/.gemini` directory is never modified. It is not written for Vertex AI (`GOOGLE_GENAI_USE_VERTEXAI=true`) or Google-account (`GOOGLE_GENAI_USE_GCA=true`) runs, whose auth types the CLI resolves before the `gateway` branch. See [api-proxy-sidecar.md](api-proxy-sidecar.md#gemini-cli-exits-41-with-invalid-auth-method-selected).
+The pinned settings file is exposed at `/etc/awf/gemini-cli/settings.json` inside the agent's chroot, with root-owned system ancestors (a read-only bind on privileged standard Compose, root-owned sysroot contents on ARC/DinD, or root-owned entrypoint staging on non-root hosts); the host's `~/.gemini` directory is never modified. It is not written for Vertex AI (`GOOGLE_GENAI_USE_VERTEXAI=true`) or Google-account (`GOOGLE_GENAI_USE_GCA=true`) runs, whose auth types the CLI resolves before the `gateway` branch. See [api-proxy-sidecar.md](api-proxy-sidecar.md#gemini-cli-exits-41-with-invalid-auth-method-selected).
 
 ## Internal Environment Variables
 

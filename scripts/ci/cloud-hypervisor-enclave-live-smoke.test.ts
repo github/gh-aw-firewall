@@ -51,6 +51,8 @@ const harness = require(harnessPath) as {
   trackAwfChild(child: ChildProcess): ChildProcess;
   RELEASE_ASSETS: string[];
   assertReleaseAssets(required: string[], published: string[]): void;
+  assertUnifiedProfiles(artifacts: unknown, primary: unknown, enclave: unknown, sbom: unknown): void;
+  assertProfileTools(response: unknown, profile: string): void;
   assertNoSentinelLeak(directories: string[], logs: string[], sentinel: string): void;
   assertExpectedToolResult(response: unknown, requestId: number, expected: unknown, label: string): void;
   assertNoSuccessfulResult(response: unknown): void;
@@ -326,6 +328,39 @@ describe('sanitized host startup diagnostics', () => {
       expect(JSON.stringify(result)).not.toContain(sentinel);
     },
   );
+
+  it.each([
+    ['preflight', 'common'], ['execution', 'primary'],
+    ['cleanup', 'script'], ['persistence', 'agent'],
+  ] as const)('preserves closed v2 host preflight context %s/%s', (phase, profile) => {
+    const publishCheck = jest.fn();
+    new HostPreflightReporter('storage-admission', publishCheck, undefined, { phase, profile });
+    const hostPreflight = publishCheck.mock.calls[0][0];
+    expect(hostPreflight.schemaVersion).toBe(2);
+    const result = harness.startupDiagnostic(child, 'exit', 'initial', stderrFile,
+      publish(progress({ hostPreflight })));
+    expect(result.enclaveStartup?.hostPreflight).toEqual(hostPreflight);
+    expect(JSON.stringify(result)).not.toContain(sentinel);
+  });
+
+  it.each([
+    (value: Record<string, unknown>) => { const { phase, ...rest } = value; void phase; return rest; },
+    (value: Record<string, unknown>) => { const { profile, ...rest } = value; void profile; return rest; },
+    (value: Record<string, unknown>) => ({ ...value, phase: 'secret' }),
+    (value: Record<string, unknown>) => ({ ...value, profile: sentinel }),
+    (value: Record<string, unknown>) => ({ ...value, schemaVersion: 1 }),
+    (value: Record<string, unknown>) => ({ ...value, extra: sentinel }),
+  ])('rejects incomplete, unsafe, or misversioned v2 host preflight context', (mutate) => {
+    const publishCheck = jest.fn();
+    new HostPreflightReporter('storage-admission', publishCheck, undefined, {
+      phase: 'preflight', profile: 'common',
+    });
+    const hostPreflight = mutate(publishCheck.mock.calls[0][0]);
+    const result = harness.startupDiagnostic(child, 'exit', 'initial', stderrFile,
+      publish(progress({ hostPreflight: hostPreflight as EnclaveStartupProgress['hostPreflight'] })));
+    expect(result.enclaveStartup).toBeUndefined();
+    expect(JSON.stringify(result)).not.toContain(sentinel);
+  });
 
   it.each([
     (value: Record<string, unknown>) => ({ ...value, scope: sentinel }),
@@ -847,6 +882,82 @@ describe('sanitized host startup diagnostics', () => {
 });
 
 describe('Cloud Hypervisor enclave live acceptance harness', () => {
+  it('accepts the four unified profile configurations only with common base lineage and one final enclave rootfs', () => {
+    const hash = 'a'.repeat(64);
+    const baseId = `sha256:${'b'.repeat(64)}`;
+    const image = 'ghcr.io/github/gh-aw-firewall/cloud-hypervisor-guest-base@sha256:abc';
+    const source = 'ghcr.io/github/gh-aw-firewall/cloud-hypervisor-enclave@sha256:def';
+    const artifacts = {
+      directory: '/release', enclaveDirectory: '/release/enclave', tag: 'v1',
+      enclaveArtifactEnvironment: {
+        AWF_CLOUD_HYPERVISOR_ENCLAVE_ROOTFS: '/release/enclave/enclave-rootfs.ext4',
+        AWF_CLOUD_HYPERVISOR_ENCLAVE_SCRIPT_ROOTFS: '/release/enclave/enclave-rootfs.ext4',
+        AWF_CLOUD_HYPERVISOR_ENCLAVE_AGENT_ROOTFS: '/release/enclave/enclave-rootfs.ext4',
+      },
+    };
+    const primary = {
+      userspace: { baseImage: image, baseImageId: baseId },
+      artifacts: { rootfs: { file: 'rootfs.ext4', sha256: 'c'.repeat(64) } },
+    };
+    const enclave = {
+      schemaVersion: 2,
+      guestBase: { image, imageId: baseId },
+      rootfs: { file: 'enclave-rootfs.ext4', sha256: hash, sourceImage: source, sourceImageDigest: 'd'.repeat(64) },
+    };
+    const sbom = { packages: [
+      { SPDXID: 'SPDXRef-Rootfs', checksums: [{ algorithm: 'SHA256', checksumValue: hash }] },
+      { SPDXID: 'SPDXRef-SourceImage', versionInfo: 'd'.repeat(64),
+        externalRefs: [{ referenceLocator: source }] },
+    ] };
+    expect(() => harness.assertUnifiedProfiles(artifacts, primary, enclave, sbom)).not.toThrow();
+    const build = fs.readFileSync(path.join(root, 'guest/cloud-hypervisor/build-test-artifacts.sh'), 'utf8');
+    const generator = fs.readFileSync(path.join(root, 'guest/cloud-hypervisor/generate-enclave-rootfs-sbom.mjs'), 'utf8');
+    expect(build).toContain('"baseImageId": "${guest_base_image_id}"');
+    expect(build).toContain('"imageId": "${guest_base_image_id}"');
+    expect(build).toContain('"sourceImageDigest": "${enclave_image_digest}"');
+    expect(generator).toContain("SPDXID: 'SPDXRef-Rootfs'");
+    expect(generator).toContain("SPDXID: 'SPDXRef-SourceImage'");
+    expect(generator).toContain("versionInfo: args['source-image-digest']");
+    expect(generator).toContain("referenceLocator: args['source-image']");
+    expect(() => harness.assertUnifiedProfiles(artifacts, {
+      ...primary, userspace: { ...primary.userspace, baseImageId: `sha256:${'e'.repeat(64)}` },
+    }, enclave, sbom)).toThrow(/base image/);
+    expect(() => harness.assertUnifiedProfiles(artifacts, primary, {
+      ...enclave, rootfs: { ...enclave.rootfs, sha256: 'f'.repeat(64) },
+    }, sbom)).toThrow(/rootfs metadata/);
+    expect(() => harness.assertUnifiedProfiles(artifacts, primary, enclave, {
+      ...sbom, packages: [sbom.packages[0], { ...sbom.packages[1], versionInfo: 'e'.repeat(64) }],
+    })).toThrow(/rootfs metadata/);
+    expect(() => harness.assertUnifiedProfiles({
+      ...artifacts, enclaveArtifactEnvironment: {
+        ...artifacts.enclaveArtifactEnvironment,
+        AWF_CLOUD_HYPERVISOR_ENCLAVE_AGENT_ROOTFS: '/release/enclave/other.ext4',
+      },
+    }, primary, enclave, sbom)).toThrow(/same final enclave rootfs/);
+  });
+
+  it('requires the exact enabled tools per live single-executor and combined profile', () => {
+    const listing = (names: string[]) => ({
+      result: { tools: names.map((name) => ({ name })) },
+    });
+    expect(() => harness.assertProfileTools(listing(['enclave_run_script']), 'script-only')).not.toThrow();
+    expect(() => harness.assertProfileTools(listing(['enclave_run_agent']), 'agent-only')).not.toThrow();
+    expect(() => harness.assertProfileTools(listing(['enclave_run_script', 'enclave_run_agent']), 'combined')).not.toThrow();
+    for (const profile of ['script-only', 'agent-only', 'combined']) {
+      expect(() => harness.assertProfileTools(listing([]), profile)).toThrow(/configured executors/);
+      if (profile !== 'combined') {
+        expect(() => harness.assertProfileTools(listing(['enclave_run_script', 'enclave_run_agent']), profile))
+          .toThrow(/configured executors/);
+      }
+    }
+    const source = fs.readFileSync(harnessPath, 'utf8');
+    expect(source).toContain("for (const profile of ['script-only', 'agent-only'])");
+    expect(source).toContain("writeAwfConfig(workDir, awfConfigPath, profile)");
+    expect(source).toContain("await waitForHostGatewayReadiness(awf, Date.now() + 150_000, diagnostics)");
+    expect(source).toContain("assertExpectedToolResult(response, requestId + 2, scriptProbe.expected, 'script-only profile')");
+    expect(source).toContain("assertExpectedToolResult(response, requestId + 2, agentResultValue, 'agent-only profile')");
+  });
+
   it('requires the package-matched release assets, never development artifacts', () => {
     expect(() => harness.assertReleaseAssets(harness.RELEASE_ASSETS, harness.RELEASE_ASSETS))
       .not.toThrow();

@@ -48,7 +48,7 @@ const VISIBILITY_TRANSPORT_CODES = new Set([
   'ERR_TLS_CERT_ALTNAME_INVALID',
 ]);
 
-class PublicDebugVisibilityError extends Error {
+export class PublicDebugVisibilityError extends Error {
   constructor(reason: string, status?: number) {
     super(`Public enclave debug repository visibility could not be verified (reason=${reason}`
       + (status === undefined ? '' : `; status=${status}`) + ')');

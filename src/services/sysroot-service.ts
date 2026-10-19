@@ -2,6 +2,7 @@ import { WrapperConfig } from '../types';
 import { logger } from '../logger';
 import { ParsedImageTag } from '../image-tag';
 import { recordRuntimeImage, resolveRuntimeImage, resolveRuntimeImageFor } from '../image-resolver';
+import { GEMINI_CLI_SYSTEM_SETTINGS_PATH, buildGeminiSystemSettingsContent, isGeminiProxyRoutingEnabled, shouldPinGeminiAuthType } from './credentials/gemini-cli-settings';
 
 interface SysrootServiceParams {
   config: WrapperConfig;
@@ -28,6 +29,17 @@ export function buildSysrootStageService(params: SysrootServiceParams): any {
     : resolveRuntimeImage(config, 'build-tools', registry, parsedTag);
 
   logger.info(`ARC/DinD: sysroot-stage will use image ${image}`);
+  const geminiSettings = isGeminiProxyRoutingEnabled(config) && shouldPinGeminiAuthType(config)
+    ? 'if [ -L /sysroot/etc ] || [ -L /sysroot/etc/awf ] || [ -L /sysroot/etc/awf/gemini-cli ] ' +
+      `|| [ -L /sysroot${GEMINI_CLI_SYSTEM_SETTINGS_PATH} ]; then ` +
+      'echo "Refusing symlink in Gemini system settings path" >&2; exit 1; fi; ' +
+      'mkdir -p /sysroot/etc/awf/gemini-cli; ' +
+      `printf %s ${Buffer.from(buildGeminiSystemSettingsContent()).toString('base64')} | base64 -d > /sysroot${GEMINI_CLI_SYSTEM_SETTINGS_PATH}; ` +
+      'chown root:root /sysroot/etc/awf /sysroot/etc/awf/gemini-cli ' +
+      `/sysroot${GEMINI_CLI_SYSTEM_SETTINGS_PATH}; ` +
+      'chmod 755 /sysroot/etc/awf /sysroot/etc/awf/gemini-cli; ' +
+      `chmod 644 /sysroot${GEMINI_CLI_SYSTEM_SETTINGS_PATH}; `
+    : '';
 
   return {
     container_name: 'awf-sysroot-stage',
@@ -38,17 +50,18 @@ export function buildSysrootStageService(params: SysrootServiceParams): any {
       'set -eu; ' +
       'if [ -f /sysroot/.awf-sysroot-ready ]; then ' +
       '  echo "Sysroot volume already populated, skipping copy"; ' +
-      '  exit 0; ' +
-      'fi; ' +
-      'echo "Copying sysroot filesystem..."; ' +
-      'for d in usr lib bin sbin etc; do ' +
+      'else ' +
+      '  echo "Copying sysroot filesystem..."; ' +
+      '  for d in usr lib bin sbin etc; do ' +
       // Use $$ to escape Docker Compose variable interpolation — Compose
       // treats bare $d as a variable reference and replaces it with "".
       '  [ -d "/$$d" ] && cp -a "/$$d" /sysroot/; ' +
-      'done; ' +
-      'if [ -d /lib64 ]; then cp -a /lib64 /sysroot/; fi; ' +
-      'touch /sysroot/.awf-sysroot-ready; ' +
-      'echo "Sysroot copy complete"',
+      '  done; ' +
+      '  if [ -d /lib64 ]; then cp -a /lib64 /sysroot/; fi; ' +
+      '  touch /sysroot/.awf-sysroot-ready; ' +
+      '  echo "Sysroot copy complete"; ' +
+      'fi; ' +
+      geminiSettings,
     ],
     network_mode: 'none',
   };

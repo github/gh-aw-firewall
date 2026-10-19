@@ -18,7 +18,7 @@ import {
   prepareTrustedInvocationStorage,
 } from './trusted-enclave-storage';
 import { CLOUD_HYPERVISOR_ENCLAVE_RESOURCE_PROFILES as profiles } from './workload-profile';
-import type { HostPreflightProgress } from './host-preflight-progress';
+import { HostPreflightReporter, type HostPreflightProgress } from './host-preflight-progress';
 
 jest.mock('./artifact-trust', () => ({
   ...jest.requireActual('./artifact-trust'),
@@ -232,6 +232,7 @@ describe('bounded immutable enclave preflight', () => {
     }, active).preflight(config)).rejects.toThrow();
     const last = published.filter((record) => record.scope === 'bounded-runtime').slice(-1)[0];
     expect(last.scope).toBe('bounded-runtime');
+    expect(last).toMatchObject({ schemaVersion: 2, phase: 'preflight', profile: 'common' });
     expect(last.checks.filter((check) => check.result === 'failed')).toEqual([{
       id: gate, result: 'failed', reason: gate === 'configured-role' ? 'requirement-not-met' : 'EPERM',
     }]);
@@ -294,16 +295,24 @@ describe('bounded immutable enclave preflight', () => {
 
   it.each([['script'], ['agent'], ['script', 'agent']] as ('script' | 'agent')[][])(
     'bounds both role attestations independently of configured roles %j', async (...roles) => {
+    const published: HostPreflightProgress[] = [];
     const artifactOptions = { manifestPath: '/operator/enclave-manifest' } as CloudHypervisorEnclaveArtifactPreflightOptions;
     const result = { verified: true };
-    (preflightCloudHypervisorEnclaveArtifacts as jest.Mock).mockImplementation(async (input, verificationRoot) => {
+    (preflightCloudHypervisorEnclaveArtifacts as jest.Mock).mockImplementation(async (
+      input, verificationRoot, _copy, report: HostPreflightReporter,
+    ) => {
       expect(input).toBe(artifactOptions);
       expect(verificationRoot).toBe(`${root}/verification`);
       expect(active.has(root)).toBe(true);
+      expect(report).toBeInstanceOf(HostPreflightReporter);
+      await report.check('manifest-read', () => 'sealed manifest bytes');
       return result;
     });
-    await expect(createBoundedEnclavePreflight(options(roles), active)
+    await expect(createBoundedEnclavePreflight({ ...options(roles), onHostPreflight: (value) => published.push(value) }, active)
       .preflightEnclaveArtifacts(artifactOptions)).resolves.toBe(result);
+    expect(published.some((value) => value.schemaVersion === 2 && value.phase === 'preflight'
+      && value.profile === 'common' && value.checks.some((check) =>
+        check.id === 'manifest-read' && check.result === 'passed'))).toBe(true);
     expect(prepareTrustedArtifactVerificationStorage).toHaveBeenCalledTimes(1);
     expect(prepareTrustedInvocationStorage).not.toHaveBeenCalled();
     expect(mountTmpfs).toHaveBeenCalledWith(plan.invocationHostDir,

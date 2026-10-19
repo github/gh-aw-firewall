@@ -1,6 +1,6 @@
 /**
  * Branch and line coverage for previously-uncovered paths in:
- *  - src/host-env.ts  (stripScheme error branch)
+ *  - src/host-env.ts  (normalizeApiTargetScheme error branch)
  *  - src/commands/validators/agent-options.ts
  *                     (env success path, invalid env-file, invalid mount,
  *                      valid mount success path, enableDlp log path)
@@ -8,26 +8,26 @@
 
 // ─── host-env.ts ─────────────────────────────────────────────────────────────
 
-import { stripScheme } from './host-env';
+import { normalizeApiTargetScheme } from './host-env';
 
-describe('host-env: stripScheme — error branch (line 81)', () => {
+describe('host-env: normalizeApiTargetScheme — error branch', () => {
   it('returns trimmed value unchanged when the URL constructor throws on the candidate', () => {
     // A bare string with spaces produces "https://not a valid url" which is invalid.
     const value = 'not a valid url with spaces';
-    expect(stripScheme(value)).toBe(value.trim());
+    expect(normalizeApiTargetScheme(value)).toBe(value.trim());
   });
 
   it('returns empty string for empty input', () => {
-    expect(stripScheme('')).toBe('');
-    expect(stripScheme('   ')).toBe('');
+    expect(normalizeApiTargetScheme('')).toBe('');
+    expect(normalizeApiTargetScheme('   ')).toBe('');
   });
 
   it('strips scheme from a valid https URL', () => {
-    expect(stripScheme('https://api.example.com/path')).toBe('api.example.com');
+    expect(normalizeApiTargetScheme('https://api.example.com/path')).toBe('api.example.com');
   });
 
   it('handles bare hostname without scheme', () => {
-    expect(stripScheme('api.example.com')).toBe('api.example.com');
+    expect(normalizeApiTargetScheme('api.example.com')).toBe('api.example.com');
   });
 });
 

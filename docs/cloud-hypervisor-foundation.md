@@ -201,8 +201,12 @@ runtime. Every configured repository must have `sensitivity: "public"`. AWF also
 checks GitHub's repository metadata **without credentials**, rejects redirects,
 and requires matching repository identity, `private: false`, and
 `visibility: "public"`. Each check has a five-second timeout and a 64 KiB
-response ceiling; unavailable, rate-limited, malformed, private, or unverified
-metadata prevents launch. The host needs HTTPS access to `api.github.com`.
+response ceiling. Unavailable, rate-limited, malformed, private, or unverified
+metadata disables public debug capture and export for that run, with a warning,
+but does not prevent enclave execution. This also applies to an explicit
+public-debug request: lack of positive visibility proof never permits public
+debug artifacts. The host needs HTTPS access to `api.github.com` to enable
+public retention.
 Failures report a bounded reason (`http-status`, `missing-body`, `timeout`,
 `request-failed`, `body-read`, `metadata-bound`, `invalid-json`, or
 `unverified-metadata`), the HTTP status when available, and only allowlisted
@@ -224,8 +228,27 @@ files are `0600`, and symlink destinations are rejected. They are **not** copied
 audit/log collections or widened for upload. Inspect them on the host and remove
 the specific invocation directory when no longer needed.
 
-The public-fixture smoke collector includes `enclave-session.log` in its bounded,
-short-lived debug artifact. Dedicated proxy accounting remains a separate
+The public-fixture smoke collector explicitly allowlists `enclave-session.log`
+and the dedicated enclave proxy's projected `enclave-proxy-events.jsonl` and
+`enclave-proxy-container.log` in its bounded, short-lived debug artifact.
+Only closed-vocabulary event, level, source, and numeric status fields from
+container stdout/stderr are retained; arbitrary text, headers, and payloads
+are discarded. A separately projected `enclave-proxy-response.json` preserves
+run-cumulative status or an explicit unavailable classification when no
+invocation debug directory exists. These records are distinct from the
+primary agent's `api-proxy-logs`.
+
+Dedicated-proxy auditing is independent of optional model-budget limits and
+includes local WebSocket upgrade rejections. After 4096 responses, one bounded
+overflow record makes the reader report `record-limit` rather than presenting
+the earlier successes as complete evidence. The protected journal retains one
+run-cumulative proxy debug projection (including closed rejection event names)
+before teardown, even if startup failed before the first invocation. The smoke
+collector verifies its run identity, owner-only permissions, schema and size
+before exporting it; cumulative events are not copied into invocation directories.
+Collection can identify the new protected run projection even if preflight
+failed before the host executor created its run journal.
+Dedicated proxy accounting remains a separate
 closed projection of request/status and token totals, not raw HTTP bodies,
 headers, or credentials. Public repository visibility is not a guarantee that
 every log line is safe to publish; host-only retention is not automatic upload
@@ -1606,6 +1629,13 @@ storage and trust outcomes when connectivity starts, and resets for each new
 startup instead of inheriting prior success. The primary-agent startup hook
 requires every applicable check to pass. Only explicitly configuration-dependent
 checks can be `not-required`; required checks cannot be skipped.
+
+Same-scope reporter forks share accumulated check state while preserving the
+emitting profile and phase. Script and agent artifact checks therefore survive
+later common-scope reports; the enclosing artifact-set check passes only after
+every applicable role has been verified. Legacy v1 manifests still require
+SBOM trust and digest verification, but mark the v2-only final-filesystem SBOM
+contents check `not-required`.
 
 The common checklist covers configuration, enabled runtime availability,
 private storage isolation, directory layout, run identity, seed catalog and

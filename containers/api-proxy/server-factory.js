@@ -4,6 +4,7 @@ const http = require('http');
 const { composeBodyTransforms } = require('./proxy-utils');
 const { logRequest } = require('./logging');
 const { CALLER_HEADER, callerHeaderRejection, parseCallerHeader } = require('./caller-header');
+const { auditEnclaveResponse } = require('./token-persistence');
 
 /**
  * Parse the optional x-awf-caller header once at ingress and attach it as
@@ -112,11 +113,13 @@ function createWebSocketUpgradeHandler(adapter, proxyWebSocket, { modelBudgetEna
 
   const handler = (req, socket, head) => {
     if (modelBudgetEnabled) {
+      auditEnclaveResponse(403, 'local');
       socket.write('HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n');
       socket.destroy();
       return;
     }
     if (!adapter.isEnabled()) {
+      auditEnclaveResponse(503, 'local');
       socket.write('HTTP/1.1 503 Service Unavailable\r\nConnection: close\r\n\r\n');
       socket.destroy();
       return;
@@ -125,6 +128,7 @@ function createWebSocketUpgradeHandler(adapter, proxyWebSocket, { modelBudgetEna
     // Bedrock SigV4 is implemented for buffered HTTP requests. Never allow an
     // unsigned WebSocket upgrade to escape through an AWS-authenticated adapter.
     if (adapter.getRequestSigner?.()) {
+      auditEnclaveResponse(503, 'local');
       socket.write('HTTP/1.1 503 Service Unavailable\r\nConnection: close\r\n\r\n');
       socket.destroy();
       return;
@@ -183,6 +187,10 @@ function createProviderServer(adapter, deps) {
     }
 
     attachCaller(req, adapter);
+    if (process.env.AWF_ENCLAVE_PROXY_DIAGNOSTICS === '1') {
+      res.once('finish', () => auditEnclaveResponse(res.statusCode,
+        res.awfUpstreamResponse ? 'upstream' : 'local'));
+    }
 
     // The routing selection is advisory: this never rejects. It may attach
     // req.awfRouting, which records deviation telemetry and observes upstream failures.

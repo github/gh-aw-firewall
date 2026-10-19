@@ -1,8 +1,7 @@
 import { WrapperConfig, API_PROXY_PORTS } from '../../types';
 import { buildProviderCredentialIsolationEnv } from './provider-credential-isolation';
 import { isGcpOidcConfigured } from './gcp-oidc-config';
-import { getGeminiSystemSettingsPath, isGeminiProxyRoutingEnabled, shouldPinGeminiAuthType } from './gemini-cli-settings';
-import { getRealUserHome } from '../../host-env';
+import { GEMINI_CLI_SYSTEM_SETTINGS_PATH, isGeminiProxyRoutingEnabled, shouldPinGeminiAuthType } from './gemini-cli-settings';
 
 interface GeminiCredentialEnvParams {
   config: WrapperConfig;
@@ -38,7 +37,7 @@ export function buildGeminiCredentialEnv(params: GeminiCredentialEnvParams): Rec
     // an AWF-owned system settings file that pins the API-key auth type instead.
     // See gemini-cli-settings.ts and google-gemini/gemini-cli#27550.
     extraEnv: isGeminiProxyRoutingEnabled(config) && shouldPinGeminiAuthType(config)
-      ? { GEMINI_CLI_SYSTEM_SETTINGS_PATH: getGeminiSystemSettingsPath(getRealUserHome()) }
+      ? { GEMINI_CLI_SYSTEM_SETTINGS_PATH }
       : undefined,
   });
 }

@@ -4,6 +4,34 @@ import * as fs from 'fs';
 import * as path from 'path';
 
 import { useTempDir } from './test-helpers/docker-test-fixtures.test-utils';
+let mockMcpLogsDir: string | undefined;
+
+jest.mock('fs', () => {
+  const actual = jest.requireActual<typeof import('fs')>('fs');
+  const mcpLogsDir = '/tmp/gh-aw/mcp-logs';
+  const redirect = (target: fs.PathLike): fs.PathLike => {
+    if (typeof target !== 'string' || (target !== mcpLogsDir && !target.startsWith(`${mcpLogsDir}/`))) {
+      return target;
+    }
+    if (!mockMcpLogsDir) throw new Error('MCP test directory is not initialized');
+    return `${mockMcpLogsDir}${target.slice(mcpLogsDir.length)}`;
+  };
+  const isolated = <Args extends unknown[], Result>(
+    operation: (target: fs.PathLike, ...args: Args) => Result,
+  ) => (target: fs.PathLike, ...args: Args): Result => operation(redirect(target), ...args);
+  return {
+    ...actual,
+    mkdirSync: isolated(actual.mkdirSync),
+    existsSync: isolated(actual.existsSync),
+    accessSync: isolated(actual.accessSync),
+    lstatSync: isolated(actual.lstatSync),
+    statSync: isolated(actual.statSync),
+    chmodSync: isolated(actual.chmodSync),
+    readdirSync: isolated(actual.readdirSync),
+    rmSync: isolated(actual.rmSync),
+  };
+});
+
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 jest.mock('execa', () => require('./test-helpers/mock-execa.test-utils').execaMockFactory());
 
@@ -21,6 +49,12 @@ jest.mock('./host-env', () => {
 describe('docker-manager writeConfigs', () => {
   describe('writeConfigs', () => {
     const { getDir } = useTempDir();
+    beforeEach(() => {
+      mockMcpLogsDir = path.join(getDir(), 'mcp-logs');
+    });
+    afterEach(() => {
+      mockMcpLogsDir = undefined;
+    });
     const createWriteConfig = (overrides: Partial<WrapperConfig> = {}): WrapperConfig => ({
       allowedDomains: ['github.com'],
       agentCommand: 'echo test',
@@ -60,12 +94,14 @@ describe('docker-manager writeConfigs', () => {
       expect(fs.existsSync(path.join(getDir(), 'squid-logs'))).toBe(true);
     });
 
-    it('should create /tmp/gh-aw/mcp-logs directory with world-writable permissions', async () => {
+    it('should create the isolated MCP logs directory with world-writable permissions', async () => {
       const config = createWriteConfig();
       await writeConfigsAllowingFailure(config);
 
-      expect(fs.existsSync('/tmp/gh-aw/mcp-logs')).toBe(true);
-      const stats = fs.statSync('/tmp/gh-aw/mcp-logs');
+      const actualFs = jest.requireActual<typeof import('fs')>('fs');
+      const mcpLogsDir = path.join(getDir(), 'mcp-logs');
+      expect(actualFs.existsSync(mcpLogsDir)).toBe(true);
+      const stats = actualFs.statSync(mcpLogsDir);
       expect(stats.isDirectory()).toBe(true);
       expect((stats.mode & 0o777).toString(8)).toBe('777');
     });

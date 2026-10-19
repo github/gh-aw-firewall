@@ -119,8 +119,26 @@ describe('buildEnclaveMcpService', () => {
 
     expect(secret).toMatch(/^[0-9a-f]{64}$/);
     expect(proxyEnvironment.AWF_ENCLAVE_AGENT_MODEL_BUDGET_SECRET).toBe(secret);
+    expect(proxyEnvironment.AWF_ENCLAVE_PROXY_DIAGNOSTICS).toBe('1');
     expect((proxy.healthcheck as { test: string[] }).test.join(' '))
       .toContain('model_budget_enforcement');
+  });
+
+  it('enables only the dedicated proxy response audit without optional model ceilings', () => {
+    const compose = generateDockerCompose(config({
+      enableApiProxy: true,
+      enclaves: normalizeEnclavesConfig([{
+        agent: { engine: 'copilot', model: 'trusted-model' }, runtime: 'docker',
+        repos: [{ repo: 'octo/public', sensitivity: 'public' }],
+      }]),
+    }), { subnet: '172.30.0.0/24', squidIp: '172.30.0.10', agentIp: '172.30.0.20', proxyIp: '172.30.0.30' });
+    const services = compose.services;
+    expect(services['enclave-agent-api-proxy'].environment).toMatchObject({
+      AWF_ENCLAVE_PROXY_DIAGNOSTICS: '1',
+    });
+    expect(services['enclave-agent-api-proxy'].environment)
+      .not.toHaveProperty('AWF_ENCLAVE_AGENT_MODEL_BUDGET_SECRET');
+    expect(services['api-proxy'].environment).not.toHaveProperty('AWF_ENCLAVE_PROXY_DIAGNOSTICS');
   });
 
   it('fails closed for the not-yet-proven sbx script runtime', () => {

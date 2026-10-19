@@ -179,14 +179,43 @@ needs its `--output`/destination path to resolve to a mount that is:
    tool "succeeds" but the output never appears where the consumer looks.
 
 For gh-aw engine streaming logs (including Pi), do not write directly to
-`${RUNNER_TEMP}/gh-aw/pi-streaming.jsonl` when `${RUNNER_TEMP}/gh-aw` is mounted
-`:ro`. Mount an existing writable child such as
-`${RUNNER_TEMP}/gh-aw/sandbox/agent` with `:rw`, and write the log at
-`${RUNNER_TEMP}/gh-aw/sandbox/agent/pi-streaming.jsonl`. The engine command,
-log parser, and artifact upload must all use that same path. Mounting the
-child `:rw` does not make the rest of the read-only parent writable; the
-workflow/compiler that chooses the log location must also update its
-consumers.
+`/tmp/gh-aw/pi-streaming.jsonl` when its runner-side parent
+`${RUNNER_TEMP}/gh-aw` is mounted `:ro`. The compiler should write Pi's log at
+`/tmp/gh-aw/sandbox/agent/logs/pi-streaming.jsonl`, beneath the writable
+`sandbox/agent` child mount (create `logs` before writing). The Pi command,
+step-summary parser, session exporters, and artifact upload must all use the
+corresponding path on their side of the mount. Mounting the child `:rw` does
+not make the rest of the read-only parent writable.
+
+Until the gh-aw compiler relocates Pi's log, a workflow-specific workaround is
+to create the real log file at the runner-side source path in a pre-step,
+symlink the compiled Pi `tee` path to that file, and bind-mount the real file
+at its writable child path. Keep the symlink and bind-mount destination
+separate: AWF rejects a symlink as a file bind-mount destination.
+
+For example, when the compiled `tee` writes `/tmp/gh-aw/pi-streaming.jsonl`:
+
+```yaml
+- name: Prepare Pi streaming log
+  run: |
+    mkdir -p "${RUNNER_TEMP}/gh-aw/sandbox/agent/logs"
+    touch "${RUNNER_TEMP}/gh-aw/sandbox/agent/logs/pi-streaming.jsonl"
+    ln -sfn sandbox/agent/logs/pi-streaming.jsonl "${RUNNER_TEMP}/gh-aw/pi-streaming.jsonl"
+```
+
+Add this file entry under `sandbox.agent.mounts`:
+
+```yaml
+- "${RUNNER_TEMP}/gh-aw/sandbox/agent/logs/pi-streaming.jsonl:/tmp/gh-aw/sandbox/agent/logs/pi-streaming.jsonl:rw"
+```
+
+The real file is mounted at `/tmp/gh-aw/sandbox/agent/logs/pi-streaming.jsonl`;
+the compatibility symlink remains at the runner-side counterpart of the
+compiled `tee` path. Do not use the symlink path as the mount destination or
+remount the entire `${RUNNER_TEMP}/gh-aw` parent writable. If the compiled
+`tee` path differs, put the symlink at its actual runner-side counterpart.
+Check both the runner-side source and sandbox-side destination when
+`${RUNNER_TEMP}` differs from `/tmp`.
 
 ### Agent logs, threat detection, and safe-output ownership
 

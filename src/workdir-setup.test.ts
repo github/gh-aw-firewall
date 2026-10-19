@@ -16,6 +16,8 @@ const actualFs = jest.requireActual<typeof import('fs')>('fs');
 import { prepareWorkDirectories, workdirSetupTestHelpers } from './workdir-setup';
 import { resolveLogPaths } from './log-paths';
 import { getRealUserHome } from './host-identity';
+import { getGeminiSystemSettingsSourcePath } from './services/credentials/gemini-cli-settings';
+import { prepareGeminiSystemSettings } from './chroot-home-setup';
 
 function setupWorkdirFixture({ cleanupChrootHome = true } = {}) {
   let tempDir = '';
@@ -72,6 +74,42 @@ function setupWorkdirFixture({ cleanupChrootHome = true } = {}) {
 describe('prepareWorkDirectories', () => {
   const fixture = setupWorkdirFixture();
   const { buildConfig } = fixture;
+
+  it('stages the Gemini auth pin as a root-owned file outside the writable home', () => {
+    const rootSpy = jest.spyOn(process, 'getuid').mockReturnValue(0);
+    try {
+      const config = buildConfig({ enableApiProxy: true, geminiApiKey: 'fake-key' });
+      prepareWorkDirectories(config, resolveLogPaths(config));
+      prepareGeminiSystemSettings(config);
+
+      const source = getGeminiSystemSettingsSourcePath(config.workDir);
+      expect(JSON.parse(fs.readFileSync(source, 'utf8'))).toEqual({
+        security: { auth: { selectedType: 'gemini-api-key' } },
+      });
+      expect(fs.statSync(path.dirname(source)).mode & 0o777).toBe(0o700);
+      expect(fs.statSync(source).mode & 0o777).toBe(0o644);
+      expect(fs.chownSync).toHaveBeenCalledWith(path.dirname(source), 0, 0);
+      const owner = fs.statSync(source);
+      if (owner.uid !== 0 || owner.gid !== 0) {
+        expect(fs.fchownSync).toHaveBeenCalledWith(expect.any(Number), 0, 0);
+      }
+      expect(fs.existsSync(path.join(`${config.workDir}-chroot-home`, '.awf'))).toBe(false);
+    } finally {
+      rootSpy.mockRestore();
+    }
+  });
+
+  it('defers Gemini settings staging to the privileged container on non-root hosts', () => {
+    const nonRootSpy = jest.spyOn(process, 'getuid').mockReturnValue(1001);
+    try {
+      const config = buildConfig({ enableApiProxy: true, geminiApiKey: 'fake-key' });
+      prepareWorkDirectories(config, resolveLogPaths(config));
+      prepareGeminiSystemSettings(config);
+      expect(fs.existsSync(getGeminiSystemSettingsSourcePath(config.workDir))).toBe(false);
+    } finally {
+      nonRootSpy.mockRestore();
+    }
+  });
 
   describe('log/state directory setup', () => {
     it('creates agent logs directory', () => {
@@ -364,19 +402,23 @@ describe('prepareWorkDirectories', () => {
     });
 
     it('writes Gemini system settings without following a pre-existing symlink', () => {
-      const emptyHomeDir = `${fixture.tempDir}-chroot-home`;
-      const settingsDir = path.join(emptyHomeDir, '.awf');
-      const target = path.join(fixture.tempDir, 'target');
-      const settingsPath = path.join(settingsDir, 'gemini-cli-system-settings.json');
-      fs.mkdirSync(settingsDir, { recursive: true });
-      fs.writeFileSync(target, 'unchanged');
-      fs.symlinkSync(target, settingsPath);
+      const rootSpy = jest.spyOn(process, 'getuid').mockReturnValue(0);
+      try {
+        const target = path.join(fixture.tempDir, 'target');
+        const settingsPath = getGeminiSystemSettingsSourcePath(fixture.tempDir);
+        fs.mkdirSync(path.dirname(settingsPath), { recursive: true });
+        fs.writeFileSync(target, 'unchanged');
+        fs.symlinkSync(target, settingsPath);
 
-      const config = buildConfig({ enableApiProxy: true, geminiApiKey: 'test-key' });
-      const logPaths = resolveLogPaths(config);
+        const config = buildConfig({ enableApiProxy: true, geminiApiKey: 'test-key' });
+        const logPaths = resolveLogPaths(config);
 
-      expect(() => prepareWorkDirectories(config, logPaths)).toThrow();
-      expect(fs.readFileSync(target, 'utf8')).toBe('unchanged');
+        prepareWorkDirectories(config, logPaths);
+        expect(() => prepareGeminiSystemSettings(config)).toThrow();
+        expect(fs.readFileSync(target, 'utf8')).toBe('unchanged');
+      } finally {
+        rootSpy.mockRestore();
+      }
     });
 
     it('creates .gemini directory when googleApiKey is provided', () => {
@@ -580,21 +622,26 @@ describe('prepareChrootHomeMounts (sub-function)', () => {
 
   // Regression: Gemini CLI >= 0.44 maps GOOGLE_GEMINI_BASE_URL (which AWF sets for
   // api-proxy routing) to its unsupported "gateway" auth type and exits 41. AWF pins
-  // the auth type with a system settings file in the chroot home instead.
+  // the auth type with a root-owned system settings file outside the chroot home.
   describe('Gemini CLI system settings', () => {
-    const settingsPath = () =>
-      path.join(`${fixture.tempDir}-chroot-home`, '.awf', 'gemini-cli-system-settings.json');
+    const settingsPath = () => getGeminiSystemSettingsSourcePath(fixture.tempDir);
     const originalVertex = process.env.GOOGLE_GENAI_USE_VERTEXAI;
+    let rootSpy: jest.SpyInstance;
+
+    beforeEach(() => {
+      rootSpy = jest.spyOn(process, 'getuid').mockReturnValue(0);
+    });
 
     afterEach(() => {
+      rootSpy.mockRestore();
       if (originalVertex === undefined) delete process.env.GOOGLE_GENAI_USE_VERTEXAI;
       else process.env.GOOGLE_GENAI_USE_VERTEXAI = originalVertex;
     });
 
     it('pins the API-key auth type when Gemini is routed through the api-proxy', () => {
-      workdirSetupTestHelpers.prepareChrootHomeMounts(
-        buildConfig({ enableApiProxy: true, geminiApiKey: 'key' }),
-      );
+      const config = buildConfig({ enableApiProxy: true, geminiApiKey: 'key' });
+      workdirSetupTestHelpers.prepareChrootHomeMounts(config);
+      prepareGeminiSystemSettings(config);
 
       expect(JSON.parse(fs.readFileSync(settingsPath(), 'utf8'))).toEqual({
         security: { auth: { selectedType: 'gemini-api-key' } },
@@ -602,19 +649,21 @@ describe('prepareChrootHomeMounts (sub-function)', () => {
     });
 
     it('does not write the settings file when the api-proxy is disabled', () => {
-      workdirSetupTestHelpers.prepareChrootHomeMounts(buildConfig({ geminiApiKey: 'key' }));
+      const config = buildConfig({ geminiApiKey: 'key' });
+      workdirSetupTestHelpers.prepareChrootHomeMounts(config);
+      prepareGeminiSystemSettings(config);
 
       expect(fs.existsSync(settingsPath())).toBe(false);
     });
 
     it('does not pin the auth type for Vertex AI runs', () => {
-      workdirSetupTestHelpers.prepareChrootHomeMounts(
-        buildConfig({
-          enableApiProxy: true,
-          geminiApiKey: 'key',
-          additionalEnv: { GOOGLE_GENAI_USE_VERTEXAI: 'true' },
-        }),
-      );
+      const config = buildConfig({
+        enableApiProxy: true,
+        geminiApiKey: 'key',
+        additionalEnv: { GOOGLE_GENAI_USE_VERTEXAI: 'true' },
+      });
+      workdirSetupTestHelpers.prepareChrootHomeMounts(config);
+      prepareGeminiSystemSettings(config);
 
       expect(fs.existsSync(settingsPath())).toBe(false);
     });

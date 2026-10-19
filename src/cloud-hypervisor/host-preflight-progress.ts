@@ -10,12 +10,19 @@ export type HostPreflightCheck = {
 export type HostPreflightReason = keyof typeof schema.reasons;
 export type CheckResult = 'not-attempted' | 'not-required' | 'attempted' | 'passed' | 'failed';
 export interface HostPreflightProgress {
-  schemaVersion: 1;
+  schemaVersion: 1 | 2;
   scope: HostPreflightScope;
+  /** Present together in v2 records; never derived from private error text. */
+  phase?: HostPreflightPhase;
+  profile?: HostPreflightProfile;
   checks: { id: HostPreflightCheck; result: CheckResult; reason: HostPreflightReason }[];
   mountTopology?: MountTopologyEvidence;
   storagePropagation?: StoragePropagationEvidence;
 }
+
+export type HostPreflightPhase = 'preflight' | 'execution' | 'cleanup' | 'persistence';
+export type HostPreflightProfile = 'common' | 'primary' | 'script' | 'agent';
+export type HostPreflightContext = Readonly<{ phase: HostPreflightPhase; profile: HostPreflightProfile }>;
 
 // Keep classification out of error messages, which may contain private paths.
 const reasons = new WeakMap<object, HostPreflightReason>();
@@ -45,6 +52,18 @@ export class HostPreflightCleanupError extends Error {
   }
 }
 
+export class HostPreflightReportingError extends Error {
+  readonly cause: unknown;
+  readonly reportingError: unknown;
+
+  constructor(cause: unknown, reportingError: unknown) {
+    super('Host preflight failed and publishing its diagnostic failed');
+    this.cause = cause;
+    this.reportingError = reportingError;
+    markHostPreflightError(this, hostPreflightReason(cause));
+  }
+}
+
 /** Reports only executed gates; constructing a plan does not pass any check. */
 export class HostPreflightReporter {
   private readonly progress: HostPreflightProgress;
@@ -57,10 +76,13 @@ export class HostPreflightReporter {
       id: HostPreflightCheck,
       error: unknown,
     ) => void,
+    private readonly context?: HostPreflightContext,
+    checks?: HostPreflightProgress['checks'],
   ) {
     this.progress = {
-      schemaVersion: 1, scope,
-      checks: (Object.keys(schema.scopes[scope]) as HostPreflightCheck[])
+      schemaVersion: context ? 2 : 1, scope,
+      ...(context ? { phase: context.phase, profile: context.profile } : {}),
+      checks: checks ?? (Object.keys(schema.scopes[scope]) as HostPreflightCheck[])
         .map((id) => ({ id, result: 'not-attempted', reason: 'none' })),
     };
     this.emit();
@@ -75,8 +97,11 @@ export class HostPreflightReporter {
     });
   }
 
-  fork(scope: HostPreflightScope): HostPreflightReporter {
-    return new HostPreflightReporter(scope, this.publish, this.onFailure);
+  fork(scope: HostPreflightScope, context = this.context): HostPreflightReporter {
+    // Profiles within one scope contribute to the same admission checklist.
+    return new HostPreflightReporter(scope, this.publish, this.onFailure,
+      context && { ...context, phase: scope.includes('cleanup') ? 'cleanup' : context.phase },
+      scope === this.scope ? this.progress.checks : undefined);
   }
 
   topology(value: MountTopologyEvidence): void {
@@ -131,7 +156,11 @@ export class HostPreflightReporter {
       this.pass(id);
       return result;
     } catch (error) {
-      this.fail(id, error);
+      try {
+        this.fail(id, error);
+      } catch (reportingError) {
+        throw new HostPreflightReportingError(error, reportingError);
+      }
       throw error;
     }
   }
@@ -145,7 +174,11 @@ export class HostPreflightReporter {
       this.pass(id);
       return result;
     } catch (error) {
-      this.fail(id, error);
+      try {
+        this.fail(id, error);
+      } catch (reportingError) {
+        throw new HostPreflightReportingError(error, reportingError);
+      }
       throw error;
     }
   }

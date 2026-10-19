@@ -52,8 +52,9 @@ export interface PatchResult {
 }
 
 const publishedAwfWorkflowLockFiles = new Set([
-  // The experimental enclave smoke keeps binary and attested VM artifacts release-matched.
+  // Cloud Hypervisor enclave smokes keep binaries and attested VM artifacts release-matched.
   'smoke-enclave-cloud-hypervisor.lock.yml',
+  'smoke-enclave-cloud-hypervisor-copilot.lock.yml',
   'auth-doctor-updater.lock.yml',
   'doc-maintainer.lock.yml',
   'model-api-mapping-updater.lock.yml',
