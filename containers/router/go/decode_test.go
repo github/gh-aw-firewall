@@ -45,6 +45,8 @@ func TestDecodeRequestRejections(t *testing.T) {
 		{"empty effort", `{"conversation":[],"models":[{"id":"a","model":"p/m","effort":""}],"objective":{"goal":"cost","mode":"balanced"}}`, Invalid, "effort"},
 		{"text null", `{"conversation":[{"role":"user","parts":[{"text":null}]}],"objective":{"goal":"cost","mode":"balanced"}}`, Invalid, "exactly one"},
 		{"tool call null", `{"conversation":[{"role":"user","parts":[{"tool_call":null}]}],"objective":{"goal":"cost","mode":"balanced"}}`, Invalid, "exactly one"},
+		{"text with null tool call", `{"conversation":[{"role":"user","parts":[{"text":"Fix this","tool_call":null}]}],"objective":{"goal":"cost","mode":"balanced"}}`, Invalid, "exactly one"},
+		{"tool result with null text", `{"conversation":[{"role":"user","parts":[{"tool_result":{"id":"a"},"text":null}]}],"objective":{"goal":"cost","mode":"balanced"}}`, Invalid, "exactly one"},
 		{"tool call name null", `{"conversation":[{"role":"user","parts":[{"tool_call":{"id":"a","name":null}}]}],"objective":{"goal":"cost","mode":"balanced"}}`, Invalid, "tool_call"},
 		{"tool result without id", `{"conversation":[{"role":"user","parts":[{"tool_result":{"text":"x"}}]}],"objective":{"goal":"cost","mode":"balanced"}}`, Invalid, "tool_result"},
 		{"current id empty", strings.Replace(routeBase, "%s", `,"current_id":""`, 1), Invalid, "current_id"},
@@ -72,6 +74,7 @@ func TestDecodeClassifyRequestRejections(t *testing.T) {
 		{"models null", `{"conversation":[],"models":null}`, "null"},
 		{"context window", `{"conversation":[],"models":[{"id":"a","model":"p/m","context_window":5}]}`, "context_window"},
 		{"duplicate ids", `{"conversation":[],"models":[{"id":"same","model":"provider/first"},{"id":"same","model":"provider/second"}]}`, "model choice ids must be unique"},
+		{"text with null tool call", `{"conversation":[{"role":"user","parts":[{"text":"Fix this","tool_call":null}]}],"models":[]}`, "exactly one"},
 		{"objective", strings.Replace(classifyBase, "%s", `,"objective":{"goal":"cost","mode":"balanced"}`, 1), "objective"},
 		{"repository", strings.Replace(classifyBase, "%s", `,"repository":" "`, 1), "repository"},
 		{"api_version", strings.Replace(classifyBase, "%s", `,"api_version":"0.2.0"`, 1), "api_version"},
@@ -91,12 +94,13 @@ func TestDecodeClassifyRequestRejections(t *testing.T) {
 
 func TestLastValueWins(t *testing.T) {
 	cases := []struct{ name, in, want string }{
-		{"no repeats", `{"b": [1, {"c": null}], "a": "x"}`, `{"b":[1,{"c":null}],"a":"x"}`},
-		{"first position, last value", `{"a":1,"b":2,"a":3}`, `{"a":3,"b":2}`},
+		{"no repeats unchanged", `{"b": [1, {"c": null}], "a": "x"}`, `{"b": [1, {"c": null}], "a": "x"}`},
+		{"last member kept", `{"a":1,"b":2,"a":3}`, `{"b":2,"a":3}`},
 		{"objects replaced, not merged", `{"o":{"x":1},"o":{"y":2}}`, `{"o":{"y":2}}`},
 		{"nested in arrays", `[{"r":"a","r":"b"},[{"k":1,"k":{}}]]`, `[{"r":"b"},[{"k":{}}]]`},
-		{"escaped name repeats plain name", `{"a":1,"\u0061":2}`, `{"a":2}`},
-		{"scalars keep their text", `{"n":1.0,"e":1e400,"s":"\u00e9"}`, `{"n":1.0,"e":1e400,"s":"\u00e9"}`},
+		{"nested repeats inside a superseded value", `{"o":{"x":1,"x":2},"o":{"x":3,"x":4},"p":5}`, `{"o":{"x":4},"p":5}`},
+		{"escaped name repeats plain name", `{"a":1,"\u0061":2}`, `{"\u0061":2}`},
+		{"scalars keep their text", `{"d":0,"n":1.0,"e":1e400,"s":"\u00e9","d":1}`, `{"n":1.0,"e":1e400,"s":"\u00e9","d":1}`},
 		{"scalar", `-0`, `-0`},
 	}
 	for _, c := range cases {
@@ -135,7 +139,7 @@ func TestDecodeRouteRequestValues(t *testing.T) {
 		t.Fatal(err)
 	}
 	parts := req.Conversation[0].Parts
-	if got := string(parts[0].ToolCall.Input); got != `{"a":[1,2]}` {
+	if got := string(parts[0].ToolCall.Input); got != `{"a": [1, 2]}` {
 		t.Errorf("input = %q", got)
 	}
 	if got := string(parts[1].ToolCall.Input); got != "null" {

@@ -173,6 +173,18 @@ func TestParseTableAcceptsOmittedSchemaVersion(t *testing.T) {
 	mustTable(t, doc)
 }
 
+func TestParseTableRepeatedKeys(t *testing.T) {
+	valid := marshal(t, syntheticDocument())
+	earlier := append([]byte(`{"schema_version":2,`), valid[1:]...)
+	if _, err := ParseTable(earlier); err != nil {
+		t.Errorf("an earlier repeated schema_version was not replaced: %v", err)
+	}
+	partial := append(slices.Clone(valid[:len(valid)-1]), `,"profile":{"goal":"cost"}}`...)
+	if _, err := ParseTable(partial); err == nil {
+		t.Error("a repeated partial profile was merged into the earlier one")
+	}
+}
+
 func TestParseTableRejectsNonTables(t *testing.T) {
 	valid := marshal(t, syntheticDocument())
 	for name, data := range map[string][]byte{

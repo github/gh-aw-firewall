@@ -200,7 +200,6 @@ decisions:
 | `NaN` and `Infinity` | Accepted in tool input and as a context window | Malformed JSON, as RFC 8259 requires |
 | JSON nesting and digit limits | pydantic rejects about 195 levels of nesting and integers over 4,300 digits | No such limits. The HTTP body limit bounds the request |
 | Huge context windows | Kept as an arbitrary-precision integer | Saturate at the largest `uint64` |
-| Tool input in the context estimate | Python's `repr` of numbers, such as `1e+16` and `0` for `-0` | Go's shortest form, such as `10000000000000000` and `-0`. The token estimate changes by at most a few tokens |
 | Error details | pydantic's wording | The Go decoder's wording. The error code, HTTP status and CLI exit status are the same |
 
 ## After the Python router is removed

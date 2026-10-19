@@ -2,9 +2,11 @@ package main
 
 import (
 	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 )
 
 // TaskType is the kind of work a request asks for.
@@ -135,13 +137,13 @@ type Message struct {
 
 // Text joins the message's text parts, excluding tool content.
 func (m Message) Text() string {
-	var text string
+	var text strings.Builder
 	for _, part := range m.Parts {
 		if part.Text != nil {
-			text += *part.Text
+			text.WriteString(*part.Text)
 		}
 	}
-	return text
+	return text.String()
 }
 
 // Part is exactly one of a text fragment, a tool call or a tool result.
@@ -149,6 +151,24 @@ type Part struct {
 	Text       *string     `json:"text,omitzero"`
 	ToolCall   *ToolCall   `json:"tool_call,omitzero"`
 	ToolResult *ToolResult `json:"tool_result,omitzero"`
+}
+
+// UnmarshalJSONFrom rejects a part with more than one member, even when the others
+// are null, as the closed Python part variants do.
+func (p *Part) UnmarshalJSONFrom(dec *jsontext.Decoder) error {
+	value, err := dec.ReadValue()
+	if err != nil {
+		return err
+	}
+	var members map[string]jsontext.Value
+	if err := json.Unmarshal(value, &members, jsontext.AllowDuplicateNames(true)); err != nil {
+		return err
+	}
+	if len(members) > 1 {
+		return errors.New("must have exactly one of text, tool_call or tool_result")
+	}
+	type part Part
+	return json.Unmarshal(value, (*part)(p), dec.Options())
 }
 
 // ToolCall is a tool invocation. Input is free-form JSON, kept as raw text; it is

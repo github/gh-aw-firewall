@@ -213,6 +213,22 @@ func TestContextEstimate(t *testing.T) {
 	}
 }
 
+func TestToolInputLength(t *testing.T) {
+	// The lengths Python's estimate gives for the same inputs.
+	for input, want := range map[string]int{
+		`{"\u0061": "\u0062", "n": 1e400}`:                                   len(`{"a":"b","n":Infinity}`),
+		`[1E5, -0, -0.0, 1e16, 1.5e-7, 0.0001, 1.0e2, 18446744073709551617]`: len(`[100000.0,0,-0.0,1e+16,1.5e-07,0.0001,100.0,18446744073709551617]`),
+		`{"a": 1, "a": {"b": "\n"}}`:                                         len(`{"a":{"b":"\n"}}`),
+		`[0.30000000000000004, 1e-400, 5e-324, 123456789012345678901.5, 9.999999999999999e-5, 1e22, "\u001f\u2028\u007f\"/"]`: 97,
+		`null`: 0,
+		``:     0,
+	} {
+		if got := inputLength(jsontext.Value(input)); got != want {
+			t.Errorf("inputLength(%s) = %d, want %d", input, got, want)
+		}
+	}
+}
+
 func TestServiceCapabilities(t *testing.T) {
 	doc := syntheticDocument("provider/fast", "provider/reasoning:medium", "provider/reasoning:low", "a/model:high")
 	s, err := NewService([]*Table{mustTable(t, doc)})

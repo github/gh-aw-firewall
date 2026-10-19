@@ -77,24 +77,7 @@ ALLOWED: dict[str, frozenset[str]] = {
         }
     ),
     "context": frozenset(
-        f"token-{name}"
-        for name in (
-            "int-zero-negative",
-            "float-zero-negative",
-            "float-exponent-upper",
-            "float-1e15",
-            "float-1e16",
-            "float-small-exponent",
-            "float-1e-5",
-            "float-underflow",
-            "float-overflow",
-            "float-nan",
-            "float-infinity",
-            "float-negative-infinity",
-            "float-hundred",
-            "float-large",
-            "float-unsafe-int",
-        )
+        f"token-float-{name}" for name in ("nan", "infinity", "negative-infinity")
     ),
 }
 

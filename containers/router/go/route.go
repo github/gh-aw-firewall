@@ -1,15 +1,18 @@
 package main
 
 import (
+	"bytes"
 	"cmp"
 	"encoding/json/jsontext"
-	"encoding/json/v2"
 	"errors"
 	"fmt"
+	"io"
 	"maps"
+	"math"
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"unicode/utf8"
 )
@@ -39,20 +42,65 @@ func estimateContext(conversation []Message) (characters, tokens int) {
 }
 
 // inputLength is the length in characters of the tool input re-encoded as compact
-// JSON. An omitted or null input counts as zero.
+// JSON, spelling numbers as Python does after parsing. An omitted or null input
+// counts as zero.
 func inputLength(v jsontext.Value) int {
-	var value any
-	if len(v) == 0 || json.Unmarshal(v, &value, jsontext.AllowDuplicateNames(true)) != nil {
-		return utf8.RuneCount(v)
-	}
-	if value == nil {
-		return 0
-	}
-	data, err := json.Marshal(value)
+	data, err := lastValueWins(v)
 	if err != nil {
 		return utf8.RuneCount(v)
 	}
-	return utf8.RuneCount(data)
+	dec := jsontext.NewDecoder(bytes.NewReader(data))
+	var out bytes.Buffer
+	enc := jsontext.NewEncoder(&out)
+	adjust := 0
+	for {
+		token, err := dec.ReadToken()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return utf8.RuneCount(v)
+		}
+		switch token.Kind() {
+		case 'n':
+			if dec.StackDepth() == 0 {
+				return 0
+			}
+		case '0':
+			raw := token.String()
+			adjust += len(pythonNumber(raw)) - len(raw)
+		}
+		if err := enc.WriteToken(token); err != nil {
+			return utf8.RuneCount(v)
+		}
+	}
+	return utf8.RuneCount(bytes.TrimSuffix(out.Bytes(), []byte("\n"))) + adjust
+}
+
+// pythonNumber spells a JSON number as Python's json.dumps does after parsing it:
+// integers exactly, floats as their shortest repr and overflowing floats as
+// Infinity.
+func pythonNumber(raw string) string {
+	if !strings.ContainsAny(raw, ".eE") {
+		if raw == "-0" {
+			return "0"
+		}
+		return raw
+	}
+	f, _ := strconv.ParseFloat(raw, 64)
+	switch abs := math.Abs(f); {
+	case math.IsInf(f, 1):
+		return "Infinity"
+	case math.IsInf(f, -1):
+		return "-Infinity"
+	case abs != 0 && (abs < 1e-4 || abs >= 1e16):
+		return strconv.FormatFloat(f, 'e', -1, 64)
+	}
+	s := strconv.FormatFloat(f, 'f', -1, 64)
+	if !strings.Contains(s, ".") {
+		s += ".0"
+	}
+	return s
 }
 
 // Route filters the offered candidates to the pairs this table ranks that have

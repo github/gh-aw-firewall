@@ -109,79 +109,82 @@ func decode(data []byte, v any) error {
 	return nil
 }
 
-// lastValueWins rewrites a JSON value so that each object keeps only the last value
-// of a repeated key, at the position of its first occurrence, as a Python dict does.
-// The last value replaces earlier ones rather than being merged with them, which
-// unmarshalling a repeated key into the same Go struct would do. Scalars keep their
-// original text.
+// lastValueWins removes each object member whose key is repeated later in the same
+// object, so the last value replaces earlier ones as in a Python dict, rather than
+// being merged with them, which unmarshalling a repeated key into the same Go
+// struct would do. Input without repeated keys is returned unchanged. Otherwise the
+// output is compact and scalars keep their original text.
 func lastValueWins(data []byte) ([]byte, error) {
+	superseded, err := supersededMembers(data)
+	if err != nil || len(superseded) == 0 {
+		return data, err
+	}
 	dec := jsontext.NewDecoder(bytes.NewReader(data), jsontext.AllowDuplicateNames(true))
-	return appendLastValueWins(nil, dec)
-}
-
-func appendLastValueWins(dst []byte, dec *jsontext.Decoder) ([]byte, error) {
-	switch dec.PeekKind() {
-	case '{':
-		if _, err := dec.ReadToken(); err != nil {
+	var out bytes.Buffer
+	enc := jsontext.NewEncoder(&out, jsontext.AllowDuplicateNames(true), jsontext.PreserveRawStrings(true))
+	for {
+		if atMemberName(dec) && superseded[dec.InputOffset()] {
+			if _, err := dec.ReadToken(); err != nil {
+				return nil, err
+			}
+			if err := dec.SkipValue(); err != nil {
+				return nil, err
+			}
+			continue
+		}
+		token, err := dec.ReadToken()
+		if err == io.EOF {
+			return bytes.TrimSuffix(out.Bytes(), []byte("\n")), nil
+		}
+		if err != nil {
 			return nil, err
 		}
-		var names []string
-		values := map[string][]byte{}
-		for dec.PeekKind() != '}' {
+		if err := enc.WriteToken(token); err != nil {
+			return nil, err
+		}
+	}
+}
+
+// supersededMembers returns the input offsets of the object members whose key is
+// repeated later in the same object.
+func supersededMembers(data []byte) (map[int64]bool, error) {
+	dec := jsontext.NewDecoder(bytes.NewReader(data), jsontext.AllowDuplicateNames(true))
+	superseded := map[int64]bool{}
+	var objects []map[string]int64
+	for {
+		if atMemberName(dec) {
+			offset := dec.InputOffset()
 			token, err := dec.ReadToken()
 			if err != nil {
 				return nil, err
 			}
+			names := objects[len(objects)-1]
 			name := token.String()
-			value, err := appendLastValueWins(nil, dec)
-			if err != nil {
-				return nil, err
+			if previous, ok := names[name]; ok {
+				superseded[previous] = true
 			}
-			if _, seen := values[name]; !seen {
-				names = append(names, name)
-			}
-			values[name] = value
+			names[name] = offset
+			continue
 		}
-		if _, err := dec.ReadToken(); err != nil {
-			return nil, err
+		token, err := dec.ReadToken()
+		if err == io.EOF {
+			return superseded, nil
 		}
-		dst = append(dst, '{')
-		for i, name := range names {
-			if i > 0 {
-				dst = append(dst, ',')
-			}
-			var err error
-			if dst, err = jsontext.AppendQuote(dst, name); err != nil {
-				return nil, err
-			}
-			dst = append(append(dst, ':'), values[name]...)
-		}
-		return append(dst, '}'), nil
-	case '[':
-		if _, err := dec.ReadToken(); err != nil {
-			return nil, err
-		}
-		dst = append(dst, '[')
-		for i := 0; dec.PeekKind() != ']'; i++ {
-			if i > 0 {
-				dst = append(dst, ',')
-			}
-			var err error
-			if dst, err = appendLastValueWins(dst, dec); err != nil {
-				return nil, err
-			}
-		}
-		if _, err := dec.ReadToken(); err != nil {
-			return nil, err
-		}
-		return append(dst, ']'), nil
-	default:
-		value, err := dec.ReadValue()
 		if err != nil {
 			return nil, err
 		}
-		return append(dst, value...), nil
+		switch token.Kind() {
+		case '{':
+			objects = append(objects, map[string]int64{})
+		case '}':
+			objects = objects[:len(objects)-1]
+		}
 	}
+}
+
+func atMemberName(dec *jsontext.Decoder) bool {
+	kind, length := dec.StackIndex(dec.StackDepth())
+	return kind == '{' && length%2 == 0 && dec.PeekKind() == '"'
 }
 
 func checkSyntax(data []byte) error {

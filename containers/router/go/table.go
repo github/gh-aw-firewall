@@ -67,8 +67,14 @@ func LoadTable(path string) (*Table, error) {
 // model identities, full label coverage and rankings that permute one catalogue.
 func ParseTable(data []byte) (*Table, error) {
 	var doc tableDocument
-	err := json.Unmarshal(data, &doc, json.RejectUnknownMembers(true), jsontext.AllowDuplicateNames(true))
+	if err := checkSyntax(data); err != nil {
+		return nil, fmt.Errorf("invalid JSON: %w", err)
+	}
+	data, err := lastValueWins(data)
 	if err != nil {
+		return nil, fmt.Errorf("invalid JSON: %w", err)
+	}
+	if err := json.Unmarshal(data, &doc, json.RejectUnknownMembers(true)); err != nil {
 		return nil, errors.New(strings.TrimPrefix(err.Error(), "json: "))
 	}
 	switch {

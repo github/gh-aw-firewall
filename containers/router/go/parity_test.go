@@ -114,25 +114,12 @@ func conversationRequest(t *testing.T, conversation []byte) *RouteRequest {
 	return req
 }
 
-// contextDifferences lists cases where Go's estimate deliberately differs. Go
-// re-encodes tool input numbers in ES6 shortest form rather than Python's repr,
-// and rejects NaN and Infinity as malformed JSON (shown as -1).
+// contextDifferences lists cases where Go's estimate deliberately differs: Go
+// rejects NaN and Infinity as malformed JSON (shown as -1).
 var contextDifferences = map[string]struct{ characters, tokens int }{
-	"token-int-zero-negative":       {6, 2},
-	"token-float-zero-negative":     {6, 2},
-	"token-float-exponent-upper":    {10, 3},
-	"token-float-1e15":              {20, 5},
-	"token-float-1e16":              {21, 6},
-	"token-float-small-exponent":    {10, 3},
-	"token-float-1e-5":              {11, 3},
-	"token-float-underflow":         {5, 2},
-	"token-float-overflow":          {9, 3},
 	"token-float-nan":               {-1, -1},
 	"token-float-infinity":          {-1, -1},
 	"token-float-negative-infinity": {-1, -1},
-	"token-float-hundred":           {7, 2},
-	"token-float-large":             {25, 7},
-	"token-float-unsafe-int":        {20, 5},
 }
 
 func TestContextParity(t *testing.T) {
