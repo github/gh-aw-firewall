@@ -8,6 +8,8 @@ import { createLocalSourceResolver } from './mount-topology';
 import { ensureNestedMountpoints } from './nested-mountpoints';
 import { buildDockerSocketMount } from './docker-socket';
 import { buildEtcMounts } from './etc-mounts';
+import { isSysrootEnabled } from '../sysroot-service';
+import { GEMINI_CLI_SYSTEM_SETTINGS_PATH, getGeminiSystemSettingsSourcePath, isGeminiProxyRoutingEnabled, shouldPinGeminiAuthType } from '../credentials/gemini-cli-settings';
 import { buildHomeMounts } from './home-strategy';
 import { generateHostsFileMount } from './hosts-file';
 import { buildSslMounts } from './ssl-mounts';
@@ -67,6 +69,9 @@ export function buildAgentVolumes(params: AgentVolumesParams): string[] {
     config, effectiveHome, agentLogsPath, sessionStatePath, pathExists: params.pathExists,
   }));
   agentVolumes.push(...buildEtcMounts(config, params.pathExists));
+  if (process.getuid?.() === 0 && !isSysrootEnabled(config) && isGeminiProxyRoutingEnabled(config) && shouldPinGeminiAuthType(config)) {
+    agentVolumes.push(`${getGeminiSystemSettingsSourcePath(config.workDir)}:/host${GEMINI_CLI_SYSTEM_SETTINGS_PATH}:ro`);
+  }
   // When sysroot-stage is active, the sysroot volume provides /etc/hosts.
   // The generated chroot hosts file lives on the runner's /tmp which the
   // Docker daemon cannot see on split-fs. DNS pre-resolution is skipped;

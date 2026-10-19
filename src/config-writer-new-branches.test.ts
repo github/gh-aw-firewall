@@ -43,7 +43,6 @@ jest.mock('./ssl-bump', () => ({
 
 jest.mock('./host-env', () => ({
   SQUID_PORT: 3128,
-  stripScheme: jest.fn((v: string) => v),
   getSafeHostUid: jest.fn().mockReturnValue('1000'),
   getSafeHostGid: jest.fn().mockReturnValue('1000'),
   getRealUserHome: jest.fn().mockReturnValue('/home/test'),

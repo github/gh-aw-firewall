@@ -192,6 +192,7 @@ describe('docker-manager (barrel re-exports)', () => {
     it('rejects malformed values and bad ports', () => {
       expect(() => dockerManager.parseDifcProxyHost('http://')).not.toThrow();
       expect(() => dockerManager.parseDifcProxyHost('ex ample:80')).toThrow(/Invalid --difc-proxy-host/);
+      expect(() => dockerManager.parseDifcProxyHost('host:abc')).toThrow(/Invalid --difc-proxy-host/);
       expect(() => dockerManager.parseDifcProxyHost('host:99999')).toThrow(/Invalid --difc-proxy-host/);
       expect(() => dockerManager.parseDifcProxyHost('host:0')).toThrow(/Between 1 and 65535|between 1 and 65535/);
     });
@@ -230,6 +231,5 @@ describe('docker-manager (barrel re-exports)', () => {
       expect(dockerManager.filterCapDrop([], null)).toEqual([]);
     });
   });
-
 
 });

@@ -8,22 +8,15 @@ import { runtimeUsesComposeAgent } from '../../container-runtime';
 const GEMINI_CLI_API_KEY_AUTH_TYPE = 'gemini-api-key';
 
 /**
- * Location of the AWF-owned Gemini CLI *system* settings file, relative to the
- * agent's home directory. It lives in the empty chroot home volume, so AWF never
- * writes into the host's real `~/.gemini` directory.
+ * Location of the AWF-owned Gemini CLI system settings inside the agent chroot.
+ * Gemini verifies root ownership and permissions of every ancestor, so this
+ * cannot live below the runner-owned home.
  */
-export const GEMINI_CLI_SYSTEM_SETTINGS_RELATIVE_PATH = path.join('.awf', 'gemini-cli-system-settings.json');
+export const GEMINI_CLI_SYSTEM_SETTINGS_PATH = '/etc/awf/gemini-cli/settings.json';
 
-/**
- * Absolute path of the system settings file as seen by the agent.
- *
- * Callers pass the host's real user home (`getRealUserHome()`): the empty chroot home
- * volume created by `prepareChrootHomeMounts()` is bind-mounted at exactly that path
- * inside the agent (see `buildHomeMounts()` / `compose-generator.ts`), so the host-side
- * write location and the agent-side lookup path always agree.
- */
-export function getGeminiSystemSettingsPath(home: string): string {
-  return path.join(home, GEMINI_CLI_SYSTEM_SETTINGS_RELATIVE_PATH);
+/** Root-owned staging directory; only the settings file is mounted into the agent. */
+export function getGeminiSystemSettingsSourcePath(workDir: string): string {
+  return path.join(workDir, 'gemini-system-settings', 'settings.json');
 }
 
 /**

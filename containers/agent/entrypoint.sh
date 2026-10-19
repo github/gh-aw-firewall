@@ -1630,6 +1630,51 @@ AWFEOF
   chmod +x "/host${SCRIPT_FILE}"
 }
 
+prepare_gemini_system_settings() {
+  [ "${AWF_GEMINI_SYSTEM_SETTINGS_FALLBACK:-}" = "1" ] || return 0
+  [ "${GEMINI_CLI_SYSTEM_SETTINGS_PATH:-}" = "/etc/awf/gemini-cli/settings.json" ] || {
+    echo "[entrypoint][ERROR] Unexpected Gemini system settings path" >&2
+    return 1
+  }
+  local settings="/host/etc/awf/gemini-cli/settings.json"
+  local content='{"security":{"auth":{"selectedType":"gemini-api-key"}}}'
+  local entry mode
+  for entry in /host/etc /host/etc/awf /host/etc/awf/gemini-cli "$settings"; do
+    if [ -L "$entry" ]; then
+      echo "[entrypoint][ERROR] Refusing symlink in Gemini system settings path: $entry" >&2
+      return 1
+    fi
+    if [ -e "$entry" ]; then
+      mode="$(stat -c %a "$entry")"
+      if [ "$(stat -c %u "$entry")" != "0" ] || [ "$(stat -c %g "$entry")" != "0" ] ||
+        (( (8#$mode & 0022) != 0 )); then
+        echo "[entrypoint][ERROR] Unsafe ownership or permissions in Gemini system settings path: $entry" >&2
+        return 1
+      fi
+      if [ "$entry" != "$settings" ] && [ ! -d "$entry" ]; then
+        echo "[entrypoint][ERROR] Expected directory in Gemini system settings path: $entry" >&2
+        return 1
+      fi
+    fi
+  done
+  if [ -e "$settings" ]; then
+    if [ ! -f "$settings" ] || [ "$(stat -c %h "$settings")" != "1" ] ||
+      [ "$(cat "$settings")" != "$content" ]; then
+      echo "[entrypoint][ERROR] Existing Gemini system settings are not an AWF auth pin" >&2
+      return 1
+    fi
+    unset AWF_GEMINI_SYSTEM_SETTINGS_FALLBACK
+    return 0
+  fi
+  mkdir -p /host/etc/awf/gemini-cli
+  chown 0:0 /host/etc/awf /host/etc/awf/gemini-cli
+  chmod 0755 /host/etc/awf /host/etc/awf/gemini-cli
+  (umask 077; printf '%s\n' "$content" > "$settings")
+  chown 0:0 "$settings"
+  chmod 0644 "$settings"
+  unset AWF_GEMINI_SYSTEM_SETTINGS_FALLBACK
+}
+
 run_chroot_command() {
 # If chroot mode is enabled, run user command INSIDE the chroot /host
 # This provides transparent host binary access - user command sees host filesystem as /
@@ -1646,6 +1691,7 @@ run_chroot_command() {
   copy_awf_ca_cert
   copy_system_ca_bundle
   setup_chroot_etc
+  prepare_gemini_system_settings
 
   # Determine working directory inside the chroot
   # AWF_WORKDIR is set by docker-manager.ts (containerWorkDir or HOME)
