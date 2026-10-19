@@ -183,6 +183,24 @@ describe('ai-credits-guard', () => {
     expect(checkUnknownModelRejection('claude-sonnet-5')).toBeNull();
   });
 
+  it.each([
+    ['claude-sonnet-5.5', 0.335],
+    ['claude-opus-5.5', 0.67],
+    ['claude-fable-5.1', 1.65],
+  ])('prices anthropic/%s from the curated table without unknown-model rejection', (model, credits) => {
+    const prefixedModel = `anthropic/${model}`;
+    const usage = applyAiCreditsUsage({
+      input_tokens: 2000,
+      cache_read_tokens: 1000,
+      cache_write_tokens: 500,
+      output_tokens: 100,
+    }, prefixedModel);
+
+    expect(usage.aiCreditsThisResponse).toBeCloseTo(credits, 10);
+    expect(getAiCreditsReflectState().by_model[prefixedModel].pricing_source).toBe('curated');
+    expect(checkUnknownModelRejection(prefixedModel)).toBeNull();
+  });
+
   it('resolves gpt-6-astra from curated pricing without unknown-model rejection', () => {
     process.env.AWF_MAX_AI_CREDITS = '10';
     resetAiCreditsGuardForTests();
