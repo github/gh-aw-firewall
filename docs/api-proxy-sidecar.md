@@ -223,7 +223,7 @@ The agent container receives **redacted placeholders** and proxy URLs:
 | `GOOGLE_GEMINI_BASE_URL` | `http://172.30.0.30:10003` | `GEMINI_API_KEY` or GCP OIDC configured | Redirects Gemini CLI to proxy (primary var read by Gemini CLI) |
 | `GEMINI_API_BASE_URL` | `http://172.30.0.30:10003` | `GEMINI_API_KEY` or GCP OIDC configured | Redirects Gemini SDK to proxy (kept for backward compatibility) |
 | `GEMINI_API_KEY` | `gemini-api-key-placeholder-for-credential-isolation` | `GEMINI_API_KEY` or GCP OIDC configured | Placeholder so Gemini CLI auth check passes (real key or WIF token in sidecar) |
-| `GEMINI_CLI_SYSTEM_SETTINGS_PATH` | `$HOME/.awf/gemini-cli-system-settings.json` | Gemini routed through the proxy, unless `GOOGLE_GENAI_USE_VERTEXAI`/`GOOGLE_GENAI_USE_GCA` is `true` | AWF-owned Gemini CLI system settings file that pins `security.auth.selectedType` to `gemini-api-key` |
+| `GEMINI_CLI_SYSTEM_SETTINGS_PATH` | `/etc/awf/gemini-cli/settings.json` | Compose-backed Gemini routed through the proxy, unless `GOOGLE_GENAI_USE_VERTEXAI`/`GOOGLE_GENAI_USE_GCA` is `true` | Root-owned, read-only Gemini CLI system settings file that pins `security.auth.selectedType` to `gemini-api-key` |
 | `GOOGLE_VERTEX_BASE_URL` | `http://172.30.0.30:10004` | `GOOGLE_API_KEY` or GCP OIDC configured | Redirects Vertex AI requests to proxy |
 | `GOOGLE_API_KEY` | `google-api-key-placeholder-for-credential-isolation` | `GOOGLE_API_KEY` or GCP OIDC configured | Placeholder so Vertex mode auth checks pass (real key or WIF token in sidecar) |
 | `OPENAI_API_KEY` | `sk-placeholder-for-api-proxy` | `OPENAI_API_KEY` provided to host | Non-secret placeholder required by newer Codex clients; the real host value is excluded and held in the sidecar |
@@ -1065,7 +1065,7 @@ When `GEMINI_API_KEY` is provided to the AWF runner, `GOOGLE_GEMINI_BASE_URL`, `
 
 Gemini CLI **0.44.0 and newer** resolve *any* non-empty `GOOGLE_GEMINI_BASE_URL` to the internal `gateway` auth type in `getAuthTypeFromEnv()`, but their own `validateAuthMethod()` has no branch for that type and aborts with `Invalid auth method selected.` (exit code **41**) before a single request is issued. Because AWF must set `GOOGLE_GEMINI_BASE_URL` to route the CLI through the api-proxy sidecar, every proxied Gemini run hit this upstream regression (see [google-gemini/gemini-cli#27550](https://github.com/google-gemini/gemini-cli/issues/27550)). The placeholder `GEMINI_API_KEY` value is not involved — the CLI performs no key-format validation.
 
-**Resolution:** For Compose-backed agent runtimes, AWF writes an AWF-owned Gemini CLI *system* settings file into the agent's chroot home (`$HOME/.awf/gemini-cli-system-settings.json`) and points the CLI at it with `GEMINI_CLI_SYSTEM_SETTINGS_PATH`:
+**Resolution:** For Compose-backed agent runtimes, AWF stages an AWF-owned Gemini CLI *system* settings file at `/etc/awf/gemini-cli/settings.json` inside the chroot and points the CLI at it with `GEMINI_CLI_SYSTEM_SETTINGS_PATH`:
 
 ```json
 {
@@ -1077,11 +1077,52 @@ Gemini CLI **0.44.0 and newer** resolve *any* non-empty `GOOGLE_GEMINI_BASE_URL`
 }
 ```
 
-The CLI uses `settings.merged.security.auth.selectedType || getAuthTypeFromEnv()`, and the system settings scope has the highest merge precedence, so the API-key auth type wins over the `gateway` inference while `GOOGLE_GEMINI_BASE_URL` is still honoured for request routing. The file only sets `security.auth.selectedType`, so workspace settings (for example the `mcpServers` block written by `gh-aw`) are deep-merged untouched, and the host's real `~/.gemini` directory is never modified.
+The CLI uses `settings.merged.security.auth.selectedType || getAuthTypeFromEnv()`, and the system settings scope has the highest merge precedence, so the API-key auth type wins over the `gateway` inference while `GOOGLE_GEMINI_BASE_URL` is still honoured for request routing. The file only sets `security.auth.selectedType`, so workspace settings (for example the `mcpServers` block written by `gh-aw`) are deep-merged untouched. This policy staging does not write host Gemini user settings.
+
+The network-disabled `gemini-settings-init` service uses the agent image to populate
+the `gemini-system-settings` named volume as root (directory `0755`, file `0644`).
+The agent waits for successful initialization and mounts the directory read-only.
+The volume is daemon-local, so ARC/DinD does not depend on runner-side file binds;
+normal Compose teardown removes it with the other named volumes.
+
+Gemini CLI 0.64.0 validates root ownership and non-group/other-writable permissions
+on the file, every ancestor, and canonical symlink targets. The old
+`$HOME/.awf/gemini-cli-system-settings.json` path fails these checks even if its leaf
+is root-owned, because the agent home must remain runner-owned and writable. Do
+not change home ownership or disable Gemini's validation to work around this.
 
 The pin is skipped when `GOOGLE_GENAI_USE_VERTEXAI=true` or `GOOGLE_GENAI_USE_GCA=true`, since those auth types are resolved before the `gateway` branch and are unaffected.
 
 **Compatibility:** Gemini CLI 0.43.0 and earlier do not have the `gateway` branch and work with or without the pinned settings file; 0.44.0 and newer require AWF releases that include this fix (downgrading the CLI is no longer necessary).
+
+#### Offline secure-path regression
+
+After `npm run build`, run the opt-in Docker component check with an unmodified
+copy of Gemini CLI 0.64.0's validator. The harness verifies its SHA-256, transpiles
+the original validator without changing its POSIX checks, and supplies a `Map`
+cache; unused Windows/async dependencies fail if called. Source retrieval is a
+separate preparation step:
+
+```bash
+curl -fsSL \
+  https://raw.githubusercontent.com/google-gemini/gemini-cli/4a0749aceac5643e6f85a36d7420314d85e13b52/packages/core/src/utils/security.ts \
+  -o /tmp/gemini-security-0.64.0.ts
+node scripts/ci/gemini-system-settings-smoke.mjs /tmp/gemini-security-0.64.0.ts
+```
+
+The check requires a locally available `node:24-bookworm` image (override with
+`AWF_GEMINI_TEST_IMAGE`) and Docker Compose. It never pulls images, passes provider
+credentials, or calls a model. All test containers use `network_mode: none`.
+Named volumes avoid runner-to-daemon file binds, and teardown removes only the
+check's unique Compose project.
+
+As UID/GID `1001:1001`, it proves old-home-path rejection, new-system-path
+acceptance, writable-ancestor and symlink/canonical-target rejection, read-only
+policy access, and a still-writable home. It also checks initialization reuse and
+unsafe-file rejection, plus AWF's generated environment against a loopback fake
+proxy. This is not a full Gemini CLI authentication/inference run or proof of
+hosted smoke recovery; live ARC/DinD and gVisor integration still require their
+normal runtime checks after an approved AWF release.
 
 ### Gemini requests blocked by Squid (connection refused / raw-IP denied)
 

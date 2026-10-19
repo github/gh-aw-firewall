@@ -80,7 +80,7 @@ describe('buildGeminiCredentialEnv — Gemini CLI auth-type pinning', () => {
     delete process.env.GOOGLE_GENAI_USE_GCA;
 
     const result = buildGeminiCredentialEnv({ config, proxyIp });
-    expect(result.GEMINI_CLI_SYSTEM_SETTINGS_PATH).toMatch(/\.awf\/gemini-cli-system-settings\.json$/);
+    expect(result.GEMINI_CLI_SYSTEM_SETTINGS_PATH).toBe('/etc/awf/gemini-cli/settings.json');
   });
 
   it('does not pin the auth type when Vertex AI auth is selected in the agent environment', () => {

@@ -1,4 +1,3 @@
-import * as path from 'path';
 import { WrapperConfig } from '../../types';
 import { isGcpOidcConfigured } from './gcp-oidc-config';
 import { getConfigEnvValue } from '../../env-utils';
@@ -8,22 +7,17 @@ import { runtimeUsesComposeAgent } from '../../container-runtime';
 const GEMINI_CLI_API_KEY_AUTH_TYPE = 'gemini-api-key';
 
 /**
- * Location of the AWF-owned Gemini CLI *system* settings file, relative to the
- * agent's home directory. It lives in the empty chroot home volume, so AWF never
- * writes into the host's real `~/.gemini` directory.
+ * Gemini validates every ancestor of its system settings, so this must be
+ * outside the runner-owned home. A root-owned named volume supplies this
+ * directory read-only in the chroot, without exposing host system settings.
  */
-export const GEMINI_CLI_SYSTEM_SETTINGS_RELATIVE_PATH = path.join('.awf', 'gemini-cli-system-settings.json');
+export const GEMINI_CLI_SYSTEM_SETTINGS_DIRECTORY = '/etc/awf/gemini-cli';
 
 /**
- * Absolute path of the system settings file as seen by the agent.
- *
- * Callers pass the host's real user home (`getRealUserHome()`): the empty chroot home
- * volume created by `prepareChrootHomeMounts()` is bind-mounted at exactly that path
- * inside the agent (see `buildHomeMounts()` / `compose-generator.ts`), so the host-side
- * write location and the agent-side lookup path always agree.
+ * Absolute path of the system settings file as seen by the chrooted agent.
  */
-export function getGeminiSystemSettingsPath(home: string): string {
-  return path.join(home, GEMINI_CLI_SYSTEM_SETTINGS_RELATIVE_PATH);
+export function getGeminiSystemSettingsPath(): string {
+  return `${GEMINI_CLI_SYSTEM_SETTINGS_DIRECTORY}/settings.json`;
 }
 
 /**
