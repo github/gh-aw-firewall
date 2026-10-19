@@ -65,7 +65,7 @@ export interface CloudHypervisorPrimaryAgentProfile
     readonly kind: 'primary-agent';
     readonly invocationId?: never;
   };
-  readonly rootfsRole: 'primary-agent';
+  readonly artifact: 'primary';
   readonly network: CloudHypervisorPrimaryNetworkProfile;
   readonly exportPlan?: never;
   readonly guest?: CloudHypervisorManagerGuestConfig;
@@ -79,7 +79,7 @@ export interface CloudHypervisorScriptEnclaveProfile
     readonly kind: 'script-enclave';
     readonly invocationId: string;
   };
-  readonly rootfsRole: 'script-enclave';
+  readonly artifact: 'enclave';
   readonly network: CloudHypervisorNoNetworkProfile;
   readonly exportPlan: CloudHypervisorEnclaveExportPlan;
   readonly guest: CloudHypervisorManagerGuestConfig;
@@ -95,7 +95,7 @@ export interface CloudHypervisorAgentEnclaveProfile
     readonly kind: 'agent-enclave';
     readonly invocationId: string;
   };
-  readonly rootfsRole: 'agent-enclave';
+  readonly artifact: 'enclave';
   readonly network: CloudHypervisorEnclaveAgentNetworkProfile;
   readonly exportPlan: CloudHypervisorEnclaveExportPlan;
   readonly guest: CloudHypervisorManagerGuestConfig;
@@ -146,6 +146,11 @@ export const CLOUD_HYPERVISOR_ENCLAVE_RESOURCE_PROFILES = Object.freeze({
   }),
 }) satisfies Readonly<Record<'script' | 'agent', CloudHypervisorEnclaveResourceProfile>>;
 
+export const CLOUD_HYPERVISOR_ENCLAVE_ENTRYPOINTS = Object.freeze({
+  script: '/usr/local/bin/run-enclave-script',
+  agent: '/usr/local/bin/run-enclave-agent',
+} as const);
+
 export function createPrimaryAgentCloudHypervisorProfile(options: {
   readonly network: Omit<CloudHypervisorPrimaryNetworkProfile, 'mode'>;
   readonly guest?: CloudHypervisorManagerGuestConfig;
@@ -153,7 +158,7 @@ export function createPrimaryAgentCloudHypervisorProfile(options: {
   return sealCloudHypervisorWorkloadProfile({
     kind: 'primary-agent',
     identity: { kind: 'primary-agent', ownerId: 'primary-agent' },
-    rootfsRole: 'primary-agent',
+    artifact: 'primary',
     network: { mode: 'primary', ...options.network },
     ...(options.guest ? { guest: options.guest } : {}),
     rawOutput: 'capture',
@@ -177,12 +182,16 @@ export function createScriptEnclaveCloudHypervisorProfile(options: {
       ownerId: options.enclaveId,
       invocationId: options.invocationId,
     },
-    rootfsRole: 'script-enclave',
+    artifact: 'enclave',
     network: { mode: 'none' },
     exportPlan: options.exportPlan,
     resources: CLOUD_HYPERVISOR_ENCLAVE_RESOURCE_PROFILES.script,
     guest: {
       ...options.guest,
+      identity: options.guest.identity ?? {
+        uid: CLOUD_HYPERVISOR_ENCLAVE_RESOURCE_PROFILES.script.uid,
+        gid: CLOUD_HYPERVISOR_ENCLAVE_RESOURCE_PROFILES.script.gid,
+      },
       vsockPort: options.guest.vsockPort ?? CLOUD_HYPERVISOR_ENCLAVE_VSOCK_PORT,
       enclaveResources: CLOUD_HYPERVISOR_ENCLAVE_RESOURCE_PROFILES.script,
       exports: validateCloudHypervisorEnclaveExportPlan(options.exportPlan, 'script', {
@@ -216,7 +225,7 @@ export function createAgentEnclaveCloudHypervisorProfile(options: {
       ownerId: options.enclaveId,
       invocationId: options.invocationId,
     },
-    rootfsRole: 'agent-enclave',
+    artifact: 'enclave',
     network: {
       mode: 'enclave-agent',
       apiProxy: options.apiProxy,
@@ -226,6 +235,10 @@ export function createAgentEnclaveCloudHypervisorProfile(options: {
     resources: CLOUD_HYPERVISOR_ENCLAVE_RESOURCE_PROFILES.agent,
     guest: {
       ...options.guest,
+      identity: options.guest.identity ?? {
+        uid: CLOUD_HYPERVISOR_ENCLAVE_RESOURCE_PROFILES.agent.uid,
+        gid: CLOUD_HYPERVISOR_ENCLAVE_RESOURCE_PROFILES.agent.gid,
+      },
       vsockPort: options.guest.vsockPort ?? CLOUD_HYPERVISOR_ENCLAVE_VSOCK_PORT,
       enclaveResources: CLOUD_HYPERVISOR_ENCLAVE_RESOURCE_PROFILES.agent,
       exports: validateCloudHypervisorEnclaveExportPlan(options.exportPlan, 'agent', {
@@ -245,13 +258,16 @@ export function validateCloudHypervisorWorkloadProfile(
   if (!profile || typeof profile !== 'object') {
     throw new Error('Cloud Hypervisor workload profile is required');
   }
-  if (profile.kind !== profile.identity?.kind || profile.kind !== profile.rootfsRole) {
-    throw new Error('Cloud Hypervisor workload profile identity and rootfs role must match its kind');
+  if (
+    profile.kind !== profile.identity?.kind ||
+    profile.artifact !== (profile.kind === 'primary-agent' ? 'primary' : 'enclave')
+  ) {
+    throw new Error('Cloud Hypervisor workload profile identity and artifact must match its kind');
   }
   const allowedProfileKeys = [
     'kind',
     'identity',
-    'rootfsRole',
+    'artifact',
     'network',
     'guest',
     'exportPlan',
@@ -416,6 +432,12 @@ function validateGuest(profile: CloudHypervisorWorkloadProfile): void {
   if (profile.kind !== 'primary-agent') {
     if (!sameResourceProfile(profile.guest.enclaveResources, profile.resources)) {
       throw new Error(`Cloud Hypervisor ${profile.kind} guest resource profile is missing or inconsistent`);
+    }
+    if (
+      profile.guest.identity?.uid !== profile.resources.uid ||
+      profile.guest.identity.gid !== profile.resources.gid
+    ) {
+      throw new Error(`Cloud Hypervisor ${profile.kind} guest identity must match its fixed resource profile`);
     }
     if (profile.guest.mountEnforcement !== undefined) {
       throw new Error(`Cloud Hypervisor ${profile.kind} must use its closed export access modes`);

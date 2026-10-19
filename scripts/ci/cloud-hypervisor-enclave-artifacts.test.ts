@@ -4,6 +4,10 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { execFileSync, spawnSync } from 'child_process';
 import { createHash } from 'crypto';
+import {
+  CLOUD_HYPERVISOR_ENCLAVE_ENTRYPOINTS,
+  CLOUD_HYPERVISOR_ENCLAVE_RESOURCE_PROFILES,
+} from '../../src/cloud-hypervisor/workload-profile';
 
 const root = path.resolve(__dirname, '../..');
 const buildPath = path.join(root, 'guest/cloud-hypervisor/build-test-artifacts.sh');
@@ -26,6 +30,36 @@ function releaseStep(name: string): string {
 }
 
 describe('Cloud Hypervisor enclave rootfs artifacts', () => {
+  it('keeps guest enforcement and shared build metadata aligned with trusted host policy', () => {
+    const guest = fs.readFileSync(path.join(root, 'guest/microvm-supervisor/resources_linux.go'), 'utf8');
+    const build = fs.readFileSync(buildPath, 'utf8');
+    const sharedManifest = build.slice(build.indexOf('"schemaVersion": 2,'));
+    expect(sharedManifest).not.toBe(build);
+    expect(sharedManifest).toContain('"file": "enclave-rootfs.ext4"');
+    for (const role of ['script', 'agent'] as const) {
+      const profile = CLOUD_HYPERVISOR_ENCLAVE_RESOURCE_PROFILES[role];
+      const match = guest.match(new RegExp(`case "${role}":\\s*return enclaveResourceProfile\\{([^}]+)\\}, nil`));
+      expect(match).not.toBeNull();
+      const fields = match![1];
+      const guestValue = (name: string) => {
+        const value = fields.match(new RegExp(`\\b${name}:\\s*(\\d+)(\\s*\\*\\s*1024\\s*\\*\\s*1024)?`));
+        expect(value).not.toBeNull();
+        return Number(value![1]) * (value![2] ? 1024 * 1024 : 1);
+      };
+      expect(guestValue('uid')).toBe(profile.uid);
+      expect(guestValue('gid')).toBe(profile.gid);
+      expect(guestValue('maxProcesses')).toBe(profile.maxProcesses);
+      expect(guestValue('maxFileBytes')).toBe(profile.maxFileBytes);
+      expect(guestValue('maxOpenFiles')).toBe(profile.maxOpenFiles);
+      expect(guestValue('primaryTmpfsMax')).toBe(profile.tmpfsBytes);
+      expect(fields).toMatch(new RegExp(`primaryTmpfs:\\s*"${role === 'script' ? '/query' : '/tmp'}"`));
+      expect(sharedManifest).toContain(`"${role}": "${CLOUD_HYPERVISOR_ENCLAVE_ENTRYPOINTS[role]}"`);
+      expect(build).toContain(`test -x "$tree${CLOUD_HYPERVISOR_ENCLAVE_ENTRYPOINTS[role]}"`);
+    }
+    expect(sharedManifest).toContain(`"uid": ${CLOUD_HYPERVISOR_ENCLAVE_RESOURCE_PROFILES.script.uid}`);
+    expect(sharedManifest).toContain(`"gid": ${CLOUD_HYPERVISOR_ENCLAVE_RESOURCE_PROFILES.script.gid}`);
+  });
+
   it('updates and commits the guest compatibility pin with each release version', () => {
     const release = fs.readFileSync(releaseWorkflowPath, 'utf8');
     const update = release.split('\n').find((line) =>

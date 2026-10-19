@@ -279,7 +279,7 @@ export class CloudHypervisorManager {
       : {
           kind: 'primary-agent',
           identity: { kind: 'primary-agent', ownerId: 'primary-agent' },
-          rootfsRole: 'primary-agent',
+          artifact: 'primary',
           network: {
             mode: 'primary',
             ...(profileOrNetworkConfig ?? {

@@ -70,6 +70,7 @@ import type {
   VerifiedCloudHypervisorEnclaveArtifacts,
 } from './enclave-executor-types';
 import {
+  CLOUD_HYPERVISOR_ENCLAVE_ENTRYPOINTS,
   CLOUD_HYPERVISOR_ENCLAVE_RESOURCE_PROFILES,
   createAgentEnclaveCloudHypervisorProfile,
   createScriptEnclaveCloudHypervisorProfile,
@@ -393,9 +394,9 @@ export class CloudHypervisorHostEnclaveExecutorBackend implements HostEnclaveExe
     const policy = await check('policy', () => role === 'agent'
       ? normalizeAgentPolicy(rawAgentPolicy, plan.timeoutMs)
       : undefined);
-    const verifiedRootfs = role === 'script'
-      ? this.options.enclaveArtifacts.rootfs.script
-      : this.options.enclaveArtifacts.rootfs.agent;
+    const verifiedRootfs = this.options.enclaveArtifacts.rootfs[
+      this.options.enclaveArtifacts.manifest.schemaVersion === 2 ? 'script' : role
+    ];
     const filesystemState: {
       mounted: boolean;
       invocationDirectoryCreated: boolean;
@@ -621,12 +622,10 @@ export class CloudHypervisorHostEnclaveExecutorBackend implements HostEnclaveExe
       await check('instance-start', () => raceInterruption(trackFilesystemWork(manager!.startInstance())));
       if (filesystemState.aborted) throw new Error('Host executor invocation was cancelled');
       const executionResult = await check('guest-execute', () => raceInterruption(manager!.execute({
-        argv: [role === 'script'
-          ? this.options.enclaveArtifacts.manifest.rootfs.script.entrypoint
-          : this.options.enclaveArtifacts.manifest.rootfs.agent.entrypoint],
+        argv: [CLOUD_HYPERVISOR_ENCLAVE_ENTRYPOINTS[role]],
         cwd: '/',
-        uid: 65534,
-        gid: 65534,
+        uid: CLOUD_HYPERVISOR_ENCLAVE_RESOURCE_PROFILES[role].uid,
+        gid: CLOUD_HYPERVISOR_ENCLAVE_RESOURCE_PROFILES[role].gid,
         timeoutMs: plan.timeoutMs + HOST_EXECUTOR_TIMEOUT_GRACE_MS,
         env: role === 'agent' && policy ? agentEnvironment(policy, plan) : {},
         onDiagnostics: diagnostic.guestExecution,

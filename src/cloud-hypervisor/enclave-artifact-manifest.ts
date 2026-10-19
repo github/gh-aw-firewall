@@ -5,6 +5,7 @@ import {
   CLOUD_HYPERVISOR_ARTIFACT_RELEASE_TAG,
 } from './artifact-manifest';
 import { requireObject } from '../json-validation';
+import { CLOUD_HYPERVISOR_ENCLAVE_ENTRYPOINTS, CLOUD_HYPERVISOR_ENCLAVE_RESOURCE_PROFILES } from './workload-profile';
 
 export type CloudHypervisorEnclaveRole = 'script' | 'agent';
 export const CLOUD_HYPERVISOR_ENCLAVE_KERNEL_VERSION = '6.1.141';
@@ -12,12 +13,12 @@ export const CLOUD_HYPERVISOR_ENCLAVE_KERNEL_VERSION = '6.1.141';
 const SHARED_ROLE_METADATA = {
   script: {
     file: 'enclave-rootfs.ext4',
-    entrypoint: '/usr/local/bin/run-enclave-script',
+    entrypoint: CLOUD_HYPERVISOR_ENCLAVE_ENTRYPOINTS.script,
     sbomFile: 'enclave-script-rootfs.sbom.spdx.json',
   },
   agent: {
     file: 'enclave-rootfs.ext4',
-    entrypoint: '/usr/local/bin/run-enclave-agent',
+    entrypoint: CLOUD_HYPERVISOR_ENCLAVE_ENTRYPOINTS.agent,
     sbomFile: 'enclave-agent-rootfs.sbom.spdx.json',
   },
 } as const;
@@ -25,12 +26,12 @@ const SHARED_ROLE_METADATA = {
 const LEGACY_ROLE_METADATA = {
   script: {
     file: 'enclave-script-rootfs.ext4',
-    entrypoint: '/usr/local/bin/run-enclave-script',
+    entrypoint: CLOUD_HYPERVISOR_ENCLAVE_ENTRYPOINTS.script,
     sbomFile: 'enclave-script-rootfs.sbom.spdx.json',
   },
   agent: {
     file: 'enclave-agent-rootfs.ext4',
-    entrypoint: '/usr/local/bin/run-enclave-agent',
+    entrypoint: CLOUD_HYPERVISOR_ENCLAVE_ENTRYPOINTS.agent,
     sbomFile: 'enclave-agent-rootfs.sbom.spdx.json',
   },
 } as const;
@@ -139,7 +140,10 @@ function parseRole(
   if (artifact.version !== expectedReleaseTag) {
     throw new Error(`${label}.version must match the expected AWF release tag`);
   }
-  if (artifact.uid !== 65534 || artifact.gid !== 65534) {
+  if (
+    artifact.uid !== CLOUD_HYPERVISOR_ENCLAVE_RESOURCE_PROFILES[role].uid ||
+    artifact.gid !== CLOUD_HYPERVISOR_ENCLAVE_RESOURCE_PROFILES[role].gid
+  ) {
     throw new Error(`${label} must use fixed uid/gid 65534`);
   }
   if (

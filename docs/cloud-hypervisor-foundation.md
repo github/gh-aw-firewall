@@ -411,6 +411,24 @@ raise these fields. The role budgets are:
 | Host-only final image and VM run-state ceiling | 2 GiB | 2 GiB |
 | Guest UID/GID | 65534:65534 | 65534:65534 |
 
+The validated host profile distinguishes execution `kind` from `artifact`:
+`primary-agent` selects `primary`, while both enclave roles select `enclave`.
+For schema version 2, both enclave roles stage the same verified rootfs digest
+but launch their respective fixed entrypoints. Exact-release version-1 split
+artifacts remain selected by role; version-1 shared layouts retain their shared
+digest checks. The shared filesystem includes both entrypoints and shell tools,
+but neither their presence nor the broker request authorizes an agent launch
+from a script profile. The script still has no NIC or credentials.
+
+`src/cloud-hypervisor/workload-profile.ts` owns the host role entrypoints and
+resource profiles. Deterministic contract assertions in
+`scripts/ci/cloud-hypervisor-enclave-artifacts.test.ts` compare guest identity,
+rlimits, role tmpfs sizes, and build-time entrypoints and identity against
+the host policy; run them with
+`npx jest --runInBand scripts/ci/cloud-hypervisor-enclave-artifacts.test.ts`.
+VM sizing, host CPU quotas, and aggregate writable-storage ceilings are
+separate host-only limits, not guest tmpfs or rlimit settings.
+
 The VM receives exactly the profile's vCPU count and memory. The host cgroup
 applies a matching 50000/100000-µs CPU quota to the VMM and its virtio-fs
 processes; the guest sees one logical vCPU, while its total host scheduling rate

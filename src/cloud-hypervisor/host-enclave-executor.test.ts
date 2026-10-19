@@ -171,12 +171,15 @@ describe('readBoundedCloudHypervisorEnclaveResult', () => {
       { role: 'script', timeoutMs: 1_000, startupDelayMs: 2_500, expectedOutcome: 'timeout', publicDebug: false },
       { role: 'script', timeoutMs: 60_000, startupDelayMs: 0, expectedOutcome: 'success', publicDebug: true },
       { role: 'agent', timeoutMs: 60_000, startupDelayMs: 0, expectedOutcome: 'success', publicDebug: true },
+      { role: 'script', timeoutMs: 60_000, startupDelayMs: 0, expectedOutcome: 'success', publicDebug: false, shared: true },
+      { role: 'agent', timeoutMs: 60_000, startupDelayMs: 0, expectedOutcome: 'success', publicDebug: false, shared: true },
     ] as const)('stages a static $role invocation and enforces its $expectedOutcome deadline', async ({
       role,
       timeoutMs,
       startupDelayMs,
       expectedOutcome,
       publicDebug,
+      shared,
     }) => {
       // Invocation trust rejects /tmp; the home fixture also keeps Unix sockets short.
       const scratch = await fs.mkdtemp(path.join(os.homedir(), '.awf-backend-'));
@@ -258,6 +261,7 @@ describe('readBoundedCloudHypervisorEnclaveResult', () => {
       const agentArtifact = makeArtifact('agent');
       const artifacts = {
         manifest: {
+          schemaVersion: shared ? 2 : 1,
           release: { tag: 'v0.23.1' },
           rootfs: {
             script: { entrypoint: scriptArtifact.entrypoint },
@@ -342,6 +346,9 @@ describe('readBoundedCloudHypervisorEnclaveResult', () => {
         }),
         createArtifactSnapshot: async (_sources, _copy, onDirectoryCreated) => {
           expect(_sources.supervisorPath).toBe(preflight.supervisorPath);
+          expect(_sources.rootfsPath).toBe(shared
+            ? '/trusted/enclave-script-rootfs.ext4'
+            : `/trusted/enclave-${role}-rootfs.ext4`);
           const directory = path.join(root, `snapshot-${++snapshotNumber}`);
           await fs.mkdir(directory, { mode: 0o700 });
           expect(typeof onDirectoryCreated).toBe('function');
@@ -374,6 +381,7 @@ describe('readBoundedCloudHypervisorEnclaveResult', () => {
           managerBinary = managerConfig.cloudHypervisorBinary;
           workloadProfile = profile;
           expect(profile.guest?.identity).toEqual({ uid: 65534, gid: 65534 });
+          expect(profile.artifact).toBe('enclave');
           expect(profile.rawOutput).toBe(publicDebug ? 'capture' : 'discard');
           if (publicDebug) {
             expect(managerDependencies?.enclaveDebugArtifactDirectory).toMatch(
@@ -396,6 +404,8 @@ describe('readBoundedCloudHypervisorEnclaveResult', () => {
             startInstance: async () => undefined,
             execute: async (request) => {
               executionRequest = request;
+              expect(request.argv).toEqual([`/usr/local/bin/run-enclave-${role}`]);
+              if (role === 'script') expect(request.env).toEqual({});
               request.onDiagnostics?.({
                 phase: 'sending', elapsedMs: 0, framesReceived: 0, stdoutBytes: 0,
                 stderrBytes: 0, pendingFrameBytes: 0, resultReceived: false,
@@ -553,6 +563,9 @@ describe('readBoundedCloudHypervisorEnclaveResult', () => {
           await invalidStorageBackend.close();
 
           expect(workloadProfile?.kind).toBe('script-enclave');
+          expect(workloadProfile?.network).toEqual({ mode: 'none' });
+          expect(workloadProfile?.guest?.exports.some(({ tag }) => tag === 'enclave-session-handoff'))
+            .toBe(false);
           if (expectedOutcome === 'success') {
             expect(executionRequest?.argv).toEqual([scriptArtifact.entrypoint]);
             expect(executionRequest?.env).toEqual({});

@@ -156,7 +156,7 @@ describe('Cloud Hypervisor workload profiles', () => {
     expect(create()).toMatchObject({
       kind,
       identity: { kind },
-      rootfsRole: kind,
+      artifact: kind === 'primary-agent' ? 'primary' : 'enclave',
       rawOutput,
       network: { mode: networkMode },
     });
@@ -166,7 +166,7 @@ describe('Cloud Hypervisor workload profiles', () => {
     [
       'mismatched identity',
       (profile: Record<string, any>) => { profile.identity.kind = 'script-enclave'; },
-      /identity and rootfs role/,
+      /identity and artifact/,
     ],
     [
       'primary profile without its workspace',
@@ -187,7 +187,7 @@ describe('Cloud Hypervisor workload profiles', () => {
           ownerId: 'script-entry',
           invocationId: 'invocation',
         };
-        profile.rootfsRole = 'script-enclave';
+        profile.artifact = 'enclave';
         profile.network = { mode: 'none' };
         profile.guest.workspaceMount = null;
       },
@@ -261,7 +261,7 @@ describe('Cloud Hypervisor workload profiles', () => {
       (profile: Record<string, any>) => {
         profile.kind = 'unknown';
         profile.identity.kind = 'unknown';
-        profile.rootfsRole = 'unknown';
+        profile.artifact = 'enclave';
       },
       /Unsupported Cloud Hypervisor workload profile/,
     ],
@@ -309,7 +309,7 @@ describe('Cloud Hypervisor workload profiles', () => {
       'an unknown guest identity field',
       scriptProfile,
       (profile: Record<string, any>) => {
-        profile.guest.identity = { uid: 1000, gid: 1000, groups: [1000] };
+        profile.guest.identity = { uid: 65534, gid: 65534, groups: [1000] };
       },
       /Unknown Cloud Hypervisor guest identity field/,
     ],
@@ -319,7 +319,19 @@ describe('Cloud Hypervisor workload profiles', () => {
       (profile: Record<string, any>) => {
         profile.guest.identity = { uid: 0, gid: 1000 };
       },
-      /guest identity must be non-root/,
+      /guest identity must match its fixed resource profile/,
+    ],
+    [
+      'a different non-root guest identity',
+      agentProfile,
+      (profile: Record<string, any>) => { profile.guest.identity = { uid: 1000, gid: 1000 }; },
+      /guest identity must match its fixed resource profile/,
+    ],
+    [
+      'a missing enclave guest identity',
+      scriptProfile,
+      (profile: Record<string, any>) => { delete profile.guest.identity; },
+      /guest identity must match its fixed resource profile/,
     ],
     [
       'a missing primary bridge',
@@ -375,6 +387,24 @@ describe('Cloud Hypervisor workload profiles', () => {
     const profile = create();
     mutate(profile);
     expect(() => validateCloudHypervisorWorkloadProfile(profile as never)).toThrow(expected);
+  });
+
+  it.each([
+    ['primary-agent', primaryProfile, 'enclave'],
+    ['script-enclave', scriptProfile, 'primary'],
+    ['agent-enclave', agentProfile, 'primary'],
+  ])('rejects contradictory %s artifact selection', (_kind, create, artifact) => {
+    const profile = create();
+    profile.artifact = artifact;
+    expect(() => validateCloudHypervisorWorkloadProfile(profile as never))
+      .toThrow(/identity and artifact/);
+  });
+
+  it.each([scriptProfile, agentProfile])('rejects role-specific rootfs labels as artifact identity', (create) => {
+    const profile = create();
+    profile.artifact = profile.kind;
+    expect(() => validateCloudHypervisorWorkloadProfile(profile as never))
+      .toThrow(/identity and artifact/);
   });
 
   it('accepts singular and repeated primary control peers', () => {
