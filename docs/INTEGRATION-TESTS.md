@@ -89,6 +89,13 @@ an exact published release tag containing the explicitly pinned reviewed
 acceptance commit, not `main`. The tag-only release version bump intentionally
 leaves `main` at `0.23.1`; substituting newer artifacts for that package is not
 allowed. A future authorized release containing this harness is required.
+Acceptance evidence must identify each exercised profile (primary agent,
+script-only enclave, agent-only enclave, and combined enclaves), the shared
+base-image lineage, and the final enclave rootfs digest for both enclave roles.
+Host probes and deterministic mock-manager tests do not establish guest
+acceptance. A branch-host/release-guest smoke failure, including the observed
+HTTP 403, is not proof of a newly published unified guest artifact or of a
+particular local-versus-upstream proxy rejection.
 A separate false-by-default `run_environment_probe` dispatch runs only the
 script-only public environment probe through the same release-attested public
 MCP route, without an agent executor, API proxy, or Copilot secret; see
@@ -123,12 +130,14 @@ Only allowlisted transport/protocol codes, initialization attempt count
 Categories distinguish `dns`, `connectivity`, `gateway-auth`,
 `gateway-protocol`, `gateway-readiness`, `other`, and `unknown`.
 The schema-2 diagnostic line without subchecks is bounded to 640 bytes.
-An optional schema-1 `hostPreflight` snapshot contains the current shared,
+An optional versioned `hostPreflight` snapshot contains the current shared,
 fixed check plan, with `not-attempted` / `not-required` / `attempted` /
 `passed` / `failed` results and only
 allowlisted reasons. It records actual gate outcomes, including trusted tool
 ownership/traversal/access, pinned versions, bounded mounts, KVM, capabilities,
 cgroups, and Docker/Compose; it does not infer success for unexecuted checks.
+Schema 2 also identifies the profile and lifecycle phase; schema 1 remains
+readable for previously published evidence.
 Lines including only an active subcheck plan are bounded to 8192 bytes.
 The always-on `startupChecks` schema-1 cumulative checklist also retains
 earlier scopes as `scope/check-id: [result, reason]` and distinguishes

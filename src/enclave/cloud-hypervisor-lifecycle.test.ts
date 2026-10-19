@@ -16,6 +16,8 @@ import type { HostExecutorInvocationPlan } from './host-executor-server';
 import * as cloudHypervisorManager from '../cloud-hypervisor/manager';
 import { ProductionTrustedCloudHypervisorEnclaveStorageProvider } from '../cloud-hypervisor/trusted-enclave-storage';
 import { ENCLAVE_DEBUG_ARTIFACT_ROOT } from './public-debug';
+import * as proxyDebugRetention from './proxy-debug-retention';
+import { logger } from '../logger';
 import {
   assertCloudHypervisorEnclaveLifecycleReady,
   assertCloudHypervisorEnclavePrerequisites,
@@ -55,6 +57,8 @@ describe('trusted Cloud Hypervisor enclave lifecycle', () => {
   const runId = 'a'.repeat(32);
 
   beforeEach(() => {
+    jest.spyOn(proxyDebugRetention, 'captureEnclaveProxyContainerLog')
+      .mockResolvedValue('capture_status=unavailable\n');
     const dependencies = cloudHypervisorManager.resolveCloudHypervisorManagerDependencies();
     jest.spyOn(cloudHypervisorManager, 'resolveCloudHypervisorManagerDependencies').mockReturnValue({
       ...dependencies, resolveIdentity: () => ({ uid: process.getuid!(), gid: process.getgid!() }),
@@ -256,13 +260,8 @@ describe('trusted Cloud Hypervisor enclave lifecycle', () => {
     const request = jest.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({
       full_name: repository.repo, private: !isPublic, visibility: isPublic ? 'public' : 'private',
     })));
-    if (!isPublic) {
-      await expect(startCloudHypervisorEnclaveLifecycle(config, provider, {}))
-        .rejects.toThrow('reason=unverified-metadata');
-      expect(provider.prepareRun).not.toHaveBeenCalled();
-      expect(start).not.toHaveBeenCalled();
-    } else {
-      await startCloudHypervisorEnclaveLifecycle(config, provider, {});
+    await startCloudHypervisorEnclaveLifecycle(config, provider, {});
+    if (isPublic) {
       expect(start).toHaveBeenCalledWith(expect.objectContaining({
         config: expect.objectContaining({ enclaveDebugPublic: true }),
         publicDebugArtifactDirectory: ENCLAVE_DEBUG_ARTIFACT_ROOT,
@@ -270,8 +269,68 @@ describe('trusted Cloud Hypervisor enclave lifecycle', () => {
       }));
       expect(request.mock.invocationCallOrder[0])
         .toBeLessThan((provider.prepareRun as jest.Mock).mock.invocationCallOrder[0]);
-      await stopCloudHypervisorEnclaveLifecycle(config);
+    } else {
+      expect(start.mock.calls[0][0].config.enclaveDebugPublic).toBe(false);
+      expect(start.mock.calls[0][0].publicDebugArtifactDirectory).toBeUndefined();
+      expect(start.mock.calls[0][0].publicDebugArtifactProtectedRoot).toBeUndefined();
     }
+    expect(config.cloudHypervisor!.enclaveDebugPublic).toBe(explicit);
+    await stopCloudHypervisorEnclaveLifecycle(config);
+    if (!isPublic) expect(proxyDebugRetention.captureEnclaveProxyContainerLog).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    [() => new Response('PRIVATE_SENTINEL', { status: 403 }), 'http-status; status=403'],
+    [() => new Response('PRIVATE_SENTINEL', { status: 429 }), 'http-status; status=429'],
+    [() => new Response('PRIVATE_SENTINEL', { status: 503 }), 'http-status; status=503'],
+    [() => new Response('PRIVATE_SENTINEL'), 'invalid-json; code=unknown; status=200'],
+    [() => { throw new TypeError('PRIVATE_SENTINEL'); }, 'request-failed; code=unknown'],
+  ] as const)('disables all public capture without blocking execution on visibility failure %s', async (response, reason) => {
+    config.cloudHypervisor!.enclaveDebugPublic = true;
+    config.enclaves!.privateRepos[0].sensitivity = 'public';
+    const paths = resolveEnclavePaths(workDir);
+    const seedMap = JSON.parse(fs.readFileSync(paths.seedMapPath, 'utf8'));
+    seedMap.seeds[0].sensitivity = 'public';
+    fs.writeFileSync(paths.seedMapPath, JSON.stringify(seedMap));
+    const request = jest.spyOn(globalThis, 'fetch').mockImplementation(async () => response());
+    const warning = jest.spyOn(logger, 'warn').mockImplementation(() => undefined);
+
+    await startCloudHypervisorEnclaveLifecycle(config, provider, {});
+
+    expect(request).toHaveBeenCalledTimes(1);
+    const options = start.mock.calls[0][0];
+    expect(options.config.enclaveDebugPublic).toBe(false);
+    expect(options.publicDebugArtifactDirectory).toBeUndefined();
+    expect(options.publicDebugArtifactProtectedRoot).toBeUndefined();
+    expect(provider.prepareRun).toHaveBeenCalledWith(expect.objectContaining({
+      config: expect.objectContaining({ enclaveDebugPublic: false }),
+    }));
+    expect(config.cloudHypervisor!.enclaveDebugPublic).toBe(true);
+    expect(warning).toHaveBeenCalledWith(expect.stringContaining(
+      `Public enclave debug capture and export disabled: Public enclave debug repository visibility could not be verified (reason=${reason})`,
+    ));
+    expect(JSON.stringify(warning.mock.calls)).not.toContain('PRIVATE_SENTINEL');
+    await expect(assertCloudHypervisorEnclaveLifecycleReady(config)).resolves.toBeUndefined();
+
+    await stopCloudHypervisorEnclaveLifecycle(config);
+
+    expect(storage.close).toHaveBeenCalledTimes(1);
+    expect(proxyDebugRetention.captureEnclaveProxyContainerLog).not.toHaveBeenCalled();
+    expect(readHostExecutorInvocationDiagnostics({ runId, journalDir: paths.hostExecutorJournalDir })
+      .some(file => JSON.parse(file.contents).component === 'enclave-proxy-response')).toBe(false);
+  });
+
+  it('keeps invalid explicit public-debug scopes fatal rather than treating them as unavailable metadata', async () => {
+    config.cloudHypervisor!.enclaveDebugPublic = true;
+    const request = jest.spyOn(globalThis, 'fetch');
+    await expect(startCloudHypervisorEnclaveLifecycle(config, provider, {}))
+      .rejects.toThrow(/static public-only/);
+    expect(request).not.toHaveBeenCalled();
+    expect(provider.prepareRun).not.toHaveBeenCalled();
+    expect(start).not.toHaveBeenCalled();
+    await expect(stopCloudHypervisorEnclaveLifecycle(config)).resolves.toBeUndefined();
+    expect(server.close).not.toHaveBeenCalled();
+    expect(storage.close).not.toHaveBeenCalled();
   });
 
   it('honors an explicit public log opt-out without requesting visibility', async () => {
@@ -286,6 +345,54 @@ describe('trusted Cloud Hypervisor enclave lifecycle', () => {
     expect(request).not.toHaveBeenCalled();
     expect(start.mock.calls[0][0].publicDebugArtifactDirectory).toBeUndefined();
     await stopCloudHypervisorEnclaveLifecycle(config);
+    expect(proxyDebugRetention.captureEnclaveProxyContainerLog).not.toHaveBeenCalled();
+    expect(readHostExecutorInvocationDiagnostics({ runId, journalDir: paths.hostExecutorJournalDir })
+      .some(file => JSON.parse(file.contents).component === 'enclave-proxy-response')).toBe(false);
+  });
+
+  it('captures public dedicated proxy statuses before private storage teardown and excludes request secrets', async () => {
+    config.cloudHypervisor!.enclaveDebugPublic = true;
+    config.enclaves!.privateRepos[0].sensitivity = 'public';
+    const paths = resolveEnclavePaths(workDir);
+    const seedMap = JSON.parse(fs.readFileSync(paths.seedMapPath, 'utf8'));
+    seedMap.seeds[0].sensitivity = 'public';
+    fs.writeFileSync(paths.seedMapPath, JSON.stringify(seedMap));
+    jest.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({
+      full_name: repository.repo, private: false, visibility: 'public',
+    })));
+    fs.mkdirSync(paths.apiProxyLogsDir, { mode: 0o700 });
+    (server.close as jest.Mock).mockImplementation(async () => {
+      fs.writeFileSync(path.join(paths.apiProxyLogsDir, 'enclave-proxy-events.jsonl'), [
+        { schemaVersion: 1, status: 403, origin: 'local', authorization: 'PRIVATE_CREDENTIAL' },
+        { schemaVersion: 1, status: 401, origin: 'upstream', response_body: 'PRIVATE_PAYLOAD' },
+      ].map(value => JSON.stringify(value) + '\n').join(''), { mode: 0o600 });
+    });
+    storage.close.mockImplementation(async () => {
+      const evidence = readHostExecutorInvocationDiagnostics({ runId, journalDir: paths.hostExecutorJournalDir });
+      expect(evidence.some(file =>
+        JSON.parse(file.contents).component === 'enclave-proxy-response')).toBe(true);
+      expect(proxyDebugRetention.captureEnclaveProxyContainerLog).toHaveBeenCalledTimes(1);
+      const retained = fs.readdirSync(path.join(paths.hostExecutorJournalDir, 'diagnostics'))
+        .filter(name => name.endsWith('.proxy-debug.json'));
+      expect(retained).toHaveLength(1);
+      const runEvidence = JSON.parse(fs.readFileSync(
+        path.join(paths.hostExecutorJournalDir, 'diagnostics', retained[0]), 'utf8'));
+      expect(runEvidence).toMatchObject({ runId, scope: 'run-cumulative',
+        events: [{ schemaVersion: 1, status: 403, origin: 'local' },
+          { schemaVersion: 1, status: 401, origin: 'upstream' }] });
+      fs.rmSync(paths.apiProxyLogsDir, { recursive: true, force: true });
+    });
+    await startCloudHypervisorEnclaveLifecycle(config, provider, {});
+    await stopCloudHypervisorEnclaveLifecycle(config);
+    const evidence = readHostExecutorInvocationDiagnostics({ runId, journalDir: paths.hostExecutorJournalDir });
+    const response = evidence.find(file => JSON.parse(file.contents).component === 'enclave-proxy-response')!;
+    expect(JSON.parse(response.contents).diagnostics).toEqual({
+      scope: 'run-cumulative', status: 'captured', records: 2,
+      local: { '403': 1 }, upstream: { '401': 1 },
+    });
+    expect(response.contents).not.toMatch(/PRIVATE|authorization|response_body|credential/);
+    expect(fs.readFileSync(path.join(workDir, 'audit/diagnostics/cloud-hypervisor/host-executor',
+      response.name), 'utf8')).toBe(response.contents);
   });
 
   it('tracks deferred public visibility verification for duplicate startup and shutdown', async () => {

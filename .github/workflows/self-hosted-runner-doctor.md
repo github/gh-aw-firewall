@@ -171,7 +171,7 @@ Prefer the narrowest match. Examples:
 - `docker network connect --alias <name> awf-net <service_container>` is needed for raw-protocol GitHub Actions `services:` containers under `runner.topology: arc-dind` → A25 (service container must join `awf-net` for direct protocol access while the agent stays isolated; documented in github/gh-aw-firewall#8085)
 - `a network with name awf-net exists but was not created for project`, or a missing bridge in legacy iptables mode → B27 (inspect `docker network inspect awf-net --format '{{json .Options}} {{json .Containers}}'`; an empty options map without `com.docker.network.bridge.name` and an empty containers map identify an unoccupied orphan; fixed in github/gh-aw-firewall#9130)
 - `malformed version:` from `gh pr list --search`, `gh issue list --search`, or `gh search prs or issues` in cli-proxy gh-proxy mode → C5 (fixed in github/gh-aw-firewall#9189; the later-step `GH_HOST` leak remains a gh-aw issue)
-- Streaming log write failure / `read-only file system` under `${RUNNER_TEMP}/gh-aw` on arc-dind → A28 (use `${RUNNER_TEMP}/gh-aw/sandbox/agent/pi-streaming.jsonl`; fixed in github/gh-aw-firewall#9188, compiler relocation remains unresolved)
+- `tee: /tmp/gh-aw/pi-streaming.jsonl: Read-only file system` on arc-dind → A28 (intended sandbox path: `/tmp/gh-aw/sandbox/agent/logs/pi-streaming.jsonl`; until compiler relocation, symlink the compiled `tee` path to the real child file and mount that file `:rw` at the child path, not at the symlink; fixed in github/gh-aw-firewall#9188)
 - `token-usage.jsonl` not found / missing `gh-aw.aic` or `gen_ai.usage.*` telemetry on arc-dind → A29 (check `AWF_TOKEN_USAGE_LOG` first; AWF path reporting fixed in github/gh-aw-firewall#9357, gh-aw parser adoption remains unresolved)
 - TLS/certificate verification failure from api-proxy against a custom `--openai-api-target`/`--anthropic-api-target` internal endpoint using a private/corporate CA → B28 (api-proxy sidecar had no custom CA trust extension point; fixed in github/gh-aw-firewall#7816 with `apiProxy.caCert`/`--api-proxy-ca-cert`)
 - `context-rebuild circuit breaker tripped` together with a failed `cd` into the expected workspace path → B29 (container-workdir not bind-mounted into the chroot; fixed in github/gh-aw-firewall#8021)
@@ -188,7 +188,7 @@ Prefer the narrowest match. Examples:
 
 If the best match is one of the known open gaps (Kata Containers runtime support, `--enable-dind` cleanup, enterprise header-injection extension points, or the remaining `GH_HOST` leak to user steps), say so explicitly instead of implying there is a shipped fix.
 
-A28 / github/gh-aw-firewall#9183 — gh-aw compiler must relocate Pi's streaming log to `sandbox/agent`.
+A28 / github/gh-aw-firewall#9183 — gh-aw compiler must relocate Pi's log to `/tmp/gh-aw/sandbox/agent/logs/pi-streaming.jsonl` and align consumers with the runner-side source. The temporary workaround symlinks the compiled tee path to the real child file, then bind-mounts that file `:rw` at the child path; the symlink is not the mount destination. See `docs/arc-dind.md`.
 
 A29 / github/gh-aw-firewall#9352 — gh-aw `parse_token_usage.cjs` must consume `AWF_TOKEN_USAGE_LOG`.
 

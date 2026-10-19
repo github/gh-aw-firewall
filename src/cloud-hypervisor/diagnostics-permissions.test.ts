@@ -3,7 +3,9 @@ import * as os from 'os';
 import * as path from 'path';
 import {
   BoundedOutputCapture,
+  DiagnosticPersistenceCleanupError,
   collectCloudHypervisorDiagnostics,
+  preserveHostExecutorInvocationEvidence,
   preservePublicEnclaveSession,
   preserveVirtiofsdStartupEvidence,
   writeGuestOutputAudit,
@@ -212,6 +214,34 @@ describe('Cloud Hypervisor diagnostic ownership', () => {
       code: 'ELOOP',
     });
     expect(await fs.readFile(target, 'utf8')).toBe('preserve me');
+  });
+
+  it('retains the original persistence error when closing the diagnostic file also fails', async () => {
+    const writeError = Object.assign(new Error('write failed'), { code: 'ENOSPC' });
+    const closeError = Object.assign(new Error('close failed'), { code: 'EIO' });
+    const deps = dependencies({
+      mkdir: fs.mkdir,
+      lstat: fs.lstat,
+      realpath: fs.realpath,
+      open: async (...args: Parameters<typeof fs.open>) => {
+        const handle = await fs.open(...args);
+        if (String(args[0]).endsWith('.json')) {
+          const close = handle.close.bind(handle);
+          handle.writeFile = jest.fn().mockRejectedValue(writeError);
+          handle.close = jest.fn(async () => { await close(); throw closeError; });
+        }
+        return handle;
+      },
+      resolveIdentity: jest.fn().mockReturnValue({ uid: process.getuid!(), gid: process.getgid!() }),
+    });
+    const filename = `${'a'.repeat(32)}-${'b'.repeat(32)}.json`;
+    try {
+      await preserveHostExecutorInvocationEvidence(scratch, [{ name: filename, contents: '{}' }], deps);
+      throw new Error('Expected diagnostic persistence failure');
+    } catch (error) {
+      expect(error).toBeInstanceOf(DiagnosticPersistenceCleanupError);
+      expect(error).toMatchObject({ cause: writeError, cleanupError: closeError });
+    }
   });
 
   it.each(['regular', 'file-symlink', 'directory-symlink', 'hardlink'] as const)(

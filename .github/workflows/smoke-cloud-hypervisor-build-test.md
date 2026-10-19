@@ -14,8 +14,13 @@ permissions:
   actions: read
   copilot-requests: write
 name: Smoke Cloud Hypervisor Build Test
+concurrency:
+  job-discriminator: ${{ github.run_id }}
 engine:
   id: copilot
+  args:
+    - --allow-url=https://github.com
+    - --allow-url=https://example.com
 runtimes:
   node:
     version: "20"
@@ -125,121 +130,49 @@ post-steps:
       }
       console.log("Cloud Hypervisor build test results passed");
       NODE
+  - name: Upload build test diagnostics
+    if: always()
+    uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+    with:
+      name: cloud-hypervisor-build-test-diagnostics
+      path: |
+        /tmp/gh-aw/agent/build-test-results.json
+        /tmp/gh-aw/agent/build-test-jest-results.json
+        /tmp/gh-aw/agent/build-test-*.log
+      if-no-files-found: warn
+      retention-days: ${{ vars.GH_AW_DEFAULT_ARTIFACT_RETENTION_DAYS || '7' }}
 ---
 
 # Smoke Test: Cloud Hypervisor + Build/Test Workloads
 
-**CRITICAL REQUIREMENT: You MUST run the workload below inside the Cloud Hypervisor sandbox, then call `add_comment` on pull_request triggers.**
+**CRITICAL REQUIREMENT: Run the checked-in workload script inside the Cloud Hypervisor sandbox, then call `add_comment` on pull_request triggers.**
 
 **Keep all outputs extremely short and concise. Use single-line responses where possible. No verbose explanations.**
 
 ## Context
 
-This workflow validates that the Cloud Hypervisor sandbox can handle real-world build and test workloads. Run the deterministic workload below through `bash`, read its results, and produce the summary.
+This workflow validates that the Cloud Hypervisor sandbox can handle real-world build and test workloads. Execute the checked-in script, read its recorded results, and produce the summary.
 
 ## Step 1: Run Workload
 
-Run this entire script in one Bash invocation. It intentionally records each result instead of exiting on the first failure.
+Run this exact command once. Do not reproduce, shorten, split, or rewrite the
+script's commands. The script records every component's status and writes
+`/tmp/gh-aw/agent/build-test-results.json` even when a component fails:
+
+The CLI URL approvals let the two `curl` probes execute without interactive
+permission prompts. They do not change AWF's network allowlist: `example.com`
+must still be blocked by Squid.
 
 ```bash
-mkdir -p /tmp/gh-aw/agent
-
-echo "::group::Runtime versions"
-echo "Node: $(node --version 2>&1)"
-echo "npm: $(npm --version 2>&1)"
-echo "Go: $(go version 2>&1)"
-echo "::endgroup::"
-
-HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 https://github.com || true)
-HTTP_CODE=${HTTP_CODE:-000}
-
-echo "::group::npm ci"
-timeout 5m npm ci 2>&1 | tail -5
-NPM_CI_EXIT=${PIPESTATUS[0]}
-echo "::endgroup::"
-
-echo "::group::npm run build"
-npm run build 2>&1 | tail -5
-NPM_BUILD_EXIT=${PIPESTATUS[0]}
-echo "::endgroup::"
-
-if [ "$NPM_CI_EXIT" -eq 0 ] && [ "$NPM_BUILD_EXIT" -eq 0 ]; then
-  NODE_BUILD_STATUS=PASS
-else
-  NODE_BUILD_STATUS=FAIL
-fi
-
-echo "::group::npm test"
-npx jest --ci --forceExit --maxWorkers=2 --testPathPatterns='squid-config|docker-manager|logger' 2>&1 | tail -20
-NODE_TEST_EXIT=${PIPESTATUS[0]}
-echo "::endgroup::"
-
-if [ "$NODE_TEST_EXIT" -eq 0 ]; then
-  NODE_TEST_STATUS=PASS
-else
-  NODE_TEST_STATUS=FAIL
-fi
-
-GO_TEST_DIR=/tmp/gh-aw/agent/go-fixture
-rm -rf "$GO_TEST_DIR"
-git init -q "$GO_TEST_DIR"
-git -C "$GO_TEST_DIR" remote add origin https://github.com/Mossaka/gh-aw-firewall-test-go.git
-git -C "$GO_TEST_DIR" fetch --depth 1 origin c3e84fc697814119dba3b0ad82566dc2b2bbb880 2>&1 | tail -3
-GO_FETCH_EXIT=${PIPESTATUS[0]}
-
-if [ "$GO_FETCH_EXIT" -ne 0 ]; then
-  GO_BUILD_STATUS=CLONE_FAILED
-  GO_TEST_STATUS=SKIPPED
-else
-  git -C "$GO_TEST_DIR" checkout --detach FETCH_HEAD
-
-  cd "$GO_TEST_DIR/color"
-  go mod download 2>&1 | tail -3
-  go build ./... 2>&1 | tail -5
-  GO_COLOR_BUILD_EXIT=${PIPESTATUS[0]}
-  go test ./... 2>&1 | tail -10
-  GO_COLOR_TEST_EXIT=${PIPESTATUS[0]}
-
-  cd "$GO_TEST_DIR/uuid"
-  go mod download 2>&1 | tail -3
-  go build ./... 2>&1 | tail -5
-  GO_UUID_BUILD_EXIT=${PIPESTATUS[0]}
-  go test ./... 2>&1 | tail -10
-  GO_UUID_TEST_EXIT=${PIPESTATUS[0]}
-
-  if [ "$GO_COLOR_BUILD_EXIT" -eq 0 ] && [ "$GO_UUID_BUILD_EXIT" -eq 0 ]; then
-    GO_BUILD_STATUS=PASS
-  else
-    GO_BUILD_STATUS=FAIL
-  fi
-
-  if [ "$GO_COLOR_TEST_EXIT" -eq 0 ] && [ "$GO_UUID_TEST_EXIT" -eq 0 ]; then
-    GO_TEST_STATUS=PASS
-  else
-    GO_TEST_STATUS=FAIL
-  fi
-fi
-
-BLOCKED_CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 5 https://example.com 2>/dev/null || true)
-BLOCKED_CODE=${BLOCKED_CODE:-000}
-if [ "$BLOCKED_CODE" = "000" ] || [ "$BLOCKED_CODE" = "403" ]; then
-  NETWORK_ISOLATION_STATUS=PASS
-else
-  NETWORK_ISOLATION_STATUS=FAIL
-fi
-
-cat > /tmp/gh-aw/agent/build-test-results.json << RESULTS_EOF
-{
-  "http_code": "$HTTP_CODE",
-  "node_build": "$NODE_BUILD_STATUS",
-  "node_test": "$NODE_TEST_STATUS",
-  "go_build": "$GO_BUILD_STATUS",
-  "go_test": "$GO_TEST_STATUS",
-  "network_isolation": "$NETWORK_ISOLATION_STATUS"
-}
-RESULTS_EOF
-cat /tmp/gh-aw/agent/build-test-results.json
+bash scripts/ci/run-cloud-hypervisor-build-smoke.sh
 ```
+
+After the command finishes, read `build-test-results.json` even if the command
+returned nonzero. Never synthesize or edit the results file. For a Jest failure,
+read `build-test-jest-results.json` and report the failing test name and assertion;
+do not rerun or omit tests to turn a failure into a pass. Full per-component logs
+and Jest results are uploaded as `cloud-hypervisor-build-test-diagnostics`,
+using the repository's artifact-retention policy (seven days by default).
 
 The generated JSON contains:
 - `http_code`: GitHub.com HTTP response code

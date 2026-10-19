@@ -207,6 +207,7 @@ function buildAgentApiProxyService(params: {
   };
 
   const environment = service.environment as Record<string, string>;
+  environment.AWF_ENCLAVE_PROXY_DIAGNOSTICS = '1';
   if (params.modelBudgetSecret !== undefined) {
     environment.AWF_ENCLAVE_AGENT_MODEL_BUDGET_SECRET = params.modelBudgetSecret;
     service.healthcheck = {

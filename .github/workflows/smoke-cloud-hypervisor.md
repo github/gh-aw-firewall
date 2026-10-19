@@ -15,6 +15,8 @@ permissions:
   actions: read
   copilot-requests: write
 name: Smoke Cloud Hypervisor
+concurrency:
+  job-discriminator: ${{ github.run_id }}
 model: gpt-5.4-mini
 engine:
   id: copilot
@@ -33,9 +35,15 @@ safe-outputs:
   threat-detection:
     enabled: false
   add-comment:
+    max: 1
+    target: triggering
     hide-older-comments: true
   add-labels:
+    max: 1
     allowed: [smoke-cloud-hypervisor]
+  noop:
+    max: 1
+    report-as-issue: false
   messages:
     footer: "> Cloud Hypervisor + Copilot smoke test by [{workflow_name}]({run_url})"
     run-started: "[{workflow_name}]({run_url}) is testing Cloud Hypervisor with Copilot..."
@@ -87,7 +95,7 @@ post-steps:
         echo "::error::No safe outputs were invoked."
         exit 1
       fi
-      if [ "$GITHUB_EVENT_NAME" = "pull_request" ] && ! grep -q '"add_comment"' "$OUTPUTS_FILE"; then
+      if [ "$GITHUB_EVENT_NAME" = "pull_request" ] && ! jq -se 'any(.[]; .type == "add_comment")' "$OUTPUTS_FILE" >/dev/null; then
         echo "::error::Agent did not call add_comment on a pull_request trigger."
         exit 1
       fi
@@ -104,9 +112,13 @@ Run these checks inside the Cloud Hypervisor sandbox:
    `cat` command. Initialize `MERGED_PR_RESULT=FAIL`; set it to `PASS` only if
    `jq -e 'type == "array" and length > 0'` validates the contents.
 
-Make one bash invocation for all four checks and the summary:
+Make exactly one bash invocation for all four checks, the summary, and safe
+outputs. Run the entire block unchanged; do not split it or skip the reporting
+commands. A PR comment is mandatory even when a check fails. The success label
+is optional reporting after the required comment, never a replacement for it.
 
 ```bash
+set -e -o pipefail
 MERGED_PR_RESULT=FAIL
 MERGED_PR_JSON=$(cat /tmp/gh-aw/agent/merged-pr.json 2>/dev/null || :)
 if [ -n "$MERGED_PR_JSON" ] && printf '%s' "$MERGED_PR_JSON" | jq -e 'type == "array" and length > 0' >/dev/null 2>&1; then MERGED_PR_RESULT=PASS; fi
@@ -128,23 +140,23 @@ Cloud Hypervisor + Copilot smoke test
 EOF
 printf '1. Merged PR lookup: %s\n2. github.com connectivity: %s (HTTP %s)\n3. File write/read: %s\n4. example.com blocked: %s (HTTP %s)\nOverall: %s\n' "$MERGED_PR_RESULT" "$GITHUB_RESULT" "$GITHUB_CODE" "$FILE_RESULT" "$BLOCKED_RESULT" "$BLOCKED_CODE" "$OVERALL_RESULT" >> /tmp/gh-aw/agent/comment-body.md
 cat /tmp/gh-aw/agent/comment-body.md
+if [ '${{ github.event_name }}' = pull_request ]; then
+  jq -Rs --argjson item_number '${{ github.event.pull_request.number }}' '{item_number: $item_number, body: .}' /tmp/gh-aw/agent/comment-body.md | safeoutputs add_comment .
+  if [ "$OVERALL_RESULT" = PASS ]; then
+    jq -n --argjson item_number '${{ github.event.pull_request.number }}' '{item_number: $item_number, labels: ["smoke-cloud-hypervisor"]}' | safeoutputs add_labels .
+  fi
+else
+  jq -Rs '{message: .}' /tmp/gh-aw/agent/comment-body.md | safeoutputs noop .
+fi
 ```
 
 The two CLI URL approvals only let `curl` execute; AWF still enforces the
 network allowlist, so `example.com` must remain blocked. The summary has a PASS
-or FAIL for every check and overall status.
+or FAIL for every check and overall status. Use the existing summary file
+without rewriting it; `jq` encodes it as data, not shell instructions.
 
-The trigger event is `${{ github.event_name }}`. On `pull_request`, call
-`add_comment` with `item_number: ${{ github.event.pull_request.number }}` even if
-a check fails. Use the existing summary file without rewriting it, then invoke
-the safe-output CLI in a separate command:
-
-```bash
-jq -Rs --argjson item_number '${{ github.event.pull_request.number }}' '{item_number: $item_number, body: .}' /tmp/gh-aw/agent/comment-body.md | safeoutputs add_comment .
-```
-
-Do not use command substitution or Python to construct the payload, and do not
-substitute `noop` for a required PR comment. If all checks pass, call
-`add_labels` with the same item number and label `smoke-cloud-hypervisor`.
-
-On `workflow_dispatch`, call `noop` with the concise summary instead.
+Do not use command substitution or Python to construct safe-output payloads.
+On `pull_request`, `add_comment` must succeed before `add_labels` is attempted;
+never substitute `noop` or a final text response for the required comment.
+On `workflow_dispatch`, the block calls only `noop`. After the block finishes,
+stop without issuing any additional safe outputs.

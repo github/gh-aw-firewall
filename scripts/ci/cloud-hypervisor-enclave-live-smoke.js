@@ -285,10 +285,14 @@ function safeMountTopology(value) {
 
 function safeHostPreflight(value) {
   const keys = ['checks', 'schemaVersion', 'scope'];
+  if (value?.schemaVersion === 2) keys.push('phase', 'profile');
   if (value && Object.prototype.hasOwnProperty.call(value, 'mountTopology')) keys.push('mountTopology');
   if (value && Object.prototype.hasOwnProperty.call(value, 'storagePropagation')) keys.push('storagePropagation');
   if (!value || JSON.stringify(Object.keys(value).sort()) !== JSON.stringify(keys.sort())
-      || value.schemaVersion !== 1
+      || ![1, 2].includes(value.schemaVersion)
+      || (value.schemaVersion === 2
+        && (!['preflight', 'execution', 'cleanup', 'persistence'].includes(value.phase)
+          || !['common', 'primary', 'script', 'agent'].includes(value.profile)))
       || typeof value.scope !== 'string'
       || !Object.prototype.hasOwnProperty.call(hostPreflightSchema.scopes, value.scope)
       || !Array.isArray(value.checks)) return undefined;
@@ -314,7 +318,9 @@ function safeHostPreflight(value) {
   const storagePropagation = value.storagePropagation === undefined ? undefined : safeStoragePropagation(value.storagePropagation);
   if (Object.prototype.hasOwnProperty.call(value, 'storagePropagation') && !storagePropagation) return undefined;
   return {
-    schemaVersion: 1, scope: value.scope, checks, ...(mountTopology ? { mountTopology } : {}),
+    schemaVersion: value.schemaVersion, scope: value.scope,
+    ...(value.schemaVersion === 2 ? { phase: value.phase, profile: value.profile } : {}),
+    checks, ...(mountTopology ? { mountTopology } : {}),
     ...(storagePropagation ? { storagePropagation } : {}),
   };
 }
@@ -1130,7 +1136,7 @@ function prepareReleaseArtifacts(tag, directory, environment) {
   };
 }
 
-function makeConfig(artifacts, workDir, workspace, handoff) {
+function makeConfig(artifacts, workDir, workspace, handoff, profile = 'combined') {
   const enclaveRepository = { repo: 'github/gh-aw-firewall', sensitivity: 'public' };
   const main = artifacts.directory;
   return {
@@ -1175,7 +1181,9 @@ function makeConfig(artifacts, workDir, workspace, handoff) {
         maxInvocations: 3,
         repos: [enclaveRepository],
       },
-    ],
+    ].filter((entry) => profile === 'combined'
+      || (profile === 'script-only' && entry.script)
+      || (profile === 'agent-only' && entry.agent)),
     container: { containerRuntime: 'docker' },
     apiProxy: { enabled: true },
     logging: {
@@ -1192,6 +1200,60 @@ function toAwfConfig(config) {
   void testWorkspace;
   void testGateway;
   return awfConfig;
+}
+
+function assertUnifiedProfiles(artifacts, primaryManifest, enclaveManifest, enclaveSbom) {
+  const primaryRootfs = primaryManifest?.artifacts?.rootfs;
+  const enclaveRootfs = enclaveManifest?.rootfs;
+  const base = primaryManifest?.userspace;
+  const guestBase = enclaveManifest?.guestBase;
+  const digest = enclaveRootfs?.sha256;
+  const sbomRootfs = enclaveSbom?.packages?.find((item) => item.SPDXID === 'SPDXRef-Rootfs');
+  const sbomDigest = sbomRootfs?.checksums?.find((item) => item.algorithm === 'SHA256')?.checksumValue;
+  const sourceImage = enclaveSbom?.packages?.find((item) => item.SPDXID === 'SPDXRef-SourceImage');
+  if (!base?.baseImage || !/^sha256:[a-f0-9]{64}$/.test(base.baseImageId || '')
+      || base.baseImage !== guestBase?.image || base.baseImageId !== guestBase.imageId) {
+    throw new Error('Unified Cloud Hypervisor profiles do not share the manifest guest base image');
+  }
+  if (enclaveManifest?.schemaVersion !== 2
+      || primaryRootfs?.file !== 'rootfs.ext4' || !/^[a-f0-9]{64}$/.test(primaryRootfs.sha256 || '')
+      || enclaveRootfs?.file !== 'enclave-rootfs.ext4' || !/^[a-f0-9]{64}$/.test(digest || '')
+      || digest !== sbomDigest
+      || !/^[a-f0-9]{64}$/.test(enclaveRootfs.sourceImageDigest || '')
+      || !enclaveRootfs.sourceImage
+      || sourceImage?.versionInfo !== enclaveRootfs.sourceImageDigest
+      || sourceImage?.externalRefs?.[0]?.referenceLocator !== enclaveRootfs.sourceImage) {
+    throw new Error('Unified Cloud Hypervisor profiles lack matching final enclave rootfs metadata');
+  }
+  const scriptRootfs = artifacts.enclaveArtifactEnvironment.AWF_CLOUD_HYPERVISOR_ENCLAVE_SCRIPT_ROOTFS;
+  const agentRootfs = artifacts.enclaveArtifactEnvironment.AWF_CLOUD_HYPERVISOR_ENCLAVE_AGENT_ROOTFS;
+  const sharedRootfs = artifacts.enclaveArtifactEnvironment.AWF_CLOUD_HYPERVISOR_ENCLAVE_ROOTFS;
+  if (scriptRootfs !== sharedRootfs || agentRootfs !== sharedRootfs
+      || sharedRootfs !== path.join(artifacts.enclaveDirectory, enclaveRootfs.file)) {
+    throw new Error('Unified Cloud Hypervisor profiles must use the same final enclave rootfs');
+  }
+  for (const [name, count] of [['primary', 0], ['script-only', 1], ['agent-only', 1], ['combined', 2]]) {
+    const config = makeConfig(artifacts, 'profile-work', 'profile-workspace', {}, name);
+    const enclaves = config.enclaves;
+    if (config.cloudHypervisor.rootfsPath !== path.join(artifacts.directory, primaryRootfs.file)
+        || enclaves.length !== count
+        || enclaves.some((entry) => entry.runtime !== 'cloud-hypervisor')
+        || (name === 'script-only' && !enclaves[0]?.script)
+        || (name === 'agent-only' && !enclaves[0]?.agent)
+        || (name === 'combined' && (!enclaves[0]?.script || !enclaves[1]?.agent))) {
+      throw new Error(`Unified Cloud Hypervisor ${name} profile configuration is inconsistent`);
+    }
+  }
+}
+
+function assertProfileTools(response, profile) {
+  const expected = profile === 'script-only' ? ['enclave_run_script']
+    : profile === 'agent-only' ? ['enclave_run_agent']
+      : ['enclave_run_agent', 'enclave_run_script'];
+  const names = response?.result?.tools?.map((tool) => tool.name).sort();
+  if (!isDeepStrictEqual(names, expected)) {
+    throw new Error(`Live ${profile} enclave profile did not expose exactly its configured executors`);
+  }
 }
 
 function spawnAwf(awfArguments, environment, stdoutFile, stderrFile, stage) {
@@ -1272,6 +1334,8 @@ const FAILURE_STAGES = Object.freeze({
   MCP_ROUTE: 'public MCP route',
   SCRIPT: 'script enclave checks',
   AGENT: 'agent enclave checks',
+  SCRIPT_ONLY: 'script-only profile acceptance',
+  AGENT_ONLY: 'agent-only profile acceptance',
   RESOURCE_LIMITS: 'resource-limit checks',
   FAILURE_HANDLING: 'failure, timeout, and cancellation checks',
   STARTUP_FAULTS: 'startup fault checks',
@@ -1351,6 +1415,12 @@ async function main(failureContext = { stage: FAILURE_STAGES.RUNNER }) {
     ]) {
       assertManifestSource(JSON.parse(fs.readFileSync(manifestPath, 'utf8')), checkout.tag, checkout.commit);
     }
+    assertUnifiedProfiles(
+      artifacts,
+      JSON.parse(fs.readFileSync(path.join(artifacts.directory, RELEASE_ASSETS[1]), 'utf8')),
+      JSON.parse(fs.readFileSync(artifacts.enclaveArtifactEnvironment.AWF_CLOUD_HYPERVISOR_ENCLAVE_MANIFEST, 'utf8')),
+      JSON.parse(fs.readFileSync(path.join(artifacts.enclaveDirectory, 'enclave-rootfs.sbom.spdx.json'), 'utf8')),
+    );
     fs.mkdirSync(workDir, { recursive: true, mode: 0o700 });
     fs.mkdirSync(workspace, { recursive: true, mode: 0o755 });
     fs.chmodSync(workspace, 0o755);
@@ -1362,11 +1432,11 @@ async function main(failureContext = { stage: FAILURE_STAGES.RUNNER }) {
       onStarted: () => { gatewayStarted = true; },
     });
     const { endpoint } = handoff;
-    const writeAwfConfig = (targetWorkDir, targetConfigPath) => {
+    const writeAwfConfig = (targetWorkDir, targetConfigPath, profile = 'combined') => {
       fs.mkdirSync(targetWorkDir, { recursive: true, mode: 0o700 });
       fs.mkdirSync(path.join(targetWorkDir, 'audit'), { recursive: true, mode: 0o700 });
       fs.mkdirSync(path.join(targetWorkDir, 'proxy-logs'), { recursive: true, mode: 0o700 });
-      const config = toAwfConfig(makeConfig(artifacts, targetWorkDir, workspace, handoff));
+      const config = toAwfConfig(makeConfig(artifacts, targetWorkDir, workspace, handoff, profile));
       fs.writeFileSync(targetConfigPath, `${JSON.stringify(config, null, 2)}\n`, {
         mode: 0o600,
         flag: 'wx',
@@ -1409,10 +1479,7 @@ async function main(failureContext = { stage: FAILURE_STAGES.RUNNER }) {
       throw new Error('Public enclave MCP initialize did not route through the live broker');
     }
     const tools = await requestMcp(endpoint, gatewayKey, 2, 'tools/list', {});
-    const toolNames = tools?.result?.tools?.map((tool) => tool.name).sort();
-    if (JSON.stringify(toolNames) !== JSON.stringify(['enclave_run_agent', 'enclave_run_script'])) {
-      throw new Error('Public enclave MCP tool list did not expose exactly the static executors');
-    }
+    assertProfileTools(tools, 'combined');
 
     failureContext.stage = FAILURE_STAGES.SCRIPT;
     const sentinel = `${SENTINEL_PREFIX}${crypto.randomBytes(12).toString('hex')}`;
@@ -1701,8 +1768,72 @@ async function main(failureContext = { stage: FAILURE_STAGES.RUNNER }) {
     ], [
       ...logContents,
     ], sentinel);
+
+    // Exercise each single-executor configuration through a fresh broker and real VM.
+    // The combined run above retains the full failure/recovery coverage.
+    for (const profile of ['script-only', 'agent-only']) {
+      failureContext.stage = profile === 'script-only'
+        ? FAILURE_STAGES.SCRIPT_ONLY : FAILURE_STAGES.AGENT_ONLY;
+      fs.writeFileSync(path.join(workspace, '.awf-enclave-live-stop'), 'done\n', { mode: 0o644 });
+      await stopAwf(awf);
+      if (awf.exitCode !== 0 || awf.signalCode !== null) {
+        throw new Error('Combined profile did not stop cleanly before isolated profile acceptance');
+      }
+      awf = undefined;
+      fs.rmSync(path.join(workspace, '.awf-enclave-live-stop'));
+      workDir = path.join(root, `awf-work-${profile}`);
+      awfConfigPath = path.join(root, `awf-config-${profile}.json`);
+      runDirectories.push(workDir);
+      writeAwfConfig(workDir, awfConfigPath, profile);
+      awf = launchAwf(profile);
+      const diagnostics = {
+        stage: profile, stderrFile: awfErr,
+        startupErrorFile: path.join(workDir, 'proxy-logs', 'awf-startup-error.json'),
+      };
+      await waitForBroker(awf, 'awf-enclave-mcp-server', Date.now() + 15 * 60_000, diagnostics);
+      await waitForHostGatewayReadiness(awf, Date.now() + 150_000, diagnostics);
+      const requestId = profile === 'script-only' ? 14 : 17;
+      const profileInit = await requestMcp(endpoint, gatewayKey, requestId, 'initialize', {
+        protocolVersion: '2025-11-25',
+        capabilities: {},
+        clientInfo: { name: 'awf-live-enclave-conformance', version: '1.0.0' },
+      });
+      if (profileInit?.result?.serverInfo?.name !== 'awmg-awf-enclave') {
+        throw new Error(`Live ${profile} profile did not route through the public broker`);
+      }
+      assertProfileTools(await requestMcp(endpoint, gatewayKey, requestId + 1, 'tools/list', {}), profile);
+      if (profile === 'script-only') {
+        const response = await requestMcp(endpoint, gatewayKey, requestId + 2, 'tools/call', {
+          name: 'enclave_run_script',
+          arguments: { privateRepo: 'github/gh-aw-firewall', schema: scriptProbe.schema, script: python },
+        });
+        assertExpectedToolResult(response, requestId + 2, scriptProbe.expected, 'script-only profile');
+      } else {
+        const response = await requestMcp(endpoint, gatewayKey, requestId + 2, 'tools/call', {
+          name: 'enclave_run_agent',
+          arguments: {
+            privateRepo: 'github/gh-aw-firewall',
+            schema: { type: 'enum', values: [agentResultValue] },
+            prompt: `Return exactly the string ${JSON.stringify(agentResultValue)}. Do not inspect or quote repository files.`,
+          },
+        });
+        assertExpectedToolResult(response, requestId + 2, agentResultValue, 'agent-only profile');
+      }
+      await waitForVmCleanup(15_000);
+      const privateRoot = path.join(
+        '/var/tmp',
+        `awf-enclave-private-0-${crypto.createHash('sha256')
+          .update(path.resolve(workDir), 'utf8').digest('hex').slice(0, 20)}`,
+      );
+      assertNoSentinelLeak([
+        path.join(workDir, 'audit'), path.join(workDir, 'proxy-logs'),
+        path.join(privateRoot, 'audit'), path.join(privateRoot, 'api-proxy-logs'),
+        journalRoot,
+      ], [fs.readFileSync(awfOut, 'utf8'), fs.readFileSync(awfErr, 'utf8'),
+        ...captureContainerLogs()], sentinel);
+    }
     acceptancePassed = true;
-    console.log('Live script and agent identity/network, aggregate ENOSPC, guest OOM, failure/timeout/cancellation, real partial-startup failure, VMM crash recovery, cleanup, and output redaction checks passed.');
+    console.log('Live combined, script-only, and agent-only profile invocations, guest identity/network, resource limits, failure/timeout/cancellation, VMM crash recovery, cleanup, and output redaction checks passed.');
   } finally {
     if (acceptancePassed) failureContext.stage = FAILURE_STAGES.CLEANUP;
     try {
@@ -1816,6 +1947,8 @@ module.exports = {
   assertNoVmResidue,
   RELEASE_ASSETS,
   assertReleaseAssets,
+  assertUnifiedProfiles,
+  assertProfileTools,
   assertNoSentinelLeak,
   assertExpectedToolResult,
   assertRecoveredInvocation,

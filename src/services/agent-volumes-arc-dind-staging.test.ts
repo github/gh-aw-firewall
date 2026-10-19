@@ -102,11 +102,16 @@ describe('agent service', () => {
     },
   );
 
-  it('keeps an ARC/DinD writable streaming-log directory beneath a read-only runner temp mount', () => {
+  it('keeps the Pi compatibility symlink separate from its writable file mount beneath the read-only parent', () => {
     const runnerTemp = fs.mkdtempSync(path.join('/tmp', 'awf-runner-temp-'));
     const ghAwDir = path.join(runnerTemp, 'gh-aw');
     const agentDir = path.join(ghAwDir, 'sandbox/agent');
-    fs.mkdirSync(agentDir, { recursive: true });
+    const piLog = path.join(agentDir, 'logs/pi-streaming.jsonl');
+    const compiledTeePath = path.join(ghAwDir, 'pi-streaming.jsonl');
+    const canonicalLog = '/tmp/gh-aw/sandbox/agent/logs/pi-streaming.jsonl';
+    fs.mkdirSync(path.dirname(piLog), { recursive: true });
+    fs.writeFileSync(piLog, '');
+    fs.symlinkSync(path.relative(path.dirname(compiledTeePath), piLog), compiledTeePath);
 
     try {
       const result = generateDockerCompose(
@@ -117,6 +122,7 @@ describe('agent service', () => {
           volumeMounts: [
             `${ghAwDir}:${ghAwDir}:ro`,
             `${agentDir}:${agentDir}:rw`,
+            `${piLog}:${canonicalLog}:rw`,
           ],
         },
         mockNetworkConfig,
@@ -124,12 +130,19 @@ describe('agent service', () => {
       const volumes = result.services.agent.volumes as string[];
       const parent = `/daemon-root${ghAwDir}:/host${ghAwDir}:ro`;
       const child = `/daemon-root${agentDir}:/host${agentDir}:rw`;
+      const fileMount = `/daemon-root${piLog}:/host${canonicalLog}:rw`;
 
       expect(volumes).toContain(parent);
       expect(volumes).toContain(child);
+      expect(volumes).toContain(fileMount);
       expect(volumes.indexOf(parent)).toBeLessThan(volumes.indexOf(child));
       expect(volumes).not.toContain(`/daemon-root${ghAwDir}:/host${ghAwDir}:rw`);
       expect(volumes).not.toContain(`/daemon-root/daemon-root${agentDir}:/host${agentDir}:rw`);
+      expect(fs.lstatSync(compiledTeePath).isSymbolicLink()).toBe(true);
+      expect(fs.realpathSync(compiledTeePath)).toBe(piLog);
+      expect(fs.lstatSync(piLog).isFile()).toBe(true);
+      expect(fileMount.split(':')[1]).toBe(`/host${canonicalLog}`);
+      expect(fileMount.split(':')[1]).not.toBe(`/host${path.join(ghAwDir, 'pi-streaming.jsonl')}`);
     } finally {
       fs.rmSync(runnerTemp, { recursive: true, force: true });
     }

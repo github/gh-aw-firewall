@@ -224,6 +224,7 @@ function createUpstreamResponseHandlers({
     function forwardOversizedBufferedResponse(bufferedChunks, currentChunk) {
       const responseBody = Buffer.concat(bufferedChunks);
       const resHeaders = { ...proxyRes.headers, 'x-request-id': requestId };
+      res.awfUpstreamResponse = true;
       res.writeHead(proxyRes.statusCode, resHeaders);
       const canWritePrefix = res.write(responseBody);
       const canWriteChunk = res.write(currentChunk);
@@ -375,6 +376,7 @@ function createUpstreamResponseHandlers({
         const codexTransformed = transformCodexCompatibleResponseBody(outgoingBody, codexCompatibility, compatibilityProvider);
         if (codexTransformed) outgoingBody = codexTransformed;
         const transformed = !!protocolTransformed || !!wireTransformed || !!codexTransformed;
+        res.awfUpstreamResponse = true;
         res.writeHead(proxyRes.statusCode, transformed ? withoutContentLength(resHeaders) : resHeaders);
         res.end(outgoingBody);
       });
@@ -409,9 +411,11 @@ function createUpstreamResponseHandlers({
       });
 
       if (responseTransforms.length > 0) {
+        res.awfUpstreamResponse = true;
         res.writeHead(proxyRes.statusCode, withoutContentLength(resHeaders));
         responseTransforms.reduce((stream, transform) => stream.pipe(transform), proxyRes).pipe(res);
       } else {
+        res.awfUpstreamResponse = true;
         res.writeHead(proxyRes.statusCode, resHeaders);
         proxyRes.pipe(res);
       }

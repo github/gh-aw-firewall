@@ -179,14 +179,43 @@ needs its `--output`/destination path to resolve to a mount that is:
    tool "succeeds" but the output never appears where the consumer looks.
 
 For gh-aw engine streaming logs (including Pi), do not write directly to
-`${RUNNER_TEMP}/gh-aw/pi-streaming.jsonl` when `${RUNNER_TEMP}/gh-aw` is mounted
-`:ro`. Mount an existing writable child such as
-`${RUNNER_TEMP}/gh-aw/sandbox/agent` with `:rw`, and write the log at
-`${RUNNER_TEMP}/gh-aw/sandbox/agent/pi-streaming.jsonl`. The engine command,
-log parser, and artifact upload must all use that same path. Mounting the
-child `:rw` does not make the rest of the read-only parent writable; the
-workflow/compiler that chooses the log location must also update its
-consumers.
+`/tmp/gh-aw/pi-streaming.jsonl` when its runner-side parent
+`${RUNNER_TEMP}/gh-aw` is mounted `:ro`. The compiler should write Pi's log at
+`/tmp/gh-aw/sandbox/agent/logs/pi-streaming.jsonl`, beneath the writable
+`sandbox/agent` child mount (create `logs` before writing). The Pi command,
+step-summary parser, session exporters, and artifact upload must all use the
+corresponding path on their side of the mount. Mounting the child `:rw` does
+not make the rest of the read-only parent writable.
+
+Until the gh-aw compiler relocates Pi's log, a workflow-specific workaround is
+to create the real log file at the runner-side source path in a pre-step,
+symlink the compiled Pi `tee` path to that file, and bind-mount the real file
+at its writable child path. Keep the symlink and bind-mount destination
+separate: AWF rejects a symlink as a file bind-mount destination.
+
+For example, when the compiled `tee` writes `/tmp/gh-aw/pi-streaming.jsonl`:
+
+```yaml
+- name: Prepare Pi streaming log
+  run: |
+    mkdir -p "${RUNNER_TEMP}/gh-aw/sandbox/agent/logs"
+    touch "${RUNNER_TEMP}/gh-aw/sandbox/agent/logs/pi-streaming.jsonl"
+    ln -sfn sandbox/agent/logs/pi-streaming.jsonl "${RUNNER_TEMP}/gh-aw/pi-streaming.jsonl"
+```
+
+Add this file entry under `sandbox.agent.mounts`:
+
+```yaml
+- "${RUNNER_TEMP}/gh-aw/sandbox/agent/logs/pi-streaming.jsonl:/tmp/gh-aw/sandbox/agent/logs/pi-streaming.jsonl:rw"
+```
+
+The real file is mounted at `/tmp/gh-aw/sandbox/agent/logs/pi-streaming.jsonl`;
+the compatibility symlink remains at the runner-side counterpart of the
+compiled `tee` path. Do not use the symlink path as the mount destination or
+remount the entire `${RUNNER_TEMP}/gh-aw` parent writable. If the compiled
+`tee` path differs, put the symlink at its actual runner-side counterpart.
+Check both the runner-side source and sandbox-side destination when
+`${RUNNER_TEMP}` differs from `/tmp`.
 
 ### Agent logs, threat detection, and safe-output ownership
 
@@ -225,16 +254,183 @@ are tracked there for compiler/MCP Gateway fixes, with AWF-side tracking in
   must not yield a successful verdict in strict mode, while readable inputs
   must still produce a normal verdict. Neither a mount assertion nor the
   engine exit status establishes those end-to-end properties.
-- **Safe outputs:** the compiler/MCP Gateway must run the nested `safeoutputs`
-  stdio container with the runner UID/GID (`--user <uid>:<gid>`). Setting the
-  gateway container's user does not set its child containers' users. Their
-  writable bind-mount source must be accessible to that identity so
-  `outputs.jsonl` remains runner-owned and rewritable by redaction. These
-  containers are launched by MCP Gateway, not AWF; AWF's agent UID/GID mapping
-  cannot repair their ownership. Failed redaction must stop publication with
-  a hard error, not a warning. Do not make the file world-writable or bypass
-  the compiler's safe-output-file access rule as a workaround. That rule and
-  any ownership-only exception also require an upstream compiler change.
+- **Safe outputs (findings 3–4):** the gateway's runner UID/GID does not
+  establish the identity of its nested `safeoutputs` stdio container. That
+  container is launched by MCP Gateway, not AWF; AWF's agent UID/GID mapping
+  cannot repair its ownership. The reported root-owned `outputs.jsonl` and
+  redaction warning were observed with older versions, not yet reproduced on
+  the upgraded ARC topology. [Current gh-aw redaction
+  code](https://github.com/github/gh-aw/issues/66926#issuecomment-6221802902)
+  attempts atomic replacement of non-writable files and fails/removes the
+  source on unrecoverable errors; neither source inspection nor a successful
+  redaction on another runner proves this works with the actual ARC directory
+  permissions. Do not make the file world-writable or bypass the compiler's
+  safe-output-file access rule. Any necessary child identity propagation
+  belongs in MCP Gateway; redaction and compiler changes belong in gh-aw.
+
+To verify findings 3–4 and decide whether to permanently remove the reporter's
+pre-create step and fail-closed guard, use an isolated ARC/DinD run with the
+current supported gh-aw compiler and matching setup action. Remove both
+workaround steps from the candidate workflow before compiling it. Record the
+exact compiler, setup, MCP Gateway, nested safeoutputs image, AWF, and DinD
+versions (including immutable SHAs or digests where available). Before any
+output is written, record only the results of `id -u`, `id -g`, and
+`stat -c '%u:%g %a'` for the safeoutputs directory from the runner and the
+nested container. Inspect the gateway and child container's configured user
+with `docker inspect --format
+'{{.Config.User}}' <container>`; an empty configured user needs an in-container
+`id -u`/`id -g` check. Use an out-of-band observer to record the UID/GID and
+mode of `outputs.jsonl` immediately after the child first writes it and before
+the `Redact secrets in logs` step starts. Record the file's UID/GID and mode
+again after redaction, or record that it is absent; the post-redaction state
+does not establish the child's original ownership. Do not use workflow steps
+that directly access the safe-output file to collect either observation.
+Compare directory write/rename permissions as well as file write permissions:
+atomic replacement requires permission on the parent directory. Never print
+the file, secrets, container environment, or unredacted logs.
+
+| Finding | Last reported version / result | Upgrade acceptance |
+|---|---|---|
+| 3 — child ownership and redaction | Compiler/setup v0.89.21, AWF v0.28.23; pre-create and guard still in use. Gateway and child versions/identities unknown; v0.92.0 ARC result **not reported**. | With pre-create removed, capture the child's file metadata before redaction and the resulting metadata or absence afterward. For the success case, register an inert dummy value with the redactor and include it in safe output so `outputs.jsonl` must be rewritten; confirm the file-specific redaction diagnostic for `outputs.jsonl` (and the replacement diagnostic if emitted), without printing output content. In a separate isolated test, an induced unrecoverable redaction error must stop publication (including artifacts) and remove the unsafe source. Record step outcomes without output content. If ownership still blocks this, preserve redacted metadata and escalate child identity to MCP Gateway and redaction to gh-aw. |
+| 4 — compiler upgrade | v0.91.4 rejected direct safe-output-file access in the workaround; reporter plans v0.92.0, **not yet verified**. | With pre-create and its guard removed, the unmodified safe-output access restriction remains enabled, compilation succeeds, and the compiled workflow executes and publishes only successfully redacted safe outputs. If not, retain the compile diagnostic and escalate to gh-aw. |
+
+The versions and planned upgrade above come from the
+[reporter's update](https://github.com/github/gh-aw/issues/66926#issuecomment-6264251052);
+the historical ARC run logs have expired. Preserve a redacted record of the
+new run ID, workflow commit, version pins, ownership/mode observations, compile
+result, redaction step outcome, and publication outcome before considering
+AWF tracking issue [#10271](https://github.com/github/gh-aw-firewall/issues/10271)
+resolved. Use a non-closing reference (`Refs #10271`) until that evidence
+exists; neither finding is verified fixed.
+
+### Verifying the daily AIC guardrail on ARC/DinD
+
+[Findings 6–7](https://github.com/github/gh-aw-firewall/issues/10273) concern
+the **gh-aw actions setup** scan, not AWF's api-proxy credit limit. The upstream
+changes in [gh-aw#67884](https://github.com/github/gh-aw/pull/67884),
+[gh-aw#68056](https://github.com/github/gh-aw/pull/68056), and
+[gh-aw#68079](https://github.com/github/gh-aw/pull/68079) need verification
+against the *executed* workflow, not just the locally installed `gh aw` version.
+The original ARC run logs have expired; upstream code inspection is not an ARC
+runtime result.
+
+1. Record the workflow commit, compiler version, and the resolved
+   `github/gh-aw-actions/setup@<sha>` in its compiled lock and executed job log.
+   Confirm that the setup SHA includes all three fixes before attributing an
+   observation to them. Record the configured daily threshold and per-run
+   `max-ai-credits` fallback (if any), without disclosing credentials or
+   unredacted artifacts.
+2. On the ARC runner, observe a *naturally* cancelled run. An unassigned agent
+   alone does not establish zero: inspect the complete job history across all
+   attempts, including detection and evaluation jobs, and assert
+   `accountingReason: confirmed_zero` only if every AI-powered job was skipped
+   or never started. If any AI-powered job ran in an earlier attempt, it may
+   require accounting even when the latest agent did not start.
+
+   Compare a cold scan, a scan after restoring the `aic-usage-scan-v2`
+   observations, and another scan over the same completed attempt. Use a
+   trigger on which the pinned workflow actually runs both restore and scan;
+   for the planned v0.92.0 setup, manual dispatch, reusable-workflow,
+   repository-dispatch, and slash/label-command runs skip both. Require a
+   restored-cache comparison only when a trusted producer published a
+   compatible post-upgrade snapshot, and verify from the run output or
+   metadata that it was actually restored. Artifact-name equality is not
+   sufficient: v0.89.21 writes coverage version 1, while v0.92.0 accepts only
+   version 3. Without an eligible trigger and a verified compatible restore,
+   treat the scan as skipped or cold, not as a cache regression.
+
+   For a qualifying confirmed-zero run, the cold scan must record `aic: 0`,
+   `source: recorded`, and `accountingReason: confirmed_zero`; subsequent scans
+   must report a cache hit without repeating that run's jobs/artifact
+   resolution. Compare `candidateRuns`, `countedRuns`, `cacheHits`, business
+   API request counts, and elapsed times. A new attempt or changed
+   completed-run metadata is a legitimate cache miss; a restored snapshot
+   never replaces a fresh complete workflow-history listing.
+3. Separately, inject a jobs-API 502 in a controlled test of the **pinned setup
+   action** with fake API responses and a disposable cache, not by changing a
+   production runner or replaying production credentials. Verify recovery
+   within the bounded three read attempts. For exhausted transient per-run
+   reads, verify an eligible positive per-run limit produces a conservative
+   `source: estimated` fallback and is *not* treated as a recorded-zero hit
+   on the next scan. Check both sides of the daily threshold, including equality:
+   estimated credits must count towards `exceeded`, never permit downstream
+   execution over budget. Without a positive fallback, or for quota and
+   `Retry-After` responses, expect the guardrail to fail closed. A failed
+   authoritative history listing is not eligible for per-run fallback. Use
+   upstream's focused mocked `daily_aic_api_budget`, `daily_aic_scan`, and
+   `check_daily_aic_workflow_guardrail` tests as a baseline, then compare the
+   tested setup SHA to the executed one.
+4. After an injected failure, inspect the persisted observations and run a
+   fresh scan with healthy responses. Confirm the complete listing is repeated,
+   valid recorded observations can be reused, estimated/failed observations
+   cannot authorize a zero result, and no hour-long retry restriction appears
+   for an ordinary 502. A server-supplied `Retry-After` or quota response is a
+   separate case: record its actual retry deadline rather than treating it as
+   the 502 regression. Also distinguish the independent workflow cooldown:
+   test `check_cooldown` with a prior run whose agent job did and did not
+   start; do not confuse its configured window with an AIC retry restriction.
+
+Keep redacted logs, cache-entry metadata, step outputs, setup SHA, and scan
+timings alongside the test revision. Label ARC observations versus injected
+errors separately. Do not mark finding 6 resolved without repeated ARC scans,
+or finding 7 resolved without controlled fallback/threshold and subsequent-scan
+evidence; the two findings can be closed independently.
+
+### Verify skipped threat detection on ARC/DinD
+
+The conclusion fix is in `gh-aw` [#67810](https://github.com/github/gh-aw/pull/67810),
+not AWF. Before testing, record the **executed** workflow commit, compiler and
+AWF versions, and the `github/gh-aw-actions/setup@<SHA>` pin from its compiled
+lock. For example, the v0.92.5 locks in this repository pin
+`ebb97091a4afcc9bf2d594071dbabe861e9a34fc`; its
+`setup/sh/conclude_threat_detection.sh` includes the explicit
+`RUN_DETECTION=false`, `THREAT_DETECT_INSTALL_OUTCOME=skipped` branch. A pin in
+the checkout alone does not establish which revision an ARC runner executed.
+
+On an authorized ARC/DinD runner, run the pinned workflow with detection
+deliberately skipped (no safe outputs or patches). Where authorized, repeat
+using repository-owned Actions API cancellation, not a cancellation of another
+repository's run. In each run, inspect the actual detection guard, installation
+and conclusion steps: the guard must output `false`, installation must be
+`skipped`, and the conclusion step must succeed with `conclusion=skipped`,
+`success=true`, and an empty `reason`. It must not report a missing binary or
+`reason=agent_failure`. A cancelled *job* may never reach the conclusion step;
+record that separately rather than counting it as a successful skip.
+
+To check the pinned script in isolation on the same runner **after setup has
+staged the actions**, use a disposable output file (this does not replace the
+end-to-end ARC run):
+
+```bash
+set -e
+script="${RUNNER_TEMP}/gh-aw/actions/conclude_threat_detection.sh"
+test -f "$script"
+work="$(mktemp -d)"
+trap 'rm -rf "$work"' EXIT
+mkdir "$work/bin"
+ln -s "$(command -v dirname)" "$work/bin/dirname"
+GITHUB_OUTPUT="$work/skipped" RUN_DETECTION=false \
+  THREAT_DETECT_INSTALL_OUTCOME=skipped GH_AW_DETECTION_CONTINUE_ON_ERROR=false \
+  PATH="$work/bin" /bin/bash "$script" "$work/absent-result.json"
+grep -Fx 'conclusion=skipped' "$work/skipped"
+grep -Fx 'success=true' "$work/skipped"
+grep -Fx 'reason=' "$work/skipped"
+if GITHUB_OUTPUT="$work/required" RUN_DETECTION=true \
+  THREAT_DETECT_INSTALL_OUTCOME=success GH_AW_DETECTION_CONTINUE_ON_ERROR=false \
+  PATH="$work/bin" /bin/bash "$script" "$work/absent-result.json"; then
+  echo "Required detection unexpectedly succeeded" >&2
+  exit 1
+fi
+grep -Fx 'conclusion=failure' "$work/required"
+grep -Fx 'success=false' "$work/required"
+```
+
+The isolated `PATH` excludes `threat-detect` for both cases; the second case
+confirms that a required detector still fails closed in strict mode. Preserve
+only redacted conclusion outputs, step outcomes, exact versions/pins, and run
+links. Do not close the ARC finding based on the isolated check or a compiled
+pin alone; if the live conclusion disagrees, report the narrower failure to
+`github/gh-aw` with that evidence.
 
 ## Locating API proxy token-usage logs
 

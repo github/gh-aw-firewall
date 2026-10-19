@@ -34,7 +34,7 @@ function config(): WrapperConfig {
       runtime: 'cloud-hypervisor',
       agent: {
         engine: 'copilot', model: 'claude-sonnet-5',
-        maxTaskBytes: 4096, maxModelRequests: 8, maxModelTokens: 2048,
+        maxTaskBytes: 4096, maxModelRequests: 8, maxModelTokens: 131072,
       },
       repos: [{ repo: 'github/gh-aw-firewall', sensitivity: 'public' }],
       maxInvocations: 1, maxOutputBytes: 256, timeout: 90,
@@ -132,6 +132,12 @@ describe('Cloud Hypervisor primary and Copilot agent enclave acceptance', () => 
       modify(value);
       expect(isCloudHypervisorAgentAcceptanceWorkflow(value)).toBe(false);
     }
+  });
+
+  it.each([2048, 32768, 131071, 131073])('rejects a token budget outside the exact smoke allowance: %s', tokens => {
+    const value = config();
+    value.enclaves!.executors.agent.maxModelTokens = tokens;
+    expect(isCloudHypervisorAgentAcceptanceWorkflow(value)).toBe(false);
   });
 
   it.each(['v0.28.62', 'v0.28.63', 'v0.28.64', 'v0.28.65', 'v0.28.67', 'latest'])(

@@ -13,6 +13,7 @@ Match the narrowest finding ID. When nothing matches, say so and request the sma
 | docker compose starts but the mounted path resolves to an empty directory | A1 | runner | workaround |
 | no such file or directory for a path that exists on the runner | A1 | runner | workaround |
 | Streaming log write fails with read-only file system | A28 | runner | workaround |
+| tee: /tmp/gh-aw/pi-streaming.jsonl: Read-only file system | A28 | runner | workaround |
 | A successful engine run becomes a failure under arc-dind | A28 | runner | workaround |
 | Safe outputs are missing after a streaming engine run | A28 | runner | workaround |
 | token-usage.jsonl is missing for post-run consumers on arc-dind | A29 | runner | workaround |
@@ -70,12 +71,12 @@ Match the narrowest finding ID. When nothing matches, say so and request the sma
 - **Boundary:** runner · **Status:** workaround
 - **Affects:** runner=arc-dind, runtime=any, provider=any, auth=any
 - **Versions:** introduced=unknown, fixed=unknown
-- **Symptoms:** Streaming log write fails with read-only file system · A successful engine run becomes a failure under arc-dind · Safe outputs are missing after a streaming engine run
-- **Discriminating conditions:** runner.topology is arc-dind · The engine writes a streaming log directly beneath ${RUNNER_TEMP}/gh-aw · The parent ${RUNNER_TEMP}/gh-aw mount is read-only
-- **Root cause:** The streaming log path is beneath a read-only parent mount, so the engine cannot create or append its log even when the engine itself succeeds.
+- **Symptoms:** Streaming log write fails with read-only file system · tee: /tmp/gh-aw/pi-streaming.jsonl: Read-only file system · A successful engine run becomes a failure under arc-dind · Safe outputs are missing after a streaming engine run
+- **Discriminating conditions:** runner.topology is arc-dind · Pi writes its streaming log directly beneath ${RUNNER_TEMP}/gh-aw · The parent ${RUNNER_TEMP}/gh-aw mount is read-only
+- **Root cause:** Pi's tee targets a streaming log beneath a read-only parent mount; pipefail turns an otherwise successful Pi run into a failure.
 - **Safe probe:** `findmnt -T "${RUNNER_TEMP}/gh-aw" -o TARGET,OPTIONS; findmnt -T "${RUNNER_TEMP}/gh-aw/sandbox/agent" -o TARGET,OPTIONS` → The parent mount is read-only and the sandbox/agent mount is writable; no files are created or modified.
-- **Action:** Use ${RUNNER_TEMP}/gh-aw/sandbox/agent/pi-streaming.jsonl consistently for the streaming-log writer, parser, and artifact upload. Upgrade AWF to the version containing github/gh-aw-firewall#9188; relocating Pi's log in the gh-aw compiler remains unresolved.
-- **Provenance:** issue: ARC/DinD streaming log write failure (https://github.com/github/gh-aw-firewall/issues/9183) · pull-request: Retain writable sandbox/agent mount (https://github.com/github/gh-aw-firewall/pull/9188) · doc: ARC / DinD documentation (docs/arc-dind.md) · test: src/services/agent-volumes-arc-dind-staging.test.ts
+- **Action:** The gh-aw compiler must place Pi's log at /tmp/gh-aw/sandbox/agent/logs/pi-streaming.jsonl and update the step-summary parser, session exporters, and artifact paths to match the runner-visible mount source. Until then, create the real log file at the runner-side sandbox/agent/logs path in a pre-step, symlink the compiled tee path to that file, and add an explicit :rw sandbox.agent.mounts file entry whose destination is /tmp/gh-aw/sandbox/agent/logs/pi-streaming.jsonl. Keep the compatibility symlink separate from the mount destination: AWF rejects a symlink as a bind-mount target. Do not make the parent mount writable. AWF's writable child mount is available since github/gh-aw-firewall#9188.
+- **Provenance:** issue: ARC/DinD streaming log write failure (https://github.com/github/gh-aw-firewall/issues/9183) · issue: Pi streaming log on ARC/DinD (https://github.com/github/gh-aw/issues/69406) · pull-request: Retain writable sandbox/agent mount (https://github.com/github/gh-aw-firewall/pull/9188) · doc: ARC / DinD documentation (docs/arc-dind.md) · test: src/services/agent-volumes-arc-dind-staging.test.ts
 - **Owner:** @github/gh-aw-firewall-maintainers · **Review by:** 2027-03-31
 
 ### A29 — ARC/DinD api-proxy token-usage log not found at /tmp/gh-aw

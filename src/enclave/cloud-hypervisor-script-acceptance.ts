@@ -131,7 +131,7 @@ function isAcceptanceWorkflow(
       || agent.maxOutputBytes !== 256
       || agent.maxTaskBytes !== 4096
       || agent.maxModelRequests !== 8
-      || agent.maxModelTokens !== 2048
+      || agent.maxModelTokens !== 131072
     ) {
       return false;
     }

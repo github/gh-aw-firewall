@@ -263,6 +263,8 @@ describe('CLI proxy sidecar (external DIFC proxy)', () => {
         const agent = result.services['agent'];
         const env = agent.environment as Record<string, string>;
         expect(env.AWF_CLI_PROXY_URL).toBe('http://172.30.0.50:11000');
+        expect(env.NO_PROXY.split(',')).toEqual(expect.arrayContaining(['172.30.0.50', 'cli-proxy']));
+        expect(env.no_proxy).toBe(env.NO_PROXY);
       });
 
       it('should set AWF_CLI_PROXY_IP in agent environment using cli-proxy IP', () => {

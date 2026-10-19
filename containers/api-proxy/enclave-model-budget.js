@@ -8,12 +8,14 @@ const MAX_MODEL_REQUESTS = 10_000;
 const MAX_MODEL_TOKENS = 10_000_000;
 const CLAIM_KEYS = ['v', 'invocationId', 'maxRequests', 'maxTokens'];
 
-function decodeCapability(authorization, secret) {
-  if (typeof authorization !== 'string' || !authorization.startsWith('Bearer ')) return null;
+function decodeCapability(authorization, secret, onRejected = () => {}) {
+  const reject = reason => { onRejected(reason); return null; };
+  if (typeof authorization !== 'string' || authorization.length === 0) return reject('missing');
+  if (!authorization.startsWith('Bearer ')) return reject('scheme');
   const token = authorization.slice(7);
-  if (token.length > 2048) return null;
+  if (token.length > 2048) return reject('format');
   const parts = token.split('.');
-  if (parts.length !== 2) return null;
+  if (parts.length !== 2) return reject('format');
   const [payload, signature] = parts;
   const key = Buffer.from(secret, 'hex');
   const expected = crypto.createHmac('sha256', key).update(payload).digest();
@@ -21,21 +23,21 @@ function decodeCapability(authorization, secret) {
   try {
     actual = Buffer.from(signature, 'base64url');
   } catch {
-    return null;
+    return reject('signature');
   }
   if (
     actual.length !== expected.length ||
     actual.toString('base64url') !== signature ||
     !crypto.timingSafeEqual(actual, expected)
-  ) return null;
+  ) return reject('signature');
 
   let claims;
   try {
     const encoded = Buffer.from(payload, 'base64url');
-    if (encoded.toString('base64url') !== payload) return null;
+    if (encoded.toString('base64url') !== payload) return reject('claims');
     claims = JSON.parse(encoded.toString('utf8'));
   } catch {
-    return null;
+    return reject('claims');
   }
   if (
     !claims || typeof claims !== 'object' || Array.isArray(claims) ||
@@ -50,7 +52,7 @@ function decodeCapability(authorization, secret) {
       (!Number.isSafeInteger(claims.maxTokens) || claims.maxTokens < 1 ||
         claims.maxTokens > MAX_MODEL_TOKENS)) ||
     (claims.maxRequests === null && claims.maxTokens === null)
-  ) return null;
+  ) return reject('claims');
   return claims;
 }
 
@@ -68,35 +70,37 @@ function inferenceEndpoint(method, requestPath) {
   return 'unsupported';
 }
 
-function applyTokenCeiling(body, endpoint, remainingTokens) {
-  if (!Buffer.isBuffer(body) || body.length >= remainingTokens) return null;
+function applyTokenCeiling(body, endpoint, remainingTokens, onRejected = () => {}) {
+  const reject = reason => { onRejected(reason); return null; };
+  if (!Buffer.isBuffer(body)) return reject('body_missing');
+  if (body.length >= remainingTokens) return reject('input_reservation');
   let request;
   try {
     request = JSON.parse(body.toString('utf8'));
   } catch {
-    return null;
+    return reject('request_json');
   }
-  if (!request || typeof request !== 'object' || Array.isArray(request)) return null;
+  if (!request || typeof request !== 'object' || Array.isArray(request)) return reject('request_shape');
 
   const outputAllowance = remainingTokens - body.length;
-  if (outputAllowance < 1) return null;
+  if (outputAllowance < 1) return reject('input_reservation');
   if (endpoint === 'chat') {
     if (
       request.max_tokens !== undefined &&
       request.max_completion_tokens !== undefined
-    ) return null;
+    ) return reject('output_conflict');
     const key = request.max_completion_tokens !== undefined
       ? 'max_completion_tokens'
       : 'max_tokens';
     const current = request[key];
-    if (current !== undefined && (!Number.isSafeInteger(current) || current < 1)) return null;
+    if (current !== undefined && (!Number.isSafeInteger(current) || current < 1)) return reject('output_shape');
     request[key] = current === undefined ? outputAllowance : Math.min(current, outputAllowance);
     if (request.stream === true) {
       if (
         request.stream_options !== undefined &&
         (!request.stream_options || typeof request.stream_options !== 'object' ||
           Array.isArray(request.stream_options))
-      ) return null;
+      ) return reject('stream_options');
       request.stream_options = {
         ...(request.stream_options && typeof request.stream_options === 'object'
           ? request.stream_options
@@ -106,7 +110,7 @@ function applyTokenCeiling(body, endpoint, remainingTokens) {
     }
   } else {
     const current = request.max_output_tokens;
-    if (current !== undefined && (!Number.isSafeInteger(current) || current < 1)) return null;
+    if (current !== undefined && (!Number.isSafeInteger(current) || current < 1)) return reject('output_shape');
     request.max_output_tokens = current === undefined
       ? outputAllowance
       : Math.min(current, outputAllowance);
@@ -143,8 +147,9 @@ function createInvocationModelBudget(secret, { maxStates = MAX_INVOCATION_STATES
     if (endpoint === null) {
       return { allowed: true, body: null, settle: () => {}, settleMissing: () => {} };
     }
-    const claims = decodeCapability(authorization, secret);
-    if (!claims) return { allowed: false, reason: 'invalid_capability' };
+    let capabilityFailure;
+    const claims = decodeCapability(authorization, secret, reason => { capabilityFailure = reason; });
+    if (!claims) return { allowed: false, reason: 'invalid_capability', capabilityFailure };
     if (endpoint === 'unsupported' && claims.maxTokens !== null) {
       return { allowed: false, reason: 'unsupported_token_accounting' };
     }
@@ -153,7 +158,7 @@ function createInvocationModelBudget(secret, { maxStates = MAX_INVOCATION_STATES
     if (state && (
       state.maxRequests !== claims.maxRequests ||
       state.maxTokens !== claims.maxTokens
-    )) return { allowed: false, reason: 'invalid_capability' };
+    )) return { allowed: false, reason: 'invalid_capability', capabilityFailure: 'claims_changed' };
     if (!state) {
       if (invocations.size >= maxStates) return { allowed: false, reason: 'accounting_capacity' };
       state = {
@@ -171,16 +176,17 @@ function createInvocationModelBudget(secret, { maxStates = MAX_INVOCATION_STATES
     }
     if (state.maxTokens !== null) {
       if (state.exhausted || state.tokens >= state.maxTokens) {
-        return { allowed: false, reason: 'token_limit' };
+        return { allowed: false, reason: 'token_limit', tokenFailure: 'budget_exhausted' };
       }
       if (state.active) return { allowed: false, reason: 'token_request_in_flight' };
     }
 
+    let tokenFailure;
     const boundedBody = state.maxTokens === null
       ? null
-      : applyTokenCeiling(body, endpoint, state.maxTokens - state.tokens);
+      : applyTokenCeiling(body, endpoint, state.maxTokens - state.tokens, reason => { tokenFailure = reason; });
     if (state.maxTokens !== null && !boundedBody) {
-      return { allowed: false, reason: 'token_limit' };
+      return { allowed: false, reason: 'token_limit', tokenFailure };
     }
 
     state.requests += 1;

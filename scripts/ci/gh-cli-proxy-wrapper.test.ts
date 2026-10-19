@@ -1,6 +1,11 @@
 import { createServer, IncomingMessage, Server, ServerResponse } from 'http';
 import { spawn } from 'child_process';
 import { once } from 'events';
+import * as fs from 'fs';
+import * as os from 'os';
+import * as path from 'path';
+import { baseConfig, mockNetworkConfig } from '../../src/test-helpers/docker-test-fixtures.test-utils';
+import { buildProxyEnvironment } from '../../src/services/agent-environment/proxy-environment';
 const wrapper = 'containers/agent/gh-cli-proxy-wrapper.sh';
 
 interface ProxyRequest {
@@ -93,6 +98,84 @@ describe('gh CLI proxy wrapper', () => {
     expect(requests.map(({ args, stdin }) => ({ args, stdin }))).toEqual([
       { args: ['api', '--input', '-'], stdin: 'cGF5bG9hZAo=' },
     ]);
+  });
+
+  it('routes CLI proxy requests directly when lowercase http_proxy is configured', async () => {
+    let parentProxyRequests = 0;
+    let sidecarRequests = 0;
+    const parentProxy = createServer((request, response) => {
+      request.resume();
+      request.on('end', () => {
+        parentProxyRequests++;
+        response.statusCode = 502;
+        response.end();
+      });
+    });
+    const sidecar = createServer((request, response) => {
+      request.resume();
+      request.on('end', () => {
+        sidecarRequests++;
+        response.setHeader('Content-Type', 'application/json');
+        response.end(JSON.stringify(responseBody));
+      });
+    });
+
+    parentProxy.listen(0, '127.0.0.1');
+    sidecar.listen(0, '127.0.0.1');
+    await Promise.all([once(parentProxy, 'listening'), once(sidecar, 'listening')]);
+    const curlHome = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-curl-'));
+
+    try {
+      const parentProxyAddress = parentProxy.address();
+      const sidecarAddress = sidecar.address();
+      if (parentProxyAddress === null || typeof parentProxyAddress === 'string' ||
+          sidecarAddress === null || typeof sidecarAddress === 'string') {
+        throw new Error('Expected TCP server addresses');
+      }
+
+      const sidecarIp = '172.30.0.50';
+      // Map the sidecar address to the local test server for direct requests.
+      // eslint-disable-next-line security/detect-non-literal-fs-filename
+      fs.writeFileSync(
+        path.join(curlHome, '.curlrc'),
+        `resolve = "${sidecarIp}:${sidecarAddress.port}:127.0.0.1"\n`,
+      );
+      const proxyEnvironment: NodeJS.ProcessEnv = {
+        ...process.env,
+        HOME: curlHome,
+        AWF_CLI_PROXY_URL: `http://${sidecarIp}:${sidecarAddress.port}`,
+        HTTP_PROXY: `http://127.0.0.1:${parentProxyAddress.port}`,
+        http_proxy: `http://127.0.0.1:${parentProxyAddress.port}`,
+      };
+      delete proxyEnvironment.NO_PROXY;
+      delete proxyEnvironment.no_proxy;
+      delete proxyEnvironment.ALL_PROXY;
+      delete proxyEnvironment.all_proxy;
+
+      const withoutBypass = await run('sh', [wrapper, 'api', 'status'], '', proxyEnvironment);
+      expect(withoutBypass.exitCode).toBe(1);
+      expect(parentProxyRequests).toBe(1);
+      expect(sidecarRequests).toBe(0);
+
+      const environment: Record<string, string> = {};
+      buildProxyEnvironment({
+        config: { ...baseConfig, workDir: '/tmp/awf-work', difcProxyHost: 'host.docker.internal:18443' },
+        networkConfig: { ...mockNetworkConfig, cliProxyIp: sidecarIp },
+        environment,
+      });
+      proxyEnvironment.NO_PROXY = environment.NO_PROXY;
+      proxyEnvironment.no_proxy = environment.no_proxy;
+
+      const withBypass = await run('sh', [wrapper, 'api', 'status'], '', proxyEnvironment);
+      expect(withBypass).toEqual({ stdout: 'line1\nline2\n', stderr: '', exitCode: 0 });
+      expect(parentProxyRequests).toBe(1);
+      expect(sidecarRequests).toBe(1);
+    } finally {
+      parentProxy.close();
+      sidecar.close();
+      await Promise.all([once(parentProxy, 'close'), once(sidecar, 'close')]);
+      fs.rmSync(curlHome, { recursive: true, force: true });
+    }
   });
 
   it('fails safely for an invalid proxy exit code', async () => {
