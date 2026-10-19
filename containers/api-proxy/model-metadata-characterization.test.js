@@ -8,6 +8,7 @@ const { lookupModelEndpoints, lookupModelRoutingMetadata } = require('./model-ap
 const { resolveCatalogModel } = require('./models-dev-catalog');
 const { resolveProviderPricingOverlay, resetProviderPricingOverlaysForTests } = require('./provider-pricing-overlays');
 const { resolveModelPricingCatalog, resetModelPricingCatalogForTests } = require('./model-pricing-catalog');
+const { getRetiredModelBlockState } = require('./guards/retired-model-guard');
 const {
   canonicalizeModel: runtimeCanonicalize,
   parseProviderModelMetadata,
@@ -90,6 +91,13 @@ describe('model identity is intentionally different between consumers', () => {
   });
 
   it.each([
+    ['GPT-5-CODEX', { model: 'GPT-5-CODEX', suggestion: 'gpt-5.3-codex' }],
+    ['GPT_5_CODEX', null],
+  ])('proxy retirement lookup for %s', (model, expected) => {
+    expect(getRetiredModelBlockState(model)).toEqual(expected);
+  });
+
+  it.each([
     ['openai/gpt-5.5-pro', true],
     ['openai/gpt-5.5-pro-20261015', true],
     ['gpt_5_5_pro', true],
@@ -113,6 +121,17 @@ describe('model identity is intentionally different between consumers', () => {
     expect(resolveProviderPricingOverlay('copilot', model)?.pricing.input ?? null).toBe(input);
   });
 
+  it('operator overlays preserve exact dated tariffs and fall back to the base tariff for other dates', () => {
+    process.env.AWF_API_PROXY_PROVIDERS = JSON.stringify({
+      copilot: { models: {
+        'claude-sonnet-4-6': { cost: { input: 0.000002, output: 0.000004 } },
+        'claude-sonnet-4-6-20261015': { cost: { input: 0.000007, output: 0.000009 } },
+      } },
+    });
+    expect(resolveProviderPricingOverlay('copilot', 'claude-sonnet-4-6-20261015')?.pricing.input).toBe(7);
+    expect(resolveProviderPricingOverlay('copilot', 'claude-sonnet-4-6-20261016')?.pricing.input).toBe(2);
+  });
+
   it.each([
     ['claude-opus-5-5', true],
     ['claude-sonnet-5-5', true],
@@ -129,10 +148,29 @@ describe('model identity is intentionally different between consumers', () => {
   it.each([
     ['gpt-5.4-mini', 'openai'],
     ['gpt-5.5', 'openai'],
+    ['gpt-5.6', 'openai'],
+    ['gpt-5.6-sol', 'openai'],
+    ['gpt-5.6-terra', 'openai'],
+    ['gpt-5.6-luna', 'openai'],
     ['gpt-6-sol', 'openai'],
+    ['gpt-6-astra', 'openai'],
+    ['gpt-6-luna', 'openai'],
     ['claude-haiku-5-5', 'anthropic'],
   ])('#10030: %s currently has no maintained routing choices', (model, provider) => {
     expect(lookupModelRoutingMetadata(model, provider)).toBeNull();
+  });
+
+  it.each([
+    ['claude-opus-5', 'anthropic'],
+    ['claude-opus-5-5', 'anthropic'],
+    ['claude-sonnet-5', 'anthropic'],
+    ['claude-sonnet-5-5', 'anthropic'],
+    ['claude-opus-4-7', 'anthropic'],
+    ['claude-opus-4-8', 'anthropic'],
+  ])('#10030: %s routing metadata currently omits xhigh', (model, provider) => {
+    const routing = lookupModelRoutingMetadata(model, provider);
+    expect(routing).not.toBeNull();
+    expect(routing.reasoningEfforts).not.toContain('xhigh');
   });
 });
 
@@ -291,6 +329,7 @@ describe('public and persisted metadata projections', () => {
     expect(reflection.endpoints[0]).toMatchObject({
       models: ['gpt-5.4'],
       model_metadata: [{ id: 'gpt-5.4', source: 'provider', wire_api: 'responses',
+        observed_at: '2026-10-15T12:00:00Z', api_version: 'v-test',
         pricing: { default: { input: 1, output: 4, cachedInput: 0.1, cacheWrite: 0.2 } } }],
       routing_models: [{ model_id: 'gpt-5.4', source: 'provider' }],
     });
@@ -309,7 +348,9 @@ describe('public and persisted metadata projections', () => {
     const persisted = JSON.parse(write.mock.calls[0][1]);
     expect(persisted).toMatchObject({
       providers: { copilot: { configured: true, target: 'api.githubcopilot.com',
-        models: ['gpt-5.4'], model_metadata: reflection.endpoints[0].model_metadata } },
+        models: ['gpt-5.4'], model_metadata: [{
+          id: 'gpt-5.4', observed_at: '2026-10-15T12:00:00Z', api_version: 'v-test',
+        }] } },
       model_aliases: { primary: ['copilot/gpt-5.4'] },
     });
     expect(persisted.timestamp).toEqual(expect.any(String));

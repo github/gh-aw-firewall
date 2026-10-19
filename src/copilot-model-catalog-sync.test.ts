@@ -177,12 +177,58 @@ describe('SUPPORTED_COPILOT_MODELS ↔ ai-credits-pricing catalog sync', () => {
       providers: Record<string, { models: Array<{ family: string; routing?: unknown }> }>;
     };
     const openai = mapping.providers.openai.models;
-    expect(['gpt-5.4-mini', 'gpt-5.5', 'gpt-6-sol', 'gpt-6.1-sol']
+    expect([
+      'gpt-5.4-mini',
+      'gpt-5.5',
+      'gpt-5.6',
+      'gpt-5.6-sol',
+      'gpt-5.6-terra',
+      'gpt-5.6-luna',
+      'gpt-6-astra',
+      'gpt-6-sol',
+      'gpt-6-luna',
+      'gpt-6.1-sol',
+    ]
       .filter(family => !openai.find(entry => entry.family === family)?.routing)).toEqual([
-      'gpt-5.4-mini', 'gpt-5.5', 'gpt-6-sol', 'gpt-6.1-sol',
+      'gpt-5.4-mini',
+      'gpt-5.5',
+      'gpt-5.6',
+      'gpt-5.6-sol',
+      'gpt-5.6-terra',
+      'gpt-5.6-luna',
+      'gpt-6-astra',
+      'gpt-6-sol',
+      'gpt-6-luna',
+      'gpt-6.1-sol',
     ]);
     expect(mapping.providers.anthropic.models.find(entry => entry.family === 'claude-haiku-5')?.routing)
       .toBeUndefined();
+  });
+
+  it('records #10030 xhigh reasoning-effort gaps for named Anthropic models', () => {
+    const mapping = JSON.parse(fs.readFileSync(docsMappingPath, 'utf8')) as {
+      providers: Record<string, { models: Array<{
+        family: string;
+        routingPatterns?: string[];
+        routing?: { reasoningEfforts?: string[] };
+      }> }>;
+    };
+    const missingXhigh = [
+      'claude-opus-5',
+      'claude-opus-5-5',
+      'claude-sonnet-5',
+      'claude-sonnet-5-5',
+      'claude-opus-4-7',
+      'claude-opus-4-8',
+    ];
+    expect(missingXhigh.map(model => {
+      const entry = mapping.providers.anthropic.models.find(candidate =>
+        candidate.family === model || candidate.routingPatterns?.includes(model));
+      return { model, reasoningEfforts: entry?.routing?.reasoningEfforts };
+    })).toEqual(missingXhigh.map(model => ({
+      model,
+      reasoningEfforts: ['low', 'medium', 'high', 'max'],
+    })));
   });
 
   it('every Copilot CLI model in ai-credits-pricing.js appears in SUPPORTED_COPILOT_MODELS', () => {

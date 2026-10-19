@@ -923,7 +923,11 @@ target contract):
   or date suffixes; the proxy strips a matching provider prefix, runtime
   pricing strips date suffixes and lowercases, operator overlays keep date
   suffixes and match families, and `models.dev` strips dates but preserves
-  case. These differences must be compared before Gate 2 changes identity.
+  case. The proxy retirement guard only lowercases, so it blocks
+  `GPT-5-CODEX` but not `GPT_5_CODEX`; host validation normalizes separators and
+  rejects both. Dated operator-overlay fixtures distinguish the exact dated
+  tariff from the base tariff selected for another date. These differences must
+  be compared before Gate 2 changes identity.
 - Pricing precedence to preserve in Gate 3/5 is operator overlay, configured
   shared pricing catalogue, complete runtime price, incomplete runtime price
   with lower-priority components, curated price, bundled `models.dev`,
@@ -934,10 +938,12 @@ target contract):
   the host allowlist and six from curated pricing; `gpt-6.1-sol` already has a
   curated entry, while four entries still appear in the stale
   `SUPPORTED_WITHOUT_CURATED_PRICING` exception set. #10030 is not landed:
-  `gpt-5.4-mini`, `gpt-5.5`, `gpt-6-sol`, and `gpt-6.1-sol` lack mapping
-  routing metadata, as does the `claude-haiku-5` family. The named tests expose
-  these gaps; replace their expectations when the fixes land rather than
-  treating absence as the future specification.
+  `gpt-5.4-mini`, `gpt-5.5`, `gpt-5.6` (including Sol, Terra, and Luna),
+  `gpt-6-astra`, `gpt-6-sol`, `gpt-6-luna`, and `gpt-6.1-sol` lack mapping
+  routing metadata, as does the `claude-haiku-5` family. The mapping currently
+  omits `xhigh` for Claude Opus 5/5.5, Sonnet 5/5.5, and Opus 4.7/4.8. The
+  named host and proxy tests inventory these gaps; replace their expectations
+  when the fixes land rather than treating absence as the future specification.
 - Validation: run `npm run build && npx jest --runInBand
   src/copilot-model.test.ts src/copilot-model-catalog-sync.test.ts` from the
   repository root, and `npm test -- --runInBand
