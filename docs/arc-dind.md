@@ -206,11 +206,13 @@ are tracked there for compiler/MCP Gateway fixes, with AWF-side tracking in
   AWF does not create cross-root symlinks or copies, which can conflict with
   artifact consolidation.
 - **Threat detection:** mounting the input directory only makes it visible to
-  the process. The compiler must also pass that directory in Copilot's
-  `--add-dir` scope. Detection must fail closed if required inputs cannot be
-  read or no valid verdict is produced; a successful engine exit alone is not
-  proof that inputs were analyzed. AWF passes the command through unchanged
-  and cannot interpret an engine's permission denials or detection verdict.
+  the process. `threat-detect` launches Copilot and must grant its input
+  directory in Copilot's `--add-dir` scope; the absence of `--add-dir` in the
+  compiled detection job alone does not show what the subprocess received.
+  Detection must fail closed if required inputs cannot be read or no valid
+  verdict is produced; a successful engine exit alone is not proof that inputs
+  were analyzed. AWF passes the command through unchanged and cannot interpret
+  an engine's permission denials or detection verdict.
   The upstream `Conclude threat detection` step must also honor
   `RUN_DETECTION=false` rather than requiring a deliberately skipped binary.
   To verify the reported strict-mode failure, reproduce on a throwaway PR
