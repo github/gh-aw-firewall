@@ -16,6 +16,7 @@ const actualFs = jest.requireActual<typeof import('fs')>('fs');
 import { prepareWorkDirectories, workdirSetupTestHelpers } from './workdir-setup';
 import { resolveLogPaths } from './log-paths';
 import { getRealUserHome } from './host-identity';
+import { getGeminiSystemSettingsSourcePath } from './services/credentials/gemini-cli-settings';
 
 function setupWorkdirFixture({ cleanupChrootHome = true } = {}) {
   let tempDir = '';
@@ -72,6 +73,21 @@ function setupWorkdirFixture({ cleanupChrootHome = true } = {}) {
 describe('prepareWorkDirectories', () => {
   const fixture = setupWorkdirFixture();
   const { buildConfig } = fixture;
+
+  it('stages the Gemini auth pin as a root-owned file outside the writable home', () => {
+    const config = buildConfig({ enableApiProxy: true, geminiApiKey: 'fake-key' });
+    prepareWorkDirectories(config, resolveLogPaths(config));
+
+    const source = getGeminiSystemSettingsSourcePath(config.workDir);
+    expect(JSON.parse(fs.readFileSync(source, 'utf8'))).toEqual({
+      security: { auth: { selectedType: 'gemini-api-key' } },
+    });
+    expect(fs.statSync(path.dirname(source)).mode & 0o777).toBe(0o700);
+    expect(fs.statSync(source).mode & 0o777).toBe(0o644);
+    expect(fs.chownSync).toHaveBeenCalledWith(path.dirname(source), 0, 0);
+    expect(fs.fchownSync).toHaveBeenCalledWith(expect.any(Number), 0, 0);
+    expect(fs.existsSync(path.join(`${config.workDir}-chroot-home`, '.awf'))).toBe(false);
+  });
 
   describe('log/state directory setup', () => {
     it('creates agent logs directory', () => {
@@ -364,11 +380,9 @@ describe('prepareWorkDirectories', () => {
     });
 
     it('writes Gemini system settings without following a pre-existing symlink', () => {
-      const emptyHomeDir = `${fixture.tempDir}-chroot-home`;
-      const settingsDir = path.join(emptyHomeDir, '.awf');
       const target = path.join(fixture.tempDir, 'target');
-      const settingsPath = path.join(settingsDir, 'gemini-cli-system-settings.json');
-      fs.mkdirSync(settingsDir, { recursive: true });
+      const settingsPath = getGeminiSystemSettingsSourcePath(fixture.tempDir);
+      fs.mkdirSync(path.dirname(settingsPath), { recursive: true });
       fs.writeFileSync(target, 'unchanged');
       fs.symlinkSync(target, settingsPath);
 
@@ -580,10 +594,9 @@ describe('prepareChrootHomeMounts (sub-function)', () => {
 
   // Regression: Gemini CLI >= 0.44 maps GOOGLE_GEMINI_BASE_URL (which AWF sets for
   // api-proxy routing) to its unsupported "gateway" auth type and exits 41. AWF pins
-  // the auth type with a system settings file in the chroot home instead.
+  // the auth type with a root-owned system settings file outside the chroot home.
   describe('Gemini CLI system settings', () => {
-    const settingsPath = () =>
-      path.join(`${fixture.tempDir}-chroot-home`, '.awf', 'gemini-cli-system-settings.json');
+    const settingsPath = () => getGeminiSystemSettingsSourcePath(fixture.tempDir);
     const originalVertex = process.env.GOOGLE_GENAI_USE_VERTEXAI;
 
     afterEach(() => {

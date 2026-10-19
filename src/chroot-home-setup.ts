@@ -7,7 +7,7 @@ import { assertRealDirectory, createMissingOwnedDirectorySegments, writeFileNoFo
 import { resolveRunnerToolCachePath } from './runner-tool-cache';
 import { HOME_TOOL_PATHS } from './config/mount-policy';
 import {
-  GEMINI_CLI_SYSTEM_SETTINGS_RELATIVE_PATH,
+  getGeminiSystemSettingsSourcePath,
   buildGeminiSystemSettingsContent,
   isGeminiProxyRoutingEnabled,
   shouldPinGeminiAuthType,
@@ -41,22 +41,22 @@ export function prepareChrootHomeMountpoint(emptyHomeDir: string, relativeMountP
 }
 
 /**
- * Writes the AWF-owned Gemini CLI system settings file into the empty chroot home,
+ * Writes the AWF-owned Gemini CLI system settings file into a private staging directory,
  * pinning the CLI's auth type so that AWF's `GOOGLE_GEMINI_BASE_URL` (api-proxy
- * routing) is not misread as unsupported "gateway" auth. The file is owned by the
- * chroot user so the agent can read it; the host's real `~/.gemini` is untouched.
+ * routing) is not misread as unsupported "gateway" auth. Only the root-owned
+ * file is mounted read-only under /etc in the agent; host Gemini settings are untouched.
  */
-function writeGeminiSystemSettings(emptyHomeDir: string, uid: number, gid: number): void {
-  const settingsPath = path.join(emptyHomeDir, GEMINI_CLI_SYSTEM_SETTINGS_RELATIVE_PATH);
+function writeGeminiSystemSettings(workDir: string): void {
+  const settingsPath = getGeminiSystemSettingsSourcePath(workDir);
   const settingsDir = path.dirname(settingsPath);
 
-  fs.mkdirSync(settingsDir, { recursive: true });
+  fs.mkdirSync(settingsDir, { recursive: true, mode: 0o700 });
   assertRealDirectory(settingsDir);
-  fs.chownSync(settingsDir, uid, gid);
-  fs.chmodSync(settingsDir, 0o755);
+  fs.chownSync(settingsDir, 0, 0);
+  fs.chmodSync(settingsDir, 0o700);
 
-  writeFileNoFollow(settingsPath, buildGeminiSystemSettingsContent(), 0o644, { uid, gid });
-  logger.debug(`Wrote Gemini CLI system settings: ${settingsPath} (${uid}:${gid})`);
+  writeFileNoFollow(settingsPath, buildGeminiSystemSettingsContent(), 0o644, { uid: 0, gid: 0 });
+  logger.debug(`Wrote Gemini CLI system settings: ${settingsPath} (0:0)`);
 }
 
 /**
@@ -88,7 +88,7 @@ export function prepareChrootHomeMounts(config: WrapperConfig): void {
   logger.debug(`Created chroot home directory: ${emptyHomeDir} (${uid}:${gid})`);
 
   if (isGeminiProxyRoutingEnabled(config) && shouldPinGeminiAuthType(config)) {
-    writeGeminiSystemSettings(emptyHomeDir, uid, gid);
+    writeGeminiSystemSettings(config.workDir);
   }
 
   // Ensure source directories and nested chroot mountpoints exist before Docker

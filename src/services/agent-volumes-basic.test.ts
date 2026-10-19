@@ -1,5 +1,7 @@
 import * as fs from 'fs';
+import type { WrapperConfig } from '../types';
 import { generateDockerCompose, mockNetworkConfig, useAgentVolumesTestConfig } from './service-test-setup.test-utils';
+import { GEMINI_CLI_SYSTEM_SETTINGS_PATH, getGeminiSystemSettingsSourcePath } from './credentials/gemini-cli-settings';
 
 // Create mock functions (must remain per-file — jest.mock() is hoisted before imports)
 
@@ -9,6 +11,31 @@ jest.mock('execa', () => require('../test-helpers/mock-execa.test-utils').execaM
 const { getConfig } = useAgentVolumesTestConfig();
 
 describe('agent service', () => {
+  it.each([undefined, '/host', '/tmp/gh-aw'])(
+    'mounts the Gemini auth pin read-only under /etc with prefix %s',
+    (dockerHostPathPrefix) => {
+      const config = {
+        ...getConfig(), enableApiProxy: true, geminiApiKey: 'fake-key', dockerHostPathPrefix,
+      };
+      const volumes = generateDockerCompose(config, mockNetworkConfig).services.agent.volumes as string[];
+      const source = getGeminiSystemSettingsSourcePath(config.workDir);
+      const translated = dockerHostPathPrefix ? `${dockerHostPathPrefix}${source}` : source;
+      expect(volumes).toContain(`${translated}:/host${GEMINI_CLI_SYSTEM_SETTINGS_PATH}:ro`);
+      expect(volumes.some((volume) => volume.includes(':/host/home/') && volume.includes('settings.json'))).toBe(false);
+    },
+  );
+
+  it.each<Partial<WrapperConfig>>([
+    { enableApiProxy: false, geminiApiKey: 'fake-key' },
+    { enableApiProxy: true },
+    { enableApiProxy: true, geminiApiKey: 'fake-key', additionalEnv: { GOOGLE_GENAI_USE_VERTEXAI: 'true' } },
+    { enableApiProxy: true, geminiApiKey: 'fake-key', additionalEnv: { GOOGLE_GENAI_USE_GCA: 'true' } },
+  ])('omits the system settings mount when pinning is disabled: %j', (overrides) => {
+    const volumes = generateDockerCompose({ ...getConfig(), ...overrides }, mockNetworkConfig)
+      .services.agent.volumes as string[];
+    expect(volumes.some((volume) => volume.includes(`:/host${GEMINI_CLI_SYSTEM_SETTINGS_PATH}:`))).toBe(false);
+  });
+
   it('should mount required volumes in agent container (default behavior)', () => {
     const result = generateDockerCompose(getConfig(), mockNetworkConfig);
     const agent = result.services.agent;

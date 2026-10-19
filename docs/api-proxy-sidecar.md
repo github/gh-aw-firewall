@@ -223,7 +223,7 @@ The agent container receives **redacted placeholders** and proxy URLs:
 | `GOOGLE_GEMINI_BASE_URL` | `http://172.30.0.30:10003` | `GEMINI_API_KEY` or GCP OIDC configured | Redirects Gemini CLI to proxy (primary var read by Gemini CLI) |
 | `GEMINI_API_BASE_URL` | `http://172.30.0.30:10003` | `GEMINI_API_KEY` or GCP OIDC configured | Redirects Gemini SDK to proxy (kept for backward compatibility) |
 | `GEMINI_API_KEY` | `gemini-api-key-placeholder-for-credential-isolation` | `GEMINI_API_KEY` or GCP OIDC configured | Placeholder so Gemini CLI auth check passes (real key or WIF token in sidecar) |
-| `GEMINI_CLI_SYSTEM_SETTINGS_PATH` | `$HOME/.awf/gemini-cli-system-settings.json` | Gemini routed through the proxy, unless `GOOGLE_GENAI_USE_VERTEXAI`/`GOOGLE_GENAI_USE_GCA` is `true` | AWF-owned Gemini CLI system settings file that pins `security.auth.selectedType` to `gemini-api-key` |
+| `GEMINI_CLI_SYSTEM_SETTINGS_PATH` | `/etc/awf/gemini-cli/settings.json` | Gemini routed through the proxy, unless `GOOGLE_GENAI_USE_VERTEXAI`/`GOOGLE_GENAI_USE_GCA` is `true` | AWF-owned, read-only Gemini CLI system settings file that pins `security.auth.selectedType` to `gemini-api-key` |
 | `GOOGLE_VERTEX_BASE_URL` | `http://172.30.0.30:10004` | `GOOGLE_API_KEY` or GCP OIDC configured | Redirects Vertex AI requests to proxy |
 | `GOOGLE_API_KEY` | `google-api-key-placeholder-for-credential-isolation` | `GOOGLE_API_KEY` or GCP OIDC configured | Placeholder so Vertex mode auth checks pass (real key or WIF token in sidecar) |
 | `OPENAI_API_KEY` | `sk-placeholder-for-api-proxy` | `OPENAI_API_KEY` provided to host | Non-secret placeholder required by newer Codex clients; the real host value is excluded and held in the sidecar |
@@ -1065,7 +1065,7 @@ When `GEMINI_API_KEY` is provided to the AWF runner, `GOOGLE_GEMINI_BASE_URL`, `
 
 Gemini CLI **0.44.0 and newer** resolve *any* non-empty `GOOGLE_GEMINI_BASE_URL` to the internal `gateway` auth type in `getAuthTypeFromEnv()`, but their own `validateAuthMethod()` has no branch for that type and aborts with `Invalid auth method selected.` (exit code **41**) before a single request is issued. Because AWF must set `GOOGLE_GEMINI_BASE_URL` to route the CLI through the api-proxy sidecar, every proxied Gemini run hit this upstream regression (see [google-gemini/gemini-cli#27550](https://github.com/google-gemini/gemini-cli/issues/27550)). The placeholder `GEMINI_API_KEY` value is not involved — the CLI performs no key-format validation.
 
-**Resolution:** For Compose-backed agent runtimes, AWF writes an AWF-owned Gemini CLI *system* settings file into the agent's chroot home (`$HOME/.awf/gemini-cli-system-settings.json`) and points the CLI at it with `GEMINI_CLI_SYSTEM_SETTINGS_PATH`:
+**Resolution:** For Compose-backed agent runtimes, AWF stages a root-owned Gemini CLI *system* settings file and mounts it read-only under the agent's root-controlled `/etc` subtree (`/etc/awf/gemini-cli/settings.json`). It points the CLI at this location with `GEMINI_CLI_SYSTEM_SETTINGS_PATH`:
 
 ```json
 {
