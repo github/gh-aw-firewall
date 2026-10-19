@@ -136,8 +136,9 @@ function auditUpstreamErrorResponse(fields) {
 }
 
 function auditEnclaveResponse(status, origin) {
-  if (!process.env.AWF_ENCLAVE_AGENT_MODEL_BUDGET_SECRET) return;
-  if (enclaveResponseRecords >= 4096 ||
+  if (process.env.AWF_ENCLAVE_PROXY_DIAGNOSTICS !== '1') return;
+  // One overflow record makes truncation distinguishable from complete evidence.
+  if (enclaveResponseRecords >= 4097 ||
       !Number.isInteger(status) || status < 100 || status > 599 ||
       !['local', 'upstream'].includes(origin)) return;
   try {

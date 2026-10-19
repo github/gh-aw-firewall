@@ -59,6 +59,37 @@ describe('bounded actual-host preflight progress', () => {
     expect(JSON.stringify(records)).not.toMatch(/PRIVATE_TOKEN|PRIVATE_CLEANUP/);
   });
 
+  it('shares accumulated checks across same-scope forks without resetting earlier evidence', async () => {
+    const records: HostPreflightProgress[] = [];
+    const common = new HostPreflightReporter('bounded-artifacts', value => records.push(value),
+      undefined, { phase: 'preflight', profile: 'common' });
+    await common.check('manifest-attestation', () => undefined);
+    const script = common.fork('bounded-artifacts', { phase: 'preflight', profile: 'script' });
+    await script.check('rootfs-digest', () => undefined);
+    const agent = common.fork('bounded-artifacts', { phase: 'preflight', profile: 'agent' });
+    await agent.check('sbom-digest', () => undefined);
+    await common.check('enclave-artifacts', () => undefined);
+    const last = records[records.length - 1];
+    expect(last).toMatchObject({ profile: 'common', phase: 'preflight' });
+    for (const id of ['manifest-attestation', 'rootfs-digest', 'sbom-digest', 'enclave-artifacts']) {
+      expect(last.checks.find(check => check.id === id)).toMatchObject({ result: 'passed' });
+    }
+    const firstScript = records.find(value => value.profile === 'script')!;
+    expect(firstScript.checks.find(check => check.id === 'manifest-attestation')?.result).toBe('passed');
+    expect(firstScript.checks.find(check => check.id === 'rootfs-digest')?.result).toBe('not-attempted');
+    firstScript.checks.find(check => check.id === 'manifest-attestation')!.result = 'failed';
+    const cleanup = common.fork('bounded-cleanup');
+    await cleanup.check('storage-close', () => undefined);
+    await common.check('manifest-parse', () => undefined);
+    expect(records[records.length - 1].checks.find(check => check.id === 'manifest-attestation')?.result)
+      .toBe('passed');
+    expect(records[records.length - 1].checks.some(check => check.id === 'storage-close')).toBe(false);
+    script.fail('rootfs-digest', markHostPreflightError(new Error('private'), 'digest-mismatch'));
+    await common.check('manifest-read', () => undefined);
+    expect(records[records.length - 1].checks.find(check => check.id === 'rootfs-digest'))
+      .toMatchObject({ result: 'failed', reason: 'digest-mismatch' });
+  });
+
   it.each([
     new Error('code=ENOENT secret'), 'ENOENT', null,
     { code: 'secret\nENOENT' }, { code: 'code=ENOENT' }, { code: 'unrecognized' },

@@ -233,6 +233,17 @@ are discarded. A separately projected `enclave-proxy-response.json` preserves
 run-cumulative status or an explicit unavailable classification when no
 invocation debug directory exists. These records are distinct from the
 primary agent's `api-proxy-logs`.
+
+Dedicated-proxy auditing is independent of optional model-budget limits and
+includes local WebSocket upgrade rejections. After 4096 responses, one bounded
+overflow record makes the reader report `record-limit` rather than presenting
+the earlier successes as complete evidence. The protected journal retains one
+run-cumulative proxy debug projection (including closed rejection event names)
+before teardown, even if startup failed before the first invocation. The smoke
+collector verifies its run identity, owner-only permissions, schema and size
+before exporting it; cumulative events are not copied into invocation directories.
+Collection can identify the new protected run projection even if preflight
+failed before the host executor created its run journal.
 Dedicated proxy accounting remains a separate
 closed projection of request/status and token totals, not raw HTTP bodies,
 headers, or credentials. Public repository visibility is not a guarantee that
@@ -1614,6 +1625,13 @@ storage and trust outcomes when connectivity starts, and resets for each new
 startup instead of inheriting prior success. The primary-agent startup hook
 requires every applicable check to pass. Only explicitly configuration-dependent
 checks can be `not-required`; required checks cannot be skipped.
+
+Same-scope reporter forks share accumulated check state while preserving the
+emitting profile and phase. Script and agent artifact checks therefore survive
+later common-scope reports; the enclosing artifact-set check passes only after
+every applicable role has been verified. Legacy v1 manifests still require
+SBOM trust and digest verification, but mark the v2-only final-filesystem SBOM
+contents check `not-required`.
 
 The common checklist covers configuration, enabled runtime availability,
 private storage isolation, directory layout, run identity, seed catalog and

@@ -308,6 +308,8 @@ export async function preflightCloudHypervisorEnclaveArtifacts(
                 'digest-mismatch');
             }
           });
+        } else {
+          roleReport?.notRequired('sbom-contents');
         }
       } catch (error) {
         sbomFailure = { error };

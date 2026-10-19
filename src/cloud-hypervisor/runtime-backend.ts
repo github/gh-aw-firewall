@@ -83,7 +83,7 @@ export interface CloudHypervisorManagerAdapter {
 // ts-prune-ignore-next
 export interface CloudHypervisorRuntimeBackendDependencies {
   startInfrastructure: WorkflowDependencies['startContainers'];
-  preflight(config: CloudHypervisorOptions): Promise<CloudHypervisorPreflightResult>;
+  preflight: typeof runCloudHypervisorPreflight;
   resolveInfrastructure(
     enableApiProxy: boolean,
     ipPath?: string,
@@ -230,7 +230,14 @@ class CloudHypervisorRuntimeBackend implements ExternalAgentRuntimeBackend {
       );
     }
     assertCloudHypervisorRuntimeCompatibility(this.config, cloudHypervisor);
-    this.preflightResult = await this.dependencies.preflight(cloudHypervisor);
+    this.preflightResult = await this.dependencies.preflight(cloudHypervisor, {
+      onHostPreflight: hostPreflight => {
+        this.dependencies.logger.debug('[cloud-hypervisor] host preflight', hostPreflight);
+        if (hostPreflight.checks.some(check => check.result === 'failed')) {
+          this.dependencies.logger.warn('[cloud-hypervisor] host preflight failed', hostPreflight);
+        }
+      },
+    });
   }
 
   readonly start: WorkflowDependencies['startContainers'] = async (

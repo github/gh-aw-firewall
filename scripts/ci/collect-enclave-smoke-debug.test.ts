@@ -1,6 +1,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { createHash } from 'crypto';
+import { preservePublicEnclaveProxyDiagnostics } from '../../src/enclave/proxy-debug-retention';
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const { prepare, collect, MAX_STREAM_BYTES, MAX_FILES } = require('./collect-enclave-smoke-debug.cjs');
@@ -65,6 +66,77 @@ describe('host-only public enclave debug collector', () => {
     expect(fs.readFileSync(path.join(run, 'upload/collection-status.txt'), 'utf8'))
       .toContain('Enclave proxy usage (requests/tokens): missing');
   });
+
+  it.each([false, true])('collects run-cumulative proxy logs without invocation storage (invoked=%s)', async invoked => {
+    prepareRun();
+    if (invoked) {
+      invocation();
+      fs.rmSync(path.join(roots.debug, vmId), { recursive: true });
+    }
+    await preservePublicEnclaveProxyDiagnostics({ runId, journalDir: roots.journal }, {
+      scope: 'run-cumulative', status: 'captured', records: 1, local: { '403': 1 }, upstream: {},
+    }, [{ schemaVersion: 1, origin: 'local', status: 403 }],
+    'source=stderr level=warn event=enclave_model_budget_rejected\ncapture_status=captured dropped=0\n');
+    expect(collectRun()).toBe(2);
+    expect(fs.readFileSync(path.join(run, 'upload/enclave-proxy-events.jsonl'), 'utf8'))
+      .toBe('{"schemaVersion":1,"origin":"local","status":403}\n');
+    expect(fs.readFileSync(path.join(run, 'upload/enclave-proxy-container.log'), 'utf8'))
+      .toContain('event=enclave_model_budget_rejected');
+  });
+
+  it('excludes stale run projections', async () => {
+    await preservePublicEnclaveProxyDiagnostics({ runId, journalDir: roots.journal },
+      { scope: 'run-cumulative', status: 'empty' }, [], 'capture_status=empty\n');
+    prepareRun();
+    expect(collectRun()).toBe(0);
+  });
+
+  it('rejects run projections belonging to a different current journal', async () => {
+    prepareRun();
+    invocation();
+    await preservePublicEnclaveProxyDiagnostics({ runId: 'c'.repeat(32), journalDir: roots.journal },
+      { scope: 'run-cumulative', status: 'empty' }, [], 'capture_status=empty\n');
+    expect(collectRun).toThrow(/Proxy debug artifacts do not belong/);
+    expect(fs.existsSync(path.join(run, 'upload'))).toBe(false);
+  });
+
+  it.each(['symlink', 'hardlink', 'permissions', 'oversized', 'run-id', 'scope', 'log'])(
+    'rejects unsafe run-level proxy debug %s before staging', async kind => {
+      prepareRun();
+      fs.writeFileSync(path.join(roots.journal, `${runId}.journal`),
+        JSON.stringify({ runId, state: 'open' }), { mode: 0o600 });
+      await preservePublicEnclaveProxyDiagnostics({ runId, journalDir: roots.journal },
+        { scope: 'run-cumulative', status: 'empty' }, [], 'capture_status=empty\n');
+      const id = createHash('sha256').update(`awf-enclave-proxy-debug-v1:${runId}`).digest('hex').slice(0, 32);
+      const source = path.join(roots.journal, 'diagnostics', `${runId}-${id}.proxy-debug.json`);
+      if (kind === 'symlink') {
+        fs.unlinkSync(source);
+        fs.symlinkSync(path.join(run, 'baseline.json'), source);
+      } else if (kind === 'hardlink') fs.linkSync(source, path.join(temp, 'duplicate'));
+      else if (kind === 'permissions') fs.chmodSync(source, 0o644);
+      else if (kind === 'oversized') fs.writeFileSync(source, Buffer.alloc(320 * 1024 + 1));
+      else {
+        const value = JSON.parse(fs.readFileSync(source, 'utf8'));
+        if (kind === 'run-id') value.runId = 'c'.repeat(32);
+        else if (kind === 'scope') value.scope = 'invocation';
+        else value.containerLog = 'PRIVATE_LOG\n';
+        fs.writeFileSync(source, JSON.stringify(value));
+      }
+      expect(collectRun).toThrow();
+      expect(fs.existsSync(path.join(run, 'upload'))).toBe(false);
+    });
+
+  it.each(['rate_limited', 'request_validation_failed', 'model_fallback_exhausted'])(
+    'collects the fixed %s event without free-form data', async event => {
+      prepareRun();
+      fs.writeFileSync(path.join(roots.journal, `${runId}.journal`),
+        JSON.stringify({ runId, state: 'open' }), { mode: 0o600 });
+      await preservePublicEnclaveProxyDiagnostics({ runId, journalDir: roots.journal },
+        { scope: 'run-cumulative', status: 'empty' }, [],
+        `source=stderr level=warn event=${event}\ncapture_status=captured dropped=0\n`);
+      expect(collectRun()).toBe(2);
+      expect(fs.readFileSync(path.join(run, 'upload/enclave-proxy-container.log'), 'utf8')).toContain(`event=${event}\n`);
+    });
 
   function proxySummary(value: unknown) {
     const diagnostics = path.join(roots.journal, 'diagnostics');

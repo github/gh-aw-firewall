@@ -194,6 +194,7 @@ function projectProxyContainerLog(bytes) {
     'request_complete', 'request_error', 'upstream_error_response', 'upstream_auth_error',
     'request_transform_failed', 'key_validation_error', 'oidc_startup_failed',
     'model_fetch_error', 'model_routing_bootstrap_error',
+    'enclave_model_budget_rejected', 'rate_limited', 'request_validation_failed', 'model_fallback_exhausted',
   ]);
   if (lines.at(-1) !== '' ||
       !/^capture_status=(?:captured dropped=(?:[0-9]{1,5})|empty|unavailable)$/.test(trailer ?? '') ||
@@ -209,6 +210,8 @@ function prepare(runDirectory, roots = ROOTS, uid = 0, trustedRoot = '/') {
   fs.mkdirSync(runDirectory, { mode: 0o700 });
   const baseline = {
     journals: inventory(roots.journal, uid, trustedRoot).filter(name => name.endsWith('.journal')),
+    proxyDebug: inventory(path.join(roots.journal, 'diagnostics'), uid, trustedRoot)
+      .filter(name => name.endsWith('.proxy-debug.json')),
     debug: inventory(roots.debug, uid, trustedRoot),
   };
   fs.writeFileSync(path.join(runDirectory, 'baseline.json'), JSON.stringify(baseline),
@@ -221,7 +224,11 @@ function collect(runDirectory, runnerUid, runnerGid, roots = ROOTS, uid = 0, tru
   const journals = inventory(roots.journal, uid, trustedRoot)
     .filter(name => name.endsWith('.journal') && !baseline.journals.includes(name));
   const debug = inventory(roots.debug, uid, trustedRoot).filter(name => !baseline.debug.includes(name));
-  if (journals.length > 1 || debug.length > 1) throw new Error('Unexpected concurrent enclave runs');
+  const proxyDebug = inventory(path.join(roots.journal, 'diagnostics'), uid, trustedRoot)
+    .filter(name => name.endsWith('.proxy-debug.json') && !(baseline.proxyDebug ?? []).includes(name));
+  if (journals.length > 1 || debug.length > 1 || proxyDebug.length > 1) {
+    throw new Error('Unexpected concurrent enclave runs');
+  }
   let invocation;
   let runId;
   let nonInvocationRecords = 0;
@@ -256,6 +263,15 @@ function collect(runDirectory, runnerUid, runnerGid, roots = ROOTS, uid = 0, tru
       if (invocation && invocation !== candidate) throw new Error('Invocation budget exceeded');
       invocation = candidate;
     }
+  }
+  if (proxyDebug.length) {
+    const match = /^([a-f0-9]{32})-([a-f0-9]{32})\.proxy-debug\.json$/.exec(proxyDebug[0]);
+    const expected = match && createHash('sha256').update(`awf-enclave-proxy-debug-v1:${match[1]}`)
+      .digest('hex').slice(0, 32);
+    if (!match || match[2] !== expected || (runId && runId !== match[1])) {
+      throw new Error('Proxy debug artifacts do not belong to this run');
+    }
+    runId = match[1];
   }
   if (debug.length && (!ID.test(debug[0]) || debug[0] !== invocation)) {
     throw new Error('Debug artifacts do not belong to this run');
@@ -295,6 +311,22 @@ function collect(runDirectory, runnerUid, runnerGid, roots = ROOTS, uid = 0, tru
     } catch (error) {
       if (error.code !== 'ENOENT') throw error;
     }
+    const debugId = createHash('sha256').update(`awf-enclave-proxy-debug-v1:${runId}`)
+      .digest('hex').slice(0, 32);
+    try {
+      directory(diagnostics, uid, trustedRoot);
+      const value = parseRecord(readRegular(
+        path.join(diagnostics, `${runId}-${debugId}.proxy-debug.json`), 320 * 1024, uid).toString('utf8'));
+      if (value?.schemaVersion !== 1 || value.component !== 'enclave-proxy-debug' ||
+          value.scope !== 'run-cumulative' || value.runId !== runId ||
+          !Array.isArray(value.events) || value.events.length > 4096 ||
+          typeof value.containerLog !== 'string') throw new Error('Invalid enclave proxy debug identity');
+      files.push(['enclave-proxy-events.jsonl', projectProxyEvents(Buffer.from(
+        value.events.map(event => JSON.stringify(event) + '\n').join('')))]);
+      files.push(['enclave-proxy-container.log', projectProxyContainerLog(Buffer.from(value.containerLog))]);
+    } catch (error) {
+      if (error.code !== 'ENOENT') throw error;
+    }
   }
   if (debug.length) {
     const source = path.join(roots.debug, invocation);
@@ -321,6 +353,7 @@ function collect(runDirectory, runnerUid, runnerGid, roots = ROOTS, uid = 0, tru
     ? `Collected ${files.length} bounded public-fixture debug files.\n`
     : 'No public-fixture debug logs were produced for this run.\n') +
     `Non-invocation records: ${nonInvocationRecords}; invalid identity records: ${invalidIdentityRecords}.\n` +
+    'Enclave proxy projection scope: run-cumulative.\n' +
     `Enclave proxy usage (requests/tokens): ${usageStatus}.\n` +
     `Enclave proxy response diagnostics: ${responseStatus}.\n`,
   { mode: 0o600, flag: 'wx' });

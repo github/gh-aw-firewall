@@ -34,7 +34,7 @@ import type { GuestExecutionDiagnostics } from '../microvm/execution-diagnostics
 import type { EnclaveSessionDiagnostics } from '../cloud-hypervisor/enclave-session-diagnostics';
 import {
   projectEnclaveProxyUsage, projectEnclaveProxyResponseDiagnostics,
-  type EnclaveProxyUsage, type EnclaveProxyResponseDiagnostics,
+  type EnclaveProxyUsage, type EnclaveProxyResponseDiagnostics, type EnclaveProxyEvent,
 } from './proxy-usage';
 
 export const HOST_EXECUTOR_DEFAULT_JOURNAL_DIRECTORY =
@@ -394,6 +394,22 @@ export function persistHostExecutorProxyResponseDiagnostics(
   persist(path.join(directory, `${run.runId}-${id}.json`), {
     schemaVersion: 1, component: 'enclave-proxy-response', runId: run.runId,
     diagnostics: projectEnclaveProxyResponseDiagnostics(diagnostics),
+  });
+}
+
+export function persistHostExecutorProxyDebugDiagnostics(
+  run: Pick<HostExecutorRunState, 'runId' | 'journalDir'>,
+  events: readonly EnclaveProxyEvent[],
+  containerLog: string,
+): void {
+  if (!HOST_EXECUTOR_ID_PATTERN.test(run.runId)) throw new Error('Invalid host executor run identity');
+  const directory = path.join(hostExecutorJournalDirectory(run), 'diagnostics');
+  prepareDirectory(directory);
+  const id = createHash('sha256').update(`awf-enclave-proxy-debug-v1:${run.runId}`).digest('hex').slice(0, 32);
+  persist(path.join(directory, `${run.runId}-${id}.proxy-debug.json`), {
+    schemaVersion: 1, component: 'enclave-proxy-debug', scope: 'run-cumulative', runId: run.runId,
+    events: events.map(({ schemaVersion, origin, status }) => ({ schemaVersion, origin, status })),
+    containerLog,
   });
 }
 

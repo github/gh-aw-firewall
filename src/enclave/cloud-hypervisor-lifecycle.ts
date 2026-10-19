@@ -349,8 +349,7 @@ export async function stopCloudHypervisorEnclaveLifecycle(config: WrapperConfig)
           };
         persistHostExecutorProxyResponseDiagnostics(identity, diagnostics);
         await preservePublicEnclaveProxyDiagnostics(
-          identity, ENCLAVE_DEBUG_ARTIFACT_ROOT, ENCLAVE_DEBUG_ARTIFACT_PROTECTED_ROOT,
-          diagnostics, events, await captureEnclaveProxyContainerLog(),
+          identity, diagnostics, events, await captureEnclaveProxyContainerLog(),
         );
       } catch (error) {
         evidenceError ??= error;

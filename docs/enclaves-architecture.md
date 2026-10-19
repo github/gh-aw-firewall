@@ -882,7 +882,11 @@ repository visibility verification enables bounded, protected host-only guest,
 session, and dedicated API-proxy diagnostics by default. Explicit opt-out and
 private, mixed, or dynamic scope retain non-disclosing behavior. Proxy response
 evidence distinguishes observed local from upstream HTTP statuses; missing
-accounting is not evidence of no request. The primary proxy's logs are separate
+accounting is not evidence of no request. Proxy events and container projections
+are run-cumulative, retained once under the protected run journal even before
+the first invocation, and never attributed to an individual invocation.
+Auditing does not depend on configuring model-budget limits.
+The primary proxy's logs are separate
 and do not explain an enclave proxy rejection. See
 [the diagnostic retention contract](cloud-hypervisor-foundation.md#redacted-enclave-proxy-usage-evidence).
 

@@ -77,11 +77,12 @@ export class HostPreflightReporter {
       error: unknown,
     ) => void,
     private readonly context?: HostPreflightContext,
+    checks?: HostPreflightProgress['checks'],
   ) {
     this.progress = {
       schemaVersion: context ? 2 : 1, scope,
       ...(context ? { phase: context.phase, profile: context.profile } : {}),
-      checks: (Object.keys(schema.scopes[scope]) as HostPreflightCheck[])
+      checks: checks ?? (Object.keys(schema.scopes[scope]) as HostPreflightCheck[])
         .map((id) => ({ id, result: 'not-attempted', reason: 'none' })),
     };
     this.emit();
@@ -97,8 +98,10 @@ export class HostPreflightReporter {
   }
 
   fork(scope: HostPreflightScope, context = this.context): HostPreflightReporter {
+    // Profiles within one scope contribute to the same admission checklist.
     return new HostPreflightReporter(scope, this.publish, this.onFailure,
-      context && { ...context, phase: scope.includes('cleanup') ? 'cleanup' : context.phase });
+      context && { ...context, phase: scope.includes('cleanup') ? 'cleanup' : context.phase },
+      scope === this.scope ? this.progress.checks : undefined);
   }
 
   topology(value: MountTopologyEvidence): void {

@@ -1,15 +1,11 @@
-import { constants, promises as fs } from 'fs';
-import * as path from 'path';
 import execa from 'execa';
-import {
-  hostExecutorVmRunId, readHostExecutorInvocationDiagnostics,
-} from './host-executor-journal';
+import { getLocalDockerEnv } from '../docker-host';
+import { ENCLAVE_AGENT_API_PROXY_CONTAINER_NAME } from '../constants';
+import { persistHostExecutorProxyDebugDiagnostics } from './host-executor-journal';
 import {
   projectEnclaveProxyResponseDiagnostics, type EnclaveProxyResponseDiagnostics, type EnclaveProxyEvent,
 } from './proxy-usage';
 
-const INVOCATION_ID = /^[a-f0-9]{32}$/;
-const MAX_INVOCATIONS = 128;
 const MAX_EVENTS_BYTES = 256 * 1024;
 const MAX_CONTAINER_LOG_BYTES = 32 * 1024;
 const SAFE_LOG_EVENTS = new Set([
@@ -17,6 +13,7 @@ const SAFE_LOG_EVENTS = new Set([
   'request_complete', 'request_error', 'upstream_error_response', 'upstream_auth_error',
   'request_transform_failed', 'key_validation_error', 'oidc_startup_failed',
   'model_fetch_error', 'model_routing_bootstrap_error',
+  'enclave_model_budget_rejected', 'rate_limited', 'request_validation_failed', 'model_fallback_exhausted',
 ]);
 const SAFE_LEVELS = new Set(['info', 'warn', 'error']);
 const SAFE_PROJECTED_LOG_LINE =
@@ -29,8 +26,8 @@ const SAFE_PROJECTED_LOG_LINE =
  */
 export async function captureEnclaveProxyContainerLog(
   load: () => Promise<{ stdout: string; stderr: string; exitCode: number }> = () =>
-    execa('docker', ['logs', '--tail', '200', 'awf-enclave-agent-api-proxy'], {
-      reject: false, timeout: 5000, maxBuffer: 128 * 1024,
+    execa('docker', ['logs', '--tail', '200', ENCLAVE_AGENT_API_PROXY_CONTAINER_NAME], {
+      env: getLocalDockerEnv(), reject: false, timeout: 5000, maxBuffer: 128 * 1024,
     }),
 ): Promise<string> {
   try {
@@ -74,14 +71,11 @@ export async function captureEnclaveProxyContainerLog(
 }
 
 /**
- * Place only projected numeric evidence into existing protected public
- * invocation debug directories. Raw Docker logs can contain prompts and
- * credentials and must never be copied here.
+ * Persist one protected run-cumulative projection even before the first
+ * invocation. Raw Docker logs must never be copied here.
  */
 export async function preservePublicEnclaveProxyDiagnostics(
   run: { runId: string; journalDir?: string },
-  debugRoot: string,
-  protectedRoot: string,
   evidence: EnclaveProxyResponseDiagnostics,
   sourceEvents: readonly EnclaveProxyEvent[],
   containerLog: string,
@@ -113,46 +107,5 @@ export async function preservePublicEnclaveProxyDiagnostics(
       })) {
     throw new Error('Unsafe enclave proxy container log projection');
   }
-  const diagnostics = readHostExecutorInvocationDiagnostics(run);
-  let retained = 0;
-  for (const item of diagnostics) {
-    const snapshot: unknown = JSON.parse(item.contents);
-    if (!snapshot || typeof snapshot !== 'object') continue;
-    const record = snapshot as Record<string, unknown>;
-    if (record.runId !== run.runId || record.executorKind !== 'agent' ||
-        typeof record.invocationId !== 'string' || !INVOCATION_ID.test(record.invocationId)) continue;
-    const vmId = hostExecutorVmRunId({
-      runId: run.runId, entryId: 'agent', invocationId: record.invocationId,
-    });
-    if (item.name !== `${run.runId}-${vmId}.json`) continue;
-    if (++retained > MAX_INVOCATIONS) break;
-    const directory = path.join(debugRoot, vmId);
-    if (path.dirname(directory) !== debugRoot || path.relative(protectedRoot, directory).startsWith('..')) {
-      throw new Error('Public enclave proxy diagnostic destination is outside the protected root');
-    }
-    let stat;
-    try {
-      if (await fs.realpath(directory) !== directory) throw new Error('Unsafe public enclave debug directory');
-      stat = await fs.lstat(directory);
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === 'ENOENT') continue;
-      throw error;
-    }
-    if (!stat.isDirectory() || stat.uid !== process.getuid?.() || (stat.mode & 0o7777) !== 0o700) {
-      throw new Error('Unsafe public enclave debug directory');
-    }
-    for (const [name, contents] of [
-      ['enclave-proxy-events.jsonl', events],
-      ['enclave-proxy-container.log', containerLog],
-    ]) {
-      const handle = await fs.open(path.join(directory, name),
-        constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, 0o600);
-      try {
-        await handle.writeFile(contents);
-        await handle.sync();
-      } finally {
-        await handle.close();
-      }
-    }
-  }
+  persistHostExecutorProxyDebugDiagnostics(run, sourceEvents, containerLog);
 }

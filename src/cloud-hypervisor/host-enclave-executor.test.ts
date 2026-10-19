@@ -8,7 +8,7 @@ import {
 } from '../enclave/network';
 import { CLOUD_HYPERVISOR_ARTIFACT_RELEASE_TAG } from './artifact-manifest';
 import * as artifactTrust from './artifact-trust';
-import { HostPreflightReporter, type HostPreflightProgress } from './host-preflight-progress';
+import { HostPreflightReporter, type HostPreflightCheck, type HostPreflightProgress } from './host-preflight-progress';
 import * as cloudHypervisorPreflight from './preflight';
 import {
   CloudHypervisorHostEnclaveExecutorBackend,
@@ -18,6 +18,12 @@ import {
 } from './host-enclave-executor';
 import { agentEnvironment, stageInvocationInputs } from './enclave-invocation-staging';
 import { readEnclaveSessionDiagnostics } from './enclave-session-diagnostics';
+import {
+  assertEnclaveStartupChecklistComplete, getEnclaveStartupProgress, updateEnclaveStartupProgress,
+} from '../enclave/startup-progress';
+import { normalizeEnclavesConfig } from '../parsers/enclave-parser';
+import type { WrapperConfig } from '../types';
+import { schema as preflightSchema } from './host-preflight-schema';
 import { GuestTransportError } from '../microvm/execution-diagnostics';
 import type { FiniteSchemaNode } from '../bounded-execution/finite-schema';
 import type {
@@ -1267,20 +1273,52 @@ describe('readBoundedCloudHypervisorEnclaveResult', () => {
     }), { mode: 0o400 });
     const toolTrust = jest.spyOn(artifactTrust, 'assertTrustedHostTool').mockResolvedValue();
 
+    const artifactChecks = [
+      'operator-identity', 'tool-gh', 'verification-directory', 'enclave-artifacts',
+      'manifest-bundle-path', 'manifest-trust', 'bundle-trust', 'manifest-read', 'bundle-read',
+      'manifest-parse', 'manifest-attestation', 'rootfs-configuration',
+      'rootfs-trust', 'rootfs-provenance-trust', 'rootfs-digest', 'rootfs-attestation',
+      'sbom-trust', 'sbom-digest', 'sbom-contents',
+    ];
+    const wrapper = { enclaves: normalizeEnclavesConfig([{ script: {}, repos: [] }]) } as WrapperConfig;
+    const publish = (hostPreflight: HostPreflightProgress) =>
+      updateEnclaveStartupProgress(wrapper, { hostPreflight });
+    const admission = new HostPreflightReporter('bounded-artifacts', publish, undefined,
+      { phase: 'preflight', profile: 'common' });
+    for (const id of Object.keys(preflightSchema.scopes['bounded-artifacts']) as HostPreflightCheck[]) {
+      // Storage admission is a fixture here; artifact verification below uses real files.
+      if (!artifactChecks.includes(id)) await admission.check(id, () => undefined);
+    }
+    const assertArtifactsComplete = async (version: 1 | 2) => {
+      const checks = getEnclaveStartupProgress(wrapper)!.startupChecks!.checks;
+      for (const id of artifactChecks) {
+        expect(checks[`bounded-artifacts/${id}`]).toEqual([
+          id === 'sbom-contents' && version === 1 ? 'not-required' : 'passed', 'none',
+        ]);
+      }
+      expect(Object.values(checks).every(([result]) => result === 'passed' || result === 'not-required')).toBe(true);
+      const startup = new HostPreflightReporter('startup', publish);
+      for (const id of Object.keys(preflightSchema.scopes.startup) as HostPreflightCheck[]) {
+        if (id !== 'readiness') await startup.check(id, () => undefined);
+      }
+      await startup.check('readiness', () => assertEnclaveStartupChecklistComplete(wrapper, true));
+      expect(() => assertEnclaveStartupChecklistComplete(wrapper)).not.toThrow();
+    };
     try {
-      await expect(preflightCloudHypervisorEnclaveArtifacts({
+      await expect(admission.check('enclave-artifacts', () => preflightCloudHypervisorEnclaveArtifacts({
         releaseTag,
         manifestPath,
         manifestBundlePath,
         scriptRootfsPath,
         agentRootfsPath,
         attestationToolPath,
-      })).resolves.toMatchObject({
+      }, undefined, undefined, admission))).resolves.toMatchObject({
         rootfs: {
           script: { path: scriptRootfsPath, artifact: scriptArtifact },
           agent: { path: agentRootfsPath, artifact: agentArtifact },
         },
       });
+      await assertArtifactsComplete(1);
       const verifications = (await fs.readFile(attestationTracePath, 'utf8')).trim().split('\n\n')
         .map((invocation) => invocation.split('\n'));
       expect(verifications).toHaveLength(shared ? 2 : 3);
@@ -1353,13 +1391,15 @@ describe('readBoundedCloudHypervisorEnclaveResult', () => {
           releaseTag, manifestPath, manifestBundlePath,
           rootfsPath: scriptRootfsPath, attestationToolPath,
         };
-        await expect(preflightCloudHypervisorEnclaveArtifacts(canonical))
+        await expect(admission.check('enclave-artifacts', () =>
+          preflightCloudHypervisorEnclaveArtifacts(canonical, undefined, undefined, admission)))
           .resolves.toMatchObject({
             rootfs: {
               script: { path: scriptRootfsPath },
               agent: { path: scriptRootfsPath },
             },
           });
+        await assertArtifactsComplete(2);
         await expect(preflightCloudHypervisorEnclaveArtifacts({
           ...canonical, rootfsPath: undefined,
           scriptRootfsPath, agentRootfsPath,
@@ -1488,14 +1528,22 @@ describe('readBoundedCloudHypervisorEnclaveResult', () => {
       await fs.chmod(agentSbomPath, 0o600);
       await fs.writeFile(agentSbomPath, 'tampered-sbom');
       await fs.chmod(agentSbomPath, 0o400);
-      await expect(preflightCloudHypervisorEnclaveArtifacts({
+      await expect(admission.check('enclave-artifacts', () => preflightCloudHypervisorEnclaveArtifacts({
         releaseTag,
         manifestPath,
         manifestBundlePath,
         scriptRootfsPath,
         agentRootfsPath,
         attestationToolPath,
-      })).rejects.toThrow('SBOM does not match its trusted manifest digest');
+      }, undefined, undefined, admission))).rejects.toThrow('SBOM does not match its trusted manifest digest');
+      expect(getEnclaveStartupProgress(wrapper)!.startupChecks).toMatchObject({
+        ready: false,
+        checks: {
+          'bounded-artifacts/sbom-digest': ['failed', 'digest-mismatch'],
+          'bounded-artifacts/enclave-artifacts': ['failed', 'digest-mismatch'],
+        },
+      });
+      expect(() => assertEnclaveStartupChecklistComplete(wrapper)).toThrow(/incomplete required checks/);
 
       await fs.chmod(scriptRootfsPath, 0o600);
       await fs.writeFile(scriptRootfsPath, 'tampered-rootfs');

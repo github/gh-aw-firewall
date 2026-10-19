@@ -316,6 +316,14 @@ describe('trusted Cloud Hypervisor enclave lifecycle', () => {
       expect(evidence.some(file =>
         JSON.parse(file.contents).component === 'enclave-proxy-response')).toBe(true);
       expect(proxyDebugRetention.captureEnclaveProxyContainerLog).toHaveBeenCalledTimes(1);
+      const retained = fs.readdirSync(path.join(paths.hostExecutorJournalDir, 'diagnostics'))
+        .filter(name => name.endsWith('.proxy-debug.json'));
+      expect(retained).toHaveLength(1);
+      const runEvidence = JSON.parse(fs.readFileSync(
+        path.join(paths.hostExecutorJournalDir, 'diagnostics', retained[0]), 'utf8'));
+      expect(runEvidence).toMatchObject({ runId, scope: 'run-cumulative',
+        events: [{ schemaVersion: 1, status: 403, origin: 'local' },
+          { schemaVersion: 1, status: 401, origin: 'upstream' }] });
       fs.rmSync(paths.apiProxyLogsDir, { recursive: true, force: true });
     });
     await startCloudHypervisorEnclaveLifecycle(config, provider, {});

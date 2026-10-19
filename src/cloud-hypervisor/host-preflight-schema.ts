@@ -289,6 +289,7 @@ export const schema = {
     "artifact-snapshot/rootfs-copy", "artifact-snapshot/rootfs-mode",
     "bounded-runtime/rootfs-trust", "bounded-runtime/rootfs-digest",
     "bounded-runtime/sbom-trust", "bounded-runtime/sbom-digest", "bounded-runtime/sbom-contents",
+    "bounded-artifacts/sbom-contents",
     "artifact-snapshot/partial-remove", "bounded-cleanup/directory-release"
   ],
   "reasons": {

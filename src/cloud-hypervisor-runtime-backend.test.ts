@@ -7,6 +7,7 @@ import * as hostEligibility from './cloud-hypervisor/host-eligibility';
 import * as enclaveLifecycle from './enclave/cloud-hypervisor-lifecycle';
 import * as runtimeValidation from './cloud-hypervisor/runtime-validation';
 import { normalizeEnclavesConfig } from './parsers/enclave-parser';
+import { runCloudHypervisorPreflight } from './cloud-hypervisor/preflight';
 import {
   cloudHypervisorRuntimeTestHelpers,
   createCloudHypervisorRuntimeBackend,
@@ -182,6 +183,21 @@ describe('Cloud Hypervisor runtime backend', () => {
 
   afterEach(() => {
     eligibilitySpy.mockRestore();
+  });
+
+  it('publishes primary preflight phase/profile through the real runtime caller', async () => {
+    const { deps } = harness({
+      preflight: (options, overrides) => runCloudHypervisorPreflight({
+        ...options, kernelPath: undefined,
+      }, { ...overrides, uid: 1000 }),
+    });
+    await expect(createBackend(config(), deps).preflight()).rejects.toThrow('requires guest kernel');
+    expect(deps.logger.debug).toHaveBeenCalledWith('[cloud-hypervisor] host preflight',
+      expect.objectContaining({ schemaVersion: 2, phase: 'preflight', profile: 'primary' }));
+    expect(deps.logger.warn).toHaveBeenCalledWith('[cloud-hypervisor] host preflight failed',
+      expect.objectContaining({ checks: expect.arrayContaining([
+        expect.objectContaining({ id: 'artifact-configuration', result: 'failed' }),
+      ]) }));
   });
 
   describe('gated internal enclave facade composition', () => {

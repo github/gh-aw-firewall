@@ -1,5 +1,6 @@
 import * as fs from 'fs';
 import * as path from 'path';
+import * as hostIdentity from '../host-identity';
 import {
   ENCLAVE_PROXY_USAGE_MAX_FILE_BYTES, ENCLAVE_PROXY_USAGE_MAX_LINE_BYTES,
   ENCLAVE_PROXY_USAGE_MAX_RECORDS, readEnclaveProxyUsage,
@@ -27,11 +28,16 @@ describe('bounded dedicated enclave proxy usage evidence', () => {
   const read = () => readEnclaveProxyUsage(logs, uid, gid);
 
   beforeEach(() => {
+    jest.spyOn(hostIdentity, 'getSafeHostUid').mockReturnValue(String(uid));
+    jest.spyOn(hostIdentity, 'getSafeHostGid').mockReturnValue(String(gid));
     root = fs.mkdtempSync(path.join(process.cwd(), '.enclave-usage-test-'));
     logs = path.join(root, 'private-logs');
     fs.mkdirSync(logs, { mode: 0o700 });
   });
-  afterEach(() => fs.rmSync(root, { recursive: true, force: true }));
+  afterEach(() => {
+    jest.restoreAllMocks();
+    fs.rmSync(root, { recursive: true, force: true });
+  });
 
   it('retains only request/status/token counts through private-log cleanup in a protected journal', async () => {
     write(audit, [
@@ -200,8 +206,12 @@ describe('bounded dedicated enclave proxy usage evidence', () => {
     expect(await readEnclaveProxyEventEvidence(logs)).toMatchObject({
       diagnostics: { status: 'malformed' }, events: [],
     });
-    fs.writeFileSync(path.join(logs, name), '{"schemaVersion":1,"status":200,"origin":"upstream"}\n'.repeat(4097));
+    fs.writeFileSync(path.join(logs, name), '{"schemaVersion":1,"status":200,"origin":"upstream"}\n'.repeat(4096) +
+      '{"schemaVersion":1,"status":403,"origin":"local"}\n');
     expect((await readEnclaveProxyResponseDiagnostics(logs, uid, gid)).status).toBe('record-limit');
+    expect(await readEnclaveProxyEventEvidence(logs)).toMatchObject({
+      diagnostics: { status: 'record-limit' }, events: [],
+    });
     fs.writeFileSync(path.join(logs, name), Buffer.alloc(ENCLAVE_PROXY_USAGE_MAX_FILE_BYTES + 1));
     expect((await readEnclaveProxyResponseDiagnostics(logs, uid, gid)).status).toBe('oversized');
     fs.unlinkSync(path.join(logs, name));

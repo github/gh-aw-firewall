@@ -232,6 +232,7 @@ describe('bounded immutable enclave preflight', () => {
     }, active).preflight(config)).rejects.toThrow();
     const last = published.filter((record) => record.scope === 'bounded-runtime').slice(-1)[0];
     expect(last.scope).toBe('bounded-runtime');
+    expect(last).toMatchObject({ schemaVersion: 2, phase: 'preflight', profile: 'common' });
     expect(last.checks.filter((check) => check.result === 'failed')).toEqual([{
       id: gate, result: 'failed', reason: gate === 'configured-role' ? 'requirement-not-met' : 'EPERM',
     }]);

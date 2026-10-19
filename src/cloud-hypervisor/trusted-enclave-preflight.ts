@@ -91,7 +91,7 @@ export function createBoundedEnclavePreflight(
   ): Promise<T> => {
     const run = options.runState;
     const report = new HostPreflightReporter(scope, options.onHostPreflight, undefined,
-      scope === 'bounded-artifacts' ? { phase: 'preflight', profile: 'common' } : undefined);
+      { phase: 'preflight', profile: 'common' });
     const entry = await report.check('configured-role', () => {
       const configured = run.entries.find((entry) => entry.executorKind === 'script' || entry.executorKind === 'agent');
       if (!configured || !HOST_EXECUTOR_ENTRY_ID_PATTERN.test(configured.entryId) ||
