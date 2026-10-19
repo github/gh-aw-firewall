@@ -384,7 +384,7 @@ configured to run both groups separately.
 ### Go port
 
 The Go port ([#10261](https://github.com/github/gh-aw-firewall/issues/10261)) lives in
-[go/](go), apart from the Python package, as a single flat `main` package with its tests beside
+`go/`, apart from the Python package, as a single flat `main` package with its tests beside
 it. It shares this directory's routing tables, examples, fixtures, `openapi.yaml` and
 `Dockerfile`, which its tests read through `..`. It has no dependencies outside the Go standard
 library, and `go/go.mod` pins the toolchain. It covers the `classify`, `route` and
