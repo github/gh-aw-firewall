@@ -44,6 +44,7 @@ describe('diagnosis registry', () => {
       text: 'token-usage.jsonl missing gh-aw.aic telemetry on arc-dind',
       runner: 'arc-dind',
     });
+
     expect(result[0].id).toBe('A29');
     const finding = loaded.find((entry) => entry.finding.id === result[0].id)!.finding;
     expect(finding.status).toBe('workaround');
@@ -53,6 +54,17 @@ describe('diagnosis registry', () => {
       'printf \'%s\\n\' "${AWF_TOKEN_USAGE_LOG:-unset}"; ls -l "${AWF_TOKEN_USAGE_LOG:-/dev/null}"'
     );
     expect(finding.conditions.join(' ')).toContain('/tmp<dir>');
+  });
+
+  it('routes Pi tee read-only errors to the ARC/DinD streaming-log workaround', () => {
+    const matches = searchFindings(loaded, {
+      text: 'tee: /tmp/gh-aw/pi-streaming.jsonl: Read-only file system',
+      runner: 'arc-dind',
+    });
+    expect(matches[0].id).toBe('A28');
+    const finding = loaded.find((entry) => entry.finding.id === matches[0].id)!.finding;
+    expect(finding.action).toContain('/tmp/gh-aw/sandbox/agent/logs/pi-streaming.jsonl');
+    expect(finding.action).toContain('sandbox.agent.mounts');
   });
 
   it('keeps every probe read-only and secret-safe', () => {

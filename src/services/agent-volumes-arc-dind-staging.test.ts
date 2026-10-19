@@ -83,7 +83,8 @@ describe('agent service', () => {
     const runnerTemp = fs.mkdtempSync(path.join('/tmp', 'awf-runner-temp-'));
     const ghAwDir = path.join(runnerTemp, 'gh-aw');
     const agentDir = path.join(ghAwDir, 'sandbox/agent');
-    fs.mkdirSync(agentDir, { recursive: true });
+    const piLog = path.join(agentDir, 'logs/pi-streaming.jsonl');
+    fs.mkdirSync(path.dirname(piLog), { recursive: true });
 
     try {
       const result = generateDockerCompose(
@@ -107,6 +108,12 @@ describe('agent service', () => {
       expect(volumes.indexOf(parent)).toBeLessThan(volumes.indexOf(child));
       expect(volumes).not.toContain(`/daemon-root${ghAwDir}:/host${ghAwDir}:rw`);
       expect(volumes).not.toContain(`/daemon-root/daemon-root${agentDir}:/host${agentDir}:rw`);
+      const logDestination = `/host${piLog}`;
+      const coveringMounts = volumes.filter((volume) => {
+        const destination = volume.split(':')[1];
+        return logDestination.startsWith(`${destination}/`);
+      });
+      expect(coveringMounts.sort((a, b) => a.split(':')[1].length - b.split(':')[1].length).pop()).toBe(child);
     } finally {
       fs.rmSync(runnerTemp, { recursive: true, force: true });
     }

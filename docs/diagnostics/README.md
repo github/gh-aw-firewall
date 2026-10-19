@@ -154,6 +154,7 @@ npm run diagnostics:check                          # fail if generated output is
 | docker compose starts but the mounted path resolves to an empty directory | A1 | runner | workaround |
 | no such file or directory for a path that exists on the runner | A1 | runner | workaround |
 | Streaming log write fails with read-only file system | A28 | runner | workaround |
+| tee: /tmp/gh-aw/pi-streaming.jsonl: Read-only file system | A28 | runner | workaround |
 | A successful engine run becomes a failure under arc-dind | A28 | runner | workaround |
 | Safe outputs are missing after a streaming engine run | A28 | runner | workaround |
 | token-usage.jsonl is missing for post-run consumers on arc-dind | A29 | runner | workaround |

@@ -179,14 +179,21 @@ needs its `--output`/destination path to resolve to a mount that is:
    tool "succeeds" but the output never appears where the consumer looks.
 
 For gh-aw engine streaming logs (including Pi), do not write directly to
-`${RUNNER_TEMP}/gh-aw/pi-streaming.jsonl` when `${RUNNER_TEMP}/gh-aw` is mounted
-`:ro`. Mount an existing writable child such as
-`${RUNNER_TEMP}/gh-aw/sandbox/agent` with `:rw`, and write the log at
-`${RUNNER_TEMP}/gh-aw/sandbox/agent/pi-streaming.jsonl`. The engine command,
-log parser, and artifact upload must all use that same path. Mounting the
-child `:rw` does not make the rest of the read-only parent writable; the
-workflow/compiler that chooses the log location must also update its
-consumers.
+`/tmp/gh-aw/pi-streaming.jsonl` when its runner-side parent
+`${RUNNER_TEMP}/gh-aw` is mounted `:ro`. The compiler should write Pi's log at
+`/tmp/gh-aw/sandbox/agent/logs/pi-streaming.jsonl`, beneath the writable
+`sandbox/agent` child mount (create `logs` before writing). The Pi command,
+step-summary parser, session exporters, and artifact upload must all use the
+corresponding path on their side of the mount. Mounting the child `:rw` does
+not make the rest of the read-only parent writable.
+
+Until the gh-aw compiler relocates Pi's log, a workflow-specific workaround is
+to create the destination file in the writable `sandbox/agent/logs` directory
+in a pre-step, symlink the compiled Pi streaming-log path to it, and add an
+explicit `:rw` file entry in `sandbox.agent.mounts` for that log. Use the
+actual compiled `tee` path as the symlink/mount target, and check both the
+runner-side source and sandbox-side destination when `${RUNNER_TEMP}` differs
+from `/tmp`. Do not remount the entire `${RUNNER_TEMP}/gh-aw` parent writable.
 
 ### Agent logs, threat detection, and safe-output ownership
 
