@@ -197,6 +197,7 @@ function projectProxyContainerLog(bytes) {
     'enclave_model_budget_rejected', 'rate_limited', 'request_validation_failed', 'model_fallback_exhausted',
     'enclave_model_capability_missing', 'enclave_model_capability_scheme', 'enclave_model_capability_format',
     'enclave_model_capability_signature', 'enclave_model_capability_claims', 'enclave_model_capability_claims_changed',
+    'enclave_model_token_limit',
   ]);
   if (lines.at(-1) !== '' ||
       !/^capture_status=(?:captured dropped=(?:[0-9]{1,5})|empty|unavailable)$/.test(trailer ?? '') ||

@@ -164,6 +164,14 @@ describe('readBoundedCloudHypervisorEnclaveResult', () => {
       maxRequests: 2,
       maxTokens: 128,
     });
+    expect(environment.COPILOT_PROVIDER_BEARER_TOKEN).not.toMatch(/^Bearer /);
+    expect(decodeCapability(`Bearer ${environment.COPILOT_PROVIDER_BEARER_TOKEN}`, secret)).toEqual({
+      v: 1,
+      invocationId: plan.invocationId,
+      maxRequests: 2,
+      maxTokens: 128,
+    });
+    expect(environment.COPILOT_PROVIDER_BEARER_TOKEN).not.toContain(secret);
   });
 
   beforeEach(async () => {
@@ -538,6 +546,7 @@ describe('readBoundedCloudHypervisorEnclaveResult', () => {
           expect(executionRequest?.env).toMatchObject({
             COPILOT_GITHUB_TOKEN: '******',
             COPILOT_TOKEN: '******',
+            COPILOT_PROVIDER_BEARER_TOKEN: '******',
           });
           expect(stagedHandoff).toEqual({
             agentId: 'agent_123\n',

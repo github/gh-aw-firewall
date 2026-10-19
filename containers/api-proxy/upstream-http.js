@@ -538,6 +538,9 @@ function createSendUpstreamRequest({
       if (budgetAttempt.reason === 'invalid_capability' && capabilityEvent) {
         logRequest?.('warn', capabilityEvent, { status: statusCode });
       }
+      if (budgetAttempt.reason === 'token_limit') {
+        logRequest?.('warn', 'enclave_model_token_limit', { status: statusCode });
+      }
       otel.endSpan(span, statusCode);
       if (res.headersSent) {
         res.destroy?.();

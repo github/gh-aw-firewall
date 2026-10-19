@@ -135,6 +135,21 @@ describe('upstream-http', () => {
     },
   );
 
+  test('retains a fixed token-budget rejection event without request data', () => {
+    const logRequest = jest.fn();
+    const res = { headersSent: false, writeHead: jest.fn(), end: jest.fn() };
+    const send = createSendUpstreamRequest({
+      https: { request: jest.fn() }, proxyAgent: {},
+      handleUpstreamResponse: jest.fn(), sleep: jest.fn(),
+      otel: { endSpan: jest.fn() }, handleRequestError: jest.fn(),
+      metrics: { gaugeDec: jest.fn(), increment: jest.fn() },
+      modelBudget: { beginAttempt: () => ({ allowed: false, reason: 'token_limit' }) },
+      logRequest,
+    });
+    send({}, createContext({ res }));
+    expect(logRequest).toHaveBeenCalledWith('warn', 'enclave_model_token_limit', { status: 429 });
+  });
+
   test('aborts admitted work and suppresses retries and fallbacks after downstream close', async () => {
     const proxyReq = { on: jest.fn(), write: jest.fn(), end: jest.fn() };
     const responseCallbacks = [];
