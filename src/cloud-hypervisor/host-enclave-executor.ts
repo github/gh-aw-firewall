@@ -191,7 +191,8 @@ export async function createCloudHypervisorHostEnclaveExecutor(
       scriptRootfsPath,
       agentRootfsPath,
       attestationToolPath,
-    });
+    }, undefined, undefined, new HostPreflightReporter('bounded-artifacts', options.onHostPreflight,
+      undefined, { phase: 'preflight', profile: 'common' }));
     return new CloudHypervisorHostEnclaveExecutorBackend({
       runState: options.runState,
       config: options.config,

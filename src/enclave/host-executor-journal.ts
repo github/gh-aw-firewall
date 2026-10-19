@@ -32,7 +32,10 @@ import type { EnclaveStartupChecklist } from './startup-progress';
 import { logger } from '../logger';
 import type { GuestExecutionDiagnostics } from '../microvm/execution-diagnostics';
 import type { EnclaveSessionDiagnostics } from '../cloud-hypervisor/enclave-session-diagnostics';
-import { projectEnclaveProxyUsage, type EnclaveProxyUsage } from './proxy-usage';
+import {
+  projectEnclaveProxyUsage, projectEnclaveProxyResponseDiagnostics,
+  type EnclaveProxyUsage, type EnclaveProxyResponseDiagnostics, type EnclaveProxyEvent,
+} from './proxy-usage';
 
 export const HOST_EXECUTOR_DEFAULT_JOURNAL_DIRECTORY =
   '/var/lib/awf-cloud-hypervisor/host-executor-journal';
@@ -377,6 +380,36 @@ export function persistHostExecutorProxyUsage(
   persist(path.join(directory, `${run.runId}-${id}.json`), {
     schemaVersion: 1, component: 'enclave-proxy-usage', runId: run.runId,
     usage: projectEnclaveProxyUsage(usage),
+  });
+}
+
+export function persistHostExecutorProxyResponseDiagnostics(
+  run: Pick<HostExecutorRunState, 'runId' | 'journalDir'>,
+  diagnostics: EnclaveProxyResponseDiagnostics,
+): void {
+  if (!HOST_EXECUTOR_ID_PATTERN.test(run.runId)) throw new Error('Invalid host executor run identity');
+  const directory = path.join(hostExecutorJournalDirectory(run), 'diagnostics');
+  prepareDirectory(directory);
+  const id = createHash('sha256').update(`awf-enclave-proxy-response-v1:${run.runId}`).digest('hex').slice(0, 32);
+  persist(path.join(directory, `${run.runId}-${id}.json`), {
+    schemaVersion: 1, component: 'enclave-proxy-response', runId: run.runId,
+    diagnostics: projectEnclaveProxyResponseDiagnostics(diagnostics),
+  });
+}
+
+export function persistHostExecutorProxyDebugDiagnostics(
+  run: Pick<HostExecutorRunState, 'runId' | 'journalDir'>,
+  events: readonly EnclaveProxyEvent[],
+  containerLog: string,
+): void {
+  if (!HOST_EXECUTOR_ID_PATTERN.test(run.runId)) throw new Error('Invalid host executor run identity');
+  const directory = path.join(hostExecutorJournalDirectory(run), 'diagnostics');
+  prepareDirectory(directory);
+  const id = createHash('sha256').update(`awf-enclave-proxy-debug-v1:${run.runId}`).digest('hex').slice(0, 32);
+  persist(path.join(directory, `${run.runId}-${id}.proxy-debug.json`), {
+    schemaVersion: 1, component: 'enclave-proxy-debug', scope: 'run-cumulative', runId: run.runId,
+    events: events.map(({ schemaVersion, origin, status }) => ({ schemaVersion, origin, status })),
+    containerLog,
   });
 }
 

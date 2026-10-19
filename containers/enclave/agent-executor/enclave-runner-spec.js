@@ -177,6 +177,7 @@ function deriveEnclaveContainerSpec({ config, runId, invocationId, seedId, runti
     '--env', 'COPILOT_OFFLINE=true',
     '--env', 'COPILOT_GITHUB_TOKEN=******',
     '--env', `COPILOT_TOKEN=${modelBudgetToken || '******'}`,
+    '--env', `COPILOT_PROVIDER_BEARER_TOKEN=${modelBudgetToken?.slice('Bearer '.length) || '******'}`,
     '--env', `COPILOT_API_URL=${config.apiEndpoint}`,
     '--env', `COPILOT_PROVIDER_BASE_URL=${config.apiEndpoint}`,
     '--env', `COPILOT_MODEL=${config.model}`,

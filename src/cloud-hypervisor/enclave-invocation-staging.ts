@@ -243,6 +243,7 @@ export function agentEnvironment(
     COPILOT_OFFLINE: 'true',
     COPILOT_GITHUB_TOKEN: '******',
     COPILOT_TOKEN: modelBudgetToken || '******',
+    COPILOT_PROVIDER_BEARER_TOKEN: modelBudgetToken?.slice('Bearer '.length) || '******',
     COPILOT_API_URL: `http://${ENCLAVE_AGENT_API_PROXY_IP}:10002`,
     COPILOT_PROVIDER_BASE_URL: `http://${ENCLAVE_AGENT_API_PROXY_IP}:10002`,
     COPILOT_MODEL: policy.model,

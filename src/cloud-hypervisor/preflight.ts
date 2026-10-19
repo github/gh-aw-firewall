@@ -46,7 +46,7 @@ import {
   resolveTrustedHostTool,
 } from './artifact-trust';
 import {
-  HostPreflightReporter, hostPreflightReason, markHostPreflightError,
+  HostPreflightReporter, hostPreflightReason, markHostPreflightError, type HostPreflightProgress,
 } from './host-preflight-progress';
 
 /**
@@ -66,6 +66,7 @@ import {
 
 export interface CloudHypervisorPreflightDependencies extends CloudHypervisorArtifactTrustDependencies {
   hostPreflightReporter?: HostPreflightReporter;
+  onHostPreflight?: (progress: HostPreflightProgress) => void;
   platform: NodeJS.Platform;
   arch: string;
   runVersion(binaryPath: string): Promise<string>;
@@ -530,7 +531,10 @@ async function runPreflight(
   overrides: Partial<CloudHypervisorPreflightDependencies>,
   commonOnly: boolean,
 ): Promise<CloudHypervisorCommonPreflightResult | CloudHypervisorPreflightResult> {
-  const report = overrides.hostPreflightReporter ?? new HostPreflightReporter('bounded-runtime');
+  const report = overrides.hostPreflightReporter ?? new HostPreflightReporter(
+    'bounded-runtime', overrides.onHostPreflight, undefined,
+    { phase: 'preflight', profile: commonOnly ? 'common' : 'primary' },
+  );
   const dependencies = {
     ...defaultDependencies,
     ...overrides,

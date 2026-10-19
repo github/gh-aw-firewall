@@ -8,6 +8,7 @@ import {
 } from '../enclave/network';
 import { CLOUD_HYPERVISOR_ARTIFACT_RELEASE_TAG } from './artifact-manifest';
 import * as artifactTrust from './artifact-trust';
+import { HostPreflightReporter, type HostPreflightCheck, type HostPreflightProgress } from './host-preflight-progress';
 import * as cloudHypervisorPreflight from './preflight';
 import {
   CloudHypervisorHostEnclaveExecutorBackend,
@@ -17,6 +18,12 @@ import {
 } from './host-enclave-executor';
 import { agentEnvironment, stageInvocationInputs } from './enclave-invocation-staging';
 import { readEnclaveSessionDiagnostics } from './enclave-session-diagnostics';
+import {
+  assertEnclaveStartupChecklistComplete, getEnclaveStartupProgress, updateEnclaveStartupProgress,
+} from '../enclave/startup-progress';
+import { normalizeEnclavesConfig } from '../parsers/enclave-parser';
+import type { WrapperConfig } from '../types';
+import { schema as preflightSchema } from './host-preflight-schema';
 import { GuestTransportError } from '../microvm/execution-diagnostics';
 import type { FiniteSchemaNode } from '../bounded-execution/finite-schema';
 import type {
@@ -157,6 +164,14 @@ describe('readBoundedCloudHypervisorEnclaveResult', () => {
       maxRequests: 2,
       maxTokens: 128,
     });
+    expect(environment.COPILOT_PROVIDER_BEARER_TOKEN).not.toMatch(/^Bearer /);
+    expect(decodeCapability(`Bearer ${environment.COPILOT_PROVIDER_BEARER_TOKEN}`, secret)).toEqual({
+      v: 1,
+      invocationId: plan.invocationId,
+      maxRequests: 2,
+      maxTokens: 128,
+    });
+    expect(environment.COPILOT_PROVIDER_BEARER_TOKEN).not.toContain(secret);
   });
 
   beforeEach(async () => {
@@ -531,6 +546,7 @@ describe('readBoundedCloudHypervisorEnclaveResult', () => {
           expect(executionRequest?.env).toMatchObject({
             COPILOT_GITHUB_TOKEN: '******',
             COPILOT_TOKEN: '******',
+            COPILOT_PROVIDER_BEARER_TOKEN: '******',
           });
           expect(stagedHandoff).toEqual({
             agentId: 'agent_123\n',
@@ -1132,17 +1148,27 @@ describe('readBoundedCloudHypervisorEnclaveResult', () => {
     ).mockResolvedValue();
     const removeSnapshot = jest.fn(async () => undefined);
     const reap = jest.spyOn(hostExecutorJournal, 'reapHostExecutorResources').mockResolvedValue();
+    const published: HostPreflightProgress[] = [];
 
     try {
       await expect(createCloudHypervisorHostEnclaveExecutor({
         ...options,
         environment: { ...environment, PATH: '' },
       })).rejects.toThrow('A trusted GitHub CLI is required');
-      await expect(createCloudHypervisorHostEnclaveExecutor(options, {
+      await expect(createCloudHypervisorHostEnclaveExecutor({
+        ...options, onHostPreflight: (value) => { published.push(value); },
+      }, {
         removeArtifactSnapshot: removeSnapshot,
       })).rejects.toThrow();
       expect(runPreflight).toHaveBeenCalledTimes(1);
       expect(removeSnapshot).toHaveBeenCalledWith(preflight.artifactSnapshotDirectory);
+      const artifactFailure = published.find((value) => value.scope === 'bounded-artifacts' &&
+        value.checks.some((check) => check.id === 'manifest-trust' && check.result === 'failed'));
+      expect(artifactFailure).toMatchObject({
+        schemaVersion: 2, phase: 'preflight', profile: 'common',
+      });
+      expect(artifactFailure?.checks.find((check) => check.id === 'manifest-trust'))
+        .toMatchObject({ result: 'failed', reason: 'ENOENT' });
       const boundedArtifactPreflight = jest.fn().mockRejectedValue(new Error('bounded artifact gate'));
       const onPreflightStage = jest.fn();
       await expect(createCloudHypervisorHostEnclaveExecutor({ ...options, onPreflightStage }, {
@@ -1155,7 +1181,7 @@ describe('readBoundedCloudHypervisorEnclaveResult', () => {
       ]);
       expect(boundedArtifactPreflight).toHaveBeenCalledWith(expect.objectContaining({
         manifestPath: environment.AWF_CLOUD_HYPERVISOR_ENCLAVE_MANIFEST,
-      }));
+      }), undefined, undefined, expect.any(HostPreflightReporter));
       onPreflightStage.mockClear();
       await expect(createCloudHypervisorHostEnclaveExecutor({ ...options, onPreflightStage }, {
         preflight: jest.fn().mockRejectedValue(new Error('PRIVATE_HOST_PREFLIGHT')),
@@ -1256,20 +1282,52 @@ describe('readBoundedCloudHypervisorEnclaveResult', () => {
     }), { mode: 0o400 });
     const toolTrust = jest.spyOn(artifactTrust, 'assertTrustedHostTool').mockResolvedValue();
 
+    const artifactChecks = [
+      'operator-identity', 'tool-gh', 'verification-directory', 'enclave-artifacts',
+      'manifest-bundle-path', 'manifest-trust', 'bundle-trust', 'manifest-read', 'bundle-read',
+      'manifest-parse', 'manifest-attestation', 'rootfs-configuration',
+      'rootfs-trust', 'rootfs-provenance-trust', 'rootfs-digest', 'rootfs-attestation',
+      'sbom-trust', 'sbom-digest', 'sbom-contents',
+    ];
+    const wrapper = { enclaves: normalizeEnclavesConfig([{ script: {}, repos: [] }]) } as WrapperConfig;
+    const publish = (hostPreflight: HostPreflightProgress) =>
+      updateEnclaveStartupProgress(wrapper, { hostPreflight });
+    const admission = new HostPreflightReporter('bounded-artifacts', publish, undefined,
+      { phase: 'preflight', profile: 'common' });
+    for (const id of Object.keys(preflightSchema.scopes['bounded-artifacts']) as HostPreflightCheck[]) {
+      // Storage admission is a fixture here; artifact verification below uses real files.
+      if (!artifactChecks.includes(id)) await admission.check(id, () => undefined);
+    }
+    const assertArtifactsComplete = async (version: 1 | 2) => {
+      const checks = getEnclaveStartupProgress(wrapper)!.startupChecks!.checks;
+      for (const id of artifactChecks) {
+        expect(checks[`bounded-artifacts/${id}`]).toEqual([
+          id === 'sbom-contents' && version === 1 ? 'not-required' : 'passed', 'none',
+        ]);
+      }
+      expect(Object.values(checks).every(([result]) => result === 'passed' || result === 'not-required')).toBe(true);
+      const startup = new HostPreflightReporter('startup', publish);
+      for (const id of Object.keys(preflightSchema.scopes.startup) as HostPreflightCheck[]) {
+        if (id !== 'readiness') await startup.check(id, () => undefined);
+      }
+      await startup.check('readiness', () => assertEnclaveStartupChecklistComplete(wrapper, true));
+      expect(() => assertEnclaveStartupChecklistComplete(wrapper)).not.toThrow();
+    };
     try {
-      await expect(preflightCloudHypervisorEnclaveArtifacts({
+      await expect(admission.check('enclave-artifacts', () => preflightCloudHypervisorEnclaveArtifacts({
         releaseTag,
         manifestPath,
         manifestBundlePath,
         scriptRootfsPath,
         agentRootfsPath,
         attestationToolPath,
-      })).resolves.toMatchObject({
+      }, undefined, undefined, admission))).resolves.toMatchObject({
         rootfs: {
           script: { path: scriptRootfsPath, artifact: scriptArtifact },
           agent: { path: agentRootfsPath, artifact: agentArtifact },
         },
       });
+      await assertArtifactsComplete(1);
       const verifications = (await fs.readFile(attestationTracePath, 'utf8')).trim().split('\n\n')
         .map((invocation) => invocation.split('\n'));
       expect(verifications).toHaveLength(shared ? 2 : 3);
@@ -1284,6 +1342,34 @@ describe('readBoundedCloudHypervisorEnclaveResult', () => {
       }
       expect(verifications[1][2]).toBe(scriptRootfsPath);
       expect(verifications[1][6]).toBe(rootfsProvenancePath);
+      const progress = jest.fn();
+      const report = new HostPreflightReporter('bounded-artifacts', progress, undefined,
+        { phase: 'preflight', profile: 'common' });
+      const cleanupError = Object.assign(new Error('cleanup PRIVATE_SENTINEL'), { code: 'EIO' });
+      const remove = fs.rm.bind(fs);
+      const cleanup = jest.spyOn(fs, 'rm').mockImplementation(async (destination, options) => {
+        if (String(destination).includes('awf-enclave-attestation-')) throw cleanupError;
+        return remove(destination, options);
+      });
+      try {
+        await expect(preflightCloudHypervisorEnclaveArtifacts({
+          releaseTag, manifestPath, manifestBundlePath, scriptRootfsPath, agentRootfsPath,
+          rootfsPath: path.join(scratch, 'wrong-rootfs'), attestationToolPath,
+        }, scratch, undefined, report)).rejects.toMatchObject({
+          cause: expect.any(Error), cleanupError,
+        });
+        const record = progress.mock.calls.map(([value]) => value)
+          .find((value) => value.checks.some((check: { id: string; result: string }) =>
+            check.id === 'rootfs-configuration' && check.result === 'failed'));
+        expect(record).toMatchObject({
+          schemaVersion: 2, phase: 'preflight', profile: 'common',
+        });
+        expect(record.checks.find((check: { id: string }) => check.id === 'rootfs-configuration').reason)
+          .toBe('requirement-not-met');
+        expect(JSON.stringify(progress.mock.calls)).not.toContain('PRIVATE_SENTINEL');
+      } finally {
+        cleanup.mockRestore();
+      }
       if (shared) {
         const originalManifest = await fs.readFile(manifestPath, 'utf8');
         const v2 = JSON.parse(originalManifest) as Record<string, unknown>;
@@ -1314,13 +1400,15 @@ describe('readBoundedCloudHypervisorEnclaveResult', () => {
           releaseTag, manifestPath, manifestBundlePath,
           rootfsPath: scriptRootfsPath, attestationToolPath,
         };
-        await expect(preflightCloudHypervisorEnclaveArtifacts(canonical))
+        await expect(admission.check('enclave-artifacts', () =>
+          preflightCloudHypervisorEnclaveArtifacts(canonical, undefined, undefined, admission)))
           .resolves.toMatchObject({
             rootfs: {
               script: { path: scriptRootfsPath },
               agent: { path: scriptRootfsPath },
             },
           });
+        await assertArtifactsComplete(2);
         await expect(preflightCloudHypervisorEnclaveArtifacts({
           ...canonical, rootfsPath: undefined,
           scriptRootfsPath, agentRootfsPath,
@@ -1449,14 +1537,22 @@ describe('readBoundedCloudHypervisorEnclaveResult', () => {
       await fs.chmod(agentSbomPath, 0o600);
       await fs.writeFile(agentSbomPath, 'tampered-sbom');
       await fs.chmod(agentSbomPath, 0o400);
-      await expect(preflightCloudHypervisorEnclaveArtifacts({
+      await expect(admission.check('enclave-artifacts', () => preflightCloudHypervisorEnclaveArtifacts({
         releaseTag,
         manifestPath,
         manifestBundlePath,
         scriptRootfsPath,
         agentRootfsPath,
         attestationToolPath,
-      })).rejects.toThrow('SBOM does not match its trusted manifest digest');
+      }, undefined, undefined, admission))).rejects.toThrow('SBOM does not match its trusted manifest digest');
+      expect(getEnclaveStartupProgress(wrapper)!.startupChecks).toMatchObject({
+        ready: false,
+        checks: {
+          'bounded-artifacts/sbom-digest': ['failed', 'digest-mismatch'],
+          'bounded-artifacts/enclave-artifacts': ['failed', 'digest-mismatch'],
+        },
+      });
+      expect(() => assertEnclaveStartupChecklistComplete(wrapper)).toThrow(/incomplete required checks/);
 
       await fs.chmod(scriptRootfsPath, 0o600);
       await fs.writeFile(scriptRootfsPath, 'tampered-rootfs');

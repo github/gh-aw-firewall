@@ -1,6 +1,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { createHash } from 'crypto';
+import { preservePublicEnclaveProxyDiagnostics } from '../../src/enclave/proxy-debug-retention';
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const { prepare, collect, MAX_STREAM_BYTES, MAX_FILES } = require('./collect-enclave-smoke-debug.cjs');
@@ -66,6 +67,84 @@ describe('host-only public enclave debug collector', () => {
       .toContain('Enclave proxy usage (requests/tokens): missing');
   });
 
+  it.each([false, true])('collects run-cumulative proxy logs without invocation storage (invoked=%s)', async invoked => {
+    prepareRun();
+    if (invoked) {
+      invocation();
+      fs.rmSync(path.join(roots.debug, vmId), { recursive: true });
+    }
+    await preservePublicEnclaveProxyDiagnostics({ runId, journalDir: roots.journal }, {
+      scope: 'run-cumulative', status: 'captured', records: 1, local: { '403': 1 }, upstream: {},
+    }, [{ schemaVersion: 1, origin: 'local', status: 403 }],
+    'source=stderr level=warn event=enclave_model_budget_rejected\ncapture_status=captured dropped=0\n');
+    expect(collectRun()).toBe(2);
+    expect(fs.readFileSync(path.join(run, 'upload/enclave-proxy-events.jsonl'), 'utf8'))
+      .toBe('{"schemaVersion":1,"origin":"local","status":403}\n');
+    expect(fs.readFileSync(path.join(run, 'upload/enclave-proxy-container.log'), 'utf8'))
+      .toContain('event=enclave_model_budget_rejected');
+  });
+
+  it('excludes stale run projections', async () => {
+    await preservePublicEnclaveProxyDiagnostics({ runId, journalDir: roots.journal },
+      { scope: 'run-cumulative', status: 'empty' }, [], 'capture_status=empty\n');
+    prepareRun();
+    expect(collectRun()).toBe(0);
+  });
+
+  it('rejects run projections belonging to a different current journal', async () => {
+    prepareRun();
+    invocation();
+    await preservePublicEnclaveProxyDiagnostics({ runId: 'c'.repeat(32), journalDir: roots.journal },
+      { scope: 'run-cumulative', status: 'empty' }, [], 'capture_status=empty\n');
+    expect(collectRun).toThrow(/Proxy debug artifacts do not belong/);
+    expect(fs.existsSync(path.join(run, 'upload'))).toBe(false);
+  });
+
+  it.each(['symlink', 'hardlink', 'permissions', 'oversized', 'run-id', 'scope', 'log'])(
+    'rejects unsafe run-level proxy debug %s before staging', async kind => {
+      prepareRun();
+      fs.writeFileSync(path.join(roots.journal, `${runId}.journal`),
+        JSON.stringify({ runId, state: 'open' }), { mode: 0o600 });
+      await preservePublicEnclaveProxyDiagnostics({ runId, journalDir: roots.journal },
+        { scope: 'run-cumulative', status: 'empty' }, [], 'capture_status=empty\n');
+      const id = createHash('sha256').update(`awf-enclave-proxy-debug-v1:${runId}`).digest('hex').slice(0, 32);
+      const source = path.join(roots.journal, 'diagnostics', `${runId}-${id}.proxy-debug.json`);
+      if (kind === 'symlink') {
+        fs.unlinkSync(source);
+        fs.symlinkSync(path.join(run, 'baseline.json'), source);
+      } else if (kind === 'hardlink') fs.linkSync(source, path.join(temp, 'duplicate'));
+      else if (kind === 'permissions') fs.chmodSync(source, 0o644);
+      else if (kind === 'oversized') fs.writeFileSync(source, Buffer.alloc(320 * 1024 + 1));
+      else {
+        const value = JSON.parse(fs.readFileSync(source, 'utf8'));
+        if (kind === 'run-id') value.runId = 'c'.repeat(32);
+        else if (kind === 'scope') value.scope = 'invocation';
+        else value.containerLog = 'PRIVATE_LOG\n';
+        fs.writeFileSync(source, JSON.stringify(value));
+      }
+      expect(collectRun).toThrow();
+      expect(fs.existsSync(path.join(run, 'upload'))).toBe(false);
+    });
+
+  it.each(['rate_limited', 'request_validation_failed', 'model_fallback_exhausted',
+    'enclave_model_capability_missing', 'enclave_model_capability_scheme', 'enclave_model_capability_format',
+    'enclave_model_capability_signature', 'enclave_model_capability_claims', 'enclave_model_capability_claims_changed',
+    'enclave_model_token_limit',
+    'enclave_model_token_body_missing', 'enclave_model_token_input_reservation',
+    'enclave_model_token_request_json', 'enclave_model_token_request_shape',
+    'enclave_model_token_output_conflict', 'enclave_model_token_output_shape',
+    'enclave_model_token_stream_options', 'enclave_model_token_budget_exhausted'])(
+    'collects the fixed %s event without free-form data', async event => {
+      prepareRun();
+      fs.writeFileSync(path.join(roots.journal, `${runId}.journal`),
+        JSON.stringify({ runId, state: 'open' }), { mode: 0o600 });
+      await preservePublicEnclaveProxyDiagnostics({ runId, journalDir: roots.journal },
+        { scope: 'run-cumulative', status: 'empty' }, [],
+        `source=stderr level=warn event=${event}\ncapture_status=captured dropped=0\n`);
+      expect(collectRun()).toBe(2);
+      expect(fs.readFileSync(path.join(run, 'upload/enclave-proxy-container.log'), 'utf8')).toContain(`event=${event}\n`);
+    });
+
   function proxySummary(value: unknown) {
     const diagnostics = path.join(roots.journal, 'diagnostics');
     fs.mkdirSync(diagnostics, { mode: 0o700 });
@@ -77,6 +156,49 @@ describe('host-only public enclave debug collector', () => {
     }), { mode: 0o600 });
     return target;
   }
+
+  function proxyResponse(value: unknown) {
+    const diagnostics = path.join(roots.journal, 'diagnostics');
+    fs.mkdirSync(diagnostics, { mode: 0o700 });
+    const id = createHash('sha256').update(`awf-enclave-proxy-response-v1:${runId}`).digest('hex').slice(0, 32);
+    const target = path.join(diagnostics, `${runId}-${id}.json`);
+    fs.writeFileSync(target, JSON.stringify({
+      schemaVersion: 1, component: 'enclave-proxy-response', runId, diagnostics: value,
+    }), { mode: 0o600 });
+    return target;
+  }
+
+  it('exports explicit unavailable response evidence even without an invocation debug directory', () => {
+    prepareRun();
+    invocation();
+    fs.rmSync(path.join(roots.debug, vmId), { recursive: true });
+    proxyResponse({ scope: 'run-cumulative', status: 'not-drained',
+      payload: 'PRIVATE_PAYLOAD' });
+    expect(collectRun()).toBe(1);
+    const value = fs.readFileSync(path.join(run, 'upload/enclave-proxy-response.json'), 'utf8');
+    expect(JSON.parse(value)).toEqual({
+      schemaVersion: 1, component: 'enclave-proxy-response',
+      scope: 'run-cumulative', status: 'not-drained',
+    });
+    expect(value).not.toContain('PRIVATE');
+    expect(fs.readFileSync(path.join(run, 'upload/collection-status.txt'), 'utf8'))
+      .toContain('Enclave proxy response diagnostics: not-drained.');
+  });
+
+  it.each(['symlink', 'hardlink', 'oversized', 'permissions'])(
+    'rejects unsafe run-level proxy response %s before staging', kind => {
+      prepareRun();
+      invocation();
+      const source = proxyResponse({ scope: 'run-cumulative', status: 'empty' });
+      if (kind === 'symlink') {
+        fs.unlinkSync(source);
+        fs.symlinkSync(path.join(run, 'baseline.json'), source);
+      } else if (kind === 'hardlink') fs.linkSync(source, path.join(temp, 'duplicate'));
+      else if (kind === 'oversized') fs.writeFileSync(source, Buffer.alloc(16 * 1024 + 1));
+      else fs.chmodSync(source, 0o644);
+      expect(collectRun).toThrow();
+      expect(fs.existsSync(path.join(run, 'upload'))).toBe(false);
+    });
 
   it('publishes only allowlisted usage accounting from protected run evidence, independently of raw logs', () => {
     prepareRun();
@@ -162,6 +284,79 @@ describe('host-only public enclave debug collector', () => {
     const session = path.join(run, 'upload/enclave-session.log');
     expect(fs.readFileSync(session, 'utf8')).toContain('public engine error');
     expect(fs.statSync(session).mode & 0o777).toBe(0o600);
+  });
+
+  it('collects only projected dedicated enclave proxy evidence, never primary or raw proxy logs', () => {
+    prepareRun();
+    const source = invocation();
+    fs.writeFileSync(path.join(source, 'enclave-proxy-events.jsonl'),
+      '{"schemaVersion":1,"origin":"local","status":403,"credential":"PRIVATE_SECRET"}\n',
+      { mode: 0o600 });
+    fs.writeFileSync(path.join(source, 'enclave-proxy-container.log'),
+      'source=stderr level=warn event=upstream_auth_error status=403\ncapture_status=captured dropped=0\n',
+      { mode: 0o600 });
+    expect(collectRun()).toBe(3);
+    expect(fs.readdirSync(path.join(run, 'upload')).sort()).toEqual([
+      'collection-status.txt', 'enclave-proxy-container.log', 'enclave-proxy-events.jsonl',
+      'guest-stderr.raw.log',
+    ]);
+    expect(fs.readFileSync(path.join(run, 'upload/enclave-proxy-events.jsonl'), 'utf8'))
+      .toBe('{"schemaVersion":1,"origin":"local","status":403}\n');
+    fs.writeFileSync(path.join(source, 'api-proxy-logs.jsonl'), 'primary proxy', { mode: 0o600 });
+    expect(collectRun).toThrow(/Unexpected debug artifact name/);
+  });
+
+  it('rejects arbitrary proxy stdout and stderr despite a trusted filename', () => {
+    prepareRun();
+    const source = invocation();
+    fs.writeFileSync(path.join(source, 'enclave-proxy-container.log'),
+      'source=stderr credential=PRIVATE_SECRET\ncapture_status=captured dropped=0\n', { mode: 0o600 });
+    expect(collectRun).toThrow(/Unsafe enclave proxy container projection/);
+    expect(fs.existsSync(path.join(run, 'upload'))).toBe(false);
+  });
+
+  it.each(['{"schemaVersion":1,"origin":"unknown","status":403}\n',
+    '{"schemaVersion":1,"origin":"local","status":403}',
+    '{"schemaVersion":1,"component":"enclave-proxy-response","scope":"run-cumulative","status":"missing"}\n',
+    '{"status":403}\n'])(
+    'rejects invalid dedicated proxy event schema', value => {
+      prepareRun();
+      const source = invocation();
+      fs.writeFileSync(path.join(source, 'enclave-proxy-events.jsonl'), value, { mode: 0o600 });
+      expect(collectRun).toThrow();
+      expect(fs.existsSync(path.join(run, 'upload'))).toBe(false);
+    });
+
+  it.each(['symlink', 'hardlink', 'oversized', 'permissions'])(
+    'rejects unsafe dedicated proxy %s', kind => {
+      prepareRun();
+      const source = invocation();
+      const file = path.join(source, 'enclave-proxy-events.jsonl');
+      if (kind === 'symlink') fs.symlinkSync(path.join(run, 'baseline.json'), file);
+      else {
+        fs.writeFileSync(file, '{"schemaVersion":1,"origin":"upstream","status":503}\n',
+          { mode: 0o600 });
+        if (kind === 'hardlink') fs.linkSync(file, path.join(temp, 'duplicate'));
+        if (kind === 'oversized') fs.writeFileSync(file, Buffer.alloc(MAX_STREAM_BYTES + 1));
+        if (kind === 'permissions') fs.chmodSync(file, 0o644);
+      }
+      expect(collectRun).toThrow();
+      expect(fs.existsSync(path.join(run, 'upload'))).toBe(false);
+    });
+
+  it('projects the bounded run-cumulative dedicated proxy status schema', () => {
+    prepareRun();
+    invocation();
+    proxyResponse({ scope: 'run-cumulative', status: 'captured', records: 2,
+      local: { '403': 1 }, upstream: { '502': 1 },
+      errors: { secret: 'PRIVATE_CREDENTIAL' }, payload: 'PRIVATE_PAYLOAD' });
+    expect(collectRun()).toBe(2);
+    const events = fs.readFileSync(path.join(run, 'upload/enclave-proxy-response.json'), 'utf8');
+    expect(JSON.parse(events)).toEqual({
+      schemaVersion: 1, component: 'enclave-proxy-response', scope: 'run-cumulative',
+      status: 'captured', records: 2, local: { '403': 1 }, upstream: { '502': 1 },
+    });
+    expect(events).not.toContain('PRIVATE');
   });
 
   it('retains eligible evidence alongside global and malformed identities without using them as paths', () => {

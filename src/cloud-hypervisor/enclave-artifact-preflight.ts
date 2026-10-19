@@ -23,6 +23,18 @@ import type {
   CloudHypervisorEnclaveArtifactPreflightOptions,
   VerifiedCloudHypervisorEnclaveArtifacts,
 } from './enclave-executor-types';
+import {
+  HostPreflightCleanupError, HostPreflightReporter, markHostPreflightError,
+  type HostPreflightCheck,
+} from './host-preflight-progress';
+
+function check<T>(
+  report: HostPreflightReporter | undefined,
+  id: HostPreflightCheck,
+  operation: () => Promise<T> | T,
+): Promise<T> {
+  return report ? report.check(id, operation) : Promise.resolve().then(operation);
+}
 
 function filePath(directory: string, name: string): string {
   const result = path.join(directory, name);
@@ -49,7 +61,10 @@ async function verifyAttestation(
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   if (result.exitCode !== 0) {
-    throw new Error(`Enclave artifact attestation verification failed: ${result.stderr.trim()}`);
+    throw markHostPreflightError(
+      new Error(`Enclave artifact attestation verification failed: ${result.stderr.trim()}`),
+      'attestation-failed',
+    );
   }
 }
 
@@ -71,7 +86,7 @@ async function readTrustedArtifactBytes(
       (stat.mode & 0o022) !== 0 ||
       (stat.uid !== 0 && stat.uid !== uid)
     ) {
-      throw new Error('Trusted enclave artifact has invalid file metadata');
+      throw markHostPreflightError(new Error('Trusted enclave artifact has invalid file metadata'), 'file-type');
     }
     const chunks: Buffer[] = [];
     const chunk = Buffer.alloc(Math.min(64 * 1024, maxBytes + 1));
@@ -84,7 +99,7 @@ async function readTrustedArtifactBytes(
       total += bytesRead;
     }
     if (total < 1 || total > maxBytes) {
-      throw new Error('Trusted enclave artifact has invalid content size');
+      throw markHostPreflightError(new Error('Trusted enclave artifact has invalid content size'), 'artifact-size');
     }
     return Buffer.concat(chunks, total);
   } finally {
@@ -101,25 +116,37 @@ export async function preflightCloudHypervisorEnclaveArtifacts(
   options: CloudHypervisorEnclaveArtifactPreflightOptions,
   verificationDirectoryRoot?: string,
   copyRootfs?: (source: string, destination: string) => Promise<void>,
+  report?: HostPreflightReporter,
 ): Promise<VerifiedCloudHypervisorEnclaveArtifacts> {
-  const uid = resolveTrustedOperatorUid();
-  await assertTrustedHostTool('GitHub CLI', options.attestationToolPath);
+  const uid = await check(report, 'operator-identity', resolveTrustedOperatorUid);
+  await check(report, 'tool-gh', () => assertTrustedHostTool('GitHub CLI', options.attestationToolPath));
   const manifestDir = path.dirname(options.manifestPath);
   const expectedBundle = filePath(manifestDir, 'cloud-hypervisor-enclave-rootfs-x86_64.manifest.sigstore.jsonl');
-  if (options.manifestBundlePath !== expectedBundle) {
-    throw new Error('Enclave artifact manifest bundle must use its fixed release filename');
-  }
-  await assertTrustedRegularFile('enclave artifact manifest', options.manifestPath, constants.R_OK, {
-    uid, access: fs.access, lstat: fs.lstat, sha256: calculateSha256,
+  await check(report, 'manifest-bundle-path', () => {
+    if (options.manifestBundlePath !== expectedBundle) {
+      throw markHostPreflightError(new Error('Enclave artifact manifest bundle must use its fixed release filename'),
+        'requirement-not-met');
+    }
   });
-  await assertTrustedRegularFile('enclave artifact manifest bundle', options.manifestBundlePath, constants.R_OK, {
+  await check(report, 'manifest-trust', () => assertTrustedRegularFile('enclave artifact manifest', options.manifestPath, constants.R_OK, {
     uid, access: fs.access, lstat: fs.lstat, sha256: calculateSha256,
-  });
-  const manifestBytes = await readTrustedArtifactBytes(options.manifestPath, uid, 1024 * 1024);
-  const bundleBytes = await readTrustedArtifactBytes(options.manifestBundlePath, uid, 8 * 1024 * 1024);
-  const verificationDirectory = await fs.mkdtemp(path.join(
+  }));
+  await check(report, 'bundle-trust', () => assertTrustedRegularFile('enclave artifact manifest bundle', options.manifestBundlePath, constants.R_OK, {
+    uid, access: fs.access, lstat: fs.lstat, sha256: calculateSha256,
+  }));
+  const manifestBytes = await check(report, 'manifest-read', () =>
+    readTrustedArtifactBytes(options.manifestPath, uid, 1024 * 1024));
+  const bundleBytes = await check(report, 'bundle-read', () =>
+    readTrustedArtifactBytes(options.manifestBundlePath, uid, 8 * 1024 * 1024));
+  const verificationDirectory = await check(report, 'verification-directory', () => fs.mkdtemp(path.join(
     verificationDirectoryRoot ?? os.tmpdir(), 'awf-enclave-attestation-',
-  ));
+  )));
+  let failure: { error: unknown } | undefined;
+  let verified: VerifiedCloudHypervisorEnclaveArtifacts | undefined;
+  const roleReports = {
+    script: report?.fork('bounded-artifacts', { phase: 'preflight', profile: 'script' }),
+    agent: report?.fork('bounded-artifacts', { phase: 'preflight', profile: 'agent' }),
+  };
   try {
     const verifiedManifestPath = path.join(verificationDirectory, 'manifest.json');
     const verifiedBundlePath = path.join(
@@ -128,11 +155,21 @@ export async function preflightCloudHypervisorEnclaveArtifacts(
     );
     await fs.writeFile(verifiedManifestPath, manifestBytes, { flag: 'wx', mode: 0o400 });
     await fs.writeFile(verifiedBundlePath, bundleBytes, { flag: 'wx', mode: 0o400 });
-    const manifest = parseCloudHypervisorEnclaveArtifactManifest(
-      new TextDecoder('utf-8', { fatal: true }).decode(manifestBytes),
-      options.releaseTag,
-    );
-    await verifyAttestation(options.attestationToolPath, verifiedManifestPath, verifiedBundlePath);
+    const manifest = await check(report, 'manifest-parse', () => {
+      try {
+        return parseCloudHypervisorEnclaveArtifactManifest(
+          new TextDecoder('utf-8', { fatal: true }).decode(manifestBytes),
+          options.releaseTag,
+        );
+      } catch (error) {
+        if (error instanceof SyntaxError || error instanceof TypeError) {
+          throw markHostPreflightError(error, 'malformed-json');
+        }
+        throw error;
+      }
+    });
+    await check(report, 'manifest-attestation', () =>
+      verifyAttestation(options.attestationToolPath, verifiedManifestPath, verifiedBundlePath));
 
     const rootfs: Record<CloudHypervisorEnclaveRole, {
       path: string;
@@ -146,44 +183,54 @@ export async function preflightCloudHypervisorEnclaveArtifacts(
       agent: filePath(manifestDir, manifest.rootfs.agent.file),
     };
     const sharedRootfs = manifest.rootfs.script.file === manifest.rootfs.agent.file;
-    if (manifest.schemaVersion === 2 && !options.rootfsPath) {
-      throw new Error('Canonical enclave rootfs path is required for schema version 2');
-    }
-    if (sharedRootfs) {
-      if (
-        (options.rootfsPath ?? options.scriptRootfsPath) !== rootfsPaths.script
-        || (options.scriptRootfsPath && options.scriptRootfsPath !== rootfsPaths.script)
-        || (options.agentRootfsPath && options.agentRootfsPath !== rootfsPaths.agent)
-      ) {
-        throw new Error('Configured enclave rootfs does not match the trusted manifest path (shared)');
+    await check(report, 'rootfs-configuration', () => {
+      if (manifest.schemaVersion === 2 && !options.rootfsPath) {
+        throw markHostPreflightError(new Error('Canonical enclave rootfs path is required for schema version 2'),
+          'requirement-not-met');
       }
-    } else if (
-      options.rootfsPath
-      || options.scriptRootfsPath !== rootfsPaths.script
-      || options.agentRootfsPath !== rootfsPaths.agent
-    ) {
-      throw new Error('Configured enclave rootfs does not match the trusted manifest path (split)');
-    }
+      if (sharedRootfs) {
+        if (
+          (options.rootfsPath ?? options.scriptRootfsPath) !== rootfsPaths.script
+          || (options.scriptRootfsPath && options.scriptRootfsPath !== rootfsPaths.script)
+          || (options.agentRootfsPath && options.agentRootfsPath !== rootfsPaths.agent)
+        ) {
+          throw markHostPreflightError(
+            new Error('Configured enclave rootfs does not match the trusted manifest path (shared)'),
+            'requirement-not-met');
+        }
+      } else if (
+        options.rootfsPath
+        || options.scriptRootfsPath !== rootfsPaths.script
+        || options.agentRootfsPath !== rootfsPaths.agent
+      ) {
+        throw markHostPreflightError(
+          new Error('Configured enclave rootfs does not match the trusted manifest path (split)'),
+          'requirement-not-met');
+      }
+    });
     for (const role of ['script', 'agent'] as const) {
       if (sharedRootfs && role === 'agent') continue;
+      const roleReport = roleReports[role];
       const artifact = manifest.rootfs[role];
       const rootfsPath = rootfsPaths[role];
       const provenanceName = sharedRootfs
         ? 'enclave-rootfs.provenance.sigstore.jsonl'
         : `${artifact.file.replace(/\.ext4$/, '')}.provenance.sigstore.jsonl`;
       const provenance = filePath(manifestDir, provenanceName);
-      for (const [label, file] of [
-        [`${role} enclave rootfs`, rootfsPath],
-        [`${role} enclave rootfs provenance`, provenance],
-      ] as const) {
-        await assertTrustedRegularFile(label, file, constants.R_OK, {
+      await check(roleReport, 'rootfs-trust', () =>
+        assertTrustedRegularFile(`${role} enclave rootfs`, rootfsPath, constants.R_OK, {
+          uid, access: fs.access, lstat: fs.lstat, sha256: calculateSha256,
+        }));
+      await check(roleReport, 'rootfs-provenance-trust', async () => {
+        await assertTrustedRegularFile(`${role} enclave rootfs provenance`, provenance, constants.R_OK, {
           uid, access: fs.access, lstat: fs.lstat, sha256: calculateSha256,
         });
-      }
+        if ((await fs.lstat(provenance)).size > 8 * 1024 * 1024) {
+          throw markHostPreflightError(new Error(`${role} enclave rootfs provenance exceeds its size limit`),
+            'artifact-size');
+        }
+      });
       const rootfsStat = await fs.lstat(rootfsPath);
-      if ((await fs.lstat(provenance)).size > 8 * 1024 * 1024) {
-        throw new Error(`${role} enclave rootfs provenance exceeds its size limit`);
-      }
       const roleDirectory = path.join(verificationDirectory, sharedRootfs ? 'shared' : role);
       if (copyRootfs) await fs.mkdir(roleDirectory, { mode: 0o700 });
       let verifiedRootfs = rootfsPath;
@@ -196,12 +243,17 @@ export async function preflightCloudHypervisorEnclaveArtifacts(
         await fs.writeFile(verifiedProvenance, await readTrustedArtifactBytes(provenance, uid, 8 * 1024 * 1024),
           { flag: 'wx', mode: 0o400 });
       }
-      if (rootfsStat.size !== artifact.sizeBytes
-        || (await fs.lstat(verifiedRootfs)).size !== artifact.sizeBytes
-        || await calculateSha256(verifiedRootfs) !== artifact.sha256) {
-        throw new Error(`${role} enclave rootfs does not match its trusted manifest digest and size`);
-      }
-      await verifyAttestation(options.attestationToolPath, verifiedRootfs, verifiedProvenance);
+      await check(roleReport, 'rootfs-digest', async () => {
+        if (rootfsStat.size !== artifact.sizeBytes
+          || (await fs.lstat(verifiedRootfs)).size !== artifact.sizeBytes
+          || await calculateSha256(verifiedRootfs) !== artifact.sha256) {
+          throw markHostPreflightError(
+            new Error(`${role} enclave rootfs does not match its trusted manifest digest and size`),
+            'digest-mismatch');
+        }
+      });
+      await check(roleReport, 'rootfs-attestation', () =>
+        verifyAttestation(options.attestationToolPath, verifiedRootfs, verifiedProvenance));
     }
     for (const role of ['script', 'agent'] as const) {
       if (sharedRootfs && role === 'agent'
@@ -211,14 +263,18 @@ export async function preflightCloudHypervisorEnclaveArtifacts(
       }
       const artifact = enclaveRootfsArtifactForRole(manifest, role);
       const sbom = filePath(manifestDir, artifact.sbom.file);
-      await assertTrustedRegularFile(`${role} enclave rootfs SBOM`, sbom, constants.R_OK, {
-        uid, access: fs.access, lstat: fs.lstat, sha256: calculateSha256,
+      const roleReport = roleReports[role];
+      await check(roleReport, 'sbom-trust', async () => {
+        await assertTrustedRegularFile(`${role} enclave rootfs SBOM`, sbom, constants.R_OK, {
+          uid, access: fs.access, lstat: fs.lstat, sha256: calculateSha256,
+        });
+        if ((await fs.lstat(sbom)).size > 16 * 1024 * 1024) {
+          throw markHostPreflightError(new Error(`${role} enclave rootfs SBOM exceeds its size limit`), 'artifact-size');
+        }
       });
-      if ((await fs.lstat(sbom)).size > 16 * 1024 * 1024) {
-        throw new Error(`${role} enclave rootfs SBOM exceeds its size limit`);
-      }
       const roleDirectory = path.join(verificationDirectory, `${role}-sbom`);
       if (copyRootfs) await fs.mkdir(roleDirectory, { mode: 0o700 });
+      let sbomFailure: { error: unknown } | undefined;
       try {
         let verifiedSbom = sbom;
         if (copyRootfs) {
@@ -226,41 +282,67 @@ export async function preflightCloudHypervisorEnclaveArtifacts(
           await fs.writeFile(verifiedSbom, await readTrustedArtifactBytes(sbom, uid, 16 * 1024 * 1024),
             { flag: 'wx', mode: 0o400 });
         }
-        if (await calculateSha256(verifiedSbom) !== artifact.sbom.sha256) {
-          throw new Error(`${role} enclave rootfs SBOM does not match its trusted manifest digest`);
-        }
-        if (manifest.schemaVersion === 2) {
-          const document: unknown = JSON.parse(new TextDecoder('utf-8', { fatal: true })
-            .decode(await readTrustedArtifactBytes(verifiedSbom, uid, 16 * 1024 * 1024)));
-          const sbom = document as {
-            spdxVersion?: unknown;
-            packages?: Array<{ SPDXID?: string; checksums?: Array<{ algorithm?: string; checksumValue?: string }> }>;
-            files?: unknown[];
-          };
-          if (sbom.spdxVersion !== 'SPDX-2.3'
-            || !Array.isArray(sbom.files) || sbom.files.length === 0
-            || !Array.isArray(sbom.packages)
-            || sbom.packages.filter(pkg => pkg.SPDXID === 'SPDXRef-Rootfs'
-              && pkg.checksums?.some(check => check.algorithm === 'SHA256'
-                && check.checksumValue === artifact.sha256)).length !== 1) {
-            throw new Error(`${role} enclave rootfs SBOM does not bind its final filesystem digest`);
+        await check(roleReport, 'sbom-digest', async () => {
+          if (await calculateSha256(verifiedSbom) !== artifact.sbom.sha256) {
+            throw markHostPreflightError(new Error(`${role} enclave rootfs SBOM does not match its trusted manifest digest`),
+              'digest-mismatch');
           }
+        });
+        if (manifest.schemaVersion === 2) {
+          await check(roleReport, 'sbom-contents', async () => {
+            const document: unknown = JSON.parse(new TextDecoder('utf-8', { fatal: true })
+              .decode(await readTrustedArtifactBytes(verifiedSbom, uid, 16 * 1024 * 1024)));
+            const sbom = document as {
+              spdxVersion?: unknown;
+              packages?: Array<{ SPDXID?: string; checksums?: Array<{ algorithm?: string; checksumValue?: string }> }>;
+              files?: unknown[];
+            } | null;
+            if (sbom?.spdxVersion !== 'SPDX-2.3'
+              || !Array.isArray(sbom.files) || sbom.files.length === 0
+              || !Array.isArray(sbom.packages)
+              || sbom.packages.filter(pkg => pkg?.SPDXID === 'SPDXRef-Rootfs'
+                && pkg.checksums?.some(check => check?.algorithm === 'SHA256'
+                  && check.checksumValue === artifact.sha256)).length !== 1) {
+              throw markHostPreflightError(
+                new Error(`${role} enclave rootfs SBOM does not bind its final filesystem digest`),
+                'digest-mismatch');
+            }
+          });
+        } else {
+          roleReport?.notRequired('sbom-contents');
         }
-      } finally {
-        if (copyRootfs) await fs.rm(roleDirectory, { recursive: true, force: true });
+      } catch (error) {
+        sbomFailure = { error };
       }
+      if (copyRootfs) {
+        try {
+          await fs.rm(roleDirectory, { recursive: true, force: true });
+        } catch (cleanupError) {
+          if (sbomFailure) throw new HostPreflightCleanupError(sbomFailure.error, cleanupError);
+          throw cleanupError;
+        }
+      }
+      if (sbomFailure) throw sbomFailure.error;
       if (role === 'script') rootfs.script = { path: rootfsPaths.script, artifact };
       else rootfs.agent = { path: rootfsPaths.agent, artifact };
     }
-    return Object.freeze({
+    verified = Object.freeze({
       manifest,
       manifestPath: options.manifestPath,
       manifestBundlePath: options.manifestBundlePath,
       rootfs: Object.freeze(rootfs),
     });
-  } finally {
-    await fs.rm(verificationDirectory, { recursive: true, force: true });
+  } catch (error) {
+    failure = { error };
   }
+  try {
+    await fs.rm(verificationDirectory, { recursive: true, force: true });
+  } catch (cleanupError) {
+    if (failure) throw new HostPreflightCleanupError(failure.error, cleanupError);
+    throw cleanupError;
+  }
+  if (failure) throw failure.error;
+  return verified!;
 }
 
 export async function resolveTrustedAttestationTool(environment: NodeJS.ProcessEnv): Promise<string> {

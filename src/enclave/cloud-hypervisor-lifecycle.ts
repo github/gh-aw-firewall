@@ -21,13 +21,18 @@ import {
   HostPreflightReporter, markHostPreflightError, type HostPreflightProgress,
   HostPreflightCleanupError,
 } from '../cloud-hypervisor/host-preflight-progress';
-import { persistHostExecutorProxyUsage, readHostExecutorInvocationDiagnostics } from './host-executor-journal';
-import { readEnclaveProxyUsage, unavailableEnclaveProxyUsage } from './proxy-usage';
+import {
+  persistHostExecutorProxyUsage, persistHostExecutorProxyResponseDiagnostics,
+  readHostExecutorInvocationDiagnostics,
+} from './host-executor-journal';
+import { readEnclaveProxyUsage, readEnclaveProxyEventEvidence, unavailableEnclaveProxyUsage } from './proxy-usage';
+import { captureEnclaveProxyContainerLog, preservePublicEnclaveProxyDiagnostics } from './proxy-debug-retention';
 import { preserveHostExecutorInvocationEvidence } from '../cloud-hypervisor/diagnostics';
 import { resolveCloudHypervisorManagerDependencies } from '../cloud-hypervisor/manager';
 import {
   resolvePublicEnclaveDebugConfig,
   verifyPublicEnclaveDebugRepositories,
+  PublicDebugVisibilityError,
   ENCLAVE_DEBUG_ARTIFACT_PROTECTED_ROOT,
   ENCLAVE_DEBUG_ARTIFACT_ROOT,
 } from './public-debug';
@@ -164,6 +169,7 @@ interface RunLifecycle {
   closePromise?: Promise<void>;
   startPromise?: Promise<void>;
   draining?: boolean;
+  publicDebugVerified?: boolean;
 }
 const runs = new Map<string, RunLifecycle>();
 const completedRuns = new Map<string, string>();
@@ -177,18 +183,12 @@ export async function startCloudHypervisorEnclaveLifecycle(
   if (runs.has(paths.root)) throw new Error('Cloud Hypervisor enclave host executor already exists for this run');
   if (!config.cloudHypervisor) throw new Error('Cloud Hypervisor enclave runtime configuration is missing');
   const debugConfig = resolvePublicEnclaveDebugConfig(config);
-  const options: CloudHypervisorEnclaveHostServiceOptions = {
+  let options: CloudHypervisorEnclaveHostServiceOptions = {
     runtimeDir: paths.hostExecutorDir,
     runState: deriveCloudHypervisorEnclaveRunState(config, paths),
     config: debugConfig.cloudHypervisor!,
     workDir: paths.workDir,
     agentPolicies: deriveAgentPolicies(config),
-    ...(debugConfig.cloudHypervisor!.enclaveDebugPublic
-      ? {
-          publicDebugArtifactDirectory: ENCLAVE_DEBUG_ARTIFACT_ROOT,
-          publicDebugArtifactProtectedRoot: ENCLAVE_DEBUG_ARTIFACT_PROTECTED_ROOT,
-        }
-      : {}),
     environment,
     onPreflightStage: (stage) => updateEnclaveStartupProgress(config, { stage }),
     onHostPreflight: (hostPreflight) => updateEnclaveStartupProgress(config, { hostPreflight }),
@@ -199,8 +199,20 @@ export async function startCloudHypervisorEnclaveLifecycle(
     try {
       updateEnclaveStartupProgress(config, { stage: 'host-preflight' });
       if (debugConfig.cloudHypervisor!.enclaveDebugPublic) {
-        await verifyPublicEnclaveDebugRepositories(debugConfig);
-        logger.warn(`Public enclave debug retains unredacted raw logs in ${ENCLAVE_DEBUG_ARTIFACT_ROOT}; do not publish these artifacts.`);
+        try {
+          await verifyPublicEnclaveDebugRepositories(debugConfig);
+          run.publicDebugVerified = true;
+          options = {
+            ...options,
+            publicDebugArtifactDirectory: ENCLAVE_DEBUG_ARTIFACT_ROOT,
+            publicDebugArtifactProtectedRoot: ENCLAVE_DEBUG_ARTIFACT_PROTECTED_ROOT,
+          };
+          logger.warn(`Public enclave debug retains unredacted raw logs in ${ENCLAVE_DEBUG_ARTIFACT_ROOT}; do not publish these artifacts.`);
+        } catch (error) {
+          if (!(error instanceof PublicDebugVisibilityError)) throw error;
+          options = { ...options, config: { ...options.config, enclaveDebugPublic: false } };
+          logger.warn(`Public enclave debug capture and export disabled: ${error.message}. Enclave execution will continue without public debug artifacts.`);
+        }
       }
       await assertCloudHypervisorEnclavePrerequisites(config, storageProvider);
       updateEnclaveStartupProgress(config, { stage: 'storage-preflight' });
@@ -316,8 +328,6 @@ export async function stopCloudHypervisorEnclaveLifecycle(config: WrapperConfig)
       await run.server?.close();
       assertRecoveryComplete(paths, run.runId);
       hostDrained = Boolean(run.server);
-      await run.storage?.close();
-      if (run.failed) throw new Error('Cloud Hypervisor enclave startup failed; private recovery state is preserved');
     } catch (error) {
       cleanupError = error;
     }
@@ -333,6 +343,31 @@ export async function stopCloudHypervisorEnclaveLifecycle(config: WrapperConfig)
           : unavailableEnclaveProxyUsage('not-drained'));
     } catch (error) {
       evidenceError ??= error;
+    }
+    if (run.publicDebugVerified && config.enclaves?.executors.agent.enabled) {
+      try {
+        const identity = { runId: run.runId, journalDir: paths.hostExecutorJournalDir };
+        const { diagnostics, events } = hostDrained
+          ? await readEnclaveProxyEventEvidence(paths.apiProxyLogsDir)
+          : {
+            diagnostics: { scope: 'run-cumulative' as const, status: 'not-drained' as const },
+            events: [],
+          };
+        persistHostExecutorProxyResponseDiagnostics(identity, diagnostics);
+        await preservePublicEnclaveProxyDiagnostics(
+          identity, diagnostics, events, await captureEnclaveProxyContainerLog(),
+        );
+      } catch (error) {
+        evidenceError ??= error;
+      }
+    }
+    if (cleanupError === undefined) {
+      try {
+        await run.storage?.close();
+        if (run.failed) throw new Error('Cloud Hypervisor enclave startup failed; private recovery state is preserved');
+      } catch (error) {
+        cleanupError = error;
+      }
     }
     try {
       await preserveEvidence();

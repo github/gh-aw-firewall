@@ -877,9 +877,45 @@ existing host/artifact/security gates. Live release-attested broker-to-VM
 acceptance remains a separate gate in #9395. See
 [Version 2 implementation](adr/0002-cloud-hypervisor-enclave-executor.md#version-2-implementation).
 
+For eligible attested static public-only enclaves, positive unauthenticated
+repository visibility verification enables bounded, protected host-only guest,
+session, and dedicated API-proxy diagnostics by default. Explicit opt-out and
+private, mixed, or dynamic scope retain non-disclosing behavior. Proxy response
+evidence distinguishes observed local from upstream HTTP statuses; missing
+accounting is not evidence of no request. Proxy events and container projections
+are run-cumulative, retained once under the protected run journal even before
+the first invocation, and never attributed to an individual invocation.
+Auditing does not depend on configuring model-budget limits.
+Capability rejections additionally retain fixed event names distinguishing
+missing authorization, an invalid scheme or format, signature rejection, invalid
+claims, and changed invocation claims. They never retain authorization values,
+capability payloads, signatures, or token hashes. These local authentication
+failures return HTTP 403; exhausted model budgets return HTTP 429.
+Token-limit diagnostics separately classify input-byte reservation, missing or
+invalid request bodies, conflicting or invalid output limits, invalid streaming
+options, and exhausted accounting. These fixed events retain no request content
+or numerical budget values; all rejection and accounting rules remain unchanged.
+The Copilot custom-provider route receives the invocation capability through
+`COPILOT_PROVIDER_BEARER_TOKEN`, without the `Bearer ` prefix (the CLI adds the
+scheme). Setting only the legacy `COPILOT_TOKEN` does not configure custom-provider
+authentication. Both OCI and Cloud Hypervisor launches use this handoff; the
+provider credential and capability-signing secret remain outside the guest.
+The primary proxy's logs are separate
+and do not explain an enclave proxy rejection. See
+[the diagnostic retention contract](cloud-hypervisor-foundation.md#redacted-enclave-proxy-usage-evidence).
+
+Virtiofsd worker discovery is not sandbox readiness: host verification waits a
+bounded five seconds for the reviewed capability sets, empty bounding set,
+NoNewPrivs, and seccomp policy, rechecking process identity while waiting.
+Discovery follows replacement children when virtiofsd's temporary setup child
+exits, and waits for the parent capability drop before taking final evidence.
+An unsettled or changed worker still fails closed before its socket reaches
+the VM; namespace, root, environment, and cgroup checks remain mandatory.
 ## Coverage after legacy smoke removal
 
-No unified gh-aw enclave smoke workflow exists yet, so AWF keeps coverage local and unit-focused instead of inventing unsupported workflow syntax. Current owned-scope guidance points to:
+The experimental Cloud Hypervisor Copilot enclave smoke is distinct from
+release-attested, package-matched profile-spanning KVM acceptance. Deterministic
+contract coverage also includes:
 
 - `src/services/enclave-mcp-service.test.ts`
 - `src/services/enclave-agent-service.test.ts`

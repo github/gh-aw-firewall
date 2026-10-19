@@ -400,7 +400,7 @@ describe('VirtiofsdManager', () => {
 
   it.each([
     { pid: 100, phase: 'parent-proc-evidence', parentRecorded: false },
-    { pid: 1100, phase: 'worker-proc-evidence', parentRecorded: true },
+    { pid: 1100, phase: 'worker-discovery', parentRecorded: false },
   ])('retains identities and the failing role when PID $pid disappears', async ({
     pid, phase, parentRecorded,
   }) => {
@@ -472,6 +472,99 @@ describe('VirtiofsdManager', () => {
       /worker is not in its expected cgroup|parent is not in its expected cgroup/,
     );
   });
+
+    it('waits for the discovered worker to finish dropping capabilities before exposing its socket', async () => {
+      const deps = dependencies();
+      const readFile = deps.readFile;
+      let statusReads = 0;
+      deps.readFile = jest.fn(async (filePath: string, encoding: BufferEncoding) => {
+        const contents = await readFile(filePath, encoding);
+        if (filePath === '/proc/1100/status' && ++statusReads === 1) {
+          return contents.replace(/Cap(?:Prm|Eff|Bnd):\t[0-9a-f]+/g,
+            match => `${match.split(':')[0]}:\t000001ffffffffff`);
+        }
+        return contents;
+      });
+      deps.chown = jest.fn(async () => { expect(statusReads).toBeGreaterThanOrEqual(2); });
+      await manager(deps).start([workspace]);
+      expect(deps.sleep).toHaveBeenCalledWith(50);
+      expect(deps.chown).toHaveBeenCalledTimes(1);
+      const writes = jest.mocked(deps.writeFile).mock.calls;
+      const evidence = writes.find(([name]) => name.endsWith('-confinement.json'));
+      expect(JSON.parse(evidence![1].toString())).toMatchObject({
+        verified: true, worker: { capabilities: { CapBnd: '0000000000000000' } },
+      });
+    });
+
+    it('rejects a worker whose identity changes while its sandbox policy is becoming ready', async () => {
+      const deps = dependencies();
+      const readFile = deps.readFile;
+      let waiting = false;
+      deps.readFile = jest.fn(async (filePath: string, encoding: BufferEncoding) => {
+        const contents = await readFile(filePath, encoding);
+        if (filePath === '/proc/1100/status') {
+          return contents.replace('CapEff:\t00000000880000db', 'CapEff:\t000001ffffffffff');
+        }
+        if (waiting && filePath === '/proc/1100/stat') return contents.replace('11000', '11001');
+        return contents;
+      });
+      deps.sleep = jest.fn(async () => { waiting = true; });
+      await expect(manager(deps).start([workspace])).rejects.toThrow(/worker process identity changed/);
+      expect(deps.chown).not.toHaveBeenCalled();
+    });
+
+    it('bounds sandbox readiness polling and rejects a worker that never drops capabilities', async () => {
+      const deps = dependencies();
+      const readFile = deps.readFile;
+      deps.readFile = jest.fn(async (filePath: string, encoding: BufferEncoding) => {
+        const contents = await readFile(filePath, encoding);
+        return filePath === '/proc/1100/status'
+          ? contents.replace(/Cap(?:Prm|Eff|Bnd):\t[0-9a-f]+/g,
+            match => `${match.split(':')[0]}:\t000001ffffffffff`)
+          : contents;
+      });
+      await expect(manager(deps).start([workspace])).rejects.toThrow(/worker capabilities differ/);
+      expect(deps.sleep).toHaveBeenCalledTimes(100);
+      expect(deps.chown).not.toHaveBeenCalled();
+    });
+
+    it.each(['ENOENT', 'ESRCH'])(
+      'rediscovers the sandbox worker when the transient setup child exits during evidence capture (%s)',
+      async code => {
+        const deps = dependencies();
+        const readFile = deps.readFile;
+        let discovery = 0;
+        deps.readFile = jest.fn(async (filePath: string, encoding: BufferEncoding) => {
+          if (filePath.endsWith('/children')) return ++discovery === 1 ? '1099' : '1100';
+          if (filePath === '/proc/1099/environ') {
+            throw Object.assign(new Error('setup child exited'), { code });
+          }
+          return readFile(filePath, encoding);
+        });
+        await expect(manager(deps).start([workspace])).resolves.toHaveLength(1);
+        expect(deps.sleep).toHaveBeenCalledWith(50);
+        const evidence = jest.mocked(deps.writeFile).mock.calls.find(
+          ([name]) => name.endsWith('-confinement.json'),
+        );
+        expect(JSON.parse(evidence![1].toString())).toMatchObject({
+          verified: true, workerIdentity: { pid: 1100 },
+        });
+      },
+    );
+
+    it('waits for both parent and worker capability drops before collecting final evidence', async () => {
+      const deps = dependencies();
+      const readFile = deps.readFile;
+      let parentStatusReads = 0;
+      deps.readFile = jest.fn(async (filePath: string, encoding: BufferEncoding) => {
+        const contents = await readFile(filePath, encoding);
+        return filePath === '/proc/100/status' && ++parentStatusReads === 1
+          ? contents.replace('CapEff:\t0000000000000000', 'CapEff:\t000001ffffffffff')
+          : contents;
+      });
+      await expect(manager(deps).start([workspace])).resolves.toHaveLength(1);
+      expect(deps.sleep).toHaveBeenCalledWith(50);
+    });
 
   it('rejects malformed and unsafe process identities', async () => {
     const deps = dependencies();

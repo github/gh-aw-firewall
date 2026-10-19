@@ -135,6 +135,17 @@ describe('unified enclave agent runner specification', () => {
       maxTokens: 128,
     });
     expect(budgetSpec.launchArgs.join(' ')).not.toContain(secret);
+    const providerEntry = budgetSpec.launchArgs.find((argument: string) =>
+      argument.startsWith('COPILOT_PROVIDER_BEARER_TOKEN='),
+    );
+    const providerToken = providerEntry.slice('COPILOT_PROVIDER_BEARER_TOKEN='.length);
+    expect(providerToken).not.toMatch(/^Bearer /);
+    expect(decodeCapability(`Bearer ${providerToken}`, secret)).toEqual({
+      v: 1,
+      invocationId: '0123456789abcdef',
+      maxRequests: 3,
+      maxTokens: 128,
+    });
   });
 
   it('mounts only the gateway agent identity for issues-read-v1', () => {

@@ -527,6 +527,33 @@ function createSendUpstreamRequest({
         provider,
         reason: budgetAttempt.reason,
       });
+      const capabilityEvent = {
+        missing: 'enclave_model_capability_missing',
+        scheme: 'enclave_model_capability_scheme',
+        format: 'enclave_model_capability_format',
+        signature: 'enclave_model_capability_signature',
+        claims: 'enclave_model_capability_claims',
+        claims_changed: 'enclave_model_capability_claims_changed',
+      }[budgetAttempt.capabilityFailure];
+      if (budgetAttempt.reason === 'invalid_capability' && capabilityEvent) {
+        logRequest?.('warn', capabilityEvent, { status: statusCode });
+      }
+      if (budgetAttempt.reason === 'token_limit') {
+        logRequest?.('warn', 'enclave_model_token_limit', { status: statusCode });
+        const tokenEvent = {
+          body_missing: 'enclave_model_token_body_missing',
+          input_reservation: 'enclave_model_token_input_reservation',
+          request_json: 'enclave_model_token_request_json',
+          request_shape: 'enclave_model_token_request_shape',
+          output_conflict: 'enclave_model_token_output_conflict',
+          output_shape: 'enclave_model_token_output_shape',
+          stream_options: 'enclave_model_token_stream_options',
+          budget_exhausted: 'enclave_model_token_budget_exhausted',
+        }[budgetAttempt.tokenFailure];
+        if (typeof tokenEvent === 'string') {
+          logRequest?.('warn', tokenEvent, { status: statusCode });
+        }
+      }
       otel.endSpan(span, statusCode);
       if (res.headersSent) {
         res.destroy?.();

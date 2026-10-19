@@ -255,9 +255,26 @@ export const schema = {
     },
     "bounded-artifacts": {
       ...boundedExecutorChecks,
+      "operator-identity": null,
+      "tool-gh": null,
       "tool-rsync": null,
       "verification-directory": null,
-      "enclave-artifacts": null
+      "enclave-artifacts": null,
+      "manifest-bundle-path": null,
+      "manifest-trust": null,
+      "bundle-trust": null,
+      "manifest-read": null,
+      "bundle-read": null,
+      "manifest-parse": null,
+      "manifest-attestation": null,
+      "rootfs-configuration": null,
+      "rootfs-trust": null,
+      "rootfs-provenance-trust": null,
+      "rootfs-digest": null,
+      "rootfs-attestation": null,
+      "sbom-trust": null,
+      "sbom-digest": null,
+      "sbom-contents": null
     },
   },
   "optionalChecks": [
@@ -272,6 +289,7 @@ export const schema = {
     "artifact-snapshot/rootfs-copy", "artifact-snapshot/rootfs-mode",
     "bounded-runtime/rootfs-trust", "bounded-runtime/rootfs-digest",
     "bounded-runtime/sbom-trust", "bounded-runtime/sbom-digest", "bounded-runtime/sbom-contents",
+    "bounded-artifacts/sbom-contents",
     "artifact-snapshot/partial-remove", "bounded-cleanup/directory-release"
   ],
   "reasons": {
@@ -327,6 +345,8 @@ export const schema = {
     "digest-format": null,
     "digest-empty": null,
     "digest-mismatch": null,
+    "attestation-failed": null,
+    "artifact-size": null,
     "ENOENT": null,
     "EACCES": null,
     "EPERM": null,

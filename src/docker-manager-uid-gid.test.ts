@@ -105,10 +105,12 @@ describe('docker-manager UID/GID utilities', () => {
 
   describe('getSafeHostGid', () => {
     const originalGetgid = process.getgid;
+    const originalGetuid = process.getuid;
     const originalSudoGid = process.env.SUDO_GID;
 
     afterEach(() => {
       process.getgid = originalGetgid;
+      process.getuid = originalGetuid;
       if (originalSudoGid !== undefined) {
         process.env.SUDO_GID = originalSudoGid;
       } else {
@@ -140,7 +142,8 @@ describe('docker-manager UID/GID utilities', () => {
       expect(getSafeHostGid()).toBe('1000');
     });
 
-    it('should return 1000 for non-root system GID', () => {
+    it('should return 1000 for a system user with a system GID', () => {
+      process.getuid = () => 13; // proxy user
       process.getgid = () => 13; // proxy group
       delete process.env.SUDO_GID;
       expect(getSafeHostGid()).toBe('1000');
