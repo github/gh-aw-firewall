@@ -32,6 +32,7 @@ import { resolveCloudHypervisorManagerDependencies } from '../cloud-hypervisor/m
 import {
   resolvePublicEnclaveDebugConfig,
   verifyPublicEnclaveDebugRepositories,
+  PublicDebugVisibilityError,
   ENCLAVE_DEBUG_ARTIFACT_PROTECTED_ROOT,
   ENCLAVE_DEBUG_ARTIFACT_ROOT,
 } from './public-debug';
@@ -182,18 +183,12 @@ export async function startCloudHypervisorEnclaveLifecycle(
   if (runs.has(paths.root)) throw new Error('Cloud Hypervisor enclave host executor already exists for this run');
   if (!config.cloudHypervisor) throw new Error('Cloud Hypervisor enclave runtime configuration is missing');
   const debugConfig = resolvePublicEnclaveDebugConfig(config);
-  const options: CloudHypervisorEnclaveHostServiceOptions = {
+  let options: CloudHypervisorEnclaveHostServiceOptions = {
     runtimeDir: paths.hostExecutorDir,
     runState: deriveCloudHypervisorEnclaveRunState(config, paths),
     config: debugConfig.cloudHypervisor!,
     workDir: paths.workDir,
     agentPolicies: deriveAgentPolicies(config),
-    ...(debugConfig.cloudHypervisor!.enclaveDebugPublic
-      ? {
-          publicDebugArtifactDirectory: ENCLAVE_DEBUG_ARTIFACT_ROOT,
-          publicDebugArtifactProtectedRoot: ENCLAVE_DEBUG_ARTIFACT_PROTECTED_ROOT,
-        }
-      : {}),
     environment,
     onPreflightStage: (stage) => updateEnclaveStartupProgress(config, { stage }),
     onHostPreflight: (hostPreflight) => updateEnclaveStartupProgress(config, { hostPreflight }),
@@ -204,9 +199,20 @@ export async function startCloudHypervisorEnclaveLifecycle(
     try {
       updateEnclaveStartupProgress(config, { stage: 'host-preflight' });
       if (debugConfig.cloudHypervisor!.enclaveDebugPublic) {
-        await verifyPublicEnclaveDebugRepositories(debugConfig);
-        run.publicDebugVerified = true;
-        logger.warn(`Public enclave debug retains unredacted raw logs in ${ENCLAVE_DEBUG_ARTIFACT_ROOT}; do not publish these artifacts.`);
+        try {
+          await verifyPublicEnclaveDebugRepositories(debugConfig);
+          run.publicDebugVerified = true;
+          options = {
+            ...options,
+            publicDebugArtifactDirectory: ENCLAVE_DEBUG_ARTIFACT_ROOT,
+            publicDebugArtifactProtectedRoot: ENCLAVE_DEBUG_ARTIFACT_PROTECTED_ROOT,
+          };
+          logger.warn(`Public enclave debug retains unredacted raw logs in ${ENCLAVE_DEBUG_ARTIFACT_ROOT}; do not publish these artifacts.`);
+        } catch (error) {
+          if (!(error instanceof PublicDebugVisibilityError)) throw error;
+          options = { ...options, config: { ...options.config, enclaveDebugPublic: false } };
+          logger.warn(`Public enclave debug capture and export disabled: ${error.message}. Enclave execution will continue without public debug artifacts.`);
+        }
       }
       await assertCloudHypervisorEnclavePrerequisites(config, storageProvider);
       updateEnclaveStartupProgress(config, { stage: 'storage-preflight' });

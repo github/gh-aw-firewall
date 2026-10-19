@@ -201,8 +201,12 @@ runtime. Every configured repository must have `sensitivity: "public"`. AWF also
 checks GitHub's repository metadata **without credentials**, rejects redirects,
 and requires matching repository identity, `private: false`, and
 `visibility: "public"`. Each check has a five-second timeout and a 64 KiB
-response ceiling; unavailable, rate-limited, malformed, private, or unverified
-metadata prevents launch. The host needs HTTPS access to `api.github.com`.
+response ceiling. Unavailable, rate-limited, malformed, private, or unverified
+metadata disables public debug capture and export for that run, with a warning,
+but does not prevent enclave execution. This also applies to an explicit
+public-debug request: lack of positive visibility proof never permits public
+debug artifacts. The host needs HTTPS access to `api.github.com` to enable
+public retention.
 Failures report a bounded reason (`http-status`, `missing-body`, `timeout`,
 `request-failed`, `body-read`, `metadata-bound`, `invalid-json`, or
 `unverified-metadata`), the HTTP status when available, and only allowlisted
