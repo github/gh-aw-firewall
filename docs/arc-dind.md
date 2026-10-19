@@ -241,16 +241,32 @@ runtime result.
    observation to them. Record the configured daily threshold and per-run
    `max-ai-credits` fallback (if any), without disclosing credentials or
    unredacted artifacts.
-2. On the ARC runner, observe a *naturally* cancelled run whose agent never
-   acquired a runner. Compare a cold scan, a scan after restoring the
-   `aic-usage-scan-v2` observations, and another scan over the same completed
-   attempt. The cold scan must record `aic: 0`, `source: recorded`, and
-   `accountingReason: confirmed_zero`; subsequent scans must report a cache
-   hit without repeating that run's jobs/artifact resolution. Compare
-   `candidateRuns`, `countedRuns`, `cacheHits`, business API request counts,
-   and elapsed times. A new attempt or changed completed-run metadata is a
-   legitimate cache miss; a restored snapshot never replaces a fresh complete
-   workflow-history listing.
+2. On the ARC runner, observe a *naturally* cancelled run. An unassigned agent
+   alone does not establish zero: inspect the complete job history across all
+   attempts, including detection and evaluation jobs, and assert
+   `accountingReason: confirmed_zero` only if every AI-powered job was skipped
+   or never started. If any AI-powered job ran in an earlier attempt, it may
+   require accounting even when the latest agent did not start.
+
+   Compare a cold scan, a scan after restoring the `aic-usage-scan-v2`
+   observations, and another scan over the same completed attempt. Use a
+   trigger on which the pinned workflow actually runs both restore and scan;
+   for the planned v0.92.0 setup, manual dispatch, reusable-workflow,
+   repository-dispatch, and slash/label-command runs skip both. Require a
+   restored-cache comparison only when a trusted producer published a
+   compatible post-upgrade snapshot, and verify from the run output or
+   metadata that it was actually restored. Artifact-name equality is not
+   sufficient: v0.89.21 writes coverage version 1, while v0.92.0 accepts only
+   version 3. Without an eligible trigger and a verified compatible restore,
+   treat the scan as skipped or cold, not as a cache regression.
+
+   For a qualifying confirmed-zero run, the cold scan must record `aic: 0`,
+   `source: recorded`, and `accountingReason: confirmed_zero`; subsequent scans
+   must report a cache hit without repeating that run's jobs/artifact
+   resolution. Compare `candidateRuns`, `countedRuns`, `cacheHits`, business
+   API request counts, and elapsed times. A new attempt or changed
+   completed-run metadata is a legitimate cache miss; a restored snapshot
+   never replaces a fresh complete workflow-history listing.
 3. Separately, inject a jobs-API 502 in a controlled test of the **pinned setup
    action** with fake API responses and a disposable cache, not by changing a
    production runner or replaying production credentials. Verify recovery
