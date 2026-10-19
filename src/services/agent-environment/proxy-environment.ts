@@ -71,6 +71,10 @@ export function buildProxyEnvironment(params: ProxyEnvironmentParams): void {
     noProxyHosts.push(networkConfig.proxyIp, 'api-proxy');
   }
 
+  if (config.difcProxyHost && networkConfig.cliProxyIp) {
+    noProxyHosts.push(networkConfig.cliProxyIp, 'cli-proxy');
+  }
+
   environment.NO_PROXY = buildNoProxyValue([...new Set(noProxyHosts)]);
   environment.no_proxy = environment.NO_PROXY;
 }
