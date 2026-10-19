@@ -30,7 +30,7 @@ enclaves:
       model: claude-sonnet-5
       max-task-bytes: 4096
       max-model-requests: 8
-      max-model-tokens: 2048
+      max-model-tokens: 32768
     runtime: cloud-hypervisor
     repos:
       - repo: github/gh-aw-firewall
@@ -195,11 +195,15 @@ peer is its dedicated credential-injecting
 API proxy; no GitHub MCP access, direct model credentials, primary workspace,
 or safe-output tools are granted to it. The finite result schema, one-invocation
 limit, task/output sizes and execution timeout are enforced independently of the
-model settings. The eight-request and 2,048-token settings are **advisory only**:
-the pinned guest validates positivity but does not apply these limits to Copilot.
-The dedicated API proxy inherits general proxy limits (including `maxRuns: 500`),
-not those per-enclave settings. This workflow does not claim an enforced
-eight-request or 2,048-token inference ceiling.
+model settings. The source-built host enforces the eight-request and
+32,768-token invocation budgets at the dedicated API proxy. Its conservative
+input reservation counts serialized request bytes, including Copilot's built-in
+system prompt and tool definitions; the previous 2,048-token fixture rejected
+requests before upstream dispatch. The larger, still finite fixture budget
+accommodates that overhead without changing production accounting or defaults.
+The proxy clamps output allowance, accounts cumulative provider usage, and
+fails closed on missing usage. The pinned guest does not itself enforce these
+budgets; request/output limits and proxy credential isolation remain mandatory.
 
 AWF and guest assets remain pinned to verified v0.28.66, with the official
 gh-aw v0.92.3 setup, mcpg v0.4.33 and primary Copilot 1.0.96.
@@ -217,17 +221,17 @@ The exact-PR unattested supervisor override and its build steps are removed;
 both primary and enclave supervisors must come from verified release artifacts.
 No unattested-artifact flag is enabled.
 
-The v0.28.66 release pins in the lock were manually updated under an explicit
-pins-only exception, not regenerated with an official compiler. The recorded
-development compiler identifies the original generation only; its exact binary
-is not available as a verified official download. Source hashes are refreshed
-without changing compiler provenance. That compiler's acceptance gate still
-requires v0.28.62, so it cannot regenerate this v0.28.66 source unchanged.
+Compilation uses official `github/gh-aw@v0.92.3` with only the companion
+acceptance guard and tests backported from
+`github/gh-aw@2b19ccffd0694750e8e2bdcb20bf882e9bb440f2`, followed by
+`scripts/ci/compiler-agent-acceptance-v0.28.66.patch` to align the exact release
+and token budget. The generated development-compiler metadata identifies this
+patched build; action/runtime pins remain on the reviewed releases.
 The installed official v0.92.5 likewise rejects agent enclaves with this primary.
-This update continues the narrow manual pin/hash exception, preserves the
-original compiler metadata, and runs the mandatory smoke postprocessor.
+Regeneration runs the mandatory smoke postprocessor.
 The supply-chain compiler's checksum-verified acceptance backport is separately
-aligned to the exact v0.28.66 fixture without broadening accepted policies.
+aligned to the exact v0.28.66 fixture and its 32,768-token budget. The AWF and
+compiler gates still reject every other token value, topology, or release.
 Under a separate explicit user authorization, the branch-built AWF
 host acceptance gate now selects only v0.28.66 for this exact agent fixture;
 v0.28.64 and other releases are rejected. All identity, branch-only, topology,
