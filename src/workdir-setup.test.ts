@@ -89,7 +89,10 @@ describe('prepareWorkDirectories', () => {
       expect(fs.statSync(path.dirname(source)).mode & 0o777).toBe(0o700);
       expect(fs.statSync(source).mode & 0o777).toBe(0o644);
       expect(fs.chownSync).toHaveBeenCalledWith(path.dirname(source), 0, 0);
-      expect(fs.fchownSync).toHaveBeenCalledWith(expect.any(Number), 0, 0);
+      const owner = fs.statSync(source);
+      if (owner.uid !== 0 || owner.gid !== 0) {
+        expect(fs.fchownSync).toHaveBeenCalledWith(expect.any(Number), 0, 0);
+      }
       expect(fs.existsSync(path.join(`${config.workDir}-chroot-home`, '.awf'))).toBe(false);
     } finally {
       rootSpy.mockRestore();

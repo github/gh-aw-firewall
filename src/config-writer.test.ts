@@ -173,13 +173,14 @@ describe('writeConfigs', () => {
       const repairCall = (execa.sync as jest.Mock).mock.calls.findIndex(
         (call) => call[0] === 'chown' && call[1].includes(path.join(tempDir, 'gh-aw')),
       );
-      const rootFileCall = (fs.fchownSync as jest.Mock).mock.calls.findIndex(
-        (call) => call[1] === 0 && call[2] === 0,
+      const rootDirectoryCall = (fs.chownSync as jest.Mock).mock.calls.findIndex(
+        (call) => call[0] === path.dirname(getGeminiSystemSettingsSourcePath(tempDir)) &&
+          call[1] === 0 && call[2] === 0,
       );
       expect(repairCall).toBeGreaterThanOrEqual(0);
-      expect(rootFileCall).toBeGreaterThanOrEqual(0);
+      expect(rootDirectoryCall).toBeGreaterThanOrEqual(0);
       expect((execa.sync as jest.Mock).mock.invocationCallOrder[repairCall])
-        .toBeLessThan((fs.fchownSync as jest.Mock).mock.invocationCallOrder[rootFileCall]);
+        .toBeLessThan((fs.chownSync as jest.Mock).mock.invocationCallOrder[rootDirectoryCall]);
       expect(fs.existsSync(getGeminiSystemSettingsSourcePath(tempDir))).toBe(true);
     });
 

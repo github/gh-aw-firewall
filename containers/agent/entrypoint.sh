@@ -1637,20 +1637,39 @@ prepare_gemini_system_settings() {
     return 1
   }
   local settings="/host/etc/awf/gemini-cli/settings.json"
+  local content='{"security":{"auth":{"selectedType":"gemini-api-key"}}}'
+  local entry mode
   for entry in /host/etc /host/etc/awf /host/etc/awf/gemini-cli "$settings"; do
     if [ -L "$entry" ]; then
       echo "[entrypoint][ERROR] Refusing symlink in Gemini system settings path: $entry" >&2
       return 1
     fi
+    if [ -e "$entry" ]; then
+      mode="$(stat -c %a "$entry")"
+      if [ "$(stat -c %u "$entry")" != "0" ] || [ "$(stat -c %g "$entry")" != "0" ] ||
+        (( (8#$mode & 0022) != 0 )); then
+        echo "[entrypoint][ERROR] Unsafe ownership or permissions in Gemini system settings path: $entry" >&2
+        return 1
+      fi
+      if [ "$entry" != "$settings" ] && [ ! -d "$entry" ]; then
+        echo "[entrypoint][ERROR] Expected directory in Gemini system settings path: $entry" >&2
+        return 1
+      fi
+    fi
   done
-  [ ! -e "$settings" ] || {
-    echo "[entrypoint][ERROR] Gemini system settings already exist" >&2
-    return 1
-  }
+  if [ -e "$settings" ]; then
+    if [ ! -f "$settings" ] || [ "$(stat -c %h "$settings")" != "1" ] ||
+      [ "$(cat "$settings")" != "$content" ]; then
+      echo "[entrypoint][ERROR] Existing Gemini system settings are not an AWF auth pin" >&2
+      return 1
+    fi
+    unset AWF_GEMINI_SYSTEM_SETTINGS_FALLBACK
+    return 0
+  fi
   mkdir -p /host/etc/awf/gemini-cli
   chown 0:0 /host/etc/awf /host/etc/awf/gemini-cli
   chmod 0755 /host/etc/awf /host/etc/awf/gemini-cli
-  (umask 077; printf '%s\n' '{"security":{"auth":{"selectedType":"gemini-api-key"}}}' > "$settings")
+  (umask 077; printf '%s\n' "$content" > "$settings")
   chown 0:0 "$settings"
   chmod 0644 "$settings"
   unset AWF_GEMINI_SYSTEM_SETTINGS_FALLBACK

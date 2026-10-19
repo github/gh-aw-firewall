@@ -30,8 +30,9 @@ export function buildSysrootStageService(params: SysrootServiceParams): any {
 
   logger.info(`ARC/DinD: sysroot-stage will use image ${image}`);
   const geminiSettings = isGeminiProxyRoutingEnabled(config) && shouldPinGeminiAuthType(config)
-    ? 'test ! -L /sysroot/etc/awf && test ! -L /sysroot/etc/awf/gemini-cli ' +
-      `&& test ! -L /sysroot${GEMINI_CLI_SYSTEM_SETTINGS_PATH}; ` +
+    ? 'if [ -L /sysroot/etc ] || [ -L /sysroot/etc/awf ] || [ -L /sysroot/etc/awf/gemini-cli ] ' +
+      `|| [ -L /sysroot${GEMINI_CLI_SYSTEM_SETTINGS_PATH} ]; then ` +
+      'echo "Refusing symlink in Gemini system settings path" >&2; exit 1; fi; ' +
       'mkdir -p /sysroot/etc/awf/gemini-cli; ' +
       `printf %s ${Buffer.from(buildGeminiSystemSettingsContent()).toString('base64')} | base64 -d > /sysroot${GEMINI_CLI_SYSTEM_SETTINGS_PATH}; ` +
       'chown root:root /sysroot/etc/awf /sysroot/etc/awf/gemini-cli ' +
