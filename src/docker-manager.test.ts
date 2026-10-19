@@ -192,6 +192,7 @@ describe('docker-manager (barrel re-exports)', () => {
     it('rejects malformed values and bad ports', () => {
       expect(() => dockerManager.parseDifcProxyHost('http://')).not.toThrow();
       expect(() => dockerManager.parseDifcProxyHost('ex ample:80')).toThrow(/Invalid --difc-proxy-host/);
+      expect(() => dockerManager.parseDifcProxyHost('host:abc')).toThrow(/Invalid --difc-proxy-host/);
       expect(() => dockerManager.parseDifcProxyHost('host:99999')).toThrow(/Invalid --difc-proxy-host/);
       expect(() => dockerManager.parseDifcProxyHost('host:0')).toThrow(/Between 1 and 65535|between 1 and 65535/);
     });
@@ -230,29 +231,5 @@ describe('docker-manager (barrel re-exports)', () => {
       expect(dockerManager.filterCapDrop([], null)).toEqual([]);
     });
   });
-
-  describe('parseDifcProxyHost via barrel', () => {
-    it('defaults for empty or whitespace input', () => {
-      expect(dockerManager.parseDifcProxyHost('')).toEqual({ host: 'host.docker.internal', port: '18443' });
-      expect(dockerManager.parseDifcProxyHost('   ')).toEqual({ host: 'host.docker.internal', port: '18443' });
-    });
-
-    it('parses host:port, scheme prefixes, and default port', () => {
-      expect(dockerManager.parseDifcProxyHost('example.com:9000')).toEqual({ host: 'example.com', port: '9000' });
-      expect(dockerManager.parseDifcProxyHost('https://example.com:443')).toEqual({ host: 'example.com', port: '443' });
-      expect(dockerManager.parseDifcProxyHost('example.com')).toEqual({ host: 'example.com', port: '18443' });
-    });
-
-    it('strips IPv6 brackets', () => {
-      expect(dockerManager.parseDifcProxyHost('[::1]:18443')).toEqual({ host: '::1', port: '18443' });
-    });
-
-    it('rejects malformed values and out-of-range ports', () => {
-      expect(() => dockerManager.parseDifcProxyHost('host:abc')).toThrow(/Invalid --difc-proxy-host/);
-      expect(() => dockerManager.parseDifcProxyHost('host:0')).toThrow(/Invalid --difc-proxy-host/);
-      expect(() => dockerManager.parseDifcProxyHost('host:99999')).toThrow(/Invalid --difc-proxy-host/);
-    });
-  });
-
 
 });
