@@ -224,6 +224,63 @@ are tracked there for compiler/MCP Gateway fixes, with AWF-side tracking in
   the compiler's safe-output-file access rule as a workaround. That rule and
   any ownership-only exception also require an upstream compiler change.
 
+### Verifying the daily AIC guardrail on ARC/DinD
+
+[Findings 6–7](https://github.com/github/gh-aw-firewall/issues/10273) concern
+the **gh-aw actions setup** scan, not AWF's api-proxy credit limit. The upstream
+changes in [gh-aw#67884](https://github.com/github/gh-aw/pull/67884),
+[gh-aw#68056](https://github.com/github/gh-aw/pull/68056), and
+[gh-aw#68079](https://github.com/github/gh-aw/pull/68079) need verification
+against the *executed* workflow, not just the locally installed `gh aw` version.
+The original ARC run logs have expired; upstream code inspection is not an ARC
+runtime result.
+
+1. Record the workflow commit, compiler version, and the resolved
+   `github/gh-aw-actions/setup@<sha>` in its compiled lock and executed job log.
+   Confirm that the setup SHA includes all three fixes before attributing an
+   observation to them. Record the configured daily threshold and per-run
+   `max-ai-credits` fallback (if any), without disclosing credentials or
+   unredacted artifacts.
+2. On the ARC runner, observe a *naturally* cancelled run whose agent never
+   acquired a runner. Compare a cold scan, a scan after restoring the
+   `aic-usage-scan-v2` observations, and another scan over the same completed
+   attempt. The cold scan must record `aic: 0`, `source: recorded`, and
+   `accountingReason: confirmed_zero`; subsequent scans must report a cache
+   hit without repeating that run's jobs/artifact resolution. Compare
+   `candidateRuns`, `countedRuns`, `cacheHits`, business API request counts,
+   and elapsed times. A new attempt or changed completed-run metadata is a
+   legitimate cache miss; a restored snapshot never replaces a fresh complete
+   workflow-history listing.
+3. Separately, inject a jobs-API 502 in a controlled test of the **pinned setup
+   action** with fake API responses and a disposable cache, not by changing a
+   production runner or replaying production credentials. Verify recovery
+   within the bounded three read attempts. For exhausted transient per-run
+   reads, verify an eligible positive per-run limit produces a conservative
+   `source: estimated` fallback and is *not* treated as a recorded-zero hit
+   on the next scan. Check both sides of the daily threshold, including equality:
+   estimated credits must count towards `exceeded`, never permit downstream
+   execution over budget. Without a positive fallback, or for quota and
+   `Retry-After` responses, expect the guardrail to fail closed. A failed
+   authoritative history listing is not eligible for per-run fallback. Use
+   upstream's focused mocked `daily_aic_api_budget`, `daily_aic_scan`, and
+   `check_daily_aic_workflow_guardrail` tests as a baseline, then compare the
+   tested setup SHA to the executed one.
+4. After an injected failure, inspect the persisted observations and run a
+   fresh scan with healthy responses. Confirm the complete listing is repeated,
+   valid recorded observations can be reused, estimated/failed observations
+   cannot authorize a zero result, and no hour-long retry restriction appears
+   for an ordinary 502. A server-supplied `Retry-After` or quota response is a
+   separate case: record its actual retry deadline rather than treating it as
+   the 502 regression. Also distinguish the independent workflow cooldown:
+   test `check_cooldown` with a prior run whose agent job did and did not
+   start; do not confuse its configured window with an AIC retry restriction.
+
+Keep redacted logs, cache-entry metadata, step outputs, setup SHA, and scan
+timings alongside the test revision. Label ARC observations versus injected
+errors separately. Do not mark finding 6 resolved without repeated ARC scans,
+or finding 7 resolved without controlled fallback/threshold and subsequent-scan
+evidence; the two findings can be closed independently.
+
 ## Locating API proxy token-usage logs
 
 The api-proxy writes `token-usage.jsonl` into `<proxy-logs-dir>/api-proxy-logs/`
