@@ -142,8 +142,9 @@ request object, the `conversation` array, a message, its `parts` array, a part a
 ## Unicode data
 
 The heuristics and the error-detail sanitizer use Python's string methods and `re`, which follow
-Unicode 15.0.0. Go's `unicode` package follows a newer version, so the Go port generates its own
-tables from these files instead:
+Unicode 15.0.0. The Go port uses Go's `unicode` package and `strings.ToLower` instead of
+generating tables from these files, and lists the few label cases that change as known
+differences (see the decisions below). The files record the Python reference:
 
 | File | Contents |
 |---|---|
@@ -167,7 +168,7 @@ the Go port can test directly:
 | Routing table loading and validation | The published schema in `schemas/`, and a Go table test ported from `test_table_schema.py` |
 | CLI commands, options, exit codes and `serve` settings | Go CLI integration tests ported from `test_cli.py` |
 | HTTP paths, methods, media types, error envelopes and the body limit | Go HTTP integration tests ported from `test_http.py` |
-| Agreement between Python and Go | A differential job during the port, which runs both routers on the contract corpus, inputs built from these fixtures and generated inputs |
+| Agreement between Python and Go | `tests/differential.py`, run by a CI job during the port, which runs both CLIs on the contract corpus, inputs built from these fixtures and generated inputs |
 
 ## Decisions for the Go port
 
@@ -177,27 +178,36 @@ diagnostic text, as the router README already states for the contract corpus, so
 isn't part of the comparison.
 
 Where the Go router deliberately behaves differently from Python, the Go tests encode the Go
-behavior and the differential job allows the difference. Merging the PR that adds this README
-approves these decisions:
+behavior and the differential job allows the difference. The Go parity tests list each affected
+case in a known-differences map (`labelDifferences`, `decodingDifferences` and
+`contextDifferences`), and fail when a listed case no longer exists. `tests/differential.py`
+allows differences only on the same cases, and its generated inputs leave out the characters
+and numbers these decisions cover. Merging the PR that adds this README approves these
+decisions:
 
 | Decision | Python | Go |
 |---|---|---|
 | Default tables path | Falls back to the `routing` directory of its source checkout | Uses `./routing` in the working directory if present, otherwise the option is required |
-| Option abbreviations | argparse accepts unambiguous prefixes, such as `--routing-t` | Full option names only |
+| Option abbreviations | argparse accepts unambiguous prefixes, such as `--routing-t` | Full option names only. Go's `flag` package also accepts a single dash, such as `-routing-tables` |
 | `GH_AW_ROUTER_LOG_LEVEL` | Not validated | Usage error, exit 2 |
 | Bind port syntax | `int()` accepts a sign, underscores, surrounding whitespace and non-ASCII digits | ASCII digits only |
 | `serve` startup errors | Plain one-line text | JSON log records; other commands keep plain text |
 | Trailing slash | Starlette redirects `/healthz/` to `/healthz` with 307 | 404 `not_found`, like any unknown path |
 | Unsupported transfer coding | Uvicorn answers a bare 400 | Go's HTTP/1.1 server answers a bare 501, as RFC 9112 recommends |
 | CLI line endings | Writes CRLF to a Windows pipe | LF on every platform |
+| CLI output encoding | `json.dumps` escapes non-ASCII characters as `\uXXXX` | Writes UTF-8. Both are the same JSON value |
+| Unicode character data | Unicode 15.0.0 through `str` methods and `re`, with full case folding | Go's `unicode` package and `strings.ToLower`. Labels differ only for letters added after Unicode 15 and for `ﬁ`, `ſ`, `ß` and `İ` |
+| `NaN` and `Infinity` | Accepted in tool input and as a context window | Malformed JSON, as RFC 8259 requires |
+| JSON nesting and digit limits | pydantic rejects about 195 levels of nesting and integers over 4,300 digits | No such limits. The HTTP body limit bounds the request |
+| Huge context windows | Kept as an arbitrary-precision integer | Saturate at the largest `uint64` |
+| Tool input in the context estimate | Python's `repr` of numbers, such as `1e+16` and `0` for `-0` | Go's shortest form, such as `10000000000000000` and `-0`. The token estimate changes by at most a few tokens |
+| Error details | pydantic's wording | The Go decoder's wording. The error code, HTTP status and CLI exit status are the same |
 
 ## After the Python router is removed
 
 - `labels.json`, `decoding.json`, `context.json` and `classification.json` stay as Go unit-test
-  data. Their expectations change only through the Go tests' update flag, and the PR must explain
-  every changed case.
-- `unicode/` is deleted. The generated Go tables keep a header that names the reference commit,
-  the Python and Unicode versions and how they were generated.
-- `parity_cases.py`, `parity_corpus.py` and `test_parity_corpus.py` are deleted with the rest of
-  the Python tests.
+  data. Their expectations change only in a reviewed PR that explains every changed case.
+- `unicode/` is deleted, because the Go port uses Go's own character data.
+- `parity_cases.py`, `parity_corpus.py`, `test_parity_corpus.py` and `differential.py` are
+  deleted with the rest of the Python tests, along with the `differential` CI job.
 - The decisions table stays in this README as a record of what changed.

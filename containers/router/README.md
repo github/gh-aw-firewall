@@ -381,9 +381,51 @@ check read-only replacement tables and the portable corpus on Linux amd64. Set
 Neither group runs by default. The `test-router.yml` CI workflow is
 configured to run both groups separately.
 
+### Go port
+
+The Go port ([#10261](https://github.com/github/gh-aw-firewall/issues/10261)) lives in
+[go/](go), apart from the Python package, as a single flat `main` package with its tests beside
+it. It shares this directory's routing tables, examples, fixtures, `openapi.yaml` and
+`Dockerfile`, which its tests read through `..`. It has no dependencies outside the Go standard
+library, and `go/go.mod` pins the toolchain. It covers the `classify`, `route` and
+`validate-data` commands so far; `serve` remains Python-only until the HTTP adapter is ported.
+
+Run these checks from `go/`:
+
+```bash
+gofmt -l .
+go vet ./...
+go test ./...
+go build -o gh-aw-router .
+./gh-aw-router --routing-tables ../routing route --input ../examples/route-request.json
+```
+
+Pass `-o`, because a plain `go build` names the binary after the `go` directory.
+
+The Go tests replay the [parity corpus](tests/fixtures/parity) and the POST cases of the
+[portable contract corpus](tests/fixtures/routing-contract), and port the Python routing,
+service, table, classification and CLI tests. Deliberate differences from Python are listed in
+the parity corpus's decisions table. `FuzzDecodeRouteRequest`, `FuzzParseTable` and
+`FuzzInferLabels` are fuzz targets, for example `go test -run '^$' -fuzz FuzzParseTable`.
+
+`tests/differential.py` compares the two CLIs while both exist. From this directory, after the
+Python setup above:
+
+```bash
+go -C go build -o gh-aw-router .
+uv run python tests/differential.py --go-cli go/gh-aw-router
+```
+
+It runs the Python CLI in process and the Go binary on the same tables and request bytes: the
+contract corpus requests, requests built from each parity fixture case, and seeded generated
+requests. It fails on any difference in exit status, stderr prefix or stdout JSON, except for
+the fixture cases the Go tests record as decisions. Generated text leaves out the characters
+those decisions cover (case folding, and code points unassigned in Python's Unicode 15).
+
 ### Project layout
 
 - `src/gh_aw_router/` contains request contracts, classification, table lookup, and CLI and HTTP adapters.
+- `go/` contains the Go port: one flat `main` package, its tests and `go.mod`.
 - `tests/` mirrors the runtime modules, with shared synthetic fixtures in `conftest.py`.
 - `routing/` contains generated routing tables from training.
 - `schemas/` contains the versioned JSON Schema for routing table files.
@@ -429,8 +471,8 @@ caller-authorized degradation uses omitted or null classification.
 
 Router changes ship in the next AWF release. Bump the router version in the same pull request
 as any change to routing behaviour or the HTTP contract. The version appears in
-`pyproject.toml`, `uv.lock`, `src/gh_aw_router/__init__.py`, the Dockerfile's `VERSION`
-default, and `openapi.yaml`.
+`pyproject.toml`, `uv.lock`, `src/gh_aw_router/__init__.py`, the Go port's `version` constant in
+`go/main.go`, the Dockerfile's `VERSION` default, and `openapi.yaml`.
 
 Keep release publication and credentialed attestations in separately reviewed,
 explicitly permissioned jobs, which today means AWF's `.github/workflows/release.yml`.
