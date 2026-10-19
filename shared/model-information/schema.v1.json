@@ -1,0 +1,224 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/github/gh-aw-firewall/blob/main/shared/model-information/schema.v1.json",
+  "$defs": {
+    "state": {
+      "enum": ["supported", "unsupported", "unknown", "conditional"]
+    },
+    "fact": {
+      "type": "object",
+      "required": ["state", "provenance"],
+      "properties": {
+        "state": { "$ref": "#/$defs/state" },
+        "condition": { "type": "string", "minLength": 1 },
+        "provenance": { "$ref": "#/$defs/provenance" }
+      },
+      "if": { "properties": { "state": { "const": "conditional" } }, "required": ["state"] },
+      "then": { "required": ["condition"] },
+      "else": { "not": { "required": ["condition"] } },
+      "additionalProperties": false
+    },
+    "provenance": {
+      "type": "object",
+      "required": ["authority", "source", "at"],
+      "properties": {
+        "authority": { "enum": ["maintained", "operator", "configured_catalog", "central_feed", "runtime", "imported", "policy"] },
+        "source": { "type": "string", "minLength": 1 },
+        "revision": { "type": "string", "minLength": 1 },
+        "at": { "type": "string", "format": "date-time" },
+        "freshUntil": { "type": "string", "format": "date-time" },
+        "confidence": { "enum": ["verified", "imported", "estimated", "policy_fallback"] },
+        "stale": { "type": "boolean" }
+      },
+      "additionalProperties": false
+    },
+    "decimal": { "type": "string", "pattern": "^(0|[1-9][0-9]*)(\\.[0-9]+)?$" },
+    "price": {
+      "oneOf": [
+        { "$ref": "#/$defs/decimal" },
+        { "type": "object", "required": ["unavailable"], "properties": { "unavailable": { "const": true } }, "additionalProperties": false }
+      ]
+    },
+    "scope": {
+      "type": "object",
+      "required": ["provider", "channel"],
+      "properties": {
+        "provider": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$" },
+        "channel": { "enum": ["native-api", "copilot-api", "copilot-cli", "byok", "internal"] },
+        "deployment": { "type": "string", "minLength": 1 }
+      },
+      "additionalProperties": false
+    },
+    "alias": {
+      "type": "object",
+      "required": ["id", "scope", "match"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "scope": { "$ref": "#/$defs/scope" },
+        "match": { "enum": ["exact", "separators", "case-insensitive"] }
+      },
+      "additionalProperties": false
+    },
+    "harness": {
+      "type": "object",
+      "required": ["scope", "name", "scheme", "minimum", "reason", "provenance"],
+      "properties": {
+        "scope": { "$ref": "#/$defs/scope" },
+        "name": { "type": "string", "minLength": 1 },
+        "scheme": { "enum": ["semver", "numeric-components"] },
+        "minimum": { "type": "string", "minLength": 1 },
+        "excludedRanges": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+        "reason": { "type": "string", "minLength": 1 },
+        "provenance": { "$ref": "#/$defs/provenance" }
+      },
+      "additionalProperties": false
+    },
+    "tariff": {
+      "type": "object",
+      "required": ["scope", "currency", "unit", "tier", "components", "provenance"],
+      "properties": {
+        "scope": { "$ref": "#/$defs/scope" },
+        "currency": { "const": "USD" },
+        "unit": { "enum": ["USD_PER_1M_TOKENS", "USD_PER_TOKEN", "USD_PER_REQUEST", "USD_PER_IMAGE", "USD_PER_SECOND"] },
+        "tier": { "type": "string", "minLength": 1 },
+        "promptTokensAbove": { "type": "integer", "minimum": 0 },
+        "effectiveFrom": { "type": "string", "format": "date-time" },
+        "effectiveUntil": { "type": "string", "format": "date-time" },
+        "promotion": { "type": "string", "minLength": 1 },
+        "successor": { "type": "string", "minLength": 1 },
+        "components": {
+          "type": "object",
+          "minProperties": 1,
+          "propertyNames": { "enum": ["input", "output", "cachedInput", "cacheWrite", "reasoning", "request", "image", "second"] },
+          "additionalProperties": {
+            "type": "object",
+            "required": ["price", "provenance"],
+            "properties": {
+              "price": { "$ref": "#/$defs/price" },
+              "provenance": { "$ref": "#/$defs/provenance" }
+            },
+            "additionalProperties": false
+          }
+        },
+        "provenance": { "$ref": "#/$defs/provenance" }
+      },
+      "if": { "required": ["promotion"] },
+      "then": { "required": ["effectiveUntil"] },
+      "additionalProperties": false
+    },
+    "identity": {
+      "type": "object",
+      "required": ["key", "provider", "rawId", "lookupId"],
+      "properties": {
+        "key": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]*/[^/?#]+$" },
+        "provider": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$" },
+        "rawId": { "type": "string", "minLength": 1 },
+        "lookupId": { "type": "string", "minLength": 1 },
+        "family": { "type": "string", "minLength": 1 },
+        "aliases": { "type": "array", "items": { "$ref": "#/$defs/alias" } }
+      },
+      "additionalProperties": false
+    },
+    "model": {
+      "type": "object",
+      "required": ["schemaVersion", "identity", "lifecycle", "modelType", "provenance"],
+      "properties": {
+        "schemaVersion": { "const": 1 },
+        "identity": { "$ref": "#/$defs/identity" },
+        "lifecycle": {
+          "type": "object",
+          "required": ["status"],
+          "properties": {
+            "status": { "enum": ["active", "preview", "restricted", "retired", "removed"] },
+            "replacement": { "oneOf": [{ "type": "string", "minLength": 1 }, { "type": "null" }] }
+          },
+          "additionalProperties": false
+        },
+        "modelType": { "enum": ["completion", "embedding", "reranker", "other"] },
+        "availability": { "type": "array", "items": { "type": "object", "required": ["scope", "fact"], "properties": { "scope": { "$ref": "#/$defs/scope" }, "fact": { "$ref": "#/$defs/fact" }, "picker": { "$ref": "#/$defs/fact" } }, "additionalProperties": false } },
+        "harnesses": { "type": "array", "items": { "$ref": "#/$defs/harness" } },
+        "limits": { "type": "object", "properties": { "contextTokens": { "type": "integer", "minimum": 1 }, "outputTokens": { "type": "integer", "minimum": 1 }, "tokenizer": { "type": "string" }, "provenance": { "$ref": "#/$defs/provenance" } }, "required": ["provenance"], "additionalProperties": false },
+        "modalities": { "type": "object", "properties": { "input": { "type": "array", "items": { "type": "string" }, "uniqueItems": true }, "output": { "type": "array", "items": { "type": "string" }, "uniqueItems": true }, "provenance": { "$ref": "#/$defs/provenance" } }, "required": ["provenance"], "additionalProperties": false },
+        "reasoning": { "type": "object", "required": ["support", "rawEfforts", "selectableEfforts", "mode", "provenance"], "properties": { "support": { "$ref": "#/$defs/state" }, "condition": { "type": "string" }, "rawEfforts": { "type": "array", "items": { "type": "string" } }, "selectableEfforts": { "type": "array", "items": { "type": "string" } }, "default": { "type": "string" }, "mode": { "enum": ["optional", "required", "forbidden"] }, "requestFields": { "type": "object", "additionalProperties": { "type": "string" } }, "effortAliases": { "type": "object", "additionalProperties": { "type": "string" } }, "provenance": { "$ref": "#/$defs/provenance" } }, "additionalProperties": false },
+        "protocols": { "type": "array", "items": { "type": "object", "required": ["protocol", "support"], "properties": { "protocol": { "type": "string", "minLength": 1 }, "support": { "$ref": "#/$defs/fact" }, "features": { "type": "object", "additionalProperties": { "$ref": "#/$defs/fact" } } }, "additionalProperties": false } },
+        "translations": { "type": "array", "items": { "type": "object", "required": ["from", "to", "revision", "support", "features"], "properties": { "from": { "type": "string", "minLength": 1 }, "to": { "type": "string", "minLength": 1 }, "revision": { "type": "string", "minLength": 1 }, "support": { "enum": ["supported", "lossy", "unsupported", "unknown", "conditional"] }, "features": { "type": "object", "additionalProperties": { "$ref": "#/$defs/fact" } } }, "additionalProperties": false } },
+        "tariffs": { "type": "array", "items": { "$ref": "#/$defs/tariff" } },
+        "provenance": { "$ref": "#/$defs/provenance" }
+      },
+      "additionalProperties": false
+    },
+    "rule": {
+      "type": "object",
+      "required": ["provider", "family", "scope", "field", "value", "excludes", "provenance"],
+      "properties": {
+        "provider": { "type": "string", "minLength": 1 },
+        "family": { "type": "string", "minLength": 1 },
+        "scope": { "$ref": "#/$defs/scope" },
+        "field": { "type": "string", "minLength": 1 },
+        "value": { "$ref": "#/$defs/fact" },
+        "excludes": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
+        "provenance": { "$ref": "#/$defs/provenance" }
+      },
+      "additionalProperties": false
+    },
+    "overlay": {
+      "type": "object",
+      "required": ["schemaVersion", "scope", "models", "provenance"],
+      "properties": {
+        "schemaVersion": { "const": 1 },
+        "scope": { "$ref": "#/$defs/scope" },
+        "models": { "type": "array", "items": { "$ref": "#/$defs/model" } },
+        "rules": { "type": "array", "items": { "$ref": "#/$defs/rule" } },
+        "provenance": { "$ref": "#/$defs/provenance" }
+      },
+      "additionalProperties": false
+    },
+    "importedSnapshot": {
+      "type": "object",
+      "required": ["schemaVersion", "source", "revision", "retrievedAt", "importerVersion", "sha256", "license", "accepted", "rejected", "collisions", "models"],
+      "properties": {
+        "schemaVersion": { "const": 1 },
+        "source": { "type": "string", "minLength": 1 },
+        "revision": { "type": "string", "minLength": 1 },
+        "retrievedAt": { "type": "string", "format": "date-time" },
+        "importerVersion": { "type": "string", "minLength": 1 },
+        "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+        "license": { "type": "string", "minLength": 1 },
+        "accepted": { "type": "integer", "minimum": 0 },
+        "rejected": { "type": "integer", "minimum": 0 },
+        "collisions": { "type": "array", "items": { "type": "string" } },
+        "models": { "type": "array", "items": { "$ref": "#/$defs/model" } }
+      },
+      "additionalProperties": false
+    },
+    "centralFeed": {
+      "type": "object",
+      "required": ["schemaVersion", "revision", "publishedAt", "effectiveFrom", "sha256", "provenance", "models"],
+      "properties": {
+        "schemaVersion": { "const": 1 },
+        "revision": { "type": "string", "minLength": 1 },
+        "publishedAt": { "type": "string", "format": "date-time" },
+        "effectiveFrom": { "type": "string", "format": "date-time" },
+        "effectiveUntil": { "type": "string", "format": "date-time" },
+        "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+        "provenance": { "$ref": "#/$defs/provenance" },
+        "models": { "type": "array", "items": { "$ref": "#/$defs/model" } }
+      },
+      "additionalProperties": false
+    },
+    "resolvedExport": {
+      "type": "object",
+      "required": ["schemaVersion", "catalogRevision", "generatedAt", "models"],
+      "properties": {
+        "schemaVersion": { "const": 1 },
+        "catalogRevision": { "type": "string", "minLength": 1 },
+        "generatedAt": { "type": "string", "format": "date-time" },
+        "observedAt": { "type": "string", "format": "date-time" },
+        "centralRevision": { "type": "string" },
+        "warnings": { "type": "array", "items": { "type": "string" } },
+        "models": { "type": "array", "items": { "$ref": "#/$defs/model" } }
+      },
+      "additionalProperties": false
+    }
+  }
+}

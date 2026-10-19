@@ -1,0 +1,97 @@
+{
+  "model": {
+    "schemaVersion": 1,
+    "identity": {
+      "key": "openai/gpt-5.5-pro",
+      "provider": "openai",
+      "rawId": "gpt-5.5-pro",
+      "lookupId": "gpt-5-5-pro",
+      "family": "gpt-5.5",
+      "aliases": [{
+        "id": "gpt_5_5_pro",
+        "scope": { "provider": "openai", "channel": "native-api" },
+        "match": "separators"
+      }]
+    },
+    "lifecycle": { "status": "preview", "replacement": null },
+    "modelType": "completion",
+    "availability": [{
+      "scope": { "provider": "openai", "channel": "native-api" },
+      "fact": {
+        "state": "conditional",
+        "condition": "deployment enabled",
+        "provenance": { "authority": "maintained", "source": "review", "at": "2026-10-01T00:00:00Z" }
+      }
+    }],
+    "harnesses": [{
+      "scope": { "provider": "openai", "channel": "native-api" },
+      "name": "copilot-cli", "scheme": "semver", "minimum": "1.2.0",
+      "excludedRanges": ["<1.2.0"], "reason": "Upgrade the selected harness",
+      "provenance": { "authority": "maintained", "source": "review", "at": "2026-10-01T00:00:00Z" }
+    }],
+    "limits": {
+      "contextTokens": 200000, "outputTokens": 8192,
+      "provenance": { "authority": "maintained", "source": "review", "at": "2026-10-01T00:00:00Z" }
+    },
+    "modalities": {
+      "input": ["text", "image"], "output": ["text"],
+      "provenance": { "authority": "maintained", "source": "review", "at": "2026-10-01T00:00:00Z" }
+    },
+    "reasoning": {
+      "support": "unknown", "rawEfforts": ["future-effort", "high"],
+      "selectableEfforts": ["high"], "mode": "optional",
+      "requestFields": { "responses": "reasoning.effort" },
+      "provenance": { "authority": "runtime", "source": "model-list", "at": "2026-10-01T00:00:00Z" }
+    },
+    "protocols": [{
+      "protocol": "responses",
+      "support": { "state": "supported", "provenance": { "authority": "maintained", "source": "review", "at": "2026-10-01T00:00:00Z" } },
+      "features": {
+        "hostedTools": { "state": "unknown", "provenance": { "authority": "maintained", "source": "review", "at": "2026-10-01T00:00:00Z" } }
+      }
+    }],
+    "translations": [{
+      "from": "responses", "to": "chat-completions", "revision": "translator-1",
+      "support": "conditional",
+      "features": {
+        "functionTools": { "state": "conditional", "condition": "no hosted tools", "provenance": { "authority": "maintained", "source": "review", "at": "2026-10-01T00:00:00Z" } }
+      }
+    }],
+    "tariffs": [{
+      "scope": { "provider": "openai", "channel": "native-api" },
+      "currency": "USD", "unit": "USD_PER_1M_TOKENS", "tier": "promotion",
+      "promptTokensAbove": 128000, "effectiveFrom": "2026-10-01T00:00:00Z",
+      "effectiveUntil": "2026-11-01T00:00:00Z", "promotion": "intro", "successor": "standard",
+      "components": {
+        "input": { "price": "0.000000123456789", "provenance": { "authority": "maintained", "source": "review", "at": "2026-10-01T00:00:00Z" } },
+        "output": { "price": "0", "provenance": { "authority": "maintained", "source": "review", "at": "2026-10-01T00:00:00Z" } },
+        "cacheWrite": { "price": { "unavailable": true }, "provenance": { "authority": "maintained", "source": "review", "at": "2026-10-01T00:00:00Z" } },
+        "reasoning": { "price": "1.25", "provenance": { "authority": "maintained", "source": "review", "at": "2026-10-01T00:00:00Z" } }
+      },
+      "provenance": { "authority": "maintained", "source": "review", "at": "2026-10-01T00:00:00Z" }
+    }],
+    "provenance": { "authority": "maintained", "source": "review", "at": "2026-10-01T00:00:00Z" }
+  },
+  "overlay": {
+    "schemaVersion": 1,
+    "scope": { "provider": "openai", "channel": "native-api" },
+    "models": [],
+    "provenance": { "authority": "operator", "source": "config", "at": "2026-10-01T00:00:00Z" }
+  },
+  "importedSnapshot": {
+    "schemaVersion": 1, "source": "models.dev", "revision": "snapshot-1",
+    "retrievedAt": "2026-10-01T00:00:00Z", "importerVersion": "1",
+    "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "license": "see upstream", "accepted": 0, "rejected": 0, "collisions": [], "models": []
+  },
+  "centralFeed": {
+    "schemaVersion": 1, "revision": "feed-1", "publishedAt": "2026-10-01T00:00:00Z",
+    "effectiveFrom": "2026-10-01T00:00:00Z",
+    "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "provenance": { "authority": "central_feed", "source": "mirror", "at": "2026-10-01T00:00:00Z" },
+    "models": []
+  },
+  "resolvedExport": {
+    "schemaVersion": 1, "catalogRevision": "static-1", "generatedAt": "2026-10-01T00:00:00Z", "models": []
+  }
+}
