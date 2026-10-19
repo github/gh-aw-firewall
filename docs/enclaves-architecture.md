@@ -877,9 +877,20 @@ existing host/artifact/security gates. Live release-attested broker-to-VM
 acceptance remains a separate gate in #9395. See
 [Version 2 implementation](adr/0002-cloud-hypervisor-enclave-executor.md#version-2-implementation).
 
+For eligible attested static public-only enclaves, positive unauthenticated
+repository visibility verification enables bounded, protected host-only guest,
+session, and dedicated API-proxy diagnostics by default. Explicit opt-out and
+private, mixed, or dynamic scope retain non-disclosing behavior. Proxy response
+evidence distinguishes observed local from upstream HTTP statuses; missing
+accounting is not evidence of no request. The primary proxy's logs are separate
+and do not explain an enclave proxy rejection. See
+[the diagnostic retention contract](cloud-hypervisor-foundation.md#redacted-enclave-proxy-usage-evidence).
+
 ## Coverage after legacy smoke removal
 
-No unified gh-aw enclave smoke workflow exists yet, so AWF keeps coverage local and unit-focused instead of inventing unsupported workflow syntax. Current owned-scope guidance points to:
+The experimental Cloud Hypervisor Copilot enclave smoke is distinct from
+release-attested, package-matched profile-spanning KVM acceptance. Deterministic
+contract coverage also includes:
 
 - `src/services/enclave-mcp-service.test.ts`
 - `src/services/enclave-agent-service.test.ts`

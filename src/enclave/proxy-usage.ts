@@ -33,6 +33,122 @@ export interface EnclaveProxyUsage {
   };
 }
 
+export interface EnclaveProxyResponseDiagnostics {
+  scope: 'run-cumulative';
+  status: EnclaveProxyUsageStatus;
+  records?: number;
+  local?: Record<string, number>;
+  upstream?: Record<string, number>;
+}
+
+export interface EnclaveProxyEvent {
+  schemaVersion: 1;
+  origin: 'local' | 'upstream';
+  status: number;
+}
+
+export function projectEnclaveProxyResponseDiagnostics(value: unknown): EnclaveProxyResponseDiagnostics {
+  const source = record(value);
+  const states: EnclaveProxyUsageStatus[] = [
+    'empty', 'missing', 'unsafe', 'oversized', 'record-limit', 'malformed', 'read-failed',
+    'not-drained', 'not-applicable',
+  ];
+  if (states.includes(source?.status as EnclaveProxyUsageStatus)) {
+    return { scope: 'run-cumulative', status: source!.status as EnclaveProxyUsageStatus };
+  }
+  if (source?.status !== 'captured' || !count(source.records) ||
+      source.records < 1 || source.records > ENCLAVE_PROXY_USAGE_MAX_RECORDS) {
+    return { scope: 'run-cumulative', status: 'malformed' };
+  }
+  const local = record(source.local);
+  const upstream = record(source.upstream);
+  if (!local || !upstream) return { scope: 'run-cumulative', status: 'malformed' };
+  const safeLocal: Record<string, number> = {};
+  const safeUpstream: Record<string, number> = {};
+  for (const [input, output] of [[local, safeLocal], [upstream, safeUpstream]] as const) {
+    for (const [key, value] of Object.entries(input)) {
+      if (!/^[1-5][0-9]{2}$/.test(key) || !count(value) || value < 1 ||
+          value > source.records) return { scope: 'run-cumulative', status: 'malformed' };
+      output[key] = value;
+    }
+  }
+  if (Object.values(safeLocal).concat(Object.values(safeUpstream))
+    .reduce((sum, value) => sum + value, 0) !== source.records) {
+    return { scope: 'run-cumulative', status: 'malformed' };
+  }
+  return { scope: 'run-cumulative', status: 'captured', records: source.records,
+    local: safeLocal, upstream: safeUpstream };
+}
+
+/** Never retain raw proxy diagnostics: project only numeric HTTP status and fixed origin. */
+export async function readEnclaveProxyResponseDiagnostics(
+  directory: string,
+  uid = Number(getSafeHostUid()),
+  gid = Number(getSafeHostGid()),
+  events?: EnclaveProxyEvent[],
+): Promise<EnclaveProxyResponseDiagnostics> {
+  const unavailable = (status: EnclaveProxyUsageStatus): EnclaveProxyResponseDiagnostics =>
+    ({ scope: 'run-cumulative', status });
+  let handle: Awaited<ReturnType<typeof fs.open>> | undefined;
+  try {
+    if (!path.isAbsolute(directory) || path.normalize(directory) !== directory ||
+        await fs.realpath(directory) !== directory) return unavailable('unsafe');
+    const dir = await fs.lstat(directory);
+    if (!dir.isDirectory() || dir.uid !== uid || dir.gid !== gid ||
+        (dir.mode & 0o7777) !== 0o700) return unavailable('unsafe');
+    handle = await fs.open(path.join(directory, 'enclave-proxy-events.jsonl'),
+      constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+    const file = await handle.stat();
+    if (!file.isFile() || file.nlink !== 1 || file.dev !== dir.dev ||
+        file.uid !== uid || file.gid !== gid || (file.mode & 0o7777) !== 0o600) return unavailable('unsafe');
+    if (file.size > ENCLAVE_PROXY_USAGE_MAX_FILE_BYTES) return unavailable('oversized');
+    const bytes = Buffer.alloc(ENCLAVE_PROXY_USAGE_MAX_FILE_BYTES + 1);
+    let length = 0;
+    while (length < bytes.length) {
+      const { bytesRead } = await handle.read(bytes, length, bytes.length - length, null);
+      if (!bytesRead) break;
+      length += bytesRead;
+    }
+    if (length > ENCLAVE_PROXY_USAGE_MAX_FILE_BYTES) return unavailable('oversized');
+    if (!length) return unavailable('empty');
+    const text = new TextDecoder('utf-8', { fatal: true }).decode(bytes.subarray(0, length));
+    if (!text.endsWith('\n')) return unavailable('malformed');
+    const local: Record<string, number> = {};
+    const upstream: Record<string, number> = {};
+    let records = 0;
+    for (const line of text.split('\n').slice(0, -1)) {
+      if (++records > ENCLAVE_PROXY_USAGE_MAX_RECORDS) return unavailable('record-limit');
+      if (Buffer.byteLength(line) > ENCLAVE_PROXY_USAGE_MAX_LINE_BYTES) return unavailable('oversized');
+      const value = record(JSON.parse(line));
+      if (!value || value.schemaVersion !== 1 || !count(value.status) ||
+          value.status < 100 || value.status > 599 ||
+          (value.origin !== 'local' && value.origin !== 'upstream')) return unavailable('malformed');
+      add(value.origin === 'local' ? local : upstream, String(value.status), 1);
+      events?.push({ schemaVersion: 1, origin: value.origin, status: value.status });
+    }
+
+    return projectEnclaveProxyResponseDiagnostics({
+      scope: 'run-cumulative', status: 'captured', records, local, upstream,
+    });
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    return unavailable(code === 'ENOENT' ? 'missing' : code === 'ELOOP' ? 'unsafe'
+      : error instanceof SyntaxError || error instanceof TypeError ? 'malformed' : 'read-failed');
+  } finally {
+    await handle?.close();
+  }
+}
+
+export async function readEnclaveProxyEventEvidence(
+  directory: string,
+): Promise<{ diagnostics: EnclaveProxyResponseDiagnostics; events: EnclaveProxyEvent[] }> {
+  const events: EnclaveProxyEvent[] = [];
+  const diagnostics = await readEnclaveProxyResponseDiagnostics(
+    directory, Number(getSafeHostUid()), Number(getSafeHostGid()), events,
+  );
+  return { diagnostics, events: diagnostics.status === 'captured' ? events : [] };
+}
+
 export function unavailableEnclaveProxyUsage(status: EnclaveProxyUsageStatus): EnclaveProxyUsage {
   return { scope: 'run-cumulative', requests: { status }, tokens: { status } };
 }

@@ -530,7 +530,9 @@ async function runPreflight(
   overrides: Partial<CloudHypervisorPreflightDependencies>,
   commonOnly: boolean,
 ): Promise<CloudHypervisorCommonPreflightResult | CloudHypervisorPreflightResult> {
-  const report = overrides.hostPreflightReporter ?? new HostPreflightReporter('bounded-runtime');
+  const report = overrides.hostPreflightReporter ?? new HostPreflightReporter(
+    'bounded-runtime', undefined, undefined, { phase: 'preflight', profile: commonOnly ? 'common' : 'primary' },
+  );
   const dependencies = {
     ...defaultDependencies,
     ...overrides,

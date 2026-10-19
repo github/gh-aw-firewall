@@ -11,7 +11,7 @@ const MAX_USAGE_BYTES = 16 * 1024;
 const ID = /^[a-f0-9]{32}$/;
 const INVOCATION_ID = /^[a-f0-9]{16,64}$/;
 const ENTRY_ID = /^[a-z0-9](?:[a-z0-9-]{0,62})$/;
-const LOG_NAME = /^(?:enclave-session\.log|launcher-(?:stdout|stderr)\.log|guest-(?:stdout|stderr)\.raw\.log|cloud-hypervisor\.log|serial\.log|network-plan\.json|network-diagnostics\.txt|counters\.json|vm-info\.json|runtime\.json|confinement\.json|virtiofs-[0-9]-enclave-(?:seed|request|output|runtime|session-handoff|session-state)(?:\.log|-confinement\.json))$/;
+const LOG_NAME = /^(?:enclave-session\.log|enclave-proxy-events\.jsonl|enclave-proxy-container\.log|launcher-(?:stdout|stderr)\.log|guest-(?:stdout|stderr)\.raw\.log|cloud-hypervisor\.log|serial\.log|network-plan\.json|network-diagnostics\.txt|counters\.json|vm-info\.json|runtime\.json|confinement\.json|virtiofs-[0-9]-enclave-(?:seed|request|output|runtime|session-handoff|session-state)(?:\.log|-confinement\.json))$/;
 const ROOTS = {
   journal: '/var/lib/awf-cloud-hypervisor/host-executor-journal',
   debug: '/var/lib/awf-cloud-hypervisor/debug-artifacts/cloud-hypervisor',
@@ -132,6 +132,78 @@ function projectProxyUsage(value) {
   return usage;
 }
 
+function projectProxyEvents(bytes) {
+  if (!bytes.length) return bytes;
+  const text = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+  if (!text.endsWith('\n')) throw new Error('Incomplete enclave proxy event log');
+  const lines = text.slice(0, -1).split('\n');
+  if (lines.length > 4096) throw new Error('Enclave proxy event count exceeds bound');
+  return Buffer.from(lines.map(line => {
+    const event = parseRecord(line);
+    if (event?.schemaVersion !== 1 || !Number.isInteger(event.status) ||
+        event.status < 100 || event.status > 599 ||
+        !['local', 'upstream'].includes(event.origin)) {
+      throw new Error('Invalid enclave proxy event schema');
+    }
+    return JSON.stringify({ schemaVersion: 1, origin: event.origin, status: event.status });
+  }).join('\n') + '\n');
+}
+
+function projectProxyResponse(value) {
+  const source = value && typeof value === 'object' && !Array.isArray(value) ? value : undefined;
+  if (source?.schemaVersion !== 1 || source.component !== 'enclave-proxy-response' ||
+      source.scope !== 'run-cumulative') throw new Error('Invalid enclave proxy response schema');
+  const states = ['empty', 'missing', 'unsafe', 'oversized', 'record-limit', 'malformed',
+    'read-failed', 'not-drained', 'not-applicable'];
+  if (states.includes(source.status)) return {
+    schemaVersion: 1, component: 'enclave-proxy-response',
+    scope: 'run-cumulative', status: source.status,
+  };
+  const counts = [];
+  const projection = {};
+  for (const origin of ['local', 'upstream']) {
+    const bucket = source[origin];
+    if (!bucket || typeof bucket !== 'object' || Array.isArray(bucket)) {
+      throw new Error('Invalid enclave proxy response schema');
+    }
+    projection[origin] = {};
+    for (const [status, count] of Object.entries(bucket)) {
+      if (!/^[1-5][0-9]{2}$/.test(status) || !Number.isSafeInteger(count) || count < 1) {
+        throw new Error('Invalid enclave proxy response schema');
+      }
+      projection[origin][status] = count;
+      counts.push(count);
+    }
+  }
+  if (source.status !== 'captured' || !Number.isSafeInteger(source.records) ||
+      source.records < 1 || source.records > 4096 ||
+      counts.reduce((sum, count) => sum + count, 0) !== source.records) {
+    throw new Error('Invalid enclave proxy response schema');
+  }
+  return { schemaVersion: 1, component: 'enclave-proxy-response',
+    scope: 'run-cumulative', status: 'captured', records: source.records, ...projection };
+}
+
+function projectProxyContainerLog(bytes) {
+  if (bytes.length > 32 * 1024) throw new Error('Oversized enclave proxy container projection');
+  const text = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+  const lines = text.split('\n');
+  const trailer = lines.at(-2);
+  const events = new Set([
+    'startup', 'startup_complete', 'server_start', 'shutdown', 'request_start',
+    'request_complete', 'request_error', 'upstream_error_response', 'upstream_auth_error',
+    'request_transform_failed', 'key_validation_error', 'oidc_startup_failed',
+    'model_fetch_error', 'model_routing_bootstrap_error',
+  ]);
+  if (lines.at(-1) !== '' ||
+      !/^capture_status=(?:captured dropped=(?:[0-9]{1,5})|empty|unavailable)$/.test(trailer ?? '') ||
+      !lines.slice(0, -2).every(line => {
+        const match = /^source=(stdout|stderr) level=(info|warn|error) event=([a-z_]+)(?: status=([1-5]\d\d))?$/.exec(line);
+        return match && events.has(match[3]);
+      })) throw new Error('Unsafe enclave proxy container projection');
+  return bytes;
+}
+
 function prepare(runDirectory, roots = ROOTS, uid = 0, trustedRoot = '/') {
   directory(path.dirname(runDirectory), uid, trustedRoot);
   fs.mkdirSync(runDirectory, { mode: 0o700 });
@@ -190,6 +262,7 @@ function collect(runDirectory, runnerUid, runnerGid, roots = ROOTS, uid = 0, tru
   }
   const files = [];
   let usageStatus = 'missing';
+  let responseStatus = 'missing';
   if (runId) {
     const id = createHash('sha256').update(`awf-enclave-proxy-usage-v1:${runId}`).digest('hex').slice(0, 32);
     const diagnostics = path.join(roots.journal, 'diagnostics');
@@ -206,6 +279,22 @@ function collect(runDirectory, runnerUid, runnerGid, roots = ROOTS, uid = 0, tru
     } catch (error) {
       if (error.code !== 'ENOENT') throw error;
     }
+    const responseId = createHash('sha256').update(`awf-enclave-proxy-response-v1:${runId}`)
+      .digest('hex').slice(0, 32);
+    try {
+      directory(diagnostics, uid, trustedRoot);
+      const value = parseRecord(readRegular(
+        path.join(diagnostics, `${runId}-${responseId}.json`), MAX_USAGE_BYTES, uid).toString('utf8'));
+      if (value?.schemaVersion !== 1 || value.component !== 'enclave-proxy-response'
+          || value.runId !== runId) throw new Error('Invalid enclave proxy response identity');
+      const projected = Buffer.from(JSON.stringify(projectProxyResponse({
+        schemaVersion: 1, component: 'enclave-proxy-response', ...value.diagnostics,
+      })) + '\n');
+      responseStatus = JSON.parse(projected.toString('utf8')).status;
+      files.push(['enclave-proxy-response.json', projected]);
+    } catch (error) {
+      if (error.code !== 'ENOENT') throw error;
+    }
   }
   if (debug.length) {
     const source = path.join(roots.debug, invocation);
@@ -214,7 +303,9 @@ function collect(runDirectory, runnerUid, runnerGid, roots = ROOTS, uid = 0, tru
     if (names.length > MAX_FILES) throw new Error('Debug file count exceeds bound');
     for (const name of names) {
       if (!LOG_NAME.test(name)) throw new Error('Unexpected debug artifact name');
-      files.push([name, readRegular(path.join(source, name), MAX_STREAM_BYTES, uid)]);
+      const bytes = readRegular(path.join(source, name), MAX_STREAM_BYTES, uid);
+      files.push([name, name === 'enclave-proxy-events.jsonl' ? projectProxyEvents(bytes)
+        : name === 'enclave-proxy-container.log' ? projectProxyContainerLog(bytes) : bytes]);
     }
   }
   // Publish only after every source passes validation, outside all guest mounts.
@@ -230,7 +321,8 @@ function collect(runDirectory, runnerUid, runnerGid, roots = ROOTS, uid = 0, tru
     ? `Collected ${files.length} bounded public-fixture debug files.\n`
     : 'No public-fixture debug logs were produced for this run.\n') +
     `Non-invocation records: ${nonInvocationRecords}; invalid identity records: ${invalidIdentityRecords}.\n` +
-    `Enclave proxy usage (requests/tokens): ${usageStatus}.\n`,
+    `Enclave proxy usage (requests/tokens): ${usageStatus}.\n` +
+    `Enclave proxy response diagnostics: ${responseStatus}.\n`,
   { mode: 0o600, flag: 'wx' });
   fs.chownSync(status, runnerUid, runnerGid);
   fs.chownSync(upload, runnerUid, runnerGid);

@@ -19,6 +19,7 @@ const TOKEN_LOG_FILE = path.join(TOKEN_LOG_DIR, 'token-usage.jsonl');
 const DIAG_LOG_FILE = path.join(TOKEN_LOG_DIR, 'token-diag.jsonl');
 const AUDIT_LOG_FILE = path.join(TOKEN_LOG_DIR, 'token-tracker-audit.jsonl');
 const UPSTREAM_ERROR_LOG_FILE = path.join(TOKEN_LOG_DIR, 'upstream-errors.jsonl');
+const ENCLAVE_RESPONSE_LOG_FILE = path.join(TOKEN_LOG_DIR, 'enclave-proxy-events.jsonl');
 const DIAG_ENABLED = process.env.AWF_DEBUG_TOKENS === '1';
 
 // AWF version used to identify schema version in JSONL records.
@@ -38,6 +39,8 @@ let logStream = null;
 let diagStream = null;
 let auditStream = null;
 let upstreamErrorStream = null;
+let enclaveResponseStream = null;
+let enclaveResponseRecords = 0;
 
 function createOwnerOnlyAppendStream(filePath, onError) {
   fs.mkdirSync(TOKEN_LOG_DIR, { recursive: true });
@@ -126,8 +129,24 @@ function auditUpstreamErrorResponse(fields) {
     if (!upstreamErrorStream) {
       upstreamErrorStream = createOwnerOnlyAppendStream(UPSTREAM_ERROR_LOG_FILE, () => { upstreamErrorStream = null; });
     }
+
     const line = { ts: Date.now(), event: 'UPSTREAM_ERROR_RESPONSE', ...fields };
     upstreamErrorStream.write(JSON.stringify(line) + '\n');
+  } catch { /* best-effort */ }
+}
+
+function auditEnclaveResponse(status, origin) {
+  if (!process.env.AWF_ENCLAVE_AGENT_MODEL_BUDGET_SECRET) return;
+  if (enclaveResponseRecords > 4096 ||
+      !Number.isInteger(status) || status < 100 || status > 599 ||
+      !['local', 'upstream'].includes(origin)) return;
+  try {
+    if (!enclaveResponseStream) {
+      enclaveResponseStream = createOwnerOnlyAppendStream(ENCLAVE_RESPONSE_LOG_FILE,
+        () => { enclaveResponseStream = null; });
+    }
+    enclaveResponseStream.write(JSON.stringify({ schemaVersion: 1, origin, status }) + '\n');
+    enclaveResponseRecords++;
   } catch { /* best-effort */ }
 }
 
@@ -341,6 +360,10 @@ function closeLogStream() {
         pending++;
         upstreamErrorStream.end(() => { upstreamErrorStream = null; pending--; check(); });
       }
+      if (enclaveResponseStream) {
+        pending++;
+        enclaveResponseStream.end(() => { enclaveResponseStream = null; pending--; check(); });
+      }
       if (pending === 0) resolve();
     }),
     closeBlockedRequestDiagStream(),
@@ -356,6 +379,7 @@ module.exports = {
   diag,
   auditTrack,
   auditUpstreamErrorResponse,
+  auditEnclaveResponse,
   buildTokenDiagRecord,
   buildTokenUsageRecord,
   incrementTokenMetrics,

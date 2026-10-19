@@ -3,8 +3,12 @@ import * as path from 'path';
 import {
   ENCLAVE_PROXY_USAGE_MAX_FILE_BYTES, ENCLAVE_PROXY_USAGE_MAX_LINE_BYTES,
   ENCLAVE_PROXY_USAGE_MAX_RECORDS, readEnclaveProxyUsage,
+  readEnclaveProxyResponseDiagnostics, readEnclaveProxyEventEvidence,
 } from './proxy-usage';
-import { persistHostExecutorProxyUsage, readHostExecutorInvocationDiagnostics } from './host-executor-journal';
+import {
+  persistHostExecutorProxyUsage, persistHostExecutorProxyResponseDiagnostics,
+  readHostExecutorInvocationDiagnostics,
+} from './host-executor-journal';
 
 describe('bounded dedicated enclave proxy usage evidence', () => {
   let root: string;
@@ -154,5 +158,54 @@ describe('bounded dedicated enclave proxy usage evidence', () => {
     expect(() => persistHostExecutorProxyUsage(run, {
       scope: 'run-cumulative', requests: { status: 'missing' }, tokens: { status: 'missing' },
     })).toThrow(/Unsafe journal ancestor/);
+  });
+
+  it('retains only bounded local and upstream HTTP statuses, without credentials or request metadata', async () => {
+    write('enclave-proxy-events.jsonl', [
+      { schemaVersion: 1, status: 403, origin: 'local', authorization: 'PRIVATE_CREDENTIAL', path: '/PRIVATE_PATH' },
+      { schemaVersion: 1, status: 401, origin: 'upstream', body: 'PRIVATE_PAYLOAD' },
+      { schemaVersion: 1, status: 200, origin: 'upstream', request_id: 'PRIVATE_ID' },
+    ]);
+    expect((await readEnclaveProxyEventEvidence(logs)).events).toEqual([
+      { schemaVersion: 1, origin: 'local', status: 403 },
+      { schemaVersion: 1, origin: 'upstream', status: 401 },
+      { schemaVersion: 1, origin: 'upstream', status: 200 },
+    ]);
+    const response = await readEnclaveProxyResponseDiagnostics(logs, uid, gid);
+    expect(response).toEqual({
+      scope: 'run-cumulative', status: 'captured', records: 3,
+      local: { '403': 1 }, upstream: { '200': 1, '401': 1 },
+    });
+    const run = { runId: 'c'.repeat(32), journalDir: path.join(root, 'journal') };
+    persistHostExecutorProxyResponseDiagnostics(run, {
+      ...response, ...{ secret: 'PRIVATE_SECRET', local: { '403': 1, 'PRIVATE_SECRET': 4 } },
+    });
+    const [file] = readHostExecutorInvocationDiagnostics(run);
+    expect(file.contents).not.toMatch(/PRIVATE|authorization|body|path|request_id/);
+    expect(JSON.parse(file.contents).diagnostics).toEqual({ scope: 'run-cumulative', status: 'malformed' });
+    expect(fs.statSync(path.join(run.journalDir, 'diagnostics', file.name)).mode & 0o777).toBe(0o600);
+  });
+
+  it('fails closed on unsafe, oversized, partial and malformed response audits', async () => {
+    const name = 'enclave-proxy-events.jsonl';
+    expect((await readEnclaveProxyResponseDiagnostics(logs, uid, gid)).status).toBe('missing');
+    write(name, []);
+    expect((await readEnclaveProxyResponseDiagnostics(logs, uid, gid)).status).toBe('empty');
+    write(name, [{ schemaVersion: 1, status: 200, origin: 'upstream', credential: 'PRIVATE_KEY' }]);
+    fs.appendFileSync(path.join(logs, name), '{"status":403');
+    expect((await readEnclaveProxyResponseDiagnostics(logs, uid, gid)).status).toBe('malformed');
+    write(name, [{ schemaVersion: 1, status: 999, origin: 'local' }]);
+    expect((await readEnclaveProxyResponseDiagnostics(logs, uid, gid)).status).toBe('malformed');
+    write(name, [{ schemaVersion: 2, status: 200, origin: 'local' }]);
+    expect(await readEnclaveProxyEventEvidence(logs)).toMatchObject({
+      diagnostics: { status: 'malformed' }, events: [],
+    });
+    fs.writeFileSync(path.join(logs, name), '{"schemaVersion":1,"status":200,"origin":"upstream"}\n'.repeat(4097));
+    expect((await readEnclaveProxyResponseDiagnostics(logs, uid, gid)).status).toBe('record-limit');
+    fs.writeFileSync(path.join(logs, name), Buffer.alloc(ENCLAVE_PROXY_USAGE_MAX_FILE_BYTES + 1));
+    expect((await readEnclaveProxyResponseDiagnostics(logs, uid, gid)).status).toBe('oversized');
+    fs.unlinkSync(path.join(logs, name));
+    fs.symlinkSync(path.join(root, 'secret'), path.join(logs, name));
+    expect((await readEnclaveProxyResponseDiagnostics(logs, uid, gid)).status).toBe('unsafe');
   });
 });

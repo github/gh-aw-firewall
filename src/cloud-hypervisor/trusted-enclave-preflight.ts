@@ -90,7 +90,8 @@ export function createBoundedEnclavePreflight(
     scope: HostPreflightScope = 'bounded-runtime',
   ): Promise<T> => {
     const run = options.runState;
-    const report = new HostPreflightReporter(scope, options.onHostPreflight);
+    const report = new HostPreflightReporter(scope, options.onHostPreflight, undefined,
+      scope === 'bounded-artifacts' ? { phase: 'preflight', profile: 'common' } : undefined);
     const entry = await report.check('configured-role', () => {
       const configured = run.entries.find((entry) => entry.executorKind === 'script' || entry.executorKind === 'agent');
       if (!configured || !HOST_EXECUTOR_ENTRY_ID_PATTERN.test(configured.entryId) ||
@@ -200,7 +201,7 @@ export function createBoundedEnclavePreflight(
       await report.check('verification-directory', () => fs.mkdir(verificationRoot, { mode: 0o700 }));
       return report.check('enclave-artifacts', () =>
         preflightCloudHypervisorEnclaveArtifacts(artifactOptions, verificationRoot,
-          (source, destination) => copySparseFileWithRsync(rsync, source, destination)));
+          (source, destination) => copySparseFileWithRsync(rsync, source, destination), report));
     }, 'bounded-artifacts'),
   };
 }

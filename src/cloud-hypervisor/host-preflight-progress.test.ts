@@ -1,6 +1,6 @@
 import {
-  HostPreflightReporter, hostPreflightReason, markHostPreflightError,
-  type HostPreflightCheck, type HostPreflightScope,
+  HostPreflightReporter, HostPreflightReportingError, hostPreflightReason, markHostPreflightError,
+  type HostPreflightCheck, type HostPreflightScope, type HostPreflightProgress,
 } from './host-preflight-progress';
 import { schema } from './host-preflight-schema';
 
@@ -39,6 +39,26 @@ describe('bounded actual-host preflight progress', () => {
     expect(publish.mock.calls[publish.mock.calls.length - 1][0].checks[0].result).toBe('passed');
   });
 
+  it('emits versioned phase/profile evidence and keeps cleanup distinct from its original failure', async () => {
+    const records: HostPreflightProgress[] = [];
+    const report = new HostPreflightReporter('bounded-artifacts', (value) =>
+      records.push(value), undefined, { phase: 'preflight', profile: 'common' });
+    const error = markHostPreflightError(new Error('PRIVATE_TOKEN'), 'attestation-failed');
+    await expect(report.check('manifest-attestation', async () => { throw error; })).rejects.toBe(error);
+    const cleanup = report.fork('bounded-cleanup');
+    const cleanupError = Object.assign(new Error('PRIVATE_CLEANUP'), { code: 'EIO' });
+    await expect(cleanup.check('storage-close', async () => { throw cleanupError; })).rejects.toBe(cleanupError);
+    expect(records[records.length - 1]).toMatchObject({
+      schemaVersion: 2, scope: 'bounded-cleanup', phase: 'cleanup', profile: 'common',
+    });
+    expect(records[records.length - 1].checks[0])
+      .toMatchObject({ id: 'storage-close', result: 'failed', reason: 'EIO' });
+    expect(records.find((record) => record.scope === 'bounded-artifacts' &&
+      record.checks.some((entry: { reason: string }) => entry.reason === 'attestation-failed')))
+      .toMatchObject({ schemaVersion: 2, phase: 'preflight', profile: 'common' });
+    expect(JSON.stringify(records)).not.toMatch(/PRIVATE_TOKEN|PRIVATE_CLEANUP/);
+  });
+
   it.each([
     new Error('code=ENOENT secret'), 'ENOENT', null,
     { code: 'secret\nENOENT' }, { code: 'code=ENOENT' }, { code: 'unrecognized' },
@@ -73,4 +93,25 @@ describe('bounded actual-host preflight progress', () => {
     expect(last.checks.find((check: { id: string }) => check.id === 'journal-publish')).toMatchObject({ result: 'not-attempted' });
     expect(JSON.stringify(publish.mock.calls)).not.toContain('PRIVATE_SENTINEL');
   });
+
+  it.each(['sync', 'async'] as const)(
+    'retains the original %s failure when publishing its diagnostic fails', async (kind) => {
+      const primary = Object.assign(new Error('PRIVATE_PRIMARY'), { code: 'EACCES' });
+      const persistence = new Error('PRIVATE_PERSISTENCE');
+      const publish = jest.fn((value: HostPreflightProgress) => {
+        if (value.checks[0].result === 'failed') throw persistence;
+      });
+      const report = new HostPreflightReporter('storage-admission', publish);
+      let observed: unknown;
+      try {
+        if (kind === 'sync') report.checkSync('root', () => { throw primary; });
+        else await report.check('root', () => { throw primary; });
+      } catch (error) {
+        observed = error;
+      }
+      expect(observed).toBeInstanceOf(HostPreflightReportingError);
+      expect(observed).toMatchObject({ cause: primary, reportingError: persistence });
+      expect(hostPreflightReason(observed)).toBe('EACCES');
+    },
+  );
 });

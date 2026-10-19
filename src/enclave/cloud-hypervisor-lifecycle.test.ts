@@ -16,6 +16,7 @@ import type { HostExecutorInvocationPlan } from './host-executor-server';
 import * as cloudHypervisorManager from '../cloud-hypervisor/manager';
 import { ProductionTrustedCloudHypervisorEnclaveStorageProvider } from '../cloud-hypervisor/trusted-enclave-storage';
 import { ENCLAVE_DEBUG_ARTIFACT_ROOT } from './public-debug';
+import * as proxyDebugRetention from './proxy-debug-retention';
 import {
   assertCloudHypervisorEnclaveLifecycleReady,
   assertCloudHypervisorEnclavePrerequisites,
@@ -55,6 +56,8 @@ describe('trusted Cloud Hypervisor enclave lifecycle', () => {
   const runId = 'a'.repeat(32);
 
   beforeEach(() => {
+    jest.spyOn(proxyDebugRetention, 'captureEnclaveProxyContainerLog')
+      .mockResolvedValue('capture_status=unavailable\n');
     const dependencies = cloudHypervisorManager.resolveCloudHypervisorManagerDependencies();
     jest.spyOn(cloudHypervisorManager, 'resolveCloudHypervisorManagerDependencies').mockReturnValue({
       ...dependencies, resolveIdentity: () => ({ uid: process.getuid!(), gid: process.getgid!() }),
@@ -286,6 +289,46 @@ describe('trusted Cloud Hypervisor enclave lifecycle', () => {
     expect(request).not.toHaveBeenCalled();
     expect(start.mock.calls[0][0].publicDebugArtifactDirectory).toBeUndefined();
     await stopCloudHypervisorEnclaveLifecycle(config);
+    expect(proxyDebugRetention.captureEnclaveProxyContainerLog).not.toHaveBeenCalled();
+    expect(readHostExecutorInvocationDiagnostics({ runId, journalDir: paths.hostExecutorJournalDir })
+      .some(file => JSON.parse(file.contents).component === 'enclave-proxy-response')).toBe(false);
+  });
+
+  it('captures public dedicated proxy statuses before private storage teardown and excludes request secrets', async () => {
+    config.cloudHypervisor!.enclaveDebugPublic = true;
+    config.enclaves!.privateRepos[0].sensitivity = 'public';
+    const paths = resolveEnclavePaths(workDir);
+    const seedMap = JSON.parse(fs.readFileSync(paths.seedMapPath, 'utf8'));
+    seedMap.seeds[0].sensitivity = 'public';
+    fs.writeFileSync(paths.seedMapPath, JSON.stringify(seedMap));
+    jest.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({
+      full_name: repository.repo, private: false, visibility: 'public',
+    })));
+    fs.mkdirSync(paths.apiProxyLogsDir, { mode: 0o700 });
+    (server.close as jest.Mock).mockImplementation(async () => {
+      fs.writeFileSync(path.join(paths.apiProxyLogsDir, 'enclave-proxy-events.jsonl'), [
+        { schemaVersion: 1, status: 403, origin: 'local', authorization: 'PRIVATE_CREDENTIAL' },
+        { schemaVersion: 1, status: 401, origin: 'upstream', response_body: 'PRIVATE_PAYLOAD' },
+      ].map(value => JSON.stringify(value) + '\n').join(''), { mode: 0o600 });
+    });
+    storage.close.mockImplementation(async () => {
+      const evidence = readHostExecutorInvocationDiagnostics({ runId, journalDir: paths.hostExecutorJournalDir });
+      expect(evidence.some(file =>
+        JSON.parse(file.contents).component === 'enclave-proxy-response')).toBe(true);
+      expect(proxyDebugRetention.captureEnclaveProxyContainerLog).toHaveBeenCalledTimes(1);
+      fs.rmSync(paths.apiProxyLogsDir, { recursive: true, force: true });
+    });
+    await startCloudHypervisorEnclaveLifecycle(config, provider, {});
+    await stopCloudHypervisorEnclaveLifecycle(config);
+    const evidence = readHostExecutorInvocationDiagnostics({ runId, journalDir: paths.hostExecutorJournalDir });
+    const response = evidence.find(file => JSON.parse(file.contents).component === 'enclave-proxy-response')!;
+    expect(JSON.parse(response.contents).diagnostics).toEqual({
+      scope: 'run-cumulative', status: 'captured', records: 2,
+      local: { '403': 1 }, upstream: { '401': 1 },
+    });
+    expect(response.contents).not.toMatch(/PRIVATE|authorization|response_body|credential/);
+    expect(fs.readFileSync(path.join(workDir, 'audit/diagnostics/cloud-hypervisor/host-executor',
+      response.name), 'utf8')).toBe(response.contents);
   });
 
   it('tracks deferred public visibility verification for duplicate startup and shutdown', async () => {

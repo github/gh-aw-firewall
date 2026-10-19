@@ -224,8 +224,16 @@ files are `0600`, and symlink destinations are rejected. They are **not** copied
 audit/log collections or widened for upload. Inspect them on the host and remove
 the specific invocation directory when no longer needed.
 
-The public-fixture smoke collector includes `enclave-session.log` in its bounded,
-short-lived debug artifact. Dedicated proxy accounting remains a separate
+The public-fixture smoke collector explicitly allowlists `enclave-session.log`
+and the dedicated enclave proxy's projected `enclave-proxy-events.jsonl` and
+`enclave-proxy-container.log` in its bounded, short-lived debug artifact.
+Only closed-vocabulary event, level, source, and numeric status fields from
+container stdout/stderr are retained; arbitrary text, headers, and payloads
+are discarded. A separately projected `enclave-proxy-response.json` preserves
+run-cumulative status or an explicit unavailable classification when no
+invocation debug directory exists. These records are distinct from the
+primary agent's `api-proxy-logs`.
+Dedicated proxy accounting remains a separate
 closed projection of request/status and token totals, not raw HTTP bodies,
 headers, or credentials. Public repository visibility is not a guarantee that
 every log line is safe to publish; host-only retention is not automatic upload

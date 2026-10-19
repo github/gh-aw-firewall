@@ -27,6 +27,17 @@ import type { CloudHypervisorConfinementEvidence } from './confinement-verifier'
 import { redactSensitiveValues } from '../redact-secrets';
 import type { GuestConnectionDiagnostics } from './guest-execution';
 
+export class DiagnosticPersistenceCleanupError extends Error {
+  readonly cause: unknown;
+  readonly cleanupError: unknown;
+
+  constructor(cause: unknown, cleanupError: unknown) {
+    super('Diagnostic persistence failed and closing its file failed');
+    this.cause = cause;
+    this.cleanupError = cleanupError;
+  }
+}
+
 /** Reads at most `maxBytes` from the end of `filePath`. */
 export async function readBoundedTail(filePath: string, maxBytes: number): Promise<Buffer> {
   const handle = await fs.open(filePath, 'r');
@@ -396,6 +407,7 @@ async function writeAuditFile(
     constants.O_WRONLY | constants.O_CREAT | (constants.O_NOFOLLOW ?? 0),
     0o600,
   );
+  let failure: { error: unknown } | undefined;
   try {
     const stat = await handle.stat();
     if (!stat.isFile() || stat.nlink !== 1) {
@@ -406,9 +418,16 @@ async function writeAuditFile(
     await handle.truncate(0);
     await handle.writeFile(contents);
     await handle.chmod(0o600);
-  } finally {
-    await handle.close();
+  } catch (error) {
+    failure = { error };
   }
+  try {
+    await handle.close();
+  } catch (cleanupError) {
+    if (failure) throw new DiagnosticPersistenceCleanupError(failure.error, cleanupError);
+    throw cleanupError;
+  }
+  if (failure) throw failure.error;
 }
 
 /** Host-owned finite evidence; independent of VM stop/diagnostic collection. */

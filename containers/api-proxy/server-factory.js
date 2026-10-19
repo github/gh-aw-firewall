@@ -4,6 +4,7 @@ const http = require('http');
 const { composeBodyTransforms } = require('./proxy-utils');
 const { logRequest } = require('./logging');
 const { CALLER_HEADER, callerHeaderRejection, parseCallerHeader } = require('./caller-header');
+const { auditEnclaveResponse } = require('./token-persistence');
 
 /**
  * Parse the optional x-awf-caller header once at ingress and attach it as
@@ -183,6 +184,10 @@ function createProviderServer(adapter, deps) {
     }
 
     attachCaller(req, adapter);
+    if (process.env.AWF_ENCLAVE_AGENT_MODEL_BUDGET_SECRET) {
+      res.once('finish', () => auditEnclaveResponse(res.statusCode,
+        res.awfUpstreamResponse ? 'upstream' : 'local'));
+    }
 
     // The routing selection is advisory: this never rejects. It may attach
     // req.awfRouting, which records deviation telemetry and observes upstream failures.

@@ -8,6 +8,7 @@ import {
 } from '../enclave/network';
 import { CLOUD_HYPERVISOR_ARTIFACT_RELEASE_TAG } from './artifact-manifest';
 import * as artifactTrust from './artifact-trust';
+import { HostPreflightReporter, type HostPreflightProgress } from './host-preflight-progress';
 import * as cloudHypervisorPreflight from './preflight';
 import {
   CloudHypervisorHostEnclaveExecutorBackend,
@@ -1132,17 +1133,27 @@ describe('readBoundedCloudHypervisorEnclaveResult', () => {
     ).mockResolvedValue();
     const removeSnapshot = jest.fn(async () => undefined);
     const reap = jest.spyOn(hostExecutorJournal, 'reapHostExecutorResources').mockResolvedValue();
+    const published: HostPreflightProgress[] = [];
 
     try {
       await expect(createCloudHypervisorHostEnclaveExecutor({
         ...options,
         environment: { ...environment, PATH: '' },
       })).rejects.toThrow('A trusted GitHub CLI is required');
-      await expect(createCloudHypervisorHostEnclaveExecutor(options, {
+      await expect(createCloudHypervisorHostEnclaveExecutor({
+        ...options, onHostPreflight: (value) => { published.push(value); },
+      }, {
         removeArtifactSnapshot: removeSnapshot,
       })).rejects.toThrow();
       expect(runPreflight).toHaveBeenCalledTimes(1);
       expect(removeSnapshot).toHaveBeenCalledWith(preflight.artifactSnapshotDirectory);
+      const artifactFailure = published.find((value) => value.scope === 'bounded-artifacts' &&
+        value.checks.some((check) => check.id === 'manifest-trust' && check.result === 'failed'));
+      expect(artifactFailure).toMatchObject({
+        schemaVersion: 2, phase: 'preflight', profile: 'common',
+      });
+      expect(artifactFailure?.checks.find((check) => check.id === 'manifest-trust'))
+        .toMatchObject({ result: 'failed', reason: 'ENOENT' });
       const boundedArtifactPreflight = jest.fn().mockRejectedValue(new Error('bounded artifact gate'));
       const onPreflightStage = jest.fn();
       await expect(createCloudHypervisorHostEnclaveExecutor({ ...options, onPreflightStage }, {
@@ -1155,7 +1166,7 @@ describe('readBoundedCloudHypervisorEnclaveResult', () => {
       ]);
       expect(boundedArtifactPreflight).toHaveBeenCalledWith(expect.objectContaining({
         manifestPath: environment.AWF_CLOUD_HYPERVISOR_ENCLAVE_MANIFEST,
-      }));
+      }), undefined, undefined, expect.any(HostPreflightReporter));
       onPreflightStage.mockClear();
       await expect(createCloudHypervisorHostEnclaveExecutor({ ...options, onPreflightStage }, {
         preflight: jest.fn().mockRejectedValue(new Error('PRIVATE_HOST_PREFLIGHT')),
@@ -1284,6 +1295,34 @@ describe('readBoundedCloudHypervisorEnclaveResult', () => {
       }
       expect(verifications[1][2]).toBe(scriptRootfsPath);
       expect(verifications[1][6]).toBe(rootfsProvenancePath);
+      const progress = jest.fn();
+      const report = new HostPreflightReporter('bounded-artifacts', progress, undefined,
+        { phase: 'preflight', profile: 'common' });
+      const cleanupError = Object.assign(new Error('cleanup PRIVATE_SENTINEL'), { code: 'EIO' });
+      const remove = fs.rm.bind(fs);
+      const cleanup = jest.spyOn(fs, 'rm').mockImplementation(async (destination, options) => {
+        if (String(destination).includes('awf-enclave-attestation-')) throw cleanupError;
+        return remove(destination, options);
+      });
+      try {
+        await expect(preflightCloudHypervisorEnclaveArtifacts({
+          releaseTag, manifestPath, manifestBundlePath, scriptRootfsPath, agentRootfsPath,
+          rootfsPath: path.join(scratch, 'wrong-rootfs'), attestationToolPath,
+        }, scratch, undefined, report)).rejects.toMatchObject({
+          cause: expect.any(Error), cleanupError,
+        });
+        const record = progress.mock.calls.map(([value]) => value)
+          .find((value) => value.checks.some((check: { id: string; result: string }) =>
+            check.id === 'rootfs-configuration' && check.result === 'failed'));
+        expect(record).toMatchObject({
+          schemaVersion: 2, phase: 'preflight', profile: 'common',
+        });
+        expect(record.checks.find((check: { id: string }) => check.id === 'rootfs-configuration').reason)
+          .toBe('requirement-not-met');
+        expect(JSON.stringify(progress.mock.calls)).not.toContain('PRIVATE_SENTINEL');
+      } finally {
+        cleanup.mockRestore();
+      }
       if (shared) {
         const originalManifest = await fs.readFile(manifestPath, 'utf8');
         const v2 = JSON.parse(originalManifest) as Record<string, unknown>;
