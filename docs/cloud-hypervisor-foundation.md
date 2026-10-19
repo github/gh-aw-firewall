@@ -1670,9 +1670,10 @@ admission). Primary-agent execution remains confined to its workspace mount.
 Older supervisors that select the guest root only for no-network execution
 can reject agent-enclave startup with `guest-rejected`, `invalid_request`, and
 `cwd-validation`, before the entrypoint runs. The v0.28.66 verified release supervisor includes this correction (#10189).
-Both enclave smokes select that release's attested artifacts; the temporary
-exact-PR development-supervisor override has been removed. Rebuilding the host
-CLI does not replace the release supervisor or relax artifact verification.
+The remaining Cloud Hypervisor enclave smoke selects that release's attested
+artifacts; the temporary exact-PR development-supervisor override has been
+removed. Rebuilding the host CLI does not replace the release supervisor or
+relax artifact verification.
 
 After startup, the Cloud Hypervisor host executor uses the same check catalog
 and `[result, reason]` tuples in an invocation-scoped snapshot, separate from
