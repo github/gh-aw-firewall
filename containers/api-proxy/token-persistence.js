@@ -137,7 +137,7 @@ function auditUpstreamErrorResponse(fields) {
 
 function auditEnclaveResponse(status, origin) {
   if (!process.env.AWF_ENCLAVE_AGENT_MODEL_BUDGET_SECRET) return;
-  if (enclaveResponseRecords > 4096 ||
+  if (enclaveResponseRecords >= 4096 ||
       !Number.isInteger(status) || status < 100 || status > 599 ||
       !['local', 'upstream'].includes(origin)) return;
   try {

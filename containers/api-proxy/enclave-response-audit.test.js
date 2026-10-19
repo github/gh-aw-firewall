@@ -84,4 +84,20 @@ describe('dedicated enclave proxy response audit', () => {
       await new Promise(resolve => server.close(resolve));
     }
   });
+
+  test('bounds the audit at exactly 4096 complete schema-valid records', async () => {
+    let persistence;
+    jest.isolateModules(() => {
+      persistence = require('./token-persistence');
+    });
+    for (let i = 0; i < 4097; i++) {
+      persistence.auditEnclaveResponse(401, 'upstream');
+    }
+    await persistence.closeLogStream();
+    const lines = fs.readFileSync(path.join(directory, 'enclave-proxy-events.jsonl'), 'utf8')
+      .trimEnd().split('\n');
+    expect(lines).toHaveLength(4096);
+    expect(JSON.parse(lines[0])).toEqual({ schemaVersion: 1, origin: 'upstream', status: 401 });
+    expect(JSON.parse(lines[4095])).toEqual({ schemaVersion: 1, origin: 'upstream', status: 401 });
+  });
 });
