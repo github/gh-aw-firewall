@@ -385,6 +385,8 @@ rejected before it is executed; the CLI proxy writes a
 points, configured limit, and remaining budget.
 
 - *(no config equivalent)* → `--reflect` *(CLI-only; starts AWF, queries the API proxy `/reflect` endpoint, and prints its JSON response instead of running a command; mutually exclusive with a command argument)*
+- *(no config equivalent)* → `--capture-command-output <directory>` *(CLI-only; captures raw command stdout/stderr into a new absolute host-only directory outside agent-visible mounts; non-TTY Compose runtimes only; see `docs/protected-command-output.md`)*
+- *(no config equivalent)* → `--capture-command-output-max-bytes <bytes>` *(CLI-only; requires `--capture-command-output`; default and maximum 67108864)*
 - `platform.type` → *(config-only; maps to `AWF_PLATFORM_TYPE`)*
 - `runner.topology` → *(config-only; sets runner deployment model — `standard` or `arc-dind`; when `arc-dind`, enables sysroot staging and emits RUNNER_TOOL_CACHE warnings)*
 - `runner.sysrootImage` → *(config-only; sysroot init-container image for `arc-dind` topology; defaults to `<container.imageRegistry>/build-tools:<container.imageTag>`, where `container.imageRegistry` defaults to `ghcr.io/github/gh-aw-firewall`)*
