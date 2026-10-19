@@ -132,9 +132,57 @@ describe('SUPPORTED_COPILOT_MODELS ↔ ai-credits-pricing catalog sync', () => {
   );
 
   it('keeps the docs and packaged API proxy model API mappings identical', () => {
-    expect(fs.readFileSync(apiProxyMappingPath, 'utf8')).toBe(
-      fs.readFileSync(docsMappingPath, 'utf8'),
+    if (fs.readFileSync(apiProxyMappingPath, 'utf8') !== fs.readFileSync(docsMappingPath, 'utf8')) {
+      throw new Error(
+        'Model API mapping copies drifted: docs/model-api-mapping.json and ' +
+        'containers/api-proxy/model-api-mapping.json must be byte-for-byte identical.',
+      );
+    }
+  });
+
+  it('records the current #10029 host availability and fallback-pricing gaps', () => {
+    const normalizedSupported = new Set([...testHelpers.supportedCopilotModels].map(normalizeSeparators));
+    const normalizedPricing = new Set(pricingModels.map(normalizeSeparators));
+    const proposed = [
+      'claude-opus-5.5',
+      'claude-sonnet-5.5',
+      'gpt-6.1-sol',
+      'gemini-3.8-flash',
+      'grok-4.5',
+      'grok-4.6',
+      'grok-4.7',
+    ];
+    expect(proposed.filter(model => !normalizedSupported.has(normalizeSeparators(model)))).toEqual([
+      'claude-opus-5.5',
+      'claude-sonnet-5.5',
+      'gemini-3.8-flash',
+      'grok-4.5',
+      'grok-4.6',
+      'grok-4.7',
+    ]);
+    expect(proposed.filter(model => !normalizedPricing.has(normalizeSeparators(model)))).toEqual(
+      proposed.filter(model => model !== 'gpt-6.1-sol'),
     );
+    // These entries are already priced despite still appearing in the fallback exception list.
+    expect([...SUPPORTED_WITHOUT_CURATED_PRICING].filter(model => normalizedPricing.has(model))).toEqual([
+      'gpt-6-1-sol',
+      'gpt-6-luna',
+      'gpt-6-sol',
+      'claude-haiku-5-5',
+    ]);
+  });
+
+  it('records the current #10030 mapping routing-metadata gaps', () => {
+    const mapping = JSON.parse(fs.readFileSync(docsMappingPath, 'utf8')) as {
+      providers: Record<string, { models: Array<{ family: string; routing?: unknown }> }>;
+    };
+    const openai = mapping.providers.openai.models;
+    expect(['gpt-5.4-mini', 'gpt-5.5', 'gpt-6-sol', 'gpt-6.1-sol']
+      .filter(family => !openai.find(entry => entry.family === family)?.routing)).toEqual([
+      'gpt-5.4-mini', 'gpt-5.5', 'gpt-6-sol', 'gpt-6.1-sol',
+    ]);
+    expect(mapping.providers.anthropic.models.find(entry => entry.family === 'claude-haiku-5')?.routing)
+      .toBeUndefined();
   });
 
   it('every Copilot CLI model in ai-credits-pricing.js appears in SUPPORTED_COPILOT_MODELS', () => {

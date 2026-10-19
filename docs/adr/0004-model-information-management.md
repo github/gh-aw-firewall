@@ -907,6 +907,44 @@ from issues 10029 and 10030 land first, the tests characterize the corrected
 baseline. Otherwise the tests mark those cases as known gaps to close through
 the catalogue.
 
+Gate 1 handoff (baseline on this branch; these are observations, not the
+target contract):
+
+- `src/copilot-model.test.ts` freezes host exact allowlist validation,
+  separator/case equivalence, retired replacement, and rejection of prefixes,
+  dates, queries, family variants, and specialized variants.
+  `src/copilot-model-catalog-sync.test.ts` inventories supported, curated-priced,
+  fallback-priced, mapped, and explicitly excluded families; it fails with both
+  mapping-copy paths if the documentation and packaged bytes diverge.
+- Proxy characterization lives in
+  `containers/api-proxy/model-metadata-characterization.test.js`, alongside
+  existing model resolver, mapping, routing, policy, reflection, discovery,
+  and AI-credit guard tests. Host validation does not strip provider prefixes
+  or date suffixes; the proxy strips a matching provider prefix, runtime
+  pricing strips date suffixes and lowercases, operator overlays keep date
+  suffixes and match families, and `models.dev` strips dates but preserves
+  case. These differences must be compared before Gate 2 changes identity.
+- Pricing precedence to preserve in Gate 3/5 is operator overlay, configured
+  shared pricing catalogue, complete runtime price, incomplete runtime price
+  with lower-priority components, curated price, bundled `models.dev`,
+  dynamic-selector conservative price, configured default, then built-in
+  unknown-model fallback (only for the `unknown` sentinel). Compare selected
+  tier, tariff, source, and accounting/reflection fields, not only a model ID.
+- Known gaps: #10029 is not fully landed: six proposed models are absent from
+  the host allowlist and six from curated pricing; `gpt-6.1-sol` already has a
+  curated entry, while four entries still appear in the stale
+  `SUPPORTED_WITHOUT_CURATED_PRICING` exception set. #10030 is not landed:
+  `gpt-5.4-mini`, `gpt-5.5`, `gpt-6-sol`, and `gpt-6.1-sol` lack mapping
+  routing metadata, as does the `claude-haiku-5` family. The named tests expose
+  these gaps; replace their expectations when the fixes land rather than
+  treating absence as the future specification.
+- Validation: run `npm run build && npx jest --runInBand
+  src/copilot-model.test.ts src/copilot-model-catalog-sync.test.ts` from the
+  repository root, and `npm test -- --runInBand
+  model-metadata-characterization.test.js` from `containers/api-proxy`.
+  These are separate Jest configurations. All reflection fixtures use
+  `/reflect`, not a new endpoint.
+
 ### Gate 2: Schema and identity
 
 Land the canonical, overlay, and snapshot schemas plus one provider-qualified

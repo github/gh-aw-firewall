@@ -78,6 +78,27 @@ describe('validateCopilotModel', () => {
     expect(result.message).toContain("Did you mean 'gpt-5.3-codex'?");
   });
 
+  it.each([
+    [' GPT_5_3_CODEX ', { valid: true, resolvedModel: 'gpt-5.3-codex' }],
+    ['CLAUDE-OPUS-4-8', { valid: true, resolvedModel: 'claude-opus-4.8' }],
+    ['GPT_5_CODEX', { valid: false, reason: 'retired', replacement: 'gpt-5.3-codex' }],
+    ['copilot/gpt-5.3-codex', { valid: false, reason: 'unsupported' }],
+    ['gpt-5.3-codex-2026-10-01', { valid: false, reason: 'unsupported' }],
+    ['gpt-5.3-codex?deployment=prod', { valid: false, reason: 'unsupported' }],
+    ['gpt-5.3-codex-custom', { valid: false, reason: 'unsupported' }],
+    ['gpt-5.6-cyber', { valid: false, reason: 'unsupported' }],
+    ['gpt-5.5-pro', { valid: false, reason: 'unsupported' }],
+  ] as const)('characterizes host exact-model validation for %s', (input, expected) => {
+    const result = validateCopilotModel(input);
+    expect(result.valid).toBe(expected.valid);
+    if (result.valid && expected.valid) {
+      expect(result.resolvedModel).toBe(expected.resolvedModel);
+    } else if (!result.valid && !expected.valid) {
+      expect(result.reason).toBe(expected.reason);
+      if ('replacement' in expected) expect(result.message).toContain(expected.replacement);
+    }
+  });
+
   it('rejects unsupported models with suggestion when close to known catalog', () => {
     const result = validateCopilotModel('gpt-5.3-codx');
     expect(result.valid).toBe(false);
