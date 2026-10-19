@@ -238,16 +238,19 @@ output is written, record only the results of `id -u`, `id -g`, and
 nested container. Inspect the gateway and child container's configured user
 with `docker inspect --format
 '{{.Config.User}}' <container>`; an empty configured user needs an in-container
-`id -u`/`id -g` check. After the run, record only the UID/GID and mode of
-`outputs.jsonl` from the runner, not its contents. Compare directory
-write/rename permissions as well as file write permissions: atomic replacement
-requires permission on the parent directory. Never print the file, secrets,
-container environment, or unredacted logs. Collect this metadata out of band,
-not through workflow steps that directly access the safe-output file.
+`id -u`/`id -g` check. Use an out-of-band observer to record the UID/GID and
+mode of `outputs.jsonl` immediately after the child first writes it and before
+the `Redact secrets in logs` step starts. Record the file's UID/GID and mode
+again after redaction, or record that it is absent; the post-redaction state
+does not establish the child's original ownership. Do not use workflow steps
+that directly access the safe-output file to collect either observation.
+Compare directory write/rename permissions as well as file write permissions:
+atomic replacement requires permission on the parent directory. Never print
+the file, secrets, container environment, or unredacted logs.
 
 | Finding | Last reported version / result | Upgrade acceptance |
 |---|---|---|
-| 3 — child ownership and redaction | Compiler/setup v0.89.21, AWF v0.28.23; pre-create and guard still in use. Gateway and child versions/identities unknown; v0.92.0 ARC result **not reported**. | With pre-create removed, the child can write outputs and redaction completes; in a separate isolated test with only inert output, an induced unrecoverable redaction error stops publication (including artifacts) and removes the unsafe source. Record step outcomes without output content. If ownership still blocks this, preserve redacted metadata and escalate child identity to MCP Gateway and redaction to gh-aw. |
+| 3 — child ownership and redaction | Compiler/setup v0.89.21, AWF v0.28.23; pre-create and guard still in use. Gateway and child versions/identities unknown; v0.92.0 ARC result **not reported**. | With pre-create removed, capture the child's file metadata before redaction and the resulting metadata or absence afterward. For the success case, register an inert dummy value with the redactor and include it in safe output so `outputs.jsonl` must be rewritten; confirm the file-specific redaction diagnostic for `outputs.jsonl` (and the replacement diagnostic if emitted), without printing output content. In a separate isolated test, an induced unrecoverable redaction error must stop publication (including artifacts) and remove the unsafe source. Record step outcomes without output content. If ownership still blocks this, preserve redacted metadata and escalate child identity to MCP Gateway and redaction to gh-aw. |
 | 4 — compiler upgrade | v0.91.4 rejected direct safe-output-file access in the workaround; reporter plans v0.92.0, **not yet verified**. | With pre-create and its guard removed, the unmodified safe-output access restriction remains enabled, compilation succeeds, and the compiled workflow executes and publishes only successfully redacted safe outputs. If not, retain the compile diagnostic and escalate to gh-aw. |
 
 The versions and planned upgrade above come from the
@@ -255,8 +258,9 @@ The versions and planned upgrade above come from the
 the historical ARC run logs have expired. Preserve a redacted record of the
 new run ID, workflow commit, version pins, ownership/mode observations, compile
 result, redaction step outcome, and publication outcome before considering
-[AWF tracking #10271](https://github.com/github/gh-aw-firewall/issues/10271)
-resolved. Until that evidence exists, neither finding is verified fixed.
+AWF tracking issue [#10271](https://github.com/github/gh-aw-firewall/issues/10271)
+resolved. Use a non-closing reference (`Refs #10271`) until that evidence
+exists; neither finding is verified fixed.
 
 ## Locating API proxy token-usage logs
 
