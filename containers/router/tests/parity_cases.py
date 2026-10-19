@@ -664,7 +664,8 @@ DECODING_PROMPT = "Fix this function"
 DECODING_DESCRIPTION = (
     "decode_request(RouteRequest, body). expect.result is decoded, malformed (a JSON syntax "
     "or parser-limit error: HTTP 400 invalid_json) or invalid (a schema error: HTTP 422 "
-    "invalid_json). The CLI reports both errors as invalid_request with exit 2. The limit-* "
+    "invalid_json). The CLI reports both errors on stderr as 'invalid request: ' with exit 2. "
+    "The limit-* "
     "items put the value at tool_call.input, inside six enclosing levels (object, "
     "conversation array, message, parts array, part, tool_call)"
 )
@@ -965,6 +966,8 @@ def _offer_items(limits: dict[str, int]) -> list[DecodingItem]:
 
 def _structure_items() -> list[DecodingItem]:
     robust = '"objective":{"goal":"cost","mode":"robust"}'
+    unknown_mode = '"objective":{"goal":"cost","mode":"bogus"}'
+    objective = '"objective":{"goal":"cost","mode":"balanced"}'
     return [
         _text_item(
             "duplicate-key-last",
@@ -979,6 +982,31 @@ def _structure_items() -> list[DecodingItem]:
             "{" + robust + "," + DECODING_TEXT[1:],
         ),
         _text_item(
+            "duplicate-key-invalid-first",
+            "An objective with an unknown mode, then a valid one; only the last value is validated",
+            DECODED,
+            "{" + unknown_mode + "," + DECODING_TEXT[1:],
+        ),
+        _text_item(
+            "duplicate-key-invalid-last",
+            "A valid objective, then one with an unknown mode; the last value is validated",
+            REJECTED,
+            DECODING_TEXT[:-1] + "," + unknown_mode + "}",
+        ),
+        _text_item(
+            "duplicate-key-partial-last",
+            "A complete objective, then one with only goal; the last value replaces the first "
+            "instead of being merged with it",
+            REJECTED,
+            DECODING_TEXT[:-1] + ',"objective":{"goal":"cost"}}',
+        ),
+        _text_item(
+            "duplicate-key-partial-split",
+            "An objective with only goal, then one with only mode; the objects aren't merged",
+            REJECTED,
+            _edited(objective, '"objective":{"goal":"cost"},"objective":{"mode":"balanced"}'),
+        ),
+        _text_item(
             "duplicate-key-nested-user-last",
             "A message repeats role, ending with user",
             DECODED,
@@ -989,6 +1017,18 @@ def _structure_items() -> list[DecodingItem]:
             "A message repeats role, ending with assistant",
             DECODED,
             _edited('"role":"user"', '"role":"user","role":"assistant"'),
+        ),
+        _text_item(
+            "duplicate-key-nested-invalid-first",
+            "A message repeats role, an unknown role then user; only the last value is validated",
+            DECODED,
+            _edited('"role":"user"', '"role":"narrator","role":"user"'),
+        ),
+        _text_item(
+            "duplicate-key-nested-invalid-last",
+            "A message repeats role, user then an unknown role; the last value is validated",
+            REJECTED,
+            _edited('"role":"user"', '"role":"user","role":"narrator"'),
         ),
         _text_item(
             "escaped-key",

@@ -97,8 +97,10 @@ Each case has exactly one of:
 | `malformed` | A JSON syntax error or a parser limit (pydantic error type `json_invalid`) | Exit 2, `invalid request: ` | 400 `invalid_json` |
 | `invalid` | Valid JSON that breaks the request schema | Exit 2, `invalid request: ` | 422 `invalid_json` |
 
-Duplicate keys are accepted and the last value wins; `context.json` (`token-duplicate-keys`) shows
-which value is used.
+Duplicate keys are accepted at any depth. The last value replaces the earlier ones, and only it is
+validated: an invalid value followed by a valid one decodes, a valid value followed by an invalid
+one doesn't, and two partial objects aren't merged. `context.json` (`token-duplicate-keys`) shows
+which value is used inside free-form tool input.
 
 ### Context
 
@@ -168,6 +170,11 @@ the Go port can test directly:
 | Agreement between Python and Go | A differential job during the port, which runs both routers on the contract corpus, inputs built from these fixtures and generated inputs |
 
 ## Decisions for the Go port
+
+When the differential job or the Go tests compare an error with Python's, they compare only the
+HTTP status and the error `code` (for the CLI, the exit status and the stderr prefix). `detail` is
+diagnostic text, as the router README already states for the contract corpus, so its wording
+isn't part of the comparison.
 
 Where the Go router deliberately behaves differently from Python, the Go tests encode the Go
 behavior and the differential job allows the difference. Merging the PR that adds this README

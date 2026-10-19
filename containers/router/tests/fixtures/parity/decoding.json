@@ -1484,6 +1484,38 @@
       "id": "duplicate-key-first"
     },
     {
+      "body": "{\"objective\":{\"goal\":\"cost\",\"mode\":\"bogus\"},\"conversation\":[{\"parts\":[{\"text\":\"Fix this function\"}],\"role\":\"user\"}],\"models\":[{\"id\":\"fast\",\"model\":\"provider/fast\"},{\"effort\":\"low\",\"id\":\"r-low\",\"model\":\"provider/reasoning\"},{\"effort\":\"medium\",\"id\":\"r-medium\",\"model\":\"provider/reasoning\"},{\"effort\":\"high\",\"id\":\"r-high\",\"model\":\"provider/reasoning\"},{\"id\":\"other\",\"model\":\"provider/other\"}],\"objective\":{\"goal\":\"cost\",\"mode\":\"balanced\"}}",
+      "description": "An objective with an unknown mode, then a valid one; only the last value is validated",
+      "expect": {
+        "result": "decoded"
+      },
+      "id": "duplicate-key-invalid-first"
+    },
+    {
+      "body": "{\"conversation\":[{\"parts\":[{\"text\":\"Fix this function\"}],\"role\":\"user\"}],\"models\":[{\"id\":\"fast\",\"model\":\"provider/fast\"},{\"effort\":\"low\",\"id\":\"r-low\",\"model\":\"provider/reasoning\"},{\"effort\":\"medium\",\"id\":\"r-medium\",\"model\":\"provider/reasoning\"},{\"effort\":\"high\",\"id\":\"r-high\",\"model\":\"provider/reasoning\"},{\"id\":\"other\",\"model\":\"provider/other\"}],\"objective\":{\"goal\":\"cost\",\"mode\":\"balanced\"},\"objective\":{\"goal\":\"cost\",\"mode\":\"bogus\"}}",
+      "description": "A valid objective, then one with an unknown mode; the last value is validated",
+      "expect": {
+        "result": "invalid"
+      },
+      "id": "duplicate-key-invalid-last"
+    },
+    {
+      "body": "{\"conversation\":[{\"parts\":[{\"text\":\"Fix this function\"}],\"role\":\"user\"}],\"models\":[{\"id\":\"fast\",\"model\":\"provider/fast\"},{\"effort\":\"low\",\"id\":\"r-low\",\"model\":\"provider/reasoning\"},{\"effort\":\"medium\",\"id\":\"r-medium\",\"model\":\"provider/reasoning\"},{\"effort\":\"high\",\"id\":\"r-high\",\"model\":\"provider/reasoning\"},{\"id\":\"other\",\"model\":\"provider/other\"}],\"objective\":{\"goal\":\"cost\",\"mode\":\"balanced\"},\"objective\":{\"goal\":\"cost\"}}",
+      "description": "A complete objective, then one with only goal; the last value replaces the first instead of being merged with it",
+      "expect": {
+        "result": "invalid"
+      },
+      "id": "duplicate-key-partial-last"
+    },
+    {
+      "body": "{\"conversation\":[{\"parts\":[{\"text\":\"Fix this function\"}],\"role\":\"user\"}],\"models\":[{\"id\":\"fast\",\"model\":\"provider/fast\"},{\"effort\":\"low\",\"id\":\"r-low\",\"model\":\"provider/reasoning\"},{\"effort\":\"medium\",\"id\":\"r-medium\",\"model\":\"provider/reasoning\"},{\"effort\":\"high\",\"id\":\"r-high\",\"model\":\"provider/reasoning\"},{\"id\":\"other\",\"model\":\"provider/other\"}],\"objective\":{\"goal\":\"cost\"},\"objective\":{\"mode\":\"balanced\"}}",
+      "description": "An objective with only goal, then one with only mode; the objects aren't merged",
+      "expect": {
+        "result": "invalid"
+      },
+      "id": "duplicate-key-partial-split"
+    },
+    {
       "body": "{\"conversation\":[{\"parts\":[{\"text\":\"Fix this function\"}],\"role\":\"assistant\",\"role\":\"user\"}],\"models\":[{\"id\":\"fast\",\"model\":\"provider/fast\"},{\"effort\":\"low\",\"id\":\"r-low\",\"model\":\"provider/reasoning\"},{\"effort\":\"medium\",\"id\":\"r-medium\",\"model\":\"provider/reasoning\"},{\"effort\":\"high\",\"id\":\"r-high\",\"model\":\"provider/reasoning\"},{\"id\":\"other\",\"model\":\"provider/other\"}],\"objective\":{\"goal\":\"cost\",\"mode\":\"balanced\"}}",
       "description": "A message repeats role, ending with user",
       "expect": {
@@ -1498,6 +1530,22 @@
         "result": "decoded"
       },
       "id": "duplicate-key-nested-assistant-last"
+    },
+    {
+      "body": "{\"conversation\":[{\"parts\":[{\"text\":\"Fix this function\"}],\"role\":\"narrator\",\"role\":\"user\"}],\"models\":[{\"id\":\"fast\",\"model\":\"provider/fast\"},{\"effort\":\"low\",\"id\":\"r-low\",\"model\":\"provider/reasoning\"},{\"effort\":\"medium\",\"id\":\"r-medium\",\"model\":\"provider/reasoning\"},{\"effort\":\"high\",\"id\":\"r-high\",\"model\":\"provider/reasoning\"},{\"id\":\"other\",\"model\":\"provider/other\"}],\"objective\":{\"goal\":\"cost\",\"mode\":\"balanced\"}}",
+      "description": "A message repeats role, an unknown role then user; only the last value is validated",
+      "expect": {
+        "result": "decoded"
+      },
+      "id": "duplicate-key-nested-invalid-first"
+    },
+    {
+      "body": "{\"conversation\":[{\"parts\":[{\"text\":\"Fix this function\"}],\"role\":\"user\",\"role\":\"narrator\"}],\"models\":[{\"id\":\"fast\",\"model\":\"provider/fast\"},{\"effort\":\"low\",\"id\":\"r-low\",\"model\":\"provider/reasoning\"},{\"effort\":\"medium\",\"id\":\"r-medium\",\"model\":\"provider/reasoning\"},{\"effort\":\"high\",\"id\":\"r-high\",\"model\":\"provider/reasoning\"},{\"id\":\"other\",\"model\":\"provider/other\"}],\"objective\":{\"goal\":\"cost\",\"mode\":\"balanced\"}}",
+      "description": "A message repeats role, user then an unknown role; the last value is validated",
+      "expect": {
+        "result": "invalid"
+      },
+      "id": "duplicate-key-nested-invalid-last"
     },
     {
       "body": "{\"\\u0063onversation\":[{\"parts\":[{\"text\":\"Fix this function\"}],\"role\":\"user\"}],\"models\":[{\"id\":\"fast\",\"model\":\"provider/fast\"},{\"effort\":\"low\",\"id\":\"r-low\",\"model\":\"provider/reasoning\"},{\"effort\":\"medium\",\"id\":\"r-medium\",\"model\":\"provider/reasoning\"},{\"effort\":\"high\",\"id\":\"r-high\",\"model\":\"provider/reasoning\"},{\"id\":\"other\",\"model\":\"provider/other\"}],\"objective\":{\"goal\":\"cost\",\"mode\":\"balanced\"}}",
@@ -2636,6 +2684,6 @@
       }
     }
   ],
-  "description": "decode_request(RouteRequest, body). expect.result is decoded, malformed (a JSON syntax or parser-limit error: HTTP 400 invalid_json) or invalid (a schema error: HTTP 422 invalid_json). The CLI reports both errors as invalid_request with exit 2. The limit-* items put the value at tool_call.input, inside six enclosing levels (object, conversation array, message, parts array, part, tool_call)",
+  "description": "decode_request(RouteRequest, body). expect.result is decoded, malformed (a JSON syntax or parser-limit error: HTTP 400 invalid_json) or invalid (a schema error: HTTP 422 invalid_json). The CLI reports both errors on stderr as 'invalid request: ' with exit 2. The limit-* items put the value at tool_call.input, inside six enclosing levels (object, conversation array, message, parts array, part, tool_call)",
   "kind": "decoding"
 }
