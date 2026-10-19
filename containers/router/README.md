@@ -387,8 +387,8 @@ The Go port ([#10261](https://github.com/github/gh-aw-firewall/issues/10261)) li
 `go/`, apart from the Python package, as a single flat `main` package with its tests beside
 it. It shares this directory's routing tables, examples, fixtures, `openapi.yaml` and
 `Dockerfile`, which its tests read through `..`. It has no dependencies outside the Go standard
-library, and `go/go.mod` pins the toolchain. It covers the `classify`, `route` and
-`validate-data` commands so far; `serve` remains Python-only until the HTTP adapter is ported.
+library, and `go/go.mod` pins the toolchain. It implements every command, including `serve`,
+and adds a `healthcheck` command for the image.
 
 Run these checks from `go/`:
 
@@ -404,12 +404,63 @@ Pass `-o`, because a plain `go build` names the binary after the `go` directory.
 
 The Go tests replay the [parity corpus](tests/fixtures/parity) and the POST cases of the
 [portable contract corpus](tests/fixtures/routing-contract), and port the Python routing,
-service, table, classification and CLI tests. Deliberate differences from Python are listed in
-the parity corpus's decisions table. `FuzzDecodeRouteRequest`, `FuzzParseTable` and
+service, table, classification, CLI and HTTP tests. Deliberate differences from Python are
+listed in the parity corpus's decisions table. `FuzzDecodeRouteRequest`, `FuzzParseTable` and
 `FuzzInferLabels` are fuzz targets, for example `go test -run '^$' -fuzz FuzzParseTable`.
 
-`tests/differential.py` compares the two CLIs while both exist. From this directory, after the
-Python setup above:
+#### Go `serve`
+
+`serve` takes the same `--bind` and `--log-level` options and environment variables as the
+Python CLI. The bind port must be ASCII digits from 1 through 65535, and an invalid log level
+from either source is a usage error. Startup loads and validates the tables (exit 2 on
+failure), checks the bind address (exit 2), then listens (exit 1 if that fails).
+
+The server uses Go's `net/http` as it is, and keeps the endpoints, success bodies and error
+envelopes of the Python service:
+
+- At most 64 requests are in flight, `/healthz` included. Further requests get a bare 503.
+- A declared or streamed body over 1,048,576 bytes gets 413 `payload_too_large`.
+- Headers must arrive within 10 s, and the whole request within 30 s. The response must be
+  written within 30 s, and an idle keep-alive connection closes after 5 s. A request past
+  these limits has its connection closed; there's no 504 `request_timeout`.
+- Framing errors, paths that aren't clean (`//healthz` redirects to `/healthz`) and `OPTIONS *`
+  are handled by `net/http` before the router sees them.
+
+On SIGTERM or SIGINT the server stops accepting connections, lets in-flight requests finish for
+up to 0.5 s, closes the rest and exits 0.
+
+`serve` writes one JSON object per line to stderr, and nothing else once its arguments are
+parsed. Usage errors stay plain text. Every record has `time` (RFC 3339 UTC with milliseconds),
+`level`, `msg`, `service` (`gh-aw-router`) and `version`. The other fields are:
+
+| `msg` | Level | Fields |
+| --- | --- | --- |
+| `starting` | INFO | `bind`, `log_level`, `go_version` |
+| `routing tables loaded` | INFO | `tables_path`, `profiles`, `models`, `label_cells` |
+| `routing tables invalid` | ERROR | `error_code` (`invalid_model_data`), `error` |
+| `configuration invalid` | ERROR | `error_code` (`invalid_request`), `error` |
+| `listening` | INFO | `address` |
+| `listen failed` | ERROR | `error` |
+| `request` | INFO, or ERROR for a status of 500 or above | `request_id`, `method`, `route`, `status`, `duration_ms`, `error_code` (error envelopes only), `request_bytes`, `response_bytes` |
+| `panic` | ERROR | `request_id`, `route`, `stack` |
+| `shutting down` | INFO | `signal` |
+| `stopped` | INFO | `drained` (whether in-flight requests finished in time), `duration_ms` |
+
+`route` is one of the four served paths or `unmatched`, and `method` is a standard HTTP method
+or `_OTHER`. `request_id` is random for each request and isn't sent to the client. A successful
+`/healthz` call isn't logged. Records never contain request or response bodies, headers, query
+strings, unmatched paths, model or choice ids, error details or panic values.
+
+`gh-aw-router healthcheck [--url URL]` sends `GET` to `http://127.0.0.1:8737/healthz` by
+default, and exits 0 only on a 204. Any other status, a refused connection or the 1 s timeout
+exits 1 with one line on stderr. It never uses a proxy or follows a redirect. Unlike the other
+commands, it doesn't load routing tables, so `--routing-tables` and
+`GH_AW_ROUTER_ROUTING_TABLES` don't affect it.
+
+#### Differential check
+
+`tests/differential.py` compares the two CLIs while both exist. It doesn't compare HTTP; the
+Go `serve` tests cover that. From this directory, after the Python setup above:
 
 ```bash
 go -C go build -o gh-aw-router .

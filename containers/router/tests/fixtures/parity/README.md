@@ -194,6 +194,11 @@ decisions:
 | `serve` startup errors | Plain one-line text | JSON log records; other commands keep plain text |
 | Trailing slash | Starlette redirects `/healthz/` to `/healthz` with 307 | 404 `not_found`, like any unknown path |
 | Unsupported transfer coding | Uvicorn answers a bare 400 | Go's HTTP/1.1 server answers a bare 501, as RFC 9112 recommends |
+| Paths that aren't clean, such as `//healthz` and `/a/../healthz` | 404 `not_found` | `ServeMux` redirects to the cleaned path with 307 |
+| Request deadline | A request still running after 30 s gets 504 `request_timeout`, if its response hasn't started | Server timeouts: 10 s for the headers, 30 s for the whole request and 30 s for the response. A request past them has its connection closed. `openapi.yaml` drops the 504 at the cut-over |
+| `OPTIONS *` | 404 `not_found` | `net/http` answers an empty 200 |
+| Absolute-form request target, such as `GET http://host/healthz` | 404 `not_found` | Routed by its path |
+| Invalid chunked request body | Uvicorn answers a bare 400 | The connection closes without a response |
 | CLI line endings | Writes CRLF to a Windows pipe | LF on every platform |
 | CLI output encoding | `json.dumps` escapes non-ASCII characters as `\uXXXX` | Writes UTF-8. Both are the same JSON value |
 | Unicode character data | Unicode 15.0.0 through `str` methods and `re`, with full case folding | Go's `unicode` package and `strings.ToLower`. Labels differ only for letters added after Unicode 15 and for `ﬁ`, `ſ`, `ß` and `İ` |
