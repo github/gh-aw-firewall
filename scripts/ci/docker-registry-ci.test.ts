@@ -207,29 +207,9 @@ print(json.dumps({'live': sorted(live), 'archives': sorted(archives), 'cache': s
       'persist-credentials': false,
     });
     expect(steps[install].run).toContain('-C .tmp/gh-aw-compiler');
-    const build = steps[install].run!;
-    expect(build).toContain('https://github.com/github/gh-aw/commit/2b19ccffd0694750e8e2bdcb20bf882e9bb440f2.patch');
-    expect(build).toContain('9ae4b02273385b3a9e884085bdf81969bbaa0e04d9d410d30c1ddb6d1023e8ee');
-    expect(build).toContain('sha256sum --check --strict');
-    expect(build.indexOf('sha256sum --check --strict')).toBeLessThan(build.indexOf('git -C'));
-    expect(build).toContain('--include=pkg/workflow/enclaves_runtime.go');
-    expect(build).toContain('--include=pkg/workflow/enclaves_agent_acceptance_test.go');
-    const localPatch = '${GITHUB_WORKSPACE}/scripts/ci/compiler-agent-acceptance-v0.28.66.patch';
-    expect(build).toContain(`"${localPatch}"`);
-    expect(build.indexOf(localPatch)).toBeGreaterThan(build.indexOf('--include=pkg/workflow/enclaves_agent_acceptance_test.go'));
-    expect(build.indexOf(localPatch)).toBeLessThan(build.indexOf('go test'));
-    const patch = fs.readFileSync(path.join(root, 'scripts/ci/compiler-agent-acceptance-v0.28.66.patch'), 'utf8');
-    expect(patch).toContain('firewall.Version != "v0.28.66"');
-    expect(patch).toContain('{"previous acceptance version"');
-    expect(patch).toContain('{"future version"');
-    const source = yaml.load(fs.readFileSync(path.join(
-      root, '.github/workflows/smoke-enclave-cloud-hypervisor-copilot.md',
-    ), 'utf8').split('---')[1]) as { sandbox: { agent: { version: string } } };
-    expect(source.sandbox.agent.version).toBe('v0.28.66');
-    expect(patch).toContain(`firewall.Version != "${source.sandbox.agent.version}"`);
-    expect(build).toContain('TestValidateCloudHypervisorAgentAcceptance|TestCompileCloudHypervisorAgentAcceptance');
-    expect(build.indexOf('go test')).toBeLessThan(build.indexOf('go build'));
-    expect(build).not.toContain('main.isRelease=true');
+    expect(steps[install].run).toContain(
+      '-ldflags="-X main.version=v0.91.8-37-g6cc24f3633 -X main.isRelease=true"',
+    );
     for (const index of [checkout, install, compile]) {
       expect(steps[index].if).toBeUndefined();
       expect(steps[index]['continue-on-error']).toBeUndefined();

@@ -138,7 +138,9 @@ describe('cloud-hypervisor-host-preflight.sh', () => {
     expect(source).toContain('.entrypoints.agent == "/usr/local/bin/run-enclave-agent"');
   });
 
-  describe.each([2, 1])('schema v%s artifact validation', schemaVersion => {
+  const describeLinux = process.platform === 'linux' ? describe : describe.skip;
+
+  describeLinux.each([2, 1])('schema v%s artifact validation', schemaVersion => {
     const source = fs.readFileSync(preflightPath, 'utf-8');
     const functions = source.slice(source.indexOf('fail() {'), source.indexOf('[ "$(uname -s)"'));
     const validation = source.slice(source.indexOf('require_regular_file "$ARTIFACT_DIR/enclave-manifest.json"'));

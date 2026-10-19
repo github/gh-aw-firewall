@@ -230,7 +230,6 @@ describe('applyGeneralWorkflowPatches Cloud Hypervisor bundle retries', () => {
 describe('applyGeneralWorkflowPatches shared enclave gateway policy', () => {
   it.each([
     'smoke-enclave-cloud-hypervisor.lock.yml',
-    'smoke-enclave-cloud-hypervisor-copilot.lock.yml',
   ])('restores the host-only rootfs exclusion in %s idempotently', filename => {
     const workflowPath = path.resolve(__dirname, '../../.github/workflows', filename);
     const exclusion = '--exclude-env AWF_CLOUD_HYPERVISOR_ENCLAVE_ROOTFS';

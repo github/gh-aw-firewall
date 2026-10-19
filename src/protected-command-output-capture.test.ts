@@ -7,7 +7,9 @@ import {
 } from './protected-command-output-capture';
 import { assertPrivateCommandOutputRootIsolated } from './enclave/mount-policy';
 
-describe('protected command output capture', () => {
+const describeLinux = process.platform === 'linux' ? describe : describe.skip;
+
+describeLinux('protected command output capture', () => {
   let testRoot: string;
 
   beforeEach(() => {

@@ -83,10 +83,7 @@ for (const workflowPath of codexWorkflowPaths) {
   }
 }
 
-for (const lockFile of [
-  'smoke-enclave-cloud-hypervisor.lock.yml',
-  'smoke-enclave-cloud-hypervisor-copilot.lock.yml',
-]) {
+for (const lockFile of ['smoke-enclave-cloud-hypervisor.lock.yml']) {
   const enclaveDefaultRuntimeLockPath = path.join(workflowsDir, lockFile);
   let enclaveDefaultRuntimeLock: string | undefined;
   try {

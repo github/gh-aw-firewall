@@ -11,28 +11,6 @@ const SHA_PATTERN = /^[0-9a-f]{40}$/i;
 export function isCloudHypervisorScriptAcceptanceWorkflow(
   config: Pick<WrapperConfig, 'containerRuntime' | 'enclaves' | 'cloudHypervisor' | 'imageTag'>,
 ): boolean {
-  return isAcceptanceWorkflow(config, ACCEPTANCE_WORKFLOW_PATH, 'script');
-}
-
-export function isCloudHypervisorAgentAcceptanceWorkflow(
-  config: Pick<WrapperConfig, 'containerRuntime' | 'enclaves' | 'cloudHypervisor' | 'imageTag'>,
-): boolean {
-  if (
-    process.env.GITHUB_REF_TYPE !== 'branch'
-    || config.cloudHypervisor?.artifactReleaseTag !== 'v0.28.66'
-  ) return false;
-  return isAcceptanceWorkflow(
-    config,
-    'github/gh-aw-firewall/.github/workflows/smoke-enclave-cloud-hypervisor-copilot.lock.yml',
-    'agent',
-  );
-}
-
-function isAcceptanceWorkflow(
-  config: Pick<WrapperConfig, 'containerRuntime' | 'enclaves' | 'cloudHypervisor' | 'imageTag'>,
-  workflowPath: string,
-  executor: 'script' | 'agent',
-): boolean {
   if (
     process.env.GITHUB_ACTIONS !== 'true'
     || process.env.GITHUB_REPOSITORY !== 'github/gh-aw-firewall'
@@ -87,7 +65,7 @@ function isAcceptanceWorkflow(
     && refName === artifactReleaseTag
     && TAG_REF_PATTERN.test(ref)
     && ref === `refs/tags/${refName}`
-    && workflowRef === `${workflowPath}@${ref}`;
+    && workflowRef === `${ACCEPTANCE_WORKFLOW_PATH}@${ref}`;
 
   const isBranchAcceptance =
     refType === 'branch'
@@ -96,8 +74,8 @@ function isAcceptanceWorkflow(
     && SHA_PATTERN.test(sha)
     && (workflowSha === undefined || workflowSha === sha)
     && (
-      workflowRef === `${workflowPath}@${ref}`
-      || workflowRef === `${workflowPath}@${sha}`
+      workflowRef === `${ACCEPTANCE_WORKFLOW_PATH}@${ref}`
+      || workflowRef === `${ACCEPTANCE_WORKFLOW_PATH}@${sha}`
     );
 
   if (!isTaggedAcceptance && !isBranchAcceptance) {
@@ -108,33 +86,17 @@ function isAcceptanceWorkflow(
   if (
     config.containerRuntime !== 'cloud-hypervisor'
     || !enclaves?.enabled
-    || !enclaves.executors[executor].enabled
-    || enclaves.executors[executor].runtime !== 'cloud-hypervisor'
-    || enclaves.executors[executor].maxInvocations !== 1
-    || enclaves.executors[executor].image !== undefined
-    || enclaves.executors[executor === 'script' ? 'agent' : 'script'].enabled
+    || !enclaves.executors.script.enabled
+    || enclaves.executors.script.runtime !== 'cloud-hypervisor'
+    || enclaves.executors.script.maxInvocations !== 1
+    || enclaves.executors.script.image !== undefined
+    || enclaves.executors.agent.enabled
     || enclaves.executors.agent.dynamic !== undefined
     || enclaves.privateRepos.length !== 1
     || enclaves.privateRepos[0].repo !== 'github/gh-aw-firewall'
     || enclaves.privateRepos[0].sensitivity !== 'public'
   ) {
     return false;
-  }
-  if (executor === 'agent') {
-    const agent = enclaves.executors.agent;
-    if (
-      agent.engine !== 'copilot'
-      || agent.model !== 'claude-sonnet-5'
-      || agent.github !== undefined
-      || agent.tools?.github !== undefined
-      || agent.timeout !== 90
-      || agent.maxOutputBytes !== 256
-      || agent.maxTaskBytes !== 4096
-      || agent.maxModelRequests !== 8
-      || agent.maxModelTokens !== 2048
-    ) {
-      return false;
-    }
   }
   return true;
 }

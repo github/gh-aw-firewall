@@ -2,10 +2,7 @@ import { getLocalDockerEnv } from '../docker-host';
 import type { CloudHypervisorOptions, WrapperConfig } from '../types';
 import { CLOUD_HYPERVISOR_MOUNT_POLICIES } from '../types/runtime-options';
 import { assertGithubHostedRunnerEligibility } from './host-eligibility';
-import {
-  isCloudHypervisorAgentAcceptanceWorkflow,
-  isCloudHypervisorScriptAcceptanceWorkflow,
-} from '../enclave/cloud-hypervisor-script-acceptance';
+import { isCloudHypervisorScriptAcceptanceWorkflow } from '../enclave/cloud-hypervisor-script-acceptance';
 import { validatePublicEnclaveDebug } from '../enclave/public-debug';
 
 /**
@@ -161,7 +158,6 @@ export function assertCloudHypervisorPreSecurityCompatibility(config: WrapperCon
     primaryCloudHypervisor
     && config.enclaves?.enabled
     && !isCloudHypervisorScriptAcceptanceWorkflow(config)
-    && !isCloudHypervisorAgentAcceptanceWorkflow(config)
   ) {
     throw new Error(
       'Cloud Hypervisor primary-agent execution with enclaves is reserved until the '
