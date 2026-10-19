@@ -8,6 +8,7 @@ import { createLocalSourceResolver } from './mount-topology';
 import { ensureNestedMountpoints } from './nested-mountpoints';
 import { buildDockerSocketMount } from './docker-socket';
 import { buildEtcMounts } from './etc-mounts';
+import { isSysrootEnabled } from '../sysroot-service';
 import { GEMINI_CLI_SYSTEM_SETTINGS_PATH, getGeminiSystemSettingsSourcePath, isGeminiProxyRoutingEnabled, shouldPinGeminiAuthType } from '../credentials/gemini-cli-settings';
 import { buildHomeMounts } from './home-strategy';
 import { generateHostsFileMount } from './hosts-file';
@@ -68,7 +69,7 @@ export function buildAgentVolumes(params: AgentVolumesParams): string[] {
     config, effectiveHome, agentLogsPath, sessionStatePath, pathExists: params.pathExists,
   }));
   agentVolumes.push(...buildEtcMounts(config, params.pathExists));
-  if (isGeminiProxyRoutingEnabled(config) && shouldPinGeminiAuthType(config)) {
+  if (!isSysrootEnabled(config) && isGeminiProxyRoutingEnabled(config) && shouldPinGeminiAuthType(config)) {
     agentVolumes.push(`${getGeminiSystemSettingsSourcePath(config.workDir)}:/host${GEMINI_CLI_SYSTEM_SETTINGS_PATH}:ro`);
   }
   // When sysroot-stage is active, the sysroot volume provides /etc/hosts.

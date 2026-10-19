@@ -12,6 +12,7 @@ import {
   isGeminiProxyRoutingEnabled,
   shouldPinGeminiAuthType,
 } from './services/credentials/gemini-cli-settings';
+import { isSysrootEnabled } from './services/sysroot-service';
 
 // Prepare a nested bind-mount destination inside the empty chroot home before
 // Docker sees it. Without this, Docker may create intermediate parents such as
@@ -87,7 +88,7 @@ export function prepareChrootHomeMounts(config: WrapperConfig): void {
   fs.chownSync(emptyHomeDir, uid, gid);
   logger.debug(`Created chroot home directory: ${emptyHomeDir} (${uid}:${gid})`);
 
-  if (isGeminiProxyRoutingEnabled(config) && shouldPinGeminiAuthType(config)) {
+  if (!isSysrootEnabled(config) && isGeminiProxyRoutingEnabled(config) && shouldPinGeminiAuthType(config)) {
     writeGeminiSystemSettings(config.workDir);
   }
 

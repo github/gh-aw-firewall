@@ -1,6 +1,7 @@
 import { buildSysrootStageService, isSysrootEnabled, resolveSysrootImage } from './sysroot-service';
 import { parseImageTag } from '../image-tag';
 import { WrapperConfig } from '../types';
+import { GEMINI_CLI_SYSTEM_SETTINGS_PATH, buildGeminiSystemSettingsContent } from './credentials/gemini-cli-settings';
 
 // Minimal WrapperConfig for testing
 function makeConfig(overrides: Partial<WrapperConfig> = {}): WrapperConfig {
@@ -77,6 +78,34 @@ describe('resolveSysrootImage', () => {
 });
 
 describe('buildSysrootStageService', () => {
+  it('writes the protected Gemini settings into the sysroot even after an idempotent copy', () => {
+    const service = buildSysrootStageService({
+      config: makeConfig({ runnerTopology: 'arc-dind', enableApiProxy: true, geminiApiKey: 'fake-key' }),
+      registry: 'ghcr.io/github/gh-aw-firewall',
+      parsedTag: parseImageTag('latest'),
+    });
+    const command = service.command[0] as string;
+    expect(command.indexOf('fi; mkdir -p /sysroot/etc/awf/gemini-cli')).toBe(-1);
+    expect(command.indexOf('fi; test ! -L /sysroot/etc/awf')).toBeGreaterThan(-1);
+    expect(command).toContain(`> /sysroot${GEMINI_CLI_SYSTEM_SETTINGS_PATH}`);
+    expect(command).toContain(Buffer.from(buildGeminiSystemSettingsContent()).toString('base64'));
+    expect(command).toContain(`chmod 644 /sysroot${GEMINI_CLI_SYSTEM_SETTINGS_PATH}`);
+    expect(command).not.toContain('fake-key');
+  });
+
+  it.each<Partial<WrapperConfig>>([
+    { enableApiProxy: false, geminiApiKey: 'fake-key' },
+    { enableApiProxy: true },
+    { enableApiProxy: true, geminiApiKey: 'fake-key', additionalEnv: { GOOGLE_GENAI_USE_GCA: 'true' } },
+    { enableApiProxy: true, geminiApiKey: 'fake-key', additionalEnv: { GOOGLE_GENAI_USE_VERTEXAI: 'true' } },
+  ])('does not write Gemini settings to the sysroot without API-key pinning: %j', (overrides) => {
+    const service = buildSysrootStageService({
+      config: makeConfig({ runnerTopology: 'arc-dind', ...overrides }),
+      registry: 'ghcr.io/github/gh-aw-firewall',
+      parsedTag: parseImageTag('latest'),
+    });
+    expect(service.command[0]).not.toContain(GEMINI_CLI_SYSTEM_SETTINGS_PATH);
+  });
   it('generates a service with correct container name', () => {
     const service = buildSysrootStageService({
       config: makeConfig({ runnerTopology: 'arc-dind' }),

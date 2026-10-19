@@ -3,6 +3,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { stageHostFile } from './agent-volumes/docker-host-staging';
 import { applyHostPathPrefixToVolumes } from './host-path-prefix';
+import { GEMINI_CLI_SYSTEM_SETTINGS_PATH } from './credentials/gemini-cli-settings';
 
 // Create mock functions (must remain per-file — jest.mock() is hoisted before imports)
 
@@ -14,6 +15,20 @@ jest.mock('execa', () => require('../test-helpers/mock-execa.test-utils').execaM
 const { getConfig } = useAgentVolumesTestConfig();
 
 describe('agent service', () => {
+  it('provisions the Gemini auth pin in the sysroot without an unshared workDir bind', () => {
+    const config = {
+      ...getConfig(), runnerTopology: 'arc-dind' as const, dockerHostPathPrefix: '/host',
+      enableApiProxy: true, geminiApiKey: 'fake-key',
+    };
+    const compose = generateDockerCompose(config, { ...mockNetworkConfig, proxyIp: '172.30.0.30' });
+    const volumes = compose.services.agent.volumes as string[];
+    expect(volumes).toContain('sysroot:/host:rw');
+    expect(volumes.some((volume) => volume.includes(`:/host${GEMINI_CLI_SYSTEM_SETTINGS_PATH}:`))).toBe(false);
+    expect(compose.services.agent.environment?.GEMINI_CLI_SYSTEM_SETTINGS_PATH).toBe(GEMINI_CLI_SYSTEM_SETTINGS_PATH);
+    expect(compose.services['sysroot-stage']?.command?.[0])
+      .toContain(`> /sysroot${GEMINI_CLI_SYSTEM_SETTINGS_PATH}`);
+  });
+
   it.each(['/host', '/tmp/gh-aw', '/tmp'])(
     'preserves explicit agent log targets and commands with the %s DinD prefix',
     (dockerHostPathPrefix) => {
