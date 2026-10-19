@@ -20,7 +20,7 @@
     },
     "provenance": {
       "type": "object",
-      "required": ["authority", "source", "at"],
+      "required": ["authority", "source"],
       "properties": {
         "authority": { "enum": ["maintained", "operator", "configured_catalog", "central_feed", "runtime", "imported", "policy"] },
         "source": { "type": "string", "minLength": 1 },
@@ -28,6 +28,7 @@
         "at": { "type": "string", "format": "date-time" },
         "freshUntil": { "type": "string", "format": "date-time" },
         "confidence": { "enum": ["verified", "imported", "estimated", "policy_fallback"] },
+        "freshness": { "enum": ["fresh", "stale", "unknown"] },
         "stale": { "type": "boolean" }
       },
       "additionalProperties": false
@@ -110,7 +111,7 @@
       "type": "object",
       "required": ["key", "provider", "rawId", "lookupId"],
       "properties": {
-        "key": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]*/[^/?#]+$" },
+        "key": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]*/[^/?#/]+(/[^/?#/]+)*$" },
         "provider": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$" },
         "rawId": { "type": "string", "minLength": 1 },
         "lookupId": { "type": "string", "minLength": 1 },

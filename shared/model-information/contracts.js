@@ -24,6 +24,14 @@ const validators = Object.fromEntries(kinds.map(kind => [
   kind, ajv.compile({ $ref: `${schema.$id}#/$defs/${kind}` }),
 ]));
 
+function stableStringify(value) {
+  if (Array.isArray(value)) return JSON.stringify(value.map(stableStringify));
+  if (value && typeof value === 'object') {
+    return JSON.stringify(Object.keys(value).sort().map(key => [key, stableStringify(value[key])]));
+  }
+  return JSON.stringify(value);
+}
+
 function validate(kind, value) {
   if (!Object.hasOwn(validators, kind)) throw new Error(`Unknown contract: ${kind}`);
   const valid = validators[kind](value);
@@ -98,21 +106,34 @@ function validateRecords(models, rules = []) {
       errors.push(`Unresolved replacement: ${model.lifecycle.replacement}`);
     }
   }
+  for (const { alias, key } of aliases) {
+    const lookup = `${alias.scope.provider}/${normalizeId(alias.id, {
+      caseInsensitive: true, separators: true,
+    })}`;
+    if (lookups.has(lookup) && !models.some(model =>
+      model.identity.key === key && `${model.identity.provider}/${model.identity.lookupId}` === lookup)) {
+      errors.push(`Alias collides with exact key: ${alias.id}`);
+    }
+  }
   const seenRules = new Map();
   for (const rule of rules) {
     const validation = validate('rule', rule);
     errors.push(...validation);
     if (validation.length) continue;
-    const token = JSON.stringify([rule.provider, rule.family, rule.scope, rule.field]);
-    if (seenRules.has(token) && seenRules.get(token) !== JSON.stringify(rule.value)) {
+    if (rule.provider !== rule.scope.provider) errors.push(`Rule provider/scope mismatch: ${rule.family}`);
+    const token = JSON.stringify([
+      rule.provider, normalizeId(rule.family, { caseInsensitive: true, separators: true }),
+      rule.scope.channel, rule.scope.deployment || '', rule.field,
+    ]);
+    if (seenRules.has(token) && seenRules.get(token) !== stableStringify(rule.value)) {
       errors.push(`Conflicting equal-specificity rules: ${token}`);
     }
-    seenRules.set(token, JSON.stringify(rule.value));
+    seenRules.set(token, stableStringify(rule.value));
     for (const model of models) {
       if (model.identity?.provider !== rule.provider) continue;
-      const id = model.identity.rawId;
-      if (id.startsWith(`${rule.family}-`) &&
-          !rule.excludes.includes(model.identity.key)) {
+      const id = model.identity.lookupId;
+      const family = normalizeId(rule.family, { caseInsensitive: true, separators: true });
+      if (id.startsWith(`${family}-`) && !rule.excludes.includes(model.identity.key)) {
         errors.push(`Family captures declared exception: ${model.identity.key}`);
       }
     }
@@ -128,7 +149,7 @@ function projectConfiguredCatalogResolution(resolution, scope) {
     authority: 'configured_catalog',
     source: 'shared_catalog',
     revision: `${resolution.pricingCatalogId}/${resolution.pricingCatalogVersion}`,
-    at: scope.reviewedAt,
+    ...(scope.reviewedAt ? { at: scope.reviewedAt, freshness: 'fresh' } : { freshness: 'unknown' }),
   };
   const components = Object.fromEntries(
     Object.entries(resolution.pricing).filter(([name]) => name !== 'threshold').map(([name, price]) =>

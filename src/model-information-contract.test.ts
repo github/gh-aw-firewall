@@ -69,6 +69,12 @@ describe('versioned model information contracts', () => {
     const spelling: any = copy(model);
     spelling.identity = { ...identity('openai', 'GPT_5_5_PRO'), family: 'gpt-5.5' };
     expect(validateRecords([model, spelling]).join(' ')).toContain('Duplicate normalized exact key');
+    const aliasCollision: any = copy(model);
+    aliasCollision.identity = {
+      ...identity('openai', 'another'), family: 'another',
+      aliases: [{ id: 'gpt-5.5-pro', scope: { provider: 'openai', channel: 'native-api' }, match: 'exact' }],
+    };
+    expect(validateRecords([model, aliasCollision]).join(' ')).toContain('Alias collides with exact key');
     const other: any = copy(model);
     other.identity = { ...identity('openai', 'gpt-5.5-other'), lookupId: 'gpt-5-5-other', aliases: model.identity.aliases };
     expect(validateRecords([model, other]).join(' ')).toContain('Ambiguous scoped alias');
@@ -86,6 +92,17 @@ describe('versioned model information contracts', () => {
     expect(validateRecords([model, other], [rule, {
       ...rule, value: { state: 'unsupported', provenance },
     }]).join(' ')).toContain('Conflicting equal-specificity rules');
+    expect(validateRecords([model, other], [rule, {
+      ...rule, scope: { channel: 'native-api', provider: 'openai' },
+      value: { provenance, state: 'unsupported' },
+    }]).join(' ')).toContain('Conflicting equal-specificity rules');
+    expect(validateRecords([model, other], [rule, {
+      ...rule, scope: { channel: 'native-api', provider: 'openai' },
+      value: { provenance, state: 'supported' },
+    }]).join(' ')).not.toContain('Conflicting equal-specificity rules');
+    expect(validateRecords([model], [{
+      ...rule, scope: { provider: 'copilot', channel: 'native-api' },
+    }]).join(' ')).toContain('Rule provider/scope mismatch');
   });
 });
 
@@ -95,9 +112,13 @@ describe('provider-qualified identity (not a legacy migration)', () => {
       key: 'copilot/GPT_5.5', provider: 'copilot', rawId: 'GPT_5.5', lookupId: 'gpt-5-5',
     });
     expect(identity('openai', 'GPT_5.5').key).not.toBe(identity('copilot', 'GPT_5.5').key);
+    expect(identity('openai', 'gpt-5-codex/pro')).toMatchObject({
+      key: 'openai/gpt-5-codex/pro', rawId: 'gpt-5-codex/pro',
+    });
     expect(normalizeId('GPT_5.5-20261015', { caseInsensitive: true, separators: true, stripDate: true })).toBe('gpt-5-5');
     expect(normalizeId('GPT_5.5?effort=high', { caseInsensitive: true, separators: true })).toBe('gpt-5-5?effort=high');
     expect(() => identity('openai', 'model?query=1')).toThrow();
+    expect(() => identity('openai', '../model')).toThrow();
   });
 
   it('matches exact before aliases; never enables family or provider-prefix rewriting implicitly', () => {
@@ -110,11 +131,13 @@ describe('provider-qualified identity (not a legacy migration)', () => {
     expect(matchModel(record, 'gpt-5.5-pro-20261015', scope)).toBeNull();
     expect(matchModel(record, 'gpt-5.5-pro-20261015', scope, { stripDate: true })).toMatchObject({ kind: 'exact' });
     expect(matchModel(record, 'gpt-5.5-cyber', scope)).toBeNull();
-    const rule = { provider: 'openai', family: 'gpt-5.5', scope, excludes: [] };
+    const rule = { provider: 'openai', family: 'gpt-5.5', scope, excludes: [] as string[] };
     expect(matchFamilyRule(rule, 'gpt-5.5-cyber', scope, [record])).toMatchObject({ kind: 'family' });
     const specialized: any = copy(record);
     specialized.identity = { ...identity('openai', 'gpt-5.5-cyber'), family: 'gpt-5.5-cyber' };
     expect(matchFamilyRule(rule, 'gpt-5.5-cyber', scope, [specialized])).toBeNull();
+    rule.excludes.push('openai/gpt-5.5-cyber');
+    expect(matchFamilyRule(rule, 'GPT_5_5_CYBER', scope)).toBeNull();
     expect(matchModel(record, 'gpt-5.5-pro', { ...scope, provider: 'copilot' })).toBeNull();
   });
 });

@@ -1034,7 +1034,9 @@ input: `projectConfiguredCatalogResolution()` maps its **existing resolver's**
 selected tier into decimal-string canonical prices and per-component
 `shared_catalog`/ID/version provenance without changing its parser. A
 downloaded central snapshot has `central_feed` authority regardless of whether
-its tariff has the same shape. For pricing the future order is scoped operator
+its tariff has the same shape. The v1 catalogue has no review timestamp;
+projection reports unknown freshness rather than inventing an observation time.
+For pricing the future order is scoped operator
 overlay > configured catalogue > complete fresh runtime > fresh fetched feed >
 reviewed maintained > governed import > explicit policy fallback. Incomplete
 runtime tiers may only be assembled from compatible components and must retain

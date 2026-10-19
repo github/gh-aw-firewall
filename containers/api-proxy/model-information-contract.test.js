@@ -23,7 +23,7 @@ it('accepts version-one configured catalogue via its legacy parser and projects 
       },
     } } } },
   });
-  const scope = { provider: 'copilot', channel: 'copilot-api', reviewedAt: '2026-10-01T00:00:00Z' };
+  const scope = { provider: 'copilot', channel: 'copilot-api' };
   const atBoundary = resolveModelPricingCatalog('copilot', 'copilot/GPT_5_5_PRO-20261015', 128000);
   const aboveBoundary = resolveModelPricingCatalog('copilot', 'gpt-5.5-pro', 128001);
   expect(atBoundary).toMatchObject({
@@ -35,7 +35,10 @@ it('accepts version-one configured catalogue via its legacy parser and projects 
   const long = projectConfiguredCatalogResolution(aboveBoundary, scope);
   expect(validate('model', { ...fixtures.model, tariffs: [standard, long] })).toEqual([]);
   expect(standard).toMatchObject({
-    provenance: { authority: 'configured_catalog', source: 'shared_catalog', revision: 'operator-prices/2026-10' },
+    provenance: {
+      authority: 'configured_catalog', source: 'shared_catalog',
+      revision: 'operator-prices/2026-10', freshness: 'unknown',
+    },
     components: {
       input: { price: '2.125' },
       output: { price: '0' },

@@ -10,7 +10,8 @@ function normalizeId(id, { caseInsensitive = false, separators = false, stripDat
 
 function identity(provider, rawId) {
   if (typeof provider !== 'string' || !/^[a-z0-9][a-z0-9-]*$/.test(provider) ||
-      typeof rawId !== 'string' || !rawId || /[/?#]/.test(rawId)) {
+      typeof rawId !== 'string' || !rawId || /[?#]/.test(rawId) ||
+      rawId.split('/').some(segment => !segment || segment === '.' || segment === '..')) {
     throw new Error('Invalid provider-qualified model identity');
   }
   return {
@@ -47,7 +48,8 @@ function matchFamilyRule(rule, candidate, scope, declaredModels = []) {
   const family = normalizeId(rule.family, { caseInsensitive: true, separators: true });
   const id = normalizeId(candidate, { caseInsensitive: true, separators: true });
   if (id !== family && !id.startsWith(`${family}-`)) return null;
-  if (rule.excludes.includes(`${rule.provider}/${candidate}`) ||
+  if (rule.excludes.some(key =>
+    normalizeId(key, { caseInsensitive: true, separators: true }) === `${rule.provider}/${id}`) ||
       declaredModels.some(model => model.identity.provider === rule.provider &&
         model.identity.lookupId === id && model.identity.family !== rule.family)) return null;
   return { kind: 'family', rule };
