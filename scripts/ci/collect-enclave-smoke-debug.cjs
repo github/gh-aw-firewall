@@ -198,6 +198,10 @@ function projectProxyContainerLog(bytes) {
     'enclave_model_capability_missing', 'enclave_model_capability_scheme', 'enclave_model_capability_format',
     'enclave_model_capability_signature', 'enclave_model_capability_claims', 'enclave_model_capability_claims_changed',
     'enclave_model_token_limit',
+    'enclave_model_token_body_missing', 'enclave_model_token_input_reservation',
+    'enclave_model_token_request_json', 'enclave_model_token_request_shape',
+    'enclave_model_token_output_conflict', 'enclave_model_token_output_shape',
+    'enclave_model_token_stream_options', 'enclave_model_token_budget_exhausted',
   ]);
   if (lines.at(-1) !== '' ||
       !/^capture_status=(?:captured dropped=(?:[0-9]{1,5})|empty|unavailable)$/.test(trailer ?? '') ||

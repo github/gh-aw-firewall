@@ -135,19 +135,29 @@ describe('upstream-http', () => {
     },
   );
 
-  test('retains a fixed token-budget rejection event without request data', () => {
+  test.each([
+    undefined, 'body_missing', 'input_reservation', 'request_json', 'request_shape',
+    'output_conflict', 'output_shape', 'stream_options', 'budget_exhausted', 'PRIVATE_CREDENTIAL',
+  ])('retains only a fixed token-budget rejection classification (%s)', tokenFailure => {
     const logRequest = jest.fn();
     const res = { headersSent: false, writeHead: jest.fn(), end: jest.fn() };
+    const httpsRequest = jest.fn();
     const send = createSendUpstreamRequest({
-      https: { request: jest.fn() }, proxyAgent: {},
+      https: { request: httpsRequest }, proxyAgent: {},
       handleUpstreamResponse: jest.fn(), sleep: jest.fn(),
       otel: { endSpan: jest.fn() }, handleRequestError: jest.fn(),
       metrics: { gaugeDec: jest.fn(), increment: jest.fn() },
-      modelBudget: { beginAttempt: () => ({ allowed: false, reason: 'token_limit' }) },
+      modelBudget: { beginAttempt: () => ({ allowed: false, reason: 'token_limit', tokenFailure }) },
       logRequest,
     });
     send({}, createContext({ res }));
     expect(logRequest).toHaveBeenCalledWith('warn', 'enclave_model_token_limit', { status: 429 });
+    expect(httpsRequest).not.toHaveBeenCalled();
+    if (tokenFailure && tokenFailure !== 'PRIVATE_CREDENTIAL') {
+      expect(logRequest).toHaveBeenCalledWith('warn',
+        `enclave_model_token_${tokenFailure}`, { status: 429 });
+    }
+    expect(JSON.stringify(logRequest.mock.calls)).not.toContain('PRIVATE_CREDENTIAL');
   });
 
   test('aborts admitted work and suppresses retries and fallbacks after downstream close', async () => {

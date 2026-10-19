@@ -891,6 +891,10 @@ missing authorization, an invalid scheme or format, signature rejection, invalid
 claims, and changed invocation claims. They never retain authorization values,
 capability payloads, signatures, or token hashes. These local authentication
 failures return HTTP 403; exhausted model budgets return HTTP 429.
+Token-limit diagnostics separately classify input-byte reservation, missing or
+invalid request bodies, conflicting or invalid output limits, invalid streaming
+options, and exhausted accounting. These fixed events retain no request content
+or numerical budget values; all rejection and accounting rules remain unchanged.
 The Copilot custom-provider route receives the invocation capability through
 `COPILOT_PROVIDER_BEARER_TOKEN`, without the `Bearer ` prefix (the CLI adds the
 scheme). Setting only the legacy `COPILOT_TOKEN` does not configure custom-provider

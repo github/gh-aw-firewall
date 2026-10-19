@@ -17,6 +17,10 @@ const SAFE_LOG_EVENTS = new Set([
   'enclave_model_capability_missing', 'enclave_model_capability_scheme', 'enclave_model_capability_format',
   'enclave_model_capability_signature', 'enclave_model_capability_claims', 'enclave_model_capability_claims_changed',
   'enclave_model_token_limit',
+  'enclave_model_token_body_missing', 'enclave_model_token_input_reservation',
+  'enclave_model_token_request_json', 'enclave_model_token_request_shape',
+  'enclave_model_token_output_conflict', 'enclave_model_token_output_shape',
+  'enclave_model_token_stream_options', 'enclave_model_token_budget_exhausted',
 ]);
 const SAFE_LEVELS = new Set(['info', 'warn', 'error']);
 const SAFE_PROJECTED_LOG_LINE =

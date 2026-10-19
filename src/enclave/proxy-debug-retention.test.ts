@@ -96,7 +96,11 @@ describe('public run-cumulative enclave proxy diagnostics', () => {
   it.each(['enclave_model_budget_rejected', 'rate_limited', 'request_validation_failed', 'model_fallback_exhausted',
     'enclave_model_capability_missing', 'enclave_model_capability_scheme', 'enclave_model_capability_format',
     'enclave_model_capability_signature', 'enclave_model_capability_claims', 'enclave_model_capability_claims_changed',
-    'enclave_model_token_limit'])(
+    'enclave_model_token_limit',
+    'enclave_model_token_body_missing', 'enclave_model_token_input_reservation',
+    'enclave_model_token_request_json', 'enclave_model_token_request_shape',
+    'enclave_model_token_output_conflict', 'enclave_model_token_output_shape',
+    'enclave_model_token_stream_options', 'enclave_model_token_budget_exhausted'])(
     'retains only the fixed %s rejection event and drops free-form fields', async event => {
       const log = await captureEnclaveProxyContainerLog(async () => ({
         exitCode: 0, stdout: '', stderr: JSON.stringify({

@@ -129,7 +129,11 @@ describe('host-only public enclave debug collector', () => {
   it.each(['rate_limited', 'request_validation_failed', 'model_fallback_exhausted',
     'enclave_model_capability_missing', 'enclave_model_capability_scheme', 'enclave_model_capability_format',
     'enclave_model_capability_signature', 'enclave_model_capability_claims', 'enclave_model_capability_claims_changed',
-    'enclave_model_token_limit'])(
+    'enclave_model_token_limit',
+    'enclave_model_token_body_missing', 'enclave_model_token_input_reservation',
+    'enclave_model_token_request_json', 'enclave_model_token_request_shape',
+    'enclave_model_token_output_conflict', 'enclave_model_token_output_shape',
+    'enclave_model_token_stream_options', 'enclave_model_token_budget_exhausted'])(
     'collects the fixed %s event without free-form data', async event => {
       prepareRun();
       fs.writeFileSync(path.join(roots.journal, `${runId}.journal`),

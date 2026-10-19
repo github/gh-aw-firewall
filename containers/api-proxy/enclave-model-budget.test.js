@@ -32,6 +32,34 @@ function attempt(budget, token, body = Buffer.from('{"model":"test"}'), path = '
 
 describe('invocation-scoped enclave model budgets', () => {
   test.each([
+    [null, 'body_missing'],
+    [Buffer.alloc(128, 'x'), 'input_reservation'],
+    [Buffer.from('{'), 'request_json'],
+    [Buffer.from('null'), 'request_shape'],
+    [Buffer.from('[]'), 'request_shape'],
+    [Buffer.from('{"max_tokens":1,"max_completion_tokens":1}'), 'output_conflict'],
+    [Buffer.from('{"max_tokens":null}'), 'output_shape'],
+    [Buffer.from('{"stream":true,"stream_options":null}'), 'stream_options'],
+  ])('classifies token rejection without retaining input (%s)', (body, tokenFailure) => {
+    const budget = createInvocationModelBudget(secret);
+    const token = capability('invocation-diagnostic01', 1, 128);
+    expect(attempt(budget, token, body)).toEqual({
+      allowed: false, reason: 'token_limit', tokenFailure,
+    });
+    // Rejected input neither dispatches nor consumes the request allowance.
+    expect(attempt(budget, token).allowed).toBe(true);
+  });
+
+  test('distinguishes exhausted accounting from rejected request shapes', () => {
+    const budget = createInvocationModelBudget(secret);
+    const token = capability('invocation-diagnostic02', 2, 128);
+    attempt(budget, token).settleMissing();
+    expect(attempt(budget, token)).toEqual({
+      allowed: false, reason: 'token_limit', tokenFailure: 'budget_exhausted',
+    });
+  });
+
+  test.each([
     [undefined, 'missing'],
     ['', 'missing'],
     ['Basic PRIVATE_CREDENTIAL', 'scheme'],
