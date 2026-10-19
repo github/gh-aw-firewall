@@ -59,8 +59,8 @@ export function isNativeRootWithoutSudo(): boolean {
 
 /**
  * Gets the host user's GID, with fallback to 1000 if unavailable, root (0),
- * or in the system GID range (0-999) when running as root. A regular
- * unprivileged user may have a primary GID in that range; preserve it so
+ * or in the system GID range (0-999), except that callers with UID >= 1000
+ * keep their nonzero primary GID, including system-range GIDs, so
  * ownership changes and the sandbox identity match the actual caller.
  * When running with sudo, uses SUDO_GID to get the actual user's GID.
  * @internal Exported for testing
