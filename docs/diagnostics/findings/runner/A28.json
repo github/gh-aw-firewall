@@ -29,7 +29,7 @@
     "readOnly": true,
     "secretSafe": true
   },
-  "action": "The gh-aw compiler must place Pi's log at /tmp/gh-aw/sandbox/agent/logs/pi-streaming.jsonl and update the step-summary parser, session exporters, and artifact paths to match the runner-visible mount source. Until then, create the writable log file in a pre-step, symlink the compiled tee path to it, and add an explicit :rw file entry to sandbox.agent.mounts; do not make the parent mount writable. AWF's writable child mount is available since github/gh-aw-firewall#9188.",
+  "action": "The gh-aw compiler must place Pi's log at /tmp/gh-aw/sandbox/agent/logs/pi-streaming.jsonl and update the step-summary parser, session exporters, and artifact paths to match the runner-visible mount source. Until then, create the real log file at the runner-side sandbox/agent/logs path in a pre-step, symlink the compiled tee path to that file, and add an explicit :rw sandbox.agent.mounts file entry whose destination is /tmp/gh-aw/sandbox/agent/logs/pi-streaming.jsonl. Keep the compatibility symlink separate from the mount destination: AWF rejects a symlink as a bind-mount target. Do not make the parent mount writable. AWF's writable child mount is available since github/gh-aw-firewall#9188.",
   "references": [
     { "kind": "issue", "ref": "https://github.com/github/gh-aw-firewall/issues/9183", "title": "ARC/DinD streaming log write failure" },
     { "kind": "issue", "ref": "https://github.com/github/gh-aw/issues/69406", "title": "Pi streaming log on ARC/DinD" },
