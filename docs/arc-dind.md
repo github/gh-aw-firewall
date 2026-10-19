@@ -213,6 +213,16 @@ are tracked there for compiler/MCP Gateway fixes, with AWF-side tracking in
   and cannot interpret an engine's permission denials or detection verdict.
   The upstream `Conclude threat detection` step must also honor
   `RUN_DETECTION=false` rather than requiring a deliberately skipped binary.
+  To verify the reported strict-mode failure, reproduce on a throwaway PR
+  with `CUSTOM_PROMPT` removed and other detection settings unchanged. Keep a
+  redacted, non-payload-bearing record of the workflow commit, executed lock
+  excerpt and full setup SHA, compiler/AWF/threat-detect pins, permission
+  errors, non-secret conclusion environment, conclusion/reason/success outputs
+  (mark unset outputs), exit status, and run/job IDs. Compare that old-version
+  result separately from a current-version run: a required unreadable input
+  must not yield a successful verdict in strict mode, while readable inputs
+  must still produce a normal verdict. Neither a mount assertion nor the
+  engine exit status establishes those end-to-end properties.
 - **Safe outputs:** the compiler/MCP Gateway must run the nested `safeoutputs`
   stdio container with the runner UID/GID (`--user <uid>:<gid>`). Setting the
   gateway container's user does not set its child containers' users. Their
