@@ -1,4 +1,3 @@
-import type { WrapperConfig } from './types';
 import { normalizeEnclavesConfig } from './parsers/enclave-parser';
 import { buildCloudHypervisorGuestEnvironment } from './cloud-hypervisor/guest-environment-builder';
 import { assertCloudHypervisorPreSecurityCompatibility } from './cloud-hypervisor-runtime-backend';
