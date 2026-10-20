@@ -96,7 +96,10 @@ export class HostExecutorLifecycleRegistry<Owner, Storage> {
 
 export interface HostExecutorDrainHooks {
   preserveEvidence(): Promise<void>;
-  /** Must verify recovery journals after draining the backend. */
+  /**
+   * Must verify recovery journals and reject if cleanup is incomplete or uncertain.
+   * The boolean only reports whether a host service was drained.
+   */
   drain(): Promise<boolean>;
   collectDiagnostics(drained: boolean): Promise<void>;
   /** Runs only after confirmed cleanup; storage authority stays in the adapter. */
