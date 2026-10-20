@@ -6,7 +6,7 @@ const { join } = require('node:path');
 const { identity } = require('./identity');
 const { validate } = require('./contracts');
 
-const IMPORTER_VERSION = '1';
+const IMPORTER_VERSION = '2';
 // Git blob ID and SHA-256 of the committed legacy file, not of an upstream download.
 const BUNDLED_GIT_BLOB = '7aadc2a15168959d020df4252b650337536e1c1d';
 const BUNDLED_SHA256 = 'e99d729367dd9dc0862d24c2fa1a2407e994febf683bb159b91031743b30fd38';
@@ -99,11 +99,10 @@ function importLegacySnapshot(bytes, metadata) {
       const record = {
         schemaVersion: 1, identity: modelIdentity,
         lifecycle: { status: 'active' }, modelType: 'other',
-        tariffs: [{
-          scope: { provider: modelIdentity.provider, channel: 'native-api' },
-          currency: 'USD', unit: 'USD_PER_1M_TOKENS', tier: 'standard',
-          components, provenance,
-        }],
+        importedPricing: {
+          sourceNamespace: modelIdentity.provider,
+          currency: 'USD', unit: 'USD_PER_1M_TOKENS', components, provenance,
+        },
         provenance,
       };
       if (validate('model', record).length) throw new Error('Invalid normalized model');

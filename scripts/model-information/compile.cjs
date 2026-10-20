@@ -17,7 +17,7 @@ if (sourceArgument && !process.argv.includes('--check')) {
 const sources = sourceArgument
   ? path.resolve(sourceArgument.slice('--source-dir='.length))
   : path.join(root, 'shared/model-information/sources');
-const compilerVersion = 1;
+const compilerVersion = 2;
 const read = file => JSON.parse(fs.readFileSync(path.join(root, file), 'utf8'));
 const sha256 = value => crypto.createHash('sha256').update(value).digest('hex');
 const json = value => `${JSON.stringify(value, null, 2)}\n`;
@@ -28,6 +28,8 @@ const sorted = value => {
   );
   return value;
 };
+const latestTimestamp = provenances => provenances
+  .map(item => new Date(item.at).toISOString()).sort().at(-1);
 
 function compile() {
   const files = fs.readdirSync(sources).filter(file => file.endsWith('.json')).sort();
@@ -80,6 +82,7 @@ function compile() {
       continue;
     }
     const patterns = new Map();
+    const routingPatterns = new Map();
     const families = new Set();
     for (const [index, entry] of (data.models || []).entries()) {
       if (!entry || typeof entry !== 'object') {
@@ -104,6 +107,13 @@ function compile() {
         }
         patterns.set(pattern, JSON.stringify(entry.endpoints));
       }
+      for (const pattern of entry.routingPatterns || []) {
+        const routing = JSON.stringify(entry.routing || null);
+        if (routingPatterns.has(pattern) && routingPatterns.get(pattern) !== routing) {
+          errors.push(`mapping.json: ${provider}: conflicting routing pattern ${pattern}`);
+        }
+        routingPatterns.set(pattern, routing);
+      }
     }
   }
   if (errors.length) throw new Error(errors.join('\n'));
@@ -118,9 +128,6 @@ function compile() {
     compilerVersion, schemaHash, imported, sources: Object.fromEntries(files.map(file =>
       [file, JSON.parse(fs.readFileSync(path.join(sources, file), 'utf8'))])),
   })));
-  const generatedAt = [{ at: imported.retrievedAt }, mapping.provenance, reference.provenance,
-    ...records.map(([, data]) => data.provenance)]
-    .map(item => new Date(item.at).toISOString()).sort().at(-1);
   const sortedModels = [...models, ...imported.models].sort((a, b) =>
     a.identity.key < b.identity.key ? -1 : a.identity.key > b.identity.key ? 1 : 0);
   const target = JSON.parse(fs.readFileSync(path.join(sources, 'target.json'), 'utf8'));
@@ -129,7 +136,10 @@ function compile() {
       !Array.isArray(target.routing)) {
     throw new Error('target.json: invalid target metadata or corrections');
   }
-  const targetModels = new Map(models.map(model => [model.identity.key, structuredClone(model)]));
+  const generatedAt = latestTimestamp([{ at: imported.retrievedAt }, mapping.provenance,
+    reference.provenance, ...records.map(([, data]) => data.provenance), target.provenance]);
+  const targetModels = new Map([...models, ...imported.models]
+    .map(model => [model.identity.key, structuredClone(model)]));
   const targetModel = (provider, rawId) => {
     const id = identity(provider, rawId);
     if (provider === 'copilot' && !targetModels.has(id.key)) {
@@ -230,7 +240,9 @@ function compile() {
         targetMapping.providers.anthropic.models.splice(
           targetMapping.providers.anthropic.models.indexOf(parent), 0, {
             family: 'claude-mythos-preview', patterns: ['claude-mythos-preview*'],
-            endpoints: parent.endpoints, notes: 'Preview excludes xhigh; #10030.',
+            endpoints: parent.endpoints,
+            routing: { ...parent.routing, reasoningEfforts: entry.efforts },
+            notes: 'Preview excludes xhigh; #10030.',
           });
       } else throw new Error(`target.json: unknown mapped family ${entry.provider}/${entry.family}`);
     }
@@ -266,13 +278,15 @@ function compile() {
         .concat(entry.family === 'gpt-5.5' ? ['gpt-5.5-2026-04-23'] : []))];
     }
   }
-  const differences = resolvedTarget.filter(model =>
-    JSON.stringify(model) !== JSON.stringify(models.find(item => item.identity.key === model.identity.key)))
-    .map(model => ({
-      key: model.identity.key,
-      baseline: models.find(item => item.identity.key === model.identity.key) || null,
-      target: model,
-    }));
+  const baselineByKey = new Map(sortedModels.map(model => [model.identity.key, model]));
+  const targetByKey = new Map(resolvedTarget.map(model => [model.identity.key, model]));
+  const differences = [...new Set([...baselineByKey.keys(), ...targetByKey.keys()])]
+    .sort().flatMap(key => {
+      const baseline = baselineByKey.get(key) || null;
+      const target = targetByKey.get(key) || null;
+      return JSON.stringify(baseline) === JSON.stringify(target)
+        ? [] : [{ key, baseline, target }];
+    });
   const supported = sortedModels.filter(model => model.availability?.some(item =>
     item.scope.channel === 'copilot-cli' && item.fact.state === 'supported')).map(model => model.identity.rawId);
   const pricing = Object.fromEntries(sortedModels.flatMap(model => {
@@ -344,8 +358,7 @@ function compile() {
     }),
     'shared/model-information/target.generated.json': json({
       schemaVersion: 1, catalogRevision: revision, generatedAt,
-      models: [...resolvedTarget, ...imported.models.filter(model => !targetModels.has(model.identity.key))]
-        .sort((a, b) =>
+      models: resolvedTarget.sort((a, b) =>
         a.identity.key < b.identity.key ? -1 : a.identity.key > b.identity.key ? 1 : 0),
     }),
     'shared/model-information/baseline-to-target.generated.json': json({
@@ -370,4 +383,6 @@ function compile() {
   console.log(`${process.argv.includes('--check') ? 'Checked' : 'Generated'} model catalogue ${revision}`);
 }
 
-compile();
+if (require.main === module) compile();
+
+module.exports = { latestTimestamp };

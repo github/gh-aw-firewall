@@ -74,6 +74,10 @@ post-steps:
 safe-outputs:
   report-failed-jobs: false
   report-failure-as-issue: false
+  report-incomplete:
+    create-issue: false
+  missing-tool:
+    create-issue: false
   jobs:
     report-mapping-review:
       description: "Record model API mapping discrepancies in the Actions run summary."

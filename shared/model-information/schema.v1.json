@@ -113,6 +113,32 @@
       "then": { "required": ["effectiveUntil"] },
       "additionalProperties": false
     },
+    "importedPricing": {
+      "type": "object",
+      "required": ["sourceNamespace", "currency", "unit", "components", "provenance"],
+      "properties": {
+        "sourceNamespace": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$" },
+        "currency": { "const": "USD" },
+        "unit": { "const": "USD_PER_1M_TOKENS" },
+        "components": {
+          "type": "object",
+          "required": ["input", "output"],
+          "minProperties": 2,
+          "propertyNames": { "enum": ["input", "output", "cachedInput", "cacheWrite"] },
+          "additionalProperties": {
+            "type": "object",
+            "required": ["price", "provenance"],
+            "properties": {
+              "price": { "$ref": "#/$defs/price" },
+              "provenance": { "$ref": "#/$defs/provenance" }
+            },
+            "additionalProperties": false
+          }
+        },
+        "provenance": { "$ref": "#/$defs/provenance" }
+      },
+      "additionalProperties": false
+    },
     "identity": {
       "type": "object",
       "required": ["key", "provider", "rawId", "lookupId"],
@@ -150,6 +176,7 @@
         "protocols": { "type": "array", "items": { "type": "object", "required": ["protocol", "support"], "properties": { "protocol": { "type": "string", "minLength": 1 }, "support": { "$ref": "#/$defs/fact" }, "features": { "type": "object", "additionalProperties": { "$ref": "#/$defs/fact" } } }, "additionalProperties": false } },
         "translations": { "type": "array", "items": { "type": "object", "required": ["from", "to", "revision", "support", "features"], "properties": { "from": { "type": "string", "minLength": 1 }, "to": { "type": "string", "minLength": 1 }, "revision": { "type": "string", "minLength": 1 }, "support": { "enum": ["supported", "lossy", "unsupported", "unknown", "conditional"] }, "condition": { "type": "string", "minLength": 1 }, "features": { "type": "object", "additionalProperties": { "$ref": "#/$defs/fact" } } }, "if": { "properties": { "support": { "const": "conditional" } }, "required": ["support"] }, "then": { "required": ["condition"] }, "else": { "not": { "required": ["condition"] } }, "additionalProperties": false } },
         "tariffs": { "type": "array", "items": { "$ref": "#/$defs/tariff" } },
+        "importedPricing": { "$ref": "#/$defs/importedPricing" },
         "provenance": { "$ref": "#/$defs/provenance" }
       },
       "additionalProperties": false

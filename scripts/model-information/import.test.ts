@@ -38,11 +38,17 @@ describe('governed legacy catalog import', () => {
       key: 'openai/GPT_5.5-pro', provider: 'openai',
       rawId: 'GPT_5.5-pro', lookupId: 'gpt-5-5-pro',
     });
-    expect(model.tariffs[0].components).toEqual({
-      input: { price: '0.123456789', provenance: expect.objectContaining({ authority: 'imported', revision: 'fixture-revision' }) },
-      output: { price: '0', provenance: expect.any(Object) },
-      cachedInput: { price: '0.01', provenance: expect.any(Object) },
+    expect(model.importedPricing).toMatchObject({
+      sourceNamespace: 'openai',
+      currency: 'USD',
+      unit: 'USD_PER_1M_TOKENS',
+      components: {
+        input: { price: '0.123456789', provenance: expect.objectContaining({ authority: 'imported', revision: 'fixture-revision' }) },
+        output: { price: '0', provenance: expect.any(Object) },
+        cachedInput: { price: '0.01', provenance: expect.any(Object) },
+      },
     });
+    expect(model).not.toHaveProperty('tariffs');
     expect(model).not.toHaveProperty('availability');
     expect(model).not.toHaveProperty('protocols');
     expect(model).not.toHaveProperty('reasoning');
@@ -80,6 +86,9 @@ describe('governed legacy catalog import', () => {
     expect(snapshot.retrievedAt).toBe(BUNDLED_COMMIT_TIMESTAMP);
     expect(snapshot.source).toContain('NOT upstream retrieval');
     expect(validate('importedSnapshot', snapshot)).toEqual([]);
+    expect(snapshot.models.find((model: any) => model.identity.key === 'openai/gpt-5.5'))
+      .toMatchObject({ importedPricing: { sourceNamespace: 'openai' } });
+    expect(snapshot.models.every((model: any) => !model.tariffs)).toBe(true);
     const committed = JSON.parse(readFileSync('shared/model-information/imported/legacy-models-dev.snapshot.v1.json', 'utf8'));
     expect(committed).toEqual(snapshot);
   });
