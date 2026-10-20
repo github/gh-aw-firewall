@@ -24,7 +24,7 @@ export function isCloudHypervisorConformanceAcceptanceWorkflow(config: WrapperCo
     || process.env.GITHUB_WORKFLOW_SHA !== process.env.GITHUB_SHA
     || !SHA_PATTERN.test(process.env.AWF_ACCEPTANCE_COMMIT ?? '')
     || config.containerRuntime !== 'cloud-hypervisor'
-    || !config.enableApiProxy
+    || config.enableApiProxy === false
     || runtime?.artifactReleaseTag !== releaseTag
     || runtime.developmentAllowUnattestedArtifacts
     || runtime.sha256 !== undefined

@@ -97,6 +97,7 @@ async function runStartupFaultProbes(options) {
   const { validateRecord } = require('../../dist/cloud-hypervisor/cleanup-identity');
   const { createHostExecutorClient } = require('../../containers/enclave/mcp-server/host-executor-client');
   const { assertNoVmResidue } = require('./cloud-hypervisor-enclave-live-smoke');
+  const { primaryVmResidue } = options;
   const provider = new ProductionTrustedCloudHypervisorEnclaveStorageProvider();
   const processDependencies = resolveCleanupDependencies();
   await provider.assertAvailable(options.config);
@@ -196,7 +197,7 @@ async function runStartupFaultProbes(options) {
         if (replay.ok || !['conflict', 'replayed', 'invalid-state'].includes(replay.error)) {
           throw new Error('Startup failure invocation was replayable');
         }
-        assertNoVmResidue();
+        assertNoVmResidue(primaryVmResidue);
       } finally {
         if (server) await server.close();
         await storageRun.close();

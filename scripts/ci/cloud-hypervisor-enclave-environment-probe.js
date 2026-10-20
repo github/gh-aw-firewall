@@ -215,6 +215,7 @@ async function main() {
     const diagnostics = { stage: 'initial', stderrFile: awfErr, startupErrorFile };
     await live.waitForBroker(awf, 'awf-enclave-mcp-server', Date.now() + 15 * 60_000, diagnostics);
     await live.waitForHostGatewayReadiness(awf, Date.now() + 150_000, diagnostics);
+    const primaryVmResidue = live.capturePrimaryVmResidue();
 
     const initialized = await live.requestMcp(handoff.endpoint, handoff.gatewayKey, 1, 'initialize', {
       protocolVersion: '2025-11-25',
@@ -233,7 +234,7 @@ async function main() {
       handoff.endpoint, handoff.gatewayKey, 3, 'tools/call', request,
     );
     console.log(`${RESULT_PREFIX}${assertProbeResult(response, 3, schema)}`);
-    await live.waitForVmCleanup(15_000);
+    await live.waitForVmCleanup(15_000, primaryVmResidue);
   } finally {
     try {
       if (awf && awf.exitCode === null && awf.signalCode === null && !live.failedSpawns.has(awf)) {

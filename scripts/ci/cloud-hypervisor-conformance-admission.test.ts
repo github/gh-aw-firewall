@@ -5,6 +5,8 @@ import { normalizeEnclavesConfig } from '../../src/parsers/enclave-parser';
 import { validateWithSchema } from '../../src/schema-validator';
 import { validateEnclavesConfig } from '../../src/enclave/preflight';
 import { validateRunSandboxBackend } from '../../src/enclave/run-backend';
+import { mapAwfFileConfigToCliOptions } from '../../src/config-mapper';
+import { applySecurityMode } from '../../src/commands/validators/security-mode';
 import { isCloudHypervisorConformanceAcceptanceWorkflow } from '../../src/enclave/cloud-hypervisor-conformance-acceptance';
 import {
   assertCloudHypervisorPreSecurityCompatibility,
@@ -33,13 +35,14 @@ function generated(profile: string): AwfFileConfig {
 
 function normalized(raw: AwfFileConfig): WrapperConfig {
   expect(validateWithSchema(raw)).toEqual([]);
+  const cliOptions = mapAwfFileConfigToCliOptions(raw);
   return {
     workDir: '/tmp/work',
     containerRuntime: raw.container?.containerRuntime,
     imageTag: raw.container?.imageTag,
     cloudHypervisor: raw.cloudHypervisor,
     networkIsolation: raw.network?.isolation,
-    enableApiProxy: raw.apiProxy?.enabled,
+    enableApiProxy: cliOptions.enableApiProxy as boolean | undefined,
     enclaves: normalizeEnclavesConfig(raw.enclaves, { primaryRuntime: raw.container?.containerRuntime }),
     // Only validate route presence; no provider or model calls occur.
     copilotGithubToken: 'isolated-test-route',
@@ -73,6 +76,11 @@ describe('generated native conformance production admission (no KVM)', () => {
     'admits the actual schema-valid %s profile through normalization and both production gates', profile => {
       const config = normalized(generated(profile));
       expect(config.containerRuntime).toBe('cloud-hypervisor');
+      expect(config.enableApiProxy).toBeUndefined();
+      expect(() => assertCloudHypervisorPreSecurityCompatibility(config)).not.toThrow();
+      expect(isCloudHypervisorConformanceAcceptanceWorkflow(config)).toBe(profile !== 'primary');
+      applySecurityMode(config);
+      expect(config.enableApiProxy).toBe(true);
       if (config.enclaves) {
         expect(validateRunSandboxBackend(config.containerRuntime, config.enclaves)).toEqual([]);
       } else {
@@ -80,7 +88,6 @@ describe('generated native conformance production admission (no KVM)', () => {
       }
       expect(validateEnclavesConfig(config)).toEqual([]);
       expect(() => assertCloudHypervisorRuntimeCompatibility(config)).not.toThrow();
-      expect(isCloudHypervisorConformanceAcceptanceWorkflow(config)).toBe(profile !== 'primary');
       if (profile === 'probe') {
         delete config.copilotGithubToken;
         expect(validateEnclavesConfig(config)).toEqual([]);
@@ -141,6 +148,12 @@ describe('generated native conformance production admission (no KVM)', () => {
       { ...config, cloudHypervisor: { ...config.cloudHypervisor!, developmentAllowUnattestedArtifacts: true } },
       { ...config, cloudHypervisor: { ...config.cloudHypervisor!, sha256: {} } },
     ]) expect(isCloudHypervisorConformanceAcceptanceWorkflow(changed)).toBe(false);
+    expect(() => assertCloudHypervisorPreSecurityCompatibility({
+      ...config, enableApiProxy: false,
+    })).toThrow(/reserved/);
+    expect(() => assertCloudHypervisorRuntimeCompatibility({
+      ...config, enableApiProxy: false,
+    })).toThrow(/API proxy credential isolation/);
     expect(() => assertCloudHypervisorPreSecurityCompatibility({
       ...config, volumeMounts: ['/tmp:/workspace:rw'],
     })).toThrow(/additional host volume mounts/);

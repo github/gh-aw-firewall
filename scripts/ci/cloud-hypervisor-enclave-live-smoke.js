@@ -766,27 +766,82 @@ async function waitForHostGatewayReadiness(child, deadline, diagnostics) {
   fail('timeout', 'Timed out waiting for actual AWF host gateway readiness');
 }
 
-function assertNoVmResidue() {
+function captureVmResidue() {
   const namespaces = run('ip', ['netns', 'list']);
-  if (/^awfvm-/m.test(namespaces)) throw new Error('Cloud Hypervisor namespace residue remains');
+  const namespaceNames = namespaces.split(/\r?\n/)
+    .map((line) => line.trim().split(/\s+/, 1)[0])
+    .filter((name) => name?.startsWith('awfvm-'))
+    .sort();
   const processes = spawnSync('pgrep', [
     '-f', '[c]loud-hypervisor --api-socket',
   ], { encoding: 'utf8' });
-  if (processes.status === 0) throw new Error('Cloud Hypervisor process residue remains');
-  if (processes.status !== 1) throw new Error('Could not inspect Cloud Hypervisor process state');
+  if (processes.error || ![0, 1].includes(processes.status)) {
+    throw new Error('Could not inspect Cloud Hypervisor process state');
+  }
+  const processIdentities = (processes.stdout || '').trim().split(/\r?\n/)
+    .filter(Boolean)
+    .map((pid) => {
+      if (!/^\d+$/.test(pid)) throw new Error('Could not inspect Cloud Hypervisor process state');
+      let stat;
+      try {
+        stat = fs.readFileSync(`/proc/${pid}/stat`, 'utf8');
+      } catch {
+        throw new Error('Cloud Hypervisor VM residue remains');
+      }
+      const commandEnd = stat.lastIndexOf(')');
+      const startTime = stat.slice(commandEnd + 2).split(/\s+/)[19];
+      if (commandEnd < 0 || !/^\d+$/.test(startTime || '')) {
+        throw new Error('Could not inspect Cloud Hypervisor process state');
+      }
+      return { pid, startTime };
+    })
+    .sort((left, right) => Number(left.pid) - Number(right.pid));
   const cgroupRoot = '/sys/fs/cgroup/awf-cloud-hypervisor';
-  if (fs.existsSync(cgroupRoot)
-      && fs.readdirSync(cgroupRoot, { withFileTypes: true }).some((entry) => entry.isDirectory())) {
-    throw new Error('Cloud Hypervisor cgroup residue remains');
+  const cgroups = fs.existsSync(cgroupRoot)
+    ? fs.readdirSync(cgroupRoot, { withFileTypes: true })
+      .filter((entry) => entry.isDirectory())
+      .map((entry) => {
+        const stat = fs.statSync(path.join(cgroupRoot, entry.name));
+        return { name: entry.name, device: stat.dev, inode: stat.ino };
+      })
+      .sort((left, right) => left.name.localeCompare(right.name))
+    : [];
+  return { namespaces: namespaceNames, processes: processIdentities, cgroups };
+}
+
+function assertNoVmResidue(expectedPrimary, observed = captureVmResidue()) {
+  const empty = { namespaces: [], processes: [], cgroups: [] };
+  if (expectedPrimary === undefined) {
+    if (!isDeepStrictEqual(observed, empty)) {
+      throw new Error('Cloud Hypervisor VM residue remains');
+    }
+    return;
+  }
+  if (!Array.isArray(expectedPrimary.namespaces)
+      || !Array.isArray(expectedPrimary.processes)
+      || !Array.isArray(expectedPrimary.cgroups)
+      || expectedPrimary.namespaces.length !== 1
+      || expectedPrimary.processes.length !== 1
+      || expectedPrimary.cgroups.length !== 1) {
+    throw new Error('Could not verify the live Cloud Hypervisor primary VM');
+  }
+  if (!isDeepStrictEqual(observed, expectedPrimary)) {
+    throw new Error('Cloud Hypervisor enclave resource residue remains');
   }
 }
 
-async function waitForVmCleanup(timeoutMs) {
+function capturePrimaryVmResidue() {
+  const primary = captureVmResidue();
+  assertNoVmResidue(primary, primary);
+  return primary;
+}
+
+async function waitForVmCleanup(timeoutMs, expectedPrimary) {
   const deadline = Date.now() + timeoutMs;
   let residueError;
   while (Date.now() < deadline) {
     try {
-      assertNoVmResidue();
+      assertNoVmResidue(expectedPrimary);
       return;
     } catch (error) {
       if (!/residue remains/.test(error.message)) throw error;
@@ -1386,6 +1441,7 @@ async function main(failureContext = { stage: FAILURE_STAGES.RUNNER }) {
   let awfConfigPath = path.join(root, 'awf-config.json');
   const runDirectories = [workDir];
   let awfEnvironment;
+  let primaryVmResidue;
   const launchAwf = (stage) => {
     const awfArguments = [
       path.resolve(__dirname, '../../dist/cli.js'),
@@ -1468,6 +1524,7 @@ async function main(failureContext = { stage: FAILURE_STAGES.RUNNER }) {
       stage: 'initial', stderrFile: awfErr,
       startupErrorFile: path.join(workDir, 'proxy-logs', 'awf-startup-error.json'),
     });
+    primaryVmResidue = capturePrimaryVmResidue();
 
     failureContext.stage = FAILURE_STAGES.MCP_ROUTE;
     const initialized = await requestMcp(
@@ -1535,7 +1592,7 @@ async function main(failureContext = { stage: FAILURE_STAGES.RUNNER }) {
     if (scriptResult.status !== 'ok' || !isDeepStrictEqual(scriptResult.result, scriptProbe.expected)) {
       throw new Error('Live script enclave guest identity, filesystem, network, or resource assertion failed');
     }
-    await waitForVmCleanup(15_000);
+    await waitForVmCleanup(15_000, primaryVmResidue);
 
     failureContext.stage = FAILURE_STAGES.AGENT;
     const agentResultValue = 'AWF_ENCLAVE_LIVE_AGENT_RESULT';
@@ -1551,7 +1608,7 @@ async function main(failureContext = { stage: FAILURE_STAGES.RUNNER }) {
     if (agentResult.status !== 'ok' || agentResult.result !== agentResultValue) {
       throw new Error('Live agent enclave did not return the bounded canonical result');
     }
-    await waitForVmCleanup(15_000);
+    await waitForVmCleanup(15_000, primaryVmResidue);
 
     const agentProbe = buildAgentGuestProbe();
     const agentProbeResponse = await requestMcp(endpoint, gatewayKey, 5, 'tools/call', {
@@ -1563,7 +1620,7 @@ async function main(failureContext = { stage: FAILURE_STAGES.RUNNER }) {
       },
     });
     assertExpectedToolResult(agentProbeResponse, 5, agentProbe.expected, 'agent identity and network');
-    await waitForVmCleanup(15_000);
+    await waitForVmCleanup(15_000, primaryVmResidue);
 
     failureContext.stage = FAILURE_STAGES.RESOURCE_LIMITS;
     const agentEnospcProbe = buildAgentEnospcProbe();
@@ -1576,7 +1633,7 @@ async function main(failureContext = { stage: FAILURE_STAGES.RUNNER }) {
       },
     });
     assertExpectedToolResult(agentEnospcResponse, 6, agentEnospcProbe.expected, 'agent aggregate ENOSPC');
-    await waitForVmCleanup(15_000);
+    await waitForVmCleanup(15_000, primaryVmResidue);
 
     const enospcExpected = { enospcObserved: true, probeFilesRemoved: true };
     const enospcResponse = await requestMcp(endpoint, gatewayKey, 7, 'tools/call', {
@@ -1588,7 +1645,7 @@ async function main(failureContext = { stage: FAILURE_STAGES.RUNNER }) {
       },
     });
     assertExpectedToolResult(enospcResponse, 7, enospcExpected, 'script aggregate ENOSPC');
-    await waitForVmCleanup(15_000);
+    await waitForVmCleanup(15_000, primaryVmResidue);
 
     const oomExpected = { childKilledByOom: true, oomKillCounterIncreased: true };
     const oomResponse = await requestMcp(endpoint, gatewayKey, 8, 'tools/call', {
@@ -1600,7 +1657,7 @@ async function main(failureContext = { stage: FAILURE_STAGES.RUNNER }) {
       },
     });
     assertExpectedToolResult(oomResponse, 8, oomExpected, 'guest OOM');
-    await waitForVmCleanup(15_000);
+    await waitForVmCleanup(15_000, primaryVmResidue);
 
     failureContext.stage = FAILURE_STAGES.FAILURE_HANDLING;
     const errorSchema = { type: 'const', value: true };
@@ -1613,7 +1670,7 @@ async function main(failureContext = { stage: FAILURE_STAGES.RUNNER }) {
       },
     });
     assertCanonicalToolError(guestFailure, 9, 'guest failure');
-    await waitForVmCleanup(15_000);
+    await waitForVmCleanup(15_000, primaryVmResidue);
 
     const timeout = await requestMcp(endpoint, gatewayKey, 10, 'tools/call', {
       name: 'enclave_run_script',
@@ -1624,7 +1681,7 @@ async function main(failureContext = { stage: FAILURE_STAGES.RUNNER }) {
       },
     });
     assertCanonicalToolError(timeout, 10, 'timeout');
-    await waitForVmCleanup(15_000);
+    await waitForVmCleanup(15_000, primaryVmResidue);
 
     const journalRoot = '/var/lib/awf-cloud-hypervisor/host-executor-journal';
     const existingCancellationResources = new Set(resourceRecords(journalRoot).map(({ file }) => file));
@@ -1651,7 +1708,7 @@ async function main(failureContext = { stage: FAILURE_STAGES.RUNNER }) {
     if (cancelled !== undefined) {
       throw new Error('Public MCP disconnect did not cancel the live enclave request');
     }
-    await waitForVmCleanup(15_000);
+    await waitForVmCleanup(15_000, primaryVmResidue);
 
     failureContext.stage = FAILURE_STAGES.STARTUP_FAULTS;
     try {
@@ -1659,12 +1716,13 @@ async function main(failureContext = { stage: FAILURE_STAGES.RUNNER }) {
         directory: root,
         config: toAwfConfig(makeConfig(artifacts, workDir, workspace, handoff)).cloudHypervisor,
         environment: awfEnvironment,
+        primaryVmResidue,
       });
     } catch (error) {
       keepArtifacts = true;
       throw error;
     }
-    await waitForVmCleanup(15_000);
+    await waitForVmCleanup(15_000, primaryVmResidue);
 
     failureContext.stage = FAILURE_STAGES.CRASH_RECOVERY;
     const existingResources = new Set(resourceRecords(journalRoot).map(({ file }) => file));
@@ -1727,6 +1785,7 @@ async function main(failureContext = { stage: FAILURE_STAGES.RUNNER }) {
         stage: 'recovery', stderrFile: awfErr,
         startupErrorFile: path.join(workDir, 'proxy-logs', 'awf-startup-error.json'),
       });
+      primaryVmResidue = capturePrimaryVmResidue();
       const recoveryTools = await requestMcp(endpoint, gatewayKey, 13, 'tools/list', {});
       if (!Array.isArray(recoveryTools?.result?.tools)) {
         throw new Error('Live broker did not become ready after host-executor recovery');
@@ -1734,7 +1793,7 @@ async function main(failureContext = { stage: FAILURE_STAGES.RUNNER }) {
       const afterCrash = JSON.parse(fs.readFileSync(active.file, 'utf8'));
       assertRecoveredInvocation(active.record, afterCrash, resourceRecords(journalRoot));
       assertNoSuccessfulResult((await crashResponse).response);
-      await waitForVmCleanup(15_000);
+      await waitForVmCleanup(15_000, primaryVmResidue);
     } catch (error) {
       if (awf && awf.exitCode === null) awf.kill('SIGKILL');
       try {
@@ -1794,6 +1853,7 @@ async function main(failureContext = { stage: FAILURE_STAGES.RUNNER }) {
       };
       await waitForBroker(awf, 'awf-enclave-mcp-server', Date.now() + 15 * 60_000, diagnostics);
       await waitForHostGatewayReadiness(awf, Date.now() + 150_000, diagnostics);
+      primaryVmResidue = capturePrimaryVmResidue();
       const requestId = profile === 'script-only' ? 14 : 17;
       const profileInit = await requestMcp(endpoint, gatewayKey, requestId, 'initialize', {
         protocolVersion: '2025-11-25',
@@ -1821,7 +1881,7 @@ async function main(failureContext = { stage: FAILURE_STAGES.RUNNER }) {
         });
         assertExpectedToolResult(response, requestId + 2, agentResultValue, 'agent-only profile');
       }
-      await waitForVmCleanup(15_000);
+      await waitForVmCleanup(15_000, primaryVmResidue);
       const privateRoot = path.join(
         '/var/tmp',
         `awf-enclave-private-0-${crypto.createHash('sha256')
@@ -1938,6 +1998,7 @@ module.exports = {
   spawnAwf,
   startGatewayFixture,
   waitForVmCleanup,
+  capturePrimaryVmResidue,
   startupDiagnostic,
   waitForBroker,
   waitForHostGatewayReadiness,
