@@ -64,6 +64,7 @@ COPY server.js logging.js metrics.js rate-limiter.js rate-limiter-window.js \
      github-oidc.js aws-oidc-token-provider.js aws-sigv4.js gcp-oidc-token-provider.js \
      anthropic-oidc-token-provider.js \
      ai-credits-pricing.js model-pricing-catalog.js models-dev-catalog.js models.dev.catalog.json \
+     model-information.pricing.generated.json model-information.retired.generated.json \
      provider-pricing-overlays.js runtime-model-catalog.js \
      oidc-refresh-utils.js body-transform.js body-utils.js codex-compat.js wire-api-compat.js rate-limit.js websocket-proxy.js \
      anthropic-chat-compat.js cross-provider-fallback.js \

@@ -24,229 +24,423 @@
       "models": [
         {
           "family": "gpt-6-astra",
-          "patterns": ["gpt-6-astra*"],
-          "endpoints": ["chat_completions", "responses"],
+          "patterns": [
+            "gpt-6-astra*"
+          ],
+          "endpoints": [
+            "chat_completions",
+            "responses"
+          ],
           "notes": "Newest flagship model (Trusted Access Program rollout). Supports Chat Completions and Responses APIs."
         },
         {
           "family": "gpt-6-sol",
-          "patterns": ["gpt-6-sol*"],
-          "endpoints": ["chat_completions", "responses"],
+          "patterns": [
+            "gpt-6-sol*"
+          ],
+          "endpoints": [
+            "chat_completions",
+            "responses"
+          ],
           "notes": "GPT-6 tier balancing intelligence and cost. Supports both Chat Completions and Responses APIs per official model page."
         },
         {
           "family": "gpt-6.1-sol",
-          "patterns": ["gpt-6.1-sol*"],
-          "endpoints": ["chat_completions", "responses"],
+          "patterns": [
+            "gpt-6.1-sol*"
+          ],
+          "endpoints": [
+            "chat_completions",
+            "responses"
+          ],
           "notes": "GPT-6.1 tier balancing intelligence and cost (successor to gpt-6-sol). Supports both Chat Completions and Responses APIs, consistent with other GPT-6 tiers."
         },
         {
           "family": "gpt-6-luna",
-          "patterns": ["gpt-6-luna*"],
-          "endpoints": ["chat_completions", "responses"],
+          "patterns": [
+            "gpt-6-luna*"
+          ],
+          "endpoints": [
+            "chat_completions",
+            "responses"
+          ],
           "notes": "GPT-6 tier for cost-sensitive, high-volume use. Supports both Chat Completions and Responses APIs per official model page."
         },
         {
           "family": "gpt-daybreak",
-          "patterns": ["gpt-daybreak-blue-latest", "gpt-daybreak-red-latest"],
-          "endpoints": ["responses"],
+          "patterns": [
+            "gpt-daybreak-blue-latest",
+            "gpt-daybreak-red-latest"
+          ],
+          "endpoints": [
+            "responses"
+          ],
           "notes": "Responses API only (ResponsesModel-only Literal). Experimental/preview aliases not present in ChatModel."
         },
         {
           "family": "gpt-rosalind-research",
-          "patterns": ["gpt-rosalind-research*"],
-          "endpoints": ["responses"],
+          "patterns": [
+            "gpt-rosalind-research*"
+          ],
+          "endpoints": [
+            "responses"
+          ],
           "notes": "Life sciences reasoning model, Trusted Access Program (approved organizations only). Responses API only, consistent with other restricted-access specialized models (gpt-daybreak-*, gpt-5.6-cyber). Billing begins October 5, 2026."
         },
         {
           "family": "gpt-5.6-cyber",
-          "patterns": ["gpt-5.6-cyber*"],
-          "endpoints": ["responses"],
+          "patterns": [
+            "gpt-5.6-cyber*"
+          ],
+          "endpoints": [
+            "responses"
+          ],
           "notes": "Responses API only (ResponsesModel-only Literal, not in ChatModel). More specific than gpt-5.6* pattern below."
         },
         {
           "family": "gpt-5.6",
-          "patterns": ["gpt-5.6*"],
-          "endpoints": ["chat_completions", "responses"],
+          "patterns": [
+            "gpt-5.6*"
+          ],
+          "endpoints": [
+            "chat_completions",
+            "responses"
+          ],
           "notes": "Supports both endpoints. Includes gpt-5.6-sol, gpt-5.6-terra, gpt-5.6-luna per OpenAI SDK ChatModel. gpt-5.6-cyber is responses-only (see separate entry above)."
         },
         {
           "family": "gpt-5.5-pro",
-          "patterns": ["gpt-5.5-pro", "gpt-5.5-pro-*"],
-          "endpoints": ["responses"],
+          "patterns": [
+            "gpt-5.5-pro",
+            "gpt-5.5-pro-*"
+          ],
+          "endpoints": [
+            "responses"
+          ],
           "notes": "Responses API only (ResponsesOnlyModel per OpenAI OpenAPI spec). More specific than gpt-5.5* pattern below. Includes dated variants like gpt-5.5-pro-2026-04-23."
         },
         {
           "family": "gpt-5.5",
-          "patterns": ["gpt-5.5*"],
-          "endpoints": ["chat_completions", "responses"],
+          "patterns": [
+            "gpt-5.5*"
+          ],
+          "endpoints": [
+            "chat_completions",
+            "responses"
+          ],
           "notes": "Supports both endpoints. Listed on the official GPT-5.5 model page. gpt-5.5-pro is responses-only (see separate entry above)."
         },
         {
           "family": "gpt-5.4",
-          "patterns": ["gpt-5.4*"],
-          "routingPatterns": ["gpt-5.4", "gpt-5.4-2026-03-05"],
-          "endpoints": ["chat_completions", "responses"],
+          "patterns": [
+            "gpt-5.4*"
+          ],
+          "routingPatterns": [
+            "gpt-5.4",
+            "gpt-5.4-2026-03-05"
+          ],
+          "endpoints": [
+            "chat_completions",
+            "responses"
+          ],
           "routing": {
-            "reasoningEfforts": ["none", "low", "medium", "high", "xhigh"],
+            "reasoningEfforts": [
+              "none",
+              "low",
+              "medium",
+              "high",
+              "xhigh"
+            ],
             "contextWindowTokens": 1050000
           },
           "notes": "Supports both endpoints on OpenAI. GPT-5.4 routing metadata is exact-model only; mini/nano variants need separately verified data. The model page lists none, low, medium, high, and xhigh reasoning effort and a 1,050,000-token context window."
         },
         {
           "family": "gpt-5.3-codex",
-          "patterns": ["gpt-5.3-codex", "gpt-5.3-codex-*"],
-          "endpoints": ["responses"],
+          "patterns": [
+            "gpt-5.3-codex",
+            "gpt-5.3-codex-*"
+          ],
+          "endpoints": [
+            "responses"
+          ],
           "notes": "Responses API only per official model page (developers.openai.com/api/docs/models/gpt-5.3-codex). More specific than gpt-5.3* pattern below."
         },
         {
           "family": "gpt-5.3",
-          "patterns": ["gpt-5.3*"],
-          "endpoints": ["chat_completions", "responses"],
+          "patterns": [
+            "gpt-5.3*"
+          ],
+          "endpoints": [
+            "chat_completions",
+            "responses"
+          ],
           "notes": "Supports both endpoints. Only gpt-5.3-chat-latest confirmed for both endpoints; gpt-5.3-codex is responses-only (see separate entry above). No bare gpt-5.3 base model exists."
         },
         {
           "family": "gpt-5.2-codex",
-          "patterns": ["gpt-5.2-codex", "gpt-5.2-codex-*"],
-          "endpoints": ["responses"],
+          "patterns": [
+            "gpt-5.2-codex",
+            "gpt-5.2-codex-*"
+          ],
+          "endpoints": [
+            "responses"
+          ],
           "notes": "Responses API only per official model page (developers.openai.com/api/docs/models/gpt-5.2-codex). More specific than gpt-5.2* pattern below."
         },
         {
           "family": "gpt-5.2-pro",
-          "patterns": ["gpt-5.2-pro", "gpt-5.2-pro-*"],
-          "endpoints": ["responses"],
+          "patterns": [
+            "gpt-5.2-pro",
+            "gpt-5.2-pro-*"
+          ],
+          "endpoints": [
+            "responses"
+          ],
           "notes": "Responses API only per official model page (developers.openai.com/api/docs/models/gpt-5.2-pro). More specific than gpt-5.2* pattern below."
         },
         {
           "family": "gpt-5.2",
-          "patterns": ["gpt-5.2*"],
-          "endpoints": ["chat_completions", "responses"],
+          "patterns": [
+            "gpt-5.2*"
+          ],
+          "endpoints": [
+            "chat_completions",
+            "responses"
+          ],
           "notes": "Supports both endpoints. gpt-5.2-pro and gpt-5.2-codex are responses-only (see separate entries above)."
         },
         {
           "family": "gpt-5.1-codex-max",
-          "patterns": ["gpt-5.1-codex-max"],
-          "endpoints": ["responses"],
+          "patterns": [
+            "gpt-5.1-codex-max"
+          ],
+          "endpoints": [
+            "responses"
+          ],
           "notes": "Responses API only (ResponsesOnlyModel)."
         },
         {
           "family": "gpt-5.1-codex",
-          "patterns": ["gpt-5.1-codex", "gpt-5.1-codex-*"],
-          "endpoints": ["responses"],
+          "patterns": [
+            "gpt-5.1-codex",
+            "gpt-5.1-codex-*"
+          ],
+          "endpoints": [
+            "responses"
+          ],
           "notes": "Responses API only per official model pages (developers.openai.com/api/docs/models/gpt-5.1-codex, /gpt-5.1-codex-mini). More specific than gpt-5.1* pattern below. gpt-5.1-codex-max is covered by a dedicated entry above."
         },
         {
           "family": "gpt-5.1",
-          "patterns": ["gpt-5.1*"],
-          "endpoints": ["chat_completions", "responses"],
+          "patterns": [
+            "gpt-5.1*"
+          ],
+          "endpoints": [
+            "chat_completions",
+            "responses"
+          ],
           "notes": "Supports both endpoints for gpt-5.1 and gpt-5.1-mini. gpt-5.1-codex, gpt-5.1-codex-mini, and gpt-5.1-codex-max are responses-only (see separate entries above)."
         },
         {
           "family": "gpt-5-codex/pro",
-          "patterns": ["gpt-5-codex", "gpt-5-pro", "gpt-5-pro-*"],
-          "endpoints": ["responses"],
+          "patterns": [
+            "gpt-5-codex",
+            "gpt-5-pro",
+            "gpt-5-pro-*"
+          ],
+          "endpoints": [
+            "responses"
+          ],
           "notes": "Responses API only for gpt-5-codex and gpt-5-pro (ResponsesOnlyModel). Includes dated variants like gpt-5-pro-2025-10-06."
         },
         {
           "family": "gpt-5",
-          "patterns": ["gpt-5", "gpt-5-*"],
-          "endpoints": ["chat_completions", "responses"],
+          "patterns": [
+            "gpt-5",
+            "gpt-5-*"
+          ],
+          "endpoints": [
+            "chat_completions",
+            "responses"
+          ],
           "notes": "Supports both endpoints for gpt-5, gpt-5-mini, gpt-5-nano."
         },
         {
           "family": "o4-mini-deep-research",
-          "patterns": ["o4-mini-deep-research", "o4-mini-deep-research-*"],
-          "endpoints": ["responses"],
+          "patterns": [
+            "o4-mini-deep-research",
+            "o4-mini-deep-research-*"
+          ],
+          "endpoints": [
+            "responses"
+          ],
           "notes": "Responses API only (ResponsesOnlyModel). Includes dated variants like o4-mini-deep-research-2025-06-26."
         },
         {
           "family": "o4",
-          "patterns": ["o4*"],
-          "endpoints": ["chat_completions", "responses"],
+          "patterns": [
+            "o4*"
+          ],
+          "endpoints": [
+            "chat_completions",
+            "responses"
+          ],
           "notes": "Reasoning model. o4-mini supports both endpoints (ModelIdsShared)."
         },
         {
           "family": "o3-pro/deep-research",
-          "patterns": ["o3-pro", "o3-pro-*", "o3-deep-research", "o3-deep-research-*"],
-          "endpoints": ["responses"],
+          "patterns": [
+            "o3-pro",
+            "o3-pro-*",
+            "o3-deep-research",
+            "o3-deep-research-*"
+          ],
+          "endpoints": [
+            "responses"
+          ],
           "notes": "Responses API only. o3-pro and o3-deep-research are in ResponsesModel but not ChatModel."
         },
         {
           "family": "o3",
-          "patterns": ["o3*"],
-          "endpoints": ["chat_completions", "responses"],
+          "patterns": [
+            "o3*"
+          ],
+          "endpoints": [
+            "chat_completions",
+            "responses"
+          ],
           "notes": "Reasoning model. o3, o3-mini support both endpoints. o3-pro/deep-research use responses only (covered by separate entry above)."
         },
         {
           "family": "o1-pro",
-          "patterns": ["o1-pro", "o1-pro-*"],
-          "endpoints": ["responses"],
+          "patterns": [
+            "o1-pro",
+            "o1-pro-*"
+          ],
+          "endpoints": [
+            "responses"
+          ],
           "notes": "Responses API only. o1-pro is in ResponsesModel but not ChatModel."
         },
         {
           "family": "o1-mini/preview",
-          "patterns": ["o1-mini*", "o1-preview*"],
-          "endpoints": ["chat_completions"],
+          "patterns": [
+            "o1-mini*",
+            "o1-preview*"
+          ],
+          "endpoints": [
+            "chat_completions"
+          ],
           "notes": "Chat Completions API only per official model pages (developers.openai.com/api/docs/models/o1-mini, /o1-preview). Not available via Responses API. More specific than o1* pattern below."
         },
         {
           "family": "o1",
-          "patterns": ["o1*"],
-          "endpoints": ["chat_completions", "responses"],
+          "patterns": [
+            "o1*"
+          ],
+          "endpoints": [
+            "chat_completions",
+            "responses"
+          ],
           "notes": "Reasoning model. o1 (base) supports both endpoints. o1-pro is responses-only and o1-mini/o1-preview are chat_completions-only (see separate entries above)."
         },
         {
           "family": "computer-use-preview",
-          "patterns": ["computer-use-preview*"],
-          "endpoints": ["responses"],
+          "patterns": [
+            "computer-use-preview*"
+          ],
+          "endpoints": [
+            "responses"
+          ],
           "notes": "Responses API only. Specialized model for computer use tasks."
         },
         {
           "family": "codex-mini",
-          "patterns": ["codex-mini*"],
-          "endpoints": ["responses"],
+          "patterns": [
+            "codex-mini*"
+          ],
+          "endpoints": [
+            "responses"
+          ],
           "notes": "Responses API only per official model page (developers.openai.com/api/docs/models/codex-mini-latest). Chat Completions is marked unsupported on the model page."
         },
         {
           "family": "chatgpt-4o-latest",
-          "patterns": ["chatgpt-4o-latest"],
-          "endpoints": ["chat_completions", "responses"],
+          "patterns": [
+            "chatgpt-4o-latest"
+          ],
+          "endpoints": [
+            "chat_completions",
+            "responses"
+          ],
           "notes": "Rolling alias for the latest ChatGPT-optimized GPT-4o model. Supports both endpoints (ModelIdsShared). Not matched by gpt-4o* pattern due to chatgpt- prefix."
         },
         {
           "family": "gpt-4o",
-          "patterns": ["gpt-4o*"],
-          "endpoints": ["chat_completions", "responses"],
+          "patterns": [
+            "gpt-4o*"
+          ],
+          "endpoints": [
+            "chat_completions",
+            "responses"
+          ],
           "notes": "Multimodal. Supports both endpoints. Includes audio and search preview variants."
         },
         {
           "family": "gpt-4.1",
-          "patterns": ["gpt-4.1*"],
-          "endpoints": ["chat_completions", "responses"],
+          "patterns": [
+            "gpt-4.1*"
+          ],
+          "endpoints": [
+            "chat_completions",
+            "responses"
+          ],
           "notes": "Supports both endpoints. Includes gpt-4.1-mini, gpt-4.1-nano."
         },
         {
           "family": "gpt-4.5",
-          "patterns": ["gpt-4.5*"],
-          "endpoints": ["chat_completions", "responses"],
+          "patterns": [
+            "gpt-4.5*"
+          ],
+          "endpoints": [
+            "chat_completions",
+            "responses"
+          ],
           "notes": "Preview model. Now supports both endpoints per official model page (developers.openai.com/api/docs/models/gpt-4.5-preview); Responses API support was added since the previous mapping update."
         },
         {
           "family": "gpt-4-turbo",
-          "patterns": ["gpt-4-turbo*"],
-          "endpoints": ["chat_completions", "responses"],
+          "patterns": [
+            "gpt-4-turbo*"
+          ],
+          "endpoints": [
+            "chat_completions",
+            "responses"
+          ],
           "notes": "Legacy. In ModelIdsShared per OpenAI spec v2.3.0; supports both endpoints."
         },
         {
           "family": "gpt-4",
-          "patterns": ["gpt-4", "gpt-4-*"],
-          "endpoints": ["chat_completions", "responses"],
+          "patterns": [
+            "gpt-4",
+            "gpt-4-*"
+          ],
+          "endpoints": [
+            "chat_completions",
+            "responses"
+          ],
           "notes": "Legacy. In ModelIdsShared per OpenAI spec v2.3.0; supports both endpoints."
         },
         {
           "family": "gpt-3.5-turbo",
-          "patterns": ["gpt-3.5-turbo*"],
-          "endpoints": ["chat_completions", "responses"],
+          "patterns": [
+            "gpt-3.5-turbo*"
+          ],
+          "endpoints": [
+            "chat_completions",
+            "responses"
+          ],
           "notes": "Legacy. In ModelIdsShared per OpenAI spec v2.3.0; supports both endpoints. Deprecated."
         }
       ]
@@ -261,104 +455,205 @@
       "models": [
         {
           "family": "claude-opus-5",
-          "patterns": ["claude-opus-5*"],
-          "routingPatterns": ["claude-opus-5-5", "claude-opus-5"],
-          "endpoints": ["messages"],
+          "patterns": [
+            "claude-opus-5*"
+          ],
+          "routingPatterns": [
+            "claude-opus-5-5",
+            "claude-opus-5"
+          ],
+          "endpoints": [
+            "messages"
+          ],
           "routing": {
-            "reasoningEfforts": ["low", "medium", "high", "max"],
+            "reasoningEfforts": [
+              "low",
+              "medium",
+              "high",
+              "max"
+            ],
             "contextWindowTokens": 1000000
           },
           "notes": "Flagship Opus generation 5 models with verified 1M-token context windows and the Anthropic effort parameter."
         },
         {
           "family": "claude-fable-5",
-          "patterns": ["claude-fable-5*"],
-          "routingPatterns": ["claude-fable-5-1", "claude-fable-5"],
-          "endpoints": ["messages"],
+          "patterns": [
+            "claude-fable-5*"
+          ],
+          "routingPatterns": [
+            "claude-fable-5-1",
+            "claude-fable-5"
+          ],
+          "endpoints": [
+            "messages"
+          ],
           "routing": {
-            "reasoningEfforts": ["low", "medium", "high", "max"],
+            "reasoningEfforts": [
+              "low",
+              "medium",
+              "high",
+              "max"
+            ],
             "contextWindowTokens": 1000000
           },
           "notes": "Latest flagship family with verified 1M-token context windows and the Anthropic effort parameter."
         },
         {
           "family": "claude-mythos-5",
-          "patterns": ["claude-mythos-5*", "claude-mythos-preview*"],
-          "routingPatterns": ["claude-mythos-5-1", "claude-mythos-5", "claude-mythos-preview*"],
-          "endpoints": ["messages"],
+          "patterns": [
+            "claude-mythos-5*",
+            "claude-mythos-preview*"
+          ],
+          "routingPatterns": [
+            "claude-mythos-5-1",
+            "claude-mythos-5",
+            "claude-mythos-preview*"
+          ],
+          "endpoints": [
+            "messages"
+          ],
           "routing": {
-            "reasoningEfforts": ["low", "medium", "high", "max"],
+            "reasoningEfforts": [
+              "low",
+              "medium",
+              "high",
+              "max"
+            ],
             "contextWindowTokens": 1000000
           },
           "notes": "Specialized models, invitation-only, with verified 1M-token context windows and the Anthropic effort parameter."
         },
         {
           "family": "claude-sonnet-5",
-          "patterns": ["claude-sonnet-5*"],
-          "routingPatterns": ["claude-sonnet-5-5", "claude-sonnet-5"],
-          "endpoints": ["messages"],
+          "patterns": [
+            "claude-sonnet-5*"
+          ],
+          "routingPatterns": [
+            "claude-sonnet-5-5",
+            "claude-sonnet-5"
+          ],
+          "endpoints": [
+            "messages"
+          ],
           "routing": {
-            "reasoningEfforts": ["low", "medium", "high", "max"],
+            "reasoningEfforts": [
+              "low",
+              "medium",
+              "high",
+              "max"
+            ],
             "contextWindowTokens": 1000000
           },
           "notes": "Best combination of speed and intelligence with verified 1M-token context windows and the Anthropic effort parameter."
         },
         {
           "family": "claude-opus-4",
-          "patterns": ["claude-opus-4*"],
-          "routingPatterns": ["claude-opus-4-8", "claude-opus-4-7", "claude-opus-4-6"],
-          "endpoints": ["messages"],
+          "patterns": [
+            "claude-opus-4*"
+          ],
+          "routingPatterns": [
+            "claude-opus-4-8",
+            "claude-opus-4-7",
+            "claude-opus-4-6"
+          ],
+          "endpoints": [
+            "messages"
+          ],
           "routing": {
-            "reasoningEfforts": ["low", "medium", "high", "max"],
+            "reasoningEfforts": [
+              "low",
+              "medium",
+              "high",
+              "max"
+            ],
             "contextWindowTokens": 1000000
           },
           "notes": "Opus 4.6 and newer models have verified 1M-token context windows and support the Anthropic effort parameter."
         },
         {
           "family": "claude-sonnet-4",
-          "patterns": ["claude-sonnet-4*"],
-          "routingPatterns": ["claude-sonnet-4-6"],
-          "endpoints": ["messages"],
+          "patterns": [
+            "claude-sonnet-4*"
+          ],
+          "routingPatterns": [
+            "claude-sonnet-4-6"
+          ],
+          "endpoints": [
+            "messages"
+          ],
           "routing": {
-            "reasoningEfforts": ["low", "medium", "high", "max"],
+            "reasoningEfforts": [
+              "low",
+              "medium",
+              "high",
+              "max"
+            ],
             "contextWindowTokens": 1000000
           },
           "notes": "Sonnet 4.6 has a verified 1M-token context window and supports the Anthropic effort parameter."
         },
         {
           "family": "claude-haiku-5",
-          "patterns": ["claude-haiku-5*"],
-          "endpoints": ["messages"],
+          "patterns": [
+            "claude-haiku-5*"
+          ],
+          "endpoints": [
+            "messages"
+          ],
           "notes": "Fast/cheap Haiku generation 5 (claude-haiku-5-5). 1M token context window per official models overview; effort levels not verified, so no routing metadata."
         },
         {
           "family": "claude-haiku-4",
-          "patterns": ["claude-haiku-4*"],
-          "endpoints": ["messages"],
+          "patterns": [
+            "claude-haiku-4*"
+          ],
+          "endpoints": [
+            "messages"
+          ],
           "notes": "Includes claude-haiku-4-5. Fast/cheap. 200K token context."
         },
         {
           "family": "claude-3.5-sonnet",
-          "patterns": ["claude-3-5-sonnet*", "claude-3.5-sonnet*"],
-          "endpoints": ["messages"],
+          "patterns": [
+            "claude-3-5-sonnet*",
+            "claude-3.5-sonnet*"
+          ],
+          "endpoints": [
+            "messages"
+          ],
           "notes": "Previous generation. 200K token context."
         },
         {
           "family": "claude-3.5-haiku",
-          "patterns": ["claude-3-5-haiku*", "claude-3.5-haiku*"],
-          "endpoints": ["messages"],
+          "patterns": [
+            "claude-3-5-haiku*",
+            "claude-3.5-haiku*"
+          ],
+          "endpoints": [
+            "messages"
+          ],
           "notes": "Previous generation fast model."
         },
         {
           "family": "claude-3.7-sonnet",
-          "patterns": ["claude-3-7-sonnet*", "claude-3.7-sonnet*"],
-          "endpoints": ["messages"],
+          "patterns": [
+            "claude-3-7-sonnet*",
+            "claude-3.7-sonnet*"
+          ],
+          "endpoints": [
+            "messages"
+          ],
           "notes": "Previous generation extended thinking model. 200K token context."
         },
         {
           "family": "claude-3-opus",
-          "patterns": ["claude-3-opus*"],
-          "endpoints": ["messages"],
+          "patterns": [
+            "claude-3-opus*"
+          ],
+          "endpoints": [
+            "messages"
+          ],
           "notes": "Previous generation. 200K token context."
         }
       ]

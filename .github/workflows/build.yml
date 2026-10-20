@@ -42,6 +42,9 @@ jobs:
       - name: Build TypeScript
         run: npm run build
 
+      - name: Verify model information sources and generated assets
+        run: npm run models:check
+
       - name: Test privileged audit publication
         if: matrix.node-version == '20'
         run: sudo "$(command -v node)" node_modules/jest/bin/jest.js --runInBand src/resolved-config-artifact-linux.test.ts

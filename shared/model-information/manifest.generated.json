@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 1,
+  "compilerVersion": 1,
+  "schemaHash": "44e009b72a054e8959480c0d6c90a09cb957178381b16a034df9404c83a109fd",
+  "catalogRevision": "c664f061a5c8f76fe7d9e507f5146c64420ef240208969980b092d33fe63cf30",
+  "generatedAt": "2026-10-20T00:22:04.000Z",
+  "sourceFiles": [
+    "anthropic.json",
+    "google.json",
+    "mapping.json",
+    "microsoft.json",
+    "openai.json",
+    "target.json"
+  ]
+}
