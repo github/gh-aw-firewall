@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/go-logr/logr"
+	"github.com/google/uuid"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetrichttp"
@@ -42,8 +43,8 @@ const (
 	// With telemetry on, a shutdown drains HTTP for telemetryDrainTimeout and then
 	// flushes for telemetryFlushTimeout, so that the process exits within the 1 s
 	// AWF allows between SIGTERM and SIGKILL.
-	telemetryDrainTimeout  = 300 * time.Millisecond
-	telemetryFlushTimeout  = 600 * time.Millisecond
+	telemetryDrainTimeout  = 250 * time.Millisecond
+	telemetryFlushTimeout  = 500 * time.Millisecond
 	telemetryErrorInterval = time.Minute
 	defaultExportTimeout   = 10 * time.Second
 	defaultMetricInterval  = 60 * time.Second
@@ -98,7 +99,6 @@ var traceContext = propagation.TraceContext{}
 type telemetry struct {
 	tracer   trace.Tracer
 	duration metric.Float64Histogram
-	active   metric.Int64UpDownCounter
 	rejected metric.Int64Counter
 	outcomes metric.Int64Counter
 	// stops shut down the SDK providers. It is empty when telemetry is off.
@@ -120,8 +120,6 @@ func newInstruments(tp trace.TracerProvider, mp metric.MeterProvider) *telemetry
 	// The names, units and boundaries are valid, so these never fail.
 	t.duration, _ = m.Float64Histogram("http.server.request.duration", metric.WithUnit("s"),
 		metric.WithDescription("Duration of HTTP server requests."), metric.WithExplicitBucketBoundaries(durationBuckets...))
-	t.active, _ = m.Int64UpDownCounter("http.server.active_requests", metric.WithUnit("{request}"),
-		metric.WithDescription("Number of active HTTP server requests."))
 	t.rejected, _ = m.Int64Counter("gh_aw_router.requests.rejected", metric.WithUnit("{request}"),
 		metric.WithDescription("Requests rejected by the in-flight limit or the body limit."))
 	t.outcomes, _ = m.Int64Counter("gh_aw_router.planning.outcomes", metric.WithUnit("{request}"),
@@ -589,11 +587,13 @@ func (p *configParser) sampler() sdktrace.Sampler {
 
 // resource identifies the router. OTEL_RESOURCE_ATTRIBUTES may set only the
 // service namespace and deployment environment, so that it can't forward arbitrary
-// data or replace the router's version.
+// data or replace the router's version. The random instance id keeps the metric
+// streams of concurrent routers apart.
 func (p *configParser) resource() *resource.Resource {
 	attrs := []attribute.KeyValue{
 		semconv.ServiceName(cmp.Or(p.value("OTEL_SERVICE_NAME"), serviceName)),
 		semconv.ServiceVersion(version),
+		semconv.ServiceInstanceID(uuid.NewString()),
 		semconv.TelemetrySDKName("opentelemetry"),
 		semconv.TelemetrySDKLanguageGo,
 		semconv.TelemetrySDKVersion(sdk.Version()),

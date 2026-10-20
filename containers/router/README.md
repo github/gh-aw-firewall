@@ -204,7 +204,7 @@ then listens (exit 1 if that fails). It uses Go's `net/http` server with these l
 
 On SIGTERM or SIGINT the server stops accepting connections, lets in-flight requests finish for
 up to 0.5 s, closes the rest and exits 0. With [telemetry](#telemetry) on, it drains for up to
-0.3 s and then flushes telemetry for up to 0.6 s, so that it still exits within the 1 s AWF
+0.25 s and then flushes telemetry for up to 0.5 s, so that it still exits within the 1 s AWF
 allows before SIGKILL.
 
 `serve` writes one JSON object per line to stderr, and nothing else once its arguments are
@@ -266,10 +266,13 @@ certificates aren't supported. The exporters use `HTTPS_PROXY`, `NO_PROXY` and `
 as any Go client does. The SDK reads a few more variables itself, such as
 `OTEL_EXPORTER_OTLP_COMPRESSION`, the metric temporality and histogram aggregation preferences,
 and the span limits. The resource is `service.name`, `service.version` (the router version,
-which can't be overridden), the two allowed attributes and the SDK's name, language and version.
+which can't be overridden), a random `service.instance.id` for each process, the two allowed
+attributes and the SDK's name, language and version.
 
-AWF runs are short, so set `OTEL_METRIC_EXPORT_INTERVAL=15000` there. Spans are exported in
-batches every 5 s. Shutdown flushes what's left within 0.6 s, but doesn't wait longer for a slow
+Metrics are cumulative and exported every 60 s by default, and shutdown exports what's left, so a
+run shorter than the interval still reports its totals. Set `OTEL_METRIC_EXPORT_INTERVAL` lower
+only to see metrics during a run or to keep them if the final flush fails. Spans are exported in
+batches every 5 s. Shutdown flushes what's left within 0.5 s, but doesn't wait longer for a slow
 collector; if the flush doesn't finish, the router logs `telemetry flush incomplete`. A failing
 collector never slows requests: spans queue in memory (up to 2,048, then new spans are
 dropped), and export failures are logged as `telemetry error` at most once a minute per signal.
@@ -308,12 +311,13 @@ A `/classify` or `/route` request whose body decodes also gets an `INTERNAL` chi
 | Instrument | Type and unit | Attributes |
 | --- | --- | --- |
 | `http.server.request.duration` | histogram, `s`, with the semconv advisory buckets | `http.request.method`, `http.route` (matched paths only), `http.response.status_code` (not for aborted requests), `error.type` (errors only; `503` for a bare 503) |
-| `http.server.active_requests` | up-down counter, `{request}` | `http.request.method` |
 | `gh_aw_router.requests.rejected` | counter, `{request}` | `gh_aw_router.reason`: `overload` or `payload_too_large` |
 | `gh_aw_router.planning.outcomes` | counter, `{request}` | `gh_aw_router.operation` (`classify` or `route`) and `gh_aw_router.outcome`; for route, also `gh_aw_router.goal`, `gh_aw_router.mode` and `gh_aw_router.resolved_mode` |
 
 Every attribute value comes from a fixed set, so the number of series is bounded. Metrics never
-carry model ids or classifier labels.
+carry model ids or classifier labels. The histogram's count also counts rejected requests;
+`requests.rejected` repeats them under one name, so that load shedding is easy to find and
+alert on.
 
 **Privacy.** Spans and metrics never contain conversation text, tool names, inputs or results,
 candidate lists or ids, `current_id`, request headers, query strings, unmatched paths, prompts

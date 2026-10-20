@@ -171,7 +171,6 @@ func (s *server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		x.route = pattern
 	}
 	x.ctx = traceContext.Extract(r.Context(), propagation.HeaderCarrier(r.Header))
-	s.tel.active.Add(x.ctx, 1, metric.WithAttributes(semconv.HTTPRequestMethodKey.String(x.method)))
 	defer s.finish(x)
 	select {
 	case s.slots <- struct{}{}:
@@ -221,7 +220,6 @@ func (s *server) startSpan(x *exchange, r *http.Request) {
 // finish recovers a panic, records the request's telemetry and logs it. It must be
 // deferred directly.
 func (s *server) finish(x *exchange) {
-	defer s.tel.active.Add(x.ctx, -1, metric.WithAttributes(semconv.HTTPRequestMethodKey.String(x.method)))
 	rec := x.rec
 	if p := recover(); p != nil {
 		if p == http.ErrAbortHandler {

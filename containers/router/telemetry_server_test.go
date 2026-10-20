@@ -295,11 +295,6 @@ func TestTelemetryRequestSpansAndMetrics(t *testing.T) {
 		})
 	}
 	m := ts.metricSeries(t)
-	for key, n := range m["http.server.active_requests"] {
-		if n != 0 {
-			t.Errorf("active requests %s: %d", key, n)
-		}
-	}
 	durations := m["http.server.request.duration"]
 	var total int64
 	for _, n := range durations {

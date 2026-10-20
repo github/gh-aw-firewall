@@ -92,9 +92,8 @@ func (c *collector) traces(t *testing.T) []*tracepb.ResourceSpans {
 	return out
 }
 
-func (c *collector) metricNames(t *testing.T) []string {
+func (c *collector) metricNames(t *testing.T) (names, instances []string) {
 	t.Helper()
-	var names []string
 	for _, r := range c.received() {
 		if r.path == "/v1/metrics" {
 			var m colmetricpb.ExportMetricsServiceRequest
@@ -102,6 +101,7 @@ func (c *collector) metricNames(t *testing.T) []string {
 				t.Fatal(err)
 			}
 			for _, rm := range m.ResourceMetrics {
+				instances = append(instances, fmt.Sprint(protoAttrs(rm.Resource.Attributes)["service.instance.id"]))
 				for _, sm := range rm.ScopeMetrics {
 					for _, metric := range sm.Metrics {
 						if !slices.Contains(names, metric.Name) {
@@ -113,7 +113,7 @@ func (c *collector) metricNames(t *testing.T) []string {
 		}
 	}
 	slices.Sort(names)
-	return names
+	return names, instances
 }
 
 func protoAttrs(kvs []*commonpb.KeyValue) map[string]any {
@@ -174,6 +174,8 @@ func stopServe(t *testing.T, s *served) time.Duration {
 func TestTelemetryExportsToTheCollector(t *testing.T) {
 	const canary = "c4n4ry"
 	c := newCollector(t, http.StatusOK)
+	// The default 60 s metric interval is kept on purpose: the metrics checked below
+	// arrive only through the shutdown flush, which short AWF runs rely on.
 	s := startInProcessWith(t, 0, map[string]string{
 		"OTEL_EXPORTER_OTLP_ENDPOINT": strings.Replace(c.URL, "http://", "http://user-"+canary+":pw@", 1),
 		"OTEL_EXPORTER_OTLP_HEADERS":  "authorization=Bearer%20secret-" + canary,
@@ -236,8 +238,9 @@ func TestTelemetryExportsToTheCollector(t *testing.T) {
 			t.Errorf("%s export holds request data", r.path)
 		}
 	}
-	wantMetrics := []string{"gh_aw_router.planning.outcomes", "http.server.active_requests", "http.server.request.duration"}
-	if names := c.metricNames(t); !slices.Equal(names, wantMetrics) {
+	wantMetrics := []string{"gh_aw_router.planning.outcomes", "http.server.request.duration"}
+	names, instances := c.metricNames(t)
+	if !slices.Equal(names, wantMetrics) {
 		t.Errorf("metrics %v", names)
 	}
 	servers, children := map[string]string{}, 0
@@ -247,6 +250,7 @@ func TestTelemetryExportsToTheCollector(t *testing.T) {
 			res["host.name"] != nil {
 			t.Errorf("resource %v", res)
 		}
+		instances = append(instances, fmt.Sprint(res["service.instance.id"]))
 		for _, ss := range rs.ScopeSpans {
 			if ss.Scope.Name != instrumentationScope || ss.Scope.Version != version {
 				t.Errorf("scope %v", ss.Scope)
@@ -281,6 +285,9 @@ func TestTelemetryExportsToTheCollector(t *testing.T) {
 	}
 	if len(servers) != 3+len(caps.RoutingProfiles) || children != 1+len(caps.RoutingProfiles) {
 		t.Errorf("%d server spans, %d child spans", len(servers), children)
+	}
+	if slices.Sort(instances); len(instances) < 2 || instances[0] != instances[len(instances)-1] || len(instances[0]) != 36 {
+		t.Errorf("instance ids %v", instances)
 	}
 	logs := s.stderr.String()
 	if strings.Contains(logs, canary) || strings.Contains(logs, "secret") {

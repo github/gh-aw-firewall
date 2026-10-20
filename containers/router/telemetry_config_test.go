@@ -19,6 +19,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"go.opentelemetry.io/otel/attribute"
 	semconv "go.opentelemetry.io/otel/semconv/v1.43.0"
 )
@@ -271,6 +272,10 @@ func TestTelemetryConfigResource(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			cfg := loadTelemetryConfig(envFunc(c.env))
 			got := resourceAttrs(cfg)
+			if id, err := uuid.Parse(got["service.instance.id"]); err != nil || id.Version() != 4 {
+				t.Errorf("instance id %q", got["service.instance.id"])
+			}
+			delete(got, "service.instance.id")
 			delete(got, "telemetry.sdk.version")
 			if !maps.Equal(got, c.want) || !slices.Equal(cfg.warnings, c.warnings) {
 				t.Errorf("resource %v, warnings %v", got, cfg.warnings)
@@ -279,6 +284,10 @@ func TestTelemetryConfigResource(t *testing.T) {
 				t.Errorf("schema %q", cfg.resource.SchemaURL())
 			}
 		})
+	}
+	first, second := resourceAttrs(loadTelemetryConfig(envFunc(endpoint))), resourceAttrs(loadTelemetryConfig(envFunc(endpoint)))
+	if first["service.instance.id"] == second["service.instance.id"] {
+		t.Errorf("two routers share instance id %q", first["service.instance.id"])
 	}
 }
 
