@@ -1,7 +1,7 @@
 'use strict';
 
 // Responses recorded from the router in containers/router. Refreshing means copying
-// the matching cases from containers/router/tests/fixtures/routing-contract, whose
+// the matching cases from containers/router/testdata/routing-contract, whose
 // responses the router's tests check; never edit a case to make a test pass. A case
 // names the routing tables it was recorded against, and containers/router owns those
 // tables.

@@ -1,11 +1,10 @@
 **
 !Dockerfile
 !openapi.yaml
-!go/
-!go/go.mod
-!go/go.sum
-!go/*.go
-go/*_test.go
+!go.mod
+!go.sum
+!*.go
+*_test.go
 !routing/
 !routing/cost-*.json
 !trust/

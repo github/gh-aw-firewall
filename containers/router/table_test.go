@@ -314,7 +314,7 @@ func TestLoadService(t *testing.T) {
 }
 
 func TestBundledTables(t *testing.T) {
-	s, err := LoadService(filepath.Join(routerDir, "routing"))
+	s, err := LoadService("routing")
 	if err != nil {
 		t.Fatal(err)
 	}

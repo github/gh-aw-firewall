@@ -1,5 +1,5 @@
-/go/gh-aw-router
-/go/gh-aw-router.exe
+/gh-aw-router
+/gh-aw-router.exe
 .env
 .env.*
 !.env.example

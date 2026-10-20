@@ -3,14 +3,9 @@ package main
 import (
 	"bufio"
 	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 )
-
-// routerDir is the router project's directory, which holds the routing tables, schemas,
-// examples, fixtures, OpenAPI contract and Dockerfile.
-const routerDir = ".."
 
 func TestVersionMatchesContractAndImage(t *testing.T) {
 	tests := []struct {
@@ -22,7 +17,7 @@ func TestVersionMatchesContractAndImage(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.file, func(t *testing.T) {
-			got := firstLineValue(t, filepath.Join(routerDir, tt.file), tt.prefix)
+			got := firstLineValue(t, tt.file, tt.prefix)
 			if got != version {
 				t.Fatalf("%s declares version %q, want %q", tt.file, got, version)
 			}

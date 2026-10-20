@@ -4,8 +4,8 @@ This directory records, as language-neutral JSON, the router's expected behavior
 where it once came from Python itself rather than from the router's contract: the heuristic
 labels, request decoding, the context estimate and the classifier prompt. The expectations were
 generated from the Python router, then edited where the Go router deliberately differs (see
-[Decisions for the Go port](#decisions-for-the-go-port)). The Go tests in `go/heuristics_test.go`
-and `go/parity_test.go` replay every case.
+[Decisions for the Go port](#decisions-for-the-go-port)). The Go tests in `heuristics_test.go`
+and `parity_test.go` replay every case.
 
 Routing, the CLI and HTTP are tested by the Go unit and integration tests instead. See
 [What the fixtures don't cover](#what-the-fixtures-dont-cover).
@@ -125,11 +125,11 @@ is tested directly:
 
 | Area | Where it's tested |
 |---|---|
-| Routing: rankings, profiles, automatic modes, explicit and omitted efforts, ties, `current_id`, context-window filtering, no-route | `go/route_test.go` and the [routing-contract corpus](../routing-contract) |
-| Classifier choices: ranking, efforts and no-route | `go/classify_test.go` |
-| Routing table loading and validation | `go/table_test.go` and `go/schema_test.go`, against the published schema in `schemas/` |
-| CLI commands, options, exit codes and `serve` settings | `go/cli_test.go` and `go/serve_test.go` |
-| HTTP paths, methods, media types, error envelopes and the body limit | `go/server_test.go`, `go/corpus_test.go` and the container tests in `go/container_test.go` |
+| Routing: rankings, profiles, automatic modes, explicit and omitted efforts, ties, `current_id`, context-window filtering, no-route | `route_test.go` and the [routing-contract corpus](../routing-contract) |
+| Classifier choices: ranking, efforts and no-route | `classify_test.go` |
+| Routing table loading and validation | `table_test.go` and `schema_test.go`, against the published schema in `schemas/` |
+| CLI commands, options, exit codes and `serve` settings | `cli_test.go` and `serve_test.go` |
+| HTTP paths, methods, media types, error envelopes and the body limit | `server_test.go`, `corpus_test.go` and the container tests in `container_test.go` |
 
 ## Decisions for the Go port
 
@@ -137,6 +137,7 @@ The Go router replaced the Python router at the image cut-over. These are the pl
 deliberately behaves differently. When the port compared errors with Python's, it compared only
 the HTTP status and the error `code` (for the CLI, the exit status and the stderr prefix);
 `detail` is diagnostic text.
+
 | Decision | Python | Go |
 |---|---|---|
 | Default tables path | Falls back to the `routing` directory of its source checkout | Uses `./routing` in the working directory if present, otherwise the option is required |

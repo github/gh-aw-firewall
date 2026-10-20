@@ -18,7 +18,7 @@ import (
 
 // The container tests run the built image the way AWF does: read-only, with no capabilities.
 // Build the image first, for example
-// docker build --build-arg OPENAPI_SHA256=<sha256 of openapi.yaml> -t gh-aw-router:test ..
+// docker build --build-arg OPENAPI_SHA256=<sha256 of openapi.yaml> -t gh-aw-router:test .
 // then run GH_AW_ROUTER_TEST_IMAGE=gh-aw-router:test go test -run Container .
 func containerImage(t *testing.T) string {
 	t.Helper()
@@ -118,7 +118,7 @@ func TestContainerImageConfig(t *testing.T) {
 	if config.Healthcheck != nil {
 		t.Errorf("Healthcheck = %v, want none: AWF's compose config sets it", config.Healthcheck)
 	}
-	contract, err := os.ReadFile(filepath.Join(routerDir, "openapi.yaml"))
+	contract, err := os.ReadFile("openapi.yaml")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -147,7 +147,7 @@ func TestContainerServesBundledTables(t *testing.T) {
 	if err := json.Unmarshal(body, &caps); err != nil {
 		t.Fatal(err)
 	}
-	bundled, _ := filepath.Glob(filepath.Join(routerDir, "routing", "cost-*.json"))
+	bundled, _ := filepath.Glob(filepath.Join("routing", "cost-*.json"))
 	if caps.Version != version || len(caps.Profiles) != len(bundled) {
 		t.Errorf("capabilities report version %q and %d profiles, want %q and %d", caps.Version, len(caps.Profiles), version, len(bundled))
 	}

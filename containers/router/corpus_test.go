@@ -55,7 +55,7 @@ func contractDocuments() map[string]map[string]any {
 	return docs
 }
 
-// corpusCase is one reviewed request and response from tests/fixtures/routing-contract.
+// corpusCase is one reviewed request and response from testdata/routing-contract.
 type corpusCase struct {
 	ID           string            `json:"id"`
 	Method       string            `json:"method"`
@@ -87,7 +87,7 @@ func (c corpusCase) header() map[string]string {
 
 func loadCorpus(t testing.TB) []corpusCase {
 	t.Helper()
-	dir := filepath.Join(routerDir, "tests", "fixtures", "routing-contract")
+	dir := filepath.Join("testdata", "routing-contract")
 	files, err := filepath.Glob(filepath.Join(dir, "*.json"))
 	if err != nil {
 		t.Fatal(err)

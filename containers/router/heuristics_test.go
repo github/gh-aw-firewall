@@ -8,7 +8,7 @@ import (
 )
 
 func TestLabelsParity(t *testing.T) {
-	data, err := os.ReadFile(filepath.Join(routerDir, "tests", "fixtures", "parity", "labels.json"))
+	data, err := os.ReadFile(filepath.Join("testdata", "parity", "labels.json"))
 	if err != nil {
 		t.Fatal(err)
 	}

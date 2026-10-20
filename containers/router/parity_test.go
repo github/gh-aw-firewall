@@ -67,7 +67,7 @@ func resultOf(err error) string {
 
 func readFixture(t *testing.T, name string, v any) {
 	t.Helper()
-	data, err := os.ReadFile(filepath.Join(routerDir, "tests", "fixtures", "parity", name))
+	data, err := os.ReadFile(filepath.Join("testdata", "parity", name))
 	if err != nil {
 		t.Fatal(err)
 	}

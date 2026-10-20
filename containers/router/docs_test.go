@@ -11,12 +11,12 @@ import (
 // TestDocumentationLinksStayInsideTheProject checks that relative links in the project's
 // Markdown files resolve to files inside the project.
 func TestDocumentationLinksStayInsideTheProject(t *testing.T) {
-	root, err := filepath.Abs(routerDir)
+	root, err := filepath.Abs(".")
 	if err != nil {
 		t.Fatal(err)
 	}
 	documents, _ := filepath.Glob(filepath.Join(root, "*.md"))
-	more, _ := filepath.Glob(filepath.Join(root, "tests", "fixtures", "*", "*.md"))
+	more, _ := filepath.Glob(filepath.Join(root, "testdata", "*", "*.md"))
 	link := regexp.MustCompile(`\]\(([^)]+)\)`)
 	for _, document := range append(documents, more...) {
 		data, err := os.ReadFile(document)

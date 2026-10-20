@@ -20,7 +20,7 @@ var publishedSchemas = map[string]string{
 }
 
 func TestPublishedSchemasAreFrozen(t *testing.T) {
-	entries, err := os.ReadDir(filepath.Join(routerDir, "schemas"))
+	entries, err := os.ReadDir("schemas")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -32,7 +32,7 @@ func TestPublishedSchemasAreFrozen(t *testing.T) {
 		t.Fatalf("schemas/ holds %v, want %v", names, want)
 	}
 	for name, digest := range publishedSchemas {
-		data, err := os.ReadFile(filepath.Join(routerDir, "schemas", name))
+		data, err := os.ReadFile(filepath.Join("schemas", name))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -67,7 +67,7 @@ func TestSchemaMatchesRuntime(t *testing.T) {
 			Pattern string `json:"pattern"`
 		} `json:"$defs"`
 	}
-	data, err := os.ReadFile(filepath.Join(routerDir, "schemas", "routing-table.v1.schema.json"))
+	data, err := os.ReadFile(filepath.Join("schemas", "routing-table.v1.schema.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -105,7 +105,7 @@ func TestSchemaMatchesRuntime(t *testing.T) {
 		}
 	}
 	docs := contractDocuments()
-	bundled, _ := filepath.Glob(filepath.Join(routerDir, "routing", "cost-*.json"))
+	bundled, _ := filepath.Glob(filepath.Join("routing", "cost-*.json"))
 	for _, path := range bundled {
 		data, err := os.ReadFile(path)
 		if err != nil {

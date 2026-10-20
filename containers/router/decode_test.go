@@ -214,7 +214,7 @@ func FuzzDecodeRouteRequest(f *testing.F) {
 	} {
 		f.Add([]byte(seed))
 	}
-	if data, err := os.ReadFile(filepath.Join(routerDir, "examples", "route-request.json")); err == nil {
+	if data, err := os.ReadFile(filepath.Join("examples", "route-request.json")); err == nil {
 		f.Add(data)
 	}
 	f.Fuzz(func(t *testing.T, body []byte) {

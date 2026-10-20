@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"maps"
 	"os"
-	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -16,7 +15,7 @@ var servedRoutes = map[string]string{"/healthz": "GET", "/capabilities": "GET", 
 // TestOpenAPIDocumentsServedRoutesAndErrorCodes reads openapi.yaml by indentation, which is
 // enough for its fixed layout, so the test needs no YAML library.
 func TestOpenAPIDocumentsServedRoutesAndErrorCodes(t *testing.T) {
-	f, err := os.Open(filepath.Join(routerDir, "openapi.yaml"))
+	f, err := os.Open("openapi.yaml")
 	if err != nil {
 		t.Fatal(err)
 	}

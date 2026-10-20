@@ -39,7 +39,7 @@ func runCLI(t *testing.T, env map[string]string, stdin string, args ...string) c
 
 func bundledTables(t *testing.T) string {
 	t.Helper()
-	path, err := filepath.Abs(filepath.Join(routerDir, "routing"))
+	path, err := filepath.Abs("routing")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -48,7 +48,7 @@ func bundledTables(t *testing.T) string {
 
 func exampleRequest(t *testing.T, command string) map[string]any {
 	t.Helper()
-	data, err := os.ReadFile(filepath.Join(routerDir, "examples", command+"-request.json"))
+	data, err := os.ReadFile(filepath.Join("examples", command+"-request.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -194,7 +194,6 @@ func TestCLIRoutingTablesPrecedence(t *testing.T) {
 			t.Errorf("%s: %+v", name, r)
 		}
 	}
-	t.Chdir(routerDir)
 	ok("flag over environment", runCLI(t, env(missing), "", "--routing-tables", tables, "validate-data"))
 	ok("empty environment uses ./routing", runCLI(t, env(""), "", "validate-data"))
 	if r := runCLI(t, env(missing), "", "validate-data"); r.code != 2 || !strings.HasPrefix(r.stderr, "invalid model data:") {

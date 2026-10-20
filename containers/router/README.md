@@ -10,17 +10,17 @@ tooling are maintained separately and are not needed to build or run it.
 
 ## Build and run
 
-The Go code lives in [go/](go), and `go/go.mod` pins the toolchain. Shell examples use Bash
-syntax and run from this directory. The server runs in the foreground, so use another terminal
-for client commands.
+The router is one Go `main` package in this directory, and `go.mod` pins the toolchain. Shell
+examples use Bash syntax and run from this directory. The server runs in the foreground, so use
+another terminal for client commands.
 
 ```bash
-go -C go build -o gh-aw-router .
-go/gh-aw-router --routing-tables routing validate-data
-go/gh-aw-router --routing-tables routing serve --bind 127.0.0.1:8737
+go build -o gh-aw-router .
+./gh-aw-router --routing-tables routing validate-data
+./gh-aw-router --routing-tables routing serve --bind 127.0.0.1:8737
 ```
 
-Pass `-o`, because a plain `go build` names the binary after the `go` directory.
+Pass `-o`, because a plain `go build` names the binary `router`, after this directory.
 
 Use trusted tables and keep them read-only. Tables are validated at startup, and replacing them
 requires a restart.
@@ -31,8 +31,8 @@ requires a restart.
 option is global and must precede the command.
 
 ```bash
-go/gh-aw-router --routing-tables routing classify --input examples/classify-request.json
-go/gh-aw-router --routing-tables routing route --input examples/route-request.json
+./gh-aw-router --routing-tables routing classify --input examples/classify-request.json
+./gh-aw-router --routing-tables routing route --input examples/route-request.json
 ```
 
 Command-line options override environment variables, which override defaults. An empty
@@ -278,7 +278,7 @@ docker build \
 
 The builder stage cross-compiles, so a multi-platform build needs no emulation. The build fails
 unless `OPENAPI_SHA256` matches `openapi.yaml`, and unless the optional `VERSION` build argument
-matches the `version` constant in `go/main.go`, so the image labels can't disagree with the
+matches the `version` constant in `main.go`, so the image labels can't disagree with the
 binary.
 
 Each AWF release publishes the image for `linux/amd64` and `linux/arm64` as
@@ -329,7 +329,7 @@ under old pins.
 
 ## Test fixtures
 
-[The routing-contract corpus](tests/fixtures/routing-contract) covers all four endpoints using
+[The routing-contract corpus](testdata/routing-contract) covers all four endpoints using
 synthetic model identities and six distinguishable table profiles. Each case names the method,
 path, expected status, optional headers and a complete request; default to
 `Content-Type: application/json` when headers are omitted. `raw_request` marks malformed JSON,
@@ -344,7 +344,7 @@ HTTP handler, and the container tests replay them against the image with the tab
 The fake model identities are test data, not a provider catalogue. Never send them to live
 providers. The API proxy's tests copy a subset of these cases.
 
-[The behavior fixtures](tests/fixtures/parity) record the expected heuristic labels, request
+[The behavior fixtures](testdata/parity) record the expected heuristic labels, request
 decoding, context estimates and classifier prompts, which were first recorded from the Python
 router this Go implementation replaced. Their README lists where the Go router deliberately
 differs from it. Change an expectation only in a reviewed pull request that explains it.
@@ -358,7 +358,7 @@ Open an issue to discuss substantial changes before implementation. Keep pull re
 and include tests for changed behavior. Do not include credentials, private prompts, local
 environments, or generated build output.
 
-Run these checks from `go/`.
+Run these checks from this directory.
 
 ```bash
 gofmt -l .
@@ -371,8 +371,8 @@ hardened as AWF does, check its configuration, health check, shutdown and logs, 
 routing-contract corpus against it.
 
 ```bash
-docker build --build-arg OPENAPI_SHA256="$(sha256sum ../openapi.yaml | cut -d ' ' -f 1)" \
-  --tag gh-aw-router:test ..
+docker build --build-arg OPENAPI_SHA256="$(sha256sum openapi.yaml | cut -d ' ' -f 1)" \
+  --tag gh-aw-router:test .
 GH_AW_ROUTER_TEST_IMAGE=gh-aw-router:test go test -run '^TestContainer' -v .
 ```
 
@@ -383,14 +383,13 @@ container tests.
 
 ### Project layout
 
-- `go/` contains the router: one flat `main` package, its tests and `go.mod`. Its tests read
-  this directory's tables, schemas, examples, fixtures, `openapi.yaml` and `Dockerfile` through
-  `..`.
+- The `.go` files and `go.mod` are the router: one flat `main` package and its tests. The image
+  build copies only `go.mod` and the non-test `.go` files.
 - `routing/` contains generated routing tables from training.
 - `schemas/` contains the versioned JSON Schema for routing table files.
 - `trust/` is AWF's shared CA distrust policy, which the image build applies to its CA bundle.
 - `examples/` contains executable planning requests.
-- `tests/fixtures/` contains the routing-contract corpus and the behavior fixtures.
+- `testdata/` contains the routing-contract corpus and the behavior fixtures.
 - The repository root's `.github/workflows/test-router.yml` and `.github/dependabot.yml` contain
   CI and dependency-update configuration.
 
@@ -421,8 +420,8 @@ Keep the table format marker because files and mounts can change independently o
 
 Router changes ship in the next AWF release. Bump the router version in the same pull request
 as any change to routing behaviour or the HTTP contract. The version appears in the `version`
-constant in `go/main.go`, the Dockerfile's `VERSION` default, `openapi.yaml`, and the
-capabilities case in `tests/fixtures/routing-contract/discovery.json`; the Go tests fail if they
+constant in `main.go`, the Dockerfile's `VERSION` default, `openapi.yaml`, and the
+capabilities case in `testdata/routing-contract/discovery.json`; the Go tests fail if they
 disagree.
 
 Keep release publication and credentialed attestations in separately reviewed,
@@ -432,7 +431,7 @@ Do not execute untrusted PR code through `pull_request_target`.
 ### Dependencies and routing data
 
 The router has no Go module dependencies. Dependabot updates the Docker base image weekly, and
-`go/go.mod`'s toolchain is updated by hand to match it. Keep external actions pinned to full
+`go.mod`'s toolchain is updated by hand to match it. Keep external actions pinned to full
 commit SHAs when reviewing updates. Routing JSON files are generated offline. Do not hand-edit
 rankings or add runtime dependencies on training tools.
 

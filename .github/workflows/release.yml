@@ -303,7 +303,7 @@ jobs:
           ref: ${{ needs.bump-version.outputs.version }}
 
       # The image version label is the router's own version (the Dockerfile's
-      # ARG VERSION default, which the build checks against go/main.go), not the
+      # ARG VERSION default, which the build checks against main.go), not the
       # AWF version, so VERSION is deliberately not passed.
       # VCS_REF is the checked-out tag commit, not github.sha: bump-version
       # creates a tag-only version commit on top of the dispatched commit.

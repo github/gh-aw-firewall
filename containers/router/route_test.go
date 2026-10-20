@@ -4,7 +4,6 @@ import (
 	"encoding/json/jsontext"
 	"maps"
 	"math"
-	"path/filepath"
 	"reflect"
 	"slices"
 	"strings"
@@ -380,7 +379,7 @@ func TestServiceRequiresSharedCatalogue(t *testing.T) {
 }
 
 func TestBundledProfilesRouteAndClassify(t *testing.T) {
-	s, err := LoadService(filepath.Join(routerDir, "routing"))
+	s, err := LoadService("routing")
 	if err != nil {
 		t.Fatal(err)
 	}
