@@ -103,6 +103,10 @@ export function applyGeneralWorkflowPatches(
       /ghcr\.io\/github\/github-mcp-server:[\w.-]+(?:@sha256:[a-f0-9]{64})?/g,
       pinnedGithubImage
     );
+    // mcpg v0.4.15 accepts tags, not digest-qualified stdio container values.
+    content = content
+      .split(`"container": "${pinnedGithubImage}"`)
+      .join(`"container": "${githubImage}"`);
     content = content.replace(
       /^(# gh-aw-manifest: )(.+)$/m,
       (_match, prefix: string, json: string) => {
