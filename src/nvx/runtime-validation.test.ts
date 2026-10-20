@@ -2,6 +2,7 @@ import { promises as fs } from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import type { WrapperConfig } from '../types';
+import { normalizeEnclavesConfig } from '../parsers/enclave-parser';
 import {
   assertNvxContainerWorkDirResolvesWithinWorkspace,
   assertNvxHostEligibility,
@@ -213,6 +214,22 @@ describe('NVX runtime validation', () => {
       expect(() => assertNvxRuntimeCompatibility(config({
         enclaves: { enabled: true } as WrapperConfig['enclaves'],
       }))).toThrow(/no runtime fallback is permitted/);
+    });
+
+    it.each([
+      [{ script: {} }],
+      [{ agent: { model: 'trusted-model' } }],
+      [{ script: {} }, { agent: { model: 'trusted-model' } }],
+    ])('rejects normalized enclave combinations without changing the selected runtime: %j', (...entries) => {
+      const selected = config({
+        enclaves: normalizeEnclavesConfig(entries.map(entry => ({
+          ...entry,
+          repos: [{ repo: 'octo/private', sensitivity: 'internal' as const }],
+        }))),
+      });
+      expect(() => assertNvxRuntimeCompatibility(selected)).toThrow(/no runtime fallback is permitted/);
+      expect(selected.containerRuntime).toBe('nvx');
+      expect(selected.enclaves?.enabled).toBe(true);
     });
 
     it('rejects incomplete artifact configuration', () => {

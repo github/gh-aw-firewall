@@ -7,6 +7,11 @@ document. Changes to the access policy require separate security review.
 **not** the inventory of all components and **not** the Cloud Hypervisor or NVX
 export policy.
 
+The [cross-backend workload contract](enclaves-architecture.md#cross-backend-workload-contract)
+adds role/combinations, capability admission, resource-limit semantics and
+deterministic versus real-backend verification obligations. Filesystem sharing
+parity alone neither enables a backend nor equates its isolation boundary.
+
 ## Interpretation and trust boundaries
 
 Visibility means a source can be reached at *any* destination, including a

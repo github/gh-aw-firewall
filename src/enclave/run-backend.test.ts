@@ -3,6 +3,32 @@ import { resolveRunSandboxBackend, validateRunSandboxBackend } from './run-backe
 
 describe('run sandbox backend', () => {
   it.each([
+    ['primary-only', []],
+    ['script-only', [{ script: {} }]],
+    ['agent-only', [{ agent: { model: 'trusted-model' } }]],
+    ['primary-plus-both', [{ script: {} }, { agent: { model: 'trusted-model' } }]],
+  ])('keeps backend selection separate from launch admission for %s', (_name, entries) => {
+    for (const runtime of ['docker', 'cloud-hypervisor'] as const) {
+      const enclaves = normalizeEnclavesConfig(entries.map(entry => ({
+        ...entry,
+        runtime,
+        repos: [{ repo: 'octo/private', sensitivity: 'internal' as const }],
+      })))!;
+      const snapshot = structuredClone(enclaves);
+      expect(validateRunSandboxBackend(runtime, enclaves)).toEqual([]);
+      expect(enclaves).toEqual(snapshot);
+      if (enclaves.enabled) {
+        expect(validateRunSandboxBackend('nvx', enclaves)).toEqual(
+          Object.values(enclaves.executors)
+            .filter(executor => executor.enabled)
+            .map(() => expect.stringContaining('one sandbox backend is required per run; no runtime fallback')),
+        );
+        expect(enclaves).toEqual(snapshot);
+      }
+    }
+  });
+
+  it.each([
     [undefined, 'docker'], ['docker', 'docker'], ['runc', 'docker'],
     ['runsc', 'gvisor'], ['gvisor', 'gvisor'], ['sbx', 'sbx'],
     ['cloud-hypervisor', 'cloud-hypervisor'], ['nvx', 'nvx'],

@@ -72,6 +72,185 @@ The host lifecycle closes admissions before broker shutdown,
 then cancels/closes the executor before releasing storage or deleting private
 state. Unresolved cleanup preserves recovery records and prevents deletion.
 
+## Cross-backend workload contract
+
+This is the characterization baseline for shared-core extraction and conformance
+work, not an authorization to enable additional backends. **I** means implemented
+on the accepted path (not universal live certification); **G** means implemented
+behind preview/prerequisite or named acceptance gates; **U** means unsupported
+and rejected; **V** means unverified by real-backend acceptance. A profile, mock,
+runner specification, or successful structural validation alone cannot promote
+G/U/V to I. Matrices below describe admission; the verification table describes
+what evidence supports it. Existing Docker capabilities must survive extraction.
+
+### Roles and execution combinations
+
+| Role | Observable contract | Security boundary |
+| --- | --- | --- |
+| Primary agent | Runs the caller's command with the approved workspace, environment, proxy routes and workdir; streams command output and returns its exit status. | Primary workspace is not a private repository seed. No enclave-private roots, enclave credentials, broker capability, ledger, or recovery journal. |
+| Script enclave | One bounded Python invocation over one immutable repository seed; only a validated canonical result crosses back. | No network, read-only root/seed, invocation-private writable state, non-root identity; no primary workspace. |
+| Agent enclave | One bounded, trusted-model invocation, over a static seed or authorized dynamic repository identity. | Dedicated credential-injecting API proxy only, plus compiler-authorized GitHub MCP when configured; no general internet, primary proxy, Squid, safe outputs, or primary workspace. |
+
+“Script-only” and “agent-only” mean only that enclave executor is enabled; the
+normal CLI still has a primary agent. They do **not** describe a new standalone
+enclave CLI. Direct host-executor tests exercise a different, trusted seam.
+
+| Combination | Docker | NVX | Cloud Hypervisor |
+| --- | --- | --- | --- |
+| Primary-only | I | G: explicit preview, host/artifact/security preflight | G: explicit preview, eligible host/artifacts |
+| Primary + script-only | I | U | G: named public-fixture acceptance only; general use U |
+| Primary + agent-only | I: Copilot and configured route | U | G: named public-fixture acceptance only; general use U |
+| Primary + both enclave roles | I: shared ledger/admission lane | U | G: release conformance harness only; general use U |
+
+Admission sources are `src/enclave/{run-backend,preflight}.ts`,
+`src/nvx/runtime-validation.ts`, and
+`src/cloud-hypervisor/runtime-validation.ts`. Cloud Hypervisor exceptions are
+closed predicates in
+`src/enclave/cloud-hypervisor-{script,conformance}-acceptance.ts`, not a general
+opt-in: workflow identity/ref, repository/sensitivity, artifact/image alignment,
+executor settings and budgets must match. The script/Copilot smoke exceptions
+and release conformance exception have different predicates; neither grants
+private-repository acceptance. `assertCloudHypervisorWorkloadLaunchable` also
+requires trusted enclave-executor authorization. Its boolean is not a user flag.
+
+Exactly **one workload backend per run** covers the primary and every enabled
+executor. Omitted runtimes inherit the primary; Docker/runc and gVisor/runsc are
+aliases within their respective backends, not equivalent to each other.
+Supporting Docker proxy/broker infrastructure does not make a VM workload a
+Docker workload. Unknown selections, mismatches, missing prerequisites, and
+launch failures must fail closed, without silently rewriting configuration or
+retrying on another backend. Functional/policy parity does **not** make
+containers, user-space kernels and hardware VMs equivalent isolation boundaries.
+
+### Capability inventory
+
+| Capability | Docker | NVX | Cloud Hypervisor |
+| --- | --- | --- | --- |
+| Static repository seeds | I: script and agent; merged trusted catalog | U: no enclave runtime | G: host executor implemented; public acceptance scope above, private acceptance V |
+| Dynamic repositories | G: agent only, compiler delegation handoff and supported mcpg required | U | U: preflight rejects |
+| Static GitHub tools | G: compiler-scoped identity, `list_issues` / `issue_read`; legacy `issues-read-v1` retained | U for enclaves | U: scoped executor bearer handoff missing on accepted host path |
+| Dynamic GitHub tools | G: `github-repository-read-v1`, one repository per invocation | U | U |
+| Enclave engines | I: Copilot only; other engine names are parsed but rejected | U | G: Copilot in acceptance fixtures; other engines rejected despite wider profile types |
+| Primary engines/commands | I: arbitrary installed command, provider routes as configured | G: guest-installed commands, approved environment/routes | G: guest-installed commands, approved environment/routes |
+| Trusted custom enclave images | I: script/agent image override retained; does not implement another engine | U | U: requires AWF-attested enclave artifacts |
+| Primary images/tool availability | I: existing local-build, registry/tag and agent-image options | G: explicit distro layer; not OCI image parity | G: attested rootfs/supervisor; not OCI image parity |
+| Host requirements | Docker daemon and existing platform/runtime prerequisites | Linux x86_64, KVM, local host-visible infrastructure, required tools/cgroup/artifact preflight | GitHub-hosted Ubuntu x86_64, KVM, local Unix Docker socket, writable cgroup v2 and trusted enclave storage provider |
+| Artifact provenance | Existing OCI/local-build trust model; no new VM-attestation requirement imposed on Docker overrides | Manifest + attestation bundle, pinned upstream NVX/OpenVMM provenance, artifact digests | Release manifest + bundle + expected tag, common/enclave artifact verification and immutable snapshots |
+| TTY, DinD/split filesystem, host access, extra host binds | Existing primary capabilities retained; DinD/socket-exposing binds rejected with enclaves | U | U on primary preview |
+| Custom subnet / DoH / DIFC | Existing Docker options retained | U | Fixed microVM infrastructure subnet; primary DoH/DIFC U |
+
+Inventory evidence: `src/enclave/preflight.ts`,
+`src/types/enclave-options.ts`, `src/nvx/{preflight,artifact-manifest}.ts`,
+`src/cloud-hypervisor/{preflight,artifact-trust,enclave-artifact-manifest}.ts`,
+and the runner specs under `containers/enclave/{script,agent}-executor/`.
+The Cloud Hypervisor common-artifact development bypass is separately guarded,
+requires explicit digests and host authorization, and is not an enclave
+acceptance bypass. Parsed engine/profile names or reference GitHub data-plane
+profiles do not override the stricter preflight inventory.
+
+### Shared invariants and verification obligations
+
+Each row identifies deterministic evidence and a real-backend check for the
+future shared conformance suite. Paths in this table are repository-relative;
+tests under `src/` run with the root Jest configuration. Live checks must use
+disposable fixtures and the final workload identity, not privileged `docker exec`.
+
+| Invariant | Existing deterministic evidence | Required real-backend evidence / gap |
+| --- | --- | --- |
+| Primary workspace and workdir | `src/services/agent-volumes*`, `src/nvx/{workspace-export,runtime-validation}.test.ts`, `src/cloud-hypervisor/exports.test.ts` | Read/write round trip and denied sibling/alias access. Docker preserves host workspace paths; VMs export `/workspace`. NVX rejects outside/escaping-symlink workdirs. Verify backend-specific path mapping, not identical mount layouts. |
+| Primary environment and proxies | `src/services/agent-environment-{credentials,proxy}.test.ts`, `src/microvm/guest-environment.test.ts`, `src/cloud-hypervisor-runtime-backend.env-mapping.test.ts`, `src/nvx/guest-entrypoint.test.ts` | Verify explicit env/env-file/env-all precedence, reserved guest HOME/PATH/proxy handling, allowed/denied egress and absent provider secrets with API proxy enabled. VM tool caches are read-only seeds, not live Docker home shares. |
+| Primary status, output, cancellation | `src/run-agent-command.test.ts`, `src/commands/signal-handler.test.ts`, `src/{cloud-hypervisor-runtime-backend,nvx/runtime-backend}.test.ts` | Command exits 0/nonzero, streams stdout/stderr, then interrupt an active command and verify guest/process/resource teardown. NVX is one-shot; Cloud Hypervisor uses supervisor requests; do not invent common TTY or signal-number semantics. |
+| Script no-network | `src/enclave/script-runner-spec.test.ts`, `src/cloud-hypervisor/enclave-network.test.ts`, `src/cloud-hypervisor/workload-profile.test.ts` | Deny IPv4/IPv6, DNS, direct IP, proxy and host-service connections. Docker uses `--network none`; Cloud Hypervisor omits NIC and creates only an empty network namespace. NVX enclave checks unavailable. |
+| Agent dedicated proxy and authorized GitHub only | `src/enclave/{agent-runner-spec,github-gateway,preflight}.test.ts`, `src/cloud-hypervisor/enclave-network.test.ts` | Assert exact peer set, deny primary/Squid/internet and unauthorized repo/tool calls; no provider key in workload. VM static GitHub admission remains U even if network profiles validate. |
+| Immutable seed, private invocation state, non-root identity | `src/enclave/{staging,invocation-staging,mount-policy}.test.ts`, `src/cloud-hypervisor/{enclave-export-plan,workload-profile}.test.ts` | Attempt seed/root writes and cross-invocation reads; inspect UID/GID, groups, capabilities and denied host paths. VM profile fixes enclave UID/GID 65534; do not infer live DAC from export metadata. See filesystem contract for remaining identity gaps. |
+| Aggregate storage and resource limits | `src/enclave/execution-policy.test.ts`, runner-spec tests, `src/cloud-hypervisor/{enclave-storage,trusted-enclave-storage}.test.ts` | Multi-file/concurrent/sparse writers across every writable export; memory/process/CPU exhaustion. Privileged storage integration tests are separate from mocked policy evidence. Docker aggregate host-output storage acceptance V; see semantics below. |
+| Canonical bounded results | `src/enclave/invocation-result.test.ts`, `src/bounded-execution/finite-disclosure-*.test.ts`, `src/enclave/host-executor-protocol.test.ts` | Malformed/oversized/non-UTF-8/wrong-schema output, symlink/special-file outputs, private stdout/stderr: only canonical approved result or non-disclosing error may reach primary. |
+| Cleanup before release and recovery | `src/enclave/{runner-lifecycle,host-executor-lifecycle,host-executor-journal,host-executor-broker}.test.ts` | Hold/fail cleanup and verify no success release; kill launcher/broker, restart/reconcile, verify owned resources reaped and unrelated resources untouched. Preserve protected state on uncertain cleanup; no blanket private-directory deletion. |
+| Private-output handling | `src/enclave/{agent-session-artifact,proxy-debug-retention,public-debug}.test.ts`, `src/protected-command-output-capture.test.ts` | No seed/request/session/raw guest output in primary mounts or public artifacts; inspect retained evidence ownership/modes. Public-fixture debug requires trusted positive visibility authorization and is not private-output permission. |
+| Disclosure and operational budgets | `src/enclave/{information-budget,tool-call-budget,mcp-server,dynamic-registry}.test.ts`, `src/enclave/proxy-usage.test.ts` | Retry, restart, alternate roles and concurrent calls must not refill balances; proxy accounting and delegated identity revocation need live evidence as well as broker tests. |
+
+The current live harness entry points include
+`scripts/ci/cloud-hypervisor-live-smoke.sh`,
+`scripts/ci/cloud-hypervisor-enclave-live-smoke.js` and
+`scripts/ci/cloud-hypervisor-enclave-release-gate.js`; their presence is a
+verification strategy, **not** a claim that all release-attested cases passed.
+NVX phase acceptance and Docker integration evidence must likewise be recorded
+per host, artifact set, role and combination. No full cross-backend conformance
+certificate is asserted here.
+
+### Resource-limit semantics
+
+Limits are scoped and must not be conflated:
+
+- Docker enclave runner specs apply trusted configurable memory, CPU, PID and
+  tmpfs limits with read-only rootfs, dropped capabilities and no-new-privileges.
+  A tmpfs cap bounds that filesystem, not every host-backed output/session bind.
+  Do not claim a run-wide or whole-invocation disk quota from those flags.
+- VM host-enclave policies in `src/enclave/execution-policy.ts` are fixed:
+  both roles have 768 MiB memory, one vCPU with 500 milli-CPU quota, 47 processes,
+  1024 open files and UID/GID 65534. Script/agent tmpfs limits are 256/96 MiB;
+  **per-file** limits are 512/256 MiB; **aggregate writable-state** limits are
+  1024/512 MiB respectively. These are not the Docker parser defaults and must
+  not silently replace Docker's configurable limits during extraction.
+- `src/enclave/bounded-storage.ts` requires verification of actual confinement
+  and capacity. The Cloud Hypervisor provider uses an invocation-private
+  kernel-bounded allocation domain across request/handoff, output, runtime and
+  session exports. Host-only executable snapshots, rootfs preparation and VM
+  image state use separately bounded domains described in Status above; they
+  are not writable guest exports. A nominal rootfs/image size, disk free-space
+  measurement, sparse logical size, `RLIMIT_FSIZE`, or per-file cap is **not**
+  aggregate enforcement. Test allocated blocks, simultaneous writers and
+  alternate writable paths; reject absent/unverifiable providers before launch.
+- Primary VM memory/vCPU/host-cgroup limits and enclave limits have different
+  scopes. Neither a VM memory setting nor its VMM cgroup establishes a guest
+  storage quota or charges external proxy services to that workload.
+
+### Disclosure, invocation and delegation semantics
+
+These are independent controls; none substitutes for another:
+
+- One per-run repository ledger is shared across script and agent calls.
+  `internal` gets 64 bits, `confidential` 8, `sealed` 0; `public` and `trusted`
+  are unmetered. Finite schema cardinality, status and timing are charged under
+  the finite-disclosure policy; public still requires a finite schema, while
+  trusted may use bounded free-form strings. Sealed cannot fund a launch.
+  Accepted queries reserve disclosure before private execution; errors do not
+  create a free retry channel. Re-admission never refills a repository balance.
+- `maxInvocations` is an executor-local response/admission counter, not just a
+  successful-launch count: handler rejections also consume it. Optional run-wide
+  `rateLimiting.maxNumToolCalls` counts attempted calls across both tools, including invalid, failed
+  and busy-lane calls, and persists across broker restarts. Exhaustion has its
+  existing explicit in-band cap message; it is not the generic private error.
+  The shared single-call admission lane prevents simultaneous private queries.
+  The information ledger and executor invocation counter are in-memory broker
+  state; durable tool-call accounting does not prove durable disclosure or
+  invocation accounting. Cross-restart preservation of those balances remains V.
+- Optional model-request/token limits are enforced by the dedicated API proxy
+  using invocation-bound capabilities and conservative reservations/accounting;
+  the guest receives no signing secret/provider credential. Missing usage is
+  not proof of zero usage. These budgets differ from result bytes, disclosure
+  bits, execution deadlines and tool-call counts.
+- Dynamic admission is agent-only, mutually exclusive with static `repos` in
+  an entry, and requires the compiler's private delegation-control handoff
+  (mcpg v0.4.18+). Exact canonical repository selectors must satisfy the trusted
+  owner/repository, sensitivity, tool and quota envelope. Reserve worst-case
+  invocation/output/time quotas before execution, mint a short-lived
+  one-repository identity, revoke on completion/cancellation, and retain
+  non-refilling run accounting. No fallback to static seeds, job-lifetime
+  identities or broader policy on handoff/admission/revocation failures.
+- Static seed exposure is one repository per invocation, but existing static
+  GitHub MCP identities cover the configured repository union. Do not silently
+  advertise the dynamic one-repository identity guarantee for static tools.
+  Host protocol retries bind to invocation/request digests and settlement;
+  transport retries must not become new unaccounted private executions.
+
+Intentional differences above remain until separately reviewed and accepted.
+In particular NVX enclave integration, general Cloud Hypervisor combinations,
+private-repository VM acceptance, Docker aggregate writable-output enforcement,
+and complete live identity/resource/recovery evidence are not supplied by this
+characterization. Shared extraction must preserve supported Docker behavior
+while leaving these restrictions fail closed.
+
 ## Architecture
 
 AWF stages immutable repository seeds on the host, starts one AWF-owned `enclave-mcp-server`, and exposes enabled executors only through `gh-aw-mcpg`.

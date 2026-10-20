@@ -137,6 +137,39 @@ describe('runtime-neutral enclave runner lifecycle', () => {
     expect(runtime.cleanupInvocation).toHaveBeenCalledTimes(1);
   });
 
+  it('does not release a successful result while cleanup is pending', async () => {
+    const cleaning = deferred<void>();
+    const cleaned = deferred<void>();
+    const runtime = adapter({
+      cleanupInvocation: jest.fn(async () => {
+        cleaning.resolve();
+        await cleaned.promise;
+      }),
+    });
+    const runner = createRunnerLifecycle(runtime, { nowMs: () => 1_000 });
+    const released = jest.fn();
+    const running = runner.runInvocation(request).then(released);
+    await cleaning.promise;
+    expect(released).not.toHaveBeenCalled();
+    cleaned.resolve();
+    await running;
+    expect(released).toHaveBeenCalledWith({
+      status: 'completed', exitCode: 0, timedOut: false,
+    });
+  });
+
+  it('withholds a successful result if cleanup cannot be confirmed', async () => {
+    const runtime = adapter({
+      cleanupInvocation: jest.fn(async () => {
+        throw new Error('cleanup unconfirmed');
+      }),
+    });
+    const runner = createRunnerLifecycle(runtime, { nowMs: () => 1_000 });
+    await expect(runner.runInvocation(request)).rejects.toThrow('cleanup unconfirmed');
+    expect(runtime.collectResult).toHaveBeenCalledTimes(1);
+    expect(runtime.cleanupInvocation).toHaveBeenCalledTimes(1);
+  });
+
   it('propagates cancellation and reports a canonical bounded status', async () => {
     const result = deferred<{ exitCode: number; timedOut: boolean }>();
     const runtime = adapter({
