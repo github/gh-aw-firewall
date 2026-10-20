@@ -80,13 +80,17 @@ opted-in GitHub-hosted Ubuntu x86_64 KVM job exercises real host storage,
 nftables packets, and supervisor limit probes. A separate, false-by-default
 `live-kvm` gate invokes both static executors through the public broker route
 using package-matched release-attested artifacts and the production storage
-provider. It is manually dispatched with `run_live_kvm: true` to avoid exposing
-the Copilot credential to untrusted pull-request code. It checks canonical
-bounded results, script guest identity and limits, and synthetic-output
-redaction. The live gate has not passed until it runs on an eligible
-GitHub-hosted Ubuntu x86_64 KVM/cgroup-v2 runner. Live dispatch must check out
-an exact published release tag containing the explicitly pinned reviewed
-acceptance commit, not `main`. The tag-only release version bump intentionally
+provider. Supported releases authorize automatic `workflow_dispatch` of the
+full conformance workflow, including `run_live_kvm: true`; no human dispatch is
+required after a successful supported release. The live gate is not run on
+pull-request events, avoiding exposure of the Copilot credential to untrusted
+pull-request code. Ad hoc diagnosis or recovery dispatches require separate
+maintainer authorization. It checks canonical bounded results, script guest
+identity and limits, and synthetic-output redaction. The live gate has not
+passed until it runs successfully on an eligible GitHub-hosted Ubuntu x86_64
+KVM/cgroup-v2 runner. Live dispatch must check out an exact published release
+tag containing the explicitly pinned reviewed acceptance commit, not `main`.
+The tag-only release version bump intentionally
 leaves `main` at `0.23.1`; substituting newer artifacts for that package is not
 allowed. A future authorized release containing this harness is required.
 Acceptance evidence must identify each exercised profile (primary agent,

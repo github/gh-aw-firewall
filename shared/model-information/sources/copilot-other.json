@@ -1,0 +1,113 @@
+{
+  "schemaVersion": 1,
+  "provenance": {
+    "authority": "maintained",
+    "source": "pinned legacy compatibility capture",
+    "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+    "at": "2026-10-20T00:22:04.000Z",
+    "confidence": "estimated"
+  },
+  "models": [
+    {
+      "schemaVersion": 1,
+      "identity": {
+        "key": "copilot/mai-code-1-flash",
+        "provider": "copilot",
+        "rawId": "mai-code-1-flash",
+        "lookupId": "mai-code-1-flash"
+      },
+      "lifecycle": {
+        "status": "active"
+      },
+      "modelType": "completion",
+      "availability": [
+        {
+          "scope": {
+            "provider": "copilot",
+            "channel": "copilot-cli"
+          },
+          "fact": {
+            "state": "supported",
+            "provenance": {
+              "authority": "maintained",
+              "source": "pinned legacy compatibility capture",
+              "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+              "at": "2026-10-20T00:22:04.000Z",
+              "confidence": "estimated"
+            }
+          }
+        }
+      ],
+      "tariffs": [
+        {
+          "scope": {
+            "provider": "copilot",
+            "channel": "copilot-api"
+          },
+          "currency": "USD",
+          "unit": "USD_PER_1M_TOKENS",
+          "tier": "default",
+          "components": {
+            "input": {
+              "price": "0.75",
+              "provenance": {
+                "authority": "maintained",
+                "source": "pinned legacy compatibility capture",
+                "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+                "at": "2026-10-20T00:22:04.000Z",
+                "confidence": "estimated"
+              }
+            },
+            "cachedInput": {
+              "price": "0.075",
+              "provenance": {
+                "authority": "maintained",
+                "source": "pinned legacy compatibility capture",
+                "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+                "at": "2026-10-20T00:22:04.000Z",
+                "confidence": "estimated"
+              }
+            },
+            "cacheWrite": {
+              "price": {
+                "unavailable": true
+              },
+              "provenance": {
+                "authority": "maintained",
+                "source": "pinned legacy compatibility capture",
+                "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+                "at": "2026-10-20T00:22:04.000Z",
+                "confidence": "estimated"
+              }
+            },
+            "output": {
+              "price": "4.5",
+              "provenance": {
+                "authority": "maintained",
+                "source": "pinned legacy compatibility capture",
+                "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+                "at": "2026-10-20T00:22:04.000Z",
+                "confidence": "estimated"
+              }
+            }
+          },
+          "provenance": {
+            "authority": "maintained",
+            "source": "pinned legacy compatibility capture",
+            "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+            "at": "2026-10-20T00:22:04.000Z",
+            "confidence": "estimated"
+          }
+        }
+      ],
+      "provenance": {
+        "authority": "maintained",
+        "source": "pinned legacy compatibility capture",
+        "revision": "bc0dd2262f448c89a70a186a2732dc526acecd9d31f77c620e200b67a7e583b4",
+        "at": "2026-10-20T00:22:04.000Z",
+        "confidence": "estimated"
+      }
+    }
+  ],
+  "rules": []
+}

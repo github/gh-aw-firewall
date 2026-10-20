@@ -1,8 +1,7 @@
 ---
 emoji: 🗺️
-description: Daily refresh of the model-to-API endpoint mapping from official OpenAI and Anthropic sources.
+description: Manual read-only review of the model-to-API endpoint mapping against official OpenAI and Anthropic sources.
 on:
-  schedule: daily around 06:00 UTC
   workflow_dispatch:
 permissions:
   copilot-requests: write
@@ -13,8 +12,7 @@ sandbox:
 tools:
   github:
     toolsets: [repos]
-  bash: ["cat", "curl", "date", "grep", "head", "jq", "ls", "git diff", "git status"]
-  edit:
+  bash: ["cat", "curl", "grep", "head", "jq", "ls"]
 network:
   allowed:
     - defaults
@@ -74,16 +72,34 @@ post-steps:
         exit 1
       fi
 safe-outputs:
-  create-pull-request:
-    allowed-files:
-      - docs/model-api-mapping.json
+  report-failed-jobs: false
+  report-failure-as-issue: false
+  report-incomplete:
+    create-issue: false
+  missing-tool:
+    create-issue: false
+  jobs:
+    report-mapping-review:
+      description: "Record model API mapping discrepancies in the Actions run summary."
+      runs-on: ubuntu-slim
+      output: "Review recorded."
+      inputs:
+        findings:
+          description: "Evidence-backed discrepancies and official source URLs."
+          required: true
+          type: string
+      steps:
+        - name: Record review
+          run: jq -er '.items[] | select(.type == "report_mapping_review") | .findings' "$GH_AW_AGENT_OUTPUT" >> "$GITHUB_STEP_SUMMARY"
+  noop:
+    report-as-issue: false
 ---
 
-# Model API Mapping Updater
+# Model API Mapping Review
 
 ## Task
 
-Update `docs/model-api-mapping.json` with the latest model-to-API endpoint mappings from official provider documentation.
+Review `docs/model-api-mapping.json` against the latest model-to-API endpoint mappings from official provider documentation. Do not edit the mapping or any other repository file.
 
 ## Data Sources
 
@@ -95,27 +111,26 @@ Provider documentation has already been fetched and converted to plain text in `
 
 Only if a pre-fetched file is missing or clearly lacks the model list, fall back to `curl` against the original URL (`https://developers.openai.com/api/docs/models`, `https://developers.openai.com/api/reference/responses/overview`, `https://platform.openai.com/docs/models`, `https://docs.anthropic.com/en/docs/about-claude/models`, or `https://platform.claude.com/docs/en/about-claude/models/overview`).
 
-## Update Rules
+## Review Rules
 
 1. Read the current `docs/model-api-mapping.json`.
-2. For each provider, verify existing model entries are still accurate and add any new models.
+2. For each provider, verify existing model entries are still accurate and identify any new models.
 3. For OpenAI models:
    - GPT-5.x family and newer → `responses` only (unless docs explicitly state chat/completions support)
    - o-series reasoning models (o1, o3, o4) → check docs for dual support
    - GPT-4.x and older → typically `chat_completions` (some support both)
 4. For Anthropic models:
    - All models use `messages` endpoint
-   - Add any new model families (check for version bumps like opus-4-9, sonnet-4-7, etc.)
-5. Update the `lastUpdated` timestamp to the current UTC time.
-6. Preserve the JSON structure and schema.
+   - Note any new model families (check for version bumps like opus-4-9, sonnet-4-7, etc.)
+5. Do not update `lastUpdated` based on the wall clock.
 
 ## Output
 
-- If the mapping changed, create a pull request with title "chore: update model-to-API mapping (YYYY-MM-DD)" containing only the updated `docs/model-api-mapping.json`.
-- If no changes were detected, call `noop` with explanation "Model-to-API mapping is already up to date."
+- Report any evidenced discrepancies and source URLs through `report-mapping-review` in the run summary only; do not create a pull request or make repository changes.
+- If no discrepancies were detected, call `noop` with explanation "Model-to-API mapping is already up to date."
 
 ## Quality Checks
 
-- Keep the JSON well-formed; a post-agent step runs `jq empty docs/model-api-mapping.json` and fails the run on invalid JSON.
-- Do not remove existing model entries unless they are confirmed deprecated and removed from provider docs.
-- Keep patterns consistent with existing entries (glob-style with `*` suffix).
+- A post-agent step checks that the existing JSON is well-formed.
+- Do not recommend removing existing model entries unless they are confirmed deprecated and removed from provider docs.
+- When reporting discrepancies, refer to existing patterns (glob-style with `*` suffix).

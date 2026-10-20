@@ -1,0 +1,55 @@
+{
+  "schemaVersion": 1,
+  "provenance": {
+    "authority": "maintained",
+    "source": "https://github.com/github/gh-aw-firewall/issues/10029 and https://github.com/github/gh-aw-firewall/issues/10030",
+    "revision": "issues-10029-10030-open-2026-10-20",
+    "at": "2026-10-15T17:11:28Z",
+    "confidence": "estimated"
+  },
+  "availability": [
+    "claude-opus-5.5",
+    "claude-sonnet-5.5",
+    "gemini-3.8-flash",
+    "grok-4.5",
+    "grok-4.6",
+    "grok-4.7"
+  ],
+  "tariffs": {
+    "gemini-3.8-flash": {
+      "default": [0.75, 0.075, null, 3.75],
+      "promotionUntil": "2027-01-01T00:00:00Z",
+      "successor": [1.5, 0.15, null, 7.5]
+    },
+    "grok-4.5": { "default": [2, 0.5, null, 6], "long": [200000, 4, 1, null, 12] },
+    "grok-4.6": { "default": [2, 0.5, null, 6], "long": [200000, 4, 1, null, 12] },
+    "grok-4.7": { "default": [2, 0.5, null, 6], "long": [200000, 4, 1, null, 12] }
+  },
+  "routing": [
+    { "provider": "openai", "id": "gpt-5.4-mini", "family": "gpt-5.4-mini", "context": 400000, "efforts": ["none", "low", "medium", "high", "xhigh"] },
+    { "provider": "openai", "id": "gpt-5.5", "family": "gpt-5.5", "context": 1050000, "efforts": ["none", "low", "medium", "high", "xhigh"] },
+    { "provider": "openai", "id": "gpt-5.6", "family": "gpt-5.6", "context": 1050000, "efforts": ["none", "low", "medium", "high", "xhigh", "max"] },
+    { "provider": "openai", "id": "gpt-5.6-sol", "family": "gpt-5.6", "context": 1050000, "efforts": ["none", "low", "medium", "high", "xhigh", "max"] },
+    { "provider": "openai", "id": "gpt-5.6-terra", "family": "gpt-5.6", "context": 1050000, "efforts": ["none", "low", "medium", "high", "xhigh", "max"] },
+    { "provider": "openai", "id": "gpt-5.6-luna", "family": "gpt-5.6", "context": 1050000, "efforts": ["none", "low", "medium", "high", "xhigh", "max"] },
+    { "provider": "openai", "id": "gpt-6-astra", "family": "gpt-6-astra", "context": 1050000, "efforts": ["low", "medium", "high", "xhigh", "max"] },
+    { "provider": "openai", "id": "gpt-6-sol", "family": "gpt-6-sol", "context": 1050000, "efforts": ["none", "low", "medium", "high", "xhigh", "max"] },
+    { "provider": "openai", "id": "gpt-6-luna", "family": "gpt-6-luna", "context": 1050000, "efforts": ["none", "low", "medium", "high", "xhigh", "max"] },
+    { "provider": "openai", "id": "gpt-6.1-sol", "family": "gpt-6.1-sol", "context": 1050000, "efforts": ["low", "medium", "high", "xhigh", "max"] },
+    { "provider": "anthropic", "id": "claude-opus-5.5", "family": "claude-opus-5", "efforts": ["low", "medium", "high", "xhigh", "max"] },
+    { "provider": "anthropic", "id": "claude-opus-5", "family": "claude-opus-5", "efforts": ["low", "medium", "high", "xhigh", "max"] },
+    { "provider": "anthropic", "id": "claude-fable-5.1", "family": "claude-fable-5", "efforts": ["low", "medium", "high", "xhigh", "max"] },
+    { "provider": "anthropic", "id": "claude-fable-5", "family": "claude-fable-5", "efforts": ["low", "medium", "high", "xhigh", "max"] },
+    { "provider": "anthropic", "id": "claude-mythos-5.1", "family": "claude-mythos-5", "efforts": ["low", "medium", "high", "xhigh", "max"] },
+    { "provider": "anthropic", "id": "claude-mythos-5", "family": "claude-mythos-5", "efforts": ["low", "medium", "high", "xhigh", "max"] },
+    { "provider": "anthropic", "id": "claude-mythos-preview", "family": "claude-mythos-preview", "efforts": ["low", "medium", "high", "max"] },
+    { "provider": "anthropic", "id": "claude-sonnet-5.5", "family": "claude-sonnet-5", "efforts": ["low", "medium", "high", "xhigh", "max"] },
+    { "provider": "anthropic", "id": "claude-sonnet-5", "family": "claude-sonnet-5", "efforts": ["low", "medium", "high", "xhigh", "max"] },
+    { "provider": "anthropic", "id": "claude-opus-4.8", "family": "claude-opus-4", "efforts": ["low", "medium", "high", "xhigh", "max"] },
+    { "provider": "anthropic", "id": "claude-opus-4.7", "family": "claude-opus-4", "efforts": ["low", "medium", "high", "xhigh", "max"] },
+    { "provider": "anthropic", "id": "claude-opus-4.6", "family": "claude-opus-4", "efforts": ["low", "medium", "high", "max"] },
+    { "provider": "anthropic", "id": "claude-sonnet-4.6", "family": "claude-sonnet-4", "efforts": ["low", "medium", "high", "max"] },
+    { "provider": "anthropic", "id": "claude-haiku-5.5", "family": "claude-haiku-5", "context": 1000000, "efforts": ["low", "medium", "high", "xhigh", "max"] }
+  ],
+  "excludedVariants": ["openai/gpt-5.6-cyber", "openai/gpt-5.5-pro"]
+}

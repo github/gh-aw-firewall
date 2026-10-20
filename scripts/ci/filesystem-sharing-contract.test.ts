@@ -69,9 +69,9 @@ describe('filesystem sharing contract', () => {
       expect(row.source).not.toBe('<HOME>');
     }
     const standard = agent.filter(row => row.scenario === 'compose/default');
-    const masks = standard.filter(row => row.source === '/dev/null' && row.destination.includes('.docker/config.json'));
+    const masks = standard.filter(row => row.source === '/dev/null' && row.destination.includes('.config/gh/hosts.yml'));
     expect(masks.map(row => row.destination)).toEqual(expect.arrayContaining([
-      '<HOME>/.docker/config.json', '/host<HOME>/.docker/config.json',
+      '<HOME>/.config/gh/hosts.yml', '/host<HOME>/.config/gh/hosts.yml',
     ]));
     expect(masks.every(row => row.access === 'ro')).toBe(true);
   });

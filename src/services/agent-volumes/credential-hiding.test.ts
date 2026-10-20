@@ -58,29 +58,56 @@ describe('pruneUnmountableCredentialOverlays', () => {
     fs.rmSync(hostDir, { recursive: true, force: true });
   });
 
-  it('keeps every overlay when no covering bind is read-only (the no-policy case)', () => {
-    const volumes = [
-      `${hostDir}:/host${HOME}:rw`,
-      `${hostDir}/.config:/host${HOME}/.config:rw`,
-      overlay(`${HOME}/.docker/config.json`),
-      overlay(`/host${HOME}/.docker/config.json`),
-      overlay(`/host${HOME}/.config/gh/hosts.yml`),
-    ];
+  it.each([HOME, `/host${HOME}`])(
+    'drops missing credential overlays behind writable binds at %s without creating host paths',
+    (homeTarget) => {
+      const relativePaths = [
+        '.config/gcloud/credentials.db',
+        '.config/gcloud/access_tokens.db',
+        '.config/gcloud/application_default_credentials.json',
+        '.azure/accessTokens.json',
+        '.cargo/credentials.toml',
+        '.claude/.credentials.json',
+      ];
+      const volumes = [
+        `${hostDir}:${homeTarget}:rw`,
+        ...relativePaths.map((rel) => overlay(`${homeTarget}/${rel}`)),
+      ];
 
-    expect(pruneUnmountableCredentialOverlays(volumes)).toEqual(volumes);
+      expect(pruneUnmountableCredentialOverlays(volumes)).toEqual([volumes[0]]);
+      expect(fs.readdirSync(hostDir)).toEqual([]);
+    },
+  );
+
+  it('drops a missing credential overlay even when its writable parent directory exists', () => {
+    fs.mkdirSync(path.join(hostDir, '.config/gcloud'), { recursive: true });
+    const bind = `${hostDir}/.config:/host${HOME}/.config:rw`;
+    const target = `/host${HOME}/.config/gcloud/credentials.db`;
+
+    expect(pruneUnmountableCredentialOverlays([bind, overlay(target)])).toEqual([bind]);
+    expect(fs.readdirSync(path.join(hostDir, '.config/gcloud'))).toEqual([]);
   });
 
-  it('keeps overlays whose mountpoint exists behind a read-only bind', () => {
+  it.each(['ro', 'rw'])('keeps overlays whose mountpoint exists behind a %s bind', (mode) => {
     fs.mkdirSync(path.join(hostDir, '.config/gh'), { recursive: true });
     fs.writeFileSync(path.join(hostDir, '.config/gh/hosts.yml'), 'DUMMY_SECRET_VALUE');
     const target = `/host${HOME}/.config/gh/hosts.yml`;
 
     const result = pruneUnmountableCredentialOverlays([
-      `${hostDir}:/host${HOME}:ro`,
+      `${hostDir}:/host${HOME}:${mode}`,
       overlay(target),
     ]);
 
     expect(result).toContain(overlay(target));
+  });
+
+  it('keeps an overlay when a file bind has the same destination', () => {
+    const secret = path.join(hostDir, 'npmrc');
+    fs.writeFileSync(secret, 'DUMMY_SECRET_VALUE');
+    const target = `/host${HOME}/.npmrc`;
+    const volumes = [`${secret}:${target}:ro`, overlay(target)];
+
+    expect(pruneUnmountableCredentialOverlays(volumes)).toEqual(volumes);
   });
 
   it('drops overlays whose mountpoint is missing behind a read-only bind', () => {
@@ -196,6 +223,23 @@ describe('pruneUnmountableCredentialOverlays', () => {
     expect(result).not.toContain(overlay(target));
   });
 
+  it('resolves duplicate covering destinations against the last bind, as Compose does', () => {
+    fs.mkdirSync(path.join(hostDir, 'empty'));
+    fs.mkdirSync(path.join(hostDir, 'home'));
+    fs.writeFileSync(path.join(hostDir, 'home/.npmrc'), '');
+    const target = `/host${HOME}/.npmrc`;
+    const volumes = [
+      `${hostDir}/empty:/host${HOME}:rw`,
+      `${hostDir}/home:/host${HOME}:rw`,
+      overlay(target),
+    ];
+
+    expect(pruneUnmountableCredentialOverlays(volumes)).toEqual(volumes);
+    expect(pruneUnmountableCredentialOverlays([
+      volumes[1], volumes[0], overlay(target),
+    ])).toEqual([volumes[1], volumes[0]]);
+  });
+
   it('keeps overlays that land on the container rootfs with no covering bind', () => {
     const volumes = [
       `${hostDir}:/host${HOME}:ro`,
@@ -270,13 +314,13 @@ describe('pruneUnmountableCredentialOverlays', () => {
       expect(result).toContain(overlay(target));
     });
 
-    it('still drops an unreachable overlay when the runner path is known', () => {
+    it.each(['ro', 'rw'])('drops a missing overlay behind a %s bind when the runner path is known', (mode) => {
       const localRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-local-'));
       const resolver = createLocalSourceResolver(new Map([['/daemon' + localRoot, localRoot]]), '/daemon');
       const target = `/host${HOME}/.docker/config.json`;
 
       const result = pruneUnmountableCredentialOverlays(
-        [`/daemon${localRoot}:/host${HOME}:ro`, overlay(target)],
+        [`/daemon${localRoot}:/host${HOME}:${mode}`, overlay(target)],
         resolver,
       );
 

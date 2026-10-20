@@ -37,6 +37,7 @@ interface AgentVolumesParams {
   ) => string[];
   additionalMounts?: string[];
   nestedMountpointOptions?: NestedMountpointOptions;
+  filterVolumes?: (volumes: string[]) => string[];
 }
 
 export function buildAgentVolumes(params: AgentVolumesParams): string[] {
@@ -108,27 +109,31 @@ export function buildAgentVolumes(params: AgentVolumesParams): string[] {
   );
   const localSourceResolver = createLocalSourceResolver(customSourceRoots, config.dockerHostPathPrefix);
 
-  const policyVolumes = pruneUnmountableCredentialOverlays(applyFilesystemWritePolicy(
+  const policyVolumes = applyFilesystemWritePolicy(
     agentVolumes,
     resolveComposeFilesystemAllowWrite(config),
     alwaysWritableMounts,
     localSourceRoots,
-  ), localSourceResolver);
+  );
+  const volumeFilter = params.filterVolumes;
+  const filterBeforePruning = volumeFilter !== undefined;
+  const topologyVolumes = filterBeforePruning
+    ? volumeFilter(applyHostPathPrefixToVolumes(policyVolumes, config.dockerHostPathPrefix))
+    : policyVolumes;
+  const prunedVolumes = pruneUnmountableCredentialOverlays(topologyVolumes, localSourceResolver);
 
   // A read-only bind cannot host a mountpoint runc still has to create, so any
   // internal mount nested inside one must exist up front. Derived from the final
   // topology, so mounts added later are covered without another targeted fix.
   (params.prepareNestedMountpoints ?? ensureNestedMountpoints)(
-    policyVolumes,
+    prunedVolumes,
     parseInt(getSafeHostUid(), 10),
     parseInt(getSafeHostGid(), 10),
     localSourceResolver,
     params.nestedMountpointOptions,
   );
 
-  if (config.dockerHostPathPrefix) {
-    return applyHostPathPrefixToVolumes(policyVolumes, config.dockerHostPathPrefix);
-  }
-
-  return policyVolumes;
+  return filterBeforePruning
+    ? prunedVolumes
+    : applyHostPathPrefixToVolumes(prunedVolumes, config.dockerHostPathPrefix);
 }

@@ -33,6 +33,8 @@ The workflow will:
 - Create NPM tarball and checksums
 - Generate versioned JSON Schema files with the release tag embedded in their `$id` URLs
 - Publish the GitHub Release with auto-generated changelog
+- Dispatch full Cloud Hypervisor Enclave Conformance on that exact published tag
+  after all release builds, signatures and asset uploads succeed
 
 ### Release source identity and enclave acceptance
 
@@ -57,9 +59,30 @@ A maintainer must merge the acceptance implementation and separately authorize
 the normal release workflow to publish its package-matched signed Cloud
 Hypervisor archive/manifest/bundle and both enclave role rootfs, SBOM and
 provenance sets. No package bump on `main`, retagging, or local artifact
-substitution is needed. See the [explicit acceptance dispatch
-procedure](cloud-hypervisor-foundation.md#explicit-enclave-acceptance-dispatch)
-for the separate, credential-bearing acceptance authorization.
+substitution is needed. Publishing through the supported release workflow also
+authorizes its automatic credential-bearing conformance handoff: all three
+inputs (`run_host_probes`, `run_live_kvm`, `run_environment_probe`) are enabled,
+and `acceptance_commit` is the full source SHA selected for that release, before
+the tag-only version commit. The launcher checks the exact published tag,
+package identity and complete required asset set; the native tagged conformance
+workflow retains all ancestry, attestation, host and resource admission checks.
+It uses the existing `GITHUB_TOKEN` with job-local `contents: read` and
+`actions: write`, not a release event (bot-created releases do not reliably
+trigger downstream workflows).
+
+The release workflow's concurrency group serializes automatic handoffs. The
+launcher refuses a pre-existing dispatch for the release commit and never retries
+a POST. On release reruns it checks all prior job attempts for that exact tag:
+publication failures whose dispatch step never ran may recover automatically,
+but a previously reached dispatch step fails closed, even if no downstream run
+is visible yet, to avoid repeating an ambiguous submission.
+A failed handoff is a release job failure, not a successful skip. Inspect the
+tag's conformance runs before using the [manual dispatch procedure
+below](cloud-hypervisor-foundation.md#explicit-enclave-acceptance-dispatch) for
+diagnosis or recovery. Do not rerun the whole release to retry acceptance.
+Successful submission does not mean conformance passed: inspect the separate
+**Cloud Hypervisor Enclave Conformance** run and all four jobs. Releases
+published outside the supported release workflow still require manual dispatch.
 
 Successful Cloud Hypervisor preflight fixtures must derive their manifest tag,
 rootfs/supervisor versions, and configured release tag from

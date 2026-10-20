@@ -10,6 +10,12 @@ import type {
   HostExecutorRunState,
 } from '../enclave/host-executor-server';
 import { HOST_EXECUTOR_TIMEOUT_GRACE_MS } from '../enclave/host-executor-protocol';
+import { verifyBoundedInvocationStorage } from '../enclave/bounded-storage';
+import {
+  invocationFilePath as filePath,
+  stageInvocationInputs as stageSharedInvocationInputs,
+  writePrivateInvocationFile as writePrivateFile,
+} from '../enclave/invocation-staging';
 import {
   assertTrustedAncestorChain,
   calculateSha256,
@@ -25,7 +31,6 @@ import type { CloudHypervisorHostToolPaths } from './preflight';
 import { CLOUD_HYPERVISOR_ENCLAVE_RESOURCE_PROFILES } from './workload-profile';
 import { createEnclaveModelBudgetToken } from '../enclave/model-budget-capability';
 import {
-  assertNoHostGithubTokenValue,
   enforceGithubTokenIsolation,
   getGithubTokenEnvValues,
 } from '../services/agent-environment/github-token-isolation';
@@ -33,12 +38,6 @@ import {
 const GITHUB_PROFILE = 'issues-read-v1';
 const GITHUB_ENDPOINT = `http://${ENCLAVE_AGENT_GITHUB_MCP_IP}:${ENCLAVE_GITHUB_MCP_PORT}/mcp/github`;
 const OUTPUT_NAME = 'out';
-
-function filePath(directory: string, name: string): string {
-  const result = path.join(directory, name);
-  if (path.dirname(result) !== directory) throw new Error('Invalid enclave artifact path');
-  return result;
-}
 
 export async function prepareInvocationFilesystem(
   runState: HostExecutorRunState,
@@ -96,7 +95,9 @@ export async function prepareInvocationFilesystem(
     tools,
   );
   await onMounted();
-  await dependencies.verifyStorage(plan.invocationHostDir, resourceProfile.writableStorageBytes);
+  await verifyBoundedInvocationStorage(role, plan.invocationHostDir,
+    (directory, requirement) =>
+      dependencies.verifyStorage(directory, requirement.maximumBytes));
   for (const name of ['request', 'output', 'runtime']) {
     const directory = filePath(plan.invocationHostDir, name);
     await dependencies.mkdir(directory, { mode: 0o700 });
@@ -137,93 +138,14 @@ async function assertTrustedDirectory(
   }
 }
 
-async function writePrivateFile(
-  filePathValue: string,
-  contents: string,
-  uid: number,
-  gid: number,
-  mode: number,
-  dependencies: Pick<HostEnclaveExecutorDependencies, 'writeFile' | 'chown' | 'chmod'>,
-): Promise<void> {
-  await dependencies.writeFile(filePathValue, contents, { encoding: 'utf8', mode, flag: 'wx' });
-  await dependencies.chown(filePathValue, uid, gid);
-  await dependencies.chmod(filePathValue, mode);
-}
-
 export async function stageInvocationInputs(
   plan: HostExecutorInvocationPlan,
   role: CloudHypervisorEnclaveRole,
   policy: HostExecutorAgentPolicy | undefined,
   dependencies: Pick<HostEnclaveExecutorDependencies, 'writeFile' | 'chown' | 'chmod'>,
 ): Promise<void> {
-  if (role === 'agent' && policy?.githubBearer) {
-    assertNoHostGithubTokenValue(
-      policy.githubBearer,
-      getGithubTokenEnvValues(),
-      'Cloud Hypervisor enclave GitHub bearer file',
-    );
-  }
-  const resourceProfile = role === 'script'
-    ? CLOUD_HYPERVISOR_ENCLAVE_RESOURCE_PROFILES.script
-    : CLOUD_HYPERVISOR_ENCLAVE_RESOURCE_PROFILES.agent;
-  const requestDir = filePath(plan.invocationHostDir, 'request');
-  if (role === 'script') {
-    await writePrivateFile(
-      filePath(requestDir, 'query-script.py'),
-      plan.payload,
-      resourceProfile.uid,
-      resourceProfile.gid,
-      0o400,
-      dependencies,
-    );
-    return;
-  }
-  if (!policy) throw new Error('Trusted agent policy is required for an agent enclave');
-  await writePrivateFile(
-    filePath(requestDir, 'task.txt'),
-    plan.payload,
-    resourceProfile.uid,
-    resourceProfile.gid,
-    0o400,
-    dependencies,
-  );
-  await writePrivateFile(
-    filePath(requestDir, 'schema.json'),
-    JSON.stringify(plan.schema),
-    resourceProfile.uid,
-    resourceProfile.gid,
-    0o400,
-    dependencies,
-  );
-  const runtimeDir = filePath(plan.invocationHostDir, 'runtime');
-  const sessionFile = filePath(runtimeDir, 'session.jsonl');
-  await writePrivateFile(
-    sessionFile,
-    '',
-    resourceProfile.uid,
-    resourceProfile.gid,
-    0o600,
-    dependencies,
-  );
-  if (policy.githubAgentId !== undefined && policy.githubBearer !== undefined) {
-    const handoffDir = filePath(plan.invocationHostDir, 'session-handoff');
-    await writePrivateFile(
-      filePath(handoffDir, 'github-agent-id'),
-      `${policy.githubAgentId}\n`,
-      resourceProfile.uid,
-      resourceProfile.gid,
-      0o400,
-      dependencies,
-    );
-    await writePrivateFile(
-      filePath(handoffDir, 'github-bearer'),
-      `${policy.githubBearer}\n`,
-      resourceProfile.uid,
-      resourceProfile.gid,
-      0o400,
-      dependencies,
-    );
-  }
+  await stageSharedInvocationInputs(plan, role, policy, dependencies,
+    'Cloud Hypervisor enclave GitHub bearer file');
 }
 
 export function agentEnvironment(

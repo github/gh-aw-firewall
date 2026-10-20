@@ -65,7 +65,7 @@ function presetSidecarIpEnvVars(
   }
 }
 
-function filterAgentVolumesForSysroot(
+export function filterAgentVolumesForSysroot(
   agentVolumes: string[],
   config: WrapperConfig,
   effectiveHome: string,

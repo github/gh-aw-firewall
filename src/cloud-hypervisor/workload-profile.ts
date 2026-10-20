@@ -10,6 +10,12 @@ import {
   type EnclaveAgentProfile,
 } from '../types/enclave-options';
 import type { MicrovmControlPeer } from '../microvm/network';
+import {
+  ENCLAVE_RESOURCE_POLICIES,
+  assertSafeWorkloadIdentity,
+  createEnclaveExecutionIdentity,
+  sameEnclaveResourcePolicy as sameResourceProfile,
+} from '../enclave/execution-policy';
 import type {
   CloudHypervisorManagerGuestConfig,
   CloudHypervisorEnclaveResourceProfile,
@@ -113,38 +119,9 @@ export type CloudHypervisorLaunchableWorkloadProfile =
   | CloudHypervisorPrimaryAgentProfile
   | CloudHypervisorScriptEnclaveProfile;
 
-const SAFE_IDENTITY = /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$/;
 const SAFE_INTERFACE = /^[A-Za-z0-9_.-]{1,15}$/;
-const MIB = 1024 * 1024;
 
-export const CLOUD_HYPERVISOR_ENCLAVE_RESOURCE_PROFILES = Object.freeze({
-  script: Object.freeze({
-    role: 'script',
-    memoryMiB: 768,
-    vcpuCount: 1,
-    cpuQuotaMilli: 500,
-    maxProcesses: 47,
-    tmpfsBytes: 256 * MIB,
-    maxFileBytes: 512 * MIB,
-    maxOpenFiles: 1024,
-    writableStorageBytes: 1024 * MIB,
-    uid: 65534,
-    gid: 65534,
-  }),
-  agent: Object.freeze({
-    role: 'agent',
-    memoryMiB: 768,
-    vcpuCount: 1,
-    cpuQuotaMilli: 500,
-    maxProcesses: 47,
-    tmpfsBytes: 96 * MIB,
-    maxFileBytes: 256 * MIB,
-    maxOpenFiles: 1024,
-    writableStorageBytes: 512 * MIB,
-    uid: 65534,
-    gid: 65534,
-  }),
-}) satisfies Readonly<Record<'script' | 'agent', CloudHypervisorEnclaveResourceProfile>>;
+export const CLOUD_HYPERVISOR_ENCLAVE_RESOURCE_PROFILES = ENCLAVE_RESOURCE_POLICIES;
 
 export const CLOUD_HYPERVISOR_ENCLAVE_ENTRYPOINTS = Object.freeze({
   script: '/usr/local/bin/run-enclave-script',
@@ -177,11 +154,7 @@ export function createScriptEnclaveCloudHypervisorProfile(options: {
 }): CloudHypervisorScriptEnclaveProfile {
   return sealCloudHypervisorWorkloadProfile({
     kind: 'script-enclave',
-    identity: {
-      kind: 'script-enclave',
-      ownerId: options.enclaveId,
-      invocationId: options.invocationId,
-    },
+    identity: createEnclaveExecutionIdentity('script', options.enclaveId, options.invocationId, 'Cloud Hypervisor'),
     artifact: 'enclave',
     network: { mode: 'none' },
     exportPlan: options.exportPlan,
@@ -220,11 +193,7 @@ export function createAgentEnclaveCloudHypervisorProfile(options: {
 }): CloudHypervisorAgentEnclaveProfile {
   return sealCloudHypervisorWorkloadProfile({
     kind: 'agent-enclave',
-    identity: {
-      kind: 'agent-enclave',
-      ownerId: options.enclaveId,
-      invocationId: options.invocationId,
-    },
+    identity: createEnclaveExecutionIdentity('agent', options.enclaveId, options.invocationId, 'Cloud Hypervisor'),
     artifact: 'enclave',
     network: {
       mode: 'enclave-agent',
@@ -383,16 +352,6 @@ export function assertCloudHypervisorWorkloadLaunchable(
   }
 }
 
-function sameResourceProfile(
-  actual: CloudHypervisorEnclaveResourceProfile | undefined,
-  expected: CloudHypervisorEnclaveResourceProfile,
-): boolean {
-  if (!actual || typeof actual !== 'object') return false;
-  const keys = Object.keys(expected) as (keyof CloudHypervisorEnclaveResourceProfile)[];
-  return Object.keys(actual).length === keys.length &&
-    keys.every((key) => actual[key] === expected[key]);
-}
-
 function validateGuest(profile: CloudHypervisorWorkloadProfile): void {
   if (profile.kind === 'primary-agent' && profile.guest === undefined) return;
   if (!profile.guest || typeof profile.guest !== 'object') {
@@ -547,9 +506,7 @@ function validateIp(ip: string, label: string): void {
 }
 
 function assertSafeIdentity(value: string, label: string): void {
-  if (!SAFE_IDENTITY.test(value)) {
-    throw new Error(`Unsafe Cloud Hypervisor workload ${label} identity: ${value}`);
-  }
+  assertSafeWorkloadIdentity(value, label, 'Cloud Hypervisor');
 }
 
 function assertClosedObject(

@@ -9,11 +9,17 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 // TestMain lets the CLI process tests run the test binary as the command itself.
+// GH_AW_ROUTER_TEST_HOLD holds /capabilities requests open for a duration, for
+// the shutdown tests.
 func TestMain(m *testing.M) {
 	if os.Getenv("GH_AW_ROUTER_TEST_MAIN") == "1" {
+		if hold, err := time.ParseDuration(os.Getenv("GH_AW_ROUTER_TEST_HOLD")); err == nil {
+			testHold = holding(hold)
+		}
 		main()
 	}
 	os.Exit(m.Run())
@@ -224,7 +230,9 @@ func TestCLIUsage(t *testing.T) {
 	for _, args := range [][]string{
 		{},
 		{"--routing-tables", tables},
-		{"--routing-tables", tables, "serve"},
+		{"--routing-tables", tables, "serve", "--input", "request.json"},
+		{"--routing-tables", tables, "serve", "extra"},
+		{"--routing-tables", tables, "healthcheck", "--bind", "127.0.0.1:1"},
 		{"--routing-tables", tables, "unknown"},
 		{"--routing-tables", tables, "route", "--inp", "request.json"},
 		{"--routing-tables", tables, "validate-data", "--input", "request.json"},
@@ -257,7 +265,7 @@ func TestCLIProcess(t *testing.T) {
 		{"version", nil, []string{"--version"}, 0, "gh-aw-router " + version + "\n", ""},
 		{"invalid request", []byte("{"), []string{"--routing-tables", tables, "route"}, 2, "", "invalid request: "},
 		{"no route", marshal(t, noRoute), []string{"--routing-tables", tables, "route"}, 3, "", "no route: "},
-		{"usage", nil, []string{"serve"}, 2, "", "usage: gh-aw-router "},
+		{"usage", nil, []string{"unknown"}, 2, "", "usage: gh-aw-router "},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

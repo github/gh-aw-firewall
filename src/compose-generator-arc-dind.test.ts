@@ -250,12 +250,14 @@ describe('generateDockerCompose: sysroot-stage service (runner.topology = arc-di
       ),
     ).toBe(false);
 
-    // Credential overlays under /host$HOME are kept when a writable home survives.
-    expect(
-      (resultWithHomeRootMount.services.agent.volumes as string[]).some(
-        v => v.startsWith('/dev/null:') && v.split(':')[1].startsWith(`/host${effectiveHome}/`),
-      ),
-    ).toBe(true);
+    // A writable home keeps masks only for credentials that already exist.
+    for (const credentialFile of ['.npmrc', '.docker/config.json', '.composer/auth.json']) {
+      expect(
+        (resultWithHomeRootMount.services.agent.volumes as string[]).includes(
+          `/dev/null:/host${effectiveHome}/${credentialFile}:ro`,
+        ),
+      ).toBe(fs.existsSync(path.join(effectiveHome, credentialFile)));
+    }
 
     // Without such a mount, those overlays are skipped (no writable parent exists).
     expect(
@@ -323,25 +325,70 @@ describe('generateDockerCompose: sysroot-stage service (runner.topology = arc-di
     }
   });
 
-  it('keeps prefixed credential overlays mountable when an explicit writable home mount is supplied', () => {
+  it('keeps prefixed masks only for existing credentials behind an explicit writable home mount', () => {
     const effectiveHome = getRealUserHome();
+    const homeSource = path.join(mockConfig.workDir, 'home');
+    fs.mkdirSync(homeSource);
+    fs.writeFileSync(path.join(homeSource, '.npmrc'), '');
     const config = {
       ...mockConfig,
       runnerTopology: 'arc-dind' as const,
       workDir: '/tmp/awf-12345',
       dockerHostPathPrefix: '/host',
-      volumeMounts: [`${effectiveHome}/:/host${effectiveHome}:rw`],
+      volumeMounts: [`${homeSource}/:/host${effectiveHome}:rw`],
     };
     const result = generateDockerCompose(config, mockNetworkConfig);
     const volumes = result.services.agent.volumes as string[];
 
-    // The explicitly supplied home-root mount survives, prefixed exactly
-    // once, and is still writable — so runc can create the credential
-    // mountpoints nested inside it.
-    expect(volumes).toContain(`/host${effectiveHome}/:/host${effectiveHome}:rw`);
+    // The home-root mount survives, prefixed exactly once. Only the existing
+    // credential needs a mask; missing targets must not become host placeholders.
+    expect(volumes).toContain(`/host${homeSource}/:/host${effectiveHome}:rw`);
+    expect(volumes).toContain(`/dev/null:/host${effectiveHome}/.npmrc:ro`);
 
-    for (const credentialFile of ['.npmrc', '.docker/config.json', '.composer/auth.json']) {
-      expect(volumes).toContain(`/dev/null:/host${effectiveHome}/${credentialFile}:ro`);
+    for (const credentialFile of ['.docker/config.json', '.composer/auth.json']) {
+      expect(volumes).not.toContain(`/dev/null:/host${effectiveHome}/${credentialFile}:ro`);
     }
+    expect(fs.readdirSync(homeSource)).toEqual(['.npmrc']);
+  });
+
+  it('keeps a GitHub credential mask from an explicit home mount after filtering the automatic .config mount', () => {
+    const effectiveHome = path.join(mockConfig.workDir, 'effective-home');
+    const homeSource = path.join(mockConfig.workDir, 'home-source');
+    fs.mkdirSync(path.join(homeSource, '.config/gh'), { recursive: true });
+    fs.writeFileSync(path.join(homeSource, '.config/gh/hosts.yml'), 'DUMMY_SECRET_VALUE');
+    fs.mkdirSync(effectiveHome);
+    const config = {
+      ...mockConfig,
+      workDir: '/tmp/awf-12345',
+      runnerTopology: 'arc-dind' as const,
+      dockerHostPathPrefix: '/host',
+      volumeMounts: [`${homeSource}/:/host${effectiveHome}:rw`],
+    };
+
+    const result = generateDockerCompose(config, mockNetworkConfig, undefined, undefined, { effectiveHome });
+    const volumes = result.services.agent.volumes as string[];
+
+    expect(volumes).toContain(`/dev/null:/host${effectiveHome}/.config/gh/hosts.yml:ro`);
+  });
+
+  it('drops a GitHub credential mask when only the filtered automatic .config mount contains it', () => {
+    const effectiveHome = path.join(mockConfig.workDir, 'effective-home');
+    const homeSource = path.join(mockConfig.workDir, 'home-source');
+    fs.mkdirSync(path.join(effectiveHome, '.config/gh'), { recursive: true });
+    fs.writeFileSync(path.join(effectiveHome, '.config/gh/hosts.yml'), 'DUMMY_SECRET_VALUE');
+    fs.mkdirSync(homeSource);
+    const config = {
+      ...mockConfig,
+      workDir: '/tmp/awf-12345',
+      runnerTopology: 'arc-dind' as const,
+      dockerHostPathPrefix: '/host',
+      volumeMounts: [`${homeSource}/:/host${effectiveHome}:rw`],
+    };
+
+    const result = generateDockerCompose(config, mockNetworkConfig, undefined, undefined, { effectiveHome });
+    const volumes = result.services.agent.volumes as string[];
+
+    expect(volumes).not.toContain(`/dev/null:/host${effectiveHome}/.config/gh/hosts.yml:ro`);
+    expect(fs.readdirSync(homeSource)).toEqual([]);
   });
 });

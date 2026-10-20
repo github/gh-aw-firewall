@@ -1,10 +1,8 @@
-import { constants, promises as fs } from 'fs';
-import { TextDecoder } from 'util';
+import { promises as fs } from 'fs';
 import * as path from 'path';
-import {
-  canonicalizeSchemaValue,
-  validateValueAgainstSchema,
-} from '../bounded-execution/finite-schema';
+import { normalizeAgentPolicy } from '../enclave/execution-policy';
+import { readBoundedEnclaveResult as readBoundedCloudHypervisorEnclaveResult } from '../enclave/invocation-result';
+export { readBoundedEnclaveResult as readBoundedCloudHypervisorEnclaveResult } from '../enclave/invocation-result';
 import type {
   HostEnclaveExecutorBackend,
   HostExecutorInvocationPlan,
@@ -88,19 +86,7 @@ export type {
 } from './enclave-executor-types';
 export { preflightCloudHypervisorEnclaveArtifacts } from './enclave-artifact-preflight';
 
-const MAX_AGENT_MODEL_BYTES = 256;
-const MAX_GITHUB_BEARER_BYTES = 512;
 const OUTPUT_NAME = 'out';
-const CREDENTIAL_PATTERN = /^[\x21-\x7e]{16,512}$/;
-const AGENT_ID_PATTERN = /^[A-Za-z0-9_-]{1,128}$/;
-
-function hasControlCharacters(value: string): boolean {
-  for (let index = 0; index < value.length; index += 1) {
-    const code = value.charCodeAt(index);
-    if (code < 0x20 || code === 0x7f) return true;
-  }
-  return false;
-}
 
 const defaultDependencies: HostEnclaveExecutorDependencies = {
   createArtifactSnapshot: (sources, copy, onDirectoryCreated, report) =>
@@ -210,71 +196,6 @@ export async function createCloudHypervisorHostEnclaveExecutor(
       preflight.artifactSnapshotDirectory,
     );
     throw error;
-  }
-}
-
-function normalizeAgentPolicy(
-  policy: HostExecutorAgentPolicy | undefined,
-  timeoutMs: number,
-): HostExecutorAgentPolicy | undefined {
-  if (!policy) return undefined;
-  if (
-    typeof policy.model !== 'string' ||
-    policy.model.length === 0 ||
-    Buffer.byteLength(policy.model, 'utf8') > MAX_AGENT_MODEL_BYTES ||
-    hasControlCharacters(policy.model) ||
-    !['openai', 'anthropic'].includes(policy.profile) ||
-    !Number.isSafeInteger(policy.maxOutputBytes) ||
-    policy.maxOutputBytes < 1 ||
-    policy.maxOutputBytes > HOST_EXECUTOR_MAX_RESULT_BYTES ||
-    (policy.maxModelRequests !== undefined &&
-      (!Number.isSafeInteger(policy.maxModelRequests) || policy.maxModelRequests < 1)) ||
-    (policy.maxModelTokens !== undefined &&
-      (!Number.isSafeInteger(policy.maxModelTokens) || policy.maxModelTokens < 1)) ||
-    !Number.isSafeInteger(timeoutMs) ||
-    timeoutMs < 1
-  ) {
-    throw new Error('Trusted host executor agent policy is invalid');
-  }
-  const hasGithubId = policy.githubAgentId !== undefined;
-  const hasGithubBearer = policy.githubBearer !== undefined;
-  if (hasGithubId !== hasGithubBearer) {
-    throw new Error('Trusted GitHub agent identity and bearer must be configured together');
-  }
-  if (
-    (policy.githubAgentId !== undefined && !AGENT_ID_PATTERN.test(policy.githubAgentId)) ||
-    (policy.githubBearer !== undefined &&
-      (!CREDENTIAL_PATTERN.test(policy.githubBearer) ||
-        Buffer.byteLength(policy.githubBearer, 'ascii') > MAX_GITHUB_BEARER_BYTES))
-  ) {
-    throw new Error('Trusted host executor GitHub credentials are invalid');
-  }
-  return policy;
-}
-
-export async function readBoundedCloudHypervisorEnclaveResult(
-  outputPath: string,
-  schema: HostExecutorInvocationPlan['schema'],
-  maxBytes: number,
-): Promise<string | undefined> {
-  let handle;
-  try {
-    handle = await fs.open(outputPath, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
-    const stat = await handle.stat();
-    if (!stat.isFile() || stat.size < 1 || stat.size > maxBytes) return undefined;
-    const bytes = Buffer.alloc(maxBytes + 1);
-    const { bytesRead } = await handle.read(bytes, 0, maxBytes + 1, 0);
-    if (bytesRead > maxBytes) return undefined;
-    const text = new TextDecoder('utf-8', { fatal: true }).decode(bytes.subarray(0, bytesRead));
-    const parsed: unknown = JSON.parse(text);
-    if (!validateValueAgainstSchema(schema, parsed)) return undefined;
-    const canonical = canonicalizeSchemaValue(schema, parsed);
-    if (Buffer.byteLength(canonical, 'utf8') > maxBytes) return undefined;
-    return canonical;
-  } catch {
-    return undefined;
-  } finally {
-    await handle?.close();
   }
 }
 

@@ -1,0 +1,24 @@
+{
+  "schemaVersion": 1,
+  "compilerVersion": 2,
+  "schemaHash": "df9780a1fd9a1418ec8d99cb4aaf27d49bda9c8a08d157036c6893798c64f479",
+  "catalogRevision": "020a979e78b3a17b4964956cb5d461844e8102653311bc973f69c25ff6739019",
+  "generatedAt": "2026-10-20T00:22:04.000Z",
+  "sourceFiles": [
+    "shared/model-information/sources/copilot-claude.json",
+    "shared/model-information/sources/copilot-gemini.json",
+    "shared/model-information/sources/copilot-main.json",
+    "shared/model-information/sources/copilot-other.json",
+    "shared/model-information/sources/mapping.json",
+    "shared/model-information/sources/pricing-reference.json",
+    "shared/model-information/sources/target.json",
+    "shared/model-information/imported/legacy-models-dev.snapshot.v1.json"
+  ],
+  "import": {
+    "importerVersion": "2",
+    "sha256": "e99d729367dd9dc0862d24c2fa1a2407e994febf683bb159b91031743b30fd38",
+    "accepted": 355,
+    "rejected": 11,
+    "collisions": []
+  }
+}

@@ -384,6 +384,7 @@ function loadHostConfig(kind, server) {
     entryId,
     runId,
     executorBackend: 'cloud-hypervisor',
+    executorTransport: 'host',
     backend: 'cloud-hypervisor',
     primaryBackend: server.primaryBackend,
     hostExecutorSocketPath: path.join(HOST_EXECUTOR_DIR, 'executor.sock'),

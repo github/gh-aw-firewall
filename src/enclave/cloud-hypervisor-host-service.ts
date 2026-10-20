@@ -3,10 +3,8 @@ import {
   type CreateCloudHypervisorHostEnclaveExecutorOptions,
   type HostEnclaveExecutorDependencies,
 } from '../cloud-hypervisor/host-enclave-executor';
-import {
-  startHostExecutorServer,
-  type HostExecutorServer,
-} from './host-executor-server';
+import type { HostExecutorServer } from './host-executor-server';
+import { startHostExecutorService } from './host-service';
 
 export interface CloudHypervisorEnclaveHostServiceOptions
   extends CreateCloudHypervisorHostEnclaveExecutorOptions {
@@ -24,18 +22,13 @@ export interface CloudHypervisorEnclaveHostServiceOptions
 export async function startCloudHypervisorEnclaveHostService(
   options: CloudHypervisorEnclaveHostServiceOptions,
 ): Promise<HostExecutorServer> {
-  const backend = options.backendDependencies
-    ? await createCloudHypervisorHostEnclaveExecutor(options, options.backendDependencies)
-    : await createCloudHypervisorHostEnclaveExecutor(options);
-  try {
-    options.onPreflightStage?.('host-service');
-    return await startHostExecutorServer({
-      runtimeDir: options.runtimeDir,
-      runState: options.runState,
-      backend,
-    });
-  } catch {
-    await backend.close().catch(() => undefined);
-    throw new Error('Cloud Hypervisor enclave host service could not start');
-  }
+  return startHostExecutorService({
+    runtimeDir: options.runtimeDir,
+    runState: options.runState,
+    createBackend: () => options.backendDependencies
+      ? createCloudHypervisorHostEnclaveExecutor(options, options.backendDependencies)
+      : createCloudHypervisorHostEnclaveExecutor(options),
+    onListening: () => options.onPreflightStage?.('host-service'),
+    startupFailureMessage: 'Cloud Hypervisor enclave host service could not start',
+  });
 }

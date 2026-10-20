@@ -232,4 +232,27 @@ describe('docker-manager (barrel re-exports)', () => {
     });
   });
 
+  describe('additional edge cases via barrel', () => {
+    const original = process.env.DOCKER_HOST;
+    afterEach(() => {
+      dockerManager.setAwfDockerHost(undefined);
+      if (original === undefined) delete process.env.DOCKER_HOST;
+      else process.env.DOCKER_HOST = original;
+    });
+
+    it('getLocalDockerEnv leaves DOCKER_HOST unset when none is configured', () => {
+      delete process.env.DOCKER_HOST;
+      expect(dockerManager.getLocalDockerEnv().DOCKER_HOST).toBeUndefined();
+    });
+
+    it('parseDifcProxyHost trims surrounding whitespace', () => {
+      expect(dockerManager.parseDifcProxyHost('  example.com:9000  ')).toEqual({ host: 'example.com', port: '9000' });
+    });
+
+    it('filterCapDrop keeps only ALL for an empty bounding set', () => {
+      delete process.env.AWF_SKIP_CAP_DROP;
+      expect(dockerManager.filterCapDrop(['ALL', 'NET_ADMIN'], BigInt(0))).toEqual(['ALL']);
+    });
+  });
+
 });

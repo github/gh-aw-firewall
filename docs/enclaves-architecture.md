@@ -846,6 +846,44 @@ See [ADR 0001: Agent enclave repository admission](adr/0001-agent-enclaves.md)
 for the stable compiler, mcpg, runtime-registry, executor, and integration
 contract.
 
+## Shared host execution core
+
+The host-executor protocol and server own authenticated invocation planning,
+cancellation, leases, cleanup-before-terminal results, and digest-bound settlement.
+The shared modules under `src/enclave/` additionally provide:
+
+- `execution-policy.ts`, `invocation-staging.ts`, and `invocation-result.ts`:
+  trusted role limits and identities, private input staging, and bounded canonical
+  schema-valid results.
+- `host-executor-run-state.ts`: static seed authority derived from the validated
+  host catalog and staged run identity, never from broker launch settings.
+- `host-service.ts` and `host-executor-lifecycle.ts`: preflight-before-listening,
+  configuration ownership, readiness, admission closure, startup/shutdown races,
+  draining, recovery verification ordering, and protected evidence collection.
+- `bounded-storage.ts`: aggregate storage requirements and verification hooks.
+  Adapters must enforce capacity across all writable state, including snapshots,
+  runtime state, sparse files, and concurrent writers, until cleanup succeeds.
+  A nominal image size, free-space check, or per-file limit is not enforcement.
+
+Backend adapters retain artifact discovery/provenance, launch and confinement,
+mount realization, networking, resource identity checks, journal formats, and
+reaping. Failed or uncertain cleanup retains lifecycle and recovery state; it
+does not authorize storage release or a runtime fallback. Diagnostic collection
+does not bypass existing visibility, redaction, or protected-storage checks.
+
+Host-service readiness does not imply a persistent workload instance. The
+`HostEnclaveExecutorBackend.execute(plan, signal)` seam accommodates atomic
+one-shot execution and container-owned lifecycles without `startInstance()`.
+Primary runtime integration remains separate: Docker Compose and NVX are not
+forced into the Cloud Hypervisor primary-manager lifecycle.
+
+The broker routes trusted `executorTransport: 'host'` configurations through the
+same protocol, retaining Cloud Hypervisor compatibility. Transport and backend
+are not invocation fields. This extraction does not enable NVX enclaves,
+migrate Docker execution, change dynamic delegation, or relax any Cloud
+Hypervisor host, artifact, storage, or real-backend acceptance gate. The reviewed
+cross-backend capability contract in #10339 remains a prerequisite for migration.
+
 ## Cloud Hypervisor enclave executor
 
 Cloud Hypervisor supports static enclave runtime selection only after trusted
