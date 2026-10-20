@@ -52,12 +52,20 @@ sudo awf --allow-domains github.com --log-level debug -- curl https://api.github
 
 ## Installation
 
-### Install Script (Recommended)
+### Install Script
 
 ```bash
-curl -sSL https://raw.githubusercontent.com/github/gh-aw-firewall/main/install.sh | sudo bash
+# Obtain and review install.sh through an independently authenticated channel.
+gh auth status
+export GH_TOKEN="$(gh auth token)"
+sudo --preserve-env=GH_TOKEN bash ./install.sh
+unset GH_TOKEN
 sudo awf --version
 ```
+
+The installer requires a trusted, authenticated `gh` CLI. Do not pipe an
+unauthenticated download into a privileged shell; in CI, use the setup action
+pinned to a reviewed commit.
 
 ### Build from Source
 
@@ -216,7 +224,7 @@ sudo awf \
 
 ```yaml
 - name: Setup awf
-  uses: github/gh-aw-firewall@main
+  uses: github/gh-aw-firewall@<reviewed-commit-SHA>
 
 - name: Run with firewall
   run: |

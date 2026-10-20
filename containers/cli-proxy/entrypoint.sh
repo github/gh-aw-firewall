@@ -46,8 +46,10 @@ echo "[cli-proxy] TLS certificate available"
 # Build a combined CA bundle so the gh CLI (Go binary) trusts the DIFC proxy's
 # self-signed cert.  NODE_EXTRA_CA_CERTS only helps Node.js; Go programs use
 # the system store or SSL_CERT_FILE.
-COMBINED_CA="/tmp/proxy-tls/combined-ca.crt"
-cat /etc/ssl/certs/ca-certificates.crt /tmp/proxy-tls/ca.crt > "${COMBINED_CA}"
+TRUST_DIR="$(mktemp -d /tmp/awf-cli-trust.XXXXXX)"
+sh /opt/awf/trust/filter-ca-store.sh "${TRUST_DIR}" \
+  /etc/ssl/certs/ca-certificates.crt /tmp/proxy-tls/ca.crt
+COMBINED_CA="${TRUST_DIR}/ca-certificates.crt"
 echo "[cli-proxy] Combined CA bundle created at ${COMBINED_CA}"
 
 # Configure gh CLI to route through the DIFC proxy via the TCP tunnel
@@ -62,8 +64,9 @@ export GH_REPO="${GH_REPO:-$GITHUB_REPOSITORY}"
 # Node.js (server.js / tcp-tunnel.js) uses NODE_EXTRA_CA_CERTS;
 # gh CLI (Go) uses SSL_CERT_FILE pointing to the combined bundle;
 # git (called by `gh repo clone`) uses GIT_SSL_CAINFO for OpenSSL verification.
-export NODE_EXTRA_CA_CERTS="/tmp/proxy-tls/ca.crt"
+export NODE_EXTRA_CA_CERTS="${COMBINED_CA}"
 export SSL_CERT_FILE="${COMBINED_CA}"
+export SSL_CERT_DIR="${TRUST_DIR}/certs"
 export GIT_SSL_CAINFO="${COMBINED_CA}"
 
 echo "[cli-proxy] gh CLI configured to route through DIFC proxy at ${GH_HOST}"

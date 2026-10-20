@@ -31,6 +31,8 @@ The workflow will:
 - Build and push Docker images to GHCR
 - Create Linux x64 and arm64 binaries
 - Create NPM tarball and checksums
+- Attest the AWF binaries, bundle, tarball, checksums, container manifest and
+  tag-to-checksums identity using the pinned build-provenance action
 - Generate versioned JSON Schema files with the release tag embedded in their `$id` URLs
 - Publish the GitHub Release with auto-generated changelog
 - Dispatch full Cloud Hypervisor Enclave Conformance on that exact published tag
@@ -129,13 +131,60 @@ Each release includes:
 ### GitHub Release Assets
 - `awf-linux-x64` - Linux x64 standalone executable
 - `awf-linux-arm64` - Linux arm64 standalone executable
+- `awf-darwin-x64`, `awf-darwin-arm64` - macOS standalone executables
+- `awf-bundle.js` - Lightweight Node.js executable bundle
 - `awf.tgz` - NPM package tarball (alternative installation method)
 - `checksums.txt` - SHA256 checksums for all files
 - `containers.txt` - Digest-pinned container manifest for published runtime images
+- `release-identity.txt` - Attested binding of the requested `refs/tags/<version>`
+  to the SHA256 digest of `checksums.txt`
 - `awf-config.schema.json` - AWF config JSON Schema
 - `awf-config.v1.schema.json` - **Deprecated alias** of `awf-config.schema.json` (kept for backward compatibility)
 - `audit.schema.json` - AWF audit JSONL record JSON Schema
 - `token-usage.schema.json` - AWF token-usage JSONL record JSON Schema
+
+### Bootstrap authentication and compatibility
+
+The installer and setup action require GitHub build-provenance attestations
+for the payload and release metadata. They constrain verification to
+`github/gh-aw-firewall`, signer workflow `.github/workflows/release.yml`,
+the GitHub Actions OIDC issuer, and GitHub-hosted runners. Attestations must
+be published before uploading the corresponding release assets.
+
+The release workflow is dispatched on `main` or a maintenance branch and
+then checks out the new tag. Its certificate's source ref is therefore the
+dispatch branch, **not** the checkout tag: adding
+`--source-ref refs/tags/<version>` would reject these real releases.
+Instead, the separately attested `release-identity.txt` contains exactly
+`<checksums SHA256>  refs/tags/<version>`. Consumers verify its provenance,
+require the requested tag and checksums digest to match, and verify the
+checksums' and payload's provenance before installation. The setup action
+also authenticates and checksum-checks `containers.txt` before reading
+image digests, requires all runtime image pins, and never falls back to
+mutable tags when a manifest or digest-pinned pull fails. Existing enclave
+artifact verification and acceptance checks remain additional requirements.
+
+Legacy releases without these attestations and identity file intentionally
+fail closed. Select a release published with this protocol; do not bypass
+verification or silently fall back to checksum-only installation.
+The signed tag binding prevents cross-release substitution but does not
+establish freshness of the unauthenticated `latest` API response. Pin an
+explicit known release version when rollback resistance is needed.
+
+**Initial trust is a prerequisite, not something the installer can create.**
+Obtain and review the installer (or pin the setup action to a reviewed commit)
+through an independently authenticated channel. Obtain `gh` with
+`attestation verify --signer-workflow` support, and any Node.js runtime used
+for the bundle, through a trusted package/image distribution or another
+authenticated bootstrap. Configure GitHub authentication for `gh`
+(`GH_TOKEN`/`GITHUB_TOKEN` or `gh auth login`; preserve it appropriately
+when using sudo). The installer does not download its own verifier.
+Use a verifier built with Go's fixed certificate validation where applicable,
+or an independently trusted verifier not affected by the reported CA-chain
+issue. A compromised verifier can subvert verification; a compromised CA
+can also affect HTTPS trust-root retrieval. Downloading both a payload and
+its checksum over HTTPS, or blindly running `curl | sudo bash`, is not an
+independent authentication mechanism.
 
 ### JSON Schema versioning
 

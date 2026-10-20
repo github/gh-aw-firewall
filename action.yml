@@ -54,6 +54,25 @@ runs:
         BINARY_NAME="awf-linux-x64"
         INSTALL_DIR="${RUNNER_TEMP}/awf-bin"
 
+        # gh itself and this action must already come from a trusted channel.
+        if ! command -v gh &> /dev/null || \
+            ! gh attestation verify --help 2>/dev/null | grep -q -- '--signer-workflow'; then
+          echo "::error::A trusted gh CLI with attestation verify support is required. Install it through an independently authenticated channel."
+          exit 1
+        fi
+
+        verify_provenance() {
+          if ! gh attestation verify "$1" \
+              --hostname github.com \
+              --repo "$REPO" \
+              --signer-workflow "${REPO}/.github/workflows/release.yml" \
+              --cert-oidc-issuer https://token.actions.githubusercontent.com \
+              --deny-self-hosted-runners; then
+            echo "::error::Release provenance verification failed for $(basename "$1"). Legacy unattested releases are not supported; use an attested release and a trusted, authenticated gh CLI."
+            exit 1
+          fi
+        }
+
         # Build auth headers for GitHub API (Bearer is the recommended format for GITHUB_TOKEN)
         AUTH_HEADER=()
         if [ -n "${GITHUB_TOKEN:-}" ]; then
@@ -90,28 +109,26 @@ runs:
           echo "Latest version: $VERSION"
         else
           VERSION="$INPUT_VERSION"
-          # Validate version format (supports v1.0.0, v1.0.0-beta.1, v1.0.0-rc.1, etc.)
-          if ! echo "$VERSION" | grep -qE '^v[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.]+)?$'; then
-            echo "::error::Invalid version format: $VERSION. Expected format: v1.0.0 or v1.0.0-beta.1"
-            exit 1
-          fi
+        fi
+        # Validate even API-supplied versions before using them in URLs or outputs.
+        if ! echo "$VERSION" | grep -qE '^v[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.]+)?$'; then
+          echo "::error::Invalid version format: $VERSION. Expected format: v1.0.0 or v1.0.0-beta.1"
+          exit 1
         fi
 
-        echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-        
         # Download URLs
         BASE_URL="https://github.com/${REPO}/releases/download/${VERSION}"
         BINARY_URL="${BASE_URL}/${BINARY_NAME}"
         CHECKSUMS_URL="${BASE_URL}/checksums.txt"
         CONTAINERS_URL="${BASE_URL}/containers.txt"
 
-        # Extract image tag (version without 'v' prefix), then augment with digest pins when available
+        # Extract the version tag, then attach authenticated digest pins.
         IMAGE_TAG="${VERSION#v}"
         IMAGE_TAG_WITH_DIGESTS="$IMAGE_TAG"
 
         # Download binary
         echo "Downloading awf ${VERSION}..."
-        if ! curl -fsSL "$BINARY_URL" -o "$INSTALL_DIR/awf"; then
+        if ! curl -fsSL "$BINARY_URL" -o "$INSTALL_DIR/$BINARY_NAME.download"; then
           echo "::error::Failed to download binary from $BINARY_URL"
           exit 1
         fi
@@ -123,15 +140,35 @@ runs:
           exit 1
         fi
 
-        # Download optional containers digest manifest
-        echo "Downloading containers manifest (optional)..."
+        # Bind the checksums to the requested tag before consuming any metadata.
+        if ! curl -fsSL "${BASE_URL}/release-identity.txt" -o "$INSTALL_DIR/release-identity.txt"; then
+          echo "::error::Missing release identity for ${VERSION}; legacy unattested releases are not supported"
+          exit 1
+        fi
+        verify_provenance "$INSTALL_DIR/release-identity.txt"
+        EXPECTED_IDENTITY="$(sha256sum "$INSTALL_DIR/checksums.txt" | awk '{print $1}')  refs/tags/${VERSION}"
+        if [ "$(cat "$INSTALL_DIR/release-identity.txt")" != "$EXPECTED_IDENTITY" ]; then
+          echo "::error::Release identity does not bind checksums.txt to refs/tags/${VERSION}"
+          exit 1
+        fi
+        verify_provenance "$INSTALL_DIR/checksums.txt"
+        verify_provenance "$INSTALL_DIR/$BINARY_NAME.download"
+
+        # The digest manifest is authenticated, checksum-bound, and required.
+        echo "Downloading containers manifest..."
         if curl -fsSL "$CONTAINERS_URL" -o "$INSTALL_DIR/containers.txt"; then
+          verify_provenance "$INSTALL_DIR/containers.txt"
+          MANIFEST_SUM="$(sha256sum "$INSTALL_DIR/containers.txt" | awk '{print $1}')"
+          EXPECTED_MANIFEST_SUM="$(awk '$2 == "containers.txt" {print $1; exit}' "$INSTALL_DIR/checksums.txt")"
+          if [ "$MANIFEST_SUM" != "$EXPECTED_MANIFEST_SUM" ]; then
+            echo "::error::containers.txt does not match the authenticated release checksums"
+            exit 1
+          fi
           extract_digest() {
             local image_name="$1"
             grep -E "^ghcr\\.io/${REPO}/${image_name}@sha256:[a-fA-F0-9]{64}$" "$INSTALL_DIR/containers.txt" \
               | sed -E 's#.*@(sha256:[a-fA-F0-9]{64})#\1#' \
-              | tr '[:upper:]' '[:lower:]' \
-              | head -n 1
+              | tr '[:upper:]' '[:lower:]'
           }
 
           DIGEST_ENTRIES=()
@@ -144,6 +181,15 @@ runs:
           ENCLAVE_SCRIPT_DIGEST="$(extract_digest enclave-script || true)"
           ENCLAVE_AGENT_DIGEST="$(extract_digest enclave-agent || true)"
           ENCLAVE_MCP_SERVER_DIGEST="$(extract_digest enclave-mcp-server || true)"
+
+          for DIGEST in "$SQUID_DIGEST" "$AGENT_DIGEST" "$AGENT_ACT_DIGEST" \
+              "$API_PROXY_DIGEST" "$ROUTER_DIGEST" "$CLI_PROXY_DIGEST" \
+              "$ENCLAVE_SCRIPT_DIGEST" "$ENCLAVE_AGENT_DIGEST" "$ENCLAVE_MCP_SERVER_DIGEST"; do
+            if [[ ! "$DIGEST" =~ ^sha256:[a-f0-9]{64}$ ]]; then
+              echo "::error::containers.txt is missing a required image digest or contains duplicate entries"
+              exit 1
+            fi
+          done
 
           [ -n "${SQUID_DIGEST:-}" ] && DIGEST_ENTRIES+=("squid=${SQUID_DIGEST}")
           [ -n "${AGENT_DIGEST:-}" ] && DIGEST_ENTRIES+=("agent=${AGENT_DIGEST}")
@@ -159,14 +205,11 @@ runs:
             DIGEST_CSV="$(IFS=,; echo "${DIGEST_ENTRIES[*]}")"
             IMAGE_TAG_WITH_DIGESTS="${IMAGE_TAG},${DIGEST_CSV}"
             echo "Discovered digest pins for ${#DIGEST_ENTRIES[@]} image(s)"
-          else
-            echo "::warning::containers.txt downloaded but no valid digest entries matched ghcr.io/${REPO}/<image>@sha256:<digest>; falling back to tag-only image metadata."
           fi
         else
-          echo "::warning::No containers.txt found for ${VERSION}; falling back to tag-only image metadata"
+          echo "::error::Missing containers.txt for ${VERSION}; tag-only fallback is not permitted"
+          exit 1
         fi
-
-        echo "image_tag=$IMAGE_TAG_WITH_DIGESTS" >> "$GITHUB_OUTPUT"
 
         # Verify checksum
         echo "Verifying SHA256 checksum..."
@@ -192,7 +235,7 @@ runs:
 
         # Normalize to lowercase for comparison
         EXPECTED_SUM=$(echo "$EXPECTED_SUM" | tr '[:upper:]' '[:lower:]')
-        ACTUAL_SUM=$(sha256sum "$INSTALL_DIR/awf" | awk '{print $1}' | tr '[:upper:]' '[:lower:]')
+        ACTUAL_SUM=$(sha256sum "$INSTALL_DIR/$BINARY_NAME.download" | awk '{print $1}' | tr '[:upper:]' '[:lower:]')
 
         if [ "$EXPECTED_SUM" != "$ACTUAL_SUM" ]; then
           echo "::error::Checksum verification failed!"
@@ -204,18 +247,21 @@ runs:
         echo "Checksum verification passed ✓"
 
         # Verify it's a valid ELF executable
-        if ! file "$INSTALL_DIR/awf" | grep -q "ELF.*executable"; then
+        if ! file "$INSTALL_DIR/$BINARY_NAME.download" | grep -q "ELF.*executable"; then
           echo "::error::Downloaded file is not a valid Linux executable"
           exit 1
         fi
 
         # Make executable
-        chmod +x "$INSTALL_DIR/awf"
+        chmod +x "$INSTALL_DIR/$BINARY_NAME.download"
+        mv "$INSTALL_DIR/$BINARY_NAME.download" "$INSTALL_DIR/awf"
 
         # Clean up downloaded metadata files
-        rm -f "$INSTALL_DIR/checksums.txt" "$INSTALL_DIR/containers.txt"
+        rm -f "$INSTALL_DIR/checksums.txt" "$INSTALL_DIR/containers.txt" "$INSTALL_DIR/release-identity.txt"
 
         # Add to PATH
+        echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+        echo "image_tag=$IMAGE_TAG_WITH_DIGESTS" >> "$GITHUB_OUTPUT"
         echo "$INSTALL_DIR" >> "$GITHUB_PATH"
 
         echo "Successfully installed awf ${VERSION} to $INSTALL_DIR"
@@ -231,30 +277,28 @@ runs:
         
         REGISTRY="ghcr.io/github/gh-aw-firewall"
 
-        BASE_TAG="${IMAGE_TAG%%,*}"
         extract_digest_from_tag() {
           local key="$1"
           echo "$IMAGE_TAG" | tr ',' '\n' | grep -E "^${key}=sha256:[a-fA-F0-9]{64}$" | cut -d'=' -f2 | tr '[:upper:]' '[:lower:]' | head -n 1
         }
         SQUID_DIGEST="$(extract_digest_from_tag squid || true)"
         AGENT_DIGEST="$(extract_digest_from_tag agent || true)"
-        SQUID_REF="${REGISTRY}/squid:${BASE_TAG}${SQUID_DIGEST:+@${SQUID_DIGEST}}"
-        AGENT_REF="${REGISTRY}/agent:${BASE_TAG}${AGENT_DIGEST:+@${AGENT_DIGEST}}"
+        if [[ ! "$SQUID_DIGEST" =~ ^sha256:[a-f0-9]{64}$ ]] || \
+            [[ ! "$AGENT_DIGEST" =~ ^sha256:[a-f0-9]{64}$ ]]; then
+          echo "::error::Authenticated squid and agent digest pins are required"
+          exit 1
+        fi
+        SQUID_REF="${REGISTRY}/squid@${SQUID_DIGEST}"
+        AGENT_REF="${REGISTRY}/agent@${AGENT_DIGEST}"
         
         echo "Pulling awf Docker images with tag: ${IMAGE_TAG}"
         
         # Pull squid image
         echo "Pulling ${SQUID_REF}..."
-        if ! docker pull "${SQUID_REF}"; then
-          echo "::warning::Failed to pull squid image ${SQUID_REF}, trying 'latest'"
-          docker pull "${REGISTRY}/squid:latest"
-        fi
+        docker pull "${SQUID_REF}"
         
         # Pull agent image
         echo "Pulling ${AGENT_REF}..."
-        if ! docker pull "${AGENT_REF}"; then
-          echo "::warning::Failed to pull agent image ${AGENT_REF}, trying 'latest'"
-          docker pull "${REGISTRY}/agent:latest"
-        fi
+        docker pull "${AGENT_REF}"
         
         echo "Docker images pulled successfully ✓"

@@ -21,7 +21,7 @@ permissions:
   contents: write   # Required for creating releases, pushing version commits and tags
   packages: write   # Required for pushing to GHCR
   id-token: write   # Required for cosign keyless signing
-  attestations: write # Required for Cloud Hypervisor test artifact provenance
+  attestations: write # Required for release and Cloud Hypervisor artifact provenance
 
 jobs:
   bump-version:
@@ -1012,6 +1012,30 @@ jobs:
           cd release
           sha256sum * > checksums.txt
 
+      - name: Bind release tag to checksums
+        env:
+          RELEASE_TAG: ${{ needs.bump-version.outputs.version }}
+        run: |
+          set -euo pipefail
+          [[ "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          test "$(git rev-parse HEAD)" = "$(git rev-parse "refs/tags/${RELEASE_TAG}^{commit}")"
+          printf '%s  refs/tags/%s\n' "$(sha256sum release/checksums.txt | cut -d ' ' -f1)" \
+            "$RELEASE_TAG" > release/release-identity.txt
+
+      - name: Attest AWF release payloads and metadata
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: |
+            release/awf-linux-x64
+            release/awf-linux-arm64
+            release/awf-darwin-x64
+            release/awf-darwin-arm64
+            release/awf-bundle.js
+            release/awf.tgz
+            release/checksums.txt
+            release/containers.txt
+            release/release-identity.txt
+
       - name: Get previous release tag
         id: previous_tag
         run: |
@@ -1166,6 +1190,7 @@ jobs:
             release/audit.schema.json
             release/token-usage.schema.json
             release/checksums.txt
+            release/release-identity.txt
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 

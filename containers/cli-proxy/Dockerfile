@@ -5,7 +5,8 @@
 # externally on the host, started by the gh-aw compiler.  A TCP tunnel
 # forwards localhost traffic to the external proxy for TLS hostname matching.
 #
-FROM golang:1.27.2-alpine@sha256:f92b6ef800e499660581efdabdf25d9d817a9d124eaf900924f0504e7e27e12d AS gh-build
+FROM golang:1.27.3-alpine@sha256:f2c872bcee949b7be9c490efd02b48a8a2fbf947cdf533f1c58525ec9d8170fd AS gh-build
+ENV GOTOOLCHAIN=go1.27.3
 
 ARG GH_VERSION=2.98.0
 ARG GH_SOURCE_SHA256=abada9e8b550547ac93f99250f3ad4d90ad623fa245cb54cb058f78030a6a5f6
@@ -20,6 +21,7 @@ RUN wget -q "https://github.com/cli/cli/archive/refs/tags/v${GH_VERSION}.tar.gz"
     && go get "google.golang.org/grpc@v${GH_GRPC_VERSION}" "golang.org/x/crypto@v${GH_X_CRYPTO_VERSION}" "golang.org/x/net@v${GH_X_NET_VERSION}" \
     && CGO_ENABLED=0 GH_VERSION="${GH_VERSION}" SOURCE_DATE_EPOCH="${GH_SOURCE_DATE_EPOCH}" \
          go run ./script/build.go bin/gh \
+    && go version -m bin/gh | head -n 1 | grep -Eq ': go1\.27\.3$' \
     && go version -m bin/gh | awk -v version="v${GH_GRPC_VERSION}" \
          '$1 == "dep" && $2 == "google.golang.org/grpc" && $3 == version { found=1 } END { exit !found }' \
     && go version -m bin/gh | awk -v version="v${GH_X_CRYPTO_VERSION}" \
@@ -110,6 +112,10 @@ RUN mkdir -p /var/log/cli-proxy && \
 RUN mkdir -p /tmp/proxy-tls && chown cliproxy:cliproxy /tmp/proxy-tls
 
 # Switch to non-root user
+COPY trust/ /opt/awf/trust/
+RUN apk add --no-cache openssl \
+    && sh /opt/awf/trust/install-system-trust.sh \
+    && sh /opt/awf/trust/install-node-trust.sh
 USER cliproxy
 
 # Expose port for agent->cli-proxy HTTP communication

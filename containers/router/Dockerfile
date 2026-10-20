@@ -28,6 +28,12 @@ RUN apk upgrade --no-cache \
         -h /home/gh-aw-router -s /sbin/nologin gh-aw-router \
     && mkdir -p /app/src /routing
 
+COPY trust/ /opt/awf/trust/
+RUN apk add --no-cache openssl ca-certificates \
+    && sh /opt/awf/trust/install-system-trust.sh
+ENV SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt \
+    REQUESTS_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt
+
 COPY requirements.lock /tmp/requirements.lock
 RUN python -m pip install \
     --disable-pip-version-check \

@@ -4,12 +4,14 @@
 
 ### Using the Setup Action (Recommended)
 
-The simplest way to install awf in GitHub Actions is using the setup action:
+The setup action authenticates release assets with GitHub artifact attestations
+using the workflow token. Pin it to a reviewed full commit SHA rather than a
+mutable branch or tag:
 
 ```yaml
 steps:
   - name: Setup awf
-    uses: github/gh-aw-firewall@main
+    uses: github/gh-aw-firewall@<reviewed-commit-SHA>
     # with:
     #   version: 'v1.0.0'    # Optional: defaults to latest
     #   pull-images: 'true'  # Optional: pre-pull Docker images
@@ -19,8 +21,8 @@ steps:
 ```
 
 The action:
-- Downloads the specified version (or latest) from GitHub releases
-- Verifies SHA256 checksum
+- Verifies the signed release identity and GitHub artifact attestations before installation
+- Verifies checksums and downloaded payloads
 - Installs to PATH for subsequent steps
 - Optionally pre-pulls Docker images for the installed version
 
@@ -46,7 +48,7 @@ For reproducible builds, you can pin both the awf binary and Docker images:
 steps:
   - name: Setup awf
     id: setup-awf
-    uses: github/gh-aw-firewall@main
+    uses: github/gh-aw-firewall@<reviewed-commit-SHA>
     with:
       version: 'v0.7.0'
       pull-images: 'true'
@@ -60,14 +62,11 @@ steps:
 
 ### Using the Install Script
 
-Alternatively, use the install script:
-
-```yaml
-steps:
-  - name: Install awf
-    run: |
-      curl -sSL https://raw.githubusercontent.com/github/gh-aw-firewall/main/install.sh | sudo bash
-```
+Use the setup action above instead of downloading and piping the installer into
+a privileged shell. Pin the action to a reviewed commit. It provides the
+workflow token for authenticated release verification; see
+[the release security requirements](releasing.md#initial-trust-is-a-prerequisite-not-something-the-installer-can-create)
+before bootstrapping the action itself.
 
 ### Building from Source
 
@@ -107,7 +106,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Setup awf
-        uses: github/gh-aw-firewall@main
+        uses: github/gh-aw-firewall@<reviewed-commit-SHA>
 
       - name: Install GitHub Copilot CLI
         run: npm install -g @github/copilot@latest
@@ -176,7 +175,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Setup awf
-        uses: github/gh-aw-firewall@main
+        uses: github/gh-aw-firewall@<reviewed-commit-SHA>
 
       - name: Test with Firewall
         env:

@@ -9,11 +9,20 @@ on:
       - '**/*.md'
       - '.github/workflows/release.yml'
   workflow_dispatch:
+    inputs:
+      attested-version:
+        description: 'Published attested release for a live GitHub/Sigstore/image-pull test (e.g. v1.2.3)'
+        required: false
+        type: string
+        default: ''
 
 permissions:
   contents: read
 
 jobs:
+  # Positive plumbing tests use isolated signed fixtures: historical releases
+  # cannot acquire the new provenance metadata retroactively. Production action
+  # code has no fixture mode; the manually selected live job uses real services.
   test-action-latest:
     name: Test Action (Latest Version)
     runs-on: ubuntu-latest
@@ -22,6 +31,9 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4
+
+      - name: Prepare signed action test fixtures
+        run: node scripts/ci/setup-action-test-fixtures.cjs
 
       - name: Setup awf using action
         id: setup-awf
@@ -33,6 +45,8 @@ jobs:
           which awf
           awf --version
           awf --help
+          test "${{ steps.setup-awf.outputs.version }}" = "$AWF_ACTION_FIXTURE_VERSION"
+          test "$(wc -l < "$AWF_ACTION_FIXTURE_DIR/verified.log")" -eq 4
 
   test-action-specific-version:
     name: Test Action (Specific Version)
@@ -43,11 +57,14 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4
 
+      - name: Prepare signed action test fixtures
+        run: node scripts/ci/setup-action-test-fixtures.cjs
+
       - name: Setup awf using action with specific version
         id: setup-awf
         uses: ./
         with:
-          version: 'v0.7.0'
+          version: 'v1.2.3'
 
       - name: Verify awf is installed with correct version
         run: |
@@ -56,16 +73,17 @@ jobs:
           which awf
           awf --version
           # Verify the version matches
-          if [[ "${{ steps.setup-awf.outputs.version }}" != "v0.7.0" ]]; then
-            echo "::error::Version mismatch! Expected v0.7.0, got ${{ steps.setup-awf.outputs.version }}"
+          if [[ "${{ steps.setup-awf.outputs.version }}" != "$AWF_ACTION_FIXTURE_VERSION" ]]; then
+            echo "::error::Version mismatch! Expected $AWF_ACTION_FIXTURE_VERSION, got ${{ steps.setup-awf.outputs.version }}"
             exit 1
           fi
           # Verify image tag metadata starts with the expected base tag (without 'v' prefix)
-          # and may include optional digest metadata entries.
-          if [[ "${{ steps.setup-awf.outputs.image-tag }}" != 0.7.0* ]]; then
-            echo "::error::Image tag metadata mismatch! Expected prefix 0.7.0, got ${{ steps.setup-awf.outputs.image-tag }}"
+          # and includes authenticated digest metadata entries.
+          if [[ "${{ steps.setup-awf.outputs.image-tag }}" != 1.2.3,squid=sha256:* ]]; then
+            echo "::error::Image tag metadata mismatch"
             exit 1
           fi
+          test "$(wc -l < "$AWF_ACTION_FIXTURE_DIR/verified.log")" -eq 4
 
   test-action-with-images:
     name: Test Action (With Image Pull)
@@ -76,11 +94,14 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4
 
+      - name: Prepare signed action test fixtures
+        run: node scripts/ci/setup-action-test-fixtures.cjs
+
       - name: Setup awf with image pull
         id: setup-awf
         uses: ./
         with:
-          version: 'v0.7.0'
+          version: 'v1.2.3'
           pull-images: 'true'
 
       - name: Verify awf and images are available
@@ -90,10 +111,11 @@ jobs:
           which awf
           awf --version
           
-          # Verify Docker images are pulled
-          echo "Checking for pulled images..."
-          docker images ghcr.io/github/gh-aw-firewall/squid
-          docker images ghcr.io/github/gh-aw-firewall/agent
+          # The isolated Docker fixture rejects tags and unknown digests.
+          test "$(wc -l < "$AWF_ACTION_FIXTURE_DIR/pulled.log")" -eq 2
+          head -n 2 "$AWF_ACTION_FIXTURE_DIR/assets/containers.txt" \
+            | cmp - "$AWF_ACTION_FIXTURE_DIR/pulled.log"
+          test "$(wc -l < "$AWF_ACTION_FIXTURE_DIR/verified.log")" -eq 4
 
   test-action-invalid-version:
     name: Test Action (Invalid Version - Should Fail)
@@ -118,3 +140,23 @@ jobs:
             exit 1
           fi
           echo "Action correctly rejected invalid version format"
+
+  test-action-live-attested-release:
+    name: Test Action (Live Attested Release)
+    if: github.event_name == 'workflow_dispatch' && inputs.attested-version != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4
+
+      - name: Install published release with real provenance and image pulls
+        uses: ./
+        with:
+          version: ${{ inputs.attested-version }}
+          pull-images: 'true'
+
+      - name: Verify installed release
+        run: |
+          awf --version
+          awf --help

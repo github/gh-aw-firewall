@@ -15,20 +15,34 @@ See [Compatibility](compatibility.md) for full version details and tested config
 
 ### Option 1: Install Script (Recommended for Local Use)
 
+First obtain and review `install.sh` through an independently authenticated
+channel, and authenticate a trusted `gh` CLI with `gh auth login`. The installer
+verifies GitHub attestations and requires `gh` authentication. `sudo` normally
+changes `HOME` and drops credentials, so pass the token explicitly:
+
 ```bash
-# Install latest version
-curl -sSL https://raw.githubusercontent.com/github/gh-aw-firewall/main/install.sh | sudo bash
+gh auth status
+export GH_TOKEN="$(gh auth token)"
+sudo --preserve-env=GH_TOKEN bash ./install.sh
 
 # Verify installation
 sudo awf --version
+unset GH_TOKEN
 ```
+
+Do not pipe an unauthenticated download into a privileged shell. In CI, prefer
+the setup action pinned to a reviewed commit; see
+[GitHub Actions Integration](github_actions.md).
 
 ### Option 2: GitHub Action (Recommended for CI/CD)
 
 ```yaml
 - name: Setup awf
-  uses: github/gh-aw-firewall@main
+  uses: github/gh-aw-firewall@<reviewed-commit-SHA>
 ```
+
+Replace the placeholder with a reviewed full commit SHA so the bootstrap
+does not follow a mutable branch.
 
 See [GitHub Actions Integration](github_actions.md) for more details.
 

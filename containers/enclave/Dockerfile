@@ -7,13 +7,22 @@ FROM python:3.14.8-alpine3.24@sha256:f6a589d43c42b9e7f7dc67a12d37132491f362859a5
 RUN apk upgrade --no-cache \
     && python3 -c 'import json, pathlib, sys; sys.exit(0)' \
     && test -x /usr/local/bin/python3 \
-    && ln -s /usr/local/bin/python3 /usr/bin/python3 \
-    && rm -f /sbin/apk
+    && ln -s /usr/local/bin/python3 /usr/bin/python3
 COPY enclave/script-entrypoint.py /usr/local/bin/run-enclave-script
 RUN chmod 0555 /usr/local/bin/run-enclave-script \
     && mkdir -p /script /awf/seed
+COPY trust/ /opt/awf/trust/
+RUN apk add --no-cache openssl ca-certificates \
+    && sh /opt/awf/trust/install-system-trust.sh \
+    && rm -f /sbin/apk
 
 FROM node:26.11.1-trixie-slim@sha256:193fe51b64e77981119c98c2002c9e32a70e2f006fb4d25068ce0558998917f0 AS enclave-agent-build
+
+COPY trust/ /opt/awf/trust/
+RUN apt-get update && apt-get install -y --no-install-recommends openssl ca-certificates \
+    && sh /opt/awf/trust/install-system-trust.sh \
+    && rm -rf /var/lib/apt/lists/*
+ENV NODE_OPTIONS="--require=/opt/awf/trust/node-trust.cjs"
 
 ARG NPM_CONFIG_REGISTRY=https://registry.npmjs.org/
 COPY enclave/package*.json /tmp/copilot-cli/
@@ -43,6 +52,9 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/* \
     && rm -f /usr/bin/apt /usr/bin/apt-get /usr/bin/apt-cache
 COPY --from=enclave-agent-build /usr/local/bin/node /usr/local/bin/node
+COPY trust/ /opt/awf/trust/
+RUN sh /opt/awf/trust/install-system-trust.sh \
+    && sh /opt/awf/trust/install-node-trust.sh
 COPY --from=enclave-agent-build /usr/local/lib/node_modules/@github/copilot/ /usr/local/lib/node_modules/@github/copilot/
 # Avoid uutils env's executable-name check on shebangs under BuildKit's QEMU.
 RUN sed -i '1c#!/usr/local/bin/node' /usr/local/lib/node_modules/@github/copilot/npm-loader.js \
@@ -60,13 +72,17 @@ RUN chmod 0555 /usr/local/bin/run-enclave-agent \
 
 FROM node:26.11.1-alpine3.24@sha256:143494b1da2945f061539253adc65e4f1569ddf07da2d384c022c791a9d90a4a AS enclave-mcp-server
 
-ARG AWF_SOURCE_REVISION=unavailable
-
-RUN apk upgrade --no-cache \
+COPY trust/ /opt/awf/trust/
+RUN apk add --no-cache openssl ca-certificates \
+    && apk upgrade --no-cache \
     && apk add --no-cache docker-cli \
+    && sh /opt/awf/trust/install-system-trust.sh \
+    && sh /opt/awf/trust/install-node-trust.sh \
     && test -x /usr/bin/docker \
     && rm -rf /usr/local/lib/node_modules/npm \
     && rm -f /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/corepack
+
+ARG AWF_SOURCE_REVISION=unavailable
 WORKDIR /opt/awf/enclave/mcp-server
 LABEL org.opencontainers.image.revision="${AWF_SOURCE_REVISION}"
 COPY bounded-execution/ /opt/awf/bounded-execution/

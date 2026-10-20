@@ -38,25 +38,27 @@ When AI agents like GitHub Copilot CLI run with access to tools and MCP servers,
 
 ### Installation
 
-Download the latest release binary:
+For CI, use the setup action pinned to a reviewed commit. For local use, obtain
+and review `install.sh` through an independently authenticated channel, and
+authenticate a trusted `gh` CLI before running it:
 
 ```bash
-# One-line installer with SHA verification (recommended)
-curl -sSL https://raw.githubusercontent.com/github/gh-aw-firewall/main/install.sh | sudo bash
-
-# Or manual installation
-curl -fL https://github.com/github/gh-aw-firewall/releases/latest/download/awf-linux-x64 -o awf
-curl -fL https://github.com/github/gh-aw-firewall/releases/latest/download/checksums.txt -o checksums.txt
-sha256sum -c checksums.txt --ignore-missing
-chmod +x awf
-sudo mv awf /usr/local/bin/
+gh auth status
+export GH_TOKEN="$(gh auth token)"
+sudo --preserve-env=GH_TOKEN bash ./install.sh
+unset GH_TOKEN
 
 # Verify installation
 sudo awf --version
 ```
 
-:::tip[Automatic SHA Verification]
-The one-line installer automatically verifies the SHA256 checksum to protect against corrupted or tampered downloads.
+`sudo` normally changes `HOME` and drops credentials, so preserve the token
+explicitly as shown. Do not pipe an unauthenticated download into `sudo bash`.
+See the [release security requirements](/reference/security-architecture/).
+
+:::tip[CI setup]
+Prefer the setup action for CI, pinned to a reviewed commit. It authenticates
+the release assets before installing them.
 :::
 
 ### Your First Command

@@ -18,6 +18,9 @@ RUN apt-get update \
     && apt-get upgrade -y \
     && rm -rf /var/lib/apt/lists/* /root/.cache /tmp/*
 COPY --from=node-runtime /usr/local/bin/node /usr/local/bin/node
+COPY trust/ /opt/awf/trust/
+RUN sh /opt/awf/trust/install-system-trust.sh \
+    && sh /opt/awf/trust/install-node-trust.sh
 COPY --from=supervisor /awf-supervisor /usr/sbin/awf-supervisor
 RUN chmod 0755 /usr/sbin/awf-supervisor \
     && mkdir -p /awf/seed /awf/out /dev/shm /proc /sys /tmp \
@@ -44,6 +47,7 @@ RUN apt-get update \
       libgdiplus libev-dev dnsutils net-tools netcat-openbsd gnupg \
     && rm -rf /var/lib/apt/lists/*
 COPY --from=build-tools /usr/bin/gh /usr/bin/gh
+RUN sh /opt/awf/trust/install-system-trust.sh
 RUN test -x /usr/bin/gh && gcc --version && make --version \
     && python3 -c 'import json, pathlib, runpy' \
     && node --version
@@ -58,6 +62,7 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 COPY --from=copilot-runtime /usr/local/lib/node_modules/@github/copilot/ /usr/local/lib/node_modules/@github/copilot/
 COPY --from=copilot-runtime /usr/bin/gh /usr/bin/gh
+RUN sh /opt/awf/trust/install-system-trust.sh
 COPY enclave/script-entrypoint.py /usr/local/bin/run-enclave-script
 COPY enclave/agent-entrypoint.py /usr/local/bin/run-enclave-agent
 RUN sed -i '1c#!/usr/local/bin/node' /usr/local/lib/node_modules/@github/copilot/npm-loader.js \

@@ -29,17 +29,25 @@ Everything below the `---` separator becomes the release notes.
 
 ## Installation
 
-### One-Line Installer (Recommended)
+### Installer
 
-**Linux and macOS (x64 and ARM64) with automatic SHA verification:**
+The installer verifies GitHub release provenance and requires a trusted,
+authenticated `gh` CLI. Obtain and review `install.sh` through an independently
+authenticated channel before running it; never pipe an unauthenticated download
+into a privileged shell. After authenticating `gh`, explicitly preserve its
+token across `sudo`:
+
 ```bash
-curl -sSL https://raw.githubusercontent.com/{{REPOSITORY}}/main/install.sh | sudo bash
+gh auth status
+export GH_TOKEN="$(gh auth token)"
+sudo --preserve-env=GH_TOKEN bash ./install.sh {{VERSION}}
+unset GH_TOKEN
 ```
 
 This installer:
 - Automatically detects your OS (Linux or macOS) and architecture (x86_64/aarch64/arm64)
-- Downloads the correct release binary
-- Verifies SHA256 checksum against `checksums.txt`
+- Verifies the signed release identity and GitHub artifact attestations before installation
+- Verifies the release checksum and downloaded payload
 - Validates the file is a valid executable (ELF on Linux, Mach-O on macOS)
 - Installs to `/usr/local/bin/awf`
 

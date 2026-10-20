@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import './tls-trust-policy';
 
 import { program } from './cli-options';
 import { createMainAction } from './commands/main-action';

@@ -158,6 +158,9 @@ export function generateSslBumpSection(
 
   return `
 # SSL Bump configuration for HTTPS content inspection
+# Authenticate upstreams against AWF's filtered bundle AND hashed directory.
+tls_outgoing_options cafile=/etc/ssl/certs/ca-certificates.crt capath=/etc/ssl/certs
+sslproxy_cert_error deny all
 # WARNING: This enables TLS interception - traffic is decrypted for inspection
 # A per-session CA certificate is used for dynamic certificate generation
 

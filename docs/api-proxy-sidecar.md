@@ -1001,6 +1001,22 @@ only when the prompt count exceeds the threshold. Overlay costs use the
 models.dev format (dollars per token) and are normalized to dollars per million
 tokens inside the proxy. Shared-catalog rates use dollars per million tokens.
 
+Azure deployment names are not inferred from model-family prefixes. With an
+active AI-credit budget, an unknown deployment must have explicit pricing or
+the proxy rejects it before inference. The two Azure BYOK smoke workflows use
+the operator-confirmed mapping `o4-mini-aw` to canonical `openai/o4-mini`.
+Their postprocessor installs a workflow-scoped catalog from the checked-in
+models.dev snapshot via `scripts/ci/configure-aoai-smoke-pricing.cjs`, preserving
+all budget limits and unknown-model rejection for other deployments. This is
+not a production-wide alias or a generic fallback. Update the confirmed mapping
+and pinned pricing together if that Azure deployment changes its underlying
+model.
+
+Both smokes explicitly select `COPILOT_PROVIDER_WIRE_API=responses` so Copilot
+does not send its generic chat-completions `temperature=0` default, which
+`o4-mini` rejects. The wire deployment remains `o4-mini-aw`, and the same
+workflow-scoped prices and budget limits apply.
+
 ### Caller attribution (`x-awf-caller`)
 
 The agent harness may set an optional `x-awf-caller` request header so that

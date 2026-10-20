@@ -44,8 +44,11 @@ curl -sSL https://raw.githubusercontent.com/github/gh-aw-firewall/main/skill.md 
 Before using this skill, ensure AWF is installed:
 
 ```bash
-# Install AWF
-curl -sSL https://raw.githubusercontent.com/github/gh-aw-firewall/main/install.sh | sudo bash
+# Obtain and review install.sh through an independently authenticated channel.
+gh auth status
+export GH_TOKEN="$(gh auth token)"
+sudo --preserve-env=GH_TOKEN bash ./install.sh
+unset GH_TOKEN
 
 # Verify installation
 sudo awf --version

@@ -4,7 +4,11 @@ FROM node:26.11.1-alpine3.24@sha256:143494b1da2945f061539253adc65e4f1569ddf07da2
 
 # Install current Alpine security updates and curl for healthchecks.
 RUN apk upgrade --no-cache \
-    && apk add --no-cache "curl>=8.21.0-r0"
+    && apk add --no-cache "curl>=8.21.0-r0" openssl ca-certificates
+
+COPY trust/ /opt/awf/trust/
+RUN sh /opt/awf/trust/install-system-trust.sh \
+    && sh /opt/awf/trust/install-node-trust.sh
 
 # Replace the bundled npm with npm 11.18.0.
 # npm 11.18.0 bundles vulnerable copies of undici, brace-expansion, and
@@ -104,4 +108,4 @@ ENV AWF_VERSION=${AWF_VERSION}
 EXPOSE 10000 10001 10002 10003 10004
 
 # Use exec form so node is PID 1 and receives SIGTERM directly
-CMD ["node", "server.js"]
+CMD ["node", "--require=/opt/awf/trust/node-trust.cjs", "server.js"]

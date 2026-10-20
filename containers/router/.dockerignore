@@ -6,4 +6,6 @@
 !src/**
 !routing/
 !routing/cost-*.json
+!trust/
+!trust/**
 **/__pycache__/

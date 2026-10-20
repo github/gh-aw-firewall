@@ -81,6 +81,17 @@ export function applyGeneralWorkflowPatches(
 ): PatchResult {
   const log: string[] = [];
 
+  if (/(?:^|[/\\])smoke-copilot-byok-aoai-(?:apikey|entra)\.lock\.yml$/.test(workflowPath)) {
+    const pricingCommand = 'node "${GITHUB_WORKSPACE}/scripts/ci/configure-aoai-smoke-pricing.cjs" ' +
+      '"${RUNNER_TEMP}/gh-aw/awf-config.json" /tmp/gh-aw/awf-config.json';
+    if (!content.includes(pricingCommand)) {
+      const configCopy = /^([ \t]*)cp "\$\{RUNNER_TEMP\}\/gh-aw\/awf-config\.json" \/tmp\/gh-aw\/awf-config\.json$/m;
+      if (!configCopy.test(content)) throw new Error(`Missing AWF config staging in Azure BYOK smoke: ${workflowPath}`);
+      content = content.replace(configCopy, (match, indent: string) => `${match}\n${indent}${pricingCommand}`);
+      log.push('  Configured workflow-scoped Azure deployment pricing without changing budget limits');
+    }
+  }
+
   if (workflowPath.endsWith('smoke-enclave-issues-read.lock.yml')) {
     const original = content;
     content = content
@@ -175,8 +186,11 @@ export function applyGeneralWorkflowPatches(
   // mcpg can rediscover it once AWF attaches and launches the backend.
   const isCloudHypervisorEnclaveSmoke =
     workflowPath.endsWith('smoke-enclave-cloud-hypervisor.lock.yml');
+  const isCloudHypervisorAgentEnclaveSmoke =
+    workflowPath.endsWith('smoke-enclave-cloud-hypervisor-copilot.lock.yml');
   const isEnclaveSmoke =
     isCloudHypervisorEnclaveSmoke ||
+    isCloudHypervisorAgentEnclaveSmoke ||
     workflowPath.endsWith('smoke-enclave-build-test.lock.yml') ||
     workflowPath.endsWith('smoke-enclave-issues-read.lock.yml') ||
     workflowPath.endsWith('smoke-enclave-dynamic-issues-read.lock.yml');
@@ -263,6 +277,14 @@ export function applyGeneralWorkflowPatches(
         );
         log.push(`  Excluded enclave staging credential from the primary agent`);
       }
+    }
+
+    if (isCloudHypervisorAgentEnclaveSmoke && !content.includes('--exclude-env GH_TOKEN')) {
+      content = content.replace(
+        gatewayKeyExclusion,
+        `--exclude-env GH_TOKEN ${gatewayKeyExclusion}`
+      );
+      log.push(`  Excluded agent enclave staging credential from the primary agent`);
     }
 
     if (isCloudHypervisorEnclaveSmoke) {
@@ -741,13 +763,13 @@ export function applyGeneralWorkflowPatches(
     '$1$2',
   );
 
-  if (isCloudHypervisorEnclaveSmoke) {
+  if (isCloudHypervisorEnclaveSmoke || isCloudHypervisorAgentEnclaveSmoke) {
     if (!content.includes('exec "${NODE_BIN}" "${WORKSPACE_PATH}/dist/cli.js" --build-local')) {
       installStepRegexGlobal.lastIndex = 0;
       if (!installStepRegexGlobal.test(content)) throw new Error('Missing released AWF install anchor for branch diagnostics');
       installStepRegexGlobal.lastIndex = 0;
       content = content.replace(installStepRegexGlobal, (match, indent: string) =>
-        match + buildBranchEnclaveInstallSteps(indent));
+        match + buildBranchEnclaveInstallSteps(indent, isCloudHypervisorAgentEnclaveSmoke));
       log.push('  Added branch-only source runtime build for enclave diagnostics');
     }
     // gh-aw v0.92.1 gates uploads on this ID but omits it from the redaction step.

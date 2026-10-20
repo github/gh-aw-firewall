@@ -70,3 +70,8 @@ LABEL org.opencontainers.image.description="Minimal Node.js Alpine image for gh-
 # AWF version baked into the image at release build time.
 ARG AWF_VERSION=0.0.0-dev
 ENV AWF_VERSION=${AWF_VERSION}
+
+COPY trust/ /opt/awf/trust/
+RUN apk add --no-cache openssl ca-certificates \
+    && sh /opt/awf/trust/install-system-trust.sh \
+    && sh /opt/awf/trust/install-node-trust.sh

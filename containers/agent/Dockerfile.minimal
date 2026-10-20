@@ -16,7 +16,7 @@ RUN apt-get update && \
     apt-get install -y --no-install-recommends \
     iptables \
     iproute2 \
-    git && \
+    git openssl ca-certificates && \
     rm -rf /var/lib/apt/lists/*
 
 # Create non-root user with UID/GID matching host user
@@ -43,6 +43,8 @@ RUN if ! getent group awfuser >/dev/null 2>&1; then \
 # Copy entrypoint scripts
 COPY setup-iptables.sh /usr/local/bin/setup-iptables.sh
 COPY entrypoint.sh /usr/local/bin/entrypoint.sh
+COPY trust/ /opt/awf/trust/
+RUN sh /opt/awf/trust/install-system-trust.sh
 RUN chmod +x /usr/local/bin/setup-iptables.sh /usr/local/bin/entrypoint.sh
 
 # Set working directory

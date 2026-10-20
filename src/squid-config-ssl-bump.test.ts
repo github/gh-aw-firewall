@@ -21,6 +21,8 @@ describe('generateSquidConfig', () => {
       expect(result).toContain('SSL Bump configuration for HTTPS content inspection');
       expect(result).toContain('ssl-bump');
       expect(result).toContain('security_file_certgen');
+      expect(result).toContain('tls_outgoing_options cafile=/etc/ssl/certs/ca-certificates.crt capath=/etc/ssl/certs');
+      expect(result).toContain('sslproxy_cert_error deny all');
     });
 
     it('should include SSL Bump warning comment', () => {

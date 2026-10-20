@@ -71,7 +71,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Setup awf
-        uses: github/gh-aw-firewall@main
+        uses: github/gh-aw-firewall@<reviewed-commit-SHA>
 
       - name: Run Copilot with GHEC
         env:
@@ -198,7 +198,7 @@ jobs:
     runs-on: self-hosted  # GHES typically uses self-hosted runners
     steps:
       - name: Setup awf
-        uses: github/gh-aw-firewall@main
+        uses: github/gh-aw-firewall@<reviewed-commit-SHA>
 
       - name: Run Copilot with GHES
         env:

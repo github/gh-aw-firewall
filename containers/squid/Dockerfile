@@ -63,6 +63,8 @@ RUN mkdir -p /var/log/squid /var/spool/squid /var/run/squid && \
     chown -R proxy:proxy /var/log/squid /var/spool/squid /var/run/squid /etc/squid
 
 # Copy entrypoint script
+COPY trust/ /opt/awf/trust/
+RUN sh /opt/awf/trust/install-system-trust.sh
 COPY entrypoint.sh /usr/local/bin/entrypoint.sh
 RUN chmod +x /usr/local/bin/entrypoint.sh
 

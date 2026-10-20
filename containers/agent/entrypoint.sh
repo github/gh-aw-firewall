@@ -152,6 +152,7 @@ if [ "${AWF_SSL_BUMP_ENABLED}" = "true" ]; then
     echo "[entrypoint] CA certificates updated for SSL Bump"
     echo "[entrypoint] NODE_EXTRA_CA_CERTS set to $NODE_EXTRA_CA_CERTS"
     echo "[entrypoint] ⚠️  WARNING: HTTPS traffic will be intercepted for URL inspection"
+    sh /opt/awf/trust/install-system-trust.sh
   else
     echo "[entrypoint][WARN] SSL Bump enabled but CA certificate not found"
   fi
@@ -1134,99 +1135,69 @@ copy_awf_ca_cert() {
 }
 
 copy_system_ca_bundle() {
-  # Detect and copy the host system CA bundle to a chroot-accessible path.
-  # On Amazon Linux / RHEL-family systems, the CA bundle often lives under
-  # /etc/pki/. This function finds the system bundle and, when it is not already
-  # accessible in the chroot, copies it to /run/awf-lib/ so TLS works regardless
-  # of distro.
-  #
-  # In SSL Bump mode, the AWF CA must remain the active trust bundle for MITM
-  # proxy validation. We only append the system bundle to that staged AWF CA.
-  SYSTEM_CA_CHROOT=""
-
-  if [ "${AWF_SSL_BUMP_ENABLED}" = "true" ]; then
-    if [ -z "$AWF_CA_CHROOT" ] || [ ! -f "/host${AWF_CA_CHROOT}" ]; then
-      echo "[entrypoint][WARN] SSL Bump enabled but chroot AWF CA bundle is unavailable — preserving existing TLS env vars"
-      return
-    fi
-
-    # SSL Bump already configured TLS env vars; detect system bundle and append
-    # it to the AWF CA so tools trust both the AWF proxy CA AND the upstream CAs.
-    local SYSTEM_BUNDLE=""
-    for candidate in \
-      /host/etc/ssl/certs/ca-certificates.crt \
-      /host/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem \
-      /host/etc/pki/tls/certs/ca-bundle.crt \
-      /host/etc/pki/tls/cert.pem \
-      /host/etc/ssl/cert.pem; do
-      if [ -s "$candidate" ]; then
-        SYSTEM_BUNDLE="$candidate"
-        break
-      fi
-    done
-    if [ -n "$SYSTEM_BUNDLE" ]; then
-      # Append system bundle to the AWF CA cert so both are trusted
-      if { printf '\n'; cat "$SYSTEM_BUNDLE"; } >> "/host${AWF_CA_CHROOT}" 2>/dev/null; then
-        echo "[entrypoint] System CA bundle ($SYSTEM_BUNDLE) appended to AWF CA cert"
-      fi
-    fi
-    return
-  fi
-
-  # No SSL Bump — detect and expose the system CA bundle for chroot.
-  local SYSTEM_BUNDLE=""
-  for candidate in \
-    /host/etc/ssl/certs/ca-certificates.crt \
-    /host/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem \
-    /host/etc/pki/tls/certs/ca-bundle.crt \
-    /host/etc/pki/tls/cert.pem \
-    /host/etc/ssl/cert.pem; do
-    if [ -s "$candidate" ]; then
-      SYSTEM_BUNDLE="$candidate"
-      break
-    fi
+  # Never point TLS clients straight at a host bundle or hashed CA directory.
+  # Build a private store before covering mounted trust paths in this namespace.
+  local trust="/host/run/awf-lib/trust"
+  local inputs=() candidate
+  local directories=(
+    /host/etc/ssl/certs
+    /host/etc/pki/ca-trust/extracted/pem
+    /host/etc/pki/tls/certs
+  )
+  for candidate in /host/etc/ssl/certs /host/etc/pki/tls/certs \
+    /host/etc/ssl/cert.pem /host/etc/pki/tls/cert.pem \
+    /host/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem; do
+    [ ! -e "$candidate" ] || inputs+=("$candidate")
   done
-
-  if [ -z "$SYSTEM_BUNDLE" ]; then
-    echo "[entrypoint][WARN] No system CA bundle found — TLS may fail inside chroot"
-    return
-  fi
-
-  # Check if the bundle is already accessible inside the chroot via existing mounts.
-  # AWF mounts the common CA roots under /etc/ssl, /etc/ca-certificates, and the
-  # RHEL/Amazon Linux CA roots under /etc/pki/ca-trust/extracted and /etc/pki/tls/certs.
-  local CHROOT_RELATIVE="${SYSTEM_BUNDLE#/host}"
-  case "$CHROOT_RELATIVE" in
-    /etc/ssl/*|/etc/ca-certificates/*|/etc/pki/ca-trust/extracted/*|/etc/pki/tls/certs/*)
-      # Already accessible via existing bind mounts
-      export SSL_CERT_FILE="$CHROOT_RELATIVE"
-      export NODE_EXTRA_CA_CERTS="$CHROOT_RELATIVE"
-      export REQUESTS_CA_BUNDLE="$CHROOT_RELATIVE"
-      export CURL_CA_BUNDLE="$CHROOT_RELATIVE"
-      export GIT_SSL_CAINFO="$CHROOT_RELATIVE"
-      echo "[entrypoint] System CA bundle found at $CHROOT_RELATIVE (already accessible in chroot)"
-      return
-      ;;
-  esac
-
-  # Bundle is not accessible in chroot. Copy it.
-  if mkdir -p /host/run/awf-lib 2>/dev/null; then
-    if cp "$SYSTEM_BUNDLE" /host/run/awf-lib/system-ca-certificates.crt 2>/dev/null && \
-       [ -s /host/run/awf-lib/system-ca-certificates.crt ]; then
-      local CA_PATH="/run/awf-lib/system-ca-certificates.crt"
-      SYSTEM_CA_CHROOT="$CA_PATH"
-      export SSL_CERT_FILE="$CA_PATH"
-      export NODE_EXTRA_CA_CERTS="$CA_PATH"
-      export REQUESTS_CA_BUNDLE="$CA_PATH"
-      export CURL_CA_BUNDLE="$CA_PATH"
-      export GIT_SSL_CAINFO="$CA_PATH"
-      echo "[entrypoint] System CA bundle copied from $SYSTEM_BUNDLE to $CA_PATH"
+  if [ -n "${AWF_CA_CHROOT:-}" ]; then
+    inputs+=("/host${AWF_CA_CHROOT}")
+  elif [ -n "${NODE_EXTRA_CA_CERTS:-}" ]; then
+    if [ -f "/host${NODE_EXTRA_CA_CERTS}" ]; then
+      inputs+=("/host${NODE_EXTRA_CA_CERTS}")
     else
-      echo "[entrypoint][WARN] Could not copy system CA bundle to chroot — TLS may fail"
+      inputs+=("${NODE_EXTRA_CA_CERTS}")
     fi
-  else
-    echo "[entrypoint][WARN] Could not create /host/run/awf-lib for system CA bundle"
   fi
+  if [ "${#inputs[@]}" -eq 0 ]; then
+    echo "[entrypoint][ERROR] No CA store available for AWF trust policy" >&2
+    exit 1
+  fi
+  mkdir -p "$trust"
+  sh /opt/awf/trust/filter-ca-store.sh "$trust" "${inputs[@]}"
+  cp /opt/awf/trust/node-trust.cjs "$trust/node-trust.cjs"
+  if [ -e /host/etc/ssl/certs/java/cacerts ]; then
+    mkdir -p "$trust/certs/java"
+    cp -L /host/etc/ssl/certs/java/cacerts "$trust/certs/java/cacerts"
+  fi
+  # The /run staging root is container-local; none of these operations writes
+  # through the read-only host /etc bind mounts.
+  for candidate in "${directories[@]}"; do
+    [ ! -d "$candidate" ] || {
+      mount --bind "$trust/certs" "$candidate"
+      mount -o remount,ro,bind "$candidate"
+    }
+  done
+  for candidate in /host/etc/ssl/cert.pem /host/etc/pki/tls/cert.pem; do
+    [ ! -f "$candidate" ] || {
+      mount --bind "$trust/ca-certificates.crt" "$candidate"
+      mount -o remount,ro,bind "$candidate"
+    }
+  done
+  # Standard CAfile names must also work independently of environment settings.
+  # The overlaid directories no longer contain their original bundle files.
+  for candidate in ca-certificates.crt ca-bundle.crt ca-bundle.pem tls-ca-bundle.pem cert.pem; do
+    cp "$trust/ca-certificates.crt" "$trust/certs/$candidate"
+  done
+  chmod -R a-w "$trust"
+  SYSTEM_CA_CHROOT="/run/awf-lib/trust/ca-certificates.crt"
+  export SSL_CERT_FILE="$SYSTEM_CA_CHROOT"
+  export SSL_CERT_DIR="/run/awf-lib/trust/certs"
+  export NODE_EXTRA_CA_CERTS="$SYSTEM_CA_CHROOT"
+  export REQUESTS_CA_BUNDLE="$SYSTEM_CA_CHROOT"
+  export CURL_CA_BUNDLE="$SYSTEM_CA_CHROOT"
+  export GIT_SSL_CAINFO="$SYSTEM_CA_CHROOT"
+  export NODE_OPTIONS="${NODE_OPTIONS:+${NODE_OPTIONS} }--require=/run/awf-lib/trust/node-trust.cjs"
+  echo "[entrypoint] Filtered host CA trust staged at $SYSTEM_CA_CHROOT (host store unchanged)"
 }
 
 check_chroot_prereqs() {

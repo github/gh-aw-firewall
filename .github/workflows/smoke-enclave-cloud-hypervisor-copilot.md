@@ -208,34 +208,34 @@ fails closed on missing usage. The pinned guest does not itself enforce these
 budgets; request/output limits and proxy credential isolation remain mandatory.
 
 AWF and guest assets remain pinned to verified v0.28.66, with the official
-gh-aw v0.92.3 setup, mcpg v0.4.33 and primary Copilot 1.0.96.
+gh-aw v0.92.6 setup, mcpg v0.4.35 and primary Copilot 1.0.96.
 The guest Copilot CLI is the version baked into the attested agent rootfs,
 not installed or upgraded by this workflow.
 Manual branch runs, including main, build source host/infra code and use the
 checked-in v0.28.66 guest artifact pin, including the merged bounded-verification
 storage and unprivileged enclave vsock-port fixes (#10181).
 Tag runs are not admitted.
-Compilation additionally requires the companion compiler agent-acceptance
-support; unmodified v0.92.3 rejects this topology. Generated compiler provenance
-must identify that support rather than claim an unchanged official compiler.
+Compilation additionally requires the narrow compiler agent-acceptance patch
+that aligns the official v0.92.6 fixture with the reviewed AWF runtime.
+Generated compiler provenance must identify that patch rather than claim an
+unchanged official compiler.
 The verified v0.28.66 release includes #10189's enclave cwd correction.
 The exact-PR unattested supervisor override and its build steps are removed;
 both primary and enclave supervisors must come from verified release artifacts.
 No unattested-artifact flag is enabled.
 
-Compilation uses official `github/gh-aw@v0.92.3` with only the companion
-acceptance guard and tests backported from
-`github/gh-aw@2b19ccffd0694750e8e2bdcb20bf882e9bb440f2`, followed by
+Compilation uses official `github/gh-aw@v0.92.6` plus
 `scripts/ci/compiler-agent-acceptance-v0.28.66.patch` to align the exact release
 and token budget. Its schema exception requires the explicit acceptance feature
 and a Cloud Hypervisor primary; ordinary workflows retain the 32,768 ceiling.
 The generated development-compiler metadata identifies this
 patched build; action/runtime pins remain on the reviewed releases.
-The installed official v0.92.5 likewise rejects agent enclaves with this primary.
+The unpatched official v0.92.6 fixture remains pinned to v0.28.62 and 2,048
+tokens, so it rejects this repository's reviewed acceptance parameters.
 Regeneration runs the mandatory smoke postprocessor.
-The supply-chain compiler's checksum-verified acceptance backport is separately
-aligned to the exact v0.28.66 fixture and its 131,072-token budget. The AWF and
-compiler gates still reject every other token value, topology, or release.
+The supply-chain compiler uses the same exact v0.92.6 patch and verifies its
+acceptance tests before building. The AWF and compiler gates still reject every
+other token value, topology, or release.
 Under a separate explicit user authorization, the branch-built AWF
 host acceptance gate now selects only v0.28.66 for this exact agent fixture;
 v0.28.64 and other releases are rejected. All identity, branch-only, topology,

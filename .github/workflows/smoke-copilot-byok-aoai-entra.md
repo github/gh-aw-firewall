@@ -60,6 +60,8 @@ safe-outputs:
 timeout-minutes: 15
 env:
   COPILOT_MODEL: o4-mini-aw
+  # Copilot's chat-completions fallback sends temperature=0, which o4-mini rejects.
+  COPILOT_PROVIDER_WIRE_API: responses
   AWF_AUTH_TYPE: github-oidc
   AWF_AUTH_PROVIDER: azure
 sandbox:
