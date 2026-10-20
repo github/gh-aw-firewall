@@ -66,6 +66,12 @@ describe('maintained model compilation', () => {
     expect(delta.activation).toMatch(/staged/);
     expect(delta.mapping.target.providers.openai.models.find((entry: { family: string }) =>
       entry.family === 'gpt-5.5').routingPatterns).not.toContain('gpt-5.5-pro');
+    const opusFour = delta.mapping.target.providers.anthropic.models.find(
+      (entry: { family: string }) => entry.family === 'claude-opus-4');
+    const opusFourSix = delta.mapping.target.providers.anthropic.models.find(
+      (entry: { family: string }) => entry.family === 'claude-opus-4-6');
+    expect(opusFour.routing.reasoningEfforts).toContain('xhigh');
+    expect(opusFourSix.routing.reasoningEfforts).not.toContain('xhigh');
   });
 
   it('rejects invalid cross-file records with source diagnostics', () => {

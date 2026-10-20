@@ -116,14 +116,16 @@ function compile() {
   if (importErrors.length) throw new Error(`${importedFile}: ${importErrors.join('; ')}`);
   const records = files.filter(file => !['mapping.json', 'target.json', 'pricing-reference.json'].includes(file))
     .map(file => [file, JSON.parse(fs.readFileSync(path.join(sources, file), 'utf8'))]);
-  const models = records.flatMap(([, data]) => data.models);
-  const rules = records.flatMap(([, data]) => data.rules || []);
   const errors = [];
   for (const [file, data] of records) {
-    if (data.schemaVersion !== 1 || data.provenance?.authority !== 'maintained' ||
+    if (data?.schemaVersion !== 1 || data.provenance?.authority !== 'maintained' ||
         !data.provenance.source || !data.provenance.revision ||
         !data.provenance.at || !data.provenance.confidence || !Array.isArray(data.models)) {
       errors.push(`${file}: expected schemaVersion, reviewed provenance and models`);
+      continue;
+    }
+    if (data.rules !== undefined && !Array.isArray(data.rules)) {
+      errors.push(`${file}: rules must be an array`);
       continue;
     }
     for (const [index, model] of data.models.entries()) {
@@ -133,21 +135,32 @@ function compile() {
       errors.push(...validate('rule', rule).map(message => `${file}: rules[${index}] ${message}`));
     }
   }
+  if (errors.length) throw new Error(errors.join('\n'));
+  const models = records.flatMap(([, data]) => data.models);
+  const rules = records.flatMap(([, data]) => data.rules || []);
   errors.push(...validateRecords([...models, ...imported.models], rules)
     .map(message => `assembled sources and import: ${message}`));
   const mapping = JSON.parse(fs.readFileSync(path.join(sources, 'mapping.json'), 'utf8'));
-  if (mapping.schemaVersion !== 1 || mapping.provenance?.authority !== 'maintained' ||
+  if (mapping?.schemaVersion !== 1 || mapping.provenance?.authority !== 'maintained' ||
       !mapping.provenance.source || !mapping.provenance.revision ||
       !mapping.provenance.confidence ||
       !mapping.mapping?.providers || !mapping.mapping?.lastUpdated ||
       mapping.provenance.at !== mapping.mapping.lastUpdated) {
     errors.push('mapping.json: invalid pinned mapping/provenance');
   }
+  if (errors.length) throw new Error(errors.join('\n'));
   for (const [provider, data] of Object.entries(mapping.mapping.providers || {})) {
-    if (!data.endpoints || !Array.isArray(data.models)) errors.push(`mapping.json: ${provider}: invalid endpoints/models`);
+    if (!data || typeof data.endpoints !== 'object' || !Array.isArray(data.models)) {
+      errors.push(`mapping.json: ${provider}: invalid endpoints/models`);
+      continue;
+    }
     const patterns = new Map();
     const families = new Set();
     for (const [index, entry] of (data.models || []).entries()) {
+      if (!entry || typeof entry !== 'object') {
+        errors.push(`mapping.json: ${provider}.models[${index}]: invalid mapping entry`);
+        continue;
+      }
       if (!entry.family || !Array.isArray(entry.patterns) || !entry.patterns.length ||
           entry.patterns.some(pattern => typeof pattern !== 'string' || !pattern) ||
           !Array.isArray(entry.endpoints) || entry.endpoints.some(name => !data.endpoints?.[name]) ||
@@ -311,7 +324,10 @@ function compile() {
         });
       continue;
     }
-    if (entry.provider === 'anthropic' && entry.family === 'claude-opus-4') continue;
+    if (entry.provider === 'anthropic' && entry.family === 'claude-opus-4') {
+      family.routing.reasoningEfforts = entry.efforts;
+      continue;
+    }
     family.routingPatterns = [...new Set([...(family.routingPatterns || []),
       entry.id.replace(/claude-(opus|sonnet|haiku)-(\d+)\.(\d+)/, 'claude-$1-$2-$3')])];
     family.routing = {

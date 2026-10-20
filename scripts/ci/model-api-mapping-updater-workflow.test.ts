@@ -27,6 +27,8 @@ describe('model API mapping review workflow', () => {
     expect(source).toContain('Do not update `lastUpdated` based on the wall clock.');
     expect(source).not.toContain('allowed-files:');
     expect(source).not.toContain('create a pull request with title');
+    expect(source).toContain('select(.type == "report_mapping_review") | .findings');
+    expect(source).not.toContain('${{ inputs.findings }}');
   });
 
   it('compiles to a dispatch-only workflow with no authoring safe outputs', () => {
@@ -46,5 +48,7 @@ describe('model API mapping review workflow', () => {
     expect(safeTools).not.toContain('create_issue');
     expect(lockText).not.toContain('allowed-files:');
     expect(lockText).not.toContain('"report-as-issue":"true"');
+    expect(lockText).toContain('select(.type == "report_mapping_review") | .findings');
+    expect(lockText).not.toContain('${{ inputs.findings }}');
   });
 });

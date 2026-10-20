@@ -86,9 +86,7 @@ safe-outputs:
           type: string
       steps:
         - name: Record review
-          env:
-            FINDINGS: ${{ inputs.findings }}
-          run: printf '%s\n' "$FINDINGS" >> "$GITHUB_STEP_SUMMARY"
+          run: jq -er '.items[] | select(.type == "report_mapping_review") | .findings' "$GH_AW_AGENT_OUTPUT" >> "$GITHUB_STEP_SUMMARY"
   noop:
     report-as-issue: false
 ---
