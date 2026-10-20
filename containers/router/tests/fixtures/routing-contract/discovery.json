@@ -3,7 +3,7 @@
   {
     "id": "capabilities", "method": "GET", "path": "/capabilities", "status": 200,
     "response": {
-      "name": "gh-aw-router", "version": "0.1.3",
+      "name": "gh-aw-router", "version": "0.2.0",
       "routing_profiles": [
         {"goal": "cost", "mode": "economy"},
         {"goal": "cost", "mode": "balanced"},

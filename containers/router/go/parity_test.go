@@ -9,22 +9,6 @@ import (
 	"testing"
 )
 
-// decodingDifferences lists parity cases where the Go decoder deliberately differs
-// from the Python reference. Go's decoder has no nesting or digit limits, treats
-// NaN and Infinity as syntax errors, and saturates huge context windows.
-var decodingDifferences = map[string]string{
-	"tool-input-nan":                  "malformed",
-	"tool-input-infinity":             "malformed",
-	"tool-input-negative-infinity":    "malformed",
-	"context-window-nan":              "malformed",
-	"limit-depth-arrays-over":         "decoded",
-	"limit-depth-arrays-scalar-over":  "decoded",
-	"limit-depth-objects-scalar-over": "decoded",
-	"limit-digits-over":               "decoded",
-	"limit-digits-negative-over":      "decoded",
-	"context-window-digit-limit-over": "decoded",
-}
-
 func TestDecodingParity(t *testing.T) {
 	var doc struct {
 		Cases []struct {
@@ -41,7 +25,6 @@ func TestDecodingParity(t *testing.T) {
 	if len(doc.Cases) == 0 {
 		t.Fatal("no cases")
 	}
-	used := map[string]bool{}
 	for _, c := range doc.Cases {
 		t.Run(c.ID, func(t *testing.T) {
 			var body []byte
@@ -58,21 +41,11 @@ func TestDecodingParity(t *testing.T) {
 			default:
 				t.Fatal("case has no input")
 			}
-			want := c.Expect.Result
-			if diff, ok := decodingDifferences[c.ID]; ok {
-				used[c.ID] = true
-				want = diff
-			}
 			_, err := DecodeRouteRequest(body)
-			if got := resultOf(err); got != want {
+			if got, want := resultOf(err), c.Expect.Result; got != want {
 				t.Errorf("got %s, want %s (err: %v)", got, want, err)
 			}
 		})
-	}
-	for id := range decodingDifferences {
-		if !used[id] {
-			t.Errorf("known difference %q matches no case", id)
-		}
 	}
 }
 
@@ -114,14 +87,6 @@ func conversationRequest(t *testing.T, conversation []byte) *RouteRequest {
 	return req
 }
 
-// contextDifferences lists cases where Go's estimate deliberately differs: Go
-// rejects NaN and Infinity as malformed JSON (shown as -1).
-var contextDifferences = map[string]struct{ characters, tokens int }{
-	"token-float-nan":               {-1, -1},
-	"token-float-infinity":          {-1, -1},
-	"token-float-negative-infinity": {-1, -1},
-}
-
 func TestContextParity(t *testing.T) {
 	var doc struct {
 		Cases []struct {
@@ -138,37 +103,19 @@ func TestContextParity(t *testing.T) {
 	if len(doc.Cases) == 0 {
 		t.Fatal("no cases")
 	}
-	used := map[string]bool{}
 	for _, c := range doc.Cases {
 		t.Run(c.ID, func(t *testing.T) {
-			want := struct{ characters, tokens int }{c.Expect.Characters, c.Expect.Tokens}
-			if diff, ok := contextDifferences[c.ID]; ok {
-				used[c.ID] = true
-				want = diff
-			}
 			conversation := []byte(c.Conversation)
 			if c.ConversationText != nil {
 				conversation = []byte(*c.ConversationText)
 			}
-			if want.characters < 0 {
-				if _, err := DecodeRouteRequest([]byte(`{"objective":{"goal":"cost","mode":"balanced"},"conversation":` + string(conversation) + `}`)); KindOf(err) != Malformed {
-					t.Errorf("want malformed, got %v", err)
-				}
-				return
-			}
 			characters, tokens := estimateContext(conversationRequest(t, conversation).Conversation)
-			if characters != want.characters || tokens != want.tokens {
-				t.Errorf("got %d characters, %d tokens; want %d, %d", characters, tokens, want.characters, want.tokens)
+			if characters != c.Expect.Characters || tokens != c.Expect.Tokens {
+				t.Errorf("got %d characters, %d tokens; want %d, %d", characters, tokens, c.Expect.Characters, c.Expect.Tokens)
 			}
 		})
 	}
-	for id := range contextDifferences {
-		if !used[id] {
-			t.Errorf("known difference %q matches no case", id)
-		}
-	}
 }
-
 func TestClassificationParity(t *testing.T) {
 	var doc struct {
 		SystemPrompt           string `json:"system_prompt"`

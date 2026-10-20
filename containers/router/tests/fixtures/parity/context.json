@@ -744,33 +744,6 @@
       "id": "token-float-overflow"
     },
     {
-      "conversation_text": "[{\"parts\":[{\"tool_call\":{\"id\":\"call-1\",\"input\":NaN,\"name\":\"tool\"}}],\"role\":\"assistant\"}]",
-      "description": "Context estimate for token-float-nan",
-      "expect": {
-        "characters": 7,
-        "tokens": 2
-      },
-      "id": "token-float-nan"
-    },
-    {
-      "conversation_text": "[{\"parts\":[{\"tool_call\":{\"id\":\"call-1\",\"input\":Infinity,\"name\":\"tool\"}}],\"role\":\"assistant\"}]",
-      "description": "Context estimate for token-float-infinity",
-      "expect": {
-        "characters": 12,
-        "tokens": 3
-      },
-      "id": "token-float-infinity"
-    },
-    {
-      "conversation_text": "[{\"parts\":[{\"tool_call\":{\"id\":\"call-1\",\"input\":-Infinity,\"name\":\"tool\"}}],\"role\":\"assistant\"}]",
-      "description": "Context estimate for token-float-negative-infinity",
-      "expect": {
-        "characters": 13,
-        "tokens": 4
-      },
-      "id": "token-float-negative-infinity"
-    },
-    {
       "conversation_text": "[{\"parts\":[{\"tool_call\":{\"id\":\"call-1\",\"input\":1.0e2,\"name\":\"tool\"}}],\"role\":\"assistant\"}]",
       "description": "Context estimate for token-float-hundred",
       "expect": {
@@ -906,6 +879,6 @@
       "id": "token-literals"
     }
   ],
-  "description": "estimate_context_tokens(conversation). expect.characters is the character count before rounding and expect.tokens is that count divided by 4, rounded up. A case gives the conversation as JSON, or as conversation_text when a raw token such as NaN must reach the decoder unchanged",
+  "description": "estimate_context_tokens(conversation). expect.characters is the character count before rounding and expect.tokens is that count divided by 4, rounded up. A case gives the conversation as JSON, or as conversation_text when a raw token such as 1e400 must reach the decoder unchanged",
   "kind": "context"
 }

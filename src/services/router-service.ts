@@ -9,13 +9,7 @@ import { ImageBuildConfig } from './squid-service';
 export const ROUTING_NETWORK_NAME = 'awf-routing';
 export const ROUTER_SERVICE_NAME = 'router';
 export const ROUTER_DNS_NAME = 'gh-aw-router';
-const ROUTER_PORT = 8737;
-export const ROUTER_HEALTHCHECK_TEST = [
-  'CMD',
-  'python',
-  '-c',
-  `import urllib.request; urllib.request.urlopen('http://localhost:${ROUTER_PORT}/healthz', timeout=1).close()`,
-];
+export const ROUTER_HEALTHCHECK_TEST = ['CMD', '/usr/local/bin/gh-aw-router', 'healthcheck'];
 
 interface RouterServiceParams {
   imageConfig: ImageBuildConfig;

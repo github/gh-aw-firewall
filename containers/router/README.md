@@ -4,31 +4,23 @@ gh-aw-router picks the model for a software task. It builds a provider-neutral c
 prompt, then ranks the exact model choices a caller offers using a routing table compiled
 offline. It never calls a provider, executes an agent, fits a model, or stores request history.
 
-The package is self-contained. Training, benchmark evidence, and publication tooling are
-maintained separately and are not needed to install or run this service.
+The router is a single Go binary with no dependencies outside the standard library. AWF runs it
+as a sidecar from the image this directory builds. Training, benchmark evidence, and publication
+tooling are maintained separately and are not needed to build or run it.
 
-## Install and run
+## Build and run
 
-Use Python 3.12 and [uv](https://docs.astral.sh/uv/). Run these commands from the directory
-containing this README and `pyproject.toml`. Shell examples use Bash syntax. The server runs
-in the foreground, so use another terminal for client commands.
-
-```bash
-uv sync --locked --dev
-uv run gh-aw-router validate-data
-uv run gh-aw-router serve --bind 127.0.0.1:8737
-```
-
-From a source checkout, the CLI discovers the `routing/` directory. The wheel intentionally
-contains code only, so an installed distribution needs tables from the same release's source
-archive. The next commands assume the wheel and the extracted `routing/` directory are both
-in the current directory.
+The Go code lives in [go/](go), and `go/go.mod` pins the toolchain. Shell examples use Bash
+syntax and run from this directory. The server runs in the foreground, so use another terminal
+for client commands.
 
 ```bash
-python -m pip install ./gh_aw_router-0.1.0-py3-none-any.whl
-gh-aw-router --routing-tables ./routing validate-data
-gh-aw-router --routing-tables ./routing serve --bind 127.0.0.1:8737
+go -C go build -o gh-aw-router .
+go/gh-aw-router --routing-tables routing validate-data
+go/gh-aw-router --routing-tables routing serve --bind 127.0.0.1:8737
 ```
+
+Pass `-o`, because a plain `go build` names the binary after the `go` directory.
 
 Use trusted tables and keep them read-only. Tables are validated at startup, and replacing them
 requires a restart.
@@ -39,27 +31,33 @@ requires a restart.
 option is global and must precede the command.
 
 ```bash
-uv run gh-aw-router classify --input examples/classify-request.json
-uv run gh-aw-router --routing-tables ./routing \
-  route --input examples/route-request.json
+go/gh-aw-router --routing-tables routing classify --input examples/classify-request.json
+go/gh-aw-router --routing-tables routing route --input examples/route-request.json
 ```
 
-Command-line options override environment variables, which override defaults.
+Command-line options override environment variables, which override defaults. An empty
+environment variable counts as unset.
 
 | Option | Environment variable | Default |
 | --- | --- | --- |
-| `--routing-tables` | `GH_AW_ROUTER_ROUTING_TABLES` | Checkout's `routing/` |
+| `--routing-tables` | `GH_AW_ROUTER_ROUTING_TABLES` | `./routing`, if it exists |
 | `serve --bind` | `GH_AW_ROUTER_BIND` | `127.0.0.1:8737` |
 | `serve --log-level` | `GH_AW_ROUTER_LOG_LEVEL` | `info` |
+| `healthcheck --url` | | `http://127.0.0.1:8737/healthz` |
 
-The path may be a directory, which loads every table in it, or a single file, which serves that
-one profile. Outside a checkout, a routing path is required. Relative paths resolve from the
-current working directory. Bind to another interface only on a trusted private network. The
-container binds to all of its own interfaces.
+The routing path may be a directory, which loads every table in it, or a single file, which
+serves that one profile. Relative paths resolve from the current working directory. Bind to
+another interface only on a trusted private network. The container binds to all of its own
+interfaces. The bind port must be ASCII digits from 1 through 65535, and the log level is one of
+`critical`, `error`, `warning`, `info`, `debug` or `trace`.
 
 Results go to stdout and errors to stderr. Exit statuses are `0` for success, `2` for invalid
 input, invalid table data, file errors, or argument errors, and `3` when routing finds no
 eligible model. `--help` and `--version` exit successfully without loading a table.
+
+`healthcheck` sends `GET` to its URL and exits 0 only on a 204. Any other status, a refused
+connection or the 1 s timeout exits 1 with one line on stderr. It never uses a proxy or follows
+a redirect, and it doesn't load routing tables, so `--routing-tables` doesn't affect it.
 
 ## HTTP API
 
@@ -91,11 +89,9 @@ Keep the previous tested image for rollback rather than assuming any newer image
 The reported release is diagnostic metadata, not proof of an image's identity.
 
 Application errors use a `code` and `detail` envelope, including unknown paths and unsupported
-methods. Schema violations name the failing fields without echoing submitted values. Serving
-bounds request bodies to 1 MiB and in-flight requests to 64. A 30-second deadline bounds
-asynchronous upload and response waits but cannot interrupt synchronous computation.
-Overload can produce a bare 503 before the application runs. Clients must also handle connection
-failures and enforce their own timeouts.
+methods. Schema violations name the failing fields without echoing submitted values. See
+[Serving](#serving) for the request limits. Clients must also handle connection failures and
+enforce their own timeouts.
 
 Classification follows the table's embedded `classification_choices` list and prefers its first
 eligible offered choice. Routing filters the table's ordered identities against the request. Both
@@ -190,6 +186,46 @@ estimate plus 16,000 tokens of headroom. Omitting `context_window` skips that ca
 context check. This estimate is not a provider tokenizer and does not replace enforcement
 of the provider's actual context limits.
 
+### Serving
+
+`serve` loads and validates the tables (exit 2 on failure), checks the bind address (exit 2),
+then listens (exit 1 if that fails). It uses Go's `net/http` server with these limits:
+
+- At most 64 requests are in flight, `/healthz` included. Further requests get a bare 503.
+- A body whose `Content-Length` is over 1,048,576 bytes gets 413 `payload_too_large` on any
+  path. A chunked body is counted as `/route` and `/classify` read it, and gets the same 413
+  once it passes the limit. Other paths answer without reading the upload.
+- Headers must arrive within 10 s, and the whole request within 30 s. The response must be
+  written within 30 s, and an idle keep-alive connection closes after 5 s. A request past
+  these limits has its connection closed.
+- Framing errors, paths that aren't clean (`//healthz` redirects to `/healthz`) and `OPTIONS *`
+  are handled by `net/http` before the router sees them.
+
+On SIGTERM or SIGINT the server stops accepting connections, lets in-flight requests finish for
+up to 0.5 s, closes the rest and exits 0.
+
+`serve` writes one JSON object per line to stderr, and nothing else once its arguments are
+parsed. Usage errors stay plain text. Every record has `time` (RFC 3339 UTC with milliseconds),
+`level`, `msg`, `service` (`gh-aw-router`) and `version`. The other fields are:
+
+| `msg` | Level | Fields |
+| --- | --- | --- |
+| `starting` | INFO | `bind`, `log_level`, `go_version` |
+| `routing tables loaded` | INFO | `tables_path`, `profiles`, `models`, `label_cells` |
+| `routing tables invalid` | ERROR | `error_code` (`invalid_model_data`), `error` |
+| `configuration invalid` | ERROR | `error_code` (`invalid_request`), `error` |
+| `listening` | INFO | `address` |
+| `listen failed` | ERROR | `error` |
+| `request` | INFO, or ERROR for a status of 500 or above | `request_id`, `method`, `route`, `status`, `duration_ms`, `error_code` (error envelopes only), `request_bytes`, `response_bytes` |
+| `panic` | ERROR | `request_id`, `route`, `stack` |
+| `shutting down` | INFO | `signal` |
+| `stopped` | INFO | `drained` (whether in-flight requests finished in time), `duration_ms` |
+
+`route` is one of the four served paths or `unmatched`, and `method` is a standard HTTP method
+or `_OTHER`. `request_id` is random for each request and isn't sent to the client. A successful
+`/healthz` call isn't logged. Records never contain request or response bodies, headers, query
+strings, unmatched paths, model or choice ids, error details or panic values.
+
 ## Routing tables
 
 `routing/` holds one file per published profile, named `{goal}-{mode}.json` for the goals `cost`
@@ -240,17 +276,21 @@ docker build \
   --tag gh-aw-router:dev .
 ```
 
-The optional `VERSION` build argument must match the package version. A mismatch fails
-the build rather than publishing image metadata that disagrees with the CLI or service.
+The builder stage cross-compiles, so a multi-platform build needs no emulation. The build fails
+unless `OPENAPI_SHA256` matches `openapi.yaml`, and unless the optional `VERSION` build argument
+matches the `version` constant in `go/main.go`, so the image labels can't disagree with the
+binary.
 
 Each AWF release publishes the image for `linux/amd64` and `linux/arm64` as
 `ghcr.io/github/gh-aw-firewall/router:<awf-version>`, signed with cosign and with an attested
-SPDX SBOM. The tag is the AWF version, while the image's version label stays the package version.
+SPDX SBOM. The tag is the AWF version, while the image's version label stays the router version.
 
-The image bundles every published table under `/routing` and serves all six profiles. It runs as
-user `10001:10001` and needs no credentials or outbound network. This invocation uses a private
-network, a read-only filesystem, and no published host port. The service listens on port `8737`
-inside the network.
+The image is built `FROM scratch`. It holds only the static binary at
+`/usr/local/bin/gh-aw-router`, the bundled tables under `/routing`, `openapi.yaml` and a CA
+bundle filtered by AWF's CA distrust policy in `trust/`, and has no shell. It serves all six profiles, runs as user `10001:10001`, and needs no
+credentials or outbound network. It sets `GOMAXPROCS=2` and `GOMEMLIMIT=384MiB` to fit AWF's
+512 MiB container limit. This invocation uses a private network, a read-only filesystem, and no
+published host port. The service listens on port `8737` inside the network.
 
 ```bash
 docker network create --internal gh-aw-routing
@@ -262,7 +302,6 @@ docker run --detach \
   --tmpfs /tmp:rw,noexec,nosuid,size=16m \
   --cap-drop ALL \
   --security-opt no-new-privileges \
-  --stop-timeout 35 \
   gh-aw-router:dev
 ```
 
@@ -275,76 +314,40 @@ To replace the bundled tables, add these options before the image name.
 --env GH_AW_ROUTER_ROUTING_TABLES=/mnt/routing
 ```
 
-## Contract fixtures and artifacts
-
-[The portable corpus](tests/fixtures/routing-contract) covers all four endpoints
-using synthetic model identities and six distinguishable table profiles. The same reviewed
-request bytes run through HTTP adapter tests and the hardened Linux amd64 container tests.
-Classifier prompts are fixed expected data, not regenerated during tests.
-
-Endpoint files contain complete requests and reviewed expected responses. The test-only
-`response_file` reference shares an exact classifier response between cases. The exporter
-resolves it so consumers receive concrete JSON responses without a template language.
-
-The archive contains this README, `cases.json`, six synthetic profiles in `tables/`,
-`openapi.yaml`, the unchanged external `integration-contract.md`, and `manifest.json`.
-Cases name the method, path, expected status, and optional headers. Send each UTF-8
-`request_body` unchanged for wire replay. Default to `Content-Type: application/json`
-when headers are omitted. A 204 response has no body. `raw_request` marks malformed
-JSON, and `request_valid: false` marks a schema-invalid object.
-
-A case's optional `profiles` list restricts the table files loaded. Otherwise load all
-six. Mount the selected directory read-only and readable by UID/GID 10001. The fake model
-identities are test data, not a provider catalogue. Never send them to live providers.
-
-Compare successful responses exactly, including choice order, effort omission, and prompt
-strings. For errors, compare status and stable `code`, then validate the full envelope
-against OpenAPI. Fixture `detail` text is representative mock data, not a promise to
-preserve incidental diagnostic wording. Verify archive and manifest checksums before use.
-
-Export a corpus archive from a clean source checkout with Python 3.12 and development
-dependencies installed. Supply the reviewed integration attachment and its expected checksum.
-The attachment is preserved unchanged and is not included in the runtime package.
-
-```bash
-uv run --locked python tests/contract_corpus.py \
-  --integration-contract /path/to/integration-contract.md \
-  --integration-contract-sha256 "$INTEGRATION_CONTRACT_SHA256" \
-  --output dist/routing-contract.tar.gz
-```
-
-The command prints the archive checksum. Its manifest records the source SHA, router release,
-table schema, attachment revision, and every payload file's SHA-256. A dirty or unidentified
-checkout requires `--development` and is explicitly marked as non-release provenance.
-Repeated exports with the same inputs and source state produce identical bytes. Repository
-OpenAPI text uses LF in the archive, while the external attachment retains its original bytes.
-
-Ordinary PR CI runs corpus, packaging, and native Linux amd64 Docker checks without
-provider credentials. Use the exporter above to create a local contract archive.
+Like AWF's other images, the image declares no `HEALTHCHECK`. AWF's compose configuration runs
+`/usr/local/bin/gh-aw-router healthcheck` as an exec-form check. To check health yourself, use
+the same exec form, such as `docker exec gh-aw-router /usr/local/bin/gh-aw-router healthcheck`
+or a compose `test: ["CMD", "/usr/local/bin/gh-aw-router", "healthcheck"]`. `docker run
+--health-cmd` always runs its command through `/bin/sh`, which the image doesn't have.
 
 AWF's release workflow, `.github/workflows/release.yml`, publishes the image together with the
 other AWF images and lists its digest in the release's `containers.txt`. A deployment pin has
 the form `ghcr.io/github/gh-aw-firewall/router:<awf-version>@sha256:<manifest-digest>`.
-A local image ID or Docker archive checksum is not that registry manifest digest. Retain
-supported immutable images and matching contract archives. Deliver security fixes through
-new AWF releases and tested client pin changes, not replacement bytes under old pins.
+A local image ID or Docker archive checksum is not that registry manifest digest. Deliver
+security fixes through new AWF releases and tested client pin changes, not replacement bytes
+under old pins.
 
-## Parity corpus
+## Test fixtures
 
-[The parity corpus](tests/fixtures/parity) records what this Python implementation returns from
-the functions whose behavior comes from Python itself: heuristic labels, request decoding
-(including the parser's depth and digit limits), context estimates and classifier prompts, plus
-the Unicode properties they rely on. The Go port
-([#10261](https://github.com/github/gh-aw-firewall/issues/10261)) replays these fixtures as unit
-tests. Unlike the portable corpus above, it is generated from the current implementation by
-`tests/parity_corpus.py`, and it isn't part of the contract archive.
+[The routing-contract corpus](tests/fixtures/routing-contract) covers all four endpoints using
+synthetic model identities and six distinguishable table profiles. Each case names the method,
+path, expected status, optional headers and a complete request; default to
+`Content-Type: application/json` when headers are omitted. `raw_request` marks malformed JSON,
+and `request_valid: false` marks a schema-invalid object. The test-only `response_file`
+reference shares an exact classifier response between cases. A 204 response has no body.
 
-`python -m pytest` replays the corpus, and CI fails when it is stale. After an intended behavior
-change, regenerate it and review the diff:
+A case's optional `profiles` list restricts the table files loaded. Otherwise load all six.
+Compare successful responses exactly, including choice order, effort omission, and prompt
+strings. For errors, compare status and the stable `code`; `detail` is diagnostic text, not a
+promise. The Go tests build the six tables in `corpus_test.go` and replay every case through the
+HTTP handler, and the container tests replay them against the image with the tables mounted.
+The fake model identities are test data, not a provider catalogue. Never send them to live
+providers. The API proxy's tests copy a subset of these cases.
 
-```bash
-uv run --locked python tests/parity_corpus.py --write
-```
+[The behavior fixtures](tests/fixtures/parity) record the expected heuristic labels, request
+decoding, context estimates and classifier prompts, which were first recorded from the Python
+router this Go implementation replaced. Their README lists where the Go router deliberately
+differs from it. Change an expectation only in a reviewed pull request that explains it.
 
 ## Development
 
@@ -355,179 +358,72 @@ Open an issue to discuss substantial changes before implementation. Keep pull re
 and include tests for changed behavior. Do not include credentials, private prompts, local
 environments, or generated build output.
 
-Run these checks from this directory.
-
-```bash
-uv sync --locked --dev
-uv run ruff format --check .
-uv run ruff check .
-uv run ty check
-uv run python tests/parity_corpus.py --check
-uv run python -m pytest
-```
-
-Run heavyweight checks explicitly.
-
-```bash
-uv run python -m pytest --run-release -m release
-uv run python -m pytest --run-docker -m docker
-```
-
-Release tests require uv and may download dependencies. They build source and wheel archives,
-test an extracted source tree, and exercise a non-editable wheel installation. Docker tests
-require a running Linux daemon. They build one image, exercise all six bundled profiles, and
-check read-only replacement tables and the portable corpus on Linux amd64. Set
-`GH_AW_ROUTER_TEST_IMAGE` to test an already-built image instead of building and removing one.
-Neither group runs by default. The `test-router.yml` CI workflow is
-configured to run both groups separately.
-
-### Go port
-
-The Go port ([#10261](https://github.com/github/gh-aw-firewall/issues/10261)) lives in
-`go/`, apart from the Python package, as a single flat `main` package with its tests beside
-it. It shares this directory's routing tables, examples, fixtures, `openapi.yaml` and
-`Dockerfile`, which its tests read through `..`. It has no dependencies outside the Go standard
-library, and `go/go.mod` pins the toolchain. It implements every command, including `serve`,
-and adds a `healthcheck` command for the image.
-
-Run these checks from `go/`:
+Run these checks from `go/`.
 
 ```bash
 gofmt -l .
 go vet ./...
 go test ./...
-go build -o gh-aw-router .
-./gh-aw-router --routing-tables ../routing route --input ../examples/route-request.json
 ```
 
-Pass `-o`, because a plain `go build` names the binary after the `go` directory.
-
-The Go tests replay the [parity corpus](tests/fixtures/parity) and the POST cases of the
-[portable contract corpus](tests/fixtures/routing-contract), and port the Python routing,
-service, table, classification, CLI and HTTP tests. Deliberate differences from Python are
-listed in the parity corpus's decisions table. `FuzzDecodeRouteRequest`, `FuzzParseTable` and
-`FuzzInferLabels` are fuzz targets, for example `go test -run '^$' -fuzz FuzzParseTable`.
-
-#### Go `serve`
-
-`serve` takes the same `--bind` and `--log-level` options and environment variables as the
-Python CLI. An empty environment variable counts as unset. The bind port must be ASCII digits
-from 1 through 65535, and an invalid log level from either source is a usage error. Startup
-loads and validates the tables (exit 2 on
-failure), checks the bind address (exit 2), then listens (exit 1 if that fails).
-
-The server uses Go's `net/http` as it is, and keeps the endpoints, success bodies and error
-envelopes of the Python service:
-
-- At most 64 requests are in flight, `/healthz` included. Further requests get a bare 503.
-- A body whose `Content-Length` is over 1,048,576 bytes gets 413 `payload_too_large` on any
-  path. A chunked body is counted as `/v1/route` and `/v1/classify` read it, and gets the same
-  413 once it passes the limit. Other paths answer without reading the upload, so an
-  oversized chunked `POST /healthz` gets their usual 405 or 404.
-- Headers must arrive within 10 s, and the whole request within 30 s. The response must be
-  written within 30 s, and an idle keep-alive connection closes after 5 s. A request past
-  these limits has its connection closed; there's no 504 `request_timeout`.
-- Framing errors, paths that aren't clean (`//healthz` redirects to `/healthz`) and `OPTIONS *`
-  are handled by `net/http` before the router sees them.
-
-On SIGTERM or SIGINT the server stops accepting connections, lets in-flight requests finish for
-up to 0.5 s, closes the rest and exits 0.
-
-`serve` writes one JSON object per line to stderr, and nothing else once its arguments are
-parsed. Usage errors stay plain text. Every record has `time` (RFC 3339 UTC with milliseconds),
-`level`, `msg`, `service` (`gh-aw-router`) and `version`. The other fields are:
-
-| `msg` | Level | Fields |
-| --- | --- | --- |
-| `starting` | INFO | `bind`, `log_level`, `go_version` |
-| `routing tables loaded` | INFO | `tables_path`, `profiles`, `models`, `label_cells` |
-| `routing tables invalid` | ERROR | `error_code` (`invalid_model_data`), `error` |
-| `configuration invalid` | ERROR | `error_code` (`invalid_request`), `error` |
-| `listening` | INFO | `address` |
-| `listen failed` | ERROR | `error` |
-| `request` | INFO, or ERROR for a status of 500 or above | `request_id`, `method`, `route`, `status`, `duration_ms`, `error_code` (error envelopes only), `request_bytes`, `response_bytes` |
-| `panic` | ERROR | `request_id`, `route`, `stack` |
-| `shutting down` | INFO | `signal` |
-| `stopped` | INFO | `drained` (whether in-flight requests finished in time), `duration_ms` |
-
-`route` is one of the four served paths or `unmatched`, and `method` is a standard HTTP method
-or `_OTHER`. `request_id` is random for each request and isn't sent to the client. A successful
-`/healthz` call isn't logged. Records never contain request or response bodies, headers, query
-strings, unmatched paths, model or choice ids, error details or panic values.
-
-`gh-aw-router healthcheck [--url URL]` sends `GET` to `http://127.0.0.1:8737/healthz` by
-default, and exits 0 only on a 204. Any other status, a refused connection or the 1 s timeout
-exits 1 with one line on stderr. It never uses a proxy or follows a redirect. Unlike the other
-commands, it doesn't load routing tables, so `--routing-tables` and
-`GH_AW_ROUTER_ROUTING_TABLES` don't affect it.
-
-#### Differential check
-
-`tests/differential.py` compares the two CLIs while both exist. It doesn't compare HTTP; the
-Go `serve` tests cover that. From this directory, after the Python setup above:
+The container tests run only when `GH_AW_ROUTER_TEST_IMAGE` names a built image. They run it
+hardened as AWF does, check its configuration, health check, shutdown and logs, and replay the
+routing-contract corpus against it.
 
 ```bash
-go -C go build -o gh-aw-router .
-uv run python tests/differential.py --go-cli go/gh-aw-router
+docker build --build-arg OPENAPI_SHA256="$(sha256sum ../openapi.yaml | cut -d ' ' -f 1)" \
+  --tag gh-aw-router:test ..
+GH_AW_ROUTER_TEST_IMAGE=gh-aw-router:test go test -run '^TestContainer' -v .
 ```
 
-It runs the Python CLI in process and the Go binary on the same tables and request bytes: the
-contract corpus requests, requests built from each parity fixture case, and seeded generated
-requests. It fails on any difference in exit status, stderr prefix or stdout JSON, except for
-the fixture cases the Go tests record as decisions. Generated text leaves out the characters
-those decisions cover (case folding, and code points unassigned in Python's Unicode 15).
+`FuzzDecodeRouteRequest`, `FuzzParseTable` and `FuzzInferLabels` are fuzz targets, for example
+`go test -run '^$' -fuzz FuzzParseTable`. The `test-router.yml` CI workflow runs the checks
+on Linux and Windows, the race detector and `govulncheck` on Linux (also weekly), and the
+container tests.
 
 ### Project layout
 
-- `src/gh_aw_router/` contains request contracts, classification, table lookup, and CLI and HTTP adapters.
-- `go/` contains the Go port: one flat `main` package, its tests and `go.mod`.
-- `tests/` mirrors the runtime modules, with shared synthetic fixtures in `conftest.py`.
+- `go/` contains the router: one flat `main` package, its tests and `go.mod`. Its tests read
+  this directory's tables, schemas, examples, fixtures, `openapi.yaml` and `Dockerfile` through
+  `..`.
 - `routing/` contains generated routing tables from training.
 - `schemas/` contains the versioned JSON Schema for routing table files.
+- `trust/` is AWF's shared CA distrust policy, which the image build applies to its CA bundle.
 - `examples/` contains executable planning requests.
+- `tests/fixtures/` contains the routing-contract corpus and the behavior fixtures.
 - The repository root's `.github/workflows/test-router.yml` and `.github/dependabot.yml` contain
   CI and dependency-update configuration.
 
 ### Code conventions
 
-- Keep contracts in `contracts.py`, orchestration in `service.py`, and transport code in its adapter.
-- Keep deterministic fallback rules in `heuristics.py` and classifier prompts in `classification.py`.
-- Keep constants in the module that owns their meaning. Do not introduce a general constants module.
+- Keep request and response types in `contract.go` and request decoding in `decode.go`.
+- Keep routing in `route.go`, classifier prompts in `classify.go`, and deterministic fallback
+  rules in `heuristics.go`.
+- Keep the CLI in `cli.go`, and HTTP serving in `serve.go` and `server.go`.
+- Use only the Go standard library.
 - Document public behavior, errors, defaults, and approximation limits rather than repeating types.
 - Preserve exact offered model identities and explicit reasoning efforts.
-- Add regressions to existing test modules where practical.
-- Keep OpenAPI, examples, and integration documentation aligned with runtime behavior.
+- Keep OpenAPI, examples, and fixtures aligned with runtime behavior.
 
 The committed `openapi.yaml` is the authoritative HTTP contract. It distinguishes requested
 modes from published profiles and includes the classifier-output schema used by callers.
-Update it alongside contract changes and extend the schema/runtime parity
-tests in `tests/test_openapi.py`. Do not add a second generated public contract.
+Update it alongside contract changes. The Go tests check that it documents the served paths and
+error codes, and that the examples decode. Do not add a second generated public contract.
 
-The hand-written schema in `schemas/` is the authoritative routing-table contract. Change the
-table format only by adding a new schema version, and update the parity tests in
-`tests/test_table_schema.py` alongside it.
-
-Use the shared synthetic table and request fixtures in `tests/conftest.py` for generic routing,
-service, and transport tests. Reserve the bundled-table `service` fixture for release-data and
-example integration checks so ranking refreshes do not affect unrelated behavior tests.
+The hand-written schema in `schemas/` is the authoritative routing-table contract. A published
+schema file never changes, and the Go tests pin its hash and check its enums and patterns
+against the Go types. Change the table format only by adding a new schema version.
 
 The HTTP contract follows the router version. There is no API-version request field or
 negotiation layer. Review breaking changes with affected consumers, include migration notes,
 and test the client, immutable image, OpenAPI document, and corpus as one release combination.
 Keep the table format marker because files and mounts can change independently of the image.
-Public contracts and table helpers are also used by the separate training package. Check those
-callers when changing shared contracts.
-
-The portable cases live in [tests/fixtures/routing-contract](tests/fixtures/routing-contract).
-Keep complete requests and reviewed expected responses. Tests and the source-only exporter
-must not derive expectations from the current service. Review classifier prompt changes as
-contract fixture changes. Invalid non-null classifier output belongs in rejection cases;
-caller-authorized degradation uses omitted or null classification.
 
 Router changes ship in the next AWF release. Bump the router version in the same pull request
-as any change to routing behaviour or the HTTP contract. The version appears in
-`pyproject.toml`, `uv.lock`, `src/gh_aw_router/__init__.py`, the Go port's `version` constant in
-`go/main.go`, the Dockerfile's `VERSION` default, and `openapi.yaml`.
+as any change to routing behaviour or the HTTP contract. The version appears in the `version`
+constant in `go/main.go`, the Dockerfile's `VERSION` default, `openapi.yaml`, and the
+capabilities case in `tests/fixtures/routing-contract/discovery.json`; the Go tests fail if they
+disagree.
 
 Keep release publication and credentialed attestations in separately reviewed,
 explicitly permissioned jobs, which today means AWF's `.github/workflows/release.yml`.
@@ -535,27 +431,10 @@ Do not execute untrusted PR code through `pull_request_target`.
 
 ### Dependencies and routing data
 
-Use `uv add` or `uv lock` with public PyPI to change dependencies, then regenerate the
-container dependency file. Clear local index overrides before generating committed locks.
-
-```bash
-uv export --locked --no-dev --no-emit-project --output-file requirements.lock
-```
-
-Commit both lock files. Do not put private package indexes or credentials in them. Never pass
-credentials through Docker build arguments. Routing JSON files are generated offline. Do not
-hand-edit rankings or add runtime dependencies on training tools.
-
-Dependabot is configured for weekly updates to uv dependencies, Docker images, and GitHub Actions.
-Python image updates stay on the supported minor release line, with patch and digest updates
-enabled. Review package metadata, dependency locks, and CI coverage before changing that line.
-After a dependency update, regenerate `requirements.lock` with the command above and include
-it in the same pull request. The isolated release tests reject a stale export. Keep external
-actions pinned to full commit SHAs when reviewing updates.
-
-The `test-router.yml` CI workflow is configured to audit locked runtime dependencies with
-pip-audit, including a weekly schedule to detect new advisories without a code change.
-Investigate failures before merging.
+The router has no Go module dependencies. Dependabot updates the Docker base image weekly, and
+`go/go.mod`'s toolchain is updated by hand to match it. Keep external actions pinned to full
+commit SHAs when reviewing updates. Routing JSON files are generated offline. Do not hand-edit
+rankings or add runtime dependencies on training tools.
 
 ## Security
 
@@ -567,9 +446,8 @@ Run the container without published ports, as a non-root user, with a read-only 
 all capabilities dropped. Mount only trusted routing tables. See the
 [container example](#container) for the hardened invocation.
 
-Request size and deadline limits are not a substitute for network isolation, connection limits,
-or proxy timeouts. Context-window estimation is approximate. Frozen Python models do not make
-nested containers deeply immutable, so in-process callers must not mutate shared routing data.
+Request size and time limits are not a substitute for network isolation, connection limits, or
+proxy timeouts. Context-window estimation is approximate.
 
 Supported router versions follow AWF releases. Report vulnerabilities through the repository's
 [security policy](https://github.com/github/gh-aw-firewall/security/policy), and include the AWF

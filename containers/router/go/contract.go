@@ -310,7 +310,6 @@ const (
 	CodeMethodNotAllowed     ErrorCode = "method_not_allowed"
 	CodeNoRoute              ErrorCode = "no_route"
 	CodeInternalError        ErrorCode = "internal_error"
-	CodeRequestTimeout       ErrorCode = "request_timeout"
 )
 
 // ErrorResponse is the body of every HTTP error response.

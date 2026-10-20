@@ -8,8 +8,8 @@ import (
 	"testing"
 )
 
-// routerDir is the Python router's directory, which holds the routing tables,
-// examples, fixtures, OpenAPI contract and Dockerfile that the Go tests share.
+// routerDir is the router project's directory, which holds the routing tables, schemas,
+// examples, fixtures, OpenAPI contract and Dockerfile.
 const routerDir = ".."
 
 func TestVersionMatchesContractAndImage(t *testing.T) {

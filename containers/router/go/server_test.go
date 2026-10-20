@@ -542,8 +542,7 @@ func TestHTTPPathsAndMethods(t *testing.T) {
 			t.Errorf("%s: %d %s", target, r.status, r.body)
 		}
 	}
-	routes := map[string]string{"/healthz": "GET", "/capabilities": "GET", "/classify": "POST", "/route": "POST"}
-	for path, method := range routes {
+	for path, method := range servedRoutes {
 		for _, wrong := range []string{"GET", "HEAD", "OPTIONS", "POST", "PUT", "PATCH", "DELETE", "TRACE", "BREW"} {
 			if wrong == method {
 				continue

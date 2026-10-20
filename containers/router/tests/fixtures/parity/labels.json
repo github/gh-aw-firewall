@@ -3388,7 +3388,7 @@
       "description": "U+10D50 after a lead cue",
       "expect": {
         "scope": "unknown",
-        "task_type": "fix"
+        "task_type": "unknown"
       },
       "id": "unassigned-after-lead-10D50",
       "text": "fix\ud803\udd50 the widget"
@@ -3397,7 +3397,7 @@
       "description": "U+10D50 before a symptom",
       "expect": {
         "scope": "unknown",
-        "task_type": "fix"
+        "task_type": "unknown"
       },
       "id": "unassigned-before-cue-10D50",
       "text": "the widget \ud803\udd50crash"
@@ -3406,7 +3406,7 @@
       "description": "U+16100 after a lead cue",
       "expect": {
         "scope": "unknown",
-        "task_type": "fix"
+        "task_type": "unknown"
       },
       "id": "unassigned-after-lead-16100",
       "text": "fix\ud818\udd00 the widget"
@@ -3415,7 +3415,7 @@
       "description": "U+16100 before a symptom",
       "expect": {
         "scope": "unknown",
-        "task_type": "fix"
+        "task_type": "unknown"
       },
       "id": "unassigned-before-cue-16100",
       "text": "the widget \ud818\udd00crash"
@@ -3424,7 +3424,7 @@
       "description": "U+1E5D0 after a lead cue",
       "expect": {
         "scope": "unknown",
-        "task_type": "fix"
+        "task_type": "unknown"
       },
       "id": "unassigned-after-lead-1E5D0",
       "text": "fix\ud839\uddd0 the widget"
@@ -3433,7 +3433,7 @@
       "description": "U+1E5D0 before a symptom",
       "expect": {
         "scope": "unknown",
-        "task_type": "fix"
+        "task_type": "unknown"
       },
       "id": "unassigned-before-cue-1E5D0",
       "text": "the widget \ud839\uddd0crash"
@@ -3442,7 +3442,7 @@
       "description": "U+A7CB after a lead cue",
       "expect": {
         "scope": "unknown",
-        "task_type": "fix"
+        "task_type": "unknown"
       },
       "id": "unassigned-after-lead-A7CB",
       "text": "fix\ua7cb the widget"
@@ -3451,7 +3451,7 @@
       "description": "U+A7CB before a symptom",
       "expect": {
         "scope": "unknown",
-        "task_type": "fix"
+        "task_type": "unknown"
       },
       "id": "unassigned-before-cue-A7CB",
       "text": "the widget \ua7cbcrash"
@@ -3460,7 +3460,7 @@
       "description": "U+10D40 after a lead cue",
       "expect": {
         "scope": "unknown",
-        "task_type": "fix"
+        "task_type": "unknown"
       },
       "id": "unassigned-after-lead-10D40",
       "text": "fix\ud803\udd40 the widget"
@@ -3469,7 +3469,7 @@
       "description": "U+10D40 before a symptom",
       "expect": {
         "scope": "unknown",
-        "task_type": "fix"
+        "task_type": "unknown"
       },
       "id": "unassigned-before-cue-10D40",
       "text": "the widget \ud803\udd40crash"
@@ -3478,7 +3478,7 @@
       "description": "U+1CCF0 after a lead cue",
       "expect": {
         "scope": "unknown",
-        "task_type": "fix"
+        "task_type": "unknown"
       },
       "id": "unassigned-after-lead-1CCF0",
       "text": "fix\ud833\udcf0 the widget"
@@ -3487,7 +3487,7 @@
       "description": "U+1CCF0 before a symptom",
       "expect": {
         "scope": "unknown",
-        "task_type": "fix"
+        "task_type": "unknown"
       },
       "id": "unassigned-before-cue-1CCF0",
       "text": "the widget \ud833\udcf0crash"
@@ -3691,37 +3691,37 @@
       "text": "the widget \ud83d\ude42crash"
     },
     {
-      "description": "The fi ligature folds to fi",
+      "description": "The fi ligature lowercases to itself, so it isn't the cue fix",
       "expect": {
         "scope": "unknown",
-        "task_type": "fix"
+        "task_type": "unknown"
       },
       "id": "casefold-ligature",
       "text": "\ufb01x the widget"
     },
     {
-      "description": "Long s folds to s",
+      "description": "Long s lowercases to itself, so it isn't the cue s",
       "expect": {
         "scope": "unknown",
-        "task_type": "explain"
+        "task_type": "unknown"
       },
       "id": "casefold-long-s",
       "text": "\u017fummarize the widget"
     },
     {
-      "description": "Sharp s folds to ss",
+      "description": "Sharp s lowercases to itself, so it isn't the cue ss",
       "expect": {
         "scope": "unknown",
-        "task_type": "plan"
+        "task_type": "unknown"
       },
       "id": "casefold-sharp-s",
       "text": "po\u00dfible approaches"
     },
     {
-      "description": "Dotted capital I folds to i and a combining dot",
+      "description": "Dotted capital I lowercases to i, so the cue improve matches",
       "expect": {
         "scope": "unknown",
-        "task_type": "unknown"
+        "task_type": "implement"
       },
       "id": "casefold-dotted-i",
       "text": "\u0130mprove the widget"

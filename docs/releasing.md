@@ -215,7 +215,7 @@ Docker images are published to `ghcr.io/github/gh-aw-firewall`:
 - `squid:<version>` and `squid:latest` - Squid proxy container
 - `agent:<version>` and `agent:latest` - Agent execution environment (minimal, ~200MB)
 - `api-proxy:<version>` and `api-proxy:latest` - API proxy sidecar for credential isolation
-- `router:<version>` and `router:latest` - Model router sidecar for routed runs, built from `containers/router`. Its `org.opencontainers.image.version` label is the router's own version (`__version__` in `containers/router/src/gh_aw_router/__init__.py`), not the AWF version, so the release doesn't pass a `VERSION` build argument
+- `router:<version>` and `router:latest` - Model router sidecar for routed runs, built from `containers/router`. Its `org.opencontainers.image.version` label is the router's own version (`ARG VERSION` in `containers/router/Dockerfile`, which the build checks against `version` in `containers/router/go/main.go`), not the AWF version, so the release doesn't pass a `VERSION` build argument
 - `cli-proxy:<version>` and `cli-proxy:latest` - CLI proxy sidecar for gh CLI access via mcpg DIFC proxy
 - `agent-act:<version>` and `agent-act:latest` - Agent with GitHub Actions parity (~2GB)
 - `enclave-script:<version>` and `enclave-script:latest` - No-network script executor, built from `containers/enclave/Dockerfile` target `enclave-script`

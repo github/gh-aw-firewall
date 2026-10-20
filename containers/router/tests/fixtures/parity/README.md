@@ -1,44 +1,23 @@
-# Router parity corpus
+# Router behavior fixtures
 
-This directory records, as language-neutral JSON, what the Python router returns from the
-functions whose behavior comes from Python itself rather than from the router's contract: the
-heuristic labels, request decoding, the context estimate and the classifier prompt. It also
-records the Unicode properties those functions rely on. The Go port of the router
-([#10261](https://github.com/github/gh-aw-firewall/issues/10261)) replays these fixtures as unit
-tests, and keeps them after the Python router is removed.
+This directory records, as language-neutral JSON, the router's expected behavior in the areas
+where it once came from Python itself rather than from the router's contract: the heuristic
+labels, request decoding, the context estimate and the classifier prompt. The expectations were
+generated from the Python router, then edited where the Go router deliberately differs (see
+[Decisions for the Go port](#decisions-for-the-go-port)). The Go tests in `go/heuristics_test.go`
+and `go/parity_test.go` replay every case.
 
-Everything else, such as routing, the CLI and HTTP, is tested by the Go port's own unit and
-integration tests, which port the Python tests. During the port, a differential job also runs
-the Python and Go routers on the same inputs. See [What the corpus doesn't cover](#what-the-corpus-doesnt-cover).
+Routing, the CLI and HTTP are tested by the Go unit and integration tests instead. See
+[What the fixtures don't cover](#what-the-fixtures-dont-cover).
 
-Everything here except this README is generated. Don't edit the generated files by hand.
+## Changing expectations
 
-| File | Role |
-|---|---|
-| `tests/parity_cases.py` | Builds every case's inputs, plus checks the generator runs before it records an output |
-| `tests/parity_corpus.py` | Runs each case through the Python function and writes the fixtures (`--write`), or fails when they are stale (`--check`) |
-| `tests/test_parity_corpus.py` | Replays every committed case against Python as part of `pytest` |
-
-## Regenerating
-
-Run from `containers/router`:
-
-```sh
-uv run --locked python tests/parity_corpus.py --write   # regenerate every file
-uv run --locked python tests/parity_corpus.py --check   # fail if a committed file is stale
-```
-
-CI runs `--check` and the replay on Linux and Windows. A change to the Python router's behavior
-in these functions therefore fails CI until the fixtures are regenerated, and the fixture diff
-shows exactly which cases changed. Review that diff like a contract change.
-
-Generation needs no network access and takes a few seconds. It refuses to run unless Python
-reports Unicode 15.0.0, which is Python 3.12's version. The generator deletes files it no longer
-produces, except `README.md`.
+Edit the JSON by hand, and change an expectation only in a reviewed pull request that explains
+every changed case. Keep the format below so diffs stay small.
 
 ## Reference
 
-The committed outputs were recorded from:
+The expectations were first recorded from:
 
 | Component | Version |
 |---|---|
@@ -46,18 +25,18 @@ The committed outputs were recorded from:
 | Python | 3.12.13 (Unicode 15.0.0) |
 | pydantic / pydantic-core | 2.13.5 / 2.46.5 |
 
-The locked dependencies, not this table, define the reference. A dependency update that changes an
-output shows up in `--check`.
+The Go cut-over then changed the cases the decisions table covers: labels around letters added
+after Unicode 15 and around case folding, `NaN` and `Infinity`, and the decoding limits. It
+removed the context cases for `NaN` and `Infinity`, which no longer decode.
 
 ## Layout
 
 | Path | Function | Cases |
 |---|---|---|
-| `labels.json` | `heuristics.infer_labels(text)` | Every cue in every heuristic list, word-boundary and precedence cases, and Unicode whitespace, word characters and case folding around cues |
-| `decoding.json` | `contracts.decode_request(RouteRequest, body)` | JSON syntax, UTF-8, number and literal spellings, parser depth and digit limits, duplicate keys, and the strict request schema |
-| `context.json` | `routing.estimate_context_tokens(conversation)` | Character counts for text, tool names, tool input serialization and tool results, including non-ASCII text and unusual numbers |
-| `classification.json` | `classification.authored_messages` then `build_classification_prompt` | Which turns are authored, prior-turn limits, truncation, stripping and escaping |
-| `unicode/` | Python's character data | Inputs for generating the Go character tables |
+| `labels.json` | `InferLabels(text)` | Every cue in every heuristic list, word-boundary and precedence cases, and Unicode whitespace, word characters and case folding around cues |
+| `decoding.json` | `DecodeRouteRequest(body)` | JSON syntax, UTF-8, number and literal spellings, deep nesting and long integers, duplicate keys, and the strict request schema |
+| `context.json` | `estimateContext(conversation)` | Character counts for text, tool names, tool input serialization and tool results, including non-ASCII text and unusual numbers |
+| `classification.json` | `authoredMessages` then `ClassificationPrompt` | Which turns are authored, prior-turn limits, truncation, stripping and escaping |
 
 ## Document format
 
@@ -94,7 +73,7 @@ Each case has exactly one of:
 | Result | Meaning | CLI | HTTP |
 |---|---|---|---|
 | `decoded` | The body is a valid `RouteRequest` | Continues | Continues |
-| `malformed` | A JSON syntax error or a parser limit (pydantic error type `json_invalid`) | Exit 2, `invalid request: ` | 400 `invalid_json` |
+| `malformed` | A JSON syntax error, including `NaN` and `Infinity` | Exit 2, `invalid request: ` | 400 `invalid_json` |
 | `invalid` | Valid JSON that breaks the request schema | Exit 2, `invalid request: ` | 422 `invalid_json` |
 
 Duplicate keys are accepted at any depth. The last value replaces the earlier ones, and only it is
@@ -120,71 +99,44 @@ conversation array, for tokens such as `NaN` or `1e400` that need their exact sp
   full prompt is `classification_contract`, two newlines, then `conversation_data`;
 - or `error`: `no_authored_turn`, when no user message has non-blank text.
 
-The document also records the fixed `system_prompt` and `classification_contract` text, so the Go
-port can embed them verbatim.
+The document also records the fixed `system_prompt` and `classification_contract` text, which the Go
+router embeds verbatim.
 
 ## Decoding limits
 
-The decoder rejects deeply nested JSON and very long integers. The generator finds each limit by
-binary search and records the last accepted size (`-at`) and the first rejected one (`-over`). The
-`limit-*` cases put the value at `tool_call.input`, which is already inside six levels: the
-request object, the `conversation` array, a message, its `parts` array, a part and the
-`tool_call` object.
+The Go decoder has no nesting or digit limits; the HTTP body limit bounds the request instead.
+The `limit-*` cases keep the sizes around the Python router's former limits, the last size it
+accepted (`-at`) and the first it rejected (`-over`), and all of them decode. They put the value
+at `tool_call.input`, which is already inside six levels: the request object, the
+`conversation` array, a message, its `parts` array, a part and the `tool_call` object.
 
-| Case | Last accepted |
-|---|---|
-| `limit-depth-arrays-at` | 195 nested empty arrays |
-| `limit-depth-arrays-scalar-at` | 194 nested arrays around `0` |
-| `limit-depth-objects-scalar-at` | 194 nested `{"a": ...}` objects around `0` |
-| `limit-digits-at` | An integer of 4,300 digits |
-| `limit-digits-negative-at` | A negative integer of 4,299 digits, because the sign counts |
+| Cases | `-at` | `-over` |
+|---|---|---|
+| `limit-depth-arrays-*` | 195 nested empty arrays | 196 |
+| `limit-depth-arrays-scalar-*` | 194 nested arrays around `0` | 195 |
+| `limit-depth-objects-scalar-*` | 194 nested `{"a": ...}` objects around `0` | 195 |
+| `limit-digits-*` | An integer of 4,300 digits | 4,301 |
+| `limit-digits-negative-*` | A negative integer of 4,299 digits | 4,300 |
 
-## Unicode data
+## What the fixtures don't cover
 
-The heuristics and the error-detail sanitizer use Python's string methods and `re`, which follow
-Unicode 15.0.0. The Go port uses Go's `unicode` package and `strings.ToLower` instead of
-generating tables from these files, and lists the few label cases that change as known
-differences (see the decisions below). The files record the Python reference:
-
-| File | Contents |
-|---|---|
-| `unicode/whitespace.json` | Code points where `str.isspace()` is true. It drives `split()`, `strip()` and `\s` |
-| `unicode/word.json` | Code points `\w` matches in a `str` pattern: `str.isalnum()` plus `_` |
-| `unicode/printable.json` | Code points where `str.isprintable()` is true. Error details replace the others with a space |
-| `unicode/casefold.json` | `str.casefold()` for every code point it changes |
-
-Each file records its definition, `python_version` and `unicode_version`. The ranges cover
-U+0000 to U+10FFFF, excluding surrogates.
-
-## What the corpus doesn't cover
-
-The corpus holds only facts that would be lost with the Python code. Everything else is behavior
-the Go port can test directly:
+The fixtures hold only facts that would otherwise have been lost with the Python code. The rest
+is tested directly:
 
 | Area | Where it's tested |
 |---|---|
-| Routing: rankings, profiles, automatic modes, explicit and omitted efforts, ties, `current_id`, context-window filtering, no-route | Go unit tests ported from `test_routing.py`, `test_service.py` and `test_contracts.py`, and the [portable contract corpus](../routing-contract) |
-| Classifier choices: ranking, efforts and no-route | Go unit tests ported from `test_classification.py` |
-| Routing table loading and validation | The published schema in `schemas/`, and a Go table test ported from `test_table_schema.py` |
-| CLI commands, options, exit codes and `serve` settings | Go CLI integration tests ported from `test_cli.py` |
-| HTTP paths, methods, media types, error envelopes and the body limit | Go HTTP integration tests ported from `test_http.py` |
-| Agreement between Python and Go | `tests/differential.py`, run by a CI job during the port, which runs both CLIs on the contract corpus, inputs built from these fixtures and generated inputs |
+| Routing: rankings, profiles, automatic modes, explicit and omitted efforts, ties, `current_id`, context-window filtering, no-route | `go/route_test.go` and the [routing-contract corpus](../routing-contract) |
+| Classifier choices: ranking, efforts and no-route | `go/classify_test.go` |
+| Routing table loading and validation | `go/table_test.go` and `go/schema_test.go`, against the published schema in `schemas/` |
+| CLI commands, options, exit codes and `serve` settings | `go/cli_test.go` and `go/serve_test.go` |
+| HTTP paths, methods, media types, error envelopes and the body limit | `go/server_test.go`, `go/corpus_test.go` and the container tests in `go/container_test.go` |
 
 ## Decisions for the Go port
 
-When the differential job or the Go tests compare an error with Python's, they compare only the
-HTTP status and the error `code` (for the CLI, the exit status and the stderr prefix). `detail` is
-diagnostic text, as the router README already states for the contract corpus, so its wording
-isn't part of the comparison.
-
-Where the Go router deliberately behaves differently from Python, the Go tests encode the Go
-behavior and the differential job allows the difference. The Go parity tests list each affected
-case in a known-differences map (`labelDifferences`, `decodingDifferences` and
-`contextDifferences`), and fail when a listed case no longer exists. `tests/differential.py`
-allows differences only on the same cases, and its generated inputs leave out the characters
-and numbers these decisions cover. Merging the PR that adds this README approves these
-decisions:
-
+The Go router replaced the Python router at the image cut-over. These are the places where it
+deliberately behaves differently. When the port compared errors with Python's, it compared only
+the HTTP status and the error `code` (for the CLI, the exit status and the stderr prefix);
+`detail` is diagnostic text.
 | Decision | Python | Go |
 |---|---|---|
 | Default tables path | Falls back to the `routing` directory of its source checkout | Uses `./routing` in the working directory if present, otherwise the option is required |
@@ -196,11 +148,11 @@ decisions:
 | Trailing slash | Starlette redirects `/healthz/` to `/healthz` with 307 | 404 `not_found`, like any unknown path |
 | Unsupported transfer coding | Uvicorn answers a bare 400 | Go's HTTP/1.1 server answers a bare 501, as RFC 9112 recommends |
 | Paths that aren't clean, such as `//healthz` and `/a/../healthz` | 404 `not_found` | `ServeMux` redirects to the cleaned path with 307 |
-| Request deadline | A request still running after 30 s gets 504 `request_timeout`, if its response hasn't started | Server timeouts: 10 s for the headers, 30 s for the whole request and 30 s for the response. A request past them has its connection closed. `openapi.yaml` drops the 504 at the cut-over |
+| Request deadline | A request still running after 30 s gets 504 `request_timeout`, if its response hasn't started | Server timeouts: 10 s for the headers, 30 s for the whole request and 30 s for the response. A request past them has its connection closed, and `openapi.yaml` no longer documents the 504 |
 | `OPTIONS *` | 404 `not_found` | `net/http` answers an empty 200 |
 | Absolute-form request target, such as `GET http://host/healthz` | 404 `not_found` | Routed by its path |
 | Invalid chunked request body | Uvicorn answers a bare 400 | The connection closes without a response |
-| Chunked body over the limit on a path that doesn't read it, such as `POST /healthz` or `PUT /missing` | Buffers every POST, PUT and PATCH body before routing, so 413 `payload_too_large` | Only `/v1/route` and `/v1/classify` read the body, so the path's usual 405 or 404. A `Content-Length` over the limit still gets 413 on every path |
+| Chunked body over the limit on a path that doesn't read it, such as `POST /healthz` or `PUT /missing` | Buffers every POST, PUT and PATCH body before routing, so 413 `payload_too_large` | Only `/route` and `/classify` read the body, so the path's usual 405 or 404. A `Content-Length` over the limit still gets 413 on every path |
 | CLI line endings | Writes CRLF to a Windows pipe | LF on every platform |
 | CLI output encoding | `json.dumps` escapes non-ASCII characters as `\uXXXX` | Writes UTF-8. Both are the same JSON value |
 | Unicode character data | Unicode 15.0.0 through `str` methods and `re`, with full case folding | Go's `unicode` package and `strings.ToLower`. Labels differ only for letters added after Unicode 15 and for `ﬁ`, `ſ`, `ß` and `İ` |
@@ -208,12 +160,3 @@ decisions:
 | JSON nesting and digit limits | pydantic rejects about 195 levels of nesting and integers over 4,300 digits | No such limits. The HTTP body limit bounds the request |
 | Huge context windows | Kept as an arbitrary-precision integer | Saturate at the largest `uint64` |
 | Error details | pydantic's wording | The Go decoder's wording. The error code, HTTP status and CLI exit status are the same |
-
-## After the Python router is removed
-
-- `labels.json`, `decoding.json`, `context.json` and `classification.json` stay as Go unit-test
-  data. Their expectations change only in a reviewed PR that explains every changed case.
-- `unicode/` is deleted, because the Go port uses Go's own character data.
-- `parity_cases.py`, `parity_corpus.py`, `test_parity_corpus.py` and `differential.py` are
-  deleted with the rest of the Python tests, along with the `differential` CI job.
-- The decisions table stays in this README as a record of what changed.
