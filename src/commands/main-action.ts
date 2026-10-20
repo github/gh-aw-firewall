@@ -377,7 +377,14 @@ async function runCleanup(
     containersStarted = getContainersStarted();
     // Keep delegated identities and sidecars alive through host cancellation.
     // Failure retains networks, seeds and recovery state, but still saves audit.
-    await stopDockerEnclaveLifecycle(config);
+    let dockerEnclaveShutdownFailed = false;
+    let dockerEnclaveShutdownError: unknown;
+    try {
+      await stopDockerEnclaveLifecycle(config);
+    } catch (error) {
+      dockerEnclaveShutdownFailed = true;
+      dockerEnclaveShutdownError = error;
+    }
     if (containersStarted || dockerEnclaves) {
       try {
         // Revoke every outstanding dynamic identity before the broker and the
@@ -389,9 +396,10 @@ async function runCleanup(
           'Dynamic enclave delegation shutdown did not complete; mcpg state may be unreconciled.',
           error,
         );
-        if (dockerEnclaves) throw error;
+        if (dockerEnclaves && !dockerEnclaveShutdownFailed) throw error;
       }
     }
+    if (dockerEnclaveShutdownFailed) throw dockerEnclaveShutdownError;
     if (containersStarted) {
       try {
         await shutdownEnclaveGateway(config);

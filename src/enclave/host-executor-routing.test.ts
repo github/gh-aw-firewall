@@ -55,6 +55,45 @@ describe('trusted host transport routing', () => {
     },
   );
 
+  it('checks terminal status before cancelling at the deadline with production polling defaults', async () => {
+    jest.useFakeTimers();
+    try {
+      const digest = createHash('sha256').update(JSON.stringify(['success', 'true'])).digest('hex');
+      const client = {
+        status: jest.fn()
+          .mockResolvedValueOnce({ ok: false, error: 'unknown-invocation' })
+          .mockResolvedValueOnce({
+            ok: true, state: 'terminal', outcome: 'success', result: 'true',
+            resultDigest: digest, cancelGeneration: 0,
+          }),
+        invoke: jest.fn().mockResolvedValue({ ok: true, state: 'running', cancelGeneration: 0 }),
+        cancel: jest.fn().mockResolvedValue({ ok: true, cancelGeneration: 1 }),
+        settle: jest.fn().mockResolvedValue({
+          ok: true, state: 'settled', outcome: 'success', resultDigest: digest, cancelGeneration: 0,
+        }),
+      };
+      createHostExecutorClient.mockReturnValue(client);
+      const runner = createHostExecutorRunner({
+        executorBackend: 'docker', entryId: 'script', runId: 'a'.repeat(32),
+        hostExecutorSocketPath: '/private/executor.sock',
+        hostExecutorCapabilityPath: '/private/capability',
+      }, { nowMs: () => 0 });
+      await runner.assertAvailable();
+      const parsed = validateSchema({ type: 'boolean' });
+      if (!parsed.valid) throw new Error('Invalid test schema');
+      const execution = runner.runInvocation({
+        invocationId: 'b'.repeat(32), seedId: 'c'.repeat(32), payload: 'print(True)',
+        schema: parsed.schema, admissionId: 'd'.repeat(32), executorKind: 'script', deadlineMs: 2_000,
+      });
+      await jest.advanceTimersByTimeAsync(2_000);
+      await expect(execution).resolves.toMatchObject({ status: 'completed', exitCode: 0 });
+      expect(client.status).toHaveBeenCalledTimes(2);
+      expect(client.cancel).not.toHaveBeenCalled();
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
   it('requires host routing for Docker while preserving local gVisor routing', () => {
     expect(usesHostExecutor({ executorBackend: 'docker' })).toBe(true);
     expect(usesHostExecutor({ executorBackend: 'gvisor' })).toBe(false);

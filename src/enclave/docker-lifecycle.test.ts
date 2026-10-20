@@ -1,4 +1,4 @@
-import * as fs from 'fs';
+import fs from 'fs';
 import * as path from 'path';
 import type { WrapperConfig } from '../types';
 import { normalizeEnclavesConfig } from '../parsers/enclave-parser';
@@ -17,6 +17,7 @@ import {
   isDockerEnclaveSelected,
   startDockerEnclaveLifecycle,
   stopDockerEnclaveLifecycle,
+  assertDockerEnclaveHostPrerequisites,
 } from './docker-lifecycle';
 
 jest.mock('./docker-host-executor', () => ({ createDockerHostEnclaveExecutor: jest.fn() }));
@@ -42,9 +43,17 @@ describe('Docker enclave host run lifecycle', () => {
   let server: HostExecutorServer;
   let directory: string;
   let backend: HostEnclaveExecutorBackend;
+  let readFileSpy: jest.SpyInstance;
+  let originalReadFileSync: typeof fs.readFileSync;
   const runId = 'c'.repeat(32);
 
   beforeEach(() => {
+    originalReadFileSync = fs.readFileSync.bind(fs);
+    readFileSpy = jest.spyOn(fs, 'readFileSync').mockImplementation(((file: fs.PathOrFileDescriptor, ...args: any[]) =>
+      file === '/proc/self/status'
+        ? 'CapEff:\t0000000000200000\n'
+        : originalReadFileSync(file as fs.PathOrFileDescriptor, ...(args as [any]))
+    ) as typeof fs.readFileSync);
     directory = fs.mkdtempSync(path.join(process.cwd(), '.docker-lifecycle-test-'));
     config = {
       workDir: directory,
@@ -73,6 +82,7 @@ describe('Docker enclave host run lifecycle', () => {
   });
 
   afterEach(() => {
+    readFileSpy.mockRestore();
     const paths = resolveEnclavePaths(directory);
     fs.rmSync(paths.root, { recursive: true, force: true });
     fs.rmSync(paths.ingressRoot, { recursive: true, force: true });
@@ -109,6 +119,15 @@ describe('Docker enclave host run lifecycle', () => {
     await expect(startDockerEnclaveLifecycle(config)).rejects.toThrow(/dockerHostPathPrefix.*mount policy/);
     expect(startHostExecutorService).not.toHaveBeenCalled();
     expect(createDockerHostEnclaveExecutor).not.toHaveBeenCalled();
+  });
+
+  it('rejects Docker host prerequisites before staging when tmpfs mount authority is unavailable', () => {
+    readFileSpy.mockImplementation(((file: fs.PathOrFileDescriptor, ...args: any[]) => file === '/proc/self/status'
+      ? 'CapEff:\t0000000000000000\n'
+      : originalReadFileSync(file as fs.PathOrFileDescriptor, ...(args as [any]))
+    ) as typeof fs.readFileSync);
+    expect(() => assertDockerEnclaveHostPrerequisites(config))
+      .toThrow(/effective CAP_SYS_ADMIN.*tmpfs storage/);
   });
 
   it.each(['script', 'agent'] as const)('preserves the trusted Docker %s UID/GID defaults', async (kind) => {
@@ -407,6 +426,7 @@ describe('Docker enclave host run lifecycle', () => {
       agent: { model: 'trusted-model' }, dynamic: typedDynamicEnclavePolicyFixture(),
     }]);
     const service = {
+      isAdmitting: admission === 'denied',
       admit: admission === 'denied'
         ? jest.fn().mockResolvedValue({ admitted: false })
         : jest.fn().mockRejectedValue(new Error('audit write failed after identity creation')),
@@ -432,6 +452,29 @@ describe('Docker enclave host run lifecycle', () => {
     }));
     await expect(backend.close!()).resolves.toBeUndefined();
     await stopDockerEnclaveLifecycle(config);
+  });
+
+  it('preserves recovery state when admission denial leaves delegation reconciliation incomplete', async () => {
+    config.enclaves = normalizeEnclavesConfig([{
+      agent: { model: 'trusted-model' }, dynamic: typedDynamicEnclavePolicyFixture(),
+    }]);
+    const service = {
+      isAdmitting: false,
+      admit: jest.fn().mockResolvedValue({ admitted: false }),
+      settle: jest.fn().mockResolvedValue({ settled: true, revoked: true }),
+    };
+    jest.mocked(getEnclaveHostDynamicAuthority)
+      .mockReturnValue(service as unknown as ReturnType<typeof getEnclaveHostDynamicAuthority>);
+    await startDockerEnclaveLifecycle(config);
+    const plan = {
+      invocationId: 'b'.repeat(32), selector: 'octo/private', schemaHash: 'e'.repeat(64),
+    } as HostExecutorInvocationPlan;
+    expect(await backend.execute(plan, new AbortController().signal))
+      .toEqual({ outcome: 'executor-failure', cleanupComplete: false });
+    expect(service.settle).toHaveBeenCalledWith(expect.objectContaining({
+      outcome: 'agent-failure', outputBytes: 8192, executionSeconds: 120,
+    }));
+    await expect(backend.close!()).rejects.toThrow(/settlement requires trusted recovery/);
   });
 
   it.each(['uncertain', 'unknown'] as const)('charges worst-case dynamic usage before revocation when workload usage is %s', async (usage) => {

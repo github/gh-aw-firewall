@@ -978,6 +978,20 @@ describe('createMainAction', () => {
       expect(mockedDockerManager.cleanup).not.toHaveBeenCalled();
     });
 
+    it('sweeps delegated identities after Docker drain failure and preserves the Docker error', async () => {
+      const dockerError = new Error('Docker recovery pending');
+      jest.mocked(dockerHostLifecycle.isDockerEnclaveSelected).mockReturnValueOnce(true);
+      jest.mocked(dockerHostLifecycle.stopDockerEnclaveLifecycle).mockRejectedValueOnce(dockerError);
+      const cleanup = testHelpers.buildCleanupFn(
+        { ...MAIN_ACTION_STUB_CONFIG }, () => false, () => false,
+      );
+      await expect(cleanup()).rejects.toBe(dockerError);
+      expect(dynamicDelegation.stopEnclaveDynamicDelegation).toHaveBeenCalledTimes(1);
+      expect(mockedEnclaveGateway.shutdownEnclaveGateway).not.toHaveBeenCalled();
+      expect(mockedDockerManager.stopContainers).not.toHaveBeenCalled();
+      expect(mockedDockerManager.cleanup).not.toHaveBeenCalled();
+    });
+
     it.each([false, true])('drains Docker before delegation shutdown and preserves failed revocation (containers started=%s)', async (containersStarted) => {
       jest.mocked(dockerHostLifecycle.isDockerEnclaveSelected).mockReturnValueOnce(true);
       jest.mocked(dynamicDelegation.stopEnclaveDynamicDelegation)

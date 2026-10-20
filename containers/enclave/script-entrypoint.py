@@ -6,6 +6,7 @@ import errno
 import json
 import runpy
 import shutil
+import stat
 import sys
 import time
 from pathlib import Path
@@ -14,6 +15,14 @@ SEED = Path("/awf/seed")
 REPO = Path("/query/repo")
 SCRIPT = "/awf/query-script.py"
 OUTPUT = Path("/awf/out")
+
+def make_repository_writable():
+    for root, directories, files in os.walk(REPO, followlinks=False):
+        for name in [".", *directories, *files]:
+            target = Path(root) if name == "." else Path(root) / name
+            mode = target.lstat().st_mode
+            if stat.S_ISREG(mode) or stat.S_ISDIR(mode):
+                target.chmod(stat.S_IMODE(mode) | stat.S_IWUSR)
 
 def main():
     started = time.monotonic()
@@ -35,6 +44,7 @@ def main():
         phase = "seed-copy"
         diagnostic("started")
         shutil.copytree(SEED, REPO, symlinks=True)
+        make_repository_writable()
         diagnostic("passed")
         phase = "output-link"
         diagnostic("started")

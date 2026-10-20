@@ -296,7 +296,8 @@ describe('finite-disclosure broker → authenticated Unix host → concrete micr
       hostExecutorCapabilityPath: options.capabilityPath || host!.capabilityPath,
     };
     const runner = createHostExecutorRunner(config, {
-      nowMs: clock.nowMs, pollMs: 2, drainMs: 1000, requestTimeoutMs: 1000,
+      nowMs: clock.nowMs,
+      pollMs: 2, drainMs: 1000, requestTimeoutMs: 1000,
       audit: { lifecycle: auditLifecycle },
     });
     const localWorkspace = {

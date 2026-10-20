@@ -49,6 +49,7 @@ import {
 import { ProductionTrustedCloudHypervisorEnclaveStorageProvider } from '../cloud-hypervisor/trusted-enclave-storage';
 import {
   assertDockerEnclaveLifecycleReady,
+  assertDockerEnclaveHostPrerequisites,
   isDockerEnclaveSelected,
   startDockerEnclaveLifecycle,
   stopDockerEnclaveLifecycle,
@@ -100,11 +101,19 @@ function ensureDirectory(target: string, mode: number): void {
   fs.chmodSync(target, mode);
 }
 
+interface NeverLaunchedStaging {
+  runId?: string;
+}
+
+const neverLaunchedStaging = new Map<string, NeverLaunchedStaging>();
+
 function prepareDirectories(
   paths: EnclavePaths,
   chown: typeof fs.chownSync = fs.chownSync,
+  onPrivateRootCreated: () => void = () => undefined,
 ): void {
   fs.mkdirSync(paths.root, { mode: 0o700 });
+  onPrivateRootCreated();
   fs.mkdirSync(paths.ingressRoot, { mode: 0o700 });
   ensureDirectory(paths.seedsDir, 0o700);
   ensureDirectory(paths.workDir, 0o700);
@@ -143,6 +152,7 @@ export interface PrepareEnclavesDeps {
   assertAgentRuntimeAvailable?: (config: EnclaveAgentExecutorConfig) => Promise<void>;
   assertPrimaryAvailable?: typeof assertPrimaryRuntimeAvailable;
   assertCloudHypervisorPrimaryPreflight?: (config: WrapperConfig) => Promise<void>;
+  assertDockerHostPrerequisites?: typeof assertDockerEnclaveHostPrerequisites;
   /** Trusted host integration only. No CLI/config/env switch can supply this provider. */
   cloudHypervisorStorageProvider?: TrustedCloudHypervisorEnclaveStorageProvider;
 }
@@ -228,6 +238,9 @@ export async function prepareEnclaves(
   const cloudHypervisorSelected = isCloudHypervisorEnclaveSelected(config);
   const dockerSelected = isDockerEnclaveSelected(config);
   const hostExecutorSelected = cloudHypervisorSelected || dockerSelected;
+  if (dockerSelected) {
+    (deps.assertDockerHostPrerequisites ?? assertDockerEnclaveHostPrerequisites)(config, env);
+  }
   updateEnclaveStartupProgress(config, { stage: 'host-preflight' });
   if (hostExecutorSelected) {
     const hostPaths = resolveEnclavePaths(config.workDir);
@@ -299,10 +312,16 @@ export async function prepareEnclaves(
       }
     }
   });
-  await storageChecks.check('directory-layout', () => prepareDirectories(paths));
+  await storageChecks.check('directory-layout', () => prepareDirectories(
+    paths, undefined, () => {
+      if (dockerSelected) neverLaunchedStaging.set(paths.root, {});
+    },
+  ));
 
   const runId = generateEnclaveRunId();
   await storageChecks.check('run-identity', () => writeExclusive(paths.runIdPath, `${runId}\n`, 0o600));
+  const staging = neverLaunchedStaging.get(paths.root);
+  if (staging) staging.runId = runId;
   if (seedStagingRequired) {
     await storageChecks.check('seed-catalog', async () => {
       const staging = await stageEnclaveSeeds({
@@ -356,7 +375,7 @@ export async function prepareEnclaves(
   if (dockerSelected) {
     updateEnclaveStartupProgress(config, { stage: 'host-service' });
     await runtimeChecks.check('host-service', async () => {
-      await startDockerEnclaveLifecycle(config, env);
+      await startDockerEnclaveLifecycle(config, env, () => neverLaunchedStaging.delete(paths.root));
       await assertDockerEnclaveLifecycleReady(config);
     });
   }
@@ -460,8 +479,24 @@ function removePrivateState(
 export async function teardownEnclaves(config: WrapperConfig): Promise<void> {
   if (!isEnclavesEnabled(config)) return;
   const paths = resolveEnclavePaths(config.workDir);
-  await stopDockerEnclaveLifecycle(config);
+  const staging = neverLaunchedStaging.get(paths.root);
+  await stopDockerEnclaveLifecycle(config, () => {
+    const current = neverLaunchedStaging.get(paths.root);
+    if (!current) return false;
+    const runId = readRunId(paths);
+    return !current.runId || current.runId === runId;
+  });
   await stopCloudHypervisorEnclaveLifecycle(config);
+  if (staging && neverLaunchedStaging.get(paths.root) === staging) {
+    const stagedRunId = readRunId(paths);
+    if (staging.runId && stagedRunId !== staging.runId) {
+      throw new Error('Never-launched enclave staging identity changed; private state is preserved');
+    }
+    releaseSeedPermissions(paths.seedsDir);
+    removePrivateState(config, paths);
+    neverLaunchedStaging.delete(paths.root);
+    return;
+  }
   const runId = readRunId(paths);
   if (runId && !isDockerEnclaveSelected(config)) {
     await removeOrphanEnclaveContainers(runId);
@@ -484,4 +519,5 @@ export const enclaveManagerTestHelpers = {
   readRunId,
   removePrivateState,
   removeOrphanEnclaveContainers,
+  neverLaunchedStaging,
 };

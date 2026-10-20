@@ -109,7 +109,7 @@ export function expectedDockerHostContainer(args: readonly string[]): DockerHost
     user: one('--user'), network: one('--network'), runtime: one('--runtime') || undefined,
     labels: map('--label'), env: map('--env', true), binds: values.get('-v') || [],
     tmpfs: Object.fromEntries((values.get('--tmpfs') || []).map((v) => [v.slice(0, v.indexOf(':')), v.slice(v.indexOf(':') + 1)])),
-    memory: dockerMemoryBytes(one('--memory')), cpus: Number(one('--cpus')) * 1e9,
+    memory: dockerMemoryBytes(one('--memory')), cpus: Math.round(Number(one('--cpus')) * 1e9),
     pids: Number(one('--pids-limit')), shm: dockerMemoryBytes(one('--shm-size') || '64m'),
     security: (values.get('--security-opt') || []).map(securityOption),
     ulimits: (values.get('--ulimit') || []).map((value) => {

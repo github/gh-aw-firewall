@@ -34,10 +34,10 @@ export function isDockerEnclaveSelected(config: WrapperConfig): boolean {
 
 const lifecycle = new HostExecutorLifecycleRegistry<WrapperConfig, never>('Docker enclave');
 
-export async function startDockerEnclaveLifecycle(
+export function assertDockerEnclaveHostPrerequisites(
   config: WrapperConfig,
   environment: NodeJS.ProcessEnv = process.env,
-): Promise<void> {
+): void {
   if (!isDockerEnclaveSelected(config)) return;
   const dockerHost = config.awfDockerHost ?? environment.DOCKER_HOST ?? 'unix:///var/run/docker.sock';
   if (!dockerHost.startsWith('unix://')) {
@@ -46,6 +46,25 @@ export async function startDockerEnclaveLifecycle(
   if (config.dockerHostPathPrefix && config.dockerHostPathPrefix !== '/') {
     throw new Error('Docker host enclaves do not support dockerHostPathPrefix or split-filesystem daemons; mount policy is never bypassed');
   }
+  let capabilities = '';
+  try {
+    capabilities = /^CapEff:\s*([0-9a-f]+)$/mi.exec(fs.readFileSync('/proc/self/status', 'utf8'))?.[1] || '';
+  } catch {
+    // Report the same actionable prerequisite failure when host capability state is unavailable.
+  }
+  if (!capabilities || (BigInt(`0x${capabilities}`) & (1n << 21n)) === 0n) {
+    throw new Error('Docker host enclaves require effective CAP_SYS_ADMIN to mount and clean bounded tmpfs storage');
+  }
+}
+
+export async function startDockerEnclaveLifecycle(
+  config: WrapperConfig,
+  environment: NodeJS.ProcessEnv = process.env,
+  onLifecycleStart?: () => void,
+): Promise<void> {
+  if (!isDockerEnclaveSelected(config)) return;
+  assertDockerEnclaveHostPrerequisites(config, environment);
+  const dockerHost = config.awfDockerHost ?? environment.DOCKER_HOST ?? 'unix:///var/run/docker.sock';
   const paths = resolveEnclavePaths(config.workDir);
   const runState = deriveHostExecutorRunState(config, paths, 'Docker enclave', { dynamicAgents: true });
   const registry = config.imageRegistry || 'ghcr.io/github/gh-aw-firewall';
@@ -73,6 +92,7 @@ export async function startDockerEnclaveLifecycle(
       };
     });
   await lifecycle.start(paths.root, config, runState.runId, async (run) => {
+    onLifecycleStart?.();
     updateEnclaveStartupProgress(config, { stage: 'host-service' });
     let listenerExists = false;
     try {
@@ -182,8 +202,11 @@ export async function startDockerEnclaveLifecycle(
                     repository: admission.repository, githubBearer: admission.executorBearer,
                     readMode: admission.readMode,
                   };
-                } else {
+                } else if (service.isAdmitting) {
                   result = { outcome: 'executor-failure', recoverableFailure: true, cleanupComplete: true };
+                } else {
+                  settlementFailed = true;
+                  result = { outcome: 'executor-failure', cleanupComplete: false };
                 }
               }
               if (plan.selector === undefined || authorities.get(plan.invocationId)?.binding) {
@@ -244,10 +267,14 @@ export function assertDockerEnclaveLifecycleReady(config: WrapperConfig): Promis
   return lifecycle.ready(resolveEnclavePaths(config.workDir).root, config);
 }
 
-export async function stopDockerEnclaveLifecycle(config: WrapperConfig): Promise<void> {
+export async function stopDockerEnclaveLifecycle(
+  config: WrapperConfig,
+  allowNeverLaunchedStaging: () => boolean = () => false,
+): Promise<void> {
   const paths = resolveEnclavePaths(config.workDir);
   if (!lifecycle.has(paths.root) && !isDockerEnclaveSelected(config)) return;
   await lifecycle.stop(paths.root, config, () => {
+    if (allowNeverLaunchedStaging()) return;
     const runId = readEnclaveRunId(paths);
     if (runId && lifecycle.completed(paths.root, runId)) return;
     // No in-memory ownership means neither labels nor the absence of a journal

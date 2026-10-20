@@ -193,6 +193,18 @@ describe('host-owned Docker enclave executor', () => {
     await executor.close!();
   });
 
+  test('rounds fractional CPU limits to Docker inspect integer nanocpus', async () => {
+    script.config = { ...script.config, cpuLimit: '1.001' };
+    docker.onWorkloadStart = () => { docker.failRemoval = true; };
+    await backend().execute(plan, new AbortController().signal);
+    const [record] = new DockerHostRecoveryJournal(path.join(root, 'journal'), runId).records();
+    const inspected = { ...[...docker.containers.values()][0], HostConfig: {
+      ...[...docker.containers.values()][0].HostConfig, NanoCpus: 1_001_000_000,
+    } };
+    expect(record.expected?.cpus).toBe(1_001_000_000);
+    expect(() => assertDockerHostContainer(inspected, record.expected!, record.containerId)).not.toThrow();
+  });
+
   test('audited builders do not require a runtime containers directory', async () => {
     const executor = backend([script], { containersDir: path.join(root, 'absent-containers-directory') });
     await expect(executor.execute(plan, new AbortController().signal)).resolves.toEqual({ outcome: 'success', result: 'true' });

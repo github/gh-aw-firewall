@@ -37,6 +37,7 @@ const gitRunner: GitRunner = async (args) => {
 jest.mock('execa', () => ({ __esModule: true, default: jest.fn() }));
 jest.mock('./docker-lifecycle', () => ({
   ...jest.requireActual('./docker-lifecycle'),
+  assertDockerEnclaveHostPrerequisites: jest.fn(),
   startDockerEnclaveLifecycle: jest.fn(),
   assertDockerEnclaveLifecycleReady: jest.fn(),
   stopDockerEnclaveLifecycle: jest.fn(),
@@ -219,6 +220,34 @@ describe('prepareEnclaves fail-closed preflight', () => {
       assertPrimaryAvailable: jest.fn(),
       assertScriptRuntimeAvailable: jest.fn(),
     })).rejects.toThrow(/Unix-socket Docker host/);
+  });
+
+  it('rejects Docker host prerequisites before cloning or creating private staging', async () => {
+    const clone = jest.fn();
+    const check = jest.fn(() => { throw new Error('Docker enclaves require CAP_SYS_ADMIN'); });
+    await expect(prepareEnclaves(config(workDir), {
+      env: enclaveEnv(),
+      gitRunner: clone,
+      assertDockerHostPrerequisites: check,
+    })).rejects.toThrow(/CAP_SYS_ADMIN/);
+    expect(check).toHaveBeenCalledWith(expect.objectContaining({ workDir }), expect.any(Object));
+    expect(clone).not.toHaveBeenCalled();
+    expect(fs.existsSync(resolveEnclavePaths(workDir).root)).toBe(false);
+  });
+
+  it('cleans current-process private staging after a seed clone fails before Docker launch', async () => {
+    const wrapperConfig = config(workDir);
+    const gitRunner: GitRunner = async () => { throw new Error('fixture clone failure'); };
+    await expect(prepareEnclaves(wrapperConfig, {
+      env: enclaveEnv(),
+      gitRunner,
+      assertDockerHostPrerequisites: jest.fn(),
+      assertPrimaryAvailable: jest.fn().mockResolvedValue(undefined),
+      assertScriptRuntimeAvailable: jest.fn().mockResolvedValue(undefined),
+    })).rejects.toThrow(/fixture clone failure/);
+    expect(fs.existsSync(resolveEnclavePaths(workDir).root)).toBe(true);
+    await teardownEnclaves(wrapperConfig);
+    expect(fs.existsSync(resolveEnclavePaths(workDir).root)).toBe(false);
   });
 
   it.each(['script', 'agent', 'both'] as const)('fails %s closed on missing hard-bounded storage before probes, seeds, or host effects', role => withCloudHypervisorConformanceContext(async () => {
@@ -569,7 +598,7 @@ describe('prepareEnclaves fail-closed preflight', () => {
     expect(paths.root.startsWith(workDir)).toBe(false);
     expect(paths.ingressRoot.startsWith(workDir)).toBe(false);
     expect(dockerLifecycle.startDockerEnclaveLifecycle).toHaveBeenCalledWith(
-      expect.objectContaining({ workDir }), expect.any(Object),
+      expect.objectContaining({ workDir }), expect.any(Object), expect.any(Function),
     );
     expect(jest.mocked(dockerLifecycle.startDockerEnclaveLifecycle).mock.invocationCallOrder[0])
       .toBeLessThan(jest.mocked(dockerLifecycle.assertDockerEnclaveLifecycleReady).mock.invocationCallOrder[0]);
@@ -726,7 +755,9 @@ describe('prepareEnclaves fail-closed preflight', () => {
       .mockResolvedValueOnce({ exitCode: 0, stdout: '' });
     const paths = resolveEnclavePaths(workDir);
     await teardownEnclaves(wrapperConfig);
-    expect(dockerLifecycle.stopDockerEnclaveLifecycle).toHaveBeenCalledWith(wrapperConfig);
+    expect(dockerLifecycle.stopDockerEnclaveLifecycle).toHaveBeenCalledWith(
+      wrapperConfig, expect.any(Function),
+    );
     expect(mockExeca).not.toHaveBeenCalled();
     expect(fs.existsSync(paths.root)).toBe(false);
     expect(fs.existsSync(paths.ingressRoot)).toBe(false);

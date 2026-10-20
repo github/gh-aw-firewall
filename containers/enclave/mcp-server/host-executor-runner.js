@@ -129,7 +129,7 @@ function createHostExecutorRunner(config, deps = {}) {
       };
       const timer = setTimeout(() => {
         timedOut = true;
-        cancel();
+        if (!registered) cancel();
       }, Math.max(0, deadlineMs - nowMs()));
       signal?.addEventListener('abort', cancel);
       try {
@@ -150,18 +150,16 @@ function createHostExecutorRunner(config, deps = {}) {
           admissionId,
         }));
         registered = true;
-        if (signal?.aborted || timedOut) cancel();
+        if (signal?.aborted && response.state !== 'terminal') cancel();
         let previousState = response.state;
         let previousGeneration = response.cancelGeneration;
         while (response.state === 'running' || response.state === 'cancelling') {
-          if (signal?.aborted || nowMs() >= deadlineMs) {
-            timedOut ||= nowMs() >= deadlineMs;
-            cancel();
-          }
+          if (signal?.aborted) cancel();
           if (cancelledAt !== undefined && nowMs() - cancelledAt >= drainMs) {
             throw new Error('Host executor cancellation did not terminate');
           }
-          await new Promise((resolve) => setTimeout(resolve, pollMs));
+          const remainingMs = Math.max(0, deadlineMs - nowMs());
+          await new Promise((resolve) => setTimeout(resolve, Math.min(pollMs, remainingMs)));
           progress('status');
           response = checked(await client.status(identity));
           if (response.cancelGeneration < previousGeneration
@@ -170,6 +168,10 @@ function createHostExecutorRunner(config, deps = {}) {
           }
           previousState = response.state;
           previousGeneration = response.cancelGeneration;
+          if (response.state !== 'terminal' && nowMs() >= deadlineMs) {
+            timedOut = true;
+            cancel();
+          }
         }
         if (cancelPromise) {
           progress('cancel-confirmation');
