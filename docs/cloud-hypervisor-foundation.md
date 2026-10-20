@@ -1472,10 +1472,13 @@ capability drop, `no_new_privs`, and the configured process/file/open-file
 limits. Synthetic guest stdout/stderr sentinels are checked against AWF,
 gateway, broker, audit, proxy, and host-executor journal diagnostics. Diagnostic
 files are opened without following symlinks, checked and read through the same
-descriptor, and read within a hard bound even if they grow during inspection. This
-acceptance job is manually dispatched with `run_live_kvm: true`, distinct from
-the host-only probes, and is not enabled in ordinary CI or by PR labels; this
-avoids passing the Copilot credential to untrusted pull-request code.
+descriptor, and read within a hard bound even if they grow during inspection.
+Supported releases authorize the automatic `workflow_dispatch` handoff with
+`run_live_kvm: true` for this gate, distinct from host-only probes. No human
+dispatch is required after a successful supported release. The job is not
+enabled on pull-request events or by PR labels, so untrusted pull-request code
+cannot receive the Copilot credential. Ad hoc diagnosis or recovery dispatches
+require separate authorization.
 
 The job is not evidence of passing live acceptance until it runs successfully
 on the eligible GitHub-hosted Ubuntu x86_64 KVM/cgroup-v2 runner.
@@ -1538,12 +1541,14 @@ that #9395 or the prior pull requests established these live assertions.
 ### Explicit enclave acceptance dispatch
 
 The [supported release workflow](releasing.md) automatically dispatches all four
-conformance jobs after publishing the complete signed release assets, pinned to
-that release's tag and source SHA. The procedure below remains available for
-diagnosis, recovery, or releases published outside that workflow. Manual
-dispatch is a secret-bearing operation requiring separate maintainer
-authorization; inspect existing runs first to avoid duplicate model/KVM work.
-Creating an automation PR does **not** authorize an immediate release or dispatch.
+conformance jobs using the required `workflow_dispatch` event after publishing
+the complete signed release assets, pinned to that release's tag and source SHA.
+No additional human dispatch is required after a successful supported release.
+The procedure below remains available for diagnosis, recovery, or releases
+published outside that workflow. Ad hoc manual `workflow_dispatch` is a
+secret-bearing operation requiring separate maintainer authorization; inspect
+existing runs first to avoid duplicate model/KVM work. Creating an automation PR
+does **not** authorize an immediate release or dispatch.
 
 1. Merge the reviewed acceptance changes, then separately authorize the
    [supported release workflow](releasing.md) on `main`. Wait for the complete
@@ -1602,10 +1607,12 @@ downloaded manifests must name the checked-out tag commit, and the runner must
 be an eligible GitHub-hosted Ubuntu 24.04 x86_64 KVM/cgroup-v2 host.
 
 Both native live jobs preserve the non-secret GitHub workflow/ref/SHA identity
-through sudo. Production admission recognizes only this manual, package-matched
-release-tag workflow with its fixed public repository and bounded script-only,
-agent-only, combined or probe profile. It does not authorize arbitrary
-primary-with-enclave configurations, branch dispatches, mixed workload backends,
+through sudo. Production admission recognizes only this `workflow_dispatch`
+package-matched release-tag workflow, whether submitted by the supported
+release handoff or separately authorized for diagnosis/recovery, with its fixed
+public repository and bounded script-only, agent-only, combined or probe
+profile. It does not authorize arbitrary primary-with-enclave configurations,
+branch dispatches, mixed workload backends, untrusted pull-request code,
 unattested artifacts or model-budget changes. The harness's exact-checkout,
 reviewed-commit ancestry and manifest-source checks remain mandatory.
 
