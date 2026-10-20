@@ -1114,9 +1114,10 @@ It verifies effective non-root identity, read-only seed/rootfs mounts, no-networ
 scripts, the exact dedicated agent network, configured memory/PID limits and CPU
 quota, and one kernel-bounded allocation across output, session and runtime binds.
 Concurrent sparse writers exhaust that shared capacity with `ENOSPC`.
-Cancellation and SIGKILL orphan recovery remove verified containers and mounts;
-private-output sentinels and invalid results are not released. The authenticated
-broker client also exercises cleanup-before-settlement against real Docker.
+Cancellation, host deadlines, broker lease expiry, host-service shutdown and
+SIGKILL orphan recovery remove verified containers and mounts; private-output
+sentinels and invalid results are not released. The authenticated broker client
+also exercises cleanup-before-settlement against real Docker.
 
 This is not live Copilot/provider or compiler-issued GitHub delegation evidence,
 nor acceptance of all primary-plus-enclave combinations. Those live gates remain
