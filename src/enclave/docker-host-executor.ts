@@ -4,6 +4,7 @@ import { execFile } from 'child_process';
 import type { HostEnclaveExecutorBackend, HostExecutorInvocationPlan, HostExecutorBackendResult } from './host-executor-server';
 import { HOST_EXECUTOR_ID_PATTERN, HOST_EXECUTOR_MAX_RESULT_BYTES } from './host-executor-protocol';
 import { readBoundedEnclaveResult } from './invocation-result';
+import { serializeFiniteSchema } from '../bounded-execution/finite-schema';
 import {
   assertDockerHostPath, dockerWritableBudget, mountDockerHostStorage, cleanupDockerHostStorage, resolveDockerHostTool,
 } from './docker-host-storage';
@@ -18,6 +19,7 @@ import {
 const { deriveQueryContainerSpec } = require('../../containers/enclave/script-executor/script-runner-spec.js');
 const { deriveEnclaveContainerSpec, withDynamicBinding } = require('../../containers/enclave/agent-executor/enclave-runner-spec.js');
 const { DockerEnclaveRunner } = require('../../containers/enclave/agent-executor/docker-enclave-runner.js');
+const { buildAgentTask } = require('../../containers/enclave/mcp-server/agent-executor.js');
 /* eslint-enable @typescript-eslint/no-require-imports */
 
 export type DockerHostRunnerConfig = Readonly<Record<string, string | number | boolean | undefined>>;
@@ -37,6 +39,7 @@ export interface DockerHostExecutorEntry {
 export interface DockerHostAgentAuthority {
   githubAgentId?: string;
   githubBearer?: string;
+  /** Trusted static seed repository, or the exactly admitted dynamic selector. */
   repository?: string;
   readMode?: 'live' | 'pinned';
 }
@@ -98,11 +101,11 @@ interface InvocationAuthorityState {
   launchedAt?: number;
 }
 
-function privateFile(directory: string, name: string, value: string, uid: number, gid: number, writable = false): void {
+function privateFile(directory: string, name: string, value: string, uid: number, gid: number, mode: 0o400 | 0o444 | 0o600 = 0o444): void {
   const target = path.join(directory, name);
-  fs.writeFileSync(target, value, { flag: 'wx', mode: writable ? 0o600 : 0o444 });
+  fs.writeFileSync(target, value, { flag: 'wx', mode });
   fs.chownSync(target, uid, gid);
-  fs.chmodSync(target, writable ? 0o600 : 0o444);
+  fs.chmodSync(target, mode);
 }
 
 /**
@@ -326,21 +329,26 @@ export function createDockerHostEnclaveExecutor(options: DockerHostEnclaveExecut
       delete record.containerId;
       delete record.expected;
       journal.write(record);
-      privateFile(record.storageTarget, 'out', '', entry.uid, entry.gid, true);
+      privateFile(record.storageTarget, 'out', '', entry.uid, entry.gid, 0o600);
       if (entry.executorKind === 'script') privateFile(record.storageTarget, 'script.py', plan.payload, entry.uid, entry.gid);
       else {
-        privateFile(record.storageTarget, 'task.txt', plan.payload, entry.uid, entry.gid);
-        privateFile(record.storageTarget, 'schema.json', JSON.stringify(plan.schema), entry.uid, entry.gid);
-        privateFile(record.storageTarget, 'session.jsonl', '', entry.uid, entry.gid, true);
+        const task = buildAgentTask(plan.payload, {
+          githubEnabled: Boolean(config.githubEnabled || config.dynamicEnabled),
+          privateRepo: authority.repository,
+        });
+        if (Buffer.byteLength(task) > 64 * 1024) throw new Error('Docker enclave scoped task exceeds the audited input bound');
+        privateFile(record.storageTarget, 'task.txt', task, entry.uid, entry.gid);
+        privateFile(record.storageTarget, 'schema.json', JSON.stringify(serializeFiniteSchema(plan.schema)), entry.uid, entry.gid);
+        privateFile(record.storageTarget, 'session.jsonl', '', entry.uid, entry.gid, 0o600);
         fs.mkdirSync(path.join(record.storageTarget, 'agent'), { mode: 0o700 });
         fs.chownSync(path.join(record.storageTarget, 'agent'), entry.uid, entry.gid);
         if (config.githubEnabled) {
           if (!/^[A-Za-z0-9_-]{32,128}$/.test(authority.githubAgentId || '')) throw new Error('Invalid static GitHub enclave authority');
-          privateFile(record.storageTarget, 'github-agent-id', authority.githubAgentId!, entry.uid, entry.gid);
+          privateFile(record.storageTarget, 'github-agent-id', authority.githubAgentId!, entry.uid, entry.gid, 0o400);
         }
         if (config.dynamicEnabled) {
           if (!/^[\x21-\x7e]{16,512}$/.test(authority.githubBearer || '')) throw new Error('Invalid dynamic GitHub enclave authority');
-          privateFile(record.storageTarget, 'github-bearer', authority.githubBearer!, entry.uid, entry.gid);
+          privateFile(record.storageTarget, 'github-bearer', authority.githubBearer!, entry.uid, entry.gid, 0o400);
         }
         await new DockerEnclaveRunner(config, {
           docker: { runDocker: (values: string[]) => docker(values) },

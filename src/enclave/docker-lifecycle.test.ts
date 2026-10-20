@@ -150,6 +150,16 @@ describe('Docker enclave host run lifecycle', () => {
     await expect(stopDockerEnclaveLifecycle(config)).rejects.toThrow(/startup failed/);
   });
 
+  it('rejects an existing listener before acquiring or reconciling any Docker resources', async () => {
+    const paths = resolveEnclavePaths(directory);
+    fs.mkdirSync(paths.hostExecutorDir, { mode: 0o700 });
+    fs.writeFileSync(path.join(paths.hostExecutorDir, 'executor.sock'), 'existing-listener', { mode: 0o600 });
+    await expect(startDockerEnclaveLifecycle(config)).rejects.toThrow(/listener already exists/);
+    expect(createDockerHostEnclaveExecutor).not.toHaveBeenCalled();
+    expect(fs.existsSync(path.join(paths.root, 'docker-enclave-seccomp.json'))).toBe(false);
+    await expect(stopDockerEnclaveLifecycle(config)).rejects.toThrow(/startup failed/);
+  });
+
   it('keeps the launcher seccomp outside every generated broker bind source', async () => {
     await startDockerEnclaveLifecycle(config);
     const paths = resolveEnclavePaths(directory);

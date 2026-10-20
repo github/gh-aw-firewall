@@ -8,11 +8,12 @@ import {
   createDockerHostEnclaveExecutor, type DockerHostAgentAuthority, type DockerHostAuthoritySettlement,
   type DockerHostExecutorEntry,
 } from './docker-host-executor';
-import { dockerMemoryBytes } from './docker-host-storage';
+import { dockerMemoryBytes, dockerWritableBudget } from './docker-host-storage';
 import { getEnclaveHostDynamicAuthority } from './dynamic-delegation';
 import type { DynamicDelegationService } from './dynamic-delegation-service';
-import type {
-  HostEnclaveExecutorBackend, HostExecutorBackendResult, HostExecutorInvocationPlan,
+import {
+  HOST_EXECUTOR_SOCKET_NAME,
+  type HostEnclaveExecutorBackend, type HostExecutorBackendResult, type HostExecutorInvocationPlan,
 } from './host-executor-server';
 import { HostExecutorLifecycleRegistry } from './host-executor-lifecycle';
 import { isValidHostExecutorResult } from './host-executor-protocol';
@@ -62,16 +63,26 @@ export async function startDockerEnclaveLifecycle(
       const executorKind = kind as 'script' | 'agent';
       const runner = deriveDockerEnclaveRunnerConfig(config, imageConfig, executorKind);
       const hostWritableBytes = dockerMemoryBytes(entry.tmpfsLimit);
-      const containerWritableBytes = executorKind === 'script'
-        ? 2 * dockerMemoryBytes(entry.tmpfsLimit || '1g') + 64 * 1024 ** 2
-        : 2 * dockerMemoryBytes(entry.tmpfsLimit);
+      const { containerBytes } = dockerWritableBudget(
+        executorKind, entry.tmpfsLimit, hostWritableBytes, Number.MAX_SAFE_INTEGER,
+      );
       return {
         entryId: kind, executorKind, config: runner,
-        hostWritableBytes, aggregateWritableBytes: hostWritableBytes + containerWritableBytes,
+        hostWritableBytes, aggregateWritableBytes: hostWritableBytes + containerBytes,
       };
     });
   await lifecycle.start(paths.root, config, runState.runId, async (run) => {
     updateEnclaveStartupProgress(config, { stage: 'host-service' });
+    let listenerExists = false;
+    try {
+      fs.lstatSync(path.join(paths.hostExecutorDir, HOST_EXECUTOR_SOCKET_NAME));
+      listenerExists = true;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+    }
+    if (listenerExists) {
+      throw new Error('Docker enclave host listener already exists; recovery is not authorized');
+    }
     const seccompFd = fs.openSync(path.join(paths.root, 'docker-enclave-seccomp.json'),
       fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL | fs.constants.O_NOFOLLOW, 0o400);
     try {
