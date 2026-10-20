@@ -154,7 +154,7 @@ type Part struct {
 }
 
 // UnmarshalJSONFrom rejects a part with more than one member, even when the others
-// are null, as the closed Python part variants do.
+// are null, so every part is exactly one variant.
 func (p *Part) UnmarshalJSONFrom(dec *jsontext.Decoder) error {
 	value, err := dec.ReadValue()
 	if err != nil {

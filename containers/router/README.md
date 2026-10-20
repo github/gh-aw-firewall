@@ -287,10 +287,11 @@ SPDX SBOM. The tag is the AWF version, while the image's version label stays the
 
 The image is built `FROM scratch`. It holds only the static binary at
 `/usr/local/bin/gh-aw-router`, the bundled tables under `/routing`, `openapi.yaml` and a CA
-bundle filtered by AWF's CA distrust policy in `trust/`, and has no shell. It serves all six profiles, runs as user `10001:10001`, and needs no
-credentials or outbound network. It sets `GOMAXPROCS=2` and `GOMEMLIMIT=384MiB` to fit AWF's
-512 MiB container limit. This invocation uses a private network, a read-only filesystem, and no
-published host port. The service listens on port `8737` inside the network.
+bundle filtered by AWF's CA distrust policy in `trust/`, and has no shell. It serves all six
+profiles, runs as user `10001:10001`, and needs no credentials or outbound network. It sets
+`GOMAXPROCS=2` and `GOMEMLIMIT=384MiB` to fit AWF's 512 MiB container limit. This invocation
+uses a private network, a read-only filesystem, and no published host port. The service
+listens on port `8737` inside the network.
 
 ```bash
 docker network create --internal gh-aw-routing
@@ -341,8 +342,9 @@ Compare successful responses exactly, including choice order, effort omission, a
 strings. For errors, compare status and the stable `code`; `detail` is diagnostic text, not a
 promise. The Go tests build the six tables in `corpus_test.go` and replay every case through the
 HTTP handler, and the container tests replay them against the image with the tables mounted.
-The fake model identities are test data, not a provider catalogue. Never send them to live
-providers. The API proxy's tests copy a subset of these cases.
+They also require unique case IDs, a case for every endpoint, and `explicit-*` route cases that
+cover all six profiles. The fake model identities are test data, not a provider catalogue.
+Never send them to live providers. The API proxy's tests copy a subset of these cases.
 
 [The behavior fixtures](testdata/parity) record the expected heuristic labels, request
 decoding, context estimates and classifier prompts, which were first recorded from the Python
@@ -407,7 +409,8 @@ container tests.
 The committed `openapi.yaml` is the authoritative HTTP contract. It distinguishes requested
 modes from published profiles and includes the classifier-output schema used by callers.
 Update it alongside contract changes. The Go tests check that it documents the served paths and
-error codes, and that the examples decode. Do not add a second generated public contract.
+error codes and that its references resolve, and that the README's examples run against the
+bundled tables and match the responses. Do not add a second generated public contract.
 
 The hand-written schema in `schemas/` is the authoritative routing-table contract. A published
 schema file never changes, and the Go tests pin its hash and check its enums and patterns

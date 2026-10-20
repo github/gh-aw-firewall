@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"slices"
+	"strings"
 	"testing"
 )
 
@@ -77,7 +78,7 @@ func (c corpusCase) body() []byte {
 	return c.Request
 }
 
-// header defaults to a JSON content type, as the corpus README specifies.
+// header defaults to a JSON content type, as README.md's Test fixtures section specifies.
 func (c corpusCase) header() map[string]string {
 	if c.Headers != nil {
 		return c.Headers
@@ -93,6 +94,8 @@ func loadCorpus(t testing.TB) []corpusCase {
 		t.Fatal(err)
 	}
 	var all []corpusCase
+	// Files that aren't lists of cases must be some case's response_file.
+	shared := map[string]bool{}
 	for _, file := range files {
 		data, err := os.ReadFile(file)
 		if err != nil {
@@ -100,7 +103,8 @@ func loadCorpus(t testing.TB) []corpusCase {
 		}
 		var cases []corpusCase
 		if json.Unmarshal(data, &cases) != nil {
-			continue // not a list of cases, such as a shared response file
+			shared[filepath.Base(file)] = true
+			continue
 		}
 		for _, c := range cases {
 			if c.ResponseFile != "" {
@@ -110,6 +114,12 @@ func loadCorpus(t testing.TB) []corpusCase {
 			}
 			all = append(all, c)
 		}
+	}
+	for _, c := range all {
+		delete(shared, c.ResponseFile)
+	}
+	for name := range shared {
+		t.Fatalf("%s is neither a list of cases nor a case's response_file", filepath.Join(dir, name))
 	}
 	if len(all) == 0 {
 		t.Fatal("the routing-contract corpus has no cases")
@@ -145,6 +155,43 @@ func checkCorpusResponse(t testing.TB, c corpusCase, status int, body []byte) {
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("%s: response %s\nwant %s", c.ID, body, c.Response)
+	}
+}
+
+// TestRoutingContractCorpusCoverage checks that case IDs are unique, that every
+// served path has a case, and that the explicit-* route cases cover every profile.
+func TestRoutingContractCorpusCoverage(t *testing.T) {
+	ids := map[string]bool{}
+	paths := map[string]bool{}
+	explicit := map[Profile]bool{}
+	for _, c := range loadCorpus(t) {
+		if ids[c.ID] {
+			t.Errorf("duplicate case ID %s", c.ID)
+		}
+		ids[c.ID] = true
+		paths[c.Path] = true
+		if strings.HasPrefix(c.ID, "explicit-") {
+			var req struct {
+				Objective Profile `json:"objective"`
+			}
+			if err := json.Unmarshal(c.Request, &req); err != nil {
+				t.Fatalf("%s: %v", c.ID, err)
+			}
+			if !slices.Contains(Profiles, req.Objective) {
+				t.Errorf("%s routes with %s, which isn't a profile", c.ID, req.Objective.Key())
+			}
+			explicit[req.Objective] = true
+		}
+	}
+	for path := range servedRoutes {
+		if !paths[path] {
+			t.Errorf("no case requests %s", path)
+		}
+	}
+	for _, p := range Profiles {
+		if !explicit[p] {
+			t.Errorf("no explicit-* case routes with the %s profile", p.Key())
+		}
 	}
 }
 

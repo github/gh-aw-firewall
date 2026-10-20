@@ -16,7 +16,8 @@ import (
 	"time"
 )
 
-// The container tests run the built image the way AWF does: read-only, with no capabilities.
+// The container tests run the built image hardened as AWF does, with no capabilities and
+// no-new-privileges, and also with a read-only root filesystem, which the router doesn't write.
 // Build the image first, for example
 // docker build --build-arg OPENAPI_SHA256=<sha256 of openapi.yaml> -t gh-aw-router:test .
 // then run GH_AW_ROUTER_TEST_IMAGE=gh-aw-router:test go test -run Container .
@@ -155,11 +156,9 @@ func TestContainerServesBundledTables(t *testing.T) {
 		t.Error("the image has a shell")
 	}
 
-	start := time.Now()
-	docker(t, "stop", c.id)
-	if took := time.Since(start); took > 5*time.Second {
-		t.Errorf("docker stop took %v", took)
-	}
+	// AWF tears the stack down with docker compose down -t 1, so the router has 1 s between
+	// SIGTERM and SIGKILL; a container still running then is killed with 137.
+	docker(t, "stop", "-t", "1", c.id)
 	if code := docker(t, "inspect", "-f", "{{.State.ExitCode}}", c.id); code != "0" {
 		t.Errorf("exit code %s after SIGTERM, want 0", code)
 	}

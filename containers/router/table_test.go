@@ -10,7 +10,7 @@ import (
 )
 
 // syntheticDocument returns a cost/balanced table that ranks the choices in the
-// same order for every label cell, as the Python tests' synthetic table does.
+// same order for every label cell.
 func syntheticDocument(choices ...string) map[string]any {
 	if len(choices) == 0 {
 		choices = []string{"provider/fast", "provider/reasoning:medium"}
@@ -208,7 +208,7 @@ func TestTableModelIdentities(t *testing.T) {
 		"provider/model :medium": false, "provider/model:": false, "provider/model:turbo": false,
 		"provider/model:MEDIUM": false, "provider/model:medium:high": false,
 		"provider/model\n": false, "provider/model:medium\n": false,
-		// Python's str.isspace, like Go, does not count these as whitespace.
+		// These format characters are not whitespace.
 		"\ufeffprovider/model": true, "provider/model\u200b": true, "\u180eprovider/model": true,
 	}
 	for _, effort := range Efforts {

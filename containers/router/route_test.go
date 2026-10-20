@@ -210,7 +210,7 @@ func TestContextEstimate(t *testing.T) {
 }
 
 func TestToolInputLength(t *testing.T) {
-	// The lengths Python's estimate gives for the same inputs.
+	// The lengths the Python router's estimate gave for the same inputs.
 	for input, want := range map[string]int{
 		`{"\u0061": "\u0062", "n": 1e400}`:                                   len(`{"a":"b","n":Infinity}`),
 		`[1E5, -0, -0.0, 1e16, 1.5e-7, 0.0001, 1.0e2, 18446744073709551617]`: len(`[100000.0,0,-0.0,1e+16,1.5e-07,0.0001,100.0,18446744073709551617]`),

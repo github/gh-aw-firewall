@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json/v2"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -13,12 +14,12 @@ import (
 )
 
 // TestMain lets the CLI process tests run the test binary as the command itself.
-// GH_AW_ROUTER_TEST_HOLD holds /capabilities requests open for a duration, for
-// the shutdown tests.
+// GH_AW_ROUTER_TEST_HOLD holds /capabilities requests open for a duration, after
+// writing "holding" to stdout, for the shutdown tests.
 func TestMain(m *testing.M) {
 	if os.Getenv("GH_AW_ROUTER_TEST_MAIN") == "1" {
 		if hold, err := time.ParseDuration(os.Getenv("GH_AW_ROUTER_TEST_HOLD")); err == nil {
-			testHold = holding(hold)
+			testHold = holding(hold, func() { fmt.Println("holding") })
 		}
 		main()
 	}

@@ -14,15 +14,18 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"syscall"
 	"testing"
 	"time"
 )
 
-// holding returns a hold that keeps /capabilities requests open for d.
-func holding(d time.Duration) func(string) {
+// holding returns a hold that calls entered and then keeps /capabilities requests
+// open for d.
+func holding(d time.Duration, entered func()) func(string) {
 	return func(route string) {
 		if route == "/capabilities" {
+			entered()
 			time.Sleep(d)
 		}
 	}
@@ -133,7 +136,8 @@ func TestServeRejectsInvalidBindAddresses(t *testing.T) {
 		{"localhost:", errBindSyntax},
 		{"localhost:not-a-port", errBindSyntax},
 		{"localhost:-1", errBindSyntax},
-		// Python's int() accepts these; the fixture README records the stricter ports.
+		// The Python router's int() accepted these; the fixture README records the
+		// stricter ports.
 		{"localhost:+80", errBindSyntax},
 		{"localhost:8_737", errBindSyntax},
 		{"localhost: 8737", errBindSyntax},
@@ -192,7 +196,7 @@ func TestServeStartupFailures(t *testing.T) {
 	}
 	r := runCLI(t, map[string]string{tablesEnv: invalid}, "", "serve")
 	wantStartupError(t, r, 2, "routing tables invalid", "invalid_model_data", "")
-	// Invalid tables fail before the bind address is checked, as in Python.
+	// Invalid tables are reported before the bind address is checked.
 	r = runCLI(t, nil, "", "--routing-tables", missing, "serve", "--bind", "nonsense")
 	wantStartupError(t, r, 2, "routing tables invalid", "invalid_model_data", "")
 
@@ -205,9 +209,10 @@ func TestServeStartupFailures(t *testing.T) {
 	wantStartupError(t, r, 1, "listen failed", "", "")
 }
 
-// served is a running serve command.
+// served is a running serve command. held reports whether it is holding a request.
 type served struct {
 	addr   string
+	held   func() bool
 	stop   func()
 	wait   func() (int, time.Duration)
 	stderr *logBuffer
@@ -215,7 +220,8 @@ type served struct {
 
 func startInProcess(t *testing.T, hold time.Duration) *served {
 	t.Helper()
-	testHold = holding(hold)
+	var held atomic.Bool
+	testHold = holding(hold, func() { held.Store(true) })
 	t.Cleanup(func() { testHold = nil })
 	addr := "127.0.0.1:" + strconv.Itoa(freePort(t))
 	cmd, err := parseArgs([]string{"--routing-tables", bundledTables(t), "serve", "--bind", addr}, func(string) string { return "" })
@@ -227,6 +233,7 @@ func startInProcess(t *testing.T, hold time.Duration) *served {
 	var stopped time.Time
 	return &served{
 		addr:   addr,
+		held:   held.Load,
 		stop:   func() { stopped = time.Now(); signals <- os.Interrupt },
 		stderr: logs,
 		wait: func() (int, time.Duration) {
@@ -248,8 +255,8 @@ func startProcess(t *testing.T, hold time.Duration) *served {
 	// Race-enabled binaries sleep a second at exit by default, which the timing check would count.
 	cmd.Env = append(os.Environ(), "GH_AW_ROUTER_TEST_MAIN=1", "GH_AW_ROUTER_TEST_HOLD="+hold.String(),
 		"GORACE="+strings.TrimSpace(os.Getenv("GORACE")+" atexit_sleep_ms=0"))
-	logs := &logBuffer{}
-	cmd.Stdout, cmd.Stderr = logs, logs
+	logs, out := &logBuffer{}, &logBuffer{}
+	cmd.Stdout, cmd.Stderr = out, logs
 	if err := cmd.Start(); err != nil {
 		t.Fatal(err)
 	}
@@ -258,6 +265,7 @@ func startProcess(t *testing.T, hold time.Duration) *served {
 	var stopped time.Time
 	return &served{
 		addr:   addr,
+		held:   func() bool { return strings.Contains(out.String(), "holding") },
 		stderr: logs,
 		stop: func() {
 			stopped = time.Now()
@@ -286,15 +294,15 @@ func startProcess(t *testing.T, hold time.Duration) *served {
 	}
 }
 
-// testShutdown starts serve, begins a held request, signals and checks that serve
-// drains or aborts the request and exits 0 within a second.
+// testShutdown starts serve, begins a held request, signals once serve holds it,
+// and checks that serve drains or aborts the request and exits 0 within a second.
 func testShutdown(t *testing.T, start func(*testing.T, time.Duration) *served, signal string) {
 	for _, c := range []struct {
 		name    string
 		hold    time.Duration
 		drained bool
 	}{
-		{"drains a short request", 200 * time.Millisecond, true},
+		{"drains a short request", 100 * time.Millisecond, true},
 		{"aborts a long request", 3 * time.Second, false},
 	} {
 		t.Run(c.name, func(t *testing.T) {
@@ -313,7 +321,7 @@ func testShutdown(t *testing.T, start func(*testing.T, time.Duration) *served, s
 				}
 				result <- err
 			}()
-			time.Sleep(100 * time.Millisecond)
+			eventually(t, "the held request", s.held)
 			s.stop()
 			code, elapsed := s.wait()
 			if code != 0 || elapsed > time.Second {

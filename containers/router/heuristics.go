@@ -188,13 +188,14 @@ func (c cues) anywhere(text string) bool {
 	return false
 }
 
-// isWord matches Python's \w: letters, numbers and the underscore.
+// isWord reports whether r is a word character: a letter, a number or the underscore.
 func isWord(r rune) bool {
 	return r == '_' || unicode.IsLetter(r) || unicode.IsNumber(r)
 }
 
 // isSpace extends unicode.IsSpace with the information separators U+001C to
-// U+001F, which Python's str.split and str.strip also treat as whitespace.
+// U+001F, which Python's str.split and str.strip treat as whitespace, so the
+// heuristics label text as the original Python router did.
 func isSpace(r rune) bool {
 	return unicode.IsSpace(r) || r >= 0x1c && r <= 0x1f
 }

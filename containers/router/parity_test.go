@@ -116,6 +116,7 @@ func TestContextParity(t *testing.T) {
 		})
 	}
 }
+
 func TestClassificationParity(t *testing.T) {
 	var doc struct {
 		SystemPrompt           string `json:"system_prompt"`

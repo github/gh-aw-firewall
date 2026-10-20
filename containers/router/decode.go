@@ -13,8 +13,8 @@ import (
 	"strings"
 )
 
-// decodeOptions match the Python service: field names are exact and case-sensitive
-// and unknown fields are rejected. Repeated keys are removed before decoding.
+// decodeOptions make field names exact and case-sensitive and reject unknown fields.
+// Repeated keys are removed before decoding.
 var decodeOptions = json.RejectUnknownMembers(true)
 
 // DecodeClassifyRequest decodes and validates a classify request body.
@@ -110,10 +110,10 @@ func decode(data []byte, v any) error {
 }
 
 // lastValueWins removes each object member whose key is repeated later in the same
-// object, so the last value replaces earlier ones as in a Python dict, rather than
-// being merged with them, which unmarshalling a repeated key into the same Go
-// struct would do. Input without repeated keys is returned unchanged. Otherwise the
-// output is compact and scalars keep their original text.
+// object, so the last value replaces earlier ones, as JavaScript's JSON.parse does,
+// rather than being merged with them, which unmarshalling a repeated key into the
+// same Go struct would do. Input without repeated keys is returned unchanged.
+// Otherwise the output is compact and scalars keep their original text.
 func lastValueWins(data []byte) ([]byte, error) {
 	superseded, err := supersededMembers(data)
 	if err != nil || len(superseded) == 0 {
@@ -320,7 +320,7 @@ func (e *Effort) UnmarshalJSONFrom(dec *jsontext.Decoder) error {
 type ContextWindow uint64
 
 // UnmarshalJSONFrom implements json.UnmarshalerFrom. Only integer literals are
-// accepted, so 1.0 and 1e3 are rejected as in the Python service's strict mode.
+// accepted, so 1.0 and 1e3 are rejected.
 func (c *ContextWindow) UnmarshalJSONFrom(dec *jsontext.Decoder) error {
 	tok, err := dec.ReadToken()
 	if err != nil {

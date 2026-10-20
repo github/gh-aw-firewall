@@ -175,7 +175,7 @@ func parseArgs(args []string, getenv func(string) string) (*command, error) {
 
 // resolveServeOptions applies the environment variables and defaults for options
 // that weren't given, and checks the log level. The bind address is parsed only
-// after the tables load, as Python does.
+// after the tables load, so invalid tables are reported first.
 func (c *command) resolveServeOptions(fs *flag.FlagSet, getenv func(string) string) error {
 	given := map[string]bool{}
 	fs.Visit(func(f *flag.Flag) { given[f.Name] = true })

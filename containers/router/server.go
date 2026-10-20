@@ -141,7 +141,7 @@ func (s *server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case s.slots <- struct{}{}:
 		defer func() { <-s.slots }()
 	default:
-		// Uvicorn's bare 503, which openapi.yaml documents.
+		// A bare 503, which openapi.yaml documents.
 		rec.Header().Set("Content-Type", "text/plain; charset=utf-8")
 		rec.Header().Set("Connection", "close")
 		rec.WriteHeader(http.StatusServiceUnavailable)

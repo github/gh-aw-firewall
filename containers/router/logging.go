@@ -19,7 +19,8 @@ const (
 	timeFormat     = "2006-01-02T15:04:05.000Z07:00"
 )
 
-// logLevels maps the serve --log-level values, which are Uvicorn's, to slog levels.
+// logLevels maps the serve --log-level values, which the Python router took from
+// Uvicorn, to slog levels.
 var logLevels = map[string]slog.Level{
 	"critical": slog.LevelError,
 	"error":    slog.LevelError,

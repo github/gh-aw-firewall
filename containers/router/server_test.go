@@ -136,7 +136,7 @@ func newTestServerFor(t *testing.T, service *Service, hold func(route string)) (
 	return s, logs
 }
 
-// planningPayload is the Python tests' planning_payload fixture.
+// planningPayload returns a minimal valid classify or route request.
 func planningPayload(command string) map[string]any {
 	payload := map[string]any{
 		"conversation": []any{map[string]any{"role": "user", "parts": []any{map[string]any{"text": "Fix this function"}}}},
@@ -307,8 +307,8 @@ func TestHTTPSharesJSONDecodingWithTheCLI(t *testing.T) {
 				last["parts"] = []any{map[string]any{"text": "SURROGATE"}}
 			}), http.StatusBadRequest},
 			"invalid-field": {body(func(last, _ map[string]any) { last["role"] = 123 }), http.StatusUnprocessableEntity},
-			// Python rejects this depth; Go has no nesting limit, a decision the
-			// fixture README records.
+			// The Python router rejected this depth; Go has no nesting limit, a
+			// decision the fixture README records.
 			"nested": {body(func(_, p map[string]any) {
 				p["conversation"] = append(p["conversation"].([]any), map[string]any{
 					"role":  "assistant",
@@ -645,8 +645,9 @@ func TestHTTPBodyLimit(t *testing.T) {
 		serveRequest(t, s, http.MethodPost, "/route", map[string]string{"Content-Type": "application/json"}, body).
 			wantError(t, 413, CodePayloadTooLarge)
 	}
-	// Other paths answer without reading a chunked upload, unlike Python, which
-	// buffers every POST, PUT and PATCH body first.
+	// Other paths answer without reading a chunked upload. The Python router
+	// buffered every POST, PUT and PATCH body first; the fixture README records
+	// the difference.
 	for _, c := range []struct {
 		method, path string
 		status       int
