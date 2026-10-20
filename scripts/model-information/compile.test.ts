@@ -78,7 +78,7 @@ describe('maintained model compilation', () => {
     const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-model-sources-'));
     try {
       fs.cpSync(path.join(root, 'shared/model-information/sources'), temp, { recursive: true });
-      const file = path.join(temp, 'openai.json');
+      const file = path.join(temp, 'copilot-main.json');
       const copy = JSON.parse(fs.readFileSync(file, 'utf8'));
       copy.models[0].lifecycle.replacement = 'copilot/does-not-exist';
       fs.writeFileSync(file, JSON.stringify(copy));
@@ -106,7 +106,7 @@ describe('maintained model compilation', () => {
     const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-model-sources-'));
     try {
       fs.cpSync(path.join(root, 'shared/model-information/sources'), temp, { recursive: true });
-      const file = path.join(temp, 'openai.json');
+      const file = path.join(temp, 'copilot-main.json');
       const source = JSON.parse(fs.readFileSync(file, 'utf8'));
       change(source.models, source);
       fs.writeFileSync(file, JSON.stringify(source));
