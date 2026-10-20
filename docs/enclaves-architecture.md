@@ -117,9 +117,13 @@ Exactly **one workload backend per run** covers the primary and every enabled
 executor. Omitted runtimes inherit the primary; Docker/runc and gVisor/runsc are
 aliases within their respective backends, not equivalent to each other.
 Supporting Docker proxy/broker infrastructure does not make a VM workload a
-Docker workload. Unknown selections, mismatches, missing prerequisites, and
-launch failures must fail closed, without silently rewriting configuration or
-retrying on another backend. Functional/policy parity does **not** make
+Docker workload. Unknown selections, backend mismatches, missing prerequisites and
+launch failures must fail closed, except for the existing Cloud Hypervisor
+primary-only fallback: an eligibility/preflight `CloudHypervisorUnsupportedHostError`
+logs a warning, clears the selected runtime and continues on Docker
+(`src/commands/validators/config-assembly.ts`, `src/commands/main-action.ts`).
+This exception never applies with enclaves; artifact-trust failures stay fatal,
+and NVX never falls back. Functional/policy parity does **not** make
 containers, user-space kernels and hardware VMs equivalent isolation boundaries.
 
 ### Capability inventory
