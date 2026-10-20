@@ -47,13 +47,13 @@ function isPathPrefix(parent: string, child: string): boolean {
 /**
  * Returns the deepest bind whose target strictly contains `target`. runc applies
  * binds parent-first, so this is the mount that owns the directory entry runc
- * must create for `target`.
+ * must create for `target`. For duplicate destinations, Compose keeps the last bind.
  */
 export function innermostCoveringMount(binds: ParsedMount[], target: string): ParsedMount | undefined {
   let best: ParsedMount | undefined;
   for (const bind of binds) {
     if (!isPathPrefix(bind.target, target)) continue;
-    if (!best || bind.target.length > best.target.length) best = bind;
+    if (!best || bind.target.length >= best.target.length) best = bind;
   }
   return best;
 }

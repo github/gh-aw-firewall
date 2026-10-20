@@ -1,5 +1,4 @@
 import * as fs from 'fs';
-import * as path from 'path';
 import { logger } from '../../logger';
 import { credentialFilesToHide } from '../../config/mount-policy';
 import {
@@ -33,68 +32,15 @@ export function buildCredentialHidingOverlays(effectiveHome: string): string[] {
 }
 
 /**
- * Reports whether runc could create a missing mountpoint under `dirPath`,
- * matching how it actually behaves: a writable covering bind lets Docker
- * `mkdirat` the full chain of missing intermediate directories, so the check
- * has to walk up to the nearest ancestor that already exists rather than
- * requiring the immediate parent to be present.
+ * Drops `/dev/null` overlays whose target is missing behind a host bind.
  *
- * Failing closed (returning `false`) on any surprise -- a missing root, a
- * non-directory ancestor -- is safe here: the caller only uses this to decide
- * whether a *missing* credential mask can be created, never whether an
- * existing one is reachable.
- */
-function canCreateMountpointUnder(dirPath: string): boolean {
-  let current = dirPath;
-  for (;;) {
-    let stats: fs.Stats;
-    try {
-      stats = fs.statSync(current);
-    } catch (err) {
-      if ((err as NodeJS.ErrnoException).code !== 'ENOENT') return false;
-      const parent = path.dirname(current);
-      if (parent === current) return false;
-      current = parent;
-      continue;
-    }
-    if (!stats.isDirectory()) return false;
-    try {
-      fs.accessSync(current, fs.constants.W_OK | fs.constants.X_OK);
-      return true;
-    } catch {
-      return false;
-    }
-  }
-}
-
-/**
- * Drops `/dev/null` overlays whose mountpoint cannot physically be created.
+ * runc creates missing mountpoints on the underlying filesystem. Behind a
+ * writable bind this leaves empty files and directories on the host, owned by
+ * root when AWF runs under sudo. Behind a read-only bind it fails with EROFS.
  *
- * A bind mount requires its mountpoint to already exist; runc creates a missing
- * one with `openat`/`mkdirat` on the parent directory. That silently works
- * while every mount under `$HOME` is read-write and backed by a genuinely
- * writable directory on the runner. Two different things can break it:
- *
- *  - `filesystem.allowWrite` narrows the covering bind to read-only. Docker
- *    remounts that bind read-only *inside the container*, so `mkdirat` for
- *    anything nested under it fails with EROFS no matter what the real host
- *    directory allows.
- *  - The covering bind is still declared read-write, but the directory it
- *    points at is itself read-only on the runner's real filesystem (for
- *    example a staged ARC/DinD layout under `--docker-host-path-prefix`).
- *    Docker does not remount this case, so it touches the real path directly
- *    and hits the same EROFS (github/gh-aw-firewall#8076).
- *
- * An overlay is kept unless its containing bind cannot supply the mountpoint
- * and the path it masks does not already exist behind that bind. Dropping
- * those loses no protection: an unmountable bind is the only way the agent
- * could reach the path, and there is nothing there to read. Every credential
- * that is actually reachable is still masked, because mounting over a path
- * that exists succeeds regardless of the bind's mode or the real directory's
- * writability.
- *
- * This is a no-op for the common case where every covering bind is read-write
- * and genuinely backed by a writable runner directory.
+ * A missing credential has nothing to mask at startup. Existing credentials
+ * remain masked regardless of bind mode; paths that cannot be probed locally
+ * keep their overlays. A file created by the host after this check is not masked.
  */
 export function pruneUnmountableCredentialOverlays(
   volumes: string[],
@@ -125,21 +71,14 @@ export function pruneUnmountableCredentialOverlays(
     if (localCoverSource === undefined) return true;
 
     const hostPath = `${localCoverSource}${suffix}`;
-    if (fs.existsSync(hostPath)) return true;
-
-    // The mountpoint is missing and runc must create it. A bind Docker
-    // narrowed to read-only can never do that, regardless of the real host
-    // directory. A read-write bind can, unless the real directory backing it
-    // is itself read-only.
-    if (cover.mode === 'ro') return false;
-    return canCreateMountpointUnder(path.dirname(hostPath));
+    return fs.existsSync(hostPath);
   });
 
   const dropped = volumes.length - kept.length;
   if (dropped > 0) {
     logger.debug(
-      `Dropped ${dropped} credential overlay(s) whose target does not exist behind a read-only ` +
-      'mount; those paths are unreadable in the container, so nothing is left unmasked',
+      `Dropped ${dropped} credential overlay(s) whose target does not exist behind a host ` +
+      'bind; avoiding creation of credential placeholders on the host',
     );
   }
 
