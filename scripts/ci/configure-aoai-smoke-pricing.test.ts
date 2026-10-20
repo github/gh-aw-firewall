@@ -87,6 +87,17 @@ test.each(['apikey', 'entra'])('postprocessing configures only the Azure %s smok
   expect(() => applyGeneralWorkflowPatches('', workflow)).toThrow('Missing AWF config staging');
 });
 
+test.each(['apikey', 'entra'])('the %s smoke uses Responses without changing the priced wire deployment', mode => {
+  const name = `smoke-copilot-byok-aoai-${mode}`;
+  const source = fs.readFileSync(path.join(root, `.github/workflows/${name}.md`), 'utf8');
+  const lock = fs.readFileSync(path.join(root, `.github/workflows/${name}.lock.yml`), 'utf8');
+  for (const content of [source.split('---')[1], lock]) {
+    expect(yaml.load(content)).toMatchObject({
+      env: { COPILOT_MODEL: 'o4-mini-aw', COPILOT_PROVIDER_WIRE_API: 'responses' },
+    });
+  }
+});
+
 test.each(['apikey', 'entra'])('the actual generated %s config stage installs pricing before AWF launches', mode => {
   const lockPath = path.join(root, `.github/workflows/smoke-copilot-byok-aoai-${mode}.lock.yml`);
   const content = fs.readFileSync(lockPath, 'utf8');

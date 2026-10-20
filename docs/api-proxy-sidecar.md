@@ -1012,6 +1012,11 @@ not a production-wide alias or a generic fallback. Update the confirmed mapping
 and pinned pricing together if that Azure deployment changes its underlying
 model.
 
+Both smokes explicitly select `COPILOT_PROVIDER_WIRE_API=responses` so Copilot
+does not send its generic chat-completions `temperature=0` default, which
+`o4-mini` rejects. The wire deployment remains `o4-mini-aw`, and the same
+workflow-scoped prices and budget limits apply.
+
 ### Caller attribution (`x-awf-caller`)
 
 The agent harness may set an optional `x-awf-caller` request header so that
