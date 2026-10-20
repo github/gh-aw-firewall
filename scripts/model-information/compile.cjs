@@ -133,6 +133,13 @@ function compile() {
     a.identity.key < b.identity.key ? -1 : a.identity.key > b.identity.key ? 1 : 0);
   const target = JSON.parse(fs.readFileSync(path.join(sources, 'target.json'), 'utf8'));
   const compatibility = JSON.parse(fs.readFileSync(path.join(sources, 'lifecycle-compatibility.json'), 'utf8'));
+  if (compatibility?.schemaVersion !== 1 || compatibility.provenance?.authority !== 'maintained' ||
+      !compatibility.provenance.source || !compatibility.provenance.revision ||
+      typeof compatibility.provenance.at !== 'string' ||
+      Number.isNaN(Date.parse(compatibility.provenance.at)) ||
+      !compatibility.provenance.confidence) {
+    throw new Error('lifecycle-compatibility.json: expected reviewed provenance with a valid at timestamp');
+  }
   if (target.schemaVersion !== 1 || target.provenance?.authority !== 'maintained' ||
       !target.provenance.at || !Array.isArray(target.availability) ||
       !Array.isArray(target.routing)) {
@@ -295,14 +302,12 @@ function compile() {
       item.scope.provider === 'copilot' && item.scope.channel === 'copilot-cli' &&
       item.scope.deployment === undefined && item.fact.state === 'supported'))
     .map(model => model.identity.rawId);
+  const allowedSuggestions = new Set(['auto', ...supported]);
   const suggestionOrder = compatibility.suggestionOrder;
-  if (compatibility.schemaVersion !== 1 || compatibility.provenance?.authority !== 'maintained' ||
-      !compatibility.provenance.source || !compatibility.provenance.revision ||
-      !compatibility.provenance.at || !compatibility.provenance.confidence ||
-      !Array.isArray(suggestionOrder) ||
+  if (!Array.isArray(suggestionOrder) ||
       suggestionOrder.length !== supported.length + 1 ||
       new Set(suggestionOrder).size !== suggestionOrder.length ||
-      suggestionOrder.some(id => typeof id !== 'string' || !['auto', ...supported].includes(id))) {
+      suggestionOrder.some(id => typeof id !== 'string' || !allowedSuggestions.has(id))) {
     throw new Error('lifecycle-compatibility.json: expected a permutation of canonical CLI IDs plus auto; ordering cannot author availability');
   }
   const pricing = Object.fromEntries(sortedModels.flatMap(model => {

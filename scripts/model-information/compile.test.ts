@@ -120,6 +120,31 @@ describe('maintained model compilation', () => {
     }
   });
 
+  it.each(['missing provenance', 'missing timestamp', 'invalid timestamp', 'non-string timestamp'])(
+    'rejects %s in lifecycle compatibility provenance before deriving timestamps',
+    kind => {
+      const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-model-provenance-'));
+      try {
+        fs.cpSync(path.join(root, 'shared/model-information/sources'), temp, { recursive: true });
+        const file = path.join(temp, 'lifecycle-compatibility.json');
+        const source = JSON.parse(fs.readFileSync(file, 'utf8'));
+        if (kind === 'missing provenance') delete source.provenance;
+        if (kind === 'missing timestamp') delete source.provenance.at;
+        if (kind === 'invalid timestamp') source.provenance.at = 'not-a-timestamp';
+        if (kind === 'non-string timestamp') source.provenance.at = 0;
+        fs.writeFileSync(file, JSON.stringify(source));
+        const result = spawnSync(process.execPath, [compiler, '--check', `--source-dir=${temp}`], {
+          cwd: root, encoding: 'utf8',
+        });
+        expect(result.status).not.toBe(0);
+        expect(result.stderr).toContain('lifecycle-compatibility.json: expected reviewed provenance with a valid at timestamp');
+        expect(result.stderr).not.toMatch(/RangeError|TypeError|stale; run/);
+      } finally {
+        fs.rmSync(temp, { recursive: true, force: true });
+      }
+    },
+  );
+
   it.each(['duplicate', 'missing', 'unavailable'])('rejects %s suggestion-order metadata', kind => {
     const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-model-order-'));
     try {
