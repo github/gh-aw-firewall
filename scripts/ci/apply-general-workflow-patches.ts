@@ -94,6 +94,31 @@ export function applyGeneralWorkflowPatches(
 
   if (workflowPath.endsWith('smoke-enclave-issues-read.lock.yml')) {
     const original = content;
+    // v2 issue_read envelopes are incompatible with this smoke's v0.4.15 guard.
+    // Keep the last-green flat-response server without weakening approved integrity.
+    const githubImage = 'ghcr.io/github/github-mcp-server:v1.12.2';
+    const githubDigest = 'sha256:508a0857ec762b1ab1cece29193345b501fab1dd9d1228a7b617062954cecac6';
+    const pinnedGithubImage = `${githubImage}@${githubDigest}`;
+    content = content.replace(
+      /ghcr\.io\/github\/github-mcp-server:[\w.-]+(?:@sha256:[a-f0-9]{64})?/g,
+      pinnedGithubImage
+    );
+    content = content.replace(
+      /^(# gh-aw-manifest: )(.+)$/m,
+      (_match, prefix: string, json: string) => {
+        const manifest = JSON.parse(json) as {
+          containers?: Array<{ image: string; digest: string; pinned_image: string }>;
+        };
+        for (const container of manifest.containers ?? []) {
+          if (container.image === pinnedGithubImage) {
+            container.image = githubImage;
+            container.digest = githubDigest;
+            container.pinned_image = pinnedGithubImage;
+          }
+        }
+        return prefix + JSON.stringify(manifest);
+      }
+    );
     content = content
       .split('\n')
       .map(line =>
