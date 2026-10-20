@@ -148,6 +148,8 @@ describe('maintained model compilation', () => {
   });
 
   it('resolves generated proxy assets independently of repository shared modules', () => {
+    const dockerfile = fs.readFileSync(path.join(root, 'containers/api-proxy/Dockerfile'), 'utf8');
+    expect(dockerfile).toMatch(/model-information\.pricing\.generated\.json model-information\.retired\.generated\.json/);
     const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-model-assets-'));
     try {
       for (const file of ['model-information.pricing.generated.json',

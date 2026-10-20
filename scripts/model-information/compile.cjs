@@ -4,7 +4,6 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
-const { execFileSync } = require('node:child_process');
 const { identity } = require('../../shared/model-information/identity');
 const { validate, validateRecords } = require('../../shared/model-information/contracts');
 const { importPinnedLegacySnapshot } = require('../../shared/model-information/import-legacy-snapshot');
@@ -29,80 +28,6 @@ const sorted = value => {
   );
   return value;
 };
-
-function seed() {
-  if (fs.existsSync(sources)) throw new Error('Sources already exist; refusing to overwrite reviewed data');
-  const host = fs.readFileSync(path.join(root, 'src/copilot-model.ts'), 'utf8');
-  const names = [...host.match(/const SUPPORTED_COPILOT_MODELS = new Set\(\[([\s\S]*?)\]\)/)[1]
-    .matchAll(/'([^']+)'/g)].map(match => match[1]);
-  const prices = require('../../containers/api-proxy/ai-credits-pricing');
-  const retired = require('../../containers/api-proxy/guards/retired-model-guard');
-  const replacement = 'gpt-5.3-codex';
-  if (retired.getRetiredModelBlockState('gpt-5-codex')?.suggestion !== replacement) {
-    throw new Error('Legacy retirement map changed; review seed migration');
-  }
-  const reviewedAt = new Date(execFileSync('git', ['show', '-s', '--format=%cI', 'HEAD'], { cwd: root, encoding: 'utf8' }).trim()).toISOString();
-  const inputs = ['src/copilot-model.ts', 'containers/api-proxy/ai-credits-pricing.js',
-    'containers/api-proxy/guards/retired-model-guard.js', 'docs/model-api-mapping.json'];
-  const provenance = {
-    authority: 'maintained', source: 'pinned legacy compatibility capture',
-    revision: sha256(inputs.map(file => fs.readFileSync(path.join(root, file))).join('\n')),
-    at: reviewedAt, confidence: 'estimated',
-  };
-  const byProvider = new Map();
-  const normalizedName = name => name.toLowerCase().replace(/[._]/g, '-');
-  const hostNames = new Map(names.filter(name => name !== 'auto').map(name => [normalizedName(name), name]));
-  const priceNames = new Map(Object.keys(prices).map(name => [normalizedName(name), name]));
-  for (const normalized of new Set([...hostNames.keys(), ...priceNames.keys(), 'gpt-5-codex'])) {
-    const rawId = hostNames.get(normalized) || priceNames.get(normalized) || normalized;
-    const provider = rawId.startsWith('claude-') ? 'anthropic' :
-      rawId.startsWith('gemini-') ? 'google' : rawId.startsWith('grok-') ? 'x-ai' :
-        rawId.startsWith('mai-') ? 'microsoft' : 'openai';
-    const id = identity('copilot', rawId);
-    const price = prices[priceNames.get(normalized)];
-    const record = {
-      schemaVersion: 1, identity: id,
-      lifecycle: normalized === 'gpt-5-codex'
-        ? { status: 'retired', replacement: 'copilot/gpt-5.3-codex' } : { status: 'active' },
-      modelType: rawId.startsWith('text-embedding-') ? 'embedding' : 'completion',
-      ...(hostNames.has(normalized) ? { availability: [{
-        scope: { provider: 'copilot', channel: 'copilot-cli' },
-        fact: { state: 'supported', provenance },
-      }] } : {}),
-      ...(price ? { tariffs: Object.entries({ default: price, ...(price.longContext ? { long_context: price.longContext } : {}) })
-        .map(([tier, values]) => ({
-          scope: { provider: 'copilot', channel: 'copilot-api' },
-          currency: 'USD', unit: 'USD_PER_1M_TOKENS', tier,
-          ...(tier === 'long_context' ? { promptTokensAbove: values.threshold } : {}),
-          components: Object.fromEntries(Object.entries(values)
-            .filter(([key]) => key !== 'longContext' && key !== 'threshold')
-            .map(([key, value]) => [key, {
-              price: value === null ? { unavailable: true } : String(value),
-              provenance,
-            }])),
-          provenance,
-        })) } : {}),
-      provenance,
-    };
-    if (!byProvider.has(provider)) byProvider.set(provider, []);
-    byProvider.get(provider).push(record);
-  }
-  fs.mkdirSync(sources, { recursive: true });
-  for (const [provider, models] of byProvider) {
-    fs.writeFileSync(path.join(sources, `${provider}.json`), json({
-      schemaVersion: 1, provenance, models: models.sort((a, b) =>
-        a.identity.key.localeCompare(b.identity.key, 'en')), rules: [],
-    }));
-  }
-  fs.writeFileSync(path.join(sources, 'mapping.json'), json({
-    schemaVersion: 1, provenance: {
-      ...provenance, source: 'docs/model-api-mapping.json',
-      revision: sha256(fs.readFileSync(path.join(root, 'docs/model-api-mapping.json'))),
-      at: read('docs/model-api-mapping.json').lastUpdated,
-    },
-    mapping: read('docs/model-api-mapping.json'),
-  }));
-}
 
 function compile() {
   const files = fs.readdirSync(sources).filter(file => file.endsWith('.json')).sort();
@@ -445,5 +370,4 @@ function compile() {
   console.log(`${process.argv.includes('--check') ? 'Checked' : 'Generated'} model catalogue ${revision}`);
 }
 
-if (process.argv.includes('--seed')) seed();
-else compile();
+compile();

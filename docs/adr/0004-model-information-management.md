@@ -1122,6 +1122,16 @@ revision and source list are in
 the newest committed source capture/mapping review time, **not** a build time.
 The SHA-256 revision covers canonical normalized sources, schema hash and
 compiler version. A changed source must be reviewed with all changed outputs.
+To refresh an import deliberately, supply the exact new input bytes and
+independently established `source`, `revision`, `retrievedAt`, SHA-256 and
+license/usage note to `importLegacySnapshot(bytes, metadata)` in
+`shared/model-information/import-legacy-snapshot.js`; inspect rejected records
+and collisions, update the pinned input hash/repository capture metadata, then
+regenerate and review the snapshot and all projections together. The current
+bundled copy has **unknown upstream retrieval time and license**: its
+`retrievedAt` denotes only the verifiable Git repository-capture commit time.
+It accepts 355 entries, rejects 11 and reports no normalized collisions.
+Automatic upstream refresh or publication is reserved for Phase 8.
 
 | Source of facts | Consumer and compiled projection | Activation |
 | --- | --- | --- |
