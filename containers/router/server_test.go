@@ -40,8 +40,8 @@ func (l *logBuffer) String() string {
 
 type logRecord = map[string]any
 
-// logFields lists every field each record may have besides the common ones. The
-// request record's error_code is the only optional field.
+// logFields lists every field each record may have besides the common ones. A
+// field ending in ? is optional.
 var logFields = map[string][]string{
 	"starting":               {"bind", "log_level", "go_version"},
 	"configuration invalid":  {"error_code", "error"},
@@ -49,15 +49,22 @@ var logFields = map[string][]string{
 	"routing tables invalid": {"error_code", "error"},
 	"listening":              {"address"},
 	"listen failed":          {"error"},
-	"request":                {"request_id", "method", "route", "status", "duration_ms", "error_code", "request_bytes", "response_bytes"},
-	"panic":                  {"request_id", "route", "stack"},
-	"shutting down":          {"signal"},
-	"stopped":                {"drained", "duration_ms"},
+	"request": {"request_id", "method", "route", "status", "duration_ms", "error_code?", "request_bytes", "response_bytes",
+		"trace_id?", "span_id?"},
+	"panic":                      {"request_id", "route", "stack"},
+	"shutting down":              {"signal"},
+	"stopped":                    {"drained", "duration_ms"},
+	"telemetry setting invalid":  {"variable", "effect"},
+	"telemetry configured":       {"traces", "metrics", "protocol?", "traces_endpoint?", "metrics_endpoint?"},
+	"telemetry error":            {"signal", "reason"},
+	"telemetry flush incomplete": {},
 }
 
 var (
 	logTime   = regexp.MustCompile(`^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z$`)
 	requestID = regexp.MustCompile(`^[0-9a-f]{32}$`)
+	traceID   = regexp.MustCompile(`^[0-9a-f]{32}$`)
+	spanID    = regexp.MustCompile(`^[0-9a-f]{16}$`)
 )
 
 // parseLogRecords parses every line as a JSON record and checks it against the
@@ -81,17 +88,24 @@ func parseLogRecords(t *testing.T, output string) []logRecord {
 			t.Errorf("level: %s", line)
 		}
 		for key := range r {
-			if !slices.Contains([]string{"time", "level", "msg", "service", "version"}, key) && !slices.Contains(allowed, key) {
+			if !slices.Contains([]string{"time", "level", "msg", "service", "version"}, key) &&
+				!slices.Contains(allowed, key) && !slices.Contains(allowed, key+"?") {
 				t.Errorf("field %q is not allowed: %s", key, line)
 			}
 		}
 		for _, key := range allowed {
-			if _, ok := r[key]; !ok && key != "error_code" {
+			if _, ok := r[key]; !ok && !strings.HasSuffix(key, "?") {
 				t.Errorf("field %q is missing: %s", key, line)
 			}
 		}
 		if id, ok := r["request_id"]; ok && !requestID.MatchString(id.(string)) {
 			t.Errorf("request_id: %s", line)
+		}
+		if id, ok := r["trace_id"]; ok && (!traceID.MatchString(id.(string)) || id == strings.Repeat("0", 32)) {
+			t.Errorf("trace_id: %s", line)
+		}
+		if id, ok := r["span_id"]; ok && (!spanID.MatchString(id.(string)) || id == strings.Repeat("0", 16) || r["trace_id"] == nil) {
+			t.Errorf("span_id: %s", line)
 		}
 		records = append(records, r)
 	}
