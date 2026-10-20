@@ -32,6 +32,7 @@ class FakeDocker {
   holdWorkload = false;
   failProbe = false;
   outputValue = 'true';
+  workloadExitCode = 0;
   network = 'true|bridge|172.31.0.0/24,|awf-enclave-agent-api-proxy@172.31.0.30/24,';
   daemon: any = { OSType: 'linux', SecurityOptions: [] };
   onWorkloadStart?: () => void;
@@ -92,6 +93,7 @@ class FakeDocker {
         const output = current.Mounts.find((m: any) => m.Destination === '/awf/out');
         fs.writeFileSync(output.Source, this.outputValue);
         current.State.Running = this.holdWorkload;
+        current.State.ExitCode = this.workloadExitCode;
         this.onWorkloadStart?.();
       }
       return ok();
@@ -340,6 +342,30 @@ describe('host-owned Docker enclave executor', () => {
     await expect(executor.execute(plan, new AbortController().signal)).resolves.toEqual({ outcome: 'executor-failure' });
     expect(docker.calls.filter((c) => c[0] === 'create')).toHaveLength(1);
     expect(cleanupDockerHostStorage).toHaveBeenCalledTimes(1);
+  });
+
+  test('only a positively cleaned workload failure permits subsequent host admissions', async () => {
+    docker.workloadExitCode = 1;
+    const executor = backend();
+    await expect(executor.execute(plan, new AbortController().signal)).resolves.toEqual({
+      outcome: 'executor-failure', recoverableFailure: true, cleanupComplete: true,
+    });
+    expect(docker.containers.size).toBe(0);
+    expect(fs.readdirSync(path.join(root, 'journal'))).toEqual([]);
+    docker.workloadExitCode = 0;
+    await expect(executor.execute(plan, new AbortController().signal))
+      .resolves.toEqual({ outcome: 'success', result: 'true' });
+    await executor.close!();
+  });
+
+  test('a workload failure with uncertain removal cannot be classified as recoverable', async () => {
+    docker.workloadExitCode = 1;
+    docker.onWorkloadStart = () => { docker.failRemoval = true; };
+    const executor = backend();
+    await expect(executor.execute(plan, new AbortController().signal)).resolves.toEqual({
+      outcome: 'executor-failure', cleanupComplete: false,
+    });
+    await expect(executor.close!()).rejects.toThrow(/recovery/);
   });
 
   test.each(['"private raw transcript"', 'true private sentinel', ' '.repeat(8193) + 'true'])(

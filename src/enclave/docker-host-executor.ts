@@ -363,7 +363,7 @@ export function createDockerHostEnclaveExecutor(options: DockerHostEnclaveExecut
         const maximum = Math.min(Number(config.maxOutputBytes || HOST_EXECUTOR_MAX_RESULT_BYTES), HOST_EXECUTOR_MAX_RESULT_BYTES);
         const bounded = await readBoundedEnclaveResult(path.join(record.storageTarget, 'out'), plan.schema, maximum);
         result = bounded === undefined ? { outcome: 'schema-failure' } : { outcome: 'success', result: bounded };
-      }
+      } else result = { outcome: 'executor-failure', recoverableFailure: true, cleanupComplete: true };
     } catch {
       result = { outcome: signal.aborted ? 'cancelled' : 'executor-failure' };
     }

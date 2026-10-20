@@ -167,7 +167,7 @@ disposable fixtures and the final workload identity, not privileged `docker exec
 | Script no-network | `src/enclave/script-runner-spec.test.ts`, `src/cloud-hypervisor/enclave-network.test.ts`, `src/cloud-hypervisor/workload-profile.test.ts` | Deny IPv4/IPv6, DNS, direct IP, proxy and host-service connections. Docker uses `--network none`; Cloud Hypervisor omits NIC and creates only an empty network namespace. NVX enclave checks unavailable. |
 | Agent dedicated proxy and authorized GitHub only | `src/enclave/{agent-runner-spec,github-gateway,preflight}.test.ts`, `src/cloud-hypervisor/enclave-network.test.ts` | Assert exact peer set, deny primary/Squid/internet and unauthorized repo/tool calls; no provider key in workload. VM static GitHub admission remains U even if network profiles validate. |
 | Immutable seed, private invocation state, non-root identity | `src/enclave/{staging,invocation-staging,mount-policy}.test.ts`, `src/cloud-hypervisor/{enclave-export-plan,workload-profile}.test.ts` | Attempt seed/root writes and cross-invocation reads; inspect UID/GID, groups, capabilities and denied host paths. VM profile fixes enclave UID/GID 65534; do not infer live DAC from export metadata. See filesystem contract for remaining identity gaps. |
-| Aggregate storage and resource limits | `src/enclave/execution-policy.test.ts`, runner-spec tests, `src/cloud-hypervisor/{enclave-storage,trusted-enclave-storage}.test.ts` | Multi-file/concurrent/sparse writers across every writable export; memory/process/CPU exhaustion. Privileged storage integration tests are separate from mocked policy evidence. Docker aggregate host-output storage acceptance V; see semantics below. |
+| Aggregate storage and resource limits | `src/enclave/execution-policy.test.ts`, runner-spec tests, `src/cloud-hypervisor/{enclave-storage,trusted-enclave-storage}.test.ts` | Multi-file/concurrent/sparse writers across every writable export; memory/process/CPU exhaustion. Privileged storage integration tests are separate from mocked policy evidence. Docker host-output confinement has real-daemon fixture evidence; live Copilot combinations remain V. See the Docker acceptance scope below. |
 | Canonical bounded results | `src/enclave/invocation-result.test.ts`, `src/bounded-execution/finite-disclosure-*.test.ts`, `src/enclave/host-executor-protocol.test.ts` | Malformed/oversized/non-UTF-8/wrong-schema output, symlink/special-file outputs, private stdout/stderr: only canonical approved result or non-disclosing error may reach primary. |
 | Cleanup before release and recovery | `src/enclave/{runner-lifecycle,host-executor-lifecycle,host-executor-journal,host-executor-broker}.test.ts` | Hold/fail cleanup and verify no success release; kill launcher/broker, restart/reconcile, verify owned resources reaped and unrelated resources untouched. Preserve protected state on uncertain cleanup; no blanket private-directory deletion. |
 | Private-output handling | `src/enclave/{agent-session-artifact,proxy-debug-retention,public-debug}.test.ts`, `src/protected-command-output-capture.test.ts` | No seed/request/session/raw guest output in primary mounts or public artifacts; inspect retained evidence ownership/modes. Public-fixture debug requires trusted positive visibility authorization and is not private-output permission. |
@@ -255,7 +255,7 @@ These are independent controls; none substitutes for another:
 
 Intentional differences above remain until separately reviewed and accepted.
 In particular NVX enclave integration, general Cloud Hypervisor combinations,
-private-repository VM acceptance, Docker aggregate writable-output enforcement,
+private-repository VM acceptance, production Docker primary/enclave combinations,
 and complete live identity/resource/recovery evidence are not supplied by this
 characterization. Shared extraction must preserve supported Docker behavior
 while leaving these restrictions fail closed.
@@ -1104,6 +1104,24 @@ For configured Docker tmpfs capacity `T`, the host writable allocation is also
 `T`; all result, session and runtime binds share that one allocation. Including
 container tmpfs and shared memory, the aggregate is `3T + 64 MiB` for scripts
 and `3T` for agents. These are Docker-derived bounds, not VM storage defaults.
+
+### Docker acceptance scope
+
+`tests/integration/enclave-docker-host.test.ts` provides privileged real-daemon
+evidence on Linux with rootful Docker and cgroup v2. It exercises the audited
+script and agent entrypoints, substituting a local fixture for Copilot only.
+It verifies effective non-root identity, read-only seed/rootfs mounts, no-network
+scripts, the exact dedicated agent network, configured memory/PID limits and CPU
+quota, and one kernel-bounded allocation across output, session and runtime binds.
+Concurrent sparse writers exhaust that shared capacity with `ENOSPC`.
+Cancellation and SIGKILL orphan recovery remove verified containers and mounts;
+private-output sentinels and invalid results are not released. The authenticated
+broker client also exercises cleanup-before-settlement against real Docker.
+
+This is not live Copilot/provider or compiler-issued GitHub delegation evidence,
+nor acceptance of all primary-plus-enclave combinations. Those live gates remain
+separate; adapter confinement does not establish accounting restart durability.
+The integration test header documents its explicit opt-in invocation.
 
 The Docker host service closes admission and drains enclave execution before
 Compose disconnects gateways, proxies or networks, including with

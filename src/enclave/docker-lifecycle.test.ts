@@ -5,7 +5,7 @@ import { normalizeEnclavesConfig } from '../parsers/enclave-parser';
 import { createDockerHostEnclaveExecutor } from './docker-host-executor';
 import { deriveHostExecutorRunState } from './host-executor-run-state';
 import { startHostExecutorService } from './host-service';
-import { resolveEnclavePaths } from './paths';
+import { deriveEnclaveSeedId, resolveEnclavePaths } from './paths';
 import { getEnclaveHostDynamicAuthority } from './dynamic-delegation';
 import type { HostEnclaveExecutorBackend, HostExecutorInvocationPlan, HostExecutorServer } from './host-executor-server';
 import { typedDynamicEnclavePolicyFixture } from './dynamic-policy.test-utils';
@@ -199,7 +199,10 @@ describe('Docker enclave host run lifecycle', () => {
   it('takes static GitHub identity custody at startup instead of giving the broker its file', async () => {
     config.enclaves = normalizeEnclavesConfig([{
       agent: { model: 'trusted-model', github: { cli: 'issues-read-v1' } },
-      repos: [{ repo: 'octo/private', sensitivity: 'internal' }],
+      repos: [
+        { repo: 'Octo/Private', sensitivity: 'internal' },
+        { repo: 'octo/other', sensitivity: 'internal' },
+      ],
     }]);
     jest.mocked(deriveDockerEnclaveRunnerConfig).mockReturnValueOnce({ githubEnabled: true });
     const paths = resolveEnclavePaths(directory);
@@ -210,8 +213,19 @@ describe('Docker enclave host run lifecycle', () => {
     fs.writeFileSync(paths.githubAgentIdPath, 'different-identity-after-startup');
     const options = jest.mocked(createDockerHostEnclaveExecutor).mock.calls[0][0];
     expect(await options.resolveAgentAuthority!({
+      entryId: 'agent', seedId: deriveEnclaveSeedId(runId, 'octo/private'),
+    } as HostExecutorInvocationPlan, new AbortController().signal))
+      .toEqual({ githubAgentId: identity, repository: 'octo/private' });
+    expect(await options.resolveAgentAuthority!({
+      entryId: 'agent', seedId: deriveEnclaveSeedId(runId, 'octo/other'),
+    } as HostExecutorInvocationPlan, new AbortController().signal))
+      .toEqual({ githubAgentId: identity, repository: 'octo/other' });
+    await expect(options.resolveAgentAuthority!({
+      entryId: 'agent', seedId: deriveEnclaveSeedId(runId, 'wrong/target'),
+    } as HostExecutorInvocationPlan, new AbortController().signal)).rejects.toThrow(/trusted seed catalog/);
+    await expect(options.resolveAgentAuthority!({
       entryId: 'agent',
-    } as HostExecutorInvocationPlan, new AbortController().signal)).toEqual({ githubAgentId: identity });
+    } as HostExecutorInvocationPlan, new AbortController().signal)).rejects.toThrow(/trusted seed catalog/);
     await stopDockerEnclaveLifecycle(config);
   });
 
@@ -409,7 +423,9 @@ describe('Docker enclave host run lifecycle', () => {
       invocationId: 'b'.repeat(32), selector: 'octo/private', schemaHash: 'e'.repeat(64),
     } as HostExecutorInvocationPlan;
     expect(await backend.execute(plan, new AbortController().signal))
-      .toEqual({ outcome: 'executor-failure' });
+      .toEqual(admission === 'denied'
+        ? { outcome: 'executor-failure', recoverableFailure: true, cleanupComplete: true }
+        : { outcome: 'executor-failure' });
     expect(execute).not.toHaveBeenCalled();
     expect(service.settle).toHaveBeenCalledWith(expect.objectContaining({
       invocationId: plan.invocationId, outcome: 'agent-failure', outputBytes: 0,

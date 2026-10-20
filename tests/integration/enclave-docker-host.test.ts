@@ -16,6 +16,8 @@ import { randomBytes } from 'crypto';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
+import { serializeFiniteSchema } from '../../src/bounded-execution/finite-schema';
+import { finiteSchemaHash } from '../../src/bounded-execution/schema-hash';
 import {
   createDockerHostEnclaveExecutor, type DockerHostExecutorEntry, type DockerHostEnclaveExecutorBackend,
 } from '../../src/enclave/docker-host-executor';
@@ -65,12 +67,15 @@ import errno, json, os, socket, time
 from pathlib import Path
 assert (os.geteuid(), os.getegid()) == (65534, 65534)
 assert Path("/awf/seed/private.txt").read_text() == ${JSON.stringify(sentinel)}
+mounts = {fields[1]: fields[3].split(",") for fields in
+          (line.split() for line in Path("/proc/mounts").read_text().splitlines())}
+assert "ro" in mounts["/"] and "ro" in mounts["/awf/seed"]
 for target in ["/awf/seed/private.txt", "/etc/passwd"]:
     try:
         with open(target, "ab") as f: f.write(b"x")
         raise AssertionError("readonly mutation succeeded")
     except OSError as e:
-        assert e.errno == errno.EROFS
+        assert e.errno in (errno.EROFS, errno.EACCES)
 assert "NoNewPrivs:\\t1" in Path("/proc/self/status").read_text()
 assert "CapEff:\\t0000000000000000" in Path("/proc/self/status").read_text()
 assert Path("/sys/fs/cgroup/memory.max").read_text().strip() == str(128 * 1024 * 1024)
@@ -138,7 +143,7 @@ acceptance('Docker host enclave adapter: REAL daemon acceptance', () => {
         execFile('docker', [...args], { signal, timeout: 30_000, maxBuffer: 1024 * 1024 }, (error, stdout, stderr) => {
           const exitCode = error ? typeof error.code === 'number' ? error.code : 1 : 0;
           commandTrace.push(`${JSON.stringify(args)} => ${exitCode} ${stderr}`);
-          if (args[0] === 'inspect' && exitCode === 0) {
+          if (args[0] === 'container' && args[1] === 'inspect' && exitCode === 0) {
             const inspected = JSON.parse(stdout)[0];
             if (inspected.State.Status === 'exited' && !inspected.Name.endsWith('-probe')) {
               exitedStates.set(inspected.Config.Labels['awf.enclave.invocation'], inspected.State);
@@ -459,6 +464,70 @@ time.sleep(120)
     await assertGone(invocation);
   });
 
+  test.each(['timeout', 'broker-loss', 'shutdown'] as const)(
+    'host %s drains a real Docker workload before releasing private storage',
+    async (reason) => {
+      const invocation = plan('script', `
+import time
+from pathlib import Path
+Path("/awf/out").write_text(${JSON.stringify(sentinel)})
+time.sleep(120)
+`);
+      const hostInvocation = {
+        ...invocation,
+        invocationHostDir: path.join(directory, 'invocations', 'script', invocation.invocationId),
+      };
+      const server = await startHostExecutorServer({
+        runtimeDir: path.join(directory, `ipc-${reason}`),
+        statusLeaseMs: reason === 'broker-loss' ? 6_000 : 30_000,
+        runState: {
+          runId, seedsDir: path.dirname(seed), invocationsDir: path.join(directory, 'invocations'),
+          journalDir: path.join(directory, `protocol-journal-${reason}`),
+          entries: [{
+            entryId: 'script', executorKind: 'script', timeoutMs: reason === 'timeout' ? 6_000 : 30_000,
+            staticSeedIds: [seedId], dynamicAgents: false,
+          }],
+        },
+        backend: backend(),
+      });
+      try {
+        const { createHostExecutorClient } = require('../../containers/enclave/mcp-server/host-executor-client');
+        const client = createHostExecutorClient({
+          socketPath: server.socketPath, capabilityPath: server.capabilityPath, runId,
+        });
+        const wireSchema = serializeFiniteSchema(schema);
+        expect(await client.invoke({
+          entryId: 'script', invocationId: invocation.invocationId, executorKind: 'script',
+          seedId, payload: invocation.payload, schema: wireSchema,
+          schemaHash: finiteSchemaHash(wireSchema), admissionId: invocation.admissionId,
+        })).toMatchObject({ ok: true, state: 'running' });
+        await running(hostInvocation);
+        await until(async () => fs.readFileSync(path.join(hostInvocation.invocationHostDir, 'out'), 'utf8') === sentinel
+          || undefined, 'private output before host interruption');
+        if (reason === 'shutdown') await server.close();
+        else {
+          // No status polling: broker-loss must exercise actual lease expiry.
+          await until(async () => !fs.existsSync(hostInvocation.invocationHostDir) || undefined, 'host-owned cleanup');
+          const status = await until(async () => {
+            const response = await client.status({ entryId: 'script', invocationId: invocation.invocationId });
+            return response.state === 'terminal' ? response : undefined;
+          }, 'terminal after verified cleanup');
+          expect(status).toMatchObject({ ok: true, outcome: reason === 'timeout' ? 'timeout' : 'cancelled' });
+          expect(status).not.toHaveProperty('result');
+          expect(JSON.stringify(status)).not.toContain(sentinel);
+          expect(await client.settle({
+            entryId: 'script', invocationId: invocation.invocationId, resultDigest: status.resultDigest,
+          })).toMatchObject({ ok: true, state: 'settled' });
+        }
+        await assertGone(hostInvocation);
+      } finally {
+        await server.close();
+      }
+      expect(fs.existsSync(server.socketPath)).toBe(false);
+      expect(fs.existsSync(server.capabilityPath)).toBe(false);
+    },
+  );
+
   test('schema-invalid private output and raw script streams are not released', async () => {
     const invocation = plan('script', `
 from pathlib import Path
@@ -481,7 +550,7 @@ Path("/awf/out").write_text('{"passed":true}')
 allocation = bytearray(256 * 1024 * 1024)
 `);
     const result = await backend().execute(invocation, new AbortController().signal);
-    expect(result).toEqual({ outcome: 'executor-failure' });
+    expect(result).toEqual({ outcome: 'executor-failure', recoverableFailure: true, cleanupComplete: true });
     expect(exitedStates.get(invocation.invocationId)).toMatchObject({ OOMKilled: true, ExitCode: 137 });
     await assertGone(invocation);
   });

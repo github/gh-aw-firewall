@@ -3,6 +3,7 @@ import * as path from 'path';
 import type { WrapperConfig } from '../types';
 import { parseImageTag } from '../image-tag';
 import { resolveRuntimeImage } from '../image-resolver';
+import { normalizePrivateRepositoryKey } from '../bounded-execution/repository-staging';
 import { deriveDockerEnclaveRunnerConfig } from '../services/enclave-mcp-service';
 import {
   createDockerHostEnclaveExecutor, type DockerHostAgentAuthority, type DockerHostAuthoritySettlement,
@@ -19,7 +20,7 @@ import { HostExecutorLifecycleRegistry } from './host-executor-lifecycle';
 import { isValidHostExecutorResult } from './host-executor-protocol';
 import { deriveHostExecutorRunState } from './host-executor-run-state';
 import { startHostExecutorService } from './host-service';
-import { readEnclaveRunId, resolveEnclavePaths } from './paths';
+import { deriveEnclaveSeedId, readEnclaveRunId, resolveEnclavePaths } from './paths';
 import { updateEnclaveStartupProgress } from './startup-progress';
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -122,6 +123,10 @@ export async function startDockerEnclaveLifecycle(
           return authority.settlement;
         };
         let githubAgentId: string | undefined;
+        const staticRepositories = new Map(config.enclaves!.privateRepos.map(({ repo }) => {
+          const repository = normalizePrivateRepositoryKey(repo);
+          return [deriveEnclaveSeedId(runState.runId, repository), repository];
+        }));
         if (entries.some((entry) => entry.executorKind === 'agent' && entry.config.githubEnabled)) {
           const fd = fs.openSync(paths.githubAgentIdPath,
             fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW | fs.constants.O_NONBLOCK);
@@ -149,7 +154,10 @@ export async function startDockerEnclaveLifecycle(
               if (!binding) throw new Error('Dynamic enclave admission denied');
               return binding;
             }
-            return githubAgentId ? { githubAgentId } : {};
+            if (!githubAgentId) return {};
+            const repository = plan.seedId && staticRepositories.get(plan.seedId);
+            if (!repository) throw new Error('Static Docker enclave repository is not in the trusted seed catalog');
+            return { githubAgentId, repository };
           },
           settleAgentAuthority: settleAuthority,
         });
@@ -174,6 +182,8 @@ export async function startDockerEnclaveLifecycle(
                     repository: admission.repository, githubBearer: admission.executorBearer,
                     readMode: admission.readMode,
                   };
+                } else {
+                  result = { outcome: 'executor-failure', recoverableFailure: true, cleanupComplete: true };
                 }
               }
               if (plan.selector === undefined || authorities.get(plan.invocationId)?.binding) {
