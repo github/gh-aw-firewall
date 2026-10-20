@@ -18,6 +18,12 @@ import * as os from 'os';
 import * as path from 'path';
 import { serializeFiniteSchema } from '../../src/bounded-execution/finite-schema';
 import { finiteSchemaHash } from '../../src/bounded-execution/schema-hash';
+import { normalizeEnclavesConfig } from '../../src/parsers/enclave-parser';
+import { buildEnclaveMcpService } from '../../src/services/enclave-mcp-service';
+import { parseImageTag } from '../../src/image-tag';
+import { resolveEnclavePaths } from '../../src/enclave/paths';
+import { ENCLAVE_MCP_CONTROL_ALIAS, ENCLAVE_MCP_CONTROL_NETWORK } from '../../src/enclave/network';
+import type { WrapperConfig } from '../../src/types';
 import {
   createDockerHostEnclaveExecutor, type DockerHostExecutorEntry, type DockerHostEnclaveExecutorBackend,
 } from '../../src/enclave/docker-host-executor';
@@ -33,16 +39,17 @@ const root = path.resolve(__dirname, '../..');
 const subprocessEnv = { ...process.env, NODE_DISABLE_COMPILE_CACHE: '1', TSX_DISABLE_CACHE: '1' };
 const image = 'awf-enclave-script:host-acceptance';
 const agentImage = 'awf-enclave-agent:host-acceptance-fixture';
+const brokerImage = 'awf-enclave-mcp-server:host-acceptance';
 const MiB = 1024 * 1024;
 const sentinel = 'PRIVATE-ACCEPTANCE-CONTENT-MUST-NOT-ESCAPE';
 const schema = {
   type: 'object', fields: [{ name: 'passed', schema: { type: 'boolean' } }],
 } as const;
 
-function docker(args: string[], input?: string): Promise<string> {
+function docker(args: string[], input?: string, timeout = 180_000): Promise<string> {
   return new Promise((resolve, reject) => {
     const child = execFile('docker', args, {
-      cwd: root, timeout: 180_000, maxBuffer: 1024 * 1024,
+      cwd: root, timeout, maxBuffer: 1024 * 1024,
     }, (error, stdout, stderr) => {
       if (error) reject(new Error(`docker ${args[0]} failed: ${stderr}`));
       else resolve(stdout.trim());
@@ -129,9 +136,10 @@ acceptance('Docker host enclave adapter: REAL daemon acceptance', () => {
     return { runId, journalDir, entries: [entry('script'), entry('agent')] };
   }
 
-  function backend(): DockerHostEnclaveExecutorBackend {
+  function backend(kinds: readonly ('script' | 'agent')[] = ['script', 'agent']): DockerHostEnclaveExecutorBackend {
     const value = createDockerHostEnclaveExecutor({
       ...options(),
+      entries: kinds.map(entry),
       // Observe actual daemon commands; no Docker response is mocked or rewritten.
       dockerCommand: (args, signal) => new Promise((resolve) => {
         if (args[0] === 'rm') {
@@ -262,6 +270,8 @@ acceptance('Docker host enclave adapter: REAL daemon acceptance', () => {
       '',
     ].join('\n');
     await docker(['build', '-f', '-', '-t', agentImage, 'containers'], dockerfile);
+    await docker(['build', '--target', 'enclave-mcp-server', '-f', 'containers/enclave/Dockerfile',
+      '-t', brokerImage, 'containers']);
     await docker(['network', 'create', '--internal', '--subnet', '172.31.0.0/24', network]);
     networkCreated = true;
     proxyId = await docker([
@@ -368,6 +378,166 @@ time.sleep(2)
     expect(fs.existsSync(server.socketPath)).toBe(false);
     expect(fs.existsSync(server.capabilityPath)).toBe(false);
   });
+
+  test.each(['script', 'agent', 'both'] as const)(
+    'generated %s broker container executes through host IPC without Docker or seed-tree custody',
+    async (mode) => {
+      const kinds: ('script' | 'agent')[] = mode === 'both' ? ['script', 'agent'] : [mode];
+      const workDir = path.join(directory, `broker-${mode}`);
+      fs.mkdirSync(workDir, { mode: 0o700 });
+      const paths = resolveEnclavePaths(workDir);
+      const config: WrapperConfig = {
+        workDir, enableApiProxy: true, allowedDomains: [],
+        agentCommand: 'true', logLevel: 'error', keepContainers: false,
+        enclaves: normalizeEnclavesConfig(kinds.map((kind) => ({
+          ...(kind === 'script' ? { script: {} } : { agent: { model: 'confinement-fixture' } }),
+          image: kind === 'script' ? image : agentImage,
+          timeout: 10, repos: [{ repo: 'fixture/private', sensitivity: 'internal' }],
+        }))),
+      };
+      fs.mkdirSync(paths.root, { mode: 0o700 });
+      fs.mkdirSync(paths.runDir, { recursive: true, mode: 0o700 });
+      for (const target of [paths.controlDir, paths.auditDir]) fs.mkdirSync(target, { mode: 0o700 });
+      fs.writeFileSync(paths.runIdPath, runId, { mode: 0o600 });
+      fs.writeFileSync(paths.capabilityPath, randomBytes(32).toString('hex'), { mode: 0o600 });
+      fs.writeFileSync(paths.seedMapPath, JSON.stringify({
+        version: 2, runId, seeds: [{ repo: 'fixture/private', seedId, sensitivity: 'internal' }],
+      }), { mode: 0o600 });
+      const server = await startHostExecutorServer({
+        runtimeDir: paths.hostExecutorDir,
+        runState: {
+          runId, seedsDir: path.dirname(seed), invocationsDir: path.join(workDir, 'invocations'),
+          journalDir: path.join(workDir, 'protocol-journal'),
+          entries: kinds.map((kind) => ({
+            entryId: kind, executorKind: kind, timeoutMs: 10_000, staticSeedIds: [seedId], dynamicAgents: false,
+          })),
+        },
+        backend: backend(kinds),
+      });
+      const project = `awf-broker-${randomBytes(6).toString('hex')}`;
+      const controlNetwork = `${project}-control`;
+      const composePath = path.join(workDir, 'compose.json');
+      const compose = ['compose', '-p', project, '-f', composePath];
+      const rpcContainers = new Set<string>();
+      const cleanupBroker = async () => {
+        const cleanupErrors: unknown[] = [];
+        try { await server.close(); } catch (error) { cleanupErrors.push(error); }
+        for (const name of rpcContainers) {
+          try {
+            const remaining = await docker(['ps', '-aq', '--filter', `name=^/${name}$`], undefined, 10_000);
+            if (remaining) await docker(['rm', '-f', name], undefined, 10_000);
+          } catch (error) { cleanupErrors.push(error); }
+        }
+        if (fs.existsSync(composePath)) {
+          try { await docker([...compose, 'down', '--volumes', '--remove-orphans'], undefined, 30_000); }
+          catch (error) { cleanupErrors.push(error); }
+        }
+        if (cleanupErrors.length) throw cleanupErrors[0];
+        if (fs.readFileSync('/proc/self/mountinfo', 'utf8').includes(workDir)) {
+          throw new Error('Broker acceptance storage remains mounted; retain private recovery state');
+        }
+        fs.rmSync(paths.root, { recursive: true });
+        fs.rmSync(paths.ingressRoot, { recursive: true });
+      };
+      try {
+        const { service } = buildEnclaveMcpService({
+          config,
+          imageConfig: {
+            useGHCR: true, registry: 'unused.invalid', parsedTag: parseImageTag('latest'),
+            projectRoot: root, resolveImage: () => brokerImage,
+          },
+          networkConfig: {
+            subnet: '172.30.0.0/24', squidIp: '172.30.0.10', agentIp: '172.30.0.20', proxyIp: '172.30.0.30',
+          },
+        });
+        // Images and the dedicated proxy are real, already-running fixtures.
+        // This gate covers broker wiring, not production dependency startup.
+        fs.writeFileSync(composePath, JSON.stringify({
+          services: { broker: { ...service, container_name: `${project}-broker`, depends_on: undefined } },
+          networks: { [ENCLAVE_MCP_CONTROL_NETWORK]: { name: controlNetwork, internal: true } },
+        }), { mode: 0o600 });
+        await docker([...compose, 'up', '-d', '--wait', '--wait-timeout', '60'], undefined, 75_000);
+        const inspected = JSON.parse(await docker(['inspect', `${project}-broker`], undefined, 10_000))[0];
+        expect(Object.keys(inspected.NetworkSettings.Networks)).toEqual([controlNetwork]);
+        const brokerNetwork = inspected.NetworkSettings.Networks[controlNetwork];
+        expect(brokerNetwork.Aliases).toContain(ENCLAVE_MCP_CONTROL_ALIAS);
+        const destinations = inspected.Mounts.map((mount: { Destination: string }) => mount.Destination);
+        expect(destinations).toContain('/run/awf-enclave-host-executor');
+        expect(destinations).not.toContain('/var/run/docker.sock');
+        expect(destinations).not.toContain('/srv/awf/seeds');
+        expect(destinations).not.toContain('/srv/awf/work');
+        expect(inspected.Mounts.find((mount: { Destination: string }) => mount.Destination === '/run/awf-enclave-host-executor'))
+          .toMatchObject({ RW: false });
+        expect(await docker(['exec', `${project}-broker`, 'node', '-e',
+          'const fs=require("fs");' +
+          `for(const p of ${JSON.stringify(['/var/run/docker.sock', seed, `/srv/awf/seeds/${seedId}`])})` +
+          '{if(fs.existsSync(p))process.exit(1)};' +
+          'for(const p of ["/srv/awf/seeds","/srv/awf/work"])' +
+          '{if(fs.readdirSync(p).length)process.exit(1)};console.log("no-private-launch-custody")',
+        ], undefined, 10_000)).toBe('no-private-launch-custody');
+
+        const rpc = async (method: string, params: Record<string, unknown>, authorized = true) => {
+          const request = { jsonrpc: '2.0', id: 1, method, params };
+          const timeout = method === 'tools/call' ? 75_000 : 10_000;
+          const script = 'const fs=require("fs");' +
+            `fetch("http://${brokerNetwork.IPAddress}:8080/mcp",{method:"POST",headers:{` +
+            '"content-type":"application/json",' +
+            (authorized ? 'authorization:"Bearer "+fs.readFileSync("/auth-token","utf8"),' : '') +
+            // The 10-second workload budget pads to the 60-second public timing bucket.
+            `},body:JSON.stringify(${JSON.stringify(request)}),signal:AbortSignal.timeout(${timeout})})` +
+            '.then(async r=>console.log(JSON.stringify({status:r.status,body:await r.json()})))' +
+            `.catch(error=>{console.error(${JSON.stringify(method)},error.cause?.code||error.name);process.exit(1)})`;
+          const name = `${project}-rpc-${randomBytes(4).toString('hex')}`;
+          rpcContainers.add(name);
+          const response = await docker([
+            'run', '--rm', '--name', name, '--network', controlNetwork, '--cap-drop', 'ALL',
+            '--security-opt', 'no-new-privileges:true', '--read-only',
+            '-v', `${paths.capabilityPath}:/auth-token:ro`,
+            '--entrypoint', 'node', brokerImage, '-e', script,
+          ], undefined, timeout + 5_000);
+          rpcContainers.delete(name);
+          return JSON.parse(response);
+        };
+        expect(await rpc('tools/list', {}, false)).toMatchObject({ status: 401 });
+        const listed = await rpc('tools/list', {});
+        expect(listed.status).toBe(200);
+        expect(listed.body.result.tools.map((tool: { name: string }) => tool.name).sort())
+          .toEqual(kinds.map((kind) => `enclave_run_${kind}`).sort());
+        for (const kind of kinds) {
+          const payload = `
+from pathlib import Path
+assert Path("/awf/seed/private.txt").read_text() == ${JSON.stringify(sentinel)}
+Path("/awf/out").write_text('{"passed":true}')
+print(${JSON.stringify(sentinel)}, flush=True)
+`;
+          const response = await rpc('tools/call', {
+            name: `enclave_run_${kind}`,
+            arguments: {
+              privateRepo: 'fixture/private',
+              schema: serializeFiniteSchema(schema),
+              [kind === 'script' ? 'script' : 'prompt']: payload,
+            },
+          });
+          expect(response.status).toBe(200);
+          expect(response.body.error).toBeUndefined();
+          expect(response.body.result.isError).not.toBe(true);
+          expect(JSON.stringify(response)).not.toContain(sentinel);
+          expect(response.body.result.structuredContent).toEqual({ status: 'ok', result: { passed: true } });
+          expect(response.body.result.content).toEqual([{
+            type: 'text', text: '{"status":"ok","result":{"passed":true}}',
+          }]);
+        }
+        expect(fs.readdirSync(journalDir)).toEqual([]);
+        expect(await docker(['ps', '-aq', '--filter', `label=awf.enclave.run=${runId}`], undefined, 10_000)).toBe('');
+        const audit = fs.readdirSync(paths.auditDir).filter((name) => name.endsWith('.jsonl'))
+          .map((name) => fs.readFileSync(path.join(paths.auditDir, name), 'utf8')).join('\n');
+        expect(audit).not.toContain(sentinel);
+      } finally {
+        await cleanupBroker();
+      }
+    },
+    480_000,
+  );
 
   test('agent fixture: audited entrypoint, dedicated network only, bounded output/session/agent binds and private transcript', async () => {
     const invocation = plan('agent', confinement + `

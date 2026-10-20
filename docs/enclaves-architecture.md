@@ -1119,6 +1119,17 @@ SIGKILL orphan recovery remove verified containers and mounts; private-output
 sentinels and invalid results are not released. The authenticated broker client
 also exercises cleanup-before-settlement against real Docker.
 
+Script-only, agent-only and combined-role cases additionally start the real
+broker image from its generated Compose service, call its authenticated MCP
+endpoint from a separate control-network client, and execute through the host
+socket. They verify that the broker has neither a Docker socket nor seed/work
+tree mounts, while retaining the seed metadata needed for admission. Both role
+calls return only the canonical result; protected broker audit streams exclude
+the synthetic private-output sentinel. Images and the dedicated proxy are
+prestarted fixtures, so these cases do not validate production dependency startup.
+These clients use the inspected broker IP; compiler gateway alias resolution
+remains a separate acceptance gate.
+
 This is not live Copilot/provider or compiler-issued GitHub delegation evidence,
 nor acceptance of all primary-plus-enclave combinations. Those live gates remain
 separate; adapter confinement does not establish accounting restart durability.
