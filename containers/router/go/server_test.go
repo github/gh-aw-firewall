@@ -5,7 +5,6 @@ import (
 	"encoding/json/v2"
 	"io"
 	"log/slog"
-	"maps"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -647,6 +646,19 @@ func TestHTTPBodyLimit(t *testing.T) {
 		serveRequest(t, s, http.MethodPost, "/route", map[string]string{"Content-Type": "application/json"}, body).
 			wantError(t, 413, CodePayloadTooLarge)
 	}
+	// Other paths answer without reading a chunked upload, unlike Python, which
+	// buffers every POST, PUT and PATCH body first.
+	for _, c := range []struct {
+		method, path string
+		status       int
+		code         ErrorCode
+	}{
+		{"POST", "/healthz", 405, CodeMethodNotAllowed},
+		{"PUT", "/capabilities", 405, CodeMethodNotAllowed},
+		{"PATCH", "/missing", 404, CodeNotFound},
+	} {
+		serveRequest(t, s, c.method, c.path, nil, chunked{bytes.NewReader(tooLarge)}).wantError(t, c.status, c.code)
+	}
 	// A body exactly at the limit is served.
 	payload := marshal(t, planningPayload("route"))
 	exact := append(payload, bytes.Repeat([]byte(" "), maxBodyBytes-len(payload))...)
@@ -822,8 +834,13 @@ func TestHTTPRequestDataNeverReachesResponsesOrLogs(t *testing.T) {
 			header["Content-Type"] = contentType
 		}
 		r := serveRequest(t, s, method, target, header, bytes.NewReader(body))
-		if strings.Contains(string(r.body), canary) || strings.Contains(strings.Join(slices.Collect(maps.Keys(r.header)), ","), canary) {
+		if strings.Contains(string(r.body), canary) {
 			t.Errorf("%s %s echoes the canary: %s", method, target, r.body)
+		}
+		for name, values := range r.header {
+			if strings.Contains(name, canary) || strings.Contains(strings.Join(values, ","), canary) {
+				t.Errorf("%s %s echoes the canary in a header: %s: %v", method, target, name, values)
+			}
 		}
 	}
 	text := planningPayload("route")

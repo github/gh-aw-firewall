@@ -411,15 +411,19 @@ listed in the parity corpus's decisions table. `FuzzDecodeRouteRequest`, `FuzzPa
 #### Go `serve`
 
 `serve` takes the same `--bind` and `--log-level` options and environment variables as the
-Python CLI. The bind port must be ASCII digits from 1 through 65535, and an invalid log level
-from either source is a usage error. Startup loads and validates the tables (exit 2 on
+Python CLI. An empty environment variable counts as unset. The bind port must be ASCII digits
+from 1 through 65535, and an invalid log level from either source is a usage error. Startup
+loads and validates the tables (exit 2 on
 failure), checks the bind address (exit 2), then listens (exit 1 if that fails).
 
 The server uses Go's `net/http` as it is, and keeps the endpoints, success bodies and error
 envelopes of the Python service:
 
 - At most 64 requests are in flight, `/healthz` included. Further requests get a bare 503.
-- A declared or streamed body over 1,048,576 bytes gets 413 `payload_too_large`.
+- A body whose `Content-Length` is over 1,048,576 bytes gets 413 `payload_too_large` on any
+  path. A chunked body is counted as `/v1/route` and `/v1/classify` read it, and gets the same
+  413 once it passes the limit. Other paths answer without reading the upload, so an
+  oversized chunked `POST /healthz` gets their usual 405 or 404.
 - Headers must arrive within 10 s, and the whole request within 30 s. The response must be
   written within 30 s, and an idle keep-alive connection closes after 5 s. A request past
   these limits has its connection closed; there's no 504 `request_timeout`.
