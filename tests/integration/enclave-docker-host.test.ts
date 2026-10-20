@@ -94,10 +94,10 @@ assert os.statvfs("/tmp").f_blocks * os.statvfs("/tmp").f_frsize == 8 * 1024 * 1
 
 acceptance('Docker host enclave adapter: REAL daemon acceptance', () => {
   const runId = randomBytes(16).toString('hex');
-  const directory = path.join(os.tmpdir(), `awf-e-${runId}`);
+  let directory = '';
   const seedId = 'a'.repeat(32);
-  const seed = path.join(directory, 'seeds', seedId);
-  const journalDir = path.join(directory, 'journal');
+  let seed = '';
+  let journalDir = '';
   const network = `awf-enclave-acceptance-${randomBytes(5).toString('hex')}`;
   const backends: HostEnclaveExecutorBackend[] = [];
   const children: ChildProcess[] = [];
@@ -252,7 +252,9 @@ acceptance('Docker host enclave adapter: REAL daemon acceptance', () => {
       throw new Error('Real host tmpfs acceptance requires root with CAP_SYS_ADMIN, CAP_CHOWN and CAP_DAC_OVERRIDE.');
     }
     expect(await docker(['version', '--format', '{{.Server.Os}}'])).toBe('linux');
-    fs.mkdirSync(directory, { mode: 0o700 });
+    directory = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-e-'));
+    seed = path.join(directory, 'seeds', seedId);
+    journalDir = path.join(directory, 'journal');
     fs.mkdirSync(seed, { recursive: true, mode: 0o755 });
     fs.mkdirSync(path.join(directory, 'invocations'), { mode: 0o700 });
     fs.writeFileSync(path.join(seed, 'private.txt'), sentinel, { mode: 0o444 });
@@ -294,7 +296,7 @@ acceptance('Docker host enclave adapter: REAL daemon acceptance', () => {
       try { await docker(['network', 'rm', network]); } catch (error) { errors.push(error); }
     }
     // Never recursively delete a surviving invocation mount after uncertain cleanup.
-    if (fs.existsSync(directory)) {
+    if (directory && fs.existsSync(directory)) {
       const mounts = fs.readFileSync('/proc/self/mountinfo', 'utf8');
       if (mounts.includes(directory)) throw new Error('Acceptance storage still mounted; retain evidence for recovery.');
       fs.rmSync(directory, { recursive: true, force: true });

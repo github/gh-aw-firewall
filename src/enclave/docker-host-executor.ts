@@ -299,7 +299,7 @@ export function createDockerHostEnclaveExecutor(options: DockerHostEnclaveExecut
     };
     authorityState.resourcesPossible = true;
     journal.write(record, true);
-    let result: HostExecutorBackendResult = { outcome: 'executor-failure' };
+    let result: HostExecutorBackendResult;
     try {
       try {
         record.mount = await mountDockerHostStorage(record.storageTarget, record.storageSource, record.storageBytes);

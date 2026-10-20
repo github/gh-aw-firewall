@@ -96,9 +96,14 @@ describe('Docker enclave host run lifecycle', () => {
       config, resolveEnclavePaths(directory), 'Docker enclave', { dynamicAgents: true },
     );
     const seccompPath = path.join(resolveEnclavePaths(directory).root, 'docker-enclave-seccomp.json');
-    expect(fs.statSync(seccompPath).mode & 0o777).toBe(0o400);
-    expect(JSON.parse(fs.readFileSync(seccompPath, 'utf8')))
-      .toEqual(jest.requireActual('../../containers/enclave/seccomp.json'));
+    const seccompFile = fs.openSync(seccompPath, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
+    try {
+      expect(fs.fstatSync(seccompFile).mode & 0o777).toBe(0o400);
+      expect(JSON.parse(fs.readFileSync(seccompFile, 'utf8')))
+        .toEqual(jest.requireActual('../../containers/enclave/seccomp.json'));
+    } finally {
+      fs.closeSync(seccompFile);
+    }
     await expect(assertDockerEnclaveLifecycleReady(config)).resolves.toBeUndefined();
     expect(createDockerHostEnclaveExecutor).toHaveBeenCalledWith(expect.objectContaining({
       dockerSocketPath: '/run/trusted-docker.sock',
