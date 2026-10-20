@@ -218,13 +218,15 @@ These are independent controls; none substitutes for another:
   create a free retry channel. Re-admission never refills a repository balance.
 - `maxInvocations` is an executor-local response/admission counter, not just a
   successful-launch count: handler rejections also consume it. Optional run-wide
-  `rateLimiting.maxNumToolCalls` counts attempted calls across both tools, including invalid, failed
-  and busy-lane calls, and persists across broker restarts. Exhaustion has its
-  existing explicit in-band cap message; it is not the generic private error.
-  The shared single-call admission lane prevents simultaneous private queries.
-  The information ledger and executor invocation counter are in-memory broker
-  state; durable tool-call accounting does not prove durable disclosure or
-  invocation accounting. Cross-restart preservation of those balances remains V.
+  `rateLimiting.maxNumToolCalls` counts attempted calls across both tools, including
+  invalid, failed and busy-lane calls. Successfully persisted counts are restored
+  for the same run, but persistence is best-effort: write failures only warn, and
+  unreadable or corrupt state starts at zero, so a restart can refill the cap.
+  Exhaustion has its existing explicit in-band cap message; it is not the generic
+  private error. The shared single-call admission lane prevents simultaneous
+  private queries. The information ledger and executor invocation counter are
+  in-memory broker state; cross-restart preservation of those balances remains V.
+  Tool-call accounting also lacks a fail-closed persistence guarantee.
 - Optional model-request/token limits are enforced by the dedicated API proxy
   using invocation-bound capabilities and conservative reservations/accounting;
   the guest receives no signing secret/provider credential. Missing usage is
