@@ -94,7 +94,7 @@ export function applyGeneralWorkflowPatches(
 
   if (workflowPath.endsWith('smoke-enclave-issues-read.lock.yml')) {
     const original = content;
-    // v2 issue_read envelopes are incompatible with this smoke's v0.4.15 guard.
+    // v2 issue_read envelopes are incompatible with this smoke's gateway guard.
     // Keep the last-green flat-response server without weakening approved integrity.
     const githubImage = 'ghcr.io/github/github-mcp-server:v1.12.2';
     const githubDigest = 'sha256:508a0857ec762b1ab1cece29193345b501fab1dd9d1228a7b617062954cecac6';

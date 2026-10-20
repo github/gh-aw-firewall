@@ -1087,13 +1087,60 @@ describe('smoke enclave issues workflow', () => {
     expect(lock).toContain('--exclude-env MCP_GATEWAY_API_KEY');
   });
 
-  it('tests the local AWF implementation with mcpg v0.4.15', () => {
-    expect(lock).toContain('ghcr.io/github/gh-aw-mcpg:v0.4.15');
+  it('tests the local AWF implementation with mcpg v0.4.36', () => {
+    expect(lock).toContain('ghcr.io/github/gh-aw-mcpg:v0.4.36');
     expect(lock).toContain('Install awf binary (local)');
     expect(lock).toContain('--build-local');
     expect(lock).not.toMatch(
       /download_docker_images\.sh[^\n]*ghcr\.io\/github\/gh-aw-firewall\/enclave-(?:agent|mcp-server)/
     );
+  });
+
+  it('accepts the emitted stdio image under the pinned gateway container schema', () => {
+    const frontmatter = yaml.load(source.split('---')[1]) as {
+      sandbox: { mcp: { version: string } };
+    };
+    const compiled = yaml.load(lock) as {
+      jobs: { agent: { steps: Array<{ name: string; run?: string }> } };
+    };
+    const gateway = compiled.jobs.agent.steps.find(step =>
+      step.name === 'Start MCP Gateway')?.run;
+    const images = Array.from(gateway?.matchAll(/"container": "([^"]+)"/g) ?? [],
+      match => match[1]);
+    // Exact container subschemas from internal/config/schema/mcp-gateway-config.schema.json
+    // at github/gh-aw-mcpg v0.4.15 and v0.4.36 (fix: github/gh-aw-mcpg#15212).
+    const legacyPattern = '^[a-zA-Z0-9][a-zA-Z0-9./_-]*(:([a-zA-Z0-9._-]+|latest))?$';
+    const digestPattern =
+      '^[a-zA-Z0-9][a-zA-Z0-9./_-]*(:([a-zA-Z0-9._-]+|latest))?(@sha256:[a-fA-F0-9]{64})?$';
+    const ajv = new Ajv();
+    const legacy = ajv.compile({ type: 'string', minLength: 1, pattern: legacyPattern });
+    const compatible = ajv.compile({ type: 'string', minLength: 1, pattern: digestPattern });
+    expect(frontmatter.sandbox.mcp.version).toBe('v0.4.36');
+    const gatewayImage = `ghcr.io/github/gh-aw-mcpg:${frontmatter.sandbox.mcp.version}`;
+    const gatewayDigest = 'sha256:b4d2856018959c798b3e3f81ae4ab5b275e06354e123e1f7971de931f2f450f2';
+    const pinnedGateway = `${gatewayImage}@${gatewayDigest}`;
+    const manifest = JSON.parse(lock.match(/^# gh-aw-manifest: (.+)$/m)![1]) as {
+      containers: Array<{ image: string; digest: string; pinned_image: string }>;
+    };
+    expect(manifest.containers.filter(container => container.image === gatewayImage))
+      .toEqual([{ image: gatewayImage, digest: gatewayDigest, pinned_image: pinnedGateway }]);
+    expect(gateway).toContain(pinnedGateway);
+    expect(compiled.jobs.agent.steps.find(step =>
+      step.name === 'Download container images')?.run).toContain(pinnedGateway);
+    const pins = JSON.parse(fs.readFileSync(
+      path.join(workflowsDir, '..', 'aw', 'actions-lock.json'), 'utf8')) as {
+      containers: Record<string, { pinned_image: string }>;
+    };
+    expect(pins.containers[gatewayImage].pinned_image).toBe(pinnedGateway);
+    expect(images).toHaveLength(2);
+    const githubImage = images.find(image =>
+      image.startsWith('ghcr.io/github/github-mcp-server:'));
+    if (!githubImage) throw new Error('Generated gateway configuration lacks the GitHub stdio image');
+    expect(legacy(githubImage)).toBe(false);
+    for (const image of images) expect(compatible(image)).toBe(true);
+    expect(compatible(githubImage.slice(0, -1))).toBe(false);
+    expect(compatible(githubImage.replace(/.$/, 'g'))).toBe(false);
+    expect(compatible(githubImage.replace('@sha256:', '@sha512:'))).toBe(false);
   });
 
   it('pins the last-green flat-response GitHub server in runtime and manifest', () => {
@@ -1127,7 +1174,7 @@ describe('smoke enclave issues workflow', () => {
   });
 
   it('rejects v2 envelopes even when the nested issue author is approved', () => {
-    // mcpg v0.4.15 labels the returned object itself, not a nested "issue".
+    // The pinned gateway labels the returned object itself, not a nested "issue".
     const ajv = new Ajv();
     const issue = ajv.compile({
       type: 'object',
