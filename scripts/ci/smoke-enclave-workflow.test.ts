@@ -20,9 +20,9 @@ function countOccurrences(content: string, value: string): number {
 
 describe('experimental Cloud Hypervisor enclave smoke workflow', () => {
   const compilerVersion =
-    'v0.92.5';
+    'v0.92.6';
   const setupAction =
-    'github/gh-aw-actions/setup@ebb97091a4afcc9bf2d594071dbabe861e9a34fc';
+    'github/gh-aw-actions/setup@8b9c5e98dfe3472ac4e3f13e0a2441cd078a2ca7';
   const source = fs.readFileSync(
     path.join(workflowsDir, 'smoke-enclave-cloud-hypervisor.md'), 'utf8'
   );
@@ -608,7 +608,7 @@ describe('experimental Cloud Hypervisor enclave smoke workflow', () => {
     expect(source).toContain('consumes the host-only `AWF_RESOLVED_CONFIG` path');
     expect(source).toContain('successful privileged cleanup');
     expect(source).toContain('Do not copy raw\nresolved JSON into normal artifact paths');
-    expect(source).toContain('official gh-aw v0.92.5 prerelease');
+    expect(source).toContain('official gh-aw v0.92.6 prerelease');
     expect(source).toContain(compilerVersion);
     expect(steps.some(step =>
       step.uses === setupAction

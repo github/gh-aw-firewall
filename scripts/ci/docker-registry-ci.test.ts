@@ -193,49 +193,47 @@ print(json.dumps({'live': sorted(live), 'archives': sorted(archives), 'cache': s
     const steps = jobs('supply-chain-scan.yml').scan.steps;
     const checkout = steps.findIndex((step) => step.with?.repository === 'github/gh-aw');
     const install = steps.findIndex(
-      (step) => step.name === 'Install NVX-aware gh-aw',
+      (step) => step.name === 'Install patched gh-aw v0.92.6',
     );
-    const compile = steps.findIndex((step) => step.run === 'gh aw compile --syft .github/workflows/*.md');
+    const compile = steps.findIndex((step) =>
+      step.run === 'gh aw compile --syft --action-mode action --action-tag v0.92.6 .github/workflows/*.md');
     expect(checkout).toBeGreaterThanOrEqual(0);
     expect(install).toBeGreaterThan(checkout);
     expect(compile).toBeGreaterThan(install);
     expect(steps[checkout].uses).toMatch(/^actions\/checkout@[a-f0-9]{40}$/);
     expect(steps[checkout].with).toEqual({
       repository: 'github/gh-aw',
-      ref: '6cc24f363363eedf2e405a31ec39495508c0c07f',
+      ref: '7363a87ff2483635af62f490b52c25a757a50221',
       path: '.tmp/gh-aw-compiler',
       'persist-credentials': false,
     });
     expect(steps[install].run).toContain('-C .tmp/gh-aw-compiler');
     const build = steps[install].run!;
-    expect(build).toContain('https://github.com/github/gh-aw/commit/2b19ccffd0694750e8e2bdcb20bf882e9bb440f2.patch');
-    expect(build).toContain('9ae4b02273385b3a9e884085bdf81969bbaa0e04d9d410d30c1ddb6d1023e8ee');
-    expect(build).toContain('sha256sum --check --strict');
-    expect(build.indexOf('sha256sum --check --strict')).toBeLessThan(build.indexOf('git -C'));
-    expect(build).toContain('--include=pkg/workflow/enclaves_runtime.go');
-    expect(build).toContain('--include=pkg/workflow/enclaves_agent_acceptance_test.go');
     const localPatch = '${GITHUB_WORKSPACE}/scripts/ci/compiler-agent-acceptance-v0.28.66.patch';
     expect(build).toContain(`"${localPatch}"`);
-    expect(build.indexOf(localPatch)).toBeGreaterThan(build.indexOf('--include=pkg/workflow/enclaves_agent_acceptance_test.go'));
+    expect(build).toContain('git -C .tmp/gh-aw-compiler apply --unidiff-zero');
     expect(build.indexOf(localPatch)).toBeLessThan(build.indexOf('go test'));
+    expect(build).not.toContain('gh-aw-agent-acceptance.patch');
+    expect(build).not.toContain('sha256sum --check --strict');
     const patch = fs.readFileSync(path.join(root, 'scripts/ci/compiler-agent-acceptance-v0.28.66.patch'), 'utf8');
-    expect(patch).toContain('firewall.Version != "v0.28.66"');
-    expect(patch).toContain('MaxModelTokens != 131072');
+    expect(patch).toContain('cloudHypervisorAgentAcceptanceAWFVersion       = "v0.28.66"');
+    expect(patch).toContain('cloudHypervisorAgentAcceptanceMaxModelTokens   = 131072');
     expect(patch).toContain('pkg/parser/schemas/main_workflow_schema.json');
-    expect(patch).toContain('TestValidateCloudHypervisorAgentAcceptanceSchemaBudget');
-    expect(patch).toContain('{"previous schema ceiling"');
+    expect(patch).toContain('"maximum": 131072');
+    expect(patch).toContain('"maximum": 32768');
     expect(patch).toContain('{"old token budget"');
-    expect(patch).toContain('{"smaller token budget"');
+    expect(patch).toContain('{"previous schema ceiling"');
     expect(patch).toContain('{"previous acceptance version"');
     expect(patch).toContain('{"future version"');
     const source = yaml.load(fs.readFileSync(path.join(
       root, '.github/workflows/smoke-enclave-cloud-hypervisor-copilot.md',
     ), 'utf8').split('---')[1]) as { sandbox: { agent: { version: string } } };
     expect(source.sandbox.agent.version).toBe('v0.28.66');
-    expect(patch).toContain(`firewall.Version != "${source.sandbox.agent.version}"`);
+    expect(patch).toContain(
+      `cloudHypervisorAgentAcceptanceAWFVersion       = "${source.sandbox.agent.version}"`);
     expect(build).toContain('TestValidateCloudHypervisorAgentAcceptance|TestCompileCloudHypervisorAgentAcceptance');
     expect(build.indexOf('go test')).toBeLessThan(build.indexOf('go build'));
-    expect(build).not.toContain('main.isRelease=true');
+    expect(build).toContain('dev-v0.92.6-agent-acceptance-v0.28.66-budget131072');
     for (const index of [checkout, install, compile]) {
       expect(steps[index].if).toBeUndefined();
       expect(steps[index]['continue-on-error']).toBeUndefined();

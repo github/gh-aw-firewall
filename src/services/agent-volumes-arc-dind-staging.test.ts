@@ -138,7 +138,7 @@ describe('agent service', () => {
       expect(volumes).not.toContain(`/daemon-root${ghAwDir}:/host${ghAwDir}:rw`);
       expect(volumes).not.toContain(`/daemon-root/daemon-root${agentDir}:/host${agentDir}:rw`);
       expect(fs.lstatSync(compiledTeePath).isSymbolicLink()).toBe(true);
-      expect(fs.realpathSync(compiledTeePath)).toBe(piLog);
+      expect(fs.realpathSync(compiledTeePath)).toBe(fs.realpathSync(piLog));
       expect(fs.lstatSync(piLog).isFile()).toBe(true);
       expect(fileMount.split(':')[1]).toBe(`/host${canonicalLog}`);
       expect(fileMount.split(':')[1]).not.toBe(`/host${path.join(ghAwDir, 'pi-streaming.jsonl')}`);

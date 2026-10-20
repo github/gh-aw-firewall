@@ -1,184 +1,13 @@
-diff --git a/pkg/workflow/enclaves_runtime.go b/pkg/workflow/enclaves_runtime.go
---- a/pkg/workflow/enclaves_runtime.go
-+++ b/pkg/workflow/enclaves_runtime.go
-@@ -132,11 +132,11 @@
- 		return errors.New("agent acceptance requires a Copilot primary and agent.engine: copilot, agent.model: claude-sonnet-5 without a profile override")
- 	}
- 	if enclave.Timeout != 90 || enclave.MaxOutputBytes != 256 || enclave.MaxInvocations != 1 ||
--		enclave.Agent.MaxTaskBytes != 4096 || enclave.Agent.MaxModelRequests != 8 || enclave.Agent.MaxModelTokens != 2048 {
--		return errors.New("agent acceptance requires timeout: 90, max-output-bytes: 256, max-invocations: 1, agent.max-task-bytes: 4096, agent.max-model-requests: 8 and agent.max-model-tokens: 2048")
--	}
--	if firewall := getFirewallConfig(data); firewall == nil || firewall.Version != "v0.28.62" {
--		return errors.New("agent acceptance requires sandbox.agent.version: v0.28.62 and its release-attested guests; branch-built host acceptance is not a released runtime capability")
-+		enclave.Agent.MaxTaskBytes != 4096 || enclave.Agent.MaxModelRequests != 8 || enclave.Agent.MaxModelTokens != 131072 {
-+		return errors.New("agent acceptance requires timeout: 90, max-output-bytes: 256, max-invocations: 1, agent.max-task-bytes: 4096, agent.max-model-requests: 8 and agent.max-model-tokens: 131072")
-+	}
-+	if firewall := getFirewallConfig(data); firewall == nil || firewall.Version != "v0.28.66" {
-+		return errors.New("agent acceptance requires sandbox.agent.version: v0.28.66 and its release-attested guests; branch-built host acceptance is not a released runtime capability")
- 	}
- 	return nil
- }
-diff --git a/pkg/workflow/enclaves_agent_acceptance_test.go b/pkg/workflow/enclaves_agent_acceptance_test.go
---- a/pkg/workflow/enclaves_agent_acceptance_test.go
-+++ b/pkg/workflow/enclaves_agent_acceptance_test.go
-@@ -6,6 +6,7 @@
- 	"strings"
- 	"testing"
- 
-+	"github.com/github/gh-aw/pkg/parser"
- 	"github.com/github/gh-aw/pkg/stringutil"
- 	"github.com/stretchr/testify/assert"
- 	"github.com/stretchr/testify/require"
-@@ -19,17 +20,64 @@
- 	data.If = "github.repository == 'github/gh-aw-firewall' && github.ref_type == 'branch'"
- 	data.RawFrontmatter = map[string]any{"on": map[string]any{"workflow_dispatch": nil}}
- 	data.SandboxConfig.Agent.Runtime = AgentRuntimeCloudHypervisor
--	data.NetworkPermissions.Firewall.Version = "v0.28.62"
-+	data.NetworkPermissions.Firewall.Version = "v0.28.66"
- 	enclave := data.Enclaves[0]
- 	enclave.Agent = &AgentEnclaveConfig{
- 		Engine: "copilot", Model: "claude-sonnet-5",
--		MaxTaskBytes: 4096, MaxModelRequests: 8, MaxModelTokens: 2048,
-+		MaxTaskBytes: 4096, MaxModelRequests: 8, MaxModelTokens: 131072,
- 	}
- 	enclave.Repos = []*EnclaveRepository{{Repo: "github/gh-aw-firewall", Sensitivity: "public"}}
- 	enclave.Timeout = 90
- 	enclave.MaxOutputBytes = 256
- 	enclave.MaxInvocations = 1
- 	return data
-+}
-+
-+func TestValidateCloudHypervisorAgentAcceptanceSchemaBudget(t *testing.T) {
-+	for _, tc := range []struct {
-+		name    string
-+		tokens  int
-+		feature any
-+		runtime string
-+		valid   bool
-+	}{
-+		{"ordinary ceiling", 32768, nil, "", true},
-+		{"ordinary larger", 32769, nil, "", false},
-+		{"ordinary acceptance budget", 131072, nil, "", false},
-+		{"missing feature", 131072, nil, "cloud-hypervisor", false},
-+		{"disabled feature", 131072, false, "cloud-hypervisor", false},
-+		{"string feature", 131072, "true", "cloud-hypervisor", false},
-+		{"missing primary", 131072, true, "", false},
-+		{"Docker primary", 131072, true, "docker", false},
-+		{"acceptance allowance", 131072, true, "cloud-hypervisor", true},
-+		{"acceptance overflow", 131073, true, "cloud-hypervisor", false},
-+		{"acceptance invalid", 0, true, "cloud-hypervisor", false},
-+	} {
-+		t.Run(tc.name, func(t *testing.T) {
-+			data := map[string]any{
-+				"on":     "workflow_dispatch",
-+				"engine": "copilot",
-+				"enclaves": []any{map[string]any{
-+					"agent": map[string]any{
-+						"model": "claude-sonnet-5", "max-model-tokens": tc.tokens,
-+					},
-+					"repos": []any{map[string]any{"repo": "github/gh-aw-firewall", "sensitivity": "public"}},
-+				}},
-+			}
-+			if tc.feature != nil {
-+				data["features"] = map[string]any{cloudHypervisorAgentAcceptanceFeature: tc.feature}
-+			}
-+			if tc.runtime != "" {
-+				data["sandbox"] = map[string]any{"agent": map[string]any{"id": "awf", "runtime": tc.runtime}}
-+			}
-+			err := parser.ValidateMainWorkflowFrontmatterWithSchemaAndLocation(data, "workflow.md")
-+			if tc.valid {
-+				require.NoError(t, err)
-+			} else {
-+				require.Error(t, err)
-+			}
-+		})
-+	}
- }
- 
- func TestValidateCloudHypervisorAgentAcceptance(t *testing.T) {
-@@ -72,10 +120,17 @@
- 		{"invocations", func(d *WorkflowData) { d.Enclaves[0].MaxInvocations = 2 }, "max-invocations: 1"},
- 		{"task", func(d *WorkflowData) { d.Enclaves[0].Agent.MaxTaskBytes = 4097 }, "agent.max-task-bytes: 4096"},
- 		{"requests", func(d *WorkflowData) { d.Enclaves[0].Agent.MaxModelRequests = 9 }, "agent.max-model-requests: 8"},
--		{"tokens", func(d *WorkflowData) { d.Enclaves[0].Agent.MaxModelTokens = 2049 }, "agent.max-model-tokens: 2048"},
--		{"old version", func(d *WorkflowData) { d.NetworkPermissions.Firewall.Version = "v0.28.61" }, "version: v0.28.62"},
--		{"latest version", func(d *WorkflowData) { d.NetworkPermissions.Firewall.Version = "latest" }, "version: v0.28.62"},
--		{"branch version", func(d *WorkflowData) { d.NetworkPermissions.Firewall.Version = "main" }, "version: v0.28.62"},
-+		{"old token budget", func(d *WorkflowData) { d.Enclaves[0].Agent.MaxModelTokens = 2048 }, "agent.max-model-tokens: 131072"},
-+		{"previous schema ceiling", func(d *WorkflowData) { d.Enclaves[0].Agent.MaxModelTokens = 32768 }, "agent.max-model-tokens: 131072"},
-+		{"smaller token budget", func(d *WorkflowData) { d.Enclaves[0].Agent.MaxModelTokens = 131071 }, "agent.max-model-tokens: 131072"},
-+		{"tokens", func(d *WorkflowData) { d.Enclaves[0].Agent.MaxModelTokens = 131073 }, "agent.max-model-tokens: 131072"},
-+		{"old version", func(d *WorkflowData) { d.NetworkPermissions.Firewall.Version = "v0.28.61" }, "version: v0.28.66"},
-+		{"previous acceptance version", func(d *WorkflowData) { d.NetworkPermissions.Firewall.Version = "v0.28.62" }, "version: v0.28.66"},
-+		{"intermediate version", func(d *WorkflowData) { d.NetworkPermissions.Firewall.Version = "v0.28.63" }, "version: v0.28.66"},
-+		{"previous smoke version", func(d *WorkflowData) { d.NetworkPermissions.Firewall.Version = "v0.28.64" }, "version: v0.28.66"},
-+		{"future version", func(d *WorkflowData) { d.NetworkPermissions.Firewall.Version = "v0.28.67" }, "version: v0.28.66"},
-+		{"latest version", func(d *WorkflowData) { d.NetworkPermissions.Firewall.Version = "latest" }, "version: v0.28.66"},
-+		{"branch version", func(d *WorkflowData) { d.NetworkPermissions.Firewall.Version = "main" }, "version: v0.28.66"},
- 		{"image", func(d *WorkflowData) { d.Enclaves[0].Image = "custom:latest" }, ".image is incompatible"},
- 		{"dynamic", func(d *WorkflowData) {
- 			dynamic := dynamicEnclaveWorkflowData().Enclaves[0]
-@@ -158,8 +213,9 @@
-   github: false
- sandbox:
-   agent:
-+    id: awf
-     runtime: cloud-hypervisor
--    version: v0.28.62
-+    version: v0.28.66
-   mcp:
-     version: v0.4.33
- enclaves:
-@@ -168,7 +224,7 @@
-       model: claude-sonnet-5
-       max-task-bytes: 4096
-       max-model-requests: 8
--      max-model-tokens: 2048
-+      max-model-tokens: 131072
-     runtime: cloud-hypervisor
-     repos:
-       - repo: github/gh-aw-firewall
-@@ -183,6 +239,10 @@
- 	require.NoError(t, os.WriteFile(path, []byte(content), 0o600))
- 	compiler := NewCompiler()
- 	compiler.SetStrictMode(false)
-+	require.True(t, compiler.GetSharedActionCache().Set(
-+		"github/gh-aw-actions/setup", "v0.92.3",
-+		"26e5d7e7d2345ae4c8dfa3d9017ca2ff9bbf2c82",
-+	))
- 	require.NoError(t, compiler.CompileWorkflow(path))
- 	lockBytes, err := os.ReadFile(stringutil.MarkdownToLockFile(path))
- 	require.NoError(t, err)
-@@ -192,11 +252,11 @@
- 		`\"runtime\":\"cloud-hypervisor\"`,
- 		`\"engine\":\"copilot\"`, `\"model\":\"claude-sonnet-5\"`,
- 		`\"maxInvocations\":1`, `\"maxOutputBytes\":256`, `\"maxTaskBytes\":4096`,
--		`\"maxModelRequests\":8`, `\"maxModelTokens\":2048`,
-+		`\"maxModelRequests\":8`, `\"maxModelTokens\":131072`,
- 		`\"topologyAttach\":[\"awmg-mcpg\"]`,
- 		`--exclude-env AWF_ENCLAVE_MCP_CAPABILITY`,
- 		`--exclude-env AWF_CLOUD_HYPERVISOR_ENCLAVE_AGENT_ROOTFS`,
--		`GH_AW_AWF_VERSION: v0.28.62`,
-+		`GH_AW_AWF_VERSION: v0.28.66`,
- 		`GH_AW_AWF_VERSION: ${{ steps.cloud-hypervisor-bundle.outputs.release_tag }}`,
- 		`gh-aw-actions/setup@26e5d7e7d2345ae4c8dfa3d9017ca2ff9bbf2c82`,
- 		`1.0.96`, `v0.4.33`,
 diff --git a/pkg/parser/schemas/main_workflow_schema.json b/pkg/parser/schemas/main_workflow_schema.json
+index 9ed898d..deb6801 100644
 --- a/pkg/parser/schemas/main_workflow_schema.json
 +++ b/pkg/parser/schemas/main_workflow_schema.json
-@@ -3884,7 +3884,7 @@
-                   "model": { "type": "string", "minLength": 1, "maxLength": 200, "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@/-]{0,199}$" },
-                   "max-task-bytes": { "type": "integer", "minimum": 1, "maximum": 65536, "default": 4096 },
-                   "max-model-requests": { "type": "integer", "minimum": 1, "maximum": 64, "default": 8 },
+@@ -3911 +3911 @@
 -                  "max-model-tokens": { "type": "integer", "minimum": 1, "maximum": 32768, "default": 1024 },
 +                  "max-model-tokens": { "type": "integer", "minimum": 1, "maximum": 131072, "default": 1024 },
-                   "github": {
-                     "type": "object",
-                     "description": "Deprecated. Use 'agent.tools.github' instead.",
-@@ -14385,6 +14385,42 @@
-   "allOf": [
-     {
-       "if": {
+@@ -14431,0 +14432,36 @@
++    {
++      "if": {
 +        "required": ["features", "sandbox"],
 +        "properties": {
 +          "features": {
@@ -213,8 +42,37 @@ diff --git a/pkg/parser/schemas/main_workflow_schema.json b/pkg/parser/schemas/m
 +        }
 +      }
 +    },
-+    {
-+      "if": {
-         "properties": {
-           "on": {
-             "type": "object",
+diff --git a/pkg/workflow/enclaves_agent_acceptance_test.go b/pkg/workflow/enclaves_agent_acceptance_test.go
+index c25f783..02529cd 100644
+--- a/pkg/workflow/enclaves_agent_acceptance_test.go
++++ b/pkg/workflow/enclaves_agent_acceptance_test.go
+@@ -81,4 +81,9 @@ func TestValidateCloudHypervisorAgentAcceptance(t *testing.T) {
+-		{"tokens", func(d *WorkflowData) { d.Enclaves[0].Agent.MaxModelTokens = 2049 }, "agent.max-model-tokens: 2048"},
+-		{"old version", func(d *WorkflowData) { d.NetworkPermissions.Firewall.Version = "v0.28.61" }, "version: v0.28.62"},
+-		{"latest version", func(d *WorkflowData) { d.NetworkPermissions.Firewall.Version = "latest" }, "version: v0.28.62"},
+-		{"branch version", func(d *WorkflowData) { d.NetworkPermissions.Firewall.Version = "main" }, "version: v0.28.62"},
++		{"old token budget", func(d *WorkflowData) { d.Enclaves[0].Agent.MaxModelTokens = 2048 }, "agent.max-model-tokens: 131072"},
++		{"previous schema ceiling", func(d *WorkflowData) { d.Enclaves[0].Agent.MaxModelTokens = 32768 }, "agent.max-model-tokens: 131072"},
++		{"smaller token budget", func(d *WorkflowData) { d.Enclaves[0].Agent.MaxModelTokens = 131071 }, "agent.max-model-tokens: 131072"},
++		{"tokens", func(d *WorkflowData) { d.Enclaves[0].Agent.MaxModelTokens = 131073 }, "agent.max-model-tokens: 131072"},
++		{"old version", func(d *WorkflowData) { d.NetworkPermissions.Firewall.Version = "v0.28.61" }, "version: v0.28.66"},
++		{"previous acceptance version", func(d *WorkflowData) { d.NetworkPermissions.Firewall.Version = "v0.28.62" }, "version: v0.28.66"},
++		{"future version", func(d *WorkflowData) { d.NetworkPermissions.Firewall.Version = "v0.28.67" }, "version: v0.28.66"},
++		{"latest version", func(d *WorkflowData) { d.NetworkPermissions.Firewall.Version = "latest" }, "version: v0.28.66"},
++		{"branch version", func(d *WorkflowData) { d.NetworkPermissions.Firewall.Version = "main" }, "version: v0.28.66"},
+@@ -215 +220 @@ Run one enclave agent invocation.
+-		`\"maxModelRequests\":8`, `\"maxModelTokens\":2048`,
++		`\"maxModelRequests\":8`, `\"maxModelTokens\":131072`,
+@@ -219 +224 @@ Run one enclave agent invocation.
+-		`GH_AW_AWF_VERSION: v0.28.62`,
++		`GH_AW_AWF_VERSION: v0.28.66`,
+diff --git a/pkg/workflow/enclaves_runtime.go b/pkg/workflow/enclaves_runtime.go
+index a90b666..49789b1 100644
+--- a/pkg/workflow/enclaves_runtime.go
++++ b/pkg/workflow/enclaves_runtime.go
+@@ -106 +106 @@ const (
+-	cloudHypervisorAgentAcceptanceAWFVersion       = "v0.28.62"
++	cloudHypervisorAgentAcceptanceAWFVersion       = "v0.28.66"
+@@ -112 +112 @@ const (
+-	cloudHypervisorAgentAcceptanceMaxModelTokens   = 2048
++	cloudHypervisorAgentAcceptanceMaxModelTokens   = 131072
