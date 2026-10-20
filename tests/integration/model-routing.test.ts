@@ -3,7 +3,6 @@ import * as os from 'os';
 import * as path from 'path';
 import execa = require('execa');
 import { afterAll, beforeAll, describe, expect, test } from '@jest/globals';
-import { ROUTER_HEALTHCHECK_TEST } from '../../src/services/router-service';
 import { cleanup } from '../fixtures/cleanup';
 
 // The model-routing smoke workflow sets ROUTER_IMAGE to a digest-pinned build of containers/router.
@@ -135,11 +134,12 @@ describe('Model routing', () => {
       '    networks:',
       '      routing:',
       '        aliases: [gh-aw-router]',
+      // Like AWF's router service: timings only, so the image's HEALTHCHECK supplies the command.
       '    healthcheck:',
-      `      test: ${JSON.stringify(ROUTER_HEALTHCHECK_TEST)}`,
       '      interval: 2s',
       '      timeout: 3s',
       '      retries: 15',
+      '      start_period: 10s',
       '  api-proxy:',
       `    image: ${API_PROXY_IMAGE}`,
       '    networks: [routing, egress]',
@@ -162,6 +162,21 @@ describe('Model routing', () => {
 
   test('runs the router planning contract from the API proxy network', async () => {
     await execa('docker', ['compose', '-f', composeFile, 'up', '-d']);
+
+    // The api-proxy only starts once the router is healthy, so reaching it proves the inherited
+    // check ran. Docker keeps the image's command and applies the compose timings.
+    const router = await execa('docker', ['compose', '-f', composeFile, 'ps', '-q', 'router']);
+    const [container] = JSON.parse((await execa('docker', ['inspect', router.stdout.trim()])).stdout);
+    const [image] = JSON.parse((await execa('docker', ['image', 'inspect', container.Image])).stdout);
+    const healthcheck = container.Config.Healthcheck;
+    expect(healthcheck.Test).toEqual(image.Config.Healthcheck.Test);
+    expect(healthcheck).toMatchObject({
+      Interval: 2e9,
+      Timeout: 3e9,
+      Retries: 15,
+      StartPeriod: 10e9,
+    });
+
     const result = await execa('docker', [
       'compose', '-f', composeFile, 'exec', '-T', 'api-proxy',
       'node', '-e',

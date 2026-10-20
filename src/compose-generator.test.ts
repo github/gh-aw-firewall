@@ -72,12 +72,13 @@ describe('generateDockerCompose', () => {
       expect(result.services.router.networks).toEqual({
         'awf-routing': { aliases: ['gh-aw-router'] },
       });
-      expect(result.services.router.healthcheck?.test).toEqual([
-        'CMD',
-        'python',
-        '-c',
-        "import urllib.request; urllib.request.urlopen('http://localhost:8737/healthz', timeout=1).close()",
-      ]);
+      // The command comes from the router image's HEALTHCHECK; AWF sets only the timings.
+      expect(result.services.router.healthcheck).toEqual({
+        interval: '2s',
+        timeout: '3s',
+        retries: 15,
+        start_period: '10s',
+      });
       expect(apiProxyService.networks['awf-routing']).toEqual({});
       expect(apiProxyService.depends_on.router).toEqual({
         condition: 'service_healthy',

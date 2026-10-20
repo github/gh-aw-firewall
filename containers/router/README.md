@@ -268,6 +268,10 @@ docker run --detach \
 
 Only trusted clients such as the API proxy belong on this network, not the coding agent.
 `GET /healthz` returns `204` when ready, and `GET /capabilities` describes the loaded profiles.
+The image's `HEALTHCHECK` calls `/healthz`. AWF uses that command and sets only the timings,
+so a custom router image used with AWF must define its own `HEALTHCHECK`. Without one, Compose
+reports that the router has no health check and AWF's API proxy, which waits for it, doesn't
+start.
 To replace the bundled tables, add these options before the image name.
 
 ```bash

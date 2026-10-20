@@ -2159,7 +2159,10 @@ resolves like the other AWF images, from `--image-registry` and `--image-tag`
 (`ghcr.io/github/gh-aw-firewall/router:<tag>` by default), and routing still
 fails unless that reference is pinned by digest. With `--build-local`, AWF
 builds the router from `containers/router` in the same checkout instead, and
-no digest pin is required.
+no digest pin is required. AWF takes the router's health check command from the
+image's `HEALTHCHECK` and sets only its timings, so a custom router image must
+define a `HEALTHCHECK` that succeeds once the router serves `GET /healthz`;
+otherwise the API proxy never starts.
 
 The candidate pool uses models discovered for the selected native provider.
 The `/reflect` `model_api_mapping` includes maintained routing metadata for

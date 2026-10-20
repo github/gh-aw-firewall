@@ -9,13 +9,6 @@ import { ImageBuildConfig } from './squid-service';
 export const ROUTING_NETWORK_NAME = 'awf-routing';
 export const ROUTER_SERVICE_NAME = 'router';
 export const ROUTER_DNS_NAME = 'gh-aw-router';
-const ROUTER_PORT = 8737;
-export const ROUTER_HEALTHCHECK_TEST = [
-  'CMD',
-  'python',
-  '-c',
-  `import urllib.request; urllib.request.urlopen('http://localhost:${ROUTER_PORT}/healthz', timeout=1).close()`,
-];
 
 interface RouterServiceParams {
   imageConfig: ImageBuildConfig;
@@ -30,8 +23,9 @@ export function buildRouterService({ imageConfig }: RouterServiceParams): any {
         aliases: [ROUTER_DNS_NAME],
       },
     },
+    // No `test`: Docker takes the command from the image's HEALTHCHECK, so AWF doesn't depend
+    // on the router's runtime. These timings override the image's.
     healthcheck: {
-      test: ROUTER_HEALTHCHECK_TEST,
       interval: '2s',
       timeout: '3s',
       retries: 15,

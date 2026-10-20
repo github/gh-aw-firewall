@@ -231,8 +231,8 @@ interface DockerService {
    * ```
    */
   healthcheck?: {
-    /** Command to run for health check (exit 0 = healthy) */
-    test: string[];
+    /** Command to run for health check (exit 0 = healthy). Omit to use the image's HEALTHCHECK command. */
+    test?: string[];
     /** Time between health checks */
     interval: string;
     /** Max time to wait for a health check */
