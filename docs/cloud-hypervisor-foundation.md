@@ -1537,9 +1537,13 @@ that #9395 or the prior pull requests established these live assertions.
 
 ### Explicit enclave acceptance dispatch
 
-This is a manual, secret-bearing operation requiring separate maintainer
-authorization. Creating the follow-up PR does **not** authorize release
-publication or acceptance dispatch.
+The [supported release workflow](releasing.md) automatically dispatches all four
+conformance jobs after publishing the complete signed release assets, pinned to
+that release's tag and source SHA. The procedure below remains available for
+diagnosis, recovery, or releases published outside that workflow. Manual
+dispatch is a secret-bearing operation requiring separate maintainer
+authorization; inspect existing runs first to avoid duplicate model/KVM work.
+Creating an automation PR does **not** authorize an immediate release or dispatch.
 
 1. Merge the reviewed acceptance changes, then separately authorize the
    [supported release workflow](releasing.md) on `main`. Wait for the complete
@@ -1552,18 +1556,18 @@ publication or acceptance dispatch.
    acceptance changes. Neither is an acceptable substitute.
 3. Confirm `COPILOT_GITHUB_TOKEN` is configured as a repository secret and
    usable for the configured Copilot model. After explicit authorization,
-   dispatch **both** gates in the same run:
+   dispatch all three optional gates in the same run:
 
 ```bash
 RELEASE_TAG='<exact-published-tag-containing-the-reviewed-follow-up>'
 ACCEPTANCE_COMMIT='<full-reviewed-follow-up-commit-SHA>'
 gh workflow run test-cloud-hypervisor-enclaves.yml \
   --repo github/gh-aw-firewall --ref "$RELEASE_TAG" \
-  -f run_host_probes=true -f run_live_kvm=true \
+  -f run_host_probes=true -f run_live_kvm=true -f run_environment_probe=true \
   -f acceptance_commit="$ACCEPTANCE_COMMIT"
 gh run list --repo github/gh-aw-firewall \
   --workflow test-cloud-hypervisor-enclaves.yml --event workflow_dispatch --limit 5
-# Select the run for that exact tag; then inspect all three jobs.
+# Select the run for that exact tag; then inspect all four jobs.
 gh run view '<run-id>' --repo github/gh-aw-firewall
 ```
 
