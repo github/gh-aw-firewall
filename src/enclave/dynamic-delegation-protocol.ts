@@ -1,6 +1,8 @@
 /**
- * AWF-private admission channel between the enclave MCP broker and the AWF
- * host process, for dynamic GitHub-MCP-backed enclaves (ADR 0001).
+ * Legacy container-runner admission channel between the enclave MCP broker and
+ * AWF host process for dynamic GitHub-MCP-backed enclaves (ADR 0001).
+ * Docker host execution uses the authenticated host-executor protocol instead:
+ * admission, bearer staging and settlement stay on the host.
  *
  * ## Why a file channel
  *

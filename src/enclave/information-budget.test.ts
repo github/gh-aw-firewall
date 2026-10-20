@@ -36,6 +36,23 @@ describe('enclave information budget', () => {
     expect(ledger.tryDebit('octo/private', 1, 'script')).toBe(false);
   });
 
+  it('characterizes the restart gap: a newly constructed ledger does not restore spent balances', () => {
+    const repositories = new Map([
+      ['octo/private', { sensitivity: 'confidential' as const }],
+    ]);
+    for (const create of [
+      createEnclaveInformationBudgetLedger,
+      brokerLedger.createEnclaveInformationBudgetLedger,
+    ]) {
+      const first = create(repositories);
+      expect(first.tryDebit('octo/private', 8, 'agent')).toBe(true);
+      expect(first.tryDebit('octo/private', 1, 'script')).toBe(false);
+      const restarted = create(repositories);
+      expect(restarted.remainingBits('octo/private')).toBe(8);
+      expect(restarted.tryDebit('octo/private', 8, 'script')).toBe(true);
+    }
+  });
+
   it('opens a balance for a dynamically admitted repository exactly once', () => {
     const ledger = createEnclaveInformationBudgetLedger(new Map());
 

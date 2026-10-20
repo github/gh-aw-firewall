@@ -24,8 +24,8 @@ const {
 /* eslint-enable @typescript-eslint/no-require-imports */
 
 const BASE_ENV = {
-  AWF_ENCLAVE_PRIMARY_BACKEND: 'docker',
-  AWF_ENCLAVE_AGENT_BACKEND: 'docker',
+  AWF_ENCLAVE_PRIMARY_BACKEND: 'gvisor',
+  AWF_ENCLAVE_AGENT_BACKEND: 'gvisor',
   AWF_ENCLAVE_AGENT_ENGINE: 'copilot',
   AWF_ENCLAVE_AGENT_PROFILE: 'openai',
   AWF_ENCLAVE_AGENT_MODEL: 'gpt-test',
@@ -63,7 +63,7 @@ function withEnv(values: Record<string, string | undefined>, run: () => void): v
   }
 }
 
-const serverStub = { primaryBackend: 'docker', auditDir: '/var/log/awf-enclave' };
+const serverStub = { primaryBackend: 'gvisor', auditDir: '/var/log/awf-enclave' };
 
 const dynamicExecutorConfig = {
   dynamicEnabled: true,
@@ -111,7 +111,7 @@ function buildDynamicRunnerConfig() {
   };
 }
 
-describe('dynamic broker configuration', () => {
+describe('legacy gVisor dynamic broker configuration', () => {
   it('loads a dynamic agent entry without a seed catalog or seeds directory', () => {
     withEnv(DYNAMIC_ENV, () => {
       const config = loadAgentConfig(serverStub);

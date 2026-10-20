@@ -155,7 +155,9 @@ export async function collectSharingRows(): Promise<SharingRow[]> {
       ['compose/api-proxy', { enableApiProxy: true }],
       ['compose/allowWrite-empty', { filesystemAllowWrite: [] }],
       ['compose/enclaves-enabled', {
-        enclaves: normalizeEnclavesConfig([{ script: {}, repos: [] }]),
+        enclaves: normalizeEnclavesConfig([{
+          script: {}, repos: [{ repo: 'octo/private', sensitivity: 'internal' }],
+        }]),
       }],
     ];
     const rows = scenarios.flatMap(([name, overrides]) =>
@@ -216,7 +218,8 @@ export function renderSharingRows(rows: readonly SharingRow[]): string {
     if (row.source === 'ephemeral tmpfs') return ['container-created; mode per tmpfs options', 'container lifetime'];
     if (row.source === '<FIXTURE>/work' ||
       row.source.startsWith('<FIXTURE>/work/') ||
-      row.source.startsWith('<FIXTURE>/work-')) {
+      row.source.startsWith('<FIXTURE>/work-') ||
+      /^\/var\/tmp\/awf-enclave-(?:private|control)-/.test(row.source)) {
       return ['AWF setup; see lifecycle table', 'per-run cleanup / optional preservation'];
     }
     if (!row.source.startsWith('/') && !row.source.startsWith('<')) {
@@ -225,6 +228,12 @@ export function renderSharingRows(rows: readonly SharingRow[]): string {
     return ['existing DAC/modes preserved', 'host-owned / not removed'];
   };
   const purpose = (row: SharingRow): string => {
+    if (row.consumer === 'enclave-mcp-server' && row.destination === '/run/awf-enclave-host-executor') {
+      return 'authenticated host-executor channel; ro bind does not prevent socket calls';
+    }
+    if (row.consumer === 'enclave-mcp-server' && row.destination === '/srv/awf/seed-map.json') {
+      return 'repository ledger metadata; no seed content';
+    }
     if (row.provenance === 'sensitive-path mask') return 'sensitive-path confidentiality mask';
     if (row.source === '/dev/null') return 'credential/socket mask or virtual device';
     if (row.destination === '/host/dev/shm') return 'isolated shared-memory tmpfs';

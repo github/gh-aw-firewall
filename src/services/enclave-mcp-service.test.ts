@@ -3,12 +3,12 @@ import * as path from 'path';
 import { normalizeEnclavesConfig } from '../parsers/enclave-parser';
 import { parseImageTag } from '../image-tag';
 import type { WrapperConfig } from '../types';
-import { buildEnclaveMcpService } from './enclave-mcp-service';
+import { buildEnclaveMcpService, deriveDockerEnclaveRunnerConfig } from './enclave-mcp-service';
 import { generateDockerCompose } from '../compose-generator';
 import { resolveEnclavePaths } from '../enclave/paths';
 import type { EnclaveRepository, RawEnclaveEntry } from '../types/enclave-options';
 
-const workDir = fs.mkdtempSync('/tmp/awf-enclave-mcp-service-test-');
+const workDir = fs.mkdtempSync(path.join(__dirname, 'awf-enclave-mcp-service-test-'));
 
 function config(overrides: Partial<WrapperConfig> = {}): WrapperConfig {
   return {
@@ -95,6 +95,48 @@ describe('buildEnclaveMcpService', () => {
       AWF_ENCLAVE_MAX_SCRIPT_BYTES: '4096',
       AWF_ENCLAVE_MAX_INVOCATIONS: '3',
     });
+    const paths = resolveEnclavePaths(workDir);
+    expect(result.service.volumes).toEqual(expect.arrayContaining([
+      '/var/run/docker.sock:/var/run/docker.sock:rw',
+      `${paths.seedsDir}:/srv/awf/seeds:ro`,
+      `${paths.workDir}:/srv/awf/work:rw`,
+    ]));
+    expect(JSON.stringify(result.service.volumes)).not.toContain('/run/awf-enclave-host-executor');
+    expect(() => deriveDockerEnclaveRunnerConfig(config({ enclaves }), ghcr, 'script'))
+      .toThrow(/enabled Docker entry/);
+  });
+
+  it('keeps Docker launch authority on the host while preserving configurable images and resources', () => {
+    const wrapper = config({
+      dockerHostPathPrefix: '/host',
+      enclaves: normalizeEnclavesConfig([{
+        script: { maxScriptBytes: 4096 }, runtime: 'docker', image: 'reviewed-script:test',
+        memoryLimit: '256m', cpuLimit: '0.5', pidsLimit: 32, tmpfsLimit: '24m',
+        timeout: 12, maxOutputBytes: 2048, maxInvocations: 3,
+        repos: [{ repo: 'octo/private', sensitivity: 'internal' }],
+      }]),
+    });
+    const result = buildEnclaveMcpService({ config: wrapper, imageConfig: ghcr });
+    const paths = resolveEnclavePaths(workDir);
+    expect(result.service.environment).toMatchObject({
+      AWF_ENCLAVE_BACKEND: 'docker', AWF_ENCLAVE_ENTRY_ID: 'script',
+    });
+    expect(result.service.environment).not.toHaveProperty('AWF_ENCLAVE_HOST_WORK_DIR');
+    expect(result.service.volumes).toEqual(expect.arrayContaining([
+      `/host${paths.hostExecutorDir}:/run/awf-enclave-host-executor:ro`,
+      `/host${paths.seedMapPath}:/srv/awf/seed-map.json:ro`,
+      `/host${paths.capabilityPath}:/run/awf-enclave-mcp/auth-token:ro`,
+    ]));
+    for (const forbidden of ['docker.sock', paths.workDir, paths.seedsDir, paths.runDir + ':']) {
+      expect(JSON.stringify(result.service.volumes)).not.toContain(forbidden);
+    }
+    expect(JSON.stringify(result.service)).not.toContain(path.join(paths.root, 'docker-enclave-seccomp.json'));
+    expect(deriveDockerEnclaveRunnerConfig(wrapper, ghcr, 'script')).toMatchObject({
+      queryImage: 'reviewed-script:test', querySeccompPath: path.join(paths.root, 'docker-enclave-seccomp.json'),
+      seedsDir: paths.seedsDir, workDir: paths.workDir, hostWorkDir: `/host${paths.workDir}`,
+      timeoutSeconds: 12, memoryLimit: '256m', cpuLimit: '0.5', pidsLimit: 32,
+      tmpfsLimit: '24m', maxOutputBytes: 2048, maxScriptBytes: 4096, maxInvocations: 3,
+    });
   });
 
   it('requires a budget-capable dedicated proxy when model ceilings are configured', () => {
@@ -105,19 +147,27 @@ describe('buildEnclaveMcpService', () => {
         repos: [{ repo: 'octo/private', sensitivity: 'internal' }],
       },
     ]);
+    const wrapper = config({ enclaves, enableApiProxy: true });
     const result = buildEnclaveMcpService({
-      config: config({ enclaves, enableApiProxy: true }),
+      config: wrapper,
       imageConfig: ghcr,
       networkConfig: {
         subnet: '172.30.0.0/24', squidIp: '172.30.0.10', agentIp: '172.30.0.20', proxyIp: '172.30.0.30',
       },
     });
-    const secret = (result.service.environment as Record<string, string>)
-      .AWF_ENCLAVE_AGENT_MODEL_BUDGET_SECRET;
+    const runnerConfig = deriveDockerEnclaveRunnerConfig(wrapper, ghcr, 'agent');
+    const secret = runnerConfig.modelBudgetSecret;
     const proxy = result.agentApiProxyService!;
     const proxyEnvironment = proxy.environment as Record<string, string>;
 
     expect(secret).toMatch(/^[0-9a-f]{64}$/);
+    expect(runnerConfig).toMatchObject({
+      engine: 'copilot', model: 'trusted-model',
+      enclaveImage: 'ghcr.io/github/gh-aw-firewall/enclave-agent:v1',
+      apiEndpoint: 'http://172.31.0.30:10002',
+      network: 'awf-enclave-agent', maxModelRequests: 2, maxModelTokens: 128,
+    });
+    expect(result.service.environment).not.toHaveProperty('AWF_ENCLAVE_AGENT_MODEL_BUDGET_SECRET');
     expect(proxyEnvironment.AWF_ENCLAVE_AGENT_MODEL_BUDGET_SECRET).toBe(secret);
     expect(proxyEnvironment.AWF_ENCLAVE_PROXY_DIAGNOSTICS).toBe('1');
     expect((proxy.healthcheck as { test: string[] }).test.join(' '))
@@ -209,6 +259,20 @@ describe('buildEnclaveMcpService', () => {
       config: config({ enclaves, enableApiProxy: true }), imageConfig: ghcr,
     })).toThrow(/cannot be mixed/);
   });
+
+  it.each(['docker', 'gvisor'] as const)(
+    'rejects a %s script sharing its broker with the other container backend',
+    (runtime) => {
+      const repos: EnclaveRepository[] = [{ repo: 'octo/private', sensitivity: 'internal' }];
+      const enclaves = normalizeEnclavesConfig([
+        { script: {}, runtime, repos },
+        { agent: { engine: 'copilot', model: 'gpt-4.1' }, runtime: runtime === 'docker' ? 'gvisor' : 'docker', repos },
+      ]);
+      expect(() => buildEnclaveMcpService({
+        config: config({ enclaves, enableApiProxy: true }), imageConfig: ghcr,
+      })).toThrow(/cannot share a broker/);
+    },
+  );
 
   it.each(['script', 'agent'] as const)('rejects a custom %s image for Cloud Hypervisor', (kind) => {
     const repos: EnclaveRepository[] = [{ repo: 'octo/private', sensitivity: 'internal' }];

@@ -32,7 +32,8 @@ const FAILURE_REASONS = new Map([
  * prerequisite checks. Repository staging and result files belong to AWF.
  */
 function usesHostExecutor(config) {
-  return config.executorTransport === 'host' || config.executorBackend === 'cloud-hypervisor';
+  return config.executorTransport === 'host'
+    || config.executorBackend === 'docker' || config.executorBackend === 'cloud-hypervisor';
 }
 
 function createHostExecutorRunner(config, deps = {}) {
@@ -90,7 +91,7 @@ function createHostExecutorRunner(config, deps = {}) {
       } catch {
         diagnose({ phase: 'availability', status: 'failed' });
         closed = true;
-        throw new Error('Cloud Hypervisor enclave host executor is unavailable; no runtime fallback');
+        throw new Error('Enclave host executor is unavailable; no runtime fallback');
       }
     },
     async reconcileRun() {

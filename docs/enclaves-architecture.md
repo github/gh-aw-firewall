@@ -188,8 +188,11 @@ Limits are scoped and must not be conflated:
 
 - Docker enclave runner specs apply trusted configurable memory, CPU, PID and
   tmpfs limits with read-only rootfs, dropped capabilities and no-new-privileges.
-  A tmpfs cap bounds that filesystem, not every host-backed output/session bind.
-  Do not claim a run-wide or whole-invocation disk quota from those flags.
+  Host-owned Docker execution additionally places every writable invocation bind
+  (result, agent session and agent runtime) on one private, verified host tmpfs.
+  Its capacity and all container tmpfs/shm capacities are counted together;
+  per-file limits alone are not aggregate enforcement. Docker retains its own
+  resource configuration and audited launcher identity, not the fixed VM policy.
 - VM host-enclave policies in `src/enclave/execution-policy.ts` are fixed:
   both roles have 768 MiB memory, one vCPU with 500 milli-CPU quota, 47 processes,
   1024 open files and UID/GID 65534. Script/agent tmpfs limits are 256/96 MiB;
@@ -266,10 +269,13 @@ AWF stages immutable repository seeds on the host, starts one AWF-owned `enclave
 - **Shared controls** — the `repos` lists of the `enclaves` entries form the only trusted repository catalog; script and agent calls debit the same per-run repository ledger and share one admission lane.
 
 > **Terminology.** *Executor* and *enclave* are distinct, and this document uses
-> both. An **executor** is broker-side machinery and a configuration kind:
+> both. An **executor** is trusted execution machinery and a configuration kind:
 > `enclaves.executors.{script,agent}`, `executorKind`, and the code under
-> `containers/enclave/{script,agent}-executor/`, which ships into the
-> `enclave-mcp-server` image and holds the Docker socket. An **enclave** is the
+> `containers/enclave/{script,agent}-executor/`. Docker launch authority now
+> belongs to the AWF host; the broker retains admission/accounting metadata and
+> only an authenticated executor channel, not the Docker socket or seed trees.
+> The unmigrated gVisor broker still uses the audited container runners directly.
+> An **enclave** is the
 > ephemeral container an executor launches per invocation — its own image
 > (`enclave-script` / `enclave-agent`), its own name
 > (`awf-enclave-agent-<run>-<invocation>`), and its own entrypoint. One executor
@@ -312,7 +318,10 @@ enclave results.
 ### Session audit log redaction
 
 Every enclave invocation writes a bounded, per-invocation transcript
-(`session.jsonl`) inside the enclave, which the broker copies verbatim into
+(`session.jsonl`) inside the enclave. Host-owned Docker execution keeps this
+file inside the bounded private allocation and destroys it during cleanup;
+it is not returned through the host protocol or exported as an artifact.
+On the legacy container-runner path, the broker copies it verbatim into
 `<auditDir>/enclave-agent-sessions/<invocationId>.jsonl` and the CLI exposes
 under `sandbox/firewall/audit/enclave-agent-sessions/` when audit artifacts
 are preserved or uploaded. Because the enclave can read confidential
@@ -388,13 +397,16 @@ failing version negotiation and building their tool surface from a failed
 `tools/list`.
 
 When an `enclave_run_agent` invocation has GitHub MCP access (static or
-dynamic), the broker appends its own repository-scope instructions after the
+dynamic), the trusted executor appends repository-scope instructions after the
 caller's prompt: every GitHub MCP request must set `owner` and `repo` to the
-repository the broker selected for that invocation, and wildcard selectors and
+repository selected for that invocation, and wildcard selectors and
 repository-discovery tools are forbidden. The text is generated from the
-broker's validated selector, never from caller text, so it cannot broaden
+host's admitted seed catalog or dynamic selector for Docker (the broker's
+validated selector for legacy gVisor), never from caller text, so it cannot broaden
 access. It is a prompt-level mitigation only — mcpg's `allow-only` enforcement
-remains the security boundary.
+remains the security boundary. Static GitHub authority covers the configured
+repository union; those instructions do not make it a dynamic, one-repository
+delegated identity.
 
 A dynamic repository entry MUST advertise only `enclave_run_agent`.
 `enclave_run_script` remains available to static seed-backed entries only unless
@@ -1042,6 +1054,8 @@ The shared modules under `src/enclave/` additionally provide:
   schema-valid results.
 - `host-executor-run-state.ts`: static seed authority derived from the validated
   host catalog and staged run identity, never from broker launch settings.
+  Dynamic admission requires explicit adapter support; dynamic agents receive
+  no static seed authority, including in mixed script/static and agent/dynamic runs.
 - `host-service.ts` and `host-executor-lifecycle.ts`: preflight-before-listening,
   configuration ownership, readiness, admission closure, startup/shutdown races,
   draining, recovery verification ordering, and protected evidence collection.
@@ -1062,12 +1076,57 @@ one-shot execution and container-owned lifecycles without `startInstance()`.
 Primary runtime integration remains separate: Docker Compose and NVX are not
 forced into the Cloud Hypervisor primary-manager lifecycle.
 
-The broker routes trusted `executorTransport: 'host'` configurations through the
-same protocol, retaining Cloud Hypervisor compatibility. Transport and backend
-are not invocation fields. This extraction does not enable NVX enclaves,
-migrate Docker execution, change dynamic delegation, or relax any Cloud
-Hypervisor host, artifact, storage, or real-backend acceptance gate. The reviewed
-cross-backend capability contract in #10339 remains a prerequisite for migration.
+The broker routes Docker and trusted `executorTransport: 'host'` configurations
+through the same protocol, retaining Cloud Hypervisor compatibility. Transport
+and backend are not invocation fields. Docker's host adapter owns launch,
+staging, bounded allocation, daemon identity verification and reaping; Compose
+still owns the primary agent and sidecars. Dynamic Docker admission and bearer
+custody stay entirely on the host, using the compiler-issued envelope and
+invocation-scoped delegated identity. gVisor retains its private delegation
+file channel. This does not enable NVX enclaves or relax any Cloud Hypervisor
+host, artifact, storage, or real-backend acceptance gate.
+
+Docker recovery records contain verified immutable container identities,
+run/invocation labels and launch expectations. Uncertain daemon operations,
+identity mismatches, unverified mount visibility or incomplete cleanup block
+result release and preserve private recovery state. The shared run journal is
+a permanent tombstone, not a resumable accounting checkpoint: an old run is
+never reopened to retry execution. Information/executor counters remain
+in-memory and tool-call persistence remains best-effort as characterized above;
+resource reconciliation does not restore those balances.
+An ordinary Docker workload failure with positively confirmed cleanup remains
+a charged, settled error and does not disable later calls. Infrastructure
+failures and uncertain cleanup still close admission; callers cannot select
+this distinction through protocol fields.
+Definitive dynamic policy denials launch nothing and remain recoverable;
+controller failures block further admission until reconciliation succeeds.
+For configured Docker tmpfs capacity `T`, the host writable allocation is also
+`T`; all result, session and runtime binds share that one allocation. Including
+container tmpfs and shared memory, the aggregate is `3T + 64 MiB` for scripts
+and `3T` for agents. These are Docker-derived bounds, not VM storage defaults.
+
+The Docker host service closes admission and drains enclave execution before
+Compose disconnects gateways, proxies or networks, including with
+`--keep-containers`. That flag does not keep enclave execution or its writable
+allocation alive. Failed cleanup retains recovery state instead of deleting
+seeds or releasing an uncertain allocation.
+
+Docker host execution requires Linux, host mount/chown privileges and a rootful
+local Unix-socket daemon. Custom local socket paths remain supported. Rootless
+or user-namespace-remapped daemons and nontrivial `dockerHostPathPrefix`/split
+runner-daemon filesystems are explicitly rejected: translating a pathname does
+not prove that the daemon sees the host's bounded mount. Each invocation also
+probes the actual daemon-visible allocation before workload launch; a Unix
+socket alone is not sufficient evidence. There is no fallback to disk-backed
+unbounded output or to broker-owned launch. The host allocation is
+`nosuid,nodev,noexec`; writable runtime files are not an executable host mount.
+These restrictions apply to migrated Docker enclaves, not primary-only Compose
+runs or the unmigrated gVisor runner.
+Private storage and journal ancestors must remain host-owned; placing a
+root-owned child under a primary-writable checkout does not establish custody.
+The shared protocol additionally admits at most 1,024 distinct executions per
+host run, independently of the broker's configured invocation/tool-call budgets;
+a larger configured budget does not bypass that host safety bound.
 
 ## Cloud Hypervisor enclave executor
 

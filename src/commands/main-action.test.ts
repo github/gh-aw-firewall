@@ -24,6 +24,8 @@ jest.mock('../enclave/gateway');
 jest.mock('../enclave/startup-diagnostics');
 jest.mock('../enclave/github-gateway');
 jest.mock('../enclave/cloud-hypervisor-lifecycle');
+jest.mock('../enclave/docker-lifecycle');
+jest.mock('../enclave/dynamic-delegation');
 jest.mock('../enclave/manager', () => ({
   ...jest.requireActual('../enclave/manager'),
   prepareEnclaves: jest.fn(),
@@ -54,6 +56,8 @@ import * as enclaveManager from '../enclave/manager';
 import { captureEnclaveStartupDiagnostics } from '../enclave/startup-diagnostics';
 import * as enclaveGithubGateway from '../enclave/github-gateway';
 import * as enclaveHostLifecycle from '../enclave/cloud-hypervisor-lifecycle';
+import * as dockerHostLifecycle from '../enclave/docker-lifecycle';
+import * as dynamicDelegation from '../enclave/dynamic-delegation';
 import * as externalRuntimeResolver from '../external-runtime-backend-resolver';
 import { MAIN_ACTION_STUB_CONFIG, setupMainActionTestHarness } from './main-action.test-utils';
 import type { WrapperConfig } from '../types';
@@ -949,6 +953,47 @@ describe('createMainAction', () => {
   });
 
   describe('external runtime cleanup failures', () => {
+    it.each([false, true])('drains Docker host executions before broker/network teardown (keep=%s)', async (keepContainers) => {
+      const cleanup = testHelpers.buildCleanupFn(
+        { ...MAIN_ACTION_STUB_CONFIG, keepContainers }, () => true, () => false,
+      );
+      await cleanup('SIGTERM');
+      expect(jest.mocked(dockerHostLifecycle.closeDockerEnclaveAdmissions).mock.invocationCallOrder[0])
+        .toBeLessThan(jest.mocked(dockerHostLifecycle.stopDockerEnclaveLifecycle).mock.invocationCallOrder[0]);
+      expect(jest.mocked(dockerHostLifecycle.stopDockerEnclaveLifecycle).mock.invocationCallOrder[0])
+        .toBeLessThan(mockedEnclaveGateway.shutdownEnclaveGateway.mock.invocationCallOrder[0]);
+      expect(jest.mocked(dockerHostLifecycle.stopDockerEnclaveLifecycle).mock.invocationCallOrder[0])
+        .toBeLessThan(mockedDockerManager.stopContainers.mock.invocationCallOrder[0]);
+    });
+
+    it('retains seeds and infrastructure when Docker host cleanup is uncertain', async () => {
+      jest.mocked(dockerHostLifecycle.stopDockerEnclaveLifecycle)
+        .mockRejectedValueOnce(new Error('Docker recovery pending'));
+      const cleanup = testHelpers.buildCleanupFn(
+        { ...MAIN_ACTION_STUB_CONFIG }, () => true, () => false,
+      );
+      await expect(cleanup()).rejects.toThrow('Docker recovery pending');
+      expect(mockedEnclaveGateway.shutdownEnclaveGateway).not.toHaveBeenCalled();
+      expect(mockedDockerManager.stopContainers).not.toHaveBeenCalled();
+      expect(mockedDockerManager.cleanup).not.toHaveBeenCalled();
+    });
+
+    it.each([false, true])('drains Docker before delegation shutdown and preserves failed revocation (containers started=%s)', async (containersStarted) => {
+      jest.mocked(dockerHostLifecycle.isDockerEnclaveSelected).mockReturnValueOnce(true);
+      jest.mocked(dynamicDelegation.stopEnclaveDynamicDelegation)
+        .mockRejectedValueOnce(new Error('delegation revocation pending'));
+      const cleanup = testHelpers.buildCleanupFn(
+        { ...MAIN_ACTION_STUB_CONFIG }, () => containersStarted, () => false,
+      );
+      await expect(cleanup()).rejects.toThrow('delegation revocation pending');
+      expect(jest.mocked(dockerHostLifecycle.stopDockerEnclaveLifecycle).mock.invocationCallOrder[0])
+        .toBeLessThan(jest.mocked(dynamicDelegation.stopEnclaveDynamicDelegation).mock.invocationCallOrder[0]);
+      expect(mockedEnclaveGateway.shutdownEnclaveGateway).not.toHaveBeenCalled();
+      expect(mockedEnclaveGithubGateway.disconnectEnclaveGithubGateway).not.toHaveBeenCalled();
+      expect(mockedDockerManager.stopContainers).not.toHaveBeenCalled();
+      expect(mockedDockerManager.cleanup).not.toHaveBeenCalled();
+    });
+
     it('continues generic cleanup and then rethrows the runtime failure', async () => {
       const runtimeError = new Error('External runtime teardown failed');
       const backend = {

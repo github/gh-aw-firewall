@@ -91,6 +91,7 @@ function decode(payload: Buffer, capability = CAPABILITY) {
  * None of them is part of any request type.
  */
 const PROHIBITED_FIELDS: Record<string, unknown> = {
+  recoverableFailure: true,
   command: 'rm -rf /',
   cmd: ['/bin/sh', '-c', 'id'],
   argv: ['/bin/sh'],
@@ -666,6 +667,41 @@ describe('host executor server', () => {
     const status = await broker.status({ entryId: ENTRY_ID, invocationId: INVOCATION_ID });
     expect(status).toEqual(expect.objectContaining({ outcome: 'executor-failure' }));
     expect(JSON.stringify(status)).not.toContain('private stdout');
+  });
+
+  it('allows a subsequent charged execution only for a trusted recoverable workload failure', async () => {
+    await start();
+    const broker = client();
+    await broker.invoke(invokeArgs);
+    pending[0].resolve({ outcome: 'executor-failure', cleanupComplete: true, recoverableFailure: true });
+    await new Promise((resolve) => setImmediate(resolve));
+    const status = await broker.status({ entryId: ENTRY_ID, invocationId: INVOCATION_ID });
+    expect(status).toMatchObject({ state: 'terminal', outcome: 'executor-failure' });
+    expect(status).not.toHaveProperty('recoverableFailure');
+    expect(await broker.settle({
+      entryId: ENTRY_ID, invocationId: INVOCATION_ID, resultDigest: status.resultDigest,
+    })).toMatchObject({ state: 'settled' });
+    expect(await broker.invoke({
+      ...invokeArgs, invocationId: '1'.repeat(24), admissionId: '2'.repeat(24),
+    })).toMatchObject({ ok: true, state: 'running' });
+    expect(executions).toHaveLength(2);
+  });
+
+  it.each([
+    { cleanupComplete: false, state: 'cancelling' },
+    { cleanupComplete: undefined, state: 'terminal' },
+  ])('requires positive cleanup confirmation for recoverable failures ($cleanupComplete)', async ({ cleanupComplete, state }) => {
+    await start();
+    const broker = client();
+    await broker.invoke(invokeArgs);
+    pending[0].resolve({ outcome: 'executor-failure', cleanupComplete, recoverableFailure: true });
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(await broker.status({ entryId: ENTRY_ID, invocationId: INVOCATION_ID }))
+      .toMatchObject({ state });
+    expect(await broker.invoke({
+      ...invokeArgs, invocationId: '1'.repeat(24), admissionId: '2'.repeat(24),
+    })).toMatchObject({ ok: false, error: 'closed' });
+    expect(executions).toHaveLength(1);
   });
 
   it('reports unknown invocations and closes admissions without affecting status', async () => {

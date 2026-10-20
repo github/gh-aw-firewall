@@ -14,6 +14,7 @@ import { releaseSeedPermissions, type GitRunner } from './staging';
 import { resolveEnclavePaths } from './paths';
 import { getEnclaveStartupProgress } from './startup-progress';
 import * as cloudHypervisorLifecycle from './cloud-hypervisor-lifecycle';
+import * as dockerLifecycle from './docker-lifecycle';
 
 import { typedDynamicEnclavePolicyFixture } from './dynamic-policy.test-utils';
 import * as runtimePreflight from './runtime-preflight';
@@ -34,6 +35,12 @@ const gitRunner: GitRunner = async (args) => {
 };
 
 jest.mock('execa', () => ({ __esModule: true, default: jest.fn() }));
+jest.mock('./docker-lifecycle', () => ({
+  ...jest.requireActual('./docker-lifecycle'),
+  startDockerEnclaveLifecycle: jest.fn(),
+  assertDockerEnclaveLifecycleReady: jest.fn(),
+  stopDockerEnclaveLifecycle: jest.fn(),
+}));
 jest.mock('./paths', () => {
   const actual = jest.requireActual('./paths');
   return {
@@ -192,6 +199,9 @@ describe('prepareEnclaves fail-closed preflight', () => {
   beforeEach(() => {
     mockExeca.mockReset();
     mockExeca.mockResolvedValue({ exitCode: 0, stdout: '' });
+    jest.mocked(dockerLifecycle.startDockerEnclaveLifecycle).mockReset();
+    jest.mocked(dockerLifecycle.assertDockerEnclaveLifecycleReady).mockReset();
+    jest.mocked(dockerLifecycle.stopDockerEnclaveLifecycle).mockReset();
     workDir = fs.mkdtempSync(path.join(process.cwd(), '.awf-enclave-manager-'));
   });
 
@@ -531,6 +541,12 @@ describe('prepareEnclaves fail-closed preflight', () => {
   });
 
   it('stages immutable seeds and a private MCP capability before Compose starts', async () => {
+    jest.mocked(dockerLifecycle.startDockerEnclaveLifecycle).mockImplementationOnce(async (candidate) => {
+      const staged = resolveEnclavePaths(candidate.workDir);
+      expect(fs.existsSync(staged.seedMapPath)).toBe(true);
+      expect(fs.readFileSync(staged.capabilityPath, 'utf8').trim()).toBe('a'.repeat(64));
+      expect(fs.readFileSync(staged.runIdPath, 'utf8').trim()).toMatch(/^[0-9a-f]{32}$/);
+    });
     await prepareEnclaves(config(workDir), {
       env: enclaveEnv(),
       gitRunner,
@@ -552,6 +568,11 @@ describe('prepareEnclaves fail-closed preflight', () => {
     expect(fs.statSync(paths.capabilityPath).mode & 0o777).toBe(0o600);
     expect(paths.root.startsWith(workDir)).toBe(false);
     expect(paths.ingressRoot.startsWith(workDir)).toBe(false);
+    expect(dockerLifecycle.startDockerEnclaveLifecycle).toHaveBeenCalledWith(
+      expect.objectContaining({ workDir }), expect.any(Object),
+    );
+    expect(jest.mocked(dockerLifecycle.startDockerEnclaveLifecycle).mock.invocationCallOrder[0])
+      .toBeLessThan(jest.mocked(dockerLifecycle.assertDockerEnclaveLifecycleReady).mock.invocationCallOrder[0]);
   });
 
   it('stages the enclave GitHub MCP identity as a private mode-0600 file', async () => {
@@ -568,12 +589,26 @@ describe('prepareEnclaves fail-closed preflight', () => {
       assertPrimaryAvailable: jest.fn().mockResolvedValue(undefined),
       assertAgentRuntimeAvailable: jest.fn().mockResolvedValue(undefined),
     });
+
     const paths = resolveEnclavePaths(workDir);
     expect(fs.readFileSync(paths.githubAgentIdPath, 'utf8').trim()).toBe(agentId);
     expect(fs.statSync(paths.githubAgentIdPath).mode & 0o777).toBe(0o600);
     const seedRunId = JSON.parse(fs.readFileSync(paths.seedMapPath, 'utf8')).runId;
     expect(seedRunId).toMatch(/^[0-9a-f]{32}$/);
     expect(seedRunId).not.toBe(agentId);
+  });
+
+  it('fails before Compose when the staged Docker host service is not ready', async () => {
+    jest.mocked(dockerLifecycle.assertDockerEnclaveLifecycleReady)
+      .mockRejectedValueOnce(new Error('Docker host listener unavailable'));
+    const wrapperConfig = config(workDir);
+    await expect(prepareEnclaves(wrapperConfig, {
+      env: enclaveEnv(),
+      gitRunner,
+      assertPrimaryAvailable: jest.fn().mockResolvedValue(undefined),
+      assertScriptRuntimeAvailable: jest.fn().mockResolvedValue(undefined),
+    })).rejects.toThrow('Docker host listener unavailable');
+    expect(fs.existsSync(resolveEnclavePaths(workDir).seedMapPath)).toBe(true);
   });
 
   function dynamicOnlyConfig(dir: string): WrapperConfig {
@@ -678,7 +713,7 @@ describe('prepareEnclaves fail-closed preflight', () => {
     expect(env.AWF_ENCLAVE_GITHUB_DELEGATION_CONTROL_CAPABILITY).toBeUndefined();
   });
 
-  it('removes labelled orphan containers and both private roots on teardown', async () => {
+  it('drains the migrated host lifecycle without blindly removing labelled containers', async () => {
     const wrapperConfig = config(workDir);
     await prepareEnclaves(wrapperConfig, {
       env: enclaveEnv(),
@@ -690,25 +725,14 @@ describe('prepareEnclaves fail-closed preflight', () => {
       .mockResolvedValueOnce({ exitCode: 0, stdout: 'a'.repeat(12) })
       .mockResolvedValueOnce({ exitCode: 0, stdout: '' });
     const paths = resolveEnclavePaths(workDir);
-    const runId = JSON.parse(fs.readFileSync(paths.seedMapPath, 'utf8')).runId;
     await teardownEnclaves(wrapperConfig);
-    expect(mockExeca).toHaveBeenNthCalledWith(
-      1,
-      'docker',
-      ['ps', '-aq', '--filter', `label=awf.enclave.run=${runId}`],
-      expect.objectContaining({ reject: false }),
-    );
-    expect(mockExeca).toHaveBeenNthCalledWith(
-      2,
-      'docker',
-      ['rm', '-f', 'a'.repeat(12)],
-      expect.objectContaining({ reject: false }),
-    );
+    expect(dockerLifecycle.stopDockerEnclaveLifecycle).toHaveBeenCalledWith(wrapperConfig);
+    expect(mockExeca).not.toHaveBeenCalled();
     expect(fs.existsSync(paths.root)).toBe(false);
     expect(fs.existsSync(paths.ingressRoot)).toBe(false);
   });
 
-  it('preserves private state and fails loudly when orphan cleanup fails', async () => {
+  it('preserves private state and fails loudly when trusted host cleanup fails', async () => {
     const wrapperConfig = config(workDir);
     await prepareEnclaves(wrapperConfig, {
       env: enclaveEnv(),
@@ -716,10 +740,11 @@ describe('prepareEnclaves fail-closed preflight', () => {
       assertPrimaryAvailable: jest.fn().mockResolvedValue(undefined),
       assertScriptRuntimeAvailable: jest.fn().mockResolvedValue(undefined),
     });
-    mockExeca.mockResolvedValueOnce({ exitCode: 1, stdout: '', stderr: 'daemon unavailable' });
+    jest.mocked(dockerLifecycle.stopDockerEnclaveLifecycle)
+      .mockRejectedValueOnce(new Error('Docker host recovery is uncertain'));
     const paths = resolveEnclavePaths(workDir);
     await expect(teardownEnclaves(wrapperConfig)).rejects.toThrow(
-      /Failed to list orphaned enclave containers/,
+      /Docker host recovery is uncertain/,
     );
     expect(fs.existsSync(paths.root)).toBe(true);
     expect(fs.existsSync(paths.ingressRoot)).toBe(true);

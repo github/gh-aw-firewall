@@ -234,6 +234,12 @@ function createExecutorHandler(params) {
         return;
       }
       seed = { seedId: undefined, sensitivity: admitted.sensitivity };
+    } else if (runner.hostOwned && config.dynamicEnabled) {
+      // The host alone admits the selector and owns its delegated identity.
+      // Reserve the worst-case disclosure locally before asking it to launch;
+      // denied selectors never refund or reset the shared repository ledger.
+      ledger.registerRepository(repoKey, config.dynamicSensitivity);
+      seed = { seedId: undefined, sensitivity: config.dynamicSensitivity };
     } else {
       seed = seedMap.get(repoKey);
       if (!seed) {

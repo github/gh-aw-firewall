@@ -292,7 +292,7 @@ export class DynamicDelegationService {
       // The invocation charge stays committed: the envelope revealed the
       // opportunity to spend it the moment it admitted the repository.
       this.settleQuota(outcome.usageHandle, { outputBytes: 0, executionSeconds: 0 });
-      if (error instanceof DelegationControlError && error.requiresReconciliation) {
+      if (kind !== 'denied') {
         this.requireReconciliation('identity-creation-unresolved');
       }
       this.audit('identity-failed', {
