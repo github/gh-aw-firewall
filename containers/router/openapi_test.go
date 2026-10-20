@@ -14,7 +14,7 @@ var servedRoutes = map[string]string{"/healthz": "GET", "/capabilities": "GET", 
 
 // openAPIOutline is what the tests read from openapi.yaml.
 type openAPIOutline struct {
-	routes     map[string]string // path to method
+	routes     map[string][]string // path to every documented method
 	errorCodes []ErrorCode
 	refs       []string        // every $ref target
 	components map[string]bool // every "#/components/<kind>/<name>"
@@ -29,7 +29,7 @@ func readOpenAPI(t *testing.T) openAPIOutline {
 		t.Fatal(err)
 	}
 	defer f.Close()
-	o := openAPIOutline{routes: map[string]string{}, components: map[string]bool{}}
+	o := openAPIOutline{routes: map[string][]string{}, components: map[string]bool{}}
 	var section, path, kind string
 	inErrorCodes := false
 	scanner := bufio.NewScanner(f)
@@ -49,7 +49,7 @@ func readOpenAPI(t *testing.T) openAPIOutline {
 		case section == "paths:" && indent == 2:
 			path = strings.TrimSuffix(trimmed, ":")
 		case section == "paths:" && indent == 4:
-			o.routes[path] = strings.ToUpper(strings.TrimSuffix(trimmed, ":"))
+			o.routes[path] = append(o.routes[path], strings.ToUpper(strings.TrimSuffix(trimmed, ":")))
 		case section == "components:" && indent == 2:
 			kind = strings.TrimSuffix(trimmed, ":")
 		case section == "components:" && indent == 4:
@@ -67,8 +67,12 @@ func readOpenAPI(t *testing.T) openAPIOutline {
 
 func TestOpenAPIDocumentsServedRoutesAndErrorCodes(t *testing.T) {
 	o := readOpenAPI(t)
-	if !maps.Equal(o.routes, servedRoutes) {
-		t.Errorf("openapi.yaml documents %v, the server serves %v", o.routes, servedRoutes)
+	served := map[string][]string{}
+	for path, method := range servedRoutes {
+		served[path] = []string{method}
+	}
+	if !maps.EqualFunc(o.routes, served, slices.Equal) {
+		t.Errorf("openapi.yaml documents %v, the server serves %v", o.routes, served)
 	}
 	want := []ErrorCode{CodeInvalidJSON, CodeInvalidRequest, CodePayloadTooLarge, CodeUnsupportedMediaType,
 		CodeNotFound, CodeMethodNotAllowed, CodeNoRoute, CodeInternalError}

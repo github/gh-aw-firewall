@@ -195,12 +195,17 @@ func TestContainerRoutingContractCorpus(t *testing.T) {
 		t.Run(key, func(t *testing.T) {
 			dir := t.TempDir()
 			names := strings.Split(key, ",")
+			// The container user must be able to read the mount on Linux hosts. Chmod sets
+			// the modes exactly; WriteFile's mode is reduced by the umask.
 			for _, name := range names {
-				if err := os.WriteFile(filepath.Join(dir, name), marshal(t, docs[name]), 0o644); err != nil {
+				path := filepath.Join(dir, name)
+				if err := os.WriteFile(path, marshal(t, docs[name]), 0o644); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.Chmod(path, 0o644); err != nil {
 					t.Fatal(err)
 				}
 			}
-			// The container user must be able to read the mount on Linux hosts.
 			if err := os.Chmod(dir, 0o755); err != nil {
 				t.Fatal(err)
 			}

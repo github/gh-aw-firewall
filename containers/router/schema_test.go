@@ -104,8 +104,15 @@ func TestSchemaMatchesRuntime(t *testing.T) {
 			t.Errorf("labelKey pattern rejects %q", key)
 		}
 	}
-	docs := contractDocuments()
+	// Keyed by source, because the bundled and contract tables share base names.
+	docs := map[string]map[string]any{}
+	for name, doc := range contractDocuments() {
+		docs["contract "+name] = doc
+	}
 	bundled, _ := filepath.Glob(filepath.Join("routing", "cost-*.json"))
+	if len(bundled) == 0 {
+		t.Fatal("no bundled tables in routing/")
+	}
 	for _, path := range bundled {
 		data, err := os.ReadFile(path)
 		if err != nil {
@@ -115,7 +122,10 @@ func TestSchemaMatchesRuntime(t *testing.T) {
 		if err := json.Unmarshal(data, &doc); err != nil {
 			t.Fatal(err)
 		}
-		docs[filepath.Base(path)] = doc
+		docs[filepath.ToSlash(path)] = doc
+	}
+	if want := len(Profiles) + len(bundled); len(docs) != want {
+		t.Fatalf("checking %d tables, want %d", len(docs), want)
 	}
 	for name, doc := range docs {
 		choices := doc["classification_choices"].([]any)

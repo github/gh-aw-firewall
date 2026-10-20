@@ -18,7 +18,7 @@ WORKDIR /src
 COPY go.* ./
 RUN go mod download && go mod verify
 COPY *.go ./
-RUN grep -qx "const version = \"${VERSION}\"" main.go \
+RUN grep -qxF "const version = \"${VERSION}\"" main.go \
     || { echo "VERSION must match the version constant in main.go" >&2; exit 1; }
 RUN CGO_ENABLED=0 GOOS="$TARGETOS" GOARCH="$TARGETARCH" \
     go build -trimpath -buildvcs=false -ldflags="-s -w" -o /out/usr/local/bin/gh-aw-router .
