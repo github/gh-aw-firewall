@@ -350,4 +350,45 @@ describe('generateDockerCompose: sysroot-stage service (runner.topology = arc-di
     }
     expect(fs.readdirSync(homeSource)).toEqual(['.npmrc']);
   });
+
+  it('keeps a GitHub credential mask from an explicit home mount after filtering the automatic .config mount', () => {
+    const effectiveHome = path.join(mockConfig.workDir, 'effective-home');
+    const homeSource = path.join(mockConfig.workDir, 'home-source');
+    fs.mkdirSync(path.join(homeSource, '.config/gh'), { recursive: true });
+    fs.writeFileSync(path.join(homeSource, '.config/gh/hosts.yml'), 'DUMMY_SECRET_VALUE');
+    fs.mkdirSync(effectiveHome);
+    const config = {
+      ...mockConfig,
+      workDir: '/tmp/awf-12345',
+      runnerTopology: 'arc-dind' as const,
+      dockerHostPathPrefix: '/host',
+      volumeMounts: [`${homeSource}/:/host${effectiveHome}:rw`],
+    };
+
+    const result = generateDockerCompose(config, mockNetworkConfig, undefined, undefined, { effectiveHome });
+    const volumes = result.services.agent.volumes as string[];
+
+    expect(volumes).toContain(`/dev/null:/host${effectiveHome}/.config/gh/hosts.yml:ro`);
+  });
+
+  it('drops a GitHub credential mask when only the filtered automatic .config mount contains it', () => {
+    const effectiveHome = path.join(mockConfig.workDir, 'effective-home');
+    const homeSource = path.join(mockConfig.workDir, 'home-source');
+    fs.mkdirSync(path.join(effectiveHome, '.config/gh'), { recursive: true });
+    fs.writeFileSync(path.join(effectiveHome, '.config/gh/hosts.yml'), 'DUMMY_SECRET_VALUE');
+    fs.mkdirSync(homeSource);
+    const config = {
+      ...mockConfig,
+      workDir: '/tmp/awf-12345',
+      runnerTopology: 'arc-dind' as const,
+      dockerHostPathPrefix: '/host',
+      volumeMounts: [`${homeSource}/:/host${effectiveHome}:rw`],
+    };
+
+    const result = generateDockerCompose(config, mockNetworkConfig, undefined, undefined, { effectiveHome });
+    const volumes = result.services.agent.volumes as string[];
+
+    expect(volumes).not.toContain(`/dev/null:/host${effectiveHome}/.config/gh/hosts.yml:ro`);
+    expect(fs.readdirSync(homeSource)).toEqual([]);
+  });
 });

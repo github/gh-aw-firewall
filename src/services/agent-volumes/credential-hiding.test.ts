@@ -101,6 +101,15 @@ describe('pruneUnmountableCredentialOverlays', () => {
     expect(result).toContain(overlay(target));
   });
 
+  it('keeps an overlay when a file bind has the same destination', () => {
+    const secret = path.join(hostDir, 'npmrc');
+    fs.writeFileSync(secret, 'DUMMY_SECRET_VALUE');
+    const target = `/host${HOME}/.npmrc`;
+    const volumes = [`${secret}:${target}:ro`, overlay(target)];
+
+    expect(pruneUnmountableCredentialOverlays(volumes)).toEqual(volumes);
+  });
+
   it('drops overlays whose mountpoint is missing behind a read-only bind', () => {
     const target = `/host${HOME}/.docker/config.json`;
 

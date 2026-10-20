@@ -11,7 +11,7 @@
  *
  * Security Mitigation:
  * - Selective mounting: Only mount directories needed for operation
- * - Credential hiding: Mount /dev/null over credential files (they appear empty)
+ * - Credential hiding: Mount /dev/null over existing credential files
  * - Works in both normal and chroot modes
  */
 
@@ -39,13 +39,13 @@ describe('Credential Hiding Security', () => {
   });
 
   describe('Normal Mode', () => {
-    test('Test 1: Docker config.json is hidden (empty file)', async () => {
+    test('Test 1: Docker config.json is hidden when present', async () => {
       // Use the real home directory - if the file exists, it should be hidden
       const homeDir = os.homedir();
       const dockerConfig = `${homeDir}/.docker/config.json`;
 
       const result = await runner.runWithSudo(
-        `cat ${dockerConfig} 2>&1 | grep -v "^\\[" | head -1`,
+        `if [ -e ${dockerConfig} ]; then cat ${dockerConfig}; fi 2>&1 | grep -v "^\\[" | head -1`,
         {
           allowDomains: ['github.com'],
           logLevel: 'debug',
@@ -53,7 +53,7 @@ describe('Credential Hiding Security', () => {
         }
       );
 
-      // Command should succeed (file is "readable" but empty)
+      // A missing file is safe; an existing file must be empty through the mask.
       expect(result).toSucceed();
       // Output should be empty (no credential data leaked)
       // Use extractCommandOutput to strip entrypoint/iptables setup noise from stdout
@@ -61,12 +61,12 @@ describe('Credential Hiding Security', () => {
       expect(output).toBe('');
     }, 120000);
 
-    test('Test 2: GitHub CLI hosts.yml is hidden (empty file)', async () => {
+    test('Test 2: GitHub CLI hosts.yml is hidden when present', async () => {
       const homeDir = os.homedir();
       const hostsFile = `${homeDir}/.config/gh/hosts.yml`;
 
       const result = await runner.runWithSudo(
-        `cat ${hostsFile} 2>&1 | grep -v "^\\[" | head -1`,
+        `if [ -e ${hostsFile} ]; then cat ${hostsFile}; fi 2>&1 | grep -v "^\\[" | head -1`,
         {
           allowDomains: ['github.com'],
           logLevel: 'debug',
@@ -81,12 +81,12 @@ describe('Credential Hiding Security', () => {
       expect(output).not.toContain('gho_');
     }, 120000);
 
-    test('Test 3: NPM .npmrc is hidden (empty file)', async () => {
+    test('Test 3: NPM .npmrc is hidden when present', async () => {
       const homeDir = os.homedir();
       const npmrc = `${homeDir}/.npmrc`;
 
       const result = await runner.runWithSudo(
-        `cat ${npmrc} 2>&1 | grep -v "^\\[" | head -1`,
+        `if [ -e ${npmrc} ]; then cat ${npmrc}; fi 2>&1 | grep -v "^\\[" | head -1`,
         {
           allowDomains: ['github.com'],
           logLevel: 'debug',
@@ -189,7 +189,7 @@ describe('Credential Hiding Security', () => {
       // "Test 6: Chroot mode hides credentials at /host paths".
 
       const result = await runner.runWithSudo(
-        `cat ${homeDir}/.docker/config.json 2>&1 | grep -v "^\\[" | head -1`,
+        `if [ -e ${homeDir}/.docker/config.json ]; then cat ${homeDir}/.docker/config.json; fi 2>&1 | grep -v "^\\[" | head -1`,
         {
           allowDomains: ['github.com'],
           logLevel: 'debug',
@@ -198,7 +198,7 @@ describe('Credential Hiding Security', () => {
         }
       );
 
-      // Command should succeed (file is "readable" but empty)
+      // A missing file is safe; an existing file must be empty through the mask.
       expect(result).toSucceed();
       // Output should be empty (no credential data leaked via direct home mount)
       const output = extractCommandOutput(result.stdout).trim();
@@ -211,7 +211,7 @@ describe('Credential Hiding Security', () => {
       // Verify another critical credential file is hidden at the direct home mount
       // (the bypass path). The /host chroot path is covered by Test 6.
       const result = await runner.runWithSudo(
-        `cat ${homeDir}/.config/gh/hosts.yml 2>&1 | grep -v "^\\[" | head -1`,
+        `if [ -e ${homeDir}/.config/gh/hosts.yml ]; then cat ${homeDir}/.config/gh/hosts.yml; fi 2>&1 | grep -v "^\\[" | head -1`,
         {
           allowDomains: ['github.com'],
           logLevel: 'debug',
@@ -221,7 +221,7 @@ describe('Credential Hiding Security', () => {
       );
 
       expect(result).toSucceed();
-      // Output should be empty (no credential data leaked via direct home mount)
+      // Output is empty when the file is absent or masked.
       const output = extractCommandOutput(result.stdout).trim();
       expect(output).toBe('');
     }, 120000);
@@ -229,7 +229,8 @@ describe('Credential Hiding Security', () => {
 
   describe('All 14 Credential Paths Coverage', () => {
     // These tests cover the 11 credential paths not tested by Tests 1-4 above.
-    // Each path is hidden via /dev/null mount and should return empty content.
+    // A credential is absent when its parent directory is not mounted; any
+    // credential that is present must be empty through the /dev/null mask.
 
     const untestedPaths = [
       { name: 'SSH id_rsa', path: '.ssh/id_rsa' },
@@ -250,9 +251,7 @@ describe('Credential Hiding Security', () => {
     const createdDirs: string[] = [];
 
     beforeAll(() => {
-      // Create dummy credential files on the host so AWF will mount /dev/null over them.
-      // Without these files existing, AWF skips the /dev/null mount and the files
-      // simply don't exist inside the container.
+      // Create dummy credential files on the host so AWF masks any that are mounted.
       const homeDir = os.homedir();
       for (const p of untestedPaths) {
         const fullPath = `${homeDir}/${p.path}`;
@@ -285,7 +284,7 @@ describe('Credential Hiding Security', () => {
       }
     });
 
-    test('All untested credential files are hidden at direct home path (0 bytes)', async () => {
+    test('All untested credentials are absent or empty at direct home path', async () => {
       const homeDir = os.homedir();
       const paths = untestedPaths.map(p => `${homeDir}/${p.path}`).join(' ');
 
@@ -295,7 +294,7 @@ describe('Credential Hiding Security', () => {
       // Use [ -e ] instead of [ -f ] because /dev/null-mounted files are
       // character special devices, not regular files
       const result = await runner.runWithSudo(
-        `sh -c 'for f in ${paths}; do if [ -e "$f" ]; then wc -c "$f"; fi; done 2>&1 || true'`,
+        `sh -c 'for f in ${paths}; do if [ -e "$f" ]; then wc -c "$f"; else echo "ABSENT:$f"; fi; done 2>&1 || true'`,
         {
           allowDomains: ['github.com'],
           logLevel: 'debug',
@@ -306,13 +305,16 @@ describe('Credential Hiding Security', () => {
       expect(result).toSucceed();
       const cleanOutput = extractCommandOutput(result.stdout);
       const lines = cleanOutput.split('\n').filter(l => l.match(/^\s*\d+/));
-      // Each file should be 0 bytes (hidden via /dev/null)
+      const absentLines = cleanOutput.split('\n').filter(l => l.startsWith('ABSENT:'));
+      // Existing files must be masked; missing files must remain absent.
       lines.forEach(line => {
         const size = parseInt(line.trim().split(/\s+/)[0]);
         expect(size).toBe(0);
       });
-      // Verify we checked all 11 files
-      expect(lines.length).toBe(untestedPaths.length);
+      expect(lines.length + absentLines.length).toBe(untestedPaths.length);
+      expect(lines.some(line => line.includes('/.azure/credentials'))).toBe(true);
+      expect(lines.some(line => line.includes('/.config/gcloud/credentials.db'))).toBe(true);
+      expect(lines.some(line => line.includes('/.cargo/credentials'))).toBe(true);
     }, 120000);
 
     test('All untested credential files are inaccessible at /host path (chroot prevents access)', async () => {
@@ -365,7 +367,7 @@ describe('Credential Hiding Security', () => {
       const homeDir = os.homedir();
 
       // Simulate prompt injection attack: read credential file and encode it
-      const attackCommand = `cat ${homeDir}/.docker/config.json 2>&1 | base64 | grep -v "^\\[" | head -1`;
+      const attackCommand = `if [ -e ${homeDir}/.docker/config.json ]; then cat ${homeDir}/.docker/config.json; fi 2>&1 | base64 | grep -v "^\\[" | head -1`;
 
       const result = await runner.runWithSudo(
         attackCommand,
@@ -387,7 +389,7 @@ describe('Credential Hiding Security', () => {
       const homeDir = os.homedir();
 
       // Simulate sophisticated attack: multiple encoding layers
-      const attackCommand = `cat ${homeDir}/.config/gh/hosts.yml 2>&1 | base64 | xxd -p 2>&1 | tr -d '\\n' | grep -v "^\\[" | head -1`;
+      const attackCommand = `if [ -e ${homeDir}/.config/gh/hosts.yml ]; then cat ${homeDir}/.config/gh/hosts.yml; fi 2>&1 | base64 | xxd -p 2>&1 | tr -d '\\n' | grep -v "^\\[" | head -1`;
 
       const result = await runner.runWithSudo(
         attackCommand,

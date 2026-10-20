@@ -10,7 +10,7 @@ import { resolveLogPaths } from './log-paths';
 import { redactSensitiveValues } from './redact-secrets';
 import { buildSquidService } from './services/squid-service';
 import { buildAgentEnvironment, buildAgentVolumes, buildAgentService } from './services/agent-service';
-import { assembleOptionalServices } from './services/optional-services';
+import { assembleOptionalServices, filterAgentVolumesForSysroot } from './services/optional-services';
 import { buildComposeNetworks } from './compose-network';
 import { runtimeNeedsStaticDns, runtimeUsesComposeAgent } from './container-runtime';
 import { API_PROXY_PORTS } from './types/ports';
@@ -148,6 +148,9 @@ export function generateDockerCompose(
       directoryVolumeSources: [GEMINI_SETTINGS_VOLUME],
       rootOwnedTargets: [`/host${GEMINI_CLI_SYSTEM_SETTINGS_DIRECTORY}`],
     } : undefined,
+    filterVolumes: config.runnerTopology === 'arc-dind'
+      ? volumes => filterAgentVolumesForSysroot(volumes, config, effectiveHome)
+      : undefined,
   });
 
   const agentService = buildAgentService({

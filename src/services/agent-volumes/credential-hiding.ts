@@ -54,6 +54,10 @@ export function pruneUnmountableCredentialOverlays(
     const overlay = parseMount(spec);
     if (!overlay || overlay.source !== '/dev/null') return true;
 
+    const exactBinds = binds.filter((bind) => bind.target === overlay.target);
+    const exactBind = exactBinds[exactBinds.length - 1];
+    if (exactBind) return true;
+
     const cover = innermostCoveringMount(binds, overlay.target);
     // No covering bind: the mountpoint lives on the container's own writable
     // rootfs, so runc can always create it.
