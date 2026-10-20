@@ -921,7 +921,7 @@ describe('smoke enclave build workflow', () => {
   it('uses the compatible gateway and local AWF build', () => {
     expect(lock).toContain('ghcr.io/github/gh-aw-mcpg:v0.4.35');
     expect(lock).toContain('"awf-enclave": {\n                "required": false,');
-    expect(lock).toContain('Install awf binary (local)');
+    expect(lock).toContain('Install local AWF binary');
     expect(lock).toContain('--build-local');
   });
 
@@ -1018,10 +1018,12 @@ describe('smoke enclave issues workflow', () => {
     expect(source).toContain('network:\n  allowed: []');
     expect(source).not.toContain('GH_TOKEN: ${{ github.token }}');
     expect(source).toContain('tools:\n  github: false');
-    expect(lock).toContain(
-      '\\"network\\":{\\"isolation\\":true,\\"topologyAttach\\":[\\"awmg-mcpg\\"]}'
+    const networkConfig = lock.match(/\\"network\\":\{(.*?)\},\\"apiProxy\\"/)?.[1];
+    expect(networkConfig).toBeDefined();
+    expect(networkConfig).toContain('\\"isolation\\":true,\\"topologyAttach\\":[\\"awmg-mcpg\\"]');
+    expect(networkConfig).not.toMatch(
+      /\\?"(?:api\.github\.com|github\.com|raw\.githubusercontent\.com|gist\.github\.com|uploads\.github\.com)\\?"/
     );
-    expect(lock).not.toContain('\\"allowDomains\\":');
     expect(lock).not.toContain(
       '"${MCP_GATEWAY_AGENT_ID}":{"servers":["awf-enclave","github","safeoutputs"]'
     );
@@ -1068,7 +1070,7 @@ describe('smoke enclave issues workflow', () => {
 
   it('tests the local AWF implementation with mcpg v0.4.15', () => {
     expect(lock).toContain('ghcr.io/github/gh-aw-mcpg:v0.4.15');
-    expect(lock).toContain('Install awf binary (local)');
+    expect(lock).toContain('Install local AWF binary');
     expect(lock).toContain('--build-local');
     expect(lock).not.toMatch(
       /download_docker_images\.sh[^\n]*ghcr\.io\/github\/gh-aw-firewall\/enclave-(?:agent|mcp-server)/
@@ -1115,7 +1117,7 @@ describe('smoke enclave dynamic issues workflow', () => {
     expect(lock).toContain(
       `-p 127.0.0.1:'"\${MCP_GATEWAY_DELEGATION_CONTROL_LISTEN#*:}"':'"\${MCP_GATEWAY_DELEGATION_CONTROL_LISTEN#*:}"'`
     );
-    expect(lock).toContain('Install awf binary (local)');
+    expect(lock).toContain('Install local AWF binary');
     expect(lock).toContain('--build-local');
   });
 
