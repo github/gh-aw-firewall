@@ -1098,7 +1098,7 @@ describe('smoke enclave issues workflow', () => {
 
   it('accepts the emitted stdio image under the pinned gateway container schema', () => {
     const frontmatter = yaml.load(source.split('---')[1]) as {
-      sandbox: { mcp: { version: string } };
+      sandbox: { mcp?: { version?: string } };
     };
     const compiled = yaml.load(lock) as {
       jobs: { agent: { steps: Array<{ name: string; run?: string }> } };
@@ -1115,8 +1115,8 @@ describe('smoke enclave issues workflow', () => {
     const ajv = new Ajv();
     const legacy = ajv.compile({ type: 'string', minLength: 1, pattern: legacyPattern });
     const compatible = ajv.compile({ type: 'string', minLength: 1, pattern: digestPattern });
-    expect(frontmatter.sandbox.mcp.version).toBe('v0.4.36');
-    const gatewayImage = `ghcr.io/github/gh-aw-mcpg:${frontmatter.sandbox.mcp.version}`;
+    expect(frontmatter.sandbox.mcp?.version).toBeUndefined();
+    const gatewayImage = 'ghcr.io/github/gh-aw-mcpg:v0.4.36';
     const gatewayDigest = 'sha256:b4d2856018959c798b3e3f81ae4ab5b275e06354e123e1f7971de931f2f450f2';
     const pinnedGateway = `${gatewayImage}@${gatewayDigest}`;
     const manifest = JSON.parse(lock.match(/^# gh-aw-manifest: (.+)$/m)![1]) as {
@@ -1132,6 +1132,7 @@ describe('smoke enclave issues workflow', () => {
       containers: Record<string, { pinned_image: string }>;
     };
     expect(pins.containers[gatewayImage].pinned_image).toBe(pinnedGateway);
+    expect(lock).toContain('GH_AW_INFO_AWMG_VERSION: "v0.4.36"');
     expect(images).toHaveLength(2);
     const githubImage = images.find(image =>
       image.startsWith('ghcr.io/github/github-mcp-server:'));
@@ -1141,6 +1142,17 @@ describe('smoke enclave issues workflow', () => {
     expect(compatible(githubImage.slice(0, -1))).toBe(false);
     expect(compatible(githubImage.replace(/.$/, 'g'))).toBe(false);
     expect(compatible(githubImage.replace('@sha256:', '@sha512:'))).toBe(false);
+
+    const oldGateway = 'ghcr.io/github/gh-aw-mcpg:v0.4.15';
+    const oldDigest = `sha256:${'e'.repeat(64)}`;
+    const compilerOutput = lock.split(gatewayImage).join(oldGateway)
+      .split(gatewayDigest).join(oldDigest)
+      .replace('GH_AW_INFO_AWMG_VERSION: "v0.4.36"', 'GH_AW_INFO_AWMG_VERSION: ""');
+    const patched = applyGeneralWorkflowPatches(compilerOutput, issuesLockPath).content;
+    expect(patched).toBe(lock);
+    expect(applyGeneralWorkflowPatches(patched, issuesLockPath).content).toBe(patched);
+    expect(applyGeneralWorkflowPatches(compilerOutput, dynamicLockPath).content)
+      .toContain(`${oldGateway}@${oldDigest}`);
   });
 
   it('pins the last-green flat-response GitHub server in runtime and manifest', () => {

@@ -94,6 +94,15 @@ export function applyGeneralWorkflowPatches(
 
   if (workflowPath.endsWith('smoke-enclave-issues-read.lock.yml')) {
     const original = content;
+    // Strict compilation disallows sandbox.mcp.version; keep implementation pins here.
+    const gatewayImage = 'ghcr.io/github/gh-aw-mcpg:v0.4.36';
+    const gatewayDigest = 'sha256:b4d2856018959c798b3e3f81ae4ab5b275e06354e123e1f7971de931f2f450f2';
+    const pinnedGatewayImage = `${gatewayImage}@${gatewayDigest}`;
+    content = content.replace(
+      /ghcr\.io\/github\/gh-aw-mcpg:[\w.-]+(?:@sha256:[a-f0-9]{64})?/g,
+      pinnedGatewayImage
+    );
+    content = content.replace(/(GH_AW_INFO_AWMG_VERSION: ")[^"]*(")/g, '$1v0.4.36$2');
     // v2 issue_read envelopes are incompatible with this smoke's gateway guard.
     // Keep the last-green flat-response server without weakening approved integrity.
     const githubImage = 'ghcr.io/github/github-mcp-server:v1.12.2';
@@ -110,6 +119,11 @@ export function applyGeneralWorkflowPatches(
           containers?: Array<{ image: string; digest: string; pinned_image: string }>;
         };
         for (const container of manifest.containers ?? []) {
+          if (container.image === pinnedGatewayImage) {
+            container.image = gatewayImage;
+            container.digest = gatewayDigest;
+            container.pinned_image = pinnedGatewayImage;
+          }
           if (container.image === pinnedGithubImage) {
             container.image = githubImage;
             container.digest = githubDigest;

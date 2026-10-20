@@ -39,8 +39,6 @@ sandbox:
   agent:
     id: awf
     version: v0.28.13
-  mcp:
-    version: v0.4.36
 strict: false
 concurrency:
   group: smoke-enclave-issues-read
@@ -117,8 +115,10 @@ post-steps:
 The postprocessor pins this smoke's GitHub MCP server to the last-green
 `v1.12.2` image for the flat issue object and comments array expected by the
 gateway guard, not the `issue_read` envelopes introduced in GitHub MCP server
-v2. MCP Gateway `v0.4.36` additionally supports the immutable `@sha256` image
-reference; older gateways reject it during configuration validation. Keep
+v2. The postprocessor also pins MCP Gateway `v0.4.36`, which supports the immutable
+`@sha256` image reference; older gateways reject it during configuration validation.
+The gateway implementation pin stays out of workflow frontmatter so strict
+validation remains supported. Keep
 `tools.github: false` and the enclave's `approved` integrity policy intact.
 
 The primary agent has no GitHub MCP tools, GitHub credentials, or external
