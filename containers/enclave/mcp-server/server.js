@@ -26,7 +26,7 @@ const {
 const { AGENT_TOOL_NAME, TOOL_NAME, dispatchJsonRpc, parseJsonRpcBody } = require('./mcp-protocol');
 const { createDynamicDelegationClient } = require('./delegation-channel');
 const { createToolCallBudget } = require('./tool-call-budget');
-const { createHostExecutorRunner } = require('./host-executor-runner');
+const { createHostExecutorRunner, usesHostExecutor } = require('./host-executor-runner');
 const { createStartupReporter, runStartupStage, startupDiagnostic } = require('./startup-diagnostics');
 const { probeStartupEnvironment } = require('./environment-probes');
 
@@ -271,7 +271,7 @@ async function main() {
     );
     const runner = await runStartupStage(
       startupReporter, 'script-selection', 'script-runner-initialization-failed', () =>
-        config.executorBackend === 'cloud-hypervisor'
+        usesHostExecutor(config)
           ? createHostExecutorRunner(config, { nowMs: clock.nowMs, audit: hostExecutorAudit })
           : createScriptRunner(config, { nowMs: clock.nowMs }),
       { executorKind: 'script' },
@@ -317,7 +317,7 @@ async function main() {
     );
     const runner = await runStartupStage(
       startupReporter, 'agent-selection', 'agent-runner-initialization-failed', () =>
-        config.executorBackend === 'cloud-hypervisor'
+        usesHostExecutor(config)
           ? createHostExecutorRunner(config, { nowMs: clock.nowMs, audit: hostExecutorAudit })
           : createAgentRunner(config, { nowMs: clock.nowMs }),
       { executorKind: 'agent' },

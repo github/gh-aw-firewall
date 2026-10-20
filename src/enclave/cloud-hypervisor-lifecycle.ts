@@ -1,8 +1,6 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import type { WrapperConfig } from '../types';
-import { PRIVATE_REPOSITORY_SEED_MAP_VERSION, type PrivateRepositorySeedMap } from '../bounded-execution';
-import { normalizePrivateRepositoryKey } from '../bounded-execution/repository-staging';
 import type { CloudHypervisorManagerDependencies } from '../cloud-hypervisor/manager-types';
 import type {
   HostEnclaveExecutorDependencies,
@@ -12,10 +10,10 @@ import {
   startCloudHypervisorEnclaveHostService,
   type CloudHypervisorEnclaveHostServiceOptions,
 } from './cloud-hypervisor-host-service';
-import type { HostExecutorRunState, HostExecutorServer } from './host-executor-server';
-import { deriveEnclaveSeedId, readEnclaveRunId, resolveEnclavePaths, type EnclavePaths } from './paths';
-import { validateEnclavesStructure } from './preflight';
-import { validateRunSandboxBackend } from './run-backend';
+import type { HostExecutorRunState } from './host-executor-server';
+import { HostExecutorLifecycleRegistry, drainHostExecutorLifecycle } from './host-executor-lifecycle';
+import { deriveHostExecutorRunState } from './host-executor-run-state';
+import { readEnclaveRunId, resolveEnclavePaths, type EnclavePaths } from './paths';
 import { updateEnclaveStartupProgress } from './startup-progress';
 import {
   HostPreflightReporter, markHostPreflightError, type HostPreflightProgress,
@@ -91,56 +89,7 @@ export function deriveCloudHypervisorEnclaveRunState(
   if (!config.enclaves || !isCloudHypervisorEnclaveSelected(config)) {
     throw new Error('Invalid trusted Cloud Hypervisor enclave configuration: no Cloud Hypervisor executor');
   }
-  const errors = [
-    ...validateRunSandboxBackend(config.containerRuntime, config.enclaves),
-    ...validateEnclavesStructure(config, { requireDelegationHandoff: false }),
-  ];
-  if (errors.length) {
-    throw new Error(`Invalid trusted Cloud Hypervisor enclave configuration: ${errors.join('; ')}`);
-  }
-  const runId = readEnclaveRunId(paths);
-  if (!runId) throw new Error('Cloud Hypervisor enclaves require a staged trusted run ID');
-  const seedMap = JSON.parse(fs.readFileSync(paths.seedMapPath, 'utf8')) as PrivateRepositorySeedMap;
-  if (seedMap.version !== PRIVATE_REPOSITORY_SEED_MAP_VERSION
-    || seedMap.runId !== runId || !Array.isArray(seedMap.seeds)) {
-    throw new Error('Cloud Hypervisor enclave seed map does not match the trusted run');
-  }
-  const catalog = new Map(config.enclaves!.privateRepos.map((repo) => [
-    normalizePrivateRepositoryKey(repo.repo), repo,
-  ]));
-  const seeds = new Map<string, string>();
-  for (const seed of seedMap.seeds) {
-    const repo = catalog.get(seed.repo);
-    if (!repo || seeds.has(seed.repo) || seed.sensitivity !== repo.sensitivity
-      || seed.seedId !== deriveEnclaveSeedId(runId, seed.repo)) {
-      throw new Error('Cloud Hypervisor enclave seed map differs from the validated catalog');
-    }
-    const stat = fs.lstatSync(path.join(paths.seedsDir, seed.seedId));
-    if (!stat.isDirectory() || stat.isSymbolicLink()) {
-      throw new Error('Cloud Hypervisor enclave seeds must be staged real directories');
-    }
-    seeds.set(seed.repo, seed.seedId);
-  }
-  if (seeds.size !== catalog.size) throw new Error('Cloud Hypervisor enclave seed catalog is incomplete');
-  return {
-    runId,
-    seedsDir: paths.seedsDir,
-    invocationsDir: path.join(path.dirname(paths.hostExecutorJournalDir), 'host-invocations', runId),
-    journalDir: paths.hostExecutorJournalDir,
-    entries: Object.entries(config.enclaves!.executors)
-      .filter(([, entry]) => entry.enabled)
-      .map(([entryId, entry]) => ({
-        entryId,
-        executorKind: entryId as 'script' | 'agent',
-        timeoutMs: entry.timeout * 1000,
-        staticSeedIds: config.enclaves!.privateRepos.map((repo) => {
-          const seed = seeds.get(normalizePrivateRepositoryKey(repo.repo));
-          if (!seed) throw new Error('Cloud Hypervisor enclave entry references an unstaged repository');
-          return seed;
-        }),
-        dynamicAgents: false,
-      })),
-  };
+  return deriveHostExecutorRunState(config, paths, 'Cloud Hypervisor enclave');
 }
 
 function deriveAgentPolicies(
@@ -160,19 +109,9 @@ function deriveAgentPolicies(
   };
 }
 
-interface RunLifecycle {
-  configuration: WrapperConfig;
-  runId: string;
-  server?: HostExecutorServer;
-  storage?: Awaited<ReturnType<TrustedCloudHypervisorEnclaveStorageProvider['prepareRun']>>;
-  failed?: boolean;
-  closePromise?: Promise<void>;
-  startPromise?: Promise<void>;
-  draining?: boolean;
-  publicDebugVerified?: boolean;
-}
-const runs = new Map<string, RunLifecycle>();
-const completedRuns = new Map<string, string>();
+const lifecycle = new HostExecutorLifecycleRegistry<
+  WrapperConfig, Awaited<ReturnType<TrustedCloudHypervisorEnclaveStorageProvider['prepareRun']>>
+>('Cloud Hypervisor enclave');
 
 export async function startCloudHypervisorEnclaveLifecycle(
   config: WrapperConfig,
@@ -180,7 +119,7 @@ export async function startCloudHypervisorEnclaveLifecycle(
   environment: NodeJS.ProcessEnv = process.env,
 ): Promise<void> {
   const paths = resolveEnclavePaths(config.workDir);
-  if (runs.has(paths.root)) throw new Error('Cloud Hypervisor enclave host executor already exists for this run');
+  if (lifecycle.has(paths.root)) throw new Error('Cloud Hypervisor enclave host executor already exists for this run');
   if (!config.cloudHypervisor) throw new Error('Cloud Hypervisor enclave runtime configuration is missing');
   const debugConfig = resolvePublicEnclaveDebugConfig(config);
   let options: CloudHypervisorEnclaveHostServiceOptions = {
@@ -193,61 +132,43 @@ export async function startCloudHypervisorEnclaveLifecycle(
     onPreflightStage: (stage) => updateEnclaveStartupProgress(config, { stage }),
     onHostPreflight: (hostPreflight) => updateEnclaveStartupProgress(config, { hostPreflight }),
   };
-  const run: RunLifecycle = { configuration: config, runId: options.runState.runId };
-  runs.set(paths.root, run);
-  run.startPromise = (async () => {
-    try {
-      updateEnclaveStartupProgress(config, { stage: 'host-preflight' });
-      if (debugConfig.cloudHypervisor!.enclaveDebugPublic) {
-        try {
-          await verifyPublicEnclaveDebugRepositories(debugConfig);
-          run.publicDebugVerified = true;
-          options = {
-            ...options,
-            publicDebugArtifactDirectory: ENCLAVE_DEBUG_ARTIFACT_ROOT,
-            publicDebugArtifactProtectedRoot: ENCLAVE_DEBUG_ARTIFACT_PROTECTED_ROOT,
-          };
-          logger.warn(`Public enclave debug retains unredacted raw logs in ${ENCLAVE_DEBUG_ARTIFACT_ROOT}; do not publish these artifacts.`);
-        } catch (error) {
-          if (!(error instanceof PublicDebugVisibilityError)) throw error;
-          options = { ...options, config: { ...options.config, enclaveDebugPublic: false } };
-          logger.warn(`Public enclave debug capture and export disabled: ${error.message}. Enclave execution will continue without public debug artifacts.`);
-        }
+  await lifecycle.start(paths.root, config, options.runState.runId, async (run) => {
+    updateEnclaveStartupProgress(config, { stage: 'host-preflight' });
+    if (debugConfig.cloudHypervisor!.enclaveDebugPublic) {
+      try {
+        await verifyPublicEnclaveDebugRepositories(debugConfig);
+        run.publicDebugVerified = true;
+        options = {
+          ...options,
+          publicDebugArtifactDirectory: ENCLAVE_DEBUG_ARTIFACT_ROOT,
+          publicDebugArtifactProtectedRoot: ENCLAVE_DEBUG_ARTIFACT_PROTECTED_ROOT,
+        };
+        logger.warn(`Public enclave debug retains unredacted raw logs in ${ENCLAVE_DEBUG_ARTIFACT_ROOT}; do not publish these artifacts.`);
+      } catch (error) {
+        if (!(error instanceof PublicDebugVisibilityError)) throw error;
+        options = { ...options, config: { ...options.config, enclaveDebugPublic: false } };
+        logger.warn(`Public enclave debug capture and export disabled: ${error.message}. Enclave execution will continue without public debug artifacts.`);
       }
-      await assertCloudHypervisorEnclavePrerequisites(config, storageProvider);
-      updateEnclaveStartupProgress(config, { stage: 'storage-preflight' });
-      run.storage = await storageProvider.prepareRun(options);
-      updateEnclaveStartupProgress(config, { stage: 'host-service' });
-      run.server = await startCloudHypervisorEnclaveHostService({
-        ...options,
-        backendDependencies: run.storage.backendDependencies,
-        managerDependencies: run.storage.managerDependencies,
-      });
-      updateEnclaveStartupProgress(config, { stage: 'host-service' });
-      if (run.draining) run.server.closeAdmissions();
-    } catch (error) {
-      run.failed = true;
-      throw error;
     }
-  })();
-  await run.startPromise;
+    await assertCloudHypervisorEnclavePrerequisites(config, storageProvider);
+    updateEnclaveStartupProgress(config, { stage: 'storage-preflight' });
+    run.storage = await storageProvider.prepareRun(options);
+    updateEnclaveStartupProgress(config, { stage: 'host-service' });
+    run.server = await startCloudHypervisorEnclaveHostService({
+      ...options,
+      backendDependencies: run.storage.backendDependencies,
+      managerDependencies: run.storage.managerDependencies,
+    });
+    updateEnclaveStartupProgress(config, { stage: 'host-service' });
+  });
 }
 
 export function closeCloudHypervisorEnclaveAdmissions(config: WrapperConfig): void {
-  const run = runs.get(resolveEnclavePaths(config.workDir).root);
-  if (!run) return;
-  if (run.configuration !== config) {
-    throw new Error('Cloud Hypervisor enclave lifecycle is owned by another configuration');
-  }
-  run.draining = true;
-  run.server?.closeAdmissions();
+  lifecycle.closeAdmissions(resolveEnclavePaths(config.workDir).root, config);
 }
 
 export function assertCloudHypervisorEnclaveLifecycleReady(config: WrapperConfig): Promise<void> {
-  const run = runs.get(resolveEnclavePaths(config.workDir).root);
-  return run?.configuration === config && run.server && !run.failed && !run.draining && !run.closePromise
-    ? Promise.resolve()
-    : Promise.reject(new Error('Cloud Hypervisor enclave trusted full preflight has not completed'));
+  return lifecycle.ready(resolveEnclavePaths(config.workDir).root, config);
 }
 
 function assertRecoveryComplete(paths: EnclavePaths, runId: string): void {
@@ -287,12 +208,11 @@ function assertRecoveryComplete(paths: EnclavePaths, runId: string): void {
 
 export async function stopCloudHypervisorEnclaveLifecycle(config: WrapperConfig): Promise<void> {
   const paths = resolveEnclavePaths(config.workDir);
-  const run = runs.get(paths.root);
-  if (!run && !config.enclaves?.enabled) return;
-  if (!run) {
+  if (!lifecycle.has(paths.root) && !config.enclaves?.enabled) return;
+  await lifecycle.stop(paths.root, config, () => {
     // A restarted host must not delete resource recovery records it did not reap.
     const runId = readEnclaveRunId(paths);
-    if (runId && completedRuns.get(paths.root) === runId) return;
+    if (runId && lifecycle.completed(paths.root, runId)) return;
     if (runId && fs.existsSync(paths.hostExecutorJournalDir)
       && fs.readdirSync(paths.hostExecutorJournalDir)
         .some((file) => file === `${runId}.journal` || file.startsWith(`${runId}-`))) {
@@ -302,13 +222,7 @@ export async function stopCloudHypervisorEnclaveLifecycle(config: WrapperConfig)
       throw new Error('Cloud Hypervisor enclave run identity is missing; private recovery state is preserved');
     }
     return;
-  }
-  closeCloudHypervisorEnclaveAdmissions(config);
-  run.closePromise ??= (async () => {
-    await run.startPromise?.catch(() => undefined);
-    let cleanupError: unknown;
-    let evidenceError: unknown;
-    let hostDrained = false;
+  }, async (run) => {
     const preserveEvidence = async (): Promise<void> => {
       const evidence = readHostExecutorInvocationDiagnostics({
         runId: run.runId, journalDir: paths.hostExecutorJournalDir,
@@ -319,68 +233,52 @@ export async function stopCloudHypervisorEnclaveLifecycle(config: WrapperConfig)
         resolveCloudHypervisorManagerDependencies(),
       );
     };
-    try {
-      await preserveEvidence();
-    } catch (error) {
-      evidenceError = error;
-    }
-    try {
-      await run.server?.close();
-      assertRecoveryComplete(paths, run.runId);
-      hostDrained = Boolean(run.server);
-    } catch (error) {
-      cleanupError = error;
-    }
-    // The dedicated proxy is shared across invocations. Capture only run-wide
-    // counters after host execution drains, before compose/private-root teardown.
-    try {
-      persistHostExecutorProxyUsage({
-        runId: run.runId, journalDir: paths.hostExecutorJournalDir,
-      }, !config.enclaves?.executors.agent.enabled
-        ? unavailableEnclaveProxyUsage('not-applicable')
-        : hostDrained
-          ? await readEnclaveProxyUsage(paths.apiProxyLogsDir)
-          : unavailableEnclaveProxyUsage('not-drained'));
-    } catch (error) {
-      evidenceError ??= error;
-    }
-    if (run.publicDebugVerified && config.enclaves?.executors.agent.enabled) {
-      try {
-        const identity = { runId: run.runId, journalDir: paths.hostExecutorJournalDir };
-        const { diagnostics, events } = hostDrained
-          ? await readEnclaveProxyEventEvidence(paths.apiProxyLogsDir)
-          : {
-            diagnostics: { scope: 'run-cumulative' as const, status: 'not-drained' as const },
-            events: [],
-          };
-        persistHostExecutorProxyResponseDiagnostics(identity, diagnostics);
-        await preservePublicEnclaveProxyDiagnostics(
-          identity, diagnostics, events, await captureEnclaveProxyContainerLog(),
-        );
-      } catch (error) {
-        evidenceError ??= error;
-      }
-    }
-    if (cleanupError === undefined) {
-      try {
+    await drainHostExecutorLifecycle({
+      preserveEvidence,
+      drain: async () => {
+        await run.server?.close();
+        assertRecoveryComplete(paths, run.runId);
+        return Boolean(run.server);
+      },
+      // The dedicated proxy is shared across invocations. Capture only run-wide
+      // counters after host execution drains, before compose/private-root teardown.
+      collectDiagnostics: async (hostDrained) => {
+        let evidenceError: unknown;
+        try {
+          persistHostExecutorProxyUsage({
+            runId: run.runId, journalDir: paths.hostExecutorJournalDir,
+          }, !config.enclaves?.executors.agent.enabled
+            ? unavailableEnclaveProxyUsage('not-applicable')
+            : hostDrained
+              ? await readEnclaveProxyUsage(paths.apiProxyLogsDir)
+              : unavailableEnclaveProxyUsage('not-drained'));
+        } catch (error) {
+          evidenceError = error;
+        }
+        if (run.publicDebugVerified && config.enclaves?.executors.agent.enabled) {
+          try {
+            const identity = { runId: run.runId, journalDir: paths.hostExecutorJournalDir };
+            const { diagnostics, events } = hostDrained
+              ? await readEnclaveProxyEventEvidence(paths.apiProxyLogsDir)
+              : {
+                diagnostics: { scope: 'run-cumulative' as const, status: 'not-drained' as const },
+                events: [],
+              };
+            persistHostExecutorProxyResponseDiagnostics(identity, diagnostics);
+            await preservePublicEnclaveProxyDiagnostics(
+              identity, diagnostics, events, await captureEnclaveProxyContainerLog(),
+            );
+          } catch (error) {
+            evidenceError ??= error;
+          }
+        }
+        if (evidenceError !== undefined) throw evidenceError;
+      },
+      releaseStorage: async () => {
         await run.storage?.close();
         if (run.failed) throw new Error('Cloud Hypervisor enclave startup failed; private recovery state is preserved');
-      } catch (error) {
-        cleanupError = error;
-      }
-    }
-    try {
-      await preserveEvidence();
-    } catch (error) {
-      evidenceError ??= error;
-    }
-    if (evidenceError !== undefined) {
-      if (cleanupError !== undefined) throw new HostPreflightCleanupError(cleanupError, evidenceError);
-      throw evidenceError;
-    }
-    if (cleanupError !== undefined) throw cleanupError;
-    completedRuns.set(paths.root, run.runId);
-    runs.delete(paths.root);
-  })();
-  await run.closePromise;
+      },
+      combineErrors: (cleanupError, evidenceError) => new HostPreflightCleanupError(cleanupError, evidenceError),
+    });
+  });
 }

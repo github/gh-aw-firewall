@@ -8,6 +8,7 @@ import { startHostExecutorServer, type HostExecutorServer } from './host-executo
 import { assertAgentRuntimeAvailable, assertScriptRuntimeAvailable } from './runtime-preflight';
 import { startCloudHypervisorEnclaveHostService } from './cloud-hypervisor-host-service';
 import { getEnclaveStartupProgress } from './startup-progress';
+import { deriveHostExecutorRunState } from './host-executor-run-state';
 import {
   HostExecutorInvocationDiagnostics, HostExecutorControlDiagnostics, readHostExecutorInvocationDiagnostics,
 } from './host-executor-journal';
@@ -190,6 +191,15 @@ describe('trusted Cloud Hypervisor enclave lifecycle', () => {
     const state = deriveCloudHypervisorEnclaveRunState(config, paths);
     expect(state.entries.find((entry) => entry.entryId === 'agent')?.staticSeedIds)
       .toEqual([deriveEnclaveSeedId(runId, repository.repo), seedId]);
+  });
+
+  it('derives the same static host authority independently of the backend adapter', () => {
+    const paths = resolveEnclavePaths(workDir);
+    const expected = deriveCloudHypervisorEnclaveRunState(config, paths);
+    config.containerRuntime = undefined;
+    config.enclaves!.executors.script.runtime = 'docker';
+    config.enclaves!.executors.agent.runtime = 'docker';
+    expect(deriveHostExecutorRunState(config, paths)).toEqual(expected);
   });
 
   it.each(['wrong-run', 'unknown-repo', 'wrong-seed', 'missing-repo'])(

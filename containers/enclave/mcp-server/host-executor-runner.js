@@ -31,8 +31,12 @@ const FAILURE_REASONS = new Map([
  * Internal broker adapter. AWF constructs the listener only after trusted
  * prerequisite checks. Repository staging and result files belong to AWF.
  */
+function usesHostExecutor(config) {
+  return config.executorTransport === 'host' || config.executorBackend === 'cloud-hypervisor';
+}
+
 function createHostExecutorRunner(config, deps = {}) {
-  if (config.executorBackend !== 'cloud-hypervisor'
+  if (!usesHostExecutor(config)
       || !/^[a-z0-9](?:[a-z0-9-]{0,62})$/.test(config.entryId || '')) {
     throw new Error('Invalid trusted host executor configuration');
   }
@@ -222,4 +226,4 @@ function createHostExecutorRunner(config, deps = {}) {
   };
 }
 
-module.exports = { createHostExecutorRunner };
+module.exports = { createHostExecutorRunner, usesHostExecutor };

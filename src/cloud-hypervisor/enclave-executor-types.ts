@@ -4,7 +4,8 @@ import type {
   HostExecutorRunState,
 } from '../enclave/host-executor-server';
 import type { HostExecutorResourceJournal } from '../enclave/host-executor-journal';
-import type { EnclaveAgentProfile } from '../types/enclave-options';
+import type { HostExecutorAgentPolicy } from '../enclave/execution-policy';
+export type { HostExecutorAgentPolicy } from '../enclave/execution-policy';
 import type { CloudHypervisorOptions } from '../types/runtime-options';
 import type {
   CloudHypervisorEnclaveArtifactManifest,
@@ -42,17 +43,6 @@ export interface CloudHypervisorEnclaveArtifactPreflightOptions {
   readonly scriptRootfsPath?: string;
   readonly agentRootfsPath?: string;
   readonly attestationToolPath: string;
-}
-
-export interface HostExecutorAgentPolicy {
-  readonly model: string;
-  readonly profile: EnclaveAgentProfile;
-  readonly maxOutputBytes: number;
-  readonly maxModelRequests?: number;
-  readonly maxModelTokens?: number;
-  readonly modelBudgetSecret?: string;
-  readonly githubAgentId?: string;
-  readonly githubBearer?: string;
 }
 
 export interface HostEnclaveExecutorManager {
