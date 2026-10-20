@@ -33,6 +33,15 @@ describe('retired-model-guard', () => {
       expect(getRetiredModelBlockState('Gpt-5-Codex')).not.toBeNull();
     });
 
+    it.each([
+      'GPT_5_CODEX', 'gpt.5.codex', ' gpt-5-codex ',
+      'copilot/gpt-5-codex', 'openai/gpt-5-codex',
+      'gpt-5-codex-2026-10-01', 'gpt-5-codex?deployment=prod',
+      'constructor', '__proto__', 'toString',
+    ])('preserves lowercase-only exact retirement matching for %s', model => {
+      expect(getRetiredModelBlockState(model)).toBeNull();
+    });
+
     it('preserves the original casing in the returned model field', () => {
       const state = getRetiredModelBlockState('GPT-5-CODEX');
       expect(state.model).toBe('GPT-5-CODEX');

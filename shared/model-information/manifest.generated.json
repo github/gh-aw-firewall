@@ -1,14 +1,15 @@
 {
   "schemaVersion": 1,
-  "compilerVersion": 2,
+  "compilerVersion": 3,
   "schemaHash": "df9780a1fd9a1418ec8d99cb4aaf27d49bda9c8a08d157036c6893798c64f479",
-  "catalogRevision": "020a979e78b3a17b4964956cb5d461844e8102653311bc973f69c25ff6739019",
+  "catalogRevision": "750009c04d5431042e8601a9d6a23beca46b40ad4eae6a3a93cff9e8c6e0251d",
   "generatedAt": "2026-10-20T00:22:04.000Z",
   "sourceFiles": [
     "shared/model-information/sources/copilot-claude.json",
     "shared/model-information/sources/copilot-gemini.json",
     "shared/model-information/sources/copilot-main.json",
     "shared/model-information/sources/copilot-other.json",
+    "shared/model-information/sources/lifecycle-compatibility.json",
     "shared/model-information/sources/mapping.json",
     "shared/model-information/sources/pricing-reference.json",
     "shared/model-information/sources/target.json",

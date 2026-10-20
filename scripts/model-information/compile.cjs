@@ -17,7 +17,7 @@ if (sourceArgument && !process.argv.includes('--check')) {
 const sources = sourceArgument
   ? path.resolve(sourceArgument.slice('--source-dir='.length))
   : path.join(root, 'shared/model-information/sources');
-const compilerVersion = 2;
+const compilerVersion = 3;
 const read = file => JSON.parse(fs.readFileSync(path.join(root, file), 'utf8'));
 const sha256 = value => crypto.createHash('sha256').update(value).digest('hex');
 const json = value => `${JSON.stringify(value, null, 2)}\n`;
@@ -41,7 +41,8 @@ function compile() {
   }
   const importErrors = validate('importedSnapshot', imported);
   if (importErrors.length) throw new Error(`${importedFile}: ${importErrors.join('; ')}`);
-  const records = files.filter(file => !['mapping.json', 'target.json', 'pricing-reference.json'].includes(file))
+  const records = files.filter(file => !['mapping.json', 'target.json', 'pricing-reference.json',
+    'lifecycle-compatibility.json'].includes(file))
     .map(file => [file, JSON.parse(fs.readFileSync(path.join(sources, file), 'utf8'))]);
   const errors = [];
   for (const [file, data] of records) {
@@ -131,13 +132,15 @@ function compile() {
   const sortedModels = [...models, ...imported.models].sort((a, b) =>
     a.identity.key < b.identity.key ? -1 : a.identity.key > b.identity.key ? 1 : 0);
   const target = JSON.parse(fs.readFileSync(path.join(sources, 'target.json'), 'utf8'));
+  const compatibility = JSON.parse(fs.readFileSync(path.join(sources, 'lifecycle-compatibility.json'), 'utf8'));
   if (target.schemaVersion !== 1 || target.provenance?.authority !== 'maintained' ||
       !target.provenance.at || !Array.isArray(target.availability) ||
       !Array.isArray(target.routing)) {
     throw new Error('target.json: invalid target metadata or corrections');
   }
   const generatedAt = latestTimestamp([{ at: imported.retrievedAt }, mapping.provenance,
-    reference.provenance, ...records.map(([, data]) => data.provenance), target.provenance]);
+    reference.provenance, ...records.map(([, data]) => data.provenance), target.provenance,
+    compatibility.provenance]);
   const targetModels = new Map([...models, ...imported.models]
     .map(model => [model.identity.key, structuredClone(model)]));
   const targetModel = (provider, rawId) => {
@@ -287,8 +290,21 @@ function compile() {
       return JSON.stringify(baseline) === JSON.stringify(target)
         ? [] : [{ key, baseline, target }];
     });
-  const supported = sortedModels.filter(model => model.availability?.some(item =>
-    item.scope.channel === 'copilot-cli' && item.fact.state === 'supported')).map(model => model.identity.rawId);
+  const supported = sortedModels.filter(model => model.identity.provider === 'copilot' &&
+    !['retired', 'removed'].includes(model.lifecycle.status) && model.availability?.some(item =>
+      item.scope.provider === 'copilot' && item.scope.channel === 'copilot-cli' &&
+      item.scope.deployment === undefined && item.fact.state === 'supported'))
+    .map(model => model.identity.rawId);
+  const suggestionOrder = compatibility.suggestionOrder;
+  if (compatibility.schemaVersion !== 1 || compatibility.provenance?.authority !== 'maintained' ||
+      !compatibility.provenance.source || !compatibility.provenance.revision ||
+      !compatibility.provenance.at || !compatibility.provenance.confidence ||
+      !Array.isArray(suggestionOrder) ||
+      suggestionOrder.length !== supported.length + 1 ||
+      new Set(suggestionOrder).size !== suggestionOrder.length ||
+      suggestionOrder.some(id => typeof id !== 'string' || !['auto', ...supported].includes(id))) {
+    throw new Error('lifecycle-compatibility.json: expected a permutation of canonical CLI IDs plus auto; ordering cannot author availability');
+  }
   const pricing = Object.fromEntries(sortedModels.flatMap(model => {
     if (model.identity.provider !== 'copilot') return [];
     const tariffs = model.tariffs || [];
@@ -331,12 +347,13 @@ function compile() {
       })),
     };
   }
-  const retired = Object.fromEntries(sortedModels.filter(model => model.lifecycle.status === 'retired' &&
+  const retired = Object.fromEntries(sortedModels.filter(model => model.identity.provider === 'copilot' &&
+    model.lifecycle.status === 'retired' &&
     model.lifecycle.replacement).map(model => [
     model.identity.rawId, model.lifecycle.replacement.split('/').slice(1).join('/'),
   ]));
   const output = {
-    'src/model-information.compat.generated.json': json({ supported: ['auto', ...supported], retired }),
+    'src/model-information.compat.generated.json': json({ supported: ['auto', ...supported], retired, suggestionOrder }),
     'containers/api-proxy/model-information.pricing.generated.json': json(pricing),
     'containers/api-proxy/model-information.retired.generated.json': json(retired),
     'containers/api-proxy/ai-credits-pricing-reference.json': json({
