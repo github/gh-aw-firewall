@@ -1,13 +1,17 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 
 const root = path.resolve(__dirname, '../..');
 const compiler = path.join(__dirname, 'compile.cjs');
-const run = (flag: string) => execFileSync(process.execPath, [compiler, flag], {
-  cwd: root, encoding: 'utf8',
-});
+const run = (...flags: string[]) => {
+  const result = spawnSync(process.execPath, [compiler, ...flags], {
+    cwd: root, encoding: 'utf8',
+  });
+  if (result.status !== 0) throw new Error(result.stderr);
+  return result.stdout;
+};
 
 describe('maintained model compilation', () => {
   it('checks repeatable generated outputs without refreshing timestamps', () => {
@@ -57,21 +61,83 @@ describe('maintained model compilation', () => {
     expect(lookup('openai/gpt-5.6-cyber').reasoning.support).toBe('unknown');
     expect(lookup('anthropic/claude-opus-4.6').reasoning.selectableEfforts).not.toContain('xhigh');
     expect(lookup('anthropic/claude-opus-4.8').reasoning.selectableEfforts).toContain('xhigh');
+    expect(lookup('anthropic/claude-fable-5.1').reasoning.selectableEfforts).toContain('xhigh');
+    expect(lookup('anthropic/claude-mythos-preview').reasoning.selectableEfforts).not.toContain('xhigh');
     expect(delta.activation).toMatch(/staged/);
     expect(delta.mapping.target.providers.openai.models.find((entry: { family: string }) =>
       entry.family === 'gpt-5.5').routingPatterns).not.toContain('gpt-5.5-pro');
   });
 
   it('rejects invalid cross-file records with source diagnostics', () => {
-    const file = path.join(root, 'shared/model-information/sources/openai.json');
-    const original = fs.readFileSync(file, 'utf8');
-    const copy = JSON.parse(original);
-    copy.models[0].lifecycle.replacement = 'copilot/does-not-exist';
+    const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-model-sources-'));
     try {
+      fs.cpSync(path.join(root, 'shared/model-information/sources'), temp, { recursive: true });
+      const file = path.join(temp, 'openai.json');
+      const copy = JSON.parse(fs.readFileSync(file, 'utf8'));
+      copy.models[0].lifecycle.replacement = 'copilot/does-not-exist';
       fs.writeFileSync(file, JSON.stringify(copy));
-      expect(() => run('--check')).toThrow(/Unresolved replacement: copilot\/does-not-exist/);
+      expect(() => run('--check', `--source-dir=${temp}`))
+        .toThrow(/Unresolved replacement: copilot\/does-not-exist/);
     } finally {
-      fs.writeFileSync(file, original);
+      fs.rmSync(temp, { recursive: true, force: true });
+    }
+  });
+
+  it.each([
+    ['normalized collision', (models: any[]) => {
+      const clone = structuredClone(models[0]);
+      clone.identity.rawId = clone.identity.rawId.replace(/[.-]/g, '_');
+      if (clone.identity.rawId === models[0].identity.rawId) {
+        clone.identity.rawId = clone.identity.rawId.toUpperCase();
+      }
+      clone.identity.key = `copilot/${clone.identity.rawId}`;
+      models.push(clone);
+    }, /Duplicate normalized exact key/],
+    ['missing source provenance', (_models: any[], source: any) => {
+      delete source.provenance;
+    }, /expected schemaVersion, reviewed provenance and models/],
+  ])('rejects %s in an assembled source set', (_name, change, diagnostic) => {
+    const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-model-sources-'));
+    try {
+      fs.cpSync(path.join(root, 'shared/model-information/sources'), temp, { recursive: true });
+      const file = path.join(temp, 'openai.json');
+      const source = JSON.parse(fs.readFileSync(file, 'utf8'));
+      change(source.models, source);
+      fs.writeFileSync(file, JSON.stringify(source));
+      expect(() => run('--check', `--source-dir=${temp}`)).toThrow(diagnostic);
+    } finally {
+      fs.rmSync(temp, { recursive: true, force: true });
+    }
+  });
+
+  it('rejects equal-specificity mapping conflicts before generating copies', () => {
+    const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-model-mapping-'));
+    try {
+      fs.cpSync(path.join(root, 'shared/model-information/sources'), temp, { recursive: true });
+      const file = path.join(temp, 'mapping.json');
+      const source = JSON.parse(fs.readFileSync(file, 'utf8'));
+      source.mapping.providers.openai.models.push({
+        family: 'collision', patterns: ['gpt-6-astra*'], endpoints: ['responses'],
+      });
+      fs.writeFileSync(file, JSON.stringify(source));
+      expect(() => run('--check', `--source-dir=${temp}`)).toThrow(/mapping.json: openai: conflicting equal-specificity pattern gpt-6-astra/);
+    } finally {
+      fs.rmSync(temp, { recursive: true, force: true });
+    }
+  });
+
+  it('detects stale projections when reviewed source metadata changes', () => {
+    const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-model-stale-'));
+    try {
+      fs.cpSync(path.join(root, 'shared/model-information/sources'), temp, { recursive: true });
+      const file = path.join(temp, 'target.json');
+      const source = JSON.parse(fs.readFileSync(file, 'utf8'));
+      source.provenance.revision += '-reviewed';
+      fs.writeFileSync(file, JSON.stringify(source));
+      expect(() => run('--check', `--source-dir=${temp}`))
+        .toThrow(/stale; run npm run models:generate/);
+    } finally {
+      fs.rmSync(temp, { recursive: true, force: true });
     }
   });
 
@@ -79,11 +145,11 @@ describe('maintained model compilation', () => {
     const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-model-assets-'));
     try {
       for (const file of ['model-information.pricing.generated.json',
-        'model-information.retired.generated.json', 'model-api-mapping.json']) {
+        'model-information.retired.generated.json', 'model-api-mapping.json', 'model-api-mapping.js']) {
         fs.copyFileSync(path.join(root, 'containers/api-proxy', file), path.join(temp, file));
       }
       const output = execFileSync(process.execPath, ['-e',
-        "const fs=require('fs');for(const file of fs.readdirSync('.'))require('./'+file);"],
+        "const m=require('./model-api-mapping');const fs=require('fs');for(const file of fs.readdirSync('.'))require('./'+file);if(!m.lookupModelEndpoints('gpt-5.5','openai'))process.exit(1);"],
       { cwd: temp, encoding: 'utf8' });
       expect(output).toBe('');
     } finally {

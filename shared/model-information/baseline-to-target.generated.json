@@ -1,8 +1,108 @@
 {
   "schemaVersion": 1,
-  "catalogRevision": "c664f061a5c8f76fe7d9e507f5146c64420ef240208969980b092d33fe63cf30",
+  "catalogRevision": "7d1a9ada01de9bcbe353367f867d6dc5cf9673bf3986091cc99e572237f43347",
   "activation": "staged: phases 4, 5 and 6",
   "differences": [
+    {
+      "key": "anthropic/claude-fable-5",
+      "baseline": null,
+      "target": {
+        "schemaVersion": 1,
+        "identity": {
+          "key": "anthropic/claude-fable-5",
+          "provider": "anthropic",
+          "rawId": "claude-fable-5",
+          "lookupId": "claude-fable-5",
+          "family": "claude-fable-5"
+        },
+        "lifecycle": {
+          "status": "active"
+        },
+        "modelType": "completion",
+        "provenance": {
+          "authority": "maintained",
+          "source": "https://github.com/github/gh-aw-firewall/issues/10029 and https://github.com/github/gh-aw-firewall/issues/10030",
+          "revision": "issues-10029-10030-open-2026-10-20",
+          "at": "2026-10-15T17:11:28Z",
+          "confidence": "estimated"
+        },
+        "reasoning": {
+          "support": "supported",
+          "rawEfforts": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ],
+          "selectableEfforts": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ],
+          "mode": "optional",
+          "provenance": {
+            "authority": "maintained",
+            "source": "https://github.com/github/gh-aw-firewall/issues/10029 and https://github.com/github/gh-aw-firewall/issues/10030",
+            "revision": "issues-10029-10030-open-2026-10-20",
+            "at": "2026-10-15T17:11:28Z",
+            "confidence": "estimated"
+          }
+        }
+      }
+    },
+    {
+      "key": "anthropic/claude-fable-5.1",
+      "baseline": null,
+      "target": {
+        "schemaVersion": 1,
+        "identity": {
+          "key": "anthropic/claude-fable-5.1",
+          "provider": "anthropic",
+          "rawId": "claude-fable-5.1",
+          "lookupId": "claude-fable-5-1",
+          "family": "claude-fable-5"
+        },
+        "lifecycle": {
+          "status": "active"
+        },
+        "modelType": "completion",
+        "provenance": {
+          "authority": "maintained",
+          "source": "https://github.com/github/gh-aw-firewall/issues/10029 and https://github.com/github/gh-aw-firewall/issues/10030",
+          "revision": "issues-10029-10030-open-2026-10-20",
+          "at": "2026-10-15T17:11:28Z",
+          "confidence": "estimated"
+        },
+        "reasoning": {
+          "support": "supported",
+          "rawEfforts": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ],
+          "selectableEfforts": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ],
+          "mode": "optional",
+          "provenance": {
+            "authority": "maintained",
+            "source": "https://github.com/github/gh-aw-firewall/issues/10029 and https://github.com/github/gh-aw-firewall/issues/10030",
+            "revision": "issues-10029-10030-open-2026-10-20",
+            "at": "2026-10-15T17:11:28Z",
+            "confidence": "estimated"
+          }
+        }
+      }
+    },
     {
       "key": "anthropic/claude-haiku-5.5",
       "baseline": null,
@@ -53,6 +153,154 @@
         },
         "limits": {
           "contextTokens": 1000000,
+          "provenance": {
+            "authority": "maintained",
+            "source": "https://github.com/github/gh-aw-firewall/issues/10029 and https://github.com/github/gh-aw-firewall/issues/10030",
+            "revision": "issues-10029-10030-open-2026-10-20",
+            "at": "2026-10-15T17:11:28Z",
+            "confidence": "estimated"
+          }
+        }
+      }
+    },
+    {
+      "key": "anthropic/claude-mythos-5",
+      "baseline": null,
+      "target": {
+        "schemaVersion": 1,
+        "identity": {
+          "key": "anthropic/claude-mythos-5",
+          "provider": "anthropic",
+          "rawId": "claude-mythos-5",
+          "lookupId": "claude-mythos-5",
+          "family": "claude-mythos-5"
+        },
+        "lifecycle": {
+          "status": "active"
+        },
+        "modelType": "completion",
+        "provenance": {
+          "authority": "maintained",
+          "source": "https://github.com/github/gh-aw-firewall/issues/10029 and https://github.com/github/gh-aw-firewall/issues/10030",
+          "revision": "issues-10029-10030-open-2026-10-20",
+          "at": "2026-10-15T17:11:28Z",
+          "confidence": "estimated"
+        },
+        "reasoning": {
+          "support": "supported",
+          "rawEfforts": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ],
+          "selectableEfforts": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ],
+          "mode": "optional",
+          "provenance": {
+            "authority": "maintained",
+            "source": "https://github.com/github/gh-aw-firewall/issues/10029 and https://github.com/github/gh-aw-firewall/issues/10030",
+            "revision": "issues-10029-10030-open-2026-10-20",
+            "at": "2026-10-15T17:11:28Z",
+            "confidence": "estimated"
+          }
+        }
+      }
+    },
+    {
+      "key": "anthropic/claude-mythos-5.1",
+      "baseline": null,
+      "target": {
+        "schemaVersion": 1,
+        "identity": {
+          "key": "anthropic/claude-mythos-5.1",
+          "provider": "anthropic",
+          "rawId": "claude-mythos-5.1",
+          "lookupId": "claude-mythos-5-1",
+          "family": "claude-mythos-5"
+        },
+        "lifecycle": {
+          "status": "active"
+        },
+        "modelType": "completion",
+        "provenance": {
+          "authority": "maintained",
+          "source": "https://github.com/github/gh-aw-firewall/issues/10029 and https://github.com/github/gh-aw-firewall/issues/10030",
+          "revision": "issues-10029-10030-open-2026-10-20",
+          "at": "2026-10-15T17:11:28Z",
+          "confidence": "estimated"
+        },
+        "reasoning": {
+          "support": "supported",
+          "rawEfforts": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ],
+          "selectableEfforts": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ],
+          "mode": "optional",
+          "provenance": {
+            "authority": "maintained",
+            "source": "https://github.com/github/gh-aw-firewall/issues/10029 and https://github.com/github/gh-aw-firewall/issues/10030",
+            "revision": "issues-10029-10030-open-2026-10-20",
+            "at": "2026-10-15T17:11:28Z",
+            "confidence": "estimated"
+          }
+        }
+      }
+    },
+    {
+      "key": "anthropic/claude-mythos-preview",
+      "baseline": null,
+      "target": {
+        "schemaVersion": 1,
+        "identity": {
+          "key": "anthropic/claude-mythos-preview",
+          "provider": "anthropic",
+          "rawId": "claude-mythos-preview",
+          "lookupId": "claude-mythos-preview",
+          "family": "claude-mythos-preview"
+        },
+        "lifecycle": {
+          "status": "active"
+        },
+        "modelType": "completion",
+        "provenance": {
+          "authority": "maintained",
+          "source": "https://github.com/github/gh-aw-firewall/issues/10029 and https://github.com/github/gh-aw-firewall/issues/10030",
+          "revision": "issues-10029-10030-open-2026-10-20",
+          "at": "2026-10-15T17:11:28Z",
+          "confidence": "estimated"
+        },
+        "reasoning": {
+          "support": "supported",
+          "rawEfforts": [
+            "low",
+            "medium",
+            "high",
+            "max"
+          ],
+          "selectableEfforts": [
+            "low",
+            "medium",
+            "high",
+            "max"
+          ],
+          "mode": "optional",
           "provenance": {
             "authority": "maintained",
             "source": "https://github.com/github/gh-aw-firewall/issues/10029 and https://github.com/github/gh-aw-firewall/issues/10030",
@@ -3273,7 +3521,8 @@
               ],
               "routingPatterns": [
                 "claude-fable-5-1",
-                "claude-fable-5"
+                "claude-fable-5",
+                "claude-fable-5.1"
               ],
               "endpoints": [
                 "messages"
@@ -3283,11 +3532,33 @@
                   "low",
                   "medium",
                   "high",
+                  "xhigh",
                   "max"
                 ],
                 "contextWindowTokens": 1000000
               },
               "notes": "Latest flagship family with verified 1M-token context windows and the Anthropic effort parameter."
+            },
+            {
+              "family": "claude-mythos-preview",
+              "patterns": [
+                "claude-mythos-preview*"
+              ],
+              "endpoints": [
+                "messages"
+              ],
+              "notes": "Preview excludes xhigh; #10030.",
+              "routingPatterns": [
+                "claude-mythos-preview"
+              ],
+              "routing": {
+                "reasoningEfforts": [
+                  "low",
+                  "medium",
+                  "high",
+                  "max"
+                ]
+              }
             },
             {
               "family": "claude-mythos-5",
@@ -3298,7 +3569,7 @@
               "routingPatterns": [
                 "claude-mythos-5-1",
                 "claude-mythos-5",
-                "claude-mythos-preview*"
+                "claude-mythos-5.1"
               ],
               "endpoints": [
                 "messages"
@@ -3308,6 +3579,7 @@
                   "low",
                   "medium",
                   "high",
+                  "xhigh",
                   "max"
                 ],
                 "contextWindowTokens": 1000000

@@ -1126,10 +1126,29 @@ compiler version. A changed source must be reviewed with all changed outputs.
 | Source of facts | Consumer and compiled projection | Activation |
 | --- | --- | --- |
 | `shared/model-information/sources/{openai,anthropic,google,microsoft}.json` (provider-grouped Copilot exact records, lifecycle, CLI support and curated tiers) | `src/model-information.compat.generated.json`, `containers/api-proxy/model-information.{pricing,retired}.generated.json` | Staged compatibility; existing host and proxy readers remain authoritative until Gates 4/5. |
+| `shared/model-information/sources/pricing-reference.json` (reviewed reference coverage, provider documentation and dates; rates derive from canonical tiers, with explicitly recorded reasoning-equals-output baseline) | `containers/api-proxy/ai-credits-pricing-reference.json` | Active test oracle only, not a runtime configured catalogue or feed. |
 | `shared/model-information/sources/mapping.json` (pinned endpoint family/ordering, patterns, routing, provenance) | `docs/model-api-mapping.json`, `containers/api-proxy/model-api-mapping.json` | Active byte-identical compatibility format, no routing behavior change. |
 | `shared/model-information/sources/target.json` (#10029/#10030 evidence and exact corrections) | `shared/model-information/target.generated.json`, `baseline-to-target.generated.json` | Staged only; named changes require explicit Gates 4–6 activation/review. |
 | Complete assembled maintained sources | `shared/model-information/catalog.generated.json`, `manifest.generated.json` | Static validated exports; not a central feed or live resolver input. |
 | `containers/api-proxy/models.dev.catalog.json` (legacy bundled bytes, not a billing-provider mapping) | Governed imported snapshot | Staged only; legacy bare-slug runtime lookup remains unchanged until Gate 5. |
+
+The host support/suggestion tests in `src/copilot-model.test.ts` and
+`src/copilot-model-catalog-sync.test.ts` characterize the existing host
+allowlist and Levenshtein algorithm; `containers/api-proxy/guards/retired-model-guard.js`
+is the live retirement reader; `containers/api-proxy/ai-credits-pricing.js`
+and `ai-credits-pricing-reference.test.js` exercise the curated fallback and
+reference oracle. `containers/api-proxy/model-api-mapping.js` and the routing
+catalogue consume the generated endpoint copy; `/reflect` still exposes that
+legacy mapping. `containers/api-proxy/models-dev-catalog.js` consumes the
+untouched bundled data with **bare-slug cross-provider matching**; the
+provider-qualified governed snapshot is separate and does not correct that
+production behavior. Runtime `/models` billing, `AWF_MODEL_PRICING_CATALOG`,
+operator overrides, fallback budgets and unknown-model prices are runtime
+observations, scoped configured inputs or explicit policy fallbacks, **not**
+checked-in maintained model truth. New availability, harness floors and
+translation support cannot be inferred from mapping families or imported
+entries. The reference file remains a test oracle, not a second price authoring
+path.
 
 The legacy host allowlist, host suggestion algorithm, proxy retirement guard
 and curated pricing reader are **compatibility baselines**, not additional

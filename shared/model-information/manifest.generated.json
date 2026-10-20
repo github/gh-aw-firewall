@@ -2,14 +2,23 @@
   "schemaVersion": 1,
   "compilerVersion": 1,
   "schemaHash": "44e009b72a054e8959480c0d6c90a09cb957178381b16a034df9404c83a109fd",
-  "catalogRevision": "c664f061a5c8f76fe7d9e507f5146c64420ef240208969980b092d33fe63cf30",
+  "catalogRevision": "7d1a9ada01de9bcbe353367f867d6dc5cf9673bf3986091cc99e572237f43347",
   "generatedAt": "2026-10-20T00:22:04.000Z",
   "sourceFiles": [
-    "anthropic.json",
-    "google.json",
-    "mapping.json",
-    "microsoft.json",
-    "openai.json",
-    "target.json"
-  ]
+    "shared/model-information/sources/anthropic.json",
+    "shared/model-information/sources/google.json",
+    "shared/model-information/sources/mapping.json",
+    "shared/model-information/sources/microsoft.json",
+    "shared/model-information/sources/openai.json",
+    "shared/model-information/sources/pricing-reference.json",
+    "shared/model-information/sources/target.json",
+    "shared/model-information/imported/legacy-models-dev.snapshot.v1.json"
+  ],
+  "import": {
+    "importerVersion": "1",
+    "sha256": "e99d729367dd9dc0862d24c2fa1a2407e994febf683bb159b91031743b30fd38",
+    "accepted": 355,
+    "rejected": 11,
+    "collisions": []
+  }
 }

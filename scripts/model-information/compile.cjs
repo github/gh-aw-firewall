@@ -11,7 +11,13 @@ const { importPinnedLegacySnapshot } = require('../../shared/model-information/i
 const schema = require('../../shared/model-information/schema.v1.json');
 
 const root = path.resolve(__dirname, '../..');
-const sources = path.join(root, 'shared/model-information/sources');
+const sourceArgument = process.argv.find(arg => arg.startsWith('--source-dir='));
+if (sourceArgument && !process.argv.includes('--check')) {
+  throw new Error('--source-dir is only available in check mode');
+}
+const sources = sourceArgument
+  ? path.resolve(sourceArgument.slice('--source-dir='.length))
+  : path.join(root, 'shared/model-information/sources');
 const compilerVersion = 1;
 const read = file => JSON.parse(fs.readFileSync(path.join(root, file), 'utf8'));
 const sha256 = value => crypto.createHash('sha256').update(value).digest('hex');
@@ -108,14 +114,16 @@ function compile() {
   }
   const importErrors = validate('importedSnapshot', imported);
   if (importErrors.length) throw new Error(`${importedFile}: ${importErrors.join('; ')}`);
-  const records = files.filter(file => !['mapping.json', 'target.json'].includes(file))
+  const records = files.filter(file => !['mapping.json', 'target.json', 'pricing-reference.json'].includes(file))
     .map(file => [file, JSON.parse(fs.readFileSync(path.join(sources, file), 'utf8'))]);
   const models = records.flatMap(([, data]) => data.models);
   const rules = records.flatMap(([, data]) => data.rules || []);
   const errors = [];
   for (const [file, data] of records) {
-    if (data.schemaVersion !== 1 || !data.provenance || !Array.isArray(data.models)) {
-      errors.push(`${file}: expected schemaVersion, provenance and models`);
+    if (data.schemaVersion !== 1 || data.provenance?.authority !== 'maintained' ||
+        !data.provenance.source || !data.provenance.revision ||
+        !data.provenance.at || !data.provenance.confidence || !Array.isArray(data.models)) {
+      errors.push(`${file}: expected schemaVersion, reviewed provenance and models`);
       continue;
     }
     for (const [index, model] of data.models.entries()) {
@@ -127,32 +135,57 @@ function compile() {
   }
   errors.push(...validateRecords([...models, ...imported.models], rules)
     .map(message => `assembled sources and import: ${message}`));
-  const mapping = read('shared/model-information/sources/mapping.json');
-  if (mapping.schemaVersion !== 1 || !mapping.provenance?.revision ||
+  const mapping = JSON.parse(fs.readFileSync(path.join(sources, 'mapping.json'), 'utf8'));
+  if (mapping.schemaVersion !== 1 || mapping.provenance?.authority !== 'maintained' ||
+      !mapping.provenance.source || !mapping.provenance.revision ||
+      !mapping.provenance.confidence ||
       !mapping.mapping?.providers || !mapping.mapping?.lastUpdated ||
       mapping.provenance.at !== mapping.mapping.lastUpdated) {
     errors.push('mapping.json: invalid pinned mapping/provenance');
   }
   for (const [provider, data] of Object.entries(mapping.mapping.providers || {})) {
     if (!data.endpoints || !Array.isArray(data.models)) errors.push(`mapping.json: ${provider}: invalid endpoints/models`);
+    const patterns = new Map();
+    const families = new Set();
     for (const [index, entry] of (data.models || []).entries()) {
       if (!entry.family || !Array.isArray(entry.patterns) || !entry.patterns.length ||
-          !Array.isArray(entry.endpoints) || entry.endpoints.some(name => !data.endpoints[name])) {
+          entry.patterns.some(pattern => typeof pattern !== 'string' || !pattern) ||
+          !Array.isArray(entry.endpoints) || entry.endpoints.some(name => !data.endpoints?.[name]) ||
+          (entry.routingPatterns && (!Array.isArray(entry.routingPatterns) ||
+            entry.routingPatterns.some(pattern => typeof pattern !== 'string' || !pattern))) ||
+          (entry.routing && (!Array.isArray(entry.routing.reasoningEfforts) ||
+            !Number.isSafeInteger(entry.routing.contextWindowTokens) ||
+            entry.routing.contextWindowTokens < 1))) {
         errors.push(`mapping.json: ${provider}.models[${index}]: invalid mapping entry`);
+      }
+      if (families.has(entry.family)) errors.push(`mapping.json: ${provider}: duplicate family ${entry.family}`);
+      families.add(entry.family);
+      for (const pattern of entry.patterns || []) {
+        if (patterns.has(pattern) && patterns.get(pattern) !== JSON.stringify(entry.endpoints)) {
+          errors.push(`mapping.json: ${provider}: conflicting equal-specificity pattern ${pattern}`);
+        }
+        patterns.set(pattern, JSON.stringify(entry.endpoints));
       }
     }
   }
   if (errors.length) throw new Error(errors.join('\n'));
   const schemaHash = sha256(json(sorted(schema)));
+  const reference = JSON.parse(fs.readFileSync(path.join(sources, 'pricing-reference.json'), 'utf8'));
+  if (reference.schemaVersion !== 1 || reference.provenance?.authority !== 'maintained' ||
+      !reference.provenance.revision || !reference.provenance.at ||
+      !reference.catalogId || !reference.version || !reference.providers) {
+    throw new Error('pricing-reference.json: invalid review metadata');
+  }
   const revision = sha256(json(sorted({
     compilerVersion, schemaHash, imported, sources: Object.fromEntries(files.map(file =>
       [file, JSON.parse(fs.readFileSync(path.join(sources, file), 'utf8'))])),
   })));
-  const generatedAt = [{ at: imported.retrievedAt }, mapping.provenance, ...records.map(([, data]) => data.provenance)]
-    .map(item => item.at).sort().at(-1);
+  const generatedAt = [{ at: imported.retrievedAt }, mapping.provenance, reference.provenance,
+    ...records.map(([, data]) => data.provenance)]
+    .map(item => new Date(item.at).toISOString()).sort().at(-1);
   const sortedModels = [...models, ...imported.models].sort((a, b) =>
     a.identity.key < b.identity.key ? -1 : a.identity.key > b.identity.key ? 1 : 0);
-  const target = read('shared/model-information/sources/target.json');
+  const target = JSON.parse(fs.readFileSync(path.join(sources, 'target.json'), 'utf8'));
   if (target.schemaVersion !== 1 || target.provenance?.authority !== 'maintained' ||
       !target.provenance.at || !Array.isArray(target.availability) ||
       !Array.isArray(target.routing)) {
@@ -253,6 +286,14 @@ function compile() {
           family: entry.family, patterns: ['gpt-5.4-mini*'],
           endpoints: ['chat_completions', 'responses'], notes: 'Exact reviewed mini routing; #10030.',
         });
+      } else if (entry.provider === 'anthropic' && entry.family === 'claude-mythos-preview') {
+        const parent = targetMapping.providers.anthropic.models.find(item => item.family === 'claude-mythos-5');
+        parent.routingPatterns = parent.routingPatterns.filter(pattern => pattern !== 'claude-mythos-preview*');
+        targetMapping.providers.anthropic.models.splice(
+          targetMapping.providers.anthropic.models.indexOf(parent), 0, {
+            family: 'claude-mythos-preview', patterns: ['claude-mythos-preview*'],
+            endpoints: parent.endpoints, notes: 'Preview excludes xhigh; #10030.',
+          });
       } else throw new Error(`target.json: unknown mapped family ${entry.provider}/${entry.family}`);
     }
   }
@@ -275,7 +316,8 @@ function compile() {
       entry.id.replace(/claude-(opus|sonnet|haiku)-(\d+)\.(\d+)/, 'claude-$1-$2-$3')])];
     family.routing = {
       reasoningEfforts: entry.efforts,
-      contextWindowTokens: entry.context || family.routing?.contextWindowTokens || 1000000,
+      ...(entry.context || family.routing?.contextWindowTokens
+        ? { contextWindowTokens: entry.context || family.routing.contextWindowTokens } : {}),
     };
     if (entry.provider === 'openai') {
       family.routingPatterns = [...new Set(target.routing.filter(item =>
@@ -307,6 +349,33 @@ function compile() {
     const long = tariffs.find(tariff => tariff.tier === 'long_context');
     return [[name, { ...convert(base), ...(long ? { longContext: convert(long) } : {}) }]];
   }));
+  const referenceProviders = {};
+  const referenceNames = new Set();
+  for (const [provider, data] of Object.entries(reference.providers)) {
+    if (!data.source || !/^\d{4}-\d\d-\d\d$/.test(data.checkedAt) ||
+        data.reasoningMatchesOutput !== true ||
+        !Array.isArray(data.models)) throw new Error(`pricing-reference.json: invalid ${provider} scope`);
+    referenceProviders[provider] = {
+      source: data.source, checkedAt: data.checkedAt,
+      models: Object.fromEntries(data.models.map(name => {
+        if (referenceNames.has(name) || !pricing[name]) {
+          throw new Error(`pricing-reference.json: duplicate or unresolved curated model ${name}`);
+        }
+        referenceNames.add(name);
+        const rate = pricing[name];
+        const project = values => ({
+          ...(values.threshold !== undefined ? { threshold: values.threshold } : {}),
+          input: values.input, cachedInput: values.cachedInput,
+          cacheWrite: values.cacheWrite, output: values.output,
+          reasoning: values.reasoning ?? (data.reasoningMatchesOutput ? values.output : undefined),
+        });
+        return [name, {
+          ...project(rate),
+          ...(rate.longContext ? { longContext: project(rate.longContext) } : {}),
+        }];
+      })),
+    };
+  }
   const retired = Object.fromEntries(sortedModels.filter(model => model.lifecycle.status === 'retired' &&
     model.lifecycle.replacement).map(model => [
     model.identity.rawId, model.lifecycle.replacement.split('/').slice(1).join('/'),
@@ -315,6 +384,10 @@ function compile() {
     'src/model-information.compat.generated.json': json({ supported: ['auto', ...supported], retired }),
     'containers/api-proxy/model-information.pricing.generated.json': json(pricing),
     'containers/api-proxy/model-information.retired.generated.json': json(retired),
+    'containers/api-proxy/ai-credits-pricing-reference.json': json({
+      schemaVersion: 1, unit: 'USD_PER_1M_TOKENS',
+      catalogId: reference.catalogId, version: reference.version, providers: referenceProviders,
+    }),
     'docs/model-api-mapping.json': json(mapping.mapping),
     'containers/api-proxy/model-api-mapping.json': json(mapping.mapping),
     'shared/model-information/catalog.generated.json': json({
@@ -322,7 +395,11 @@ function compile() {
     }),
     'shared/model-information/manifest.generated.json': json({
       schemaVersion: 1, compilerVersion, schemaHash, catalogRevision: revision,
-      generatedAt, sourceFiles: files,
+      generatedAt, sourceFiles: [...files.map(file => `shared/model-information/sources/${file}`), importedFile],
+      import: {
+        importerVersion: imported.importerVersion, sha256: imported.sha256,
+        accepted: imported.accepted, rejected: imported.rejected, collisions: imported.collisions,
+      },
     }),
     'shared/model-information/target.generated.json': json({
       schemaVersion: 1, catalogRevision: revision, generatedAt,

@@ -1,0 +1,26 @@
+{
+  "schemaVersion": 1,
+  "provenance": {
+    "authority": "maintained",
+    "source": "pinned containers/api-proxy/ai-credits-pricing-reference.json test oracle",
+    "revision": "c15ff07c1f11bf1be462bccb667cb3b7a0df1ce7e85421066647e0ad9f6715e5",
+    "at": "2026-10-20T00:22:04.000Z",
+    "confidence": "estimated"
+  },
+  "catalogId": "github/gh-aw-firewall/ai-credits-pricing-reference",
+  "version": "2026-10-19",
+  "providers": {
+    "openai": {
+      "source": "https://developers.openai.com/api/docs/pricing",
+      "checkedAt": "2026-10-14",
+      "reasoningMatchesOutput": true,
+      "models": ["gpt-5.6-luna", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-6-astra", "gpt-6-luna", "gpt-6-sol", "gpt-6.1-sol"]
+    },
+    "anthropic": {
+      "source": "https://platform.claude.com/docs/en/about-claude/pricing",
+      "checkedAt": "2026-10-19",
+      "reasoningMatchesOutput": true,
+      "models": ["claude-haiku-5-5", "claude-sonnet-5", "claude-sonnet-5-5", "claude-opus-5-5", "claude-fable-5-1"]
+    }
+  }
+}
