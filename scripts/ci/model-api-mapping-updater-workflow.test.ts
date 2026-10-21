@@ -37,7 +37,9 @@ describe('scheduled canonical model source maintenance', () => {
       'base-branch': 'main', 'fallback-as-issue': false,
     });
     expect(push).toMatchObject({
-      target: '*', 'required-title-prefix': 'chore: ', 'fallback-as-pull-request': false,
+      target: '${{ needs.select_maintenance_pr.outputs.number }}',
+      'required-title-prefix': 'chore: refresh canonical model sources',
+      'fallback-as-pull-request': false,
     });
     expect(push['allowed-files']).toEqual(create['allowed-files']);
     for (const file of projections) {
@@ -54,8 +56,7 @@ describe('scheduled canonical model source maintenance', () => {
 
   it('fetches evidence, reuses one PR branch, validates before safe-output writes', () => {
     const steps = frontmatter.steps as { name: string; run?: string; if?: string }[];
-    const prepare = steps.find(step => step.name === 'Select the single open maintenance PR')!.run!;
-    expect(prepare).toContain('select-pr');
+    const prepare = steps.find(step => step.name === 'Check out the selected maintenance PR')!.run!;
     expect(prepare).toContain('existing-pr.json');
     expect(prepare).toContain('git checkout -B model-source-maintenance FETCH_HEAD');
     expect(prepare).toContain('git rev-parse HEAD');
@@ -85,6 +86,48 @@ describe('scheduled canonical model source maintenance', () => {
     expect(source).toContain('report_incomplete');
     expect(source).toContain('Missing pages/models alone');
     expect(source).toContain('Do not activate');
+  });
+
+  it('binds both the agent and privileged push processor to the trusted selected PR number', () => {
+    const selection = frontmatter.jobs.select_maintenance_pr;
+    expect(selection.permissions).toEqual({ contents: 'read', 'pull-requests': 'read' });
+    expect(selection.outputs).toEqual({
+      number: '${{ steps.select.outputs.number }}', head: '${{ steps.select.outputs.head }}',
+    });
+    const select = selection.steps.find((step: { id?: string }) => step.id === 'select');
+    expect(select.run).toContain('test "$GITHUB_REF" = refs/heads/main');
+    expect(select.run).toContain('maintain.cjs select-pr');
+    expect(select.run).toContain('.number // 0');
+    expect(select.run).toContain('>> "$GITHUB_OUTPUT"');
+    expect(frontmatter.jobs.agent.needs).toContain('select_maintenance_pr');
+    expect(frontmatter['safe-outputs'].needs).toContain('select_maintenance_pr');
+    expect(lock.jobs.agent.needs).toContain('select_maintenance_pr');
+    expect(lock.jobs.safe_outputs.needs).toContain('select_maintenance_pr');
+    const steps = lock.jobs.agent.steps as { env?: Record<string, string> }[];
+    const toolConfig = JSON.parse(steps.find(step => step.env?.GH_AW_SAFE_OUTPUTS_CONFIG)!.env!.GH_AW_SAFE_OUTPUTS_CONFIG);
+    const outputSteps = lock.jobs.safe_outputs.steps as { id?: string; env?: Record<string, string> }[];
+    const handlerConfig = JSON.parse(outputSteps.find(step => step.id === 'process_safe_outputs')!
+      .env!.GH_AW_SAFE_OUTPUTS_HANDLER_CONFIG);
+    for (const config of [toolConfig, handlerConfig]) {
+      expect(config.push_to_pull_request_branch.target).toBe('${{ needs.select_maintenance_pr.outputs.number }}');
+      expect(config.push_to_pull_request_branch.title_prefix).toBe('chore: refresh canonical model sources');
+    }
+  });
+
+  it('grants only required script invocations, not unrestricted interpreters or package runners', () => {
+    expect(frontmatter.tools.bash).toEqual([
+      'cat', 'jq', 'sha256sum', 'git show:*', 'git diff:*',
+      'node scripts/model-information/maintain.cjs refresh-import',
+      'node scripts/model-information/maintain.cjs report',
+      'node scripts/model-information/maintain.cjs verify',
+      'npm run models:generate', 'npm run models:check',
+      'npm test -- --runInBand scripts/model-information/ scripts/ci/model-api-mapping-updater-workflow.test.ts src/copilot-model-catalog-sync.test.ts src/model-information-contract.test.ts',
+    ]);
+    for (const tool of ['shell(node)', 'shell(npm:*)', 'shell(npx:*)', 'shell(git:*)']) {
+      expect(lockText).not.toContain(tool);
+    }
+    expect(lockText).toContain('shell(node scripts/model-information/maintain.cjs refresh-import)');
+    expect(lockText).toContain('shell(npm run models:generate)');
   });
 
   it('compiles authoring and no-op tools but not merge or publication', () => {

@@ -855,6 +855,9 @@ artifacts and the Actions summary expose failed/missing sources and last
 committed evidence; incomplete retrieval blocks proposals without erasing facts.
 The agent proposes edits to canonical sources, with exact source quotations and
 before/after hashes, rather than editing either generated API mapping.
+Its shell allowlist names the specific maintenance/generation/test commands,
+not unrestricted interpreters or package installers. Captured text is untrusted
+evidence, not an instruction source.
 
 The canonical raw import remains the historically named
 `containers/api-proxy/models.dev.catalog.json`. Its origin is not thereby
@@ -888,7 +891,10 @@ diff against `main`, preserving the full pending PR impact.
 
 Runs are serialized. An existing open maintenance PR is selected by exact title,
 same-repository main base and reserved head prefix, then its branch is reused
-through `push-to-pull-request-branch`. Multiple matching PRs fail visibly. A new
+through `push-to-pull-request-branch`. A separate read-only Actions job supplies
+the selected number to both the agent and privileged safe-output configuration;
+agent-supplied PR numbers cannot redirect a push to unrelated PRs. Target zero
+blocks pushes when no maintenance PR exists. Multiple matching PRs fail visibly. A new
 PR is created only when none is open, with a run-unique reserved branch. Equal
 facts (including equal normalized imported prices despite formatting/order
 changes) leave source captures, timestamps, reports and pending PRs untouched.

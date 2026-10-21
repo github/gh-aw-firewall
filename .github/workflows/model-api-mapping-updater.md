@@ -21,7 +21,18 @@ sandbox:
 tools:
   github:
     toolsets: [repos, pull_requests]
-  bash: ["cat", "node", "npm", "npx", "git", "grep", "head", "jq", "ls"]
+  bash:
+    - "cat"
+    - "jq"
+    - "sha256sum"
+    - "git show:*"
+    - "git diff:*"
+    - "node scripts/model-information/maintain.cjs refresh-import"
+    - "node scripts/model-information/maintain.cjs report"
+    - "node scripts/model-information/maintain.cjs verify"
+    - "npm run models:generate"
+    - "npm run models:check"
+    - "npm test -- --runInBand scripts/model-information/ scripts/ci/model-api-mapping-updater-workflow.test.ts src/copilot-model-catalog-sync.test.ts src/model-information-contract.test.ts"
   edit:
 network:
   allowed:
@@ -36,25 +47,54 @@ network:
     - ai.google.dev
     - docs.x.ai
     - openrouter.ai
+jobs:
+  select_maintenance_pr:
+    needs: activation
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      number: ${{ steps.select.outputs.number }}
+      head: ${{ steps.select.outputs.head }}
+    steps:
+      - name: Checkout trusted maintenance selector
+        uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+      - name: Select the single open maintenance PR
+        id: select
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = refs/heads/main
+          gh pr list --repo "$GITHUB_REPOSITORY" --state open --base main --limit 1000 \
+            --json number,title,headRefName,baseRefName,isCrossRepository \
+            > "$RUNNER_TEMP/open-prs.json"
+          node scripts/model-information/maintain.cjs select-pr \
+            "$RUNNER_TEMP/open-prs.json" > "$RUNNER_TEMP/existing-pr.json"
+          jq -r '"number=\(.number // 0)", "head=\(.headRefName // "")"' \
+            "$RUNNER_TEMP/existing-pr.json" >> "$GITHUB_OUTPUT"
+  agent:
+    needs: [select_maintenance_pr]
 steps:
   - name: Install pinned model validation dependencies
     run: npm ci --ignore-scripts
-  - name: Select the single open maintenance PR
+  - name: Check out the selected maintenance PR
     env:
-      GH_TOKEN: ${{ github.token }}
+      SELECTED_PR_NUMBER: ${{ needs.select_maintenance_pr.outputs.number }}
+      SELECTED_PR_HEAD: ${{ needs.select_maintenance_pr.outputs.head }}
     run: |
       set -euo pipefail
       test "$GITHUB_REF" = refs/heads/main
       mkdir -p /tmp/gh-aw/model-maintenance
       git rev-parse HEAD > /tmp/gh-aw/model-maintenance/review-base-revision
-      gh pr list --repo "$GITHUB_REPOSITORY" --state open --base main --limit 1000 \
-        --json number,title,headRefName,baseRefName,isCrossRepository \
-        > /tmp/gh-aw/model-maintenance/open-prs.json
-      node scripts/model-information/maintain.cjs select-pr \
-        /tmp/gh-aw/model-maintenance/open-prs.json > /tmp/gh-aw/model-maintenance/existing-pr.json
-      head=$(jq -r '.headRefName // empty' /tmp/gh-aw/model-maintenance/existing-pr.json)
-      if [ -n "$head" ]; then
-        git fetch --no-tags origin "$head"
+      jq -n --argjson number "$SELECTED_PR_NUMBER" --arg head "$SELECTED_PR_HEAD" \
+        'if $number == 0 then null else {number: $number, headRefName: $head} end' \
+        > /tmp/gh-aw/model-maintenance/existing-pr.json
+      if [ -n "$SELECTED_PR_HEAD" ]; then
+        git fetch --no-tags origin "$SELECTED_PR_HEAD"
         git checkout -B model-source-maintenance FETCH_HEAD
       fi
       git rev-parse HEAD > /tmp/gh-aw/model-maintenance/base-revision
@@ -88,6 +128,7 @@ post-steps:
   - name: Verify source ownership, evidence, complete projections and no-op
     run: node scripts/model-information/maintain.cjs verify
 safe-outputs:
+  needs: [select_maintenance_pr]
   steps:
     - name: Block writes after failed source or post-agent validation
       env:
@@ -119,8 +160,8 @@ safe-outputs:
       - docs/model-api-mapping.json
       - src/model-information.compat.generated.json
   push-to-pull-request-branch:
-    target: "*"
-    required-title-prefix: "chore: "
+    target: ${{ needs.select_maintenance_pr.outputs.number }}
+    required-title-prefix: "chore: refresh canonical model sources"
     base-branch: main
     fallback-as-pull-request: false
     github-token-for-extra-empty-commit: none
@@ -196,7 +237,10 @@ For every edited maintained source file, write a receipt to
 
 Include enough quoted passages for **each** changed fact, not a generic page
 title. Evidence matching is mechanical; semantic scope/meaning still needs human
-review. Do not refresh provenance, dates, versions, import captures or report
+review. Use `git show` with the recorded base revision piped to `sha256sum` for
+before hashes and `sha256sum` on the edited file for after hashes. Write the JSON
+receipt with the edit tool, not an inline interpreter or downloaded tool.
+Do not refresh provenance, dates, versions, import captures or report
 files merely because another day has passed. Changed HTML/order/descriptions
 without changed model facts is a genuine no-op.
 
@@ -222,7 +266,10 @@ not bypassed by changing tests, tooling, schemas or workflow files.
 
 The host selected at most one open maintenance PR in
 `/tmp/gh-aw/model-maintenance/existing-pr.json` and checked out its branch when
-present. Compare against that checked-out HEAD, so rerunning unchanged evidence
+present. A separate read-only job binds the push safe output to that PR number;
+agent-supplied numbers cannot redirect it. When none exists, target zero blocks
+pushes and only the create path is applicable.
+Compare against that checked-out HEAD, so rerunning unchanged evidence
 does not rewrite dates, reports or pending work. Do not discard human edits or
 push if they conflict; report incomplete instead.
 

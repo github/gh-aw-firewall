@@ -5,7 +5,6 @@ const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const { execFileSync } = require('node:child_process');
-const { importLegacySnapshot } = require('../../shared/model-information/import-legacy-snapshot');
 const approvedSources = require('./maintenance-sources.json');
 
 const root = path.resolve(__dirname, '../..');
@@ -75,6 +74,7 @@ function importMetadata(bytes, capture) {
 }
 
 function inspectCatalogue(bytes, capture) {
+  const { importLegacySnapshot } = require('../../shared/model-information/import-legacy-snapshot');
   const source = JSON.parse(bytes);
   if (source.total_count === undefined || source.links === undefined) {
     throw new Error('Incomplete catalogue coverage: fresh API captures require total_count and links');

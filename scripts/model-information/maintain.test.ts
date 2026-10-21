@@ -325,6 +325,23 @@ describe('offline scheduled source maintenance', () => {
     expect(() => selectPullRequest([pr, { ...pr, number: 43 }])).toThrow('Multiple maintenance PRs');
     expect(() => selectPullRequest(Array(1000).fill(pr))).toThrow('Incomplete PR coverage');
   });
+
+  it('selects the trusted PR without loading import tooling or requiring installed dependencies', () => {
+    for (const file of ['maintain.cjs', 'maintenance-sources.json']) {
+      write(cwd, `scripts/model-information/${file}`,
+        fs.readFileSync(path.join(root, 'scripts/model-information', file)));
+    }
+    const pulls = path.join(evidence, 'pulls.json');
+    const selected = {
+      number: 42, title: 'chore: refresh canonical model sources',
+      headRefName: 'automation/model-source-maintenance-123', baseRefName: 'main', isCrossRepository: false,
+    };
+    const args = [path.join(cwd, 'scripts/model-information/maintain.cjs'), 'select-pr', pulls];
+    fs.writeFileSync(pulls, json([selected]));
+    expect(JSON.parse(execFileSync(process.execPath, args, { cwd, encoding: 'utf8' }))).toEqual(selected);
+    fs.writeFileSync(pulls, '[]');
+    expect(JSON.parse(execFileSync(process.execPath, args, { cwd, encoding: 'utf8' }))).toBeNull();
+  });
 });
 
 describe('governed source-to-generated validation', () => {
