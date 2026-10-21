@@ -407,7 +407,9 @@ function startRouterCall({ operation, method, serverAddress, serverPort, parentC
   if (!_enabled || !ROUTER_OPERATIONS.has(operation)) return null;
   const parent = parentContext && isSpanContextValid(trace.getSpanContext(parentContext) || INVALID_SPAN_CONTEXT)
     ? parentContext
-    : _buildParentContext();
+    : (_isValidHex(PARENT_TRACE_ID, 32) && _isValidHex(PARENT_SPAN_ID, 16)
+      ? _buildParentContext()
+      : trace.deleteSpan(context.active()));
   const span = _tracer.startSpan(
     `api_proxy.router.${operation}`,
     {
