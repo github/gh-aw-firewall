@@ -166,16 +166,32 @@ async function captureSources(directory, fetcher = fetch, sources = approvedSour
   return captures;
 }
 
+function loadTrustedCaptureHashes() {
+  const trustedPath = process.env.TRUSTED_CAPTURES_FILE;
+  if (!trustedPath) throw new Error('TRUSTED_CAPTURES_FILE is required for capture integrity verification');
+  const trusted = read(path.resolve(root, trustedPath));
+  if (!Array.isArray(trusted?.sources)) throw new Error('Trusted captures file must contain a "sources" array');
+  return trusted.sources;
+}
+
 function loadCaptures(directory) {
   const captures = read(path.join(directory, 'captures.json')).sources;
+  const trustedCaptures = loadTrustedCaptureHashes();
   const errors = [];
   for (const source of approvedSources) {
     const capture = captures.find(item => item.id === source.id);
+    const trusted = trustedCaptures.find(item => item.id === source.id);
     if (!capture || capture.status !== 'ok') {
       errors.push(`${source.id}: ${json(capture?.errors || ['missing capture'])}`);
       continue;
     }
+    if (!trusted) {
+      errors.push(`${source.id}: missing trusted capture record`);
+      continue;
+    }
     if (!source.urls.includes(capture.url) ||
+        capture.sha256 !== trusted.sha256 ||
+        capture.textSha256 !== trusted.textSha256 ||
         hash(fs.readFileSync(path.join(directory, `${source.id}.raw`))) !== capture.sha256 ||
         hash(fs.readFileSync(path.join(directory, `${source.id}.txt`))) !== capture.textSha256) {
       errors.push(`${source.id}: unapproved URL or evidence hash mismatch`);
