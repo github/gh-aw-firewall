@@ -12,6 +12,7 @@ const path = require('path');
 const { spawnSync } = require('child_process');
 const { isDeepStrictEqual } = require('util');
 const live = require('./cloud-hypervisor-enclave-live-smoke');
+const conformanceDiagnostics = require('./cloud-hypervisor-enclave-diagnostics');
 
 const PROBE_DIRECTORY = path.resolve(__dirname, '../../examples/enclave-environment-probe');
 const PROBE_REPOSITORY = 'github/gh-aw-firewall';
@@ -168,6 +169,8 @@ async function main() {
   let awf;
   let gatewayStarted = false;
   let keepArtifacts = false;
+  let diagnosticContext;
+  let probePassed = false;
   try {
     const artifacts = live.prepareAcceptanceArtifacts(checkout, path.join(root, 'release-artifacts'), environment);
     for (const manifestPath of [
@@ -181,6 +184,8 @@ async function main() {
     }
     fs.mkdirSync(workspace, { recursive: true, mode: 0o755 });
     fs.chmodSync(workspace, 0o755);
+    const config = makeProbeConfig(example, artifacts, workDir);
+    diagnosticContext = conformanceDiagnostics.prepareForJob(config, 'environment-probe');
     const handoff = live.startGatewayFixture({
       gatewayEnv: path.join(root, 'gateway.env'),
       gatewayKey: crypto.randomBytes(36).toString('base64url'),
@@ -188,7 +193,7 @@ async function main() {
       identity: gatewayIdentity,
       onStarted: () => { gatewayStarted = true; },
     });
-    fs.writeFileSync(configPath, `${JSON.stringify(makeProbeConfig(example, artifacts, workDir), null, 2)}\n`, {
+    fs.writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`, {
       mode: 0o600, flag: 'wx',
     });
     awf = live.spawnAwf([
@@ -237,6 +242,7 @@ async function main() {
     );
     console.log(`${RESULT_PREFIX}${assertProbeResult(response, 3, schema)}`);
     await live.waitForVmCleanup(15_000, primaryVmResidue);
+    probePassed = true;
   } finally {
     try {
       if (awf && awf.exitCode === null && awf.signalCode === null && !live.failedSpawns.has(awf)) {
@@ -265,6 +271,18 @@ async function main() {
       keepArtifacts = true;
       process.exitCode = 1;
     } finally {
+      try {
+        conformanceDiagnostics.collect(diagnosticContext, {
+          status: probePassed && !process.exitCode ? 'passed' : 'failed',
+          startup: [{
+            diagnostic: live.startupDiagnostic(awf, 'exit', 'initial', awfErr, startupErrorFile),
+            evidence: live.startupEvidence(awf, 'exit', 'initial', awfErr, startupErrorFile),
+          }],
+        });
+      } catch {
+        console.error('Could not retain public environment probe diagnostics; raw files will not be uploaded.');
+        process.exitCode = 1;
+      }
       try {
         live.removePrivateAwfLogs(awfOut, awfErr, [startupErrorFile]);
         if (keepArtifacts) {

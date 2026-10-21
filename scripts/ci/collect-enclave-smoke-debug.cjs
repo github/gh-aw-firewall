@@ -370,7 +370,11 @@ function collect(runDirectory, runnerUid, runnerGid, roots = ROOTS, uid = 0, tru
   return files.length;
 }
 
-module.exports = { prepare, collect, MAX_STREAM_BYTES, MAX_FILES };
+module.exports = {
+  prepare, collect, MAX_STREAM_BYTES, MAX_FILES,
+  directory, inventory, readRegular, projectProxyUsage, projectProxyResponse,
+  projectProxyEvents, projectProxyContainerLog,
+};
 
 if (require.main === module) {
   const [operation, key, runnerUid, runnerGid] = process.argv.slice(2);

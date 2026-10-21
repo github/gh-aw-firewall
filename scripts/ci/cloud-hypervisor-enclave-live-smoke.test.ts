@@ -920,14 +920,16 @@ describe('sanitized host startup diagnostics', () => {
     }
   });
 
-  it('wires both launches, disables color, removes raw logs even with retained recovery state, and never uploads them', () => {
+  it('retains projections before raw-log cleanup, including retained recovery state', () => {
     const source = fs.readFileSync(harnessPath, 'utf8');
     expect(source).toContain("stage: 'initial', stderrFile: awfErr");
     expect(source).toContain("stage: 'recovery', stderrFile: awfErr");
     expect(source).toContain("NO_COLOR: '1', FORCE_COLOR: '0'");
     expect(source.indexOf('removePrivateAwfLogs(awfOut, awfErr,'))
       .toBeLessThan(source.indexOf('if (keepArtifacts) {'));
-    expect(fs.readFileSync(workflowPath, 'utf8')).not.toMatch(/upload-artifact/);
+    expect(source.indexOf('conformanceDiagnostics.collect('))
+      .toBeLessThan(source.indexOf('removePrivateAwfLogs(awfOut, awfErr,'));
+    expect(fs.readFileSync(workflowPath, 'utf8')).toContain('/live/upload/*.json');
   });
 });
 

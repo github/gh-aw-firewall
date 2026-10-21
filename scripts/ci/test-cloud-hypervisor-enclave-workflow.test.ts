@@ -178,7 +178,7 @@ describe('Cloud Hypervisor enclave conformance CI boundary', () => {
     });
     expect(job.steps.some((step) => step.run?.includes('AWF_CLOUD_HYPERVISOR_DEVELOPMENT_ALLOW_UNATTESTED_ARTIFACTS')))
       .toBe(false);
-    expect(job.steps.some((step) => step.uses?.includes('upload-artifact'))).toBe(false);
+    expect(job.steps.filter((step) => step.uses?.includes('upload-artifact'))).toHaveLength(1);
     const cleanup = job.steps.find((step) => step.name.startsWith('Remove only this job'))!;
     expect(cleanup.run).toContain('com.github.gh-aw.mcpg.run');
     expect(cleanup.run).toContain('GITHUB_RUN_ATTEMPT');
@@ -267,7 +267,10 @@ describe('Cloud Hypervisor enclave conformance CI boundary', () => {
         expect(step['continue-on-error']).toBeUndefined();
         if (step.uses) {
           expect(step.uses).toMatch(/@[0-9a-f]{40}$/);
-          expect(step.uses).not.toContain('upload-artifact');
+          if (step.uses.includes('upload-artifact')) {
+            expect(step.name).toBe('Upload projected public enclave diagnostics');
+            expect(step.if).toBe('always()');
+          }
           if (step.uses.startsWith('actions/checkout@')) {
             expect(step.with).toMatchObject({ 'persist-credentials': false });
           }
@@ -278,6 +281,28 @@ describe('Cloud Hypervisor enclave conformance CI boundary', () => {
         }
       }
     }
+  });
+
+  it.each([
+    ['live-kvm', 'live', 'public-enclave-conformance-diagnostics'],
+    ['environment-probe', 'environment-probe', 'public-enclave-environment-probe-diagnostics'],
+  ] as const)('uploads only the projected %s diagnostics on success or failure', (jobName, kind, name) => {
+    const job = workflow.jobs[jobName];
+    const publish = job.steps.find(step => step.name === 'Publish projected public enclave diagnostics')!;
+    const upload = job.steps.find(step => step.uses?.startsWith('actions/upload-artifact@'))!;
+    expect(publish.if).toBe('always()');
+    expect(publish.run).toContain(`cloud-hypervisor-enclave-diagnostics.js ${kind} "$(id -u)" "$(id -g)"`);
+    expect(upload.if).toBe('always()');
+    expect(upload.with).toEqual({
+      name,
+      path: `/var/lib/awf-enclave-conformance-export/\${{ github.run_id }}-\${{ github.run_attempt }}/${kind}/upload/*.json`,
+      'if-no-files-found': 'warn',
+      'retention-days': 7,
+    });
+    expect(job.steps.indexOf(upload)).toBeGreaterThan(job.steps.indexOf(publish));
+    expect(job.steps.indexOf(publish)).toBeGreaterThan(job.steps.findIndex(step =>
+      step.run?.includes(`node scripts/ci/cloud-hypervisor-enclave-${kind === 'live' ? 'live-smoke' : kind}.js`)));
+    expect(JSON.stringify(upload)).not.toMatch(/runner.temp|awf-work|gateway.env|audit|host-executor-journal|debug-artifacts/);
   });
 
   it('separates same-commit candidate artifacts from the default published-release path', () => {

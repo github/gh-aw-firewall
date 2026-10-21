@@ -7,6 +7,7 @@ const os = require('os');
 const path = require('path');
 const { spawn, spawnSync } = require('child_process');
 const { isDeepStrictEqual } = require('util');
+const conformanceDiagnostics = require('./cloud-hypervisor-enclave-diagnostics');
 
 const RELEASE_ASSETS = [
   'cloud-hypervisor-test-x86_64.tar.gz',
@@ -1661,6 +1662,7 @@ async function main(failureContext = { stage: FAILURE_STAGES.RUNNER }) {
   const runDirectories = [workDir];
   let awfEnvironment;
   let primaryVmResidue;
+  let diagnosticContext;
   const launchAwf = (stage) => {
     const awfArguments = [
       path.resolve(__dirname, '../../dist/cli.js'),
@@ -1703,6 +1705,9 @@ async function main(failureContext = { stage: FAILURE_STAGES.RUNNER }) {
     fs.chmodSync(workspace, 0o755);
     fs.mkdirSync(path.join(workDir, 'audit'), { recursive: true, mode: 0o700 });
     fs.mkdirSync(path.join(workDir, 'proxy-logs'), { recursive: true, mode: 0o700 });
+    diagnosticContext = conformanceDiagnostics.prepareForJob(
+      toAwfConfig(makeConfig(artifacts, workDir, workspace, {})), 'live',
+    );
     failureContext.stage = FAILURE_STAGES.GATEWAY;
     const handoff = startGatewayFixture({
       gatewayEnv, gatewayKey, capability, identity: gatewayIdentity,
@@ -2156,6 +2161,22 @@ async function main(failureContext = { stage: FAILURE_STAGES.RUNNER }) {
       keepArtifacts = true;
       process.exitCode = 1;
     } finally {
+      try {
+        conformanceDiagnostics.collect(diagnosticContext, {
+          status: acceptancePassed && !process.exitCode ? 'passed' : 'failed',
+          stage: Object.values(FAILURE_STAGES).includes(failureContext.stage) ? failureContext.stage : 'unknown stage',
+          startup: runDirectories.map(directory => {
+            const file = path.join(directory, 'proxy-logs', 'awf-startup-error.json');
+            return {
+              diagnostic: startupDiagnostic(awf, 'exit', 'initial', awfErr, file),
+              evidence: startupEvidence(awf, 'exit', 'initial', awfErr, file),
+            };
+          }),
+        });
+      } catch {
+        console.error('Could not retain public enclave conformance diagnostics; raw files will not be uploaded.');
+        process.exitCode = 1;
+      }
       try {
         removePrivateAwfLogs(awfOut, awfErr, runDirectories.map(
           (directory) => path.join(directory, 'proxy-logs', 'awf-startup-error.json'),

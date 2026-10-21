@@ -1683,8 +1683,35 @@ host). It prints one `AWF_ENCLAVE_ENVIRONMENT_PROBE_RESULT` line only for a
 canonical `status: ok` result that validates against the probe's finite schema
 within 8192 bytes. A canonical error, invalid result, or earlier startup
 failure fails the job; gateway startup failures emit only the sanitized
-`AWF_HOST_STARTUP_DIAGNOSTIC` metadata. Nothing is uploaded, and private AWF
-logs are removed.
+`AWF_HOST_STARTUP_DIAGNOSTIC` metadata.
+
+Both live acceptance and the environment probe use the production
+`sensitivity: "public"` retention default; no separate secrecy setting is
+introduced. Before deleting their fixtures, including on failure, they collect
+bounded diagnostic projections outside the fixture root. The workflow's
+`always()` publication/upload steps retain these as
+`public-enclave-conformance-diagnostics` and
+`public-enclave-environment-probe-diagnostics` for seven days. Download them
+from the Actions run's artifacts, or with `gh run download <run-id> -n <name>`.
+The acceptance status/stage and sanitized startup evidence, per-invocation
+script/agent checks and milestones, closed-vocabulary session events, and
+dedicated proxy status/event/token projections cover all run profiles and
+recovery attempts, rather than only the final invocation.
+
+Public content is not credential-disclosure permission. The collector reuses
+the production public-only eligibility/opt-out policy, excludes stale evidence,
+and checks protected ownership, modes, links, schemas and size/count bounds.
+It uploads only projected JSON, never the fixture root, gateway environment,
+auth-bearing config, control capabilities, resource journals, ordinary audit
+payloads, provider credentials, raw AWF stdout/stderr, or raw VM/session logs.
+Production's verified-public raw logs remain in the protected host-only debug
+root described above; they are not made public by this CI upload. Non-public,
+mixed, dynamic, unsupported and explicitly opted-out scopes do not create a
+conformance export. Raw child/startup/readiness files are still removed,
+private control-file and VM/container cleanup is unchanged, and uncertain
+resource cleanup still preserves private recovery state only on the runner.
+Collection errors fail the harness without skipping that cleanup or falling
+back to uploading raw files. Abrupt host termination cannot guarantee capture.
 
 `v0.28.37` and earlier predate the probe (#9499) and its integration, so they
 are ineligible. After a future authorized release whose tag contains both:

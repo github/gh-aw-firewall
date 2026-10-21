@@ -92,7 +92,7 @@ function projectEvent(value: Record<string, unknown>): SafeEvent | undefined {
 }
 
 /** Project untrusted guest JSON onto closed vocabularies; never retain text, stream hashes or payload sizes. */
-function projectSession(bytes: Buffer): EnclaveSessionDiagnostics {
+export function projectEnclaveSessionDiagnostics(bytes: Buffer): EnclaveSessionDiagnostics {
   if (bytes.length === 0) return { status: 'empty', bytes: 0 };
   const result: EnclaveSessionDiagnostics = {
     status: 'captured', bytes: bytes.length, events: [], rejected: 0, dropped: 0,
@@ -198,5 +198,5 @@ export async function readEnclaveSessionDiagnostics(
   const session = await readSession(invocationDirectory, uid, gid);
   if (!Buffer.isBuffer(session)) return session;
   if (retainPublicSession) await retainPublicSession(session.toString('utf8'));
-  return projectSession(session);
+  return projectEnclaveSessionDiagnostics(session);
 }

@@ -145,6 +145,10 @@ describe('public enclave environment probe live harness (no KVM)', () => {
     expect(source).not.toMatch(/enable-api-proxy|enclave_run_agent|COPILOT_GITHUB_TOKEN|executor\.sock|host-executor-client/);
     expect(source).not.toMatch(/DEVELOPMENT_ALLOW_UNATTESTED|allow-unattested|upload-artifact/i);
     expect(source).toContain('removePrivateAwfLogs(awfOut, awfErr');
+    expect(source.indexOf('conformanceDiagnostics.collect('))
+      .toBeGreaterThan(source.indexOf('await live.stopAwf('));
+    expect(source.indexOf('conformanceDiagnostics.collect('))
+      .toBeLessThan(source.indexOf('removePrivateAwfLogs(awfOut, awfErr'));
     expect(source).not.toContain("'--mount'");
     expect(source).toContain('GITHUB_WORKSPACE: workspace');
     expect(source.indexOf('${RESULT_PREFIX}${assertProbeResult(')).toBeGreaterThan(0);

@@ -57,6 +57,8 @@ on:
       - 'scripts/ci/cloud-hypervisor-enclave-startup-faults.js'
       - 'scripts/ci/cloud-hypervisor-enclave-gateway*'
       - 'scripts/ci/cloud-hypervisor-enclave-environment-probe.js'
+      - 'scripts/ci/cloud-hypervisor-enclave-diagnostics.js'
+      - 'scripts/ci/collect-enclave-smoke-debug.cjs'
       - 'scripts/ci/cloud-hypervisor-enclave-host-preflight.js'
       - 'examples/enclave-environment-probe/**'
       - 'docs/cloud-hypervisor-foundation.md'
@@ -144,6 +146,8 @@ jobs:
             scripts/ci/cloud-hypervisor-enclave-candidate.test.ts \
             scripts/ci/cloud-hypervisor-enclave-startup-faults.test.ts \
             scripts/ci/cloud-hypervisor-enclave-environment-probe.test.ts \
+            scripts/ci/cloud-hypervisor-enclave-diagnostics.test.ts \
+            scripts/ci/collect-enclave-smoke-debug.test.ts \
             scripts/ci/cloud-hypervisor-enclave-host-preflight.test.ts \
             scripts/ci/cloud-hypervisor-environment-probe.test.ts \
             scripts/ci/test-cloud-hypervisor-enclave-workflow.test.ts \
@@ -328,6 +332,19 @@ jobs:
           set -euo pipefail
           sudo -n --preserve-env=PATH,HOME,GITHUB_ACTIONS,GITHUB_REPOSITORY,GITHUB_EVENT_NAME,GITHUB_REF,GITHUB_REF_TYPE,GITHUB_REF_NAME,GITHUB_SHA,GITHUB_WORKFLOW_REF,GITHUB_WORKFLOW_SHA,RUNNER_ENVIRONMENT,ImageOS,RUNNER_TEMP,GITHUB_RUN_ID,GITHUB_RUN_ATTEMPT,GH_TOKEN,GITHUB_TOKEN,COPILOT_GITHUB_TOKEN,AWF_ACCEPTANCE_COMMIT,AWF_ENCLAVE_ACCEPTANCE_MODE,AWF_CLOUD_HYPERVISOR_CANDIDATE_ARTIFACTS \
             node scripts/ci/cloud-hypervisor-enclave-live-smoke.js
+      - name: Publish projected public enclave diagnostics
+        if: always()
+        run: |
+          sudo -n --preserve-env=GITHUB_RUN_ID,GITHUB_RUN_ATTEMPT \
+            "$(command -v node)" scripts/ci/cloud-hypervisor-enclave-diagnostics.js live "$(id -u)" "$(id -g)"
+      - name: Upload projected public enclave diagnostics
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: public-enclave-conformance-diagnostics
+          path: /var/lib/awf-enclave-conformance-export/${{ github.run_id }}-${{ github.run_attempt }}/live/upload/*.json
+          if-no-files-found: warn
+          retention-days: 7
       - name: Remove only this job's gateway fixture
         if: always()
         run: |
@@ -440,6 +457,19 @@ jobs:
           set -euo pipefail
           sudo -n --preserve-env=PATH,HOME,GITHUB_ACTIONS,GITHUB_REPOSITORY,GITHUB_EVENT_NAME,GITHUB_REF,GITHUB_REF_TYPE,GITHUB_REF_NAME,GITHUB_SHA,GITHUB_WORKFLOW_REF,GITHUB_WORKFLOW_SHA,RUNNER_ENVIRONMENT,ImageOS,RUNNER_TEMP,GITHUB_RUN_ID,GITHUB_RUN_ATTEMPT,GH_TOKEN,GITHUB_TOKEN,AWF_ACCEPTANCE_COMMIT,AWF_ENCLAVE_ACCEPTANCE_MODE,AWF_CLOUD_HYPERVISOR_CANDIDATE_ARTIFACTS \
             node scripts/ci/cloud-hypervisor-enclave-environment-probe.js
+      - name: Publish projected public enclave diagnostics
+        if: always()
+        run: |
+          sudo -n --preserve-env=GITHUB_RUN_ID,GITHUB_RUN_ATTEMPT \
+            "$(command -v node)" scripts/ci/cloud-hypervisor-enclave-diagnostics.js environment-probe "$(id -u)" "$(id -g)"
+      - name: Upload projected public enclave diagnostics
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: public-enclave-environment-probe-diagnostics
+          path: /var/lib/awf-enclave-conformance-export/${{ github.run_id }}-${{ github.run_attempt }}/environment-probe/upload/*.json
+          if-no-files-found: warn
+          retention-days: 7
       - name: Remove only this job's gateway fixture
         if: always()
         run: |
