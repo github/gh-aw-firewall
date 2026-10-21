@@ -13,32 +13,15 @@ jest.mock('../upstream-proxy');
 jest.mock('../option-parsers');
 
 import { resolveNetworkConfig } from './network-setup';
-import { logger } from '../logger';
-import * as dnsResolver from '../dns-resolver';
-import * as upstreamProxy from '../upstream-proxy';
-import * as optionParsers from '../option-parsers';
-import { setupNetworkConfigMocks } from '../test-helpers/network-setup-mocks.test-utils';
-
-const mockedNetworkLogger = logger as jest.Mocked<typeof logger>;
-const mockedDnsResolver = dnsResolver as jest.Mocked<typeof dnsResolver>;
-const mockedUpstreamProxy = upstreamProxy as jest.Mocked<typeof upstreamProxy>;
-const mockedOptionParsers = optionParsers as jest.Mocked<typeof optionParsers>;
+import {
+  mockedLogger as mockedNetworkLogger,
+  mockedUpstreamProxy,
+  mockedOptionParsers,
+  useNetworkConfigMocks,
+} from '../test-helpers/network-setup-mocks.test-utils';
 
 describe('resolveNetworkConfig – uncovered branches', () => {
-  let processExitSpy: jest.SpyInstance;
-
-  beforeEach(() => {
-    processExitSpy = setupNetworkConfigMocks({
-      detectHostDnsServers: mockedDnsResolver.detectHostDnsServers as jest.Mock,
-      detectUpstreamProxy: mockedUpstreamProxy.detectUpstreamProxy as jest.Mock,
-      parseDnsServers: mockedOptionParsers.parseDnsServers as jest.Mock,
-      parseDnsOverHttps: mockedOptionParsers.parseDnsOverHttps as jest.Mock,
-    });
-  });
-
-  afterEach(() => {
-    processExitSpy.mockRestore();
-  });
+  useNetworkConfigMocks();
 
   it('includes non-Error string in message when parseDnsServers throws a non-Error (line 33)', () => {
     (mockedOptionParsers.parseDnsServers as jest.Mock).mockImplementation(() => {

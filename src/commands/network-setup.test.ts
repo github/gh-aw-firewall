@@ -6,31 +6,26 @@ jest.mock('../dns-resolver');
 jest.mock('../upstream-proxy');
 jest.mock('../option-parsers');
 
-import { logger } from '../logger';
-import * as dnsResolver from '../dns-resolver';
-import * as upstreamProxy from '../upstream-proxy';
-import * as optionParsers from '../option-parsers';
-import { setupNetworkConfigMocks } from '../test-helpers/network-setup-mocks.test-utils';
-
-const mockedLogger = logger as jest.Mocked<typeof logger>;
-const mockedDnsResolver = dnsResolver as jest.Mocked<typeof dnsResolver>;
-const mockedUpstreamProxy = upstreamProxy as jest.Mocked<typeof upstreamProxy>;
-const mockedOptionParsers = optionParsers as jest.Mocked<typeof optionParsers>;
+import {
+  mockedLogger,
+  mockedDnsResolver,
+  mockedUpstreamProxy,
+  mockedOptionParsers,
+  useNetworkConfigMocks,
+} from '../test-helpers/network-setup-mocks.test-utils';
 
 describe('resolveNetworkConfig', () => {
-  let processExitSpy: jest.SpyInstance;
+  useNetworkConfigMocks();
 
-  beforeEach(() => {
-    processExitSpy = setupNetworkConfigMocks({
-      detectHostDnsServers: mockedDnsResolver.detectHostDnsServers as jest.Mock,
-      detectUpstreamProxy: mockedUpstreamProxy.detectUpstreamProxy as jest.Mock,
-      parseDnsServers: mockedOptionParsers.parseDnsServers as jest.Mock,
-      parseDnsOverHttps: mockedOptionParsers.parseDnsOverHttps as jest.Mock,
+  it('uses the shared network defaults and logger', () => {
+    expect(resolveNetworkConfig({})).toEqual({
+      dnsServers: ['8.8.8.8'],
+      dnsServersExplicit: false,
+      dnsOverHttps: undefined,
+      upstreamProxy: undefined,
     });
-  });
-
-  afterEach(() => {
-    processExitSpy.mockRestore();
+    expect(mockedDnsResolver.detectHostDnsServers).toHaveBeenCalledWith(mockedLogger);
+    expect(resolveNetworkConfig({ dnsServers: '1.1.1.1' }).dnsServers).toEqual(['1.1.1.1']);
   });
 
   it('auto-detects DNS servers when --dns-servers is not provided', () => {
