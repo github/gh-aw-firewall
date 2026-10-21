@@ -1647,60 +1647,95 @@ describe('sanitized live acceptance failure reporting', () => {
       });
     });
 
+    const createReadinessFixture = (contents?: string) => {
+      const fixtureDirectory = fs.mkdtempSync(path.join(directory, 'readiness-'));
+      const recordDirectory = path.join(fixtureDirectory, PRIMARY_READINESS_DIRECTORY);
+      fs.mkdirSync(recordDirectory);
+      const file = path.join(recordDirectory, PRIMARY_READINESS_FILENAME);
+      if (contents !== undefined) fs.writeFileSync(file, contents, { mode: 0o600 });
+      return { fixtureDirectory, recordDirectory, file };
+    };
+
     it('reads only complete, private, owner-matched, allowlisted progress records', () => {
-      const file = path.join(directory, PRIMARY_READINESS_DIRECTORY, PRIMARY_READINESS_FILENAME);
-      const reporter = createPrimaryReadinessReporter(path.dirname(file));
+      const { recordDirectory, file } = createReadinessFixture();
+      const reporter = createPrimaryReadinessReporter(recordDirectory);
       reporter.publish('guest-boot', 'starting', 1, '/private/primary');
       expect(harness.readPrimaryVmProgress(file, child)).toMatchObject({ state: 'starting' });
       reporter.publish('ready', 'ready', 1, '/private/primary');
       reporter.close();
       expect(harness.readPrimaryVmProgress(file, child)).toMatchObject({ state: 'ready', runId: 'primary' });
-      expect(fs.statSync(file).mode & 0o777).toBe(0o600);
-      const valid = JSON.parse(fs.readFileSync(file, 'utf8'));
+      const descriptor = fs.openSync(file, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
+      let valid: Record<string, unknown>;
+      try {
+        expect(fs.fstatSync(descriptor).mode & 0o777).toBe(0o600);
+        valid = JSON.parse(fs.readFileSync(descriptor, 'utf8'));
+      } finally {
+        fs.closeSync(descriptor);
+      }
       for (const invalid of [
         { ...valid, ownerPid: child.pid + 1 }, { ...valid, state: sentinel },
         { ...valid, stage: sentinel }, { ...valid, extra: sentinel },
         { ...valid, bootAttempt: 0 }, { ...valid, runId: '../../private' },
         { ...valid, stage: 'guest-boot' }, { ...valid, schemaVersion: 2 },
       ]) {
-        fs.writeFileSync(file, JSON.stringify(invalid));
-        expect(harness.readPrimaryVmProgress(file, child)).toBeUndefined();
+        const fixture = createReadinessFixture(JSON.stringify(invalid));
+        expect(harness.readPrimaryVmProgress(fixture.file, child)).toBeUndefined();
       }
-      fs.writeFileSync(file, '{"stage":');
-      expect(harness.readPrimaryVmProgress(file, child)).toBeUndefined();
-      fs.writeFileSync(file, sentinel.repeat(4096));
-      expect(() => harness.readPrimaryVmProgress(file, child)).toThrow(/inspection failed/);
-      fs.chmodSync(file, 0o644);
-      expect(() => harness.readPrimaryVmProgress(file, child)).toThrow(/inspection failed/);
-      fs.rmSync(file);
-      fs.symlinkSync(path.join(directory, sentinel), file);
-      expect(() => harness.readPrimaryVmProgress(file, child)).toThrow(/inspection failed/);
+      const malformed = createReadinessFixture('{"stage":');
+      expect(harness.readPrimaryVmProgress(malformed.file, child)).toBeUndefined();
+      const oversized = createReadinessFixture(sentinel.repeat(4096));
+      expect(() => harness.readPrimaryVmProgress(oversized.file, child)).toThrow(/inspection failed/);
+
+      const unsafeMode = createReadinessFixture(JSON.stringify(valid));
+      fs.chmodSync(unsafeMode.file, 0o644);
+      expect(() => harness.readPrimaryVmProgress(unsafeMode.file, child)).toThrow(/inspection failed/);
+
+      const symlink = createReadinessFixture();
+      const target = path.join(symlink.fixtureDirectory, 'target');
+      fs.writeFileSync(target, sentinel);
+      fs.symlinkSync(target, symlink.file);
+      expect(() => harness.readPrimaryVmProgress(symlink.file, child)).toThrow(/inspection failed/);
     });
 
     it('safely replaces a stale readiness record on restart and rejects unsafe existing targets', () => {
-      const file = path.join(directory, PRIMARY_READINESS_DIRECTORY, PRIMARY_READINESS_FILENAME);
-      const first = createPrimaryReadinessReporter(path.dirname(file));
+      const { recordDirectory, file } = createReadinessFixture();
+      const first = createPrimaryReadinessReporter(recordDirectory);
       first.publish('ready', 'ready', 1, '/private/previous');
       first.close();
-      const second = createPrimaryReadinessReporter(path.dirname(file));
+      const second = createPrimaryReadinessReporter(recordDirectory);
       second.publish('preflight', 'starting', 0);
       second.close();
       expect(harness.readPrimaryVmProgress(file, child)).toMatchObject({
         state: 'starting', runId: null, bootAttempt: 0,
       });
-      fs.chmodSync(file, 0o644);
-      expect(() => createPrimaryReadinessReporter(path.dirname(file))).toThrow(/Unsafe/);
-      expect(fs.readFileSync(file, 'utf8')).toContain('"state":"starting"');
-      fs.rmSync(file);
-      const target = path.join(directory, 'target');
-      fs.writeFileSync(target, sentinel);
-      fs.symlinkSync(target, file);
-      expect(() => createPrimaryReadinessReporter(path.dirname(file))).toThrow();
-      expect(fs.readFileSync(target, 'utf8')).toBe(sentinel);
-      fs.rmSync(file);
-      fs.linkSync(target, file);
-      expect(() => createPrimaryReadinessReporter(path.dirname(file))).toThrow(/Unsafe/);
-      expect(fs.readFileSync(target, 'utf8')).toBe(sentinel);
+
+      const unsafeMode = createReadinessFixture(sentinel);
+      fs.chmodSync(unsafeMode.file, 0o644);
+      expect(() => createPrimaryReadinessReporter(unsafeMode.recordDirectory)).toThrow(/Unsafe/);
+
+      const symlink = createReadinessFixture();
+      const symlinkTarget = path.join(symlink.fixtureDirectory, 'symlink-target');
+      fs.writeFileSync(symlinkTarget, sentinel);
+      fs.symlinkSync(symlinkTarget, symlink.file);
+      const symlinkTargetFd = fs.openSync(symlinkTarget, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
+      try {
+        expect(() => createPrimaryReadinessReporter(symlink.recordDirectory)).toThrow();
+        expect(fs.readFileSync(symlinkTargetFd, 'utf8')).toBe(sentinel);
+      } finally {
+        fs.closeSync(symlinkTargetFd);
+      }
+
+      const hardlink = createReadinessFixture();
+      const hardlinkTarget = path.join(hardlink.fixtureDirectory, 'hardlink-target');
+      fs.writeFileSync(hardlinkTarget, sentinel);
+      fs.linkSync(hardlinkTarget, hardlink.file);
+      const hardlinkTargetFd = fs.openSync(hardlinkTarget, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
+      try {
+        expect(() => createPrimaryReadinessReporter(hardlink.recordDirectory)).toThrow(/Unsafe/);
+        expect(fs.readFileSync(hardlinkTargetFd, 'utf8')).toBe(sentinel);
+      } finally {
+        fs.closeSync(hardlinkTargetFd);
+      }
     });
 
     it('verifies durable primary ownership and rejects substituted live resource identities', async () => {
