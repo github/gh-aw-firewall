@@ -437,7 +437,8 @@ describe('Model routing', () => {
   });
 
   test('runs the router planning contract from the API proxy network', async () => {
-    const { received } = await runScenario({ name: 'plain' });
+    // A collector is on the network, but with no AWF_ROUTER_OTEL_* settings nothing is sent to it.
+    const { received } = await runScenario({ name: 'plain', collectorStatus: 200 });
     expect(received).toEqual([]);
   }, 360000);
 

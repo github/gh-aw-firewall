@@ -332,6 +332,37 @@ describe('generateDockerCompose', () => {
         });
       });
 
+      it('puts router settings in the router service only', () => {
+        process.env.AWF_ROUTER_OTEL_EXPORTER_OTLP_ENDPOINT = 'http://endpoint-canary:4318';
+        process.env.AWF_ROUTER_OTEL_EXPORTER_OTLP_HEADERS = 'authorization=Bearer%20header-canary';
+        process.env.AWF_ROUTER_OTEL_SERVICE_NAME = 'name-canary';
+
+        const { router, ...otherServices } = generateRouted({ envAll: true }).services;
+
+        expect(router.environment).toEqual({
+          OTEL_EXPORTER_OTLP_ENDPOINT: 'http://endpoint-canary:4318',
+          OTEL_EXPORTER_OTLP_HEADERS: 'authorization=Bearer%20header-canary',
+          OTEL_SERVICE_NAME: 'name-canary',
+        });
+        expect(JSON.stringify(otherServices)).not.toMatch(/canary/);
+      });
+
+      it('redacts an escaped endpoint and header in the audit snapshot', () => {
+        process.env.AWF_ROUTER_OTEL_EXPORTER_OTLP_ENDPOINT = ' http://user:pa$$word-canary@otel-collector:4318';
+        process.env.AWF_ROUTER_OTEL_EXPORTER_OTLP_HEADERS = 'authorization=Bearer%20$token-canary';
+
+        const compose = generateRouted();
+        expect(compose.services.router.environment).toEqual({
+          OTEL_EXPORTER_OTLP_ENDPOINT: ' http://user:pa$$$$word-canary@otel-collector:4318',
+          OTEL_EXPORTER_OTLP_HEADERS: 'authorization=Bearer%20$$token-canary',
+        });
+
+        expect(redactDockerComposeSecrets(compose).services.router.environment).toEqual({
+          OTEL_EXPORTER_OTLP_ENDPOINT: ' http://[REDACTED]@otel-collector:4318',
+          OTEL_EXPORTER_OTLP_HEADERS: '[REDACTED]',
+        });
+      });
+
       it('redacts the user info of endpoints with leading whitespace in the audit snapshot', () => {
         process.env.AWF_ROUTER_OTEL_EXPORTER_OTLP_TRACES_ENDPOINT = ' \u00a0http://user:pw-canary@traces:4318/v1/traces';
         process.env.AWF_ROUTER_OTEL_EXPORTER_OTLP_METRICS_ENDPOINT = '\u0085\thttps://id-canary@metrics:4318/v1/metrics';
