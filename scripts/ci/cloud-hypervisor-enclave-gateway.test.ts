@@ -2,6 +2,15 @@ import { spawn, type ChildProcess } from 'child_process';
 import * as http from 'http';
 import type { AddressInfo } from 'net';
 import * as path from 'path';
+import { assertEnclaveGatewayReady } from '../../src/enclave/gateway';
+import { normalizeEnclavesConfig } from '../../src/parsers/enclave-parser';
+import { getEnclaveStartupProgress } from '../../src/enclave/startup-progress';
+import type { WrapperConfig } from '../../src/types';
+
+/* eslint-disable @typescript-eslint/no-require-imports */
+const { dispatchJsonRpc } = require('../../containers/enclave/mcp-server/mcp-protocol.js');
+const { createToolCallBudget } = require('../../containers/enclave/mcp-server/tool-call-budget.js');
+/* eslint-enable @typescript-eslint/no-require-imports */
 
 const fixture = path.resolve(__dirname, 'cloud-hypervisor-enclave-gateway.js');
 const apiKey = 'k'.repeat(40);
@@ -69,6 +78,94 @@ describe('Cloud Hypervisor enclave gateway fixture', () => {
     });
     return port;
   }
+
+  async function protocolGateway(
+    profile: 'script' | 'agent' | 'combined',
+    limit?: number,
+    mutateTools: (tools: Record<string, unknown>[]) => Record<string, unknown>[] = (tools) => tools,
+  ) {
+    const handlers = {
+      ...(profile !== 'agent' ? { enclave_run_script: {} } : {}),
+      ...(profile !== 'script' ? { enclave_run_agent: {} } : {}),
+    };
+    const toolCallBudget = createToolCallBudget({ maxToolCalls: limit });
+    const methods: string[] = [];
+    upstream = http.createServer((request, response) => {
+      const chunks: Buffer[] = [];
+      request.on('data', (chunk: Buffer) => chunks.push(chunk));
+      request.on('end', () => {
+        void (async () => {
+          expect(request.headers.authorization).toBe(`Bearer ${capability}`);
+          const message = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+          methods.push(message.method);
+          const result = await dispatchJsonRpc(message, { handlers, toolCallBudget });
+          if (result === undefined) {
+            response.writeHead(202, { 'content-length': '0' });
+            response.end();
+            return;
+          }
+          if (message.method === 'tools/list') result.result.tools = mutateTools(result.result.tools);
+          response.writeHead(200, { 'content-type': 'application/json' });
+          response.end(JSON.stringify(result));
+        })().catch((error: Error) => response.destroy(error));
+      });
+    });
+    await new Promise<void>((resolve) => upstream?.listen(0, '127.0.0.1', resolve));
+    const port = await startGateway((upstream.address() as AddressInfo).port);
+    // Wait for the fixture listener before testing the non-retryable readiness transport.
+    await post(port, { jsonrpc: '2.0', id: 0, method: 'initialize' });
+    methods.length = 0;
+    const repos = [{ repo: 'octo/public', sensitivity: 'public' as const }];
+    const wrapper = {
+      workDir: '/tmp/awf-test',
+      maxNumToolCalls: limit,
+      enclaves: normalizeEnclavesConfig([
+        ...(profile !== 'agent' ? [{ script: {}, repos }] : []),
+        ...(profile !== 'script' ? [{ agent: { model: 'gpt-test' }, repos }] : []),
+      ]),
+    } as WrapperConfig;
+    const environment = {
+      AWF_ENCLAVE_MCP_CAPABILITY: capability,
+      AWF_ENCLAVE_MCP_GATEWAY_IDENTITY: 'test-run-identity',
+      AWF_ENCLAVE_MCP_GATEWAY_ENDPOINT: `http://127.0.0.1:${port}/mcp/awf-enclave`,
+      MCP_GATEWAY_API_KEY: apiKey,
+    };
+    return { wrapper, environment, methods, toolCallBudget };
+  }
+
+  describe.each(['script', 'agent', 'combined'] as const)('%s protocol readiness', (profile) => {
+    it.each([undefined, 1, 16])('matches the real broker tool listing with cap %s', async (limit) => {
+      const { wrapper, environment, methods, toolCallBudget } = await protocolGateway(profile, limit);
+      await expect(assertEnclaveGatewayReady(wrapper, environment, 1000)).resolves.toBeUndefined();
+      expect(methods).toEqual(['initialize', 'notifications/initialized', 'tools/list']);
+      expect(getEnclaveStartupProgress(wrapper)).toMatchObject({ readiness: 'ready', code: 'ready' });
+      expect(toolCallBudget?.used() ?? 0).toBe(0);
+    });
+  });
+
+  it.each([
+    ['missing advisory', (tools: Record<string, unknown>[]) => tools.map((tool) => ({
+      ...tool, description: String(tool.description).split(' You are allowed')[0],
+    }))],
+    ['wrong cap', (tools: Record<string, unknown>[]) => tools.map((tool) => ({
+      ...tool, description: String(tool.description).replace('at most 16', 'at most 15'),
+    }))],
+    ['changed description', (tools: Record<string, unknown>[]) => tools.map((tool) => ({
+      ...tool, description: `${String(tool.description)} extra`,
+    }))],
+    ['changed schema', (tools: Record<string, unknown>[]) => tools.map((tool) => ({
+      ...tool, inputSchema: { type: 'object' },
+    }))],
+    ['unexpected tool', (tools: Record<string, unknown>[]) => [...tools, { name: 'unexpected' }]],
+    ['duplicate tool', (tools: Record<string, unknown>[]) => [...tools, tools[0]]],
+    ['missing executor', (tools: Record<string, unknown>[]) => tools.slice(1)],
+  ] as const)('rejects %s with a configured cap', async (_label, mutateTools) => {
+    const { wrapper, environment, methods } = await protocolGateway('combined', 16, mutateTools);
+    await expect(assertEnclaveGatewayReady(wrapper, environment, 1000))
+      .rejects.toThrow('Gateway enclave tool contract did not exactly match');
+    expect(getEnclaveStartupProgress(wrapper)).toMatchObject({ code: 'tools-mismatch' });
+    expect(methods).toEqual(['initialize', 'notifications/initialized', 'tools/list']);
+  });
 
   it('reports an unreachable backend with the retryable mcpg backend_unavailable contract', async () => {
     const port = await startGateway(await freePort());

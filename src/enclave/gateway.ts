@@ -15,6 +15,11 @@ import {
 } from './network';
 import { readGatewayReadinessResponse } from './gateway-readiness';
 
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const { toolCallCapAdvisory } = require('../../containers/enclave/mcp-server/tool-call-budget.js') as {
+  toolCallCapAdvisory: (maxToolCalls: number) => string;
+};
+
 export const ENCLAVE_MCP_CAPABILITY_ENV = 'AWF_ENCLAVE_MCP_CAPABILITY';
 export const ENCLAVE_MCP_GATEWAY_CONTAINER_ENV = 'AWF_ENCLAVE_MCP_GATEWAY_CONTAINER';
 export const ENCLAVE_MCP_GATEWAY_ENDPOINT_ENV = 'AWF_ENCLAVE_MCP_GATEWAY_ENDPOINT';
@@ -138,7 +143,11 @@ function expectedTools(config: WrapperConfig): ReadonlyArray<Record<string, unkn
   const tools: Record<string, unknown>[] = [];
   if (config.enclaves?.executors.script.enabled) tools.push(scriptTool);
   if (config.enclaves?.executors.agent.enabled) tools.push(agentTool);
-  return tools;
+  const limit = config.maxNumToolCalls;
+  return limit === undefined ? tools : tools.map((tool) => ({
+    ...tool,
+    description: `${String(tool.description)} ${toolCallCapAdvisory(limit)}`,
+  }));
 }
 
 function expectedRoutedTools(

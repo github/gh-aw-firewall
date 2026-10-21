@@ -492,6 +492,12 @@ contract failures are terminal. Neither component may downgrade or bypass the
 gateway, and readiness errors never log response bodies, headers, or
 capabilities.
 
+The exact routed tool contract includes the broker's advisory for the configured
+`--max-num-tool-calls` limit, when present. Readiness derives that sentence from
+the same formatter as the broker; it does not strip descriptions or accept a
+different limit. Tool names, enabled executor set, schemas, gateway origin
+prefix, and all other description text must still match exactly.
+
 Host startup diagnostics track whether this actual readiness handshake was
 never attempted, attempted, or completed; they do not infer it from broker
 health or an independent probe. Each request records its fixed phase
