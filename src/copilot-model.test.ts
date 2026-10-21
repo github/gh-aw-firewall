@@ -110,6 +110,31 @@ describe('validateCopilotModel', () => {
     expect(result.message).toContain("Did you mean 'gpt-5.3-codex'?");
   });
 
+  it.each([
+    ['gpt-54-mini', 'gpt-5.4-mini'],
+    ['gpt-5.-mini', 'gpt-5.4-mini'],
+    ['claude-sonnet-.5', 'claude-sonnet-5'],
+    ['claude-sonnet-45', 'claude-sonnet-5'],
+    ['gemini-3.5', 'gpt-4.5'],
+  ])('preserves legacy insertion-order suggestion ties for %s', (model, suggestion) => {
+    expect(validateCopilotModel(model)).toEqual({
+      valid: false,
+      reason: 'unsupported',
+      message: `Error: model '${model}' is unsupported or unrecognized by this AWF version. Did you mean '${suggestion}'?`,
+    });
+  });
+
+  it.each([
+    'claude-opus-5.5', 'claude-sonnet-5.5', 'gemini-3.8-flash',
+    'grok-4.5', 'grok-4.6', 'grok-4.7',
+  ])('does not activate staged CLI availability for %s', model => {
+    expect(validateCopilotModel(model)).toMatchObject({ valid: false, reason: 'unsupported' });
+  });
+
+  it.each(['constructor', '__proto__', 'toString'])('does not treat object properties as retired IDs (%s)', model => {
+    expect(validateCopilotModel(model)).toMatchObject({ valid: false, reason: 'unsupported' });
+  });
+
   it('rejects unsupported models without suggestion when no close match exists', () => {
     const result = validateCopilotModel('this-model-does-not-exist-anywhere-12345');
     expect(result.valid).toBe(false);

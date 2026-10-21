@@ -12,12 +12,13 @@ const { sanitizeForLog } = require('../logging');
  * or 403) rather than a clear "model unavailable" message, which misleads
  * operators into thinking their API keys are invalid.
  *
- * Keep this list in sync with RETIRED_COPILOT_MODEL_ALIASES in
- * src/copilot-model.ts (the TypeScript CLI equivalent).
+ * Generated from shared/model-information/sources by models:generate.
+ * Keep lowercase-only matching here: host separator equivalence is a separate
+ * compatibility policy, not an implicit proxy normalization correction.
  */
-const RETIRED_COPILOT_MODELS = {
-  'gpt-5-codex': 'gpt-5.3-codex',
-};
+const RETIRED_COPILOT_MODELS = new Map(
+  Object.entries(require('../model-information.retired.generated.json')),
+);
 
 /**
  * Returns a block-state object when the given model name is a known-retired
@@ -29,7 +30,7 @@ const RETIRED_COPILOT_MODELS = {
 function getRetiredModelBlockState(model) {
   if (!model) return null;
   const key = model.toLowerCase();
-  const suggestion = RETIRED_COPILOT_MODELS[key];
+  const suggestion = RETIRED_COPILOT_MODELS.get(key);
   if (!suggestion) return null;
   return { model: sanitizeForLog(model), suggestion };
 }

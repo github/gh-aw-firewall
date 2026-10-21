@@ -3,6 +3,7 @@ import * as os from 'os';
 import * as path from 'path';
 import { execFileSync } from 'child_process';
 import * as yaml from 'js-yaml';
+import Ajv from 'ajv';
 import { applyGeneralWorkflowPatches } from './apply-general-workflow-patches';
 import { buildBranchEnclaveInstallSteps, buildLocalInstallSteps } from './workflow-step-builders';
 
@@ -896,6 +897,26 @@ describe('smoke enclave build workflow', () => {
   const source = fs.readFileSync(sourcePath, 'utf8');
   const lock = fs.readFileSync(lockPath, 'utf8');
 
+  it('installs the authored CLI version above the generated feature minimum', () => {
+    const frontmatter = yaml.load(source.split('---')[1]) as {
+      engine: { version: string };
+    };
+    const compiled = yaml.load(lock) as {
+      jobs: { agent: { steps: Array<{ name: string; run?: string; env?: Record<string, string> }> } };
+    };
+    const install = compiled.jobs.agent.steps.find(step =>
+      step.name === 'Install GitHub Copilot CLI');
+    const minimum = install?.env?.GH_AW_COPILOT_MIN_VERSION;
+    expect(minimum).toMatch(/^\d+\.\d+\.\d+$/);
+    expect('1.0.34'.localeCompare(minimum!, 'en', { numeric: true })).toBeLessThan(0);
+    expect(frontmatter.engine.version.localeCompare(minimum!, 'en', { numeric: true }))
+      .toBeGreaterThanOrEqual(0);
+    expect(install?.run).toBe(
+      `bash "\${RUNNER_TEMP}/gh-aw/actions/install_copilot_cli.sh" ${frontmatter.engine.version}`
+    );
+    expect(lock).toContain(`"engine_versions":{"copilot":"${frontmatter.engine.version}"}`);
+  });
+
   it('uses gh-aw as an internal pseudo-private script enclave', () => {
     expect(source).toContain('repo: github/gh-aw');
     expect(source).toContain('sensitivity: internal');
@@ -1068,13 +1089,125 @@ describe('smoke enclave issues workflow', () => {
     expect(lock).toContain('--exclude-env MCP_GATEWAY_API_KEY');
   });
 
-  it('tests the local AWF implementation with mcpg v0.4.15', () => {
-    expect(lock).toContain('ghcr.io/github/gh-aw-mcpg:v0.4.15');
+  it('tests the local AWF implementation with mcpg v0.4.36', () => {
+    expect(lock).toContain('ghcr.io/github/gh-aw-mcpg:v0.4.36');
     expect(lock).toContain('Install local AWF binary');
     expect(lock).toContain('--build-local');
     expect(lock).not.toMatch(
       /download_docker_images\.sh[^\n]*ghcr\.io\/github\/gh-aw-firewall\/enclave-(?:agent|mcp-server)/
     );
+  });
+
+  it('accepts the emitted stdio image under the pinned gateway container schema', () => {
+    const frontmatter = yaml.load(source.split('---')[1]) as {
+      sandbox: { mcp?: { version?: string } };
+    };
+    const compiled = yaml.load(lock) as {
+      jobs: { agent: { steps: Array<{ name: string; run?: string }> } };
+    };
+    const gateway = compiled.jobs.agent.steps.find(step =>
+      step.name === 'Start MCP Gateway')?.run;
+    const images = Array.from(gateway?.matchAll(/"container": "([^"]+)"/g) ?? [],
+      match => match[1]);
+    // Exact container subschemas from internal/config/schema/mcp-gateway-config.schema.json
+    // at github/gh-aw-mcpg v0.4.15 and v0.4.36 (fix: github/gh-aw-mcpg#15212).
+    const legacyPattern = '^[a-zA-Z0-9][a-zA-Z0-9./_-]*(:([a-zA-Z0-9._-]+|latest))?$';
+    const digestPattern =
+      '^[a-zA-Z0-9][a-zA-Z0-9./_-]*(:([a-zA-Z0-9._-]+|latest))?(@sha256:[a-fA-F0-9]{64})?$';
+    const ajv = new Ajv();
+    const legacy = ajv.compile({ type: 'string', minLength: 1, pattern: legacyPattern });
+    const compatible = ajv.compile({ type: 'string', minLength: 1, pattern: digestPattern });
+    expect(frontmatter.sandbox.mcp?.version).toBeUndefined();
+    const gatewayImage = 'ghcr.io/github/gh-aw-mcpg:v0.4.36';
+    const gatewayDigest = 'sha256:b4d2856018959c798b3e3f81ae4ab5b275e06354e123e1f7971de931f2f450f2';
+    const pinnedGateway = `${gatewayImage}@${gatewayDigest}`;
+    const manifest = JSON.parse(lock.match(/^# gh-aw-manifest: (.+)$/m)![1]) as {
+      containers: Array<{ image: string; digest: string; pinned_image: string }>;
+    };
+    expect(manifest.containers.filter(container => container.image === gatewayImage))
+      .toEqual([{ image: gatewayImage, digest: gatewayDigest, pinned_image: pinnedGateway }]);
+    expect(gateway).toContain(pinnedGateway);
+    expect(compiled.jobs.agent.steps.find(step =>
+      step.name === 'Download container images')?.run).toContain(pinnedGateway);
+    const pins = JSON.parse(fs.readFileSync(
+      path.join(workflowsDir, '..', 'aw', 'actions-lock.json'), 'utf8')) as {
+      containers: Record<string, { pinned_image: string }>;
+    };
+    expect(pins.containers[gatewayImage].pinned_image).toBe(pinnedGateway);
+    expect(lock).toContain('GH_AW_INFO_AWMG_VERSION: "v0.4.36"');
+    expect(images).toHaveLength(2);
+    const githubImage = images.find(image =>
+      image.startsWith('ghcr.io/github/github-mcp-server:'));
+    if (!githubImage) throw new Error('Generated gateway configuration lacks the GitHub stdio image');
+    expect(legacy(githubImage)).toBe(false);
+    for (const image of images) expect(compatible(image)).toBe(true);
+    expect(compatible(githubImage.slice(0, -1))).toBe(false);
+    expect(compatible(githubImage.replace(/.$/, 'g'))).toBe(false);
+    expect(compatible(githubImage.replace('@sha256:', '@sha512:'))).toBe(false);
+
+    const oldGateway = 'ghcr.io/github/gh-aw-mcpg:v0.4.15';
+    const oldDigest = `sha256:${'e'.repeat(64)}`;
+    const compilerOutput = lock.split(gatewayImage).join(oldGateway)
+      .split(gatewayDigest).join(oldDigest)
+      .replace('GH_AW_INFO_AWMG_VERSION: "v0.4.36"', 'GH_AW_INFO_AWMG_VERSION: ""');
+    const patched = applyGeneralWorkflowPatches(compilerOutput, issuesLockPath).content;
+    expect(patched).toBe(lock);
+    expect(applyGeneralWorkflowPatches(patched, issuesLockPath).content).toBe(patched);
+    expect(applyGeneralWorkflowPatches(compilerOutput, dynamicLockPath).content)
+      .toContain(`${oldGateway}@${oldDigest}`);
+  });
+
+  it('pins the last-green flat-response GitHub server in runtime and manifest', () => {
+    const image = 'ghcr.io/github/github-mcp-server:v1.12.2';
+    const digest = 'sha256:508a0857ec762b1ab1cece29193345b501fab1dd9d1228a7b617062954cecac6';
+    const pinned = `${image}@${digest}`;
+    const manifest = JSON.parse(lock.match(/^# gh-aw-manifest: (.+)$/m)![1]) as {
+      containers: Array<{ image: string; digest: string; pinned_image: string }>;
+    };
+    expect(manifest.containers.filter(container =>
+      container.image.startsWith('ghcr.io/github/github-mcp-server:')))
+      .toEqual([{ image, digest, pinned_image: pinned }]);
+    expect(lock).toContain(`"container": "${pinned}"`);
+    const compiled = yaml.load(lock) as {
+      jobs: { agent: { steps: Array<{ name: string; run?: string }> } };
+    };
+    expect(compiled.jobs.agent.steps.find(step =>
+      step.name === 'Download container images')?.run).toContain(pinned);
+    expect(lock).not.toContain('ghcr.io/github/github-mcp-server:v2.');
+    expect(source).toContain('`issue_number` set to the discovered issue number as a JSON number');
+
+    const incompatibleImage = 'ghcr.io/github/github-mcp-server:v2.0.2';
+    const incompatibleDigest = `sha256:${'f'.repeat(64)}`;
+    const compilerOutput = lock.split(image).join(incompatibleImage)
+      .split(digest).join(incompatibleDigest);
+    const patched = applyGeneralWorkflowPatches(compilerOutput, issuesLockPath).content;
+    expect(patched).toBe(lock);
+    expect(applyGeneralWorkflowPatches(patched, issuesLockPath).content).toBe(patched);
+    expect(applyGeneralWorkflowPatches(compilerOutput, dynamicLockPath).content)
+      .toContain(`${incompatibleImage}@${incompatibleDigest}`);
+  });
+
+  it('rejects v2 envelopes even when the nested issue author is approved', () => {
+    // The pinned gateway labels the returned object itself, not a nested "issue".
+    const ajv = new Ajv();
+    const issue = ajv.compile({
+      type: 'object',
+      required: ['number', 'author_association'],
+      properties: {
+        number: { type: 'integer' },
+        author_association: { type: 'string' },
+      },
+    });
+    const comments = ajv.compile({ type: 'array', items: { type: 'object' } });
+    const approvedIssue = { number: 42, author_association: 'MEMBER' };
+    const approvedComments = [{ id: 1, author_association: 'MEMBER' }];
+
+    expect(issue(approvedIssue)).toBe(true);
+    expect(comments(approvedComments)).toBe(true);
+    expect(comments([])).toBe(true);
+    expect(issue({ method: 'get', issue: approvedIssue })).toBe(false);
+    expect(comments({ method: 'get_comments', comments: approvedComments })).toBe(false);
+    expect(comments({ method: 'get_comments', comments: [] })).toBe(false);
   });
 
   it('bounds the single enclave disclosure', () => {

@@ -11,7 +11,7 @@ env:
 name: Smoke Enclave Build Test
 engine:
   id: copilot
-  version: 1.0.34
+  version: 1.0.80
   args: ["--allow-tool", "awf-enclave(enclave_run_script)"]
 network:
   allowed:

@@ -1,3 +1,5 @@
+import lifecycle from './model-information.compat.generated.json';
+
 interface CopilotModelValidationSuccess {
   valid: true;
   resolvedModel: string;
@@ -21,63 +23,14 @@ function normalizeSeparators(s: string): string {
   return s.replace(/[._]/g, '-');
 }
 
-const RETIRED_COPILOT_MODEL_ALIASES: Record<string, string> = {
-  'gpt-5-codex': 'gpt-5.3-codex',
-};
+const RETIRED_COPILOT_MODEL_ALIASES = new Map(Object.entries(lifecycle.retired));
 
 /**
- * Single source of truth for all Copilot CLI completion models that AWF accepts
- * as a `COPILOT_MODEL` value.  The host-side validator rejects any value not in
- * this set (or its separator-normalised form) before containers start.
- *
- * When **adding** a new Copilot CLI model here, also update:
- *   - `containers/api-proxy/ai-credits-pricing.js`  (AI-credits billing)
- *   - `docs/model-api-mapping.json`                  (endpoint routing, OpenAI/Anthropic only)
- *
- * When **retiring** a model, move it to `RETIRED_COPILOT_MODEL_ALIASES` (below)
- * and mirror the change in `containers/api-proxy/guards/retired-model-guard.js`.
- *
- * A CI guard in `src/copilot-model-catalog-sync.test.ts` fails if any model
- * present in `ai-credits-pricing.js` is missing from this set (and is not
- * explicitly listed as a non-CLI model in the test's exclusion set).
+ * Compatibility projection of canonical Copilot CLI availability, plus the
+ * legacy `auto` selector. This does not assert native-API or Copilot-API support.
+ * Author facts in shared/model-information/sources and run models:generate.
  */
-const SUPPORTED_COPILOT_MODELS = new Set([
-  'auto',
-  'gpt-4',
-  'gpt-4.1',
-  'gpt-4.5',
-  'gpt-4o',
-  'gpt-4o-mini',
-  'gpt-5.1',
-  'gpt-5.2',
-  'gpt-5.2-codex',
-  'gpt-5.3-codex',
-  'gpt-5.4',
-  'gpt-5.4-mini',
-  'gpt-5.5',
-  'gpt-5.6-luna',
-  'gpt-5.6-sol',
-  'gpt-5.6-terra',
-  'gpt-6-astra',
-  'gpt-6-luna',
-  'gpt-6-sol',
-  'gpt-6.1-sol',
-  'gpt-5-mini',
-  'o3',
-  'o3-mini',
-  'claude-fable-5',
-  'claude-haiku-4.5',
-  'claude-mythos-5',
-  'claude-haiku-5.5',
-  'claude-opus-4.8',
-  'claude-opus-5',
-  'claude-sonnet-5',
-  'claude-sonnet-4.5',
-  'claude-sonnet-4.6',
-  'gemini-3.1-pro-preview',
-  'gemini-3.5-flash',
-  'mai-code-1-flash',
-]);
+const SUPPORTED_COPILOT_MODELS = new Set(lifecycle.supported);
 
 /** Maps separator-normalized names (all `-`) → canonical model name. */
 const NORMALIZED_TO_CANONICAL = new Map<string, string>(
@@ -86,12 +39,12 @@ const NORMALIZED_TO_CANONICAL = new Map<string, string>(
 
 /** Maps separator-normalized retired alias keys → canonical replacement. */
 const NORMALIZED_RETIRED_ALIASES = new Map<string, string>(
-  Object.entries(RETIRED_COPILOT_MODEL_ALIASES).map(([k, v]) => [normalizeSeparators(k), v]),
+  [...RETIRED_COPILOT_MODEL_ALIASES].map(([k, v]) => [normalizeSeparators(k), v]),
 );
 
 function suggestionFor(model: string): string | undefined {
   let best: { candidate: string; distance: number } | undefined;
-  for (const candidate of SUPPORTED_COPILOT_MODELS) {
+  for (const candidate of lifecycle.suggestionOrder) {
     const distance = levenshtein(model, candidate);
     if (!best || distance < best.distance) {
       best = { candidate, distance };
@@ -133,7 +86,7 @@ export function validateCopilotModel(rawModel: string): CopilotModelValidationRe
 
   // Check retired aliases (exact, then separator-normalized)
   const retiredReplacement =
-    RETIRED_COPILOT_MODEL_ALIASES[normalized] ?? NORMALIZED_RETIRED_ALIASES.get(separatorNormalized);
+    RETIRED_COPILOT_MODEL_ALIASES.get(normalized) ?? NORMALIZED_RETIRED_ALIASES.get(separatorNormalized);
   if (retiredReplacement) {
     return {
       valid: false,

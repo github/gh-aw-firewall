@@ -228,6 +228,33 @@ describe('applyGeneralWorkflowPatches Cloud Hypervisor bundle retries', () => {
 });
 
 describe('applyGeneralWorkflowPatches shared enclave gateway policy', () => {
+  it('keeps the immutable GitHub MCP image in runtime configuration', () => {
+    const image = 'ghcr.io/github/github-mcp-server:v1.12.2';
+    const digest = 'sha256:508a0857ec762b1ab1cece29193345b501fab1dd9d1228a7b617062954cecac6';
+    const pinned = `${image}@${digest}`;
+    const compiled = [
+      `# gh-aw-manifest: ${JSON.stringify({
+        version: 1,
+        containers: [{ image, digest, pinned_image: image }],
+      })}`,
+      `download_docker_images.sh ${image}`,
+      `"container": "${image}"`,
+      '"awf-enclave": {\n                "type": "http",',
+      '      - name: Execute GitHub Copilot CLI\n        env:\n          MCP_GATEWAY_API_KEY: ${{ steps.start-mcp-gateway.outputs.gateway-api-key }}\n        run: awf --exclude-env MCP_GATEWAY_AGENT_ID',
+    ].join('\n');
+
+    const workflowPath = '/tmp/workflows/smoke-enclave-issues-read.lock.yml';
+    const { content } = applyGeneralWorkflowPatches(compiled, workflowPath);
+    const manifest = JSON.parse(content.match(/^# gh-aw-manifest: (.+)$/m)![1]) as {
+      containers: Array<{ image: string; digest: string; pinned_image: string }>;
+    };
+
+    expect(manifest.containers).toEqual([{ image, digest, pinned_image: pinned }]);
+    expect(content).toContain(`download_docker_images.sh ${pinned}`);
+    expect(content).toContain(`"container": "${pinned}"`);
+    expect(applyGeneralWorkflowPatches(content, workflowPath).content).toBe(content);
+  });
+
   it.each([
     'smoke-enclave-cloud-hypervisor.lock.yml',
   ])('restores the host-only rootfs exclusion in %s idempotently', filename => {

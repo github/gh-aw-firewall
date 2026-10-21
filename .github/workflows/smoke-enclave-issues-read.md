@@ -43,8 +43,6 @@ sandbox:
     id: awf
     version: v0.28.13
     command: "sudo --preserve-env awf"
-  mcp:
-    version: v0.4.15
 strict: false
 steps:
   - name: Install AWF dependencies
@@ -130,6 +128,15 @@ post-steps:
 
 # Smoke Test: Read-Only GitHub Issues from an Agent Enclave
 
+The postprocessor pins this smoke's GitHub MCP server to the last-green
+`v1.12.2` image for the flat issue object and comments array expected by the
+gateway guard, not the `issue_read` envelopes introduced in GitHub MCP server
+v2. The postprocessor also pins MCP Gateway `v0.4.36`, which supports the immutable
+`@sha256` image reference; older gateways reject it during configuration validation.
+The gateway implementation pin stays out of workflow frontmatter so strict
+validation remains supported. Keep
+`tools.github: false` and the enclave's `approved` integrity policy intact.
+
 The primary agent has no GitHub MCP tools, GitHub credentials, or external
 network access. Use `enclave_run_agent` exactly once for the assigned
 `github/gh-aw` repository. Do not attempt GitHub access, network requests, shell
@@ -159,9 +166,10 @@ Use only the `github` MCP server and call each tool exactly once:
 2. Read the first returned issue number. If no issue is returned, set
    `issue_number` to `0` and all booleans to `false`.
 3. `issue_read` with `owner: "github"`, `repo: "gh-aw"`, `method: "get"`, and
-   the discovered issue number.
+   `issue_number` set to the discovered issue number as a JSON number.
 4. `issue_read` with `owner: "github"`, `repo: "gh-aw"`,
-   `method: "get_comments"`, the discovered issue number, and `perPage: 1`.
+   `method: "get_comments"`, `issue_number` set to that same JSON number,
+   and `perPage: 1`.
 
 Return exactly one object matching the schema. Set `issue_number` to the number
 from the first entry in the `list_issues` response's `issues` array. Set a
