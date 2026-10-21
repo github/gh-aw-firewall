@@ -1,5 +1,6 @@
 import { PROXY_ENV_VARS } from '../../upstream-proxy';
 import { WrapperConfig } from '../../types';
+import { ROUTER_OTEL_HOST_ENV_VARS } from '../router-otel-env';
 import { addGithubTokenEnvVars } from './github-token-isolation';
 
 export function buildExclusionSet(config: WrapperConfig): Set<string> {
@@ -33,6 +34,8 @@ export function buildExclusionSet(config: WrapperConfig): Set<string> {
     'AWF_ENCLAVE_GITHUB_DELEGATION_CONTROL_ENDPOINT',
     'AWF_ROUTING_CONFIG',
     'AWF_RESOLVED_CONFIG',
+    // Router export settings, including collector headers, belong to the router only.
+    ...ROUTER_OTEL_HOST_ENV_VARS,
   ]);
 
   if (config.enableApiProxy) {

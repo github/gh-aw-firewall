@@ -24,6 +24,7 @@ import {
 import { buildInternalServiceHosts } from './services/internal-service-hosts';
 import { filterComposeCapDrop } from './capability-filter';
 import { ROUTING_NETWORK_NAME } from './services/router-service';
+import { redactOtlpEnvValue } from './services/router-otel-env';
 import {
   GEMINI_SETTINGS_MOUNT,
   GEMINI_SETTINGS_VOLUME,
@@ -289,10 +290,10 @@ export function redactDockerComposeSecrets(
           (service.environment as Record<string, string>)[key] = '[REDACTED]';
           continue;
         }
-        const value = (service.environment as Record<string, string>)[key];
-        if (typeof value === 'string' && sensitiveValues.length > 0) {
-          (service.environment as Record<string, string>)[key] = redactSensitiveValues(value, sensitiveValues);
-        }
+        let value = (service.environment as Record<string, string>)[key];
+        if (typeof value === 'string') value = redactOtlpEnvValue(key, value);
+        if (typeof value === 'string' && sensitiveValues.length > 0) value = redactSensitiveValues(value, sensitiveValues);
+        (service.environment as Record<string, string>)[key] = value;
       }
     }
   }

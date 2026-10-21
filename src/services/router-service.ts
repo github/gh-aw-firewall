@@ -3,6 +3,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { ROUTER_CONTAINER_NAME } from '../constants';
 import { assignImageSource } from '../image-tag';
+import { buildRouterOtelEnv } from './router-otel-env';
 import { buildContainerSecurityHardening } from './service-security';
 import { ImageBuildConfig } from './squid-service';
 
@@ -34,6 +35,8 @@ export function buildRouterService({ imageConfig }: RouterServiceParams): any {
     ...buildContainerSecurityHardening({ memLimit: '512m', pidsLimit: 100, cpuShares: 512 }),
     stop_grace_period: '2s',
   };
+  const environment = buildRouterOtelEnv();
+  if (Object.keys(environment).length > 0) service.environment = environment;
 
   assignImageSource(service, {
     useGHCR,

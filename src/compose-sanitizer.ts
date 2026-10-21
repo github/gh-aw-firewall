@@ -1,7 +1,13 @@
 import * as yaml from 'js-yaml';
+import { redactOtlpEnvValue } from './services/router-otel-env';
 
 function isSensitiveComposeEnvVar(name: string): boolean {
   return /(TOKEN|KEY|SECRET)/i.test(name);
+}
+
+function sanitizeComposeEnvValue(name: string, value: unknown): unknown {
+  if (isSensitiveComposeEnvVar(name)) return '[REDACTED]';
+  return typeof value === 'string' ? redactOtlpEnvValue(name, value) : value;
 }
 
 function sanitizeComposeEnvironment(environment: unknown): void {
@@ -18,9 +24,7 @@ function sanitizeComposeEnvironment(environment: unknown): void {
       }
 
       const key = entry.slice(0, separatorIndex);
-      if (isSensitiveComposeEnvVar(key)) {
-        environment[i] = `${key}=[REDACTED]`;
-      }
+      environment[i] = `${key}=${sanitizeComposeEnvValue(key, entry.slice(separatorIndex + 1))}`;
     }
     return;
   }
@@ -28,9 +32,7 @@ function sanitizeComposeEnvironment(environment: unknown): void {
   if (environment && typeof environment === 'object') {
     const values = environment as Record<string, unknown>;
     for (const key of Object.keys(values)) {
-      if (isSensitiveComposeEnvVar(key)) {
-        values[key] = '[REDACTED]';
-      }
+      values[key] = sanitizeComposeEnvValue(key, values[key]);
     }
   }
 }

@@ -1,4 +1,4 @@
-import { generateDockerCompose } from './compose-generator';
+import { generateDockerCompose, redactDockerComposeSecrets } from './compose-generator';
 import { ACT_PRESET_BASE_IMAGE } from './host-identity';
 import { WrapperConfig } from './types';
 import { baseConfig, mockNetworkConfig } from './test-helpers/docker-test-fixtures.test-utils';
@@ -180,6 +180,153 @@ describe('generateDockerCompose', () => {
         expect(proxy.volumes?.some(volume => volume.includes('/run/awf-routing/'))).toBe(false);
         expect(proxy.environment?.AWF_ROUTING_CONFIG).toBeUndefined();
       }
+    });
+
+    describe('router OpenTelemetry export settings', () => {
+      const digest = 'a'.repeat(64);
+      const savedEnv = { ...process.env };
+
+      function routedConfig(overrides: Partial<WrapperConfig> = {}): WrapperConfig {
+        return {
+          ...mockConfig,
+          enableApiProxy: true,
+          experimentalModelRouting: true,
+          images: {
+            squid: `ghcr.io/example/squid:test@sha256:${digest}`,
+            agent: `ghcr.io/example/agent:test@sha256:${digest}`,
+            apiProxy: `ghcr.io/example/api-proxy:test@sha256:${digest}`,
+            router: `ghcr.io/example/router:test@sha256:${digest}`,
+          },
+          modelRouting: {
+            objective: { goal: 'cost', mode: 'balanced' },
+            task: { conversationFile: '/run/awf-routing/input/conversation.json' },
+          },
+          modelRoutingBootstrap: {
+            root: `${mockConfig.workDir}-routing`,
+            inputDir: `${mockConfig.workDir}-routing/input`,
+            outputDir: `${mockConfig.workDir}-routing/output`,
+            inputFile: `${mockConfig.workDir}-routing/input/conversation.json`,
+            containerInputFile: '/run/awf-routing/input/conversation.json',
+            containerOutputDir: '/run/awf-routing/output',
+          },
+          ...overrides,
+        };
+      }
+
+      function generateRouted(overrides: Partial<WrapperConfig> = {}) {
+        return generateDockerCompose(routedConfig(overrides), { ...mockNetworkConfig, proxyIp: '172.30.0.30' });
+      }
+
+      // A gh-aw-style run: the shared OTLP settings point at an external collector for the api-proxy.
+      function setSharedHostTelemetry(): void {
+        process.env.OTEL_EXPORTER_OTLP_ENDPOINT = 'https://external-collector.example';
+        process.env.OTEL_EXPORTER_OTLP_HEADERS = 'authorization=Bearer%20shared-canary';
+        process.env.OTEL_SERVICE_NAME = 'shared-service';
+        process.env.GH_AW_OTLP_ENDPOINTS = '[{"url":"https://external-collector.example"}]';
+        process.env.GH_AW_OTLP_WORKLOAD_IDENTITY = 'true';
+        process.env.ACTIONS_ID_TOKEN_REQUEST_URL = 'https://token.example/canary';
+        process.env.ACTIONS_ID_TOKEN_REQUEST_TOKEN = 'id-token-canary';
+        process.env.GITHUB_AW_OTEL_TRACE_ID = '0af7651916cd43dd8448eb211c80319c';
+        process.env.GITHUB_AW_OTEL_PARENT_SPAN_ID = 'b7ad6b7169203331';
+        process.env.GITHUB_TOKEN = 'ghp_canary';
+        process.env.COPILOT_GITHUB_TOKEN = 'copilot-canary';
+        process.env.HTTPS_PROXY = 'http://proxy.example:3128';
+      }
+
+      afterEach(() => {
+        for (const key of Object.keys(process.env)) {
+          if (!(key in savedEnv)) delete process.env[key];
+        }
+        Object.assign(process.env, savedEnv);
+      });
+
+      it('passes AWF_ROUTER_OTEL_* settings to the router as OTEL_* without other changes', () => {
+        const baseline = generateRouted().services.router;
+        process.env.AWF_ROUTER_OTEL_EXPORTER_OTLP_ENDPOINT = 'http://otel-collector:4318';
+        process.env.AWF_ROUTER_OTEL_EXPORTER_OTLP_METRICS_ENDPOINT = 'http://metrics-collector:4318/v1/metrics';
+        process.env.AWF_ROUTER_OTEL_EXPORTER_OTLP_TRACES_HEADERS = 'authorization=Bearer%20router-canary';
+        process.env.AWF_ROUTER_OTEL_TRACES_SAMPLER = 'parentbased_traceidratio';
+        process.env.AWF_ROUTER_OTEL_TRACES_SAMPLER_ARG = '0.5';
+        process.env.AWF_ROUTER_OTEL_RESOURCE_ATTRIBUTES = 'service.namespace=awf,deployment.environment.name=ci';
+        process.env.AWF_ROUTER_OTEL_METRICS_EXPORTER = 'none';
+        process.env.AWF_ROUTER_OTEL_SDK_DISABLED = 'false';
+        process.env.AWF_ROUTER_OTEL_SERVICE_NAME = '';
+
+        const router = generateRouted().services.router;
+
+        expect(router.environment).toEqual({
+          OTEL_EXPORTER_OTLP_ENDPOINT: 'http://otel-collector:4318',
+          OTEL_EXPORTER_OTLP_METRICS_ENDPOINT: 'http://metrics-collector:4318/v1/metrics',
+          OTEL_EXPORTER_OTLP_TRACES_HEADERS: 'authorization=Bearer%20router-canary',
+          OTEL_TRACES_SAMPLER: 'parentbased_traceidratio',
+          OTEL_TRACES_SAMPLER_ARG: '0.5',
+          OTEL_RESOURCE_ATTRIBUTES: 'service.namespace=awf,deployment.environment.name=ci',
+          OTEL_METRICS_EXPORTER: 'none',
+          OTEL_SDK_DISABLED: 'false',
+        });
+        expect({ ...router, environment: undefined }).toEqual(baseline);
+        expect(router.networks).toEqual({ 'awf-routing': { aliases: ['gh-aw-router'] } });
+        expect(router.ports).toBeUndefined();
+        expect(router.volumes).toBeUndefined();
+      });
+
+      it('never forwards shared host telemetry, credentials or proxy settings to the router', () => {
+        const baseline = generateRouted().services.router;
+        setSharedHostTelemetry();
+
+        const compose = generateRouted();
+
+        expect(compose.services.router).toEqual(baseline);
+        expect(compose.services.router.environment).toBeUndefined();
+        // The shared settings still configure the api-proxy.
+        expect(compose.services['api-proxy'].environment?.OTEL_EXPORTER_OTLP_ENDPOINT)
+          .toBe('https://external-collector.example');
+      });
+
+      it('adds only the router settings when shared host telemetry is also configured', () => {
+        setSharedHostTelemetry();
+        process.env.AWF_ROUTER_OTEL_EXPORTER_OTLP_ENDPOINT = 'http://otel-collector:4318';
+
+        const environment = generateRouted().services.router.environment as Record<string, string>;
+
+        expect(environment).toEqual({ OTEL_EXPORTER_OTLP_ENDPOINT: 'http://otel-collector:4318' });
+        for (const value of Object.values(environment)) {
+          expect(value).not.toMatch(/canary|external-collector|proxy\.example/);
+        }
+      });
+
+      it('keeps AWF_ROUTER_OTEL_* settings out of the agent with --env-all', () => {
+        process.env.AWF_ROUTER_OTEL_EXPORTER_OTLP_ENDPOINT = 'http://otel-collector:4318';
+        process.env.AWF_ROUTER_OTEL_EXPORTER_OTLP_HEADERS = 'authorization=Bearer%20router-canary';
+
+        const agentEnvironment = generateRouted({ envAll: true }).services.agent.environment as Record<string, string>;
+
+        expect(Object.keys(agentEnvironment).filter(key => key.startsWith('AWF_ROUTER_OTEL_'))).toEqual([]);
+        expect(Object.values(agentEnvironment).join('\n')).not.toContain('router-canary');
+      });
+
+      it('redacts router collector headers and endpoint user info in the audit snapshot', () => {
+        process.env.AWF_ROUTER_OTEL_EXPORTER_OTLP_ENDPOINT = 'http://user:pw-canary@otel-collector:4318';
+        process.env.AWF_ROUTER_OTEL_EXPORTER_OTLP_HEADERS = 'authorization=Bearer%20router-canary';
+        process.env.AWF_ROUTER_OTEL_EXPORTER_OTLP_TRACES_HEADERS = 'x-traces=traces-canary';
+        process.env.AWF_ROUTER_OTEL_EXPORTER_OTLP_METRICS_HEADERS = 'x-metrics=metrics-canary';
+        process.env.AWF_ROUTER_OTEL_SERVICE_NAME = 'gh-aw-router-ci';
+
+        const compose = generateRouted();
+        const redacted = redactDockerComposeSecrets(compose);
+
+        expect(redacted.services.router.environment).toEqual({
+          OTEL_EXPORTER_OTLP_ENDPOINT: 'http://[REDACTED]@otel-collector:4318',
+          OTEL_EXPORTER_OTLP_HEADERS: '[REDACTED]',
+          OTEL_EXPORTER_OTLP_TRACES_HEADERS: '[REDACTED]',
+          OTEL_EXPORTER_OTLP_METRICS_HEADERS: '[REDACTED]',
+          OTEL_SERVICE_NAME: 'gh-aw-router-ci',
+        });
+        expect(JSON.stringify(redacted)).not.toMatch(/canary/);
+        // The compose file that runs the router keeps the real values.
+        expect(compose.services.router.environment?.OTEL_EXPORTER_OTLP_HEADERS)
+          .toBe('authorization=Bearer%20router-canary');
+      });
     });
 
     it('should use local build when buildLocal is true', () => {
