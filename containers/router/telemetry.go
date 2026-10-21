@@ -272,7 +272,7 @@ func (e *spanExporter) ExportSpans(ctx context.Context, spans []sdktrace.ReadOnl
 		wrapped[i] = resourcedSpan{ReadOnlySpan: s, resource: e.resource}
 	}
 	e.transport.status.Store(0)
-	return e.reporter.exportFailed("traces", e.transport, e.SpanExporter.ExportSpans(ctx, wrapped))
+	return e.reporter.exportFailed(ctx, "traces", e.transport, e.SpanExporter.ExportSpans(ctx, wrapped))
 }
 
 type resourcedSpan struct {
@@ -294,7 +294,7 @@ func (e *metricExporter) Export(ctx context.Context, rm *metricdata.ResourceMetr
 	replaced := *rm
 	replaced.Resource = e.resource
 	e.transport.status.Store(0)
-	return e.reporter.exportFailed("metrics", e.transport, e.Exporter.Export(ctx, &replaced))
+	return e.reporter.exportFailed(ctx, "metrics", e.transport, e.Exporter.Export(ctx, &replaced))
 }
 
 // exportTransport notes the last HTTP status that wasn't a success, because the
@@ -356,11 +356,18 @@ type reportedError struct{ err error }
 func (e *reportedError) Error() string { return e.err.Error() }
 func (e *reportedError) Unwrap() error { return e.err }
 
-func (r *telemetryReporter) exportFailed(signal string, transport *exportTransport, err error) error {
+func (r *telemetryReporter) exportFailed(ctx context.Context, signal string, transport *exportTransport, err error) error {
 	if err == nil {
 		return nil
 	}
-	r.report(signal, exportFailureReason(err, transport.status.Load()))
+	// The SDK's export contexts have a cause, which the exporters return in place
+	// of the context's own error.
+	ctxErr := ctx.Err()
+	// Shutdown cancels an export in progress before it flushes, and the flush
+	// reports its own failure, so a cancellation isn't a collector failure.
+	if !errors.Is(err, context.Canceled) && !errors.Is(ctxErr, context.Canceled) {
+		r.report(signal, exportFailureReason(errors.Join(err, ctxErr), transport.status.Load()))
+	}
 	return &reportedError{err}
 }
 

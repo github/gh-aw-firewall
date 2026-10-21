@@ -509,13 +509,15 @@ func TestTelemetryCardinality(t *testing.T) {
 	random := func() string { return fmt.Sprintf("rnd%d", rng.IntN(1_000_000)) }
 	pick := func(values ...string) string { return values[rng.IntN(len(values))] }
 	methods := []string{"GET", "POST", "PUT", "DELETE", "HEAD", "OPTIONS", "PATCH", "TRACE", "CONNECT", "QUERY"}
-	var spans int
+	var spans, redirects int
 	for range 3000 {
 		method := methods[rng.IntN(len(methods))]
 		if rng.IntN(4) == 0 {
 			method = "RND" + strings.ToUpper(random()[3:])
 		}
-		path := pick("/healthz", "/capabilities", "/classify", "/route", "/"+random(), "/route/"+random())
+		// The last four paths aren't clean, so ServeMux redirects them.
+		path := pick("/healthz", "/capabilities", "/classify", "/route", "/"+random(), "/route/"+random(),
+			"//"+random(), "/a/../"+random(), "/./"+random(), "/route/../"+random())
 		p := planningPayload(pick("classify", "route"))
 		p["models"].([]any)[0].(map[string]any)["id"] = random()
 		switch rng.IntN(5) {
@@ -533,7 +535,9 @@ func TestTelemetryCardinality(t *testing.T) {
 		req := httptest.NewRequest(method, path+"?"+random(), bytes.NewReader(marshal(t, p)))
 		req.Header.Set("Content-Type", pick("application/json", "text/"+random()))
 		req.Header.Set(random(), random())
-		ts.do(req)
+		if r, _ := ts.do(req); r.status == http.StatusTemporaryRedirect {
+			redirects++
+		}
 		got := ts.spans.GetSpans()
 		spans += len(got)
 		for _, s := range got {
@@ -552,7 +556,7 @@ func TestTelemetryCardinality(t *testing.T) {
 		series += len(s)
 	}
 	// Methods times routes times statuses, plus the planning outcomes.
-	if series > 10*5*12+100 || spans < 2000 {
-		t.Errorf("%d series, %d spans: %v", series, spans, m)
+	if series > 10*5*12+100 || spans < 2000 || redirects < 500 {
+		t.Errorf("%d series, %d spans, %d redirects: %v", series, spans, redirects, m)
 	}
 }

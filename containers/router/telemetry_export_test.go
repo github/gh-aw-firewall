@@ -3,10 +3,14 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"encoding/pem"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"runtime"
 	"slices"
 	"strconv"
@@ -37,9 +41,16 @@ type collector struct {
 
 func newCollector(t *testing.T, status int) *collector {
 	t.Helper()
+	return startCollector(t, status, false)
+}
+
+// startCollector starts a collector, serving HTTPS with the httptest certificate
+// when useTLS is set.
+func startCollector(t *testing.T, status int, useTLS bool) *collector {
+	t.Helper()
 	c := &collector{}
 	release := make(chan struct{})
-	c.Server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	c.Server = httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(r.Body)
 		c.mu.Lock()
 		c.requests = append(c.requests, exportRequest{r.URL.Path, r.Header.Get("Content-Type"), r.Header.Get("Authorization"), body})
@@ -53,6 +64,12 @@ func newCollector(t *testing.T, status int) *collector {
 		}
 		w.WriteHeader(status)
 	}))
+	if useTLS {
+		c.Config.ErrorLog = log.New(io.Discard, "", 0)
+		c.StartTLS()
+	} else {
+		c.Start()
+	}
 	t.Cleanup(func() {
 		close(release)
 		c.Close()
@@ -352,8 +369,10 @@ func TestTelemetryUnavailableCollector(t *testing.T) {
 		{"stalled", newCollector(t, 0).URL, "timeout"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
+			// The exporter retries until the metric export timeout, which is short so
+			// that exports fail before shutdown, which would cancel them unreported.
 			s := startInProcessWith(t, 0, map[string]string{"OTEL_EXPORTER_OTLP_ENDPOINT": tc.endpoint,
-				"OTEL_METRIC_EXPORT_INTERVAL": "50", "OTEL_EXPORTER_OTLP_TIMEOUT": "5000"})
+				"OTEL_METRIC_EXPORT_INTERVAL": "50", "OTEL_METRIC_EXPORT_TIMEOUT": "200", "OTEL_EXPORTER_OTLP_TIMEOUT": "5000"})
 			waitListening(t, s)
 			for range 20 {
 				start := time.Now()
@@ -365,6 +384,9 @@ func TestTelemetryUnavailableCollector(t *testing.T) {
 				}
 				time.Sleep(10 * time.Millisecond)
 			}
+			eventually(t, "metrics export failure", func() bool {
+				return strings.Contains(s.stderr.String(), `"signal":"metrics"`)
+			})
 			if elapsed := stopServe(t, s); elapsed > time.Second {
 				t.Errorf("stopped after %v", elapsed)
 			}
@@ -374,9 +396,7 @@ func TestTelemetryUnavailableCollector(t *testing.T) {
 			bySignal := map[string]int{}
 			for _, r := range s.stderr.find(t, "telemetry error") {
 				bySignal[r["signal"].(string)]++
-				// A stalled export that the shutdown cancels has no more specific reason.
-				ok := r["reason"] == tc.reason || tc.reason == "timeout" && r["reason"] == "other"
-				if r["level"] != "WARN" || !ok {
+				if r["level"] != "WARN" || r["reason"] != tc.reason {
 					t.Errorf("record %v", r)
 				}
 			}
@@ -385,11 +405,67 @@ func TestTelemetryUnavailableCollector(t *testing.T) {
 					t.Errorf("%d %s records", n, signal)
 				}
 			}
-			if tc.reason != "timeout" && bySignal["metrics"] != 1 {
+			if bySignal["metrics"] != 1 {
 				t.Errorf("records %s", s.stderr.String())
 			}
 		})
 	}
+}
+
+// TestTelemetryCertificate checks that OTEL_EXPORTER_OTLP_CERTIFICATE reaches the
+// exporters' TLS client, and that a collector without it is reported without detail.
+func TestTelemetryCertificate(t *testing.T) {
+	c := startCollector(t, http.StatusOK, true)
+	certFile := filepath.Join(t.TempDir(), "collector.pem")
+	if err := os.WriteFile(certFile, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: c.Certificate().Raw}), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Run("trusted", func(t *testing.T) {
+		s := startInProcessWith(t, 0, map[string]string{"OTEL_EXPORTER_OTLP_ENDPOINT": c.URL,
+			"OTEL_EXPORTER_OTLP_CERTIFICATE": certFile})
+		waitListening(t, s)
+		if status, _ := call(t, s, "GET", "/capabilities", nil, nil); status != 200 {
+			t.Errorf("status %d", status)
+		}
+		stopServe(t, s)
+		if paths := c.paths(); !slices.Equal(paths, []string{"/v1/metrics", "/v1/traces"}) {
+			t.Errorf("paths %v", paths)
+		}
+		if names, _ := c.metricNames(t); !slices.Contains(names, "http.server.request.duration") {
+			t.Errorf("metrics %v", names)
+		}
+		if len(s.stderr.find(t, "telemetry error")) != 0 || len(s.stderr.find(t, "telemetry flush incomplete")) != 0 {
+			t.Errorf("records %s", s.stderr.String())
+		}
+	})
+	t.Run("untrusted", func(t *testing.T) {
+		before := len(c.received())
+		s := startInProcessWith(t, 0, map[string]string{"OTEL_EXPORTER_OTLP_ENDPOINT": c.URL,
+			"OTEL_METRIC_EXPORT_INTERVAL": "50"})
+		waitListening(t, s)
+		if status, _ := call(t, s, "GET", "/capabilities", nil, nil); status != 200 {
+			t.Errorf("status %d", status)
+		}
+		eventually(t, "metrics export failure", func() bool {
+			return strings.Contains(s.stderr.String(), `"signal":"metrics"`)
+		})
+		stopServe(t, s)
+		if n := len(c.received()); n != before {
+			t.Errorf("%d exports reached an untrusted collector", n-before)
+		}
+		records := s.stderr.find(t, "telemetry error")
+		if len(records) == 0 {
+			t.Errorf("records %s", s.stderr.String())
+		}
+		for _, r := range records {
+			if r["level"] != "WARN" || r["reason"] != "other" {
+				t.Errorf("record %v", r)
+			}
+		}
+		if logs := s.stderr.String(); strings.Contains(logs, "x509") || strings.Contains(logs, "certificate") {
+			t.Errorf("error text reaches the log: %s", logs)
+		}
+	})
 }
 
 // TestTelemetryShutdownStaysWithinASecond checks the drain and flush budget with a

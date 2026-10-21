@@ -390,28 +390,44 @@ func TestTelemetryReporter(t *testing.T) {
 	r := &telemetryReporter{log: newLogger(logs, slog.LevelDebug), now: func() time.Time { return now }, last: map[string]time.Time{}}
 	r.Handle(errors.New("before the providers are ready"))
 	r.ready.Store(true)
+	ctx := context.Background()
 	transport := &exportTransport{}
+	// Shutdown's cancellation is handled without a record or using the allowance,
+	// including when the exporter returns the context's cause.
+	canceled := r.exportFailed(ctx, "metrics", transport, fmt.Errorf("post: %w", context.Canceled))
+	if _, ok := errors.AsType[*reportedError](canceled); !ok {
+		t.Errorf("error %T", canceled)
+	}
+	r.Handle(canceled)
+	stopped, stop := context.WithCancelCause(ctx)
+	stop(errors.New("stopped"))
+	_ = r.exportFailed(stopped, "metrics", transport, context.Cause(stopped))
 	transport.status.Store(503)
-	err := r.exportFailed("traces", transport, errors.New("https://user:secret@collector: 503"))
+	err := r.exportFailed(ctx, "traces", transport, errors.New("https://user:secret@collector: 503"))
 	if _, ok := errors.AsType[*reportedError](err); !ok {
 		t.Errorf("error %T", err)
 	}
 	r.Handle(fmt.Errorf("export: %w", err))
 	r.Handle(fmt.Errorf("shutdown: %w", context.Canceled))
-	_ = r.exportFailed("traces", transport, errors.New("again"))
+	_ = r.exportFailed(ctx, "traces", transport, errors.New("again"))
 	r.Handle(errors.New("secret sdk error"))
 	r.Handle(errors.New("secret sdk error"))
-	if r.exportFailed("metrics", transport, nil) != nil {
+	if r.exportFailed(ctx, "metrics", transport, nil) != nil {
 		t.Error("a success is an error")
 	}
+	_ = r.exportFailed(ctx, "metrics", transport, errors.New("secret export error"))
 	now = now.Add(telemetryErrorInterval)
 	transport.status.Store(0)
-	_ = r.exportFailed("traces", transport, context.DeadlineExceeded)
+	_ = r.exportFailed(ctx, "traces", transport, context.DeadlineExceeded)
+	// The metric reader's timeout has a cause, which the exporter returns.
+	expired, cancel := context.WithTimeoutCause(ctx, 0, errors.New("reader export timeout"))
+	defer cancel()
+	_ = r.exportFailed(expired, "metrics", transport, context.Cause(expired))
 	var got []string
 	for _, rec := range logs.find(t, "telemetry error") {
 		got = append(got, rec["signal"].(string)+" "+rec["reason"].(string))
 	}
-	if want := []string{"traces HTTP 503", "sdk other", "traces timeout"}; !slices.Equal(got, want) {
+	if want := []string{"traces HTTP 503", "sdk other", "metrics HTTP 503", "traces timeout", "metrics timeout"}; !slices.Equal(got, want) {
 		t.Errorf("records %v, want %v", got, want)
 	}
 	if strings.Contains(logs.String(), "secret") {

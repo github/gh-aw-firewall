@@ -276,6 +276,9 @@ batches every 5 s. Shutdown flushes what's left within 0.5 s, but doesn't wait l
 collector; if the flush doesn't finish, the router logs `telemetry flush incomplete`. A failing
 collector never slows requests: spans queue in memory (up to 2,048, then new spans are
 dropped), and export failures are logged as `telemetry error` at most once a minute per signal.
+An exporter retries a failed export until its export timeout ends, so a failure is logged when
+that timeout ends. An export that shutdown interrupts isn't logged, because the final flush
+reports its own result.
 
 **Trace context.** The router reads W3C `traceparent` and `tracestate` and ignores `baggage`. A
 valid `traceparent` makes the router's span its child; without one the span is a new root. The
