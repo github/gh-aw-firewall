@@ -77,7 +77,7 @@ func run(args []string, getenv func(string) string, stdin io.Reader, stdout, std
 		signals := make(chan os.Signal, 1)
 		signal.Notify(signals, os.Interrupt, syscall.SIGTERM)
 		defer signal.Stop(signals)
-		return serve(cmd, stderr, signals)
+		return serve(cmd, getenv, stderr, signals)
 	}
 	service, err := LoadService(cmd.tables)
 	if err != nil {

@@ -31,8 +31,8 @@ var (
 
 // serve loads the tables, listens and serves until a signal arrives. It writes only
 // JSON log records to stderr. It exits 2 for invalid tables or bind address, 1 if
-// it can't listen, and 0 after a shutdown.
-func serve(cmd *command, stderr io.Writer, signals <-chan os.Signal) int {
+// it can't listen, and 0 after a shutdown. getenv supplies the OTEL_* settings.
+func serve(cmd *command, getenv func(string) string, stderr io.Writer, signals <-chan os.Signal) int {
 	level := logLevels[cmd.logLevel]
 	logger := newLogger(stderr, level)
 	logger.Info("starting", "bind", cmd.bind, "log_level", cmd.logLevel, "go_version", runtime.Version())
@@ -49,17 +49,24 @@ func serve(cmd *command, stderr io.Writer, signals <-chan os.Signal) int {
 		logger.Error("configuration invalid", "error_code", string(CodeInvalidRequest), "error", err.Error())
 		return 2
 	}
+	tel := setupTelemetry(getenv, logger)
+	s := newServer(service, logger)
+	s.hold = testHold
+	s.tel = tel
+	if tel.enabled() {
+		s.drain = telemetryDrainTimeout
+	}
 	if beforeListen != nil && beforeListen(host, port, level) {
+		s.flushTelemetry()
 		return 0
 	}
 	ln, err := net.Listen("tcp", net.JoinHostPort(host, strconv.Itoa(port)))
 	if err != nil {
 		logger.Error("listen failed", "error", sanitizeDetail(err.Error()))
+		s.flushTelemetry()
 		return 1
 	}
 	logger.Info("listening", "address", ln.Addr().String())
-	s := newServer(service, logger)
-	s.hold = testHold
 	return s.serveUntilSignal(ln, signals)
 }
 
