@@ -233,16 +233,22 @@ describe('stopRouterAndSaveLogs', () => {
       const seenByReader = Buffer.alloc(previous.size + 1);
       expect(seenByReader.subarray(0, fs.readSync(reader, seenByReader, 0, seenByReader.length, 0)).toString())
         .toBe(stale);
-      const current = fs.openSync(logFile, 'r');
+      // Everything after the capture goes through the directory's descriptor, as the capture does.
+      const directory = fs.openSync(routerLogsDir, fs.constants.O_RDONLY | fs.constants.O_DIRECTORY);
       try {
-        const saved = fs.fstatSync(current);
-        expect(saved.ino).not.toBe(previous.ino);
-        expect(saved.mode & 0o777).toBe(0o600);
-        expect(fs.readFileSync(current, 'utf8')).toBe(RECORDS);
+        expect(fs.fstatSync(directory).mode & 0o777).toBe(0o700);
+        const current = fs.openSync(`/proc/self/fd/${directory}/${ROUTER_LOG_FILE}`, 'r');
+        try {
+          const saved = fs.fstatSync(current);
+          expect(saved.ino).not.toBe(previous.ino);
+          expect(saved.mode & 0o777).toBe(0o600);
+          expect(fs.readFileSync(current, 'utf8')).toBe(RECORDS);
+        } finally {
+          fs.closeSync(current);
+        }
       } finally {
-        fs.closeSync(current);
+        fs.closeSync(directory);
       }
-      expect(fs.statSync(routerLogsDir).mode & 0o777).toBe(0o700);
     } finally {
       fs.closeSync(reader);
     }
