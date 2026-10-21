@@ -51,8 +51,8 @@ function exportPlan(
   };
 }
 
-function primaryProfile(): Record<string, any> {
-  return structuredClone(createPrimaryAgentCloudHypervisorProfile({
+function createPrimaryAgentProfile() {
+  return createPrimaryAgentCloudHypervisorProfile({
     network: {
       infrastructureBridge: 'awfbr0',
       enableApiProxy: true,
@@ -68,7 +68,11 @@ function primaryProfile(): Record<string, any> {
       }],
       workspaceMount: '/workspace',
     },
-  })) as unknown as Record<string, any>;
+  });
+}
+
+function primaryProfile(): Record<string, any> {
+  return structuredClone(createPrimaryAgentProfile()) as unknown as Record<string, any>;
 }
 
 function scriptProfile(): Record<string, any> {
@@ -91,6 +95,17 @@ function agentProfile(): Record<string, any> {
 }
 
 describe('Cloud Hypervisor workload profiles', () => {
+  it('keeps mutable primary-agent fixtures isolated', () => {
+    const profile = primaryProfile();
+    const otherProfile = primaryProfile();
+    profile.network.apiProxyIp = '192.0.2.1';
+    profile.guest.exports[0].source = '/other-workspace';
+
+    expect(otherProfile).toEqual(createPrimaryAgentProfile());
+    expect(otherProfile.network.apiProxyIp).toBe('172.30.0.30');
+    expect(otherProfile.guest.exports[0].source).toBe('/workspace');
+  });
+
   it.each([scriptProfile, agentProfile])('requires an explicit unprivileged enclave listener port', (create) => {
     const profile = create();
     expect(profile.guest.vsockPort).toBe(1024);
@@ -108,23 +123,7 @@ describe('Cloud Hypervisor workload profiles', () => {
   it.each([
     [
       'primary-agent',
-      () => createPrimaryAgentCloudHypervisorProfile({
-        network: {
-          infrastructureBridge: 'awfbr0',
-          enableApiProxy: true,
-          apiProxyIp: '172.30.0.30',
-        },
-        guest: {
-          ...supervisor,
-          exports: [{
-            tag: 'workspace',
-            source: '/workspace',
-            target: '/workspace',
-            mode: 'rw',
-          }],
-          workspaceMount: '/workspace',
-        },
-      }),
+      createPrimaryAgentProfile,
       'capture',
       'primary',
     ],
