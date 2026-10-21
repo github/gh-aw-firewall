@@ -1,10 +1,14 @@
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
+import { PassThrough } from 'stream';
 import { spawnSync } from 'child_process';
-import { MAX_ROUTER_LOG_BYTES, ROUTER_LOG_FILE, stopRouterAndSaveLogs } from './router-log-capture';
+import {
+  MAX_ROUTER_LOG_BYTES, ROUTER_LOG_FILE, resolveRouterLogsDir, stopRouterAndSaveLogs,
+} from './router-log-capture';
 import { mockExecaFn } from '../test-helpers/mock-execa.test-utils';
 import { logger } from '../logger';
+import type { WrapperConfig } from '../types';
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 jest.mock('execa', () => require('../test-helpers/mock-execa.test-utils').execaMockFactory());
@@ -25,6 +29,7 @@ const RECORDS = [
 const LOOKUP = ['compose', 'ps', '--all', '--quiet', 'router'];
 const STOP = ['stop', '-t', '1', ROUTER_ID];
 const LOGS = ['logs', ROUTER_ID];
+const OK = { stdout: '', stderr: '', exitCode: 0, failed: false, timedOut: false };
 
 interface Result {
   stdout?: string;
@@ -35,21 +40,41 @@ interface Result {
 }
 type Step = Result | (() => Result);
 
-/** Answers each Docker command; `logs` writes `output` to the descriptor it is given. */
+const nextTurn = () => new Promise(resolve => setImmediate(resolve));
+
+/**
+ * A `docker logs` child process: writes `chunks` to its stderr pipe, one per turn
+ * of the event loop, until it is killed, then resolves with `result`.
+ */
+function logsChild(chunks: Array<string | Buffer>, result: Result, afterChunk?: () => void) {
+  const stdout = new PassThrough();
+  const stderr = new PassThrough();
+  let killed = false;
+  const kill = jest.fn(() => { killed = true; return true; });
+  const promise = (async () => {
+    await nextTurn();
+    for (const chunk of chunks) {
+      if (killed) break;
+      stderr.write(chunk);
+      await nextTurn();
+      afterChunk?.();
+    }
+    stdout.end();
+    stderr.end();
+    return { ...OK, ...(killed ? { exitCode: undefined, failed: true } : result) };
+  })();
+  return Object.assign(promise, { stdout, stderr, kill });
+}
+
+/** Answers each Docker command; `logs` writes `output` to its stderr pipe. */
 function scriptDocker({ lookup = { stdout: `${ROUTER_ID}\n` }, stop = {}, logs = {}, output = RECORDS }: {
   lookup?: Step; stop?: Step; logs?: Step; output?: string;
 } = {}): void {
-  const run = (step: Step) => ({
-    stdout: '', stderr: '', exitCode: 0, failed: false, timedOut: false,
-    ...(typeof step === 'function' ? step() : step),
-  });
-  mockExecaFn.mockImplementation(async (_command: string, args: string[], options: { stdout?: unknown }) => {
-    if (args[0] === 'compose') return run(lookup);
-    if (args[0] === 'stop') return run(stop);
-    if (args[0] === 'logs') {
-      if (typeof options.stdout === 'number') fs.writeSync(options.stdout, output);
-      return run(logs);
-    }
+  const run = (step: Step) => ({ ...OK, ...(typeof step === 'function' ? step() : step) });
+  mockExecaFn.mockImplementation((_command: string, args: string[]) => {
+    if (args[0] === 'compose') return Promise.resolve(run(lookup));
+    if (args[0] === 'stop') return Promise.resolve(run(stop));
+    if (args[0] === 'logs') return logsChild([output], run(logs));
     throw new Error(`unexpected docker ${args.join(' ')}`);
   });
 }
@@ -84,12 +109,14 @@ describe('stopRouterAndSaveLogs', () => {
 
     expect(dockerArgs()).toEqual([LOOKUP, STOP, LOGS]);
     expect(mockExecaFn.mock.calls[0][2]).toMatchObject({ cwd: workDir, reject: false });
-    const logsOptions = mockExecaFn.mock.calls[2][2];
-    expect(logsOptions).toMatchObject({ stdin: 'ignore', stdout: expect.any(Number) });
-    expect(logsOptions.stderr).toBe(logsOptions.stdout);
+    // Output arrives through pipes, so docker logs never holds the file.
+    expect(mockExecaFn.mock.calls[2][2]).toMatchObject({
+      stdin: 'ignore', stdout: 'pipe', stderr: 'pipe', buffer: false,
+    });
     for (const [, , options] of mockExecaFn.mock.calls) {
       expect(options.timeout).toBeGreaterThan(0);
       expect(options.timeout).toBeLessThanOrEqual(5000);
+      expect(options.killSignal).toBe('SIGKILL');
     }
     expect(fs.readFileSync(logFile, 'utf8')).toBe(RECORDS);
     expect(fs.statSync(logFile).mode & 0o777).toBe(0o600);
@@ -204,7 +231,7 @@ describe('stopRouterAndSaveLogs', () => {
     expect(fs.readdirSync(elsewhere)).toEqual([]);
   });
 
-  linuxIt('keeps only the first 16 MiB of an oversized log', async () => {
+  linuxIt('stops writing at 16 MiB and kills docker logs', async () => {
     scriptDocker({ output: 'x'.repeat(MAX_ROUTER_LOG_BYTES + 4096) });
 
     await expect(stopRouterAndSaveLogs(workDir, routerLogsDir)).resolves.toBe('incomplete');
@@ -213,23 +240,44 @@ describe('stopRouterAndSaveLogs', () => {
     expect(mockedLogger.warn).toHaveBeenCalledWith(expect.stringContaining(`exceeded ${MAX_ROUTER_LOG_BYTES} bytes`));
   });
 
-  linuxIt('kills docker logs once the file passes the limit', async () => {
-    const kill = jest.fn();
-    mockExecaFn.mockImplementation((_command: string, args: string[], options: { stdout?: unknown }) => {
-      const ok = { stdout: '', stderr: '', exitCode: 0, failed: false, timedOut: false };
-      if (args[0] === 'compose') return Promise.resolve({ ...ok, stdout: `${ROUTER_ID}\n` });
-      if (args[0] === 'stop') return Promise.resolve(ok);
-      // A stream that keeps going until it is killed.
-      fs.writeSync(options.stdout as number, Buffer.alloc(MAX_ROUTER_LOG_BYTES + 1, 'x'));
-      let finish: (value: Result) => void = () => undefined;
-      kill.mockImplementation(() => finish({ ...ok, exitCode: undefined, failed: true }));
-      return Object.assign(new Promise<Result>(resolve => { finish = resolve; }), { kill });
+  linuxIt('never lets a burst of output past the limit onto the disk', async () => {
+    let peak = 0;
+    let child: ReturnType<typeof logsChild> | undefined;
+    const chunk = Buffer.alloc(1024 * 1024, 'x');
+    mockExecaFn.mockImplementation((_command: string, args: string[]) => {
+      if (args[0] === 'compose') return Promise.resolve({ ...OK, stdout: `${ROUTER_ID}\n` });
+      if (args[0] === 'stop') return Promise.resolve(OK);
+      child = logsChild(Array(40).fill(chunk), OK, () => {
+        peak = Math.max(peak, fs.statSync(logFile).size);
+      });
+      return child;
     });
 
     await expect(stopRouterAndSaveLogs(workDir, routerLogsDir)).resolves.toBe('incomplete');
 
-    expect(kill).toHaveBeenCalledWith('SIGKILL');
+    expect(child!.kill).toHaveBeenCalledWith('SIGKILL');
+    expect(peak).toBeLessThanOrEqual(MAX_ROUTER_LOG_BYTES);
     expect(fs.statSync(logFile).size).toBe(MAX_ROUTER_LOG_BYTES);
+  });
+
+  linuxIt('reports a failed write and stops docker logs', async () => {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    jest.spyOn(require('fs') as typeof fs, 'writeSync').mockImplementationOnce(() => {
+      throw Object.assign(new Error('no space left on device'), { code: 'ENOSPC' });
+    });
+    let child: ReturnType<typeof logsChild> | undefined;
+    mockExecaFn.mockImplementation((_command: string, args: string[]) => {
+      if (args[0] === 'compose') return Promise.resolve({ ...OK, stdout: `${ROUTER_ID}\n` });
+      if (args[0] === 'stop') return Promise.resolve(OK);
+      child = logsChild([RECORDS, RECORDS], OK);
+      return child;
+    });
+
+    await expect(stopRouterAndSaveLogs(workDir, routerLogsDir)).resolves.toBe('incomplete');
+
+    expect(child!.kill).toHaveBeenCalledWith('SIGKILL');
+    expect(fs.readFileSync(logFile, 'utf8')).toBe('');
+    expect(mockedLogger.warn).toHaveBeenCalledWith(expect.stringContaining('Could not write'), expect.any(Error));
   });
 
   linuxIt.each(['symlink', 'hard link'])('refuses to write through a %s at router.jsonl', async kind => {
@@ -252,6 +300,60 @@ describe('stopRouterAndSaveLogs', () => {
     await expect(stopRouterAndSaveLogs(workDir, routerLogsDir)).resolves.toBe('failed');
 
     expect(mockedLogger.warn).toHaveBeenCalledWith('Could not save the router\'s logs:', expect.any(Error));
+  });
+});
+
+describe('resolveRouterLogsDir', () => {
+  let root: string;
+  const routed = (overrides: Partial<WrapperConfig>): WrapperConfig => ({
+    workDir: path.join(root, 'awf-1234'),
+    experimentalModelRouting: true,
+    modelRouting: { objective: { goal: 'cost', mode: 'balanced' }, task: { conversationFile: '/c.json' } },
+    modelRoutingBootstrap: { root: path.join(root, 'routing') },
+    ...overrides,
+  } as unknown as WrapperConfig);
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    root = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-router-logs-dir-'));
+  });
+
+  afterEach(() => fs.rmSync(root, { recursive: true, force: true }));
+
+  it('saves nothing for a run without a router service', () => {
+    expect(resolveRouterLogsDir(routed({ modelRoutingBootstrap: undefined }))).toBeUndefined();
+    expect(resolveRouterLogsDir(routed({ experimentalModelRouting: false }))).toBeUndefined();
+    expect(mockedLogger.warn).not.toHaveBeenCalled();
+  });
+
+  it('uses router-logs next to the other logs when the audit directory is elsewhere', () => {
+    expect(resolveRouterLogsDir(routed({}))).toBe(path.join(root, 'awf-1234', 'router-logs'));
+    expect(resolveRouterLogsDir(routed({
+      proxyLogsDir: path.join(root, 'firewall', 'logs'),
+      auditDir: path.join(root, 'firewall', 'audit'),
+      sessionStateDir: path.join(root, 'session'),
+    }))).toBe(path.join(root, 'firewall', 'logs', 'router-logs'));
+    expect(mockedLogger.warn).not.toHaveBeenCalled();
+  });
+
+  it.each<[string, (root: string) => Partial<WrapperConfig>]>([
+    ['the audit directory is the logs directory', r => ({ proxyLogsDir: path.join(r, 'out'), auditDir: path.join(r, 'out') })],
+    ['the logs directory is inside the audit directory', r => ({ proxyLogsDir: path.join(r, 'out', 'logs'), auditDir: path.join(r, 'out') })],
+    ['the audit directory is router-logs itself', r => ({ proxyLogsDir: path.join(r, 'out'), auditDir: path.join(r, 'out', 'router-logs') })],
+    ['the logs directory is inside the session-state directory', r => ({ proxyLogsDir: path.join(r, 'state', 'logs'), sessionStateDir: path.join(r, 'state') })],
+  ])('saves nothing when %s, because cleanup widens its permissions', (_name, overrides) => {
+    expect(resolveRouterLogsDir(routed(overrides(root)))).toBeUndefined();
+    expect(mockedLogger.warn).toHaveBeenCalledWith(expect.stringContaining('Not saving the router\'s logs'));
+  });
+
+  linuxIt('sees through a symlinked alias of the audit directory', () => {
+    fs.mkdirSync(path.join(root, 'out'));
+    fs.symlinkSync(path.join(root, 'out'), path.join(root, 'alias'));
+
+    expect(resolveRouterLogsDir(routed({
+      proxyLogsDir: path.join(root, 'out', 'logs'),
+      auditDir: path.join(root, 'alias'),
+    }))).toBeUndefined();
   });
 });
 

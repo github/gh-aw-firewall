@@ -1,5 +1,6 @@
 import * as fs from 'fs';
 import * as path from 'path';
+import { PassThrough } from 'stream';
 import { fastKillAgentContainer } from './container-lifecycle';
 import { containerLifecycleTestHelpers } from './container-lifecycle.test-utils';
 import { stopContainers } from './container-stop';
@@ -89,14 +90,24 @@ describe('stopContainers with model routing', () => {
   const routerLogsDir = () => path.join(getDir(), 'router-logs');
 
   function scriptDocker({ lookupFails = false, composeDownError }: { lookupFails?: boolean; composeDownError?: Error } = {}) {
-    mockExecaFn.mockImplementation(async (_command: string, args: string[], options: { stdout?: unknown }) => {
+    mockExecaFn.mockImplementation((_command: string, args: string[]) => {
       const ok = { stdout: '', stderr: '', exitCode: 0, failed: false, timedOut: false };
       if (args[0] === 'compose' && args[1] === 'ps') {
-        return lookupFails ? { ...ok, exitCode: 1, failed: true } : { ...ok, stdout: `${routerId}\n` };
+        return Promise.resolve(lookupFails ? { ...ok, exitCode: 1, failed: true } : { ...ok, stdout: `${routerId}\n` });
       }
-      if (args[0] === 'logs' && typeof options.stdout === 'number') fs.writeSync(options.stdout, record);
-      if (args[0] === 'compose' && args[1] === 'down' && composeDownError) throw composeDownError;
-      return ok;
+      if (args[0] === 'logs') {
+        // `docker logs` output arrives through its stderr pipe.
+        const stdout = new PassThrough();
+        const stderr = new PassThrough();
+        const done = new Promise(resolve => setImmediate(() => {
+          stderr.end(record);
+          stdout.end();
+          setImmediate(() => resolve(ok));
+        }));
+        return Object.assign(done, { stdout, stderr, kill: jest.fn() });
+      }
+      if (args[0] === 'compose' && args[1] === 'down' && composeDownError) return Promise.reject(composeDownError);
+      return Promise.resolve(ok);
     });
   }
   const dockerCommands = () => mockExecaFn.mock.calls.map(([, args]) => args.slice(0, 2).join(' '));

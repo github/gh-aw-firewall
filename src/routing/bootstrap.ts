@@ -55,7 +55,7 @@ function parseMountSource(volume: string): string | undefined {
   return source && path.isAbsolute(source) ? source : undefined;
 }
 
-function normalizeForOverlap(candidate: string): string {
+export function normalizeForOverlap(candidate: string): string {
   const missing: string[] = [];
   let current = path.resolve(candidate);
   while (!fs.existsSync(current)) {
@@ -68,7 +68,7 @@ function normalizeForOverlap(candidate: string): string {
   return path.resolve(resolved, ...missing);
 }
 
-function pathsOverlap(left: string, right: string): boolean {
+export function pathsOverlap(left: string, right: string): boolean {
   const leftToRight = path.relative(left, right);
   const rightToLeft = path.relative(right, left);
   return leftToRight === '' || rightToLeft === '' ||

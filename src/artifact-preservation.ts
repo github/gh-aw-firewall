@@ -436,9 +436,10 @@ export function preserveCleanupArtifacts(
     publishTokenUsageLogPath(preservedApiProxyLogsDir, tokenLogSubdir);
   }
 
-  // AWF writes these itself, readable only by the invoking user (src/routing/router-log-capture.ts).
+  // AWF writes these itself at the untranslated path, readable only by the invoking user
+  // (src/routing/router-log-capture.ts), so no prefix translation applies.
   preserveDirectory({
-    runtimeDir: runnerVisibleProxyLogsDir,
+    runtimeDir: proxyLogsDir,
     runtimeSubdir: 'router-logs',
     workDir,
     workSubdir: 'router-logs',
