@@ -17,16 +17,18 @@
 #   npm's bundled undici, brace-expansion, and ip-address: replaced with
 #     pinned fixed releases after installing npm 11.18.0 below.
 #
-#   curl >= 8.21.0-r0 (CVE-2026-8924/8925/8926/8927/9079/10536/11564/11856):
-#     resolved by pinning the apk constraint below.
+#   curl >= 8.23.0-r0: Alpine 3.24's stable repository still ships curl
+#     8.22.0-r0, affected by CVE-2026-92392, so the fixed package is installed
+#     from edge.
 FROM node:26.11.1-alpine3.24@sha256:143494b1da2945f061539253adc65e4f1569ddf07da2d384c022c791a9d90a4a
 
 # Install curl for healthchecks and the npm tarball download below.
-# Pin >= 8.21.0-r0 to fix CVE-2026-8924/8925/8926/8927/9079/10536/11564/11856
-# (Alpine 3.24 ships 8.20.0-r1 by default; this constraint forces the patched build).
 # Also run apk upgrade to pull in latest libcrypto3 >= 3.5.7 and libssl3 patches.
 RUN apk upgrade --no-cache && \
-    apk add --no-cache "curl>=8.21.0-r0" git
+    apk add --no-cache git && \
+    apk add --no-cache \
+        --repository=https://dl-cdn.alpinelinux.org/alpine/edge/main \
+        "curl>=8.23.0-r0"
 
 # Replace Node's bundled npm with npm 11.18.0.
 # Install from the registry tarball (same method as the api-proxy image) for a clean
