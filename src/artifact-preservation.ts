@@ -14,6 +14,7 @@ import { ENCLAVE_MCP_SERVER_CONTAINER_NAME } from './constants';
 import { resolveRunnerVisibleHostPath } from './services/host-path-prefix';
 import { getStartupDiagnosticPath } from './logs/startup-diagnostics';
 import { openArtifactDirectory, resolveArtifactOwner } from './resolved-config-artifact';
+import { preservedArtifactDirectory } from './log-paths';
 
 const ENCLAVE_SESSION_DIR = 'sessions';
 const ENCLAVE_AUDIT_FILES = [
@@ -143,7 +144,6 @@ type PreserveDirectoryOptions = {
   workDir: string;
   workSubdir: string;
   destinationBaseName: string;
-  timestamp: string;
   availableLabel: string;
   preservedLabel: string;
   permissionErrorMessage: string;
@@ -224,7 +224,6 @@ function preserveDirectory({
   workDir,
   workSubdir,
   destinationBaseName,
-  timestamp,
   availableLabel,
   preservedLabel,
   permissionErrorMessage,
@@ -254,7 +253,7 @@ function preserveDirectory({
   }
 
   const sourceDir = path.join(workDir, workSubdir);
-  const destinationDir = path.join(os.tmpdir(), `${destinationBaseName}-${timestamp}`);
+  const destinationDir = preservedArtifactDirectory(workDir, destinationBaseName);
   if (fs.existsSync(sourceDir) && fs.readdirSync(sourceDir).length > 0) {
     try {
       fs.renameSync(sourceDir, destinationDir);
@@ -397,7 +396,6 @@ export function preserveCleanupArtifacts(
       workDir,
       workSubdir: 'squid-logs/enclave-startup',
       destinationBaseName: 'awf-enclave-startup',
-      timestamp,
       availableLabel: 'Host enclave startup diagnostics',
       preservedLabel: 'Host enclave startup diagnostics',
       permissionErrorMessage: 'Could not repair enclave startup diagnostic permissions:',
@@ -411,7 +409,6 @@ export function preserveCleanupArtifacts(
     workDir,
     workSubdir: 'agent-session-state',
     destinationBaseName: 'awf-agent-session-state',
-    timestamp,
     availableLabel: 'Agent session state',
     preservedLabel: 'Agent session state',
     permissionErrorMessage: 'Could not fix session state permissions:',
@@ -424,7 +421,6 @@ export function preserveCleanupArtifacts(
     workDir,
     workSubdir: 'api-proxy-logs',
     destinationBaseName: 'api-proxy-logs',
-    timestamp,
     availableLabel: 'API proxy logs',
     preservedLabel: 'API proxy logs',
     permissionErrorMessage: 'Could not fix api-proxy log permissions:',
@@ -444,7 +440,6 @@ export function preserveCleanupArtifacts(
     workDir,
     workSubdir: 'router-logs',
     destinationBaseName: 'router-logs',
-    timestamp,
     availableLabel: 'Router logs',
     preservedLabel: 'Router logs',
     permissionErrorMessage: 'Could not fix router log permissions:',
@@ -458,7 +453,6 @@ export function preserveCleanupArtifacts(
     workDir,
     workSubdir: 'cli-proxy-logs',
     destinationBaseName: 'cli-proxy-logs',
-    timestamp,
     availableLabel: 'CLI proxy logs',
     preservedLabel: 'CLI proxy logs',
     permissionErrorMessage: 'Could not fix cli-proxy log permissions:',
@@ -470,7 +464,6 @@ export function preserveCleanupArtifacts(
     workDir,
     workSubdir: 'squid-logs',
     destinationBaseName: 'squid-logs',
-    timestamp,
     availableLabel: 'Squid logs',
     preservedLabel: 'Squid logs',
     permissionErrorMessage: 'Could not fix squid log permissions:',

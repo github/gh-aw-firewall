@@ -1,5 +1,12 @@
 import * as path from 'path';
+import * as os from 'os';
 import { WrapperConfig } from './types';
+
+/** Destination for work-directory artifacts moved out before cleanup removes it. */
+export function preservedArtifactDirectory(workDir: string, baseName: string): string {
+  const timestamp = path.basename(workDir).replace('awf-', '');
+  return path.join(os.tmpdir(), `${baseName}-${timestamp}`);
+}
 
 export interface LogPaths {
   squidLogs: string;

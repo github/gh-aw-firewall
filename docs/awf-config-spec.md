@@ -2407,8 +2407,10 @@ container's complete log stream into this directory. No container mounts it. The
 `sudo`), because a custom router image could log more than the bundled one does. For the same
 reason, `--diagnostic-logs` collection, whose copies become world-readable, leaves the router
 out, and a path whose components include a symlink is refused. Cleanup makes the audit,
-session-state and `<workDir>/diagnostics` directories readable by everyone, so if `router-logs/`
-would be inside any of them, or contain one, AWF doesn't save the router's logs and warns. If the
+session-state and `<workDir>/diagnostics` directories readable by everyone, so if either the
+capture or preservation destination would be inside any of those trees (including their
+preserved locations), or contain one, AWF doesn't save the router's logs and warns. Protected
+paths containing a `..` component are also refused rather than normalized past a symlink. If the
 router can't be stopped or read within 5 s, AWF logs a warning, keeps whatever it saved and
 continues teardown. AWF writes at most 16 MiB and then stops reading.
 

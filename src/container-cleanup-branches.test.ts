@@ -13,6 +13,9 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import * as yaml from 'js-yaml';
+import { spawnSync } from 'child_process';
+import { resolveRouterLogsDir } from './routing/router-log-capture';
+import type { WrapperConfig } from './types';
 import { useCleanupTestDir } from './test-helpers/docker-test-fixtures.test-utils';
 
 // Mock execa
@@ -348,6 +351,52 @@ describe('cleanup - router logs', () => {
       expect(mockExecaSync).not.toHaveBeenCalledWith('chmod', expect.arrayContaining([destination]));
     } finally {
       fs.rmSync(destination, { recursive: true, force: true });
+    }
+  });
+
+  it.each(['relocation', 'symlink-parent'])('skips unsafe capture before %s cleanup widens permissions', async layout => {
+    const artifacts = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-router-artifacts-'));
+    const workDir = getDir();
+    const timestamp = path.basename(workDir).replace('awf-', '');
+    const preserved = path.join(artifacts, `router-logs-${timestamp}`);
+    let auditDir = artifacts;
+    let proxyLogsDir: string | undefined;
+    try {
+      if (layout === 'relocation') {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        jest.spyOn(require('os') as typeof os, 'tmpdir').mockReturnValue(artifacts);
+      } else {
+        proxyLogsDir = path.join(artifacts, 'logs');
+        fs.mkdirSync(path.join(proxyLogsDir, 'subdir'), { recursive: true });
+        fs.mkdirSync(path.join(artifacts, 'alias'));
+        fs.symlinkSync(path.join(proxyLogsDir, 'subdir'), path.join(artifacts, 'alias', 'link'));
+        auditDir = `${artifacts}/alias/link/..`;
+      }
+      mockExecaSync.mockImplementation((command: string, args: string[]) => {
+        if (command === 'chmod') {
+          const result = spawnSync(command, args, { encoding: 'utf8' });
+          expect(result.status).toBe(0);
+        }
+        return { exitCode: 0, stdout: '', stderr: '' };
+      });
+      // Exercise the real permission widening, not just a mocked chmod.
+      const publicFile = `${auditDir}/public.log`;
+      fs.writeFileSync(publicFile, 'public\n', { mode: 0o600 });
+      const target = resolveRouterLogsDir({
+        workDir, proxyLogsDir, auditDir, experimentalModelRouting: true,
+        modelRouting: {}, modelRoutingBootstrap: {},
+      } as WrapperConfig);
+      expect(target).toBeUndefined();
+
+      await cleanup(workDir, false, proxyLogsDir, auditDir);
+
+      expect(fs.statSync(publicFile).mode & 0o777).toBe(0o644);
+      expect(fs.existsSync(preserved)).toBe(false);
+      expect(fs.existsSync(path.join(proxyLogsDir || workDir, 'router-logs'))).toBe(false);
+    } finally {
+      jest.restoreAllMocks();
+      mockExecaSync.mockReset();
+      fs.rmSync(artifacts, { recursive: true, force: true });
     }
   });
 });

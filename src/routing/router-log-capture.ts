@@ -4,7 +4,7 @@ import type { Readable } from 'stream';
 import execa from 'execa';
 import { logger } from '../logger';
 import { getLocalDockerEnv } from '../docker-host';
-import { resolveLogPaths } from '../log-paths';
+import { preservedArtifactDirectory, resolveLogPaths } from '../log-paths';
 import { openArtifactDirectory, resolveArtifactOwner } from '../resolved-config-artifact';
 import { ROUTER_SERVICE_NAME } from '../services/router-service';
 import type { WrapperConfig } from '../types';
@@ -28,7 +28,7 @@ const STREAM_DRAIN_MS = 1000;
 const MIN_STREAM_DRAIN_MS = 50;
 const CONTAINER_ID = /^[0-9a-f]{12,64}$/;
 const DIRECTORY_FLAGS = fs.constants.O_RDONLY | fs.constants.O_DIRECTORY | fs.constants.O_NOFOLLOW;
-const LOG_FILE_FLAGS = fs.constants.O_WRONLY | fs.constants.O_CREAT |
+const LOG_FILE_FLAGS = fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL |
   (fs.constants.O_NOFOLLOW ?? 0) | (fs.constants.O_NONBLOCK ?? 0);
 
 /** `incomplete` means the file may lack records, `failed` that no file was written. */
@@ -77,13 +77,23 @@ function openRouterLogFile(routerLogsDir: string): number {
   const directoryFd = openRouterLogsDirectory(routerLogsDir);
   try {
     restrictToOwner(directoryFd, 0o700, owner);
-    const fd = fs.openSync(`/proc/self/fd/${directoryFd}/${ROUTER_LOG_FILE}`, LOG_FILE_FLAGS, 0o600);
+    const file = `/proc/self/fd/${directoryFd}/${ROUTER_LOG_FILE}`;
+    try {
+      const previous = fs.lstatSync(file);
+      if (!previous.isFile() || previous.nlink !== 1) {
+        throw new Error(`Refusing to replace router logs at ${ROUTER_LOG_FILE}: not a regular, unlinked file`);
+      }
+      // Existing readers must retain only the old records, never the new private output.
+      fs.unlinkSync(file);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+    }
+    const fd = fs.openSync(file, LOG_FILE_FLAGS, 0o600);
     try {
       const stat = fs.fstatSync(fd);
       if (!stat.isFile() || stat.nlink !== 1) {
         throw new Error(`Refusing to write router logs to ${ROUTER_LOG_FILE}: not a regular, unlinked file`);
       }
-      fs.ftruncateSync(fd, 0);
       restrictToOwner(fd, 0o600, owner);
       return fd;
     } catch (error) {
@@ -105,7 +115,7 @@ async function copyLogs(
   child: execa.ExecaChildProcess,
   fd: number,
   deadline: number,
-): Promise<{ result: DockerResult; oversized: boolean; writeError?: unknown }> {
+): Promise<{ result: DockerResult; oversized: boolean; drained: boolean; writeError?: unknown }> {
   let remaining = MAX_ROUTER_LOG_BYTES;
   let oversized = false;
   let writeError: unknown;
@@ -132,19 +142,21 @@ async function copyLogs(
     }
   };
   const streams = [child.stdout, child.stderr].filter((stream): stream is Readable => Boolean(stream));
-  const drained = Promise.all(streams.map(stream => new Promise<void>(resolve => {
+  const drained = Promise.all(streams.map(stream => new Promise<boolean>(resolve => {
     stream.on('data', write);
-    stream.on('error', () => resolve());
-    stream.once('end', () => resolve());
-    stream.once('close', () => resolve());
-  })));
+    stream.on('error', () => resolve(false));
+    stream.once('end', () => resolve(true));
+    stream.once('close', () => resolve(stream.readableEnded));
+  }))).then(results => results.every(Boolean));
   let timer: NodeJS.Timeout | undefined;
   try {
     const result = await child;
     // Output buffered when the process exited still arrives, but within the capture deadline.
     const drainMs = Math.min(STREAM_DRAIN_MS, Math.max(deadline - Date.now(), MIN_STREAM_DRAIN_MS));
-    await Promise.race([drained, new Promise<void>(resolve => { timer = setTimeout(resolve, drainMs); })]);
-    return { result, oversized, writeError };
+    const finished = await Promise.race([
+      drained, new Promise<boolean>(resolve => { timer = setTimeout(() => resolve(false), drainMs); }),
+    ]);
+    return { result, oversized, drained: finished, writeError };
   } finally {
     clearTimeout(timer);
     open = false;
@@ -206,7 +218,7 @@ async function stopAndSave(workDir: string, routerLogsDir: string): Promise<Rout
   try {
     // `docker logs` works on a stopped container. Its output goes through pipes, so
     // it never holds the file and can't write to it after the capture ends.
-    const { result: logs, oversized, writeError } = await copyLogs(execa('docker', ['logs', containerId], {
+    const { result: logs, oversized, drained, writeError } = await copyLogs(execa('docker', ['logs', containerId], {
       ...limits(),
       stdin: 'ignore',
       stdout: 'pipe',
@@ -225,6 +237,10 @@ async function stopAndSave(workDir: string, routerLogsDir: string): Promise<Rout
       logger.warn(`Router log capture failed (${describeFailure(logs)}); ${file} may be incomplete`);
       return 'incomplete';
     }
+    if (!drained) {
+      logger.warn(`Router log output did not finish; ${file} may be incomplete`);
+      return 'incomplete';
+    }
   } finally {
     fs.closeSync(fd);
   }
@@ -238,8 +254,9 @@ async function stopAndSave(workDir: string, routerLogsDir: string): Promise<Rout
  *
  * Cleanup recursively makes the audit, session-state and diagnostics staging
  * directories readable by everyone (`preserveCleanupArtifacts` and the rootless
- * repair), so router logs inside any of them, or containing one, would lose their
- * owner-only modes. In that case they aren't saved, with a warning.
+ * repair), so either the capture or preservation destination inside any of them,
+ * or containing one, would lose its owner-only modes. In that case logs aren't
+ * saved, with a warning.
  */
 export function resolveRouterLogsDir(config: WrapperConfig): string | undefined {
   if (config.experimentalModelRouting !== true || !config.modelRouting || !config.modelRoutingBootstrap) {
@@ -247,13 +264,25 @@ export function resolveRouterLogsDir(config: WrapperConfig): string | undefined 
   }
   const routerLogsDir = resolveLogPaths(config).routerLogs;
   try {
-    const target = normalizeForOverlap(routerLogsDir);
+    const targets = [
+      routerLogsDir,
+      ...(!config.proxyLogsDir ? [preservedArtifactDirectory(config.workDir, 'router-logs')] : []),
+    ];
     const widened = [
       config.auditDir || path.join(config.workDir, 'audit'),
-      config.sessionStateDir,
+      ...(!config.auditDir ? [preservedArtifactDirectory(config.workDir, 'awf-audit')] : []),
+      resolveLogPaths(config).sessionState,
       path.join(config.workDir, 'diagnostics'),
+      ...(!config.auditDir ? [preservedArtifactDirectory(config.workDir, 'awf-diagnostics')] : []),
     ];
-    const overlapping = widened.find(root => root && pathsOverlap(normalizeForOverlap(root), target));
+    // Lexically collapsing `..` before resolving a symlink can check the wrong tree.
+    if ([config.workDir, config.proxyLogsDir, ...widened, ...targets]
+      .some(root => root?.split(path.sep).includes('..'))) {
+      throw new Error('Artifact paths containing parent components cannot be checked safely');
+    }
+    const normalizedTargets = targets.map(normalizeForOverlap);
+    const overlapping = widened.find(root =>
+      normalizedTargets.some(target => pathsOverlap(normalizeForOverlap(root), target)));
     if (overlapping) {
       logger.warn(`Not saving the router's logs: ${routerLogsDir} overlaps ${overlapping}, ` +
         'which AWF makes readable by everyone at cleanup');

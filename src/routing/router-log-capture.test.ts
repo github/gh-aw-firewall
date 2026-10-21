@@ -98,6 +98,7 @@ describe('stopRouterAndSaveLogs', () => {
   });
 
   afterEach(() => {
+    jest.useRealTimers();
     jest.restoreAllMocks();
     fs.rmSync(root, { recursive: true, force: true });
   });
@@ -178,6 +179,28 @@ describe('stopRouterAndSaveLogs', () => {
     expect(mockedLogger.warn).toHaveBeenCalledWith(expect.stringContaining(`${logFile} may be incomplete`));
   });
 
+  linuxIt('reports incomplete output when Docker exits but its streams never finish', async () => {
+    jest.useFakeTimers();
+    const stdout = new PassThrough();
+    const stderr = new PassThrough();
+    stderr.write(RECORDS);
+    mockExecaFn.mockImplementation((_command: string, args: string[]) => {
+      if (args[0] === 'compose') return Promise.resolve({ ...OK, stdout: `${ROUTER_ID}\n` });
+      if (args[0] === 'stop') return Promise.resolve(OK);
+      return Object.assign(Promise.resolve(OK), { stdout, stderr, kill: jest.fn() });
+    });
+
+    const capture = stopRouterAndSaveLogs(workDir, routerLogsDir);
+    await jest.advanceTimersByTimeAsync(1000);
+    await expect(capture).resolves.toBe('incomplete');
+
+    expect(fs.readFileSync(logFile, 'utf8')).toBe(RECORDS);
+    expect(stdout.destroyed).toBe(true);
+    expect(stderr.destroyed).toBe(true);
+    expect(mockedLogger.warn).toHaveBeenCalledWith(expect.stringContaining(`${logFile} may be incomplete`));
+    expect(mockedLogger.debug).not.toHaveBeenCalledWith(expect.stringContaining('Saved the router'));
+  });
+
   it('shares one deadline between the Docker calls and stops once it has passed', async () => {
     let now = 1_000_000;
     jest.spyOn(Date, 'now').mockImplementation(() => now);
@@ -195,15 +218,24 @@ describe('stopRouterAndSaveLogs', () => {
   });
 
   linuxIt('replaces the file an earlier run left in the same directory and narrows its modes', async () => {
+    const stale = 'stale record\n'.repeat(100);
     fs.mkdirSync(routerLogsDir, { mode: 0o755 });
-    fs.writeFileSync(logFile, 'stale record\n'.repeat(100), { mode: 0o644 });
+    fs.writeFileSync(logFile, stale, { mode: 0o644 });
+    const reader = fs.openSync(logFile, 'r');
+    const previous = fs.fstatSync(reader);
     scriptDocker();
 
-    await expect(stopRouterAndSaveLogs(workDir, routerLogsDir)).resolves.toBe('saved');
+    try {
+      await expect(stopRouterAndSaveLogs(workDir, routerLogsDir)).resolves.toBe('saved');
 
-    expect(fs.readFileSync(logFile, 'utf8')).toBe(RECORDS);
-    expect(fs.statSync(logFile).mode & 0o777).toBe(0o600);
-    expect(fs.statSync(routerLogsDir).mode & 0o777).toBe(0o700);
+      expect(fs.readFileSync(logFile, 'utf8')).toBe(RECORDS);
+      expect(fs.readFileSync(reader, 'utf8')).toBe(stale);
+      expect(fs.statSync(logFile).ino).not.toBe(previous.ino);
+      expect(fs.statSync(logFile).mode & 0o777).toBe(0o600);
+      expect(fs.statSync(routerLogsDir).mode & 0o777).toBe(0o700);
+    } finally {
+      fs.closeSync(reader);
+    }
   });
 
   linuxIt('refuses a router log directory that is a symlink', async () => {
@@ -341,7 +373,10 @@ describe('resolveRouterLogsDir', () => {
     root = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-router-logs-dir-'));
   });
 
-  afterEach(() => fs.rmSync(root, { recursive: true, force: true }));
+  afterEach(() => {
+    jest.restoreAllMocks();
+    fs.rmSync(root, { recursive: true, force: true });
+  });
 
   it('saves nothing for a run without a router service', () => {
     expect(resolveRouterLogsDir(routed({ modelRoutingBootstrap: undefined }))).toBeUndefined();
@@ -379,6 +414,30 @@ describe('resolveRouterLogsDir', () => {
       proxyLogsDir: path.join(root, 'out', 'logs'),
       auditDir: path.join(root, 'alias'),
     }))).toBeUndefined();
+  });
+
+  it.each(['auditDir', 'sessionStateDir'] as const)('checks the preservation destination against %s', field => {
+    const artifacts = path.join(root, 'artifacts');
+    fs.mkdirSync(artifacts);
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    jest.spyOn(require('os') as typeof os, 'tmpdir').mockReturnValue(artifacts);
+
+    expect(resolveRouterLogsDir(routed({ [field]: artifacts }))).toBeUndefined();
+    expect(mockedLogger.warn).toHaveBeenCalledWith(expect.stringContaining('Not saving the router\'s logs'));
+  });
+
+  linuxIt('refuses a protected root with a symlink followed by a parent component', () => {
+    fs.mkdirSync(path.join(root, 'out', 'subdir'), { recursive: true });
+    fs.mkdirSync(path.join(root, 'alias'));
+    fs.symlinkSync(path.join(root, 'out', 'subdir'), path.join(root, 'alias', 'link'));
+
+    expect(resolveRouterLogsDir(routed({
+      proxyLogsDir: path.join(root, 'out'),
+      auditDir: `${root}/alias/link/..`,
+    }))).toBeUndefined();
+    expect(mockedLogger.warn).toHaveBeenCalledWith(
+      expect.stringContaining('could not check'), expect.any(Error),
+    );
   });
 });
 
