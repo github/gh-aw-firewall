@@ -3,7 +3,7 @@ import * as dnsResolver from '../dns-resolver';
 import * as upstreamProxy from '../upstream-proxy';
 import * as optionParsers from '../option-parsers';
 
-export const mockedLogger = jest.mocked(logger);
+export const mockedLogger: jest.MaybeMockedDeep<typeof logger> = jest.mocked(logger);
 export const mockedDnsResolver = jest.mocked(dnsResolver);
 export const mockedUpstreamProxy = jest.mocked(upstreamProxy);
 export const mockedOptionParsers = jest.mocked(optionParsers);
