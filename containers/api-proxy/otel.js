@@ -9,6 +9,10 @@
  * GITHUB_AW_OTEL_PARENT_SPAN_ID so that end-to-end traces flow from the
  * GitHub Actions workflow through the api-proxy to the LLM provider.
  *
+ * Model-router calls made while planning (capabilities, classify, route) get
+ * their own CLIENT spans through `routerCallTracing`, which also supplies the
+ * W3C `traceparent`/`tracestate` headers sent to the router.
+ *
  * Activation (in priority order):
  *   - GH_AW_OTLP_ENDPOINTS (JSON array of {url, headers} objects): fan-out
  *     mode — spans are exported concurrently to all listed endpoints.
@@ -43,6 +47,7 @@ const {
   TraceFlags,
   context,
   INVALID_SPAN_CONTEXT,
+  isSpanContextValid,
 } = require('@opentelemetry/api');
 const { parseOtlpHeaders, buildResourceSpans } = require('./otel-serialization');
 const { ProxyAwareOtlpExporter, FileSpanExporter, FanOutSpanExporter } = require('./otel-exporters');
@@ -335,6 +340,117 @@ function endSpanError(span, err, statusCode) {
   } catch { /* best-effort */ }
 }
 
+// ── Model-router calls ────────────────────────────────────────────────────────
+
+const ROUTER_OPERATIONS = new Set(['capabilities', 'classify', 'route']);
+const ROUTER_METHODS = new Set(['GET', 'POST']);
+// Fixed codes raised by the router client or Node's socket layer. Anything else
+// is reported as _OTHER so raw error text never reaches a span.
+const ROUTER_ERROR_TYPES = new Set([
+  'EAI_AGAIN', 'ECONNREFUSED', 'ECONNRESET', 'EHOSTUNREACH', 'ENETUNREACH', 'ENOTFOUND', 'EPIPE', 'ETIMEDOUT',
+  'routing_cancelled', 'routing_contract_error',
+]);
+const ROUTER_OUTCOME_ATTRIBUTES = new Map([
+  ['gh_aw_router.goal', 'string'],
+  ['gh_aw_router.mode', 'string'],
+  ['gh_aw_router.classification.present', 'boolean'],
+  ['gh_aw_router.selected.model', 'string'],
+  ['gh_aw_router.selected.effort', 'string'],
+]);
+const MAX_ROUTER_ATTRIBUTE_LENGTH = 256;
+
+function _routerOutcomeAttributes(attributes) {
+  const allowed = {};
+  if (!attributes || typeof attributes !== 'object') return allowed;
+  for (const [key, type] of ROUTER_OUTCOME_ATTRIBUTES) {
+    const value = attributes[key];
+    if (typeof value !== type) continue;
+    if (type === 'string' && (value.length === 0 || value.length > MAX_ROUTER_ATTRIBUTE_LENGTH)) continue;
+    allowed[key] = value;
+  }
+  return allowed;
+}
+
+function _routerErrorType(error, statusCode) {
+  if (Number.isInteger(statusCode) && statusCode >= 400) return String(statusCode);
+  const code = error?.code;
+  return typeof code === 'string' && ROUTER_ERROR_TYPES.has(code) ? code : '_OTHER';
+}
+
+function _traceHeaders(spanContext) {
+  if (!isSpanContextValid(spanContext)) return {};
+  const flags = (spanContext.traceFlags & 0xff).toString(16).padStart(2, '0');
+  const headers = { traceparent: `00-${spanContext.traceId}-${spanContext.spanId}-${flags}` };
+  const traceState = spanContext.traceState?.serialize();
+  if (traceState) headers.tracestate = traceState;
+  return headers;
+}
+
+/**
+ * Start a CLIENT span for one model-router call and return its W3C trace
+ * headers. Health checks are not traced.
+ *
+ * The parent is `parentContext` when the caller owns one with a valid span,
+ * otherwise the workflow parent from GITHUB_AW_OTEL_*, otherwise a new root.
+ * Only `traceparent` and `tracestate` are returned; baggage is never sent.
+ *
+ * @param {object} opts
+ * @param {'capabilities'|'classify'|'route'} opts.operation
+ * @param {string} opts.method
+ * @param {string} opts.serverAddress - Configured router host
+ * @param {number} opts.serverPort    - Configured router port
+ * @param {import('@opentelemetry/api').Context} [opts.parentContext]
+ * @param {Record<string, string|boolean>} [opts.attributes] - Allowlisted gh_aw_router.* attributes
+ * @returns {{ headers: Record<string, string>, end: Function }|null}
+ */
+function startRouterCall({ operation, method, serverAddress, serverPort, parentContext, attributes } = {}) {
+  if (!_enabled || !ROUTER_OPERATIONS.has(operation)) return null;
+  const parent = parentContext && isSpanContextValid(trace.getSpanContext(parentContext) || INVALID_SPAN_CONTEXT)
+    ? parentContext
+    : _buildParentContext();
+  const span = _tracer.startSpan(
+    `gh_aw_router ${operation}`,
+    {
+      kind: SpanKind.CLIENT,
+      attributes: {
+        [ATTR_HTTP_REQUEST_METHOD]: ROUTER_METHODS.has(method) ? method : '_OTHER',
+        [ATTR_URL_PATH]: `/${operation}`,
+        ...(typeof serverAddress === 'string' && serverAddress ? { 'server.address': serverAddress } : {}),
+        ...(Number.isInteger(serverPort) ? { 'server.port': serverPort } : {}),
+        ..._routerOutcomeAttributes(attributes),
+      },
+    },
+    parent,
+  );
+
+  let ended = false;
+  return Object.freeze({
+    headers: Object.freeze(_traceHeaders(span.spanContext())),
+    /**
+     * End the span once. Later calls are ignored.
+     * @param {{ statusCode?: number, error?: unknown, attributes?: object }} [outcome]
+     */
+    end({ statusCode, error, attributes: resultAttributes } = {}) {
+      if (ended) return;
+      ended = true;
+      try {
+        if (Number.isInteger(statusCode)) span.setAttribute(ATTR_HTTP_RESPONSE_STATUS_CODE, statusCode);
+        if (error !== undefined) {
+          const errorType = _routerErrorType(error, statusCode);
+          span.setAttribute('error.type', errorType);
+          span.setStatus({ code: SpanStatusCode.ERROR, message: errorType });
+        } else {
+          span.setAttributes(_routerOutcomeAttributes(resultAttributes));
+        }
+      } catch { /* best-effort */ }
+      try { span.end(); } catch { /* best-effort */ }
+    },
+  });
+}
+
+/** Tracing hook for createRoutingRouterClient. */
+const routerCallTracing = Object.freeze({ startCall: startRouterCall });
+
 /**
  * Flush pending spans and tear down the OTEL SDK.
  * Must be awaited during graceful shutdown to prevent span loss.
@@ -360,6 +476,7 @@ module.exports = {
   setBudgetAttributes,
   endSpan,
   endSpanError,
+  routerCallTracing,
   shutdown,
   isEnabled,
   // Exported for testing

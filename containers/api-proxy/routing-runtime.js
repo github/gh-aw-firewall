@@ -35,6 +35,14 @@ const { logRequest } = require('./logging');
 const { checkRateLimit, proxyRequest } = require('./proxy-request');
 const { getRuntimeModels } = require('./runtime-model-catalog');
 
+// Tracing is optional, as in proxy-request.js.
+let defaultRouterTracing = null;
+try {
+  ({ routerCallTracing: defaultRouterTracing = null } = require('./otel'));
+} catch (err) {
+  if (!err || err.code !== 'MODULE_NOT_FOUND') throw err;
+}
+
 /**
  * Read the staged conversation the planner classifies.
  *
@@ -107,6 +115,7 @@ function createProductionRoutingController({
   getAdapter,
   getCopilotAdapter,
   routerTransport,
+  routerTracing = defaultRouterTracing,
   observer = createRoutingObserver(),
   clock,
   random,
@@ -135,7 +144,7 @@ function createProductionRoutingController({
 
   return createRoutingController({
     config,
-    planner: createRoutingRouterClient({ transport: routerTransport }),
+    planner: createRoutingRouterClient({ transport: routerTransport, tracing: routerTracing }),
     catalogue,
     policy,
     loadConversation: loadRoutingConversation,

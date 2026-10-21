@@ -392,6 +392,44 @@ describe('routing controller', () => {
     });
   });
 
+  it('gives the route call the objective, classification flag and validated selection for tracing', async () => {
+    const { controller, planner, calls } = createHarness({
+      models: [
+        { id: 'a-test', efforts: ['low'], protocols: ['responses'], contextWindow: 128_000 },
+        { id: 'b-test', efforts: ['low'], protocols: ['responses'], contextWindow: 128_000 },
+      ],
+    });
+    await expect(controller.run()).resolves.toMatchObject({ ok: true });
+
+    const { trace } = planner.route.mock.calls[0][1];
+    expect(Object.isFrozen(trace)).toBe(true);
+    expect(trace.attributes).toEqual({
+      'gh_aw_router.goal': 'cost',
+      'gh_aw_router.mode': 'balanced',
+      'gh_aw_router.classification.present': true,
+    });
+    const offered = calls.route[0].models;
+    expect(trace.describeResult({
+      ranked_choices: [{ id: offered[1].id, model: offered[1].model, effort: offered[1].effort }],
+    })).toEqual({
+      'gh_aw_router.selected.model': 'github-copilot/b-test',
+      'gh_aw_router.selected.effort': 'low',
+    });
+    expect(() => trace.describeResult({
+      ranked_choices: [{ id: offered[0].id, model: 'github-copilot/not-offered', effort: 'low' }],
+    })).toThrow(expect.objectContaining({ code: 'routing_contract_error' }));
+    expect(() => trace.describeResult({ ranked_choices: [] })).toThrow();
+  });
+
+  it('marks a route call without classification for tracing', async () => {
+    const { controller, planner } = createHarness({
+      executeResult: () => ({ statusCode: 200, body: classifierBody('not json') }),
+    });
+    await expect(controller.run()).resolves.toMatchObject({ ok: true });
+    expect(planner.route.mock.calls[0][1].trace.attributes['gh_aw_router.classification.present']).toBe(false);
+    expect(planner.classify.mock.calls[0][1]).not.toHaveProperty('trace');
+  });
+
   it('spends no classifier attempt on a capacity exclusion', async () => {
     const { controller, calls, records } = createHarness({
       models: [{ id: 'tiny-test', efforts: ['low'], protocols: ['responses'], contextWindow: 8 }],

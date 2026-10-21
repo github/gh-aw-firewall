@@ -40,17 +40,55 @@ function transportError(message, code) {
   return error;
 }
 
+function startTracedCall(tracing, details) {
+  if (!tracing || !details.operation) return null;
+  try {
+    return tracing.startCall(details) || null;
+  } catch {
+    return null;
+  }
+}
+
+function traceHeaders(call) {
+  const headers = {};
+  for (const name of ['traceparent', 'tracestate']) {
+    const value = call?.headers?.[name];
+    if (typeof value === 'string' && value) headers[name] = value;
+  }
+  return headers;
+}
+
+// The describer is supplied by the caller, which owns response validation.
+function finishTracedCall(call, { statusCode, error, value, describeResult }) {
+  if (!call) return;
+  let attributes;
+  if (error === undefined && typeof describeResult === 'function') {
+    try {
+      attributes = describeResult(value);
+    } catch {
+      attributes = undefined;
+    }
+  }
+  try {
+    call.end({ statusCode, error, attributes });
+  } catch {
+    // Tracing must not change the routing outcome.
+  }
+}
+
 function createRoutingRouterClient({
   baseUrl = DEFAULT_ROUTER_URL,
   transport = http,
   maxResponseBytes = MAX_ROUTER_RESPONSE_BYTES,
+  tracing = null,
 } = {}) {
   const origin = parseBaseUrl(baseUrl);
   if (!Number.isInteger(maxResponseBytes) || maxResponseBytes <= 0) {
     throw createRoutingError('routing_configuration_error', 'The router response limit is invalid');
   }
+  const serverPort = Number(origin.port || 80);
 
-  function request(path, { method, value, signal, timeoutMs }) {
+  function request(path, { operation, method, value, signal, timeoutMs, trace: callTrace, traceContext }) {
     if (signal?.aborted) {
       return Promise.reject(createRoutingError('routing_cancelled', 'Model routing was cancelled'));
     }
@@ -68,14 +106,30 @@ function createRoutingRouterClient({
     return new Promise((resolve, reject) => {
       let settled = false;
       let upstream;
-      const settle = (fn, result) => {
+      let statusCode;
+      const call = startTracedCall(tracing, {
+        operation,
+        method,
+        serverAddress: origin.hostname,
+        serverPort,
+        parentContext: traceContext,
+        attributes: callTrace?.attributes,
+      });
+      const settle = (fn, result, traceError = result) => {
         if (settled) return;
         settled = true;
         signal?.removeEventListener('abort', onAbort);
+        finishTracedCall(call, fn === resolve
+          ? { statusCode, value: result, describeResult: callTrace?.describeResult }
+          : { statusCode, error: traceError });
         fn(result);
       };
       const onAbort = () => {
-        settle(reject, createRoutingError('routing_cancelled', 'Model routing was cancelled'));
+        const cancelled = createRoutingError('routing_cancelled', 'Model routing was cancelled');
+        // A caller's attempt timer aborts with a TimeoutError reason; record that on the span.
+        settle(reject, cancelled, signal.reason?.name === 'TimeoutError'
+          ? transportError('Router request timed out', 'ETIMEDOUT')
+          : cancelled);
         upstream?.destroy();
       };
 
@@ -87,10 +141,14 @@ function createRoutingRouterClient({
           port: origin.port || 80,
           method,
           path,
-          headers: body
-            ? { accept: 'application/json', 'content-type': 'application/json', 'content-length': String(body.length) }
-            : { accept: 'application/json' },
+          headers: {
+            ...(body
+              ? { accept: 'application/json', 'content-type': 'application/json', 'content-length': String(body.length) }
+              : { accept: 'application/json' }),
+            ...traceHeaders(call),
+          },
         }, response => {
+          statusCode = response.statusCode;
           const chunks = [];
           let responseBytes = 0;
           let ended = false;
@@ -155,10 +213,14 @@ function createRoutingRouterClient({
   }
 
   return Object.freeze({
-    health(options = {}) { return request('/healthz', { ...options, method: 'GET' }); },
-    capabilities(options = {}) { return request('/capabilities', { ...options, method: 'GET' }); },
-    classify(value, options = {}) { return request('/classify', { ...options, method: 'POST', value }); },
-    route(value, options = {}) { return request('/route', { ...options, method: 'POST', value }); },
+    health(options = {}) { return request('/healthz', { ...options, operation: undefined, method: 'GET' }); },
+    capabilities(options = {}) {
+      return request('/capabilities', { ...options, operation: 'capabilities', method: 'GET' });
+    },
+    classify(value, options = {}) {
+      return request('/classify', { ...options, operation: 'classify', method: 'POST', value });
+    },
+    route(value, options = {}) { return request('/route', { ...options, operation: 'route', method: 'POST', value }); },
   });
 }
 

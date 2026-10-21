@@ -34,6 +34,29 @@ describe('routing planner', () => {
     expect(isRetryablePlannerError({ statusCode: 503 })).toBe(true);
   });
 
+  it('aborts a timed-out attempt with a TimeoutError reason and a cancelled one without', async () => {
+    const signals = [];
+    const hang = ({ signal }) => { signals.push(signal); return new Promise(() => {}); };
+    await expect(runBoundedOperation(hang, {
+      deadline: Date.now() + 10_000, timeoutMs: 20,
+      timeoutError: () => Object.assign(new Error('timeout'), { code: 'ETIMEDOUT' }),
+    })).rejects.toMatchObject({ code: 'ETIMEDOUT' });
+
+    const controller = new AbortController();
+    const cancelled = runBoundedOperation(hang, {
+      signal: controller.signal, deadline: Date.now() + 10_000, timeoutMs: PLANNER_ATTEMPT_TIMEOUT_MS,
+      timeoutError: () => new Error('timeout'),
+    });
+    await new Promise(resolve => setImmediate(resolve));
+    controller.abort();
+    await expect(cancelled).rejects.toMatchObject({ code: 'routing_cancelled' });
+
+    expect(signals.map(signal => [signal.aborted, signal.reason?.name])).toEqual([
+      [true, 'TimeoutError'],
+      [true, 'AbortError'],
+    ]);
+  });
+
   it('retries transient transport codes and keeps router name resolution terminal', async () => {
     for (const code of ['EAI_AGAIN', 'ECONNREFUSED', 'ECONNRESET', 'EHOSTUNREACH', 'ENETUNREACH', 'EPIPE', 'ETIMEDOUT']) {
       expect(isRetryablePlannerError({ code })).toBe(true);

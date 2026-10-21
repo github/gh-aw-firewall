@@ -64,7 +64,8 @@ function runBoundedOperation(operation, {
   let timer;
   const timeout = new Promise((_, reject) => {
     timer = clock.setTimer(() => {
-      attemptController.abort();
+      // The reason lets the router client tell a timed-out attempt from a cancellation.
+      attemptController.abort(new DOMException('Model routing attempt timed out', 'TimeoutError'));
       reject(deadlineLimited
         ? createRoutingError('routing_timeout', 'Model routing exceeded its deadline')
         : timeoutError());

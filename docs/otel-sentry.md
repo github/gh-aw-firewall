@@ -69,6 +69,45 @@ In Sentry's trace detail view, expand a span and look under **Tags & Attributes*
 
 Each span also emits a `gen_ai.usage` event with the same token attributes for systems that consume events differently from span attributes.
 
+## Model-Router Call Spans
+
+When model routing is configured, the api-proxy plans once at startup by calling the
+`gh-aw-router` sidecar. Each `capabilities`, `classify` and `route` call gets a CLIENT span
+named:
+```
+gh_aw_router <operation>
+```
+
+These spans have the same parent as the LLM request spans: the workflow span from
+`GITHUB_AW_OTEL_TRACE_ID` / `GITHUB_AW_OTEL_PARENT_SPAN_ID`, or a new root without one. They are
+exported the same way, so they reach the workflow's collector, or `otel.jsonl` without one, even
+though the router's own export isn't configured. Health checks aren't traced.
+
+Each call sends the span's W3C `traceparent`, and `tracestate` when its parent has one, to the
+router. It never sends `baggage`. When the router exports its own spans, they become children of
+these spans.
+
+| Attribute | Type | Description |
+|-----------|------|-------------|
+| `http.request.method` | string | `GET` or `POST` |
+| `url.path` | string | `/capabilities`, `/classify` or `/route` |
+| `server.address`, `server.port` | string, number | The configured router host and port |
+| `http.response.status_code` | number | Router response status, when a response arrived |
+| `error.type` | string | On failure only: the HTTP status for a router error, otherwise a fixed code such as `ETIMEDOUT`, `ECONNREFUSED`, `routing_cancelled` or `routing_contract_error`, or `_OTHER` |
+| `gh_aw_router.goal`, `gh_aw_router.mode` | string | The configured routing objective (`route` only) |
+| `gh_aw_router.classification.present` | boolean | Whether the route request included a classification (`route` only) |
+| `gh_aw_router.selected.model`, `gh_aw_router.selected.effort` | string | The top choice of a successful `route` response, only after it passes validation against the offered choices |
+
+A failed or invalid route response gets no selection. The router's resolved mode isn't
+recorded here, because the router doesn't return it; the router's own `gh_aw_router.route` span
+records it. Spans never contain the conversation, classifier labels, choice ids, response bodies
+or error messages. They are for trace views only: the record of a routing decision remains the
+`firewall.model_routing` selection in `usage/aw_session.jsonl`.
+
+Each retry attempt gets its own span. An attempt that hits the planner's per-attempt timeout or
+the routing deadline ends with `ETIMEDOUT`; `routing_cancelled` means routing itself was
+cancelled, for example because the api-proxy is shutting down.
+
 ## Important Sentry Behavior
 
 1. **Numeric custom attributes are dropped** — Sentry only preserves numeric values for attributes it recognizes (e.g., `gen_ai.usage.input_tokens`). Unknown numeric attributes are silently discarded.

@@ -101,6 +101,93 @@ describe('createProductionRoutingController', () => {
     expect(() => createProductionRoutingController({ rawConfig }))
       .toThrow(/The provider adapter owner is unavailable/);
   });
+
+  describe('router call tracing', () => {
+    const { EventEmitter } = require('events');
+    const TRACEPARENT = '00-0123456789abcdef0123456789abcdef-0123456789abcdef-01';
+    const rawConfig = JSON.stringify({
+      objective: { goal: 'cost', mode: 'balanced' },
+      task: { conversationFile: '/run/awf-routing/input/conversation.json' },
+    });
+
+    // Answers health and returns invalid capabilities, so the run stops after one traced call.
+    function fakeRouterTransport(seen) {
+      return {
+        request(options, onResponse) {
+          seen.push(options);
+          const upstream = new EventEmitter();
+          upstream.setTimeout = () => upstream;
+          upstream.write = () => true;
+          upstream.destroy = () => {};
+          upstream.end = () => setImmediate(() => {
+            const response = new EventEmitter();
+            response.statusCode = options.path === '/healthz' ? 204 : 200;
+            response.destroy = () => {};
+            onResponse(response);
+            if (options.path !== '/healthz') response.emit('data', Buffer.from('{}'));
+            response.emit('end');
+            response.emit('close');
+          });
+          return upstream;
+        },
+      };
+    }
+
+    function fakeTracing() {
+      return { startCall: jest.fn(() => ({ headers: { traceparent: TRACEPARENT }, end: jest.fn() })) };
+    }
+
+    async function runWith(create, routerTracing) {
+      const seen = [];
+      const controller = create({
+        rawConfig,
+        getCopilotAdapter: () => null,
+        routerTransport: fakeRouterTransport(seen),
+        observer: { record() {} },
+        ...(routerTracing === undefined ? {} : { routerTracing }),
+      });
+      await expect(controller.run()).resolves.toMatchObject({ ok: false });
+      return seen.map(options => [options.path, options.headers.traceparent]);
+    }
+
+    function loadRuntimeWithOtel(factory) {
+      let runtime;
+      jest.isolateModules(() => {
+        jest.doMock('./otel', factory);
+        runtime = require('./routing-runtime');
+      });
+      jest.dontMock('./otel');
+      return runtime;
+    }
+
+    test('uses the api-proxy tracing hook by default', async () => {
+      const tracing = fakeTracing();
+      const runtime = loadRuntimeWithOtel(() => ({ routerCallTracing: tracing }));
+      expect(await runWith(runtime.createProductionRoutingController))
+        .toEqual([['/healthz', undefined], ['/capabilities', TRACEPARENT]]);
+      expect(tracing.startCall).toHaveBeenCalledWith(expect.objectContaining({
+        operation: 'capabilities',
+        serverAddress: 'gh-aw-router',
+        serverPort: 8737,
+      }));
+    });
+
+    test('routes without tracing when the OTEL module is not bundled', async () => {
+      const runtime = loadRuntimeWithOtel(() => {
+        throw Object.assign(new Error('Cannot find module'), { code: 'MODULE_NOT_FOUND' });
+      });
+      expect(await runWith(runtime.createProductionRoutingController))
+        .toEqual([['/healthz', undefined], ['/capabilities', undefined]]);
+    });
+
+    test('accepts an explicit tracing hook', async () => {
+      const tracing = fakeTracing();
+      expect(await runWith(createProductionRoutingController, tracing))
+        .toEqual([['/healthz', undefined], ['/capabilities', TRACEPARENT]]);
+      expect(await runWith(createProductionRoutingController, null))
+        .toEqual([['/healthz', undefined], ['/capabilities', undefined]]);
+    });
+  });
 });
 
 describe('createRoutingObserver', () => {

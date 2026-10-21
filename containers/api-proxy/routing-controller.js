@@ -259,9 +259,24 @@ function createRoutingController(dependencies) {
       deepFreezeJson(routeRequest);
 
       let rawRoute;
+      const routeTrace = Object.freeze({
+        attributes: Object.freeze({
+          'gh_aw_router.goal': config.objective.goal,
+          'gh_aw_router.mode': config.objective.mode,
+          'gh_aw_router.classification.present': classification !== null,
+        }),
+        // Only a response that passes validation contributes a selection.
+        describeResult: response => {
+          const choice = validateRouteResponse(response, pool.choices).ranked_choices[0];
+          return {
+            'gh_aw_router.selected.model': choice.model,
+            ...(typeof choice.effort === 'string' ? { 'gh_aw_router.selected.effort': choice.effort } : {}),
+          };
+        },
+      });
       try {
         rawRoute = await callPlanner(({ signal: phaseSignal, timeoutMs }) =>
-          planner.route(routeRequest, { signal: phaseSignal, timeoutMs }));
+          planner.route(routeRequest, { signal: phaseSignal, timeoutMs, trace: routeTrace }));
       } catch (error) {
         mapPlannerFailure(error, 'route');
       }
