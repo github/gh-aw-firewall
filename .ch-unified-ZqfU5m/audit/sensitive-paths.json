@@ -1,0 +1,11 @@
+{
+  "runtime": "cloud-hypervisor",
+  "maskedPaths": [],
+  "exemptions": [
+    {
+      "path": "/tmp/gh-aw/mcp-payloads",
+      "reason": "mcpg spills payloads after jq filtering, segments them by session, and instructs the agent to read them at payloadPath"
+    }
+  ],
+  "unclassifiedPaths": []
+}

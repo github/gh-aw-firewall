@@ -92,6 +92,13 @@ export async function runCloudHypervisorBootLoop({
   const publish = (state: 'starting' | 'ready' | 'failed' = 'starting'): void => {
     readiness?.publish(stage, state, bootAttempt, manager?.paths.runDirectory);
   };
+  const publishFailure = (retry = false): void => {
+    try {
+      publish(retry ? 'starting' : 'failed');
+    } catch {
+      dependencies.logger.warn('[cloud-hypervisor] Primary readiness failure publication failed');
+    }
+  };
   let manager: CloudHypervisorManagerAdapter | undefined;
   let environment: Record<string, string> | undefined;
   let identity: { uid: number; gid: number } | undefined;
@@ -311,7 +318,7 @@ export async function runCloudHypervisorBootLoop({
         const finalAttempt = bootAttempt === CLOUD_HYPERVISOR_MAX_BOOT_ATTEMPTS;
         const retry = error instanceof CloudHypervisorRetryableReadinessError
           && !agentExecutionStarted() && !finalAttempt;
-        publish(retry ? 'starting' : 'failed');
+        publishFailure(retry);
         const cleanupResult = await cleanupFailedBootAttempt({
           manager,
           bootAttempt,
@@ -331,9 +338,7 @@ export async function runCloudHypervisorBootLoop({
           diagnosticsCollected = true;
           markDiagnosticsCollected();
         }
-        if (
-          retry
-        ) {
+        if (retry) {
           continue;
         }
         if (error instanceof CloudHypervisorRetryableReadinessError) {
@@ -345,11 +350,7 @@ export async function runCloudHypervisorBootLoop({
       }
     }
   } catch (error) {
-    try {
-      publish('failed');
-    } catch {
-      dependencies.logger.warn('[cloud-hypervisor] Primary readiness failure publication failed');
-    }
+    publishFailure();
     await cleanupArtifactSnapshot();
     if (!stopped) {
       dependencies.logger.warn(

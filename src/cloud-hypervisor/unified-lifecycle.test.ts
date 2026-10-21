@@ -1,4 +1,4 @@
-import * as fs from 'fs';
+import fs from 'fs';
 import * as path from 'path';
 import { PassThrough } from 'stream';
 import { normalizeEnclavesConfig } from '../parsers/enclave-parser';
@@ -249,6 +249,30 @@ describe('unified Cloud Hypervisor primary boot and enclave lifecycle', () => {
     await expect(runCloudHypervisorBootLoop(options)).rejects.toThrow(secret);
     expect(primaryProgress()).toMatchObject({ stage: 'guest-boot', state: 'failed' });
     expect(JSON.stringify(primaryProgress())).not.toContain(secret);
+  });
+
+  it('still tears down the VM before artifact cleanup when readiness publication persistently fails', async () => {
+    await startCloudHypervisorEnclaveLifecycle(options.config, provider, {});
+    const secret = 'PRIVATE_READINESS_IO_ERROR_SENTINEL';
+    let sync: jest.SpyInstance | undefined;
+    manager.startInstance.mockImplementationOnce(async () => {
+      sync = jest.spyOn(fs, 'fsyncSync').mockImplementation(() => {
+        throw new Error(secret);
+      });
+    });
+    manager.stop.mockImplementation(async () => { order.push('stop-primary'); });
+    options.cleanupArtifactSnapshot = jest.fn(async () => { order.push('cleanup-artifacts'); });
+    try {
+      await expect(runCloudHypervisorBootLoop(options)).rejects.toThrow(secret);
+    } finally {
+      sync?.mockRestore();
+    }
+    expect(manager.stop).toHaveBeenCalledTimes(1);
+    expect(order.slice(-2)).toEqual(['stop-primary', 'cleanup-artifacts']);
+    expect(options.cleanedManagers.has(manager)).toBe(true);
+    expect(dependencies.logger.warn).toHaveBeenCalledWith(
+      '[cloud-hypervisor] Primary readiness failure publication failed',
+    );
   });
 
   it('keeps retryable boot failure non-ready and reports readiness only for the successful attempt', async () => {
