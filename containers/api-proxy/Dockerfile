@@ -2,9 +2,13 @@
 # Routes through Squid to respect domain whitelisting
 FROM node:26.11.1-alpine3.24@sha256:143494b1da2945f061539253adc65e4f1569ddf07da2d384c022c791a9d90a4a
 
-# Install current Alpine security updates and curl for healthchecks.
+# Install current Alpine security updates and curl for healthchecks. Alpine 3.24's
+# stable repository still ships curl 8.22.0-r0, affected by CVE-2026-92392.
 RUN apk upgrade --no-cache \
-    && apk add --no-cache "curl>=8.21.0-r0" openssl ca-certificates
+    && apk add --no-cache openssl ca-certificates \
+    && apk add --no-cache \
+        --repository=https://dl-cdn.alpinelinux.org/alpine/edge/main \
+        "curl>=8.23.0-r0"
 
 COPY trust/ /opt/awf/trust/
 RUN sh /opt/awf/trust/install-system-trust.sh \
