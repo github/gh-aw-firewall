@@ -1,0 +1,7 @@
+{
+  "source": "git-committed containers/api-proxy/models.dev.catalog.json (OpenRouter-shaped; retrievedAt is repository capture commit time, NOT upstream retrieval)",
+  "revision": "7aadc2a15168959d020df4252b650337536e1c1d",
+  "retrievedAt": "2026-10-19T17:20:11-07:00",
+  "sha256": "e99d729367dd9dc0862d24c2fa1a2407e994febf683bb159b91031743b30fd38",
+  "license": "upstream license unknown; local committed copy"
+}

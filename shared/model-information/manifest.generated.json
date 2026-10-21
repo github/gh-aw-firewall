@@ -1,8 +1,8 @@
 {
   "schemaVersion": 1,
-  "compilerVersion": 3,
+  "compilerVersion": 4,
   "schemaHash": "df9780a1fd9a1418ec8d99cb4aaf27d49bda9c8a08d157036c6893798c64f479",
-  "catalogRevision": "750009c04d5431042e8601a9d6a23beca46b40ad4eae6a3a93cff9e8c6e0251d",
+  "catalogRevision": "d628c31e3714fc76f9ae83c3cf61f4c90f00ff15e956e8c2ba5fe23ce4f9637f",
   "generatedAt": "2026-10-20T00:22:04.000Z",
   "sourceFiles": [
     "shared/model-information/sources/copilot-claude.json",
@@ -13,7 +13,8 @@
     "shared/model-information/sources/mapping.json",
     "shared/model-information/sources/pricing-reference.json",
     "shared/model-information/sources/target.json",
-    "shared/model-information/imported/legacy-models-dev.snapshot.v1.json"
+    "containers/api-proxy/models.dev.catalog.json",
+    "shared/model-information/imported/legacy-models-dev.metadata.json"
   ],
   "import": {
     "importerVersion": "2",

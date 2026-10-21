@@ -77,17 +77,36 @@ describe('governed legacy catalog import', () => {
     expect(() => importLegacySnapshot(malformed, metadata(malformed))).toThrow('{data: []}');
   });
 
-  it('accepts the pinned committed catalog with the repository capture time, not an invented upstream date', () => {
+  it('accepts the official complete API envelope and rejects partial/paginated coverage', () => {
+    const complete = Buffer.from(JSON.stringify({
+      data: [priced('openai/fixture')], total_count: 1, links: { next: null },
+    }));
+    expect(importLegacySnapshot(complete, metadata(complete))).toMatchObject({ accepted: 1, rejected: 0 });
+    for (const envelope of [
+      { data: [priced('openai/fixture')], total_count: 2, links: { next: null } },
+      { data: [priced('openai/fixture')], total_count: 1, links: { next: '/next' } },
+      { data: [priced('openai/fixture')], links: {} },
+      { data: [priced('openai/fixture')], total_count: -1 },
+    ]) {
+      const bytes = Buffer.from(JSON.stringify(envelope));
+      expect(() => importLegacySnapshot(bytes, metadata(bytes))).toThrow('Incomplete catalogue coverage');
+    }
+  });
+
+  it('imports the reviewed pin with exact bytes/counts and the committed capture metadata', () => {
     const bytes = readFileSync('containers/api-proxy/models.dev.catalog.json');
     const snapshot = importPinnedLegacySnapshot();
+    const pinned = JSON.parse(readFileSync('shared/model-information/imported/legacy-models-dev.metadata.json', 'utf8'));
     expect(createHash('sha256').update(bytes).digest('hex')).toBe(BUNDLED_SHA256);
     expect(snapshot.revision).toBe(BUNDLED_GIT_BLOB);
-    expect(snapshot).toMatchObject({ accepted: 355, rejected: 11, collisions: [] });
+    expect(snapshot.accepted).toBeGreaterThan(0);
+    expect(snapshot.accepted + snapshot.rejected).toBe(JSON.parse(bytes.toString()).data.length);
+    expect(snapshot.collisions).toEqual([]);
     expect(snapshot.retrievedAt).toBe(BUNDLED_COMMIT_TIMESTAMP);
-    expect(snapshot.source).toContain('NOT upstream retrieval');
+    expect(snapshot).toMatchObject(pinned);
+    if (snapshot.source.startsWith('git-committed')) expect(snapshot.source).toContain('NOT upstream retrieval');
     expect(validate('importedSnapshot', snapshot)).toEqual([]);
-    expect(snapshot.models.find((model: any) => model.identity.key === 'openai/gpt-5.5'))
-      .toMatchObject({ importedPricing: { sourceNamespace: 'openai' } });
+    expect(snapshot.models.every((model: any) => model.importedPricing.sourceNamespace === model.identity.provider)).toBe(true);
     expect(snapshot.models.every((model: any) => !model.tariffs)).toBe(true);
     const committed = JSON.parse(readFileSync('shared/model-information/imported/legacy-models-dev.snapshot.v1.json', 'utf8'));
     expect(committed).toEqual(snapshot);

@@ -43,9 +43,14 @@ describe('maintained model compilation', () => {
     const manifest = require('../../shared/model-information/manifest.generated.json');
     const catalogue = require('../../shared/model-information/catalog.generated.json');
     expect(manifest.catalogRevision).toBe(catalogue.catalogRevision);
-    expect(manifest.compilerVersion).toBe(3);
+    expect(manifest.compilerVersion).toBe(4);
     expect(manifest.schemaHash).toMatch(/^[0-9a-f]{64}$/);
     expect(catalogue.generatedAt).toBe(manifest.generatedAt);
+    expect(manifest.sourceFiles).toEqual(expect.arrayContaining([
+      'containers/api-proxy/models.dev.catalog.json',
+      'shared/model-information/imported/legacy-models-dev.metadata.json',
+    ]));
+    expect(manifest.sourceFiles).not.toContain('shared/model-information/imported/legacy-models-dev.snapshot.v1.json');
   });
 
   it('uses the latest reviewed timestamp across all provenance sources', () => {

@@ -1,0 +1,68 @@
+[
+  {
+    "id": "copilot-models",
+    "scope": "GitHub Copilot supported models; distinguish each documented client/channel",
+    "urls": ["https://docs.github.com/en/copilot/reference/ai-models/supported-models"],
+    "kind": "documentation"
+  },
+  {
+    "id": "copilot-retirement",
+    "scope": "GitHub Copilot announced lifecycle dates, not immediate retirement",
+    "urls": ["https://docs.github.com/en/copilot/reference/ai-models/supported-models#model-retirement-history"],
+    "kind": "documentation"
+  },
+  {
+    "id": "copilot-changelog",
+    "scope": "Copilot lifecycle announcements; follow only fetched official announcement links",
+    "urls": ["https://github.blog/changelog/label/copilot/"],
+    "kind": "documentation"
+  },
+  {
+    "id": "openai-models",
+    "scope": "OpenAI native API model IDs, limits and explicit protocol support, not Copilot deployability",
+    "urls": ["https://developers.openai.com/api/docs/models", "https://platform.openai.com/docs/models"],
+    "kind": "documentation"
+  },
+  {
+    "id": "openai-pricing",
+    "scope": "OpenAI native API published tariffs only, not Copilot or OpenRouter billing",
+    "urls": ["https://developers.openai.com/api/docs/pricing"],
+    "kind": "documentation"
+  },
+  {
+    "id": "openai-responses",
+    "scope": "OpenAI Responses API explicit support; no family-wide inference",
+    "urls": ["https://developers.openai.com/api/reference/responses/overview"],
+    "kind": "documentation"
+  },
+  {
+    "id": "anthropic-models",
+    "scope": "Anthropic native API model IDs, documented efforts, limits and protocol support",
+    "urls": ["https://platform.claude.com/docs/en/about-claude/models/overview", "https://docs.anthropic.com/en/docs/about-claude/models"],
+    "kind": "documentation"
+  },
+  {
+    "id": "anthropic-pricing",
+    "scope": "Anthropic native API tariffs only, not Copilot billing",
+    "urls": ["https://platform.claude.com/docs/en/about-claude/pricing"],
+    "kind": "documentation"
+  },
+  {
+    "id": "gemini-models",
+    "scope": "Google Gemini native API model limits and explicit capabilities, not Copilot deployability",
+    "urls": ["https://ai.google.dev/gemini-api/docs/models?hl=en"],
+    "kind": "documentation"
+  },
+  {
+    "id": "xai-models",
+    "scope": "xAI native API model limits and tariffs, not Copilot billing or deployability",
+    "urls": ["https://docs.x.ai/developers/models"],
+    "kind": "documentation"
+  },
+  {
+    "id": "openrouter-models",
+    "scope": "Governed OpenRouter catalogue observation; source namespaces are NOT native-provider deployment/billing mappings",
+    "urls": ["https://openrouter.ai/api/v1/models"],
+    "kind": "catalogue"
+  }
+]

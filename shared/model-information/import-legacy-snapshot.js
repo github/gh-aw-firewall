@@ -7,12 +7,11 @@ const { identity } = require('./identity');
 const { validate } = require('./contracts');
 
 const IMPORTER_VERSION = '2';
-// Git blob ID and SHA-256 of the committed legacy file, not of an upstream download.
-const BUNDLED_GIT_BLOB = '7aadc2a15168959d020df4252b650337536e1c1d';
-const BUNDLED_SHA256 = 'e99d729367dd9dc0862d24c2fa1a2407e994febf683bb159b91031743b30fd38';
-const BUNDLED_COMMIT_TIMESTAMP = '2026-10-19T17:20:11-07:00';
-const BUNDLED_SOURCE =
-  'git-committed containers/api-proxy/models.dev.catalog.json (OpenRouter-shaped; retrievedAt is repository capture commit time, NOT upstream retrieval)';
+const metadata = require('./imported/legacy-models-dev.metadata.json');
+// Retain the original exported names for callers of the pinned import API.
+const BUNDLED_GIT_BLOB = metadata.revision;
+const BUNDLED_SHA256 = metadata.sha256;
+const BUNDLED_COMMIT_TIMESTAMP = metadata.retrievedAt;
 const METADATA_FIELDS = ['source', 'revision', 'retrievedAt', 'sha256', 'license'];
 const COMPONENTS = {
   prompt: 'input',
@@ -67,9 +66,17 @@ function importLegacySnapshot(bytes, metadata) {
   } catch {
     throw new Error('Invalid legacy snapshot JSON');
   }
-  if (!source || Array.isArray(source) || Object.keys(source).length !== 1 ||
+  if (!source || Array.isArray(source) ||
+      Object.keys(source).some(key => !['data', 'total_count', 'links'].includes(key)) ||
       !Array.isArray(source.data)) {
     throw new Error('Expected legacy snapshot {data: []}');
+  }
+  if ((source.total_count !== undefined &&
+       (!Number.isSafeInteger(source.total_count) || source.total_count !== source.data.length)) ||
+      (source.links !== undefined &&
+       (!source.links || typeof source.links !== 'object' || Array.isArray(source.links) ||
+        source.links.next !== null))) {
+    throw new Error('Incomplete catalogue coverage: total_count mismatch or unfetched next page');
   }
   const provenance = {
     authority: 'imported', source: metadata.source, revision: metadata.revision,
@@ -131,13 +138,7 @@ function importLegacySnapshot(bytes, metadata) {
 
 function importPinnedLegacySnapshot() {
   const bytes = readFileSync(join(__dirname, '../../containers/api-proxy/models.dev.catalog.json'));
-  return importLegacySnapshot(bytes, {
-    source: BUNDLED_SOURCE,
-    revision: BUNDLED_GIT_BLOB,
-    retrievedAt: BUNDLED_COMMIT_TIMESTAMP,
-    sha256: BUNDLED_SHA256,
-    license: 'upstream license unknown; local committed copy',
-  });
+  return importLegacySnapshot(bytes, metadata);
 }
 
 module.exports = {
