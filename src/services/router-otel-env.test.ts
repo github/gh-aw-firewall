@@ -107,6 +107,13 @@ describe('router OpenTelemetry settings', () => {
         .toBe(`${space}${space}HTTPS://[REDACTED]@collector:4318/v1`);
     });
 
+    it('redacts header values of any type and leaves other non-string values unchanged', () => {
+      expect(redactOtlpEnvValue('OTEL_EXPORTER_OTLP_HEADERS', 12345)).toBe('[REDACTED]');
+      expect(redactOtlpEnvValue('AWF_ROUTER_OTEL_EXPORTER_OTLP_TRACES_HEADERS', null)).toBe('[REDACTED]');
+      expect(redactOtlpEnvValue('OTEL_EXPORTER_OTLP_ENDPOINT', null)).toBeNull();
+      expect(redactOtlpEnvValue('OTEL_METRIC_EXPORT_INTERVAL', 1000)).toBe(1000);
+    });
+
     it('leaves other settings unchanged', () => {
       expect(redactOtlpEnvValue('OTEL_SERVICE_NAME', 'user:pw@x')).toBe('user:pw@x');
       expect(redactOtlpEnvValue('OTEL_EXPORTER_OTLP_PROTOCOL', 'http/protobuf')).toBe('http/protobuf');

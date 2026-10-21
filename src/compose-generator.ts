@@ -290,10 +290,11 @@ export function redactDockerComposeSecrets(
           (service.environment as Record<string, string>)[key] = '[REDACTED]';
           continue;
         }
-        let value = (service.environment as Record<string, string>)[key];
-        if (typeof value === 'string') value = redactOtlpEnvValue(key, value);
-        if (typeof value === 'string' && sensitiveValues.length > 0) value = redactSensitiveValues(value, sensitiveValues);
-        (service.environment as Record<string, string>)[key] = value;
+        const value = redactOtlpEnvValue(key, (service.environment as Record<string, unknown>)[key]);
+        (service.environment as Record<string, unknown>)[key] = value;
+        if (typeof value === 'string' && sensitiveValues.length > 0) {
+          (service.environment as Record<string, string>)[key] = redactSensitiveValues(value, sensitiveValues);
+        }
       }
     }
   }

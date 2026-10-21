@@ -38,7 +38,7 @@ export function isRouterOtelHostEnvVar(name: string): boolean {
  * Builds the router's `OTEL_*` environment from the set, non-blank `AWF_ROUTER_OTEL_*`
  * host variables. Values are passed as they are; the router validates them.
  */
-export function buildRouterOtelEnv(hostEnv: NodeJS.ProcessEnv = process.env): Record<string, string> {
+export function buildRouterOtelEnv(hostEnv: NodeJS.ProcessEnv): Record<string, string> {
   const environment: Record<string, string> = {};
   for (const name of ROUTER_OTEL_SETTINGS) {
     const value = hostEnv[ROUTER_OTEL_HOST_PREFIX + name];
@@ -55,11 +55,13 @@ const URL_USER_INFO = /^([\s\u0085]*[A-Za-z][A-Za-z0-9+.-]*:\/\/)[^/?#]*@/;
 
 /**
  * Redacts an OTLP exporter setting for a compose snapshot: header values, which carry
- * collector credentials, entirely, and the user info of an endpoint URL. Other values are
- * returned unchanged.
+ * collector credentials, entirely, whatever their type, and the user info of an endpoint URL.
+ * Other values are returned unchanged.
  */
-export function redactOtlpEnvValue(name: string, value: string): string {
+export function redactOtlpEnvValue(name: string, value: unknown): unknown {
   if (OTLP_HEADERS_ENV_VAR.test(name)) return '[REDACTED]';
-  if (OTLP_ENDPOINT_ENV_VAR.test(name)) return value.replace(URL_USER_INFO, '$1[REDACTED]@');
+  if (OTLP_ENDPOINT_ENV_VAR.test(name) && typeof value === 'string') {
+    return value.replace(URL_USER_INFO, '$1[REDACTED]@');
+  }
   return value;
 }

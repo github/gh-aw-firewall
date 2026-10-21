@@ -6,8 +6,7 @@ function isSensitiveComposeEnvVar(name: string): boolean {
 }
 
 function sanitizeComposeEnvValue(name: string, value: unknown): unknown {
-  if (isSensitiveComposeEnvVar(name)) return '[REDACTED]';
-  return typeof value === 'string' ? redactOtlpEnvValue(name, value) : value;
+  return isSensitiveComposeEnvVar(name) ? '[REDACTED]' : redactOtlpEnvValue(name, value);
 }
 
 function sanitizeComposeEnvironment(environment: unknown): void {
