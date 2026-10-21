@@ -37,6 +37,7 @@ on:
       - 'src/services/api-proxy-service-config.ts'
       - 'src/services/agent-environment/tool-specific-environment.ts'
       - 'src/services/credentials/copilot-credential-env.ts'
+      - 'src/services/router-otel-env.ts'
       - 'src/services/router-service.ts'
       - 'tests/integration/model-routing.test.ts'
   schedule:
@@ -367,6 +368,9 @@ jobs:
       - name: Route between two Copilot candidates and allow a deviating choice
         env:
           COPILOT_GITHUB_TOKEN: ${{ github.token }}
+          # A known workflow parent: the api-proxy's router-call spans must join this trace.
+          GITHUB_AW_OTEL_TRACE_ID: 4bf92f3577b34da6a3ce929d0e0e4736
+          GITHUB_AW_OTEL_PARENT_SPAN_ID: 00f067aa0ba902b7
         run: |
           set -euo pipefail
           ROUTING_DIR="${GITHUB_WORKSPACE}/.routing-smoke/multi"
@@ -499,7 +503,7 @@ jobs:
           )"
 
           echo "::group::Routed choice is admitted"
-          sudo --preserve-env=COPILOT_GITHUB_TOKEN,GITHUB_WORKSPACE,GITHUB_RUN_ID,GITHUB_RUN_ATTEMPT,GITHUB_REPOSITORY,GITHUB_WORKFLOW_REF,HOME,PATH \
+          sudo --preserve-env=COPILOT_GITHUB_TOKEN,GITHUB_WORKSPACE,GITHUB_RUN_ID,GITHUB_RUN_ATTEMPT,GITHUB_REPOSITORY,GITHUB_WORKFLOW_REF,GITHUB_AW_OTEL_TRACE_ID,GITHUB_AW_OTEL_PARENT_SPAN_ID,HOME,PATH \
             node dist/cli.js --config "${ROUTING_DIR}/awf-config.yml" \
             --proxy-logs-dir "${ROUTING_DIR}/logs-selected" \
             --env ROUTING_EVIDENCE_DIR="${ROUTING_DIR}" --env ROUTING_TARGET=selected -- bash -euc "$ROUTED_COMMAND"
@@ -507,7 +511,7 @@ jobs:
 
           echo "::group::Non-selected candidate is admitted (advisory routing)"
           # A deviating request is not a routing failure: the run must exit 0.
-          sudo --preserve-env=COPILOT_GITHUB_TOKEN,GITHUB_WORKSPACE,GITHUB_RUN_ID,GITHUB_RUN_ATTEMPT,GITHUB_REPOSITORY,GITHUB_WORKFLOW_REF,HOME,PATH \
+          sudo --preserve-env=COPILOT_GITHUB_TOKEN,GITHUB_WORKSPACE,GITHUB_RUN_ID,GITHUB_RUN_ATTEMPT,GITHUB_REPOSITORY,GITHUB_WORKFLOW_REF,GITHUB_AW_OTEL_TRACE_ID,GITHUB_AW_OTEL_PARENT_SPAN_ID,HOME,PATH \
             node dist/cli.js --config "${ROUTING_DIR}/awf-config.yml" \
             --proxy-logs-dir "${ROUTING_DIR}/logs-other" \
             --env ROUTING_EVIDENCE_DIR="${ROUTING_DIR}" --env ROUTING_TARGET=other -- bash -euc "$ROUTED_COMMAND"
@@ -595,6 +599,26 @@ jobs:
               assert.ok(rejection.deviations.includes("model"));
             }
             assert.ok(!records.some(record => record.stage === "failure"), "advisory deviation caused a routing failure");
+            // The api-proxy's router-call spans (file exporter, no collector) join the workflow
+            // trace and record the same selection as the routing audit record.
+            const spans = readJsonl(path.join(logs, "otel.jsonl")).filter(span => span.name.startsWith("api_proxy.router."));
+            for (const operation of ["capabilities", "route"]) {
+              assert.ok(spans.some(span => span.name === `api_proxy.router.${operation}`), `missing api_proxy.router.${operation} span`);
+            }
+            for (const span of spans) {
+              assert.equal(span.traceId, "4bf92f3577b34da6a3ce929d0e0e4736", `${span.name} is not in the workflow trace`);
+              assert.equal(span.parentSpanId, "00f067aa0ba902b7", `${span.name} is not a child of the workflow span`);
+              assert.equal(span.kind, 2, `${span.name} is not a CLIENT span`);
+            }
+            const routeSpans = spans.filter(span => span.name === "api_proxy.router.route" && span.status?.code === 1);
+            assert.equal(routeSpans.length, 1, "expected one successful route span per routed run");
+            const routeAttributes = routeSpans[0].attributes;
+            assert.equal(routeAttributes["gh_aw_router.goal"], selection.objective.goal);
+            assert.equal(routeAttributes["gh_aw_router.mode"], selection.objective.mode);
+            assert.equal(routeAttributes["gh_aw_router.classification.present"], !selection.degraded_classification);
+            assert.equal(routeAttributes["gh_aw_router.selected.model"], selection.selected_model);
+            assert.equal(routeAttributes["gh_aw_router.selected.effort"] ?? null, selection.selected_effort);
+            console.log(`ROUTER_CALL_SPANS=passed target=${target} spans=${spans.length}`);
             const usageFile = path.join(logs, "token-usage.jsonl");
             const usage = fs.existsSync(usageFile) ? readJsonl(usageFile) : [];
             for (const request of requests) {

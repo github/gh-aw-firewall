@@ -35,17 +35,25 @@ This directory contains comprehensive integration tests that verify firewall beh
 
 ### Integration Testing
 - **CLI Proxy** (`cli-proxy.test.ts`) - gh wrapper routing, token isolation, and opt-in approved-integrity live regression coverage
-- **Model Routing** (`model-routing.test.ts`) - Router health, capabilities, classifier, and route endpoints from the API-proxy network
+- **Model Routing** (`model-routing.test.ts`) - Router health, capabilities, classifier, and route endpoints from the API-proxy network, and router OpenTelemetry export to a test collector on the internal routing network
 - **Claude Code** (`claude-code.test.ts`) - Claude Code CLI integration
 - **No Docker** (`no-docker.test.ts`) - Docker-in-Docker removal verification
 - **Docker Warning** (`docker-warning.test.ts`) - Docker command warning messages
 
 The model-routing smoke exercises the router's live planning API through the
 API-proxy container and prints a `MODEL_ROUTING_SMOKE` record with the router
-version and selected fixture choice. The GitHub Actions workflow
+version and selected fixture choice. It also maps `AWF_ROUTER_OTEL_*` settings
+to the router as AWF does, and checks with a test-only OTLP/HTTP protobuf
+collector that router spans are children of the caller's spans, that both
+signals arrive, that disabled signals stay off, and that a failing collector
+doesn't affect routing. Set `ROUTER_IMAGE` to test a prebuilt router image;
+otherwise compose builds `containers/router`. The pinned API-proxy image, used
+only as a Node.js runtime, is amd64-only; on hosts without amd64 emulation, set
+`ROUTING_TEST_API_PROXY_IMAGE` to a multi-arch API-proxy image. The GitHub Actions workflow
 `.github/workflows/test-model-routing.yml` also runs AWF on Linux with routing
 enabled, restricts routing to one known Copilot model, and validates a live
-Copilot inference response. It runs on routing-related pushes to `main`,
+Copilot inference response, and that the API proxy's router-call spans join
+the workflow trace with the same selection as the routing record. It runs on routing-related pushes to `main`,
 weekly, and via `workflow_dispatch` on `main` only. It deliberately
 does not run on pull requests because it uses `copilot-requests: write` and
 performs a real inference with the workflow token.
