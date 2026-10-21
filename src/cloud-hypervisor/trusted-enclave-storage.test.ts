@@ -153,11 +153,38 @@ describe('production trusted enclave storage availability', () => {
 describe('invocation-wide kernel-enforced storage', () => {
   const tools = { mount: '/trusted/mount', umount: '/trusted/umount' } as CloudHypervisorHostToolPaths;
   const temporaryPaths: string[] = [];
+  function createInvocationPlan(overrides: Partial<HostExecutorInvocationPlan> = {}): HostExecutorInvocationPlan {
+    return {
+      runId: 'a'.repeat(32), entryId: 'script', invocationId: 'b'.repeat(32), executorKind: 'script',
+      invocationHostDir: '/private/SECRET/invocations/script/invocation',
+      ...overrides,
+    } as HostExecutorInvocationPlan;
+  }
+  function invocationStorageRoot(plan: HostExecutorInvocationPlan): string {
+    return hostExecutorStorageDirectory(hostExecutorVmRunId(plan));
+  }
+
   afterEach(async () => {
     jest.restoreAllMocks();
     (execa as unknown as jest.Mock).mockReset();
     await Promise.all(temporaryPaths.splice(0).map((temporaryPath) =>
       fs.rm(temporaryPath, { recursive: true, force: true })));
+  });
+
+  it('keeps invocation fixture overrides isolated and derives storage from the supplied identity', () => {
+    const original = createInvocationPlan();
+    const overrides = {
+      runId: 'c'.repeat(32), entryId: 'agent', invocationId: 'd'.repeat(32), executorKind: 'agent' as const,
+      invocationHostDir: '/private/invocations/agent/alternate',
+    };
+    const plan = createInvocationPlan(overrides);
+    expect(plan).toEqual({ ...original, ...overrides });
+    expect(createInvocationPlan()).toEqual(original);
+    expect(createInvocationPlan()).not.toBe(original);
+    for (const invocation of [original, plan]) {
+      expect(invocationStorageRoot(invocation)).toBe(hostExecutorStorageDirectory(hostExecutorVmRunId(invocation)));
+    }
+    expect(invocationStorageRoot(plan)).not.toBe(invocationStorageRoot(original));
   });
 
   it('uses the dedicated host cap and root ownership without weakening mount or capacity checks', async () => {
@@ -339,11 +366,8 @@ describe('invocation-wide kernel-enforced storage', () => {
     { hypothesis: 'journal rejected changed identity', fault: 'journal', slot: 'invocationVerified',
       check: 'journal-identity', expected: null },
   ])('discriminates $hypothesis using the same table as the private propagation guard', async ({ fault, slot, check, expected }) => {
-    const plan = {
-      runId: 'a'.repeat(32), entryId: 'script', invocationId: 'b'.repeat(32), executorKind: 'script',
-      invocationHostDir: '/private/SECRET/invocations/script/invocation',
-    } as HostExecutorInvocationPlan;
-    const root = hostExecutorStorageDirectory(hostExecutorVmRunId(plan));
+    const plan = createInvocationPlan();
+    const root = invocationStorageRoot(plan);
     const journal = {
       prepareStorage: jest.fn(), captureStorageDirectory: jest.fn(), prepareStorageMount: jest.fn(),
       captureStorageMount: jest.fn(), verifyStorage: jest.fn(), closeStorage: jest.fn(),
@@ -428,11 +452,8 @@ describe('invocation-wide kernel-enforced storage', () => {
 
   it.each(['privatized', 'privatize-ignored', 'remount-shared', 'privatize-denied', 'privatize-command-failed'])(
     'privatizes only the captured invocation mount beneath a shared destination (%s)', async (outcome) => {
-      const plan = {
-        runId: 'a'.repeat(32), entryId: 'script', invocationId: 'b'.repeat(32), executorKind: 'script',
-        invocationHostDir: '/private/SECRET/invocations/script/invocation',
-      } as HostExecutorInvocationPlan;
-      const root = hostExecutorStorageDirectory(hostExecutorVmRunId(plan));
+      const plan = createInvocationPlan();
+      const root = invocationStorageRoot(plan);
       const journal = {
         prepareStorage: jest.fn(), captureStorageDirectory: jest.fn(), prepareStorageMount: jest.fn(),
         captureStorageMount: jest.fn(), verifyStorage: jest.fn(), closeStorage: jest.fn(),
@@ -507,11 +528,8 @@ describe('invocation-wide kernel-enforced storage', () => {
 
   it.each(['before-bind', 'after-bind'])(
     'keeps storage identity cleanup safe when the %s mountinfo read fails', async (failedRead) => {
-      const plan = {
-        runId: 'a'.repeat(32), entryId: 'script', invocationId: 'b'.repeat(32), executorKind: 'script',
-        invocationHostDir: '/private/SECRET/invocations/script/invocation',
-      } as HostExecutorInvocationPlan;
-      const root = hostExecutorStorageDirectory(hostExecutorVmRunId(plan));
+      const plan = createInvocationPlan();
+      const root = invocationStorageRoot(plan);
       const journal = {
         prepareStorage: jest.fn(), captureStorageDirectory: jest.fn(), prepareStorageMount: jest.fn(),
         captureStorageMount: jest.fn(), verifyStorage: jest.fn(), closeStorage: jest.fn(),

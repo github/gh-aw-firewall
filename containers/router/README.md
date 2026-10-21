@@ -4,9 +4,10 @@ gh-aw-router picks the model for a software task. It builds a provider-neutral c
 prompt, then ranks the exact model choices a caller offers using a routing table compiled
 offline. It never calls a provider, executes an agent, fits a model, or stores request history.
 
-The router is a single Go binary with no dependencies outside the standard library. AWF runs it
-as a sidecar from the image this directory builds. Training, benchmark evidence, and publication
-tooling are maintained separately and are not needed to build or run it.
+The router is a single Go binary. Apart from the optional OpenTelemetry SDK, it uses only the
+standard library. AWF runs it as a sidecar from the image this directory builds. Training,
+benchmark evidence, and publication tooling are maintained separately and are not needed to
+build or run it.
 
 ## Build and run
 
@@ -202,7 +203,9 @@ then listens (exit 1 if that fails). It uses Go's `net/http` server with these l
   are handled by `net/http` before the router sees them.
 
 On SIGTERM or SIGINT the server stops accepting connections, lets in-flight requests finish for
-up to 0.5 s, closes the rest and exits 0.
+up to 0.5 s, closes the rest and exits 0. With [telemetry](#telemetry) on, it drains for up to
+0.25 s and then flushes telemetry for up to 0.5 s, so that it still exits within the 1 s AWF
+allows before SIGKILL.
 
 `serve` writes one JSON object per line to stderr, and nothing else once its arguments are
 parsed. Usage errors stay plain text. Every record has `time` (RFC 3339 UTC with milliseconds),
@@ -214,17 +217,115 @@ parsed. Usage errors stay plain text. Every record has `time` (RFC 3339 UTC with
 | `routing tables loaded` | INFO | `tables_path`, `profiles`, `models`, `label_cells` |
 | `routing tables invalid` | ERROR | `error_code` (`invalid_model_data`), `error` |
 | `configuration invalid` | ERROR | `error_code` (`invalid_request`), `error` |
+| `telemetry setting invalid` | WARN | `variable`, `effect` (`traces disabled`, `metrics disabled`, `traces and metrics disabled`, `ignored` or `other keys ignored`) |
+| `telemetry configured` | INFO | `traces` and `metrics` (`enabled` or `disabled`); with either on, `protocol`, and `traces_endpoint` or `metrics_endpoint` for each enabled signal |
 | `listening` | INFO | `address` |
 | `listen failed` | ERROR | `error` |
-| `request` | INFO, or ERROR for a status of 500 or above | `request_id`, `method`, `route`, `status`, `duration_ms`, `error_code` (error envelopes only), `request_bytes`, `response_bytes` |
+| `request` | INFO, or ERROR for a status of 500 or above | `request_id`, `method`, `route`, `status`, `duration_ms`, `error_code` (error envelopes only), `request_bytes`, `response_bytes`, `trace_id` and `span_id` (see [Telemetry](#telemetry)) |
 | `panic` | ERROR | `request_id`, `route`, `stack` |
+| `telemetry error` | WARN | `signal` (`traces`, `metrics` or `sdk`), `reason` (`HTTP` and the status, `timeout`, `connection refused` or `other`) |
 | `shutting down` | INFO | `signal` |
+| `telemetry flush incomplete` | WARN | none |
 | `stopped` | INFO | `drained` (whether in-flight requests finished in time), `duration_ms` |
 
 `route` is one of the four served paths or `unmatched`, and `method` is a standard HTTP method
 or `_OTHER`. `request_id` is random for each request and isn't sent to the client. A successful
 `/healthz` call isn't logged. Records never contain request or response bodies, headers, query
-strings, unmatched paths, model or choice ids, error details or panic values.
+strings, unmatched paths, model or choice ids, error details or panic values. The one exception
+is `trace_id`, which can come from a valid `traceparent` header. Telemetry records never contain
+a setting's value, an endpoint's path, query or user info, or an exporter's error text.
+
+### Telemetry
+
+The router can export OpenTelemetry traces and metrics over OTLP/HTTP with protobuf encoding.
+It's off by default: a signal is on only when it has an endpoint. With no endpoint, the router
+starts no telemetry goroutines and makes no network calls, and only its stderr records change.
+A setting that is invalid or unsupported never stops the router. It logs `telemetry setting
+invalid`, naming the variable but not its value, and turns off the signals it applies to.
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | none | Base URL for both signals. The router adds `/v1/traces` and `/v1/metrics` to its path. |
+| `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT`, `OTEL_EXPORTER_OTLP_METRICS_ENDPOINT` | the base URL | Complete URL for one signal, used as is. |
+| `OTEL_SDK_DISABLED` | `false` | `true` turns both signals off. Incoming trace context still reaches the logs. |
+| `OTEL_TRACES_EXPORTER`, `OTEL_METRICS_EXPORTER` | `otlp` | `otlp` or `none`. |
+| `OTEL_EXPORTER_OTLP_PROTOCOL` | `http/protobuf` | Only `http/protobuf`. `grpc` and `http/json` turn the signal off. |
+| `OTEL_EXPORTER_OTLP_HEADERS` | none | Comma-separated `name=value` pairs with percent-encoded values, for example `authorization=Bearer%20token`. |
+| `OTEL_EXPORTER_OTLP_TIMEOUT` | `10000` | Export timeout in milliseconds. |
+| `OTEL_EXPORTER_OTLP_CERTIFICATE` | the system roots | PEM file of the CA certificates to trust instead of the system roots. |
+| `OTEL_TRACES_SAMPLER` | `parentbased_always_on` | `always_on`, `always_off`, `traceidratio`, or `parentbased_` and any of those. |
+| `OTEL_TRACES_SAMPLER_ARG` | `1` | The ratio, from 0 to 1, for the ratio samplers. |
+| `OTEL_METRIC_EXPORT_INTERVAL` | `60000` | Milliseconds between metric exports. |
+| `OTEL_METRIC_EXPORT_TIMEOUT` | `30000` | Metric export timeout in milliseconds. |
+| `OTEL_SERVICE_NAME` | `gh-aw-router` | The `service.name` resource attribute. |
+| `OTEL_RESOURCE_ATTRIBUTES` | none | Only `service.namespace` and `deployment.environment.name`. Other keys are ignored with a warning. |
+
+The protocol, headers, timeout and certificate variables also have per-signal forms, such as
+`OTEL_EXPORTER_OTLP_TRACES_HEADERS`, which replace the shared setting for that signal. Client
+certificates aren't supported. The exporters use `HTTPS_PROXY`, `NO_PROXY` and `SSL_CERT_FILE`
+as any Go client does. The SDK reads a few more variables itself, such as
+`OTEL_EXPORTER_OTLP_COMPRESSION`, the metric temporality and histogram aggregation preferences,
+and the span limits. The resource is `service.name`, `service.version` (the router version,
+which can't be overridden), a random `service.instance.id` for each process, the two allowed
+attributes and the SDK's name, language and version.
+
+Metrics are cumulative and exported every 60 s by default, and shutdown exports what's left, so a
+run shorter than the interval still reports its totals. Set `OTEL_METRIC_EXPORT_INTERVAL` lower
+only to see metrics during a run or to keep them if the final flush fails. Spans are exported in
+batches every 5 s. Shutdown flushes what's left within 0.5 s, but doesn't wait longer for a slow
+collector; if the flush doesn't finish, the router logs `telemetry flush incomplete`. A failing
+collector never slows requests: spans queue in memory (up to 2,048, then new spans are
+dropped), and export failures are logged as `telemetry error` at most once a minute per signal.
+An exporter retries a failed export until its export timeout ends, so a failure is logged when
+that timeout ends. An export that shutdown interrupts isn't logged, because the final flush
+reports its own result.
+
+**Trace context.** The router reads W3C `traceparent` and `tracestate` and ignores `baggage`. A
+valid `traceparent` makes the router's span its child; without one the span is a new root. The
+caller's `tracestate` stays on the router's spans, as W3C propagation requires, but is never
+logged. The router makes no outbound calls, so it never sends trace context on. The `request`
+record gets `trace_id` and `span_id` when the router started a span, even an unsampled one.
+Without a router span, such as when tracing is off, a request rejected with a bare 503 or a
+`/healthz` call, it gets only the `trace_id` of a valid incoming `traceparent`.
+
+**Spans.** Each request gets one `SERVER` span named `{method} {route}`, or just `{method}` for
+an unmatched path, except `GET /healthz` and requests rejected with a bare 503. Its attributes
+are `http.request.method`, `http.route` (matched paths only), `url.scheme`,
+`network.protocol.version`, `http.response.status_code` and, for an error, `error.type` (the
+error envelope's `code`). A request whose body never arrives has `error.type`
+`request_aborted` and no status code. The span's status is `Error` only for a 5xx response or
+an aborted request.
+
+A `/classify` or `/route` request whose body decodes also gets an `INTERNAL` child span,
+`gh_aw_router.classify` or `gh_aw_router.route`, with these attributes, all prefixed with
+`gh_aw_router.`:
+
+- `outcome`: `ok`, `invalid_request`, `no_route` or `internal_error`;
+- `conversation.messages` and `models.count`: the number of messages and candidates;
+- `prior_turns.included` (classify, when the outcome is `ok`): the earlier turns in the prompt;
+- `goal`, `mode`, `resolved_mode` and `classification.present` (route);
+- `task_type`, `scope`, `task_complexity` and `mode_recommendation` (route, when the request
+  includes a classification);
+- `selected.model` and `selected.effort` (route, when the outcome is `ok`): the top choice,
+  taken from the loaded execution catalogue, never from the request.
+
+**Metrics.**
+
+| Instrument | Type and unit | Attributes |
+| --- | --- | --- |
+| `http.server.request.duration` | histogram, `s`, with the semconv advisory buckets | `http.request.method`, `http.route` (matched paths only), `http.response.status_code` (not for aborted requests), `error.type` (errors only; `503` for a bare 503) |
+| `gh_aw_router.requests.rejected` | counter, `{request}` | `gh_aw_router.reason`: `overload` or `payload_too_large` |
+| `gh_aw_router.planning.outcomes` | counter, `{request}` | `gh_aw_router.operation` (`classify` or `route`) and `gh_aw_router.outcome`; for route, also `gh_aw_router.goal`, `gh_aw_router.mode` and `gh_aw_router.resolved_mode` |
+
+Every attribute value comes from a fixed set, so the number of series is bounded. Metrics never
+carry model ids or classifier labels. The histogram's count also counts rejected requests;
+`requests.rejected` repeats them under one name, so that load shedding is easy to find and
+alert on.
+
+**Privacy.** Spans and metrics never contain conversation text, tool names, inputs or results,
+candidate lists or ids, `current_id`, request headers, query strings, unmatched paths, prompts
+or error details. A model id appears only as `selected.model`, and only when it's in the loaded
+catalogue.
 
 ## Routing tables
 
@@ -385,8 +486,8 @@ container tests.
 
 ### Project layout
 
-- The `.go` files and `go.mod` are the router: one flat `main` package and its tests. The image
-  build copies only `go.mod` and the non-test `.go` files.
+- The `.go` files, `go.mod` and `go.sum` are the router: one flat `main` package and its tests.
+  The image build copies only `go.mod`, `go.sum` and the non-test `.go` files.
 - `routing/` contains generated routing tables from training.
 - `schemas/` contains the versioned JSON Schema for routing table files.
 - `trust/` is AWF's shared CA distrust policy, which the image build applies to its CA bundle.
@@ -400,8 +501,10 @@ container tests.
 - Keep request and response types in `contract.go` and request decoding in `decode.go`.
 - Keep routing in `route.go`, classifier prompts in `classify.go`, and deterministic fallback
   rules in `heuristics.go`.
-- Keep the CLI in `cli.go`, and HTTP serving in `serve.go` and `server.go`.
-- Use only the Go standard library.
+- Keep the CLI in `cli.go`, HTTP serving in `serve.go` and `server.go`, and OpenTelemetry
+  configuration and export in `telemetry.go`.
+- Use only the Go standard library, apart from the OpenTelemetry SDK and its exporters. Never
+  put conversation text, request ids, headers or other request-controlled values in telemetry.
 - Document public behavior, errors, defaults, and approximation limits rather than repeating types.
 - Preserve exact offered model identities and explicit reasoning efforts.
 - Keep OpenAPI, examples, and fixtures aligned with runtime behavior.
@@ -433,10 +536,15 @@ Do not execute untrusted PR code through `pull_request_target`.
 
 ### Dependencies and routing data
 
-The router has no Go module dependencies. Dependabot updates the Docker base image weekly, and
-`go.mod`'s toolchain is updated by hand to match it. Keep external actions pinned to full
-commit SHAs when reviewing updates. Routing JSON files are generated offline. Do not hand-edit
-rankings or add runtime dependencies on training tools.
+The router's only Go module dependencies are the OpenTelemetry SDK, its OTLP/HTTP exporters
+and what they pull in; the tests also decode OTLP protobuf. The exporters' generated OTLP
+packages link parts of gRPC and grpc-gateway into the binary even though the router exports
+only over HTTP, so `govulncheck` findings in those modules, and in `golang.org/x/net`, apply
+to it. Raise the indirect requirement when an advisory needs it, and keep the OpenTelemetry
+modules on one release. Dependabot updates the Go modules and the Docker base image weekly,
+and `go.mod`'s toolchain is updated by hand to match the base image. Keep external actions
+pinned to full commit SHAs when reviewing updates. Routing JSON files are generated offline.
+Do not hand-edit rankings or add runtime dependencies on training tools.
 
 ## Security
 
