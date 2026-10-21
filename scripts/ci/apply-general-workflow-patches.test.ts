@@ -70,6 +70,35 @@ describe('applyGeneralWorkflowPatches Copilot CLI copy step gating', () => {
   });
 });
 
+describe('applyGeneralWorkflowPatches AOAI smoke GitHub MCP catalog', () => {
+  const compilerOutput =
+    '          cp "${RUNNER_TEMP}/gh-aw/awf-config.json" /tmp/gh-aw/awf-config.json\n' +
+    '              "github": {\n' +
+    '                "env": {\n' +
+    '                  "GITHUB_TOOLSETS": "pull_requests"\n' +
+    '                }\n' +
+    '              }\n';
+
+  it.each(['apikey', 'entra'])('restricts the %s workflow server catalog', auth => {
+    const workflowPath = `/tmp/workflows/smoke-copilot-byok-aoai-${auth}.lock.yml`;
+    const { content, log } = applyGeneralWorkflowPatches(compilerOutput, workflowPath);
+
+    expect(content).toContain('"GITHUB_TOOLS": "list_pull_requests"');
+    expect(content).toContain('"GITHUB_TOOLSETS": "pull_requests"');
+    expect(log).toContain('  Restricted the GitHub MCP catalog to list_pull_requests');
+    expect(applyGeneralWorkflowPatches(content, workflowPath).content).toBe(content);
+  });
+
+  it('does not restrict other GitHub MCP workflows', () => {
+    const { content } = applyGeneralWorkflowPatches(
+      compilerOutput,
+      '/tmp/workflows/smoke-copilot.lock.yml',
+    );
+
+    expect(content).not.toContain('"GITHUB_TOOLS": "list_pull_requests"');
+  });
+});
+
 describe('applyGeneralWorkflowPatches Cloud Hypervisor writable metadata', () => {
   const compilerOutput =
     'jobs:\n' +

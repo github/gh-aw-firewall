@@ -90,6 +90,18 @@ export function applyGeneralWorkflowPatches(
       content = content.replace(configCopy, (match, indent: string) => `${match}\n${indent}${pricingCommand}`);
       log.push('  Configured workflow-scoped Azure deployment pricing without changing budget limits');
     }
+
+    if (!content.includes('"GITHUB_TOOLS": "list_pull_requests"')) {
+      const githubToolsets = /^([ \t]*)"GITHUB_TOOLSETS": "pull_requests"$/m;
+      if (githubToolsets.test(content)) {
+        content = content.replace(
+          githubToolsets,
+          (_match, indent: string) =>
+            `${indent}"GITHUB_TOOLSETS": "pull_requests",\n${indent}"GITHUB_TOOLS": "list_pull_requests"`,
+        );
+        log.push('  Restricted the GitHub MCP catalog to list_pull_requests');
+      }
+    }
   }
 
   if (workflowPath.endsWith('smoke-enclave-issues-read.lock.yml')) {

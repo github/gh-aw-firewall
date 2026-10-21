@@ -46,6 +46,9 @@ describe('smoke copilot BYOK workflow model selection', () => {
       expect(prompt).toContain('Do NOT call any other GitHub tool and do NOT retry on any error');
       expect(prompt).toContain('❌ otherwise. Do not call `missing_tool`; continue to Output.');
       expect(lock).toContain('github(list_pull_requests)');
+      expect(lock.match(/"GITHUB_TOOLS": "[^"]+"/g)).toEqual([
+        '"GITHUB_TOOLS": "list_pull_requests"',
+      ]);
       expect(lock).not.toContain('--allow-tool shell');
       expect(lock).not.toContain("--allow-tool '\\''shell(github:*)'\\''");
     });

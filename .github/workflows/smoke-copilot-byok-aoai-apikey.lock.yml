@@ -884,7 +884,8 @@ jobs:
                   "GITHUB_HOST": "${GITHUB_SERVER_URL}",
                   "GITHUB_PERSONAL_ACCESS_TOKEN": "${GITHUB_MCP_SERVER_TOKEN}",
                   "GITHUB_READ_ONLY": "1",
-                  "GITHUB_TOOLSETS": "pull_requests"
+                  "GITHUB_TOOLSETS": "pull_requests",
+                  "GITHUB_TOOLS": "list_pull_requests"
                 },
                 "guard-policies": {
                   "allow-only": {
