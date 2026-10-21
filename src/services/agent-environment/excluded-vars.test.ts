@@ -37,22 +37,6 @@ describe('buildExclusionSet', () => {
       }
     });
 
-    it('never passes router export settings to the agent', () => {
-      const excluded = buildExclusionSet(makeConfig({ envAll: true }));
-      for (const name of [
-        'AWF_ROUTER_OTEL_EXPORTER_OTLP_ENDPOINT',
-        'AWF_ROUTER_OTEL_EXPORTER_OTLP_HEADERS',
-        'AWF_ROUTER_OTEL_EXPORTER_OTLP_TRACES_HEADERS',
-        'AWF_ROUTER_OTEL_EXPORTER_OTLP_METRICS_HEADERS',
-        'AWF_ROUTER_OTEL_EXPORTER_OTLP_METRICS_CERTIFICATE',
-        'AWF_ROUTER_OTEL_SERVICE_NAME',
-        'AWF_ROUTER_OTEL_RESOURCE_ATTRIBUTES',
-        'AWF_ROUTER_OTEL_METRIC_EXPORT_INTERVAL',
-      ]) {
-        expect(excluded.has(name)).toBe(true);
-      }
-    });
-
     it('should always exclude shell state variables', () => {
       const set = buildExclusionSet(makeConfig());
       expect(set.has('PWD')).toBe(true);

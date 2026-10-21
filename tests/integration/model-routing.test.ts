@@ -5,8 +5,8 @@ import * as path from 'path';
 import execa = require('execa');
 import * as yaml from 'js-yaml';
 import { afterAll, beforeAll, describe, expect, test } from '@jest/globals';
-import { ROUTER_HEALTHCHECK_TEST } from '../../src/services/router-service';
-import { buildRouterOtelEnv } from '../../src/services/router-otel-env';
+import { parseImageTag } from '../../src/image-tag';
+import { buildRouterService, ROUTER_HEALTHCHECK_TEST } from '../../src/services/router-service';
 import { cleanup } from '../fixtures/cleanup';
 
 // The model-routing smoke workflow sets ROUTER_IMAGE to a digest-pinned build of containers/router.
@@ -221,6 +221,7 @@ http.createServer((req, res) => {
         signal,
         contentType: req.headers['content-type'] || null,
         authorization: req.headers.authorization || null,
+        literal: req.headers['x-awf-literal'] || null,
         status,
       };
       try {
@@ -263,6 +264,7 @@ interface CollectedExport {
   signal: 'traces' | 'metrics';
   contentType: string | null;
   authorization: string | null;
+  literal: string | null;
   status: number;
   items?: Array<CollectedSpan | { resource: Record<string, unknown>; name: string }>;
   error?: string;
@@ -270,7 +272,7 @@ interface CollectedExport {
 
 interface Scenario {
   name: string;
-  // AWF_ROUTER_OTEL_* host settings, mapped to the router's environment by AWF.
+  // AWF_ROUTER_OTEL_* host settings, which AWF's router service turns into the router's environment.
   hostSettings?: Record<string, string>;
   // The collector's response status, or undefined for no collector.
   collectorStatus?: number;
@@ -281,10 +283,20 @@ interface ScenarioResult {
   received: CollectedExport[];
 }
 
+// Only the router's environment is taken from this service; the image comes from routerSource().
+const ROUTER_IMAGE_CONFIG = {
+  useGHCR: true,
+  registry: 'ghcr.io/github/gh-aw-firewall',
+  parsedTag: parseImageTag('latest'),
+  projectRoot: path.resolve(__dirname, '../..'),
+};
 const COLLECTOR_HEADER_TOKEN = 'test-collector-token';
+// Compose would interpolate these `$` sequences unless AWF escapes them.
+const LITERAL_HEADER_VALUE = 'a$HOME${HOME}$$';
 const BASE_EXPORT_SETTINGS = {
   AWF_ROUTER_OTEL_EXPORTER_OTLP_ENDPOINT: 'http://otel-collector:4318',
-  AWF_ROUTER_OTEL_EXPORTER_OTLP_HEADERS: `authorization=Bearer%20${COLLECTOR_HEADER_TOKEN}`,
+  AWF_ROUTER_OTEL_EXPORTER_OTLP_HEADERS:
+    `authorization=Bearer%20${COLLECTOR_HEADER_TOKEN},x-awf-literal=${LITERAL_HEADER_VALUE}`,
   AWF_ROUTER_OTEL_SERVICE_NAME: 'gh-aw-router-integration',
   AWF_ROUTER_OTEL_RESOURCE_ATTRIBUTES: 'service.namespace=awf,deployment.environment.name=integration,host.name=ignored',
 };
@@ -308,11 +320,14 @@ describe('Model routing', () => {
   }
 
   function writeCompose(scenario: Scenario): string {
-    const routerEnvironment = buildRouterOtelEnv(scenario.hostSettings ?? {});
+    const routerEnvironment: Record<string, string> | undefined = buildRouterService({
+      imageConfig: ROUTER_IMAGE_CONFIG,
+      hostEnv: scenario.hostSettings ?? {},
+    }).environment;
     const services: Record<string, unknown> = {
       router: {
         ...routerSource(),
-        ...(Object.keys(routerEnvironment).length > 0 && { environment: routerEnvironment }),
+        ...(routerEnvironment && { environment: routerEnvironment }),
         networks: { routing: { aliases: ['gh-aw-router'] } },
         healthcheck: {
           test: ROUTER_HEALTHCHECK_TEST,
@@ -446,8 +461,11 @@ describe('Model routing', () => {
           'service.namespace': 'awf',
           'deployment.environment.name': 'integration',
         });
-        expect(item.resource).not.toHaveProperty('host.name');
+        // An array key path, so that Jest checks the literal dotted attribute name.
+        expect(item.resource).not.toHaveProperty(['host.name']);
       }
+      // The `$` sequences reach the collector literally, after Compose interpolation.
+      expect(exported.literal).toBe(LITERAL_HEADER_VALUE);
     }
 
     const spans = spansOf(received);

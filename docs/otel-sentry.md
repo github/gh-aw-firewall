@@ -115,9 +115,10 @@ cancelled, for example because the api-proxy is shutting down.
 The `gh-aw-router` sidecar can export its own traces and metrics, but only when the operator opts
 in. It's off by default, and routing never needs a collector.
 
-**Settings.** For each router setting `OTEL_<NAME>`, AWF reads the host variable
-`AWF_ROUTER_OTEL_<NAME>` and, when it's set and not blank, passes its value to the router as
-`OTEL_<NAME>`:
+**Settings.** For each router setting `OTEL_<NAME>`, AWF reads the variable
+`AWF_ROUTER_OTEL_<NAME>` from its own environment and, when it's set and not blank, passes its
+value to the router as `OTEL_<NAME>`. `--env` and `--env-file` set variables for the agent, not
+the router:
 
 | Host variable | Router setting |
 |---------------|----------------|
@@ -131,12 +132,13 @@ in. It's off by default, and routing never needs a collector.
 | `AWF_ROUTER_OTEL_SERVICE_NAME` | `service.name`, `gh-aw-router` by default |
 | `AWF_ROUTER_OTEL_RESOURCE_ATTRIBUTES` | Only `service.namespace` and `deployment.environment.name` |
 
-AWF passes the values as they are, and the router validates them. A signal-specific setting
-replaces the shared one for that signal, and a signal is on only when it has an endpoint. An
-invalid setting turns off the signals it applies to and is logged by name, never by value;
-routing continues. AWF sets no defaults: with no `AWF_ROUTER_OTEL_*` variable set, the router has
-no environment and makes no network calls. Metrics are cumulative, and the router exports the
-run's totals when it shuts down, so a short run needs no shorter interval. The router's
+AWF passes the values as they are, including any `$`, and the router validates them. A
+signal-specific setting replaces the shared one for that signal, and a signal is on only when it
+has an endpoint. An invalid setting turns off the signals it applies to and is logged by name,
+never by value; routing continues. AWF sets no defaults: with no `AWF_ROUTER_OTEL_*` variable
+set, the router has no environment and makes no network calls. Metrics are cumulative, and the
+router exports the run's totals when it shuts down, so a short run needs no shorter interval. The
+router's
 [telemetry documentation](https://github.com/github/gh-aw-firewall/blob/main/containers/router/README.md#telemetry)
 describes each setting, the resource and the privacy rules: router spans and metrics never contain
 conversation text, candidate lists, request headers or error details, and metrics never carry
@@ -157,10 +159,10 @@ mount files into the router, so `..._CERTIFICATE` must name a file that exists i
 image.
 
 **Credentials.** `..._HEADERS` values are collector credentials that the operator chose to give
-the router. The coding agent never sees any `AWF_ROUTER_OTEL_*` variable, even with `--env-all`.
-The audit and diagnostics copies of the compose file replace OTLP header values with
-`[REDACTED]` and remove user info from OTLP endpoint URLs, for the router's and the api-proxy's
-settings.
+the router. AWF keeps the whole `AWF_ROUTER_OTEL_*` namespace out of the coding agent's
+environment, including names it doesn't forward, whether `--env-all`, `--env-file` or `--env`
+supplies them. The audit and diagnostics copies of the compose file replace OTLP header values
+with `[REDACTED]` and remove user info from OTLP endpoint URLs.
 
 **Correlation.** With export on, the router's `SERVER` span for each call is a child of the
 api-proxy's `api_proxy.router.<operation>` span, so both appear in the workflow's trace. Each

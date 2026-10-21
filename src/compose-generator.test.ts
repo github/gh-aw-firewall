@@ -295,14 +295,53 @@ describe('generateDockerCompose', () => {
         }
       });
 
-      it('keeps AWF_ROUTER_OTEL_* settings out of the agent with --env-all', () => {
-        process.env.AWF_ROUTER_OTEL_EXPORTER_OTLP_ENDPOINT = 'http://otel-collector:4318';
-        process.env.AWF_ROUTER_OTEL_EXPORTER_OTLP_HEADERS = 'authorization=Bearer%20router-canary';
+      it('keeps the whole AWF_ROUTER_OTEL_* namespace out of the agent, whatever supplies it', () => {
+        // Supported and unsupported names, from the host with --env-all, an --env-file and --env.
+        process.env.AWF_ROUTER_OTEL_EXPORTER_OTLP_HEADERS = 'authorization=Bearer%20host-canary';
+        process.env.AWF_ROUTER_OTEL_EXPORTER_OTLP_LOGS_HEADERS = 'authorization=logs-canary';
+        const envFile = path.join(mockConfig.workDir, 'agent.env');
+        fs.writeFileSync(envFile, 'AWF_ROUTER_OTEL_EXPORTER_OTLP_HEADER=file-canary\nKEEP_FROM_FILE=kept\n');
 
-        const agentEnvironment = generateRouted({ envAll: true }).services.agent.environment as Record<string, string>;
+        const compose = generateRouted({
+          envAll: true,
+          envFile,
+          additionalEnv: {
+            AWF_ROUTER_OTEL_EXPORTER_OTLP_TRACES_HEADERS: 'x-traces=flag-canary',
+            AWF_ROUTER_OTEL_ANYTHING: 'flag-canary',
+            KEEP_FROM_FLAG: 'kept',
+          },
+        });
+        const agentEnvironment = compose.services.agent.environment as Record<string, string>;
 
         expect(Object.keys(agentEnvironment).filter(key => key.startsWith('AWF_ROUTER_OTEL_'))).toEqual([]);
-        expect(Object.values(agentEnvironment).join('\n')).not.toContain('router-canary');
+        expect(Object.values(agentEnvironment).join('\n')).not.toMatch(/canary/);
+        expect(agentEnvironment).toMatchObject({ KEEP_FROM_FILE: 'kept', KEEP_FROM_FLAG: 'kept' });
+        // Only AWF's own environment configures the router.
+        expect(compose.services.router.environment).toEqual({
+          OTEL_EXPORTER_OTLP_HEADERS: 'authorization=Bearer%20host-canary',
+        });
+      });
+
+      it('escapes $ so that Compose passes router settings literally', () => {
+        process.env.AWF_ROUTER_OTEL_EXPORTER_OTLP_HEADERS = 'x-api-key=abc$part${HOME}$$';
+        process.env.AWF_ROUTER_OTEL_SERVICE_NAME = 'router$1';
+
+        expect(generateRouted().services.router.environment).toEqual({
+          OTEL_EXPORTER_OTLP_HEADERS: 'x-api-key=abc$$part$${HOME}$$$$',
+          OTEL_SERVICE_NAME: 'router$$1',
+        });
+      });
+
+      it('redacts the user info of endpoints with leading whitespace in the audit snapshot', () => {
+        process.env.AWF_ROUTER_OTEL_EXPORTER_OTLP_TRACES_ENDPOINT = ' \u00a0http://user:pw-canary@traces:4318/v1/traces';
+        process.env.AWF_ROUTER_OTEL_EXPORTER_OTLP_METRICS_ENDPOINT = '\u0085\thttps://id-canary@metrics:4318/v1/metrics';
+
+        const redacted = redactDockerComposeSecrets(generateRouted());
+
+        expect(redacted.services.router.environment).toEqual({
+          OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: ' \u00a0http://[REDACTED]@traces:4318/v1/traces',
+          OTEL_EXPORTER_OTLP_METRICS_ENDPOINT: '\u0085\thttps://[REDACTED]@metrics:4318/v1/metrics',
+        });
       });
 
       it('redacts router collector headers and endpoint user info in the audit snapshot', () => {

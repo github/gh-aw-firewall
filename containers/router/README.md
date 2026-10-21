@@ -294,15 +294,16 @@ which also carry the route's goal, mode and validated selection, are exported by
 whether or not the router exports anything. See [OTEL Tracing in Sentry](https://github.com/github/gh-aw-firewall/blob/main/docs/otel-sentry.md#model-router-call-spans).
 
 **In AWF.** AWF passes the router only the settings in the table above, and only from
-router-specific host variables: `AWF_ROUTER_OTEL_<NAME>` becomes the router's `OTEL_<NAME>`, for
-example `AWF_ROUTER_OTEL_EXPORTER_OTLP_ENDPOINT` becomes `OTEL_EXPORTER_OTLP_ENDPOINT`. Blank
-values are skipped, and with none set the router gets no environment and exports nothing. The
+router-specific variables in AWF's own environment: `AWF_ROUTER_OTEL_<NAME>` becomes the router's
+`OTEL_<NAME>`, for example `AWF_ROUTER_OTEL_EXPORTER_OTLP_ENDPOINT` becomes
+`OTEL_EXPORTER_OTLP_ENDPOINT`. Blank values are skipped, other values, including any `$`, are
+passed literally, and with none set the router gets no environment and exports nothing. The
 shared `OTEL_*` variables in AWF's environment configure only the api-proxy, usually for an
 external collector, and never reach the router. The router stays only on AWF's internal
 `awf-routing` network, so its collector must be a container attached to that network; it can't
 reach the internet or the host, where `localhost` is the router container itself. A certificate
 path must exist inside the router image, because AWF mounts nothing into the router. The coding
-agent never sees the `AWF_ROUTER_OTEL_*` variables, and the audit and diagnostics copies of the
+agent never sees any `AWF_ROUTER_OTEL_*` variable, and the audit and diagnostics copies of the
 compose file redact collector headers and endpoint user info. See
 [OTEL Tracing in Sentry](https://github.com/github/gh-aw-firewall/blob/main/docs/otel-sentry.md#router-export)
 for details.

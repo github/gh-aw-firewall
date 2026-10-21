@@ -10,6 +10,7 @@ import { buildOtelEnvironment, buildSslEnvironment } from './observability-envir
 import { buildProxyEnvironment } from './proxy-environment';
 import { buildToolEnvironment } from './tool-specific-environment';
 import { enforceGithubTokenIsolation, getGithubTokenEnvValues } from './github-token-isolation';
+import { isRouterOtelHostEnvVar } from '../router-otel-env';
 import { AgentEnvironmentParams } from './types';
 
 export function buildAgentEnvironment(params: AgentEnvironmentParams): Record<string, string> {
@@ -22,6 +23,11 @@ export function buildAgentEnvironment(params: AgentEnvironmentParams): Record<st
   passthroughHostEnvironment({ config: params.config, environment, excludedEnvVars });
   buildOtelEnvironment({ config: params.config, environment, excludedEnvVars });
   buildGitHubActionsEnvironment({ config: params.config, environment, excludedEnvVars });
+  // Router export settings, including collector headers, belong to the router only. Drop the
+  // whole reserved namespace, whether --env-all, --env-file or --env supplied it.
+  for (const name of Object.keys(environment)) {
+    if (isRouterOtelHostEnvVar(name)) delete environment[name];
+  }
   warnLargeEnvironmentIfNeeded(params.config.envAll, environment);
   buildApiProxyEnvironment({ ...params, environment });
   buildSslEnvironment(environment, params.sslConfig);

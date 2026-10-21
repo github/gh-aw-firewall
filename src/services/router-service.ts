@@ -14,9 +14,11 @@ export const ROUTER_HEALTHCHECK_TEST = ['CMD', '/usr/local/bin/gh-aw-router', 'h
 
 interface RouterServiceParams {
   imageConfig: ImageBuildConfig;
+  // The host environment that supplies the AWF_ROUTER_OTEL_* settings.
+  hostEnv?: NodeJS.ProcessEnv;
 }
 
-export function buildRouterService({ imageConfig }: RouterServiceParams): any {
+export function buildRouterService({ imageConfig, hostEnv = process.env }: RouterServiceParams): any {
   const { useGHCR, registry, parsedTag, projectRoot, resolveImage } = imageConfig;
   const service: any = {
     container_name: ROUTER_CONTAINER_NAME,
@@ -35,8 +37,12 @@ export function buildRouterService({ imageConfig }: RouterServiceParams): any {
     ...buildContainerSecurityHardening({ memLimit: '512m', pidsLimit: 100, cpuShares: 512 }),
     stop_grace_period: '2s',
   };
-  const environment = buildRouterOtelEnv();
-  if (Object.keys(environment).length > 0) service.environment = environment;
+  const environment = Object.entries(buildRouterOtelEnv(hostEnv));
+  if (environment.length > 0) {
+    // Compose interpolates `$` in values; `$$` passes a literal `$` to the router.
+    service.environment = Object.fromEntries(
+      environment.map(([name, value]) => [name, value.replace(/\$/g, '$$$$')]));
+  }
 
   assignImageSource(service, {
     useGHCR,

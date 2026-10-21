@@ -7,12 +7,12 @@
  * network, so they are never forwarded to the router.
  */
 
-export const ROUTER_OTEL_HOST_PREFIX = 'AWF_ROUTER_';
+const ROUTER_OTEL_HOST_PREFIX = 'AWF_ROUTER_';
 
 const OTLP_EXPORTER_SETTINGS = ['ENDPOINT', 'PROTOCOL', 'HEADERS', 'TIMEOUT', 'CERTIFICATE'];
 
 /** The `OTEL_*` settings the router supports, in the form the router reads them. */
-export const ROUTER_OTEL_SETTINGS: readonly string[] = [
+const ROUTER_OTEL_SETTINGS: readonly string[] = [
   'OTEL_SERVICE_NAME',
   'OTEL_RESOURCE_ATTRIBUTES',
   'OTEL_SDK_DISABLED',
@@ -26,9 +26,13 @@ export const ROUTER_OTEL_SETTINGS: readonly string[] = [
     OTLP_EXPORTER_SETTINGS.map(setting => `OTEL_EXPORTER_OTLP_${signal}${setting}`)),
 ];
 
-/** The host variables that configure router export. None of them may reach the agent. */
-export const ROUTER_OTEL_HOST_ENV_VARS: readonly string[] =
-  ROUTER_OTEL_SETTINGS.map(name => ROUTER_OTEL_HOST_PREFIX + name);
+/**
+ * Whether a variable is in the reserved `AWF_ROUTER_OTEL_*` namespace, including names AWF
+ * doesn't forward. None of them may reach the agent.
+ */
+export function isRouterOtelHostEnvVar(name: string): boolean {
+  return name.startsWith(`${ROUTER_OTEL_HOST_PREFIX}OTEL_`);
+}
 
 /**
  * Builds the router's `OTEL_*` environment from the set, non-blank `AWF_ROUTER_OTEL_*`
@@ -45,7 +49,9 @@ export function buildRouterOtelEnv(hostEnv: NodeJS.ProcessEnv = process.env): Re
 
 const OTLP_HEADERS_ENV_VAR = /^(?:AWF_ROUTER_)?OTEL_EXPORTER_OTLP_(?:(?:TRACES|METRICS)_)?HEADERS$/;
 const OTLP_ENDPOINT_ENV_VAR = /^(?:AWF_ROUTER_)?OTEL_EXPORTER_OTLP_(?:(?:TRACES|METRICS)_)?ENDPOINT$/;
-const URL_USER_INFO = /^([A-Za-z][A-Za-z0-9+.-]*:\/\/)[^/?#]*@/;
+// The router trims settings with Go's strings.TrimSpace, so leading whitespace, including
+// U+0085, which JavaScript's \s doesn't match, still leaves a usable endpoint.
+const URL_USER_INFO = /^([\s\u0085]*[A-Za-z][A-Za-z0-9+.-]*:\/\/)[^/?#]*@/;
 
 /**
  * Redacts an OTLP exporter setting for a compose snapshot: header values, which carry

@@ -176,6 +176,33 @@ describe('sanitizeDockerComposeYaml edge cases', () => {
     });
   });
 
+  it('redacts the user info of OTLP endpoints with leading whitespace', async () => {
+    const raw = [
+      'services:',
+      '  router:',
+      '    environment:',
+      '      OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: " \\u00a0http://user:pw-canary@traces:4318/v1/traces"',
+      '      OTEL_EXPORTER_OTLP_METRICS_ENDPOINT: "\\N\\thttps://id-canary@metrics:4318/v1/metrics"',
+    ].join('\n');
+    fs.writeFileSync(path.join(getDir(), 'docker-compose.yml'), raw);
+    await collectDiagnosticLogs(getDir());
+    const sanitized = fs.readFileSync(
+      path.join(getDir(), 'diagnostics', 'docker-compose.yml'),
+      'utf8'
+    );
+    expect(sanitized).not.toContain('canary');
+    expect(yaml.load(sanitized)).toEqual({
+      services: {
+        router: {
+          environment: {
+            OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: ' \u00a0http://[REDACTED]@traces:4318/v1/traces',
+            OTEL_EXPORTER_OTLP_METRICS_ENDPOINT: '\u0085\thttps://[REDACTED]@metrics:4318/v1/metrics',
+          },
+        },
+      },
+    });
+  });
+
   it('redacts full value when array entry contains embedded equals', async () => {
     const raw = [
       'services:',
