@@ -755,7 +755,8 @@ copy_browser_libs() {
   # at /usr/local/share/awf/browser-libs.manifest. We copy each one, preserving
   # its original directory structure, under /run/awf-lib/browser-libs -- which
   # lives on the container's own writable rootfs (not bind-mounted) -- and point
-  # LD_LIBRARY_PATH at the resulting directories.
+  # LD_LIBRARY_PATH at the resulting directories. Keep the runner's existing
+  # libraries: overriding them with older GLib, etc. can break newer host tools.
   #
   # Sets BROWSER_LD_LIBRARY_PATH (empty string if unavailable or nothing to stage).
   BROWSER_LD_LIBRARY_PATH=""
@@ -768,6 +769,10 @@ copy_browser_libs() {
       while IFS= read -r lib; do
         [ -z "$lib" ] && continue
         [ -f "${SOURCE_ROOT}${lib}" ] || continue
+        # Resolve symlinks inside the chroot, not against the image filesystem.
+        if chroot /host /bin/test -f "$lib" 2>/dev/null; then
+          continue
+        fi
         dest="${STAGE_ROOT}${lib}"
         dest_dir="$(dirname "$dest")"
         if mkdir -p "$dest_dir" 2>/dev/null && cp -L "${SOURCE_ROOT}${lib}" "$dest" 2>/dev/null; then

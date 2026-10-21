@@ -294,12 +294,17 @@ run_copy_browser_libs_fixture() {
     AWF_TEST_MANIFEST="${manifest}"
     AWF_TEST_PAYLOAD="${payload}"
 
+    chroot() {
+      [ "$2" = "/bin/test" ] && [ "$3" = "-f" ] && test -f "$1$4"
+    }
+
     unset BROWSER_LD_LIBRARY_PATH
     copy_browser_libs
 
     staged_lib="${host_root}/run/awf-lib/browser-libs${fake_lib}"
     [ -f "${staged_lib}" ]
     [ "$(cat "${staged_lib}")" = "real-libnspr4-bytes" ]
+
     [ "${BROWSER_LD_LIBRARY_PATH}" = "/run/awf-lib/browser-libs${fake_lib_dir}" ]
 
     # Simulate buildSystemMounts() shadowing the image's own /usr/lib with the
@@ -311,6 +316,15 @@ run_copy_browser_libs_fixture() {
     # proving Chromium resolves the image-provided library via
     # LD_LIBRARY_PATH rather than being silently broken by the chroot bind mount.
     [ "$(cat "${staged_lib}")" = "real-libnspr4-bytes" ]
+
+    # A newer runner library must not be overridden by the older fallback.
+    rm -rf "${host_root}/run/awf-lib/browser-libs"
+    mkdir -p "${host_root}${fake_lib_dir}"
+    printf 'newer-runner-library' > "${host_root}${fake_lib}"
+    copy_browser_libs
+    [ -z "${BROWSER_LD_LIBRARY_PATH}" ]
+    [ ! -e "${staged_lib}" ]
+    [ "$(cat "${host_root}${fake_lib}")" = "newer-runner-library" ]
   )
   result=$?
   rm -rf "${tmp_dir}"

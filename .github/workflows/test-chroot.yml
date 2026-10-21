@@ -44,6 +44,7 @@ jobs:
         run: |
           docker build -t ghcr.io/github/gh-aw-firewall/squid:latest containers/squid/
           docker build -t ghcr.io/github/gh-aw-firewall/agent:latest containers/agent/
+          docker build -t ghcr.io/github/gh-aw-firewall/api-proxy:latest containers/api-proxy/
 
       - name: Run real chroot browser launch
         run: npm run test:integration -- --testPathPatterns=chroot-browser --verbose

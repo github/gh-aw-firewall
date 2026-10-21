@@ -42,10 +42,12 @@ FROM ubuntu:22.04@sha256:0a9887931b0e38af2e3487ed39e29436b0535c4f3f52e57745baaf7
 RUN set -eux; \
     BROWSER_PKGS="libasound2 libatk-bridge2.0-0 libatk1.0-0 libatspi2.0-0 libcairo2 libcups2 libdbus-1-3 libdrm2 libexpat1 libgbm1 libglib2.0-0 libnspr4 libnss3 libpango-1.0-0 libpangocairo-1.0-0 libx11-6 libxcb1 libxcomposite1 libxdamage1 libxext6 libxfixes3 libxkbcommon0 libxrandr2 libxrender1 libxshmfence1 fonts-liberation"; \
     apt-get -o Acquire::Retries=3 update && \
-    dpkg-query -W -f='${Package}\n' | sort -u > /tmp/pkgs-before-browser.txt && \
     apt-get -o Acquire::Retries=3 install -y --no-install-recommends $BROWSER_PKGS && \
-    dpkg-query -W -f='${Package}\n' | sort -u > /tmp/pkgs-after-browser.txt && \
-    { comm -13 /tmp/pkgs-before-browser.txt /tmp/pkgs-after-browser.txt; printf '%s\n' $BROWSER_PKGS; } \
+    # Include dependencies already in the base image (e.g. libpcre3), not just
+    # newly installed packages: newer runners may no longer provide them.
+    apt-cache depends --recurse --installed --no-recommends --no-suggests \
+      --no-conflicts --no-breaks --no-replaces --no-enhances $BROWSER_PKGS \
+      | grep -E '^[a-zA-Z0-9][a-zA-Z0-9+.:_-]*$' \
       | sort -u | grep -Ev '^(libc6|libgcc-s1|libstdc\+\+6)$' > /tmp/browser-pkgs-installed.txt && \
     mkdir -p /usr/local/share/awf/browser-libs && \
     printf '%s\n' "$BROWSER_PKGS" > /usr/local/share/awf/browser-packages.txt && \

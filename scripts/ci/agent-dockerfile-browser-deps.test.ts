@@ -117,4 +117,9 @@ describe('agent Dockerfile Chromium runtime dependencies', () => {
     expect(dockerfile).toMatch(/\/usr\/local\/share\/awf\/browser-libs\.manifest/);
     expect(dockerfile).toMatch(/dpkg -L \$\(cat \/tmp\/browser-pkgs-installed\.txt\)/);
   });
+
+  it('includes transitive dependencies even when they were already installed in the base image', () => {
+    expect(readDockerfile()).toContain('apt-cache depends --recurse --installed --no-recommends --no-suggests');
+    expect(readDockerfile()).not.toContain('comm -13');
+  });
 });
