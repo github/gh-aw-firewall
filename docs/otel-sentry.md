@@ -75,7 +75,7 @@ When model routing is configured, the api-proxy plans once at startup by calling
 `gh-aw-router` sidecar. Each `capabilities`, `classify` and `route` call gets a CLIENT span
 named:
 ```
-gh_aw_router <operation>
+api_proxy.router.<operation>
 ```
 
 These spans have the same parent as the LLM request spans: the workflow span from
@@ -104,7 +104,9 @@ records it. Spans never contain the conversation, classifier labels, choice ids,
 or error messages. They are for trace views only: the record of a routing decision remains the
 `firewall.model_routing` selection in `usage/aw_session.jsonl`.
 
-Each retry attempt gets its own span. An attempt that hits the planner's per-attempt timeout or
+Each retry attempt gets its own span. A successful call ends with status OK, like the LLM
+request spans. A failed call ends with status ERROR, and its status message is the `error.type`
+value. An attempt that hits the planner's per-attempt timeout or
 the routing deadline ends with `ETIMEDOUT`; `routing_cancelled` means routing itself was
 cancelled, for example because the api-proxy is shutting down.
 

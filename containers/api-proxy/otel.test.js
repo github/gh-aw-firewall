@@ -431,7 +431,7 @@ describe('otel — routerCallTracing', () => {
     });
 
     const [span] = await finishedSpans(otel, memExporter);
-    expect(span.name).toBe('gh_aw_router route');
+    expect(span.name).toBe('api_proxy.router.route');
     expect(span.kind).toBe(SpanKind.CLIENT);
     expect(span.parentSpanContext).toBeUndefined();
     expect(span.attributes).toEqual({
@@ -446,7 +446,7 @@ describe('otel — routerCallTracing', () => {
       'gh_aw_router.selected.model': 'github-copilot/gpt-test',
       'gh_aw_router.selected.effort': 'low',
     });
-    expect(span.status.code).toBe(SpanStatusCode.UNSET);
+    expect(span.status.code).toBe(SpanStatusCode.OK);
     const { traceId, spanId } = span.spanContext();
     expect(call.headers).toEqual({ traceparent: `00-${traceId}-${spanId}-01` });
     expect(JSON.stringify([span.name, span.attributes, span.events, span.status])).not.toContain('CANARY');
@@ -572,7 +572,7 @@ describe('otel — routerCallTracing', () => {
     }
 
     const spans = await finishedSpans(otel, memExporter);
-    expect(spans.map(span => span.name)).toEqual(['gh_aw_router capabilities', 'gh_aw_router route']);
+    expect(spans.map(span => span.name)).toEqual(['api_proxy.router.capabilities', 'api_proxy.router.route']);
     expect(received).toEqual([
       { path: '/healthz', traceparent: undefined, baggage: undefined },
       ...spans.map(span => ({

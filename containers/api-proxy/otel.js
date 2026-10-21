@@ -409,7 +409,7 @@ function startRouterCall({ operation, method, serverAddress, serverPort, parentC
     ? parentContext
     : _buildParentContext();
   const span = _tracer.startSpan(
-    `gh_aw_router ${operation}`,
+    `api_proxy.router.${operation}`,
     {
       kind: SpanKind.CLIENT,
       attributes: {
@@ -441,6 +441,7 @@ function startRouterCall({ operation, method, serverAddress, serverPort, parentC
           span.setStatus({ code: SpanStatusCode.ERROR, message: errorType });
         } else {
           span.setAttributes(_routerOutcomeAttributes(resultAttributes));
+          span.setStatus({ code: SpanStatusCode.OK });
         }
       } catch { /* best-effort */ }
       try { span.end(); } catch { /* best-effort */ }
