@@ -31,7 +31,7 @@ async function post(port: number, body: unknown): Promise<{ status: number; body
           response.on('data', (chunk: Buffer) => chunks.push(chunk));
           response.on('end', () => resolve({
             status: response.statusCode ?? 0,
-            body: JSON.parse(Buffer.concat(chunks).toString('utf8')),
+            body: chunks.length === 0 ? undefined : JSON.parse(Buffer.concat(chunks).toString('utf8')),
           }));
         });
         request.on('error', reject);
@@ -77,12 +77,25 @@ describe('Cloud Hypervisor enclave gateway fixture', () => {
     });
   });
 
-  it('forwards a reachable backend and rewrites the initialize server identity', async () => {
+  it('completes initialize, the empty initialized acknowledgment, and routed tool discovery', async () => {
+    const methods: string[] = [];
     upstream = http.createServer((request, response) => {
-      request.resume();
+      const chunks: Buffer[] = [];
+      request.on('data', (chunk: Buffer) => chunks.push(chunk));
       request.on('end', () => {
+        const message = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+        methods.push(message.method);
+        if (message.method === 'notifications/initialized') {
+          response.writeHead(202, { 'content-length': '0' });
+          response.end();
+          return;
+        }
         response.writeHead(200, { 'content-type': 'application/json' });
-        response.end(JSON.stringify({ jsonrpc: '2.0', id: 1, result: { serverInfo: { name: 'inner' } } }));
+        response.end(JSON.stringify({
+          jsonrpc: '2.0', id: message.id,
+          result: message.method === 'initialize' ? { serverInfo: { name: 'inner' } }
+            : { tools: [{ name: 'enclave_run_script', description: 'bounded script', inputSchema: {} }] },
+        }));
       });
     });
     await new Promise<void>((resolve) => upstream?.listen(0, '127.0.0.1', resolve));
@@ -91,6 +104,16 @@ describe('Cloud Hypervisor enclave gateway fixture', () => {
       status: 200,
       body: { jsonrpc: '2.0', id: 1, result: { serverInfo: { name: 'awmg-awf-enclave', version: 'live-test' } } },
     });
+    await expect(post(port, { jsonrpc: '2.0', method: 'notifications/initialized' })).resolves.toEqual({
+      status: 202, body: undefined,
+    });
+    await expect(post(port, { jsonrpc: '2.0', id: 2, method: 'tools/list' })).resolves.toEqual({
+      status: 200,
+      body: { jsonrpc: '2.0', id: 2, result: { tools: [{
+        name: 'enclave_run_script', description: '[awf-enclave] bounded script', inputSchema: {},
+      }] } },
+    });
+    expect(methods).toEqual(['initialize', 'notifications/initialized', 'tools/list']);
   });
 
   it('keeps an invalid backend response permanent', async () => {
@@ -101,6 +124,51 @@ describe('Cloud Hypervisor enclave gateway fixture', () => {
     await new Promise<void>((resolve) => upstream?.listen(0, '127.0.0.1', resolve));
     const port = await startGateway((upstream.address() as AddressInfo).port);
     await expect(post(port, { jsonrpc: '2.0', id: 1, method: 'initialize' })).resolves.toEqual({
+      status: 502, body: { error: 'invalid upstream response' },
+    });
+  });
+
+  it.each([
+    { jsonrpc: '2.0', method: 'notifications/initialized' },
+    { jsonrpc: '2.0', method: 'notifications/cancelled', params: { requestId: 3 } },
+  ])('preserves empty notification acknowledgments for $method', async (notification) => {
+    const received: unknown[] = [];
+    upstream = http.createServer((request, response) => {
+      const chunks: Buffer[] = [];
+      request.on('data', (chunk: Buffer) => chunks.push(chunk));
+      request.on('end', () => {
+        expect(request.headers.authorization).toBe(`Bearer ${capability}`);
+        received.push(JSON.parse(Buffer.concat(chunks).toString('utf8')));
+        response.writeHead(202, { 'content-length': '0' });
+        response.end();
+      });
+    });
+    await new Promise<void>((resolve) => upstream?.listen(0, '127.0.0.1', resolve));
+    const port = await startGateway((upstream.address() as AddressInfo).port);
+    await expect(post(port, notification)).resolves.toEqual({ status: 202, body: undefined });
+    expect(received).toEqual([notification]);
+    expect(gateway?.exitCode).toBeNull();
+  });
+
+  it.each([
+    { status: 202, request: { jsonrpc: '2.0', id: 1, method: 'initialize' } },
+    { status: 202, request: { jsonrpc: '2.0', id: null, method: 'initialize' } },
+    { status: 202, request: { method: 'notifications/initialized' } },
+    { status: 202, request: { jsonrpc: '2.0' } },
+    { status: 200, request: { jsonrpc: '2.0', method: 'notifications/initialized' } },
+    { status: 401, request: { jsonrpc: '2.0', method: 'notifications/initialized' } },
+    { status: 503, request: { jsonrpc: '2.0', method: 'notifications/initialized' } },
+  ])('does not accept an empty $status response for $request', async ({ status, request }) => {
+    upstream = http.createServer((incoming, response) => {
+      incoming.resume();
+      incoming.on('end', () => {
+        response.writeHead(status, { 'content-length': '0' });
+        response.end();
+      });
+    });
+    await new Promise<void>((resolve) => upstream?.listen(0, '127.0.0.1', resolve));
+    const port = await startGateway((upstream.address() as AddressInfo).port);
+    await expect(post(port, request)).resolves.toEqual({
       status: 502, body: { error: 'invalid upstream response' },
     });
   });

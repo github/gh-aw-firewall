@@ -104,6 +104,15 @@ A separate false-by-default `run_environment_probe` dispatch runs only the
 script-only public environment probe through the same release-attested public
 MCP route, without an agent executor, API proxy, or Copilot secret; see
 [the probe dispatch](cloud-hypervisor-foundation.md#public-enclave-environment-probe-dispatch).
+The public gateway fixture preserves the MCP server's empty HTTP 202
+acknowledgment for JSON-RPC notifications, including `notifications/initialized`
+and cancellation. It still requires bounded JSON responses for requests with
+an ID and rejects malformed, truncated, or oversized backend responses.
+Deterministic fixture tests cover this distinction: release v0.28.70's probe
+and live acceptance both passed `initialize` but failed the initialized
+notification because the fixture tried to parse its empty acknowledgment as
+JSON and returned HTTP 502. This fixture regression does not establish a guest
+or provider failure, and its mocked fix does not prove live KVM acceptance.
 The live job also runs scripts/ci-only startup-failure probes for both roles
 after real VM creation and boot, using the production host executor service,
 authenticated broker protocol v2 client, storage provider, and VM manager.

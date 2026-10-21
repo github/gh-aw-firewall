@@ -109,6 +109,15 @@ const server = http.createServer((request, response) => {
         let forwarded;
         try {
           parsed = JSON.parse(payload.toString('utf8'));
+          // MCP notifications are acknowledged without a JSON-RPC response body.
+          if (upstreamResponse.statusCode === 202 && responseBytes === 0
+              && parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+              && parsed.jsonrpc === '2.0' && typeof parsed.method === 'string'
+              && !Object.prototype.hasOwnProperty.call(parsed, 'id')) {
+            response.writeHead(202, { 'cache-control': 'no-store', 'content-length': '0' });
+            response.end();
+            return;
+          }
           forwarded = transformResponse(parsed, JSON.parse(Buffer.concat(responseChunks).toString('utf8')));
         } catch {
           sendJson(response, 502, { error: 'invalid upstream response' });
