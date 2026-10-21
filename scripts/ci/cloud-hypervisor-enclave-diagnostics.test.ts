@@ -35,7 +35,10 @@ describe('public enclave conformance diagnostic retention', () => {
       schemaVersion: 1, runId: run, invocationId: secret, executorKind, sequence: 3, elapsedMs: 12,
       checks: { 'host-invocation-cleanup/storage-close': ['failed', 'EACCES'] },
       milestones: [{ phase: 'work-complete', elapsedMs: 10, outcome: 'executor-failure', secret }],
-      guestSession: { status: 'captured', events: [{ event: 'failure', category: 'engine-failed', secret }] },
+      guestSession: {
+        status: 'captured', bytes: 100, rejected: 0, dropped: 0,
+        events: [{ event: 'failure', category: 'engine-failed', secret }],
+      },
       failure: { message: secret, path: secret }, secret,
     });
     return file;
@@ -172,6 +175,26 @@ describe('public enclave conformance diagnostic retention', () => {
     expect(fs.existsSync(path.join(output, 'upload'))).toBe(false);
   });
 
+  it.each([false, true])('makes empty export paths runner-traversable when upload exists: %s', hasUpload => {
+    prepare();
+    const upload = path.join(output, 'upload');
+    const pending = path.join(output, 'pending-upload');
+    fs.mkdirSync(pending, { mode: 0o700 });
+    if (hasUpload) fs.mkdirSync(upload, { mode: 0o700 });
+    diagnostics.publish(output, uid, gid, uid, temp);
+    for (const directory of [path.dirname(path.dirname(output)), path.dirname(output), output]) {
+      expect(fs.statSync(directory).mode & 0o777).toBe(0o711);
+    }
+    expect(fs.statSync(path.join(output, 'baseline.json')).mode & 0o777).toBe(0o600);
+    expect(fs.statSync(pending).mode & 0o777).toBe(0o700);
+    if (hasUpload) {
+      expect(fs.statSync(upload).mode & 0o777).toBe(0o700);
+      expect(fs.statSync(upload).uid).toBe(uid);
+    } else {
+      expect(fs.existsSync(upload)).toBe(false);
+    }
+  });
+
   it('retains projected proxy evidence before the first invocation, without a run journal', () => {
     const context = prepare();
     persistHostExecutorProxyDebugDiagnostics({ runId, journalDir: roots.journal },
@@ -187,7 +210,7 @@ describe('public enclave conformance diagnostic retention', () => {
     expect(records()).not.toContain(secret);
   });
 
-  it.each(['symlink', 'hardlink', 'permissions', 'oversized', 'identity', 'schema'])(
+  it.each(['symlink', 'hardlink', 'permissions', 'oversized', 'identity', 'schema', 'check-suffix'])(
     'rejects unsafe %s sources before publishing anything', kind => {
       const context = prepare();
       const source = invocation();
@@ -198,6 +221,11 @@ describe('public enclave conformance diagnostic retention', () => {
       if (kind === 'identity') write(source, { schemaVersion: 1, runId: 'f'.repeat(32) });
       if (kind === 'schema') write(source, { schemaVersion: 1, runId, executorKind: 'agent', sequence: 0, elapsedMs: 1,
         checks: { [secret]: ['passed', 'none'] } });
+      if (kind === 'check-suffix') write(source, {
+        schemaVersion: 1, runId, executorKind: 'agent', sequence: 0, elapsedMs: 1,
+        checks: { 'host-invocation-cleanup/storage-close//PRIVATE_TOKEN': ['passed', 'none'] },
+        milestones: [],
+      });
       expect(() => diagnostics.collect(context, { status: 'failed' })).toThrow();
       expect(fs.existsSync(path.join(output, 'upload'))).toBe(false);
       expect(fs.existsSync(path.join(output, 'upload'))).toBe(false);
@@ -208,7 +236,7 @@ describe('public enclave conformance diagnostic retention', () => {
       const projected = diagnostics.projectInvocation({
         schemaVersion: 1, executorKind: 'agent', sequence: 40, elapsedMs: 500, checks: {}, milestones: [],
         guestSession: {
-          status: 'captured', events,
+          status: 'captured', bytes: 1024, rejected: 0, dropped: 70, events,
           failure: { event: 'failure', category: 'deadline-exceeded', secret },
           lastEvent: { event: 'engine-result', exitCode: -9, secret },
           resources: { stage: 'after-engine', memory: { peakBytes: 1234, oom_kill: 1 }, filesystems: [] },
@@ -221,6 +249,27 @@ describe('public enclave conformance diagnostic retention', () => {
       });
       expect(JSON.stringify(projected)).not.toContain(secret);
     });
+
+  it('preserves session counters and the chronological final event after truncation and malformed lines', () => {
+    const first = { event: 'progress', stage: 'configuration-accepted' };
+    const lines = [
+      JSON.stringify(first),
+      ...Array.from({ length: 31 }, () => JSON.stringify({ event: 'progress', stage: 'engine-started' })),
+      ...Array.from({ length: 70 }, () => JSON.stringify({ event: 'progress', stage: 'engine-completed' })),
+      '{malformed',
+      JSON.stringify(first),
+    ];
+    const source = projectEnclaveSessionDiagnostics(Buffer.from(lines.join('\n')));
+    const projected = diagnostics.projectInvocation({
+      schemaVersion: 1, executorKind: 'agent', sequence: 41, elapsedMs: 600, checks: {}, milestones: [],
+      guestSession: source,
+    }).guestSession;
+    expect(projected).toMatchObject({
+      status: 'captured', bytes: source.bytes, rejected: 1, dropped: 71,
+      lastEvent: { event: 'progress', stage: 'configuration-accepted' },
+    });
+    expect(projected?.events).toHaveLength(32);
+  });
 
   it('fails explicitly on a projected write error without disclosing the underlying error', () => {
     const context = prepare();

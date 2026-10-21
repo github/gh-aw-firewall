@@ -64,6 +64,14 @@ const harness = require(harnessPath) as {
     awfExitMarkers: number;
     elapsed: string | null;
   };
+  startupSnapshot(
+    child: StartupChild | undefined, reason: string, stage: string, profile: string, file: string,
+    startupErrorFile?: string,
+  ): {
+    stage: string; profile: string;
+    diagnostic: { stage: string; reason: string; category: string; exitCode: number | null; signal: string | null };
+    evidence: { stderr: { inspection: string; size: string | null; attempts: number } };
+  };
   waitForHostGatewayReadiness(child: StartupChild, deadline: number, diagnostics: {
     stage: string; stderrFile: string; startupErrorFile: string;
   }): Promise<void>;
@@ -721,6 +729,27 @@ describe('sanitized host startup diagnostics', () => {
     expect(diagnose(stderrFile).category).toBe('container-runtime');
   });
 
+  it('snapshots each launch with its own stage, profile, exit and stderr evidence', () => {
+    fs.writeFileSync(stderrFile, `[ERROR] Fatal error: Error: ${known}\n`);
+    const recovery = harness.startupSnapshot(
+      { exitCode: null, signalCode: 'SIGKILL' }, 'signal', 'recovery', 'combined', stderrFile,
+    );
+    fs.writeFileSync(stderrFile, 'later launch output\n');
+    const profile = harness.startupSnapshot(
+      { exitCode: 1, signalCode: null }, 'exit', 'script-only', 'script-only', stderrFile,
+    );
+    expect(recovery).toMatchObject({
+      stage: 'recovery', profile: 'combined',
+      diagnostic: { stage: 'recovery', reason: 'signal', signal: 'SIGKILL', category: 'container-runtime' },
+      evidence: { stderr: { inspection: 'ok' } },
+    });
+    expect(profile).toMatchObject({
+      stage: 'script-only', profile: 'script-only',
+      diagnostic: { stage: 'initial', reason: 'exit', exitCode: 1, category: 'unknown' },
+      evidence: { stderr: { inspection: 'ok' } },
+    });
+  });
+
   it('retries a changing stderr file on the same inode and reports instability', () => {
     fs.writeFileSync(stderrFile, `[ERROR] Fatal error: Error: ${known}`);
     const nodeFs = require('fs') as typeof fs;
@@ -1213,7 +1242,7 @@ describe('Cloud Hypervisor enclave live acceptance harness', () => {
     const source = fs.readFileSync(harnessPath, 'utf8');
     expect(source).toContain("process.kill(vmmPid, 'SIGKILL')");
     expect(source).toContain("awf.kill('SIGKILL')");
-    expect(source).toContain("awf = launchAwf('recovery')");
+    expect(source).toContain("awf = launchAwf('recovery', 'combined')");
     expect(source).toContain("recoveryTools = await requestMcp");
     expect(source).toContain("open(\"/output/cancel-probe-started\"");
     expect(source).toContain("cancellationController.abort()");

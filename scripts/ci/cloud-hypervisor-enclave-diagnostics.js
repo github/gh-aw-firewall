@@ -63,8 +63,9 @@ function projectInvocation(value) {
   }
   const checks = {};
   for (const [id, outcome] of Object.entries(value.checks)) {
-    const [scope, check, extra] = id.split('/');
-    if (extra || !Object.hasOwn(schema.scopes, scope) || !Object.hasOwn(schema.scopes[scope], check)
+    const parts = id.split('/');
+    const [scope, check] = parts;
+    if (parts.length !== 2 || !Object.hasOwn(schema.scopes, scope) || !Object.hasOwn(schema.scopes[scope], check)
         || !Array.isArray(outcome) || outcome.length !== 2
         || !['not-attempted', 'not-required', 'attempted', 'passed', 'failed'].includes(outcome[0])
         || !Object.hasOwn(schema.reasons, outcome[1])) {
@@ -89,17 +90,27 @@ function projectInvocation(value) {
   if (session && ['empty', 'missing', 'unsafe', 'oversized', 'read-failed', 'invalid', 'not-stopped'].includes(session.status)) {
     guestSession = { status: session.status };
   } else if (session?.status === 'captured' && Array.isArray(session.events) && session.events.length <= 32) {
-    const events = [...session.events];
-    for (const event of [session.failure, session.lastEvent]) {
-      if (event && !events.some(item => JSON.stringify(item) === JSON.stringify(event))) events.push(event);
+    if (!count(session.bytes) || session.bytes > 1024 * 1024
+        || !count(session.rejected) || session.rejected > session.bytes
+        || !count(session.dropped) || session.dropped > session.bytes) {
+      throw new Error('Invalid conformance session counters');
     }
+    const events = [...session.events];
+    if (session.failure) events.push(session.failure);
     if (session.resources) {
       events.push({
         ...session.resources, event: 'resource-snapshot',
         memory: { ...session.resources.memory, events: session.resources.memory },
       });
     }
-    guestSession = projectEnclaveSessionDiagnostics(Buffer.from(events.map(event => JSON.stringify(event) + '\n').join('')));
+    const projected = projectEnclaveSessionDiagnostics(
+      Buffer.from(events.map(event => JSON.stringify(event) + '\n').join('')),
+    );
+    const lastEvent = session.lastEvent
+      ? projectEnclaveSessionDiagnostics(Buffer.from(JSON.stringify(session.lastEvent))).lastEvent : undefined;
+    guestSession = { ...projected, bytes: session.bytes, rejected: session.rejected, dropped: session.dropped };
+    delete guestSession.lastEvent;
+    if (lastEvent) guestSession.lastEvent = lastEvent;
   } else if (session !== undefined) {
     throw new Error('Invalid conformance session diagnostic');
   }
@@ -180,6 +191,21 @@ function publish(runDirectory, runnerUid, runnerGid, uid = 0, trustedRoot = '/')
   const upload = path.join(runDirectory, 'upload');
   const names = collector.inventory(upload, uid, trustedRoot);
   if (!names.length) {
+    const ancestors = [path.dirname(path.dirname(runDirectory)), path.dirname(runDirectory), runDirectory];
+    for (const directory of ancestors) {
+      try {
+        collector.directory(directory, uid, trustedRoot);
+      } catch (error) {
+        if (error.code === 'ENOENT') break;
+        throw error;
+      }
+      fs.chmodSync(directory, 0o711);
+    }
+    try {
+      fs.chownSync(upload, runnerUid, runnerGid);
+    } catch (error) {
+      if (error.code !== 'ENOENT') throw error;
+    }
     console.error('No public conformance diagnostics were retained; no raw files will be uploaded.');
     return;
   }
