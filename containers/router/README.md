@@ -291,7 +291,7 @@ Without a router span, such as when tracing is off, a request rejected with a ba
 In AWF, the api-proxy sends `traceparent` on each `/capabilities`, `/classify` and `/route`
 call, from a `gh_aw_router {operation}` client span in the workflow's trace. Those client spans,
 which also carry the route's goal, mode and validated selection, are exported by the api-proxy
-whether or not the router exports anything. See [OTEL Tracing in Sentry](../../docs/otel-sentry.md#model-router-call-spans).
+whether or not the router exports anything. See [OTEL Tracing in Sentry](https://github.com/github/gh-aw-firewall/blob/main/docs/otel-sentry.md#model-router-call-spans).
 
 **Spans.** Each request gets one `SERVER` span named `{method} {route}`, or just `{method}` for
 an unmatched path, except `GET /healthz` and requests rejected with a bare 503. Its attributes
