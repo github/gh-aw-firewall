@@ -220,18 +220,28 @@ describe('stopRouterAndSaveLogs', () => {
   linuxIt('replaces the file an earlier run left in the same directory and narrows its modes', async () => {
     const stale = 'stale record\n'.repeat(100);
     fs.mkdirSync(routerLogsDir, { mode: 0o755 });
-    fs.writeFileSync(logFile, stale, { mode: 0o644 });
-    const reader = fs.openSync(logFile, 'r');
+    // A reader that opened the old, readable file before the capture keeps this descriptor.
+    const reader = fs.openSync(logFile, 'wx+', 0o644);
+    fs.writeSync(reader, stale);
+    fs.fchmodSync(reader, 0o644);
     const previous = fs.fstatSync(reader);
     scriptDocker();
 
     try {
       await expect(stopRouterAndSaveLogs(workDir, routerLogsDir)).resolves.toBe('saved');
 
-      expect(fs.readFileSync(logFile, 'utf8')).toBe(RECORDS);
-      expect(fs.readFileSync(reader, 'utf8')).toBe(stale);
-      expect(fs.statSync(logFile).ino).not.toBe(previous.ino);
-      expect(fs.statSync(logFile).mode & 0o777).toBe(0o600);
+      const seenByReader = Buffer.alloc(previous.size + 1);
+      expect(seenByReader.subarray(0, fs.readSync(reader, seenByReader, 0, seenByReader.length, 0)).toString())
+        .toBe(stale);
+      const current = fs.openSync(logFile, 'r');
+      try {
+        const saved = fs.fstatSync(current);
+        expect(saved.ino).not.toBe(previous.ino);
+        expect(saved.mode & 0o777).toBe(0o600);
+        expect(fs.readFileSync(current, 'utf8')).toBe(RECORDS);
+      } finally {
+        fs.closeSync(current);
+      }
       expect(fs.statSync(routerLogsDir).mode & 0o777).toBe(0o700);
     } finally {
       fs.closeSync(reader);
