@@ -1,6 +1,18 @@
 name: Cloud Hypervisor Preview Integration
 
 on:
+  workflow_call:
+    inputs:
+      candidate_build:
+        type: boolean
+        default: true
+      run_live_kvm:
+        type: boolean
+        default: false
+      candidate_commit:
+        description: Exact manually reviewed candidate acceptance commit
+        required: true
+        type: string
   workflow_dispatch:
     inputs:
       run_live_kvm:
@@ -30,8 +42,6 @@ on:
 
 permissions:
   contents: read
-  id-token: write
-  attestations: write
 
 concurrency:
   group: cloud-hypervisor-preview-${{ github.ref }}
@@ -43,9 +53,15 @@ jobs:
     if: github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request'
     runs-on: ubuntu-24.04
     timeout-minutes: 60
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4
+        with:
+          persist-credentials: false
 
       - name: Free unused hosted-runner disk space
         # Kernel, virtiofsd, three ext4 images and their bundles need room on the
@@ -79,6 +95,14 @@ jobs:
           node-version: '22'
           cache: npm
 
+      - name: Bind candidate artifact build to the reviewed caller commit
+        if: inputs.candidate_build
+        id: candidate
+        env:
+          AWF_ENCLAVE_ACCEPTANCE_MODE: candidate
+          AWF_ACCEPTANCE_COMMIT: ${{ inputs.candidate_commit }}
+        run: node scripts/ci/cloud-hypervisor-enclave-candidate.js configure >> "$GITHUB_OUTPUT"
+
       - name: Install deterministic guest build prerequisites
         run: |
           sudo apt-get update
@@ -105,6 +129,9 @@ jobs:
           rustup --version
 
       - name: Build and verify pinned artifacts
+        env:
+          VERSION: ${{ steps.candidate.outputs.tag || 'v0.0.0-development' }}
+          ARTIFACT_SIGNER_WORKFLOW: ${{ inputs.candidate_build && 'github/gh-aw-firewall/.github/workflows/test-cloud-hypervisor.yml' || 'github/gh-aw-firewall/.github/workflows/release.yml' }}
         run: |
           docker build \
             --platform linux/amd64 \
@@ -143,6 +170,13 @@ jobs:
         with:
           subject-path: release/cloud-hypervisor-test-x86_64/enclave-manifest.json
 
+      - name: Attest candidate primary manifest
+        if: inputs.candidate_build
+        id: attest_primary_manifest
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: release/cloud-hypervisor-test-x86_64/manifest.json
+
       - name: Bundle enclave attestations for offline verification
         env:
           ROOTFS_BUNDLE: ${{ steps.attest_enclave_rootfs.outputs.bundle-path }}
@@ -152,6 +186,20 @@ jobs:
             release/cloud-hypervisor-test-x86_64/enclave-rootfs.provenance.sigstore.jsonl
           cp "$MANIFEST_BUNDLE" \
             release/cloud-hypervisor-test-x86_64/enclave-manifest.sigstore.jsonl
+
+      - name: Prepare candidate runtime manifest filenames
+        if: inputs.candidate_build
+        env:
+          PRIMARY_BUNDLE: ${{ steps.attest_primary_manifest.outputs.bundle-path }}
+          ENCLAVE_BUNDLE: ${{ steps.attest_enclave_manifest.outputs.bundle-path }}
+        run: |
+          test -n "$PRIMARY_BUNDLE"
+          test -n "$ENCLAVE_BUNDLE"
+          directory=release/cloud-hypervisor-test-x86_64
+          cp "$directory/manifest.json" "$directory/cloud-hypervisor-test-x86_64.manifest.json"
+          cp "$PRIMARY_BUNDLE" "$directory/cloud-hypervisor-test-x86_64.manifest.sigstore.jsonl"
+          cp "$directory/enclave-manifest.json" "$directory/cloud-hypervisor-enclave-rootfs-x86_64.manifest.json"
+          cp "$ENCLAVE_BUNDLE" "$directory/cloud-hypervisor-enclave-rootfs-x86_64.manifest.sigstore.jsonl"
 
       - name: Upload guest artifacts
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -177,6 +225,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4
+        with:
+          persist-credentials: false
 
       - name: Set up Node.js
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0

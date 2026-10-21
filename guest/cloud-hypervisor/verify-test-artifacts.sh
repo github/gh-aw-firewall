@@ -2,6 +2,11 @@
 set -euo pipefail
 
 ARTIFACT_DIR=${1:?usage: verify-test-artifacts.sh ARTIFACT_DIR}
+ARTIFACT_SIGNER_WORKFLOW=${ARTIFACT_SIGNER_WORKFLOW:-github/gh-aw-firewall/.github/workflows/release.yml}
+case "$ARTIFACT_SIGNER_WORKFLOW" in
+  github/gh-aw-firewall/.github/workflows/release.yml|github/gh-aw-firewall/.github/workflows/test-cloud-hypervisor.yml) ;;
+  *) echo "unsupported artifact signer workflow" >&2; exit 1 ;;
+esac
 
 for file in \
   cloud-hypervisor \
@@ -70,7 +75,7 @@ grep -F '"purpose": "AWF Cloud Hypervisor preview test artifacts; not production
 grep -F '"base": "awf-cloud-hypervisor-guest-base"' "$ARTIFACT_DIR/manifest.json"
 test "$(jq -r '.release.repository' "$ARTIFACT_DIR/manifest.json")" = 'github/gh-aw-firewall'
 test "$(jq -r '.release.workflow' "$ARTIFACT_DIR/manifest.json")" = \
-  'github/gh-aw-firewall/.github/workflows/release.yml'
+  "$ARTIFACT_SIGNER_WORKFLOW"
 for entry in \
   'cloudHypervisor:cloud-hypervisor' \
   'virtiofsd:virtiofsd' \
@@ -107,7 +112,7 @@ test "$(jq -r '.architecture' "$ARTIFACT_DIR/enclave-manifest.json")" = x86_64
 test "$(jq -r '.release.repository' "$ARTIFACT_DIR/enclave-manifest.json")" = \
   'github/gh-aw-firewall'
 test "$(jq -r '.release.workflow' "$ARTIFACT_DIR/enclave-manifest.json")" = \
-  'github/gh-aw-firewall/.github/workflows/release.yml'
+  "$ARTIFACT_SIGNER_WORKFLOW"
 test "$(jq -r '.compatibility.cloudHypervisorVersion' "$ARTIFACT_DIR/enclave-manifest.json")" = 53.0
 test "$(jq -r '.compatibility.kernelVersion' "$ARTIFACT_DIR/enclave-manifest.json")" = 6.1.141
 

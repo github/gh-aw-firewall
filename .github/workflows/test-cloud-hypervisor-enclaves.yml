@@ -3,23 +3,31 @@ name: Cloud Hypervisor Enclave Conformance
 on:
   workflow_dispatch:
     inputs:
+      artifact_mode:
+        description: Published release acceptance or same-commit attested PR candidate validation
+        type: choice
+        options:
+          - release
+          - candidate
+        default: release
+        required: true
       run_host_probes:
         description: Run privileged host-limit probes (not broker-to-VM acceptance)
         required: true
         type: boolean
         default: false
       run_live_kvm:
-        description: Run release-attested script and agent enclave VM acceptance
+        description: Run script and agent enclave VM acceptance with the selected attested artifacts
         required: true
         type: boolean
         default: false
       run_environment_probe:
-        description: Run only the script-only public environment probe in a release-attested enclave VM (no model or Copilot secret)
+        description: Run the script-only public environment probe with the selected attested artifacts (no model or Copilot secret)
         required: true
         type: boolean
         default: false
       acceptance_commit:
-        description: Full reviewed follow-up SHA that the published release tag must contain (required for live KVM and the environment probe)
+        description: Full reviewed SHA (release ancestry, or exact branch HEAD for candidate mode)
         required: false
         type: string
         default: ''
@@ -45,6 +53,7 @@ on:
       - 'scripts/ci/*cloud-hypervisor*.test.ts'
       - 'scripts/ci/cloud-hypervisor-enclave-live-smoke.js'
       - 'scripts/ci/cloud-hypervisor-enclave-release-gate.js'
+      - 'scripts/ci/cloud-hypervisor-enclave-candidate.js'
       - 'scripts/ci/cloud-hypervisor-enclave-startup-faults.js'
       - 'scripts/ci/cloud-hypervisor-enclave-gateway*'
       - 'scripts/ci/cloud-hypervisor-enclave-environment-probe.js'
@@ -75,6 +84,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4
+        with:
+          persist-credentials: false
       - name: Set up Node.js
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
@@ -130,12 +141,29 @@ jobs:
             scripts/ci/cloud-hypervisor-enclave-live-smoke.test.ts \
             scripts/ci/cloud-hypervisor-enclave-gateway.test.ts \
             scripts/ci/cloud-hypervisor-enclave-release-gate.test.ts \
+            scripts/ci/cloud-hypervisor-enclave-candidate.test.ts \
             scripts/ci/cloud-hypervisor-enclave-startup-faults.test.ts \
             scripts/ci/cloud-hypervisor-enclave-environment-probe.test.ts \
             scripts/ci/cloud-hypervisor-enclave-host-preflight.test.ts \
             scripts/ci/cloud-hypervisor-environment-probe.test.ts \
             scripts/ci/test-cloud-hypervisor-enclave-workflow.test.ts \
             scripts/ci/test-cloud-hypervisor-workflow.test.ts
+
+  candidate-artifacts:
+    name: Build same-commit attested candidate artifacts
+    needs: deterministic
+    if: >-
+      github.event_name == 'workflow_dispatch' && inputs.artifact_mode == 'candidate' &&
+      (inputs.run_live_kvm || inputs.run_environment_probe)
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    uses: ./.github/workflows/test-cloud-hypervisor.yml
+    with:
+      candidate_build: true
+      run_live_kvm: false
+      candidate_commit: ${{ inputs.acceptance_commit }}
 
   host-probes:
     name: Privileged enclave host boundaries (not live VM acceptance)
@@ -149,6 +177,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4
+        with:
+          persist-credentials: false
       - name: Set up Node.js
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
@@ -208,24 +238,50 @@ jobs:
 
   live-kvm:
     name: Live enclave broker-to-VM acceptance
-    needs: deterministic
-    if: github.event_name == 'workflow_dispatch' && inputs.run_live_kvm
+    needs: [deterministic, candidate-artifacts]
+    if: >-
+      always() && !cancelled() && github.event_name == 'workflow_dispatch' &&
+      inputs.run_live_kvm && needs.deterministic.result == 'success' &&
+      ((inputs.artifact_mode == 'candidate' && needs.candidate-artifacts.result == 'success') ||
+       (inputs.artifact_mode != 'candidate' && needs.candidate-artifacts.result == 'skipped'))
     runs-on: ubuntu-24.04
     timeout-minutes: 90
+    env:
+      AWF_ENCLAVE_ACCEPTANCE_MODE: ${{ inputs.artifact_mode || 'release' }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4
         with:
           fetch-depth: 0
           fetch-tags: true
+          persist-credentials: false
       - name: Set up Node.js
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '22'
           cache: npm
       - name: Install dependencies and build AWF
+        if: inputs.artifact_mode != 'candidate'
         run: npm ci && npm run build && npm run type-check
+      - name: Download same-run candidate artifacts
+        if: inputs.artifact_mode == 'candidate'
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: cloud-hypervisor-test-x86_64
+          path: ${{ runner.temp }}/cloud-hypervisor-test-x86_64
+      - name: Build candidate-only host compatibility profile
+        if: inputs.artifact_mode == 'candidate'
+        env:
+          AWF_ACCEPTANCE_COMMIT: ${{ inputs.acceptance_commit }}
+          AWF_CLOUD_HYPERVISOR_CANDIDATE_ARTIFACTS: ${{ runner.temp }}/cloud-hypervisor-test-x86_64
+        run: |
+          node scripts/ci/cloud-hypervisor-enclave-candidate.js configure
+          chmod 0755 "$AWF_CLOUD_HYPERVISOR_CANDIDATE_ARTIFACTS/cloud-hypervisor" \
+            "$AWF_CLOUD_HYPERVISOR_CANDIDATE_ARTIFACTS/virtiofsd" \
+            "$AWF_CLOUD_HYPERVISOR_CANDIDATE_ARTIFACTS/awf-supervisor"
+          npm ci && npm run build && npm run type-check
       - name: Require exact published release source containing the reviewed acceptance commit
+        if: inputs.artifact_mode != 'candidate'
         env:
           AWF_ACCEPTANCE_COMMIT: ${{ inputs.acceptance_commit }}
           GH_TOKEN: ${{ github.token }}
@@ -235,6 +291,11 @@ jobs:
           tag="$(node -p "require('./dist/cloud-hypervisor/artifact-manifest').CLOUD_HYPERVISOR_ARTIFACT_RELEASE_TAG")"
           gh release view "$tag" --repo github/gh-aw-firewall --json isDraft \
             --jq 'if .isDraft then error("Acceptance requires a published release") else "Published release verified" end'
+      - name: Require exact reviewed candidate source
+        if: inputs.artifact_mode == 'candidate'
+        env:
+          AWF_ACCEPTANCE_COMMIT: ${{ inputs.acceptance_commit }}
+        run: node scripts/ci/cloud-hypervisor-enclave-candidate.js verify
       - name: Verify GitHub-hosted Ubuntu x86_64 KVM and cgroup-v2 host
         run: |
           set -euo pipefail
@@ -256,15 +317,16 @@ jobs:
             --file scripts/ci/cloud-hypervisor-enclave-gateway.Dockerfile \
             --tag awf-cloud-hypervisor-enclave-live-gateway:test \
             .
-      - name: Run release-attested live script and agent enclave acceptance
+      - name: Run release-attested or candidate-attested live script and agent enclave acceptance
         env:
           GH_TOKEN: ${{ github.token }}
           GITHUB_TOKEN: ${{ github.token }}
           COPILOT_GITHUB_TOKEN: ${{ secrets.COPILOT_GITHUB_TOKEN }}
           AWF_ACCEPTANCE_COMMIT: ${{ inputs.acceptance_commit }}
+          AWF_CLOUD_HYPERVISOR_CANDIDATE_ARTIFACTS: ${{ runner.temp }}/cloud-hypervisor-test-x86_64
         run: |
           set -euo pipefail
-          sudo -n --preserve-env=PATH,HOME,GITHUB_ACTIONS,GITHUB_REPOSITORY,GITHUB_EVENT_NAME,GITHUB_REF,GITHUB_REF_TYPE,GITHUB_REF_NAME,GITHUB_SHA,GITHUB_WORKFLOW_REF,GITHUB_WORKFLOW_SHA,RUNNER_ENVIRONMENT,ImageOS,RUNNER_TEMP,GITHUB_RUN_ID,GITHUB_RUN_ATTEMPT,GH_TOKEN,GITHUB_TOKEN,COPILOT_GITHUB_TOKEN,AWF_ACCEPTANCE_COMMIT \
+          sudo -n --preserve-env=PATH,HOME,GITHUB_ACTIONS,GITHUB_REPOSITORY,GITHUB_EVENT_NAME,GITHUB_REF,GITHUB_REF_TYPE,GITHUB_REF_NAME,GITHUB_SHA,GITHUB_WORKFLOW_REF,GITHUB_WORKFLOW_SHA,RUNNER_ENVIRONMENT,ImageOS,RUNNER_TEMP,GITHUB_RUN_ID,GITHUB_RUN_ATTEMPT,GH_TOKEN,GITHUB_TOKEN,COPILOT_GITHUB_TOKEN,AWF_ACCEPTANCE_COMMIT,AWF_ENCLAVE_ACCEPTANCE_MODE,AWF_CLOUD_HYPERVISOR_CANDIDATE_ARTIFACTS \
             node scripts/ci/cloud-hypervisor-enclave-live-smoke.js
       - name: Remove only this job's gateway fixture
         if: always()
@@ -278,26 +340,53 @@ jobs:
           fi
 
   environment-probe:
-    name: Public enclave environment probe (script-only, release-attested VM)
+    name: Public enclave environment probe (script-only, attested VM)
     # Independent of the full acceptance and host-limit suites; it repeats its own release,
     # host, artifact, and readiness prerequisites below rather than skipping them.
-    if: github.event_name == 'workflow_dispatch' && inputs.run_environment_probe
+    needs: candidate-artifacts
+    if: >-
+      always() && !cancelled() && github.event_name == 'workflow_dispatch' &&
+      inputs.run_environment_probe &&
+      ((inputs.artifact_mode == 'candidate' && needs.candidate-artifacts.result == 'success') ||
+       (inputs.artifact_mode != 'candidate' && needs.candidate-artifacts.result == 'skipped'))
     runs-on: ubuntu-24.04
     timeout-minutes: 45
+    env:
+      AWF_ENCLAVE_ACCEPTANCE_MODE: ${{ inputs.artifact_mode || 'release' }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4
         with:
           fetch-depth: 0
           fetch-tags: true
+          persist-credentials: false
       - name: Set up Node.js
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '22'
           cache: npm
       - name: Install dependencies and build AWF
+        if: inputs.artifact_mode != 'candidate'
         run: npm ci && npm run build && npm run type-check
+      - name: Download same-run candidate artifacts
+        if: inputs.artifact_mode == 'candidate'
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: cloud-hypervisor-test-x86_64
+          path: ${{ runner.temp }}/cloud-hypervisor-test-x86_64
+      - name: Build candidate-only host compatibility profile
+        if: inputs.artifact_mode == 'candidate'
+        env:
+          AWF_ACCEPTANCE_COMMIT: ${{ inputs.acceptance_commit }}
+          AWF_CLOUD_HYPERVISOR_CANDIDATE_ARTIFACTS: ${{ runner.temp }}/cloud-hypervisor-test-x86_64
+        run: |
+          node scripts/ci/cloud-hypervisor-enclave-candidate.js configure
+          chmod 0755 "$AWF_CLOUD_HYPERVISOR_CANDIDATE_ARTIFACTS/cloud-hypervisor" \
+            "$AWF_CLOUD_HYPERVISOR_CANDIDATE_ARTIFACTS/virtiofsd" \
+            "$AWF_CLOUD_HYPERVISOR_CANDIDATE_ARTIFACTS/awf-supervisor"
+          npm ci && npm run build && npm run type-check
       - name: Require exact published release source containing the reviewed probe integration
+        if: inputs.artifact_mode != 'candidate'
         env:
           AWF_ACCEPTANCE_COMMIT: ${{ inputs.acceptance_commit }}
           GH_TOKEN: ${{ github.token }}
@@ -307,6 +396,11 @@ jobs:
           tag="$(node -p "require('./dist/cloud-hypervisor/artifact-manifest').CLOUD_HYPERVISOR_ARTIFACT_RELEASE_TAG")"
           gh release view "$tag" --repo github/gh-aw-firewall --json isDraft \
             --jq 'if .isDraft then error("Acceptance requires a published release") else "Published release verified" end'
+      - name: Require exact reviewed candidate source
+        if: inputs.artifact_mode == 'candidate'
+        env:
+          AWF_ACCEPTANCE_COMMIT: ${{ inputs.acceptance_commit }}
+        run: node scripts/ci/cloud-hypervisor-enclave-candidate.js verify-environment-probe
       - name: Validate the probe and its harness locally (no KVM)
         run: |
           set -euo pipefail
@@ -341,9 +435,10 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GITHUB_TOKEN: ${{ github.token }}
           AWF_ACCEPTANCE_COMMIT: ${{ inputs.acceptance_commit }}
+          AWF_CLOUD_HYPERVISOR_CANDIDATE_ARTIFACTS: ${{ runner.temp }}/cloud-hypervisor-test-x86_64
         run: |
           set -euo pipefail
-          sudo -n --preserve-env=PATH,HOME,GITHUB_ACTIONS,GITHUB_REPOSITORY,GITHUB_EVENT_NAME,GITHUB_REF,GITHUB_REF_TYPE,GITHUB_REF_NAME,GITHUB_SHA,GITHUB_WORKFLOW_REF,GITHUB_WORKFLOW_SHA,RUNNER_ENVIRONMENT,ImageOS,RUNNER_TEMP,GITHUB_RUN_ID,GITHUB_RUN_ATTEMPT,GH_TOKEN,GITHUB_TOKEN,AWF_ACCEPTANCE_COMMIT \
+          sudo -n --preserve-env=PATH,HOME,GITHUB_ACTIONS,GITHUB_REPOSITORY,GITHUB_EVENT_NAME,GITHUB_REF,GITHUB_REF_TYPE,GITHUB_REF_NAME,GITHUB_SHA,GITHUB_WORKFLOW_REF,GITHUB_WORKFLOW_SHA,RUNNER_ENVIRONMENT,ImageOS,RUNNER_TEMP,GITHUB_RUN_ID,GITHUB_RUN_ATTEMPT,GH_TOKEN,GITHUB_TOKEN,AWF_ACCEPTANCE_COMMIT,AWF_ENCLAVE_ACCEPTANCE_MODE,AWF_CLOUD_HYPERVISOR_CANDIDATE_ARTIFACTS \
             node scripts/ci/cloud-hypervisor-enclave-environment-probe.js
       - name: Remove only this job's gateway fixture
         if: always()

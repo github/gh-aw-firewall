@@ -1373,6 +1373,43 @@ function prepareReleaseArtifacts(tag, directory, environment) {
   };
 }
 
+function prepareAcceptanceArtifacts(checkout, directory, environment) {
+  if (checkout.mode !== 'candidate') return prepareReleaseArtifacts(checkout.tag, directory, environment);
+  const { SIGNER_WORKFLOW, candidateAttestationArguments } = require('./cloud-hypervisor-enclave-candidate');
+  const candidate = environment.AWF_CLOUD_HYPERVISOR_CANDIDATE_ARTIFACTS;
+  const policy = require('../../dist/cloud-hypervisor/artifact-manifest');
+  if (typeof candidate !== 'string' || !path.isAbsolute(candidate)
+      || path.normalize(candidate) !== candidate
+      || policy.CLOUD_HYPERVISOR_ARTIFACT_RELEASE_TAG !== checkout.tag
+      || policy.CLOUD_HYPERVISOR_ARTIFACT_SIGNER_WORKFLOW !== SIGNER_WORKFLOW) {
+    throw new Error('Candidate acceptance requires its exact compiled artifact compatibility profile');
+  }
+  const enclaveManifest = path.join(candidate, 'cloud-hypervisor-enclave-rootfs-x86_64.manifest.json');
+  const enclaveBundle = path.join(candidate, 'cloud-hypervisor-enclave-rootfs-x86_64.manifest.sigstore.jsonl');
+  const subjects = [
+    [path.join(candidate, RELEASE_ASSETS[1]), path.join(candidate, RELEASE_ASSETS[2])],
+    [enclaveManifest, enclaveBundle],
+    [path.join(candidate, 'enclave-rootfs.ext4'), path.join(candidate, 'enclave-rootfs.provenance.sigstore.jsonl')],
+  ];
+  for (const [subject, bundle] of subjects) {
+    run('gh', ['attestation', 'verify', subject, '--bundle', bundle,
+      ...candidateAttestationArguments(checkout)], { env: environment });
+  }
+  console.log(`AWF_ENCLAVE_ACCEPTANCE_SOURCE ${JSON.stringify({
+    mode: 'candidate', commit: checkout.commit, tag: checkout.tag,
+  })}`);
+  return {
+    directory: candidate, enclaveDirectory: candidate, tag: checkout.tag,
+    enclaveArtifactEnvironment: {
+      AWF_CLOUD_HYPERVISOR_ENCLAVE_ROOTFS: path.join(candidate, 'enclave-rootfs.ext4'),
+      AWF_CLOUD_HYPERVISOR_ENCLAVE_SCRIPT_ROOTFS: path.join(candidate, 'enclave-rootfs.ext4'),
+      AWF_CLOUD_HYPERVISOR_ENCLAVE_AGENT_ROOTFS: path.join(candidate, 'enclave-rootfs.ext4'),
+      AWF_CLOUD_HYPERVISOR_ENCLAVE_MANIFEST: enclaveManifest,
+      AWF_CLOUD_HYPERVISOR_ENCLAVE_MANIFEST_BUNDLE: enclaveBundle,
+    },
+  };
+}
+
 function makeConfig(artifacts, workDir, workspace, handoff, profile = 'combined') {
   const enclaveRepository = { repo: 'github/gh-aw-firewall', sensitivity: 'public' };
   const main = artifacts.directory;
@@ -1592,7 +1629,7 @@ async function main(failureContext = { stage: FAILURE_STAGES.RUNNER }) {
     throw new Error('Live enclave acceptance requires an opted-in GitHub-hosted Ubuntu runner as root');
   }
   failureContext.stage = FAILURE_STAGES.CHECKOUT;
-  const checkout = require('./cloud-hypervisor-enclave-release-gate').verifyAcceptanceCheckout();
+  const checkout = require('./cloud-hypervisor-enclave-candidate').verifyAcceptanceSource();
   failureContext.stage = FAILURE_STAGES.PUBLIC_SEED_TOKENS;
   if (!process.env.GH_TOKEN || !process.env.GITHUB_TOKEN) {
     throw new Error('Live enclave acceptance requires GH_TOKEN and GITHUB_TOKEN for public seed staging');
@@ -1603,7 +1640,6 @@ async function main(failureContext = { stage: FAILURE_STAGES.RUNNER }) {
   }
   failureContext.stage = FAILURE_STAGES.RELEASE;
   const environment = { ...process.env };
-  const tag = releaseTag();
   const runnerTemp = environment.RUNNER_TEMP || os.tmpdir();
   const root = fs.mkdtempSync(path.join(runnerTemp, 'awf-enclave-live-'));
   fs.chmodSync(root, 0o700);
@@ -1648,7 +1684,7 @@ async function main(failureContext = { stage: FAILURE_STAGES.RUNNER }) {
   ]);
   try {
     failureContext.stage = FAILURE_STAGES.RELEASE;
-    const artifacts = prepareReleaseArtifacts(tag, artifactsDir, environment);
+    const artifacts = prepareAcceptanceArtifacts(checkout, artifactsDir, environment);
     const { assertManifestSource } = require('./cloud-hypervisor-enclave-release-gate');
     for (const manifestPath of [
       path.join(artifacts.directory, RELEASE_ASSETS[1]),
@@ -2191,6 +2227,7 @@ module.exports = {
   emitStartupDiagnostic,
   startupEvidence,
   prepareReleaseArtifacts,
+  prepareAcceptanceArtifacts,
   releaseTag,
   removeGatewayFixture,
   spawnAwf,

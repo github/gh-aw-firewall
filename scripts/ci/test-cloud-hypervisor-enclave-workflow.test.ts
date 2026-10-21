@@ -16,7 +16,7 @@ interface Step {
 }
 interface Job {
   'runs-on': string;
-  needs?: string;
+  needs?: string | string[];
   if?: string;
   env?: Record<string, string>;
   steps: Step[];
@@ -30,19 +30,34 @@ interface Workflow {
         run_live_kvm: { type: string; default: boolean };
         run_environment_probe: { type: string; default: boolean };
         acceptance_commit: { type: string; default: string };
+        artifact_mode: { type: string; default: string; options: string[] };
       };
     };
     pull_request: { types: string[]; paths: string[] };
   };
   permissions: Record<string, string>;
-  jobs: Record<string, Job>;
+  jobs: {
+    deterministic: Job;
+    'host-probes': Job;
+    'live-kvm': Job;
+    'environment-probe': Job;
+    'candidate-artifacts': {
+      needs: string;
+      if: string;
+      uses: string;
+      with: Record<string, unknown>;
+      permissions: Record<string, string>;
+      secrets?: unknown;
+      'continue-on-error'?: boolean;
+    };
+  };
 }
 
 const source = fs.readFileSync(workflowPath, 'utf8');
 const workflow = yaml.load(source) as Workflow;
 
 describe('Cloud Hypervisor enclave conformance CI boundary', () => {
-  it.each(['live-kvm', 'environment-probe'])('preserves real admission identity across sudo in %s', jobName => {
+  it.each(['live-kvm', 'environment-probe'] as const)('preserves real admission identity across sudo in %s', jobName => {
     const command = workflow.jobs[jobName].steps.find(step =>
       step.run?.includes('--preserve-env=') && step.run.includes('node scripts/ci/'))!.run!;
     const preserved = command.match(/--preserve-env=([^\s]+)/)![1].split(',');
@@ -50,12 +65,15 @@ describe('Cloud Hypervisor enclave conformance CI boundary', () => {
       'GITHUB_ACTIONS', 'GITHUB_REPOSITORY', 'GITHUB_EVENT_NAME',
       'GITHUB_REF', 'GITHUB_REF_TYPE', 'GITHUB_REF_NAME', 'GITHUB_SHA',
       'GITHUB_WORKFLOW_REF', 'GITHUB_WORKFLOW_SHA', 'AWF_ACCEPTANCE_COMMIT',
+      'AWF_ENCLAVE_ACCEPTANCE_MODE', 'AWF_CLOUD_HYPERVISOR_CANDIDATE_ARTIFACTS',
     ]));
     expect(preserved).not.toContain('GITHUB_*');
   });
 
   it('runs deterministic conformance without privileged probes or KVM artifacts', () => {
-    expect(Object.keys(workflow.jobs)).toEqual(['deterministic', 'host-probes', 'live-kvm', 'environment-probe']);
+    expect(Object.keys(workflow.jobs)).toEqual([
+      'deterministic', 'candidate-artifacts', 'host-probes', 'live-kvm', 'environment-probe',
+    ]);
     expect(workflow.permissions).toEqual({ contents: 'read' });
     const job = workflow.jobs.deterministic;
     expect(job.if).toBeUndefined();
@@ -148,9 +166,11 @@ describe('Cloud Hypervisor enclave conformance CI boundary', () => {
       type: 'boolean', default: false,
     });
     const job = workflow.jobs['live-kvm'];
-    expect(job.needs).toBe('deterministic');
+    expect(job.needs).toEqual(['deterministic', 'candidate-artifacts']);
     expect(job['runs-on']).toBe('ubuntu-24.04');
-    expect(job.if).toBe("github.event_name == 'workflow_dispatch' && inputs.run_live_kvm");
+    expect(job.if).toContain("github.event_name == 'workflow_dispatch'");
+    expect(job.if).toContain('inputs.run_live_kvm');
+    expect(job.if).toContain("needs.deterministic.result == 'success'");
     const harness = job.steps.find((step) => step.name.startsWith('Run release-attested'))!;
     expect(harness.run).toContain('cloud-hypervisor-enclave-live-smoke.js');
     expect(harness.env).toMatchObject({
@@ -172,6 +192,7 @@ describe('Cloud Hypervisor enclave conformance CI boundary', () => {
     expect(job.steps[0].with).toMatchObject({ 'fetch-depth': 0, 'fetch-tags': true });
     const gateIndex = job.steps.findIndex((step) => step.name.startsWith('Require exact published'));
     const gate = job.steps[gateIndex];
+    expect(gate.if).toBe("inputs.artifact_mode != 'candidate'");
     expect(gate.run).toContain('cloud-hypervisor-enclave-release-gate.js');
     expect(gate.run).toContain('gh release view "$tag"');
     expect(gate.env).toMatchObject({ AWF_ACCEPTANCE_COMMIT: '${{ inputs.acceptance_commit }}' });
@@ -187,8 +208,10 @@ describe('Cloud Hypervisor enclave conformance CI boundary', () => {
       type: 'boolean', default: false,
     });
     const job = workflow.jobs['environment-probe'];
-    expect(job.if).toBe("github.event_name == 'workflow_dispatch' && inputs.run_environment_probe");
-    expect(job.needs).toBeUndefined();
+    expect(job.if).toContain("github.event_name == 'workflow_dispatch'");
+    expect(job.if).toContain('inputs.run_environment_probe');
+    expect(job.needs).toBe('candidate-artifacts');
+    expect(job.if).not.toContain('needs.deterministic');
     expect(job['runs-on']).toBe('ubuntu-24.04');
     expect(job.steps[0].with).toMatchObject({ 'fetch-depth': 0, 'fetch-tags': true });
     expect(JSON.stringify(job)).not.toMatch(/secrets\.|COPILOT_GITHUB_TOKEN|enable-api-proxy/);
@@ -200,6 +223,7 @@ describe('Cloud Hypervisor enclave conformance CI boundary', () => {
     expect(hostIndex).toBeGreaterThan(gateIndex);
     expect(probeIndex).toBeGreaterThan(hostIndex);
     const gate = job.steps[gateIndex];
+    expect(gate.if).toBe("inputs.artifact_mode != 'candidate'");
     expect(gate.run).toContain('cloud-hypervisor-enclave-release-gate.js --environment-probe');
     expect(gate.run).toContain('gh release view "$tag"');
     expect(gate.env).toMatchObject({ AWF_ACCEPTANCE_COMMIT: '${{ inputs.acceptance_commit }}' });
@@ -215,6 +239,7 @@ describe('Cloud Hypervisor enclave conformance CI boundary', () => {
       GH_TOKEN: '${{ github.token }}',
       GITHUB_TOKEN: '${{ github.token }}',
       AWF_ACCEPTANCE_COMMIT: '${{ inputs.acceptance_commit }}',
+      AWF_CLOUD_HYPERVISOR_CANDIDATE_ARTIFACTS: '${{ runner.temp }}/cloud-hypervisor-test-x86_64',
     });
     expect(job.steps.some((step) => /probe\.py\b(?!.*unittest)/.test(step.run ?? ''))).toBe(false);
     const cleanup = job.steps.find((step) => step.name.startsWith('Remove only this job'))!;
@@ -234,17 +259,60 @@ describe('Cloud Hypervisor enclave conformance CI boundary', () => {
     expect(source).not.toMatch(/allow.unattested|DEVELOPMENT_ALLOW|continue-on-error|chmod 666|setfacl/);
     for (const job of Object.values(workflow.jobs)) {
       expect(job['continue-on-error']).toBeUndefined();
+      if (!('steps' in job)) {
+        expect(job.uses).toBe('./.github/workflows/test-cloud-hypervisor.yml');
+        continue;
+      }
       for (const step of job.steps) {
         expect(step['continue-on-error']).toBeUndefined();
         if (step.uses) {
           expect(step.uses).toMatch(/@[0-9a-f]{40}$/);
           expect(step.uses).not.toContain('upload-artifact');
+          if (step.uses.startsWith('actions/checkout@')) {
+            expect(step.with).toMatchObject({ 'persist-credentials': false });
+          }
         }
         if (step.run) {
           expect(step.run).not.toMatch(/\|\| true|exit 0/);
           expect(() => execFileSync('bash', ['-n'], { input: step.run })).not.toThrow();
         }
       }
+    }
+  });
+
+  it('separates same-commit candidate artifacts from the default published-release path', () => {
+    expect(workflow.on.workflow_dispatch.inputs.artifact_mode).toMatchObject({
+      type: 'choice', default: 'release', options: ['release', 'candidate'],
+    });
+    const builder = workflow.jobs['candidate-artifacts'];
+    expect(builder.needs).toBe('deterministic');
+    expect(builder.if).toContain("github.event_name == 'workflow_dispatch'");
+    expect(builder.if).toContain("inputs.artifact_mode == 'candidate'");
+    expect(builder.with).toEqual({
+      candidate_build: true, run_live_kvm: false,
+      candidate_commit: '${{ inputs.acceptance_commit }}',
+    });
+    expect(builder.permissions).toEqual({ contents: 'read', 'id-token': 'write', attestations: 'write' });
+    expect(builder.secrets).toBeUndefined();
+    for (const name of ['live-kvm', 'environment-probe'] as const) {
+      const job = workflow.jobs[name];
+      expect(job.if).toContain('always() && !cancelled()');
+      expect(job.if).toContain("needs.candidate-artifacts.result == 'success'");
+      expect(job.if).toContain("needs.candidate-artifacts.result == 'skipped'");
+      const download = job.steps.find(step => step.name === 'Download same-run candidate artifacts')!;
+      expect(download.if).toBe("inputs.artifact_mode == 'candidate'");
+      expect(download.with).toEqual({
+        name: 'cloud-hypervisor-test-x86_64',
+        path: '${{ runner.temp }}/cloud-hypervisor-test-x86_64',
+      });
+      const build = job.steps.find(step => step.name === 'Build candidate-only host compatibility profile')!;
+      expect(build.if).toBe("inputs.artifact_mode == 'candidate'");
+      expect(build.run).toContain('cloud-hypervisor-enclave-candidate.js configure');
+      expect(build.run).toContain('chmod 0755');
+      const verifyIndex = job.steps.findIndex(step => step.name === 'Require exact reviewed candidate source');
+      expect(job.steps[verifyIndex].if).toBe("inputs.artifact_mode == 'candidate'");
+      const executionIndex = job.steps.findIndex(step => step.run?.includes('--preserve-env=PATH'));
+      expect(verifyIndex).toBeLessThan(executionIndex);
     }
   });
 

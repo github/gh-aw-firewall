@@ -46,8 +46,13 @@ PRIMARY_IMAGE=${PRIMARY_IMAGE:-awf-cloud-hypervisor-primary:build}
 ENCLAVE_IMAGE=${ENCLAVE_IMAGE:-awf-cloud-hypervisor-enclave:build}
 ENCLAVE_AGENT_IMAGE=${ENCLAVE_AGENT_IMAGE:-awf-enclave-agent:local}
 RELEASE_TAG=${VERSION:-v0.0.0-development}
+ARTIFACT_SIGNER_WORKFLOW=${ARTIFACT_SIGNER_WORKFLOW:-github/gh-aw-firewall/.github/workflows/release.yml}
+case "$ARTIFACT_SIGNER_WORKFLOW" in
+  github/gh-aw-firewall/.github/workflows/release.yml|github/gh-aw-firewall/.github/workflows/test-cloud-hypervisor.yml) ;;
+  *) echo "unsupported artifact signer workflow" >&2; exit 1 ;;
+esac
 
-ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)
+ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/../.." && pwd)
 OUTPUT=${OUTPUT:-"$ROOT/release/cloud-hypervisor-test-x86_64"}
 BUILD=${BUILD:-"$ROOT/.build/cloud-hypervisor-test-x86_64"}
 JOBS=${JOBS:-$(getconf _NPROCESSORS_ONLN)}
@@ -536,7 +541,7 @@ cat >"$OUTPUT/manifest.json" <<EOF
   "sourceDateEpoch": ${SOURCE_DATE_EPOCH},
   "release": {
     "repository": "github/gh-aw-firewall",
-    "workflow": "github/gh-aw-firewall/.github/workflows/release.yml",
+    "workflow": "${ARTIFACT_SIGNER_WORKFLOW}",
     "tag": "${RELEASE_TAG}",
     "sourceCommit": "$(git -C "$ROOT" rev-parse HEAD)"
   },
@@ -615,7 +620,7 @@ cat >"$OUTPUT/enclave-manifest.json" <<EOF
   "architecture": "x86_64",
   "release": {
     "repository": "github/gh-aw-firewall",
-    "workflow": "github/gh-aw-firewall/.github/workflows/release.yml",
+    "workflow": "${ARTIFACT_SIGNER_WORKFLOW}",
     "tag": "${RELEASE_TAG}",
     "sourceCommit": "$(git -C "$ROOT" rev-parse HEAD)"
   },

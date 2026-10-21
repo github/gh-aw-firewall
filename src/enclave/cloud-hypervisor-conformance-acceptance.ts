@@ -1,5 +1,6 @@
 import { isDeepStrictEqual } from 'util';
 import { releaseTag } from '../cloud-hypervisor/artifact-compatibility.json';
+import { CLOUD_HYPERVISOR_CANDIDATE_COMMIT } from '../cloud-hypervisor/artifact-manifest';
 import { parseImageTag } from '../image-tag';
 import type { WrapperConfig } from '../types';
 
@@ -8,17 +9,27 @@ const WORKFLOW =
 const PUBLIC_REPOS = [{ repo: 'github/gh-aw-firewall', sensitivity: 'public' }];
 const SHA_PATTERN = /^[0-9a-f]{40}$/;
 
-/** Admission for the release-only native conformance harness, not general enclave use. */
+/** Admission for pinned native conformance profiles, not general enclave use. */
 export function isCloudHypervisorConformanceAcceptanceWorkflow(config: WrapperConfig): boolean {
   const runtime = config.cloudHypervisor;
-  const ref = `refs/tags/${releaseTag}`;
+  const candidateCommit = CLOUD_HYPERVISOR_CANDIDATE_COMMIT;
+  const candidate = candidateCommit !== undefined;
+  const ref = candidate ? process.env.GITHUB_REF ?? '' : `refs/tags/${releaseTag}`;
+  const sourceMatches = candidate
+    ? process.env.AWF_ENCLAVE_ACCEPTANCE_MODE === 'candidate'
+      && process.env.GITHUB_REF_TYPE === 'branch'
+      && Boolean(process.env.GITHUB_REF_NAME)
+      && ref === `refs/heads/${process.env.GITHUB_REF_NAME}`
+      && process.env.GITHUB_SHA === candidateCommit
+      && process.env.AWF_ACCEPTANCE_COMMIT === candidateCommit
+    : process.env.GITHUB_REF_TYPE === 'tag'
+      && process.env.GITHUB_REF_NAME === releaseTag
+      && process.env.GITHUB_REF === ref;
   if (
     process.env.GITHUB_ACTIONS !== 'true'
     || process.env.GITHUB_REPOSITORY !== 'github/gh-aw-firewall'
     || process.env.GITHUB_EVENT_NAME !== 'workflow_dispatch'
-    || process.env.GITHUB_REF_TYPE !== 'tag'
-    || process.env.GITHUB_REF_NAME !== releaseTag
-    || process.env.GITHUB_REF !== ref
+    || !sourceMatches
     || process.env.GITHUB_WORKFLOW_REF !== `${WORKFLOW}@${ref}`
     || !SHA_PATTERN.test(process.env.GITHUB_SHA ?? '')
     || process.env.GITHUB_WORKFLOW_SHA !== process.env.GITHUB_SHA

@@ -135,8 +135,8 @@ describe('public enclave environment probe live harness (no KVM)', () => {
   });
 
   it('uses the release-attested public MCP route without agent, model, or Copilot credentials', () => {
-    expect(source).toContain('verifyAcceptanceCheckout(process.env, gate.ENVIRONMENT_PROBE_REQUIRED_PATHS)');
-    expect(source).toContain('live.prepareReleaseArtifacts(');
+    expect(source).toContain('verifyAcceptanceSource(process.env, gate.ENVIRONMENT_PROBE_REQUIRED_PATHS)');
+    expect(source).toContain('live.prepareAcceptanceArtifacts(');
     expect(source).toContain('gate.assertManifestSource(');
     expect(source).toContain('live.waitForBroker(');
     expect(source).toContain('live.waitForHostGatewayReadiness(');

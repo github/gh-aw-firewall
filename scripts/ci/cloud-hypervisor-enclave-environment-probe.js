@@ -145,7 +145,8 @@ async function main() {
     throw new Error('Environment probe requires an opted-in GitHub-hosted Ubuntu runner as root');
   }
   const gate = require('./cloud-hypervisor-enclave-release-gate');
-  const checkout = gate.verifyAcceptanceCheckout(process.env, gate.ENVIRONMENT_PROBE_REQUIRED_PATHS);
+  const checkout = require('./cloud-hypervisor-enclave-candidate')
+    .verifyAcceptanceSource(process.env, gate.ENVIRONMENT_PROBE_REQUIRED_PATHS);
   if (!process.env.GH_TOKEN || !process.env.GITHUB_TOKEN) {
     throw new Error('Environment probe requires GH_TOKEN and GITHUB_TOKEN for public seed staging');
   }
@@ -155,7 +156,6 @@ async function main() {
   for (const name of Object.keys(environment)) {
     if (/^(COPILOT_|OPENAI_|ANTHROPIC_|GEMINI_)/.test(name)) delete environment[name];
   }
-  const tag = live.releaseTag();
   const root = fs.mkdtempSync(path.join(environment.RUNNER_TEMP || os.tmpdir(), 'awf-enclave-probe-'));
   fs.chmodSync(root, 0o700);
   const workDir = path.join(root, 'awf-work');
@@ -169,7 +169,7 @@ async function main() {
   let gatewayStarted = false;
   let keepArtifacts = false;
   try {
-    const artifacts = live.prepareReleaseArtifacts(tag, path.join(root, 'release-artifacts'), environment);
+    const artifacts = live.prepareAcceptanceArtifacts(checkout, path.join(root, 'release-artifacts'), environment);
     for (const manifestPath of [
       path.join(artifacts.directory, live.RELEASE_ASSETS[1]),
       artifacts.enclaveArtifactEnvironment.AWF_CLOUD_HYPERVISOR_ENCLAVE_MANIFEST,

@@ -11,6 +11,7 @@ interface WorkflowStep {
   uses?: string;
   if?: string;
   with?: Record<string, unknown>;
+  env?: Record<string, string>;
 }
 
 interface WorkflowJob {
@@ -19,6 +20,7 @@ interface WorkflowJob {
   if?: string;
   'runs-on'?: string;
   'timeout-minutes'?: number;
+  permissions?: Record<string, string>;
   steps?: WorkflowStep[];
 }
 
@@ -41,11 +43,17 @@ describe('Cloud Hypervisor CI workflow', () => {
 
   it('grants only the minimal permissions the workflow needs', () => {
     const doc = loadWorkflow();
-    expect(doc.permissions).toEqual({
+    expect(doc.permissions).toEqual({ contents: 'read' });
+    expect(doc.jobs['build-test-artifacts'].permissions).toEqual({
       contents: 'read',
       'id-token': 'write',
       attestations: 'write',
     });
+    expect(doc.jobs['live-kvm'].permissions).toBeUndefined();
+    for (const job of Object.values(doc.jobs)) {
+      expect(job.steps?.find(step => step.uses?.startsWith('actions/checkout@'))?.with)
+        .toMatchObject({ 'persist-credentials': false });
+    }
   });
 
   it('uses a non-cancelling concurrency group scoped to the ref', () => {
@@ -54,9 +62,9 @@ describe('Cloud Hypervisor CI workflow', () => {
     expect(doc.concurrency['cancel-in-progress']).toBe(false);
   });
 
-  it('triggers only on workflow_dispatch and pull_request, scoped to relevant paths', () => {
+  it('supports manual/PR preview builds and explicit reusable candidate builds', () => {
     const doc = loadWorkflow();
-    expect(Object.keys(doc.on).sort()).toEqual(['pull_request', 'workflow_dispatch']);
+    expect(Object.keys(doc.on).sort()).toEqual(['pull_request', 'workflow_call', 'workflow_dispatch']);
     const pullRequest = doc.on.pull_request as { types: string[]; paths: string[] };
     expect(pullRequest.types).toEqual(['opened', 'synchronize', 'reopened', 'labeled']);
     expect(pullRequest.paths).toEqual(
@@ -73,6 +81,11 @@ describe('Cloud Hypervisor CI workflow', () => {
     };
     expect(workflowDispatch.inputs.run_live_kvm.type).toBe('boolean');
     expect(workflowDispatch.inputs.run_live_kvm.default).toBe(true);
+    expect(doc.on.workflow_call).toMatchObject({ inputs: {
+      candidate_build: { type: 'boolean', default: true },
+      candidate_commit: { type: 'string', required: true },
+      run_live_kvm: { type: 'boolean', default: false },
+    } });
   });
 
   it('gates the live-kvm job on manual dispatch or an explicit label, never push/schedule', () => {
@@ -94,6 +107,32 @@ describe('Cloud Hypervisor CI workflow', () => {
     const usesSteps = (build.steps ?? []).map((step) => step.uses).filter(Boolean) as string[];
     expect(usesSteps.some((uses) => uses.startsWith('actions/attest-build-provenance@'))).toBe(true);
     expect(usesSteps.some((uses) => uses.startsWith('actions/upload-artifact@'))).toBe(true);
+  });
+
+  it('binds candidate artifacts to the caller commit and signs the manifests consumed by AWF', () => {
+    const steps = loadWorkflow().jobs['build-test-artifacts'].steps!;
+    const bindIndex = steps.findIndex(step => step.name?.startsWith('Bind candidate'));
+    const buildIndex = steps.findIndex(step => step.name === 'Build and verify pinned artifacts');
+    expect(bindIndex).toBeGreaterThan(-1);
+    expect(bindIndex).toBeLessThan(buildIndex);
+    expect(steps[bindIndex]).toMatchObject({
+      if: 'inputs.candidate_build',
+      env: {
+        AWF_ENCLAVE_ACCEPTANCE_MODE: 'candidate',
+        AWF_ACCEPTANCE_COMMIT: '${{ inputs.candidate_commit }}',
+      },
+    });
+    expect(steps[bindIndex].run).toContain('cloud-hypervisor-enclave-candidate.js configure');
+    expect(steps[buildIndex].env?.VERSION).toContain('steps.candidate.outputs.tag');
+    expect(steps[buildIndex].env?.ARTIFACT_SIGNER_WORKFLOW)
+      .toContain('github/gh-aw-firewall/.github/workflows/test-cloud-hypervisor.yml');
+    const primary = steps.find(step => step.name === 'Attest candidate primary manifest')!;
+    expect(primary.if).toBe('inputs.candidate_build');
+    expect(primary.with?.['subject-path']).toMatch(/\/manifest\.json$/);
+    const filenames = steps.find(step => step.name === 'Prepare candidate runtime manifest filenames')!;
+    expect(filenames.if).toBe('inputs.candidate_build');
+    expect(filenames.run).toContain('cloud-hypervisor-test-x86_64.manifest.sigstore.jsonl');
+    expect(filenames.run).toContain('cloud-hypervisor-enclave-rootfs-x86_64.manifest.sigstore.jsonl');
   });
 
   it('restores executable permissions lost by the artifact upload/download round-trip before preflight', () => {

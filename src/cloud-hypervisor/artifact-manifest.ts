@@ -2,15 +2,29 @@ import {
   CLOUD_HYPERVISOR_RELEASE_VERSION,
   type CloudHypervisorArtifactDigests,
 } from '../types/runtime-options';
-import { releaseTag } from './artifact-compatibility.json';
+import compatibilityData from './artifact-compatibility.json';
 import { requireObject } from '../json-validation';
 
 const VIRTIOFSD_RELEASE_VERSION = '1.13.3';
-export const CLOUD_HYPERVISOR_ARTIFACT_RELEASE_TAG = releaseTag;
+const compatibility: { releaseTag: string; signerWorkflow?: string } = compatibilityData;
+export const CLOUD_HYPERVISOR_ARTIFACT_RELEASE_TAG = compatibility.releaseTag;
 
 export const CLOUD_HYPERVISOR_ARTIFACT_REPOSITORY = 'github/gh-aw-firewall';
-export const CLOUD_HYPERVISOR_ARTIFACT_SIGNER_WORKFLOW =
-  'github/gh-aw-firewall/.github/workflows/release.yml';
+const signerWorkflow =
+  compatibility.signerWorkflow ?? 'github/gh-aw-firewall/.github/workflows/release.yml';
+if (signerWorkflow !== 'github/gh-aw-firewall/.github/workflows/release.yml'
+    && signerWorkflow !== 'github/gh-aw-firewall/.github/workflows/test-cloud-hypervisor.yml') {
+  throw new Error('Unsupported compiled Cloud Hypervisor artifact signer workflow');
+}
+export const CLOUD_HYPERVISOR_ARTIFACT_SIGNER_WORKFLOW = signerWorkflow;
+export const CLOUD_HYPERVISOR_CANDIDATE_COMMIT =
+  signerWorkflow === 'github/gh-aw-firewall/.github/workflows/test-cloud-hypervisor.yml'
+    ? /^v0\.0\.0-candidate\.([a-f0-9]{40})$/.exec(compatibility.releaseTag)?.[1]
+    : undefined;
+if (signerWorkflow === 'github/gh-aw-firewall/.github/workflows/test-cloud-hypervisor.yml'
+    && CLOUD_HYPERVISOR_CANDIDATE_COMMIT === undefined) {
+  throw new Error('Candidate artifact signer requires a full-SHA compiled candidate tag');
+}
 
 const ARTIFACT_FILES = {
   cloudHypervisor: 'cloud-hypervisor',

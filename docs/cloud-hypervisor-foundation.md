@@ -1585,6 +1585,47 @@ Cloud Hypervisor smoke run is not enclave acceptance. macOS cannot validate
 the privileged mounts or KVM boundaries. Failure diagnostics remain private
 on the ephemeral runner; guest output and credentials are not uploaded.
 
+### Pre-release branch acceptance
+
+For pre-release validation, the same native workflow also supports an explicitly
+selected `artifact_mode=candidate`. This mode requires separate maintainer
+authorization for one exact published branch commit; it is not enabled by
+ordinary PR CI and does not publish a release:
+
+```bash
+BRANCH='<reviewed-published-PR-branch>'
+ACCEPTANCE_COMMIT='<full-reviewed-branch-HEAD-SHA>'
+gh workflow run test-cloud-hypervisor-enclaves.yml \
+  --repo github/gh-aw-firewall --ref "$BRANCH" \
+  -f artifact_mode=candidate -f acceptance_commit="$ACCEPTANCE_COMMIT" \
+  -f run_live_kvm=true -f run_environment_probe=true
+```
+
+Candidate mode reuses the pinned guest builder at the same commit, with no
+model credential in the build job. Both live jobs download artifacts from that
+same workflow run. The host and guests use a SHA-derived
+`v0.0.0-candidate.<commit>` compatibility profile compiled only in those CI jobs.
+The primary manifest, enclave manifest, and shared enclave rootfs must have
+GitHub attestations from the reusable preview builder, with the exact source
+commit, branch ref, and signer commit verified before AWF starts. Candidate
+manifests name that builder rather than impersonating a published release.
+Their image identity contract is also candidate-only: the signed shared-image
+manifest records the fixed local build names and immutable Docker config IDs,
+not invented GHCR manifest digests. The enclave config ID must equal its recorded
+source digest, and its source commit must equal the compiled candidate SHA.
+The primary and enclave manifests must still agree on their guest-base config ID.
+Published-release builds continue to require digest-pinned GHCR image references.
+The runtime retains normal artifact digests, signatures, ownership, isolation,
+resource limits, and private-log cleanup. Its candidate admission still permits
+only the fixed public conformance profiles, the exact manually pinned source,
+and this native workflow. The environment probe receives no model secret.
+
+The default remains `artifact_mode=release`: its published-tag, reviewed
+ancestry, and release-workflow provenance gates are unchanged. Normal production
+builds retain their release-only compatibility profile and do not accept
+candidate artifacts through an environment variable. Candidate success proves
+the reviewed candidate combination, not acceptance of a later published release.
+
 ### Public enclave environment probe dispatch
 
 The same workflow has a distinct, false-by-default `run_environment_probe`
@@ -1607,14 +1648,16 @@ downloaded manifests must name the checked-out tag commit, and the runner must
 be an eligible GitHub-hosted Ubuntu 24.04 x86_64 KVM/cgroup-v2 host.
 
 Both native live jobs preserve the non-secret GitHub workflow/ref/SHA identity
-through sudo. Production admission recognizes only this `workflow_dispatch`
+through sudo. Normal production admission recognizes this `workflow_dispatch`
 package-matched release-tag workflow, whether submitted by the supported
-release handoff or separately authorized for diagnosis/recovery, with its fixed
-public repository and bounded script-only, agent-only, combined or probe
-profile. It does not authorize arbitrary primary-with-enclave configurations,
-branch dispatches, mixed workload backends, untrusted pull-request code,
-unattested artifacts or model-budget changes. The harness's exact-checkout,
-reviewed-commit ancestry and manifest-source checks remain mandatory.
+release handoff or separately authorized for diagnosis/recovery. The separately
+compiled candidate profile additionally recognizes its exact pinned manual
+branch dispatch. Both modes retain the fixed public repository and bounded
+script-only, agent-only, combined or probe profiles. Neither authorizes arbitrary
+primary-with-enclave configurations, untrusted pull-request events, mixed
+workload backends, unattested artifacts or model-budget changes. Exact checkout
+and manifest-source checks remain mandatory; release mode also retains its
+reviewed-commit ancestry check.
 
 After AWF reports actual host gateway readiness, both native harnesses wait up
 to five minutes for the separate primary-VM readiness record. The host publishes

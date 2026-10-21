@@ -3,6 +3,7 @@ import {
   CLOUD_HYPERVISOR_ARTIFACT_REPOSITORY,
   CLOUD_HYPERVISOR_ARTIFACT_SIGNER_WORKFLOW,
   CLOUD_HYPERVISOR_ARTIFACT_RELEASE_TAG,
+  CLOUD_HYPERVISOR_CANDIDATE_COMMIT,
 } from './artifact-manifest';
 import { requireObject } from '../json-validation';
 import { CLOUD_HYPERVISOR_ENCLAVE_ENTRYPOINTS, CLOUD_HYPERVISOR_ENCLAVE_RESOURCE_PROFILES } from './workload-profile';
@@ -112,6 +113,7 @@ function parseRole(
   expectedReleaseTag: string,
   sharedLayout: boolean,
   sharedSbom = false,
+  candidate = false,
 ): CloudHypervisorEnclaveRootfsArtifact {
   const label = `manifest.rootfs.${role}`;
   const artifact = requireObject(value, label);
@@ -163,7 +165,10 @@ function parseRole(
   const expectedImage = new RegExp(
     `^ghcr\\.io/github/gh-aw-firewall/${sharedLayout ? 'cloud-hypervisor-enclave' : `enclave-${role}`}@sha256:[a-f0-9]{64}$`,
   );
-  if (!expectedImage.test(sourceImage)) {
+  if (candidate && sourceImage !== 'awf-cloud-hypervisor-enclave:build') {
+    throw new Error(`${label}.sourceImage must match the candidate local build identity`);
+  }
+  if (!candidate && !expectedImage.test(sourceImage)) {
     throw new Error(`${label}.sourceImage must be the release-pinned ${role} enclave image`);
   }
   if (sharedSbom && (
@@ -171,6 +176,10 @@ function parseRole(
     || !/^sha256:[a-f0-9]{64}$/.test(artifact.sourceImageId)
   )) {
     throw new Error(`${label}.sourceImageId must be a SHA-256 Docker image/config ID`);
+  }
+  const sourceImageDigest = requireDigest(artifact.sourceImageDigest, `${label}.sourceImageDigest`);
+  if (candidate && artifact.sourceImageId !== `sha256:${sourceImageDigest}`) {
+    throw new Error(`${label} candidate Docker config ID must match sourceImageDigest`);
   }
 
   return {
@@ -183,10 +192,7 @@ function parseRole(
     gid: 65534,
     entrypoint: metadata.entrypoint,
     sourceImage,
-    sourceImageDigest: requireDigest(
-      artifact.sourceImageDigest,
-      `${label}.sourceImageDigest`,
-    ),
+    sourceImageDigest,
     ...(sharedSbom ? { sourceImageId: artifact.sourceImageId as string } : {}),
     sbom: {
       file: sbomFile,
@@ -269,6 +275,10 @@ export function parseCloudHypervisorEnclaveArtifactManifest(
   if (!/^[a-f0-9]{40}$/.test(sourceCommit)) {
     throw new Error('manifest.release.sourceCommit must be a lowercase 40-character Git SHA');
   }
+  const candidate = CLOUD_HYPERVISOR_CANDIDATE_COMMIT !== undefined;
+  if (candidate && (schemaVersion !== 2 || sourceCommit !== CLOUD_HYPERVISOR_CANDIDATE_COMMIT)) {
+    throw new Error('Candidate enclave manifest requires the exact compiled source and shared schema');
+  }
 
   const compatibility = requireObject(manifest.compatibility, 'manifest.compatibility');
   requireClosedKeys(compatibility, [
@@ -302,7 +312,10 @@ export function parseCloudHypervisorEnclaveArtifactManifest(
     const guestBaseValue = requireObject(manifest.guestBase, 'manifest.guestBase');
     requireClosedKeys(guestBaseValue, ['image', 'imageId'], 'manifest.guestBase');
     const baseImage = requireString(guestBaseValue.image, 'manifest.guestBase.image');
-    if (!/^ghcr\.io\/github\/gh-aw-firewall\/cloud-hypervisor-guest-base@sha256:[a-f0-9]{64}$/.test(baseImage)) {
+    if (candidate && baseImage !== 'awf-cloud-hypervisor-guest-base:build') {
+      throw new Error('manifest.guestBase.image must match the candidate local build identity');
+    }
+    if (!candidate && !/^ghcr\.io\/github\/gh-aw-firewall\/cloud-hypervisor-guest-base@sha256:[a-f0-9]{64}$/.test(baseImage)) {
       throw new Error('manifest.guestBase.image must be release-pinned');
     }
     const baseImageId = requireString(guestBaseValue.imageId, 'manifest.guestBase.imageId');
@@ -328,7 +341,7 @@ export function parseCloudHypervisorEnclaveArtifactManifest(
     }
     const roleArtifact = (role: CloudHypervisorEnclaveRole) => parseRole({
       ...rootfs, role, entrypoint: entrypoints[role],
-    }, role, expectedReleaseTag, true, true);
+    }, role, expectedReleaseTag, true, true, candidate);
     // parseRole enforces all identity fields, including the fixed shared image.
     script = roleArtifact('script');
     agent = roleArtifact('agent');

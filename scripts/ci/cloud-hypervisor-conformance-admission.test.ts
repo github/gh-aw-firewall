@@ -161,6 +161,60 @@ describe('generated native conformance production admission (no KVM)', () => {
     expect(validateEnclavesConfig(config).join(';')).toMatch(/cannot be combined/);
   });
 
+  it('admits a candidate only in its separately compiled same-commit profile', () => {
+    const tag = `v0.0.0-candidate.${sha}`;
+    const config = normalized(generated('combined'));
+    config.imageTag = tag;
+    config.cloudHypervisor = { ...config.cloudHypervisor!, artifactReleaseTag: tag };
+    config.enableApiProxy = true;
+    Object.assign(process.env, {
+      AWF_ENCLAVE_ACCEPTANCE_MODE: 'candidate',
+      AWF_ACCEPTANCE_COMMIT: sha,
+      GITHUB_REF_TYPE: 'branch',
+      GITHUB_REF_NAME: 'reviewed-candidate',
+      GITHUB_REF: 'refs/heads/reviewed-candidate',
+      GITHUB_WORKFLOW_REF: `${workflow}@refs/heads/reviewed-candidate`,
+    });
+    expect(isCloudHypervisorConformanceAcceptanceWorkflow(config)).toBe(false);
+    const compatibility = '../../src/cloud-hypervisor/artifact-compatibility.json';
+    try {
+      jest.doMock(compatibility, () => ({
+        releaseTag: tag,
+        signerWorkflow: 'github/gh-aw-firewall/.github/workflows/test-cloud-hypervisor.yml',
+      }));
+      jest.isolateModules(() => {
+        const { isCloudHypervisorConformanceAcceptanceWorkflow: admit } =
+          require('../../src/enclave/cloud-hypervisor-conformance-acceptance');
+        const eligibility = require('../../src/cloud-hypervisor/host-eligibility');
+        jest.spyOn(eligibility, 'assertGithubHostedRunnerEligibility').mockImplementation(() => undefined);
+        const validation = require('../../src/cloud-hypervisor/runtime-validation');
+        const { validateEnclavesConfig: validate } = require('../../src/enclave/preflight');
+        expect(admit(config)).toBe(true);
+        expect(validate(config)).toEqual([]);
+        expect(() => validation.assertCloudHypervisorPreSecurityCompatibility(config)).not.toThrow();
+        expect(() => validation.assertCloudHypervisorRuntimeCompatibility(config)).not.toThrow();
+        for (const changed of [
+          { AWF_ENCLAVE_ACCEPTANCE_MODE: 'release' },
+          { AWF_ACCEPTANCE_COMMIT: 'b'.repeat(40) },
+          { GITHUB_SHA: 'b'.repeat(40) },
+          { GITHUB_EVENT_NAME: 'pull_request' },
+          { GITHUB_REF_NAME: 'different' },
+        ]) {
+          const original = { ...process.env };
+          Object.assign(process.env, changed);
+          expect(admit(config)).toBe(false);
+          process.env = original;
+        }
+        expect(admit({ ...config, enableApiProxy: false })).toBe(false);
+        expect(admit({
+          ...config, enclaves: { ...config.enclaves!, privateRepos: [] },
+        })).toBe(false);
+      });
+    } finally {
+      jest.dontMock(compatibility);
+    }
+  });
+
   it('rejects catalog, executor and budget changes instead of broadly opening primary-with-enclaves', () => {
     const base = normalized(generated('combined'));
     const enclaves = base.enclaves!;

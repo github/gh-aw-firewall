@@ -1402,7 +1402,8 @@ describe('Cloud Hypervisor enclave live acceptance harness', () => {
     expect(workflow).toContain('default: false');
     expect(workflow).toContain('assertGithubHostedRunnerEligibility()');
     expect(workflow).toContain('cloud-hypervisor-enclave-live-smoke.js');
-    expect(workflow).toContain("if: github.event_name == 'workflow_dispatch' && inputs.run_live_kvm");
+    expect(workflow).toContain("always() && !cancelled() && github.event_name == 'workflow_dispatch'");
+    expect(workflow).toContain("inputs.run_live_kvm && needs.deterministic.result == 'success'");
     expect(workflow).not.toMatch(/continue-on-error|\|\| true|exit 0/);
   });
 
