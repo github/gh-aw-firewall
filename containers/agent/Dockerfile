@@ -43,6 +43,7 @@ RUN set -eux; \
     BROWSER_PKGS="libasound2 libatk-bridge2.0-0 libatk1.0-0 libatspi2.0-0 libcairo2 libcups2 libdbus-1-3 libdrm2 libexpat1 libgbm1 libglib2.0-0 libnspr4 libnss3 libpango-1.0-0 libpangocairo-1.0-0 libx11-6 libxcb1 libxcomposite1 libxdamage1 libxext6 libxfixes3 libxkbcommon0 libxrandr2 libxrender1 libxshmfence1 fonts-liberation"; \
     apt-get -o Acquire::Retries=3 update && \
     apt-get -o Acquire::Retries=3 install -y --no-install-recommends $BROWSER_PKGS && \
+    apt-get -o Acquire::Retries=3 upgrade -y --no-install-recommends && \
     # Include dependencies already in the base image (e.g. libpcre3), not just
     # newly installed packages: newer runners may no longer provide them.
     apt-cache depends --recurse --installed --no-recommends --no-suggests \

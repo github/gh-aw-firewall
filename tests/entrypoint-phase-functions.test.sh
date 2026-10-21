@@ -271,7 +271,7 @@ run_copy_browser_libs_fixture() {
   local host_root="${tmp_dir}/host-root"
   local fixture_entrypoint="${tmp_dir}/entrypoint-fixture.sh"
   local fake_lib_dir="${tmp_dir}/image-rootfs/usr/lib/x86_64-linux-gnu"
-  local fake_lib="${fake_lib_dir}/libnspr4.so"
+  local fake_lib="${fake_lib_dir}/libnspr4.so.0"
   local manifest="${tmp_dir}/browser-libs.manifest"
   local payload="${tmp_dir}/browser-libs"
 
@@ -293,19 +293,24 @@ run_copy_browser_libs_fixture() {
     AWF_TEST_HOST_ROOT="${host_root}"
     AWF_TEST_MANIFEST="${manifest}"
     AWF_TEST_PAYLOAD="${payload}"
+    AWF_TEST_CHROOT_CALLS="${tmp_dir}/chroot-calls"
 
     chroot() {
-      [ "$2" = "/bin/test" ] && [ "$3" = "-f" ] && test -f "$1$4"
+      [ "$1" = "${AWF_TEST_HOST_ROOT}" ] && [ "$2" = "/bin/sh" ] || exit 1
+      printf 'called\n' >> "${AWF_TEST_CHROOT_CALLS}"
+      printf '%s\n' "${AWF_TEST_RUNNER_LIBS}"
     }
 
     unset BROWSER_LD_LIBRARY_PATH
+    AWF_TEST_RUNNER_LIBS=""
     copy_browser_libs
 
     staged_lib="${host_root}/run/awf-lib/browser-libs${fake_lib}"
-    [ -f "${staged_lib}" ]
-    [ "$(cat "${staged_lib}")" = "real-libnspr4-bytes" ]
+    [ -f "${staged_lib}" ] || exit 1
+    [ "$(cat "${staged_lib}")" = "real-libnspr4-bytes" ] || exit 1
 
-    [ "${BROWSER_LD_LIBRARY_PATH}" = "/run/awf-lib/browser-libs${fake_lib_dir}" ]
+    [ "${BROWSER_LD_LIBRARY_PATH}" = "/run/awf-lib/browser-libs${fake_lib_dir}" ] || exit 1
+    [ "$(wc -l < "${AWF_TEST_CHROOT_CALLS}")" -eq 1 ] || exit 1
 
     # Simulate buildSystemMounts() shadowing the image's own /usr/lib with the
     # runner's: overwrite the original library path with different content
@@ -315,16 +320,29 @@ run_copy_browser_libs_fixture() {
     # The staged copy under /run/awf-lib must be unaffected by the shadowing,
     # proving Chromium resolves the image-provided library via
     # LD_LIBRARY_PATH rather than being silently broken by the chroot bind mount.
-    [ "$(cat "${staged_lib}")" = "real-libnspr4-bytes" ]
+    [ "$(cat "${staged_lib}")" = "real-libnspr4-bytes" ] || exit 1
 
-    # A newer runner library must not be overridden by the older fallback.
+    # An exact-path runner library must not be overridden by the fallback.
     rm -rf "${host_root}/run/awf-lib/browser-libs"
     mkdir -p "${host_root}${fake_lib_dir}"
     printf 'newer-runner-library' > "${host_root}${fake_lib}"
+    AWF_TEST_RUNNER_LIBS="path:${fake_lib}"
     copy_browser_libs
-    [ -z "${BROWSER_LD_LIBRARY_PATH}" ]
-    [ ! -e "${staged_lib}" ]
-    [ "$(cat "${host_root}${fake_lib}")" = "newer-runner-library" ]
+    [ -z "${BROWSER_LD_LIBRARY_PATH}" ] || exit 1
+    [ ! -e "${staged_lib}" ] || exit 1
+    [ "$(cat "${host_root}${fake_lib}")" = "newer-runner-library" ] || exit 1
+
+    # A same-soname runner library under /usr/lib64 must also prevent staging.
+    rm -rf "${host_root}/run/awf-lib/browser-libs"
+    mkdir -p "${host_root}/usr/lib64"
+    printf 'runner-libnspr4-bytes' > "${host_root}/usr/lib64/libnspr4.so.0"
+    AWF_TEST_RUNNER_LIBS="name:libnspr4.so.0"
+    : > "${AWF_TEST_CHROOT_CALLS}"
+    copy_browser_libs
+    [ -z "${BROWSER_LD_LIBRARY_PATH}" ] || exit 1
+    [ ! -e "${staged_lib}" ] || exit 1
+    [ "$(cat "${host_root}/usr/lib64/libnspr4.so.0")" = "runner-libnspr4-bytes" ] || exit 1
+    [ "$(wc -l < "${AWF_TEST_CHROOT_CALLS}")" -eq 1 ] || exit 1
   )
   result=$?
   rm -rf "${tmp_dir}"
