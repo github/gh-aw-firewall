@@ -230,4 +230,30 @@ describe('routing router client tracing', () => {
       .resolves.toEqual({ ranked_choices: [] });
     for (const request of seen) expect(request.headers).not.toHaveProperty('traceparent');
   });
+
+  it('sends the call without trace headers when they cannot be read or Node would reject them', async () => {
+    const throwingHeaders = {
+      startCall: jest.fn(() => ({
+        get headers() { throw new Error('headers failed'); },
+        end: jest.fn(),
+      })),
+    };
+    await expect(createRoutingRouterClient({ baseUrl, tracing: throwingHeaders })
+      .route({ case: 'ok' }, { timeoutMs: 1000 })).resolves.toEqual({ ranked_choices: [] });
+    expect(seen[0].headers).not.toHaveProperty('traceparent');
+
+    const badTraceparent = fakeTracing({ traceparent: `${TRACEPARENT}\r\nx-injected: 1`, tracestate: 'vendor=value' });
+    await expect(createRoutingRouterClient({ baseUrl, tracing: badTraceparent })
+      .route({ case: 'ok' }, { timeoutMs: 1000 })).resolves.toEqual({ ranked_choices: [] });
+    expect(seen[1].headers).not.toHaveProperty('traceparent');
+    expect(seen[1].headers).not.toHaveProperty('tracestate');
+    expect(seen[1].headers).not.toHaveProperty('x-injected');
+
+    const badTracestate = fakeTracing({ traceparent: TRACEPARENT, tracestate: 'vendor=value\r\nx-injected: 1' });
+    await expect(createRoutingRouterClient({ baseUrl, tracing: badTracestate })
+      .route({ case: 'ok' }, { timeoutMs: 1000 })).resolves.toEqual({ ranked_choices: [] });
+    expect(seen[2].headers).not.toHaveProperty('traceparent');
+    expect(seen[2].headers).not.toHaveProperty('tracestate');
+    expect(seen[2].headers).not.toHaveProperty('x-injected');
+  });
 });

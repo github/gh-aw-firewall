@@ -499,6 +499,27 @@ describe('otel — routerCallTracing', () => {
     expect(workflowCall.headers).not.toHaveProperty('tracestate');
   });
 
+  test('starts a new root rather than inheriting an active span when there is no parent', async () => {
+    const { otel, memExporter } = loadOtelWithMemoryExporter();
+    const ambient = trace.setSpanContext(context.active(), {
+      traceId: '33333333333333333333333333333333',
+      spanId: '4444444444444444',
+      traceFlags: 1,
+    });
+    const invalid = trace.setSpanContext(ambient, INVALID_SPAN_CONTEXT);
+    context.with(ambient, () => {
+      otel.routerCallTracing.startCall({ ...ROUTER, operation: 'capabilities' }).end({ statusCode: 200 });
+      otel.routerCallTracing.startCall({ ...ROUTER, operation: 'route', parentContext: invalid }).end({ statusCode: 200 });
+    });
+
+    const spans = await finishedSpans(otel, memExporter);
+    expect(spans).toHaveLength(2);
+    for (const span of spans) {
+      expect(span.parentSpanContext).toBeUndefined();
+      expect(span.spanContext().traceId).not.toBe('33333333333333333333333333333333');
+    }
+  });
+
   test('records only a fixed error type, never error text, and ends each span once', async () => {
     const { otel, memExporter } = loadOtelWithMemoryExporter();
     const start = operation => otel.routerCallTracing.startCall({ ...ROUTER, operation });
