@@ -743,8 +743,8 @@ copy_preload_libs() {
 }
 
 copy_browser_libs() {
-  # Stage the Chromium/Playwright runtime shared libraries baked into the image
-  # (containers/agent/Dockerfile: BROWSER_PKGS) so they are visible inside the
+  # Stage the Ubuntu 22.04 Chromium/Playwright runtime payload baked into the image
+  # (containers/agent/Dockerfile: browser-libs stage) so it is visible inside the
   # chroot. Installing the packages into the image's /usr is not sufficient on
   # its own: AWF_CHROOT_ENABLED=true chroots to /host, and buildSystemMounts()
   # bind-mounts the runner's own /usr, /lib, etc. over the image's, shadowing
@@ -760,16 +760,17 @@ copy_browser_libs() {
   # Sets BROWSER_LD_LIBRARY_PATH (empty string if unavailable or nothing to stage).
   BROWSER_LD_LIBRARY_PATH=""
   MANIFEST="/usr/local/share/awf/browser-libs.manifest"
+  SOURCE_ROOT="/usr/local/share/awf/browser-libs"
   if [ -s "$MANIFEST" ]; then
     STAGE_ROOT="/host/run/awf-lib/browser-libs"
     if mkdir -p "$STAGE_ROOT" 2>/dev/null; then
       LIB_DIRS=""
       while IFS= read -r lib; do
         [ -z "$lib" ] && continue
-        [ -f "$lib" ] || continue
+        [ -f "${SOURCE_ROOT}${lib}" ] || continue
         dest="${STAGE_ROOT}${lib}"
         dest_dir="$(dirname "$dest")"
-        if mkdir -p "$dest_dir" 2>/dev/null && cp -a "$lib" "$dest" 2>/dev/null; then
+        if mkdir -p "$dest_dir" 2>/dev/null && cp -L "${SOURCE_ROOT}${lib}" "$dest" 2>/dev/null; then
           rel_dir="$(dirname "$lib")"
           case " $LIB_DIRS " in
             *" $rel_dir "*) ;;

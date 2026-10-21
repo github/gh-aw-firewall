@@ -273,13 +273,16 @@ run_copy_browser_libs_fixture() {
   local fake_lib_dir="${tmp_dir}/image-rootfs/usr/lib/x86_64-linux-gnu"
   local fake_lib="${fake_lib_dir}/libnspr4.so"
   local manifest="${tmp_dir}/browser-libs.manifest"
+  local payload="${tmp_dir}/browser-libs"
 
-  mkdir -p "${host_root}" "${fake_lib_dir}"
-  printf 'real-libnspr4-bytes' > "${fake_lib}"
+  mkdir -p "${host_root}" "${fake_lib_dir}" "${payload}${fake_lib_dir}"
+  printf 'incompatible-image-library' > "${fake_lib}"
+  printf 'real-libnspr4-bytes' > "${payload}${fake_lib}"
   printf '%s\n' "${fake_lib}" > "${manifest}"
 
   write_entrypoint_fixture "${fixture_entrypoint}"
   sed -i "s#/usr/local/share/awf/browser-libs.manifest#\${AWF_TEST_MANIFEST}#g" "${fixture_entrypoint}"
+  sed -i 's#SOURCE_ROOT="/usr/local/share/awf/browser-libs"#SOURCE_ROOT="${AWF_TEST_PAYLOAD}"#' "${fixture_entrypoint}"
 
   local result
   (
@@ -289,6 +292,7 @@ run_copy_browser_libs_fixture() {
 
     AWF_TEST_HOST_ROOT="${host_root}"
     AWF_TEST_MANIFEST="${manifest}"
+    AWF_TEST_PAYLOAD="${payload}"
 
     unset BROWSER_LD_LIBRARY_PATH
     copy_browser_libs

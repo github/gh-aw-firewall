@@ -453,6 +453,8 @@ Host system is missing dependencies to run browsers.
 
 **Solution:** The agent image preinstalls Chromium's native runtime libraries (`libnspr4`, `libnss3`, `libatk1.0-0`, `libatk-bridge2.0-0`, `libatspi2.0-0`, `libcups2`, `libdrm2`, `libgbm1`, `libpango-1.0-0`, `libxkbcommon0`, `libxcomposite1`, `libxdamage1`, `libxrandr2`, `libasound2`, `fonts-liberation`, and related packages). In chroot mode (the default), `entrypoint.sh` stages copies of these libraries under `/run/awf-lib/browser-libs` — on the container's own writable rootfs, so they are not shadowed by the host `/usr`/`/lib` bind mounts — and sets `LD_LIBRARY_PATH` so Chromium resolves them there. Use a current agent image (`--image-tag latest`, or `--build-local` when building from source) and the browser will launch.
 
+If a library under `/run/awf-lib/browser-libs` reports `GLIBC_2.43 not found`, the image contains browser libraries built for a newer libc than the runner's chroot. Use an agent image containing the Ubuntu 22.04 browser-payload fix (or `--build-local` from current source). This payload supports Ubuntu 22.04 and 24.04 runner libc without replacing libc or the loader; installing a browser alone does not fix the injected library mismatch.
+
 Verify the libraries are present inside the sandbox:
 
 ```bash

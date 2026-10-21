@@ -13,6 +13,45 @@ permissions:
   contents: read
 
 jobs:
+  test-chroot-browser:
+    name: Test Chroot Browser (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, ubuntu-24.04]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4
+
+      - name: Configure Docker Hub cache
+        run: bash scripts/ci/configure-docker-mirror.sh
+
+      - name: Setup Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Install dependencies and build
+        run: npm ci && npm run build
+
+      - name: Verify provisioned system Chrome
+        run: /opt/google/chrome/chrome --version
+
+      - name: Build local containers
+        run: |
+          docker build -t ghcr.io/github/gh-aw-firewall/squid:latest containers/squid/
+          docker build -t ghcr.io/github/gh-aw-firewall/agent:latest containers/agent/
+
+      - name: Run real chroot browser launch
+        run: npm run test:integration -- --testPathPatterns=chroot-browser --verbose
+
+      - name: Post-test cleanup
+        if: always()
+        run: ./scripts/ci/cleanup.sh || true
+
   test-chroot-languages:
     name: Test Chroot Language Support
     runs-on: ubuntu-latest

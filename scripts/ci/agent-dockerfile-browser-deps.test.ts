@@ -98,9 +98,18 @@ describe('agent Dockerfile Chromium runtime dependencies', () => {
     expect(resolved).toContain('libnss3');
   });
 
-  it('installs the resolved browser packages separately so their transitive deps can be diffed', () => {
+  it('preserves native browser packages for non-chroot execution', () => {
     expect(readDockerfile()).toMatch(/apt_install_retry \$PKGS/);
     expect(readDockerfile()).toMatch(/apt_install_retry \$BROWSER_ACTUAL_PKGS/);
+    expect(readDockerfile()).toContain('BROWSER_PKGS="$(cat /usr/local/share/awf/browser-packages.txt)"');
+  });
+
+  it('builds the chroot payload on the oldest supported runner independently of BASE_IMAGE', () => {
+    const dockerfile = readDockerfile();
+    expect(dockerfile).toMatch(/FROM ubuntu:22\.04@sha256:[a-f0-9]+ AS browser-libs/);
+    expect(dockerfile).toContain('COPY --from=browser-libs /usr/local/share/awf/ /usr/local/share/awf/');
+    expect(dockerfile).toContain("grep -Ev '^(libc6|libgcc-s1|libstdc\\+\\+6)$'");
+    expect(dockerfile).toContain('cp -L "$lib" "/usr/local/share/awf/browser-libs$lib"');
   });
 
   it('records the installed .so files into a manifest entrypoint.sh stages for the chroot', () => {
