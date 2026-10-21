@@ -209,10 +209,24 @@ describe('unified Cloud Hypervisor primary boot and enclave lifecycle', () => {
       'audit/diagnostics/cloud-hypervisor/host-executor', summary.name), 'utf8')).toBe(summary.contents);
   });
 
+  function readPrimaryProgress(file: string) {
+    const descriptor = fs.openSync(
+      file,
+      fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW ?? 0),
+    );
+    try {
+      const stat = fs.fstatSync(descriptor);
+      expect(stat.isFile()).toBe(true);
+      expect(stat.mode & 0o777).toBe(0o600);
+      return JSON.parse(fs.readFileSync(descriptor, 'utf8'));
+    } finally {
+      fs.closeSync(descriptor);
+    }
+  }
+
   function primaryProgress() {
     const file = path.join(directory, 'proxy-logs', PRIMARY_READINESS_DIRECTORY, PRIMARY_READINESS_FILENAME);
-    expect(fs.statSync(file).mode & 0o777).toBe(0o600);
-    return JSON.parse(fs.readFileSync(file, 'utf8'));
+    return readPrimaryProgress(file);
   }
 
   it('keeps readiness private across cleanup and relaunch with persistent proxy logs', () => {
@@ -226,11 +240,11 @@ describe('unified Cloud Hypervisor primary boot and enclave lifecycle', () => {
       preserveCleanupArtifacts(directory, { proxyLogsDir });
 
       const file = path.join(readinessDir, PRIMARY_READINESS_FILENAME);
-      expect(fs.statSync(file).mode & 0o777).toBe(0o600);
+      expect(readPrimaryProgress(file)).toMatchObject({ stage: 'ready', state: 'ready', bootAttempt: 1 });
       const second = createPrimaryReadinessReporter(readinessDir);
       second.publish('preflight', 'starting', 0);
       second.close();
-      expect(JSON.parse(fs.readFileSync(file, 'utf8'))).toMatchObject({
+      expect(readPrimaryProgress(file)).toMatchObject({
         stage: 'preflight', state: 'starting', bootAttempt: 0,
       });
     } finally {
