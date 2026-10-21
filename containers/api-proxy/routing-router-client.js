@@ -50,12 +50,19 @@ function startTracedCall(tracing, details) {
 }
 
 function traceHeaders(call) {
-  const headers = {};
-  for (const name of ['traceparent', 'tracestate']) {
-    const value = call?.headers?.[name];
-    if (typeof value === 'string' && value) headers[name] = value;
+  try {
+    const headers = {};
+    for (const name of ['traceparent', 'tracestate']) {
+      const value = call?.headers?.[name];
+      if (typeof value !== 'string' || !value) continue;
+      http.validateHeaderValue(name, value);
+      headers[name] = value;
+    }
+    return headers;
+  } catch {
+    // Optional tracing must not prevent the router request.
+    return {};
   }
-  return headers;
 }
 
 // The describer is supplied by the caller, which owns response validation.
