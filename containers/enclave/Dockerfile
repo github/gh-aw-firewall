@@ -2,7 +2,7 @@
 # Supply the release's build-tools digest, or a locally built base via BuildKit context.
 ARG BUILD_TOOLS_IMAGE=awf-build-tools
 
-FROM python:3.14.8-alpine3.24@sha256:f6a589d43c42b9e7f7dc67a12d37132491f362859a5d750607710cc56da3bc72 AS enclave-script
+FROM python:3.15.0-alpine3.24@sha256:2699b90f4d562a22e2dd076c82f964032f64814204bff36d271a54ba4cc2c7e2 AS enclave-script
 
 RUN apk upgrade --no-cache \
     && python3 -c 'import json, pathlib, sys; sys.exit(0)' \
@@ -70,7 +70,7 @@ RUN chmod 0555 /usr/local/bin/run-enclave-agent \
     && rm -rf /usr/local/bin/__pycache__ \
     && mkdir -p /agent /awf/seed /run/awf-enclave-github
 
-FROM node:26.11.1-alpine3.24@sha256:143494b1da2945f061539253adc65e4f1569ddf07da2d384c022c791a9d90a4a AS enclave-mcp-server
+FROM node:26.12.0-alpine3.24@sha256:6f08a523443ddedf52941874c203475b0ad503e859ad70cb26ab8be9a517dbd5 AS enclave-mcp-server
 
 COPY trust/ /opt/awf/trust/
 RUN apk add --no-cache openssl ca-certificates \
