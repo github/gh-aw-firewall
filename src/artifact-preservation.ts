@@ -436,6 +436,21 @@ export function preserveCleanupArtifacts(
     publishTokenUsageLogPath(preservedApiProxyLogsDir, tokenLogSubdir);
   }
 
+  // AWF writes these itself, readable only by the invoking user (src/routing/router-log-capture.ts).
+  preserveDirectory({
+    runtimeDir: runnerVisibleProxyLogsDir,
+    runtimeSubdir: 'router-logs',
+    workDir,
+    workSubdir: 'router-logs',
+    destinationBaseName: 'router-logs',
+    timestamp,
+    availableLabel: 'Router logs',
+    preservedLabel: 'Router logs',
+    permissionErrorMessage: 'Could not fix router log permissions:',
+    preserveErrorMessage: 'Could not preserve router logs:',
+    chmodRuntimeDir: false,
+  });
+
   preserveDirectory({
     runtimeDir: runnerVisibleProxyLogsDir,
     runtimeSubdir: 'cli-proxy-logs',

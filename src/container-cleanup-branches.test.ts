@@ -308,6 +308,50 @@ describe('cleanup - api-proxy logs via proxyLogsDir', () => {
   });
 });
 
+describe('cleanup - router logs', () => {
+  const { getDir } = useCleanupTestDir(() => {
+    jest.clearAllMocks();
+    mockExecaSync.mockReturnValue(undefined);
+  });
+  const record = '{"msg":"stopped"}\n';
+
+  function writeRouterLog(routerLogsDir: string): void {
+    fs.mkdirSync(routerLogsDir, { mode: 0o700 });
+    fs.writeFileSync(path.join(routerLogsDir, 'router.jsonl'), record, { mode: 0o600 });
+  }
+
+  it('keeps router-logs inside proxyLogsDir without widening its permissions', async () => {
+    const proxyLogsDir = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-proxy-'));
+    try {
+      const routerLogsDir = path.join(proxyLogsDir, 'router-logs');
+      writeRouterLog(routerLogsDir);
+
+      await cleanup(getDir(), false, proxyLogsDir);
+
+      expect(fs.readFileSync(path.join(routerLogsDir, 'router.jsonl'), 'utf8')).toBe(record);
+      expect(mockExecaSync).not.toHaveBeenCalledWith('chmod', expect.arrayContaining([routerLogsDir]));
+      expect(mockExecaSync).not.toHaveBeenCalledWith('chmod', ['-R', 'a+rX', proxyLogsDir]);
+    } finally {
+      fs.rmSync(proxyLogsDir, { recursive: true, force: true });
+    }
+  });
+
+  it('moves router-logs to /tmp when proxyLogsDir is not specified', async () => {
+    writeRouterLog(path.join(getDir(), 'router-logs'));
+
+    await cleanup(getDir(), false);
+
+    const timestamp = path.basename(getDir()).replace('awf-', '');
+    const destination = path.join(os.tmpdir(), `router-logs-${timestamp}`);
+    try {
+      expect(fs.readFileSync(path.join(destination, 'router.jsonl'), 'utf8')).toBe(record);
+      expect(mockExecaSync).not.toHaveBeenCalledWith('chmod', expect.arrayContaining([destination]));
+    } finally {
+      fs.rmSync(destination, { recursive: true, force: true });
+    }
+  });
+});
+
 describe('cleanup - audit dir', () => {
   const { getDir } = useCleanupTestDir(() => {
     jest.clearAllMocks();

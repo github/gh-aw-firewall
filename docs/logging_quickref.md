@@ -389,7 +389,8 @@ All logs are written under the temporary work directory (`/tmp/awf-<timestamp>/`
 ├── agent-logs/          # Copilot CLI logs (owned by host UID:GID)
 ├── agent-session-state/ # Session events.jsonl (owned by host UID:GID)
 ├── api-proxy-logs/      # API proxy sidecar logs (mode 0777)
-└── cli-proxy-logs/      # CLI proxy logs (mode 0777)
+├── cli-proxy-logs/      # CLI proxy logs (mode 0777)
+└── router-logs/         # Model router logs, saved by AWF at teardown (mode 0700)
 ```
 
 After cleanup, non-empty dirs are preserved to `/tmp/squid-logs-<ts>`, `/tmp/awf-agent-logs-<ts>`, etc.
@@ -402,10 +403,16 @@ When `--proxy-logs-dir` is specified (e.g., in GitHub Actions for artifact uploa
 <proxy-logs-dir>/
 ├── access.log           # Squid writes DIRECTLY here (no subdirectory)
 ├── api-proxy-logs/      # API proxy logs in subdirectory
-└── cli-proxy-logs/      # CLI proxy logs in subdirectory
+├── cli-proxy-logs/      # CLI proxy logs in subdirectory
+└── router-logs/         # Model router logs in subdirectory (model routing only)
 ```
 
-**Note:** Squid logs write directly to `<proxy-logs-dir>` (not a `squid-logs/` subdirectory) for historical compatibility with GitHub Actions workflows that glob `<proxy-logs-dir>/access.log`. The api-proxy and cli-proxy logs use subdirectories to avoid filename collisions.
+**Note:** Squid logs write directly to `<proxy-logs-dir>` (not a `squid-logs/` subdirectory) for historical compatibility with GitHub Actions workflows that glob `<proxy-logs-dir>/access.log`. The api-proxy, cli-proxy and router logs use subdirectories to avoid filename collisions.
+
+`router-logs/router.jsonl` holds the model router's JSON log records. The router writes them
+only to stderr, so AWF stops the router first during teardown and copies its Docker log stream
+there; the directory and file are readable only by the user who ran AWF. See
+[Router Logs](awf-config-spec.md#router-logs).
 
 ### MCP Gateway Logs
 

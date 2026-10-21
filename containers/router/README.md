@@ -235,6 +235,14 @@ strings, unmatched paths, model or choice ids, error details or panic values. Th
 is `trace_id`, which can come from a valid `traceparent` header. Telemetry records never contain
 a setting's value, an endpoint's path, query or user info, or an exporter's error text.
 
+In AWF, these records are the router's only log. At the end of a routed run, AWF stops the router
+before its other containers, so that it logs `shutting down` and `stopped`, and saves the
+container's whole log as `router-logs/router.jsonl`. That's next to `api-proxy-logs/` in
+`--proxy-logs-dir` when it's set, and in `/tmp/router-logs-<timestamp>/` otherwise. Only the user
+who ran AWF can read it. With diagnostic logs on, a failed run also keeps the last 200 lines in
+`diagnostics/awf-router.log`. See AWF's
+[log file inventory](https://github.com/github/gh-aw-firewall/blob/main/docs/awf-config-spec.md#router-logs).
+
 ### Telemetry
 
 The router can export OpenTelemetry traces and metrics over OTLP/HTTP with protobuf encoding.

@@ -619,6 +619,23 @@ jobs:
             assert.equal(routeAttributes["gh_aw_router.selected.model"], selection.selected_model);
             assert.equal(routeAttributes["gh_aw_router.selected.effort"] ?? null, selection.selected_effort);
             console.log(`ROUTER_CALL_SPANS=passed target=${target} spans=${spans.length}`);
+            // AWF stopped the router before the other containers and saved its whole log,
+            // owned by the user who ran AWF with sudo and readable by nobody else.
+            const routerLogs = path.join(root, `logs-${target}`, "router-logs");
+            const routerLog = path.join(routerLogs, "router.jsonl");
+            assert.equal(fs.statSync(routerLogs).mode & 0o777, 0o700);
+            assert.equal(fs.statSync(routerLog).mode & 0o777, 0o600);
+            assert.equal(fs.statSync(routerLog).uid, process.getuid(), "router log is not owned by the user who ran AWF");
+            const routerRecords = readJsonl(routerLog);
+            assert.equal(routerRecords[0].msg, "starting");
+            assert.equal(routerRecords.at(-1).msg, "stopped", "router log has no shutdown record");
+            const routerRequests = routerRecords.filter(record => record.msg === "request" && record.route !== "/healthz");
+            assert.ok(routerRequests.some(record => record.route === "/route" && record.status === 200), "router log has no successful /route request");
+            for (const record of routerRequests) {
+              assert.equal(record.trace_id, "4bf92f3577b34da6a3ce929d0e0e4736", `router ${record.route} request is not in the workflow trace`);
+            }
+            assert.ok(!fs.readFileSync(routerLog, "utf8").includes("Reply with exactly ROUTED_OK."), "router log captured prompt text");
+            console.log(`ROUTER_LOGS=passed target=${target} records=${routerRecords.length}`);
             const usageFile = path.join(logs, "token-usage.jsonl");
             const usage = fs.existsSync(usageFile) ? readJsonl(usageFile) : [];
             for (const request of requests) {

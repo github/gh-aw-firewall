@@ -166,8 +166,9 @@ with `[REDACTED]` and remove user info from OTLP endpoint URLs.
 
 **Correlation.** With export on, the router's `SERVER` span for each call is a child of the
 api-proxy's `api_proxy.router.<operation>` span, so both appear in the workflow's trace. Each
-router `request` log record carries the `trace_id` and `span_id` of that span. AWF doesn't keep
-the router's container logs after the run: teardown removes the router container with them.
+router `request` log record carries the `trace_id` and `span_id` of that span. AWF saves the
+router's log records in `router-logs/router.jsonl` with the run's other logs (see
+[Router Logs](awf-config-spec.md#router-logs)).
 
 ## Important Sentry Behavior
 

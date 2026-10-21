@@ -110,6 +110,25 @@ describe('docker-manager diagnostics', () => {
       expect(sanitized).not.toContain('uppercase_secret');
       expect(sanitized).toContain('not_sensitive: keepme');
     });
+
+    it('should collect the model router\'s logs', async () => {
+      mockExecaFn.mockImplementation(async (_command: string, args: string[]) => (
+        args[0] === 'logs' && args[args.length - 1] === 'awf-router'
+          ? { stdout: '{"msg":"stopped"}', stderr: '', exitCode: 0 }
+          : { stdout: '', stderr: 'No such container', exitCode: 1 }
+      ));
+      try {
+        await collectDiagnosticLogs(getDir());
+
+        expect(mockExecaFn).toHaveBeenCalledWith(
+          'docker', ['logs', '--tail', '200', 'awf-router'], expect.anything(),
+        );
+        expect(fs.readFileSync(path.join(getDir(), 'diagnostics', 'awf-router.log'), 'utf8'))
+          .toBe('{"msg":"stopped"}\n');
+      } finally {
+        mockExecaFn.mockReset();
+      }
+    });
   });
 
   describe('preserveIptablesAudit', () => {

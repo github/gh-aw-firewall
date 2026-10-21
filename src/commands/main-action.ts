@@ -20,6 +20,7 @@ import {
   cleanupHostIptables,
 } from '../host-iptables';
 import { runMainWorkflow } from '../cli-workflow';
+import { resolveLogPaths } from '../log-paths';
 import { deriveSensitiveEndpointForms, redactSecrets, redactSensitiveValues } from '../redact-secrets';
 import { joinShellArgs } from '../option-parsers';
 import { assertRealDirectory, writeFileNoFollow } from '../fs-utils';
@@ -316,6 +317,13 @@ function writeIncompleteEnclaveAuditMarker(targetAuditDir: string): void {
   );
 }
 
+/** Where to save the router's logs, when the compose file has a router service. */
+function routerLogsDirFor(config: WrapperConfig): string | undefined {
+  return config.experimentalModelRouting === true && config.modelRouting && config.modelRoutingBootstrap
+    ? resolveLogPaths(config).routerLogs
+    : undefined;
+}
+
 function buildCleanupFn(
   config: WrapperConfig,
   getContainersStarted: () => boolean,
@@ -456,7 +464,7 @@ async function runCleanup(
         logger.warn('Failed to write the incomplete enclave audit marker.', error);
       }
     }
-    await stopContainers(config.workDir, config.keepContainers);
+    await stopContainers(config.workDir, config.keepContainers, { routerLogsDir: routerLogsDirFor(config) });
   }
 
   if (getHostIptablesSetup() && !config.keepContainers) {

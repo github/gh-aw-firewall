@@ -1494,10 +1494,32 @@ describe('createMainAction', () => {
       );
       expect(mockedDockerManager.stopContainers).toHaveBeenCalledWith(
         MAIN_ACTION_STUB_CONFIG.workDir,
-        MAIN_ACTION_STUB_CONFIG.keepContainers
+        MAIN_ACTION_STUB_CONFIG.keepContainers,
+        { routerLogsDir: undefined },
       );
       expect(mockedHostIptables.cleanupHostIptables).toHaveBeenCalled();
       expect(mockedDockerManager.cleanup).toHaveBeenCalled();
+    });
+
+    it.each([
+      ['the work directory', undefined, '/synthetic/awf-test/router-logs'],
+      ['proxyLogsDir', '/tmp/custom-logs', '/tmp/custom-logs/router-logs'],
+    ])('buildCleanupFn saves the router logs under %s when the run has a router', async (
+      _where, proxyLogsDir, routerLogsDir,
+    ) => {
+      const config = {
+        ...MAIN_ACTION_STUB_CONFIG,
+        proxyLogsDir,
+        experimentalModelRouting: true,
+        modelRouting: { objective: { goal: 'cost', mode: 'balanced' }, task: { conversationFile: '/c.json' } },
+        modelRoutingBootstrap: { root: '/synthetic/routing' },
+      } as unknown as import('../types').WrapperConfig;
+
+      await testHelpers.buildCleanupFn(config, () => true, () => true)();
+
+      expect(mockedDockerManager.stopContainers).toHaveBeenCalledWith(
+        config.workDir, false, { routerLogsDir },
+      );
     });
 
     it('buildCleanupFn tears down only once across repeated calls', async () => {
