@@ -228,10 +228,16 @@ describe('stopRouterAndSaveLogs', () => {
     try {
       await expect(stopRouterAndSaveLogs(workDir, routerLogsDir)).resolves.toBe('saved');
 
-      expect(fs.readFileSync(logFile, 'utf8')).toBe(RECORDS);
-      expect(fs.readFileSync(reader, 'utf8')).toBe(stale);
-      expect(fs.statSync(logFile).ino).not.toBe(previous.ino);
-      expect(fs.statSync(logFile).mode & 0o777).toBe(0o600);
+      const replacement = fs.openSync(logFile, 'r');
+      try {
+        const current = fs.fstatSync(replacement);
+        expect(fs.readFileSync(replacement, 'utf8')).toBe(RECORDS);
+        expect(fs.readFileSync(reader, 'utf8')).toBe(stale);
+        expect(current.ino).not.toBe(previous.ino);
+        expect(current.mode & 0o777).toBe(0o600);
+      } finally {
+        fs.closeSync(replacement);
+      }
       expect(fs.statSync(routerLogsDir).mode & 0o777).toBe(0o700);
     } finally {
       fs.closeSync(reader);
