@@ -31,6 +31,24 @@ function attempt(budget, token, body = Buffer.from('{"model":"test"}'), path = '
 }
 
 describe('invocation-scoped enclave model budgets', () => {
+  test('leaves repeated inference unbounded and unmodified without optional model ceilings', () => {
+    const body = Buffer.from(JSON.stringify({ model: 'test', messages: [
+      { role: 'user', content: 'x'.repeat(512) },
+    ] }));
+    const limited = createInvocationModelBudget(secret);
+    expect(attempt(limited, capability('invocation-acceptance01', 1, 256), body)).toEqual({
+      allowed: false, reason: 'token_limit', tokenFailure: 'input_reservation',
+    });
+
+    const unbounded = createInvocationModelBudget(undefined);
+    for (let index = 0; index < 3; index += 1) {
+      const result = attempt(unbounded, undefined, body);
+      expect(result.allowed).toBe(true);
+      expect(result.body).toBeNull();
+      result.settleMissing();
+    }
+  });
+
   test.each([
     [null, 'body_missing'],
     [Buffer.alloc(128, 'x'), 'input_reservation'],

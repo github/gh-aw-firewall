@@ -83,8 +83,8 @@ export function isCloudHypervisorConformanceAcceptanceWorkflow(config: WrapperCo
     || agent.timeout !== 180
     || agent.maxInvocations !== 3
     || agent.maxTaskBytes !== 4096
-    || agent.maxModelRequests !== 1
-    || agent.maxModelTokens !== 256
+    || agent.maxModelRequests !== undefined
+    || agent.maxModelTokens !== undefined
     || !isDeepStrictEqual(agent.repos, PUBLIC_REPOS)
   )) return false;
   return true;

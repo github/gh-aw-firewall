@@ -1458,8 +1458,6 @@ function makeConfig(artifacts, workDir, workspace, handoff, profile = 'combined'
           model: 'gpt-4.1',
           engine: 'copilot',
           profile: 'openai',
-          maxModelRequests: 1,
-          maxModelTokens: 256,
           maxTaskBytes: 4096,
         },
         runtime: 'cloud-hypervisor',

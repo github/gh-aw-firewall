@@ -139,7 +139,7 @@ function cloudHypervisorConformanceConfig(
   });
   if (role !== 'script') entries.push({
     agent: { model: 'gpt-4.1', engine: 'copilot', profile: 'openai',
-      maxModelRequests: 1, maxModelTokens: 256, maxTaskBytes: 4096 },
+      maxTaskBytes: 4096 },
     runtime: 'cloud-hypervisor',
     timeout: 180,
     maxInvocations: 3,

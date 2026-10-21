@@ -14,6 +14,7 @@ import {
 } from '../../src/cloud-hypervisor/runtime-validation';
 import * as hostEligibility from '../../src/cloud-hypervisor/host-eligibility';
 import { CLOUD_HYPERVISOR_DEFAULT_API_TIMEOUT_MS } from '../../src/types/runtime-options';
+import { getOrCreateEnclaveModelBudgetSecret } from '../../src/enclave/model-budget-capability';
 
 const live = require('./cloud-hypervisor-enclave-live-smoke') as {
   makeConfig(artifacts: object, work: string, workspace: string, handoff: object, profile: string): AwfFileConfig;
@@ -92,6 +93,54 @@ describe('generated native conformance production admission (no KVM)', () => {
         delete config.copilotGithubToken;
         expect(validateEnclavesConfig(config)).toEqual([]);
         expect(() => assertCloudHypervisorRuntimeCompatibility(config)).not.toThrow();
+      }
+    },
+  );
+
+  it.each(['agent-only', 'combined'])(
+    'omits optional model-cost limits throughout the generated %s profile', profile => {
+      const raw = generated(profile);
+      const entry = raw.enclaves!.find(entry => entry.agent);
+      expect(entry).toBeDefined();
+      expect(entry!.agent).not.toHaveProperty('maxModelRequests');
+      expect(entry!.agent).not.toHaveProperty('maxModelTokens');
+      const config = normalized(raw);
+      const agent = config.enclaves!.executors.agent;
+      expect(agent.maxModelRequests).toBeUndefined();
+      expect(agent.maxModelTokens).toBeUndefined();
+      expect(getOrCreateEnclaveModelBudgetSecret(config)).toBeUndefined();
+      expect(isCloudHypervisorConformanceAcceptanceWorkflow(config)).toBe(true);
+      expect(agent).toMatchObject({
+        network: 'api-proxy-only', timeout: 180, maxInvocations: 3,
+        maxTaskBytes: 4096, maxOutputBytes: 8192,
+      });
+    },
+  );
+
+  it.each(['agent-only', 'combined'])(
+    'rejects reintroduced model-cost limits in the exact %s profile', profile => {
+      const base = normalized(generated(profile));
+      const enclaves = base.enclaves!;
+      for (const limits of [
+        { maxModelRequests: 1 },
+        { maxModelRequests: 2 },
+        { maxModelTokens: 256 },
+        { maxModelTokens: 257 },
+        { maxModelRequests: 1, maxModelTokens: 256 },
+      ]) {
+        const config = {
+          ...base,
+          enclaves: {
+            ...enclaves,
+            executors: {
+              ...enclaves.executors,
+              agent: { ...enclaves.executors.agent, ...limits },
+            },
+          },
+        };
+        expect(isCloudHypervisorConformanceAcceptanceWorkflow(config)).toBe(false);
+        expect(validateEnclavesConfig(config).join(';')).toMatch(/cannot be combined/);
+        expect(() => assertCloudHypervisorPreSecurityCompatibility(config)).toThrow(/reserved/);
       }
     },
   );
@@ -229,8 +278,6 @@ describe('generated native conformance production admission (no KVM)', () => {
       { script: { ...script, maxScriptBytes: 16_385 }, agent },
       { script, agent: { ...agent, model: 'other-model' } },
       { script, agent: { ...agent, maxInvocations: 4 } },
-      { script, agent: { ...agent, maxModelRequests: 2 } },
-      { script, agent: { ...agent, maxModelTokens: 257 } },
       { script, agent: { ...agent, timeout: 181 } },
       { script, agent: { ...agent, maxTaskBytes: 4097 } },
       { script, agent: { ...agent, tools: { github: { allowed: [], allowedRepos: [] } } } },
