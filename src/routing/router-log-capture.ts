@@ -25,6 +25,7 @@ const CAPTURE_DEADLINE_MS = 5000;
 export const MAX_ROUTER_LOG_BYTES = 16 * 1024 * 1024;
 /** How long to wait for buffered output after `docker logs` exits. */
 const STREAM_DRAIN_MS = 1000;
+const MIN_STREAM_DRAIN_MS = 50;
 const CONTAINER_ID = /^[0-9a-f]{12,64}$/;
 const DIRECTORY_FLAGS = fs.constants.O_RDONLY | fs.constants.O_DIRECTORY | fs.constants.O_NOFOLLOW;
 const LOG_FILE_FLAGS = fs.constants.O_WRONLY | fs.constants.O_CREAT |
@@ -103,6 +104,7 @@ function openRouterLogFile(routerLogsDir: string): number {
 async function copyLogs(
   child: execa.ExecaChildProcess,
   fd: number,
+  deadline: number,
 ): Promise<{ result: DockerResult; oversized: boolean; writeError?: unknown }> {
   let remaining = MAX_ROUTER_LOG_BYTES;
   let oversized = false;
@@ -112,7 +114,12 @@ async function copyLogs(
     if (!open || oversized || writeError !== undefined) return;
     const length = Math.min(chunk.length, remaining);
     try {
-      if (length > 0) fs.writeSync(fd, chunk, 0, length);
+      // writeSync may write less than asked, for example on a full disk, without throwing.
+      for (let offset = 0; offset < length;) {
+        const written = fs.writeSync(fd, chunk, offset, length - offset);
+        if (written <= 0) throw new Error(`wrote ${offset} of ${length} bytes`);
+        offset += written;
+      }
     } catch (error) {
       writeError = error;
       child.kill('SIGKILL');
@@ -134,7 +141,9 @@ async function copyLogs(
   let timer: NodeJS.Timeout | undefined;
   try {
     const result = await child;
-    await Promise.race([drained, new Promise<void>(resolve => { timer = setTimeout(resolve, STREAM_DRAIN_MS); })]);
+    // Output buffered when the process exited still arrives, but within the capture deadline.
+    const drainMs = Math.min(STREAM_DRAIN_MS, Math.max(deadline - Date.now(), MIN_STREAM_DRAIN_MS));
+    await Promise.race([drained, new Promise<void>(resolve => { timer = setTimeout(resolve, drainMs); })]);
     return { result, oversized, writeError };
   } finally {
     clearTimeout(timer);
@@ -203,7 +212,7 @@ async function stopAndSave(workDir: string, routerLogsDir: string): Promise<Rout
       stdout: 'pipe',
       stderr: 'pipe',
       buffer: false,
-    }), fd);
+    }), fd, deadline);
     if (oversized) {
       logger.warn(`The router's logs exceeded ${MAX_ROUTER_LOG_BYTES} bytes; ${file} keeps only the start`);
       return 'incomplete';
@@ -227,9 +236,10 @@ async function stopAndSave(workDir: string, routerLogsDir: string): Promise<Rout
  * Where to save this run's router logs: `resolveLogPaths(config).routerLogs` when
  * the compose file has a router service, otherwise undefined.
  *
- * Cleanup recursively makes the audit and session-state directories readable by
- * everyone, so router logs inside either of them, or containing one, would lose
- * their owner-only modes. In that case they aren't saved, with a warning.
+ * Cleanup recursively makes the audit, session-state and diagnostics staging
+ * directories readable by everyone (`preserveCleanupArtifacts` and the rootless
+ * repair), so router logs inside any of them, or containing one, would lose their
+ * owner-only modes. In that case they aren't saved, with a warning.
  */
 export function resolveRouterLogsDir(config: WrapperConfig): string | undefined {
   if (config.experimentalModelRouting !== true || !config.modelRouting || !config.modelRoutingBootstrap) {
@@ -238,7 +248,11 @@ export function resolveRouterLogsDir(config: WrapperConfig): string | undefined 
   const routerLogsDir = resolveLogPaths(config).routerLogs;
   try {
     const target = normalizeForOverlap(routerLogsDir);
-    const widened = [config.auditDir || path.join(config.workDir, 'audit'), config.sessionStateDir];
+    const widened = [
+      config.auditDir || path.join(config.workDir, 'audit'),
+      config.sessionStateDir,
+      path.join(config.workDir, 'diagnostics'),
+    ];
     const overlapping = widened.find(root => root && pathsOverlap(normalizeForOverlap(root), target));
     if (overlapping) {
       logger.warn(`Not saving the router's logs: ${routerLogsDir} overlaps ${overlapping}, ` +

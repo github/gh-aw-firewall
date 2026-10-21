@@ -260,6 +260,29 @@ describe('stopRouterAndSaveLogs', () => {
     expect(fs.statSync(logFile).size).toBe(MAX_ROUTER_LOG_BYTES);
   });
 
+  linuxIt('finishes a short write instead of dropping the rest of the chunk', async () => {
+    const realWriteSync = fs.writeSync as (...args: unknown[]) => number;
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    jest.spyOn(require('fs') as typeof fs, 'writeSync').mockImplementationOnce(((
+      fd: number, buffer: NodeJS.ArrayBufferView, offset?: number,
+    ) => realWriteSync(fd, buffer, offset, 10)) as unknown as typeof fs.writeSync);
+    scriptDocker();
+
+    await expect(stopRouterAndSaveLogs(workDir, routerLogsDir)).resolves.toBe('saved');
+
+    expect(fs.readFileSync(logFile, 'utf8')).toBe(RECORDS);
+  });
+
+  linuxIt('reports a write that makes no progress', async () => {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    jest.spyOn(require('fs') as typeof fs, 'writeSync').mockImplementationOnce(() => 0);
+    scriptDocker();
+
+    await expect(stopRouterAndSaveLogs(workDir, routerLogsDir)).resolves.toBe('incomplete');
+
+    expect(mockedLogger.warn).toHaveBeenCalledWith(expect.stringContaining('Could not write'), expect.any(Error));
+  });
+
   linuxIt('reports a failed write and stops docker logs', async () => {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     jest.spyOn(require('fs') as typeof fs, 'writeSync').mockImplementationOnce(() => {
@@ -341,6 +364,8 @@ describe('resolveRouterLogsDir', () => {
     ['the logs directory is inside the audit directory', r => ({ proxyLogsDir: path.join(r, 'out', 'logs'), auditDir: path.join(r, 'out') })],
     ['the audit directory is router-logs itself', r => ({ proxyLogsDir: path.join(r, 'out'), auditDir: path.join(r, 'out', 'router-logs') })],
     ['the logs directory is inside the session-state directory', r => ({ proxyLogsDir: path.join(r, 'state', 'logs'), sessionStateDir: path.join(r, 'state') })],
+    ['the logs directory is the diagnostics staging directory', r => ({ proxyLogsDir: path.join(r, 'awf-1234', 'diagnostics') })],
+    ['the logs directory is a `..`-prefixed name inside the audit directory', r => ({ proxyLogsDir: path.join(r, 'out', '..logs'), auditDir: path.join(r, 'out') })],
   ])('saves nothing when %s, because cleanup widens its permissions', (_name, overrides) => {
     expect(resolveRouterLogsDir(routed(overrides(root)))).toBeUndefined();
     expect(mockedLogger.warn).toHaveBeenCalledWith(expect.stringContaining('Not saving the router\'s logs'));

@@ -4,6 +4,7 @@ import * as path from 'path';
 import { WrapperConfig } from '../types';
 import {
   cleanupRoutingState,
+  pathsOverlap,
   routingBootstrapTestHelpers,
   RoutingFailureExitError,
   stageRoutingConversation,
@@ -227,5 +228,20 @@ describe('routing bootstrap', () => {
       choice: { id: 'one', model: 'gemini/model' },
       wire_model: 'model',
     })).toBe(false);
+  });
+});
+
+describe('pathsOverlap', () => {
+  it.each([
+    ['/a', '/a', true],
+    ['/a', '/a/b', true],
+    ['/a/b', '/a', true],
+    ['/a', '/a/..logs', true],
+    ['/a', '/a/...', true],
+    ['/a', '/ab', false],
+    ['/a/b', '/a/c', false],
+    ['/a', '/b/..a', false],
+  ])('%s and %s overlap: %s', (left, right, expected) => {
+    expect(pathsOverlap(left, right)).toBe(expected);
   });
 });

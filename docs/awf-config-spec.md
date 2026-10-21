@@ -2406,11 +2406,11 @@ container's complete log stream into this directory. No container mounts it. The
 (`0700`) and the file (`0600`) belong to the user who ran AWF (`SUDO_UID` when AWF runs under
 `sudo`), because a custom router image could log more than the bundled one does. For the same
 reason, `--diagnostic-logs` collection, whose copies become world-readable, leaves the router
-out, and a path whose components include a symlink is refused. Cleanup makes the audit and
-session-state directories readable by everyone, so if `router-logs/` would be inside either of
-them, or contain one, AWF doesn't save the router's logs and warns. If the router can't be
-stopped or read within 5 s, AWF logs a warning, keeps whatever it saved and continues teardown.
-AWF writes at most 16 MiB and then stops reading.
+out, and a path whose components include a symlink is refused. Cleanup makes the audit,
+session-state and `<workDir>/diagnostics` directories readable by everyone, so if `router-logs/`
+would be inside any of them, or contain one, AWF doesn't save the router's logs and warns. If the
+router can't be stopped or read within 5 s, AWF logs a warning, keeps whatever it saved and
+continues teardown. AWF writes at most 16 MiB and then stops reading.
 
 | File | Format | Description | Always written |
 |------|--------|-------------|----------------|
