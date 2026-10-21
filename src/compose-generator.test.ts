@@ -16,6 +16,34 @@ jest.mock('execa', () => require('./test-helpers/mock-execa.test-utils').execaMo
 let mockConfig: WrapperConfig;
 
 describe('generateDockerCompose', () => {
+  function routedConfig(overrides: Partial<WrapperConfig> = {}): WrapperConfig {
+    const digest = 'a'.repeat(64);
+    return {
+      ...mockConfig,
+      enableApiProxy: true,
+      experimentalModelRouting: true,
+      images: {
+        squid: `ghcr.io/example/squid:test@sha256:${digest}`,
+        agent: `ghcr.io/example/agent:test@sha256:${digest}`,
+        apiProxy: `ghcr.io/example/api-proxy:test@sha256:${digest}`,
+        router: `ghcr.io/example/router:test@sha256:${digest}`,
+      },
+      modelRouting: {
+        objective: { goal: 'cost', mode: 'balanced' },
+        task: { conversationFile: '/run/awf-routing/input/conversation.json' },
+      },
+      modelRoutingBootstrap: {
+        root: `${mockConfig.workDir}-routing`,
+        inputDir: `${mockConfig.workDir}-routing/input`,
+        outputDir: `${mockConfig.workDir}-routing/output`,
+        inputFile: `${mockConfig.workDir}-routing/input/conversation.json`,
+        containerInputFile: '/run/awf-routing/input/conversation.json',
+        containerOutputDir: '/run/awf-routing/output',
+      },
+      ...overrides,
+    };
+  }
+
   beforeEach(() => {
     mockConfig = { ...baseConfig, workDir: fs.mkdtempSync(path.join(os.tmpdir(), 'awf-test-')) };
   });
@@ -34,31 +62,7 @@ describe('generateDockerCompose', () => {
     });
 
     it('adds routed proxy wiring without exposing routing state to the agent', () => {
-      const digest = 'a'.repeat(64);
-      const routingConfig: WrapperConfig = {
-        ...mockConfig,
-        enableApiProxy: true,
-        experimentalModelRouting: true,
-        images: {
-          squid: `ghcr.io/example/squid:test@sha256:${digest}`,
-          agent: `ghcr.io/example/agent:test@sha256:${digest}`,
-          apiProxy: `ghcr.io/example/api-proxy:test@sha256:${digest}`,
-          router: `ghcr.io/example/router:test@sha256:${digest}`,
-        },
-        modelRouting: {
-          objective: { goal: 'cost', mode: 'balanced' },
-          task: { conversationFile: '/run/awf-routing/input/conversation.json' },
-        },
-        modelRoutingBootstrap: {
-          root: `${mockConfig.workDir}-routing`,
-          inputDir: `${mockConfig.workDir}-routing/input`,
-          outputDir: `${mockConfig.workDir}-routing/output`,
-          inputFile: `${mockConfig.workDir}-routing/input/conversation.json`,
-          containerInputFile: '/run/awf-routing/input/conversation.json',
-          containerOutputDir: '/run/awf-routing/output',
-        },
-      };
-      const result = generateDockerCompose(routingConfig, {
+      const result = generateDockerCompose(routedConfig(), {
         ...mockNetworkConfig,
         proxyIp: '172.30.0.30',
       });
@@ -183,35 +187,7 @@ describe('generateDockerCompose', () => {
     });
 
     describe('router OpenTelemetry export settings', () => {
-      const digest = 'a'.repeat(64);
       const savedEnv = { ...process.env };
-
-      function routedConfig(overrides: Partial<WrapperConfig> = {}): WrapperConfig {
-        return {
-          ...mockConfig,
-          enableApiProxy: true,
-          experimentalModelRouting: true,
-          images: {
-            squid: `ghcr.io/example/squid:test@sha256:${digest}`,
-            agent: `ghcr.io/example/agent:test@sha256:${digest}`,
-            apiProxy: `ghcr.io/example/api-proxy:test@sha256:${digest}`,
-            router: `ghcr.io/example/router:test@sha256:${digest}`,
-          },
-          modelRouting: {
-            objective: { goal: 'cost', mode: 'balanced' },
-            task: { conversationFile: '/run/awf-routing/input/conversation.json' },
-          },
-          modelRoutingBootstrap: {
-            root: `${mockConfig.workDir}-routing`,
-            inputDir: `${mockConfig.workDir}-routing/input`,
-            outputDir: `${mockConfig.workDir}-routing/output`,
-            inputFile: `${mockConfig.workDir}-routing/input/conversation.json`,
-            containerInputFile: '/run/awf-routing/input/conversation.json',
-            containerOutputDir: '/run/awf-routing/output',
-          },
-          ...overrides,
-        };
-      }
 
       function generateRouted(overrides: Partial<WrapperConfig> = {}) {
         return generateDockerCompose(routedConfig(overrides), { ...mockNetworkConfig, proxyIp: '172.30.0.30' });
