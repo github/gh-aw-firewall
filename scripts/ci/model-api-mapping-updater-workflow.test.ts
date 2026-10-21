@@ -61,8 +61,18 @@ describe('scheduled canonical model source maintenance', () => {
     expect(prepare).toContain('git checkout -B model-source-maintenance FETCH_HEAD');
     expect(prepare).toContain('git rev-parse HEAD');
     expect(steps.some(step => step.run?.includes('maintain.cjs capture'))).toBe(true);
-    expect(frontmatter['post-steps'].at(-1).run).toBe('node scripts/model-information/maintain.cjs verify');
-    expect(frontmatter['post-steps'][0].run).toContain('npm test -- --runInBand');
+    const capture = steps.find(step => step.name === 'Capture approved official sources and governed catalogue');
+    expect(capture?.run).toBe('node scripts/model-information/maintain.cjs capture');
+    expect(fs.readFileSync(path.resolve(__dirname, '../model-information/maintain.cjs'), 'utf8'))
+      .toContain('TRUSTED_CAPTURES_JSON');
+    const regression = frontmatter['post-steps'][0].run as string;
+    expect(regression).toContain('git clone --depth=1 --branch main "https://github.com/${GITHUB_REPOSITORY}.git"');
+    expect(regression).toContain('cd "$trusted_dir"');
+    expect(regression).toContain('npm ci --ignore-scripts');
+    expect(regression).toContain('npm test -- --runInBand');
+    const trustedVerify = frontmatter['post-steps'][1].run as string;
+    expect(trustedVerify).toContain('cd "$TRUSTED_MAIN_DIR"');
+    expect(trustedVerify).toContain('verify /tmp/gh-aw/model-maintenance "$GITHUB_WORKSPACE"');
     const agentSteps = lock.jobs.agent.steps;
     const verifyIndex = agentSteps.findIndex((step: any) =>
       step.name === 'Verify source ownership, evidence, complete projections and no-op');

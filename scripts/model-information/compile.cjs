@@ -6,10 +6,14 @@ const path = require('node:path');
 const crypto = require('node:crypto');
 const { identity } = require('../../shared/model-information/identity');
 const { validate, validateRecords } = require('../../shared/model-information/contracts');
-const { importPinnedLegacySnapshot } = require('../../shared/model-information/import-legacy-snapshot');
+const { importLegacySnapshot } = require('../../shared/model-information/import-legacy-snapshot');
 const schema = require('../../shared/model-information/schema.v1.json');
 
-const root = path.resolve(__dirname, '../..');
+const rootArgument = process.argv.find(arg => arg.startsWith('--root='));
+if (rootArgument && !process.argv.includes('--check')) {
+  throw new Error('--root is only available in check mode');
+}
+const root = rootArgument ? path.resolve(rootArgument.slice('--root='.length)) : path.resolve(__dirname, '../..');
 const sourceArgument = process.argv.find(arg => arg.startsWith('--source-dir='));
 if (sourceArgument && !process.argv.includes('--check')) {
   throw new Error('--source-dir is only available in check mode');
@@ -34,7 +38,10 @@ const latestTimestamp = provenances => provenances
 function compile() {
   const files = fs.readdirSync(sources).filter(file => file.endsWith('.json')).sort();
   const importedFile = 'shared/model-information/imported/legacy-models-dev.snapshot.v1.json';
-  const expectedImport = importPinnedLegacySnapshot();
+  const expectedImport = importLegacySnapshot(
+    fs.readFileSync(path.join(root, 'containers/api-proxy/models.dev.catalog.json')),
+    read('shared/model-information/imported/legacy-models-dev.metadata.json'),
+  );
   if (process.argv.includes('--check') && json(read(importedFile)) !== json(expectedImport)) {
     throw new Error(`${importedFile}: pinned bytes, hash, counts, collisions or provenance changed; refresh explicitly`);
   }

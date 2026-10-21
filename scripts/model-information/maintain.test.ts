@@ -79,6 +79,41 @@ describe('offline scheduled source maintenance', () => {
     expect(fs.readFileSync(path.join(evidence, 'openai-models.txt'), 'utf8')).toBe(quote);
   });
 
+  it('exports trusted hashes through the host environment file', async () => {
+    const environmentFile = path.join(cwd, 'github-env');
+    const previous = process.env.GITHUB_ENV;
+    fs.writeFileSync(environmentFile, '');
+    process.env.GITHUB_ENV = environmentFile;
+    try {
+      await captureSources(evidence, fakeFetch());
+      const [entry] = fs.readFileSync(environmentFile, 'utf8').trim().split('\n');
+      expect(entry.startsWith('TRUSTED_CAPTURES_JSON=')).toBe(true);
+      expect(JSON.parse(entry.slice('TRUSTED_CAPTURES_JSON='.length)).sources).toHaveLength(sources.length);
+    } finally {
+      if (previous === undefined) delete process.env.GITHUB_ENV;
+      else process.env.GITHUB_ENV = previous;
+    }
+  });
+
+  it('rejects modified captures even when their writable manifest is rewritten to match', () => {
+    const captures = JSON.parse(fs.readFileSync(path.join(evidence, 'captures.json'), 'utf8'));
+    const source = captures.sources.find((item: { id: string }) => item.id === 'openai-models');
+    const textPath = path.join(evidence, 'openai-models.txt');
+    fs.writeFileSync(textPath, 'Fabricated official source evidence with a matching writable hash.');
+    source.textSha256 = hash(fs.readFileSync(textPath));
+    fs.writeFileSync(path.join(evidence, 'captures.json'), json(captures));
+    expect(() => loadCaptures(evidence)).toThrow('hash mismatch');
+  });
+
+  it('requires a well-formed trusted capture manifest', () => {
+    const manifest = process.env.TRUSTED_CAPTURES_JSON;
+    delete process.env.TRUSTED_CAPTURES_JSON;
+    expect(() => loadCaptures(evidence)).toThrow('TRUSTED_CAPTURES_JSON is required');
+    process.env.TRUSTED_CAPTURES_JSON = '{';
+    expect(() => loadCaptures(evidence)).toThrow('invalid JSON');
+    process.env.TRUSTED_CAPTURES_JSON = manifest!;
+  });
+
   it('decodes document entities once while retaining literal entity evidence', () => {
     expect(documentText(Buffer.from(
       '<p>&amp;lt;model&amp;gt; &amp;amp; &quot;exact&quot; &#39;quote&#39;&nbsp;&#160;&lt;literal&gt;</p>',

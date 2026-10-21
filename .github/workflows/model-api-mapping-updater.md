@@ -125,15 +125,16 @@ steps:
 post-steps:
   - name: Enforce focused offline model regressions
     run: |
-      rm -rf /tmp/trusted-main
-      git clone --depth=1 --branch main . /tmp/trusted-main
-      cd /tmp/trusted-main
+      trusted_dir="$(mktemp -d "$RUNNER_TEMP/model-maintenance-trusted.XXXXXX")"
+      git clone --depth=1 --branch main "https://github.com/${GITHUB_REPOSITORY}.git" "$trusted_dir"
+      echo "TRUSTED_MAIN_DIR=$trusted_dir" >> "$GITHUB_ENV"
+      cd "$trusted_dir"
       npm ci --ignore-scripts
       npm test -- --runInBand scripts/model-information/ scripts/ci/model-api-mapping-updater-workflow.test.ts src/copilot-model-catalog-sync.test.ts src/model-information-contract.test.ts
   - name: Verify source ownership, evidence, complete projections and no-op
     run: |
-      cd /tmp/trusted-main
-      node scripts/model-information/maintain.cjs verify
+      cd "$TRUSTED_MAIN_DIR"
+      node scripts/model-information/maintain.cjs verify /tmp/gh-aw/model-maintenance "$GITHUB_WORKSPACE"
 safe-outputs:
   needs: [select_maintenance_pr]
   steps:

@@ -114,6 +114,18 @@ function writeCapture(directory, filename, content) {
   }
 }
 
+function recordTrustedCaptures(captures) {
+  const manifest = JSON.stringify({
+    schemaVersion: 1,
+    sources: captures.filter(item => item.status === 'ok').map(({ id, url, sha256, textSha256 }) =>
+      ({ id, url, sha256, textSha256 })),
+  });
+  process.env.TRUSTED_CAPTURES_JSON = manifest;
+  if (process.env.GITHUB_ENV) {
+    fs.appendFileSync(process.env.GITHUB_ENV, `TRUSTED_CAPTURES_JSON=${manifest}\n`);
+  }
+}
+
 async function captureSources(directory, fetcher = fetch, sources = approvedSources) {
   if (sources.some(source => !/^[a-z][a-z0-9-]*$/.test(source.id))) {
     throw new Error('Unsafe capture source ID');
@@ -163,14 +175,31 @@ async function captureSources(directory, fetcher = fetch, sources = approvedSour
     captures.push(captured || { id: source.id, scope: source.scope, status: 'failed', errors });
   }
   writeCapture(directory, 'captures.json', json({ schemaVersion: 1, sources: captures }));
+  recordTrustedCaptures(captures);
   return captures;
 }
 
 function loadTrustedCaptureHashes() {
-  const trustedPath = process.env.TRUSTED_CAPTURES_FILE;
-  if (!trustedPath) throw new Error('TRUSTED_CAPTURES_FILE is required for capture integrity verification');
-  const trusted = read(path.resolve(root, trustedPath));
-  if (!Array.isArray(trusted?.sources)) throw new Error('Trusted captures file must contain a "sources" array');
+  const value = process.env.TRUSTED_CAPTURES_JSON;
+  if (!value) throw new Error('TRUSTED_CAPTURES_JSON is required for capture integrity verification');
+  let trusted;
+  try {
+    trusted = JSON.parse(value);
+  } catch {
+    throw new Error('Trusted captures manifest is invalid JSON');
+  }
+  if (trusted?.schemaVersion !== 1 || !Array.isArray(trusted.sources)) {
+    throw new Error('Trusted captures manifest must contain schemaVersion 1 and a "sources" array');
+  }
+  const ids = new Set();
+  for (const item of trusted.sources) {
+    if (!item || typeof item.id !== 'string' || ids.has(item.id) ||
+        typeof item.url !== 'string' || !/^[a-f0-9]{64}$/.test(item.sha256) ||
+        !/^[a-f0-9]{64}$/.test(item.textSha256)) {
+      throw new Error('Trusted captures manifest contains an invalid or duplicate source record');
+    }
+    ids.add(item.id);
+  }
   return trusted.sources;
 }
 
@@ -189,7 +218,7 @@ function loadCaptures(directory) {
       errors.push(`${source.id}: missing trusted capture record`);
       continue;
     }
-    if (!source.urls.includes(capture.url) ||
+    if (!source.urls.includes(capture.url) || capture.url !== trusted.url ||
         capture.sha256 !== trusted.sha256 ||
         capture.textSha256 !== trusted.textSha256 ||
         hash(fs.readFileSync(path.join(directory, `${source.id}.raw`))) !== capture.sha256 ||
@@ -357,7 +386,7 @@ function selectPullRequest(pulls) {
 }
 
 async function main() {
-  const [command, directory = '/tmp/gh-aw/model-maintenance'] = process.argv.slice(2);
+  const [command, directory = '/tmp/gh-aw/model-maintenance', targetRoot = root] = process.argv.slice(2);
   if (command === 'capture') {
     const captures = await captureSources(directory);
     console.log(json(captures));
@@ -369,9 +398,12 @@ async function main() {
     if (report) fs.writeFileSync(path.join(root, reportFile), json(report));
     console.log(report ? `Review required: ${reportFile}` : 'No material source changes');
   } else if (command === 'verify') {
-    const report = buildReport(root, directory);
-    if (report && json(read(path.join(root, reportFile))) !== json(report)) throw new Error('Missing or stale maintenance impact report');
-    execFileSync(process.execPath, [path.join(root, 'scripts/model-information/compile.cjs'), '--check'], { cwd: root, stdio: 'inherit' });
+    const cwd = path.resolve(targetRoot);
+    const report = buildReport(cwd, directory);
+    if (report && json(read(path.join(cwd, reportFile))) !== json(report)) throw new Error('Missing or stale maintenance impact report');
+    execFileSync(process.execPath, [
+      path.join(root, 'scripts/model-information/compile.cjs'), '--check', `--root=${cwd}`,
+    ], { cwd: root, stdio: 'inherit' });
   } else if (command === 'select-pr') {
     console.log(json(selectPullRequest(read(directory))));
   } else {

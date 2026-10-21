@@ -19,6 +19,7 @@ const run = (...flags: string[]) => {
 describe('maintained model compilation', () => {
   it('checks repeatable generated outputs without refreshing timestamps', () => {
     expect(run('--check')).toMatch(/Checked model catalogue/);
+    expect(run('--check', `--root=${root}`)).toMatch(/Checked model catalogue/);
     const first = fs.readFileSync(path.join(root, 'shared/model-information/manifest.generated.json'));
     run('--check');
     expect(fs.readFileSync(path.join(root, 'shared/model-information/manifest.generated.json'))).toEqual(first);
