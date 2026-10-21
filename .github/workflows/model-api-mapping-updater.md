@@ -124,9 +124,16 @@ steps:
       if-no-files-found: error
 post-steps:
   - name: Enforce focused offline model regressions
-    run: npm test -- --runInBand scripts/model-information/ scripts/ci/model-api-mapping-updater-workflow.test.ts src/copilot-model-catalog-sync.test.ts src/model-information-contract.test.ts
+    run: |
+      rm -rf /tmp/trusted-main
+      git clone --depth=1 --branch main . /tmp/trusted-main
+      cd /tmp/trusted-main
+      npm ci --ignore-scripts
+      npm test -- --runInBand scripts/model-information/ scripts/ci/model-api-mapping-updater-workflow.test.ts src/copilot-model-catalog-sync.test.ts src/model-information-contract.test.ts
   - name: Verify source ownership, evidence, complete projections and no-op
-    run: node scripts/model-information/maintain.cjs verify
+    run: |
+      cd /tmp/trusted-main
+      node scripts/model-information/maintain.cjs verify
 safe-outputs:
   needs: [select_maintenance_pr]
   steps:
