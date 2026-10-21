@@ -58,7 +58,7 @@ use `awf --reflect`. It prints the `/reflect` JSON response to stdout.
 - **Domain and URL controls**: allow/deny domain rules, SSL Bump (`--ssl-bump`), and URL patterns (`--allow-urls`, requires `--ssl-bump`)
 - **Data protection controls**: DLP scanning (`--enable-dlp`), DNS-over-HTTPS, and agent runtime limits (`--agent-timeout`)
 - **API proxy capabilities**: OpenAI, Anthropic, Copilot, Gemini, and Google Vertex AI targets with rate limits, token steering, Anthropic auto-cache, and `apiProxy.hostedWeb.{claude,codex}` domain policies
-- **Unified enclaves**: isolated script and agent execution with cost control via `--max-num-tool-calls`, repository seedling, and dynamic admission
+- **Unified enclaves**: isolated script and agent execution with cost control via `--max-num-tool-calls`, repository seeding, and dynamic admission
 - **Infrastructure flexibility**: upstream proxy chaining, host service access, Docker-in-Docker, custom mounts, memory limits, and TTY mode
 - **Protected output capture**: opt-in, host-only command stdout/stderr capture with attempt and completeness metadata
 - **Operational tooling**: pre-download images and inspect logs/stats/summaries/audits from live or saved runs
