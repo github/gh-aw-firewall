@@ -105,4 +105,17 @@ describe('enclave runtime preflight', () => {
     expect(runtimeAvailable).not.toHaveBeenCalled();
     expect(dockerAvailable).not.toHaveBeenCalled();
   });
+
+  it('does not substitute Docker availability for trusted host listener readiness', async () => {
+    const run = { workDir: '/unregistered-docker-run' } as WrapperConfig;
+    await expect(assertScriptRuntimeAvailable(
+      { ...ENCLAVE_SCRIPT_EXECUTOR_DEFAULTS, enabled: true, runtime: 'docker' },
+      runtimeAvailable, dockerAvailable, run,
+    )).rejects.toThrow(/full preflight has not completed/);
+    await expect(assertAgentRuntimeAvailable(
+      { ...ENCLAVE_AGENT_EXECUTOR_DEFAULTS, enabled: true, runtime: 'docker' },
+      runtimeAvailable, dockerAvailable, run,
+    )).rejects.toThrow(/full preflight has not completed/);
+    expect(dockerAvailable).not.toHaveBeenCalled();
+  });
 });

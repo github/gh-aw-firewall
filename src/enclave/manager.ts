@@ -47,6 +47,13 @@ import {
   type TrustedCloudHypervisorEnclaveStorageProvider,
 } from './cloud-hypervisor-lifecycle';
 import { ProductionTrustedCloudHypervisorEnclaveStorageProvider } from '../cloud-hypervisor/trusted-enclave-storage';
+import {
+  assertDockerEnclaveLifecycleReady,
+  assertDockerEnclaveHostPrerequisites,
+  isDockerEnclaveSelected,
+  startDockerEnclaveLifecycle,
+  stopDockerEnclaveLifecycle,
+} from './docker-lifecycle';
 import { HOST_EXECUTOR_STORAGE_ROOT } from './host-executor-journal';
 import * as path from 'path';
 import { updateEnclaveStartupProgress } from './startup-progress';
@@ -94,11 +101,19 @@ function ensureDirectory(target: string, mode: number): void {
   fs.chmodSync(target, mode);
 }
 
+interface NeverLaunchedStaging {
+  runId?: string;
+}
+
+const neverLaunchedStaging = new Map<string, NeverLaunchedStaging>();
+
 function prepareDirectories(
   paths: EnclavePaths,
   chown: typeof fs.chownSync = fs.chownSync,
+  onPrivateRootCreated: () => void = () => undefined,
 ): void {
   fs.mkdirSync(paths.root, { mode: 0o700 });
+  onPrivateRootCreated();
   fs.mkdirSync(paths.ingressRoot, { mode: 0o700 });
   ensureDirectory(paths.seedsDir, 0o700);
   ensureDirectory(paths.workDir, 0o700);
@@ -137,6 +152,7 @@ export interface PrepareEnclavesDeps {
   assertAgentRuntimeAvailable?: (config: EnclaveAgentExecutorConfig) => Promise<void>;
   assertPrimaryAvailable?: typeof assertPrimaryRuntimeAvailable;
   assertCloudHypervisorPrimaryPreflight?: (config: WrapperConfig) => Promise<void>;
+  assertDockerHostPrerequisites?: typeof assertDockerEnclaveHostPrerequisites;
   /** Trusted host integration only. No CLI/config/env switch can supply this provider. */
   cloudHypervisorStorageProvider?: TrustedCloudHypervisorEnclaveStorageProvider;
 }
@@ -219,21 +235,33 @@ export async function prepareEnclaves(
     throw new Error('Enclave staging credential disappeared during preflight');
   }
 
-  const hostExecutorSelected = isCloudHypervisorEnclaveSelected(config);
+  const cloudHypervisorSelected = isCloudHypervisorEnclaveSelected(config);
+  const dockerSelected = isDockerEnclaveSelected(config);
+  const hostExecutorSelected = cloudHypervisorSelected || dockerSelected;
+  if (dockerSelected) {
+    (deps.assertDockerHostPrerequisites ?? assertDockerEnclaveHostPrerequisites)(config, env);
+  }
   updateEnclaveStartupProgress(config, { stage: 'host-preflight' });
   if (hostExecutorSelected) {
     const hostPaths = resolveEnclavePaths(config.workDir);
-    const report = new HostPreflightReporter('host-isolation', (hostPreflight) =>
-      updateEnclaveStartupProgress(config, { hostPreflight }));
+    const report = cloudHypervisorSelected
+      ? new HostPreflightReporter('host-isolation', (hostPreflight) =>
+        updateEnclaveStartupProgress(config, { hostPreflight }))
+      : undefined;
     for (const [root, label, check] of [
       [hostPaths.hostExecutorJournalDir, 'recovery journal', 'journal-isolation'],
       [path.join(path.dirname(hostPaths.hostExecutorJournalDir), 'host-invocations'), 'invocation mount points', 'invocation-isolation'],
       [HOST_EXECUTOR_STORAGE_ROOT, 'allocation domains', 'allocation-isolation'],
       [ENCLAVE_DEBUG_ARTIFACT_ROOT, 'debug artifacts', 'debug-artifact-isolation'],
     ] as const) {
-      await report.check(check, () => assertPrivateRootIsolated(config, {
-        root, ingressRoot: hostPaths.ingressRoot,
-      }, env, process.cwd(), `Cloud Hypervisor enclave ${label}`));
+      if (!cloudHypervisorSelected && (check === 'allocation-isolation' || check === 'debug-artifact-isolation')) {
+       continue;
+      }
+      const assertIsolated = () => assertPrivateRootIsolated(config, {
+       root, ingressRoot: hostPaths.ingressRoot,
+      }, env, process.cwd(), `${cloudHypervisorSelected ? 'Cloud Hypervisor' : 'Docker'} enclave ${label}`);
+      if (report) await report.check(check, assertIsolated);
+      else assertIsolated();
     }
   }
   await assertCloudHypervisorEnclavePrerequisites(config, storageProvider);
@@ -254,11 +282,11 @@ export async function prepareEnclaves(
     await runtimeChecks.check('primary-runtime', () =>
       (deps.assertPrimaryAvailable ?? assertPrimaryRuntimeAvailable)(config.containerRuntime));
   }
-  if (enclaves.executors.script.enabled && !hostExecutorSelected) {
+  if (enclaves.executors.script.enabled && !cloudHypervisorSelected) {
     const assertScriptRuntime = deps.assertScriptRuntimeAvailable ?? assertScriptRuntimeAvailable;
     await runtimeChecks.check('script-runtime', () => assertScriptRuntime(enclaves.executors.script));
   }
-  if (enclaves.executors.agent.enabled && !hostExecutorSelected) {
+  if (enclaves.executors.agent.enabled && !cloudHypervisorSelected) {
     const assertAgentRuntime = deps.assertAgentRuntimeAvailable ?? assertAgentRuntimeAvailable;
     await runtimeChecks.check('agent-runtime', () => assertAgentRuntime(enclaves.executors.agent));
   }
@@ -284,10 +312,16 @@ export async function prepareEnclaves(
       }
     }
   });
-  await storageChecks.check('directory-layout', () => prepareDirectories(paths));
+  await storageChecks.check('directory-layout', () => prepareDirectories(
+    paths, undefined, () => {
+      if (dockerSelected) neverLaunchedStaging.set(paths.root, {});
+    },
+  ));
 
   const runId = generateEnclaveRunId();
   await storageChecks.check('run-identity', () => writeExclusive(paths.runIdPath, `${runId}\n`, 0o600));
+  const staging = neverLaunchedStaging.get(paths.root);
+  if (staging) staging.runId = runId;
   if (seedStagingRequired) {
     await storageChecks.check('seed-catalog', async () => {
       const staging = await stageEnclaveSeeds({
@@ -338,7 +372,14 @@ export async function prepareEnclaves(
       );
     });
   }
-  if (hostExecutorSelected) {
+  if (dockerSelected) {
+    updateEnclaveStartupProgress(config, { stage: 'host-service' });
+    await runtimeChecks.check('host-service', async () => {
+      await startDockerEnclaveLifecycle(config, env, () => neverLaunchedStaging.delete(paths.root));
+      await assertDockerEnclaveLifecycleReady(config);
+    });
+  }
+  if (cloudHypervisorSelected) {
     updateEnclaveStartupProgress(config, { stage: 'host-service' });
     await runtimeChecks.check('host-service', () => startCloudHypervisorEnclaveLifecycle(config, storageProvider, env));
     if (enclaves.executors.script.enabled) {
@@ -438,9 +479,26 @@ function removePrivateState(
 export async function teardownEnclaves(config: WrapperConfig): Promise<void> {
   if (!isEnclavesEnabled(config)) return;
   const paths = resolveEnclavePaths(config.workDir);
+  const staging = neverLaunchedStaging.get(paths.root);
+  await stopDockerEnclaveLifecycle(config, () => {
+    const current = neverLaunchedStaging.get(paths.root);
+    if (!current) return false;
+    const runId = readRunId(paths);
+    return !current.runId || current.runId === runId;
+  });
   await stopCloudHypervisorEnclaveLifecycle(config);
+  if (staging && neverLaunchedStaging.get(paths.root) === staging) {
+    const stagedRunId = readRunId(paths);
+    if (staging.runId && stagedRunId !== staging.runId) {
+      throw new Error('Never-launched enclave staging identity changed; private state is preserved');
+    }
+    releaseSeedPermissions(paths.seedsDir);
+    removePrivateState(config, paths);
+    neverLaunchedStaging.delete(paths.root);
+    return;
+  }
   const runId = readRunId(paths);
-  if (runId) {
+  if (runId && !isDockerEnclaveSelected(config)) {
     await removeOrphanEnclaveContainers(runId);
   }
   if (config.keepContainers) {
@@ -461,4 +519,5 @@ export const enclaveManagerTestHelpers = {
   readRunId,
   removePrivateState,
   removeOrphanEnclaveContainers,
+  neverLaunchedStaging,
 };

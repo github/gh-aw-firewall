@@ -43,6 +43,11 @@ import {
   stopCloudHypervisorEnclaveLifecycle,
 } from '../enclave/cloud-hypervisor-lifecycle';
 import {
+  closeDockerEnclaveAdmissions,
+  isDockerEnclaveSelected,
+  stopDockerEnclaveLifecycle,
+} from '../enclave/docker-lifecycle';
+import {
   startEnclaveDynamicDelegation,
   stopEnclaveDynamicDelegation,
 } from '../enclave/dynamic-delegation';
@@ -334,10 +339,12 @@ async function runCleanup(
   signal: string | undefined,
 ): Promise<void> {
   let externalRuntimeCleanupError: unknown;
+  const dockerEnclaves = isDockerEnclaveSelected(config);
   if (signal) {
     logger.info(`Received ${signal}, cleaning up...`);
   }
   closeCloudHypervisorEnclaveAdmissions(config);
+  closeDockerEnclaveAdmissions(config);
 
   if (externalRuntimeBackend) {
     try {
@@ -368,7 +375,17 @@ async function runCleanup(
   let auditRecoveryFailure: { error: unknown } | undefined;
   try {
     containersStarted = getContainersStarted();
-    if (containersStarted) {
+    // Keep delegated identities and sidecars alive through host cancellation.
+    // Failure retains networks, seeds and recovery state, but still saves audit.
+    let dockerEnclaveShutdownFailed = false;
+    let dockerEnclaveShutdownError: unknown;
+    try {
+      await stopDockerEnclaveLifecycle(config);
+    } catch (error) {
+      dockerEnclaveShutdownFailed = true;
+      dockerEnclaveShutdownError = error;
+    }
+    if (containersStarted || dockerEnclaves) {
       try {
         // Revoke every outstanding dynamic identity before the broker and the
         // gateway go away, so no delegated bearer can outlive the run.
@@ -379,7 +396,11 @@ async function runCleanup(
           'Dynamic enclave delegation shutdown did not complete; mcpg state may be unreconciled.',
           error,
         );
+        if (dockerEnclaves && !dockerEnclaveShutdownFailed) throw error;
       }
+    }
+    if (dockerEnclaveShutdownFailed) throw dockerEnclaveShutdownError;
+    if (containersStarted) {
       try {
         await shutdownEnclaveGateway(config);
       } catch {

@@ -1,0 +1,21 @@
+[
+  {"id": "health", "method": "GET", "path": "/healthz", "status": 204},
+  {
+    "id": "capabilities", "method": "GET", "path": "/capabilities", "status": 200,
+    "response": {
+      "name": "gh-aw-router", "version": "0.2.0",
+      "routing_profiles": [
+        {"goal": "cost", "mode": "economy"},
+        {"goal": "cost", "mode": "balanced"},
+        {"goal": "cost", "mode": "robust"},
+        {"goal": "cost-speed", "mode": "economy"},
+        {"goal": "cost-speed", "mode": "balanced"},
+        {"goal": "cost-speed", "mode": "robust"}
+      ],
+      "execution_catalogue": {"models": [
+        {"model": "github-copilot/router-fast", "efforts": []},
+        {"model": "github-copilot/router-reasoning", "efforts": ["medium"]}
+      ]}
+    }
+  }
+]

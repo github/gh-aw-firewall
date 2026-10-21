@@ -1,3 +1,4 @@
+import * as path from 'path';
 import {
   ENCLAVE_AGENT_API_PROXY_CONTAINER_NAME,
   ENCLAVE_MCP_SERVER_CONTAINER_NAME,
@@ -62,8 +63,8 @@ import { getOrCreateEnclaveModelBudgetSecret } from '../enclave/model-budget-cap
  * - the **MCP server** joins only the dedicated internal enclave control
  *   network — no `awf-net`, no `awf-ext`, no agent-enclave network, no Squid,
  *   no host gateway.
- *   It holds the Docker socket and the private seed/work/audit mounts, and it
- *   never holds a provider credential.
+ *   Docker execution uses the authenticated host channel; only gVisor retains
+ *   the Docker socket and private seed/work mounts. Neither holds a provider credential.
  * - **script enclaves** run with `--network none`.
  * - **agent enclaves** join *only* the dedicated `internal`
  *   {@link ENCLAVE_AGENT_NETWORK}. Its mandatory peer is a dedicated API proxy;
@@ -170,6 +171,88 @@ function toDaemonVisiblePath(hostPath: string, prefix: string | undefined): stri
 }
 
 export { resolveEnclaveAgentApiPort } from '../types/enclave-options';
+
+/** Trusted host-only Docker runner settings; never serialized into an invocation. */
+export function deriveDockerEnclaveRunnerConfig(
+  config: WrapperConfig,
+  imageConfig: ImageBuildConfig,
+  kind: 'script' | 'agent',
+): Record<string, string | number | boolean | undefined> {
+  const executor = config.enclaves?.executors[kind];
+  if (!executor?.enabled || executor.runtime !== 'docker') {
+    throw new Error('Docker enclave runner requires an enabled Docker entry');
+  }
+  const paths = resolveEnclavePaths(config.workDir);
+  const common = {
+    seedsDir: paths.seedsDir,
+    workDir: paths.workDir,
+    auditDir: paths.auditDir,
+    hostWorkDir: toDaemonVisiblePath(paths.workDir, config.dockerHostPathPrefix),
+    backend: 'docker',
+    executorBackend: 'docker',
+    primaryBackend: resolvePrimaryRuntimeBackend(config.containerRuntime),
+    timeoutSeconds: executor.timeout,
+    maxInvocations: executor.maxInvocations,
+    memoryLimit: executor.memoryLimit,
+    cpuLimit: executor.cpuLimit,
+    pidsLimit: executor.pidsLimit,
+    tmpfsLimit: executor.tmpfsLimit,
+    maxOutputBytes: executor.maxOutputBytes,
+    runLabelKey: 'awf.enclave.run',
+    invocationLabelKey: 'awf.enclave.invocation',
+  };
+  const seccompPath = path.join(paths.root, 'docker-enclave-seccomp.json');
+  if (kind === 'script') {
+    const script = config.enclaves!.executors.script!;
+    return {
+      ...common,
+      querySeccompPath: seccompPath,
+      queryMountDir: '/query',
+      queryScriptPath: '/awf/query-script.py',
+      queryUid: 65534,
+      queryGid: 65534,
+      queryImage: resolveScriptImage(imageConfig, script.image).imageRef,
+      maxScriptBytes: script.maxScriptBytes,
+      containerPrefix: 'awf-enclave-script',
+    };
+  }
+  const agent = config.enclaves!.executors.agent!;
+  const githubEnabled = isEnclaveAgentGithubToolsEnabled(agent);
+  const gateway = isEnclaveAgentGithubRouteEnabled(agent)
+    ? resolveEnclaveGithubGatewayContract(config) : undefined;
+  return {
+    ...common,
+    hostSeedsDir: agent.dynamic ? undefined : toDaemonVisiblePath(paths.seedsDir, config.dockerHostPathPrefix),
+    enclaveSeccompPath: seccompPath,
+    enclaveMountDir: '/agent',
+    enclaveSeedPath: '/awf/seed',
+    enclaveTaskPath: '/awf/task.txt',
+    enclaveSchemaPath: '/awf/schema.json',
+    enclaveUid: 65534,
+    enclaveGid: 65534,
+    enclaveHostname: 'enclave-agent',
+    enclaveImage: resolveAgentImage(imageConfig, agent.image).imageRef,
+    engine: agent.engine,
+    profile: agent.profile,
+    model: agent.model,
+    apiEndpoint: `http://${ENCLAVE_AGENT_API_PROXY_IP}:${resolveEnclaveAgentApiPort(agent.engine, agent.profile)}`,
+    network: ENCLAVE_AGENT_NETWORK,
+    maxPromptBytes: agent.maxTaskBytes,
+    maxModelRequests: agent.maxModelRequests,
+    maxModelTokens: agent.maxModelTokens,
+    modelBudgetSecret: getOrCreateEnclaveModelBudgetSecret(config),
+    githubEnabled,
+    githubProfile: githubEnabled ? 'issues-read-v1' : undefined,
+    githubMcpUrl: githubEnabled ? ENCLAVE_GITHUB_MCP_INTERNAL_URL : undefined,
+    githubGatewayContainer: gateway?.containerName,
+    enclaveGithubAgentIdPath: '/run/awf-enclave-github/agent-id',
+    dynamicEnabled: agent.dynamic !== undefined,
+    dynamicSensitivity: agent.dynamic?.sensitivity,
+    dynamicGithubMcpUrl: agent.dynamic ? ENCLAVE_GITHUB_MCP_INTERNAL_URL : undefined,
+    enclaveGithubBearerPath: '/run/awf-enclave-github/bearer',
+    containerPrefix: 'awf-enclave-agent',
+  };
+}
 
 /**
  * Builds the dedicated agent-enclave API proxy.
@@ -279,14 +362,22 @@ export function buildEnclaveMcpService(params: EnclaveMcpServiceParams): Enclave
   // topology.
   const staticSeedsPresent = enclaves.privateRepos.length > 0;
   const dynamic = agent?.enabled ? agent.dynamic : undefined;
-  const hostExecutor = (script?.enabled && script.runtime === 'cloud-hypervisor')
+  const cloudHypervisorExecutor = (script?.enabled && script.runtime === 'cloud-hypervisor')
     || (agent?.enabled && agent.runtime === 'cloud-hypervisor');
-  const dockerExecutor = (script?.enabled && script.runtime !== 'cloud-hypervisor')
+  const containerExecutor = (script?.enabled && script.runtime !== 'cloud-hypervisor')
     || (agent?.enabled && agent.runtime !== 'cloud-hypervisor');
-  if (hostExecutor && dockerExecutor) {
+  const localExecutor = (script?.enabled && script.runtime === 'gvisor')
+    || (agent?.enabled && agent.runtime === 'gvisor');
+  const hostExecutor = cloudHypervisorExecutor
+    || (script?.enabled && script.runtime === 'docker')
+    || (agent?.enabled && agent.runtime === 'docker');
+  if (cloudHypervisorExecutor && containerExecutor) {
     throw new Error('Cloud Hypervisor enclaves cannot be mixed with container enclave runtimes');
   }
-  if (hostExecutor && ((script?.enabled && script.image !== undefined)
+  if (hostExecutor && localExecutor) {
+    throw new Error('Docker and gVisor enclaves cannot share a broker; one workload backend is required per run');
+  }
+  if (cloudHypervisorExecutor && ((script?.enabled && script.image !== undefined)
     || (agent?.enabled && (agent.image !== undefined || agent.dynamic !== undefined)))) {
     throw new Error('Cloud Hypervisor enclaves require static entries and release-attested artifacts');
   }
@@ -321,7 +412,7 @@ export function buildEnclaveMcpService(params: EnclaveMcpServiceParams): Enclave
       environment.AWF_ENCLAVE_IMAGE = imageRef;
     }
     Object.assign(environment, {
-      ...(script.runtime === 'cloud-hypervisor' && { AWF_ENCLAVE_ENTRY_ID: 'script' }),
+      ...(script.runtime !== 'gvisor' && { AWF_ENCLAVE_ENTRY_ID: 'script' }),
       AWF_ENCLAVE_BACKEND: script.runtime,
       AWF_ENCLAVE_TIMEOUT: String(script.timeout),
       AWF_ENCLAVE_MEMORY: script.memoryLimit,
@@ -376,7 +467,7 @@ export function buildEnclaveMcpService(params: EnclaveMcpServiceParams): Enclave
     });
     const apiPort = resolveEnclaveAgentApiPort(agent.engine, agent.profile);
     Object.assign(environment, {
-      ...(agent.runtime === 'cloud-hypervisor' && { AWF_ENCLAVE_AGENT_ENTRY_ID: 'agent' }),
+      ...(agent.runtime !== 'gvisor' && { AWF_ENCLAVE_AGENT_ENTRY_ID: 'agent' }),
       // The server selects a fixed EnclaveRunner from this normalized value.
       // Runtime flags are never accepted from an invocation.
       AWF_ENCLAVE_AGENT_BACKEND: agent.runtime,
@@ -418,7 +509,7 @@ export function buildEnclaveMcpService(params: EnclaveMcpServiceParams): Enclave
       ...(agent.maxModelTokens !== undefined && {
         AWF_ENCLAVE_AGENT_MAX_MODEL_TOKENS: String(agent.maxModelTokens),
       }),
-      ...(modelBudgetSecret !== undefined && !hostExecutor && {
+      ...(modelBudgetSecret !== undefined && agent.runtime === 'gvisor' && {
         AWF_ENCLAVE_AGENT_MODEL_BUDGET_SECRET: modelBudgetSecret,
       }),
       // Enclave bind-mount sources are handed to the daemon, not opened by the
@@ -434,8 +525,10 @@ export function buildEnclaveMcpService(params: EnclaveMcpServiceParams): Enclave
   }
 
   const serverVolumes = [
-    ...(!hostExecutor ? [`${paths.workDir}:${ENCLAVE_SERVER_WORK_DIR}:rw`] : []),
-    `${paths.runDir}:${ENCLAVE_SERVER_CAPABILITY_DIR}:ro`,
+    ...(localExecutor ? [`${paths.workDir}:${ENCLAVE_SERVER_WORK_DIR}:rw`] : []),
+    localExecutor
+      ? `${paths.runDir}:${ENCLAVE_SERVER_CAPABILITY_DIR}:ro`
+      : `${paths.capabilityPath}:${ENCLAVE_SERVER_CAPABILITY_PATH}:ro`,
     `${paths.controlDir}:${ENCLAVE_SERVER_CONTROL_DIR}:rw`,
     `${paths.auditDir}:${ENCLAVE_SERVER_AUDIT_DIR}:rw`,
   ];
@@ -443,22 +536,27 @@ export function buildEnclaveMcpService(params: EnclaveMcpServiceParams): Enclave
     serverVolumes.push(
       `${paths.hostExecutorDir}:${ENCLAVE_SERVER_HOST_EXECUTOR_DIR}:ro`,
     );
-    delete environment.AWF_ENCLAVE_HOST_WORK_DIR;
+  }
+  if (!script?.enabled || script.runtime !== 'gvisor') delete environment.AWF_ENCLAVE_HOST_WORK_DIR;
+  if (!agent?.enabled || agent.runtime !== 'gvisor') {
     delete environment.AWF_ENCLAVE_AGENT_HOST_WORK_DIR;
     delete environment.AWF_ENCLAVE_AGENT_HOST_SEEDS_DIR;
-  } else {
+    delete environment.AWF_ENCLAVE_AGENT_DYNAMIC_CHANNEL_DIR;
+    delete environment.AWF_ENCLAVE_AGENT_GITHUB_AGENT_ID_PATH;
+  }
+  if (localExecutor) {
     serverVolumes.push(`${dockerSocketPath}:${ENCLAVE_SERVER_DOCKER_SOCKET_PATH}:rw`);
   }
   if (staticSeedsPresent) {
     serverVolumes.push(`${paths.seedMapPath}:${ENCLAVE_SERVER_SEED_MAP_PATH}:ro`);
-    if (!hostExecutor) serverVolumes.push(`${paths.seedsDir}:${ENCLAVE_SERVER_SEEDS_DIR}:ro`);
+    if (localExecutor) serverVolumes.push(`${paths.seedsDir}:${ENCLAVE_SERVER_SEEDS_DIR}:ro`);
   }
-  if (dynamic !== undefined) {
+  if (dynamic !== undefined && agent?.runtime === 'gvisor') {
     serverVolumes.push(
       `${paths.delegationChannelDir}:${ENCLAVE_SERVER_DELEGATION_CHANNEL_DIR}:rw`,
     );
   }
-  if (isEnclaveAgentGithubToolsEnabled(agent)) {
+  if (isEnclaveAgentGithubToolsEnabled(agent) && agent?.runtime === 'gvisor') {
     serverVolumes.push(
       `${paths.githubAgentIdPath}:${ENCLAVE_SERVER_GITHUB_AGENT_ID_PATH}:ro`,
     );

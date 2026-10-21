@@ -131,25 +131,9 @@ updates:
     interval: weekly
 - directory: /containers/router
   groups:
-    all-uv-router:
-      patterns:
-      - "*"
-  open-pull-requests-limit: 1
-  package-ecosystem: uv
-  schedule:
-    day: monday
-    interval: weekly
-- directory: /containers/router
-  groups:
     all-docker-router:
       patterns:
       - "*"
-  ignore:
-  # Stay on the Python minor version that the router supports; patch and digest updates still apply.
-  - dependency-name: "python"
-    update-types:
-    - version-update:semver-major
-    - version-update:semver-minor
   open-pull-requests-limit: 1
   package-ecosystem: docker
   schedule:

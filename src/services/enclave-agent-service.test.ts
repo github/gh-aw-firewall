@@ -255,15 +255,12 @@ describe('unified enclave agent executor compose assembly', () => {
       }]);
       const result = build({ enclaves });
       const serverVolumes = result.service.volumes as string[];
-      expect(serverVolumes).toEqual(expect.arrayContaining([
-        expect.stringMatching(/github-agent-id:\/run\/awf-enclave-mcp\/github-agent-id:ro$/),
-      ]));
+      expect(serverVolumes.join('\n')).not.toContain('github-agent-id');
       expect(result.service.environment).toMatchObject({
         AWF_ENCLAVE_AGENT_GITHUB_MCP_URL: 'http://172.31.0.40:8080/mcp/github',
-        AWF_ENCLAVE_AGENT_GITHUB_AGENT_ID_PATH:
-          '/run/awf-enclave-mcp/github-agent-id',
         AWF_ENCLAVE_AGENT_GITHUB_GATEWAY_CONTAINER: 'compiler-mcpg',
       });
+      expect(result.service.environment).not.toHaveProperty('AWF_ENCLAVE_AGENT_GITHUB_AGENT_ID_PATH');
       expect(JSON.stringify(result.service.environment)).not.toContain('primaryAgentId');
     });
   });
@@ -272,15 +269,11 @@ describe('unified enclave agent executor compose assembly', () => {
     withGitHubGatewayEnv(() => {
       const result = build({ enclaves: githubToolsEnclaves() });
       const serverVolumes = result.service.volumes as string[];
-      expect(serverVolumes).toEqual(expect.arrayContaining([
-        expect.stringMatching(/github-agent-id:\/run\/awf-enclave-mcp\/github-agent-id:ro$/),
-      ]));
+      expect(serverVolumes.join('\n')).not.toContain('github-agent-id');
       expect(result.service.environment).toMatchObject({
         AWF_ENCLAVE_AGENT_GITHUB_ENABLED: 'true',
         AWF_ENCLAVE_AGENT_GITHUB_PROFILE: 'issues-read-v1',
         AWF_ENCLAVE_AGENT_GITHUB_MCP_URL: 'http://172.31.0.40:8080/mcp/github',
-        AWF_ENCLAVE_AGENT_GITHUB_AGENT_ID_PATH:
-          '/run/awf-enclave-mcp/github-agent-id',
         AWF_ENCLAVE_AGENT_GITHUB_GATEWAY_CONTAINER: 'compiler-mcpg',
       });
       // The primary agent must never see the gateway route, identity, or repository/integrity policy.

@@ -38,11 +38,27 @@ safe-outputs:
     run-success: "🔐🏗️ [{workflow_name}]({run_url}) completed. Enclave build test passed. ✅"
     run-failure: "🔐🏗️ [{workflow_name}]({run_url}) reports {status}. Enclave build compatibility issue detected."
 timeout-minutes: 20
+runtimes:
+  node:
+    version: "24"
 sandbox:
   agent:
     id: awf
     version: v0.28.1
+    command: "sudo --preserve-env awf"
 strict: false
+steps:
+  - name: Install AWF dependencies
+    run: npm ci
+  - name: Build AWF
+    run: npm run build
+  - name: Install local AWF binary
+    run: |
+      sudo tee /usr/local/bin/awf > /dev/null <<EOF
+      #!/bin/bash
+      exec "$(command -v node)" "${GITHUB_WORKSPACE}/dist/cli.js" "\$@"
+      EOF
+      sudo chmod +x /usr/local/bin/awf
 concurrency:
   group: smoke-enclave-build-test
   cancel-in-progress: false

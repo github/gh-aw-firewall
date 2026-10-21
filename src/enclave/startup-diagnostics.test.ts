@@ -173,7 +173,7 @@ describe('bounded enclave startup evidence', () => {
     expect(ids).not.toContain('seed-directory');
     expect(ids).not.toContain('docker-socket');
     const containerExecutorIds = selectedProbeIds({
-      AWF_ENCLAVE_BACKEND: 'docker',
+      AWF_ENCLAVE_BACKEND: 'gvisor',
       AWF_ENCLAVE_SCRIPT_ENABLED: 'true',
       AWF_ENCLAVE_SEED_MAP_ENABLED: 'true',
     });
@@ -181,6 +181,17 @@ describe('bounded enclave startup evidence', () => {
       'seed-directory', 'docker-socket', 'docker-executable', 'script-seccomp',
     ]));
     expect(containerExecutorIds).not.toContain('host-executor-socket');
+    const dockerIds = selectedProbeIds({
+      AWF_ENCLAVE_BACKEND: 'docker',
+      AWF_ENCLAVE_SCRIPT_ENABLED: 'true',
+      AWF_ENCLAVE_AGENT_BACKEND: 'docker',
+      AWF_ENCLAVE_AGENT_ENABLED: 'true',
+      AWF_ENCLAVE_AGENT_DYNAMIC_ENABLED: 'true',
+    });
+    expect(dockerIds).toEqual(expect.arrayContaining(['seed-map', 'host-executor-socket', 'host-executor-capability']));
+    expect(dockerIds).not.toEqual(expect.arrayContaining(['seed-directory']));
+    expect(dockerIds).not.toContain('docker-socket');
+    expect(dockerIds).not.toContain('delegation-channel');
     expect(JSON.stringify([timedOut, missing])).not.toContain('/private/path');
   });
 

@@ -6,6 +6,7 @@ import { buildExclusionSet } from './agent-environment/excluded-vars';
 import { typedDynamicEnclavePolicyFixture } from '../enclave/dynamic-policy.test-utils';
 import {
   ENCLAVE_SERVER_DELEGATION_CHANNEL_DIR,
+  ENCLAVE_SERVER_HOST_EXECUTOR_DIR,
   resolveEnclavePaths,
 } from '../enclave/paths';
 
@@ -81,11 +82,13 @@ describe('dynamic enclave compose topology', () => {
     expect(volumes.join('\n')).not.toContain('/srv/awf/seed-map.json');
   });
 
-  it('mounts only the private admission channel for the broker', () => {
+  it('mounts the authenticated host executor, not a delegation channel', () => {
     const volumes = build(dynamicConfig()).service.volumes as string[];
     expect(volumes).toContain(
-      `${paths.delegationChannelDir}:${ENCLAVE_SERVER_DELEGATION_CHANNEL_DIR}:rw`,
+      `${paths.hostExecutorDir}:${ENCLAVE_SERVER_HOST_EXECUTOR_DIR}:ro`,
     );
+    expect(volumes.join('\n')).not.toContain(paths.delegationChannelDir);
+    expect(volumes.join('\n')).not.toContain('docker.sock');
   });
 
   it('never mounts the AWF-private control endpoint or capability into the broker', () => {
@@ -102,12 +105,13 @@ describe('dynamic enclave compose topology', () => {
     const environment = build(dynamicConfig()).service.environment as Record<string, string>;
     expect(environment).toMatchObject({
       AWF_ENCLAVE_AGENT_DYNAMIC_ENABLED: 'true',
-      AWF_ENCLAVE_AGENT_DYNAMIC_CHANNEL_DIR: ENCLAVE_SERVER_DELEGATION_CHANNEL_DIR,
       AWF_ENCLAVE_AGENT_DYNAMIC_SENSITIVITY: 'confidential',
       AWF_ENCLAVE_AGENT_DYNAMIC_GITHUB_MCP_URL: 'http://172.31.0.40:8080/mcp/github',
       AWF_ENCLAVE_SEED_MAP_ENABLED: 'false',
       AWF_ENCLAVE_AGENT_GITHUB_ENABLED: 'false',
     });
+    expect(environment.AWF_ENCLAVE_AGENT_ENTRY_ID).toBe('agent');
+    expect(environment.AWF_ENCLAVE_AGENT_DYNAMIC_CHANNEL_DIR).toBeUndefined();
     expect(environment.AWF_ENCLAVE_AGENT_HOST_SEEDS_DIR).toBeUndefined();
   });
 
@@ -116,10 +120,10 @@ describe('dynamic enclave compose topology', () => {
     expect(environment.AWF_ENCLAVE_AGENT_GITHUB_GATEWAY_CONTAINER).toBe('awmg-mcpg');
   });
 
-  it('keeps the static seed catalog and mounts unchanged', () => {
+  it('keeps only static seed metadata for the broker ledger', () => {
     const service = build(staticConfig()).service;
     const volumes = service.volumes as string[];
-    expect(volumes).toContain(`${paths.seedsDir}:/srv/awf/seeds:ro`);
+    expect(volumes.join('\n')).not.toContain(paths.seedsDir);
     expect(volumes).toContain(`${paths.seedMapPath}:/srv/awf/seed-map.json:ro`);
     expect(volumes.join('\n')).not.toContain(ENCLAVE_SERVER_DELEGATION_CHANNEL_DIR);
     const environment = service.environment as Record<string, string>;
@@ -127,19 +131,13 @@ describe('dynamic enclave compose topology', () => {
     expect(environment.AWF_ENCLAVE_AGENT_DYNAMIC_ENABLED).toBeUndefined();
   });
 
-  it('translates the admission channel for a split ARC/DinD filesystem', () => {
-    // The channel is a bind mount like the seeds, so the daemon must see it at
-    // the same prefixed path the runner wrote it to. If this ever diverged,
-    // the broker would poll an empty directory and every dynamic admission
-    // would time out into the canonical denial.
+  it('translates the host channel for a split ARC/DinD filesystem', () => {
     const volumes = build(dynamicConfig({ dockerHostPathPrefix: '/host' })).service
       .volumes as string[];
     expect(volumes).toContain(
-      `/host${paths.delegationChannelDir}:${ENCLAVE_SERVER_DELEGATION_CHANNEL_DIR}:rw`,
+      `/host${paths.hostExecutorDir}:${ENCLAVE_SERVER_HOST_EXECUTOR_DIR}:ro`,
     );
-    // The work and audit mounts are translated the same way, so the channel
-    // carries no special-case risk relative to the paths that already work.
-    expect(volumes).toContain(`/host${paths.workDir}:/srv/awf/work:rw`);
+    expect(volumes.join('\n')).not.toContain(paths.workDir);
   });
 });
 

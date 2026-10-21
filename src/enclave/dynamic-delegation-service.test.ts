@@ -289,6 +289,34 @@ describe('dynamic delegation admission', () => {
     expect(service.isAdmitting).toBe(false);
   });
 
+  it.each([
+    new Error('unexpected controller failure'),
+    new DelegationControlError('unsupported', 'create-or-confirm', 'unsupported'),
+    new DelegationControlError('malformed-request', 'create-or-confirm', 'invalid request'),
+  ])('does not mistake an infrastructure failure for a recoverable policy denial: %s', async (error) => {
+    const createOrConfirm = jest.fn().mockRejectedValue(error);
+    const { service } = makeService({ createOrConfirm });
+    await service.recover();
+    await expect(service.admit(request('aaaaaaaaaaaaaaaa')))
+      .resolves.toMatchObject({ admitted: false });
+    expect(service.isAdmitting).toBe(false);
+    await expect(service.admit(request('bbbbbbbbbbbbbbbb')))
+      .resolves.toMatchObject({ admitted: false });
+    expect(createOrConfirm).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps admission open after a definitive controller policy denial', async () => {
+    const { service } = makeService({
+      async createOrConfirm() {
+        throw new DelegationControlError('denied', 'create-or-confirm', 'policy denied');
+      },
+    });
+    await service.recover();
+    await expect(service.admit(request('aaaaaaaaaaaaaaaa')))
+      .resolves.toMatchObject({ admitted: false });
+    expect(service.isAdmitting).toBe(true);
+  });
+
   it('enforces the envelope invocation quota across admissions', async () => {
     const { service } = makeService();
     await service.recover();

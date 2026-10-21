@@ -12,6 +12,7 @@ import {
 } from './dynamic-delegation-handoff';
 import {
   enclaveDynamicDelegationTestHelpers,
+  getEnclaveHostDynamicAuthority,
   isEnclaveDynamicEnabled,
   startEnclaveDynamicDelegation,
   stopEnclaveDynamicDelegation,
@@ -37,6 +38,7 @@ function dynamicConfig(workDir: string): WrapperConfig {
 
 async function startControlServer(
   labelledHandles: string[] = [],
+  failShutdown = false,
 ): Promise<{ port: number; recorded: Recorded[]; close: () => Promise<void> }> {
   const recorded: Recorded[] = [];
   const server = http.createServer((req, res) => {
@@ -49,6 +51,11 @@ async function startControlServer(
         authorization: String(req.headers.authorization ?? ''),
         body,
       });
+      if (failShutdown && (req.url ?? '').endsWith('/revoke-by-labels')) {
+        res.writeHead(503, { 'content-type': 'application/json' });
+        res.end('{}');
+        return;
+      }
       let payload = '{}';
       if ((req.url ?? '').endsWith('/status')) {
         payload = JSON.stringify({
@@ -143,6 +150,48 @@ describe('dynamic delegation runtime', () => {
     }
   });
 
+  it('keeps Docker delegation host-owned and rejects another run configuration', async () => {
+    const control = await startControlServer();
+    const config = dynamicConfig(workDir);
+    const paths = stageHandoff(control.port);
+    expect(() => getEnclaveHostDynamicAuthority(config)).toThrow(/not ready/);
+    try {
+      await startEnclaveDynamicDelegation(config, runEnv);
+      expect(enclaveDynamicDelegationTestHelpers.running?.channel).toBeUndefined();
+      expect(getEnclaveHostDynamicAuthority(config).isAdmitting).toBe(true);
+      expect(() => getEnclaveHostDynamicAuthority({ ...config })).toThrow(/not ready/);
+      await expect(stopEnclaveDynamicDelegation({ ...config })).rejects.toThrow(/another run/);
+      fs.writeFileSync(path.join(paths.delegationChannelDir, 'abcabcabcabcabca.admit.json'),
+        JSON.stringify({
+          version: DELEGATION_CHANNEL_VERSION, invocationId: 'abcabcabcabcabca',
+          selector: 'octo-org/service', schemaHash: 'b'.repeat(64),
+        }));
+      await new Promise((resolve) => setTimeout(resolve, 75));
+      expect(control.recorded.some((entry) => entry.path.endsWith('/create-or-confirm'))).toBe(false);
+      expect(fs.existsSync(path.join(paths.delegationChannelDir, 'abcabcabcabcabca.admitted.json'))).toBe(false);
+    } finally {
+      await stopEnclaveDynamicDelegation(config);
+      expect(() => getEnclaveHostDynamicAuthority(config)).toThrow(/not ready/);
+      await control.close();
+    }
+  });
+
+  it('fails closed and retains Docker authority state when shutdown revocation is unresolved', async () => {
+    const control = await startControlServer([], true);
+    const config = dynamicConfig(workDir);
+    stageHandoff(control.port);
+    try {
+      await startEnclaveDynamicDelegation(config, runEnv);
+      await expect(stopEnclaveDynamicDelegation(config)).rejects.toThrow(/revocation is unresolved/);
+      expect(enclaveDynamicDelegationTestHelpers.running?.configuration).toBe(config);
+      expect(() => getEnclaveHostDynamicAuthority(config)).toThrow(/not ready/);
+      await expect(startEnclaveDynamicDelegation(config, runEnv)).rejects.toThrow(/already owned/);
+    } finally {
+      await enclaveDynamicDelegationTestHelpers.reset();
+      await control.close();
+    }
+  });
+
   it('revokes stale labelled identities from a prior attempt before reconciling', async () => {
     const control = await startControlServer(['dlg_stale']);
     const config = dynamicConfig(workDir);
@@ -163,6 +212,8 @@ describe('dynamic delegation runtime', () => {
   it('serves one admission and settlement through the private channel', async () => {
     const control = await startControlServer();
     const config = dynamicConfig(workDir);
+    config.containerRuntime = 'runsc';
+    config.enclaves!.executors.agent.runtime = 'gvisor';
     const paths = stageHandoff(control.port);
     try {
       await startEnclaveDynamicDelegation(config, runEnv);

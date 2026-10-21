@@ -362,7 +362,7 @@ async function main() {
           // admission before any repository content is exposed. `enclave_run_script`
           // is never registered for a dynamic entry, so it is neither advertised
           // nor dispatchable.
-          ...(config.dynamicEnabled
+          ...(config.dynamicEnabled && !runner.hostOwned
             ? { admission: createDynamicDelegationClient(config) }
             : {}),
         }),

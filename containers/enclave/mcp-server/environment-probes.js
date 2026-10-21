@@ -100,21 +100,20 @@ function selectedProbeIds(environment) {
   const scriptBackend = scriptEnabled ? environment.AWF_ENCLAVE_BACKEND : undefined;
   const agentBackend = agentEnabled ? environment.AWF_ENCLAVE_AGENT_BACKEND : undefined;
   const usesContainerExecutor = [scriptBackend, agentBackend].some(
-    backend => backend !== undefined && backend !== 'cloud-hypervisor',
+    backend => backend === 'gvisor',
   );
   if (environment.AWF_ENCLAVE_SEED_MAP_ENABLED !== 'false') ids.push('seed-map');
   if (usesContainerExecutor) {
     ids.push('docker-socket', 'docker-executable');
     if (environment.AWF_ENCLAVE_SEED_MAP_ENABLED !== 'false') ids.push('seed-directory');
-    if (scriptBackend && scriptBackend !== 'cloud-hypervisor') ids.push('script-seccomp');
-    if (agentBackend && agentBackend !== 'cloud-hypervisor') ids.push('agent-seccomp');
+    if (scriptBackend === 'gvisor') ids.push('script-seccomp');
+    if (agentBackend === 'gvisor') ids.push('agent-seccomp');
   }
-  if (environment.AWF_ENCLAVE_AGENT_GITHUB_ENABLED === 'true') ids.push('agent-id');
-  if (environment.AWF_ENCLAVE_BACKEND === 'cloud-hypervisor'
-      || environment.AWF_ENCLAVE_AGENT_BACKEND === 'cloud-hypervisor') {
+  if (agentBackend === 'gvisor' && environment.AWF_ENCLAVE_AGENT_GITHUB_ENABLED === 'true') ids.push('agent-id');
+  if ([scriptBackend, agentBackend].some(backend => backend === 'docker' || backend === 'cloud-hypervisor')) {
     ids.push('host-executor-socket', 'host-executor-capability');
   }
-  if (environment.AWF_ENCLAVE_AGENT_DYNAMIC_ENABLED === 'true') ids.push('delegation-channel');
+  if (agentBackend === 'gvisor' && environment.AWF_ENCLAVE_AGENT_DYNAMIC_ENABLED === 'true') ids.push('delegation-channel');
   return ids;
 }
 

@@ -1,0 +1,2689 @@
+{
+  "cases": [
+    {
+      "body": "",
+      "description": "An empty body",
+      "expect": {
+        "result": "malformed"
+      },
+      "id": "empty"
+    },
+    {
+      "body": " \r\n\t",
+      "description": "Only JSON whitespace",
+      "expect": {
+        "result": "malformed"
+      },
+      "id": "whitespace-only"
+    },
+    {
+      "body": "{",
+      "description": "An object that is never closed",
+      "expect": {
+        "result": "malformed"
+      },
+      "id": "unterminated-object"
+    },
+    {
+      "body": "\ufeff{\"conversation\":[{\"parts\":[{\"text\":\"Fix this function\"}],\"role\":\"user\"}],\"models\":[{\"id\":\"fast\",\"model\":\"provider/fast\"},{\"effort\":\"low\",\"id\":\"r-low\",\"model\":\"provider/reasoning\"},{\"effort\":\"medium\",\"id\":\"r-medium\",\"model\":\"provider/reasoning\"},{\"effort\":\"high\",\"id\":\"r-high\",\"model\":\"provider/reasoning\"},{\"id\":\"other\",\"model\":\"provider/other\"}],\"objective\":{\"goal\":\"cost\",\"mode\":\"balanced\"}}",
+      "description": "A UTF-8 byte order mark first",
+      "expect": {
+        "result": "malformed"
+      },
+      "id": "byte-order-mark"
+    },
+    {
+      "body": " \r\n\t{\"conversation\":[{\"parts\":[{\"text\":\"Fix this function\"}],\"role\":\"user\"}],\"models\":[{\"id\":\"fast\",\"model\":\"provider/fast\"},{\"effort\":\"low\",\"id\":\"r-low\",\"model\":\"provider/reasoning\"},{\"effort\":\"medium\",\"id\":\"r-medium\",\"model\":\"provider/reasoning\"},{\"effort\":\"high\",\"id\":\"r-high\",\"model\":\"provider/reasoning\"},{\"id\":\"other\",\"model\":\"provider/other\"}],\"objective\":{\"goal\":\"cost\",\"mode\":\"balanced\"}}",
+      "description": "JSON whitespace first",
+      "expect": {
+        "result": "decoded"
+      },
+      "id": "leading-whitespace"
+    },
+    {
+      "body": "{\"conversation\":[{\"parts\":[{\"text\":\"Fix this function\"}],\"role\":\"user\"}],\"models\":[{\"id\":\"fast\",\"model\":\"provider/fast\"},{\"effort\":\"low\",\"id\":\"r-low\",\"model\":\"provider/reasoning\"},{\"effort\":\"medium\",\"id\":\"r-medium\",\"model\":\"provider/reasoning\"},{\"effort\":\"high\",\"id\":\"r-high\",\"model\":\"provider/reasoning\"},{\"id\":\"other\",\"model\":\"provider/other\"}],\"objective\":{\"goal\":\"cost\",\"mode\":\"balanced\"}} \r\n\t",
+      "description": "JSON whitespace last",
+      "expect": {
+        "result": "decoded"
+      },
+      "id": "trailing-whitespace"
+    },
+    {
+      "body": "{\"conversation\":[{\"parts\":[{\"text\":\"Fix this function\"}],\"role\":\"user\"}],\"models\":[{\"id\":\"fast\",\"model\":\"provider/fast\"},{\"effort\":\"low\",\"id\":\"r-low\",\"model\":\"provider/reasoning\"},{\"effort\":\"medium\",\"id\":\"r-medium\",\"model\":\"provider/reasoning\"},{\"effort\":\"high\",\"id\":\"r-high\",\"model\":\"provider/reasoning\"},{\"id\":\"other\",\"model\":\"provider/other\"}],\"objective\":{\"goal\":\"cost\",\"mode\":\"balanced\"}}\u00a0",
+      "description": "U+00A0 last, which isn't JSON whitespace",
+      "expect": {
+        "result": "malformed"
+      },
+      "id": "trailing-nbsp"
+    },
+    {
+      "body": "{\"conversation\":[{\"parts\":[{\"text\":\"Fix this function\"}],\"role\":\"user\"}],\"models\":[{\"id\":\"fast\",\"model\":\"provider/fast\"},{\"effort\":\"low\",\"id\":\"r-low\",\"model\":\"provider/reasoning\"},{\"effort\":\"medium\",\"id\":\"r-medium\",\"model\":\"provider/reasoning\"},{\"effort\":\"high\",\"id\":\"r-high\",\"model\":\"provider/reasoning\"},{\"id\":\"other\",\"model\":\"provider/other\"}],\"objective\":{\"goal\":\"cost\",\"mode\":\"balanced\"}}x",
+      "description": "A token after the value",
+      "expect": {
+        "result": "malformed"
+      },
+      "id": "trailing-token"
+    },
+    {
+      "body": "{\"conversation\":[{\"parts\":[{\"text\":\"Fix this function\"}],\"role\":\"user\"}],\"models\":[{\"id\":\"fast\",\"model\":\"provider/fast\"},{\"effort\":\"low\",\"id\":\"r-low\",\"model\":\"provider/reasoning\"},{\"effort\":\"medium\",\"id\":\"r-medium\",\"model\":\"provider/reasoning\"},{\"effort\":\"high\",\"id\":\"r-high\",\"model\":\"provider/reasoning\"},{\"id\":\"other\",\"model\":\"provider/other\"}],\"objective\":{\"goal\":\"cost\",\"mode\":\"balanced\"}}{}",
+      "description": "A second object",
+      "expect": {
+        "result": "malformed"
+      },
+      "id": "trailing-object"
+    },
+    {
+      "body_base64": "eyJjb252ZXJzYXRpb24iOlt7InBhcnRzIjpbeyJ0ZXh0IjoiRml4IP8ifV0sInJvbGUiOiJ1c2VyIn1dLCJtb2RlbHMiOlt7ImlkIjoiZmFzdCIsIm1vZGVsIjoicHJvdmlkZXIvZmFzdCJ9LHsiZWZmb3J0IjoibG93IiwiaWQiOiJyLWxvdyIsIm1vZGVsIjoicHJvdmlkZXIvcmVhc29uaW5nIn0seyJlZmZvcnQiOiJtZWRpdW0iLCJpZCI6InItbWVkaXVtIiwibW9kZWwiOiJwcm92aWRlci9yZWFzb25pbmcifSx7ImVmZm9ydCI6ImhpZ2giLCJpZCI6InItaGlnaCIsIm1vZGVsIjoicHJvdmlkZXIvcmVhc29uaW5nIn0seyJpZCI6Im90aGVyIiwibW9kZWwiOiJwcm92aWRlci9vdGhlciJ9XSwib2JqZWN0aXZlIjp7ImdvYWwiOiJjb3N0IiwibW9kZSI6ImJhbGFuY2VkIn19",
+      "description": "A 0xFF byte in a string",
+      "expect": {
+        "result": "malformed"
+      },
+      "id": "invalid-utf8"
+    },
+    {
+      "body_base64": "eyJjb252ZXJzYXRpb24iOlt7InBhcnRzIjpbeyJ0ZXh0IjoiRml4IMCvIn1dLCJyb2xlIjoidXNlciJ9XSwibW9kZWxzIjpbeyJpZCI6ImZhc3QiLCJtb2RlbCI6InByb3ZpZGVyL2Zhc3QifSx7ImVmZm9ydCI6ImxvdyIsImlkIjoici1sb3ciLCJtb2RlbCI6InByb3ZpZGVyL3JlYXNvbmluZyJ9LHsiZWZmb3J0IjoibWVkaXVtIiwiaWQiOiJyLW1lZGl1bSIsIm1vZGVsIjoicHJvdmlkZXIvcmVhc29uaW5nIn0seyJlZmZvcnQiOiJoaWdoIiwiaWQiOiJyLWhpZ2giLCJtb2RlbCI6InByb3ZpZGVyL3JlYXNvbmluZyJ9LHsiaWQiOiJvdGhlciIsIm1vZGVsIjoicHJvdmlkZXIvb3RoZXIifV0sIm9iamVjdGl2ZSI6eyJnb2FsIjoiY29zdCIsIm1vZGUiOiJiYWxhbmNlZCJ9fQ==",
+      "description": "An overlong two-byte encoding of '/' in a string",
+      "expect": {
+        "result": "malformed"
+      },
+      "id": "overlong-utf8"
+    },
+    {
+      "body_base64": "eyJjb252ZXJzYXRpb24iOlt7InBhcnRzIjpbeyJ0ZXh0IjoiRml4IO2ggCJ9XSwicm9sZSI6InVzZXIifV0sIm1vZGVscyI6W3siaWQiOiJmYXN0IiwibW9kZWwiOiJwcm92aWRlci9mYXN0In0seyJlZmZvcnQiOiJsb3ciLCJpZCI6InItbG93IiwibW9kZWwiOiJwcm92aWRlci9yZWFzb25pbmcifSx7ImVmZm9ydCI6Im1lZGl1bSIsImlkIjoici1tZWRpdW0iLCJtb2RlbCI6InByb3ZpZGVyL3JlYXNvbmluZyJ9LHsiZWZmb3J0IjoiaGlnaCIsImlkIjoici1oaWdoIiwibW9kZWwiOiJwcm92aWRlci9yZWFzb25pbmcifSx7ImlkIjoib3RoZXIiLCJtb2RlbCI6InByb3ZpZGVyL290aGVyIn1dLCJvYmplY3RpdmUiOnsiZ29hbCI6ImNvc3QiLCJtb2RlIjoiYmFsYW5jZWQifX0=",
+      "description": "A UTF-8 encoded surrogate (ED A0 80) in a string",
+      "expect": {
+        "result": "malformed"
+      },
+      "id": "encoded-surrogate"
+    },
+    {
+      "body_base64": "eyJjb252ZXJzYXRpb24iOlt7InBhcnRzIjpbeyJ0ZXh0IjoiRml4IMMifV0sInJvbGUiOiJ1c2VyIn1dLCJtb2RlbHMiOlt7ImlkIjoiZmFzdCIsIm1vZGVsIjoicHJvdmlkZXIvZmFzdCJ9LHsiZWZmb3J0IjoibG93IiwiaWQiOiJyLWxvdyIsIm1vZGVsIjoicHJvdmlkZXIvcmVhc29uaW5nIn0seyJlZmZvcnQiOiJtZWRpdW0iLCJpZCI6InItbWVkaXVtIiwibW9kZWwiOiJwcm92aWRlci9yZWFzb25pbmcifSx7ImVmZm9ydCI6ImhpZ2giLCJpZCI6InItaGlnaCIsIm1vZGVsIjoicHJvdmlkZXIvcmVhc29uaW5nIn0seyJpZCI6Im90aGVyIiwibW9kZWwiOiJwcm92aWRlci9vdGhlciJ9XSwib2JqZWN0aXZlIjp7ImdvYWwiOiJjb3N0IiwibW9kZSI6ImJhbGFuY2VkIn19",
+      "description": "A string that ends inside a two-byte sequence",
+      "expect": {
+        "result": "malformed"
+      },
+      "id": "truncated-utf8"
+    },
+    {
+      "body": "{\"conversation\":[{\"parts\":[{\"text\":\"Fix \\ud800\"}],\"role\":\"user\"}],\"models\":[{\"id\":\"fast\",\"model\":\"provider/fast\"},{\"effort\":\"low\",\"id\":\"r-low\",\"model\":\"provider/reasoning\"},{\"effort\":\"medium\",\"id\":\"r-medium\",\"model\":\"provider/reasoning\"},{\"effort\":\"high\",\"id\":\"r-high\",\"model\":\"provider/reasoning\"},{\"id\":\"other\",\"model\":\"provider/other\"}],\"objective\":{\"goal\":\"cost\",\"mode\":\"balanced\"}}",
+      "description": "An escaped high surrogate without a low surrogate",
+      "expect": {
+        "result": "malformed"
+      },
+      "id": "escaped-high-surrogate"
+    },
+    {
+      "body": "{\"conversation\":[{\"parts\":[{\"text\":\"Fix \\udc00\"}],\"role\":\"user\"}],\"models\":[{\"id\":\"fast\",\"model\":\"provider/fast\"},{\"effort\":\"low\",\"id\":\"r-low\",\"model\":\"provider/reasoning\"},{\"effort\":\"medium\",\"id\":\"r-medium\",\"model\":\"provider/reasoning\"},{\"effort\":\"high\",\"id\":\"r-high\",\"model\":\"provider/reasoning\"},{\"id\":\"other\",\"model\":\"provider/other\"}],\"objective\":{\"goal\":\"cost\",\"mode\":\"balanced\"}}",
+      "description": "An escaped low surrogate without a high surrogate",
+      "expect": {
+        "result": "malformed"
+      },
+      "id": "escaped-low-surrogate"
+    },
+    {
+      "body": "{\"conversation\":[{\"parts\":[{\"text\":\"Fix \\udc00\\ud800\"}],\"role\":\"user\"}],\"models\":[{\"id\":\"fast\",\"model\":\"provider/fast\"},{\"effort\":\"low\",\"id\":\"r-low\",\"model\":\"provider/reasoning\"},{\"effort\":\"medium\",\"id\":\"r-medium\",\"model\":\"provider/reasoning\"},{\"effort\":\"high\",\"id\":\"r-high\",\"model\":\"provider/reasoning\"},{\"id\":\"other\",\"model\":\"provider/other\"}],\"objective\":{\"goal\":\"cost\",\"mode\":\"balanced\"}}",
+      "description": "An escaped low surrogate before a high surrogate",
+      "expect": {
+        "result": "malformed"
+      },
+      "id": "escaped-reversed-surrogates"
+    },
+    {
+      "body": "{\"conversation\":[{\"parts\":[{\"text\":\"Fix \\ud83d\\ude42\"}],\"role\":\"user\"}],\"models\":[{\"id\":\"fast\",\"model\":\"provider/fast\"},{\"effort\":\"low\",\"id\":\"r-low\",\"model\":\"provider/reasoning\"},{\"effort\":\"medium\",\"id\":\"r-medium\",\"model\":\"provider/reasoning\"},{\"effort\":\"high\",\"id\":\"r-high\",\"model\":\"provider/reasoning\"},{\"id\":\"other\",\"model\":\"provider/other\"}],\"objective\":{\"goal\":\"cost\",\"mode\":\"balanced\"}}",
+      "description": "An escaped surrogate pair",
+      "expect": {
+        "result": "decoded"
+      },
+      "id": "escaped-surrogate-pair"
+    },
+    {
+      "body": "{\"conversation\":[{\"parts\":[{\"text\":\"Fix \\u00E9\"}],\"role\":\"user\"}],\"models\":[{\"id\":\"fast\",\"model\":\"provider/fast\"},{\"effort\":\"low\",\"id\":\"r-low\",\"model\":\"provider/reasoning\"},{\"effort\":\"medium\",\"id\":\"r-medium\",\"model\":\"provider/reasoning\"},{\"effort\":\"high\",\"id\":\"r-high\",\"model\":\"provider/reasoning\"},{\"id\":\"other\",\"model\":\"provider/other\"}],\"objective\":{\"goal\":\"cost\",\"mode\":\"balanced\"}}",
+      "description": "Uppercase hex in a \\u escape",
+      "expect": {
+        "result": "decoded"
+      },
+      "id": "escaped-uppercase-hex"
+    },
+    {
+      "body": "{\"conversation\":[{\"parts\":[{\"text\":\"Fix \\x41\"}],\"role\":\"user\"}],\"models\":[{\"id\":\"fast\",\"model\":\"provider/fast\"},{\"effort\":\"low\",\"id\":\"r-low\",\"model\":\"provider/reasoning\"},{\"effort\":\"medium\",\"id\":\"r-medium\",\"model\":\"provider/reasoning\"},{\"effort\":\"high\",\"id\":\"r-high\",\"model\":\"provider/reasoning\"},{\"id\":\"other\",\"model\":\"provider/other\"}],\"objective\":{\"goal\":\"cost\",\"mode\":\"balanced\"}}",
+      "description": "The undefined \\x escape",
+      "expect": {
+        "result": "malformed"
+      },
+      "id": "unknown-escape"
+    },
+    {
+      "body": "{\"conversation\":[{\"parts\":[{\"text\":\"Fix \u0001\"}],\"role\":\"user\"}],\"models\":[{\"id\":\"fast\",\"model\":\"provider/fast\"},{\"effort\":\"low\",\"id\":\"r-low\",\"model\":\"provider/reasoning\"},{\"effort\":\"medium\",\"id\":\"r-medium\",\"model\":\"provider/reasoning\"},{\"effort\":\"high\",\"id\":\"r-high\",\"model\":\"provider/reasoning\"},{\"id\":\"other\",\"model\":\"provider/other\"}],\"objective\":{\"goal\":\"cost\",\"mode\":\"balanced\"}}",
+      "description": "An unescaped U+0001 in a string",
+      "expect": {
+        "result": "malformed"
+      },
+      "id": "raw-control"
+    },
+    {
+      "body": "{\"conversation\":[{\"parts\":[{\"text\":\"Fix \t\"}],\"role\":\"user\"}],\"models\":[{\"id\":\"fast\",\"model\":\"provider/fast\"},{\"effort\":\"low\",\"id\":\"r-low\",\"model\":\"provider/reasoning\"},{\"effort\":\"medium\",\"id\":\"r-medium\",\"model\":\"provider/reasoning\"},{\"effort\":\"high\",\"id\":\"r-high\",\"model\":\"provider/reasoning\"},{\"id\":\"other\",\"model\":\"provider/other\"}],\"objective\":{\"goal\":\"cost\",\"mode\":\"balanced\"}}",
+      "description": "An unescaped tab in a string",
+      "expect": {
+        "result": "malformed"
+      },
+      "id": "raw-tab"
+    },
+    {
+      "body": "{\"conversation\":[{\"parts\":[{\"text\":\"Fix \u007f\"}],\"role\":\"user\"}],\"models\":[{\"id\":\"fast\",\"model\":\"provider/fast\"},{\"effort\":\"low\",\"id\":\"r-low\",\"model\":\"provider/reasoning\"},{\"effort\":\"medium\",\"id\":\"r-medium\",\"model\":\"provider/reasoning\"},{\"effort\":\"high\",\"id\":\"r-high\",\"model\":\"provider/reasoning\"},{\"id\":\"other\",\"model\":\"provider/other\"}],\"objective\":{\"goal\":\"cost\",\"mode\":\"balanced\"}}",
+      "description": "An unescaped U+007F in a string",
+      "expect": {
+        "result": "decoded"
+      },
+      "id": "raw-delete"
+    },
+    {
+      "body": "{\"conversation\":[{\"parts\":[{\"text\":\"Fix \u2028\"}],\"role\":\"user\"}],\"models\":[{\"id\":\"fast\",\"model\":\"provider/fast\"},{\"effort\":\"low\",\"id\":\"r-low\",\"model\":\"provider/reasoning\"},{\"effort\":\"medium\",\"id\":\"r-medium\",\"model\":\"provider/reasoning\"},{\"effort\":\"high\",\"id\":\"r-high\",\"model\":\"provider/reasoning\"},{\"id\":\"other\",\"model\":\"provider/other\"}],\"objective\":{\"goal\":\"cost\",\"mode\":\"balanced\"}}",
+      "description": "An unescaped U+2028 in a string",
+      "expect": {
+        "result": "decoded"
+      },
+      "id": "raw-line-separator"
+    },
+    {
+      "body": "{\"conversation\":[{\"parts\":[{\"text\":\"Fix this function\"}],'role':\"user\"}],\"models\":[{\"id\":\"fast\",\"model\":\"provider/fast\"},{\"effort\":\"low\",\"id\":\"r-low\",\"model\":\"provider/reasoning\"},{\"effort\":\"medium\",\"id\":\"r-medium\",\"model\":\"provider/reasoning\"},{\"effort\":\"high\",\"id\":\"r-high\",\"model\":\"provider/reasoning\"},{\"id\":\"other\",\"model\":\"provider/other\"}],\"objective\":{\"goal\":\"cost\",\"mode\":\"balanced\"}}",
+      "description": "A key in single quotes",
+      "expect": {
+        "result": "malformed"
+      },
+      "id": "single-quotes"
+    },
+    {
+      "body": "{\"conversation\":[{\"parts\":[{\"text\":\"Fix this function\"}],role:\"user\"}],\"models\":[{\"id\":\"fast\",\"model\":\"provider/fast\"},{\"effort\":\"low\",\"id\":\"r-low\",\"model\":\"provider/reasoning\"},{\"effort\":\"medium\",\"id\":\"r-medium\",\"model\":\"provider/reasoning\"},{\"effort\":\"high\",\"id\":\"r-high\",\"model\":\"provider/reasoning\"},{\"id\":\"other\",\"model\":\"provider/other\"}],\"objective\":{\"goal\":\"cost\",\"mode\":\"balanced\"}}",
+      "description": "A key without quotes",
+      "expect": {
+        "result": "malformed"
+      },
+      "id": "unquoted-key"
+    },
+    {
+      "body": "{\"conversation\":[{\"parts\":[{\"text\":\"Fix this function\"}],\"role\":\"user\"}],\"models\":[{\"id\":\"fast\",\"model\":\"provider/fast\"},{\"effort\":\"low\",\"id\":\"r-low\",\"model\":\"provider/reasoning\"},{\"effort\":\"medium\",\"id\":\"r-medium\",\"model\":\"provider/reasoning\"},{\"effort\":\"high\",\"id\":\"r-high\",\"model\":\"provider/reasoning\"},{\"id\":\"other\",\"model\":\"provider/other\"}],\"objective\":{\"goal\":\"cost\",\"mode\":\"balanced\"},}",
+      "description": "A comma after the last member",
+      "expect": {
+        "result": "malformed"
+      },
+      "id": "trailing-comma"
+    },
+    {
+      "body": "/* c */{\"conversation\":[{\"parts\":[{\"text\":\"Fix this function\"}],\"role\":\"user\"}],\"models\":[{\"id\":\"fast\",\"model\":\"provider/fast\"},{\"effort\":\"low\",\"id\":\"r-low\",\"model\":\"provider/reasoning\"},{\"effort\":\"medium\",\"id\":\"r-medium\",\"model\":\"provider/reasoning\"},{\"effort\":\"high\",\"id\":\"r-high\",\"model\":\"provider/reasoning\"},{\"id\":\"other\",\"model\":\"provider/other\"}],\"objective\":{\"goal\":\"cost\",\"mode\":\"balanced\"}}",
+      "description": "A /* */ comment first",
+      "expect": {
+        "result": "malformed"
+      },
+      "id": "block-comment"
+    },
+    {
+      "body": "{\"conversation\":[{\"parts\":[{\"text\":\"Fix this function\"}],\"role\":\"user\"}],\"models\":[{\"id\":\"fast\",\"model\":\"provider/fast\"},{\"effort\":\"low\",\"id\":\"r-low\",\"model\":\"provider/reasoning\"},{\"effort\":\"medium\",\"id\":\"r-medium\",\"model\":\"provider/reasoning\"},{\"effort\":\"high\",\"id\":\"r-high\",\"model\":\"provider/reasoning\"},{\"id\":\"other\",\"model\":\"provider/other\"}],\"objective\":{\"goal\":\"cost\",\"mode\":\"balanced\"}}// c",
+      "description": "A // comment last",
+      "expect": {
+        "result": "malformed"
+      },
+      "id": "line-comment"
+    },
+    {
+      "body": "{\"conversation\":[{\"parts\":[{\"text\":\"Fix this function\"}],\"role\":\"user\"},{\"parts\":[{\"tool_call\":{\"id\":\"call-1\",\"input\":NaN,\"name\":\"read_file\"}}],\"role\":\"assistant\"}],\"models\":[{\"id\":\"fast\",\"model\":\"provider/fast\"},{\"effort\":\"low\",\"id\":\"r-low\",\"model\":\"provider/reasoning\"},{\"effort\":\"medium\",\"id\":\"r-medium\",\"model\":\"provider/reasoning\"},{\"effort\":\"high\",\"id\":\"r-high\",\"model\":\"provider/reasoning\"},{\"id\":\"other\",\"model\":\"provider/other\"}],\"objective\":{\"goal\":\"cost\",\"mode\":\"balanced\"}}",
+      "description": "tool_call.input is the raw token 'NaN'",
+      "expect": {
+        "result": "malformed"
+      },
+      "id": "tool-input-nan"
+    },
+    {
+      "body": "{\"conversation\":[{\"parts\":[{\"text\":\"Fix this function\"}],\"role\":\"user\"},{\"parts\":[{\"tool_call\":{\"id\":\"call-1\",\"input\":Infinity,\"name\":\"read_file\"}}],\"role\":\"assistant\"}],\"models\":[{\"id\":\"fast\",\"model\":\"provider/fast\"},{\"effort\":\"low\",\"id\":\"r-low\",\"model\":\"provider/reasoning\"},{\"effort\":\"medium\",\"id\":\"r-medium\",\"model\":\"provider/reasoning\"},{\"effort\":\"high\",\"id\":\"r-high\",\"model\":\"provider/reasoning\"},{\"id\":\"other\",\"model\":\"provider/other\"}],\"objective\":{\"goal\":\"cost\",\"mode\":\"balanced\"}}",
+      "description": "tool_call.input is the raw token 'Infinity'",
+      "expect": {
+        "result": "malformed"
+      },
+      "id": "tool-input-infinity"
+    },
+    {
+      "body": "{\"conversation\":[{\"parts\":[{\"text\":\"Fix this function\"}],\"role\":\"user\"},{\"parts\":[{\"tool_call\":{\"id\":\"call-1\",\"input\":-Infinity,\"name\":\"read_file\"}}],\"role\":\"assistant\"}],\"models\":[{\"id\":\"fast\",\"model\":\"provider/fast\"},{\"effort\":\"low\",\"id\":\"r-low\",\"model\":\"provider/reasoning\"},{\"effort\":\"medium\",\"id\":\"r-medium\",\"model\":\"provider/reasoning\"},{\"effort\":\"high\",\"id\":\"r-high\",\"model\":\"provider/reasoning\"},{\"id\":\"other\",\"model\":\"provider/other\"}],\"objective\":{\"goal\":\"cost\",\"mode\":\"balanced\"}}",
+      "description": "tool_call.input is the raw token '-Infinity'",
+      "expect": {
+        "result": "malformed"
+      },
+      "id": "tool-input-negative-infinity"
+    },
+    {
+      "body": "{\"conversation\":[{\"parts\":[{\"text\":\"Fix this function\"}],\"role\":\"user\"},{\"parts\":[{\"tool_call\":{\"id\":\"call-1\",\"input\":nan,\"name\":\"read_file\"}}],\"role\":\"assistant\"}],\"models\":[{\"id\":\"fast\",\"model\":\"provider/fast\"},{\"effort\":\"low\",\"id\":\"r-low\",\"model\":\"provider/reasoning\"},{\"effort\":\"medium\",\"id\":\"r-medium\",\"model\":\"provider/reasoning\"},{\"effort\":\"high\",\"id\":\"r-high\",\"model\":\"provider/reasoning\"},{\"id\":\"other\",\"model\":\"provider/other\"}],\"objective\":{\"goal\":\"cost\",\"mode\":\"balanced\"}}",
+      "description": "tool_call.input is the raw token 'nan'",
+      "expect": {
+        "result": "malformed"
+      },
+      "id": "tool-input-lowercase-nan"
+    },
+    {
+      "body": "{\"conversation\":[{\"parts\":[{\"text\":\"Fix this function\"}],\"role\":\"user\"},{\"parts\":[{\"tool_call\":{\"id\":\"call-1\",\"input\":inf,\"name\":\"read_file\"}}],\"role\":\"assistant\"}],\"models\":[{\"id\":\"fast\",\"model\":\"provider/fast\"},{\"effort\":\"low\",\"id\":\"r-low\",\"model\":\"provider/reasoning\"},{\"effort\":\"medium\",\"id\":\"r-medium\",\"model\":\"provider/reasoning\"},{\"effort\":\"high\",\"id\":\"r-high\",\"model\":\"provider/reasoning\"},{\"id\":\"other\",\"model\":\"provider/other\"}],\"objective\":{\"goal\":\"cost\",\"mode\":\"balanced\"}}",
+      "description": "tool_call.input is the raw token 'inf'",
+      "expect": {
+        "result": "malformed"
+      },
+      "id": "tool-input-inf"
+    },
+    {
+      "body": "{\"conversation\":[{\"parts\":[{\"text\":\"Fix this function\"}],\"role\":\"user\"},{\"parts\":[{\"tool_call\":{\"id\":\"call-1\",\"input\":1e400,\"name\":\"read_file\"}}],\"role\":\"assistant\"}],\"models\":[{\"id\":\"fast\",\"model\":\"provider/fast\"},{\"effort\":\"low\",\"id\":\"r-low\",\"model\":\"provider/reasoning\"},{\"effort\":\"medium\",\"id\":\"r-medium\",\"model\":\"provider/reasoning\"},{\"effort\":\"high\",\"id\":\"r-high\",\"model\":\"provider/reasoning\"},{\"id\":\"other\",\"model\":\"provider/other\"}],\"objective\":{\"goal\":\"cost\",\"mode\":\"balanced\"}}",
+      "description": "tool_call.input is the raw token '1e400'",
+      "expect": {
+        "result": "decoded"
+      },
+      "id": "tool-input-float-overflow"
+    },
+    {
+      "body": "{\"conversation\":[{\"parts\":[{\"text\":\"Fix this function\"}],\"role\":\"user\"},{\"parts\":[{\"tool_call\":{\"id\":\"call-1\",\"input\":-1e400,\"name\":\"read_file\"}}],\"role\":\"assistant\"}],\"models\":[{\"id\":\"fast\",\"model\":\"provider/fast\"},{\"effort\":\"low\",\"id\":\"r-low\",\"model\":\"provider/reasoning\"},{\"effort\":\"medium\",\"id\":\"r-medium\",\"model\":\"provider/reasoning\"},{\"effort\":\"high\",\"id\":\"r-high\",\"model\":\"provider/reasoning\"},{\"id\":\"other\",\"model\":\"provider/other\"}],\"objective\":{\"goal\":\"cost\",\"mode\":\"balanced\"}}",
+      "description": "tool_call.input is the raw token '-1e400'",
+      "expect": {
+        "result": "decoded"
+      },
+      "id": "tool-input-negative-float-overflow"
+    },
+    {
+      "body": "{\"conversation\":[{\"parts\":[{\"text\":\"Fix this function\"}],\"role\":\"user\"},{\"parts\":[{\"tool_call\":{\"id\":\"call-1\",\"input\":-0,\"name\":\"read_file\"}}],\"role\":\"assistant\"}],\"models\":[{\"id\":\"fast\",\"model\":\"provider/fast\"},{\"effort\":\"low\",\"id\":\"r-low\",\"model\":\"provider/reasoning\"},{\"effort\":\"medium\",\"id\":\"r-medium\",\"model\":\"provider/reasoning\"},{\"effort\":\"high\",\"id\":\"r-high\",\"model\":\"provider/reasoning\"},{\"id\":\"other\",\"model\":\"provider/other\"}],\"objective\":{\"goal\":\"cost\",\"mode\":\"balanced\"}}",
+      "description": "tool_call.input is the raw token '-0'",
+      "expect": {
+        "result": "decoded"
+      },
+      "id": "tool-input-negative-zero"
+    },
+    {
+      "body": "{\"conversation\":[{\"parts\":[{\"text\":\"Fix this function\"}],\"role\":\"user\"},{\"parts\":[{\"tool_call\":{\"id\":\"call-1\",\"input\":1E+2,\"name\":\"read_file\"}}],\"role\":\"assistant\"}],\"models\":[{\"id\":\"fast\",\"model\":\"provider/fast\"},{\"effort\":\"low\",\"id\":\"r-low\",\"model\":\"provider/reasoning\"},{\"effort\":\"medium\",\"id\":\"r-medium\",\"model\":\"provider/reasoning\"},{\"effort\":\"high\",\"id\":\"r-high\",\"model\":\"provider/reasoning\"},{\"id\":\"other\",\"model\":\"provider/other\"}],\"objective\":{\"goal\":\"cost\",\"mode\":\"balanced\"}}",
+      "description": "tool_call.input is the raw token '1E+2'",
+      "expect": {
+        "result": "decoded"
+      },
+      "id": "tool-input-exponent-plus"
+    },
+    {
+      "body": "{\"conversation\":[{\"parts\":[{\"text\":\"Fix this function\"}],\"role\":\"user\"},{\"parts\":[{\"tool_call\":{\"id\":\"call-1\",\"input\":1e-0,\"name\":\"read_file\"}}],\"role\":\"assistant\"}],\"models\":[{\"id\":\"fast\",\"model\":\"provider/fast\"},{\"effort\":\"low\",\"id\":\"r-low\",\"model\":\"provider/reasoning\"},{\"effort\":\"medium\",\"id\":\"r-medium\",\"model\":\"provider/reasoning\"},{\"effort\":\"high\",\"id\":\"r-high\",\"model\":\"provider/reasoning\"},{\"id\":\"other\",\"model\":\"provider/other\"}],\"objective\":{\"goal\":\"cost\",\"mode\":\"balanced\"}}",
+      "description": "tool_call.input is the raw token '1e-0'",
+      "expect": {
+        "result": "decoded"
+      },
+      "id": "tool-input-exponent-zero"
+    },
+    {
+      "body": "{\"conversation\":[{\"parts\":[{\"text\":\"Fix this function\"}],\"role\":\"user\"},{\"parts\":[{\"tool_call\":{\"id\":\"call-1\",\"input\":01,\"name\":\"read_file\"}}],\"role\":\"assistant\"}],\"models\":[{\"id\":\"fast\",\"model\":\"provider/fast\"},{\"effort\":\"low\",\"id\":\"r-low\",\"model\":\"provider/reasoning\"},{\"effort\":\"medium\",\"id\":\"r-medium\",\"model\":\"provider/reasoning\"},{\"effort\":\"high\",\"id\":\"r-high\",\"model\":\"provider/reasoning\"},{\"id\":\"other\",\"model\":\"provider/other\"}],\"objective\":{\"goal\":\"cost\",\"mode\":\"balanced\"}}",
+      "description": "tool_call.input is the raw token '01'",
+      "expect": {
+        "result": "malformed"
+      },
+      "id": "tool-input-leading-zero"
+    },
+    {
+      "body": "{\"conversation\":[{\"parts\":[{\"text\":\"Fix this function\"}],\"role\":\"user\"},{\"parts\":[{\"tool_call\":{\"id\":\"call-1\",\"input\":-01,\"name\":\"read_file\"}}],\"role\":\"assistant\"}],\"models\":[{\"id\":\"fast\",\"model\":\"provider/fast\"},{\"effort\":\"low\",\"id\":\"r-low\",\"model\":\"provider/reasoning\"},{\"effort\":\"medium\",\"id\":\"r-medium\",\"model\":\"provider/reasoning\"},{\"effort\":\"high\",\"id\":\"r-high\",\"model\":\"provider/reasoning\"},{\"id\":\"other\",\"model\":\"provider/other\"}],\"objective\":{\"goal\":\"cost\",\"mode\":\"balanced\"}}",
+      "description": "tool_call.input is the raw token '-01'",
+      "expect": {
+        "result": "malformed"
+      },
+      "id": "tool-input-negative-leading-zero"
+    },
+    {
+      "body": "{\"conversation\":[{\"parts\":[{\"text\":\"Fix this function\"}],\"role\":\"user\"},{\"parts\":[{\"tool_call\":{\"id\":\"call-1\",\"input\":+1,\"name\":\"read_file\"}}],\"role\":\"assistant\"}],\"models\":[{\"id\":\"fast\",\"model\":\"provider/fast\"},{\"effort\":\"low\",\"id\":\"r-low\",\"model\":\"provider/reasoning\"},{\"effort\":\"medium\",\"id\":\"r-medium\",\"model\":\"provider/reasoning\"},{\"effort\":\"high\",\"id\":\"r-high\",\"model\":\"provider/reasoning\"},{\"id\":\"other\",\"model\":\"provider/other\"}],\"objective\":{\"goal\":\"cost\",\"mode\":\"balanced\"}}",
+      "description": "tool_call.input is the raw token '+1'",
+      "expect": {
+        "result": "malformed"
+      },
+      "id": "tool-input-plus-sign"
+    },
+    {
+      "body": "{\"conversation\":[{\"parts\":[{\"text\":\"Fix this function\"}],\"role\":\"user\"},{\"parts\":[{\"tool_call\":{\"id\":\"call-1\",\"input\":.5,\"name\":\"read_file\"}}],\"role\":\"assistant\"}],\"models\":[{\"id\":\"fast\",\"model\":\"provider/fast\"},{\"effort\":\"low\",\"id\":\"r-low\",\"model\":\"provider/reasoning\"},{\"effort\":\"medium\",\"id\":\"r-medium\",\"model\":\"provider/reasoning\"},{\"effort\":\"high\",\"id\":\"r-high\",\"model\":\"provider/reasoning\"},{\"id\":\"other\",\"model\":\"provider/other\"}],\"objective\":{\"goal\":\"cost\",\"mode\":\"balanced\"}}",
+      "description": "tool_call.input is the raw token '.5'",
+      "expect": {
+        "result": "malformed"
+      },
+      "id": "tool-input-leading-point"
+    },
+    {
+      "body": "{\"conversation\":[{\"parts\":[{\"text\":\"Fix this function\"}],\"role\":\"user\"},{\"parts\":[{\"tool_call\":{\"id\":\"call-1\",\"input\":1.,\"name\":\"read_file\"}}],\"role\":\"assistant\"}],\"models\":[{\"id\":\"fast\",\"model\":\"provider/fast\"},{\"effort\":\"low\",\"id\":\"r-low\",\"model\":\"provider/reasoning\"},{\"effort\":\"medium\",\"id\":\"r-medium\",\"model\":\"provider/reasoning\"},{\"effort\":\"high\",\"id\":\"r-high\",\"model\":\"provider/reasoning\"},{\"id\":\"other\",\"model\":\"provider/other\"}],\"objective\":{\"goal\":\"cost\",\"mode\":\"balanced\"}}",
+      "description": "tool_call.input is the raw token '1.'",
+      "expect": {
+        "result": "malformed"
+      },
+      "id": "tool-input-trailing-point"
+    },
+    {
+      "body": "{\"conversation\":[{\"parts\":[{\"text\":\"Fix this function\"}],\"role\":\"user\"},{\"parts\":[{\"tool_call\":{\"id\":\"call-1\",\"input\":1.e5,\"name\":\"read_file\"}}],\"role\":\"assistant\"}],\"models\":[{\"id\":\"fast\",\"model\":\"provider/fast\"},{\"effort\":\"low\",\"id\":\"r-low\",\"model\":\"provider/reasoning\"},{\"effort\":\"medium\",\"id\":\"r-medium\",\"model\":\"provider/reasoning\"},{\"effort\":\"high\",\"id\":\"r-high\",\"model\":\"provider/reasoning\"},{\"id\":\"other\",\"model\":\"provider/other\"}],\"objective\":{\"goal\":\"cost\",\"mode\":\"balanced\"}}",
+      "description": "tool_call.input is the raw token '1.e5'",
+      "expect": {
+        "result": "malformed"
+      },
+      "id": "tool-input-point-before-exponent"
+    },
+    {
+      "body": "{\"conversation\":[{\"parts\":[{\"text\":\"Fix this function\"}],\"role\":\"user\"},{\"parts\":[{\"tool_call\":{\"id\":\"call-1\",\"input\":1e,\"name\":\"read_file\"}}],\"role\":\"assistant\"}],\"models\":[{\"id\":\"fast\",\"model\":\"provider/fast\"},{\"effort\":\"low\",\"id\":\"r-low\",\"model\":\"provider/reasoning\"},{\"effort\":\"medium\",\"id\":\"r-medium\",\"model\":\"provider/reasoning\"},{\"effort\":\"high\",\"id\":\"r-high\",\"model\":\"provider/reasoning\"},{\"id\":\"other\",\"model\":\"provider/other\"}],\"objective\":{\"goal\":\"cost\",\"mode\":\"balanced\"}}",
+      "description": "tool_call.input is the raw token '1e'",
+      "expect": {
+        "result": "malformed"
+      },
+      "id": "tool-input-empty-exponent"
+    },
+    {
+      "body": "{\"conversation\":[{\"parts\":[{\"text\":\"Fix this function\"}],\"role\":\"user\"},{\"parts\":[{\"tool_call\":{\"id\":\"call-1\",\"input\":-,\"name\":\"read_file\"}}],\"role\":\"assistant\"}],\"models\":[{\"id\":\"fast\",\"model\":\"provider/fast\"},{\"effort\":\"low\",\"id\":\"r-low\",\"model\":\"provider/reasoning\"},{\"effort\":\"medium\",\"id\":\"r-medium\",\"model\":\"provider/reasoning\"},{\"effort\":\"high\",\"id\":\"r-high\",\"model\":\"provider/reasoning\"},{\"id\":\"other\",\"model\":\"provider/other\"}],\"objective\":{\"goal\":\"cost\",\"mode\":\"balanced\"}}",
+      "description": "tool_call.input is the raw token '-'",
+      "expect": {
+        "result": "malformed"
+      },
+      "id": "tool-input-bare-minus"
+    },
+    {
+      "body": "{\"conversation\":[{\"parts\":[{\"text\":\"Fix this function\"}],\"role\":\"user\"},{\"parts\":[{\"tool_call\":{\"id\":\"call-1\",\"input\":0x10,\"name\":\"read_file\"}}],\"role\":\"assistant\"}],\"models\":[{\"id\":\"fast\",\"model\":\"provider/fast\"},{\"effort\":\"low\",\"id\":\"r-low\",\"model\":\"provider/reasoning\"},{\"effort\":\"medium\",\"id\":\"r-medium\",\"model\":\"provider/reasoning\"},{\"effort\":\"high\",\"id\":\"r-high\",\"model\":\"provider/reasoning\"},{\"id\":\"other\",\"model\":\"provider/other\"}],\"objective\":{\"goal\":\"cost\",\"mode\":\"balanced\"}}",
+      "description": "tool_call.input is the raw token '0x10'",
+      "expect": {
+        "result": "malformed"
+      },
+      "id": "tool-input-hexadecimal"
+    },
+    {
+      "body": "{\"conversation\":[{\"parts\":[{\"text\":\"Fix this function\"}],\"role\":\"user\"},{\"parts\":[{\"tool_call\":{\"id\":\"call-1\",\"input\":1_000,\"name\":\"read_file\"}}],\"role\":\"assistant\"}],\"models\":[{\"id\":\"fast\",\"model\":\"provider/fast\"},{\"effort\":\"low\",\"id\":\"r-low\",\"model\":\"provider/reasoning\"},{\"effort\":\"medium\",\"id\":\"r-medium\",\"model\":\"provider/reasoning\"},{\"effort\":\"high\",\"id\":\"r-high\",\"model\":\"provider/reasoning\"},{\"id\":\"other\",\"model\":\"provider/other\"}],\"objective\":{\"goal\":\"cost\",\"mode\":\"balanced\"}}",
+      "description": "tool_call.input is the raw token '1_000'",
+      "expect": {
+        "result": "malformed"
+      },
+      "id": "tool-input-underscore"
+    },
+    {
+      "body": "{\"conversation\":[{\"parts\":[{\"text\":\"Fix this function\"}],\"role\":\"user\"},{\"parts\":[{\"tool_call\":{\"id\":\"call-1\",\"input\":True,\"name\":\"read_file\"}}],\"role\":\"assistant\"}],\"models\":[{\"id\":\"fast\",\"model\":\"provider/fast\"},{\"effort\":\"low\",\"id\":\"r-low\",\"model\":\"provider/reasoning\"},{\"effort\":\"medium\",\"id\":\"r-medium\",\"model\":\"provider/reasoning\"},{\"effort\":\"high\",\"id\":\"r-high\",\"model\":\"provider/reasoning\"},{\"id\":\"other\",\"model\":\"provider/other\"}],\"objective\":{\"goal\":\"cost\",\"mode\":\"balanced\"}}",
+      "description": "tool_call.input is the raw token 'True'",
+      "expect": {
+        "result": "malformed"
+      },
+      "id": "tool-input-python-true"
+    },
+    {
+      "body": "{\"conversation\":[{\"parts\":[{\"text\":\"Fix this function\"}],\"role\":\"user\"},{\"parts\":[{\"tool_call\":{\"id\":\"call-1\",\"input\":None,\"name\":\"read_file\"}}],\"role\":\"assistant\"}],\"models\":[{\"id\":\"fast\",\"model\":\"provider/fast\"},{\"effort\":\"low\",\"id\":\"r-low\",\"model\":\"provider/reasoning\"},{\"effort\":\"medium\",\"id\":\"r-medium\",\"model\":\"provider/reasoning\"},{\"effort\":\"high\",\"id\":\"r-high\",\"model\":\"provider/reasoning\"},{\"id\":\"other\",\"model\":\"provider/other\"}],\"objective\":{\"goal\":\"cost\",\"mode\":\"balanced\"}}",
+      "description": "tool_call.input is the raw token 'None'",
+      "expect": {
+        "result": "malformed"
+      },
+      "id": "tool-input-python-none"
+    },
+    {
+      "body": "{\"conversation\":[{\"parts\":[{\"text\":\"Fix this function\"}],\"role\":\"user\"},{\"parts\":[{\"tool_call\":{\"id\":\"call-1\",\"input\":[1,],\"name\":\"read_file\"}}],\"role\":\"assistant\"}],\"models\":[{\"id\":\"fast\",\"model\":\"provider/fast\"},{\"effort\":\"low\",\"id\":\"r-low\",\"model\":\"provider/reasoning\"},{\"effort\":\"medium\",\"id\":\"r-medium\",\"model\":\"provider/reasoning\"},{\"effort\":\"high\",\"id\":\"r-high\",\"model\":\"provider/reasoning\"},{\"id\":\"other\",\"model\":\"provider/other\"}],\"objective\":{\"goal\":\"cost\",\"mode\":\"balanced\"}}",
+      "description": "tool_call.input is the raw token '[1,]'",
+      "expect": {
+        "result": "malformed"
+      },
+      "id": "tool-input-array-trailing-comma"
+    },
+    {
+      "body": "{\"conversation\":[{\"parts\":[{\"text\":\"Fix this function\"}],\"role\":\"user\"},{\"parts\":[{\"tool_call\":{\"id\":\"call-1\",\"input\":{\"a\":1,},\"name\":\"read_file\"}}],\"role\":\"assistant\"}],\"models\":[{\"id\":\"fast\",\"model\":\"provider/fast\"},{\"effort\":\"low\",\"id\":\"r-low\",\"model\":\"provider/reasoning\"},{\"effort\":\"medium\",\"id\":\"r-medium\",\"model\":\"provider/reasoning\"},{\"effort\":\"high\",\"id\":\"r-high\",\"model\":\"provider/reasoning\"},{\"id\":\"other\",\"model\":\"provider/other\"}],\"objective\":{\"goal\":\"cost\",\"mode\":\"balanced\"}}",
+      "description": "tool_call.input is the raw token '{\"a\":1,}'",
+      "expect": {
+        "result": "malformed"
+      },
+      "id": "tool-input-object-trailing-comma"
+    },
+    {
+      "body": "{\"conversation\":[{\"parts\":[{\"text\":\"Fix this function\"}],\"role\":\"user\"},{\"parts\":[{\"tool_call\":{\"id\":\"call-1\",\"input\":[1 2],\"name\":\"read_file\"}}],\"role\":\"assistant\"}],\"models\":[{\"id\":\"fast\",\"model\":\"provider/fast\"},{\"effort\":\"low\",\"id\":\"r-low\",\"model\":\"provider/reasoning\"},{\"effort\":\"medium\",\"id\":\"r-medium\",\"model\":\"provider/reasoning\"},{\"effort\":\"high\",\"id\":\"r-high\",\"model\":\"provider/reasoning\"},{\"id\":\"other\",\"model\":\"provider/other\"}],\"objective\":{\"goal\":\"cost\",\"mode\":\"balanced\"}}",
+      "description": "tool_call.input is the raw token '[1 2]'",
+      "expect": {
+        "result": "malformed"
+      },
+      "id": "tool-input-missing-comma"
+    },
+    {
+      "body": "{\"conversation\":[{\"parts\":[{\"text\":\"Fix this function\"}],\"role\":\"user\"},{\"parts\":[{\"tool_call\":{\"id\":\"call-1\",\"input\":[\u00a01],\"name\":\"read_file\"}}],\"role\":\"assistant\"}],\"models\":[{\"id\":\"fast\",\"model\":\"provider/fast\"},{\"effort\":\"low\",\"id\":\"r-low\",\"model\":\"provider/reasoning\"},{\"effort\":\"medium\",\"id\":\"r-medium\",\"model\":\"provider/reasoning\"},{\"effort\":\"high\",\"id\":\"r-high\",\"model\":\"provider/reasoning\"},{\"id\":\"other\",\"model\":\"provider/other\"}],\"objective\":{\"goal\":\"cost\",\"mode\":\"balanced\"}}",
+      "description": "tool_call.input is the raw token '[\\xa01]'",
+      "expect": {
+        "result": "malformed"
+      },
+      "id": "tool-input-nbsp-separator"
+    },
+    {
+      "body": "{\"conversation\":[{\"parts\":[{\"text\":\"Fix this function\"}],\"role\":\"user\"},{\"parts\":[{\"tool_call\":{\"id\":\"call-1\",\"input\":[\f1],\"name\":\"read_file\"}}],\"role\":\"assistant\"}],\"models\":[{\"id\":\"fast\",\"model\":\"provider/fast\"},{\"effort\":\"low\",\"id\":\"r-low\",\"model\":\"provider/reasoning\"},{\"effort\":\"medium\",\"id\":\"r-medium\",\"model\":\"provider/reasoning\"},{\"effort\":\"high\",\"id\":\"r-high\",\"model\":\"provider/reasoning\"},{\"id\":\"other\",\"model\":\"provider/other\"}],\"objective\":{\"goal\":\"cost\",\"mode\":\"balanced\"}}",
+      "description": "tool_call.input is the raw token '[\\x0c1]'",
+      "expect": {
+        "result": "malformed"
+      },
+      "id": "tool-input-form-feed-separator"
+    },
+    {
+      "body": "{\"conversation\":[{\"parts\":[{\"text\":\"Fix this function\"}],\"role\":\"user\"},{\"parts\":[{\"tool_call\":{\"id\":\"call-1\",\"input\":[\u000b1],\"name\":\"read_file\"}}],\"role\":\"assistant\"}],\"models\":[{\"id\":\"fast\",\"model\":\"provider/fast\"},{\"effort\":\"low\",\"id\":\"r-low\",\"model\":\"provider/reasoning\"},{\"effort\":\"medium\",\"id\":\"r-medium\",\"model\":\"provider/reasoning\"},{\"effort\":\"high\",\"id\":\"r-high\",\"model\":\"provider/reasoning\"},{\"id\":\"other\",\"model\":\"provider/other\"}],\"objective\":{\"goal\":\"cost\",\"mode\":\"balanced\"}}",
+      "description": "tool_call.input is the raw token '[\\x0b1]'",
+      "expect": {
+        "result": "malformed"
+      },
+      "id": "tool-input-vertical-tab-separator"
+    },
+    {
+      "body": "{\"conversation\":[{\"parts\":[{\"text\":\"Fix this function\"}],\"role\":\"user\"},{\"parts\":[{\"tool_call\":{\"id\":\"call-1\",\"input\":[\r\n1],\"name\":\"read_file\"}}],\"role\":\"assistant\"}],\"models\":[{\"id\":\"fast\",\"model\":\"provider/fast\"},{\"effort\":\"low\",\"id\":\"r-low\",\"model\":\"provider/reasoning\"},{\"effort\":\"medium\",\"id\":\"r-medium\",\"model\":\"provider/reasoning\"},{\"effort\":\"high\",\"id\":\"r-high\",\"model\":\"provider/reasoning\"},{\"id\":\"other\",\"model\":\"provider/other\"}],\"objective\":{\"goal\":\"cost\",\"mode\":\"balanced\"}}",
+      "description": "tool_call.input is the raw token '[\\r\\n1]'",
+      "expect": {
+        "result": "decoded"
+      },
+      "id": "tool-input-crlf-separator"
+    },
+    {
+      "body": "{\"conversation\":[{\"parts\":[{\"text\":\"Fix this function\"}],\"role\":\"user\"},{\"parts\":[{\"tool_call\":{\"id\":\"call-1\",\"input\":[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]],\"name\":\"read_file\"}}],\"role\":\"assistant\"}],\"models\":[{\"id\":\"fast\",\"model\":\"provider/fast\"},{\"effort\":\"low\",\"id\":\"r-low\",\"model\":\"provider/reasoning\"},{\"effort\":\"medium\",\"id\":\"r-medium\",\"model\":\"provider/reasoning\"},{\"effort\":\"high\",\"id\":\"r-high\",\"model\":\"provider/reasoning\"},{\"id\":\"other\",\"model\":\"provider/other\"}],\"objective\":{\"goal\":\"cost\",\"mode\":\"balanced\"}}",
+      "description": "tool_call.input: 195 nested empty arrays",
+      "expect": {
+        "result": "decoded"
+      },
+      "id": "limit-depth-arrays-at"
+    },
+    {
+      "body": "{\"conversation\":[{\"parts\":[{\"text\":\"Fix this function\"}],\"role\":\"user\"},{\"parts\":[{\"tool_call\":{\"id\":\"call-1\",\"input\":[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]],\"name\":\"read_file\"}}],\"role\":\"assistant\"}],\"models\":[{\"id\":\"fast\",\"model\":\"provider/fast\"},{\"effort\":\"low\",\"id\":\"r-low\",\"model\":\"provider/reasoning\"},{\"effort\":\"medium\",\"id\":\"r-medium\",\"model\":\"provider/reasoning\"},{\"effort\":\"high\",\"id\":\"r-high\",\"model\":\"provider/reasoning\"},{\"id\":\"other\",\"model\":\"provider/other\"}],\"objective\":{\"goal\":\"cost\",\"mode\":\"balanced\"}}",
+      "description": "tool_call.input: 196 nested empty arrays",
+      "expect": {
+        "result": "decoded"
+      },
+      "id": "limit-depth-arrays-over"
+    },
+    {
+      "body": "{\"conversation\":[{\"parts\":[{\"text\":\"Fix this function\"}],\"role\":\"user\"},{\"parts\":[{\"tool_call\":{\"id\":\"call-1\",\"input\":[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[0]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]],\"name\":\"read_file\"}}],\"role\":\"assistant\"}],\"models\":[{\"id\":\"fast\",\"model\":\"provider/fast\"},{\"effort\":\"low\",\"id\":\"r-low\",\"model\":\"provider/reasoning\"},{\"effort\":\"medium\",\"id\":\"r-medium\",\"model\":\"provider/reasoning\"},{\"effort\":\"high\",\"id\":\"r-high\",\"model\":\"provider/reasoning\"},{\"id\":\"other\",\"model\":\"provider/other\"}],\"objective\":{\"goal\":\"cost\",\"mode\":\"balanced\"}}",
+      "description": "tool_call.input: 194 nested arrays around 0",
+      "expect": {
+        "result": "decoded"
+      },
+      "id": "limit-depth-arrays-scalar-at"
+    },
+    {
+      "body": "{\"conversation\":[{\"parts\":[{\"text\":\"Fix this function\"}],\"role\":\"user\"},{\"parts\":[{\"tool_call\":{\"id\":\"call-1\",\"input\":[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[0]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]],\"name\":\"read_file\"}}],\"role\":\"assistant\"}],\"models\":[{\"id\":\"fast\",\"model\":\"provider/fast\"},{\"effort\":\"low\",\"id\":\"r-low\",\"model\":\"provider/reasoning\"},{\"effort\":\"medium\",\"id\":\"r-medium\",\"model\":\"provider/reasoning\"},{\"effort\":\"high\",\"id\":\"r-high\",\"model\":\"provider/reasoning\"},{\"id\":\"other\",\"model\":\"provider/other\"}],\"objective\":{\"goal\":\"cost\",\"mode\":\"balanced\"}}",
+      "description": "tool_call.input: 195 nested arrays around 0",
+      "expect": {
+        "result": "decoded"
+      },
+      "id": "limit-depth-arrays-scalar-over"
+    },
+    {
+      "body": "{\"conversation\":[{\"parts\":[{\"text\":\"Fix this function\"}],\"role\":\"user\"},{\"parts\":[{\"tool_call\":{\"id\":\"call-1\",\"input\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":0}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}},\"name\":\"read_file\"}}],\"role\":\"assistant\"}],\"models\":[{\"id\":\"fast\",\"model\":\"provider/fast\"},{\"effort\":\"low\",\"id\":\"r-low\",\"model\":\"provider/reasoning\"},{\"effort\":\"medium\",\"id\":\"r-medium\",\"model\":\"provider/reasoning\"},{\"effort\":\"high\",\"id\":\"r-high\",\"model\":\"provider/reasoning\"},{\"id\":\"other\",\"model\":\"provider/other\"}],\"objective\":{\"goal\":\"cost\",\"mode\":\"balanced\"}}",
+      "description": "tool_call.input: 194 nested {\"a\": ...} objects around 0",
+      "expect": {
+        "result": "decoded"
+      },
+      "id": "limit-depth-objects-scalar-at"
+    },
+    {
+      "body": "{\"conversation\":[{\"parts\":[{\"text\":\"Fix this function\"}],\"role\":\"user\"},{\"parts\":[{\"tool_call\":{\"id\":\"call-1\",\"input\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":0}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}},\"name\":\"read_file\"}}],\"role\":\"assistant\"}],\"models\":[{\"id\":\"fast\",\"model\":\"provider/fast\"},{\"effort\":\"low\",\"id\":\"r-low\",\"model\":\"provider/reasoning\"},{\"effort\":\"medium\",\"id\":\"r-medium\",\"model\":\"provider/reasoning\"},{\"effort\":\"high\",\"id\":\"r-high\",\"model\":\"provider/reasoning\"},{\"id\":\"other\",\"model\":\"provider/other\"}],\"objective\":{\"goal\":\"cost\",\"mode\":\"balanced\"}}",
+      "description": "tool_call.input: 195 nested {\"a\": ...} objects around 0",
+      "expect": {
+        "result": "decoded"
+      },
+      "id": "limit-depth-objects-scalar-over"
+    },
+    {
+      "body": "{\"conversation\":[{\"parts\":[{\"text\":\"Fix this function\"}],\"role\":\"user\"},{\"parts\":[{\"tool_call\":{\"id\":\"call-1\",\"input\":7777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777,\"name\":\"read_file\"}}],\"role\":\"assistant\"}],\"models\":[{\"id\":\"fast\",\"model\":\"provider/fast\"},{\"effort\":\"low\",\"id\":\"r-low\",\"model\":\"provider/reasoning\"},{\"effort\":\"medium\",\"id\":\"r-medium\",\"model\":\"provider/reasoning\"},{\"effort\":\"high\",\"id\":\"r-high\",\"model\":\"provider/reasoning\"},{\"id\":\"other\",\"model\":\"provider/other\"}],\"objective\":{\"goal\":\"cost\",\"mode\":\"balanced\"}}",
+      "description": "tool_call.input: An integer of 4300 digits",
+      "expect": {
+        "result": "decoded"
+      },
+      "id": "limit-digits-at"
+    },
+    {
+      "body": "{\"conversation\":[{\"parts\":[{\"text\":\"Fix this function\"}],\"role\":\"user\"},{\"parts\":[{\"tool_call\":{\"id\":\"call-1\",\"input\":77777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777,\"name\":\"read_file\"}}],\"role\":\"assistant\"}],\"models\":[{\"id\":\"fast\",\"model\":\"provider/fast\"},{\"effort\":\"low\",\"id\":\"r-low\",\"model\":\"provider/reasoning\"},{\"effort\":\"medium\",\"id\":\"r-medium\",\"model\":\"provider/reasoning\"},{\"effort\":\"high\",\"id\":\"r-high\",\"model\":\"provider/reasoning\"},{\"id\":\"other\",\"model\":\"provider/other\"}],\"objective\":{\"goal\":\"cost\",\"mode\":\"balanced\"}}",
+      "description": "tool_call.input: An integer of 4301 digits",
+      "expect": {
+        "result": "decoded"
+      },
+      "id": "limit-digits-over"
+    },
+    {
+      "body": "{\"conversation\":[{\"parts\":[{\"text\":\"Fix this function\"}],\"role\":\"user\"},{\"parts\":[{\"tool_call\":{\"id\":\"call-1\",\"input\":-777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777,\"name\":\"read_file\"}}],\"role\":\"assistant\"}],\"models\":[{\"id\":\"fast\",\"model\":\"provider/fast\"},{\"effort\":\"low\",\"id\":\"r-low\",\"model\":\"provider/reasoning\"},{\"effort\":\"medium\",\"id\":\"r-medium\",\"model\":\"provider/reasoning\"},{\"effort\":\"high\",\"id\":\"r-high\",\"model\":\"provider/reasoning\"},{\"id\":\"other\",\"model\":\"provider/other\"}],\"objective\":{\"goal\":\"cost\",\"mode\":\"balanced\"}}",
+      "description": "tool_call.input: A negative integer of 4299 digits",
+      "expect": {
+        "result": "decoded"
+      },
+      "id": "limit-digits-negative-at"
+    },
+    {
+      "body": "{\"conversation\":[{\"parts\":[{\"text\":\"Fix this function\"}],\"role\":\"user\"},{\"parts\":[{\"tool_call\":{\"id\":\"call-1\",\"input\":-7777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777,\"name\":\"read_file\"}}],\"role\":\"assistant\"}],\"models\":[{\"id\":\"fast\",\"model\":\"provider/fast\"},{\"effort\":\"low\",\"id\":\"r-low\",\"model\":\"provider/reasoning\"},{\"effort\":\"medium\",\"id\":\"r-medium\",\"model\":\"provider/reasoning\"},{\"effort\":\"high\",\"id\":\"r-high\",\"model\":\"provider/reasoning\"},{\"id\":\"other\",\"model\":\"provider/other\"}],\"objective\":{\"goal\":\"cost\",\"mode\":\"balanced\"}}",
+      "description": "tool_call.input: A negative integer of 4300 digits",
+      "expect": {
+        "result": "decoded"
+      },
+      "id": "limit-digits-negative-over"
+    },
+    {
+      "body": "{\"conversation\":[{\"parts\":[{\"text\":\"Fix this function\"}],\"role\":\"user\"}],\"models\":[{\"id\":\"fast\",\"model\":\"provider/fast\"},{\"effort\":\"low\",\"id\":\"r-low\",\"model\":\"provider/reasoning\"},{\"effort\":\"medium\",\"id\":\"r-medium\",\"model\":\"provider/reasoning\"},{\"effort\":\"high\",\"id\":\"r-high\",\"model\":\"provider/reasoning\"},{\"id\":\"other\",\"model\":\"provider/other\"},{\"context_window\":1.0,\"id\":\"extra\",\"model\":\"provider/fast\"}],\"objective\":{\"goal\":\"cost\",\"mode\":\"balanced\"}}",
+      "description": "An offer whose context_window is the raw token '1.0'",
+      "expect": {
+        "result": "invalid"
+      },
+      "id": "context-window-float"
+    },
+    {
+      "body": "{\"conversation\":[{\"parts\":[{\"text\":\"Fix this function\"}],\"role\":\"user\"}],\"models\":[{\"id\":\"fast\",\"model\":\"provider/fast\"},{\"effort\":\"low\",\"id\":\"r-low\",\"model\":\"provider/reasoning\"},{\"effort\":\"medium\",\"id\":\"r-medium\",\"model\":\"provider/reasoning\"},{\"effort\":\"high\",\"id\":\"r-high\",\"model\":\"provider/reasoning\"},{\"id\":\"other\",\"model\":\"provider/other\"},{\"context_window\":1E0,\"id\":\"extra\",\"model\":\"provider/fast\"}],\"objective\":{\"goal\":\"cost\",\"mode\":\"balanced\"}}",
+      "description": "An offer whose context_window is the raw token '1E0'",
+      "expect": {
+        "result": "invalid"
+      },
+      "id": "context-window-exponent"
+    },
+    {
+      "body": "{\"conversation\":[{\"parts\":[{\"text\":\"Fix this function\"}],\"role\":\"user\"}],\"models\":[{\"id\":\"fast\",\"model\":\"provider/fast\"},{\"effort\":\"low\",\"id\":\"r-low\",\"model\":\"provider/reasoning\"},{\"effort\":\"medium\",\"id\":\"r-medium\",\"model\":\"provider/reasoning\"},{\"effort\":\"high\",\"id\":\"r-high\",\"model\":\"provider/reasoning\"},{\"id\":\"other\",\"model\":\"provider/other\"},{\"context_window\":1e3,\"id\":\"extra\",\"model\":\"provider/fast\"}],\"objective\":{\"goal\":\"cost\",\"mode\":\"balanced\"}}",
+      "description": "An offer whose context_window is the raw token '1e3'",
+      "expect": {
+        "result": "invalid"
+      },
+      "id": "context-window-exponent-integral"
+    },
+    {
+      "body": "{\"conversation\":[{\"parts\":[{\"text\":\"Fix this function\"}],\"role\":\"user\"}],\"models\":[{\"id\":\"fast\",\"model\":\"provider/fast\"},{\"effort\":\"low\",\"id\":\"r-low\",\"model\":\"provider/reasoning\"},{\"effort\":\"medium\",\"id\":\"r-medium\",\"model\":\"provider/reasoning\"},{\"effort\":\"high\",\"id\":\"r-high\",\"model\":\"provider/reasoning\"},{\"id\":\"other\",\"model\":\"provider/other\"},{\"context_window\":true,\"id\":\"extra\",\"model\":\"provider/fast\"}],\"objective\":{\"goal\":\"cost\",\"mode\":\"balanced\"}}",
+      "description": "An offer whose context_window is the raw token 'true'",
+      "expect": {
+        "result": "invalid"
+      },
+      "id": "context-window-boolean"
+    },
+    {
+      "body": "{\"conversation\":[{\"parts\":[{\"text\":\"Fix this function\"}],\"role\":\"user\"}],\"models\":[{\"id\":\"fast\",\"model\":\"provider/fast\"},{\"effort\":\"low\",\"id\":\"r-low\",\"model\":\"provider/reasoning\"},{\"effort\":\"medium\",\"id\":\"r-medium\",\"model\":\"provider/reasoning\"},{\"effort\":\"high\",\"id\":\"r-high\",\"model\":\"provider/reasoning\"},{\"id\":\"other\",\"model\":\"provider/other\"},{\"context_window\":\"5\",\"id\":\"extra\",\"model\":\"provider/fast\"}],\"objective\":{\"goal\":\"cost\",\"mode\":\"balanced\"}}",
+      "description": "An offer whose context_window is the raw token '\"5\"'",
+      "expect": {
+        "result": "invalid"
+      },
+      "id": "context-window-string"
+    },
+    {
+      "body": "{\"conversation\":[{\"parts\":[{\"text\":\"Fix this function\"}],\"role\":\"user\"}],\"models\":[{\"id\":\"fast\",\"model\":\"provider/fast\"},{\"effort\":\"low\",\"id\":\"r-low\",\"model\":\"provider/reasoning\"},{\"effort\":\"medium\",\"id\":\"r-medium\",\"model\":\"provider/reasoning\"},{\"effort\":\"high\",\"id\":\"r-high\",\"model\":\"provider/reasoning\"},{\"id\":\"other\",\"model\":\"provider/other\"},{\"context_window\":NaN,\"id\":\"extra\",\"model\":\"provider/fast\"}],\"objective\":{\"goal\":\"cost\",\"mode\":\"balanced\"}}",
+      "description": "An offer whose context_window is the raw token 'NaN'",
+      "expect": {
+        "result": "malformed"
+      },
+      "id": "context-window-nan"
+    },
+    {
+      "body": "{\"conversation\":[{\"parts\":[{\"text\":\"Fix this function\"}],\"role\":\"user\"}],\"models\":[{\"id\":\"fast\",\"model\":\"provider/fast\"},{\"effort\":\"low\",\"id\":\"r-low\",\"model\":\"provider/reasoning\"},{\"effort\":\"medium\",\"id\":\"r-medium\",\"model\":\"provider/reasoning\"},{\"effort\":\"high\",\"id\":\"r-high\",\"model\":\"provider/reasoning\"},{\"id\":\"other\",\"model\":\"provider/other\"},{\"context_window\":0,\"id\":\"extra\",\"model\":\"provider/fast\"}],\"objective\":{\"goal\":\"cost\",\"mode\":\"balanced\"}}",
+      "description": "An offer whose context_window is the raw token '0'",
+      "expect": {
+        "result": "invalid"
+      },
+      "id": "context-window-zero"
+    },
+    {
+      "body": "{\"conversation\":[{\"parts\":[{\"text\":\"Fix this function\"}],\"role\":\"user\"}],\"models\":[{\"id\":\"fast\",\"model\":\"provider/fast\"},{\"effort\":\"low\",\"id\":\"r-low\",\"model\":\"provider/reasoning\"},{\"effort\":\"medium\",\"id\":\"r-medium\",\"model\":\"provider/reasoning\"},{\"effort\":\"high\",\"id\":\"r-high\",\"model\":\"provider/reasoning\"},{\"id\":\"other\",\"model\":\"provider/other\"},{\"context_window\":-0,\"id\":\"extra\",\"model\":\"provider/fast\"}],\"objective\":{\"goal\":\"cost\",\"mode\":\"balanced\"}}",
+      "description": "An offer whose context_window is the raw token '-0'",
+      "expect": {
+        "result": "invalid"
+      },
+      "id": "context-window-negative-zero"
+    },
+    {
+      "body": "{\"conversation\":[{\"parts\":[{\"text\":\"Fix this function\"}],\"role\":\"user\"}],\"models\":[{\"id\":\"fast\",\"model\":\"provider/fast\"},{\"effort\":\"low\",\"id\":\"r-low\",\"model\":\"provider/reasoning\"},{\"effort\":\"medium\",\"id\":\"r-medium\",\"model\":\"provider/reasoning\"},{\"effort\":\"high\",\"id\":\"r-high\",\"model\":\"provider/reasoning\"},{\"id\":\"other\",\"model\":\"provider/other\"},{\"context_window\":-1,\"id\":\"extra\",\"model\":\"provider/fast\"}],\"objective\":{\"goal\":\"cost\",\"mode\":\"balanced\"}}",
+      "description": "An offer whose context_window is the raw token '-1'",
+      "expect": {
+        "result": "invalid"
+      },
+      "id": "context-window-negative"
+    },
+    {
+      "body": "{\"conversation\":[{\"parts\":[{\"text\":\"Fix this function\"}],\"role\":\"user\"}],\"models\":[{\"id\":\"fast\",\"model\":\"provider/fast\"},{\"effort\":\"low\",\"id\":\"r-low\",\"model\":\"provider/reasoning\"},{\"effort\":\"medium\",\"id\":\"r-medium\",\"model\":\"provider/reasoning\"},{\"effort\":\"high\",\"id\":\"r-high\",\"model\":\"provider/reasoning\"},{\"id\":\"other\",\"model\":\"provider/other\"},{\"context_window\":18446744073709551617,\"id\":\"extra\",\"model\":\"provider/fast\"}],\"objective\":{\"goal\":\"cost\",\"mode\":\"balanced\"}}",
+      "description": "An offer whose context_window is the raw token '18446744073709551617'",
+      "expect": {
+        "result": "decoded"
+      },
+      "id": "context-window-over-64-bits"
+    },
+    {
+      "body": "{\"conversation\":[{\"parts\":[{\"text\":\"Fix this function\"}],\"role\":\"user\"}],\"models\":[{\"id\":\"fast\",\"model\":\"provider/fast\"},{\"effort\":\"low\",\"id\":\"r-low\",\"model\":\"provider/reasoning\"},{\"effort\":\"medium\",\"id\":\"r-medium\",\"model\":\"provider/reasoning\"},{\"effort\":\"high\",\"id\":\"r-high\",\"model\":\"provider/reasoning\"},{\"id\":\"other\",\"model\":\"provider/other\"},{\"context_window\":7777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777,\"id\":\"extra\",\"model\":\"provider/fast\"}],\"objective\":{\"goal\":\"cost\",\"mode\":\"balanced\"}}",
+      "description": "An offer whose context_window is the raw token '77777777777777777777'",
+      "expect": {
+        "result": "decoded"
+      },
+      "id": "context-window-digit-limit"
+    },
+    {
+      "body": "{\"conversation\":[{\"parts\":[{\"text\":\"Fix this function\"}],\"role\":\"user\"}],\"models\":[{\"id\":\"fast\",\"model\":\"provider/fast\"},{\"effort\":\"low\",\"id\":\"r-low\",\"model\":\"provider/reasoning\"},{\"effort\":\"medium\",\"id\":\"r-medium\",\"model\":\"provider/reasoning\"},{\"effort\":\"high\",\"id\":\"r-high\",\"model\":\"provider/reasoning\"},{\"id\":\"other\",\"model\":\"provider/other\"},{\"context_window\":77777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777,\"id\":\"extra\",\"model\":\"provider/fast\"}],\"objective\":{\"goal\":\"cost\",\"mode\":\"balanced\"}}",
+      "description": "An offer whose context_window is the raw token '77777777777777777777'",
+      "expect": {
+        "result": "decoded"
+      },
+      "id": "context-window-digit-limit-over"
+    },
+    {
+      "description": "An offer whose model is 'provider/fast\\n'",
+      "expect": {
+        "result": "decoded"
+      },
+      "id": "model-trailing-newline",
+      "request": {
+        "conversation": [
+          {
+            "parts": [
+              {
+                "text": "Fix this function"
+              }
+            ],
+            "role": "user"
+          }
+        ],
+        "models": [
+          {
+            "id": "fast",
+            "model": "provider/fast"
+          },
+          {
+            "effort": "low",
+            "id": "r-low",
+            "model": "provider/reasoning"
+          },
+          {
+            "effort": "medium",
+            "id": "r-medium",
+            "model": "provider/reasoning"
+          },
+          {
+            "effort": "high",
+            "id": "r-high",
+            "model": "provider/reasoning"
+          },
+          {
+            "id": "other",
+            "model": "provider/other"
+          },
+          {
+            "id": "extra",
+            "model": "provider/fast\n"
+          }
+        ],
+        "objective": {
+          "goal": "cost",
+          "mode": "balanced"
+        }
+      }
+    },
+    {
+      "description": "An offer whose model is '\\nprovider/fast'",
+      "expect": {
+        "result": "decoded"
+      },
+      "id": "model-leading-newline",
+      "request": {
+        "conversation": [
+          {
+            "parts": [
+              {
+                "text": "Fix this function"
+              }
+            ],
+            "role": "user"
+          }
+        ],
+        "models": [
+          {
+            "id": "fast",
+            "model": "provider/fast"
+          },
+          {
+            "effort": "low",
+            "id": "r-low",
+            "model": "provider/reasoning"
+          },
+          {
+            "effort": "medium",
+            "id": "r-medium",
+            "model": "provider/reasoning"
+          },
+          {
+            "effort": "high",
+            "id": "r-high",
+            "model": "provider/reasoning"
+          },
+          {
+            "id": "other",
+            "model": "provider/other"
+          },
+          {
+            "id": "extra",
+            "model": "\nprovider/fast"
+          }
+        ],
+        "objective": {
+          "goal": "cost",
+          "mode": "balanced"
+        }
+      }
+    },
+    {
+      "description": "An offer whose model is 'provider/fast '",
+      "expect": {
+        "result": "decoded"
+      },
+      "id": "model-trailing-space",
+      "request": {
+        "conversation": [
+          {
+            "parts": [
+              {
+                "text": "Fix this function"
+              }
+            ],
+            "role": "user"
+          }
+        ],
+        "models": [
+          {
+            "id": "fast",
+            "model": "provider/fast"
+          },
+          {
+            "effort": "low",
+            "id": "r-low",
+            "model": "provider/reasoning"
+          },
+          {
+            "effort": "medium",
+            "id": "r-medium",
+            "model": "provider/reasoning"
+          },
+          {
+            "effort": "high",
+            "id": "r-high",
+            "model": "provider/reasoning"
+          },
+          {
+            "id": "other",
+            "model": "provider/other"
+          },
+          {
+            "id": "extra",
+            "model": "provider/fast "
+          }
+        ],
+        "objective": {
+          "goal": "cost",
+          "mode": "balanced"
+        }
+      }
+    },
+    {
+      "description": "An offer whose model is 'a b/c d'",
+      "expect": {
+        "result": "decoded"
+      },
+      "id": "model-inner-space",
+      "request": {
+        "conversation": [
+          {
+            "parts": [
+              {
+                "text": "Fix this function"
+              }
+            ],
+            "role": "user"
+          }
+        ],
+        "models": [
+          {
+            "id": "fast",
+            "model": "provider/fast"
+          },
+          {
+            "effort": "low",
+            "id": "r-low",
+            "model": "provider/reasoning"
+          },
+          {
+            "effort": "medium",
+            "id": "r-medium",
+            "model": "provider/reasoning"
+          },
+          {
+            "effort": "high",
+            "id": "r-high",
+            "model": "provider/reasoning"
+          },
+          {
+            "id": "other",
+            "model": "provider/other"
+          },
+          {
+            "id": "extra",
+            "model": "a b/c d"
+          }
+        ],
+        "objective": {
+          "goal": "cost",
+          "mode": "balanced"
+        }
+      }
+    },
+    {
+      "description": "An offer whose model is 'provider/caf\u00e9'",
+      "expect": {
+        "result": "decoded"
+      },
+      "id": "model-non-ascii",
+      "request": {
+        "conversation": [
+          {
+            "parts": [
+              {
+                "text": "Fix this function"
+              }
+            ],
+            "role": "user"
+          }
+        ],
+        "models": [
+          {
+            "id": "fast",
+            "model": "provider/fast"
+          },
+          {
+            "effort": "low",
+            "id": "r-low",
+            "model": "provider/reasoning"
+          },
+          {
+            "effort": "medium",
+            "id": "r-medium",
+            "model": "provider/reasoning"
+          },
+          {
+            "effort": "high",
+            "id": "r-high",
+            "model": "provider/reasoning"
+          },
+          {
+            "id": "other",
+            "model": "provider/other"
+          },
+          {
+            "id": "extra",
+            "model": "provider/caf\u00e9"
+          }
+        ],
+        "objective": {
+          "goal": "cost",
+          "mode": "balanced"
+        }
+      }
+    },
+    {
+      "description": "An offer whose model is 'a/b/c'",
+      "expect": {
+        "result": "invalid"
+      },
+      "id": "model-three-segments",
+      "request": {
+        "conversation": [
+          {
+            "parts": [
+              {
+                "text": "Fix this function"
+              }
+            ],
+            "role": "user"
+          }
+        ],
+        "models": [
+          {
+            "id": "fast",
+            "model": "provider/fast"
+          },
+          {
+            "effort": "low",
+            "id": "r-low",
+            "model": "provider/reasoning"
+          },
+          {
+            "effort": "medium",
+            "id": "r-medium",
+            "model": "provider/reasoning"
+          },
+          {
+            "effort": "high",
+            "id": "r-high",
+            "model": "provider/reasoning"
+          },
+          {
+            "id": "other",
+            "model": "provider/other"
+          },
+          {
+            "id": "extra",
+            "model": "a/b/c"
+          }
+        ],
+        "objective": {
+          "goal": "cost",
+          "mode": "balanced"
+        }
+      }
+    },
+    {
+      "description": "An offer whose model is '/fast'",
+      "expect": {
+        "result": "invalid"
+      },
+      "id": "model-empty-provider",
+      "request": {
+        "conversation": [
+          {
+            "parts": [
+              {
+                "text": "Fix this function"
+              }
+            ],
+            "role": "user"
+          }
+        ],
+        "models": [
+          {
+            "id": "fast",
+            "model": "provider/fast"
+          },
+          {
+            "effort": "low",
+            "id": "r-low",
+            "model": "provider/reasoning"
+          },
+          {
+            "effort": "medium",
+            "id": "r-medium",
+            "model": "provider/reasoning"
+          },
+          {
+            "effort": "high",
+            "id": "r-high",
+            "model": "provider/reasoning"
+          },
+          {
+            "id": "other",
+            "model": "provider/other"
+          },
+          {
+            "id": "extra",
+            "model": "/fast"
+          }
+        ],
+        "objective": {
+          "goal": "cost",
+          "mode": "balanced"
+        }
+      }
+    },
+    {
+      "description": "An offer whose model is 'provider/'",
+      "expect": {
+        "result": "invalid"
+      },
+      "id": "model-empty-name",
+      "request": {
+        "conversation": [
+          {
+            "parts": [
+              {
+                "text": "Fix this function"
+              }
+            ],
+            "role": "user"
+          }
+        ],
+        "models": [
+          {
+            "id": "fast",
+            "model": "provider/fast"
+          },
+          {
+            "effort": "low",
+            "id": "r-low",
+            "model": "provider/reasoning"
+          },
+          {
+            "effort": "medium",
+            "id": "r-medium",
+            "model": "provider/reasoning"
+          },
+          {
+            "effort": "high",
+            "id": "r-high",
+            "model": "provider/reasoning"
+          },
+          {
+            "id": "other",
+            "model": "provider/other"
+          },
+          {
+            "id": "extra",
+            "model": "provider/"
+          }
+        ],
+        "objective": {
+          "goal": "cost",
+          "mode": "balanced"
+        }
+      }
+    },
+    {
+      "description": "An offer whose model is 'provider'",
+      "expect": {
+        "result": "invalid"
+      },
+      "id": "model-no-slash",
+      "request": {
+        "conversation": [
+          {
+            "parts": [
+              {
+                "text": "Fix this function"
+              }
+            ],
+            "role": "user"
+          }
+        ],
+        "models": [
+          {
+            "id": "fast",
+            "model": "provider/fast"
+          },
+          {
+            "effort": "low",
+            "id": "r-low",
+            "model": "provider/reasoning"
+          },
+          {
+            "effort": "medium",
+            "id": "r-medium",
+            "model": "provider/reasoning"
+          },
+          {
+            "effort": "high",
+            "id": "r-high",
+            "model": "provider/reasoning"
+          },
+          {
+            "id": "other",
+            "model": "provider/other"
+          },
+          {
+            "id": "extra",
+            "model": "provider"
+          }
+        ],
+        "objective": {
+          "goal": "cost",
+          "mode": "balanced"
+        }
+      }
+    },
+    {
+      "description": "An offer whose model is ''",
+      "expect": {
+        "result": "invalid"
+      },
+      "id": "model-empty",
+      "request": {
+        "conversation": [
+          {
+            "parts": [
+              {
+                "text": "Fix this function"
+              }
+            ],
+            "role": "user"
+          }
+        ],
+        "models": [
+          {
+            "id": "fast",
+            "model": "provider/fast"
+          },
+          {
+            "effort": "low",
+            "id": "r-low",
+            "model": "provider/reasoning"
+          },
+          {
+            "effort": "medium",
+            "id": "r-medium",
+            "model": "provider/reasoning"
+          },
+          {
+            "effort": "high",
+            "id": "r-high",
+            "model": "provider/reasoning"
+          },
+          {
+            "id": "other",
+            "model": "provider/other"
+          },
+          {
+            "id": "extra",
+            "model": ""
+          }
+        ],
+        "objective": {
+          "goal": "cost",
+          "mode": "balanced"
+        }
+      }
+    },
+    {
+      "description": "An offer with an empty id",
+      "expect": {
+        "result": "invalid"
+      },
+      "id": "choice-id-empty",
+      "request": {
+        "conversation": [
+          {
+            "parts": [
+              {
+                "text": "Fix this function"
+              }
+            ],
+            "role": "user"
+          }
+        ],
+        "models": [
+          {
+            "id": "fast",
+            "model": "provider/fast"
+          },
+          {
+            "effort": "low",
+            "id": "r-low",
+            "model": "provider/reasoning"
+          },
+          {
+            "effort": "medium",
+            "id": "r-medium",
+            "model": "provider/reasoning"
+          },
+          {
+            "effort": "high",
+            "id": "r-high",
+            "model": "provider/reasoning"
+          },
+          {
+            "id": "other",
+            "model": "provider/other"
+          },
+          {
+            "id": "",
+            "model": "provider/fast"
+          }
+        ],
+        "objective": {
+          "goal": "cost",
+          "mode": "balanced"
+        }
+      }
+    },
+    {
+      "description": "An offer with a numeric id",
+      "expect": {
+        "result": "invalid"
+      },
+      "id": "choice-id-integer",
+      "request": {
+        "conversation": [
+          {
+            "parts": [
+              {
+                "text": "Fix this function"
+              }
+            ],
+            "role": "user"
+          }
+        ],
+        "models": [
+          {
+            "id": "fast",
+            "model": "provider/fast"
+          },
+          {
+            "effort": "low",
+            "id": "r-low",
+            "model": "provider/reasoning"
+          },
+          {
+            "effort": "medium",
+            "id": "r-medium",
+            "model": "provider/reasoning"
+          },
+          {
+            "effort": "high",
+            "id": "r-high",
+            "model": "provider/reasoning"
+          },
+          {
+            "id": "other",
+            "model": "provider/other"
+          },
+          {
+            "id": 1,
+            "model": "provider/fast"
+          }
+        ],
+        "objective": {
+          "goal": "cost",
+          "mode": "balanced"
+        }
+      }
+    },
+    {
+      "description": "Two offers share an id",
+      "expect": {
+        "result": "invalid"
+      },
+      "id": "choice-id-duplicate",
+      "request": {
+        "conversation": [
+          {
+            "parts": [
+              {
+                "text": "Fix this function"
+              }
+            ],
+            "role": "user"
+          }
+        ],
+        "models": [
+          {
+            "id": "fast",
+            "model": "provider/fast"
+          },
+          {
+            "effort": "low",
+            "id": "r-low",
+            "model": "provider/reasoning"
+          },
+          {
+            "effort": "medium",
+            "id": "r-medium",
+            "model": "provider/reasoning"
+          },
+          {
+            "effort": "high",
+            "id": "r-high",
+            "model": "provider/reasoning"
+          },
+          {
+            "id": "other",
+            "model": "provider/other"
+          },
+          {
+            "id": "fast",
+            "model": "provider/fast"
+          }
+        ],
+        "objective": {
+          "goal": "cost",
+          "mode": "balanced"
+        }
+      }
+    },
+    {
+      "description": "An unknown effort",
+      "expect": {
+        "result": "invalid"
+      },
+      "id": "effort-unknown",
+      "request": {
+        "conversation": [
+          {
+            "parts": [
+              {
+                "text": "Fix this function"
+              }
+            ],
+            "role": "user"
+          }
+        ],
+        "models": [
+          {
+            "id": "fast",
+            "model": "provider/fast"
+          },
+          {
+            "effort": "low",
+            "id": "r-low",
+            "model": "provider/reasoning"
+          },
+          {
+            "effort": "medium",
+            "id": "r-medium",
+            "model": "provider/reasoning"
+          },
+          {
+            "effort": "high",
+            "id": "r-high",
+            "model": "provider/reasoning"
+          },
+          {
+            "id": "other",
+            "model": "provider/other"
+          },
+          {
+            "effort": "turbo",
+            "id": "extra",
+            "model": "provider/fast"
+          }
+        ],
+        "objective": {
+          "goal": "cost",
+          "mode": "balanced"
+        }
+      }
+    },
+    {
+      "description": "An uppercase effort",
+      "expect": {
+        "result": "invalid"
+      },
+      "id": "effort-uppercase",
+      "request": {
+        "conversation": [
+          {
+            "parts": [
+              {
+                "text": "Fix this function"
+              }
+            ],
+            "role": "user"
+          }
+        ],
+        "models": [
+          {
+            "id": "fast",
+            "model": "provider/fast"
+          },
+          {
+            "effort": "low",
+            "id": "r-low",
+            "model": "provider/reasoning"
+          },
+          {
+            "effort": "medium",
+            "id": "r-medium",
+            "model": "provider/reasoning"
+          },
+          {
+            "effort": "high",
+            "id": "r-high",
+            "model": "provider/reasoning"
+          },
+          {
+            "id": "other",
+            "model": "provider/other"
+          },
+          {
+            "effort": "LOW",
+            "id": "extra",
+            "model": "provider/fast"
+          }
+        ],
+        "objective": {
+          "goal": "cost",
+          "mode": "balanced"
+        }
+      }
+    },
+    {
+      "description": "An explicit null effort",
+      "expect": {
+        "result": "decoded"
+      },
+      "id": "effort-null",
+      "request": {
+        "conversation": [
+          {
+            "parts": [
+              {
+                "text": "Fix this function"
+              }
+            ],
+            "role": "user"
+          }
+        ],
+        "models": [
+          {
+            "id": "fast",
+            "model": "provider/fast"
+          },
+          {
+            "effort": "low",
+            "id": "r-low",
+            "model": "provider/reasoning"
+          },
+          {
+            "effort": "medium",
+            "id": "r-medium",
+            "model": "provider/reasoning"
+          },
+          {
+            "effort": "high",
+            "id": "r-high",
+            "model": "provider/reasoning"
+          },
+          {
+            "id": "other",
+            "model": "provider/other"
+          },
+          {
+            "effort": null,
+            "id": "extra",
+            "model": "provider/fast"
+          }
+        ],
+        "objective": {
+          "goal": "cost",
+          "mode": "balanced"
+        }
+      }
+    },
+    {
+      "body": "{\"conversation\":[{\"parts\":[{\"text\":\"Fix this function\"}],\"role\":\"user\"}],\"models\":[{\"id\":\"fast\",\"model\":\"provider/fast\"},{\"effort\":\"low\",\"id\":\"r-low\",\"model\":\"provider/reasoning\"},{\"effort\":\"medium\",\"id\":\"r-medium\",\"model\":\"provider/reasoning\"},{\"effort\":\"high\",\"id\":\"r-high\",\"model\":\"provider/reasoning\"},{\"id\":\"other\",\"model\":\"provider/other\"}],\"objective\":{\"goal\":\"cost\",\"mode\":\"balanced\"},\"objective\":{\"goal\":\"cost\",\"mode\":\"robust\"}}",
+      "description": "A repeated objective key last; the last value wins",
+      "expect": {
+        "result": "decoded"
+      },
+      "id": "duplicate-key-last"
+    },
+    {
+      "body": "{\"objective\":{\"goal\":\"cost\",\"mode\":\"robust\"},\"conversation\":[{\"parts\":[{\"text\":\"Fix this function\"}],\"role\":\"user\"}],\"models\":[{\"id\":\"fast\",\"model\":\"provider/fast\"},{\"effort\":\"low\",\"id\":\"r-low\",\"model\":\"provider/reasoning\"},{\"effort\":\"medium\",\"id\":\"r-medium\",\"model\":\"provider/reasoning\"},{\"effort\":\"high\",\"id\":\"r-high\",\"model\":\"provider/reasoning\"},{\"id\":\"other\",\"model\":\"provider/other\"}],\"objective\":{\"goal\":\"cost\",\"mode\":\"balanced\"}}",
+      "description": "A repeated objective key first; the last value wins",
+      "expect": {
+        "result": "decoded"
+      },
+      "id": "duplicate-key-first"
+    },
+    {
+      "body": "{\"objective\":{\"goal\":\"cost\",\"mode\":\"bogus\"},\"conversation\":[{\"parts\":[{\"text\":\"Fix this function\"}],\"role\":\"user\"}],\"models\":[{\"id\":\"fast\",\"model\":\"provider/fast\"},{\"effort\":\"low\",\"id\":\"r-low\",\"model\":\"provider/reasoning\"},{\"effort\":\"medium\",\"id\":\"r-medium\",\"model\":\"provider/reasoning\"},{\"effort\":\"high\",\"id\":\"r-high\",\"model\":\"provider/reasoning\"},{\"id\":\"other\",\"model\":\"provider/other\"}],\"objective\":{\"goal\":\"cost\",\"mode\":\"balanced\"}}",
+      "description": "An objective with an unknown mode, then a valid one; only the last value is validated",
+      "expect": {
+        "result": "decoded"
+      },
+      "id": "duplicate-key-invalid-first"
+    },
+    {
+      "body": "{\"conversation\":[{\"parts\":[{\"text\":\"Fix this function\"}],\"role\":\"user\"}],\"models\":[{\"id\":\"fast\",\"model\":\"provider/fast\"},{\"effort\":\"low\",\"id\":\"r-low\",\"model\":\"provider/reasoning\"},{\"effort\":\"medium\",\"id\":\"r-medium\",\"model\":\"provider/reasoning\"},{\"effort\":\"high\",\"id\":\"r-high\",\"model\":\"provider/reasoning\"},{\"id\":\"other\",\"model\":\"provider/other\"}],\"objective\":{\"goal\":\"cost\",\"mode\":\"balanced\"},\"objective\":{\"goal\":\"cost\",\"mode\":\"bogus\"}}",
+      "description": "A valid objective, then one with an unknown mode; the last value is validated",
+      "expect": {
+        "result": "invalid"
+      },
+      "id": "duplicate-key-invalid-last"
+    },
+    {
+      "body": "{\"conversation\":[{\"parts\":[{\"text\":\"Fix this function\"}],\"role\":\"user\"}],\"models\":[{\"id\":\"fast\",\"model\":\"provider/fast\"},{\"effort\":\"low\",\"id\":\"r-low\",\"model\":\"provider/reasoning\"},{\"effort\":\"medium\",\"id\":\"r-medium\",\"model\":\"provider/reasoning\"},{\"effort\":\"high\",\"id\":\"r-high\",\"model\":\"provider/reasoning\"},{\"id\":\"other\",\"model\":\"provider/other\"}],\"objective\":{\"goal\":\"cost\",\"mode\":\"balanced\"},\"objective\":{\"goal\":\"cost\"}}",
+      "description": "A complete objective, then one with only goal; the last value replaces the first instead of being merged with it",
+      "expect": {
+        "result": "invalid"
+      },
+      "id": "duplicate-key-partial-last"
+    },
+    {
+      "body": "{\"conversation\":[{\"parts\":[{\"text\":\"Fix this function\"}],\"role\":\"user\"}],\"models\":[{\"id\":\"fast\",\"model\":\"provider/fast\"},{\"effort\":\"low\",\"id\":\"r-low\",\"model\":\"provider/reasoning\"},{\"effort\":\"medium\",\"id\":\"r-medium\",\"model\":\"provider/reasoning\"},{\"effort\":\"high\",\"id\":\"r-high\",\"model\":\"provider/reasoning\"},{\"id\":\"other\",\"model\":\"provider/other\"}],\"objective\":{\"goal\":\"cost\"},\"objective\":{\"mode\":\"balanced\"}}",
+      "description": "An objective with only goal, then one with only mode; the objects aren't merged",
+      "expect": {
+        "result": "invalid"
+      },
+      "id": "duplicate-key-partial-split"
+    },
+    {
+      "body": "{\"conversation\":[{\"parts\":[{\"text\":\"Fix this function\"}],\"role\":\"assistant\",\"role\":\"user\"}],\"models\":[{\"id\":\"fast\",\"model\":\"provider/fast\"},{\"effort\":\"low\",\"id\":\"r-low\",\"model\":\"provider/reasoning\"},{\"effort\":\"medium\",\"id\":\"r-medium\",\"model\":\"provider/reasoning\"},{\"effort\":\"high\",\"id\":\"r-high\",\"model\":\"provider/reasoning\"},{\"id\":\"other\",\"model\":\"provider/other\"}],\"objective\":{\"goal\":\"cost\",\"mode\":\"balanced\"}}",
+      "description": "A message repeats role, ending with user",
+      "expect": {
+        "result": "decoded"
+      },
+      "id": "duplicate-key-nested-user-last"
+    },
+    {
+      "body": "{\"conversation\":[{\"parts\":[{\"text\":\"Fix this function\"}],\"role\":\"user\",\"role\":\"assistant\"}],\"models\":[{\"id\":\"fast\",\"model\":\"provider/fast\"},{\"effort\":\"low\",\"id\":\"r-low\",\"model\":\"provider/reasoning\"},{\"effort\":\"medium\",\"id\":\"r-medium\",\"model\":\"provider/reasoning\"},{\"effort\":\"high\",\"id\":\"r-high\",\"model\":\"provider/reasoning\"},{\"id\":\"other\",\"model\":\"provider/other\"}],\"objective\":{\"goal\":\"cost\",\"mode\":\"balanced\"}}",
+      "description": "A message repeats role, ending with assistant",
+      "expect": {
+        "result": "decoded"
+      },
+      "id": "duplicate-key-nested-assistant-last"
+    },
+    {
+      "body": "{\"conversation\":[{\"parts\":[{\"text\":\"Fix this function\"}],\"role\":\"narrator\",\"role\":\"user\"}],\"models\":[{\"id\":\"fast\",\"model\":\"provider/fast\"},{\"effort\":\"low\",\"id\":\"r-low\",\"model\":\"provider/reasoning\"},{\"effort\":\"medium\",\"id\":\"r-medium\",\"model\":\"provider/reasoning\"},{\"effort\":\"high\",\"id\":\"r-high\",\"model\":\"provider/reasoning\"},{\"id\":\"other\",\"model\":\"provider/other\"}],\"objective\":{\"goal\":\"cost\",\"mode\":\"balanced\"}}",
+      "description": "A message repeats role, an unknown role then user; only the last value is validated",
+      "expect": {
+        "result": "decoded"
+      },
+      "id": "duplicate-key-nested-invalid-first"
+    },
+    {
+      "body": "{\"conversation\":[{\"parts\":[{\"text\":\"Fix this function\"}],\"role\":\"user\",\"role\":\"narrator\"}],\"models\":[{\"id\":\"fast\",\"model\":\"provider/fast\"},{\"effort\":\"low\",\"id\":\"r-low\",\"model\":\"provider/reasoning\"},{\"effort\":\"medium\",\"id\":\"r-medium\",\"model\":\"provider/reasoning\"},{\"effort\":\"high\",\"id\":\"r-high\",\"model\":\"provider/reasoning\"},{\"id\":\"other\",\"model\":\"provider/other\"}],\"objective\":{\"goal\":\"cost\",\"mode\":\"balanced\"}}",
+      "description": "A message repeats role, user then an unknown role; the last value is validated",
+      "expect": {
+        "result": "invalid"
+      },
+      "id": "duplicate-key-nested-invalid-last"
+    },
+    {
+      "body": "{\"\\u0063onversation\":[{\"parts\":[{\"text\":\"Fix this function\"}],\"role\":\"user\"}],\"models\":[{\"id\":\"fast\",\"model\":\"provider/fast\"},{\"effort\":\"low\",\"id\":\"r-low\",\"model\":\"provider/reasoning\"},{\"effort\":\"medium\",\"id\":\"r-medium\",\"model\":\"provider/reasoning\"},{\"effort\":\"high\",\"id\":\"r-high\",\"model\":\"provider/reasoning\"},{\"id\":\"other\",\"model\":\"provider/other\"}],\"objective\":{\"goal\":\"cost\",\"mode\":\"balanced\"}}",
+      "description": "A key spelled with a \\u escape",
+      "expect": {
+        "result": "decoded"
+      },
+      "id": "escaped-key"
+    },
+    {
+      "body": "{\"conversation\":[{\"parts\":[{\"text\":\"Fix this function\"}],\"role\":\"user\"}],\"models\":[{\"id\":\"fast\",\"model\":\"provider\\/fast\"},{\"effort\":\"low\",\"id\":\"r-low\",\"model\":\"provider/reasoning\"},{\"effort\":\"medium\",\"id\":\"r-medium\",\"model\":\"provider/reasoning\"},{\"effort\":\"high\",\"id\":\"r-high\",\"model\":\"provider/reasoning\"},{\"id\":\"other\",\"model\":\"provider/other\"}],\"objective\":{\"goal\":\"cost\",\"mode\":\"balanced\"}}",
+      "description": "A model id spelled with an escaped slash",
+      "expect": {
+        "result": "decoded"
+      },
+      "id": "escaped-slash"
+    },
+    {
+      "body": "[]",
+      "description": "A top-level array",
+      "expect": {
+        "result": "invalid"
+      },
+      "id": "top-level-array"
+    },
+    {
+      "body": "null",
+      "description": "A top-level null",
+      "expect": {
+        "result": "invalid"
+      },
+      "id": "top-level-null"
+    },
+    {
+      "body": "\"route\"",
+      "description": "A top-level string",
+      "expect": {
+        "result": "invalid"
+      },
+      "id": "top-level-string"
+    },
+    {
+      "body": "1",
+      "description": "A top-level number",
+      "expect": {
+        "result": "invalid"
+      },
+      "id": "top-level-number"
+    },
+    {
+      "body": "true",
+      "description": "A top-level true",
+      "expect": {
+        "result": "invalid"
+      },
+      "id": "top-level-true"
+    },
+    {
+      "body": "{\"Conversation\":[{\"parts\":[{\"text\":\"Fix this function\"}],\"role\":\"user\"}],\"models\":[{\"id\":\"fast\",\"model\":\"provider/fast\"},{\"effort\":\"low\",\"id\":\"r-low\",\"model\":\"provider/reasoning\"},{\"effort\":\"medium\",\"id\":\"r-medium\",\"model\":\"provider/reasoning\"},{\"effort\":\"high\",\"id\":\"r-high\",\"model\":\"provider/reasoning\"},{\"id\":\"other\",\"model\":\"provider/other\"}],\"objective\":{\"goal\":\"cost\",\"mode\":\"balanced\"}}",
+      "description": "Conversation with a capital C",
+      "expect": {
+        "result": "invalid"
+      },
+      "id": "key-wrong-case"
+    },
+    {
+      "description": "An unknown top-level field",
+      "expect": {
+        "result": "invalid"
+      },
+      "id": "extra-field",
+      "request": {
+        "conversation": [
+          {
+            "parts": [
+              {
+                "text": "Fix this function"
+              }
+            ],
+            "role": "user"
+          }
+        ],
+        "extra": 1,
+        "models": [
+          {
+            "id": "fast",
+            "model": "provider/fast"
+          },
+          {
+            "effort": "low",
+            "id": "r-low",
+            "model": "provider/reasoning"
+          },
+          {
+            "effort": "medium",
+            "id": "r-medium",
+            "model": "provider/reasoning"
+          },
+          {
+            "effort": "high",
+            "id": "r-high",
+            "model": "provider/reasoning"
+          },
+          {
+            "id": "other",
+            "model": "provider/other"
+          }
+        ],
+        "objective": {
+          "goal": "cost",
+          "mode": "balanced"
+        }
+      }
+    },
+    {
+      "description": "A null conversation",
+      "expect": {
+        "result": "invalid"
+      },
+      "id": "conversation-null",
+      "request": {
+        "conversation": null,
+        "models": [
+          {
+            "id": "fast",
+            "model": "provider/fast"
+          },
+          {
+            "effort": "low",
+            "id": "r-low",
+            "model": "provider/reasoning"
+          },
+          {
+            "effort": "medium",
+            "id": "r-medium",
+            "model": "provider/reasoning"
+          },
+          {
+            "effort": "high",
+            "id": "r-high",
+            "model": "provider/reasoning"
+          },
+          {
+            "id": "other",
+            "model": "provider/other"
+          }
+        ],
+        "objective": {
+          "goal": "cost",
+          "mode": "balanced"
+        }
+      }
+    },
+    {
+      "description": "A null models list",
+      "expect": {
+        "result": "invalid"
+      },
+      "id": "models-null",
+      "request": {
+        "conversation": [
+          {
+            "parts": [
+              {
+                "text": "Fix this function"
+              }
+            ],
+            "role": "user"
+          }
+        ],
+        "models": null,
+        "objective": {
+          "goal": "cost",
+          "mode": "balanced"
+        }
+      }
+    },
+    {
+      "description": "A message without parts",
+      "expect": {
+        "result": "decoded"
+      },
+      "id": "parts-omitted",
+      "request": {
+        "conversation": [
+          {
+            "role": "assistant"
+          },
+          {
+            "parts": [
+              {
+                "text": "Fix this function"
+              }
+            ],
+            "role": "user"
+          }
+        ],
+        "models": [
+          {
+            "id": "fast",
+            "model": "provider/fast"
+          },
+          {
+            "effort": "low",
+            "id": "r-low",
+            "model": "provider/reasoning"
+          },
+          {
+            "effort": "medium",
+            "id": "r-medium",
+            "model": "provider/reasoning"
+          },
+          {
+            "effort": "high",
+            "id": "r-high",
+            "model": "provider/reasoning"
+          },
+          {
+            "id": "other",
+            "model": "provider/other"
+          }
+        ],
+        "objective": {
+          "goal": "cost",
+          "mode": "balanced"
+        }
+      }
+    },
+    {
+      "description": "A message with null parts",
+      "expect": {
+        "result": "invalid"
+      },
+      "id": "parts-null",
+      "request": {
+        "conversation": [
+          {
+            "parts": null,
+            "role": "assistant"
+          },
+          {
+            "parts": [
+              {
+                "text": "Fix this function"
+              }
+            ],
+            "role": "user"
+          }
+        ],
+        "models": [
+          {
+            "id": "fast",
+            "model": "provider/fast"
+          },
+          {
+            "effort": "low",
+            "id": "r-low",
+            "model": "provider/reasoning"
+          },
+          {
+            "effort": "medium",
+            "id": "r-medium",
+            "model": "provider/reasoning"
+          },
+          {
+            "effort": "high",
+            "id": "r-high",
+            "model": "provider/reasoning"
+          },
+          {
+            "id": "other",
+            "model": "provider/other"
+          }
+        ],
+        "objective": {
+          "goal": "cost",
+          "mode": "balanced"
+        }
+      }
+    },
+    {
+      "description": "The role tool",
+      "expect": {
+        "result": "invalid"
+      },
+      "id": "role-tool",
+      "request": {
+        "conversation": [
+          {
+            "parts": [
+              {
+                "text": "result"
+              }
+            ],
+            "role": "tool"
+          },
+          {
+            "parts": [
+              {
+                "text": "Fix this function"
+              }
+            ],
+            "role": "user"
+          }
+        ],
+        "models": [
+          {
+            "id": "fast",
+            "model": "provider/fast"
+          },
+          {
+            "effort": "low",
+            "id": "r-low",
+            "model": "provider/reasoning"
+          },
+          {
+            "effort": "medium",
+            "id": "r-medium",
+            "model": "provider/reasoning"
+          },
+          {
+            "effort": "high",
+            "id": "r-high",
+            "model": "provider/reasoning"
+          },
+          {
+            "id": "other",
+            "model": "provider/other"
+          }
+        ],
+        "objective": {
+          "goal": "cost",
+          "mode": "balanced"
+        }
+      }
+    },
+    {
+      "description": "The role USER",
+      "expect": {
+        "result": "invalid"
+      },
+      "id": "role-uppercase",
+      "request": {
+        "conversation": [
+          {
+            "parts": [
+              {
+                "text": "hello"
+              }
+            ],
+            "role": "USER"
+          },
+          {
+            "parts": [
+              {
+                "text": "Fix this function"
+              }
+            ],
+            "role": "user"
+          }
+        ],
+        "models": [
+          {
+            "id": "fast",
+            "model": "provider/fast"
+          },
+          {
+            "effort": "low",
+            "id": "r-low",
+            "model": "provider/reasoning"
+          },
+          {
+            "effort": "medium",
+            "id": "r-medium",
+            "model": "provider/reasoning"
+          },
+          {
+            "effort": "high",
+            "id": "r-high",
+            "model": "provider/reasoning"
+          },
+          {
+            "id": "other",
+            "model": "provider/other"
+          }
+        ],
+        "objective": {
+          "goal": "cost",
+          "mode": "balanced"
+        }
+      }
+    },
+    {
+      "description": "A text part whose text is null",
+      "expect": {
+        "result": "invalid"
+      },
+      "id": "text-null",
+      "request": {
+        "conversation": [
+          {
+            "parts": [
+              {
+                "text": null
+              }
+            ],
+            "role": "assistant"
+          },
+          {
+            "parts": [
+              {
+                "text": "Fix this function"
+              }
+            ],
+            "role": "user"
+          }
+        ],
+        "models": [
+          {
+            "id": "fast",
+            "model": "provider/fast"
+          },
+          {
+            "effort": "low",
+            "id": "r-low",
+            "model": "provider/reasoning"
+          },
+          {
+            "effort": "medium",
+            "id": "r-medium",
+            "model": "provider/reasoning"
+          },
+          {
+            "effort": "high",
+            "id": "r-high",
+            "model": "provider/reasoning"
+          },
+          {
+            "id": "other",
+            "model": "provider/other"
+          }
+        ],
+        "objective": {
+          "goal": "cost",
+          "mode": "balanced"
+        }
+      }
+    },
+    {
+      "description": "A part with no fields",
+      "expect": {
+        "result": "invalid"
+      },
+      "id": "part-empty",
+      "request": {
+        "conversation": [
+          {
+            "parts": [
+              {}
+            ],
+            "role": "assistant"
+          },
+          {
+            "parts": [
+              {
+                "text": "Fix this function"
+              }
+            ],
+            "role": "user"
+          }
+        ],
+        "models": [
+          {
+            "id": "fast",
+            "model": "provider/fast"
+          },
+          {
+            "effort": "low",
+            "id": "r-low",
+            "model": "provider/reasoning"
+          },
+          {
+            "effort": "medium",
+            "id": "r-medium",
+            "model": "provider/reasoning"
+          },
+          {
+            "effort": "high",
+            "id": "r-high",
+            "model": "provider/reasoning"
+          },
+          {
+            "id": "other",
+            "model": "provider/other"
+          }
+        ],
+        "objective": {
+          "goal": "cost",
+          "mode": "balanced"
+        }
+      }
+    },
+    {
+      "description": "A text part with an unknown field",
+      "expect": {
+        "result": "invalid"
+      },
+      "id": "part-extra-key",
+      "request": {
+        "conversation": [
+          {
+            "parts": [
+              {
+                "extra": 1,
+                "text": "a"
+              }
+            ],
+            "role": "assistant"
+          },
+          {
+            "parts": [
+              {
+                "text": "Fix this function"
+              }
+            ],
+            "role": "user"
+          }
+        ],
+        "models": [
+          {
+            "id": "fast",
+            "model": "provider/fast"
+          },
+          {
+            "effort": "low",
+            "id": "r-low",
+            "model": "provider/reasoning"
+          },
+          {
+            "effort": "medium",
+            "id": "r-medium",
+            "model": "provider/reasoning"
+          },
+          {
+            "effort": "high",
+            "id": "r-high",
+            "model": "provider/reasoning"
+          },
+          {
+            "id": "other",
+            "model": "provider/other"
+          }
+        ],
+        "objective": {
+          "goal": "cost",
+          "mode": "balanced"
+        }
+      }
+    },
+    {
+      "description": "One part holding both text and tool_call",
+      "expect": {
+        "result": "invalid"
+      },
+      "id": "part-text-and-tool-call",
+      "request": {
+        "conversation": [
+          {
+            "parts": [
+              {
+                "text": "a",
+                "tool_call": {
+                  "id": "c",
+                  "name": "t"
+                }
+              }
+            ],
+            "role": "assistant"
+          },
+          {
+            "parts": [
+              {
+                "text": "Fix this function"
+              }
+            ],
+            "role": "user"
+          }
+        ],
+        "models": [
+          {
+            "id": "fast",
+            "model": "provider/fast"
+          },
+          {
+            "effort": "low",
+            "id": "r-low",
+            "model": "provider/reasoning"
+          },
+          {
+            "effort": "medium",
+            "id": "r-medium",
+            "model": "provider/reasoning"
+          },
+          {
+            "effort": "high",
+            "id": "r-high",
+            "model": "provider/reasoning"
+          },
+          {
+            "id": "other",
+            "model": "provider/other"
+          }
+        ],
+        "objective": {
+          "goal": "cost",
+          "mode": "balanced"
+        }
+      }
+    },
+    {
+      "description": "A tool_call without input",
+      "expect": {
+        "result": "decoded"
+      },
+      "id": "tool-call-without-input",
+      "request": {
+        "conversation": [
+          {
+            "parts": [
+              {
+                "tool_call": {
+                  "id": "call-1",
+                  "name": "read_file"
+                }
+              }
+            ],
+            "role": "assistant"
+          },
+          {
+            "parts": [
+              {
+                "text": "Fix this function"
+              }
+            ],
+            "role": "user"
+          }
+        ],
+        "models": [
+          {
+            "id": "fast",
+            "model": "provider/fast"
+          },
+          {
+            "effort": "low",
+            "id": "r-low",
+            "model": "provider/reasoning"
+          },
+          {
+            "effort": "medium",
+            "id": "r-medium",
+            "model": "provider/reasoning"
+          },
+          {
+            "effort": "high",
+            "id": "r-high",
+            "model": "provider/reasoning"
+          },
+          {
+            "id": "other",
+            "model": "provider/other"
+          }
+        ],
+        "objective": {
+          "goal": "cost",
+          "mode": "balanced"
+        }
+      }
+    },
+    {
+      "description": "A tool_call without id",
+      "expect": {
+        "result": "invalid"
+      },
+      "id": "tool-call-without-id",
+      "request": {
+        "conversation": [
+          {
+            "parts": [
+              {
+                "tool_call": {
+                  "name": "read_file"
+                }
+              }
+            ],
+            "role": "assistant"
+          },
+          {
+            "parts": [
+              {
+                "text": "Fix this function"
+              }
+            ],
+            "role": "user"
+          }
+        ],
+        "models": [
+          {
+            "id": "fast",
+            "model": "provider/fast"
+          },
+          {
+            "effort": "low",
+            "id": "r-low",
+            "model": "provider/reasoning"
+          },
+          {
+            "effort": "medium",
+            "id": "r-medium",
+            "model": "provider/reasoning"
+          },
+          {
+            "effort": "high",
+            "id": "r-high",
+            "model": "provider/reasoning"
+          },
+          {
+            "id": "other",
+            "model": "provider/other"
+          }
+        ],
+        "objective": {
+          "goal": "cost",
+          "mode": "balanced"
+        }
+      }
+    },
+    {
+      "description": "A tool_result whose ok is a string",
+      "expect": {
+        "result": "invalid"
+      },
+      "id": "tool-result-ok-string",
+      "request": {
+        "conversation": [
+          {
+            "parts": [
+              {
+                "tool_result": {
+                  "id": "c",
+                  "ok": "true"
+                }
+              }
+            ],
+            "role": "user"
+          },
+          {
+            "parts": [
+              {
+                "text": "Fix this function"
+              }
+            ],
+            "role": "user"
+          }
+        ],
+        "models": [
+          {
+            "id": "fast",
+            "model": "provider/fast"
+          },
+          {
+            "effort": "low",
+            "id": "r-low",
+            "model": "provider/reasoning"
+          },
+          {
+            "effort": "medium",
+            "id": "r-medium",
+            "model": "provider/reasoning"
+          },
+          {
+            "effort": "high",
+            "id": "r-high",
+            "model": "provider/reasoning"
+          },
+          {
+            "id": "other",
+            "model": "provider/other"
+          }
+        ],
+        "objective": {
+          "goal": "cost",
+          "mode": "balanced"
+        }
+      }
+    },
+    {
+      "description": "No objective",
+      "expect": {
+        "result": "invalid"
+      },
+      "id": "objective-missing",
+      "request": {
+        "conversation": [
+          {
+            "parts": [
+              {
+                "text": "Fix this function"
+              }
+            ],
+            "role": "user"
+          }
+        ],
+        "models": [
+          {
+            "id": "fast",
+            "model": "provider/fast"
+          },
+          {
+            "effort": "low",
+            "id": "r-low",
+            "model": "provider/reasoning"
+          },
+          {
+            "effort": "medium",
+            "id": "r-medium",
+            "model": "provider/reasoning"
+          },
+          {
+            "effort": "high",
+            "id": "r-high",
+            "model": "provider/reasoning"
+          },
+          {
+            "id": "other",
+            "model": "provider/other"
+          }
+        ]
+      }
+    },
+    {
+      "description": "The goal COST",
+      "expect": {
+        "result": "invalid"
+      },
+      "id": "goal-uppercase",
+      "request": {
+        "conversation": [
+          {
+            "parts": [
+              {
+                "text": "Fix this function"
+              }
+            ],
+            "role": "user"
+          }
+        ],
+        "models": [
+          {
+            "id": "fast",
+            "model": "provider/fast"
+          },
+          {
+            "effort": "low",
+            "id": "r-low",
+            "model": "provider/reasoning"
+          },
+          {
+            "effort": "medium",
+            "id": "r-medium",
+            "model": "provider/reasoning"
+          },
+          {
+            "effort": "high",
+            "id": "r-high",
+            "model": "provider/reasoning"
+          },
+          {
+            "id": "other",
+            "model": "provider/other"
+          }
+        ],
+        "objective": {
+          "goal": "COST",
+          "mode": "balanced"
+        }
+      }
+    },
+    {
+      "description": "The mode unknown, which only classifier output uses",
+      "expect": {
+        "result": "invalid"
+      },
+      "id": "mode-unknown",
+      "request": {
+        "conversation": [
+          {
+            "parts": [
+              {
+                "text": "Fix this function"
+              }
+            ],
+            "role": "user"
+          }
+        ],
+        "models": [
+          {
+            "id": "fast",
+            "model": "provider/fast"
+          },
+          {
+            "effort": "low",
+            "id": "r-low",
+            "model": "provider/reasoning"
+          },
+          {
+            "effort": "medium",
+            "id": "r-medium",
+            "model": "provider/reasoning"
+          },
+          {
+            "effort": "high",
+            "id": "r-high",
+            "model": "provider/reasoning"
+          },
+          {
+            "id": "other",
+            "model": "provider/other"
+          }
+        ],
+        "objective": {
+          "goal": "cost",
+          "mode": "unknown"
+        }
+      }
+    },
+    {
+      "description": "An empty current_id",
+      "expect": {
+        "result": "invalid"
+      },
+      "id": "current-id-empty",
+      "request": {
+        "conversation": [
+          {
+            "parts": [
+              {
+                "text": "Fix this function"
+              }
+            ],
+            "role": "user"
+          }
+        ],
+        "current_id": "",
+        "models": [
+          {
+            "id": "fast",
+            "model": "provider/fast"
+          },
+          {
+            "effort": "low",
+            "id": "r-low",
+            "model": "provider/reasoning"
+          },
+          {
+            "effort": "medium",
+            "id": "r-medium",
+            "model": "provider/reasoning"
+          },
+          {
+            "effort": "high",
+            "id": "r-high",
+            "model": "provider/reasoning"
+          },
+          {
+            "id": "other",
+            "model": "provider/other"
+          }
+        ],
+        "objective": {
+          "goal": "cost",
+          "mode": "balanced"
+        }
+      }
+    },
+    {
+      "description": "A null current_id",
+      "expect": {
+        "result": "decoded"
+      },
+      "id": "current-id-null",
+      "request": {
+        "conversation": [
+          {
+            "parts": [
+              {
+                "text": "Fix this function"
+              }
+            ],
+            "role": "user"
+          }
+        ],
+        "current_id": null,
+        "models": [
+          {
+            "id": "fast",
+            "model": "provider/fast"
+          },
+          {
+            "effort": "low",
+            "id": "r-low",
+            "model": "provider/reasoning"
+          },
+          {
+            "effort": "medium",
+            "id": "r-medium",
+            "model": "provider/reasoning"
+          },
+          {
+            "effort": "high",
+            "id": "r-high",
+            "model": "provider/reasoning"
+          },
+          {
+            "id": "other",
+            "model": "provider/other"
+          }
+        ],
+        "objective": {
+          "goal": "cost",
+          "mode": "balanced"
+        }
+      }
+    },
+    {
+      "description": "A null classification",
+      "expect": {
+        "result": "decoded"
+      },
+      "id": "classification-null",
+      "request": {
+        "classification": null,
+        "conversation": [
+          {
+            "parts": [
+              {
+                "text": "Fix this function"
+              }
+            ],
+            "role": "user"
+          }
+        ],
+        "models": [
+          {
+            "id": "fast",
+            "model": "provider/fast"
+          },
+          {
+            "effort": "low",
+            "id": "r-low",
+            "model": "provider/reasoning"
+          },
+          {
+            "effort": "medium",
+            "id": "r-medium",
+            "model": "provider/reasoning"
+          },
+          {
+            "effort": "high",
+            "id": "r-high",
+            "model": "provider/reasoning"
+          },
+          {
+            "id": "other",
+            "model": "provider/other"
+          }
+        ],
+        "objective": {
+          "goal": "cost",
+          "mode": "balanced"
+        }
+      }
+    },
+    {
+      "description": "Classifier labels without task_complexity",
+      "expect": {
+        "result": "invalid"
+      },
+      "id": "classification-missing-complexity",
+      "request": {
+        "classification": {
+          "labels": {
+            "scope": "local",
+            "task_type": "fix"
+          },
+          "mode": "unknown"
+        },
+        "conversation": [
+          {
+            "parts": [
+              {
+                "text": "Fix this function"
+              }
+            ],
+            "role": "user"
+          }
+        ],
+        "models": [
+          {
+            "id": "fast",
+            "model": "provider/fast"
+          },
+          {
+            "effort": "low",
+            "id": "r-low",
+            "model": "provider/reasoning"
+          },
+          {
+            "effort": "medium",
+            "id": "r-medium",
+            "model": "provider/reasoning"
+          },
+          {
+            "effort": "high",
+            "id": "r-high",
+            "model": "provider/reasoning"
+          },
+          {
+            "id": "other",
+            "model": "provider/other"
+          }
+        ],
+        "objective": {
+          "goal": "cost",
+          "mode": "balanced"
+        }
+      }
+    }
+  ],
+  "description": "decode_request(RouteRequest, body). expect.result is decoded, malformed (a JSON syntax error, including NaN and Infinity: HTTP 400 invalid_json) or invalid (a schema error: HTTP 422 invalid_json). The CLI reports both errors on stderr as 'invalid request: ' with exit 2. The limit-* items, sized around the Python router's former parser limits, put the value at tool_call.input, inside six enclosing levels (object, conversation array, message, parts array, part, tool_call)",
+  "kind": "decoding"
+}

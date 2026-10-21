@@ -140,6 +140,26 @@ describe('filesystem sharing contract', () => {
     }
   });
 
+  it('records Docker broker metadata and host transport without workload launch authority', async () => {
+    const broker = (await collectSharingRows()).filter(row =>
+      row.scenario === 'compose/enclaves-enabled' && row.consumer === 'enclave-mcp-server');
+    expect(broker).toEqual(expect.arrayContaining([
+      expect.objectContaining({ destination: '/run/awf-enclave-host-executor', access: 'ro' }),
+      expect.objectContaining({ destination: '/run/awf-enclave-mcp/auth-token', access: 'ro' }),
+      expect.objectContaining({ destination: '/srv/awf/seed-map.json', access: 'ro' }),
+      expect.objectContaining({ destination: '/run/awf-enclave-mcp-control', access: 'rw' }),
+      expect.objectContaining({ destination: '/var/log/awf-enclave', access: 'rw' }),
+    ]));
+    for (const row of broker) {
+      expect(row.destination).not.toMatch(/docker\.sock|\/srv\/awf\/(?:seeds|work)|delegation|github-agent-id/);
+      expect(row.source).not.toMatch(/docker\.sock|\/(?:seeds|work)$|docker-enclave-seccomp\.json/);
+    }
+    const rendered = renderSharingRows(broker);
+    expect(rendered).toContain('AWF setup; see lifecycle table');
+    expect(rendered).toContain('ro bind does not prevent socket calls');
+    expect(rendered).toContain('repository ledger metadata; no seed content');
+  });
+
   it('does not alter the legacy init mountpoint on the host while collecting rows', async () => {
     const snapshot = () => {
       try {

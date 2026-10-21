@@ -2680,12 +2680,14 @@ the single-use executor, the model sidecar, the general MCP route, or the
 delegated data plane. Both variables are also in the primary agent's environment
 exclusion set.
 
-The broker routes each `enclave_run_agent` through AWF's host-side admission
-authority over a `0700` request/response directory that is bind-mounted only
-into the broker. That channel carries the caller's selector, the exact finite
-output-schema hash, and the invocation's settlement; it never carries the
-control endpoint, the control capability, the identity handle, the compiler
-envelope, mcpg's state path, or its policy generation.
+For Docker, the broker routes `enclave_run_agent` through the authenticated
+host-executor protocol. The host owns admission, invocation-scoped bearer
+staging, execution, quota settlement and revocation; the bearer never returns
+to the broker. The broker retains its disclosure ledger and admission lane.
+The unmigrated gVisor path uses the existing `0700` request/response directory
+bound only into the broker. Neither transport carries the control endpoint,
+control capability, identity handle, compiler envelope, mcpg state path or
+policy generation to the broker.
 
 #### Dynamic-only runs stage nothing
 
@@ -2780,7 +2782,7 @@ When configured:
 - **Counting** — every attempted, well-formed `tools/call` to a published enclave tool consumes one unit before any other admission decision, including calls later rejected as busy, oversized, invalid, or failed. Malformed JSON-RPC requests that never name a published tool do not count.
 - **Advisory** — each published tool description, and the `initialize` result's `instructions`, state: "You are allowed to make at most N enclave tool calls in this run. After that, the system will deny any further enclave tool calls."
 - **Denial** — once exhausted, calls never reach an executor and return an in-band `isError` result whose text is "Max tool call count reached, no more tool calls are allowed. Make a decision based on what you already have in context." The decision depends only on the caller's own call count and trusted configuration, so it discloses no repository information. On the first denied call the broker logs one warning, `Max tool call count reached. {"toolName":…,"agentName":<executor kind>,"sessionID":<run id>,"maxToolCalls":N}`, so repeated retries cannot flood the logs.
-- **Persistence** — the count is persisted (mode `0600`) in the broker's private control directory keyed by the AWF run id, so a restarted broker for the same run resumes the count rather than resetting it.
+- **Persistence** — the count is persisted (mode `0600`) in the broker's private control directory keyed by the AWF run id. Successfully persisted counts are restored, but persistence is best-effort: write failures warn, and unreadable or corrupt state resets the count. This is not a fail-closed cross-restart budget guarantee. The information ledger and executor-local invocation counters remain in-memory; host execution journals and container recovery records do not restore them.
 - **Exemptions** — the enclave server publishes no final-answer or structured-result submission tool; the agent's own result/safe-output tools are served elsewhere and are never counted or denied by this cap.
 
 ### 14.3 Topology, gateway contract, and readiness

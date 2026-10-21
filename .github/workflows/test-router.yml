@@ -12,7 +12,7 @@ on:
       - 'containers/router/**'
       - '.github/workflows/test-router.yml'
   schedule:
-    # Weekly, so that pip-audit reports new advisories without a code change
+    # Weekly, so that govulncheck reports new advisories without a code change
     - cron: '23 7 * * 1'
   workflow_dispatch:
 
@@ -28,48 +28,6 @@ defaults:
     working-directory: containers/router
 
 jobs:
-  checks:
-    name: Lint, type-check and test (${{ matrix.os }})
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, windows-latest]
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 15
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-
-      - name: Set up uv
-        uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
-        with:
-          python-version: '3.12'
-          working-directory: containers/router
-
-      - name: Install dependencies
-        run: uv sync --locked --dev
-
-      - name: Check formatting
-        run: uv run --locked ruff format --check .
-
-      - name: Lint
-        run: uv run --locked ruff check .
-
-      - name: Type-check
-        run: uv run --locked ty check
-
-      - name: Check the parity corpus
-        run: uv run --locked python tests/parity_corpus.py --check
-
-      - name: Run tests
-        run: uv run --locked python -m pytest
-
-      - name: Run release tests
-        run: uv run --locked python -m pytest --run-release -m release
-
   go:
     name: Go vet and test (${{ matrix.os }})
     strategy:
@@ -78,9 +36,6 @@ jobs:
         os: [ubuntu-latest, windows-latest]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 15
-    defaults:
-      run:
-        working-directory: containers/router/go
 
     steps:
       - name: Checkout repository
@@ -91,7 +46,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version-file: containers/router/go/go.mod
+          go-version-file: containers/router/go.mod
           # The module has no dependencies, so there is no go.sum to key a cache on.
           cache: false
 
@@ -114,39 +69,6 @@ jobs:
         if: runner.os == 'Linux'
         run: go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 ./...
 
-  differential:
-    # Temporary: the image cut-over removes this job along with the Python router.
-    name: Compare the Python and Go CLIs
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-
-      - name: Set up uv
-        uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
-        with:
-          python-version: '3.12'
-          working-directory: containers/router
-
-      - name: Set up Go
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
-        with:
-          go-version-file: containers/router/go/go.mod
-          cache: false
-
-      - name: Install dependencies
-        run: uv sync --locked --dev
-
-      - name: Build the Go CLI
-        run: go -C go build -o gh-aw-router .
-
-      - name: Compare the CLIs
-        run: uv run --locked python tests/differential.py --go-cli go/gh-aw-router
-
   container:
     name: Container contract tests
     runs-on: ubuntu-latest
@@ -158,34 +80,19 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Set up uv
-        uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          python-version: '3.12'
-          working-directory: containers/router
+          go-version-file: containers/router/go.mod
+          cache: false
 
-      - name: Install dependencies
-        run: uv sync --locked --dev
+      - name: Build the image
+        run: |
+          docker build \
+            --build-arg OPENAPI_SHA256="$(sha256sum openapi.yaml | cut -d ' ' -f 1)" \
+            --tag gh-aw-router:test .
 
-      - name: Run Docker contract tests
-        run: uv run --locked python -m pytest --run-docker -m docker
-
-  advisories:
-    name: Dependency advisories
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-
-      - name: Set up uv
-        uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
-        with:
-          python-version: '3.12'
-          working-directory: containers/router
-
-      - name: Audit locked runtime dependencies
-        run: uvx pip-audit==2.10.1 --disable-pip --no-deps --requirement requirements.lock
+      - name: Run container tests
+        env:
+          GH_AW_ROUTER_TEST_IMAGE: gh-aw-router:test
+        run: go test -count=1 -run '^TestContainer' -v ./...

@@ -8,11 +8,12 @@ import { deriveEnclaveSeedId, readEnclaveRunId, type EnclavePaths } from './path
 import { validateEnclavesStructure } from './preflight';
 import { validateRunSandboxBackend } from './run-backend';
 
-/** Derives static authority from the validated host catalog, never from invocation data. */
+/** Derives authority from validated host configuration, never from invocation data. */
 export function deriveHostExecutorRunState(
   config: WrapperConfig,
   paths: EnclavePaths,
   label = 'Host executor',
+  options: { dynamicAgents?: boolean } = {},
 ): HostExecutorRunState {
   if (!config.enclaves?.enabled) throw new Error(`Invalid trusted ${label} configuration: no executor`);
   const errors = [
@@ -24,7 +25,14 @@ export function deriveHostExecutorRunState(
   }
   const runId = readEnclaveRunId(paths);
   if (!runId) throw new Error(`${label}s require a staged trusted run ID`);
-  const seedMap = JSON.parse(fs.readFileSync(paths.seedMapPath, 'utf8')) as PrivateRepositorySeedMap;
+  const dynamicAgent = config.enclaves.executors.agent.enabled
+    && config.enclaves.executors.agent.dynamic !== undefined;
+  if (dynamicAgent && !options.dynamicAgents) {
+    throw new Error(`${label} does not support trusted dynamic admission`);
+  }
+  const seedMap: PrivateRepositorySeedMap = config.enclaves.privateRepos.length > 0
+    ? JSON.parse(fs.readFileSync(paths.seedMapPath, 'utf8')) as PrivateRepositorySeedMap
+    : { version: PRIVATE_REPOSITORY_SEED_MAP_VERSION, runId, seeds: [] };
   if (seedMap.version !== PRIVATE_REPOSITORY_SEED_MAP_VERSION
     || seedMap.runId !== runId || !Array.isArray(seedMap.seeds)) {
     throw new Error(`${label} seed map does not match the trusted run`);
@@ -57,12 +65,12 @@ export function deriveHostExecutorRunState(
         entryId,
         executorKind: entryId as 'script' | 'agent',
         timeoutMs: entry.timeout * 1000,
-        staticSeedIds: config.enclaves!.privateRepos.map((repo) => {
+        staticSeedIds: (entryId === 'agent' && dynamicAgent ? [] : config.enclaves!.privateRepos).map((repo) => {
           const seed = seeds.get(normalizePrivateRepositoryKey(repo.repo));
           if (!seed) throw new Error(`${label} entry references an unstaged repository`);
           return seed;
         }),
-        dynamicAgents: false,
+        dynamicAgents: entryId === 'agent' && dynamicAgent,
       })),
   };
 }

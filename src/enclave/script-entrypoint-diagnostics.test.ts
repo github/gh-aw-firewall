@@ -55,4 +55,48 @@ describe('script enclave guest lifecycle diagnostics', () => {
       for (const record of records) expect(record.elapsedMs).toBeGreaterThanOrEqual(0);
     },
   );
+
+  it('makes the disposable repository copy writable without following symlinks', () => {
+    const source = String.raw`
+import importlib.util
+import os
+import pathlib
+import stat
+import tempfile
+
+spec = importlib.util.spec_from_file_location("script_entrypoint", os.environ["ENTRYPOINT"])
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+with tempfile.TemporaryDirectory() as temporary:
+    root = pathlib.Path(temporary)
+    seed = root / "seed"
+    repo = root / "repo"
+    outside = root / "outside"
+    (seed / "nested").mkdir(parents=True)
+    (seed / "nested" / "file.txt").write_text("seed", encoding="utf-8")
+    outside.write_text("outside", encoding="utf-8")
+    outside.chmod(0o444)
+    (seed / "link").symlink_to(outside)
+    (seed / "nested" / "file.txt").chmod(0o444)
+    (seed / "nested").chmod(0o555)
+    seed.chmod(0o555)
+    module.SEED = seed
+    module.REPO = repo
+    module.shutil.copytree(module.SEED, module.REPO, symlinks=True)
+    module.make_repository_writable()
+    existing = repo / "nested" / "file.txt"
+    existing.write_text("updated", encoding="utf-8")
+    (repo / "nested" / "created.txt").write_text("created", encoding="utf-8")
+    assert existing.read_text(encoding="utf-8") == "updated"
+    assert (repo / "nested" / "created.txt").is_file()
+    assert (repo / "link").is_symlink()
+    assert stat.S_IMODE(outside.stat().st_mode) == 0o444
+`;
+    const result = spawnSync('python3', ['-c', source], {
+      encoding: 'utf8',
+      env: { ...process.env, ENTRYPOINT: entrypoint, PYTHONDONTWRITEBYTECODE: '1' },
+    });
+    expect(result.error).toBeUndefined();
+    expect(result.status).toBe(0);
+  });
 });

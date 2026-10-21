@@ -120,6 +120,8 @@ export interface HostExecutorBackendResult {
   outcome: HostExecutorOutcome;
   /** False retains a nonterminal recovery tombstone; no result is released. */
   cleanupComplete?: boolean;
+  /** Ordinary workload failure; only effective with explicit cleanupComplete: true. Never on the wire. */
+  recoverableFailure?: true;
   /** Bounded, schema-valid result. Only carried for `success`. */
   result?: string;
 }
@@ -349,7 +351,9 @@ export async function startHostExecutorServer(options: HostExecutorServerOptions
     return current;
   };
 
-  const finish = (record: InvocationRecord, outcome: HostExecutorOutcome, result?: string): void => {
+  const finish = (
+    record: InvocationRecord, outcome: HostExecutorOutcome, result?: string, recoverableFailure = false,
+  ): void => {
     clearTimeout(record.deadline);
     clearTimeout(record.lease);
     const finalOutcome: HostExecutorOutcome = outcome === 'executor-failure'
@@ -366,7 +370,7 @@ export async function startHostExecutorServer(options: HostExecutorServerOptions
     record.result = finalResult;
     record.resultDigest = digest;
     record.state = 'terminal';
-    if (finalOutcome === 'executor-failure') {
+    if (finalOutcome === 'executor-failure' && !recoverableFailure) {
       admissionsOpen = false;
       for (const other of invocations.values()) interrupt(other, 'cancelled');
     }
@@ -442,7 +446,8 @@ export async function startHostExecutorServer(options: HostExecutorServerOptions
           if (outcome?.cleanupComplete === false) {
             cleanupFailed();
           } else if (outcome && isValidHostExecutorResult(outcome.outcome, outcome.result)) {
-            finish(record, outcome.outcome, outcome.result);
+            finish(record, outcome.outcome, outcome.result,
+              outcome.recoverableFailure === true && outcome.cleanupComplete === true);
           } else {
             finish(record, 'executor-failure');
           }

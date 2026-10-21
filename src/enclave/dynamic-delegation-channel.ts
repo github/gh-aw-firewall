@@ -1,5 +1,5 @@
 /**
- * Host side of the AWF-private dynamic delegation channel.
+ * Host side of the legacy gVisor AWF-private dynamic delegation channel.
  *
  * The loop watches one `0700` directory inside the enclave private root for
  * broker-written admission requests and settlement reports, answers each one

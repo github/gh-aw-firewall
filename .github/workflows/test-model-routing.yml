@@ -194,7 +194,7 @@ jobs:
           apiProxy:
             enabled: true
             allowedModels:
-              - github-copilot/gpt-5.4-mini
+              - github-copilot/gpt-5.6-luna
             routing:
               objective:
                 goal: cost
@@ -221,8 +221,8 @@ jobs:
             assert.equal(routing?.status, "selected", "/reflect did not report a routed selection: " + JSON.stringify(routing));
             const s = routing.selection;
             assert.equal(s.provider, "copilot");
-            assert.equal(s.model, "github-copilot/gpt-5.4-mini");
-            assert.equal(s.wire_model, "gpt-5.4-mini");
+            assert.equal(s.model, "github-copilot/gpt-5.6-luna");
+            assert.equal(s.wire_model, "gpt-5.6-luna");
             assert.equal(typeof s.effort, "string", "the selection carries no reasoning effort");
             assert.equal(s.endpoint, "/responses");
             console.error("ROUTED_SELECTION=" + JSON.stringify(s));
@@ -266,7 +266,7 @@ jobs:
               .map(part => part.text)
               .join("");
             assert.match(text, /ROUTED_OK/, "Copilot did not return the expected smoke response: " + JSON.stringify(result).slice(0, 500));
-            console.log("ROUTED_COPILOT_EFFORT_INFERENCE=passed model=gpt-5.4-mini endpoint=/responses");
+            console.log("ROUTED_COPILOT_EFFORT_INFERENCE=passed model=gpt-5.6-luna endpoint=/responses");
           ' "$response"
           for effort in "${explicit_efforts[@]}"; do
             request="$(node -e '
@@ -310,7 +310,7 @@ jobs:
           apiProxy:
             enabled: true
             allowedModels:
-              - github-copilot/gpt-5.4-mini
+              - github-copilot/gpt-5.6-luna
               - github-copilot/claude-haiku-4.5
           container:
             images:
@@ -353,12 +353,12 @@ jobs:
             ' "$1"
           }
 
-          assert_responses "$(responses gpt-5.4-mini)"
+          assert_responses "$(responses gpt-5.6-luna)"
           assert_responses "$(responses claude-haiku-4.5)"
-          echo "CROSS_ENDPOINT_SUBAGENT=passed main=gpt-5.4-mini subagent=claude-haiku-4.5 requested=/responses"
+          echo "CROSS_ENDPOINT_SUBAGENT=passed main=gpt-5.6-luna subagent=claude-haiku-4.5 requested=/responses"
           assert_chat "$(chat claude-haiku-4.5)"
-          assert_chat "$(chat gpt-5.4-mini)"
-          echo "CROSS_ENDPOINT_SUBAGENT=passed main=claude-haiku-4.5 subagent=gpt-5.4-mini requested=/chat/completions"
+          assert_chat "$(chat gpt-5.6-luna)"
+          echo "CROSS_ENDPOINT_SUBAGENT=passed main=claude-haiku-4.5 subagent=gpt-5.6-luna requested=/chat/completions"
           SCRIPT
           )"
           sudo --preserve-env=COPILOT_GITHUB_TOKEN,GITHUB_WORKSPACE,GITHUB_RUN_ID,GITHUB_RUN_ATTEMPT,GITHUB_REPOSITORY,GITHUB_WORKFLOW_REF,HOME,PATH \
@@ -384,7 +384,7 @@ jobs:
             enabled: true
             allowedModels:
               - github-copilot/claude-haiku-4.5
-              - github-copilot/gpt-5.4-mini
+              - github-copilot/gpt-5.6-luna
               - github-copilot/gpt-4o
             disallowedModels:
               - github-copilot/gpt-4o
@@ -416,7 +416,7 @@ jobs:
             assert.equal(routing?.status, "selected", "/reflect did not report a routed selection: " + JSON.stringify(routing));
             const copilot = reflect.endpoints.find(endpoint => endpoint.provider === "copilot");
             assert.ok(copilot, "Copilot is missing from /reflect");
-            const expectedModels = ["claude-haiku-4.5", "gpt-5.4-mini"];
+            const expectedModels = ["claude-haiku-4.5", "gpt-5.6-luna"];
             assert.ok(Array.isArray(copilot.models), "Copilot model catalogue is missing");
             assert.deepEqual(
               [...copilot.models].sort(),
@@ -449,9 +449,9 @@ jobs:
                 path: "/chat/completions",
                 body: { model: "claude-haiku-4.5", messages: [{ role: "user", content: "Reply with exactly ROUTED_OK." }], max_tokens: 16, stream: false },
               },
-              "github-copilot/gpt-5.4-mini": {
+              "github-copilot/gpt-5.6-luna": {
                 path: "/responses",
-                body: { model: "gpt-5.4-mini", input: "Reply with exactly ROUTED_OK.", reasoning: { effort: s.effort ?? "low" }, max_output_tokens: 2048, stream: false },
+                body: { model: "gpt-5.6-luna", input: "Reply with exactly ROUTED_OK.", reasoning: { effort: s.effort ?? "low" }, max_output_tokens: 2048, stream: false },
               },
             };
             assert.ok(Object.hasOwn(candidates, s.model), "router selected a model outside the allow-list: " + s.model);
@@ -574,10 +574,10 @@ jobs:
             assert.equal(inference.selected_endpoint, reflected.endpoint);
             assert.equal(inference.provider, "copilot");
             const requestedModel = target === "selected" ? reflected.wire_model
-              : ["claude-haiku-4.5", "gpt-5.4-mini"].find(model => model !== reflected.wire_model);
+              : ["claude-haiku-4.5", "gpt-5.6-luna"].find(model => model !== reflected.wire_model);
             assert.equal(inference.requested_model, requestedModel);
-            const requestedEndpoint = requestedModel === "gpt-5.4-mini" ? "/responses" : "/chat/completions";
-            const requestedEffort = requestedModel === "gpt-5.4-mini" ? (reflected.effort ?? "low") : null;
+            const requestedEndpoint = requestedModel === "gpt-5.6-luna" ? "/responses" : "/chat/completions";
+            const requestedEffort = requestedModel === "gpt-5.6-luna" ? (reflected.effort ?? "low") : null;
             assert.equal(inference.pathname, requestedEndpoint);
             assert.equal(inference.requested_effort, requestedEffort);
             assert.equal(inference.routed, target === "selected" ? "as_selected" : "deviated");
@@ -640,7 +640,7 @@ jobs:
             enabled: true
             allowedModels:
               - github-copilot/claude-haiku-4.5
-              - github-copilot/gpt-5.4-mini
+              - github-copilot/gpt-5.6-luna
             routing:
               objective:
                 goal: cost

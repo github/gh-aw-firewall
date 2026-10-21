@@ -84,7 +84,7 @@ function dockerSize(name, fallback) {
 
 function loadConfig(files = fs) {
   const executorBackend = requireEnv('AWF_ENCLAVE_BACKEND');
-  if (executorBackend === 'cloud-hypervisor') {
+  if (executorBackend === 'cloud-hypervisor' || executorBackend === 'docker') {
     return loadHostConfig('script', loadServerConfig(files));
   }
   if (executorBackend !== 'docker' && executorBackend !== 'gvisor') {
@@ -234,7 +234,7 @@ function resolveRunId() {
  */
 function loadAgentConfig(server, files = fs) {
   const backend = requireEnv('AWF_ENCLAVE_AGENT_BACKEND');
-  if (backend === 'cloud-hypervisor') return loadHostConfig('agent', server);
+  if (backend === 'cloud-hypervisor' || backend === 'docker') return loadHostConfig('agent', server);
   if (!AGENT_SUPPORTED_BACKENDS.has(backend)) {
     throw new Error(`Unsupported AWF_ENCLAVE_AGENT_BACKEND: ${backend}`);
   }
@@ -370,10 +370,19 @@ function loadAgentConfig(server, files = fs) {
 }
 
 function loadHostConfig(kind, server) {
-  if (kind === 'agent' && isDynamicAdmissionEnabled()) {
+  const prefix = kind === 'script' ? 'AWF_ENCLAVE' : 'AWF_ENCLAVE_AGENT';
+  const backend = requireEnv(`${prefix}_BACKEND`);
+  const dynamicEnabled = kind === 'agent' && isDynamicAdmissionEnabled();
+  if (dynamicEnabled && backend !== 'docker') {
     throw new Error('Dynamic host executor admission is not yet supported');
   }
-  const prefix = kind === 'script' ? 'AWF_ENCLAVE' : 'AWF_ENCLAVE_AGENT';
+  if (dynamicEnabled && process.env.AWF_ENCLAVE_AGENT_GITHUB_ENABLED === 'true') {
+    throw new Error('An enclave entry declares a static GitHub profile and a dynamic policy');
+  }
+  const dynamicSensitivity = dynamicEnabled ? process.env.AWF_ENCLAVE_AGENT_DYNAMIC_SENSITIVITY : undefined;
+  if (dynamicEnabled && !DYNAMIC_SENSITIVITIES.has(dynamicSensitivity)) {
+    throw new Error('AWF_ENCLAVE_AGENT_DYNAMIC_SENSITIVITY is not a supported sensitivity');
+  }
   const entryId = requireEnv(`${prefix}_ENTRY_ID`);
   if (!/^[a-z0-9](?:[a-z0-9-]{0,62})$/.test(entryId)) {
     throw new Error('Invalid trusted host executor entry identity');
@@ -383,9 +392,9 @@ function loadHostConfig(kind, server) {
   return {
     entryId,
     runId,
-    executorBackend: 'cloud-hypervisor',
+    executorBackend: backend,
     executorTransport: 'host',
-    backend: 'cloud-hypervisor',
+    backend,
     primaryBackend: server.primaryBackend,
     hostExecutorSocketPath: path.join(HOST_EXECUTOR_DIR, 'executor.sock'),
     hostExecutorCapabilityPath: path.join(HOST_EXECUTOR_DIR, 'capability'),
@@ -394,7 +403,9 @@ function loadHostConfig(kind, server) {
     maxOutputBytes: positiveInt(`${prefix}_MAX_OUTPUT_BYTES`, MAX_RESULT_BYTES, MAX_RESULT_BYTES),
     maxScriptBytes: positiveInt('AWF_ENCLAVE_MAX_SCRIPT_BYTES', MAX_SCRIPT_BYTES, MAX_SCRIPT_BYTES),
     maxPromptBytes: positiveInt('AWF_ENCLAVE_AGENT_MAX_PROMPT_BYTES', 4096, MAX_TASK_BYTES),
-    dynamicEnabled: false,
+    githubEnabled: kind === 'agent' && process.env.AWF_ENCLAVE_AGENT_GITHUB_ENABLED === 'true',
+    dynamicEnabled,
+    dynamicSensitivity,
   };
 }
 

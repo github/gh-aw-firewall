@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: gh-aw-router HTTP API
-  version: 0.1.3
+  version: 0.2.0
   license:
     name: MIT
     identifier: MIT
@@ -46,8 +46,6 @@ paths:
           $ref: "#/components/responses/BodyTooLarge"
         "500":
           $ref: "#/components/responses/InternalError"
-        "504":
-          $ref: "#/components/responses/RequestTimeout"
 
   /capabilities:
     get:
@@ -66,8 +64,6 @@ paths:
           $ref: "#/components/responses/BodyTooLarge"
         "500":
           $ref: "#/components/responses/InternalError"
-        "504":
-          $ref: "#/components/responses/RequestTimeout"
 
   /classify:
     post:
@@ -114,8 +110,6 @@ paths:
                 $ref: "#/components/schemas/Error"
         "500":
           $ref: "#/components/responses/InternalError"
-        "504":
-          $ref: "#/components/responses/RequestTimeout"
 
   /route:
     post:
@@ -171,8 +165,6 @@ paths:
                 $ref: "#/components/schemas/Error"
         "500":
           $ref: "#/components/responses/InternalError"
-        "504":
-          $ref: "#/components/responses/RequestTimeout"
 
 components:
   responses:
@@ -212,12 +204,6 @@ components:
             $ref: "#/components/schemas/Error"
     InternalError:
       description: The service encountered an internal error.
-      content:
-        application/json:
-          schema:
-            $ref: "#/components/schemas/Error"
-    RequestTimeout:
-      description: The operation exceeded the 30-second response deadline.
       content:
         application/json:
           schema:
@@ -545,7 +531,6 @@ components:
             - method_not_allowed
             - no_route
             - internal_error
-            - request_timeout
         detail:
           type: string
           maxLength: 500

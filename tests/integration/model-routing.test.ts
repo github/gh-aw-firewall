@@ -1,3 +1,4 @@
+import * as crypto from 'crypto';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
@@ -7,7 +8,9 @@ import { ROUTER_HEALTHCHECK_TEST } from '../../src/services/router-service';
 import { cleanup } from '../fixtures/cleanup';
 
 // The model-routing smoke workflow sets ROUTER_IMAGE to a digest-pinned build of containers/router.
-const ROUTER_IMAGE = process.env.ROUTER_IMAGE || 'ghcr.io/githubnext/gh-aw-router:latest@sha256:d1612d0eaec3fa8f14c38bbd0a6a0682732fc9f83b7fec94219d3e757a048270';
+// Without it, compose builds containers/router, as AWF's local build does.
+const ROUTER_IMAGE = process.env.ROUTER_IMAGE;
+const ROUTER_DIR = path.resolve(__dirname, '../../containers/router');
 const API_PROXY_IMAGE = 'ghcr.io/github/gh-aw-firewall/api-proxy:latest@sha256:9569f2c75545c4af0583b433fa5e3c477089fd1300b109d2b2358f4aa9702c6b';
 const ROUTER_SMOKE_SCRIPT = `
 const assert = require('node:assert/strict');
@@ -128,10 +131,18 @@ describe('Model routing', () => {
     await cleanup(false);
     tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-routing-integration-'));
     composeFile = path.join(tempDir, 'docker-compose.yml');
+    const routerSource = ROUTER_IMAGE
+      ? [`    image: ${ROUTER_IMAGE}`]
+      : [
+        '    build:',
+        `      context: ${JSON.stringify(ROUTER_DIR)}`,
+        '      args:',
+        `        OPENAPI_SHA256: ${crypto.createHash('sha256').update(fs.readFileSync(path.join(ROUTER_DIR, 'openapi.yaml'))).digest('hex')}`,
+      ];
     fs.writeFileSync(composeFile, [
       'services:',
       '  router:',
-      `    image: ${ROUTER_IMAGE}`,
+      ...routerSource,
       '    networks:',
       '      routing:',
       '        aliases: [gh-aw-router]',

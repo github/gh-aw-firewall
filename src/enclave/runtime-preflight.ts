@@ -5,6 +5,7 @@ import type {
 } from '../types/enclave-options';
 import type { WrapperConfig } from '../types';
 import { assertCloudHypervisorEnclaveLifecycleReady } from './cloud-hypervisor-lifecycle';
+import { assertDockerEnclaveLifecycleReady } from './docker-lifecycle';
 import {
   defaultDockerAvailabilityQuery,
   defaultDockerRuntimeQuery,
@@ -77,6 +78,10 @@ async function assertExecutorRuntimeAvailable(
     return;
   }
   if (runtime === 'docker') {
+    if (trustedRun) {
+      await assertDockerEnclaveLifecycleReady(trustedRun);
+      return;
+    }
     if (!(await queryDockerAvailable())) {
       throw new Error(`${label} runtime "docker" requires a reachable Docker daemon; enclaves never fall back`);
     }

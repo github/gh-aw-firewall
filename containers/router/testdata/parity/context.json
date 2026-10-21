@@ -1,0 +1,884 @@
+{
+  "cases": [
+    {
+      "conversation": [
+        {
+          "parts": [
+            {
+              "text": "hello world"
+            }
+          ],
+          "role": "user"
+        }
+      ],
+      "description": "Context estimate for text-ascii",
+      "expect": {
+        "characters": 11,
+        "tokens": 3
+      },
+      "id": "text-ascii"
+    },
+    {
+      "conversation": [
+        {
+          "parts": [
+            {
+              "text": ""
+            }
+          ],
+          "role": "user"
+        }
+      ],
+      "description": "Context estimate for text-empty-part",
+      "expect": {
+        "characters": 0,
+        "tokens": 0
+      },
+      "id": "text-empty-part"
+    },
+    {
+      "conversation": [
+        {
+          "parts": [
+            {
+              "text": "caf\u00e9"
+            }
+          ],
+          "role": "user"
+        }
+      ],
+      "description": "Context estimate for text-latin",
+      "expect": {
+        "characters": 4,
+        "tokens": 1
+      },
+      "id": "text-latin"
+    },
+    {
+      "conversation": [
+        {
+          "parts": [
+            {
+              "text": "\ud83d\ude42\ud83d\ude42"
+            }
+          ],
+          "role": "user"
+        }
+      ],
+      "description": "Context estimate for text-astral",
+      "expect": {
+        "characters": 2,
+        "tokens": 1
+      },
+      "id": "text-astral"
+    },
+    {
+      "conversation": [
+        {
+          "parts": [
+            {
+              "text": "e\u0301"
+            }
+          ],
+          "role": "user"
+        }
+      ],
+      "description": "Context estimate for text-combining",
+      "expect": {
+        "characters": 2,
+        "tokens": 1
+      },
+      "id": "text-combining"
+    },
+    {
+      "conversation": [
+        {
+          "parts": [
+            {
+              "text": "\u6f22\u5b57"
+            }
+          ],
+          "role": "user"
+        }
+      ],
+      "description": "Context estimate for text-cjk",
+      "expect": {
+        "characters": 2,
+        "tokens": 1
+      },
+      "id": "text-cjk"
+    },
+    {
+      "conversation": [
+        {
+          "parts": [
+            {
+              "text": "a\u0000b\u001f"
+            }
+          ],
+          "role": "user"
+        }
+      ],
+      "description": "Context estimate for text-control",
+      "expect": {
+        "characters": 4,
+        "tokens": 1
+      },
+      "id": "text-control"
+    },
+    {
+      "conversation": [
+        {
+          "parts": [
+            {
+              "text": "a\nb\tc "
+            }
+          ],
+          "role": "user"
+        }
+      ],
+      "description": "Context estimate for text-whitespace",
+      "expect": {
+        "characters": 6,
+        "tokens": 2
+      },
+      "id": "text-whitespace"
+    },
+    {
+      "conversation": [
+        {
+          "parts": [
+            {
+              "text": "system text"
+            }
+          ],
+          "role": "system"
+        }
+      ],
+      "description": "Context estimate for role-system",
+      "expect": {
+        "characters": 11,
+        "tokens": 3
+      },
+      "id": "role-system"
+    },
+    {
+      "conversation": [
+        {
+          "parts": [
+            {
+              "text": "assistant text"
+            }
+          ],
+          "role": "assistant"
+        }
+      ],
+      "description": "Context estimate for role-assistant",
+      "expect": {
+        "characters": 14,
+        "tokens": 4
+      },
+      "id": "role-assistant"
+    },
+    {
+      "conversation": [
+        {
+          "role": "assistant"
+        }
+      ],
+      "description": "Context estimate for parts-omitted",
+      "expect": {
+        "characters": 0,
+        "tokens": 0
+      },
+      "id": "parts-omitted"
+    },
+    {
+      "conversation": [
+        {
+          "parts": [],
+          "role": "assistant"
+        }
+      ],
+      "description": "Context estimate for parts-empty",
+      "expect": {
+        "characters": 0,
+        "tokens": 0
+      },
+      "id": "parts-empty"
+    },
+    {
+      "conversation": [
+        {
+          "parts": [
+            {
+              "tool_call": {
+                "id": "call-1",
+                "name": "read_file"
+              }
+            }
+          ],
+          "role": "assistant"
+        }
+      ],
+      "description": "Context estimate for tool-name-only",
+      "expect": {
+        "characters": 9,
+        "tokens": 3
+      },
+      "id": "tool-name-only"
+    },
+    {
+      "conversation": [
+        {
+          "parts": [
+            {
+              "tool_call": {
+                "id": "call-1",
+                "name": "\ud83d\ude42"
+              }
+            }
+          ],
+          "role": "assistant"
+        }
+      ],
+      "description": "Context estimate for tool-name-astral",
+      "expect": {
+        "characters": 1,
+        "tokens": 1
+      },
+      "id": "tool-name-astral"
+    },
+    {
+      "conversation": [
+        {
+          "parts": [
+            {
+              "tool_call": {
+                "id": "c",
+                "input": null,
+                "name": "t"
+              }
+            }
+          ],
+          "role": "assistant"
+        }
+      ],
+      "description": "Context estimate for tool-input-null",
+      "expect": {
+        "characters": 1,
+        "tokens": 1
+      },
+      "id": "tool-input-null"
+    },
+    {
+      "conversation": [
+        {
+          "parts": [
+            {
+              "tool_call": {
+                "id": "call-1",
+                "input": "",
+                "name": "tool"
+              }
+            }
+          ],
+          "role": "assistant"
+        }
+      ],
+      "description": "Context estimate for tool-input-empty-string",
+      "expect": {
+        "characters": 6,
+        "tokens": 2
+      },
+      "id": "tool-input-empty-string"
+    },
+    {
+      "conversation": [
+        {
+          "parts": [
+            {
+              "tool_call": {
+                "id": "call-1",
+                "input": "a\"b\\c/d",
+                "name": "tool"
+              }
+            }
+          ],
+          "role": "assistant"
+        }
+      ],
+      "description": "Context estimate for tool-input-escapes",
+      "expect": {
+        "characters": 15,
+        "tokens": 4
+      },
+      "id": "tool-input-escapes"
+    },
+    {
+      "conversation": [
+        {
+          "parts": [
+            {
+              "tool_call": {
+                "id": "call-1",
+                "input": "\u0001\u001f\b\f\n\r\t",
+                "name": "tool"
+              }
+            }
+          ],
+          "role": "assistant"
+        }
+      ],
+      "description": "Context estimate for tool-input-controls",
+      "expect": {
+        "characters": 28,
+        "tokens": 7
+      },
+      "id": "tool-input-controls"
+    },
+    {
+      "conversation": [
+        {
+          "parts": [
+            {
+              "tool_call": {
+                "id": "call-1",
+                "input": "\u007f",
+                "name": "tool"
+              }
+            }
+          ],
+          "role": "assistant"
+        }
+      ],
+      "description": "Context estimate for tool-input-delete",
+      "expect": {
+        "characters": 7,
+        "tokens": 2
+      },
+      "id": "tool-input-delete"
+    },
+    {
+      "conversation": [
+        {
+          "parts": [
+            {
+              "tool_call": {
+                "id": "call-1",
+                "input": "caf\u00e9",
+                "name": "tool"
+              }
+            }
+          ],
+          "role": "assistant"
+        }
+      ],
+      "description": "Context estimate for tool-input-latin",
+      "expect": {
+        "characters": 10,
+        "tokens": 3
+      },
+      "id": "tool-input-latin"
+    },
+    {
+      "conversation": [
+        {
+          "parts": [
+            {
+              "tool_call": {
+                "id": "call-1",
+                "input": "\ud83d\ude42",
+                "name": "tool"
+              }
+            }
+          ],
+          "role": "assistant"
+        }
+      ],
+      "description": "Context estimate for tool-input-astral",
+      "expect": {
+        "characters": 7,
+        "tokens": 2
+      },
+      "id": "tool-input-astral"
+    },
+    {
+      "conversation": [
+        {
+          "parts": [
+            {
+              "tool_call": {
+                "id": "call-1",
+                "input": "\u2028\u2029",
+                "name": "tool"
+              }
+            }
+          ],
+          "role": "assistant"
+        }
+      ],
+      "description": "Context estimate for tool-input-separators",
+      "expect": {
+        "characters": 8,
+        "tokens": 2
+      },
+      "id": "tool-input-separators"
+    },
+    {
+      "conversation": [
+        {
+          "parts": [
+            {
+              "tool_call": {
+                "id": "call-1",
+                "input": "<a>&</a>",
+                "name": "tool"
+              }
+            }
+          ],
+          "role": "assistant"
+        }
+      ],
+      "description": "Context estimate for tool-input-html",
+      "expect": {
+        "characters": 14,
+        "tokens": 4
+      },
+      "id": "tool-input-html"
+    },
+    {
+      "conversation": [
+        {
+          "parts": [
+            {
+              "tool_call": {
+                "id": "call-1",
+                "input": {
+                  "a": true,
+                  "b": [
+                    1,
+                    {
+                      "c": null
+                    }
+                  ]
+                },
+                "name": "tool"
+              }
+            }
+          ],
+          "role": "assistant"
+        }
+      ],
+      "description": "Context estimate for tool-input-nested",
+      "expect": {
+        "characters": 33,
+        "tokens": 9
+      },
+      "id": "tool-input-nested"
+    },
+    {
+      "conversation": [
+        {
+          "parts": [
+            {
+              "tool_call": {
+                "id": "call-1",
+                "input": [
+                  {},
+                  []
+                ],
+                "name": "tool"
+              }
+            }
+          ],
+          "role": "assistant"
+        }
+      ],
+      "description": "Context estimate for tool-input-empty-containers",
+      "expect": {
+        "characters": 11,
+        "tokens": 3
+      },
+      "id": "tool-input-empty-containers"
+    },
+    {
+      "conversation": [
+        {
+          "parts": [
+            {
+              "tool_call": {
+                "id": "call-1",
+                "input": {
+                  "a": 2,
+                  "z": 1
+                },
+                "name": "tool"
+              }
+            }
+          ],
+          "role": "assistant"
+        }
+      ],
+      "description": "Context estimate for tool-input-key-order",
+      "expect": {
+        "characters": 17,
+        "tokens": 5
+      },
+      "id": "tool-input-key-order"
+    },
+    {
+      "conversation": [
+        {
+          "parts": [
+            {
+              "tool_result": {
+                "id": "call-1",
+                "text": "result text"
+              }
+            }
+          ],
+          "role": "user"
+        }
+      ],
+      "description": "Context estimate for tool-result-text",
+      "expect": {
+        "characters": 11,
+        "tokens": 3
+      },
+      "id": "tool-result-text"
+    },
+    {
+      "conversation": [
+        {
+          "parts": [
+            {
+              "tool_result": {
+                "id": "call-1",
+                "ok": true
+              }
+            }
+          ],
+          "role": "user"
+        }
+      ],
+      "description": "Context estimate for tool-result-no-text",
+      "expect": {
+        "characters": 0,
+        "tokens": 0
+      },
+      "id": "tool-result-no-text"
+    },
+    {
+      "conversation": [
+        {
+          "parts": [
+            {
+              "tool_result": {
+                "id": "call-1",
+                "text": ""
+              }
+            }
+          ],
+          "role": "user"
+        }
+      ],
+      "description": "Context estimate for tool-result-empty-text",
+      "expect": {
+        "characters": 0,
+        "tokens": 0
+      },
+      "id": "tool-result-empty-text"
+    },
+    {
+      "conversation": [
+        {
+          "parts": [
+            {
+              "tool_result": {
+                "id": "call-1",
+                "text": "\ud83d\ude42"
+              }
+            }
+          ],
+          "role": "user"
+        }
+      ],
+      "description": "Context estimate for tool-result-astral",
+      "expect": {
+        "characters": 1,
+        "tokens": 1
+      },
+      "id": "tool-result-astral"
+    },
+    {
+      "conversation": [
+        {
+          "parts": [
+            {
+              "text": "a"
+            },
+            {
+              "tool_call": {
+                "id": "call-1",
+                "input": [
+                  1
+                ],
+                "name": "t"
+              }
+            },
+            {
+              "tool_result": {
+                "id": "call-1",
+                "text": "r"
+              }
+            }
+          ],
+          "role": "assistant"
+        }
+      ],
+      "description": "Context estimate for mixed-parts",
+      "expect": {
+        "characters": 6,
+        "tokens": 2
+      },
+      "id": "mixed-parts"
+    },
+    {
+      "conversation_text": "[{\"parts\":[{\"tool_call\":{\"id\":\"call-1\",\"input\":-0,\"name\":\"tool\"}}],\"role\":\"assistant\"}]",
+      "description": "Context estimate for token-int-zero-negative",
+      "expect": {
+        "characters": 5,
+        "tokens": 2
+      },
+      "id": "token-int-zero-negative"
+    },
+    {
+      "conversation_text": "[{\"parts\":[{\"tool_call\":{\"id\":\"call-1\",\"input\":-0.0,\"name\":\"tool\"}}],\"role\":\"assistant\"}]",
+      "description": "Context estimate for token-float-zero-negative",
+      "expect": {
+        "characters": 8,
+        "tokens": 2
+      },
+      "id": "token-float-zero-negative"
+    },
+    {
+      "conversation_text": "[{\"parts\":[{\"tool_call\":{\"id\":\"call-1\",\"input\":1E5,\"name\":\"tool\"}}],\"role\":\"assistant\"}]",
+      "description": "Context estimate for token-float-exponent-upper",
+      "expect": {
+        "characters": 12,
+        "tokens": 3
+      },
+      "id": "token-float-exponent-upper"
+    },
+    {
+      "conversation_text": "[{\"parts\":[{\"tool_call\":{\"id\":\"call-1\",\"input\":1e15,\"name\":\"tool\"}}],\"role\":\"assistant\"}]",
+      "description": "Context estimate for token-float-1e15",
+      "expect": {
+        "characters": 22,
+        "tokens": 6
+      },
+      "id": "token-float-1e15"
+    },
+    {
+      "conversation_text": "[{\"parts\":[{\"tool_call\":{\"id\":\"call-1\",\"input\":1e16,\"name\":\"tool\"}}],\"role\":\"assistant\"}]",
+      "description": "Context estimate for token-float-1e16",
+      "expect": {
+        "characters": 9,
+        "tokens": 3
+      },
+      "id": "token-float-1e16"
+    },
+    {
+      "conversation_text": "[{\"parts\":[{\"tool_call\":{\"id\":\"call-1\",\"input\":1.5e-7,\"name\":\"tool\"}}],\"role\":\"assistant\"}]",
+      "description": "Context estimate for token-float-small-exponent",
+      "expect": {
+        "characters": 11,
+        "tokens": 3
+      },
+      "id": "token-float-small-exponent"
+    },
+    {
+      "conversation_text": "[{\"parts\":[{\"tool_call\":{\"id\":\"call-1\",\"input\":1e-5,\"name\":\"tool\"}}],\"role\":\"assistant\"}]",
+      "description": "Context estimate for token-float-1e-5",
+      "expect": {
+        "characters": 9,
+        "tokens": 3
+      },
+      "id": "token-float-1e-5"
+    },
+    {
+      "conversation_text": "[{\"parts\":[{\"tool_call\":{\"id\":\"call-1\",\"input\":1e-4,\"name\":\"tool\"}}],\"role\":\"assistant\"}]",
+      "description": "Context estimate for token-float-1e-4",
+      "expect": {
+        "characters": 10,
+        "tokens": 3
+      },
+      "id": "token-float-1e-4"
+    },
+    {
+      "conversation_text": "[{\"parts\":[{\"tool_call\":{\"id\":\"call-1\",\"input\":5e-324,\"name\":\"tool\"}}],\"role\":\"assistant\"}]",
+      "description": "Context estimate for token-float-subnormal",
+      "expect": {
+        "characters": 10,
+        "tokens": 3
+      },
+      "id": "token-float-subnormal"
+    },
+    {
+      "conversation_text": "[{\"parts\":[{\"tool_call\":{\"id\":\"call-1\",\"input\":1e-400,\"name\":\"tool\"}}],\"role\":\"assistant\"}]",
+      "description": "Context estimate for token-float-underflow",
+      "expect": {
+        "characters": 7,
+        "tokens": 2
+      },
+      "id": "token-float-underflow"
+    },
+    {
+      "conversation_text": "[{\"parts\":[{\"tool_call\":{\"id\":\"call-1\",\"input\":1e400,\"name\":\"tool\"}}],\"role\":\"assistant\"}]",
+      "description": "Context estimate for token-float-overflow",
+      "expect": {
+        "characters": 12,
+        "tokens": 3
+      },
+      "id": "token-float-overflow"
+    },
+    {
+      "conversation_text": "[{\"parts\":[{\"tool_call\":{\"id\":\"call-1\",\"input\":1.0e2,\"name\":\"tool\"}}],\"role\":\"assistant\"}]",
+      "description": "Context estimate for token-float-hundred",
+      "expect": {
+        "characters": 9,
+        "tokens": 3
+      },
+      "id": "token-float-hundred"
+    },
+    {
+      "conversation_text": "[{\"parts\":[{\"tool_call\":{\"id\":\"call-1\",\"input\":0.1,\"name\":\"tool\"}}],\"role\":\"assistant\"}]",
+      "description": "Context estimate for token-float-tenth",
+      "expect": {
+        "characters": 7,
+        "tokens": 2
+      },
+      "id": "token-float-tenth"
+    },
+    {
+      "conversation_text": "[{\"parts\":[{\"tool_call\":{\"id\":\"call-1\",\"input\":0.30000000000000004,\"name\":\"tool\"}}],\"role\":\"assistant\"}]",
+      "description": "Context estimate for token-float-rounding",
+      "expect": {
+        "characters": 23,
+        "tokens": 6
+      },
+      "id": "token-float-rounding"
+    },
+    {
+      "conversation_text": "[{\"parts\":[{\"tool_call\":{\"id\":\"call-1\",\"input\":1.7976931348623157e308,\"name\":\"tool\"}}],\"role\":\"assistant\"}]",
+      "description": "Context estimate for token-float-max",
+      "expect": {
+        "characters": 27,
+        "tokens": 7
+      },
+      "id": "token-float-max"
+    },
+    {
+      "conversation_text": "[{\"parts\":[{\"tool_call\":{\"id\":\"call-1\",\"input\":123456789012345678901.5,\"name\":\"tool\"}}],\"role\":\"assistant\"}]",
+      "description": "Context estimate for token-float-large",
+      "expect": {
+        "characters": 26,
+        "tokens": 7
+      },
+      "id": "token-float-large"
+    },
+    {
+      "conversation_text": "[{\"parts\":[{\"tool_call\":{\"id\":\"call-1\",\"input\":-1.5,\"name\":\"tool\"}}],\"role\":\"assistant\"}]",
+      "description": "Context estimate for token-float-negative",
+      "expect": {
+        "characters": 8,
+        "tokens": 2
+      },
+      "id": "token-float-negative"
+    },
+    {
+      "conversation_text": "[{\"parts\":[{\"tool_call\":{\"id\":\"call-1\",\"input\":9007199254740993.0,\"name\":\"tool\"}}],\"role\":\"assistant\"}]",
+      "description": "Context estimate for token-float-unsafe-int",
+      "expect": {
+        "characters": 22,
+        "tokens": 6
+      },
+      "id": "token-float-unsafe-int"
+    },
+    {
+      "conversation_text": "[{\"parts\":[{\"tool_call\":{\"id\":\"call-1\",\"input\":9007199254740993,\"name\":\"tool\"}}],\"role\":\"assistant\"}]",
+      "description": "Context estimate for token-int-unsafe",
+      "expect": {
+        "characters": 20,
+        "tokens": 5
+      },
+      "id": "token-int-unsafe"
+    },
+    {
+      "conversation_text": "[{\"parts\":[{\"tool_call\":{\"id\":\"call-1\",\"input\":18446744073709551617,\"name\":\"tool\"}}],\"role\":\"assistant\"}]",
+      "description": "Context estimate for token-int-over-64-bits",
+      "expect": {
+        "characters": 24,
+        "tokens": 6
+      },
+      "id": "token-int-over-64-bits"
+    },
+    {
+      "conversation_text": "[{\"parts\":[{\"tool_call\":{\"id\":\"call-1\",\"input\":-18446744073709551617,\"name\":\"tool\"}}],\"role\":\"assistant\"}]",
+      "description": "Context estimate for token-int-negative-over-64-bits",
+      "expect": {
+        "characters": 25,
+        "tokens": 7
+      },
+      "id": "token-int-negative-over-64-bits"
+    },
+    {
+      "conversation_text": "[{\"parts\":[{\"tool_call\":{\"id\":\"call-1\",\"input\":{\"a\":1,\"a\":22},\"name\":\"tool\"}}],\"role\":\"assistant\"}]",
+      "description": "Context estimate for token-duplicate-keys",
+      "expect": {
+        "characters": 12,
+        "tokens": 3
+      },
+      "id": "token-duplicate-keys"
+    },
+    {
+      "conversation_text": "[{\"parts\":[{\"tool_call\":{\"id\":\"call-1\",\"input\":{\"\\u0061\":1},\"name\":\"tool\"}}],\"role\":\"assistant\"}]",
+      "description": "Context estimate for token-escaped-key",
+      "expect": {
+        "characters": 11,
+        "tokens": 3
+      },
+      "id": "token-escaped-key"
+    },
+    {
+      "conversation_text": "[{\"parts\":[{\"tool_call\":{\"id\":\"call-1\",\"input\":{ \"a\" : [ 1 , 2 ] , \"b\" : { } },\"name\":\"tool\"}}],\"role\":\"assistant\"}]",
+      "description": "Context estimate for token-spaced",
+      "expect": {
+        "characters": 22,
+        "tokens": 6
+      },
+      "id": "token-spaced"
+    },
+    {
+      "conversation_text": "[{\"parts\":[{\"tool_call\":{\"id\":\"call-1\",\"input\":\"\\u00e9\\ud83d\\ude42\\/\\u2028\",\"name\":\"tool\"}}],\"role\":\"assistant\"}]",
+      "description": "Context estimate for token-escaped-characters",
+      "expect": {
+        "characters": 10,
+        "tokens": 3
+      },
+      "id": "token-escaped-characters"
+    },
+    {
+      "conversation_text": "[{\"parts\":[{\"tool_call\":{\"id\":\"call-1\",\"input\":[true,false,null],\"name\":\"tool\"}}],\"role\":\"assistant\"}]",
+      "description": "Context estimate for token-literals",
+      "expect": {
+        "characters": 21,
+        "tokens": 6
+      },
+      "id": "token-literals"
+    }
+  ],
+  "description": "estimate_context_tokens(conversation). expect.characters is the character count before rounding and expect.tokens is that count divided by 4, rounded up. A case gives the conversation as JSON, or as conversation_text when a raw token such as 1e400 must reach the decoder unchanged",
+  "kind": "context"
+}

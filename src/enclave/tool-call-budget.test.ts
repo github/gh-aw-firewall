@@ -220,6 +220,11 @@ describe('enclave tool-call cap', () => {
     expect(budget.tryConsume(TOOL_NAME, 'script')).toBe(true);
     expect(budget.tryConsume(TOOL_NAME, 'script')).toBe(false);
     expect(warnings[0]).toContain('Unable to persist enclave tool call count: read-only');
+    const restarted = createToolCallBudget({
+      maxToolCalls: 1, runId: RUN_ID, statePath, files: failingFiles, warn: () => {},
+    });
+    expect(restarted.used()).toBe(0);
+    expect(restarted.tryConsume(TOOL_NAME, 'script')).toBe(true);
   });
 
   it('removes a partially written state file when the atomic rename fails', () => {

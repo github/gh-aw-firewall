@@ -208,7 +208,7 @@ function assertRecoveryComplete(paths: EnclavePaths, runId: string): void {
 
 export async function stopCloudHypervisorEnclaveLifecycle(config: WrapperConfig): Promise<void> {
   const paths = resolveEnclavePaths(config.workDir);
-  if (!lifecycle.has(paths.root) && !config.enclaves?.enabled) return;
+  if (!lifecycle.has(paths.root) && !isCloudHypervisorEnclaveSelected(config)) return;
   await lifecycle.stop(paths.root, config, () => {
     // A restarted host must not delete resource recovery records it did not reap.
     const runId = readEnclaveRunId(paths);

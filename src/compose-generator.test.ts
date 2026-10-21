@@ -74,9 +74,8 @@ describe('generateDockerCompose', () => {
       });
       expect(result.services.router.healthcheck?.test).toEqual([
         'CMD',
-        'python',
-        '-c',
-        "import urllib.request; urllib.request.urlopen('http://localhost:8737/healthz', timeout=1).close()",
+        '/usr/local/bin/gh-aw-router',
+        'healthcheck',
       ]);
       expect(apiProxyService.networks['awf-routing']).toEqual({});
       expect(apiProxyService.depends_on.router).toEqual({

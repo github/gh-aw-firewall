@@ -24,8 +24,9 @@ import {
 } from './dynamic-delegation-channel';
 
 interface RunningDelegation {
+  configuration: WrapperConfig;
   service: DynamicDelegationService;
-  channel: DynamicDelegationChannel;
+  channel?: DynamicDelegationChannel;
 }
 
 let running: RunningDelegation | undefined;
@@ -50,6 +51,7 @@ export async function startEnclaveDynamicDelegation(
   env: NodeJS.ProcessEnv = process.env,
 ): Promise<void> {
   if (!isEnclaveDynamicEnabled(config)) return;
+  if (running) throw new Error('Enclaves: dynamic delegation is already owned by an active run');
   const policy = config.enclaves!.executors.agent.dynamic!;
   const paths = resolveEnclavePaths(config.workDir);
   const handoff = readStagedEnclaveDynamicDelegationHandoff(paths);
@@ -83,46 +85,62 @@ export async function startEnclaveDynamicDelegation(
     auditPath: paths.delegationAuditPath,
   });
   await service.recover();
-  const channel = startDynamicDelegationChannel({
-    directory: paths.delegationChannelDir,
-    service,
-  });
-  running = { service, channel };
+  const channel = config.enclaves!.executors.agent.runtime === 'docker'
+    ? undefined
+    : startDynamicDelegationChannel({
+      directory: paths.delegationChannelDir,
+      service,
+    });
+  running = { configuration: config, service, channel };
   logger.info('Enclaves: dynamic repository admission is live and reconciled with mcpg.');
+}
+
+/** Host execution takes custody of each invocation's bearer; the broker never receives it. */
+export function getEnclaveHostDynamicAuthority(config: WrapperConfig): DynamicDelegationService {
+  if (!running || running.configuration !== config || !running.service.isAdmitting
+    || config.enclaves?.executors.agent.runtime !== 'docker') {
+    throw new Error('Enclaves: trusted host dynamic admission is not ready');
+  }
+  return running.service;
 }
 
 /**
  * Stops the admission authority and revokes every identity still carrying this
- * run's labels. Failure is reported to the operator but never masks the
- * primary run outcome; the unresolved state is already recorded in the
- * host-private delegation audit.
+ * run's labels. Docker retains unresolved authority state and fails closed;
+ * the legacy container-runner path reports the existing best-effort warning.
  */
 export async function stopEnclaveDynamicDelegation(config: WrapperConfig): Promise<void> {
   const active = running;
-  running = undefined;
   if (!active) return;
+  if (active.configuration !== config) {
+    throw new Error('Enclaves: dynamic delegation is owned by another run');
+  }
+  let shutdownError: unknown;
+  try { await active.channel?.stop(); } catch (error) { shutdownError = error; }
   try {
-    await active.channel.stop();
-  } finally {
-    try {
-      await active.service.shutdown();
-    } catch {
-      logger.warn(
-        'Enclaves: dynamic enclave identities may still be live in mcpg; see the host-private '
-        + 'delegation audit for the unreconciled state.',
-      );
+    await active.service.shutdown();
+    running = undefined;
+  } catch {
+    logger.warn(
+      'Enclaves: dynamic enclave identities may still be live in mcpg; see the host-private '
+      + 'delegation audit for the unreconciled state.',
+    );
+    if (config.enclaves?.executors.agent.runtime === 'docker') {
+      throw new Error('Enclaves: host dynamic revocation is unresolved; private recovery state is preserved');
     }
-    if (!config.keepContainers) {
-      try {
-        fs.rmSync(resolveEnclavePaths(config.workDir).delegationChannelDir, {
-          recursive: true,
-          force: true,
-        });
-      } catch {
-        // The private root is removed wholesale by teardownEnclaves.
-      }
+    running = undefined;
+  }
+  if (!config.keepContainers) {
+    try {
+      fs.rmSync(resolveEnclavePaths(config.workDir).delegationChannelDir, {
+        recursive: true,
+        force: true,
+      });
+    } catch {
+      // The private root is removed wholesale by teardownEnclaves.
     }
   }
+  if (shutdownError !== undefined) throw shutdownError;
 }
 
 /** @internal Test-only accessor for the running delegation runtime. */
@@ -131,7 +149,7 @@ export const enclaveDynamicDelegationTestHelpers = {
   async reset(): Promise<void> {
     const active = running;
     running = undefined;
-    if (active) await active.channel.stop();
+    if (active) await active.channel?.stop();
   },
   get running(): RunningDelegation | undefined {
     return running;
