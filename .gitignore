@@ -7,6 +7,8 @@ dist/
 *.tgz
 coverage/
 .nyc_output/
+/.ch-unified-*/
+/awf-enclave-private-*/
 *.swp
 *.swo
 *.so
