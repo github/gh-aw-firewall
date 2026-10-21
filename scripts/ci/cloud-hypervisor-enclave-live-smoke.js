@@ -469,7 +469,9 @@ function sleepSync(ms) {
 // Oversized files either fail ("oversize") or, when tailBytes is set, yield a
 // stable tail ("tail"). Changing files are retried on the same inode before
 // reporting "unstable"; a different inode reports "replaced".
-function inspectDiagnosticFile(file, maxBytes, { tailBytes, attempts = STABLE_READ_ATTEMPTS } = {}) {
+function inspectDiagnosticFile(file, maxBytes, {
+  tailBytes, attempts = STABLE_READ_ATTEMPTS, ownerOnly = false,
+} = {}) {
   let result = { outcome: 'io-error', size: null, attempts: 0 };
   let identity;
   for (let attempt = 1; attempt <= attempts; attempt += 1) {
@@ -479,6 +481,10 @@ function inspectDiagnosticFile(file, maxBytes, { tailBytes, attempts = STABLE_RE
         | fs.constants.O_NOFOLLOW | fs.constants.O_NONBLOCK);
       const stat = fs.fstatSync(descriptor);
       if (!stat.isFile()) return { outcome: 'not-regular', size: null, attempts: attempt };
+      if (ownerOnly && (stat.uid !== process.getuid() || stat.nlink !== 1
+          || (stat.mode & 0o777) !== 0o600)) {
+        return { outcome: 'unsafe-owner', size: null, attempts: attempt };
+      }
       // Retries must observe the same inode; a replaced pathname is never trusted.
       if (identity && (identity.dev !== stat.dev || identity.ino !== stat.ino)) {
         return { outcome: 'replaced', size: null, attempts: attempt };
@@ -766,15 +772,19 @@ async function waitForHostGatewayReadiness(child, deadline, diagnostics) {
   fail('timeout', 'Timed out waiting for actual AWF host gateway readiness');
 }
 
-function captureVmResidue() {
-  const namespaces = run('ip', ['netns', 'list']);
+function captureVmResidue(deadline = Date.now() + 10_000) {
+  const options = () => ({
+    encoding: 'utf8', maxBuffer: 1024 * 1024,
+    timeout: Math.max(1, Math.min(5000, deadline - Date.now())), killSignal: 'SIGKILL',
+  });
+  const namespaces = run('ip', ['netns', 'list'], options());
   const namespaceNames = namespaces.split(/\r?\n/)
     .map((line) => line.trim().split(/\s+/, 1)[0])
     .filter((name) => name?.startsWith('awfvm-'))
     .sort();
   const processes = spawnSync('pgrep', [
     '-f', '[c]loud-hypervisor --api-socket',
-  ], { encoding: 'utf8' });
+  ], options());
   if (processes.error || ![0, 1].includes(processes.status)) {
     throw new Error('Could not inspect Cloud Hypervisor process state');
   }
@@ -830,10 +840,181 @@ function assertNoVmResidue(expectedPrimary, observed = captureVmResidue()) {
   }
 }
 
-function capturePrimaryVmResidue() {
-  const primary = captureVmResidue();
-  assertNoVmResidue(primary, primary);
-  return primary;
+function readPrimaryVmProgress(file, child) {
+  const { PRIMARY_BOOT_STAGES } = require('../../dist/cloud-hypervisor/primary-readiness');
+  const { CLOUD_HYPERVISOR_MAX_BOOT_ATTEMPTS } = require('../../dist/cloud-hypervisor/preflight');
+  const inspected = inspectDiagnosticFile(file, 4096, { attempts: 1, ownerOnly: true });
+  if (['missing', 'unstable'].includes(inspected.outcome)) return undefined;
+  if (inspected.outcome !== 'ok') throw new Error('Primary VM progress inspection failed');
+  let value;
+  try {
+    value = JSON.parse(inspected.buffer.toString('utf8'));
+  } catch {
+    return undefined; // A truncated publication is never readiness.
+  }
+  if (JSON.stringify(Object.keys(value || {}).sort())
+        !== '["bootAttempt","ownerPid","runId","schemaVersion","stage","state"]'
+      || value.schemaVersion !== 1 || value.ownerPid !== child.pid
+      || !PRIMARY_BOOT_STAGES.includes(value.stage)
+      || !['starting', 'ready', 'failed'].includes(value.state)
+      || !Number.isInteger(value.bootAttempt) || value.bootAttempt < 0
+      || value.bootAttempt > CLOUD_HYPERVISOR_MAX_BOOT_ATTEMPTS
+      || !(value.runId === null || (typeof value.runId === 'string'
+        && /^[A-Za-z0-9_.-]{1,128}$/.test(value.runId)))
+      || (value.state === 'ready'
+        && (value.stage !== 'ready' || !value.runId || value.bootAttempt === 0))) return undefined;
+  return value;
+}
+
+async function verifyPrimaryVmIdentity(progress, child, observed) {
+  const { validateRecord } = require('../../dist/cloud-hypervisor/cleanup-identity');
+  const { processMatches } = require('../../dist/cloud-hypervisor/cleanup-process');
+  const registry = '/run/awf-cloud-hypervisor/pending-cleanup';
+  const file = path.join(registry, `${progress.runId}.json`);
+  const inspected = inspectDiagnosticFile(file, 1024 * 1024, { attempts: 1, ownerOnly: true });
+  if (['missing', 'unstable'].includes(inspected.outcome)) return 'pending';
+  if (inspected.outcome !== 'ok') throw new Error('Primary VM journal inspection failed');
+  let record;
+  try {
+    record = JSON.parse(inspected.buffer.toString('utf8'));
+  } catch {
+    return 'pending';
+  }
+  try {
+    validateRecord(record, file, registry);
+  } catch {
+    return 'mismatch';
+  }
+  const vmm = record.processes.vmm;
+  if (record.runId !== progress.runId || record.owner.pid !== child.pid
+      || record.workload?.kind !== 'primary-agent'
+      || record.workload.ownerId !== 'primary-agent' || record.network?.mode !== 'primary'
+      || vmm?.state !== 'live' || !vmm.identity || !record.identities.cgroup
+      || !record.identities.netns) return 'mismatch';
+  const expected = {
+    namespaces: [record.network.namespaceName],
+    processes: [{ pid: String(vmm.identity.pid), startTime: vmm.identity.startTime }],
+    cgroups: [{
+      name: progress.runId,
+      device: Number(record.identities.cgroup.device),
+      inode: Number(record.identities.cgroup.inode),
+    }],
+  };
+  if (!isDeepStrictEqual(observed, expected)) return 'mismatch';
+  // Reuse the cleanup verifier: PID/start time alone cannot establish ownership.
+  const dependencies = fs.promises;
+  if (!await processMatches(dependencies, record.owner)
+      || !await processMatches(dependencies, vmm.identity, vmm)) return 'mismatch';
+  const namespace = fs.statSync(record.network.netnsPath);
+  const membership = fs.readFileSync(`/proc/${vmm.identity.pid}/cgroup`, 'utf8');
+  if (String(namespace.dev) !== record.identities.netns.device
+      || String(namespace.ino) !== record.identities.netns.inode
+      || vmm.identity.networkNamespace !== `net:[${namespace.ino}]`
+      || !membership.split('\n').includes(`0::/awf-cloud-hypervisor/${progress.runId}`)) {
+    return 'mismatch';
+  }
+  return 'verified';
+}
+
+// Shared by the public script probe and every combined/recovery/profile launch.
+// A gateway handshake and even exactly one VMM do not prove guest readiness.
+async function waitForPrimaryVmReadiness(child, deadline, diagnostics, dependencies = {}) {
+  const {
+    PRIMARY_READINESS_FILENAME,
+  } = require('../../dist/cloud-hypervisor/primary-readiness');
+  const readProgress = dependencies.readProgress || readPrimaryVmProgress;
+  const capture = dependencies.capture || captureVmResidue;
+  const verify = dependencies.verify || verifyPrimaryVmIdentity;
+  const now = dependencies.now || Date.now;
+  const sleep = dependencies.sleep || ((ms) => new Promise((resolve) => setTimeout(resolve, ms)));
+  const file = path.join(path.dirname(diagnostics.startupErrorFile), PRIMARY_READINESS_FILENAME);
+  let progress;
+  let observed;
+  let inspection = 'not-attempted';
+  let identity = 'not-attempted';
+  const fail = (reason) => {
+    if (!progress) {
+      try {
+        progress = readProgress(file, child);
+      } catch {
+        // Child status remains authoritative if its final progress is unavailable.
+      }
+    }
+    if (inspection === 'not-attempted') {
+      try {
+        observed = capture(deadline);
+        inspection = 'complete';
+      } catch {
+        inspection = 'failed';
+      }
+    }
+    const count = (key) => observed ? Math.min(1000, observed[key].length) : null;
+    console.error(`AWF_PRIMARY_VM_READINESS ${JSON.stringify({
+      schemaVersion: 1, stage: 'primary-vm-readiness', reason,
+      primary: progress ? {
+        stage: progress.stage, state: progress.state, bootAttempt: progress.bootAttempt,
+      } : { stage: 'unknown', state: 'not-observed', bootAttempt: null },
+      resources: {
+        inspection, namespaces: count('namespaces'), processes: count('processes'),
+        cgroups: count('cgroups'), identity,
+      },
+      child: {
+        status: failedSpawns.has(child) ? 'spawn-failed'
+          : child.signalCode !== null ? 'signalled'
+            : child.exitCode !== null ? 'exited' : 'running',
+        exitCode: Number.isInteger(child.exitCode) && child.exitCode >= 0 && child.exitCode <= 255
+          ? child.exitCode : null,
+        signal: ['SIGTERM', 'SIGKILL', 'SIGINT', 'SIGHUP', 'SIGABRT', 'SIGSEGV', 'SIGBUS']
+          .includes(child.signalCode) ? child.signalCode : null,
+      },
+    })}`);
+    throw new Error(`Primary VM readiness failed: ${reason}`);
+  };
+  const checkChild = () => {
+    if (failedSpawns.has(child)) fail('spawn-failure');
+    if (child.signalCode !== null) fail('signal');
+    if (child.exitCode !== null) fail('exit');
+  };
+  while (now() < deadline) {
+    checkChild();
+    let current;
+    try {
+      current = readProgress(file, child);
+      progress = current || progress;
+    } catch {
+      fail('inspection-failure');
+    }
+    if (progress?.state === 'failed') fail('startup-failure');
+    // Never use a cached ready record if its current publication is incomplete.
+    if (current?.state === 'ready') {
+      try {
+        observed = capture(deadline);
+        inspection = 'complete';
+      } catch {
+        observed = undefined;
+        inspection = 'failed';
+        fail('inspection-failure');
+      }
+      if (Object.values(observed).some((items) => items.length > 1)) {
+        identity = 'mismatch';
+        fail('unexpected-resources');
+      }
+      if (Object.values(observed).every((items) => items.length === 1)) {
+        try {
+          identity = await verify(current, child, observed);
+        } catch {
+          identity = 'inspection-failed';
+          fail('inspection-failure');
+        }
+        if (identity === 'mismatch') fail('unexpected-resources');
+        checkChild();
+        if (identity === 'verified' && now() < deadline) return observed;
+      }
+    }
+    await sleep(Math.max(0, Math.min(250, deadline - now())));
+  }
+  checkChild();
+  fail('timeout');
 }
 
 async function waitForVmCleanup(timeoutMs, expectedPrimary) {
@@ -1388,6 +1569,7 @@ const FAILURE_STAGES = Object.freeze({
   RELEASE: 'release artifact setup',
   GATEWAY: 'gateway setup',
   BROKER: 'broker readiness',
+  PRIMARY: 'primary VM readiness',
   MCP_ROUTE: 'public MCP route',
   SCRIPT: 'script enclave checks',
   AGENT: 'agent enclave checks',
@@ -1524,7 +1706,10 @@ async function main(failureContext = { stage: FAILURE_STAGES.RUNNER }) {
       stage: 'initial', stderrFile: awfErr,
       startupErrorFile: path.join(workDir, 'proxy-logs', 'awf-startup-error.json'),
     });
-    primaryVmResidue = capturePrimaryVmResidue();
+    failureContext.stage = FAILURE_STAGES.PRIMARY;
+    primaryVmResidue = await waitForPrimaryVmReadiness(awf, Date.now() + 5 * 60_000, {
+      startupErrorFile: path.join(workDir, 'proxy-logs', 'awf-startup-error.json'),
+    });
 
     failureContext.stage = FAILURE_STAGES.MCP_ROUTE;
     const initialized = await requestMcp(
@@ -1785,7 +1970,11 @@ async function main(failureContext = { stage: FAILURE_STAGES.RUNNER }) {
         stage: 'recovery', stderrFile: awfErr,
         startupErrorFile: path.join(workDir, 'proxy-logs', 'awf-startup-error.json'),
       });
-      primaryVmResidue = capturePrimaryVmResidue();
+      failureContext.stage = FAILURE_STAGES.PRIMARY;
+      primaryVmResidue = await waitForPrimaryVmReadiness(awf, Date.now() + 5 * 60_000, {
+        startupErrorFile: path.join(workDir, 'proxy-logs', 'awf-startup-error.json'),
+      });
+      failureContext.stage = FAILURE_STAGES.CRASH_RECOVERY;
       const recoveryTools = await requestMcp(endpoint, gatewayKey, 13, 'tools/list', {});
       if (!Array.isArray(recoveryTools?.result?.tools)) {
         throw new Error('Live broker did not become ready after host-executor recovery');
@@ -1853,7 +2042,12 @@ async function main(failureContext = { stage: FAILURE_STAGES.RUNNER }) {
       };
       await waitForBroker(awf, 'awf-enclave-mcp-server', Date.now() + 15 * 60_000, diagnostics);
       await waitForHostGatewayReadiness(awf, Date.now() + 150_000, diagnostics);
-      primaryVmResidue = capturePrimaryVmResidue();
+      const profileStage = failureContext.stage;
+      failureContext.stage = FAILURE_STAGES.PRIMARY;
+      primaryVmResidue = await waitForPrimaryVmReadiness(
+        awf, Date.now() + 5 * 60_000, diagnostics,
+      );
+      failureContext.stage = profileStage;
       const requestId = profile === 'script-only' ? 14 : 17;
       const profileInit = await requestMcp(endpoint, gatewayKey, requestId, 'initialize', {
         protocolVersion: '2025-11-25',
@@ -1944,7 +2138,10 @@ async function main(failureContext = { stage: FAILURE_STAGES.RUNNER }) {
 
 function removePrivateAwfLogs(stdoutFile, stderrFile, startupErrorFiles = []) {
   let failed = false;
-  for (const file of [stdoutFile, stderrFile, ...startupErrorFiles]) {
+  for (const file of [stdoutFile, stderrFile, ...startupErrorFiles,
+    ...startupErrorFiles.map((startupFile) =>
+      path.join(path.dirname(startupFile), 'awf-primary-vm-readiness.json')),
+  ]) {
     try {
       fs.rmSync(file, { force: true });
     } catch {
@@ -1977,7 +2174,7 @@ function reportFailure(_error, stage) {
   const safeStage = Object.values(FAILURE_STAGES).includes(stage) ? stage : 'unknown stage';
   console.error(
     `Live enclave acceptance failed during ${safeStage}; raw error details were suppressed. `
-    + 'Review any AWF_HOST_STARTUP_DIAGNOSTIC records above.',
+    + 'Review AWF_HOST_STARTUP_DIAGNOSTIC and AWF_PRIMARY_VM_READINESS records above.',
   );
   process.exitCode = 1;
 }
@@ -1998,7 +2195,9 @@ module.exports = {
   spawnAwf,
   startGatewayFixture,
   waitForVmCleanup,
-  capturePrimaryVmResidue,
+  waitForPrimaryVmReadiness,
+  readPrimaryVmProgress,
+  verifyPrimaryVmIdentity,
   startupDiagnostic,
   waitForBroker,
   waitForHostGatewayReadiness,

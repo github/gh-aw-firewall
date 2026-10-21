@@ -13,12 +13,38 @@ import { schema as hostPreflightSchema } from '../../src/cloud-hypervisor/host-p
 import {
   observeMountTopology, type MountTopologyEvidence, createStoragePropagationEvidence,
 } from '../../src/cloud-hypervisor/mount-topology';
+import {
+  createPrimaryReadinessReporter, PRIMARY_READINESS_FILENAME,
+} from '../../src/cloud-hypervisor/primary-readiness';
 
 const root = path.resolve(__dirname, '../..');
 const harnessPath = path.join(root, 'scripts/ci/cloud-hypervisor-enclave-live-smoke.js');
 const workflowPath = path.join(root, '.github/workflows/test-cloud-hypervisor-enclaves.yml');
 type StartupChild = { exitCode: number | null; signalCode: string | null };
+type VmResidue = {
+  namespaces: string[];
+  processes: Array<{ pid: string; startTime: string }>;
+  cgroups: Array<{ name: string; device: number; inode: number }>;
+};
+type PrimaryProgress = {
+  schemaVersion: number; ownerPid: number; stage: string; state: string;
+  bootAttempt: number; runId: string | null;
+};
 const harness = require(harnessPath) as {
+  readPrimaryVmProgress(file: string, child: StartupChild & { pid: number }): PrimaryProgress | undefined;
+  verifyPrimaryVmIdentity(
+    progress: PrimaryProgress, child: StartupChild & { pid: number }, observed: VmResidue,
+  ): Promise<string>;
+  waitForPrimaryVmReadiness(
+    child: StartupChild, deadline: number, diagnostics: { startupErrorFile: string },
+    dependencies?: {
+      readProgress?: () => PrimaryProgress | undefined;
+      capture?: () => VmResidue;
+      verify?: () => Promise<string>;
+      now?: () => number;
+      sleep?: (ms: number) => Promise<void>;
+    },
+  ): Promise<VmResidue>;
   startupDiagnostic(child: StartupChild | undefined, reason: string, stage: string, file: string, startupErrorFile?: string): {
     schemaVersion: number;
     phase: string;
@@ -854,7 +880,8 @@ describe('sanitized host startup diagnostics', () => {
   it('attempts removal of every raw file despite a cleanup error without exposing it', () => {
     const stdoutFile = path.join(directory, 'awf.stdout.log');
     const startupErrorFile = path.join(directory, 'awf-startup-error.json');
-    for (const file of [stdoutFile, stderrFile, startupErrorFile]) fs.writeFileSync(file, sentinel);
+    const primaryFile = path.join(directory, PRIMARY_READINESS_FILENAME);
+    for (const file of [stdoutFile, stderrFile, startupErrorFile, primaryFile]) fs.writeFileSync(file, sentinel);
     const nodeFs = require('fs') as typeof fs;
     const originalRemove = fs.rmSync;
     const remove = jest.spyOn(nodeFs, 'rmSync').mockImplementation((...args) => {
@@ -863,9 +890,10 @@ describe('sanitized host startup diagnostics', () => {
     });
     expect(() => harness.removePrivateAwfLogs(stdoutFile, stderrFile, [startupErrorFile]))
       .toThrow('Could not remove live enclave private diagnostic files');
-    expect(remove).toHaveBeenCalledTimes(3);
+    expect(remove).toHaveBeenCalledTimes(4);
     expect(fs.existsSync(stderrFile)).toBe(false);
     expect(fs.existsSync(startupErrorFile)).toBe(false);
+    expect(fs.existsSync(primaryFile)).toBe(false);
   });
 
   it('bounds cleanup after startup timeout and clears timers after normal exit', async () => {
@@ -1391,7 +1419,7 @@ describe('Cloud Hypervisor enclave live acceptance harness', () => {
 describe('sanitized live acceptance failure reporting', () => {
   const sentinel = 'AWF_PASSWD_SENTINEL_sensitive-user-record';
   const expected = (stage: string) => `Live enclave acceptance failed during ${stage}; `
-    + 'raw error details were suppressed. Review any AWF_HOST_STARTUP_DIAGNOSTIC records above.';
+    + 'raw error details were suppressed. Review AWF_HOST_STARTUP_DIAGNOSTIC and AWF_PRIMARY_VM_READINESS records above.';
 
   afterEach(() => jest.restoreAllMocks());
 
@@ -1415,18 +1443,312 @@ describe('sanitized live acceptance failure reporting', () => {
     }
   });
 
-  it('identifies later acceptance checks with their fixed stage labels', () => {
+  it.each(['agent enclave checks', 'primary VM readiness'])('identifies %s with its fixed stage label', (stage) => {
     const originalExitCode = process.exitCode;
     const output = jest.spyOn(console, 'error').mockImplementation(() => {});
     try {
       process.exitCode = 0;
-      harness.reportFailure(new Error(sentinel), 'agent enclave checks');
-      expect(output).toHaveBeenCalledWith(expected('agent enclave checks'));
+      harness.reportFailure(new Error(sentinel), stage);
+      expect(output).toHaveBeenCalledWith(expected(stage));
       expect(JSON.stringify(output.mock.calls)).not.toContain(sentinel);
       expect(process.exitCode).toBe(1);
     } finally {
       process.exitCode = originalExitCode;
     }
+  });
+
+  describe('shared primary VM readiness gate', () => {
+    const sentinel = 'AWF_PRIVATE_PRIMARY_OUTPUT_SENTINEL';
+    const primary: VmResidue = {
+      namespaces: ['awfvm-0123456789ab'],
+      processes: [{ pid: '123', startTime: '456' }],
+      cgroups: [{ name: 'primary', device: 1, inode: 789 }],
+    };
+    const empty: VmResidue = { namespaces: [], processes: [], cgroups: [] };
+    let directory: string;
+    let child: StartupChild & { pid: number };
+    let progress: PrimaryProgress | undefined;
+    let clock: number;
+    let dependencies: {
+      readProgress: jest.Mock<PrimaryProgress | undefined, []>;
+      capture: jest.Mock<VmResidue, []>;
+      verify: jest.Mock<Promise<string>, []>;
+      now: () => number;
+      sleep: jest.Mock<Promise<void>, [number]>;
+    };
+    let output: jest.SpyInstance;
+    const wait = () => harness.waitForPrimaryVmReadiness(child, 1000, {
+      startupErrorFile: path.join(directory, 'awf-startup-error.json'),
+    }, dependencies);
+    const diagnostic = () => {
+      expect(output).toHaveBeenCalledTimes(1);
+      const line = String(output.mock.calls[0][0]);
+      expect(line.startsWith('AWF_PRIMARY_VM_READINESS ')).toBe(true);
+      expect(Buffer.byteLength(line)).toBeLessThan(1024);
+      expect(line).not.toContain(sentinel);
+      expect(line).not.toContain(directory);
+      return JSON.parse(line.slice('AWF_PRIMARY_VM_READINESS '.length));
+    };
+    beforeEach(() => {
+      directory = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-primary-readiness-'));
+      child = { pid: process.pid, exitCode: null, signalCode: null };
+      progress = {
+        schemaVersion: 1, ownerPid: child.pid, stage: 'guest-boot', state: 'starting',
+        bootAttempt: 1, runId: 'primary',
+      };
+      clock = 0;
+      dependencies = {
+        readProgress: jest.fn(() => progress),
+        capture: jest.fn(() => primary),
+        verify: jest.fn(async () => 'verified'),
+        now: () => clock,
+        sleep: jest.fn(async (ms: number) => { clock += ms; }),
+      };
+      output = jest.spyOn(console, 'error').mockImplementation(() => {});
+    });
+    afterEach(() => {
+      fs.rmSync(directory, { recursive: true, force: true });
+      jest.restoreAllMocks();
+    });
+
+    it('does not capture or execute until delayed guest readiness, even after the gateway is ready', async () => {
+      dependencies.sleep.mockImplementation(async (ms) => {
+        clock += ms;
+        expect(dependencies.capture).not.toHaveBeenCalled();
+        expect(dependencies.verify).not.toHaveBeenCalled();
+        progress = { ...progress!, stage: 'ready', state: 'ready' };
+      });
+      await expect(wait()).resolves.toEqual(primary);
+      expect(clock).toBe(250);
+      expect(dependencies.verify).toHaveBeenCalledTimes(1);
+      expect(output).not.toHaveBeenCalled();
+    });
+
+    it('times out gateway-only readiness with counts but no claimed primary identity', async () => {
+      await expect(wait()).rejects.toThrow('Primary VM readiness failed: timeout');
+      expect(clock).toBe(1000);
+      expect(dependencies.verify).not.toHaveBeenCalled();
+      expect(diagnostic()).toMatchObject({
+        stage: 'primary-vm-readiness', reason: 'timeout',
+        primary: { stage: 'guest-boot', state: 'starting' },
+        resources: { inspection: 'complete', processes: 1, identity: 'not-attempted' },
+        child: { status: 'running', exitCode: null, signal: null },
+      });
+    });
+
+    it('waits for incomplete resource and journal publication without accepting either', async () => {
+      progress = { ...progress!, stage: 'ready', state: 'ready' };
+      dependencies.capture.mockReturnValueOnce(empty);
+      dependencies.verify.mockResolvedValueOnce('pending');
+      await expect(wait()).resolves.toEqual(primary);
+      expect(clock).toBe(500);
+      expect(dependencies.capture).toHaveBeenCalledTimes(3);
+      expect(dependencies.verify).toHaveBeenCalledTimes(2);
+    });
+
+    it('does not reuse a ready publication while its replacement is incomplete', async () => {
+      progress = { ...progress!, stage: 'ready', state: 'ready' };
+      dependencies.capture.mockReturnValue(empty);
+      dependencies.readProgress.mockReturnValueOnce(progress).mockReturnValue(undefined);
+      await expect(wait()).rejects.toThrow(/timeout/);
+      expect(dependencies.verify).not.toHaveBeenCalled();
+      expect(dependencies.capture).toHaveBeenCalledTimes(1);
+      expect(diagnostic().reason).toBe('timeout');
+    });
+
+    it('reports terminal primary startup failure before inspecting or waiting for cleanup', async () => {
+      progress = { ...progress!, state: 'failed' };
+      await expect(wait()).rejects.toThrow(/startup-failure/);
+      expect(clock).toBe(0);
+      expect(diagnostic()).toMatchObject({ reason: 'startup-failure', primary: { state: 'failed' } });
+    });
+
+    it.each(['spawn-failure', 'exit', 'signal'])('detects an actual child %s promptly', async (reason) => {
+      const actual = harness.trackAwfChild(reason === 'spawn-failure'
+        ? spawn(path.join(directory, sentinel))
+        : spawn(process.execPath, ['-e', reason === 'exit'
+          ? 'process.exit(9)' : 'process.kill(process.pid, "SIGTERM")']));
+      await new Promise<void>((resolve) => actual.once('close', () => resolve()));
+      await expect(harness.waitForPrimaryVmReadiness(actual, 1000, {
+        startupErrorFile: path.join(directory, 'awf-startup-error.json'),
+      }, dependencies)).rejects.toThrow(reason);
+      expect(clock).toBe(0);
+      expect(diagnostic()).toMatchObject({
+        reason, child: {
+          exitCode: reason === 'exit' ? 9 : null,
+          signal: reason === 'signal' ? 'SIGTERM' : null,
+        },
+      });
+    });
+
+    it('rejects a child termination racing successful resource verification', async () => {
+      progress = { ...progress!, stage: 'ready', state: 'ready' };
+      dependencies.verify.mockImplementation(async () => {
+        child.signalCode = 'SIGKILL';
+        return 'verified';
+      });
+      await expect(wait()).rejects.toThrow(/signal/);
+      expect(diagnostic().child.signal).toBe('SIGKILL');
+    });
+
+    it.each(['progress', 'resources', 'identity'])('sanitizes %s inspection failures', async (part) => {
+      progress = { ...progress!, stage: 'ready', state: 'ready' };
+      if (part === 'progress') dependencies.readProgress.mockImplementation(() => { throw new Error(sentinel); });
+      if (part === 'resources') dependencies.capture.mockImplementation(() => { throw new Error(sentinel); });
+      if (part === 'identity') dependencies.verify.mockRejectedValue(new Error(sentinel));
+      await expect(wait()).rejects.toThrow(/inspection-failure/);
+      expect(diagnostic().reason).toBe('inspection-failure');
+    });
+
+    it.each(['namespaces', 'processes', 'cgroups', 'identity'])('rejects extra or mismatched %s', async (part) => {
+      progress = { ...progress!, stage: 'ready', state: 'ready' };
+      if (part === 'identity') dependencies.verify.mockResolvedValue('mismatch');
+      else dependencies.capture.mockReturnValue({ ...primary, [part]: [...primary[part as keyof VmResidue], sentinel] });
+      await expect(wait()).rejects.toThrow(/unexpected-resources/);
+      expect(diagnostic()).toMatchObject({
+        reason: 'unexpected-resources', resources: { identity: 'mismatch' },
+      });
+    });
+
+    it('reads only complete, private, owner-matched, allowlisted progress records', () => {
+      const file = path.join(directory, PRIMARY_READINESS_FILENAME);
+      const reporter = createPrimaryReadinessReporter(directory);
+      reporter.publish('guest-boot', 'starting', 1, '/private/primary');
+      expect(harness.readPrimaryVmProgress(file, child)).toMatchObject({ state: 'starting' });
+      reporter.publish('ready', 'ready', 1, '/private/primary');
+      reporter.close();
+      expect(harness.readPrimaryVmProgress(file, child)).toMatchObject({ state: 'ready', runId: 'primary' });
+      expect(fs.statSync(file).mode & 0o777).toBe(0o600);
+      const valid = JSON.parse(fs.readFileSync(file, 'utf8'));
+      for (const invalid of [
+        { ...valid, ownerPid: child.pid + 1 }, { ...valid, state: sentinel },
+        { ...valid, stage: sentinel }, { ...valid, extra: sentinel },
+        { ...valid, bootAttempt: 0 }, { ...valid, runId: '../../private' },
+        { ...valid, stage: 'guest-boot' }, { ...valid, schemaVersion: 2 },
+      ]) {
+        fs.writeFileSync(file, JSON.stringify(invalid));
+        expect(harness.readPrimaryVmProgress(file, child)).toBeUndefined();
+      }
+      fs.writeFileSync(file, '{"stage":');
+      expect(harness.readPrimaryVmProgress(file, child)).toBeUndefined();
+      fs.writeFileSync(file, sentinel.repeat(4096));
+      expect(() => harness.readPrimaryVmProgress(file, child)).toThrow(/inspection failed/);
+      fs.chmodSync(file, 0o644);
+      expect(() => harness.readPrimaryVmProgress(file, child)).toThrow(/inspection failed/);
+      fs.rmSync(file);
+      fs.symlinkSync(path.join(directory, sentinel), file);
+      expect(() => harness.readPrimaryVmProgress(file, child)).toThrow(/inspection failed/);
+    });
+
+    it('safely replaces a stale readiness record on restart and rejects unsafe existing targets', () => {
+      const file = path.join(directory, PRIMARY_READINESS_FILENAME);
+      const first = createPrimaryReadinessReporter(directory);
+      first.publish('ready', 'ready', 1, '/private/previous');
+      first.close();
+      const second = createPrimaryReadinessReporter(directory);
+      second.publish('preflight', 'starting', 0);
+      second.close();
+      expect(harness.readPrimaryVmProgress(file, child)).toMatchObject({
+        state: 'starting', runId: null, bootAttempt: 0,
+      });
+      fs.chmodSync(file, 0o644);
+      expect(() => createPrimaryReadinessReporter(directory)).toThrow(/Unsafe/);
+      expect(fs.readFileSync(file, 'utf8')).toContain('"state":"starting"');
+      fs.rmSync(file);
+      const target = path.join(directory, 'target');
+      fs.writeFileSync(target, sentinel);
+      fs.symlinkSync(target, file);
+      expect(() => createPrimaryReadinessReporter(directory)).toThrow();
+      expect(fs.readFileSync(target, 'utf8')).toBe(sentinel);
+      fs.rmSync(file);
+      fs.linkSync(target, file);
+      expect(() => createPrimaryReadinessReporter(directory)).toThrow(/Unsafe/);
+      expect(fs.readFileSync(target, 'utf8')).toBe(sentinel);
+    });
+
+    it('verifies durable primary ownership and rejects substituted live resource identities', async () => {
+      const { captureProcessIdentity } = require('../../dist/cloud-hypervisor/cleanup-process');
+      const owner = await captureProcessIdentity(fs.promises, process.pid);
+      const namespace = fs.statSync('/proc/self/ns/net');
+      const runId = 'primary';
+      const vmm = {
+        ...owner, networkNamespace: `net:[${namespace.ino}]`,
+      };
+      const record = {
+        version: 1, runId, owner,
+        workload: { kind: 'primary-agent', ownerId: 'primary-agent' },
+        cloudHypervisorBinary: process.execPath,
+        paths: {
+          runDirectory: `/private/runs/${runId}`,
+          cgroupPath: `/sys/fs/cgroup/awf-cloud-hypervisor/${runId}`,
+          virtiofsdShareDirectory: `/private/shares/${runId}`,
+        },
+        network: {
+          mode: 'primary', namespaceName: primary.namespaces[0],
+          netnsPath: `/var/run/netns/${primary.namespaces[0]}`,
+          hostForwardRuleComment: 'awf-microvm-0123456789ab', infrastructureBridge: 'awfbr0',
+        },
+        identities: {
+          cgroup: { device: '1', inode: '789' },
+          netns: { device: String(namespace.dev), inode: String(namespace.ino) },
+        },
+        processes: {
+          vmm: {
+            state: 'live', identity: vmm, executable: process.execPath,
+            // The real verifier checks this against the live test process argv.
+            socketPath: fs.readFileSync('/proc/self/cmdline', 'utf8').split('\0')
+              .find((argument) => path.isAbsolute(argument)),
+          },
+        },
+        mounts: [], updatedAt: new Date().toISOString(),
+      };
+      const journal = path.join(directory, 'journal.json');
+      fs.writeFileSync(journal, JSON.stringify(record), { mode: 0o600 });
+      const nodeFs = require('fs') as typeof fs;
+      const open = fs.openSync;
+      const stat = fs.statSync;
+      const read = fs.readFileSync;
+      jest.spyOn(nodeFs, 'openSync').mockImplementation((file, ...args) => open(
+        file === '/run/awf-cloud-hypervisor/pending-cleanup/primary.json' ? journal : file, ...args,
+      ));
+      jest.spyOn(nodeFs, 'statSync').mockImplementation(((file: fs.PathLike, ...args: unknown[]) =>
+        String(file) === record.network.netnsPath ? namespace : stat(file, ...args as [])) as typeof fs.statSync);
+      jest.spyOn(nodeFs, 'readFileSync').mockImplementation(((file: fs.PathOrFileDescriptor, ...args: unknown[]) =>
+        String(file) === `/proc/${process.pid}/cgroup`
+          ? `0::/awf-cloud-hypervisor/${runId}\n` : read(file, ...args as [])) as typeof fs.readFileSync);
+      const observed = { ...primary, processes: [{ pid: String(vmm.pid), startTime: vmm.startTime }] };
+      progress = { ...progress!, runId, stage: 'ready', state: 'ready' };
+      const { validateRecord } = require('../../dist/cloud-hypervisor/cleanup-identity');
+      expect(() => validateRecord(record,
+        '/run/awf-cloud-hypervisor/pending-cleanup/primary.json',
+        '/run/awf-cloud-hypervisor/pending-cleanup')).not.toThrow();
+      const { processMatches } = require('../../dist/cloud-hypervisor/cleanup-process');
+      await expect(processMatches(fs.promises, owner)).resolves.toBe(true);
+      await expect(processMatches(fs.promises, vmm, record.processes.vmm)).resolves.toBe(true);
+      await expect(harness.verifyPrimaryVmIdentity(progress, child, observed)).resolves.toBe('verified');
+      for (const changed of [
+        { ...record, owner: { ...owner, pid: owner.pid + 1 } },
+        { ...record, owner: { ...owner, startTime: '1' } },
+        { ...record, workload: { kind: 'agent-enclave', ownerId: 'primary-agent', invocationId: 'a'.repeat(32) } },
+        { ...record, identities: { ...record.identities, cgroup: { device: '1', inode: '790' } } },
+        { ...record, identities: { ...record.identities, netns: { device: '1', inode: '2' } } },
+        { ...record, processes: { vmm: { ...record.processes.vmm, socketPath: '/unrelated/socket' } } },
+      ]) {
+        fs.writeFileSync(journal, JSON.stringify(changed));
+        await expect(harness.verifyPrimaryVmIdentity(progress, child, observed)).resolves.toBe('mismatch');
+      }
+    });
+
+    it('uses the same gate for the initial, recovery, and single-executor harness launches', () => {
+      const liveSource = fs.readFileSync(harnessPath, 'utf8');
+      const probeSource = fs.readFileSync(path.join(root,
+        'scripts/ci/cloud-hypervisor-enclave-environment-probe.js'), 'utf8');
+      expect(liveSource.match(/primaryVmResidue = await waitForPrimaryVmReadiness\(/g)).toHaveLength(3);
+      expect(probeSource).toContain('primaryVmResidue = await live.waitForPrimaryVmReadiness(');
+      expect(liveSource).not.toContain('capturePrimaryVmResidue');
+      expect(probeSource).not.toContain('capturePrimaryVmResidue');
+      expect(probeSource.indexOf('live.waitForPrimaryVmReadiness(')).toBeLessThan(probeSource.indexOf("'tools/call'"));
+    });
   });
 
   it('identifies the Copilot token prerequisite with its fixed stage label', () => {

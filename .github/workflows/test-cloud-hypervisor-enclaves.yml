@@ -118,6 +118,7 @@ jobs:
             src/cloud-hypervisor/enclave-export-plan.test.ts \
             src/cloud-hypervisor/enclave-network.test.ts \
             src/cloud-hypervisor/workload-profile.test.ts \
+            src/cloud-hypervisor/unified-lifecycle.test.ts \
             src/cloud-hypervisor/manager-launch.test.ts \
             src/cloud-hypervisor/manager-construction.test.ts \
             src/cloud-hypervisor/manager-diagnostics.test.ts \

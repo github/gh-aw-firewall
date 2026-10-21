@@ -215,7 +215,9 @@ async function main() {
     const diagnostics = { stage: 'initial', stderrFile: awfErr, startupErrorFile };
     await live.waitForBroker(awf, 'awf-enclave-mcp-server', Date.now() + 15 * 60_000, diagnostics);
     await live.waitForHostGatewayReadiness(awf, Date.now() + 150_000, diagnostics);
-    const primaryVmResidue = live.capturePrimaryVmResidue();
+    const primaryVmResidue = await live.waitForPrimaryVmReadiness(
+      awf, Date.now() + 5 * 60_000, diagnostics,
+    );
 
     const initialized = await live.requestMcp(handoff.endpoint, handoff.gatewayKey, 1, 'initialize', {
       protocolVersion: '2025-11-25',

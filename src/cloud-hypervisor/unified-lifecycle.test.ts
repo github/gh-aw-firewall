@@ -23,6 +23,8 @@ import {
 } from './test-fixtures.test-utils';
 import * as cloudHypervisorManager from './manager';
 import { readHostExecutorInvocationDiagnostics } from '../enclave/host-executor-journal';
+import { PRIMARY_READINESS_FILENAME } from './primary-readiness';
+import { CloudHypervisorRetryableReadinessError } from './preflight';
 
 jest.mock('../enclave/cloud-hypervisor-host-service');
 jest.mock('../enclave/paths', () => {
@@ -199,6 +201,77 @@ describe('unified Cloud Hypervisor primary boot and enclave lifecycle', () => {
     });
     expect(fs.readFileSync(path.join(directory,
       'audit/diagnostics/cloud-hypervisor/host-executor', summary.name), 'utf8')).toBe(summary.contents);
+  });
+
+  function primaryProgress() {
+    const file = path.join(directory, 'proxy-logs', PRIMARY_READINESS_FILENAME);
+    expect(fs.statSync(file).mode & 0o777).toBe(0o600);
+    return JSON.parse(fs.readFileSync(file, 'utf8'));
+  }
+
+  it('publishes primary readiness only after boot, guest network, and connectivity checks', async () => {
+    await startCloudHypervisorEnclaveLifecycle(options.config, provider, {});
+    let finishProbe!: () => void;
+    const probeStarted = new Promise<void>((resolve) => {
+      manager.execute.mockImplementationOnce(async () => {
+        expect(primaryProgress()).toMatchObject({ stage: 'guest-network-readiness', state: 'starting' });
+        return { requestId: 'probe', exitCode: 0, signal: null, timedOut: false };
+      }).mockImplementationOnce(async () => {
+        expect(primaryProgress()).toMatchObject({ stage: 'guest-connectivity', state: 'starting' });
+        resolve();
+        await new Promise<void>((finish) => { finishProbe = finish; });
+        return { requestId: 'probe', exitCode: 0, signal: null, timedOut: false };
+      });
+    });
+    options.onInfrastructureReady = async () => {
+      expect(primaryProgress()).toMatchObject({
+        stage: 'compose-infrastructure', state: 'starting', runId: null, bootAttempt: 0,
+      });
+    };
+    const boot = runCloudHypervisorBootLoop(options);
+    await probeStarted;
+    expect(primaryProgress().state).toBe('starting');
+    finishProbe();
+    await boot;
+    expect(primaryProgress()).toEqual({
+      schemaVersion: 1, ownerPid: process.pid, stage: 'ready', state: 'ready',
+      bootAttempt: 1, runId: 'vm',
+    });
+  });
+
+  it('publishes terminal boot failure before cleanup without including exception or guest output', async () => {
+    await startCloudHypervisorEnclaveLifecycle(options.config, provider, {});
+    const secret = 'PRIVATE_BOOT_ERROR_SENTINEL';
+    manager.startInstance.mockRejectedValue(new Error(secret));
+    manager.stop.mockImplementation(async () => {
+      expect(primaryProgress()).toMatchObject({ stage: 'guest-boot', state: 'failed' });
+    });
+    await expect(runCloudHypervisorBootLoop(options)).rejects.toThrow(secret);
+    expect(primaryProgress()).toMatchObject({ stage: 'guest-boot', state: 'failed' });
+    expect(JSON.stringify(primaryProgress())).not.toContain(secret);
+  });
+
+  it('keeps retryable boot failure non-ready and reports readiness only for the successful attempt', async () => {
+    await startCloudHypervisorEnclaveLifecycle(options.config, provider, {});
+    manager.startInstance.mockRejectedValueOnce(new CloudHypervisorRetryableReadinessError(
+      'guest-network-readiness', 1, 'retryable boot failure',
+    ));
+    dependencies.sleep = jest.fn(async () => {
+      expect(primaryProgress()).toMatchObject({ state: 'starting', bootAttempt: 1 });
+    });
+    await runCloudHypervisorBootLoop(options);
+    expect(dependencies.sleep).toHaveBeenCalledTimes(1);
+    expect(primaryProgress()).toMatchObject({ state: 'ready', bootAttempt: 2 });
+  });
+
+  it('does not publish ready when shutdown races the last guest check', async () => {
+    await startCloudHypervisorEnclaveLifecycle(options.config, provider, {});
+    manager.execute.mockImplementation(async () => {
+      if (manager.execute.mock.calls.length === 2) stopped = true;
+      return { requestId: 'probe', exitCode: 0, signal: null, timedOut: false };
+    });
+    await runCloudHypervisorBootLoop(options);
+    expect(primaryProgress()).toMatchObject({ stage: 'guest-connectivity', state: 'failed' });
   });
 
   it.each(['missing', 'skipped', 'failed'] as const)(
