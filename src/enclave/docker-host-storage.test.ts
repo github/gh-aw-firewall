@@ -6,6 +6,8 @@ import {
   resolveDockerHostTool,
 } from './docker-host-storage';
 
+const linuxIt = process.platform === 'linux' ? it : it.skip;
+
 describe('Docker host enclave writable storage', () => {
   test('counts host exports, both script tmpfs mounts and implicit shm', () => {
     expect(dockerWritableBudget('script', undefined, 64 * 1024 ** 2, 1200 * 1024 ** 2))
@@ -62,7 +64,7 @@ describe('Docker host enclave writable storage', () => {
     } finally { fs.rmSync(root, { recursive: true, force: true }); }
   });
 
-  test('absent mount does not settle an interrupted mount operation', async () => {
+  linuxIt('absent mount does not settle an interrupted mount operation', async () => {
     const root = path.join(process.cwd(), `.docker-host-storage-${randomBytes(8).toString('hex')}`);
     fs.mkdirSync(root, { mode: 0o700 });
     try {

@@ -603,6 +603,19 @@ describe('dynamic enclave runner binding', () => {
 describe('dynamic enclave agent instructions', () => {
   const entrypoint = path.join(containersRoot, 'enclave', 'agent-entrypoint.py');
 
+  function createDynamicEntrypointStage() {
+    const stage = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-dynamic-entrypoint-'));
+    const cleanup = () => fs.rmSync(stage, { recursive: true, force: true });
+    try {
+      fs.mkdirSync(path.join(stage, 'agent'));
+      fs.writeFileSync(path.join(stage, 'bearer'), 'dlgbearer_abcdef0123456789\n');
+      return { stage, cleanup };
+    } catch (error) {
+      cleanup();
+      throw error;
+    }
+  }
+
   function runHarness(script: string, env: Record<string, string>) {
     return spawnSync('python3', ['-c', script], {
       encoding: 'utf8',
@@ -616,6 +629,17 @@ spec = importlib.util.spec_from_file_location("agent_entrypoint", os.environ["EN
 module = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(module)
 `;
+
+  it('creates and cleans up a dynamic entrypoint stage', () => {
+    const { stage, cleanup } = createDynamicEntrypointStage();
+    try {
+      expect(fs.statSync(path.join(stage, 'agent')).isDirectory()).toBe(true);
+      expect(fs.readFileSync(path.join(stage, 'bearer'), 'utf8')).toBe('dlgbearer_abcdef0123456789\n');
+    } finally {
+      cleanup();
+    }
+    expect(fs.existsSync(stage)).toBe(false);
+  });
 
   it('tells the enclave there is no checkout and names the single admitted repository', () => {
     const result = runHarness(
@@ -664,10 +688,8 @@ spec.loader.exec_module(module)
   });
 
   it('writes a bearer-only GitHub MCP config confined to the two delegated tools', () => {
-    const stage = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-dynamic-entrypoint-'));
+    const { stage, cleanup } = createDynamicEntrypointStage();
     try {
-      fs.mkdirSync(path.join(stage, 'agent'));
-      fs.writeFileSync(path.join(stage, 'bearer'), 'dlgbearer_abcdef0123456789\n');
       const result = runHarness(
         `${loader}
 from pathlib import Path
@@ -695,7 +717,7 @@ print(module.GITHUB_MCP_CONFIG_PATH.read_text())
       });
       expect(fs.statSync(path.join(stage, 'agent', 'github-mcp.json')).mode & 0o777).toBe(0o600);
     } finally {
-      fs.rmSync(stage, { recursive: true, force: true });
+      cleanup();
     }
   });
 
@@ -703,10 +725,8 @@ print(module.GITHUB_MCP_CONFIG_PATH.read_text())
     ['a non-fixed endpoint', { AWF_ENCLAVE_AGENT_GITHUB_MCP_URL: 'http://evil.example/mcp/github' }],
     ['a non-canonical repository', { AWF_ENCLAVE_AGENT_DYNAMIC_REPO: 'Octo-Org/Service' }],
   ])('refuses to build a dynamic MCP config with %s', (_label, overrides) => {
-    const stage = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-dynamic-entrypoint-'));
+    const { stage, cleanup } = createDynamicEntrypointStage();
     try {
-      fs.mkdirSync(path.join(stage, 'agent'));
-      fs.writeFileSync(path.join(stage, 'bearer'), 'dlgbearer_abcdef0123456789\n');
       const result = runHarness(
         `${loader}
 from pathlib import Path
@@ -730,7 +750,7 @@ except ValueError:
       );
       expect(result.stdout.trim()).toBe('rejected');
     } finally {
-      fs.rmSync(stage, { recursive: true, force: true });
+      cleanup();
     }
   });
 });

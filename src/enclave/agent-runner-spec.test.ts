@@ -62,6 +62,25 @@ const trustedConfig = {
 };
 
 describe('unified enclave agent runner specification', () => {
+  function createTopologyTestRunner(
+    stdout: (args: string[]) => string,
+    configOverrides: { backend?: string; githubEnabled?: boolean } = {},
+  ) {
+    return createEnclaveRunner(
+      { ...trustedConfig, backend: 'docker', ...configOverrides },
+      {
+        docker: {
+          runDocker: async (args: string[]) => ({
+            exitCode: 0,
+            timedOut: false,
+            stdout: stdout(args),
+            stderr: '',
+          }),
+        },
+      },
+    );
+  }
+
   const spec = deriveEnclaveContainerSpec({
     config: trustedConfig,
     runId: 'abcdef1234567890',
@@ -224,77 +243,39 @@ describe('unified enclave agent runner specification', () => {
     'true|bridge|172.31.0.0/24,|unexpected@172.31.0.40/24,',
     'true|bridge|172.31.0.0/24,|awf-enclave-agent-api-proxy@172.31.0.30/24,unexpected@172.31.0.40/24,',
   ])('rejects a non-isolated dedicated network topology (%s)', async (networkTopology) => {
-    const runner = createEnclaveRunner(
-      { ...trustedConfig, backend: 'docker' },
-      {
-        docker: {
-          runDocker: async (args: string[]) => ({
-            exitCode: 0,
-            timedOut: false,
-            stdout: args[0] === 'network' ? networkTopology : '[]',
-            stderr: '',
-          }),
-        },
-      },
+    const runner = createTopologyTestRunner(
+      (args) => args[0] === 'network' ? networkTopology : '[]',
     );
     await expect(runner.assertAvailable()).rejects.toThrow(/unavailable or not isolated/);
   });
 
   it('accepts only the internal bridge network with the enclave subnet', async () => {
-    const runner = createEnclaveRunner(
-      { ...trustedConfig, backend: 'docker' },
-      {
-        docker: {
-          runDocker: async (args: string[]) => ({
-            exitCode: 0,
-            timedOut: false,
-            stdout: args[0] === 'network'
-              ? 'true|bridge|172.31.0.0/24,|awf-enclave-agent-api-proxy@172.31.0.30/24,'
-              : '[]',
-            stderr: '',
-          }),
-        },
-      },
+    const runner = createTopologyTestRunner(
+      (args) => args[0] === 'network'
+        ? 'true|bridge|172.31.0.0/24,|awf-enclave-agent-api-proxy@172.31.0.30/24,'
+        : '[]',
     );
     await expect(runner.assertAvailable()).resolves.toBeUndefined();
   });
 
   it('requires shared mcpg as the second steady-state peer when enabled', async () => {
-    const runner = createEnclaveRunner(
-      { ...trustedConfig, backend: 'docker', githubEnabled: true },
-      {
-        docker: {
-          runDocker: async (args: string[]) => ({
-            exitCode: 0,
-            timedOut: false,
-            stdout: args[0] === 'network'
-              ? 'true|bridge|172.31.0.0/24,|' +
-                'awf-enclave-agent-api-proxy@172.31.0.30/24,' +
-                'awmg-mcpg@172.31.0.40/24,'
-              : '[]',
-            stderr: '',
-          }),
-        },
-      },
+    const runner = createTopologyTestRunner(
+      (args) => args[0] === 'network'
+        ? 'true|bridge|172.31.0.0/24,|' +
+          'awf-enclave-agent-api-proxy@172.31.0.30/24,' +
+          'awmg-mcpg@172.31.0.40/24,'
+        : '[]',
+      { githubEnabled: true },
     );
     await expect(runner.assertAvailable()).resolves.toBeUndefined();
   });
 
   it('accepts the proxy-only startup topology before shared mcpg is attached', async () => {
-    const runner = createEnclaveRunner(
-      { ...trustedConfig, backend: 'docker', githubEnabled: true },
-      {
-        docker: {
-          runDocker: async (args: string[]) => ({
-            exitCode: 0,
-            timedOut: false,
-            stdout: args[0] === 'network'
-              ? 'true|bridge|172.31.0.0/24,|awf-enclave-agent-api-proxy@172.31.0.30/24,'
-              : '[]',
-            stderr: '',
-          }),
-        },
-      },
+    const runner = createTopologyTestRunner(
+      (args) => args[0] === 'network'
+        ? 'true|bridge|172.31.0.0/24,|awf-enclave-agent-api-proxy@172.31.0.30/24,'
+        : '[]',
+      { githubEnabled: true },
     );
     await expect(runner.assertAvailable()).resolves.toBeUndefined();
   });
