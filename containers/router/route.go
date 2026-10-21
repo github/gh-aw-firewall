@@ -260,16 +260,9 @@ func (s *Service) Classify(req *ClassifyRequest) (*ClassifyResponse, error) {
 }
 
 // Route resolves automatic mode and ranks the offered models with the profile's
-// table. Automatic mode uses the classification's mode, or balanced when there
-// is no classification or its mode is unknown.
+// table.
 func (s *Service) Route(req *RouteRequest) (*RouteResponse, error) {
-	profile := *req.Objective
-	if profile.Mode == ModeAuto {
-		profile.Mode = ModeBalanced
-		if c := req.Classification; c != nil && c.Mode != RecommendUnknown {
-			profile.Mode = Mode(c.Mode)
-		}
-	}
+	profile := resolvedProfile(req)
 	t := s.tables[profile]
 	if t == nil {
 		return nil, requestError(BadRequest, "routing profile is not served: %s", profile.Key())
@@ -277,4 +270,26 @@ func (s *Service) Route(req *RouteRequest) (*RouteResponse, error) {
 	resolved := *req
 	resolved.Objective = &profile
 	return t.Route(&resolved)
+}
+
+// resolvedProfile returns the profile a route request is served with. Automatic
+// mode uses the classification's mode, or balanced when there is no
+// classification or its mode is unknown.
+func resolvedProfile(req *RouteRequest) Profile {
+	profile := *req.Objective
+	if profile.Mode == ModeAuto {
+		profile.Mode = ModeBalanced
+		if c := req.Classification; c != nil && c.Mode != RecommendUnknown {
+			profile.Mode = Mode(c.Mode)
+		}
+	}
+	return profile
+}
+
+// cataloguePair returns the loaded catalogue's entry for p.
+func (s *Service) cataloguePair(p Pair) (Pair, bool) {
+	if i := slices.Index(s.primary.Pairs, p); i >= 0 {
+		return s.primary.Pairs[i], true
+	}
+	return Pair{}, false
 }

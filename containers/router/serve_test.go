@@ -99,8 +99,9 @@ func TestServeOptions(t *testing.T) {
 			}
 			if c.want.level <= slog.LevelInfo {
 				records := parseLogRecords(t, r.stderr)
-				if len(records) != 2 || records[0]["msg"] != "starting" || records[1]["msg"] != "routing tables loaded" ||
-					records[1]["label_cells"] != float64(210) || records[1]["models"] != float64(36) {
+				if len(records) != 3 || records[0]["msg"] != "starting" || records[1]["msg"] != "routing tables loaded" ||
+					records[1]["label_cells"] != float64(210) || records[1]["models"] != float64(36) ||
+					records[2]["msg"] != "telemetry configured" || records[2]["traces"] != "disabled" || records[2]["metrics"] != "disabled" {
 					t.Errorf("records %s", r.stderr)
 				}
 			}
@@ -220,16 +221,23 @@ type served struct {
 
 func startInProcess(t *testing.T, hold time.Duration) *served {
 	t.Helper()
+	return startInProcessWith(t, hold, nil)
+}
+
+// startInProcessWith runs serve with env as its whole environment.
+func startInProcessWith(t *testing.T, hold time.Duration, env map[string]string) *served {
+	t.Helper()
 	var held atomic.Bool
 	testHold = holding(hold, func() { held.Store(true) })
 	t.Cleanup(func() { testHold = nil })
 	addr := "127.0.0.1:" + strconv.Itoa(freePort(t))
-	cmd, err := parseArgs([]string{"--routing-tables", bundledTables(t), "serve", "--bind", addr}, func(string) string { return "" })
+	getenv := func(name string) string { return env[name] }
+	cmd, err := parseArgs([]string{"--routing-tables", bundledTables(t), "serve", "--bind", addr}, getenv)
 	if err != nil {
 		t.Fatal(err)
 	}
 	logs, signals, exit := &logBuffer{}, make(chan os.Signal, 1), make(chan int, 1)
-	go func() { exit <- serve(cmd, logs, signals) }()
+	go func() { exit <- serve(cmd, getenv, logs, signals) }()
 	var stopped time.Time
 	return &served{
 		addr:   addr,
@@ -250,11 +258,18 @@ func startInProcess(t *testing.T, hold time.Duration) *served {
 
 func startProcess(t *testing.T, hold time.Duration) *served {
 	t.Helper()
+	return startProcessWith(t, hold)
+}
+
+// startProcessWith runs the binary with env added to the test's environment.
+func startProcessWith(t *testing.T, hold time.Duration, env ...string) *served {
+	t.Helper()
 	addr := "127.0.0.1:" + strconv.Itoa(freePort(t))
 	cmd := exec.Command(os.Args[0], "--routing-tables", bundledTables(t), "serve", "--bind", addr)
 	// Race-enabled binaries sleep a second at exit by default, which the timing check would count.
 	cmd.Env = append(os.Environ(), "GH_AW_ROUTER_TEST_MAIN=1", "GH_AW_ROUTER_TEST_HOLD="+hold.String(),
 		"GORACE="+strings.TrimSpace(os.Getenv("GORACE")+" atexit_sleep_ms=0"))
+	cmd.Env = append(cmd.Env, env...)
 	logs, out := &logBuffer{}, &logBuffer{}
 	cmd.Stdout, cmd.Stderr = out, logs
 	if err := cmd.Start(); err != nil {
@@ -384,7 +399,7 @@ func TestServeAnswersRequests(t *testing.T) {
 	for _, r := range parseLogRecords(t, s.stderr.String()) {
 		msgs = append(msgs, r["msg"].(string))
 	}
-	want := "starting,routing tables loaded,listening,request,request,shutting down,stopped"
+	want := "starting,routing tables loaded,telemetry configured,listening,request,request,shutting down,stopped"
 	if strings.Join(msgs, ",") != want {
 		t.Errorf("records %v", msgs)
 	}
