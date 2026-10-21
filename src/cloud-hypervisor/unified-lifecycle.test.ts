@@ -1,4 +1,5 @@
 import fs from 'fs';
+import * as os from 'os';
 import * as path from 'path';
 import { PassThrough } from 'stream';
 import { normalizeEnclavesConfig } from '../parsers/enclave-parser';
@@ -23,7 +24,12 @@ import {
 } from './test-fixtures.test-utils';
 import * as cloudHypervisorManager from './manager';
 import { readHostExecutorInvocationDiagnostics } from '../enclave/host-executor-journal';
-import { PRIMARY_READINESS_FILENAME } from './primary-readiness';
+import {
+  PRIMARY_READINESS_DIRECTORY,
+  PRIMARY_READINESS_FILENAME,
+  createPrimaryReadinessReporter,
+} from './primary-readiness';
+import { preserveCleanupArtifacts } from '../artifact-preservation';
 import { CloudHypervisorRetryableReadinessError } from './preflight';
 
 jest.mock('../enclave/cloud-hypervisor-host-service');
@@ -204,10 +210,33 @@ describe('unified Cloud Hypervisor primary boot and enclave lifecycle', () => {
   });
 
   function primaryProgress() {
-    const file = path.join(directory, 'proxy-logs', PRIMARY_READINESS_FILENAME);
+    const file = path.join(directory, 'proxy-logs', PRIMARY_READINESS_DIRECTORY, PRIMARY_READINESS_FILENAME);
     expect(fs.statSync(file).mode & 0o777).toBe(0o600);
     return JSON.parse(fs.readFileSync(file, 'utf8'));
   }
+
+  it('keeps readiness private across cleanup and relaunch with persistent proxy logs', () => {
+    const proxyLogsDir = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-persistent-proxy-logs-'));
+    const readinessDir = path.join(proxyLogsDir, PRIMARY_READINESS_DIRECTORY);
+    try {
+      const first = createPrimaryReadinessReporter(readinessDir);
+      first.publish('ready', 'ready', 1, '/private/previous');
+      first.close();
+
+      preserveCleanupArtifacts(directory, { proxyLogsDir });
+
+      const file = path.join(readinessDir, PRIMARY_READINESS_FILENAME);
+      expect(fs.statSync(file).mode & 0o777).toBe(0o600);
+      const second = createPrimaryReadinessReporter(readinessDir);
+      second.publish('preflight', 'starting', 0);
+      second.close();
+      expect(JSON.parse(fs.readFileSync(file, 'utf8'))).toMatchObject({
+        stage: 'preflight', state: 'starting', bootAttempt: 0,
+      });
+    } finally {
+      fs.rmSync(proxyLogsDir, { recursive: true, force: true });
+    }
+  });
 
   it('publishes primary readiness only after boot, guest network, and connectivity checks', async () => {
     await startCloudHypervisorEnclaveLifecycle(options.config, provider, {});

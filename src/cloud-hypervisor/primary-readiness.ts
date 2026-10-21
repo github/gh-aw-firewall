@@ -3,6 +3,7 @@ import * as path from 'path';
 import { assertRealDirectory } from '../fs-utils';
 
 export const PRIMARY_READINESS_FILENAME = 'awf-primary-vm-readiness.json';
+export const PRIMARY_READINESS_DIRECTORY = 'cloud-hypervisor';
 export const PRIMARY_BOOT_STAGES = [
   'preflight', 'compose-infrastructure', 'infrastructure-discovery',
   'filesystem-write-policy', 'topology-revalidation', 'vmm-configuration',

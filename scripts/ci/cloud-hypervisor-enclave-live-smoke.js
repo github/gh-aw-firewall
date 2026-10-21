@@ -921,28 +921,28 @@ async function verifyPrimaryVmIdentity(progress, child, observed) {
 async function waitForPrimaryVmReadiness(child, deadline, diagnostics, dependencies = {}) {
   const {
     PRIMARY_READINESS_FILENAME,
+    PRIMARY_READINESS_DIRECTORY,
   } = require('../../dist/cloud-hypervisor/primary-readiness');
   const readProgress = dependencies.readProgress || readPrimaryVmProgress;
   const capture = dependencies.capture || captureVmResidue;
   const verify = dependencies.verify || verifyPrimaryVmIdentity;
   const now = dependencies.now || Date.now;
   const sleep = dependencies.sleep || ((ms) => new Promise((resolve) => setTimeout(resolve, ms)));
-  const file = path.join(path.dirname(diagnostics.startupErrorFile), PRIMARY_READINESS_FILENAME);
+  const file = path.join(path.dirname(diagnostics.startupErrorFile),
+    PRIMARY_READINESS_DIRECTORY, PRIMARY_READINESS_FILENAME);
   let progress;
   let observed;
   let inspection = 'not-attempted';
   let identity = 'not-attempted';
   const fail = (reason) => {
-    if (!progress) {
-      try {
-        progress = readProgress(file, child);
-      } catch {
-        // Child status remains authoritative if its final progress is unavailable.
-      }
+    try {
+      progress = readProgress(file, child) || progress;
+    } catch {
+      // Child status remains authoritative if its final progress is unavailable.
     }
     if (inspection === 'not-attempted') {
       try {
-        observed = capture(deadline);
+        observed = capture(now() + 10_000);
         inspection = 'complete';
       } catch {
         inspection = 'failed';
@@ -1004,10 +1004,11 @@ async function waitForPrimaryVmReadiness(child, deadline, diagnostics, dependenc
           identity = await verify(current, child, observed);
         } catch {
           identity = 'inspection-failed';
+          checkChild();
           fail('inspection-failure');
         }
-        if (identity === 'mismatch') fail('unexpected-resources');
         checkChild();
+        if (identity === 'mismatch') fail('unexpected-resources');
         if (identity === 'verified' && now() < deadline) return observed;
       }
     }
@@ -2140,7 +2141,7 @@ function removePrivateAwfLogs(stdoutFile, stderrFile, startupErrorFiles = []) {
   let failed = false;
   for (const file of [stdoutFile, stderrFile, ...startupErrorFiles,
     ...startupErrorFiles.map((startupFile) =>
-      path.join(path.dirname(startupFile), 'awf-primary-vm-readiness.json')),
+      path.join(path.dirname(startupFile), 'cloud-hypervisor', 'awf-primary-vm-readiness.json')),
   ]) {
     try {
       fs.rmSync(file, { force: true });

@@ -14,7 +14,7 @@ import {
   observeMountTopology, type MountTopologyEvidence, createStoragePropagationEvidence,
 } from '../../src/cloud-hypervisor/mount-topology';
 import {
-  createPrimaryReadinessReporter, PRIMARY_READINESS_FILENAME,
+  createPrimaryReadinessReporter, PRIMARY_READINESS_DIRECTORY, PRIMARY_READINESS_FILENAME,
 } from '../../src/cloud-hypervisor/primary-readiness';
 
 const root = path.resolve(__dirname, '../..');
@@ -39,7 +39,7 @@ const harness = require(harnessPath) as {
     child: StartupChild, deadline: number, diagnostics: { startupErrorFile: string },
     dependencies?: {
       readProgress?: () => PrimaryProgress | undefined;
-      capture?: () => VmResidue;
+      capture?: (deadline?: number) => VmResidue;
       verify?: () => Promise<string>;
       now?: () => number;
       sleep?: (ms: number) => Promise<void>;
@@ -880,7 +880,8 @@ describe('sanitized host startup diagnostics', () => {
   it('attempts removal of every raw file despite a cleanup error without exposing it', () => {
     const stdoutFile = path.join(directory, 'awf.stdout.log');
     const startupErrorFile = path.join(directory, 'awf-startup-error.json');
-    const primaryFile = path.join(directory, PRIMARY_READINESS_FILENAME);
+    const primaryFile = path.join(directory, PRIMARY_READINESS_DIRECTORY, PRIMARY_READINESS_FILENAME);
+    fs.mkdirSync(path.dirname(primaryFile), { recursive: true });
     for (const file of [stdoutFile, stderrFile, startupErrorFile, primaryFile]) fs.writeFileSync(file, sentinel);
     const nodeFs = require('fs') as typeof fs;
     const originalRemove = fs.rmSync;
@@ -1527,6 +1528,7 @@ describe('sanitized live acceptance failure reporting', () => {
     it('times out gateway-only readiness with counts but no claimed primary identity', async () => {
       await expect(wait()).rejects.toThrow('Primary VM readiness failed: timeout');
       expect(clock).toBe(1000);
+      expect(dependencies.capture).toHaveBeenLastCalledWith(11_000);
       expect(dependencies.verify).not.toHaveBeenCalled();
       expect(diagnostic()).toMatchObject({
         stage: 'primary-vm-readiness', reason: 'timeout',
@@ -1591,6 +1593,41 @@ describe('sanitized live acceptance failure reporting', () => {
       expect(diagnostic().child.signal).toBe('SIGKILL');
     });
 
+    it('uses the final readiness publication when the child exits between polls', async () => {
+      dependencies.sleep.mockImplementationOnce(async (ms) => {
+        clock += ms;
+        child.exitCode = 9;
+        progress = { ...progress!, stage: 'guest-boot', state: 'failed' };
+      });
+      await expect(wait()).rejects.toThrow(/exit/);
+      expect(diagnostic()).toMatchObject({
+        primary: { stage: 'guest-boot', state: 'failed' },
+        child: { status: 'exited', exitCode: 9 },
+      });
+    });
+
+    it.each([
+      ['mismatch', 'exit', 'exitCode'],
+      ['rejection', 'signal', 'signalCode'],
+    ])('prioritizes child termination over identity %s', async (verification, reason, status) => {
+      progress = { ...progress!, stage: 'ready', state: 'ready' };
+      dependencies.verify.mockImplementation(async () => {
+        if (status === 'exitCode') child.exitCode = 9;
+        else child.signalCode = 'SIGTERM';
+        if (verification === 'rejection') throw new Error(sentinel);
+        return 'mismatch';
+      });
+      await expect(wait()).rejects.toThrow(new RegExp(reason));
+      expect(diagnostic()).toMatchObject({
+        reason,
+        child: {
+          status: reason === 'exit' ? 'exited' : 'signalled',
+          exitCode: reason === 'exit' ? 9 : null,
+          signal: reason === 'signal' ? 'SIGTERM' : null,
+        },
+      });
+    });
+
     it.each(['progress', 'resources', 'identity'])('sanitizes %s inspection failures', async (part) => {
       progress = { ...progress!, stage: 'ready', state: 'ready' };
       if (part === 'progress') dependencies.readProgress.mockImplementation(() => { throw new Error(sentinel); });
@@ -1611,8 +1648,8 @@ describe('sanitized live acceptance failure reporting', () => {
     });
 
     it('reads only complete, private, owner-matched, allowlisted progress records', () => {
-      const file = path.join(directory, PRIMARY_READINESS_FILENAME);
-      const reporter = createPrimaryReadinessReporter(directory);
+      const file = path.join(directory, PRIMARY_READINESS_DIRECTORY, PRIMARY_READINESS_FILENAME);
+      const reporter = createPrimaryReadinessReporter(path.dirname(file));
       reporter.publish('guest-boot', 'starting', 1, '/private/primary');
       expect(harness.readPrimaryVmProgress(file, child)).toMatchObject({ state: 'starting' });
       reporter.publish('ready', 'ready', 1, '/private/primary');
@@ -1641,28 +1678,28 @@ describe('sanitized live acceptance failure reporting', () => {
     });
 
     it('safely replaces a stale readiness record on restart and rejects unsafe existing targets', () => {
-      const file = path.join(directory, PRIMARY_READINESS_FILENAME);
-      const first = createPrimaryReadinessReporter(directory);
+      const file = path.join(directory, PRIMARY_READINESS_DIRECTORY, PRIMARY_READINESS_FILENAME);
+      const first = createPrimaryReadinessReporter(path.dirname(file));
       first.publish('ready', 'ready', 1, '/private/previous');
       first.close();
-      const second = createPrimaryReadinessReporter(directory);
+      const second = createPrimaryReadinessReporter(path.dirname(file));
       second.publish('preflight', 'starting', 0);
       second.close();
       expect(harness.readPrimaryVmProgress(file, child)).toMatchObject({
         state: 'starting', runId: null, bootAttempt: 0,
       });
       fs.chmodSync(file, 0o644);
-      expect(() => createPrimaryReadinessReporter(directory)).toThrow(/Unsafe/);
+      expect(() => createPrimaryReadinessReporter(path.dirname(file))).toThrow(/Unsafe/);
       expect(fs.readFileSync(file, 'utf8')).toContain('"state":"starting"');
       fs.rmSync(file);
       const target = path.join(directory, 'target');
       fs.writeFileSync(target, sentinel);
       fs.symlinkSync(target, file);
-      expect(() => createPrimaryReadinessReporter(directory)).toThrow();
+      expect(() => createPrimaryReadinessReporter(path.dirname(file))).toThrow();
       expect(fs.readFileSync(target, 'utf8')).toBe(sentinel);
       fs.rmSync(file);
       fs.linkSync(target, file);
-      expect(() => createPrimaryReadinessReporter(directory)).toThrow(/Unsafe/);
+      expect(() => createPrimaryReadinessReporter(path.dirname(file))).toThrow(/Unsafe/);
       expect(fs.readFileSync(target, 'utf8')).toBe(sentinel);
     });
 

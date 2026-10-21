@@ -27,7 +27,11 @@ import {
   probeGuestConnectivity,
   waitForGuestNetworkReady,
 } from './runtime-readiness';
-import { createPrimaryReadinessReporter, type PrimaryBootStage } from './primary-readiness';
+import {
+  createPrimaryReadinessReporter,
+  PRIMARY_READINESS_DIRECTORY,
+  type PrimaryBootStage,
+} from './primary-readiness';
 
 const CLOUD_HYPERVISOR_BOOT_RETRY_DELAYS_MS = [5_000, 10_000] as const;
 
@@ -110,7 +114,10 @@ export async function runCloudHypervisorBootLoop({
   );
   try {
     if (config.enclaves?.enabled) {
-      readiness = createPrimaryReadinessReporter(proxyLogsDir || path.join(workDir, 'proxy-logs'));
+      readiness = createPrimaryReadinessReporter(path.join(
+        proxyLogsDir || path.join(workDir, 'proxy-logs'),
+        PRIMARY_READINESS_DIRECTORY,
+      ));
     }
     publish();
     await ensurePreflight();
