@@ -22,6 +22,7 @@ const runId = 'a'.repeat(32);
 const invocationId = 'b'.repeat(32);
 const seedId = 'c'.repeat(32);
 const MiB = 1024 ** 2;
+const describeLinux = process.platform === 'linux' ? describe : describe.skip;
 
 class FakeDocker {
   calls: string[][] = [];
@@ -111,7 +112,7 @@ class FakeDocker {
   };
 }
 
-describe('host-owned Docker enclave executor', () => {
+describeLinux('host-owned Docker enclave executor', () => {
   let root: string;
   let docker: FakeDocker;
   let plan: HostExecutorInvocationPlan;
