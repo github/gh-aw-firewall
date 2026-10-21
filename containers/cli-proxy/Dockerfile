@@ -34,15 +34,17 @@ RUN wget -q "https://github.com/cli/cli/archive/refs/tags/v${GH_VERSION}.tar.gz"
 FROM node:26.11.1-alpine3.24@sha256:143494b1da2945f061539253adc65e4f1569ddf07da2d384c022c791a9d90a4a
 
 # Install system packages.
-# Pin curl >= 8.21.0-r0 to fix CVE-2026-8924/8925/8926/8927/9079/10536/11564/11856
-# (Alpine 3.24 ships 8.20.0-r1 by default; the constraint forces the patched build).
+# Alpine 3.24's stable repository still ships curl 8.22.0-r0, affected by
+# CVE-2026-92392. Use the fixed edge package with an explicit minimum version.
 # The alpine community repo includes github-cli — we replace it below with the
 # official release binary to control the exact Go toolchain and module versions.
 RUN apk upgrade --no-cache \
     && apk add --no-cache \
-        "curl>=8.21.0-r0" \
         ca-certificates \
-        bash
+        bash \
+    && apk add --no-cache \
+        --repository=https://dl-cdn.alpinelinux.org/alpine/edge/main \
+        "curl>=8.23.0-r0"
 
 # Build the pinned GitHub CLI release with the patched Go toolchain.
 COPY --from=gh-build /tmp/cli-2.98.0/bin/gh /usr/local/bin/gh
