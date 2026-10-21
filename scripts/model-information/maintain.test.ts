@@ -5,7 +5,7 @@ import { execFileSync } from 'node:child_process';
 
 const {
   captureSources, loadCaptures, refreshImport, buildReport, selectPullRequest,
-  reviewReasons, differences, inspectCatalogue, hash, json, facts,
+  reviewReasons, differences, inspectCatalogue, documentText, hash, json, facts,
 } = require('./maintain.cjs');
 const sources = require('./maintenance-sources.json');
 const root = path.resolve(__dirname, '../..');
@@ -77,6 +77,40 @@ describe('offline scheduled source maintenance', () => {
       scope: expect.stringContaining('NOT native-provider'),
     });
     expect(fs.readFileSync(path.join(evidence, 'openai-models.txt'), 'utf8')).toBe(quote);
+  });
+
+  it('decodes document entities once while retaining literal entity evidence', () => {
+    expect(documentText(Buffer.from(
+      '<p>&amp;lt;model&amp;gt; &amp;amp; &quot;exact&quot; &#39;quote&#39;&nbsp;&#160;&lt;literal&gt;</p>',
+    ))).toBe('&lt;model&gt; &amp; "exact" \'quote\' <literal>');
+  });
+
+  it('uses private atomic captures without following pre-existing file symlinks', async () => {
+    const sentinel = path.join(cwd, 'must-not-overwrite');
+    fs.writeFileSync(sentinel, 'unchanged');
+    fs.unlinkSync(path.join(evidence, 'openai-models.raw'));
+    fs.symlinkSync(sentinel, path.join(evidence, 'openai-models.raw'));
+    fs.chmodSync(evidence, 0o755);
+    await captureSources(evidence, fakeFetch());
+    expect(fs.readFileSync(sentinel, 'utf8')).toBe('unchanged');
+    expect(fs.lstatSync(path.join(evidence, 'openai-models.raw')).isSymbolicLink()).toBe(false);
+    expect(fs.statSync(evidence).mode & 0o777).toBe(0o700);
+    for (const file of fs.readdirSync(evidence).filter(name => /\.(raw|txt|json)$/.test(name))) {
+      expect(fs.statSync(path.join(evidence, file)).mode & 0o777).toBe(0o600);
+    }
+    expect(fs.readdirSync(evidence).some(name => name.startsWith('.capture-'))).toBe(false);
+    expect(loadCaptures(evidence)).toHaveLength(sources.length);
+  });
+
+  it('rejects a symlinked evidence directory or unsafe source ID before retrieval', async () => {
+    const link = path.join(cwd, 'evidence-link');
+    fs.symlinkSync(evidence, link, 'dir');
+    const fetcher = jest.fn(fakeFetch());
+    await expect(captureSources(link, fetcher)).rejects.toThrow('not a symlink');
+    await expect(captureSources(evidence, fetcher, [{
+      ...sources[0], id: '../outside-evidence',
+    }])).rejects.toThrow('Unsafe capture source ID');
+    expect(fetcher).not.toHaveBeenCalled();
   });
 
   it('is a true no-op across retrieval times, API formatting and decimal-equivalent prices', async () => {
@@ -280,7 +314,7 @@ describe('offline scheduled source maintenance', () => {
 
   it('deduplicates open PRs by exact ownership boundaries, and fails on competing PRs', () => {
     const pr = {
-      number: 42, title: '[models] Refresh canonical model sources',
+      number: 42, title: 'chore: refresh canonical model sources',
       headRefName: 'automation/model-source-maintenance-123', baseRefName: 'main', isCrossRepository: false,
     };
     expect(selectPullRequest([])).toBeNull();

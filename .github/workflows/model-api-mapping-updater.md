@@ -94,7 +94,7 @@ safe-outputs:
         AGENT_RESULT: ${{ needs.agent.result }}
       run: test "$AGENT_RESULT" = success
   create-pull-request:
-    title-prefix: "[models] "
+    title-prefix: "chore: "
     draft: false
     max: 1
     auto-merge: false
@@ -120,7 +120,7 @@ safe-outputs:
       - src/model-information.compat.generated.json
   push-to-pull-request-branch:
     target: "*"
-    required-title-prefix: "[models] "
+    required-title-prefix: "chore: "
     base-branch: main
     fallback-as-pull-request: false
     github-token-for-extra-empty-commit: none
@@ -138,8 +138,8 @@ safe-outputs:
 
 # Scheduled canonical model source maintenance
 
-Implement evidence-backed source upkeep, not a read-only drift report. Reference
-#10298; do not close it or claim feed-publication gates are complete.
+Implement evidence-backed source upkeep, not a read-only drift report. Reference #10298;
+do not close it or claim feed-publication gates are complete.
 
 ## Read and compare
 
@@ -230,7 +230,8 @@ If no material facts changed and coverage/validation succeeded, call `noop`
 without touching files. Otherwise commit the complete validated source/report/
 projection set. If `existing-pr.json` is non-null, invoke only
 `push_to_pull_request_branch` for its exact PR number. If it is null, invoke only
-`create_pull_request`, title `Refresh canonical model sources`, branch
+`create_pull_request`, title `refresh canonical model sources` (the configured
+prefix produces `chore: refresh canonical model sources`), branch
 `automation/model-source-maintenance-` followed by this run's `GITHUB_RUN_ID`.
 The stable title/head-prefix, pre-run selection and non-cancelling concurrency
 group deduplicate runs. Never create a second PR while one is open.

@@ -13,6 +13,7 @@ const reportFile = 'shared/model-information/maintenance-report.json';
 const rawImport = 'containers/api-proxy/models.dev.catalog.json';
 const metadataFile = 'shared/model-information/imported/legacy-models-dev.metadata.json';
 const snapshotFile = 'shared/model-information/imported/legacy-models-dev.snapshot.v1.json';
+const maintenanceTitle = 'chore: refresh canonical model sources';
 const projections = [
   snapshotFile, 'shared/model-information/catalog.generated.json',
   'shared/model-information/manifest.generated.json', 'shared/model-information/target.generated.json',
@@ -91,15 +92,38 @@ function inspectCatalogue(bytes, capture) {
 }
 
 function documentText(bytes) {
+  const entities = {
+    '&nbsp;': ' ', '&#160;': ' ', '&amp;': '&', '&lt;': '<', '&gt;': '>',
+    '&quot;': '"', '&#39;': "'",
+  };
   return bytes.toString('utf8')
     .replace(/<(script|style|noscript|svg)\b[^>]*>[\s\S]*?<\/\1>/gi, ' ')
-    .replace(/<[^>]+>/g, ' ').replace(/&nbsp;|&#160;/g, ' ')
-    .replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>')
-    .replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/\s+/g, ' ').trim();
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&(?:nbsp|amp|lt|gt|quot);|&#(?:160|39);/g, entity => entities[entity])
+    .replace(/\s+/g, ' ').trim();
+}
+
+function writeCapture(directory, filename, content) {
+  const staging = fs.mkdtempSync(path.join(directory, '.capture-'));
+  try {
+    const file = path.join(staging, 'evidence');
+    fs.writeFileSync(file, content, { flag: 'wx', mode: 0o600 });
+    fs.renameSync(file, path.join(directory, filename));
+  } finally {
+    fs.rmSync(staging, { recursive: true, force: true });
+  }
 }
 
 async function captureSources(directory, fetcher = fetch, sources = approvedSources) {
-  fs.mkdirSync(directory, { recursive: true });
+  if (sources.some(source => !/^[a-z][a-z0-9-]*$/.test(source.id))) {
+    throw new Error('Unsafe capture source ID');
+  }
+  fs.mkdirSync(directory, { recursive: true, mode: 0o700 });
+  const info = fs.lstatSync(directory);
+  if (!info.isDirectory() || (process.getuid && info.uid !== process.getuid())) {
+    throw new Error('Evidence directory must be an owned directory, not a symlink');
+  }
+  fs.chmodSync(directory, 0o700);
   const captures = [];
   for (const source of sources) {
     const errors = [];
@@ -114,7 +138,7 @@ async function captureSources(directory, fetcher = fetch, sources = approvedSour
         const bytes = Buffer.from(await response.arrayBuffer());
         if (bytes.length > 12 * 1024 * 1024) throw new Error('Oversized response');
         // Retain failed validation evidence too, without labelling it a successful capture.
-        fs.writeFileSync(path.join(directory, `${source.id}.attempt-${errors.length}.raw`), bytes);
+        writeCapture(directory, `${source.id}.attempt-${errors.length}.raw`, bytes);
         const text = source.kind === 'catalogue' ? bytes.toString('utf8') : documentText(bytes);
         if (text.length < 80 || /<title>[^<]*(access denied|just a moment|sign in)/i.test(bytes.toString('utf8'))) {
           throw new Error('Empty, incomplete or authentication/challenge page');
@@ -128,8 +152,8 @@ async function captureSources(directory, fetcher = fetch, sources = approvedSour
           const { snapshot, excluded } = inspectCatalogue(bytes, captured);
           captured.import = { accepted: snapshot.accepted, rejected: snapshot.rejected, collisions: snapshot.collisions, excluded };
         }
-        fs.writeFileSync(path.join(directory, `${source.id}.raw`), bytes);
-        fs.writeFileSync(path.join(directory, `${source.id}.txt`), text);
+        writeCapture(directory, `${source.id}.raw`, bytes);
+        writeCapture(directory, `${source.id}.txt`, text);
         break;
       } catch (error) {
         captured = undefined;
@@ -138,7 +162,7 @@ async function captureSources(directory, fetcher = fetch, sources = approvedSour
     }
     captures.push(captured || { id: source.id, scope: source.scope, status: 'failed', errors });
   }
-  fs.writeFileSync(path.join(directory, 'captures.json'), json({ schemaVersion: 1, sources: captures }));
+  writeCapture(directory, 'captures.json', json({ schemaVersion: 1, sources: captures }));
   return captures;
 }
 
@@ -310,7 +334,7 @@ function selectPullRequest(pulls) {
   const matches = pulls.filter(pr => pr.headRefName.startsWith('automation/model-source-maintenance-') &&
     !pr.isCrossRepository);
   if (matches.length > 1) throw new Error('Multiple maintenance PRs found; reconcile before updating');
-  if (matches.some(pr => pr.title !== '[models] Refresh canonical model sources' || pr.baseRefName !== 'main')) {
+  if (matches.some(pr => pr.title !== maintenanceTitle || pr.baseRefName !== 'main')) {
     throw new Error('Maintenance PR identity changed; preserve human edits and reconcile before updating');
   }
   return matches[0] || null;
@@ -342,5 +366,5 @@ async function main() {
 if (require.main === module) main().catch(error => { console.error(error.message); process.exitCode = 1; });
 module.exports = {
   captureSources, loadCaptures, refreshImport, buildReport, selectPullRequest,
-  facts, differences, reviewReasons, inspectCatalogue, hash, json, allowed, projections,
+  facts, differences, reviewReasons, inspectCatalogue, documentText, hash, json, allowed, projections, maintenanceTitle,
 };

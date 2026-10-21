@@ -37,7 +37,7 @@ describe('scheduled canonical model source maintenance', () => {
       'base-branch': 'main', 'fallback-as-issue': false,
     });
     expect(push).toMatchObject({
-      target: '*', 'required-title-prefix': '[models] ', 'fallback-as-pull-request': false,
+      target: '*', 'required-title-prefix': 'chore: ', 'fallback-as-pull-request': false,
     });
     expect(push['allowed-files']).toEqual(create['allowed-files']);
     for (const file of projections) {
@@ -99,5 +99,25 @@ describe('scheduled canonical model source maintenance', () => {
     expect(safeTools).not.toContain('create_issue');
     expect(lockText).not.toContain('GH_AW_CI_TRIGGER_TOKEN');
     expect(lockText.split('\n')[0]).toContain('"compiler_version":"v0.92.6"');
+  });
+
+  it('creates maintenance PR titles accepted by the existing repository title gate', () => {
+    const titleWorkflow = yaml.load(fs.readFileSync(path.join(workflowsDir, 'pr-title.yml'), 'utf8')) as {
+      jobs: Record<string, {
+        steps: { uses?: string; with: { types: string; scopes: string; subjectPattern: string } }[];
+      }>;
+    };
+    const gate = titleWorkflow.jobs['pr-title'].steps.find(step =>
+      step.uses?.startsWith('amannn/action-semantic-pull-request@'))?.with;
+    if (!gate) throw new Error('Missing repository PR title gate');
+    const { maintenanceTitle } = require('../model-information/maintain.cjs');
+    const match = maintenanceTitle.match(/^([a-z]+)(?:\(([^)]+)\))?: (.+)$/)!;
+    expect(match).not.toBeNull();
+    expect(gate.types.split(/\s+/)).toContain(match[1]);
+    if (match[2]) expect(gate.scopes.split(/\s+/)).toContain(match[2]);
+    expect(match[3]).toMatch(new RegExp(gate.subjectPattern));
+    expect(maintenanceTitle).toBe(
+      `${frontmatter['safe-outputs']['create-pull-request']['title-prefix']}refresh canonical model sources`,
+    );
   });
 });
