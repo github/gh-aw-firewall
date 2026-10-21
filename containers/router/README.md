@@ -239,8 +239,8 @@ In AWF, these records are the router's only log. At the end of a routed run, AWF
 before its other containers, so that it logs `shutting down` and `stopped`, and saves the
 container's whole log as `router-logs/router.jsonl`. That's next to `api-proxy-logs/` in
 `--proxy-logs-dir` when it's set, and in `/tmp/router-logs-<timestamp>/` otherwise. Only the user
-who ran AWF can read it. With diagnostic logs on, a failed run also keeps the last 200 lines in
-`diagnostics/awf-router.log`. See AWF's
+who ran AWF can read it, and AWF's diagnostic log collection leaves the router out so that no
+copy is world-readable. See AWF's
 [log file inventory](https://github.com/github/gh-aw-firewall/blob/main/docs/awf-config-spec.md#router-logs).
 
 ### Telemetry

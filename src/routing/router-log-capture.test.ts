@@ -2,7 +2,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { spawnSync } from 'child_process';
-import { ROUTER_LOG_FILE, stopRouterAndSaveLogs } from './router-log-capture';
+import { MAX_ROUTER_LOG_BYTES, ROUTER_LOG_FILE, stopRouterAndSaveLogs } from './router-log-capture';
 import { mockExecaFn } from '../test-helpers/mock-execa.test-utils';
 import { logger } from '../logger';
 
@@ -189,6 +189,47 @@ describe('stopRouterAndSaveLogs', () => {
 
     expect(dockerArgs()).toEqual([LOOKUP, STOP]);
     expect(fs.readdirSync(elsewhere)).toEqual([]);
+  });
+
+  linuxIt('creates nothing when a parent of the router log directory is a symlink', async () => {
+    const elsewhere = path.join(root, 'elsewhere');
+    fs.mkdirSync(elsewhere);
+    fs.symlinkSync(elsewhere, path.join(root, 'linked-logs'));
+    scriptDocker();
+
+    await expect(stopRouterAndSaveLogs(workDir, path.join(root, 'linked-logs', 'router-logs')))
+      .resolves.toBe('failed');
+
+    expect(dockerArgs()).toEqual([LOOKUP, STOP]);
+    expect(fs.readdirSync(elsewhere)).toEqual([]);
+  });
+
+  linuxIt('keeps only the first 16 MiB of an oversized log', async () => {
+    scriptDocker({ output: 'x'.repeat(MAX_ROUTER_LOG_BYTES + 4096) });
+
+    await expect(stopRouterAndSaveLogs(workDir, routerLogsDir)).resolves.toBe('incomplete');
+
+    expect(fs.statSync(logFile).size).toBe(MAX_ROUTER_LOG_BYTES);
+    expect(mockedLogger.warn).toHaveBeenCalledWith(expect.stringContaining(`exceeded ${MAX_ROUTER_LOG_BYTES} bytes`));
+  });
+
+  linuxIt('kills docker logs once the file passes the limit', async () => {
+    const kill = jest.fn();
+    mockExecaFn.mockImplementation((_command: string, args: string[], options: { stdout?: unknown }) => {
+      const ok = { stdout: '', stderr: '', exitCode: 0, failed: false, timedOut: false };
+      if (args[0] === 'compose') return Promise.resolve({ ...ok, stdout: `${ROUTER_ID}\n` });
+      if (args[0] === 'stop') return Promise.resolve(ok);
+      // A stream that keeps going until it is killed.
+      fs.writeSync(options.stdout as number, Buffer.alloc(MAX_ROUTER_LOG_BYTES + 1, 'x'));
+      let finish: (value: Result) => void = () => undefined;
+      kill.mockImplementation(() => finish({ ...ok, exitCode: undefined, failed: true }));
+      return Object.assign(new Promise<Result>(resolve => { finish = resolve; }), { kill });
+    });
+
+    await expect(stopRouterAndSaveLogs(workDir, routerLogsDir)).resolves.toBe('incomplete');
+
+    expect(kill).toHaveBeenCalledWith('SIGKILL');
+    expect(fs.statSync(logFile).size).toBe(MAX_ROUTER_LOG_BYTES);
   });
 
   linuxIt.each(['symlink', 'hard link'])('refuses to write through a %s at router.jsonl', async kind => {

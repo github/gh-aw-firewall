@@ -7,7 +7,6 @@ import {
   SQUID_CONTAINER_NAME,
   IPTABLES_INIT_CONTAINER_NAME,
   API_PROXY_CONTAINER_NAME,
-  ROUTER_CONTAINER_NAME,
 } from './constants';
 import { getLocalDockerEnv } from './docker-host';
 import { sanitizeDockerComposeYaml } from './compose-sanitizer';
@@ -22,8 +21,8 @@ import { sanitizeDockerComposeYaml } from './compose-sanitizer';
  * - `docker-compose.yml`       – Generated compose file with TOKEN/KEY/SECRET values redacted
  *
  * Containers that were never started (e.g. awf-api-proxy when `--enable-api-proxy` is
- * not set, or awf-router without model routing) are silently skipped — `docker logs`
- * returns a non-zero exit code and the error is swallowed.
+ * not set) are silently skipped — `docker logs` returns a non-zero exit code and the
+ * error is swallowed.
  *
  * Must be called BEFORE stopContainers() because `docker compose down -v` destroys
  * containers (and their log streams).
@@ -46,7 +45,6 @@ export async function collectDiagnosticLogs(workDir: string): Promise<void> {
     AGENT_CONTAINER_NAME,
     API_PROXY_CONTAINER_NAME,
     IPTABLES_INIT_CONTAINER_NAME,
-    ROUTER_CONTAINER_NAME,
   ];
 
   for (const container of containers) {

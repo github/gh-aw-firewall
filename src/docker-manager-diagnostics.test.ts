@@ -111,20 +111,15 @@ describe('docker-manager diagnostics', () => {
       expect(sanitized).toContain('not_sensitive: keepme');
     });
 
-    it('should collect the model router\'s logs', async () => {
-      mockExecaFn.mockImplementation(async (_command: string, args: string[]) => (
-        args[0] === 'logs' && args[args.length - 1] === 'awf-router'
-          ? { stdout: '{"msg":"stopped"}', stderr: '', exitCode: 0 }
-          : { stdout: '', stderr: 'No such container', exitCode: 1 }
-      ));
+    it('should never copy the model router\'s logs into diagnostics', async () => {
+      // Teardown keeps them in router-logs/router.jsonl, readable only by the invoking user;
+      // diagnostics are made world-readable when they are preserved.
+      mockExecaFn.mockResolvedValue({ stdout: '{"msg":"stopped"}', stderr: '', exitCode: 0 });
       try {
         await collectDiagnosticLogs(getDir());
 
-        expect(mockExecaFn).toHaveBeenCalledWith(
-          'docker', ['logs', '--tail', '200', 'awf-router'], expect.anything(),
-        );
-        expect(fs.readFileSync(path.join(getDir(), 'diagnostics', 'awf-router.log'), 'utf8'))
-          .toBe('{"msg":"stopped"}\n');
+        expect(JSON.stringify(mockExecaFn.mock.calls)).not.toContain('awf-router');
+        expect(fs.existsSync(path.join(getDir(), 'diagnostics', 'awf-router.log'))).toBe(false);
       } finally {
         mockExecaFn.mockReset();
       }

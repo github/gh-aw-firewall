@@ -2404,9 +2404,11 @@ The model router logs only to stderr. At the end of a routed run, AWF stops the 
 `docker compose down`, so that the router writes its shutdown records, and then copies the
 container's complete log stream into this directory. No container mounts it. The directory
 (`0700`) and the file (`0600`) belong to the user who ran AWF (`SUDO_UID` when AWF runs under
-`sudo`), because a custom router image could log more than the bundled one does. If the router
-can't be stopped or read within 5 s, AWF logs a warning, keeps whatever it saved and continues
-teardown.
+`sudo`), because a custom router image could log more than the bundled one does. For the same
+reason, `--diagnostic-logs` collection, whose copies become world-readable, leaves the router
+out, and a path whose components include a symlink is refused. If the router can't be stopped
+or read within 5 s, AWF logs a warning, keeps whatever it saved and continues teardown. The file
+stops at 16 MiB.
 
 | File | Format | Description | Always written |
 |------|--------|-------------|----------------|

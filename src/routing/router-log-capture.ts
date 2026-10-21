@@ -14,7 +14,14 @@ export const ROUTER_LOG_FILE = 'router.jsonl';
  * timeout, the same one `docker compose down -t 1` gives it, fits inside it.
  */
 const CAPTURE_DEADLINE_MS = 5000;
+/**
+ * The bundled router writes a few hundred bytes per request. A custom image that
+ * logs far more must not fill the runner's disk, so the file stops at this size.
+ */
+export const MAX_ROUTER_LOG_BYTES = 16 * 1024 * 1024;
+const SIZE_CHECK_INTERVAL_MS = 50;
 const CONTAINER_ID = /^[0-9a-f]{12,64}$/;
+const DIRECTORY_FLAGS = fs.constants.O_RDONLY | fs.constants.O_DIRECTORY | fs.constants.O_NOFOLLOW;
 const LOG_FILE_FLAGS = fs.constants.O_WRONLY | fs.constants.O_CREAT |
   (fs.constants.O_NOFOLLOW ?? 0) | (fs.constants.O_NONBLOCK ?? 0);
 
@@ -35,18 +42,33 @@ function restrictToOwner(fd: number, mode: number, owner: { uid: number; gid: nu
 }
 
 /**
+ * Creates and opens `<parent>/<name>` through a descriptor for its parent, so
+ * that no component of the path is followed through a symlink and nothing is
+ * created outside the intended directory.
+ */
+function openRouterLogsDirectory(routerLogsDir: string): number {
+  const parentFd = openArtifactDirectory(path.dirname(routerLogsDir));
+  try {
+    const child = `/proc/self/fd/${parentFd}/${path.basename(routerLogsDir)}`;
+    try {
+      fs.mkdirSync(child, { mode: 0o700 });
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
+    }
+    return fs.openSync(child, DIRECTORY_FLAGS);
+  } finally {
+    fs.closeSync(parentFd);
+  }
+}
+
+/**
  * Opens the router log file without following links, owned by the user who ran
  * AWF and readable only by them. The router image is configurable, so its logs
  * aren't assumed to be safe to publish more widely.
  */
 function openRouterLogFile(routerLogsDir: string): number {
   const owner = resolveArtifactOwner();
-  try {
-    fs.mkdirSync(routerLogsDir, { mode: 0o700 });
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
-  }
-  const directoryFd = openArtifactDirectory(routerLogsDir);
+  const directoryFd = openRouterLogsDirectory(routerLogsDir);
   try {
     restrictToOwner(directoryFd, 0o700, owner);
     const fd = fs.openSync(`/proc/self/fd/${directoryFd}/${ROUTER_LOG_FILE}`, LOG_FILE_FLAGS, 0o600);
@@ -114,14 +136,32 @@ async function stopAndSave(workDir: string, routerLogsDir: string): Promise<Rout
 
   const file = path.join(routerLogsDir, ROUTER_LOG_FILE);
   const fd = openRouterLogFile(path.resolve(routerLogsDir));
+  let oversized = false;
   try {
     // Stream straight to the file; `docker logs` works on a stopped container.
-    const logs = await execa('docker', ['logs', containerId], {
+    const child = execa('docker', ['logs', containerId], {
       ...limits(),
       stdin: 'ignore',
       stdout: fd,
       stderr: fd,
     });
+    const sizeCheck = setInterval(() => {
+      if (fs.fstatSync(fd).size > MAX_ROUTER_LOG_BYTES) {
+        oversized = true;
+        child.kill('SIGKILL');
+      }
+    }, SIZE_CHECK_INTERVAL_MS);
+    let logs: DockerResult;
+    try {
+      logs = await child;
+    } finally {
+      clearInterval(sizeCheck);
+    }
+    if (oversized || fs.fstatSync(fd).size > MAX_ROUTER_LOG_BYTES) {
+      fs.ftruncateSync(fd, MAX_ROUTER_LOG_BYTES);
+      logger.warn(`The router's logs exceeded ${MAX_ROUTER_LOG_BYTES} bytes; ${file} keeps only the start`);
+      return 'incomplete';
+    }
     if (logs.failed) {
       logger.warn(`Router log capture failed (${describeFailure(logs)}); ${file} may be incomplete`);
       return 'incomplete';
@@ -139,8 +179,8 @@ async function stopAndSave(workDir: string, routerLogsDir: string): Promise<Rout
  * the container. Docker keeps the router's JSON log records only as long as the
  * container exists.
  *
- * All Docker calls share one 5 s deadline. Never throws: losing the router's
- * logs must not stop teardown or change its outcome.
+ * All Docker calls share one 5 s deadline, and the file stops at 16 MiB. Never
+ * throws: losing the router's logs must not stop teardown or change its outcome.
  */
 export async function stopRouterAndSaveLogs(
   workDir: string,
