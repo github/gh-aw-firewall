@@ -65,8 +65,9 @@ describe('build-test-artifacts.sh', () => {
     }
     expect(source).toContain('"repository": "github/gh-aw-firewall"');
     expect(source).toContain(
-      '"workflow": "github/gh-aw-firewall/.github/workflows/release.yml"',
+      'ARTIFACT_SIGNER_WORKFLOW=${ARTIFACT_SIGNER_WORKFLOW:-github/gh-aw-firewall/.github/workflows/release.yml}',
     );
+    expect(source).toContain('"workflow": "${ARTIFACT_SIGNER_WORKFLOW}"');
     const verifier = fs.readFileSync(artifactVerifyPath, 'utf-8');
     expect(verifier).toContain('.artifacts.${key}.sha256');
   });
