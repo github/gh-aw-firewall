@@ -27,13 +27,7 @@ tools:
     - "sha256sum"
     - "git show:*"
     - "git diff:*"
-    - "node scripts/model-information/maintain.cjs refresh-import"
-    - "node scripts/model-information/maintain.cjs report"
-    - "node scripts/model-information/maintain.cjs verify"
-    - "npm run models:generate"
-    - "npm run models:check"
-    - "npm test -- --runInBand scripts/model-information/ scripts/ci/model-api-mapping-updater-workflow.test.ts src/copilot-model-catalog-sync.test.ts src/model-information-contract.test.ts"
-    - "npm --prefix containers/api-proxy test -- --runInBand models-dev-catalog.test.js ai-credits-pricing-reference.test.js"
+    - "/tmp/gh-aw/model-maintenance-command.cjs"
   edit:
 network:
   allowed:
@@ -180,6 +174,7 @@ steps:
       set -euo pipefail
       test "$GITHUB_REF" = refs/heads/main
       mkdir -p /tmp/gh-aw/model-maintenance
+      install -m 0555 scripts/model-information/maintenance-command.cjs /tmp/gh-aw/model-maintenance-command.cjs
       printf '%s\n' "$REVIEW_BASE" > /tmp/gh-aw/model-maintenance/review-base-revision
       jq -n --argjson number "$SELECTED_PR_NUMBER" --arg head "$SELECTED_PR_HEAD" \
         'if $number == 0 then null else {number: $number, headRefName: $head} end' \
@@ -296,6 +291,16 @@ model licenses, source timestamps, deployment mappings or harness floors.
 
 ## Propose and regenerate
 
+Use `/tmp/gh-aw/model-maintenance-command.cjs` with exactly one of
+`refresh-import`, `report`, `verify`, `generate`, `check`, `test` or `test-api-proxy`.
+This fixed-command entrypoint is preapproved for unattended execution; full
+`node ...` and `npm ...` invocation allow rules do not match Copilot's command
+names. Do not invoke interpreters/package runners directly, add arguments, or
+request interactive approval. Inspect local evidence with the read tools,
+`cat` or `jq`, not inline scripts or unlisted helpers such as `paste` or `xargs`.
+The host stages this entrypoint before selecting an existing PR branch, so it
+also works when that branch predates the entrypoint.
+
 Edit only canonical `shared/model-information/sources/*.json` records supported
 by actually fetched evidence. Update provenance only for changed facts: record
 the captured URL, its content hash as revision, capture time and justified
@@ -305,7 +310,7 @@ Keep `lifecycle-compatibility.json` suggestion ordering consistent when a
 documented CLI availability change requires it. Do not broaden endpoint family
 patterns based on a single model. Schema/compiler changes need a separate PR.
 
-Run `node scripts/model-information/maintain.cjs refresh-import` to compare
+Run `/tmp/gh-aw/model-maintenance-command.cjs refresh-import` to compare
 governed imported facts and, only when they change, pin the exact API response
 and its real retrieval metadata. Never hand-edit import bytes, metadata or the
 normalized snapshot. The historical `models.dev.catalog.json` filename denotes
@@ -333,12 +338,12 @@ without changed model facts is a genuine no-op.
 Before invoking any PR safe output run, in order:
 
 ```bash
-npm run models:generate
-node scripts/model-information/maintain.cjs report
-npm test -- --runInBand scripts/model-information/ scripts/ci/model-api-mapping-updater-workflow.test.ts src/copilot-model-catalog-sync.test.ts src/model-information-contract.test.ts
-npm --prefix containers/api-proxy test -- --runInBand models-dev-catalog.test.js ai-credits-pricing-reference.test.js
-npm run models:check
-node scripts/model-information/maintain.cjs verify
+/tmp/gh-aw/model-maintenance-command.cjs generate
+/tmp/gh-aw/model-maintenance-command.cjs report
+/tmp/gh-aw/model-maintenance-command.cjs test
+/tmp/gh-aw/model-maintenance-command.cjs test-api-proxy
+/tmp/gh-aw/model-maintenance-command.cjs check
+/tmp/gh-aw/model-maintenance-command.cjs verify
 ```
 
 Generation owns **every** projection including both API mapping copies and the
