@@ -14,6 +14,19 @@ const TELEMETRY_EFFORTS = new Set(['none', 'minimal', 'low', 'medium', 'high', '
 // Messages `message_stop`. Chat Completions ends with the `[DONE]` sentinel.
 const TERMINAL_SUCCESS_EVENTS = new Set(['response.completed', 'message_stop']);
 
+// A /responses request served by a Chat-only model is translated back to the
+// client by createChatToResponsesSseTransform(), which emits
+// `response.completed` on the upstream usage-only chunk, before `[DONE]`.
+function isTranslatedResponses(telemetry) {
+  return telemetry.requested_endpoint === '/responses' && telemetry.upstream_endpoint === '/chat/completions';
+}
+
+// Mirrors the condition under which that translator emits `response.completed`
+// for a parsed upstream Chat Completions chunk.
+function isChatUsageOnlyChunk(event) {
+  return !!event && !event.error && !event.choices?.[0] && !!event.usage;
+}
+
 /**
  * Record a per-request routing observation. Never throws: observability must
  * not change the live request or response.
@@ -306,7 +319,10 @@ function createRoutingObservation({
         } catch {
           return;
         }
-        if (TERMINAL_SUCCESS_EVENTS.has(event?.type)) state.upstreamCompleted = true;
+        if (TERMINAL_SUCCESS_EVENTS.has(event?.type)
+          || (isTranslatedResponses(state.telemetry) && isChatUsageOnlyChunk(event))) {
+          state.upstreamCompleted = true;
+        }
         if (event?.error || event?.type === 'response.failed' || event?.type === 'error') {
           state.sseFailed = true;
           rememberErrorFields(state, event);

@@ -830,6 +830,36 @@ describe('advisory routing observation', () => {
       expect(harness.failures).toEqual(['provider_unavailable']);
     });
 
+    it('treats the usage-only chunk as completion only for translated /responses', () => {
+      const usageOnly = JSON.stringify({ choices: [], usage: { prompt_tokens: 10, completion_tokens: 2 } });
+      const translated = createHarness();
+      const served = observe(translated, request());
+      send(served.req, { model: 'gpt-test', reasoning: { effort: 'low' } });
+      served.req.awfRouting.onEndpointTranslation({
+        requestedEndpoint: '/responses', upstreamEndpoint: '/chat/completions',
+      });
+      served.req.awfRouting.onSseData(usageOnly);
+      closeEarly(served.res);
+      expect(translated.records).toEqual([expect.objectContaining({
+        upstream_endpoint: '/chat/completions', outcome: 'client_closed', status: 200,
+      })]);
+      expect(translated.failures).toEqual([]);
+
+      // Usage alone is not completion evidence on any other path.
+      for (const [selection, url, body] of [
+        [CHAT_SELECTION, '/chat/completions', { model: 'chat-test' }],
+        [SELECTION, '/responses', { model: 'gpt-test', reasoning: { effort: 'low' } }],
+      ]) {
+        const harness = createHarness(selection);
+        const { req, res } = observe(harness, request({ url }));
+        send(req, body);
+        req.awfRouting.onSseData(usageOnly);
+        closeEarly(res);
+        expect(harness.records).toEqual([expect.objectContaining({ outcome: 'aborted', status: 200 })]);
+        expect(harness.failures).toEqual(['provider_unavailable']);
+      }
+    });
+
     it('stream_without_terminal_success_remains_provider_unavailable', () => {
       const harness = createHarness();
       const { req, res } = observe(harness, request());

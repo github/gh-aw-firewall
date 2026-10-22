@@ -684,7 +684,9 @@ describe('routed request outcome when the client closes early', () => {
 
   // A production routing session whose selection is gpt-5.6-luna:max, plus
   // one Codex /responses request tracked like upstream-token.js wires it.
-  async function startRoutedRequest() {
+  // With translatedToChat, the request is served by a Chat-only model, as
+  // body-handler.js reports through onEndpointTranslation.
+  async function startRoutedRequest({ translatedToChat = false } = {}) {
     const outputDir = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-routing-client-close-'));
     const records = [];
     const session = createProductionRoutingSession({
@@ -706,6 +708,9 @@ describe('routed request outcome when the client closes early', () => {
       reasoning: { effort: 'max' },
       stream: true,
     })));
+    if (translatedToChat) {
+      req.awfRouting.onEndpointTranslation({ requestedEndpoint: '/responses', upstreamEndpoint: '/chat/completions' });
+    }
 
     const proxyRes = new EventEmitter();
     proxyRes.headers = { 'content-type': 'text/event-stream' };
@@ -723,8 +728,10 @@ describe('routed request outcome when the client closes early', () => {
       onSseInspectionStart: req.awfRouting.onSseInspectionStart,
       onSseInspectionComplete: req.awfRouting.onSseInspectionComplete,
     });
-    proxyRes.emit('data', sse({ type: 'response.created', response: { id: 'resp_luna', model: 'gpt-5.6-luna' } }));
-    proxyRes.emit('data', sse({ type: 'response.output_text.delta', delta: 'fixed' }));
+    if (!translatedToChat) {
+      proxyRes.emit('data', sse({ type: 'response.created', response: { id: 'resp_luna', model: 'gpt-5.6-luna' } }));
+      proxyRes.emit('data', sse({ type: 'response.output_text.delta', delta: 'fixed' }));
+    }
     return { outputDir, records, session, req, res, proxyRes, usage };
   }
 
@@ -831,6 +838,79 @@ describe('routed request outcome when the client closes early', () => {
 
     expect(requestRecords(run.records)).toEqual([expect.objectContaining({ outcome: 'aborted', status: 200 })]);
     await expectProviderUnavailable(run);
+  });
+
+  describe('translated /responses served by /chat/completions', () => {
+    const { createWireApiSseTransform } = require('./wire-api-compat');
+    // The production factory returns createChatToResponsesSseTransform() for
+    // this direction, as upstream-response.js wires it.
+    const createChatToResponsesSseTransform = () => createWireApiSseTransform({ direction: 'responses_to_chat' });
+    const chatData = event => Buffer.from(`data: ${JSON.stringify(event)}\n\n`);
+    const CHAT_UPSTREAM = [
+      chatData({ id: 'chat_luna', model: 'gpt-5.6-luna', choices: [{ index: 0, delta: { content: 'fixed' } }] }),
+      chatData({ id: 'chat_luna', model: 'gpt-5.6-luna', choices: [{ index: 0, delta: {}, finish_reason: 'stop' }] }),
+      chatData({
+        id: 'chat_luna', model: 'gpt-5.6-luna', choices: [],
+        usage: { prompt_tokens: 21000, completion_tokens: 640, total_tokens: 21640 },
+      }),
+      Buffer.from('data: [DONE]\n\n'),
+    ];
+
+    // Feeds upstream reads the way production pipes proxyRes into the real
+    // translator, and closes the downstream as soon as the client has read the
+    // translated `response.completed`, before the next upstream read.
+    async function streamUntilClientClose(run, reads) {
+      const translator = createChatToResponsesSseTransform();
+      let downstream = '';
+      translator.on('data', chunk => { downstream += chunk.toString('utf8'); });
+      for (const read of reads) {
+        translator.write(read);
+        run.proxyRes.emit('data', read);
+        await new Promise(resolve => setImmediate(resolve));
+        if (downstream.includes('event: response.completed')) {
+          run.res.emit('close');
+          break;
+        }
+      }
+      return downstream;
+    }
+
+    test('translated_usage_completion_then_client_close_does_not_fail_routing', async () => {
+      const run = await startRoutedRequest({ translatedToChat: true });
+      const downstream = await streamUntilClientClose(run, CHAT_UPSTREAM);
+      expect(downstream).toContain('event: response.completed');
+      // Late upstream teardown neither fails routing nor duplicates a record.
+      run.proxyRes.emit('aborted');
+      run.proxyRes.emit('close');
+
+      expect(requestRecords(run.records)).toEqual([expect.objectContaining({
+        request_id: run.req.awfRouting.requestId,
+        requested_endpoint: '/responses',
+        upstream_endpoint: '/chat/completions',
+        outcome: 'client_closed',
+        status: 200,
+      })]);
+      expect(run.usage).toEqual([expect.objectContaining({ input_tokens: 21000, output_tokens: 640 })]);
+      await expectRoutingSucceeded(run);
+    });
+
+    test('translated_client_close_before_terminal_event_remains_provider_unavailable', async () => {
+      const run = await startRoutedRequest({ translatedToChat: true });
+      // Content and finish chunks only: the translator has not emitted
+      // response.completed when the client closes.
+      const downstream = await streamUntilClientClose(run, CHAT_UPSTREAM.slice(0, 2));
+      expect(downstream).not.toContain('event: response.completed');
+      run.res.emit('close');
+      run.proxyRes.emit('aborted');
+      run.proxyRes.emit('close');
+
+      expect(requestRecords(run.records)).toEqual([expect.objectContaining({
+        upstream_endpoint: '/chat/completions',
+        outcome: 'aborted',
+        status: 200,
+      })]);
+      await expectProviderUnavailable(run);
+    });
   });
 
   test('non_2xx_upstream_response_preserves_existing_failure_behavior', async () => {
