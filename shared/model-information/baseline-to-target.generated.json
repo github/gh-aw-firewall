@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "catalogRevision": "d628c31e3714fc76f9ae83c3cf61f4c90f00ff15e956e8c2ba5fe23ce4f9637f",
+  "catalogRevision": "807597135bb8426b77fcab4a64ee3d4d12e09ee4df90574e946b36573714f7c0",
   "activation": "staged: phases 4, 5 and 6",
   "differences": [
     {
@@ -26,9 +26,9 @@
               "price": "10",
               "provenance": {
                 "authority": "imported",
-                "source": "git-committed containers/api-proxy/models.dev.catalog.json (OpenRouter-shaped; retrievedAt is repository capture commit time, NOT upstream retrieval)",
-                "revision": "7aadc2a15168959d020df4252b650337536e1c1d",
-                "at": "2026-10-19T17:20:11-07:00",
+                "source": "https://openrouter.ai/api/v1/models",
+                "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+                "at": "2026-10-22T20:30:50.836Z",
                 "confidence": "imported",
                 "freshness": "unknown"
               }
@@ -37,9 +37,9 @@
               "price": "50",
               "provenance": {
                 "authority": "imported",
-                "source": "git-committed containers/api-proxy/models.dev.catalog.json (OpenRouter-shaped; retrievedAt is repository capture commit time, NOT upstream retrieval)",
-                "revision": "7aadc2a15168959d020df4252b650337536e1c1d",
-                "at": "2026-10-19T17:20:11-07:00",
+                "source": "https://openrouter.ai/api/v1/models",
+                "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+                "at": "2026-10-22T20:30:50.836Z",
                 "confidence": "imported",
                 "freshness": "unknown"
               }
@@ -48,9 +48,9 @@
               "price": "1",
               "provenance": {
                 "authority": "imported",
-                "source": "git-committed containers/api-proxy/models.dev.catalog.json (OpenRouter-shaped; retrievedAt is repository capture commit time, NOT upstream retrieval)",
-                "revision": "7aadc2a15168959d020df4252b650337536e1c1d",
-                "at": "2026-10-19T17:20:11-07:00",
+                "source": "https://openrouter.ai/api/v1/models",
+                "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+                "at": "2026-10-22T20:30:50.836Z",
                 "confidence": "imported",
                 "freshness": "unknown"
               }
@@ -59,9 +59,9 @@
               "price": "12.5",
               "provenance": {
                 "authority": "imported",
-                "source": "git-committed containers/api-proxy/models.dev.catalog.json (OpenRouter-shaped; retrievedAt is repository capture commit time, NOT upstream retrieval)",
-                "revision": "7aadc2a15168959d020df4252b650337536e1c1d",
-                "at": "2026-10-19T17:20:11-07:00",
+                "source": "https://openrouter.ai/api/v1/models",
+                "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+                "at": "2026-10-22T20:30:50.836Z",
                 "confidence": "imported",
                 "freshness": "unknown"
               }
@@ -69,18 +69,18 @@
           },
           "provenance": {
             "authority": "imported",
-            "source": "git-committed containers/api-proxy/models.dev.catalog.json (OpenRouter-shaped; retrievedAt is repository capture commit time, NOT upstream retrieval)",
-            "revision": "7aadc2a15168959d020df4252b650337536e1c1d",
-            "at": "2026-10-19T17:20:11-07:00",
+            "source": "https://openrouter.ai/api/v1/models",
+            "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+            "at": "2026-10-22T20:30:50.836Z",
             "confidence": "imported",
             "freshness": "unknown"
           }
         },
         "provenance": {
           "authority": "imported",
-          "source": "git-committed containers/api-proxy/models.dev.catalog.json (OpenRouter-shaped; retrievedAt is repository capture commit time, NOT upstream retrieval)",
-          "revision": "7aadc2a15168959d020df4252b650337536e1c1d",
-          "at": "2026-10-19T17:20:11-07:00",
+          "source": "https://openrouter.ai/api/v1/models",
+          "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+          "at": "2026-10-22T20:30:50.836Z",
           "confidence": "imported",
           "freshness": "unknown"
         }
@@ -107,9 +107,9 @@
               "price": "10",
               "provenance": {
                 "authority": "imported",
-                "source": "git-committed containers/api-proxy/models.dev.catalog.json (OpenRouter-shaped; retrievedAt is repository capture commit time, NOT upstream retrieval)",
-                "revision": "7aadc2a15168959d020df4252b650337536e1c1d",
-                "at": "2026-10-19T17:20:11-07:00",
+                "source": "https://openrouter.ai/api/v1/models",
+                "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+                "at": "2026-10-22T20:30:50.836Z",
                 "confidence": "imported",
                 "freshness": "unknown"
               }
@@ -118,9 +118,9 @@
               "price": "50",
               "provenance": {
                 "authority": "imported",
-                "source": "git-committed containers/api-proxy/models.dev.catalog.json (OpenRouter-shaped; retrievedAt is repository capture commit time, NOT upstream retrieval)",
-                "revision": "7aadc2a15168959d020df4252b650337536e1c1d",
-                "at": "2026-10-19T17:20:11-07:00",
+                "source": "https://openrouter.ai/api/v1/models",
+                "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+                "at": "2026-10-22T20:30:50.836Z",
                 "confidence": "imported",
                 "freshness": "unknown"
               }
@@ -129,9 +129,9 @@
               "price": "1",
               "provenance": {
                 "authority": "imported",
-                "source": "git-committed containers/api-proxy/models.dev.catalog.json (OpenRouter-shaped; retrievedAt is repository capture commit time, NOT upstream retrieval)",
-                "revision": "7aadc2a15168959d020df4252b650337536e1c1d",
-                "at": "2026-10-19T17:20:11-07:00",
+                "source": "https://openrouter.ai/api/v1/models",
+                "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+                "at": "2026-10-22T20:30:50.836Z",
                 "confidence": "imported",
                 "freshness": "unknown"
               }
@@ -140,9 +140,9 @@
               "price": "12.5",
               "provenance": {
                 "authority": "imported",
-                "source": "git-committed containers/api-proxy/models.dev.catalog.json (OpenRouter-shaped; retrievedAt is repository capture commit time, NOT upstream retrieval)",
-                "revision": "7aadc2a15168959d020df4252b650337536e1c1d",
-                "at": "2026-10-19T17:20:11-07:00",
+                "source": "https://openrouter.ai/api/v1/models",
+                "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+                "at": "2026-10-22T20:30:50.836Z",
                 "confidence": "imported",
                 "freshness": "unknown"
               }
@@ -150,18 +150,18 @@
           },
           "provenance": {
             "authority": "imported",
-            "source": "git-committed containers/api-proxy/models.dev.catalog.json (OpenRouter-shaped; retrievedAt is repository capture commit time, NOT upstream retrieval)",
-            "revision": "7aadc2a15168959d020df4252b650337536e1c1d",
-            "at": "2026-10-19T17:20:11-07:00",
+            "source": "https://openrouter.ai/api/v1/models",
+            "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+            "at": "2026-10-22T20:30:50.836Z",
             "confidence": "imported",
             "freshness": "unknown"
           }
         },
         "provenance": {
           "authority": "imported",
-          "source": "git-committed containers/api-proxy/models.dev.catalog.json (OpenRouter-shaped; retrievedAt is repository capture commit time, NOT upstream retrieval)",
-          "revision": "7aadc2a15168959d020df4252b650337536e1c1d",
-          "at": "2026-10-19T17:20:11-07:00",
+          "source": "https://openrouter.ai/api/v1/models",
+          "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+          "at": "2026-10-22T20:30:50.836Z",
           "confidence": "imported",
           "freshness": "unknown"
         },
@@ -194,7 +194,86 @@
     },
     {
       "key": "anthropic/claude-fable-5.1",
-      "baseline": null,
+      "baseline": {
+        "schemaVersion": 1,
+        "identity": {
+          "key": "anthropic/claude-fable-5.1",
+          "provider": "anthropic",
+          "rawId": "claude-fable-5.1",
+          "lookupId": "claude-fable-5-1"
+        },
+        "lifecycle": {
+          "status": "active"
+        },
+        "modelType": "other",
+        "importedPricing": {
+          "sourceNamespace": "anthropic",
+          "currency": "USD",
+          "unit": "USD_PER_1M_TOKENS",
+          "components": {
+            "input": {
+              "price": "10",
+              "provenance": {
+                "authority": "imported",
+                "source": "https://openrouter.ai/api/v1/models",
+                "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+                "at": "2026-10-22T20:30:50.836Z",
+                "confidence": "imported",
+                "freshness": "unknown"
+              }
+            },
+            "output": {
+              "price": "50",
+              "provenance": {
+                "authority": "imported",
+                "source": "https://openrouter.ai/api/v1/models",
+                "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+                "at": "2026-10-22T20:30:50.836Z",
+                "confidence": "imported",
+                "freshness": "unknown"
+              }
+            },
+            "cachedInput": {
+              "price": "0.25",
+              "provenance": {
+                "authority": "imported",
+                "source": "https://openrouter.ai/api/v1/models",
+                "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+                "at": "2026-10-22T20:30:50.836Z",
+                "confidence": "imported",
+                "freshness": "unknown"
+              }
+            },
+            "cacheWrite": {
+              "price": "12.5",
+              "provenance": {
+                "authority": "imported",
+                "source": "https://openrouter.ai/api/v1/models",
+                "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+                "at": "2026-10-22T20:30:50.836Z",
+                "confidence": "imported",
+                "freshness": "unknown"
+              }
+            }
+          },
+          "provenance": {
+            "authority": "imported",
+            "source": "https://openrouter.ai/api/v1/models",
+            "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+            "at": "2026-10-22T20:30:50.836Z",
+            "confidence": "imported",
+            "freshness": "unknown"
+          }
+        },
+        "provenance": {
+          "authority": "imported",
+          "source": "https://openrouter.ai/api/v1/models",
+          "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+          "at": "2026-10-22T20:30:50.836Z",
+          "confidence": "imported",
+          "freshness": "unknown"
+        }
+      },
       "target": {
         "schemaVersion": 1,
         "identity": {
@@ -207,13 +286,73 @@
         "lifecycle": {
           "status": "active"
         },
-        "modelType": "completion",
+        "modelType": "other",
+        "importedPricing": {
+          "sourceNamespace": "anthropic",
+          "currency": "USD",
+          "unit": "USD_PER_1M_TOKENS",
+          "components": {
+            "input": {
+              "price": "10",
+              "provenance": {
+                "authority": "imported",
+                "source": "https://openrouter.ai/api/v1/models",
+                "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+                "at": "2026-10-22T20:30:50.836Z",
+                "confidence": "imported",
+                "freshness": "unknown"
+              }
+            },
+            "output": {
+              "price": "50",
+              "provenance": {
+                "authority": "imported",
+                "source": "https://openrouter.ai/api/v1/models",
+                "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+                "at": "2026-10-22T20:30:50.836Z",
+                "confidence": "imported",
+                "freshness": "unknown"
+              }
+            },
+            "cachedInput": {
+              "price": "0.25",
+              "provenance": {
+                "authority": "imported",
+                "source": "https://openrouter.ai/api/v1/models",
+                "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+                "at": "2026-10-22T20:30:50.836Z",
+                "confidence": "imported",
+                "freshness": "unknown"
+              }
+            },
+            "cacheWrite": {
+              "price": "12.5",
+              "provenance": {
+                "authority": "imported",
+                "source": "https://openrouter.ai/api/v1/models",
+                "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+                "at": "2026-10-22T20:30:50.836Z",
+                "confidence": "imported",
+                "freshness": "unknown"
+              }
+            }
+          },
+          "provenance": {
+            "authority": "imported",
+            "source": "https://openrouter.ai/api/v1/models",
+            "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+            "at": "2026-10-22T20:30:50.836Z",
+            "confidence": "imported",
+            "freshness": "unknown"
+          }
+        },
         "provenance": {
-          "authority": "maintained",
-          "source": "https://github.com/github/gh-aw-firewall/issues/10029 and https://github.com/github/gh-aw-firewall/issues/10030",
-          "revision": "issues-10029-10030-open-2026-10-20",
-          "at": "2026-10-15T17:11:28Z",
-          "confidence": "estimated"
+          "authority": "imported",
+          "source": "https://openrouter.ai/api/v1/models",
+          "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+          "at": "2026-10-22T20:30:50.836Z",
+          "confidence": "imported",
+          "freshness": "unknown"
         },
         "reasoning": {
           "support": "supported",
@@ -244,7 +383,86 @@
     },
     {
       "key": "anthropic/claude-haiku-5.5",
-      "baseline": null,
+      "baseline": {
+        "schemaVersion": 1,
+        "identity": {
+          "key": "anthropic/claude-haiku-5.5",
+          "provider": "anthropic",
+          "rawId": "claude-haiku-5.5",
+          "lookupId": "claude-haiku-5-5"
+        },
+        "lifecycle": {
+          "status": "active"
+        },
+        "modelType": "other",
+        "importedPricing": {
+          "sourceNamespace": "anthropic",
+          "currency": "USD",
+          "unit": "USD_PER_1M_TOKENS",
+          "components": {
+            "input": {
+              "price": "0.1",
+              "provenance": {
+                "authority": "imported",
+                "source": "https://openrouter.ai/api/v1/models",
+                "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+                "at": "2026-10-22T20:30:50.836Z",
+                "confidence": "imported",
+                "freshness": "unknown"
+              }
+            },
+            "output": {
+              "price": "0.5",
+              "provenance": {
+                "authority": "imported",
+                "source": "https://openrouter.ai/api/v1/models",
+                "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+                "at": "2026-10-22T20:30:50.836Z",
+                "confidence": "imported",
+                "freshness": "unknown"
+              }
+            },
+            "cachedInput": {
+              "price": "0.01",
+              "provenance": {
+                "authority": "imported",
+                "source": "https://openrouter.ai/api/v1/models",
+                "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+                "at": "2026-10-22T20:30:50.836Z",
+                "confidence": "imported",
+                "freshness": "unknown"
+              }
+            },
+            "cacheWrite": {
+              "price": "0.125",
+              "provenance": {
+                "authority": "imported",
+                "source": "https://openrouter.ai/api/v1/models",
+                "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+                "at": "2026-10-22T20:30:50.836Z",
+                "confidence": "imported",
+                "freshness": "unknown"
+              }
+            }
+          },
+          "provenance": {
+            "authority": "imported",
+            "source": "https://openrouter.ai/api/v1/models",
+            "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+            "at": "2026-10-22T20:30:50.836Z",
+            "confidence": "imported",
+            "freshness": "unknown"
+          }
+        },
+        "provenance": {
+          "authority": "imported",
+          "source": "https://openrouter.ai/api/v1/models",
+          "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+          "at": "2026-10-22T20:30:50.836Z",
+          "confidence": "imported",
+          "freshness": "unknown"
+        }
+      },
       "target": {
         "schemaVersion": 1,
         "identity": {
@@ -257,13 +475,73 @@
         "lifecycle": {
           "status": "active"
         },
-        "modelType": "completion",
+        "modelType": "other",
+        "importedPricing": {
+          "sourceNamespace": "anthropic",
+          "currency": "USD",
+          "unit": "USD_PER_1M_TOKENS",
+          "components": {
+            "input": {
+              "price": "0.1",
+              "provenance": {
+                "authority": "imported",
+                "source": "https://openrouter.ai/api/v1/models",
+                "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+                "at": "2026-10-22T20:30:50.836Z",
+                "confidence": "imported",
+                "freshness": "unknown"
+              }
+            },
+            "output": {
+              "price": "0.5",
+              "provenance": {
+                "authority": "imported",
+                "source": "https://openrouter.ai/api/v1/models",
+                "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+                "at": "2026-10-22T20:30:50.836Z",
+                "confidence": "imported",
+                "freshness": "unknown"
+              }
+            },
+            "cachedInput": {
+              "price": "0.01",
+              "provenance": {
+                "authority": "imported",
+                "source": "https://openrouter.ai/api/v1/models",
+                "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+                "at": "2026-10-22T20:30:50.836Z",
+                "confidence": "imported",
+                "freshness": "unknown"
+              }
+            },
+            "cacheWrite": {
+              "price": "0.125",
+              "provenance": {
+                "authority": "imported",
+                "source": "https://openrouter.ai/api/v1/models",
+                "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+                "at": "2026-10-22T20:30:50.836Z",
+                "confidence": "imported",
+                "freshness": "unknown"
+              }
+            }
+          },
+          "provenance": {
+            "authority": "imported",
+            "source": "https://openrouter.ai/api/v1/models",
+            "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+            "at": "2026-10-22T20:30:50.836Z",
+            "confidence": "imported",
+            "freshness": "unknown"
+          }
+        },
         "provenance": {
-          "authority": "maintained",
-          "source": "https://github.com/github/gh-aw-firewall/issues/10029 and https://github.com/github/gh-aw-firewall/issues/10030",
-          "revision": "issues-10029-10030-open-2026-10-20",
-          "at": "2026-10-15T17:11:28Z",
-          "confidence": "estimated"
+          "authority": "imported",
+          "source": "https://openrouter.ai/api/v1/models",
+          "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+          "at": "2026-10-22T20:30:50.836Z",
+          "confidence": "imported",
+          "freshness": "unknown"
         },
         "reasoning": {
           "support": "supported",
@@ -304,86 +582,7 @@
     },
     {
       "key": "anthropic/claude-mythos-5",
-      "baseline": {
-        "schemaVersion": 1,
-        "identity": {
-          "key": "anthropic/claude-mythos-5",
-          "provider": "anthropic",
-          "rawId": "claude-mythos-5",
-          "lookupId": "claude-mythos-5"
-        },
-        "lifecycle": {
-          "status": "active"
-        },
-        "modelType": "other",
-        "importedPricing": {
-          "sourceNamespace": "anthropic",
-          "currency": "USD",
-          "unit": "USD_PER_1M_TOKENS",
-          "components": {
-            "input": {
-              "price": "10",
-              "provenance": {
-                "authority": "imported",
-                "source": "git-committed containers/api-proxy/models.dev.catalog.json (OpenRouter-shaped; retrievedAt is repository capture commit time, NOT upstream retrieval)",
-                "revision": "7aadc2a15168959d020df4252b650337536e1c1d",
-                "at": "2026-10-19T17:20:11-07:00",
-                "confidence": "imported",
-                "freshness": "unknown"
-              }
-            },
-            "output": {
-              "price": "50",
-              "provenance": {
-                "authority": "imported",
-                "source": "git-committed containers/api-proxy/models.dev.catalog.json (OpenRouter-shaped; retrievedAt is repository capture commit time, NOT upstream retrieval)",
-                "revision": "7aadc2a15168959d020df4252b650337536e1c1d",
-                "at": "2026-10-19T17:20:11-07:00",
-                "confidence": "imported",
-                "freshness": "unknown"
-              }
-            },
-            "cachedInput": {
-              "price": "1",
-              "provenance": {
-                "authority": "imported",
-                "source": "git-committed containers/api-proxy/models.dev.catalog.json (OpenRouter-shaped; retrievedAt is repository capture commit time, NOT upstream retrieval)",
-                "revision": "7aadc2a15168959d020df4252b650337536e1c1d",
-                "at": "2026-10-19T17:20:11-07:00",
-                "confidence": "imported",
-                "freshness": "unknown"
-              }
-            },
-            "cacheWrite": {
-              "price": "12.5",
-              "provenance": {
-                "authority": "imported",
-                "source": "git-committed containers/api-proxy/models.dev.catalog.json (OpenRouter-shaped; retrievedAt is repository capture commit time, NOT upstream retrieval)",
-                "revision": "7aadc2a15168959d020df4252b650337536e1c1d",
-                "at": "2026-10-19T17:20:11-07:00",
-                "confidence": "imported",
-                "freshness": "unknown"
-              }
-            }
-          },
-          "provenance": {
-            "authority": "imported",
-            "source": "git-committed containers/api-proxy/models.dev.catalog.json (OpenRouter-shaped; retrievedAt is repository capture commit time, NOT upstream retrieval)",
-            "revision": "7aadc2a15168959d020df4252b650337536e1c1d",
-            "at": "2026-10-19T17:20:11-07:00",
-            "confidence": "imported",
-            "freshness": "unknown"
-          }
-        },
-        "provenance": {
-          "authority": "imported",
-          "source": "git-committed containers/api-proxy/models.dev.catalog.json (OpenRouter-shaped; retrievedAt is repository capture commit time, NOT upstream retrieval)",
-          "revision": "7aadc2a15168959d020df4252b650337536e1c1d",
-          "at": "2026-10-19T17:20:11-07:00",
-          "confidence": "imported",
-          "freshness": "unknown"
-        }
-      },
+      "baseline": null,
       "target": {
         "schemaVersion": 1,
         "identity": {
@@ -396,73 +595,13 @@
         "lifecycle": {
           "status": "active"
         },
-        "modelType": "other",
-        "importedPricing": {
-          "sourceNamespace": "anthropic",
-          "currency": "USD",
-          "unit": "USD_PER_1M_TOKENS",
-          "components": {
-            "input": {
-              "price": "10",
-              "provenance": {
-                "authority": "imported",
-                "source": "git-committed containers/api-proxy/models.dev.catalog.json (OpenRouter-shaped; retrievedAt is repository capture commit time, NOT upstream retrieval)",
-                "revision": "7aadc2a15168959d020df4252b650337536e1c1d",
-                "at": "2026-10-19T17:20:11-07:00",
-                "confidence": "imported",
-                "freshness": "unknown"
-              }
-            },
-            "output": {
-              "price": "50",
-              "provenance": {
-                "authority": "imported",
-                "source": "git-committed containers/api-proxy/models.dev.catalog.json (OpenRouter-shaped; retrievedAt is repository capture commit time, NOT upstream retrieval)",
-                "revision": "7aadc2a15168959d020df4252b650337536e1c1d",
-                "at": "2026-10-19T17:20:11-07:00",
-                "confidence": "imported",
-                "freshness": "unknown"
-              }
-            },
-            "cachedInput": {
-              "price": "1",
-              "provenance": {
-                "authority": "imported",
-                "source": "git-committed containers/api-proxy/models.dev.catalog.json (OpenRouter-shaped; retrievedAt is repository capture commit time, NOT upstream retrieval)",
-                "revision": "7aadc2a15168959d020df4252b650337536e1c1d",
-                "at": "2026-10-19T17:20:11-07:00",
-                "confidence": "imported",
-                "freshness": "unknown"
-              }
-            },
-            "cacheWrite": {
-              "price": "12.5",
-              "provenance": {
-                "authority": "imported",
-                "source": "git-committed containers/api-proxy/models.dev.catalog.json (OpenRouter-shaped; retrievedAt is repository capture commit time, NOT upstream retrieval)",
-                "revision": "7aadc2a15168959d020df4252b650337536e1c1d",
-                "at": "2026-10-19T17:20:11-07:00",
-                "confidence": "imported",
-                "freshness": "unknown"
-              }
-            }
-          },
-          "provenance": {
-            "authority": "imported",
-            "source": "git-committed containers/api-proxy/models.dev.catalog.json (OpenRouter-shaped; retrievedAt is repository capture commit time, NOT upstream retrieval)",
-            "revision": "7aadc2a15168959d020df4252b650337536e1c1d",
-            "at": "2026-10-19T17:20:11-07:00",
-            "confidence": "imported",
-            "freshness": "unknown"
-          }
-        },
+        "modelType": "completion",
         "provenance": {
-          "authority": "imported",
-          "source": "git-committed containers/api-proxy/models.dev.catalog.json (OpenRouter-shaped; retrievedAt is repository capture commit time, NOT upstream retrieval)",
-          "revision": "7aadc2a15168959d020df4252b650337536e1c1d",
-          "at": "2026-10-19T17:20:11-07:00",
-          "confidence": "imported",
-          "freshness": "unknown"
+          "authority": "maintained",
+          "source": "https://github.com/github/gh-aw-firewall/issues/10029 and https://github.com/github/gh-aw-firewall/issues/10030",
+          "revision": "issues-10029-10030-open-2026-10-20",
+          "at": "2026-10-15T17:11:28Z",
+          "confidence": "estimated"
         },
         "reasoning": {
           "support": "supported",
@@ -612,9 +751,9 @@
               "price": "5",
               "provenance": {
                 "authority": "imported",
-                "source": "git-committed containers/api-proxy/models.dev.catalog.json (OpenRouter-shaped; retrievedAt is repository capture commit time, NOT upstream retrieval)",
-                "revision": "7aadc2a15168959d020df4252b650337536e1c1d",
-                "at": "2026-10-19T17:20:11-07:00",
+                "source": "https://openrouter.ai/api/v1/models",
+                "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+                "at": "2026-10-22T20:30:50.836Z",
                 "confidence": "imported",
                 "freshness": "unknown"
               }
@@ -623,9 +762,9 @@
               "price": "25",
               "provenance": {
                 "authority": "imported",
-                "source": "git-committed containers/api-proxy/models.dev.catalog.json (OpenRouter-shaped; retrievedAt is repository capture commit time, NOT upstream retrieval)",
-                "revision": "7aadc2a15168959d020df4252b650337536e1c1d",
-                "at": "2026-10-19T17:20:11-07:00",
+                "source": "https://openrouter.ai/api/v1/models",
+                "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+                "at": "2026-10-22T20:30:50.836Z",
                 "confidence": "imported",
                 "freshness": "unknown"
               }
@@ -634,9 +773,9 @@
               "price": "0.5",
               "provenance": {
                 "authority": "imported",
-                "source": "git-committed containers/api-proxy/models.dev.catalog.json (OpenRouter-shaped; retrievedAt is repository capture commit time, NOT upstream retrieval)",
-                "revision": "7aadc2a15168959d020df4252b650337536e1c1d",
-                "at": "2026-10-19T17:20:11-07:00",
+                "source": "https://openrouter.ai/api/v1/models",
+                "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+                "at": "2026-10-22T20:30:50.836Z",
                 "confidence": "imported",
                 "freshness": "unknown"
               }
@@ -645,9 +784,9 @@
               "price": "6.25",
               "provenance": {
                 "authority": "imported",
-                "source": "git-committed containers/api-proxy/models.dev.catalog.json (OpenRouter-shaped; retrievedAt is repository capture commit time, NOT upstream retrieval)",
-                "revision": "7aadc2a15168959d020df4252b650337536e1c1d",
-                "at": "2026-10-19T17:20:11-07:00",
+                "source": "https://openrouter.ai/api/v1/models",
+                "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+                "at": "2026-10-22T20:30:50.836Z",
                 "confidence": "imported",
                 "freshness": "unknown"
               }
@@ -655,18 +794,18 @@
           },
           "provenance": {
             "authority": "imported",
-            "source": "git-committed containers/api-proxy/models.dev.catalog.json (OpenRouter-shaped; retrievedAt is repository capture commit time, NOT upstream retrieval)",
-            "revision": "7aadc2a15168959d020df4252b650337536e1c1d",
-            "at": "2026-10-19T17:20:11-07:00",
+            "source": "https://openrouter.ai/api/v1/models",
+            "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+            "at": "2026-10-22T20:30:50.836Z",
             "confidence": "imported",
             "freshness": "unknown"
           }
         },
         "provenance": {
           "authority": "imported",
-          "source": "git-committed containers/api-proxy/models.dev.catalog.json (OpenRouter-shaped; retrievedAt is repository capture commit time, NOT upstream retrieval)",
-          "revision": "7aadc2a15168959d020df4252b650337536e1c1d",
-          "at": "2026-10-19T17:20:11-07:00",
+          "source": "https://openrouter.ai/api/v1/models",
+          "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+          "at": "2026-10-22T20:30:50.836Z",
           "confidence": "imported",
           "freshness": "unknown"
         }
@@ -693,9 +832,9 @@
               "price": "5",
               "provenance": {
                 "authority": "imported",
-                "source": "git-committed containers/api-proxy/models.dev.catalog.json (OpenRouter-shaped; retrievedAt is repository capture commit time, NOT upstream retrieval)",
-                "revision": "7aadc2a15168959d020df4252b650337536e1c1d",
-                "at": "2026-10-19T17:20:11-07:00",
+                "source": "https://openrouter.ai/api/v1/models",
+                "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+                "at": "2026-10-22T20:30:50.836Z",
                 "confidence": "imported",
                 "freshness": "unknown"
               }
@@ -704,9 +843,9 @@
               "price": "25",
               "provenance": {
                 "authority": "imported",
-                "source": "git-committed containers/api-proxy/models.dev.catalog.json (OpenRouter-shaped; retrievedAt is repository capture commit time, NOT upstream retrieval)",
-                "revision": "7aadc2a15168959d020df4252b650337536e1c1d",
-                "at": "2026-10-19T17:20:11-07:00",
+                "source": "https://openrouter.ai/api/v1/models",
+                "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+                "at": "2026-10-22T20:30:50.836Z",
                 "confidence": "imported",
                 "freshness": "unknown"
               }
@@ -715,9 +854,9 @@
               "price": "0.5",
               "provenance": {
                 "authority": "imported",
-                "source": "git-committed containers/api-proxy/models.dev.catalog.json (OpenRouter-shaped; retrievedAt is repository capture commit time, NOT upstream retrieval)",
-                "revision": "7aadc2a15168959d020df4252b650337536e1c1d",
-                "at": "2026-10-19T17:20:11-07:00",
+                "source": "https://openrouter.ai/api/v1/models",
+                "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+                "at": "2026-10-22T20:30:50.836Z",
                 "confidence": "imported",
                 "freshness": "unknown"
               }
@@ -726,9 +865,9 @@
               "price": "6.25",
               "provenance": {
                 "authority": "imported",
-                "source": "git-committed containers/api-proxy/models.dev.catalog.json (OpenRouter-shaped; retrievedAt is repository capture commit time, NOT upstream retrieval)",
-                "revision": "7aadc2a15168959d020df4252b650337536e1c1d",
-                "at": "2026-10-19T17:20:11-07:00",
+                "source": "https://openrouter.ai/api/v1/models",
+                "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+                "at": "2026-10-22T20:30:50.836Z",
                 "confidence": "imported",
                 "freshness": "unknown"
               }
@@ -736,18 +875,18 @@
           },
           "provenance": {
             "authority": "imported",
-            "source": "git-committed containers/api-proxy/models.dev.catalog.json (OpenRouter-shaped; retrievedAt is repository capture commit time, NOT upstream retrieval)",
-            "revision": "7aadc2a15168959d020df4252b650337536e1c1d",
-            "at": "2026-10-19T17:20:11-07:00",
+            "source": "https://openrouter.ai/api/v1/models",
+            "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+            "at": "2026-10-22T20:30:50.836Z",
             "confidence": "imported",
             "freshness": "unknown"
           }
         },
         "provenance": {
           "authority": "imported",
-          "source": "git-committed containers/api-proxy/models.dev.catalog.json (OpenRouter-shaped; retrievedAt is repository capture commit time, NOT upstream retrieval)",
-          "revision": "7aadc2a15168959d020df4252b650337536e1c1d",
-          "at": "2026-10-19T17:20:11-07:00",
+          "source": "https://openrouter.ai/api/v1/models",
+          "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+          "at": "2026-10-22T20:30:50.836Z",
           "confidence": "imported",
           "freshness": "unknown"
         },
@@ -799,9 +938,9 @@
               "price": "5",
               "provenance": {
                 "authority": "imported",
-                "source": "git-committed containers/api-proxy/models.dev.catalog.json (OpenRouter-shaped; retrievedAt is repository capture commit time, NOT upstream retrieval)",
-                "revision": "7aadc2a15168959d020df4252b650337536e1c1d",
-                "at": "2026-10-19T17:20:11-07:00",
+                "source": "https://openrouter.ai/api/v1/models",
+                "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+                "at": "2026-10-22T20:30:50.836Z",
                 "confidence": "imported",
                 "freshness": "unknown"
               }
@@ -810,9 +949,9 @@
               "price": "25",
               "provenance": {
                 "authority": "imported",
-                "source": "git-committed containers/api-proxy/models.dev.catalog.json (OpenRouter-shaped; retrievedAt is repository capture commit time, NOT upstream retrieval)",
-                "revision": "7aadc2a15168959d020df4252b650337536e1c1d",
-                "at": "2026-10-19T17:20:11-07:00",
+                "source": "https://openrouter.ai/api/v1/models",
+                "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+                "at": "2026-10-22T20:30:50.836Z",
                 "confidence": "imported",
                 "freshness": "unknown"
               }
@@ -821,9 +960,9 @@
               "price": "0.5",
               "provenance": {
                 "authority": "imported",
-                "source": "git-committed containers/api-proxy/models.dev.catalog.json (OpenRouter-shaped; retrievedAt is repository capture commit time, NOT upstream retrieval)",
-                "revision": "7aadc2a15168959d020df4252b650337536e1c1d",
-                "at": "2026-10-19T17:20:11-07:00",
+                "source": "https://openrouter.ai/api/v1/models",
+                "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+                "at": "2026-10-22T20:30:50.836Z",
                 "confidence": "imported",
                 "freshness": "unknown"
               }
@@ -832,9 +971,9 @@
               "price": "6.25",
               "provenance": {
                 "authority": "imported",
-                "source": "git-committed containers/api-proxy/models.dev.catalog.json (OpenRouter-shaped; retrievedAt is repository capture commit time, NOT upstream retrieval)",
-                "revision": "7aadc2a15168959d020df4252b650337536e1c1d",
-                "at": "2026-10-19T17:20:11-07:00",
+                "source": "https://openrouter.ai/api/v1/models",
+                "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+                "at": "2026-10-22T20:30:50.836Z",
                 "confidence": "imported",
                 "freshness": "unknown"
               }
@@ -842,18 +981,18 @@
           },
           "provenance": {
             "authority": "imported",
-            "source": "git-committed containers/api-proxy/models.dev.catalog.json (OpenRouter-shaped; retrievedAt is repository capture commit time, NOT upstream retrieval)",
-            "revision": "7aadc2a15168959d020df4252b650337536e1c1d",
-            "at": "2026-10-19T17:20:11-07:00",
+            "source": "https://openrouter.ai/api/v1/models",
+            "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+            "at": "2026-10-22T20:30:50.836Z",
             "confidence": "imported",
             "freshness": "unknown"
           }
         },
         "provenance": {
           "authority": "imported",
-          "source": "git-committed containers/api-proxy/models.dev.catalog.json (OpenRouter-shaped; retrievedAt is repository capture commit time, NOT upstream retrieval)",
-          "revision": "7aadc2a15168959d020df4252b650337536e1c1d",
-          "at": "2026-10-19T17:20:11-07:00",
+          "source": "https://openrouter.ai/api/v1/models",
+          "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+          "at": "2026-10-22T20:30:50.836Z",
           "confidence": "imported",
           "freshness": "unknown"
         }
@@ -880,9 +1019,9 @@
               "price": "5",
               "provenance": {
                 "authority": "imported",
-                "source": "git-committed containers/api-proxy/models.dev.catalog.json (OpenRouter-shaped; retrievedAt is repository capture commit time, NOT upstream retrieval)",
-                "revision": "7aadc2a15168959d020df4252b650337536e1c1d",
-                "at": "2026-10-19T17:20:11-07:00",
+                "source": "https://openrouter.ai/api/v1/models",
+                "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+                "at": "2026-10-22T20:30:50.836Z",
                 "confidence": "imported",
                 "freshness": "unknown"
               }
@@ -891,9 +1030,9 @@
               "price": "25",
               "provenance": {
                 "authority": "imported",
-                "source": "git-committed containers/api-proxy/models.dev.catalog.json (OpenRouter-shaped; retrievedAt is repository capture commit time, NOT upstream retrieval)",
-                "revision": "7aadc2a15168959d020df4252b650337536e1c1d",
-                "at": "2026-10-19T17:20:11-07:00",
+                "source": "https://openrouter.ai/api/v1/models",
+                "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+                "at": "2026-10-22T20:30:50.836Z",
                 "confidence": "imported",
                 "freshness": "unknown"
               }
@@ -902,9 +1041,9 @@
               "price": "0.5",
               "provenance": {
                 "authority": "imported",
-                "source": "git-committed containers/api-proxy/models.dev.catalog.json (OpenRouter-shaped; retrievedAt is repository capture commit time, NOT upstream retrieval)",
-                "revision": "7aadc2a15168959d020df4252b650337536e1c1d",
-                "at": "2026-10-19T17:20:11-07:00",
+                "source": "https://openrouter.ai/api/v1/models",
+                "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+                "at": "2026-10-22T20:30:50.836Z",
                 "confidence": "imported",
                 "freshness": "unknown"
               }
@@ -913,9 +1052,9 @@
               "price": "6.25",
               "provenance": {
                 "authority": "imported",
-                "source": "git-committed containers/api-proxy/models.dev.catalog.json (OpenRouter-shaped; retrievedAt is repository capture commit time, NOT upstream retrieval)",
-                "revision": "7aadc2a15168959d020df4252b650337536e1c1d",
-                "at": "2026-10-19T17:20:11-07:00",
+                "source": "https://openrouter.ai/api/v1/models",
+                "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+                "at": "2026-10-22T20:30:50.836Z",
                 "confidence": "imported",
                 "freshness": "unknown"
               }
@@ -923,18 +1062,18 @@
           },
           "provenance": {
             "authority": "imported",
-            "source": "git-committed containers/api-proxy/models.dev.catalog.json (OpenRouter-shaped; retrievedAt is repository capture commit time, NOT upstream retrieval)",
-            "revision": "7aadc2a15168959d020df4252b650337536e1c1d",
-            "at": "2026-10-19T17:20:11-07:00",
+            "source": "https://openrouter.ai/api/v1/models",
+            "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+            "at": "2026-10-22T20:30:50.836Z",
             "confidence": "imported",
             "freshness": "unknown"
           }
         },
         "provenance": {
           "authority": "imported",
-          "source": "git-committed containers/api-proxy/models.dev.catalog.json (OpenRouter-shaped; retrievedAt is repository capture commit time, NOT upstream retrieval)",
-          "revision": "7aadc2a15168959d020df4252b650337536e1c1d",
-          "at": "2026-10-19T17:20:11-07:00",
+          "source": "https://openrouter.ai/api/v1/models",
+          "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+          "at": "2026-10-22T20:30:50.836Z",
           "confidence": "imported",
           "freshness": "unknown"
         },
@@ -967,7 +1106,86 @@
     },
     {
       "key": "anthropic/claude-opus-4.8",
-      "baseline": null,
+      "baseline": {
+        "schemaVersion": 1,
+        "identity": {
+          "key": "anthropic/claude-opus-4.8",
+          "provider": "anthropic",
+          "rawId": "claude-opus-4.8",
+          "lookupId": "claude-opus-4-8"
+        },
+        "lifecycle": {
+          "status": "active"
+        },
+        "modelType": "other",
+        "importedPricing": {
+          "sourceNamespace": "anthropic",
+          "currency": "USD",
+          "unit": "USD_PER_1M_TOKENS",
+          "components": {
+            "input": {
+              "price": "5",
+              "provenance": {
+                "authority": "imported",
+                "source": "https://openrouter.ai/api/v1/models",
+                "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+                "at": "2026-10-22T20:30:50.836Z",
+                "confidence": "imported",
+                "freshness": "unknown"
+              }
+            },
+            "output": {
+              "price": "25",
+              "provenance": {
+                "authority": "imported",
+                "source": "https://openrouter.ai/api/v1/models",
+                "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+                "at": "2026-10-22T20:30:50.836Z",
+                "confidence": "imported",
+                "freshness": "unknown"
+              }
+            },
+            "cachedInput": {
+              "price": "0.5",
+              "provenance": {
+                "authority": "imported",
+                "source": "https://openrouter.ai/api/v1/models",
+                "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+                "at": "2026-10-22T20:30:50.836Z",
+                "confidence": "imported",
+                "freshness": "unknown"
+              }
+            },
+            "cacheWrite": {
+              "price": "6.25",
+              "provenance": {
+                "authority": "imported",
+                "source": "https://openrouter.ai/api/v1/models",
+                "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+                "at": "2026-10-22T20:30:50.836Z",
+                "confidence": "imported",
+                "freshness": "unknown"
+              }
+            }
+          },
+          "provenance": {
+            "authority": "imported",
+            "source": "https://openrouter.ai/api/v1/models",
+            "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+            "at": "2026-10-22T20:30:50.836Z",
+            "confidence": "imported",
+            "freshness": "unknown"
+          }
+        },
+        "provenance": {
+          "authority": "imported",
+          "source": "https://openrouter.ai/api/v1/models",
+          "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+          "at": "2026-10-22T20:30:50.836Z",
+          "confidence": "imported",
+          "freshness": "unknown"
+        }
+      },
       "target": {
         "schemaVersion": 1,
         "identity": {
@@ -980,13 +1198,73 @@
         "lifecycle": {
           "status": "active"
         },
-        "modelType": "completion",
+        "modelType": "other",
+        "importedPricing": {
+          "sourceNamespace": "anthropic",
+          "currency": "USD",
+          "unit": "USD_PER_1M_TOKENS",
+          "components": {
+            "input": {
+              "price": "5",
+              "provenance": {
+                "authority": "imported",
+                "source": "https://openrouter.ai/api/v1/models",
+                "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+                "at": "2026-10-22T20:30:50.836Z",
+                "confidence": "imported",
+                "freshness": "unknown"
+              }
+            },
+            "output": {
+              "price": "25",
+              "provenance": {
+                "authority": "imported",
+                "source": "https://openrouter.ai/api/v1/models",
+                "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+                "at": "2026-10-22T20:30:50.836Z",
+                "confidence": "imported",
+                "freshness": "unknown"
+              }
+            },
+            "cachedInput": {
+              "price": "0.5",
+              "provenance": {
+                "authority": "imported",
+                "source": "https://openrouter.ai/api/v1/models",
+                "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+                "at": "2026-10-22T20:30:50.836Z",
+                "confidence": "imported",
+                "freshness": "unknown"
+              }
+            },
+            "cacheWrite": {
+              "price": "6.25",
+              "provenance": {
+                "authority": "imported",
+                "source": "https://openrouter.ai/api/v1/models",
+                "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+                "at": "2026-10-22T20:30:50.836Z",
+                "confidence": "imported",
+                "freshness": "unknown"
+              }
+            }
+          },
+          "provenance": {
+            "authority": "imported",
+            "source": "https://openrouter.ai/api/v1/models",
+            "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+            "at": "2026-10-22T20:30:50.836Z",
+            "confidence": "imported",
+            "freshness": "unknown"
+          }
+        },
         "provenance": {
-          "authority": "maintained",
-          "source": "https://github.com/github/gh-aw-firewall/issues/10029 and https://github.com/github/gh-aw-firewall/issues/10030",
-          "revision": "issues-10029-10030-open-2026-10-20",
-          "at": "2026-10-15T17:11:28Z",
-          "confidence": "estimated"
+          "authority": "imported",
+          "source": "https://openrouter.ai/api/v1/models",
+          "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+          "at": "2026-10-22T20:30:50.836Z",
+          "confidence": "imported",
+          "freshness": "unknown"
         },
         "reasoning": {
           "support": "supported",
@@ -1017,7 +1295,86 @@
     },
     {
       "key": "anthropic/claude-opus-5",
-      "baseline": null,
+      "baseline": {
+        "schemaVersion": 1,
+        "identity": {
+          "key": "anthropic/claude-opus-5",
+          "provider": "anthropic",
+          "rawId": "claude-opus-5",
+          "lookupId": "claude-opus-5"
+        },
+        "lifecycle": {
+          "status": "active"
+        },
+        "modelType": "other",
+        "importedPricing": {
+          "sourceNamespace": "anthropic",
+          "currency": "USD",
+          "unit": "USD_PER_1M_TOKENS",
+          "components": {
+            "input": {
+              "price": "5",
+              "provenance": {
+                "authority": "imported",
+                "source": "https://openrouter.ai/api/v1/models",
+                "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+                "at": "2026-10-22T20:30:50.836Z",
+                "confidence": "imported",
+                "freshness": "unknown"
+              }
+            },
+            "output": {
+              "price": "25",
+              "provenance": {
+                "authority": "imported",
+                "source": "https://openrouter.ai/api/v1/models",
+                "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+                "at": "2026-10-22T20:30:50.836Z",
+                "confidence": "imported",
+                "freshness": "unknown"
+              }
+            },
+            "cachedInput": {
+              "price": "0.5",
+              "provenance": {
+                "authority": "imported",
+                "source": "https://openrouter.ai/api/v1/models",
+                "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+                "at": "2026-10-22T20:30:50.836Z",
+                "confidence": "imported",
+                "freshness": "unknown"
+              }
+            },
+            "cacheWrite": {
+              "price": "6.25",
+              "provenance": {
+                "authority": "imported",
+                "source": "https://openrouter.ai/api/v1/models",
+                "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+                "at": "2026-10-22T20:30:50.836Z",
+                "confidence": "imported",
+                "freshness": "unknown"
+              }
+            }
+          },
+          "provenance": {
+            "authority": "imported",
+            "source": "https://openrouter.ai/api/v1/models",
+            "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+            "at": "2026-10-22T20:30:50.836Z",
+            "confidence": "imported",
+            "freshness": "unknown"
+          }
+        },
+        "provenance": {
+          "authority": "imported",
+          "source": "https://openrouter.ai/api/v1/models",
+          "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+          "at": "2026-10-22T20:30:50.836Z",
+          "confidence": "imported",
+          "freshness": "unknown"
+        }
+      },
       "target": {
         "schemaVersion": 1,
         "identity": {
@@ -1030,13 +1387,73 @@
         "lifecycle": {
           "status": "active"
         },
-        "modelType": "completion",
+        "modelType": "other",
+        "importedPricing": {
+          "sourceNamespace": "anthropic",
+          "currency": "USD",
+          "unit": "USD_PER_1M_TOKENS",
+          "components": {
+            "input": {
+              "price": "5",
+              "provenance": {
+                "authority": "imported",
+                "source": "https://openrouter.ai/api/v1/models",
+                "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+                "at": "2026-10-22T20:30:50.836Z",
+                "confidence": "imported",
+                "freshness": "unknown"
+              }
+            },
+            "output": {
+              "price": "25",
+              "provenance": {
+                "authority": "imported",
+                "source": "https://openrouter.ai/api/v1/models",
+                "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+                "at": "2026-10-22T20:30:50.836Z",
+                "confidence": "imported",
+                "freshness": "unknown"
+              }
+            },
+            "cachedInput": {
+              "price": "0.5",
+              "provenance": {
+                "authority": "imported",
+                "source": "https://openrouter.ai/api/v1/models",
+                "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+                "at": "2026-10-22T20:30:50.836Z",
+                "confidence": "imported",
+                "freshness": "unknown"
+              }
+            },
+            "cacheWrite": {
+              "price": "6.25",
+              "provenance": {
+                "authority": "imported",
+                "source": "https://openrouter.ai/api/v1/models",
+                "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+                "at": "2026-10-22T20:30:50.836Z",
+                "confidence": "imported",
+                "freshness": "unknown"
+              }
+            }
+          },
+          "provenance": {
+            "authority": "imported",
+            "source": "https://openrouter.ai/api/v1/models",
+            "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+            "at": "2026-10-22T20:30:50.836Z",
+            "confidence": "imported",
+            "freshness": "unknown"
+          }
+        },
         "provenance": {
-          "authority": "maintained",
-          "source": "https://github.com/github/gh-aw-firewall/issues/10029 and https://github.com/github/gh-aw-firewall/issues/10030",
-          "revision": "issues-10029-10030-open-2026-10-20",
-          "at": "2026-10-15T17:11:28Z",
-          "confidence": "estimated"
+          "authority": "imported",
+          "source": "https://openrouter.ai/api/v1/models",
+          "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+          "at": "2026-10-22T20:30:50.836Z",
+          "confidence": "imported",
+          "freshness": "unknown"
         },
         "reasoning": {
           "support": "supported",
@@ -1067,7 +1484,86 @@
     },
     {
       "key": "anthropic/claude-opus-5.5",
-      "baseline": null,
+      "baseline": {
+        "schemaVersion": 1,
+        "identity": {
+          "key": "anthropic/claude-opus-5.5",
+          "provider": "anthropic",
+          "rawId": "claude-opus-5.5",
+          "lookupId": "claude-opus-5-5"
+        },
+        "lifecycle": {
+          "status": "active"
+        },
+        "modelType": "other",
+        "importedPricing": {
+          "sourceNamespace": "anthropic",
+          "currency": "USD",
+          "unit": "USD_PER_1M_TOKENS",
+          "components": {
+            "input": {
+              "price": "4",
+              "provenance": {
+                "authority": "imported",
+                "source": "https://openrouter.ai/api/v1/models",
+                "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+                "at": "2026-10-22T20:30:50.836Z",
+                "confidence": "imported",
+                "freshness": "unknown"
+              }
+            },
+            "output": {
+              "price": "20",
+              "provenance": {
+                "authority": "imported",
+                "source": "https://openrouter.ai/api/v1/models",
+                "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+                "at": "2026-10-22T20:30:50.836Z",
+                "confidence": "imported",
+                "freshness": "unknown"
+              }
+            },
+            "cachedInput": {
+              "price": "0.2",
+              "provenance": {
+                "authority": "imported",
+                "source": "https://openrouter.ai/api/v1/models",
+                "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+                "at": "2026-10-22T20:30:50.836Z",
+                "confidence": "imported",
+                "freshness": "unknown"
+              }
+            },
+            "cacheWrite": {
+              "price": "5",
+              "provenance": {
+                "authority": "imported",
+                "source": "https://openrouter.ai/api/v1/models",
+                "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+                "at": "2026-10-22T20:30:50.836Z",
+                "confidence": "imported",
+                "freshness": "unknown"
+              }
+            }
+          },
+          "provenance": {
+            "authority": "imported",
+            "source": "https://openrouter.ai/api/v1/models",
+            "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+            "at": "2026-10-22T20:30:50.836Z",
+            "confidence": "imported",
+            "freshness": "unknown"
+          }
+        },
+        "provenance": {
+          "authority": "imported",
+          "source": "https://openrouter.ai/api/v1/models",
+          "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+          "at": "2026-10-22T20:30:50.836Z",
+          "confidence": "imported",
+          "freshness": "unknown"
+        }
+      },
       "target": {
         "schemaVersion": 1,
         "identity": {
@@ -1080,13 +1576,73 @@
         "lifecycle": {
           "status": "active"
         },
-        "modelType": "completion",
+        "modelType": "other",
+        "importedPricing": {
+          "sourceNamespace": "anthropic",
+          "currency": "USD",
+          "unit": "USD_PER_1M_TOKENS",
+          "components": {
+            "input": {
+              "price": "4",
+              "provenance": {
+                "authority": "imported",
+                "source": "https://openrouter.ai/api/v1/models",
+                "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+                "at": "2026-10-22T20:30:50.836Z",
+                "confidence": "imported",
+                "freshness": "unknown"
+              }
+            },
+            "output": {
+              "price": "20",
+              "provenance": {
+                "authority": "imported",
+                "source": "https://openrouter.ai/api/v1/models",
+                "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+                "at": "2026-10-22T20:30:50.836Z",
+                "confidence": "imported",
+                "freshness": "unknown"
+              }
+            },
+            "cachedInput": {
+              "price": "0.2",
+              "provenance": {
+                "authority": "imported",
+                "source": "https://openrouter.ai/api/v1/models",
+                "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+                "at": "2026-10-22T20:30:50.836Z",
+                "confidence": "imported",
+                "freshness": "unknown"
+              }
+            },
+            "cacheWrite": {
+              "price": "5",
+              "provenance": {
+                "authority": "imported",
+                "source": "https://openrouter.ai/api/v1/models",
+                "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+                "at": "2026-10-22T20:30:50.836Z",
+                "confidence": "imported",
+                "freshness": "unknown"
+              }
+            }
+          },
+          "provenance": {
+            "authority": "imported",
+            "source": "https://openrouter.ai/api/v1/models",
+            "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+            "at": "2026-10-22T20:30:50.836Z",
+            "confidence": "imported",
+            "freshness": "unknown"
+          }
+        },
         "provenance": {
-          "authority": "maintained",
-          "source": "https://github.com/github/gh-aw-firewall/issues/10029 and https://github.com/github/gh-aw-firewall/issues/10030",
-          "revision": "issues-10029-10030-open-2026-10-20",
-          "at": "2026-10-15T17:11:28Z",
-          "confidence": "estimated"
+          "authority": "imported",
+          "source": "https://openrouter.ai/api/v1/models",
+          "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+          "at": "2026-10-22T20:30:50.836Z",
+          "confidence": "imported",
+          "freshness": "unknown"
         },
         "reasoning": {
           "support": "supported",
@@ -1138,9 +1694,9 @@
               "price": "3",
               "provenance": {
                 "authority": "imported",
-                "source": "git-committed containers/api-proxy/models.dev.catalog.json (OpenRouter-shaped; retrievedAt is repository capture commit time, NOT upstream retrieval)",
-                "revision": "7aadc2a15168959d020df4252b650337536e1c1d",
-                "at": "2026-10-19T17:20:11-07:00",
+                "source": "https://openrouter.ai/api/v1/models",
+                "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+                "at": "2026-10-22T20:30:50.836Z",
                 "confidence": "imported",
                 "freshness": "unknown"
               }
@@ -1149,9 +1705,9 @@
               "price": "15",
               "provenance": {
                 "authority": "imported",
-                "source": "git-committed containers/api-proxy/models.dev.catalog.json (OpenRouter-shaped; retrievedAt is repository capture commit time, NOT upstream retrieval)",
-                "revision": "7aadc2a15168959d020df4252b650337536e1c1d",
-                "at": "2026-10-19T17:20:11-07:00",
+                "source": "https://openrouter.ai/api/v1/models",
+                "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+                "at": "2026-10-22T20:30:50.836Z",
                 "confidence": "imported",
                 "freshness": "unknown"
               }
@@ -1160,9 +1716,9 @@
               "price": "0.3",
               "provenance": {
                 "authority": "imported",
-                "source": "git-committed containers/api-proxy/models.dev.catalog.json (OpenRouter-shaped; retrievedAt is repository capture commit time, NOT upstream retrieval)",
-                "revision": "7aadc2a15168959d020df4252b650337536e1c1d",
-                "at": "2026-10-19T17:20:11-07:00",
+                "source": "https://openrouter.ai/api/v1/models",
+                "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+                "at": "2026-10-22T20:30:50.836Z",
                 "confidence": "imported",
                 "freshness": "unknown"
               }
@@ -1171,9 +1727,9 @@
               "price": "3.75",
               "provenance": {
                 "authority": "imported",
-                "source": "git-committed containers/api-proxy/models.dev.catalog.json (OpenRouter-shaped; retrievedAt is repository capture commit time, NOT upstream retrieval)",
-                "revision": "7aadc2a15168959d020df4252b650337536e1c1d",
-                "at": "2026-10-19T17:20:11-07:00",
+                "source": "https://openrouter.ai/api/v1/models",
+                "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+                "at": "2026-10-22T20:30:50.836Z",
                 "confidence": "imported",
                 "freshness": "unknown"
               }
@@ -1181,18 +1737,18 @@
           },
           "provenance": {
             "authority": "imported",
-            "source": "git-committed containers/api-proxy/models.dev.catalog.json (OpenRouter-shaped; retrievedAt is repository capture commit time, NOT upstream retrieval)",
-            "revision": "7aadc2a15168959d020df4252b650337536e1c1d",
-            "at": "2026-10-19T17:20:11-07:00",
+            "source": "https://openrouter.ai/api/v1/models",
+            "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+            "at": "2026-10-22T20:30:50.836Z",
             "confidence": "imported",
             "freshness": "unknown"
           }
         },
         "provenance": {
           "authority": "imported",
-          "source": "git-committed containers/api-proxy/models.dev.catalog.json (OpenRouter-shaped; retrievedAt is repository capture commit time, NOT upstream retrieval)",
-          "revision": "7aadc2a15168959d020df4252b650337536e1c1d",
-          "at": "2026-10-19T17:20:11-07:00",
+          "source": "https://openrouter.ai/api/v1/models",
+          "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+          "at": "2026-10-22T20:30:50.836Z",
           "confidence": "imported",
           "freshness": "unknown"
         }
@@ -1219,9 +1775,9 @@
               "price": "3",
               "provenance": {
                 "authority": "imported",
-                "source": "git-committed containers/api-proxy/models.dev.catalog.json (OpenRouter-shaped; retrievedAt is repository capture commit time, NOT upstream retrieval)",
-                "revision": "7aadc2a15168959d020df4252b650337536e1c1d",
-                "at": "2026-10-19T17:20:11-07:00",
+                "source": "https://openrouter.ai/api/v1/models",
+                "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+                "at": "2026-10-22T20:30:50.836Z",
                 "confidence": "imported",
                 "freshness": "unknown"
               }
@@ -1230,9 +1786,9 @@
               "price": "15",
               "provenance": {
                 "authority": "imported",
-                "source": "git-committed containers/api-proxy/models.dev.catalog.json (OpenRouter-shaped; retrievedAt is repository capture commit time, NOT upstream retrieval)",
-                "revision": "7aadc2a15168959d020df4252b650337536e1c1d",
-                "at": "2026-10-19T17:20:11-07:00",
+                "source": "https://openrouter.ai/api/v1/models",
+                "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+                "at": "2026-10-22T20:30:50.836Z",
                 "confidence": "imported",
                 "freshness": "unknown"
               }
@@ -1241,9 +1797,9 @@
               "price": "0.3",
               "provenance": {
                 "authority": "imported",
-                "source": "git-committed containers/api-proxy/models.dev.catalog.json (OpenRouter-shaped; retrievedAt is repository capture commit time, NOT upstream retrieval)",
-                "revision": "7aadc2a15168959d020df4252b650337536e1c1d",
-                "at": "2026-10-19T17:20:11-07:00",
+                "source": "https://openrouter.ai/api/v1/models",
+                "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+                "at": "2026-10-22T20:30:50.836Z",
                 "confidence": "imported",
                 "freshness": "unknown"
               }
@@ -1252,9 +1808,9 @@
               "price": "3.75",
               "provenance": {
                 "authority": "imported",
-                "source": "git-committed containers/api-proxy/models.dev.catalog.json (OpenRouter-shaped; retrievedAt is repository capture commit time, NOT upstream retrieval)",
-                "revision": "7aadc2a15168959d020df4252b650337536e1c1d",
-                "at": "2026-10-19T17:20:11-07:00",
+                "source": "https://openrouter.ai/api/v1/models",
+                "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+                "at": "2026-10-22T20:30:50.836Z",
                 "confidence": "imported",
                 "freshness": "unknown"
               }
@@ -1262,18 +1818,18 @@
           },
           "provenance": {
             "authority": "imported",
-            "source": "git-committed containers/api-proxy/models.dev.catalog.json (OpenRouter-shaped; retrievedAt is repository capture commit time, NOT upstream retrieval)",
-            "revision": "7aadc2a15168959d020df4252b650337536e1c1d",
-            "at": "2026-10-19T17:20:11-07:00",
+            "source": "https://openrouter.ai/api/v1/models",
+            "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+            "at": "2026-10-22T20:30:50.836Z",
             "confidence": "imported",
             "freshness": "unknown"
           }
         },
         "provenance": {
           "authority": "imported",
-          "source": "git-committed containers/api-proxy/models.dev.catalog.json (OpenRouter-shaped; retrievedAt is repository capture commit time, NOT upstream retrieval)",
-          "revision": "7aadc2a15168959d020df4252b650337536e1c1d",
-          "at": "2026-10-19T17:20:11-07:00",
+          "source": "https://openrouter.ai/api/v1/models",
+          "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+          "at": "2026-10-22T20:30:50.836Z",
           "confidence": "imported",
           "freshness": "unknown"
         },
@@ -1304,7 +1860,86 @@
     },
     {
       "key": "anthropic/claude-sonnet-5",
-      "baseline": null,
+      "baseline": {
+        "schemaVersion": 1,
+        "identity": {
+          "key": "anthropic/claude-sonnet-5",
+          "provider": "anthropic",
+          "rawId": "claude-sonnet-5",
+          "lookupId": "claude-sonnet-5"
+        },
+        "lifecycle": {
+          "status": "active"
+        },
+        "modelType": "other",
+        "importedPricing": {
+          "sourceNamespace": "anthropic",
+          "currency": "USD",
+          "unit": "USD_PER_1M_TOKENS",
+          "components": {
+            "input": {
+              "price": "2",
+              "provenance": {
+                "authority": "imported",
+                "source": "https://openrouter.ai/api/v1/models",
+                "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+                "at": "2026-10-22T20:30:50.836Z",
+                "confidence": "imported",
+                "freshness": "unknown"
+              }
+            },
+            "output": {
+              "price": "10",
+              "provenance": {
+                "authority": "imported",
+                "source": "https://openrouter.ai/api/v1/models",
+                "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+                "at": "2026-10-22T20:30:50.836Z",
+                "confidence": "imported",
+                "freshness": "unknown"
+              }
+            },
+            "cachedInput": {
+              "price": "0.2",
+              "provenance": {
+                "authority": "imported",
+                "source": "https://openrouter.ai/api/v1/models",
+                "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+                "at": "2026-10-22T20:30:50.836Z",
+                "confidence": "imported",
+                "freshness": "unknown"
+              }
+            },
+            "cacheWrite": {
+              "price": "2.5",
+              "provenance": {
+                "authority": "imported",
+                "source": "https://openrouter.ai/api/v1/models",
+                "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+                "at": "2026-10-22T20:30:50.836Z",
+                "confidence": "imported",
+                "freshness": "unknown"
+              }
+            }
+          },
+          "provenance": {
+            "authority": "imported",
+            "source": "https://openrouter.ai/api/v1/models",
+            "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+            "at": "2026-10-22T20:30:50.836Z",
+            "confidence": "imported",
+            "freshness": "unknown"
+          }
+        },
+        "provenance": {
+          "authority": "imported",
+          "source": "https://openrouter.ai/api/v1/models",
+          "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+          "at": "2026-10-22T20:30:50.836Z",
+          "confidence": "imported",
+          "freshness": "unknown"
+        }
+      },
       "target": {
         "schemaVersion": 1,
         "identity": {
@@ -1317,13 +1952,73 @@
         "lifecycle": {
           "status": "active"
         },
-        "modelType": "completion",
+        "modelType": "other",
+        "importedPricing": {
+          "sourceNamespace": "anthropic",
+          "currency": "USD",
+          "unit": "USD_PER_1M_TOKENS",
+          "components": {
+            "input": {
+              "price": "2",
+              "provenance": {
+                "authority": "imported",
+                "source": "https://openrouter.ai/api/v1/models",
+                "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+                "at": "2026-10-22T20:30:50.836Z",
+                "confidence": "imported",
+                "freshness": "unknown"
+              }
+            },
+            "output": {
+              "price": "10",
+              "provenance": {
+                "authority": "imported",
+                "source": "https://openrouter.ai/api/v1/models",
+                "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+                "at": "2026-10-22T20:30:50.836Z",
+                "confidence": "imported",
+                "freshness": "unknown"
+              }
+            },
+            "cachedInput": {
+              "price": "0.2",
+              "provenance": {
+                "authority": "imported",
+                "source": "https://openrouter.ai/api/v1/models",
+                "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+                "at": "2026-10-22T20:30:50.836Z",
+                "confidence": "imported",
+                "freshness": "unknown"
+              }
+            },
+            "cacheWrite": {
+              "price": "2.5",
+              "provenance": {
+                "authority": "imported",
+                "source": "https://openrouter.ai/api/v1/models",
+                "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+                "at": "2026-10-22T20:30:50.836Z",
+                "confidence": "imported",
+                "freshness": "unknown"
+              }
+            }
+          },
+          "provenance": {
+            "authority": "imported",
+            "source": "https://openrouter.ai/api/v1/models",
+            "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+            "at": "2026-10-22T20:30:50.836Z",
+            "confidence": "imported",
+            "freshness": "unknown"
+          }
+        },
         "provenance": {
-          "authority": "maintained",
-          "source": "https://github.com/github/gh-aw-firewall/issues/10029 and https://github.com/github/gh-aw-firewall/issues/10030",
-          "revision": "issues-10029-10030-open-2026-10-20",
-          "at": "2026-10-15T17:11:28Z",
-          "confidence": "estimated"
+          "authority": "imported",
+          "source": "https://openrouter.ai/api/v1/models",
+          "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+          "at": "2026-10-22T20:30:50.836Z",
+          "confidence": "imported",
+          "freshness": "unknown"
         },
         "reasoning": {
           "support": "supported",
@@ -1354,7 +2049,86 @@
     },
     {
       "key": "anthropic/claude-sonnet-5.5",
-      "baseline": null,
+      "baseline": {
+        "schemaVersion": 1,
+        "identity": {
+          "key": "anthropic/claude-sonnet-5.5",
+          "provider": "anthropic",
+          "rawId": "claude-sonnet-5.5",
+          "lookupId": "claude-sonnet-5-5"
+        },
+        "lifecycle": {
+          "status": "active"
+        },
+        "modelType": "other",
+        "importedPricing": {
+          "sourceNamespace": "anthropic",
+          "currency": "USD",
+          "unit": "USD_PER_1M_TOKENS",
+          "components": {
+            "input": {
+              "price": "2",
+              "provenance": {
+                "authority": "imported",
+                "source": "https://openrouter.ai/api/v1/models",
+                "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+                "at": "2026-10-22T20:30:50.836Z",
+                "confidence": "imported",
+                "freshness": "unknown"
+              }
+            },
+            "output": {
+              "price": "10",
+              "provenance": {
+                "authority": "imported",
+                "source": "https://openrouter.ai/api/v1/models",
+                "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+                "at": "2026-10-22T20:30:50.836Z",
+                "confidence": "imported",
+                "freshness": "unknown"
+              }
+            },
+            "cachedInput": {
+              "price": "0.1",
+              "provenance": {
+                "authority": "imported",
+                "source": "https://openrouter.ai/api/v1/models",
+                "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+                "at": "2026-10-22T20:30:50.836Z",
+                "confidence": "imported",
+                "freshness": "unknown"
+              }
+            },
+            "cacheWrite": {
+              "price": "2.5",
+              "provenance": {
+                "authority": "imported",
+                "source": "https://openrouter.ai/api/v1/models",
+                "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+                "at": "2026-10-22T20:30:50.836Z",
+                "confidence": "imported",
+                "freshness": "unknown"
+              }
+            }
+          },
+          "provenance": {
+            "authority": "imported",
+            "source": "https://openrouter.ai/api/v1/models",
+            "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+            "at": "2026-10-22T20:30:50.836Z",
+            "confidence": "imported",
+            "freshness": "unknown"
+          }
+        },
+        "provenance": {
+          "authority": "imported",
+          "source": "https://openrouter.ai/api/v1/models",
+          "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+          "at": "2026-10-22T20:30:50.836Z",
+          "confidence": "imported",
+          "freshness": "unknown"
+        }
+      },
       "target": {
         "schemaVersion": 1,
         "identity": {
@@ -1367,13 +2141,73 @@
         "lifecycle": {
           "status": "active"
         },
-        "modelType": "completion",
+        "modelType": "other",
+        "importedPricing": {
+          "sourceNamespace": "anthropic",
+          "currency": "USD",
+          "unit": "USD_PER_1M_TOKENS",
+          "components": {
+            "input": {
+              "price": "2",
+              "provenance": {
+                "authority": "imported",
+                "source": "https://openrouter.ai/api/v1/models",
+                "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+                "at": "2026-10-22T20:30:50.836Z",
+                "confidence": "imported",
+                "freshness": "unknown"
+              }
+            },
+            "output": {
+              "price": "10",
+              "provenance": {
+                "authority": "imported",
+                "source": "https://openrouter.ai/api/v1/models",
+                "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+                "at": "2026-10-22T20:30:50.836Z",
+                "confidence": "imported",
+                "freshness": "unknown"
+              }
+            },
+            "cachedInput": {
+              "price": "0.1",
+              "provenance": {
+                "authority": "imported",
+                "source": "https://openrouter.ai/api/v1/models",
+                "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+                "at": "2026-10-22T20:30:50.836Z",
+                "confidence": "imported",
+                "freshness": "unknown"
+              }
+            },
+            "cacheWrite": {
+              "price": "2.5",
+              "provenance": {
+                "authority": "imported",
+                "source": "https://openrouter.ai/api/v1/models",
+                "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+                "at": "2026-10-22T20:30:50.836Z",
+                "confidence": "imported",
+                "freshness": "unknown"
+              }
+            }
+          },
+          "provenance": {
+            "authority": "imported",
+            "source": "https://openrouter.ai/api/v1/models",
+            "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+            "at": "2026-10-22T20:30:50.836Z",
+            "confidence": "imported",
+            "freshness": "unknown"
+          }
+        },
         "provenance": {
-          "authority": "maintained",
-          "source": "https://github.com/github/gh-aw-firewall/issues/10029 and https://github.com/github/gh-aw-firewall/issues/10030",
-          "revision": "issues-10029-10030-open-2026-10-20",
-          "at": "2026-10-15T17:11:28Z",
-          "confidence": "estimated"
+          "authority": "imported",
+          "source": "https://openrouter.ai/api/v1/models",
+          "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+          "at": "2026-10-22T20:30:50.836Z",
+          "confidence": "imported",
+          "freshness": "unknown"
         },
         "reasoning": {
           "support": "supported",
@@ -2460,9 +3294,9 @@
               "price": "0.75",
               "provenance": {
                 "authority": "imported",
-                "source": "git-committed containers/api-proxy/models.dev.catalog.json (OpenRouter-shaped; retrievedAt is repository capture commit time, NOT upstream retrieval)",
-                "revision": "7aadc2a15168959d020df4252b650337536e1c1d",
-                "at": "2026-10-19T17:20:11-07:00",
+                "source": "https://openrouter.ai/api/v1/models",
+                "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+                "at": "2026-10-22T20:30:50.836Z",
                 "confidence": "imported",
                 "freshness": "unknown"
               }
@@ -2471,9 +3305,9 @@
               "price": "4.5",
               "provenance": {
                 "authority": "imported",
-                "source": "git-committed containers/api-proxy/models.dev.catalog.json (OpenRouter-shaped; retrievedAt is repository capture commit time, NOT upstream retrieval)",
-                "revision": "7aadc2a15168959d020df4252b650337536e1c1d",
-                "at": "2026-10-19T17:20:11-07:00",
+                "source": "https://openrouter.ai/api/v1/models",
+                "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+                "at": "2026-10-22T20:30:50.836Z",
                 "confidence": "imported",
                 "freshness": "unknown"
               }
@@ -2482,9 +3316,9 @@
               "price": "0.075",
               "provenance": {
                 "authority": "imported",
-                "source": "git-committed containers/api-proxy/models.dev.catalog.json (OpenRouter-shaped; retrievedAt is repository capture commit time, NOT upstream retrieval)",
-                "revision": "7aadc2a15168959d020df4252b650337536e1c1d",
-                "at": "2026-10-19T17:20:11-07:00",
+                "source": "https://openrouter.ai/api/v1/models",
+                "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+                "at": "2026-10-22T20:30:50.836Z",
                 "confidence": "imported",
                 "freshness": "unknown"
               }
@@ -2492,18 +3326,18 @@
           },
           "provenance": {
             "authority": "imported",
-            "source": "git-committed containers/api-proxy/models.dev.catalog.json (OpenRouter-shaped; retrievedAt is repository capture commit time, NOT upstream retrieval)",
-            "revision": "7aadc2a15168959d020df4252b650337536e1c1d",
-            "at": "2026-10-19T17:20:11-07:00",
+            "source": "https://openrouter.ai/api/v1/models",
+            "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+            "at": "2026-10-22T20:30:50.836Z",
             "confidence": "imported",
             "freshness": "unknown"
           }
         },
         "provenance": {
           "authority": "imported",
-          "source": "git-committed containers/api-proxy/models.dev.catalog.json (OpenRouter-shaped; retrievedAt is repository capture commit time, NOT upstream retrieval)",
-          "revision": "7aadc2a15168959d020df4252b650337536e1c1d",
-          "at": "2026-10-19T17:20:11-07:00",
+          "source": "https://openrouter.ai/api/v1/models",
+          "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+          "at": "2026-10-22T20:30:50.836Z",
           "confidence": "imported",
           "freshness": "unknown"
         }
@@ -2530,9 +3364,9 @@
               "price": "0.75",
               "provenance": {
                 "authority": "imported",
-                "source": "git-committed containers/api-proxy/models.dev.catalog.json (OpenRouter-shaped; retrievedAt is repository capture commit time, NOT upstream retrieval)",
-                "revision": "7aadc2a15168959d020df4252b650337536e1c1d",
-                "at": "2026-10-19T17:20:11-07:00",
+                "source": "https://openrouter.ai/api/v1/models",
+                "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+                "at": "2026-10-22T20:30:50.836Z",
                 "confidence": "imported",
                 "freshness": "unknown"
               }
@@ -2541,9 +3375,9 @@
               "price": "4.5",
               "provenance": {
                 "authority": "imported",
-                "source": "git-committed containers/api-proxy/models.dev.catalog.json (OpenRouter-shaped; retrievedAt is repository capture commit time, NOT upstream retrieval)",
-                "revision": "7aadc2a15168959d020df4252b650337536e1c1d",
-                "at": "2026-10-19T17:20:11-07:00",
+                "source": "https://openrouter.ai/api/v1/models",
+                "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+                "at": "2026-10-22T20:30:50.836Z",
                 "confidence": "imported",
                 "freshness": "unknown"
               }
@@ -2552,9 +3386,9 @@
               "price": "0.075",
               "provenance": {
                 "authority": "imported",
-                "source": "git-committed containers/api-proxy/models.dev.catalog.json (OpenRouter-shaped; retrievedAt is repository capture commit time, NOT upstream retrieval)",
-                "revision": "7aadc2a15168959d020df4252b650337536e1c1d",
-                "at": "2026-10-19T17:20:11-07:00",
+                "source": "https://openrouter.ai/api/v1/models",
+                "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+                "at": "2026-10-22T20:30:50.836Z",
                 "confidence": "imported",
                 "freshness": "unknown"
               }
@@ -2562,18 +3396,18 @@
           },
           "provenance": {
             "authority": "imported",
-            "source": "git-committed containers/api-proxy/models.dev.catalog.json (OpenRouter-shaped; retrievedAt is repository capture commit time, NOT upstream retrieval)",
-            "revision": "7aadc2a15168959d020df4252b650337536e1c1d",
-            "at": "2026-10-19T17:20:11-07:00",
+            "source": "https://openrouter.ai/api/v1/models",
+            "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+            "at": "2026-10-22T20:30:50.836Z",
             "confidence": "imported",
             "freshness": "unknown"
           }
         },
         "provenance": {
           "authority": "imported",
-          "source": "git-committed containers/api-proxy/models.dev.catalog.json (OpenRouter-shaped; retrievedAt is repository capture commit time, NOT upstream retrieval)",
-          "revision": "7aadc2a15168959d020df4252b650337536e1c1d",
-          "at": "2026-10-19T17:20:11-07:00",
+          "source": "https://openrouter.ai/api/v1/models",
+          "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+          "at": "2026-10-22T20:30:50.836Z",
           "confidence": "imported",
           "freshness": "unknown"
         },
@@ -2637,9 +3471,9 @@
               "price": "5",
               "provenance": {
                 "authority": "imported",
-                "source": "git-committed containers/api-proxy/models.dev.catalog.json (OpenRouter-shaped; retrievedAt is repository capture commit time, NOT upstream retrieval)",
-                "revision": "7aadc2a15168959d020df4252b650337536e1c1d",
-                "at": "2026-10-19T17:20:11-07:00",
+                "source": "https://openrouter.ai/api/v1/models",
+                "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+                "at": "2026-10-22T20:30:50.836Z",
                 "confidence": "imported",
                 "freshness": "unknown"
               }
@@ -2648,9 +3482,9 @@
               "price": "30",
               "provenance": {
                 "authority": "imported",
-                "source": "git-committed containers/api-proxy/models.dev.catalog.json (OpenRouter-shaped; retrievedAt is repository capture commit time, NOT upstream retrieval)",
-                "revision": "7aadc2a15168959d020df4252b650337536e1c1d",
-                "at": "2026-10-19T17:20:11-07:00",
+                "source": "https://openrouter.ai/api/v1/models",
+                "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+                "at": "2026-10-22T20:30:50.836Z",
                 "confidence": "imported",
                 "freshness": "unknown"
               }
@@ -2659,9 +3493,9 @@
               "price": "0.5",
               "provenance": {
                 "authority": "imported",
-                "source": "git-committed containers/api-proxy/models.dev.catalog.json (OpenRouter-shaped; retrievedAt is repository capture commit time, NOT upstream retrieval)",
-                "revision": "7aadc2a15168959d020df4252b650337536e1c1d",
-                "at": "2026-10-19T17:20:11-07:00",
+                "source": "https://openrouter.ai/api/v1/models",
+                "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+                "at": "2026-10-22T20:30:50.836Z",
                 "confidence": "imported",
                 "freshness": "unknown"
               }
@@ -2669,18 +3503,18 @@
           },
           "provenance": {
             "authority": "imported",
-            "source": "git-committed containers/api-proxy/models.dev.catalog.json (OpenRouter-shaped; retrievedAt is repository capture commit time, NOT upstream retrieval)",
-            "revision": "7aadc2a15168959d020df4252b650337536e1c1d",
-            "at": "2026-10-19T17:20:11-07:00",
+            "source": "https://openrouter.ai/api/v1/models",
+            "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+            "at": "2026-10-22T20:30:50.836Z",
             "confidence": "imported",
             "freshness": "unknown"
           }
         },
         "provenance": {
           "authority": "imported",
-          "source": "git-committed containers/api-proxy/models.dev.catalog.json (OpenRouter-shaped; retrievedAt is repository capture commit time, NOT upstream retrieval)",
-          "revision": "7aadc2a15168959d020df4252b650337536e1c1d",
-          "at": "2026-10-19T17:20:11-07:00",
+          "source": "https://openrouter.ai/api/v1/models",
+          "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+          "at": "2026-10-22T20:30:50.836Z",
           "confidence": "imported",
           "freshness": "unknown"
         }
@@ -2707,9 +3541,9 @@
               "price": "5",
               "provenance": {
                 "authority": "imported",
-                "source": "git-committed containers/api-proxy/models.dev.catalog.json (OpenRouter-shaped; retrievedAt is repository capture commit time, NOT upstream retrieval)",
-                "revision": "7aadc2a15168959d020df4252b650337536e1c1d",
-                "at": "2026-10-19T17:20:11-07:00",
+                "source": "https://openrouter.ai/api/v1/models",
+                "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+                "at": "2026-10-22T20:30:50.836Z",
                 "confidence": "imported",
                 "freshness": "unknown"
               }
@@ -2718,9 +3552,9 @@
               "price": "30",
               "provenance": {
                 "authority": "imported",
-                "source": "git-committed containers/api-proxy/models.dev.catalog.json (OpenRouter-shaped; retrievedAt is repository capture commit time, NOT upstream retrieval)",
-                "revision": "7aadc2a15168959d020df4252b650337536e1c1d",
-                "at": "2026-10-19T17:20:11-07:00",
+                "source": "https://openrouter.ai/api/v1/models",
+                "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+                "at": "2026-10-22T20:30:50.836Z",
                 "confidence": "imported",
                 "freshness": "unknown"
               }
@@ -2729,9 +3563,9 @@
               "price": "0.5",
               "provenance": {
                 "authority": "imported",
-                "source": "git-committed containers/api-proxy/models.dev.catalog.json (OpenRouter-shaped; retrievedAt is repository capture commit time, NOT upstream retrieval)",
-                "revision": "7aadc2a15168959d020df4252b650337536e1c1d",
-                "at": "2026-10-19T17:20:11-07:00",
+                "source": "https://openrouter.ai/api/v1/models",
+                "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+                "at": "2026-10-22T20:30:50.836Z",
                 "confidence": "imported",
                 "freshness": "unknown"
               }
@@ -2739,18 +3573,18 @@
           },
           "provenance": {
             "authority": "imported",
-            "source": "git-committed containers/api-proxy/models.dev.catalog.json (OpenRouter-shaped; retrievedAt is repository capture commit time, NOT upstream retrieval)",
-            "revision": "7aadc2a15168959d020df4252b650337536e1c1d",
-            "at": "2026-10-19T17:20:11-07:00",
+            "source": "https://openrouter.ai/api/v1/models",
+            "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+            "at": "2026-10-22T20:30:50.836Z",
             "confidence": "imported",
             "freshness": "unknown"
           }
         },
         "provenance": {
           "authority": "imported",
-          "source": "git-committed containers/api-proxy/models.dev.catalog.json (OpenRouter-shaped; retrievedAt is repository capture commit time, NOT upstream retrieval)",
-          "revision": "7aadc2a15168959d020df4252b650337536e1c1d",
-          "at": "2026-10-19T17:20:11-07:00",
+          "source": "https://openrouter.ai/api/v1/models",
+          "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+          "at": "2026-10-22T20:30:50.836Z",
           "confidence": "imported",
           "freshness": "unknown"
         },
@@ -2814,9 +3648,9 @@
               "price": "30",
               "provenance": {
                 "authority": "imported",
-                "source": "git-committed containers/api-proxy/models.dev.catalog.json (OpenRouter-shaped; retrievedAt is repository capture commit time, NOT upstream retrieval)",
-                "revision": "7aadc2a15168959d020df4252b650337536e1c1d",
-                "at": "2026-10-19T17:20:11-07:00",
+                "source": "https://openrouter.ai/api/v1/models",
+                "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+                "at": "2026-10-22T20:30:50.836Z",
                 "confidence": "imported",
                 "freshness": "unknown"
               }
@@ -2825,9 +3659,9 @@
               "price": "180",
               "provenance": {
                 "authority": "imported",
-                "source": "git-committed containers/api-proxy/models.dev.catalog.json (OpenRouter-shaped; retrievedAt is repository capture commit time, NOT upstream retrieval)",
-                "revision": "7aadc2a15168959d020df4252b650337536e1c1d",
-                "at": "2026-10-19T17:20:11-07:00",
+                "source": "https://openrouter.ai/api/v1/models",
+                "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+                "at": "2026-10-22T20:30:50.836Z",
                 "confidence": "imported",
                 "freshness": "unknown"
               }
@@ -2835,18 +3669,18 @@
           },
           "provenance": {
             "authority": "imported",
-            "source": "git-committed containers/api-proxy/models.dev.catalog.json (OpenRouter-shaped; retrievedAt is repository capture commit time, NOT upstream retrieval)",
-            "revision": "7aadc2a15168959d020df4252b650337536e1c1d",
-            "at": "2026-10-19T17:20:11-07:00",
+            "source": "https://openrouter.ai/api/v1/models",
+            "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+            "at": "2026-10-22T20:30:50.836Z",
             "confidence": "imported",
             "freshness": "unknown"
           }
         },
         "provenance": {
           "authority": "imported",
-          "source": "git-committed containers/api-proxy/models.dev.catalog.json (OpenRouter-shaped; retrievedAt is repository capture commit time, NOT upstream retrieval)",
-          "revision": "7aadc2a15168959d020df4252b650337536e1c1d",
-          "at": "2026-10-19T17:20:11-07:00",
+          "source": "https://openrouter.ai/api/v1/models",
+          "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+          "at": "2026-10-22T20:30:50.836Z",
           "confidence": "imported",
           "freshness": "unknown"
         }
@@ -2873,9 +3707,9 @@
               "price": "30",
               "provenance": {
                 "authority": "imported",
-                "source": "git-committed containers/api-proxy/models.dev.catalog.json (OpenRouter-shaped; retrievedAt is repository capture commit time, NOT upstream retrieval)",
-                "revision": "7aadc2a15168959d020df4252b650337536e1c1d",
-                "at": "2026-10-19T17:20:11-07:00",
+                "source": "https://openrouter.ai/api/v1/models",
+                "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+                "at": "2026-10-22T20:30:50.836Z",
                 "confidence": "imported",
                 "freshness": "unknown"
               }
@@ -2884,9 +3718,9 @@
               "price": "180",
               "provenance": {
                 "authority": "imported",
-                "source": "git-committed containers/api-proxy/models.dev.catalog.json (OpenRouter-shaped; retrievedAt is repository capture commit time, NOT upstream retrieval)",
-                "revision": "7aadc2a15168959d020df4252b650337536e1c1d",
-                "at": "2026-10-19T17:20:11-07:00",
+                "source": "https://openrouter.ai/api/v1/models",
+                "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+                "at": "2026-10-22T20:30:50.836Z",
                 "confidence": "imported",
                 "freshness": "unknown"
               }
@@ -2894,18 +3728,18 @@
           },
           "provenance": {
             "authority": "imported",
-            "source": "git-committed containers/api-proxy/models.dev.catalog.json (OpenRouter-shaped; retrievedAt is repository capture commit time, NOT upstream retrieval)",
-            "revision": "7aadc2a15168959d020df4252b650337536e1c1d",
-            "at": "2026-10-19T17:20:11-07:00",
+            "source": "https://openrouter.ai/api/v1/models",
+            "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+            "at": "2026-10-22T20:30:50.836Z",
             "confidence": "imported",
             "freshness": "unknown"
           }
         },
         "provenance": {
           "authority": "imported",
-          "source": "git-committed containers/api-proxy/models.dev.catalog.json (OpenRouter-shaped; retrievedAt is repository capture commit time, NOT upstream retrieval)",
-          "revision": "7aadc2a15168959d020df4252b650337536e1c1d",
-          "at": "2026-10-19T17:20:11-07:00",
+          "source": "https://openrouter.ai/api/v1/models",
+          "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+          "at": "2026-10-22T20:30:50.836Z",
           "confidence": "imported",
           "freshness": "unknown"
         },
@@ -3026,7 +3860,86 @@
     },
     {
       "key": "openai/gpt-5.6-luna",
-      "baseline": null,
+      "baseline": {
+        "schemaVersion": 1,
+        "identity": {
+          "key": "openai/gpt-5.6-luna",
+          "provider": "openai",
+          "rawId": "gpt-5.6-luna",
+          "lookupId": "gpt-5-6-luna"
+        },
+        "lifecycle": {
+          "status": "active"
+        },
+        "modelType": "other",
+        "importedPricing": {
+          "sourceNamespace": "openai",
+          "currency": "USD",
+          "unit": "USD_PER_1M_TOKENS",
+          "components": {
+            "input": {
+              "price": "0.2",
+              "provenance": {
+                "authority": "imported",
+                "source": "https://openrouter.ai/api/v1/models",
+                "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+                "at": "2026-10-22T20:30:50.836Z",
+                "confidence": "imported",
+                "freshness": "unknown"
+              }
+            },
+            "output": {
+              "price": "1.2",
+              "provenance": {
+                "authority": "imported",
+                "source": "https://openrouter.ai/api/v1/models",
+                "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+                "at": "2026-10-22T20:30:50.836Z",
+                "confidence": "imported",
+                "freshness": "unknown"
+              }
+            },
+            "cachedInput": {
+              "price": "0.02",
+              "provenance": {
+                "authority": "imported",
+                "source": "https://openrouter.ai/api/v1/models",
+                "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+                "at": "2026-10-22T20:30:50.836Z",
+                "confidence": "imported",
+                "freshness": "unknown"
+              }
+            },
+            "cacheWrite": {
+              "price": "0.25",
+              "provenance": {
+                "authority": "imported",
+                "source": "https://openrouter.ai/api/v1/models",
+                "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+                "at": "2026-10-22T20:30:50.836Z",
+                "confidence": "imported",
+                "freshness": "unknown"
+              }
+            }
+          },
+          "provenance": {
+            "authority": "imported",
+            "source": "https://openrouter.ai/api/v1/models",
+            "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+            "at": "2026-10-22T20:30:50.836Z",
+            "confidence": "imported",
+            "freshness": "unknown"
+          }
+        },
+        "provenance": {
+          "authority": "imported",
+          "source": "https://openrouter.ai/api/v1/models",
+          "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+          "at": "2026-10-22T20:30:50.836Z",
+          "confidence": "imported",
+          "freshness": "unknown"
+        }
+      },
       "target": {
         "schemaVersion": 1,
         "identity": {
@@ -3039,13 +3952,73 @@
         "lifecycle": {
           "status": "active"
         },
-        "modelType": "completion",
+        "modelType": "other",
+        "importedPricing": {
+          "sourceNamespace": "openai",
+          "currency": "USD",
+          "unit": "USD_PER_1M_TOKENS",
+          "components": {
+            "input": {
+              "price": "0.2",
+              "provenance": {
+                "authority": "imported",
+                "source": "https://openrouter.ai/api/v1/models",
+                "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+                "at": "2026-10-22T20:30:50.836Z",
+                "confidence": "imported",
+                "freshness": "unknown"
+              }
+            },
+            "output": {
+              "price": "1.2",
+              "provenance": {
+                "authority": "imported",
+                "source": "https://openrouter.ai/api/v1/models",
+                "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+                "at": "2026-10-22T20:30:50.836Z",
+                "confidence": "imported",
+                "freshness": "unknown"
+              }
+            },
+            "cachedInput": {
+              "price": "0.02",
+              "provenance": {
+                "authority": "imported",
+                "source": "https://openrouter.ai/api/v1/models",
+                "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+                "at": "2026-10-22T20:30:50.836Z",
+                "confidence": "imported",
+                "freshness": "unknown"
+              }
+            },
+            "cacheWrite": {
+              "price": "0.25",
+              "provenance": {
+                "authority": "imported",
+                "source": "https://openrouter.ai/api/v1/models",
+                "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+                "at": "2026-10-22T20:30:50.836Z",
+                "confidence": "imported",
+                "freshness": "unknown"
+              }
+            }
+          },
+          "provenance": {
+            "authority": "imported",
+            "source": "https://openrouter.ai/api/v1/models",
+            "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+            "at": "2026-10-22T20:30:50.836Z",
+            "confidence": "imported",
+            "freshness": "unknown"
+          }
+        },
         "provenance": {
-          "authority": "maintained",
-          "source": "https://github.com/github/gh-aw-firewall/issues/10029 and https://github.com/github/gh-aw-firewall/issues/10030",
-          "revision": "issues-10029-10030-open-2026-10-20",
-          "at": "2026-10-15T17:11:28Z",
-          "confidence": "estimated"
+          "authority": "imported",
+          "source": "https://openrouter.ai/api/v1/models",
+          "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+          "at": "2026-10-22T20:30:50.836Z",
+          "confidence": "imported",
+          "freshness": "unknown"
         },
         "reasoning": {
           "support": "supported",
@@ -3088,7 +4061,86 @@
     },
     {
       "key": "openai/gpt-5.6-sol",
-      "baseline": null,
+      "baseline": {
+        "schemaVersion": 1,
+        "identity": {
+          "key": "openai/gpt-5.6-sol",
+          "provider": "openai",
+          "rawId": "gpt-5.6-sol",
+          "lookupId": "gpt-5-6-sol"
+        },
+        "lifecycle": {
+          "status": "active"
+        },
+        "modelType": "other",
+        "importedPricing": {
+          "sourceNamespace": "openai",
+          "currency": "USD",
+          "unit": "USD_PER_1M_TOKENS",
+          "components": {
+            "input": {
+              "price": "4",
+              "provenance": {
+                "authority": "imported",
+                "source": "https://openrouter.ai/api/v1/models",
+                "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+                "at": "2026-10-22T20:30:50.836Z",
+                "confidence": "imported",
+                "freshness": "unknown"
+              }
+            },
+            "output": {
+              "price": "20",
+              "provenance": {
+                "authority": "imported",
+                "source": "https://openrouter.ai/api/v1/models",
+                "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+                "at": "2026-10-22T20:30:50.836Z",
+                "confidence": "imported",
+                "freshness": "unknown"
+              }
+            },
+            "cachedInput": {
+              "price": "0.4",
+              "provenance": {
+                "authority": "imported",
+                "source": "https://openrouter.ai/api/v1/models",
+                "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+                "at": "2026-10-22T20:30:50.836Z",
+                "confidence": "imported",
+                "freshness": "unknown"
+              }
+            },
+            "cacheWrite": {
+              "price": "5",
+              "provenance": {
+                "authority": "imported",
+                "source": "https://openrouter.ai/api/v1/models",
+                "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+                "at": "2026-10-22T20:30:50.836Z",
+                "confidence": "imported",
+                "freshness": "unknown"
+              }
+            }
+          },
+          "provenance": {
+            "authority": "imported",
+            "source": "https://openrouter.ai/api/v1/models",
+            "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+            "at": "2026-10-22T20:30:50.836Z",
+            "confidence": "imported",
+            "freshness": "unknown"
+          }
+        },
+        "provenance": {
+          "authority": "imported",
+          "source": "https://openrouter.ai/api/v1/models",
+          "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+          "at": "2026-10-22T20:30:50.836Z",
+          "confidence": "imported",
+          "freshness": "unknown"
+        }
+      },
       "target": {
         "schemaVersion": 1,
         "identity": {
@@ -3101,13 +4153,73 @@
         "lifecycle": {
           "status": "active"
         },
-        "modelType": "completion",
+        "modelType": "other",
+        "importedPricing": {
+          "sourceNamespace": "openai",
+          "currency": "USD",
+          "unit": "USD_PER_1M_TOKENS",
+          "components": {
+            "input": {
+              "price": "4",
+              "provenance": {
+                "authority": "imported",
+                "source": "https://openrouter.ai/api/v1/models",
+                "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+                "at": "2026-10-22T20:30:50.836Z",
+                "confidence": "imported",
+                "freshness": "unknown"
+              }
+            },
+            "output": {
+              "price": "20",
+              "provenance": {
+                "authority": "imported",
+                "source": "https://openrouter.ai/api/v1/models",
+                "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+                "at": "2026-10-22T20:30:50.836Z",
+                "confidence": "imported",
+                "freshness": "unknown"
+              }
+            },
+            "cachedInput": {
+              "price": "0.4",
+              "provenance": {
+                "authority": "imported",
+                "source": "https://openrouter.ai/api/v1/models",
+                "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+                "at": "2026-10-22T20:30:50.836Z",
+                "confidence": "imported",
+                "freshness": "unknown"
+              }
+            },
+            "cacheWrite": {
+              "price": "5",
+              "provenance": {
+                "authority": "imported",
+                "source": "https://openrouter.ai/api/v1/models",
+                "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+                "at": "2026-10-22T20:30:50.836Z",
+                "confidence": "imported",
+                "freshness": "unknown"
+              }
+            }
+          },
+          "provenance": {
+            "authority": "imported",
+            "source": "https://openrouter.ai/api/v1/models",
+            "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+            "at": "2026-10-22T20:30:50.836Z",
+            "confidence": "imported",
+            "freshness": "unknown"
+          }
+        },
         "provenance": {
-          "authority": "maintained",
-          "source": "https://github.com/github/gh-aw-firewall/issues/10029 and https://github.com/github/gh-aw-firewall/issues/10030",
-          "revision": "issues-10029-10030-open-2026-10-20",
-          "at": "2026-10-15T17:11:28Z",
-          "confidence": "estimated"
+          "authority": "imported",
+          "source": "https://openrouter.ai/api/v1/models",
+          "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+          "at": "2026-10-22T20:30:50.836Z",
+          "confidence": "imported",
+          "freshness": "unknown"
         },
         "reasoning": {
           "support": "supported",
@@ -3150,7 +4262,86 @@
     },
     {
       "key": "openai/gpt-5.6-terra",
-      "baseline": null,
+      "baseline": {
+        "schemaVersion": 1,
+        "identity": {
+          "key": "openai/gpt-5.6-terra",
+          "provider": "openai",
+          "rawId": "gpt-5.6-terra",
+          "lookupId": "gpt-5-6-terra"
+        },
+        "lifecycle": {
+          "status": "active"
+        },
+        "modelType": "other",
+        "importedPricing": {
+          "sourceNamespace": "openai",
+          "currency": "USD",
+          "unit": "USD_PER_1M_TOKENS",
+          "components": {
+            "input": {
+              "price": "2",
+              "provenance": {
+                "authority": "imported",
+                "source": "https://openrouter.ai/api/v1/models",
+                "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+                "at": "2026-10-22T20:30:50.836Z",
+                "confidence": "imported",
+                "freshness": "unknown"
+              }
+            },
+            "output": {
+              "price": "12",
+              "provenance": {
+                "authority": "imported",
+                "source": "https://openrouter.ai/api/v1/models",
+                "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+                "at": "2026-10-22T20:30:50.836Z",
+                "confidence": "imported",
+                "freshness": "unknown"
+              }
+            },
+            "cachedInput": {
+              "price": "0.2",
+              "provenance": {
+                "authority": "imported",
+                "source": "https://openrouter.ai/api/v1/models",
+                "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+                "at": "2026-10-22T20:30:50.836Z",
+                "confidence": "imported",
+                "freshness": "unknown"
+              }
+            },
+            "cacheWrite": {
+              "price": "2.5",
+              "provenance": {
+                "authority": "imported",
+                "source": "https://openrouter.ai/api/v1/models",
+                "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+                "at": "2026-10-22T20:30:50.836Z",
+                "confidence": "imported",
+                "freshness": "unknown"
+              }
+            }
+          },
+          "provenance": {
+            "authority": "imported",
+            "source": "https://openrouter.ai/api/v1/models",
+            "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+            "at": "2026-10-22T20:30:50.836Z",
+            "confidence": "imported",
+            "freshness": "unknown"
+          }
+        },
+        "provenance": {
+          "authority": "imported",
+          "source": "https://openrouter.ai/api/v1/models",
+          "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+          "at": "2026-10-22T20:30:50.836Z",
+          "confidence": "imported",
+          "freshness": "unknown"
+        }
+      },
       "target": {
         "schemaVersion": 1,
         "identity": {
@@ -3163,13 +4354,73 @@
         "lifecycle": {
           "status": "active"
         },
-        "modelType": "completion",
+        "modelType": "other",
+        "importedPricing": {
+          "sourceNamespace": "openai",
+          "currency": "USD",
+          "unit": "USD_PER_1M_TOKENS",
+          "components": {
+            "input": {
+              "price": "2",
+              "provenance": {
+                "authority": "imported",
+                "source": "https://openrouter.ai/api/v1/models",
+                "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+                "at": "2026-10-22T20:30:50.836Z",
+                "confidence": "imported",
+                "freshness": "unknown"
+              }
+            },
+            "output": {
+              "price": "12",
+              "provenance": {
+                "authority": "imported",
+                "source": "https://openrouter.ai/api/v1/models",
+                "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+                "at": "2026-10-22T20:30:50.836Z",
+                "confidence": "imported",
+                "freshness": "unknown"
+              }
+            },
+            "cachedInput": {
+              "price": "0.2",
+              "provenance": {
+                "authority": "imported",
+                "source": "https://openrouter.ai/api/v1/models",
+                "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+                "at": "2026-10-22T20:30:50.836Z",
+                "confidence": "imported",
+                "freshness": "unknown"
+              }
+            },
+            "cacheWrite": {
+              "price": "2.5",
+              "provenance": {
+                "authority": "imported",
+                "source": "https://openrouter.ai/api/v1/models",
+                "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+                "at": "2026-10-22T20:30:50.836Z",
+                "confidence": "imported",
+                "freshness": "unknown"
+              }
+            }
+          },
+          "provenance": {
+            "authority": "imported",
+            "source": "https://openrouter.ai/api/v1/models",
+            "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+            "at": "2026-10-22T20:30:50.836Z",
+            "confidence": "imported",
+            "freshness": "unknown"
+          }
+        },
         "provenance": {
-          "authority": "maintained",
-          "source": "https://github.com/github/gh-aw-firewall/issues/10029 and https://github.com/github/gh-aw-firewall/issues/10030",
-          "revision": "issues-10029-10030-open-2026-10-20",
-          "at": "2026-10-15T17:11:28Z",
-          "confidence": "estimated"
+          "authority": "imported",
+          "source": "https://openrouter.ai/api/v1/models",
+          "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+          "at": "2026-10-22T20:30:50.836Z",
+          "confidence": "imported",
+          "freshness": "unknown"
         },
         "reasoning": {
           "support": "supported",
@@ -3212,7 +4463,86 @@
     },
     {
       "key": "openai/gpt-6-astra",
-      "baseline": null,
+      "baseline": {
+        "schemaVersion": 1,
+        "identity": {
+          "key": "openai/gpt-6-astra",
+          "provider": "openai",
+          "rawId": "gpt-6-astra",
+          "lookupId": "gpt-6-astra"
+        },
+        "lifecycle": {
+          "status": "active"
+        },
+        "modelType": "other",
+        "importedPricing": {
+          "sourceNamespace": "openai",
+          "currency": "USD",
+          "unit": "USD_PER_1M_TOKENS",
+          "components": {
+            "input": {
+              "price": "10",
+              "provenance": {
+                "authority": "imported",
+                "source": "https://openrouter.ai/api/v1/models",
+                "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+                "at": "2026-10-22T20:30:50.836Z",
+                "confidence": "imported",
+                "freshness": "unknown"
+              }
+            },
+            "output": {
+              "price": "50",
+              "provenance": {
+                "authority": "imported",
+                "source": "https://openrouter.ai/api/v1/models",
+                "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+                "at": "2026-10-22T20:30:50.836Z",
+                "confidence": "imported",
+                "freshness": "unknown"
+              }
+            },
+            "cachedInput": {
+              "price": "1",
+              "provenance": {
+                "authority": "imported",
+                "source": "https://openrouter.ai/api/v1/models",
+                "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+                "at": "2026-10-22T20:30:50.836Z",
+                "confidence": "imported",
+                "freshness": "unknown"
+              }
+            },
+            "cacheWrite": {
+              "price": "12.5",
+              "provenance": {
+                "authority": "imported",
+                "source": "https://openrouter.ai/api/v1/models",
+                "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+                "at": "2026-10-22T20:30:50.836Z",
+                "confidence": "imported",
+                "freshness": "unknown"
+              }
+            }
+          },
+          "provenance": {
+            "authority": "imported",
+            "source": "https://openrouter.ai/api/v1/models",
+            "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+            "at": "2026-10-22T20:30:50.836Z",
+            "confidence": "imported",
+            "freshness": "unknown"
+          }
+        },
+        "provenance": {
+          "authority": "imported",
+          "source": "https://openrouter.ai/api/v1/models",
+          "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+          "at": "2026-10-22T20:30:50.836Z",
+          "confidence": "imported",
+          "freshness": "unknown"
+        }
+      },
       "target": {
         "schemaVersion": 1,
         "identity": {
@@ -3225,13 +4555,73 @@
         "lifecycle": {
           "status": "active"
         },
-        "modelType": "completion",
+        "modelType": "other",
+        "importedPricing": {
+          "sourceNamespace": "openai",
+          "currency": "USD",
+          "unit": "USD_PER_1M_TOKENS",
+          "components": {
+            "input": {
+              "price": "10",
+              "provenance": {
+                "authority": "imported",
+                "source": "https://openrouter.ai/api/v1/models",
+                "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+                "at": "2026-10-22T20:30:50.836Z",
+                "confidence": "imported",
+                "freshness": "unknown"
+              }
+            },
+            "output": {
+              "price": "50",
+              "provenance": {
+                "authority": "imported",
+                "source": "https://openrouter.ai/api/v1/models",
+                "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+                "at": "2026-10-22T20:30:50.836Z",
+                "confidence": "imported",
+                "freshness": "unknown"
+              }
+            },
+            "cachedInput": {
+              "price": "1",
+              "provenance": {
+                "authority": "imported",
+                "source": "https://openrouter.ai/api/v1/models",
+                "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+                "at": "2026-10-22T20:30:50.836Z",
+                "confidence": "imported",
+                "freshness": "unknown"
+              }
+            },
+            "cacheWrite": {
+              "price": "12.5",
+              "provenance": {
+                "authority": "imported",
+                "source": "https://openrouter.ai/api/v1/models",
+                "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+                "at": "2026-10-22T20:30:50.836Z",
+                "confidence": "imported",
+                "freshness": "unknown"
+              }
+            }
+          },
+          "provenance": {
+            "authority": "imported",
+            "source": "https://openrouter.ai/api/v1/models",
+            "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+            "at": "2026-10-22T20:30:50.836Z",
+            "confidence": "imported",
+            "freshness": "unknown"
+          }
+        },
         "provenance": {
-          "authority": "maintained",
-          "source": "https://github.com/github/gh-aw-firewall/issues/10029 and https://github.com/github/gh-aw-firewall/issues/10030",
-          "revision": "issues-10029-10030-open-2026-10-20",
-          "at": "2026-10-15T17:11:28Z",
-          "confidence": "estimated"
+          "authority": "imported",
+          "source": "https://openrouter.ai/api/v1/models",
+          "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+          "at": "2026-10-22T20:30:50.836Z",
+          "confidence": "imported",
+          "freshness": "unknown"
         },
         "reasoning": {
           "support": "supported",
@@ -3272,7 +4662,86 @@
     },
     {
       "key": "openai/gpt-6-luna",
-      "baseline": null,
+      "baseline": {
+        "schemaVersion": 1,
+        "identity": {
+          "key": "openai/gpt-6-luna",
+          "provider": "openai",
+          "rawId": "gpt-6-luna",
+          "lookupId": "gpt-6-luna"
+        },
+        "lifecycle": {
+          "status": "active"
+        },
+        "modelType": "other",
+        "importedPricing": {
+          "sourceNamespace": "openai",
+          "currency": "USD",
+          "unit": "USD_PER_1M_TOKENS",
+          "components": {
+            "input": {
+              "price": "0.1",
+              "provenance": {
+                "authority": "imported",
+                "source": "https://openrouter.ai/api/v1/models",
+                "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+                "at": "2026-10-22T20:30:50.836Z",
+                "confidence": "imported",
+                "freshness": "unknown"
+              }
+            },
+            "output": {
+              "price": "0.5",
+              "provenance": {
+                "authority": "imported",
+                "source": "https://openrouter.ai/api/v1/models",
+                "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+                "at": "2026-10-22T20:30:50.836Z",
+                "confidence": "imported",
+                "freshness": "unknown"
+              }
+            },
+            "cachedInput": {
+              "price": "0.01",
+              "provenance": {
+                "authority": "imported",
+                "source": "https://openrouter.ai/api/v1/models",
+                "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+                "at": "2026-10-22T20:30:50.836Z",
+                "confidence": "imported",
+                "freshness": "unknown"
+              }
+            },
+            "cacheWrite": {
+              "price": "0.125",
+              "provenance": {
+                "authority": "imported",
+                "source": "https://openrouter.ai/api/v1/models",
+                "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+                "at": "2026-10-22T20:30:50.836Z",
+                "confidence": "imported",
+                "freshness": "unknown"
+              }
+            }
+          },
+          "provenance": {
+            "authority": "imported",
+            "source": "https://openrouter.ai/api/v1/models",
+            "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+            "at": "2026-10-22T20:30:50.836Z",
+            "confidence": "imported",
+            "freshness": "unknown"
+          }
+        },
+        "provenance": {
+          "authority": "imported",
+          "source": "https://openrouter.ai/api/v1/models",
+          "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+          "at": "2026-10-22T20:30:50.836Z",
+          "confidence": "imported",
+          "freshness": "unknown"
+        }
+      },
       "target": {
         "schemaVersion": 1,
         "identity": {
@@ -3285,13 +4754,73 @@
         "lifecycle": {
           "status": "active"
         },
-        "modelType": "completion",
+        "modelType": "other",
+        "importedPricing": {
+          "sourceNamespace": "openai",
+          "currency": "USD",
+          "unit": "USD_PER_1M_TOKENS",
+          "components": {
+            "input": {
+              "price": "0.1",
+              "provenance": {
+                "authority": "imported",
+                "source": "https://openrouter.ai/api/v1/models",
+                "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+                "at": "2026-10-22T20:30:50.836Z",
+                "confidence": "imported",
+                "freshness": "unknown"
+              }
+            },
+            "output": {
+              "price": "0.5",
+              "provenance": {
+                "authority": "imported",
+                "source": "https://openrouter.ai/api/v1/models",
+                "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+                "at": "2026-10-22T20:30:50.836Z",
+                "confidence": "imported",
+                "freshness": "unknown"
+              }
+            },
+            "cachedInput": {
+              "price": "0.01",
+              "provenance": {
+                "authority": "imported",
+                "source": "https://openrouter.ai/api/v1/models",
+                "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+                "at": "2026-10-22T20:30:50.836Z",
+                "confidence": "imported",
+                "freshness": "unknown"
+              }
+            },
+            "cacheWrite": {
+              "price": "0.125",
+              "provenance": {
+                "authority": "imported",
+                "source": "https://openrouter.ai/api/v1/models",
+                "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+                "at": "2026-10-22T20:30:50.836Z",
+                "confidence": "imported",
+                "freshness": "unknown"
+              }
+            }
+          },
+          "provenance": {
+            "authority": "imported",
+            "source": "https://openrouter.ai/api/v1/models",
+            "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+            "at": "2026-10-22T20:30:50.836Z",
+            "confidence": "imported",
+            "freshness": "unknown"
+          }
+        },
         "provenance": {
-          "authority": "maintained",
-          "source": "https://github.com/github/gh-aw-firewall/issues/10029 and https://github.com/github/gh-aw-firewall/issues/10030",
-          "revision": "issues-10029-10030-open-2026-10-20",
-          "at": "2026-10-15T17:11:28Z",
-          "confidence": "estimated"
+          "authority": "imported",
+          "source": "https://openrouter.ai/api/v1/models",
+          "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+          "at": "2026-10-22T20:30:50.836Z",
+          "confidence": "imported",
+          "freshness": "unknown"
         },
         "reasoning": {
           "support": "supported",
@@ -3334,7 +4863,86 @@
     },
     {
       "key": "openai/gpt-6-sol",
-      "baseline": null,
+      "baseline": {
+        "schemaVersion": 1,
+        "identity": {
+          "key": "openai/gpt-6-sol",
+          "provider": "openai",
+          "rawId": "gpt-6-sol",
+          "lookupId": "gpt-6-sol"
+        },
+        "lifecycle": {
+          "status": "active"
+        },
+        "modelType": "other",
+        "importedPricing": {
+          "sourceNamespace": "openai",
+          "currency": "USD",
+          "unit": "USD_PER_1M_TOKENS",
+          "components": {
+            "input": {
+              "price": "2",
+              "provenance": {
+                "authority": "imported",
+                "source": "https://openrouter.ai/api/v1/models",
+                "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+                "at": "2026-10-22T20:30:50.836Z",
+                "confidence": "imported",
+                "freshness": "unknown"
+              }
+            },
+            "output": {
+              "price": "10",
+              "provenance": {
+                "authority": "imported",
+                "source": "https://openrouter.ai/api/v1/models",
+                "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+                "at": "2026-10-22T20:30:50.836Z",
+                "confidence": "imported",
+                "freshness": "unknown"
+              }
+            },
+            "cachedInput": {
+              "price": "0.2",
+              "provenance": {
+                "authority": "imported",
+                "source": "https://openrouter.ai/api/v1/models",
+                "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+                "at": "2026-10-22T20:30:50.836Z",
+                "confidence": "imported",
+                "freshness": "unknown"
+              }
+            },
+            "cacheWrite": {
+              "price": "2.5",
+              "provenance": {
+                "authority": "imported",
+                "source": "https://openrouter.ai/api/v1/models",
+                "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+                "at": "2026-10-22T20:30:50.836Z",
+                "confidence": "imported",
+                "freshness": "unknown"
+              }
+            }
+          },
+          "provenance": {
+            "authority": "imported",
+            "source": "https://openrouter.ai/api/v1/models",
+            "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+            "at": "2026-10-22T20:30:50.836Z",
+            "confidence": "imported",
+            "freshness": "unknown"
+          }
+        },
+        "provenance": {
+          "authority": "imported",
+          "source": "https://openrouter.ai/api/v1/models",
+          "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+          "at": "2026-10-22T20:30:50.836Z",
+          "confidence": "imported",
+          "freshness": "unknown"
+        }
+      },
       "target": {
         "schemaVersion": 1,
         "identity": {
@@ -3347,13 +4955,73 @@
         "lifecycle": {
           "status": "active"
         },
-        "modelType": "completion",
+        "modelType": "other",
+        "importedPricing": {
+          "sourceNamespace": "openai",
+          "currency": "USD",
+          "unit": "USD_PER_1M_TOKENS",
+          "components": {
+            "input": {
+              "price": "2",
+              "provenance": {
+                "authority": "imported",
+                "source": "https://openrouter.ai/api/v1/models",
+                "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+                "at": "2026-10-22T20:30:50.836Z",
+                "confidence": "imported",
+                "freshness": "unknown"
+              }
+            },
+            "output": {
+              "price": "10",
+              "provenance": {
+                "authority": "imported",
+                "source": "https://openrouter.ai/api/v1/models",
+                "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+                "at": "2026-10-22T20:30:50.836Z",
+                "confidence": "imported",
+                "freshness": "unknown"
+              }
+            },
+            "cachedInput": {
+              "price": "0.2",
+              "provenance": {
+                "authority": "imported",
+                "source": "https://openrouter.ai/api/v1/models",
+                "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+                "at": "2026-10-22T20:30:50.836Z",
+                "confidence": "imported",
+                "freshness": "unknown"
+              }
+            },
+            "cacheWrite": {
+              "price": "2.5",
+              "provenance": {
+                "authority": "imported",
+                "source": "https://openrouter.ai/api/v1/models",
+                "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+                "at": "2026-10-22T20:30:50.836Z",
+                "confidence": "imported",
+                "freshness": "unknown"
+              }
+            }
+          },
+          "provenance": {
+            "authority": "imported",
+            "source": "https://openrouter.ai/api/v1/models",
+            "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+            "at": "2026-10-22T20:30:50.836Z",
+            "confidence": "imported",
+            "freshness": "unknown"
+          }
+        },
         "provenance": {
-          "authority": "maintained",
-          "source": "https://github.com/github/gh-aw-firewall/issues/10029 and https://github.com/github/gh-aw-firewall/issues/10030",
-          "revision": "issues-10029-10030-open-2026-10-20",
-          "at": "2026-10-15T17:11:28Z",
-          "confidence": "estimated"
+          "authority": "imported",
+          "source": "https://openrouter.ai/api/v1/models",
+          "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+          "at": "2026-10-22T20:30:50.836Z",
+          "confidence": "imported",
+          "freshness": "unknown"
         },
         "reasoning": {
           "support": "supported",
@@ -3396,7 +5064,86 @@
     },
     {
       "key": "openai/gpt-6.1-sol",
-      "baseline": null,
+      "baseline": {
+        "schemaVersion": 1,
+        "identity": {
+          "key": "openai/gpt-6.1-sol",
+          "provider": "openai",
+          "rawId": "gpt-6.1-sol",
+          "lookupId": "gpt-6-1-sol"
+        },
+        "lifecycle": {
+          "status": "active"
+        },
+        "modelType": "other",
+        "importedPricing": {
+          "sourceNamespace": "openai",
+          "currency": "USD",
+          "unit": "USD_PER_1M_TOKENS",
+          "components": {
+            "input": {
+              "price": "2",
+              "provenance": {
+                "authority": "imported",
+                "source": "https://openrouter.ai/api/v1/models",
+                "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+                "at": "2026-10-22T20:30:50.836Z",
+                "confidence": "imported",
+                "freshness": "unknown"
+              }
+            },
+            "output": {
+              "price": "10",
+              "provenance": {
+                "authority": "imported",
+                "source": "https://openrouter.ai/api/v1/models",
+                "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+                "at": "2026-10-22T20:30:50.836Z",
+                "confidence": "imported",
+                "freshness": "unknown"
+              }
+            },
+            "cachedInput": {
+              "price": "0.1",
+              "provenance": {
+                "authority": "imported",
+                "source": "https://openrouter.ai/api/v1/models",
+                "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+                "at": "2026-10-22T20:30:50.836Z",
+                "confidence": "imported",
+                "freshness": "unknown"
+              }
+            },
+            "cacheWrite": {
+              "price": "2.5",
+              "provenance": {
+                "authority": "imported",
+                "source": "https://openrouter.ai/api/v1/models",
+                "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+                "at": "2026-10-22T20:30:50.836Z",
+                "confidence": "imported",
+                "freshness": "unknown"
+              }
+            }
+          },
+          "provenance": {
+            "authority": "imported",
+            "source": "https://openrouter.ai/api/v1/models",
+            "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+            "at": "2026-10-22T20:30:50.836Z",
+            "confidence": "imported",
+            "freshness": "unknown"
+          }
+        },
+        "provenance": {
+          "authority": "imported",
+          "source": "https://openrouter.ai/api/v1/models",
+          "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+          "at": "2026-10-22T20:30:50.836Z",
+          "confidence": "imported",
+          "freshness": "unknown"
+        }
+      },
       "target": {
         "schemaVersion": 1,
         "identity": {
@@ -3409,13 +5156,73 @@
         "lifecycle": {
           "status": "active"
         },
-        "modelType": "completion",
+        "modelType": "other",
+        "importedPricing": {
+          "sourceNamespace": "openai",
+          "currency": "USD",
+          "unit": "USD_PER_1M_TOKENS",
+          "components": {
+            "input": {
+              "price": "2",
+              "provenance": {
+                "authority": "imported",
+                "source": "https://openrouter.ai/api/v1/models",
+                "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+                "at": "2026-10-22T20:30:50.836Z",
+                "confidence": "imported",
+                "freshness": "unknown"
+              }
+            },
+            "output": {
+              "price": "10",
+              "provenance": {
+                "authority": "imported",
+                "source": "https://openrouter.ai/api/v1/models",
+                "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+                "at": "2026-10-22T20:30:50.836Z",
+                "confidence": "imported",
+                "freshness": "unknown"
+              }
+            },
+            "cachedInput": {
+              "price": "0.1",
+              "provenance": {
+                "authority": "imported",
+                "source": "https://openrouter.ai/api/v1/models",
+                "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+                "at": "2026-10-22T20:30:50.836Z",
+                "confidence": "imported",
+                "freshness": "unknown"
+              }
+            },
+            "cacheWrite": {
+              "price": "2.5",
+              "provenance": {
+                "authority": "imported",
+                "source": "https://openrouter.ai/api/v1/models",
+                "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+                "at": "2026-10-22T20:30:50.836Z",
+                "confidence": "imported",
+                "freshness": "unknown"
+              }
+            }
+          },
+          "provenance": {
+            "authority": "imported",
+            "source": "https://openrouter.ai/api/v1/models",
+            "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+            "at": "2026-10-22T20:30:50.836Z",
+            "confidence": "imported",
+            "freshness": "unknown"
+          }
+        },
         "provenance": {
-          "authority": "maintained",
-          "source": "https://github.com/github/gh-aw-firewall/issues/10029 and https://github.com/github/gh-aw-firewall/issues/10030",
-          "revision": "issues-10029-10030-open-2026-10-20",
-          "at": "2026-10-15T17:11:28Z",
-          "confidence": "estimated"
+          "authority": "imported",
+          "source": "https://openrouter.ai/api/v1/models",
+          "revision": "108fd0607d2196ee3bee21b5928de33114b7c1714874508526b5af7d478dcab3",
+          "at": "2026-10-22T20:30:50.836Z",
+          "confidence": "imported",
+          "freshness": "unknown"
         },
         "reasoning": {
           "support": "supported",
