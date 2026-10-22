@@ -400,8 +400,8 @@ describe('experimental Cloud Hypervisor enclave smoke workflow', () => {
     expect(validateStep?.if).toBe('always()');
     expect(compiledValidateStep?.if).toBe('always()');
     expect(validateStep?.run).toContain('record.kind === "failure"');
-    expect(validateStep?.run).toContain('record.type === "missing_data"');
-    expect(validateStep?.run).toContain('record.type === "missing_tool"');
+    expect(validateStep?.run).toContain('record.type === "report_missing_data"');
+    expect(validateStep?.run).toContain('record.type === "report_missing_tool"');
     expect(validateStep?.run).toContain('results.length !== 1');
     expect(compiled.jobs.report_smoke_result.if)
       .toContain("needs.agent.result == 'success'");
@@ -426,7 +426,9 @@ describe('experimental Cloud Hypervisor enclave smoke workflow', () => {
 
     try {
       expect(() => validate([expectedOutput])).not.toThrow();
-      for (const diagnosticType of ['missing_data', 'missing_tool']) {
+      for (const diagnosticType of [
+        'report_missing_data', 'report_missing_tool', 'missing_data', 'missing_tool',
+      ]) {
         expect(() => validate([
           expectedOutput,
           { type: diagnosticType, reason: 'contradictory failure diagnostic' },

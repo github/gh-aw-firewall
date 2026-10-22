@@ -6,7 +6,7 @@ import * as yaml from 'js-yaml';
 
 const root = path.resolve(__dirname, '../..');
 const script = path.join(root, 'scripts/ci/configure-docker-mirror.sh');
-const syft = 'anchore/syft:v1.54.1@sha256:3eb5379ba7f409c3f4069be20944128f0c47df993fa5c10d13e7cf34f49b1aa';
+const syft = 'anchore/syft:v1.54.1@sha256:3eb5379ba7b409c3f4069b686110527af0c47df993fa5c10d13e7cf34f49b1aa';
 const grype = 'ghcr.io/anchore/grype@sha256:fd4ab4d1042b522c896e73bdf09ab8bf384fa417df99d6dd0d6e1008c7e7c821';
 const grant = 'ghcr.io/anchore/grant@sha256:172463611795f43b77302cdfbd7b3f81295492a7330e0820cfe41c3674920237';
 
@@ -14,6 +14,7 @@ interface Step {
   name?: string;
   run?: string;
   uses?: string;
+  env?: Record<string, string>;
   with?: Record<string, unknown>;
   if?: string;
   'continue-on-error'?: boolean;
@@ -168,6 +169,7 @@ print(json.dumps({'live': sorted(live), 'archives': sorted(archives), 'cache': s
     expect(prepare).toBeGreaterThanOrEqual(0);
     expect(prepare).toBeLessThan(compile);
     for (const image of [syft, grype, grant]) {
+      expect(image).toMatch(/@sha256:[a-f0-9]{64}$/);
       expect(steps[prepare].run).toContain(`docker pull ${image}`);
     }
     expect(steps[prepare]['continue-on-error']).toBeUndefined();
@@ -189,18 +191,22 @@ print(json.dumps({'live': sorted(live), 'archives': sorted(archives), 'cache': s
     expect(steps.find((step) => step.run?.includes(`'${grant}'`))?.run).toContain(grant);
   });
 
-  it('installs the pinned compiler release before scanning', () => {
+  it('builds the reviewed patched compiler before scanning', () => {
     const steps = jobs('supply-chain-scan.yml').scan.steps;
     const install = steps.findIndex(
-      (step) => step.name === 'Install gh-aw v0.93.0',
+      (step) => step.name === 'Install patched gh-aw v0.93.0',
     );
     const compile = steps.findIndex((step) =>
       step.run === 'gh aw compile --syft --action-mode action --action-tag v0.93.0 .github/workflows/*.md');
     expect(install).toBeGreaterThanOrEqual(0);
     expect(compile).toBeGreaterThan(install);
-    expect(steps[install].run).toContain('gh extension install github/gh-aw --pin v0.93.0 --force');
+    expect(steps[install - 2].name).toBe('Checkout gh-aw v0.93.0');
+    expect(steps[install - 2].with?.ref).toBe('8df88b66116c3ead88419803ef9ced0c1a253510');
+    expect(steps[install].run).toContain('compiler-agent-acceptance-v0.28.66.patch');
+    expect(steps[install].run).toContain('go test -C .tmp/gh-aw-compiler ./pkg/workflow');
+    expect(steps[install].run).toContain('dev-v0.93.0-agent-acceptance-v0.28.66-budget131072');
     expect(steps[install].run).toContain('gh aw version');
-    expect(steps.some((step) => step.with?.repository === 'github/gh-aw')).toBe(false);
+    expect(steps[install].env?.GH_TOKEN).toBe('${{ github.token }}');
     for (const index of [install, compile]) {
       expect(steps[index].if).toBeUndefined();
       expect(steps[index]['continue-on-error']).toBeUndefined();

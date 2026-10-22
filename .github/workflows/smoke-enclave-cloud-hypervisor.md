@@ -125,6 +125,7 @@ post-steps:
       const expected = 'ENCLAVE_CLOUD_HYPERVISOR_PASS {"package_json":true,"src":true}';
       const outputs = readRecords(outputsPath);
       const diagnostics = outputs.filter(record =>
+        record.type === "report_missing_data" || record.type === "report_missing_tool" ||
         record.type === "missing_data" || record.type === "missing_tool");
       if (diagnostics.length !== 0) {
         throw new Error(`expected no missing-data or missing-tool diagnostics, found ${diagnostics.length}`);
