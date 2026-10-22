@@ -653,6 +653,206 @@ describe('trackTokenUsage', () => {
   });
 });
 
+// ── routing classification of client closes ──────────────────────────
+
+describe('routed request outcome when the client closes early', () => {
+  const os = require('os');
+  const path = require('path');
+  const { createProductionRoutingSession } = require('./routing-runtime');
+
+  const SELECTION = Object.freeze({
+    schema: 'awf-routing-selection/v1',
+    engine: 'codex',
+    provider: 'copilot',
+    choice: Object.freeze({ id: 'choice-luna', model: 'github-copilot/gpt-5.6-luna', effort: 'max' }),
+    wire_model: 'gpt-5.6-luna',
+  });
+
+  function sse(event) {
+    return Buffer.from(`event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`);
+  }
+
+  const COMPLETED = {
+    type: 'response.completed',
+    response: {
+      id: 'resp_luna',
+      model: 'gpt-5.6-luna',
+      status: 'completed',
+      usage: { input_tokens: 21000, output_tokens: 640, total_tokens: 21640 },
+    },
+  };
+
+  // A production routing session whose selection is gpt-5.6-luna:max, plus
+  // one Codex /responses request tracked like upstream-token.js wires it.
+  async function startRoutedRequest() {
+    const outputDir = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-routing-client-close-'));
+    const records = [];
+    const session = createProductionRoutingSession({
+      rawConfig: '{}',
+      outputDir,
+      observer: { record: record => records.push(record) },
+      createController: () => ({ run: () => Promise.resolve(Object.freeze({ ok: true, selection: SELECTION })) }),
+      fatalExit: jest.fn(),
+    });
+    await session.start();
+
+    const req = { method: 'POST', url: '/responses', headers: {} };
+    const res = new EventEmitter();
+    res.statusCode = 200;
+    res.writableFinished = false;
+    session.observeRequest(req, res, { name: 'copilot' });
+    req.awfRouting.bodyTransform(Buffer.from(JSON.stringify({
+      model: 'gpt-5.6-luna',
+      reasoning: { effort: 'max' },
+      stream: true,
+    })));
+
+    const proxyRes = new EventEmitter();
+    proxyRes.headers = { 'content-type': 'text/event-stream' };
+    proxyRes.statusCode = 200;
+    const usage = [];
+    trackTokenUsage(proxyRes, {
+      requestId: req.awfRouting.requestId,
+      provider: 'copilot',
+      path: '/responses',
+      startTime: Date.now(),
+      metrics: { increment: jest.fn() },
+      res,
+      onUsage: normalized => { usage.push(normalized); },
+      onSseData: req.awfRouting.onSseData,
+      onSseInspectionStart: req.awfRouting.onSseInspectionStart,
+      onSseInspectionComplete: req.awfRouting.onSseInspectionComplete,
+    });
+    proxyRes.emit('data', sse({ type: 'response.created', response: { id: 'resp_luna', model: 'gpt-5.6-luna' } }));
+    proxyRes.emit('data', sse({ type: 'response.output_text.delta', delta: 'fixed' }));
+    return { outputDir, records, session, req, res, proxyRes, usage };
+  }
+
+  const requestRecords = records => records.filter(record => record.stage === 'request');
+  const failureRecords = records => records.filter(record => record.stage === 'failure');
+  const runtimeFailurePath = outputDir => path.join(outputDir, 'runtime-failure.json');
+
+  async function expectRoutingSucceeded({ outputDir, records, session }) {
+    expect(failureRecords(records)).toEqual([]);
+    expect(fs.existsSync(runtimeFailurePath(outputDir))).toBe(false);
+    expect(session.getFailure()).toBeNull();
+    expect(session.getReflectState().status).toBe('selected');
+    await session.shutdown();
+    session.completeShutdown();
+    expect(fs.existsSync(path.join(outputDir, 'complete.json'))).toBe(true);
+  }
+
+  async function expectProviderUnavailable({ outputDir, records, session }) {
+    expect(failureRecords(records)).toEqual([
+      expect.objectContaining({ stage: 'failure', phase: 'primary', code: 'provider_unavailable' }),
+    ]);
+    expect(JSON.parse(fs.readFileSync(runtimeFailurePath(outputDir), 'utf8'))).toMatchObject({
+      schema: 'awf-routing-failure/v1',
+      code: 'provider_unavailable',
+    });
+    expect(session.getFailure()).toMatchObject({ code: 'provider_unavailable' });
+    expect(session.getReflectState()).toMatchObject({ status: 'failed', failure_code: 'provider_unavailable' });
+    await session.shutdown();
+  }
+
+  test('completed_upstream_then_client_close_does_not_fail_routing', async () => {
+    const run = await startRoutedRequest();
+    run.proxyRes.emit('data', sse(COMPLETED));
+    run.proxyRes.emit('end');
+    // The upstream stream is complete; the client closes before AWF's
+    // downstream write finishes.
+    run.res.emit('close');
+
+    expect(requestRecords(run.records)).toEqual([expect.objectContaining({
+      request_id: run.req.awfRouting.requestId,
+      routed: 'as_selected',
+      selected_model: 'gpt-5.6-luna',
+      outcome: 'client_closed',
+      status: 200,
+    })]);
+    expect(run.usage).toEqual([expect.objectContaining({ input_tokens: 21000, output_tokens: 640 })]);
+    await expectRoutingSucceeded(run);
+  });
+
+  test('terminal_success_then_client_close_before_upstream_eof_does_not_fail_routing', async () => {
+    const run = await startRoutedRequest();
+    let drained = false;
+    const draining = run.session.shutdown().then(() => { drained = true; });
+    await Promise.resolve();
+    expect(drained).toBe(false);
+
+    run.proxyRes.emit('data', sse(COMPLETED));
+    // Codex stops reading at response.completed and closes its connection;
+    // upstream EOF has not been observed yet.
+    run.res.emit('close');
+    await draining;
+    expect(drained).toBe(true);
+
+    // Late upstream teardown and repeated closes neither fail routing nor
+    // duplicate any record.
+    run.proxyRes.emit('aborted');
+    run.proxyRes.emit('close');
+    run.res.emit('close');
+
+    expect(requestRecords(run.records)).toEqual([expect.objectContaining({
+      request_id: run.req.awfRouting.requestId,
+      outcome: 'client_closed',
+      status: 200,
+    })]);
+    expect(run.usage).toEqual([expect.objectContaining({ input_tokens: 21000, output_tokens: 640 })]);
+    await expectRoutingSucceeded(run);
+  });
+
+  test('upstream_connection_error_remains_provider_unavailable', async () => {
+    const run = await startRoutedRequest();
+    // The upstream connection resets mid-stream; AWF destroys the client
+    // response, so it is never finished.
+    run.proxyRes.emit('aborted');
+    run.proxyRes.emit('close');
+    run.res.emit('close');
+
+    expect(requestRecords(run.records)).toEqual([expect.objectContaining({
+      request_id: run.req.awfRouting.requestId,
+      outcome: 'aborted',
+      status: 200,
+    })]);
+    await expectProviderUnavailable(run);
+  });
+
+  test('stream_without_terminal_success_remains_provider_unavailable', async () => {
+    const run = await startRoutedRequest();
+    // Partial usage and a clean upstream EOF without response.completed.
+    run.proxyRes.emit('data', sse({
+      type: 'response.in_progress',
+      response: { usage: { input_tokens: 21000, output_tokens: 12 } },
+    }));
+    run.proxyRes.emit('end');
+    run.res.emit('close');
+
+    expect(requestRecords(run.records)).toEqual([expect.objectContaining({ outcome: 'aborted', status: 200 })]);
+    await expectProviderUnavailable(run);
+  });
+
+  test('non_2xx_upstream_response_preserves_existing_failure_behavior', async () => {
+    const run = await startRoutedRequest();
+    run.proxyRes.emit('data', sse({ type: 'response.failed', response: { error: { code: 'rate_limited' } } }));
+    run.proxyRes.emit('end');
+    run.res.writableFinished = true;
+    run.res.emit('finish');
+
+    expect(requestRecords(run.records)).toEqual([expect.objectContaining({
+      outcome: 'failed', status: 200, error_code: 'rate_limited', error_source: 'upstream',
+    })]);
+    expect(failureRecords(run.records)).toEqual([
+      expect.objectContaining({ stage: 'failure', phase: 'primary', code: 'rate_limited' }),
+    ]);
+    expect(JSON.parse(fs.readFileSync(runtimeFailurePath(run.outputDir), 'utf8'))).toMatchObject({
+      code: 'rate_limited',
+    });
+    await run.session.shutdown();
+  });
+});
+
 // ── isCompressedResponse ──────────────────────────────────────────────
 
 describe('isCompressedResponse', () => {

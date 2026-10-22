@@ -2227,7 +2227,7 @@ Every request record MUST retain the advisory comparison (`routed`,
 `selected_endpoint`, `requested_model`, and `requested_effort`, with `provider`
 and `pathname` identifying the requested provider and endpoint) and
 include `request_id`, terminal `outcome` (`completed`, `rejected`, `failed`,
-or `aborted`), and `status` (final HTTP status). Request-side model fields
+`aborted`, or `client_closed`), and `status` (final HTTP status). Request-side model fields
 use the wire representation used for comparison, unlike canonical selection
 model fields. A resolved custom-agent selector uses its canonical wire ID for
 comparison; the original selector is retained in `model_selector_resolution`
@@ -2240,7 +2240,13 @@ comparisons remain unavailable. Otherwise, `routed` is `unobserved` when
 body-dependent comparisons remain unavailable.
 A model-policy rejection MUST NOT be reported as successful
 completion. Stream errors and premature closure MUST NOT be treated as
-completion merely because HTTP headers indicated success. When token usage is
+completion merely because HTTP headers indicated success. A 2xx streamed
+response whose client closed the connection before AWF finished writing is
+recorded as `client_closed`, not `aborted`, only after the upstream sent its
+protocol terminal success event (`response.completed`, `message_stop`, or
+the Chat Completions `[DONE]` sentinel) and no stream error; it MUST NOT be
+reported as a provider failure. Any other premature closure on the selected
+model remains `aborted` and fails the routed run with `provider_unavailable`. When token usage is
 available, `request_id` MUST correlate with the corresponding
 `token-usage.jsonl` record; not every rejected or aborted call produces usage.
 A `failed` request record MUST include `error_code` and `error_type` when an

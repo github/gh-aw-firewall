@@ -10,6 +10,9 @@ const { callerRecordFields } = require('./caller-header');
 const MAX_TELEMETRY_VALUE_LENGTH = 200;
 const MAX_ERROR_INSPECTION_BYTES = 16_384;
 const TELEMETRY_EFFORTS = new Set(['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max']);
+// Protocol-level terminal success events: Responses `response.completed` and
+// Messages `message_stop`. Chat Completions ends with the `[DONE]` sentinel.
+const TERMINAL_SUCCESS_EVENTS = new Set(['response.completed', 'message_stop']);
 
 /**
  * Record a per-request routing observation. Never throws: observability must
@@ -122,7 +125,14 @@ function createRoutingObservation({
       active.delete(res);
       res.removeListener('finish', complete);
       res.removeListener('close', complete);
-      const outcome = !res.writableFinished ? 'aborted'
+      // A client may close its connection once it has read the terminal
+      // success event, before AWF finishes writing (Codex stops reading at
+      // response.completed). That is not a provider failure; any other early
+      // close still is.
+      const clientClosed = !res.writableFinished && state.upstreamCompleted && !state.sseFailed
+        && res.statusCode >= 200 && res.statusCode < 300;
+      const outcome = clientClosed ? 'client_closed'
+        : !res.writableFinished ? 'aborted'
         : req.awfRouting.rejected ? 'rejected'
           : res.statusCode >= 400 || state.sseFailed ? 'failed' : 'completed';
       safeRecord(observer, {
@@ -132,7 +142,7 @@ function createRoutingObservation({
         status: res.statusCode,
         ...(outcome === 'failed' ? requestErrorFields(req.awfRouting.localError, state.errorFields) : {}),
       });
-      if (!res.writableFinished && state.selectedModel) {
+      if (outcome === 'aborted' && state.selectedModel) {
         recordFailure('provider_unavailable');
       }
       if (active.size === 0) {
@@ -280,17 +290,23 @@ function createRoutingObservation({
       const state = {
         selectedModel: false,
         sseFailed: false,
+        upstreamCompleted: false,
         telemetry: requestTelemetry(req, pathname, adapter, selection),
       };
       const responseHooks = trackResponse(req, res, state);
       observeFailure(res, state, adapter.name === (selection.provider || 'copilot'));
       const onSseData = line => {
+        if (line === '[DONE]') {
+          if (state.telemetry.upstream_endpoint === '/chat/completions') state.upstreamCompleted = true;
+          return;
+        }
         let event;
         try {
           event = JSON.parse(line);
         } catch {
           return;
         }
+        if (TERMINAL_SUCCESS_EVENTS.has(event?.type)) state.upstreamCompleted = true;
         if (event?.error || event?.type === 'response.failed' || event?.type === 'error') {
           state.sseFailed = true;
           rememberErrorFields(state, event);
