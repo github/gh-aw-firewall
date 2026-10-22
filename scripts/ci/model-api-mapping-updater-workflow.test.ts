@@ -64,6 +64,9 @@ describe('scheduled canonical model source maintenance', () => {
     expect(prepare).toContain('git checkout -B "$SELECTED_PR_HEAD" "refs/remotes/origin/$SELECTED_PR_HEAD"');
     expect(prepare).toContain('= "$SELECTED_PR_BASE"');
     expect(prepare).toContain('git rev-parse HEAD');
+    const stageCommand = 'install -m 0555 scripts/model-information/maintenance-command.cjs /tmp/gh-aw/model-maintenance-command.cjs';
+    expect(prepare).toContain(stageCommand);
+    expect(prepare.indexOf(stageCommand)).toBeLessThan(prepare.indexOf('git checkout -B'));
     expect(steps.some(step => step.run?.includes('maintain.cjs capture'))).toBe(false);
     expect(frontmatter['post-steps']).toBeUndefined();
     const agentSteps = lock.jobs.agent.steps;
@@ -83,8 +86,8 @@ describe('scheduled canonical model source maintenance', () => {
       },
     });
     expect(outputSteps[processorIndex].if).toBeUndefined();
-    expect(lockText).toContain('maintain.cjs verify');
-    expect(source).toContain('npm run models:generate');
+    expect(source).toContain('model-maintenance-command.cjs verify');
+    expect(source).toContain('/tmp/gh-aw/model-maintenance-command.cjs generate');
     expect(source).toContain('npm run models:check');
     expect(source).toContain('npm test -- --runInBand');
     expect(source).toContain('report_incomplete');
@@ -160,18 +163,21 @@ describe('scheduled canonical model source maintenance', () => {
   it('grants only required script invocations, not unrestricted interpreters or package runners', () => {
     expect(frontmatter.tools.bash).toEqual([
       'cat', 'jq', 'sha256sum', 'git show:*', 'git diff:*',
-      'node scripts/model-information/maintain.cjs refresh-import',
-      'node scripts/model-information/maintain.cjs report',
-      'node scripts/model-information/maintain.cjs verify',
-      'npm run models:generate', 'npm run models:check',
-      'npm test -- --runInBand scripts/model-information/ scripts/ci/model-api-mapping-updater-workflow.test.ts src/copilot-model-catalog-sync.test.ts src/model-information-contract.test.ts',
-      'npm --prefix containers/api-proxy test -- --runInBand models-dev-catalog.test.js ai-credits-pricing-reference.test.js',
+      '/tmp/gh-aw/model-maintenance-command.cjs',
     ]);
-    for (const tool of ['shell(node)', 'shell(npm:*)', 'shell(npx:*)', 'shell(git:*)']) {
+    for (const tool of ['shell(node', 'shell(npm', 'shell(npx', 'shell(git:*)']) {
       expect(lockText).not.toContain(tool);
     }
-    expect(lockText).toContain('shell(node scripts/model-information/maintain.cjs refresh-import)');
-    expect(lockText).toContain('shell(npm run models:generate)');
+    const launch = lock.jobs.agent.steps.find((step: { run?: string }) =>
+      step.run?.includes('copilot_harness.cjs'))!.run;
+    expect(launch).toContain('shell(/tmp/gh-aw/model-maintenance-command.cjs)');
+    const entrypoint = path.resolve(__dirname, '../model-information/maintenance-command.cjs');
+    expect(fs.statSync(entrypoint).mode & 0o111).not.toBe(0);
+    for (const command of ['generate', 'report', 'test', 'test-api-proxy', 'check', 'verify']) {
+      expect(source).toContain(`/tmp/gh-aw/model-maintenance-command.cjs ${command}`);
+    }
+    expect(source).toContain('exactly one of');
+    expect(source).toContain('not inline scripts or unlisted helpers');
   });
 
   it('compiles authoring and no-op tools but not merge or publication', () => {

@@ -792,6 +792,122 @@ describe('advisory routing observation', () => {
     await expect(harness.observation.drain()).resolves.toBeUndefined();
   });
 
+  describe('client close after upstream completion', () => {
+    // Codex stops reading at the terminal event and closes its connection,
+    // possibly before AWF has finished writing the response.
+    function closeEarly(res) {
+      res.emit('close');
+    }
+
+    it.each([
+      ['/responses', SELECTION, { model: 'gpt-test', reasoning: { effort: 'low' } },
+        JSON.stringify({ type: 'response.completed', response: { usage: { input_tokens: 10, output_tokens: 2 } } })],
+      ['/v1/messages', COPILOT_MESSAGES_SELECTION, { model: 'claude-sonnet-5', output_config: { effort: 'max' } },
+        JSON.stringify({ type: 'message_stop' })],
+      ['/chat/completions', CHAT_SELECTION, { model: 'chat-test' }, '[DONE]'],
+    ])('records a client close after terminal success on %s without a routing failure', (url, selection, body, terminal) => {
+      const harness = createHarness(selection);
+      const { req, res } = observe(harness, request({ url }));
+      send(req, body);
+      req.awfRouting.onSseInspectionStart();
+      req.awfRouting.onSseData(terminal);
+      closeEarly(res);
+      expect(harness.records).toEqual([]);
+      req.awfRouting.onSseInspectionComplete();
+      expect(harness.failures).toEqual([]);
+      expect(harness.records).toEqual([expect.objectContaining({
+        request_id: 'generated-inference-123', routed: 'as_selected', outcome: 'client_closed', status: 200,
+      })]);
+    });
+
+    it('does not treat a Chat Completions sentinel as Responses completion', () => {
+      const harness = createHarness();
+      const { req, res } = observe(harness, request());
+      send(req, { model: 'gpt-test', reasoning: { effort: 'low' } });
+      req.awfRouting.onSseData('[DONE]');
+      closeEarly(res);
+      expect(harness.records).toEqual([expect.objectContaining({ outcome: 'aborted', status: 200 })]);
+      expect(harness.failures).toEqual(['provider_unavailable']);
+    });
+
+    it('treats the usage-only chunk as completion only for translated /responses', () => {
+      const usageOnly = JSON.stringify({ choices: [], usage: { prompt_tokens: 10, completion_tokens: 2 } });
+      const translated = createHarness();
+      const served = observe(translated, request());
+      send(served.req, { model: 'gpt-test', reasoning: { effort: 'low' } });
+      served.req.awfRouting.onEndpointTranslation({
+        requestedEndpoint: '/responses', upstreamEndpoint: '/chat/completions',
+      });
+      served.req.awfRouting.onSseData(usageOnly);
+      closeEarly(served.res);
+      expect(translated.records).toEqual([expect.objectContaining({
+        upstream_endpoint: '/chat/completions', outcome: 'client_closed', status: 200,
+      })]);
+      expect(translated.failures).toEqual([]);
+
+      // Usage alone is not completion evidence on any other path.
+      for (const [selection, url, body] of [
+        [CHAT_SELECTION, '/chat/completions', { model: 'chat-test' }],
+        [SELECTION, '/responses', { model: 'gpt-test', reasoning: { effort: 'low' } }],
+      ]) {
+        const harness = createHarness(selection);
+        const { req, res } = observe(harness, request({ url }));
+        send(req, body);
+        req.awfRouting.onSseData(usageOnly);
+        closeEarly(res);
+        expect(harness.records).toEqual([expect.objectContaining({ outcome: 'aborted', status: 200 })]);
+        expect(harness.failures).toEqual(['provider_unavailable']);
+      }
+    });
+
+    it('stream_without_terminal_success_remains_provider_unavailable', () => {
+      const harness = createHarness();
+      const { req, res } = observe(harness, request());
+      send(req, { model: 'gpt-test', reasoning: { effort: 'low' } });
+      req.awfRouting.onSseInspectionStart();
+      req.awfRouting.onSseData(JSON.stringify({ type: 'response.created', response: { id: 'resp_1' } }));
+      // Partial usage on an in-progress event is not completion evidence.
+      req.awfRouting.onSseData(JSON.stringify({
+        type: 'response.in_progress', response: { usage: { input_tokens: 10, output_tokens: 1 } },
+      }));
+      req.awfRouting.onSseData(JSON.stringify({ type: 'response.output_text.delta', delta: 'partial' }));
+      req.awfRouting.onSseInspectionComplete();
+      closeEarly(res);
+      expect(harness.records).toEqual([expect.objectContaining({ outcome: 'aborted', status: 200 })]);
+      expect(harness.failures).toEqual(['provider_unavailable']);
+    });
+
+    it('non_2xx_upstream_response_preserves_existing_failure_behavior', () => {
+      const harness = createHarness();
+      const failed = observe(harness, request());
+      send(failed.req, { model: 'gpt-test', reasoning: { effort: 'low' } });
+      failed.res.statusCode = 503;
+      failed.res.end(JSON.stringify({ error: { code: 'service_unavailable' } }));
+      expect(harness.failures).toEqual(['service_unavailable']);
+      expect(harness.records).toEqual([expect.objectContaining({
+        outcome: 'failed', status: 503, error_code: 'service_unavailable', error_source: 'upstream',
+      })]);
+
+      // An explicit SSE error is never masked by a later terminal event.
+      const sseError = observe(harness, request());
+      send(sseError.req, { model: 'gpt-test', reasoning: { effort: 'low' } });
+      sseError.req.awfRouting.onSseData(JSON.stringify({ type: 'error', error: { code: 'rate_limited' } }));
+      sseError.req.awfRouting.onSseData(JSON.stringify({ type: 'response.completed', response: {} }));
+      closeEarly(sseError.res);
+      expect(harness.records[1]).toMatchObject({ outcome: 'aborted', status: 200 });
+      expect(harness.failures).toEqual(['service_unavailable', 'rate_limited', 'provider_unavailable']);
+
+      // A non-2xx response closed early is not a client close, even with a terminal event.
+      const non2xx = observe(harness, request());
+      send(non2xx.req, { model: 'gpt-test', reasoning: { effort: 'low' } });
+      non2xx.res.statusCode = 502;
+      non2xx.req.awfRouting.onSseData(JSON.stringify({ type: 'response.completed', response: {} }));
+      closeEarly(non2xx.res);
+      expect(harness.records[2]).toMatchObject({ outcome: 'aborted', status: 502 });
+      expect(harness.failures.at(-1)).toBe('provider_unavailable');
+    });
+  });
+
   it('never throws when the observer itself throws', () => {
     const observation = createRoutingObservation({
       getSelection: () => SELECTION,
