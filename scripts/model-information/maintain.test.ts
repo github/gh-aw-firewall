@@ -6,6 +6,7 @@ import { execFileSync } from 'node:child_process';
 const {
   captureSources, loadCaptures, refreshImport, buildReport, selectPullRequest,
   reviewReasons, differences, inspectCatalogue, documentText, hash, json, facts,
+  catalogueFacts, runtimeResolutionFacts, verifyCommittedTree,
 } = require('./maintain.cjs');
 const sources = require('./maintenance-sources.json');
 const root = path.resolve(__dirname, '../..');
@@ -33,7 +34,13 @@ const fakeFetch = (bytes = catalog()) => async (url: string) => new Response(
 describe('offline scheduled source maintenance', () => {
   let cwd: string;
   let evidence: string;
+  let trustedEnvironment: Record<string, string | undefined>;
   beforeEach(async () => {
+    trustedEnvironment = Object.fromEntries(
+      ['TRUSTED_MAINTENANCE_BASE', 'TRUSTED_REVIEW_BASE', 'TRUSTED_VALIDATION_FILES']
+        .map(key => [key, process.env[key]]),
+    );
+    for (const key of Object.keys(trustedEnvironment)) delete process.env[key];
     cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-model-maintenance-'));
     evidence = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-model-evidence-'));
     await captureSources(evidence, fakeFetch());
@@ -55,6 +62,10 @@ describe('offline scheduled source maintenance', () => {
   afterEach(() => {
     fs.rmSync(cwd, { recursive: true, force: true });
     fs.rmSync(evidence, { recursive: true, force: true });
+    for (const [key, value] of Object.entries(trustedEnvironment)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
   });
 
   const propose = (cwd: string, evidence: string) => {
@@ -178,8 +189,11 @@ describe('offline scheduled source maintenance', () => {
     await captureSources(evidence, fakeFetch(catalog([priced('openai/new-fixture', '0.0000005')])));
     expect(refreshImport(cwd, evidence)).toBe(true);
     const report = buildReport(cwd, evidence);
-    expect(report.status).toBe('proposed-not-activated');
+    expect(report.status).toBe('proposed-awaiting-human-review');
     expect(report.changes.map((item: { file: string }) => item.file)).toEqual([rawFile, metadataFile].sort());
+    expect(report.runtimeConsumerEffects).toEqual([
+      expect.objectContaining({ file: rawFile, changes: expect.any(Array) }),
+    ]);
     expect(report.changes.find((item: { file: string }) => item.file === rawFile)).toMatchObject({
       addedModels: ['openai/new-fixture'], removedModels: ['openai/fixture'],
       reviewRequired: expect.arrayContaining(['source-or-record-disappearance-not-proof-of-retirement']),
@@ -204,6 +218,58 @@ describe('offline scheduled source maintenance', () => {
       { pointer: '/data/@id=openai~1fixture/context', before: null, after: 128000 },
       { pointer: '/data/@id=openai~1fixture/parameters/0', before: null, after: 'reasoning' },
     ]));
+  });
+
+  it('tracks lookup aliases, normalized modality sets, and order-sensitive runtime pricing winners', async () => {
+    const old = catalog([
+      { ...priced('google/gemma-4-31b-it', '0'), canonical_slug: 'google/gemma-4-31b-it',
+        architecture: { input_modalities: ['text', 'image'], output_modalities: ['text'] } },
+      { ...priced('openai/alias-competitor', '0.00000012'), canonical_slug: 'google/gemma-4-31b-it' },
+    ]);
+    const reversed = catalog([
+      { ...priced('openai/alias-competitor', '0.00000012'), canonical_slug: 'google/gemma-4-31b-it' },
+      { ...priced('google/gemma-4-31b-it', '0'), canonical_slug: 'google/gemma-4-31b-it',
+        architecture: { input_modalities: ['image', 'text'], output_modalities: ['text'] } },
+    ]);
+    expect(catalogueFacts(old)).toEqual(catalogueFacts(reversed));
+    expect(runtimeResolutionFacts(old)['@lookup=gemma-4-31b-it'].pricing.input).toBe(0);
+    expect(runtimeResolutionFacts(reversed)['@lookup=gemma-4-31b-it'].pricing.input).toBe(0.12);
+
+    await captureSources(evidence, fakeFetch(reversed));
+    expect(refreshImport(cwd, evidence)).toBe(true);
+    const report = buildReport(cwd, evidence);
+    const changes = report.changes.find((item: { file: string }) => item.file === rawFile).changes;
+    expect(changes).toEqual(expect.arrayContaining([
+      expect.objectContaining({ pointer: expect.stringContaining('/canonicalSlug') }),
+      expect.objectContaining({ pointer: expect.stringContaining('/inputModalities') }),
+      expect.objectContaining({ pointer: expect.stringContaining('/runtimeResolution/@lookup=gemma-4-31b-it') }),
+    ]));
+    expect(report.changes.find((item: { file: string }) => item.file === rawFile).reviewRequired)
+      .toContain('compatibility-contraction-and-scope');
+    expect(report.runtimeConsumerEffects[0].changes).toEqual(expect.arrayContaining([
+      expect.objectContaining({ pointer: expect.stringContaining('/@lookup=gemma-4-31b-it/pricing') }),
+    ]));
+  });
+
+  it('normalizes modality ordering but records modality-only and alias-only changes', async () => {
+    const before = catalog([{
+      ...priced(), architecture: { input_modalities: ['text', 'image'], output_modalities: ['text'] },
+    }]);
+    const reordered = catalog([{
+      ...priced(), architecture: { input_modalities: ['image', 'text'], output_modalities: ['text'] },
+    }]);
+    const changed = catalog([{
+      ...priced(), canonical_slug: 'openai/fixture-alias',
+      architecture: { input_modalities: ['text'], output_modalities: ['text'] },
+    }]);
+    expect(catalogueFacts(before)).toEqual(catalogueFacts(reordered));
+    await captureSources(evidence, fakeFetch(changed));
+    expect(refreshImport(cwd, evidence)).toBe(true);
+    expect(buildReport(cwd, evidence).changes.find((item: { file: string }) => item.file === rawFile).changes)
+      .toEqual(expect.arrayContaining([
+        expect.objectContaining({ pointer: expect.stringContaining('/canonicalSlug') }),
+        expect.objectContaining({ pointer: expect.stringContaining('/inputModalities') }),
+      ]));
   });
 
   it('requires evidence receipts for effort/context changes, including after agent commits', () => {
@@ -278,6 +344,95 @@ describe('offline scheduled source maintenance', () => {
     ]));
   });
 
+  it('uses the maintenance PR merge base for cumulative source changes after independent main edits', () => {
+    git(cwd, 'branch', 'maintenance');
+    const original = JSON.parse(fs.readFileSync(path.join(cwd, targetFile), 'utf8'));
+    const first = structuredClone(original);
+    first.routing[0].context = 128000;
+    write(cwd, targetFile, json(first));
+    propose(cwd, evidence);
+    write(cwd, 'shared/model-information/maintenance-report.json', json(buildReport(cwd, evidence)));
+    git(cwd, 'add', '.');
+    git(cwd, '-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '--quiet', '-m', 'pending update');
+    const firstMaintenanceHead = git(cwd, 'rev-parse', 'HEAD').trim();
+    git(cwd, 'switch', '-q', 'maintenance');
+    write(cwd, targetFile, json({ ...original, routing: [{ ...original.routing[0], context: 512000 }] }));
+    propose(cwd, evidence);
+    git(cwd, 'add', '.');
+    git(cwd, '-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '--quiet', '-m', 'main-only source edit');
+    write(cwd, 'shared/model-information/sources/main-only.json', json({ models: [] }));
+    git(cwd, 'add', '.');
+    git(cwd, '-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '--quiet', '-m', 'main-only source addition');
+    const reviewBase = git(cwd, 'rev-parse', 'HEAD').trim();
+    git(cwd, 'switch', '-q', '-');
+    expect(git(cwd, 'rev-parse', 'HEAD').trim()).toBe(firstMaintenanceHead);
+    fs.writeFileSync(path.join(evidence, 'base-revision'), firstMaintenanceHead);
+    fs.writeFileSync(path.join(evidence, 'review-base-revision'), reviewBase);
+    const envBase = process.env.TRUSTED_MAINTENANCE_BASE;
+    const envReview = process.env.TRUSTED_REVIEW_BASE;
+    process.env.TRUSTED_MAINTENANCE_BASE = firstMaintenanceHead;
+    process.env.TRUSTED_REVIEW_BASE = reviewBase;
+    try {
+      write(cwd, targetFile, json({ ...first, routing: [{ ...first.routing[0], efforts: ['low', 'high'] }] }));
+      propose(cwd, evidence);
+      const report = buildReport(cwd, evidence);
+      expect(report.pendingSourceChanges).toHaveLength(1);
+      expect(report.pendingSourceChangesBaseRevision).toBe(git(cwd, 'merge-base', firstMaintenanceHead, reviewBase).trim());
+      expect(report.pendingSourceChanges[0].file).toBe(targetFile);
+      expect(report.pendingSourceChanges[0].changes).toEqual(expect.arrayContaining([
+        { pointer: '/routing/0/context', before: 64000, after: 128000 },
+      ]));
+    } finally {
+      if (envBase === undefined) delete process.env.TRUSTED_MAINTENANCE_BASE;
+      else process.env.TRUSTED_MAINTENANCE_BASE = envBase;
+      if (envReview === undefined) delete process.env.TRUSTED_REVIEW_BASE;
+      else process.env.TRUSTED_REVIEW_BASE = envReview;
+    }
+  });
+
+  it('permits host-restored config only when it exactly matches the trusted main tree', () => {
+    const configPath = '.github/workflows/host-restored.yml';
+    git(cwd, 'branch', 'maintenance');
+    write(cwd, configPath, 'trusted config\n');
+    git(cwd, 'add', '.');
+    git(cwd, '-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '--quiet', '-m', 'main config');
+    const trustedMain = git(cwd, 'rev-parse', 'HEAD').trim();
+    git(cwd, 'switch', '-q', 'maintenance');
+    fs.writeFileSync(path.join(evidence, 'base-revision'), git(cwd, 'rev-parse', 'HEAD'));
+    const envReview = process.env.TRUSTED_REVIEW_BASE;
+    process.env.TRUSTED_REVIEW_BASE = trustedMain;
+    try {
+      write(cwd, configPath, 'trusted config\n');
+      expect(buildReport(cwd, evidence)).toBeNull();
+      write(cwd, configPath, 'agent-edited config\n');
+      expect(() => buildReport(cwd, evidence)).toThrow('Out-of-scope change');
+    } finally {
+      if (envReview === undefined) delete process.env.TRUSTED_REVIEW_BASE;
+      else process.env.TRUSTED_REVIEW_BASE = envReview;
+    }
+  });
+
+  it('requires a clean committed tree for the final verifier', () => {
+    write(cwd, 'untracked.txt', 'uncommitted');
+    expect(() => verifyCommittedTree(cwd)).toThrow('clean committed tree');
+    git(cwd, 'clean', '-fdq');
+    git(cwd, 'checkout', '--', '.');
+    expect(() => verifyCommittedTree(cwd)).not.toThrow();
+  });
+
+  it('reads committed canonical blobs larger than execFileSync’s default buffer', async () => {
+    const bytes = catalog([{
+      ...priced('openai/large-fixture', '0.0000010001'),
+      description: 'x'.repeat(2 * 1024 * 1024),
+    }]);
+    await captureSources(evidence, fakeFetch(bytes));
+    expect(refreshImport(cwd, evidence)).toBe(true);
+    expect(buildReport(cwd, evidence).changes.find((item: { file: string }) => item.file === rawFile).changes)
+      .toEqual(expect.arrayContaining([
+        expect.objectContaining({ pointer: expect.stringContaining('/openai~1large-fixture') }),
+      ]));
+  });
+
   it('rejects generated-only and out-of-scope authoring', () => {
     write(cwd, 'docs/model-api-mapping.json', '{}');
     expect(() => buildReport(cwd, evidence)).toThrow('without a canonical source');
@@ -325,6 +480,12 @@ describe('offline scheduled source maintenance', () => {
     expect(() => inspectCatalogue(catalog([priced('openai/a.b'), priced('openai/a-b')]), capture)).toThrow('ambiguous');
     expect(() => inspectCatalogue(catalog([priced(), priced('openai/bad', '-1')]), capture)).toThrow('rejected=1');
     expect(() => inspectCatalogue(Buffer.from(JSON.stringify({ data: [priced()] })), capture)).toThrow('fresh API captures require');
+    expect(() => inspectCatalogue(Buffer.from(JSON.stringify({
+      data: [priced()], total_count: 2, links: { next: null },
+    })), capture)).toThrow('Incomplete catalogue coverage');
+    expect(() => inspectCatalogue(Buffer.from(JSON.stringify({
+      data: [priced()], total_count: 1, links: {},
+    })), capture)).toThrow('Incomplete catalogue coverage');
   });
 
   it('keys model-array drift by exact identity rather than shuffled positions', () => {
@@ -345,6 +506,17 @@ describe('offline scheduled source maintenance', () => {
   ])('requires explicit review for high-impact drift at %s', (pointer, before, after, reason) => {
     const changes = differences({ value: before }, { value: after }).map((change: object) => ({ ...change, pointer }));
     expect(reviewReasons(changes)).toEqual(expect.arrayContaining(['human-review-required', reason]));
+  });
+
+  it.each([
+    ['/models/@id=vendor~1expiration-price/expiration', '2027-01-01', null, 'lifecycle-retirement-replacement'],
+    ['/models/@id=vendor~1max-limit/maxCompletion', 32000, 16000, 'efforts-and-limits'],
+    ['/models/@id=vendor~1tools/parameters', ['tools'], [], 'compatibility-contraction-and-scope'],
+    ['/models/@id=vendor~1reasoning-price/tariffs/0/components/input/price', '2', '1', 'pricing-including-decreases-and-expiry'],
+  ])('classifies review gates by field path rather than model ID: %s', (pointer, before, after, reason) => {
+    const reasons = reviewReasons([{ pointer, before, after }]);
+    expect(reasons).toContain(reason);
+    if (pointer.includes('reasoning-price')) expect(reasons).not.toContain('efforts-and-limits');
   });
 
   it('deduplicates open PRs by exact ownership boundaries, and fails on competing PRs', () => {

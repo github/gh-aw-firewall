@@ -54,25 +54,37 @@ describe('scheduled canonical model source maintenance', () => {
     expect(create['github-token-for-extra-empty-commit']).toBe('none');
   });
 
-  it('fetches evidence, reuses one PR branch, validates before safe-output writes', () => {
+  it('preserves trusted evidence and validators, reuses the selected branch, and gates safe outputs', () => {
     const steps = frontmatter.steps as { name: string; run?: string; if?: string }[];
+    const preserve = steps.find(step => step.name === 'Preserve trusted validators and main baseline')!.run!;
+    expect(preserve).toContain('TRUSTED_REVIEW_BASE');
+    expect(preserve).toContain('git archive');
+    expect(preserve).toContain('RUNNER_TEMP/model-maintenance-trusted');
     const prepare = steps.find(step => step.name === 'Check out the selected maintenance PR')!.run!;
     expect(prepare).toContain('existing-pr.json');
-    expect(prepare).toContain('git checkout -B model-source-maintenance FETCH_HEAD');
+    expect(prepare).toContain('refs/remotes/origin/$SELECTED_PR_HEAD');
+    expect(prepare).toContain('git checkout -B "$SELECTED_PR_HEAD"');
+    expect(prepare).toContain('TRUSTED_MAINTENANCE_BASE');
     expect(prepare).toContain('git rev-parse HEAD');
     expect(steps.some(step => step.run?.includes('maintain.cjs capture'))).toBe(true);
     const capture = steps.find(step => step.name === 'Capture approved official sources and governed catalogue');
-    expect(capture?.run).toBe('node scripts/model-information/maintain.cjs capture');
+    expect(capture?.run).toContain('$RUNNER_TEMP/model-maintenance-trusted/code/scripts/model-information/maintain.cjs');
     expect(fs.readFileSync(path.resolve(__dirname, '../model-information/maintain.cjs'), 'utf8'))
       .toContain('TRUSTED_CAPTURES_JSON');
     const regression = frontmatter['post-steps'][0].run as string;
-    expect(regression).toContain('git clone --depth=1 --branch main "https://github.com/${GITHUB_REPOSITORY}.git"');
-    expect(regression).toContain('cd "$trusted_dir"');
+    expect(regression).toContain('while IFS= read -r file');
+    expect(regression).toContain('TRUSTED_VALIDATION_DIR/$file');
+    expect(regression).toContain('mktemp "$parent/.awf-trusted.XXXXXX"');
+    expect(regression).toContain('mv -f -- "$staging" "$destination"');
+    expect(regression).toContain('TRUSTED_VALIDATION_FILES');
+    expect(regression).toContain('cd "$GITHUB_WORKSPACE"');
     expect(regression).toContain('npm ci --ignore-scripts');
     expect(regression).toContain('npm test -- --runInBand');
+    expect(regression).toContain('npm --prefix containers/api-proxy ci --ignore-scripts');
+    expect(regression).toContain('models-dev-catalog.test.js ai-credits-pricing-reference.test.js');
     const trustedVerify = frontmatter['post-steps'][1].run as string;
-    expect(trustedVerify).toContain('cd "$TRUSTED_MAIN_DIR"');
-    expect(trustedVerify).toContain('verify /tmp/gh-aw/model-maintenance "$GITHUB_WORKSPACE"');
+    expect(trustedVerify).toContain('cd "$GITHUB_WORKSPACE"');
+    expect(trustedVerify).toContain('verify-committed /tmp/gh-aw/model-maintenance "$GITHUB_WORKSPACE"');
     const agentSteps = lock.jobs.agent.steps;
     const verifyIndex = agentSteps.findIndex((step: any) =>
       step.name === 'Verify source ownership, evidence, complete projections and no-op');
@@ -106,6 +118,7 @@ describe('scheduled canonical model source maintenance', () => {
     });
     const select = selection.steps.find((step: { id?: string }) => step.id === 'select');
     expect(select.run).toContain('test "$GITHUB_REF" = refs/heads/main');
+    expect(select.run).not.toContain('--base main');
     expect(select.run).toContain('maintain.cjs select-pr');
     expect(select.run).toContain('.number // 0');
     expect(select.run).toContain('>> "$GITHUB_OUTPUT"');
@@ -132,6 +145,7 @@ describe('scheduled canonical model source maintenance', () => {
       'node scripts/model-information/maintain.cjs verify',
       'npm run models:generate', 'npm run models:check',
       'npm test -- --runInBand scripts/model-information/ scripts/ci/model-api-mapping-updater-workflow.test.ts src/copilot-model-catalog-sync.test.ts src/model-information-contract.test.ts',
+      'npm --prefix containers/api-proxy test -- --runInBand models-dev-catalog.test.js ai-credits-pricing-reference.test.js',
     ]);
     for (const tool of ['shell(node)', 'shell(npm:*)', 'shell(npx:*)', 'shell(git:*)']) {
       expect(lockText).not.toContain(tool);
@@ -172,5 +186,7 @@ describe('scheduled canonical model source maintenance', () => {
     expect(maintenanceTitle).toBe(
       `${frontmatter['safe-outputs']['create-pull-request']['title-prefix']}refresh canonical model sources`,
     );
+    expect(frontmatter['safe-outputs']['push-to-pull-request-branch']['required-title-prefix'])
+      .toBe(maintenanceTitle);
   });
 });

@@ -26,11 +26,37 @@ const projections = [
 const hash = bytes => crypto.createHash('sha256').update(bytes).digest('hex');
 const json = value => `${JSON.stringify(value, null, 2)}\n`;
 const read = file => JSON.parse(fs.readFileSync(file, 'utf8'));
-const git = (cwd, ...args) => execFileSync('git', args, { cwd, encoding: 'utf8' });
+const git = (cwd, ...args) => execFileSync('git', args, {
+  cwd, encoding: 'utf8', maxBuffer: 16 * 1024 * 1024,
+});
+const hasGitObject = (cwd, object) => {
+  try {
+    execFileSync('git', ['cat-file', '-e', object], { cwd, stdio: 'ignore' });
+    return true;
+  } catch {
+    return false;
+  }
+};
 const canonical = file => /^shared\/model-information\/sources\/[a-z-]+\.json$/.test(file) ||
   [rawImport, metadataFile].includes(file);
 const allowed = file => canonical(file) || projections.includes(file) || file === reportFile;
 const metadataKeys = new Set(['retrievedAt', 'checkedAt', 'lastUpdated', 'revision', 'sha256']);
+
+function trustedRestoredPaths(cwd, reviewBase, candidates) {
+  const paths = git(cwd, 'ls-tree', '-r', '--name-only', reviewBase, '--', '.github', '.agents', 'AGENTS.md')
+    .trim().split('\n').filter(Boolean);
+  if (process.env.TRUSTED_VALIDATION_FILES) {
+    paths.push(...fs.readFileSync(process.env.TRUSTED_VALIDATION_FILES, 'utf8')
+      .split('\n').filter(Boolean));
+  }
+  const candidateSet = candidates ? new Set(candidates) : null;
+  return new Set(paths.filter(file => {
+    if (candidateSet && !candidateSet.has(file)) return false;
+    const target = path.join(cwd, file);
+    return hasGitObject(cwd, `${reviewBase}:${file}`) && fs.existsSync(target) &&
+      hash(fs.readFileSync(target)) === hash(Buffer.from(git(cwd, 'show', `${reviewBase}:${file}`)));
+  }));
+}
 
 function facts(value, field) {
   if (field === 'price' && typeof value === 'string' && /^(0|[1-9]\d*)(\.\d+)?$/.test(value)) {
@@ -76,7 +102,8 @@ function importMetadata(bytes, capture) {
 function inspectCatalogue(bytes, capture) {
   const { importLegacySnapshot } = require('../../shared/model-information/import-legacy-snapshot');
   const source = JSON.parse(bytes);
-  if (source.total_count === undefined || source.links === undefined) {
+  if (!Number.isSafeInteger(source.total_count) || source.total_count !== source.data?.length ||
+      !source.links || !Object.hasOwn(source.links, 'next') || source.links.next !== null) {
     throw new Error('Incomplete catalogue coverage: fresh API captures require total_count and links');
   }
   const snapshot = importLegacySnapshot(bytes, importMetadata(bytes, capture));
@@ -205,8 +232,19 @@ function loadTrustedCaptureHashes() {
 
 function loadCaptures(directory) {
   const captures = read(path.join(directory, 'captures.json')).sources;
+  if (!Array.isArray(captures) ||
+      new Set(captures.map(item => item?.id)).size !== captures.length) {
+    throw new Error('Capture manifest contains an invalid or duplicate source record');
+  }
   const trustedCaptures = loadTrustedCaptureHashes();
   const errors = [];
+  const expectedIds = new Set(approvedSources.map(source => source.id));
+  const actualIds = new Set(captures.map(item => item.id));
+  const unknown = [...actualIds].filter(id => !expectedIds.has(id));
+  const missing = [...expectedIds].filter(id => !actualIds.has(id));
+  if (unknown.length || missing.length) {
+    throw new Error(`Capture manifest source mismatch; unknown=${unknown.join(',')}, missing=${missing.join(',')}`);
+  }
   for (const source of approvedSources) {
     const capture = captures.find(item => item.id === source.id);
     const trusted = trustedCaptures.find(item => item.id === source.id);
@@ -237,7 +275,9 @@ function refreshImport(cwd, directory) {
   const current = read(path.join(cwd, snapshotFile));
   // Compare imported facts, not API ordering/descriptions, formatting or capture dates.
   if (json(facts(current.models)) === json(facts(snapshot.models)) &&
-      json(catalogueFacts(fs.readFileSync(path.join(cwd, rawImport)))) === json(catalogueFacts(bytes))) return false;
+      json(catalogueFacts(fs.readFileSync(path.join(cwd, rawImport)))) === json(catalogueFacts(bytes)) &&
+      json(runtimeResolutionFacts(fs.readFileSync(path.join(cwd, rawImport)))) ===
+        json(runtimeResolutionFacts(bytes))) return false;
   fs.writeFileSync(path.join(cwd, rawImport), bytes);
   fs.writeFileSync(path.join(cwd, metadataFile), json(importMetadata(bytes, capture)));
   return true;
@@ -254,22 +294,67 @@ function catalogueFacts(bytes) {
   return JSON.parse(bytes).data.filter(entry => !entry.id.startsWith('~') &&
     !(entry.pricing?.prompt === '-1' && entry.pricing?.completion === '-1')).map(entry => ({
     id: entry.id, pricing: normalizePrices(entry.pricing),
+    canonicalSlug: entry.canonical_slug ?? null,
     context: entry.context_length ?? null,
     providerContext: entry.top_provider?.context_length ?? null,
     maxCompletion: entry.top_provider?.max_completion_tokens ?? null,
     parameters: [...(entry.supported_parameters || [])].sort(),
+    inputModalities: [...(entry.architecture?.input_modalities || [])].sort(),
+    outputModalities: [...(entry.architecture?.output_modalities || [])].sort(),
     expiration: entry.expiration_date ?? null,
   })).sort((a, b) => a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
+}
+
+function runtimeResolutionFacts(bytes) {
+  const data = JSON.parse(bytes).data;
+  const canonicalize = model => {
+    if (typeof model !== 'string') return '';
+    const bare = model.includes('/') ? model.slice(model.indexOf('/') + 1) : model;
+    const withoutDateSuffix = bare.replace(/(-alpha)?-(\d{4}-\d{2}-\d{2}|\d{8})$/, '');
+    return withoutDateSuffix.replace(/[._]/g, '-');
+  };
+  const normalizePricing = pricing => {
+    const input = Number(pricing?.prompt);
+    const output = Number(pricing?.completion);
+    if (!Number.isFinite(input) || input < 0 || !Number.isFinite(output) || output < 0) return null;
+    const cachedInput = pricing.input_cache_read === undefined
+      ? input * 0.1 : Number(pricing.input_cache_read);
+    const cacheWrite = pricing.input_cache_write === undefined ? null : Number(pricing.input_cache_write);
+    if (!Number.isFinite(cachedInput) || cachedInput < 0 ||
+        (cacheWrite !== null && (!Number.isFinite(cacheWrite) || cacheWrite < 0))) return null;
+    return {
+      input: input * 1_000_000,
+      cachedInput: cachedInput * 1_000_000,
+      cacheWrite: cacheWrite === null ? null : cacheWrite * 1_000_000,
+      output: output * 1_000_000,
+    };
+  };
+  const resolution = new Map();
+  for (const entry of data) {
+    const pricing = normalizePricing(entry.pricing);
+    for (const candidate of [entry.id, entry.canonical_slug]) {
+      const key = canonicalize(candidate);
+      if (!key) continue;
+      if (!resolution.has(key)) resolution.set(key, { exists: true, pricing: null });
+      const current = resolution.get(key);
+      if (pricing && !current.pricing) {
+        current.pricing = { modelId: entry.id, alias: candidate, ...pricing };
+      }
+    }
+  }
+  return Object.fromEntries([...resolution.entries()].sort(([left], [right]) =>
+    left < right ? -1 : left > right ? 1 : 0).map(([key, value]) =>
+    [`@lookup=${key.replace(/~/g, '~0').replace(/\//g, '~1')}`, value]));
 }
 
 function reviewReasons(changes) {
   const reasons = new Set(['human-review-required']);
   for (const change of changes) {
-    const text = change.pointer;
-    if (/lifecycle|replacement/.test(text)) reasons.add('lifecycle-retirement-replacement');
-    if (/price|tariff|pricing|threshold|promotion|effective/i.test(text)) reasons.add('pricing-including-decreases-and-expiry');
-    if (/reasoning|effort|limit|context/i.test(text)) reasons.add('efforts-and-limits');
-    if (/availability|scope|channel|deployment|protocol|feature|harness|routing|endpoint/i.test(text)) {
+    const text = change.pointer.replace(/\/@(?:id|lookup)=[^/]*(?=\/|$)/g, '').toLowerCase();
+    if (/lifecycle|replacement|expiration|retir/.test(text)) reasons.add('lifecycle-retirement-replacement');
+    if (/price|tariff|pricing|threshold|promotion|effective/.test(text)) reasons.add('pricing-including-decreases-and-expiry');
+    if (/reasoning|effort|limit|context|maxcompletion/.test(text)) reasons.add('efforts-and-limits');
+    if (/availability|scope|channel|deployment|protocol|feature|harness|routing|endpoint|parameter|canonical.?slug|modalit/.test(text)) {
       reasons.add('compatibility-contraction-and-scope');
     }
     if (/confidence/.test(text)) reasons.add('confidence-including-downgrade');
@@ -287,26 +372,63 @@ function modelIds(value) {
   ])].sort();
 }
 
+function runtimeConsumerEffects(cwd, base) {
+  const effects = [];
+  for (const file of [rawImport, 'containers/api-proxy/model-information.retired.generated.json']) {
+    if (!hasGitObject(cwd, `${base}:${file}`) || !fs.existsSync(path.join(cwd, file))) continue;
+    const beforeBytes = Buffer.from(git(cwd, 'show', `${base}:${file}`));
+    const afterBytes = fs.readFileSync(path.join(cwd, file));
+    const changes = file === rawImport
+      ? differences(
+        { runtimeResolution: runtimeResolutionFacts(beforeBytes) },
+        { runtimeResolution: runtimeResolutionFacts(afterBytes) },
+      )
+      : differences(JSON.parse(beforeBytes), JSON.parse(afterBytes));
+    if (changes.length) effects.push({ file, changes });
+  }
+  return effects;
+}
+
 function buildReport(cwd, directory) {
   const captures = loadCaptures(directory);
   const baseFile = path.join(directory, 'base-revision');
-  const base = fs.existsSync(baseFile) ? fs.readFileSync(baseFile, 'utf8').trim() : 'HEAD';
+  const base = process.env.TRUSTED_MAINTENANCE_BASE ||
+    (fs.existsSync(baseFile) ? fs.readFileSync(baseFile, 'utf8').trim() : 'HEAD');
   if (base !== 'HEAD' && !/^[0-9a-f]{40}$/.test(base)) throw new Error('Invalid maintenance base revision');
+  const reviewBaseFile = path.join(directory, 'review-base-revision');
+  const reviewBase = process.env.TRUSTED_REVIEW_BASE ||
+    (fs.existsSync(reviewBaseFile) ? fs.readFileSync(reviewBaseFile, 'utf8').trim() : base);
+  if (reviewBase !== 'HEAD' && !/^[0-9a-f]{40}$/.test(reviewBase)) throw new Error('Invalid maintenance review base');
+  const mergeBase = base === 'HEAD' || reviewBase === 'HEAD'
+    ? base : git(cwd, 'merge-base', base, reviewBase).trim();
+  const committedChanges = new Set(git(cwd, 'diff', '--name-only', base, 'HEAD').trim().split('\n').filter(Boolean));
   const changed = [...new Set([
     ...git(cwd, 'diff', '--name-only', base).trim().split('\n'),
+    ...committedChanges,
     ...git(cwd, 'ls-files', '--others', '--exclude-standard').trim().split('\n'),
   ])].filter(Boolean).sort();
-  for (const file of changed) if (!allowed(file)) throw new Error(`Out-of-scope change: ${file}`);
+  const restored = trustedRestoredPaths(cwd, reviewBase, changed);
+  const matchesTrustedCommit = file => hasGitObject(cwd, `HEAD:${file}`) &&
+    hash(Buffer.from(git(cwd, 'show', `HEAD:${file}`))) ===
+      hash(Buffer.from(git(cwd, 'show', `${reviewBase}:${file}`)));
+  const ignoredRestored = new Set([...restored].filter(file =>
+    !committedChanges.has(file) || matchesTrustedCommit(file)));
+  for (const file of changed) {
+    if (ignoredRestored.has(file)) continue;
+    if (!allowed(file)) throw new Error(`Out-of-scope change: ${file}`);
+  }
   const claimsPath = path.join(directory, 'proposal.json');
   const claims = fs.existsSync(claimsPath) ? read(claimsPath).changes : [];
   const changes = [];
-  for (const file of changed.filter(canonical)) {
+  for (const file of changed.filter(file => canonical(file) && !ignoredRestored.has(file))) {
     // Canonical inputs must already exist: adding a new source format needs a separate review.
     const beforeBytes = Buffer.from(git(cwd, 'show', `${base}:${file}`));
     const afterBytes = fs.readFileSync(path.join(cwd, file));
     const before = JSON.parse(beforeBytes);
     const after = JSON.parse(afterBytes);
-    if (file === rawImport && json(catalogueFacts(beforeBytes)) === json(catalogueFacts(afterBytes))) {
+    if (file === rawImport &&
+        json(catalogueFacts(beforeBytes)) === json(catalogueFacts(afterBytes)) &&
+        json(runtimeResolutionFacts(beforeBytes)) === json(runtimeResolutionFacts(afterBytes))) {
       throw new Error('Import contains no material model facts; capture/formatting/description-only churn is forbidden');
     }
     if (file !== metadataFile && json(facts(before)) === json(facts(after))) {
@@ -336,7 +458,13 @@ function buildReport(cwd, directory) {
       }
     }
     const delta = file === rawImport
-      ? differences({ data: catalogueFacts(beforeBytes) }, { data: catalogueFacts(afterBytes) })
+      ? [
+        ...differences({ data: catalogueFacts(beforeBytes) }, { data: catalogueFacts(afterBytes) }),
+        ...differences(
+          { runtimeResolution: runtimeResolutionFacts(beforeBytes) },
+          { runtimeResolution: runtimeResolutionFacts(afterBytes) },
+        ),
+      ]
       : differences(before, after);
     const beforeIds = modelIds(before);
     const afterIds = modelIds(after);
@@ -352,20 +480,33 @@ function buildReport(cwd, directory) {
     if (changed.length) throw new Error('Generated/report changes without a canonical source change');
     return null;
   }
-  const reviewBaseFile = path.join(directory, 'review-base-revision');
-  const reviewBase = fs.existsSync(reviewBaseFile) ? fs.readFileSync(reviewBaseFile, 'utf8').trim() : base;
-  if (reviewBase !== 'HEAD' && !/^[0-9a-f]{40}$/.test(reviewBase)) throw new Error('Invalid maintenance review base');
-  const pendingSourceChanges = reviewBase === base ? undefined : git(cwd, 'diff', '--name-only', reviewBase).trim().split('\n')
-    .filter(canonical).sort().map(file => ({
-      file, changes: differences(
-        file === rawImport ? { data: catalogueFacts(Buffer.from(git(cwd, 'show', `${reviewBase}:${file}`))) }
-          : JSON.parse(git(cwd, 'show', `${reviewBase}:${file}`)),
-        file === rawImport ? { data: catalogueFacts(fs.readFileSync(path.join(cwd, file))) } : read(path.join(cwd, file))),
-    }));
+  const pendingSourceChanges = mergeBase === base ? undefined :
+    git(cwd, 'diff', '--name-only', mergeBase).trim().split('\n')
+      .filter(file => canonical(file) && !ignoredRestored.has(file)).sort().map(file => {
+        const beforeExists = hasGitObject(cwd, `${mergeBase}:${file}`);
+        const beforeBytes = beforeExists ? Buffer.from(git(cwd, 'show', `${mergeBase}:${file}`)) : null;
+        const afterExists = fs.existsSync(path.join(cwd, file));
+        const afterBytes = afterExists ? fs.readFileSync(path.join(cwd, file)) : null;
+        return {
+          file,
+          changes: file === rawImport
+            ? differences(
+              beforeBytes ? { data: catalogueFacts(beforeBytes) } : null,
+              afterBytes ? { data: catalogueFacts(afterBytes) } : null,
+            ).concat(beforeBytes && afterBytes ? differences(
+              { runtimeResolution: runtimeResolutionFacts(beforeBytes) },
+              { runtimeResolution: runtimeResolutionFacts(afterBytes) },
+            ) : [])
+            : differences(beforeBytes ? JSON.parse(beforeBytes) : null,
+              afterBytes ? JSON.parse(afterBytes) : null),
+        };
+      });
   return {
-    schemaVersion: 1, status: 'proposed-not-activated', baseRevision: git(cwd, 'rev-parse', base).trim(),
+    schemaVersion: 1, status: 'proposed-awaiting-human-review', baseRevision: git(cwd, 'rev-parse', base).trim(),
     reviewBaseRevision: git(cwd, 'rev-parse', reviewBase).trim(),
+    ...(pendingSourceChanges ? { pendingSourceChangesBaseRevision: mergeBase } : {}),
     ...(pendingSourceChanges ? { pendingSourceChanges } : {}),
+    runtimeConsumerEffects: runtimeConsumerEffects(cwd, base),
     pathFormat: 'JSON Pointer fields; data/models arrays use @id=<escaped exact ID> selectors, not positional indices. Raw import diffs cover governed observations only; exact bytes are pinned separately.',
     roundingTolerance: 'Zero unless a separately reviewed provider-specific tolerance is documented; no guessed tolerance.',
     sources: captures, changes,
@@ -385,6 +526,22 @@ function selectPullRequest(pulls) {
   return matches[0] || null;
 }
 
+function verifyCommittedTree(cwd) {
+  const status = git(cwd, 'status', '--porcelain').trim().split('\n').filter(Boolean);
+  if (!status.length) return;
+  const reviewBase = process.env.TRUSTED_REVIEW_BASE;
+  if (!reviewBase || !/^[0-9a-f]{40}$/.test(reviewBase)) {
+    throw new Error('Final verification requires a clean committed tree');
+  }
+  const restored = trustedRestoredPaths(cwd, reviewBase, status.map(entry => entry.slice(3)));
+  for (const entry of status) {
+    const file = entry.slice(3);
+    if (!restored.has(file)) {
+      throw new Error('Final verification requires a clean committed tree');
+    }
+  }
+}
+
 async function main() {
   const [command, directory = '/tmp/gh-aw/model-maintenance', targetRoot = root] = process.argv.slice(2);
   if (command === 'capture') {
@@ -397,8 +554,9 @@ async function main() {
     const report = buildReport(root, directory);
     if (report) fs.writeFileSync(path.join(root, reportFile), json(report));
     console.log(report ? `Review required: ${reportFile}` : 'No material source changes');
-  } else if (command === 'verify') {
+  } else if (command === 'verify' || command === 'verify-committed') {
     const cwd = path.resolve(targetRoot);
+    if (command === 'verify-committed') verifyCommittedTree(cwd);
     const report = buildReport(cwd, directory);
     if (report && json(read(path.join(cwd, reportFile))) !== json(report)) throw new Error('Missing or stale maintenance impact report');
     execFileSync(process.execPath, [
@@ -407,12 +565,13 @@ async function main() {
   } else if (command === 'select-pr') {
     console.log(json(selectPullRequest(read(directory))));
   } else {
-    throw new Error('Expected capture, refresh-import, report, verify or select-pr');
+    throw new Error('Expected capture, refresh-import, report, verify, verify-committed or select-pr');
   }
 }
 
 if (require.main === module) main().catch(error => { console.error(error.message); process.exitCode = 1; });
 module.exports = {
   captureSources, loadCaptures, refreshImport, buildReport, selectPullRequest,
-  facts, differences, reviewReasons, inspectCatalogue, documentText, hash, json, allowed, projections, maintenanceTitle,
+  facts, differences, reviewReasons, inspectCatalogue, documentText, hash, json, allowed, projections,
+  catalogueFacts, runtimeResolutionFacts, runtimeConsumerEffects, verifyCommittedTree, maintenanceTitle,
 };

@@ -1,0 +1,14 @@
+{
+  "gpt-5.5": {
+    "input": 5,
+    "cachedInput": 0.5,
+    "cacheWrite": null,
+    "output": 30
+  },
+  "claude-sonnet-4": {
+    "input": 3,
+    "cachedInput": 0.3,
+    "cacheWrite": 3.75,
+    "output": 15
+  }
+}
