@@ -78,7 +78,7 @@ describe('Cloud Hypervisor Copilot agent enclave smoke', () => {
     const enclave = {
       agent: {
         engine: 'copilot', model: 'claude-sonnet-5',
-        'max-task-bytes': 4096, 'max-model-requests': 8, 'max-model-tokens': 131072,
+        'max-task-bytes': 4096, 'max-model-requests': 8, 'max-model-tokens': 2048,
       },
       runtime: 'cloud-hypervisor',
       repos: [{ repo: 'github/gh-aw-firewall', sensitivity: 'public' }],
@@ -86,16 +86,16 @@ describe('Cloud Hypervisor Copilot agent enclave smoke', () => {
     };
     expect(frontmatter.enclaves).toEqual([enclave]);
     expect(frontmatter.sandbox.agent).toEqual({
-      id: 'awf', version: 'v0.28.66', runtime: 'cloud-hypervisor',
+      id: 'awf', version: 'v0.28.62', runtime: 'cloud-hypervisor',
       config: { filesystem: { 'allow-write': ['/tmp/gh-aw/aw_info.json'] } },
     });
-    expect(CLOUD_HYPERVISOR_ARTIFACT_RELEASE_TAG).toBe(frontmatter.sandbox.agent.version);
+    expect(CLOUD_HYPERVISOR_ARTIFACT_RELEASE_TAG).not.toBe(frontmatter.sandbox.agent.version);
     const match = lock.match(/\\"enclaves\\":(\[.+?\]),\\"container\\"/);
     expect(match).not.toBeNull();
     expect(JSON.parse(match![1].replace(/\\"/g, '"'))).toEqual([{
       agent: {
         engine: 'copilot', model: 'claude-sonnet-5',
-        maxTaskBytes: 4096, maxModelRequests: 8, maxModelTokens: 131072,
+        maxTaskBytes: 4096, maxModelRequests: 8, maxModelTokens: 2048,
       },
       runtime: 'cloud-hypervisor', repos: enclave.repos,
       timeout: 90, maxOutputBytes: 256, maxInvocations: 1,
@@ -145,7 +145,7 @@ describe('Cloud Hypervisor Copilot agent enclave smoke', () => {
         cloudHypervisor: {
           previewEnabled: true,
           mountPolicy: 'workspace-and-tool-cache',
-          artifactReleaseTag: 'v0.28.66',
+          artifactReleaseTag: 'v0.28.62',
           cloudHypervisorBinary: '/usr/local/bin/cloud-hypervisor',
           vcpuCount: 2,
           memoryMib: 512,
@@ -155,17 +155,16 @@ describe('Cloud Hypervisor Copilot agent enclave smoke', () => {
       expect(isCloudHypervisorAgentAcceptanceWorkflow(acceptanceConfig)).toBe(true);
       expect(isCloudHypervisorAgentAcceptanceWorkflow({
         ...acceptanceConfig,
-        cloudHypervisor: { ...acceptanceConfig.cloudHypervisor, artifactReleaseTag: 'v0.28.62' },
+        cloudHypervisor: { ...acceptanceConfig.cloudHypervisor, artifactReleaseTag: 'v0.28.66' },
       })).toBe(false);
-      expect(source).toContain('host acceptance gate now selects only v0.28.66');
+      expect(source).toContain('host acceptance gate selects only v0.28.62');
     } finally {
       process.env = original;
     }
     expect(() => normalizeEnclavesConfig(entries, { primaryRuntime: 'docker' }))
       .toThrow(/differs from primary backend/);
-    expect(source).toContain('131,072-token invocation budgets at the dedicated API proxy');
-    expect(source).toContain('ordinary workflows retain the 32,768 ceiling');
-    expect(source).not.toContain('settings are **advisory only**');
+    expect(source).toContain('eight-request and 2,048-token limits');
+    expect(source).toContain('These limits remain advisory in the pinned');
   });
 
   it('uses the exact static agent tool request contract', () => {
@@ -186,12 +185,12 @@ describe('Cloud Hypervisor Copilot agent enclave smoke', () => {
 
   it('identifies the compiler backport and preserves CLI and immutable release pins', () => {
     expect(frontmatter.engine.version).toBe('1.0.96');
-    expect(lock).toContain('"compiler_version":"dev-v0.92.6-agent-acceptance-v0.28.66-budget131072"');
-    expect(lock).toContain('github/gh-aw-actions/setup@8b9c5e98dfe3472ac4e3f13e0a2441cd078a2ca7');
+    expect(lock).toContain('"compiler_version":"v0.93.0"');
+    expect(lock).toContain('github/gh-aw-actions/setup@e7519e6442ef74dda80a1627315ad827f402309c');
     expect(lock).toContain('actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1');
-    expect(lock).toContain('ghcr.io/github/gh-aw-mcpg:v0.4.35@sha256:35e28671836380c0eae52660ea2ad7e5f6659f63cb20d1abae9271656c670858');
-    const digest = 'sha256:d8c895817a8580197f2f97c19dfa37720acdc608e857d8f73a8201f3d552d5eb';
-    expect(lock).toContain(`ghcr.io/github/gh-aw-firewall/enclave-agent:0.28.66@${digest}`);
+    expect(lock).toContain('ghcr.io/github/gh-aw-mcpg:v0.4.36@sha256:b4d2856018959c798b3e3f81ae4ab5b275e06354e123e1f7971de931f2f450f2');
+    const digest = 'sha256:fe426be36b64144107f4895f43b91f3053e6eb3c6a55c7c6e2f69a42e86a6f96';
+    expect(lock).toContain(`ghcr.io/github/gh-aw-firewall/enclave-agent:0.28.62@${digest}`);
     expect(lock).not.toContain('resolution_failures');
     expect(agentSteps.find(step => step.name === 'Download and verify cloud-hypervisor enclave artifacts')?.run)
       .toContain('cloud_hypervisor_setup_enclave_artifacts.sh');

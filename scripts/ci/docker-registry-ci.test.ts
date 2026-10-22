@@ -6,7 +6,7 @@ import * as yaml from 'js-yaml';
 
 const root = path.resolve(__dirname, '../..');
 const script = path.join(root, 'scripts/ci/configure-docker-mirror.sh');
-const syft = 'anchore/syft:v1.52.0@sha256:500e2d872ac019436926e8322b4fc1f39441d94d21f6f4046c6ff29b30e8cb02';
+const syft = 'anchore/syft:v1.54.1@sha256:3eb5379ba7f409c3f4069be20944128f0c47df993fa5c10d13e7cf34f49b1aa';
 const grype = 'ghcr.io/anchore/grype@sha256:fd4ab4d1042b522c896e73bdf09ab8bf384fa417df99d6dd0d6e1008c7e7c821';
 const grant = 'ghcr.io/anchore/grant@sha256:172463611795f43b77302cdfbd7b3f81295492a7330e0820cfe41c3674920237';
 
@@ -189,52 +189,19 @@ print(json.dumps({'live': sorted(live), 'archives': sorted(archives), 'cache': s
     expect(steps.find((step) => step.run?.includes(`'${grant}'`))?.run).toContain(grant);
   });
 
-  it('builds the pinned NVX-aware compiler before scanning', () => {
+  it('installs the pinned compiler release before scanning', () => {
     const steps = jobs('supply-chain-scan.yml').scan.steps;
-    const checkout = steps.findIndex((step) => step.with?.repository === 'github/gh-aw');
     const install = steps.findIndex(
-      (step) => step.name === 'Install patched gh-aw v0.92.6',
+      (step) => step.name === 'Install gh-aw v0.93.0',
     );
     const compile = steps.findIndex((step) =>
-      step.run === 'gh aw compile --syft --action-mode action --action-tag v0.92.6 .github/workflows/*.md');
-    expect(checkout).toBeGreaterThanOrEqual(0);
-    expect(install).toBeGreaterThan(checkout);
+      step.run === 'gh aw compile --syft --action-mode action --action-tag v0.93.0 .github/workflows/*.md');
+    expect(install).toBeGreaterThanOrEqual(0);
     expect(compile).toBeGreaterThan(install);
-    expect(steps[checkout].uses).toMatch(/^actions\/checkout@[a-f0-9]{40}$/);
-    expect(steps[checkout].with).toEqual({
-      repository: 'github/gh-aw',
-      ref: '7363a87ff2483635af62f490b52c25a757a50221',
-      path: '.tmp/gh-aw-compiler',
-      'persist-credentials': false,
-    });
-    expect(steps[install].run).toContain('-C .tmp/gh-aw-compiler');
-    const build = steps[install].run!;
-    const localPatch = '${GITHUB_WORKSPACE}/scripts/ci/compiler-agent-acceptance-v0.28.66.patch';
-    expect(build).toContain(`"${localPatch}"`);
-    expect(build).toContain('git -C .tmp/gh-aw-compiler apply --unidiff-zero');
-    expect(build.indexOf(localPatch)).toBeLessThan(build.indexOf('go test'));
-    expect(build).not.toContain('gh-aw-agent-acceptance.patch');
-    expect(build).not.toContain('sha256sum --check --strict');
-    const patch = fs.readFileSync(path.join(root, 'scripts/ci/compiler-agent-acceptance-v0.28.66.patch'), 'utf8');
-    expect(patch).toContain('cloudHypervisorAgentAcceptanceAWFVersion       = "v0.28.66"');
-    expect(patch).toContain('cloudHypervisorAgentAcceptanceMaxModelTokens   = 131072');
-    expect(patch).toContain('pkg/parser/schemas/main_workflow_schema.json');
-    expect(patch).toContain('"maximum": 131072');
-    expect(patch).toContain('"maximum": 32768');
-    expect(patch).toContain('{"old token budget"');
-    expect(patch).toContain('{"previous schema ceiling"');
-    expect(patch).toContain('{"previous acceptance version"');
-    expect(patch).toContain('{"future version"');
-    const source = yaml.load(fs.readFileSync(path.join(
-      root, '.github/workflows/smoke-enclave-cloud-hypervisor-copilot.md',
-    ), 'utf8').split('---')[1]) as { sandbox: { agent: { version: string } } };
-    expect(source.sandbox.agent.version).toBe('v0.28.66');
-    expect(patch).toContain(
-      `cloudHypervisorAgentAcceptanceAWFVersion       = "${source.sandbox.agent.version}"`);
-    expect(build).toContain('TestValidateCloudHypervisorAgentAcceptance|TestCompileCloudHypervisorAgentAcceptance');
-    expect(build.indexOf('go test')).toBeLessThan(build.indexOf('go build'));
-    expect(build).toContain('dev-v0.92.6-agent-acceptance-v0.28.66-budget131072');
-    for (const index of [checkout, install, compile]) {
+    expect(steps[install].run).toContain('gh extension install github/gh-aw --pin v0.93.0 --force');
+    expect(steps[install].run).toContain('gh aw version');
+    expect(steps.some((step) => step.with?.repository === 'github/gh-aw')).toBe(false);
+    for (const index of [install, compile]) {
       expect(steps[index].if).toBeUndefined();
       expect(steps[index]['continue-on-error']).toBeUndefined();
     }

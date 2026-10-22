@@ -1770,7 +1770,8 @@ describe('sanitized live acceptance failure reporting', () => {
       }
     });
 
-    it('verifies durable primary ownership and rejects substituted live resource identities', async () => {
+    const linuxIt = process.platform === 'linux' ? it : it.skip;
+    linuxIt('verifies durable primary ownership and rejects substituted live resource identities', async () => {
       const { captureProcessIdentity } = require('../../dist/cloud-hypervisor/cleanup-process');
       const owner = await captureProcessIdentity(fs.promises, process.pid);
       const namespace = fs.statSync('/proc/self/ns/net');

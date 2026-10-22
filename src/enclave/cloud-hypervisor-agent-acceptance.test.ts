@@ -21,7 +21,7 @@ function config(): WrapperConfig {
     copilotGithubToken: 'test-host-only-token',
     cloudHypervisor: {
       previewEnabled: true,
-      artifactReleaseTag: 'v0.28.66',
+      artifactReleaseTag: 'v0.28.62',
       mountPolicy: 'workspace-and-tool-cache',
       cloudHypervisorBinary: '/opt/cloud-hypervisor',
       kernelPath: '/opt/kernel',
@@ -34,7 +34,7 @@ function config(): WrapperConfig {
       runtime: 'cloud-hypervisor',
       agent: {
         engine: 'copilot', model: 'claude-sonnet-5',
-        maxTaskBytes: 4096, maxModelRequests: 8, maxModelTokens: 131072,
+        maxTaskBytes: 4096, maxModelRequests: 8, maxModelTokens: 2048,
       },
       repos: [{ repo: 'github/gh-aw-firewall', sensitivity: 'public' }],
       maxInvocations: 1, maxOutputBytes: 256, timeout: 90,
@@ -125,7 +125,7 @@ describe('Cloud Hypervisor primary and Copilot agent enclave acceptance', () => 
       value => { value.cloudHypervisor!.developmentAllowUnattestedArtifacts = true; },
       value => { value.cloudHypervisor!.sha256 = { kernel: 'a'.repeat(64) }; },
       value => { value.cloudHypervisor!.artifactReleaseTag = ''; },
-      value => { value.cloudHypervisor!.artifactReleaseTag = 'v0.28.63'; },
+      value => { value.cloudHypervisor!.artifactReleaseTag = 'v0.28.66'; },
       value => { value.imageTag = '0.28.61'; },
     ];
     for (const modify of modifications) {
@@ -135,14 +135,14 @@ describe('Cloud Hypervisor primary and Copilot agent enclave acceptance', () => 
     }
   });
 
-  it.each([2048, 32768, 131071, 131073])('rejects a token budget outside the exact smoke allowance: %s', tokens => {
+  it.each([2047, 2049, 32768, 131072])('rejects a token budget outside the exact smoke allowance: %s', tokens => {
     const value = config();
     value.enclaves!.executors.agent.maxModelTokens = tokens;
     expect(isCloudHypervisorAgentAcceptanceWorkflow(value)).toBe(false);
   });
 
-  it.each(['v0.28.62', 'v0.28.63', 'v0.28.64', 'v0.28.65', 'v0.28.67', 'latest'])(
-    'rejects a guest release outside the exact v0.28.66 pin: %s', release => {
+  it.each(['v0.28.61', 'v0.28.63', 'v0.28.64', 'v0.28.65', 'v0.28.66', 'latest'])(
+    'rejects a guest release outside the exact v0.28.62 pin: %s', release => {
       const value = config();
       value.cloudHypervisor!.artifactReleaseTag = release;
       expect(isCloudHypervisorAgentAcceptanceWorkflow(value)).toBe(false);
