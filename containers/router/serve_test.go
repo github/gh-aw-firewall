@@ -100,7 +100,7 @@ func TestServeOptions(t *testing.T) {
 			if c.want.level <= slog.LevelInfo {
 				records := parseLogRecords(t, r.stderr)
 				if len(records) != 3 || records[0]["msg"] != "starting" || records[1]["msg"] != "routing tables loaded" ||
-					records[1]["label_cells"] != float64(210) || records[1]["models"] != float64(36) ||
+					records[1]["label_cells"] != float64(210) || records[1]["models"] != float64(40) ||
 					records[2]["msg"] != "telemetry configured" || records[2]["traces"] != "disabled" || records[2]["metrics"] != "disabled" {
 					t.Errorf("records %s", r.stderr)
 				}
