@@ -35,11 +35,13 @@ describe('scheduled canonical model source maintenance', () => {
       draft: false, max: 1, 'auto-merge': false, 'auto-close-issue': false,
       'preserve-branch-name': true, 'allowed-branches': ['automation/model-source-maintenance-*'],
       'base-branch': 'main', 'fallback-as-issue': false,
+      'patch-format': 'bundle',
     });
     expect(push).toMatchObject({
       target: '${{ needs.select_maintenance_pr.outputs.number }}',
       'required-title-prefix': 'chore: refresh canonical model sources',
       'fallback-as-pull-request': false,
+      'patch-format': 'bundle',
     });
     expect(push['allowed-files']).toEqual(create['allowed-files']);
     for (const file of projections) {
@@ -54,50 +56,31 @@ describe('scheduled canonical model source maintenance', () => {
     expect(create['github-token-for-extra-empty-commit']).toBe('none');
   });
 
-  it('preserves trusted evidence and validators, reuses the selected branch, and gates safe outputs', () => {
+  it('preserves independent validation, reuses the selected branch, and gates safe outputs', () => {
     const steps = frontmatter.steps as { name: string; run?: string; if?: string }[];
-    const preserve = steps.find(step => step.name === 'Preserve trusted validators and main baseline')!.run!;
-    expect(preserve).toContain('TRUSTED_REVIEW_BASE');
-    expect(preserve).toContain('git archive');
-    expect(preserve).toContain('RUNNER_TEMP/model-maintenance-trusted');
     const prepare = steps.find(step => step.name === 'Check out the selected maintenance PR')!.run!;
     expect(prepare).toContain('existing-pr.json');
     expect(prepare).toContain('refs/remotes/origin/$SELECTED_PR_HEAD');
-    expect(prepare).toContain('git checkout -B "$SELECTED_PR_HEAD"');
-    expect(prepare).toContain('TRUSTED_MAINTENANCE_BASE');
+    expect(prepare).toContain('git checkout -B "$SELECTED_PR_HEAD" "refs/remotes/origin/$SELECTED_PR_HEAD"');
+    expect(prepare).toContain('= "$SELECTED_PR_BASE"');
     expect(prepare).toContain('git rev-parse HEAD');
-    const capture = steps.find(step => step.name === 'Capture approved official sources and governed catalogue');
-    expect(capture?.run).toContain('$RUNNER_TEMP/model-maintenance-trusted/code/scripts/model-information/maintain.cjs" capture');
-    expect(fs.readFileSync(path.resolve(__dirname, '../model-information/maintain.cjs'), 'utf8'))
-      .toContain('TRUSTED_CAPTURES_JSON');
-    const regression = frontmatter['post-steps'][0].run as string;
-    expect(regression).toContain('while IFS= read -r file');
-    expect(regression).toContain('TRUSTED_VALIDATION_DIR/$file');
-    expect(regression).toContain('mktemp "$parent/.awf-trusted.XXXXXX"');
-    expect(regression).toContain('mv -f -- "$staging" "$destination"');
-    expect(regression).toContain('TRUSTED_VALIDATION_FILES');
-    expect(regression).toContain('cd "$GITHUB_WORKSPACE"');
-    expect(regression).toContain('npm ci --ignore-scripts');
-    expect(regression).toContain('npm test -- --runInBand');
-    expect(regression).toContain('npm --prefix containers/api-proxy ci --ignore-scripts');
-    expect(regression).toContain('models-dev-catalog.test.js ai-credits-pricing-reference.test.js');
-    const trustedVerify = frontmatter['post-steps'][1].run as string;
-    expect(trustedVerify).toContain('cd "$GITHUB_WORKSPACE"');
-    expect(trustedVerify).toContain('verify-committed /tmp/gh-aw/model-maintenance "$GITHUB_WORKSPACE"');
+    expect(steps.some(step => step.run?.includes('maintain.cjs capture'))).toBe(false);
+    expect(frontmatter['post-steps']).toBeUndefined();
     const agentSteps = lock.jobs.agent.steps;
-    const verifyIndex = agentSteps.findIndex((step: any) =>
-      step.name === 'Verify source ownership, evidence, complete projections and no-op');
-    expect(verifyIndex).toBeGreaterThan(0);
-    expect(agentSteps[verifyIndex]['continue-on-error']).not.toBe(true);
+    expect(agentSteps.some((step: any) =>
+      step.name === 'Verify source ownership, evidence, complete projections and no-op')).toBe(false);
     const outputSteps = lock.jobs.safe_outputs.steps;
     const guardIndex = outputSteps.findIndex((step: any) =>
-      step.name === 'Block writes after failed source or post-agent validation');
+      step.name === 'Block writes after failed trusted validation');
     const processorIndex = outputSteps.findIndex((step: any) => step.id === 'process_safe_outputs');
     expect(guardIndex).toBeGreaterThan(0);
     expect(guardIndex).toBeLessThan(processorIndex);
     expect(outputSteps[guardIndex]).toMatchObject({
-      run: 'test "$AGENT_RESULT" = success',
-      env: { AGENT_RESULT: '${{ needs.agent.result }}' },
+      run: 'test "$AGENT_RESULT" = success\ntest "$VALIDATION_RESULT" = success\n',
+      env: {
+        AGENT_RESULT: '${{ needs.agent.result }}',
+        VALIDATION_RESULT: '${{ needs.validate_model_proposal.result }}',
+      },
     });
     expect(outputSteps[processorIndex].if).toBeUndefined();
     expect(lockText).toContain('maintain.cjs verify');
@@ -112,9 +95,10 @@ describe('scheduled canonical model source maintenance', () => {
   it('binds both the agent and privileged push processor to the trusted selected PR number', () => {
     const selection = frontmatter.jobs.select_maintenance_pr;
     expect(selection.permissions).toEqual({ contents: 'read', 'pull-requests': 'read' });
-    expect(selection.outputs).toEqual({
+    expect(selection.outputs).toMatchObject({
       number: '${{ steps.select.outputs.number }}', head: '${{ steps.select.outputs.head }}',
     });
+
     const select = selection.steps.find((step: { id?: string }) => step.id === 'select');
     expect(select.run).toContain('test "$GITHUB_REF" = refs/heads/main');
     expect(select.run).not.toContain('--base main');
@@ -134,6 +118,43 @@ describe('scheduled canonical model source maintenance', () => {
       expect(config.push_to_pull_request_branch.target).toBe('${{ needs.select_maintenance_pr.outputs.number }}');
       expect(config.push_to_pull_request_branch.title_prefix).toBe('chore: refresh canonical model sources');
     }
+  });
+
+  it('anchors captures before the agent and validates the published bundle with independent trusted code', () => {
+    const producer = frontmatter.jobs.select_maintenance_pr;
+    expect(producer.outputs).toMatchObject({
+      base_revision: '${{ steps.select.outputs.base_revision }}',
+      review_base_revision: '${{ steps.select.outputs.review_base_revision }}',
+      capture_sha256: '${{ steps.capture.outputs.sha256 }}',
+    });
+    const capture = producer.steps.find((step: any) => step.id === 'capture');
+    expect(capture.run).toContain('maintain.cjs capture');
+    expect(capture.run).toContain('sha256sum /tmp/gh-aw/model-maintenance/captures.json');
+    expect(capture.run).toContain('>> "$GITHUB_OUTPUT"');
+    expect(producer.steps.find((step: any) => step.name === 'Upload captured evidence')).toMatchObject({
+      if: 'always()', with: { name: 'model-source-evidence', 'if-no-files-found': 'error' },
+    });
+    const validation = lock.jobs.validate_model_proposal;
+    expect(validation.needs).toEqual(['agent', 'select_maintenance_pr']);
+    expect(validation.permissions).toEqual({ contents: 'read' });
+    const checkout = validation.steps.find((step: any) => step.name === 'Checkout trusted model validation code');
+    expect(checkout.with).toEqual({ 'persist-credentials': false, 'fetch-depth': 0, ref: '${{ github.sha }}' });
+    const verify = validation.steps.find((step: any) => step.run?.includes('verify-proposal.cjs'));
+    expect(verify.env).toEqual({
+      AWF_MODEL_BASE_REVISION: '${{ needs.select_maintenance_pr.outputs.base_revision }}',
+      AWF_MODEL_REVIEW_BASE_REVISION: '${{ needs.select_maintenance_pr.outputs.review_base_revision }}',
+      AWF_MODEL_CAPTURE_SHA256: '${{ needs.select_maintenance_pr.outputs.capture_sha256 }}',
+      AWF_MODEL_SELECTED_PR: '${{ needs.select_maintenance_pr.outputs.number }}',
+    });
+    expect(verify.run).toContain('"$RUNNER_TEMP/model-proposal" "$RUNNER_TEMP/model-source-evidence"');
+    const downloads = validation.steps.filter((step: any) => step.uses?.startsWith('actions/download-artifact@'));
+    expect(downloads.map((step: any) => step.with.name)).toEqual(['model-source-evidence', 'agent']);
+    expect(validation.steps.at(-3).run).toContain('npm test -- --runInBand');
+    expect(validation.steps.at(-2).run).toBe('npm run models:check');
+    expect(validation.steps.at(-1).run).toContain('models-dev-catalog.test.js ai-credits-pricing-reference.test.js');
+    expect(validation.steps.every((step: any) => step['continue-on-error'] !== true)).toBe(true);
+    expect(lock.jobs.safe_outputs.needs).toContain('validate_model_proposal');
+    expect(frontmatter['safe-outputs'].needs).toContain('validate_model_proposal');
   });
 
   it('grants only required script invocations, not unrestricted interpreters or package runners', () => {

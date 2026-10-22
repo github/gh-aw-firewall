@@ -856,8 +856,9 @@ committed evidence; incomplete retrieval blocks proposals without erasing facts.
 The agent proposes edits to canonical sources, with exact source quotations and
 before/after hashes, rather than editing either generated API mapping.
 Its shell allowlist names the specific maintenance/generation/test commands,
-not unrestricted interpreters or package installers. Captured text is untrusted
-evidence, not an instruction source.
+not unrestricted interpreters or package installers. Captures are produced in
+a separate pre-agent job, which seals the manifest digest in an Actions job
+output. Captured text is untrusted evidence, not an instruction source.
 
 The canonical raw import remains the historically named
 `containers/api-proxy/models.dev.catalog.json`. Its origin is not thereby
@@ -875,12 +876,27 @@ The existing import schema projects only its four token-price components;
 additional API pricing fields/overrides remain in the exact raw evidence and
 impact report, not newly activated native-provider tariffs. An API envelope
 with a count mismatch or an unfetched next page fails as incomplete coverage.
+The bundled catalogue is already consumed by runtime fallback accounting;
+the generated retirement projection is also an active guard input. Merging a
+reviewed refresh can therefore change fallback prices, model lookup winners or
+retirement handling. Reports include before/after runtime consumer effects,
+including order-sensitive alias winners, and the gate runs the affected proxy
+consumer regressions. This does not activate the staged maintained pricing
+projection or a new pricing/resolver architecture.
 
 The updater runs canonical generation, focused offline regressions and
 `models:check`, and commits `shared/model-information/maintenance-report.json`
 with exact field changes, captured evidence, import counts/exclusions and human
-review gates alongside every affected projection. A post-agent step checks
-ownership, receipts and deterministic outputs before safe-output writes. All
+review gates alongside every affected projection. An independent read-only job
+downloads the original captured evidence and the actual safe-output Git bundle.
+It runs validation code, tests and npm configuration from a fresh trusted
+workflow checkout, never from the agent-modified tree. The manifest must match
+the pre-agent digest; matching hashes in an agent-edited manifest are not proof.
+Every bundled commit is checked for data-only ownership and regular JSON file
+modes, including intermediate commits later reverted. Receipts are reconstructed
+from the bundled impact report, checked against original evidence and anchored
+baselines, and only validated JSON is overlaid for deterministic projection
+checks. Safe-output writes require this independent job to succeed. All
 model-fact changes require human review. Prices use zero tolerance unless a
 provider-specific tolerance is separately documented and reviewed; there is no
 guessed rounding allowance. Quote/hash checks establish captured evidence, not

@@ -7,7 +7,7 @@ const entry = (id, prompt, completion, canonical_slug = undefined) => ({
 describe('models-dev-catalog', () => {
   it('resolves exact IDs and canonical aliases into normalized fallback pricing', () => {
     const index = buildCatalogIndex([
-      entry('google/gemma-4-31b-it', '0', '0', 'google/gemma-4-31b-it'),
+      entry('google/gemma-4-31b-it:free', '0', '0', 'google/gemma-4-31b-it'),
       entry('openai/fixture-model', '0.000001', '0.000002', 'shared/fixture-alias'),
     ]);
 
@@ -16,6 +16,8 @@ describe('models-dev-catalog', () => {
       pricing: { input: 0, cachedInput: 0, cacheWrite: null, output: 0 },
       zeroCost: true,
     });
+    expect(resolveCatalogModel('google/gemma-4-31b-it:free', index))
+      .toEqual(resolveCatalogModel('google/gemma-4-31b-it', index));
     expect(resolveCatalogModel('shared/fixture-alias', index)).toEqual({
       exists: true,
       pricing: { input: 1, cachedInput: 0.1, cacheWrite: null, output: 2 },

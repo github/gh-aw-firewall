@@ -31,7 +31,7 @@ describe('maintained model compilation', () => {
     expect(new Set(supported)).toEqual(testHelpers.supportedCopilotModels);
     expect([...supported].sort()).toEqual([...suggestionOrder].sort());
     expect(new Set(suggestionOrder).size).toBe(suggestionOrder.length);
-    expect(retired['gpt-5-codex']).toBe('gpt-5.3-codex');
+    expect(retired).toEqual(require('../../containers/api-proxy/model-information.retired.generated.json'));
     const legacy = require('../../containers/api-proxy/ai-credits-pricing');
     expect(Object.fromEntries(Object.keys(legacyPricingFixture).map(key => [key, legacy[key]])))
       .toEqual(legacyPricingFixture);

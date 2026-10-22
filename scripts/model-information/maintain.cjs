@@ -45,10 +45,6 @@ const metadataKeys = new Set(['retrievedAt', 'checkedAt', 'lastUpdated', 'revisi
 function trustedRestoredPaths(cwd, reviewBase, candidates) {
   const paths = git(cwd, 'ls-tree', '-r', '--name-only', reviewBase, '--', '.github', '.agents', 'AGENTS.md')
     .trim().split('\n').filter(Boolean);
-  if (process.env.TRUSTED_VALIDATION_FILES) {
-    paths.push(...fs.readFileSync(process.env.TRUSTED_VALIDATION_FILES, 'utf8')
-      .split('\n').filter(Boolean));
-  }
   const candidateSet = candidates ? new Set(candidates) : null;
   return new Set(paths.filter(file => {
     if (candidateSet && !candidateSet.has(file)) return false;
@@ -141,18 +137,6 @@ function writeCapture(directory, filename, content) {
   }
 }
 
-function recordTrustedCaptures(captures) {
-  const manifest = JSON.stringify({
-    schemaVersion: 1,
-    sources: captures.filter(item => item.status === 'ok').map(({ id, url, sha256, textSha256 }) =>
-      ({ id, url, sha256, textSha256 })),
-  });
-  process.env.TRUSTED_CAPTURES_JSON = manifest;
-  if (process.env.GITHUB_ENV) {
-    fs.appendFileSync(process.env.GITHUB_ENV, `TRUSTED_CAPTURES_JSON=${manifest}\n`);
-  }
-}
-
 async function captureSources(directory, fetcher = fetch, sources = approvedSources) {
   if (sources.some(source => !/^[a-z][a-z0-9-]*$/.test(source.id))) {
     throw new Error('Unsafe capture source ID');
@@ -202,41 +186,20 @@ async function captureSources(directory, fetcher = fetch, sources = approvedSour
     captures.push(captured || { id: source.id, scope: source.scope, status: 'failed', errors });
   }
   writeCapture(directory, 'captures.json', json({ schemaVersion: 1, sources: captures }));
-  recordTrustedCaptures(captures);
   return captures;
 }
 
-function loadTrustedCaptureHashes() {
-  const value = process.env.TRUSTED_CAPTURES_JSON;
-  if (!value) throw new Error('TRUSTED_CAPTURES_JSON is required for capture integrity verification');
-  let trusted;
-  try {
-    trusted = JSON.parse(value);
-  } catch {
-    throw new Error('Trusted captures manifest is invalid JSON');
+function loadCaptures(directory, trustedManifestSha256) {
+  const manifest = fs.readFileSync(path.join(directory, 'captures.json'));
+  if (trustedManifestSha256 !== undefined &&
+      (!/^[0-9a-f]{64}$/.test(trustedManifestSha256) || hash(manifest) !== trustedManifestSha256)) {
+    throw new Error(`Trusted capture manifest mismatch; rejecting evidence for ${approvedSources.map(source => source.id).join(', ')}`);
   }
-  if (trusted?.schemaVersion !== 1 || !Array.isArray(trusted.sources)) {
-    throw new Error('Trusted captures manifest must contain schemaVersion 1 and a "sources" array');
-  }
-  const ids = new Set();
-  for (const item of trusted.sources) {
-    if (!item || typeof item.id !== 'string' || ids.has(item.id) ||
-        typeof item.url !== 'string' || !/^[a-f0-9]{64}$/.test(item.sha256) ||
-        !/^[a-f0-9]{64}$/.test(item.textSha256)) {
-      throw new Error('Trusted captures manifest contains an invalid or duplicate source record');
-    }
-    ids.add(item.id);
-  }
-  return trusted.sources;
-}
-
-function loadCaptures(directory) {
-  const captures = read(path.join(directory, 'captures.json')).sources;
-  if (!Array.isArray(captures) ||
-      new Set(captures.map(item => item?.id)).size !== captures.length) {
+  const captures = JSON.parse(manifest).sources;
+  if (!Array.isArray(captures) || captures.some(item => !item || typeof item.id !== 'string') ||
+      new Set(captures.map(item => item.id)).size !== captures.length) {
     throw new Error('Capture manifest contains an invalid or duplicate source record');
   }
-  const trustedCaptures = loadTrustedCaptureHashes();
   const errors = [];
   const expectedIds = new Set(approvedSources.map(source => source.id));
   const actualIds = new Set(captures.map(item => item.id));
@@ -247,18 +210,11 @@ function loadCaptures(directory) {
   }
   for (const source of approvedSources) {
     const capture = captures.find(item => item.id === source.id);
-    const trusted = trustedCaptures.find(item => item.id === source.id);
     if (!capture || capture.status !== 'ok') {
       errors.push(`${source.id}: ${json(capture?.errors || ['missing capture'])}`);
       continue;
     }
-    if (!trusted) {
-      errors.push(`${source.id}: missing trusted capture record`);
-      continue;
-    }
-    if (!source.urls.includes(capture.url) || capture.url !== trusted.url ||
-        capture.sha256 !== trusted.sha256 ||
-        capture.textSha256 !== trusted.textSha256 ||
+    if (!source.urls.includes(capture.url) ||
         hash(fs.readFileSync(path.join(directory, `${source.id}.raw`))) !== capture.sha256 ||
         hash(fs.readFileSync(path.join(directory, `${source.id}.txt`))) !== capture.textSha256) {
       errors.push(`${source.id}: unapproved URL or evidence hash mismatch`);
@@ -314,19 +270,16 @@ function runtimeResolutionFacts(bytes) {
     return withoutDateSuffix.replace(/[._]/g, '-');
   };
   const normalizePricing = pricing => {
-    const input = Number(pricing?.prompt);
-    const output = Number(pricing?.completion);
+    const input = Number(pricing?.prompt) * 1_000_000;
+    const output = Number(pricing?.completion) * 1_000_000;
     if (!Number.isFinite(input) || input < 0 || !Number.isFinite(output) || output < 0) return null;
     const cachedInput = pricing.input_cache_read === undefined
-      ? input * 0.1 : Number(pricing.input_cache_read);
-    const cacheWrite = pricing.input_cache_write === undefined ? null : Number(pricing.input_cache_write);
+      ? input * 0.1 : Number(pricing.input_cache_read) * 1_000_000;
+    const cacheWrite = pricing.input_cache_write === undefined ? null : Number(pricing.input_cache_write) * 1_000_000;
     if (!Number.isFinite(cachedInput) || cachedInput < 0 ||
         (cacheWrite !== null && (!Number.isFinite(cacheWrite) || cacheWrite < 0))) return null;
     return {
-      input: input * 1_000_000,
-      cachedInput: cachedInput * 1_000_000,
-      cacheWrite: cacheWrite === null ? null : cacheWrite * 1_000_000,
-      output: output * 1_000_000,
+      input, cachedInput, cacheWrite, output,
     };
   };
   const resolution = new Map();
@@ -389,14 +342,14 @@ function runtimeConsumerEffects(cwd, base) {
   return effects;
 }
 
-function buildReport(cwd, directory) {
-  const captures = loadCaptures(directory);
+function buildReport(cwd, directory, trustedManifestSha256, trustedRevisions = {}) {
+  const captures = loadCaptures(directory, trustedManifestSha256);
   const baseFile = path.join(directory, 'base-revision');
-  const base = process.env.TRUSTED_MAINTENANCE_BASE ||
+  const base = trustedRevisions.baseRevision || process.env.TRUSTED_MAINTENANCE_BASE ||
     (fs.existsSync(baseFile) ? fs.readFileSync(baseFile, 'utf8').trim() : 'HEAD');
   if (base !== 'HEAD' && !/^[0-9a-f]{40}$/.test(base)) throw new Error('Invalid maintenance base revision');
   const reviewBaseFile = path.join(directory, 'review-base-revision');
-  const reviewBase = process.env.TRUSTED_REVIEW_BASE ||
+  const reviewBase = trustedRevisions.reviewBaseRevision || process.env.TRUSTED_REVIEW_BASE ||
     (fs.existsSync(reviewBaseFile) ? fs.readFileSync(reviewBaseFile, 'utf8').trim() : base);
   if (reviewBase !== 'HEAD' && !/^[0-9a-f]{40}$/.test(reviewBase)) throw new Error('Invalid maintenance review base');
   const mergeBase = base === 'HEAD' || reviewBase === 'HEAD'

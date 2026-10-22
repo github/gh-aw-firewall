@@ -9,6 +9,7 @@ const {
   catalogueFacts, runtimeResolutionFacts, verifyCommittedTree,
 } = require('./maintain.cjs');
 const sources = require('./maintenance-sources.json');
+const { verifyProposal } = require('./verify-proposal.cjs');
 const root = path.resolve(__dirname, '../..');
 const rawFile = 'containers/api-proxy/models.dev.catalog.json';
 const metadataFile = 'shared/model-information/imported/legacy-models-dev.metadata.json';
@@ -90,39 +91,23 @@ describe('offline scheduled source maintenance', () => {
     expect(fs.readFileSync(path.join(evidence, 'openai-models.txt'), 'utf8')).toBe(quote);
   });
 
-  it('exports trusted hashes through the host environment file', async () => {
-    const environmentFile = path.join(cwd, 'github-env');
-    const previous = process.env.GITHUB_ENV;
-    fs.writeFileSync(environmentFile, '');
-    process.env.GITHUB_ENV = environmentFile;
-    try {
-      await captureSources(evidence, fakeFetch());
-      const [entry] = fs.readFileSync(environmentFile, 'utf8').trim().split('\n');
-      expect(entry.startsWith('TRUSTED_CAPTURES_JSON=')).toBe(true);
-      expect(JSON.parse(entry.slice('TRUSTED_CAPTURES_JSON='.length)).sources).toHaveLength(sources.length);
-    } finally {
-      if (previous === undefined) delete process.env.GITHUB_ENV;
-      else process.env.GITHUB_ENV = previous;
-    }
-  });
-
   it('rejects modified captures even when their writable manifest is rewritten to match', () => {
+    const trustedDigest = hash(fs.readFileSync(path.join(evidence, 'captures.json')));
     const captures = JSON.parse(fs.readFileSync(path.join(evidence, 'captures.json'), 'utf8'));
     const source = captures.sources.find((item: { id: string }) => item.id === 'openai-models');
     const textPath = path.join(evidence, 'openai-models.txt');
     fs.writeFileSync(textPath, 'Fabricated official source evidence with a matching writable hash.');
     source.textSha256 = hash(fs.readFileSync(textPath));
     fs.writeFileSync(path.join(evidence, 'captures.json'), json(captures));
-    expect(() => loadCaptures(evidence)).toThrow('hash mismatch');
+    expect(() => loadCaptures(evidence, trustedDigest)).toThrow('Trusted capture manifest mismatch');
   });
 
   it('requires a well-formed trusted capture manifest', () => {
-    const manifest = process.env.TRUSTED_CAPTURES_JSON;
-    delete process.env.TRUSTED_CAPTURES_JSON;
-    expect(() => loadCaptures(evidence)).toThrow('TRUSTED_CAPTURES_JSON is required');
-    process.env.TRUSTED_CAPTURES_JSON = '{';
-    expect(() => loadCaptures(evidence)).toThrow('invalid JSON');
-    process.env.TRUSTED_CAPTURES_JSON = manifest!;
+    expect(() => loadCaptures(evidence, '{')).toThrow('Trusted capture manifest mismatch');
+    const manifest = JSON.parse(fs.readFileSync(path.join(evidence, 'captures.json'), 'utf8'));
+    manifest.sources = null;
+    fs.writeFileSync(path.join(evidence, 'captures.json'), json(manifest));
+    expect(() => loadCaptures(evidence)).toThrow('invalid or duplicate source record');
   });
 
   it('decodes document entities once while retaining literal entity evidence', () => {
@@ -235,22 +220,24 @@ describe('offline scheduled source maintenance', () => {
     expect(runtimeResolutionFacts(old)['@lookup=gemma-4-31b-it'].pricing.input).toBe(0);
     expect(runtimeResolutionFacts(reversed)['@lookup=gemma-4-31b-it'].pricing.input).toBe(0.12);
 
-    write(cwd, rawFile, old);
-    git(cwd, 'add', rawFile);
-    git(cwd, '-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid',
-      'commit', '--quiet', '-m', 'baseline catalogue');
-    const base = git(cwd, 'rev-parse', 'HEAD');
-    fs.writeFileSync(path.join(evidence, 'base-revision'), base);
-    fs.writeFileSync(path.join(evidence, 'review-base-revision'), base);
+    await captureSources(evidence, fakeFetch(old));
+    expect(refreshImport(cwd, evidence)).toBe(true);
+    const capture = loadCaptures(evidence).find((item: { id: string }) => item.id === 'openrouter-models');
+    write(cwd, snapshotFile, json(inspectCatalogue(old, capture).snapshot));
+    git(cwd, 'add', '.');
+    git(cwd, '-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '--quiet', '-m', 'original alias winners');
+    fs.writeFileSync(path.join(evidence, 'base-revision'), git(cwd, 'rev-parse', 'HEAD'));
+    fs.writeFileSync(path.join(evidence, 'review-base-revision'), git(cwd, 'rev-parse', 'HEAD'));
     await captureSources(evidence, fakeFetch(reversed));
     expect(refreshImport(cwd, evidence)).toBe(true);
     const report = buildReport(cwd, evidence);
     const changes = report.changes.find((item: { file: string }) => item.file === rawFile).changes;
     expect(changes).toEqual(expect.arrayContaining([
-      expect.objectContaining({ pointer: expect.stringContaining('/runtimeResolution/@lookup=gemma-4-31b-it') }),
+      { pointer: '/runtimeResolution/@lookup=gemma-4-31b-it/pricing/input', before: 0, after: 0.12 },
     ]));
+    expect(changes.some((change: { pointer: string }) => change.pointer.startsWith('/data'))).toBe(false);
     expect(report.changes.find((item: { file: string }) => item.file === rawFile).reviewRequired)
-      .toContain('compatibility-contraction-and-scope');
+      .toContain('pricing-including-decreases-and-expiry');
     expect(report.runtimeConsumerEffects[0].changes).toEqual(expect.arrayContaining([
       expect.objectContaining({ pointer: expect.stringContaining('/@lookup=gemma-4-31b-it/pricing') }),
     ]));
@@ -275,6 +262,21 @@ describe('offline scheduled source maintenance', () => {
         expect.objectContaining({ pointer: expect.stringContaining('/canonicalSlug') }),
         expect.objectContaining({ pointer: expect.stringContaining('/inputModalities') }),
       ]));
+  });
+
+  it.each(['alias', 'modality'])('does not lose an isolated %s-only raw observation update', async kind => {
+    const change = kind === 'alias'
+      ? { canonical_slug: 'openai/fixture-alias' }
+      : { architecture: { input_modalities: ['image'], output_modalities: [] } };
+    await captureSources(evidence, fakeFetch(catalog([{ ...priced(), ...change }])));
+    expect(refreshImport(cwd, evidence)).toBe(true);
+    const report = buildReport(cwd, evidence);
+    expect(report.changes.find((item: { file: string }) => item.file === rawFile).changes)
+      .toContainEqual({
+        pointer: `/data/@id=openai~1fixture/${kind === 'alias' ? 'canonicalSlug' : 'inputModalities/0'}`,
+        before: null,
+        after: kind === 'alias' ? 'openai/fixture-alias' : 'image',
+      });
   });
 
   it('requires evidence receipts for effort/context changes, including after agent commits', () => {
@@ -435,7 +437,8 @@ describe('offline scheduled source maintenance', () => {
     expect(refreshImport(cwd, evidence)).toBe(true);
     expect(buildReport(cwd, evidence).changes.find((item: { file: string }) => item.file === rawFile).changes)
       .toEqual(expect.arrayContaining([
-        expect.objectContaining({ pointer: expect.stringContaining('openai~1large-fixture') }),
+        expect.objectContaining({ pointer: '/data/@id=openai~1large-fixture', before: null,
+          after: expect.objectContaining({ id: 'openai/large-fixture' }) }),
       ]));
   });
 
@@ -554,6 +557,185 @@ describe('offline scheduled source maintenance', () => {
     expect(JSON.parse(execFileSync(process.execPath, args, { cwd, encoding: 'utf8' }))).toEqual(selected);
     fs.writeFileSync(pulls, '[]');
     expect(JSON.parse(execFileSync(process.execPath, args, { cwd, encoding: 'utf8' }))).toBeNull();
+  });
+
+  it('supports subsequent updates after a governed API capture exceeds the default subprocess buffer', async () => {
+    const bytes = catalog([{ ...priced('openai/fixture', '0.000002'), description: 'x'.repeat(1100000) }]);
+    await captureSources(evidence, fakeFetch(bytes));
+    expect(refreshImport(cwd, evidence)).toBe(true);
+    const capture = loadCaptures(evidence).find((item: { id: string }) => item.id === 'openrouter-models');
+    write(cwd, snapshotFile, json(inspectCatalogue(bytes, capture).snapshot));
+    git(cwd, 'add', '.');
+    git(cwd, '-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '--quiet', '-m', 'first pin');
+    fs.writeFileSync(path.join(evidence, 'base-revision'), git(cwd, 'rev-parse', 'HEAD'));
+    await captureSources(evidence, fakeFetch(catalog([{ ...priced('openai/fixture', '0.000003'), description: 'x'.repeat(1100000) }])));
+    expect(refreshImport(cwd, evidence)).toBe(true);
+    expect(buildReport(cwd, evidence).changes).toHaveLength(2);
+  });
+
+  describe('independent trusted proposal validation', () => {
+    const options = () => ({
+      baseRevision: fs.readFileSync(path.join(evidence, 'base-revision'), 'utf8').trim(),
+      reviewBaseRevision: fs.readFileSync(path.join(evidence, 'review-base-revision'), 'utf8').trim(),
+      captureSha256: hash(fs.readFileSync(path.join(evidence, 'captures.json'))),
+      selectedNumber: 0,
+    });
+    const artifact = () => path.join(evidence, 'agent');
+    const output = (type = 'create_pull_request') =>
+      write(artifact(), 'agent_output.json', json({ items: [{ type }] }));
+    const prepare = () => {
+      const data = JSON.parse(fs.readFileSync(path.join(cwd, targetFile), 'utf8'));
+      data.routing[0].context = 128000;
+      write(cwd, targetFile, json(data));
+      propose(cwd, evidence);
+      write(cwd, 'shared/model-information/maintenance-report.json', json(buildReport(cwd, evidence)));
+    };
+    const bundle = (committed = false) => {
+      if (!committed) {
+        git(cwd, 'add', '.');
+        git(cwd, '-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '--quiet', '-m', 'proposal');
+      }
+      output();
+      git(cwd, 'bundle', 'create', path.join(artifact(), 'aw-fixture.bundle'), 'HEAD', `^${options().baseRevision}`);
+      write(artifact(), 'aw-fixture.patch', git(cwd, 'diff', options().baseRevision, 'HEAD'));
+      git(cwd, 'checkout', '--quiet', '--detach', options().baseRevision);
+    };
+
+    it('validates the exact bundle, reconstructs receipts from its report and overlays only JSON data', () => {
+      prepare();
+      bundle();
+      fs.writeFileSync(path.join(evidence, 'proposal.json'), '{"changes":[]}');
+      fs.writeFileSync(path.join(evidence, 'base-revision'), '0'.repeat(40));
+      const trusted = options();
+      trusted.baseRevision = trusted.reviewBaseRevision;
+      const result = verifyProposal(cwd, artifact(), evidence, trusted);
+      expect(result.changed).toBe(true);
+      expect(JSON.parse(fs.readFileSync(path.join(cwd, targetFile), 'utf8')).routing[0].context).toBe(128000);
+      expect(fs.readFileSync(path.join(evidence, 'base-revision'), 'utf8')).toBe(trusted.baseRevision);
+    });
+
+    it('accepts a genuine no-op without requiring a patch or rewriting the committed report', () => {
+      output('noop');
+      const before = fs.readFileSync(path.join(cwd, targetFile));
+      expect(verifyProposal(cwd, artifact(), evidence, options()).changed).toBe(false);
+      expect(fs.readFileSync(path.join(cwd, targetFile))).toEqual(before);
+      expect(git(cwd, 'status', '--porcelain')).toBe('');
+    });
+
+    it('validates updates to the selected PR and leaves its pending report unchanged on a subsequent no-op', () => {
+      prepare();
+      bundle();
+      output('push_to_pull_request_branch');
+      expect(verifyProposal(cwd, artifact(), evidence, { ...options(), selectedNumber: 42 }).changed).toBe(true);
+      git(cwd, 'add', '.');
+      git(cwd, '-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '--quiet', '-m', 'reviewed pending data');
+      fs.writeFileSync(path.join(evidence, 'base-revision'), git(cwd, 'rev-parse', 'HEAD'));
+      fs.unlinkSync(path.join(artifact(), 'aw-fixture.bundle'));
+      fs.unlinkSync(path.join(artifact(), 'aw-fixture.patch'));
+      const before = fs.readFileSync(path.join(cwd, 'shared/model-information/maintenance-report.json'));
+      output('noop');
+      expect(verifyProposal(cwd, artifact(), evidence, { ...options(), selectedNumber: 42 }).changed).toBe(false);
+      expect(fs.readFileSync(path.join(cwd, 'shared/model-information/maintenance-report.json'))).toEqual(before);
+      expect(git(cwd, 'status', '--porcelain')).toBe('');
+    });
+
+    it.each([
+      'scripts/model-information/maintain.cjs',
+      'scripts/model-information/compile.cjs',
+      'scripts/model-information/maintain.test.ts',
+      'package.json',
+      'jest.config.js',
+    ])('rejects agent-authored executable/configuration changes at %s before validation runs', file => {
+      prepare();
+      write(cwd, file, 'throw new Error("must never execute agent-authored code");');
+      bundle();
+      expect(() => verifyProposal(cwd, artifact(), evidence, options())).toThrow('Out-of-scope bundled change');
+      expect(fs.existsSync(path.join(cwd, file))).toBe(false);
+    });
+
+    it('rejects transient code changes hidden by a later restoring commit', () => {
+      prepare();
+      const file = 'scripts/model-information/maintain.cjs';
+      write(cwd, file, 'throw new Error("must not publish this commit");');
+      git(cwd, 'add', '.');
+      git(cwd, '-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '--quiet', '-m', 'poison code');
+      fs.unlinkSync(path.join(cwd, file));
+      git(cwd, 'add', '.');
+      git(cwd, '-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '--quiet', '-m', 'restore code');
+      bundle(true);
+      expect(() => verifyProposal(cwd, artifact(), evidence, options())).toThrow('Out-of-scope bundled change');
+    });
+
+    it('rejects symlinked model data before checking out the proposed tree', () => {
+      prepare();
+      fs.unlinkSync(path.join(cwd, targetFile));
+      fs.symlinkSync('/must-not-follow', path.join(cwd, targetFile));
+      bundle();
+      expect(() => verifyProposal(cwd, artifact(), evidence, options())).toThrow('Non-regular model data');
+      expect(fs.lstatSync(path.join(cwd, targetFile)).isSymbolicLink()).toBe(false);
+    });
+
+    it('rejects executable model data', () => {
+      prepare();
+      git(cwd, 'config', 'core.filemode', 'true');
+      fs.chmodSync(path.join(cwd, targetFile), 0o755);
+      bundle();
+      expect(() => verifyProposal(cwd, artifact(), evidence, options())).toThrow('Non-regular model data');
+    });
+
+    it('fails closed without the independently recorded capture digest', () => {
+      output('noop');
+      expect(() => verifyProposal(cwd, artifact(), evidence, { ...options(), captureSha256: undefined }))
+        .toThrow('Missing trusted capture manifest digest');
+    });
+
+    it('rejects forged bytes/text plus matching self-referential hashes against the producer digest', () => {
+      output('noop');
+      const trusted = options();
+      const captures = JSON.parse(fs.readFileSync(path.join(evidence, 'captures.json'), 'utf8'));
+      const entry = captures.sources.find((item: { id: string }) => item.id === 'openai-models');
+      const forged = 'Fabricated provider evidence about a model capability that was never retrieved.';
+      fs.writeFileSync(path.join(evidence, 'openai-models.raw'), forged);
+      fs.writeFileSync(path.join(evidence, 'openai-models.txt'), forged);
+      entry.sha256 = hash(forged);
+      entry.textSha256 = hash(forged);
+      fs.writeFileSync(path.join(evidence, 'captures.json'), json(captures));
+      expect(() => verifyProposal(cwd, artifact(), evidence, trusted)).toThrow('Trusted capture manifest mismatch');
+      expect(() => loadCaptures(evidence, 'invalid')).toThrow('Trusted capture manifest mismatch');
+    });
+
+    it('rejects reports that forge the trusted baseline and cannot skip validation with a missing bundle', () => {
+      prepare();
+      const reportPath = path.join(cwd, 'shared/model-information/maintenance-report.json');
+      const report = JSON.parse(fs.readFileSync(reportPath, 'utf8'));
+      report.baseRevision = '0'.repeat(40);
+      fs.writeFileSync(reportPath, json(report));
+      bundle();
+      const trusted = options();
+      expect(() => verifyProposal(cwd, artifact(), evidence, trusted)).toThrow('Missing or stale maintenance impact report');
+      fs.unlinkSync(path.join(artifact(), 'aw-fixture.bundle'));
+      expect(() => verifyProposal(cwd, artifact(), evidence, trusted)).toThrow('Expected exactly one bundle');
+    });
+
+    it('rejects creating a second PR when the trusted selector requires an update', () => {
+      prepare();
+      bundle();
+      expect(() => verifyProposal(cwd, artifact(), evidence, { ...options(), selectedNumber: 42 }))
+        .toThrow('trusted create/update selection');
+    });
+
+    it('rejects ambiguous bundles, textual patch transport and unexpected no-op bundles', () => {
+      prepare();
+      bundle();
+      const second = path.join(artifact(), 'aw-second.bundle');
+      fs.copyFileSync(path.join(artifact(), 'aw-fixture.bundle'), second);
+      expect(() => verifyProposal(cwd, artifact(), evidence, options())).toThrow('Expected exactly one bundle');
+      fs.renameSync(second, path.join(artifact(), 'aw-second.patch'));
+      expect(() => verifyProposal(cwd, artifact(), evidence, options())).toThrow('Expected exactly one bundle');
+      fs.unlinkSync(path.join(artifact(), 'aw-second.patch'));
+      output('noop');
+      expect(() => verifyProposal(cwd, artifact(), evidence, options())).toThrow('Expected exactly one bundle');
+    });
   });
 });
 
