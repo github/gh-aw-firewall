@@ -11,7 +11,7 @@ describe('models-dev-catalog', () => {
       entry('openai/fixture-model', '0.000001', '0.000002', 'shared/fixture-alias'),
     ]);
 
-    expect(resolveCatalogModel('google/gemma-4-31b-it:free', index)).toEqual({
+    expect(resolveCatalogModel('google/gemma-4-31b-it', index)).toEqual({
       exists: true,
       pricing: { input: 0, cachedInput: 0, cacheWrite: null, output: 0 },
       zeroCost: true,

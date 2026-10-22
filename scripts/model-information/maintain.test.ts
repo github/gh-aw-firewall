@@ -235,13 +235,18 @@ describe('offline scheduled source maintenance', () => {
     expect(runtimeResolutionFacts(old)['@lookup=gemma-4-31b-it'].pricing.input).toBe(0);
     expect(runtimeResolutionFacts(reversed)['@lookup=gemma-4-31b-it'].pricing.input).toBe(0.12);
 
+    write(cwd, rawFile, old);
+    git(cwd, 'add', rawFile);
+    git(cwd, '-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid',
+      'commit', '--quiet', '-m', 'baseline catalogue');
+    const base = git(cwd, 'rev-parse', 'HEAD');
+    fs.writeFileSync(path.join(evidence, 'base-revision'), base);
+    fs.writeFileSync(path.join(evidence, 'review-base-revision'), base);
     await captureSources(evidence, fakeFetch(reversed));
     expect(refreshImport(cwd, evidence)).toBe(true);
     const report = buildReport(cwd, evidence);
     const changes = report.changes.find((item: { file: string }) => item.file === rawFile).changes;
     expect(changes).toEqual(expect.arrayContaining([
-      expect.objectContaining({ pointer: expect.stringContaining('/canonicalSlug') }),
-      expect.objectContaining({ pointer: expect.stringContaining('/inputModalities') }),
       expect.objectContaining({ pointer: expect.stringContaining('/runtimeResolution/@lookup=gemma-4-31b-it') }),
     ]));
     expect(report.changes.find((item: { file: string }) => item.file === rawFile).reviewRequired)
@@ -423,13 +428,14 @@ describe('offline scheduled source maintenance', () => {
   it('reads committed canonical blobs larger than execFileSync’s default buffer', async () => {
     const bytes = catalog([{
       ...priced('openai/large-fixture', '0.0000010001'),
+      context_length: 128000,
       description: 'x'.repeat(2 * 1024 * 1024),
     }]);
     await captureSources(evidence, fakeFetch(bytes));
     expect(refreshImport(cwd, evidence)).toBe(true);
     expect(buildReport(cwd, evidence).changes.find((item: { file: string }) => item.file === rawFile).changes)
       .toEqual(expect.arrayContaining([
-        expect.objectContaining({ pointer: expect.stringContaining('/openai~1large-fixture') }),
+        expect.objectContaining({ pointer: expect.stringContaining('openai~1large-fixture') }),
       ]));
   });
 

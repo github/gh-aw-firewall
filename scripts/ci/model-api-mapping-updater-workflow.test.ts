@@ -66,9 +66,8 @@ describe('scheduled canonical model source maintenance', () => {
     expect(prepare).toContain('git checkout -B "$SELECTED_PR_HEAD"');
     expect(prepare).toContain('TRUSTED_MAINTENANCE_BASE');
     expect(prepare).toContain('git rev-parse HEAD');
-    expect(steps.some(step => step.run?.includes('maintain.cjs capture'))).toBe(true);
     const capture = steps.find(step => step.name === 'Capture approved official sources and governed catalogue');
-    expect(capture?.run).toContain('$RUNNER_TEMP/model-maintenance-trusted/code/scripts/model-information/maintain.cjs');
+    expect(capture?.run).toContain('$RUNNER_TEMP/model-maintenance-trusted/code/scripts/model-information/maintain.cjs" capture');
     expect(fs.readFileSync(path.resolve(__dirname, '../model-information/maintain.cjs'), 'utf8'))
       .toContain('TRUSTED_CAPTURES_JSON');
     const regression = frontmatter['post-steps'][0].run as string;

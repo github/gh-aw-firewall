@@ -354,7 +354,7 @@ function reviewReasons(changes) {
     if (/lifecycle|replacement|expiration|retir/.test(text)) reasons.add('lifecycle-retirement-replacement');
     if (/price|tariff|pricing|threshold|promotion|effective/.test(text)) reasons.add('pricing-including-decreases-and-expiry');
     if (/reasoning|effort|limit|context|maxcompletion/.test(text)) reasons.add('efforts-and-limits');
-    if (/availability|scope|channel|deployment|protocol|feature|harness|routing|endpoint|parameter|canonical.?slug|modalit/.test(text)) {
+    if (/availability|scope|channel|deployment|protocol|feature|harness|routing|endpoint|parameter|canonical.?slug|modalit|runtime.?resolution|lookup/.test(text)) {
       reasons.add('compatibility-contraction-and-scope');
     }
     if (/confidence/.test(text)) reasons.add('confidence-including-downgrade');
@@ -477,7 +477,9 @@ function buildReport(cwd, directory) {
       proposal: claims.find(item => item.file === file) || { scope: 'OpenRouter observation only; no native-provider deployability or billing inference' } });
   }
   if (!changes.length) {
-    if (changed.length) throw new Error('Generated/report changes without a canonical source change');
+    if (changed.some(file => !ignoredRestored.has(file))) {
+      throw new Error('Generated/report changes without a canonical source change');
+    }
     return null;
   }
   const pendingSourceChanges = mergeBase === base ? undefined :
