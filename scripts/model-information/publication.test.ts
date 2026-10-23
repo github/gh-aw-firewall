@@ -134,12 +134,12 @@ describe('credential-free data branch publication', () => {
   let serial: number;
   const git = (cwd: string, ...args: string[]) => execFileSync('git',
     cwd === remote ? ['--git-dir', remote, ...args] : args, {
-    cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'],
+    cwd, env: process.env, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'],
   }).trim();
   const head = () => git(work, 'rev-parse', 'HEAD');
   const remoteHead = () => git(remote, 'rev-parse', `refs/heads/${dataBranch}`);
   const show = (file: string) => execFileSync('git', ['--git-dir', remote, 'show', `${dataBranch}:${file}`], {
-    cwd: remote, encoding: 'utf8',
+    cwd: remote, env: process.env, encoding: 'utf8',
   });
   const source = (eligible = true) => {
     fs.writeFileSync(path.join(work, eligible ? 'scripts/model-information/input.json' : 'unrelated'), String(++serial));
@@ -169,6 +169,7 @@ describe('credential-free data branch publication', () => {
     remote = path.join(directory, 'remote.git');
     fs.mkdirSync(work);
     git(directory, 'init', '--bare', '--quiet', remote);
+    fs.mkdirSync(path.join(remote, 'hooks'), { recursive: true });
     git(work, 'init', '--quiet', '-b', 'main');
     fs.mkdirSync(path.join(work, 'scripts/model-information'), { recursive: true });
     git(work, 'remote', 'add', 'origin', remote);
@@ -178,6 +179,19 @@ describe('credential-free data branch publication', () => {
   afterEach(() => {
     process.env = savedEnvironment;
     fs.rmSync(directory, { recursive: true, force: true });
+  });
+
+  it('passes the isolated identity to fixture Git subprocesses without ambient credentials', () => {
+    expect(git(work, 'var', 'GIT_AUTHOR_IDENT')).toMatch(/^Fixture <fixture@example.invalid> /);
+    expect(git(work, 'var', 'GIT_COMMITTER_IDENT')).toMatch(/^Fixture <fixture@example.invalid> /);
+    const childEnvironment = JSON.parse(execFileSync(process.execPath, ['-e', `
+      console.log(JSON.stringify({
+        protocol: process.env.GIT_ALLOW_PROTOCOL,
+        hasCredentials: ['GH_TOKEN', 'GITHUB_TOKEN', 'GIT_ASKPASS', 'SSH_AUTH_SOCK']
+          .some(key => Object.hasOwn(process.env, key)),
+      }));
+    `], { env: process.env, encoding: 'utf8' }));
+    expect(childEnvironment).toEqual({ protocol: 'file', hasCredentials: false });
   });
 
   it('bootstraps an orphan data branch, atomically exposing complete bytes and pointer', () => {
@@ -324,7 +338,7 @@ describe('credential-free data branch publication', () => {
     git(competing, 'add', '.');
     git(competing, 'commit', '--quiet', '-m', 'competing fixture');
     const winner = git(competing, 'rev-parse', 'HEAD');
-    const realGit = execFileSync('/usr/bin/which', ['git'], { encoding: 'utf8' }).trim();
+    const realGit = execFileSync('/usr/bin/which', ['git'], { env: process.env, encoding: 'utf8' }).trim();
     const bin = path.join(directory, 'bin');
     fs.mkdirSync(bin);
     fs.writeFileSync(path.join(bin, 'git'), `#!/bin/sh
