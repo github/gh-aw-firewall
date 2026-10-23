@@ -211,8 +211,8 @@ function getWireApiReflectFields(record) {
   return wireApi ? { wire_api: wireApi } : {};
 }
 
-function findRuntimeModel(provider, model) {
-  const records = getRuntimeModels(provider);
+function findRuntimeModel(provider, model, catalog = runtimeCatalog) {
+  const records = catalog[provider];
   if (!records || !model) return null;
   const lower = model.toLowerCase();
   const exact = records.find(record => record.id.toLowerCase() === lower);
@@ -221,8 +221,8 @@ function findRuntimeModel(provider, model) {
   return records.find(record => canonicalizeModel(record.id) === canonical) || null;
 }
 
-function resolveRuntimePricing(provider, model, inputTokens = 0) {
-  const record = findRuntimeModel(provider, model);
+function resolveRuntimePricing(provider, model, inputTokens = 0, catalog = runtimeCatalog) {
+  const record = findRuntimeModel(provider, model, catalog);
   if (!record?.pricing?.default) return null;
   const longContext = record.pricing.longContext;
   const threshold = record.pricing.default.threshold;
@@ -274,6 +274,7 @@ module.exports = {
   getRuntimeModels,
   findRuntimeModel,
   resolveRuntimePricing,
+  captureRuntimePricing: () => structuredClone(runtimeCatalog),
   getRuntimeCatalogSnapshot,
   testHelpers: {
     normalizeCopilotPricing,

@@ -2,6 +2,8 @@
 
 const { enforceWebSocketGuards, enforceWebSocketRateLimit } = require('./websocket-guards');
 const { createWebSocketTunnel, extractRequestModelFromUrl } = require('./websocket-tunnel');
+const { getCatalogueLoader } = require('./catalogue-loader');
+const { captureRuntimePricing } = require('./runtime-model-catalog');
 
 function createProxyWebSocket({
   limiter,
@@ -72,6 +74,8 @@ function createProxyWebSocket({
    *   port 80 instead of 443.
    */
   return function proxyWebSocket(req, socket, head, targetHost, injectHeaders, provider, basePath = '', lifecycleHooks = {}) {
+    req.awfCatalogue = getCatalogueLoader().capture();
+    req.awfRuntimePricing = captureRuntimePricing();
     const startTime = Date.now();
     const clientRequestId = req.headers['x-request-id'];
     const requestId = isValidRequestId(clientRequestId) ? clientRequestId : generateRequestId();
@@ -101,7 +105,10 @@ function createProxyWebSocket({
     const requestModel = extractRequestModelFromUrl(req.url);
     const upstreamPath = buildUpstreamPath(req.url, targetHost, basePath);
 
-    if (enforceWebSocketGuards({ socket, logRequest, requestId, provider, requestModel }, guardDeps)) {
+    if (enforceWebSocketGuards({
+      socket, logRequest, requestId, provider, requestModel,
+      pricingOptions: { catalogue: req.awfCatalogue, runtimeCatalog: req.awfRuntimePricing },
+    }, guardDeps)) {
       return;
     }
 

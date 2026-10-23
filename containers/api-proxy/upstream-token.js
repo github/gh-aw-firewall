@@ -33,7 +33,10 @@ function setupTokenTracking(proxyRes, body, {
     onUsage: (normalizedUsage, model) => {
       req.awfEnclaveModelBudgetAttempt?.settle(normalizedUsage);
       otel.setTokenAttributes(span, { provider, model, normalizedUsage, streaming: isStreaming });
-      const budgetResult = computeTokenBudgetUsage({ logRequest, requestId, provider, purpose }, normalizedUsage, model);
+      const budgetResult = computeTokenBudgetUsage({
+        logRequest, requestId, provider, purpose, catalogue: req.awfCatalogue,
+        runtimeCatalog: req.awfRuntimePricing,
+      }, normalizedUsage, model);
       otel.setBudgetAttributes(span, budgetResult);
       return budgetResult;
     },

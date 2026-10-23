@@ -232,6 +232,7 @@ AWF settings MAY be supplied via config files, including stdin (`--config -`).
 - `apiProxy.maxAiCredits` → *(config-only; maps to `AWF_MAX_AI_CREDITS`)*
 - `apiProxy.defaultAiCreditsPricing` → *(config-only; maps to `AWF_DEFAULT_AI_CREDITS_PRICING`)*
 - `apiProxy.modelPricingCatalog` → *(config-only; maps to `AWF_MODEL_PRICING_CATALOG` — versioned, provider-scoped model prices; see the AI credits pricing section)*
+- `apiProxy.modelCatalogue` → *(config-only; maps to `AWF_MODEL_CATALOGUE` — runtime reviewed-source loading, offline/local controls, refresh and age policy; see [runtime catalogue configuration](model-catalogue-publication.md#configuration-and-fallback))*
 - `apiProxy.providers` → *(config-only; maps to `AWF_API_PROXY_PROVIDERS`)*
 - `apiProxy.modelMultipliers` → `--max-model-multiplier <model:multiplier,...>`
 - `apiProxy.defaultModelMultiplier` → *(config-only; maps to `AWF_DEFAULT_MODEL_MULTIPLIER`)*
@@ -1232,12 +1233,22 @@ The AI credits guard resolves model names using this lookup order:
    `apiProxy.modelPricingCatalog`. This catalog is pinned by its `catalogId`
    and `version` and takes precedence over runtime and bundled prices.
 3. **Runtime provider metadata** — authoritative token prices discovered from
-   the configured provider. Copilot supports this today.
-4. **Curated pricing table** — a built-in table of known models with exact pricing.
-5. **Bundled models.dev catalog** — an offline snapshot used when the model is
+   the configured provider. Complete fresh prices take precedence over fetched
+   central prices. Copilot supports this today.
+4. **Fetched central catalogue** — validated fresh reviewed-source tariffs in
+   the exact applicable provider/channel/deployment scope. Currently supports
+   Copilot API token tariffs, not native-provider or custom/BYOK mappings.
+5. **Curated pricing table** — a built-in table of known models with exact pricing.
+6. **Bundled models.dev catalog** — an offline snapshot used when the model is
    not found in the higher-priority sources.
 
-Model names are **canonicalized** before lookup: provider prefixes
+The existing incomplete-provider component merge remains the fallback when no
+applicable fresh central tariff exists. Disabled, offline, unavailable or denied
+feeds do not remove those approved existing pricing paths. See the
+[publication and loader contract](model-catalogue-publication.md) for authentication,
+immutable request revisions, freshness, unsupported harness rejection and scope.
+
+Legacy model names are **canonicalized** before lookup: provider prefixes
 (e.g. `copilot/`) are stripped, and separators (`.`, `_`, `-`) are treated
 as interchangeable. For example, `copilot/claude-sonnet-4.6`,
 `claude_sonnet_4_6`, and `claude-sonnet-4-6` all resolve to the same pricing
@@ -1245,6 +1256,8 @@ entry. Version-date suffixes are also normalized. Shared-catalog entries and
 bundled pricing require an exact canonical model match; AWF does not infer a
 price from a related model-family prefix. `apiProxy.providers` retains its
 explicit longest-prefix override behavior.
+Fetched central tariffs instead match only the exact reviewed provider-qualified,
+raw or lookup identity; they do not infer aliases, date suffixes or families.
 
 If none of these sources resolves the model, the `defaultAiCreditsPricing` fallback
 (if configured) is used. If that is also absent, the request is rejected.

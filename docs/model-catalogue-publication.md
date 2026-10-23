@@ -24,6 +24,25 @@ in memory, including the governed raw-snapshot import, and rejects any stale
 committed bytes. It does not fetch model facts or scrape documentation. It then
 builds and validates the publication-only projection and uploads one artifact.
 
+Publication also requires automated runtime-consumer checks in that read-only
+job. The exact commands are:
+
+```sh
+npm test -- --runInBand scripts/model-information/publication.test.ts
+npm test --prefix containers/api-proxy -- --runInBand catalogue-loader.test.js catalogue-proxy.test.js guards/ai-credits-guard.test.js runtime-model-catalog.test.js token-budget-log.test.js upstream-token.test.js upstream-http.test.js
+```
+
+These replace the former
+`MODEL_CATALOGUE_PHASE5_LOADER_AUTH_TESTS_PASSED` repository-variable condition;
+the variable is no longer consulted. The producer test publishes to a disposable
+Git remote and passes that branch through the actual loader, source verification,
+resolver and request accounting. The proxy tests cover hostile integrity-valid
+payloads, envelope tampering, rollback, offline/failure behavior, request pinning,
+and the Docker application's packaged files. A failed check prevents artifact
+upload and the dependent write job. No manual flag change or dispatch is needed
+to bootstrap the branch after this integration merges. Existing repository rules
+still apply; this does not bypass a protected environment or branch policy.
+
 Only the dependent write job has `contents: write`. It checks out the same
 trusted source SHA, downloads that run's artifact, and verifies its byte digest
 against the build job's output and its source against the event SHA. It installs
@@ -119,26 +138,128 @@ and schemas produce no new snapshot, pointer update or Git commit, even from a
 different source SHA. On rollback, the pointer's `sourceCommit` is the later
 approved source and the snapshot retains its original provenance.
 
-## Trust contract and staged rollout
+## Runtime consumer and trust
 
-A digest proves byte integrity, **not publisher authentication**. The intended
-default trust root for a future loader is the configured repository
+A digest proves byte integrity, **not publisher authentication**. The
+default trust root for the loader is the fixed repository
 `https://github.com/github/gh-aw-firewall`, the protected/reviewed `main` source
 and this workflow's fixed `catalogue-data` destination, delivered over approved
-HTTPS GitHub transport. A loader must authenticate the configured repository,
-host and transport, resolve the pointer at one data-branch commit, and retrieve
-the snapshot at that same immutable Git commit (not a second mutable-branch
-read). It must validate supported schemas, exact path/revision/digest, source
-provenance, freshness/effective-time policy and rollback rules before atomic
-activation. A custom mirror/local file requires explicit operator trust; data
-cannot authorize a new source, transport or egress destination.
+HTTPS GitHub transport. Anonymous requests use only
+`https://api.github.com/repos/github/gh-aw-firewall`; neither ambient GitHub nor
+inference credentials are used. The loader resolves `catalogue-data` once and
+retrieves both pointer and snapshot at that immutable commit. Redirects are
+rejected. It checks the locally supported schema hash, canonical bytes, exact
+path, revision and both digest levels, then verifies
+`snapshot.sourceCommit <= pointer.sourceCommit <= main` using GitHub ancestry
+(`<=` means ancestor-or-equal).
 
-This PR implements **publication only**. There is no feed fetch, cache, source
-authentication/verification in AWF, resolver activation, accounting migration,
-availability change, runtime endpoint or egress-policy change. The API proxy's
-legacy pricing readers remain untouched. Gate 5 and its source-authentication
-work, the cross-repository configuration handoff, and the remaining Gate 8 work
-are not complete. See [ADR 0004](adr/0004-model-information-management.md),
+Ancestry alone is insufficient: a data-branch writer could otherwise fabricate
+prices and recompute hashes. The loader independently retrieves the committed
+baseline catalogue at the snapshot's reviewed source SHA, obtains that commit's
+committer time, and runs the **local** producer projection. All resulting
+snapshot bytes must match, including `sourceCommit`, `publishedAt`,
+`effectiveFrom`, `observedAt`, nested evidence and prices. On rollback it also
+reconstructs the pointer source's projection and requires the same data revision.
+Downloaded validation code and schemas are never executed or loaded. This
+trusts the repository's reviewed `main` and GitHub HTTPS/API responses, not
+data-branch write permissions or matching hashes alone. There is no additional
+branch-rule, signing-key or credential-provisioning prerequisite.
+
+Anonymous API denial, rate limits, missing branches, egress rejection, timeout,
+malformed or oversized responses, unsupported versions and failed authentication
+are explicit fallback conditions. Each response is limited to 8 MiB and one
+refresh has a bounded total deadline. Retrieval uses the existing HTTP client's
+proxy agent; it never retries directly after a proxy denial, adds an allowlist
+entry, or changes hosts as a workaround. Dedicated enclave proxies retain their
+existing explicit direct-egress configuration; no new network attachment or
+credential path is introduced.
+
+### Configuration and fallback
+
+The API proxy enables the GitHub source by default, with a five-second initial
+deadline, hourly refresh and a 30-day maximum snapshot/evidence age. New inference
+HTTP requests and WebSocket upgrades wait for initial resolution or fallback.
+Refreshes are single-flight; shutdown cancels retrieval and drains it.
+`apiProxy.modelCatalogue` is direct AWF configuration, not a new compiler ABI:
+
+```yaml
+apiProxy:
+  modelCatalogue:
+    enabled: true
+    offline: false
+    source: github
+    timeoutMs: 5000
+    refreshSeconds: 3600
+    maxAgeSeconds: 2592000
+```
+
+`enabled: false` disables the loader. `offline: true` reads only the selected
+source's private cache and makes **zero feed network requests**. A custom
+HTTPS `source` serves one canonical publication snapshot and requires
+`trustSource: true`: this explicitly delegates authenticity to the operator's
+configured HTTPS source instead of GitHub reviewed-source verification. It
+never falls back to the default source. An inline `localSnapshot` object also
+requires `trustSource: true`, performs zero feed requests, and needs no new
+mount or local-file exposure. Operators can read their reviewed local JSON into
+that config field before invoking AWF. Schema, integrity, age and compatibility
+checks still apply to custom/local sources. Sources cannot contain URL credentials.
+Standalone proxy processes use the same object in `AWF_MODEL_CATALOGUE`.
+
+Accepted state is atomic and immutable. `cacheDirectory` selects a proxy-private
+directory (default `/tmp/awf-model-catalogue-<uid>`), partitioned by configured
+source, local content and schema hash. Directories must be owned by the proxy
+UID with mode 0700; cache files use 0600 and atomic rename. Cache state is
+trusted local state, not an import channel: do not place it in an agent-writable
+workspace, shared artifact/log mount or untrusted parent directory. By default
+it survives proxy-process restarts in the same container, **not** container
+removal or a new workflow run; this change adds no host mount or persistent
+volume. An expired cache retains its accepted-source high-water mark for online
+anti-regression checks but cannot supply prices. Refresh failure preserves the
+previous file and eligible run-local state. Successful fetches and cache loads
+never renew evidence or effective intervals.
+
+Pricing authority is existing operator overlays, then existing configured
+`AWF_MODEL_PRICING_CATALOG` v1, then complete fresh provider prices, then fresh
+fetched central prices, then the unchanged curated/bundled/selector/default
+fallback paths. Incomplete provider components do not override a complete fresh
+central tariff. Without an applicable feed tariff the existing provider-component
+merge remains compatible. Nested maintained evidence never elevates a downloaded
+tariff above `central_feed`. Existing configured-catalog input acceptance and
+authority are unchanged.
+
+The bounded consumer applies exact reviewed Copilot identities only to the
+Copilot adapter's `copilot-api` scope, not native providers, custom/BYOK routes,
+deployment-specific prices or inferred families. Supported tariffs retain token
+units, complete input/output/cache components, optional reasoning rates, strict
+long-context thresholds and effective intervals. Unsupported units, components,
+tiers or unrepresentable numeric rates reject activation, not partial truncation.
+The existing numerical credit calculation is unchanged; this is not the ADR's
+full exact-arithmetic migration.
+
+Each HTTP request (or WebSocket connection) pins its feed revision, effective
+time and provider-price observation before dispatch; response accounting uses
+those selections even after refresh/expiry. Only later requests see updates.
+Availability, budget, model policy, egress and retirement checks remain in place.
+Snapshots with any explicit harness constraint are rejected as
+`catalogue_harness_unsupported`: this consumer cannot attest execution versions
+and does not silently ignore new constraints. No new process, kernel or
+attestation infrastructure is introduced.
+
+`/reflect` adds `model_catalogue` source/state/revision, source commit, snapshot
+and evidence timestamps, age, origin and failure reason. Structured
+`model_catalogue` logs diagnose fallback without transport exception strings or
+credentials; custom/local sources use stable fingerprints instead of URLs or
+local snapshot contents. Existing token accounting records carry `central_feed` and the
+selected catalogue revision. There is no `/reflect/v2` or new public catalogue CLI.
+
+### Bounded rollout
+
+This integration ships the publication consumer and its automated authenticity
+gate, not all Gate 5/8 criteria. Generated retired/mapping readers and legacy
+bundled pricing paths remain active. Governed OpenRouter imports, staged model
+facts, full pricing/eligibility consolidation, cross-repository configuration
+handoff and the broader export/compatibility phases are not activated. See
+[ADR 0004](adr/0004-model-information-management.md),
 tracking issues [#10290](https://github.com/github/gh-aw-firewall/issues/10290),
 [#10295](https://github.com/github/gh-aw-firewall/issues/10295), and
 [#10298](https://github.com/github/gh-aw-firewall/issues/10298).

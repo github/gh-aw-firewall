@@ -1,6 +1,12 @@
 import { mapAwfFileConfigToCliOptions } from './config-mapper';
 
 describe('mapAwfFileConfigToCliOptions', () => {
+  it('maps explicit runtime catalogue controls without changing egress', () => {
+    const modelCatalogue = { enabled: true, offline: true, maxAgeSeconds: 60 };
+    const result = mapAwfFileConfigToCliOptions({ apiProxy: { modelCatalogue } });
+    expect(result.modelCatalogue).toEqual(modelCatalogue);
+    expect(result.allowDomains).toBeUndefined();
+  });
   it('maps the versioned model pricing catalog to API proxy options', () => {
     const catalog = {
       schemaVersion: 1 as const,

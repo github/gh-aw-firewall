@@ -287,6 +287,55 @@
           },
           "additionalProperties": false
         },
+        "modelCatalogue": {
+          "type": "object",
+          "description": "Deterministic reviewed runtime catalogue. Does not authorize network egress or model availability.",
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "default": true
+            },
+            "offline": {
+              "type": "boolean",
+              "default": false
+            },
+            "source": {
+              "type": "string",
+              "pattern": "^(github|https://[^\\s]+)$",
+              "default": "github"
+            },
+            "trustSource": {
+              "type": "boolean",
+              "default": false
+            },
+            "localSnapshot": {
+              "type": "object"
+            },
+            "maxAgeSeconds": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 31536000,
+              "default": 2592000
+            },
+            "refreshSeconds": {
+              "type": "integer",
+              "minimum": 60,
+              "maximum": 86400,
+              "default": 3600
+            },
+            "timeoutMs": {
+              "type": "integer",
+              "minimum": 100,
+              "maximum": 30000,
+              "default": 5000
+            },
+            "cacheDirectory": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "additionalProperties": false
+        },
         "modelPricingCatalog": {
           "type": "object",
           "description": "Versioned, provider-scoped model prices supplied by a compiler or other authoritative catalog. Rates are USD per million tokens and are used offline; the catalog version is recorded with AI-credit usage.",

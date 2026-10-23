@@ -4,7 +4,20 @@
 
 import type { RateLimitConfig } from './rate-limit';
 
+export interface ModelCatalogueOptions {
+  enabled?: boolean;
+  offline?: boolean;
+  source?: string;
+  trustSource?: boolean;
+  localSnapshot?: Record<string, unknown>;
+  maxAgeSeconds?: number;
+  refreshSeconds?: number;
+  timeoutMs?: number;
+  cacheDirectory?: string;
+}
+
 export interface RateLimitOptions {
+  modelCatalogue?: ModelCatalogueOptions;
   /**
    * Rate limiting configuration for the API proxy sidecar
    *

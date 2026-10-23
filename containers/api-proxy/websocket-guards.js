@@ -14,8 +14,10 @@ const HTTP_STATUS_LINES = {
  * Writes a raw HTTP error response to the socket and destroys it when any
  * guard triggers, then returns true. Returns false when all guards pass.
  */
-function enforceWebSocketGuards({ socket, logRequest, requestId, provider, requestModel = null }, guardDeps) {
-  const guardChecks = buildCommonGuardChecks(guardDeps, requestModel, provider);
+function enforceWebSocketGuards({ socket, logRequest, requestId, provider, requestModel = null, pricingOptions }, guardDeps) {
+  const deps = pricingOptions ? { ...guardDeps, checkUnknownModelRejection: (model, route) =>
+    guardDeps.checkUnknownModelRejection(model, route, pricingOptions) } : guardDeps;
+  const guardChecks = buildCommonGuardChecks(deps, requestModel, provider);
 
   for (const guard of guardChecks) {
     if (!guard.isBlocked(guard.block)) continue;

@@ -4,6 +4,9 @@ const { logRequest, sanitizeForLog } = require('../logging');
 const pricingByModel = require('../ai-credits-pricing');
 const { resolveCatalogModel } = require('../models-dev-catalog');
 const { resolveRuntimePricing } = require('../runtime-model-catalog');
+const { getCatalogueLoader } = require('../catalogue-loader');
+const { resolveCentralPricing, fresh } = require('../catalogue-pricing');
+const { resolveApiKey, deriveCopilotApiTarget, isGithubCopilotCatalogTarget } = require('../providers/copilot-auth');
 const { resolveProviderPricingOverlay } = require('../provider-pricing-overlays');
 const { resolveModelPricingCatalog } = require('../model-pricing-catalog');
 const { parsePositiveNumber } = require('./guard-utils');
@@ -175,11 +178,18 @@ function resolveModelPricing(model, state = aiCreditsState, provider = undefined
     : null;
   if (catalogPricing) return catalogPricing;
 
-  const runtime = provider ? resolveRuntimePricing(provider, pricingModel, inputTokens) : null;
+  const runtime = provider ? resolveRuntimePricing(provider, pricingModel, inputTokens, options.runtimeCatalog) : null;
+  const capture = Object.hasOwn(options, 'catalogue') ? options.catalogue : getCatalogueLoader().capture();
   if (runtime && ['input', 'cachedInput', 'cacheWrite', 'output']
-    .every(field => Object.hasOwn(runtime.pricing, field))) {
+    .every(field => Object.hasOwn(runtime.pricing, field)) &&
+    (!capture || fresh({ at: runtime.observedAt }, capture.time, capture.maxAge))) {
     return runtime;
   }
+  const copilotScope = !resolveApiKey(process.env) &&
+    isGithubCopilotCatalogTarget(deriveCopilotApiTarget(process.env));
+  const central = provider && copilotScope
+    ? resolveCentralPricing(provider, pricingModel, inputTokens, capture) : null;
+  if (central) return central;
   const fallback = resolveLowerPriorityPricing(pricingModel, state, {
     ...options,
     provider,
@@ -309,17 +319,18 @@ function isModelPriceable(model, provider = undefined) {
  * @param {string} [provider]
  * @returns {{ rejected: boolean, model: string, error: object } | null}
  */
-function checkUnknownModelRejection(model, provider = undefined) {
+function checkUnknownModelRejection(model, provider = undefined, options = {}) {
   const config = getAiCreditsConfig();
   if (!config.max) return null; // guard not active, don't reject
   if (!model) return null; // no model in request body, can't check
   if (config.defaultPricing) return null; // has fallback, don't reject
-  const defaultPricing = resolveModelPricing(model, aiCreditsState, provider);
+  const defaultPricing = resolveModelPricing(model, aiCreditsState, provider, 0, options);
   const highestTierPricing = resolveModelPricing(
     model,
     aiCreditsState,
     provider,
     Number.MAX_SAFE_INTEGER,
+    options,
   );
   if (defaultPricing && highestTierPricing) return null; // every selectable tier resolved
 
@@ -336,7 +347,7 @@ function checkUnknownModelRejection(model, provider = undefined) {
   };
 }
 
-function calculateAiCredits(normalizedUsage, model, state = aiCreditsState, provider = undefined) {
+function calculateAiCredits(normalizedUsage, model, state = aiCreditsState, provider = undefined, options = {}) {
   const reportedInput = normalizedUsage.input_tokens || 0;
   const cacheReadTokens = normalizedUsage.cache_read_tokens || 0;
   const cacheWriteTokens = normalizedUsage.cache_write_tokens || 0;
@@ -346,8 +357,15 @@ function calculateAiCredits(normalizedUsage, model, state = aiCreditsState, prov
   const totalInputForTier = additiveInput
     ? reportedInput + cacheReadTokens + cacheWriteTokens
     : reportedInput;
-  const pricingResolution = resolveModelPricing(model, state, provider, totalInputForTier);
+  const pricingResolution = resolveModelPricing(model, state, provider, totalInputForTier, options);
   if (!pricingResolution) return null;
+  if (options.catalogue &&
+      !['operator', 'shared_catalog', 'provider', 'central_feed'].includes(pricingResolution.source)) {
+    logRequest('info', 'central_feed_pricing_fallback', {
+      provider, model: sanitizeForLog(model), revision: options.catalogue.revision,
+      reason: 'no_fresh_supported_scoped_tariff', fallback_source: pricingResolution.source,
+    });
+  }
   const { pricing } = pricingResolution;
   const dynamicSelector = getDynamicSelectorDescriptor(model, provider);
 
@@ -404,10 +422,10 @@ function calculateAiCredits(normalizedUsage, model, state = aiCreditsState, prov
   };
 }
 
-function applyAiCreditsUsage(normalizedUsage, model, provider = undefined) {
+function applyAiCreditsUsage(normalizedUsage, model, provider = undefined, options = {}) {
   if (!normalizedUsage) return null;
   const safeModel = model || 'unknown';
-  const calc = calculateAiCredits(normalizedUsage, safeModel, aiCreditsState, provider);
+  const calc = calculateAiCredits(normalizedUsage, safeModel, aiCreditsState, provider, options);
   if (!calc) return null;
 
   if (!Object.hasOwn(aiCreditsState.byModel, safeModel)) {

@@ -43,6 +43,7 @@ export function mapAwfFileConfigToCliOptions(config: AwfFileConfig): Record<stri
     defaultAiCreditsPricing: config.apiProxy?.defaultAiCreditsPricing,
     apiProxyProviders: config.apiProxy?.providers,
     modelPricingCatalog: config.apiProxy?.modelPricingCatalog,
+    modelCatalogue: config.apiProxy?.modelCatalogue,
     modelMultipliers: config.apiProxy?.modelMultipliers,
     defaultModelMultiplier: config.apiProxy?.defaultModelMultiplier,
     maxModelMultiplierCap: config.apiProxy?.maxModelMultiplierCap,

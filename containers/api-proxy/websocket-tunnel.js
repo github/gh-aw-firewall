@@ -163,7 +163,10 @@ function createWebSocketTunnel({
           requestModel: requestModel || extractRequestModelFromUrl(req.url),
           caller: req.awfCaller || null,
           onUsage: (normalizedUsage, model) =>
-            computeTokenBudgetUsage({ logRequest, requestId, provider }, normalizedUsage, model),
+            computeTokenBudgetUsage({
+              logRequest, requestId, provider, catalogue: req.awfCatalogue,
+              runtimeCatalog: req.awfRuntimePricing,
+            }, normalizedUsage, model),
         });
 
         socket.once('close', () => {

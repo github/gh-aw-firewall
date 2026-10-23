@@ -233,6 +233,9 @@ function buildRateLimitEnv(config: WrapperConfig): Record<string, string> {
     ...(config.modelPricingCatalog && {
       AWF_MODEL_PRICING_CATALOG: JSON.stringify(config.modelPricingCatalog),
     }),
+    ...(config.modelCatalogue && {
+      AWF_MODEL_CATALOGUE: JSON.stringify(config.modelCatalogue),
+    }),
     ...(config.modelMultipliers && {
       AWF_MODEL_MULTIPLIERS: JSON.stringify(config.modelMultipliers),
       AWF_EFFECTIVE_TOKEN_MODEL_MULTIPLIERS: JSON.stringify(config.modelMultipliers),

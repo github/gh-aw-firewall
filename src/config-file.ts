@@ -10,6 +10,7 @@ import type {
 import type { ModelRoutingConfig } from './types/api-proxy-routing-options';
 import type { ClaudeHostedWebConfig } from './claude-hosted-web-policy';
 import type { CodexHostedWebConfig } from './codex-hosted-web-policy';
+import type { ModelCatalogueOptions } from './types/rate-limit-options';
 
 /** @internal Used only by config-file helpers — not part of public API */
 // ts-prune-ignore-next
@@ -32,6 +33,7 @@ export interface AwfFileConfig {
     allowWrite?: string[];
   };
   apiProxy?: {
+    modelCatalogue?: ModelCatalogueOptions;
     enabled?: boolean;
     caCert?: string;
     enableTokenSteering?: boolean;

@@ -400,6 +400,11 @@ function compile() {
   };
   errors.push(...validate('resolvedExport', JSON.parse(output['shared/model-information/catalog.generated.json'])));
   errors.push(...validate('resolvedExport', JSON.parse(output['shared/model-information/target.generated.json'])));
+  for (const file of ['contracts.js', 'identity.js', 'schema.v1.json',
+    'publication.v1.schema.json', 'publication-contract.cjs', 'publication.cjs']) {
+    output[`containers/api-proxy/catalogue-contract/${file}`] =
+      fs.readFileSync(path.join(root, 'shared/model-information', file), 'utf8');
+  }
   if (errors.length) throw new Error(errors.join('\n'));
   for (const [file, content] of Object.entries(output)) {
     const filename = path.join(root, file);
@@ -408,6 +413,7 @@ function compile() {
         errors.push(`${file}: stale; run npm run models:generate`);
       }
     } else {
+      fs.mkdirSync(path.dirname(filename), { recursive: true });
       fs.writeFileSync(filename, content);
     }
   }

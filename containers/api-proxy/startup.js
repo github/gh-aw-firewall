@@ -14,7 +14,9 @@ function bootPrimary({
   logRequest,
   HTTPS_PROXY,
   routing,
+  catalogue,
 }) {
+  const catalogueReady = catalogue?.start();
   logRequest('info', 'startup', {
     message: 'Starting AWF API proxy sidecar',
     squid_proxy: HTTPS_PROXY || 'not configured',
@@ -97,7 +99,7 @@ function bootPrimary({
   }
 
   for (const adapter of adaptersToStart) {
-    const server = createProviderServer(adapter);
+    const server = createProviderServer(adapter, catalogueReady);
     startedServers.push(server);
     server.listen(adapter.port, '0.0.0.0', () => {
       logRequest('info', 'server_start', {
@@ -130,6 +132,7 @@ function bootPrimary({
       process.exit(0);
     }, Number.isFinite(forceExitMs) && forceExitMs > 0 ? forceExitMs : 8000);
     forceExitTimer.unref();
+    await catalogue?.stop();
     await routing?.shutdown().catch(() => {
       logRequest('error', 'model_routing_shutdown_error', { message: 'Model routing shutdown failed' });
     });

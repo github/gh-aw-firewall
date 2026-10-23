@@ -919,9 +919,11 @@ checks are incomplete runs, not successful no-ops.
 
 This updater is scheduled reviewed source upkeep only: no automatic merge,
 runtime refresh/cache or activation of staged corrections. A separate ordinary
-post-merge publisher now implements the publication-only portion of Gate 8;
+post-merge publisher implements the versioned distribution portion of Gate 8;
 see [the producer contract and automation](../model-catalogue-publication.md).
-It does not implement Gate 5 loading/source authentication. Workflow-created PRs use
+The bounded runtime consumer now adds reviewed-source authentication, scoped
+central pricing and automated producer/consumer publication checks; this does
+not complete Gate 5 or all Gate 8 work. Workflow-created PRs use
 the existing token/safe-output mechanism; GitHub may require maintainer action
 to run CI for `GITHUB_TOKEN`-authored changes. No app/token provisioning or live
 workflow dispatch is part of this implementation.
@@ -1214,9 +1216,10 @@ bundled copy has **unknown upstream retrieval time and license**: its
 `retrievedAt` denotes only the verifiable Git repository-capture commit time.
 It accepts 355 entries, rejects 11 and reports no normalized collisions.
 Scheduled reviewed source upkeep is described above. The separate
-[publication-only producer](../model-catalogue-publication.md) distributes a
-strict pricing/harness projection after approved main merges; runtime loading
-and source-authenticated activation remain separately gated.
+[producer and bounded runtime consumer](../model-catalogue-publication.md)
+distribute and authenticate a strict pricing/harness projection after approved
+main merges. Unsupported harness requirements reject runtime activation.
+The broader pricing/eligibility migration remains separately gated.
 
 | Source of facts | Consumer and compiled projection | Activation |
 | --- | --- | --- |
@@ -1356,6 +1359,18 @@ Wire governed `models.dev` imports into provider-qualified pricing fallback for
 inference providers without native AWF pricing support, including custom
 providers, without requiring runtime access to the upstream catalogue.
 
+**Bounded runtime slice:** the proxy now fetches the v1 publication, independently
+reconstructs it from reviewed main source, pins pointer/snapshot reads to one
+data-branch commit, and inserts fresh Copilot-scoped central token tariffs
+below existing operator/configured/complete fresh provider prices. Startup
+fallback, single-flight refresh, private source/schema-partitioned cache,
+request-time revision/provider-price pinning and additive reflection are covered
+by automated producer/consumer tests. Unsupported tariff structures and all
+explicit harness constraints reject activation. Existing bundled pricing and
+legacy provider-component fallback remain unchanged. This is not full Gate 5:
+exact arithmetic, general provider-qualified governed imports, execution-version
+eligibility, full resolver migration and compiler handoff remain outstanding.
+
 ### Gate 6: Reasoning and compatibility
 
 Unify routing, validation, and reflection on resolved reasoning data. Add the
@@ -1382,14 +1397,17 @@ must already have been retargeted or paused at Gate 3.
 Publish reviewed versioned central snapshots through the same source-aware
 pipeline used for bundled projections.
 
-The publication-only slice now has a deterministic post-merge Actions producer,
+The distribution slice has a deterministic post-merge Actions producer,
 automatic data-branch bootstrap, immutable versioned snapshots and an atomic
 current channel. It publishes only maintained pricing/harness facts, not the
 complete assembled or staged exports. See the
 [publication contract](../model-catalogue-publication.md) for ordering,
-integrity, transport/source trust and GitHub token-event limits. This producer
-can ship before the Gate 5 loader; no runtime consumer/authentication integration
-or completion of all Gate 8 work is implied.
+integrity, transport/source trust and GitHub token-event limits. The bounded
+runtime integration replaces the manual loader-authentication repository-variable
+gate with actual producer-to-loader/accounting and source-authentication checks
+in the read-only build job. Successful eligible main pushes can bootstrap and
+publish automatically; no branch provisioning or flag change is required.
+Completion of all Gate 8 work is not implied.
 
 ### Gate 9: Legacy removal
 

@@ -256,6 +256,12 @@ describe('resolveApiProxyShutdownTimeoutMs', () => {
 });
 
 describe('buildProxyRoutingEnv', () => {
+  it('forwards catalogue controls without changing the Squid route', () => {
+    const modelCatalogue = { enabled: true, offline: true, refreshSeconds: 300 };
+    const env = buildApiProxyBaseEnv({ ...baseConfig, workDir: '/tmp/awf-test', modelCatalogue }, networkConfig);
+    expect(JSON.parse(env.AWF_MODEL_CATALOGUE)).toEqual(modelCatalogue);
+    expect(env.HTTPS_PROXY).toBe('http://172.30.0.10:3128');
+  });
   it('sets HTTP_PROXY and HTTPS_PROXY to point to Squid', () => {
     const env = buildProxyRoutingEnv(networkConfig);
     expect(env.HTTP_PROXY).toBe('http://172.30.0.10:3128');

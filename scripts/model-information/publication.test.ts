@@ -207,6 +207,69 @@ describe('credential-free data branch publication', () => {
     expect(git(work, 'status', '--porcelain')).toBe('');
   });
 
+  it('loads the actual published branch through source authentication into request accounting', async () => {
+    const { createCatalogueLoader } = require('../../containers/api-proxy/catalogue-loader');
+    const { computeTokenBudgetUsage } = require('../../containers/api-proxy/token-budget-log');
+    const data = fixture();
+    delete (data.models[0] as { harnesses?: unknown }).harnesses;
+    Object.assign(data.models[0].tariffs[0].components, {
+      cachedInput: { price: '0', provenance: evidence },
+    });
+    const catalogPath = 'shared/model-information/catalog.generated.json';
+    fs.mkdirSync(path.join(work, 'shared/model-information'), { recursive: true });
+    fs.writeFileSync(path.join(work, catalogPath), json(data));
+    process.env.GIT_COMMITTER_DATE = time;
+    const sourceCommit = source();
+    const sourceTime = git(work, 'show', '-s', '--format=%cI', sourceCommit);
+    const bytes = buildSnapshot(data, sourceCommit, sourceTime);
+    run(bytes);
+    const publicationCommit = remoteHead();
+    const urls: string[] = [];
+    const instance = createCatalogueLoader({ cacheDirectory: path.join(directory, 'cache') }, {
+      now: () => Date.parse('2026-10-23T00:00:00Z'),
+      report: jest.fn(),
+      getBytes: async (url: string) => {
+        urls.push(url);
+        const suffix = new URL(url).pathname.replace('/repos/github/gh-aw-firewall', '');
+        if (suffix.startsWith('/git/ref/heads/')) {
+          const branch = suffix.split('/').slice(-1)[0];
+          return Buffer.from(json({ ref: `refs/heads/${branch}`,
+            object: { type: 'commit', sha: branch === dataBranch ? publicationCommit : sourceCommit } }));
+        }
+        if (suffix.startsWith('/git/commits/')) {
+          const sha = suffix.split('/').slice(-1)[0];
+          return Buffer.from(json({ sha, committer: { date: git(work, 'show', '-s', '--format=%cI', sha) } }));
+        }
+        if (suffix.startsWith('/contents/')) {
+          const file = suffix.slice('/contents/'.length);
+          const ref = new URL(url).searchParams.get('ref')!;
+          if (file === catalogPath) {
+            return Buffer.from(git(work, 'show', `${ref}:${file}`));
+          }
+          expect(ref).toBe(publicationCommit);
+          return execFileSync('git', ['--git-dir', remote, 'show', `${ref}:${file}`]);
+        }
+        throw new Error('Unexpected fixture transport request');
+      },
+    });
+    try {
+      await instance.start();
+      expect(instance.reflect().state).toBe('active');
+      const result = computeTokenBudgetUsage({
+        logRequest: jest.fn(), requestId: 'published-fixture', provider: 'copilot',
+        catalogue: instance.capture(),
+      }, { input_tokens: 1_000_000 }, 'example');
+      expect(result).toMatchObject({
+        ai_credits_pricing_source: 'central_feed',
+        ai_credits_pricing_catalog_version: JSON.parse(bytes).revision,
+        ai_credits_this_response: 12.345679,
+      });
+      expect(urls.every(url => url.startsWith('https://api.github.com/repos/github/gh-aw-firewall/'))).toBe(true);
+    } finally {
+      await instance.stop();
+    }
+  });
+
   it('treats retries and identical data from a newer source as no-ops', () => {
     run();
     const before = remoteHead();
@@ -396,6 +459,7 @@ exec '${realGit}' "$@"
       'containers/api-proxy/model-information.retired.generated.json',
       'containers/api-proxy/ai-credits-pricing-reference.json',
       'containers/api-proxy/model-api-mapping.json',
+      'containers/api-proxy/catalogue-contract',
     ]) {
       fs.mkdirSync(path.dirname(path.join(work, name)), { recursive: true });
       fs.cpSync(path.join(root, name), path.join(work, name), { recursive: true });
@@ -458,7 +522,7 @@ describe('trusted publication workflow graph', () => {
     expect(workflow.concurrency['cancel-in-progress']).toBe(false);
     const { build, publish: writer } = workflow.jobs;
     expect(writer.needs).toBe('build');
-    expect(writer.if).toContain("vars.MODEL_CATALOGUE_PHASE5_LOADER_AUTH_TESTS_PASSED == 'true'");
+    expect(writer.if).not.toContain('vars.');
     expect(writer.permissions).toEqual({ contents: 'write' });
     for (const job of [build, writer]) {
       expect(job.if).toContain("github.repository == 'github/gh-aw-firewall'");
@@ -472,6 +536,10 @@ describe('trusted publication workflow graph', () => {
     expect(build.steps[0].with?.['persist-credentials']).toBe(false);
     expect(build.steps.some(step => step.run === 'npm ci --ignore-scripts')).toBe(true);
     expect(build.steps.some(step => step.run?.includes('build-publication.cjs'))).toBe(true);
+    expect(build.steps.some(step => step.run ===
+      'npm test -- --runInBand scripts/model-information/publication.test.ts')).toBe(true);
+    expect(build.steps.some(step => step.run ===
+      'npm test --prefix containers/api-proxy -- --runInBand catalogue-loader.test.js catalogue-proxy.test.js guards/ai-credits-guard.test.js runtime-model-catalog.test.js token-budget-log.test.js upstream-token.test.js upstream-http.test.js')).toBe(true);
     expect(writer.steps.filter(step => step.run).map(step => step.run)).toEqual([
       'node scripts/model-information/publish.cjs "$RUNNER_TEMP/model-catalogue/snapshot.json"',
     ]);

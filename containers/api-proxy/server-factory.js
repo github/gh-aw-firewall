@@ -166,13 +166,14 @@ function createProviderServer(adapter, deps) {
     proxyWebSocket,
     routing,
     modelBudgetEnabled = false,
+    catalogueReady,
   } = deps;
 
   const handleHealthCheck = createHealthCheckHandler(adapter, modelBudgetEnabled);
   const handleProxy = createProxyHandler(adapter, checkRateLimit, proxyRequest);
   const handleUpgrade = createWebSocketUpgradeHandler(adapter, proxyWebSocket, { modelBudgetEnabled });
 
-  const server = http.createServer((req, res) => {
+  const server = http.createServer(async (req, res) => {
     if (adapter.isManagementPort && handleManagementEndpoint(req, res)) return;
 
     if (req.url === '/health' && req.method === 'GET') {
@@ -186,6 +187,8 @@ function createProviderServer(adapter, deps) {
       return;
     }
 
+    if (catalogueReady) await catalogueReady;
+    if (req.destroyed) return;
     attachCaller(req, adapter);
     if (process.env.AWF_ENCLAVE_PROXY_DIAGNOSTICS === '1') {
       res.once('finish', () => auditEnclaveResponse(res.statusCode,
@@ -215,7 +218,9 @@ function createProviderServer(adapter, deps) {
     handleProxy(req, res);
   });
 
-  server.on('upgrade', (req, socket, head) => {
+  server.on('upgrade', async (req, socket, head) => {
+    if (catalogueReady) await catalogueReady;
+    if (socket.destroyed) return;
     attachCaller(req, adapter);
     handleUpgrade(req, socket, head);
   });

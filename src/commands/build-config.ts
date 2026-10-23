@@ -210,6 +210,7 @@ export function buildConfig(inputs: BuildConfigInputs): WrapperConfig {
     defaultAiCreditsPricing: options.defaultAiCreditsPricing as WrapperConfig['defaultAiCreditsPricing'],
     apiProxyProviders: options.apiProxyProviders as WrapperConfig['apiProxyProviders'],
     modelPricingCatalog: options.modelPricingCatalog as WrapperConfig['modelPricingCatalog'],
+    modelCatalogue: options.modelCatalogue as WrapperConfig['modelCatalogue'],
     modelMultipliers,
     defaultModelMultiplier,
     maxModelMultiplierCap,

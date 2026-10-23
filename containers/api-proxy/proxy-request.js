@@ -9,6 +9,8 @@
 
 const http = require('http');
 const https = require('https');
+const { getCatalogueLoader } = require('./catalogue-loader');
+const { captureRuntimePricing } = require('./runtime-model-catalog');
 const { HTTPS_PROXY, proxyAgent } = require('./http-client');
 const { createBodyHandler, sleep, _setSleepForTests, _resetSleepForTests } = require('./body-handler');
 const { generateRequestId, sanitizeForLog, logRequest } = require('./logging');
@@ -210,8 +212,10 @@ const sendUpstreamRequest = createSendUpstreamRequest({
   logRequest,
   // A fallback model must pass the same guards (model policy, retired models,
   // multiplier cap, budgets) as the originally requested model.
-  isFallbackModelPermitted: (model, provider) =>
-    getCurrentGuardChecks(model, provider).every(guard => !guard.isBlocked(guard.block)),
+  isFallbackModelPermitted: (model, provider, req) =>
+    getCurrentGuardChecks(model, provider, {
+      catalogue: req.awfCatalogue, runtimeCatalog: req.awfRuntimePricing,
+    }).every(guard => !guard.isBlocked(guard.block)),
   getProviderAdapter: (provider) => (fallbackProviderLookup ? fallbackProviderLookup(provider) || null : null),
 });
 
@@ -231,6 +235,8 @@ const sendUpstreamRequest = createSendUpstreamRequest({
  * @param {'http'|'https'} [targetScheme='https'] - Upstream scheme (see proxy-utils.js normalizeApiTarget)
  */
 function proxyRequest(req, res, targetHost, injectHeaders, provider, basePath = '', bodyTransform = null, requestSigner = null, targetScheme = 'https') {
+  if (!Object.hasOwn(req, 'awfCatalogue')) req.awfCatalogue = getCatalogueLoader().capture();
+  if (!req.awfRuntimePricing) req.awfRuntimePricing = captureRuntimePricing();
   const clientRequestId = req.headers['x-request-id'];
   const requestId = req.awfRouting?.requestId
     || (isValidRequestId(clientRequestId) ? clientRequestId : generateRequestId());

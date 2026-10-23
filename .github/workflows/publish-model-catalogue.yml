@@ -10,6 +10,9 @@ on:
       - 'containers/api-proxy/model-information.*.generated.json'
       - 'containers/api-proxy/ai-credits-pricing-reference.json'
       - 'containers/api-proxy/model-api-mapping.json'
+      - 'containers/api-proxy/catalogue-*.js'
+      - 'containers/api-proxy/package.json'
+      - 'containers/api-proxy/package-lock.json'
       - 'src/model-information.compat.generated.json'
       - 'docs/model-api-mapping.json'
       - '.github/workflows/publish-model-catalogue.yml'
@@ -42,6 +45,11 @@ jobs:
           node-version: '22'
           cache: npm
       - run: npm ci --ignore-scripts
+      - run: npm ci --ignore-scripts --prefix containers/api-proxy
+      - name: Verify producer, immutable branch retrieval and reviewed-source authentication
+        run: npm test -- --runInBand scripts/model-information/publication.test.ts
+      - name: Verify runtime loader, proxy packaging and accounting parity
+        run: npm test --prefix containers/api-proxy -- --runInBand catalogue-loader.test.js catalogue-proxy.test.js guards/ai-credits-guard.test.js runtime-model-catalog.test.js token-budget-log.test.js upstream-token.test.js upstream-http.test.js
       - name: Validate canonical sources and every generated projection offline
         id: snapshot
         run: node scripts/model-information/build-publication.cjs "$RUNNER_TEMP/snapshot.json"
@@ -54,7 +62,7 @@ jobs:
 
   publish:
     needs: build
-    if: github.repository == 'github/gh-aw-firewall' && github.ref == 'refs/heads/main' && github.event_name == 'push' && vars.MODEL_CATALOGUE_PHASE5_LOADER_AUTH_TESTS_PASSED == 'true'
+    if: github.repository == 'github/gh-aw-firewall' && github.ref == 'refs/heads/main' && github.event_name == 'push'
     permissions:
       contents: write
     runs-on: ubuntu-latest

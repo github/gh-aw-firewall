@@ -73,7 +73,7 @@ COPY server.js logging.js metrics.js rate-limiter.js rate-limiter-window.js \
      anthropic-oidc-token-provider.js \
      ai-credits-pricing.js model-pricing-catalog.js models-dev-catalog.js models.dev.catalog.json \
      model-information.pricing.generated.json model-information.retired.generated.json \
-     provider-pricing-overlays.js runtime-model-catalog.js \
+     provider-pricing-overlays.js runtime-model-catalog.js catalogue-loader.js catalogue-pricing.js \
      oidc-refresh-utils.js body-transform.js body-utils.js codex-compat.js wire-api-compat.js rate-limit.js websocket-proxy.js \
      anthropic-chat-compat.js cross-provider-fallback.js \
      websocket-guards.js websocket-tunnel.js \
@@ -89,6 +89,7 @@ COPY server.js logging.js metrics.js rate-limiter.js rate-limiter-window.js \
 COPY guards/ ./guards/
 COPY providers/ ./providers/
 COPY transforms/ ./transforms/
+COPY catalogue-contract/ ./catalogue-contract/
 
 # Create non-root user
 RUN addgroup -S apiproxy && adduser -S apiproxy -G apiproxy

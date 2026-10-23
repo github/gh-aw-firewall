@@ -149,7 +149,7 @@ function sendGuardBlockedResponse(block, {
  *           inboundBytes: number }} ctx
  * @returns {boolean}
  */
-function getCurrentGuardChecks(model, provider) {
+function getCurrentGuardChecks(model, provider, pricingOptions) {
   return buildCommonGuardChecks({
     getMaxRunsBlockState,
     buildMaxRunsExceededError,
@@ -163,7 +163,7 @@ function getCurrentGuardChecks(model, provider) {
     buildModelMultiplierCapError,
     getRetiredModelBlockState,
     buildRetiredModelError,
-    checkUnknownModelRejection,
+    checkUnknownModelRejection: (candidate, route) => checkUnknownModelRejection(candidate, route, pricingOptions),
     getModelPolicyBlockState,
     buildModelPolicyError,
   }, model, provider);
@@ -173,7 +173,9 @@ function enforceGuards({ body, provider, req, res, requestId, startTime, span, i
   const checkModelMultiplier = req.method === 'POST' || req.method === 'PUT' || req.method === 'PATCH';
   const model = checkModelMultiplier ? extractModelFromBody(body) : null;
 
-  const guardChecks = getCurrentGuardChecks(model, provider);
+  const pricingOptions = Object.hasOwn(req, 'awfCatalogue')
+    ? { catalogue: req.awfCatalogue, runtimeCatalog: req.awfRuntimePricing } : undefined;
+  const guardChecks = getCurrentGuardChecks(model, provider, pricingOptions);
 
   for (const guard of guardChecks) {
     if (!guard.isBlocked(guard.block)) continue;

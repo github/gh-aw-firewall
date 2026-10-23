@@ -15,6 +15,7 @@
  */
 
 const metrics = require('./metrics');
+const { getCatalogueLoader } = require('./catalogue-loader');
 const {
   getModelApiMappingReflect,
   lookupModelEndpoints,
@@ -222,6 +223,7 @@ function createManagementHandlers(deps) {
       permission_denied: getPermissionDeniedUsage(),
       model_api_mapping: getModelApiMappingReflect(),
       routing: getRoutingState(),
+      model_catalogue: getCatalogueLoader().reflect(),
     };
   }
 

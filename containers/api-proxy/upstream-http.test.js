@@ -565,6 +565,8 @@ describe('upstream-http', () => {
     const req = {
       method: 'POST',
       awfScopedAuto: true,
+      awfCatalogue: Object.freeze({ revision: 'request-pinned' }),
+      awfRuntimePricing: Object.freeze({}),
       awfModelCandidates: ['claude-sonnet-4.6', 'claude-opus-5', 'claude-haiku-4.5'],
     };
     sendUpstreamRequest({}, createContext({
@@ -574,8 +576,8 @@ describe('upstream-http', () => {
     }));
     responseCallbacks[0]({ statusCode: 400, headers: {} });
     expect(handleUpstreamResponse.mock.calls[0][2].onModelEndpointBlockedRetry()).toBe(eligible);
-    expect(isFallbackModelPermitted).toHaveBeenCalledWith('claude-opus-5', 'copilot');
-    expect(isFallbackModelPermitted).toHaveBeenCalledWith('claude-haiku-4.5', 'copilot');
+    expect(isFallbackModelPermitted).toHaveBeenCalledWith('claude-opus-5', 'copilot', req);
+    expect(isFallbackModelPermitted).toHaveBeenCalledWith('claude-haiku-4.5', 'copilot', req);
     expect(httpsRequest).toHaveBeenCalledTimes(eligible ? 2 : 1);
     if (eligible) {
       expect(JSON.parse(proxyReq.write.mock.calls[1][0]).model).toBe('claude-haiku-4.5');
@@ -916,7 +918,7 @@ describe('upstream-http', () => {
     const errorHandler = proxyReqs[0].on.mock.calls.find(([event]) => event === 'error')[1];
     errorHandler(new Error('ECONNRESET'));
 
-    expect(isFallbackModelPermitted).toHaveBeenCalledWith('blocked-model', 'copilot');
+    expect(isFallbackModelPermitted).toHaveBeenCalledWith('blocked-model', 'copilot', req);
     expect(httpsRequest).toHaveBeenCalledTimes(2);
     expect(JSON.parse(proxyReqs[1].write.mock.calls[0][0].toString()).model).toBe('allowed-model');
     expect(req.awfModelFallback).toMatchObject({

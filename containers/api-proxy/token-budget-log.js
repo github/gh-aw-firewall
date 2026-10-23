@@ -16,8 +16,11 @@ const { applyMaxCacheMissesUsage } = require('./guards/max-cache-misses-guard');
  * @param {string|undefined} model
  * @returns {object|undefined} Budget fields for JSONL persistence, or undefined if neither guard is active.
  */
-function computeTokenBudgetUsage({ logRequest, requestId, provider, purpose }, normalizedUsage, model) {
-  const aiCreditsUsage = applyAiCreditsUsage(normalizedUsage, model, provider);
+function computeTokenBudgetUsage(context, normalizedUsage, model) {
+  const { logRequest, requestId, provider, purpose } = context;
+  const options = Object.hasOwn(context, 'catalogue') ? { catalogue: context.catalogue } : {};
+  if (context.runtimeCatalog) options.runtimeCatalog = context.runtimeCatalog;
+  const aiCreditsUsage = applyAiCreditsUsage(normalizedUsage, model, provider, options);
   if (purpose !== 'routing_classification') applyMaxCacheMissesUsage(normalizedUsage);
   if (aiCreditsUsage) {
     logRequest('info', 'token_budget_usage', {

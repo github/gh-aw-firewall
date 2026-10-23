@@ -13,6 +13,7 @@
 'use strict';
 
 const { logRequest } = require('./logging');
+const { getCatalogueLoader } = require('./catalogue-loader');
 const {
   MODEL_ALIASES,
   MODEL_FALLBACK,
@@ -226,7 +227,7 @@ function writeModelsJson(logDir) {
   return _writeModelsJson(registeredAdapters, cachedModels, filteredAliases, logDir, modelsJson);
 }
 
-function createProviderServer(adapter) {
+function createProviderServer(adapter, catalogueReady) {
   return createProviderServerFactory(adapter, {
     handleManagementEndpoint,
     reflectEndpoints,
@@ -235,6 +236,7 @@ function createProviderServer(adapter) {
     proxyWebSocket,
     routing,
     modelBudgetEnabled: Boolean(process.env.AWF_ENCLAVE_AGENT_MODEL_BUDGET_SECRET),
+    catalogueReady,
   });
 }
 
@@ -260,6 +262,7 @@ if (require.main === module) {
     logRequest,
     HTTPS_PROXY,
     routing,
+    catalogue: getCatalogueLoader(),
   });
 }
 

@@ -124,7 +124,7 @@ function rebuildCopilotWireApiFallback(sourceBody, nextModel, req, upstreamPath)
  * switch the upstream provider too, translating the protocol when needed.
  * See model-fallback-chain.js and cross-provider-fallback.js.
  *
- * @param {{ https: import('https'), http: import('http'), proxyAgent: import('http').Agent, handleUpstreamResponse: Function, sleep: Function, otel: object, handleRequestError: Function, metrics: object, logRequest?: Function, isFallbackModelPermitted?: (model: string, provider: string) => boolean, getFallbackModels?: () => string[], getProviderAdapter?: (provider: string) => object|null }} deps
+ * @param {{ https: import('https'), http: import('http'), proxyAgent: import('http').Agent, handleUpstreamResponse: Function, sleep: Function, otel: object, handleRequestError: Function, metrics: object, logRequest?: Function, isFallbackModelPermitted?: (model: string, provider: string, req: object) => boolean, getFallbackModels?: () => string[], getProviderAdapter?: (provider: string) => object|null }} deps
  * @returns {(requestHeaders: object, ctx: object) => void}
  */
 function createSendUpstreamRequest({
@@ -156,6 +156,8 @@ function createSendUpstreamRequest({
     fallbackOrigin = null,
     protocolTranslation = null,
   }) {
+    const isPermitted = isFallbackModelPermitted
+      ? (model, route) => isFallbackModelPermitted(model, route, req) : null;
     const cancellation = getRequestCancellation(req, res);
     cancellation.responseStarted = false;
     cancellation.onCancel = () => {
@@ -243,7 +245,7 @@ function createSendUpstreamRequest({
           });
         };
         const select = (exclude, onSkip) => selectNextFallbackCandidate(chain, attempted, origin.provider, {
-          isPermitted: isFallbackModelPermitted,
+          isPermitted,
           getRouteRejection,
           exclude,
           onSkip,
@@ -733,7 +735,7 @@ function createSendUpstreamRequest({
           if (currentIdx < 0 || currentIdx >= candidates.length - 1) return false;
 
           const nextModel = selectNextFallbackModel(
-            candidates.slice(currentIdx + 1), [currentModel], provider, isFallbackModelPermitted,
+            candidates.slice(currentIdx + 1), [currentModel], provider, isPermitted,
           );
           if (!nextModel) return false;
           let wireFallback = null;

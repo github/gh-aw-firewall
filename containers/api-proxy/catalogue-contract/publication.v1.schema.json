@@ -1,0 +1,85 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/github/gh-aw-firewall/blob/main/shared/model-information/publication.v1.schema.json",
+  "type": "object",
+  "required": ["schemaVersion", "schemaHash", "revision", "sha256", "sourceCommit", "publishedAt", "observedAt", "effectiveFrom", "provenance", "models"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "schemaHash": { "$ref": "#/$defs/digest" },
+    "revision": { "$ref": "#/$defs/digest" },
+    "sha256": { "$ref": "#/$defs/digest" },
+    "sourceCommit": { "type": "string", "pattern": "^[a-f0-9]{40}$" },
+    "publishedAt": { "$ref": "#/$defs/timestamp" },
+    "observedAt": { "$ref": "#/$defs/timestamp" },
+    "effectiveFrom": { "$ref": "#/$defs/timestamp" },
+    "provenance": {
+      "type": "object",
+      "required": ["authority", "source"],
+      "properties": {
+        "authority": { "const": "central_feed" },
+        "source": { "const": "https://github.com/github/gh-aw-firewall" }
+      },
+      "additionalProperties": false
+    },
+    "models": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["identity", "provenance"],
+        "properties": {
+          "identity": {
+            "type": "object",
+            "required": ["key", "provider", "rawId", "lookupId"],
+            "properties": {
+              "key": { "type": "string", "minLength": 1 },
+              "provider": { "type": "string", "minLength": 1 },
+              "rawId": { "type": "string", "minLength": 1 },
+              "lookupId": { "type": "string", "minLength": 1 }
+            },
+            "additionalProperties": false
+          },
+          "provenance": { "$ref": "#/$defs/reviewedProvenance" },
+          "tariffs": {
+            "type": "array",
+            "minItems": 1,
+            "items": { "$ref": "https://github.com/github/gh-aw-firewall/blob/main/shared/model-information/schema.v1.json#/$defs/tariff" }
+          },
+          "harnesses": {
+            "type": "array",
+            "minItems": 1,
+            "items": { "$ref": "https://github.com/github/gh-aw-firewall/blob/main/shared/model-information/schema.v1.json#/$defs/harness" }
+          }
+        },
+        "anyOf": [{ "required": ["tariffs"] }, { "required": ["harnesses"] }],
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "digest": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "timestamp": { "type": "string", "format": "date-time" },
+    "reviewedProvenance": {
+      "type": "object",
+      "allOf": [
+        { "$ref": "https://github.com/github/gh-aw-firewall/blob/main/shared/model-information/schema.v1.json#/$defs/provenance" },
+        {
+          "required": ["revision", "at", "confidence"],
+          "properties": { "authority": { "const": "maintained" } }
+        }
+      ]
+    },
+    "pointer": {
+      "type": "object",
+      "required": ["schemaVersion", "revision", "sourceCommit", "snapshot", "sha256"],
+      "properties": {
+        "schemaVersion": { "const": 1 },
+        "revision": { "$ref": "#/$defs/digest" },
+        "sourceCommit": { "type": "string", "pattern": "^[a-f0-9]{40}$" },
+        "snapshot": { "type": "string", "pattern": "^snapshots/v1/[a-f0-9]{64}\\.json$" },
+        "sha256": { "$ref": "#/$defs/digest" }
+      },
+      "additionalProperties": false
+    }
+  }
+}
