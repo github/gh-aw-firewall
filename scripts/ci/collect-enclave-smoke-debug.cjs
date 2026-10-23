@@ -3,7 +3,39 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { createHash } = require('node:crypto');
-const { isSafeCopilotAuthLogFields } = require('../../dist/enclave/proxy-auth-diagnostics');
+
+const AUTH_FIELDS = {
+  credential_source: ['github_token', 'provider_api_key', 'none'],
+  credential_kind: ['none', 'placeholder', 'fine_grained_pat', 'classic_pat', 'oauth', 'user_token', 'installation_token', 'other'],
+  credential_shape: ['missing', 'placeholder', 'embedded_whitespace', 'prefixed', 'whitespace', 'clean'],
+  target_source: ['explicit', 'server', 'default'],
+  server_kind: ['missing', 'invalid', 'github', 'ghec', 'ghes'],
+  base_path: ['configured', 'none'],
+  integration_source: ['copilot_integration_id', 'github_copilot_integration_id', 'default'],
+  authorization_match: ['yes', 'no'],
+  integration_match: ['yes', 'no'],
+  target: ['standard', 'enterprise', 'business', 'ghec', 'custom'],
+  target_match: ['yes', 'no'],
+  method: ['get', 'post', 'put', 'patch', 'delete', 'head', 'options', 'other'],
+  endpoint: ['models', 'models_session', 'auto', 'chat_completions', 'responses', 'other'],
+  authorization: ['missing', 'multiple', 'malformed', 'bearer', 'token', 'other'],
+  integration: ['missing', 'multiple', 'workflows', 'cli', 'custom'],
+  error_class: ['none', 'expired', 'invalid_credential', 'insufficient_scope', 'entitlement', 'integration', 'malformed_auth', 'unclassified', 'uninspectable'],
+  body_capture: ['complete', 'omitted', 'truncated', 'not_required'],
+  challenge: ['missing', 'invalid_token', 'insufficient_scope', 'other', 'not_required'],
+};
+
+function isSafeCopilotAuthLogFields(value) {
+  if (!value || value.length > 1024) return false;
+  const entries = value.split(' ').map(field => field.split('='));
+  if (entries.some(pair => pair.length !== 2)) return false;
+  return Object.entries(AUTH_FIELDS).map(([name, allowed]) => {
+    const pair = entries.find(([key]) => key === name);
+    const candidate = pair?.[1];
+    const safe = typeof candidate === 'string' && allowed.includes(candidate) ? candidate : 'unknown';
+    return `${name}=${safe}`;
+  }).join(' ') === value;
+}
 
 const MAX_STREAM_BYTES = 1024 * 1024;
 const MAX_FILES = 32;
@@ -392,7 +424,7 @@ function collect(runDirectory, runnerUid, runnerGid, roots = ROOTS, uid = 0, tru
 module.exports = {
   prepare, collect, MAX_STREAM_BYTES, MAX_FILES,
   directory, inventory, readRegular, projectProxyUsage, projectProxyResponse,
-  projectProxyEvents, projectProxyContainerLog,
+  projectProxyEvents, projectProxyContainerLog, isSafeCopilotAuthLogFields,
 };
 
 if (require.main === module) {
