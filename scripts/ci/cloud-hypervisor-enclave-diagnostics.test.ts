@@ -281,6 +281,19 @@ describe('public enclave conformance diagnostic retention', () => {
     expect(records()).not.toContain(secret);
   });
 
+  it('publishes the bounded host-deadline drain failure without copying private details', () => {
+    const context = prepare();
+    const event = { phase: 'status', status: 'failed', reason: 'deadline-drain-timeout', secret };
+    diagnostics.collect(context, { status: 'failed', admissionEvidence: {
+      broker: { status: 'captured', events: [event], failures: [event] },
+    } });
+    const value = JSON.parse(fs.readFileSync(path.join(output, 'upload/acceptance.json'), 'utf8'));
+    const expected = { phase: 'status', status: 'failed', reason: 'deadline-drain-timeout' };
+    expect(value.admissionEvidence.broker.events).toEqual([expected]);
+    expect(value.admissionEvidence.broker.failures).toEqual([expected]);
+    expect(records()).not.toContain(secret);
+  });
+
   it('reports an unsafe broker audit rather than following a symlink or copying raw text', () => {
     const context = prepare();
     const audit = path.join(temp, 'unsafe-audit');

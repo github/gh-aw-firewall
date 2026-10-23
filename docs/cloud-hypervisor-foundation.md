@@ -1523,6 +1523,16 @@ after its guest has reached the marker, waits for resource cleanup, and kills an
 identified VMM plus the AWF host process to verify that restart cleans the
 exact pending journal identity without replaying a successful result.
 
+The trusted host owns deadline interruption and the durable timeout outcome.
+After admission, the broker observes its local deadline without sending an
+ordinary cancellation that could win the host's timer race. It continues bounded
+status polling for at most the existing 10-second drain window, plus a bounded
+in-flight protocol request, to observe host cleanup and settlement. If the host
+remains nonterminal, the broker closes admissions, attempts cancellation, and
+reports `deadline-drain-timeout` rather than accepting a result. Explicit caller
+cancellation still interrupts immediately. The host execution limit, its existing
+one-second scheduling grace, and strict journal-outcome checks are unchanged.
+
 Crash recovery emits a bounded `AWF_ENCLAVE_ACCEPTANCE_CHECK` for each discovery,
 marker, process termination, log capture, Compose teardown, restart/readiness,
 tool-list, journal-read, identity-validation, interrupted-response and cleanup

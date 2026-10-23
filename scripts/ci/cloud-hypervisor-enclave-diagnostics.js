@@ -113,7 +113,8 @@ const ADMISSION_REASONS = ['none', 'unknown', 'admissions-closed', 'invocation-c
   'cancelled', 'timeout', 'unavailable', 'oversized', 'truncated', 'malformed', 'rejected',
   'launch-failed', 'non-zero-exit', 'cleanup-failed', 'unexpected-error', 'digest-mismatch',
   'schema-mismatch', 'settlement-unresolved', 'terminal-unavailable', 'lifecycle-regressed',
-  'cancel-unresolved', 'cancel-drain-timeout', 'timing-bucket-overflow', ...HOST_EXECUTOR_ERRORS];
+  'cancel-unresolved', 'cancel-drain-timeout', 'deadline-drain-timeout', 'timing-bucket-overflow',
+  ...HOST_EXECUTOR_ERRORS];
 
 function projectAdmissionEvent(value) {
   if (!value || !ADMISSION_PHASES.includes(value.phase)) return undefined;

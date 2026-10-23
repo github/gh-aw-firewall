@@ -692,6 +692,7 @@ describe('finite-disclosure broker → authenticated Unix host → concrete micr
     offset += 31_000;
     expect(await pending).toBe('{"status":"error"}');
     expect(started).toHaveBeenCalled();
+    await until(() => cleaned.mock.calls.length > 0);
     expect(cleaned).toHaveBeenCalled();
     expect(lane.closed).toBe(true);
     expect(requests.some(({ type }) => type === 'settle')).toBe(false);
@@ -744,15 +745,20 @@ describe('finite-disclosure broker → authenticated Unix host → concrete micr
     expect(requests.map(({ type }) => type)).toContain('settle');
   });
 
-  it.each(['script', 'agent'] as const)('cancels and settles %s at the broker deadline', async (role) => {
+  it.each(['script', 'agent'] as const)('closes %s admissions when the host outlives broker draining', async (role) => {
     hanging = true;
-    const { handler } = makeHandler(role, { timeoutSeconds: 5 });
+    const lane = { tail: Promise.resolve(), closed: false };
+    const { handler, runner } = makeHandler(role, { timeoutSeconds: 5, lane });
     const pending = call(handler, args(role));
     await until(() => resolveExecution !== undefined);
     offset += 6000;
     expect(await pending).toBe('{"status":"error"}');
     expect(cancelled).toHaveBeenCalled();
-    expect(requests.map(({ type }) => type)).toContain('settle');
+    expect(requests.map(({ type }) => type)).not.toContain('settle');
+    expect(lane.closed).toBe(true);
+    await expect(runner.reconcileRun()).rejects.toThrow('Host executor lifecycle is unresolved');
+    expect(await call(handler, args(role))).toBe('{"status":"error"}');
+    expect(requests.filter(({ type }) => type === 'invoke')).toHaveLength(1);
   });
 
   it('settles after interruption during startup and drains queued calls without launching', async () => {

@@ -2,6 +2,7 @@ import * as fs from 'fs';
 import * as net from 'net';
 import * as path from 'path';
 import * as os from 'os';
+import { performance } from 'perf_hooks';
 import { HostExecutorJournal, readHostExecutorInvocationDiagnostics } from './host-executor-journal';
 import {
   HOST_EXECUTOR_PROTOCOL_VERSION,
@@ -39,6 +40,7 @@ const {
 const { finiteSchemaHash: brokerFiniteSchemaHash } = require(path.join(
   __dirname, '..', '..', 'containers', 'bounded-execution', 'schema-hash.js',
 ));
+const { createHostExecutorRunner } = require('../../containers/enclave/mcp-server/host-executor-runner');
 /* eslint-enable @typescript-eslint/no-require-imports */
 
 const RUN_ID = 'a'.repeat(32);
@@ -809,6 +811,45 @@ describe('host executor server', () => {
       expect.objectContaining({ state: 'terminal', outcome: reason === 'timeout' ? 'timeout' : 'cancelled' }),
     );
   });
+
+  it.each((['script', 'agent'] as const).flatMap(role =>
+    [500, 2000].map(brokerDeadlineMs => ({ role, brokerDeadlineMs })),
+  ))('settles real $role host timeout with broker deadline $brokerDeadlineMs ms',
+    async ({ role, brokerDeadlineMs }) => {
+      const entryId = role === 'script' ? ENTRY_ID : AGENT_ENTRY_ID;
+      await start({
+        entries: [{
+          entryId, executorKind: role, timeoutMs: 100,
+          staticSeedIds: [SEED_ID], dynamicAgents: false,
+        }],
+      }, { backend: {
+        execute: (plan, signal) => {
+          const completion = backend.execute(plan, signal);
+          const invocation = pending[pending.length - 1];
+          signal.addEventListener('abort', () => {
+            invocation.resolve({ outcome: 'cancelled', cleanupComplete: true });
+          }, { once: true });
+          return completion;
+        },
+      } });
+      const runner = createHostExecutorRunner({
+        executorBackend: 'cloud-hypervisor', entryId,
+        hostExecutorSocketPath: server!.socketPath,
+        hostExecutorCapabilityPath: server!.capabilityPath,
+        runId: RUN_ID,
+      }, { pollMs: 10, requestTimeoutMs: 1000, drainMs: 2000 });
+
+      await expect(runner.runInvocation({
+        invocationId: INVOCATION_ID, seedId: SEED_ID, admissionId: ADMISSION_ID,
+        executorKind: role, payload: 'fixture', schema: SCHEMA,
+        deadlineMs: performance.now() + brokerDeadlineMs,
+      })).resolves.toEqual({ status: 'completed', timedOut: true, exitCode: 1 });
+      expect(executions).toHaveLength(1);
+      expect(signals[0].aborted).toBe(true);
+      expect(await client().status({ entryId, invocationId: INVOCATION_ID })).toEqual(
+        expect.objectContaining({ state: 'settled', outcome: 'timeout', cancelGeneration: 0 }),
+      );
+    });
 
   it.each([0, 999, 1000, 1001])('bounds the configured host deadline grace at +%sms', async (offset) => {
     await start({
