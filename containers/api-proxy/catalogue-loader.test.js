@@ -292,6 +292,23 @@ test('cache symlinks are rejected without reading their target', async () => {
   expect(read).not.toHaveBeenCalled();
 });
 
+test('unsafe cache directories fail explicitly without silently changing permissions', async () => {
+  const shared = path.join(directory, 'shared');
+  fs.mkdirSync(shared, { mode: 0o755 });
+  const instance = loader({ cacheDirectory: shared }, { getBytes: githubFixture() });
+  await instance.start();
+  expect(instance.capture()).toBeNull();
+  expect(instance.reflect().failure).toBe('catalogue_cache_permissions');
+  expect(fs.statSync(shared).mode & 0o777).toBe(0o755);
+  const link = path.join(directory, 'linked');
+  fs.symlinkSync(shared, link, 'dir');
+  const linked = loader({ cacheDirectory: link }, { getBytes: githubFixture() });
+  await linked.start();
+  expect(linked.capture()).toBeNull();
+  expect(linked.reflect().failure).toBe('catalogue_cache_permissions');
+  expect(fs.statSync(shared).mode & 0o777).toBe(0o755);
+});
+
 test('cached source ordering uses only candidate-selected remote history, bounded to ten pages', async () => {
   const online = loader({}, { getBytes: githubFixture() });
   await online.start();
