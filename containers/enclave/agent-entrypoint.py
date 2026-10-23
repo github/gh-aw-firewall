@@ -93,15 +93,16 @@ def append_event(event: dict) -> None:
         if len(encoded) <= MAX_TRANSCRIPT_BYTES and current + len(encoded) <= MAX_TRANSCRIPT_BYTES:
             operation = "session-log-open"
             handle = SESSION_LOG_PATH.open("ab")
+            write_completed = False
             try:
                 operation = "session-log-write"
                 handle.write(encoded)
+                write_completed = True
             finally:
-                pending_error = sys.exc_info()[0] is not None
                 try:
                     handle.close()
                 except OSError as error:
-                    if not pending_error:
+                    if write_completed:
                         operation = "session-log-close"
                         raise
                     sys.stderr.write(json.dumps(os_error_event(

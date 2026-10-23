@@ -50,7 +50,7 @@ if scenario.startswith("session-log-"):
             if scenario.startswith("session-log-write"):
                 fail()
         def close(self):
-            if scenario == "session-log-close":
+            if scenario in ("session-log-close", "session-log-close-from-except"):
                 fail()
     class Log:
         def stat(self):
@@ -70,6 +70,11 @@ if scenario.startswith("session-log-"):
             OSError(errno.EACCES, os.environ["TEST_API_TOKEN"], os.environ["PRIVATE_PATH"]),
             "output-read-open",
         )
+    elif scenario == "session-log-close-from-except":
+        try:
+            fail()
+        except OSError as error:
+            module.safe_os_error(error, "output-read-open")
     elif scenario == "session-log-write-failure":
         module.append_event({"event": "failure", "category": "result-empty"})
     else:
@@ -740,6 +745,17 @@ describe('enclave agent protected entrypoint diagnostics', () => {
       expect.objectContaining({ operation: 'session-log-write', category: 'no-space', fatal: false }),
       { event: 'failure', category: 'result-empty' },
     ]);
+  });
+
+  it('preserves the operation failure when closing the transcript inside an exception handler fails', () => {
+    const result = runHarness('session-log-close-from-except');
+    expect(events(result)).toEqual([
+      expect.objectContaining({ operation: 'session-log-close', category: 'no-space', fatal: false }),
+      { event: 'operation-error', operation: 'output-read-open',
+        category: 'no-space', errno: 28, fatal: true },
+    ]);
+    expect(result.transcript).not.toContain('test-secret-token-value');
+    expect(result.transcript).not.toContain('/private/repository/secret-path');
   });
   it('withholds raw engine stdout/stderr from the transcript by default', () => {
     const result = runHarness('success');
