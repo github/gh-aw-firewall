@@ -253,7 +253,8 @@ function createCatalogueLoader(options = {}, deps = {}) {
         const directory = fs.lstatSync(cacheDirectory);
         if (!directory.isDirectory() || directory.isSymbolicLink() || (directory.mode & 0o077) ||
             (process.getuid && directory.uid !== process.getuid())) fail('catalogue_cache_permissions');
-        const fd = fs.openSync(cacheFile, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW | fs.constants.O_NONBLOCK);
+        const fd = fs.openSync(cacheFile,
+          fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW | fs.constants.O_NONBLOCK, 0o600);
         let cached;
         try {
           const stat = fs.fstatSync(fd);
