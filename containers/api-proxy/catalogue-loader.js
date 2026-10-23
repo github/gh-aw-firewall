@@ -5,7 +5,6 @@ const path = require('node:path');
 const os = require('node:os');
 const https = require('node:https');
 const crypto = require('node:crypto');
-const { proxyAgent } = require('./http-client');
 const { logRequest } = require('./logging');
 const { validateTariffs } = require('./catalogue-pricing');
 const { buildSnapshot, validateSnapshot, schemaHash } = require('./catalogue-contract/publication.cjs');
@@ -29,6 +28,7 @@ function immutable(value) {
 
 // No redirects, ambient credentials, decompression, or direct retry on proxy failure.
 function getBytes(url, { signal, timeoutMs = 5000 } = {}) {
+  const { proxyAgent } = require('./http-client');
   return new Promise((resolve, reject) => {
     const parsed = new URL(url);
     if (parsed.protocol !== 'https:' || parsed.username || parsed.password || parsed.hash) {
@@ -130,6 +130,18 @@ function createCatalogueLoader(options = {}, deps = {}) {
     const catalogue = parse(await fetchBytes(`${ROOT}/contents/shared/model-information/catalog.generated.json?ref=${commit}`));
     return buildSnapshot(catalogue, commit, metadata.committer.date);
   }
+  async function preservesAcceptedSource(head) {
+    if (!acceptedSource || acceptedSource === head) return;
+    // Keep private cache bytes local. Only the network-authenticated candidate
+    // selects the history query; compare its reachable commits to the cache here.
+    for (let page = 1; page <= 10; page++) {
+      const commits = await api(`/commits?sha=${head}&per_page=100&page=${page}`);
+      if (!Array.isArray(commits)) fail('catalogue_commit_invalid');
+      if (commits.some(commit => commit.sha === acceptedSource)) return;
+      if (commits.length < 100) fail('catalogue_source_regression');
+    }
+    fail('catalogue_source_history_unavailable');
+  }
   async function githubCandidate() {
     const ref = await api('/git/ref/heads/catalogue-data');
     const dataCommit = ref.object?.sha;
@@ -146,7 +158,7 @@ function createCatalogueLoader(options = {}, deps = {}) {
     if (main.ref !== 'refs/heads/main' || main.object?.type !== 'commit') fail('catalogue_ref_invalid');
     await ancestor(pointer.sourceCommit, main.object?.sha);
     await ancestor(snapshot.sourceCommit, pointer.sourceCommit);
-    if (acceptedSource) await ancestor(acceptedSource, pointer.sourceCommit);
+    await preservesAcceptedSource(pointer.sourceCommit);
     // Authenticate all envelope bytes against the original reviewed source, including rollback time.
     const original = await reviewed(snapshot.sourceCommit);
     if (original !== snapshotBytes.toString()) fail('catalogue_reviewed_bytes_mismatch');
@@ -241,11 +253,23 @@ function createCatalogueLoader(options = {}, deps = {}) {
         const directory = fs.lstatSync(cacheDirectory);
         if (!directory.isDirectory() || directory.isSymbolicLink() || (directory.mode & 0o077) ||
             (process.getuid && directory.uid !== process.getuid())) fail('catalogue_cache_permissions');
-        const stat = fs.lstatSync(cacheFile);
-        if (!stat.isFile() || stat.isSymbolicLink() || (stat.mode & 0o077) || stat.size > MAX_BYTES) {
-          fail('catalogue_cache_invalid');
+        const fd = fs.openSync(cacheFile, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW | fs.constants.O_NONBLOCK);
+        let cached;
+        try {
+          const stat = fs.fstatSync(fd);
+          if (!stat.isFile() || (stat.mode & 0o077) || stat.size > MAX_BYTES ||
+              (process.getuid && stat.uid !== process.getuid())) fail('catalogue_cache_invalid');
+          const bytes = Buffer.alloc(MAX_BYTES + 1);
+          let size = 0;
+          while (size < bytes.length) {
+            const count = fs.readSync(fd, bytes, size, bytes.length - size, null);
+            if (!count) break;
+            size += count;
+          }
+          cached = parse(bytes.subarray(0, size));
+        } finally {
+          fs.closeSync(fd);
         }
-        const cached = parse(fs.readFileSync(cacheFile));
         if (cached.schemaHash !== schemaHash || cached.cacheKey !== cacheKey) fail('catalogue_cache_invalid');
         if (source === 'github') acceptedSource = readPointer(json(cached.candidate.pointer)).sourceCommit;
         activate(cached.candidate, 'cache');

@@ -153,6 +153,13 @@ path, revision and both digest levels, then verifies
 `snapshot.sourceCommit <= pointer.sourceCommit <= main` using GitHub ancestry
 (`<=` means ancestor-or-equal).
 
+For an already accepted source, the candidate must also contain that source in
+its reachable commit history. Cached identifiers are compared locally, never
+sent in outbound requests. This check reads at most ten 100-commit pages selected
+by the network candidate, within the same total deadline. If history is too deep
+to establish ordering, activation fails explicitly and preserves eligible
+accepted state; the loader never assumes ancestry from timestamps.
+
 Ancestry alone is insufficient: a data-branch writer could otherwise fabricate
 prices and recompute hashes. The loader independently retrieves the committed
 baseline catalogue at the snapshot's reviewed source SHA, obtains that commit's

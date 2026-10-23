@@ -56,6 +56,10 @@ function githubFixture(pub = publication()) {
       if (suffix.includes(`${NEXT}...${FIRST}`)) return Buffer.from(json({ status: 'behind' }));
       return Buffer.from(json({ status: 'ahead', merge_base_commit: { sha: base } }));
     }
+    if (suffix.startsWith('/commits?')) {
+      return Buffer.from(json(pub.pointer.sourceCommit === FIRST
+        ? [{ sha: FIRST }] : [{ sha: NEXT }, { sha: FIRST }]));
+    }
     if (suffix.startsWith('/git/commits/')) {
       return Buffer.from(json({ sha: suffix.split('/').at(-1), committer: { date: '2026-10-22T00:00:00Z' } }));
     }
@@ -257,6 +261,52 @@ test('source/schema partitioned private atomic cache survives offline startup, r
   const unsafe = loader({ offline: true });
   await unsafe.start();
   expect(unsafe.capture()).toBeNull();
+});
+
+test('cache reads use the checked descriptor even if its pathname is replaced', async () => {
+  const online = loader({}, { getBytes: githubFixture() });
+  await online.start();
+  const cache = path.join(directory, 'cache', fs.readdirSync(path.join(directory, 'cache'))[0]);
+  const stat = fs.fstatSync.bind(fs);
+  jest.spyOn(fs, 'fstatSync').mockImplementation(fd => {
+    const result = stat(fd);
+    fs.renameSync(cache, `${cache}.original`);
+    fs.writeFileSync(cache, 'untrusted replacement', { mode: 0o600 });
+    return result;
+  });
+  const offline = loader({ offline: true });
+  await offline.start();
+  expect(offline.capture()?.revision).toBe(online.capture().revision);
+});
+
+test('cache symlinks are rejected without reading their target', async () => {
+  const online = loader({}, { getBytes: githubFixture() });
+  await online.start();
+  const cache = path.join(directory, 'cache', fs.readdirSync(path.join(directory, 'cache'))[0]);
+  fs.renameSync(cache, `${cache}.original`);
+  fs.symlinkSync(`${cache}.original`, cache);
+  const read = jest.spyOn(fs, 'readSync');
+  const offline = loader({ offline: true });
+  await offline.start();
+  expect(offline.capture()).toBeNull();
+  expect(read).not.toHaveBeenCalled();
+});
+
+test('cached source ordering uses only candidate-selected remote history, bounded to ten pages', async () => {
+  const online = loader({}, { getBytes: githubFixture() });
+  await online.start();
+  const get = githubFixture(publication('4', NEXT));
+  const history = jest.fn(async url => {
+    if (url.includes('/commits?')) return Buffer.from(json(Array.from({ length: 100 }, () => ({ sha: NEXT }))));
+    return get(url);
+  });
+  const restarted = loader({}, { getBytes: history });
+  await restarted.start();
+  expect(restarted.capture()?.revision).toBe(online.capture().revision);
+  expect(restarted.reflect().failure).toBe('catalogue_source_history_unavailable');
+  const queries = history.mock.calls.filter(([url]) => url.includes('/commits?'));
+  expect(queries).toHaveLength(10);
+  expect(queries.every(([url]) => url.includes(`sha=${NEXT}`) && !url.includes(FIRST))).toBe(true);
 });
 
 test('complete fresh provider prices win, partial provider loses to feed, runtime request rates stay pinned', async () => {
