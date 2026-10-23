@@ -85,6 +85,9 @@ describe('generateDockerCompose', () => {
       expect(apiProxyService.depends_on.router).toEqual({
         condition: 'service_healthy',
       });
+      expect(apiProxyService.depends_on['squid-proxy']).toEqual({
+        condition: 'service_healthy',
+      });
       expect(apiProxyService.volumes).toEqual(
         expect.arrayContaining([
           `${mockConfig.workDir}-routing/input:/run/awf-routing/input:ro`,

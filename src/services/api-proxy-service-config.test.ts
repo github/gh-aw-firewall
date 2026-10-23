@@ -112,6 +112,21 @@ describe('API proxy sidecar: service configuration', () => {
         expect(healthcheck.start_period).toBe('30s');
       });
 
+      it.each([
+        { openaiApiKey: 'sk-test-key' },
+        { authType: 'github-oidc', authProvider: 'anthropic' },
+      ])('should wait for healthy Squid before starting api-proxy with %o', (credentials) => {
+        const configWithProxy = { ...mockConfig, enableApiProxy: true, ...credentials };
+        const result = generateDockerCompose(configWithProxy, mockNetworkConfigWithProxy);
+        expect(result.services['api-proxy'].depends_on).toEqual({
+          'squid-proxy': { condition: 'service_healthy' },
+        });
+        expect(result.services['squid-proxy'].healthcheck).toBeDefined();
+        expect(result.services.agent.depends_on).toMatchObject({
+          'api-proxy': { condition: 'service_healthy' },
+        });
+      });
+
       it('should drop all capabilities', () => {
         const configWithProxy = { ...mockConfig, enableApiProxy: true, openaiApiKey: 'sk-test-key' };
         const result = generateDockerCompose(configWithProxy, mockNetworkConfigWithProxy);

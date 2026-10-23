@@ -62,6 +62,11 @@ export function buildApiProxyServiceConfig(params: ApiProxyServiceConfigParams):
     container_name: API_PROXY_CONTAINER_NAME,
     user: `${getSafeHostUid()}:${getSafeHostGid()}`,
     ...buildApiProxyLifecycleConfig(networkConfig),
+    depends_on: {
+      'squid-proxy': {
+        condition: 'service_healthy',
+      },
+    },
     volumes: applyHostPathPrefixToVolumes(
       [
         // Mount log directory for api-proxy logs
