@@ -12,6 +12,12 @@ const { json, digest, isCommit, readPointer } = require('./catalogue-contract/pu
 
 const ROOT = 'https://api.github.com/repos/github/gh-aw-firewall';
 const MAX_BYTES = 8 * 1024 * 1024;
+
+function ensurePrivateCacheDirectory(directory) {
+  fs.mkdirSync(directory, { recursive: true, mode: 0o700 });
+  try { fs.chmodSync(directory, 0o700); } catch (_) {}
+  return directory;
+}
 const DEFAULT_AGE = 30 * 24 * 3600;
 
 function fail(code) {
@@ -93,7 +99,8 @@ function createCatalogueLoader(options = {}, deps = {}) {
   }
   // Cache storage is operator-controlled proxy-private state, never an agent log/artifact mount.
   const cacheKey = digest(json({ source, local: local ? digest(json(local)) : null, schemaHash }));
-  const cacheDirectory = options.cacheDirectory || path.join(os.tmpdir(), `awf-model-catalogue-${process.getuid?.() ?? 'proxy'}`);
+  const cacheDirectory = options.cacheDirectory || ensurePrivateCacheDirectory(
+    path.join(os.tmpdir(), `awf-model-catalogue-${process.getuid?.() ?? 'proxy'}`));
   const cacheFile = path.join(cacheDirectory, `${cacheKey}.json`);
   let active = null;
   let acceptedSource = null;
