@@ -673,7 +673,25 @@ describe('public enclave conformance diagnostic retention', () => {
       expect(JSON.stringify(projected)).not.toContain(secret);
     });
 
-  it('preserves session counters and the chronological final event after truncation and malformed lines', () => {
+    it('projects operation errors independently and remains stable when reprojected', () => {
+      const fatal = {
+        event: 'operation-error', operation: 'output-read-close', category: 'io-error', errno: 5, fatal: true,
+      };
+      const projected = diagnostics.projectInvocation({
+        schemaVersion: 1, executorKind: 'agent', sequence: 42, elapsedMs: 700, checks: {}, milestones: [],
+        guestSession: {
+          status: 'captured', bytes: 128, rejected: 0, dropped: 0,
+          events: [fatal],
+          failure: fatal,
+          operationErrors: [fatal],
+        },
+      });
+      expect(projected.guestSession.operationErrors).toEqual([fatal]);
+      expect(projected.guestSession.failure).toEqual(fatal);
+      expect(diagnostics.projectInvocation(projected).guestSession.operationErrors).toEqual([fatal]);
+    });
+
+    it('preserves session counters and the chronological final event after truncation and malformed lines', () => {
     const first = { event: 'progress', stage: 'configuration-accepted' };
     const lines = [
       JSON.stringify(first),

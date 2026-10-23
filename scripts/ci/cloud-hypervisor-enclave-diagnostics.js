@@ -342,7 +342,6 @@ function projectInvocation(value) {
     }
     const events = [...session.events];
     if (session.failure) events.push(session.failure);
-    if (Array.isArray(session.operationErrors)) events.push(...session.operationErrors.slice(-16));
     if (session.output) events.push({ ...session.output, event: 'output-snapshot' });
     if (session.storageProbe) events.push({ ...session.storageProbe, event: 'storage-probe' });
     if (session.normalization) events.push({ ...session.normalization, event: 'output-normalization' });
@@ -358,9 +357,15 @@ function projectInvocation(value) {
     const projected = projectEnclaveSessionDiagnostics(
       Buffer.from(events.map(event => JSON.stringify(event) + '\n').join('')),
     );
+    const operationErrors = Array.isArray(session.operationErrors)
+      ? projectEnclaveSessionDiagnostics(Buffer.from(
+        session.operationErrors.slice(-16).map(event => JSON.stringify(event) + '\n').join(''),
+      )).operationErrors ?? []
+      : [];
     const lastEvent = session.lastEvent
       ? projectEnclaveSessionDiagnostics(Buffer.from(JSON.stringify(session.lastEvent))).lastEvent : undefined;
     guestSession = { ...projected, bytes: session.bytes, rejected: session.rejected, dropped: session.dropped };
+    guestSession.operationErrors = operationErrors;
     delete guestSession.lastEvent;
     if (lastEvent) guestSession.lastEvent = lastEvent;
   } else if (session !== undefined) {
