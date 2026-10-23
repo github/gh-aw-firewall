@@ -86,10 +86,32 @@ function createSingleToolAdmission() {
   };
 }
 
+function createBoundedToolAdmissionAudit(diagnosticAudit, limit = 4096) {
+  if (!diagnosticAudit) return undefined;
+  if (!Number.isSafeInteger(limit) || limit < 1) {
+    throw new Error('Tool admission diagnostic limit must be a positive integer');
+  }
+  let records = 0;
+  return {
+    lifecycle(event, record) {
+      if (event !== 'tool-admission') {
+        diagnosticAudit.lifecycle(event, record);
+        return;
+      }
+      if (records > limit) return;
+      records += 1;
+      diagnosticAudit.lifecycle(event, records > limit
+        ? { phase: 'diagnostics', status: 'limit-reached' }
+        : record);
+    },
+  };
+}
+
 function createMcpServer(deps) {
   const activeRequests = new Map();
   const dispatchDeps = {
     ...deps,
+    diagnosticAudit: createBoundedToolAdmissionAudit(deps.diagnosticAudit),
     tryAcquireToolCall: createSingleToolAdmission(),
   };
   const server = http.createServer({ maxHeaderSize: 8 * 1024 }, async (req, res) => {
@@ -472,6 +494,7 @@ if (require.main === module) {
 module.exports = {
   MAX_HTTP_BODY_BYTES,
   createMcpServer,
+  createBoundedToolAdmissionAudit,
   createSingleToolAdmission,
   listenOnPrivateNetwork,
   safeCapabilityEquals,

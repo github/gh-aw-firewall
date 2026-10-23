@@ -11,6 +11,7 @@ const {
 } = require(path.join(root, 'enclave', 'mcp-server', 'mcp-protocol.js'));
 const {
   createMcpServer,
+  createBoundedToolAdmissionAudit,
   createSingleToolAdmission,
   safeCapabilityEquals,
 } = require(path.join(root, 'enclave', 'mcp-server', 'server.js'));
@@ -35,6 +36,22 @@ const validArguments = {
 const { rpc, fakeBroker, canonicalErrorBroker } = createRpcTestHarness(CANONICAL_ERROR_RESPONSE_JSON);
 
 describe('AWF enclave MCP protocol', () => {
+  it('bounds repeated per-run tool-admission audit events', () => {
+    const lifecycle = jest.fn();
+    const audit = createBoundedToolAdmissionAudit({ lifecycle }, 2);
+    for (let index = 0; index < 5; index++) {
+      audit.lifecycle('tool-admission', { status: 'rejected', reason: 'tool-call-cap' });
+    }
+    audit.lifecycle('other-event', { status: 'retained' });
+
+    expect(lifecycle.mock.calls).toEqual([
+      ['tool-admission', { status: 'rejected', reason: 'tool-call-cap' }],
+      ['tool-admission', { status: 'rejected', reason: 'tool-call-cap' }],
+      ['tool-admission', { phase: 'diagnostics', status: 'limit-reached' }],
+      ['other-event', { status: 'retained' }],
+    ]);
+  });
+
   it.each(['busy', 'tool-call-cap'])('records protected %s rejection without changing the public response', async reason => {
     const lifecycle = jest.fn();
     const handler = canonicalErrorBroker();

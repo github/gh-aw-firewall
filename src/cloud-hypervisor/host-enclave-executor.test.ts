@@ -428,8 +428,21 @@ describe('readBoundedCloudHypervisorEnclaveResult', () => {
                 stderrBytes: 0, pendingFrameBytes: 0, resultReceived: false,
               });
               if (role === 'agent') {
-                request.stderr?.write('{"event":"operation-error","operation":"session-log-close",'
-                  + '"category":"no-space","errno":28,"fatal":false,"filename":"PRIVATE_SESSION_TOKEN"}\n');
+                for (let index = 0; index < 250; index++) {
+                  request.stderr?.write(Buffer.from(JSON.stringify({
+                    event: 'progress', stage: 'engine-started', padding: 'é'.repeat(80),
+                  }) + '\n'));
+                }
+                request.stderr?.write(Buffer.concat([
+                  Buffer.from('{"event":"progress","stage":"engine-started","padding":"'),
+                  Buffer.alloc(20 * 1024, 0x78),
+                  Buffer.from('"}\n'),
+                ]));
+                const fragmented = Buffer.from('{"event":"operation-error","operation":"session-log-close",'
+                  + '"category":"no-space","errno":28,"fatal":false,"note":"€"}\n');
+                const split = fragmented.indexOf(Buffer.from('€')) + 1;
+                request.stderr?.write(fragmented.subarray(0, split));
+                request.stderr?.write(fragmented.subarray(split));
                 request.stderr?.write('{"event":"failure","category":"result-empty","message":"PRIVATE_SESSION_TOKEN"}\n');
                 await fs.writeFile(path.join(invocationHostDir, 'runtime', 'session.jsonl'),
                   '{"event":"progress","stage":"engine-started","secret":"PRIVATE_SESSION_TOKEN"}\n');

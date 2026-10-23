@@ -302,15 +302,47 @@ export class CloudHypervisorHostEnclaveExecutorBackend implements HostEnclaveExe
       return { outcome: 'executor-failure' };
     }
     const diagnostic = new HostExecutorInvocationDiagnostics(this.options.runState, plan);
+    const maxWrapperStderrBytes = 16 * 1024;
     const stderrChunks: Buffer[] = [];
     let stderrBytes = 0;
+    let pendingStderrLine = Buffer.alloc(0);
+    let discardStderrLine = false;
+    const retainStderrLine = (line: Buffer): void => {
+      const record = Buffer.concat([line, Buffer.from('\n')]);
+      if (record.length > maxWrapperStderrBytes) return;
+      stderrChunks.push(record);
+      stderrBytes += record.length;
+      while (stderrBytes > maxWrapperStderrBytes) {
+        stderrBytes -= stderrChunks.shift()!.length;
+      }
+    };
     const wrapperStderr = new Writable({
       write(chunk: Buffer, _encoding, callback) {
-        const remaining = 16 * 1024 - stderrBytes;
-        if (remaining > 0) {
-          const bytes = Buffer.from(chunk.subarray(0, remaining));
-          stderrChunks.push(bytes);
-          stderrBytes += bytes.length;
+        let offset = 0;
+        while (offset < chunk.length) {
+          const newline = chunk.indexOf(0x0a, offset);
+          const end = newline < 0 ? chunk.length : newline;
+          const segment = chunk.subarray(offset, end);
+          if (discardStderrLine) {
+            if (newline < 0) break;
+            discardStderrLine = false;
+            offset = newline + 1;
+            continue;
+          }
+          if (pendingStderrLine.length + segment.length + 1 > maxWrapperStderrBytes) {
+            pendingStderrLine = Buffer.alloc(0);
+            if (newline < 0) {
+              discardStderrLine = true;
+              break;
+            }
+            offset = newline + 1;
+            continue;
+          }
+          pendingStderrLine = Buffer.concat([pendingStderrLine, segment]);
+          if (newline < 0) break;
+          retainStderrLine(pendingStderrLine);
+          pendingStderrLine = Buffer.alloc(0);
+          offset = newline + 1;
         }
         callback();
       },
