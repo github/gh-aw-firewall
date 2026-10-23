@@ -216,6 +216,17 @@ describe('credential-free data branch publication', () => {
     expect(remoteHead()).toBe(before);
   });
 
+  it('retries snapshots larger than the default subprocess output limit', () => {
+    const large = JSON.parse(snapshot());
+    large.models.push(...Array.from({ length: 2048 }, () => large.models[0]));
+    large.revision = digest(json(payload(large)));
+    large.sha256 = large.revision;
+    const bytes = json(large);
+    expect(Buffer.byteLength(bytes)).toBeGreaterThan(1024 * 1024);
+    expect(run(bytes)).toMatch(/^published/);
+    expect(run(bytes)).toBe('unchanged');
+  });
+
   it('retains immutable history and reuses existing bytes on a reviewed rollback', () => {
     const first = snapshot();
     run(first);
@@ -242,6 +253,29 @@ describe('credential-free data branch publication', () => {
     source();
     expect(run()).toBe('unchanged');
     expect(run(intermediate, intermediateSource)).toMatch(/^superseded/);
+    expect(remoteHead()).toBe(before);
+  });
+
+  it('does not publish a delayed price change after a merge rolls inputs back', () => {
+    const a = head();
+    run(snapshot(a));
+    const b = source();
+    const bBytes = snapshot(b, '2');
+
+    git(work, 'checkout', '--quiet', '-b', 'side', a);
+    fs.writeFileSync(path.join(work, 'unrelated'), 'side branch');
+    git(work, 'add', '.');
+    git(work, 'commit', '--quiet', '-m', 'unrelated side branch');
+    git(work, 'checkout', '--quiet', 'main');
+    git(work, 'merge', '--no-ff', '--no-commit', 'side');
+    git(work, 'restore', '--source', a, '--staged', '--worktree', '--',
+      'scripts/model-information/input.json');
+    git(work, 'commit', '--quiet', '--no-edit');
+    git(work, 'push', '--quiet', 'origin', 'main');
+
+    expect(run(snapshot(head()))).toBe('unchanged');
+    const before = remoteHead();
+    expect(run(bBytes, b)).toMatch(/^superseded/);
     expect(remoteHead()).toBe(before);
   });
 
@@ -410,7 +444,7 @@ describe('trusted publication workflow graph', () => {
     const workflow = yaml.load(fs.readFileSync(path.join(root, '.github/workflows/publish-model-catalogue.yml'), 'utf8')) as {
       on: { push: { branches: string[]; paths: string[] } };
       permissions: object;
-      concurrency: { group: string; 'cancel-in-progress': boolean };
+      concurrency: { group: string; queue: string; 'cancel-in-progress': boolean };
       jobs: Record<string, {
         needs?: string; if: string; permissions?: object;
         steps: Array<{ uses?: string; run?: string; with?: Record<string, unknown>; env?: Record<string, string> }>;
@@ -420,9 +454,11 @@ describe('trusted publication workflow graph', () => {
     expect(workflow.on.push.branches).toEqual(['main']);
     expect(workflow.on.push.paths).toEqual(inputPaths);
     expect(workflow.permissions).toEqual({ contents: 'read' });
+    expect(workflow.concurrency.queue).toBe('max');
     expect(workflow.concurrency['cancel-in-progress']).toBe(false);
     const { build, publish: writer } = workflow.jobs;
     expect(writer.needs).toBe('build');
+    expect(writer.if).toContain("vars.MODEL_CATALOGUE_PHASE5_LOADER_AUTH_TESTS_PASSED == 'true'");
     expect(writer.permissions).toEqual({ contents: 'write' });
     for (const job of [build, writer]) {
       expect(job.if).toContain("github.repository == 'github/gh-aw-firewall'");

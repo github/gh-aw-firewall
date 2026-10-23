@@ -22,6 +22,7 @@ permissions:
 
 concurrency:
   group: model-catalogue-publication-v1
+  queue: max
   cancel-in-progress: false
 
 jobs:
@@ -53,7 +54,7 @@ jobs:
 
   publish:
     needs: build
-    if: github.repository == 'github/gh-aw-firewall' && github.ref == 'refs/heads/main' && github.event_name == 'push'
+    if: github.repository == 'github/gh-aw-firewall' && github.ref == 'refs/heads/main' && github.event_name == 'push' && vars.MODEL_CATALOGUE_PHASE5_LOADER_AUTH_TESTS_PASSED == 'true'
     permissions:
       contents: write
     runs-on: ubuntu-latest

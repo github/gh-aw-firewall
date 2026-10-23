@@ -37,7 +37,7 @@ function publish({ cwd, bytes, expectedDigest, sourceCommit }) {
     if (!entry) return null;
     const match = /^100644 blob ([a-f0-9]{40})\t/.exec(entry);
     if (!match) throw new Error(`Expected ordinary immutable file: ${file}`);
-    return execFileSync('git', ['cat-file', 'blob', match[1]], { cwd, env });
+    return execFileSync('git', ['cat-file', 'blob', match[1]], { cwd, env, maxBuffer: Infinity });
   };
   const add = (file, content) => {
     const hash = execFileSync('git', ['hash-object', '-w', '--stdin'], { cwd, env, input: content, encoding: 'utf8' }).trim();
@@ -48,7 +48,7 @@ function publish({ cwd, bytes, expectedDigest, sourceCommit }) {
       git('fetch', '--no-tags', 'origin', 'refs/heads/main:refs/remotes/origin/main');
       const main = git('rev-parse', 'refs/remotes/origin/main');
       if (!ancestor(sourceCommit, main)) throw new Error('Publication source is not on trusted main');
-      if (git('log', '-1', '--format=%H', `${sourceCommit}..${main}`, '--', ...inputPaths)) {
+      if (git('log', '--show-pulls', '-1', '--format=%H', `${sourceCommit}..${main}`, '--', ...inputPaths)) {
         return 'superseded: newer publication inputs on main';
       }
       // ls-remote failure is not an absent branch (and must never bootstrap one).
