@@ -917,9 +917,11 @@ changes) leave source captures, timestamps, reports and pending PRs untouched.
 Source/API layout changes, conflicting human edits, unknown evidence or failed
 checks are incomplete runs, not successful no-ops.
 
-This is scheduled reviewed source upkeep only: no automatic merge, publication,
-runtime refresh/cache or activation of staged corrections. Central publication
-still depends on Gate 5 loader/source authentication. Workflow-created PRs use
+This updater is scheduled reviewed source upkeep only: no automatic merge,
+runtime refresh/cache or activation of staged corrections. A separate ordinary
+post-merge publisher now implements the publication-only portion of Gate 8;
+see [the producer contract and automation](../model-catalogue-publication.md).
+It does not implement Gate 5 loading/source authentication. Workflow-created PRs use
 the existing token/safe-output mechanism; GitHub may require maintainer action
 to run CI for `GITHUB_TOKEN`-authored changes. No app/token provisioning or live
 workflow dispatch is part of this implementation.
@@ -1211,8 +1213,10 @@ review the snapshot and all projections together. The current
 bundled copy has **unknown upstream retrieval time and license**: its
 `retrievedAt` denotes only the verifiable Git repository-capture commit time.
 It accepts 355 entries, rejects 11 and reports no normalized collisions.
-Scheduled reviewed source upkeep is described above; central publication
-remains separately gated.
+Scheduled reviewed source upkeep is described above. The separate
+[publication-only producer](../model-catalogue-publication.md) distributes a
+strict pricing/harness projection after approved main merges; runtime loading
+and source-authenticated activation remain separately gated.
 
 | Source of facts | Consumer and compiled projection | Activation |
 | --- | --- | --- |
@@ -1377,6 +1381,15 @@ must already have been retargeted or paused at Gate 3.
 
 Publish reviewed versioned central snapshots through the same source-aware
 pipeline used for bundled projections.
+
+The publication-only slice now has a deterministic post-merge Actions producer,
+automatic data-branch bootstrap, immutable versioned snapshots and an atomic
+current channel. It publishes only maintained pricing/harness facts, not the
+complete assembled or staged exports. See the
+[publication contract](../model-catalogue-publication.md) for ordering,
+integrity, transport/source trust and GitHub token-event limits. This producer
+can ship before the Gate 5 loader; no runtime consumer/authentication integration
+or completion of all Gate 8 work is implied.
 
 ### Gate 9: Legacy removal
 
