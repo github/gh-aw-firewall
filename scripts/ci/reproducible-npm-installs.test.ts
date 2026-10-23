@@ -23,6 +23,21 @@ function expectExactLockEntry(
 }
 
 describe('reproducible npm CLI installs', () => {
+  it.each(['api-proxy', 'cli-proxy'])(
+    'uses registry tarballs compatible with npm remote-fetch restrictions in %s',
+    (sidecar) => {
+      const lock = readJson(`containers/${sidecar}/package-lock.json`);
+      const packages = lock.packages as Record<string, { resolved?: string }>;
+      for (const [packagePath, entry] of Object.entries(packages)) {
+        if (packagePath === '') continue;
+        expect({ packagePath, resolved: entry.resolved }).toEqual({
+          packagePath,
+          resolved: expect.stringMatching(/^https:\/\/registry\.npmjs\.org\//),
+        });
+      }
+    },
+  );
+
   it('uses a lockfile-pinned local pkg executable for release binaries', () => {
     const packageJson = readJson('package.json');
     const packageLock = readJson('package-lock.json');
