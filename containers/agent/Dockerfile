@@ -130,7 +130,7 @@ RUN if getent hosts azure.archive.ubuntu.com >/dev/null 2>&1; then \
     fi
 
 # Install required and runner-parity packages, apply security upgrades, then install
-# Node.js 22.23.2 and npm 11.18.0. Keeping apt work in one layer avoids repeatedly
+# Node.js 22.23.2 and npm 12.2.1. Keeping apt work in one layer avoids repeatedly
 # downloading package indexes during cold CI builds.
 # Note: Some packages may already exist in runner-like base images, apt handles this gracefully
 # apt_update_retry: retries up to 3 times with backoff; if all fail, reverts to archive.ubuntu.com
@@ -286,30 +286,30 @@ RUN set -eux; \
         node --version | grep -qE '^v22\.23\.2' || (echo "ERROR: Node.js 22.23.2 not installed correctly" && exit 1) && \
         npx --version || (echo "ERROR: npx not found" && exit 1); \
     fi && \
-    # Replace Node's bundled npm 10.x with npm 11.18.0
+    # Replace Node's bundled npm 10.x with npm 12.2.1
     # Download the tarball and verify its SHA-256 before installing
-    NPM_TGZ_URL="https://registry.npmjs.org/npm/-/npm-11.18.0.tgz" && \
-    NPM_TGZ_SHA256="73f6155215ebabf4ed96dca1f567c2372cc713c33af2e5b9b62fde4e92373e2e" && \
-    curl -fsSL "$NPM_TGZ_URL" -o /tmp/npm-11.18.0.tgz && \
-    echo "${NPM_TGZ_SHA256}  /tmp/npm-11.18.0.tgz" | sha256sum -c - && \
+    NPM_TGZ_URL="https://registry.npmjs.org/npm/-/npm-12.2.1.tgz" && \
+    NPM_TGZ_SHA256="228bd64aaef23270dbdbd2cf3d5ef5c467602ef38c4066246cef1984adab9a67" && \
+    curl -fsSL "$NPM_TGZ_URL" -o /tmp/npm-12.2.1.tgz && \
+    echo "${NPM_TGZ_SHA256}  /tmp/npm-12.2.1.tgz" | sha256sum -c - && \
     # Remove stale npm 10.x trees so scanners do not retain them
     rm -rf /usr/lib/node_modules/npm /usr/local/lib/node_modules/npm && \
     rm -f /usr/bin/npm /usr/bin/npx /usr/local/bin/npm /usr/local/bin/npx && \
-    # Extract npm 11.18.0 manually — avoids executing node under QEMU (node segfaults there)
+    # Extract npm 12.2.1 manually — avoids executing node under QEMU (node segfaults there)
     mkdir -p /usr/local/lib/node_modules/npm && \
-    tar -xzf /tmp/npm-11.18.0.tgz -C /usr/local/lib/node_modules/npm --strip-components=1 && \
+    tar -xzf /tmp/npm-12.2.1.tgz -C /usr/local/lib/node_modules/npm --strip-components=1 && \
     chmod +x /usr/local/lib/node_modules/npm/bin/npm-cli.js \
              /usr/local/lib/node_modules/npm/bin/npx-cli.js && \
     ln -sf /usr/local/lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm && \
     ln -sf /usr/local/lib/node_modules/npm/bin/npx-cli.js /usr/local/bin/npx && \
     # Verify version on non-QEMU builds (node segfaults under QEMU)
     if [ "$UNDER_QEMU" = "false" ]; then \
-        npm --version | grep -qE '^11\.18\.0' || (echo "ERROR: npm 11.18.0 not installed correctly" && exit 1); \
+        npm --version | grep -qE '^12\.2\.1' || (echo "ERROR: npm 12.2.1 not installed correctly" && exit 1); \
     fi && \
-    rm -f /tmp/npm-11.18.0.tgz && \
+    rm -f /tmp/npm-12.2.1.tgz && \
     rm -rf /var/lib/apt/lists/*
 
-# Replace vulnerable npm-bundled dependencies without changing the pinned npm release.
+# Pin npm-bundled dependencies to reviewed fixed versions.
 RUN set -eux; \
     npm_dir=/usr/local/lib/node_modules/npm/node_modules; \
     curl -fsSL https://registry.npmjs.org/undici/-/undici-6.28.1.tgz -o /tmp/undici-6.28.1.tgz; \

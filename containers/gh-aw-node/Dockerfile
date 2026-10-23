@@ -15,7 +15,7 @@
 #     backport patch; no additional steps are required.
 #
 #   npm's bundled undici, brace-expansion, and ip-address: replaced with
-#     pinned fixed releases after installing npm 11.18.0 below.
+#     pinned fixed releases after installing npm 12.2.1 below.
 #
 #   curl >= 8.23.0-r0: Alpine 3.24's stable repository still ships curl
 #     8.22.0-r0, affected by CVE-2026-92392, so the fixed package is installed
@@ -30,26 +30,26 @@ RUN apk upgrade --no-cache && \
         --repository=https://dl-cdn.alpinelinux.org/alpine/edge/main \
         "curl>=8.23.0-r0"
 
-# Replace Node's bundled npm with npm 11.18.0.
+# Replace Node's bundled npm with npm 12.2.1.
 # Install from the registry tarball (same method as the api-proxy image) for a clean
 # replacement -- avoids leaving stale npm 10.x bundles in the image layers.
 RUN set -eux; \
-    NPM_TGZ_URL="https://registry.npmjs.org/npm/-/npm-11.18.0.tgz"; \
-    NPM_TGZ_SHA256="73f6155215ebabf4ed96dca1f567c2372cc713c33af2e5b9b62fde4e92373e2e"; \
-    curl -fsSL "$NPM_TGZ_URL" -o /tmp/npm-11.18.0.tgz; \
-    echo "${NPM_TGZ_SHA256}  /tmp/npm-11.18.0.tgz" | sha256sum -c -; \
+    NPM_TGZ_URL="https://registry.npmjs.org/npm/-/npm-12.2.1.tgz"; \
+    NPM_TGZ_SHA256="228bd64aaef23270dbdbd2cf3d5ef5c467602ef38c4066246cef1984adab9a67"; \
+    curl -fsSL "$NPM_TGZ_URL" -o /tmp/npm-12.2.1.tgz; \
+    echo "${NPM_TGZ_SHA256}  /tmp/npm-12.2.1.tgz" | sha256sum -c -; \
     rm -rf /usr/local/lib/node_modules/npm; \
     mkdir -p /usr/local/lib/node_modules/npm; \
-    tar -xzf /tmp/npm-11.18.0.tgz -C /usr/local/lib/node_modules/npm --strip-components=1; \
+    tar -xzf /tmp/npm-12.2.1.tgz -C /usr/local/lib/node_modules/npm --strip-components=1; \
     chmod +x /usr/local/lib/node_modules/npm/bin/npm-cli.js \
              /usr/local/lib/node_modules/npm/bin/npx-cli.js; \
     ln -sf /usr/local/lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm; \
     ln -sf /usr/local/lib/node_modules/npm/bin/npx-cli.js /usr/local/bin/npx; \
     node --version | grep -qE '^v26\.11\.1' || (echo "ERROR: expected Node.js v26.11.1" && exit 1); \
-    npm --version | grep -qE '^11\.18\.0' || (echo "ERROR: expected npm 11.18.0" && exit 1); \
-    rm -f /tmp/npm-11.18.0.tgz
+    npm --version | grep -qE '^12\.2\.1' || (echo "ERROR: expected npm 12.2.1" && exit 1); \
+    rm -f /tmp/npm-12.2.1.tgz
 
-# Replace vulnerable npm-bundled dependencies without changing the pinned npm release.
+# Pin npm-bundled dependencies to reviewed fixed versions.
 RUN set -eux; \
     npm_dir=/usr/local/lib/node_modules/npm/node_modules; \
     curl -fsSL https://registry.npmjs.org/undici/-/undici-6.28.1.tgz -o /tmp/undici-6.28.1.tgz; \
