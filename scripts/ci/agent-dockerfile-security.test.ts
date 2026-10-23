@@ -32,10 +32,9 @@ describe('agent Dockerfile security hardening', () => {
 
   it('retries connection resets within a bounded budget for every npm download', () => {
     const instruction = npmInstallInstruction();
-    const downloads = instruction.match(/curl\b[^&;]+/g) ?? [];
-    const npmDownloads = downloads.filter(command =>
-      command.includes('registry.npmjs.org') || command.includes('"$NPM_TGZ_URL"'),
-    );
+    const npmInstallStart = instruction.indexOf('NPM_TGZ_URL=');
+    expect(npmInstallStart).toBeGreaterThan(0);
+    const npmDownloads = instruction.slice(npmInstallStart).match(/curl\b[^&;]+/g) ?? [];
 
     expect(npmDownloads).toHaveLength(4);
     for (const command of npmDownloads) {
