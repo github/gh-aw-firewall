@@ -1,0 +1,513 @@
+'use strict';
+
+const assert = require('node:assert/strict');
+const crypto = require('node:crypto');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
+const { spawn, spawnSync } = require('node:child_process');
+
+// Release-published checksums and containers.txt, not candidate runtime code.
+const RELEASE = Object.freeze({
+  version: '0.28.75',
+  binarySha256: '796e3c5d46f54f2c2c45a68afbbf5368dd70666341e08052cbefe7d8fd766946',
+  images: Object.freeze({
+    squid: 'ghcr.io/github/gh-aw-firewall/squid:0.28.75@sha256:acc55719d3816ebba2af7393d13bc72c690ddedf4e3ec74340104e3e0bda6b4d',
+    agent: 'ghcr.io/github/gh-aw-firewall/agent:0.28.75@sha256:36ffe93f119df4dde5737e96fd5fe21e93f9ed8f0851bbb8344d685747fbbd40',
+    apiProxy: 'ghcr.io/github/gh-aw-firewall/api-proxy:0.28.75@sha256:e2c27ef4403bda921331fd3be5da297fd2865fcf42e2b2aba7d6b4c34073acdd',
+  }),
+});
+const API = 'https://api.github.com/repos/github/gh-aw-firewall';
+const CACHE = '/tmp/catalogue-smoke-private';
+const COMMIT = /^[a-f0-9]{40}$/;
+const REVISION = /^[a-f0-9]{64}$/;
+const MODELS = ['claude-haiku-4.5', 'gpt-5-mini', 'claude-haiku-5.5'];
+const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
+
+function run(command, args, options = {}) {
+  const result = spawnSync(command, args, {
+    encoding: 'utf8', timeout: 30000, maxBuffer: 8 * 1024 * 1024, ...options,
+  });
+  // Subprocess output can contain credentials or payloads. Never relay it.
+  assert.equal(result.status, 0, 'smoke_subprocess_failed');
+  return result.stdout.trim();
+}
+
+function failureCode(error) {
+  const firstLine = error?.message?.split('\n')[0];
+  const allowed = new Set([
+    'approved_actions_only', 'trusted_main_only', 'trusted_event_only',
+    'approved_copilot_credential_missing', 'release_download', 'release_digest', 'release_version',
+    'existing_awf_containers', 'existing_awf_networks', 'smoke_subprocess_failed', 'smoke_case_failed',
+    'awf_exited_before_readiness', 'catalogue_readiness_timeout', 'catalogue_unexpected_fallback',
+    'catalogue_revision_missing', 'catalogue_origin', 'catalogue_source', 'denial_failure',
+    'publication_revision', 'publication_source', 'publication_no_applicable_tariff',
+    'no_available_reviewed_smoke_model', 'copilot_not_configured', 'accounting_timeout',
+    'accounting_record_count', 'accounting_precedence', 'accounting_revision',
+    'accounting_release', 'accounting_model', 'accounting_usage_missing', 'accounting_token_bound',
+    'accounting_credit_bound', 'bundled_pricing_changed', 'agent_readiness_timeout',
+    'network_capture_start', 'network_capture_exited', 'network_capture_bound', 'network_capture_dropped',
+    'network_capture_incomplete', 'unexpected_direct_network_attempt', 'offline_network_attempt',
+    'offline_feed_request', 'denial_not_observed', 'unexpected_catalogue_failover',
+    'proxy_network_count', 'proxy_ip', 'proxy_not_internal', 'unexpected_ipv6',
+    'cache_shared_mount', 'unexpected_operator_pricing', 'running_image_reference',
+    'running_image_id', 'agent_credential_exposed', 'fallback_credentials_present',
+  ]);
+  return allowed.has(firstLine) ? firstLine : 'smoke_operation_failed';
+}
+
+function projectCatalogue(value) {
+  assert.equal(value?.source, 'github/gh-aw-firewall', 'catalogue_source');
+  assert.ok(['pending', 'active', 'offline_bundled', 'fallback_bundled'].includes(value.state),
+    'catalogue_state');
+  const result = { source: value.source, state: value.state };
+  for (const [key, pattern] of [['revision', REVISION], ['sourceCommit', COMMIT]]) {
+    if (value[key] != null) {
+      assert.match(value[key], pattern, `catalogue_${key}`);
+      result[key] = value[key];
+    }
+  }
+  if (value.origin != null) {
+    assert.equal(value.origin, 'network', 'catalogue_origin');
+    result.origin = value.origin;
+  }
+  if (value.failure != null) {
+    assert.match(value.failure, /^catalogue_[a-z0-9_]{1,80}$/, 'catalogue_failure');
+    result.failure = value.failure;
+  }
+  return result;
+}
+
+async function waitForCatalogue(read, mode, { timeoutMs = 45000, delay = sleep, now = Date.now } = {}) {
+  const deadline = now() + timeoutMs;
+  while (now() < deadline) {
+    const value = await read();
+    if (value) {
+      const catalogue = projectCatalogue(value.model_catalogue);
+      if (catalogue.state !== 'pending') {
+        assert.equal(catalogue.state,
+          mode === 'online' ? 'active' : mode === 'offline' ? 'offline_bundled' : 'fallback_bundled',
+          'catalogue_unexpected_fallback');
+        if (mode === 'online') {
+          assert.equal(catalogue.origin, 'network', 'catalogue_not_network');
+          assert.match(catalogue.revision || '', REVISION, 'catalogue_revision_missing');
+          assert.match(catalogue.sourceCommit || '', COMMIT, 'catalogue_source_missing');
+          assert.equal(catalogue.failure, undefined, 'catalogue_failure_present');
+          if (!value.models_fetch_complete) {
+            await delay(250);
+            continue;
+          }
+        } else {
+          assert.equal(catalogue.revision, undefined, 'fallback_not_fresh');
+          if (mode === 'denied') {
+            assert.ok(['catalogue_http_403', 'catalogue_invalid_or_unavailable'].includes(catalogue.failure),
+              'denial_failure');
+          }
+        }
+        return { catalogue, reflection: value };
+      }
+    }
+    await delay(250);
+  }
+  throw new Error('catalogue_readiness_timeout');
+}
+
+function selectModel(reflection, candidate, now = Date.now()) {
+  const endpoint = reflection.endpoints?.find(entry => entry.provider === 'copilot');
+  assert.equal(endpoint?.configured, true, 'copilot_not_configured');
+  assert.ok(Array.isArray(endpoint.models), 'copilot_models_missing');
+  const model = MODELS.find(id => endpoint.models.includes(id) && candidate.models.includes(id));
+  assert.ok(model, 'no_available_reviewed_smoke_model');
+  const metadata = endpoint.model_metadata?.find(entry => entry.id === model);
+  const tier = metadata?.pricing?.default;
+  const observed = Date.parse(metadata?.observed_at);
+  const completeProvider = !!tier &&
+    ['input', 'output', 'cachedInput', 'cacheWrite'].every(key =>
+      Object.hasOwn(tier, key) && Number.isFinite(tier[key]) && tier[key] >= 0) &&
+    observed <= now && now - observed <= 30 * 86400000;
+  return { model, expectedSource: completeProvider ? 'provider' : 'central_feed' };
+}
+
+function assertAccounting(records, selection, catalogue) {
+  assert.equal(records.length, 1, 'accounting_record_count');
+  const record = records[0];
+  assert.equal(record._schema, `token-usage/v${RELEASE.version}`, 'accounting_release');
+  assert.equal(record.provider, 'copilot', 'accounting_provider');
+  assert.equal(record.model, selection.model, 'accounting_model');
+  assert.equal(record.status, 200, 'accounting_status');
+  for (const field of ['input_tokens', 'output_tokens']) {
+    assert.ok(Number.isSafeInteger(record[field]) && record[field] > 0, 'accounting_usage_missing');
+  }
+  assert.ok(record.output_tokens <= 16 && record.input_tokens <= 4096, 'accounting_token_bound');
+  assert.ok(Number.isFinite(record.ai_credits_this_response) &&
+    record.ai_credits_this_response >= 0 && record.ai_credits_this_response <= 1, 'accounting_credit_bound');
+  assert.equal(record.ai_credits_pricing_source, selection.expectedSource, 'accounting_precedence');
+  assert.equal(record.ai_credits_pricing_tier, 'default', 'accounting_tier');
+  assert.equal(record.ai_credits_fallback_pricing_used, false, 'accounting_fallback');
+  if (selection.expectedSource === 'central_feed') {
+    assert.equal(record.ai_credits_pricing_catalog_id, catalogue.source, 'accounting_source');
+    assert.equal(record.ai_credits_pricing_catalog_version, catalogue.revision, 'accounting_revision');
+  } else {
+    assert.equal(record.ai_credits_pricing_catalog_version, undefined, 'provider_not_central');
+    assert.ok(Number.isFinite(Date.parse(record.ai_credits_pricing_observed_at)), 'provider_provenance');
+  }
+  return {
+    model: selection.model, provider: 'copilot',
+    input_tokens: record.input_tokens, output_tokens: record.output_tokens,
+    ai_credits: record.ai_credits_this_response, pricing_source: selection.expectedSource,
+    ...(selection.expectedSource === 'central_feed' ? { revision: catalogue.revision } : {}),
+    central_accounting: selection.expectedSource === 'central_feed' ? 'exercised' : 'not_exercised_provider_precedence',
+  };
+}
+
+function assertNetwork(mode, packets, captureSummary, squidLog) {
+  assert.match(captureSummary, /\b0 packets dropped by kernel\b/, 'network_capture_dropped');
+  const captured = captureSummary.match(/\b(\d+) packets captured\b/);
+  const received = captureSummary.match(/\b(\d+) packets received by filter\b/);
+  assert.ok(captured && received, 'network_capture_incomplete');
+  const lines = packets.trim() ? packets.trim().split('\n') : [];
+  assert.equal(Number(captured[1]), lines.length, 'network_capture_incomplete');
+  assert.equal(Number(received[1]), lines.length, 'network_capture_incomplete');
+  // tcpdump captures only initial outbound TCP SYNs; no payload or headers.
+  for (const line of lines) {
+    assert.match(line, / IP 172\.30\.0\.30\.\d+ > 172\.30\.0\.10\.3128: Flags \[S\]/,
+      'unexpected_direct_network_attempt');
+  }
+  const requests = squidLog.split('\n').filter(line => /\s172\.30\.0\.30:\d+\s/.test(line));
+  if (mode === 'offline') {
+    assert.equal(lines.length, 0, 'offline_network_attempt');
+    assert.equal(requests.length, 0, 'offline_feed_request');
+  } else {
+    assert.ok(lines.length > 0 && requests.length > 0, 'denial_not_observed');
+    for (const request of requests) {
+      assert.match(request, /\sCONNECT 403 TCP_DENIED:HIER_NONE api\.github\.com:443\s/,
+        'unexpected_catalogue_failover');
+    }
+  }
+  return { outbound_tcp_syns: lines.length, squid_requests: requests.length,
+    denied_catalogue_requests: mode === 'denied' ? requests.length : 0,
+    alternate_tcp_destinations: 0, kernel_drops: 0 };
+}
+
+function config(mode) {
+  return {
+    network: { isolation: true, allowDomains: mode === 'denied' ? ['example.invalid']
+      : mode === 'offline' ? ['api.githubcopilot.com'] : ['api.github.com', 'api.githubcopilot.com'] },
+    apiProxy: { enabled: true, maxAiCredits: 1, maxRuns: 1,
+      modelCatalogue: { enabled: true, source: 'github', offline: mode === 'offline',
+        timeoutMs: 30000, refreshSeconds: 3600, cacheDirectory: CACHE } },
+    container: { images: RELEASE.images, agentTimeout: 5 },
+  };
+}
+
+function proxyScript(container, body, args = []) {
+  return run('docker', ['exec', container, 'node', '-e',
+    `(async()=>{${body}})().catch(()=>process.exit(1))`, ...args], { timeout: 120000 });
+}
+
+function reflection(container) {
+  // A missing container/listener is retryable; a malformed 200 response is not.
+  const result = spawnSync('docker', ['exec', container, 'node', '-e',
+    "fetch('http://127.0.0.1:10000/reflect',{signal:AbortSignal.timeout(2000)})" +
+    ".then(async r=>{if(r.status!==200)process.exit(1);process.stdout.write(await r.text())})" +
+    '.catch(()=>process.exit(1))'], { encoding: 'utf8', timeout: 5000, maxBuffer: 8 * 1024 * 1024 });
+  if (result.status !== 0) return null;
+  return JSON.parse(result.stdout);
+}
+
+async function captureNetwork() {
+  const child = spawn('tcpdump', ['-i', 'any', '--immediate-mode', '-nn', '-l', '-s', '96',
+    'src host 172.30.0.30 and tcp[tcpflags] & (tcp-syn|tcp-ack) = tcp-syn'],
+  { stdio: ['ignore', 'pipe', 'pipe'] });
+  let packets = '';
+  let summary = '';
+  let exited = false;
+  child.on('error', () => { exited = true; });
+  const closed = new Promise(resolve => child.on('close', () => { exited = true; resolve(); }));
+  child.stdout.on('data', bytes => { packets += bytes; });
+  child.stderr.on('data', bytes => { summary += bytes; });
+  try {
+    const deadline = Date.now() + 5000;
+    while (!summary.includes('listening on any')) {
+      assert.ok(!exited && Date.now() < deadline, 'network_capture_start');
+      await sleep(50);
+    }
+  } catch (error) {
+    child.kill('SIGINT');
+    await closed;
+    throw error;
+  }
+  let completion;
+  return () => {
+    if (!completion) completion = (async () => {
+      assert.equal(exited, false, 'network_capture_exited');
+      child.kill('SIGINT');
+      await closed;
+      assert.ok(packets.length < 1024 * 1024, 'network_capture_bound');
+      return { packets, summary };
+    })();
+    return completion;
+  };
+}
+
+function verifyTopology(proxy) {
+  const info = JSON.parse(run('docker', ['inspect', proxy]))[0];
+  const networks = Object.entries(info.NetworkSettings.Networks);
+  assert.equal(networks.length, 1, 'proxy_network_count');
+  assert.equal(networks[0][1].IPAddress, '172.30.0.30', 'proxy_ip');
+  const network = JSON.parse(run('docker', ['network', 'inspect', networks[0][0]]))[0];
+  assert.equal(network.Internal, true, 'proxy_not_internal');
+  assert.equal(network.EnableIPv6, false, 'unexpected_ipv6');
+  assert.ok(!info.Mounts.some(mount => CACHE.startsWith(`${mount.Destination}/`) ||
+    mount.Destination === CACHE), 'cache_shared_mount');
+  assert.ok(!info.Config.Env.some(entry => /^(AWF_MODEL_PRICING_CATALOG|AWF_API_PROXY_PROVIDERS|AWF_DEFAULT_AI_CREDITS_PRICING)=/.test(entry)),
+    'unexpected_operator_pricing');
+  return { internal: true, ipv6: false, private_cache: true };
+}
+
+function publication(proxy, catalogue) {
+  const result = JSON.parse(proxyScript(proxy, `
+    const fs=require('node:fs');
+    const files=fs.readdirSync('${CACHE}').filter(f=>f.endsWith('.json'));
+    if(files.length!==1)throw Error();
+    const {candidate}=JSON.parse(fs.readFileSync('${CACHE}/'+files[0],'utf8'));
+    const sha=candidate.dataCommit;
+    if(!/^[a-f0-9]{40}$/.test(sha))throw Error();
+    const https=require('node:https');
+    const {proxyAgent}=require('/app/http-client');
+    const bytes=await new Promise((resolve,reject)=>{
+      const r=https.get('${API}/contents/channels/v1/current.json?ref='+sha,{
+        agent:proxyAgent,headers:{Accept:'application/vnd.github.raw+json','User-Agent':'awf-catalogue-smoke'}
+      },res=>{
+        if(res.statusCode!==200){res.resume();reject(Error());return}
+        const chunks=[];let size=0;
+        res.on('data',b=>{size+=b.length;if(size>16384)res.destroy(Error());else chunks.push(b)});
+        res.on('error',reject);res.on('end',()=>resolve(Buffer.concat(chunks)));
+      });
+      r.setTimeout(10000,()=>r.destroy(Error()));r.on('error',reject);
+    });
+    const pointer=JSON.parse(bytes);
+    if(JSON.stringify(pointer)!==JSON.stringify(candidate.pointer))throw Error();
+    const snapshot=JSON.parse(candidate.snapshot);
+    const {resolveCentralPricing}=require('/app/catalogue-pricing');
+    const capture={snapshot,time:Date.now(),maxAge:30*86400000,source:'github/gh-aw-firewall',revision:snapshot.revision};
+    const models=${JSON.stringify(MODELS)}.filter(id=>resolveCentralPricing('copilot',id,100,capture));
+    process.stdout.write(JSON.stringify({dataCommit:sha,revision:pointer.revision,sourceCommit:pointer.sourceCommit,models}));
+  `));
+  assert.match(result.dataCommit, COMMIT, 'publication_commit');
+  assert.equal(result.revision, catalogue.revision, 'publication_revision');
+  assert.equal(result.sourceCommit, catalogue.sourceCommit, 'publication_source');
+  assert.ok(result.models.length > 0, 'publication_no_applicable_tariff');
+  return result;
+}
+
+async function inference(agent, proxy, selection, catalogue) {
+  proxyScript(agent, `
+    const r=await fetch('http://172.30.0.30:10002/chat/completions',{
+      method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({model:${JSON.stringify(selection.model)},messages:[{role:'user',content:'Reply OK.'}],max_tokens:16,stream:false}),
+      signal:AbortSignal.timeout(90000)});
+    if(r.status!==200)throw Error();
+    const body=await r.json();
+    if(typeof body.choices?.[0]?.message?.content!=='string')throw Error();
+  `);
+  const deadline = Date.now() + 10000;
+  while (Date.now() < deadline) {
+    const records = JSON.parse(proxyScript(proxy, `
+      const fs=require('node:fs'),file='/var/log/api-proxy/token-usage.jsonl';
+      const records=fs.existsSync(file)?fs.readFileSync(file,'utf8').trim().split('\\n').filter(Boolean).map(JSON.parse):[];
+      process.stdout.write(JSON.stringify(records.map(r=>Object.fromEntries(
+        ${JSON.stringify(['_schema', 'provider', 'model', 'status', 'input_tokens', 'output_tokens',
+          'ai_credits_this_response', 'ai_credits_pricing_source', 'ai_credits_pricing_tier',
+          'ai_credits_fallback_pricing_used', 'ai_credits_pricing_catalog_id',
+          'ai_credits_pricing_catalog_version', 'ai_credits_pricing_observed_at'])}
+          .filter(k=>Object.hasOwn(r,k)).map(k=>[k,r[k]])))));
+    `));
+    if (records.length) return assertAccounting(records, selection, catalogue);
+    await sleep(250);
+  }
+  throw new Error('accounting_timeout');
+}
+
+function bundledPricing(proxy) {
+  const usage = JSON.parse(proxyScript(proxy, `
+    const {applyAiCreditsUsage}=require('/app/guards/ai-credits-guard');
+    const value=applyAiCreditsUsage({input_tokens:100,output_tokens:10,cache_read_tokens:0,cache_write_tokens:0},
+      'claude-haiku-4.5','copilot',{catalogue:null});
+    process.stdout.write(JSON.stringify({source:value.pricingSource,credits:value.aiCreditsThisResponse}));
+  `));
+  assert.deepEqual(usage, { source: 'curated', credits: 0.015 }, 'bundled_pricing_changed');
+  return { model: 'claude-haiku-4.5', ...usage, kind: 'released_guard_synthetic_usage_not_inference' };
+}
+
+async function waitForAgent(compose) {
+  const deadline = Date.now() + 30000;
+  while (Date.now() < deadline) {
+    const id = run('docker', [...compose, 'ps', '--all', '-q', 'agent']);
+    if (id && JSON.parse(run('docker', ['inspect', id]))[0].State.Running) return id;
+    await sleep(250);
+  }
+  throw new Error('agent_readiness_timeout');
+}
+
+function assertIsolatedHost() {
+  assert.equal(run('docker', ['ps', '-aq', '--filter', 'name=^/awf-']), '', 'existing_awf_containers');
+  assert.equal(run('docker', ['network', 'ls', '--filter', 'name=^awf-', '--format', '{{.Name}}']),
+    '', 'existing_awf_networks');
+}
+
+async function exercise(binary, root, mode, evidence) {
+  assertIsolatedHost();
+  const directory = path.join(root, mode);
+  fs.mkdirSync(directory, { mode: 0o700 });
+  const configFile = path.join(directory, 'config.json');
+  fs.writeFileSync(configFile, JSON.stringify(config(mode)), { mode: 0o600 });
+  const workDir = path.join(directory, 'work');
+  const composeFile = path.join(workDir, 'docker-compose.yml');
+  const compose = ['compose', '-f', composeFile];
+  const env = { PATH: process.env.PATH, HOME: process.env.HOME };
+  for (const key of ['GITHUB_ACTIONS', 'GITHUB_REPOSITORY', 'GITHUB_RUN_ID',
+    'GITHUB_RUN_ATTEMPT', 'GITHUB_WORKFLOW_REF']) {
+    if (process.env[key]) env[key] = process.env[key];
+  }
+  if (mode === 'online') env.COPILOT_GITHUB_TOKEN = process.env.COPILOT_GITHUB_TOKEN;
+  const finishCapture = mode === 'online' ? null : await captureNetwork();
+  let captured = false;
+  let exited = false;
+  const child = spawn(binary, ['--config', configFile, '--work-dir', workDir,
+    '--keep-containers', '--', 'sleep', '240'], { env, stdio: 'ignore' });
+  child.on('error', () => { exited = true; });
+  const closed = new Promise(resolve => child.on('close', () => { exited = true; resolve(); }));
+  try {
+    evidence.phase = 'readiness';
+    let proxy;
+    const result = await waitForCatalogue(async () => {
+      assert.equal(exited, false, 'awf_exited_before_readiness');
+      if (!fs.existsSync(composeFile)) return null;
+      const ids = spawnSync('docker', [...compose, 'ps', '-q', 'api-proxy'],
+        { encoding: 'utf8', timeout: 5000 });
+      proxy = ids.status === 0 ? ids.stdout.trim() : '';
+      const value = proxy ? reflection(proxy) : null;
+      if (value?.model_catalogue) evidence.catalogue = projectCatalogue(value.model_catalogue);
+      return value;
+    }, mode, { timeoutMs: 120000 });
+    evidence.catalogue = result.catalogue;
+    evidence.phase = 'topology_and_images';
+    evidence.topology = verifyTopology(proxy);
+    const agent = await waitForAgent(compose);
+    for (const [service, key] of [['api-proxy', 'apiProxy'], ['agent', 'agent'], ['squid-proxy', 'squid']]) {
+      const id = run('docker', [...compose, 'ps', '--all', '-q', service]);
+      const info = JSON.parse(run('docker', ['inspect', id]))[0];
+      assert.equal(info.Config.Image, RELEASE.images[key], 'running_image_reference');
+      assert.equal(info.Image, run('docker', ['image', 'inspect', '--format', '{{.Id}}', RELEASE.images[key]]),
+        'running_image_id');
+      if (service === 'agent' && process.env.COPILOT_GITHUB_TOKEN) {
+        assert.ok(!info.Config.Env.some(entry => entry.includes(process.env.COPILOT_GITHUB_TOKEN)),
+          'agent_credential_exposed');
+      }
+    }
+    if (mode === 'online') {
+      evidence.phase = 'publication';
+      const candidate = publication(proxy, result.catalogue);
+      evidence.publication = { dataCommit: candidate.dataCommit, revision: candidate.revision,
+        sourceCommit: candidate.sourceCommit };
+      const selection = selectModel(result.reflection, candidate);
+      evidence.phase = 'inference_and_accounting';
+      evidence.accounting = await inference(agent, proxy, selection, result.catalogue);
+    } else {
+      assert.ok(Array.isArray(result.reflection.endpoints) && result.reflection.endpoints.length > 0 &&
+        result.reflection.endpoints.every(endpoint => endpoint.configured === false), 'fallback_credentials_present');
+      evidence.phase = 'bundled_pricing';
+      evidence.pricing = bundledPricing(proxy);
+      evidence.phase = 'network_evidence';
+      await sleep(1000);
+      const network = await finishCapture();
+      captured = true;
+      const squid = run('docker', [...compose, 'ps', '-q', 'squid-proxy']);
+      const log = run('docker', ['exec', squid, 'cat', '/var/log/squid/access.log']);
+      evidence.network = assertNetwork(mode, network.packets, network.summary, log);
+    }
+    evidence.status = 'passed';
+    evidence.phase = 'complete';
+  } finally {
+    // Signal only this AWF invocation; compose down addresses only its services.
+    try {
+      if (!exited) child.kill('SIGTERM');
+      let timer;
+      try {
+        await Promise.race([closed, new Promise(resolve => { timer = setTimeout(resolve, 15000); })]);
+      } finally {
+        clearTimeout(timer);
+      }
+      if (!exited) { child.kill('SIGKILL'); await closed; }
+    } finally {
+      try {
+        if (finishCapture && !captured) await finishCapture();
+      } finally {
+        if (fs.existsSync(composeFile)) run('docker', [...compose, 'down', '--volumes']);
+      }
+    }
+  }
+}
+
+async function main() {
+  assert.equal(process.env.GITHUB_ACTIONS, 'true', 'approved_actions_only');
+  assert.equal(process.env.GITHUB_REF, 'refs/heads/main', 'trusted_main_only');
+  assert.ok(['push', 'workflow_dispatch'].includes(process.env.GITHUB_EVENT_NAME), 'trusted_event_only');
+  assert.ok(process.env.COPILOT_GITHUB_TOKEN, 'approved_copilot_credential_missing');
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-catalogue-smoke-'));
+  const evidence = { schemaVersion: 1, release: RELEASE, cases: {} };
+  const output = path.resolve(process.env.CATALOGUE_SMOKE_EVIDENCE);
+  let stage = 'release';
+  try {
+    const url = `https://github.com/github/gh-aw-firewall/releases/download/v${RELEASE.version}/awf-linux-x64`;
+    const response = await fetch(url, { signal: AbortSignal.timeout(120000) });
+    assert.equal(response.status, 200, 'release_download');
+    const bytes = Buffer.from(await response.arrayBuffer());
+    assert.equal(crypto.createHash('sha256').update(bytes).digest('hex'), RELEASE.binarySha256, 'release_digest');
+    const binary = path.join(root, 'awf');
+    fs.writeFileSync(binary, bytes, { mode: 0o700 });
+    assert.equal(run(binary, ['--version']), RELEASE.version, 'release_version');
+    for (const image of Object.values(RELEASE.images)) run('docker', ['pull', image], { timeout: 180000 });
+    for (const mode of ['online', 'offline', 'denied']) {
+      stage = mode;
+      evidence.cases[mode] = { status: 'failed' };
+      try {
+        await exercise(binary, root, mode, evidence.cases[mode]);
+      } catch (error) {
+        evidence.cases[mode].status = 'failed';
+        evidence.cases[mode].failure = failureCode(error);
+        // Still exercise independent fallback cases if live activation/inference failed.
+      }
+    }
+    assert.ok(Object.values(evidence.cases).every(value => value.status === 'passed'), 'smoke_case_failed');
+    evidence.status = 'passed';
+  } catch (error) {
+    evidence.status = 'failed';
+    evidence.failed_stage = stage;
+    evidence.failure = failureCode(error);
+    process.exitCode = 1;
+  } finally {
+    if (Object.values(evidence.cases).some(value => value.status === 'failed')) {
+      evidence.status = 'failed';
+      process.exitCode = 1;
+    }
+    fs.mkdirSync(path.dirname(output), { recursive: true, mode: 0o700 });
+    fs.writeFileSync(output, `${JSON.stringify(evidence, null, 2)}\n`, { mode: 0o600 });
+    if (process.env.GITHUB_STEP_SUMMARY) {
+      const rows = Object.entries(evidence.cases).map(([mode, value]) =>
+        `| ${mode} | ${value.status} | ${value.accounting?.central_accounting || 'not exercised'} |`);
+      fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY,
+        `## Released model catalogue smoke (${RELEASE.version})\n\nStatus: **${evidence.status}**\n\n` +
+        '| Case | Result | Central accounting |\n| --- | --- | --- |\n' + rows.join('\n') + '\n');
+    }
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+}
+
+module.exports = { RELEASE, config, failureCode, projectCatalogue, waitForCatalogue, selectModel,
+  assertAccounting, assertNetwork, publication, inference, bundledPricing, exercise };
+if (require.main === module) main().catch(error => {
+  console.error(`Model catalogue smoke failed: ${failureCode(error)}; raw diagnostics suppressed.`);
+  process.exitCode = 1;
+});

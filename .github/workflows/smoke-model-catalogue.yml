@@ -1,0 +1,58 @@
+name: Released model catalogue smoke
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/smoke-model-catalogue.yml'
+      - 'scripts/ci/model-catalogue-live-smoke.cjs'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: released-model-catalogue-smoke
+  cancel-in-progress: false
+
+jobs:
+  smoke:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      copilot-requests: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '22'
+      - name: Install metadata-only network observer
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install --yes --no-install-recommends tcpdump
+      - name: Exercise exact released CLI and containers
+        env:
+          COPILOT_GITHUB_TOKEN: ${{ github.token }}
+          CATALOGUE_SMOKE_EVIDENCE: ${{ runner.temp }}/catalogue-smoke/evidence.json
+        run: |
+          sudo --preserve-env=PATH,HOME,GITHUB_ACTIONS,GITHUB_REF,GITHUB_EVENT_NAME,GITHUB_REPOSITORY,GITHUB_RUN_ID,GITHUB_RUN_ATTEMPT,GITHUB_WORKFLOW_REF,GITHUB_STEP_SUMMARY,COPILOT_GITHUB_TOKEN,CATALOGUE_SMOKE_EVIDENCE \
+            node scripts/ci/model-catalogue-live-smoke.cjs
+      - name: Hand sanitized evidence to artifact uploader
+        if: always()
+        run: |
+          if sudo test -f "${RUNNER_TEMP}/catalogue-smoke/evidence.json"; then
+            sudo chown "$(id -u):$(id -g)" \
+              "${RUNNER_TEMP}/catalogue-smoke" "${RUNNER_TEMP}/catalogue-smoke/evidence.json"
+          fi
+      - name: Preserve sanitized evidence only
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: released-model-catalogue-smoke
+          path: ${{ runner.temp }}/catalogue-smoke/evidence.json
+          if-no-files-found: error
+          retention-days: 7

@@ -259,6 +259,54 @@ credentials; custom/local sources use stable fingerprints instead of URLs or
 local snapshot contents. Existing token accounting records carry `central_feed` and the
 selected catalogue revision. There is no `/reflect/v2` or new public catalogue CLI.
 
+### Released-consumer live smoke
+
+`smoke-model-catalogue.yml` is an ordinary Ubuntu/Docker Actions workflow,
+not an agentic workflow. It runs manually on `main` or automatically when its
+workflow/harness changes merge to `main`; PRs never receive inference credentials.
+It uses the existing `github.token` / `copilot-requests: write` path, not a new
+secret. No workflow dispatch is needed to publish catalogue data.
+
+The initial release is **v0.28.75**. The harness checks the released Linux CLI's
+SHA-256 and version, selects all three matching released images by digest, and
+verifies the running image references/IDs. Updating that pin requires reviewing
+the release checksums and `containers.txt`; there is no `latest`, local build,
+candidate runtime import, or version-input fallback.
+
+The online case requires network-origin authenticated catalogue activation,
+then reads the loader's private accepted cache to identify the immutable
+data-branch commit. It rechecks the pointer at **that commit through Squid**,
+not a second mutable channel read. It selects a small actually available
+Copilot model with an applicable reviewed tariff and makes one non-streaming
+`Reply OK.` request (16 output tokens, 90-second deadline, one-run/one-credit
+budget). Accounting must identify the selected source and, for `central_feed`,
+the accepted revision. Complete fresh provider prices retain precedence; that
+outcome explicitly reports central accounting as **not exercised**, even though
+live catalogue activation passed. Unsupported/stale publication data fails the
+smoke rather than being patched or replaced by fixtures.
+
+Offline and denied cases use independent new containers, unmounted private
+caches, and **no inference credentials**. This separates catalogue traffic from
+Copilot authentication. They require explicit bundled fallback and check the
+released guard's curated Haiku price with synthetic usage, not extra inference.
+A metadata-only TCP SYN observer starts before each fallback proxy: offline must
+have zero observed outbound TCP attempts and zero proxy-origin Squid requests;
+denied must have an actual `api.github.com:443` Squid 403 and no other Squid
+destinations or direct TCP attempts. Capture loss fails the check. This is
+bounded transport observation, not packet-payload capture or proof about every
+possible DNS lookup. The proxy must have one IPv4-only internal network, with
+Squid as its only internet route; egress is never relaxed to make a case pass.
+
+Only `evidence.json` and a small job summary are retained: allowlisted catalogue
+identifiers/state/failure code, pinned release/image metadata, selected accounting
+fields, and network counts. Raw reflection, logs, environment, packet traces,
+headers, and inference bodies are not uploaded. Cleanup targets this invocation's
+Compose services and temporary directory; an existing AWF container causes an
+early failure rather than being removed. Independent fallback cases still run
+after an online failure. Parser/assertion/workflow regressions run locally with
+`npm test -- --runInBand scripts/ci/model-catalogue-live-smoke.test.ts`;
+those fixtures do **not** substitute for a successful approved live Actions run.
+
 ### Bounded rollout
 
 This integration ships the publication consumer and its automated authenticity
