@@ -14,6 +14,10 @@ permissions:
   contents: read
   issues: read
 
+engine:
+  id: copilot
+  version: "1.0.98"
+
 sandbox:
   agent:
     id: awf
