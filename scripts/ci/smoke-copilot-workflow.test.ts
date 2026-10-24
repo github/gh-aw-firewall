@@ -32,6 +32,18 @@ const copilotSmokeWorkflows = [
   { name: 'smoke-copilot-network-isolation', file: 'smoke-copilot-network-isolation.md' },
 ];
 
+const copilotInstallerWorkflows = [
+  ...copilotSmokeWorkflows,
+  ...[
+    'build-test',
+    'security-guard',
+    'smoke-chroot',
+    'smoke-cloud-hypervisor',
+    'smoke-otel-tracing',
+    'smoke-services',
+  ].map(name => ({ name, file: `${name}.md` })),
+];
+
 describe('smoke copilot workflow output requirements', () => {
   it('runs token-usage verification only after the agent succeeds', () => {
     for (const file of ['smoke-copilot.md', 'smoke-copilot.lock.yml']) {
@@ -44,7 +56,7 @@ describe('smoke copilot workflow output requirements', () => {
     }
   });
 
-  for (const workflow of copilotSmokeWorkflows) {
+  for (const workflow of copilotInstallerWorkflows) {
     it(`${workflow.name}: pins the CLI release and its independently reviewed checksum manifest`, () => {
       const engine = loadFrontmatter(workflow.file).engine;
       expect(engine).toMatchObject({
@@ -66,6 +78,9 @@ describe('smoke copilot workflow output requirements', () => {
       );
     });
 
+  }
+
+  for (const workflow of copilotSmokeWorkflows) {
     it(`${workflow.name}: requires noop fallback when no pull request context exists`, () => {
       const source = fs.readFileSync(path.join(workflowsDir, workflow.file), 'utf-8');
 
