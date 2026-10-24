@@ -3,7 +3,6 @@
 const { execFileSync } = require('child_process');
 
 const REPOSITORY = 'github/gh-aw-firewall';
-const WORKFLOW = 'test-cloud-hypervisor-enclaves.yml';
 const REQUIRED_ASSETS = Object.freeze([
   'cloud-hypervisor-test-x86_64.tar.gz',
   'cloud-hypervisor-test-x86_64.SHA256SUMS',
@@ -35,7 +34,9 @@ function api(method, endpoint, body) {
   return output.trim() ? JSON.parse(output) : undefined;
 }
 
-function dispatchReleaseConformance(environment = process.env, dependencies = { git, api }) {
+function dispatchReleaseConformance(environment = process.env, dependencies = { git, api }, primary = false) {
+  const workflow = primary ? 'test-cloud-hypervisor.yml' : 'test-cloud-hypervisor-enclaves.yml';
+  const jobName = primary ? 'Dispatch release primary-agent live KVM' : 'Dispatch full release enclave conformance';
   const tag = environment.AWF_RELEASE_TAG;
   const source = environment.GITHUB_SHA;
   if (environment.GITHUB_REPOSITORY !== REPOSITORY ||
@@ -77,7 +78,7 @@ function dispatchReleaseConformance(environment = process.env, dependencies = { 
       throw new Error(`Required release asset is missing, ambiguous or incomplete: ${name}`);
     }
   }
-  const endpoint = `repos/${REPOSITORY}/actions/workflows/${WORKFLOW}`;
+  const endpoint = `repos/${REPOSITORY}/actions/workflows/${workflow}`;
   // A previous attempt that reached this step may have POSTed successfully even
   // if its response was lost. Skipped jobs (e.g. publication failed) are safe.
   if (environment.GITHUB_RUN_ATTEMPT !== '1') {
@@ -86,7 +87,7 @@ function dispatchReleaseConformance(environment = process.env, dependencies = { 
         `repos/${REPOSITORY}/actions/runs/${environment.GITHUB_RUN_ID}/jobs?filter=all&per_page=100&page=${page}`);
       if (!Array.isArray(history.jobs)) throw new Error('Invalid release job history');
       for (const job of history.jobs) {
-        if (job.name !== `Dispatch full release enclave conformance (${tag})`) continue;
+        if (job.name !== `${jobName} (${tag})`) continue;
         if (!Number.isSafeInteger(job.run_attempt) || !Array.isArray(job.steps)) {
           throw new Error('Ambiguous prior conformance job identity');
         }
@@ -106,7 +107,10 @@ function dispatchReleaseConformance(environment = process.env, dependencies = { 
   // Do not retry: a transport failure does not prove the dispatch was rejected.
   request('POST', `${endpoint}/dispatches`, {
     ref: tag,
-    inputs: {
+    inputs: primary ? {
+      run_live_kvm: 'true',
+      acceptance_commit: source,
+    } : {
       run_host_probes: 'true',
       run_live_kvm: 'true',
       run_environment_probe: 'true',
@@ -118,10 +122,15 @@ function dispatchReleaseConformance(environment = process.env, dependencies = { 
 
 if (require.main === module) {
   try {
-    const { tag, source } = dispatchReleaseConformance();
-    console.log(`Submitted full enclave conformance for ${tag}, acceptance_commit=${source}. Check the conformance workflow for results.`);
+    const args = process.argv.slice(2);
+    if (args.length > 1 || (args.length === 1 && args[0] !== '--primary')) {
+      throw new Error('Unsupported release validation target');
+    }
+    const primary = args[0] === '--primary';
+    const { tag, source } = dispatchReleaseConformance(process.env, { git, api }, primary);
+    console.log(`Submitted ${primary ? 'primary-agent live KVM' : 'full enclave conformance'} for ${tag}, acceptance_commit=${source}. Submission is not VM acceptance; check the dispatched workflow for results.`);
   } catch (error) {
-    console.error(`Release enclave conformance handoff failed: ${error.message}. No automatic retry; inspect workflow runs before manual recovery.`);
+    console.error(`Release validation handoff failed: ${error.message}. No automatic retry; inspect workflow runs before manual recovery.`);
     process.exitCode = 1;
   }
 }
