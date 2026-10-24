@@ -581,6 +581,58 @@ describe('prepareChrootHomeMounts (sub-function)', () => {
     }
   });
 
+  it.each([false, true])('prepares runner-owned Copilot mount targets (existing .copilot: %s)', (existingCopilot) => {
+    const copilotDir = path.join(fixture.tempDir, '.copilot');
+    if (existingCopilot) {
+      fs.mkdirSync(copilotDir, { mode: 0o700 });
+    }
+
+    (getSafeHostGid as jest.Mock).mockReturnValue('986');
+    try {
+      workdirSetupTestHelpers.prepareChrootHomeMounts(buildConfig());
+
+      for (const name of ['session-state', 'logs']) {
+        const target = path.join(copilotDir, name);
+        expect(fs.statSync(target).isDirectory()).toBe(true);
+        expect(fs.chownSync).toHaveBeenCalledWith(target, 1000, 986);
+      }
+      if (existingCopilot) {
+        expect(fs.statSync(copilotDir).mode & 0o777).toBe(0o700);
+        expect(fs.chownSync).not.toHaveBeenCalledWith(copilotDir, expect.anything(), expect.anything());
+      }
+    } finally {
+      (getSafeHostGid as jest.Mock).mockReturnValue('1000');
+    }
+  });
+
+  it('leaves existing Copilot mount target ownership, permissions, and contents unchanged', () => {
+    const targets = ['session-state', 'logs'].map(name => path.join(fixture.tempDir, '.copilot', name));
+    for (const target of targets) {
+      fs.mkdirSync(target, { recursive: true, mode: 0o700 });
+      fs.writeFileSync(path.join(target, 'existing'), 'unchanged');
+    }
+
+    workdirSetupTestHelpers.prepareChrootHomeMounts(buildConfig());
+
+    for (const target of targets) {
+      expect(fs.statSync(target).mode & 0o777).toBe(0o700);
+      expect(fs.readFileSync(path.join(target, 'existing'), 'utf8')).toBe('unchanged');
+      expect(fs.chownSync).not.toHaveBeenCalledWith(target, expect.anything(), expect.anything());
+      expect(fs.chmodSync).not.toHaveBeenCalledWith(target, expect.anything());
+    }
+  });
+
+  it.each(['session-state', 'logs'])('refuses a non-directory Copilot %s mount target', (name) => {
+    const copilotDir = path.join(fixture.tempDir, '.copilot');
+    const target = path.join(copilotDir, name);
+    fs.mkdirSync(copilotDir);
+    fs.writeFileSync(target, 'unchanged');
+
+    expect(() => workdirSetupTestHelpers.prepareChrootHomeMounts(buildConfig()))
+      .toThrow(`Expected directory but found non-directory path: ${target}`);
+    expect(fs.readFileSync(target, 'utf8')).toBe('unchanged');
+  });
+
   it('creates .gemini directory only when geminiApiKey is provided', () => {
     const geminiDir = path.join(fixture.tempDir, '.gemini');
 
