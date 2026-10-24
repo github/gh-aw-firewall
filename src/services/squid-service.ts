@@ -168,9 +168,9 @@ export function buildSquidService(params: SquidServiceParams): any {
   const initializeSniGuard =
     `if grep -Fq "cert=${SNI_GUARD_CERT_PATH}" /etc/squid/squid.conf; then ` +
     `echo "[squid-entrypoint] Generating ephemeral TLS SNI guard certificate"; ` +
-    `umask 077; openssl req -x509 -newkey rsa:2048 -sha256 -nodes -days 1 ` +
+    `(umask 077; openssl req -x509 -newkey rsa:2048 -sha256 -nodes -days 1 ` +
     `-subj "/CN=awf-sni-guard.invalid" -keyout ${SNI_GUARD_KEY_PATH} ` +
-    `-out ${SNI_GUARD_CERT_PATH} >/dev/null 2>&1; fi`;
+    `-out ${SNI_GUARD_CERT_PATH} >/dev/null 2>&1); fi`;
 
   squidService.user = '0:0';
   if (squidConfigContent) {

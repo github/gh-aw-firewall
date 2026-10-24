@@ -1,5 +1,8 @@
 import { generateDockerCompose, WrapperConfig, baseConfig, mockNetworkConfig, useTempWorkDir } from './service-test-setup.test-utils';
 import { SQUID_LOG_FILES } from './squid-service';
+import { execFileSync } from 'child_process';
+import * as fs from 'fs';
+import * as path from 'path';
 
 // Create mock functions (must remain per-file — jest.mock() is hoisted before imports)
 
@@ -71,6 +74,47 @@ describe('squid service', () => {
       expect(squid.entrypoint[2]).toContain('/var/run/squid/awf-sni-guard-cert.pem');
       expect(squid.entrypoint[2]).toContain('openssl req -x509');
       expect(squid.entrypoint[2]).toContain('entrypoint.sh');
+    });
+
+    it.each([true, false])('preserves the log umask when SNI guard is enabled: %s', (enabled) => {
+      const result = generateDockerCompose(mockConfig, mockNetworkConfig, undefined, 'http_port 3128\n');
+      const inlineScript: string = result.services['squid-proxy'].entrypoint![2];
+      const guard = inlineScript.match(/if grep -Fq .*?; fi/)![0];
+      const keyFile = path.join(mockConfig.workDir, 'guard-key.pem');
+      const certFile = path.join(mockConfig.workDir, 'guard-cert.pem');
+      const env = {
+        ...process.env,
+        KEY_FILE: keyFile,
+        CERT_FILE: certFile,
+        LOG_DIR: mockConfig.workDir,
+      };
+      const setup = `umask 022; grep() { return ${enabled ? 0 : 1}; }; ` +
+        'openssl() { : > "$KEY_FILE"; : > "$CERT_FILE"; }; ';
+
+      execFileSync('/bin/bash', ['-c', setup + guard + ' && ' +
+        'for name in access.log audit.jsonl cache.log; do : > "$LOG_DIR/$name"; done'], { env });
+
+      for (const logFile of SQUID_LOG_FILES) {
+        const stat = fs.statSync(path.join(mockConfig.workDir, path.basename(logFile)));
+        expect(stat.mode & 0o777).toBe(0o644);
+      }
+      if (enabled) {
+        expect(fs.statSync(keyFile).mode & 0o777).toBe(0o600);
+        expect(fs.statSync(certFile).mode & 0o777).toBe(0o600);
+      } else {
+        expect(fs.existsSync(keyFile)).toBe(false);
+        expect(fs.existsSync(certFile)).toBe(false);
+      }
+    });
+
+    it('does not start Squid if SNI guard certificate generation fails', () => {
+      const result = generateDockerCompose(mockConfig, mockNetworkConfig, undefined, 'http_port 3128\n');
+      const inlineScript: string = result.services['squid-proxy'].entrypoint![2];
+      const guard = inlineScript.match(/if grep -Fq .*?; fi/)![0];
+
+      expect(() => execFileSync('/bin/bash', ['-c',
+        'grep() { return 0; }; openssl() { return 42; }; ' + guard + ' && echo started',
+      ], { stdio: 'pipe' })).toThrow(expect.objectContaining({ status: 42 }));
     });
 
     // Regression: on split runner/Docker daemon filesystems (ARC + DinD), Docker
