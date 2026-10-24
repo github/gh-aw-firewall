@@ -162,8 +162,8 @@ function assertAccounting(records, selection, catalogue) {
 
 function assertNetwork(mode, packets, captureSummary, squidLog) {
   assert.match(captureSummary, /\b0 packets dropped by kernel\b/, 'network_capture_dropped');
-  const captured = captureSummary.match(/\b(\d+) packets captured\b/);
-  const received = captureSummary.match(/\b(\d+) packets received by filter\b/);
+  const captured = captureSummary.match(/\b(\d+) packets? captured\b/);
+  const received = captureSummary.match(/\b(\d+) packets? received by filter\b/);
   assert.ok(captured && received, 'network_capture_incomplete');
   const lines = packets.trim() ? packets.trim().split('\n') : [];
   assert.equal(Number(captured[1]), lines.length, 'network_capture_incomplete');
