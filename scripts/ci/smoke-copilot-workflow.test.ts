@@ -36,6 +36,7 @@ const copilotInstallerWorkflows = [
   ...copilotSmokeWorkflows,
   ...[
     'build-test',
+    'firewall-issue-dispatcher',
     'security-guard',
     'smoke-chroot',
     'smoke-cloud-hypervisor',
