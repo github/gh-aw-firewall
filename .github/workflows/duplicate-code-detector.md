@@ -173,6 +173,7 @@ tools:
 model: gpt-5.4-mini
 engine:
   id: copilot
+  version: "1.0.98"
 safe-outputs:
   threat-detection:
     enabled: false
