@@ -84,6 +84,13 @@ The *real* `$HOME` is not mounted wholesale. Actual mounts and modes vary with
 runtime and options; consult the generated relationships in the contract,
 not a copied sample Compose configuration.
 
+The Copilot CLI's `~/.copilot/session-state` and `~/.copilot/logs` are separate
+read-write bind targets. Before Docker starts, AWF creates any missing host-side
+target directories with the safe runner UID:GID and mode `0755`. Existing
+directories retain their ownership, mode, and contents; a non-directory target
+is rejected. The `rw` bind mode does not override host ownership, permissions,
+ACLs, or a read-only filesystem, so it does not guarantee effective write access.
+
 **What gets hidden:** known credential paths are overlaid with `/dev/null:ro`
 at direct and `/host` destinations when mountable. Missing paths under
 read-only binds may have unmountable overlays pruned; they must not exist
