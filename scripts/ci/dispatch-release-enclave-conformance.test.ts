@@ -2,14 +2,14 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as yaml from 'js-yaml';
 
-const { REQUIRED_ASSETS, dispatchReleaseConformance } = require('./dispatch-release-enclave-conformance');
+const { REQUIRED_ASSETS, dispatchReleaseConformance: dispatch } = require('./dispatch-release-enclave-conformance');
 const source = 'a'.repeat(40);
 const commit = 'b'.repeat(40);
 const tag = 'v0.28.69';
 const repository = 'github/gh-aw-firewall';
-const endpoint = `repos/${repository}/actions/workflows/test-cloud-hypervisor-enclaves.yml`;
 
-function fixture() {
+function createFixture(primary: boolean) {
+  const endpoint = `repos/${repository}/actions/workflows/${primary ? 'test-cloud-hypervisor.yml' : 'test-cloud-hypervisor-enclaves.yml'}`;
   const environment = {
     GITHUB_REPOSITORY: repository,
     GITHUB_EVENT_NAME: 'workflow_dispatch',
@@ -46,14 +46,21 @@ function fixture() {
   return { environment, git, api, release, assets, runs, jobs };
 }
 
-describe('release enclave conformance handoff', () => {
+describe.each([false, true])('release validation handoff (primary=%s)', primary => {
+  const fixture = () => createFixture(primary);
+  const endpoint = `repos/${repository}/actions/workflows/${primary ? 'test-cloud-hypervisor.yml' : 'test-cloud-hypervisor-enclaves.yml'}`;
+  const jobName = primary ? 'Dispatch release primary-agent live KVM' : 'Dispatch full release enclave conformance';
+  const dispatchReleaseConformance = (environment: unknown, dependencies: unknown) =>
+    dispatch(environment, dependencies, primary);
   it('dispatches only the fixed native workflow on the exact release tag with all gates and full source SHA', () => {
     const f = fixture();
     expect(dispatchReleaseConformance(f.environment, f)).toEqual({ tag, source, commit });
     expect(f.api.mock.calls.filter(call => call[0] === 'POST')).toEqual([[
       'POST', `${endpoint}/dispatches`, {
         ref: tag,
-        inputs: {
+        inputs: primary ? {
+          run_live_kvm: 'true', acceptance_commit: source,
+        } : {
           run_host_probes: 'true', run_live_kvm: 'true', run_environment_probe: 'true',
           acceptance_commit: source,
         },
@@ -136,7 +143,7 @@ describe('release enclave conformance handoff', () => {
     const f = fixture();
     f.environment.GITHUB_RUN_ATTEMPT = '2';
     f.jobs.push({
-      name: `Dispatch full release enclave conformance (${tag})`, run_attempt: 1,
+      name: `${jobName} (${tag})`, run_attempt: 1,
       steps: [{ name: 'Dispatch exact published tag once', conclusion: 'skipped' }],
     });
     dispatchReleaseConformance(f.environment, f);
@@ -148,7 +155,7 @@ describe('release enclave conformance handoff', () => {
       const f = fixture();
       f.environment.GITHUB_RUN_ATTEMPT = '2';
       f.jobs.push({
-        name: `Dispatch full release enclave conformance (${tag})`, run_attempt: 1,
+        name: `${jobName} (${tag})`, run_attempt: 1,
         steps: [{ name: 'Dispatch exact published tag once', conclusion }],
       });
       expect(() => dispatchReleaseConformance(f.environment, f)).toThrow(/prior attempt/);
@@ -159,7 +166,7 @@ describe('release enclave conformance handoff', () => {
   it('checks all historical job pages and binds evidence to this tag and prior attempts', () => {
     const f = fixture();
     f.environment.GITHUB_RUN_ATTEMPT = '3';
-    const name = `Dispatch full release enclave conformance (${tag})`;
+    const name = `${jobName} (${tag})`;
     f.jobs.push({ name, run_attempt: 1, steps: [{ name: 'Dispatch exact published tag once', conclusion: 'failure' }] });
     const original = f.api.getMockImplementation()!;
     f.api.mockImplementation((method, url, body) => {
@@ -188,6 +195,18 @@ describe('release enclave conformance handoff', () => {
     });
     expect(() => dispatchReleaseConformance(f.environment, f)).toThrow('transport failure');
     expect(f.api.mock.calls.filter(call => call[0] === 'POST')).toHaveLength(failure === 'POST' ? 1 : 0);
+  });
+
+  it('keeps the primary and enclave dispatch histories independent', () => {
+    const f = fixture();
+    f.environment.GITHUB_RUN_ATTEMPT = '2';
+    f.jobs.push({
+      name: `${primary ? 'Dispatch full release enclave conformance' : 'Dispatch release primary-agent live KVM'} (${tag})`,
+      run_attempt: 1,
+      steps: [{ name: 'Dispatch exact published tag once', conclusion: 'success' }],
+    });
+    dispatchReleaseConformance(f.environment, f);
+    expect(f.api.mock.calls.filter(call => call[0] === 'POST')).toHaveLength(1);
   });
 });
 
@@ -239,5 +258,21 @@ describe('release publication DAG and permissions', () => {
     expect(dispatch.run).toBe('node scripts/ci/dispatch-release-enclave-conformance.js');
     expect(JSON.stringify(job)).not.toMatch(/secrets\.|sudo|npm ci|workflow_dispatch:/);
     expect(workflow.concurrency).toEqual({ group: 'release', 'cancel-in-progress': false });
+  });
+
+  it('independently dispatches actual primary live KVM only after full publication', () => {
+    const job = workflow.jobs['primary-agent-validation'];
+    expect(job.needs).toEqual(['bump-version', 'release']);
+    expect(job.if).toBeUndefined();
+    expect(job.name).toBe('Dispatch release primary-agent live KVM (${{ needs.bump-version.outputs.version }})');
+    expect(job.permissions).toEqual({ contents: 'read', actions: 'write' });
+    expect(job['timeout-minutes']).toBe(5);
+    expect(job.steps[0].with).toEqual(workflow.jobs['enclave-conformance'].steps[0].with);
+    const step = job.steps.find(step => step.name === 'Dispatch exact published tag once')!;
+    expect(step.env).toEqual({
+      GH_TOKEN: '${{ github.token }}', AWF_RELEASE_TAG: '${{ needs.bump-version.outputs.version }}',
+    });
+    expect(step.run).toBe('node scripts/ci/dispatch-release-enclave-conformance.js --primary');
+    expect(JSON.stringify(job)).not.toMatch(/secrets\.|sudo|npm ci|workflow_call/);
   });
 });

@@ -20,6 +20,11 @@ on:
         required: true
         type: boolean
         default: true
+      acceptance_commit:
+        description: Full reviewed source SHA required for published release-tag validation
+        required: false
+        type: string
+        default: ''
   pull_request:
     types: [opened, synchronize, reopened, labeled]
     paths:
@@ -36,6 +41,8 @@ on:
       - 'src/filesystem-policy.ts'
       - 'src/types/runtime-options.ts'
       - 'scripts/ci/cloud-hypervisor-*.sh'
+      - 'scripts/ci/cloud-hypervisor-primary-release-gate*'
+      - 'scripts/ci/dispatch-release-enclave-conformance*'
       - 'scripts/ci/configure-docker-mirror.sh'
       - 'scripts/ci/docker-registry-ci.test.ts'
       - 'docs/cloud-hypervisor-foundation.md'
@@ -62,6 +69,14 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4
         with:
           persist-credentials: false
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Verify exact primary release checkout
+        if: github.ref_type == 'tag' || inputs.acceptance_commit != ''
+        env:
+          AWF_ACCEPTANCE_COMMIT: ${{ inputs.acceptance_commit }}
+        run: node scripts/ci/cloud-hypervisor-primary-release-gate.js
 
       - name: Free unused hosted-runner disk space
         # Kernel, virtiofsd, three ext4 images and their bundles need room on the
@@ -130,8 +145,8 @@ jobs:
 
       - name: Build and verify pinned artifacts
         env:
-          VERSION: ${{ steps.candidate.outputs.tag || 'v0.0.0-development' }}
-          ARTIFACT_SIGNER_WORKFLOW: ${{ inputs.candidate_build && 'github/gh-aw-firewall/.github/workflows/test-cloud-hypervisor.yml' || 'github/gh-aw-firewall/.github/workflows/release.yml' }}
+          VERSION: ${{ steps.candidate.outputs.tag || (github.ref_type == 'tag' && github.ref_name) || 'v0.0.0-development' }}
+          ARTIFACT_SIGNER_WORKFLOW: github/gh-aw-firewall/.github/workflows/test-cloud-hypervisor.yml
         run: |
           docker build \
             --platform linux/amd64 \
@@ -227,6 +242,14 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4
         with:
           persist-credentials: false
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Verify exact primary release checkout
+        if: github.ref_type == 'tag' || inputs.acceptance_commit != ''
+        env:
+          AWF_ACCEPTANCE_COMMIT: ${{ inputs.acceptance_commit }}
+        run: node scripts/ci/cloud-hypervisor-primary-release-gate.js
 
       - name: Set up Node.js
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
@@ -239,6 +262,27 @@ jobs:
         with:
           name: cloud-hypervisor-test-x86_64
           path: ${{ runner.temp }}/cloud-hypervisor-test-x86_64
+
+      - name: Verify signed release-validation guest bundles
+        if: github.ref_type == 'tag'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          directory="$RUNNER_TEMP/cloud-hypervisor-test-x86_64"
+          for bundle in awf-cloud-hypervisor-test-x86_64.tar.gz awf-cloud-hypervisor-enclave-rootfs-x86_64.tar.gz; do
+            gh attestation verify "$directory/$bundle" \
+              --repo github/gh-aw-firewall \
+              --signer-workflow github/gh-aw-firewall/.github/workflows/test-cloud-hypervisor.yml \
+              --source-digest "$GITHUB_SHA" --signer-digest "$GITHUB_SHA" \
+              --source-ref "$GITHUB_REF" --deny-self-hosted-runners
+            tar --extract --gzip --no-same-owner --file "$directory/$bundle" --directory "$directory"
+          done
+          for manifest in manifest.json enclave-manifest.json; do
+            jq -e --arg tag "$GITHUB_REF_NAME" --arg commit "$GITHUB_SHA" \
+              '.release.tag == $tag and .release.sourceCommit == $commit' \
+              "$directory/$manifest" >/dev/null
+          done
 
       - name: Restore artifact executable permissions
         run: |
