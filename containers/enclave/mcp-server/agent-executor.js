@@ -31,6 +31,12 @@ const ENCLAVE_EXIT_CATEGORIES = Object.freeze({
   24: 'enclave-engine-failed',
   30: 'enclave-result-write-failed',
   31: 'enclave-model-loop-exhausted',
+  32: 'enclave-result-read-failed',
+  33: 'enclave-result-empty',
+  34: 'enclave-result-too-large',
+  35: 'enclave-result-invalid-utf8',
+  36: 'enclave-result-whitespace-only',
+  37: 'enclave-result-reset-failed',
 });
 
 /** The only free-form field the agent tool accepts from a caller. */

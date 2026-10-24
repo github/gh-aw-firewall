@@ -226,6 +226,16 @@ describe('enclave_run_agent request grammar', () => {
     expect(Object.values(ENCLAVE_EXIT_CATEGORIES)).toEqual(
       expect.arrayContaining(['enclave-deadline-exceeded', 'enclave-provider-http-error']),
     );
+    expect(ENCLAVE_EXIT_CATEGORIES).toMatchObject({
+      30: 'enclave-result-write-failed',
+      31: 'enclave-model-loop-exhausted',
+      32: 'enclave-result-read-failed',
+      33: 'enclave-result-empty',
+      34: 'enclave-result-too-large',
+      35: 'enclave-result-invalid-utf8',
+      36: 'enclave-result-whitespace-only',
+      37: 'enclave-result-reset-failed',
+    });
   });
 });
 

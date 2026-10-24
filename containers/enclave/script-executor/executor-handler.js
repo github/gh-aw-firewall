@@ -188,6 +188,8 @@ function createExecutorHandler(params) {
       respond(json);
     };
     const rejectBeforeExecution = async (reason, detail, telemetryCategory = reason) => {
+      timing(invocationId, admissionStartMs ?? clock.nowMs(),
+        { phase: 'admission', status: 'rejected', reason });
       audit.failure(invocationId, reason, detail);
       emitInvocationTelemetry(telemetryCategory);
       if (admissionStartMs !== undefined) {
@@ -486,6 +488,8 @@ function createExecutorHandler(params) {
       };
 
       if (!accepting || lane.closed) {
+        timing(undefined, clock.nowMs(), { phase: 'admission', status: 'rejected',
+          reason: 'admissions-closed', accepting, laneClosed: lane.closed === true });
         safeRespond(CANONICAL_ERROR_RESPONSE_JSON);
         return Promise.resolve();
       }
@@ -495,6 +499,8 @@ function createExecutorHandler(params) {
       // response the agent observes — including a rejection — counts
       // against it.
       if (invocationsUsed >= config.maxInvocations) {
+        timing(undefined, clock.nowMs(), { phase: 'admission', status: 'rejected',
+          reason: 'invocation-count-exhausted' });
         audit.failure('budget', 'invocation-count-exhausted', `max=${config.maxInvocations}`);
         emitInvocationTelemetry('invocation-count-exhausted');
         if (uniformTiming) {
@@ -521,6 +527,9 @@ function createExecutorHandler(params) {
 
       const queued = lane.tail.then(() => {
         if (!accepting || lane.closed || (runner.hostOwned && options.signal?.aborted)) {
+          timing(undefined, clock.nowMs(), { phase: 'admission', status: 'rejected',
+            reason: options.signal?.aborted ? 'cancelled' : 'admissions-closed',
+            accepting, laneClosed: lane.closed === true, aborted: options.signal?.aborted === true });
           safeRespond(CANONICAL_ERROR_RESPONSE_JSON);
           return;
         }

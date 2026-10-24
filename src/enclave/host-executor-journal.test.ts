@@ -1,7 +1,8 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import {
-  HostExecutorJournal, HostExecutorResourceJournal, reapHostExecutorResources,
+  HostExecutorJournal, HostExecutorControlDiagnostics, HostExecutorInvocationDiagnostics,
+  HostExecutorResourceJournal, reapHostExecutorResources,
   hostExecutorVmRunId, hostExecutorJournalDirectory,
   HOST_EXECUTOR_STORAGE_ROOT, hostExecutorStorageDirectory,
 } from './host-executor-journal';
@@ -108,6 +109,24 @@ describe('durable host executor journal', () => {
     return HostExecutorResourceJournal.create(run, plan, vmRunId(), dependencies);
   }
 
+  it('retains the first admission closure and recovery markers after the event cap', () => {
+    const diagnostics = new HostExecutorControlDiagnostics(run);
+    for (let index = 0; index < 130; index += 1) diagnostics.record('backend-start');
+    diagnostics.record('admissions-closed', undefined, 'closed', plan.invocationId, undefined, {
+      outcome: 'executor-failure', cleanupComplete: true, recoverableFailure: false,
+    });
+    diagnostics.record('admissions-closed', undefined, 'closed', plan.invocationId, undefined, {
+      outcome: 'executor-failure', cleanupComplete: 'absent', recoverableFailure: 'absent',
+    });
+    const directory = path.join(run.journalDir!, 'diagnostics');
+    const value = JSON.parse(fs.readFileSync(path.join(directory, fs.readdirSync(directory)[0]), 'utf8'));
+    expect(value.events).toHaveLength(128);
+    expect(value.admissionClosure).toMatchObject({
+      phase: 'admissions-closed', cleanupComplete: true, recoverableFailure: false,
+    });
+    expect(value.dropped).toBe(4);
+  });
+
   const reap = () => reapHostExecutorResources(run.journalDir!, registry, tools, dependencies);
   const recordFile = () => path.join(run.journalDir!, `${run.runId}-${plan.invocationId}.resources.json`);
   const readRecord = () => JSON.parse(fs.readFileSync(recordFile(), 'utf8'));
@@ -181,6 +200,62 @@ describe('durable host executor journal', () => {
     if (captureSnapshotMount) await journal.captureStorageMount();
     return { journal, storageRoot, snapshot };
   }
+
+  it.each([16, 24, 32, 64])('discovers a real published resource journal with a %s-character invocation ID', async length => {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const reader = require('../../scripts/ci/cloud-hypervisor-enclave-live-smoke.js') as {
+      resourceRecords(directory: string): Array<{ file: string; record: unknown }>;
+      waitForInvocationRecord(directory: string, existing: Set<string>, owner: number, timeout: number): Promise<{
+        record: { invocationId: string };
+        inventory: Record<string, unknown>;
+      }>;
+    };
+    plan = { ...plan, invocationId: 'b'.repeat(length),
+      invocationHostDir: path.join(run.invocationsDir, 'script', 'b'.repeat(length)) };
+    const diagnostic = new HostExecutorInvocationDiagnostics(run, plan);
+    const existing = new Set(reader.resourceRecords(run.journalDir!).map(entry => entry.file));
+    await aggregateStorageJournal();
+    diagnostic.resourcePublished(run, plan);
+    fs.writeFileSync(path.join(run.journalDir!, 'ignored.resources.json'), 'PRIVATE_SENTINEL', { mode: 0o600 });
+    const found = await reader.waitForInvocationRecord(run.journalDir!, existing, process.pid, 1000);
+    expect(found.record.invocationId).toBe(plan.invocationId);
+    expect(found.inventory).toMatchObject({
+      directory: 'ready', resourceSuffix: 'many', nameMatches: 'one', rejectedNames: 'one',
+      producer: 'published', producerDirectory: 'same', producerLocation: 'custom',
+      producerRecordSafe: true, producerActive: true,
+    });
+    expect(JSON.stringify(found.inventory)).not.toContain(root);
+    expect(JSON.stringify(found.inventory)).not.toContain('PRIVATE_SENTINEL');
+  });
+
+  it('refreshes an early snapshot record before comparing exact crash-recovery mount identities', async () => {
+    type RecoveryRecord = {
+      runId: string; invocationId: string; storage: { mounts: Array<{ mountPoint: string }> };
+    };
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const reader = require('../../scripts/ci/cloud-hypervisor-enclave-live-smoke.js') as {
+      resourceRecords(directory: string): Array<{ file: string; record: RecoveryRecord }>;
+      readCrashRecoveryBaseline(directory: string, active: { file: string; record: RecoveryRecord },
+        ownerPid: number): { record: RecoveryRecord; baseline: Record<string, boolean> };
+      assertRecoveredInvocation(before: RecoveryRecord, after: RecoveryRecord,
+        records: Array<{ record: RecoveryRecord }>): unknown;
+    };
+    const { journal, snapshot } = await aggregateStorageJournal(false);
+    const active = reader.resourceRecords(run.journalDir!)[0];
+    expect(active.record.storage.mounts.some(mount => mount.mountPoint === snapshot)).toBe(false);
+    await journal.captureStorageMount();
+    const refreshed = reader.readCrashRecoveryBaseline(run.journalDir!, active, process.pid);
+    expect(Object.values(refreshed.baseline)).toEqual(Array(7).fill(true));
+    expect(refreshed.record.storage.mounts.some(mount => mount.mountPoint === snapshot)).toBe(true);
+    const lifecycle = new HostExecutorJournal(run);
+    lifecycle.record({ state: 'closed' });
+    await reap();
+    const recovered = reader.resourceRecords(run.journalDir!);
+    expect(readRecord().state).toBe('cleaned');
+    expect(() => reader.assertRecoveredInvocation(active.record, recovered[0].record, recovered)).toThrow();
+    expect(() => reader.assertRecoveredInvocation(refreshed.record, recovered[0].record, recovered)).not.toThrow();
+    expect(dependencies.run).toHaveBeenCalledWith(tools.umount, [snapshot]);
+  });
 
   const captureIds = [
     'canonical-path', 'mountinfo-read', 'mountinfo-parse', 'mountinfo-topology', 'match-count', 'filesystem', 'source',

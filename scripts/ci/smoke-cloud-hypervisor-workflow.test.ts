@@ -107,8 +107,13 @@ describe('Copilot Cloud Hypervisor smoke compatibility', () => {
     const lock = fs.readFileSync(lockPath, 'utf-8');
 
     expect(frontmatter.engine?.id).toBe('copilot');
-    expect(frontmatter.engine?.version).toBeUndefined();
-    expect(lock.split('\n', 1)[0]).toContain('"copilot":"1.0.98"');
+    if (name === 'smoke-cloud-hypervisor') {
+      expect(frontmatter.engine?.version).toBe('1.0.101');
+      expect(lock.split('\n', 1)[0]).toContain('"copilot":"1.0.101"');
+    } else {
+      expect(frontmatter.engine?.version).toBeUndefined();
+      expect(lock.split('\n', 1)[0]).toContain('"copilot":"1.0.98"');
+    }
     expect(frontmatter.sandbox?.agent?.config?.filesystem?.['allow-write'])
       .toEqual(['/tmp/gh-aw/aw_info.json']);
     expect(lock).toContain(

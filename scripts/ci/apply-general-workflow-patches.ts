@@ -81,6 +81,44 @@ export function applyGeneralWorkflowPatches(
 ): PatchResult {
   const log: string[] = [];
 
+  const manifest = content.match(/^# gh-aw-manifest: (.+)$/m);
+  if (manifest && (JSON.parse(manifest[1]) as { admission?: boolean }).admission === false) {
+    // Disabled admission has no result; make the compiler's optional references explicit.
+    const references = new Set(
+      [...content.matchAll(/needs\.activation\.outputs\.(admission-[\w-]+)/g)]
+        .map(match => match[1]),
+    );
+    const outputNames = [
+      'admission-result',
+      'admission-max-ai-credits',
+      'admission-max-ai-credits-threat-detection',
+      'admission-max-ai-credits-evals',
+    ].filter(name => references.has(name));
+    if (outputNames.length > 0) {
+      const lines = content.split('\n');
+      const activation = lines.indexOf('  activation:');
+      const nextJob = lines.findIndex((line, index) =>
+        index > activation && /^ {2}\S/.test(line));
+      const end = nextJob === -1 ? lines.length : nextJob;
+      const outputs = lines.findIndex((line, index) =>
+        index > activation && index < end && line === '    outputs:');
+      if (activation === -1 || outputs === -1) {
+        throw new Error(`Missing activation outputs for disabled admission: ${workflowPath}`);
+      }
+      let outputsEnd = outputs + 1;
+      while (outputsEnd < end &&
+        (lines[outputsEnd].startsWith('      ') || lines[outputsEnd].trim() === '')) outputsEnd++;
+      const declarations = lines.slice(outputs + 1, outputsEnd);
+      const missing = outputNames.filter(name =>
+        !declarations.some(line => line.startsWith(`      ${name}:`)));
+      if (missing.length > 0) {
+        lines.splice(outputs + 1, 0, ...missing.map(name => `      ${name}: ""`));
+        content = lines.join('\n');
+        log.push('  Declared empty optional outputs for disabled admission');
+      }
+    }
+  }
+
   if (/(?:^|[/\\])smoke-copilot-byok-aoai-(?:apikey|entra)\.lock\.yml$/.test(workflowPath)) {
     const pricingCommand = 'node "${GITHUB_WORKSPACE}/scripts/ci/configure-aoai-smoke-pricing.cjs" ' +
       '"${RUNNER_TEMP}/gh-aw/awf-config.json" /tmp/gh-aw/awf-config.json';

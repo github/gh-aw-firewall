@@ -141,7 +141,7 @@ function cloudHypervisorConformanceConfig(
     agent: { model: 'gpt-4.1', engine: 'copilot', profile: 'openai',
       maxTaskBytes: 4096 },
     runtime: 'cloud-hypervisor',
-    timeout: 180,
+    timeout: 360,
     maxInvocations: 3,
     repos,
   });

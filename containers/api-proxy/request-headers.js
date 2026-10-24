@@ -4,6 +4,7 @@ const { randomUUID } = require('crypto');
 const { logRequest } = require('./logging');
 const { shouldStripHeader, sanitizeAcceptEncoding } = require('./proxy-utils');
 const { maybeStripLearnedHeaderValues } = require('./deprecated-header-tracker');
+const { recordCopilotInjectedHeaders } = require('./copilot-auth-diagnostics');
 
 /** Integration ID used when the caller did not configure one. */
 const DEFAULT_COPILOT_INTEGRATION_ID = 'agentic-workflows';
@@ -183,6 +184,7 @@ function buildRequestHeaders(body, inboundBytes, req, { injectHeaders, provider,
     });
   }
 
+  if (provider === 'copilot') recordCopilotInjectedHeaders(req, injectHeaders);
   return headers;
 }
 

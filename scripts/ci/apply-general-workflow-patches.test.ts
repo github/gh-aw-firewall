@@ -28,6 +28,72 @@ function lockFileWithEngine(engineId: string): string {
   );
 }
 
+describe('applyGeneralWorkflowPatches disabled admission outputs', () => {
+  const compilerOutput =
+    '# gh-aw-manifest: {"admission":false}\n' +
+    'jobs:\n' +
+    '  activation:\n' +
+    '    outputs:\n' +
+    '      model: ${{ steps.model.outputs.model }}\n' +
+    '    steps: []\n' +
+    '  agent:\n' +
+    '    env:\n' +
+    '      RESULT: ${{ needs.activation.outputs.admission-result }}\n' +
+    '      LIMIT: ${{ needs.activation.outputs.admission-max-ai-credits }}\n' +
+    '      THREAT_LIMIT: ${{ needs.activation.outputs.admission-max-ai-credits-threat-detection }}\n' +
+    '      EVAL_LIMIT: ${{ needs.activation.outputs.admission-max-ai-credits-evals }}\n';
+
+  it('declares referenced empty outputs only when admission is explicitly disabled', () => {
+    const { content } = applyGeneralWorkflowPatches(compilerOutput, '/tmp/example.lock.yml');
+    for (const name of [
+      'admission-result',
+      'admission-max-ai-credits',
+      'admission-max-ai-credits-threat-detection',
+      'admission-max-ai-credits-evals',
+    ]) {
+      expect(content).toContain(`      ${name}: ""\n`);
+    }
+    expect(content).toContain('      model: ${{ steps.model.outputs.model }}');
+    expect(content).toContain('LIMIT: ${{ needs.activation.outputs.admission-max-ai-credits }}');
+    expect(applyGeneralWorkflowPatches(content, '/tmp/example.lock.yml').content).toBe(content);
+  });
+
+  it.each(['{"admission":true}', '{}'])('does not alter %s admission declarations', manifest => {
+    const input = compilerOutput.replace('{"admission":false}', manifest);
+    expect(applyGeneralWorkflowPatches(input, '/tmp/example.lock.yml').content).toBe(input);
+  });
+
+  it('preserves an existing admission output rather than replacing its expression', () => {
+    const input = compilerOutput.replace(
+      '    outputs:\n',
+      '    outputs:\n      admission-result: ${{ steps.admission.outputs.result }}\n',
+    );
+    const { content } = applyGeneralWorkflowPatches(input, '/tmp/example.lock.yml');
+    expect(content).toContain('admission-result: ${{ steps.admission.outputs.result }}');
+    expect(content).not.toContain('admission-result: ""');
+  });
+
+  it('does not add unreferenced outputs', () => {
+    const input = compilerOutput.slice(0, compilerOutput.indexOf('  agent:'));
+    expect(applyGeneralWorkflowPatches(input, '/tmp/example.lock.yml').content).toBe(input);
+  });
+
+  it('matches complete output names instead of prefixes', () => {
+    const input = compilerOutput.replace(
+      '      LIMIT: ${{ needs.activation.outputs.admission-max-ai-credits }}\n', '',
+    );
+    const { content } = applyGeneralWorkflowPatches(input, '/tmp/example.lock.yml');
+    expect(content).toContain('admission-max-ai-credits-threat-detection: ""');
+    expect(content).not.toContain('admission-max-ai-credits: ""');
+  });
+
+  it('fails explicitly when referenced disabled outputs have no activation declaration', () => {
+    const input = compilerOutput.replace('    outputs:\n', '    other:\n');
+    expect(() => applyGeneralWorkflowPatches(input, '/tmp/example.lock.yml'))
+      .toThrow('Missing activation outputs for disabled admission');
+  });
+});
+
 describe('applyGeneralWorkflowPatches Copilot CLI copy step gating', () => {
   it('skips the copy for a non-copilot compiled engine', () => {
     const { content, log } = applyGeneralWorkflowPatches(

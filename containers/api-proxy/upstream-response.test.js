@@ -2,6 +2,8 @@ const { EventEmitter } = require('events');
 const zlib = require('zlib');
 const { createUpstreamResponseHandlers } = require('./upstream-response');
 const { createRoutingObservation } = require('./routing-observation');
+const { createCopilotAdapter } = require('./providers/copilot');
+const { buildRequestHeaders } = require('./request-headers');
 
 function createDependencies() {
   return {
@@ -38,6 +40,42 @@ function createProxyRes({ statusCode, headers }) {
 }
 
 describe('upstream-response', () => {
+  test.each([200, 400, 401, 403])('retains real wire auth context and original response classification for %s', statusCode => {
+    const deps = createDependencies();
+    const { handleUpstreamResponse } = createUpstreamResponseHandlers(deps);
+    const req = { method: 'POST', url: '/responses', headers: { 'copilot-integration-id': 'copilot-developer-cli' } };
+    const adapter = createCopilotAdapter({
+      AWF_ENCLAVE_PROXY_DIAGNOSTICS: '1',
+      COPILOT_GITHUB_TOKEN: 'github_pat_SYNTHETIC_PRIVATE_CREDENTIAL',
+    });
+    const body = Buffer.from('{"model":"test","messages":[]}');
+    const headers = buildRequestHeaders(body, body.length, req, {
+      injectHeaders: adapter.getAuthHeaders(req), provider: 'copilot',
+      targetHost: adapter.getTargetHost(req), requestId: 'synthetic-test',
+    });
+    const proxyRes = createProxyRes({ statusCode, headers: { 'content-type': 'application/json' } });
+    const res = { writeHead: jest.fn(), end: jest.fn() };
+    handleUpstreamResponse(proxyRes, headers, {
+      body, res, provider: 'copilot', requestId: 'synthetic-test', req,
+      targetHost: adapter.getTargetHost(req), upstreamPath: '/chat/completions',
+      startTime: Date.now(), span: {}, requestBytes: body.length,
+      hasRetried: true, modelNotSupportedRetryCount: 2,
+    });
+    const response = Buffer.from(statusCode === 200 ? '{}' : '{"error":{"code":"expired_token"}}');
+    proxyRes.emit('data', response);
+    proxyRes.emit('end');
+    const auth = deps.logRequest.mock.calls.filter(([, event]) => event === 'copilot_auth_diagnostic');
+    expect(auth).toHaveLength(1);
+    expect(auth[0][2]).toMatchObject({
+      status: statusCode, credential_source: 'github_token', credential_kind: 'fine_grained_pat',
+      target: 'standard', target_match: 'yes', method: 'post', endpoint: 'chat_completions',
+      authorization: 'bearer', authorization_match: 'yes', integration: 'cli', integration_match: 'no',
+      error_class: statusCode === 200 ? 'none' : 'expired',
+    });
+    expect(JSON.stringify(auth)).not.toContain('SYNTHETIC_PRIVATE_CREDENTIAL');
+    expect(res.end).toHaveBeenCalledWith(response);
+  });
+
   test('translates a buffered upstream Chat Completions response back to Responses', () => {
     const deps = createDependencies();
     const { handleUpstreamResponse } = createUpstreamResponseHandlers(deps);

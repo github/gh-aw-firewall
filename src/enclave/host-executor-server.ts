@@ -120,7 +120,12 @@ export interface HostExecutorBackendResult {
   outcome: HostExecutorOutcome;
   /** False retains a nonterminal recovery tombstone; no result is released. */
   cleanupComplete?: boolean;
-  /** Ordinary workload failure; only effective with explicit cleanupComplete: true. Never on the wire. */
+  /**
+   * Only a completed guest workload's nonzero exit/signal, with verified resource
+   * cleanup and durable diagnostics, may preserve admissions. Never set for
+   * startup, transport or infrastructure failures; requires cleanupComplete: true.
+   * Host-only classification: the public result remains the canonical error.
+   */
   recoverableFailure?: true;
   /** Bounded, schema-valid result. Only carried for `success`. */
   result?: string;
@@ -164,6 +169,8 @@ interface InvocationRecord {
   interruptedOutcome?: 'cancelled' | 'timeout';
   deadline?: NodeJS.Timeout;
   lease?: NodeJS.Timeout;
+  backendCleanupComplete?: boolean;
+  backendRecoverableFailure?: boolean;
 }
 
 class RequestRejection extends Error {
@@ -371,6 +378,12 @@ export async function startHostExecutorServer(options: HostExecutorServerOptions
     record.resultDigest = digest;
     record.state = 'terminal';
     if (finalOutcome === 'executor-failure' && !recoverableFailure) {
+      diagnostics.record('admissions-closed', undefined, 'closed', record.plan.invocationId,
+        undefined, {
+          outcome: finalOutcome,
+          cleanupComplete: record.backendCleanupComplete ?? 'absent',
+          recoverableFailure: record.backendRecoverableFailure ?? 'absent',
+        });
       admissionsOpen = false;
       for (const other of invocations.values()) interrupt(other, 'cancelled');
     }
@@ -442,6 +455,8 @@ export async function startHostExecutorServer(options: HostExecutorServerOptions
       })
       .then(
         (outcome) => {
+          record.backendCleanupComplete = outcome?.cleanupComplete;
+          record.backendRecoverableFailure = outcome?.recoverableFailure;
           diagnostics.record('backend-complete', undefined, undefined, plan.invocationId);
           if (outcome?.cleanupComplete === false) {
             cleanupFailed();
