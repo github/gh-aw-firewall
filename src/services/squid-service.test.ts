@@ -1,5 +1,6 @@
 import { generateDockerCompose, WrapperConfig, baseConfig, mockNetworkConfig, useTempWorkDir } from './service-test-setup.test-utils';
 import { SQUID_LOG_FILES } from './squid-service';
+import { generateSquidConfig } from '../squid-config';
 import { execFileSync } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -77,7 +78,10 @@ describe('squid service', () => {
     });
 
     it.each([true, false])('preserves the log umask when SNI guard is enabled: %s', (enabled) => {
-      const result = generateDockerCompose(mockConfig, mockNetworkConfig, undefined, 'http_port 3128\n');
+      const squidConfig = generateSquidConfig({ domains: [], port: 3128 });
+      const squidUmask = squidConfig.match(/^umask ([0-7]{3,4})$/m)?.[1];
+      expect(squidUmask).toBe('022');
+      const result = generateDockerCompose(mockConfig, mockNetworkConfig, undefined, squidConfig);
       const inlineScript: string = result.services['squid-proxy'].entrypoint![2];
       const guard = inlineScript.match(/if grep -Fq .*?; fi/)![0];
       const keyFile = path.join(mockConfig.workDir, 'guard-key.pem');
@@ -88,7 +92,7 @@ describe('squid service', () => {
         CERT_FILE: certFile,
         LOG_DIR: mockConfig.workDir,
       };
-      const setup = `umask 022; grep() { return ${enabled ? 0 : 1}; }; ` +
+      const setup = `umask 027; umask ${squidUmask}; grep() { return ${enabled ? 0 : 1}; }; ` +
         'openssl() { : > "$KEY_FILE"; : > "$CERT_FILE"; }; ';
 
       execFileSync('/bin/bash', ['-c', setup + guard + ' && ' +

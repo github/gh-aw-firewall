@@ -135,6 +135,8 @@ logformat firewall_detailed %ts.%03tu %>a:%>p %{Host}>h %<a:%<p %rv %rm %>Hs %Ss
 logformat audit_jsonl {"_schema":"audit/v${AWF_VERSION}","timestamp":"%{%Y-%m-%dT%H:%M:%S}tg.%03tuZ","event":"http_access","client":"%>a","host":"%{Host}>h","dest":"%<a:%<p","method":"%rm","status":%>Hs,"decision":"%Ss","url":"%ru"}
 
 # Access log and cache configuration
+# Keep logs readable by the host runner for post-run redaction.
+umask 022
 # Don't log healthcheck probes from localhost (using ACL filter on access_log)
 acl healthcheck_localhost src 127.0.0.1 ::1
 ${sensitiveLogAclSection}
