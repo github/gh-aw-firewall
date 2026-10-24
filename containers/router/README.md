@@ -483,8 +483,8 @@ differs from it. Change an expectation only in a reviewed pull request that expl
 ## Development
 
 Follow the repository's
-[contributing guide](../../CONTRIBUTING.md) and
-[code of conduct](../../CODE_OF_CONDUCT.md).
+[contributing guide](https://github.com/github/gh-aw-firewall/blob/main/CONTRIBUTING.md) and
+[code of conduct](https://github.com/github/gh-aw-firewall/blob/main/CODE_OF_CONDUCT.md).
 Open an issue to discuss substantial changes before implementation. Keep pull requests focused
 and include tests for changed behavior. Do not include credentials, private prompts, local
 environments, or generated build output.
