@@ -61,8 +61,8 @@ describe('offline scheduled source maintenance', () => {
     fs.writeFileSync(path.join(evidence, 'review-base-revision'), git(cwd, 'rev-parse', 'HEAD'));
   });
   afterEach(() => {
-    fs.rmSync(cwd, { recursive: true, force: true });
-    fs.rmSync(evidence, { recursive: true, force: true });
+    fs.rmSync(cwd, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+    fs.rmSync(evidence, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
     for (const [key, value] of Object.entries(trustedEnvironment)) {
       if (value === undefined) delete process.env[key];
       else process.env[key] = value;
