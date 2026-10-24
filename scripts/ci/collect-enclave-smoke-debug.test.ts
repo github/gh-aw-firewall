@@ -2,6 +2,10 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { createHash } from 'crypto';
 import { preservePublicEnclaveProxyDiagnostics } from '../../src/enclave/proxy-debug-retention';
+import {
+  isSafeCopilotAuthLogFields,
+  projectCopilotAuthLogFields,
+} from '../../src/enclave/proxy-auth-diagnostics';
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const { prepare, collect, MAX_STREAM_BYTES, MAX_FILES } = require('./collect-enclave-smoke-debug.cjs');
@@ -125,6 +129,24 @@ describe('host-only public enclave debug collector', () => {
       expect(collectRun).toThrow();
       expect(fs.existsSync(path.join(run, 'upload'))).toBe(false);
     });
+
+  it('loads as a relocated standalone collector and matches the auth-fields validator', () => {
+    const stagedPath = path.join(temp, 'collector.cjs');
+    fs.copyFileSync(path.join(__dirname, 'collect-enclave-smoke-debug.cjs'), stagedPath);
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const staged = require(stagedPath);
+    const canonical = projectCopilotAuthLogFields({});
+    const cases = [
+      canonical,
+      `${canonical} extra=field`,
+      canonical.replace('credential_source=none', 'credential_source=PRIVATE_TOKEN'),
+      canonical.replace('challenge=not_required', 'challenge=none'),
+      '',
+    ];
+    for (const value of cases) {
+      expect(staged.isSafeCopilotAuthLogFields(value)).toBe(isSafeCopilotAuthLogFields(value));
+    }
+  });
 
   it.each(['rate_limited', 'request_validation_failed', 'model_fallback_exhausted',
     'enclave_model_capability_missing', 'enclave_model_capability_scheme', 'enclave_model_capability_format',

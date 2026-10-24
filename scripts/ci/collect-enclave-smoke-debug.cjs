@@ -4,6 +4,39 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { createHash } = require('node:crypto');
 
+const AUTH_FIELDS = {
+  credential_source: ['github_token', 'provider_api_key', 'none'],
+  credential_kind: ['none', 'placeholder', 'fine_grained_pat', 'classic_pat', 'oauth', 'user_token', 'installation_token', 'other'],
+  credential_shape: ['missing', 'placeholder', 'embedded_whitespace', 'prefixed', 'whitespace', 'clean'],
+  target_source: ['explicit', 'server', 'default'],
+  server_kind: ['missing', 'invalid', 'github', 'ghec', 'ghes'],
+  base_path: ['configured', 'none'],
+  integration_source: ['copilot_integration_id', 'github_copilot_integration_id', 'default'],
+  authorization_match: ['yes', 'no'],
+  integration_match: ['yes', 'no'],
+  target: ['standard', 'enterprise', 'business', 'ghec', 'custom'],
+  target_match: ['yes', 'no'],
+  method: ['get', 'post', 'put', 'patch', 'delete', 'head', 'options', 'other'],
+  endpoint: ['models', 'models_session', 'auto', 'chat_completions', 'responses', 'other'],
+  authorization: ['missing', 'multiple', 'malformed', 'bearer', 'token', 'other'],
+  integration: ['missing', 'multiple', 'workflows', 'cli', 'custom'],
+  error_class: ['none', 'expired', 'invalid_credential', 'insufficient_scope', 'entitlement', 'integration', 'malformed_auth', 'unclassified', 'uninspectable'],
+  body_capture: ['complete', 'omitted', 'truncated', 'not_required'],
+  challenge: ['missing', 'invalid_token', 'insufficient_scope', 'other', 'not_required'],
+};
+
+function isSafeCopilotAuthLogFields(value) {
+  if (!value || value.length > 1024) return false;
+  const entries = value.split(' ').map(field => field.split('='));
+  if (entries.some(pair => pair.length !== 2)) return false;
+  return Object.entries(AUTH_FIELDS).map(([name, allowed]) => {
+    const pair = entries.find(([key]) => key === name);
+    const candidate = pair?.[1];
+    const safe = typeof candidate === 'string' && allowed.includes(candidate) ? candidate : 'unknown';
+    return `${name}=${safe}`;
+  }).join(' ') === value;
+}
+
 const MAX_STREAM_BYTES = 1024 * 1024;
 const MAX_FILES = 32;
 const MAX_DIRECTORY_ENTRIES = 4096;
@@ -17,7 +50,7 @@ const ROOTS = {
   debug: '/var/lib/awf-cloud-hypervisor/debug-artifacts/cloud-hypervisor',
 };
 
-function directory(target, uid, trustedRoot = '/') {
+function directory(target, uid, trustedRoot = '/', stickyAncestor) {
   const root = path.resolve(trustedRoot);
   const resolvedTarget = path.resolve(target);
   const relative = path.relative(root, resolvedTarget);
@@ -33,8 +66,10 @@ function directory(target, uid, trustedRoot = '/') {
   for (const component of relative.split(path.sep).filter(Boolean)) {
     current = path.join(current, component);
     const stat = fs.lstatSync(current);
+    const protectedStickyAncestor = current === stickyAncestor && current !== resolvedTarget
+      && stat.uid === 0 && (stat.mode & 0o1000) !== 0;
     if (!stat.isDirectory() || stat.isSymbolicLink() || (stat.uid !== uid && stat.uid !== 0) ||
-        (stat.mode & 0o022) !== 0) {
+        ((stat.mode & 0o022) !== 0 && !protectedStickyAncestor)) {
       throw new Error('Unsafe debug collection directory');
     }
   }
@@ -52,11 +87,15 @@ function inventory(target, uid, trustedRoot) {
   return names;
 }
 
-function readRegular(target, limit, uid) {
+function readRegular(target, limit, uid, observe) {
+  observe?.('open');
   const fd = fs.openSync(target, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW |
     fs.constants.O_NONBLOCK);
+  let failed = false;
   try {
+    observe?.('fstat');
     const stat = fs.fstatSync(fd);
+    observe?.('validate');
     if (!stat.isFile() || stat.nlink !== 1 || stat.uid !== uid ||
         (stat.mode & 0o077) !== 0 || stat.size > limit) {
       throw new Error('Unsafe or oversized debug collection file');
@@ -64,14 +103,24 @@ function readRegular(target, limit, uid) {
     const bytes = Buffer.alloc(limit + 1);
     let size = 0;
     while (size <= limit) {
+      observe?.('read');
       const count = fs.readSync(fd, bytes, size, bytes.length - size, null);
       if (!count) break;
       size += count;
     }
     if (size > limit) throw new Error('Debug collection file grew beyond bound');
     return bytes.subarray(0, size);
+  } catch (error) {
+    failed = true;
+    throw error;
   } finally {
-    fs.closeSync(fd);
+    try {
+      if (!failed) observe?.('close');
+      fs.closeSync(fd);
+    } catch (error) {
+      observe?.('close');
+      throw error;
+    }
   }
 }
 
@@ -192,6 +241,7 @@ function projectProxyContainerLog(bytes) {
   const events = new Set([
     'startup', 'startup_complete', 'server_start', 'shutdown', 'request_start',
     'request_complete', 'request_error', 'upstream_error_response', 'upstream_auth_error',
+    'copilot_auth_diagnostic',
     'request_transform_failed', 'key_validation_error', 'oidc_startup_failed',
     'model_fetch_error', 'model_routing_bootstrap_error',
     'enclave_model_budget_rejected', 'rate_limited', 'request_validation_failed', 'model_fallback_exhausted',
@@ -206,8 +256,9 @@ function projectProxyContainerLog(bytes) {
   if (lines.at(-1) !== '' ||
       !/^capture_status=(?:captured dropped=(?:[0-9]{1,5})|empty|unavailable)$/.test(trailer ?? '') ||
       !lines.slice(0, -2).every(line => {
-        const match = /^source=(stdout|stderr) level=(info|warn|error) event=([a-z_]+)(?: status=([1-5]\d\d))?$/.exec(line);
-        return match && events.has(match[3]);
+        const match = /^source=(stdout|stderr) level=(info|warn|error) event=([a-z_]+)(?: status=([1-5]\d\d))?(?: (.+))?$/.exec(line);
+        return match && events.has(match[3])
+          && (match[3] === 'copilot_auth_diagnostic' ? isSafeCopilotAuthLogFields(match[5]) : !match[5]);
       })) throw new Error('Unsafe enclave proxy container projection');
   return bytes;
 }
@@ -373,7 +424,7 @@ function collect(runDirectory, runnerUid, runnerGid, roots = ROOTS, uid = 0, tru
 module.exports = {
   prepare, collect, MAX_STREAM_BYTES, MAX_FILES,
   directory, inventory, readRegular, projectProxyUsage, projectProxyResponse,
-  projectProxyEvents, projectProxyContainerLog,
+  projectProxyEvents, projectProxyContainerLog, isSafeCopilotAuthLogFields,
 };
 
 if (require.main === module) {

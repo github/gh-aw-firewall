@@ -80,7 +80,7 @@ export function isCloudHypervisorConformanceAcceptanceWorkflow(config: WrapperCo
     || agent.model !== 'gpt-4.1'
     || agent.memoryLimit !== '1g'
     || agent.tmpfsLimit !== '256m'
-    || agent.timeout !== 180
+    || agent.timeout !== 360
     || agent.maxInvocations !== 3
     || agent.maxTaskBytes !== 4096
     || agent.maxModelRequests !== undefined

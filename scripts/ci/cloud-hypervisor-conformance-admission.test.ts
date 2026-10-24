@@ -111,7 +111,7 @@ describe('generated native conformance production admission (no KVM)', () => {
       expect(getOrCreateEnclaveModelBudgetSecret(config)).toBeUndefined();
       expect(isCloudHypervisorConformanceAcceptanceWorkflow(config)).toBe(true);
       expect(agent).toMatchObject({
-        network: 'api-proxy-only', timeout: 180, maxInvocations: 3,
+        network: 'api-proxy-only', timeout: 360, maxInvocations: 3,
         maxTaskBytes: 4096, maxOutputBytes: 8192,
       });
     },
@@ -278,7 +278,9 @@ describe('generated native conformance production admission (no KVM)', () => {
       { script: { ...script, maxScriptBytes: 16_385 }, agent },
       { script, agent: { ...agent, model: 'other-model' } },
       { script, agent: { ...agent, maxInvocations: 4 } },
-      { script, agent: { ...agent, timeout: 181 } },
+      { script, agent: { ...agent, timeout: 180 } },
+      { script, agent: { ...agent, timeout: 359 } },
+      { script, agent: { ...agent, timeout: 361 } },
       { script, agent: { ...agent, maxTaskBytes: 4097 } },
       { script, agent: { ...agent, tools: { github: { allowed: [], allowedRepos: [] } } } },
     ];

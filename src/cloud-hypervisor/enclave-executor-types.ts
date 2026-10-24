@@ -56,6 +56,7 @@ export interface HostEnclaveExecutorManager {
     readonly gid: number;
     readonly timeoutMs: number;
     readonly onDiagnostics?: (value: import('../microvm/execution-diagnostics').GuestExecutionDiagnostics) => void;
+    readonly stderr?: import('stream').Writable;
   }): Promise<{ readonly exitCode: number; readonly signal: string | null; readonly timedOut: boolean }>;
   cancel(reason?: string): Promise<void>;
   stop(): Promise<void>;

@@ -7,6 +7,8 @@ const { normalizeEnclavesConfig } = require('../../dist/parsers/enclave-parser')
 const { resolvePublicEnclaveDebugConfig, validatePublicEnclaveDebug } = require('../../dist/enclave/public-debug');
 const { projectEnclaveSessionDiagnostics } = require('../../dist/cloud-hypervisor/enclave-session-diagnostics');
 const { schema } = require('../../dist/cloud-hypervisor/host-preflight-schema');
+const { HOST_EXECUTOR_ERRORS, HOST_EXECUTOR_OUTCOMES } = require('../../dist/enclave/host-executor-protocol');
+const { ENCLAVE_PRIVATE_BASE_DIR } = require('../../dist/enclave/paths');
 
 const EXPORT_ROOT = '/var/lib/awf-enclave-conformance-export';
 const ROOTS = {
@@ -16,6 +18,249 @@ const ROOTS = {
 const DIAGNOSTIC_NAME = /^([a-f0-9]{32})-([a-f0-9]{32})(?:\.proxy-debug)?\.json$/;
 const UPLOAD_NAME = /^(?:acceptance|invocation-[0-9]+|session-[0-9]+|proxy-[0-9]+)\.json$/;
 const MAX_RECORDS = 128;
+
+const CHECK_STEPS = ['guest-failure', 'guest-timeout', 'guest-cancellation',
+  'agent-enospc', 'script-enospc', 'guest-oom', 'crash-recovery', 'script-only', 'agent-only'];
+const CHECK_PHASES = ['request', 'result-validation', 'cleanup', 'resource-baseline', 'resource-discovery',
+  'marker-wait', 'resource-refresh', 'disconnect-validation', 'execution-validation',
+  'request-start', 'vmm-discovery', 'vmm-kill', 'host-kill',
+  'stdout-read', 'stderr-read', 'container-logs', 'compose-stop', 'recovery-config', 'recovery-launch',
+  'broker-readiness', 'gateway-readiness', 'primary-readiness', 'tools-list', 'resource-read',
+  'recovery-validation', 'interrupted-response', 'request-abort', 'host-cleanup', 'compose-cleanup',
+  'stop-marker', 'host-stop', 'host-stop-validation', 'stop-marker-remove', 'profile-config', 'profile-launch',
+  'initialize', 'initialize-validation', 'tools-validation', 'output-redaction'];
+const CHECK_REASONS = ['operation-failed', 'response-missing', 'jsonrpc-version', 'request-id',
+  'jsonrpc-error', 'result-missing', 'tool-is-error', 'structured-content', 'structured-fields',
+  'content-mismatch', 'expected-error-status', 'expected-ok-status', 'result-mismatch',
+  'http-status', 'invalid-json', 'response-too-large',
+  'request-timeout', 'request-failed', 'response-aborted', 'response-failed', 'disconnect-not-cancelled',
+  'resource-discovery-timeout', 'resource-inventory-failed', 'invocation-evidence-invalid',
+  'invocation-evidence-timeout', 'invocation-outcome-mismatch', 'admission-evidence-failed',
+  'vmm-not-found', 'host-already-exited', 'host-kill-failed', 'host-exit-timeout',
+  'recovery-tools-invalid', 'recovery-record-missing', 'recovery-validation-failed', 'interrupted-success',
+  'crash-baseline-invalid', 'profile-stop-invalid', 'profile-initialize-invalid', 'profile-tools-invalid'];
+const RESPONSE_FLAGS = ['present', 'jsonrpcValid', 'idMatches', 'rpcError', 'resultPresent',
+  'toolIsError', 'structuredPresent', 'contentMatches'];
+const RESOURCE_FLAGS = ['newRecords', 'pending', 'ownerMatches', 'directoryReady',
+  'identityReady', 'snapshotReady', 'eligible'];
+const RESOURCE_OPERATIONS = ['directory-lstat', 'directory-trust', 'directory-readdir',
+  'record-open', 'record-fstat', 'record-validate', 'record-read', 'record-close',
+  'record-parse', 'record-identity', 'record-lstat', 'complete'];
+const RESOURCE_CODES = ['none', 'ENOENT', 'EACCES', 'EPERM', 'EIO', 'ENOTDIR', 'ELOOP', 'unknown'];
+const RECOVERY_FLAGS = ['uniqueRecord', 'cleaned', 'runMatches', 'invocationMatches',
+  'directoryIdentityPresent', 'storageDirectoryIdentityPresent', 'storageMountedIdentityPresent', 'snapshotPresent',
+  'directoryMatches', 'directoryIdentityMatches', 'ancestorsMatch', 'mountMatches', 'snapshotMatches',
+  'storageDirectoryMatches', 'storageParentIdentityMatches', 'storageAncestorsMatch',
+  'storageDirectoryIdentityMatches', 'storageMountedIdentityMatches', 'storageMountsMatch'];
+const RECOVERY_CODES = [...RESOURCE_CODES, 'ESRCH', 'EBUSY', 'ETIMEDOUT', 'ENOSPC'];
+const BASELINE_FLAGS = ['uniqueRecord', 'pending', 'ownerMatches', 'identityMatches',
+  'mountsRetained', 'mountsCommitted', 'snapshotMounted'];
+const PROFILE_FLAGS = ['serverMatches', 'toolsArray', 'scriptPresent', 'agentPresent', 'toolsMatch'];
+
+function projectResourceInventory(value) {
+  if (!value || typeof value !== 'object') return undefined;
+  const result = {};
+  for (const key of ['entries', 'regularFiles', 'resourceSuffix', 'nameMatches', 'rejectedNames', 'producerMatches']) {
+    if (['zero', 'one', 'many'].includes(value[key])) result[key] = value[key];
+  }
+  for (const key of ['operation', 'producerOperation']) {
+    if (RESOURCE_OPERATIONS.includes(value[key])) result[key] = value[key];
+  }
+  for (const key of ['code', 'producerCode', 'namespaceCode']) {
+    if (RESOURCE_CODES.includes(value[key])) result[key] = value[key];
+  }
+  for (const key of ['location', 'producerLocation']) {
+    if (['default', 'custom'].includes(value[key])) result[key] = value[key];
+  }
+  for (const key of ['mountNamespace', 'producerDirectory', 'producerNamespace']) {
+    if (['same', 'different', 'unavailable'].includes(value[key])) result[key] = value[key];
+  }
+  if (['observer-readlink', 'host-readlink', 'complete'].includes(value.namespaceOperation)) {
+    result.namespaceOperation = value.namespaceOperation;
+  }
+  if (['ready', 'missing', 'not-directory', 'symlink', 'unavailable'].includes(value.directory)) {
+    result.directory = value.directory;
+  }
+  if (['missing', 'published', 'failed', 'read-failed'].includes(value.producer)) result.producer = value.producer;
+  for (const key of ['producerActive', 'producerRecordSafe']) {
+    if (typeof value[key] === 'boolean') result[key] = value[key];
+  }
+  return result;
+}
+
+function projectResourcePublication(value) {
+  if (!value || !['published', 'failed'].includes(value.status)) return undefined;
+  const result = { status: value.status };
+  if (RESOURCE_OPERATIONS.includes(value.operation)) result.operation = value.operation;
+  if (RESOURCE_CODES.includes(value.code)) result.code = value.code;
+  if (['default', 'custom'].includes(value.location)) result.location = value.location;
+  if (['captured', 'unavailable'].includes(value.namespaceStatus)) result.namespaceStatus = value.namespaceStatus;
+  if (typeof value.recordSafe === 'boolean') result.recordSafe = value.recordSafe;
+  for (const key of ['runIdLength', 'invocationIdLength']) {
+    if (Number.isInteger(value[key]) && value[key] >= 16 && value[key] <= 64) result[key] = value[key];
+  }
+  return result;
+}
+const ADMISSION_PHASES = ['admission', 'socket', 'exchange', 'response', 'availability',
+  'reconcile', 'invoke', 'status', 'cancel', 'cancel-confirmation', 'terminal', 'digest', 'schema',
+  'settle', 'work-start', 'runner-start', 'work-complete', 'cleanup-start', 'cleanup-complete',
+  'cleanup-failed', 'request-rejected', 'invoke-plan', 'invocation-register', 'backend-start',
+  'backend-complete', 'backend-failed', 'cleanup-pending', 'settled', 'shutdown', 'shutdown-failed',
+  'deadline-expired', 'cancellation', 'admissions-closed', 'tool-admission', 'failure'];
+const ADMISSION_REASONS = ['none', 'unknown', 'admissions-closed', 'invocation-count-exhausted',
+  'bit-budget-exhausted', 'invalid-request', 'repo-not-allowed', 'trusted-schema-required',
+  'dynamic-admission-denied', 'dynamic-sensitivity-invalid', 'tool-call-cap', 'busy',
+  'cancelled', 'timeout', 'unavailable', 'oversized', 'truncated', 'malformed', 'rejected',
+  'launch-failed', 'non-zero-exit', 'cleanup-failed', 'unexpected-error', 'digest-mismatch',
+  'schema-mismatch', 'settlement-unresolved', 'terminal-unavailable', 'lifecycle-regressed',
+  'cancel-unresolved', 'cancel-drain-timeout', 'deadline-drain-timeout', 'timing-bucket-overflow',
+  ...HOST_EXECUTOR_ERRORS];
+
+function projectAdmissionEvent(value) {
+  if (!value || !ADMISSION_PHASES.includes(value.phase)) return undefined;
+  const result = { phase: value.phase };
+  if (['started', 'passed', 'failed', 'admitted', 'rejected', 'parsed', 'connected',
+    'confirmed', 'ok', 'error'].includes(value.status)) result.status = value.status;
+  if (ADMISSION_REASONS.includes(value.reason)) result.reason = value.reason;
+  if (HOST_EXECUTOR_OUTCOMES.includes(value.outcome)) result.outcome = value.outcome;
+  if (['running', 'cancelling', 'terminal', 'settled'].includes(value.state)) result.state = value.state;
+  for (const key of ['accepting', 'laneClosed', 'aborted', 'registered', 'invoked', 'timedOut', 'oversized']) {
+    if (typeof value[key] === 'boolean') result[key] = value[key];
+  }
+  for (const key of ['cleanupComplete', 'recoverableFailure']) {
+    if (typeof value[key] === 'boolean' || value[key] === 'absent') result[key] = value[key];
+  }
+  if (['ENOENT', 'ECONNREFUSED', 'ECONNRESET', 'EACCES', 'EPERM', 'EPIPE', 'unknown'].includes(value.code)) {
+    result.code = value.code;
+  }
+  return result;
+}
+
+function projectAdmissionEvidence(value) {
+  const result = {};
+  for (const key of ['broker', 'hostControl']) {
+    const source = value?.[key];
+    if (!source || !['captured', 'missing', 'read-failed', 'invalid', 'unavailable'].includes(source.status)) continue;
+    result[key] = { status: source.status };
+    if (Array.isArray(source.events)) {
+      result[key].events = source.events.slice(-32).map(projectAdmissionEvent).filter(Boolean);
+    }
+    if (Array.isArray(source.failures)) {
+      result[key].failures = source.failures.slice(-16).map(projectAdmissionEvent).filter(Boolean);
+    }
+  }
+  return result;
+}
+
+function captureAdmissionEvidence(context, auditDirectory) {
+  if (!context) return {};
+  const { runDirectory, roots, uid, trustedRoot } = context;
+  const capture = (read) => {
+    try {
+      const events = read().map(projectAdmissionEvent).filter(Boolean);
+      return { status: 'captured', events: events.slice(-32),
+        failures: events.filter(event => event.status === 'failed' || event.status === 'rejected'
+          || event.phase === 'admissions-closed' || event.phase === 'failure').slice(-16) };
+    } catch (error) {
+      return { status: error.code === 'ENOENT' ? 'missing'
+        : error instanceof SyntaxError ? 'invalid' : 'read-failed' };
+    }
+  };
+  return {
+    broker: capture(() => {
+      collector.directory(auditDirectory, uid, trustedRoot, ENCLAVE_PRIVATE_BASE_DIR);
+      return ['enclave.jsonl', 'enclave-host-executor.jsonl'].flatMap(name => {
+        const bytes = collector.readRegular(path.join(auditDirectory, name), 1024 * 1024, uid);
+        return bytes.toString('utf8').split('\n').filter(Boolean).map(line => {
+          const record = JSON.parse(line);
+          if (record.kind === 'failure') return { phase: 'failure', reason: record.reason };
+          if (record.kind === 'lifecycle' && ['host-executor', 'invocation-timing', 'tool-admission'].includes(record.event)) {
+            return record.event === 'tool-admission' ? { ...record.detail, phase: 'tool-admission' } : record.detail;
+          }
+          return undefined;
+        });
+      });
+    }),
+    hostControl: capture(() => {
+      collector.directory(runDirectory, uid, trustedRoot);
+      const baseline = JSON.parse(collector.readRegular(path.join(runDirectory, 'baseline.json'), 1024 * 1024, uid));
+      const runs = collector.inventory(roots.journal, uid, trustedRoot)
+        .filter(name => /^[a-f0-9]{32}\.journal$/.test(name) && !baseline.journals.includes(name))
+        .map(name => name.slice(0, 32));
+      if (runs.length > 8) throw new Error('Conformance control run count exceeds bound');
+      const directory = path.join(roots.journal, 'diagnostics');
+      const names = collector.inventory(directory, uid, trustedRoot).filter(name =>
+        DIAGNOSTIC_NAME.test(name) && runs.includes(name.slice(0, 32)));
+      if (names.length > MAX_RECORDS) throw new Error('Conformance control count exceeds bound');
+      return names.flatMap(name => {
+        const value = JSON.parse(collector.readRegular(path.join(directory, name), 320 * 1024, uid));
+        if (value.component !== 'host-executor-control') return [];
+        if (value.runId !== name.slice(0, 32) || value.schemaVersion !== 1
+            || !Array.isArray(value.events) || value.events.length > 128) {
+          throw new Error('Invalid conformance control identity');
+        }
+        return [...value.events, value.failure, value.cleanupFailure, value.admissionClosure];
+      });
+    }),
+  };
+}
+
+function projectAcceptanceCheck(value) {
+  if (!value || !CHECK_STEPS.includes(value.step) || !CHECK_PHASES.includes(value.phase)
+      || !['started', 'passed', 'failed'].includes(value.status)) return undefined;
+  const result = { step: value.step, phase: value.phase, status: value.status };
+  if (CHECK_REASONS.includes(value.reason)) result.reason = value.reason;
+  if (['script-only', 'agent-only'].includes(value.step)) {
+    if (RECOVERY_CODES.includes(value.code)) result.code = value.code;
+    if (value.profile && typeof value.profile === 'object') {
+      result.profile = {};
+      for (const key of PROFILE_FLAGS) {
+        if (typeof value.profile[key] === 'boolean') result.profile[key] = value.profile[key];
+      }
+    }
+  }
+  if (value.step === 'crash-recovery') {
+    if (RECOVERY_CODES.includes(value.code)) result.code = value.code;
+    if (['disconnected', 'returned'].includes(value.interrupted)) result.interrupted = value.interrupted;
+    if (value.recovery && typeof value.recovery === 'object') {
+      result.recovery = {};
+      for (const key of RECOVERY_FLAGS) {
+        if (typeof value.recovery[key] === 'boolean') result.recovery[key] = value.recovery[key];
+      }
+    }
+    if (value.baseline && typeof value.baseline === 'object') {
+      result.baseline = {};
+      for (const key of BASELINE_FLAGS) {
+        if (typeof value.baseline[key] === 'boolean') result.baseline[key] = value.baseline[key];
+      }
+    }
+  }
+  if (value.resources && typeof value.resources === 'object') {
+    result.resources = {};
+    for (const key of RESOURCE_FLAGS) {
+      if (['zero', 'one', 'many'].includes(value.resources[key])) result.resources[key] = value.resources[key];
+    }
+  }
+  const inventory = projectResourceInventory(value.inventory);
+  if (inventory) result.inventory = inventory;
+  if (Number.isInteger(value.httpStatus) && value.httpStatus >= 100 && value.httpStatus <= 599) {
+    result.httpStatus = value.httpStatus;
+  }
+  if (value.response && typeof value.response === 'object') {
+    result.response = {};
+    for (const key of RESPONSE_FLAGS) {
+      if (typeof value.response[key] === 'boolean') result.response[key] = value.response[key];
+    }
+    if (['ok', 'error', 'invalid', 'absent'].includes(value.response.structuredStatus)) {
+      result.response.structuredStatus = value.response.structuredStatus;
+    }
+    if (['parse-error', 'invalid-request', 'method-not-found', 'invalid-params',
+      'internal-error', 'server-error', 'other', 'absent'].includes(value.response.rpcErrorClass)) {
+      result.response.rpcErrorClass = value.response.rpcErrorClass;
+    }
+  }
+  return result;
+}
 
 function exportDirectory(kind, environment = process.env) {
   if (!['live', 'environment-probe'].includes(kind)
@@ -97,6 +342,12 @@ function projectInvocation(value) {
     }
     const events = [...session.events];
     if (session.failure) events.push(session.failure);
+    if (session.output) events.push({ ...session.output, event: 'output-snapshot' });
+    if (session.storageProbe) events.push({ ...session.storageProbe, event: 'storage-probe' });
+    if (session.normalization) events.push({ ...session.normalization, event: 'output-normalization' });
+    if (Array.isArray(session.outputVerification)) {
+      events.push(...session.outputVerification.slice(-2).map(value => ({ ...value, event: 'output-verification' })));
+    }
     if (session.resources) {
       events.push({
         ...session.resources, event: 'resource-snapshot',
@@ -106,16 +357,33 @@ function projectInvocation(value) {
     const projected = projectEnclaveSessionDiagnostics(
       Buffer.from(events.map(event => JSON.stringify(event) + '\n').join('')),
     );
+    const operationErrors = Array.isArray(session.operationErrors)
+      ? projectEnclaveSessionDiagnostics(Buffer.from(
+        session.operationErrors.slice(-16).map(event => JSON.stringify(event) + '\n').join(''),
+      )).operationErrors ?? []
+      : [];
     const lastEvent = session.lastEvent
       ? projectEnclaveSessionDiagnostics(Buffer.from(JSON.stringify(session.lastEvent))).lastEvent : undefined;
     guestSession = { ...projected, bytes: session.bytes, rejected: session.rejected, dropped: session.dropped };
+    guestSession.operationErrors = operationErrors;
     delete guestSession.lastEvent;
     if (lastEvent) guestSession.lastEvent = lastEvent;
   } else if (session !== undefined) {
     throw new Error('Invalid conformance session diagnostic');
   }
+  const wrapperFailure = value.guestWrapperFailure
+    ? projectEnclaveSessionDiagnostics(Buffer.from(JSON.stringify(value.guestWrapperFailure))).lastEvent
+    : undefined;
   return { schemaVersion: 1, executorKind: value.executorKind,
     sequence: value.sequence, elapsedMs: value.elapsedMs, checks, milestones,
+    ...(projectResourcePublication(value.resourcePublication)
+      ? { resourcePublication: projectResourcePublication(value.resourcePublication) } : {}),
+    ...(Array.isArray(value.guestFileOperations) ? {
+      guestFileOperations: projectEnclaveSessionDiagnostics(Buffer.from(
+        value.guestFileOperations.slice(-16).map(event => JSON.stringify(event) + '\n').join(''),
+      )).operationErrors ?? [],
+    } : {}),
+    ...(wrapperFailure?.event === 'failure' ? { guestWrapperFailure: wrapperFailure } : {}),
     ...(guestSession ? { guestSession } : {}) };
 }
 
@@ -132,7 +400,12 @@ function collect(context, acceptance) {
     && name.endsWith('.proxy-debug.json') && !baseline.proxyDebug.includes(name));
   const runIds = new Set([...journals.map(name => name.slice(0, 32)), ...proxyDebug.map(name => name.slice(0, 32))]);
   if (runIds.size > 8) throw new Error('Conformance diagnostic run count exceeds bound');
-  const files = [['acceptance.json', acceptance]];
+  const { check, checks, admissionEvidence, ...acceptanceSummary } = acceptance;
+  const projectedCheck = projectAcceptanceCheck(check);
+  const files = [['acceptance.json', { ...acceptanceSummary,
+    ...(Array.isArray(checks) ? { checks: checks.slice(-16).map(projectAcceptanceCheck).filter(Boolean) } : {}),
+    ...(admissionEvidence ? { admissionEvidence: projectAdmissionEvidence(admissionEvidence) } : {}),
+    ...(projectedCheck ? { check: projectedCheck } : {}) }]];
   let invocations = 0;
   let proxies = 0;
   let sessions = 0;
@@ -220,7 +493,8 @@ function publish(runDirectory, runnerUid, runnerGid, uid = 0, trustedRoot = '/')
   }
 }
 
-module.exports = { prepare, prepareForJob, collect, publish, exportDirectory, projectInvocation };
+module.exports = { prepare, prepareForJob, collect, publish, exportDirectory, projectInvocation,
+  projectAcceptanceCheck, projectAdmissionEvidence, captureAdmissionEvidence };
 
 if (require.main === module) {
   const [kind, runnerUid, runnerGid] = process.argv.slice(2);

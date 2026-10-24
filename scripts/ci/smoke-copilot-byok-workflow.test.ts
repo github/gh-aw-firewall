@@ -66,6 +66,22 @@ describe('smoke copilot BYOK workflow model selection', () => {
       expect(compiled.jobs.activation.steps.some(s => s.name === step?.name)).toBe(false);
     });
 
+    if (auth === 'apikey') {
+      it('requires a terminal safe output instead of stopping at a plan', () => {
+        expect(prompt).toContain('A plan or acknowledgement is not a completed run.');
+        expect(prompt).toContain('Do not end your turn after');
+        expect(prompt).toContain('announcing the next check; perform it and continue through Output.');
+        expect(prompt).toContain('report that failure through the required');
+        const validation = compiled.jobs.agent.steps.find(
+          step => step.name === 'Validate safe outputs were invoked',
+        );
+        expect(validation?.run).toMatch(
+          /if \[ ! -s "\$OUTPUTS_FILE" \]; then[\s\S]*?exit 1\n\s*fi/,
+        );
+        expect(validation?.run).toContain('::error::No safe outputs were invoked.');
+      });
+    }
+
     it.each([
       { event: 'pull_request', prFailure: false, mismatch: false, httpCode: '200' },
       { event: 'schedule', prFailure: false, mismatch: false, httpCode: '301' },

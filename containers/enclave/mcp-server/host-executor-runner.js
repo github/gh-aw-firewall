@@ -20,6 +20,7 @@ const FAILURE_REASONS = new Map([
   ['Host executor response is malformed', 'response-malformed'],
   ['Host executor lifecycle regressed', 'lifecycle-regressed'],
   ['Host executor cancellation did not terminate', 'cancel-drain-timeout'],
+  ['Host executor deadline did not terminate', 'deadline-drain-timeout'],
   ['Host executor cancellation is unresolved', 'cancel-unresolved'],
   ['Host executor terminal state is unavailable', 'terminal-unavailable'],
   ['Host executor result digest is invalid', 'digest-mismatch'],
@@ -129,7 +130,6 @@ function createHostExecutorRunner(config, deps = {}) {
       };
       const timer = setTimeout(() => {
         timedOut = true;
-        if (!registered) cancel();
       }, Math.max(0, deadlineMs - nowMs()));
       signal?.addEventListener('abort', cancel);
       try {
@@ -155,10 +155,18 @@ function createHostExecutorRunner(config, deps = {}) {
         let previousGeneration = response.cancelGeneration;
         while (response.state === 'running' || response.state === 'cancelling') {
           if (signal?.aborted) cancel();
-          if (cancelledAt !== undefined && nowMs() - cancelledAt >= drainMs) {
+          const now = nowMs();
+          if (cancelledAt !== undefined && now - cancelledAt >= drainMs) {
             throw new Error('Host executor cancellation did not terminate');
           }
-          const remainingMs = Math.max(0, deadlineMs - nowMs());
+          if (cancelledAt === undefined && now >= deadlineMs + drainMs) {
+            throw new Error('Host executor deadline did not terminate');
+          }
+          // The host owns deadline interruption. A broker cancel here would
+          // race its timer and durably misclassify a timeout as cancellation.
+          const pollDeadlineMs = cancelledAt !== undefined ? cancelledAt + drainMs
+            : now < deadlineMs ? deadlineMs : deadlineMs + drainMs;
+          const remainingMs = Math.max(0, pollDeadlineMs - now);
           await new Promise((resolve) => setTimeout(resolve, Math.min(pollMs, remainingMs)));
           progress('status');
           response = checked(await client.status(identity));
@@ -170,7 +178,6 @@ function createHostExecutorRunner(config, deps = {}) {
           previousGeneration = response.cancelGeneration;
           if (response.state !== 'terminal' && nowMs() >= deadlineMs) {
             timedOut = true;
-            cancel();
           }
         }
         if (cancelPromise) {
