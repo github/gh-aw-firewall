@@ -5,6 +5,11 @@ import * as yaml from 'js-yaml';
 const workflowsDir = path.resolve(__dirname, '../../.github/workflows');
 
 interface WorkflowFrontmatter {
+  engine?: {
+    id: string;
+    version: string;
+    'checksums-sha256': string;
+  };
   tools?: {
     bash?: string[];
   };
@@ -40,6 +45,27 @@ describe('smoke copilot workflow output requirements', () => {
   });
 
   for (const workflow of copilotSmokeWorkflows) {
+    it(`${workflow.name}: pins the CLI release and its independently reviewed checksum manifest`, () => {
+      const engine = loadFrontmatter(workflow.file).engine;
+      expect(engine).toMatchObject({
+        id: 'copilot',
+        version: '1.0.101',
+        'checksums-sha256': '018625eac68670d66ede904b9b82cdcd6ab8f87ba20e6e1fbdf0b62c8295d5be',
+      });
+
+      const lock = yaml.load(fs.readFileSync(
+        path.join(workflowsDir, `${workflow.name}.lock.yml`), 'utf-8',
+      )) as {
+        jobs: { agent: { steps: { name?: string; run?: string }[] } };
+      };
+      const installer = lock.jobs.agent.steps.find(step =>
+        step.name === 'Install GitHub Copilot CLI');
+      expect(installer?.run?.trim()).toBe(
+        'bash "${RUNNER_TEMP}/gh-aw/actions/install_copilot_cli.sh" 1.0.101 ' +
+        '--checksums-sha256 018625eac68670d66ede904b9b82cdcd6ab8f87ba20e6e1fbdf0b62c8295d5be',
+      );
+    });
+
     it(`${workflow.name}: requires noop fallback when no pull request context exists`, () => {
       const source = fs.readFileSync(path.join(workflowsDir, workflow.file), 'utf-8');
 

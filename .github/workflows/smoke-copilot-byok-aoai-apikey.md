@@ -18,6 +18,8 @@ permissions:
 name: Smoke Copilot BYOK AOAI (api-key)
 engine:
   id: copilot
+  version: 1.0.101
+  checksums-sha256: 018625eac68670d66ede904b9b82cdcd6ab8f87ba20e6e1fbdf0b62c8295d5be
   env:
     # Direct-BYOK trigger against Azure OpenAI (Foundry) using an api-key. The
     # sibling smoke-copilot-byok workflow exercises the same code path against
