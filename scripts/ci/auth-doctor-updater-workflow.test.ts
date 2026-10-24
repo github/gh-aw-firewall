@@ -6,6 +6,18 @@ const sourcePath = path.join(workflowsDir, 'auth-doctor-updater.md');
 const lockPath = path.join(workflowsDir, 'auth-doctor-updater.lock.yml');
 
 describe('auth doctor updater workflow config', () => {
+  it('pins the Copilot CLI to a release reviewed by the pinned setup action', () => {
+    const source = fs.readFileSync(sourcePath, 'utf-8');
+    const lock = fs.readFileSync(lockPath, 'utf-8');
+    const metadataLine = lock.split('\n').find(line => line.startsWith('# gh-aw-metadata: '));
+
+    expect(source).toContain('engine:\n  id: copilot\n  version: "1.0.98"');
+    expect(metadataLine).toBeDefined();
+    const metadata = JSON.parse(metadataLine!.slice('# gh-aw-metadata: '.length));
+    expect(metadata.engine_versions.copilot).toBe('1.0.98');
+    expect(lock).toContain('run: bash "${RUNNER_TEMP}/gh-aw/actions/install_copilot_cli.sh" 1.0.98');
+  });
+
   it('uses updater cadence with a bounded documentation PR contract', () => {
     const source = fs.readFileSync(sourcePath, 'utf-8');
 
