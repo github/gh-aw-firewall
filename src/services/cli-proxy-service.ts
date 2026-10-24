@@ -199,7 +199,8 @@ export function buildCliProxyService(params: CliProxyServiceParams): CliProxyBui
         : {}),
     },
     // Security hardening and resource limits to prevent DoS attacks
-    ...buildContainerSecurityHardening({ memLimit: '256m', pidsLimit: 50, cpuShares: 256 }),
+    // Go's gh CLI uses multiple OS threads per call; leave headroom for parallel calls.
+    ...buildContainerSecurityHardening({ memLimit: '256m', pidsLimit: 256, cpuShares: 256 }),
     stop_grace_period: '2s',
   };
 

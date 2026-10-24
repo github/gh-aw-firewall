@@ -241,6 +241,23 @@ describe('CLI proxy sidecar (external DIFC proxy)', () => {
         expect((proxy.healthcheck as any).test).toEqual(['CMD', 'curl', '-f', 'http://127.0.0.1:11000/health']);
       });
 
+      it.each([false, true])('should allow parallel gh threads while retaining resource limits (networkIsolation=%s)', (networkIsolation) => {
+        const configWithCliProxy = {
+          ...mockConfig,
+          difcProxyHost: 'host.docker.internal:18443',
+          networkIsolation,
+        };
+        const result = generateDockerCompose(configWithCliProxy, mockNetworkConfigWithCliProxy);
+        const proxy = result.services['cli-proxy'];
+        expect(proxy.pids_limit).toBe(256);
+        expect(proxy.mem_limit).toBe('256m');
+        expect(proxy.memswap_limit).toBe('256m');
+        expect(proxy.cpu_shares).toBe(256);
+        if (networkIsolation) {
+          expect(result.services['cli-proxy-egress'].pids_limit).toBe(20);
+        }
+      });
+
       it('should drop all capabilities from cli-proxy', () => {
         const configWithCliProxy = { ...mockConfig, difcProxyHost: 'host.docker.internal:18443' };
         const result = generateDockerCompose(configWithCliProxy, mockNetworkConfigWithCliProxy);
