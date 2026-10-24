@@ -94,7 +94,86 @@ describe('Cloud Hypervisor CI workflow', () => {
     expect(liveKvm.if).toContain('cloud-hypervisor-kvm');
     expect(liveKvm.if).toContain("github.event_name == 'workflow_dispatch'");
     expect(liveKvm.needs).toBe('build-test-artifacts');
+    expect(doc.jobs['build-test-artifacts'].if)
+      .toBe("github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request'");
+    expect(liveKvm.if).toContain("github.event_name == 'workflow_dispatch' && inputs.run_live_kvm");
+    expect(liveKvm['runs-on']).toBe('ubuntu-24.04');
   });
+
+  it('requires exact release source admission before builds or privileged live execution', () => {
+    const doc = loadWorkflow();
+    expect(doc.on.workflow_dispatch).toMatchObject({ inputs: {
+      acceptance_commit: { type: 'string', required: false, default: '' },
+    } });
+    for (const job of Object.values(doc.jobs)) {
+      const steps = job.steps!;
+      expect(steps[0].with).toMatchObject({ 'fetch-depth': 0, 'fetch-tags': true });
+      const gateIndex = steps.findIndex(step => step.name === 'Verify exact primary release checkout');
+      expect(gateIndex).toBeGreaterThan(0);
+      expect(steps[gateIndex]).toMatchObject({
+        if: "github.ref_type == 'tag' || inputs.acceptance_commit != ''",
+        env: { AWF_ACCEPTANCE_COMMIT: '${{ inputs.acceptance_commit }}' },
+        run: 'node scripts/ci/cloud-hypervisor-primary-release-gate.js',
+      });
+      const executionIndex = steps.findIndex(step =>
+        /build-test-artifacts\.sh|cloud-hypervisor-host-preflight\.sh/.test(step.run || ''));
+      expect(executionIndex).toBeGreaterThan(gateIndex);
+    }
+  });
+
+  it('authenticates same-tag guest archives before host preflight and live VM coverage', () => {
+    const doc = loadWorkflow();
+    const build = doc.jobs['build-test-artifacts'].steps!
+      .find(step => step.name === 'Build and verify pinned artifacts')!;
+    expect(build.env?.VERSION).toContain("github.ref_type == 'tag' && github.ref_name");
+    expect(build.env?.ARTIFACT_SIGNER_WORKFLOW)
+      .toBe('github/gh-aw-firewall/.github/workflows/test-cloud-hypervisor.yml');
+    const steps = doc.jobs['live-kvm'].steps!;
+    const verifyIndex = steps.findIndex(step => step.name === 'Verify signed release-validation guest bundles');
+    const preflightIndex = steps.findIndex(step => step.run?.includes('cloud-hypervisor-host-preflight.sh'));
+    expect(verifyIndex).toBeGreaterThan(steps.findIndex(step => step.uses?.startsWith('actions/download-artifact@')));
+    expect(preflightIndex).toBeGreaterThan(verifyIndex);
+    const verify = steps[verifyIndex];
+    expect(verify.if).toBe("github.ref_type == 'tag'");
+    expect(verify.env).toEqual({ GH_TOKEN: '${{ github.token }}' });
+    expect(verify.run).toContain('gh attestation verify');
+    expect(verify.run).toContain('--signer-workflow github/gh-aw-firewall/.github/workflows/test-cloud-hypervisor.yml');
+    expect(verify.run).toContain('--source-digest "$GITHUB_SHA" --signer-digest "$GITHUB_SHA"');
+    expect(verify.run).toContain('--source-ref "$GITHUB_REF" --deny-self-hosted-runners');
+    expect(verify.run).toContain('tar --extract');
+    expect(verify.run).toContain('awf-cloud-hypervisor-test-x86_64.tar.gz awf-cloud-hypervisor-enclave-rootfs-x86_64.tar.gz');
+    expect(verify.run).toContain('.release.tag == $tag and .release.sourceCommit == $commit');
+    expect(verify.run).not.toMatch(/\|\| true|continue-on-error/);
+  });
+
+  it.each(['', 'signature', 'extraction', 'manifest'])(
+    'executes bundle verification fail-closed (failure=%s)', failure => {
+      const verify = loadWorkflow().jobs['live-kvm'].steps!
+        .find(step => step.name === 'Verify signed release-validation guest bundles')!;
+      const script = `
+        gh() { echo signature; [ "$FAILURE" != signature ]; }
+        tar() { echo extraction; [ "$FAILURE" != extraction ]; }
+        jq() { echo manifest; [ "$FAILURE" != manifest ]; }
+        ${verify.run}
+        echo verified
+      `;
+      const execute = () => execFileSync('bash', ['-c', script], {
+        encoding: 'utf8',
+        env: {
+          ...process.env, FAILURE: failure, RUNNER_TEMP: '/unused',
+          GITHUB_SHA: 'a'.repeat(40), GITHUB_REF: 'refs/tags/v1.2.3', GITHUB_REF_NAME: 'v1.2.3',
+        },
+        stdio: ['ignore', 'pipe', 'pipe'],
+      });
+      if (!failure) {
+        expect(execute().trim().split('\n')).toEqual([
+          'signature', 'extraction', 'signature', 'extraction', 'verified',
+        ]);
+      } else {
+        expect(execute).toThrow();
+      }
+    },
+  );
 
   it('builds and verifies pinned guest artifacts before attesting provenance', () => {
     const doc = loadWorkflow();

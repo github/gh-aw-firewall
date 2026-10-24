@@ -1225,6 +1225,32 @@ jobs:
           AWF_RELEASE_TAG: ${{ needs.bump-version.outputs.version }}
         run: node scripts/ci/dispatch-release-enclave-conformance.js
 
+  primary-agent-validation:
+    name: Dispatch release primary-agent live KVM (${{ needs.bump-version.outputs.version }})
+    needs: [bump-version, release]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: write
+    steps:
+      - name: Checkout release source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          fetch-tags: true
+          persist-credentials: false
+      - name: Set up Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '22'
+      - name: Dispatch exact published tag once
+        env:
+          GH_TOKEN: ${{ github.token }}
+          AWF_RELEASE_TAG: ${{ needs.bump-version.outputs.version }}
+        run: node scripts/ci/dispatch-release-enclave-conformance.js --primary
+
   build-cloud-hypervisor-guest-base:
     name: Build Cloud Hypervisor Guest Base
     runs-on: ubuntu-latest

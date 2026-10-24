@@ -22,14 +22,25 @@ describe('agent Dockerfile security hardening', () => {
   it('patches vulnerable npm dependencies before committing the installation layer', () => {
     const instruction = npmInstallInstruction();
 
-    for (const dependency of ['undici-6.28.1', 'brace-expansion-5.0.12', 'ip-address-10.7.1']) {
+    for (const dependency of ['undici-6.29.1', 'brace-expansion-5.0.12', 'ip-address-10.7.1']) {
       expect(instruction).toContain(`tar -xzf /tmp/${dependency}.tgz`);
       expect(instruction).toContain(`/${dependency}.tgz" | sha256sum -c -`);
     }
-    expect(instruction).toContain('const expected={undici:"6.28.1"');
+    expect(instruction).toContain('const expected={undici:"6.29.1"');
     expect(instruction).toContain('rm -f /tmp/npm-12.2.1.tgz');
-    expect(instruction).toContain('rm -f /tmp/undici-6.28.1.tgz');
+    expect(instruction).toContain('rm -f /tmp/undici-6.29.1.tgz');
   });
+
+  it.each(['agent', 'api-proxy', 'cli-proxy', 'gh-aw-node'])(
+    'pins patched Undici with verified bytes throughout the %s npm installation', image => {
+      const source = fs.readFileSync(path.resolve(__dirname, `../../containers/${image}/Dockerfile`), 'utf8');
+      expect(source).not.toContain('undici-6.28.1');
+      expect(source).toContain('https://registry.npmjs.org/undici/-/undici-6.29.1.tgz');
+      expect(source).toContain('29c4b8e0b2d86cb8795571c1959012ce057a14ecfd34858335f47c31e770a04f  /tmp/undici-6.29.1.tgz');
+      expect(source).toContain('tar -xzf /tmp/undici-6.29.1.tgz -C "$npm_dir/undici" --strip-components=1');
+      expect(source).toContain('const expected={undici:"6.29.1"');
+    },
+  );
 
   it('retries connection resets within a bounded budget for every npm download', () => {
     const instruction = npmInstallInstruction();

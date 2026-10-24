@@ -37,8 +37,10 @@ The workflow will:
 - Publish the GitHub Release with auto-generated changelog
 - Dispatch full Cloud Hypervisor Enclave Conformance on that exact published tag
   after all release builds, signatures and asset uploads succeed
+- Independently dispatch Cloud Hypervisor Preview Integration on the same tag
+  with `run_live_kvm=true` for real primary-agent VM coverage
 
-### Release source identity and enclave acceptance
+### Release source identity and VM acceptance
 
 Git tags, not `main`'s `package.json`, are the authoritative published versions.
 The workflow synchronizes the package and lockfile to the latest version tag,
@@ -85,6 +87,39 @@ diagnosis or recovery. Do not rerun the whole release to retry acceptance.
 Successful submission does not mean conformance passed: inspect the separate
 **Cloud Hypervisor Enclave Conformance** run and all four jobs. Releases
 published outside the supported release workflow still require manual dispatch.
+
+The independent **Dispatch release primary-agent live KVM** job uses the same
+fail-closed publication, source/package identity and one-shot dispatch checks,
+with its own prior-attempt and downstream-run history. Neither launcher depends
+on the other's success: a failure must not suppress the other validation.
+It dispatches the native **Cloud Hypervisor Preview Integration** workflow on
+the exact release tag with `run_live_kvm=true` and the full release source SHA
+as `acceptance_commit`. It does not invoke the reusable candidate workflow:
+that path's job conditions do not run primary live KVM.
+
+Both primary jobs verify the tag/package/compatibility identity and reviewed
+source ancestry, including the required primary harness. The workflow builds
+its existing deterministic preview guest from the tagged source, attests the
+same-run guest bundles, and verifies their provenance against the native
+workflow, exact tag/SHA and GitHub-hosted runner before host preflight or VM
+execution. This is primary runtime smoke/security validation, **not**
+production release-asset acceptance: the existing preview harness uses
+explicit development-artifact mode after bundle verification. The separate
+enclave workflow continues to exercise release-attested production artifacts
+and retains all four existing jobs and credential/resource admission gates.
+No additional credentials or bypasses are introduced.
+
+Primary validation passes only when **both** the deterministic guest build
+and **Live Cloud Hypervisor KVM smoke/security** jobs succeed. A submitted run,
+successful build alone, or skipped live job is not VM acceptance. Inspect this
+separate run as well as enclave conformance after every release. A primary
+handoff failure fails its release job; an ambiguous POST or reached dispatch
+step must not be retried automatically, even if no downstream run is visible.
+For manual recovery after inspecting existing runs, dispatch
+`test-cloud-hypervisor.yml` on the exact published tag with `run_live_kvm=true`
+and `acceptance_commit` set to that release's reviewed source SHA.
+This automation applies only to future releases containing it; it does not
+rerun or mutate previously published tags.
 
 Successful Cloud Hypervisor preflight fixtures must derive their manifest tag,
 rootfs/supervisor versions, and configured release tag from
