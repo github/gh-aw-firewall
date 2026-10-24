@@ -179,7 +179,7 @@ func TestCLIReportsOutputWriteFailure(t *testing.T) {
 
 func TestCLIValidateDataReportsTheSummary(t *testing.T) {
 	r := runCLI(t, nil, "", "--routing-tables", bundledTables(t), "validate-data")
-	want := `{"label_cells":210,"models":36,"profiles":["cost-speed/balanced","cost-speed/economy","cost-speed/robust","cost/balanced","cost/economy","cost/robust"],"repository":"global"}` + "\n"
+	want := `{"label_cells":210,"models":40,"profiles":["cost-speed/balanced","cost-speed/economy","cost-speed/robust","cost/balanced","cost/economy","cost/robust"],"repository":"global"}` + "\n"
 	if r.code != 0 || r.stderr != "" || r.stdout != want {
 		t.Errorf("got %+v", r)
 	}

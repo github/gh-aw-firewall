@@ -16,6 +16,7 @@ import * as os from 'os';
 import * as path from 'path';
 import { mockExecaSync } from './test-helpers/mock-execa.test-utils';
 import { preserveCleanupArtifacts } from './artifact-preservation';
+import { logger } from './logger';
 
 const TOKEN_USAGE_LOG_FILENAME = 'token-usage.jsonl';
 
@@ -110,6 +111,25 @@ describe('preserveCleanupArtifacts – token usage log path', () => {
     preserveCleanupArtifacts(workDir, { proxyLogsDir, dockerHostPathPrefix: '/tmp' });
 
     expect(fs.statSync(diagnosticPath).mode & 0o777).toBe(0o644);
+  });
+
+  it('reports router logs at the original host path, which AWF writes itself, without repairing them', () => {
+    const proxyLogsDir = path.join('/var/tmp', `awf-router-logs-${path.basename(scratch)}`);
+    const routerLogsDir = path.join(proxyLogsDir, 'router-logs');
+    extraCleanup.push(proxyLogsDir);
+    fs.mkdirSync(routerLogsDir, { recursive: true, mode: 0o700 });
+    fs.writeFileSync(path.join(routerLogsDir, 'router.jsonl'), '{"msg":"stopped"}\n', { mode: 0o600 });
+    const info = jest.spyOn(logger, 'info').mockImplementation(() => undefined);
+
+    try {
+      preserveCleanupArtifacts(workDir, { proxyLogsDir, dockerHostPathPrefix: '/tmp' });
+
+      expect(info).toHaveBeenCalledWith(`Router logs available at: ${routerLogsDir}`);
+      expect(fs.statSync(routerLogsDir).mode & 0o777).toBe(0o700);
+      expect(fs.statSync(path.join(routerLogsDir, 'router.jsonl')).mode & 0o777).toBe(0o600);
+    } finally {
+      info.mockRestore();
+    }
   });
 
   it('exports the preserved /tmp location when logs were written to the work dir', () => {

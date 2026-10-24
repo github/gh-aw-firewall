@@ -69,11 +69,11 @@ jobs:
       - name: Configure Docker Hub cache
         run: bash scripts/ci/configure-docker-mirror.sh
 
-      - name: Checkout gh-aw v0.92.6
+      - name: Checkout gh-aw v0.93.0
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: github/gh-aw
-          ref: 7363a87ff2483635af62f490b52c25a757a50221
+          ref: 8df88b66116c3ead88419803ef9ced0c1a253510
           path: .tmp/gh-aw-compiler
           persist-credentials: false
 
@@ -83,10 +83,10 @@ jobs:
           go-version-file: .tmp/gh-aw-compiler/go.mod
           cache: false
 
-      - name: Install patched gh-aw v0.92.6
+      - name: Install patched gh-aw v0.93.0
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          # Keep the official v0.92.6 compiler and narrow its existing acceptance
-          # fixture to the reviewed v0.28.66 runtime and bounded token budget.
           git -C .tmp/gh-aw-compiler apply --unidiff-zero \
             "${GITHUB_WORKSPACE}/scripts/ci/compiler-agent-acceptance-v0.28.66.patch"
           go test -C .tmp/gh-aw-compiler ./pkg/workflow \
@@ -94,7 +94,7 @@ jobs:
           mkdir -p "$HOME/.local/share/gh/extensions/gh-aw"
           go build \
             -C .tmp/gh-aw-compiler \
-            -ldflags="-X main.version=dev-v0.92.6-agent-acceptance-v0.28.66-budget131072" \
+            -ldflags="-X main.version=dev-v0.93.0-agent-acceptance-v0.28.66-budget131072" \
             -o "$HOME/.local/share/gh/extensions/gh-aw/gh-aw" \
             ./cmd/gh-aw
           rm -rf .tmp/gh-aw-compiler
@@ -104,14 +104,14 @@ jobs:
         run: |
           # Keep the compiler's exact Syft reference so digest-qualified lookups
           # find it locally. The daemon cache also covers ordinary/nested builds.
-          docker pull anchore/syft:v1.52.0@sha256:500e2d872ac019436926e8322b4fc1f39441d94d21f6f4046c6ff29b30e8cb02
+          docker pull anchore/syft:v1.54.1@sha256:3eb5379ba7b409c3f4069b686110527af0c47df993fa5c10d13e7cf34f49b1aa
           docker pull ghcr.io/anchore/grype@sha256:fd4ab4d1042b522c896e73bdf09ab8bf384fa417df99d6dd0d6e1008c7e7c821
           docker pull ghcr.io/anchore/grant@sha256:172463611795f43b77302cdfbd7b3f81295492a7330e0820cfe41c3674920237
 
       - name: Compile + generate SBOMs (Syft)
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh aw compile --syft --action-mode action --action-tag v0.92.6 .github/workflows/*.md
+        run: gh aw compile --syft --action-mode action --action-tag v0.93.0 .github/workflows/*.md
 
       - name: Authenticate to GHCR for image scanning
         run: echo "${{ github.token }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin

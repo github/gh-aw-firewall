@@ -3,7 +3,7 @@ import path from 'node:path';
 import os from 'node:os';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { buildSync } from 'esbuild';
-import proxyRetired from '../../containers/api-proxy/model-information.retired.generated.json';
+import legacyPricingFixture from './fixtures/legacy-ai-credits-pricing.v1.json';
 
 const root = path.resolve(__dirname, '../..');
 const compiler = path.join(__dirname, 'compile.cjs');
@@ -19,6 +19,7 @@ const run = (...flags: string[]) => {
 describe('maintained model compilation', () => {
   it('checks repeatable generated outputs without refreshing timestamps', () => {
     expect(run('--check')).toMatch(/Checked model catalogue/);
+    expect(run('--check', `--root=${root}`)).toMatch(/Checked model catalogue/);
     const first = fs.readFileSync(path.join(root, 'shared/model-information/manifest.generated.json'));
     run('--check');
     expect(fs.readFileSync(path.join(root, 'shared/model-information/manifest.generated.json'))).toEqual(first);
@@ -30,11 +31,10 @@ describe('maintained model compilation', () => {
     expect(new Set(supported)).toEqual(testHelpers.supportedCopilotModels);
     expect([...supported].sort()).toEqual([...suggestionOrder].sort());
     expect(new Set(suggestionOrder).size).toBe(suggestionOrder.length);
-    expect(retired).toEqual({ 'gpt-5-codex': 'gpt-5.3-codex' });
-    expect(retired).toEqual(proxyRetired);
-    const pricing = require('../../containers/api-proxy/model-information.pricing.generated.json');
+    expect(retired).toEqual(require('../../containers/api-proxy/model-information.retired.generated.json'));
     const legacy = require('../../containers/api-proxy/ai-credits-pricing');
-    expect(pricing).toEqual(JSON.parse(JSON.stringify(legacy)));
+    expect(Object.fromEntries(Object.keys(legacyPricingFixture).map(key => [key, legacy[key]])))
+      .toEqual(legacyPricingFixture);
     expect(fs.readFileSync(path.join(root, 'docs/model-api-mapping.json')))
       .toEqual(fs.readFileSync(path.join(root, 'containers/api-proxy/model-api-mapping.json')));
   });
@@ -43,9 +43,45 @@ describe('maintained model compilation', () => {
     const manifest = require('../../shared/model-information/manifest.generated.json');
     const catalogue = require('../../shared/model-information/catalog.generated.json');
     expect(manifest.catalogRevision).toBe(catalogue.catalogRevision);
-    expect(manifest.compilerVersion).toBe(3);
+    expect(manifest.compilerVersion).toBe(4);
     expect(manifest.schemaHash).toMatch(/^[0-9a-f]{64}$/);
     expect(catalogue.generatedAt).toBe(manifest.generatedAt);
+    expect(manifest.sourceFiles).toEqual(expect.arrayContaining([
+      'containers/api-proxy/models.dev.catalog.json',
+      'shared/model-information/imported/legacy-models-dev.metadata.json',
+    ]));
+    expect(manifest.sourceFiles).not.toContain('shared/model-information/imported/legacy-models-dev.snapshot.v1.json');
+  });
+
+  it('keeps historical runtime prices frozen while allowing a reviewed staged price projection', () => {
+    const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-model-staged-price-'));
+    try {
+      for (const directory of ['scripts/model-information', 'shared/model-information']) {
+        fs.cpSync(path.join(root, directory), path.join(temp, directory), { recursive: true });
+      }
+      fs.symlinkSync(path.join(root, 'node_modules'), path.join(temp, 'node_modules'), 'dir');
+      for (const directory of ['src', 'docs']) fs.mkdirSync(path.join(temp, directory));
+      const rawPath = path.join(temp, 'containers/api-proxy/models.dev.catalog.json');
+      fs.mkdirSync(path.dirname(rawPath), { recursive: true });
+      fs.copyFileSync(path.join(root, 'containers/api-proxy/models.dev.catalog.json'), rawPath);
+      const sourcePath = path.join(temp, 'shared/model-information/sources/copilot-main.json');
+      const source = JSON.parse(fs.readFileSync(sourcePath, 'utf8'));
+      const model = source.models.find((entry: { identity: { rawId: string } }) =>
+        entry.identity.rawId === 'gpt-5-codex-mini');
+      model.tariffs[0].components.input.price = '9';
+      fs.writeFileSync(sourcePath, JSON.stringify(source));
+      const tempCompiler = path.join(temp, 'scripts/model-information/compile.cjs');
+      execFileSync(process.execPath, [tempCompiler], { cwd: temp });
+      const staged = JSON.parse(fs.readFileSync(
+        path.join(temp, 'containers/api-proxy/model-information.pricing.generated.json'), 'utf8',
+      ));
+      expect(staged['gpt-5-codex-mini'].input).toBe(9);
+      expect(require('../../containers/api-proxy/ai-credits-pricing')['gpt-5-codex-mini'].input).toBe(0.25);
+      expect(execFileSync(process.execPath, [tempCompiler, '--check'], { cwd: temp, encoding: 'utf8' }))
+        .toContain('Checked');
+    } finally {
+      fs.rmSync(temp, { recursive: true, force: true });
+    }
   });
 
   it('uses the latest reviewed timestamp across all provenance sources', () => {

@@ -2,10 +2,10 @@ diff --git a/pkg/parser/schemas/main_workflow_schema.json b/pkg/parser/schemas/m
 index 9ed898d..deb6801 100644
 --- a/pkg/parser/schemas/main_workflow_schema.json
 +++ b/pkg/parser/schemas/main_workflow_schema.json
-@@ -3911 +3911 @@
+@@ -4074 +4074 @@
 -                  "max-model-tokens": { "type": "integer", "minimum": 1, "maximum": 32768, "default": 1024 },
 +                  "max-model-tokens": { "type": "integer", "minimum": 1, "maximum": 131072, "default": 1024 },
-@@ -14431,0 +14432,36 @@
+@@ -14622,0 +14623,36 @@
 +    {
 +      "if": {
 +        "required": ["features", "sandbox"],

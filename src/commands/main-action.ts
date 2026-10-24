@@ -20,6 +20,7 @@ import {
   cleanupHostIptables,
 } from '../host-iptables';
 import { runMainWorkflow } from '../cli-workflow';
+import { resolveRouterLogsDir } from '../routing/router-log-capture';
 import { deriveSensitiveEndpointForms, redactSecrets, redactSensitiveValues } from '../redact-secrets';
 import { joinShellArgs } from '../option-parsers';
 import { assertRealDirectory, writeFileNoFollow } from '../fs-utils';
@@ -456,7 +457,7 @@ async function runCleanup(
         logger.warn('Failed to write the incomplete enclave audit marker.', error);
       }
     }
-    await stopContainers(config.workDir, config.keepContainers);
+    await stopContainers(config.workDir, config.keepContainers, { routerLogsDir: resolveRouterLogsDir(config) });
   }
 
   if (getHostIptablesSetup() && !config.keepContainers) {

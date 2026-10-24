@@ -12,12 +12,12 @@ export interface LegacySnapshotMetadata {
 }
 
 export declare const IMPORTER_VERSION: string;
-/** Git blob ID and SHA-256 of the committed legacy snapshot (not upstream metadata). */
+/** Reviewed revision and exact byte hash from the committed metadata (legacy export names). */
 export declare const BUNDLED_GIT_BLOB: string;
 export declare const BUNDLED_SHA256: string;
-/** Git commit time of the bundled copy; the upstream retrieval time is unknown. */
+/** Reviewed capture time; historical pins explicitly identify repository-only capture. */
 export declare const BUNDLED_COMMIT_TIMESTAMP: string;
-/** Reproducible committed-source import. retrievedAt is explicitly repository capture time, not upstream retrieval. */
+/** Reproducible committed-source import using the reviewed metadata file; never fetches. */
 export declare function importPinnedLegacySnapshot(): ReturnType<typeof importLegacySnapshot>;
 export declare function importLegacySnapshot(bytes: Buffer, metadata: LegacySnapshotMetadata): {
   schemaVersion: number;

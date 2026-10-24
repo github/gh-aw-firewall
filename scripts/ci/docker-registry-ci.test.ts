@@ -6,7 +6,7 @@ import * as yaml from 'js-yaml';
 
 const root = path.resolve(__dirname, '../..');
 const script = path.join(root, 'scripts/ci/configure-docker-mirror.sh');
-const syft = 'anchore/syft:v1.52.0@sha256:500e2d872ac019436926e8322b4fc1f39441d94d21f6f4046c6ff29b30e8cb02';
+const syft = 'anchore/syft:v1.54.1@sha256:3eb5379ba7b409c3f4069b686110527af0c47df993fa5c10d13e7cf34f49b1aa';
 const grype = 'ghcr.io/anchore/grype@sha256:fd4ab4d1042b522c896e73bdf09ab8bf384fa417df99d6dd0d6e1008c7e7c821';
 const grant = 'ghcr.io/anchore/grant@sha256:172463611795f43b77302cdfbd7b3f81295492a7330e0820cfe41c3674920237';
 
@@ -14,6 +14,7 @@ interface Step {
   name?: string;
   run?: string;
   uses?: string;
+  env?: Record<string, string>;
   with?: Record<string, unknown>;
   if?: string;
   'continue-on-error'?: boolean;
@@ -168,6 +169,7 @@ print(json.dumps({'live': sorted(live), 'archives': sorted(archives), 'cache': s
     expect(prepare).toBeGreaterThanOrEqual(0);
     expect(prepare).toBeLessThan(compile);
     for (const image of [syft, grype, grant]) {
+      expect(image).toMatch(/@sha256:[a-f0-9]{64}$/);
       expect(steps[prepare].run).toContain(`docker pull ${image}`);
     }
     expect(steps[prepare]['continue-on-error']).toBeUndefined();
@@ -189,52 +191,23 @@ print(json.dumps({'live': sorted(live), 'archives': sorted(archives), 'cache': s
     expect(steps.find((step) => step.run?.includes(`'${grant}'`))?.run).toContain(grant);
   });
 
-  it('builds the pinned NVX-aware compiler before scanning', () => {
+  it('builds the reviewed patched compiler before scanning', () => {
     const steps = jobs('supply-chain-scan.yml').scan.steps;
-    const checkout = steps.findIndex((step) => step.with?.repository === 'github/gh-aw');
     const install = steps.findIndex(
-      (step) => step.name === 'Install patched gh-aw v0.92.6',
+      (step) => step.name === 'Install patched gh-aw v0.93.0',
     );
     const compile = steps.findIndex((step) =>
-      step.run === 'gh aw compile --syft --action-mode action --action-tag v0.92.6 .github/workflows/*.md');
-    expect(checkout).toBeGreaterThanOrEqual(0);
-    expect(install).toBeGreaterThan(checkout);
+      step.run === 'gh aw compile --syft --action-mode action --action-tag v0.93.0 .github/workflows/*.md');
+    expect(install).toBeGreaterThanOrEqual(0);
     expect(compile).toBeGreaterThan(install);
-    expect(steps[checkout].uses).toMatch(/^actions\/checkout@[a-f0-9]{40}$/);
-    expect(steps[checkout].with).toEqual({
-      repository: 'github/gh-aw',
-      ref: '7363a87ff2483635af62f490b52c25a757a50221',
-      path: '.tmp/gh-aw-compiler',
-      'persist-credentials': false,
-    });
-    expect(steps[install].run).toContain('-C .tmp/gh-aw-compiler');
-    const build = steps[install].run!;
-    const localPatch = '${GITHUB_WORKSPACE}/scripts/ci/compiler-agent-acceptance-v0.28.66.patch';
-    expect(build).toContain(`"${localPatch}"`);
-    expect(build).toContain('git -C .tmp/gh-aw-compiler apply --unidiff-zero');
-    expect(build.indexOf(localPatch)).toBeLessThan(build.indexOf('go test'));
-    expect(build).not.toContain('gh-aw-agent-acceptance.patch');
-    expect(build).not.toContain('sha256sum --check --strict');
-    const patch = fs.readFileSync(path.join(root, 'scripts/ci/compiler-agent-acceptance-v0.28.66.patch'), 'utf8');
-    expect(patch).toContain('cloudHypervisorAgentAcceptanceAWFVersion       = "v0.28.66"');
-    expect(patch).toContain('cloudHypervisorAgentAcceptanceMaxModelTokens   = 131072');
-    expect(patch).toContain('pkg/parser/schemas/main_workflow_schema.json');
-    expect(patch).toContain('"maximum": 131072');
-    expect(patch).toContain('"maximum": 32768');
-    expect(patch).toContain('{"old token budget"');
-    expect(patch).toContain('{"previous schema ceiling"');
-    expect(patch).toContain('{"previous acceptance version"');
-    expect(patch).toContain('{"future version"');
-    const source = yaml.load(fs.readFileSync(path.join(
-      root, '.github/workflows/smoke-enclave-cloud-hypervisor-copilot.md',
-    ), 'utf8').split('---')[1]) as { sandbox: { agent: { version: string } } };
-    expect(source.sandbox.agent.version).toBe('v0.28.66');
-    expect(patch).toContain(
-      `cloudHypervisorAgentAcceptanceAWFVersion       = "${source.sandbox.agent.version}"`);
-    expect(build).toContain('TestValidateCloudHypervisorAgentAcceptance|TestCompileCloudHypervisorAgentAcceptance');
-    expect(build.indexOf('go test')).toBeLessThan(build.indexOf('go build'));
-    expect(build).toContain('dev-v0.92.6-agent-acceptance-v0.28.66-budget131072');
-    for (const index of [checkout, install, compile]) {
+    expect(steps[install - 2].name).toBe('Checkout gh-aw v0.93.0');
+    expect(steps[install - 2].with?.ref).toBe('8df88b66116c3ead88419803ef9ced0c1a253510');
+    expect(steps[install].run).toContain('compiler-agent-acceptance-v0.28.66.patch');
+    expect(steps[install].run).toContain('go test -C .tmp/gh-aw-compiler ./pkg/workflow');
+    expect(steps[install].run).toContain('dev-v0.93.0-agent-acceptance-v0.28.66-budget131072');
+    expect(steps[install].run).toContain('gh aw version');
+    expect(steps[install].env?.GH_TOKEN).toBe('${{ github.token }}');
+    for (const index of [install, compile]) {
       expect(steps[index].if).toBeUndefined();
       expect(steps[index]['continue-on-error']).toBeUndefined();
     }

@@ -6,10 +6,14 @@ const path = require('node:path');
 const crypto = require('node:crypto');
 const { identity } = require('../../shared/model-information/identity');
 const { validate, validateRecords } = require('../../shared/model-information/contracts');
-const { importPinnedLegacySnapshot } = require('../../shared/model-information/import-legacy-snapshot');
+const { importLegacySnapshot } = require('../../shared/model-information/import-legacy-snapshot');
 const schema = require('../../shared/model-information/schema.v1.json');
 
-const root = path.resolve(__dirname, '../..');
+const rootArgument = process.argv.find(arg => arg.startsWith('--root='));
+if (rootArgument && !process.argv.includes('--check')) {
+  throw new Error('--root is only available in check mode');
+}
+const root = rootArgument ? path.resolve(rootArgument.slice('--root='.length)) : path.resolve(__dirname, '../..');
 const sourceArgument = process.argv.find(arg => arg.startsWith('--source-dir='));
 if (sourceArgument && !process.argv.includes('--check')) {
   throw new Error('--source-dir is only available in check mode');
@@ -17,7 +21,7 @@ if (sourceArgument && !process.argv.includes('--check')) {
 const sources = sourceArgument
   ? path.resolve(sourceArgument.slice('--source-dir='.length))
   : path.join(root, 'shared/model-information/sources');
-const compilerVersion = 3;
+const compilerVersion = 4;
 const read = file => JSON.parse(fs.readFileSync(path.join(root, file), 'utf8'));
 const sha256 = value => crypto.createHash('sha256').update(value).digest('hex');
 const json = value => `${JSON.stringify(value, null, 2)}\n`;
@@ -34,11 +38,14 @@ const latestTimestamp = provenances => provenances
 function compile() {
   const files = fs.readdirSync(sources).filter(file => file.endsWith('.json')).sort();
   const importedFile = 'shared/model-information/imported/legacy-models-dev.snapshot.v1.json';
-  const imported = read(importedFile);
-  const expectedImport = importPinnedLegacySnapshot();
-  if (json(imported) !== json(expectedImport)) {
+  const expectedImport = importLegacySnapshot(
+    fs.readFileSync(path.join(root, 'containers/api-proxy/models.dev.catalog.json')),
+    read('shared/model-information/imported/legacy-models-dev.metadata.json'),
+  );
+  if (process.argv.includes('--check') && json(read(importedFile)) !== json(expectedImport)) {
     throw new Error(`${importedFile}: pinned bytes, hash, counts, collisions or provenance changed; refresh explicitly`);
   }
+  const imported = expectedImport;
   const importErrors = validate('importedSnapshot', imported);
   if (importErrors.length) throw new Error(`${importedFile}: ${importErrors.join('; ')}`);
   const records = files.filter(file => !['mapping.json', 'target.json', 'pricing-reference.json',
@@ -358,6 +365,7 @@ function compile() {
     model.identity.rawId, model.lifecycle.replacement.split('/').slice(1).join('/'),
   ]));
   const output = {
+    [importedFile]: json(imported),
     'src/model-information.compat.generated.json': json({ supported: ['auto', ...supported], retired, suggestionOrder }),
     'containers/api-proxy/model-information.pricing.generated.json': json(pricing),
     'containers/api-proxy/model-information.retired.generated.json': json(retired),
@@ -372,7 +380,9 @@ function compile() {
     }),
     'shared/model-information/manifest.generated.json': json({
       schemaVersion: 1, compilerVersion, schemaHash, catalogRevision: revision,
-      generatedAt, sourceFiles: [...files.map(file => `shared/model-information/sources/${file}`), importedFile],
+      generatedAt, sourceFiles: [...files.map(file => `shared/model-information/sources/${file}`),
+        'containers/api-proxy/models.dev.catalog.json',
+        'shared/model-information/imported/legacy-models-dev.metadata.json'],
       import: {
         importerVersion: imported.importerVersion, sha256: imported.sha256,
         accepted: imported.accepted, rejected: imported.rejected, collisions: imported.collisions,

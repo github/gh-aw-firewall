@@ -21,9 +21,9 @@ function countOccurrences(content: string, value: string): number {
 
 describe('experimental Cloud Hypervisor enclave smoke workflow', () => {
   const compilerVersion =
-    'v0.92.6';
+    'v0.93.0';
   const setupAction =
-    'github/gh-aw-actions/setup@8b9c5e98dfe3472ac4e3f13e0a2441cd078a2ca7';
+    'github/gh-aw-actions/setup@e7519e6442ef74dda80a1627315ad827f402309c';
   const source = fs.readFileSync(
     path.join(workflowsDir, 'smoke-enclave-cloud-hypervisor.md'), 'utf8'
   );
@@ -277,7 +277,7 @@ describe('experimental Cloud Hypervisor enclave smoke workflow', () => {
         'report-failure-as-issue': boolean;
         'report-failed-jobs': boolean;
         'report-incomplete': { 'create-issue': boolean };
-        'missing-tool': { 'create-issue': boolean };
+        'report-missing-tool': { 'create-issue': boolean };
         jobs: Record<string, unknown>;
       };
     };
@@ -305,7 +305,7 @@ describe('experimental Cloud Hypervisor enclave smoke workflow', () => {
     expect(frontmatter['safe-outputs']['report-failure-as-issue']).toBe(false);
     expect(frontmatter['safe-outputs']['report-failed-jobs']).toBe(false);
     expect(frontmatter['safe-outputs']['report-incomplete']['create-issue']).toBe(false);
-    expect(frontmatter['safe-outputs']['missing-tool']['create-issue']).toBe(false);
+    expect(frontmatter['safe-outputs']['report-missing-tool']['create-issue']).toBe(false);
     expect(failureStep).toBeDefined();
     expect(failureStep?.env?.GH_AW_FAILURE_REPORT_AS_ISSUE).toBe('false');
     expect(failureStep?.env?.GH_AW_MISSING_DATA_REPORT_AS_FAILURE).toBe('true');
@@ -353,7 +353,7 @@ describe('experimental Cloud Hypervisor enclave smoke workflow', () => {
       server.name === 'safeoutputs')?.tools ?? [];
     expect(safeOutputsTools).not.toContain('create_issue');
     expect(safeOutputsTools).toContain('report_smoke_result');
-    expect(safeOutputsTools).toContain('missing_data');
+    expect(safeOutputsTools).toContain('report_missing_data');
     for (const name of [
       'Append agent step summary',
       'Parse agent logs for step summary',
@@ -400,8 +400,8 @@ describe('experimental Cloud Hypervisor enclave smoke workflow', () => {
     expect(validateStep?.if).toBe('always()');
     expect(compiledValidateStep?.if).toBe('always()');
     expect(validateStep?.run).toContain('record.kind === "failure"');
-    expect(validateStep?.run).toContain('record.type === "missing_data"');
-    expect(validateStep?.run).toContain('record.type === "missing_tool"');
+    expect(validateStep?.run).toContain('record.type === "report_missing_data"');
+    expect(validateStep?.run).toContain('record.type === "report_missing_tool"');
     expect(validateStep?.run).toContain('results.length !== 1');
     expect(compiled.jobs.report_smoke_result.if)
       .toContain("needs.agent.result == 'success'");
@@ -426,7 +426,9 @@ describe('experimental Cloud Hypervisor enclave smoke workflow', () => {
 
     try {
       expect(() => validate([expectedOutput])).not.toThrow();
-      for (const diagnosticType of ['missing_data', 'missing_tool']) {
+      for (const diagnosticType of [
+        'report_missing_data', 'report_missing_tool', 'missing_data', 'missing_tool',
+      ]) {
         expect(() => validate([
           expectedOutput,
           { type: diagnosticType, reason: 'contradictory failure diagnostic' },
@@ -581,7 +583,7 @@ describe('experimental Cloud Hypervisor enclave smoke workflow', () => {
     expect(countOccurrences(lock, '- name: Start MCP Gateway')).toBe(1);
     expect(lock).toContain('ghcr.io/github/gh-aw-mcpg:');
     expect(lock).toContain(
-      'ghcr.io/github/gh-aw-mcpg:v0.4.35@sha256:35e28671836380c0eae52660ea2ad7e5f6659f63cb20d1abae9271656c670858'
+      'ghcr.io/github/gh-aw-mcpg:v0.4.36@sha256:b4d2856018959c798b3e3f81ae4ab5b275e06354e123e1f7971de931f2f450f2'
     );
     expect(lock).toContain('"awf-enclave": {\n                "required": false,');
     expect(lock).toContain('GH_AW_MCP_DEFERRED_SERVERS="awf-enclave"');
@@ -609,7 +611,7 @@ describe('experimental Cloud Hypervisor enclave smoke workflow', () => {
     expect(source).toContain('consumes the host-only `AWF_RESOLVED_CONFIG` path');
     expect(source).toContain('successful privileged cleanup');
     expect(source).toContain('Do not copy raw\nresolved JSON into normal artifact paths');
-    expect(source).toContain('official gh-aw v0.92.6 prerelease');
+    expect(source).toContain('official gh-aw v0.93.0 prerelease');
     expect(source).toContain(compilerVersion);
     expect(steps.some(step =>
       step.uses === setupAction
@@ -940,7 +942,7 @@ describe('smoke enclave build workflow', () => {
   });
 
   it('uses the compatible gateway and local AWF build', () => {
-    expect(lock).toContain('ghcr.io/github/gh-aw-mcpg:v0.4.35');
+    expect(lock).toContain('ghcr.io/github/gh-aw-mcpg:v0.4.36');
     expect(lock).toContain('"awf-enclave": {\n                "required": false,');
     expect(lock).toContain('Install local AWF binary');
     expect(lock).toContain('--build-local');

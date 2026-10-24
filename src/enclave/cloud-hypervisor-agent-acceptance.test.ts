@@ -125,7 +125,7 @@ describe('Cloud Hypervisor primary and Copilot agent enclave acceptance', () => 
       value => { value.cloudHypervisor!.developmentAllowUnattestedArtifacts = true; },
       value => { value.cloudHypervisor!.sha256 = { kernel: 'a'.repeat(64) }; },
       value => { value.cloudHypervisor!.artifactReleaseTag = ''; },
-      value => { value.cloudHypervisor!.artifactReleaseTag = 'v0.28.63'; },
+      value => { value.cloudHypervisor!.artifactReleaseTag = 'v0.28.62'; },
       value => { value.imageTag = '0.28.61'; },
     ];
     for (const modify of modifications) {
@@ -141,7 +141,7 @@ describe('Cloud Hypervisor primary and Copilot agent enclave acceptance', () => 
     expect(isCloudHypervisorAgentAcceptanceWorkflow(value)).toBe(false);
   });
 
-  it.each(['v0.28.62', 'v0.28.63', 'v0.28.64', 'v0.28.65', 'v0.28.67', 'latest'])(
+  it.each(['v0.28.61', 'v0.28.62', 'v0.28.63', 'v0.28.64', 'v0.28.65', 'v0.28.67', 'latest'])(
     'rejects a guest release outside the exact v0.28.66 pin: %s', release => {
       const value = config();
       value.cloudHypervisor!.artifactReleaseTag = release;

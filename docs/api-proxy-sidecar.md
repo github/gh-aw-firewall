@@ -943,10 +943,16 @@ unavailable, it is `unobserved`.
 the requested provider and endpoint. Selection
 records use a canonical model ID; request records use the request-side model
 representation for comparison. Each request record includes `request_id`,
-`outcome` (`completed`, `rejected`, `failed`, or `aborted`), and `status`
-(the final HTTP status). A policy-rejected deviation remains a rejection, not
-a failure to select a route. HTTP success alone does not imply `completed`:
-stream errors or premature termination can produce `failed` or `aborted`.
+`outcome` (`completed`, `rejected`, `failed`, `aborted`, or `client_closed`),
+and `status` (the final HTTP status). A policy-rejected deviation remains a
+rejection, not a failure to select a route. HTTP success alone does not imply
+`completed`: stream errors or premature termination can produce `failed` or
+`aborted`. `client_closed` records a 2xx streamed response whose client closed
+the connection before AWF finished writing, after the upstream sent its
+protocol terminal success event (`response.completed` for Responses,
+`message_stop` for Messages, or `data: [DONE]` for Chat Completions). Codex,
+for example, stops reading at `response.completed`. Unlike `aborted`, a
+`client_closed` request on the selected model does not fail the routed run.
 Request records include `requested_endpoint` and `upstream_endpoint`; these
 differ when the Copilot proxy translates a request for a model that supports
 only the other wire API. Endpoint-only translation remains informational and

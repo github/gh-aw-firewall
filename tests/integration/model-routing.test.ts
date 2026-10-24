@@ -7,6 +7,7 @@ import * as yaml from 'js-yaml';
 import { afterAll, beforeAll, describe, expect, test } from '@jest/globals';
 import { parseImageTag } from '../../src/image-tag';
 import { buildRouterService, ROUTER_HEALTHCHECK_TEST } from '../../src/services/router-service';
+import { ROUTER_LOG_FILE, stopRouterAndSaveLogs } from '../../src/routing/router-log-capture';
 import { cleanup } from '../fixtures/cleanup';
 
 // The model-routing smoke workflow sets ROUTER_IMAGE to a digest-pinned build of containers/router.
@@ -281,6 +282,8 @@ interface Scenario {
 interface ScenarioResult {
   selected: { model: string; effort?: string };
   received: CollectedExport[];
+  // The router's records as AWF saved them at teardown, one parsed object per line.
+  routerLogs: Array<Record<string, unknown>>;
 }
 
 // Only the router's environment is taken from this service; the image comes from routerSource().
@@ -319,7 +322,7 @@ describe('Model routing', () => {
     };
   }
 
-  function writeCompose(scenario: Scenario): string {
+  function writeCompose(scenario: Scenario, workDir: string): string {
     const routerEnvironment: Record<string, string> | undefined = buildRouterService({
       imageConfig: ROUTER_IMAGE_CONFIG,
       hostEnv: scenario.hostSettings ?? {},
@@ -353,7 +356,7 @@ describe('Model routing', () => {
         networks: ['routing'],
       };
     }
-    const file = path.join(tempDir, `docker-compose.${scenario.name}.yml`);
+    const file = path.join(workDir, 'docker-compose.yml');
     fs.writeFileSync(file, yaml.dump({
       services,
       networks: { routing: { internal: true }, egress: {} },
@@ -372,7 +375,10 @@ describe('Model routing', () => {
 
   async function runScenario(scenario: Scenario, traceparents: Record<string, string> = {}): Promise<ScenarioResult> {
     const project = `awf-routing-it-${scenario.name}`;
-    const file = writeCompose(scenario);
+    // Like AWF's work directory, the compose file's directory names the project.
+    const workDir = path.join(tempDir, project);
+    fs.mkdirSync(workDir);
+    const file = writeCompose(scenario, workDir);
     projects.push({ project, file });
 
     const up = await compose(file, project, ['up', '-d']);
@@ -389,9 +395,13 @@ describe('Model routing', () => {
     const summary = JSON.parse(smoke.stdout.split('\n')
       .find(line => line.startsWith('MODEL_ROUTING_SMOKE='))!.slice('MODEL_ROUTING_SMOKE='.length));
 
-    // Stopping the router flushes its telemetry; the collector stays up to receive it.
-    const stop = await compose(file, project, ['stop', 'router']);
-    if (stop.exitCode !== 0) await failWithLogs(file, project, `router stop failed:\n${stop.stderr}`);
+    // AWF's teardown step: stop the router alone, which flushes its telemetry while the
+    // collector stays up, and save its logs before compose down would remove them.
+    const routerLogsDir = path.join(workDir, 'router-logs');
+    const capture = await stopRouterAndSaveLogs(workDir, routerLogsDir);
+    if (capture !== 'saved') await failWithLogs(file, project, `router log capture was ${capture}`);
+    const routerLogs = fs.readFileSync(path.join(routerLogsDir, ROUTER_LOG_FILE), 'utf8')
+      .split('\n').filter(Boolean).map(line => JSON.parse(line) as Record<string, unknown>);
 
     let received: CollectedExport[] = [];
     if (scenario.collectorStatus !== undefined) {
@@ -400,7 +410,7 @@ describe('Model routing', () => {
       received = JSON.parse(query.stdout.split('\n')
         .find(line => line.startsWith('OTLP_RECEIVED='))!.slice('OTLP_RECEIVED='.length));
     }
-    return { selected: summary.selected, received };
+    return { selected: summary.selected, received, routerLogs };
   }
 
   function traceContext(): { traceId: string; parents: Record<string, string>; traceparents: Record<string, string> } {
@@ -438,13 +448,19 @@ describe('Model routing', () => {
 
   test('runs the router planning contract from the API proxy network', async () => {
     // A collector is on the network, but with no AWF_ROUTER_OTEL_* settings nothing is sent to it.
-    const { received } = await runScenario({ name: 'plain', collectorStatus: 200 });
+    const { received, routerLogs } = await runScenario({ name: 'plain', collectorStatus: 200 });
     expect(received).toEqual([]);
+
+    // The saved log runs from startup to the shutdown records written after the stop.
+    const messages = routerLogs.map(record => record.msg);
+    expect(messages[0]).toBe('starting');
+    expect(messages).toEqual(expect.arrayContaining(['routing tables loaded', 'listening', 'request', 'shutting down']));
+    expect(messages[messages.length - 1]).toBe('stopped');
   }, 360000);
 
   test('exports router traces and metrics to a collector on the internal network', async () => {
     const { traceId, parents, traceparents } = traceContext();
-    const { selected, received } = await runScenario(
+    const { selected, received, routerLogs } = await runScenario(
       { name: 'export', hostSettings: BASE_EXPORT_SETTINGS, collectorStatus: 200 },
       traceparents,
     );
@@ -495,6 +511,16 @@ describe('Model routing', () => {
     });
     expect(JSON.stringify(spans)).not.toContain(COLLECTOR_HEADER_TOKEN);
     expect(JSON.stringify(spans)).not.toContain('Proceed.');
+
+    // Each saved request record names the span that served it.
+    for (const route of ['/capabilities', '/classify', '/route']) {
+      expect(routerLogs.find(record => record.msg === 'request' && record.route === route)).toMatchObject({
+        trace_id: traceId,
+        span_id: serverSpans[route].spanId,
+      });
+    }
+    expect(JSON.stringify(routerLogs)).not.toContain(COLLECTOR_HEADER_TOKEN);
+    expect(JSON.stringify(routerLogs)).not.toContain('Proceed.');
 
     const metricNames = metricNamesOf(received);
     expect(metricNames).toEqual(expect.arrayContaining([

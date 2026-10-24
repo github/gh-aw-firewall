@@ -55,7 +55,7 @@ function parseMountSource(volume: string): string | undefined {
   return source && path.isAbsolute(source) ? source : undefined;
 }
 
-function normalizeForOverlap(candidate: string): string {
+export function normalizeForOverlap(candidate: string): string {
   const missing: string[] = [];
   let current = path.resolve(candidate);
   while (!fs.existsSync(current)) {
@@ -68,12 +68,11 @@ function normalizeForOverlap(candidate: string): string {
   return path.resolve(resolved, ...missing);
 }
 
-function pathsOverlap(left: string, right: string): boolean {
-  const leftToRight = path.relative(left, right);
-  const rightToLeft = path.relative(right, left);
-  return leftToRight === '' || rightToLeft === '' ||
-    (!leftToRight.startsWith('..') && !path.isAbsolute(leftToRight)) ||
-    (!rightToLeft.startsWith('..') && !path.isAbsolute(rightToLeft));
+export function pathsOverlap(left: string, right: string): boolean {
+  // Only a leading `..` component leaves the base; a name such as `..logs` stays inside it.
+  const inside = (relative: string) => relative !== '..' && !relative.startsWith(`..${path.sep}`) &&
+    !path.isAbsolute(relative);
+  return inside(path.relative(left, right)) || inside(path.relative(right, left));
 }
 
 function assertRoutingRootDoesNotOverlapAgentMounts(config: WrapperConfig, root: string): void {

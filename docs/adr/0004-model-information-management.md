@@ -844,6 +844,88 @@ downgrade, and source disappearance require explicit review.
 The updater does not derive verified compatibility or reasoning support from
 marketing prose. Uncertain facts are marked unverified or left unknown.
 
+### Scheduled checked-in source upkeep
+
+`.github/workflows/model-api-mapping-updater.md` now runs daily and supports
+manual dispatch on `main`. It captures the approved official documentation and
+OpenRouter model API listed in
+`scripts/model-information/maintenance-sources.json`, including exact response
+hashes, retrieval times, source scopes and explicit import exclusions. Capture
+artifacts and the Actions summary expose failed/missing sources and last
+committed evidence; incomplete retrieval blocks proposals without erasing facts.
+The agent proposes edits to canonical sources, with exact source quotations and
+before/after hashes, rather than editing either generated API mapping.
+Its shell allowlist names the specific maintenance/generation/test commands,
+not unrestricted interpreters or package installers. Captures are produced in
+a separate pre-agent job, which seals the manifest digest in an Actions job
+output. Captured text is untrusted evidence, not an instruction source.
+
+The canonical raw import remains the historically named
+`containers/api-proxy/models.dev.catalog.json`. Its origin is not thereby
+asserted to be models.dev. Reviewed pins live in
+`shared/model-information/imported/legacy-models-dev.metadata.json`;
+`node scripts/model-information/maintain.cjs refresh-import` can explicitly
+replace both with an actually captured OpenRouter response and retrieval
+metadata. Source namespaces do not establish native-provider billing or
+deployability. Routing aliases (`~...`) and OpenRouter variable-price sentinels
+are counted exclusions, never priced exact models. Other rejected records and
+normalized collisions fail the refresh. A missing listing is an observation
+requiring review, not proof of retirement. The API does not declare catalogue
+or model licenses; the metadata records that unknown instead of inventing them.
+The existing import schema projects only its four token-price components;
+additional API pricing fields/overrides remain in the exact raw evidence and
+impact report, not newly activated native-provider tariffs. An API envelope
+with a count mismatch or an unfetched next page fails as incomplete coverage.
+The bundled catalogue is already consumed by runtime fallback accounting;
+the generated retirement projection is also an active guard input. Merging a
+reviewed refresh can therefore change fallback prices, model lookup winners or
+retirement handling. Reports include before/after runtime consumer effects,
+including order-sensitive alias winners, and the gate runs the affected proxy
+consumer regressions. This does not activate the staged maintained pricing
+projection or a new pricing/resolver architecture.
+
+The updater runs canonical generation, focused offline regressions and
+`models:check`, and commits `shared/model-information/maintenance-report.json`
+with exact field changes, captured evidence, import counts/exclusions and human
+review gates alongside every affected projection. An independent read-only job
+downloads the original captured evidence and the actual safe-output Git bundle.
+It runs validation code, tests and npm configuration from a fresh trusted
+workflow checkout, never from the agent-modified tree. The manifest must match
+the pre-agent digest; matching hashes in an agent-edited manifest are not proof.
+Every bundled commit is checked for data-only ownership and regular JSON file
+modes, including intermediate commits later reverted. Receipts are reconstructed
+from the bundled impact report, checked against original evidence and anchored
+baselines, and only validated JSON is overlaid for deterministic projection
+checks. Safe-output writes require this independent job to succeed. All
+model-fact changes require human review. Prices use zero tolerance unless a
+provider-specific tolerance is separately documented and reviewed; there is no
+guessed rounding allowance. Quote/hash checks establish captured evidence, not
+semantic truth: reviewers must verify scope and each claimed fact.
+Model-array impact paths use exact-ID selectors rather than positional indices,
+avoiding shuffle noise. Subsequent updates also include a cumulative source
+diff against `main`, preserving the full pending PR impact.
+
+Runs are serialized. An existing open maintenance PR is selected by exact title,
+same-repository main base and reserved head prefix, then its branch is reused
+through `push-to-pull-request-branch`. A separate read-only Actions job supplies
+the selected number to both the agent and privileged safe-output configuration;
+agent-supplied PR numbers cannot redirect a push to unrelated PRs. Target zero
+blocks pushes when no maintenance PR exists. Multiple matching PRs fail visibly. A new
+PR is created only when none is open, with a run-unique reserved branch. Equal
+facts (including equal normalized imported prices despite formatting/order
+changes) leave source captures, timestamps, reports and pending PRs untouched.
+Source/API layout changes, conflicting human edits, unknown evidence or failed
+checks are incomplete runs, not successful no-ops.
+
+This updater is scheduled reviewed source upkeep only: no automatic merge,
+runtime refresh/cache or activation of staged corrections. A separate ordinary
+post-merge publisher now implements the publication-only portion of Gate 8;
+see [the producer contract and automation](../model-catalogue-publication.md).
+It does not implement Gate 5 loading/source authentication. Workflow-created PRs use
+the existing token/safe-output mechanism; GitHub may require maintainer action
+to run CI for `GITHUB_TOKEN`-authored changes. No app/token provisioning or live
+workflow dispatch is part of this implementation.
+
 ## Freshness and staleness
 
 Each fact group has a policy-appropriate maximum age:
@@ -1116,7 +1198,7 @@ Run `npm run models:generate` after editing source records; run
 `npm run models:check` to validate complete-set identity and verify every
 generated byte. Both commands are offline and never update capture times.
 Only the explicit pinned-snapshot import operation may introduce a new import
-capture. The compiler version is 3; the schema version is 1; the deterministic
+capture. The compiler version is 4; the schema version is 1; the deterministic
 revision and source list are in
 `shared/model-information/manifest.generated.json`. Static `generatedAt` is
 the newest committed source capture/mapping review time, **not** a build time.
@@ -1126,12 +1208,15 @@ To refresh an import deliberately, supply the exact new input bytes and
 independently established `source`, `revision`, `retrievedAt`, SHA-256 and
 license/usage note to `importLegacySnapshot(bytes, metadata)` in
 `shared/model-information/import-legacy-snapshot.js`; inspect rejected records
-and collisions, update the pinned input hash/repository capture metadata, then
-regenerate and review the snapshot and all projections together. The current
+and collisions, update the pinned input metadata file, then regenerate and
+review the snapshot and all projections together. The current
 bundled copy has **unknown upstream retrieval time and license**: its
 `retrievedAt` denotes only the verifiable Git repository-capture commit time.
 It accepts 355 entries, rejects 11 and reports no normalized collisions.
-Automatic upstream refresh or publication is reserved for Phase 8.
+Scheduled reviewed source upkeep is described above. The separate
+[publication-only producer](../model-catalogue-publication.md) distributes a
+strict pricing/harness projection after approved main merges; runtime loading
+and source-authenticated activation remain separately gated.
 
 | Source of facts | Consumer and compiled projection | Activation |
 | --- | --- | --- |
@@ -1140,7 +1225,7 @@ Automatic upstream refresh or publication is reserved for Phase 8.
 | `shared/model-information/sources/mapping.json` (pinned endpoint family/ordering, patterns, routing, provenance) | `docs/model-api-mapping.json`, `containers/api-proxy/model-api-mapping.json` | Active byte-identical compatibility format, no routing behavior change. |
 | `shared/model-information/sources/target.json` (#10029/#10030 evidence and exact corrections) | `shared/model-information/target.generated.json`, `baseline-to-target.generated.json` | Staged only; named changes require explicit Gates 4–6 activation/review. |
 | Complete assembled maintained sources | `shared/model-information/catalog.generated.json`, `manifest.generated.json` | Static validated exports; not a central feed or live resolver input. |
-| `containers/api-proxy/models.dev.catalog.json` (legacy bundled bytes, not a billing-provider mapping) | Governed imported snapshot | Staged only; legacy bare-slug runtime lookup remains unchanged until Gate 5. |
+| `containers/api-proxy/models.dev.catalog.json` and `shared/model-information/imported/legacy-models-dev.metadata.json` (pinned raw bytes and provenance, not a billing-provider mapping) | Governed imported snapshot | Staged only; legacy bare-slug runtime lookup remains unchanged until Gate 5. |
 
 The host support/suggestion tests in `src/copilot-model.test.ts` and
 `src/copilot-model-catalog-sync.test.ts` characterize the existing host
@@ -1183,9 +1268,9 @@ projection, not a deployable model. Pricing-only legacy entries carry an
 The machine-readable `baseline-to-target.generated.json` contains complete
 before/after model records and endpoint mapping for review. Generated target
 records do not assert Copilot CLI availability from imported data or from
-endpoint families. The former daily endpoint updater is now manually
-dispatchable, read-only, with summary/noop output only; Phase 8 owns replacing
-it with a unified source-aware updater. No remote workflow was dispatched or
+endpoint families. The endpoint updater was initially paused as a manual,
+read-only review; scheduled source upkeep now replaces it as described above.
+No remote workflow was dispatched or
 operationally disabled outside the repository change. The gh-aw workflow/config
 field names and compiler-to-runtime handoff remain unagreed with `github/gh-aw`
 and block Phase 4, not this offline compiler.
@@ -1296,6 +1381,15 @@ must already have been retargeted or paused at Gate 3.
 
 Publish reviewed versioned central snapshots through the same source-aware
 pipeline used for bundled projections.
+
+The publication-only slice now has a deterministic post-merge Actions producer,
+automatic data-branch bootstrap, immutable versioned snapshots and an atomic
+current channel. It publishes only maintained pricing/harness facts, not the
+complete assembled or staged exports. See the
+[publication contract](../model-catalogue-publication.md) for ordering,
+integrity, transport/source trust and GitHub token-event limits. This producer
+can ship before the Gate 5 loader; no runtime consumer/authentication integration
+or completion of all Gate 8 work is implied.
 
 ### Gate 9: Legacy removal
 

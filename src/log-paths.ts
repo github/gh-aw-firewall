@@ -1,5 +1,12 @@
 import * as path from 'path';
+import * as os from 'os';
 import { WrapperConfig } from './types';
+
+/** Destination for work-directory artifacts moved out before cleanup removes it. */
+export function preservedArtifactDirectory(workDir: string, baseName: string): string {
+  const timestamp = path.basename(workDir).replace('awf-', '');
+  return path.join(os.tmpdir(), `${baseName}-${timestamp}`);
+}
 
 export interface LogPaths {
   squidLogs: string;
@@ -7,6 +14,8 @@ export interface LogPaths {
   agentLogs: string;
   apiProxyLogs: string;
   cliProxyLogs: string;
+  /** Written by AWF itself at teardown, not mounted into a container. */
+  routerLogs: string;
 }
 
 /**
@@ -25,5 +34,8 @@ export function resolveLogPaths(config: WrapperConfig): LogPaths {
     cliProxyLogs: config.proxyLogsDir
       ? path.join(config.proxyLogsDir, 'cli-proxy-logs')
       : path.join(config.workDir, 'cli-proxy-logs'),
+    routerLogs: config.proxyLogsDir
+      ? path.join(config.proxyLogsDir, 'router-logs')
+      : path.join(config.workDir, 'router-logs'),
   };
 }

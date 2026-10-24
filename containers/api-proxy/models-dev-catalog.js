@@ -71,20 +71,20 @@ function buildCatalogIndex(entries) {
 
 const { knownModels, pricingByModel } = buildCatalogIndex(Array.isArray(bundledCatalog?.data) ? bundledCatalog.data : []);
 
-function resolveCatalogModel(model) {
+function resolveCatalogModel(model, index = { knownModels, pricingByModel }) {
   const canonical = canonicalizeModel(model);
   if (!canonical) {
     return { exists: false, pricing: null, zeroCost: false };
   }
 
-  const exactPricing = pricingByModel.get(canonical);
+  const exactPricing = index.pricingByModel.get(canonical);
   if (exactPricing) {
     return { exists: true, pricing: exactPricing, zeroCost: isZeroCostPricing(exactPricing) };
   }
 
-  return { exists: knownModels.has(canonical), pricing: null, zeroCost: false };
+  return { exists: index.knownModels.has(canonical), pricing: null, zeroCost: false };
 }
 
 module.exports = {
-  resolveCatalogModel,
+  resolveCatalogModel, buildCatalogIndex,
 };

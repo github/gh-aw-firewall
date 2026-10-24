@@ -110,6 +110,20 @@ describe('docker-manager diagnostics', () => {
       expect(sanitized).not.toContain('uppercase_secret');
       expect(sanitized).toContain('not_sensitive: keepme');
     });
+
+    it('should never copy the model router\'s logs into diagnostics', async () => {
+      // Teardown keeps them in router-logs/router.jsonl, readable only by the invoking user;
+      // diagnostics are made world-readable when they are preserved.
+      mockExecaFn.mockResolvedValue({ stdout: '{"msg":"stopped"}', stderr: '', exitCode: 0 });
+      try {
+        await collectDiagnosticLogs(getDir());
+
+        expect(JSON.stringify(mockExecaFn.mock.calls)).not.toContain('awf-router');
+        expect(fs.existsSync(path.join(getDir(), 'diagnostics', 'awf-router.log'))).toBe(false);
+      } finally {
+        mockExecaFn.mockReset();
+      }
+    });
   });
 
   describe('preserveIptablesAudit', () => {
