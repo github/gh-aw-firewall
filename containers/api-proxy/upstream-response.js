@@ -9,6 +9,7 @@ const {
 const { handle400WithRetry, handleFallbackEligibleResponse } = require('./upstream-retry');
 const { setupTokenTracking } = require('./upstream-token');
 const { auditTrack, auditUpstreamErrorResponse } = require('./token-persistence');
+const { buildCopilotWireAuthDiagnostic } = require('./copilot-auth-diagnostics');
 const {
   transformCodexCompatibleResponseBody,
   createCodexCompatibleSseTransform,
@@ -169,7 +170,7 @@ function createUpstreamResponseHandlers({
   });
 
   function handleUpstreamResponse(proxyRes, requestHeaders, {
-    body, res, provider, requestId, req, targetHost, startTime, span, requestBytes,
+    body, res, provider, requestId, req, targetHost, upstreamPath, startTime, span, requestBytes,
     hasRetried, onRetry,
     modelNotSupportedRetryCount = 0, onModelNotSupportedRetry,
     onModelEndpointBlockedRetry,
@@ -218,8 +219,15 @@ function createUpstreamResponseHandlers({
     const shouldCaptureUpstreamError = !isRoutingClassifier &&
       (proxyRes.statusCode < 200 || proxyRes.statusCode >= 300);
 
-    const completionCtx = { startTime, provider, req, requestBytes, targetHost, requestId, wireApiCompatibility };
-    const authErrCtx = { requestId, provider, targetHost, req };
+    const authErrCtx = {
+      requestId, provider, targetHost, req,
+      copilotAuthDiagnostic: provider === 'copilot'
+        ? buildCopilotWireAuthDiagnostic(req, requestHeaders, targetHost, upstreamPath) : undefined,
+    };
+    const completionCtx = {
+      startTime, provider, req, requestBytes, targetHost, requestId, wireApiCompatibility,
+      copilotAuthDiagnostic: authErrCtx.copilotAuthDiagnostic,
+    };
 
     function forwardOversizedBufferedResponse(bufferedChunks, currentChunk) {
       const responseBody = Buffer.concat(bufferedChunks);

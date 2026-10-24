@@ -6,6 +6,75 @@ import { spawnSync } from 'child_process';
 const dockerfilePath = path.resolve(__dirname, '../../containers/agent/Dockerfile');
 
 describe('agent Dockerfile security hardening', () => {
+  const npmInstallInstruction = (): string => {
+    const dockerfile = fs.readFileSync(dockerfilePath, 'utf-8');
+    const instructions = dockerfile
+      .replace(/^[ \t]*#.*\r?\n/gm, '')
+      .replace(/\\\r?\n/g, ' ')
+      .split('\n');
+    const instruction = instructions.find(
+      line => line.startsWith('RUN ') && line.includes('NPM_TGZ_URL='),
+    );
+    expect(instruction).toBeDefined();
+    return instruction!;
+  };
+
+  it('patches vulnerable npm dependencies before committing the installation layer', () => {
+    const instruction = npmInstallInstruction();
+
+    for (const dependency of ['undici-6.28.1', 'brace-expansion-5.0.12', 'ip-address-10.7.1']) {
+      expect(instruction).toContain(`tar -xzf /tmp/${dependency}.tgz`);
+      expect(instruction).toContain(`/${dependency}.tgz" | sha256sum -c -`);
+    }
+    expect(instruction).toContain('const expected={undici:"6.28.1"');
+    expect(instruction).toContain('rm -f /tmp/npm-11.18.0.tgz /tmp/undici-6.28.1.tgz');
+  });
+
+  it('retries connection resets within a bounded budget for every npm download', () => {
+    const instruction = npmInstallInstruction();
+    const npmInstallStart = instruction.indexOf('NPM_TGZ_URL=');
+    expect(npmInstallStart).toBeGreaterThan(0);
+    const npmDownloads = instruction.slice(npmInstallStart).match(/curl\b[^&;]+/g) ?? [];
+
+    expect(npmDownloads).toHaveLength(4);
+    for (const command of npmDownloads) {
+      expect(command).toContain('--retry 3');
+      expect(command).toContain('--retry-all-errors');
+      expect(command).toContain('--retry-max-time 120');
+      expect(command).toContain('--connect-timeout 15');
+      expect(command).toContain('--max-time 60');
+      expect(command).toContain('-fsSL');
+    }
+  });
+
+  it.each([
+    ['download', 35],
+    ['checksum', 9],
+  ])('fails closed on a %s failure before installing dependencies', (failure, exitCode) => {
+    const instruction = npmInstallInstruction();
+    const start = instruction.indexOf('npm_dir=');
+    expect(start).toBeGreaterThan(0);
+    const script = `
+set -e
+curl() { ${failure === 'download' ? 'return 35' : 'return 0'}; }
+sha256sum() { return 9; }
+rm() { echo unexpected-remove; }
+mkdir() { echo unexpected-create; }
+tar() { echo unexpected-extract; }
+node() { echo unexpected-execute; }
+${instruction.slice(start)}
+`;
+    const result = spawnSync('bash', ['-c', script], {
+      encoding: 'utf-8',
+      env: { PATH: process.env.PATH },
+      timeout: 5000,
+    });
+
+    expect(result.error).toBeUndefined();
+    expect(result.status).toBe(exitCode);
+    expect(result.stdout).not.toContain('unexpected-');
+  });
+
   const readHardeningScript = (fixtureDir: string): string => {
     const dockerfile = fs.readFileSync(dockerfilePath, 'utf-8');
     const hardeningBlock = dockerfile.match(

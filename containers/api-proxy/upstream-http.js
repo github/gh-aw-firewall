@@ -631,7 +631,7 @@ function createSendUpstreamRequest({
       responded = true;
       cancellation.responseStarted = true;
       handleUpstreamResponse(proxyRes, outboundHeaders, {
-        body, res, provider, requestId, req, targetHost, startTime, span, requestBytes,
+        body, res, provider, requestId, req, targetHost, upstreamPath, startTime, span, requestBytes,
         hasRetried,
         modelNotSupportedRetryCount,
         codexCompatibility,

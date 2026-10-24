@@ -2,6 +2,7 @@ import execa from 'execa';
 import { getLocalDockerEnv } from '../docker-host';
 import { ENCLAVE_AGENT_API_PROXY_CONTAINER_NAME } from '../constants';
 import { persistHostExecutorProxyDebugDiagnostics } from './host-executor-journal';
+import { isSafeCopilotAuthLogFields, projectCopilotAuthLogFields } from './proxy-auth-diagnostics';
 import {
   projectEnclaveProxyResponseDiagnostics, type EnclaveProxyResponseDiagnostics, type EnclaveProxyEvent,
 } from './proxy-usage';
@@ -11,6 +12,7 @@ const MAX_CONTAINER_LOG_BYTES = 32 * 1024;
 const SAFE_LOG_EVENTS = new Set([
   'startup', 'startup_complete', 'server_start', 'shutdown', 'request_start',
   'request_complete', 'request_error', 'upstream_error_response', 'upstream_auth_error',
+  'copilot_auth_diagnostic',
   'request_transform_failed', 'key_validation_error', 'oidc_startup_failed',
   'model_fetch_error', 'model_routing_bootstrap_error',
   'enclave_model_budget_rejected', 'rate_limited', 'request_validation_failed', 'model_fallback_exhausted',
@@ -24,7 +26,7 @@ const SAFE_LOG_EVENTS = new Set([
 ]);
 const SAFE_LEVELS = new Set(['info', 'warn', 'error']);
 const SAFE_PROJECTED_LOG_LINE =
-  /^source=(stdout|stderr) level=(info|warn|error) event=([a-z_]+)(?: status=([1-5]\d\d))?$/;
+  /^source=(stdout|stderr) level=(info|warn|error) event=([a-z_]+)(?: status=([1-5]\d\d))?(?: (.+))?$/;
 
 /**
  * Read bounded stdout/stderr before compose teardown and immediately discard
@@ -61,7 +63,8 @@ export async function captureEnclaveProxyContainerLog(
         }
         const status = typeof value.status === 'number' && Number.isInteger(value.status)
           && value.status >= 100 && value.status <= 599 ? ` status=${value.status}` : '';
-        const projected = `source=${source} level=${value.level} event=${value.event}${status}\n`;
+        const auth = value.event === 'copilot_auth_diagnostic' ? ` ${projectCopilotAuthLogFields(value)}` : '';
+        const projected = `source=${source} level=${value.level} event=${value.event}${status}${auth}\n`;
         if (Buffer.byteLength(lines.join('')) + Buffer.byteLength(projected) > MAX_CONTAINER_LOG_BYTES - 128) {
           dropped++;
           continue;
@@ -110,7 +113,8 @@ export async function preservePublicEnclaveProxyDiagnostics(
       !/^(?:capture_status=(?:captured dropped=\d{1,5}|empty|unavailable))$/.test(trailer ?? '') ||
       !logLines.slice(0, -2).every(line => {
         const match = SAFE_PROJECTED_LOG_LINE.exec(line);
-        return match && SAFE_LEVELS.has(match[2]) && SAFE_LOG_EVENTS.has(match[3]);
+        return match && SAFE_LEVELS.has(match[2]) && SAFE_LOG_EVENTS.has(match[3])
+          && (match[3] === 'copilot_auth_diagnostic' ? isSafeCopilotAuthLogFields(match[5]) : !match[5]);
       })) {
     throw new Error('Unsafe enclave proxy container log projection');
   }

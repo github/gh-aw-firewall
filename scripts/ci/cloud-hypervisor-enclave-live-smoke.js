@@ -8,6 +8,9 @@ const path = require('path');
 const { spawn, spawnSync } = require('child_process');
 const { isDeepStrictEqual } = require('util');
 const conformanceDiagnostics = require('./cloud-hypervisor-enclave-diagnostics');
+const diagnosticCollector = require('./collect-enclave-smoke-debug.cjs');
+const { HOST_EXECUTOR_ID_PATTERN } = require('../../dist/enclave/host-executor-protocol');
+const { HOST_EXECUTOR_DEFAULT_JOURNAL_DIRECTORY } = require('../../dist/enclave/host-executor-journal');
 
 const RELEASE_ASSETS = [
   'cloud-hypervisor-test-x86_64.tar.gz',
@@ -36,27 +39,120 @@ function assertReleaseAssets(required, published) {
   }
 }
 
-function parsePublicToolResult(response, requestId) {
-  if (!response || response.jsonrpc !== '2.0' || response.id !== requestId
-      || response.error || !response.result || response.result.isError === true) {
-    throw new Error('Public enclave MCP call did not return a successful JSON-RPC result');
+const mcpFailures = new WeakMap();
+const mcpResponses = new WeakMap();
+
+function mcpResponseMetadata(response, requestId, httpStatus) {
+  const structured = response?.result?.structuredContent;
+  return {
+    httpStatus: httpStatus ?? (response && typeof response === 'object'
+      ? mcpResponses.get(response) : undefined),
+    ...(response === undefined ? {} : { response: {
+      present: !!response,
+      jsonrpcValid: response?.jsonrpc === '2.0',
+      idMatches: response?.id === requestId,
+      rpcError: !!response?.error,
+      rpcErrorClass: !response?.error ? 'absent'
+        : new Map([[-32700, 'parse-error'], [-32600, 'invalid-request'], [-32601, 'method-not-found'],
+          [-32602, 'invalid-params'], [-32603, 'internal-error']]).get(response.error.code)
+          || (Number.isInteger(response.error.code) && response.error.code >= -32099
+            && response.error.code <= -32000 ? 'server-error' : 'other'),
+      resultPresent: !!response?.result,
+      toolIsError: response?.result?.isError === true,
+      structuredPresent: !!structured,
+      structuredStatus: structured === undefined ? 'absent'
+        : ['ok', 'error'].includes(structured?.status) ? structured.status : 'invalid',
+      contentMatches: Array.isArray(response?.result?.content)
+        && response.result.content.length === 1
+        && response.result.content[0]?.type === 'text'
+        && response.result.content[0].text === JSON.stringify(structured),
+    } }),
+  };
+}
+
+function mcpFailure(reason, response, requestId, httpStatus) {
+  const error = new Error('Public enclave MCP request failed');
+  mcpFailures.set(error, { reason, ...mcpResponseMetadata(response, requestId, httpStatus) });
+  return error;
+}
+
+async function acceptanceCheck(context, step, phase, action) {
+  const record = (status, details = {}) => {
+    const check = conformanceDiagnostics.projectAcceptanceCheck({ step, phase, status, ...details });
+    if (!check) throw new Error('Invalid acceptance diagnostic step');
+    if (context.check?.status !== 'failed') context.check = check;
+    context.checks = [...(context.checks || []), check].slice(-16);
+    console.log(`AWF_ENCLAVE_ACCEPTANCE_CHECK ${JSON.stringify(check)}`);
+    if (context.observeAdmission && (status === 'failed' || (phase === 'request' && status === 'passed'))) {
+      try {
+        context.admissionEvidence = conformanceDiagnostics.projectAdmissionEvidence(context.observeAdmission());
+      } catch {
+        context.admissionEvidence = conformanceDiagnostics.projectAdmissionEvidence({
+          broker: { status: 'read-failed' }, hostControl: { status: 'read-failed' },
+        });
+        console.error('Could not capture enclave admission evidence; raw error details were suppressed.');
+        if (status !== 'failed') throw mcpFailure('admission-evidence-failed');
+      }
+      console.log(`AWF_ENCLAVE_ADMISSION_EVIDENCE ${JSON.stringify({
+        step, phase, ...context.admissionEvidence,
+      })}`);
+    }
+  };
+  record('started');
+  try {
+    const result = await action();
+    const requestId = { 'agent-enospc': 6, 'script-enospc': 7, 'guest-oom': 8,
+      'guest-failure': 9, 'guest-timeout': 10, 'guest-cancellation': 11,
+      'script-only': 16, 'agent-only': 19 }[step];
+    let details = {};
+    if (phase === 'request') details = mcpResponseMetadata(result, requestId);
+    else if (phase === 'resource-refresh') details = { inventory: result?.inventory, baseline: result?.baseline };
+    else if (['resource-discovery', 'resource-read'].includes(phase)) details = { inventory: result?.inventory };
+    else if (step === 'crash-recovery' && phase === 'recovery-validation') details = { recovery: result };
+    else if (step === 'crash-recovery' && phase === 'tools-list') details = mcpResponseMetadata(result, 13);
+    else if (step === 'crash-recovery' && phase === 'interrupted-response') {
+      details = { ...mcpResponseMetadata(result?.response, 12),
+        interrupted: result?.disconnected ? 'disconnected' : 'returned' };
+    } else if (['script-only', 'agent-only'].includes(step)) {
+      if (phase === 'initialize') details = mcpResponseMetadata(result, requestId - 2);
+      else if (phase === 'tools-list') details = mcpResponseMetadata(result, requestId - 1);
+      else if (['initialize-validation', 'tools-validation'].includes(phase)) details = { profile: result };
+    }
+    record('passed', details);
+    return result;
+  } catch (error) {
+    record('failed', {
+      ...(['crash-recovery', 'script-only', 'agent-only'].includes(step)
+        ? { code: typeof error?.code === 'string' ? error.code : 'unknown' } : {}),
+      ...(mcpFailures.get(error) || { reason: 'operation-failed' }),
+    });
+    throw error;
   }
+}
+
+function parsePublicToolResult(response, requestId) {
+  if (!response) throw mcpFailure('response-missing', response, requestId);
+  if (response.jsonrpc !== '2.0') throw mcpFailure('jsonrpc-version', response, requestId);
+  if (response.id !== requestId) throw mcpFailure('request-id', response, requestId);
+  if (response.error) throw mcpFailure('jsonrpc-error', response, requestId);
+  if (!response.result) throw mcpFailure('result-missing', response, requestId);
+  if (response.result.isError === true) throw mcpFailure('tool-is-error', response, requestId);
   const structured = response.result.structuredContent;
   if (!structured || typeof structured !== 'object' || Array.isArray(structured)
       || !['ok', 'error'].includes(structured.status)) {
-    throw new Error('Public enclave MCP result is not canonical structured content');
+    throw mcpFailure('structured-content', response, requestId);
   }
   const keys = Object.keys(structured).sort();
   if (JSON.stringify(keys) !== JSON.stringify(
     structured.status === 'ok' ? ['result', 'status'] : ['status'],
   )) {
-    throw new Error('Public enclave MCP result contains unexpected fields');
+    throw mcpFailure('structured-fields', response, requestId);
   }
   const content = response.result.content;
   if (!Array.isArray(content) || content.length !== 1
       || content[0]?.type !== 'text'
       || content[0].text !== JSON.stringify(structured)) {
-    throw new Error('Public enclave MCP text and structured results do not match canonically');
+    throw mcpFailure('content-mismatch', response, requestId);
   }
   return structured;
 }
@@ -149,12 +245,12 @@ function run(command, args, options = {}) {
   return captureStderr ? `${result.stdout}\n${result.stderr}` : result.stdout;
 }
 
-function captureContainerLogs() {
+function captureContainerLogs(profile = 'combined') {
   return [
     GATEWAY_CONTAINER,
     'awf-enclave-mcp-server',
     'awf-api-proxy',
-    'awf-enclave-agent-api-proxy',
+    ...(profile === 'script-only' ? [] : ['awf-enclave-agent-api-proxy']),
     'awf-squid',
   ].map((container) => run('docker', ['logs', container], {
     maxBuffer: 1024 * 1024,
@@ -175,20 +271,29 @@ function requestMcp(endpoint, apiKey, requestId, method, params, signal, timeout
       },
       timeout: timeoutMs,
     }, (response) => {
+      const httpStatus = response.statusCode;
       const chunks = [];
       let size = 0;
       response.on('data', (chunk) => {
         size += chunk.length;
-        if (size > 420 * 1024) request.destroy(new Error('MCP response exceeded its bound'));
-        else chunks.push(chunk);
+        if (size > 420 * 1024) {
+          const error = mcpFailure('response-too-large', undefined, requestId, httpStatus);
+          reject(error);
+          request.destroy(error);
+        } else chunks.push(chunk);
       });
       response.on('end', () => {
         try {
-          resolve(JSON.parse(Buffer.concat(chunks).toString('utf8')));
+          const value = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+          if (value && typeof value === 'object') mcpResponses.set(value, httpStatus);
+          resolve(value);
         } catch {
-          reject(new Error('Public enclave MCP response was not bounded JSON'));
+          reject(mcpFailure(httpStatus === 200 ? 'invalid-json' : 'http-status',
+            undefined, requestId, httpStatus));
         }
       });
+      response.on('aborted', () => reject(mcpFailure('response-aborted', undefined, requestId, httpStatus)));
+      response.on('error', () => reject(mcpFailure('response-failed', undefined, requestId, httpStatus)));
     });
     let cancelled = false;
     const cancel = () => {
@@ -198,10 +303,14 @@ function requestMcp(endpoint, apiKey, requestId, method, params, signal, timeout
     };
     if (signal?.aborted) cancel();
     else signal?.addEventListener('abort', cancel, { once: true });
-    request.on('error', () => {
-      if (!cancelled) reject(new Error('Public enclave MCP request failed'));
+    request.on('error', (error) => {
+      if (!cancelled) reject(mcpFailures.has(error) ? error : mcpFailure('request-failed'));
     });
-    request.on('timeout', () => request.destroy(new Error('Public enclave MCP request timed out')));
+    request.on('timeout', () => {
+      const error = mcpFailure('request-timeout');
+      reject(error);
+      request.destroy(error);
+    });
     request.on('close', () => signal?.removeEventListener('abort', cancel));
     if (!cancelled) request.end(payload);
   });
@@ -427,7 +536,9 @@ function gatewayCategory(code) {
 
 function trackAwfChild(child) {
   awfStartTimes.set(child, Date.now());
-  child.on('error', () => failedSpawns.add(child));
+  child.on('error', () => {
+    if (!child.pid) failedSpawns.add(child);
+  });
   return child;
 }
 
@@ -1046,17 +1157,20 @@ async function waitForVmCleanup(timeoutMs, expectedPrimary) {
   throw residueError || new Error('Cloud Hypervisor VM cleanup did not complete');
 }
 
-function assertCanonicalToolError(response, requestId, label) {
+function assertCanonicalToolError(response, requestId) {
   const result = parsePublicToolResult(response, requestId);
   if (result.status !== 'error') {
-    throw new Error(`Live enclave ${label} did not return the canonical bounded error`);
+    throw mcpFailure('expected-error-status', response, requestId);
   }
 }
 
 function assertExpectedToolResult(response, requestId, expected, label) {
   const result = parsePublicToolResult(response, requestId);
   if (result.status !== 'ok' || !isDeepStrictEqual(result.result, expected)) {
-    throw new Error(`Live enclave ${label} guest assertion failed`);
+    const error = mcpFailure(result.status !== 'ok' ? 'expected-ok-status' : 'result-mismatch',
+      response, requestId);
+    error.message = `Live enclave ${label} guest assertion failed`;
+    throw error;
   }
 }
 
@@ -1144,7 +1258,25 @@ function buildEnospcProbeScript(maxStorageMib = 1024) {
   }
   const maximumFiles = maxStorageMib / 64;
   return [
-    'import errno, json, os',
+    'import errno, json, os, stat, sys',
+    'def record(stage, **flags):',
+    '    fd = None',
+    '    try:',
+    '        fd = os.open("/tmp/.awf-enclave-storage-probe.jsonl", os.O_CREAT | os.O_APPEND | os.O_WRONLY | os.O_NOFOLLOW | os.O_NONBLOCK, 0o600)',
+    '        if not stat.S_ISREG(os.fstat(fd).st_mode):',
+    '            raise OSError(errno.EINVAL, "invalid diagnostic file")',
+    '        data = (json.dumps({"stage": stage, **flags}, separators=(",", ":")) + "\\n").encode("ascii")',
+    '        if os.write(fd, data) != len(data):',
+    '            raise OSError(errno.EIO, "short diagnostic write")',
+    '    except OSError:',
+    '        print("AWF_ENCLAVE_PROBE_DIAGNOSTIC write-failed", file=sys.stderr)',
+    '    finally:',
+    '        if fd is not None:',
+    '            try:',
+    '                os.close(fd)',
+    '            except OSError:',
+    '                print("AWF_ENCLAVE_PROBE_DIAGNOSTIC close-failed", file=sys.stderr)',
+    'record("started")',
     'directory = "/output"',
     'chunk = b"x" * (8 * 1024 * 1024)',
     'created = []',
@@ -1180,15 +1312,40 @@ function buildEnospcProbeScript(maxStorageMib = 1024) {
     '            os.close(fd)',
     '        if observed:',
     '            break',
+    '    record("storage-complete", enospcObserved=observed)',
     '    result = {"enospcObserved": observed, "probeFilesRemoved": False}',
     'finally:',
+    '    record("cleanup-started")',
     '    for name in created:',
     '        os.unlink(name)',
     'result["probeFilesRemoved"] = all(not os.path.exists(name) for name in created)',
+    'record("cleanup-complete", probeFilesRemoved=result["probeFilesRemoved"])',
     'encoded = json.dumps(result, separators=(",", ":"))',
     'print(encoded)',
+    'record("output-write-started")',
     'with open("/output/out", "w", encoding="utf8") as output:',
     '    output.write(encoded)',
+    'record("output-write-complete")',
+    'def check(operation, action):',
+    '    try: return action()',
+    '    except OSError as error:',
+    '        record("output-check-failed", operation=operation, errno=error.errno)',
+    'def readback(name, label):',
+    '    handle = check(label+"-open", lambda: open(name, "rb", opener=lambda n,f: os.open(n,f|os.O_NONBLOCK)))',
+    '    if handle is None: return None',
+    '    try: return check(label+"-read", lambda: handle.read(1025))',
+    '    finally: check(label+"-close", handle.close)',
+    'link = check("link-lstat", lambda: os.lstat("/awf/out"))',
+    'is_link = link is not None and stat.S_ISLNK(link.st_mode)',
+    'target = check("link-readlink", lambda: os.readlink("/awf/out")) if is_link else None',
+    'direct = readback("/output/out", "direct")',
+    'alias = readback("/awf/out", "alias")',
+    'a = check("direct-stat", lambda: os.stat("/output/out"))',
+    'b = check("alias-stat", lambda: os.stat("/awf/out"))',
+    'record("output-verified", symlink=is_link, targetMatches=target=="/output/out",',
+    '       sameFile=a is not None and b is not None and (a.st_dev,a.st_ino)==(b.st_dev,b.st_ino),',
+    '       directReadable=direct is not None, aliasReadable=alias is not None,',
+    '       directMatchesExpected=direct==encoded.encode(), aliasMatchesExpected=alias==encoded.encode())',
   ].join('\n');
 }
 
@@ -1204,7 +1361,7 @@ function buildAgentEnospcProbe() {
       buildEnospcProbeScript(512),
       'PY',
       '```',
-      'Return exactly the JSON object printed by the diagnostic, with no extra fields. Write that exact object to /awf/out as required by your result contract.',
+      'Return the diagnostic\'s exact JSON object, without extra fields, in /awf/out.',
     ].join('\n'),
   };
 }
@@ -1235,31 +1392,245 @@ function buildOomProbeScript() {
   ].join('\n');
 }
 
-function resourceRecords(directory) {
-  if (!fs.existsSync(directory)) return [];
-  return fs.readdirSync(directory, { withFileTypes: true })
-    .filter((entry) => entry.isFile() && !entry.isSymbolicLink()
-      && /^[0-9a-f]{32}-[0-9a-f]{32}\.resources\.json$/.test(entry.name))
-    .map((entry) => {
-      const file = path.join(directory, entry.name);
-      return { file, record: JSON.parse(fs.readFileSync(file, 'utf8')) };
-    });
+function countBucket(count) {
+  return count === 0 ? 'zero' : count === 1 ? 'one' : 'many';
 }
 
-async function waitForInvocationRecord(directory, existing, ownerPid, timeoutMs) {
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    const record = resourceRecords(directory).find(({ file, record: value }) =>
-      !existing.has(file)
-      && value.state === 'pending'
-      && value.owner?.pid === ownerPid
-      && value.storage?.directory
-      && value.directoryIdentity
-      && value.snapshot);
-    if (record) return record;
-    await new Promise((resolve) => setTimeout(resolve, 100));
+function resourceRecords(directory, inventory = {}) {
+  inventory.operation = 'directory-lstat';
+  inventory.location = directory === HOST_EXECUTOR_DEFAULT_JOURNAL_DIRECTORY ? 'default' : 'custom';
+  try {
+    const stat = fs.lstatSync(directory);
+    inventory.directory = stat.isSymbolicLink() ? 'symlink' : stat.isDirectory() ? 'ready' : 'not-directory';
+    inventory.operation = 'directory-trust';
+    diagnosticCollector.directory(directory, process.getuid());
+    inventory.operation = 'directory-readdir';
+    const entries = fs.readdirSync(directory, { withFileTypes: true });
+    inventory.entries = countBucket(entries.length);
+    if (entries.length > 4096) throw new Error('Resource inventory exceeds bound');
+    const regular = entries.filter(entry => entry.isFile() && !entry.isSymbolicLink());
+    inventory.regularFiles = countBucket(regular.length);
+    const suffixed = regular.filter(entry => entry.name.endsWith('.resources.json'));
+    inventory.resourceSuffix = countBucket(suffixed.length);
+    const named = suffixed.filter(entry =>
+      entry.name.slice(0, -'.resources.json'.length).split('-').length === 2
+      && entry.name.slice(0, -'.resources.json'.length).split('-').every(id => HOST_EXECUTOR_ID_PATTERN.test(id)));
+    inventory.nameMatches = countBucket(named.length);
+    inventory.rejectedNames = countBucket(suffixed.length - named.length);
+    return named.map(entry => {
+      const file = path.join(directory, entry.name);
+      inventory.operation = 'record-read';
+      const bytes = diagnosticCollector.readRegular(file, 128 * 1024, process.getuid(),
+        operation => { inventory.operation = `record-${operation}`; });
+      inventory.operation = 'record-parse';
+      const record = JSON.parse(bytes);
+      inventory.operation = 'record-identity';
+      if (!record || !['pending', 'cleaned'].includes(record.state)
+          || !HOST_EXECUTOR_ID_PATTERN.test(record.runId || '')
+          || !HOST_EXECUTOR_ID_PATTERN.test(record.invocationId || '')
+          || entry.name !== `${record.runId}-${record.invocationId}.resources.json`) {
+        throw new Error('Resource record identity differs from filename');
+      }
+      inventory.operation = 'complete';
+      return { file, record };
+    });
+  } catch (cause) {
+    inventory.code = ['ENOENT', 'EACCES', 'EPERM', 'EIO', 'ENOTDIR', 'ELOOP'].includes(cause.code)
+      ? cause.code : 'unknown';
+    if (inventory.operation === 'directory-lstat') {
+      inventory.directory = cause.code === 'ENOENT' ? 'missing' : 'unavailable';
+    }
+    const error = mcpFailure('resource-inventory-failed');
+    mcpFailures.get(error).inventory = inventory;
+    throw error;
   }
-  throw new Error('Live enclave crash probe did not persist its pending resource identity');
+}
+
+function readRecoveredInvocation(directory, file) {
+  const inventory = {};
+  const records = resourceRecords(directory, inventory);
+  const match = records.find(record => record.file === file);
+  if (!match) {
+    const error = mcpFailure('recovery-record-missing');
+    mcpFailures.get(error).inventory = inventory;
+    throw error;
+  }
+  return { after: match.record, records, inventory };
+}
+
+function readCrashRecoveryBaseline(directory, active, ownerPid) {
+  const { after, records, inventory } = readRecoveredInvocation(directory, active.file);
+  const stableIdentity = record => {
+    const identity = { ...record, storage: { ...record.storage } };
+    delete identity.storage.mounts;
+    delete identity.storage.pending;
+    return identity;
+  };
+  const beforeMounts = active.record.storage?.mounts;
+  const mounts = after.storage?.mounts;
+  const baseline = {
+    uniqueRecord: records.filter(({ record }) =>
+      record.runId === active.record.runId && record.invocationId === active.record.invocationId).length === 1,
+    pending: after.state === 'pending',
+    ownerMatches: Number.isSafeInteger(ownerPid) && ownerPid > 0 && after.owner?.pid === ownerPid,
+    identityMatches: isDeepStrictEqual(stableIdentity(after), stableIdentity(active.record)),
+    mountsRetained: Array.isArray(beforeMounts) && Array.isArray(mounts)
+      && beforeMounts.every((mount, index) => isDeepStrictEqual(mounts[index], mount)),
+    mountsCommitted: after.storage?.pending === undefined
+      && after.mountPending === false && after.snapshotPending === false,
+    snapshotMounted: typeof after.snapshot?.path === 'string' && Array.isArray(mounts)
+      && mounts.filter(mount => mount?.mountPoint === after.snapshot.path).length === 1,
+  };
+  if (Object.values(baseline).some(value => !value)) {
+    const error = mcpFailure('crash-baseline-invalid');
+    Object.assign(mcpFailures.get(error), { inventory, baseline });
+    throw error;
+  }
+  return { record: after, inventory, baseline };
+}
+
+function resourceDiscoveryEvidence(directory, ownerPid, inventory) {
+  const result = { ...inventory };
+  let ownNamespace;
+  result.namespaceOperation = 'observer-readlink';
+  try {
+    ownNamespace = fs.readlinkSync('/proc/self/ns/mnt');
+    result.namespaceOperation = 'host-readlink';
+    result.mountNamespace = ownNamespace === fs.readlinkSync(`/proc/${ownerPid}/ns/mnt`)
+      ? 'same' : 'different';
+    result.namespaceOperation = 'complete';
+  } catch (error) {
+    result.mountNamespace = 'unavailable';
+    result.namespaceCode = ['ENOENT', 'EACCES', 'EPERM'].includes(error.code) ? error.code : 'unknown';
+  }
+  result.producer = 'missing';
+  result.producerOperation = 'directory-trust';
+  try {
+    const diagnostics = path.join(directory, 'diagnostics');
+    diagnosticCollector.directory(diagnostics, process.getuid());
+    result.producerOperation = 'directory-readdir';
+    const names = fs.readdirSync(diagnostics);
+    if (names.length > 4096) throw new Error('Producer inventory exceeds bound');
+    const files = names.filter(name => /^[a-f0-9]{16,64}-[a-f0-9]{32}\.json$/.test(name));
+    if (files.length > 128) throw new Error('Producer diagnostics exceed bound');
+    result.producerOperation = 'directory-lstat';
+    const ownDirectory = fs.lstatSync(directory);
+    let matches = 0;
+    for (const name of files) {
+      result.producerOperation = 'record-read';
+      const bytes = diagnosticCollector.readRegular(
+        path.join(diagnostics, name), 320 * 1024, process.getuid(),
+        operation => { result.producerOperation = `record-${operation}`; },
+      );
+      result.producerOperation = 'record-parse';
+      const value = JSON.parse(bytes);
+      const evidence = value.resourcePublication;
+      if (!evidence || evidence.ownerPid !== ownerPid) continue;
+      matches += 1;
+      result.producer = evidence.status;
+      result.producerLocation = evidence.location;
+      result.producerRecordSafe = evidence.recordSafe;
+      result.producerDirectory = !evidence.directoryIdentity ? 'unavailable'
+        : evidence.directoryIdentity.device === ownDirectory.dev && evidence.directoryIdentity.inode === ownDirectory.ino
+          ? 'same' : 'different';
+      result.producerNamespace = !ownNamespace || !evidence.mountNamespace ? 'unavailable'
+        : ownNamespace === evidence.mountNamespace ? 'same' : 'different';
+      const active = !value.milestones?.some(event => event.phase === 'cleanup-start');
+      result.producerActive = active;
+      if (active) break;
+    }
+    result.producerMatches = countBucket(matches);
+    result.producerOperation = 'complete';
+  } catch (error) {
+    result.producer = 'read-failed';
+    result.producerCode = ['ENOENT', 'EACCES', 'EPERM', 'ENOTDIR'].includes(error.code) ? error.code : 'unknown';
+  }
+  return result;
+}
+
+function observeInvocationRecords(records, existing, ownerPid) {
+  const counts = {};
+  let candidates = records.filter(({ file }) => !existing.has(file));
+  const bucket = count => count === 0 ? 'zero' : count === 1 ? 'one' : 'many';
+  counts.newRecords = bucket(candidates.length);
+  for (const [key, predicate] of [
+    ['pending', value => value.state === 'pending'],
+    ['ownerMatches', value => value.owner?.pid === ownerPid],
+    ['directoryReady', value => Boolean(value.storage?.directory)],
+    ['identityReady', value => Boolean(value.directoryIdentity)],
+    ['snapshotReady', value => Boolean(value.snapshot)],
+  ]) {
+    candidates = candidates.filter(({ record }) => predicate(record));
+    counts[key] = bucket(candidates.length);
+  }
+  counts.eligible = bucket(candidates.length);
+  return { counts, record: candidates[0] };
+}
+
+async function waitForInvocationRecord(directory, existing, ownerPid, timeoutMs, dependencies = {}) {
+  const now = dependencies.now || Date.now;
+  const sleep = dependencies.sleep || (ms => new Promise(resolve => setTimeout(resolve, ms)));
+  const read = dependencies.read || resourceRecords;
+  const deadline = now() + timeoutMs;
+  let counts;
+  let lastInventory;
+  while (now() < deadline) {
+    let observation;
+    const inventory = {};
+    try {
+      observation = observeInvocationRecords(read(directory, inventory), existing, ownerPid);
+    } catch (cause) {
+      const error = mcpFailures.has(cause) ? cause : mcpFailure('resource-inventory-failed');
+      Object.assign(mcpFailures.get(error), { resources: counts,
+        inventory: resourceDiscoveryEvidence(directory, ownerPid, mcpFailures.get(error).inventory || inventory) });
+      throw error;
+    }
+    counts = observation.counts;
+    const record = observation.record;
+    if (record) return { ...record, inventory: resourceDiscoveryEvidence(directory, ownerPid, inventory) };
+    lastInventory = inventory;
+    await sleep(100);
+  }
+  const error = mcpFailure('resource-discovery-timeout');
+  mcpFailures.get(error).resources = counts;
+  mcpFailures.get(error).inventory = resourceDiscoveryEvidence(directory, ownerPid, lastInventory);
+  throw error;
+}
+
+async function waitForInvocationOutcome(directory, identity, expected, timeoutMs = 15_000, dependencies = {}) {
+  if (!HOST_EXECUTOR_ID_PATTERN.test(identity.runId || '')
+      || !HOST_EXECUTOR_ID_PATTERN.test(identity.invocationId || '')
+      || !/^[a-z0-9][a-z0-9-]{0,62}$/.test(identity.entryId || '')
+      || !['timeout', 'cancelled'].includes(expected)) {
+    throw mcpFailure('invocation-evidence-invalid');
+  }
+  const now = dependencies.now || Date.now;
+  const sleep = dependencies.sleep || (ms => new Promise(resolve => setTimeout(resolve, ms)));
+  const read = dependencies.read || (() => {
+    diagnosticCollector.directory(directory, process.getuid());
+    return diagnosticCollector.readRegular(
+      path.join(directory, `${identity.runId}.journal`), 1024 * 1024, process.getuid(),
+    ).toString('utf8');
+  });
+  const deadline = now() + timeoutMs;
+  const expectedDigest = require('../../dist/enclave/host-executor-protocol').hostExecutorResultDigest(expected);
+  while (now() < deadline) {
+    let records;
+    try {
+      records = read().trim().split('\n').map(line => JSON.parse(line));
+      if (records[0]?.runId !== identity.runId) throw new Error('Invalid run identity');
+    } catch {
+      throw mcpFailure('invocation-evidence-invalid');
+    }
+    const terminal = records.filter(record => record.entryId === identity.entryId
+      && record.invocationId === identity.invocationId && ['terminal', 'settled'].includes(record.state));
+    if (terminal.some(record => (record.state === 'terminal' && record.outcome !== expected)
+        || record.resultDigest !== expectedDigest)) throw mcpFailure('invocation-outcome-mismatch');
+    if (terminal.some(record => record.state === 'terminal')
+        && terminal.some(record => record.state === 'settled')) return;
+    await sleep(100);
+  }
+  throw mcpFailure('invocation-evidence-timeout');
 }
 
 function findProcessForSocket(apiSocketPath) {
@@ -1292,37 +1663,88 @@ async function waitForPath(file, timeoutMs) {
 
 function assertNoSuccessfulResult(response) {
   if (response?.result?.structuredContent?.status === 'ok') {
-    throw new Error('Interrupted live enclave invocation returned a successful result');
+    const error = new Error('Interrupted live enclave invocation returned a successful result');
+    mcpFailures.set(error, { reason: 'interrupted-success', ...mcpResponseMetadata(response, 12) });
+    throw error;
   }
 }
 
 function assertRecoveredInvocation(before, after, records) {
   const matches = records.filter(({ record }) =>
     record.runId === before.runId && record.invocationId === before.invocationId);
-  const identityMetadata = (record) => ({
-    directory: record.directory,
-    directoryIdentity: record.directoryIdentity,
-    ancestors: record.ancestors,
-    mount: record.mount,
-    snapshot: record.snapshot,
-    storage: record.storage && {
-      directory: record.storage.directory,
-      parentIdentity: record.storage.parentIdentity,
-      ancestors: record.storage.ancestors,
-      directoryIdentity: record.storage.directoryIdentity,
-      mountedIdentity: record.storage.mountedIdentity,
-      mounts: record.storage.mounts,
-    },
+  const recovery = {
+    uniqueRecord: matches.length === 1,
+    cleaned: after?.state === 'cleaned',
+    runMatches: after?.runId === before.runId,
+    invocationMatches: after?.invocationId === before.invocationId,
+    directoryIdentityPresent: !!before.directoryIdentity,
+    storageDirectoryIdentityPresent: !!before.storage?.directoryIdentity,
+    storageMountedIdentityPresent: !!before.storage?.mountedIdentity,
+    snapshotPresent: !!before.snapshot,
+    directoryMatches: isDeepStrictEqual(after?.directory, before.directory),
+    directoryIdentityMatches: isDeepStrictEqual(after?.directoryIdentity, before.directoryIdentity),
+    ancestorsMatch: isDeepStrictEqual(after?.ancestors, before.ancestors),
+    mountMatches: isDeepStrictEqual(after?.mount, before.mount),
+    snapshotMatches: isDeepStrictEqual(after?.snapshot, before.snapshot),
+    storageDirectoryMatches: isDeepStrictEqual(after?.storage?.directory, before.storage?.directory),
+    storageParentIdentityMatches: isDeepStrictEqual(after?.storage?.parentIdentity, before.storage?.parentIdentity),
+    storageAncestorsMatch: isDeepStrictEqual(after?.storage?.ancestors, before.storage?.ancestors),
+    storageDirectoryIdentityMatches: isDeepStrictEqual(
+      after?.storage?.directoryIdentity, before.storage?.directoryIdentity,
+    ),
+    storageMountedIdentityMatches: isDeepStrictEqual(after?.storage?.mountedIdentity, before.storage?.mountedIdentity),
+    storageMountsMatch: isDeepStrictEqual(after?.storage?.mounts, before.storage?.mounts),
+  };
+  if (Object.values(recovery).some(value => !value)) {
+    const error = new Error('Live VMM crash recovery did not clean the exact interrupted invocation');
+    mcpFailures.set(error, { reason: 'recovery-validation-failed', recovery });
+    throw error;
+  }
+  return recovery;
+}
+
+function killAwfForRecovery(child, timeoutMs = 15_000) {
+  return new Promise((resolve, reject) => {
+    if (child.exitCode !== null || child.signalCode !== null || failedSpawns.has(child)) {
+      reject(mcpFailure('host-already-exited'));
+      return;
+    }
+    const finish = (error) => {
+      clearTimeout(timer);
+      child.removeListener('exit', onExit);
+      child.removeListener('error', onError);
+      if (error) reject(error);
+      else resolve();
+    };
+    const onExit = () => finish();
+    const onError = () => finish(mcpFailure('host-kill-failed'));
+    const timer = setTimeout(() => finish(mcpFailure('host-exit-timeout')), timeoutMs);
+    child.once('exit', onExit);
+    child.once('error', onError);
+    try {
+      if (!child.kill('SIGKILL') && child.exitCode === null && child.signalCode === null) {
+        finish(mcpFailure('host-kill-failed'));
+      }
+    } catch (cause) {
+      const error = mcpFailure('host-kill-failed');
+      mcpFailures.get(error).code = cause?.code;
+      finish(error);
+    }
   });
-  if (matches.length !== 1 || after.state !== 'cleaned'
-      || after.runId !== before.runId
-      || after.invocationId !== before.invocationId
-      || !before.directoryIdentity
-      || !before.storage?.directoryIdentity
-      || !before.storage?.mountedIdentity
-      || !before.snapshot
-      || !isDeepStrictEqual(identityMetadata(after), identityMetadata(before))) {
-    throw new Error('Live VMM crash recovery did not clean the exact interrupted invocation');
+}
+
+async function withCrashRecoveryCleanup(context, action, cleanups, onCleanupFailure) {
+  try {
+    return await action();
+  } catch (error) {
+    for (const { phase, action: cleanup } of cleanups) {
+      try {
+        await acceptanceCheck(context, 'crash-recovery', phase, cleanup);
+      } catch {
+        onCleanupFailure();
+      }
+    }
+    throw error;
   }
 }
 
@@ -1461,7 +1883,7 @@ function makeConfig(artifacts, workDir, workspace, handoff, profile = 'combined'
           maxTaskBytes: 4096,
         },
         runtime: 'cloud-hypervisor',
-        timeout: 180,
+        timeout: 360,
         maxInvocations: 3,
         repos: [enclaveRepository],
       },
@@ -1532,14 +1954,35 @@ function assertUnifiedProfiles(artifacts, primaryManifest, enclaveManifest, encl
   }
 }
 
-function assertProfileTools(response, profile) {
+function assertProfileInitialize(response, requestId) {
+  const profile = { serverMatches: response?.result?.serverInfo?.name === 'awmg-awf-enclave' };
+  if (!profile.serverMatches) {
+    const error = mcpFailure('profile-initialize-invalid', response, requestId);
+    mcpFailures.get(error).profile = profile;
+    throw error;
+  }
+  return profile;
+}
+
+function assertProfileTools(response, profile, requestId) {
   const expected = profile === 'script-only' ? ['enclave_run_script']
     : profile === 'agent-only' ? ['enclave_run_agent']
       : ['enclave_run_agent', 'enclave_run_script'];
-  const names = response?.result?.tools?.map((tool) => tool.name).sort();
-  if (!isDeepStrictEqual(names, expected)) {
-    throw new Error(`Live ${profile} enclave profile did not expose exactly its configured executors`);
+  const tools = response?.result?.tools;
+  const names = Array.isArray(tools) ? tools.map(tool => tool?.name).sort() : undefined;
+  const checks = {
+    toolsArray: Array.isArray(tools),
+    scriptPresent: names?.includes('enclave_run_script') || false,
+    agentPresent: names?.includes('enclave_run_agent') || false,
+    toolsMatch: isDeepStrictEqual(names, expected),
+  };
+  if (!checks.toolsMatch) {
+    const error = mcpFailure('profile-tools-invalid', response, requestId);
+    error.message = `Live ${profile} enclave profile did not expose exactly its configured executors`;
+    mcpFailures.get(error).profile = checks;
+    throw error;
   }
+  return checks;
 }
 
 function spawnAwf(awfArguments, environment, stdoutFile, stderrFile, stage) {
@@ -1705,7 +2148,9 @@ async function main(failureContext = { stage: FAILURE_STAGES.RUNNER }) {
     };
     child.once('exit', () => capture(failedSpawns.has(child) ? 'spawn-failure'
       : child.signalCode ? 'signal' : 'exit'));
-    child.once('error', () => capture('spawn-failure'));
+    child.once('error', () => {
+      if (failedSpawns.has(child)) capture('spawn-failure');
+    });
     return child;
   };
   const stopComposeAfterCrash = (composeWorkDir = workDir) => run('docker', [
@@ -1738,6 +2183,11 @@ async function main(failureContext = { stage: FAILURE_STAGES.RUNNER }) {
     diagnosticContext = conformanceDiagnostics.prepareForJob(
       toAwfConfig(makeConfig(artifacts, workDir, workspace, {})), 'live',
     );
+    if (diagnosticContext) {
+      failureContext.observeAdmission = () => conformanceDiagnostics.captureAdmissionEvidence(
+        diagnosticContext, require('../../dist/enclave/paths').resolveEnclavePaths(workDir).auditDir,
+      );
+    }
     failureContext.stage = FAILURE_STAGES.GATEWAY;
     const handoff = startGatewayFixture({
       gatewayEnv, gatewayKey, capability, identity: gatewayIdentity,
@@ -1881,91 +2331,129 @@ async function main(failureContext = { stage: FAILURE_STAGES.RUNNER }) {
 
     failureContext.stage = FAILURE_STAGES.RESOURCE_LIMITS;
     const agentEnospcProbe = buildAgentEnospcProbe();
-    const agentEnospcResponse = await requestMcp(endpoint, gatewayKey, 6, 'tools/call', {
-      name: 'enclave_run_agent',
-      arguments: {
-        privateRepo: 'github/gh-aw-firewall',
-        schema: agentEnospcProbe.schema,
-        prompt: agentEnospcProbe.prompt,
-      },
-    });
-    assertExpectedToolResult(agentEnospcResponse, 6, agentEnospcProbe.expected, 'agent aggregate ENOSPC');
-    await waitForVmCleanup(15_000, primaryVmResidue);
+    const agentEnospcResponse = await acceptanceCheck(failureContext, 'agent-enospc', 'request',
+      () => requestMcp(endpoint, gatewayKey, 6, 'tools/call', {
+        name: 'enclave_run_agent',
+        arguments: {
+          privateRepo: 'github/gh-aw-firewall',
+          schema: agentEnospcProbe.schema,
+          prompt: agentEnospcProbe.prompt,
+        },
+      }));
+    await acceptanceCheck(failureContext, 'agent-enospc', 'result-validation',
+      () => assertExpectedToolResult(agentEnospcResponse, 6, agentEnospcProbe.expected, 'agent aggregate ENOSPC'));
+    await acceptanceCheck(failureContext, 'agent-enospc', 'cleanup',
+      () => waitForVmCleanup(15_000, primaryVmResidue));
 
     const enospcExpected = { enospcObserved: true, probeFilesRemoved: true };
-    const enospcResponse = await requestMcp(endpoint, gatewayKey, 7, 'tools/call', {
-      name: 'enclave_run_script',
-      arguments: {
-        privateRepo: 'github/gh-aw-firewall',
-        schema: buildConstantObjectSchema(enospcExpected),
-        script: buildEnospcProbeScript(),
-      },
-    });
-    assertExpectedToolResult(enospcResponse, 7, enospcExpected, 'script aggregate ENOSPC');
-    await waitForVmCleanup(15_000, primaryVmResidue);
+    const enospcResponse = await acceptanceCheck(failureContext, 'script-enospc', 'request',
+      () => requestMcp(endpoint, gatewayKey, 7, 'tools/call', {
+        name: 'enclave_run_script',
+        arguments: {
+          privateRepo: 'github/gh-aw-firewall',
+          schema: buildConstantObjectSchema(enospcExpected),
+          script: buildEnospcProbeScript(),
+        },
+      }));
+    await acceptanceCheck(failureContext, 'script-enospc', 'result-validation',
+      () => assertExpectedToolResult(enospcResponse, 7, enospcExpected, 'script aggregate ENOSPC'));
+    await acceptanceCheck(failureContext, 'script-enospc', 'cleanup',
+      () => waitForVmCleanup(15_000, primaryVmResidue));
 
     const oomExpected = { childKilledByOom: true, oomKillCounterIncreased: true };
-    const oomResponse = await requestMcp(endpoint, gatewayKey, 8, 'tools/call', {
-      name: 'enclave_run_script',
-      arguments: {
-        privateRepo: 'github/gh-aw-firewall',
-        schema: buildConstantObjectSchema(oomExpected),
-        script: buildOomProbeScript(),
-      },
-    });
-    assertExpectedToolResult(oomResponse, 8, oomExpected, 'guest OOM');
-    await waitForVmCleanup(15_000, primaryVmResidue);
+    const oomResponse = await acceptanceCheck(failureContext, 'guest-oom', 'request',
+      () => requestMcp(endpoint, gatewayKey, 8, 'tools/call', {
+        name: 'enclave_run_script',
+        arguments: {
+          privateRepo: 'github/gh-aw-firewall',
+          schema: buildConstantObjectSchema(oomExpected),
+          script: buildOomProbeScript(),
+        },
+      }));
+    await acceptanceCheck(failureContext, 'guest-oom', 'result-validation',
+      () => assertExpectedToolResult(oomResponse, 8, oomExpected, 'guest OOM'));
+    await acceptanceCheck(failureContext, 'guest-oom', 'cleanup',
+      () => waitForVmCleanup(15_000, primaryVmResidue));
 
     failureContext.stage = FAILURE_STAGES.FAILURE_HANDLING;
     const errorSchema = { type: 'const', value: true };
-    const guestFailure = await requestMcp(endpoint, gatewayKey, 9, 'tools/call', {
-      name: 'enclave_run_script',
-      arguments: {
-        privateRepo: 'github/gh-aw-firewall',
-        schema: errorSchema,
-        script: 'raise SystemExit(23)',
-      },
-    });
-    assertCanonicalToolError(guestFailure, 9, 'guest failure');
-    await waitForVmCleanup(15_000, primaryVmResidue);
+    const guestFailure = await acceptanceCheck(failureContext, 'guest-failure', 'request',
+      () => requestMcp(endpoint, gatewayKey, 9, 'tools/call', {
+        name: 'enclave_run_script',
+        arguments: {
+          privateRepo: 'github/gh-aw-firewall',
+          schema: errorSchema,
+          script: 'raise SystemExit(23)',
+        },
+      }));
+    await acceptanceCheck(failureContext, 'guest-failure', 'result-validation',
+      () => assertCanonicalToolError(guestFailure, 9));
+    await acceptanceCheck(failureContext, 'guest-failure', 'cleanup',
+      () => waitForVmCleanup(15_000, primaryVmResidue));
 
-    const timeout = await requestMcp(endpoint, gatewayKey, 10, 'tools/call', {
-      name: 'enclave_run_script',
-      arguments: {
-        privateRepo: 'github/gh-aw-firewall',
-        schema: errorSchema,
-        script: 'import time; time.sleep(150)',
-      },
-    });
-    assertCanonicalToolError(timeout, 10, 'timeout');
-    await waitForVmCleanup(15_000, primaryVmResidue);
+    const journalRoot = HOST_EXECUTOR_DEFAULT_JOURNAL_DIRECTORY;
+    const existingTimeoutResources = await acceptanceCheck(failureContext, 'guest-timeout', 'resource-baseline',
+      () => new Set(resourceRecords(journalRoot).map(({ file }) => file)));
+    const [timeout, timeoutActive] = await Promise.all([
+      acceptanceCheck(failureContext, 'guest-timeout', 'request',
+        () => requestMcp(endpoint, gatewayKey, 10, 'tools/call', {
+          name: 'enclave_run_script',
+          arguments: {
+            privateRepo: 'github/gh-aw-firewall',
+            schema: errorSchema,
+            script: 'import time\nopen("/output/timeout-probe-started", "w").write("started")\ntime.sleep(150)',
+          },
+        })),
+      (async () => {
+        const active = await acceptanceCheck(failureContext, 'guest-timeout', 'resource-discovery',
+          () => waitForInvocationRecord(journalRoot, existingTimeoutResources, awf.pid, 90_000));
+        await acceptanceCheck(failureContext, 'guest-timeout', 'marker-wait',
+          () => waitForPath(path.join(active.record.directory, 'output', 'timeout-probe-started'), 90_000));
+        return active;
+      })(),
+    ]);
+    await acceptanceCheck(failureContext, 'guest-timeout', 'result-validation',
+      () => assertCanonicalToolError(timeout, 10));
+    await acceptanceCheck(failureContext, 'guest-timeout', 'cleanup',
+      () => waitForVmCleanup(15_000, primaryVmResidue));
+    await acceptanceCheck(failureContext, 'guest-timeout', 'execution-validation',
+      () => waitForInvocationOutcome(journalRoot, timeoutActive.record, 'timeout'));
 
-    const journalRoot = '/var/lib/awf-cloud-hypervisor/host-executor-journal';
-    const existingCancellationResources = new Set(resourceRecords(journalRoot).map(({ file }) => file));
+    const existingCancellationResources = await acceptanceCheck(failureContext, 'guest-cancellation', 'resource-baseline',
+      () => new Set(resourceRecords(journalRoot).map(({ file }) => file)));
     const cancellationMarker = [
       'import time',
       'open("/output/cancel-probe-started", "w", encoding="ascii").write("started")',
       'while True: time.sleep(1)',
     ].join('\n');
     const cancellationController = new AbortController();
-    const cancellationRequest = requestMcp(endpoint, gatewayKey, 11, 'tools/call', {
-      name: 'enclave_run_script',
-      arguments: {
-        privateRepo: 'github/gh-aw-firewall',
-        schema: errorSchema,
-        script: cancellationMarker,
-      },
-    }, cancellationController.signal);
-    const cancellationActive = await waitForInvocationRecord(
-      journalRoot, existingCancellationResources, awf.pid, 90_000,
-    );
-    await waitForPath(path.join(cancellationActive.record.directory, 'output', 'cancel-probe-started'), 90_000);
-    cancellationController.abort();
-    const cancelled = await cancellationRequest;
-    if (cancelled !== undefined) {
-      throw new Error('Public MCP disconnect did not cancel the live enclave request');
-    }
-    await waitForVmCleanup(15_000, primaryVmResidue);
+    const cancellationRequest = acceptanceCheck(failureContext, 'guest-cancellation', 'request',
+      () => requestMcp(endpoint, gatewayKey, 11, 'tools/call', {
+        name: 'enclave_run_script',
+        arguments: {
+          privateRepo: 'github/gh-aw-firewall',
+          schema: errorSchema,
+          script: cancellationMarker,
+        },
+      }, cancellationController.signal));
+    const [cancelled, cancellationActive] = await Promise.all([
+      cancellationRequest,
+      (async () => {
+        const active = await acceptanceCheck(failureContext, 'guest-cancellation', 'resource-discovery',
+          () => waitForInvocationRecord(journalRoot, existingCancellationResources, awf.pid, 90_000));
+        await acceptanceCheck(failureContext, 'guest-cancellation', 'marker-wait',
+          () => waitForPath(path.join(active.record.directory, 'output', 'cancel-probe-started'), 90_000));
+        cancellationController.abort();
+        return active;
+      })(),
+    ]);
+    await acceptanceCheck(failureContext, 'guest-cancellation', 'disconnect-validation', () => {
+      if (cancelled !== undefined) throw mcpFailure('disconnect-not-cancelled');
+    });
+    await acceptanceCheck(failureContext, 'guest-cancellation', 'cleanup',
+      () => waitForVmCleanup(15_000, primaryVmResidue));
+    await acceptanceCheck(failureContext, 'guest-cancellation', 'execution-validation',
+      () => waitForInvocationOutcome(journalRoot, cancellationActive.record, 'cancelled'));
 
     failureContext.stage = FAILURE_STAGES.STARTUP_FAULTS;
     try {
@@ -1982,88 +2470,107 @@ async function main(failureContext = { stage: FAILURE_STAGES.RUNNER }) {
     await waitForVmCleanup(15_000, primaryVmResidue);
 
     failureContext.stage = FAILURE_STAGES.CRASH_RECOVERY;
-    const existingResources = new Set(resourceRecords(journalRoot).map(({ file }) => file));
     const crashProbe = [
       'import time',
       'open("/output/crash-probe-started", "w", encoding="ascii").write("started")',
       'while True: time.sleep(1)',
     ].join('\n');
-    const crashRequest = requestMcp(endpoint, gatewayKey, 12, 'tools/call', {
-      name: 'enclave_run_script',
-      arguments: {
-        privateRepo: 'github/gh-aw-firewall',
-        schema: errorSchema,
-        script: crashProbe,
-      },
-    });
-    const crashResponse = crashRequest.then(
-      (response) => ({ response }),
-      () => ({ disconnected: true }),
-    );
-    const active = await waitForInvocationRecord(journalRoot, existingResources, awf.pid, 90_000);
-    const apiSocket = path.join(active.record.storage.directory, 'runs', 'vm', 'api.socket');
-    await waitForPath(path.join(active.record.directory, 'output', 'crash-probe-started'), 90_000);
-    const vmmPid = findProcessForSocket(apiSocket);
-    if (!vmmPid) throw new Error('Live VM crash probe could not identify its exact VMM process');
-
+    const crashController = new AbortController();
     const interruptedWorkDir = workDir;
-    try {
-      process.kill(vmmPid, 'SIGKILL');
-      awf.kill('SIGKILL');
-      await new Promise((resolve, reject) => {
-        const timer = setTimeout(() => reject(new Error('AWF host process did not die for recovery probe')), 15_000);
-        awf.once('exit', () => {
-          clearTimeout(timer);
-          resolve();
-        });
+    await withCrashRecoveryCleanup(failureContext, async () => {
+      const existingResources = await acceptanceCheck(failureContext, 'crash-recovery', 'resource-baseline',
+        () => new Set(resourceRecords(journalRoot).map(({ file }) => file)));
+      let crashResponse;
+      await acceptanceCheck(failureContext, 'crash-recovery', 'request-start', () => {
+        const crashRequest = requestMcp(endpoint, gatewayKey, 12, 'tools/call', {
+          name: 'enclave_run_script',
+          arguments: {
+            privateRepo: 'github/gh-aw-firewall',
+            schema: errorSchema,
+            script: crashProbe,
+          },
+        }, crashController.signal);
+        crashResponse = crashRequest.then(
+          (response) => ({ response }),
+          () => ({ disconnected: true }),
+        );
       });
+      const active = await acceptanceCheck(failureContext, 'crash-recovery', 'resource-discovery',
+        () => waitForInvocationRecord(journalRoot, existingResources, awf.pid, 90_000));
+      await acceptanceCheck(failureContext, 'crash-recovery', 'marker-wait',
+        () => waitForPath(path.join(active.record.directory, 'output', 'crash-probe-started'), 90_000));
+      const crashBaseline = await acceptanceCheck(failureContext, 'crash-recovery', 'resource-refresh',
+        () => readCrashRecoveryBaseline(journalRoot, active, awf.pid));
+      const vmmPid = await acceptanceCheck(failureContext, 'crash-recovery', 'vmm-discovery', () => {
+        const apiSocket = path.join(crashBaseline.record.storage.directory, 'runs', 'vm', 'api.socket');
+        const pid = findProcessForSocket(apiSocket);
+        if (!pid) throw mcpFailure('vmm-not-found');
+        return pid;
+      });
+      await acceptanceCheck(failureContext, 'crash-recovery', 'vmm-kill',
+        () => process.kill(vmmPid, 'SIGKILL'));
+      await acceptanceCheck(failureContext, 'crash-recovery', 'host-kill',
+        () => killAwfForRecovery(awf));
       awf = undefined;
-      preRestartLogContents = [
-        fs.readFileSync(awfOut, 'utf8'),
-        fs.readFileSync(awfErr, 'utf8'),
-        ...captureContainerLogs(),
-      ];
-      run('docker', [
-        'compose',
-        '--project-directory', interruptedWorkDir,
-        '--file', path.join(interruptedWorkDir, 'docker-compose.yml'),
-        'down', '--volumes', '--remove-orphans', '--timeout', '5',
-      ]);
-      workDir = path.join(root, 'awf-work-recovery');
-      awfConfigPath = path.join(root, 'awf-config-recovery.json');
-      runDirectories.push(workDir);
-      writeAwfConfig(workDir, awfConfigPath);
-      awf = launchAwf('recovery', 'combined');
-      await waitForBroker(awf, 'awf-enclave-mcp-server', Date.now() + 15 * 60_000, {
-        stage: 'recovery', stderrFile: awfErr,
-        startupErrorFile: path.join(workDir, 'proxy-logs', 'awf-startup-error.json'),
+      const stdout = await acceptanceCheck(failureContext, 'crash-recovery', 'stdout-read',
+        () => fs.readFileSync(awfOut, 'utf8'));
+      const stderr = await acceptanceCheck(failureContext, 'crash-recovery', 'stderr-read',
+        () => fs.readFileSync(awfErr, 'utf8'));
+      const containerLogs = await acceptanceCheck(failureContext, 'crash-recovery', 'container-logs',
+        () => captureContainerLogs());
+      preRestartLogContents = [stdout, stderr, ...containerLogs];
+      await acceptanceCheck(failureContext, 'crash-recovery', 'compose-stop',
+        () => stopComposeAfterCrash(interruptedWorkDir));
+      await acceptanceCheck(failureContext, 'crash-recovery', 'recovery-config', () => {
+        workDir = path.join(root, 'awf-work-recovery');
+        awfConfigPath = path.join(root, 'awf-config-recovery.json');
+        runDirectories.push(workDir);
+        writeAwfConfig(workDir, awfConfigPath);
       });
-      await waitForHostGatewayReadiness(awf, Date.now() + 150_000, {
-        stage: 'recovery', stderrFile: awfErr,
-        startupErrorFile: path.join(workDir, 'proxy-logs', 'awf-startup-error.json'),
+      await acceptanceCheck(failureContext, 'crash-recovery', 'recovery-launch', () => {
+        awf = launchAwf('recovery', 'combined');
       });
-      failureContext.stage = FAILURE_STAGES.PRIMARY;
-      primaryVmResidue = await waitForPrimaryVmReadiness(awf, Date.now() + 5 * 60_000, {
-        startupErrorFile: path.join(workDir, 'proxy-logs', 'awf-startup-error.json'),
+      await acceptanceCheck(failureContext, 'crash-recovery', 'broker-readiness',
+        () => waitForBroker(awf, 'awf-enclave-mcp-server', Date.now() + 15 * 60_000, {
+          stage: 'recovery', stderrFile: awfErr,
+          startupErrorFile: path.join(workDir, 'proxy-logs', 'awf-startup-error.json'),
+        }));
+      await acceptanceCheck(failureContext, 'crash-recovery', 'gateway-readiness',
+        () => waitForHostGatewayReadiness(awf, Date.now() + 150_000, {
+          stage: 'recovery', stderrFile: awfErr,
+          startupErrorFile: path.join(workDir, 'proxy-logs', 'awf-startup-error.json'),
+        }));
+      primaryVmResidue = await acceptanceCheck(failureContext, 'crash-recovery', 'primary-readiness',
+        () => waitForPrimaryVmReadiness(awf, Date.now() + 5 * 60_000, {
+          startupErrorFile: path.join(workDir, 'proxy-logs', 'awf-startup-error.json'),
+        }));
+      await acceptanceCheck(failureContext, 'crash-recovery', 'tools-list', async () => {
+        const recoveryTools = await requestMcp(endpoint, gatewayKey, 13, 'tools/list', {});
+        if (!Array.isArray(recoveryTools?.result?.tools)) {
+          throw mcpFailure('recovery-tools-invalid', recoveryTools, 13);
+        }
+        return recoveryTools;
       });
-      failureContext.stage = FAILURE_STAGES.CRASH_RECOVERY;
-      const recoveryTools = await requestMcp(endpoint, gatewayKey, 13, 'tools/list', {});
-      if (!Array.isArray(recoveryTools?.result?.tools)) {
-        throw new Error('Live broker did not become ready after host-executor recovery');
-      }
-      const afterCrash = JSON.parse(fs.readFileSync(active.file, 'utf8'));
-      assertRecoveredInvocation(active.record, afterCrash, resourceRecords(journalRoot));
-      assertNoSuccessfulResult((await crashResponse).response);
-      await waitForVmCleanup(15_000, primaryVmResidue);
-    } catch (error) {
-      if (awf && awf.exitCode === null) awf.kill('SIGKILL');
-      try {
-        stopComposeAfterCrash(interruptedWorkDir);
-      } catch {
-        keepArtifacts = true;
-      }
-      throw error;
-    }
+      const recovered = await acceptanceCheck(failureContext, 'crash-recovery', 'resource-read',
+        () => readRecoveredInvocation(journalRoot, active.file));
+      await acceptanceCheck(failureContext, 'crash-recovery', 'recovery-validation',
+        () => assertRecoveredInvocation(crashBaseline.record, recovered.after, recovered.records));
+      await acceptanceCheck(failureContext, 'crash-recovery', 'interrupted-response', async () => {
+        const result = await crashResponse;
+        assertNoSuccessfulResult(result.response);
+        return result;
+      });
+      await acceptanceCheck(failureContext, 'crash-recovery', 'cleanup',
+        () => waitForVmCleanup(15_000, primaryVmResidue));
+    }, [
+      { phase: 'request-abort', action: () => crashController.abort() },
+      { phase: 'host-cleanup', action: async () => {
+        if (awf && awf.exitCode === null && awf.signalCode === null && !failedSpawns.has(awf)) {
+          await stopAwf(awf);
+        }
+      } },
+      { phase: 'compose-cleanup', action: () => stopComposeAfterCrash(interruptedWorkDir) },
+    ], () => { keepArtifacts = true; });
 
     failureContext.stage = FAILURE_STAGES.OUTPUT_REDACTION;
     const logContents = [
@@ -2096,69 +2603,91 @@ async function main(failureContext = { stage: FAILURE_STAGES.RUNNER }) {
     for (const profile of ['script-only', 'agent-only']) {
       failureContext.stage = profile === 'script-only'
         ? FAILURE_STAGES.SCRIPT_ONLY : FAILURE_STAGES.AGENT_ONLY;
-      fs.writeFileSync(path.join(workspace, '.awf-enclave-live-stop'), 'done\n', { mode: 0o644 });
-      await stopAwf(awf);
-      if (awf.exitCode !== 0 || awf.signalCode !== null) {
-        throw new Error('Combined profile did not stop cleanly before isolated profile acceptance');
-      }
+      await acceptanceCheck(failureContext, profile, 'stop-marker',
+        () => fs.writeFileSync(path.join(workspace, '.awf-enclave-live-stop'), 'done\n', { mode: 0o644 }));
+      await acceptanceCheck(failureContext, profile, 'host-stop', () => stopAwf(awf));
+      await acceptanceCheck(failureContext, profile, 'host-stop-validation', () => {
+        if (awf.exitCode !== 0 || awf.signalCode !== null) throw mcpFailure('profile-stop-invalid');
+      });
       awf = undefined;
-      fs.rmSync(path.join(workspace, '.awf-enclave-live-stop'));
-      workDir = path.join(root, `awf-work-${profile}`);
-      awfConfigPath = path.join(root, `awf-config-${profile}.json`);
-      runDirectories.push(workDir);
-      writeAwfConfig(workDir, awfConfigPath, profile);
-      awf = launchAwf(profile, profile);
+      await acceptanceCheck(failureContext, profile, 'stop-marker-remove',
+        () => fs.rmSync(path.join(workspace, '.awf-enclave-live-stop')));
+      await acceptanceCheck(failureContext, profile, 'profile-config', () => {
+        workDir = path.join(root, `awf-work-${profile}`);
+        awfConfigPath = path.join(root, `awf-config-${profile}.json`);
+        runDirectories.push(workDir);
+        writeAwfConfig(workDir, awfConfigPath, profile);
+      });
+      await acceptanceCheck(failureContext, profile, 'profile-launch', () => {
+        awf = launchAwf(profile, profile);
+      });
       const diagnostics = {
         stage: profile, stderrFile: awfErr,
         startupErrorFile: path.join(workDir, 'proxy-logs', 'awf-startup-error.json'),
       };
-      await waitForBroker(awf, 'awf-enclave-mcp-server', Date.now() + 15 * 60_000, diagnostics);
-      await waitForHostGatewayReadiness(awf, Date.now() + 150_000, diagnostics);
+      await acceptanceCheck(failureContext, profile, 'broker-readiness',
+        () => waitForBroker(awf, 'awf-enclave-mcp-server', Date.now() + 15 * 60_000, diagnostics));
+      await acceptanceCheck(failureContext, profile, 'gateway-readiness',
+        () => waitForHostGatewayReadiness(awf, Date.now() + 150_000, diagnostics));
       const profileStage = failureContext.stage;
       failureContext.stage = FAILURE_STAGES.PRIMARY;
-      primaryVmResidue = await waitForPrimaryVmReadiness(
-        awf, Date.now() + 5 * 60_000, diagnostics,
-      );
+      primaryVmResidue = await acceptanceCheck(failureContext, profile, 'primary-readiness',
+        () => waitForPrimaryVmReadiness(awf, Date.now() + 5 * 60_000, diagnostics));
       failureContext.stage = profileStage;
       const requestId = profile === 'script-only' ? 14 : 17;
-      const profileInit = await requestMcp(endpoint, gatewayKey, requestId, 'initialize', {
-        protocolVersion: '2025-11-25',
-        capabilities: {},
-        clientInfo: { name: 'awf-live-enclave-conformance', version: '1.0.0' },
-      });
-      if (profileInit?.result?.serverInfo?.name !== 'awmg-awf-enclave') {
-        throw new Error(`Live ${profile} profile did not route through the public broker`);
-      }
-      assertProfileTools(await requestMcp(endpoint, gatewayKey, requestId + 1, 'tools/list', {}), profile);
+      const profileInit = await acceptanceCheck(failureContext, profile, 'initialize',
+        () => requestMcp(endpoint, gatewayKey, requestId, 'initialize', {
+          protocolVersion: '2025-11-25',
+          capabilities: {},
+          clientInfo: { name: 'awf-live-enclave-conformance', version: '1.0.0' },
+        }));
+      await acceptanceCheck(failureContext, profile, 'initialize-validation',
+        () => assertProfileInitialize(profileInit, requestId));
+      const profileTools = await acceptanceCheck(failureContext, profile, 'tools-list',
+        () => requestMcp(endpoint, gatewayKey, requestId + 1, 'tools/list', {}));
+      await acceptanceCheck(failureContext, profile, 'tools-validation',
+        () => assertProfileTools(profileTools, profile, requestId + 1));
       if (profile === 'script-only') {
-        const response = await requestMcp(endpoint, gatewayKey, requestId + 2, 'tools/call', {
-          name: 'enclave_run_script',
-          arguments: { privateRepo: 'github/gh-aw-firewall', schema: scriptProbe.schema, script: python },
-        });
-        assertExpectedToolResult(response, requestId + 2, scriptProbe.expected, 'script-only profile');
+        const response = await acceptanceCheck(failureContext, profile, 'request',
+          () => requestMcp(endpoint, gatewayKey, requestId + 2, 'tools/call', {
+            name: 'enclave_run_script',
+            arguments: { privateRepo: 'github/gh-aw-firewall', schema: scriptProbe.schema, script: python },
+          }));
+        await acceptanceCheck(failureContext, profile, 'result-validation',
+          () => assertExpectedToolResult(response, requestId + 2, scriptProbe.expected, 'script-only profile'));
       } else {
-        const response = await requestMcp(endpoint, gatewayKey, requestId + 2, 'tools/call', {
-          name: 'enclave_run_agent',
-          arguments: {
-            privateRepo: 'github/gh-aw-firewall',
-            schema: { type: 'enum', values: [agentResultValue] },
-            prompt: `Return exactly the string ${JSON.stringify(agentResultValue)}. Do not inspect or quote repository files.`,
-          },
-        });
-        assertExpectedToolResult(response, requestId + 2, agentResultValue, 'agent-only profile');
+        const response = await acceptanceCheck(failureContext, profile, 'request',
+          () => requestMcp(endpoint, gatewayKey, requestId + 2, 'tools/call', {
+            name: 'enclave_run_agent',
+            arguments: {
+              privateRepo: 'github/gh-aw-firewall',
+              schema: { type: 'enum', values: [agentResultValue] },
+              prompt: `Return exactly the string ${JSON.stringify(agentResultValue)}. Do not inspect or quote repository files.`,
+            },
+          }));
+        await acceptanceCheck(failureContext, profile, 'result-validation',
+          () => assertExpectedToolResult(response, requestId + 2, agentResultValue, 'agent-only profile'));
       }
-      await waitForVmCleanup(15_000, primaryVmResidue);
-      const privateRoot = path.join(
-        '/var/tmp',
-        `awf-enclave-private-0-${crypto.createHash('sha256')
-          .update(path.resolve(workDir), 'utf8').digest('hex').slice(0, 20)}`,
-      );
-      assertNoSentinelLeak([
-        path.join(workDir, 'audit'), path.join(workDir, 'proxy-logs'),
-        path.join(privateRoot, 'audit'), path.join(privateRoot, 'api-proxy-logs'),
-        journalRoot,
-      ], [fs.readFileSync(awfOut, 'utf8'), fs.readFileSync(awfErr, 'utf8'),
-        ...captureContainerLogs()], sentinel);
+      await acceptanceCheck(failureContext, profile, 'cleanup',
+        () => waitForVmCleanup(15_000, primaryVmResidue));
+      const profileStdout = await acceptanceCheck(failureContext, profile, 'stdout-read',
+        () => fs.readFileSync(awfOut, 'utf8'));
+      const profileStderr = await acceptanceCheck(failureContext, profile, 'stderr-read',
+        () => fs.readFileSync(awfErr, 'utf8'));
+      const profileContainerLogs = await acceptanceCheck(failureContext, profile, 'container-logs',
+        () => captureContainerLogs(profile));
+      await acceptanceCheck(failureContext, profile, 'output-redaction', () => {
+        const privateRoot = path.join(
+          '/var/tmp',
+          `awf-enclave-private-0-${crypto.createHash('sha256')
+            .update(path.resolve(workDir), 'utf8').digest('hex').slice(0, 20)}`,
+        );
+        assertNoSentinelLeak([
+          path.join(workDir, 'audit'), path.join(workDir, 'proxy-logs'),
+          path.join(privateRoot, 'audit'), path.join(privateRoot, 'api-proxy-logs'),
+          journalRoot,
+        ], [profileStdout, profileStderr, ...profileContainerLogs], sentinel);
+      });
     }
     acceptancePassed = true;
     console.log('Live combined, script-only, and agent-only profile invocations, guest identity/network, resource limits, failure/timeout/cancellation, VMM crash recovery, cleanup, and output redaction checks passed.');
@@ -2208,6 +2737,9 @@ async function main(failureContext = { stage: FAILURE_STAGES.RUNNER }) {
         conformanceDiagnostics.collect(diagnosticContext, {
           status: acceptancePassed && !process.exitCode ? 'passed' : 'failed',
           stage: Object.values(FAILURE_STAGES).includes(failureContext.stage) ? failureContext.stage : 'unknown stage',
+          check: failureContext.check,
+          checks: failureContext.checks,
+          admissionEvidence: failureContext.admissionEvidence,
           startup: startupSnapshots.map(({ stage, profile, diagnostic, evidence }) =>
             ({ stage, profile, diagnostic, evidence })),
         });
@@ -2249,20 +2781,41 @@ function removePrivateAwfLogs(stdoutFile, stderrFile, startupErrorFiles = []) {
 
 function stopAwf(child, graceMs = 60_000, terminateMs = 5000) {
   return new Promise((resolve, reject) => {
-    const terminate = setTimeout(() => child.kill('SIGTERM'), graceMs);
+    if (typeof child.exitCode === 'number' || child.signalCode) {
+      resolve();
+      return;
+    }
+    const sendSignal = (signal) => {
+      try {
+        child.kill(signal);
+        return true;
+      } catch (cause) {
+        onError(cause);
+        return false;
+      }
+    };
+    const terminate = setTimeout(() => sendSignal('SIGTERM'), graceMs);
     const kill = setTimeout(() => {
-      child.kill('SIGKILL');
-      finish(new Error('AWF did not exit within the live fixture cleanup deadline'));
+      if (sendSignal('SIGKILL')) {
+        finish(new Error('AWF did not exit within the live fixture cleanup deadline'));
+      }
     }, graceMs + terminateMs);
     const finish = (error) => {
       clearTimeout(terminate);
       clearTimeout(kill);
       child.removeListener('exit', onExit);
+      child.removeListener('error', onError);
       if (error) reject(error);
       else resolve();
     };
     const onExit = () => finish();
+    const onError = (cause) => {
+      const error = mcpFailure('host-kill-failed');
+      mcpFailures.get(error).code = cause?.code;
+      finish(error);
+    };
     child.once('exit', onExit);
+    child.once('error', onError);
   });
 }
 
@@ -2270,7 +2823,7 @@ function reportFailure(_error, stage) {
   const safeStage = Object.values(FAILURE_STAGES).includes(stage) ? stage : 'unknown stage';
   console.error(
     `Live enclave acceptance failed during ${safeStage}; raw error details were suppressed. `
-    + 'Review AWF_HOST_STARTUP_DIAGNOSTIC and AWF_PRIMARY_VM_READINESS records above.',
+    + 'Review AWF_ENCLAVE_ACCEPTANCE_CHECK, AWF_HOST_STARTUP_DIAGNOSTIC and AWF_PRIMARY_VM_READINESS records above.',
   );
   process.exitCode = 1;
 }
@@ -2311,10 +2864,14 @@ module.exports = {
   makeConfig,
   toAwfConfig,
   assertProfileTools,
+  assertProfileInitialize,
+  captureContainerLogs,
   assertNoSentinelLeak,
   assertExpectedToolResult,
   assertRecoveredInvocation,
   assertNoSuccessfulResult,
+  killAwfForRecovery,
+  withCrashRecoveryCleanup,
   buildAgentGuestProbe,
   buildAgentEnospcProbe,
   buildConstantObjectSchema,
@@ -2322,5 +2879,14 @@ module.exports = {
   buildOomProbeScript,
   buildScriptGuestProbe,
   parsePublicToolResult,
+  assertCanonicalToolError,
+  acceptanceCheck,
+  observeInvocationRecords,
+  resourceRecords,
+  readRecoveredInvocation,
+  readCrashRecoveryBaseline,
+  resourceDiscoveryEvidence,
+  waitForInvocationRecord,
+  waitForInvocationOutcome,
   requestMcp,
 };

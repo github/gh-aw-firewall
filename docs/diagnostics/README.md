@@ -125,6 +125,16 @@ explicit disclosure policy, not unrestricted publication; private, mixed, and
 dynamic scopes must not expose these records. The 403 in smoke run
 39192139592 has no established canonical diagnosis finding.
 
+For agent-enclave upstream 401s, read the projected `copilot_auth_diagnostic`
+fields before attributing failure to the credential. They distinguish selected
+credential source/family, effective target and endpoint, actual Authorization
+shape and injection match, integration attribution, and fixed upstream rejection
+classes, without publishing credential or provider text. The
+[five authentication hypotheses and elimination limits](../cloud-hypervisor-foundation.md#distinguishing-agent-enclave-authentication-failures)
+describe the evidence contract. A generic 401 cannot establish expiry,
+revocation, missing scope, or policy as the cause; unknown and incomplete evidence
+must remain unknown. Run 39697934942 has no established registry finding.
+
 ## Agent entry point
 
 Agents should load [`.github/skills/diagnose-awf/SKILL.md`](../../.github/skills/diagnose-awf/SKILL.md).

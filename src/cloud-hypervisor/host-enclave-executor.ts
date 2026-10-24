@@ -19,7 +19,8 @@ import {
 } from '../enclave/host-executor-journal';
 import { HostPreflightReporter, markHostPreflightError } from './host-preflight-progress';
 import { guestExecutionFailureReason } from '../microvm/vsock-client';
-import { readEnclaveSessionDiagnostics } from './enclave-session-diagnostics';
+import { projectEnclaveSessionDiagnostics, readEnclaveSessionDiagnostics } from './enclave-session-diagnostics';
+import { Writable } from 'stream';
 import { preservePublicEnclaveSession } from './diagnostics';
 import { DurableCloudHypervisorCleanupRegistry } from './cleanup-registry';
 import {
@@ -301,6 +302,51 @@ export class CloudHypervisorHostEnclaveExecutorBackend implements HostEnclaveExe
       return { outcome: 'executor-failure' };
     }
     const diagnostic = new HostExecutorInvocationDiagnostics(this.options.runState, plan);
+    const maxWrapperStderrBytes = 16 * 1024;
+    const stderrChunks: Buffer[] = [];
+    let stderrBytes = 0;
+    let pendingStderrLine = Buffer.alloc(0);
+    let discardStderrLine = false;
+    const retainStderrLine = (line: Buffer): void => {
+      const record = Buffer.concat([line, Buffer.from('\n')]);
+      if (record.length > maxWrapperStderrBytes) return;
+      stderrChunks.push(record);
+      stderrBytes += record.length;
+      while (stderrBytes > maxWrapperStderrBytes) {
+        stderrBytes -= stderrChunks.shift()!.length;
+      }
+    };
+    const wrapperStderr = new Writable({
+      write(chunk: Buffer, _encoding, callback) {
+        let offset = 0;
+        while (offset < chunk.length) {
+          const newline = chunk.indexOf(0x0a, offset);
+          const end = newline < 0 ? chunk.length : newline;
+          const segment = chunk.subarray(offset, end);
+          if (discardStderrLine) {
+            if (newline < 0) break;
+            discardStderrLine = false;
+            offset = newline + 1;
+            continue;
+          }
+          if (pendingStderrLine.length + segment.length + 1 > maxWrapperStderrBytes) {
+            pendingStderrLine = Buffer.alloc(0);
+            if (newline < 0) {
+              discardStderrLine = true;
+              break;
+            }
+            offset = newline + 1;
+            continue;
+          }
+          pendingStderrLine = Buffer.concat([pendingStderrLine, segment]);
+          if (newline < 0) break;
+          retainStderrLine(pendingStderrLine);
+          pendingStderrLine = Buffer.alloc(0);
+          offset = newline + 1;
+        }
+        callback();
+      },
+    });
     const report = new HostPreflightReporter(
       'host-invocation',
       diagnostic.publish,
@@ -336,6 +382,7 @@ export class CloudHypervisorHostEnclaveExecutorBackend implements HostEnclaveExe
     let stopPromise: Promise<void> | undefined;
     let managerStopped = false;
     let outcome: HostExecutorBackendResult = { outcome: 'executor-failure' };
+    let guestWorkloadFailed = false;
     let cleanupError: unknown;
     const pendingWork = new Set<Promise<unknown>>();
     let filesystemCleanupPromise: Promise<void> | undefined;
@@ -420,6 +467,7 @@ export class CloudHypervisorHostEnclaveExecutorBackend implements HostEnclaveExe
         this.options.preflight.tools,
         async () => {
           resourceJournal = await this.dependencies.createResourceJournal(this.options.runState, plan, runId);
+          diagnostic.resourcePublished(this.options.runState, plan);
           if (this.dependencies.prepareInvocationStorage) {
             invocationStorage = await this.dependencies.prepareInvocationStorage(
               this.options.runState, plan, resourceJournal as HostExecutorResourceJournal, this.options.preflight.tools,
@@ -555,6 +603,7 @@ export class CloudHypervisorHostEnclaveExecutorBackend implements HostEnclaveExe
           ...(debugDirectory ? { AWF_ENCLAVE_AGENT_DEBUG_RAW_SESSION_LOGS: 'true' } : {}),
         } : {},
         onDiagnostics: diagnostic.guestExecution,
+        ...(role === 'agent' ? { stderr: wrapperStderr } : {}),
       }).catch((error: unknown) => {
         const reason = guestExecutionFailureReason(error);
         throw reason ? markHostPreflightError(error, reason) : error;
@@ -572,6 +621,7 @@ export class CloudHypervisorHostEnclaveExecutorBackend implements HostEnclaveExe
         diagnostic.fail(report, 'guest-execute', markHostPreflightError(
           new Error('Host executor guest command failed'), 'command-failed'));
         outcome = { outcome: 'executor-failure' };
+        guestWorkloadFailed = true;
       } else {
         // Result reads require the VM to have stopped, but cleanup failures
         // must remain distinct from the invocation's original failure.
@@ -642,6 +692,9 @@ export class CloudHypervisorHostEnclaveExecutorBackend implements HostEnclaveExe
       }
       if (role === 'agent' && managerStopped && filesystemState.mounted) {
         try {
+          if (stderrBytes) {
+            diagnostic.guestFileOperations(projectEnclaveSessionDiagnostics(Buffer.concat(stderrChunks)));
+          }
           await resourceJournal?.verifyMount();
           diagnostic.guestSession(await (dependencies.readSessionDiagnostics ?? readEnclaveSessionDiagnostics)(
             plan.invocationHostDir,
@@ -706,6 +759,9 @@ export class CloudHypervisorHostEnclaveExecutorBackend implements HostEnclaveExe
     if (cleanupError !== undefined || diagnostic.persistenceFailed) {
       this.closed = true;
       return { outcome: 'executor-failure', cleanupComplete: false };
+    }
+    if (guestWorkloadFailed && outcome.outcome === 'executor-failure') {
+      return { outcome: 'executor-failure', cleanupComplete: true, recoverableFailure: true };
     }
     return outcome;
   }

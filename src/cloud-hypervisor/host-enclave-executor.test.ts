@@ -428,6 +428,22 @@ describe('readBoundedCloudHypervisorEnclaveResult', () => {
                 stderrBytes: 0, pendingFrameBytes: 0, resultReceived: false,
               });
               if (role === 'agent') {
+                for (let index = 0; index < 250; index++) {
+                  request.stderr?.write(Buffer.from(JSON.stringify({
+                    event: 'progress', stage: 'engine-started', padding: 'é'.repeat(80),
+                  }) + '\n'));
+                }
+                request.stderr?.write(Buffer.concat([
+                  Buffer.from('{"event":"progress","stage":"engine-started","padding":"'),
+                  Buffer.alloc(20 * 1024, 0x78),
+                  Buffer.from('"}\n'),
+                ]));
+                const fragmented = Buffer.from('{"event":"operation-error","operation":"session-log-close",'
+                  + '"category":"no-space","errno":28,"fatal":false,"note":"€"}\n');
+                const split = fragmented.indexOf(Buffer.from('€')) + 1;
+                request.stderr?.write(fragmented.subarray(0, split));
+                request.stderr?.write(fragmented.subarray(split));
+                request.stderr?.write('{"event":"failure","category":"result-empty","message":"PRIVATE_SESSION_TOKEN"}\n');
                 await fs.writeFile(path.join(invocationHostDir, 'runtime', 'session.jsonl'),
                   '{"event":"progress","stage":"engine-started","secret":"PRIVATE_SESSION_TOKEN"}\n');
               }
@@ -509,6 +525,123 @@ describe('readBoundedCloudHypervisorEnclaveResult', () => {
         expect(unmounted).toBe(true);
         await expect(fs.lstat(invocationHostDir)).rejects.toMatchObject({ code: 'ENOENT' });
         if (timeoutMs === 1000) return;
+        const verifyRecoveryContract = async () => {
+          for (const execution of [
+            { exitCode: 23, signal: null, timedOut: false },
+            { exitCode: 0, signal: 'SIGKILL', timedOut: false },
+          ]) {
+            managerExecutionResult = execution;
+            stopped = false;
+            unmounted = false;
+            snapshotRemoved = false;
+            let releaseCleanup!: () => void;
+            let reachedCleanup!: () => void;
+            const cleanupReached = new Promise<void>(resolve => { reachedCleanup = resolve; });
+            const cleanupReleased = new Promise<void>(resolve => { releaseCleanup = resolve; });
+            const recoveringBackend = new CloudHypervisorHostEnclaveExecutorBackend(backendOptions, {
+              ...dependencies,
+              createResourceJournal: async (...args) => ({
+                ...await dependencies.createResourceJournal!(...args),
+                complete: async () => { reachedCleanup(); await cleanupReleased; },
+              }),
+            });
+            let returned = false;
+            const pending = recoveringBackend.execute(plan, new AbortController().signal).then(result => {
+              returned = true;
+              return result;
+            });
+            try {
+              await cleanupReached;
+              expect(stopped && unmounted && snapshotRemoved).toBe(true);
+              expect(returned).toBe(false);
+            } finally {
+              releaseCleanup();
+            }
+            await expect(pending).resolves.toEqual({
+              outcome: 'executor-failure', cleanupComplete: true, recoverableFailure: true,
+            });
+            await recoveringBackend.close();
+          }
+
+          const failingCleanupBackend = new CloudHypervisorHostEnclaveExecutorBackend(backendOptions, {
+            ...dependencies,
+            unmount: async () => { throw new Error('fixture unmount failed'); },
+          });
+          await expect(failingCleanupBackend.execute(plan, new AbortController().signal))
+            .resolves.toEqual({ outcome: 'executor-failure', cleanupComplete: false });
+          await failingCleanupBackend.close();
+          await fs.rm(invocationHostDir, { recursive: true, force: true });
+
+          const milestone = hostExecutorJournal.HostExecutorInvocationDiagnostics.prototype.milestone;
+          const persistenceFailure = jest.spyOn(
+            hostExecutorJournal.HostExecutorInvocationDiagnostics.prototype, 'milestone',
+          ).mockImplementation(function (this: hostExecutorJournal.HostExecutorInvocationDiagnostics, ...args) {
+            milestone.apply(this, args);
+            if (args[0] === 'cleanup-complete') this.persistenceFailed = true;
+          });
+          try {
+            const failingDiagnosticsBackend = new CloudHypervisorHostEnclaveExecutorBackend(backendOptions, dependencies);
+            await expect(failingDiagnosticsBackend.execute(plan, new AbortController().signal))
+              .resolves.toEqual({ outcome: 'executor-failure', cleanupComplete: false });
+            await failingDiagnosticsBackend.close();
+          } finally {
+            persistenceFailure.mockRestore();
+          }
+
+          managerExecutionResult = { exitCode: 0, signal: null, timedOut: false };
+          await expect(backend.execute(plan, new AbortController().signal))
+            .resolves.toEqual({ outcome: 'success', result: 'true' });
+          managerExecuteError = true;
+          await expect(backend.execute(plan, new AbortController().signal))
+            .resolves.toEqual({ outcome: 'executor-failure' });
+          managerExecuteError = false;
+
+          if (role === 'script' && timeoutMs === 60_000 && !publicDebug && !shared) {
+            const recoveryRun = { ...runState, runId: 'f'.repeat(32) };
+            const server = await startHostExecutorServer({
+              runtimeDir: path.join(root, 'recovery'),
+              runState: recoveryRun,
+              backend: new CloudHypervisorHostEnclaveExecutorBackend({ ...backendOptions, runState: recoveryRun }, {
+                ...dependencies,
+                createManager: (...args) => {
+                  const manager = dependencies.createManager!(...args);
+                  const output = args[2].guest!.exports.find(entry => entry.tag === 'enclave-output')!.source;
+                  return { ...manager, stop: async () => { await fs.writeFile(path.join(output, 'out'), managerResult); } };
+                },
+              }),
+            });
+            try {
+              // eslint-disable-next-line @typescript-eslint/no-require-imports
+              const { createHostExecutorClient } = require('../../containers/enclave/mcp-server/host-executor-client.js');
+              const { finiteSchemaHash } = await import('../bounded-execution/schema-hash');
+              const broker = createHostExecutorClient({
+                socketPath: server.socketPath, capabilityPath: server.capabilityPath, runId: recoveryRun.runId,
+              });
+              for (const [id, exitCode, outcome] of [
+                ['2'.repeat(32), 23, 'executor-failure'],
+                ['3'.repeat(32), 0, 'success'],
+              ] as const) {
+                managerExecutionResult = { exitCode, signal: null, timedOut: false };
+                expect(await broker.invoke({
+                  entryId, invocationId: id, admissionId: id, executorKind: role, seedId,
+                  payload: plan.payload, schema: plan.schema, schemaHash: finiteSchemaHash(plan.schema),
+                })).toMatchObject({ ok: true, state: 'running' });
+                let status = await broker.status({ entryId, invocationId: id });
+                for (let attempt = 0; attempt < 100 && status.state !== 'terminal'; attempt += 1) {
+                  await new Promise(resolve => setTimeout(resolve, 5));
+                  status = await broker.status({ entryId, invocationId: id });
+                }
+                expect(status).toMatchObject({ state: 'terminal', outcome });
+                expect(status).not.toHaveProperty('recoverableFailure');
+                expect(await broker.settle({ entryId, invocationId: id, resultDigest: status.resultDigest }))
+                  .toMatchObject({ state: 'settled', outcome });
+              }
+            } finally {
+              await server.close();
+            }
+          }
+        };
+
         if (role === 'agent' && expectedOutcome === 'success') {
           expect(workloadProfile?.kind).toBe('agent-enclave');
           expect(workloadProfile?.network).toMatchObject({
@@ -559,6 +692,10 @@ describe('readBoundedCloudHypervisorEnclaveResult', () => {
           expect(evidence.guestSession).toMatchObject({
             status: 'captured', lastEvent: { event: 'progress', stage: 'engine-started' },
           });
+          expect(evidence.guestFileOperations).toEqual([{
+            event: 'operation-error', operation: 'session-log-close', category: 'no-space', errno: 28, fatal: false,
+          }]);
+          expect(evidence.guestWrapperFailure).toEqual({ event: 'failure', category: 'result-empty' });
           expect(file.contents).not.toContain('PRIVATE_SESSION_TOKEN');
           expect(evidence.guestExecution).toMatchObject({ phase: 'sending', resultReceived: false });
           managerExecuteError = true;
@@ -603,6 +740,8 @@ describe('readBoundedCloudHypervisorEnclaveResult', () => {
             expect(executionRequest?.env).toEqual({});
           }
         }
+
+        await verifyRecoveryContract();
 
         if (role === 'agent' && expectedOutcome === 'success') {
           const invalidPolicies: Array<{
@@ -780,7 +919,7 @@ describe('readBoundedCloudHypervisorEnclaveResult', () => {
           snapshotRemoved = false;
           managerExecutionResult = { exitCode: 1, signal: null, timedOut: false };
           await expect(backend.execute(plan, new AbortController().signal))
-            .resolves.toEqual({ outcome: 'executor-failure' });
+            .resolves.toEqual({ outcome: 'executor-failure', cleanupComplete: true, recoverableFailure: true });
 
           managerExecutionResult = { exitCode: 0, signal: null, timedOut: true };
           stopped = false;

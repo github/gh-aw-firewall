@@ -4,6 +4,7 @@ const zlib = require('zlib');
 const { COPILOT_PLACEHOLDER_TOKEN } = require('./providers/copilot-byok');
 const { stripBearerPrefix } = require('./providers/copilot-auth');
 const { extractProviderErrorFields } = require('./provider-error-fields');
+const { classifyCopilotAuthError } = require('./copilot-auth-diagnostics');
 
 const DEFAULT_MAX_ERROR_RESPONSE_CAPTURE_BYTES = 64 * 1024;
 const REDACTED = '[REDACTED]';
@@ -76,7 +77,7 @@ function buildCopilotAuthErrorMessage(statusCode, env = process.env) {
 
 function createLogRequestCompletion({ metrics, logRequest, sanitizeForLog, applyMaxRunsInvocation }) {
   return function logRequestCompletion(statusCode, responseBytes, initiatorSent, billingInfo, {
-    startTime, provider, req, requestBytes, targetHost, requestId, wireApiCompatibility,
+    startTime, provider, req, requestBytes, targetHost, requestId, wireApiCompatibility, copilotAuthDiagnostic,
   }) {
     const duration = Date.now() - startTime;
     const sc = metrics.statusClass(statusCode);
@@ -100,6 +101,12 @@ function createLogRequestCompletion({ metrics, logRequest, sanitizeForLog, apply
     if (initiatorSent) logFields.x_initiator = initiatorSent;
     if (billingInfo) logFields.billing = billingInfo;
     logRequest('info', 'request_complete', logFields);
+    if (provider === 'copilot' && copilotAuthDiagnostic && statusCode >= 200 && statusCode < 300) {
+      logRequest('info', 'copilot_auth_diagnostic', {
+        ...copilotAuthDiagnostic, status: statusCode,
+        error_class: 'none', body_capture: 'not_required', challenge: 'not_required',
+      });
+    }
   };
 }
 
@@ -240,6 +247,7 @@ function createLogUpstreamErrorResponse({
     // { responseBody, contentEncoding }, or null when there is none. Error
     // identifiers come only from it, never from AWF's replacement body.
     providerErrorBody,
+    copilotAuthDiagnostic,
   }) {
     if (statusCode >= 200 && statusCode < 300) return;
     const safeHeaders = sanitizeResponseHeaders(responseHeaders, sanitizeForLog);
@@ -253,6 +261,16 @@ function createLogUpstreamErrorResponse({
       contentEncoding: safeHeaders['content-encoding'],
     });
     const bodyFields = formatResponseBodyLogFields(bodyCapture, sanitizeForLog);
+    if (provider === 'copilot' && copilotAuthDiagnostic && [400, 401, 403].includes(statusCode)) {
+      const originalCapture = providerErrorBody === undefined ? bodyCapture
+        : providerErrorBody ? captureResponseBody(providerErrorBody)
+        : { bodyOmitted: true };
+      logRequest('warn', 'copilot_auth_diagnostic', {
+        ...copilotAuthDiagnostic,
+        status: statusCode,
+        ...classifyCopilotAuthError(originalCapture, responseHeaders),
+      });
+    }
     const fields = {
       request_id: requestId,
       provider,

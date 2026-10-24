@@ -42,6 +42,7 @@ const {
 const { bearerAuthHeaders, tokenAuthHeaders, buildAuthHeaderFn, withCopilotIntegration } = require('./auth-headers');
 const { URL } = require('url');
 const { COPILOT_ENV } = require('../provider-env-constants');
+const { attachCopilotAuthDiagnostic } = require('../copilot-auth-diagnostics');
 
 const COPILOT_MODELS_API_VERSION = '2026-07-01';
 const COPILOT_LEGACY_AUTO_API_VERSION = '2025-07-16';
@@ -331,7 +332,14 @@ function createCopilotAdapter(env, deps = {}) {
       // BYOK API keys use 'Bearer' regardless of target.
       // Standard api.githubcopilot.com and GHEC (*.ghe.com) also use 'Bearer' for all credentials.
       const isModelsPath = reqPathname === '/models' || reqPathname.startsWith('/models/');
-      if (isModelsPath && req.method === 'GET' && githubToken) {
+      const useGithubToken = isModelsPath && req.method === 'GET' && githubToken;
+      attachCopilotAuthDiagnostic(req, {
+        env,
+        source: useGithubToken ? 'github_token' : inferenceCredentialSource,
+        token: useGithubToken ? githubToken : staticAuthToken,
+        rawTarget, basePath, integrationIdSource,
+      });
+      if (useGithubToken) {
         // /models always uses the GitHub OAuth token (not BYOK key)
         return withCopilotIntegration(tokenAuthHeaders(
           githubTokenAuthPrefix,

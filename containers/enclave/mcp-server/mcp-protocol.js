@@ -268,6 +268,9 @@ async function dispatchJsonRpc(message, deps) {
     // and failed calls all consume budget.
     if (deps.toolCallBudget
         && !deps.toolCallBudget.tryConsume(name, TOOL_EXECUTOR_KINDS[name])) {
+      deps.diagnosticAudit?.lifecycle('tool-admission', {
+        status: 'rejected', reason: 'tool-call-cap', executorKind: TOOL_EXECUTOR_KINDS[name],
+      });
       return rpcResult(message.id, toolCallCapExhaustedResult());
     }
     const payloadKey = TOOL_PAYLOAD_KEYS[name];
@@ -285,10 +288,16 @@ async function dispatchJsonRpc(message, deps) {
     if (typeof deps.tryAcquireToolCall === 'function') {
       release = deps.tryAcquireToolCall();
       if (typeof release !== 'function') {
+        deps.diagnosticAudit?.lifecycle('tool-admission', {
+          status: 'rejected', reason: 'busy', executorKind: TOOL_EXECUTOR_KINDS[name],
+        });
         return rpcResult(message.id, canonicalToolError());
       }
     }
     try {
+      deps.diagnosticAudit?.lifecycle('tool-admission', {
+        status: 'admitted', executorKind: TOOL_EXECUTOR_KINDS[name], oversized: tooLarge === true,
+      });
       return rpcResult(message.id, await handlerCall(handlers[name], request, deps.signal));
     } finally {
       if (release) release();

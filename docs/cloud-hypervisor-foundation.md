@@ -1502,12 +1502,116 @@ egress.
 Both script (1 GiB) and agent (512 MiB) guests must produce actual guest-visible
 aggregate `ENOSPC` within a write bound no larger than their configured role
 ceiling; the probe removes its files before returning a canonical result. A
+storage probe immediately reads its result through both `/output/out` and
+`/awf/out`, compares each bounded read with the expected JSON, and verifies that
+the compatibility symlink names `/output/out` and both paths identify the same
+file. The agent wrapper independently checks the link, file identity and bounded
+contents through both paths before and after engine execution. Public evidence
+retains only boolean comparisons, size-state buckets and precise failed
+operations/errno, never contents, link-target text, hashes or inode/device numbers.
+These observations do not replace the required result channel or change result
+acceptance; Docker's direct file mount at `/awf/out` is not required to be a
+symlink. A
 guest memory-pressure probe requires an increased guest `oom_kill` counter and
 the memory-consuming child to exit by `SIGKILL`. The harness also requires
-canonical guest-failure and timeout responses, aborts a public request only
-after its guest has reached a marker, waits for resource cleanup, and kills an
+canonical guest-failure and timeout responses. Timeout and cancellation must
+each create a new owner-matched resource record and reach a guest-written
+marker; after cleanup, both terminal and settled host-journal records must
+confirm the specific `timeout` or `cancelled` outcome. A canonical error alone
+is insufficient. The harness aborts a public request only
+after its guest has reached the marker, waits for resource cleanup, and kills an
 identified VMM plus the AWF host process to verify that restart cleans the
 exact pending journal identity without replaying a successful result.
+
+The trusted host owns deadline interruption and the durable timeout outcome.
+After admission, the broker observes its local deadline without sending an
+ordinary cancellation that could win the host's timer race. It continues bounded
+status polling for at most the existing 10-second drain window, plus a bounded
+in-flight protocol request, to observe host cleanup and settlement. If the host
+remains nonterminal, the broker closes admissions, attempts cancellation, and
+reports `deadline-drain-timeout` rather than accepting a result. Explicit caller
+cancellation still interrupts immediately. The host execution limit, its existing
+one-second scheduling grace, and strict journal-outcome checks are unchanged.
+
+Crash recovery emits a bounded `AWF_ENCLAVE_ACCEPTANCE_CHECK` for each discovery,
+marker, process termination, log capture, Compose teardown, restart/readiness,
+tool-list, journal-read, identity-validation, interrupted-response and cleanup
+operation. Recovery journal reads use the protected, no-symlink, size-bounded
+resource inventory reader. Identity validation reports individual boolean
+comparisons, including cleaned state and retained directory, mount, snapshot
+and storage identities, without exposing their values. Discovery can observe
+the snapshot identity before its bind mount is committed. After the guest-start
+marker and before killing the VMM, the harness refreshes the same protected
+resource record. It requires the same pending invocation and owner identity,
+unchanged non-mount metadata, retention of every previously recorded mount, no
+pending mount or snapshot intent, and a committed snapshot mount. Recovery must
+then retain the complete refreshed mount list exactly; an early, incomplete
+discovery list is not the recovery baseline. The refresh emits only finite
+validation booleans and inventory facts, never the resource record itself.
+A host exit listener is
+registered before `SIGKILL`; kill failures and exit deadlines remove their timers
+and listeners and report finite reasons. Graceful shutdown also contains signal
+exceptions and child error events inside its awaited operation. A signal-delivery
+error for a spawned host is not treated as a spawn failure or a verified exit.
+On failure, the harness independently
+attempts request cancellation, host shutdown and interrupted-Compose cleanup,
+retains the first failed check even if later cleanup fails, and preserves private
+state when cleanup cannot complete. Admission-evidence collection failures are
+explicit and cannot replace the original error. Public evidence contains only
+allowlisted phases, reasons, errno and boolean/response-shape facts, never raw
+errors, paths, identifiers or payloads. These guards produce a controlled failed
+acceptance result; they do not ignore a recovery failure, resume interrupted
+work, change recovery policy or allow a false success.
+
+Both single-executor profile runs use the same bounded acceptance checkpoints.
+They distinguish stop-marker creation, host shutdown and exit validation,
+marker removal, configuration and launch, broker/gateway/primary readiness,
+MCP initialization and broker-server validation, tool listing and exact-tool
+validation, invocation and canonical-result validation, resource cleanup,
+stdout/stderr/container-log reads, and output-redaction scanning. Initialization,
+tool-list and invocation diagnostics retain response-shape facts with the
+matching request identity. Broker identity and tool validation expose only fixed
+booleans: expected server, array-shaped tool list, script/agent tool presence,
+and exact expected-tool match. Unexpected names, descriptions, results and raw
+errors are never published. The first failed operation remains available after
+later cleanup/history entries and independent upload reprojection. These
+diagnostics preserve the existing profile, result, cleanup and redaction
+requirements rather than treating an opaque profile failure as success.
+
+Container-log capture follows the enabled profile. All profiles require the
+gateway, enclave MCP server, general API proxy and Squid logs; combined and
+agent-only profiles also require the dedicated enclave-agent API proxy logs.
+Script-only runs omit only that disabled service. Missing required containers
+and capture failures remain fatal, and both stdout and stderr from every
+required container remain subject to the output-redaction scan.
+
+Resource discovery reports raw-entry, regular-file, resource-suffix and valid-name
+count buckets before applying the new-record, owner and readiness filters.
+Missing or unreadable directories are explicit inventory failures, never empty
+inventories. The observer uses the production journal-directory constant and
+the protocol's full 16–64-character identity range. A real journal writer/reader
+regression covers publication through discovery rather than only mocked records.
+The producer retains protected publication evidence after durable resource-record
+creation. Discovery compares its directory identity and mount namespace with the
+observer and the live host process; public diagnostics expose only finite
+same/different/unavailable classifications, count buckets, publication flags and
+failed-operation codes. Paths, filenames, PIDs, inode/device numbers and namespace
+identities remain private. Record open, stat, validation, read, close, parse and
+identity failures are distinguished. These probes do not change recovery policy,
+timeouts, sandboxing or mount permissions.
+
+The trusted host-backend result contract distinguishes ordinary workload
+failure from infrastructure failure. A completed guest nonzero exit or signal
+may return `executor-failure` with host-only `recoverableFailure: true` and
+`cleanupComplete: true` **only after** VM stop, durable cleanup-record completion,
+snapshot/export/storage removal, resource-journal completion, and diagnostic
+persistence have succeeded. This matches the Docker backend's existing recovery
+contract and permits the next charged invocation without changing the caller's
+canonical error. Startup, transport, artifact-integrity and other infrastructure
+failures do not receive recovery markers. Cleanup or diagnostic-persistence
+failure returns `cleanupComplete: false`, retains recovery state where needed,
+and keeps admissions closed. Neither the broker nor the primary agent can set
+these trusted host-only classifications.
 
 `scripts/ci/cloud-hypervisor-enclave-startup-faults.js` adds a host-only partial
 startup probe without changing production APIs or introducing CLI/config/env
@@ -1665,9 +1769,10 @@ former one-request/256-token allowance could reject Copilot's serialized request
 locally before any upstream inference. Admission requires both limits to remain
 omitted for these exact profiles; it does not admit arbitrary cost-limit values.
 Provider API calls do not debit the separate enclave-to-primary information
-ledger. Finite response schemas, per-repository disclosure accounting, the
-180-second agent timeout, three-invocation cap, task/output bounds, isolation,
-and proxy credential custody remain unchanged. Production API-proxy model-cost
+ledger. Agent invocations have a 360-second timeout; the script profile retains
+its 120-second timeout. Finite response schemas, per-repository disclosure
+accounting, the three-invocation agent cap, task/output bounds, isolation,
+and proxy credential custody remain enforced. Production API-proxy model-cost
 enforcement remains available and unchanged for configurations that opt into it.
 
 After AWF reports actual host gateway readiness, both native harnesses wait up
@@ -1723,6 +1828,155 @@ private control-file and VM/container cleanup is unchanged, and uncertain
 resource cleanup still preserves private recovery state only on the runner.
 Collection errors fail the harness without skipping that cleanup or falling
 back to uploading raw files. Abrupt host termination cannot guarantee capture.
+
+#### Distinguishing agent-enclave result and file-operation failures
+
+The agent wrapper reserves `result-write-failed` (exit 30) for the final
+normalized-output write. Result reads, empty output, oversized output, invalid
+UTF-8, whitespace-only output, and the initial output reset have distinct
+categories and exit statuses: `result-read-failed` (32), `result-empty` (33),
+`result-too-large` (34), `result-invalid-utf8` (35),
+`result-whitespace-only` (36), and `result-reset-failed` (37).
+Exit 31 retains its existing model-loop meaning. Docker's protected audit maps
+the new statuses without changing the caller's canonical error response.
+
+Wrapper-managed input, GitHub configuration, output and diagnostic file I/O
+records the exact logical operation, including separate `-open` and `-close`
+phases, and numeric errno with a fixed error category. In particular,
+`output-read-open`, `output-read`, and `output-read-close` no longer require
+guessing which part of the read failed. A buffered write can fail during
+`output-write-close`; this is distinct from `output-write` itself.
+No exception message or arbitrary filename enters the public projection.
+Best-effort observation failures have `fatal: false` and do not replace the
+invocation's first fatal failure. If the transcript's stat, open, write or
+close fails, the wrapper emits the same safe operation record on stderr;
+it also preserves the original operation error or terminal failure rather than
+replacing it with the logging failure. The host projects a bounded 16 KiB capture
+into `guestFileOperations` and `guestWrapperFailure`.
+
+Before and after engine execution, `output-snapshot` observes the process
+identity, output parent/export directories, result symlink and resolved result.
+Retained `output` metadata includes file type, permission bits, access checks
+and only an empty/within-limit/oversized size category, not result contents or
+byte counts. UID/GID values other than root (0) and the fixed guest (65534)
+become `other` in the public projection; link targets and arbitrary paths are
+never copied. The latest snapshot and last 16 operation errors survive the
+32-event milestone cap and are revalidated by the CI collector before upload.
+These observations do not change permissions or prove which operation a
+Copilot tool attempted; wrapper I/O and tool I/O remain distinct.
+
+The public storage probe also records a small, invocation-private temporary
+marker with fixed milestones: started, storage loop complete (ENOSPC observed
+or not), cleanup started/completed (probe files removed or not), and result
+write started/completed. The wrapper reads at most 4 KiB and 16 records after
+engine execution, rejects symlinks/non-regular files, and emits only allowlisted
+stages and boolean flags as `storageProbe`. Missing, unsafe, oversized, invalid,
+and unreadable markers have explicit statuses. Diagnostic writes are best-effort
+and report failures without replacing the original probe error or result.
+
+At its actual result read, the wrapper separately emits `normalization` with
+an empty/within-limit/oversized input category and empty/present conversational
+stdout. These records survive the event cap and are reprojected before upload;
+no marker text, result values, stream contents, hashes or byte counts are copied.
+A completed probe write followed by an empty wrapper read points to a
+result-channel discrepancy; a probe stopped before its write points earlier in
+the probe path; a nonempty read followed by a decode/write failure points to
+normalization. Missing marker evidence remains unknown, not proof that the
+probe did not execute. Milestones are untrusted guest observations, not
+acceptance evidence; normal schema/result checks and resource limits are unchanged.
+
+#### Distinguishing acceptance MCP errors from expected guest failures
+
+For cancellation discovery failures, distinguish these hypotheses rather than
+interpreting a canonical error as proof of guest execution:
+
+| Hypothesis | Discriminating evidence |
+| --- | --- |
+| A prior nonzero exit closed host admissions | Host control `admissionClosure` records the outcome and explicit/absent `cleanupComplete` and `recoverableFailure` markers; a later `closed` rejection confirms admission stopped. |
+| A socket/protocol/settlement failure closed the broker lane | Protected host-client phase/reason records and handler `accepting`/`laneClosed` flags distinguish host rejection from broker failure. |
+| A budget, request-validation or busy decision prevented launch | Protected admission reasons distinguish tool-call cap, invocation cap, disclosure budget, validation and busy rejection without copying request details. |
+| Timeout/cancellation received an unrelated early error | Request-completion records retain finite response-shape/status metadata even when transport succeeds. A passed request is not proof of guest execution or timeout. |
+| Resource discovery filtered out a real invocation | Successive zero/one/many candidate buckets identify existing-record, pending-state, owner, storage-directory, identity and snapshot filters. |
+
+Public-only conformance checks snapshot the protected broker audit and host
+control diagnostics before fixture cleanup as `AWF_ENCLAVE_ADMISSION_EVIDENCE`.
+The latest snapshot and last 16 check records enter `acceptance.json` only after
+reprojection. Each evidence source retains at most 32 events and 16 failures;
+missing, invalid and unreadable sources remain explicit, not inferred success.
+Host admission closure survives the ordinary control-event cap. No raw audit
+detail, IDs, paths, owner PIDs, request/result values or credentials are copied.
+Discovery timeouts and inventory-read failures have separate reason codes.
+These diagnostics do not relax admission closure or change acceptance criteria.
+
+The live conformance harness emits `AWF_ENCLAVE_ACCEPTANCE_CHECK` records for
+the agent ENOSPC, script ENOSPC, guest OOM, and deliberate guest failure,
+timeout and cancellation probes. Each record names
+the probe and its request, result-validation, cleanup, resource-discovery,
+marker-wait or disconnect-validation phase, with a started/passed/failed status.
+The first failed check is also retained in `acceptance.json`, independently of
+later concurrent cancellation progress.
+
+Failure reasons distinguish transport failures, HTTP/non-JSON responses,
+timeouts, oversized or interrupted responses, JSON-RPC envelope/version/ID
+errors, tool `isError`, missing/invalid structured content, unexpected structured
+fields, mismatched text content, an unexpected successful result for an
+expected guest failure, a canonical error where success was required, and
+a successful result that differs from the expected probe result. Actual and
+expected result values are never emitted. Response
+metadata contains only boolean shape checks, a finite structured-status and
+JSON-RPC error class, and a bounded HTTP status when observed. No response text,
+RPC error message/data, result values, headers, URLs, request IDs or arbitrary
+exception messages are logged. The collector reprojects this metadata before
+upload. Existing acceptance criteria, including rejection of tool `isError`,
+are unchanged; an intentionally failing guest is not itself proof that the
+broker returned the expected canonical error.
+
+#### Distinguishing agent-enclave authentication failures
+
+Candidate run [39697934942](https://github.com/github/gh-aw-firewall/actions/runs/39697934942)
+at `4093a96ed4a99fcb8d3fb4d163757c67c62fd124` passed deterministic contracts,
+attested artifact building, script execution, VM boot, guest connectivity,
+proxy readiness, and cleanup. Copilot exited with code 1 after 15.5 seconds,
+and the dedicated proxy observed three **upstream 401** responses, not local
+model-budget rejections. Its old public projections retained status only,
+so neither the failing endpoint nor the authentication decision was established.
+No canonical registry finding establishes a root cause for this run.
+
+The dedicated proxy now emits `copilot_auth_diagnostic` for completed successful
+HTTP requests and upstream 400/401/403 responses. It observes existing traffic
+only: no validation call, token exchange, credential rotation, or extra model
+request is introduced. The protected run-cumulative container-log projection and
+both public collectors retain the same bounded, closed-category fields:
+
+| Hypothesis | Discriminating evidence | What rules it out, and remaining limits |
+|---|---|---|
+| H1: The proxy selected a missing, placeholder, or unintended credential, including BYOK shadowing the GitHub token. | `credential_source`, `credential_kind`, `credential_shape`, and the actual `method`/`endpoint`. Models GETs can deliberately select the GitHub token while inference uses BYOK. | The intended source and non-placeholder family rule out selection/shadowing for that request. They do not establish that the selected secret belongs to the intended account. |
+| H2: The selected credential is unsupported, expired, revoked, or lacks Copilot Requests permission. | Family categories distinguish classic/fine-grained PATs, OAuth, user tokens, installation tokens, and other values. `error_class` records exact known expiry, credential, and scope errors; `challenge` records only fixed authentication-error categories. Successful controls retain their endpoint and route. | A successful request disproves total rejection for that credential/route/endpoint at that time; a models success alone does not prove inference authorization. A generic 401 or `Bad credentials` cannot separate expiry, revocation, and permissions. |
+| H3: The request reached a different host or endpoint than the configured Copilot route. | `target`, `target_source`, `server_kind`, `base_path`, `target_match`, and the actual upstream `endpoint` after rewriting. Host/tenant names and paths are never copied. | `target_match=yes` and the expected target category, base-path state, and endpoint rule out an internal routing mismatch. They do not prove that the operator configured the correct tenant. |
+| H4: Authorization was malformed, duplicated, lost, or overwritten after injection. | `credential_shape`, actual wire `authorization` category, and `authorization_match` against injected headers, including changes made after header construction. | A well-formed expected scheme and `authorization_match=yes` rule out injection corruption. Scheme correctness still depends on credential family and target; compare the authentication matrix. |
+| H5: Integration attribution or account policy/entitlement rejects otherwise well-formed requests. | `integration_source`, actual `integration` category, `integration_match`, and exact known integration/entitlement/scope rejection classes. | The expected integration category and `integration_match=yes` rule out an integration override, not upstream entitlement restrictions. Those require an explicit provider reason or a successful equivalent request; an unclassified 401 remains unresolved. |
+
+The [official Copilot CLI authentication documentation](https://docs.github.com/en/copilot/how-tos/copilot-cli/set-up-copilot-cli/authenticate-copilot-cli#supported-token-types)
+distinguishes supported OAuth, fine-grained PAT, and user-to-server tokens from
+unsupported classic PATs. Fine-grained PATs require the account-level
+**Copilot Requests** permission; token-family shape alone cannot prove it.
+[github/copilot-cli#46](https://github.com/github/copilot-cli/issues/46)
+records the exact `Personal Access Token does not have Copilot Requests permission`
+401 reason, which is classified as `insufficient_scope`, including its fixed
+`401 unauthorized:` prefix. These are diagnostic signals, not changes to AWF's
+supported authentication behavior or its target-dependent header selection.
+
+All fields are reconstructed from finite vocabularies. Unknown field values
+become `unknown`; unrecognized provider reasons become `unclassified`.
+Truncated, undecodable, oversized, or omitted error bodies cannot establish a
+reason and yield `uninspectable`; `body_capture` distinguishes capture state.
+Only exact known identifiers/messages are classified, including bounded decoded
+compressed bodies. Raw error text, arbitrary error codes, headers, token
+fragments/lengths/hashes, account identifiers, hosts, URLs, prompts, and request
+IDs are not added to these public records. Credential comparisons stay within
+the proxy. Collection still uses the existing eligibility, ownership, size,
+mode, and teardown controls. Absence of a diagnostic is not evidence that
+authentication succeeded.
 
 `v0.28.37` and earlier predate the probe (#9499) and its integration, so they
 are ineligible. After a future authorized release whose tag contains both:
