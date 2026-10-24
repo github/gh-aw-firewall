@@ -11,7 +11,8 @@ jest.mock('node:child_process', () => ({ spawnSync: jest.fn(), spawn: jest.fn() 
 
 const {
   RELEASE, config, failureCode, projectCatalogue, waitForCatalogue,
-  selectModel, assertAccounting, assertNetwork, publication, inference, bundledPricing, exercise,
+  selectModel, assertAccounting, assertNetwork, publication, inference, bundledPricing,
+  downloadRelease, exercise,
 } = require('./model-catalogue-live-smoke.cjs');
 
 const revision = 'a'.repeat(64);
@@ -170,8 +171,9 @@ describe('released model catalogue smoke', () => {
     exec.mockImplementation((_command: string, args: string[]) => {
       expect(args.slice(0, 4)).toEqual(['exec', 'proxy-fixture', 'node', '-e']);
       expect(() => new Script(args[4])).not.toThrow();
+      expect(args[5]).toBe('publication');
       expect(args[4]).toContain('candidate.dataCommit');
-      expect(args[4]).toContain('ref=\'+sha');
+      expect(args[4]).toContain('current.json?ref=\' + sha');
       return { status: 0, stdout: JSON.stringify({ dataCommit: 'c'.repeat(40),
         revision, sourceCommit, models: [model] }) };
     });
@@ -186,11 +188,14 @@ describe('released model catalogue smoke', () => {
     exec.mockImplementation((_command: string, args: string[]) => {
       expect(() => new Script(args[4])).not.toThrow();
       if (args[1] === 'agent-fixture') {
-        expect(args[4]).toContain('max_tokens:16,stream:false');
+        expect(args[5]).toBe('inference');
+        expect(JSON.parse(args[6])).toEqual({ model });
+        expect(args[4]).toContain('max_tokens: 16, stream: false');
         expect(args[4]).toContain('AbortSignal.timeout(90000)');
-        expect(args[4]).not.toContain('process.stdout');
+        expect(args[4]).toContain('model: params.model');
         return { status: 0, stdout: '' };
       }
+      expect(args[5]).toBe('accounting');
       expect(args[4]).toContain('Object.fromEntries');
       return { status: 0, stdout: JSON.stringify([record]) };
     });
@@ -218,12 +223,37 @@ describe('released model catalogue smoke', () => {
     const exec = childProcess.spawnSync as jest.Mock;
     exec.mockImplementation((_command: string, args: string[]) => {
       expect(() => new Script(args[4])).not.toThrow();
+      expect(args[5]).toBe('bundled_pricing');
       expect(args[4]).toContain("require('/app/guards/ai-credits-guard')");
       return { status: 0, stdout: JSON.stringify({ source: 'curated', credits: 0.015 }) };
     });
     expect(bundledPricing('proxy-fixture').credits).toBe(0.015);
     exec.mockReturnValue({ status: 0, stdout: JSON.stringify({ source: 'central_feed', credits: 0.015 }) });
     expect(() => bundledPricing('proxy-fixture')).toThrow('bundled_pricing_changed');
+  });
+
+  it('downloads the pinned release to a private path and executes it only after digest verification', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'catalogue-smoke-download-test-'));
+    const binary = path.join(root, 'awf');
+    const bytes = Buffer.from('verified release fixture');
+    const digest = require('node:crypto').createHash('sha256').update(bytes).digest('hex');
+    const execute = jest.fn((_command: string, args: string[]) => {
+      fs.writeFileSync(args[args.indexOf('--output') + 1], bytes, { mode: 0o600 });
+      return '';
+    });
+    try {
+      downloadRelease(binary, execute, digest);
+      expect(execute).toHaveBeenCalledWith('curl', expect.arrayContaining([
+        '--proto', '=https', '--output', binary,
+        `https://github.com/github/gh-aw-firewall/releases/download/v${RELEASE.version}/awf-linux-x64`,
+      ]), { timeout: 130000 });
+      expect(fs.statSync(binary).mode & 0o777).toBe(0o700);
+      fs.chmodSync(binary, 0o600);
+      expect(() => downloadRelease(binary, execute, '0'.repeat(64))).toThrow('release_digest');
+      expect(fs.statSync(binary).mode & 0o777).toBe(0o600);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
   });
 
   it('tears down its Compose services even when the network observer failed', async () => {

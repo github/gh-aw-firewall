@@ -17,12 +17,97 @@ const RELEASE = Object.freeze({
     apiProxy: 'ghcr.io/github/gh-aw-firewall/api-proxy:0.28.75@sha256:e2c27ef4403bda921331fd3be5da297fd2865fcf42e2b2aba7d6b4c34073acdd',
   }),
 });
-const API = 'https://api.github.com/repos/github/gh-aw-firewall';
 const CACHE = '/tmp/catalogue-smoke-private';
 const COMMIT = /^[a-f0-9]{40}$/;
 const REVISION = /^[a-f0-9]{64}$/;
 const MODELS = ['claude-haiku-4.5', 'gpt-5-mini', 'claude-haiku-5.5'];
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
+const PROBE_SCRIPT = `
+(async () => {
+  const [operation, serialized] = process.argv.slice(1);
+  const params = JSON.parse(serialized || '{}');
+  const fs = require('node:fs');
+  switch (operation) {
+    case 'publication': {
+      const cache = '/tmp/catalogue-smoke-private';
+      const files = fs.readdirSync(cache).filter(file => /^[a-f0-9]{64}\\.json$/.test(file));
+      if (files.length !== 1) throw Error();
+      const { candidate } = JSON.parse(fs.readFileSync(require('node:path').join(cache, files[0]), 'utf8'));
+      const sha = candidate.dataCommit;
+      if (!/^[a-f0-9]{40}$/.test(sha)) throw Error();
+      const https = require('node:https');
+      const { proxyAgent } = require('/app/http-client');
+      const bytes = await new Promise((resolve, reject) => {
+        const request = https.get('https://api.github.com/repos/github/gh-aw-firewall/contents/channels/v1/current.json?ref=' + sha, {
+          agent: proxyAgent,
+          headers: { Accept: 'application/vnd.github.raw+json', 'User-Agent': 'awf-catalogue-smoke' },
+        }, response => {
+          if (response.statusCode !== 200) { response.resume(); reject(Error()); return; }
+          const chunks = [];
+          let size = 0;
+          response.on('data', chunk => {
+            size += chunk.length;
+            if (size > 16384) response.destroy(Error());
+            else chunks.push(chunk);
+          });
+          response.on('error', reject);
+          response.on('end', () => resolve(Buffer.concat(chunks)));
+        });
+        request.setTimeout(10000, () => request.destroy(Error()));
+        request.on('error', reject);
+      });
+      const pointer = JSON.parse(bytes);
+      if (JSON.stringify(pointer) !== JSON.stringify(candidate.pointer)) throw Error();
+      const snapshot = JSON.parse(candidate.snapshot);
+      const { resolveCentralPricing } = require('/app/catalogue-pricing');
+      const capture = { snapshot, time: Date.now(), maxAge: 30 * 86400000,
+        source: 'github/gh-aw-firewall', revision: snapshot.revision };
+      const models = ['claude-haiku-4.5', 'gpt-5-mini', 'claude-haiku-5.5']
+        .filter(id => resolveCentralPricing('copilot', id, 100, capture));
+      process.stdout.write(JSON.stringify({ dataCommit: sha, revision: pointer.revision,
+        sourceCommit: pointer.sourceCommit, models }));
+      return;
+    }
+    case 'inference': {
+      const models = ['claude-haiku-4.5', 'gpt-5-mini', 'claude-haiku-5.5'];
+      if (!models.includes(params.model)) throw Error();
+      const response = await fetch('http://172.30.0.30:10002/chat/completions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ model: params.model,
+          messages: [{ role: 'user', content: 'Reply OK.' }], max_tokens: 16, stream: false }),
+        signal: AbortSignal.timeout(90000),
+      });
+      if (response.status !== 200) throw Error();
+      const body = await response.json();
+      if (typeof body.choices?.[0]?.message?.content !== 'string') throw Error();
+      return;
+    }
+    case 'accounting': {
+      const file = '/var/log/api-proxy/token-usage.jsonl';
+      const records = fs.existsSync(file) ? fs.readFileSync(file, 'utf8').trim().split('\\n')
+        .filter(Boolean).map(JSON.parse) : [];
+      const fields = ['_schema', 'provider', 'model', 'status', 'input_tokens', 'output_tokens',
+        'ai_credits_this_response', 'ai_credits_pricing_source', 'ai_credits_pricing_tier',
+        'ai_credits_fallback_pricing_used', 'ai_credits_pricing_catalog_id',
+        'ai_credits_pricing_catalog_version', 'ai_credits_pricing_observed_at'];
+      process.stdout.write(JSON.stringify(records.map(record => Object.fromEntries(
+        fields.filter(key => Object.hasOwn(record, key)).map(key => [key, record[key]])))));
+      return;
+    }
+    case 'bundled_pricing': {
+      const { applyAiCreditsUsage } = require('/app/guards/ai-credits-guard');
+      const value = applyAiCreditsUsage(
+        { input_tokens: 100, output_tokens: 10, cache_read_tokens: 0, cache_write_tokens: 0 },
+        'claude-haiku-4.5', 'copilot', { catalogue: null });
+      process.stdout.write(JSON.stringify({ source: value.pricingSource, credits: value.aiCreditsThisResponse }));
+      return;
+    }
+    default:
+      throw Error();
+  }
+})().catch(() => process.exit(1))
+`;
 
 function run(command, args, options = {}) {
   const result = spawnSync(command, args, {
@@ -200,9 +285,9 @@ function config(mode) {
   };
 }
 
-function proxyScript(container, body, args = []) {
-  return run('docker', ['exec', container, 'node', '-e',
-    `(async()=>{${body}})().catch(()=>process.exit(1))`, ...args], { timeout: 120000 });
+function proxyScript(container, operation, params = {}) {
+  return run('docker', ['exec', container, 'node', '-e', PROBE_SCRIPT,
+    operation, JSON.stringify(params)], { timeout: 120000 });
 }
 
 function reflection(container) {
@@ -266,34 +351,7 @@ function verifyTopology(proxy) {
 }
 
 function publication(proxy, catalogue) {
-  const result = JSON.parse(proxyScript(proxy, `
-    const fs=require('node:fs');
-    const files=fs.readdirSync('${CACHE}').filter(f=>f.endsWith('.json'));
-    if(files.length!==1)throw Error();
-    const {candidate}=JSON.parse(fs.readFileSync('${CACHE}/'+files[0],'utf8'));
-    const sha=candidate.dataCommit;
-    if(!/^[a-f0-9]{40}$/.test(sha))throw Error();
-    const https=require('node:https');
-    const {proxyAgent}=require('/app/http-client');
-    const bytes=await new Promise((resolve,reject)=>{
-      const r=https.get('${API}/contents/channels/v1/current.json?ref='+sha,{
-        agent:proxyAgent,headers:{Accept:'application/vnd.github.raw+json','User-Agent':'awf-catalogue-smoke'}
-      },res=>{
-        if(res.statusCode!==200){res.resume();reject(Error());return}
-        const chunks=[];let size=0;
-        res.on('data',b=>{size+=b.length;if(size>16384)res.destroy(Error());else chunks.push(b)});
-        res.on('error',reject);res.on('end',()=>resolve(Buffer.concat(chunks)));
-      });
-      r.setTimeout(10000,()=>r.destroy(Error()));r.on('error',reject);
-    });
-    const pointer=JSON.parse(bytes);
-    if(JSON.stringify(pointer)!==JSON.stringify(candidate.pointer))throw Error();
-    const snapshot=JSON.parse(candidate.snapshot);
-    const {resolveCentralPricing}=require('/app/catalogue-pricing');
-    const capture={snapshot,time:Date.now(),maxAge:30*86400000,source:'github/gh-aw-firewall',revision:snapshot.revision};
-    const models=${JSON.stringify(MODELS)}.filter(id=>resolveCentralPricing('copilot',id,100,capture));
-    process.stdout.write(JSON.stringify({dataCommit:sha,revision:pointer.revision,sourceCommit:pointer.sourceCommit,models}));
-  `));
+  const result = JSON.parse(proxyScript(proxy, 'publication'));
   assert.match(result.dataCommit, COMMIT, 'publication_commit');
   assert.equal(result.revision, catalogue.revision, 'publication_revision');
   assert.equal(result.sourceCommit, catalogue.sourceCommit, 'publication_source');
@@ -302,27 +360,10 @@ function publication(proxy, catalogue) {
 }
 
 async function inference(agent, proxy, selection, catalogue) {
-  proxyScript(agent, `
-    const r=await fetch('http://172.30.0.30:10002/chat/completions',{
-      method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({model:${JSON.stringify(selection.model)},messages:[{role:'user',content:'Reply OK.'}],max_tokens:16,stream:false}),
-      signal:AbortSignal.timeout(90000)});
-    if(r.status!==200)throw Error();
-    const body=await r.json();
-    if(typeof body.choices?.[0]?.message?.content!=='string')throw Error();
-  `);
+  proxyScript(agent, 'inference', { model: selection.model });
   const deadline = Date.now() + 10000;
   while (Date.now() < deadline) {
-    const records = JSON.parse(proxyScript(proxy, `
-      const fs=require('node:fs'),file='/var/log/api-proxy/token-usage.jsonl';
-      const records=fs.existsSync(file)?fs.readFileSync(file,'utf8').trim().split('\\n').filter(Boolean).map(JSON.parse):[];
-      process.stdout.write(JSON.stringify(records.map(r=>Object.fromEntries(
-        ${JSON.stringify(['_schema', 'provider', 'model', 'status', 'input_tokens', 'output_tokens',
-          'ai_credits_this_response', 'ai_credits_pricing_source', 'ai_credits_pricing_tier',
-          'ai_credits_fallback_pricing_used', 'ai_credits_pricing_catalog_id',
-          'ai_credits_pricing_catalog_version', 'ai_credits_pricing_observed_at'])}
-          .filter(k=>Object.hasOwn(r,k)).map(k=>[k,r[k]])))));
-    `));
+    const records = JSON.parse(proxyScript(proxy, 'accounting'));
     if (records.length) return assertAccounting(records, selection, catalogue);
     await sleep(250);
   }
@@ -330,12 +371,7 @@ async function inference(agent, proxy, selection, catalogue) {
 }
 
 function bundledPricing(proxy) {
-  const usage = JSON.parse(proxyScript(proxy, `
-    const {applyAiCreditsUsage}=require('/app/guards/ai-credits-guard');
-    const value=applyAiCreditsUsage({input_tokens:100,output_tokens:10,cache_read_tokens:0,cache_write_tokens:0},
-      'claude-haiku-4.5','copilot',{catalogue:null});
-    process.stdout.write(JSON.stringify({source:value.pricingSource,credits:value.aiCreditsThisResponse}));
-  `));
+  const usage = JSON.parse(proxyScript(proxy, 'bundled_pricing'));
   assert.deepEqual(usage, { source: 'curated', credits: 0.015 }, 'bundled_pricing_changed');
   return { model: 'claude-haiku-4.5', ...usage, kind: 'released_guard_synthetic_usage_not_inference' };
 }
@@ -450,6 +486,19 @@ async function exercise(binary, root, mode, evidence) {
   }
 }
 
+function downloadRelease(binary, execute = run, expectedDigest = RELEASE.binarySha256) {
+  const url = `https://github.com/github/gh-aw-firewall/releases/download/v${RELEASE.version}/awf-linux-x64`;
+  try {
+    execute('curl', ['--fail', '--silent', '--show-error', '--location',
+      '--proto', '=https', '--max-time', '120', '--output', binary, url], { timeout: 130000 });
+  } catch {
+    throw new Error('release_download');
+  }
+  const digest = crypto.createHash('sha256').update(fs.readFileSync(binary)).digest('hex');
+  assert.equal(digest, expectedDigest, 'release_digest');
+  fs.chmodSync(binary, 0o700);
+}
+
 async function main() {
   assert.equal(process.env.GITHUB_ACTIONS, 'true', 'approved_actions_only');
   assert.equal(process.env.GITHUB_REF, 'refs/heads/main', 'trusted_main_only');
@@ -460,13 +509,8 @@ async function main() {
   const output = path.resolve(process.env.CATALOGUE_SMOKE_EVIDENCE);
   let stage = 'release';
   try {
-    const url = `https://github.com/github/gh-aw-firewall/releases/download/v${RELEASE.version}/awf-linux-x64`;
-    const response = await fetch(url, { signal: AbortSignal.timeout(120000) });
-    assert.equal(response.status, 200, 'release_download');
-    const bytes = Buffer.from(await response.arrayBuffer());
-    assert.equal(crypto.createHash('sha256').update(bytes).digest('hex'), RELEASE.binarySha256, 'release_digest');
     const binary = path.join(root, 'awf');
-    fs.writeFileSync(binary, bytes, { mode: 0o700 });
+    downloadRelease(binary);
     assert.equal(run(binary, ['--version']), RELEASE.version, 'release_version');
     for (const image of Object.values(RELEASE.images)) run('docker', ['pull', image], { timeout: 180000 });
     for (const mode of ['online', 'offline', 'denied']) {
@@ -506,7 +550,7 @@ async function main() {
 }
 
 module.exports = { RELEASE, config, failureCode, projectCatalogue, waitForCatalogue, selectModel,
-  assertAccounting, assertNetwork, publication, inference, bundledPricing, exercise };
+  assertAccounting, assertNetwork, publication, inference, bundledPricing, downloadRelease, exercise };
 if (require.main === module) main().catch(error => {
   console.error(`Model catalogue smoke failed: ${failureCode(error)}; raw diagnostics suppressed.`);
   process.exitCode = 1;
