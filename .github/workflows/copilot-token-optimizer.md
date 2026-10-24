@@ -1,5 +1,9 @@
 ---
 description: Daily Copilot token optimization advisor — reads the latest token usage report and creates actionable recommendations to reduce token consumption for the most expensive workflow
+engine:
+  id: copilot
+  version: 1.0.101
+  checksums-sha256: 018625eac68670d66ede904b9b82cdcd6ab8f87ba20e6e1fbdf0b62c8295d5be
 on:
   workflow_run:
     workflows: ["Daily Copilot Token Usage Analyzer"]
