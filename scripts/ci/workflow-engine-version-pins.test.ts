@@ -29,4 +29,21 @@ describe('workflow engine CLI version pins', () => {
       expect(lock).toContain(`${packageName}@${version}`);
     },
   );
+
+  it('pins the dependency monitor install to a trusted Copilot checksum manifest', () => {
+    const source = fs.readFileSync(
+      path.join(workflowsDir, 'dependency-security-monitor.md'), 'utf-8',
+    );
+    const lock = fs.readFileSync(
+      path.join(workflowsDir, 'dependency-security-monitor.lock.yml'), 'utf-8',
+    );
+    const version = '1.0.101';
+    const checksum = '018625eac68670d66ede904b9b82cdcd6ab8f87ba20e6e1fbdf0b62c8295d5be';
+    const metadataLine = lock.split('\n').find(line => line.startsWith('# gh-aw-metadata: '));
+
+    expect(source).toContain(`engine:\n  id: copilot\n  version: "${version}"\n  checksums-sha256: ${checksum}`);
+    expect(JSON.parse(metadataLine!.slice('# gh-aw-metadata: '.length)).engine_versions.copilot)
+      .toBe(version);
+    expect(lock).toContain(`install_copilot_cli.sh" ${version} --checksums-sha256 ${checksum}`);
+  });
 });
