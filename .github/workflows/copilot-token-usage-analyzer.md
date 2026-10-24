@@ -33,6 +33,7 @@ safe-outputs:
 model: gpt-5.4-mini
 engine:
   id: copilot
+  version: "1.0.98"
 max-ai-credits: 2500
 timeout-minutes: 15
 steps:

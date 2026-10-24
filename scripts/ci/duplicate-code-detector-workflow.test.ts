@@ -49,6 +49,16 @@ describe('duplicate code detector workflow optimization config', () => {
     expect(source).not.toContain('## Phase 4: Analyze Specific Known Duplication Areas');
   });
 
+  it('pins the installer to a release reviewed by the setup action instead of floating compat resolution', () => {
+    const source = fs.readFileSync(sourcePath, 'utf-8');
+    const lock = fs.readFileSync(lockPath, 'utf-8');
+
+    expect(source).toContain('engine:\n  id: copilot\n  version: "1.0.98"');
+    expect(lock).toContain('run: bash "${RUNNER_TEMP}/gh-aw/actions/install_copilot_cli.sh" 1.0.98');
+    expect(lock).not.toMatch(/run: bash "\$\{RUNNER_TEMP\}\/gh-aw\/actions\/install_copilot_cli\.sh"\s*\n/);
+    expect(lock).toContain('"engine_versions":{"copilot":"1.0.98"}');
+  });
+
   it('compiles lock workflow with pre-steps and github-only allowed domains', () => {
     const lock = fs.readFileSync(lockPath, 'utf-8');
 

@@ -14,6 +14,9 @@ permissions:
   pull-requests: read
 imports:
   - shared/diagnosis-maintenance.md
+engine:
+  id: copilot
+  version: "1.0.98"
 tools:
   github:
     toolsets: [default]

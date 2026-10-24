@@ -37,11 +37,14 @@ const copilotInstallerWorkflows = [
   ...[
     'build-test',
     'claude-token-usage-analyzer',
+    'claude-token-optimizer',
+    'firewall-issue-dispatcher',
     'security-guard',
     'smoke-chroot',
     'smoke-cloud-hypervisor',
     'smoke-otel-tracing',
     'smoke-services',
+    'test-coverage-improver',
   ].map(name => ({ name, file: `${name}.md` })),
 ];
 
