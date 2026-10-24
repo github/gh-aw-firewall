@@ -36,6 +36,7 @@ const copilotInstallerWorkflows = [
   ...copilotSmokeWorkflows,
   ...[
     'build-test',
+    'claude-token-usage-analyzer',
     'security-guard',
     'smoke-chroot',
     'smoke-cloud-hypervisor',
