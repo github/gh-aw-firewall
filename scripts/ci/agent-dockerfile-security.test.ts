@@ -27,7 +27,8 @@ describe('agent Dockerfile security hardening', () => {
       expect(instruction).toContain(`/${dependency}.tgz" | sha256sum -c -`);
     }
     expect(instruction).toContain('const expected={undici:"6.28.1"');
-    expect(instruction).toContain('rm -f /tmp/npm-11.18.0.tgz /tmp/undici-6.28.1.tgz');
+    expect(instruction).toContain('rm -f /tmp/npm-12.2.1.tgz');
+    expect(instruction).toContain('rm -f /tmp/undici-6.28.1.tgz');
   });
 
   it('retries connection resets within a bounded budget for every npm download', () => {
