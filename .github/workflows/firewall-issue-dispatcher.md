@@ -15,6 +15,11 @@ permissions:
 max-turns: 10
 max-ai-credits: 1000
 
+engine:
+  id: copilot
+  version: 1.0.101
+  checksums-sha256: 018625eac68670d66ede904b9b82cdcd6ab8f87ba20e6e1fbdf0b62c8295d5be
+
 jobs:
   fetch-awf-issues:
     runs-on: ubuntu-slim
