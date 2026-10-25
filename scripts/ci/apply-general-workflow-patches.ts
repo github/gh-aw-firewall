@@ -853,6 +853,12 @@ export function applyGeneralWorkflowPatches(
   );
 
   if (isCloudHypervisorEnclaveSmoke || isCloudHypervisorAgentEnclaveSmoke) {
+    // gh-aw v0.93.4 discards agentConfig to force a privileged enclave install,
+    // also dropping its manifest pin. Restore only this reviewed release pair.
+    const unpinnedEnclaveInstall =
+      /(^[ \t]*run: bash "\$\{RUNNER_TEMP\}\/gh-aw\/actions\/install_awf_binary\.sh" v0\.28\.66)(?=\r?$)/gm;
+    content = content.replace(unpinnedEnclaveInstall,
+      '$1 --checksums-sha256 f184f3993a1f0c3168d0dd96b01752670a5061c9c9bc1a37e3653fc6b54fba29');
     if (!content.includes('exec "${NODE_BIN}" "${WORKSPACE_PATH}/dist/cli.js" --build-local')) {
       installStepRegexGlobal.lastIndex = 0;
       if (!installStepRegexGlobal.test(content)) throw new Error('Missing released AWF install anchor for branch diagnostics');

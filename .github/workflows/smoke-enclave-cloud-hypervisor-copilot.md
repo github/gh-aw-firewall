@@ -76,6 +76,8 @@ sandbox:
     id: awf
     version: v0.28.66
     runtime: cloud-hypervisor
+    # checksums.txt verified against github/gh-aw-firewall v0.28.66 release asset metadata.
+    checksums-sha256: f184f3993a1f0c3168d0dd96b01752670a5061c9c9bc1a37e3653fc6b54fba29
     config:
       filesystem:
         allow-write:
@@ -234,6 +236,8 @@ action/runtime pins remain on the reviewed releases.
 The unpatched official v0.93.4 fixture remains pinned to v0.28.62 and 2,048
 tokens, so it rejects this repository's reviewed acceptance parameters.
 Regeneration runs the mandatory smoke postprocessor.
+The postprocessor preserves the reviewed v0.28.66 AWF manifest pin that v0.93.4
+drops when selecting the privileged enclave installer.
 The supply-chain scan uses the same exact v0.93.4 patch and verifies its
 acceptance tests before building. The AWF and compiler gates still reject every
 other token value, topology, or release.

@@ -67,6 +67,8 @@ sandbox:
     id: awf
     version: v0.28.66
     runtime: cloud-hypervisor
+    # checksums.txt verified against github/gh-aw-firewall v0.28.66 release asset metadata.
+    checksums-sha256: f184f3993a1f0c3168d0dd96b01752670a5061c9c9bc1a37e3653fc6b54fba29
     config:
       filesystem:
         allow-write:
@@ -162,6 +164,8 @@ with the checksum-verified official gh-aw v0.93.4 release and pins
 `github/gh-aw-actions/setup` to its matching release commit
 `40fb427c047bb9f77324054adeb574e04c9481aa` using the official compiler's default action mode.
 The action ref selects runtime scripts, not the compiler binary.
+The smoke postprocessor preserves the reviewed v0.28.66 AWF manifest pin that
+v0.93.4 drops when selecting the privileged enclave installer.
 The official release includes github/gh-aw#69079's diagnostic generator fixes
 and github/gh-aw#69109's safe resolved-config collection. Release compiler
 version checks remain enabled; development-build bypasses are not used.

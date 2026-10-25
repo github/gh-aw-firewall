@@ -93,6 +93,7 @@ describe('Cloud Hypervisor Copilot agent enclave smoke', () => {
     expect(frontmatter.enclaves).toEqual([enclave]);
     expect(frontmatter.sandbox.agent).toEqual({
       id: 'awf', version: 'v0.28.66', runtime: 'cloud-hypervisor',
+      'checksums-sha256': 'f184f3993a1f0c3168d0dd96b01752670a5061c9c9bc1a37e3653fc6b54fba29',
       config: { filesystem: { 'allow-write': ['/tmp/gh-aw/aw_info.json'] } },
     });
     expect(CLOUD_HYPERVISOR_ARTIFACT_RELEASE_TAG).toBe(frontmatter.sandbox.agent.version);
@@ -199,6 +200,10 @@ describe('Cloud Hypervisor Copilot agent enclave smoke', () => {
     );
     expect(compiled.jobs.agent.env?.GH_AW_ENGINE_VERSION).toBe('1.0.96');
     expect(lock).toContain('"engine_versions":{"copilot":"1.0.96"}');
+    expect(agentSteps.find(step => step.name === 'Install AWF binary')?.run).toBe(
+      'bash "${RUNNER_TEMP}/gh-aw/actions/install_awf_binary.sh" v0.28.66 --checksums-sha256 '
+      + 'f184f3993a1f0c3168d0dd96b01752670a5061c9c9bc1a37e3653fc6b54fba29'
+    );
     expect(lock).toContain('"compiler_version":"dev-v0.93.4-agent-acceptance-v0.28.66-budget131072"');
     expect(lock).toContain('github/gh-aw-actions/setup@40fb427c047bb9f77324054adeb574e04c9481aa');
     expect(lock).toContain('actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1');
@@ -226,6 +231,10 @@ describe('Cloud Hypervisor Copilot agent enclave smoke', () => {
     expect(upload?.with?.['retention-days']).toBe(1);
     expect(upload?.with?.['if-no-files-found']).toBe('error');
     expect(applyGeneralWorkflowPatches(lock, workflowPath).content).toBe(lock);
+    const pin = ' --checksums-sha256 f184f3993a1f0c3168d0dd96b01752670a5061c9c9bc1a37e3653fc6b54fba29';
+    const unpinned = lock.replace(pin, '');
+    expect(unpinned).not.toBe(lock);
+    expect(applyGeneralWorkflowPatches(unpinned, workflowPath).content).toBe(lock);
   });
 
   it('requires release supervisors without an exact-PR development override', () => {
