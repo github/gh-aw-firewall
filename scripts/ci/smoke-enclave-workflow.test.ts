@@ -899,16 +899,23 @@ describe('smoke enclave build workflow', () => {
   const source = fs.readFileSync(sourcePath, 'utf8');
   const lock = fs.readFileSync(lockPath, 'utf8');
 
-  it('installs the authored CLI version above the generated feature minimum', () => {
+  it('installs a checksum-reviewed CLI version above the generated feature minimum', () => {
     const frontmatter = yaml.load(source.split('---')[1]) as {
       engine: { version: string };
     };
     const compiled = yaml.load(lock) as {
-      jobs: { agent: { steps: Array<{ name: string; run?: string; env?: Record<string, string> }> } };
+      jobs: { agent: {
+        env: Record<string, string>;
+        steps: Array<{ name: string; run?: string; env?: Record<string, string> }>;
+      } };
     };
     const install = compiled.jobs.agent.steps.find(step =>
       step.name === 'Install GitHub Copilot CLI');
     const minimum = install?.env?.GH_AW_COPILOT_MIN_VERSION;
+    // Reviewed by setup/sh/release_integrity.sh in the pinned gh-aw-actions revision.
+    expect(frontmatter.engine.version).toBe('1.0.98');
+    expect(lock).toContain('github/gh-aw-actions/setup@e7519e6442ef74dda80a1627315ad827f402309c');
+    expect(compiled.jobs.agent.env.GH_AW_ENGINE_VERSION).toBe(frontmatter.engine.version);
     expect(minimum).toMatch(/^\d+\.\d+\.\d+$/);
     expect('1.0.34'.localeCompare(minimum!, 'en', { numeric: true })).toBeLessThan(0);
     expect(frontmatter.engine.version.localeCompare(minimum!, 'en', { numeric: true }))
