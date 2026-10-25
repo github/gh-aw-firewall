@@ -106,8 +106,9 @@ make an incompatible model portable between engines.
 records for the affected agent name, configured model, resolved model and failure
 cause. Verify the same run's `/reflect` provider inventory and endpoint metadata
 before changing model pins. Claude's `model: inherit` uses the parent model and
-does not emit a separate resolution record. For Codex, check that gh-aw generated
-native TOML roles under `$CODEX_HOME/agents`, rather than only staging Markdown.
+does not emit a separate resolution record. For Codex, native TOML roles under
+`$CODEX_HOME/agents` are generated only after model resolution succeeds, so missing
+roles can be a consequence of the resolution failure.
 
 This startup failure is distinct from AWF's non-blocking `requestedModel`
 validation and its per-request `model_resolution` proxy logs. See the
