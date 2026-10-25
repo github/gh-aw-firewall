@@ -17,10 +17,11 @@
 import * as fs from 'fs';
 import * as net from 'net';
 import * as path from 'path';
+import { HostExecutorJournal, hostExecutorJournalDirectory } from './host-executor-journal';
 import {
-  HostExecutorJournal, HostExecutorControlDiagnostics, hostExecutorJournalDirectory,
+  HostExecutorControlDiagnostics,
   type HostExecutorControlPhase,
-} from './host-executor-journal';
+} from './host-executor-diagnostics';
 import {
   HOST_EXECUTOR_FRAME_HEADER_BYTES,
   HOST_EXECUTOR_ENTRY_ID_PATTERN,

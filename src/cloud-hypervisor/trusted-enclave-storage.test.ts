@@ -4,8 +4,9 @@ import * as path from 'path';
 import execa from 'execa';
 import type { WrapperConfig } from '../types';
 import {
-  hostExecutorStorageDirectory, hostExecutorVmRunId, type HostExecutorResourceJournal,
+  hostExecutorStorageDirectory, hostExecutorVmRunId,
 } from '../enclave/host-executor-journal';
+import type { HostExecutorResourceJournal } from '../enclave/host-executor-resource-journal';
 import type { HostExecutorInvocationPlan, HostExecutorRunState } from '../enclave/host-executor-server';
 import { CLOUD_HYPERVISOR_ENCLAVE_STORAGE_REQUIRED } from '../enclave/cloud-hypervisor-lifecycle';
 import { createArtifactSnapshot, createCommonArtifactSnapshot } from './artifact-snapshot';

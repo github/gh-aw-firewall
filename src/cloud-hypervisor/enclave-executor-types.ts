@@ -3,7 +3,7 @@ import type {
   HostExecutorInvocationPlan,
   HostExecutorRunState,
 } from '../enclave/host-executor-server';
-import type { HostExecutorResourceJournal } from '../enclave/host-executor-journal';
+import type { HostExecutorResourceJournal } from '../enclave/host-executor-resource-journal';
 import type { HostExecutorAgentPolicy } from '../enclave/execution-policy';
 export type { HostExecutorAgentPolicy } from '../enclave/execution-policy';
 import type { CloudHypervisorOptions } from '../types/runtime-options';

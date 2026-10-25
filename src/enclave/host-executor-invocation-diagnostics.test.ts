@@ -2,7 +2,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import {
   HostExecutorInvocationDiagnostics, HostExecutorControlDiagnostics, readHostExecutorInvocationDiagnostics,
-} from './host-executor-journal';
+} from './host-executor-diagnostics';
 import type { HostExecutorInvocationPlan, HostExecutorRunState } from './host-executor-server';
 import { HostPreflightReporter } from '../cloud-hypervisor/host-preflight-progress';
 import { logger } from '../logger';

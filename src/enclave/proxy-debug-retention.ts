@@ -1,7 +1,7 @@
 import execa from 'execa';
 import { getLocalDockerEnv } from '../docker-host';
 import { ENCLAVE_AGENT_API_PROXY_CONTAINER_NAME } from '../constants';
-import { persistHostExecutorProxyDebugDiagnostics } from './host-executor-journal';
+import { persistHostExecutorProxyDebugDiagnostics } from './host-executor-diagnostics';
 import { isSafeCopilotAuthLogFields, projectCopilotAuthLogFields } from './proxy-auth-diagnostics';
 import {
   projectEnclaveProxyResponseDiagnostics, type EnclaveProxyResponseDiagnostics, type EnclaveProxyEvent,

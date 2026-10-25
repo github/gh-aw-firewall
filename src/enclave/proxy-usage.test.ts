@@ -9,7 +9,7 @@ import {
 import {
   persistHostExecutorProxyUsage, persistHostExecutorProxyResponseDiagnostics,
   readHostExecutorInvocationDiagnostics,
-} from './host-executor-journal';
+} from './host-executor-diagnostics';
 
 describe('bounded dedicated enclave proxy usage evidence', () => {
   let root: string;

@@ -12,10 +12,12 @@ import type {
 import { HOST_EXECUTOR_MAX_RESULT_BYTES, HOST_EXECUTOR_TIMEOUT_GRACE_MS } from '../enclave/host-executor-protocol';
 import {
   HostExecutorResourceJournal,
-  HostExecutorInvocationDiagnostics,
+  reapHostExecutorResources,
+} from '../enclave/host-executor-resource-journal';
+import { HostExecutorInvocationDiagnostics } from '../enclave/host-executor-diagnostics';
+import {
   hostExecutorJournalDirectory,
   hostExecutorVmRunId,
-  reapHostExecutorResources,
 } from '../enclave/host-executor-journal';
 import { HostPreflightReporter, markHostPreflightError } from './host-preflight-progress';
 import { guestExecutionFailureReason } from '../microvm/vsock-client';

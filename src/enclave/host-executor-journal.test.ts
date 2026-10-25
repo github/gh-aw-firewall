@@ -1,11 +1,12 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import {
-  HostExecutorJournal, HostExecutorControlDiagnostics, HostExecutorInvocationDiagnostics,
-  HostExecutorResourceJournal, reapHostExecutorResources,
+  HostExecutorJournal,
   hostExecutorVmRunId, hostExecutorJournalDirectory,
   HOST_EXECUTOR_STORAGE_ROOT, hostExecutorStorageDirectory,
 } from './host-executor-journal';
+import { HostExecutorControlDiagnostics, HostExecutorInvocationDiagnostics } from './host-executor-diagnostics';
+import { HostExecutorResourceJournal, reapHostExecutorResources } from './host-executor-resource-journal';
 import type { HostExecutorInvocationPlan, HostExecutorRunState } from './host-executor-server';
 import type { CleanupRegistryDependencies } from '../cloud-hypervisor/cleanup-dependencies';
 import type { CloudHypervisorCleanupRegistry } from '../cloud-hypervisor/cleanup-registry';

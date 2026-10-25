@@ -11,7 +11,7 @@ import { getEnclaveStartupProgress } from './startup-progress';
 import { deriveHostExecutorRunState } from './host-executor-run-state';
 import {
   HostExecutorInvocationDiagnostics, HostExecutorControlDiagnostics, readHostExecutorInvocationDiagnostics,
-} from './host-executor-journal';
+} from './host-executor-diagnostics';
 import { HostPreflightReporter } from '../cloud-hypervisor/host-preflight-progress';
 import type { HostExecutorInvocationPlan } from './host-executor-server';
 import * as cloudHypervisorManager from '../cloud-hypervisor/manager';

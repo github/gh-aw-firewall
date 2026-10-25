@@ -22,7 +22,7 @@ import {
 import {
   persistHostExecutorProxyUsage, persistHostExecutorProxyResponseDiagnostics,
   readHostExecutorInvocationDiagnostics,
-} from './host-executor-journal';
+} from './host-executor-diagnostics';
 import { readEnclaveProxyUsage, readEnclaveProxyEventEvidence, unavailableEnclaveProxyUsage } from './proxy-usage';
 import { captureEnclaveProxyContainerLog, preservePublicEnclaveProxyDiagnostics } from './proxy-debug-retention';
 import { preserveHostExecutorInvocationEvidence } from '../cloud-hypervisor/diagnostics';

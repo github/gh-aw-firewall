@@ -6,7 +6,7 @@ import { createScriptEnclaveCloudHypervisorProfile } from './workload-profile';
 import { HostPreflightReporter } from './host-preflight-progress';
 import {
   HostExecutorInvocationDiagnostics, readHostExecutorInvocationDiagnostics,
-} from '../enclave/host-executor-journal';
+} from '../enclave/host-executor-diagnostics';
 import type { HostExecutorInvocationPlan, HostExecutorRunState } from '../enclave/host-executor-server';
 import {
   config, dependencies, networkConfig, enclaveExportPlan, processMock, vmmIdentityMock,
