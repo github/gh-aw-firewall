@@ -1925,6 +1925,14 @@ This enables workflow authors to get clear, early feedback when a retired or
 misspelled model is specified, rather than waiting for the first API request to
 fail with an opaque error.
 
+This non-blocking proxy check is separate from gh-aw's **pre-engine-startup**
+resolution of Claude/Codex inline sub-agent models. The gh-aw harness resolves
+declared aliases in the engine's provisioned provider scope, checks the configured
+AWF `/reflect` catalogue and endpoint support, and records `model.resolution`
+events. An unresolvable workflow-declared sub-agent model stops engine startup;
+AWF's non-blocking `requestedModel` check does not override that decision.
+See [sub-agent model resolution](api-proxy-sidecar.md#gh-aw-inline-sub-agent-model-resolution).
+
 ### 12.7 Ordered Fallback Models
 
 When `apiProxy.fallbackModels` is configured, the API proxy retries a failed
@@ -2302,6 +2310,8 @@ and MUST NOT follow symbolic links. No explicit flush is required.
 
 The API proxy emits structured logging events during model alias resolution.
 These events are critical for debugging model routing decisions in production.
+The proxy's `model_resolution` event is distinct from the gh-aw harness's
+`model.resolution` startup event described in §12.6.
 
 ### 13.1 Always-On Events (stdout)
 

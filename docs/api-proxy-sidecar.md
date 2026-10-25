@@ -590,6 +590,27 @@ that family/protocol combination; tool-specific compatibility and upstream
 availability still need validation at inference time. This contract does not
 claim hosted end-to-end Messages validation.
 
+## gh-aw Inline Sub-Agent Model Resolution
+
+In gh-aw workflows, Claude and Codex inline sub-agent models are resolved by the
+**gh-aw harness before the engine starts**, not just by AWF's per-request alias
+rewriting. Declared aliases resolve to concrete IDs within the engine's
+provisioned provider scope, using AWF `/reflect` availability. Unavailable
+workflow-declared models stop engine startup. Codex additionally checks `/responses`
+support when its provider publishes per-model endpoint metadata; Claude sub-agent
+resolution does not preflight Messages compatibility.
+
+Claude's `model: inherit` uses the parent model without a separate resolution
+record. gh-aw applies resolved IDs to generated Claude agent files and generates
+native Codex TOML roles under `$CODEX_HOME/agents`; staged Markdown alone is not
+Codex's native role format. Each explicit, non-inherited sub-agent model has a
+`model.resolution` record keyed by its agent name. This is separate from AWF's
+`model_resolution` proxy log event and does not bypass model policy or wire-API
+constraints.
+
+For authoring syntax, see gh-aw's [inline sub-agent guide](https://github.com/github/gh-aw/blob/main/.github/aw/subagents.md).
+For failures, see [startup troubleshooting](troubleshooting.md#claudecodex-inline-sub-agent-model-resolution-fails).
+
 ## Model Fallback
 
 When a model requested by an agent is unavailable on the target provider, the API proxy can automatically select an alternative using the **middle-power strategy**. This ensures requests complete without interruption.
