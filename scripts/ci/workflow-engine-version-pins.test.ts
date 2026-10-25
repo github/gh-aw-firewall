@@ -30,7 +30,7 @@ describe('workflow engine CLI version pins', () => {
     },
   );
 
-  it.each(['dependency-security-monitor', 'test-coverage-reporter'])(
+  it.each(['dependency-security-monitor', 'test-coverage-reporter', 'security-review'])(
     'pins %s install to a trusted Copilot checksum manifest',
     workflow => {
       const source = fs.readFileSync(
