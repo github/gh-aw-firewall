@@ -12,7 +12,7 @@ jest.mock('node:child_process', () => ({ spawnSync: jest.fn(), spawn: jest.fn() 
 const {
   RELEASE, config, failureCode, projectCatalogue, waitForCatalogue,
   selectModel, assertAccounting, assertNetwork, publication, inference, bundledPricing,
-  downloadRelease, exercise, observeStartup,
+  downloadRelease, exercise, observeStartup, validateExecutionContext, readExecutionContext,
 } = require('./model-catalogue-live-smoke.cjs');
 
 const revision = 'a'.repeat(64);
@@ -36,6 +36,25 @@ const packet = '12:00:00.000000 veth0 In IP 172.30.0.30.45000 > 172.30.0.10.3128
 const summary = '1 packets captured\n1 packets received by filter\n0 packets dropped by kernel\n';
 const emptySummary = '0 packets captured\n0 packets received by filter\n0 packets dropped by kernel\n';
 const denial = '1.000 172.30.0.30:45000 - -:0 1.1 CONNECT 403 TCP_DENIED:HIER_NONE api.github.com:443 "node"';
+
+function executionFixture(branch = 'lpcox-fix-catalogue-smoke-startup', eventName = 'workflow_dispatch') {
+  const sha = 'd'.repeat(40);
+  const ref = `refs/heads/${branch}`;
+  const env: Record<string, string> = {
+    GITHUB_ACTIONS: 'true', GITHUB_REF: ref, GITHUB_SHA: sha,
+    GITHUB_EVENT_NAME: eventName, GITHUB_REPOSITORY: 'github/gh-aw-firewall', GITHUB_ACTOR: 'reviewer-fixture',
+    GITHUB_WORKFLOW_REF: `github/gh-aw-firewall/.github/workflows/smoke-model-catalogue.yml@${ref}`,
+    GITHUB_WORKFLOW_SHA: sha,
+  };
+  const event: {
+    ref: string; after?: string; repository: { full_name: string }; sender: { login: string };
+    inputs?: { reviewed_head_sha?: unknown };
+  } = {
+    ref, repository: { full_name: env.GITHUB_REPOSITORY }, sender: { login: env.GITHUB_ACTOR },
+    ...(eventName === 'push' ? { after: sha } : { inputs: { reviewed_head_sha: sha } }),
+  };
+  return { env, event, checkoutSha: sha };
+}
 
 describe('released model catalogue smoke', () => {
   it('pins one released binary and all matching infrastructure images', () => {
@@ -362,7 +381,85 @@ describe('released model catalogue smoke', () => {
     expect(JSON.stringify(deniedSnapshot())).not.toContain(sentinel);
   });
 
-  it('uses trusted main-only triggers and existing scoped Actions inference credentials', () => {
+  it('accepts normal main execution and only the exact reviewed manual repair tuple', () => {
+    for (const [branch, eventName] of [['main', 'push'], ['main', 'workflow_dispatch'],
+      ['lpcox-fix-catalogue-smoke-startup', 'workflow_dispatch']]) {
+      const fixture = executionFixture(branch, eventName);
+      if (branch === 'main') delete fixture.event.inputs;
+      expect(validateExecutionContext(fixture.env, fixture.event, fixture.checkoutSha)).toEqual({
+        mode: branch === 'main' ? 'main' : 'reviewed_repair_branch',
+        ref: fixture.env.GITHUB_REF, sha: fixture.env.GITHUB_SHA,
+      });
+      if (eventName === 'workflow_dispatch') {
+        fixture.event.ref = branch;
+        expect(validateExecutionContext(fixture.env, fixture.event, fixture.checkoutSha)).toBeDefined();
+      }
+    }
+  });
+
+  const rejectedContexts: Array<[string, (fixture: ReturnType<typeof executionFixture>) => void]> = [
+    ['non-Actions execution', fixture => { fixture.env.GITHUB_ACTIONS = 'false'; }],
+    ['other branch', fixture => { fixture.env.GITHUB_REF = 'refs/heads/other'; }],
+    ['tag', fixture => { fixture.env.GITHUB_REF = 'refs/tags/v0.28.75'; }],
+    ['repair push', fixture => { fixture.env.GITHUB_EVENT_NAME = 'push'; }],
+    ['PR event', fixture => { fixture.env.GITHUB_EVENT_NAME = 'pull_request'; }],
+    ['privileged PR event', fixture => { fixture.env.GITHUB_EVENT_NAME = 'pull_request_target'; }],
+    ['workflow run event', fixture => { fixture.env.GITHUB_EVENT_NAME = 'workflow_run'; }],
+    ['missing reviewed input', fixture => { delete fixture.event.inputs; }],
+    ['empty reviewed input', fixture => { fixture.event.inputs = { reviewed_head_sha: '' }; }],
+    ['non-string reviewed input', fixture => { fixture.event.inputs = { reviewed_head_sha: [fixture.checkoutSha] }; }],
+    ['abbreviated reviewed input', fixture => { fixture.event.inputs = { reviewed_head_sha: fixture.checkoutSha.slice(0, 7) }; }],
+    ['mismatched reviewed input', fixture => { fixture.event.inputs = { reviewed_head_sha: 'e'.repeat(40) }; }],
+    ['missing event SHA', fixture => { delete fixture.env.GITHUB_SHA; }],
+    ['mismatched event ref', fixture => { fixture.event.ref = 'main'; }],
+    ['mismatched repository', fixture => { fixture.event.repository.full_name = 'untrusted/repository'; }],
+    ['mismatched environment repository', fixture => { fixture.env.GITHUB_REPOSITORY = 'untrusted/repository'; }],
+    ['mismatched event sender', fixture => { fixture.event.sender.login = 'different-fixture'; }],
+    ['missing actor', fixture => { delete fixture.env.GITHUB_ACTOR; }],
+    ['different launching workflow', fixture => {
+      fixture.env.GITHUB_WORKFLOW_REF = `github/gh-aw-firewall/.github/workflows/other.yml@${fixture.env.GITHUB_REF}`;
+    }],
+    ['mismatched workflow SHA', fixture => { fixture.env.GITHUB_WORKFLOW_SHA = 'e'.repeat(40); }],
+    ['mismatched checked-out SHA', fixture => { fixture.checkoutSha = 'e'.repeat(40); }],
+  ];
+  it.each(rejectedContexts)('rejects %s without default branch authorization', (_label, mutate) => {
+    const fixture = executionFixture();
+    mutate(fixture);
+    expect(() => validateExecutionContext(fixture.env, fixture.event, fixture.checkoutSha)).toThrow();
+  });
+
+  it('cross-checks push metadata and rejects mismatched reviewed input on main too', () => {
+    const push = executionFixture('main', 'push');
+    push.event.after = 'e'.repeat(40);
+    expect(() => validateExecutionContext(push.env, push.event, push.checkoutSha)).toThrow('trusted_event_metadata');
+    const manual = executionFixture('main');
+    manual.event.inputs = { reviewed_head_sha: 'e'.repeat(40) };
+    expect(() => validateExecutionContext(manual.env, manual.event, manual.checkoutSha)).toThrow('reviewed_head_sha_mismatch');
+  });
+
+  it('reads actual event-file inputs, not a caller-supplied reviewed-SHA environment override', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'catalogue-smoke-event-test-'));
+    const fixture = executionFixture();
+    const file = path.join(root, 'event.json');
+    fixture.env.GITHUB_EVENT_PATH = file;
+    fixture.env.REVIEWED_HEAD_SHA = fixture.checkoutSha;
+    (childProcess.spawnSync as jest.Mock).mockReturnValue({ status: 0, stdout: fixture.checkoutSha });
+    try {
+      fs.writeFileSync(file, JSON.stringify(fixture.event), { mode: 0o600 });
+      expect(readExecutionContext(fixture.env).mode).toBe('reviewed_repair_branch');
+      delete fixture.event.inputs;
+      fs.writeFileSync(file, JSON.stringify(fixture.event));
+      expect(() => readExecutionContext(fixture.env)).toThrow('reviewed_head_sha_required');
+      expect(() => readExecutionContext({ ...fixture.env, GITHUB_EVENT_PATH: 'relative.json' }))
+        .toThrow('trusted_event_metadata');
+      fs.writeFileSync(file, Buffer.alloc(1024 * 1024 + 1));
+      expect(() => readExecutionContext(fixture.env)).toThrow('trusted_event_metadata');
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('keeps trusted triggers, exact-SHA checkout, and existing scoped Actions inference credentials', () => {
     const source = fs.readFileSync(path.resolve(__dirname, '../../.github/workflows/smoke-model-catalogue.yml'), 'utf8');
     const workflow = yaml.load(source) as {
       on: Record<string, unknown>;
@@ -373,7 +470,36 @@ describe('released model catalogue smoke', () => {
     };
     expect(Object.keys(workflow.on).sort()).toEqual(['push', 'workflow_dispatch']);
     expect(workflow.on.push).toMatchObject({ branches: ['main'] });
-    expect(workflow.jobs.smoke.if).toBe("github.ref == 'refs/heads/main'");
+    expect(workflow.on.workflow_dispatch).toEqual({
+      inputs: { reviewed_head_sha: {
+        description: 'Exact security-reviewed commit SHA; required for the fixed smoke-repair branch',
+        type: 'string', required: false,
+      } },
+    });
+    expect(workflow.jobs.smoke.if).toContain("github.ref == 'refs/heads/lpcox-fix-catalogue-smoke-startup'");
+    expect(workflow.jobs.smoke.if).toContain("inputs.reviewed_head_sha != '' && inputs.reviewed_head_sha == github.sha");
+    const jobAllowed = (fixture: ReturnType<typeof executionFixture>) => new Script(workflow.jobs.smoke.if)
+      .runInNewContext({
+        github: { ref: fixture.env.GITHUB_REF, sha: fixture.env.GITHUB_SHA, event_name: fixture.env.GITHUB_EVENT_NAME },
+        inputs: { reviewed_head_sha: fixture.event.inputs?.reviewed_head_sha ?? '' },
+      });
+    expect(jobAllowed(executionFixture())).toBe(true);
+    expect(jobAllowed(executionFixture('main', 'push'))).toBe(true);
+    const mainManual = executionFixture('main');
+    delete mainManual.event.inputs;
+    expect(jobAllowed(mainManual)).toBe(true);
+    for (const fixture of [executionFixture('other'), executionFixture('lpcox-fix-catalogue-smoke-startup', 'push'),
+      executionFixture('lpcox-fix-catalogue-smoke-startup', 'pull_request'),
+      executionFixture('lpcox-fix-catalogue-smoke-startup', 'workflow_run')]) {
+      expect(jobAllowed(fixture)).toBe(false);
+    }
+    const missing = executionFixture();
+    delete missing.event.inputs;
+    expect(jobAllowed(missing)).toBe(false);
+    missing.event.inputs = { reviewed_head_sha: 'e'.repeat(40) };
+    expect(jobAllowed(missing)).toBe(false);
+    const checkout = workflow.jobs.smoke.steps.find(step => step.uses?.startsWith('actions/checkout@'));
+    expect(checkout?.with?.ref).toBe('${{ github.sha }}');
     expect(workflow.permissions).toEqual({ contents: 'read' });
     expect(workflow.jobs.smoke.permissions).toEqual({ contents: 'read', 'copilot-requests': 'write' });
     const live = workflow.jobs.smoke.steps.find(step => step.env?.COPILOT_GITHUB_TOKEN);
@@ -382,6 +508,9 @@ describe('released model catalogue smoke', () => {
     expect(upload?.with?.path).toBe('${{ runner.temp }}/catalogue-smoke/evidence.json');
     expect(source).toContain('persist-credentials: false');
     expect(source).toContain('sudo chown "$(id -u):$(id -g)"');
+    for (const key of ['GITHUB_SHA', 'GITHUB_WORKFLOW_SHA', 'GITHUB_ACTOR', 'GITHUB_EVENT_PATH']) {
+      expect(source).toContain(`${key},`);
+    }
     expect(source).not.toMatch(/pull_request|secrets\.|npm (?:ci|install)|build-local|workflow_run/);
   });
 });

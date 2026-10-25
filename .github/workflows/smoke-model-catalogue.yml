@@ -2,6 +2,11 @@ name: Released model catalogue smoke
 
 on:
   workflow_dispatch:
+    inputs:
+      reviewed_head_sha:
+        description: 'Exact security-reviewed commit SHA; required for the fixed smoke-repair branch'
+        type: string
+        required: false
   push:
     branches: [main]
     paths:
@@ -17,7 +22,13 @@ concurrency:
 
 jobs:
   smoke:
-    if: github.ref == 'refs/heads/main'
+    if: >-
+      (github.ref == 'refs/heads/main' &&
+       (github.event_name == 'push' || github.event_name == 'workflow_dispatch') &&
+       (inputs.reviewed_head_sha == '' || inputs.reviewed_head_sha == github.sha)) ||
+      (github.event_name == 'workflow_dispatch' &&
+       github.ref == 'refs/heads/lpcox-fix-catalogue-smoke-startup' &&
+       inputs.reviewed_head_sha != '' && inputs.reviewed_head_sha == github.sha)
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
@@ -27,6 +38,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4
         with:
           persist-credentials: false
+          ref: ${{ github.sha }}
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '22'
@@ -39,7 +51,7 @@ jobs:
           COPILOT_GITHUB_TOKEN: ${{ github.token }}
           CATALOGUE_SMOKE_EVIDENCE: ${{ runner.temp }}/catalogue-smoke/evidence.json
         run: |
-          sudo --preserve-env=PATH,HOME,GITHUB_ACTIONS,GITHUB_REF,GITHUB_EVENT_NAME,GITHUB_REPOSITORY,GITHUB_RUN_ID,GITHUB_RUN_ATTEMPT,GITHUB_WORKFLOW_REF,GITHUB_STEP_SUMMARY,COPILOT_GITHUB_TOKEN,CATALOGUE_SMOKE_EVIDENCE \
+          sudo --preserve-env=PATH,HOME,GITHUB_ACTIONS,GITHUB_REF,GITHUB_SHA,GITHUB_EVENT_NAME,GITHUB_EVENT_PATH,GITHUB_ACTOR,GITHUB_REPOSITORY,GITHUB_RUN_ID,GITHUB_RUN_ATTEMPT,GITHUB_WORKFLOW_REF,GITHUB_WORKFLOW_SHA,GITHUB_STEP_SUMMARY,COPILOT_GITHUB_TOKEN,CATALOGUE_SMOKE_EVIDENCE \
             node scripts/ci/model-catalogue-live-smoke.cjs
       - name: Hand sanitized evidence to artifact uploader
         if: always()

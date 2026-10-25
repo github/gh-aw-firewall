@@ -267,6 +267,22 @@ workflow/harness changes merge to `main`; PRs never receive inference credential
 It uses the existing `github.token` / `copilot-requests: write` path, not a new
 secret. No workflow dispatch is needed to publish catalogue data.
 
+A narrowly authorized repair exception permits manual `workflow_dispatch` on
+the fixed `lpcox-fix-catalogue-smoke-startup` branch only. The dispatcher must
+provide `reviewed_head_sha` equal to the full, security-reviewed event SHA;
+missing, abbreviated, or mismatched input grants no branch authorization.
+Checkout uses the immutable event SHA, not a moving branch. The harness
+independently cross-checks the repository, event/ref, sender, workflow identity
+and SHA, reviewed input from the actual event file, and checked-out SHA before
+starting. No other branch, PR event, or alternate launching workflow is allowed.
+Normal main execution needs no reviewed-SHA input, but rejects a mismatched one.
+The coordinator must review each exact revision and recheck the remote SHA before
+dispatch; the authorized repair loop is limited to five runs, each with the
+existing 20-minute job limit and one bounded inference request. That cumulative
+limit is enforced by the dispatching coordinator, not an automatic retry loop.
+This exception deliberately lets the reviewed candidate harness use the existing
+CI token; it adds no credentials or permission scopes and does not authorize merge.
+
 The initial release is **v0.28.75**. The harness checks the released Linux CLI's
 SHA-256 and version, selects all three matching released images by digest, and
 verifies the running image references/IDs. Updating that pin requires reviewing

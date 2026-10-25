@@ -121,7 +121,8 @@ function run(command, args, options = {}) {
 function failureCode(error) {
   const firstLine = error?.message?.split('\n')[0];
   const allowed = new Set([
-    'approved_actions_only', 'trusted_main_only', 'trusted_event_only',
+    'approved_actions_only', 'trusted_ref_only', 'trusted_event_only', 'trusted_event_metadata',
+    'trusted_checkout_mismatch', 'reviewed_head_sha_required', 'reviewed_head_sha_mismatch',
     'approved_copilot_credential_missing', 'release_download', 'release_digest', 'release_version',
     'existing_awf_containers', 'existing_awf_networks', 'smoke_subprocess_failed', 'smoke_case_failed',
     'awf_exited_before_readiness', 'catalogue_readiness_timeout', 'catalogue_unexpected_fallback',
@@ -546,13 +547,55 @@ function downloadRelease(binary, execute = run, expectedDigest = RELEASE.binaryS
   fs.chmodSync(binary, 0o700);
 }
 
+function validateExecutionContext(env, event, checkoutSha) {
+  assert.equal(env.GITHUB_ACTIONS, 'true', 'approved_actions_only');
+  assert.ok(['push', 'workflow_dispatch'].includes(env.GITHUB_EVENT_NAME), 'trusted_event_only');
+  const main = env.GITHUB_REF === 'refs/heads/main';
+  const repair = env.GITHUB_REF === 'refs/heads/lpcox-fix-catalogue-smoke-startup';
+  assert.ok(main || repair, 'trusted_ref_only');
+  assert.ok(main || env.GITHUB_EVENT_NAME === 'workflow_dispatch', 'trusted_event_only');
+  assert.match(env.GITHUB_SHA || '', COMMIT, 'trusted_event_metadata');
+  assert.equal(env.GITHUB_REPOSITORY, 'github/gh-aw-firewall', 'trusted_event_metadata');
+  assert.equal(event?.repository?.full_name, env.GITHUB_REPOSITORY, 'trusted_event_metadata');
+  assert.ok(typeof env.GITHUB_ACTOR === 'string' && env.GITHUB_ACTOR.length > 0, 'trusted_event_metadata');
+  assert.equal(event?.sender?.login, env.GITHUB_ACTOR, 'trusted_event_metadata');
+  assert.equal(env.GITHUB_WORKFLOW_REF,
+    `github/gh-aw-firewall/.github/workflows/smoke-model-catalogue.yml@${env.GITHUB_REF}`,
+    'trusted_event_metadata');
+  assert.equal(env.GITHUB_WORKFLOW_SHA, env.GITHUB_SHA, 'trusted_event_metadata');
+  assert.equal(checkoutSha, env.GITHUB_SHA, 'trusted_checkout_mismatch');
+  if (env.GITHUB_EVENT_NAME === 'push') {
+    assert.equal(event.ref, env.GITHUB_REF, 'trusted_event_metadata');
+    assert.equal(event.after, env.GITHUB_SHA, 'trusted_event_metadata');
+    assert.equal(event.inputs, undefined, 'trusted_event_metadata');
+  } else {
+    // GitHub dispatch metadata can use a bare branch or a fully qualified ref.
+    assert.ok([env.GITHUB_REF, env.GITHUB_REF.slice('refs/heads/'.length)].includes(event.ref),
+      'trusted_event_metadata');
+  }
+  const reviewed = event.inputs?.reviewed_head_sha;
+  if (repair) assert.ok(typeof reviewed === 'string' && reviewed.length > 0, 'reviewed_head_sha_required');
+  if (reviewed !== undefined && reviewed !== '') {
+    assert.ok(typeof reviewed === 'string' && COMMIT.test(reviewed), 'reviewed_head_sha_mismatch');
+    assert.equal(reviewed, env.GITHUB_SHA, 'reviewed_head_sha_mismatch');
+  }
+  return { mode: repair ? 'reviewed_repair_branch' : 'main', ref: env.GITHUB_REF, sha: env.GITHUB_SHA };
+}
+
+function readExecutionContext(env = process.env) {
+  assert.ok(typeof env.GITHUB_EVENT_PATH === 'string' && path.isAbsolute(env.GITHUB_EVENT_PATH),
+    'trusted_event_metadata');
+  const stat = fs.statSync(env.GITHUB_EVENT_PATH);
+  assert.ok(stat.isFile() && stat.size <= 1024 * 1024, 'trusted_event_metadata');
+  const event = JSON.parse(fs.readFileSync(env.GITHUB_EVENT_PATH, 'utf8'));
+  return validateExecutionContext(env, event, run('git', ['rev-parse', 'HEAD']));
+}
+
 async function main() {
-  assert.equal(process.env.GITHUB_ACTIONS, 'true', 'approved_actions_only');
-  assert.equal(process.env.GITHUB_REF, 'refs/heads/main', 'trusted_main_only');
-  assert.ok(['push', 'workflow_dispatch'].includes(process.env.GITHUB_EVENT_NAME), 'trusted_event_only');
+  const execution = readExecutionContext();
   assert.ok(process.env.COPILOT_GITHUB_TOKEN, 'approved_copilot_credential_missing');
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-catalogue-smoke-'));
-  const evidence = { schemaVersion: 1, release: RELEASE, cases: {} };
+  const evidence = { schemaVersion: 1, release: RELEASE, execution, cases: {} };
   const output = path.resolve(process.env.CATALOGUE_SMOKE_EVIDENCE);
   let stage = 'release';
   try {
@@ -598,7 +641,8 @@ async function main() {
 }
 
 module.exports = { RELEASE, config, failureCode, projectCatalogue, waitForCatalogue, selectModel,
-  assertAccounting, assertNetwork, publication, inference, bundledPricing, downloadRelease, exercise, observeStartup };
+  assertAccounting, assertNetwork, publication, inference, bundledPricing, downloadRelease, exercise, observeStartup,
+  validateExecutionContext, readExecutionContext };
 if (require.main === module) main().catch(error => {
   console.error(`Model catalogue smoke failed: ${failureCode(error)}; raw diagnostics suppressed.`);
   process.exitCode = 1;
