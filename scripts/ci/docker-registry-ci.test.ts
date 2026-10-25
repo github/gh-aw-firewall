@@ -204,6 +204,8 @@ print(json.dumps({'live': sorted(live), 'archives': sorted(archives), 'cache': s
     expect(steps[install - 2].with?.ref).toBe('3de7cc191d85f95a65e5d64d2e386539ed7a36be');
     expect(steps[install].run).toContain('compiler-agent-acceptance-v0.28.66.patch');
     expect(steps[install].run).toContain('go test -C .tmp/gh-aw-compiler ./pkg/workflow');
+    expect(steps[install].run).toContain('./pkg/parser');
+    expect(steps[install].run).toContain('TestMainWorkflowSchemaOrdinaryEnclaveTokenLimitAndEvals');
     expect(steps[install].run).toContain('dev-v0.93.4-agent-acceptance-v0.28.66-budget131072');
     expect(steps[install].run).toContain('gh aw version');
     expect(steps[install].env?.GH_TOKEN).toBe('${{ github.token }}');
