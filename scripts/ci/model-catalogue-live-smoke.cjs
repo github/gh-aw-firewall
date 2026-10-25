@@ -392,6 +392,46 @@ function assertIsolatedHost() {
     '', 'existing_awf_networks');
 }
 
+function observeStartup(child) {
+  const state = { state: 'starting', last_stage: 'spawn', reason: 'unknown' };
+  let pending = '';
+  const classify = line => {
+    const plain = line.replace(/\x1b\[[0-9;]*m/g, '');
+    if (plain === '[INFO] Generating configuration files...') state.last_stage = 'configuration';
+    if (plain === '[INFO] Starting containers...') state.last_stage = 'containers';
+    if (plain.startsWith('[ERROR] Fatal error: Error: Refusing to use work directory accessible by group or other users:')) {
+      state.reason = 'work_directory_permissions';
+    } else if (plain.startsWith('[ERROR] Fatal error: Error: Refusing to use work directory not owned by the invoking user:')) {
+      state.reason = 'work_directory_owner';
+    } else if (plain === '[ERROR] \u274c --network-isolation requires a reachable Docker daemon, but none was found.') {
+      state.reason = 'docker_unavailable';
+    }
+  };
+  child.stderr.on('data', bytes => {
+    // Retain at most one bounded line in memory; never persist or relay raw stderr.
+    for (const part of bytes.toString('utf8').split(/(?<=\n)/)) {
+      if (pending.length < 4096) pending += part.slice(0, 4096 - pending.length);
+      if (part.endsWith('\n')) {
+        classify(pending.trimEnd());
+        pending = '';
+      }
+    }
+  });
+  child.on('error', error => {
+    state.state = 'exited';
+    state.reason = 'spawn_failed';
+    state.spawn_error = ['ENOENT', 'EACCES', 'ENOEXEC'].includes(error.code) ? error.code : 'other';
+  });
+  child.on('close', (code, signal) => {
+    if (pending) classify(pending);
+    pending = '';
+    state.state = 'exited';
+    state.exit_code = Number.isSafeInteger(code) && code >= 0 && code <= 255 ? code : null;
+    if (signal) state.signal = ['SIGTERM', 'SIGKILL', 'SIGINT'].includes(signal) ? signal : 'other';
+  });
+  return () => ({ ...state });
+}
+
 async function exercise(binary, root, mode, evidence) {
   assertIsolatedHost();
   const directory = path.join(root, mode);
@@ -399,6 +439,9 @@ async function exercise(binary, root, mode, evidence) {
   const configFile = path.join(directory, 'config.json');
   fs.writeFileSync(configFile, JSON.stringify(config(mode)), { mode: 0o600 });
   const workDir = path.join(directory, 'work');
+  // The released filesystem probe creates absent explicit work dirs as 0755.
+  // Create our new private directory before that probe, without relaxing AWF's check.
+  fs.mkdirSync(workDir, { mode: 0o700 });
   const composeFile = path.join(workDir, 'docker-compose.yml');
   const compose = ['compose', '-f', composeFile];
   const env = { PATH: process.env.PATH, HOME: process.env.HOME };
@@ -411,7 +454,8 @@ async function exercise(binary, root, mode, evidence) {
   let captured = false;
   let exited = false;
   const child = spawn(binary, ['--config', configFile, '--work-dir', workDir,
-    '--keep-containers', '--', 'sleep', '240'], { env, stdio: 'ignore' });
+    '--keep-containers', '--', 'sleep', '240'], { env, stdio: ['ignore', 'ignore', 'pipe'] });
+  const startup = observeStartup(child);
   child.on('error', () => { exited = true; });
   const closed = new Promise(resolve => child.on('close', () => { exited = true; resolve(); }));
   try {
@@ -465,6 +509,9 @@ async function exercise(binary, root, mode, evidence) {
     }
     evidence.status = 'passed';
     evidence.phase = 'complete';
+  } catch (error) {
+    if (evidence.phase === 'readiness') evidence.startup = startup();
+    throw error;
   } finally {
     // Signal only this AWF invocation; compose down addresses only its services.
     try {
@@ -521,6 +568,7 @@ async function main() {
       } catch (error) {
         evidence.cases[mode].status = 'failed';
         evidence.cases[mode].failure = failureCode(error);
+        evidence.failed_stage ??= mode;
         // Still exercise independent fallback cases if live activation/inference failed.
       }
     }
@@ -528,7 +576,7 @@ async function main() {
     evidence.status = 'passed';
   } catch (error) {
     evidence.status = 'failed';
-    evidence.failed_stage = stage;
+    evidence.failed_stage ??= stage;
     evidence.failure = failureCode(error);
     process.exitCode = 1;
   } finally {
@@ -550,7 +598,7 @@ async function main() {
 }
 
 module.exports = { RELEASE, config, failureCode, projectCatalogue, waitForCatalogue, selectModel,
-  assertAccounting, assertNetwork, publication, inference, bundledPricing, downloadRelease, exercise };
+  assertAccounting, assertNetwork, publication, inference, bundledPricing, downloadRelease, exercise, observeStartup };
 if (require.main === module) main().catch(error => {
   console.error(`Model catalogue smoke failed: ${failureCode(error)}; raw diagnostics suppressed.`);
   process.exitCode = 1;

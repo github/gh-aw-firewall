@@ -12,7 +12,7 @@ jest.mock('node:child_process', () => ({ spawnSync: jest.fn(), spawn: jest.fn() 
 const {
   RELEASE, config, failureCode, projectCatalogue, waitForCatalogue,
   selectModel, assertAccounting, assertNetwork, publication, inference, bundledPricing,
-  downloadRelease, exercise,
+  downloadRelease, exercise, observeStartup,
 } = require('./model-catalogue-live-smoke.cjs');
 
 const revision = 'a'.repeat(64);
@@ -277,7 +277,9 @@ describe('released model catalogue smoke', () => {
         });
       } else {
         const work = path.join(root, 'offline', 'work');
-        fs.mkdirSync(work);
+        expect(fs.statSync(work).mode & 0o777).toBe(0o700);
+        expect(fs.lstatSync(work).isDirectory()).toBe(true);
+        expect(fs.statSync(work).uid).toBe(process.getuid?.());
         fs.writeFileSync(path.join(work, 'docker-compose.yml'), 'services: {}');
       }
       return child;
@@ -288,6 +290,76 @@ describe('released model catalogue smoke', () => {
     } finally {
       fs.rmSync(root, { recursive: true, force: true });
     }
+  });
+
+  it('precreates every case workdir privately even with the normal permissive umask', async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'catalogue-smoke-startup-test-'));
+    const previousUmask = process.umask(0o022);
+    const sentinel = 'SECRET_SENTINEL_DO_NOT_UPLOAD';
+    (childProcess.spawnSync as jest.Mock).mockReturnValue({ status: 0, stdout: '' });
+    (childProcess.spawn as jest.Mock).mockImplementation((command: string, args: string[], options: {
+      env: Record<string, string>; stdio: string[];
+    }) => {
+      const child = Object.assign(new EventEmitter(), {
+        stdout: new EventEmitter(), stderr: new EventEmitter(),
+        kill: jest.fn(() => { child.emit('close', 143, null); }),
+      });
+      if (command === 'tcpdump') {
+        queueMicrotask(() => child.stderr.emit('data', Buffer.from('listening on any')));
+      } else {
+        const work = args[args.indexOf('--work-dir') + 1];
+        expect(fs.statSync(work).mode & 0o777).toBe(0o700);
+        expect(fs.statSync(path.dirname(work)).mode & 0o777).toBe(0o700);
+        expect(options.stdio).toEqual(['ignore', 'ignore', 'pipe']);
+        if (!work.includes('/online/')) expect(options.env.COPILOT_GITHUB_TOKEN).toBeUndefined();
+        queueMicrotask(() => {
+          child.stderr.emit('data', Buffer.from(`[INFO] Generating configuration files...\n${sentinel}\n`));
+          child.emit('close', 1, null);
+        });
+      }
+      return child;
+    });
+    try {
+      for (const mode of ['online', 'offline', 'denied']) {
+        const evidence: { startup?: object } = {};
+        await expect(exercise('released-awf-fixture', root, mode, evidence))
+          .rejects.toThrow('awf_exited_before_readiness');
+        expect(evidence.startup).toEqual({
+          state: 'exited', last_stage: 'configuration', reason: 'unknown', exit_code: 1,
+        });
+        expect(JSON.stringify(evidence)).not.toContain(sentinel);
+      }
+    } finally {
+      process.umask(previousUmask);
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('projects bounded startup classes and exit status without retaining raw diagnostics', () => {
+    const child = Object.assign(new EventEmitter(), { stderr: new EventEmitter() });
+    const snapshot = observeStartup(child);
+    const sentinel = 'SECRET_SENTINEL_DO_NOT_UPLOAD';
+    child.stderr.emit('data', Buffer.from('[INFO] Generating configuration files...\n'));
+    child.stderr.emit('data', Buffer.from('[ERROR] Fatal error: Error: Refusing to use work directory accessible by group'));
+    child.stderr.emit('data', Buffer.from(` or other users: /tmp/${sentinel} (mode=755)\n`));
+    child.stderr.emit('data', Buffer.from(sentinel.repeat(1000)));
+    child.emit('close', 1, null);
+    expect(snapshot()).toEqual({
+      state: 'exited', last_stage: 'configuration', reason: 'work_directory_permissions', exit_code: 1,
+    });
+    expect(JSON.stringify(snapshot())).not.toContain(sentinel);
+    expect(snapshot()).not.toHaveProperty('stderr');
+
+    const denied = Object.assign(new EventEmitter(), { stderr: new EventEmitter() });
+    const deniedSnapshot = observeStartup(denied);
+    denied.stderr.emit('data', Buffer.from(`[INFO] Starting containers...\n[ERROR] unknown ${sentinel}\n`));
+    denied.emit('error', { code: sentinel });
+    denied.emit('close', null, 'SIGKILL');
+    expect(deniedSnapshot()).toEqual({
+      state: 'exited', last_stage: 'containers', reason: 'spawn_failed',
+      spawn_error: 'other', exit_code: null, signal: 'SIGKILL',
+    });
+    expect(JSON.stringify(deniedSnapshot())).not.toContain(sentinel);
   });
 
   it('uses trusted main-only triggers and existing scoped Actions inference credentials', () => {

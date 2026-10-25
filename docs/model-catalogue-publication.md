@@ -299,7 +299,12 @@ Squid as its only internet route; egress is never relaxed to make a case pass.
 
 Only `evidence.json` and a small job summary are retained: allowlisted catalogue
 identifiers/state/failure code, pinned release/image metadata, selected accounting
-fields, and network counts. Raw reflection, logs, environment, packet traces,
+fields, and network counts. Each explicit work directory is created owner-only
+(`0700`) before launching the release, including its filesystem probe. Readiness
+failures retain a bounded startup stage, exit status, and closed-vocabulary error
+class (or `unknown`), never raw stderr. `failed_stage` identifies the first failed
+case while later independent cases still report their own results.
+Raw reflection, logs, environment, packet traces,
 headers, and inference bodies are not uploaded. Cleanup targets this invocation's
 Compose services and temporary directory; an existing AWF container causes an
 early failure rather than being removed. Independent fallback cases still run
