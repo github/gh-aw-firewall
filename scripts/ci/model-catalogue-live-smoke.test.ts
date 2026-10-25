@@ -282,6 +282,111 @@ describe('released model catalogue smoke', () => {
     expect(() => assertNetwork('denied', packet, '', denial)).toThrow('network_capture_dropped');
   });
 
+  it('retains only diagnostic counters before rejecting TLS-guard status or actual alternate traffic', () => {
+    const observation: Record<string, unknown> = {};
+    const guardDenial = denial.replace('CONNECT 403', 'CONNECT 200');
+    expect(() => assertNetwork('denied', packet, summary, guardDenial, observation))
+      .toThrow('unexpected_catalogue_failover');
+    expect(observation).toMatchObject({
+      denied_catalogue_requests: 0, squid_403_denials: 0, logged_200_tcp_denied: 1,
+      verified_tlsguard_200_denied: 0, terminal_catalogue_denial: false,
+      alternate_tcp_destinations: 0, alternate_squid_destinations: 0, unexpected_squid_requests: 0,
+    });
+    const sentinel = 'SECRET_SENTINEL_DO_NOT_UPLOAD';
+    expect(() => assertNetwork('denied', packet, summary,
+      denial.replace('api.github.com:443', `${sentinel}.example:443`), observation))
+      .toThrow('unexpected_catalogue_failover');
+    expect(observation).toMatchObject({ denied_catalogue_requests: 0, alternate_squid_destinations: 1 });
+    expect(JSON.stringify(observation)).not.toContain(sentinel);
+    expect(() => assertNetwork('denied', packet.replace('172.30.0.10.3128', '1.1.1.1.443'),
+      summary, denial, observation)).toThrow('unexpected_direct_network_attempt');
+    expect(observation.alternate_tcp_destinations).toBe(1);
+    expect(() => assertNetwork('denied', packet, summary, denial.replace('TCP_DENIED', 'TCP_TUNNEL'),
+      observation)).toThrow('unexpected_catalogue_failover');
+    expect(observation.unexpected_squid_requests).toBe(1);
+  });
+
+  it('accepts released TLS-guard CONNECT200 only as verified terminal denial, never as actual403', () => {
+    const policy = { kind: 'test_injected_squid_deny', source: '172.30.0.30/32',
+      method: 'CONNECT', authority: 'api.github.com:443', verified_running: true, tls_guard_enabled: true };
+    const guardDenial = '1792950000.123 172.30.0.30:45000 api.github.com -:0 1.1 CONNECT 200 ' +
+      'TCP_DENIED:HIER_NONE api.github.com:443 "node"';
+    expect(assertNetwork('denied', packet, summary, guardDenial, {}, policy)).toMatchObject({
+      squid_403_denials: 0, logged_200_tcp_denied: 1, verified_tlsguard_200_denied: 1,
+      denied_catalogue_requests: 1, terminal_catalogue_denial: true,
+      alternate_squid_destinations: 0, alternate_tcp_destinations: 0,
+    });
+    for (const unverified of [undefined, {}, { ...policy, verified_running: false },
+      { ...policy, tls_guard_enabled: false }, { ...policy, tls_guard_enabled: undefined },
+      { ...policy, kind: 'normal_policy' }, { ...policy, source: '172.30.0.31/32' },
+      { ...policy, method: 'GET' }, { ...policy, authority: 'other.example:443' }]) {
+      expect(() => assertNetwork('denied', packet, summary, guardDenial, {}, unverified)).toThrow();
+    }
+    for (const invalid of [
+      guardDenial.replace('TCP_DENIED:HIER_NONE', 'TCP_TUNNEL:HIER_DIRECT'),
+      guardDenial.replace('TCP_DENIED:HIER_NONE', 'TCP_DENIED:HIER_DIRECT'),
+      guardDenial.replace('TCP_DENIED:HIER_NONE', 'TCP_DENIED_ABORTED:HIER_NONE'),
+      guardDenial.replace('CONNECT 200', 'GET 200'),
+      guardDenial.replace('CONNECT 200', 'CONNECT 503'),
+      guardDenial.replace('api.github.com:443', 'sub.api.github.com:443'),
+      guardDenial.replace('api.github.com:443', 'api.github.com:80'),
+      guardDenial.replace('172.30.0.30:', '172.30.0.31:'),
+      'malformed 172.30.0.30:45000',
+    ]) {
+      expect(() => assertNetwork('denied', packet, summary, invalid, {}, policy)).toThrow();
+    }
+    const mixed: Record<string, unknown> = {};
+    expect(() => assertNetwork('denied', packet, summary, `${guardDenial}\n${guardDenial.replace(
+      'TCP_DENIED:HIER_NONE', 'TCP_TUNNEL:HIER_DIRECT')}`, mixed, policy))
+      .toThrow('unexpected_catalogue_failover');
+    expect(mixed).toMatchObject({ squid_requests: 2, denied_catalogue_requests: 1,
+      terminal_catalogue_denial: false, unexpected_squid_requests: 1 });
+    expect(() => assertNetwork('offline', '', emptySummary, guardDenial, {}, policy))
+      .toThrow('offline_feed_request');
+    expect(() => assertNetwork('denied', packet.replace('172.30.0.10.3128', '1.1.1.1.443'),
+      summary, guardDenial, {}, policy)).toThrow('unexpected_direct_network_attempt');
+    expect(() => assertNetwork('denied', packet, summary.replace('0 packets dropped', '1 packets dropped'),
+      guardDenial, {}, policy)).toThrow('network_capture_dropped');
+  });
+
+  it('verifies complete running policy and actual TLS-guard settings before authorizing its log shape', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'catalogue-smoke-guard-test-'));
+    const generated = generateSquidConfig({
+      domains: ['example.invalid'], blockedDomains: ['api.github.com'], port: 3128,
+      apiProxyIp: '172.30.0.30', apiProxyPorts: [10000, 10001, 10002, 10003],
+    });
+    const exec = childProcess.spawnSync as jest.Mock;
+    function fixture(original: string, mutate: (value: string) => string = value => value) {
+      const encoded = Buffer.from(original).toString('base64');
+      const policy = deniedPolicy(encoded);
+      fs.writeFileSync(path.join(root, 'docker-compose.override.yml'),
+        JSON.stringify({ services: { 'squid-proxy': { environment: { AWF_SQUID_CONFIG_B64: policy.encoded } } } }),
+      { mode: 0o600 });
+      const actual = mutate(Buffer.from(policy.encoded, 'base64').toString('utf8'));
+      exec.mockImplementation((_command: string, args: string[]) => ({ status: 0,
+        stdout: args[0] === 'exec' ? actual : JSON.stringify({ services: { 'squid-proxy': {
+          image: RELEASE.images.squid, environment: { AWF_SQUID_CONFIG_B64: encoded },
+        } } }) }));
+      return { Id: 'squid-fixture', Config: { Env: [`AWF_SQUID_CONFIG_B64=${policy.encoded}`] } };
+    }
+    try {
+      expect(verifyDeniedPolicy(fixture(generated), root, 'docker').tls_guard_enabled).toBe(true);
+      expect(verifyDeniedPolicy(fixture(generated, value => value.split('\n')
+        .filter(line => !line.startsWith('http_port [::]:')).join('\n')), root, 'docker').tls_guard_enabled).toBe(true);
+      for (const disabled of [
+        generated.replace('http_port 3128 ssl-bump', 'http_port 3128'),
+        generated.replace('acl tls_sni_guard_api_proxy src 172.30.0.30/32', ''),
+        generated.replace('ssl_bump splice tls_sni_guard_api_proxy', ''),
+      ]) {
+        expect(verifyDeniedPolicy(fixture(disabled), root, 'docker').tls_guard_enabled).toBe(false);
+      }
+      expect(() => verifyDeniedPolicy(fixture(generated, value => value.replace('http_port 3128 ssl-bump',
+        'http_port 3128')), root, 'docker')).toThrow('denial_policy_not_running');
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it('never projects arbitrary reflection, accounting, or exception data into evidence', () => {
     const sentinel = 'SECRET_SENTINEL_DO_NOT_UPLOAD';
     const projected = projectCatalogue({ ...catalogue, environment: sentinel,

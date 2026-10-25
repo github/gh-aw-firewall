@@ -281,8 +281,8 @@ validation; the descriptor is closed on both success and failure.
 No other branch, PR event, or alternate launching workflow is allowed.
 Normal main execution needs no reviewed-SHA input, but rejects a mismatched one.
 The coordinator must review each exact revision and recheck the remote SHA before
-dispatch; the authorized repair loop is limited to five runs total, with four
-remaining after the first startup-repair run, each with the
+dispatch; the authorized repair loop is limited to five runs total, counting
+both manual repair runs and automatic main runs, each with the
 existing 20-minute job limit and one bounded inference request. That cumulative
 limit is enforced by the dispatching coordinator, not an automatic retry loop.
 This exception deliberately lets the reviewed candidate harness use the existing
@@ -323,8 +323,16 @@ configuration. It tests loader fallback under a real imposed denial, not
 ordinary agent-domain enforcement on the trusted sidecar.
 A metadata-only TCP SYN observer starts before each fallback proxy: offline must
 have zero observed outbound TCP attempts and zero proxy-origin Squid requests;
-denied must have an actual `api.github.com:443` Squid 403 and no other Squid
-destinations or direct TCP attempts. Capture loss fails the check. This is
+denied must have terminal `TCP_DENIED:HIER_NONE` for exactly
+`CONNECT api.github.com:443` and no other Squid destinations or direct TCP
+attempts. Ordinary 403 denials are counted separately. The released TLS-guard
+listener logs its preliminary CONNECT 200 even for this terminal denial; that
+shape is accepted only with verified injected policy and verified actual running
+TLS-guard configuration, and is never reported as an actual 403 or successful
+upstream access. Generic 200, successful tunnels, aborted denials, other
+hierarchies, and unverified TLS-guard cases fail. Allowlisted aggregate counts
+are retained before assertions, including on failure; raw targets are not.
+Capture loss fails the check. This is
 bounded transport observation, not packet-payload capture or proof about every
 possible DNS lookup. The proxy must have one IPv4-only internal network, with
 Squid as its only internet route; egress is never relaxed to make a case pass.

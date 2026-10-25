@@ -256,33 +256,58 @@ function assertAccounting(records, selection, catalogue) {
   };
 }
 
-function assertNetwork(mode, packets, captureSummary, squidLog) {
-  assert.match(captureSummary, /\b0 packets dropped by kernel\b/, 'network_capture_dropped');
+function assertNetwork(mode, packets, captureSummary, squidLog, observation = {}, denialPolicy = null) {
   const captured = captureSummary.match(/\b(\d+) packets? captured\b/);
   const received = captureSummary.match(/\b(\d+) packets? received by filter\b/);
-  assert.ok(captured && received, 'network_capture_incomplete');
+  const dropped = captureSummary.match(/\b(\d+) packets? dropped by kernel\b/);
   const lines = packets.trim() ? packets.trim().split('\n') : [];
+  const expectedPacket = / IP 172\.30\.0\.30\.\d+ > 172\.30\.0\.10\.3128: Flags \[S\]/;
+  const requests = squidLog.split('\n').filter(line => /\s172\.30\.0\.30:\d+\s/.test(line));
+  const parsed = requests.map(request => {
+    const fields = request.trim().split(/\s+/);
+    return { source: fields[1], method: fields[5], status: fields[6], decision: fields[7], authority: fields[8] };
+  });
+  const fixedRequest = request => /^172\.30\.0\.30:\d+$/.test(request.source || '') &&
+    request.method === 'CONNECT' && request.authority === 'api.github.com:443';
+  const denied = request => fixedRequest(request) && request.decision === 'TCP_DENIED:HIER_NONE';
+  const verifiedGuard = mode === 'denied' && denialPolicy?.verified_running === true &&
+    denialPolicy.tls_guard_enabled === true && denialPolicy.kind === 'test_injected_squid_deny' &&
+    denialPolicy.source === '172.30.0.30/32' && denialPolicy.method === 'CONNECT' &&
+    denialPolicy.authority === 'api.github.com:443';
+  const strict403 = parsed.filter(request => denied(request) && request.status === '403').length;
+  const logged200 = parsed.filter(request => denied(request) && request.status === '200').length;
+  Object.assign(observation, {
+    outbound_tcp_syns: lines.length, squid_requests: requests.length,
+    denied_catalogue_requests: strict403 + (verifiedGuard ? logged200 : 0),
+    squid_403_denials: strict403, logged_200_tcp_denied: logged200,
+    verified_tlsguard_200_denied: verifiedGuard ? logged200 : 0,
+    terminal_catalogue_denial: mode === 'denied' && requests.length > 0 &&
+      strict403 + (verifiedGuard ? logged200 : 0) === requests.length,
+    alternate_tcp_destinations: lines.filter(line => !expectedPacket.test(line)).length,
+    alternate_squid_destinations: parsed.filter(request => request.authority !== 'api.github.com:443').length,
+    unexpected_squid_requests: parsed.filter(request => !denied(request) ||
+      !['200', '403'].includes(request.status)).length,
+    kernel_drops: dropped && Number.isSafeInteger(Number(dropped[1])) ? Number(dropped[1]) : null,
+  });
+  assert.equal(observation.kernel_drops, 0, 'network_capture_dropped');
+  assert.ok(captured && received, 'network_capture_incomplete');
   assert.equal(Number(captured[1]), lines.length, 'network_capture_incomplete');
   assert.equal(Number(received[1]), lines.length, 'network_capture_incomplete');
   // tcpdump captures only initial outbound TCP SYNs; no payload or headers.
   for (const line of lines) {
-    assert.match(line, / IP 172\.30\.0\.30\.\d+ > 172\.30\.0\.10\.3128: Flags \[S\]/,
-      'unexpected_direct_network_attempt');
+    assert.match(line, expectedPacket, 'unexpected_direct_network_attempt');
   }
-  const requests = squidLog.split('\n').filter(line => /\s172\.30\.0\.30:\d+\s/.test(line));
   if (mode === 'offline') {
     assert.equal(lines.length, 0, 'offline_network_attempt');
     assert.equal(requests.length, 0, 'offline_feed_request');
   } else {
     assert.ok(lines.length > 0 && requests.length > 0, 'denial_not_observed');
-    for (const request of requests) {
-      assert.match(request, /\sCONNECT 403 TCP_DENIED:HIER_NONE api\.github\.com:443\s/,
+    for (const request of parsed) {
+      assert.ok(denied(request) && (request.status === '403' || (verifiedGuard && request.status === '200')),
         'unexpected_catalogue_failover');
     }
   }
-  return { outbound_tcp_syns: lines.length, squid_requests: requests.length,
-    denied_catalogue_requests: mode === 'denied' ? requests.length : 0,
-    alternate_tcp_destinations: 0, kernel_drops: 0 };
+  return observation;
 }
 
 function config(mode) {
@@ -384,9 +409,15 @@ function verifyDeniedPolicy(squidInfo, workDir, docker) {
     policy.encoded, 'denial_policy_not_running');
   assert.equal(squidInfo.Config.Env.find(entry => entry.startsWith('AWF_SQUID_CONFIG_B64=')),
     `AWF_SQUID_CONFIG_B64=${policy.encoded}`, 'denial_policy_not_running');
-  assert.ok(run('docker', ['exec', squidInfo.Id, 'cat', '/etc/squid/squid.conf']).startsWith(DENIAL_RULE),
-    'denial_policy_not_running');
-  return { ...policy.identity, verified_running: true };
+  const actual = run('docker', ['exec', squidInfo.Id, 'cat', '/etc/squid/squid.conf']);
+  const expected = Buffer.from(policy.encoded, 'base64').toString('utf8').trim();
+  // The released entrypoint removes only the dual-stack listener when IPv6 is disabled.
+  const ipv4Only = expected.split('\n').filter(line => !line.startsWith('http_port [::]:')).join('\n');
+  assert.ok(actual === expected || actual === ipv4Only, 'denial_policy_not_running');
+  const tlsGuard = /^http_port 3128 ssl-bump cert=\/var\/run\/squid\/awf-sni-guard-cert\.pem key=\/var\/run\/squid\/awf-sni-guard-key\.pem generate-host-certificates=off /m.test(actual) &&
+    /^acl tls_sni_guard_api_proxy src 172\.30\.0\.30\/32$/m.test(actual) &&
+    /^ssl_bump splice tls_sni_guard_api_proxy$/m.test(actual);
+  return { ...policy.identity, verified_running: true, tls_guard_enabled: tlsGuard };
 }
 
 function proxyScript(container, operation, params = {}) {
@@ -617,7 +648,8 @@ async function exercise(binary, root, mode, evidence) {
       captured = true;
       const squid = run('docker', [...compose, 'ps', '-q', 'squid-proxy']);
       const log = run('docker', ['exec', squid, 'cat', '/var/log/squid/access.log']);
-      evidence.network = assertNetwork(mode, network.packets, network.summary, log);
+      evidence.network = {};
+      assertNetwork(mode, network.packets, network.summary, log, evidence.network, evidence.denial_policy);
     }
     evidence.status = 'passed';
     evidence.phase = 'complete';
