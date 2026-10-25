@@ -91,6 +91,7 @@ describe('released model catalogue smoke', () => {
 
   it('stages the deny-only Compose override before forwarding real Docker startup and verifies running policy', () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'catalogue-smoke-deny-test-'));
+    let descriptor: number | undefined;
     const work = path.join(root, 'work');
     fs.mkdirSync(work, { mode: 0o700 });
     const original = 'acl from_api_proxy src 172.30.0.30/32\nhttp_access allow from_api_proxy\n';
@@ -120,14 +121,10 @@ describe('released model catalogue smoke', () => {
       expect(result.status).toBe(0);
       expect(result.stdout).toBe('["compose","up","-d"]');
       const file = path.join(work, 'docker-compose.override.yml');
-      const descriptor = fs.openSync(file, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
-      let override;
-      try {
-        expect(fs.fstatSync(descriptor).mode & 0o777).toBe(0o600);
-        override = JSON.parse(fs.readFileSync(descriptor, 'utf8'));
-      } finally {
-        fs.closeSync(descriptor);
-      }
+      descriptor = fs.openSync(file, fs.constants.O_RDWR | fs.constants.O_NOFOLLOW);
+      expect(fs.fstatSync(descriptor).isFile()).toBe(true);
+      expect(fs.fstatSync(descriptor).mode & 0o777).toBe(0o600);
+      const override = JSON.parse(fs.readFileSync(descriptor, 'utf8'));
       expect(Object.keys(override.services)).toEqual(['squid-proxy']);
       expect(Object.keys(override.services['squid-proxy'])).toEqual(['environment']);
       const injected = deniedPolicy(encoded).encoded;
@@ -139,14 +136,8 @@ describe('released model catalogue smoke', () => {
         ({ status: 0, stdout: args[0] === 'exec' ? original : JSON.stringify(generated) }));
       expect(() => verifyDeniedPolicy(info, work, docker)).toThrow('denial_policy_not_running');
       expect(() => prepareDeniedCompose(work, docker)).toThrow('denial_policy_invalid');
-      const tamperDescriptor = fs.openSync(file, fs.constants.O_WRONLY | fs.constants.O_NOFOLLOW);
-      try {
-        expect(fs.fstatSync(tamperDescriptor).isFile()).toBe(true);
-        fs.ftruncateSync(tamperDescriptor, 0);
-        fs.writeFileSync(tamperDescriptor, '{"tampered":true}');
-      } finally {
-        fs.closeSync(tamperDescriptor);
-      }
+      fs.ftruncateSync(descriptor, 0);
+      fs.writeSync(descriptor, '{"tampered":true}', 0, 'utf8');
       const rejected = actual.spawnSync(path.join(root, 'deny-bin', 'docker'), ['compose', 'up', '-d'], {
         cwd: work, encoding: 'utf8', env: process.env, timeout: 10000,
       });
@@ -162,6 +153,7 @@ describe('released model catalogue smoke', () => {
       expect(symlinkRejected.stdout).toBe('');
       expect(symlinkRejected.stderr).toBe('Catalogue smoke denied-policy staging failed: denial_policy_invalid\n');
     } finally {
+      if (descriptor !== undefined) fs.closeSync(descriptor);
       fs.rmSync(root, { recursive: true, force: true });
     }
   });
