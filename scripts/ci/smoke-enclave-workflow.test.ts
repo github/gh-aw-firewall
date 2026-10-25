@@ -899,9 +899,9 @@ describe('smoke enclave build workflow', () => {
   const source = fs.readFileSync(sourcePath, 'utf8');
   const lock = fs.readFileSync(lockPath, 'utf8');
 
-  it('installs the authored CLI version above the generated feature minimum', () => {
+  it('installs the authored CLI version above the generated feature minimum with a verified checksum', () => {
     const frontmatter = yaml.load(source.split('---')[1]) as {
-      engine: { version: string };
+      engine: { version: string; 'checksums-sha256': string };
     };
     const compiled = yaml.load(lock) as {
       jobs: { agent: { steps: Array<{ name: string; run?: string; env?: Record<string, string> }> } };
@@ -913,8 +913,12 @@ describe('smoke enclave build workflow', () => {
     expect('1.0.34'.localeCompare(minimum!, 'en', { numeric: true })).toBeLessThan(0);
     expect(frontmatter.engine.version.localeCompare(minimum!, 'en', { numeric: true }))
       .toBeGreaterThanOrEqual(0);
+    expect(frontmatter.engine).toMatchObject({
+      version: '1.0.80',
+      'checksums-sha256': '243949dfde6b9c0d5852c4bc430f46ddcaacdfc74353bd1b1d2bccce3b789a48',
+    });
     expect(install?.run).toBe(
-      `bash "\${RUNNER_TEMP}/gh-aw/actions/install_copilot_cli.sh" ${frontmatter.engine.version}`
+      `bash "\${RUNNER_TEMP}/gh-aw/actions/install_copilot_cli.sh" ${frontmatter.engine.version} --checksums-sha256 ${frontmatter.engine['checksums-sha256']}`
     );
     expect(lock).toContain(`"engine_versions":{"copilot":"${frontmatter.engine.version}"}`);
   });
