@@ -138,7 +138,7 @@ describe('scheduled canonical model source maintenance', () => {
       if: 'always()', with: { name: 'model-source-evidence', 'if-no-files-found': 'error' },
     });
     const validation = lock.jobs.validate_model_proposal;
-    expect(validation.needs).toEqual(['agent', 'select_maintenance_pr']);
+    expect(validation.needs).toEqual(['agent', 'detection', 'select_maintenance_pr']);
     expect(validation.permissions).toEqual({ contents: 'read' });
     const checkout = validation.steps.find((step: any) => step.name === 'Checkout trusted model validation code');
     expect(checkout.with).toEqual({ 'persist-credentials': false, 'fetch-depth': 0, ref: '${{ github.sha }}' });
@@ -191,7 +191,7 @@ describe('scheduled canonical model source maintenance', () => {
     expect(safeTools).not.toContain('create_release');
     expect(safeTools).not.toContain('create_issue');
     expect(lockText).not.toContain('GH_AW_CI_TRIGGER_TOKEN');
-    expect(lockText.split('\n')[0]).toContain('"compiler_version":"v0.93.0"');
+    expect(lockText.split('\n')[0]).toContain('"compiler_version":"v0.93.4"');
   });
 
   it('creates maintenance PR titles accepted by the existing repository title gate', () => {

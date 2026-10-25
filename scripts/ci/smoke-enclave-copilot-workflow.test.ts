@@ -199,10 +199,10 @@ describe('Cloud Hypervisor Copilot agent enclave smoke', () => {
     );
     expect(compiled.jobs.agent.env?.GH_AW_ENGINE_VERSION).toBe('1.0.96');
     expect(lock).toContain('"engine_versions":{"copilot":"1.0.96"}');
-    expect(lock).toContain('"compiler_version":"dev-v0.93.0-agent-acceptance-v0.28.66-budget131072"');
-    expect(lock).toContain('github/gh-aw-actions/setup@e7519e6442ef74dda80a1627315ad827f402309c');
+    expect(lock).toContain('"compiler_version":"dev-v0.93.4-agent-acceptance-v0.28.66-budget131072"');
+    expect(lock).toContain('github/gh-aw-actions/setup@40fb427c047bb9f77324054adeb574e04c9481aa');
     expect(lock).toContain('actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1');
-    expect(lock).toContain('ghcr.io/github/gh-aw-mcpg:v0.4.36@sha256:b4d2856018959c798b3e3f81ae4ab5b275e06354e123e1f7971de931f2f450f2');
+    expect(lock).toContain('ghcr.io/github/gh-aw-mcpg:v0.4.37@sha256:9c7f242f6dec2d7d7b55d4c9e07872d59b85377c6cb3de46c915a5d1ffb91442');
     expect(lock).toContain('ghcr.io/github/gh-aw-firewall/enclave-agent:0.28.66@');
     expect(lock).not.toContain('resolution_failures');
     expect(agentSteps.find(step => step.name === 'Download and verify cloud-hypervisor enclave artifacts')?.run)

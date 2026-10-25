@@ -69,11 +69,11 @@ jobs:
       - name: Configure Docker Hub cache
         run: bash scripts/ci/configure-docker-mirror.sh
 
-      - name: Checkout gh-aw v0.93.0
+      - name: Checkout gh-aw v0.93.4
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: github/gh-aw
-          ref: 8df88b66116c3ead88419803ef9ced0c1a253510
+          ref: 3de7cc191d85f95a65e5d64d2e386539ed7a36be
           path: .tmp/gh-aw-compiler
           persist-credentials: false
 
@@ -83,18 +83,18 @@ jobs:
           go-version-file: .tmp/gh-aw-compiler/go.mod
           cache: false
 
-      - name: Install patched gh-aw v0.93.0
+      - name: Install patched gh-aw v0.93.4
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           git -C .tmp/gh-aw-compiler apply --unidiff-zero \
             "${GITHUB_WORKSPACE}/scripts/ci/compiler-agent-acceptance-v0.28.66.patch"
-          go test -C .tmp/gh-aw-compiler ./pkg/workflow \
-            -run 'TestValidateCloudHypervisorAgentAcceptance|TestCompileCloudHypervisorAgentAcceptance' -count=1
+          go test -C .tmp/gh-aw-compiler ./pkg/workflow ./pkg/parser \
+            -run 'TestValidateCloudHypervisorAgentAcceptance|TestCompileCloudHypervisorAgentAcceptance|TestMainWorkflowSchemaOrdinaryEnclaveTokenLimitAndEvals' -count=1
           mkdir -p "$HOME/.local/share/gh/extensions/gh-aw"
           go build \
             -C .tmp/gh-aw-compiler \
-            -ldflags="-X main.version=dev-v0.93.0-agent-acceptance-v0.28.66-budget131072" \
+            -ldflags="-X main.version=dev-v0.93.4-agent-acceptance-v0.28.66-budget131072" \
             -o "$HOME/.local/share/gh/extensions/gh-aw/gh-aw" \
             ./cmd/gh-aw
           rm -rf .tmp/gh-aw-compiler
@@ -111,7 +111,7 @@ jobs:
       - name: Compile + generate SBOMs (Syft)
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh aw compile --syft --action-mode action --action-tag v0.93.0 .github/workflows/*.md
+        run: gh aw compile --syft --action-mode action --action-tag v0.93.4 .github/workflows/*.md
 
       - name: Authenticate to GHCR for image scanning
         run: echo "${{ github.token }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin

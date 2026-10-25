@@ -21,9 +21,9 @@ function countOccurrences(content: string, value: string): number {
 
 describe('experimental Cloud Hypervisor enclave smoke workflow', () => {
   const compilerVersion =
-    'v0.93.0';
+    'v0.93.4';
   const setupAction =
-    'github/gh-aw-actions/setup@e7519e6442ef74dda80a1627315ad827f402309c';
+    'github/gh-aw-actions/setup@40fb427c047bb9f77324054adeb574e04c9481aa';
   const source = fs.readFileSync(
     path.join(workflowsDir, 'smoke-enclave-cloud-hypervisor.md'), 'utf8'
   );
@@ -402,6 +402,7 @@ describe('experimental Cloud Hypervisor enclave smoke workflow', () => {
       step.name === 'Validate enclave invocation and result');
     expect(validateStep?.if).toBe('always()');
     expect(compiledValidateStep?.if).toBe('always()');
+    expect(compiledValidateStep?.run?.trim()).toBe(validateStep?.run?.trim());
     expect(validateStep?.run).toContain('record.kind === "failure"');
     expect(validateStep?.run).toContain('record.type === "report_missing_data"');
     expect(validateStep?.run).toContain('record.type === "report_missing_tool"');
@@ -586,7 +587,7 @@ describe('experimental Cloud Hypervisor enclave smoke workflow', () => {
     expect(countOccurrences(lock, '- name: Start MCP Gateway')).toBe(1);
     expect(lock).toContain('ghcr.io/github/gh-aw-mcpg:');
     expect(lock).toContain(
-      'ghcr.io/github/gh-aw-mcpg:v0.4.36@sha256:b4d2856018959c798b3e3f81ae4ab5b275e06354e123e1f7971de931f2f450f2'
+      'ghcr.io/github/gh-aw-mcpg:v0.4.37@sha256:9c7f242f6dec2d7d7b55d4c9e07872d59b85377c6cb3de46c915a5d1ffb91442'
     );
     expect(lock).toContain('"awf-enclave": {\n                "required": false,');
     expect(lock).toContain('GH_AW_MCP_DEFERRED_SERVERS="awf-enclave"');
@@ -614,7 +615,7 @@ describe('experimental Cloud Hypervisor enclave smoke workflow', () => {
     expect(source).toContain('consumes the host-only `AWF_RESOLVED_CONFIG` path');
     expect(source).toContain('successful privileged cleanup');
     expect(source).toContain('Do not copy raw\nresolved JSON into normal artifact paths');
-    expect(source).toContain('official gh-aw v0.93.0 prerelease');
+    expect(source).toContain('official gh-aw v0.93.4 release');
     expect(source).toContain(compilerVersion);
     expect(steps.some(step =>
       step.uses === setupAction
@@ -918,9 +919,9 @@ describe('smoke enclave build workflow', () => {
     // Reviewed by setup/sh/release_integrity.sh in the pinned gh-aw-actions revision.
     expect(frontmatter.engine).toMatchObject({
       version: '1.0.98',
-      'checksums-sha256': '018625eac68670d66ede904b9b82cdcd6ab8f87ba20e6e1fbdf0b62c8295d5be',
+      'checksums-sha256': '372f0c8d3d50076455cd19ef080dc59dc2a32401d8b2d4f77ce190c8ab13bc59',
     });
-    expect(lock).toContain('github/gh-aw-actions/setup@e7519e6442ef74dda80a1627315ad827f402309c');
+    expect(lock).toContain('github/gh-aw-actions/setup@40fb427c047bb9f77324054adeb574e04c9481aa');
     expect(compiled.jobs.agent.env.GH_AW_ENGINE_VERSION).toBe(frontmatter.engine.version);
     expect(minimum).toMatch(/^\d+\.\d+\.\d+$/);
     expect('1.0.34'.localeCompare(minimum!, 'en', { numeric: true })).toBeLessThan(0);
@@ -955,7 +956,7 @@ describe('smoke enclave build workflow', () => {
   });
 
   it('uses the compatible gateway and local AWF build', () => {
-    expect(lock).toContain('ghcr.io/github/gh-aw-mcpg:v0.4.36');
+    expect(lock).toContain('ghcr.io/github/gh-aw-mcpg:v0.4.37');
     expect(lock).toContain('"awf-enclave": {\n                "required": false,');
     expect(lock).toContain('Install local AWF binary');
     expect(lock).toContain('--build-local');

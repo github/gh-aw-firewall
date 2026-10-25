@@ -1,11 +1,11 @@
 diff --git a/pkg/parser/schemas/main_workflow_schema.json b/pkg/parser/schemas/main_workflow_schema.json
-index 9ed898d..deb6801 100644
+index d85ee50..68869fe 100644
 --- a/pkg/parser/schemas/main_workflow_schema.json
 +++ b/pkg/parser/schemas/main_workflow_schema.json
-@@ -4074 +4074 @@
+@@ -4079 +4079 @@
 -                  "max-model-tokens": { "type": "integer", "minimum": 1, "maximum": 32768, "default": 1024 },
 +                  "max-model-tokens": { "type": "integer", "minimum": 1, "maximum": 131072, "default": 1024 },
-@@ -14622,0 +14623,36 @@
+@@ -14627,0 +14628,36 @@
 +    {
 +      "if": {
 +        "required": ["features", "sandbox"],
@@ -76,3 +76,52 @@ index a90b666..49789b1 100644
 @@ -112 +112 @@ const (
 -	cloudHypervisorAgentAcceptanceMaxModelTokens   = 2048
 +	cloudHypervisorAgentAcceptanceMaxModelTokens   = 131072
+
+diff --git a/pkg/parser/schema_test.go b/pkg/parser/schema_test.go
+--- a/pkg/parser/schema_test.go
++++ b/pkg/parser/schema_test.go
+@@ -3844,0 +3845,44 @@
++
++func TestMainWorkflowSchemaOrdinaryEnclaveTokenLimitAndEvals(t *testing.T) {
++	question := map[string]any{"id": "review", "question": "Did the workflow complete?"}
++	tests := []struct {
++		name      string
++		maxTokens int
++		evals     any
++		wantValid bool
++	}{
++		{"ordinary token limit", 32768, nil, true},
++		{"ordinary token limit exceeded", 32769, nil, false},
++		{"array evals", 32768, []any{question}, true},
++		{"object evals", 32768, map[string]any{"questions": []any{question}}, true},
++	}
++	for _, tt := range tests {
++		t.Run(tt.name, func(t *testing.T) {
++			frontmatter := map[string]any{
++				"on":     "workflow_dispatch",
++				"engine": "copilot",
++				"enclaves": []any{
++					map[string]any{
++						"agent": map[string]any{
++							"model":            "gpt-5",
++							"max-model-tokens": tt.maxTokens,
++						},
++						"repos": []any{
++							map[string]any{"repo": "octo-org/private-service", "sensitivity": "confidential"},
++						},
++					},
++				},
++			}
++			if tt.evals != nil {
++				frontmatter["evals"] = tt.evals
++			}
++			err := ValidateMainWorkflowFrontmatterWithSchemaAndLocation(frontmatter, "workflow.md")
++			if tt.wantValid && err != nil {
++				t.Fatalf("expected frontmatter to validate: %v", err)
++			}
++			if !tt.wantValid && err == nil {
++				t.Fatal("expected ordinary enclave token limit to be enforced")
++			}
++		})
++	}
++}
