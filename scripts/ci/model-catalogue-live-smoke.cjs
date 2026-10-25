@@ -586,10 +586,15 @@ function validateExecutionContext(env, event, checkoutSha) {
 function readExecutionContext(env = process.env) {
   assert.ok(typeof env.GITHUB_EVENT_PATH === 'string' && path.isAbsolute(env.GITHUB_EVENT_PATH),
     'trusted_event_metadata');
-  const stat = fs.statSync(env.GITHUB_EVENT_PATH);
-  assert.ok(stat.isFile() && stat.size <= 1024 * 1024, 'trusted_event_metadata');
-  const event = JSON.parse(fs.readFileSync(env.GITHUB_EVENT_PATH, 'utf8'));
-  return validateExecutionContext(env, event, run('git', ['rev-parse', 'HEAD']));
+  const descriptor = fs.openSync(env.GITHUB_EVENT_PATH, 'r');
+  try {
+    const stat = fs.fstatSync(descriptor);
+    assert.ok(stat.isFile() && stat.size <= 1024 * 1024, 'trusted_event_metadata');
+    const event = JSON.parse(fs.readFileSync(descriptor, 'utf8'));
+    return validateExecutionContext(env, event, run('git', ['rev-parse', 'HEAD']));
+  } finally {
+    fs.closeSync(descriptor);
+  }
 }
 
 async function main() {

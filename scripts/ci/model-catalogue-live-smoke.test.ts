@@ -461,6 +461,51 @@ describe('released model catalogue smoke', () => {
     }
   });
 
+  it('reads the checked event file even if its path is replaced before reading', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'catalogue-smoke-event-race-test-'));
+    const fixture = executionFixture();
+    const file = path.join(root, 'event.json');
+    fixture.env.GITHUB_EVENT_PATH = file;
+    fs.writeFileSync(file, JSON.stringify(fixture.event), { mode: 0o600 });
+    const filesystem: typeof fs = require('node:fs');
+    const readFile = filesystem.readFileSync;
+    const read = jest.spyOn(filesystem, 'readFileSync').mockImplementationOnce(target => {
+      fs.renameSync(file, path.join(root, 'original.json'));
+      fs.writeFileSync(file, '{}', { mode: 0o600 });
+      return readFile(target);
+    });
+    (childProcess.spawnSync as jest.Mock).mockReturnValue({ status: 0, stdout: fixture.checkoutSha });
+    try {
+      expect(readExecutionContext(fixture.env).mode).toBe('reviewed_repair_branch');
+      const target = read.mock.calls[0][0];
+      expect(typeof target).toBe('number');
+      if (typeof target === 'number') expect(() => fs.fstatSync(target)).toThrow();
+    } finally {
+      read.mockRestore();
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it.each(['invalid-json', 'oversized', 'directory'])('closes the event descriptor after rejecting %s', kind => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'catalogue-smoke-event-close-test-'));
+    const fixture = executionFixture();
+    const file = path.join(root, 'event.json');
+    fixture.env.GITHUB_EVENT_PATH = file;
+    if (kind === 'directory') fs.mkdirSync(file);
+    else fs.writeFileSync(file, kind === 'oversized' ? Buffer.alloc(1024 * 1024 + 1) : '{');
+    const filesystem: typeof fs = require('node:fs');
+    const close = jest.spyOn(filesystem, 'closeSync');
+    try {
+      expect(() => readExecutionContext(fixture.env)).toThrow(
+        kind === 'invalid-json' ? SyntaxError : 'trusted_event_metadata');
+      expect(close).toHaveBeenCalledTimes(1);
+      expect(() => fs.fstatSync(close.mock.calls[0][0])).toThrow();
+    } finally {
+      close.mockRestore();
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it('keeps trusted triggers, exact-SHA checkout, and existing scoped Actions inference credentials', () => {
     const source = fs.readFileSync(path.resolve(__dirname, '../../.github/workflows/smoke-model-catalogue.yml'), 'utf8');
     const workflow = yaml.load(source) as {

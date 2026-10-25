@@ -274,7 +274,10 @@ missing, abbreviated, or mismatched input grants no branch authorization.
 Checkout uses the immutable event SHA, not a moving branch. The harness
 independently cross-checks the repository, event/ref, sender, workflow identity
 and SHA, reviewed input from the actual event file, and checked-out SHA before
-starting. No other branch, PR event, or alternate launching workflow is allowed.
+starting. Event-file type/size checks and JSON reads use the same open file
+descriptor, so replacing its path cannot substitute a different file after
+validation; the descriptor is closed on both success and failure.
+No other branch, PR event, or alternate launching workflow is allowed.
 Normal main execution needs no reviewed-SHA input, but rejects a mismatched one.
 The coordinator must review each exact revision and recheck the remote SHA before
 dispatch; the authorized repair loop is limited to five runs, each with the
