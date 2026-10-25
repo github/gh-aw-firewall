@@ -5,7 +5,7 @@ import { HOST_EXECUTOR_ID_PATTERN } from './host-executor-protocol';
 import {
   HOST_EXECUTOR_STORAGE_ROOT, hostExecutorJournalDirectory, hostExecutorStorageDirectory,
   prepareDirectory, persist,
-} from './host-executor-journal';
+} from './host-executor-journal-shared';
 import {
   trustedDirectory, assertIdentity, validateResourceRecord, storageAncestors,
   allowedStorageMount, verifyStorageRecord, closeStorageRecord, type ResourceRecord,

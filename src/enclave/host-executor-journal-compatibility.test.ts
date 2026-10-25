@@ -38,6 +38,7 @@ describe('host executor journal compatibility exports', () => {
   });
 
   it.each([
+    ['shared-primitives-first', () => jest.requireActual('./host-executor-journal-shared')],
     ['legacy-first', () => jest.requireActual('./host-executor-journal')],
     ['diagnostics-first', () => jest.requireActual('./host-executor-diagnostics')],
     ['resource-journal-first', () => jest.requireActual('./host-executor-resource-journal')],

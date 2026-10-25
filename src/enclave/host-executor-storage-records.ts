@@ -4,7 +4,7 @@ import {
 } from './host-executor-protocol';
 import {
   HOST_EXECUTOR_STORAGE_ROOT, hostExecutorStorageDirectory, hostExecutorVmRunId,
-} from './host-executor-journal';
+} from './host-executor-journal-shared';
 import type { ResolvedCleanupDependencies } from '../cloud-hypervisor/cleanup-dependencies';
 import { captureFileIdentity, readMounts } from '../cloud-hypervisor/cleanup-process';
 import {

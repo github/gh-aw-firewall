@@ -10,7 +10,7 @@ import {
 import {
   HOST_EXECUTOR_DEFAULT_JOURNAL_DIRECTORY, hostExecutorJournalDirectory, hostExecutorVmRunId,
   prepareDirectory, persist,
-} from './host-executor-journal';
+} from './host-executor-journal-shared';
 import {
   HostPreflightReporter, hostPreflightReason, HostPreflightCleanupError,
   type HostPreflightCheck, type HostPreflightProgress,
