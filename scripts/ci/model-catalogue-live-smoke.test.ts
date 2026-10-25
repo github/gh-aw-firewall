@@ -120,8 +120,14 @@ describe('released model catalogue smoke', () => {
       expect(result.status).toBe(0);
       expect(result.stdout).toBe('["compose","up","-d"]');
       const file = path.join(work, 'docker-compose.override.yml');
-      expect(fs.statSync(file).mode & 0o777).toBe(0o600);
-      const override = JSON.parse(fs.readFileSync(file, 'utf8'));
+      const descriptor = fs.openSync(file, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
+      let override;
+      try {
+        expect(fs.fstatSync(descriptor).mode & 0o777).toBe(0o600);
+        override = JSON.parse(fs.readFileSync(descriptor, 'utf8'));
+      } finally {
+        fs.closeSync(descriptor);
+      }
       expect(Object.keys(override.services)).toEqual(['squid-proxy']);
       expect(Object.keys(override.services['squid-proxy'])).toEqual(['environment']);
       const injected = deniedPolicy(encoded).encoded;
@@ -133,13 +139,28 @@ describe('released model catalogue smoke', () => {
         ({ status: 0, stdout: args[0] === 'exec' ? original : JSON.stringify(generated) }));
       expect(() => verifyDeniedPolicy(info, work, docker)).toThrow('denial_policy_not_running');
       expect(() => prepareDeniedCompose(work, docker)).toThrow('denial_policy_invalid');
-      fs.writeFileSync(file, '{"tampered":true}');
+      const tamperDescriptor = fs.openSync(file, fs.constants.O_WRONLY | fs.constants.O_NOFOLLOW);
+      try {
+        expect(fs.fstatSync(tamperDescriptor).isFile()).toBe(true);
+        fs.ftruncateSync(tamperDescriptor, 0);
+        fs.writeFileSync(tamperDescriptor, '{"tampered":true}');
+      } finally {
+        fs.closeSync(tamperDescriptor);
+      }
       const rejected = actual.spawnSync(path.join(root, 'deny-bin', 'docker'), ['compose', 'up', '-d'], {
         cwd: work, encoding: 'utf8', env: process.env, timeout: 10000,
       });
       expect(rejected.status).toBe(1);
       expect(rejected.stdout).toBe('');
       expect(rejected.stderr).toBe('Catalogue smoke denied-policy staging failed: denial_policy_invalid\n');
+      fs.unlinkSync(file);
+      fs.symlinkSync(docker, file);
+      const symlinkRejected = actual.spawnSync(path.join(root, 'deny-bin', 'docker'), ['compose', 'up', '-d'], {
+        cwd: work, encoding: 'utf8', env: process.env, timeout: 10000,
+      });
+      expect(symlinkRejected.status).toBe(1);
+      expect(symlinkRejected.stdout).toBe('');
+      expect(symlinkRejected.stderr).toBe('Catalogue smoke denied-policy staging failed: denial_policy_invalid\n');
     } finally {
       fs.rmSync(root, { recursive: true, force: true });
     }

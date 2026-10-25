@@ -325,6 +325,20 @@ function generatedDeniedPolicy(workDir, docker) {
   return deniedPolicy(squid.environment?.AWF_SQUID_CONFIG_B64);
 }
 
+function readDeniedOverride(file, failure) {
+  let descriptor;
+  try {
+    descriptor = fs.openSync(file, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
+    const info = fs.fstatSync(descriptor);
+    assert.ok(info.isFile() && (info.mode & 0o777) === 0o600, failure);
+    return fs.readFileSync(descriptor, 'utf8');
+  } catch {
+    throw new Error(failure);
+  } finally {
+    if (descriptor !== undefined) fs.closeSync(descriptor);
+  }
+}
+
 function prepareDeniedCompose(workDir, docker) {
   assert.equal(fs.realpathSync(process.cwd()), fs.realpathSync(workDir), 'denial_policy_invalid');
   const policy = generatedDeniedPolicy(workDir, docker);
@@ -332,10 +346,16 @@ function prepareDeniedCompose(workDir, docker) {
     environment: { AWF_SQUID_CONFIG_B64: policy.encoded },
   } } });
   const file = path.join(workDir, 'docker-compose.override.yml');
-  if (fs.existsSync(file)) {
-    assert.equal(fs.readFileSync(file, 'utf8'), override, 'denial_policy_invalid');
-  } else {
-    fs.writeFileSync(file, override, { mode: 0o600, flag: 'wx' });
+  let descriptor;
+  try {
+    descriptor = fs.openSync(file, fs.constants.O_WRONLY | fs.constants.O_CREAT |
+      fs.constants.O_EXCL | fs.constants.O_NOFOLLOW, 0o600);
+    fs.writeFileSync(descriptor, override);
+  } catch (error) {
+    if (error.code !== 'EEXIST') throw error;
+    assert.equal(readDeniedOverride(file, 'denial_policy_invalid'), override, 'denial_policy_invalid');
+  } finally {
+    if (descriptor !== undefined) fs.closeSync(descriptor);
   }
 }
 
@@ -358,7 +378,8 @@ function installDeniedDockerWrapper(directory, workDir) {
 
 function verifyDeniedPolicy(squidInfo, workDir, docker) {
   const policy = generatedDeniedPolicy(workDir, docker);
-  const override = JSON.parse(fs.readFileSync(path.join(workDir, 'docker-compose.override.yml'), 'utf8'));
+  const override = JSON.parse(readDeniedOverride(
+    path.join(workDir, 'docker-compose.override.yml'), 'denial_policy_not_running'));
   assert.equal(override.services?.['squid-proxy']?.environment?.AWF_SQUID_CONFIG_B64,
     policy.encoded, 'denial_policy_not_running');
   assert.equal(squidInfo.Config.Env.find(entry => entry.startsWith('AWF_SQUID_CONFIG_B64=')),
