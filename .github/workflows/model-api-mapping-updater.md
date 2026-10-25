@@ -12,6 +12,12 @@ permissions:
   pull-requests: read
 strict: true
 timeout-minutes: 45
+# Keep unattended installs independent of the live compatibility matrix.
+# Manifest pin reviewed in gh-aw-actions@40fb427c047bb9f77324054adeb574e04c9481aa/setup/sh/release_integrity.sh.
+engine:
+  id: copilot
+  version: 1.0.101
+  checksums-sha256: 018625eac68670d66ede904b9b82cdcd6ab8f87ba20e6e1fbdf0b62c8295d5be
 concurrency:
   group: model-source-maintenance
   cancel-in-progress: false

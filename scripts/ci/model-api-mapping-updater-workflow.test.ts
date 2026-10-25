@@ -9,6 +9,28 @@ const frontmatter = yaml.load(source.split('---')[1]) as Record<string, any>;
 const lock = yaml.load(lockText) as Record<string, any>;
 
 describe('scheduled canonical model source maintenance', () => {
+  it('pins reviewed Copilot downloads in source and both installer jobs, independent of cache availability', () => {
+    const version = '1.0.101';
+    const checksumsSha256 = '018625eac68670d66ede904b9b82cdcd6ab8f87ba20e6e1fbdf0b62c8295d5be';
+    expect(frontmatter.engine).toEqual({
+      id: 'copilot', version, 'checksums-sha256': checksumsSha256,
+    });
+    const manifestLine = lockText.split('\n').find(line => line.startsWith('# gh-aw-manifest: '))!;
+    expect(JSON.parse(manifestLine.slice('# gh-aw-manifest: '.length))).toMatchObject({
+      threat_detection: { mode: 'enabled' },
+    });
+    for (const job of [lock.jobs.agent, lock.jobs.detection]) {
+      const installers = job.steps.filter((step: { name: string }) =>
+        step.name === 'Install GitHub Copilot CLI');
+      expect(installers).toHaveLength(1);
+      expect(installers[0].run).toBe(
+        `bash "\${RUNNER_TEMP}/gh-aw/actions/install_copilot_cli.sh" ${version} --checksums-sha256 ${checksumsSha256}`,
+      );
+      expect(installers[0]['continue-on-error']).toBeUndefined();
+      expect(installers[0].if).toBeUndefined();
+    }
+  });
+
   it('runs daily and manually with serialized runs and a read-only agent token', () => {
     expect(frontmatter.on).toEqual({ schedule: 'daily', workflow_dispatch: null });
     expect(lock.on.workflow_dispatch).toBeDefined();
