@@ -1008,6 +1008,18 @@ describe('smoke enclave issues workflow', () => {
   const source = fs.readFileSync(issuesSourcePath, 'utf8');
   const lock = fs.readFileSync(issuesLockPath, 'utf8');
 
+  it('pins the Copilot CLI checksum manifest before agent execution', () => {
+    const frontmatter = yaml.load(source.split('---')[1]) as {
+      engine: { version: string; 'checksums-sha256': string };
+    };
+    const checksum = '243949dfde6b9c0d5852c4bc430f46ddcaacdfc74353bd1b1d2bccce3b789a48';
+    expect(frontmatter.engine.version).toBe('1.0.80');
+    expect(frontmatter.engine['checksums-sha256']).toBe(checksum);
+    expect(lock).toContain(
+      `bash "\${RUNNER_TEMP}/gh-aw/actions/install_copilot_cli.sh" 1.0.80 --checksums-sha256 ${checksum}`
+    );
+  });
+
   it('allows Copilot to invoke only the required enclave tool', () => {
     expect(source).toContain('args: ["--allow-tool", "awf-enclave(enclave_run_agent)"]');
     const start = lock.indexOf('      - name: Execute GitHub Copilot CLI');
