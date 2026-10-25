@@ -77,6 +77,8 @@ describe('released model catalogue smoke', () => {
     }
     expect(config('online').network.allowDomains).toEqual(['api.github.com', 'api.githubcopilot.com']);
     expect(config('denied').network.allowDomains).not.toContain('api.github.com');
+    expect(config('denied').network.blockDomains).toEqual(['api.github.com']);
+    expect(config('online').network.blockDomains).toBeUndefined();
     expect(config('offline').apiProxy.modelCatalogue.offline).toBe(true);
   });
 

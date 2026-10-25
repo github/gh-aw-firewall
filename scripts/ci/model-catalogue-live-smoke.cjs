@@ -278,7 +278,8 @@ function assertNetwork(mode, packets, captureSummary, squidLog) {
 function config(mode) {
   return {
     network: { isolation: true, allowDomains: mode === 'denied' ? ['example.invalid']
-      : mode === 'offline' ? ['api.githubcopilot.com'] : ['api.github.com', 'api.githubcopilot.com'] },
+      : mode === 'offline' ? ['api.githubcopilot.com'] : ['api.github.com', 'api.githubcopilot.com'],
+    ...(mode === 'denied' ? { blockDomains: ['api.github.com'] } : {}) },
     apiProxy: { enabled: true, maxAiCredits: 1, maxRuns: 1,
       modelCatalogue: { enabled: true, source: 'github', offline: mode === 'offline',
         timeoutMs: 30000, refreshSeconds: 3600, cacheDirectory: CACHE } },
