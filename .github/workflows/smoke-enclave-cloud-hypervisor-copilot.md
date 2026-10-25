@@ -209,7 +209,7 @@ fails closed on missing usage. The pinned guest does not itself enforce these
 budgets; request/output limits and proxy credential isolation remain mandatory.
 
 AWF and guest assets remain pinned to verified v0.28.66, with the official
-gh-aw v0.93.0 setup, mcpg v0.4.36 and primary Copilot 1.0.96.
+gh-aw v0.93.4 setup, mcpg v0.4.37 and primary Copilot 1.0.96.
 The guest Copilot CLI is the version baked into the attested agent rootfs,
 not installed or upgraded by this workflow.
 Manual branch runs, including main, build source host/infra code and use the
@@ -217,22 +217,22 @@ checked-in v0.28.66 guest artifact pin, including the merged bounded-verificatio
 storage and unprivileged enclave vsock-port fixes (#10181).
 Tag runs are not admitted.
 Compilation additionally uses a narrow acceptance patch for the official
-v0.93.0 compiler. Generated compiler provenance identifies that patched build.
+v0.93.4 compiler. Generated compiler provenance identifies that patched build.
 The verified v0.28.66 release includes #10189's enclave cwd correction.
 The exact-PR unattested supervisor override and its build steps are removed;
 both primary and enclave supervisors must come from verified release artifacts.
 No unattested-artifact flag is enabled.
 
-Compilation uses official `github/gh-aw@v0.93.0` plus
+Compilation uses official `github/gh-aw@v0.93.4` plus
 `scripts/ci/compiler-agent-acceptance-v0.28.66.patch` to align the exact release
 and token budget. Its schema exception requires the explicit acceptance feature
 and a Cloud Hypervisor primary; ordinary workflows retain the 32,768 ceiling.
 The generated development-compiler metadata identifies this patched build;
 action/runtime pins remain on the reviewed releases.
-The unpatched official v0.93.0 fixture remains pinned to v0.28.62 and 2,048
+The unpatched official v0.93.4 fixture remains pinned to v0.28.62 and 2,048
 tokens, so it rejects this repository's reviewed acceptance parameters.
 Regeneration runs the mandatory smoke postprocessor.
-The supply-chain scan uses the same exact v0.93.0 patch and verifies its
+The supply-chain scan uses the same exact v0.93.4 patch and verifies its
 acceptance tests before building. The AWF and compiler gates still reject every
 other token value, topology, or release.
 Under a separate explicit user authorization, the branch-built AWF

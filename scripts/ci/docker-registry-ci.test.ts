@@ -194,17 +194,17 @@ print(json.dumps({'live': sorted(live), 'archives': sorted(archives), 'cache': s
   it('builds the reviewed patched compiler before scanning', () => {
     const steps = jobs('supply-chain-scan.yml').scan.steps;
     const install = steps.findIndex(
-      (step) => step.name === 'Install patched gh-aw v0.93.0',
+      (step) => step.name === 'Install patched gh-aw v0.93.4',
     );
     const compile = steps.findIndex((step) =>
-      step.run === 'gh aw compile --syft --action-mode action --action-tag v0.93.0 .github/workflows/*.md');
+      step.run === 'gh aw compile --syft --action-mode action --action-tag v0.93.4 .github/workflows/*.md');
     expect(install).toBeGreaterThanOrEqual(0);
     expect(compile).toBeGreaterThan(install);
-    expect(steps[install - 2].name).toBe('Checkout gh-aw v0.93.0');
-    expect(steps[install - 2].with?.ref).toBe('8df88b66116c3ead88419803ef9ced0c1a253510');
+    expect(steps[install - 2].name).toBe('Checkout gh-aw v0.93.4');
+    expect(steps[install - 2].with?.ref).toBe('3de7cc191d85f95a65e5d64d2e386539ed7a36be');
     expect(steps[install].run).toContain('compiler-agent-acceptance-v0.28.66.patch');
     expect(steps[install].run).toContain('go test -C .tmp/gh-aw-compiler ./pkg/workflow');
-    expect(steps[install].run).toContain('dev-v0.93.0-agent-acceptance-v0.28.66-budget131072');
+    expect(steps[install].run).toContain('dev-v0.93.4-agent-acceptance-v0.28.66-budget131072');
     expect(steps[install].run).toContain('gh aw version');
     expect(steps[install].env?.GH_TOKEN).toBe('${{ github.token }}');
     for (const index of [install, compile]) {
