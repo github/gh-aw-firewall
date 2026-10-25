@@ -21,6 +21,15 @@ const CACHE = '/tmp/catalogue-smoke-private';
 const COMMIT = /^[a-f0-9]{40}$/;
 const REVISION = /^[a-f0-9]{64}$/;
 const MODELS = ['claude-haiku-4.5', 'gpt-5-mini', 'claude-haiku-5.5'];
+const DENIAL_RULE = [
+  '# Test-injected catalogue denial; not normal AWF sidecar policy.',
+  'acl catalogue_smoke_source src 172.30.0.30/32',
+  'acl catalogue_smoke_connect method CONNECT',
+  'acl catalogue_smoke_host dstdomain api.github.com',
+  'acl catalogue_smoke_port port 443',
+  'http_access deny catalogue_smoke_source catalogue_smoke_connect catalogue_smoke_host catalogue_smoke_port',
+  '',
+].join('\n');
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 const PROBE_SCRIPT = `
 (async () => {
@@ -138,6 +147,7 @@ function failureCode(error) {
     'proxy_network_count', 'proxy_ip', 'proxy_not_internal', 'unexpected_ipv6',
     'cache_shared_mount', 'unexpected_operator_pricing', 'running_image_reference',
     'running_image_id', 'agent_credential_exposed', 'fallback_credentials_present',
+    'denial_policy_invalid', 'denial_policy_not_running',
   ]);
   return allowed.has(firstLine) ? firstLine : 'smoke_operation_failed';
 }
@@ -287,6 +297,77 @@ function config(mode) {
   };
 }
 
+function deniedPolicy(encoded) {
+  assert.ok(typeof encoded === 'string' && encoded.length <= 512 * 1024, 'denial_policy_invalid');
+  const original = Buffer.from(encoded, 'base64').toString('utf8');
+  assert.equal(Buffer.from(original).toString('base64'), encoded, 'denial_policy_invalid');
+  assert.ok(original.includes('acl from_api_proxy src 172.30.0.30/32\n') &&
+    original.includes('http_access allow from_api_proxy\n') &&
+    !original.includes('catalogue_smoke_'), 'denial_policy_invalid');
+  const injected = DENIAL_RULE + original;
+  const digest = value => crypto.createHash('sha256').update(value).digest('hex');
+  return {
+    encoded: Buffer.from(injected).toString('base64'),
+    identity: {
+      kind: 'test_injected_squid_deny', source: '172.30.0.30/32',
+      method: 'CONNECT', authority: 'api.github.com:443',
+      rule_sha256: digest(DENIAL_RULE), generated_config_sha256: digest(original),
+      injected_config_sha256: digest(injected),
+    },
+  };
+}
+
+function generatedDeniedPolicy(workDir, docker) {
+  const compose = JSON.parse(run(docker, ['compose', '-f', path.join(workDir, 'docker-compose.yml'),
+    'config', '--format', 'json']));
+  const squid = compose.services?.['squid-proxy'];
+  assert.equal(squid?.image, RELEASE.images.squid, 'running_image_reference');
+  return deniedPolicy(squid.environment?.AWF_SQUID_CONFIG_B64);
+}
+
+function prepareDeniedCompose(workDir, docker) {
+  assert.equal(fs.realpathSync(process.cwd()), fs.realpathSync(workDir), 'denial_policy_invalid');
+  const policy = generatedDeniedPolicy(workDir, docker);
+  const override = JSON.stringify({ services: { 'squid-proxy': {
+    environment: { AWF_SQUID_CONFIG_B64: policy.encoded },
+  } } });
+  const file = path.join(workDir, 'docker-compose.override.yml');
+  if (fs.existsSync(file)) {
+    assert.equal(fs.readFileSync(file, 'utf8'), override, 'denial_policy_invalid');
+  } else {
+    fs.writeFileSync(file, override, { mode: 0o600, flag: 'wx' });
+  }
+}
+
+function installDeniedDockerWrapper(directory, workDir) {
+  const docker = run('which', ['docker']);
+  assert.ok(path.isAbsolute(docker), 'denial_policy_invalid');
+  const bin = path.join(directory, 'deny-bin');
+  fs.mkdirSync(bin, { mode: 0o700 });
+  const quote = value => `'${value.replace(/'/g, "'\\''")}'`;
+  const prepare = `const h = require(${JSON.stringify(__filename)}); try { h.prepareDeniedCompose(` +
+    `${JSON.stringify(workDir)}, ${JSON.stringify(docker)}); } catch (error) { ` +
+    `console.error('Catalogue smoke denied-policy staging failed: ' + h.failureCode(error)); process.exit(1); }`;
+  // Stage the deny-only override synchronously before forwarding the real startup.
+  fs.writeFileSync(path.join(bin, 'docker'), '#!/bin/sh\n' +
+    'if [ "$1" = compose ] && [ "$2" = up ]; then\n' +
+    `  ${quote(process.execPath)} -e ${quote(prepare)} || exit "$?"\nfi\n` +
+    `exec ${quote(docker)} "$@"\n`, { mode: 0o700, flag: 'wx' });
+  return { docker, path: `${bin}${path.delimiter}${process.env.PATH}` };
+}
+
+function verifyDeniedPolicy(squidInfo, workDir, docker) {
+  const policy = generatedDeniedPolicy(workDir, docker);
+  const override = JSON.parse(fs.readFileSync(path.join(workDir, 'docker-compose.override.yml'), 'utf8'));
+  assert.equal(override.services?.['squid-proxy']?.environment?.AWF_SQUID_CONFIG_B64,
+    policy.encoded, 'denial_policy_not_running');
+  assert.equal(squidInfo.Config.Env.find(entry => entry.startsWith('AWF_SQUID_CONFIG_B64=')),
+    `AWF_SQUID_CONFIG_B64=${policy.encoded}`, 'denial_policy_not_running');
+  assert.ok(run('docker', ['exec', squidInfo.Id, 'cat', '/etc/squid/squid.conf']).startsWith(DENIAL_RULE),
+    'denial_policy_not_running');
+  return { ...policy.identity, verified_running: true };
+}
+
 function proxyScript(container, operation, params = {}) {
   return run('docker', ['exec', container, 'node', '-e', PROBE_SCRIPT,
     operation, JSON.stringify(params)], { timeout: 120000 });
@@ -407,6 +488,9 @@ function observeStartup(child) {
       state.reason = 'work_directory_owner';
     } else if (plain === '[ERROR] \u274c --network-isolation requires a reachable Docker daemon, but none was found.') {
       state.reason = 'docker_unavailable';
+    } else if (plain === 'Catalogue smoke denied-policy staging failed: denial_policy_invalid' ||
+      plain === 'Catalogue smoke denied-policy staging failed: smoke_subprocess_failed') {
+      state.reason = 'denial_policy_staging';
     }
   };
   child.stderr.on('data', bytes => {
@@ -447,6 +531,8 @@ async function exercise(binary, root, mode, evidence) {
   const composeFile = path.join(workDir, 'docker-compose.yml');
   const compose = ['compose', '-f', composeFile];
   const env = { PATH: process.env.PATH, HOME: process.env.HOME };
+  const denial = mode === 'denied' ? installDeniedDockerWrapper(directory, workDir) : null;
+  if (denial) env.PATH = denial.path;
   for (const key of ['GITHUB_ACTIONS', 'GITHUB_REPOSITORY', 'GITHUB_RUN_ID',
     'GITHUB_RUN_ATTEMPT', 'GITHUB_WORKFLOW_REF']) {
     if (process.env[key]) env[key] = process.env[key];
@@ -480,6 +566,9 @@ async function exercise(binary, root, mode, evidence) {
     for (const [service, key] of [['api-proxy', 'apiProxy'], ['agent', 'agent'], ['squid-proxy', 'squid']]) {
       const id = run('docker', [...compose, 'ps', '--all', '-q', service]);
       const info = JSON.parse(run('docker', ['inspect', id]))[0];
+      if (service === 'squid-proxy' && denial) {
+        evidence.denial_policy = verifyDeniedPolicy(info, workDir, denial.docker);
+      }
       assert.equal(info.Config.Image, RELEASE.images[key], 'running_image_reference');
       assert.equal(info.Image, run('docker', ['image', 'inspect', '--format', '{{.Id}}', RELEASE.images[key]]),
         'running_image_id');
@@ -552,7 +641,7 @@ function validateExecutionContext(env, event, checkoutSha) {
   assert.equal(env.GITHUB_ACTIONS, 'true', 'approved_actions_only');
   assert.ok(['push', 'workflow_dispatch'].includes(env.GITHUB_EVENT_NAME), 'trusted_event_only');
   const main = env.GITHUB_REF === 'refs/heads/main';
-  const repair = env.GITHUB_REF === 'refs/heads/lpcox-fix-catalogue-smoke-startup';
+  const repair = env.GITHUB_REF === 'refs/heads/lpcox-fix-catalogue-denial-smoke';
   assert.ok(main || repair, 'trusted_ref_only');
   assert.ok(main || env.GITHUB_EVENT_NAME === 'workflow_dispatch', 'trusted_event_only');
   assert.match(env.GITHUB_SHA || '', COMMIT, 'trusted_event_metadata');
@@ -648,7 +737,8 @@ async function main() {
 
 module.exports = { RELEASE, config, failureCode, projectCatalogue, waitForCatalogue, selectModel,
   assertAccounting, assertNetwork, publication, inference, bundledPricing, downloadRelease, exercise, observeStartup,
-  validateExecutionContext, readExecutionContext };
+  validateExecutionContext, readExecutionContext, DENIAL_RULE, deniedPolicy, prepareDeniedCompose,
+  installDeniedDockerWrapper, verifyDeniedPolicy };
 if (require.main === module) main().catch(error => {
   console.error(`Model catalogue smoke failed: ${failureCode(error)}; raw diagnostics suppressed.`);
   process.exitCode = 1;

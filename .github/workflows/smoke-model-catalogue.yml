@@ -27,7 +27,7 @@ jobs:
        (github.event_name == 'push' || github.event_name == 'workflow_dispatch') &&
        (inputs.reviewed_head_sha == '' || inputs.reviewed_head_sha == github.sha)) ||
       (github.event_name == 'workflow_dispatch' &&
-       github.ref == 'refs/heads/lpcox-fix-catalogue-smoke-startup' &&
+       github.ref == 'refs/heads/lpcox-fix-catalogue-denial-smoke' &&
        inputs.reviewed_head_sha != '' && inputs.reviewed_head_sha == github.sha)
     runs-on: ubuntu-latest
     timeout-minutes: 20

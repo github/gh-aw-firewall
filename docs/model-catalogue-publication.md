@@ -268,7 +268,8 @@ It uses the existing `github.token` / `copilot-requests: write` path, not a new
 secret. No workflow dispatch is needed to publish catalogue data.
 
 A narrowly authorized repair exception permits manual `workflow_dispatch` on
-the fixed `lpcox-fix-catalogue-smoke-startup` branch only. The dispatcher must
+the fixed `lpcox-fix-catalogue-denial-smoke` follow-up branch only (replacing
+the merged startup-repair branch). The dispatcher must
 provide `reviewed_head_sha` equal to the full, security-reviewed event SHA;
 missing, abbreviated, or mismatched input grants no branch authorization.
 Checkout uses the immutable event SHA, not a moving branch. The harness
@@ -280,7 +281,8 @@ validation; the descriptor is closed on both success and failure.
 No other branch, PR event, or alternate launching workflow is allowed.
 Normal main execution needs no reviewed-SHA input, but rejects a mismatched one.
 The coordinator must review each exact revision and recheck the remote SHA before
-dispatch; the authorized repair loop is limited to five runs, each with the
+dispatch; the authorized repair loop is limited to five runs total, with four
+remaining after the first startup-repair run, each with the
 existing 20-minute job limit and one bounded inference request. That cumulative
 limit is enforced by the dispatching coordinator, not an automatic retry loop.
 This exception deliberately lets the reviewed candidate harness use the existing
@@ -308,6 +310,17 @@ Offline and denied cases use independent new containers, unmounted private
 caches, and **no inference credentials**. This separates catalogue traffic from
 Copilot authentication. They require explicit bundled fallback and check the
 released guard's curated Haiku price with synthetic usage, not extra inference.
+The released trusted sidecar bypasses agent domain ACLs, including explicit
+domain blocks; an omitted allowlist entry does not deny catalogue traffic.
+For the denied case only, a test-owned Docker forwarding wrapper synchronously
+creates a private Compose override **before** forwarding the real container
+startup. It prepends one Squid deny rule matching only source `172.30.0.30/32`,
+method `CONNECT`, exact host `api.github.com`, and port `443`. All remaining
+generated policy and released binaries/images stay unchanged; there is no
+post-start reload race. Evidence identifies this as **test-injected policy**,
+records generated/injected policy hashes, and verifies the running Squid
+configuration. It tests loader fallback under a real imposed denial, not
+ordinary agent-domain enforcement on the trusted sidecar.
 A metadata-only TCP SYN observer starts before each fallback proxy: offline must
 have zero observed outbound TCP attempts and zero proxy-origin Squid requests;
 denied must have an actual `api.github.com:443` Squid 403 and no other Squid
