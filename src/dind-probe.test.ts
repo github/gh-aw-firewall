@@ -33,6 +33,45 @@ describe('probeSplitFilesystem', () => {
     mockedExeca.mockResolvedValueOnce({ exitCode: 1 } as any);
   }
 
+  it.each([
+    { umask: 0o022, dockerExitCode: 0 },
+    { umask: 0o000, dockerExitCode: 0 },
+    { umask: 0o022, dockerExitCode: 1 },
+    { umask: 0o000, dockerExitCode: 1 },
+  ])('creates private directories with umask $umask and Docker exit code $dockerExitCode', async ({
+    umask,
+    dockerExitCode,
+  }) => {
+    const parentDir = path.join(probeDir, 'new-parent');
+    const workDir = path.join(parentDir, 'work');
+    mockedExeca.mockResolvedValueOnce({ exitCode: dockerExitCode } as Awaited<ReturnType<typeof execa>>);
+    if (dockerExitCode === 0) {
+      mockedExeca.mockResolvedValueOnce({ exitCode: 0 } as Awaited<ReturnType<typeof execa>>);
+    }
+    const previousUmask = process.umask(umask);
+
+    try {
+      const result = await probeSplitFilesystem(workDir);
+
+      expect(result.inconclusive).toBe(dockerExitCode !== 0);
+      expect(fs.statSync(parentDir).mode & 0o777).toBe(0o700);
+      expect(fs.statSync(workDir).mode & 0o777).toBe(0o700);
+      expect(fs.readdirSync(workDir)).toEqual([]);
+    } finally {
+      process.umask(previousUmask);
+    }
+  });
+
+  it.each([0o700, 0o755, 0o777])('preserves existing directory permissions (%i)', async mode => {
+    fs.chmodSync(probeDir, mode);
+    mockDockerReachable();
+    mockedExeca.mockResolvedValueOnce({ exitCode: 0 } as Awaited<ReturnType<typeof execa>>);
+
+    await probeSplitFilesystem(probeDir);
+
+    expect(fs.statSync(probeDir).mode & 0o777).toBe(mode);
+  });
+
   it('returns no prefix when daemon can see runner filesystem directly', async () => {
     mockDockerReachable();
     // Direct mount succeeds (exit code 0)
@@ -242,4 +281,3 @@ describe('probeSplitFilesystem', () => {
     expect(probeOptions.reject).toBe(false);
   });
 });
-

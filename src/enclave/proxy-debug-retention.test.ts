@@ -3,7 +3,8 @@ import * as path from 'path';
 import { createHash } from 'crypto';
 import execa from 'execa';
 import { setAwfDockerHost } from '../docker-host';
-import { HostExecutorInvocationDiagnostics, hostExecutorVmRunId } from './host-executor-journal';
+import { hostExecutorVmRunId } from './host-executor-journal';
+import { HostExecutorInvocationDiagnostics } from './host-executor-diagnostics';
 import {
   captureEnclaveProxyContainerLog, preservePublicEnclaveProxyDiagnostics,
 } from './proxy-debug-retention';

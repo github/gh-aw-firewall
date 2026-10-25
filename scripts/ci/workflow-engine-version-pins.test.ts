@@ -30,7 +30,26 @@ describe('workflow engine CLI version pins', () => {
     },
   );
 
-  it.each(['dependency-security-monitor', 'test-coverage-reporter'])(
+  it('pins the enclave Issues smoke install to the Copilot 1.0.80 checksum manifest', () => {
+    const source = fs.readFileSync(
+      path.join(workflowsDir, 'smoke-enclave-issues-read.md'), 'utf-8',
+    );
+    const lock = fs.readFileSync(
+      path.join(workflowsDir, 'smoke-enclave-issues-read.lock.yml'), 'utf-8',
+    );
+    const version = '1.0.80';
+    const checksum = '243949dfde6b9c0d5852c4bc430f46ddcaacdfc74353bd1b1d2bccce3b789a48';
+    const metadataLine = lock.split('\n').find(line => line.startsWith('# gh-aw-metadata: '));
+
+    const normalizedSource = source.replace(`version: "${version}"`, `version: ${version}`);
+    expect(normalizedSource)
+      .toContain(`engine:\n  id: copilot\n  version: ${version}\n  checksums-sha256: ${checksum}`);
+    expect(JSON.parse(metadataLine!.slice('# gh-aw-metadata: '.length)).engine_versions.copilot)
+      .toBe(version);
+    expect(lock).toContain(`install_copilot_cli.sh" ${version} --checksums-sha256 ${checksum}`);
+  });
+
+  it.each(['dependency-security-monitor', 'test-coverage-reporter', 'security-review'])(
     'pins %s install to a trusted Copilot checksum manifest',
     workflow => {
       const source = fs.readFileSync(

@@ -8,8 +8,8 @@ import {
 } from '../enclave/cloud-hypervisor-lifecycle';
 import {
   HOST_EXECUTOR_STORAGE_ROOT, hostExecutorStorageDirectory, hostExecutorVmRunId,
-  type HostExecutorResourceJournal,
 } from '../enclave/host-executor-journal';
+import type { HostExecutorResourceJournal } from '../enclave/host-executor-resource-journal';
 import type { CloudHypervisorEnclaveHostServiceOptions } from '../enclave/cloud-hypervisor-host-service';
 import type { HostExecutorInvocationPlan, HostExecutorRunState } from '../enclave/host-executor-server';
 import {

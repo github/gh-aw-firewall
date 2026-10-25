@@ -176,7 +176,7 @@ function writeStartupFailureDiagnostic(
   };
   try {
     const proxyLogsDir = config.proxyLogsDir || path.join(config.workDir, 'squid-logs');
-    fs.mkdirSync(proxyLogsDir, { recursive: true, mode: 0o755 });
+    fs.mkdirSync(proxyLogsDir, { recursive: true, mode: 0o700 });
     try {
       assertRealDirectory(proxyLogsDir);
     } catch {

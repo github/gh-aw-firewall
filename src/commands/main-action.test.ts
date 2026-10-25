@@ -584,7 +584,7 @@ describe('createMainAction', () => {
 
       expect(mockMkdirSync).toHaveBeenCalledWith('/synthetic/awf-test/squid-logs', {
         recursive: true,
-        mode: 0o755,
+        mode: 0o700,
       });
       expect(mockWriteFileSync).toHaveBeenCalledWith(
         42,

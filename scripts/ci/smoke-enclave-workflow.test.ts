@@ -899,22 +899,32 @@ describe('smoke enclave build workflow', () => {
   const source = fs.readFileSync(sourcePath, 'utf8');
   const lock = fs.readFileSync(lockPath, 'utf8');
 
-  it('installs the authored CLI version above the generated feature minimum', () => {
+  it('installs the authored CLI version above the generated feature minimum with a verified checksum', () => {
     const frontmatter = yaml.load(source.split('---')[1]) as {
-      engine: { version: string };
+      engine: { version: string; 'checksums-sha256': string };
     };
     const compiled = yaml.load(lock) as {
-      jobs: { agent: { steps: Array<{ name: string; run?: string; env?: Record<string, string> }> } };
+      jobs: { agent: {
+        env: Record<string, string>;
+        steps: Array<{ name: string; run?: string; env?: Record<string, string> }>;
+      } };
     };
     const install = compiled.jobs.agent.steps.find(step =>
       step.name === 'Install GitHub Copilot CLI');
     const minimum = install?.env?.GH_AW_COPILOT_MIN_VERSION;
+    // Reviewed by setup/sh/release_integrity.sh in the pinned gh-aw-actions revision.
+    expect(frontmatter.engine).toMatchObject({
+      version: '1.0.98',
+      'checksums-sha256': '372f0c8d3d50076455cd19ef080dc59dc2a32401d8b2d4f77ce190c8ab13bc59',
+    });
+    expect(lock).toContain('github/gh-aw-actions/setup@40fb427c047bb9f77324054adeb574e04c9481aa');
+    expect(compiled.jobs.agent.env.GH_AW_ENGINE_VERSION).toBe(frontmatter.engine.version);
     expect(minimum).toMatch(/^\d+\.\d+\.\d+$/);
     expect('1.0.34'.localeCompare(minimum!, 'en', { numeric: true })).toBeLessThan(0);
     expect(frontmatter.engine.version.localeCompare(minimum!, 'en', { numeric: true }))
       .toBeGreaterThanOrEqual(0);
     expect(install?.run).toBe(
-      `bash "\${RUNNER_TEMP}/gh-aw/actions/install_copilot_cli.sh" ${frontmatter.engine.version}`
+      `bash "\${RUNNER_TEMP}/gh-aw/actions/install_copilot_cli.sh" ${frontmatter.engine.version} --checksums-sha256 ${frontmatter.engine['checksums-sha256']}`
     );
     expect(lock).toContain(`"engine_versions":{"copilot":"${frontmatter.engine.version}"}`);
   });
@@ -1007,6 +1017,18 @@ describe('smoke enclave build workflow', () => {
 describe('smoke enclave issues workflow', () => {
   const source = fs.readFileSync(issuesSourcePath, 'utf8');
   const lock = fs.readFileSync(issuesLockPath, 'utf8');
+
+  it('pins the Copilot CLI checksum manifest before agent execution', () => {
+    const frontmatter = yaml.load(source.split('---')[1]) as {
+      engine: { version: string; 'checksums-sha256': string };
+    };
+    const checksum = '243949dfde6b9c0d5852c4bc430f46ddcaacdfc74353bd1b1d2bccce3b789a48';
+    expect(frontmatter.engine.version).toBe('1.0.80');
+    expect(frontmatter.engine['checksums-sha256']).toBe(checksum);
+    expect(lock).toContain(
+      `bash "\${RUNNER_TEMP}/gh-aw/actions/install_copilot_cli.sh" 1.0.80 --checksums-sha256 ${checksum}`
+    );
+  });
 
   it('allows Copilot to invoke only the required enclave tool', () => {
     expect(source).toContain('args: ["--allow-tool", "awf-enclave(enclave_run_agent)"]');
@@ -1223,6 +1245,24 @@ describe('smoke enclave issues workflow', () => {
 describe('smoke enclave dynamic issues workflow', () => {
   const source = fs.readFileSync(dynamicSourcePath, 'utf8');
   const lock = fs.readFileSync(dynamicLockPath, 'utf8');
+
+  it('passes the pinned Copilot release checksum to the installer', () => {
+    const frontmatter = yaml.load(source.split('---')[1]) as {
+      engine: { version: string; 'checksums-sha256': string };
+    };
+    const compiled = yaml.load(lock) as {
+      jobs: { agent: { steps: Array<{ name: string; run?: string }> } };
+    };
+    const install = compiled.jobs.agent.steps.find(step =>
+      step.name === 'Install GitHub Copilot CLI');
+    const checksum = '243949dfde6b9c0d5852c4bc430f46ddcaacdfc74353bd1b1d2bccce3b789a48';
+
+    expect(frontmatter.engine.version).toBe('1.0.80');
+    expect(frontmatter.engine['checksums-sha256']).toBe(checksum);
+    expect(install?.run).toBe(
+      `bash "\${RUNNER_TEMP}/gh-aw/actions/install_copilot_cli.sh" 1.0.80 --checksums-sha256 ${checksum}`
+    );
+  });
 
   it('allows Copilot to invoke only the required enclave tool', () => {
     expect(source).toContain('args: ["--allow-tool", "awf-enclave(enclave_run_agent)"]');

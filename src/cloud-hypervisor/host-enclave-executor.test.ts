@@ -31,7 +31,8 @@ import type {
   HostExecutorRunState,
 } from '../enclave/host-executor-server';
 import { startHostExecutorServer } from '../enclave/host-executor-server';
-import * as hostExecutorJournal from '../enclave/host-executor-journal';
+import * as hostExecutorDiagnostics from '../enclave/host-executor-diagnostics';
+import * as hostExecutorResourceJournal from '../enclave/host-executor-resource-journal';
 import type { CloudHypervisorOptions } from '../types/runtime-options';
 import type { CloudHypervisorCleanupRegistry } from './cleanup-registry';
 import type {
@@ -572,10 +573,10 @@ describe('readBoundedCloudHypervisorEnclaveResult', () => {
           await failingCleanupBackend.close();
           await fs.rm(invocationHostDir, { recursive: true, force: true });
 
-          const milestone = hostExecutorJournal.HostExecutorInvocationDiagnostics.prototype.milestone;
+          const milestone = hostExecutorDiagnostics.HostExecutorInvocationDiagnostics.prototype.milestone;
           const persistenceFailure = jest.spyOn(
-            hostExecutorJournal.HostExecutorInvocationDiagnostics.prototype, 'milestone',
-          ).mockImplementation(function (this: hostExecutorJournal.HostExecutorInvocationDiagnostics, ...args) {
+            hostExecutorDiagnostics.HostExecutorInvocationDiagnostics.prototype, 'milestone',
+          ).mockImplementation(function (this: hostExecutorDiagnostics.HostExecutorInvocationDiagnostics, ...args) {
             milestone.apply(this, args);
             if (args[0] === 'cleanup-complete') this.persistenceFailed = true;
           });
@@ -685,7 +686,7 @@ describe('readBoundedCloudHypervisorEnclaveResult', () => {
             agentId: 'agent_123\n',
             bearer: `${agentPolicy.githubBearer}\n`,
           });
-          const [file] = hostExecutorJournal.readHostExecutorInvocationDiagnostics(runState);
+          const [file] = hostExecutorDiagnostics.readHostExecutorInvocationDiagnostics(runState);
           const evidence = JSON.parse(file.contents);
           expect(evidence).not.toHaveProperty('developmentSupervisor');
           expect(sessionReads).toEqual([{ stopped: true, unmounted: false }]);
@@ -703,7 +704,7 @@ describe('readBoundedCloudHypervisorEnclaveResult', () => {
           unmounted = false;
           await expect(backend.execute(plan, new AbortController().signal))
             .resolves.toEqual({ outcome: 'executor-failure' });
-          const failed = JSON.parse(hostExecutorJournal.readHostExecutorInvocationDiagnostics(runState)[0].contents);
+          const failed = JSON.parse(hostExecutorDiagnostics.readHostExecutorInvocationDiagnostics(runState)[0].contents);
           expect(failed.failure).toMatchObject({
             stage: 'host-invocation/guest-execute', reason: 'guest-disconnected',
           });
@@ -1153,7 +1154,7 @@ describe('readBoundedCloudHypervisorEnclaveResult', () => {
               return {
                 ...failingManager,
                 stop: async () => {
-                  const persisted = hostExecutorJournal.readHostExecutorInvocationDiagnostics(runState)
+                  const persisted = hostExecutorDiagnostics.readHostExecutorInvocationDiagnostics(runState)
                     .find(file => JSON.parse(file.contents).invocationId === plan.invocationId)!;
                   expect(JSON.parse(persisted.contents)).toMatchObject({
                     failure: { stage: 'host-invocation/manager-start', code: 'EPERM' },
@@ -1166,7 +1167,7 @@ describe('readBoundedCloudHypervisorEnclaveResult', () => {
           });
           await expect(combinedFailureBackend.execute(plan, new AbortController().signal))
             .resolves.toEqual({ outcome: 'executor-failure', cleanupComplete: false });
-          const persisted = hostExecutorJournal.readHostExecutorInvocationDiagnostics(runState)
+          const persisted = hostExecutorDiagnostics.readHostExecutorInvocationDiagnostics(runState)
             .find(file => JSON.parse(file.contents).invocationId === plan.invocationId)!;
           const diagnostic = JSON.parse(persisted.contents);
           expect(diagnostic).toMatchObject({
@@ -1286,7 +1287,7 @@ describe('readBoundedCloudHypervisorEnclaveResult', () => {
       'assertTrustedHostTool',
     ).mockResolvedValue();
     const removeSnapshot = jest.fn(async () => undefined);
-    const reap = jest.spyOn(hostExecutorJournal, 'reapHostExecutorResources').mockResolvedValue();
+    const reap = jest.spyOn(hostExecutorResourceJournal, 'reapHostExecutorResources').mockResolvedValue();
     const published: HostPreflightProgress[] = [];
 
     try {

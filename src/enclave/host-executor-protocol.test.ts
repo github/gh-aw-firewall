@@ -3,7 +3,8 @@ import * as net from 'net';
 import * as path from 'path';
 import * as os from 'os';
 import { performance } from 'perf_hooks';
-import { HostExecutorJournal, readHostExecutorInvocationDiagnostics } from './host-executor-journal';
+import { HostExecutorJournal } from './host-executor-journal';
+import { readHostExecutorInvocationDiagnostics } from './host-executor-diagnostics';
 import {
   HOST_EXECUTOR_PROTOCOL_VERSION,
   HOST_EXECUTOR_MAX_REQUEST_BYTES,

@@ -23,7 +23,7 @@ import {
   createCloudHypervisorInfrastructureSnapshot,
 } from './test-fixtures.test-utils';
 import * as cloudHypervisorManager from './manager';
-import { readHostExecutorInvocationDiagnostics } from '../enclave/host-executor-journal';
+import { readHostExecutorInvocationDiagnostics } from '../enclave/host-executor-diagnostics';
 import {
   PRIMARY_READINESS_DIRECTORY,
   PRIMARY_READINESS_FILENAME,

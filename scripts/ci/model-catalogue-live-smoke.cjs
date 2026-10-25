@@ -121,7 +121,8 @@ function run(command, args, options = {}) {
 function failureCode(error) {
   const firstLine = error?.message?.split('\n')[0];
   const allowed = new Set([
-    'approved_actions_only', 'trusted_main_only', 'trusted_event_only',
+    'approved_actions_only', 'trusted_ref_only', 'trusted_event_only', 'trusted_event_metadata',
+    'trusted_checkout_mismatch', 'reviewed_head_sha_required', 'reviewed_head_sha_mismatch',
     'approved_copilot_credential_missing', 'release_download', 'release_digest', 'release_version',
     'existing_awf_containers', 'existing_awf_networks', 'smoke_subprocess_failed', 'smoke_case_failed',
     'awf_exited_before_readiness', 'catalogue_readiness_timeout', 'catalogue_unexpected_fallback',
@@ -277,7 +278,8 @@ function assertNetwork(mode, packets, captureSummary, squidLog) {
 function config(mode) {
   return {
     network: { isolation: true, allowDomains: mode === 'denied' ? ['example.invalid']
-      : mode === 'offline' ? ['api.githubcopilot.com'] : ['api.github.com', 'api.githubcopilot.com'] },
+      : mode === 'offline' ? ['api.githubcopilot.com'] : ['api.github.com', 'api.githubcopilot.com'],
+    ...(mode === 'denied' ? { blockDomains: ['api.github.com'] } : {}) },
     apiProxy: { enabled: true, maxAiCredits: 1, maxRuns: 1,
       modelCatalogue: { enabled: true, source: 'github', offline: mode === 'offline',
         timeoutMs: 30000, refreshSeconds: 3600, cacheDirectory: CACHE } },
@@ -392,6 +394,46 @@ function assertIsolatedHost() {
     '', 'existing_awf_networks');
 }
 
+function observeStartup(child) {
+  const state = { state: 'starting', last_stage: 'spawn', reason: 'unknown' };
+  let pending = '';
+  const classify = line => {
+    const plain = line.replace(/\x1b\[[0-9;]*m/g, '');
+    if (plain === '[INFO] Generating configuration files...') state.last_stage = 'configuration';
+    if (plain === '[INFO] Starting containers...') state.last_stage = 'containers';
+    if (plain.startsWith('[ERROR] Fatal error: Error: Refusing to use work directory accessible by group or other users:')) {
+      state.reason = 'work_directory_permissions';
+    } else if (plain.startsWith('[ERROR] Fatal error: Error: Refusing to use work directory not owned by the invoking user:')) {
+      state.reason = 'work_directory_owner';
+    } else if (plain === '[ERROR] \u274c --network-isolation requires a reachable Docker daemon, but none was found.') {
+      state.reason = 'docker_unavailable';
+    }
+  };
+  child.stderr.on('data', bytes => {
+    // Retain at most one bounded line in memory; never persist or relay raw stderr.
+    for (const part of bytes.toString('utf8').split(/(?<=\n)/)) {
+      if (pending.length < 4096) pending += part.slice(0, 4096 - pending.length);
+      if (part.endsWith('\n')) {
+        classify(pending.trimEnd());
+        pending = '';
+      }
+    }
+  });
+  child.on('error', error => {
+    state.state = 'exited';
+    state.reason = 'spawn_failed';
+    state.spawn_error = ['ENOENT', 'EACCES', 'ENOEXEC'].includes(error.code) ? error.code : 'other';
+  });
+  child.on('close', (code, signal) => {
+    if (pending) classify(pending);
+    pending = '';
+    state.state = 'exited';
+    state.exit_code = Number.isSafeInteger(code) && code >= 0 && code <= 255 ? code : null;
+    if (signal) state.signal = ['SIGTERM', 'SIGKILL', 'SIGINT'].includes(signal) ? signal : 'other';
+  });
+  return () => ({ ...state });
+}
+
 async function exercise(binary, root, mode, evidence) {
   assertIsolatedHost();
   const directory = path.join(root, mode);
@@ -399,6 +441,9 @@ async function exercise(binary, root, mode, evidence) {
   const configFile = path.join(directory, 'config.json');
   fs.writeFileSync(configFile, JSON.stringify(config(mode)), { mode: 0o600 });
   const workDir = path.join(directory, 'work');
+  // The released filesystem probe creates absent explicit work dirs as 0755.
+  // Create our new private directory before that probe, without relaxing AWF's check.
+  fs.mkdirSync(workDir, { mode: 0o700 });
   const composeFile = path.join(workDir, 'docker-compose.yml');
   const compose = ['compose', '-f', composeFile];
   const env = { PATH: process.env.PATH, HOME: process.env.HOME };
@@ -411,7 +456,8 @@ async function exercise(binary, root, mode, evidence) {
   let captured = false;
   let exited = false;
   const child = spawn(binary, ['--config', configFile, '--work-dir', workDir,
-    '--keep-containers', '--', 'sleep', '240'], { env, stdio: 'ignore' });
+    '--keep-containers', '--', 'sleep', '240'], { env, stdio: ['ignore', 'ignore', 'pipe'] });
+  const startup = observeStartup(child);
   child.on('error', () => { exited = true; });
   const closed = new Promise(resolve => child.on('close', () => { exited = true; resolve(); }));
   try {
@@ -465,6 +511,9 @@ async function exercise(binary, root, mode, evidence) {
     }
     evidence.status = 'passed';
     evidence.phase = 'complete';
+  } catch (error) {
+    if (evidence.phase === 'readiness') evidence.startup = startup();
+    throw error;
   } finally {
     // Signal only this AWF invocation; compose down addresses only its services.
     try {
@@ -499,13 +548,60 @@ function downloadRelease(binary, execute = run, expectedDigest = RELEASE.binaryS
   fs.chmodSync(binary, 0o700);
 }
 
+function validateExecutionContext(env, event, checkoutSha) {
+  assert.equal(env.GITHUB_ACTIONS, 'true', 'approved_actions_only');
+  assert.ok(['push', 'workflow_dispatch'].includes(env.GITHUB_EVENT_NAME), 'trusted_event_only');
+  const main = env.GITHUB_REF === 'refs/heads/main';
+  const repair = env.GITHUB_REF === 'refs/heads/lpcox-fix-catalogue-smoke-startup';
+  assert.ok(main || repair, 'trusted_ref_only');
+  assert.ok(main || env.GITHUB_EVENT_NAME === 'workflow_dispatch', 'trusted_event_only');
+  assert.match(env.GITHUB_SHA || '', COMMIT, 'trusted_event_metadata');
+  assert.equal(env.GITHUB_REPOSITORY, 'github/gh-aw-firewall', 'trusted_event_metadata');
+  assert.equal(event?.repository?.full_name, env.GITHUB_REPOSITORY, 'trusted_event_metadata');
+  assert.ok(typeof env.GITHUB_ACTOR === 'string' && env.GITHUB_ACTOR.length > 0, 'trusted_event_metadata');
+  assert.equal(event?.sender?.login, env.GITHUB_ACTOR, 'trusted_event_metadata');
+  assert.equal(env.GITHUB_WORKFLOW_REF,
+    `github/gh-aw-firewall/.github/workflows/smoke-model-catalogue.yml@${env.GITHUB_REF}`,
+    'trusted_event_metadata');
+  assert.equal(env.GITHUB_WORKFLOW_SHA, env.GITHUB_SHA, 'trusted_event_metadata');
+  assert.equal(checkoutSha, env.GITHUB_SHA, 'trusted_checkout_mismatch');
+  if (env.GITHUB_EVENT_NAME === 'push') {
+    assert.equal(event.ref, env.GITHUB_REF, 'trusted_event_metadata');
+    assert.equal(event.after, env.GITHUB_SHA, 'trusted_event_metadata');
+    assert.equal(event.inputs, undefined, 'trusted_event_metadata');
+  } else {
+    // GitHub dispatch metadata can use a bare branch or a fully qualified ref.
+    assert.ok([env.GITHUB_REF, env.GITHUB_REF.slice('refs/heads/'.length)].includes(event.ref),
+      'trusted_event_metadata');
+  }
+  const reviewed = event.inputs?.reviewed_head_sha;
+  if (repair) assert.ok(typeof reviewed === 'string' && reviewed.length > 0, 'reviewed_head_sha_required');
+  if (reviewed !== undefined && reviewed !== '') {
+    assert.ok(typeof reviewed === 'string' && COMMIT.test(reviewed), 'reviewed_head_sha_mismatch');
+    assert.equal(reviewed, env.GITHUB_SHA, 'reviewed_head_sha_mismatch');
+  }
+  return { mode: repair ? 'reviewed_repair_branch' : 'main', ref: env.GITHUB_REF, sha: env.GITHUB_SHA };
+}
+
+function readExecutionContext(env = process.env) {
+  assert.ok(typeof env.GITHUB_EVENT_PATH === 'string' && path.isAbsolute(env.GITHUB_EVENT_PATH),
+    'trusted_event_metadata');
+  const descriptor = fs.openSync(env.GITHUB_EVENT_PATH, 'r');
+  try {
+    const stat = fs.fstatSync(descriptor);
+    assert.ok(stat.isFile() && stat.size <= 1024 * 1024, 'trusted_event_metadata');
+    const event = JSON.parse(fs.readFileSync(descriptor, 'utf8'));
+    return validateExecutionContext(env, event, run('git', ['rev-parse', 'HEAD']));
+  } finally {
+    fs.closeSync(descriptor);
+  }
+}
+
 async function main() {
-  assert.equal(process.env.GITHUB_ACTIONS, 'true', 'approved_actions_only');
-  assert.equal(process.env.GITHUB_REF, 'refs/heads/main', 'trusted_main_only');
-  assert.ok(['push', 'workflow_dispatch'].includes(process.env.GITHUB_EVENT_NAME), 'trusted_event_only');
+  const execution = readExecutionContext();
   assert.ok(process.env.COPILOT_GITHUB_TOKEN, 'approved_copilot_credential_missing');
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-catalogue-smoke-'));
-  const evidence = { schemaVersion: 1, release: RELEASE, cases: {} };
+  const evidence = { schemaVersion: 1, release: RELEASE, execution, cases: {} };
   const output = path.resolve(process.env.CATALOGUE_SMOKE_EVIDENCE);
   let stage = 'release';
   try {
@@ -521,6 +617,7 @@ async function main() {
       } catch (error) {
         evidence.cases[mode].status = 'failed';
         evidence.cases[mode].failure = failureCode(error);
+        evidence.failed_stage ??= mode;
         // Still exercise independent fallback cases if live activation/inference failed.
       }
     }
@@ -528,7 +625,7 @@ async function main() {
     evidence.status = 'passed';
   } catch (error) {
     evidence.status = 'failed';
-    evidence.failed_stage = stage;
+    evidence.failed_stage ??= stage;
     evidence.failure = failureCode(error);
     process.exitCode = 1;
   } finally {
@@ -550,7 +647,8 @@ async function main() {
 }
 
 module.exports = { RELEASE, config, failureCode, projectCatalogue, waitForCatalogue, selectModel,
-  assertAccounting, assertNetwork, publication, inference, bundledPricing, downloadRelease, exercise };
+  assertAccounting, assertNetwork, publication, inference, bundledPricing, downloadRelease, exercise, observeStartup,
+  validateExecutionContext, readExecutionContext };
 if (require.main === module) main().catch(error => {
   console.error(`Model catalogue smoke failed: ${failureCode(error)}; raw diagnostics suppressed.`);
   process.exitCode = 1;

@@ -49,6 +49,35 @@ describe('startup progress descriptor publication', () => {
     expect(fs.statSync(recordPath).mode & 0o777).toBe(0o644);
   });
 
+  it.each([0o022, 0o000])('creates fresh enclave startup directories privately with umask %i', (umask) => {
+    const workDir = path.join(directory, 'fresh-work');
+    const startupConfig = { ...config, workDir, proxyLogsDir: undefined };
+    const previousUmask = process.umask(umask);
+    try {
+      initializeEnclaveStartupProgress(startupConfig, () => {
+        expect(testHelpers.writeStartupFailureDiagnostic(
+          startupConfig, new Error('Enclave startup in progress'), 'enclave-startup-progress',
+        )).toBe('written');
+      });
+
+      expect(fs.statSync(workDir).mode & 0o777).toBe(0o700);
+      expect(fs.statSync(path.join(workDir, 'squid-logs')).mode & 0o777).toBe(0o700);
+    } finally {
+      process.umask(previousUmask);
+    }
+  });
+
+  it('preserves permissions on a reused enclave startup directory', () => {
+    fs.chmodSync(directory, 0o755);
+    initializeEnclaveStartupProgress(config, () => {
+      expect(testHelpers.writeStartupFailureDiagnostic(
+        config, new Error('Enclave startup in progress'), 'enclave-startup-progress',
+      )).toBe('written');
+    });
+
+    expect(fs.statSync(directory).mode & 0o777).toBe(0o755);
+  });
+
   it.each([
     ['symlink', 'unsafe-symlink'],
     ['hardlink', 'unsafe-link-count'],

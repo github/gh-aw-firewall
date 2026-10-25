@@ -59,8 +59,8 @@ export async function probeSplitFilesystem(probeDir: string): Promise<ProbeResul
   const sentinelPath = path.join(probeDir, sentinelName);
 
   try {
-    // Ensure probe dir exists
-    fs.mkdirSync(probeDir, { recursive: true });
+    // Match work-directory privacy requirements without changing reused directories.
+    fs.mkdirSync(probeDir, { recursive: true, mode: 0o700 });
     fs.writeFileSync(sentinelPath, 'awf-probe');
 
     // Step 0: Verify Docker daemon is reachable (fail-fast)
@@ -170,4 +170,3 @@ async function runProbe(mountSource: string, sentinelName: string): Promise<Prob
     return 'error';
   }
 }
-

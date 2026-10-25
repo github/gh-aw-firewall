@@ -37,6 +37,24 @@ The `system.*` section is compose-only: sbx gets its system libraries from a
 guest image, not from host mounts. Cloud Hypervisor also boots from a guest
 image and is not driven by this config at all.
 
+## Host work-directory permissions
+
+The host work directory (`--work-dir`) holds generated configuration, including
+`docker-compose.yml`, which can contain credentials. When the initial
+runner/daemon filesystem probe creates a missing work directory, it requests
+mode `0700` for that directory and any missing parents. Under `umask 022` or
+`000`, these new directories remain `0700`, including when Docker is
+unreachable.
+
+The probe does not chmod existing directories. Subsequent configuration
+validation still rejects work directories with group or other access,
+untrusted ownership, or a symlink at the work-directory path. Reused work
+directories must already satisfy those checks.
+
+These host permissions do not change the sandbox mount allow/deny lists or
+establish isolation from a same-UID agent. Protected command-output capture
+separately checks its storage against effective agent-visible mounts.
+
 ## How each runtime applies the credential deny list
 
 The runtime families that read the policy hide credentials with different

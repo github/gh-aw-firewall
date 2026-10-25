@@ -3,8 +3,9 @@ import { promises as fs } from 'fs';
 import * as path from 'path';
 import type { CloudHypervisorEnclaveHostServiceOptions } from '../enclave/cloud-hypervisor-host-service';
 import {
-  HostExecutorResourceJournal, hostExecutorStorageDirectory, hostExecutorVmRunId,
+  hostExecutorStorageDirectory, hostExecutorVmRunId,
 } from '../enclave/host-executor-journal';
+import { HostExecutorResourceJournal } from '../enclave/host-executor-resource-journal';
 import { HOST_EXECUTOR_ENTRY_ID_PATTERN, HOST_EXECUTOR_ID_PATTERN } from '../enclave/host-executor-protocol';
 import type { HostExecutorInvocationPlan } from '../enclave/host-executor-server';
 import type { CloudHypervisorOptions } from '../types/runtime-options';
