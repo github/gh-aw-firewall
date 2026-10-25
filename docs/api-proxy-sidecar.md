@@ -595,8 +595,10 @@ claim hosted end-to-end Messages validation.
 In gh-aw workflows, Claude and Codex inline sub-agent models are resolved by the
 **gh-aw harness before the engine starts**, not just by AWF's per-request alias
 rewriting. Declared aliases resolve to concrete IDs within the engine's
-provisioned provider scope, using AWF `/reflect` availability and endpoint metadata.
-An unavailable or incompatible workflow-declared model stops engine startup.
+provisioned provider scope, using AWF `/reflect` availability. Unavailable
+workflow-declared models stop engine startup. Codex additionally checks `/responses`
+support when its provider publishes per-model endpoint metadata; Claude sub-agent
+resolution does not preflight Messages compatibility.
 
 Claude's `model: inherit` uses the parent model without a separate resolution
 record. gh-aw applies resolved IDs to generated Claude agent files and generates
