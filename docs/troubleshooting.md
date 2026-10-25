@@ -91,6 +91,32 @@ through its provider environment variables. Compile-time warnings and guidance
 in gh-aw's sub-agent reference need to be implemented in the
 [github/gh-aw](https://github.com/github/gh-aw) repository.
 
+### Claude/Codex Inline Sub-Agent Model Resolution Fails
+
+**Problem:** A gh-aw workflow refuses to start Claude or Codex because a declared
+inline sub-agent model cannot be resolved or verified.
+
+**Cause:** The gh-aw harness resolves sub-agent aliases before starting the engine,
+within the engine's provisioned provider scope. A model advertised by another
+provider is not sufficient: it must be available through the configured AWF
+`/reflect` endpoints and support the engine's required wire API. An alias does not
+make an incompatible model portable between engines.
+
+**Solution:** Inspect the harness startup diagnostics and `model.resolution`
+records for the affected agent name, configured model, resolved model and failure
+cause. Verify the same run's `/reflect` provider inventory and endpoint metadata
+before changing model pins. Claude's `model: inherit` uses the parent model and
+does not emit a separate resolution record. For Codex, native TOML roles under
+`$CODEX_HOME/agents` are generated only after model resolution succeeds, so missing
+roles can be a consequence of the resolution failure.
+
+This startup failure is distinct from AWF's non-blocking `requestedModel`
+validation and its per-request `model_resolution` proxy logs. See the
+[resolution boundary](api-proxy-sidecar.md#gh-aw-inline-sub-agent-model-resolution)
+and gh-aw's [model/engine troubleshooting guide](https://github.com/github/gh-aw/blob/main/.github/aw/debug-model-engine-misconfiguration.md).
+Compiler and harness fixes belong in [github/gh-aw](https://github.com/github/gh-aw);
+changing AWF's proxy alias map alone cannot fix native agent registration.
+
 ## Container Issues
 
 ### Container Won't Start

@@ -904,19 +904,25 @@ describe('smoke enclave build workflow', () => {
       engine: { version: string; 'checksums-sha256': string };
     };
     const compiled = yaml.load(lock) as {
-      jobs: { agent: { steps: Array<{ name: string; run?: string; env?: Record<string, string> }> } };
+      jobs: { agent: {
+        env: Record<string, string>;
+        steps: Array<{ name: string; run?: string; env?: Record<string, string> }>;
+      } };
     };
     const install = compiled.jobs.agent.steps.find(step =>
       step.name === 'Install GitHub Copilot CLI');
     const minimum = install?.env?.GH_AW_COPILOT_MIN_VERSION;
+    // Reviewed by setup/sh/release_integrity.sh in the pinned gh-aw-actions revision.
+    expect(frontmatter.engine).toMatchObject({
+      version: '1.0.98',
+      'checksums-sha256': '018625eac68670d66ede904b9b82cdcd6ab8f87ba20e6e1fbdf0b62c8295d5be',
+    });
+    expect(lock).toContain('github/gh-aw-actions/setup@e7519e6442ef74dda80a1627315ad827f402309c');
+    expect(compiled.jobs.agent.env.GH_AW_ENGINE_VERSION).toBe(frontmatter.engine.version);
     expect(minimum).toMatch(/^\d+\.\d+\.\d+$/);
     expect('1.0.34'.localeCompare(minimum!, 'en', { numeric: true })).toBeLessThan(0);
     expect(frontmatter.engine.version.localeCompare(minimum!, 'en', { numeric: true }))
       .toBeGreaterThanOrEqual(0);
-    expect(frontmatter.engine).toMatchObject({
-      version: '1.0.80',
-      'checksums-sha256': '243949dfde6b9c0d5852c4bc430f46ddcaacdfc74353bd1b1d2bccce3b789a48',
-    });
     expect(install?.run).toBe(
       `bash "\${RUNNER_TEMP}/gh-aw/actions/install_copilot_cli.sh" ${frontmatter.engine.version} --checksums-sha256 ${frontmatter.engine['checksums-sha256']}`
     );
@@ -1011,6 +1017,18 @@ describe('smoke enclave build workflow', () => {
 describe('smoke enclave issues workflow', () => {
   const source = fs.readFileSync(issuesSourcePath, 'utf8');
   const lock = fs.readFileSync(issuesLockPath, 'utf8');
+
+  it('pins the Copilot CLI checksum manifest before agent execution', () => {
+    const frontmatter = yaml.load(source.split('---')[1]) as {
+      engine: { version: string; 'checksums-sha256': string };
+    };
+    const checksum = '243949dfde6b9c0d5852c4bc430f46ddcaacdfc74353bd1b1d2bccce3b789a48';
+    expect(frontmatter.engine.version).toBe('1.0.80');
+    expect(frontmatter.engine['checksums-sha256']).toBe(checksum);
+    expect(lock).toContain(
+      `bash "\${RUNNER_TEMP}/gh-aw/actions/install_copilot_cli.sh" 1.0.80 --checksums-sha256 ${checksum}`
+    );
+  });
 
   it('allows Copilot to invoke only the required enclave tool', () => {
     expect(source).toContain('args: ["--allow-tool", "awf-enclave(enclave_run_agent)"]');
@@ -1227,6 +1245,24 @@ describe('smoke enclave issues workflow', () => {
 describe('smoke enclave dynamic issues workflow', () => {
   const source = fs.readFileSync(dynamicSourcePath, 'utf8');
   const lock = fs.readFileSync(dynamicLockPath, 'utf8');
+
+  it('passes the pinned Copilot release checksum to the installer', () => {
+    const frontmatter = yaml.load(source.split('---')[1]) as {
+      engine: { version: string; 'checksums-sha256': string };
+    };
+    const compiled = yaml.load(lock) as {
+      jobs: { agent: { steps: Array<{ name: string; run?: string }> } };
+    };
+    const install = compiled.jobs.agent.steps.find(step =>
+      step.name === 'Install GitHub Copilot CLI');
+    const checksum = '243949dfde6b9c0d5852c4bc430f46ddcaacdfc74353bd1b1d2bccce3b789a48';
+
+    expect(frontmatter.engine.version).toBe('1.0.80');
+    expect(frontmatter.engine['checksums-sha256']).toBe(checksum);
+    expect(install?.run).toBe(
+      `bash "\${RUNNER_TEMP}/gh-aw/actions/install_copilot_cli.sh" 1.0.80 --checksums-sha256 ${checksum}`
+    );
+  });
 
   it('allows Copilot to invoke only the required enclave tool', () => {
     expect(source).toContain('args: ["--allow-tool", "awf-enclave(enclave_run_agent)"]');

@@ -267,6 +267,25 @@ workflow/harness changes merge to `main`; PRs never receive inference credential
 It uses the existing `github.token` / `copilot-requests: write` path, not a new
 secret. No workflow dispatch is needed to publish catalogue data.
 
+A narrowly authorized repair exception permits manual `workflow_dispatch` on
+the fixed `lpcox-fix-catalogue-smoke-startup` branch only. The dispatcher must
+provide `reviewed_head_sha` equal to the full, security-reviewed event SHA;
+missing, abbreviated, or mismatched input grants no branch authorization.
+Checkout uses the immutable event SHA, not a moving branch. The harness
+independently cross-checks the repository, event/ref, sender, workflow identity
+and SHA, reviewed input from the actual event file, and checked-out SHA before
+starting. Event-file type/size checks and JSON reads use the same open file
+descriptor, so replacing its path cannot substitute a different file after
+validation; the descriptor is closed on both success and failure.
+No other branch, PR event, or alternate launching workflow is allowed.
+Normal main execution needs no reviewed-SHA input, but rejects a mismatched one.
+The coordinator must review each exact revision and recheck the remote SHA before
+dispatch; the authorized repair loop is limited to five runs, each with the
+existing 20-minute job limit and one bounded inference request. That cumulative
+limit is enforced by the dispatching coordinator, not an automatic retry loop.
+This exception deliberately lets the reviewed candidate harness use the existing
+CI token; it adds no credentials or permission scopes and does not authorize merge.
+
 The initial release is **v0.28.75**. The harness checks the released Linux CLI's
 SHA-256 and version, selects all three matching released images by digest, and
 verifies the running image references/IDs. Updating that pin requires reviewing
@@ -299,7 +318,12 @@ Squid as its only internet route; egress is never relaxed to make a case pass.
 
 Only `evidence.json` and a small job summary are retained: allowlisted catalogue
 identifiers/state/failure code, pinned release/image metadata, selected accounting
-fields, and network counts. Raw reflection, logs, environment, packet traces,
+fields, and network counts. Each explicit work directory is created owner-only
+(`0700`) before launching the release, including its filesystem probe. Readiness
+failures retain a bounded startup stage, exit status, and closed-vocabulary error
+class (or `unknown`), never raw stderr. `failed_stage` identifies the first failed
+case while later independent cases still report their own results.
+Raw reflection, logs, environment, packet traces,
 headers, and inference bodies are not uploaded. Cleanup targets this invocation's
 Compose services and temporary directory; an existing AWF container causes an
 early failure rather than being removed. Independent fallback cases still run
