@@ -10,6 +10,8 @@ runs-on: ubuntu-24.04
 engine:
   id: copilot
   version: 1.0.96
+  # SHA256SUMS.txt verified against github/copilot-cli v1.0.96 release asset metadata.
+  checksums-sha256: 94a4663eac3bc0b9ffd60c5cceb35ef6c09037cb7619f0d5dfeff275b359ca97
   env:
     GH_TOKEN: ${{ github.token }}
     GH_AW_HARNESS_STARTUP_RETRIES: "0"

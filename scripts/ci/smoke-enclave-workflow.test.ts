@@ -188,7 +188,7 @@ describe('experimental Cloud Hypervisor enclave smoke workflow', () => {
 
   it('pins the CLI verified against the compiler harness and invokes that staged binary', () => {
     const frontmatter = yaml.load(source.split('---')[1]) as {
-      engine: { id: string; version: string };
+      engine: { id: string; version: string; 'checksums-sha256': string };
     };
     const compiled = yaml.load(lock) as {
       jobs: Record<string, {
@@ -202,10 +202,13 @@ describe('experimental Cloud Hypervisor enclave smoke workflow', () => {
     const harnessCommand =
       '"${RUNNER_TEMP}/gh-aw/actions/copilot_harness.cjs" "${RUNNER_TEMP}/gh-aw/bin/copilot"';
 
-    expect(frontmatter.engine).toMatchObject({ id: 'copilot', version: '1.0.96' });
+    const checksum = '94a4663eac3bc0b9ffd60c5cceb35ef6c09037cb7619f0d5dfeff275b359ca97';
+    expect(frontmatter.engine).toMatchObject({
+      id: 'copilot', version: '1.0.96', 'checksums-sha256': checksum,
+    });
     expect(agent.env?.GH_AW_ENGINE_VERSION).toBe('1.0.96');
     expect(install?.run).toBe(
-      'bash "${RUNNER_TEMP}/gh-aw/actions/install_copilot_cli.sh" 1.0.96'
+      `bash "\${RUNNER_TEMP}/gh-aw/actions/install_copilot_cli.sh" 1.0.96 --checksums-sha256 ${checksum}`
     );
     expect(lock).toContain('"engine_versions":{"copilot":"1.0.96"}');
     expect(lock).toContain(`"compiler_version":"${compilerVersion}"`);

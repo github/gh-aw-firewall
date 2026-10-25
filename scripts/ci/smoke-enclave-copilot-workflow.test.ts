@@ -28,14 +28,20 @@ const frontmatter = yaml.load(source.split('---')[1]) as {
   features: Record<string, boolean>;
   permissions: Record<string, string>;
   'runs-on': string;
-  engine: { id: string; version: string; args: string[]; env: Record<string, string> };
+  engine: {
+    id: string; version: string; 'checksums-sha256': string;
+    args: string[]; env: Record<string, string>;
+  };
   tools: Record<string, unknown>;
   enclaves: unknown[];
   sandbox: { agent: Record<string, unknown> };
   'post-steps': Step[];
 };
 const compiled = yaml.load(lock) as {
-  jobs: Record<string, { if?: string; permissions?: Record<string, string>; steps: Step[] }>;
+  jobs: Record<string, {
+    if?: string; permissions?: Record<string, string>;
+    env?: Record<string, string>; steps: Step[];
+  }>;
 };
 const agentSteps = compiled.jobs.agent.steps;
 
@@ -184,7 +190,15 @@ describe('Cloud Hypervisor Copilot agent enclave smoke', () => {
   });
 
   it('identifies the compiler backport and preserves CLI and immutable release pins', () => {
-    expect(frontmatter.engine.version).toBe('1.0.96');
+    const checksum = '94a4663eac3bc0b9ffd60c5cceb35ef6c09037cb7619f0d5dfeff275b359ca97';
+    expect(frontmatter.engine).toMatchObject({
+      id: 'copilot', version: '1.0.96', 'checksums-sha256': checksum,
+    });
+    expect(agentSteps.find(step => step.name === 'Install GitHub Copilot CLI')?.run).toBe(
+      `bash "\${RUNNER_TEMP}/gh-aw/actions/install_copilot_cli.sh" 1.0.96 --checksums-sha256 ${checksum}`
+    );
+    expect(compiled.jobs.agent.env?.GH_AW_ENGINE_VERSION).toBe('1.0.96');
+    expect(lock).toContain('"engine_versions":{"copilot":"1.0.96"}');
     expect(lock).toContain('"compiler_version":"dev-v0.93.0-agent-acceptance-v0.28.66-budget131072"');
     expect(lock).toContain('github/gh-aw-actions/setup@e7519e6442ef74dda80a1627315ad827f402309c');
     expect(lock).toContain('actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1');
