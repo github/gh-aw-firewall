@@ -83,7 +83,7 @@ export async function fixSquidLogPermissions(): Promise<void> {
   }
 }
 
-export interface StopContainersOptions {
+interface StopContainersOptions {
   /**
    * Where to save the model router's logs. Set it only when this run's compose
    * file has a router service.
