@@ -114,9 +114,9 @@ describe('informationChargeForSchema', () => {
   });
 
   it('caps oversized object and tuple products', () => {
-    const big: FiniteSchemaNode = { type: 'array', items: int(0, 1_000_000), length: 100 };
+    const big: FiniteSchemaNode = { type: 'array', items: int(0, 1_000_000), length: 50 };
     expect(informationChargeForSchema({ type: 'object', fields: [{ name: 'a', schema: big }, { name: 'b', schema: big }] }, 0, 0))
-      .toBeGreaterThan(1024);
+      .toBe(1025);
     expect(informationChargeForSchema({ type: 'tuple', items: [big, big, big, big, big, big] }, 0, 0))
       .toBe(1025);
   });
