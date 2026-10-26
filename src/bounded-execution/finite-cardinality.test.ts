@@ -125,7 +125,7 @@ describe('informationChargeForSchema', () => {
     const big: FiniteSchemaNode = { type: 'array', items: int(0, 1_000_000), length: 1_000_000 };
     expect(
       informationChargeForSchema(
-        { type: 'union', variants: [{ tag: 'a', schema: big }, { tag: 'b', schema: bool }] },
+        { type: 'union', variants: [{ tag: 'a', schema: big }, { tag: 'b', schema: big }] },
         0,
         0,
       ),
