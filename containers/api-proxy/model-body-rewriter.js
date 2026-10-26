@@ -49,7 +49,10 @@ function rewriteModelInBody(body, provider, aliases, availableModels, modelFallb
   parsed.model = resolvedModel;
   const newBody = Buffer.from(JSON.stringify(parsed), 'utf8');
 
-  return { body: newBody, originalModel, resolvedModel, candidates, log, fallback: resolution.fallback };
+  return {
+    body: newBody, originalModel, resolvedModel, candidates, log, fallback: resolution.fallback,
+    identity: resolution.identity, wireId: resolution.wireId, matchKind: resolution.matchKind,
+  };
 }
 
 /**

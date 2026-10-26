@@ -6,6 +6,44 @@ Maintainers still approve changes by merging to `main`. No publication command,
 manual dispatch, data tag, package version bump, or container release is needed
 after that merge.
 
+## Bundled naming versus remotely refreshed pricing
+
+Reviewed canonical source records own model identities, scoped identity aliases,
+and family exceptions. `npm run models:generate` projects those naming facts into
+bundled host/proxy assets; `npm run models:check` rejects drift. Request resolution
+uses the canonical matching implementation with an explicit scope and matching
+policy. Discovery still supplies executable models and their upstream wire IDs:
+neither a bundled identity nor a published tariff establishes availability.
+
+Identity aliases are not operator routing aliases. Existing recursive/glob
+`apiProxy.models` expressions, loop detection, parameter suffixes, direct-ID
+precedence, and configured fallback remain separate. Request matching retains
+case-insensitive IDs and redundant-current-provider prefixes; separator folding
+and date stripping are not globally enabled. Host CLI separator equivalence is
+an explicit compatibility policy, not a proxy-wide normalization rule.
+
+The named compatibility corrections are rejection of ambiguous case-insensitive
+routing aliases, exclusion of retired alias/fallback targets, and protection of
+specialized variants from implicit GPT minor-version family capture. A request
+for a specialized ID no longer falls through the implicit `gpt-5` routing alias,
+and bare GPT version fallback no longer picks a specialized variant. Explicit
+operator glob expressions and configured automatic fallback remain opt-in paths;
+family rules annotate identity without authorizing substitutions.
+
+Publication v1 identities contain only `key`, `provider`, `rawId`, and `lookupId`.
+Its strict schema does not transport alias/family rules. An authenticated,
+request-pinned pricing refresh can associate scoped tariffs with the resolved
+provider-qualified identity, but cannot rename requests, switch providers, add
+executable models, or update bundled naming. Existing pricing authority,
+field-level precedence, freshness, provenance, and accounting remain unchanged.
+Old v1 snapshots remain valid; remote naming would require a separately reviewed,
+versioned contract.
+
+This is not completion of the eligibility/compiler migration. Workflow overlays,
+execution-environment detection, and the remaining Phase 4 and broader
+pricing/eligibility work remain under #10294 and #10290 (including the companion
+compiler integration in github/gh-aw#70728).
+
 ## Automatic publication
 
 `.github/workflows/publish-model-catalogue.yml` is an ordinary deterministic

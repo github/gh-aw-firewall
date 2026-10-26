@@ -1,5 +1,7 @@
 'use strict';
 
+const { resolveModelIdentity } = require('./model-identity');
+
 const fields = ['input', 'output', 'cachedInput', 'cacheWrite', 'reasoning'];
 
 function fresh(provenance, time, maxAge) {
@@ -33,10 +35,18 @@ function resolveCentralPricing(provider, model, inputTokens, capture, context = 
   // The Copilot adapter's upstream is copilot-api, including calls made by the CLI.
   const channel = context.channel || 'copilot-api';
   if (provider !== 'copilot' || channel !== 'copilot-api') return null;
-  const record = capture.snapshot.models.find(entry =>
-    entry.identity.provider === provider &&
-    (entry.identity.rawId === model || entry.identity.lookupId === model ||
-      entry.identity.key === model));
+  const scope = { provider, channel, deployment: context.deployment };
+  const requested = resolveModelIdentity(model, provider, { scope });
+  const records = capture.snapshot.models.filter(entry => {
+    if (entry.identity.provider !== provider) return false;
+    const canonicalMatch = requested.identity
+      ? requested.identity.key === entry.identity.key
+      : requested.wireId === entry.identity.rawId;
+    // Preserve the v1 pricing-only exact stored lookup spelling, without normalization.
+    return canonicalMatch || entry.identity.lookupId === model;
+  });
+  // Feed identities are authoritative keys, not additional naming inputs.
+  const record = records.length === 1 ? records[0] : null;
   if (!record || !fresh(record.provenance, capture.time, capture.maxAge)) return null;
   const scoped = (record.tariffs || []).filter(tariff =>
     tariff.scope.provider === provider && tariff.scope.channel === channel &&

@@ -1,5 +1,7 @@
 'use strict';
 
+const { stripRedundantProviderPrefix } = require('./catalogue-contract/resolution');
+
 /**
  * Standalone model name utilities for AWF API proxy.
  *
@@ -84,16 +86,6 @@ function compareByVersion(a, b) {
  * @returns {string} The model with the redundant prefix removed, or the
  *   original string unchanged when no redundant prefix is present.
  */
-function stripRedundantProviderPrefix(model, provider) {
-  if (typeof model !== 'string' || !model || !provider) return model;
-  const slashIdx = model.indexOf('/');
-  if (slashIdx === -1) return model;
-  const prefix = model.slice(0, slashIdx);
-  if (prefix.toLowerCase() !== provider.toLowerCase()) return model;
-  const rest = model.slice(slashIdx + 1);
-  return rest || model;
-}
-
 module.exports = {
   globMatch,
   extractVersionNumbers,

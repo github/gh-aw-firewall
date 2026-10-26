@@ -1,6 +1,7 @@
 'use strict';
 
 const { isModelPermittedByPolicy } = require('./guards/model-policy-guard');
+const { getRetiredModelBlockState } = require('./guards/retired-model-guard');
 const { stripRedundantProviderPrefix } = require('./model-utils');
 const { createRoutingError } = require('./routing-errors');
 
@@ -96,6 +97,7 @@ function buildRoutingCandidates({ catalogue, policy = {}, candidateModels }) {
   const providerModels = indexModels(catalogue.models, 'catalogue.models', model => model.id);
   const policyModels = new Map(
     [...providerModels].filter(([, model]) =>
+      (provider !== 'copilot' || !getRetiredModelBlockState(model.id)) &&
       isModelPermittedByPolicy(model.id, allowedModels, disallowedModels, providerInfo.alias)),
   );
   if (policyModels.size === 0) {

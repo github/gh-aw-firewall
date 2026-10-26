@@ -10,12 +10,13 @@
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
     "resolveJsonModule": true,
+    "allowJs": true,
     "declaration": true,
     "declarationMap": true,
     "sourceMap": true,
     "moduleResolution": "node",
     "types": ["node", "jest"]
   },
-  "include": ["src/**/*"],
+  "include": ["src/**/*.ts", "src/**/*.json", "src/model-information-contract/*.js"],
   "exclude": ["node_modules", "dist", "**/*.test.ts", "**/*.test-utils.ts"]
 }

@@ -17,6 +17,20 @@ function build(models, policy, provider = 'copilot', candidateModels) {
 }
 
 describe('routing candidates', () => {
+  it('excludes retired Copilot candidates without changing public IDs or native mappings', () => {
+    const pool = build([
+      model('gpt-5-codex'), model('github-copilot/GPT-5-CODEX?effort=high'),
+      model('gpt-5.3-codex'),
+    ]);
+    expect(pool.choices.map(choice => choice.model)).toEqual([
+      'github-copilot/gpt-5.3-codex', 'github-copilot/gpt-5.3-codex',
+    ]);
+    expect(Object.values(pool.byId).every(mapping => mapping.wireModel === 'gpt-5.3-codex')).toBe(true);
+    expect(() => build([model('gpt-5-codex')], { allowedModels: ['*'] }))
+      .toThrow(expect.objectContaining({ code: 'model_policy_violation' }));
+    expect(build([model('gpt-5-codex')], undefined, 'openai').choices).toHaveLength(2);
+  });
+
   it('builds frozen exact choices and native mappings', () => {
     const models = [
       model('gpt-test', { contextWindow: 128_000 }),

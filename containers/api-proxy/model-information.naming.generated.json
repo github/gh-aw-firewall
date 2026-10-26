@@ -1,0 +1,421 @@
+{
+  "models": [
+    {
+      "identity": {
+        "key": "copilot/claude-fable-5",
+        "provider": "copilot",
+        "rawId": "claude-fable-5",
+        "lookupId": "claude-fable-5"
+      }
+    },
+    {
+      "identity": {
+        "key": "copilot/claude-fable-5-1",
+        "provider": "copilot",
+        "rawId": "claude-fable-5-1",
+        "lookupId": "claude-fable-5-1"
+      }
+    },
+    {
+      "identity": {
+        "key": "copilot/claude-haiku-4.5",
+        "provider": "copilot",
+        "rawId": "claude-haiku-4.5",
+        "lookupId": "claude-haiku-4-5"
+      }
+    },
+    {
+      "identity": {
+        "key": "copilot/claude-haiku-5.5",
+        "provider": "copilot",
+        "rawId": "claude-haiku-5.5",
+        "lookupId": "claude-haiku-5-5"
+      }
+    },
+    {
+      "identity": {
+        "key": "copilot/claude-mythos-5",
+        "provider": "copilot",
+        "rawId": "claude-mythos-5",
+        "lookupId": "claude-mythos-5"
+      }
+    },
+    {
+      "identity": {
+        "key": "copilot/claude-opus-4-5",
+        "provider": "copilot",
+        "rawId": "claude-opus-4-5",
+        "lookupId": "claude-opus-4-5"
+      }
+    },
+    {
+      "identity": {
+        "key": "copilot/claude-opus-4-6",
+        "provider": "copilot",
+        "rawId": "claude-opus-4-6",
+        "lookupId": "claude-opus-4-6"
+      }
+    },
+    {
+      "identity": {
+        "key": "copilot/claude-opus-4-7",
+        "provider": "copilot",
+        "rawId": "claude-opus-4-7",
+        "lookupId": "claude-opus-4-7"
+      }
+    },
+    {
+      "identity": {
+        "key": "copilot/claude-opus-4.8",
+        "provider": "copilot",
+        "rawId": "claude-opus-4.8",
+        "lookupId": "claude-opus-4-8"
+      }
+    },
+    {
+      "identity": {
+        "key": "copilot/claude-opus-5",
+        "provider": "copilot",
+        "rawId": "claude-opus-5",
+        "lookupId": "claude-opus-5"
+      }
+    },
+    {
+      "identity": {
+        "key": "copilot/claude-opus-5-5",
+        "provider": "copilot",
+        "rawId": "claude-opus-5-5",
+        "lookupId": "claude-opus-5-5"
+      }
+    },
+    {
+      "identity": {
+        "key": "copilot/claude-sonnet-4",
+        "provider": "copilot",
+        "rawId": "claude-sonnet-4",
+        "lookupId": "claude-sonnet-4"
+      }
+    },
+    {
+      "identity": {
+        "key": "copilot/claude-sonnet-4.5",
+        "provider": "copilot",
+        "rawId": "claude-sonnet-4.5",
+        "lookupId": "claude-sonnet-4-5"
+      }
+    },
+    {
+      "identity": {
+        "key": "copilot/claude-sonnet-4.6",
+        "provider": "copilot",
+        "rawId": "claude-sonnet-4.6",
+        "lookupId": "claude-sonnet-4-6"
+      }
+    },
+    {
+      "identity": {
+        "key": "copilot/claude-sonnet-5",
+        "provider": "copilot",
+        "rawId": "claude-sonnet-5",
+        "lookupId": "claude-sonnet-5"
+      }
+    },
+    {
+      "identity": {
+        "key": "copilot/claude-sonnet-5-5",
+        "provider": "copilot",
+        "rawId": "claude-sonnet-5-5",
+        "lookupId": "claude-sonnet-5-5"
+      }
+    },
+    {
+      "identity": {
+        "key": "copilot/gemini-2.5-pro",
+        "provider": "copilot",
+        "rawId": "gemini-2.5-pro",
+        "lookupId": "gemini-2-5-pro"
+      }
+    },
+    {
+      "identity": {
+        "key": "copilot/gemini-3-flash",
+        "provider": "copilot",
+        "rawId": "gemini-3-flash",
+        "lookupId": "gemini-3-flash"
+      }
+    },
+    {
+      "identity": {
+        "key": "copilot/gemini-3.1-flash",
+        "provider": "copilot",
+        "rawId": "gemini-3.1-flash",
+        "lookupId": "gemini-3-1-flash"
+      }
+    },
+    {
+      "identity": {
+        "key": "copilot/gemini-3.1-pro",
+        "provider": "copilot",
+        "rawId": "gemini-3.1-pro",
+        "lookupId": "gemini-3-1-pro"
+      }
+    },
+    {
+      "identity": {
+        "key": "copilot/gemini-3.1-pro-preview",
+        "provider": "copilot",
+        "rawId": "gemini-3.1-pro-preview",
+        "lookupId": "gemini-3-1-pro-preview"
+      }
+    },
+    {
+      "identity": {
+        "key": "copilot/gemini-3.5-flash",
+        "provider": "copilot",
+        "rawId": "gemini-3.5-flash",
+        "lookupId": "gemini-3-5-flash"
+      }
+    },
+    {
+      "identity": {
+        "key": "copilot/gpt-4",
+        "provider": "copilot",
+        "rawId": "gpt-4",
+        "lookupId": "gpt-4"
+      }
+    },
+    {
+      "identity": {
+        "key": "copilot/gpt-4.1",
+        "provider": "copilot",
+        "rawId": "gpt-4.1",
+        "lookupId": "gpt-4-1"
+      }
+    },
+    {
+      "identity": {
+        "key": "copilot/gpt-4.5",
+        "provider": "copilot",
+        "rawId": "gpt-4.5",
+        "lookupId": "gpt-4-5"
+      }
+    },
+    {
+      "identity": {
+        "key": "copilot/gpt-4o",
+        "provider": "copilot",
+        "rawId": "gpt-4o",
+        "lookupId": "gpt-4o"
+      }
+    },
+    {
+      "identity": {
+        "key": "copilot/gpt-4o-mini",
+        "provider": "copilot",
+        "rawId": "gpt-4o-mini",
+        "lookupId": "gpt-4o-mini"
+      }
+    },
+    {
+      "identity": {
+        "key": "copilot/gpt-5-codex",
+        "provider": "copilot",
+        "rawId": "gpt-5-codex",
+        "lookupId": "gpt-5-codex"
+      }
+    },
+    {
+      "identity": {
+        "key": "copilot/gpt-5-codex-mini",
+        "provider": "copilot",
+        "rawId": "gpt-5-codex-mini",
+        "lookupId": "gpt-5-codex-mini"
+      }
+    },
+    {
+      "identity": {
+        "key": "copilot/gpt-5-mini",
+        "provider": "copilot",
+        "rawId": "gpt-5-mini",
+        "lookupId": "gpt-5-mini"
+      }
+    },
+    {
+      "identity": {
+        "key": "copilot/gpt-5.1",
+        "provider": "copilot",
+        "rawId": "gpt-5.1",
+        "lookupId": "gpt-5-1"
+      }
+    },
+    {
+      "identity": {
+        "key": "copilot/gpt-5.2",
+        "provider": "copilot",
+        "rawId": "gpt-5.2",
+        "lookupId": "gpt-5-2"
+      }
+    },
+    {
+      "identity": {
+        "key": "copilot/gpt-5.2-codex",
+        "provider": "copilot",
+        "rawId": "gpt-5.2-codex",
+        "lookupId": "gpt-5-2-codex"
+      }
+    },
+    {
+      "identity": {
+        "key": "copilot/gpt-5.3-codex",
+        "provider": "copilot",
+        "rawId": "gpt-5.3-codex",
+        "lookupId": "gpt-5-3-codex"
+      }
+    },
+    {
+      "identity": {
+        "key": "copilot/gpt-5.4",
+        "provider": "copilot",
+        "rawId": "gpt-5.4",
+        "lookupId": "gpt-5-4"
+      }
+    },
+    {
+      "identity": {
+        "key": "copilot/gpt-5.4-mini",
+        "provider": "copilot",
+        "rawId": "gpt-5.4-mini",
+        "lookupId": "gpt-5-4-mini"
+      }
+    },
+    {
+      "identity": {
+        "key": "copilot/gpt-5.4-nano",
+        "provider": "copilot",
+        "rawId": "gpt-5.4-nano",
+        "lookupId": "gpt-5-4-nano"
+      }
+    },
+    {
+      "identity": {
+        "key": "copilot/gpt-5.5",
+        "provider": "copilot",
+        "rawId": "gpt-5.5",
+        "lookupId": "gpt-5-5"
+      }
+    },
+    {
+      "identity": {
+        "key": "copilot/gpt-5.6-luna",
+        "provider": "copilot",
+        "rawId": "gpt-5.6-luna",
+        "lookupId": "gpt-5-6-luna"
+      }
+    },
+    {
+      "identity": {
+        "key": "copilot/gpt-5.6-sol",
+        "provider": "copilot",
+        "rawId": "gpt-5.6-sol",
+        "lookupId": "gpt-5-6-sol"
+      }
+    },
+    {
+      "identity": {
+        "key": "copilot/gpt-5.6-terra",
+        "provider": "copilot",
+        "rawId": "gpt-5.6-terra",
+        "lookupId": "gpt-5-6-terra"
+      }
+    },
+    {
+      "identity": {
+        "key": "copilot/gpt-6-astra",
+        "provider": "copilot",
+        "rawId": "gpt-6-astra",
+        "lookupId": "gpt-6-astra"
+      }
+    },
+    {
+      "identity": {
+        "key": "copilot/gpt-6-luna",
+        "provider": "copilot",
+        "rawId": "gpt-6-luna",
+        "lookupId": "gpt-6-luna"
+      }
+    },
+    {
+      "identity": {
+        "key": "copilot/gpt-6-sol",
+        "provider": "copilot",
+        "rawId": "gpt-6-sol",
+        "lookupId": "gpt-6-sol"
+      }
+    },
+    {
+      "identity": {
+        "key": "copilot/gpt-6.1-sol",
+        "provider": "copilot",
+        "rawId": "gpt-6.1-sol",
+        "lookupId": "gpt-6-1-sol"
+      }
+    },
+    {
+      "identity": {
+        "key": "copilot/mai-code-1-flash",
+        "provider": "copilot",
+        "rawId": "mai-code-1-flash",
+        "lookupId": "mai-code-1-flash"
+      }
+    },
+    {
+      "identity": {
+        "key": "copilot/o3",
+        "provider": "copilot",
+        "rawId": "o3",
+        "lookupId": "o3"
+      }
+    },
+    {
+      "identity": {
+        "key": "copilot/o3-mini",
+        "provider": "copilot",
+        "rawId": "o3-mini",
+        "lookupId": "o3-mini"
+      }
+    },
+    {
+      "identity": {
+        "key": "copilot/raptor-mini",
+        "provider": "copilot",
+        "rawId": "raptor-mini",
+        "lookupId": "raptor-mini"
+      }
+    },
+    {
+      "identity": {
+        "key": "copilot/text-embedding-3-small",
+        "provider": "copilot",
+        "rawId": "text-embedding-3-small",
+        "lookupId": "text-embedding-3-small"
+      }
+    },
+    {
+      "identity": {
+        "key": "copilot/text-embedding-3-small-inference",
+        "provider": "copilot",
+        "rawId": "text-embedding-3-small-inference",
+        "lookupId": "text-embedding-3-small-inference"
+      }
+    },
+    {
+      "identity": {
+        "key": "copilot/text-embedding-ada-002",
+        "provider": "copilot",
+        "rawId": "text-embedding-ada-002",
+        "lookupId": "text-embedding-ada-002"
+      }
+    }
+  ],
+  "rules": []
+}

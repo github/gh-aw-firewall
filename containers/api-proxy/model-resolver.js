@@ -21,6 +21,8 @@
 
 const { globMatch, extractVersionNumbers, compareByVersion, stripRedundantProviderPrefix } = require('./model-utils');
 const { isModelPermittedByPolicy } = require('./guards/model-policy-guard');
+const { getRetiredModelBlockState } = require('./guards/retired-model-guard');
+const { resolveModelIdentity, findAvailableModel } = require('./model-identity');
 const {
   DEFAULT_MODEL_FALLBACK,
   normalizeFallbackConfig,
@@ -64,6 +66,7 @@ function applyModelParametersToResolution(resolution, parameterSuffix) {
  * @returns {boolean}
  */
 function _isModelPermittedByPolicy(model, policyConfig, provider) {
+  if (provider === 'copilot' && getRetiredModelBlockState(model)) return false;
   if (!policyConfig) return true;
   return isModelPermittedByPolicy(
     model,
@@ -134,7 +137,7 @@ function _resolveDirectMatch(key, requestedModel, currentProvider, availableMode
   const providerModels = (availableModels[currentProvider] || []);
 
   // 1. Direct match: model name already in the provider's available list
-  const direct = providerModels.find(m => m.toLowerCase() === key);
+  const direct = findAvailableModel(splitModelParameters(requestedModel).baseModel, currentProvider, providerModels);
   if (direct) {
     if (!_isModelPermittedByPolicy(direct, modelPolicyConfig, currentProvider)) {
       log.push(`[model-resolver] model policy blocked direct match: "${direct}"`);
@@ -154,10 +157,10 @@ function _resolveDirectMatch(key, requestedModel, currentProvider, availableMode
   const family = key.match(/^(gpt-5)\.\d+$/)?.[1];
   if (family) {
     const familyPrefix = `${family}.`;
-    const familyCandidates = providerModels.filter(m => m.toLowerCase().startsWith(familyPrefix));
-    const permittedCandidates = modelPolicyConfig
-      ? familyCandidates.filter(c => _isModelPermittedByPolicy(c, modelPolicyConfig, currentProvider))
-      : familyCandidates;
+    const familyCandidates = providerModels.filter(m => m.toLowerCase().startsWith(familyPrefix) &&
+      /^gpt-5\.\d+$/i.test(m));
+    const permittedCandidates = familyCandidates.filter(c =>
+      _isModelPermittedByPolicy(c, modelPolicyConfig, currentProvider));
     if (permittedCandidates.length > 0) {
       const sorted = [...new Set(permittedCandidates)].sort(compareByVersion);
       const fallback = sorted[0];
@@ -175,9 +178,9 @@ function _resolveDirectMatch(key, requestedModel, currentProvider, availableMode
   // 3. Middle-power fallback. When a model policy is active, the fallback must only
   // ever select from the policy-permitted subset of the provider's models — otherwise
   // an unavailable request could resolve to a model the request guard would reject.
-  const fallbackAvailableModels = modelPolicyConfig
-    ? { [currentProvider]: providerModels.filter(m => _isModelPermittedByPolicy(m, modelPolicyConfig, currentProvider)) }
-    : availableModels;
+  const fallbackAvailableModels = {
+    [currentProvider]: providerModels.filter(m => _isModelPermittedByPolicy(m, modelPolicyConfig, currentProvider)),
+  };
   return applyModelParametersToResolution(tryMiddlePowerFallback(
     requestedModel, fallbackAvailableModels, currentProvider,
     'no_alias_match_and_not_in_available_models', fallbackConfig, log
@@ -203,7 +206,7 @@ function _resolveDirectMatch(key, requestedModel, currentProvider, availableMode
  * @param {{ allowedModels?: string[]|null, disallowedModels?: string[]|null }|null} [modelPolicyConfig]
  * @returns {{ resolvedModel: string, log: string[], fallback?: object } | null}
  */
-function _resolveAliasPatterns(aliasKey, aliasDefinition, requestedModel, aliases, availableModels, currentProvider, newChain, fallbackConfig, log, modelPolicyConfig) {
+function _resolveAliasPatterns(aliasKey, aliasDefinition, requestedModel, aliases, availableModels, currentProvider, newChain, fallbackConfig, log, modelPolicyConfig, resolutionState) {
   const { parameterSuffix } = splitModelParameters(requestedModel);
   const patterns = aliasDefinition.patterns;
   log.push(`[model-resolver] alias: "${requestedModel}" → [${patterns.join(', ')}]`);
@@ -219,6 +222,7 @@ function _resolveAliasPatterns(aliasKey, aliasDefinition, requestedModel, aliase
 
     if (slashIdx === -1) {
       // Recursive alias reference (no provider prefix)
+      const subState = { blocked: false };
       const sub = resolveModel(
         pattern,
         aliases,
@@ -227,8 +231,10 @@ function _resolveAliasPatterns(aliasKey, aliasDefinition, requestedModel, aliase
         newChain,
         fallbackConfig,
         modelPolicyConfig,
-        false
+        false,
+        subState
       );
+      if (!sub && subState.blocked) resolutionState.blocked = true;
       if (sub) {
         log.push(...sub.log);
         if (sub.fallback && sub.fallback.activated) {
@@ -255,7 +261,8 @@ function _resolveAliasPatterns(aliasKey, aliasDefinition, requestedModel, aliase
 
   // Prefer genuine pattern matches. Synthesized fallback picks from nested
   // aliases are only considered when no sibling pattern matched anything.
-  const effectiveCandidates = candidates.length > 0 ? candidates : synthesizedCandidates;
+  const effectiveCandidates = candidates.length > 0 ? candidates
+    : resolutionState.blocked ? [] : synthesizedCandidates;
   if (candidates.length > 0 && synthesizedCandidates.length > 0) {
     log.push(
       `[model-resolver] ignoring ${synthesizedCandidates.length} synthesized fallback candidate(s) ` +
@@ -264,9 +271,9 @@ function _resolveAliasPatterns(aliasKey, aliasDefinition, requestedModel, aliase
   }
 
   // Apply model policy filter: remove candidates that are not permitted.
-  const filteredCandidates = modelPolicyConfig
-    ? effectiveCandidates.filter(c => _isModelPermittedByPolicy(c, modelPolicyConfig, currentProvider))
-    : effectiveCandidates;
+  const filteredCandidates = effectiveCandidates.filter(c =>
+    _isModelPermittedByPolicy(c, modelPolicyConfig, currentProvider));
+  if (effectiveCandidates.length > 0 && filteredCandidates.length === 0) resolutionState.blocked = true;
 
   if (filteredCandidates.length < effectiveCandidates.length) {
     const blocked = effectiveCandidates.filter(c => !filteredCandidates.includes(c));
@@ -312,9 +319,13 @@ function _resolveAliasPatterns(aliasKey, aliasDefinition, requestedModel, aliase
         pattern.slice(0, slashIdx).toLowerCase() === currentProvider.toLowerCase();
     });
     const fallbackAllowed = !isNestedReference || targetsCurrentProvider;
-    if (aliasDefinition.fallback && fallbackAllowed && hasProviderPattern && !modelPolicyConfig) {
+    if (aliasDefinition.fallback && fallbackAllowed && hasProviderPattern && !modelPolicyConfig &&
+        effectiveCandidates.length === 0 && !resolutionState.blocked) {
       return applyModelParametersToResolution(tryMiddlePowerFallback(
-        requestedModel, availableModels, currentProvider,
+        requestedModel, {
+          [currentProvider]: (availableModels[currentProvider] || [])
+            .filter(model => _isModelPermittedByPolicy(model, modelPolicyConfig, currentProvider)),
+        }, currentProvider,
         'no_alias_match_and_not_in_available_models', fallbackConfig, log
       ), parameterSuffix);
     }
@@ -371,6 +382,45 @@ function _resolveAliasPatterns(aliasKey, aliasDefinition, requestedModel, aliase
  * @returns {{ resolvedModel: string, candidates: string[], log: string[], fallback?: object } | null}
  */
 function resolveModel(
+  requestedModel, aliases, availableModels, currentProvider, chain = [],
+  modelFallbackConfig = DEFAULT_MODEL_FALLBACK, modelPolicyConfig = null, preferDirectRequest = true,
+  resolutionState = { blocked: false },
+) {
+  const resolution = _resolveModel(
+    requestedModel, aliases || {}, availableModels, currentProvider, chain,
+    modelFallbackConfig, modelPolicyConfig, preferDirectRequest, resolutionState,
+  );
+  if (!resolution) return null;
+  const resolved = resolveModelIdentity(resolution.resolvedModel, currentProvider, {
+    policy: { providerPrefix: false },
+  });
+  const requested = resolveModelIdentity(requestedModel, currentProvider);
+  const matchKind = requested.identity?.key === resolved.identity?.key
+    ? requested.matchKind
+    : resolution.fallback?.activated ? 'fallback'
+      : resolution.log.some(line => line.includes('[model-resolver] alias:')) ? 'routing-alias'
+        : 'direct';
+  return {
+    ...resolution,
+    requestedModel,
+    identity: resolved.identity,
+    wireId: splitModelParameters(resolution.resolvedModel).baseModel,
+    matchKind,
+  };
+}
+
+function findRoutingAlias(aliases, key) {
+  const entries = Object.entries(aliases).filter(([name]) => name.toLowerCase() === key);
+  if (entries.length > 1) {
+    const error = new Error(`Ambiguous routing alias "${key}"; use unique case-insensitive alias names`);
+    error.code = 'ambiguous_model_alias';
+    error.statusCode = 400;
+    throw error;
+  }
+  return entries[0];
+}
+
+function _resolveModel(
   requestedModel,
   aliases,
   availableModels,
@@ -378,7 +428,8 @@ function resolveModel(
   chain = [],
   modelFallbackConfig = DEFAULT_MODEL_FALLBACK,
   modelPolicyConfig = null,
-  preferDirectRequest = true
+  preferDirectRequest = true,
+  resolutionState = { blocked: false }
 ) {
   const log = [];
   const originalRequestedModel = requestedModel;
@@ -403,6 +454,10 @@ function resolveModel(
   // than the raw "<provider>/model" string. The raw input remains available
   // above as `originalRequestedModel` for anything that needs the true input.
   const normalizedRequestedModel = appendModelParameters(baseModel, parameterSuffix);
+  if (currentProvider === 'copilot' && getRetiredModelBlockState(baseModel)) {
+    resolutionState.blocked = true;
+    return null;
+  }
 
   if (currentProvider === 'copilot' && key === 'auto') {
     if (!_isModelPermittedByPolicy(baseModel, modelPolicyConfig, currentProvider)) {
@@ -432,7 +487,7 @@ function resolveModel(
   // steering a request away from the configured provider.
   if (preferDirectRequest) {
     const providerModels = (availableModels[currentProvider] || []);
-    const direct = providerModels.find(m => m.toLowerCase() === key);
+    const direct = findAvailableModel(baseModel, currentProvider, providerModels);
     if (direct) {
       if (!_isModelPermittedByPolicy(direct, modelPolicyConfig, currentProvider)) {
         log.push(`[model-resolver] model policy blocked direct match: "${direct}"`);
@@ -451,15 +506,15 @@ function resolveModel(
   }
 
   // Find alias entry (case-insensitive)
-  let aliasEntry = Object.entries(aliases).find(([k]) => k.toLowerCase() === key);
+  let aliasEntry = findRoutingAlias(aliases, key);
 
   if (!aliasEntry) {
     // Family fallback: treat gpt-5.<minor> as gpt-5 when only the family alias
     // exists. This keeps versioned IDs like gpt-5.4 compatible with configs that
     // define "gpt-5" alias patterns.
-    const familyAlias = key.match(/^(gpt-5)\.\d+(?:[._-].*)?$/)?.[1];
+    const familyAlias = key.match(/^(gpt-5)\.\d+$/)?.[1];
     if (familyAlias) {
-      aliasEntry = Object.entries(aliases).find(([k]) => k.toLowerCase() === familyAlias);
+      aliasEntry = findRoutingAlias(aliases, familyAlias);
       if (aliasEntry) {
         log.push(`[model-resolver] fallback alias: "${originalRequestedModel}" → "${aliasEntry[0]}"`);
       }
@@ -472,7 +527,7 @@ function resolveModel(
 
   const [aliasKey, aliasRaw] = aliasEntry;
   const aliasDefinition = resolveAliasDefinition(aliasRaw);
-  return _resolveAliasPatterns(aliasKey, aliasDefinition, normalizedRequestedModel, aliases, availableModels, currentProvider, newChain, fallbackConfig, log, modelPolicyConfig);
+  return _resolveAliasPatterns(aliasKey, aliasDefinition, normalizedRequestedModel, aliases, availableModels, currentProvider, newChain, fallbackConfig, log, modelPolicyConfig, resolutionState);
 }
 
 /**

@@ -39,6 +39,32 @@ describe('maintained model compilation', () => {
       .toEqual(fs.readFileSync(path.join(root, 'containers/api-proxy/model-api-mapping.json')));
   });
 
+  it('projects only original reviewed identities, without imports or staged target changes', () => {
+    const naming = require('../../shared/model-information/naming.generated.json');
+    const sourceDir = path.join(root, 'shared/model-information/sources');
+    const sources = fs.readdirSync(sourceDir).sort().map(file =>
+      JSON.parse(fs.readFileSync(path.join(sourceDir, file), 'utf8')))
+      .filter(source => Array.isArray(source.models));
+    const identities = sources.flatMap(source => source.models.map(
+      (model: { identity: unknown }) => ({ identity: model.identity }),
+    )).sort((a, b) => a.identity.key < b.identity.key ? -1 : a.identity.key > b.identity.key ? 1 : 0);
+    expect(naming.models).toEqual(identities);
+    expect(naming.rules).toEqual(sources.flatMap(source => source.rules || []));
+    expect(naming.models).not.toContainEqual(expect.objectContaining({
+      identity: expect.objectContaining({ key: 'copilot/gemini-3.8-flash' }),
+    }));
+    const bytes = fs.readFileSync(path.join(root, 'shared/model-information/naming.generated.json'));
+    for (const file of ['containers/api-proxy/model-information.naming.generated.json',
+      'src/model-information.naming.generated.json']) {
+      expect(fs.readFileSync(path.join(root, file))).toEqual(bytes);
+    }
+    for (const file of ['identity.js', 'identity.d.ts', 'resolution.js', 'resolution.d.ts']) {
+      const shared = fs.readFileSync(path.join(root, 'shared/model-information', file));
+      expect(fs.readFileSync(path.join(root, 'src/model-information-contract', file))).toEqual(shared);
+      expect(fs.readFileSync(path.join(root, 'containers/api-proxy/catalogue-contract', file))).toEqual(shared);
+    }
+  });
+
   it('includes schema and compiler version in revision', () => {
     const manifest = require('../../shared/model-information/manifest.generated.json');
     const catalogue = require('../../shared/model-information/catalog.generated.json');
@@ -325,9 +351,13 @@ describe('maintained model compilation', () => {
       fs.mkdirSync(path.join(temp, 'guards'));
       for (const file of ['model-information.pricing.generated.json',
         'model-information.retired.generated.json', 'model-api-mapping.json', 'model-api-mapping.js',
+        'model-information.naming.generated.json', 'model-identity.js', 'model-utils.js',
+        'provider-pricing-overlays.js',
         'guards/retired-model-guard.js', 'logging.js']) {
         fs.copyFileSync(path.join(root, 'containers/api-proxy', file), path.join(temp, file));
       }
+      fs.cpSync(path.join(root, 'containers/api-proxy/catalogue-contract'),
+        path.join(temp, 'catalogue-contract'), { recursive: true });
       const output = execFileSync(process.execPath, ['-e',
         "const assert=require('node:assert/strict');const m=require('./model-api-mapping');assert(m.lookupModelEndpoints('gpt-5.5','openai'));const g=require('./guards/retired-model-guard');assert.equal(g.getRetiredModelBlockState('GPT-5-CODEX').suggestion,'gpt-5.3-codex');assert.equal(g.getRetiredModelBlockState('GPT_5_CODEX'),null);"],
       { cwd: temp, encoding: 'utf8' });
@@ -343,8 +373,10 @@ describe('maintained model compilation', () => {
       const compiled = path.join(temp, 'compiled');
       execFileSync(process.execPath, [require.resolve('typescript/bin/tsc'),
         '--target', 'es2020', '--module', 'commonjs', '--resolveJsonModule',
-        '--esModuleInterop', '--skipLibCheck', '--outDir', compiled,
-        path.join(root, 'src/copilot-model.ts')], { cwd: root, encoding: 'utf8' });
+        '--esModuleInterop', '--skipLibCheck', '--allowJs', '--outDir', compiled,
+        path.join(root, 'src/copilot-model.ts'),
+        path.join(root, 'src/model-information-contract/identity.js'),
+        path.join(root, 'src/model-information-contract/resolution.js')], { cwd: root, encoding: 'utf8' });
       const verify = (entry: string) => execFileSync(process.execPath, ['-e',
         `const assert=require('node:assert/strict');const {validateCopilotModel:v}=require(${JSON.stringify(entry)});assert.deepEqual(v(' GPT_5_3_CODEX '),{valid:true,resolvedModel:'gpt-5.3-codex'});assert.equal(v('GPT_5_CODEX').reason,'retired');assert(v('gpt-54-mini').message.includes("'gpt-5.4-mini'"));assert.equal(v('grok-4.7').valid,false);`],
       { cwd: temp, encoding: 'utf8' });

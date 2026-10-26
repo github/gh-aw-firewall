@@ -2,6 +2,7 @@
 
 const { stripRedundantProviderPrefix } = require('./model-utils');
 const { resolveModel } = require('./model-resolver');
+const { findAvailableModel, resolveModelIdentity } = require('./model-identity');
 
 function selectorError(selector, provider, reason) {
   const error = new Error(
@@ -17,9 +18,16 @@ function selectorError(selector, provider, reason) {
   return error;
 }
 
-function modelSelection(id, suffix) {
+function modelSelection(id, suffix, provider, requestedModel) {
   const resolvedModel = id + suffix;
-  return { resolvedModel, candidates: [resolvedModel], log: [] };
+  const resolved = resolveModelIdentity(id, provider, { policy: { providerPrefix: false } });
+  const requested = resolveModelIdentity(requestedModel, provider);
+  return {
+    resolvedModel, candidates: [resolvedModel], log: [],
+    identity: resolved.identity, wireId: id,
+    matchKind: requested.identity?.key === resolved.identity?.key ? requested.matchKind : 'selector',
+    requestedModel,
+  };
 }
 
 function resolveAliasSelection(selector, aliasKey, provider, ids, aliases, suffix, modelPolicy, qualified, base, isModelPriceable) {
@@ -54,9 +62,9 @@ function resolveModelSelector(selector, provider, modelIds, records, aliases = {
     queryIndex < 0 ? selector : selector.slice(0, queryIndex), provider,
   );
   const ids = (modelIds || []).filter(id => typeof id === 'string');
-  const direct = ids.find(id => id.toLowerCase() === base.toLowerCase());
+  const direct = findAvailableModel(base, provider, ids);
   // Check IDs before interpreting punctuation: deployment names are arbitrary.
-  if (direct) return modelSelection(direct, suffix);
+  if (direct) return modelSelection(direct, suffix, provider, selector);
 
   const exactAliasKey = Object.keys(aliases).find(key => key.toLowerCase() === base.toLowerCase());
   const exactAlias = resolveAliasSelection(
@@ -72,7 +80,7 @@ function resolveModelSelector(selector, provider, modelIds, records, aliases = {
   if (fullNameMatches.length > 1) {
     throw selectorError(selector, provider, 'the advertised display name is ambiguous; use a canonical ID');
   }
-  if (fullNameMatches.length === 1) return modelSelection(fullNameMatches[0], suffix);
+  if (fullNameMatches.length === 1) return modelSelection(fullNameMatches[0], suffix, provider, selector);
 
   const qualified = base.match(/^(.+) \(([^()]+)\)$/);
   const name = qualified ? qualified[1] : base;
@@ -82,7 +90,7 @@ function resolveModelSelector(selector, provider, modelIds, records, aliases = {
     throw error;
   }
   const qualifiedId = qualified && ids.find(id => id.toLowerCase() === name.toLowerCase());
-  if (qualifiedId) return modelSelection(qualifiedId, suffix);
+  if (qualifiedId) return modelSelection(qualifiedId, suffix, provider, selector);
 
   const aliasKey =
     (qualified && Object.keys(aliases).find(key => key.toLowerCase() === name.toLowerCase()));
@@ -100,7 +108,7 @@ function resolveModelSelector(selector, provider, modelIds, records, aliases = {
   if (matches.length > 1) {
     throw selectorError(selector, provider, 'the advertised display name is ambiguous; use a canonical ID');
   }
-  if (matches.length === 1) return modelSelection(matches[0], suffix);
+  if (matches.length === 1) return modelSelection(matches[0], suffix, provider, selector);
   if (qualified || /\s/.test(base)) {
     throw selectorError(selector, provider, Array.isArray(modelIds)
       ? 'no advertised display name matches'

@@ -454,9 +454,11 @@ exec '${realGit}' "$@"
   it('checks stale projections and exact checkout source before creating any artifact', () => {
     for (const name of [
       'scripts/model-information', 'shared/model-information', 'src/model-information.compat.generated.json',
+      'src/model-information.naming.generated.json', 'src/model-information-contract',
       'docs/model-api-mapping.json', 'containers/api-proxy/models.dev.catalog.json',
       'containers/api-proxy/model-information.pricing.generated.json',
       'containers/api-proxy/model-information.retired.generated.json',
+      'containers/api-proxy/model-information.naming.generated.json',
       'containers/api-proxy/ai-credits-pricing-reference.json',
       'containers/api-proxy/model-api-mapping.json',
       'containers/api-proxy/catalogue-contract',

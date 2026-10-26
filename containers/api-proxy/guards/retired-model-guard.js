@@ -1,6 +1,9 @@
 'use strict';
 
 const { sanitizeForLog } = require('../logging');
+const { resolveModelIdentity } = require('../model-identity');
+const { stripRedundantProviderPrefix } = require('../model-utils');
+const { getProviderAliases } = require('../provider-pricing-overlays');
 
 /**
  * Known-retired Copilot model names mapped to their suggested replacements.
@@ -13,8 +16,8 @@ const { sanitizeForLog } = require('../logging');
  * operators into thinking their API keys are invalid.
  *
  * Generated from shared/model-information/sources by models:generate.
- * Keep lowercase-only matching here: host separator equivalence is a separate
- * compatibility policy, not an implicit proxy normalization correction.
+ * Match the resolved identity lowercase-only: separator/date equivalence is a
+ * separate compatibility policy, not an implicit proxy normalization correction.
  */
 const RETIRED_COPILOT_MODELS = new Map(
   Object.entries(require('../model-information.retired.generated.json')),
@@ -29,7 +32,12 @@ const RETIRED_COPILOT_MODELS = new Map(
  */
 function getRetiredModelBlockState(model) {
   if (!model) return null;
-  const key = model.toLowerCase();
+  const prefix = getProviderAliases('copilot')
+    .find(alias => model.toLowerCase().startsWith(`${alias}/`));
+  const nativeModel = prefix ? stripRedundantProviderPrefix(model, prefix) : model;
+  const key = resolveModelIdentity(nativeModel, 'copilot', {
+    policy: { providerPrefix: false },
+  }).wireId.toLowerCase();
   const suggestion = RETIRED_COPILOT_MODELS.get(key);
   if (!suggestion) return null;
   return { model: sanitizeForLog(model), suggestion };

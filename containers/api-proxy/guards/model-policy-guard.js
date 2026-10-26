@@ -2,6 +2,7 @@
 
 const { globMatch, stripRedundantProviderPrefix } = require('../model-utils');
 const { getProviderAliases } = require('../provider-pricing-overlays');
+const { resolveModelIdentity } = require('../model-identity');
 
 /**
  * Model policy enforcement for AWF API proxy.
@@ -68,10 +69,30 @@ function modelPolicyPatternMatches(pattern, model, provider) {
   if (!provider) return globMatch(pattern, model);
   const aliases = getProviderAliases(provider.toLowerCase());
   const prefix = aliases.find(alias => model.toLowerCase().startsWith(`${alias}/`));
-  const nativeModel = prefix ? stripRedundantProviderPrefix(model, prefix) : model;
-  return pattern.includes('/')
-    ? aliases.some(alias => globMatch(pattern, `${alias}/${nativeModel}`))
-    : globMatch(pattern, nativeModel);
+  const nativeModel = (prefix ? stripRedundantProviderPrefix(model, prefix) : model).split('?')[0];
+  const resolved = resolveModelIdentity(nativeModel, provider.toLowerCase(), {
+    policy: { providerPrefix: false },
+  });
+  const names = new Set([nativeModel, resolved.wireId]);
+  for (const alias of resolved.identity?.aliases || []) {
+    if (resolveModelIdentity(alias.id, provider.toLowerCase(), {
+      policy: { providerPrefix: false },
+    }).identity?.key === resolved.identity.key) {
+      names.add(alias.id);
+    }
+  }
+  if (!pattern.includes('*') && (!pattern.includes('/') ||
+      aliases.some(alias => pattern.toLowerCase().startsWith(`${alias}/`)))) {
+    const patternPrefix = aliases.find(alias => pattern.toLowerCase().startsWith(`${alias}/`));
+    const target = resolveModelIdentity(
+      patternPrefix ? stripRedundantProviderPrefix(pattern, patternPrefix) : pattern,
+      provider.toLowerCase(), { policy: { providerPrefix: false } },
+    );
+    if (resolved.identity && target.identity?.key === resolved.identity.key) return true;
+  }
+  return [...names].some(name => pattern.includes('/')
+    ? aliases.some(alias => globMatch(pattern, `${alias}/${name}`))
+    : globMatch(pattern, name));
 }
 
 function isDynamicModelUnverifiable(model, allowedModels, disallowedModels, provider) {

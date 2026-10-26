@@ -35,11 +35,20 @@ describe('retired-model-guard', () => {
 
     it.each([
       'GPT_5_CODEX', 'gpt.5.codex', ' gpt-5-codex ',
-      'copilot/gpt-5-codex', 'openai/gpt-5-codex',
-      'gpt-5-codex-2026-10-01', 'gpt-5-codex?deployment=prod',
+      'openai/gpt-5-codex',
+      'gpt-5-codex-2026-10-01',
       'constructor', '__proto__', 'toString',
     ])('preserves lowercase-only exact retirement matching for %s', model => {
       expect(getRetiredModelBlockState(model)).toBeNull();
+    });
+
+    it.each([
+      'copilot/gpt-5-codex', 'github/GPT-5-CODEX',
+      'gpt-5-codex?deployment=prod', 'copilot/gpt-5-codex?reasoning=high',
+    ])('cannot bypass retirement with a provider qualifier or parameter suffix: %s', model => {
+      expect(getRetiredModelBlockState(model)).toEqual({
+        model, suggestion: 'gpt-5.3-codex',
+      });
     });
 
     it('preserves the original casing in the returned model field', () => {

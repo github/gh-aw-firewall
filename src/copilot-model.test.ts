@@ -135,6 +135,14 @@ describe('validateCopilotModel', () => {
     expect(validateCopilotModel(model)).toMatchObject({ valid: false, reason: 'unsupported' });
   });
 
+  it.each([
+    'COPILOT/gpt-5.3-codex', 'openai/gpt-5.3-codex',
+    'deployments/prod/gpt-5.3-codex', 'gpt-5.3-codex?',
+    'gpt-5-codex?effort=high', 'bad//model',
+  ])('keeps CLI syntax restrictions despite shared API resolution for %s', model => {
+    expect(validateCopilotModel(model)).toMatchObject({ valid: false, reason: 'unsupported' });
+  });
+
   it('rejects unsupported models without suggestion when no close match exists', () => {
     const result = validateCopilotModel('this-model-does-not-exist-anywhere-12345');
     expect(result.valid).toBe(false);

@@ -29,6 +29,16 @@ export default tseslint.config(
     },
   },
   {
+    files: ['src/model-information-contract/*.js'],
+    languageOptions: {
+      sourceType: 'commonjs',
+      globals: globals.node,
+    },
+    rules: {
+      '@typescript-eslint/no-require-imports': 'off',
+    },
+  },
+  {
     files: ['src/**/*.ts'],
     plugins: {
       local: localPlugin,

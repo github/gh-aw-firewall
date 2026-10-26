@@ -124,6 +124,21 @@ describe('model-fallback-chain', () => {
       expect(selectNextFallbackModel(['copilot/gpt-5', 'copilot/gpt-4.1'], ['gpt-5'], 'copilot')).toBe('gpt-4.1');
     });
 
+    test.each([
+      ['github-copilot/gpt-5', 'copilot', 'gpt-5'],
+      ['github/gpt-5', 'copilot', 'gpt-5'],
+      ['GITHUB/GPT-UNKNOWN?effort=high', 'copilot', 'GPT-UNKNOWN?effort=high'],
+      ['google/gemini-unknown', 'gemini', 'gemini-unknown'],
+      ['gemini/gemini-unknown', 'gemini', 'gemini-unknown'],
+    ])('preserves legacy provider aliases for %s', (entry, provider, expected) => {
+      expect(normalizeFallbackModel(entry, provider)).toBe(expected);
+      expect(resolveFallbackEntry(entry, provider)).toMatchObject({
+        provider, model: expected, qualified: true,
+      });
+      expect(resolveFallbackEntry(entry, provider === 'copilot' ? 'openai' : 'copilot'))
+        .toMatchObject({ provider, model: expected, qualified: true });
+    });
+
     test('skips models rejected by the permission predicate', () => {
       const isPermitted = jest.fn(model => model !== 'b');
       expect(selectNextFallbackModel(['b', 'c'], ['a'], 'openai', isPermitted)).toBe('c');

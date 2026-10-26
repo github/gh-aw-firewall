@@ -240,6 +240,7 @@ function makeModelBodyTransform(
     if (req && Array.isArray(result.candidates)) {
       req.awfModelCandidates = result.candidates;
     }
+    if (req && result.identity) req.awfModelIdentity = result.identity;
     const originalModel = sanitizeForLog(result.originalModel) || '(none)';
     const resolvedModel = sanitizeForLog(result.resolvedModel);
     if (providerModelFallback.enabled && result.fallback) {
