@@ -282,19 +282,30 @@ function runtimeResolutionFacts(bytes) {
       input, cachedInput, cacheWrite, output,
     };
   };
-  const resolution = new Map();
+  const exactResolution = new Map();
+  const aliasResolution = new Map();
   for (const entry of data) {
     const pricing = normalizePricing(entry.pricing);
-    for (const candidate of [entry.id, entry.canonical_slug]) {
-      const key = canonicalize(candidate);
-      if (!key) continue;
-      if (!resolution.has(key)) resolution.set(key, { exists: true, pricing: null });
-      const current = resolution.get(key);
+    const exactKey = canonicalize(entry.id);
+    if (exactKey && !exactResolution.has(exactKey)) {
+      exactResolution.set(exactKey, {
+        exists: true,
+        pricing: pricing ? { modelId: entry.id, alias: entry.id, ...pricing } : null,
+      });
+    }
+
+    const aliasKey = canonicalize(entry.canonical_slug);
+    if (aliasKey) {
+      if (!aliasResolution.has(aliasKey)) {
+        aliasResolution.set(aliasKey, { exists: true, pricing: null });
+      }
+      const current = aliasResolution.get(aliasKey);
       if (pricing && !current.pricing) {
-        current.pricing = { modelId: entry.id, alias: candidate, ...pricing };
+        current.pricing = { modelId: entry.id, alias: entry.canonical_slug, ...pricing };
       }
     }
   }
+  const resolution = new Map([...aliasResolution, ...exactResolution]);
   return Object.fromEntries([...resolution.entries()].sort(([left], [right]) =>
     left < right ? -1 : left > right ? 1 : 0).map(([key, value]) =>
     [`@lookup=${key.replace(/~/g, '~0').replace(/\//g, '~1')}`, value]));
