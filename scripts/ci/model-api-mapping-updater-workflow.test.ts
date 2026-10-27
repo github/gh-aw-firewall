@@ -213,7 +213,7 @@ describe('scheduled canonical model source maintenance', () => {
     expect(safeTools).not.toContain('create_release');
     expect(safeTools).not.toContain('create_issue');
     expect(lockText).not.toContain('GH_AW_CI_TRIGGER_TOKEN');
-    expect(lockText.split('\n')[0]).toContain('"compiler_version":"v0.93.4"');
+    expect(lockText.split('\n')[0]).toContain('"compiler_version":"v1.0.1"');
   });
 
   it('creates maintenance PR titles accepted by the existing repository title gate', () => {

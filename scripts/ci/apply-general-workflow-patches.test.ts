@@ -362,7 +362,7 @@ describe('applyGeneralWorkflowPatches shared enclave gateway policy', () => {
 
     const first = applyGeneralWorkflowPatches(compiled, workflowPath);
     const invocation = first.content.split('\n').find(line =>
-      line.includes('sudo --preserve-env awf --cloud-hypervisor-enclave-debug-public --config '));
+      line.includes('awf --cloud-hypervisor-enclave-debug-public --config '));
     expect(invocation).toContain('--env-all');
     expect(invocation?.split(exclusion).length).toBe(2);
     expect(first.log).toContain('  Excluded host-only enclave rootfs from the primary agent');

@@ -6,7 +6,7 @@ import * as yaml from 'js-yaml';
 
 const root = path.resolve(__dirname, '../..');
 const script = path.join(root, 'scripts/ci/configure-docker-mirror.sh');
-const syft = 'anchore/syft:v1.54.1@sha256:3eb5379ba7b409c3f4069b686110527af0c47df993fa5c10d13e7cf34f49b1aa';
+const syft = 'anchore/syft:v1.55.0@sha256:4cc92b64ca74ffca4c94d4c8fcc01f217731375300be14d0b6eeb2e82eaa110a';
 const grype = 'ghcr.io/anchore/grype@sha256:fd4ab4d1042b522c896e73bdf09ab8bf384fa417df99d6dd0d6e1008c7e7c821';
 const grant = 'ghcr.io/anchore/grant@sha256:172463611795f43b77302cdfbd7b3f81295492a7330e0820cfe41c3674920237';
 
@@ -194,19 +194,19 @@ print(json.dumps({'live': sorted(live), 'archives': sorted(archives), 'cache': s
   it('builds the reviewed patched compiler before scanning', () => {
     const steps = jobs('supply-chain-scan.yml').scan.steps;
     const install = steps.findIndex(
-      (step) => step.name === 'Install patched gh-aw v0.93.4',
+      (step) => step.name === 'Install patched gh-aw v1.0.1',
     );
     const compile = steps.findIndex((step) =>
-      step.run === 'gh aw compile --syft --action-mode action --action-tag v0.93.4 .github/workflows/*.md');
+      step.run === 'gh aw compile --syft --action-mode action --action-tag v1.0.1 .github/workflows/*.md');
     expect(install).toBeGreaterThanOrEqual(0);
     expect(compile).toBeGreaterThan(install);
-    expect(steps[install - 2].name).toBe('Checkout gh-aw v0.93.4');
-    expect(steps[install - 2].with?.ref).toBe('3de7cc191d85f95a65e5d64d2e386539ed7a36be');
+    expect(steps[install - 2].name).toBe('Checkout gh-aw v1.0.1');
+    expect(steps[install - 2].with?.ref).toBe('0627fdbe4beb5f3b71aa569f8d97150b87f2111a');
     expect(steps[install].run).toContain('compiler-agent-acceptance-v0.28.66.patch');
     expect(steps[install].run).toContain('go test -C .tmp/gh-aw-compiler ./pkg/workflow');
     expect(steps[install].run).toContain('./pkg/parser');
     expect(steps[install].run).toContain('TestMainWorkflowSchemaOrdinaryEnclaveTokenLimitAndEvals');
-    expect(steps[install].run).toContain('dev-v0.93.4-agent-acceptance-v0.28.66-budget131072');
+    expect(steps[install].run).toContain('dev-v1.0.1-agent-acceptance-v0.28.66-budget131072');
     expect(steps[install].run).toContain('gh aw version');
     expect(steps[install].env?.GH_TOKEN).toBe('${{ github.token }}');
     for (const index of [install, compile]) {

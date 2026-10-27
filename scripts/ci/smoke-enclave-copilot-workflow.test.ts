@@ -204,10 +204,10 @@ describe('Cloud Hypervisor Copilot agent enclave smoke', () => {
       'bash "${RUNNER_TEMP}/gh-aw/actions/install_awf_binary.sh" v0.28.66 --checksums-sha256 '
       + 'f184f3993a1f0c3168d0dd96b01752670a5061c9c9bc1a37e3653fc6b54fba29'
     );
-    expect(lock).toContain('"compiler_version":"dev-v0.93.4-agent-acceptance-v0.28.66-budget131072"');
-    expect(lock).toContain('github/gh-aw-actions/setup@40fb427c047bb9f77324054adeb574e04c9481aa');
+    expect(lock).toContain('"compiler_version":"dev-v1.0.1-agent-acceptance-v0.28.66-budget131072"');
+    expect(lock).toContain('github/gh-aw-actions/setup@221ba4f4319de6b8e809d1a15528b3ae6a818aa5');
     expect(lock).toContain('actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1');
-    expect(lock).toContain('ghcr.io/github/gh-aw-mcpg:v0.4.37@sha256:9c7f242f6dec2d7d7b55d4c9e07872d59b85377c6cb3de46c915a5d1ffb91442');
+    expect(lock).toContain('ghcr.io/github/gh-aw-mcpg:v0.5.0@sha256:d3544a4222e7efeeeb38669d8a1af0c72691c55b8f6506b15aa5920f7f31b7bc');
     expect(lock).toContain('ghcr.io/github/gh-aw-firewall/enclave-agent:0.28.66@');
     expect(lock).not.toContain('resolution_failures');
     expect(agentSteps.find(step => step.name === 'Download and verify cloud-hypervisor enclave artifacts')?.run)
@@ -225,7 +225,7 @@ describe('Cloud Hypervisor Copilot agent enclave smoke', () => {
     expect(install?.if).not.toContain("github.ref != 'refs/heads/main'");
     expect(install?.run).toContain('--build-local');
     expect(install?.run).toContain('"\\$arg" = "--skip-pull"');
-    expect(lock).toContain('sudo --preserve-env awf --cloud-hypervisor-enclave-debug-public --config ');
+    expect(lock).toContain('/usr/local/bin/awf --cloud-hypervisor-enclave-debug-public --config ');
     const upload = agentSteps.find(step => step.name === 'Upload public enclave debug evidence');
     expect(upload?.if).toContain("steps.collect-enclave-debug.outcome == 'success'");
     expect(upload?.with?.['retention-days']).toBe(1);

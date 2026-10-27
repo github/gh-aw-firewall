@@ -416,9 +416,10 @@ describe('Cloud Hypervisor preflight (foundation only)', () => {
       /--version" exited with code/,
     );
 
-    process.env.PATH = `${path.delimiter}/usr/bin`;
+    const mountPath = process.platform === 'darwin' ? '/sbin/mount' : '/usr/bin/mount';
+    process.env.PATH = `${path.delimiter}${path.dirname(mountPath)}`;
     await expect(defaults.assertToolAvailable('mount'))
-      .resolves.toBe('/usr/bin/mount');
+      .resolves.toBe(mountPath);
     await expect(defaults.assertToolAvailable('definitely-not-an-awf-tool'))
       .rejects.toThrow(/was not found on PATH/);
 
