@@ -88,6 +88,125 @@ describe('Cloud Hypervisor artifact trust', () => {
     }
   });
 
+  describe('Ubuntu physical id fallback', () => {
+    const physicalId = '/usr/lib/cargo/bin/coreutils/id';
+    const trustedStat = {
+      uid: 0, mode: 0o100755, isFile: () => true, isSymbolicLink: () => false,
+    };
+
+    beforeEach(() => {
+      jest.spyOn(fs, 'lstat').mockResolvedValue(
+        trustedStat as Awaited<ReturnType<typeof fs.lstat>>,
+      );
+      jest.spyOn(fs, 'access').mockResolvedValue(undefined);
+    });
+
+    it('prefers a regular PATH executable without probing the fallback', async () => {
+      await expect(resolveTrustedHostTool('id', { PATH: '/usr/bin' }))
+        .resolves.toBe('/usr/bin/id');
+      expect(fs.lstat).not.toHaveBeenCalledWith(physicalId);
+      expect(fs.access).toHaveBeenCalledWith('/usr/bin/id', constants.X_OK);
+    });
+
+    it('rejects the Ubuntu symlink and returns the verified basename-preserving physical applet', async () => {
+      jest.spyOn(fs, 'lstat').mockImplementation(async (file) => ({
+        ...trustedStat,
+        isSymbolicLink: () => file === '/usr/bin/id',
+      } as Awaited<ReturnType<typeof fs.lstat>>));
+
+      await expect(resolveTrustedHostTool('id', { PATH: '/usr/bin' }))
+        .resolves.toBe(physicalId);
+      expect(fs.access).not.toHaveBeenCalledWith('/usr/bin/id', constants.X_OK);
+      expect(fs.access).toHaveBeenCalledWith(physicalId, constants.X_OK);
+      for (const ancestor of ['/usr', '/usr/lib', '/usr/lib/cargo', '/usr/lib/cargo/bin',
+        '/usr/lib/cargo/bin/coreutils']) {
+        expect(fs.lstat).toHaveBeenCalledWith(ancestor);
+      }
+    });
+
+    it('tries every PATH candidate before the physical fallback', async () => {
+      jest.spyOn(fs, 'lstat').mockImplementation(async (file) => ({
+        ...trustedStat,
+        isSymbolicLink: () => file === '/usr/bin/id',
+      } as Awaited<ReturnType<typeof fs.lstat>>));
+      await expect(resolveTrustedHostTool('id', { PATH: '/usr/bin:/trusted/bin' }))
+        .resolves.toBe('/trusted/bin/id');
+      expect(fs.lstat).not.toHaveBeenCalledWith(physicalId);
+    });
+
+    it('does not let an earlier runner-owned PATH ancestor hide a trusted physical applet', async () => {
+      jest.spyOn(fs, 'lstat').mockImplementation(async (file) => ({
+        ...trustedStat,
+        uid: file === '/runner' ? 1000 : 0,
+        isSymbolicLink: () => file === '/usr/bin/id',
+      } as Awaited<ReturnType<typeof fs.lstat>>));
+      await expect(resolveTrustedHostTool('id', { PATH: '/runner/bin:/usr/bin' }))
+        .resolves.toBe(physicalId);
+      expect(fs.lstat).not.toHaveBeenCalledWith('/runner/bin/id');
+    });
+
+    it.each([
+      { location: physicalId, reason: 'file-symlink', stat: { isSymbolicLink: () => true } },
+      { location: physicalId, reason: 'file-type', stat: { isFile: () => false } },
+      { location: physicalId, reason: 'file-owner', stat: { uid: 1000 } },
+      { location: physicalId, reason: 'file-writable', stat: { mode: 0o100775 } },
+      { location: physicalId, reason: 'file-writable', stat: { mode: 0o100757 } },
+      { location: '/usr/lib/cargo', reason: 'ancestor-symlink', stat: { isSymbolicLink: () => true } },
+      { location: '/usr/lib/cargo', reason: 'ancestor-owner', stat: { uid: 1000 } },
+      { location: '/usr/lib/cargo', reason: 'ancestor-writable', stat: { mode: 0o40775 } },
+      { location: '/usr/lib/cargo', reason: 'ancestor-writable', stat: { mode: 0o40757 } },
+    ])('fails closed on $reason at $location', async ({ location, reason, stat }) => {
+      jest.spyOn(fs, 'lstat').mockImplementation(async (file) => ({
+        ...trustedStat, ...(file === location ? stat : {}),
+      } as Awaited<ReturnType<typeof fs.lstat>>));
+      const error = await resolveTrustedHostTool('id', { PATH: '' })
+        .catch((failure: unknown) => failure);
+      expect(error).toBeInstanceOf(Error);
+      expect(hostPreflightReason(error)).toBe(reason);
+      expect(fs.access).not.toHaveBeenCalled();
+    });
+
+    it.each([physicalId, '/usr/lib/cargo'])('fails closed when %s is missing', async (missing) => {
+      jest.spyOn(fs, 'lstat').mockImplementation(async (file) => {
+        if (file === missing) throw Object.assign(new Error('missing'), { code: 'ENOENT' });
+        return trustedStat as Awaited<ReturnType<typeof fs.lstat>>;
+      });
+      const error = await resolveTrustedHostTool('id', { PATH: '' })
+        .catch((failure: unknown) => failure);
+      expect(hostPreflightReason(error)).toBe('tool-not-found');
+      expect(fs.access).not.toHaveBeenCalled();
+    });
+
+    it('fails closed when the physical applet is not executable', async () => {
+      jest.spyOn(fs, 'access').mockRejectedValue(Object.assign(new Error('denied'), { code: 'EACCES' }));
+      const error = await resolveTrustedHostTool('id', { PATH: '' })
+        .catch((failure: unknown) => failure);
+      expect(hostPreflightReason(error)).toBe('EACCES');
+      expect(fs.access).toHaveBeenCalledWith(physicalId, constants.X_OK);
+    });
+
+    it('retains the first PATH trust rejection when the fallback also fails', async () => {
+      jest.spyOn(fs, 'lstat').mockImplementation(async (file) => {
+        if (file === physicalId) throw Object.assign(new Error('missing'), { code: 'ENOENT' });
+        return {
+          ...trustedStat, uid: file === '/runner' ? 1000 : 0,
+        } as Awaited<ReturnType<typeof fs.lstat>>;
+      });
+      const error = await resolveTrustedHostTool('id', { PATH: '/runner/bin' })
+        .catch((failure: unknown) => failure);
+      expect(hostPreflightReason(error)).toBe('ancestor-owner');
+      expect(fs.lstat).toHaveBeenCalledWith(physicalId);
+    });
+
+    it('never applies the physical fallback to unrelated tools', async () => {
+      jest.spyOn(fs, 'lstat').mockRejectedValue(Object.assign(new Error('missing'), { code: 'ENOENT' }));
+      const error = await resolveTrustedHostTool('mount', { PATH: '/usr/bin' })
+        .catch((failure: unknown) => failure);
+      expect(hostPreflightReason(error)).toBe('tool-not-found');
+      expect(fs.lstat).not.toHaveBeenCalledWith(physicalId);
+    });
+  });
+
   it('accepts root or operator-owned non-writable regular files on trusted ancestor paths', async () => {
     const lstat = jest.fn().mockResolvedValue({
       isFile: () => true,
