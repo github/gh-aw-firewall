@@ -925,6 +925,16 @@ describe('smoke enclave build workflow', () => {
   const source = fs.readFileSync(sourcePath, 'utf8');
   const lock = fs.readFileSync(lockPath, 'utf8');
 
+  it('pins the agent runner to Ubuntu 24.04 for sudo environment preservation', () => {
+    const frontmatter = yaml.load(source.split('---')[1]) as { 'runs-on': string };
+    const compiled = yaml.load(lock) as {
+      jobs: { agent: { 'runs-on': string } };
+    };
+
+    expect(frontmatter['runs-on']).toBe('ubuntu-24.04');
+    expect(compiled.jobs.agent['runs-on']).toBe('ubuntu-24.04');
+  });
+
   it('installs the authored CLI version above the generated feature minimum with a verified checksum', () => {
     const frontmatter = yaml.load(source.split('---')[1]) as {
       engine: { version: string; 'checksums-sha256': string };

@@ -9,6 +9,8 @@ permissions:
 env:
   GH_TOKEN: ${{ github.token }}
 name: Smoke Enclave Build Test
+# Ubuntu 26.04 sudo-rs ignores --preserve-env, dropping enclave host credentials.
+runs-on: ubuntu-24.04
 engine:
   id: copilot
   version: 1.0.98
