@@ -125,6 +125,16 @@ function dependencies(
 }
 
 describe('Cloud Hypervisor preflight (foundation only)', () => {
+  it('retains the resolved physical id path for downstream identity and cleanup tools', async () => {
+    const physicalId = '/usr/lib/cargo/bin/coreutils/id';
+    const deps = dependencies({
+      assertToolAvailable: jest.fn(async (tool: string) =>
+        tool === 'id' ? physicalId : `/usr/bin/${tool}`),
+    });
+    const result = await runCloudHypervisorPreflight(config(), deps);
+    expect(result.tools.id).toBe(physicalId);
+  });
+
   it.each(['common', 'primary'] as const)('completes readiness after successful %s preflight', async (profile) => {
     const wrapper = { enclaves: normalizeEnclavesConfig([{ script: {}, repos: [] }]) } as WrapperConfig;
     const publish = (hostPreflight: HostPreflightProgress) =>
@@ -417,7 +427,27 @@ describe('Cloud Hypervisor preflight (foundation only)', () => {
     );
 
     const mountPath = process.platform === 'darwin' ? '/sbin/mount' : '/usr/bin/mount';
-    process.env.PATH = `${path.delimiter}${path.dirname(mountPath)}`;
+    const mountDirectory = path.dirname(mountPath);
+    const mountPaths = [mountPath];
+    for (let ancestor = mountDirectory; ancestor !== path.parse(ancestor).root; ancestor = path.dirname(ancestor)) {
+      mountPaths.push(ancestor);
+    }
+    jest.spyOn(fs, 'lstat').mockImplementation(async (filePath) => {
+      if (!['/trusted', '/trusted/bin', '/trusted/bin/false', ...mountPaths].includes(String(filePath))) {
+        throw Object.assign(new Error('missing tool'), { code: 'ENOENT' });
+      }
+      return {
+        isFile: () => true,
+        isSymbolicLink: () => false,
+        mode: 0o100755,
+        size: 1,
+        uid: 0,
+      } as Awaited<ReturnType<typeof fs.lstat>>;
+    });
+    jest.spyOn(fs, 'access').mockResolvedValue(undefined);
+    process.env.PATH = `${path.delimiter}/trusted/bin${path.delimiter}${mountDirectory}`;
+    await expect(defaults.assertToolAvailable('false'))
+      .resolves.toBe('/trusted/bin/false');
     await expect(defaults.assertToolAvailable('mount'))
       .resolves.toBe(mountPath);
     await expect(defaults.assertToolAvailable('definitely-not-an-awf-tool'))

@@ -205,7 +205,7 @@ describe('offline scheduled source maintenance', () => {
     ]));
   });
 
-  it('tracks lookup aliases, normalized modality sets, and order-sensitive runtime pricing winners', async () => {
+  it('tracks lookup aliases, normalized modality sets, and exact-ID-first runtime pricing', async () => {
     const old = catalog([
       { ...priced('google/gemma-4-31b-it', '0'), canonical_slug: 'google/gemma-4-31b-it',
         architecture: { input_modalities: ['text', 'image'], output_modalities: ['text'] } },
@@ -213,12 +213,12 @@ describe('offline scheduled source maintenance', () => {
     ]);
     const reversed = catalog([
       { ...priced('openai/alias-competitor', '0.00000012'), canonical_slug: 'google/gemma-4-31b-it' },
-      { ...priced('google/gemma-4-31b-it', '0'), canonical_slug: 'google/gemma-4-31b-it',
+      { ...priced('google/gemma-4-31b-it', '0.0000000625'), canonical_slug: 'google/gemma-4-31b-it',
         architecture: { input_modalities: ['image', 'text'], output_modalities: ['text'] } },
     ]);
-    expect(catalogueFacts(old)).toEqual(catalogueFacts(reversed));
+    expect(catalogueFacts(old)).not.toEqual(catalogueFacts(reversed));
     expect(runtimeResolutionFacts(old)['@lookup=gemma-4-31b-it'].pricing.input).toBe(0);
-    expect(runtimeResolutionFacts(reversed)['@lookup=gemma-4-31b-it'].pricing.input).toBe(0.12);
+    expect(runtimeResolutionFacts(reversed)['@lookup=gemma-4-31b-it'].pricing.input).toBe(0.0625);
 
     await captureSources(evidence, fakeFetch(old));
     expect(refreshImport(cwd, evidence)).toBe(true);
@@ -233,9 +233,9 @@ describe('offline scheduled source maintenance', () => {
     const report = buildReport(cwd, evidence);
     const changes = report.changes.find((item: { file: string }) => item.file === rawFile).changes;
     expect(changes).toEqual(expect.arrayContaining([
-      { pointer: '/runtimeResolution/@lookup=gemma-4-31b-it/pricing/input', before: 0, after: 0.12 },
+      { pointer: '/runtimeResolution/@lookup=gemma-4-31b-it/pricing/input', before: 0, after: 0.0625 },
     ]));
-    expect(changes.some((change: { pointer: string }) => change.pointer.startsWith('/data'))).toBe(false);
+    expect(changes.some((change: { pointer: string }) => change.pointer.startsWith('/data'))).toBe(true);
     expect(report.changes.find((item: { file: string }) => item.file === rawFile).reviewRequired)
       .toContain('pricing-including-decreases-and-expiry');
     expect(report.runtimeConsumerEffects[0].changes).toEqual(expect.arrayContaining([
