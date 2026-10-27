@@ -65,6 +65,9 @@ expect "ECONNREFUSED" "not-yet-ready (ECONNREFUSED)" \
 # Timeout via exit code 124 (GNU timeout) → unreachable
 expect "timeout exit 124" "unreachable (timeout)" "" "" 124
 
+# Timeout via exit code 143 (BusyBox timeout) → unreachable
+expect "timeout exit 143" "unreachable (timeout)" "" "" 143
+
 # Timeout via message → unreachable
 expect "context deadline" "unreachable (timeout)" \
   "Get \"https://localhost:18443\": context deadline exceeded" "" 1
@@ -164,6 +167,8 @@ expect_probe "DNS error remains fatal" 1 \
   "diagnosis=dns-not-yet-ready" "getaddrinfo EAI_AGAIN" "" 1
 expect_probe "silent timeout retains exit code and remains fatal" 1 \
   "gh api exit=124, diagnosis=unreachable (timeout)" "" "" 124
+expect_probe "BusyBox timeout exit 143 remains fatal" 1 \
+  "gh api exit=143, diagnosis=unreachable (timeout)" "" "" 143
 expect_probe "partial HTTP response does not override timeout" 1 \
   "gh api exit=124, diagnosis=unreachable (timeout)" \
   "gh: Rate limiting is not enabled. (HTTP 404)" "" 124

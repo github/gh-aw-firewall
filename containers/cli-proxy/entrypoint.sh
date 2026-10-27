@@ -105,7 +105,7 @@ fi
 # Echoes the diagnosis string. Kept as a pure function so it can be unit-tested
 # in isolation — see tests/cli-proxy-probe-classify.test.sh (#5615).
 #   ECONNREFUSED ("connection refused" in gh output)  → not yet ready
-#   Timeout (exit 124, or "deadline"/"timed out")      → unreachable / slow
+#   Timeout (exit 124/143, or "deadline"/"timed out")  → unreachable / slow
 #   EAI_AGAIN / ENOTFOUND / getaddrinfo                → DNS not yet resolved
 #     (peer may not yet be joined to awf-net; keep retrying, do not fail fast)
 #   HTTP NNN in gh output                              → proxy reachable, but the
@@ -117,7 +117,8 @@ classify_probe_failure() {
   http_status="$(printf '%s\n%s\n' "${probe_err}" "${probe_out}" | grep -oiE "HTTP[/ ][0-9.]* ?[0-9]{3}|HTTP [0-9]{3}" | grep -oE "[0-9]{3}" | head -1 || true)"
   if echo "${probe_err}" | grep -qiE "connection refused|ECONNREFUSED"; then
     echo "not-yet-ready (ECONNREFUSED)"
-  elif [ "${probe_exit}" -eq 124 ] || echo "${probe_err}" | grep -qiE "timeout|deadline|timed out"; then
+  elif [ "${probe_exit}" -eq 124 ] || [ "${probe_exit}" -eq 143 ] ||
+       echo "${probe_err}" | grep -qiE "timeout|deadline|timed out"; then
     echo "unreachable (timeout)"
   elif echo "${probe_err}" | grep -qiE "EAI_AGAIN|ENOTFOUND|getaddrinfo|no such host|name or service not known"; then
     echo "dns-not-yet-ready"
