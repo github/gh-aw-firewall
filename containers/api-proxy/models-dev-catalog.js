@@ -52,37 +52,52 @@ function isZeroCostPricing(pricing) {
 
 function buildCatalogIndex(entries) {
   const knownModels = new Set();
-  const pricingByModel = new Map();
+  const exactModels = new Set();
+  const pricingByExactModel = new Map();
+  const pricingByAlias = new Map();
 
   for (const entry of entries) {
     const normalizedPricing = normalizePricing(entry?.pricing);
-    for (const candidate of [entry?.id, entry?.canonical_slug]) {
-      const canonical = canonicalizeModel(candidate);
-      if (!canonical) continue;
-      knownModels.add(canonical);
-      if (normalizedPricing && !pricingByModel.has(canonical)) {
-        pricingByModel.set(canonical, normalizedPricing);
+    const exactModel = canonicalizeModel(entry?.id);
+    if (exactModel) {
+      knownModels.add(exactModel);
+      exactModels.add(exactModel);
+      if (!pricingByExactModel.has(exactModel)) {
+        pricingByExactModel.set(exactModel, normalizedPricing);
+      }
+    }
+
+    const alias = canonicalizeModel(entry?.canonical_slug);
+    if (alias) {
+      knownModels.add(alias);
+      if (normalizedPricing && !pricingByAlias.has(alias)) {
+        pricingByAlias.set(alias, normalizedPricing);
       }
     }
   }
 
-  return { knownModels, pricingByModel };
+  return { knownModels, exactModels, pricingByExactModel, pricingByAlias };
 }
 
-const { knownModels, pricingByModel } = buildCatalogIndex(Array.isArray(bundledCatalog?.data) ? bundledCatalog.data : []);
+const catalogIndex = buildCatalogIndex(Array.isArray(bundledCatalog?.data) ? bundledCatalog.data : []);
 
-function resolveCatalogModel(model, index = { knownModels, pricingByModel }) {
+function resolveCatalogModel(model, index = catalogIndex) {
   const canonical = canonicalizeModel(model);
   if (!canonical) {
     return { exists: false, pricing: null, zeroCost: false };
   }
 
-  const exactPricing = index.pricingByModel.get(canonical);
-  if (exactPricing) {
+  if (index.exactModels.has(canonical)) {
+    const exactPricing = index.pricingByExactModel.get(canonical) || null;
     return { exists: true, pricing: exactPricing, zeroCost: isZeroCostPricing(exactPricing) };
   }
 
-  return { exists: index.knownModels.has(canonical), pricing: null, zeroCost: false };
+  const aliasPricing = index.pricingByAlias.get(canonical) || null;
+  return {
+    exists: index.knownModels.has(canonical),
+    pricing: aliasPricing,
+    zeroCost: isZeroCostPricing(aliasPricing),
+  };
 }
 
 module.exports = {

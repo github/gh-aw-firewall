@@ -123,7 +123,9 @@ describe('Cloud Hypervisor durable VMM identity cleanup', () => {
     await fs.rm(root, { recursive: true, force: true });
   });
 
-  it('restores and validates the exact baseline while holding the shared ACL lock', async () => {
+  it.each(['/usr/bin/id', '/usr/lib/cargo/bin/coreutils/id'])(
+    'restores and validates the exact baseline under the shared ACL lock using %s', async (idPath) => {
+    const resolvedTools = { ...tools, id: idPath };
     let accountDeleted = false;
     let currentAcl = [...baseline];
     const run = jest.fn(async (command: string, args: readonly string[]) => {
@@ -153,16 +155,16 @@ describe('Cloud Hypervisor durable VMM identity cleanup', () => {
           stderr: '',
         };
       }
-      if (command === tools.id && args[0] === '-u' && !accountDeleted) {
+      if (command === resolvedTools.id && args[0] === '-u' && !accountDeleted) {
         return { exitCode: 0, stdout: '23001\n', stderr: '' };
       }
-      if (command === tools.id && args[0] === '-u' && accountDeleted) {
+      if (command === resolvedTools.id && args[0] === '-u' && accountDeleted) {
         return { exitCode: 1, stdout: '', stderr: '' };
       }
-      if (command === tools.id && args[0] === '-g') {
+      if (command === resolvedTools.id && args[0] === '-g') {
         return { exitCode: 0, stdout: '23002\n', stderr: '' };
       }
-      if (command === tools.id && args[0] === '-G') {
+      if (command === resolvedTools.id && args[0] === '-G') {
         return { exitCode: 0, stdout: '23002\n', stderr: '' };
       }
       if (command === tools.userdel) {
@@ -170,7 +172,7 @@ describe('Cloud Hypervisor durable VMM identity cleanup', () => {
         currentAcl = ['user::rw-', 'group::rw-', 'mask::rw-', 'other::rw-'];
         return { exitCode: 0, stdout: '', stderr: '' };
       }
-      if (command === tools.getent || command === tools.id) {
+      if (command === tools.getent || command === resolvedTools.id) {
         return { exitCode: 2, stdout: '', stderr: '' };
       }
       throw new Error(`Unexpected command: ${command} ${args.join(' ')}`);
@@ -181,8 +183,11 @@ describe('Cloud Hypervisor durable VMM identity cleanup', () => {
     await expect(deleteVmmIdentity(
       resolved,
       cleanupRecord({ '/dev/kvm': baseline }),
-      tools,
+      resolvedTools,
     )).resolves.toBeUndefined();
+    expect(run).toHaveBeenCalledWith(idPath, ['-u', 'awfvmm-0123456789abcdef0123']);
+    expect(run).toHaveBeenCalledWith(idPath, ['-g', 'awfvmm-0123456789abcdef0123']);
+    expect(run).toHaveBeenCalledWith(idPath, ['-G', 'awfvmm-0123456789abcdef0123']);
     expect(run).toHaveBeenCalledWith(tools.setfacl, [
       `--set=${baseline.join(',')}`,
       '/dev/kvm',

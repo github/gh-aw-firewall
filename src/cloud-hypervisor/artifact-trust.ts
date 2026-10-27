@@ -52,10 +52,12 @@ export async function resolveTrustedHostTool(
   verify: typeof assertTrustedHostTool = assertTrustedHostTool,
 ): Promise<string> {
   let failure: unknown;
-  for (const directory of (environment.PATH ?? '').split(path.delimiter)) {
-    if (!directory) continue;
+  const candidates = (environment.PATH ?? '').split(path.delimiter)
+    .filter(Boolean).map((directory) => path.join(directory, tool));
+  // Ubuntu 26.04 symlinks id to this physical multicall applet; preserve its basename.
+  if (tool === 'id') candidates.push('/usr/lib/cargo/bin/coreutils/id');
+  for (const candidate of candidates) {
     try {
-      const candidate = path.join(directory, tool);
       await verify(tool, candidate);
       return candidate;
     } catch (error) {
