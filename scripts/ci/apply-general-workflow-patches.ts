@@ -853,7 +853,7 @@ export function applyGeneralWorkflowPatches(
   );
 
   if (isCloudHypervisorEnclaveSmoke || isCloudHypervisorAgentEnclaveSmoke) {
-    // gh-aw v0.93.4 discards agentConfig to force a privileged enclave install,
+    // gh-aw v1.0.1 discards agentConfig to force a privileged enclave install,
     // also dropping its manifest pin. Restore only this reviewed release pair.
     const unpinnedEnclaveInstall =
       /(^[ \t]*run: bash "\$\{RUNNER_TEMP\}\/gh-aw\/actions\/install_awf_binary\.sh" v0\.28\.66)(?=\r?$)/gm;
@@ -872,17 +872,34 @@ export function applyGeneralWorkflowPatches(
       /^( {6}- name: Redact secrets in logs\n)( {8}if: always\(\)\n)/gm,
       '$1        id: redact_secrets\n$2',
     );
-    const invocation = 'sudo --preserve-env awf --config ';
-    const debugInvocation = 'sudo --preserve-env awf --cloud-hypervisor-enclave-debug-public --config ';
-    if (content.split(debugInvocation).length > 2 ||
-        (content.includes(debugInvocation) && content.includes(invocation))) {
+    const invocationPairs = [
+      {
+        normal: 'sudo --preserve-env awf --config ',
+        debug: 'sudo --preserve-env awf --cloud-hypervisor-enclave-debug-public --config ',
+      },
+      {
+        normal: '/usr/local/bin/awf --config ',
+        debug: '/usr/local/bin/awf --cloud-hypervisor-enclave-debug-public --config ',
+      },
+    ];
+    const countOccurrences = (value: string, needle: string): number =>
+      value.split(needle).length - 1;
+    const normalCount = invocationPairs.reduce(
+      (count, pair) => count + countOccurrences(content, pair.normal), 0);
+    const debugCount = invocationPairs.reduce(
+      (count, pair) => count + countOccurrences(content, pair.debug), 0);
+    if (debugCount > 1 || (debugCount === 1 && normalCount > 0)) {
       throw new Error('Expected exactly one trusted host AWF invocation for public enclave debug');
     }
-    if (!content.includes(debugInvocation)) {
-      if (content.split(invocation).length !== 2) {
+    if (debugCount === 0) {
+      if (normalCount !== 1) {
         throw new Error('Expected exactly one trusted host AWF invocation for public enclave debug');
       }
-      content = content.replace(invocation, debugInvocation);
+      const pair = invocationPairs.find(({ normal }) => content.includes(normal));
+      if (!pair) {
+        throw new Error('Could not identify trusted host AWF invocation for public enclave debug');
+      }
+      content = content.replace(pair.normal, pair.debug);
       log.push('  Enabled public enclave debug on the effective host AWF invocation');
     }
     // The compiler substitutes the repository retention variable even for custom uploads.
