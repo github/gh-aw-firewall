@@ -7,6 +7,7 @@ permissions:
   contents: read
   copilot-requests: write
 name: Smoke Enclave Dynamic Issues Read
+runs-on: ubuntu-24.04
 engine:
   id: copilot
   version: 1.0.80

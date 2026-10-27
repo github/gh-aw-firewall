@@ -1272,6 +1272,16 @@ describe('smoke enclave dynamic issues workflow', () => {
   const source = fs.readFileSync(dynamicSourcePath, 'utf8');
   const lock = fs.readFileSync(dynamicLockPath, 'utf8');
 
+  it('pins the agent job to Ubuntu 24.04 for credential-preserving sudo', () => {
+    const frontmatter = yaml.load(source.split('---')[1]) as { 'runs-on': string };
+    const compiled = yaml.load(lock) as {
+      jobs: { agent: { 'runs-on': string } };
+    };
+
+    expect(frontmatter['runs-on']).toBe('ubuntu-24.04');
+    expect(compiled.jobs.agent['runs-on']).toBe('ubuntu-24.04');
+  });
+
   it('passes the pinned Copilot release checksum to the installer', () => {
     const frontmatter = yaml.load(source.split('---')[1]) as {
       engine: { version: string; 'checksums-sha256': string };
