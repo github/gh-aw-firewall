@@ -125,6 +125,16 @@ function dependencies(
 }
 
 describe('Cloud Hypervisor preflight (foundation only)', () => {
+  it('retains the resolved physical id path for downstream identity and cleanup tools', async () => {
+    const physicalId = '/usr/lib/cargo/bin/coreutils/id';
+    const deps = dependencies({
+      assertToolAvailable: jest.fn(async (tool: string) =>
+        tool === 'id' ? physicalId : `/usr/bin/${tool}`),
+    });
+    const result = await runCloudHypervisorPreflight(config(), deps);
+    expect(result.tools.id).toBe(physicalId);
+  });
+
   it.each(['common', 'primary'] as const)('completes readiness after successful %s preflight', async (profile) => {
     const wrapper = { enclaves: normalizeEnclavesConfig([{ script: {}, repos: [] }]) } as WrapperConfig;
     const publish = (hostPreflight: HostPreflightProgress) =>
