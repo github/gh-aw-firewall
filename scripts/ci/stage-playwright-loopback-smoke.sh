@@ -68,6 +68,7 @@ docker run --rm \
       libpng16-16 \
       libselinux1 \
       libthai0 \
+      libudev1 \
       libuuid1 \
       libx11-6 \
       libxau6 \

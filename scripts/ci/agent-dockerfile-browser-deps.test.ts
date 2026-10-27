@@ -65,6 +65,7 @@ describe('agent Dockerfile Chromium runtime dependencies', () => {
       'libnspr4',
       'libnss3',
       'libpango-1.0-0',
+      'libudev1',
       'libxcomposite1',
       'libxdamage1',
       'libxfixes3',
@@ -74,6 +75,11 @@ describe('agent Dockerfile Chromium runtime dependencies', () => {
     ]) {
       expect(packages).toContain(required);
     }
+  });
+
+  it('includes libudev in the independently staged Playwright smoke sysroot', () => {
+    const script = fs.readFileSync(path.resolve(__dirname, 'stage-playwright-loopback-smoke.sh'), 'utf-8');
+    expect(script).toMatch(/^\s+libudev1\s+\\/m);
   });
 
   it('declares the base (22.04) package names, never the t64 variants', () => {
