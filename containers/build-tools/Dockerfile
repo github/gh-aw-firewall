@@ -56,12 +56,17 @@ FROM ubuntu:26.04@sha256:f144425ff09be612d6d9ad965196e9cdc23dae1f42110a8a11a3e9a
 LABEL org.opencontainers.image.source="https://github.com/github/gh-aw-firewall"
 LABEL org.opencontainers.image.description="Build-tools sysroot for ARC/DinD agent containers"
 
-# Reuse Azure mirror optimization from the agent Dockerfile
+# Reuse Azure mirror optimization for legacy and deb822 Ubuntu sources.
 RUN if getent hosts azure.archive.ubuntu.com >/dev/null 2>&1; then \
       echo "Using Azure apt mirror (DNS resolved successfully)"; \
       if [ -f /etc/apt/sources.list ]; then \
         sed -i 's|http://archive.ubuntu.com|http://azure.archive.ubuntu.com|g' /etc/apt/sources.list; \
         sed -i 's|http://security.ubuntu.com|http://azure.archive.ubuntu.com|g' /etc/apt/sources.list; \
+      fi; \
+      if [ -d /etc/apt/sources.list.d ]; then \
+        find /etc/apt/sources.list.d -name '*.sources' -exec \
+          sed -i -e 's|http://archive.ubuntu.com|http://azure.archive.ubuntu.com|g' \
+                 -e 's|http://security.ubuntu.com|http://azure.archive.ubuntu.com|g' {} +; \
       fi; \
     else \
       echo "Azure apt mirror not reachable, using default archive.ubuntu.com"; \
@@ -76,6 +81,11 @@ RUN set -eux; \
       if [ -f /etc/apt/sources.list ]; then \
         sed -i 's|http://azure.archive.ubuntu.com|http://archive.ubuntu.com|g' /etc/apt/sources.list; \
         sed -i 's|http://security.ubuntu.com|http://archive.ubuntu.com|g' /etc/apt/sources.list 2>/dev/null || true; \
+      fi; \
+      if [ -d /etc/apt/sources.list.d ]; then \
+        find /etc/apt/sources.list.d -name '*.sources' -exec \
+          sed -i -e 's|http://azure.archive.ubuntu.com|http://archive.ubuntu.com|g' \
+                 -e 's|http://security.ubuntu.com|http://archive.ubuntu.com|g' {} + 2>/dev/null || true; \
       fi; \
       rm -rf /var/lib/apt/lists/* && apt-get update; \
     }; \

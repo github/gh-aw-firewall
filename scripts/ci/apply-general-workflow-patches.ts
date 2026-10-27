@@ -80,6 +80,12 @@ export function applyGeneralWorkflowPatches(
   workflowPath: string
 ): PatchResult {
   const log: string[] = [];
+  const preparedSmokeImages = /(?:^|[/\\])smoke-copilot\.lock\.yml$/.test(workflowPath)
+    && content.includes('- name: Build local AWF smoke images\n');
+  const preparedSmokeImageArgs =
+    '--image-registry awf-smoke --image-tag "${AWF_SMOKE_IMAGE_TAG:?}" --skip-pull';
+  // Normalize our prior output before the shared local-build transforms for idempotency.
+  if (preparedSmokeImages) content = content.split(preparedSmokeImageArgs).join('--build-local');
 
   const manifest = content.match(/^# gh-aw-manifest: (.+)$/m);
   if (manifest && (JSON.parse(manifest[1]) as { admission?: boolean }).admission === false) {
@@ -534,6 +540,20 @@ export function applyGeneralWorkflowPatches(
         content = content.replace(localAwfImageDownloadRegex, '');
         log.push(`  Removed ${localAwfImageMatches.length} local AWF image download(s)`);
       }
+    }
+    if (preparedSmokeImages) {
+      // Authored steps precede compiler setup; identity helpers need the local CLI build first.
+      const preparation = content.match(
+        /^ {6}- name: Build local AWF smoke images\n(?: {8}.*\n|\n)*/m,
+      );
+      const localInstall = /^ {6}- name: Install awf binary \(local\)\n(?: {8}.*\n|\n)*/m;
+      if (!preparation || !localInstall.test(content)) {
+        throw new Error('Smoke Copilot image preparation requires the local AWF install step');
+      }
+      content = content.replace(preparation[0], '');
+      content = content.replace(localInstall, step => step + preparation[0]);
+      content = content.replace(/--build-local\b/g, preparedSmokeImageArgs);
+      log.push('  Reused prepared PR images outside the Smoke Copilot execution budget');
     }
   }
 
