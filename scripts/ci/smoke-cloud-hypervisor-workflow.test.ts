@@ -167,7 +167,7 @@ describe('Smoke Cloud Hypervisor token-usage verification', () => {
     const frontmatter = loadFrontmatter(workflowFiles[0]);
     const lock = fs.readFileSync(workflowFiles[1], 'utf-8');
 
-    expect(frontmatter.model).toBe('gpt-5.4-mini');
+    expect(frontmatter.model).toBe('auto');
     expect(frontmatter.tools?.github).toBe(false);
     expect(frontmatter.steps).toEqual([
       {
@@ -178,7 +178,7 @@ describe('Smoke Cloud Hypervisor token-usage verification', () => {
         ),
       },
     ]);
-    expect(lock).toContain('COPILOT_MODEL: gpt-5.4-mini');
+    expect(lock).toContain('COPILOT_MODEL: auto');
     expect(lock).not.toContain('"list_pull_requests"');
 
     const prompt = fs.readFileSync(workflowFiles[0], 'utf-8');

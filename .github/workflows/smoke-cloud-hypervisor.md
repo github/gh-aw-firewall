@@ -17,7 +17,7 @@ permissions:
 name: Smoke Cloud Hypervisor
 concurrency:
   job-discriminator: ${{ github.run_id }}
-model: gpt-5.4-mini
+model: auto
 engine:
   id: copilot
   version: 1.0.101
