@@ -25,14 +25,25 @@ describe('models-dev-catalog', () => {
     });
   });
 
-  it('uses the first catalog row when normalized runtime lookup keys collide', () => {
+  it('prioritizes exact IDs over canonical aliases when lookup keys collide', () => {
     const free = entry('google/gemma-4-31b-it', '0', '0', 'gemma-4-31b-it');
     const priced = entry('openai/alias-competitor', '0.00000012', '0.00000037', 'gemma-4-31b-it');
     const firstFree = buildCatalogIndex([free, priced]);
     const firstPriced = buildCatalogIndex([priced, free]);
 
     expect(resolveCatalogModel('gemma-4-31b-it', firstFree).pricing?.input).toBe(0);
-    expect(resolveCatalogModel('gemma-4-31b-it', firstPriced).pricing?.input).toBe(0.12);
+    expect(resolveCatalogModel('gemma-4-31b-it', firstPriced).pricing?.input).toBe(0);
+  });
+
+  it('does not fall back to an alias price when the exact model is unpriced', () => {
+    const index = buildCatalogIndex([
+      entry('openai/fixture-model', '-1', '-1'),
+      entry('openai/alias-competitor', '0.00000012', '0.00000037', 'openai/fixture-model'),
+    ]);
+
+    expect(resolveCatalogModel('openai/fixture-model', index)).toEqual({
+      exists: true, pricing: null, zeroCost: false,
+    });
   });
 
   it('recognizes known entries while excluding negative sentinel pricing', () => {
@@ -46,6 +57,13 @@ describe('models-dev-catalog', () => {
     });
     expect(resolveCatalogModel('openai/fixture-unpriced', index)).toEqual({
       exists: true, pricing: null, zeroCost: false,
+    });
+  });
+
+  it('uses the exact DeepSeek model price instead of a versioned alias price', () => {
+    expect(resolveCatalogModel('deepseek/deepseek-v4-flash')).toMatchObject({
+      exists: true,
+      pricing: { input: 0.091, cachedInput: 0.0182, output: 0.182 },
     });
   });
 });

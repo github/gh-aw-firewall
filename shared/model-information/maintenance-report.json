@@ -19,18 +19,18 @@
         },
         {
           "pointer": "/runtimeResolution/@lookup=deepseek-v4-flash/pricing/cachedInput",
-          "before": 0.014,
-          "after": 0.0014140000000000001
+          "before": 0.049999999999999996,
+          "after": 0.0182
         },
         {
           "pointer": "/runtimeResolution/@lookup=deepseek-v4-flash/pricing/input",
-          "before": 0.44,
-          "after": 0.04444
+          "before": 0.049999999999999996,
+          "after": 0.091
         },
         {
           "pointer": "/runtimeResolution/@lookup=deepseek-v4-flash/pricing/output",
-          "before": 1.32,
-          "after": 0.13332
+          "before": 0.44999999999999996,
+          "after": 0.182
         },
         {
           "pointer": "/runtimeResolution/@lookup=deepseek-v4-flash-0731/pricing/cachedInput",
@@ -51,6 +51,21 @@
           "pointer": "/runtimeResolution/@lookup=deepseek-v4-flash-latest/pricing/input",
           "before": 0.0475,
           "after": 0.0422
+        },
+        {
+          "pointer": "/runtimeResolution/@lookup=deepseek-v4-pro/pricing/cachedInput",
+          "before": 0.079025,
+          "after": 0.06562699999999999
+        },
+        {
+          "pointer": "/runtimeResolution/@lookup=deepseek-v4-pro/pricing/input",
+          "before": 0.9483,
+          "after": 0.787524
+        },
+        {
+          "pointer": "/runtimeResolution/@lookup=deepseek-v4-pro/pricing/output",
+          "before": 1.8966,
+          "after": 1.575048
         },
         {
           "pointer": "/runtimeResolution/@lookup=gemma-4-26b-a4b-it/pricing/cachedInput",
@@ -502,18 +517,18 @@
         },
         {
           "pointer": "/runtimeResolution/@lookup=deepseek-v4-flash/pricing/cachedInput",
-          "before": 0.014,
-          "after": 0.0014140000000000001
+          "before": 0.049999999999999996,
+          "after": 0.0182
         },
         {
           "pointer": "/runtimeResolution/@lookup=deepseek-v4-flash/pricing/input",
-          "before": 0.44,
-          "after": 0.04444
+          "before": 0.049999999999999996,
+          "after": 0.091
         },
         {
           "pointer": "/runtimeResolution/@lookup=deepseek-v4-flash/pricing/output",
-          "before": 1.32,
-          "after": 0.13332
+          "before": 0.44999999999999996,
+          "after": 0.182
         },
         {
           "pointer": "/runtimeResolution/@lookup=deepseek-v4-flash-0731/pricing/cachedInput",
@@ -534,6 +549,21 @@
           "pointer": "/runtimeResolution/@lookup=deepseek-v4-flash-latest/pricing/input",
           "before": 0.0475,
           "after": 0.0422
+        },
+        {
+          "pointer": "/runtimeResolution/@lookup=deepseek-v4-pro/pricing/cachedInput",
+          "before": 0.079025,
+          "after": 0.06562699999999999
+        },
+        {
+          "pointer": "/runtimeResolution/@lookup=deepseek-v4-pro/pricing/input",
+          "before": 0.9483,
+          "after": 0.787524
+        },
+        {
+          "pointer": "/runtimeResolution/@lookup=deepseek-v4-pro/pricing/output",
+          "before": 1.8966,
+          "after": 1.575048
         },
         {
           "pointer": "/runtimeResolution/@lookup=gemma-4-26b-a4b-it/pricing/cachedInput",
