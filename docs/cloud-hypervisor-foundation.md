@@ -51,6 +51,12 @@ VM. Every API request has a bounded timeout and response-size limit.
 
 ## Host components
 
+Host tools must be root-owned, non-writable regular executables with trusted,
+non-symlink ancestor directories. The resolver prefers verified `PATH` entries.
+For `id` only, if none passes, it also verifies
+`/usr/lib/cargo/bin/coreutils/id`, Ubuntu 26.04's physical uutils applet,
+without accepting the `/usr/bin/id` symlink or relaxing those trust checks.
+
 The implementation is divided into focused modules:
 
 - `src/cloud-hypervisor-runtime-backend.ts` implements the external agent
