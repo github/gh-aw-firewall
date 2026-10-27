@@ -417,8 +417,8 @@ describe('Cloud Hypervisor preflight (foundation only)', () => {
     );
 
     process.env.PATH = `${path.delimiter}/usr/bin`;
-    await expect(defaults.assertToolAvailable('false'))
-      .resolves.toBe('/usr/bin/false');
+    await expect(defaults.assertToolAvailable('mount'))
+      .resolves.toBe('/usr/bin/mount');
     await expect(defaults.assertToolAvailable('definitely-not-an-awf-tool'))
       .rejects.toThrow(/was not found on PATH/);
 
