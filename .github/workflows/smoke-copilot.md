@@ -63,6 +63,22 @@ jobs:
       - name: Token-usage sanity check
         run: node scripts/ci/check-token-usage.js --artifact-root /tmp/gh-aw-agent --engine copilot
 steps:
+  - name: Build local AWF smoke images
+    timeout-minutes: 35
+    run: |
+      set -euo pipefail
+      AWF_SMOKE_IMAGE_TAG="run-${GITHUB_RUN_ID:?}-${GITHUB_RUN_ATTEMPT:?}"
+      HOST_UID="$(node -p "require('./dist/host-identity').getSafeHostUid()")"
+      HOST_GID="$(node -p "require('./dist/host-identity').getSafeHostGid()")"
+      for image in squid agent api-proxy; do
+        build_args=()
+        if [ "$image" = agent ]; then
+          build_args+=(--build-arg "USER_UID=$HOST_UID" --build-arg "USER_GID=$HOST_GID")
+        fi
+        docker build "${build_args[@]}" --tag "awf-smoke/${image}:${AWF_SMOKE_IMAGE_TAG}" "containers/${image}"
+        docker image inspect "awf-smoke/${image}:${AWF_SMOKE_IMAGE_TAG}" > /dev/null
+      done
+      printf 'AWF_SMOKE_IMAGE_TAG=%s\n' "$AWF_SMOKE_IMAGE_TAG" >> "$GITHUB_ENV"
   - name: Pre-compute smoke test data
     run: |
       echo "::group::Fetching last 2 merged PRs"
@@ -126,6 +142,11 @@ post-steps:
 ---
 
 # Smoke Test: Copilot Engine Validation
+
+The host preparation step builds the checked-out Squid, agent, and API proxy
+images with a separate 35-minute budget. Repository post-processing selects
+those run-specific local images with `--skip-pull`, leaving the 15-minute agent
+execution budget for startup and the smoke checks rather than cold builds.
 
 **CRITICAL: On pull_request triggers, call `add_comment` first. Keep all outputs extremely short, using single lines where possible.**
 
