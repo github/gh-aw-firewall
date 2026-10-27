@@ -37,6 +37,39 @@ describe('resolveModel', () => {
     expect(result.resolvedModel).toBe('claude-sonnet-4.6');
   });
 
+  it('resolves a retired-looking routing alias when its configured target is active', () => {
+    const models = { copilot: ['gpt-5.2-codex', 'gpt-5.3-codex'] };
+    const result = resolveModel(
+      'gpt-5-codex?effort=high',
+      { 'gpt-5-codex': ['copilot/gpt-5*-codex'] },
+      models,
+      'copilot',
+    );
+    expect(result.resolvedModel).toBe('gpt-5.3-codex?effort=high');
+  });
+
+  it('blocks literal retired alias targets before discovery while keeping active siblings', () => {
+    const models = { copilot: ['gpt-5.3-codex', 'gpt-5-codex'] };
+    expect(resolveModel(
+      'legacy',
+      { legacy: ['copilot/gpt-5-codex'] },
+      { copilot: ['gpt-5.3-codex'] },
+      'copilot',
+    )).toBeNull();
+    expect(resolveModel(
+      'legacy',
+      { legacy: ['copilot/gpt-5-codex'] },
+      models,
+      'copilot',
+    )).toBeNull();
+    expect(resolveModel(
+      'legacy',
+      { legacy: ['copilot/gpt-5-codex', 'copilot/gpt-5.3-codex'] },
+      models,
+      'copilot',
+    ).resolvedModel).toBe('gpt-5.3-codex');
+  });
+
   it('preserves URL-style model parameters when resolving aliases', () => {
     const result = resolveModel(
       'sonnet?effort=high',

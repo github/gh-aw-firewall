@@ -7,6 +7,7 @@ const { logRequest } = require('./logging');
 
 jest.mock('./logging', () => ({
   logRequest: jest.fn(),
+  sanitizeForLog: value => value,
 }));
 
 beforeEach(() => {

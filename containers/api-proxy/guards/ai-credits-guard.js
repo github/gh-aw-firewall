@@ -188,7 +188,7 @@ function resolveModelPricing(model, state = aiCreditsState, provider = undefined
   const copilotScope = !resolveApiKey(process.env) &&
     isGithubCopilotCatalogTarget(deriveCopilotApiTarget(process.env));
   const central = provider && copilotScope
-    ? resolveCentralPricing(provider, pricingModel, inputTokens, capture) : null;
+    ? resolveCentralPricing(provider, pricingModel, inputTokens, capture, { nativeInput: true }) : null;
   if (central) return central;
   const fallback = resolveLowerPriorityPricing(pricingModel, state, {
     ...options,

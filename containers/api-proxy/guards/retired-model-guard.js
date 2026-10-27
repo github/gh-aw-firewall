@@ -27,12 +27,14 @@ const RETIRED_COPILOT_MODELS = new Map(
  * Returns a block-state object when the given model name is a known-retired
  * Copilot model, or null when the model is not retired / is absent.
  *
- * @param {string|null} model - The model name extracted from the request body.
+ * @param {string|null} model - The model name to check.
+ * @param {string} [provider='copilot'] - Provider serving the model.
+ * @param {{ inputMode?: 'request'|'native' }} [options] - Whether to normalize request qualifiers.
  * @returns {{ model: string, suggestion: string } | null}
  */
-function getRetiredModelBlockState(model) {
-  if (!model) return null;
-  const prefix = getProviderAliases('copilot')
+function getRetiredModelBlockState(model, provider = 'copilot', options = {}) {
+  if (!model || provider !== 'copilot') return null;
+  const prefix = options.inputMode === 'native' ? null : getProviderAliases(provider)
     .find(alias => model.toLowerCase().startsWith(`${alias}/`));
   const nativeModel = prefix ? stripRedundantProviderPrefix(model, prefix) : model;
   const key = resolveModelIdentity(nativeModel, 'copilot', {

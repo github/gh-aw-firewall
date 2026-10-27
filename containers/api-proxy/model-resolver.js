@@ -66,7 +66,8 @@ function applyModelParametersToResolution(resolution, parameterSuffix) {
  * @returns {boolean}
  */
 function _isModelPermittedByPolicy(model, policyConfig, provider) {
-  if (provider === 'copilot' && getRetiredModelBlockState(model)) return false;
+  if (provider === 'copilot' &&
+      getRetiredModelBlockState(model, provider, { inputMode: 'native' })) return false;
   if (!policyConfig) return true;
   return isModelPermittedByPolicy(
     model,
@@ -93,6 +94,20 @@ function parseModelAliases(rawConfig) {
 
   if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
   if (!parsed.models || typeof parsed.models !== 'object' || Array.isArray(parsed.models)) return null;
+
+  const aliases = new Map();
+  for (const name of Object.keys(parsed.models)) {
+    const normalized = name.toLowerCase();
+    const previous = aliases.get(normalized);
+    if (previous !== undefined) {
+      const error = new Error(
+        `AWF_MODEL_ALIASES contains case-insensitive alias collision "${previous}" and "${name}"; rename one alias`,
+      );
+      error.code = 'ambiguous_model_alias';
+      throw error;
+    }
+    aliases.set(normalized, name);
+  }
 
   // Validate structure: each value must be either:
   //   - string[] (legacy alias syntax)
@@ -251,6 +266,13 @@ function _resolveAliasPatterns(aliasKey, aliasDefinition, requestedModel, aliase
       if (patternProvider !== currentProvider.toLowerCase()) continue;
 
       const providerModels = (availableModels[currentProvider] || []);
+      if (currentProvider === 'copilot' &&
+          getRetiredModelBlockState(modelPattern, currentProvider, { inputMode: 'native' })) {
+        resolutionState.blocked = true;
+        log.push(`[model-resolver] ignored retired model target "${modelPattern}"`);
+        continue;
+      }
+
       for (const model of providerModels) {
         if (globMatch(modelPattern, model)) {
           candidates.push(model);
@@ -454,11 +476,6 @@ function _resolveModel(
   // than the raw "<provider>/model" string. The raw input remains available
   // above as `originalRequestedModel` for anything that needs the true input.
   const normalizedRequestedModel = appendModelParameters(baseModel, parameterSuffix);
-  if (currentProvider === 'copilot' && getRetiredModelBlockState(baseModel)) {
-    resolutionState.blocked = true;
-    return null;
-  }
-
   if (currentProvider === 'copilot' && key === 'auto') {
     if (!_isModelPermittedByPolicy(baseModel, modelPolicyConfig, currentProvider)) {
       log.push(`[model-resolver] model policy blocked dynamic model: "${baseModel}"`);
@@ -522,6 +539,12 @@ function _resolveModel(
   }
 
   if (!aliasEntry) {
+    if (currentProvider === 'copilot' &&
+        getRetiredModelBlockState(normalizedRequestedModel, currentProvider, { inputMode: 'native' })) {
+      resolutionState.blocked = true;
+      log.push(`[model-resolver] blocked retired model: "${normalizedRequestedModel}"`);
+      return null;
+    }
     return _resolveDirectMatch(key, normalizedRequestedModel, currentProvider, availableModels, fallbackConfig, log, modelPolicyConfig);
   }
 

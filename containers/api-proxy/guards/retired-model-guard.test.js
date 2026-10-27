@@ -51,6 +51,16 @@ describe('retired-model-guard', () => {
       });
     });
 
+    it('applies retirement only to Copilot request selectors, not native IDs on other providers', () => {
+      expect(getRetiredModelBlockState('gpt-5-codex?effort=high', 'openai')).toBeNull();
+      expect(getRetiredModelBlockState(
+        'copilot/gpt-5-codex', 'copilot', { inputMode: 'native' },
+      )).toBeNull();
+      expect(getRetiredModelBlockState('github/gpt-5-codex', 'copilot')).toMatchObject({
+        suggestion: 'gpt-5.3-codex',
+      });
+    });
+
     it('preserves the original casing in the returned model field', () => {
       const state = getRetiredModelBlockState('GPT-5-CODEX');
       expect(state.model).toBe('GPT-5-CODEX');

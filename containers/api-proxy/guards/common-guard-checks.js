@@ -124,7 +124,7 @@ function buildCommonGuardChecks(deps, model, provider = null) {
         }),
       },
       {
-        block: getRetiredModelBlockState(model),
+        block: getRetiredModelBlockState(model, provider),
         isBlocked: block => !!block,
         statusCode: 400,
         eventName: 'retired_model',

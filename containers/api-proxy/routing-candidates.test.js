@@ -31,6 +31,11 @@ describe('routing candidates', () => {
     expect(build([model('gpt-5-codex')], undefined, 'openai').choices).toHaveLength(2);
   });
 
+  it('does not apply bare-model retirement facts to a distinct native Copilot ID', () => {
+    expect(build([model('copilot/gpt-5-codex')]).choices.map(choice => choice.model))
+      .toContain('github-copilot/copilot/gpt-5-codex');
+  });
+
   it('builds frozen exact choices and native mappings', () => {
     const models = [
       model('gpt-test', { contextWindow: 128_000 }),

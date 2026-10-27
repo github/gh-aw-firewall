@@ -104,6 +104,18 @@ test('preserves exact v1 stored lookup pricing without changing naming or fallba
   expect(resolveCentralPricing('copilot', requested, 0, oldSnapshot)).toBeNull();
 });
 
+test('native provider IDs remain distinct from qualified request selectors during pricing', () => {
+  const snapshot = capture('gpt-5.3-codex', '2');
+  snapshot.snapshot.models.push(capture('copilot/gpt-5.3-codex', '9').snapshot.models[0]);
+
+  expect(resolveCentralPricing(
+    'copilot', 'copilot/gpt-5.3-codex', 0, snapshot, { nativeInput: true },
+  )).toMatchObject({ pricing: { input: 9 } });
+  expect(resolveCentralPricing(
+    'copilot', 'copilot/gpt-5.3-codex', 0, snapshot,
+  )).toMatchObject({ pricing: { input: 2 } });
+});
+
 test('pricing preserves provider, channel, deployment, freshness and ambiguity boundaries', () => {
   expect(resolveCentralPricing('openai', 'canonical-model', 0, capture())).toBeNull();
   expect(resolveCentralPricing('copilot', 'canonical-model', 0, capture(), { channel: 'native-api' })).toBeNull();

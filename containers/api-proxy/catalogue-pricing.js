@@ -36,7 +36,10 @@ function resolveCentralPricing(provider, model, inputTokens, capture, context = 
   const channel = context.channel || 'copilot-api';
   if (provider !== 'copilot' || channel !== 'copilot-api') return null;
   const scope = { provider, channel, deployment: context.deployment };
-  const requested = resolveModelIdentity(model, provider, { scope });
+  const requested = resolveModelIdentity(model, provider, {
+    scope,
+    policy: { providerPrefix: context.nativeInput !== true },
+  });
   const records = capture.snapshot.models.filter(entry => {
     if (entry.identity.provider !== provider) return false;
     const canonicalMatch = requested.identity

@@ -58,6 +58,12 @@ describe('parseModelAliases', () => {
     expect(parseModelAliases(JSON.stringify({ models: { sonnet: [123] } }))).toBeNull();
   });
 
+  it('rejects case-insensitive alias collisions with an actionable error', () => {
+    expect(() => parseModelAliases(JSON.stringify({
+      models: { Team: ['copilot/*'], TEAM: ['openai/*'] },
+    }))).toThrow('case-insensitive alias collision "Team" and "TEAM"');
+  });
+
   it('should parse extended alias entries with patterns and fallback flag', () => {
     const raw = JSON.stringify({
       models: {

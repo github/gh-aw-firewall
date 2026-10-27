@@ -97,7 +97,11 @@ function buildRoutingCandidates({ catalogue, policy = {}, candidateModels }) {
   const providerModels = indexModels(catalogue.models, 'catalogue.models', model => model.id);
   const policyModels = new Map(
     [...providerModels].filter(([, model]) =>
-      (provider !== 'copilot' || !getRetiredModelBlockState(model.id)) &&
+      (provider !== 'copilot' || !getRetiredModelBlockState(
+        stripRedundantProviderPrefix(model.id, providerInfo.canonical),
+        provider,
+        { inputMode: 'native' },
+      )) &&
       isModelPermittedByPolicy(model.id, allowedModels, disallowedModels, providerInfo.alias)),
   );
   if (policyModels.size === 0) {
