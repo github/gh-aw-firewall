@@ -5,7 +5,7 @@ index d85ee50..68869fe 100644
 @@ -4079 +4079 @@
 -                  "max-model-tokens": { "type": "integer", "minimum": 1, "maximum": 32768, "default": 1024 },
 +                  "max-model-tokens": { "type": "integer", "minimum": 1, "maximum": 131072, "default": 1024 },
-@@ -14627,0 +14628,36 @@
+@@ -14650,0 +14651,36 @@
 +    {
 +      "if": {
 +        "required": ["features", "sandbox"],

@@ -416,8 +416,14 @@ describe('Cloud Hypervisor preflight (foundation only)', () => {
       /--version" exited with code/,
     );
 
+    const mountPath = process.platform === 'darwin' ? '/sbin/mount' : '/usr/bin/mount';
+    const mountDirectory = path.dirname(mountPath);
+    const mountPaths = [mountPath];
+    for (let ancestor = mountDirectory; ancestor !== path.parse(ancestor).root; ancestor = path.dirname(ancestor)) {
+      mountPaths.push(ancestor);
+    }
     jest.spyOn(fs, 'lstat').mockImplementation(async (filePath) => {
-      if (!['/trusted', '/trusted/bin', '/trusted/bin/false', '/trusted/bin/mount'].includes(String(filePath))) {
+      if (!['/trusted', '/trusted/bin', '/trusted/bin/false', ...mountPaths].includes(String(filePath))) {
         throw Object.assign(new Error('missing tool'), { code: 'ENOENT' });
       }
       return {
@@ -429,11 +435,11 @@ describe('Cloud Hypervisor preflight (foundation only)', () => {
       } as Awaited<ReturnType<typeof fs.lstat>>;
     });
     jest.spyOn(fs, 'access').mockResolvedValue(undefined);
-    process.env.PATH = `${path.delimiter}/trusted/bin`;
+    process.env.PATH = `${path.delimiter}/trusted/bin${path.delimiter}${mountDirectory}`;
     await expect(defaults.assertToolAvailable('false'))
       .resolves.toBe('/trusted/bin/false');
     await expect(defaults.assertToolAvailable('mount'))
-      .resolves.toBe('/trusted/bin/mount');
+      .resolves.toBe(mountPath);
     await expect(defaults.assertToolAvailable('definitely-not-an-awf-tool'))
       .rejects.toThrow(/was not found on PATH/);
 
