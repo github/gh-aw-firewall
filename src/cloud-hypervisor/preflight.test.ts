@@ -417,7 +417,7 @@ describe('Cloud Hypervisor preflight (foundation only)', () => {
     );
 
     jest.spyOn(fs, 'lstat').mockImplementation(async (filePath) => {
-      if (!['/trusted', '/trusted/bin', '/trusted/bin/false'].includes(String(filePath))) {
+      if (!['/trusted', '/trusted/bin', '/trusted/bin/false', '/trusted/bin/mount'].includes(String(filePath))) {
         throw Object.assign(new Error('missing tool'), { code: 'ENOENT' });
       }
       return {
@@ -432,6 +432,8 @@ describe('Cloud Hypervisor preflight (foundation only)', () => {
     process.env.PATH = `${path.delimiter}/trusted/bin`;
     await expect(defaults.assertToolAvailable('false'))
       .resolves.toBe('/trusted/bin/false');
+    await expect(defaults.assertToolAvailable('mount'))
+      .resolves.toBe('/trusted/bin/mount');
     await expect(defaults.assertToolAvailable('definitely-not-an-awf-tool'))
       .rejects.toThrow(/was not found on PATH/);
 
