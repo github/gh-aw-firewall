@@ -157,7 +157,7 @@ function injectSteeringMessage(body, provider, message, requestPath = '') {
  * skipped.
  *
  * @param {Buffer} body
- * @param {string} provider - 'openai' | 'copilot' | 'anthropic' | 'gemini'
+ * @param {string} provider - 'openai' | 'copilot' | 'anthropic' | 'gemini' | 'vertex'
  * @param {string} [requestPath] - Incoming request path (e.g. /v1/chat/completions)
  * @returns {{ body: Buffer, injected: boolean }|null}
  */
@@ -186,6 +186,9 @@ function injectStreamOptions(body, provider, requestPath = '') {
   // provider, since the Copilot provider also fronts the Messages API
   // (e.g. api.githubcopilot.com/v1/messages).
   if (/^\/(?:v\d+\/)?messages\/?$/.test(pathOnly)) return null;
+
+  // Anthropic models on Vertex use the Messages schema and reject stream_options.
+  if (/\/publishers\/anthropic\/models\/[^/:]+:(?:rawPredict|streamRawPredict)\/?$/.test(pathOnly)) return null;
 
   const parsed = parseBodyAsObject(body);
   if (!parsed) return null;

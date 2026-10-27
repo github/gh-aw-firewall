@@ -156,6 +156,40 @@ describe('injectStreamOptions', () => {
     expect(JSON.parse(transformed.body.toString('utf8')).stream_options).toEqual({ include_usage: true });
   });
 
+  describe.each(['v1', 'v1beta1'])('Vertex %s endpoints', (version) => {
+    test.each(['rawPredict', 'streamRawPredict'])(
+      'does not inject include_usage for Anthropic %s',
+      (method) => {
+        const request = {
+          anthropic_version: 'vertex-2023-10-16',
+          stream: true,
+          max_tokens: 16,
+          messages: [{ role: 'user', content: 'hi' }],
+        };
+        const body = Buffer.from(JSON.stringify(request));
+        const path = `/${version}/projects/test-project/locations/us-east5/publishers/anthropic/models/claude-sonnet-4-5:${method}`;
+
+        expect(injectStreamOptions(body, 'vertex', path)).toBeNull();
+        expect(injectStreamOptions(body, 'vertex', `${path}?alt=sse`)).toBeNull();
+        expect(injectStreamOptions(body, 'vertex', path.slice(1))).toBeNull();
+        expect(JSON.parse(body.toString('utf8'))).toEqual(request);
+      }
+    );
+
+    test.each(['', '?alt=sse'])(
+      'still injects include_usage for OpenAI-compatible chat completions%s',
+      (query) => {
+        const body = Buffer.from(JSON.stringify({ stream: true, messages: [{ role: 'user', content: 'hi' }] }));
+        const path = `/${version}/projects/test-project/locations/us-east5/endpoints/openapi/chat/completions${query}`;
+
+        const transformed = injectStreamOptions(body, 'vertex', path);
+
+        expect(transformed).not.toBeNull();
+        expect(JSON.parse(transformed.body.toString('utf8')).stream_options).toEqual({ include_usage: true });
+      }
+    );
+  });
+
   test.each([
     '/messages/../v1/chat/completions',
     '/messages/%2e%2e/v1/chat/completions',
