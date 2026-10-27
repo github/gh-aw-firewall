@@ -674,12 +674,32 @@ describe('buildOidcEnv', () => {
         AWF_AUTH_PROVIDER: 'gcp',
         AWF_AUTH_GCP_WORKLOAD_IDENTITY_PROVIDER: 'projects/123/locations/global/workloadIdentityPools/pool/providers/github',
         AWF_AUTH_GCP_SERVICE_ACCOUNT: 'vertex-sa@example.iam.gserviceaccount.com',
+        AWF_AUTH_GCP_PROJECT: 'vertex-project',
+        AWF_AUTH_GCP_LOCATION: 'us-central1',
       },
     });
     expect(env.AWF_AUTH_TYPE).toBe('github-oidc');
     expect(env.AWF_AUTH_PROVIDER).toBe('gcp');
     expect(env.AWF_AUTH_GCP_WORKLOAD_IDENTITY_PROVIDER).toBe('projects/123/locations/global/workloadIdentityPools/pool/providers/github');
     expect(env.AWF_AUTH_GCP_SERVICE_ACCOUNT).toBe('vertex-sa@example.iam.gserviceaccount.com');
+    expect(env.AWF_AUTH_GCP_PROJECT).toBe('vertex-project');
+    expect(env.AWF_AUTH_GCP_LOCATION).toBe('us-central1');
+  });
+
+  it('forwards compiler-provided GCP project and location from the host environment', () => {
+    const originalEnv = process.env;
+    process.env = {
+      ...originalEnv,
+      AWF_AUTH_GCP_PROJECT: 'vertex-project',
+      AWF_AUTH_GCP_LOCATION: 'global',
+    };
+    try {
+      const env = buildOidcEnv({ ...baseConfig, workDir: '/tmp/awf-test' });
+      expect(env.AWF_AUTH_GCP_PROJECT).toBe('vertex-project');
+      expect(env.AWF_AUTH_GCP_LOCATION).toBe('global');
+    } finally {
+      process.env = originalEnv;
+    }
   });
 
   it('prefers explicit auth config fields over additionalEnv values', () => {

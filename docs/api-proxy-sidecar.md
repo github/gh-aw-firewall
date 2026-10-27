@@ -1296,8 +1296,10 @@ Exchanges the GitHub OIDC JWT for a GCP access token via the Security Token Serv
 | `AWF_AUTH_GCP_WORKLOAD_IDENTITY_PROVIDER` | ✅ | — | Full resource name of the Workload Identity Provider |
 | `AWF_AUTH_GCP_SERVICE_ACCOUNT` | No | — | Service account email to impersonate (omit for direct access) |
 | `AWF_AUTH_GCP_SCOPE` | No | `https://www.googleapis.com/auth/cloud-platform` | OAuth2 scope |
+| `AWF_AUTH_GCP_PROJECT` | For native Vertex express-path rewriting | — | Google Cloud resource project ID supplied by the compiler |
+| `AWF_AUTH_GCP_LOCATION` | For native Vertex express-path rewriting | — | Vertex location supplied by the compiler (e.g. `us-central1` or `global`) |
 
-Default OIDC audience: the `gcpWorkloadIdentityProvider` value
+Default GitHub OIDC audience: `https://iam.googleapis.com/` followed by the `gcpWorkloadIdentityProvider` value. `AWF_AUTH_OIDC_AUDIENCE` overrides this default; the STS audience remains `//iam.googleapis.com/` followed by the provider resource name.
 
 :::note
 `ACTIONS_ID_TOKEN_REQUEST_URL` and `ACTIONS_ID_TOKEN_REQUEST_TOKEN` are injected by the Actions runner automatically. AWF forwards them to the sidecar when `AWF_AUTH_TYPE=github-oidc` and excludes them from the agent container.
@@ -1308,7 +1310,9 @@ When `gcpServiceAccount` is omitted, the federated token is used directly withou
 :::
 
 :::note[Supported Vertex paths]
-For the Gemini CLI Vertex mode (`GOOGLE_GENAI_USE_VERTEXAI=true`), use the native Vertex adapter on port 10004. AWF sets `GOOGLE_VERTEX_BASE_URL`, exchanges GCP WIF credentials in the sidecar, and forwards to `aiplatform.googleapis.com` (or `VERTEX_API_TARGET`). Billing and quota are charged to the Google Cloud project associated with the impersonated service account, or to the directly granted workload identity principal when no service account is configured.
+For the Gemini CLI Vertex mode (`GOOGLE_GENAI_USE_VERTEXAI=true`), use the native Vertex adapter on port 10004. AWF sets `GOOGLE_VERTEX_BASE_URL` and exchanges GCP WIF credentials in the sidecar. The compiler must supply `AWF_AUTH_GCP_PROJECT` and `AWF_AUTH_GCP_LOCATION` to the host AWF process; AWF forwards these to the sidecar. In GCP OIDC mode, native `/v1/publishers/google/models/MODEL:METHOD` and `/v1beta1/publishers/google/models/MODEL:METHOD` paths are rewritten to include `/projects/PROJECT/locations/LOCATION`, preserving the API version, method, and query string. The resource project selects the target Google Cloud project; it is not inferred from the workload identity provider or service account.
+
+Regional locations use `LOCATION-aiplatform.googleapis.com`; `global` uses `aiplatform.googleapis.com`. `VERTEX_API_TARGET` still overrides the host. Already project-scoped paths are not rewritten, and static-key express mode is unchanged. If either project or location is absent, paths are left unchanged.
 
 OpenAI-compatible Vertex endpoints can still use the OpenAI adapter (`OPENAI_API_TARGET` plus a resource-specific `OPENAI_API_BASE_PATH` such as `/v1/projects/PROJECT_ID/locations/LOCATION/endpoints/openapi`).
 :::

@@ -65,6 +65,90 @@ describe('createGoogleProviderAdapter', () => {
     expect(vertex.transformRequestUrl).toBeUndefined();
   });
 
+  describe('Vertex GCP OIDC routing', () => {
+    const env = {
+      AWF_AUTH_TYPE: 'github-oidc',
+      AWF_AUTH_PROVIDER: 'gcp',
+      AWF_AUTH_GCP_PROJECT: 'vertex-project',
+      AWF_AUTH_GCP_LOCATION: 'us-central1',
+    };
+
+    it.each([
+      ['v1', 'generateContent', ''],
+      ['v1beta1', 'streamGenerateContent', '?alt=sse&x=a%2Fb&x=c'],
+      ['v1', 'countTokens', '?alt=json'],
+      ['v1beta1', 'generateContent', ''],
+    ])('scopes %s %s and preserves the query %s', (version, method, query) => {
+      const adapter = createGoogleProviderAdapter('vertex', env);
+      const modelPath = `publishers/google/models/gemini-2.5-pro:${method}${query}`;
+      expect(adapter.transformRequestUrl(`/${version}/${modelPath}`)).toBe(
+        `/${version}/projects/vertex-project/locations/us-central1/${modelPath}`,
+      );
+    });
+
+    it.each([
+      ['us-central1', 'us-central1-aiplatform.googleapis.com'],
+      ['europe-west4', 'europe-west4-aiplatform.googleapis.com'],
+      ['global', 'aiplatform.googleapis.com'],
+    ])('uses the host for %s', (location, host) => {
+      const adapter = createGoogleProviderAdapter('vertex', { ...env, AWF_AUTH_GCP_LOCATION: location });
+      expect(adapter.getTargetHost()).toBe(host);
+      expect(adapter.transformRequestUrl('/v1/publishers/google/models/gemini:generateContent')).toBe(
+        `/v1/projects/vertex-project/locations/${location}/publishers/google/models/gemini:generateContent`,
+      );
+    });
+
+    it('honors an explicit upstream target', () => {
+      const adapter = createGoogleProviderAdapter('vertex', { ...env, VERTEX_API_TARGET: 'custom.example.com' });
+      expect(adapter.getTargetHost()).toBe('custom.example.com');
+    });
+
+    it('rejects a location that is not a hostname label', () => {
+      expect(() => createGoogleProviderAdapter('vertex', {
+        ...env,
+        AWF_AUTH_GCP_LOCATION: 'us-central1/other',
+      })).toThrow('Invalid AWF_AUTH_GCP_LOCATION');
+    });
+
+    it('leaves static-key express mode and its host unchanged', () => {
+      const adapter = createGoogleProviderAdapter('vertex', {
+        ...env,
+        AWF_AUTH_TYPE: 'static-key',
+        GOOGLE_API_KEY: 'key',
+      });
+      expect(adapter.getTargetHost()).toBe('aiplatform.googleapis.com');
+      expect(adapter.transformRequestUrl).toBeUndefined();
+      expect(adapter.getAuthHeaders()).toEqual({ 'x-goog-api-key': 'key' });
+    });
+
+    it.each([
+      '/v1/projects/existing/locations/global/publishers/google/models/gemini:generateContent?alt=sse',
+      '/v1beta1/projects/existing/locations/us-east1/publishers/google/models/gemini:countTokens',
+      '/v1/models',
+      '/v1/publishers/other/models/gemini:generateContent',
+    ])('leaves other paths unchanged: %s', (path) => {
+      expect(createGoogleProviderAdapter('vertex', env).transformRequestUrl(path)).toBe(path);
+    });
+
+    it.each([
+      { AWF_AUTH_TYPE: 'static-key' },
+      { AWF_AUTH_PROVIDER: 'azure' },
+      { AWF_AUTH_GCP_PROJECT: '' },
+      { AWF_AUTH_GCP_LOCATION: '' },
+    ])('does not rewrite without GCP OIDC project/location configuration: %j', (overrides) => {
+      const adapter = createGoogleProviderAdapter('vertex', { ...env, ...overrides, GOOGLE_API_KEY: 'key' });
+      expect(adapter.transformRequestUrl).toBeUndefined();
+    });
+
+    it('does not change native Gemini routing', () => {
+      const adapter = createGoogleProviderAdapter('gemini', env);
+      expect(adapter.getTargetHost()).toBe('generativelanguage.googleapis.com');
+      expect(adapter.transformRequestUrl('/v1beta/models/gemini:generateContent?alt=sse')).toBe(
+        '/v1beta/models/gemini:generateContent?alt=sse',
+      );
+    });
+  });
+
   it('exposes a models fetch config only when the spec defines a models path', () => {
     const gemini = GOOGLE_PROVIDER_ADAPTER_FACTORIES.gemini({ GEMINI_API_KEY: 'k' });
     const vertex = GOOGLE_PROVIDER_ADAPTER_FACTORIES.vertex({ GOOGLE_API_KEY: 'k' });

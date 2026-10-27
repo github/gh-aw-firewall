@@ -26,7 +26,7 @@ const {
  * @property {string} requestToken - ACTIONS_ID_TOKEN_REQUEST_TOKEN
  * @property {string} workloadIdentityProvider - Full resource name of the WI provider
  * @property {string} [serviceAccount] - GCP service account email to impersonate (optional)
- * @property {string} [oidcAudience] - Audience for GitHub OIDC token (default: workloadIdentityProvider value)
+ * @property {string} [oidcAudience] - Audience for GitHub OIDC token (default: https://iam.googleapis.com/ + workloadIdentityProvider)
  * @property {string} [scope] - OAuth2 scope (default: https://www.googleapis.com/auth/cloud-platform)
  * @property {number} [retryDelayMs] - Retry delay after failed refresh (default: 30000)
  * @property {number} [maxInitRetries] - Maximum retries for initial token acquisition (default: 3)
@@ -42,7 +42,7 @@ class GcpOidcTokenProvider extends BaseOidcTokenProvider {
     this._requestToken = config.requestToken;
     this._workloadIdentityProvider = config.workloadIdentityProvider;
     this._serviceAccount = config.serviceAccount || null;
-    this._oidcAudience = config.oidcAudience || config.workloadIdentityProvider;
+    this._oidcAudience = config.oidcAudience || `https://iam.googleapis.com/${config.workloadIdentityProvider}`;
     this._scope = config.scope || 'https://www.googleapis.com/auth/cloud-platform';
 
     // Token state

@@ -121,27 +121,42 @@ describe('GcpOidcTokenProvider', () => {
     });
   });
 
-  it('should use workloadIdentityProvider as default audience', () => {
+  it.each([undefined, 'custom-audience'])('uses the GitHub audience %s without changing the STS audience', async (oidcAudience) => {
     const wip = 'projects/123/locations/global/workloadIdentityPools/pool/providers/github';
-    const provider = new GcpOidcTokenProvider({
-      requestUrl: 'http://localhost/token',
-      requestToken: 'test',
-      workloadIdentityProvider: wip,
+    let provider, mintToken, post;
+    jest.isolateModules(() => {
+      const githubOidc = require('./github-oidc');
+      mintToken = jest.spyOn(githubOidc, 'mintGitHubOidcToken').mockResolvedValue('mock-jwt');
+      post = jest.spyOn(githubOidc, 'httpPost').mockResolvedValue({
+        statusCode: 200,
+        body: JSON.stringify({ access_token: 'mock-gcp-token', expires_in: 3600 }),
+      });
+      const { GcpOidcTokenProvider: Provider } = require('./gcp-oidc-token-provider');
+      provider = new Provider({
+        requestUrl: 'http://localhost/token',
+        requestToken: 'test',
+        workloadIdentityProvider: wip,
+        oidcAudience,
+      });
     });
-
-    expect(provider._oidcAudience).toBe(wip);
-    provider.shutdown();
-  });
-
-  it('should allow custom audience override', () => {
-    const provider = new GcpOidcTokenProvider({
-      requestUrl: 'http://localhost/token',
-      requestToken: 'test',
-      workloadIdentityProvider: 'projects/123/locations/global/workloadIdentityPools/pool/providers/github',
-      oidcAudience: 'custom-audience',
-    });
-
-    expect(provider._oidcAudience).toBe('custom-audience');
-    provider.shutdown();
+    try {
+      await provider.initialize();
+      expect(mintToken).toHaveBeenCalledWith(expect.objectContaining({
+        audience: oidcAudience || `https://iam.googleapis.com/${wip}`,
+      }));
+      expect(post).toHaveBeenCalledWith(
+        'https://sts.googleapis.com/v1/token',
+        expect.any(String),
+        { 'Content-Type': 'application/json' },
+      );
+      expect(JSON.parse(post.mock.calls[0][1])).toMatchObject({
+        audience: `//iam.googleapis.com/${wip}`,
+        subject_token: 'mock-jwt',
+      });
+      expect(provider.getToken()).toBe('mock-gcp-token');
+    } finally {
+      provider.shutdown();
+      jest.restoreAllMocks();
+    }
   });
 });

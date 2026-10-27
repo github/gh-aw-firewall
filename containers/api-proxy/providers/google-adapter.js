@@ -124,19 +124,35 @@ function createGoogleProviderAdapter(providerKey, env, deps = {}) {
   }
 
   const keyEnvVar = spec.envConstants.KEY;
+  const vertexOidc = providerKey === 'vertex' && isGcpOidcRequested(env);
+  const project = (env.AWF_AUTH_GCP_PROJECT || '').trim();
+  const location = (env.AWF_AUTH_GCP_LOCATION || '').trim();
+  if (vertexOidc && location && !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(location)) {
+    throw new Error('Invalid AWF_AUTH_GCP_LOCATION');
+  }
+  const defaultTarget = vertexOidc && location && location !== 'global'
+    ? `${location}-aiplatform.googleapis.com`
+    : spec.defaultTarget;
+  const transformRequestUrl = vertexOidc && project && location
+    ? (url) => url.replace(
+      /^\/(v1(?:beta1)?)\/(publishers\/google\/models\/[^/?]+:[^/?]+)(\?.*)?$/,
+      (_, version, modelPath, query = '') =>
+        `/${version}/projects/${encodeURIComponent(project)}/locations/${location}/${modelPath}${query}`,
+    )
+    : spec.transformRequestUrl;
 
   return createGoogleAuthAdapter(env, deps, {
     name: spec.name,
     label: spec.label,
     port: spec.port,
     envConstants: spec.envConstants,
-    defaultTarget: spec.defaultTarget,
+    defaultTarget,
     validationPath: spec.validationPath,
     modelsPath: spec.modelsPath,
     healthServiceName: `awf-api-proxy-${spec.name}`,
     unconfiguredErrorMessage: `${spec.label} proxy not configured (no ${keyEnvVar}). Set ${keyEnvVar} in the AWF runner environment to enable credential isolation.`,
     healthErrorMessage: `${keyEnvVar} not configured in api-proxy sidecar`,
-    ...(spec.transformRequestUrl !== undefined ? { transformRequestUrl: spec.transformRequestUrl } : {}),
+    ...(transformRequestUrl !== undefined ? { transformRequestUrl } : {}),
   });
 }
 
