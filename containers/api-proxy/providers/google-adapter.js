@@ -17,6 +17,12 @@ function isGcpOidcRequested(env) {
     && (env.AWF_AUTH_PROVIDER || '').trim().toLowerCase() === 'gcp';
 }
 
+function vertexTargetForLocation(location) {
+  if (location === 'global') return 'aiplatform.googleapis.com';
+  if (location === 'us' || location === 'eu') return `aiplatform.${location}.rep.googleapis.com`;
+  return `${location}-aiplatform.googleapis.com`;
+}
+
 /**
  * Create a Google provider adapter with static API-key and GCP WIF auth support.
  *
@@ -130,8 +136,8 @@ function createGoogleProviderAdapter(providerKey, env, deps = {}) {
   if (vertexOidc && location && !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(location)) {
     throw new Error('Invalid AWF_AUTH_GCP_LOCATION');
   }
-  const defaultTarget = vertexOidc && location && location !== 'global'
-    ? `${location}-aiplatform.googleapis.com`
+  const defaultTarget = vertexOidc && location
+    ? vertexTargetForLocation(location)
     : spec.defaultTarget;
   const transformRequestUrl = vertexOidc && project && location
     ? (url) => url.replace(
@@ -141,7 +147,7 @@ function createGoogleProviderAdapter(providerKey, env, deps = {}) {
     )
     : spec.transformRequestUrl;
 
-  return createGoogleAuthAdapter(env, deps, {
+  const adapter = createGoogleAuthAdapter(env, deps, {
     name: spec.name,
     label: spec.label,
     port: spec.port,
@@ -154,6 +160,16 @@ function createGoogleProviderAdapter(providerKey, env, deps = {}) {
     healthErrorMessage: `${keyEnvVar} not configured in api-proxy sidecar`,
     ...(transformRequestUrl !== undefined ? { transformRequestUrl } : {}),
   });
+
+  if (vertexOidc && !(env[spec.envConstants.TARGET] || '').trim()) {
+    const getConfiguredTargetHost = adapter.getTargetHost;
+    adapter.getTargetHost = (req) => {
+      const match = req?.url?.match(/^\/v1(?:beta1)?\/projects\/[^/]+\/locations\/([a-z0-9]+(?:-[a-z0-9]+)*)(?:\/|$)/);
+      return match ? vertexTargetForLocation(match[1]) : getConfiguredTargetHost(req);
+    };
+  }
+
+  return adapter;
 }
 
 /**

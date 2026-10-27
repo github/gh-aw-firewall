@@ -89,6 +89,8 @@ describe('createGoogleProviderAdapter', () => {
     it.each([
       ['us-central1', 'us-central1-aiplatform.googleapis.com'],
       ['europe-west4', 'europe-west4-aiplatform.googleapis.com'],
+      ['us', 'aiplatform.us.rep.googleapis.com'],
+      ['eu', 'aiplatform.eu.rep.googleapis.com'],
       ['global', 'aiplatform.googleapis.com'],
     ])('uses the host for %s', (location, host) => {
       const adapter = createGoogleProviderAdapter('vertex', { ...env, AWF_AUTH_GCP_LOCATION: location });
@@ -101,6 +103,9 @@ describe('createGoogleProviderAdapter', () => {
     it('honors an explicit upstream target', () => {
       const adapter = createGoogleProviderAdapter('vertex', { ...env, VERTEX_API_TARGET: 'custom.example.com' });
       expect(adapter.getTargetHost()).toBe('custom.example.com');
+      expect(adapter.getTargetHost({
+        url: '/v1/projects/existing/locations/global/publishers/google/models/gemini:generateContent',
+      })).toBe('custom.example.com');
     });
 
     it('rejects a location that is not a hostname label', () => {
@@ -122,12 +127,15 @@ describe('createGoogleProviderAdapter', () => {
     });
 
     it.each([
-      '/v1/projects/existing/locations/global/publishers/google/models/gemini:generateContent?alt=sse',
-      '/v1beta1/projects/existing/locations/us-east1/publishers/google/models/gemini:countTokens',
-      '/v1/models',
-      '/v1/publishers/other/models/gemini:generateContent',
-    ])('leaves other paths unchanged: %s', (path) => {
-      expect(createGoogleProviderAdapter('vertex', env).transformRequestUrl(path)).toBe(path);
+      ['/v1/projects/existing/locations/global/publishers/google/models/gemini:generateContent?alt=sse', 'aiplatform.googleapis.com'],
+      ['/v1beta1/projects/existing/locations/us-east1/publishers/google/models/gemini:countTokens', 'us-east1-aiplatform.googleapis.com'],
+      ['/v1beta1/projects/existing/locations/eu/publishers/google/models/gemini:countTokens', 'aiplatform.eu.rep.googleapis.com'],
+      ['/v1/models', 'us-central1-aiplatform.googleapis.com'],
+      ['/v1/publishers/other/models/gemini:generateContent', 'us-central1-aiplatform.googleapis.com'],
+    ])('leaves paths unchanged and selects the corresponding host: %s', (path, host) => {
+      const adapter = createGoogleProviderAdapter('vertex', env);
+      expect(adapter.transformRequestUrl(path)).toBe(path);
+      expect(adapter.getTargetHost({ url: path })).toBe(host);
     });
 
     it.each([
