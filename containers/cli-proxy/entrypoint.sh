@@ -147,11 +147,19 @@ while [ "$ATTEMPT" -le "$MAX_LIVENESS_ATTEMPTS" ]; do
        >"${PROBE_OUT_FILE}" 2>"${PROBE_ERR_FILE}"; then
     echo "[cli-proxy] DIFC proxy liveness probe succeeded on attempt ${ATTEMPT}/${MAX_LIVENESS_ATTEMPTS}"
     break
+  else
+    PROBE_EXIT=$?
   fi
-  PROBE_EXIT=$?
   PROBE_ERR="$(cat "${PROBE_ERR_FILE}")"
   PROBE_OUT="$(cat "${PROBE_OUT_FILE}")"
   DIAG_TYPE="$(classify_probe_failure "${PROBE_ERR}" "${PROBE_OUT}" "${PROBE_EXIT}")"
+  # GHES intentionally returns 404 for rate_limit when rate limiting is disabled.
+  # This response confirms connectivity without accepting other API errors.
+  if [ "${DIAG_TYPE}" = "reachable-but-api-error (HTTP 404)" ] &&
+     printf '%s\n%s\n' "${PROBE_ERR}" "${PROBE_OUT}" | grep -qiF "Rate limiting is not enabled"; then
+    echo "[cli-proxy] WARNING: GHES rate limiting is disabled; DIFC proxy liveness probe succeeded on attempt ${ATTEMPT}/${MAX_LIVENESS_ATTEMPTS}"
+    break
+  fi
   if [ "$ATTEMPT" -ge "$MAX_LIVENESS_ATTEMPTS" ]; then
     echo "[cli-proxy] ERROR: DIFC proxy liveness probe failed for ${GH_HOST} (gh api exit=${PROBE_EXIT}, diagnosis=${DIAG_TYPE})"
     if [ -n "${PROBE_ERR}" ]; then
