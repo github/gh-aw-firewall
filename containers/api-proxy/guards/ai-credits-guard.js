@@ -306,7 +306,7 @@ function isModelPriceable(model, provider = undefined, options = {}) {
 function warnMissingModelPricing(model, state = aiCreditsState) {
   if (state.warnedUnknownModels.has(model)) return;
   logRequest('warn', 'unknown_model_ai_credits_pricing', {
-    model: sanitizeForLog(model),
+    modelProvided: Boolean(model),
     message: 'Model pricing is unavailable from the pricing catalogs. ' +
       'Configured defaultAiCreditsPricing will be used if available; otherwise ' +
       'unpriced usage is excluded from AI-credit totals and budget enforcement may undercount spending.',
