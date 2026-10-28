@@ -65,7 +65,7 @@ jobs:
 steps:
   - name: Build local AWF smoke images
     timeout-minutes: 35
-    run: bash scripts/ci/build-smoke-images.sh
+    run: bash "${RUNNER_TEMP}/awf-smoke/build-smoke-images.sh"
   - name: Pre-compute smoke test data
     run: |
       echo "::group::Fetching last 2 merged PRs"

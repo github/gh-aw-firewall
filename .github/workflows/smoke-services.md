@@ -72,7 +72,7 @@ strict: true
 steps:
   - name: Build local AWF smoke images
     timeout-minutes: 35
-    run: bash scripts/ci/build-smoke-images.sh
+    run: bash "${RUNNER_TEMP}/awf-smoke/build-smoke-images.sh"
   - name: Pre-install service client tools
     run: |
       sudo apt-get update -qq && sudo apt-get install -y -qq redis-tools postgresql-client

@@ -550,6 +550,18 @@ export function applyGeneralWorkflowPatches(
       if (!preparation || !localInstall.test(content)) {
         throw new Error('Smoke image preparation requires the local AWF install step');
       }
+      const preserveHelperStep =
+        '      - name: Preserve smoke image preparation helper\n' +
+        '        run: |\n' +
+        '          mkdir -p "${RUNNER_TEMP}/awf-smoke"\n' +
+        '          cp "${GITHUB_WORKSPACE}/scripts/ci/build-smoke-images.sh" "${RUNNER_TEMP}/awf-smoke/build-smoke-images.sh"\n';
+      if (!content.includes(preserveHelperStep)) {
+        const prCheckout = /^      - name: Checkout PR branch\n        id: checkout-pr\n/m;
+        if (!prCheckout.test(content)) {
+          throw new Error('Smoke image preparation requires the PR checkout step');
+        }
+        content = content.replace(prCheckout, `${preserveHelperStep}$&`);
+      }
       content = content.replace(preparation[0], '');
       content = content.replace(localInstall, step => step + preparation[0]);
       content = content.replace(/--build-local\b/g, preparedSmokeImageArgs);
