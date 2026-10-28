@@ -188,9 +188,7 @@ describe('rewriteModelInBody', () => {
   });
 });
 
-// ── Middle-power price filtering ───────────────────────────────────────────
-
-describe('selectMiddlePowerFallback price filtering', () => {
+describe('selectMiddlePowerFallback pricing independence', () => {
   const catalog = [
     'crest-alpha-0416-block-a',
     'crest-alpha-0418-block-b',
@@ -198,39 +196,37 @@ describe('selectMiddlePowerFallback price filtering', () => {
     'crest-alpha-0422-block-d',
     'gpt-4-turbo',
   ];
-  const isPriceable = m => !m.startsWith('crest-alpha');
-
-  it('excludes unpriceable models from the fallback pool', () => {
+  it('keeps models without pricing in the fallback pool', () => {
     const result = selectMiddlePowerFallback(
-      'something', { openai: catalog }, 'openai', 'test',
-      { enabled: true, strategy: 'middle_power', isModelPriceable: isPriceable }
-    );
-    expect(result.resolvedModel).toBe('gpt-4-turbo');
-    expect(result.fallback.used_price_filter).toBe(true);
-  });
-
-  it('falls back to the unfiltered pool when nothing is priceable', () => {
-    const result = selectMiddlePowerFallback(
-      'something', { openai: catalog }, 'openai', 'test',
-      { enabled: true, strategy: 'middle_power', isModelPriceable: () => false }
-    );
-    expect(result).not.toBeNull();
-    expect(result.fallback.used_price_filter).toBe(false);
-  });
-
-  it('is a no-op when no predicate is supplied', () => {
-    const withOut = selectMiddlePowerFallback(
       'something', { openai: catalog }, 'openai', 'test',
       { enabled: true, strategy: 'middle_power' }
     );
-    expect(withOut.fallback.used_price_filter).toBe(false);
+    expect(result.resolvedModel).toMatch(/^crest-alpha/);
+    expect(result.fallback.used_price_filter).toBe(false);
+    expect(result.fallback.candidates.map(candidate => candidate.model).sort()).toEqual([...catalog].sort());
   });
 
-  it('treats a throwing predicate as priceable rather than failing resolution', () => {
+  it('selects a fallback when no available models have pricing', () => {
     const result = selectMiddlePowerFallback(
-      'something', { openai: catalog }, 'openai', 'test',
-      { enabled: true, strategy: 'middle_power', isModelPriceable: () => { throw new Error('boom'); } }
+      'something', { openai: catalog.slice(0, -1) }, 'openai', 'test',
+      { enabled: true, strategy: 'middle_power' }
     );
-    expect(result).not.toBeNull();
+    expect(result.resolvedModel).toMatch(/^crest-alpha/);
+    expect(result.fallback.candidates).toHaveLength(4);
+    expect(result.fallback.used_price_filter).toBe(false);
+  });
+
+  it('ignores a legacy priceability predicate', () => {
+    const predicate = jest.fn(() => false);
+    const withPredicate = selectMiddlePowerFallback(
+      'something', { openai: catalog }, 'openai', 'test',
+      { enabled: true, strategy: 'middle_power', isModelPriceable: predicate }
+    );
+    const withoutPredicate = selectMiddlePowerFallback(
+      'something', { openai: catalog }, 'openai', 'test',
+      { enabled: true, strategy: 'middle_power' }
+    );
+    expect(withPredicate).toEqual(withoutPredicate);
+    expect(predicate).not.toHaveBeenCalled();
   });
 });

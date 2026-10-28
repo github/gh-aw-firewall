@@ -176,7 +176,7 @@ describe('getModelPolicyBlockState', () => {
       getAiCreditsBlockState: () => null,
       getModelMultiplierCapBlockState: () => null,
       getRetiredModelBlockState: () => null,
-      checkUnknownModelRejection: () => null,
+      checkModelPricing: () => null,
     };
     const check = buildCommonGuardChecks(deps, 'claude-opus-4.5', 'copilot')
       .find(entry => entry.eventName === 'model_policy_violation');

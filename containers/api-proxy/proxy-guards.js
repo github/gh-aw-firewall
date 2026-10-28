@@ -28,7 +28,7 @@ const {
 const {
   getAiCreditsBlockState,
   buildAiCreditsLimitError,
-  checkUnknownModelRejection,
+  checkModelPricing,
 } = require('./guards/ai-credits-guard');
 const {
   getModelMultiplierCapBlockState,
@@ -163,7 +163,7 @@ function getCurrentGuardChecks(model, provider, pricingOptions) {
     buildModelMultiplierCapError,
     getRetiredModelBlockState,
     buildRetiredModelError,
-    checkUnknownModelRejection: (candidate, route) => checkUnknownModelRejection(candidate, route, pricingOptions),
+    checkModelPricing: (candidate, route) => checkModelPricing(candidate, route, pricingOptions),
     getModelPolicyBlockState,
     buildModelPolicyError,
   }, model, provider);

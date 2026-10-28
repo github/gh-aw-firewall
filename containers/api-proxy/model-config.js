@@ -17,7 +17,6 @@ const {
   ALLOWED_MODELS,
   DISALLOWED_MODELS,
 } = require('./guards/model-policy-guard');
-const { isModelPriceable } = require('./guards/ai-credits-guard');
 const { parseScopedAutoRequest, rewriteScopedAutoRequest, pickerError } = require('./scoped-auto-model');
 const { parseBodyAsObject } = require('./body-utils');
 const { resolveModelSelector } = require('./model-selector');
@@ -82,23 +81,6 @@ logRequest('info', 'startup', {
   model_fallback: MODEL_FALLBACK,
 });
 
-/**
- * Build a predicate that reports whether the AI-credits guard can price a model.
- *
- * Used to keep the middle-power fallback from synthesizing a model that the
- * guard would immediately reject. Returns null (no filtering) unless the guard
- * is actually active — i.e. a credit cap is set with no configured default
- * pricing — so pricing coverage never constrains resolution otherwise.
- *
- * @param {string} provider
- * @returns {((model: string) => boolean)|null}
- */
-function makeIsModelPriceable(provider) {
-  if (!process.env.AWF_MAX_AI_CREDITS) return null;
-  if (process.env.AWF_DEFAULT_AI_CREDITS_PRICING) return null;
-  return (model) => isModelPriceable(model, provider);
-}
-
 function getModelFallbackPolicyForProvider(provider) {
   if (MODEL_FALLBACK.excludeEngines && MODEL_FALLBACK.excludeEngines.includes(provider.toLowerCase())) {
     return {
@@ -114,8 +96,7 @@ function getModelFallbackPolicyForProvider(provider) {
 }
 
 function getModelFallbackForProvider(provider) {
-  const effective = getModelFallbackPolicyForProvider(provider).effective;
-  return { ...effective, isModelPriceable: makeIsModelPriceable(provider) };
+  return getModelFallbackPolicyForProvider(provider).effective;
 }
 
 function getEffectiveModelFallbackForReflect(adapters) {
@@ -195,7 +176,7 @@ function makeModelBodyTransform(
       const parsed = parseBodyAsObject(body);
       const selectModel = () => resolveModelSelector(
         parsed?.model, provider, resolvableModels()[provider], getRuntimeModels(provider),
-        MODEL_ALIASES?.models, MODEL_POLICY_CONFIG, providerModelFallback.isModelPriceable,
+        MODEL_ALIASES?.models, MODEL_POLICY_CONFIG,
       );
       let selectedModel;
       try {

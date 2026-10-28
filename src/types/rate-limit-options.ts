@@ -33,17 +33,17 @@ export interface RateLimitOptions {
    *
    * When set, the API proxy tracks AI credits across responses using
    * model-specific pricing and rejects additional requests once this limit is
-   * reached.
+   * reached. Unpriced models are allowed with a warning; unpriced usage is
+   * excluded from totals, so actual spending may exceed this limit.
    */
   maxAiCredits?: number;
 
   /**
    * Default AI credits pricing for models not resolved by another pricing source.
    *
-   * When maxAiCredits is active and the api-proxy encounters a model not in its
-   * pricing catalog or table, it uses these rates as a fallback. If not set and
-   * the model is unrecognized, the request is rejected with HTTP 400 (type:
-   * unknown_model_ai_credits) to prevent unaccounted spending.
+   * When the api-proxy encounters a model without resolvable pricing, it uses
+   * these rates as a fallback. If not set, the request proceeds with a warning
+   * and unpriced usage is excluded from AI-credit totals.
    *
    * Rates are per 1 million tokens in dollars. Reasoning tokens use the output
    * rate unless a distinct reasoning rate is supplied.

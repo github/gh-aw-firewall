@@ -30,10 +30,10 @@ function modelSelection(id, suffix, provider, requestedModel) {
   };
 }
 
-function resolveAliasSelection(selector, aliasKey, provider, ids, aliases, suffix, modelPolicy, qualified, base, isModelPriceable) {
+function resolveAliasSelection(selector, aliasKey, provider, ids, aliases, suffix, modelPolicy, qualified, base) {
   if (!aliasKey || (!qualified && !/\s/.test(base))) return null;
   const resolveAlias = policy => resolveModel(
-    aliasKey, aliases, { [provider]: ids }, provider, [], { enabled: false, isModelPriceable }, policy,
+    aliasKey, aliases, { [provider]: ids }, provider, [], { enabled: false }, policy,
   );
   const resolution = resolveAlias(modelPolicy) || (modelPolicy && resolveAlias(null));
   if (resolution && ids.includes(resolution.resolvedModel)) {
@@ -51,7 +51,7 @@ function resolveAliasSelection(selector, aliasKey, provider, ids, aliases, suffi
  * Unknown API/deployment IDs remain provider-local; UI selectors never use
  * family-version or middle-power fallback and are never synthesized.
  */
-function resolveModelSelector(selector, provider, modelIds, records, aliases = {}, modelPolicy = null, isModelPriceable = null) {
+function resolveModelSelector(selector, provider, modelIds, records, aliases = {}, modelPolicy = null) {
   if (Array.isArray(selector)) {
     throw selectorError(selector, provider, 'prioritized lists belong to the consuming surface');
   }
@@ -68,7 +68,7 @@ function resolveModelSelector(selector, provider, modelIds, records, aliases = {
 
   const exactAliasKey = Object.keys(aliases).find(key => key.toLowerCase() === base.toLowerCase());
   const exactAlias = resolveAliasSelection(
-    selector, exactAliasKey, provider, ids, aliases, suffix, modelPolicy, false, base, isModelPriceable,
+    selector, exactAliasKey, provider, ids, aliases, suffix, modelPolicy, false, base,
   );
   if (exactAlias) return exactAlias;
 
@@ -95,7 +95,7 @@ function resolveModelSelector(selector, provider, modelIds, records, aliases = {
   const aliasKey =
     (qualified && Object.keys(aliases).find(key => key.toLowerCase() === name.toLowerCase()));
   const aliasSelection = resolveAliasSelection(
-    selector, aliasKey, provider, ids, aliases, suffix, modelPolicy, Boolean(qualified), base, isModelPriceable,
+    selector, aliasKey, provider, ids, aliases, suffix, modelPolicy, Boolean(qualified), base,
   );
   if (aliasSelection) return aliasSelection;
 

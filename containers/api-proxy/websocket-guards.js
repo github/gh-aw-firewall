@@ -15,8 +15,8 @@ const HTTP_STATUS_LINES = {
  * guard triggers, then returns true. Returns false when all guards pass.
  */
 function enforceWebSocketGuards({ socket, logRequest, requestId, provider, requestModel = null, pricingOptions }, guardDeps) {
-  const deps = pricingOptions ? { ...guardDeps, checkUnknownModelRejection: (model, route) =>
-    guardDeps.checkUnknownModelRejection(model, route, pricingOptions) } : guardDeps;
+  const deps = pricingOptions ? { ...guardDeps, checkModelPricing: (model, route) =>
+    guardDeps.checkModelPricing(model, route, pricingOptions) } : guardDeps;
   const guardChecks = buildCommonGuardChecks(deps, requestModel, provider);
 
   for (const guard of guardChecks) {

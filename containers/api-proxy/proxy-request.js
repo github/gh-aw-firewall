@@ -65,7 +65,7 @@ const {
   getAiCreditsReflectState,
   getAiCreditsBlockState,
   buildAiCreditsLimitError,
-  checkUnknownModelRejection,
+  checkModelPricing,
   resetAiCreditsGuardForTests,
 } = require('./guards/ai-credits-guard');
 const {
@@ -163,7 +163,7 @@ const proxyWebSocket = createProxyWebSocket({
   buildModelMultiplierCapError,
   getRetiredModelBlockState,
   buildRetiredModelError,
-  checkUnknownModelRejection,
+  checkModelPricing,
   getModelPolicyBlockState,
   buildModelPolicyError,
   trackWebSocketTokenUsage,

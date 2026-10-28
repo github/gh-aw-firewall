@@ -256,17 +256,11 @@ function resolveLowerPriorityPricing(model, state, options = {}) {
     };
   }
 
-  // Speculative callers (e.g. filtering a fallback candidate pool) pass quiet:true
+  // Pricing probes pass quiet:true
   // so that probing a model neither emits an operator-facing warning nor marks the
   // model as already-warned — which would suppress the warning if it is genuinely
   // requested later.
-  const warningModel = options.originalModel || model;
-  if (!options.quiet && !state.warnedUnknownModels.has(warningModel)) {
-    logRequest('warn', 'unknown_model_ai_credits_pricing', {
-      model: sanitizeForLog(warningModel),
-    });
-    state.warnedUnknownModels.add(warningModel);
-  }
+  if (!options.quiet) warnMissingModelPricing(options.originalModel || model, state);
 
   // Fall back to configured default pricing if available
   const config = getAiCreditsConfig();
@@ -276,8 +270,8 @@ function resolveLowerPriorityPricing(model, state, options = {}) {
 
   // When the model is the 'unknown' sentinel (response omitted model and
   // request body didn't contain one either), use conservative fallback pricing
-  // so AI credits are never silently lost. This is NOT applied to truly unknown
-  // model names which should still be rejected by checkUnknownModelRejection.
+  // so AI credits are never silently lost. Concrete unpriced models instead
+  // proceed with a warning and no invented pricing.
   if (model === 'unknown') {
     return { pricing: BUILTIN_FALLBACK_PRICING, source: 'builtin_fallback', tier: 'default' };
   }
@@ -288,63 +282,41 @@ function resolveLowerPriorityPricing(model, state, options = {}) {
 /**
  * Side-effect-free check for whether a model has resolvable AI-credits pricing.
  *
- * Mirrors checkUnknownModelRejection's resolution (both the default and the
- * highest selectable pricing tier must resolve) but emits no logs and does not
- * mutate guard state, so it is safe to call across a large pool of speculative
- * candidates that may never be selected.
+ * Both the default and the highest selectable pricing tier must resolve.
+ * Emits no logs and does not mutate guard state.
  *
  * @param {string} model
  * @param {string} [provider]
  * @returns {boolean}
  */
-function isModelPriceable(model, provider = undefined) {
+function isModelPriceable(model, provider = undefined, options = {}) {
   if (!model) return true;
-  const defaultTier = resolveModelPricing(model, aiCreditsState, provider, 0, { quiet: true });
+  const defaultTier = resolveModelPricing(model, aiCreditsState, provider, 0, { ...options, quiet: true });
   if (!defaultTier) return false;
   const highestTier = resolveModelPricing(
     model,
     aiCreditsState,
     provider,
     Number.MAX_SAFE_INTEGER,
-    { quiet: true },
+    { ...options, quiet: true },
   );
   return !!highestTier;
 }
 
-/**
- * Check if a model is unresolvable and should be rejected.
- * Only rejects when maxAiCredits is active and no default pricing is configured.
- *
- * @param {string} model
- * @param {string} [provider]
- * @returns {{ rejected: boolean, model: string, error: object } | null}
- */
-function checkUnknownModelRejection(model, provider = undefined, options = {}) {
-  const config = getAiCreditsConfig();
-  if (!config.max) return null; // guard not active, don't reject
-  if (!model) return null; // no model in request body, can't check
-  if (config.defaultPricing) return null; // has fallback, don't reject
-  const defaultPricing = resolveModelPricing(model, aiCreditsState, provider, 0, options);
-  const highestTierPricing = resolveModelPricing(
-    model,
-    aiCreditsState,
-    provider,
-    Number.MAX_SAFE_INTEGER,
-    options,
-  );
-  if (defaultPricing && highestTierPricing) return null; // every selectable tier resolved
+function warnMissingModelPricing(model, state = aiCreditsState) {
+  if (state.warnedUnknownModels.has(model)) return;
+  logRequest('warn', 'unknown_model_ai_credits_pricing', {
+    model: sanitizeForLog(model),
+    message: 'Model pricing is unavailable from the pricing catalogs. ' +
+      'Configured defaultAiCreditsPricing will be used if available; otherwise ' +
+      'unpriced usage is excluded from AI-credit totals and budget enforcement may undercount spending.',
+  });
+  state.warnedUnknownModels.add(model);
+}
 
-  return {
-    rejected: true,
-    model,
-    error: {
-      type: 'unknown_model_ai_credits',
-      message: `Model "${model}" has no AI credits pricing and no default pricing is configured. ` +
-        'Set apiProxy.defaultAiCreditsPricing in the AWF config (e.g. {"input": 3.0, "output": 15.0}) ' +
-        'to provide a fallback rate, or add the model to apiProxy.modelPricingCatalog or a pricing table.',
-      model,
-    },
-  };
+function checkModelPricing(model, provider = undefined, options = {}) {
+  if (model && !isModelPriceable(model, provider, options)) warnMissingModelPricing(model);
+  return null;
 }
 
 function calculateAiCredits(normalizedUsage, model, state = aiCreditsState, provider = undefined, options = {}) {
@@ -590,7 +562,7 @@ module.exports = {
   buildAiCreditsLimitError,
   getPendingAiCreditSteeringWarning,
   acknowledgeAiCreditSteeringWarning,
-  checkUnknownModelRejection,
+  checkModelPricing,
   isRecognizedDynamicSelector,
   isModelPriceable,
   canonicalizeModel,

@@ -27,7 +27,7 @@ function createProxyWebSocket({
   buildModelMultiplierCapError,
   getRetiredModelBlockState,
   buildRetiredModelError,
-  checkUnknownModelRejection,
+  checkModelPricing,
   getModelPolicyBlockState,
   buildModelPolicyError,
   trackWebSocketTokenUsage,
@@ -45,7 +45,7 @@ function createProxyWebSocket({
     buildModelMultiplierCapError,
     getRetiredModelBlockState,
     buildRetiredModelError,
-    checkUnknownModelRejection,
+    checkModelPricing,
     getModelPolicyBlockState,
     buildModelPolicyError,
   };

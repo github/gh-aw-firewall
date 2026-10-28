@@ -277,35 +277,37 @@ describe('proxyRequest max-ai-credits guard', () => {
     jest.restoreAllMocks();
   });
 
-  it('returns 403 with structured payload when ai credits limit is reached', async () => {
-    const cycle = createMockUpstreamCycle(https);
+  it.each([null, 'brand-new-unpriced-model'])(
+    'returns 403 when ai credits limit is reached even for model %s', async model => {
+      const cycle = createMockUpstreamCycle(https);
 
-    const req1 = makeReq();
-    const res1 = makeRes();
-    proxyRequest(req1, res1, 'api.openai.com', { Authorization: '******' }, 'openai');
-    req1.emit('end');
-    await flushPromises();
+      const req1 = makeReq();
+      const res1 = makeRes();
+      proxyRequest(req1, res1, 'api.openai.com', { Authorization: '******' }, 'openai');
+      req1.emit('end');
+      await flushPromises();
 
-    completeUpstreamResponse(cycle.responseHandler, {
-      statusCode: 200,
-      body: { model: 'gpt-5-mini', usage: { prompt_tokens: 1000, completion_tokens: 500 } },
-    });
+      completeUpstreamResponse(cycle.responseHandler, {
+        statusCode: 200,
+        body: { model: 'gpt-5-mini', usage: { prompt_tokens: 1000, completion_tokens: 500 } },
+      });
 
-    const req2 = makeReq();
-    const res2 = makeRes();
-    proxyRequest(req2, res2, 'api.openai.com', { Authorization: '******' }, 'openai');
-    req2.emit('end');
-    await flushPromises();
+      const req2 = model ? makeModelReq(JSON.stringify({ model, messages: [] })) : makeReq();
+      const res2 = makeRes();
+      proxyRequest(req2, res2, 'api.openai.com', { Authorization: '******' }, 'openai');
+      req2.emit('end');
+      await flushPromises();
 
-    expect(cycle.spy).toHaveBeenCalledTimes(1);
-    expect(res2.writeHead).toHaveBeenCalledWith(403, expect.objectContaining({
-      'Content-Type': 'application/json',
-    }));
-    const payload = JSON.parse(res2.end.mock.calls[0][0]);
-    expect(payload.error.type).toBe('ai_credits_limit_exceeded');
-    expect(payload.error.max_ai_credits).toBe(0.1);
-    expect(payload.error.total_ai_credits).toBeGreaterThanOrEqual(0.1);
-  });
+      expect(cycle.spy).toHaveBeenCalledTimes(1);
+      expect(res2.writeHead).toHaveBeenCalledWith(403, expect.objectContaining({
+        'Content-Type': 'application/json',
+      }));
+      const payload = JSON.parse(res2.end.mock.calls[0][0]);
+      expect(payload.error.type).toBe('ai_credits_limit_exceeded');
+      expect(payload.error.max_ai_credits).toBe(0.1);
+      expect(payload.error.total_ai_credits).toBeGreaterThanOrEqual(0.1);
+    },
+  );
 
   it('allows Copilot auto and defers accounting to runtime usage tracking', async () => {
     const upstreamRequest = makeProxyReq();
@@ -320,6 +322,35 @@ describe('proxyRequest max-ai-credits guard', () => {
     expect(httpsRequestSpy).toHaveBeenCalledTimes(1);
     expect(res.writeHead).not.toHaveBeenCalledWith(400, expect.anything());
   });
+
+  it.each([undefined, '0.1'])(
+    'forwards unpriced models with maxAiCredits=%s and warns without charging fabricated credits', async max => {
+      if (max === undefined) delete process.env.AWF_MAX_AI_CREDITS;
+      else process.env.AWF_MAX_AI_CREDITS = max;
+      const writeSpy = jest.spyOn(process.stdout, 'write').mockImplementation(() => true);
+      const cycle = createMockUpstreamCycle(https);
+      const model = 'brand-new-unpriced-model';
+      const req = makeModelReq(JSON.stringify({ model, messages: [] }));
+      const res = makeRes();
+      proxyRequest(req, res, 'api.openai.com', { Authorization: '******' }, 'openai');
+      req.emit('end');
+      await flushPromises();
+
+      expect(cycle.spy).toHaveBeenCalledTimes(1);
+      completeUpstreamResponse(cycle.responseHandler, {
+        statusCode: 200,
+        body: { model, usage: { prompt_tokens: 1000, completion_tokens: 500 } },
+      });
+
+      expect(res.writeHead).toHaveBeenCalledWith(200, expect.anything());
+      expect(getStructuredLogs(writeSpy, 'unknown_model_ai_credits_pricing')).toEqual([
+        expect.objectContaining({ level: 'warn', model }),
+      ]);
+      const credits = require('./guards/ai-credits-guard').getAiCreditsReflectState();
+      expect(credits.total).toBe(0);
+      expect(credits.by_model).toEqual({});
+    },
+  );
 });
 
 describe('proxyRequest permission-denied guard', () => {

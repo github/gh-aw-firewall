@@ -1202,16 +1202,18 @@ ports still serve provider-local `/health` responses.
 `AWF_MAX_AI_CREDITS` environment variable injected into the api-proxy
 container.
 
-When configured, the proxy MUST enforce this budget. Once cumulative AI credits reach or
+When configured, the proxy MUST enforce this budget. Once cumulative accounted AI credits reach or
 exceed `maxAiCredits`, subsequent requests MUST be rejected with HTTP `403`
 and error type `ai_credits_limit_exceeded`.
+Usage without resolvable pricing is excluded from these totals and produces a
+warning, so enforcement may undercount actual spending.
 
 When `apiProxy.enableTokenSteering` is true, cumulative credits also queue the
 80%, 90%, 95%, and 99% advisory warnings. This warning path does not alter credit
 accounting or terminal rejection.
 
 Regardless of `maxAiCredits` configuration, AWF also enforces a non-overridable
-hard cap of **10,000 AI credits**. When cumulative AI credits reach this hard
+hard cap of **10,000 accounted AI credits**. When cumulative accounted AI credits reach this hard
 cap, subsequent requests MUST be rejected with HTTP `403` and error type
 `ai_credits_limit_exceeded`, and the error/log payload MUST include
 `hard_cap: true`.
@@ -1260,9 +1262,10 @@ Fetched central tariffs instead match only the exact reviewed provider-qualified
 raw or lookup identity; they do not infer aliases, date suffixes or families.
 
 If none of these sources resolves the model, the `defaultAiCreditsPricing` fallback
-(if configured) is used. If that is also absent, the request is rejected.
+(if configured) is used. If that is also absent, the request proceeds with a
+warning and unpriced usage is excluded from AI-credit totals.
 Models whose catalog entry carries zero-cost pricing are recognized as known
-models with zero AI credit impact, so they are never rejected as "unknown".
+models with zero AI credit impact and do not produce missing-pricing warnings.
 
 Tiered pricing uses the default-tier prompt threshold. When the applicable
 prompt-token count exceeds that threshold, all token categories use the
@@ -1381,32 +1384,36 @@ When configured, any model not found in the operator overlay, shared catalog,
 runtime provider metadata, curated built-in pricing table, or bundled models.dev
 catalog uses these rates as a fallback for AI credits calculation.
 
-### 10.3.3 Unknown Model Rejection
+### 10.3.3 Missing Model Pricing Warnings
 
-When `maxAiCredits` is active and the proxy encounters a request whose model
-cannot be resolved from the curated built-in pricing table or the bundled
-models.dev catalog, operator overlay, supplied catalog, or runtime provider
-metadata:
+Missing pricing does not make a model unavailable. When a request's model
+cannot be priced using provider overlays, runtime metadata, or the pricing
+catalogs:
 
 1. **If `defaultAiCreditsPricing` is configured**: the fallback rates are used
    and the request proceeds normally.
 
-2. **If `defaultAiCreditsPricing` is NOT configured**: the proxy MUST reject
-   the request with HTTP `400` and error type `unknown_model_ai_credits`. The
-   error payload includes:
-   - `model`: the unresolved model name
-   - `message`: human-readable instructions to configure
-     `apiProxy.defaultAiCreditsPricing`, add the model to
-     `apiProxy.modelPricingCatalog`, or add it to an AWF pricing table
+2. **If `defaultAiCreditsPricing` is NOT configured**: the request proceeds and
+   the proxy logs an `unknown_model_ai_credits_pricing` warning once per model.
+   Usage without resolvable pricing is excluded from AI-credit totals, so
+   `maxAiCredits` and the hard cap may undercount actual spending. The proxy
+   does not invent a price or treat missing pricing as model ineligibility,
+   including during automatic fallback selection. Configure accurate
+   `apiProxy.defaultAiCreditsPricing` rates to account for otherwise unpriced
+   usage. Incomplete pricing tiers also warn; responses with complete pricing
+   continue to be accounted for normally.
 
-   This fail-closed behavior prevents unaccounted spending from models whose
-   pricing is unknown to the proxy.
+This behavior applies to HTTP requests and WebSocket upgrades, with or without
+`maxAiCredits`. Existing budget limits still reject requests once the accounted
+spending reaches the limit; other model policy and compatibility checks are
+unchanged.
 
-Note: Requests without a `model` field in the body (e.g. non-chat endpoints)
-are not subject to this check.
+Requests without an identified model skip the request-time pricing check.
+WebSocket upgrades identify the model from the query string; response usage
+accounting also checks pricing for the reported model.
 
-**Recognized dynamic selectors.** The Copilot `auto` model (`copilot:auto`) is
-not subject to `unknown_model_ai_credits` rejection. Because its concrete
+**Recognized dynamic selectors.** The Copilot `auto` model (`copilot:auto`) keeps
+its existing conservative accounting. Because its concrete
 runtime model is not known at request time, the proxy accounts it using a
 conservative fallback ceiling (the maximum per-token rate across the curated
 pricing catalog) rather than rejecting the request or silently under-counting
@@ -1414,8 +1421,8 @@ spend. Token-usage records for these requests set `pricing_source` and
 `accounting_policy` to `dynamic_selector_fallback`, `pricing_tier` to
 `conservative`, `fallback_pricing_used` to `true`, and `dynamic_selector` to
 `copilot:auto`. This dynamic-selector accounting path applies only to the
-recognized Copilot `auto` selector; other unresolved models still follow the
-fallback/rejection behavior above.
+recognized Copilot `auto` selector; other unresolved models follow the
+fallback/warning behavior above.
 
 ### 10.3.4 Token Usage JSONL Schema Extensions
 

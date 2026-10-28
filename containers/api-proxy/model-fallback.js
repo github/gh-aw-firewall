@@ -25,9 +25,6 @@ function normalizeFallbackConfig(modelFallbackConfig) {
   return {
     enabled: config.enabled !== false,
     strategy: config.strategy || 'middle_power',
-    isModelPriceable: typeof config.isModelPriceable === 'function'
-      ? config.isModelPriceable
-      : null,
   };
 }
 
@@ -86,28 +83,7 @@ function selectMiddlePowerFallback(requestedModel, availableModels, currentProvi
     : [];
   const basePool = familyCandidates.length > 0 ? familyCandidates : providerModels;
 
-  // Soft price filter: never let the fallback synthesize a model the proxy has no
-  // pricing for, since such a pick is rejected downstream by the AI-credits guard.
-  // Applied only to this synthesized-selection path — explicitly requested or
-  // pattern-matched models are unaffected. Falls back to the unfiltered pool when
-  // filtering would leave nothing, so this can never turn a success into a failure.
-  let selectedPool = basePool;
-  let priceFiltered = false;
-  if (fallbackConfig.isModelPriceable) {
-    const priceable = basePool.filter(model => {
-      try {
-        return fallbackConfig.isModelPriceable(model) === true;
-      } catch {
-        return true;
-      }
-    });
-    if (priceable.length > 0 && priceable.length < basePool.length) {
-      selectedPool = priceable;
-      priceFiltered = true;
-    }
-  }
-
-  const sortedCandidates = getTierSortedModels(currentProvider, selectedPool);
+  const sortedCandidates = getTierSortedModels(currentProvider, basePool);
   if (sortedCandidates.length === 0) return null;
 
   const medianIndex = Math.floor((sortedCandidates.length - 1) / 2);
@@ -119,7 +95,7 @@ function selectMiddlePowerFallback(requestedModel, availableModels, currentProvi
       selection_method: 'middle_power_median',
       available_models_count: providerModels.length,
       used_family_filter: familyCandidates.length > 0,
-      used_price_filter: priceFiltered,
+      used_price_filter: false,
       candidates: sortedCandidates,
     },
   };

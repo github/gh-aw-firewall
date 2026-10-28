@@ -97,7 +97,7 @@ describe('selected scalar model selectors', () => {
   });
 
   it.each(['detection (copilot)', 'Team Detection'])(
-    'filters unpriced candidates from alias selector %s and its retries',
+    'keeps unpriced candidates from alias selector %s and its retries',
     selector => {
       const models = ['claude-haiku-5-5', 'claude-haiku-9-9'];
       const aliases = {
@@ -114,8 +114,8 @@ describe('selected scalar model selectors', () => {
         model => model === 'claude-haiku-5-5',
       );
 
-      expect(selection.resolvedModel).toBe('claude-haiku-5-5');
-      expect(selection.candidates).toEqual(['claude-haiku-5-5']);
+      expect(selection.resolvedModel).toBe('claude-haiku-9-9');
+      expect(selection.candidates).toEqual(['claude-haiku-9-9', 'claude-haiku-5-5']);
     },
   );
 

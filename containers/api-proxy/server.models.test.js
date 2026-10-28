@@ -45,10 +45,10 @@ async function resolveDetectionAlias(models, maxCredits, defaultPricing) {
 
   try {
     let isolatedServer;
-    let checkUnknownModelRejection;
+    let checkModelPricing;
     jest.isolateModules(() => {
       isolatedServer = require('./server');
-      ({ checkUnknownModelRejection } = require('./guards/ai-credits-guard'));
+      ({ checkModelPricing } = require('./guards/ai-credits-guard'));
     });
     isolatedServer.resetModelCacheState();
     isolatedServer.cachedModels.anthropic = models;
@@ -67,7 +67,7 @@ async function resolveDetectionAlias(models, maxCredits, defaultPricing) {
       resolvedModel,
       candidates: req.awfModelCandidates,
       records,
-      rejection: checkUnknownModelRejection(resolvedModel, 'anthropic'),
+      pricingCheck: checkModelPricing(resolvedModel, 'anthropic'),
     };
   } finally {
     stdoutSpy.mockRestore();
@@ -239,34 +239,27 @@ describe('makeModelBodyTransform', () => {
     }
   });
 
-  it('resolves detection to the highest priced Haiku and logs skipped unpriced candidates with the AI-credit guard active', async () => {
+  it('resolves detection to the highest-versioned Haiku regardless of pricing with the AI-credit guard active', async () => {
     const result = await resolveDetectionAlias([
       'claude-haiku-4-5-20251001',
       'claude-haiku-9-9',
     ], '400');
-    expect(result.resolvedModel).toBe('claude-haiku-4-5-20251001');
-    expect(result.candidates).toEqual(['claude-haiku-4-5-20251001']);
-    expect(result.rejection).toBeNull();
+    expect(result.resolvedModel).toBe('claude-haiku-9-9');
+    expect(result.candidates).toEqual(['claude-haiku-9-9']);
+    expect(result.pricingCheck).toBeNull();
     expect(result.records.some(record =>
       record.event === 'model_resolution' &&
       record.message.includes('claude-haiku-9-9') &&
       record.message.includes('"haiku"') &&
       record.message.includes('no AI-credit price on this provider')
-    )).toBe(true);
+    )).toBe(false);
   });
 
-  it('keeps the highest-versioned alias candidate when none is priced, allowing the guard rejection', async () => {
+  it('allows the highest-versioned alias candidate when none is priced', async () => {
     const result = await resolveDetectionAlias(['claude-haiku-8-8', 'claude-haiku-9-9'], '400');
     expect(result.resolvedModel).toBe('claude-haiku-9-9');
     expect(result.candidates).toEqual(['claude-haiku-9-9']);
-    expect(result.rejection).toMatchObject({
-      rejected: true,
-      error: {
-        type: 'unknown_model_ai_credits',
-        model: 'claude-haiku-9-9',
-        message: expect.stringContaining('has no AI credits pricing'),
-      },
-    });
+    expect(result.pricingCheck).toBeNull();
   });
 
   it.each([
