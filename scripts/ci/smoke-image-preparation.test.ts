@@ -19,16 +19,19 @@ interface Step {
 }
 
 const root = path.resolve(__dirname, '../..');
-const workflowPath = path.join(root, '.github/workflows/smoke-copilot.lock.yml');
-const source = fs.readFileSync(path.join(root, '.github/workflows/smoke-copilot.md'), 'utf8');
-const frontmatter = yaml.load(source.split('---')[1]) as {
-  steps: Step[];
-  'timeout-minutes': number;
-};
-const preparation = frontmatter.steps.find(step => step.name === 'Build local AWF smoke images')!;
 const imageArgs = '--image-registry awf-smoke --image-tag "${AWF_SMOKE_IMAGE_TAG:?}" --skip-pull';
 
-describe('Smoke Copilot local image preparation', () => {
+describe.each([
+  ['copilot', 15],
+  ['services', 10],
+])('Smoke %s local image preparation', (workflow, executionTimeout) => {
+  const workflowPath = path.join(root, `.github/workflows/smoke-${workflow}.lock.yml`);
+  const source = fs.readFileSync(path.join(root, `.github/workflows/smoke-${workflow}.md`), 'utf8');
+  const frontmatter = yaml.load(source.split('---')[1]) as {
+    steps: Step[];
+    'timeout-minutes': number;
+  };
+  const preparation = frontmatter.steps.find(step => step.name === 'Build local AWF smoke images')!;
   let directory: string;
   beforeEach(() => {
     directory = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-smoke-images-'));
@@ -45,6 +48,7 @@ docker() {
   printf '%s\\n' "$*" >> "$CALLS"
   case "$*" in *"$FAILURE"*) if [ -n "$FAILURE" ]; then return 7; fi ;; esac
 }
+export -f docker
 ${preparation.run}
 `;
     const result = spawnSync('bash', ['-c', script], {
@@ -103,7 +107,14 @@ ${preparation.run}
     for (const service of Object.values(execution.services)) expect(service.build).toBeUndefined();
   });
 
-  it.each(['build --tag awf-smoke/squid', 'image inspect awf-smoke/agent'])(
+  it.each([
+    'build --tag awf-smoke/squid',
+    `build --build-arg USER_UID=${getSafeHostUid()} --build-arg USER_GID=${getSafeHostGid()} --tag awf-smoke/agent`,
+    'build --tag awf-smoke/api-proxy',
+    'image inspect awf-smoke/squid',
+    'image inspect awf-smoke/agent',
+    'image inspect awf-smoke/api-proxy',
+  ])(
     'fails closed before publishing image selection on %s failure', failure => {
       const { result } = runPreparation(failure);
       expect(result.status).toBe(7);
@@ -123,7 +134,7 @@ ${preparation.run}
   it('rejects prepared-image workflows without a local CLI install anchor', () => {
     expect(() => applyGeneralWorkflowPatches(
       `      - name: ${preparation.name}\n        run: echo prepare\n`, workflowPath,
-    )).toThrow('Smoke Copilot image preparation requires the local AWF install step');
+    )).toThrow('Smoke image preparation requires the local AWF install step');
   });
 
   it('gives preparation its own bounded budget before the unchanged timed execution', () => {
@@ -138,7 +149,7 @@ ${preparation.run}
     expect(steps[prepareIndex].run).toBe(preparation.run);
     expect(steps[prepareIndex]['timeout-minutes']).toBe(35);
     expect(steps[executeIndex]['timeout-minutes']).toBe(frontmatter['timeout-minutes']);
-    expect(frontmatter['timeout-minutes']).toBe(15);
+    expect(frontmatter['timeout-minutes']).toBe(executionTimeout);
     expect(lock.jobs.agent['timeout-minutes']).toBeGreaterThanOrEqual(50);
     expect(steps[executeIndex].run).toContain(imageArgs);
     expect(steps[executeIndex].run).not.toContain('--build-local');
