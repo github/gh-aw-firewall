@@ -183,9 +183,9 @@ function getCopilotModelFallbackPolicy(modelFallback, env = process.env) {
     || (env.COPILOT_PROVIDER_API_KEY || '').trim()
   );
 
-  // Standard Copilot (no BYOK hints): suppress fallback because Copilot is
-  // authoritative for its own model catalogue. Rewriting a retired/restricted
-  // model to a middle-power fallback obscures the real error.
+  // Suppress unconstrained middle-power alias fallback on authoritative
+  // Copilot catalogues. Request-level model recovery separately checks
+  // endpoint/features, policy and budgets against the discovered catalogue.
   if (!hasByokHints) {
     return {
       effective: { ...modelFallback, enabled: false },

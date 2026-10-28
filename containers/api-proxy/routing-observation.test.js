@@ -168,6 +168,23 @@ describe('advisory routing observation', () => {
     }]);
   });
 
+  it('retains the original routing selection and records model recovery separately', () => {
+    const harness = createHarness();
+    const { req, res } = observe(harness, request());
+    send(req, { model: 'gpt-test', reasoning: { effort: 'low' } });
+    req.awfRouting.onModelFallback({
+      requested_model: 'gpt-test', model: 'replacement', provider: 'copilot',
+      from_model: 'gpt-test', reason: 'model_not_supported',
+    });
+    res.writeHead(400, { 'content-type': 'application/json' });
+    res.end(JSON.stringify({ error: { code: 'replacement_failed' } }));
+    expect(harness.records[0]).toMatchObject({
+      requested_model: 'gpt-test', selected_model: 'gpt-test',
+      model_fallback: { model: 'replacement', from_model: 'gpt-test', reason: 'model_not_supported' },
+    });
+    expect(harness.failures).toEqual([]);
+  });
+
   it('request records carry the same caller fields as the token record', () => {
     const { parseCallerHeader } = require('./caller-header');
     const { buildTokenUsageRecord } = require('./token-persistence');

@@ -121,6 +121,23 @@ function handle400WithRetry(proxyRes, requestHeaders, responseBody, {
     if (didRetry) return true;
   }
 
+  // Prefer a compatible replacement to repeatedly sending a model the
+  // provider has already rejected. Without catalogue evidence or an explicit
+  // chain, retain the bounded transient retry below.
+  if (typeof onModelFallback === 'function') {
+    const reason = getFallbackReason(proxyRes.statusCode, responseBody);
+    const abandon = () => sendBufferedUpstreamResponse(proxyRes, responseBody, {
+      completionCtx, authErrCtx, initiatorSent, billingInfo, res, span, requestId,
+      logRequestCompletion, logUpstreamAuthError, logUpstreamErrorResponse, otel,
+      requestModel, requestTools,
+    });
+    if (reason && onModelFallback({
+      statusCode: proxyRes.statusCode,
+      reason: endpointBlocked ? 'model_endpoint_incompatible' : reason,
+      abandon,
+    })) return true;
+  }
+
   // ── (c) Transient model-not-supported retry (copilot only, up to MAX) ──────
   if (
     provider === 'copilot' &&
@@ -137,19 +154,6 @@ function handle400WithRetry(proxyRes, requestHeaders, responseBody, {
     });
     onModelNotSupportedRetry();
     return true;
-  }
-
-  // ── (d) Ordered model fallback chain (any provider) ─────────────────────
-  // Only a model-specific 400 (model not supported / not found / not
-  // accessible) switches models; generic validation errors are surfaced.
-  if (typeof onModelFallback === 'function') {
-    const reason = getFallbackReason(proxyRes.statusCode, responseBody);
-    const abandon = () => sendBufferedUpstreamResponse(proxyRes, responseBody, {
-      completionCtx, authErrCtx, initiatorSent, billingInfo, res, span, requestId,
-      logRequestCompletion, logUpstreamAuthError, logUpstreamErrorResponse, otel,
-      requestModel, requestTools,
-    });
-    if (reason && onModelFallback({ statusCode: proxyRes.statusCode, reason, abandon })) return true;
   }
 
   // AWF replaces the provider's rejection with its own envelope. The

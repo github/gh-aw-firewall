@@ -35,6 +35,7 @@ const { translateCodexCustomToolsForCopilot } = require('./codex-compat');
 const { endpointForPath, translateCopilotWireApi } = require('./wire-api-compat');
 const { stripRedundantModelPrefixInBody } = require('./model-body-rewriter');
 const { parseBodyAsObject } = require('./body-utils');
+const { recoverRequestModel } = require('./model-recovery');
 
 /** Maximum request body size: 10 MB to prevent DoS via large payloads. */
 const MAX_BODY_SIZE = 10 * 1024 * 1024;
@@ -219,6 +220,11 @@ function createBodyHandler({ handleRequestError, otel }) {
           });
         }
       }
+    }
+
+    if (isWritableMethod) {
+      const recovered = recoverRequestModel(body, provider, req, requestId, logRequest);
+      if (recovered) body = recovered;
     }
 
     // Adapt Codex's Responses `custom`/freeform tool dialect (e.g.

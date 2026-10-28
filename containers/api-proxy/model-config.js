@@ -148,6 +148,10 @@ function makeModelBodyTransform(
   );
   return async (body, req) => {
     let result = null;
+    const requested = parseBodyAsObject(body)?.model;
+    const alias = typeof requested === 'string' && Object.entries(MODEL_ALIASES?.models || {})
+      .find(([key]) => key.toLowerCase() === requested.split('?')[0].toLowerCase())?.[1];
+    if (alias?.fallback === false && req) req.awfModelRecoveryDisabled = true;
     const scopedAuto = parseScopedAutoRequest(body, req, provider);
     if (scopedAuto) {
       const resolveScopedAuto = () => rewriteScopedAutoRequest(

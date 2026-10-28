@@ -700,6 +700,51 @@ apiProxy:
       fallback: false
 ```
 
+### Retired and unavailable model recovery
+
+With `apiProxy.modelFallback.enabled` (the default), HTTP Responses, Chat
+Completions, and Messages inference requests recover from retired or unavailable
+models without requiring `fallbackModels`.
+Known-retired Copilot IDs prefer their suggested replacement if it is in the
+discovered catalogue, compatible, and permitted. Other candidates come from the
+same backend's captured catalogue in deterministic version-descending order.
+On native Copilot backends, a concrete ID missing from a populated catalogue is
+also recovered before dispatch. Custom deployment IDs are not presumed
+unavailable merely because a provider does not list them.
+
+An upstream model-specific `400`/`404` (`model_not_supported`, `model_not_found`,
+or endpoint unavailability) can also trigger recovery. Configured
+`fallbackModels` retain their ordering and are tried before automatic catalogue
+alternatives. Automatic recovery never switches providers or credentials, never
+handles generic validation errors, `401`, `403`, `429`, or `5xx`, and makes at
+most three model substitutions per request, including a pre-dispatch replacement.
+Existing same-model endpoint recovery remains available.
+
+Automatic candidates must preserve the client's endpoint/protocol, tools,
+streaming, structured-output and multimodal requirements, explicit reasoning
+effort, and known context/output limits. Unknown feature support fails closed:
+AWF does not drop tools, remove request fields, or normalize an unsupported
+effort to make a replacement work. Every replacement passes the existing
+allow/deny, multiplier, credit-pricing, and budget guards. Enclave capability
+checks and per-attempt reservations still run before each upstream dispatch.
+Requests whose model remains available are unchanged by this recovery path.
+
+Each substitution emits a structured `model_fallback` warning containing the
+requested/from/to model, provider, and retirement/unavailability reason, without
+prompts or credentials. Token usage and routing evidence retain the replacement
+and original selection; pricing uses the request's captured catalogue. No
+compatible candidate produces `model_recovery_exhausted` before dispatch or
+`model_fallback_exhausted` after an upstream model rejection. Endpoint translation
+incompatibilities retain their actionable endpoint/feature error.
+
+`modelFallback.enabled: false`, `modelFallback.excludeEngines`, strict aliases
+with `fallback: false`, scoped-auto selection, and routing-classifier requests
+do not gain unconstrained recovery. WebSocket tunnels remain opaque: AWF cannot
+prove compatibility for tools/features in future frames, so it does not rewrite
+only the handshake or replay a live session. Known-retired or catalog-unavailable
+handshake models fail explicitly; use HTTP inference for automatic recovery or
+select an available model before opening the WebSocket.
+
 ### Ordered fallback models
 
 When the upstream rejects the requested model, you can give the proxy an ordered
@@ -1725,9 +1770,10 @@ If Copilot returns `model "..." is not accessible via the ... endpoint`, the
 proxy tries the other wire API once for the **same model**, provided the request
 can be translated without dropping features. This handles missing or stale
 endpoint metadata. If translation is incompatible or the other endpoint also
-rejects the model, the proxy returns an actionable HTTP 400. Model changes are
-limited to configured alias candidates or an explicit model fallback policy;
-endpoint recovery does not invent a replacement model.
+rejects the model, the proxy can try a compatible policy-permitted model from
+the discovered catalogue (or an explicitly configured alias/fallback candidate).
+If no candidate can preserve the request, it returns an actionable error;
+endpoint recovery never drops features.
 
 ### Supported features
 

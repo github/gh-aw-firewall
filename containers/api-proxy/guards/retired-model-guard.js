@@ -8,9 +8,9 @@ const { getProviderAliases } = require('../provider-pricing-overlays');
 /**
  * Known-retired Copilot model names mapped to their suggested replacements.
  *
- * When the API proxy receives a request body that references one of these
- * model names, it rejects the request immediately with a 400 rather than
- * forwarding it to the upstream provider.  Forwarding a retired model name
+ * HTTP recovery first tries a compatible, permitted available replacement.
+ * If recovery is disabled or cannot run, this guard rejects the retired name
+ * rather than forwarding it upstream. Forwarding a retired model name
  * to the Copilot API tends to surface an authentication-flavoured error (401
  * or 403) rather than a clear "model unavailable" message, which misleads
  * operators into thinking their API keys are invalid.

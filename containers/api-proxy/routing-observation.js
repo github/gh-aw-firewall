@@ -348,6 +348,19 @@ function createRoutingObservation({
         requestId,
         bodyTransform,
         onModelSelectorResolution: bodyTransform,
+        onModelFallback(fallback) {
+          state.selectedModel = false;
+          state.telemetry = {
+            ...state.telemetry,
+            model_fallback: {
+              requested_model: telemetryModel(fallback.requested_model),
+              model: telemetryModel(fallback.model),
+              provider: fallback.provider,
+              from_model: telemetryModel(fallback.from_model),
+              reason: fallback.reason,
+            },
+          };
+        },
         onEndpointTranslation(compatibility) {
           if (!compatibility || compatibility.requestedEndpoint !== state.telemetry.requested_endpoint) return;
           state.telemetry = {

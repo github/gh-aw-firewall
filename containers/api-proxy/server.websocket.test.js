@@ -47,12 +47,25 @@ function makeUpgradeReq(overrides = {}) {
 
 describe('proxyWebSocket', () => {
   afterEach(() => {
+    require('./runtime-model-catalog').clearRuntimeModels();
     jest.restoreAllMocks();
   });
 
   // ── Request validation ─────────────────────────────────────────────────────
 
   describe('request validation', () => {
+    it('fails explicitly instead of rewriting a model in an opaque WebSocket session', () => {
+      require('./runtime-model-catalog').replaceRuntimeModels('copilot', [{
+        id: 'available', supportedEndpoints: ['/responses'],
+      }]);
+      const req = makeUpgradeReq({ url: '/v1/responses?model=unavailable' });
+      const socket = makeMockSocket();
+      proxyWebSocket(req, socket, Buffer.alloc(0), 'api.githubcopilot.com', {}, 'copilot');
+      expect(socket.write).toHaveBeenCalledWith(expect.stringContaining('model_recovery_requires_http'));
+      expect(socket.destroy).toHaveBeenCalled();
+      expect(req.url).toBe('/v1/responses?model=unavailable');
+    });
+
     it('rejects a non-WebSocket upgrade (e.g. h2c) with 400', () => {
       const socket = makeMockSocket();
       proxyWebSocket(makeUpgradeReq({ headers: { 'upgrade': 'h2c' } }), socket, Buffer.alloc(0), 'api.openai.com', {}, 'openai');
