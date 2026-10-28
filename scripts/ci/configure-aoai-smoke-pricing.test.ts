@@ -43,27 +43,39 @@ test('pins confirmed deployment pricing in both configs while preserving every e
   }
 });
 
-test('the actual guard accepts only the explicitly priced alias and accounts for its tokens', () => {
+test('the actual guard prices configured aliases and leaves unpriced usage unaccounted', () => {
   execFileSync(process.execPath, [script, ...files]);
   const config = JSON.parse(fs.readFileSync(files[0], 'utf8')) as { apiProxy: { modelPricingCatalog: unknown } };
   const probe = `
     const assert=require('node:assert/strict');
     const guard=require('./containers/api-proxy/guards/ai-credits-guard');
-    assert.equal(guard.checkUnknownModelRejection('o4-mini-aw','copilot'),null);
-    assert(guard.checkUnknownModelRejection('unknown-azure-deployment','copilot').rejected);
+    assert.equal(guard.checkModelPricing('o4-mini-aw','copilot'),null);
+    assert.equal(guard.checkModelPricing('unknown-azure-deployment','copilot'),null);
     const usage=guard.applyAiCreditsUsage({
       input_tokens:1000,cache_read_tokens:100,output_tokens:500,input_tokens_include_cache:true
     },'o4-mini-aw','copilot');
     assert(Math.abs(usage.aiCreditsThisResponse-0.32175)<1e-10);
+    assert.equal(guard.applyAiCreditsUsage({
+      input_tokens:1000,output_tokens:500
+    },'unknown-azure-deployment','copilot'),null);
     const state=guard.getAiCreditsReflectState();
     assert.equal(state.max_ai_credits,10);
     assert.equal(state.effective_max_ai_credits,10);
   `;
-  execFileSync(process.execPath, ['-e', probe], {
+  const output = execFileSync(process.execPath, ['-e', probe], {
     cwd: root,
     env: { ...process.env, AWF_MAX_AI_CREDITS: '10', AWF_MODEL_PRICING_CATALOG: JSON.stringify(config.apiProxy.modelPricingCatalog) },
     stdio: 'pipe',
   });
+  const logs = output.toString().trim().split('\n').map(line => JSON.parse(line));
+  expect(logs).toEqual(expect.arrayContaining([
+    expect.objectContaining({
+      event: 'unknown_model_ai_credits_pricing',
+      modelProvided: true,
+      message: expect.stringContaining('unpriced usage is excluded'),
+    }),
+  ]));
+  expect(logs[0]).not.toHaveProperty('model');
 });
 
 test('does not overwrite a pre-existing compiler catalog or partially mutate staged configs', () => {
