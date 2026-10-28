@@ -494,7 +494,7 @@ describe('proxyWebSocket security guards', () => {
 
       expect(socket.write).not.toHaveBeenCalledWith(expect.stringContaining('HTTP/1.1 400 Bad Request'));
       expect(lines).toEqual(expect.arrayContaining([
-        expect.objectContaining({ level: 'warn', event: 'unknown_model_ai_credits_pricing', model: 'bogus' }),
+        expect.objectContaining({ level: 'warn', event: 'unknown_model_ai_credits_pricing', modelProvided: true }),
       ]));
       // No upstream proxy is configured here; reaching this error proves the guards passed.
       expect(socket.write).toHaveBeenCalledWith(expect.stringContaining('HTTP/1.1 502 Bad Gateway'));

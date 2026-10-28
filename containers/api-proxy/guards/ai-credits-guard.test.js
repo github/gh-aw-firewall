@@ -636,7 +636,7 @@ describe('ai-credits-guard', () => {
     expect(lines).toEqual([
       expect.objectContaining({
         event: 'unknown_model_ai_credits_pricing',
-        model: 'new-runtime-model',
+        modelProvided: true,
         message: expect.stringContaining('unpriced usage is excluded'),
       }),
     ]);
@@ -743,8 +743,9 @@ describe('ai-credits-guard', () => {
     expect(lines).toContainEqual(expect.objectContaining({
       event: 'unknown_model_ai_credits_pricing',
       level: 'warn',
-      model: 'unknown-model',
+      modelProvided: true,
     }));
+    expect(lines[0]).not.toHaveProperty('model');
   });
 
   it('resolves text-embedding-3-small with input-only pricing', () => {
@@ -1005,7 +1006,7 @@ describe('ai-credits-guard', () => {
         expect.objectContaining({
           level: 'warn',
           event: 'unknown_model_ai_credits_pricing',
-          model: 'brand-new-model-xyz',
+          modelProvided: true,
           message: expect.stringContaining('budget enforcement may undercount spending'),
         }),
       ]);

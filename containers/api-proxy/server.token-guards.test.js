@@ -344,7 +344,7 @@ describe('proxyRequest max-ai-credits guard', () => {
 
       expect(res.writeHead).toHaveBeenCalledWith(200, expect.anything());
       expect(getStructuredLogs(writeSpy, 'unknown_model_ai_credits_pricing')).toEqual([
-        expect.objectContaining({ level: 'warn', model }),
+        expect.objectContaining({ level: 'warn', modelProvided: true }),
       ]);
       const credits = require('./guards/ai-credits-guard').getAiCreditsReflectState();
       expect(credits.total).toBe(0);
