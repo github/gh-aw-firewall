@@ -222,11 +222,6 @@ function createBodyHandler({ handleRequestError, otel }) {
       }
     }
 
-    if (isWritableMethod) {
-      const recovered = recoverRequestModel(body, provider, req, requestId, logRequest);
-      if (recovered) body = recovered;
-    }
-
     // Adapt Codex's Responses `custom`/freeform tool dialect (e.g.
     // `apply_patch`) into the function-tool dialect Copilot accepts. The
     // resulting compatibility metadata must be threaded explicitly through
@@ -240,6 +235,11 @@ function createBodyHandler({ handleRequestError, otel }) {
         body = translated.body;
         codexCompatibility = translated.compatibility;
       }
+    }
+
+    if (isWritableMethod) {
+      const recovered = recoverRequestModel(body, provider, req, requestId, logRequest);
+      if (recovered) body = recovered;
     }
 
     if (isWritableMethod) {
@@ -300,7 +300,8 @@ function createBodyHandler({ handleRequestError, otel }) {
       }
     }
 
-    if (provider === 'copilot' && req.method === 'POST' && endpointForPath(req.url)) {
+    if (provider === 'copilot' && req.method === 'POST' && endpointForPath(req.url) &&
+        !req.awfRecoveryAttempts) {
       wireApiSourceBody = Buffer.from(body);
       const translated = translateCopilotWireApi(body, req.url);
       if (translated) {

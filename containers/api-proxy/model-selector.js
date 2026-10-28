@@ -27,6 +27,7 @@ function modelSelection(id, suffix, provider, requestedModel) {
     identity: resolved.identity, wireId: id,
     matchKind: requested.identity?.key === resolved.identity?.key ? requested.matchKind : 'selector',
     requestedModel,
+    aliasKeys: [],
   };
 }
 

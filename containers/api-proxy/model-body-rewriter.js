@@ -52,6 +52,7 @@ function rewriteModelInBody(body, provider, aliases, availableModels, modelFallb
   return {
     body: newBody, originalModel, resolvedModel, candidates, log, fallback: resolution.fallback,
     identity: resolution.identity, wireId: resolution.wireId, matchKind: resolution.matchKind,
+    aliasKeys: resolution.aliasKeys || [],
   };
 }
 

@@ -94,6 +94,24 @@ test('prefers the available retirement suggestion and warns without request cont
   expect(JSON.stringify(warnings)).not.toContain('private prompt');
 });
 
+test('translates Codex tool-call history before testing recovery compatibility', async () => {
+  catalog.replaceRuntimeModels('copilot', [record('gpt-5.3-codex')]);
+  await start({
+    model: 'copilot/gpt-5-codex',
+    input: [
+      { type: 'custom_tool_call', call_id: 'call_1', name: 'apply_patch', input: '*** Begin Patch\n*** End Patch\n' },
+      { type: 'custom_tool_call_output', call_id: 'call_1', output: 'Done' },
+    ],
+  }, 'copilot', '/v1/responses');
+  expect(JSON.parse(sent())).toMatchObject({
+    model: 'gpt-5.3-codex',
+    input: [
+      { type: 'function_call', arguments: JSON.stringify({ patch: '*** Begin Patch\n*** End Patch\n' }) },
+      { type: 'function_call_output', output: 'Done' },
+    ],
+  });
+});
+
 test('uses deterministic compatible catalog alternatives when the suggestion is absent', async () => {
   catalog.replaceRuntimeModels('copilot', [record('model-2'), record('model-3'), record('model-1')]);
   await start();
@@ -237,6 +255,40 @@ test('does not reduce the known context window when replacing an unavailable mod
   expect(JSON.parse(res.end.mock.calls[0][0]).error.code).toBe('model_fallback_exhausted');
 });
 
+test.each([8192, undefined])(
+  'does not reduce a known output ceiling when the request omits a cap (candidate limit: %s)',
+  async outputLimit => {
+    catalog.replaceRuntimeModels('copilot', [
+      record('primary', { capabilities: { supports: { tool_calls: true }, limits: { max_output_tokens: 32_000 } } }),
+      record('next', { capabilities: { supports: { tool_calls: true }, ...(outputLimit ? { limits: { max_output_tokens: outputLimit } } : {}) } }),
+    ]);
+    const { res } = await start({ model: 'primary', messages: [] });
+    await reject(0);
+    expect(requests).toHaveLength(1);
+    expect(JSON.parse(res.end.mock.calls[0][0]).error.code).toBe('model_fallback_exhausted');
+  },
+);
+
+test('ignores opaque tool arguments and image source metadata but checks nested tool-result images', () => {
+  const { isRecoveryCompatible } = require('./model-recovery');
+  const candidate = record('messages-model', {
+    supportedEndpoints: ['/messages'],
+    capabilities: { supports: { tool_calls: true, vision: true } },
+  });
+  const request = {
+    model: 'original',
+    messages: [
+      { role: 'assistant', content: [{ type: 'tool_use', name: 'issue', input: { type: 'issue', title: 'Bug' } }] },
+      { role: 'user', content: [{ type: 'tool_result', content: [{ type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'opaque' } }] }] },
+    ],
+  };
+  expect(isRecoveryCompatible(candidate, 'anthropic', request, '/v1/messages')).toBe(true);
+  expect(isRecoveryCompatible({
+    ...candidate,
+    capabilities: { supports: { tool_calls: true, vision: false } },
+  }, 'anthropic', request, '/v1/messages')).toBe(false);
+});
+
 test('returns to the original endpoint when replacing a model rejected on both wire APIs', async () => {
   catalog.replaceRuntimeModels('copilot', [record('primary'), record('next')]);
   await start({ model: 'primary', messages: [] });
@@ -273,23 +325,129 @@ test('does not re-route a compatible replacement using metadata refreshed during
   expect(requests[1].options.path).toBe('/v1/responses');
 });
 
+test('keeps the original endpoint when metadata refreshes during body transformation', async () => {
+  catalog.replaceRuntimeModels('copilot', [record('gpt-5.3-codex')]);
+  await start(
+    { model: 'gpt-5-codex', input: 'check' },
+    'copilot',
+    '/v1/responses',
+    { transform: async body => {
+      catalog.replaceRuntimeModels('copilot', [
+        record('gpt-5.3-codex', { supportedEndpoints: ['/chat/completions'] }),
+      ]);
+      return body;
+    } },
+  );
+  expect(JSON.parse(sent())).toMatchObject({ model: 'gpt-5.3-codex', input: 'check' });
+  expect(requests[0].options.path).toBe('/v1/responses');
+});
+
+test('uses the post-resolution catalogue generation for automatic retries', async () => {
+  load({
+    AWF_MODEL_ALIASES: JSON.stringify({
+      models: { 'new-selector': { patterns: ['copilot/new-model'], fallback: true } },
+    }),
+  });
+  catalog.replaceRuntimeModels('copilot', [record('old-model')]);
+  const cachedModels = { copilot: ['old-model'] };
+  const transform = require('./model-config').makeModelBodyTransform(
+    'copilot',
+    cachedModels,
+    async () => {
+      catalog.replaceRuntimeModels('copilot', [record('new-model'), record('next')]);
+      cachedModels.copilot = ['new-model', 'next'];
+    },
+    undefined,
+    () => catalog.getRuntimeModels('copilot'),
+  );
+  const { req } = await start(
+    { model: 'new-selector', messages: [] },
+    'copilot',
+    '/v1/chat/completions',
+    { transform },
+  );
+  expect(JSON.parse(sent()).model).toBe('new-model');
+  expect(req.awfRuntimePricing.copilot.map(model => model.id)).toEqual(['new-model', 'next']);
+  await reject(0);
+  expect(JSON.parse(sent(1)).model).toBe('next');
+});
+
 test('does not infer Copilot BYOK deployment availability from catalogue absence', async () => {
   catalog.replaceRuntimeModels('copilot', [record('available')]);
   const { bytes } = await start({ model: 'deployment', messages: [] }, 'copilot', '/chat/completions', { host: 'custom.example.com' });
   expect(sent()).toEqual(bytes);
 });
 
-test('preserves strict alias fallback opt-out after alias resolution', async () => {
-  load({ AWF_MODEL_ALIASES: '{"models":{"strict":{"patterns":["copilot/primary"],"fallback":false}}}' });
-  catalog.replaceRuntimeModels('copilot', [record('primary'), record('next')]);
+test.each([
+  [
+    'qualified alias selector',
+    { strict: { patterns: ['copilot/primary'], fallback: false } },
+    { model: 'strict (copilot)', messages: [] },
+    'primary',
+  ],
+  [
+    'family alias',
+    { 'gpt-5': { patterns: ['copilot/gpt-5.3-codex'], fallback: false } },
+    { model: 'gpt-5.4', messages: [] },
+    'gpt-5.3-codex',
+  ],
+  [
+    'default alias',
+    { '': { patterns: ['copilot/primary'], fallback: false } },
+    { messages: [] },
+    'primary',
+  ],
+])('preserves strict alias fallback opt-out for %s', async (_name, aliases, body, model) => {
+  load({ AWF_MODEL_ALIASES: JSON.stringify({ models: aliases }) });
+  catalog.replaceRuntimeModels('copilot', [record('primary'), record('next'), record('gpt-5.3-codex')]);
   const transform = require('./model-config').makeModelBodyTransform(
-    'copilot', { copilot: ['primary', 'next'] }, async () => {},
+    'copilot', { copilot: ['primary', 'next', 'gpt-5.3-codex'] }, async () => {},
   );
-  const { req } = await start({ model: 'strict', messages: [] }, 'copilot', '/chat/completions', { transform });
-  expect(JSON.parse(sent()).model).toBe('primary');
+  const { req } = await start(body, 'copilot', '/chat/completions', { transform });
+  expect(JSON.parse(sent()).model).toBe(model);
   expect(req.awfModelRecoveryDisabled).toBe(true);
   await reject(0, 404, 'model_not_found');
   expect(requests).toHaveLength(1);
+});
+
+test('does not auto-recover unsupported inference endpoints but honors explicit chains', async () => {
+  catalog.replaceRuntimeModels('copilot', [record('primary'), record('next')]);
+  const { res } = await start({ model: 'primary', input: 'query' }, 'copilot', '/v1/embeddings');
+  await reject(0, 400, 'model_not_supported');
+  expect(requests).toHaveLength(1);
+  expect(res.writeHead).toHaveBeenCalledWith(400, expect.any(Object));
+
+  load({ AWF_FALLBACK_MODELS: 'next' });
+  requests = [];
+  responses = [];
+  catalog.replaceRuntimeModels('openai', [record('primary'), record('next')]);
+  expect(require('./model-fallback-chain').getFallbackModels()).toEqual(['next']);
+  const { req } = await start(
+    { model: 'primary', input: 'query' },
+    'openai',
+    '/v1/embeddings',
+    { host: 'api.openai.com' },
+  );
+  await reject(0, 400, 'model_not_supported');
+  expect(requests).toHaveLength(2);
+  expect(req.awfModelFallback).toMatchObject({ model: 'next' });
+  expect(JSON.parse(sent(1)).model).toBe('next');
+  expect(requests[1].options.path).toBe('/v1/embeddings');
+});
+
+test('validates retry effort against the captured runtime catalogue', async () => {
+  catalog.replaceRuntimeModels('copilot', [
+    record('primary', { supportedReasoningEfforts: ['high'] }),
+    record('next', { supportedReasoningEfforts: ['high'] }),
+  ]);
+  const { req } = await start({ model: 'primary', messages: [], reasoning_effort: 'high' });
+  catalog.replaceRuntimeModels('copilot', [
+    record('next', { supportedReasoningEfforts: ['low'] }),
+  ]);
+  await reject(0);
+  expect(requests).toHaveLength(2);
+  expect(JSON.parse(sent(1))).toMatchObject({ model: 'next', reasoning_effort: 'high' });
+  expect(req.awfRuntimePricing.copilot.map(model => model.id)).toEqual(['primary', 'next']);
 });
 
 test('cannot bypass enclave capabilities during pre-dispatch replacement', async () => {

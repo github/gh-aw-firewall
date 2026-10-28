@@ -227,6 +227,7 @@ function _resolveAliasPatterns(aliasKey, aliasDefinition, requestedModel, aliase
   log.push(`[model-resolver] alias: "${requestedModel}" → [${patterns.join(', ')}]`);
 
   const candidates = [];
+  const aliasKeys = new Set([aliasKey]);
   // Candidates produced by a nested alias's middle-power fallback are synthesized
   // guesses, not genuine pattern matches. They are kept separate so they can never
   // out-rank a sibling pattern that actually matched a model.
@@ -252,6 +253,7 @@ function _resolveAliasPatterns(aliasKey, aliasDefinition, requestedModel, aliase
       if (!sub && subState.blocked) resolutionState.blocked = true;
       if (sub) {
         log.push(...sub.log);
+        for (const key of sub.aliasKeys || []) aliasKeys.add(key);
         if (sub.fallback && sub.fallback.activated) {
           synthesizedCandidates.push(sub.resolvedModel);
         } else {
@@ -343,13 +345,14 @@ function _resolveAliasPatterns(aliasKey, aliasDefinition, requestedModel, aliase
     const fallbackAllowed = !isNestedReference || targetsCurrentProvider;
     if (aliasDefinition.fallback && fallbackAllowed && hasProviderPattern && !modelPolicyConfig &&
         effectiveCandidates.length === 0 && !resolutionState.blocked) {
-      return applyModelParametersToResolution(tryMiddlePowerFallback(
+      const fallback = applyModelParametersToResolution(tryMiddlePowerFallback(
         requestedModel, {
           [currentProvider]: (availableModels[currentProvider] || [])
             .filter(model => _isModelPermittedByPolicy(model, modelPolicyConfig, currentProvider)),
         }, currentProvider,
         'no_alias_match_and_not_in_available_models', fallbackConfig, log
       ), parameterSuffix);
+      return fallback ? { ...fallback, aliasKeys: [...aliasKeys] } : null;
     }
     return null;
   }
@@ -371,6 +374,7 @@ function _resolveAliasPatterns(aliasKey, aliasDefinition, requestedModel, aliase
     resolvedModel: appendModelParameters(resolved, parameterSuffix),
     candidates: unique.map(candidate => appendModelParameters(candidate, parameterSuffix)),
     log,
+    aliasKeys: [...aliasKeys],
     fallback: fallbackConfig.enabled
       ? {
         activated: resolvedViaSynthesis,
@@ -428,6 +432,7 @@ function resolveModel(
     identity: resolved.identity,
     wireId: splitModelParameters(resolution.resolvedModel).baseModel,
     matchKind,
+    aliasKeys: resolution.aliasKeys || [],
   };
 }
 

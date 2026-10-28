@@ -17,7 +17,8 @@ function isAutomaticRecoveryEnabled(provider, req) {
     !MODEL_FALLBACK.excludeEngines.includes(provider) &&
     !req?.awfModelRecoveryDisabled &&
     !req?.awfScopedAuto &&
-    req?.awfRequestContext?.purpose !== 'routing_classification';
+    req?.awfRequestContext?.purpose !== 'routing_classification' &&
+    !!protocolForUrl(req?.url);
 }
 
 function recoveryRecords(provider, req) {
@@ -71,9 +72,12 @@ function isRecoveryCompatible(record, provider, parsed, url, originalRecord) {
   const original = normalizeModel(originalRecord?.id || parsed.model, originalRecord, provider);
   if (original?.contextWindow && (!model.contextWindow || model.contextWindow < original.contextWindow)) return false;
   const outputLimit = record.capabilities?.limits?.max_output_tokens;
+  const originalOutputLimit = originalRecord?.capabilities?.limits?.max_output_tokens;
   const requestedOutput = parsed.max_tokens ?? parsed.max_completion_tokens ?? parsed.max_output_tokens;
-  if (requestedOutput !== undefined &&
-      (!Number.isFinite(outputLimit) || requestedOutput > outputLimit)) return false;
+  const requiredOutput = requestedOutput ??
+    (Number.isFinite(originalOutputLimit) ? originalOutputLimit : undefined);
+  if (requiredOutput !== undefined &&
+      (!Number.isFinite(outputLimit) || outputLimit < requiredOutput)) return false;
 
   const coreFields = new Set([
     'model', 'messages', 'input', 'instructions', 'system', 'max_tokens',
@@ -123,7 +127,9 @@ function isRecoveryCompatible(record, provider, parsed, url, originalRecord) {
       'image', 'image_url', 'input_image', 'input_audio', 'audio', 'video',
       'file', 'input_file',
     ].includes(value.type) && supports[value.type] !== true) return false;
-    for (const child of Object.values(value)) {
+    for (const [key, child] of Object.entries(value)) {
+      if ((value.type === 'tool_use' && key === 'input') ||
+          (['image', 'image_url', 'input_image'].includes(value.type) && key === 'source')) continue;
       if (child && typeof child === 'object') pendingContent.push(child);
     }
   }
@@ -192,6 +198,7 @@ module.exports = {
   MAX_AUTOMATIC_RECOVERIES,
   isAutomaticRecoveryEnabled,
   recoveryRecords,
+  protocolForUrl,
   getModelUnavailability,
   getAutomaticRecoveryCandidates,
   isRecoveryCompatible,

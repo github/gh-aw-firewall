@@ -30,6 +30,7 @@ const {
   isAutomaticRecoveryEnabled,
   recoveryRecords,
   getAutomaticRecoveryCandidates,
+  protocolForUrl,
 } = require('./model-recovery');
 
 const invocationModelBudget = createInvocationModelBudget(
@@ -176,7 +177,7 @@ function createSendUpstreamRequest({
     if (cancellation.cancelled) return;
 
     try {
-      validateReasoningEffort(body, provider, upstreamPath);
+      validateReasoningEffort(body, provider, upstreamPath, req.awfRuntimePricing);
     } catch (err) {
       if (err.code !== 'unsupported_reasoning_effort') throw err;
       if (res.headersSent) return;
@@ -238,6 +239,7 @@ function createSendUpstreamRequest({
     if (!isRoutingClassifier && !req.awfScopedAuto) {
       const chain = getFallbackModelsDep();
       const automaticRecovery = isAutomaticRecoveryEnabled(provider, req) &&
+        protocolForUrl(req.url) &&
         recoveryRecords(provider, req).length > 0;
       const current = chain.length > 0 || automaticRecovery ? getRequestModel(body, upstreamPath) : null;
       if (current) {

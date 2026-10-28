@@ -30,7 +30,7 @@ function getSupportedEfforts(model) {
   return null;
 }
 
-function validateReasoningEffort(body, provider, url) {
+function validateReasoningEffort(body, provider, url, runtimeCatalog) {
   let parsed;
   try {
     parsed = JSON.parse(body.toString('utf8'));
@@ -41,7 +41,7 @@ function validateReasoningEffort(body, provider, url) {
 
   const requested = getReasoningEffort(parsed, url);
   if (!requested || typeof requested.value !== 'string') return;
-  const model = findRuntimeModel(provider, parsed.model);
+  const model = findRuntimeModel(provider, parsed.model, runtimeCatalog);
   const supported = getSupportedEfforts(model);
   if (!supported || supported.includes(requested.value)) return;
 
