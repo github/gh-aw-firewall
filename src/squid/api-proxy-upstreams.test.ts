@@ -15,7 +15,8 @@ describe('trusted API proxy custom upstream ports', () => {
     const result = generateSquidConfig(config);
     expect(result).toContain('acl api_upstream_source src 172.30.0.30/32');
     for (const [index, endpoint] of config.apiProxyUpstreams.entries()) {
-      expect(result).toContain(`acl api_upstream_${index}_host dstdomain -n ${endpoint.hostname}`);
+      const escapedHostname = endpoint.hostname.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      expect(result).toContain(`acl api_upstream_${index}_host dstdom_regex -i -n ^${escapedHostname}$`);
       expect(result).toContain(`acl api_upstream_${index}_port port ${endpoint.port}`);
       const rule = `http_access allow api_upstream_source api_upstream_${index}_host api_upstream_${index}_port`;
       expect(result).toContain(rule);

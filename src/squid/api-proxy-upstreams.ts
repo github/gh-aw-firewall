@@ -25,7 +25,8 @@ export function generateApiProxyUpstreamSection(
     }
     const acl = `api_upstream_${index}`;
     // -n prevents reverse DNS from turning raw-IP requests into hostname matches.
-    lines.push(`acl ${acl}_host dstdomain -n ${hostname}`);
+    const escapedHostname = hostname.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    lines.push(`acl ${acl}_host dstdom_regex -i -n ^${escapedHostname}$`);
     lines.push(`acl ${acl}_port port ${endpoint.port}`);
     for (const rule of blockedAccessRules) {
       const blockedAcl = rule.split(' ').pop();
