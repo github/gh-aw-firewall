@@ -150,6 +150,10 @@ function getAiCreditsConfig() {
   return aiCreditsConfigCache.parsed;
 }
 
+function hasAiCreditsBudget() {
+  return getAiCreditsConfig().max !== null;
+}
+
 /**
  * Canonicalize a model name by stripping provider prefix and normalizing
  * common deployment suffixes and separators (dash, dot, underscore are all
@@ -562,6 +566,7 @@ module.exports = {
   buildAiCreditsLimitError,
   getPendingAiCreditSteeringWarning,
   acknowledgeAiCreditSteeringWarning,
+  hasAiCreditsBudget,
   checkModelPricing,
   isRecognizedDynamicSelector,
   isModelPriceable,

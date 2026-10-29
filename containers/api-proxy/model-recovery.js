@@ -9,6 +9,7 @@ const { resolveModelIdentity } = require('./model-identity');
 const { compareByVersion } = require('./model-utils');
 const { sanitizeForLog } = require('./logging');
 const { MODEL_FALLBACK } = require('./model-config');
+const { hasAiCreditsBudget, isModelPriceable } = require('./guards/ai-credits-guard');
 
 const MAX_AUTOMATIC_RECOVERIES = 3;
 
@@ -142,6 +143,9 @@ function getAutomaticRecoveryCandidates({ model, provider, body, url, req, isPer
   const records = recoveryRecords(provider, req);
   const originalRecord = records.find(record => record.id.toLowerCase() === nativeModel(model, provider).toLowerCase());
   const suggestion = getRetiredModelBlockState(model, provider)?.suggestion.toLowerCase();
+  const pricingOptions = Object.hasOwn(req || {}, 'awfCatalogue')
+    ? { catalogue: req.awfCatalogue, runtimeCatalog: req.awfRuntimePricing } : undefined;
+  const checkPricing = hasAiCreditsBudget();
   const permitted = isPermitted || ((candidate) => getCurrentGuardChecks(candidate, provider, {
     catalogue: req?.awfCatalogue, runtimeCatalog: req?.awfRuntimePricing,
   }).every(guard => !guard.isBlocked(guard.block)));
@@ -149,7 +153,8 @@ function getAutomaticRecoveryCandidates({ model, provider, body, url, req, isPer
     record.id.toLowerCase() !== nativeModel(model, provider).toLowerCase() &&
     !getRetiredModelBlockState(record.id, provider, { inputMode: 'native' }) &&
     isRecoveryCompatible(record, provider, parsed, url, originalRecord) &&
-    permitted(record.id, provider))
+    permitted(record.id, provider) &&
+    (!checkPricing || isModelPriceable(record.id, provider, pricingOptions)))
     .map(record => record.id)
     .sort((left, right) =>
       (left.toLowerCase() === suggestion ? -1 : right.toLowerCase() === suggestion ? 1 : compareByVersion(left, right)));
