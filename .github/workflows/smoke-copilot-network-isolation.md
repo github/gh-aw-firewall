@@ -67,6 +67,9 @@ jobs:
       - name: Token-usage sanity check
         run: node scripts/ci/check-token-usage.js --artifact-root /tmp/gh-aw-agent --engine copilot
 steps:
+  - name: Build local AWF smoke images
+    timeout-minutes: 35
+    run: bash "${RUNNER_TEMP}/awf-smoke/build-smoke-images.sh"
   - name: Pre-compute smoke test data
     run: |
       echo "::group::Fetching last 2 merged PRs"

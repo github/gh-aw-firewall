@@ -122,6 +122,10 @@ sudo awf --allow-domains github.com -- cat ~/.docker/config.json
 # Need access to specific directory? Use --mount
 sudo awf --mount /data:/data:ro --allow-domains github.com -- ls /data
 
+# A mount does not grant Copilot permission to read the directory
+sudo awf --mount /data:/data:ro --allow-domains github.com -- \
+  copilot --add-dir /data --prompt "Analyze the inputs in /data"
+
 # Multiple custom mounts
 sudo awf \
   --mount /data:/data:ro \
@@ -130,6 +134,14 @@ sudo awf \
   my-command
 ```
 
+An AWF volume mount provides filesystem visibility only; it does not grant
+engine or detector file scope. Pass the sandbox-visible destination (such as
+`/data`) to the engine's own scope option, and ensure the detector consumes all
+required inputs and fails closed on unreadable inputs or missing/invalid
+verdicts. Host-side readability checks and successful engine exits alone do not
+prove that analysis occurred. See
+[`--mount` file-scope and fail-closed guidance](environment.md#--mount-does-not-grant-engine-file-scope)
+for details.
 
 ## Comparison: Before vs After
 

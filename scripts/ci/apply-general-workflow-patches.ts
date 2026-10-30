@@ -58,6 +58,8 @@ const publishedAwfWorkflowLockFiles = new Set([
   'auth-doctor-updater.lock.yml',
   'doc-maintainer.lock.yml',
   'model-api-mapping-updater.lock.yml',
+  'pr-sous-chef.lock.yml',
+  'mount-docs-maintainer.lock.yml',
   'schema-sync.lock.yml',
   'self-hosted-runner-doctor-updater.lock.yml',
   'update-release-notes.lock.yml',
@@ -80,7 +82,7 @@ export function applyGeneralWorkflowPatches(
   workflowPath: string
 ): PatchResult {
   const log: string[] = [];
-  const preparedSmokeImages = /(?:^|[/\\])smoke-(?:copilot|services)\.lock\.yml$/.test(workflowPath)
+  const preparedSmokeImages = /(?:^|[/\\])smoke-(?:copilot(?:-network-isolation)?|services)\.lock\.yml$/.test(workflowPath)
     && content.includes('- name: Build local AWF smoke images\n');
   const preparedSmokeImageArgs =
     '--image-registry awf-smoke --image-tag "${AWF_SMOKE_IMAGE_TAG:?}" --skip-pull';

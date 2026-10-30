@@ -1,5 +1,7 @@
 import { generateDockerCompose } from './compose-generator';
 import { getRealUserHome } from './host-identity';
+import * as hostIdentity from './host-identity';
+import { spawnSync } from 'child_process';
 import { logger } from './logger';
 import { WrapperConfig } from './types';
 import { baseConfig, mockNetworkConfig } from './test-helpers/docker-test-fixtures.test-utils';
@@ -24,7 +26,74 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  jest.restoreAllMocks();
   fs.rmSync(mockConfig.workDir, { recursive: true, force: true });
+});
+
+describe('generateDockerCompose: ARC/DinD shared-file ownership', () => {
+  function sharedWriters() {
+    return generateDockerCompose({
+      ...mockConfig,
+      runnerTopology: 'arc-dind',
+      dockerHostPathPrefix: '/tmp',
+      enableApiProxy: true,
+      difcProxyHost: 'host.docker.internal:18443',
+    }, {
+      ...mockNetworkConfig,
+      proxyIp: '172.30.0.30',
+      cliProxyIp: '172.30.0.50',
+    }).services;
+  }
+
+  it('uses the runner identity rather than image-defined users for shared log writers', () => {
+    jest.spyOn(hostIdentity, 'getSafeHostUid').mockReturnValue('12345');
+    jest.spyOn(hostIdentity, 'getSafeHostGid').mockReturnValue('23456');
+
+    const services = sharedWriters();
+    for (const name of ['api-proxy', 'cli-proxy']) {
+      expect(services[name].user).toBe('12345:23456');
+    }
+  });
+
+  const testRunnerOwnership = process.platform === 'linux'
+    && (process.getuid?.() ?? 0) >= 1000 && (process.getgid?.() ?? 0) > 0
+    ? it : it.skip;
+  testRunnerOwnership('creates runner-owned files that the runner can rewrite and atomically replace', () => {
+    const services = sharedWriters();
+    for (const name of ['api-proxy', 'cli-proxy']) {
+      const [uid, gid] = (services[name].user as string).split(':').map(Number);
+      const file = path.join(mockConfig.workDir, `${name}.jsonl`);
+      const child = spawnSync(process.execPath, ['-e',
+        'require("fs").writeFileSync(process.argv[1], "original\\n", {mode: 0o600})', file,
+      ], { uid, gid, encoding: 'utf8', env: {}, timeout: 10000 });
+
+      expect(child.error).toBeUndefined();
+      expect(child.status).toBe(0);
+      const fileFd = fs.openSync(file, 'r+');
+      try {
+        expect(fs.fstatSync(fileFd)).toMatchObject({ uid: process.getuid!(), gid: process.getgid!() });
+        expect(fs.fstatSync(fileFd).mode & 0o777).toBe(0o600);
+        fs.writeFileSync(fileFd, 'rewritten\n');
+
+        const replacement = `${file}.tmp`;
+        const replacementFd = fs.openSync(replacement, 'wx+', 0o600);
+        try {
+          fs.writeFileSync(replacementFd, 'replaced\n');
+          fs.renameSync(replacement, file);
+          const contents = Buffer.alloc(Buffer.byteLength('replaced\n'));
+          expect(fs.readSync(replacementFd, contents, 0, contents.length, 0)).toBe(contents.length);
+          expect(contents.toString()).toBe('replaced\n');
+          const entries = fs.readdirSync(mockConfig.workDir);
+          expect(entries).toContain(path.basename(file));
+          expect(entries).not.toContain(path.basename(replacement));
+        } finally {
+          fs.closeSync(replacementFd);
+        }
+      } finally {
+        fs.closeSync(fileFd);
+      }
+    }
+  });
 });
 
 describe('generateDockerCompose: host-gateway IP passthrough (AWF_HOST_GATEWAY_IP)', () => {

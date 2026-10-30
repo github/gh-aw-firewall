@@ -9,8 +9,9 @@ describe('Phase 4 KVM ACL evidence', () => {
   afterAll(() => rmSync(directory, { recursive: true, force: true }));
 
   it('records exact hashes and UID-redacted ordered ACL structure with source identity', () => {
-    const expected = path.join(directory, 'expected.acl');
-    const actual = path.join(directory, 'actual.acl');
+    // UID-like digits in source metadata must not be mistaken for unredacted ACL entries.
+    const expected = path.join(directory, 'expected-1001.acl');
+    const actual = path.join(directory, 'actual-2002.acl');
     const output = path.join(directory, 'evidence.json');
     writeFileSync(expected, [
       '# file: /dev/kvm',
@@ -38,11 +39,18 @@ describe('Phase 4 KVM ACL evidence', () => {
     writeKvmAclEvidence(expected, expected, actual, actual, output);
 
     const evidence = JSON.parse(readFileSync(output, 'utf8'));
-    expect(evidence).toMatchObject({
+    const identityShape = {
+      device: expect.stringMatching(/^\d+$/),
+      inode: expect.stringMatching(/^\d+$/),
+      mode: expect.stringMatching(/^[0-7]+$/),
+      rdev: expect.stringMatching(/^\d+$/),
+    };
+    expect(evidence).toEqual({
       schemaVersion: 1,
       exactMatch: false,
       expected: {
         sourcePath: expected,
+        sourceIdentity: identityShape,
         sha256: expect.stringMatching(/^[a-f0-9]{64}$/),
         entries: [
           { order: 0, type: 'user', qualifier: 'owner', permissions: 'rw-' },
@@ -54,6 +62,7 @@ describe('Phase 4 KVM ACL evidence', () => {
       },
       actual: {
         sourcePath: actual,
+        sourceIdentity: identityShape,
         sha256: expect.stringMatching(/^[a-f0-9]{64}$/),
         entries: [
           { order: 0, type: 'user', qualifier: 'owner', permissions: 'rw-' },
@@ -63,14 +72,6 @@ describe('Phase 4 KVM ACL evidence', () => {
           { order: 4, type: 'other', qualifier: 'none', permissions: '---' },
         ],
       },
-    });
-    expect(JSON.stringify(evidence)).not.toContain('1001');
-    expect(JSON.stringify(evidence)).not.toContain('2002');
-    expect(evidence.expected.sourceIdentity).toMatchObject({
-      device: expect.stringMatching(/^\d+$/),
-      inode: expect.stringMatching(/^\d+$/),
-      mode: expect.stringMatching(/^[0-7]+$/),
-      rdev: expect.stringMatching(/^\d+$/),
     });
   });
 });

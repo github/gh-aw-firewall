@@ -473,6 +473,45 @@ the consumer looks for it. See
 for the full staging + rw-mount pattern, using a threat-detection tool as a
 worked example.
 
+### `--mount` does not grant engine file scope
+
+Mount visibility, host permissions, and engine file scope are separate checks.
+Neither `:ro` nor `:rw` grants an engine permission to read a mounted directory.
+The workload user still needs filesystem read/traverse permission, and engines
+such as Copilot require their own scope grant (for example, `--add-dir`).
+AWF passes the command through unchanged; it does not add engine scope flags.
+
+For example, mount staged inputs read-only and grant Copilot the
+**sandbox-visible destination**, not a different host source path:
+
+```bash
+# Stage the required input files in this directory before invoking AWF.
+mkdir -p "${RUNNER_TEMP}/gh-aw/threat-detection"
+awf --mount "${RUNNER_TEMP}/gh-aw/threat-detection:/tmp/gh-aw/threat-detection:ro" \
+    --allow-domains github.com,api.githubcopilot.com \
+    -- copilot --add-dir /tmp/gh-aw/threat-detection \
+       --prompt "Analyze the staged inputs in /tmp/gh-aw/threat-detection"
+```
+
+This illustrates a direct Copilot invocation, not the `threat-detect` interface.
+When a wrapper launches the engine, it must grant scope to that subprocess;
+adding a mount or granting scope to a separate agent invocation is insufficient.
+
+AWF validates mount syntax and host source existence, but has no input-specific
+readability preflight. A host-side check (possibly running as root) cannot prove
+access under the sandbox user's identity or the engine's file policy.
+Inside the sandbox, `test -r` on each required file and `test -x` on its parent
+directories are preliminary checks only: the detector must successfully open
+and consume every required input through its actual engine/tool path.
+Missing or unreadable inputs, engine permission denials, or a missing/invalid
+verdict must fail detection closed, never produce a clean verdict.
+An empty directory or a zero engine exit status is not evidence of analysis.
+
+The detector scope grant and fail-closed verdict handling belong to `gh-aw` /
+`threat-detect` ([github/gh-aw#72897](https://github.com/github/gh-aw/issues/72897)),
+not AWF's mount layer. See also the
+[ARC/DinD ownership and verification guidance](arc-dind.md#agent-logs-threat-detection-and-safe-output-ownership).
+
 ### Security: procfs and credential isolation
 
 AWF mounts a container-scoped procfs at `/host/proc` with `hidepid=2` to prevent the agent from reading other processes' environment variables. This is critical because:
