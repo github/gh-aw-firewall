@@ -303,26 +303,29 @@ are tracked there for compiler/MCP Gateway fixes, with AWF-side tracking in
 The remaining nested-stdio identity fix is tracked in
 [github/gh-aw#72898](https://github.com/github/gh-aw/issues/72898), with AWF
 follow-up in [#10806](https://github.com/github/gh-aw-firewall/issues/10806).
-The reporter confirms that v0.92.0 retains fail-closed redaction but still needs
-the pre-create workaround; this is not evidence that child ownership is fixed.
-Acceptance upstream is runner-owned child-created files and successful
-redaction without pre-creation, with publication still blocked on unrecoverable
-redaction errors.
+The reporter says they upgraded to v0.92.0 and removed the fail-closed
+post-step, but still need the pre-create workaround. Successful redaction
+without pre-creation and fail-closed publication behavior are therefore both
+unverified; this is not evidence that child ownership is fixed. Acceptance
+upstream is runner-owned child-created files and successful redaction without
+pre-creation, with publication blocked on unrecoverable redaction errors.
 
-AWF's general and enclave API proxies and CLI proxy use the host UID/GID for
-shared log writes. Enclave executors retain their dedicated non-root identities
-and private output staging; they must not gain runner access to shared workflow
-outputs. The trusted enclave MCP broker retains its privileged identity for
-AWF-private control, audit, and staging mounts, not shared safe-output files.
-These AWF identity settings do not propagate to gateway-launched stdio containers.
+AWF's general and enclave API proxies and CLI proxy HTTP service use the host
+UID/GID for shared log writes. Enclave executors retain their dedicated non-root
+identities and private output staging; they must not gain runner access to
+shared workflow outputs. The trusted enclave MCP broker retains its privileged
+identity for AWF-private control, audit, and staging mounts, not shared
+safe-output files. These AWF identity settings do not propagate to
+gateway-launched stdio containers.
 
-To verify findings 3–4 and decide whether to permanently remove the reporter's
-pre-create step and fail-closed guard, use an isolated ARC/DinD run with the
-current supported gh-aw compiler and matching setup action. Remove both
-workaround steps from the candidate workflow before compiling it. Record the
-exact compiler, setup, MCP Gateway, nested safeoutputs image, AWF, and DinD
-versions (including immutable SHAs or digests where available). Before any
-output is written, record only the results of `id -u`, `id -g`, and
+To verify findings 3–4, use an isolated ARC/DinD run with the current supported
+gh-aw compiler and matching setup action. Remove the remaining pre-create step
+from the candidate workflow before compiling it. Separately verify that an
+unrecoverable redaction error still blocks publication, including artifacts,
+and removes the unsafe source. Record the exact compiler, setup, MCP Gateway,
+nested safeoutputs image, AWF, and DinD versions (including immutable SHAs or
+digests where available). Before any output is written, record only the results
+of `id -u`, `id -g`, and
 `stat -c '%u:%g %a'` for the safeoutputs directory from the runner and the
 nested container. Inspect the gateway and child container's configured user
 with `docker inspect --format
@@ -339,13 +342,13 @@ the file, secrets, container environment, or unredacted logs.
 
 | Finding | Last reported version / result | Upgrade acceptance |
 |---|---|---|
-| 3 — child ownership and redaction | Compiler/setup v0.89.21, AWF v0.28.23; pre-create and guard still in use. Gateway and child versions/identities unknown; v0.92.0 ARC result **not reported**. | With pre-create removed, capture the child's file metadata before redaction and the resulting metadata or absence afterward. For the success case, register an inert dummy value with the redactor and include it in safe output so `outputs.jsonl` must be rewritten; confirm the file-specific redaction diagnostic for `outputs.jsonl` (and the replacement diagnostic if emitted), without printing output content. In a separate isolated test, an induced unrecoverable redaction error must stop publication (including artifacts) and remove the unsafe source. Record step outcomes without output content. If ownership still blocks this, preserve redacted metadata and escalate child identity to MCP Gateway and redaction to gh-aw. |
-| 4 — compiler upgrade | v0.91.4 rejected direct safe-output-file access in the workaround; reporter plans v0.92.0, **not yet verified**. | With pre-create and its guard removed, the unmodified safe-output access restriction remains enabled, compilation succeeds, and the compiled workflow executes and publishes only successfully redacted safe outputs. If not, retain the compile diagnostic and escalate to gh-aw. |
+| 3 — child ownership and redaction | Compiler/setup v0.89.21, AWF v0.28.23; pre-create was still needed. Reporter says v0.92.0 removed the fail-closed post-step but retains pre-creation. Gateway and child versions/identities unknown; successful redaction without pre-creation and fail-closed publication behavior remain **unverified**. | With pre-create removed, capture the child's file metadata before redaction and the resulting metadata or absence afterward. For the success case, register an inert dummy value with the redactor and include it in safe output so `outputs.jsonl` must be rewritten; confirm the file-specific redaction diagnostic for `outputs.jsonl` (and the replacement diagnostic if emitted), without printing output content. In a separate isolated test, an induced unrecoverable redaction error must stop publication (including artifacts) and remove the unsafe source. Record step outcomes without output content. If ownership still blocks this, preserve redacted metadata and escalate child identity to MCP Gateway and redaction to gh-aw. |
+| 4 — compiler upgrade | v0.91.4 rejected direct safe-output-file access in the workaround; reporter upgraded to v0.92.0, but compilation and execution without the remaining pre-create step are **not verified**. | With pre-create removed, the unmodified safe-output access restriction remains enabled, compilation succeeds, and the compiled workflow executes and publishes only successfully redacted safe outputs. If not, retain the compile diagnostic and escalate to gh-aw. |
 
-The versions and planned upgrade above come from the
+The historical version details above come from the
 [reporter's update](https://github.com/github/gh-aw/issues/66926#issuecomment-6264251052);
-the historical ARC run logs have expired. Preserve a redacted record of the
-new run ID, workflow commit, version pins, ownership/mode observations, compile
+the historical ARC run logs have expired. Preserve a redacted record of the new
+run ID, workflow commit, version pins, ownership/mode observations, compile
 result, redaction step outcome, and publication outcome before considering
 AWF tracking issue [#10271](https://github.com/github/gh-aw-firewall/issues/10271)
 resolved. Use a non-closing reference (`Refs #10271`) until that evidence

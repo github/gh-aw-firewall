@@ -76,18 +76,18 @@ describe('generateDockerCompose: ARC/DinD shared-file ownership', () => {
         fs.writeFileSync(fileFd, 'rewritten\n');
 
         const replacement = `${file}.tmp`;
-        const replacementFd = fs.openSync(replacement, 'wx', 0o600);
+        const replacementFd = fs.openSync(replacement, 'wx+', 0o600);
         try {
           fs.writeFileSync(replacementFd, 'replaced\n');
+          fs.renameSync(replacement, file);
+          const contents = Buffer.alloc(Buffer.byteLength('replaced\n'));
+          expect(fs.readSync(replacementFd, contents, 0, contents.length, 0)).toBe(contents.length);
+          expect(contents.toString()).toBe('replaced\n');
+          const entries = fs.readdirSync(mockConfig.workDir);
+          expect(entries).toContain(path.basename(file));
+          expect(entries).not.toContain(path.basename(replacement));
         } finally {
           fs.closeSync(replacementFd);
-        }
-        fs.renameSync(replacement, file);
-        const replacedFd = fs.openSync(file, 'r');
-        try {
-          expect(fs.readFileSync(replacedFd, 'utf8')).toBe('replaced\n');
-        } finally {
-          fs.closeSync(replacedFd);
         }
       } finally {
         fs.closeSync(fileFd);
