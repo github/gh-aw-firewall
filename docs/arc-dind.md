@@ -234,6 +234,63 @@ are tracked there for compiler/MCP Gateway fixes, with AWF-side tracking in
   runner's parser must still read the source, accounting for path translation.
   AWF does not create cross-root symlinks or copies, which can conflict with
   artifact consolidation.
+
+  The agent-log path contract is:
+
+  | Writer / reader | Path |
+  | --- | --- |
+  | Copilot with no explicit `--log-dir` | Sandbox `~/.copilot/logs`; backed by AWF's `workDir/agent-logs` in non-ARC compose runs, but not on ARC/DinD |
+  | Copilot with an explicit `--log-dir` | The sandbox mount target, for example `/tmp/gh-aw/sandbox/agent/logs` |
+  | Runner-side summary parser and artifact collection | The corresponding runner-visible mount source, for example `${RUNNER_TEMP}/gh-aw/sandbox/agent/logs` |
+
+  `--log-dir` is a Copilot option, not an AWF `--agent-logs` option. AWF's
+  default log mount does not collect logs written to an explicit engine path.
+  In non-ARC compose runs, non-empty default logs are preserved as
+  `/tmp/awf-agent-logs-<timestamp>` during normal cleanup. ARC/DinD removes
+  the workDir-backed default mounts; use an explicit shared log mount and
+  `--log-dir` for runner-side collection. Explicitly mounted logs remain at
+  their mount source.
+
+  **Agent log directory contract (Docker compose):** `agent-logs` is a
+  subdirectory of `--work-dir`. Without ARC/DinD sysroot staging, AWF mounts
+  `<workDir>/agent-logs` read-write at `/host<effectiveHome>/.copilot/logs`
+  (the chrooted agent sees `~/.copilot/logs`). With a daemon-only
+  `--docker-host-path-prefix /host`, the compose source becomes
+  `/host<workDir>/agent-logs`; the destination stays unchanged and the runner
+  still reads `<workDir>/agent-logs`. With the shared `/tmp` prefix, keep the
+  work directory under `/tmp` so the source remains unchanged. With
+  ARC/DinD sysroot staging, the sysroot filter removes these automatic
+  work-directory mounts because the runner's work directory is not shared
+  with the daemon; use an explicit log-directory mount on shared storage.
+
+  An explicit Copilot `--log-dir /tmp/gh-aw/sandbox/agent/logs` instead
+  requires a mount such as:
+
+  ```bash
+  --mount "${RUNNER_TEMP}/gh-aw/sandbox/agent/logs:/tmp/gh-aw/sandbox/agent/logs:rw"
+  ```
+
+  Prefix translation changes only the daemon-side source, not the sandbox
+  destination or the Copilot command. For a daemon-only prefix, the runner's
+  `parse_copilot_log.cjs`, `GH_AW_AGENT_OUTPUT`, and artifact collection must
+  therefore read `${RUNNER_TEMP}/gh-aw/sandbox/agent/logs`, not the sandbox's
+  `/tmp/gh-aw/sandbox/agent/logs`. With a shared `/tmp` prefix and a source
+  outside `/tmp`, the runner-visible source is
+  `/tmp${RUNNER_TEMP}/gh-aw/sandbox/agent/logs`; put the source under `/tmp`
+  to avoid further source translation.
+
+  The remaining compiler fix is tracked in
+  [github/gh-aw#72896](https://github.com/github/gh-aw/issues/72896)
+  ([AWF tracking](https://github.com/github/gh-aw-firewall/issues/10818)):
+  `pkg/workflow/compiler_yaml_ai_execution.go` must set `GH_AW_AGENT_OUTPUT`
+  for `parse_copilot_log.cjs` to the same runner-visible source used by
+  execution and artifact collection, rather than the unadjusted engine path.
+  Do not alias the two runner roots with a symlink: consolidation must merge
+  real directories. End-to-end acceptance in gh-aw requires a populated agent
+  summary and successful consolidation on ARC/DinD with no link/unlink steps.
+  AWF's volume-mount integration test covers the write/read handoff and a
+  directory-merge fixture; it does not execute gh-aw's summary parser.
+
 - **Threat detection:** mounting the input directory only makes it visible to
   the process. `threat-detect` launches Copilot and must grant its input
   directory in Copilot's `--add-dir` scope; the absence of `--add-dir` in the
@@ -268,13 +325,32 @@ are tracked there for compiler/MCP Gateway fixes, with AWF-side tracking in
   safe-output-file access rule. Any necessary child identity propagation
   belongs in MCP Gateway; redaction and compiler changes belong in gh-aw.
 
-To verify findings 3–4 and decide whether to permanently remove the reporter's
-pre-create step and fail-closed guard, use an isolated ARC/DinD run with the
-current supported gh-aw compiler and matching setup action. Remove both
-workaround steps from the candidate workflow before compiling it. Record the
-exact compiler, setup, MCP Gateway, nested safeoutputs image, AWF, and DinD
-versions (including immutable SHAs or digests where available). Before any
-output is written, record only the results of `id -u`, `id -g`, and
+The remaining nested-stdio identity fix is tracked in
+[github/gh-aw#72898](https://github.com/github/gh-aw/issues/72898), with AWF
+follow-up in [#10806](https://github.com/github/gh-aw-firewall/issues/10806).
+The reporter says they upgraded to v0.92.0 and removed the fail-closed
+post-step, but still need the pre-create workaround. Successful redaction
+without pre-creation and fail-closed publication behavior are therefore both
+unverified; this is not evidence that child ownership is fixed. Acceptance
+upstream is runner-owned child-created files and successful redaction without
+pre-creation, with publication blocked on unrecoverable redaction errors.
+
+AWF's general and enclave API proxies and CLI proxy HTTP service use the host
+UID/GID for shared log writes. Enclave executors retain their dedicated non-root
+identities and private output staging; they must not gain runner access to
+shared workflow outputs. The trusted enclave MCP broker retains its privileged
+identity for AWF-private control, audit, and staging mounts, not shared
+safe-output files. These AWF identity settings do not propagate to
+gateway-launched stdio containers.
+
+To verify findings 3–4, use an isolated ARC/DinD run with the current supported
+gh-aw compiler and matching setup action. Remove the remaining pre-create step
+from the candidate workflow before compiling it. Separately verify that an
+unrecoverable redaction error still blocks publication, including artifacts,
+and removes the unsafe source. Record the exact compiler, setup, MCP Gateway,
+nested safeoutputs image, AWF, and DinD versions (including immutable SHAs or
+digests where available). Before any output is written, record only the results
+of `id -u`, `id -g`, and
 `stat -c '%u:%g %a'` for the safeoutputs directory from the runner and the
 nested container. Inspect the gateway and child container's configured user
 with `docker inspect --format
@@ -291,13 +367,13 @@ the file, secrets, container environment, or unredacted logs.
 
 | Finding | Last reported version / result | Upgrade acceptance |
 |---|---|---|
-| 3 — child ownership and redaction | Compiler/setup v0.89.21, AWF v0.28.23; pre-create and guard still in use. Gateway and child versions/identities unknown; v0.92.0 ARC result **not reported**. | With pre-create removed, capture the child's file metadata before redaction and the resulting metadata or absence afterward. For the success case, register an inert dummy value with the redactor and include it in safe output so `outputs.jsonl` must be rewritten; confirm the file-specific redaction diagnostic for `outputs.jsonl` (and the replacement diagnostic if emitted), without printing output content. In a separate isolated test, an induced unrecoverable redaction error must stop publication (including artifacts) and remove the unsafe source. Record step outcomes without output content. If ownership still blocks this, preserve redacted metadata and escalate child identity to MCP Gateway and redaction to gh-aw. |
-| 4 — compiler upgrade | v0.91.4 rejected direct safe-output-file access in the workaround; reporter plans v0.92.0, **not yet verified**. | With pre-create and its guard removed, the unmodified safe-output access restriction remains enabled, compilation succeeds, and the compiled workflow executes and publishes only successfully redacted safe outputs. If not, retain the compile diagnostic and escalate to gh-aw. |
+| 3 — child ownership and redaction | Compiler/setup v0.89.21, AWF v0.28.23; pre-create was still needed. Reporter says v0.92.0 removed the fail-closed post-step but retains pre-creation. Gateway and child versions/identities unknown; successful redaction without pre-creation and fail-closed publication behavior remain **unverified**. | With pre-create removed, capture the child's file metadata before redaction and the resulting metadata or absence afterward. For the success case, register an inert dummy value with the redactor and include it in safe output so `outputs.jsonl` must be rewritten; confirm the file-specific redaction diagnostic for `outputs.jsonl` (and the replacement diagnostic if emitted), without printing output content. In a separate isolated test, an induced unrecoverable redaction error must stop publication (including artifacts) and remove the unsafe source. Record step outcomes without output content. If ownership still blocks this, preserve redacted metadata and escalate child identity to MCP Gateway and redaction to gh-aw. |
+| 4 — compiler upgrade | v0.91.4 rejected direct safe-output-file access in the workaround; reporter upgraded to v0.92.0, but compilation and execution without the remaining pre-create step are **not verified**. | With pre-create removed, the unmodified safe-output access restriction remains enabled, compilation succeeds, and the compiled workflow executes and publishes only successfully redacted safe outputs. If not, retain the compile diagnostic and escalate to gh-aw. |
 
-The versions and planned upgrade above come from the
+The historical version details above come from the
 [reporter's update](https://github.com/github/gh-aw/issues/66926#issuecomment-6264251052);
-the historical ARC run logs have expired. Preserve a redacted record of the
-new run ID, workflow commit, version pins, ownership/mode observations, compile
+the historical ARC run logs have expired. Preserve a redacted record of the new
+run ID, workflow commit, version pins, ownership/mode observations, compile
 result, redaction step outcome, and publication outcome before considering
 AWF tracking issue [#10271](https://github.com/github/gh-aw-firewall/issues/10271)
 resolved. Use a non-closing reference (`Refs #10271`) until that evidence

@@ -11,6 +11,7 @@ const grype = 'ghcr.io/anchore/grype@sha256:fd4ab4d1042b522c896e73bdf09ab8bf384f
 const grant = 'ghcr.io/anchore/grant@sha256:172463611795f43b77302cdfbd7b3f81295492a7330e0820cfe41c3674920237';
 
 interface Step {
+  id?: string;
   name?: string;
   run?: string;
   uses?: string;
@@ -20,9 +21,21 @@ interface Step {
   'continue-on-error'?: boolean;
 }
 
-function jobs(file: string): Record<string, { steps: Step[] }> {
+interface Job {
+  name?: string;
+  needs?: string[];
+  if?: string;
+  outputs?: Record<string, string>;
+  strategy?: {
+    'fail-fast': boolean;
+    matrix: { scan: string[] };
+  };
+  steps: Step[];
+}
+
+function jobs(file: string): Record<string, Job> {
   return (yaml.load(fs.readFileSync(path.join(root, '.github/workflows', file), 'utf8')) as {
-    jobs: Record<string, { steps: Step[] }>;
+    jobs: Record<string, Job>;
   }).jobs;
 }
 
@@ -46,7 +59,7 @@ describe('CI registry retrieval', () => {
   it.each(['success', 'base-build', 'agent-build', 'scan', 'save'])(
     'retains the shared PR base through dependent builds and cleans up on %s',
     (failure) => {
-      const step = jobs('supply-chain-scan.yml').scan.steps.find(
+      const step = jobs('supply-chain-scan.yml')['image-scans'].steps.find(
         (entry) => entry.name?.startsWith('Build and scan PR container images'),
       )!;
       const python = step.run!.split("<<'PYEOF'\n")[1].split('\nPYEOF')[0];
@@ -149,7 +162,8 @@ print(json.dumps({'live': sorted(live), 'archives': sorted(archives), 'cache': s
     ...Object.keys(jobs('test-chroot.yml')).map((job) => ['test-chroot.yml', job]),
     ['test-examples.yml', 'test-examples'],
     ['test-cloud-hypervisor.yml', 'build-test-artifacts'],
-    ['supply-chain-scan.yml', 'scan'],
+    ['supply-chain-scan.yml', 'compile'],
+    ['supply-chain-scan.yml', 'image-scans'],
   ];
 
   it.each(affected)('configures the runner mirror before Docker use in %s / %s', (file, job) => {
@@ -162,17 +176,20 @@ print(json.dumps({'live': sorted(live), 'archives': sorted(archives), 'cache': s
     expect(steps[setup]['continue-on-error']).toBeUndefined();
   });
 
-  it('prepares exact scanners once before compilation and retains the blocking scan', () => {
-    const steps = jobs('supply-chain-scan.yml').scan.steps;
-    const prepare = steps.findIndex((step) => step.name === 'Prepare pinned scanners');
-    const compile = steps.findIndex((step) => step.run?.includes('gh aw compile --syft'));
+  it('prepares exact scanners on their runners and retains the blocking scan', () => {
+    const workflow = jobs('supply-chain-scan.yml');
+    const compileSteps = workflow.compile.steps;
+    const prepare = compileSteps.findIndex((step) => step.name === 'Prepare pinned Syft scanner');
+    const compile = compileSteps.findIndex((step) => step.run?.includes('gh aw compile --syft'));
     expect(prepare).toBeGreaterThanOrEqual(0);
     expect(prepare).toBeLessThan(compile);
-    for (const image of [syft, grype, grant]) {
+    expect(compileSteps[prepare].run).toContain(`docker pull ${syft}`);
+    expect(compileSteps[prepare]['continue-on-error']).toBeUndefined();
+    const steps = workflow['image-scans'].steps;
+    for (const image of [grype, grant]) {
       expect(image).toMatch(/@sha256:[a-f0-9]{64}$/);
-      expect(steps[prepare].run).toContain(`docker pull ${image}`);
+      expect(steps.some((step) => step.run?.includes(`docker pull ${image}`))).toBe(true);
     }
-    expect(steps[prepare]['continue-on-error']).toBeUndefined();
     const blocking = steps.find((step) => step.name?.startsWith('Build and scan PR container images'));
     expect(blocking?.run).toContain(grype);
     expect(blocking?.run).toContain("'--fail-on', 'high'");
@@ -185,14 +202,15 @@ print(json.dumps({'live': sorted(live), 'archives': sorted(archives), 'cache': s
     expect(blocking?.['continue-on-error']).toBeUndefined();
     const free = steps.findIndex((step) => step.name === 'Free unused hosted-runner disk space');
     expect(free).toBeGreaterThanOrEqual(0);
-    expect(free).toBeLessThan(prepare);
+    expect(free).toBeLessThan(steps.findIndex((step) => step.run?.includes('docker pull')));
+    expect(steps[free].if).toBe("matrix.scan == 'pr-images'");
     expect(steps[free].run).not.toContain('docker');
     expect(steps[free].run).not.toContain('hostedtoolcache/go');
     expect(steps.find((step) => step.run?.includes(`'${grant}'`))?.run).toContain(grant);
   });
 
   it('builds the reviewed patched compiler before scanning', () => {
-    const steps = jobs('supply-chain-scan.yml').scan.steps;
+    const steps = jobs('supply-chain-scan.yml').compile.steps;
     const install = steps.findIndex(
       (step) => step.name === 'Install patched gh-aw v1.0.1',
     );
@@ -213,6 +231,128 @@ print(json.dumps({'live': sorted(live), 'archives': sorted(archives), 'cache': s
       expect(steps[index].if).toBeUndefined();
       expect(steps[index]['continue-on-error']).toBeUndefined();
     }
+  });
+
+  it('fans scans out after one compilation without cancelling sibling scans', () => {
+    const workflow = jobs('supply-chain-scan.yml');
+    const scans = workflow['image-scans'];
+    expect(scans.needs).toEqual(['compile']);
+    expect(scans.strategy).toEqual({
+      'fail-fast': false,
+      matrix: { scan: ['pr-images', 'published-cves', 'licenses'] },
+    });
+    const selectors = [
+      ['Build and scan PR container images', "matrix.scan == 'pr-images'"],
+      ['Scan published & third-party images', "matrix.scan == 'published-cves'"],
+      ['Check image licenses', "matrix.scan == 'licenses'"],
+    ];
+    for (const [prefix, selector] of selectors) {
+      const step = scans.steps.find((entry) => entry.name?.startsWith(prefix))!;
+      expect(step.if).toBe(selector);
+      expect(step['continue-on-error']).toBeUndefined();
+      if (prefix !== 'Build and scan PR container images') {
+        expect(step.env?.MANIFEST_IMAGES).toBe('${{ needs.compile.outputs.images }}');
+        expect(step.run).toContain("json.loads(os.environ['MANIFEST_IMAGES'])");
+        expect(step.run).toContain('sys.exit(0)');
+      }
+    }
+    const databaseSteps = scans.steps.filter((step) => step.name?.includes('Grype vulnerability DB'));
+    expect(databaseSteps).toHaveLength(3);
+    for (const step of databaseSteps) {
+      expect(step.if).toBe("matrix.scan != 'licenses'");
+      if (step.with) {
+        expect(step.with.key).toBe('grype-db-v6-${{ github.run_id }}-${{ matrix.scan }}');
+      }
+    }
+    expect(workflow.compile.outputs?.images).toBe('${{ steps.inventory.outputs.images }}');
+    expect(Object.values(workflow).flatMap((job) => job.steps)
+      .filter((step) => step.run?.includes('gh aw compile --syft'))).toHaveLength(1);
+  });
+
+  it.each([0, 1])('passes the compiled inventory to both report-only scans (scanner exit %i)', (scannerExit) => {
+    const workflow = jobs('supply-chain-scan.yml');
+    const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-scan-inventory-'));
+    try {
+      const workflows = path.join(temp, '.github/workflows');
+      fs.mkdirSync(workflows, { recursive: true });
+      const pinned = 'example.com/agent@sha256:' + 'a'.repeat(64);
+      fs.writeFileSync(path.join(workflows, 'first.lock.yml'), '# gh-aw-manifest: ' + JSON.stringify({
+        containers: [{ image: 'example.com/agent:latest', pinned_image: pinned }],
+      }));
+      fs.writeFileSync(path.join(workflows, 'second.lock.yml'), '# gh-aw-manifest: ' + JSON.stringify({
+        containers: [{ pinned_image: pinned }, { image: 'example.com/helper:v1' }],
+      }));
+      fs.writeFileSync(path.join(workflows, 'ordinary.lock.yml'), 'name: ordinary workflow\n');
+      const inventory = workflow.compile.steps.find((step) => step.id === 'inventory')!;
+      const output = path.join(temp, 'output');
+      const result = spawnSync('bash', ['-e', '-c', inventory.run!], {
+        cwd: temp,
+        encoding: 'utf8',
+        env: { ...process.env, GITHUB_OUTPUT: output },
+      });
+      expect(result.stderr).toBe('');
+      expect(result.status).toBe(0);
+      const images = JSON.parse(fs.readFileSync(output, 'utf8').trim().slice('images='.length)) as string[];
+      expect(images).toEqual([pinned, 'example.com/helper:v1']);
+      for (const prefix of ['Scan published & third-party images', 'Check image licenses']) {
+        const step = workflow['image-scans'].steps.find((entry) => entry.name?.startsWith(prefix))!;
+        const python = step.run!.split("<<'PYEOF'\n")[1].split('\nPYEOF')[0];
+        const scan = spawnSync('python3', ['-c', `
+import contextlib, io, json, subprocess, sys
+from unittest.mock import patch
+calls = []
+def run(args, **kwargs):
+    calls.append(args)
+    return subprocess.CompletedProcess(args, int(sys.argv[1]))
+output = io.StringIO()
+with patch('subprocess.run', run), contextlib.redirect_stdout(output):
+    try:
+        exec(compile(sys.stdin.read(), '<workflow>', 'exec'))
+    except SystemExit as error:
+        exit_code = error.code
+print(json.dumps({'calls': calls, 'exit': exit_code, 'output': output.getvalue()}))
+`, String(scannerExit)], {
+          cwd: temp,
+          input: python,
+          encoding: 'utf8',
+          env: { ...process.env, GRYPE_DB: '/tmp/mock-db', MANIFEST_IMAGES: JSON.stringify(images) },
+        });
+        expect(scan.stderr).toBe('');
+        expect(scan.status).toBe(0);
+        const trace = JSON.parse(scan.stdout) as { calls: string[][]; exit: number; output: string };
+        expect(trace.exit).toBe(0);
+        expect(trace.calls).toHaveLength(images.length);
+        const isGrype = prefix.startsWith('Scan published');
+        trace.calls.forEach((args, index) => {
+          expect(args).toContain(isGrype ? grype : grant);
+          expect(args).toContain(isGrype ? `registry:${images[index]}` : images[index]);
+        });
+        expect(trace.output.includes('::warning::')).toBe(scannerExit !== 0);
+      }
+    } finally {
+      fs.rmSync(temp, { recursive: true, force: true });
+    }
+  });
+
+  it.each([
+    ['success', 'success', 0],
+    ['failure', 'success', 1],
+    ['success', 'failure', 1],
+    ['success', 'cancelled', 1],
+    ['cancelled', 'skipped', 1],
+  ])('preserves the required check for compile=%s scans=%s', (compile, scans, status) => {
+    const gate = jobs('supply-chain-scan.yml').scan;
+    expect(gate.name).toBe('Compile + Syft/Grype/Grant');
+    expect(gate.needs).toEqual(['compile', 'image-scans']);
+    expect(gate.if).toBe('always()');
+    expect(gate.steps[0].env).toEqual({
+      COMPILE_RESULT: '${{ needs.compile.result }}',
+      SCANS_RESULT: '${{ needs.image-scans.result }}',
+    });
+    const result = spawnSync('bash', ['-e', '-c', gate.steps[0].run!], {
+      env: { ...process.env, COMPILE_RESULT: compile, SCANS_RESULT: scans },
+    });
+    expect(result.status).toBe(status);
   });
 });
 

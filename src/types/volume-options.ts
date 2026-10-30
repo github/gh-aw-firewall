@@ -64,9 +64,11 @@ export interface VolumeOptions {
    * When not specified, logs are written to ${workDir}/squid-logs during
    * runtime and moved to /tmp/squid-logs-<timestamp> after cleanup.
    *
-   * Note: This only affects Squid proxy logs. Agent logs (e.g., from
-   * Copilot CLI --log-dir) are handled separately and always preserved
-   * to /tmp/awf-agent-logs-<timestamp>.
+   * This does not select an agent log directory. Default ~/.copilot/logs
+   * are backed by workDir/agent-logs and preserved to
+   * /tmp/awf-agent-logs-<timestamp> when non-empty during cleanup.
+   * An explicit Copilot --log-dir writes to its own sandbox path; consumers
+   * must read the runner-visible source of the corresponding mount.
    *
    * @example '/tmp/my-proxy-logs'
    */
