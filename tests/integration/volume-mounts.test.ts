@@ -119,6 +119,10 @@ describe('Volume Mount Functionality', () => {
     const sandboxLogsDir = '/tmp/gh-aw/sandbox/agent/logs';
     const configFile = path.join(testDir, 'arc-dind.json');
     fs.mkdirSync(logsDir, { recursive: true });
+    // Docker cannot create hiding-overlay mountpoints in a read-only parent.
+    for (const relativePath of ['mcp-logs', 'sandbox/firewall/logs', 'sandbox/firewall/audit']) {
+      fs.mkdirSync(path.join(runnerRoot, relativePath), { recursive: true });
+    }
     // The local runner and daemon share source paths; unit tests cover daemon-only prefixes.
     fs.writeFileSync(configFile, JSON.stringify({
       runner: { topology: 'arc-dind' },
