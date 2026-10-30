@@ -22,6 +22,12 @@ production call site for this runtime. `MicrovmWorkspaceImage`
 `credentials.entries`, but it has no production call site today; it is
 exercised only by its own tests.
 
+Mount visibility does not grant engine file scope. A mounted input directory
+still requires host read/traverse permissions and any engine-specific grant,
+such as Copilot's `--add-dir`. See
+[`--mount` does not grant engine file scope](environment.md#--mount-does-not-grant-engine-file-scope)
+for an example and fail-closed input verification guidance.
+
 ## What the policy contains
 
 | Section | Kind | Applies to | Consumed by |
