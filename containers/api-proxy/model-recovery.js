@@ -5,11 +5,12 @@ const { getRuntimeModels } = require('./runtime-model-catalog');
 const { normalizeModel } = require('./routing-catalogue');
 const { getRetiredModelBlockState } = require('./guards/retired-model-guard');
 const { getCurrentGuardChecks } = require('./proxy-guards');
+const { parsePositiveNumber } = require('./guards/guard-utils');
 const { resolveModelIdentity } = require('./model-identity');
 const { compareByVersion } = require('./model-utils');
 const { sanitizeForLog } = require('./logging');
 const { MODEL_FALLBACK } = require('./model-config');
-const { hasAiCreditsBudget, isModelPriceable } = require('./guards/ai-credits-guard');
+const { isModelPriceable } = require('./guards/ai-credits-guard');
 
 const MAX_AUTOMATIC_RECOVERIES = 3;
 
@@ -143,18 +144,21 @@ function getAutomaticRecoveryCandidates({ model, provider, body, url, req, isPer
   const records = recoveryRecords(provider, req);
   const originalRecord = records.find(record => record.id.toLowerCase() === nativeModel(model, provider).toLowerCase());
   const suggestion = getRetiredModelBlockState(model, provider)?.suggestion.toLowerCase();
-  const pricingOptions = Object.hasOwn(req || {}, 'awfCatalogue')
-    ? { catalogue: req.awfCatalogue, runtimeCatalog: req.awfRuntimePricing } : undefined;
-  const checkPricing = hasAiCreditsBudget();
-  const permitted = isPermitted || ((candidate) => getCurrentGuardChecks(candidate, provider, {
+  const pricingOptions = {
     catalogue: req?.awfCatalogue, runtimeCatalog: req?.awfRuntimePricing,
-  }).every(guard => !guard.isBlocked(guard.block)));
+  };
+  const enforceCreditPricing = parsePositiveNumber(process.env.AWF_MAX_AI_CREDITS) !== null;
+  const permitted = (candidate, route) =>
+    (!enforceCreditPricing || isModelPriceable(candidate, route, pricingOptions)) &&
+    (isPermitted
+      ? isPermitted(candidate, route)
+      : getCurrentGuardChecks(candidate, provider, pricingOptions)
+        .every(guard => !guard.isBlocked(guard.block)));
   return records.filter(record =>
     record.id.toLowerCase() !== nativeModel(model, provider).toLowerCase() &&
     !getRetiredModelBlockState(record.id, provider, { inputMode: 'native' }) &&
     isRecoveryCompatible(record, provider, parsed, url, originalRecord) &&
-    permitted(record.id, provider) &&
-    (!checkPricing || isModelPriceable(record.id, provider, pricingOptions)))
+    permitted(record.id, provider))
     .map(record => record.id)
     .sort((left, right) =>
       (left.toLowerCase() === suggestion ? -1 : right.toLowerCase() === suggestion ? 1 : compareByVersion(left, right)));

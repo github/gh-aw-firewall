@@ -30,6 +30,28 @@ describe('model-discovery buildRequest proxyAgent attachment', () => {
     return res;
   }
 
+  it.each([
+    ['http', 11434],
+    ['https', 8443],
+  ])('preserves explicit %s target ports through the proxy', async (scheme, port) => {
+    const { proxyAgent } = require('./http-client');
+    const { httpProbe } = require('./model-discovery');
+    const requestSpy = jest.spyOn(require(scheme), 'request').mockImplementation((_opts, cb) => {
+      setImmediate(() => cb(mockResponse()));
+      return { on: jest.fn(), end: jest.fn(), write: jest.fn() };
+    });
+    try {
+      await httpProbe(`${scheme}://gateway.example.com:${port}/v1/models`, {
+        method: 'GET', headers: {},
+      }, 1000);
+      expect(requestSpy).toHaveBeenCalledWith(expect.objectContaining({
+        hostname: 'gateway.example.com', port: String(port), path: '/v1/models', agent: proxyAgent,
+      }), expect.any(Function));
+    } finally {
+      requestSpy.mockRestore();
+    }
+  });
+
   it('attaches the proxy agent for an https:// target', async () => {
     const { proxyAgent } = require('./http-client');
     const { httpProbe } = require('./model-discovery');

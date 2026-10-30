@@ -104,7 +104,7 @@ describe('docker-manager string/network utilities', () => {
     });
 
     it('should discard the port from an explicit http:// URL while preserving the scheme', () => {
-      expect(normalizeApiTargetScheme('http://my-gateway.example.com:8080')).toBe('http://my-gateway.example.com');
+      expect(normalizeApiTargetScheme('http://my-gateway.example.com:8080')).toBe('http://my-gateway.example.com:8080');
     });
 
     it('should normalize a URL with a path to just the hostname', () => {

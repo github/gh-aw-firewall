@@ -76,6 +76,43 @@ describe('writeConfigs', () => {
   });
 
   describe('network subnet override', () => {
+    it('passes effective API proxy upstreams to both Squid and the policy manifest', async () => {
+      await writeConfigs(buildWriteConfig(tempDir, {
+        enableApiProxy: true,
+        openaiApiTarget: 'http://gateway.example:11434',
+        anthropicApiTarget: 'https://secure.example:8443',
+      }));
+      const { generateSquidConfig, generatePolicyManifest } = jest.requireMock('./squid-config');
+      const expected = expect.objectContaining({
+        apiProxyUpstreams: [
+          { hostname: 'gateway.example', port: 11434 },
+          { hostname: 'secure.example', port: 8443 },
+        ],
+      });
+      expect(generateSquidConfig).toHaveBeenCalledWith(expected);
+      expect(generatePolicyManifest).toHaveBeenCalledWith(expected);
+    });
+
+    it('does not add upstream exceptions when API proxy is disabled', async () => {
+      await writeConfigs(buildWriteConfig(tempDir, { openaiApiTarget: 'gateway.example:11434' }));
+      const { generateSquidConfig, generatePolicyManifest } = jest.requireMock('./squid-config');
+      expect(generateSquidConfig.mock.calls[0][0].apiProxyUpstreams).toBeUndefined();
+      expect(generatePolicyManifest.mock.calls[0][0].apiProxyUpstreams).toBeUndefined();
+    });
+
+    it('redacts secret-derived upstream hosts from the policy audit artifact', async () => {
+      const { generatePolicyManifest } = jest.requireMock('./squid-config');
+      generatePolicyManifest.mockReturnValueOnce({ upstream: 'private.example', port: 8443 });
+      await writeConfigs(buildWriteConfig(tempDir, {
+        enableApiProxy: true,
+        openaiApiTarget: 'private.example:8443',
+        sensitiveAllowedDomains: ['https://private.example'],
+      }));
+      const manifest = fs.readFileSync(path.join(tempDir, 'audit', 'policy-manifest.json'), 'utf8');
+      expect(manifest).not.toContain('private.example');
+      expect(manifest).toContain('[REDACTED]');
+    });
+
     it('relocates the awf-net subnet and sidecar IPs passed to compose generation', async () => {
       await writeConfigs(buildWriteConfig(tempDir, { networkSubnet: '10.88.0.0/24' }));
 

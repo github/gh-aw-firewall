@@ -160,6 +160,9 @@ export interface SquidConfig {
    */
   apiProxyPorts?: number[];
 
+  /** Exact custom-port upstreams reachable only from the trusted API proxy. */
+  apiProxyUpstreams?: Array<{ hostname: string; port: number }>;
+
   /**
    * IP address of the credential-isolated CLI proxy sidecar.
    *

@@ -21,8 +21,8 @@ export interface ResolvedOpenAiBaseUrl {
   envVarName: string;
   /** Normalized base URL (scheme + host + optional base path, no trailing slash). */
   url: string;
-  /** URL scheme (`https`). */
-  scheme: 'https';
+  /** URL scheme. */
+  scheme: 'http' | 'https';
   /** Hostname without port. */
   host: string;
   /** Hostname with the effective port (explicit or scheme default). */
@@ -90,10 +90,10 @@ export function resolveOpenAiBaseUrlFromEnv(
     );
   }
 
-  if (parsed.protocol !== 'https:') {
+  if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') {
     throw new Error(
       `Environment variable "${name}" uses an unsupported URL scheme. ` +
-      'Only https:// endpoints are supported.'
+      'Only http:// and https:// endpoints are supported.'
     );
   }
 
@@ -117,25 +117,17 @@ export function resolveOpenAiBaseUrlFromEnv(
     );
   }
 
-  const scheme = 'https';
-  const defaultPort = '443';
-  if (parsed.port && parsed.port !== defaultPort) {
-    // The api-proxy sidecar always connects to the target host on the scheme's
-    // default port, so a custom port would be silently dropped and misrouted.
-    throw new Error(
-      `Environment variable "${name}" specifies a non-default port, which the OpenAI API proxy ` +
-      'target does not support. Expose the endpoint on the default port for its scheme.'
-    );
-  }
+  const scheme = parsed.protocol === 'http:' ? 'http' : 'https';
+  const defaultPort = scheme === 'http' ? '80' : '443';
 
   const basePath = normalizeBasePath(parsed.pathname);
 
   return {
     envVarName: name,
-    url: `${scheme}://${host}${basePath}`,
+    url: `${scheme}://${parsed.host}${basePath}`,
     scheme,
     host,
-    hostPort: `${host}:${defaultPort}`,
+    hostPort: `${host}:${parsed.port || defaultPort}`,
     basePath,
   };
 }

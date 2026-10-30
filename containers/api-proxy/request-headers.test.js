@@ -12,6 +12,18 @@ describe('request-headers', () => {
     delete process.env.COPILOT_INTEGRATION_ID;
   });
 
+  test.each([
+    ['api.githubcopilot.com:8443', true],
+    ['copilot-api.tenant.ghe.com:8443', true],
+    ['gateway.example.com:8443', false],
+  ])('retains Copilot integration-header scoping with port on %s', (targetHost, expected) => {
+    const headers = buildRequestHeaders(Buffer.from('{}'), 2, { headers: {} }, {
+      injectHeaders: { 'Copilot-Integration-Id': 'test-integration' },
+      provider: 'copilot', targetHost, requestId: 'port-test',
+    });
+    expect(headers['Copilot-Integration-Id'] === 'test-integration').toBe(expected);
+  });
+
   test('isValidRequestId enforces expected constraints', () => {
     expect(isValidRequestId('req-123.ABC')).toBe(true);
     expect(isValidRequestId('')).toBe(false);
