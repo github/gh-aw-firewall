@@ -11,7 +11,7 @@ permissions:
   copilot-requests: write
 tracker-id: test-hard-cap-ai-credits
 name: Test Hard Cap AI Credits
-model: claude-opus-4.8
+model: auto
 engine:
   id: copilot
 max-turns: 200

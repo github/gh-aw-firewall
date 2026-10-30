@@ -170,7 +170,7 @@ tools:
   github: false
   bash: true
 
-model: gpt-5.4-mini
+model: auto
 engine:
   id: copilot
   version: "1.0.98"

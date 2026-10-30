@@ -18,7 +18,7 @@ tools:
   github: false
 enclaves:
   - agent:
-      model: claude-sonnet-5
+      model: auto
       github:
         cli: issues-read-v1
     repos:

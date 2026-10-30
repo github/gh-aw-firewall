@@ -16,7 +16,7 @@ describe('export audit workflow optimization config', () => {
 
     // Rec 2: max-turns reduced
     expect(source).toContain('max-turns: 6');
-    expect(source).toContain('model: claude-sonnet-5');
+    expect(source).toContain('model: auto');
     expect(source).toContain('HARD LIMIT: You have at most 6 turns total.');
     expect(source).not.toContain('max-turns: 12');
 
@@ -70,8 +70,8 @@ describe('export audit workflow optimization config', () => {
 
     // Rec 2: reduced max-turns
     expect(lock).toContain('GH_AW_MAX_TURNS: 6');
-    expect(lock).toContain('GH_AW_INFO_MODEL: "claude-sonnet-5"');
-    expect(lock).toContain('COPILOT_MODEL: claude-sonnet-5');
+    expect(lock).toContain('"agent_model":"auto"');
+    expect(lock).toContain('COPILOT_MODEL: auto');
     expect(lock).not.toContain('--max-turns 12');
 
     // Rec 5: consolidated step

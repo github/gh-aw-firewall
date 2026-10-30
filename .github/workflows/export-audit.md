@@ -16,7 +16,7 @@ permissions:
   issues: read
 
 max-turns: 6
-model: claude-sonnet-5
+model: auto
 engine:
   id: copilot
 sandbox:
