@@ -140,6 +140,16 @@ describe('validateApiTargetInAllowedDomains (via emitApiProxyTargetWarnings)', (
     expect(warnings.filter(w => w.includes('openai-api-target'))).toEqual([]);
   });
 
+  it('should match an HTTP custom-port target against its allowlisted hostname', () => {
+    const warnings: string[] = [];
+    emitApiProxyTargetWarnings(
+      { enableApiProxy: true, openaiApiTarget: 'http://host.docker.internal:11434' },
+      ['host.docker.internal'],
+      (msg) => warnings.push(msg)
+    );
+    expect(warnings.filter(w => w.includes('openai-api-target'))).toEqual([]);
+  });
+
   it('should not warn when custom host is covered by https:// parent domain entry', () => {
     const warnings: string[] = [];
     emitApiProxyTargetWarnings(

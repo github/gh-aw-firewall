@@ -2,7 +2,7 @@
 
 const { randomUUID } = require('crypto');
 const { logRequest } = require('./logging');
-const { shouldStripHeader, sanitizeAcceptEncoding } = require('./proxy-utils');
+const { shouldStripHeader, sanitizeAcceptEncoding, getTargetHostname } = require('./proxy-utils');
 const { maybeStripLearnedHeaderValues } = require('./deprecated-header-tracker');
 const { recordCopilotInjectedHeaders } = require('./copilot-auth-diagnostics');
 
@@ -82,11 +82,13 @@ function ensureHeader(headers, name, value) {
 }
 
 function isCopilotHost(targetHost) {
+  targetHost = getTargetHostname(targetHost);
   return targetHost === 'githubcopilot.com' ||
     (typeof targetHost === 'string' && targetHost.endsWith('.githubcopilot.com'));
 }
 
 function isCopilotIntegrationHost(targetHost) {
+  targetHost = getTargetHostname(targetHost);
   return isCopilotHost(targetHost)
     || (typeof targetHost === 'string' && /^copilot-api\.[^.]+\.ghe\.com$/.test(targetHost));
 }

@@ -33,7 +33,22 @@ export function deriveSensitiveEndpointForms(sensitiveAllowedDomains?: string[])
     if (!host) continue;
     forms.add(value);
     forms.add(host);
-    forms.add(`${host}:${/^http:\/\//i.test(value) ? '80' : '443'}`);
+    try {
+      const parsed = new URL(value);
+      const hostname = parsed.hostname;
+      const canonicalHostname = hostname.replace(/\.$/, '');
+      const port = parsed.port ? `:${parsed.port}` : '';
+      forms.add(hostname);
+      forms.add(canonicalHostname);
+      forms.add(hostname + port);
+      forms.add(canonicalHostname + port);
+      if (!parsed.port) {
+        forms.add(`${hostname}:${parsed.protocol === 'http:' ? '80' : '443'}`);
+        forms.add(`${canonicalHostname}:${parsed.protocol === 'http:' ? '80' : '443'}`);
+      }
+    } catch {
+      forms.add(`${host}:${/^http:\/\//i.test(value) ? '80' : '443'}`);
+    }
   }
   return [...forms].sort((a, b) => b.length - a.length);
 }

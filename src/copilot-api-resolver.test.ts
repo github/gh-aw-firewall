@@ -25,7 +25,7 @@ describe('deriveCopilotApiTargetFromProviderBaseUrl', () => {
   });
 
   it('should extract hostname from URL with port', () => {
-    expect(deriveCopilotApiTargetFromProviderBaseUrl('https://localhost:8080')).toBe('localhost');
+    expect(deriveCopilotApiTargetFromProviderBaseUrl('https://localhost:8080')).toBe('localhost:8080');
   });
 
   it('should handle URL without scheme by adding https://', () => {
@@ -33,7 +33,7 @@ describe('deriveCopilotApiTargetFromProviderBaseUrl', () => {
   });
 
   it('should handle URL with http scheme', () => {
-    expect(deriveCopilotApiTargetFromProviderBaseUrl('http://api.example.com')).toBe('api.example.com');
+    expect(deriveCopilotApiTargetFromProviderBaseUrl('http://api.example.com')).toBe('http://api.example.com');
   });
 
   it('should return undefined for empty string', () => {
@@ -57,11 +57,11 @@ describe('deriveCopilotApiTargetFromProviderBaseUrl', () => {
   });
 
   it('should handle IPv4 addresses', () => {
-    expect(deriveCopilotApiTargetFromProviderBaseUrl('https://192.168.1.1:8080')).toBe('192.168.1.1');
+    expect(deriveCopilotApiTargetFromProviderBaseUrl('https://192.168.1.1:8080')).toBe('192.168.1.1:8080');
   });
 
   it('should handle IPv6 addresses', () => {
-    expect(deriveCopilotApiTargetFromProviderBaseUrl('https://[::1]:8080')).toBe('[::1]');
+    expect(deriveCopilotApiTargetFromProviderBaseUrl('https://[::1]:8080')).toBe('[::1]:8080');
   });
 });
 
