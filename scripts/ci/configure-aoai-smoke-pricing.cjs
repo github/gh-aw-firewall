@@ -6,16 +6,9 @@ const path = require('node:path');
 const configPaths = process.argv.slice(2);
 if (configPaths.length !== 2) throw new Error('Usage: configure-aoai-smoke-pricing.cjs <runner-config> <sandbox-config>');
 const source = fs.readFileSync(path.resolve(__dirname, '../../containers/api-proxy/models.dev.catalog.json'), 'utf8');
-const model = JSON.parse(source).data.find(entry => entry.id === 'openai/o4-mini');
-if (!model) throw new Error('Pinned pricing catalog is missing canonical openai/o4-mini');
-function rate(category) {
-  const value = model.pricing[category];
-  const number = typeof value === 'string' && value.trim() ? Number(value) * 1e6 : NaN;
-  if (!Number.isFinite(number) || number < 0) throw new Error(`Invalid pinned o4-mini ${category} pricing`);
-  return number;
-}
-// The repository operator confirmed this exact Azure deployment-to-model map.
-// Keep it scoped to these smoke configurations, never global model inference.
+// The repository operator confirmed these standard Azure deployment rates and model mapping.
+// Keep them scoped to these smoke configurations; imported batch pricing is discounted.
+const pricing = { input: 1.1, cachedInput: 0.275, output: 4.4 };
 const catalog = {
   schemaVersion: 1,
   unit: 'USD_PER_1M_TOKENS',
@@ -25,11 +18,11 @@ const catalog = {
     copilot: {
       models: {
         'o4-mini-aw': {
-          input: rate('prompt'),
-          cachedInput: rate('input_cache_read'),
+          input: pricing.input,
+          cachedInput: pricing.cachedInput,
           cacheWrite: null,
-          output: rate('completion'),
-          reasoning: rate('completion'),
+          output: pricing.output,
+          reasoning: pricing.output,
         },
       },
     },
