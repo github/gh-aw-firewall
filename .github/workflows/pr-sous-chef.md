@@ -22,7 +22,7 @@ concurrency:
 strict: true
 engine:
   id: copilot
-model: claude-haiku-4.5
+model: auto
 timeout-minutes: 10
 max-turns: 8
 network:

@@ -11,7 +11,7 @@ permissions:
   pull-requests: read
 max-ai-credits: 500
 max-turns: 4
-model: claude-haiku-4.5
+model: auto
 engine:
   id: copilot
 sandbox:

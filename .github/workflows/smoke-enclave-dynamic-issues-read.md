@@ -19,7 +19,7 @@ tools:
   github: false
 enclaves:
   - agent:
-      model: claude-sonnet-5
+      model: auto
       max-task-bytes: 8192
       max-model-requests: 10
       max-model-tokens: 32768

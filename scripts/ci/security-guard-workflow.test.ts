@@ -7,10 +7,10 @@ const securityGuardSourcePath = path.join(workflowsDir, 'security-guard.md');
 const securityGuardLockPath = path.join(workflowsDir, 'security-guard.lock.yml');
 
 describe('security guard workflow optimization config', () => {
-  it('pins model/turn limits and keeps key security checks in prompt', () => {
+  it('uses automatic model selection, preserves turn limits and keeps key security checks in prompt', () => {
     const source = fs.readFileSync(securityGuardSourcePath, 'utf-8');
 
-    expect(source).toContain('model: claude-haiku-4-5');
+    expect(source).toContain('model: auto');
     expect(source).toContain('max-turns: 10');
     expect(source).toContain('## ⚡ Fast Path');
     expect(source).toContain('safeoutputs noop');
@@ -35,8 +35,8 @@ describe('security guard workflow optimization config', () => {
   it('compiles the model/turn settings into lock workflow', () => {
     const lock = fs.readFileSync(securityGuardLockPath, 'utf-8');
 
-    expect(lock).toContain('"agent_model":"claude-haiku-4-5"');
-    expect(lock).toContain('COPILOT_MODEL: claude-haiku-4-5');
+    expect(lock).toContain('"agent_model":"auto"');
+    expect(lock).toContain('COPILOT_MODEL: auto');
     expect(lock).toContain('COPILOT_DUMMY_BYOK: dummy-byok-key-for-offline-mode');
     expect(lock).not.toContain(`COPILOT_DUMMY_BYOK: ${COPILOT_PLACEHOLDER_TOKEN}`);
     expect(lock).toContain('GH_AW_MAX_TURNS: 10');

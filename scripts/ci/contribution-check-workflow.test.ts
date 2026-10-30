@@ -32,10 +32,10 @@ describe('contribution-check workflow', () => {
     expect(source).toContain('Review PR #${{ github.event.pull_request.number || github.event.inputs.item_number }}');
   });
 
-  it('has conservative turn limit and appropriate model', () => {
+  it('has a conservative turn limit and automatic model selection', () => {
     const source = fs.readFileSync(sourcePath, 'utf-8');
 
     expect(source).toContain('max-turns: 4');
-    expect(source).toContain('model: gpt-5.4-mini');
+    expect(source).toContain('model: auto');
   });
 });
