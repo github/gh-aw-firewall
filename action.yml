@@ -56,7 +56,7 @@ runs:
 
         # gh itself and this action must already come from a trusted channel.
         if ! command -v gh &> /dev/null || \
-            ! gh attestation verify --help 2>/dev/null | grep -q -- '--signer-workflow'; then
+            ! gh attestation verify --help 2>/dev/null | grep -- '--signer-workflow' >/dev/null; then
           echo "::error::A trusted gh CLI with attestation verify support is required. Install it through an independently authenticated channel."
           exit 1
         fi

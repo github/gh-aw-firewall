@@ -48,8 +48,17 @@ function fixture(options: { bundle?: boolean; identityTag?: string; containers?:
     gh: `#!/bin/bash
 if [ "$3" = "--help" ]; then
   [ "\${GH_NO_SUPPORT:-}" != "1" ] || exit 1
-  echo "--signer-workflow --deny-self-hosted-runners"
-  exit 0
+  if [ "\${GH_MISSING_FLAG:-}" != "1" ]; then
+    echo "--signer-workflow --deny-self-hosted-runners"
+  fi
+  if [ "\${GH_LARGE_HELP:-}" = "1" ]; then
+    # Exceed the pipe buffer so an early-exiting reader reliably breaks the writer.
+    set -e
+    for ((i = 0; i < 16384; i++)); do
+      printf '%s\\n' 'Additional attestation verify help text'
+    done
+  fi
+  exit "\${GH_HELP_STATUS:-0}"
 fi
 printf '%s\\n' "$*" >> "$CASE_DIR/gh.log"
 [ "$1 $2" = "attestation verify" ] || exit 51
@@ -171,6 +180,25 @@ describe('release bootstrap authentication', () => {
     const f = fixture({ bundle: true });
     expect(f.run('installer').status).toBe(0);
     expect(f.log('gh.log')).toContain('awf-bundle.js');
+  });
+
+  it('accepts supported gh help larger than the pipe buffer under pipefail', () => {
+    const f = fixture();
+    const result = f.run('action', { GH_LARGE_HELP: '1' });
+    expect(result.stderr + result.stdout).not.toContain('::error::');
+    expect(result.status).toBe(0);
+    expect(f.log('gh.log')).toContain('awf-linux-x64');
+  });
+
+  it.each<Record<string, string>>([
+    { GH_MISSING_FLAG: '1' },
+    { GH_HELP_STATUS: '1' },
+  ])('rejects unsupported or failed gh help before downloading: %j', overrides => {
+    const f = fixture();
+    const result = f.run('action', overrides);
+    expect(result.status).not.toBe(0);
+    expect(result.stderr + result.stdout).toMatch(/trusted gh CLI/);
+    expect(f.log('curl.log')).toBe('');
   });
 
   it('rejects an unattested lightweight bundle', () => {
