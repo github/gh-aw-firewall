@@ -22,6 +22,18 @@ describe('deriveSensitiveEndpointForms', () => {
     );
   });
 
+  it('redacts the canonical hostname for trailing-dot custom-port endpoints', () => {
+    const forms = deriveSensitiveEndpointForms(['https://private.example.:8443/v1']);
+    expect(forms).toEqual(expect.arrayContaining([
+      'private.example.:8443',
+      'private.example:8443',
+    ]));
+    expect(redactSensitiveValues(
+      'acl api_upstream_host dstdomain -n private.example',
+      forms
+    )).not.toContain('private.example');
+  });
+
   it('orders longest forms first so the most specific match is redacted', () => {
     const forms = deriveSensitiveEndpointForms(['https://lb.internal']);
     const lengths = forms.map((form) => form.length);

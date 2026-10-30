@@ -70,10 +70,13 @@ describe('resolveOpenAiBaseUrlFromEnv', () => {
     );
   });
 
-  it('rejects http because the sidecar only supports HTTPS upstreams', () => {
-    expect(() => resolveOpenAiBaseUrlFromEnv(VAR, { [VAR]: 'http://lb.internal' })).toThrow(
-      /Only https:\/\/ endpoints are supported/
-    );
+  it('preserves cleartext endpoints and the default HTTP port', () => {
+    expect(resolveOpenAiBaseUrlFromEnv(VAR, { [VAR]: 'http://lb.internal/v1' })).toMatchObject({
+      url: 'http://lb.internal/v1',
+      scheme: 'http',
+      hostPort: 'lb.internal:80',
+      basePath: '/v1',
+    });
   });
 
   const credentialUrl = ['https://svc-user', ':', 's3cr3t-pw', '@lb.internal/v1'].join('');
@@ -103,10 +106,14 @@ describe('resolveOpenAiBaseUrlFromEnv', () => {
     );
   });
 
-  it('rejects non-default ports because the sidecar cannot route them', () => {
-    expect(() => resolveOpenAiBaseUrlFromEnv(VAR, { [VAR]: 'https://lb.internal:8443/v1' })).toThrow(
-      /non-default port/
-    );
+  it.each(['https://lb.internal:8443', 'http://lb.internal:11434'])('preserves custom ports for %s', origin => {
+    const parsed = new URL(origin);
+    expect(resolveOpenAiBaseUrlFromEnv(VAR, { [VAR]: `${origin}/v1/` })).toMatchObject({
+      url: `${origin}/v1`,
+      host: 'lb.internal',
+      hostPort: parsed.host,
+      basePath: '/v1',
+    });
   });
 
   it('reads from process.env by default', () => {

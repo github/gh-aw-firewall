@@ -26,6 +26,7 @@ import {
   resolveSensitivePaths,
 } from './sensitive-paths';
 import { writeSensitivePathAudit } from './sensitive-path-audit';
+import { resolveApiProxyUpstreams } from './services/api-proxy-env-config';
 
 // When bundled with esbuild, this global is replaced at build time with the
 // JSON content of containers/agent/seccomp-profile.json.  In normal (tsc)
@@ -480,6 +481,7 @@ function writeAuditArtifacts(
     dnsServers: squidDnsServers ?? config.dnsServers,
     ...(config.enableApiProxy && networkConfig.proxyIp ? {
       apiProxyIp: networkConfig.proxyIp,
+      apiProxyUpstreams: resolveApiProxyUpstreams(config),
     } : {}),
     // Include topology peer allow rules so the audit log correctly attributes
     // allowed connections to topology-attached containers (e.g. awmg-mcpg:8080)
@@ -493,7 +495,7 @@ function writeAuditArtifacts(
   writeAuditArtifact(
     auditDir,
     'policy-manifest.json',
-    JSON.stringify(policyManifest, null, 2)
+    redactSensitiveValues(JSON.stringify(policyManifest, null, 2), sensitiveEndpointForms)
   );
 
   if (config.nvx) {
@@ -619,6 +621,7 @@ export async function writeConfigs(config: WrapperConfig): Promise<void> {
     // to the api-proxy via HTTP_PROXY without honouring NO_PROXY for raw IPs.
     ...(config.enableApiProxy && networkConfig.proxyIp ? {
       apiProxyIp: networkConfig.proxyIp,
+      apiProxyUpstreams: resolveApiProxyUpstreams(config),
       apiProxyPorts: Object.values(API_PROXY_PORTS),
     } : {}),
     ...(config.difcProxyHost && networkConfig.cliProxyIp ? {

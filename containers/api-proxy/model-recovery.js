@@ -5,6 +5,8 @@ const { getRuntimeModels } = require('./runtime-model-catalog');
 const { normalizeModel } = require('./routing-catalogue');
 const { getRetiredModelBlockState } = require('./guards/retired-model-guard');
 const { getCurrentGuardChecks } = require('./proxy-guards');
+const { isModelPriceable } = require('./guards/ai-credits-guard');
+const { parsePositiveNumber } = require('./guards/guard-utils');
 const { resolveModelIdentity } = require('./model-identity');
 const { compareByVersion } = require('./model-utils');
 const { sanitizeForLog } = require('./logging');
@@ -142,9 +144,16 @@ function getAutomaticRecoveryCandidates({ model, provider, body, url, req, isPer
   const records = recoveryRecords(provider, req);
   const originalRecord = records.find(record => record.id.toLowerCase() === nativeModel(model, provider).toLowerCase());
   const suggestion = getRetiredModelBlockState(model, provider)?.suggestion.toLowerCase();
-  const permitted = isPermitted || ((candidate) => getCurrentGuardChecks(candidate, provider, {
+  const pricingOptions = {
     catalogue: req?.awfCatalogue, runtimeCatalog: req?.awfRuntimePricing,
-  }).every(guard => !guard.isBlocked(guard.block)));
+  };
+  const enforceCreditPricing = parsePositiveNumber(process.env.AWF_MAX_AI_CREDITS) !== null;
+  const permitted = (candidate, route) =>
+    (!enforceCreditPricing || isModelPriceable(candidate, route, pricingOptions)) &&
+    (isPermitted
+      ? isPermitted(candidate, route)
+      : getCurrentGuardChecks(candidate, provider, pricingOptions)
+        .every(guard => !guard.isBlocked(guard.block)));
   return records.filter(record =>
     record.id.toLowerCase() !== nativeModel(model, provider).toLowerCase() &&
     !getRetiredModelBlockState(record.id, provider, { inputMode: 'native' }) &&

@@ -18,13 +18,17 @@ function parseProviderBaseUrl(providerBaseUrl: string | undefined): URL | undefi
 }
 
 /**
- * Derive a Copilot API target hostname from COPILOT_PROVIDER_BASE_URL.
+ * Derive a Copilot API target authority from COPILOT_PROVIDER_BASE_URL.
  * Returns undefined when the value is empty or not a valid URL/host.
  */
 export function deriveCopilotApiTargetFromProviderBaseUrl(
   providerBaseUrl: string | undefined
 ): string | undefined {
-  return parseProviderBaseUrl(providerBaseUrl)?.hostname || undefined;
+  const parsed = parseProviderBaseUrl(providerBaseUrl);
+  if (!parsed?.hostname) return undefined;
+  if (parsed.protocol === 'http:') return `http://${parsed.host}`;
+  if (parsed.protocol === 'https:') return parsed.host;
+  return undefined;
 }
 
 /**

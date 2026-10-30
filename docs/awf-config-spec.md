@@ -820,10 +820,14 @@ A conforming implementation:
 
 1. MUST read the named variable only in runner-side configuration code, before
    any container starts.
-2. MUST require an absolute `https://` URL and MUST reject embedded credentials
+2. MUST require an absolute `http://` or `https://` URL and MUST reject embedded credentials
    (`user:pass@`), query strings, fragments, malformed hosts, unsupported
-   schemes, and non-default ports (the sidecar connects on port 443).
+   schemes, and dangerous service ports. HTTPS is recommended for remote endpoints.
 3. MUST derive the host, `host:port`, and optional base path from the URL.
+   Explicit ports MUST be preserved for discovery, validation, and inference.
+   Non-default ports MUST be authorized only for the trusted API-proxy source
+   and the exact configured DNS hostname/port, without widening agent access,
+   bypassing Squid, or overriding destination blocks.
 4. MUST add the derived destination to the effective Squid policy without
    persisting it in repository configuration, and MUST keep it out of
    `allowedDomains` (it is carried in the sensitive allowlist instead).

@@ -10,6 +10,11 @@
 import { describe, test, expect, beforeAll, afterAll } from '@jest/globals';
 import { createRunner, AwfRunner } from '../fixtures/awf-runner';
 import { cleanup } from '../fixtures/cleanup';
+import * as http from 'http';
+import * as fs from 'fs';
+import * as os from 'os';
+import * as path from 'path';
+import execa = require('execa');
 
 // The API proxy sidecar is at this fixed IP on the awf-net network
 const API_PROXY_IP = '172.30.0.30';
@@ -25,6 +30,83 @@ describe('API Proxy Sidecar', () => {
   afterAll(async () => {
     await cleanup(false);
   });
+
+  test('routes BYOK models and chat to HTTP :11434 without opening that port to the agent', async () => {
+    const requests: string[] = [];
+    const upstream = http.createServer((req, res) => {
+      requests.push(`${req.method} ${req.url}`);
+      res.setHeader('Content-Type', 'application/json');
+      if (req.url === '/v1/models') {
+        res.end(JSON.stringify({ object: 'list', data: [{ id: 'awf-port-test', object: 'model' }] }));
+      } else if (req.url === '/v1/chat/completions') {
+        req.resume();
+        req.on('end', () => res.end(JSON.stringify({
+          id: 'awf-port-test',
+          object: 'chat.completion',
+          choices: [{ index: 0, message: { role: 'assistant', content: 'custom-port-ok' }, finish_reason: 'stop' }],
+        })));
+      } else {
+        res.writeHead(404).end();
+      }
+    });
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-byok-port-'));
+    try {
+      await new Promise<void>((resolve, reject) => {
+        upstream.once('error', reject);
+        upstream.listen(11434, '0.0.0.0', resolve);
+      });
+      const configFile = path.join(tempDir, 'config.json');
+      fs.writeFileSync(configFile, JSON.stringify({
+        network: { allowDomains: ['host.docker.internal'], isolation: true },
+        security: { enableHostAccess: true },
+        apiProxy: { enabled: true },
+      }));
+      const result = await runner.run(
+        `set -eu; curl -fsS http://${API_PROXY_IP}:10002/v1/models; ` +
+        `curl -fsS http://${API_PROXY_IP}:10002/chat/completions -H 'Content-Type: application/json' ` +
+        `-d '{"model":"awf-port-test","messages":[{"role":"user","content":"hi"}]}'; ` +
+        `test "$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 --noproxy '' --proxy http://172.30.0.10:3128 ` +
+        `http://host.docker.internal:11434/v1/models || true)" = 403`,
+        {
+          configFile,
+          buildLocal: true,
+          keepContainers: true,
+          logLevel: 'debug',
+          timeout: 300000,
+          env: {
+            COPILOT_PROVIDER_API_KEY: 'awf-test-placeholder',
+            COPILOT_PROVIDER_BASE_URL: 'http://host.docker.internal:11434/v1',
+          },
+        }
+      );
+      expect(result).toSucceed();
+      expect(result.stdout).toContain('awf-port-test');
+      expect(result.stdout).toContain('custom-port-ok');
+      expect(requests).toContain('GET /v1/models');
+      expect(requests).toContain('POST /v1/chat/completions');
+      for (const authority of [
+        'host.docker.internal:11435',
+        'unconfigured.invalid:11434',
+        '127.0.0.1:11434',
+      ]) {
+        const probe = await execa('docker', [
+          'exec', 'awf-api-proxy', 'node', '-e',
+          `const req = require('http').request({
+            hostname: '172.30.0.10', port: 3128, method: 'GET',
+            path: ${JSON.stringify(`http://${authority}/v1/models`)}
+          }, res => { console.log(res.statusCode); res.resume(); });
+          req.on('error', () => process.exit(1));
+          req.setTimeout(10000, () => { req.destroy(); process.exit(1); });
+          req.end();`,
+        ]);
+        expect(probe.stdout.trim()).toBe('403');
+      }
+    } finally {
+      await new Promise<void>(resolve => upstream.close(() => resolve()));
+      await cleanup(false);
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    }
+  }, 360000);
 
   test('should start api-proxy sidecar with Anthropic key and pass healthcheck', async () => {
     // This is the first test to run and may trigger a cold Docker build for the

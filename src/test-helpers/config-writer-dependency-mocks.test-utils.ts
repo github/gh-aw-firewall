@@ -10,7 +10,10 @@ jest.mock('../ssl-bump', () => require('./config-writer-test-harness.test-utils'
 jest.mock('../domain-matchers', () => require('./config-writer-test-harness.test-utils').domainMatchersMockFactory());
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
-jest.mock('../host-env', () => require('./fs-mock-factory.test-utils').hostEnvMockFactory({ SQUID_PORT: 3128 }));
+jest.mock('../host-env', () => require('./fs-mock-factory.test-utils').hostEnvMockFactory({
+  SQUID_PORT: 3128,
+  normalizeApiTargetScheme: jest.requireActual('../host-env').normalizeApiTargetScheme,
+}));
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 jest.mock('../host-identity', () => require('./fs-mock-factory.test-utils').hostIdentityMockFactory());
