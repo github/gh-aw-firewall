@@ -6,6 +6,7 @@ import {
   testHelpers,
 } from './sbx-manager';
 import * as fs from 'fs';
+import * as path from 'path';
 import { spawnSync } from 'child_process';
 import { mockExecaFn } from './test-helpers/mock-execa.test-utils';
 import { logger } from './logger';
@@ -28,7 +29,8 @@ jest.mock('fs', () => {
     existsSync: jest.fn(() => false),
     readdirSync: jest.fn(() => []),
     renameSync: jest.fn(() => undefined),
-    mkdirSync: jest.fn(() => undefined),
+    mkdtempSync: jest.fn(() => '/home/runner/.awf-sbx-cred-backup-test'),
+    chmodSync: jest.fn(() => undefined),
     rmSync: jest.fn(() => undefined),
     lstatSync: jest.fn(() => ({
       isDirectory: () => true,
@@ -44,7 +46,8 @@ jest.mock('fs', () => {
 const mockedExistsSync = fs.existsSync as jest.Mock;
 const mockedReaddirSync = fs.readdirSync as jest.Mock;
 const mockedRenameSync = fs.renameSync as jest.Mock;
-const mockedMkdirSync = fs.mkdirSync as jest.Mock;
+const mockedMkdtempSync = fs.mkdtempSync as jest.Mock;
+const mockedChmodSync = fs.chmodSync as jest.Mock;
 const mockedRmSync = fs.rmSync as jest.Mock;
 const mockedLstatSync = fs.lstatSync as jest.Mock;
 const mockedStatSync = fs.statSync as jest.Mock;
@@ -256,9 +259,20 @@ describe('sbx-manager', () => {
       mockedReaddirSync.mockReturnValue([]);
       mockedRenameSync.mockReset();
       mockedRenameSync.mockReturnValue(undefined);
+      mockedMkdtempSync.mockReset();
+      mockedMkdtempSync.mockReturnValue(
+        `${process.env.HOME || '/home/runner'}/.awf-sbx-cred-backup-test`,
+      );
+      mockedChmodSync.mockReset();
+      mockedChmodSync.mockReturnValue(undefined);
       mockedLstatSync.mockReset();
       mockedLstatSync.mockImplementation((p: fs.PathLike) => {
-        if (!mockedExistsSync(p)) {
+        const pathname = String(p);
+        const movedToBackup = mockedRenameSync.mock.calls.some(([from, to]) =>
+          String(from) === pathname && String(to).includes('.awf-sbx-cred-backup'));
+        const restoredFromBackup = mockedRenameSync.mock.calls.some(([from, to]) =>
+          String(from).includes('.awf-sbx-cred-backup') && String(to) === pathname);
+        if (!mockedExistsSync(p) || (movedToBackup && !restoredFromBackup)) {
           throw Object.assign(new Error(`ENOENT: no such file or directory, lstat '${String(p)}'`), {
             code: 'ENOENT',
           });
@@ -274,10 +288,36 @@ describe('sbx-manager', () => {
       });
       mockedRealpathSync.mockReset();
       mockedRealpathSync.mockImplementation((p: fs.PathLike) => String(p));
+      mockedRmSync.mockReset();
+      mockedRmSync.mockReturnValue(undefined);
       // Ensure no scrubbed state leaks between tests.
       restoreHomeCredentials();
+      mockedRmSync.mockClear();
       mockedRenameSync.mockReset();
       mockedRenameSync.mockReturnValue(undefined);
+    });
+
+    it('rejects concurrent creates before a second call can replace credential state', async () => {
+      let releaseAuthCheck!: (result: { exitCode: number; stdout: string; stderr: string }) => void;
+      mockExecaFn.mockReturnValueOnce(new Promise((resolve) => {
+        releaseAuthCheck = resolve;
+      }));
+      mockExecaFn.mockResolvedValueOnce({
+        exitCode: 0, stdout: 'Created sandbox', stderr: '',
+      });
+
+      const firstCreate = createSandbox({
+        workspaceDir: '/workspace', squidIp: '172.30.0.10',
+      });
+      await Promise.resolve();
+
+      await expect(createSandbox({
+        workspaceDir: '/workspace', squidIp: '172.30.0.10',
+      })).rejects.toThrow('sandbox creation is in progress');
+      expect(mockExecaFn).toHaveBeenCalledTimes(1);
+
+      releaseAuthCheck({ exitCode: 0, stdout: '', stderr: '' });
+      await expect(firstCreate).resolves.toBe(SBX_DEFAULT_NAME);
     });
 
     it('uses shell agent, configured mounts, and sanitized env', async () => {
@@ -467,7 +507,7 @@ describe('sbx-manager', () => {
       mockedExistsSync.mockImplementation(
         (p: fs.PathLike) => String(p) === `${homePath}/.claude` || String(p) === secret,
       );
-      mockedMkdirSync.mockImplementationOnce(() => {
+      mockedMkdtempSync.mockImplementationOnce(() => {
         throw new Error('read-only home');
       });
       mockExecaFn
@@ -478,7 +518,7 @@ describe('sbx-manager', () => {
 
       expect(mockedRenameSync).not.toHaveBeenCalled();
       expect(mockedLogger.warn).toHaveBeenCalledWith(
-        expect.stringContaining('Could not create credential backup dir'),
+        expect.stringContaining('Could not secure credential backup dir'),
       );
     });
 
@@ -491,7 +531,8 @@ describe('sbx-manager', () => {
       process.env[key] = value;
       try {
         mockedExistsSync.mockImplementation((p: fs.PathLike) => (
-          String(p) === secret || String(p).includes('.awf-sbx-cred-backup')
+          String(p) === secret || String(p) === path.dirname(secret) ||
+          String(p).includes('.awf-sbx-cred-backup')
         ));
         mockExecaFn
           .mockResolvedValueOnce({ exitCode: 0, stdout: '', stderr: '' })
@@ -507,6 +548,87 @@ describe('sbx-manager', () => {
         else process.env[key] = saved;
       }
     });
+
+    it('scrubs the backing credential file behind a mounted symlink alias', async () => {
+      const homePath = process.env.HOME || '/home/runner';
+      const link = `${homePath}/.config/glab-cli`;
+      const aliasFile = `${link}/config.yml`;
+      const backingDir = '/workspace/gitlab-auth';
+      const backingFile = `${backingDir}/config.yml`;
+      const saved = process.env.GLAB_CONFIG_DIR;
+      process.env.GLAB_CONFIG_DIR = link;
+      mockedExistsSync.mockImplementation((p: fs.PathLike) => [
+        `${homePath}/.config`,
+        link,
+        aliasFile,
+        '/workspace',
+        backingDir,
+        backingFile,
+      ].includes(String(p)) || String(p).includes('.awf-sbx-cred-backup'));
+      const defaultLstat = mockedLstatSync.getMockImplementation()!;
+      mockedLstatSync.mockImplementation((p: fs.PathLike) => {
+        const pathname = String(p);
+        const movedToBackup = mockedRenameSync.mock.calls.some(([from, to]) =>
+          String(from) === pathname && String(to).includes('.awf-sbx-cred-backup'));
+        const restoredFromBackup = mockedRenameSync.mock.calls.some(([from, to]) =>
+          String(from).includes('.awf-sbx-cred-backup') && String(to) === pathname);
+        if (pathname === link && movedToBackup && !restoredFromBackup) {
+          throw Object.assign(new Error(`ENOENT: '${link}'`), { code: 'ENOENT' });
+        }
+        return pathname === link
+          ? { isDirectory: () => false, isSymbolicLink: () => true, dev: 1, ino: 2 } as fs.Stats
+          : defaultLstat(p);
+      });
+      mockedRealpathSync.mockImplementation((p: fs.PathLike) => ({
+        [link]: backingDir,
+        [aliasFile]: backingFile,
+      }[String(p)] || String(p)));
+      mockExecaFn
+        .mockResolvedValueOnce({ exitCode: 0, stdout: '', stderr: '' })
+        .mockResolvedValueOnce({ exitCode: 0, stdout: 'Created sandbox', stderr: '' });
+
+      try {
+        await createSandbox({ workspaceDir: '/workspace', squidIp: '172.30.0.10' });
+        expect(mockedRenameSync).toHaveBeenCalledWith(link, expect.any(String));
+        expect(mockedRenameSync).toHaveBeenCalledWith(backingFile, expect.any(String));
+        restoreHomeCredentials();
+      } finally {
+        if (saved === undefined) delete process.env.GLAB_CONFIG_DIR;
+        else process.env.GLAB_CONFIG_DIR = saved;
+      }
+    });
+
+    it.each(['backup', 'rename'])(
+      'fails closed when a GitLab override is covered by a credential directory whose %s fails',
+      async (failure) => {
+        const homePath = process.env.HOME || '/home/runner';
+        const gitLabDir = `${homePath}/.config/gh`;
+        const gitLabFile = `${gitLabDir}/config.yml`;
+        const saved = process.env.GLAB_CONFIG_DIR;
+        process.env.GLAB_CONFIG_DIR = gitLabDir;
+        try {
+          mockedExistsSync.mockImplementation((p: fs.PathLike) => [
+            `${homePath}/.config`,
+            gitLabDir,
+            gitLabFile,
+          ].includes(String(p)));
+          if (failure === 'backup') {
+            mockedMkdtempSync.mockImplementationOnce(() => { throw new Error('read-only home'); });
+          } else {
+            mockedRenameSync.mockImplementationOnce(() => { throw new Error('busy'); });
+          }
+          mockExecaFn.mockResolvedValueOnce({ exitCode: 0, stdout: '', stderr: '' });
+
+          await expect(createSandbox({
+            workspaceDir: '/workspace', squidIp: '172.30.0.10',
+          })).rejects.toThrow('Cannot hide GitLab CLI credentials');
+          expect(mockExecaFn).toHaveBeenCalledTimes(1);
+        } finally {
+          if (saved === undefined) delete process.env.GLAB_CONFIG_DIR;
+          else process.env.GLAB_CONFIG_DIR = saved;
+        }
+      },
+    );
 
     it('does not move GitLab credentials outside mounted paths', async () => {
       const saved = process.env.GLAB_CONFIG_DIR;
@@ -533,7 +655,7 @@ describe('sbx-manager', () => {
         String(p) === `${homePath}/.config` || String(p) === `${homePath}/.config/glab-cli`
       ));
       if (failure === 'backup') {
-        mockedMkdirSync.mockImplementationOnce(() => { throw new Error('read-only home'); });
+        mockedMkdtempSync.mockImplementationOnce(() => { throw new Error('read-only home'); });
       } else {
         mockedRenameSync.mockImplementationOnce(() => { throw new Error('busy'); });
       }
@@ -543,6 +665,23 @@ describe('sbx-manager', () => {
         workspaceDir: '/workspace', squidIp: '172.30.0.10',
       })).rejects.toThrow('Cannot hide GitLab CLI credentials');
       expect(mockExecaFn).toHaveBeenCalledTimes(1);
+    });
+
+    it('refuses to back up credentials beneath an extra mount that exposes the backup path', async () => {
+      const homePath = process.env.HOME || '/home/runner';
+      mockedExistsSync.mockImplementation((p: fs.PathLike) => [
+        `${homePath}/.config`,
+        `${homePath}/.config/glab-cli`,
+      ].includes(String(p)));
+      mockExecaFn.mockResolvedValueOnce({ exitCode: 0, stdout: '', stderr: '' });
+
+      await expect(createSandbox({
+        workspaceDir: '/workspace',
+        squidIp: '172.30.0.10',
+        extraMounts: [`${homePath}:${homePath}:rw`],
+      })).rejects.toThrow('credential backup directory would be exposed');
+      expect(mockExecaFn).toHaveBeenCalledTimes(1);
+      expect(mockedRenameSync).not.toHaveBeenCalled();
     });
 
     it('continues after a credential path cannot be moved aside', async () => {
@@ -587,7 +726,6 @@ describe('sbx-manager', () => {
       expect(scrubMove).toBeDefined();
       const backupPath = scrubMove![1];
 
-      mockedRenameSync.mockClear();
       // removeSandbox: stop + rm both succeed, then restore runs.
       mockExecaFn
         .mockResolvedValueOnce({ exitCode: 0, stdout: '', stderr: '' })
@@ -625,6 +763,35 @@ describe('sbx-manager', () => {
       expect(mockedLogger.warn).toHaveBeenCalledWith(
         expect.stringContaining('Could not restore credential path'),
       );
+    });
+
+    it('preserves the backup instead of restoring through a replaced parent path', async () => {
+      const homePath = process.env.HOME || '/home/runner';
+      const secret = `${homePath}/.claude/.credentials.json`;
+      const parent = path.dirname(secret);
+      mockedExistsSync.mockImplementation((p: fs.PathLike) =>
+        [parent, secret].includes(String(p)) || String(p).includes('.awf-sbx-cred-backup'));
+      mockExecaFn
+        .mockResolvedValueOnce({ exitCode: 0, stdout: '', stderr: '' })
+        .mockResolvedValueOnce({ exitCode: 0, stdout: 'Created sandbox', stderr: '' });
+      await createSandbox({ workspaceDir: '/workspace', squidIp: '172.30.0.10' });
+      const backup = mockedRenameSync.mock.calls.find(([original]) => original === secret)?.[1];
+      mockedRealpathSync.mockImplementation((p: fs.PathLike) =>
+        String(p) === parent ? `${homePath}/attacker-output` : String(p));
+      mockedRenameSync.mockClear();
+
+      restoreHomeCredentials();
+
+      expect(mockedRenameSync).not.toHaveBeenCalledWith(backup, secret);
+      expect(mockedLogger.warn).toHaveBeenCalledWith(
+        expect.stringContaining('Credential parent path changed'),
+      );
+      expect(mockedRmSync).not.toHaveBeenCalled();
+      const callsBeforeRetry = mockExecaFn.mock.calls.length;
+      await expect(createSandbox({
+        workspaceDir: '/workspace', squidIp: '172.30.0.10',
+      })).rejects.toThrow('previous credential backups still need restoration');
+      expect(mockExecaFn).toHaveBeenCalledTimes(callsBeforeRetry);
     });
 
     it('skips whitelisted home subdirs that do not exist on the host', async () => {

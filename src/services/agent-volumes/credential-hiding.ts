@@ -10,6 +10,26 @@ import {
   parseMount,
 } from './mount-topology';
 
+function existingRealPath(candidate: string): string | undefined {
+  try {
+    fs.lstatSync(candidate);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined;
+    throw error;
+  }
+  try {
+    return fs.realpathSync(candidate);
+  } catch (error) {
+    throw new Error(`Cannot safely resolve GitLab credential path ${candidate}: ${(error as Error).message}`);
+  }
+}
+
+function isWithin(parent: string, candidate: string): boolean {
+  const relative = path.relative(parent, candidate);
+  return relative === '' ||
+    (relative !== '..' && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative));
+}
+
 /**
  * Builds the compose-mode `/dev/null` overlays that blank known on-disk
  * credential files. The file list is derived from the central mount policy
@@ -37,16 +57,36 @@ export function buildCredentialHidingOverlays(
   // Translate credential sources through every bind, including custom aliases.
   // Never mount an otherwise unexposed config directory just to hide its file.
   const gitLabFiles = gitLabCredentialFiles(effectiveHome, env);
+  const resolvedFiles = new Map(
+    gitLabFiles.map((file) => [path.resolve(file), existingRealPath(file)]),
+  );
+  const hasResolvedCredentials = [...resolvedFiles.values()].some((file) => file !== undefined);
   for (const spec of volumes) {
     const mount = parseMount(spec);
     if (!mount || !path.isAbsolute(mount.source) || mount.source === '/dev/null') continue;
     const source = localSourceResolver(mount.source);
-    if (!source) continue;
-    for (const file of gitLabFiles) {
-      const relative = path.relative(source, file);
-      if (relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) continue;
-      const target = path.join(mount.target, relative);
-      mounts.push(`/dev/null:${target}:ro`);
+    const lexicalSource = source && path.resolve(source);
+    if (!lexicalSource) {
+      if (hasResolvedCredentials) {
+        throw new Error(`Cannot safely map bind source for GitLab credential masking: ${mount.source}`);
+      }
+      continue;
+    }
+    const canonicalSource = existingRealPath(lexicalSource);
+    for (const [file, canonicalFile] of resolvedFiles) {
+      const candidates = new Set([file]);
+      if (canonicalFile) candidates.add(canonicalFile);
+      for (const candidate of candidates) {
+        let relative: string | undefined;
+        if (isWithin(lexicalSource, candidate)) {
+          relative = path.relative(lexicalSource, candidate);
+        } else if (canonicalSource && canonicalFile && isWithin(canonicalSource, canonicalFile)) {
+          relative = path.relative(canonicalSource, canonicalFile);
+        }
+        if (relative === undefined) continue;
+        const target = path.join(mount.target, relative);
+        mounts.push(`/dev/null:${target}:ro`);
+      }
     }
   }
 

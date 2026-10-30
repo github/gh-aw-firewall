@@ -83,6 +83,51 @@ describe('buildCredentialHidingOverlays', () => {
     ]), '/host'), { GLAB_CONFIG_DIR: '/workspace/gitlab-auth' });
     expect(overlays).toContain('/dev/null:/auth/config.yml:ro');
   });
+
+  it('masks canonical credential paths exposed through symlinked config and bind sources', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'gitlab-mask-symlink-'));
+    try {
+      const workspace = path.join(root, 'workspace');
+      const auth = path.join(workspace, 'auth');
+      const config = path.join(auth, 'config.yml');
+      const configLink = path.join(root, 'glab-link');
+      const workspaceLink = path.join(root, 'workspace-link');
+      fs.mkdirSync(auth, { recursive: true });
+      fs.writeFileSync(config, 'synthetic-token');
+      fs.symlinkSync(auth, configLink, 'dir');
+      fs.symlinkSync(workspace, workspaceLink, 'dir');
+
+      expect(buildCredentialHidingOverlays('/home/runner', [
+        `${workspace}:/workspace:rw`,
+      ], undefined, { GLAB_CONFIG_DIR: configLink })).toContain(
+        '/dev/null:/workspace/auth/config.yml:ro',
+      );
+      expect(buildCredentialHidingOverlays('/home/runner', [
+        `${workspaceLink}:/alias:rw`,
+      ], undefined, { GLAB_CONFIG_DIR: auth })).toContain(
+        '/dev/null:/alias/auth/config.yml:ro',
+      );
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('fails closed when an exposed GitLab credential cannot be mapped to a bind source', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'gitlab-mask-unmapped-'));
+    try {
+      const configDir = path.join(root, 'auth');
+      fs.mkdirSync(configDir);
+      fs.writeFileSync(path.join(configDir, 'config.yml'), 'synthetic-token');
+
+      expect(() => buildCredentialHidingOverlays('/home/runner', [
+        '/daemon-only:/alias:ro',
+      ], () => undefined, { GLAB_CONFIG_DIR: configDir })).toThrow(
+        'Cannot safely map bind source for GitLab credential masking',
+      );
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
 });
 
 describe('pruneUnmountableCredentialOverlays', () => {
