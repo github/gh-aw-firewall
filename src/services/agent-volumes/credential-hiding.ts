@@ -1,6 +1,7 @@
 import * as fs from 'fs';
+import * as path from 'path';
 import { logger } from '../../logger';
-import { credentialFilesToHide } from '../../config/mount-policy';
+import { credentialFilesToHide, gitLabCredentialFiles } from '../../config/mount-policy';
 import {
   LocalSourceResolver,
   ParsedMount,
@@ -17,7 +18,12 @@ import {
  * Each credential file is masked twice: once at the real `$HOME` path and once
  * at the chroot `/host$HOME` path (the agent runs chrooted into `/host`).
  */
-export function buildCredentialHidingOverlays(effectiveHome: string): string[] {
+export function buildCredentialHidingOverlays(
+  effectiveHome: string,
+  volumes: string[] = [],
+  localSourceResolver: LocalSourceResolver = identityLocalSourceResolver,
+  env: NodeJS.ProcessEnv = process.env,
+): string[] {
   const credentialFiles = credentialFilesToHide().map((rel) => `${effectiveHome}/${rel}`);
 
   const mounts = credentialFiles.map((credFile) => `/dev/null:${credFile}:ro`);
@@ -28,7 +34,23 @@ export function buildCredentialHidingOverlays(effectiveHome: string): string[] {
   mounts.push(...chrootCredentialFiles);
   logger.debug(`Hidden ${chrootCredentialFiles.length} credential file(s) at /host paths`);
 
-  return mounts;
+  // Translate credential sources through every bind, including custom aliases.
+  // Never mount an otherwise unexposed config directory just to hide its file.
+  const gitLabFiles = gitLabCredentialFiles(effectiveHome, env);
+  for (const spec of volumes) {
+    const mount = parseMount(spec);
+    if (!mount || !path.isAbsolute(mount.source) || mount.source === '/dev/null') continue;
+    const source = localSourceResolver(mount.source);
+    if (!source) continue;
+    for (const file of gitLabFiles) {
+      const relative = path.relative(source, file);
+      if (relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) continue;
+      const target = path.join(mount.target, relative);
+      mounts.push(`/dev/null:${target}:ro`);
+    }
+  }
+
+  return [...new Set(mounts)];
 }
 
 /**

@@ -436,6 +436,7 @@ describe('sbx-manager', () => {
       const homePath = process.env.HOME || '/home/runner';
       const secrets = [
         `${homePath}/.config/gh`,
+        `${homePath}/.config/glab-cli`,
         `${homePath}/.config/gcloud`,
         `${homePath}/.config/rclone`,
       ];
@@ -479,6 +480,69 @@ describe('sbx-manager', () => {
       expect(mockedLogger.warn).toHaveBeenCalledWith(
         expect.stringContaining('Could not create credential backup dir'),
       );
+    });
+
+    it.each([
+      ['GLAB_CONFIG_DIR', '/workspace/gitlab-auth', '/workspace/gitlab-auth/config.yml'],
+      ['XDG_CONFIG_HOME', '/workspace/xdg', '/workspace/xdg/glab-cli/config.yml'],
+      ['XDG_CONFIG_DIRS', '/workspace/xdg', '/workspace/xdg/glab-cli/config.yml'],
+    ])('scrubs and restores exposed %s GitLab credentials', async (key, value, secret) => {
+      const saved = process.env[key];
+      process.env[key] = value;
+      try {
+        mockedExistsSync.mockImplementation((p: fs.PathLike) => (
+          String(p) === secret || String(p).includes('.awf-sbx-cred-backup')
+        ));
+        mockExecaFn
+          .mockResolvedValueOnce({ exitCode: 0, stdout: '', stderr: '' })
+          .mockResolvedValueOnce({ exitCode: 0, stdout: 'Created sandbox', stderr: '' });
+
+        await createSandbox({ workspaceDir: '/workspace', squidIp: '172.30.0.10' });
+        expect(mockedRenameSync).toHaveBeenCalledWith(secret, expect.any(String));
+        const backup = mockedRenameSync.mock.calls.find(([original]) => original === secret)?.[1];
+        restoreHomeCredentials();
+        expect(mockedRenameSync).toHaveBeenCalledWith(backup, secret);
+      } finally {
+        if (saved === undefined) delete process.env[key];
+        else process.env[key] = saved;
+      }
+    });
+
+    it('does not move GitLab credentials outside mounted paths', async () => {
+      const saved = process.env.GLAB_CONFIG_DIR;
+      process.env.GLAB_CONFIG_DIR = '/private/gitlab-auth';
+      try {
+        mockedExistsSync.mockImplementation((p: fs.PathLike) => (
+          String(p) === '/private/gitlab-auth/config.yml'
+        ));
+        mockExecaFn
+          .mockResolvedValueOnce({ exitCode: 0, stdout: '', stderr: '' })
+          .mockResolvedValueOnce({ exitCode: 0, stdout: 'Created sandbox', stderr: '' });
+
+        await createSandbox({ workspaceDir: '/workspace', squidIp: '172.30.0.10' });
+        expect(mockedRenameSync).not.toHaveBeenCalled();
+      } finally {
+        if (saved === undefined) delete process.env.GLAB_CONFIG_DIR;
+        else process.env.GLAB_CONFIG_DIR = saved;
+      }
+    });
+
+    it.each(['backup', 'rename'])('refuses to create sbx when GitLab credential %s fails', async (failure) => {
+      const homePath = process.env.HOME || '/home/runner';
+      mockedExistsSync.mockImplementation((p: fs.PathLike) => (
+        String(p) === `${homePath}/.config` || String(p) === `${homePath}/.config/glab-cli`
+      ));
+      if (failure === 'backup') {
+        mockedMkdirSync.mockImplementationOnce(() => { throw new Error('read-only home'); });
+      } else {
+        mockedRenameSync.mockImplementationOnce(() => { throw new Error('busy'); });
+      }
+      mockExecaFn.mockResolvedValueOnce({ exitCode: 0, stdout: '', stderr: '' });
+
+      await expect(createSandbox({
+        workspaceDir: '/workspace', squidIp: '172.30.0.10',
+      })).rejects.toThrow('Cannot hide GitLab CLI credentials');
+      expect(mockExecaFn).toHaveBeenCalledTimes(1);
     });
 
     it('continues after a credential path cannot be moved aside', async () => {

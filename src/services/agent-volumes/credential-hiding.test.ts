@@ -38,9 +38,50 @@ describe('buildCredentialHidingOverlays', () => {
     expect(overlays).toContain('/dev/null:/host/home/runner/.docker/config.json:ro');
     expect(overlays).toContain('/dev/null:/home/runner/.config/gh/hosts.yml:ro');
     expect(overlays).toContain('/dev/null:/host/home/runner/.config/gh/hosts.yml:ro');
+    expect(overlays).toContain('/dev/null:/home/runner/.config/glab-cli/config.yml:ro');
+    expect(overlays).toContain('/dev/null:/host/home/runner/.config/glab-cli/config.yml:ro');
     // Newly centralized entries (previously only protected by sbx).
     expect(overlays).toContain('/dev/null:/home/runner/.claude/.credentials.json:ro');
     expect(overlays).toContain('/dev/null:/home/runner/.gemini/oauth_creds.json:ro');
+  });
+
+  it('masks exposed GitLab overrides and platform paths through every bind alias', () => {
+    const overlays = buildCredentialHidingOverlays('/home/runner', [
+      '/workspace:/host/workspace:rw',
+      '/workspace/gitlab-auth:/auth:ro',
+      '/workspace/gitlab-auth/config.yml:/credential.yml:ro',
+      '/home/runner/Library:/host/home/runner/Library:rw',
+      '/home/runner/.cache:/host/home/runner/.cache:rw',
+    ], undefined, {
+      GLAB_CONFIG_DIR: '/workspace/gitlab-auth',
+      XDG_CONFIG_HOME: '/home/runner/.cache/xdg',
+    });
+
+    expect(overlays).toEqual(expect.arrayContaining([
+      '/dev/null:/host/workspace/gitlab-auth/config.yml:ro',
+      '/dev/null:/auth/config.yml:ro',
+      '/dev/null:/credential.yml:ro',
+      '/dev/null:/host/home/runner/Library/Application Support/glab-cli/config.yml:ro',
+      '/dev/null:/host/home/runner/.cache/xdg/glab-cli/config.yml:ro',
+    ]));
+    expect(overlays.some((spec) => spec.includes('aliases.yml'))).toBe(false);
+  });
+
+  it('does not expose unmounted overrides or similarly named source siblings', () => {
+    const overlays = buildCredentialHidingOverlays('/home/runner', [
+      '/workspace/gitlab-auth-other:/auth:rw',
+    ], undefined, { GLAB_CONFIG_DIR: '/workspace/gitlab-auth' });
+    expect(overlays.some((spec) => spec.includes('/auth/'))).toBe(false);
+    expect(overlays.some((spec) => spec.includes('/workspace/'))).toBe(false);
+  });
+
+  it('resolves daemon-prefixed custom sources before masking GitLab credentials', () => {
+    const overlays = buildCredentialHidingOverlays('/home/runner', [
+      '/host/workspace/gitlab-auth:/auth:ro',
+    ], createLocalSourceResolver(new Map([
+      ['/host/workspace/gitlab-auth', '/workspace/gitlab-auth'],
+    ]), '/host'), { GLAB_CONFIG_DIR: '/workspace/gitlab-auth' });
+    expect(overlays).toContain('/dev/null:/auth/config.yml:ro');
   });
 });
 

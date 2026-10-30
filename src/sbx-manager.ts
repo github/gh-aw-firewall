@@ -29,6 +29,7 @@ import { copyEnvEntries } from './env-utils';
 import { logger } from './logger';
 import {
   credentialEntriesUnderMountedPaths,
+  gitLabCredentialFiles,
   HOME_TOOL_PATHS,
 } from './config/mount-policy';
 import { assertRealDirectory } from './fs-utils';
@@ -136,12 +137,33 @@ let credentialBackupRoot: string | undefined;
 function scrubHomeCredentials(
   homePath: string,
   mountedHomePaths: ReadonlySet<string> = new Set<string>(HOME_TOOL_PATHS),
+  mountedPaths: ReadonlySet<string> = new Set(
+    [...mountedHomePaths].map((relative) => path.join(homePath, relative)),
+  ),
 ): void {
   scrubbedCredentials = [];
   credentialBackupRoot = undefined;
 
-  for (const entry of credentialEntriesUnderMountedPaths(mountedHomePaths)) {
-    const original = path.join(homePath, entry.path);
+  const entries = credentialEntriesUnderMountedPaths(mountedHomePaths);
+  const gitLabFiles = gitLabCredentialFiles(homePath);
+  const credentials = entries.map((entry) => ({
+    original: path.join(homePath, entry.path),
+    label: entry.path,
+    isGitLab: entry.path === '.config/glab-cli',
+  }));
+  for (const [index, file] of gitLabFiles.entries()) {
+    const exposed = [...mountedPaths].some((root) => {
+      const relative = path.relative(root, file);
+      return relative === '' ||
+        (relative !== '..' && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative));
+    });
+    if (!exposed || credentials.some(({ original }) =>
+      file === original || file.startsWith(`${original}${path.sep}`)
+    )) continue;
+    credentials.push({ original: file, label: `gitlab-config-${index}`, isGitLab: true });
+  }
+
+  for (const { original, label, isGitLab } of credentials) {
     if (!fs.existsSync(original)) continue;
 
     if (!credentialBackupRoot) {
@@ -153,17 +175,24 @@ function scrubHomeCredentials(
       } catch (err) {
         logger.warn(`[sbx] Could not create credential backup dir: ${(err as Error).message}`);
         credentialBackupRoot = undefined;
+        if (credentials.some((credential) => credential.isGitLab && fs.existsSync(credential.original))) {
+          throw new Error(`Cannot hide GitLab CLI credentials before creating sandbox: ${(err as Error).message}`);
+        }
         return;
       }
     }
 
-    const backup = path.join(credentialBackupRoot, entry.path.replace(/\//g, '__'));
+    const backup = path.join(credentialBackupRoot, label.replace(/\//g, '__'));
     try {
       fs.renameSync(original, backup);
       scrubbedCredentials.push({ original, backup });
-      logger.info(`[sbx] Hid credential path from sandbox: ${entry.path}`);
+      logger.info(`[sbx] Hid credential path from sandbox: ${label}`);
     } catch (err) {
       logger.warn(`[sbx] Could not hide credential path ${original}: ${(err as Error).message}`);
+      if (isGitLab) {
+        restoreHomeCredentials();
+        throw new Error(`Cannot hide GitLab CLI credentials before creating sandbox: ${(err as Error).message}`);
+      }
     }
   }
 
@@ -360,7 +389,7 @@ export async function createSandbox(config: {
 
   // Move known credential stores out of the wholesale-mounted home dirs before
   // the sandbox exists, and remember them so they can be restored on teardown.
-  scrubHomeCredentials(homePath, mountedHomePaths);
+  scrubHomeCredentials(homePath, mountedHomePaths, seenPaths);
 
   // Do NOT pass a custom `env` to sbx create. The sanitized env (which strips
   // vars matching TOKEN, SECRET, KEY, etc.) also strips variables the sbx CLI

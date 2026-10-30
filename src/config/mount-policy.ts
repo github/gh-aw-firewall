@@ -1,3 +1,4 @@
+import * as path from 'path';
 import rawPolicy from './sandbox-mount-policy.json';
 
 /**
@@ -277,6 +278,32 @@ export function credentialFilesToHide(): string[] {
     }
   }
   return files;
+}
+
+/**
+ * GitLab CLI can also read credentials outside its legacy ~/.config location.
+ * Keep all candidates, not just the first existing one: agents can read files
+ * directly or change glab's configuration lookup order.
+ */
+export function gitLabCredentialFiles(
+  home: string,
+  env: NodeJS.ProcessEnv = process.env,
+): string[] {
+  const configRoots = [
+    path.join(home, '.config'),
+    path.join(home, 'Library/Application Support'),
+    path.join(home, 'Library/Preferences'),
+    '/etc/xdg',
+    '/Library/Application Support',
+    '/Library/Preferences',
+    ...[env.XDG_CONFIG_HOME, ...(env.XDG_CONFIG_DIRS || '').split(':')]
+      .filter((root): root is string => typeof root === 'string' && path.isAbsolute(root)),
+  ];
+  const files = configRoots.map((root) => path.join(root, 'glab-cli/config.yml'));
+  if (env.GLAB_CONFIG_DIR) {
+    files.push(path.resolve(env.GLAB_CONFIG_DIR, 'config.yml'));
+  }
+  return [...new Set(files)];
 }
 
 /**
