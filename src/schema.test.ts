@@ -218,7 +218,11 @@ describe('awf-config.schema.json', () => {
   it('validates AI-credit and model multiplier apiProxy fields', () => {
     expect(validate({ apiProxy: { maxEffectiveTokens: 1000 } })).toBe(false);
     expect(validate({ apiProxy: { maxAiCredits: 1.2 } })).toBe(true);
-    expect(validate({ apiProxy: { maxAiCredits: 0 } })).toBe(false);
+    expect(validate({ apiProxy: { maxAiCredits: 0 } })).toBe(true);
+    expect(validate({ apiProxy: { maxAiCredits: -1 } })).toBe(true);
+    expect(validate({ apiProxy: { maxAiCredits: -2 } })).toBe(false);
+    expect(validate({ apiProxy: { maxAiCredits: -0.5 } })).toBe(false);
+    expect(validate({ apiProxy: { maxAiCredits: 10001 } })).toBe(true);
     expect(validate({ apiProxy: { modelMultipliers: { 'gpt-4o': 2, 'claude': 1.5 } } })).toBe(true);
     expect(validate({ apiProxy: { modelMultipliers: { 'gpt-4o': 0 } } })).toBe(false);
     expect(validate({ apiProxy: { defaultModelMultiplier: 27 } })).toBe(true);
