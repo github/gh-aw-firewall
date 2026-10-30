@@ -235,9 +235,24 @@ are tracked there for compiler/MCP Gateway fixes, with AWF-side tracking in
   AWF does not create cross-root symlinks or copies, which can conflict with
   artifact consolidation.
 
+  The agent-log path contract is:
+
+  | Writer / reader | Path |
+  | --- | --- |
+  | Copilot with no explicit `--log-dir` | Sandbox `~/.copilot/logs`; backed by AWF's `workDir/agent-logs` in non-ARC compose runs, but not on ARC/DinD |
+  | Copilot with an explicit `--log-dir` | The sandbox mount target, for example `/tmp/gh-aw/sandbox/agent/logs` |
+  | Runner-side summary parser and artifact collection | The corresponding runner-visible mount source, for example `${RUNNER_TEMP}/gh-aw/sandbox/agent/logs` |
+
+  `--log-dir` is a Copilot option, not an AWF `--agent-logs` option. AWF's
+  default log mount does not collect logs written to an explicit engine path.
+  In non-ARC compose runs, non-empty default logs are preserved as
+  `/tmp/awf-agent-logs-<timestamp>` during normal cleanup. ARC/DinD removes
+  the workDir-backed default mounts; use an explicit shared log mount and
+  `--log-dir` for runner-side collection. Explicitly mounted logs remain at
+  their mount source.
+
   **Agent log directory contract (Docker compose):** `agent-logs` is a
-  subdirectory of `--work-dir`, not a `--agent-logs` CLI option. Without
-  ARC/DinD sysroot staging, AWF mounts
+  subdirectory of `--work-dir`. Without ARC/DinD sysroot staging, AWF mounts
   `<workDir>/agent-logs` read-write at `/host<effectiveHome>/.copilot/logs`
   (the chrooted agent sees `~/.copilot/logs`). With a daemon-only
   `--docker-host-path-prefix /host`, the compose source becomes
@@ -260,9 +275,21 @@ are tracked there for compiler/MCP Gateway fixes, with AWF-side tracking in
   `parse_copilot_log.cjs`, `GH_AW_AGENT_OUTPUT`, and artifact collection must
   therefore read `${RUNNER_TEMP}/gh-aw/sandbox/agent/logs`, not the sandbox's
   `/tmp/gh-aw/sandbox/agent/logs`. With a shared `/tmp` prefix and a source
-  outside `/tmp`, the runner-visible source is `/tmp${RUNNER_TEMP}/gh-aw/sandbox/agent/logs`.
-  The compiler/parser alignment is tracked in
-  [github/gh-aw#72896](https://github.com/github/gh-aw/issues/72896).
+  outside `/tmp`, the runner-visible source is
+  `/tmp${RUNNER_TEMP}/gh-aw/sandbox/agent/logs`; put the source under `/tmp`
+  to avoid further source translation.
+
+  The remaining compiler fix is tracked in
+  [github/gh-aw#72896](https://github.com/github/gh-aw/issues/72896)
+  ([AWF tracking](https://github.com/github/gh-aw-firewall/issues/10818)):
+  `pkg/workflow/compiler_yaml_ai_execution.go` must set `GH_AW_AGENT_OUTPUT`
+  for `parse_copilot_log.cjs` to the same runner-visible source used by
+  execution and artifact collection, rather than the unadjusted engine path.
+  Do not alias the two runner roots with a symlink: consolidation must merge
+  real directories. End-to-end acceptance in gh-aw requires a populated agent
+  summary and successful consolidation on ARC/DinD with no link/unlink steps.
+  AWF's volume-mount integration test covers the write/read handoff and a
+  directory-merge fixture; it does not execute gh-aw's summary parser.
 
 - **Threat detection:** mounting the input directory only makes it visible to
   the process. `threat-detect` launches Copilot and must grant its input

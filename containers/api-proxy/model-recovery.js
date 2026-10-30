@@ -5,12 +5,12 @@ const { getRuntimeModels } = require('./runtime-model-catalog');
 const { normalizeModel } = require('./routing-catalogue');
 const { getRetiredModelBlockState } = require('./guards/retired-model-guard');
 const { getCurrentGuardChecks } = require('./proxy-guards');
-const { isModelPriceable } = require('./guards/ai-credits-guard');
 const { parsePositiveNumber } = require('./guards/guard-utils');
 const { resolveModelIdentity } = require('./model-identity');
 const { compareByVersion } = require('./model-utils');
 const { sanitizeForLog } = require('./logging');
 const { MODEL_FALLBACK } = require('./model-config');
+const { isModelPriceable } = require('./guards/ai-credits-guard');
 
 const MAX_AUTOMATIC_RECOVERIES = 3;
 
