@@ -185,6 +185,14 @@ test('does not bypass missing credit pricing', async () => {
   expect(JSON.parse(res.end.mock.calls[0][0]).error.code).toBe('model_recovery_exhausted');
 });
 
+test('allows recovery to a priceable model with a credit budget', async () => {
+  load({ AWF_MAX_AI_CREDITS: '1' });
+  catalog.replaceRuntimeModels('copilot', [record('gpt-5.3-codex')]);
+  await start();
+  expect(requests).toHaveLength(1);
+  expect(JSON.parse(sent()).model).toBe('gpt-5.3-codex');
+});
+
 test.each([
   { AWF_MODEL_FALLBACK: '{"enabled":false}' },
   { AWF_MODEL_FALLBACK: '{"excludeEngines":["copilot"]}' },
