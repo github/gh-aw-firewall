@@ -96,9 +96,10 @@ function classify(pr, detail, now = Date.now(), writer = '') {
     }
   }
   for (const check of checks.filter(check => FAILURES.has(check.conclusion))) {
+    const checkRef = hash(['check-name', check.name]).slice(0, 12);
     work.push({
       token: hash(['check', check.name, check.conclusion]),
-      task: `Root-cause the current-head failing check ${JSON.stringify(check.name.replace(/@/g, ''))} (${check.conclusion}) at ${check.url}. Reproduce and fix locally; do not dispatch or rerun CI.`,
+      task: `Root-cause the current-head failing check [ref:${checkRef}] (${check.conclusion}) at ${check.url}. Reproduce and fix locally; do not dispatch or rerun CI.`,
     });
   }
   const branch = pr.mergeable === 'CONFLICTING' || pr.mergeStateStatus === 'BEHIND';
