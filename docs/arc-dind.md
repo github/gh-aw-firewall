@@ -268,6 +268,22 @@ are tracked there for compiler/MCP Gateway fixes, with AWF-side tracking in
   safe-output-file access rule. Any necessary child identity propagation
   belongs in MCP Gateway; redaction and compiler changes belong in gh-aw.
 
+The remaining nested-stdio identity fix is tracked in
+[github/gh-aw#72898](https://github.com/github/gh-aw/issues/72898), with AWF
+follow-up in [#10806](https://github.com/github/gh-aw-firewall/issues/10806).
+The reporter confirms that v0.92.0 retains fail-closed redaction but still needs
+the pre-create workaround; this is not evidence that child ownership is fixed.
+Acceptance upstream is runner-owned child-created files and successful
+redaction without pre-creation, with publication still blocked on unrecoverable
+redaction errors.
+
+AWF's general and enclave API proxies and CLI proxy use the host UID/GID for
+shared log writes. Enclave executors retain their dedicated non-root identities
+and private output staging; they must not gain runner access to shared workflow
+outputs. The trusted enclave MCP broker retains its privileged identity for
+AWF-private control, audit, and staging mounts, not shared safe-output files.
+These AWF identity settings do not propagate to gateway-launched stdio containers.
+
 To verify findings 3–4 and decide whether to permanently remove the reporter's
 pre-create step and fail-closed guard, use an isolated ARC/DinD run with the
 current supported gh-aw compiler and matching setup action. Remove both
