@@ -234,6 +234,36 @@ are tracked there for compiler/MCP Gateway fixes, with AWF-side tracking in
   runner's parser must still read the source, accounting for path translation.
   AWF does not create cross-root symlinks or copies, which can conflict with
   artifact consolidation.
+
+  **Agent log directory contract (Docker compose):** `agent-logs` is a
+  subdirectory of `--work-dir`, not a `--agent-logs` CLI option. Without
+  ARC/DinD sysroot staging, AWF mounts
+  `<workDir>/agent-logs` read-write at `/host<effectiveHome>/.copilot/logs`
+  (the chrooted agent sees `~/.copilot/logs`). With a daemon-only
+  `--docker-host-path-prefix /host`, the compose source becomes
+  `/host<workDir>/agent-logs`; the destination stays unchanged and the runner
+  still reads `<workDir>/agent-logs`. With the shared `/tmp` prefix, keep the
+  work directory under `/tmp` so the source remains unchanged. With
+  ARC/DinD sysroot staging, the sysroot filter removes these automatic
+  work-directory mounts because the runner's work directory is not shared
+  with the daemon; use an explicit log-directory mount on shared storage.
+
+  An explicit Copilot `--log-dir /tmp/gh-aw/sandbox/agent/logs` instead
+  requires a mount such as:
+
+  ```bash
+  --mount "${RUNNER_TEMP}/gh-aw/sandbox/agent/logs:/tmp/gh-aw/sandbox/agent/logs:rw"
+  ```
+
+  Prefix translation changes only the daemon-side source, not the sandbox
+  destination or the Copilot command. For a daemon-only prefix, the runner's
+  `parse_copilot_log.cjs`, `GH_AW_AGENT_OUTPUT`, and artifact collection must
+  therefore read `${RUNNER_TEMP}/gh-aw/sandbox/agent/logs`, not the sandbox's
+  `/tmp/gh-aw/sandbox/agent/logs`. With a shared `/tmp` prefix and a source
+  outside `/tmp`, the runner-visible source is `/tmp${RUNNER_TEMP}/gh-aw/sandbox/agent/logs`.
+  The compiler/parser alignment is tracked in
+  [github/gh-aw#72896](https://github.com/github/gh-aw/issues/72896).
+
 - **Threat detection:** mounting the input directory only makes it visible to
   the process. `threat-detect` launches Copilot and must grant its input
   directory in Copilot's `--add-dir` scope; the absence of `--add-dir` in the
