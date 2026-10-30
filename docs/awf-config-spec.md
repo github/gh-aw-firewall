@@ -1201,10 +1201,16 @@ ports still serve provider-local `/health` responses.
 
 ### 10.3 Max AI Credits Configuration
 
-`maxAiCredits` is a positive number. It is supplied via the AWF config file
+`maxAiCredits` accepts a positive budget or a disabled value (`-1` or `0`).
+It is supplied via the AWF config file
 (including stdin config via `--config -`) and maps to the
 `AWF_MAX_AI_CREDITS` environment variable injected into the api-proxy
 container.
+
+Setting `maxAiCredits` to `-1` or `0` disables the configured budget, as if the
+field were omitted. AWF does not inject `AWF_MAX_AI_CREDITS` for these values.
+Other negative values are invalid. The non-overridable 10,000-credit hard cap
+still applies.
 
 When configured, the proxy MUST enforce this budget. Once cumulative accounted AI credits reach or
 exceed `maxAiCredits`, subsequent requests MUST be rejected with HTTP `403`

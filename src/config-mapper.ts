@@ -39,7 +39,9 @@ export function mapAwfFileConfigToCliOptions(config: AwfFileConfig): Record<stri
     anthropicCacheTailTtl: config.apiProxy?.anthropicCacheTailTtl as '5m' | '1h' | undefined,
     claudeHostedWeb: config.apiProxy?.hostedWeb?.claude,
     codexHostedWeb: config.apiProxy?.hostedWeb?.codex,
-    maxAiCredits: config.apiProxy?.maxAiCredits,
+    maxAiCredits: config.apiProxy?.maxAiCredits === -1 || config.apiProxy?.maxAiCredits === 0
+      ? undefined
+      : config.apiProxy?.maxAiCredits,
     defaultAiCreditsPricing: config.apiProxy?.defaultAiCreditsPricing,
     apiProxyProviders: config.apiProxy?.providers,
     modelPricingCatalog: config.apiProxy?.modelPricingCatalog,

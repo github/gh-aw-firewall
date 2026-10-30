@@ -1,6 +1,14 @@
 import { mapAwfFileConfigToCliOptions } from './config-mapper';
 
 describe('mapAwfFileConfigToCliOptions', () => {
+  it.each([-1, 0])('omits a disabled AI-credit budget of %s', (maxAiCredits) => {
+    expect(mapAwfFileConfigToCliOptions({ apiProxy: { maxAiCredits } }).maxAiCredits).toBeUndefined();
+  });
+
+  it.each([undefined, 0.5, 10000, 10001, -2])('preserves other AI-credit budget values (%s)', (maxAiCredits) => {
+    expect(mapAwfFileConfigToCliOptions({ apiProxy: { maxAiCredits } }).maxAiCredits).toBe(maxAiCredits);
+  });
+
   it('maps explicit runtime catalogue controls without changing egress', () => {
     const modelCatalogue = { enabled: true, offline: true, maxAgeSeconds: 60 };
     const result = mapAwfFileConfigToCliOptions({ apiProxy: { modelCatalogue } });
