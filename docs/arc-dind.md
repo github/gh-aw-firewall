@@ -239,14 +239,17 @@ are tracked there for compiler/MCP Gateway fixes, with AWF-side tracking in
 
   | Writer / reader | Path |
   | --- | --- |
-  | Copilot with no explicit `--log-dir` | Sandbox `~/.copilot/logs`, backed by AWF's `workDir/agent-logs` |
+  | Copilot with no explicit `--log-dir` | Sandbox `~/.copilot/logs`; backed by AWF's `workDir/agent-logs` in non-ARC compose runs, but not on ARC/DinD |
   | Copilot with an explicit `--log-dir` | The sandbox mount target, for example `/tmp/gh-aw/sandbox/agent/logs` |
   | Runner-side summary parser and artifact collection | The corresponding runner-visible mount source, for example `${RUNNER_TEMP}/gh-aw/sandbox/agent/logs` |
 
   `--log-dir` is a Copilot option, not an AWF `--agent-logs` option. AWF's
   default log mount does not collect logs written to an explicit engine path.
-  Non-empty default logs are preserved as `/tmp/awf-agent-logs-<timestamp>`
-  during normal cleanup; explicitly mounted logs remain at their mount source.
+  In non-ARC compose runs, non-empty default logs are preserved as
+  `/tmp/awf-agent-logs-<timestamp>` during normal cleanup. ARC/DinD removes
+  the workDir-backed default mounts; use an explicit shared log mount and
+  `--log-dir` for runner-side collection. Explicitly mounted logs remain at
+  their mount source.
   A daemon-only prefix such as `/host` changes the source seen by Docker, not
   the path the runner reads. With a shared `/tmp` prefix, put the source under
   `/tmp` to avoid further source translation.
