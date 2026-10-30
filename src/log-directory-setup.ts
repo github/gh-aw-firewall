@@ -102,7 +102,7 @@ export function prepareLogDirectories(logPaths: LogPaths, dockerHostPathPrefix?:
   // If proxyLogsDir is specified, write inside it as a subdirectory (timeout-safe,
   // and included in the firewall-audit-logs artifact upload automatically)
   // Otherwise, write to workDir/api-proxy-logs (will be moved to /tmp after cleanup)
-  // Note: API proxy runs as user 'apiproxy' (non-root)
+  // API proxy runs with the host UID/GID (non-root).
   ensureDirectory(logPaths.apiProxyLogs, {
     mode: 0o777,
     onCreate: () => {
@@ -139,7 +139,7 @@ export function prepareLogDirectories(logPaths: LogPaths, dockerHostPathPrefix?:
   }
 
   // Create CLI proxy logs directory for persistence
-  // Note: CLI proxy runs as user 'cliproxy' (non-root)
+  // CLI proxy runs with the host UID/GID (non-root).
   ensureDirectory(logPaths.cliProxyLogs, {
     mode: 0o777,
     onCreate: () => fs.chmodSync(logPaths.cliProxyLogs, 0o777),

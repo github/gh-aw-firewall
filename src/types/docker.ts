@@ -111,6 +111,9 @@ interface DockerService {
    */
   container_name: string;
 
+  /** User or UID:GID to run the container process as. */
+  user?: string;
+
   /**
    * Network configuration for the container
    * 
