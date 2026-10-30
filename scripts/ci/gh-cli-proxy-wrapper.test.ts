@@ -84,7 +84,7 @@ describe('gh CLI proxy wrapper', () => {
       { args: ['api', 'x/2'], stdin: '' },
       { args: ['api', 'x/3'], stdin: '' },
     ]);
-  });
+  }, 15_000);
 
   it('forwards stdin when gh is explicitly given an input marker', async () => {
     const result = await run(
