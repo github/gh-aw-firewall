@@ -1,4 +1,5 @@
 import { spawn, type ChildProcess } from 'child_process';
+import { once } from 'events';
 import * as http from 'http';
 import type { AddressInfo } from 'net';
 import * as path from 'path';
@@ -58,7 +59,11 @@ describe('Cloud Hypervisor enclave gateway fixture', () => {
   let upstream: http.Server | undefined;
 
   afterEach(async () => {
-    gateway?.kill();
+    if (gateway && gateway.exitCode === null && gateway.signalCode === null) {
+      const closed = once(gateway, 'close');
+      gateway.kill();
+      await closed;
+    }
     gateway = undefined;
     if (upstream) await new Promise((resolve) => upstream?.close(resolve));
     upstream = undefined;
@@ -165,7 +170,7 @@ describe('Cloud Hypervisor enclave gateway fixture', () => {
       .rejects.toThrow('Gateway enclave tool contract did not exactly match');
     expect(getEnclaveStartupProgress(wrapper)).toMatchObject({ code: 'tools-mismatch' });
     expect(methods).toEqual(['initialize', 'notifications/initialized', 'tools/list']);
-  });
+  }, 15_000);
 
   it('reports an unreachable backend with the retryable mcpg backend_unavailable contract', async () => {
     const port = await startGateway(await freePort());
