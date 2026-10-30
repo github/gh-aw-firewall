@@ -23,6 +23,7 @@ const imageArgs = '--image-registry awf-smoke --image-tag "${AWF_SMOKE_IMAGE_TAG
 
 describe.each([
   ['copilot', 15],
+  ['copilot-network-isolation', 15],
   ['services', 10],
 ])('Smoke %s local image preparation', (workflow, executionTimeout) => {
   const workflowPath = path.join(root, `.github/workflows/smoke-${workflow}.lock.yml`);

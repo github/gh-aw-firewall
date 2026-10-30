@@ -3,6 +3,7 @@ import { EXTERNAL_BRIDGE_NAME, NETWORK_SUBNET, SQUID_PORT } from '../config/netw
 import { isValidIPv4, isValidIPv6 } from '../domain-utils';
 import { parseDifcProxyHost } from '../host-env';
 import { assignImageSource } from '../image-tag';
+import { getSafeHostGid, getSafeHostUid } from '../host-identity';
 import { logger } from '../logger';
 import { WrapperConfig, CLI_PROXY_PORT } from '../types';
 import { NetworkConfig, ImageBuildConfig } from './squid-service';
@@ -138,6 +139,7 @@ export function buildCliProxyService(params: CliProxyServiceParams): CliProxyBui
   // so that gh CLI's GH_HOST=localhost:${difcProxyPort} matches the cert's SAN.
   const cliProxyService: any = {
     container_name: CLI_PROXY_CONTAINER_NAME,
+    user: `${getSafeHostUid()}:${getSafeHostGid()}`,
     networks: {
       'awf-net': {
         ipv4_address: cliProxyIp,
