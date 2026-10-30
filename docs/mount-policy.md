@@ -95,6 +95,15 @@ should be updated accordingly.
 In all cases the agent receives the credentials it legitimately needs through the
 API proxy or environment, never from these on-disk stores.
 
+GitLab CLI's `~/.config/glab-cli/config.yml` is included in the credential deny
+list. AWF also hides GitLab config files at host `GLAB_CONFIG_DIR`,
+`XDG_CONFIG_HOME` and `XDG_CONFIG_DIRS` locations, and macOS configuration
+locations, **when an existing mount exposes them**. Compose maps these files
+through bind sources, including custom target aliases; sbx moves exposed files
+aside and restores them after teardown. This does not add mounts for otherwise
+inaccessible credential directories. Other GitLab config files, such as
+`aliases.yml`, remain available in Compose.
+
 ## Adding an entry
 
 1. Edit `sandbox-mount-policy.json`.

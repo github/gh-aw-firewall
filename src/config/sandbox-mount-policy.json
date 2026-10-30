@@ -70,6 +70,7 @@
       { "path": ".gemini/access_tokens.json", "type": "file", "reason": "Gemini CLI cached access tokens" },
       { "path": ".local/state/sandboxes", "type": "dir", "reason": "sandboxd private CA keys and microVM backing store" },
       { "path": ".config/gh", "type": "dir", "files": ["hosts.yml"], "reason": "GitHub CLI OAuth token" },
+      { "path": ".config/glab-cli", "type": "dir", "files": ["config.yml"], "reason": "GitLab CLI PAT/OAuth credentials" },
       { "path": ".config/gcloud", "type": "dir", "files": ["credentials.db", "access_tokens.db", "application_default_credentials.json"], "reason": "Google Cloud SDK credentials" },
       { "path": ".config/doctl", "type": "dir", "files": ["config.yaml"], "reason": "DigitalOcean CLI token" },
       { "path": ".config/heroku", "type": "dir", "reason": "Heroku CLI credential store" },

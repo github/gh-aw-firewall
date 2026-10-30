@@ -5,6 +5,7 @@ import {
   HOME_FORBIDDEN_SUBDIRS,
   CREDENTIAL_ENTRIES,
   credentialFilesToHide,
+  gitLabCredentialFiles,
   credentialEntriesUnderMountedPaths,
   systemDirectories,
   etcAllowlist,
@@ -107,6 +108,7 @@ describe('mount-policy', () => {
       expect(files).toContain('.docker/config.json');
       // dir entry expanded
       expect(files).toContain('.config/gh/hosts.yml');
+      expect(files).toContain('.config/glab-cli/config.yml');
       expect(files).toContain('.config/gcloud/credentials.db');
       // Azure CLI token caches are masked as file entries
       expect(files).toContain('.azure/msal_token_cache.bin');
@@ -135,6 +137,7 @@ describe('mount-policy', () => {
       const paths = entries.map((e) => e.path);
 
       expect(paths).toContain('.config/gh');
+      expect(paths).toContain('.config/glab-cli');
       expect(paths).toContain('.cargo/credentials');
       expect(paths).toContain('.claude/.credentials.json');
       // .azure token caches are masked when .azure is mounted
@@ -159,6 +162,35 @@ describe('mount-policy', () => {
 
     it('returns nothing when no parents are mounted', () => {
       expect(credentialEntriesUnderMountedPaths(new Set())).toHaveLength(0);
+    });
+  });
+
+  describe('gitLabCredentialFiles', () => {
+    it('covers legacy, platform-specific and overridden configuration locations', () => {
+      expect(gitLabCredentialFiles('/home/runner', {
+        GLAB_CONFIG_DIR: '/workspace/gitlab-auth',
+        XDG_CONFIG_HOME: '/home/runner/.cache/xdg',
+        XDG_CONFIG_DIRS: '/opt/config:/etc/company',
+      })).toEqual(expect.arrayContaining([
+        '/home/runner/.config/glab-cli/config.yml',
+        '/home/runner/Library/Application Support/glab-cli/config.yml',
+        '/home/runner/Library/Preferences/glab-cli/config.yml',
+        '/workspace/gitlab-auth/config.yml',
+        '/home/runner/.cache/xdg/glab-cli/config.yml',
+        '/opt/config/glab-cli/config.yml',
+        '/etc/company/glab-cli/config.yml',
+      ]));
+    });
+
+    it('deduplicates default paths and ignores invalid relative XDG roots', () => {
+      const files = gitLabCredentialFiles('/home/runner', {
+        GLAB_CONFIG_DIR: '/home/runner/.config/glab-cli',
+        XDG_CONFIG_HOME: 'relative',
+        XDG_CONFIG_DIRS: ':/home/runner/.config:relative',
+      });
+      expect(files.filter((file) => file === '/home/runner/.config/glab-cli/config.yml')).toHaveLength(1);
+      expect(files.every((file) => file.startsWith('/'))).toBe(true);
+      expect(files.some((file) => file.includes('relative'))).toBe(false);
     });
   });
 

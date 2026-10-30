@@ -4,7 +4,7 @@ import { logger } from '../../logger';
 import { WrapperConfig } from '../../types';
 import { applyHostPathPrefixToVolumes } from '../host-path-prefix';
 import { buildCredentialHidingOverlays, pruneUnmountableCredentialOverlays } from './credential-hiding';
-import { createLocalSourceResolver } from './mount-topology';
+import { createLocalSourceResolver, parseMount } from './mount-topology';
 import { ensureNestedMountpoints } from './nested-mountpoints';
 import { buildDockerSocketMount } from './docker-socket';
 import { buildEtcMounts } from './etc-mounts';
@@ -93,8 +93,6 @@ export function buildAgentVolumes(params: AgentVolumesParams): string[] {
 
   logger.debug('Using selective mounting for security (credential files hidden)');
 
-  agentVolumes.push(...buildCredentialHidingOverlays(effectiveHome));
-
   const localCustomMounts = buildCustomVolumeMounts(config.volumeMounts, undefined, { quiet: true });
   const localSourceRoots = new Map(
     customMounts.map((spec, index) => [spec, localCustomMounts[index]?.split(':')[0] ?? '']),
@@ -108,9 +106,13 @@ export function buildAgentVolumes(params: AgentVolumesParams): string[] {
     ]),
   );
   const localSourceResolver = createLocalSourceResolver(customSourceRoots, config.dockerHostPathPrefix);
+  const credentialOverlays = buildCredentialHidingOverlays(effectiveHome, agentVolumes, localSourceResolver);
+  const credentialTargets = new Set(credentialOverlays.map((spec) => parseMount(spec)?.target));
+  const maskedVolumes = agentVolumes.filter((spec) => !credentialTargets.has(parseMount(spec)?.target));
+  maskedVolumes.push(...credentialOverlays);
 
   const policyVolumes = applyFilesystemWritePolicy(
-    agentVolumes,
+    maskedVolumes,
     resolveComposeFilesystemAllowWrite(config),
     alwaysWritableMounts,
     localSourceRoots,

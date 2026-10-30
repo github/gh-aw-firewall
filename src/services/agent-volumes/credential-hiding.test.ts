@@ -38,9 +38,95 @@ describe('buildCredentialHidingOverlays', () => {
     expect(overlays).toContain('/dev/null:/host/home/runner/.docker/config.json:ro');
     expect(overlays).toContain('/dev/null:/home/runner/.config/gh/hosts.yml:ro');
     expect(overlays).toContain('/dev/null:/host/home/runner/.config/gh/hosts.yml:ro');
+    expect(overlays).toContain('/dev/null:/home/runner/.config/glab-cli/config.yml:ro');
+    expect(overlays).toContain('/dev/null:/host/home/runner/.config/glab-cli/config.yml:ro');
     // Newly centralized entries (previously only protected by sbx).
     expect(overlays).toContain('/dev/null:/home/runner/.claude/.credentials.json:ro');
     expect(overlays).toContain('/dev/null:/home/runner/.gemini/oauth_creds.json:ro');
+  });
+
+  it('masks exposed GitLab overrides and platform paths through every bind alias', () => {
+    const overlays = buildCredentialHidingOverlays('/home/runner', [
+      '/workspace:/host/workspace:rw',
+      '/workspace/gitlab-auth:/auth:ro',
+      '/workspace/gitlab-auth/config.yml:/credential.yml:ro',
+      '/home/runner/Library:/host/home/runner/Library:rw',
+      '/home/runner/.cache:/host/home/runner/.cache:rw',
+    ], undefined, {
+      GLAB_CONFIG_DIR: '/workspace/gitlab-auth',
+      XDG_CONFIG_HOME: '/home/runner/.cache/xdg',
+    });
+
+    expect(overlays).toEqual(expect.arrayContaining([
+      '/dev/null:/host/workspace/gitlab-auth/config.yml:ro',
+      '/dev/null:/auth/config.yml:ro',
+      '/dev/null:/credential.yml:ro',
+      '/dev/null:/host/home/runner/Library/Application Support/glab-cli/config.yml:ro',
+      '/dev/null:/host/home/runner/.cache/xdg/glab-cli/config.yml:ro',
+    ]));
+    expect(overlays.some((spec) => spec.includes('aliases.yml'))).toBe(false);
+  });
+
+  it('does not expose unmounted overrides or similarly named source siblings', () => {
+    const overlays = buildCredentialHidingOverlays('/home/runner', [
+      '/workspace/gitlab-auth-other:/auth:rw',
+    ], undefined, { GLAB_CONFIG_DIR: '/workspace/gitlab-auth' });
+    expect(overlays.some((spec) => spec.includes('/auth/'))).toBe(false);
+    expect(overlays.some((spec) => spec.includes('/workspace/'))).toBe(false);
+  });
+
+  it('resolves daemon-prefixed custom sources before masking GitLab credentials', () => {
+    const overlays = buildCredentialHidingOverlays('/home/runner', [
+      '/host/workspace/gitlab-auth:/auth:ro',
+    ], createLocalSourceResolver(new Map([
+      ['/host/workspace/gitlab-auth', '/workspace/gitlab-auth'],
+    ]), '/host'), { GLAB_CONFIG_DIR: '/workspace/gitlab-auth' });
+    expect(overlays).toContain('/dev/null:/auth/config.yml:ro');
+  });
+
+  it('masks canonical credential paths exposed through symlinked config and bind sources', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'gitlab-mask-symlink-'));
+    try {
+      const workspace = path.join(root, 'workspace');
+      const auth = path.join(workspace, 'auth');
+      const config = path.join(auth, 'config.yml');
+      const configLink = path.join(root, 'glab-link');
+      const workspaceLink = path.join(root, 'workspace-link');
+      fs.mkdirSync(auth, { recursive: true });
+      fs.writeFileSync(config, 'synthetic-token');
+      fs.symlinkSync(auth, configLink, 'dir');
+      fs.symlinkSync(workspace, workspaceLink, 'dir');
+
+      expect(buildCredentialHidingOverlays('/home/runner', [
+        `${workspace}:/workspace:rw`,
+      ], undefined, { GLAB_CONFIG_DIR: configLink })).toContain(
+        '/dev/null:/workspace/auth/config.yml:ro',
+      );
+      expect(buildCredentialHidingOverlays('/home/runner', [
+        `${workspaceLink}:/alias:rw`,
+      ], undefined, { GLAB_CONFIG_DIR: auth })).toContain(
+        '/dev/null:/alias/auth/config.yml:ro',
+      );
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('fails closed when an exposed GitLab credential cannot be mapped to a bind source', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'gitlab-mask-unmapped-'));
+    try {
+      const configDir = path.join(root, 'auth');
+      fs.mkdirSync(configDir);
+      fs.writeFileSync(path.join(configDir, 'config.yml'), 'synthetic-token');
+
+      expect(() => buildCredentialHidingOverlays('/home/runner', [
+        '/daemon-only:/alias:ro',
+      ], () => undefined, { GLAB_CONFIG_DIR: configDir })).toThrow(
+        'Cannot safely map bind source for GitLab credential masking',
+      );
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
   });
 });
 
