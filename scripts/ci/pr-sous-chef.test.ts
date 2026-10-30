@@ -22,7 +22,7 @@ const thread = (id = 'thread-1', comments = [reviewer()]) => ({
 const pr = () => ({
   number: 42, state: 'OPEN', isDraft: false, headRefOid: HEAD, headRefName: 'feature',
   baseRefName: 'release/v1', mergeable: 'MERGEABLE', mergeStateStatus: 'CLEAN',
-  author: { login: 'author' }, createdAt: OLD, updatedAt: OLD, labels: conn([{ name: 'sous-chef' }]),
+  author: { login: 'author' }, createdAt: OLD, updatedAt: OLD, labels: conn<{ name: string }>([]),
   commits: conn([{ commit: { committedDate: OLD } }]),
   reviewThreads: conn([thread()]),
   reviews: conn([{ ...reviewer(), state: 'COMMENTED', submittedAt: OLD,
@@ -41,14 +41,14 @@ const healthy = () => ({
     [name, { limit: 1000, remaining: 900, reset: NOW / 1000 + 100 }])),
 });
 function apiFixture() {
-  return jest.fn(async (args: string[]) => {
+  return jest.fn(async (args: string[]): Promise<unknown> => {
     const endpoint = args[1];
     if (endpoint === 'rate_limit') return healthy();
     if (endpoint === 'graphql') return { data: { repository: { pullRequest: pr() } } };
     if (endpoint === `repos/${repo}/pulls/42`) return {
-      state: 'open', draft: false, head: { sha: HEAD }, updated_at: OLD, labels: [{ name: 'sous-chef' }],
+      state: 'open', draft: false, head: { sha: HEAD }, updated_at: OLD, labels: [],
     };
-    if (endpoint.includes('/pulls?')) return [[{ number: 42, draft: false, updated_at: OLD, labels: [{ name: 'sous-chef' }] }]];
+    if (endpoint.includes('/pulls?')) return [[{ number: 42, draft: false, updated_at: OLD, labels: [] }]];
     if (endpoint.includes('/comments?') || endpoint.includes('/statuses?')) return [[]];
     if (endpoint.includes('/check-runs?')) return [{ check_runs: [], total_count: 0 }];
     if (endpoint.includes('/actions/runs?')) return [{ workflow_runs: [], total_count: 0 }];
@@ -231,7 +231,7 @@ describe('PR sous-chef deterministic classification', () => {
 });
 
 describe('PR sous-chef reads, configuration and queue gates', () => {
-  it('builds a dry-run preview without authorizing agent startup', async () => {
+  it('enumerates unlabeled PRs in dry-run previews without authorizing agent startup', async () => {
     const result = await fetchQueue({ repo, now: NOW }, apiFixture());
     expect(result.prs).toHaveLength(1);
     expect(result.mode).toBe('dry-run');
@@ -245,14 +245,22 @@ describe('PR sous-chef reads, configuration and queue gates', () => {
     await expect(fetchQueue({ repo: '../repo', now: NOW }, apiFixture())).rejects.toThrow('owner/repo');
   });
 
-  it('scopes explicit requests but never bypasses the pilot label', async () => {
+  it('scopes explicit requests to an unlabeled PR without enumerating other PRs', async () => {
     const api = apiFixture();
-    api.mockImplementationOnce(async () => healthy()).mockImplementationOnce(async () => healthy())
-      .mockImplementationOnce(async () => ({ data: { repository: { pullRequest: { ...pr(), labels: conn([]) } } } }));
     const result = await fetchQueue({ repo, number: 42, now: NOW }, api);
-    expect(result.prs).toEqual([]);
-    expect(result.statuses[0].status).toBe('outside_pilot');
+    expect(result.prs).toHaveLength(1);
+    expect(result.prs[0].number).toBe(42);
+    expect(result.statuses[0].status).toBe('implementation_blockers');
     expect(api.mock.calls.some(([args]) => args[1].includes('/pulls?'))).toBe(false);
+  });
+
+  it.each([undefined, 42])('allows unlabeled PRs with configured repository pilot mode (scope=%s)', async number => {
+    const result = await fetchQueue({
+      repo, number, now: NOW, mode: 'pilot', writer: 'sous-chef[bot]', writerConfigured: true,
+    }, apiFixture());
+    expect(result.mode).toBe('pilot');
+    expect(result.prs).toHaveLength(1);
+    expect(result.prs[0].number).toBe(42);
   });
 
   it.each(['core', 'graphql', 'search'])('skips the whole queue at low %s budgets', async name => {
@@ -269,8 +277,8 @@ describe('PR sous-chef reads, configuration and queue gates', () => {
   it('rejects malformed budgets, GraphQL errors and incomplete reads instead of succeeding', async () => {
     await expect(budget(async () => ({}))).rejects.toThrow('Invalid core');
     await expect(fetchQueue({ repo, now: NOW }, async () => { throw new Error('HTTP 401 Bad credentials'); })).rejects.toThrow('401');
-    await expect(inspect(repo, 42, async () => ({ errors: [{ message: 'denied' }] }), NOW, '', true)).rejects.toThrow('GraphQL read failed');
-    await expect(inspect(repo, 42, async () => ({ data: {} }), NOW, '', true)).rejects.toThrow('Incomplete PR');
+    await expect(inspect(repo, 42, async () => ({ errors: [{ message: 'denied' }] }), NOW, '')).rejects.toThrow('GraphQL read failed');
+    await expect(inspect(repo, 42, async () => ({ data: {} }), NOW, '')).rejects.toThrow('Incomplete PR');
     await expect(pages(async () => [{ workflow_runs: [], total_count: 101 }], '/runs', 'workflow_runs')).rejects.toThrow('Truncated');
     await expect(pages(async () => [], '/comments')).rejects.toThrow('Incomplete');
     expect(await pages(async () => [[1], [2]], '/comments')).toEqual([1, 2]);
@@ -280,7 +288,18 @@ describe('PR sous-chef reads, configuration and queue gates', () => {
     const api = apiFixture();
     const base = api.getMockImplementation()!;
     api.mockImplementation(async args => args[1] === `repos/${repo}/pulls/42`
-      ? { state: 'open', draft: false, head: { sha: 'b'.repeat(40) }, updated_at: OLD, labels: [{ name: 'sous-chef' }] }
+      ? { state: 'open', draft: false, head: { sha: 'b'.repeat(40) }, updated_at: OLD, labels: [] }
+      : base(args));
+    const result = await fetchQueue({ repo, number: 42, now: NOW }, api);
+    expect(result.prs).toEqual([]);
+    expect(result.statuses[0].status).toBe('changed_during_refresh');
+  });
+
+  it.each(['ready-for-aw', 'sous-chef-skip', 'broccoli'])('preserves final-refresh stop label %s without opt-in labels', async name => {
+    const api = apiFixture();
+    const base = api.getMockImplementation()!;
+    api.mockImplementation(async args => args[1] === `repos/${repo}/pulls/42`
+      ? { state: 'open', draft: false, head: { sha: HEAD }, updated_at: OLD, labels: [{ name }] }
       : base(args));
     const result = await fetchQueue({ repo, number: 42, now: NOW }, api);
     expect(result.prs).toEqual([]);
@@ -292,12 +311,12 @@ describe('PR sous-chef reads, configuration and queue gates', () => {
     const base = api.getMockImplementation()!;
     api.mockImplementation(async args => {
       if (args[1].includes('/pulls?')) return [Array.from({ length: 25 }, (_, index) =>
-        ({ number: index + 1, draft: false, updated_at: OLD, labels: [{ name: 'sous-chef' }] }))];
+        ({ number: index + 1, draft: false, updated_at: OLD, labels: [] }))];
       if (args[1] === 'graphql') {
         const number = Number(args[args.length - 1].split('=')[1]);
         return { data: { repository: { pullRequest: { ...pr(), number } } } };
       }
-      if (/\/pulls\/\d+$/.test(args[1])) return { state: 'open', draft: false, head: { sha: HEAD }, updated_at: OLD, labels: [{ name: 'sous-chef' }] };
+      if (/\/pulls\/\d+$/.test(args[1])) return { state: 'open', draft: false, head: { sha: HEAD }, updated_at: OLD, labels: [] };
       if (args[1].includes('/comments?')) return [[]];
       return base(args);
     });
@@ -329,7 +348,7 @@ describe('PR sous-chef workflow safety contract', () => {
     expect(config.on.schedule).toBe('every 15m');
     expect(config.permissions).toEqual({ contents: 'read', issues: 'read', 'pull-requests': 'read', actions: 'read', 'copilot-requests': 'write' });
     expect(config['safe-outputs']['add-comment']).toEqual({
-      max: 2, target: '*', 'required-labels': ['sous-chef'], discussions: false, issues: false,
+      max: 2, target: '*', discussions: false, issues: false,
       'github-token': '${{ secrets.PR_SOUS_CHEF_WRITER_TOKEN }}',
     });
     expect(config['safe-outputs']['github-token']).toBeUndefined();
@@ -341,6 +360,8 @@ describe('PR sous-chef workflow safety contract', () => {
     expect(config.jobs.prefilter.if).toContain('github.event.repository.default_branch');
     expect(config.env.PR_SOUS_CHEF_MODE).toContain("'dry-run'");
     expect(source).not.toContain('secrets.PR_SOUS_CHEF_WRITER_TOKEN ||');
+    expect(source).not.toContain('required-labels:');
+    expect(source).toContain('no per-PR opt-in label is required');
   });
 
   it('requires exact freshly generated bodies and a human authorization boundary', () => {
@@ -364,6 +385,7 @@ describe('PR sous-chef workflow safety contract', () => {
     expect(agent.permissions['pull-requests']).toBe('read');
     expect(lock).not.toContain('--build-local');
     expect(lock).not.toContain('Build local AWF');
+    expect(lock).not.toContain('required_labels');
     expect(lock).toContain('install_awf_binary.sh" v0.29.0');
     const configStep = agent.steps.find(step => step.name === 'Generate Safe Outputs Config')!;
     expect(configStep.env!.GH_AW_SAFE_OUTPUTS_CONFIG).not.toContain('${{ secrets.');

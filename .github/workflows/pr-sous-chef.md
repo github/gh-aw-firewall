@@ -1,6 +1,6 @@
 ---
 name: PR Sous Chef
-description: Dry-run-first, opt-in PR preparation up to a human ready-for-aw handoff
+description: Dry-run-first PR preparation up to a human ready-for-aw handoff
 on:
   schedule: every 15m
   workflow_dispatch:
@@ -96,7 +96,6 @@ safe-outputs:
   add-comment:
     max: 2
     target: "*"
-    required-labels: [sous-chef]
     discussions: false
     issues: false
     github-token: ${{ secrets.PR_SOUS_CHEF_WRITER_TOKEN }}
@@ -144,15 +143,15 @@ If no comment remains after refresh, call `noop`.
 
 The default is **read-only dry run**: the 15-minute prefilter produces an Actions
 summary and one-day compact artifact, but starts no AI and posts no comments.
-Only PRs labeled `sous-chef` are scanned in detail (maximum 20; at most 2 comments
-per run, at most 20 concrete tasks per nudge). Detailed-read windows rotate across
-the pilot backlog to avoid starvation. `/souschef` or dispatch `item_number` scopes
-to one PR but does not bypass
-that label, opt-out, idle, stale, active-agent, running-CI, or deduplication gates.
-Create the pilot label manually. Add `sous-chef-skip` (or `broccoli`) to opt out.
+Eligible open PRs are scanned in detail without any opt-in label (maximum 20;
+at most 2 comments per run, at most 20 concrete tasks per nudge). Detailed-read
+windows rotate across the backlog to avoid starvation. `/souschef` or dispatch
+`item_number` scopes to one PR but does not bypass repository dry-run/pilot
+configuration, opt-out, idle, stale, active-agent, running-CI, or deduplication gates.
+Add `sous-chef-skip` (or `broccoli`) to opt out.
 Any PR already labeled `ready-for-aw` is left alone, even after subsequent pushes.
 
-To enable a small pilot after inspecting dry-run summaries, set repository variable
+To enable repository-wide preparation after inspecting dry-run summaries, set variable
 `PR_SOUS_CHEF_MODE=pilot`, variable `PR_SOUS_CHEF_WRITER_LOGIN` to the exact login
 that will post safe-output comments, and secret `PR_SOUS_CHEF_WRITER_TOKEN` to a
 scoped GitHub App/user credential with PR-comment write access **whose comments can
@@ -162,11 +161,15 @@ enter the agent sandbox. Missing configuration fails explicitly. There is no
 `GITHUB_TOKEN` fallback: a successful ordinary bot comment is not proof Copilot
 was invoked. Validate credential installation/expiry and one authorized pilot
 invocation operationally; a 401/403 is a failure, not successful preparation.
-Set the mode back to `dry-run` to stop writes. No broad-write mode is provided.
+Set the mode back to `dry-run` to stop writes. Enabling `pilot` applies to eligible
+PRs throughout this repository; no per-PR opt-in label is required.
 
-The v1.0.1 comment safe-output supports a required-label gate, not a dynamic PR-number
-allowlist. The deterministic original queue constrains agent targets; the writer
-also checks the pilot label. Never broaden the tool's target repository.
+The v1.0.1 comment safe-output does not support a dynamic PR-number allowlist.
+The agent must restrict targets to the original deterministic queue and revalidate
+each PR immediately before declaring a comment. These are agent instructions,
+not a writer-enforced PR-number allowlist; there is no writer-side label gate.
+The safe-output target remains `*` within this repository only. Never broaden
+the tool's target repository or substitute an unqueued PR.
 
 Fingerprints cover HEAD and concrete work, with per-work tokens preventing repeats
 when blockers shrink. Chatter, elapsed time, identical failed-check reruns, and

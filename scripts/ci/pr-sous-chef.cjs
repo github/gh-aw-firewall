@@ -38,13 +38,12 @@ function connection(value, name) {
   return value.nodes;
 }
 
-function metadataSkip(pr, now, pilotOnly) {
+function metadataSkip(pr, now) {
   if (pr.state !== 'OPEN' || pr.isDraft) return 'closed_or_draft';
   if (/^(dependabot|renovate)$/.test(login(pr))) return 'dependency_bot';
   const labels = connection(pr.labels, 'labels').map(label => label.name);
   if (labels.includes('ready-for-aw')) return 'already_authorized';
   if (labels.includes('sous-chef-skip') || labels.includes('broccoli')) return 'opted_out';
-  if (pilotOnly && !labels.includes('sous-chef')) return 'outside_pilot';
   if (now - time(pr.updatedAt) < IDLE) return 'not_idle';
   if (now - time(pr.updatedAt) > STALE) return 'stale';
   return null;
@@ -57,7 +56,7 @@ function recorded(comments, writer, kind, head) {
 }
 
 function classify(pr, detail, now = Date.now(), writer = '') {
-  const skip = metadataSkip(pr, now, false);
+  const skip = metadataSkip(pr, now);
   if (skip) return { number: pr.number, status: skip };
   const threads = connection(detail.reviewThreads, 'review threads');
   const reviews = connection(detail.reviews, 'reviews');
@@ -195,7 +194,7 @@ const QUERY = `query($owner:String!,$name:String!,$number:Int!){
   }}
 }`;
 
-async function inspect(repo, number, api, now, writer, pilotOnly) {
+async function inspect(repo, number, api, now, writer) {
   const [owner, name] = repo.split('/');
   const response = await api(['api', 'graphql', '-f', `query=${QUERY}`, '-f', `owner=${owner}`, '-f', `name=${name}`, '-F', `number=${number}`]);
   requireValue(!response.errors?.length, `GraphQL read failed: ${JSON.stringify(response.errors)}`);
@@ -204,7 +203,7 @@ async function inspect(repo, number, api, now, writer, pilotOnly) {
     ['OPEN', 'CLOSED', 'MERGED'].includes(pr.state) && /^[a-f0-9]{40,64}$/.test(pr.headRefOid) &&
     pr.headRefName && pr.baseRefName && pr.author?.login && ['MERGEABLE', 'CONFLICTING', 'UNKNOWN'].includes(pr.mergeable),
   `Incomplete PR #${number} metadata`);
-  const skip = metadataSkip(pr, now, pilotOnly);
+  const skip = metadataSkip(pr, now);
   if (skip) return { number, status: skip };
   const comments = await pages(api, `repos/${repo}/issues/${number}/comments?per_page=100`);
   const checkRuns = await pages(api, `repos/${repo}/commits/${pr.headRefOid}/check-runs?per_page=100&filter=latest`, 'check_runs');
@@ -225,8 +224,9 @@ async function inspect(repo, number, api, now, writer, pilotOnly) {
     const latest = await api(['api', `repos/${repo}/pulls/${number}`]);
     requireValue(latest?.head?.sha && latest.updated_at && Array.isArray(latest.labels), 'Incomplete final PR refresh');
     if (latest.state !== 'open' || latest.draft || latest.head.sha !== pr.headRefOid ||
-      latest.updated_at !== pr.updatedAt || latest.labels.some(label => ['ready-for-aw', 'sous-chef-skip', 'broccoli'].includes(label.name)) ||
-      !latest.labels.some(label => label.name === 'sous-chef')) return { number, status: 'changed_during_refresh' };
+      latest.updated_at !== pr.updatedAt || latest.labels.some(label => ['ready-for-aw', 'sous-chef-skip', 'broccoli'].includes(label.name))) {
+      return { number, status: 'changed_during_refresh' };
+    }
   }
   return result;
 }
@@ -246,7 +246,6 @@ async function fetchQueue({ repo, number, mode = 'dry-run', writer = '', writerC
     Array.isArray(pr.labels) && pr.labels.every(label => typeof label.name === 'string')), 'Malformed PR list');
   const numbers = number ? [number] : listed
     .filter(pr => !pr.draft && now - time(pr.updated_at) >= IDLE && now - time(pr.updated_at) <= STALE)
-    .filter(pr => pr.labels?.some(label => label.name === 'sous-chef'))
     .map(pr => pr.number);
   // Bound detailed reads as well as writes; the next poll can service deferred PRs.
   const start = numbers.length ? (Math.floor(now / (15 * 60_000)) * 20) % numbers.length : 0;
@@ -255,7 +254,7 @@ async function fetchQueue({ repo, number, mode = 'dry-run', writer = '', writerC
   for (const candidate of candidates) {
     output.rate_limit = await budget(api);
     if (output.rate_limit.low) { output.prs = []; return output; }
-    const result = await inspect(repo, candidate, api, now, writer, true);
+    const result = await inspect(repo, candidate, api, now, writer);
     output.statuses.push({ number: result.number, status: result.status, reason: result.reason });
     if (result.body) output.prs.push(result);
   }
