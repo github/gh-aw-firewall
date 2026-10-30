@@ -460,7 +460,27 @@ describe('PR sous-chef workflow safety contract', () => {
     checkout: { ref: string; 'pull-request': boolean };
     jobs: { prefilter: { if: string } };
     env: { PR_SOUS_CHEF_MODE: string };
+    tools: { bash: string[] };
   };
+
+  it('authorizes refresh arguments only for the trusted helper in noninteractive Copilot', () => {
+    expect(config.tools.bash).toEqual([
+      'node scripts/ci/pr-sous-chef.cjs:*',
+      'cat /tmp/gh-aw/agent/pr-sous-chef-queue.json',
+    ]);
+    const lock = yaml.load(fs.readFileSync(path.join(root, '.github/workflows/pr-sous-chef.lock.yml'), 'utf8')) as {
+      jobs: { agent: { steps: { run?: string }[] } };
+    };
+    const invocation = lock.jobs.agent.steps.find(step => step.run?.includes('copilot_harness.cjs'))!.run!;
+    const permissions = [...invocation.matchAll(/shell\(([^)]+)\)/g)].map(match => match[1]);
+    // A trailing " *" is normalized away by gh-aw; Copilot needs ":*" for arguments.
+    expect(permissions.filter(permission => permission.startsWith('node'))).toEqual([
+      'node scripts/ci/pr-sous-chef.cjs:*',
+    ]);
+    expect(invocation).toContain('--no-ask-user');
+    expect(invocation).not.toContain('--allow-all-tools');
+    expect(invocation).not.toMatch(/--allow-tool\s+(?:'|\\')?shell(?:'|\\')?(?:\s|$)/);
+  });
 
   it('keeps the coordinator read-only with one bounded comment-only write path', () => {
     expect(config.on.schedule).toBe('every 15m');

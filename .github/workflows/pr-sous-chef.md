@@ -44,7 +44,8 @@ tools:
     mode: gh-proxy
     toolsets: [pull_requests, repos, issues, actions]
   bash:
-    - "node scripts/ci/pr-sous-chef.cjs *"
+    # Copilot requires :* for argument-prefix matching; gh-aw strips a trailing " *".
+    - "node scripts/ci/pr-sous-chef.cjs:*"
     - "cat /tmp/gh-aw/agent/pr-sous-chef-queue.json"
 if: needs.prefilter.outputs.eligible_count > 0
 jobs:
