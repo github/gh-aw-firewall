@@ -25,6 +25,9 @@ name: Supply Chain Scan
 #     until the next release / upstream bump).
 #
 # All scanners run via Docker (pre-installed on `ubuntu-latest`).
+# Compile once, then run PR-image CVE, published-image CVE, and license scans
+# on separate runners. Keep PR builds sequential to bound disk use and retain
+# the shared build-tools image until the enclave-agent build finishes.
 #
 # To make this a *required* check, add
 # "Supply Chain Scan / Compile + Syft/Grype/Grant"
@@ -46,10 +49,12 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  scan:
-    name: Compile + Syft/Grype/Grant
+  compile:
+    name: Compile + Syft inventory
     runs-on: ubuntu-latest
     timeout-minutes: 40
+    outputs:
+      images: ${{ steps.inventory.outputs.images }}
 
     steps:
       - name: Checkout repository
@@ -58,8 +63,7 @@ jobs:
           persist-credentials: false
 
       - name: Free unused hosted-runner disk space
-        # The blocking gate builds, saves and scans every PR image, including the
-        # large shared enclave-agent image. Remove preinstalled SDKs this job never uses.
+        # Leave room for Syft to unpack the published images.
         run: |
           df -h /
           sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /usr/local/.ghcup \
@@ -100,18 +104,67 @@ jobs:
           rm -rf .tmp/gh-aw-compiler
           gh aw version
 
-      - name: Prepare pinned scanners
+      - name: Prepare pinned Syft scanner
         run: |
           # Keep the compiler's exact Syft reference so digest-qualified lookups
           # find it locally. The daemon cache also covers ordinary/nested builds.
           docker pull anchore/syft:v1.55.0@sha256:4cc92b64ca74ffca4c94d4c8fcc01f217731375300be14d0b6eeb2e82eaa110a
-          docker pull ghcr.io/anchore/grype@sha256:fd4ab4d1042b522c896e73bdf09ab8bf384fa417df99d6dd0d6e1008c7e7c821
-          docker pull ghcr.io/anchore/grant@sha256:172463611795f43b77302cdfbd7b3f81295492a7330e0820cfe41c3674920237
 
       - name: Compile + generate SBOMs (Syft)
         env:
           GH_TOKEN: ${{ github.token }}
         run: gh aw compile --syft --action-mode action --action-tag v1.0.1 .github/workflows/*.md
+
+      - name: Export compiled image inventory
+        id: inventory
+        run: |
+          python3 - <<'PYEOF'
+          import glob, json, os, re
+          images = set()
+          for path in glob.glob('.github/workflows/*.lock.yml'):
+              with open(path) as manifest:
+                  m = re.search(r'# gh-aw-manifest: (\{.*\})', manifest.read())
+              if m:
+                  for c in json.loads(m.group(1)).get('containers', []):
+                      images.add(c.get('pinned_image', c.get('image')))
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+              output.write('images=' + json.dumps(sorted(images)) + '\n')
+          PYEOF
+
+  image-scans:
+    name: Scan / ${{ matrix.scan }}
+    needs: [compile]
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        scan: [pr-images, published-cves, licenses]
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Free unused hosted-runner disk space
+        if: matrix.scan == 'pr-images'
+        run: |
+          df -h /
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /usr/local/.ghcup \
+            /opt/hostedtoolcache/CodeQL
+          df -h /
+
+      - name: Configure Docker Hub cache
+        run: bash scripts/ci/configure-docker-mirror.sh
+
+      - name: Prepare pinned Grype scanner
+        if: matrix.scan != 'licenses'
+        run: docker pull ghcr.io/anchore/grype@sha256:fd4ab4d1042b522c896e73bdf09ab8bf384fa417df99d6dd0d6e1008c7e7c821
+
+      - name: Prepare pinned Grant scanner
+        if: matrix.scan == 'licenses'
+        run: docker pull ghcr.io/anchore/grant@sha256:172463611795f43b77302cdfbd7b3f81295492a7330e0820cfe41c3674920237
 
       - name: Authenticate to GHCR for image scanning
         run: echo "${{ github.token }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
@@ -119,23 +172,24 @@ jobs:
       # Persist Grype's vulnerability DB across runs. The unique run_id key never
       # hits exactly, so each run restores the newest prior DB via restore-keys,
       # refreshes it if a newer DB exists (see `db update` below), then saves the
-      # result under a fresh key. This keeps the DB current while avoiding a full
-      # cold download on every run.
+      # result under a fresh per-matrix key so concurrent scans never race to save.
       #
       # Using separate restore + save steps so the DB is saved immediately after
       # a successful warm-up regardless of whether later Grype scans flag CVEs
       # (Grype exits nonzero on --fail-on high findings, which would prevent the
       # combined actions/cache post-step from uploading the warmed DB).
       - name: Restore Grype vulnerability DB cache
+        if: matrix.scan != 'licenses'
         id: grype-cache-restore
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ${{ runner.temp }}/grype-db
-          key: grype-db-v6-${{ github.run_id }}
+          key: grype-db-v6-${{ github.run_id }}-${{ matrix.scan }}
           restore-keys: |
             grype-db-v6-
 
       - name: Warm Grype vulnerability DB
+        if: matrix.scan != 'licenses'
         env:
           GRYPE_DB: ${{ runner.temp }}/grype-db
         run: |
@@ -150,13 +204,14 @@ jobs:
             db update
 
       - name: Save Grype vulnerability DB cache
-        if: always()
+        if: matrix.scan != 'licenses'
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ${{ runner.temp }}/grype-db
-          key: grype-db-v6-${{ github.run_id }}
+          key: grype-db-v6-${{ github.run_id }}-${{ matrix.scan }}
 
       - name: Scan published & third-party images for CVEs (report-only, Grype v0.116.0)
+        if: matrix.scan == 'published-cves'
         # Scans the immutable image digests recorded in the compiled .lock.yml
         # gh-aw-manifest headers: already-published first-party images plus
         # upstream third-party images that a PR cannot rebuild. Findings are
@@ -165,15 +220,11 @@ jobs:
         # ghcr.io/anchore/grype@sha256:fd4ab4d1042b522c896e73bdf09ab8bf384fa417df99d6dd0d6e1008c7e7c821 = v0.116.0
         env:
           GRYPE_DB: ${{ runner.temp }}/grype-db
+          MANIFEST_IMAGES: ${{ needs.compile.outputs.images }}
         run: |
           python3 - <<'PYEOF'
-          import json, os, re, glob, subprocess, sys
-          images = set()
-          for path in glob.glob('.github/workflows/*.lock.yml'):
-              m = re.search(r'# gh-aw-manifest: (\{.*\})', open(path).read())
-              if m:
-                  for c in json.loads(m.group(1)).get('containers', []):
-                      images.add(c.get('pinned_image', c.get('image')))
+          import json, os, subprocess, sys
+          images = json.loads(os.environ['MANIFEST_IMAGES'])
           home = os.path.expanduser('~')
           db_cache = os.environ['GRYPE_DB']
           cwd = os.getcwd()
@@ -203,6 +254,7 @@ jobs:
           PYEOF
 
       - name: Build and scan PR container images (BLOCKING gate, Grype v0.116.0)
+        if: matrix.scan == 'pr-images'
         # Builds every production image from the Dockerfiles in
         # this PR and scans them with --fail-on high. This is the BLOCKING supply-chain
         # gate: it is the only scan that reflects the CVE fixes in a PR, so a
@@ -304,19 +356,17 @@ jobs:
           PYEOF
 
       - name: Check image licenses (report-only, Grant v0.6.8)
+        if: matrix.scan == 'licenses'
         # License findings on the immutable published / third-party manifest
         # digests are reported as warnings but do NOT fail the job (same
         # rationale as the report-only CVE scan above).
         # ghcr.io/anchore/grant@sha256:172463611795f43b77302cdfbd7b3f81295492a7330e0820cfe41c3674920237 = v0.6.8
+        env:
+          MANIFEST_IMAGES: ${{ needs.compile.outputs.images }}
         run: |
           python3 - <<'PYEOF'
-          import json, os, re, glob, subprocess, sys
-          images = set()
-          for path in glob.glob('.github/workflows/*.lock.yml'):
-              m = re.search(r'# gh-aw-manifest: (\{.*\})', open(path).read())
-              if m:
-                  for c in json.loads(m.group(1)).get('containers', []):
-                      images.add(c.get('pinned_image', c.get('image')))
+          import json, os, subprocess, sys
+          images = json.loads(os.environ['MANIFEST_IMAGES'])
           home = os.path.expanduser('~')
           cwd = os.getcwd()
           flagged = []
@@ -338,3 +388,19 @@ jobs:
           # Report-only: never fail the job on immutable published / third-party images.
           sys.exit(0)
           PYEOF
+
+  scan:
+    name: Compile + Syft/Grype/Grant
+    needs: [compile, image-scans]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 1
+    steps:
+      - name: Require compilation and all scan jobs to succeed
+        env:
+          COMPILE_RESULT: ${{ needs.compile.result }}
+          SCANS_RESULT: ${{ needs.image-scans.result }}
+        run: |
+          echo "Compilation: $COMPILE_RESULT; scans: $SCANS_RESULT"
+          test "$COMPILE_RESULT" = success
+          test "$SCANS_RESULT" = success
