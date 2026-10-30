@@ -253,6 +253,21 @@ describe('docker-manager (barrel re-exports)', () => {
       delete process.env.AWF_SKIP_CAP_DROP;
       expect(dockerManager.filterCapDrop(['ALL', 'NET_ADMIN'], BigInt(0))).toEqual(['ALL']);
     });
+
+    it('parseDifcProxyHost defaults for empty or whitespace-only input', () => {
+      const defaults = { host: 'host.docker.internal', port: '18443' };
+      expect(dockerManager.parseDifcProxyHost('')).toEqual(defaults);
+      expect(dockerManager.parseDifcProxyHost('   ')).toEqual(defaults);
+    });
+
+    it('parseDifcProxyHost rejects out-of-range ports', () => {
+      expect(() => dockerManager.parseDifcProxyHost('example.com:0')).toThrow(/Invalid --difc-proxy-host/);
+      expect(() => dockerManager.parseDifcProxyHost('example.com:70000')).toThrow(/Invalid --difc-proxy-host/);
+    });
+
+    it('parseDifcProxyHost does not leak a scheme into the host', () => {
+      expect(dockerManager.parseDifcProxyHost('http://example.com:8080')).toEqual({ host: 'example.com', port: '8080' });
+    });
   });
 
 });
