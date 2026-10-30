@@ -263,6 +263,7 @@ function scrubHomeCredentials(
       try {
         const backupRoot = fs.mkdtempSync(path.join(homePath, '.awf-sbx-cred-backup-'));
         credentialBackupRoot = backupRoot;
+        fs.chmodSync(backupRoot, 0o700);
         const canonicalBackupRoot = fs.realpathSync(backupRoot);
         backupWouldBeMounted = mountRoots.some(({ lexical, canonical }) =>
           isWithin(lexical, path.resolve(backupRoot)) ||
@@ -271,7 +272,6 @@ function scrubHomeCredentials(
         if (backupWouldBeMounted) {
           throw new Error('credential backup directory would be exposed by a sandbox mount');
         }
-        fs.chmodSync(credentialBackupRoot, 0o700);
       } catch (err) {
         logger.warn(`[sbx] Could not secure credential backup dir: ${(err as Error).message}`);
         if (credentialBackupRoot) {
