@@ -253,6 +253,10 @@ describe('docker-manager (barrel re-exports)', () => {
       delete process.env.AWF_SKIP_CAP_DROP;
       expect(dockerManager.filterCapDrop(['ALL', 'NET_ADMIN'], BigInt(0))).toEqual(['ALL']);
     });
+
+    it('parseDifcProxyHost does not leak a scheme into the host', () => {
+      expect(dockerManager.parseDifcProxyHost('http://example.com:8080')).toEqual({ host: 'example.com', port: '8080' });
+    });
   });
 
 });
