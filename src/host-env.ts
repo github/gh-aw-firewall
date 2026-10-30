@@ -60,13 +60,13 @@ export interface SslConfig {
 }
 
 /**
- * Normalizes an API target value to a bare hostname, except an explicit
- * `http://` scheme is preserved (as an `http://<hostname>` prefix).
+ * Normalizes an API target to its authority, preserving non-default ports
+ * and an explicit `http://` scheme.
  *
- * Bare hostnames and explicit `https://` URLs both still normalize to a bare
- * hostname (HTTPS remains the implicit default). Preserving an explicit
- * `http://` lets the api-proxy sidecar dial the target in cleartext on port 80
- * instead of always assuming HTTPS on port 443 (see github/gh-aw-firewall#7862) — this
+ * Bare authorities and explicit `https://` URLs normalize to an authority
+ * (HTTPS remains the implicit default). Preserving an explicit `http://`
+ * lets the api-proxy sidecar dial the target in cleartext instead of assuming
+ * HTTPS (see github/gh-aw-firewall#7862) — this
  * mirrors the runner-side allowlist (resolveApiTargetsToAllowedDomains), which
  * already treats `http://` targets as a supported, explicitly opted-in
  * configuration. The mirrored normalizeApiTarget() in the api-proxy sidecar
@@ -82,8 +82,8 @@ export function normalizeApiTargetScheme(value: string): string {
 
   try {
     const parsed = new URL(candidate);
-    if (!parsed.hostname) return trimmed;
-    return parsed.protocol === 'http:' ? `http://${parsed.hostname}` : parsed.hostname;
+    if (!parsed.hostname || !['http:', 'https:'].includes(parsed.protocol)) return trimmed;
+    return parsed.protocol === 'http:' ? `http://${parsed.host}` : parsed.host;
   } catch {
     return trimmed;
   }

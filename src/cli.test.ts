@@ -351,10 +351,10 @@ describe('cli', () => {
     it('derives copilot target hostname from COPILOT_PROVIDER_BASE_URL', () => {
       expect(deriveCopilotApiTargetFromProviderBaseUrl('https://openrouter.ai/api/v1')).toBe('openrouter.ai');
       expect(deriveCopilotApiTargetFromProviderBaseUrl('openrouter.ai/api/v1')).toBe('openrouter.ai');
-      expect(deriveCopilotApiTargetFromProviderBaseUrl(' http://router.example.com:8443/v2 ')).toBe('router.example.com');
-      expect(deriveCopilotApiTargetFromProviderBaseUrl('example.com:8080')).toBe('example.com');
-      expect(deriveCopilotApiTargetFromProviderBaseUrl('192.168.1.10:9000')).toBe('192.168.1.10');
-      expect(deriveCopilotApiTargetFromProviderBaseUrl('[2001:db8::1]:8443')).toBe('[2001:db8::1]');
+      expect(deriveCopilotApiTargetFromProviderBaseUrl(' http://router.example.com:8443/v2 ')).toBe('http://router.example.com:8443');
+      expect(deriveCopilotApiTargetFromProviderBaseUrl('example.com:8080')).toBe('example.com:8080');
+      expect(deriveCopilotApiTargetFromProviderBaseUrl('192.168.1.10:9000')).toBe('192.168.1.10:9000');
+      expect(deriveCopilotApiTargetFromProviderBaseUrl('[2001:db8::1]:8443')).toBe('[2001:db8::1]:8443');
       expect(deriveCopilotApiTargetFromProviderBaseUrl('   ')).toBeUndefined();
       expect(deriveCopilotApiTargetFromProviderBaseUrl(undefined)).toBeUndefined();
       expect(deriveCopilotApiTargetFromProviderBaseUrl('not a valid url')).toBeUndefined();

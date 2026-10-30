@@ -20,24 +20,37 @@ function validateApiTargetInAllowedDomains(
   flagName: string,
   allowedDomains: string[]
 ): string | null {
+  const hostname = parseApiTargetHostname(targetHost);
+  const displayHost = hostname ?? '<invalid target>';
+
   // No warning needed if using the default host
-  if (targetHost === defaultHost) return null;
+  if (hostname && hostname === parseApiTargetHostname(defaultHost)) return null;
 
   // Check if the hostname or any of its parent domains is explicitly allowed.
   // Strip any https?:// prefix from allowedDomains entries so that auto-added
   // protocol-scoped entries (e.g. "https://custom.example.com") are matched
   // correctly against the bare targetHost.
-  const isDomainAllowed = allowedDomains.some(d => {
-    const withoutProtocol = d.replace(/^https?:\/\//, '');
-    const domain = withoutProtocol.startsWith('.') ? withoutProtocol.slice(1) : withoutProtocol;
-    return targetHost === domain || targetHost.endsWith('.' + domain);
+  const isDomainAllowed = hostname && allowedDomains.some(d => {
+    const withoutProtocol = d.replace(/^https?:\/\//, '').split('/')[0];
+    const domain = (withoutProtocol.startsWith('.') ? withoutProtocol.slice(1) : withoutProtocol)
+      .replace(/:\d+$/, '').replace(/\.$/, '').toLowerCase();
+    return hostname === domain || hostname.endsWith('.' + domain);
   });
 
   if (!isDomainAllowed) {
-    return `${flagName}=${targetHost} is not in --allow-domains. Add "${targetHost}" to --allow-domains or outbound traffic to this host will be blocked by the firewall.`;
+    return `${flagName}=${displayHost} is not in --allow-domains. Add "${displayHost}" to --allow-domains or outbound traffic to this host will be blocked by the firewall.`;
   }
 
   return null;
+}
+
+function parseApiTargetHostname(target: string): string | null {
+  try {
+    const url = /^[a-zA-Z][a-zA-Z\d+\-.]*:\/\//.test(target) ? target : `https://${target}`;
+    return new URL(url).hostname.replace(/\.$/, '').toLowerCase();
+  } catch {
+    return null;
+  }
 }
 
 /**

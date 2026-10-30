@@ -1,5 +1,6 @@
 const { EventEmitter } = require('events');
 const http = require('http');
+const tls = require('tls');
 const { parseCallerHeader } = require('./caller-header');
 const { shouldStripHeader } = require('./proxy-utils');
 const { createWebSocketTunnel, extractRequestModelFromUrl } = require('./websocket-tunnel');
@@ -15,6 +16,45 @@ function makeSocket() {
 }
 
 describe('websocket-tunnel', () => {
+  it.each([
+    ['http', 'localhost:11434', 'localhost:11434'],
+    ['https', 'gateway.example.com:8443', 'gateway.example.com:8443'],
+    ['http', '[::1]:11434', '[::1]:11434'],
+  ])('CONNECTs to the explicit %s target port', (targetScheme, targetHost, authority) => {
+    const connectReq = new EventEmitter();
+    connectReq.end = jest.fn();
+    const requestSpy = jest.spyOn(http, 'request').mockReturnValue(connectReq);
+    const tlsSocket = makeSocket();
+    const tlsSpy = jest.spyOn(tls, 'connect').mockReturnValue(tlsSocket);
+    try {
+      createWebSocketTunnel({
+        HTTPS_PROXY: 'http://squid:3128', metrics: {}, logRequest: jest.fn(),
+        sanitizeForLog: String, shouldStripHeader, trackWebSocketTokenUsage: jest.fn(),
+      })({
+        req: { url: '/v1/responses', headers: {} }, socket: makeSocket(),
+        targetScheme, targetHost, upstreamPath: '/v1/responses', injectHeaders: {},
+      });
+      expect(requestSpy).toHaveBeenCalledWith(expect.objectContaining({
+        path: authority, headers: { Host: authority },
+      }));
+      const tunnel = makeSocket();
+      connectReq.emit('connect', { statusCode: 200 }, tunnel);
+      if (targetScheme === 'https') {
+        expect(tlsSpy).toHaveBeenCalledWith({
+          socket: tunnel, servername: 'gateway.example.com', rejectUnauthorized: true,
+        });
+        tlsSocket.emit('secureConnect');
+        expect(tlsSocket.write).toHaveBeenCalledWith(expect.stringContaining(`host: ${authority}\r\n`));
+      } else {
+        expect(tlsSpy).not.toHaveBeenCalled();
+        expect(tunnel.write).toHaveBeenCalledWith(expect.stringContaining(`host: ${authority}\r\n`));
+      }
+    } finally {
+      requestSpy.mockRestore();
+      tlsSpy.mockRestore();
+    }
+  });
+
   it('extracts request model from websocket URL query', () => {
     expect(extractRequestModelFromUrl('/v1/chat/completions?model=auto')).toBe('auto');
     expect(extractRequestModelFromUrl('/v1/chat/completions?foo=bar')).toBeNull();

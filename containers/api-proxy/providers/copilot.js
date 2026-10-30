@@ -183,7 +183,7 @@ function createCopilotAdapter(env, deps = {}) {
    */
  function buildCopilotModelsRequest(extra = {}) {
    return {
-     url: `https://${rawTarget}/models`,
+     url: `${getTargetScheme(rawTarget)}://${stripTargetScheme(rawTarget)}/models`,
      opts: {
        method: 'GET',
        headers: withCopilotIntegration(

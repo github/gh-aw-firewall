@@ -1,4 +1,5 @@
 import { SQUID_PORT } from '../constants';
+import { isIP } from 'net';
 import { normalizeApiTargetScheme } from '../host-env';
 import { WrapperConfig } from '../types';
 import { getConfigEnvValue, getLowerCaseProcessEnvValue, pickEnvVars } from '../env-utils';
@@ -8,6 +9,7 @@ import { buildNoProxyEnv } from './no-proxy-utils';
 import { resolveOpenAiBaseUrlFromEnv } from '../openai-base-url-env';
 import { normalizeClaudeHostedWebPolicy } from '../claude-hosted-web-policy';
 import { normalizeCodexHostedWebPolicy } from '../codex-hosted-web-policy';
+import { resolveCopilotApiRouting } from '../copilot-api-resolver';
 
 const DEFAULT_API_PROXY_SHUTDOWN_TIMEOUT_MS = 8000;
 export const API_PROXY_UPSTREAM_CA_CERT_CONTAINER_PATH = '/usr/local/share/ca-certificates/awf-upstream-ca.crt';
@@ -19,20 +21,36 @@ export const MODEL_ROUTING_NOT_STAGED_MESSAGE = 'Model routing was configured bu
  * @internal Exported for testing
  */
 export function buildProviderTargetEnv(config: WrapperConfig): Record<string, string> {
+  const routingValue = (key: string): string | undefined =>
+    getConfigEnvValue(config, key) ?? (process.env[key]?.trim() || undefined);
   const openAiEndpointOverride = resolveOpenAiEndpointOverride(config);
   const secretOpenAiBaseUrl = resolveOpenAiBaseUrlFromEnv(config.openaiBaseUrlEnv);
-  const resolvedOpenAiTarget = secretOpenAiBaseUrl?.host ?? config.openaiApiTarget ?? openAiEndpointOverride;
-  const resolvedOpenAiBasePath = secretOpenAiBaseUrl
+  let resolvedOpenAiTarget = secretOpenAiBaseUrl?.url ?? config.openaiApiTarget
+    ?? routingValue(OPENAI_ENV.TARGET) ?? openAiEndpointOverride;
+  let resolvedOpenAiBasePath = secretOpenAiBaseUrl
     ? (secretOpenAiBaseUrl.basePath || undefined)
-    : config.openaiApiBasePath;
+    : config.openaiApiBasePath ?? routingValue(OPENAI_ENV.BASE_PATH);
   const copilotProviderType = config.copilotProviderType || getConfigEnvValue(config, COPILOT_ENV.PROVIDER_TYPE);
-  const copilotProviderBaseUrl = config.copilotProviderBaseUrl || getConfigEnvValue(config, COPILOT_ENV.PROVIDER_BASE_URL);
+  const copilotProviderBaseUrl = config.copilotProviderBaseUrl || routingValue(COPILOT_ENV.PROVIDER_BASE_URL);
+  if (copilotProviderType?.trim().toLowerCase() === 'azure') {
+    const azureRouting = resolveCopilotApiRouting({}, { COPILOT_PROVIDER_BASE_URL: copilotProviderBaseUrl });
+    resolvedOpenAiTarget ??= azureRouting.copilotApiTarget;
+    if (!secretOpenAiBaseUrl) resolvedOpenAiBasePath ||= azureRouting.copilotApiBasePath;
+  }
+  const copilotRouting = resolveCopilotApiRouting(
+    { copilotApiTarget: config.copilotApiTarget },
+    {
+      COPILOT_API_TARGET: routingValue(COPILOT_ENV.API_TARGET),
+      COPILOT_API_BASE_PATH: config.copilotApiBasePath ?? routingValue(COPILOT_ENV.API_BASE_PATH),
+      COPILOT_PROVIDER_BASE_URL: copilotProviderBaseUrl,
+    }
+  );
   const copilotProviderApiKey = config.copilotProviderApiKey;
 
   const env: Record<string, string> = {};
 
   const providers: Array<{ target?: string; basePath?: string; envTarget: string; envBasePath: string; stripTarget?: boolean }> = [
-    { target: config.copilotApiTarget, basePath: config.copilotApiBasePath, envTarget: COPILOT_ENV.API_TARGET, envBasePath: COPILOT_ENV.API_BASE_PATH, stripTarget: true },
+    { target: copilotRouting.copilotApiTarget, basePath: copilotRouting.copilotApiBasePath, envTarget: COPILOT_ENV.API_TARGET, envBasePath: COPILOT_ENV.API_BASE_PATH, stripTarget: true },
     { target: resolvedOpenAiTarget, basePath: resolvedOpenAiBasePath, envTarget: OPENAI_ENV.TARGET, envBasePath: OPENAI_ENV.BASE_PATH, stripTarget: true },
     { target: config.anthropicApiTarget, basePath: config.anthropicApiBasePath, envTarget: ANTHROPIC_ENV.TARGET, envBasePath: ANTHROPIC_ENV.BASE_PATH, stripTarget: true },
     { target: config.geminiApiTarget, basePath: config.geminiApiBasePath, envTarget: GEMINI_ENV.TARGET, envBasePath: GEMINI_ENV.BASE_PATH, stripTarget: true },
@@ -40,8 +58,10 @@ export function buildProviderTargetEnv(config: WrapperConfig): Record<string, st
   ];
 
   for (const { target, basePath, envTarget, envBasePath, stripTarget } of providers) {
-    if (target) env[envTarget] = stripTarget ? normalizeApiTargetScheme(target) : target;
-    if (basePath) env[envBasePath] = basePath;
+    const effectiveTarget = target ?? routingValue(envTarget);
+    const effectiveBasePath = basePath ?? (secretOpenAiBaseUrl && envTarget === OPENAI_ENV.TARGET ? undefined : routingValue(envBasePath));
+    if (effectiveTarget) env[envTarget] = stripTarget ? normalizeApiTargetScheme(effectiveTarget) : effectiveTarget;
+    if (effectiveBasePath) env[envBasePath] = effectiveBasePath;
   }
   if (secretOpenAiBaseUrl) {
     env.AWF_SENSITIVE_OPENAI_TARGET = secretOpenAiBaseUrl.host;
@@ -69,6 +89,32 @@ export function buildProviderTargetEnv(config: WrapperConfig): Record<string, st
   }
 
   return env;
+}
+
+/** Uses the same effective routing values passed to the trusted sidecar. */
+export function resolveApiProxyUpstreams(config: WrapperConfig): Array<{ hostname: string; port: number }> {
+  const env = buildProviderTargetEnv(config);
+  const upstreams: Array<{ hostname: string; port: number }> = [];
+  for (const key of [COPILOT_ENV.API_TARGET, OPENAI_ENV.TARGET, ANTHROPIC_ENV.TARGET, GEMINI_ENV.TARGET, VERTEX_ENV.TARGET]) {
+    const target = env[key];
+    if (!target) continue;
+    let parsed: URL;
+    try {
+      parsed = new URL(target.includes('://') ? target : `https://${target}`);
+    } catch {
+      throw new Error('Invalid API proxy upstream target');
+    }
+    if (!['http:', 'https:'].includes(parsed.protocol) || parsed.username || parsed.password) {
+      throw new Error('Invalid API proxy upstream target');
+    }
+    // Raw-IP targets never receive a custom-port exception.
+    if (isIP(parsed.hostname.replace(/^\[|\]$/g, ''))) continue;
+    const port = Number(parsed.port || (parsed.protocol === 'http:' ? 80 : 443));
+    if (!upstreams.some(endpoint => endpoint.hostname === parsed.hostname && endpoint.port === port)) {
+      upstreams.push({ hostname: parsed.hostname, port });
+    }
+  }
+  return upstreams;
 }
 
 function resolveProviderSessionId(config: WrapperConfig): string | undefined {
@@ -123,10 +169,10 @@ function buildProviderRoutingEnv(config: WrapperConfig): Record<string, string> 
 
   return {
     // Configurable API targets (for GHES/GHEC / custom endpoints).
-    // An explicit https:// scheme (or no scheme) is stripped to a bare hostname,
+    // An explicit https:// scheme (or no scheme) is stripped to an authority,
     // matching prior behavior; an explicit http:// scheme is preserved so the
-    // sidecar dials the target in cleartext on port 80 instead of always
-    // assuming HTTPS on 443 (see gh-aw-firewall#7862). server.js's
+    // sidecar dials the target in cleartext. Non-default ports are preserved.
+    // server.js's
     // normalizeApiTarget() re-validates and normalizes this defensively
     // (gh-aw#25137), so any other scheme or malformed value is rejected there.
     ...buildProviderTargetEnv(config),
