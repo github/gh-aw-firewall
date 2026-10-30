@@ -1,9 +1,10 @@
 import * as fs from 'fs';
+import * as os from 'os';
 import * as path from 'path';
 import * as yaml from 'js-yaml';
 import { execFileSync } from 'child_process';
 
-const { budget, classify, fetchQueue, formatSummary, inspect, pages } = require('./pr-sous-chef.cjs');
+const { budget, classify, fetchQueue, formatSummary, inspect, pages, verifyTarget } = require('./pr-sous-chef.cjs');
 const NOW = Date.parse('2026-10-30T12:00:00Z');
 const OLD = '2026-10-30T11:00:00Z';
 const HEAD = 'a'.repeat(40);
@@ -372,10 +373,51 @@ describe('PR sous-chef reads, configuration and queue gates', () => {
       if (args[1].includes('/comments?')) return [[]];
       return base(args);
     });
+
     const result = await fetchQueue({ repo, now: NOW }, api);
     expect(result.statuses).toHaveLength(20);
     expect(result.prs).toHaveLength(1);
     expect(result.deferred).toBe(24);
+  });
+
+  it('revalidates the staged target and exact comment in the writer job', async () => {
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'pr-sous-chef-'));
+    const queuePath = path.join(directory, 'queue.json');
+    const safeOutputsPath = path.join(directory, 'safeoutputs.jsonl');
+    const options = { repo, number: 42, mode: 'pilot', writer: 'sous-chef', writerConfigured: true, now: NOW };
+    try {
+      const queue = await fetchQueue(options, apiFixture());
+      fs.writeFileSync(queuePath, JSON.stringify(queue));
+      fs.writeFileSync(safeOutputsPath, JSON.stringify({
+        type: 'add_comment', item_number: 42, body: queue.prs[0].body,
+      }));
+      await expect(verifyTarget({ ...options, queuePath, safeOutputsPath }, apiFixture())).resolves.toBe(true);
+
+      fs.writeFileSync(safeOutputsPath, JSON.stringify({
+        type: 'add_comment', item_number: 42, body: `${queue.prs[0].body} stale`,
+      }));
+      await expect(verifyTarget({ ...options, queuePath, safeOutputsPath }, apiFixture()))
+        .rejects.toThrow('Staged comment differs');
+
+      fs.writeFileSync(safeOutputsPath, JSON.stringify({
+        type: 'add_comment', item_number: 42, body: queue.prs[0].body,
+      }));
+      const staleApi = apiFixture();
+      const base = staleApi.getMockImplementation()!;
+      staleApi.mockImplementation(async args => args[1] === `repos/${repo}/pulls/42`
+        ? { state: 'open', draft: false, head: { sha: HEAD }, updated_at: OLD, labels: [{ name: 'ready-for-aw' }] }
+        : base(args));
+      await expect(verifyTarget({ ...options, queuePath, safeOutputsPath }, staleApi))
+        .rejects.toThrow('changed target, HEAD, body, or safety gate');
+
+      fs.writeFileSync(safeOutputsPath, JSON.stringify({
+        type: 'add_comment', item_number: 41, body: queue.prs[0].body,
+      }));
+      await expect(verifyTarget({ ...options, queuePath, safeOutputsPath }, apiFixture()))
+        .rejects.toThrow('Staged comment differs');
+    } finally {
+      fs.rmSync(directory, { recursive: true, force: true });
+    }
   });
 
   it('filters listed fork PRs unless their author association is trusted', async () => {
@@ -415,33 +457,46 @@ describe('PR sous-chef workflow safety contract', () => {
     permissions: Record<string, string>;
     'safe-outputs': Record<string, unknown>;
     if: string;
-    checkout: { ref: string };
+    checkout: { ref: string; 'pull-request': boolean };
     jobs: { prefilter: { if: string } };
     env: { PR_SOUS_CHEF_MODE: string };
   };
 
   it('keeps the coordinator read-only with one bounded comment-only write path', () => {
     expect(config.on.schedule).toBe('every 15m');
+    expect(config.on).not.toHaveProperty('slash_command');
     expect(config.permissions).toEqual({ contents: 'read', issues: 'read', 'pull-requests': 'read', actions: 'read', 'copilot-requests': 'write' });
     expect(config['safe-outputs']['add-comment']).toEqual({
-      max: 2, target: '*', discussions: false, issues: false,
+      max: 1, target: '${{ needs.prefilter.outputs.target_number }}', discussions: false, issues: false,
       'github-token': '${{ secrets.PR_SOUS_CHEF_WRITER_TOKEN }}',
     });
+    expect(config['safe-outputs']['activation-comments']).toBe(false);
+    expect(config['safe-outputs']['report-failure-as-issue']).toBe(false);
+    expect(config['safe-outputs']['report-failed-jobs']).toBe(false);
+    expect(config['safe-outputs']['threat-detection']).toEqual({ 'report-as-issue': false });
     expect(config['safe-outputs']['github-token']).toBeUndefined();
     expect(Object.keys(config['safe-outputs']).sort()).toEqual([
-      'add-comment', 'mentions', 'needs', 'noop', 'report-incomplete', 'report-missing-data', 'report-missing-tool',
+      'activation-comments', 'add-comment', 'mentions', 'needs', 'noop', 'report-failed-jobs',
+      'report-failure-as-issue', 'report-incomplete', 'report-missing-data', 'report-missing-tool', 'steps', 'threat-detection',
     ]);
     expect(config.if).toBe('needs.prefilter.outputs.eligible_count > 0');
     expect(config.checkout.ref).toBe('${{ github.event.repository.default_branch }}');
+    expect(config.checkout['pull-request']).toBe(false);
     expect(config.jobs.prefilter.if).toContain('github.event.repository.default_branch');
     expect(config.env.PR_SOUS_CHEF_MODE).toContain("'dry-run'");
     expect(source).not.toContain('secrets.PR_SOUS_CHEF_WRITER_TOKEN ||');
     expect(source).not.toContain('required-labels:');
     expect(source).toContain('no per-PR opt-in label is required');
+    expect(source).toContain('needs: [agent, prefilter]');
+    expect(source).toContain('node scripts/ci/pr-sous-chef.cjs --verify-target');
   });
 
-  it('requires exact freshly generated bodies and a human authorization boundary', () => {
-    expect(source).toContain('copy the refreshed entry\'s `body` **exactly**');
+  it('sanitizes deterministic bodies and enforces a human authorization boundary', () => {
+    expect(source).toContain('sanitized body in one `add_comment`');
+    expect(source).toContain('writer-validation code checks');
+    expect(source).toContain('full classifier and safety gates');
+    expect(source).toContain('fixed first-line `@copilot` trigger');
+    expect(source).not.toContain('copy the refreshed entry\'s `body` **exactly**');
     expect(source).toContain('report_incomplete');
     expect(source).toContain('Immediately before each comment');
     const skill = fs.readFileSync(path.join(root, '.github/skills/pr-finisher/SKILL.md'), 'utf8');
@@ -453,12 +508,22 @@ describe('PR sous-chef workflow safety contract', () => {
   it('compiles to no AI on empty queues, release AWF and a secret-free agent sandbox', () => {
     const lock = fs.readFileSync(path.join(root, '.github/workflows/pr-sous-chef.lock.yml'), 'utf8');
     const compiled = yaml.load(lock) as { jobs: Record<string, {
-      if: string; permissions: Record<string, string>;
+      if: string; needs?: string[]; permissions: Record<string, string>;
       steps: { name: string; env?: Record<string, string>; run?: string }[];
     }> };
     const agent = compiled.jobs.agent;
+    const safeOutputs = compiled.jobs.safe_outputs;
     expect(agent.if).toContain('needs.prefilter.outputs.eligible_count > 0');
     expect(agent.permissions['pull-requests']).toBe('read');
+    expect(compiled.jobs.writer_validation.needs).toContain('agent');
+    expect(compiled.jobs.writer_validation.needs).toContain('prefilter');
+    expect(compiled.jobs.safe_outputs.needs).toContain('writer_validation');
+    const writerGate = safeOutputs.steps.find(step => step.name === 'Block writes unless trusted writer validation succeeded')!;
+    const processOutputs = safeOutputs.steps.find(step => step.name === 'Process Safe Outputs')!;
+    expect(writerGate.env!.WRITER_VALIDATION_RESULT).toBe('${{ needs.writer_validation.result }}');
+    expect(safeOutputs.steps.indexOf(writerGate)).toBeLessThan(safeOutputs.steps.indexOf(processOutputs));
+    expect(safeOutputs.permissions.issues).toBe('read');
+    expect(safeOutputs.permissions['pull-requests']).toBe('write');
     expect(lock).not.toContain('--build-local');
     expect(lock).not.toContain('Build local AWF');
     expect(lock).not.toContain('required_labels');
@@ -470,5 +535,8 @@ describe('PR sous-chef workflow safety contract', () => {
     for (const step of modelSteps) expect(JSON.stringify(step)).not.toContain('secrets.PR_SOUS_CHEF_WRITER_TOKEN');
     expect(agent.steps.find(step => step.env?.GH_TOKEN === '${{ secrets.PR_SOUS_CHEF_WRITER_TOKEN }}')).toBeUndefined();
     expect(lock).not.toContain('"create_report_incomplete_issue"');
+    expect(lock).not.toContain('checkout_pr_branch.cjs');
+    expect(lock).not.toContain('Add eyes reaction for immediate feedback');
+    expect(lock).toMatch(/\\"target\\":\\"[$][{][{] needs\.prefilter\.outputs\.target_number [}][}]\\"/);
   });
 });

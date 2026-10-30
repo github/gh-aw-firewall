@@ -5,7 +5,7 @@
 // No PR-head checkout or GitHub mutation is performed by this helper.
 const { execFileSync } = require('node:child_process');
 const { createHash } = require('node:crypto');
-const { appendFileSync, mkdirSync, writeFileSync } = require('node:fs');
+const { appendFileSync, mkdirSync, readFileSync, writeFileSync } = require('node:fs');
 const { join } = require('node:path');
 
 const IDLE = 10 * 60_000;
@@ -42,7 +42,7 @@ function connection(value, name) {
 function trustedGitHubUrl(value) {
   try {
     const url = new URL(value);
-    if (url.protocol === 'https:' && !url.username && !url.password &&
+    if (url.protocol === 'https:' && !url.username && !url.password && (!url.port || url.port === '443') &&
       (url.hostname === 'github.com' || url.hostname.endsWith('.github.com'))) return url.href;
   } catch {}
   return 'an untrusted URL (omitted)';
@@ -329,6 +329,29 @@ async function fetchQueue({ repo, number, mode = 'dry-run', writer = '', writerC
   return output;
 }
 
+async function verifyTarget({ repo, number, writer = '', writerConfigured = false,
+  queuePath = '/tmp/gh-aw/agent/pr-sous-chef-queue.json',
+  safeOutputsPath = '/tmp/gh-aw/agent-output/safeoutputs.jsonl', now = Date.now() }, api = gh) {
+  requireValue(Number.isSafeInteger(number) && number > 0, 'Expected a positive writer-validation PR number');
+  const queue = JSON.parse(readFileSync(queuePath, 'utf8'));
+  requireValue(queue.mode === 'pilot' && !queue.rate_limit?.low &&
+    Array.isArray(queue.prs) && queue.prs.length === 1 && queue.prs[0].number === number,
+  'Writer validation target does not match the original pilot queue');
+  const entries = readFileSync(safeOutputsPath, 'utf8').trim().split('\n').filter(Boolean).map(line => JSON.parse(line));
+  requireValue(entries.every(entry => ['add_comment', 'noop', 'report_incomplete', 'report_missing_data', 'report_missing_tool'].includes(entry.type)),
+    'Writer validation found an unexpected safe-output type');
+  const comments = entries.filter(entry => entry.type === 'add_comment');
+  requireValue(comments.length <= 1 && comments.every(entry => entry.item_number === number &&
+    entry.body === queue.prs[0].body), 'Staged comment differs from the original sanitized target body');
+
+  const refreshed = await fetchQueue({ repo, number, mode: 'pilot', writer, writerConfigured, now }, api);
+  requireValue(refreshed.mode === 'pilot' && !refreshed.rate_limit.low && refreshed.prs.length === 1 &&
+    refreshed.prs[0].number === number && refreshed.prs[0].head === queue.prs[0].head &&
+    refreshed.prs[0].fingerprint === queue.prs[0].fingerprint && refreshed.prs[0].body === queue.prs[0].body,
+  'Writer validation found a changed target, HEAD, body, or safety gate');
+  return true;
+}
+
 function formatSummary(output) {
   const rows = output.statuses.map(pr => `| #${pr.number} | ${pr.status} |`);
   return `### PR Sous Chef (${output.mode})\n\n${output.mode === 'dry-run' ? 'Read-only preview; no agent or comments.' : 'Opt-in pilot; comments only, no CI authorization.'}\n\nProposed comments: ${output.prs.length}; deferred: ${output.deferred}.\n\n| PR | State |\n|---|---|\n${rows.join('\n')}\n\n${output.rate_limit.low ? '**API budget low: no writes or agent startup.**\n\n' : ''}${output.rate_limit.resources.map(value => `${value.name}: ${value.remaining}/${value.limit}; reset ${new Date(value.reset * 1000).toISOString()}`).join('\n\n')}\n`;
@@ -336,6 +359,19 @@ function formatSummary(output) {
 
 async function main() {
   const args = process.argv.slice(2);
+  if (args[0] === '--verify-target') {
+    requireValue(args.length === 1, 'Usage: node scripts/ci/pr-sous-chef.cjs --verify-target');
+    const rawNumber = process.env.PR_SOUS_CHEF_NUMBER;
+    requireValue(/^[1-9]\d*$/.test(rawNumber ?? ''), 'Invalid writer-validation PR number');
+    await verifyTarget({
+      repo: process.env.PR_SOUS_CHEF_REPOSITORY ?? process.env.GITHUB_REPOSITORY,
+      number: Number(rawNumber),
+      writer: process.env.PR_SOUS_CHEF_WRITER_LOGIN ?? '',
+      writerConfigured: process.env.PR_SOUS_CHEF_WRITER_CONFIGURED === 'true',
+    });
+    console.log('Writer validation passed');
+    return;
+  }
   requireValue(args.length <= 1 && (!args.length || /^[1-9]\d*$/.test(args[0])), 'Usage: node scripts/ci/pr-sous-chef.cjs [PR number]');
   const rawNumber = args[0] ?? process.env.PR_SOUS_CHEF_NUMBER;
   requireValue(!rawNumber || /^[1-9]\d*$/.test(rawNumber), 'Invalid scoped PR number');
@@ -357,5 +393,5 @@ async function main() {
   console.log(JSON.stringify(output));
 }
 
-module.exports = { budget, classify, fetchQueue, formatSummary, gh, inspect, metadataSkip, pages };
+module.exports = { budget, classify, fetchQueue, formatSummary, gh, inspect, metadataSkip, pages, sanitizeCommentBody, trustedGitHubUrl, verifyTarget };
 if (require.main === module) main().catch(error => { console.error(error.message); process.exitCode = 1; });
