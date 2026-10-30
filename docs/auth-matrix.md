@@ -370,7 +370,11 @@ The request layer signs the HTTP method, canonical path and sorted query, final 
 | WIF Provider | `AWF_AUTH_GCP_WORKLOAD_IDENTITY_PROVIDER` | ✅ |
 | Service Account | `AWF_AUTH_GCP_SERVICE_ACCOUNT` | ❌ (direct federation if omitted) |
 | Scope | `AWF_AUTH_GCP_SCOPE` | ❌ (default: `https://www.googleapis.com/auth/cloud-platform`; used in step 2 only) |
-| Audience | `AWF_AUTH_OIDC_AUDIENCE` | ❌ (default: derived from WIF provider) |
+| Audience | `AWF_AUTH_OIDC_AUDIENCE` | ❌ (default: `https://iam.googleapis.com/` + WIF provider) |
+| Project | `AWF_AUTH_GCP_PROJECT` | ❌ (needed with location for native Vertex path scoping) |
+| Location | `AWF_AUTH_GCP_LOCATION` | ❌ (needed with project for native Vertex path scoping) |
+
+When both project and location are set, native `v1`/`v1beta1` Vertex model paths are rewritten to project-scoped paths; if either is absent, paths are left unchanged. See [api-proxy-sidecar.md](api-proxy-sidecar.md).
 
 **Token exchange (2-step):**
 1. `POST https://sts.googleapis.com/v1/token` — exchange GitHub JWT for federated token
