@@ -69,12 +69,29 @@ describe('generateDockerCompose: ARC/DinD shared-file ownership', () => {
 
       expect(child.error).toBeUndefined();
       expect(child.status).toBe(0);
-      expect(fs.statSync(file)).toMatchObject({ uid: process.getuid!(), gid: process.getgid!() });
-      expect(fs.statSync(file).mode & 0o777).toBe(0o600);
-      fs.writeFileSync(file, 'rewritten\n');
-      fs.writeFileSync(`${file}.tmp`, 'replaced\n', { mode: 0o600 });
-      fs.renameSync(`${file}.tmp`, file);
-      expect(fs.readFileSync(file, 'utf8')).toBe('replaced\n');
+      const fileFd = fs.openSync(file, 'r+');
+      try {
+        expect(fs.fstatSync(fileFd)).toMatchObject({ uid: process.getuid!(), gid: process.getgid!() });
+        expect(fs.fstatSync(fileFd).mode & 0o777).toBe(0o600);
+        fs.writeFileSync(fileFd, 'rewritten\n');
+
+        const replacement = `${file}.tmp`;
+        const replacementFd = fs.openSync(replacement, 'wx', 0o600);
+        try {
+          fs.writeFileSync(replacementFd, 'replaced\n');
+        } finally {
+          fs.closeSync(replacementFd);
+        }
+        fs.renameSync(replacement, file);
+        const replacedFd = fs.openSync(file, 'r');
+        try {
+          expect(fs.readFileSync(replacedFd, 'utf8')).toBe('replaced\n');
+        } finally {
+          fs.closeSync(replacedFd);
+        }
+      } finally {
+        fs.closeSync(fileFd);
+      }
     }
   });
 });
