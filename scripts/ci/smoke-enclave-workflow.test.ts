@@ -1158,13 +1158,13 @@ describe('smoke enclave issues workflow', () => {
     );
   });
 
-  it('preserves AWF credentials and runner paths with sudo-rs without exposing token arguments', () => {
+  it('preserves AWF credentials and sudo secure_path with sudo-rs without exposing token arguments', () => {
     const frontmatter = yaml.load(source.split('---')[1]) as {
       sandbox: { agent: { command: string } };
     };
     const command = frontmatter.sandbox.agent.command;
     expect(command).toBe(
-      'sudo --preserve-env="$(compgen -e | paste -sd, -)" /usr/bin/env PATH="$PATH" /usr/local/bin/awf'
+      'sudo --preserve-env="$(compgen -e | paste -sd, -)" /usr/local/bin/awf'
     );
     expect(lock).toContain(`${command} --config`);
     expect(lock).toContain('COPILOT_GITHUB_TOKEN: ${{ github.token }}');
@@ -1174,6 +1174,7 @@ describe('smoke enclave issues workflow', () => {
     try {
       const awf = path.join(directory, 'awf');
       const sudoArgs = path.join(directory, 'sudo-args');
+      const securePath = '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin';
       fs.writeFileSync(awf, `#!/bin/bash
 printf '%s\\0' "$COPILOT_GITHUB_TOKEN" "$MCP_GATEWAY_API_KEY" "$AWF_ENCLAVE_MCP_CAPABILITY" "$RUNNER_TEMP" "$PATH" "$@"
 `, { mode: 0o700 });
@@ -1189,7 +1190,7 @@ printf '%s\\0' "$COPILOT_GITHUB_TOKEN" "$MCP_GATEWAY_API_KEY" "$AWF_ENCLAVE_MCP_
   done
   # Model sudoers secure_path overriding the preserved PATH.
   preserved+=("PATH=/usr/sbin:/usr/bin:/sbin:/bin")
-  /usr/bin/env -i "\${preserved[@]}" "$@"
+  /usr/bin/env -i "\${preserved[@]}" PATH=${JSON.stringify(securePath)} "$@"
 }
 ${command.replace('/usr/local/bin/awf', JSON.stringify(awf))} --config /tmp/awf-config.json`;
       const env = {
@@ -1202,7 +1203,7 @@ ${command.replace('/usr/local/bin/awf', JSON.stringify(awf))} --config /tmp/awf-
       const result = execFileSync('/bin/bash', ['--noprofile', '--norc', '-c', script],
         { env, encoding: 'utf8', timeout: 5000 }).split('\0').slice(0, -1);
       expect(result).toEqual([env.COPILOT_GITHUB_TOKEN, env.MCP_GATEWAY_API_KEY,
-        env.AWF_ENCLAVE_MCP_CAPABILITY, env.RUNNER_TEMP, env.PATH,
+        env.AWF_ENCLAVE_MCP_CAPABILITY, env.RUNNER_TEMP, securePath,
         '--config', '/tmp/awf-config.json']);
       const args = fs.readFileSync(sudoArgs, 'utf8');
       for (const name of Object.keys(env).filter(name => name !== 'PATH')) {
@@ -1212,6 +1213,14 @@ ${command.replace('/usr/local/bin/awf', JSON.stringify(awf))} --config /tmp/awf-
         env.AWF_ENCLAVE_MCP_CAPABILITY]) {
         expect(args).not.toContain(credential);
       }
+      const insecureScript = script.replace(
+        command.replace('/usr/local/bin/awf', JSON.stringify(awf)),
+        command.replace('/usr/local/bin/awf', `/usr/bin/env PATH="$PATH" ${JSON.stringify(awf)}`)
+      );
+      const insecureResult = execFileSync('/bin/bash', ['--noprofile', '--norc', '-c',
+        insecureScript], { env, encoding: 'utf8', timeout: 5000 }).split('\0');
+      expect(insecureResult[4]).toBe(env.PATH);
+      expect(insecureResult[4]).not.toBe(securePath);
       const oldScript = script.replace(
         command.replace('/usr/local/bin/awf', JSON.stringify(awf)),
         `sudo --preserve-env /usr/bin/env PATH="$PATH" ${JSON.stringify(awf)}`
