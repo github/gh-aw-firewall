@@ -128,6 +128,14 @@ def file_operation(operation: str, action, *, fatal: bool = True):
         raise
 
 
+def close_file(handle, operation: str, *, fatal: bool = True) -> None:
+    try:
+        handle.close()
+    except OSError as error:
+        safe_os_error(error, operation, fatal=fatal)
+        raise
+
+
 @contextmanager
 def diagnostic_file(path: Path, operation: str, mode: str, *, fatal: bool = True):
     handle = file_operation(f"{operation}-open", lambda: path.open(mode), fatal=fatal)
@@ -136,7 +144,7 @@ def diagnostic_file(path: Path, operation: str, mode: str, *, fatal: bool = True
     finally:
         pending_error = sys.exc_info()[0] is not None
         try:
-            file_operation(f"{operation}-close", handle.close, fatal=fatal)
+            close_file(handle, f"{operation}-close", fatal=fatal)
         except OSError:
             if not pending_error:
                 raise
