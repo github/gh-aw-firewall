@@ -1187,6 +1187,8 @@ printf '%s\\0' "$COPILOT_GITHUB_TOKEN" "$MCP_GATEWAY_API_KEY" "$AWF_ENCLAVE_MCP_
   for name in "\${names[@]}"; do
     preserved+=("$name=\${!name}")
   done
+  # Model sudoers secure_path overriding the preserved PATH.
+  preserved+=("PATH=/usr/sbin:/usr/bin:/sbin:/bin")
   /usr/bin/env -i "\${preserved[@]}" "$@"
 }
 ${command.replace('/usr/local/bin/awf', JSON.stringify(awf))} --config /tmp/awf-config.json`;
