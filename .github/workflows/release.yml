@@ -1004,6 +1004,9 @@ jobs:
           echo "=== Schema preview (first 10 lines) ==="
           head -10 release/awf-config.schema.json
 
+      - name: Package host enclave storage helper
+        run: node scripts/build-enclave-storage-helper.mjs
+
       - name: Generate checksums
         run: |
           cd release
@@ -1028,6 +1031,7 @@ jobs:
             release/awf-darwin-x64
             release/awf-darwin-arm64
             release/awf-bundle.js
+            release/enclave-storage-helper.py
             release/awf.tgz
             release/checksums.txt
             release/containers.txt
@@ -1164,6 +1168,7 @@ jobs:
             release/awf-darwin-x64
             release/awf-darwin-arm64
             release/awf-bundle.js
+            release/enclave-storage-helper.py
             release/awf.tgz
             release/cloud-hypervisor-test-x86_64.tar.gz
             release/cloud-hypervisor-test-x86_64.SHA256SUMS

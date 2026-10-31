@@ -10,12 +10,17 @@ import {
 import { mountDockerHostStorage, cleanupDockerHostStorage } from './docker-host-storage';
 import type { HostExecutorInvocationPlan } from './host-executor-server';
 import { validateSchema } from '../bounded-execution/finite-schema';
+import { hasDockerHostMountCapability } from './docker-storage-helper';
 
 jest.mock('fs', () => ({ ...jest.requireActual('fs'), chownSync: jest.fn() }));
 jest.mock('./docker-host-storage', () => ({
   ...jest.requireActual('./docker-host-storage'),
   mountDockerHostStorage: jest.fn(),
   cleanupDockerHostStorage: jest.fn(),
+}));
+jest.mock('./docker-storage-helper', () => ({
+  ...jest.requireActual('./docker-storage-helper'),
+  hasDockerHostMountCapability: jest.fn(() => true),
 }));
 
 const runId = 'a'.repeat(32);
@@ -121,6 +126,7 @@ describeLinux('host-owned Docker enclave executor', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    jest.mocked(hasDockerHostMountCapability).mockReturnValue(true);
     root = path.join(process.cwd(), `.docker-host-executor-${randomBytes(8).toString('hex')}`);
     fs.mkdirSync(root, { mode: 0o700 });
     fs.mkdirSync(path.join(root, 'seeds'), { mode: 0o700 });

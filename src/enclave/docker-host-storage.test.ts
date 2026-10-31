@@ -1,10 +1,13 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { randomBytes } from 'crypto';
+import { execFile, type ChildProcess } from 'child_process';
 import {
   assertDockerHostPath, cleanupDockerHostStorage, dockerMemoryBytes, dockerWritableBudget, inspectDockerHostTmpfs,
-  resolveDockerHostTool,
+  resolveDockerHostTool, mountDockerHostStorage,
 } from './docker-host-storage';
+
+jest.mock('child_process', () => ({ ...jest.requireActual('child_process'), execFile: jest.fn() }));
 
 const linuxIt = process.platform === 'linux' ? it : it.skip;
 
@@ -86,5 +89,29 @@ describe('Docker host enclave writable storage', () => {
       expect(() => resolveDockerHostTool(['docker'])).toThrow('root-owned immutable');
       expect(path.isAbsolute(resolveDockerHostTool(['/usr/bin/true', '/bin/true']))).toBe(true);
     } finally { fs.rmSync(root, { recursive: true, force: true }); }
+  });
+
+  linuxIt('legacy privileged mount commands receive no inherited repository credentials', async () => {
+    const root = path.join(process.cwd(), `.docker-host-storage-${randomBytes(8).toString('hex')}`);
+    fs.mkdirSync(root, { mode: 0o700 });
+    const previous = process.env.GH_TOKEN;
+    process.env.GH_TOKEN = 'synthetic-repository-credential';
+    jest.mocked(execFile).mockImplementation((...args: unknown[]) => {
+      const callback = args[args.length - 1] as (error: Error) => void;
+      callback(new Error('stop before mounting'));
+      return {} as ChildProcess;
+    });
+    try {
+      await expect(mountDockerHostStorage(root, 'awf-test', 65536)).rejects.toThrow('storage operation failed');
+      expect(jest.mocked(execFile).mock.calls[0][2]).toEqual({
+        timeout: 30_000, maxBuffer: 4096,
+        env: { PATH: '/usr/bin:/bin', LANG: 'C', LC_ALL: 'C' },
+      });
+    } finally {
+      if (previous === undefined) delete process.env.GH_TOKEN;
+      else process.env.GH_TOKEN = previous;
+      jest.mocked(execFile).mockReset();
+      fs.rmSync(root, { recursive: true, force: true });
+    }
   });
 });

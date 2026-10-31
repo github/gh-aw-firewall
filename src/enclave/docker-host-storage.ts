@@ -1,6 +1,9 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { execFile } from 'child_process';
+import {
+  dockerStorageHelperArguments, isDockerHelperStorageTarget, runDockerStorageHelper,
+} from './docker-storage-helper';
 
 export interface DockerHostMountIdentity {
   mountId: string;
@@ -100,7 +103,10 @@ export function inspectDockerHostTmpfs(
 function mountCommand(command: string, args: string[]): Promise<void> {
   const executable = resolveDockerHostTool([`/usr/bin/${command}`, `/bin/${command}`]);
   return new Promise((resolve, reject) => {
-    execFile(executable, args, { timeout: 30_000, maxBuffer: 4096 }, (error) => {
+    execFile(executable, args, {
+      timeout: 30_000, maxBuffer: 4096,
+      env: { PATH: '/usr/bin:/bin', LANG: 'C', LC_ALL: 'C' },
+    }, (error) => {
       if (error) reject(new Error('Docker enclave storage operation failed'));
       else resolve();
     });
@@ -108,6 +114,16 @@ function mountCommand(command: string, args: string[]): Promise<void> {
 }
 
 export async function mountDockerHostStorage(target: string, source: string, bytes: number): Promise<DockerHostMountIdentity> {
+  if (isDockerHelperStorageTarget(target)) {
+    const response = await runDockerStorageHelper(dockerStorageHelperArguments('mount', target, source, bytes));
+    const identity = inspectDockerHostTmpfs(target, source, bytes);
+    if (JSON.stringify(identity) !== JSON.stringify(response)) throw new Error('Docker enclave helper mount identity mismatch');
+    const stat = fs.statfsSync(target);
+    if (Number(stat.type) !== 0x01021994 || Number(stat.blocks) * Number(stat.bsize) !== bytes) {
+      throw new Error('Docker enclave helper capacity mismatch');
+    }
+    return identity;
+  }
   assertDockerHostPath(target);
   fs.mkdirSync(target, { recursive: true, mode: 0o700 });
   if (fs.readdirSync(target).length !== 0) throw new Error('Docker enclave mount target is not empty');
@@ -126,17 +142,31 @@ export async function mountDockerHostStorage(target: string, source: string, byt
 export async function unmountDockerHostStorage(identity: DockerHostMountIdentity): Promise<void> {
   const current = inspectDockerHostTmpfs(identity.target, identity.source, identity.bytes);
   if (JSON.stringify(current) !== JSON.stringify(identity)) throw new Error('Docker enclave mount identity changed');
-  await mountCommand('umount', ['--', identity.target]);
+  if (isDockerHelperStorageTarget(identity.target)) {
+    await runDockerStorageHelper(dockerStorageHelperArguments('unmount', identity.target, identity.source, identity.bytes));
+  } else await mountCommand('umount', ['--', identity.target]);
   const mounts = fs.readFileSync('/proc/self/mountinfo', 'utf8');
   if (mounts.split('\n').some((line) => decodeMount(line.split(' ')[4] || '') === identity.target)) {
     throw new Error('Docker enclave mount remains after unmount');
   }
-  fs.rmdirSync(identity.target);
+  if (!isDockerHelperStorageTarget(identity.target)) fs.rmdirSync(identity.target);
 }
 
 export async function cleanupDockerHostStorage(record: {
   storageTarget: string; storageSource: string; storageBytes: number; mount?: DockerHostMountIdentity; mountPending?: boolean;
 }): Promise<void> {
+  if (isDockerHelperStorageTarget(record.storageTarget)) {
+    const mounts = fs.readFileSync('/proc/self/mountinfo', 'utf8');
+    if (record.mount && mounts.split('\n').some((line) => decodeMount(line.split(' ')[4] || '') === record.storageTarget)) {
+      const current = inspectDockerHostTmpfs(record.storageTarget, record.storageSource, record.storageBytes);
+      if (JSON.stringify(current) !== JSON.stringify(record.mount)) throw new Error('Docker enclave mount identity changed');
+    }
+    const result = await runDockerStorageHelper(dockerStorageHelperArguments(
+      'unmount', record.storageTarget, record.storageSource, record.storageBytes,
+    )) as { clean?: boolean };
+    if (result.clean !== true) throw new Error('Docker enclave helper cleanup was not proven');
+    return;
+  }
   assertDockerHostPath(record.storageTarget);
   const mountInfo = fs.readFileSync('/proc/self/mountinfo', 'utf8');
   const mounted = mountInfo.split('\n').some((line) => decodeMount(line.split(' ')[4] || '') === record.storageTarget);
@@ -149,4 +179,18 @@ export async function cleanupDockerHostStorage(record: {
     if (fs.readdirSync(record.storageTarget).length) throw new Error('Unverified Docker enclave storage remains');
     fs.rmdirSync(record.storageTarget);
   }
+
+}
+
+/** No payload or credential bytes cross the helper boundary. */
+export async function ownDockerHostStorageFile(
+  identity: DockerHostMountIdentity, name: string, uid: number, gid: number, reclaim = false,
+): Promise<void> {
+  if (isDockerHelperStorageTarget(identity.target)) {
+    const result = await runDockerStorageHelper([
+      ...dockerStorageHelperArguments(reclaim ? 'reclaim' : 'own', identity.target, identity.source, identity.bytes),
+      name, ...(reclaim ? [] : [String(uid), String(gid)]),
+    ]) as { owned?: boolean };
+    if (result.owned !== true) throw new Error('Docker enclave ownership was not proven');
+  } else if (!reclaim) fs.chownSync(path.join(identity.target, name), uid, gid);
 }
