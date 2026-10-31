@@ -87,7 +87,7 @@ steps:
     run: |
       sudo install -d -m 0711 -o root -g root /var/lib/awf-enclave-smoke-export
       sudo install -m 0600 -o root -g root scripts/ci/collect-enclave-smoke-debug.cjs /var/lib/awf-enclave-smoke-export/collector.cjs
-      sudo node /var/lib/awf-enclave-smoke-export/collector.cjs prepare "$DEBUG_RUN_KEY"
+      sudo node /var/lib/awf-enclave-smoke-export/collector.cjs prepare cloud-hypervisor "$DEBUG_RUN_KEY" "$(id -u)" "$(id -g)"
 post-steps:
   - name: Collect host-only public enclave debug evidence
     id: collect-enclave-debug
@@ -95,7 +95,7 @@ post-steps:
     env:
       DEBUG_RUN_KEY: ${{ github.run_id }}-${{ github.run_attempt }}
     run: |
-      sudo node /var/lib/awf-enclave-smoke-export/collector.cjs collect "$DEBUG_RUN_KEY" "$(id -u)" "$(id -g)"
+      sudo node /var/lib/awf-enclave-smoke-export/collector.cjs collect cloud-hypervisor "$DEBUG_RUN_KEY" "$(id -u)" "$(id -g)"
   - name: Upload public enclave debug evidence
     if: always() && steps.collect-enclave-debug.outcome == 'success'
     uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9

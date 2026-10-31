@@ -313,7 +313,7 @@ files are `0600`, and symlink destinations are rejected. They are **not** copied
 audit/log collections or widened for upload. Inspect them on the host and remove
 the specific invocation directory when no longer needed.
 
-The public-fixture smoke collector explicitly allowlists `enclave-session.log`
+The shared public diagnostics exporter explicitly allowlists `enclave-session.log`
 and the dedicated enclave proxy's projected `enclave-proxy-events.jsonl` and
 `enclave-proxy-container.log` in its bounded, short-lived debug artifact.
 Only closed-vocabulary event, level, source, and numeric status fields from
@@ -338,6 +338,138 @@ closed projection of request/status and token totals, not raw HTTP bodies,
 headers, or credentials. Public repository visibility is not a guarantee that
 every log line is safe to publish; host-only retention is not automatic upload
 authorization.
+
+#### Shared public diagnostics exporter
+
+`scripts/ci/collect-enclave-smoke-debug.cjs` is the supported standalone exporter
+for both `docker` and `cloud-hypervisor`. The historical filename remains stable;
+consumers do not need to copy its implementation or duplicate the diagnostic
+schema. Pin the exporter checkout to a reviewed AWF release or full commit SHA
+containing this interface. Pin the AWF execution installation separately.
+
+```text
+node collector.cjs prepare BACKEND RUN_ID-RUN_ATTEMPT RUNNER_UID RUNNER_GID
+node collector.cjs collect BACKEND RUN_ID-RUN_ATTEMPT RUNNER_UID RUNNER_GID
+```
+
+Both operations run on the **host**, as root, using the same backend, key and
+numeric runner identity. Use `id -u` / `id -g` before sudo, not the guest's UID.
+The historical `prepare KEY` / `collect KEY UID GID` forms remain
+Cloud Hypervisor-only compatibility interfaces; new callers should select the
+backend explicitly and bind the runner identity during preparation.
+Only these preparation/collection operations and installation of the trusted
+exporter require host privilege; do not sudo the whole Docker workflow.
+The exporter has no CLI option for arbitrary protected source roots. Docker
+discovery covers the helper-owned and privileged layouts in the table above;
+Cloud Hypervisor discovery uses its host-executor journal and protected debug
+root, including run-cumulative proxy projections.
+
+**Scope and lifecycle.** Prepare once before AWF starts, then collect once after
+AWF has finished teardown, including after nonzero exit. Preparation takes a
+protected inventory baseline; pre-existing artifacts are excluded. One prepared
+scope supports **one new AWF run and at most one enclave invocation**. Multiple
+runs, invocations or entries sharing an invocation identity are rejected, not
+merged or silently selected. Do not run concurrent AWF jobs under the same host
+identity/storage scope. Use a fresh run/attempt key for a retry; preparing an
+existing key is an error. This interface does not resume an old collection or
+collect a run that started before preparation.
+
+**Validation and output.** The exporter uses the shared version-1
+`diagnostics.json` envelope and session projection described above, not a new
+execution schema. Identity, runtime, stopped/not-launched proof, closed
+operation/session evidence and stream availability must agree with retained
+artifacts. Retained public artifacts are produced only after AWF's verified
+public-debug eligibility gate; private, dynamic and unverified scopes cannot
+enable export through CLI arguments. Source directories and files remain
+protected: no symlinks, single-link regular files, owner-only permissions,
+bounded inventories, at most 32 invocation files and at most 1 MiB per stream.
+Publication allows those 32 files, four fixed run-level proxy projections and one
+status file: at most 37 files and 36 MiB plus 4 KiB in total.
+Credential-pattern redaction is also applied during export; it is not a
+replacement for AWF's capture-time credential redaction.
+
+Cloud Hypervisor retains its allowlisted launcher, guest, VM, network,
+confinement and virtio-fs supplemental files, plus closed proxy accounting and
+response/debug projections. Docker does not require or synthesize these files.
+Legacy Cloud Hypervisor supplemental-only captures are not evidence of a
+complete shared envelope. Missing capture remains missing; an empty placeholder
+does not become a successful capture.
+
+All sources must validate before publication. The host stages output below
+`/var/lib/awf-enclave-smoke-export/<key>/`, outside agent/guest mounts. Only
+`upload/` and its `0600` files are handed to the specified runner UID/GID; source
+permissions, the baseline and the exporter are never widened. Upload only
+`upload/`, never the protected retention roots, baseline, recovery journal,
+raw API-proxy telemetry or guest output directory.
+
+`collection-status.txt` reports collection and absent evidence independently of
+the envelope's execution outcome. A nonzero workload exit is still collectable;
+`failure`, `exitCode`, `primaryFailure` and `cleanupFailure` retain their meaning.
+A retention failure may leave no envelope, so absent evidence alone cannot
+diagnose execution or retention failure. Collection rejection exits nonzero and
+reports a safe `failedCheck` identifier and bounded `category`, never a source
+path or arbitrary exception message. Where the prepared scope is safe, only this
+failure status is published; partially validated evidence is not uploaded.
+Keep the AWF step's original outcome: do not replace it with the collector's
+exit code or infer workload success from successful collection.
+
+Examples of failed checks are `retention-eligibility`, `diagnostics-identity`,
+`stop-proof`, `file-links`, `file-permissions`, `file-size`, `run-budget` and
+`invocation-budget`. Categories distinguish `ineligible`, `not-stopped`,
+`absent-evidence`, `unsafe-file`, `unsafe-directory`, `unsafe-permissions`,
+`oversized`, `concurrent-runs`, `multiple-invocations`, `scope-already-collected`,
+`invalid-evidence` and `read-failed`. These identify a failed collection check,
+not an inferred workload root cause.
+
+**Version-pinned Docker consumer example.** Substitute an independently reviewed
+full exporter commit SHA containing this interface for the placeholder below.
+The exporter is installed before the agent can modify the checkout. AWF must
+already be installed at a reviewed version supporting public Docker retention,
+with an eligible public-only config and host mount visibility.
+
+```yaml
+steps:
+  - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+    with:
+      repository: github/gh-aw-firewall
+      ref: '<reviewed-40-character-exporter-commit-sha>'
+      path: trusted-awf-exporter
+      persist-credentials: false
+  - name: Prepare public Docker diagnostics
+    env:
+      DEBUG_RUN_KEY: ${{ github.run_id }}-${{ github.run_attempt }}
+    run: |
+      sudo install -d -m 0711 -o root -g root /var/lib/awf-enclave-smoke-export
+      sudo install -m 0600 -o root -g root \
+        "$GITHUB_WORKSPACE/trusted-awf-exporter/scripts/ci/collect-enclave-smoke-debug.cjs" \
+        /var/lib/awf-enclave-smoke-export/collector.cjs
+      sudo node /var/lib/awf-enclave-smoke-export/collector.cjs \
+        prepare docker "$DEBUG_RUN_KEY" "$(id -u)" "$(id -g)"
+  - name: Execute AWF
+    id: execute
+    run: awf --config "$GITHUB_WORKSPACE/awf-config.json" -- copilot
+  - name: Collect public Docker diagnostics
+    if: always()
+    continue-on-error: true
+    env:
+      DEBUG_RUN_KEY: ${{ github.run_id }}-${{ github.run_attempt }}
+    run: |
+      sudo node /var/lib/awf-enclave-smoke-export/collector.cjs \
+        collect docker "$DEBUG_RUN_KEY" "$(id -u)" "$(id -g)"
+  - name: Upload validated diagnostics or safe collection status
+    if: always()
+    uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+    with:
+      name: public-enclave-debug-${{ github.run_id }}-${{ github.run_attempt }}
+      path: /var/lib/awf-enclave-smoke-export/${{ github.run_id }}-${{ github.run_attempt }}/upload/
+      if-no-files-found: warn
+      retention-days: 1
+```
+
+The execution step deliberately has no `continue-on-error`; collection/upload
+run after failure without changing its outcome. If preparation itself is unsafe,
+there may be no upload directory. Use short retention and explicit publication
+authorization even for public repositories.
 
 #### Controlled inspection and sharing
 

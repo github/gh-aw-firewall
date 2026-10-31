@@ -93,6 +93,7 @@ See [GitHub Actions](docs/github_actions.md) for advanced setup and `awf logs su
 - [AWF config schema](docs/awf-config.schema.json) — machine-readable JSON Schema for JSON/YAML configs (also published as a [versioned release asset](https://github.com/github/gh-aw-firewall/releases/latest/download/awf-config.schema.json) for IDE autocomplete)
 - [AWF config spec](docs/awf-config-spec.md) — normative processing and precedence rules for tooling/compiler integration
 - [Unified enclave architecture](docs/enclaves-architecture.md) — AWF-owned enclave MCP server, mcpg-only access, and the `enclave_run_script` / `enclave_run_agent` tools for private-repository execution
+- [Public enclave diagnostics exporter](docs/cloud-hypervisor-foundation.md#shared-public-diagnostics-exporter) — version-pinned Docker and Cloud Hypervisor collection, safe upload handoff, and failure reporting
 - [Audit log schema](schemas/audit.schema.json) — JSON Schema for L7 traffic audit records (`audit.jsonl`)
 - [Token usage schema](schemas/token-usage.schema.json) — JSON Schema for per-call token usage records (`token-usage.jsonl`)
 - [Schemas README](schemas/README.md) — versioning policy, record identification, and validation examples
