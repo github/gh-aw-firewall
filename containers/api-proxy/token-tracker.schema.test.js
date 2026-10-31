@@ -602,7 +602,9 @@ describe('token-usage JSONL record schema field', () => {
     proxyRes.emit('end');
 
     setTimeout(() => {
-      const usageRecords = mockStream.writtenRecords.filter(r => r._schema);
+      const usageRecords = mockStream.writtenRecords.filter(
+        r => r.event === 'token_usage' && r.request_id === 'budget-fields-http-none',
+      );
       expect(usageRecords).toHaveLength(1);
       const parsed = usageRecords[0];
       expect(parsed.ai_credits_this_response).toBeUndefined();
@@ -634,7 +636,9 @@ describe('token-usage JSONL record schema field', () => {
     socket.emit('close');
 
     setTimeout(() => {
-      const usageRecords = mockStream.writtenRecords.filter(r => r._schema);
+      const usageRecords = mockStream.writtenRecords.filter(
+        r => r.event === 'token_usage' && r.request_id === 'budget-fields-ws',
+      );
       expect(usageRecords).toHaveLength(1);
       const parsed = usageRecords[0];
       expect(parsed).toMatchObject({
@@ -665,7 +669,9 @@ describe('token-usage JSONL record schema field', () => {
     socket.emit('close');
 
     setTimeout(() => {
-      const usageRecords = mockStream.writtenRecords.filter(r => r._schema);
+      const usageRecords = mockStream.writtenRecords.filter(
+        r => r.event === 'token_usage' && r.request_id === 'budget-fields-ws-none',
+      );
       expect(usageRecords).toHaveLength(1);
       const parsed = usageRecords[0];
       expect(parsed.ai_credits_this_response).toBeUndefined();
