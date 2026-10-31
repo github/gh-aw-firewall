@@ -154,6 +154,7 @@ def enable_public_capture():
                 }, separators=(",", ":")).encode() + b"\n" for name in ("stdout", "stderr"))
                 os.pwrite(fd, events, 0)
         except OSError:
+            # Failure to record unavailable capture must not affect workload startup.
             pass
         finally:
             if fd is not None:

@@ -70,6 +70,16 @@ const schema = {
   type: 'object', fields: [{ name: 'passed', schema: { type: 'boolean' } }],
 } as const;
 
+function readArtifact(filename: string): { contents: string; metadata: fs.Stats } {
+  const descriptor = fs.openSync(filename, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
+  try {
+    const metadata = fs.fstatSync(descriptor);
+    return { contents: fs.readFileSync(descriptor, 'utf8'), metadata };
+  } finally {
+    fs.closeSync(descriptor);
+  }
+}
+
 function docker(args: string[], input?: string, timeout = 180_000): Promise<string> {
   return new Promise((resolve, reject) => {
     const child = execFile('docker', args, {
@@ -737,13 +747,13 @@ ${fails ? 'sys.exit(7)' : ''}
     });
     const artifacts = PUBLIC_ENCLAVE_ARTIFACT_NAMES.map((name) => {
       const filename = path.join(debugDirectory, name);
-      const stat = fs.lstatSync(filename);
-      expect(stat.isFile()).toBe(true);
-      expect({ uid: stat.uid, mode: stat.mode & 0o777, nlink: stat.nlink }).toEqual({
+      const { contents, metadata } = readArtifact(filename);
+      expect(metadata.isFile()).toBe(true);
+      expect({ uid: metadata.uid, mode: metadata.mode & 0o777, nlink: metadata.nlink }).toEqual({
         uid: process.getuid?.(), mode: 0o600, nlink: 1,
       });
-      expect(stat.size).toBeLessThanOrEqual(PUBLIC_ENCLAVE_CAPTURE_BYTES);
-      return fs.readFileSync(filename, 'utf8');
+      expect(metadata.size).toBeLessThanOrEqual(PUBLIC_ENCLAVE_CAPTURE_BYTES);
+      return contents;
     });
     const retained = artifacts.join('\n');
     expect(retained).toContain(marker);

@@ -14,6 +14,15 @@ describe('shared public enclave diagnostic conformance', () => {
   const uid = process.getuid?.() ?? 0;
   const gid = process.getgid?.() ?? 0;
   const dependencies = { ...fs.promises, resolveIdentity: () => ({ uid, gid }) };
+  function readArtifact(file: string): { contents: string; metadata: fs.Stats } {
+    const descriptor = fs.openSync(file, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
+    try {
+      const metadata = fs.fstatSync(descriptor);
+      return { contents: fs.readFileSync(descriptor, 'utf8'), metadata };
+    } finally {
+      fs.closeSync(descriptor);
+    }
+  }
   beforeEach(() => {
     root = path.join(process.cwd(), `.public-enclave-artifacts-${randomBytes(8).toString('hex')}`);
     fs.mkdirSync(root, { mode: 0o700 });
@@ -42,10 +51,11 @@ describe('shared public enclave diagnostic conformance', () => {
     expect(fs.readdirSync(input.directory).sort()).toEqual([...PUBLIC_ENCLAVE_ARTIFACT_NAMES].sort());
     for (const name of PUBLIC_ENCLAVE_ARTIFACT_NAMES) {
       const file = path.join(input.directory, name);
-      expect(fs.statSync(file).mode & 0o777).toBe(0o600);
-      expect(fs.statSync(file).uid).toBe(uid);
-      expect(fs.readFileSync(file, 'utf8')).not.toContain('PRIVATE_SECRET');
-      expect(fs.statSync(file).size).toBeLessThanOrEqual(PUBLIC_ENCLAVE_CAPTURE_BYTES);
+      const { contents, metadata } = readArtifact(file);
+      expect(metadata.mode & 0o777).toBe(0o600);
+      expect(metadata.uid).toBe(uid);
+      expect(contents).not.toContain('PRIVATE_SECRET');
+      expect(metadata.size).toBeLessThanOrEqual(PUBLIC_ENCLAVE_CAPTURE_BYTES);
     }
     const projection = JSON.parse(fs.readFileSync(path.join(input.directory, 'diagnostics.json'), 'utf8'));
     expect(projection).toMatchObject({
