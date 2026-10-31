@@ -449,7 +449,9 @@ describe('token-usage JSONL record schema field', () => {
     proxyRes.emit('end');
 
     setTimeout(() => {
-      const usageRecords = mockStream.writtenRecords.filter(r => r._schema);
+      const usageRecords = mockStream.writtenRecords.filter(
+        r => r.event === 'token_usage' && r.request_id === 'schema-field-http',
+      );
       expect(usageRecords).toHaveLength(1);
       const parsed = usageRecords[0];
       expect(parsed._schema).toMatch(/^token-usage\/v\d+\.\d+\.\d+(-\w+)?$/);
@@ -473,7 +475,9 @@ describe('token-usage JSONL record schema field', () => {
     socket.emit('close');
 
     setTimeout(() => {
-      const usageRecords = mockStream.writtenRecords.filter(r => r._schema);
+      const usageRecords = mockStream.writtenRecords.filter(
+        r => r.event === 'token_usage' && r.request_id === 'schema-field-ws',
+      );
       expect(usageRecords).toHaveLength(1);
       const parsed = usageRecords[0];
       expect(parsed._schema).toMatch(/^token-usage\/v\d+\.\d+\.\d+(-\w+)?$/);
@@ -560,7 +564,9 @@ describe('token-usage JSONL record schema field', () => {
     proxyRes.emit('end');
 
     setTimeout(() => {
-      const usageRecords = mockStream.writtenRecords.filter(r => r._schema);
+      const usageRecords = mockStream.writtenRecords.filter(
+        r => r.event === 'token_usage' && r.request_id === 'budget-fields-http',
+      );
       expect(usageRecords).toHaveLength(1);
       const parsed = usageRecords[0];
       expect(parsed).toMatchObject({

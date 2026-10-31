@@ -2,7 +2,7 @@ import { generateDockerCompose, mockNetworkConfig, useAgentVolumesTestConfig } f
 import * as fs from 'fs';
 import * as path from 'path';
 import { stageHostFile } from './agent-volumes/docker-host-staging';
-import { applyHostPathPrefixToVolumes, resolveRunnerVisibleHostPath } from './host-path-prefix';
+import { applyHostPathPrefixToVolumes, resolveRunnerMountPaths, resolveRunnerVisibleHostPath } from './host-path-prefix';
 import { GEMINI_SETTINGS_MOUNT, GEMINI_SETTINGS_SERVICE } from './gemini-settings-service';
 
 // Create mock functions (must remain per-file — jest.mock() is hoisted before imports)
@@ -55,6 +55,8 @@ describe('agent service', () => {
         expect(logMounts).toEqual([`${translatedSource}:/host${logsDir}:rw`]);
         expect(volumes).not.toContain(`${translatedSource}:/host/tmp/gh-aw/sandbox/agent/logs:rw`);
         expect(result.services.agent.command).toEqual(['/bin/bash', '-c', agentCommand]);
+        expect(resolveRunnerMountPaths([`${logsDir}:${logsDir}:rw`], dockerHostPathPrefix))
+          .toEqual([{ sandboxPath: logsDir, runnerPath: logsDir }]);
       } finally {
         fs.rmSync(runnerTemp, { recursive: true, force: true });
       }
@@ -90,6 +92,8 @@ describe('agent service', () => {
         expect(resolveRunnerVisibleHostPath(logsDir, dockerHostPathPrefix)).toBe(logsDir);
         expect(logsDir).not.toBe(canonicalLogsDir);
         expect(fs.lstatSync(logsDir).isSymbolicLink()).toBe(false);
+        expect(resolveRunnerMountPaths([`${logsDir}:${canonicalLogsDir}:rw`], dockerHostPathPrefix))
+          .toEqual([{ sandboxPath: canonicalLogsDir, runnerPath: logsDir }]);
       } finally {
         fs.rmSync(runnerTemp, { recursive: true, force: true });
       }

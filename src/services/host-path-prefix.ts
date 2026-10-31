@@ -138,6 +138,34 @@ export function resolveRunnerVisibleHostPath(
   return prefixHostPath(hostPath, normalizeDockerHostPathPrefix(dockerHostPathPrefix as string));
 }
 
+export interface RunnerMountPath {
+  sandboxPath: string;
+  runnerPath: string;
+}
+
+/**
+ * Publishes explicit bind paths for runner-side consumers of sandbox outputs.
+ * Daemon-only prefixes do not belong in runner paths; a shared prefix does.
+ */
+export function resolveRunnerMountPaths(
+  volumes: string[] = [],
+  dockerHostPathPrefix?: string,
+): RunnerMountPath[] {
+  const runnerVolumes = isSharedDockerHostPathPrefix(dockerHostPathPrefix)
+    ? applyHostPathPrefixToVolumes(volumes, dockerHostPathPrefix)
+    : volumes;
+  return runnerVolumes.flatMap((spec) => {
+    const parts = spec.split(':');
+    if (parts.length < 2 || parts.length > 3 ||
+      !parts[0].startsWith('/') || !parts[1].startsWith('/')) return [];
+    const [runnerPath, target] = parts;
+    // Custom destinations already prefixed with /host are not prefixed again.
+    const sandboxPath = (target === '/host' ? '/'
+      : target.startsWith('/host/') ? target.slice('/host'.length) : target).replace(/\/+$/, '') || '/';
+    return [{ sandboxPath, runnerPath }];
+  });
+}
+
 function translateBindMountHostPath(
   mount: string,
   dockerHostPathPrefix: string,
