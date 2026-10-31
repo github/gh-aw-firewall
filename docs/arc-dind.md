@@ -235,6 +235,27 @@ are tracked there for compiler/MCP Gateway fixes, with AWF-side tracking in
   AWF does not create cross-root symlinks or copies, which can conflict with
   artifact consolidation.
 
+  For ARC/DinD, the resolved-config JSON published via `AWF_RESOLVED_CONFIG`
+  includes `runnerMountPaths`, an ordered array of
+  `{ "sandboxPath": "...", "runnerPath": "..." }` entries for explicit bind
+  mounts retained by the ARC sysroot filter. These paths account for the
+  effective, including auto-detected, Docker host prefix and remove the
+  container's `/host` chroot prefix.
+  For example, a mount from `${RUNNER_TEMP}/gh-aw/sandbox/agent/logs` to
+  `/tmp/gh-aw/sandbox/agent/logs` reports the latter as `sandboxPath` and the
+  former as `runnerPath` with a daemon-only `/host` prefix. With a shared
+  `/tmp` prefix, a source outside `/tmp` instead reports `/tmp<source>`.
+
+  The gh-aw compiler/parser must consume this mapping to resolve its engine
+  log path: choose the longest matching sandbox path on a directory boundary
+  (the last entry wins for duplicate targets), then append the relative suffix
+  to `runnerPath`. A compiler that rewrites the execution path to
+  `${RUNNER_TEMP}/gh-aw/...` must resolve that rewritten path, not the original
+  engine path. Use the resolved runner path for both parsing and artifact
+  collection. This metadata does not change mounts, commands, or permissions,
+  and does not itself update older gh-aw parsers. Consolidation can copy real
+  directories without creating or removing a log-directory symlink.
+
   The agent-log path contract is:
 
   | Writer / reader | Path |

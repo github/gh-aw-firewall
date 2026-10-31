@@ -33,6 +33,10 @@ import { applyConfigFilePrecedence } from './preflight';
 import { registerSignalHandlers } from './signal-handler';
 import { validateOptions } from './validate-options';
 import { probeSplitFilesystem } from '../dind-probe';
+import { applyHostPathPrefixToVolumes, resolveRunnerMountPaths } from '../services/host-path-prefix';
+import { buildCustomVolumeMounts } from '../services/agent-volumes/workspace-mounts';
+import { filterAgentVolumesForSysroot } from '../services/optional-services';
+import { getRealUserHome } from '../host-identity';
 import { assertTopologySupported, connectTopologyContainers } from '../topology';
 import { runDindBootstrap } from '../dind-bootstrap';
 import { adaptExternalRuntimeBackend } from '../external-runtime-backend';
@@ -141,7 +145,22 @@ function persistConfigAuditArtifact(
   redactedConfig: Record<string, unknown>,
 ): void {
   try {
-    const contents = JSON.stringify(redactedConfig, null, 2) + '\n';
+    let runnerMountPaths: ReturnType<typeof resolveRunnerMountPaths> | undefined;
+    if (config.runnerTopology === 'arc-dind') {
+      const customMounts = applyHostPathPrefixToVolumes(
+        buildCustomVolumeMounts(config.volumeMounts, config.dockerHostPathPrefix, { quiet: true }),
+        config.dockerHostPathPrefix,
+      );
+      const retained = new Set(filterAgentVolumesForSysroot(customMounts, config, getRealUserHome()));
+      runnerMountPaths = resolveRunnerMountPaths(
+        config.volumeMounts?.filter((_, index) => retained.has(customMounts[index])),
+        config.dockerHostPathPrefix,
+      );
+    }
+    const contents = JSON.stringify({
+      ...redactedConfig,
+      ...(runnerMountPaths !== undefined ? { runnerMountPaths } : {}),
+    }, null, 2) + '\n';
     resolvedConfigSnapshots.set(config, contents);
     if (process.platform === 'linux' && process.geteuid?.() === 0) {
       const file = publishEarlyResolvedConfig(contents);

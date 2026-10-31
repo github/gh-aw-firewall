@@ -1,4 +1,4 @@
-import { applyHostPathPrefixToVolumes, prefixHostPath, resolveRunnerVisibleHostPath } from './host-path-prefix';
+import { applyHostPathPrefixToVolumes, prefixHostPath, resolveRunnerMountPaths, resolveRunnerVisibleHostPath } from './host-path-prefix';
 
 describe('prefixHostPath', () => {
   it('prepends the normalized prefix to an absolute path', () => {
@@ -66,6 +66,74 @@ describe('resolveRunnerVisibleHostPath', () => {
   it('leaves paths already under a shared /tmp prefix untouched', () => {
     expect(resolveRunnerVisibleHostPath('/tmp/gh-aw/sandbox/firewall/logs', '/tmp'))
       .toBe('/tmp/gh-aw/sandbox/firewall/logs');
+  });
+});
+
+describe('resolveRunnerMountPaths', () => {
+  const logs = '/home/runner/_work/_temp/gh-aw/sandbox/agent/logs';
+  const target = '/tmp/gh-aw/sandbox/agent/logs';
+
+  it.each([undefined, '/host', '/host/', '/tmp/gh-aw', '/'])(
+    'reports runner sources rather than daemon paths with prefix %s',
+    (prefix) => {
+      expect(resolveRunnerMountPaths([`${logs}:${target}:rw`], prefix))
+        .toEqual([{ sandboxPath: target, runnerPath: logs }]);
+    },
+  );
+
+  it.each(['/tmp', '/tmp/'])('reports translated shared paths with prefix %s', (prefix) => {
+    expect(resolveRunnerMountPaths([`${logs}:${target}:rw`], prefix))
+      .toEqual([{ sandboxPath: target, runnerPath: `/tmp${logs}` }]);
+    expect(resolveRunnerMountPaths([`${target}:${target}:rw`], prefix))
+      .toEqual([{ sandboxPath: target, runnerPath: target }]);
+  });
+
+  it('retains rewritten execution targets and strips only the chroot prefix', () => {
+    expect(resolveRunnerMountPaths([
+      `${logs}:${logs}:rw`,
+      `${logs}:/host${target}:rw`,
+      `${logs}:/host${target}/:rw`,
+      '/tmp/root:/host:ro',
+      '/tmp/hostname:/hostname:ro',
+    ], '/tmp/gh-aw')).toEqual([
+      { sandboxPath: logs, runnerPath: logs },
+      { sandboxPath: target, runnerPath: logs },
+      { sandboxPath: target, runnerPath: logs },
+      { sandboxPath: '/', runnerPath: '/tmp/root' },
+      { sandboxPath: '/hostname', runnerPath: '/tmp/hostname' },
+    ]);
+  });
+
+  it('keeps nested and duplicate targets in mount order without modifying input', () => {
+    const volumes = [
+      '/tmp/parent:/tmp/gh-aw:ro',
+      `${logs}:${target}:rw`,
+      `/tmp/replacement:${target}:rw`,
+    ];
+    const original = [...volumes];
+    expect(resolveRunnerMountPaths(volumes, '/tmp')).toEqual([
+      { sandboxPath: '/tmp/gh-aw', runnerPath: '/tmp/parent' },
+      { sandboxPath: target, runnerPath: `/tmp${logs}` },
+      { sandboxPath: target, runnerPath: '/tmp/replacement' },
+    ]);
+    expect(volumes).toEqual(original);
+  });
+
+  it('preserves kernel and identity sources using the actual mount translation', () => {
+    expect(resolveRunnerMountPaths([
+      '/dev/null:/host/dev/null:rw',
+      '/etc/passwd:/host/etc/passwd:ro',
+    ], '/tmp')).toEqual([
+      { sandboxPath: '/dev/null', runnerPath: '/dev/null' },
+      { sandboxPath: '/etc/passwd', runnerPath: '/etc/passwd' },
+    ]);
+  });
+
+  it('does not attribute named volumes or malformed specs to runner paths', () => {
+    expect(resolveRunnerMountPaths([
+      'sysroot:/host:rw', '/source:relative:rw', '/source', '/source:/target:rw:extra',
+    ], '/host')).toEqual([]);
+    expect(resolveRunnerMountPaths()).toEqual([]);
   });
 });
 

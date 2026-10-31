@@ -469,6 +469,28 @@ describe('createMainAction', () => {
       );
     });
 
+    it('publishes runner paths after auto-detecting a daemon-only DinD prefix', async () => {
+      const source = '/home/runner/_work/_temp/gh-aw/sandbox/agent/logs';
+      const target = '/tmp/gh-aw/sandbox/agent/logs';
+      mockedValidateOptions.validateOptions.mockReturnValue({
+        ...MAIN_ACTION_STUB_CONFIG,
+        runnerTopology: 'arc-dind',
+        volumeMounts: [`${source}:${target}:rw`],
+      });
+      mockedDindProbe.probeSplitFilesystem.mockResolvedValue({
+        prefix: '/tmp/gh-aw', splitDetected: true, inconclusive: false,
+      });
+
+      await createMainAction(getOptionValueSource)(['echo hi'], {});
+
+      const calls = jest.mocked(publishEarlyResolvedConfig).mock.calls;
+      const published = JSON.parse(calls[calls.length - 1][0]);
+      expect(published.dockerHostPathPrefix).toBe('/tmp/gh-aw');
+      expect(published.runnerMountPaths).toEqual([
+        { sandboxPath: target, runnerPath: source },
+      ]);
+    });
+
     it('logs warning when split filesystem is detected without a known prefix', async () => {
       mockedDindProbe.probeSplitFilesystem.mockResolvedValue({
         prefix: undefined,
@@ -1504,6 +1526,57 @@ describe('createMainAction', () => {
       } as unknown as import('../types').WrapperConfig);
 
       expect(redacted.additionalEnv).toBe('raw-env-string');
+    });
+
+    it.each(['/host', '/tmp/gh-aw', '/tmp'])(
+      'publishes ARC/DinD runner mount paths with prefix %s without changing config',
+      (dockerHostPathPrefix) => {
+        const source = '/home/runner/_work/_temp/gh-aw/sandbox/agent/logs';
+        const target = '/tmp/gh-aw/sandbox/agent/logs';
+        const config = {
+          ...MAIN_ACTION_STUB_CONFIG,
+          runnerTopology: 'arc-dind' as const,
+          dockerHostPathPrefix,
+          volumeMounts: [`${source}:${target}:rw`],
+        };
+        testHelpers.persistConfigAuditArtifact(config, { agentCommand: 'redacted' });
+        const calls = jest.mocked(publishEarlyResolvedConfig).mock.calls;
+        expect(JSON.parse(calls[calls.length - 1][0])).toEqual({
+          agentCommand: 'redacted',
+          runnerMountPaths: [{
+            sandboxPath: target,
+            runnerPath: dockerHostPathPrefix === '/tmp' ? `/tmp${source}` : source,
+          }],
+        });
+        expect(config.volumeMounts).toEqual([`${source}:${target}:rw`]);
+        expect(config).not.toHaveProperty('runnerMountPaths');
+      },
+    );
+
+    it('does not publish explicit mounts removed by the ARC sysroot filter', () => {
+      const source = '/home/runner/_work/_temp/gh-aw/sandbox/agent/logs';
+      const target = '/tmp/gh-aw/sandbox/agent/logs';
+      const config = {
+        ...MAIN_ACTION_STUB_CONFIG,
+        runnerTopology: 'arc-dind' as const,
+        dockerHostPathPrefix: '/host',
+        volumeMounts: [
+          '/usr:/opt:rw',
+          `${MAIN_ACTION_STUB_CONFIG.workDir}/logs:/tmp/private-logs:rw`,
+          `${source}:${target}:rw`,
+        ],
+      };
+      testHelpers.persistConfigAuditArtifact(config, {});
+      const calls = jest.mocked(publishEarlyResolvedConfig).mock.calls;
+      expect(JSON.parse(calls[calls.length - 1][0]).runnerMountPaths).toEqual([
+        { sandboxPath: target, runnerPath: source },
+      ]);
+    });
+
+    it('does not publish compose mount mappings for other topologies', () => {
+      testHelpers.persistConfigAuditArtifact(MAIN_ACTION_STUB_CONFIG, { agentCommand: 'redacted' });
+      const calls = jest.mocked(publishEarlyResolvedConfig).mock.calls;
+      expect(JSON.parse(calls[calls.length - 1][0])).toEqual({ agentCommand: 'redacted' });
     });
 
     it('persistConfigAuditArtifact warns when publishing the artifact fails', () => {
