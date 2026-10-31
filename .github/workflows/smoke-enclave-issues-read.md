@@ -43,7 +43,7 @@ sandbox:
   agent:
     id: awf
     version: v0.28.13
-    command: "sudo --preserve-env awf"
+    command: 'sudo --preserve-env="$(compgen -e | paste -sd, -)" /usr/bin/env PATH="$PATH" /usr/local/bin/awf'
 strict: false
 steps:
   - name: Install AWF dependencies
