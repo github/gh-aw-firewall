@@ -215,6 +215,259 @@ The `/models` endpoint prefers `COPILOT_GITHUB_TOKEN` (GitHub OAuth) over BYOK k
 | Header | `Authorization: Bearer <key>` (always Bearer, even on GHES) |
 | Target | From `COPILOT_PROVIDER_BASE_URL` or `COPILOT_API_TARGET` |
 
+### Renewable token broker (experimental Copilot inference)
+
+Select `--copilot-token-broker` or `apiProxy.copilotTokenBroker: true` explicitly.
+An inherited `GH_AW_TOKEN_BROKER_URL` alone does **not** select broker authentication.
+This mode routes the agent to the Copilot sidecar on port 10002 with non-secret
+placeholder authentication, even without a static Copilot credential. Static-token
+and BYOK behavior is unchanged when the mode is not selected.
+
+The runtime host must supply:
+
+| Setting | Meaning |
+|---------|---------|
+| `GH_AW_TOKEN_BROKER_URL` | Complete absolute HTTPS exchange endpoint and exact OIDC audience |
+| `ACTIONS_ID_TOKEN_REQUEST_URL` / `ACTIONS_ID_TOKEN_REQUEST_TOKEN` | Actions-owned OIDC bootstrap, used only by the trusted sidecar |
+| `GITHUB_REPOSITORY_ID`, `GITHUB_REPOSITORY_OWNER_ID` | Stable IDs partitioning trusted local credential state |
+| `GITHUB_RUN_ID`, `GITHUB_RUN_ATTEMPT`, `GITHUB_JOB` | Consuming execution context; not server authorization evidence |
+
+Keep the broker URL in runtime Actions variables/secrets, not checked-in AWF
+configuration or compiled deployment URLs. A selected mode with missing configuration
+fails closed. Copilot static credentials, BYOK/cloud authentication, custom
+destinations/base paths, cross-provider fallback, and experimental model routing
+are conflicting configurations in broker mode, not recovery mechanisms.
+Broker responses cannot select an inference destination or tenant.
+Broker mode defaults to `api.githubcopilot.com`; explicit targets are limited to
+that host, `api.individual.githubcopilot.com`, `api.business.githubcopilot.com`,
+and `api.enterprise.githubcopilot.com`, using HTTPS port 443 without a base path.
+Listing an approved destination is not a promise that the preview token works
+there. GHEC tenant destinations require separate reviewed broker support;
+non-broker enterprise routing is unchanged.
+
+#### Compiler/runtime handoff
+
+`github/gh-aw` must map **boolean** `token-broker.copilot-request: true` to
+`--copilot-token-broker` (or the equivalent AWF configuration member). It must
+resolve the URL at Actions runtime:
+
+```yaml
+env:
+  GH_AW_TOKEN_BROKER_URL: ${{ vars.GH_AW_TOKEN_BROKER_URL || secrets.GH_AW_TOKEN_BROKER_URL }}
+```
+
+Only consuming jobs need `id-token: write`, within the caller's permission
+envelope. Do not combine the inference selection with
+`permissions.copilot-requests: write`. Preserve separate `copilot-task` handling;
+an inference installation token does not establish authorization for coding-agent
+task creation or assignment.
+
+This AWF change does **not** remove the upstream compiler's main-agent inference
+guard, including its applicable fallback-model guard. That change belongs in
+`github/gh-aw` after a compatible AWF image/runtime and a real integrated
+deployment are verified. Bounded detection/evals exchanges are not evidence of
+renewable main-agent inference.
+
+#### Trust boundary and transport
+
+The host selects the mode, validates configuration, and passes the bootstrap,
+broker endpoint, and execution context only to the isolated API-proxy container.
+The sidecar owns OIDC acquisition, exchange, in-memory caching, and renewal.
+The agent receives neither broker configuration nor OIDC bootstrap/JWTs nor real
+inference credentials, including with environment passthrough enabled.
+
+Broker, OIDC and the selected Copilot target receive source-scoped CONNECT
+policy for the trusted sidecar, not agent domain allowlist entries.
+Existing blocked-network and unsafe-port guards still apply.
+These authentication tunnels are spliced before TLS inspection; their endpoint
+hosts are suppressed in Squid access logs and redacted from audit snapshots.
+The client uses the sidecar's
+HTTPS proxy transport, so it does not depend on runner filesystem paths or a
+runner-local socket; the same handoff works with Docker-in-Docker. Deployment
+proxies and TLS trust must be configured through existing AWF transport/trust
+facilities. Do not disable TLS verification to make a broker reachable.
+This runtime handoff accepts GitHub.com Actions OIDC endpoints under
+`*.actions.githubusercontent.com`; other GitHub deployments need separately
+reviewed issuer/transport support, not wildcard enrollment.
+Endpoint configuration is trusted cooperative deployment policy: HTTPS alone
+does not establish that a repository administrator's chosen broker is approved.
+
+#### Exchange and renewal contract
+
+The client follows the experimental
+[gh-aw Token Broker Specification 1.0.0](https://github.com/github/gh-aw/blob/f5d4768eda5719d343372bf109a7e58d1d3bd566/docs/src/content/docs/specs/token-broker-specification.md).
+The configured URL, including case, path, query and explicit port, is the exact
+OIDC audience. No suffix/discovery route is appended; no redirects are followed
+on either hop. An exchange is one HTTPS POST with JSON content type, JSON accept
+header, and `Cache-Control: no-store`:
+
+```json
+{"token_type":"copilot-request","provider":"github","oidc_token":"<fresh-actions-jwt>"}
+```
+
+Success is HTTP 200 with `Content-Type: application/json` and
+`Cache-Control: no-store`, containing exactly two unique string members:
+
+```json
+{"token":"<opaque-installation-token>","expires_at":"2026-10-30T18:00:00Z"}
+```
+
+Tokens are nonempty printable ASCII U+0021–U+007E; no prefix or fixed length is
+assumed. Responses cannot contain endpoints, scopes or tenant metadata. Duplicate
+members, additional/missing members, unsafe tokens, invalid UTF-8/JSON, and invalid
+calendar dates are rejected. Expiration uses the specification's restricted RFC
+3339 profile: lowercase `t`/`z`, fractions, and numeric offsets are accepted;
+leap seconds, hour 24, and invalid time/offset components are not.
+
+Both response reads and the request body are bounded to 65,536 bytes.
+Compressed responses are rejected; configure broker middleware to serve this
+small JSON response without compression. One 10-second total deadline includes
+OIDC acquisition, proxy/TLS connection, broker exchange, and both response reads.
+There is no automatic exchange retry.
+
+Each upstream request, including model discovery, resolves authorization when
+it is prepared. Tokens with **30 seconds or less** remaining are discarded and
+renewed using a fresh OIDC identity. A newly issued token must exceed that
+margin. Each provider instance owns one immutable endpoint/provider/capability/
+repository/run/attempt/job context; concurrent requests share its in-flight
+exchange, but separate contexts/processes cannot inherit credentials.
+Shutdown clears memory and cancels pending exchanges.
+
+Denial, malformed/near-expiry credentials, unsupported capability, redirects,
+timeout and outage fail closed. No static credential, alternate provider, stale
+token, or replay of a potentially billable inference request is an authentication
+workaround. Already-established streams are not stopped solely because their
+token expires. AWF does not guarantee the upstream will keep such a stream open:
+operators must measure actual stream behavior, while subsequent requests renew.
+HTTP streaming is supported; WebSocket upgrades fail closed in broker mode
+because renewable WebSocket authentication is not implemented.
+
+#### Deployment-owned organization GitHub App issuer
+
+[Organization-installed GitHub Apps using Copilot](https://docs.github.com/en/enterprise-cloud@latest/copilot/how-tos/administer-copilot/manage-for-organization/manage-app-copilot-access)
+are in **public preview**, subject to change. This path is not supported for
+personal-account or enterprise installations. The organization must approve the
+App's organization **Copilot Requests: Read-only** permission and installation.
+Read-only permits inference spending; it does not mean cost-free access.
+
+The broker, not AWF, holds App signing credentials in protected server-side
+storage and chooses the organization installation from enrolled policy.
+After identity and policy verification, use GitHub's supported
+[installation access token issuance](https://docs.github.com/en/apps/creating-github-apps/authenticating-with-a-github-app/generating-an-installation-access-token-for-a-github-app)
+with minimum approved permissions. Return the issuer's actual expiration.
+Installation tokens expire after one hour; there is no assumed caller-selected
+TTL. Advertising an earlier expiration only changes client refresh timing, not
+the credential's underlying lifetime. Stronger lifetime promises require
+supported issuer behavior or revocation.
+
+The following is an **illustrative server adapter boundary**, not a broker,
+JWT verifier, or production SDK implementation. The injected functions must be
+implemented using the deployment's protected GitHub App client and policy:
+
+```javascript
+async function issueCopilotRequest(verifiedContext, capability, services) {
+  // Each operation below is server-owned; no installation ID comes from the caller.
+  const policy = await services.authorizeEnrolledContext(verifiedContext);
+  if (capability !== 'copilot-request' || !policy.githubCopilotEnabled) {
+    throw services.sanitizedUnsupported();
+  }
+  await services.enforceReplayAndRatePolicy(verifiedContext, capability);
+  const issued = await services.issueOrganizationInstallationToken({
+    installationId: policy.organizationInstallationId,
+    permissions: policy.minimumApprovedCopilotPermissions,
+  });
+  await services.validateIssuerResult(issued, policy);
+  // Track this independently revocable token only in job-scoped server memory.
+  await services.recordJobCredential(verifiedContext, issued);
+  return { token: issued.token, expires_at: issued.expiresAt };
+}
+```
+
+Before invoking any issuer adapter, the backend must:
+
+1. Verify the trusted GitHub issuer/discovery/JWKS, allowed algorithm, signature,
+   exact single-string audience, and finite bounded `iat`/`nbf`/`exp` age/lifetime.
+   JWT-supplied key URLs must not select trust roots or destinations. Support
+   bounded trusted-key refresh/rotation; missing trust/time policy denies issuance.
+2. Bind stable owner/repository IDs to an enrolled tenant and approved
+   workflow/reusable-workflow revision, ref, environment and event/fork policy.
+   Verify run/attempt and consuming-job evidence through an approved signed claim
+   profile or correlated trusted GitHub metadata. `GITHUB_JOB` and other caller
+   environment variables are only local cache context, never authorization evidence.
+3. Authorize capability, installation, entitlement and approved inference
+   destination from server policy; reject cross-tenant selection and unsupported
+   capabilities without minting. For known types verify identity before disclosing
+   capability support. Apply bounded abuse/replay controls and per-context rate
+   limits without preventing independently authorized cross-capability exchanges.
+4. Enforce finite upstream timeouts, least privilege, actual expiration,
+   issuer compatibility, and independent revocation. Fail issuance if any required
+   evidence or result cannot be verified; never switch tenant/issuer/capability.
+
+Organization model policies, billing and spending controls apply. There is no
+per-App or per-installation budget. Enable the organization's stop-spending
+budget behavior when required; alert-only budgets do not stop usage. The CLI
+organization-billing policy is a different authentication path. Suspending or
+uninstalling an installation blocks App access, including other organization
+resources, and is not a job-scoped cleanup mechanism.
+
+#### Post-job invalidation and backend conformance
+
+Lifecycle ownership is split deliberately: AWF cancels local exchanges and
+clears its cache; the compiler owns an **unconditional, separate `always()`**
+post-job step, with a fresh OIDC identity and the same endpoint/audience:
+
+```json
+{"operation":"invalidate","oidc_token":"<fresh-actions-jwt>"}
+```
+
+Only HTTP 204 with empty body and `Cache-Control: no-store` is successful.
+Verify identity and exact execution context again; revoke all credentials issued
+to that authorized job, make repeated cleanup idempotent, and deny cross-job,
+run, attempt, repository and tenant invalidation without revealing existence.
+Do not share one cached installation token across jobs and claim it can be
+revoked independently. The broker needs a working per-token revocation strategy
+or must reject deployment conformance. Cleanup cannot replace finite credential
+lifetimes when a job is force-terminated.
+
+GitHub documents
+[`DELETE /installation/token`](https://docs.github.com/en/rest/apps/installations#revoke-an-installation-access-token):
+authenticate with the particular installation token to revoke it; success is
+HTTP 204. A backend can retain each job's independently issued tokens in protected
+memory and revoke each through this endpoint, then discard them. Never accept a
+caller-supplied token to choose what to revoke. Handle already-revoked/expired
+tokens under the server's idempotent cleanup policy without hiding genuine
+revocation outages. Demonstrate that revoking one job's tokens leaves another
+job's separately issued tokens usable; SDK installation-token caches must not
+collapse these into a shared credential.
+
+Backend authors should use the upstream T-TBR-002–009 and T-TBR-013–016 fixtures
+with a controlled issuer/JWKS, deterministic clock, isolated tenants and an
+instrumented issuer. Assert **zero mint calls** on pre-issuance rejection and
+no returned credential on rejected issuer results. Exercise key rotation,
+unknown keys, invalid audience/signature/time, unsupported capability, fork and
+job policy denial, replay/rate boundaries, duplicate/oversize bodies, actual
+expiration, repeated invalidation and denied cross-context revocation.
+
+AWF's client fixtures are `containers/api-proxy/providers/token-broker.test.js`;
+proxy fixtures cover request-time inference/model discovery and streaming.
+These are client/runtime tests, not server or integrated-deployment certification.
+**Live acceptance remains deployment-owned and unverified here:** demonstrate
+actual model listing, Copilot inference, renewal with real Actions OIDC,
+long-lived stream behavior, and job-scoped revocation while another job continues
+using its own credential. Successful minting/exchange alone does not count.
+
+#### Sanitized troubleshooting
+
+Client classifications are `ERR_TOKEN_BROKER_CONFIGURATION`, `OIDC`,
+`UNAUTHORIZED` (401/403), `UNSUPPORTED` (400/404/422/501), `UNAVAILABLE`
+(transport/deadline/other status), and `MALFORMED_RESPONSE`, each prefixed
+`ERR_TOKEN_BROKER_`. Inspect only sanitized lifecycle/policy diagnostics.
+Never print JWTs, bootstrap tokens, issued tokens, full broker URLs/bodies,
+claim dumps or underlying exception details. Disable credential-bearing HTTP
+capture, proxy/APM traces and durable credential storage on the backend.
+Use access-controlled, retention-bounded policy diagnostics and non-sensitive
+test evidence; do not put credentials in workflow outputs or artifacts.
+
 ### Azure BYOK through the OpenAI adapter
 
 When `COPILOT_PROVIDER_TYPE=azure`, the OpenAI adapter on port 10000:

@@ -11,6 +11,7 @@ import { getLowerCaseProcessEnvValue } from '../../env-utils';
 import { readEnvVarFromEnvFiles } from '../../parsers/env-parsers';
 import { NetworkOptionsResult } from './network-options';
 import { AgentOptionsResult } from './agent-options';
+import { resolveCopilotBrokerRuntime } from '../../copilot-token-broker';
 
 /**
  * Validates and logs the API proxy configuration.  Emits warnings for missing
@@ -21,6 +22,7 @@ export function validateApiProxyOptions(
   config: WrapperConfig,
   networkOptions: NetworkOptionsResult,
 ): void {
+  resolveCopilotBrokerRuntime(config);
   // Validate and warn about API proxy configuration
   // Pass booleans (not actual keys) to prevent sensitive data flow to logger.
   // `copilotByokDirect` means the user supplied COPILOT_PROVIDER_API_KEY for direct-BYOK
@@ -36,7 +38,7 @@ export function validateApiProxyOptions(
     config.enableApiProxy || false,
     !!config.openaiApiKey,
     !!config.anthropicApiKey,
-    !!config.copilotGithubToken || copilotByokDirect,
+    !!config.copilotGithubToken || copilotByokDirect || config.copilotTokenBroker === true,
     !!config.geminiApiKey,
     hasAnthropicWif,
     !!config.googleApiKey,
@@ -44,7 +46,7 @@ export function validateApiProxyOptions(
 
   // Log API proxy status at info level for visibility
   if (config.enableApiProxy) {
-    const copilotStatus = config.copilotGithubToken
+    const copilotStatus = config.copilotTokenBroker ? 'true (token-broker)' : config.copilotGithubToken
       ? 'true (github-token)'
       : copilotByokDirect
         ? 'true (byok-direct)'

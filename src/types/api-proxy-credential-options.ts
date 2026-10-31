@@ -47,6 +47,7 @@ export interface ApiProxyCredentialOptions {
    * @see API_PROXY_PORTS for port configuration
    */
   enableApiProxy?: boolean;
+  copilotTokenBroker?: boolean;
 
   /**
    * OpenAI API key for Codex (used by API proxy sidecar)

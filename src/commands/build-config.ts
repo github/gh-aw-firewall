@@ -193,6 +193,7 @@ export function buildConfig(inputs: BuildConfigInputs): WrapperConfig {
     allowedUrls,
     enableApiProxy: options.enableApiProxy as boolean | undefined,
     apiProxyCaCert: options.apiProxyCaCert as string | undefined,
+    copilotTokenBroker: options.copilotTokenBroker as boolean | undefined,
     modelFallback:
       options.modelFallback as { enabled?: boolean; strategy?: 'middle_power' } | undefined,
     fallbackModels: options.fallbackModels as string[] | undefined,

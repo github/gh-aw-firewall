@@ -247,6 +247,7 @@ program
   .option('--nvx-scratch-bytes <bytes>', 'Bounded per-run guest-writable scratch overlay size in bytes.')
 
   // -- Container Configuration --
+  .option('--copilot-token-broker', 'Use host GitHub Actions OIDC to obtain renewable Copilot credentials from the token broker')
   .option(
     '-e, --env <KEY=VALUE>',
     'Environment variable for the container (repeatable)',

@@ -1515,6 +1515,20 @@ describe('createMainAction', () => {
       });
     });
 
+    it('omits host-only broker and bootstrap env configuration from resolved artifacts', () => {
+      const redacted = testHelpers.redactConfigForLogging({
+        ...MAIN_ACTION_STUB_CONFIG,
+        additionalEnv: {
+          AWF_COPILOT_TOKEN_BROKER: 'true',
+          GH_AW_TOKEN_BROKER_URL: 'https://broker.example.com/mint',
+          ACTIONS_ID_TOKEN_REQUEST_URL: 'https://pipelines.actions.githubusercontent.com/idtoken',
+          ACTIONS_ID_TOKEN_REQUEST_TOKEN: 'bootstrap-only',
+          KEEP: 'public-value',
+        },
+      } as import('../types').WrapperConfig);
+      expect(redacted.additionalEnv).toEqual({ KEEP: '[REDACTED]' });
+    });
+
     it('redactConfigForLogging preserves null additionalEnv', () => {
       const redacted = testHelpers.redactConfigForLogging({
         ...MAIN_ACTION_STUB_CONFIG,

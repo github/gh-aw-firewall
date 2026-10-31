@@ -10,6 +10,7 @@ import { resolveOpenAiBaseUrlFromEnv } from '../openai-base-url-env';
 import { normalizeClaudeHostedWebPolicy } from '../claude-hosted-web-policy';
 import { normalizeCodexHostedWebPolicy } from '../codex-hosted-web-policy';
 import { resolveCopilotApiRouting } from '../copilot-api-resolver';
+import { resolveCopilotBrokerRuntime, validateCopilotBrokerTarget } from '../copilot-token-broker';
 
 const DEFAULT_API_PROXY_SHUTDOWN_TIMEOUT_MS = 8000;
 export const API_PROXY_UPSTREAM_CA_CERT_CONTAINER_PATH = '/usr/local/share/ca-certificates/awf-upstream-ca.crt';
@@ -86,6 +87,12 @@ export function buildProviderTargetEnv(config: WrapperConfig): Record<string, st
   const providerSessionId = resolveProviderSessionId(config);
   if (providerSessionId) {
     env.AWF_PROVIDER_SESSION_ID = providerSessionId;
+  }
+
+  if (config.copilotTokenBroker) {
+    resolveCopilotBrokerRuntime(config);
+    validateCopilotBrokerTarget(env[COPILOT_ENV.API_TARGET], env[COPILOT_ENV.API_BASE_PATH]);
+    env[COPILOT_ENV.API_TARGET] ??= 'api.githubcopilot.com';
   }
 
   return env;
@@ -443,6 +450,7 @@ export function buildApiProxyBaseEnv(config: WrapperConfig, networkConfig: Netwo
     ...buildModelPolicyEnv(config),
     ...buildModelRoutingEnv(config),
     ...buildOidcEnv(config),
+    ...resolveCopilotBrokerRuntime(config)?.environment,
   };
 }
 

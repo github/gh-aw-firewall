@@ -53,6 +53,7 @@ export function mapAwfFileConfigToCliOptions(config: AwfFileConfig): Record<stri
     maxPermissionDenied: config.apiProxy?.maxPermissionDenied,
     maxCacheMisses: config.apiProxy?.maxCacheMisses,
     requestedModel: config.apiProxy?.requestedModel,
+    copilotTokenBroker: config.apiProxy?.copilotTokenBroker,
     modelFallback: config.apiProxy?.modelFallback,
     fallbackModels: config.apiProxy?.fallbackModels,
     experimentalModelRouting: config.experimental?.modelRouting,

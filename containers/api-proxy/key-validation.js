@@ -59,10 +59,9 @@ function isKeyValidationComplete() {
 
 async function refreshProviderModelsForResolution(provider) {
   const adapter = getRegisteredAdapters().find(a => a.name === provider);
-  const config = adapter?.getModelsFetchConfig?.();
-  if (!config) return;
-
   try {
+    const config = await adapter?.getModelsFetchConfig?.();
+    if (!config) return;
     const json = await fetchJson(config.url, config.opts, 10_000);
     const extracted = extractModelIds(json);
     const metadata = extractModelMetadata(provider, json, {
@@ -81,15 +80,17 @@ async function refreshProviderModelsForResolution(provider) {
   } catch (err) {
     logRequest('debug', 'model_cache_refresh_failed', {
       provider,
-      error: String(err && err.message ? err.message : err),
+      error: adapter?.renewableAuth ? 'Copilot token broker model refresh unavailable'
+        : String(err && err.message ? err.message : err),
     });
   }
 }
 
-async function probeProvider(provider, url, opts, timeoutMs) {
+async function probeProvider(provider, url, opts, timeoutMs, adapter) {
   keyValidationResults[provider] = { status: 'pending', message: 'Validating...' };
   try {
     const status = await httpProbe(url, opts, timeoutMs);
+    if (adapter?.renewableAuth) adapter.recordAuthReadiness?.(status >= 200 && status < 300);
 
     if (status >= 200 && status < 300) {
       keyValidationResults[provider] = { status: 'valid', message: `HTTP ${status}` };
@@ -105,7 +106,9 @@ async function probeProvider(provider, url, opts, timeoutMs) {
       logRequest('warn', 'key_validation', { provider, status: 'inconclusive', httpStatus: status });
     }
   } catch (err) {
-    const message = err && err.message ? err.message : String(err);
+    if (adapter?.renewableAuth) adapter.recordAuthReadiness?.(false);
+    const message = adapter?.renewableAuth ? 'Copilot token broker startup validation unavailable'
+      : (err && err.message ? err.message : String(err));
     keyValidationResults[provider] = { status: 'network_error', message };
     logRequest('warn', 'key_validation', { provider, status: 'network_error', error: message });
   }
@@ -123,7 +126,15 @@ async function validateApiKeys(adapters = []) {
   const probes = [];
 
   for (const adapter of adapters) {
-    const probe = adapter.getValidationProbe?.();
+    let probe;
+    try {
+      probe = await adapter.getValidationProbe?.();
+    } catch {
+      keyValidationResults[adapter.name] = {
+        status: 'auth_rejected', message: 'Provider authentication unavailable',
+      };
+      continue;
+    }
     if (!probe) continue;
 
     if (probe.skip) {
@@ -132,12 +143,13 @@ async function validateApiKeys(adapters = []) {
       continue;
     }
 
-    probes.push(probeProvider(adapter.name, probe.url, probe.opts, TIMEOUT_MS));
+    probes.push(probeProvider(adapter.name, probe.url, probe.opts, TIMEOUT_MS, adapter));
   }
 
   if (probes.length === 0) {
     logRequest('info', 'key_validation', { message: 'No providers to validate' });
     keyValidationComplete = true;
+    _summarizeValidationFailures(mode);
     return;
   }
 
@@ -174,11 +186,18 @@ async function fetchStartupModels(adapters = []) {
   const fetches = [];
 
   for (const adapter of adapters) {
-    const config = adapter.getModelsFetchConfig?.();
+    let config;
+    try {
+      config = await adapter.getModelsFetchConfig?.();
+    } catch {
+      cachedModels[adapter.name] = null;
+      continue;
+    }
     if (!config) continue;
 
     fetches.push(
       fetchJson(config.url, config.opts, TIMEOUT_MS).then((json) => {
+        if (adapter.renewableAuth) adapter.recordAuthReadiness?.(json !== null && json !== undefined);
         const extracted = extractModelIds(json);
         const metadata = extractModelMetadata(adapter.name, json, {
           format: config.modelMetadataFormat,
@@ -190,6 +209,8 @@ async function fetchStartupModels(adapters = []) {
         } else if (cachedModels[config.cacheKey] === undefined) {
           cachedModels[config.cacheKey] = null;
         }
+      }).catch(() => {
+        if (adapter.renewableAuth) adapter.recordAuthReadiness?.(false);
       })
     );
   }

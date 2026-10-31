@@ -18,6 +18,7 @@ export interface OtlpEndpoint {
  * HTTP and HTTPS traffic using domain whitelisting and optional blocklisting.
  */
 export interface SquidConfig {
+  apiProxyBrokerUpstreams?: Array<{ hostname: string; port: number }>;
   /**
    * List of allowed domains for proxy access
    * 

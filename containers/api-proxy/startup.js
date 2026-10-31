@@ -150,6 +150,7 @@ function bootPrimary({
       }
     })));
     for (const adapter of registeredAdapters) {
+      adapter.shutdown?.();
       if (typeof adapter.getOidcProvider === 'function') {
         adapter.getOidcProvider()?.shutdown();
       }

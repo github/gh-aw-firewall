@@ -79,6 +79,7 @@ import {
   disconnectEnclaveGithubGateway,
 } from '../enclave/github-gateway';
 import type { WrapperConfig } from '../types';
+import { COPILOT_BROKER_PRIVATE_ENV } from '../copilot-token-broker';
 import {
   prepareProtectedCommandOutputCapture,
   type ProtectedCommandOutputCapture,
@@ -133,7 +134,9 @@ function redactConfigForLogging(config: WrapperConfig): Record<string, unknown> 
 
     if (key === 'additionalEnv' && value && typeof value === 'object') {
       redactedConfig[key] = Object.fromEntries(
-        Object.keys(value as Record<string, string>).map((envKey) => [envKey, '[REDACTED]']),
+        Object.keys(value as Record<string, string>)
+          .filter(envKey => !COPILOT_BROKER_PRIVATE_ENV.some(name => name === envKey))
+          .map((envKey) => [envKey, '[REDACTED]']),
       );
       continue;
     }

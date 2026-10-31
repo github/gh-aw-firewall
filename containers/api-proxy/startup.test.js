@@ -33,6 +33,7 @@ describe('bootPrimary shutdown', () => {
     const callOrder = [];
     const oidcProvider = { initialize: jest.fn().mockResolvedValue(undefined), shutdown: jest.fn() };
     const awsOidcProvider = { initialize: jest.fn().mockResolvedValue(undefined), shutdown: jest.fn() };
+    const adapterShutdown = jest.fn(() => callOrder.push('adapterShutdown'));
     const server = {
       listen: jest.fn((port, host, cb) => cb()),
       shutdownConnections: jest.fn().mockImplementation(async () => {
@@ -70,6 +71,7 @@ describe('bootPrimary shutdown', () => {
         getTargetHost: () => 'api.openai.com',
         getOidcProvider: () => oidcProvider,
         getAwsOidcProvider: () => awsOidcProvider,
+        shutdown: adapterShutdown,
       }],
       createProviderServer: () => server,
       validateApiKeys: jest.fn(),
@@ -90,11 +92,13 @@ describe('bootPrimary shutdown', () => {
     expect(server.shutdownConnections).toHaveBeenCalledTimes(1);
     expect(oidcProvider.shutdown).toHaveBeenCalledTimes(1);
     expect(awsOidcProvider.shutdown).toHaveBeenCalledTimes(1);
+    expect(adapterShutdown).toHaveBeenCalledTimes(1);
     expect(closeLogStream).toHaveBeenCalledTimes(1);
     expect(otelShutdown).toHaveBeenCalledTimes(1);
     expect(processExitSpy).toHaveBeenCalledWith(0);
     expect(callOrder.indexOf('shutdownConnections')).toBeLessThan(callOrder.indexOf('close'));
     expect(callOrder.indexOf('close')).toBeLessThan(callOrder.indexOf('closeLogStream'));
+    expect(callOrder.indexOf('close')).toBeLessThan(callOrder.indexOf('adapterShutdown'));
     expect(callOrder.indexOf('closeLogStream')).toBeLessThan(callOrder.indexOf('otelShutdown'));
     expect(callOrder.indexOf('otelShutdown')).toBeLessThan(callOrder.indexOf('exit:0'));
   });

@@ -150,7 +150,30 @@ function createSendUpstreamRequest({
   getProviderAdapter = null,
   modelBudget = invocationModelBudget,
 }) {
-  return function sendUpstreamRequest(requestHeaders, {
+  const failBrokerAuth = ({ res, req, provider, span }) => {
+    metrics.gaugeDec('active_requests', { provider });
+    otel.endSpan(span, 503);
+    if (res.headersSent || res.destroyed || res.writableEnded) return;
+    if (req.awfRouting) req.awfRouting.localError = { code: 'token_broker_unavailable', type: 'authentication_error' };
+    res.writeHead(503, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: { code: 'token_broker_unavailable', type: 'authentication_error',
+      message: 'Copilot token broker authentication unavailable' } }));
+  };
+
+  // Resolve renewable credentials immediately before each actual attempt,
+  // including model/endpoint retries. No refresh timer can touch active streams.
+  function sendUpstreamRequest(requestHeaders, ctx) {
+    const adapter = getProviderAdapter?.(ctx.provider);
+    if (!adapter?.renewableAuth) return dispatchUpstreamRequest(requestHeaders, ctx);
+    return adapter.getAuthHeaders({ method: ctx.req.method, url: ctx.upstreamPath, headers: ctx.req.headers })
+      .then(authHeaders => {
+        const headers = Object.fromEntries(Object.entries(requestHeaders)
+          .filter(([key]) => key.toLowerCase() !== 'authorization'));
+        dispatchUpstreamRequest({ ...headers, ...authHeaders }, ctx);
+      }).catch(() => failBrokerAuth(ctx));
+  }
+
+  function dispatchUpstreamRequest(requestHeaders, {
     body, targetHost, upstreamPath, req, res, provider, requestId, startTime, span, requestBytes,
     requestSigner = null,
     hasRetried = false,
@@ -520,6 +543,10 @@ function createSendUpstreamRequest({
                     finalizeCancellation();
                     return;
                   }
+                  if (err?.code === 'token_broker_unavailable') {
+                    failBrokerAuth({ res, req, provider, span });
+                    return;
+                  }
                   exclude.add(key);
                   logSkip(candidate, err?.code === 'unsupported_protocol_feature' || err?.code === 'unsupported_wire_api_feature'
                     ? `protocol_translation_failed: ${err.feature || err.message}`
@@ -666,6 +693,11 @@ function createSendUpstreamRequest({
         return;
       }
       responded = true;
+      const adapter = getProviderAdapter?.(provider);
+      if (adapter?.renewableAuth) {
+        if (proxyRes.statusCode >= 200 && proxyRes.statusCode < 300) adapter.recordAuthReadiness?.(true);
+        else if (proxyRes.statusCode === 401 || proxyRes.statusCode === 403) adapter.recordAuthReadiness?.(false);
+      }
       cancellation.responseStarted = true;
       handleUpstreamResponse(proxyRes, outboundHeaders, {
         body, res, provider, requestId, req, targetHost, upstreamPath, startTime, span, requestBytes,
@@ -850,7 +882,8 @@ function createSendUpstreamRequest({
 
     if (body.length > 0) proxyReq.write(body);
     proxyReq.end();
-  };
+  }
+  return sendUpstreamRequest;
 }
 
 module.exports = {

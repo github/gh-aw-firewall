@@ -223,6 +223,7 @@ AWF settings MAY be supplied via config files, including stdin (`--config -`).
 - `network.verifySbxEgress` → `--verify-sbx-egress` *(fail-closed verification that Docker sbx direct traffic cannot bypass Squid; requires the sbx runtime)*
 - `network.topologyAttach[]` → `--topology-attach <name>` *(repeatable; requires `network.isolation: true`)*
 - `apiProxy.enabled` → `--enable-api-proxy` *([DEPRECATED] API proxy is always enabled; this flag is ignored)*
+- `apiProxy.copilotTokenBroker` → `--copilot-token-broker` *(experimental, explicit boolean opt-in for renewable GitHub Copilot inference; runtime-only `GH_AW_TOKEN_BROKER_URL` and host Actions OIDC bootstrap are required; see [broker integration and backend contract](auth-matrix.md#renewable-token-broker-experimental-copilot-inference))*
 - `apiProxy.caCert` → `--api-proxy-ca-cert <path>` *(mounts an additional CA certificate into the api-proxy sidecar and sets `NODE_EXTRA_CA_CERTS` for upstream TLS verification)*
 - `apiProxy.enableTokenSteering` → `--enable-token-steering` *(maps to `AWF_ENABLE_TOKEN_STEERING`; opts into runtime and AI-credit advisory warnings; omit or set to `false` to opt out)*
 - `apiProxy.anthropicAutoCache` → `--anthropic-auto-cache`
