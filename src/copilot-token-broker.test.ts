@@ -14,16 +14,18 @@ import { validateWithSchema } from './schema-validator';
 import { redactDockerComposeSecrets } from './compose-generator';
 import { program } from './cli-options';
 import { buildConfig } from './commands/build-config';
+import { normalizeEnclavesConfig } from './parsers/enclave-parser';
 import { buildMinimalBuildConfigInput } from './test-helpers/build-config.test-utils';
 import * as fs from 'fs';
 import * as path from 'path';
+import * as os from 'os';
 import { configWriterTestHelpers } from './config-writer';
 
 jest.mock('./logger', () => ({
   logger: { debug: jest.fn(), info: jest.fn(), warn: jest.fn(), error: jest.fn() },
 }));
 
-const root = '/home/runner/work/gh-aw-firewall/gh-aw-firewall';
+const root = path.resolve(__dirname, '..');
 const runtime = {
   GH_AW_TOKEN_BROKER_URL: 'https://broker.example.com:8443/mint?audience=a%2Fb&x=1',
   ACTIONS_ID_TOKEN_REQUEST_URL: 'https://pipelines.actions.githubusercontent.com/run/idtoken?api-version=2',
@@ -206,6 +208,28 @@ it('preserves unrelated GitHub credentials and accepts only approved Copilot tar
   expect(config.githubToken).toBe('unrelated-github-token');
 });
 
+it.each(['', '   ', ' api.enterprise.githubcopilot.com '])('normalizes host Copilot target %j consistently', target => {
+  process.env.COPILOT_API_TARGET = target;
+  const config = makeConfig();
+  const hostname = target.trim() || 'api.githubcopilot.com';
+  expect(buildApiProxyBaseEnv(config, network).COPILOT_API_TARGET).toBe(hostname);
+  expect(resolveCopilotBrokerUpstreams(config).slice(-1)[0]).toEqual({ hostname, port: 443 });
+});
+
+it('rejects broker authentication with agent enclaves before proxy construction', () => {
+  const enclaves = normalizeEnclavesConfig([
+    { agent: { model: 'gpt-5' }, repos: [{ repo: 'octo/private', sensitivity: 'internal' }] },
+  ]);
+  expect(() => resolveCopilotBrokerRuntime(makeConfig({ enclaves }))).toThrow(/does not support agent enclaves/);
+});
+
+it('allows broker authentication with script-only enclaves', () => {
+  const enclaves = normalizeEnclavesConfig([
+    { script: {}, repos: [{ repo: 'octo/private', sensitivity: 'internal' }] },
+  ]);
+  expect(resolveCopilotBrokerRuntime(makeConfig({ enclaves }))).toBeDefined();
+});
+
 it.each([true, false])('isolates runtime env even with envAll=%s and explicit --env', envAll => {
   const config = makeConfig({
     envAll, additionalEnv: { ...runtime, AWF_COPILOT_TOKEN_BROKER: 'true' },
@@ -232,6 +256,14 @@ it('adds only exact source-scoped CONNECT egress with blocklist/DLP before safet
   expect(squid).toContain('acl api_upstream_0_port port 8443');
   expect(squid).toContain('acl api_upstream_1_port port 443');
   expect(squid).toContain('acl api_upstream_2_host dstdom_regex -i -n ^api\\.githubcopilot\\.com$');
+  for (const [index, hostname] of [
+    'broker\\.example\\.com', 'pipelines\\.actions\\.githubusercontent\\.com', 'api\\.githubcopilot\\.com',
+  ].entries()) {
+    expect(squid).toContain(`acl api_broker_log_${index}_destination dstdom_regex -i -n ^${hostname}$`);
+    for (const line of squid.split('\n').filter(value => value.startsWith('access_log '))) {
+      expect(line).toContain(`!api_broker_log_${index}_private`);
+    }
+  }
   for (const index of [0, 1]) {
     const allow = `http_access allow api_upstream_source api_broker_connect api_upstream_${index}_host api_upstream_${index}_port !blocked_domains !dlp_blocked`;
     expect(squid).toContain(allow);
@@ -285,7 +317,7 @@ it.each([
   'https://[2001:db8::77]:8443/mint',
 ])('writes audit artifacts without raw/escaped/encoded broker endpoint %s', url => {
   process.env.GH_AW_TOKEN_BROKER_URL = url;
-  const directory = fs.mkdtempSync(`${root}/.broker-audit-`);
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'broker-audit-'));
   try {
     const config = makeConfig({ auditDir: directory });
     const squid = generateSquidConfig({

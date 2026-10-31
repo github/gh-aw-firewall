@@ -104,6 +104,7 @@ if (!HTTPS_PROXY) {
 }
 
 const { createAllAdapters } = require('./providers');
+const { isTokenBrokerEnabled } = require('./providers/token-broker');
 const {
   resolveApiKey,
   resolveCopilotAuthToken,
@@ -136,7 +137,7 @@ function makeModelBodyTransform(provider) {
     getRuntimeModels,
     provider === 'copilot' &&
       !resolveApiKey(process.env) &&
-      Boolean(resolveCopilotAuthToken(process.env)) &&
+      (isTokenBrokerEnabled(process.env) || Boolean(resolveCopilotAuthToken(process.env))) &&
       isGithubCopilotCatalogTarget(deriveCopilotApiTarget(process.env)),
   );
 }

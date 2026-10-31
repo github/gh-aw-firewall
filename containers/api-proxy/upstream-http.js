@@ -19,6 +19,7 @@ const {
 } = require('./cross-provider-fallback');
 const { validateReasoningEffort } = require('./reasoning-effort-validation');
 const { sanitizeForLog } = require('./logging');
+const { mergeInjectedHeaders } = require('./request-headers');
 const {
   carryForwardWireApiCompatibility,
   endpointForPath,
@@ -169,7 +170,8 @@ function createSendUpstreamRequest({
       .then(authHeaders => {
         const headers = Object.fromEntries(Object.entries(requestHeaders)
           .filter(([key]) => key.toLowerCase() !== 'authorization'));
-        dispatchUpstreamRequest({ ...headers, ...authHeaders }, ctx);
+        mergeInjectedHeaders(headers, authHeaders, ctx.targetHost);
+        dispatchUpstreamRequest(headers, ctx);
       }).catch(() => failBrokerAuth(ctx));
   }
 

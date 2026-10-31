@@ -2,7 +2,7 @@ import * as yaml from 'js-yaml';
 import { redactOtlpEnvValue } from './services/router-otel-env';
 
 function isSensitiveComposeEnvVar(name: string): boolean {
-  return /(TOKEN|KEY|SECRET)/i.test(name);
+  return /(TOKEN|KEY|SECRET)/i.test(name) || name.toUpperCase() === 'AWF_SQUID_CONFIG_B64';
 }
 
 function sanitizeComposeEnvValue(name: string, value: unknown): unknown {

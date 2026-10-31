@@ -188,6 +188,37 @@ describe('renewable Copilot broker adapter', () => {
     fixture.adapter.shutdown();
   });
 
+  test.each([
+    ...['CONFIGURATION', 'OIDC', 'UNAUTHORIZED', 'UNSUPPORTED', 'UNAVAILABLE', 'MALFORMED_RESPONSE']
+      .map(kind => [`ERR_TOKEN_BROKER_${kind}`, `ERR_TOKEN_BROKER_${kind}`]),
+    ['ERR_TOKEN_BROKER_private-secret', 'ERR_TOKEN_BROKER_UNAVAILABLE'],
+    ['arbitrary-private-secret', 'ERR_TOKEN_BROKER_UNAVAILABLE'],
+    [undefined, 'ERR_TOKEN_BROKER_UNAVAILABLE'],
+  ])('auth failures log only allowlisted classification for %s', async (code, expected) => {
+    const log = jest.spyOn(process.stdout, 'write').mockImplementation(() => true);
+    const client = {
+      getToken: jest.fn().mockRejectedValue(Object.assign(new Error('private credential and broker response'), { code })),
+      shutdown: jest.fn(),
+    };
+    const adapter = createCopilotAdapter({ AWF_COPILOT_TOKEN_BROKER: 'true' },
+      { createTokenBrokerProvider: () => client });
+    await expect(adapter.getAuthHeaders({ method: 'POST', url: '/responses' }))
+      .rejects.toMatchObject({
+        code: 'token_broker_unavailable', message: 'Copilot token broker authentication unavailable',
+        brokerErrorCode: expected,
+      });
+    const failure = await adapter.getValidationProbe().catch(error => error);
+    expect(failure.brokerErrorCode).toBe(expected);
+    expect(Object.keys(failure)).not.toContain('brokerErrorCode');
+    expect(JSON.stringify(failure)).not.toMatch(/ERR_TOKEN_BROKER|private|credential|response/);
+    expect(log).toHaveBeenCalledTimes(2);
+    expect(JSON.parse(log.mock.calls[0][0])).toEqual({
+      timestamp: expect.any(String), level: 'error', event: 'token_broker_auth_failed', code: expected,
+    });
+    expect(JSON.stringify(log.mock.calls)).not.toMatch(/private|credential|response/);
+    adapter.shutdown();
+  });
+
   test('validation, discovery and resolution refresh await renewable models headers', async () => {
     const fixture = brokerFixture();
     discovery.httpProbe.mockResolvedValue(200);
@@ -272,12 +303,14 @@ describe('renewable Copilot broker adapter', () => {
     healthChecks(adapter, 200);
   });
 
-  test('startup authentication rejection is recorded safely and discovery completes without a fallback', async () => {
+  test('startup authentication acquisition failure is recorded safely and discovery completes without a fallback', async () => {
     const fixture = brokerFixture();
     fixture.request.mockRejectedValue(new Error('bootstrap-test-credential broker response body'));
     await validation.validateApiKeys([fixture.adapter]);
     await validation.fetchStartupModels([fixture.adapter]);
-    expect(validation.keyValidationResults.copilot.status).toBe('auth_rejected');
+    expect(validation.keyValidationResults.copilot).toMatchObject({
+      status: 'inconclusive', code: 'ERR_TOKEN_BROKER_OIDC',
+    });
     expect(validation.isModelFetchComplete()).toBe(true);
     expect(discovery.fetchJson).not.toHaveBeenCalled();
     expect(discovery.httpProbe).not.toHaveBeenCalled();
@@ -364,7 +397,9 @@ describe('renewable Copilot broker adapter', () => {
     fixture.adapter.shutdown();
   });
 
-  test('upstream preparation renews credentials for each attempt, fails closed and never mutates pinned headers', async () => {
+  test.each(['copilot-integration-id', 'Copilot-Integration-Id', 'cOpIlOt-InTeGrAtIoN-iD'])(
+    'upstream dispatch preserves caller %s while renewing auth without duplicates',
+    async integrationHeader => {
     const fixture = brokerFixture();
     const transport = jest.fn(() => ({ on: jest.fn(), write: jest.fn(), end: jest.fn() }));
     const send = createSendUpstreamRequest({
@@ -374,16 +409,35 @@ describe('renewable Copilot broker adapter', () => {
     });
     const response = { writeHead: jest.fn(), end: jest.fn() };
     const context = { body: Buffer.from('{"messages":[]}'), targetHost: 'api.githubcopilot.com',
-      upstreamPath: '/chat/completions', provider: 'copilot', req: { method: 'POST', headers: {} },
+      upstreamPath: '/chat/completions', provider: 'copilot',
+      req: { method: 'POST', headers: { [integrationHeader]: 'caller-integration', authorization: 'incoming-test' } },
       res: response, span: {}, requestId: 'renewal-test', startTime: Date.now(), requestBytes: 15 };
-    const staleHeaders = { authorization: auth('stale-test'), 'content-type': 'application/json' };
+    const preparedHeaders = buildRequestHeaders(context.body, context.body.length, context.req, {
+      injectHeaders: { Authorization: auth('stale-test'), 'Copilot-Integration-Id': 'agentic-workflows' },
+      targetHost: context.targetHost, provider: context.provider, requestId: context.requestId,
+    });
+    expect(Object.entries(preparedHeaders).filter(([key]) => key.toLowerCase() === 'copilot-integration-id'))
+      .toEqual([[integrationHeader, 'caller-integration']]);
+    const staleHeaders = {
+      ...preparedHeaders,
+      authorization: auth('stale-test'), AUTHORIZATION: auth('stale-duplicate-test'),
+      'content-type': 'application/json',
+      'COPILOT-INTEGRATION-ID': 'duplicate-integration',
+    };
     await send(staleHeaders, context);
     expect(transport.mock.calls[0][0].headers.Authorization).toBe(auth('renewed-test-1'));
     fixture.advance(100_000);
     await send(staleHeaders, { ...context, hasRetried: true });
     expect(transport.mock.calls[1][0].headers.Authorization).toBe(auth('renewed-test-2'));
     expect(transport.mock.calls[0][0].headers.Authorization).toBe(auth('renewed-test-1'));
+    for (const [options] of transport.mock.calls) {
+      expect(Object.entries(options.headers).filter(([key]) => key.toLowerCase() === 'authorization'))
+        .toEqual([['Authorization', options.headers.Authorization]]);
+      expect(Object.entries(options.headers).filter(([key]) => key.toLowerCase() === 'copilot-integration-id'))
+        .toEqual([[integrationHeader, 'caller-integration']]);
+    }
     expect(staleHeaders.authorization).toBe(auth('stale-test'));
+    expect(staleHeaders['COPILOT-INTEGRATION-ID']).toBe('duplicate-integration');
     fixture.advance(100_000);
     fixture.request.mockRejectedValue(new Error('private body renewed-test-2'));
     await send(staleHeaders, context);

@@ -61,8 +61,11 @@ export function validateCopilotBrokerTarget(target: string | undefined, basePath
 
 function validateConflicts(config: WrapperConfig): void {
   if (!config.enableApiProxy) throw new Error('Copilot token broker requires the API proxy');
+  if (config.enclaves?.enabled && config.enclaves.executors.agent.enabled) {
+    throw new Error('Copilot token broker does not support agent enclaves');
+  }
   const envValue = (name: string): string | undefined =>
-    getConfigEnvValue(config, name) ?? process.env[name];
+    getConfigEnvValue(config, name) ?? (process.env[name]?.trim() || undefined);
   for (const name of ['COPILOT_GITHUB_TOKEN', 'COPILOT_TOKEN', 'COPILOT_PROVIDER_API_KEY']) {
     const value = envValue(name);
     if (value && value !== COPILOT_PLACEHOLDER_TOKEN) {
@@ -127,7 +130,7 @@ export function resolveCopilotBrokerUpstreams(config: WrapperConfig): Array<{ ho
   const runtime = resolveCopilotBrokerRuntime(config);
   if (!runtime) return [];
   const target = config.copilotApiTarget ?? getConfigEnvValue(config, 'COPILOT_API_TARGET')
-    ?? process.env.COPILOT_API_TARGET ?? 'api.githubcopilot.com';
+    ?? (process.env.COPILOT_API_TARGET?.trim() || undefined) ?? 'api.githubcopilot.com';
   const url = new URL(target.includes('://') ? target : `https://${target}`);
   return [...runtime.endpoints, { hostname: url.hostname, port: 443 }];
 }

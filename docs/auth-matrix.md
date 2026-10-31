@@ -237,6 +237,8 @@ configuration or compiled deployment URLs. A selected mode with missing configur
 fails closed. Copilot static credentials, BYOK/cloud authentication, custom
 destinations/base paths, cross-provider fallback, and experimental model routing
 are conflicting configurations in broker mode, not recovery mechanisms.
+Agent enclaves are also rejected: their dedicated proxy deliberately excludes
+the Actions OIDC bootstrap required by broker mode. Script-only enclaves remain supported.
 Broker responses cannot select an inference destination or tenant.
 Broker mode defaults to `api.githubcopilot.com`; explicit targets are limited to
 that host, `api.individual.githubcopilot.com`, `api.business.githubcopilot.com`,
@@ -281,6 +283,7 @@ policy for the trusted sidecar, not agent domain allowlist entries.
 Existing blocked-network and unsafe-port guards still apply.
 These authentication tunnels are spliced before TLS inspection; their endpoint
 hosts are suppressed in Squid access logs and redacted from audit snapshots.
+Failure diagnostics omit the encoded Squid configuration as well.
 The client uses the sidecar's
 HTTPS proxy transport, so it does not depend on runner filesystem paths or a
 runner-local socket; the same handoff works with Docker-in-Docker. Deployment

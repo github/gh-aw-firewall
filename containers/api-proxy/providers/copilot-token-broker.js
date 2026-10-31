@@ -5,18 +5,27 @@ const { createAdapterMethods, buildProviderAdapter } = require('../adapter-facto
 const { composeBodyTransforms } = require('../proxy-utils');
 const { sanitizeNullToolCallTypes } = require('../body-transform');
 const { bearerAuthHeaders, withCopilotIntegration } = require('./auth-headers');
+const { logRequest } = require('../logging');
 
 const MODELS_API_VERSION = '2026-07-01';
+const BROKER_ERROR_CODES = new Set([
+  'ERR_TOKEN_BROKER_CONFIGURATION', 'ERR_TOKEN_BROKER_OIDC',
+  'ERR_TOKEN_BROKER_UNAUTHORIZED', 'ERR_TOKEN_BROKER_UNSUPPORTED',
+  'ERR_TOKEN_BROKER_UNAVAILABLE', 'ERR_TOKEN_BROKER_MALFORMED_RESPONSE',
+]);
 const BROKER_TARGETS = new Set([
   'api.githubcopilot.com', 'api.individual.githubcopilot.com',
   'api.business.githubcopilot.com', 'api.enterprise.githubcopilot.com',
 ]);
 
-function brokerUnavailable() {
+function brokerUnavailable(brokerErrorCode = 'ERR_TOKEN_BROKER_UNAVAILABLE') {
   const error = new Error('Copilot token broker authentication unavailable');
   error.code = 'token_broker_unavailable';
   error.type = 'authentication_error';
   error.statusCode = 503;
+  Object.defineProperty(error, 'brokerErrorCode', {
+    value: BROKER_ERROR_CODES.has(brokerErrorCode) ? brokerErrorCode : 'ERR_TOKEN_BROKER_UNAVAILABLE',
+  });
   return error;
 }
 
@@ -86,9 +95,13 @@ function createCopilotTokenBrokerAdapter(env, deps = {}) {
       }
       ready = true;
       return headers;
-    } catch {
+    } catch (error) {
       ready = false;
-      throw brokerUnavailable();
+      const code = BROKER_ERROR_CODES.has(error?.code) ? error.code : 'ERR_TOKEN_BROKER_UNAVAILABLE';
+      logRequest('error', 'token_broker_auth_failed', {
+        code,
+      });
+      throw brokerUnavailable(code);
     }
   }
 
@@ -108,8 +121,10 @@ function createCopilotTokenBrokerAdapter(env, deps = {}) {
     isEnabled: () => !stopped,
     getAuthHeaders,
     bodyTransform: composeBodyTransforms(
-      deps.bodyTransform || null,
-      body => { const result = sanitizeNullToolCallTypes(body); return result ? result.body : null; },
+      composeBodyTransforms(
+        deps.bodyTransform || null,
+        body => { const result = sanitizeNullToolCallTypes(body); return result ? result.body : null; },
+      ),
       (body, req) => {
         const pathname = new URL(req.url, 'http://localhost').pathname;
         if (pathname !== '/chat/completions' && pathname !== '/v1/chat/completions') return null;

@@ -2,6 +2,7 @@ import { preserveIptablesAudit } from './artifact-preservation';
 import { collectDiagnosticLogs } from './diagnostic-collector';
 import * as fs from 'fs';
 import * as path from 'path';
+import * as yaml from 'js-yaml';
 import { resolveEnclavePaths } from './enclave/paths';
 
 import { mockExecaFn, mockExecaSync } from './test-helpers/mock-execa.test-utils';
@@ -58,7 +59,7 @@ describe('docker-manager diagnostics', () => {
       expect(sanitizedCompose).toContain('[REDACTED]');
       expect(sanitizedCompose).not.toContain('ghp_abc123');
       expect(sanitizedCompose).not.toContain('mykey');
-      expect(sanitizedCompose).toContain('secretvalue');
+      expect(sanitizedCompose).not.toContain('secretvalue');
       expect(sanitizedCompose).toContain('NORMAL_VAR: normalvalue');
     });
 
@@ -71,6 +72,35 @@ describe('docker-manager diagnostics', () => {
       const files = fs.existsSync(diagnosticsDir) ? fs.readdirSync(diagnosticsDir) : [];
       const logFiles = files.filter(f => f.endsWith('.log'));
       expect(logFiles).toHaveLength(0);
+    });
+
+    it.each([false, true])('omits encoded authentication policy from failure diagnostics (list env=%s)', async listEnv => {
+      mockExecaFn.mockResolvedValue({ stdout: '', stderr: '', exitCode: 0 });
+      const squid = [
+        'acl broker dstdom_regex -i -n ^broker\\.internal$',
+        'acl oidc dstdomain pipelines.actions.githubusercontent.com',
+      ].join('\n');
+      const values = {
+        AWF_SQUID_CONFIG_B64: Buffer.from(squid).toString('base64'),
+        GH_AW_TOKEN_BROKER_URL: 'https://broker.internal/mint',
+        ACTIONS_ID_TOKEN_REQUEST_URL: 'https://pipelines.actions.githubusercontent.com/idtoken',
+        ACTIONS_ID_TOKEN_REQUEST_TOKEN: 'test-bootstrap',
+      };
+      fs.writeFileSync(path.join(getDir(), 'docker-compose.yml'), yaml.dump({
+        services: { squid: { environment: listEnv
+          ? Object.entries(values).map(([key, value]) => `${key}=${value}`)
+          : values } },
+      }));
+
+      await collectDiagnosticLogs(getDir());
+      const diagnosticCopy = fs.readFileSync(path.join(getDir(), 'diagnostics', 'docker-compose.yml'), 'utf8');
+      for (const value of Object.values(values)) expect(diagnosticCopy).not.toContain(value);
+      const parsed = yaml.load(diagnosticCopy) as {
+        services: { squid: { environment: Record<string, string> | string[] } };
+      };
+      const environment = parsed.services.squid.environment;
+      expect(Array.isArray(environment) ? environment[0] : environment.AWF_SQUID_CONFIG_B64)
+        .toBe(listEnv ? 'AWF_SQUID_CONFIG_B64=[REDACTED]' : '[REDACTED]');
     });
 
     it('should skip docker-compose.yml sanitization when file does not exist', async () => {
