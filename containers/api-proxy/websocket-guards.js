@@ -44,7 +44,7 @@ function enforceWebSocketGuards({
     const decision = evaluateModelEligibility(eligibilityModel.model, provider, req,
       eligibilityModel.location === 'path' ? { inputMode: 'native' } : undefined);
     const harnessBlocked = ['incompatible', 'unverified'].includes(decision.harness);
-    if (!decision.admitted && (eligibilityModel.location !== 'path' || harnessBlocked)) {
+    if (!decision.admitted && harnessBlocked) {
       logRequest('warn', 'model_harness_incompatible', {
         request_id: requestId, provider, model: decision.identity?.key, harness: decision.harness,
       });

@@ -210,9 +210,9 @@ function enforceGuards({ body, provider, req, res, requestId, startTime, span, i
       : evaluateModelEligibility(eligibilityModel.model, provider, req,
         eligibilityModel.location === 'path' ? { inputMode: 'native' } : undefined));
     const harnessBlocked = ['incompatible', 'unverified'].includes(decision.harness);
-    // URL-only providers retain their existing policy/pricing guard behavior;
-    // the path supplies model identity for the new harness admission check.
-    if (!decision.admitted && (eligibilityModel.location === 'body' || harnessBlocked)) {
+    // Existing guards retain lifecycle/policy/pricing behavior. Opaque IDs
+    // without an identifiable harness constraint remain provider-owned.
+    if (!decision.admitted && harnessBlocked) {
       sendGuardBlockedResponse(decision, {
         req, res, provider, requestId, startTime, span, body, inboundBytes,
         statusCode: 400, eventName: 'model_harness_incompatible',

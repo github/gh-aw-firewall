@@ -204,6 +204,64 @@ test.each([true, false])('real HTTP alias exhaustion cannot become unrelated pre
   }
 });
 
+test('real HTTP requests use only the trusted pinned selected harness', async () => {
+  const observedRequests = [];
+  const adapter = {
+    name: 'copilot', isEnabled: () => true, getTargetHost: () => 'api.githubcopilot.com',
+    getAuthHeaders: req => { observedRequests.push(req); return {}; },
+    getBasePath: () => '', getBodyTransform: () => null,
+  };
+  https.request.mockImplementation((options, callback) => {
+    const outgoing = makeProxyReq();
+    requests.push({ options, outgoing });
+    setImmediate(() => {
+      const response = new PassThrough();
+      response.statusCode = 200;
+      response.headers = { 'content-type': 'application/json' };
+      callback(response);
+      response.end('{"choices":[]}');
+    });
+    return outgoing;
+  });
+  const { createProviderServer } = require('./server-factory');
+  const server = createProviderServer(adapter, {
+    handleManagementEndpoint: () => false, reflectEndpoints: () => [],
+    checkRateLimit: () => false, proxyRequest: proxy.proxyRequest, proxyWebSocket: jest.fn(),
+  });
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  try {
+    for (const selectedHarness of ['aider', 'copilot']) {
+      eligibility.proxyEligibilityStore.replaceTrustedEvidence({ ...evidence(), selectedHarness });
+      const result = await new Promise((resolve, rejectRequest) => {
+        const req = http.request({
+          host: '127.0.0.1', port: server.address().port, method: 'POST', path: '/chat/completions',
+          headers: { 'content-type': 'application/json', 'x-awf-selected-harness': 'aider' },
+        }, res => {
+          const chunks = [];
+          res.on('data', chunk => chunks.push(chunk));
+          res.on('end', () => resolve({ status: res.statusCode, body: JSON.parse(Buffer.concat(chunks)) }));
+        });
+        req.on('error', rejectRequest);
+        req.end('{"model":"gpt-6-sol","messages":[]}');
+      });
+      expect(result.status).toBe(selectedHarness === 'aider' ? 200 : 400);
+      if (selectedHarness === 'copilot') {
+        expect(result.body.error).toMatchObject({
+          code: 'model_harness_incompatible', model: 'copilot/gpt-6-sol',
+        });
+      }
+    }
+    expect(requests).toHaveLength(1);
+    expect(eligibility.evaluateModelEligibility('gpt-6-sol', 'copilot', observedRequests[0]))
+      .toMatchObject({ admitted: true, harness: 'unconstrained', selectedHarness: 'aider' });
+    expect(eligibility.evaluateModelEligibility('gpt-6-sol', 'copilot', observedRequests[1]))
+      .toMatchObject({ admitted: false, harness: 'incompatible', selectedHarness: 'copilot' });
+  } finally {
+    await new Promise(resolve => server.close(resolve));
+    await server.shutdownConnections();
+  }
+});
+
 test.each([
   ['gemini', '/v1beta/models/gemini%2Dpro:generateContent'],
   ['vertex', '/v1/projects/project/locations/us/publishers/google/models/gemini-pro:streamGenerateContent?alt=sse'],
@@ -288,6 +346,20 @@ test('caller headers and body cannot inject trusted harness observations', async
   expect(JSON.parse(res.end.mock.calls[0][0]).error.code).toBe('model_harness_incompatible');
 });
 
+test('harness rejection responses omit successful requirement diagnostics', () => {
+  const facts = evidence();
+  facts.models[0].harnesses.unshift({
+    ...facts.models[0].harnesses[0], minimum: '1.0.0', excludedRanges: [],
+  });
+  const decision = eligibility.evaluateModelEligibility('gpt-6-sol', 'copilot', {
+    awfEligibility: eligibility.createProxyEligibilityStore(facts).pin(),
+  });
+  expect(decision.reasons.some(reason => reason.code === 'harness_compatible')).toBe(true);
+  const envelope = eligibility.buildEligibilityError(decision);
+  expect(envelope.error.reasons).toHaveLength(1);
+  expect(envelope.error.reasons[0].code).toBe('harness_incompatible');
+});
+
 test.each([['1.3.2', false], ['1.4.0', true]])('actual harness version %s applies excluded ranges at the HTTP boundary', async (version, admitted) => {
   const facts = evidence();
   facts.observations[0].version = version;
@@ -344,6 +416,7 @@ test('adapter evidence cannot override route identity, scope or trusted harness 
         environment: 'forged-agent', verified: true, actual: true,
       }],
       executionEnvironment: 'forged-agent',
+      selectedHarness: 'aider',
     },
   });
   expect(decision).toMatchObject({
@@ -393,6 +466,13 @@ test('explicit unknown models still forward unchanged without pricing admission 
   await start('opaque-deployment');
   expect(requests).toHaveLength(1);
   expect(sent().model).toBe('opaque-deployment');
+});
+
+test.each(['?effort=high', '/opaque'])('opaque explicit model %s does not produce an empty harness incompatibility error', async model => {
+  const { res } = await start(model, 'openai');
+  expect(requests).toHaveLength(1);
+  expect(sent().model).toBe(model);
+  expect(res.end).not.toHaveBeenCalled();
 });
 
 test('a later trusted refresh cannot change a request already waiting for its body', async () => {

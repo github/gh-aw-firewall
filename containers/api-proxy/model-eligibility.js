@@ -98,7 +98,8 @@ function buildEligibilityError(decision) {
         'Upgrade the required harness and supply trusted execution-environment evidence before retrying.',
       model: decision.identity?.key,
       scope: decision.scope,
-      reasons: decision.reasons.filter(reason => reason.code.startsWith('harness_')).map(reason => ({
+      reasons: decision.reasons.filter(reason =>
+        reason.code.startsWith('harness_') && reason.code !== 'harness_compatible').map(reason => ({
         ...reason,
         detected: reason.detected ?? null,
         reason: reason.reason || 'A compatible verified harness in the actual execution environment is required',
