@@ -16,6 +16,12 @@ REPO = Path("/query/repo")
 SCRIPT = "/awf/query-script.py"
 OUTPUT = Path("/awf/out")
 
+def enable_public_capture():
+    if os.environ.get("AWF_ENCLAVE_DEBUG_PUBLIC") != "true":
+        return None
+    from public_debug_capture import enable_public_capture as enable
+    return enable()
+
 def make_repository_writable():
     for root, directories, files in os.walk(REPO, followlinks=False):
         for name in [".", *directories, *files]:
@@ -56,6 +62,9 @@ def main():
         diagnostic("passed")
         phase = "script-execute"
         diagnostic("started")
+        if os.environ.get("AWF_ENCLAVE_DEBUG_PUBLIC") == "true" \
+                or os.environ.get("AWF_ENCLAVE_SCRIPT_DEBUG_PROGRESS") == "true":
+            print('{"event":"progress","stage":"runtime-paths-ready"}', file=sys.stderr, flush=True)
         runpy.run_path(SCRIPT, run_name="__main__")
         diagnostic("passed")
     except BaseException as error:
@@ -73,4 +82,14 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    capture = enable_public_capture()
+    try:
+        main()
+    except BaseException as error:
+        if capture and not isinstance(error, SystemExit):
+            import traceback
+            traceback.print_exc()
+        raise
+    finally:
+        if capture:
+            capture.close()

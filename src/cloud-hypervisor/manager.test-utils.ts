@@ -262,6 +262,8 @@ function dependencies(
     chmod: jest.fn().mockResolvedValue(undefined),
     chown: jest.fn().mockResolvedValue(undefined),
     lstat: jest.fn().mockResolvedValue({
+      uid: 0,
+      mode: 0o755,
       isSymbolicLink: () => false,
       isDirectory: () => true,
     }),
@@ -327,6 +329,8 @@ function dependencies(
           isDirectory: () => directory,
           isFile: () => !directory,
           nlink: 1,
+          uid: 0,
+          mode: 0o700,
         }),
         chmod: (mode: number) => mergedDependencies.chmod(target, mode),
         chown: (uid: number, gid: number) => mergedDependencies.chown(target, uid, gid),

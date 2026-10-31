@@ -18,6 +18,7 @@ DIRECTORY = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC
 FILE = os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC
 FILES = {
     "out": 0o600, "session.jsonl": 0o600,
+    "stdout.log": 0o600, "stderr.log": 0o600,
     "github-agent-id": 0o400, "github-bearer": 0o400,
 }
 libc = ctypes.CDLL(None, use_errno=True)
@@ -260,7 +261,7 @@ def validate_request(args, uid):
         require(args[4] in {*FILES, "agent"})
         require(args[5:7] == ["65534", "65534"])
     if operation == "reclaim":
-        require(args[4] in ("out", "session.jsonl"))
+        require(args[4] in ("out", "session.jsonl", "stdout.log", "stderr.log"))
     return operation, allocation, source, size, target
 
 
@@ -336,7 +337,8 @@ def allocation_operation(base, state, uid, args):
                     if operation == "reclaim":
                         granted = read_json(state, key + ".own-" + child_name)
                         require(stat.S_ISREG(info.st_mode) and info.st_nlink == 1)
-                        require(info.st_uid == granted["uid"] and info.st_ino == granted["inode"])
+                        # Idempotent after an interrupted retention attempt.
+                        require(info.st_uid in (granted["uid"], uid) and info.st_ino == granted["inode"])
                         os.fchown(child, uid, -1)
                         os.fchmod(child, 0o600)
                         return {"owned": True}

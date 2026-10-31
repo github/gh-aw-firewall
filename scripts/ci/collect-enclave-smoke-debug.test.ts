@@ -17,11 +17,8 @@ describe('host-only public enclave debug collector', () => {
   const uid = process.getuid!();
   const gid = process.getgid!();
   const runId = 'a'.repeat(32);
-  // The broker uses randomBytes(12), not the VM's 32-hex identity.
+  // Public artifacts use the broker identity, not the VM's hashed identity.
   const invocationId = 'b'.repeat(24);
-  const vmId = createHash('sha256').update(JSON.stringify([
-    'awf-host-enclave-v1', runId, 'script', invocationId,
-  ])).digest('hex').slice(0, 32);
 
   beforeEach(() => {
     temp = fs.mkdtempSync(path.join(process.cwd(), '.enclave-debug-test-'));
@@ -37,8 +34,8 @@ describe('host-only public enclave debug collector', () => {
       JSON.stringify({ runId, state: 'open' }),
       JSON.stringify({ invocationId, entryId: 'script', state: 'cleanup-pending' }),
     ].join('\n'), { mode: 0o600 });
-    const source = path.join(roots.debug, vmId);
-    fs.mkdirSync(source, { mode: 0o700 });
+    const source = path.join(roots.debug, runId, invocationId);
+    fs.mkdirSync(source, { recursive: true, mode: 0o700 });
     fs.writeFileSync(path.join(source, 'guest-stderr.raw.log'), 'failed guest evidence', { mode: 0o600 });
     return source;
   }
@@ -71,11 +68,62 @@ describe('host-only public enclave debug collector', () => {
       .toContain('Enclave proxy usage (requests/tokens): missing');
   });
 
+  it('collects the common public artifacts from the run and broker invocation layout', () => {
+    prepareRun();
+    const source = invocation();
+    const names = ['stdout.log', 'stderr.log', 'enclave-session.log', 'diagnostics.json'];
+    for (const name of names) fs.writeFileSync(path.join(source, name), '{}\n', { mode: 0o600 });
+    expect(collectRun()).toBe(5);
+    expect(fs.readdirSync(path.join(run, 'upload')).sort())
+      .toEqual(['collection-status.txt', 'guest-stderr.raw.log', ...names].sort());
+  });
+
+  it('tolerates an empty run directory before public artifacts have been published', () => {
+    prepareRun();
+    const source = invocation();
+    fs.rmSync(source, { recursive: true });
+    expect(collectRun()).toBe(0);
+  });
+
+  it('rejects reuse of the same invocation identity by another entry', () => {
+    prepareRun();
+    invocation();
+    fs.appendFileSync(path.join(roots.journal, `${runId}.journal`),
+      '\n' + JSON.stringify({ invocationId, entryId: 'other', state: 'cleanup-pending' }));
+    expect(collectRun).toThrow(/Invocation budget exceeded/);
+    expect(fs.existsSync(path.join(run, 'upload'))).toBe(false);
+  });
+
+  it.each(['wrong-invocation', 'multiple-invocations', 'run-symlink', 'run-permissions'])(
+    'rejects unsafe nested debug identity %s before publishing', kind => {
+      prepareRun();
+      const source = invocation();
+      const runSource = path.join(roots.debug, runId);
+      if (kind === 'wrong-invocation') fs.renameSync(source, path.join(runSource, 'c'.repeat(24)));
+      else if (kind === 'multiple-invocations') fs.mkdirSync(path.join(runSource, 'c'.repeat(24)), { mode: 0o700 });
+      else if (kind === 'run-symlink') {
+        fs.renameSync(runSource, path.join(temp, 'moved-run'));
+        fs.symlinkSync(path.join(temp, 'moved-run'), runSource);
+      } else fs.chmodSync(runSource, 0o777);
+      expect(collectRun).toThrow();
+      expect(fs.existsSync(path.join(run, 'upload'))).toBe(false);
+    });
+
+  it.each(['stdout.log', 'stderr.log', 'enclave-session.log', 'diagnostics.json'])(
+    'retains existing safety controls for common artifact %s', name => {
+      prepareRun();
+      const file = path.join(invocation(), name);
+      fs.writeFileSync(file, '{}', { mode: 0o600 });
+      fs.linkSync(file, path.join(temp, 'linked'));
+      expect(collectRun).toThrow(/Unsafe or oversized/);
+      expect(fs.existsSync(path.join(run, 'upload'))).toBe(false);
+    });
+
   it.each([false, true])('collects run-cumulative proxy logs without invocation storage (invoked=%s)', async invoked => {
     prepareRun();
     if (invoked) {
       invocation();
-      fs.rmSync(path.join(roots.debug, vmId), { recursive: true });
+      fs.rmSync(path.join(roots.debug, runId), { recursive: true });
     }
     await preservePublicEnclaveProxyDiagnostics({ runId, journalDir: roots.journal }, {
       scope: 'run-cumulative', status: 'captured', records: 1, local: { '403': 1 }, upstream: {},
@@ -193,7 +241,7 @@ describe('host-only public enclave debug collector', () => {
   it('exports explicit unavailable response evidence even without an invocation debug directory', () => {
     prepareRun();
     invocation();
-    fs.rmSync(path.join(roots.debug, vmId), { recursive: true });
+    fs.rmSync(path.join(roots.debug, runId), { recursive: true });
     proxyResponse({ scope: 'run-cumulative', status: 'not-drained',
       payload: 'PRIVATE_PAYLOAD' });
     expect(collectRun()).toBe(1);
@@ -225,7 +273,7 @@ describe('host-only public enclave debug collector', () => {
   it('publishes only allowlisted usage accounting from protected run evidence, independently of raw logs', () => {
     prepareRun();
     invocation();
-    fs.rmSync(path.join(roots.debug, vmId), { recursive: true });
+    fs.rmSync(path.join(roots.debug, runId), { recursive: true });
     proxySummary({
       requests: {
         status: 'captured', records: 4, trackedResponses: 2, websocketSessions: 0,
@@ -432,7 +480,7 @@ describe('host-only public enclave debug collector', () => {
       for (const name of logNames.slice(0, MAX_FILES)) {
         fs.writeFileSync(path.join(source, name), '', { mode: 0o600 });
       }
-    } else if (kind === 'wrong-run') fs.renameSync(source, path.join(roots.debug, 'e'.repeat(32)));
+    } else if (kind === 'wrong-run') fs.renameSync(path.join(roots.debug, runId), path.join(roots.debug, 'e'.repeat(32)));
     else if (kind === 'traversal') {
       fs.writeFileSync(path.join(roots.journal, `${runId}.journal`), [
         JSON.stringify({ runId, state: 'open' }),

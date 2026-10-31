@@ -1,5 +1,6 @@
 import * as fs from 'fs';
 import * as path from 'path';
+import { logger } from '../logger';
 import type { HostExecutorInvocationPlan, HostExecutorRunState } from './host-executor-server';
 import { HOST_EXECUTOR_ID_PATTERN } from './host-executor-protocol';
 import {
@@ -68,6 +69,11 @@ export class HostExecutorResourceJournal {
   async captureDirectory(): Promise<void> {
     this.record.directoryIdentity = await trustedDirectory(this.record.directory, this.dependencies);
     this.record.mountPending = true;
+    persist(this.file, this.record);
+  }
+
+  async publicDebugRetention(pending: boolean): Promise<void> {
+    this.record.publicDebugRetentionPending = pending;
     persist(this.file, this.record);
   }
 
@@ -265,12 +271,18 @@ export async function reapHostExecutorResources(
     const release = await claimRecord(dependencies, file);
     if (!release) continue;
     try {
-      if (record.snapshotPending && !record.snapshot) {
-        throw new Error('Artifact staging identity is uncommitted');
-      }
       // The registry checks its own recovery root, which may be customized.
       if (await registry.hasPendingRecord(record.vmRunId)) {
         throw new Error('VM cleanup must finish before invocation recovery');
+      }
+      if (record.publicDebugRetentionPending) {
+        logger.warn(
+          `Public enclave diagnostic retention requires trusted recovery (run ${record.runId}, invocation ${record.invocationId}); invocation sources and storage are preserved.`,
+        );
+        continue;
+      }
+      if (record.snapshotPending && !record.snapshot) {
+        throw new Error('Artifact staging identity is uncommitted');
       }
       for (const ancestor of record.ancestors) await assertIdentity(ancestor.path, ancestor.identity, dependencies);
       const mounts = await readMounts(dependencies.readFile);

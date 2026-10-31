@@ -62,7 +62,7 @@ describe('public enclave debug manager lifecycle', () => {
     if (debug) {
       expect(deps.writeFile).toHaveBeenCalledWith(
         '/protected/cloud-hypervisor/invocation/guest-stdout.raw.log',
-        expect.objectContaining({ length: CLOUD_HYPERVISOR_CAPTURE_LIMIT_BYTES }), { mode: 0o600 });
+        Buffer.alloc(0), { mode: 0o600 });
       expect(deps.writeFile).toHaveBeenCalledWith(
         '/protected/cloud-hypervisor/invocation/guest-stderr.raw.log',
         Buffer.from('RAW_GUEST_SECRET'), { mode: 0o600 });

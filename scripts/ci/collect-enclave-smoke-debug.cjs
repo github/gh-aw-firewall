@@ -44,7 +44,7 @@ const MAX_USAGE_BYTES = 16 * 1024;
 const ID = /^[a-f0-9]{32}$/;
 const INVOCATION_ID = /^[a-f0-9]{16,64}$/;
 const ENTRY_ID = /^[a-z0-9](?:[a-z0-9-]{0,62})$/;
-const LOG_NAME = /^(?:enclave-session\.log|enclave-proxy-events\.jsonl|enclave-proxy-container\.log|launcher-(?:stdout|stderr)\.log|guest-(?:stdout|stderr)\.raw\.log|cloud-hypervisor\.log|serial\.log|network-plan\.json|network-diagnostics\.txt|counters\.json|vm-info\.json|runtime\.json|confinement\.json|virtiofs-[0-9]-enclave-(?:seed|request|output|runtime|session-handoff|session-state)(?:\.log|-confinement\.json))$/;
+const LOG_NAME = /^(?:(?:stdout|stderr)\.log|diagnostics\.json|enclave-session\.log|enclave-proxy-events\.jsonl|enclave-proxy-container\.log|launcher-(?:stdout|stderr)\.log|guest-(?:stdout|stderr)\.raw\.log|cloud-hypervisor\.log|serial\.log|network-plan\.json|network-diagnostics\.txt|counters\.json|vm-info\.json|runtime\.json|confinement\.json|virtiofs-[0-9]-enclave-(?:seed|request|output|runtime|session-handoff|session-state)(?:\.log|-confinement\.json))$/;
 const ROOTS = {
   journal: '/var/lib/awf-cloud-hypervisor/host-executor-journal',
   debug: '/var/lib/awf-cloud-hypervisor/debug-artifacts/cloud-hypervisor',
@@ -288,6 +288,7 @@ function collect(runDirectory, runnerUid, runnerGid, roots = ROOTS, uid = 0, tru
     throw new Error('Unexpected concurrent enclave runs');
   }
   let invocation;
+  let invocationEntry;
   let runId;
   let nonInvocationRecords = 0;
   let invalidIdentityRecords = 0;
@@ -315,11 +316,12 @@ function collect(runDirectory, runnerUid, runnerGid, roots = ROOTS, uid = 0, tru
         invalidIdentityRecords += 1;
         continue;
       }
-      const candidate = createHash('sha256').update(JSON.stringify([
-        'awf-host-enclave-v1', runId, record.entryId, record.invocationId,
-      ])).digest('hex').slice(0, 32);
-      if (invocation && invocation !== candidate) throw new Error('Invocation budget exceeded');
+      const candidate = record.invocationId;
+      if (invocation && (invocation !== candidate || invocationEntry !== record.entryId)) {
+        throw new Error('Invocation budget exceeded');
+      }
       invocation = candidate;
+      invocationEntry = record.entryId;
     }
   }
   if (proxyDebug.length) {
@@ -331,8 +333,14 @@ function collect(runDirectory, runnerUid, runnerGid, roots = ROOTS, uid = 0, tru
     }
     runId = match[1];
   }
-  if (debug.length && (!ID.test(debug[0]) || debug[0] !== invocation)) {
+  if (debug.length && (!ID.test(debug[0]) || debug[0] !== runId || !invocation)) {
     throw new Error('Debug artifacts do not belong to this run');
+  }
+  const debugInvocations = debug.length
+    ? inventory(path.join(roots.debug, runId), uid, trustedRoot) : [];
+  if (debugInvocations.length > 1) throw new Error('Invocation budget exceeded');
+  if (debugInvocations.some(name => !INVOCATION_ID.test(name) || name !== invocation)) {
+    throw new Error('Debug artifacts do not belong to this invocation');
   }
   const files = [];
   let usageStatus = 'missing';
@@ -386,8 +394,8 @@ function collect(runDirectory, runnerUid, runnerGid, roots = ROOTS, uid = 0, tru
       if (error.code !== 'ENOENT') throw error;
     }
   }
-  if (debug.length) {
-    const source = path.join(roots.debug, invocation);
+  if (debugInvocations.length) {
+    const source = path.join(roots.debug, runId, invocation);
     directory(source, uid, trustedRoot);
     const names = inventory(source, uid, trustedRoot);
     if (names.length > MAX_FILES) throw new Error('Debug file count exceeds bound');

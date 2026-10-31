@@ -1,5 +1,6 @@
 import * as fs from 'fs';
 import * as path from 'path';
+import { logger } from '../logger';
 import {
   HostExecutorJournal,
   hostExecutorVmRunId, hostExecutorJournalDirectory,
@@ -431,6 +432,74 @@ describe('durable host executor journal', () => {
     await expect(resourceJournal()).rejects.toThrow('EEXIST');
   });
 
+  it('preserves pending public diagnostics while recovering an unrelated nonpublic run', async () => {
+    const warning = jest.spyOn(logger, 'warn').mockImplementation(() => undefined);
+    const { journal, storageRoot, snapshot } = await aggregateStorageJournal();
+    await journal.publicDebugRetention(true);
+    const stale = readRecord();
+    stale.owner.startTime = '999';
+    fs.writeFileSync(recordFile(), JSON.stringify(stale), { mode: 0o600 });
+    fs.writeFileSync(path.join(plan.invocationHostDir, 'private-input'), 'PRIVATE_SENTINEL');
+    const retainedFile = recordFile();
+    const retainedBytes = fs.readFileSync(retainedFile, 'utf8');
+    const retainedMounts = mountInfo;
+    const unrelatedRun = { ...run, runId: 'f'.repeat(32) };
+    const unrelatedPlan = {
+      ...plan, runId: unrelatedRun.runId, invocationId: 'd'.repeat(24),
+      invocationHostDir: path.join(run.invocationsDir, 'script', 'd'.repeat(24)),
+    };
+    const unrelated = await HostExecutorResourceJournal.create(
+      unrelatedRun, unrelatedPlan, hostExecutorVmRunId(unrelatedPlan), dependencies,
+    );
+    fs.mkdirSync(unrelatedPlan.invocationHostDir, { mode: 0o700 });
+    await unrelated.captureDirectory();
+    new HostExecutorJournal(unrelatedRun).record({ state: 'closed' });
+    const unrelatedFile = path.join(run.journalDir!,
+      `${unrelatedRun.runId}-${unrelatedPlan.invocationId}.resources.json`);
+    dependencies = { ...dependencies, readdir: jest.fn(async () => [
+      path.basename(retainedFile), path.basename(unrelatedFile),
+    ]) as unknown as typeof fs.promises.readdir };
+    registry.reapPending = jest.fn(async () => {
+      expect(warning).not.toHaveBeenCalled();
+      expect(fs.existsSync(unrelatedPlan.invocationHostDir)).toBe(true);
+    });
+
+    await expect(reap()).resolves.toBeUndefined();
+
+    expect(registry.reapPending).toHaveBeenCalledWith(tools.ip, tools.umount, tools);
+    expect(registry.hasPendingRecord).toHaveBeenCalledWith(stale.vmRunId);
+    expect(fs.existsSync(unrelatedPlan.invocationHostDir)).toBe(false);
+    expect(JSON.parse(fs.readFileSync(unrelatedFile, 'utf8')).state).toBe('cleaned');
+    expect(fs.readFileSync(retainedFile, 'utf8')).toBe(retainedBytes);
+    expect(fs.readFileSync(path.join(plan.invocationHostDir, 'private-input'), 'utf8')).toBe('PRIVATE_SENTINEL');
+    expect(mountInfo).toBe(retainedMounts);
+    expect(mountInfo).toContain(storageRoot);
+    expect(mountInfo).toContain(snapshot);
+    expect(dependencies.run).not.toHaveBeenCalled();
+    expect(dependencies.rm).not.toHaveBeenCalledWith(storageRoot, expect.anything());
+    expect(warning).toHaveBeenCalledTimes(1);
+    expect(warning).toHaveBeenCalledWith(
+      `Public enclave diagnostic retention requires trusted recovery (run ${run.runId}, invocation ${plan.invocationId}); invocation sources and storage are preserved.`,
+    );
+    expect(JSON.stringify(warning.mock.calls)).not.toMatch(/PRIVATE_SENTINEL|private-input/);
+    expect(JSON.stringify(warning.mock.calls)).not.toContain(root);
+  });
+
+  it('does not bypass malformed record validation for pending public diagnostics', async () => {
+    const warning = jest.spyOn(logger, 'warn').mockImplementation(() => undefined);
+    const journal = await mountedJournal();
+    await journal.publicDebugRetention(true);
+    const record = readRecord();
+    record.owner.startTime = '999';
+    record.directory = path.join(root, 'PRIVATE_SENTINEL');
+    fs.writeFileSync(recordFile(), JSON.stringify(record), { mode: 0o600 });
+    await expect(reap()).rejects.toThrow('Invalid resource recovery record');
+    expect(warning).not.toHaveBeenCalled();
+    expect(readRecord()).toEqual(record);
+    expect(fs.existsSync(plan.invocationHostDir)).toBe(true);
+    expect(dependencies.run).not.toHaveBeenCalled();
+  });
+
   it('recovers independent host image mounts in reverse order while retaining legacy journal support', async () => {
     const { storageRoot, snapshot } = await aggregateStorageJournal(true, true);
     const stale = readRecord();
@@ -648,8 +717,9 @@ describe('durable host executor journal', () => {
     expect((registry.reapPending as jest.Mock).mock.calls[0][2]).toBe(completeTools);
   });
 
-  it('retains resources when the VM cleanup registry cannot recover safely', async () => {
-    await mountedJournal();
+  it.each([false, true])('retains resources when VM cleanup fails (public retention: %s)', async pending => {
+    const journal = await mountedJournal();
+    await journal.publicDebugRetention(pending);
     bootId = 'restarted-boot';
     registry.reapPending = jest.fn(async () => { throw new Error('unresolved VM identity'); });
     await expect(reap()).rejects.toThrow('unresolved VM identity');
@@ -657,9 +727,10 @@ describe('durable host executor journal', () => {
     expect(readRecord().state).toBe('pending');
   });
 
-  it('retains same-process resources while a VM record remains in a custom registry root', async () => {
+  it.each([false, true])('retains same-process resources with a pending VM in a custom registry (public retention: %s)', async pending => {
     const runJournal = new HostExecutorJournal(run);
-    await mountedJournal();
+    const journal = await mountedJournal();
+    await journal.publicDebugRetention(pending);
     fs.mkdirSync(path.join(root, 'vm-registry', 'pending-cleanup'), { recursive: true, mode: 0o700 });
     fs.writeFileSync(path.join(root, 'vm-registry', 'pending-cleanup', `${vmRunId()}.json`), '{}');
     runJournal.record({ state: 'closed' });

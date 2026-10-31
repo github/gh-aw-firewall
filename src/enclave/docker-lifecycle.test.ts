@@ -13,6 +13,7 @@ import { deriveDockerEnclaveRunnerConfig } from '../services/enclave-mcp-service
 import { parseImageTag } from '../image-tag';
 import { assertDockerStorageHelperAvailable, dockerHelperHostStateRoot } from './docker-storage-helper';
 import { PRIVATE_REPOSITORY_SEED_MAP_VERSION } from '../bounded-execution';
+import { verifyPublicEnclaveDebugRepositories, PublicDebugVisibilityError } from './public-debug';
 import {
   assertDockerEnclaveLifecycleReady,
   closeDockerEnclaveAdmissions,
@@ -23,6 +24,9 @@ import {
 } from './docker-lifecycle';
 
 jest.mock('./docker-host-executor', () => ({ createDockerHostEnclaveExecutor: jest.fn() }));
+jest.mock('./public-debug', () => ({
+  ...jest.requireActual('./public-debug'), verifyPublicEnclaveDebugRepositories: jest.fn(),
+}));
 jest.mock('./docker-storage-helper', () => ({
   ...jest.requireActual('./docker-storage-helper'), assertDockerStorageHelperAvailable: jest.fn(),
   dockerHelperHostStateRoot: jest.fn(),
@@ -125,6 +129,31 @@ describe('Docker enclave host run lifecycle', () => {
     }));
     await stopDockerEnclaveLifecycle(config);
     expect(server.close).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([undefined, true, false])('gates Docker public capture before publication (opt-out=%s)', async enabled => {
+    config.enclaves!.privateRepos[0].sensitivity = 'public';
+    config.enclaveDebugPublic = enabled;
+    jest.mocked(verifyPublicEnclaveDebugRepositories).mockReset().mockResolvedValue(undefined);
+    await startDockerEnclaveLifecycle(config, {});
+    expect(verifyPublicEnclaveDebugRepositories).toHaveBeenCalledTimes(enabled === false ? 0 : 1);
+    expect(createDockerHostEnclaveExecutor).toHaveBeenCalledWith(expect.objectContaining({
+      publicDebug: enabled !== false,
+    }));
+    if (enabled !== false) {
+      expect(jest.mocked(verifyPublicEnclaveDebugRepositories).mock.invocationCallOrder[0])
+        .toBeLessThan(jest.mocked(createDockerHostEnclaveExecutor).mock.invocationCallOrder[0]);
+    }
+    await stopDockerEnclaveLifecycle(config);
+  });
+
+  it('fails closed on unavailable public visibility while allowing canonical execution without capture', async () => {
+    config.enclaves!.privateRepos[0].sensitivity = 'public';
+    jest.mocked(verifyPublicEnclaveDebugRepositories).mockReset()
+      .mockRejectedValue(new PublicDebugVisibilityError('unverified-metadata'));
+    await startDockerEnclaveLifecycle(config, {});
+    expect(createDockerHostEnclaveExecutor).toHaveBeenCalledWith(expect.objectContaining({ publicDebug: false }));
+    await stopDockerEnclaveLifecycle(config);
   });
 
   it('fails closed on unsupported split filesystems rather than silently ignoring the path prefix', async () => {

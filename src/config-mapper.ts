@@ -130,6 +130,7 @@ export function mapAwfFileConfigToCliOptions(config: AwfFileConfig): Record<stri
     mount: config.container?.mounts,
     cloudHypervisorPreview: config.cloudHypervisor?.previewEnabled,
     cloudHypervisorEnclaveDebugPublic: config.cloudHypervisor?.enclaveDebugPublic,
+    enclaveDebugPublic: config.enclaveDebugPublic,
     cloudHypervisorMountPolicy: config.cloudHypervisor?.mountPolicy,
     cloudHypervisorBinary: config.cloudHypervisor?.cloudHypervisorBinary,
     cloudHypervisorKernel: config.cloudHypervisor?.kernelPath,

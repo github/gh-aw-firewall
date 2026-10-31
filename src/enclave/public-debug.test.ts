@@ -1,6 +1,10 @@
+import * as path from 'path';
 import type { WrapperConfig } from '../types';
 import { normalizeEnclavesConfig } from '../parsers/enclave-parser';
-import { assertCloudHypervisorEnclaveExportsIsolated, assertPrivateRootIsolated } from './mount-policy';
+import {
+  assertCloudHypervisorEnclaveExportsIsolated, assertPrivateRootIsolated, assertPersistentDebugArtifactsIsolated,
+} from './mount-policy';
+import { dockerHelperHostStateRoot } from './docker-storage-helper';
 import {
   ENCLAVE_DEBUG_ARTIFACT_ROOT,
   resolvePublicEnclaveDebugConfig,
@@ -42,6 +46,52 @@ describe('host-only public enclave debug admission', () => {
     expect(validatePublicEnclaveDebug(c)).toEqual([]);
     await verifyPublicEnclaveDebugRepositories(c, request);
     expect(request).not.toHaveBeenCalled();
+  });
+
+  it('automatically enables default Docker while preserving explicit top-level opt-out and legacy CH opt-out', () => {
+    const c = config();
+    delete c.cloudHypervisor;
+    c.enclaves!.executors.script.runtime = 'docker';
+    expect(resolvePublicEnclaveDebugConfig(c).enclaveDebugPublic).toBe(true);
+    expect(c.enclaveDebugPublic).toBeUndefined();
+    c.enclaveDebugPublic = false;
+    expect(resolvePublicEnclaveDebugConfig(c)).toBe(c);
+    c.cloudHypervisor = config().cloudHypervisor;
+    c.enclaves!.executors.script.runtime = 'cloud-hypervisor';
+    expect(resolvePublicEnclaveDebugConfig(c).cloudHypervisor!.enclaveDebugPublic).toBe(false);
+  });
+
+  it.each(['runsc', 'custom-image', 'mixed', 'dynamic', 'private', 'registry'] as const)(
+    'excludes Docker %s from both explicit and automatic capture', (scope) => {
+      const c = config();
+      delete c.cloudHypervisor;
+      c.enclaves!.executors.script.runtime = 'docker';
+      if (scope === 'runsc') c.enclaves!.executors.script.runtime = 'gvisor';
+      if (scope === 'custom-image') c.enclaves!.executors.script.image = 'custom';
+      if (scope === 'mixed') {
+        c.enclaves!.executors.agent.enabled = true;
+        c.enclaves!.executors.agent.runtime = 'cloud-hypervisor';
+      }
+      if (scope === 'dynamic') Object.assign(c.enclaves!.executors.agent, { dynamic: {} });
+      if (scope === 'private') c.enclaves!.privateRepos[0].sensitivity = 'confidential';
+      if (scope === 'registry') c.imageRegistry = 'custom.invalid';
+      expect(resolvePublicEnclaveDebugConfig(c)).toBe(c);
+      c.enclaveDebugPublic = true;
+      expect(validatePublicEnclaveDebug(c)).not.toEqual([]);
+    },
+  );
+
+  it('verifies Docker public metadata with the same exact unauthenticated gate', async () => {
+    const c = config();
+    delete c.cloudHypervisor;
+    c.enclaves!.executors.script.runtime = 'docker';
+    c.enclaveDebugPublic = true;
+    const request = requester({ full_name: 'octo/fixture', private: false, visibility: 'public' });
+    await verifyPublicEnclaveDebugRepositories(c, request);
+    expect(request.mock.calls[0][1]!.headers).not.toHaveProperty('Authorization');
+    await expect(verifyPublicEnclaveDebugRepositories(c, requester({
+      full_name: 'octo/other', private: false, visibility: 'public',
+    }))).rejects.toThrow('unverified-metadata');
   });
 
   it('requires unauthenticated, non-redirecting positive visibility verification', async () => {
@@ -141,7 +191,7 @@ describe('host-only public enclave debug admission', () => {
     ['no catalog', (c: WrapperConfig) => { c.enclaves!.privateRepos = []; }],
     ['no enclaves', (c: WrapperConfig) => { delete c.enclaves; }],
     ['dynamic', (c: WrapperConfig) => { Object.assign(c.enclaves!.executors.agent, { dynamic: {} }); }],
-    ['other runtime', (c: WrapperConfig) => { c.enclaves!.executors.script.runtime = 'docker'; }],
+    ['other runtime', (c: WrapperConfig) => { c.enclaves!.executors.script.runtime = 'gvisor'; }],
     ['custom image', (c: WrapperConfig) => { c.enclaves!.executors.script.image = 'custom'; }],
     ['unattested', (c: WrapperConfig) => { c.cloudHypervisor!.developmentAllowUnattestedArtifacts = true; }],
     ['legacy digests', (c: WrapperConfig) => { c.cloudHypervisor!.sha256 = {}; }],
@@ -166,6 +216,17 @@ describe('host-only public enclave debug admission', () => {
     }, {}, process.cwd())).toThrow(/overlaps/);
     expect(() => assertCloudHypervisorEnclaveExportsIsolated(c, [{
       tag: 'debug', source: ENCLAVE_DEBUG_ARTIFACT_ROOT, target: '/debug', mode: 'ro',
+    }])).toThrow(/overlaps/);
+  });
+  it.each([undefined, false, true])('protects stale Docker diagnostics independently of public flag=%s', enabled => {
+    const c = config();
+    c.enclaveDebugPublic = enabled;
+    delete c.enclaves;
+    const root = path.join(dockerHelperHostStateRoot(), 'debug-artifacts', 'docker');
+    c.volumeMounts = [`${root}:/stale-debug:ro`];
+    expect(() => assertPersistentDebugArtifactsIsolated(c, {}, process.cwd())).toThrow(/overlaps/);
+    expect(() => assertCloudHypervisorEnclaveExportsIsolated(c, [{
+      tag: 'stale-debug', source: root, target: '/stale-debug', mode: 'ro',
     }])).toThrow(/overlaps/);
   });
 });

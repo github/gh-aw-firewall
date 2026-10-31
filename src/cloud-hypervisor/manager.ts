@@ -500,6 +500,7 @@ export class CloudHypervisorManager {
       guestStdoutCapture: this.guestStdoutCapture,
       guestStderrCapture: this.guestStderrCapture,
       captureGuestRawOutput: this.workloadProfile.rawOutput === 'capture',
+      debugSecrets: this.dependencies.enclaveDebugSecrets,
       ...(this.dependencies.enclaveDebugArtifactProtectedRoot
         ? { debugArtifactProtectedRoot: this.dependencies.enclaveDebugArtifactProtectedRoot }
         : {}),
@@ -515,17 +516,27 @@ export class CloudHypervisorManager {
     });
   }
 
+  publicDiagnosticEvidence(): { vmCountersAvailable: boolean } {
+    return { vmCountersAvailable: this.lastVmCounters !== undefined };
+  }
+
   async collectGuestOutputAudit(directory: string): Promise<void> {
     if (this.workloadProfile.rawOutput !== 'capture') {
       throw new Error(
         `Raw guest output is unavailable for Cloud Hypervisor ${this.workloadProfile.kind}`,
       );
     }
+    if (this.dependencies.enclaveDebugArtifactProtectedRoot
+      && directory !== this.dependencies.enclaveDebugArtifactDirectory) {
+      throw new Error('Public enclave guest output requires its protected host artifact destination');
+    }
     await writeGuestOutputAudit(
       directory,
       this.dependencies,
       this.guestStdoutCapture,
       this.guestStderrCapture,
+      this.dependencies.enclaveDebugSecrets,
+      this.dependencies.enclaveDebugArtifactProtectedRoot,
     );
   }
 }

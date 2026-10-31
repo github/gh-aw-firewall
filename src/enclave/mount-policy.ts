@@ -11,7 +11,13 @@ import type { CloudHypervisorDirectoryExport } from '../cloud-hypervisor/exports
 import { resolveEnclavePaths } from './paths';
 import { HOST_EXECUTOR_STORAGE_ROOT } from './host-executor-journal';
 import { ENCLAVE_DEBUG_ARTIFACT_ROOT } from './public-debug';
+import { DOCKER_ENCLAVE_STORAGE_ROOT } from './docker-storage-helper';
 import { RESOLVED_CONFIG_PUBLICATION_ROOT } from '../resolved-config-artifact';
+
+const PERSISTENT_DEBUG_ROOTS = [
+  path.dirname(ENCLAVE_DEBUG_ARTIFACT_ROOT),
+  DOCKER_ENCLAVE_STORAGE_ROOT,
+];
 
 interface VisiblePath {
   label: string;
@@ -250,7 +256,7 @@ export function assertPersistentDebugArtifactsIsolated(
   env: NodeJS.ProcessEnv = process.env,
   cwd = process.cwd(),
 ): void {
-  for (const root of [ENCLAVE_DEBUG_ARTIFACT_ROOT, RESOLVED_CONFIG_PUBLICATION_ROOT]) {
+  for (const root of [...PERSISTENT_DEBUG_ROOTS, RESOLVED_CONFIG_PUBLICATION_ROOT]) {
     const debugRoot = resolvePathThroughExistingAncestor(root);
     const daemonDebugRoot = resolvePathThroughExistingAncestor(
       daemonVisiblePath(root, config.dockerHostPathPrefix),
@@ -292,7 +298,7 @@ export function assertPrivateCommandOutputRootIsolated(
   assertPrivateRootIsolated(config, { root }, env, cwd, 'protected command output');
   const resolvedRoot = resolvePathThroughExistingAncestor(root);
   const managedDirectories = [
-    { label: 'AWF debug artifacts', source: ENCLAVE_DEBUG_ARTIFACT_ROOT },
+    ...PERSISTENT_DEBUG_ROOTS.map(source => ({ label: 'AWF debug artifacts', source })),
     { label: 'resolved config publication', source: RESOLVED_CONFIG_PUBLICATION_ROOT },
     { label: 'host executor storage', source: HOST_EXECUTOR_STORAGE_ROOT },
     { label: 'audit directory', source: config.auditDir },
@@ -320,7 +326,7 @@ export function assertCloudHypervisorEnclaveExportsIsolated(
   config: WrapperConfig,
   directoryExports: readonly CloudHypervisorDirectoryExport[],
 ): void {
-  const privateRoots = [ENCLAVE_DEBUG_ARTIFACT_ROOT, RESOLVED_CONFIG_PUBLICATION_ROOT];
+  const privateRoots = [...PERSISTENT_DEBUG_ROOTS, RESOLVED_CONFIG_PUBLICATION_ROOT];
   if (config.enclaves?.enabled) {
     const paths = resolveEnclavePaths(config.workDir);
     privateRoots.push(

@@ -14,6 +14,7 @@ describe('public enclave conformance diagnostic retention', () => {
   const secret = 'PRIVATE_TOKEN_CAPABILITY_ENV_PAYLOAD';
   const runId = 'a'.repeat(32);
   const vmId = 'b'.repeat(32);
+  const invocationId = 'b'.repeat(24);
   let temp: string;
   let output: string;
   let roots: { journal: string; debug: string };
@@ -30,11 +31,11 @@ describe('public enclave conformance diagnostic retention', () => {
   const write = (file: string, value: unknown) => fs.writeFileSync(file, JSON.stringify(value), { mode: 0o600 });
   const records = () => fs.readdirSync(path.join(output, 'upload')).map(name =>
     fs.readFileSync(path.join(output, 'upload', name), 'utf8')).join('\n');
-  function invocation(executorKind = 'agent', id = vmId, run = runId) {
+  function invocation(executorKind = 'agent', id = vmId, run = runId, invocationIdentity = invocationId) {
     write(path.join(roots.journal, `${run}.journal`), { state: 'open', runId: run, secret });
     const file = path.join(roots.journal, 'diagnostics', `${run}-${id}.json`);
     write(file, {
-      schemaVersion: 1, runId: run, invocationId: secret, executorKind, sequence: 3, elapsedMs: 12,
+      schemaVersion: 1, runId: run, invocationId: invocationIdentity, executorKind, sequence: 3, elapsedMs: 12,
       checks: { 'host-invocation-cleanup/storage-close': ['failed', 'EACCES'] },
       milestones: [{ phase: 'work-complete', elapsedMs: 10, outcome: 'executor-failure', secret }],
       guestSession: {
@@ -372,14 +373,15 @@ describe('public enclave conformance diagnostic retention', () => {
     const context = prepare();
     invocation();
     invocation('script', 'c'.repeat(32), 'd'.repeat(32));
-    const debug = path.join(roots.debug, vmId);
-    fs.mkdirSync(debug, { mode: 0o700 });
+    const debug = path.join(roots.debug, runId, invocationId);
+    fs.mkdirSync(debug, { recursive: true, mode: 0o700 });
     fs.writeFileSync(path.join(debug, 'enclave-session.log'), [
       JSON.stringify({ event: 'progress', stage: 'engine-started', secret }),
       JSON.stringify({ event: 'failure', category: 'engine-failed', message: secret }),
       secret,
     ].join('\n'), { mode: 0o600 });
-    for (const name of ['launcher-stderr.log', 'guest-stdout.raw.log', 'runtime.json']) {
+    for (const name of ['stdout.log', 'stderr.log', 'diagnostics.json',
+      'launcher-stderr.log', 'guest-stdout.raw.log', 'runtime.json']) {
       fs.writeFileSync(path.join(debug, name), secret, { mode: 0o600 });
     }
     write(path.join(roots.journal, `${runId}-${vmId}.resources.json`), { secret });
@@ -431,6 +433,53 @@ describe('public enclave conformance diagnostic retention', () => {
     for (const file of raw) expect(fs.existsSync(file)).toBe(false);
     expect(fs.existsSync(output)).toBe(false);
   });
+
+  it.each(['../../escape', 'queue', secret, 'g'.repeat(24), 'b'.repeat(15)])(
+    'rejects invalid invocation identity without using it as a debug path: %s', id => {
+      const context = prepare();
+      invocation('agent', vmId, runId, id);
+      expect(() => diagnostics.collect(context, { status: 'failed' }))
+        .toThrow(/invocation identity mismatch/);
+      expect(fs.existsSync(path.join(output, 'upload'))).toBe(false);
+    });
+
+  it('does not confuse a stale run or flat VM directory with the current public session', () => {
+    const stale = path.join(roots.debug, 'c'.repeat(32), invocationId);
+    fs.mkdirSync(stale, { recursive: true, mode: 0o700 });
+    fs.writeFileSync(path.join(stale, 'enclave-session.log'),
+      '{"event":"failure","category":"engine-failed"}\n', { mode: 0o600 });
+    const context = prepare();
+    invocation();
+    const flat = path.join(roots.debug, vmId);
+    fs.mkdirSync(flat, { mode: 0o700 });
+    fs.writeFileSync(path.join(flat, 'enclave-session.log'),
+      '{"event":"failure","category":"engine-failed"}\n', { mode: 0o600 });
+    diagnostics.collect(context, { status: 'failed' });
+    expect(fs.readdirSync(path.join(output, 'upload')).sort())
+      .toEqual(['acceptance.json', 'invocation-1.json']);
+  });
+
+  it.each(['run-symlink', 'invocation-symlink', 'file-symlink', 'hardlink', 'permissions', 'oversized'])(
+    'rejects unsafe nested public session %s before publication', kind => {
+      const context = prepare();
+      invocation();
+      const directory = path.join(roots.debug, runId, invocationId);
+      fs.mkdirSync(directory, { recursive: true, mode: 0o700 });
+      const file = path.join(directory, 'enclave-session.log');
+      fs.writeFileSync(file, '{"event":"failure","category":"engine-failed"}\n', { mode: 0o600 });
+      if (kind === 'run-symlink' || kind === 'invocation-symlink') {
+        const source = kind === 'run-symlink' ? path.dirname(directory) : directory;
+        fs.renameSync(source, path.join(temp, 'moved'));
+        fs.symlinkSync(path.join(temp, 'moved'), source);
+      } else if (kind === 'file-symlink') {
+        fs.unlinkSync(file);
+        fs.symlinkSync(path.join(output, 'baseline.json'), file);
+      } else if (kind === 'hardlink') fs.linkSync(file, path.join(temp, 'linked'));
+      else if (kind === 'permissions') fs.chmodSync(file, 0o644);
+      else fs.writeFileSync(file, Buffer.alloc(collector.MAX_STREAM_BYTES + 1));
+      expect(() => diagnostics.collect(context, { status: 'failed' })).toThrow();
+      expect(fs.existsSync(path.join(output, 'upload'))).toBe(false);
+    });
 
   it('honors the production public-debug opt-out and rejects mixed or dynamic scopes', () => {
     expect(prepare({ ...config(), cloudHypervisor: { previewEnabled: true, enclaveDebugPublic: false } })).toBeUndefined();
@@ -566,9 +615,9 @@ describe('public enclave conformance diagnostic retention', () => {
     const context = prepare();
     for (let index = 0; index < 64; index++) {
       const id = index.toString(16).padStart(32, '0');
-      invocation('agent', id);
-      const directory = path.join(roots.debug, id);
-      fs.mkdirSync(directory, { mode: 0o700 });
+      invocation('agent', id, runId, id);
+      const directory = path.join(roots.debug, runId, id);
+      fs.mkdirSync(directory, { recursive: true, mode: 0o700 });
       fs.writeFileSync(path.join(directory, 'enclave-session.log'),
         '{"event":"failure","category":"engine-failed"}\n', { mode: 0o600 });
     }

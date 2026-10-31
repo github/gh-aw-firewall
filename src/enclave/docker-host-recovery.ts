@@ -3,7 +3,12 @@ import * as path from 'path';
 import { createHash, randomBytes } from 'crypto';
 import { dockerMemoryBytes, assertDockerHostPath, type DockerHostMountIdentity } from './docker-host-storage';
 
-export interface DockerHostCommandResult { exitCode: number; stdout: string }
+export interface DockerHostCommandResult {
+  exitCode: number;
+  stdout: string;
+  /** Definitive local-daemon response only; never synthesized from a timeout or transport exception. */
+  imageUnavailable?: string;
+}
 export type DockerHostCommand = (args: readonly string[], signal?: AbortSignal) => Promise<DockerHostCommandResult>;
 
 export interface DockerHostOwnerIdentity { pid: number; startTicks: string; bootId: string }
@@ -85,6 +90,18 @@ export interface DockerHostRecoveryRecord {
   containerId?: string;
   /** No absence proof is sufficient while a daemon create may still complete. */
   createPending?: boolean;
+  /** Durable intent prevents recovery from discarding unretained public diagnostics. */
+  publicDebug?: {
+    pending: boolean;
+    retained?: boolean;
+    stage: import('./public-debug-artifacts').PublicEnclaveStage;
+    failure: import('./public-debug-artifacts').PublicEnclaveFailure;
+    exitCode: number | null;
+    stages?: import('./public-debug-events').PublicEnclaveOperationEvent[];
+    primaryFailure?: import('./public-debug-events').PublicEnclaveOperationFailure;
+    cleanupFailure?: import('./public-debug-events').PublicEnclaveOperationFailure;
+    dockerState?: { running: false; exitCode: number | null; oomKilled: boolean | null };
+  };
 }
 
 function digest(value: string): string { return createHash('sha256').update(value).digest('hex'); }
@@ -263,7 +280,8 @@ export async function inspectDockerHostContainer(docker: DockerHostCommand, name
   return parsed[0];
 }
 
-export async function removeDockerHostContainer(docker: DockerHostCommand, record: DockerHostRecoveryRecord): Promise<void> {
+export async function removeDockerHostContainer(docker: DockerHostCommand, record: DockerHostRecoveryRecord,
+  stopped?: (state: { running: false; exitCode: number | null; oomKilled: boolean | null }) => void): Promise<void> {
   if (!record.expected) {
     if (record.containerId) throw new Error('Docker enclave recovery lacks its immutable launch specification');
     return;
@@ -278,6 +296,12 @@ export async function removeDockerHostContainer(docker: DockerHostCommand, recor
     return;
   }
   assertDockerHostContainer(inspected, record.expected, record.containerId);
+  if (!inspected.State?.Running) stopped?.({
+    running: false, exitCode: inspected.State?.Status === 'exited' && Number.isInteger(inspected.State?.ExitCode)
+      ? inspected.State.ExitCode : null,
+    oomKilled: inspected.State?.Status === 'exited' && typeof inspected.State?.OOMKilled === 'boolean'
+      ? inspected.State.OOMKilled : null,
+  });
   if (inspected.State?.Running) {
     const killed = await docker(['kill', inspected.Id]);
     if (killed.exitCode !== 0) {

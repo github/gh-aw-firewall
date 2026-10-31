@@ -2,6 +2,8 @@ import { buildConfig } from '../commands/build-config';
 import { mapAwfFileConfigToCliOptions } from '../config-mapper';
 import { validateAwfFileConfig } from '../config-file';
 import { buildMinimalBuildConfigInput } from '../test-helpers/build-config.test-utils';
+import { validatePublicEnclaveDebug, resolvePublicEnclaveDebugConfig } from '../enclave/public-debug';
+import type { AwfFileConfig } from '../config-file';
 import {
   CLOUD_HYPERVISOR_DEFAULT_API_TIMEOUT_MS,
   CLOUD_HYPERVISOR_DEFAULT_BINARY,
@@ -24,6 +26,58 @@ function buildCloudHypervisorConfig(options: Record<string, unknown>) {
 }
 
 describe('Cloud Hypervisor configuration (foundation only)', () => {
+  it.each([true, false])('maps and validates runtime-neutral public diagnostics=%s without creating CH config', enabled => {
+    const mapped = mapAwfFileConfigToCliOptions({ enclaveDebugPublic: enabled });
+    expect(mapped.enclaveDebugPublic).toBe(enabled);
+    const config = buildConfig(buildMinimalBuildConfigInput({
+      options: { ...buildMinimalBuildConfigInput().options, ...mapped },
+    }));
+    expect(config.enclaveDebugPublic).toBe(enabled);
+    expect(config.cloudHypervisor).toBeUndefined();
+    expect(validateAwfFileConfig({ enclaveDebugPublic: enabled })).toEqual([]);
+    expect(validateAwfFileConfig({ enclaveDebugPublic: 'true' })).not.toEqual([]);
+  });
+  it.each([
+    ['ghcr.io/github/gh-aw-firewall', false, true],
+    ['ghcr.io/github/gh-aw-firewall', true, true],
+    ['custom.invalid/awf', false, false],
+    ['custom.invalid/awf', true, false],
+  ] as const)('enforces default Docker image provenance after complete config mapping (%s, local=%s)', (imageRegistry, buildLocal, eligible) => {
+    const file: AwfFileConfig = {
+      enclaveDebugPublic: true,
+      container: { imageRegistry, buildLocal },
+      enclaves: [{
+        runtime: 'docker', script: {}, repos: [{ repo: 'octo/public-fixture', sensitivity: 'public' }],
+      }],
+    };
+    expect(validateAwfFileConfig(file)).toEqual([]);
+    const mapped = mapAwfFileConfigToCliOptions(file);
+    const config = buildConfig(buildMinimalBuildConfigInput({
+      options: { ...buildMinimalBuildConfigInput().options, ...mapped },
+    }));
+    expect(config.imageRegistry).toBe(imageRegistry);
+    expect(config.buildLocal).toBe(buildLocal);
+    expect(validatePublicEnclaveDebug(config).length === 0).toBe(eligible);
+    delete config.enclaveDebugPublic;
+    expect(resolvePublicEnclaveDebugConfig(config).enclaveDebugPublic === true).toBe(eligible);
+  });
+  it.each([true, false])('keeps top-level precedence through config-file mapping and CH build (%s)', enabled => {
+    const mapped = mapAwfFileConfigToCliOptions({
+      enclaveDebugPublic: enabled,
+      container: { containerRuntime: 'cloud-hypervisor' },
+      cloudHypervisor: { previewEnabled: true, enclaveDebugPublic: !enabled },
+      enclaves: [{
+        runtime: 'cloud-hypervisor', script: {}, repos: [{ repo: 'octo/public-fixture', sensitivity: 'public' }],
+      }],
+    });
+    const config = buildConfig(buildMinimalBuildConfigInput({
+      options: { ...buildMinimalBuildConfigInput().options, ...mapped },
+    }));
+    expect(config.enclaveDebugPublic).toBe(enabled);
+    expect(config.cloudHypervisor!.enclaveDebugPublic).toBe(!enabled);
+    expect(resolvePublicEnclaveDebugConfig(config).cloudHypervisor!.enclaveDebugPublic).toBe(enabled);
+    expect(config.cloudHypervisor!.enclaveDebugPublic).toBe(!enabled);
+  });
   it('maps the cohesive config-file surface to CLI option semantics', () => {
     const digest = 'a'.repeat(64);
     const mapped = mapAwfFileConfigToCliOptions({

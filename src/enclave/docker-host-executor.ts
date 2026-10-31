@@ -10,6 +10,11 @@ import {
   ownDockerHostStorageFile,
 } from './docker-host-storage';
 import { dockerHelperStorageTarget, hasDockerHostMountCapability } from './docker-storage-helper';
+import { resolveDockerPublicEnclaveDebugPaths } from './public-debug';
+import { preservePublicEnclaveArtifacts, readPublicEnclaveFile } from './public-debug-artifacts';
+import { PublicEnclaveOperationRecorder, type PublicEnclaveOperationStage } from './public-debug-events';
+import { logger } from '../logger';
+import { projectEnclaveSessionDiagnostics } from '../cloud-hypervisor/enclave-session-diagnostics';
 import {
   assertDockerHostContainer, assertDockerHostOwnerStopped, captureDockerHostOwner,
   DockerHostRecoveryJournal, expectedDockerHostContainer,
@@ -70,6 +75,8 @@ export interface DockerHostEnclaveExecutorOptions {
   settleAgentAuthority?: (plan: HostExecutorInvocationPlan, settlement: DockerHostAuthoritySettlement) => Promise<{ revoked: boolean }>;
   /** Test seam; production uses the credential-free, bounded Docker CLI below. */
   dockerCommand?: DockerHostCommand;
+  /** Set only by the trusted lifecycle after unauthenticated public visibility verification. */
+  publicDebug?: boolean;
 }
 
 export interface DockerHostEnclaveExecutorBackend extends HostEnclaveExecutorBackend {
@@ -84,10 +91,15 @@ function defaultDockerCommand(socket: string): DockerHostCommand {
     execFile(executable, ['--host', `unix://${socket}`, ...args], {
       timeout: 30_000, killSignal: 'SIGKILL', signal, maxBuffer: 128 * 1024,
       env: { PATH: process.env.PATH || '/usr/local/bin:/usr/bin:/bin' },
-    }, (error, stdout) => resolve({
-      exitCode: error ? typeof error.code === 'number' ? error.code : 1 : 0,
-      stdout: typeof stdout === 'string' ? stdout : '',
-    }));
+    }, (error, stdout, stderr) => {
+      const missingImage = error?.code === 1 && typeof stderr === 'string'
+        ? /^Error response from daemon: No such image: ([^\r\n]+)\r?\n?$/.exec(stderr)?.[1] : undefined;
+      resolve({
+        exitCode: error ? typeof error.code === 'number' ? error.code : 1 : 0,
+        stdout: typeof stdout === 'string' ? stdout : '',
+        ...(missingImage ? { imageUnavailable: missingImage } : {}),
+      });
+    });
   });
 }
 
@@ -101,6 +113,8 @@ interface InvocationAuthorityState {
   prepared: boolean;
   resourcesPossible: boolean;
   launchedAt?: number;
+  diagnostic?: PublicEnclaveOperationRecorder;
+  dockerState?: { running: false; exitCode: number | null; oomKilled: boolean | null };
 }
 
 function privateFile(directory: string, name: string, value: string, mode: 0o400 | 0o444 | 0o600 = 0o444): void {
@@ -127,6 +141,9 @@ export function createDockerHostEnclaveExecutor(options: DockerHostEnclaveExecut
   const docker = options.dockerCommand || defaultDockerCommand(socket);
   const helperStorage = !hasDockerHostMountCapability();
   const entries = new Map(options.entries.map((entry) => {
+    if (options.publicDebug && (entry.runtimeName !== undefined || entry.config.dynamicEnabled)) {
+      throw new Error('Public Docker diagnostics require static default-runtime entries');
+    }
     if (!/^[a-z0-9][a-z0-9-]{0,62}$/.test(entry.entryId)
       || !['script', 'agent'].includes(entry.executorKind)) throw new Error('Invalid Docker host enclave entry');
     dockerWritableBudget(entry.executorKind, entry.config.tmpfsLimit as string | undefined, entry.hostWritableBytes, entry.aggregateWritableBytes);
@@ -165,6 +182,7 @@ export function createDockerHostEnclaveExecutor(options: DockerHostEnclaveExecut
   let closed = false;
   let cleanupIncomplete = false;
   const active = new Set<{ controller: AbortController; done: Promise<HostExecutorBackendResult> }>();
+  const publicArtifacts = new Map<string, Parameters<typeof preservePublicEnclaveArtifacts>[0]>();
 
   async function labelledIds(invocationId?: string): Promise<string[]> {
     const args = ['ps', '-aq', '--no-trunc', '--filter', `label=awf.enclave.run=${options.runId}`];
@@ -176,19 +194,96 @@ export function createDockerHostEnclaveExecutor(options: DockerHostEnclaveExecut
     return ids;
   }
 
-  async function cleanup(record: DockerHostRecoveryRecord): Promise<void> {
+  async function reconcileCreate(record: DockerHostRecoveryRecord): Promise<void> {
     if (record.createPending && record.expected) {
       const created = await inspectDockerHostContainer(docker, record.expected.name);
       assertDockerHostContainer(created, record.expected, record.containerId);
       record.containerId = created.Id;
       record.createPending = false;
+      const recoveryJournal = record.runId === options.runId ? journal
+        : new DockerHostRecoveryJournal(options.journalDir, record.runId);
+      recoveryJournal.write(record);
+    }
+  }
+
+  async function cleanup(record: DockerHostRecoveryRecord, secrets: readonly string[] = [],
+    diagnostic?: PublicEnclaveOperationRecorder): Promise<void> {
+    await reconcileCreate(record);
+    const remove = () => removeDockerHostContainer(docker, record, state => {
+      if (record.publicDebug && !record.expected?.name.endsWith('-probe')) record.publicDebug.dockerState ??= state;
+    });
+    if (diagnostic) await diagnostic.check('cleanup', remove, true);
+    else await remove();
+    if ((await labelledIds(record.invocationId)).length !== 0) throw new Error('Uncertain Docker enclave containers remain');
+    if (record.publicDebug && (record.publicDebug.pending || record.publicDebug.cleanupFailure)
+      && !(record.publicDebug.retained && record.runId !== options.runId)) {
+      // Recovery has no runtime credentials to redact. Never destroy the source
+      // or guess authorization from labels after losing that custody.
+      if (!options.publicDebug || record.runId !== options.runId
+        || (secrets.length === 0 && !record.publicDebug.retained)) {
+        throw new Error('Public Docker diagnostic retention requires trusted recovery; source is preserved');
+      }
+      const entry = entries.get(record.entryId)!;
+      for (const name of secrets.length === 0 ? [] : ['stdout.log', 'stderr.log', ...(entry.executorKind === 'agent' ? ['session.jsonl'] : [])]) {
+        try { await ownDockerHostStorageFile(record.mount!, name, entry.uid, entry.gid, true); }
+        catch (error) {
+          if (!fs.existsSync(path.join(record.storageTarget, name))) continue;
+          throw error;
+        }
+      }
+      const uid = process.getuid?.() ?? 0;
+      const { protectedRoot, root: artifactRoot } = resolveDockerPublicEnclaveDebugPaths();
+      const source = secrets.length === 0 && record.publicDebug.retained
+        ? path.join(artifactRoot, record.runId, record.invocationId) : record.storageTarget;
+      const [stdout, stderr, session] = secrets.length === 0 && !record.publicDebug.retained
+        ? [{ status: 'unavailable' as const }, { status: 'unavailable' as const }, { status: 'unavailable' as const }]
+        : await Promise.all([
+        readPublicEnclaveFile(source, 'stdout.log', uid),
+        readPublicEnclaveFile(source, 'stderr.log', uid),
+        entry.executorKind === 'agent' ? readPublicEnclaveFile(source,
+          source === record.storageTarget ? 'session.jsonl' : 'enclave-session.log', uid)
+          : Promise.resolve({ status: 'not-applicable' as const }),
+        ]);
+      if (diagnostic) {
+        const entrypoint = session.status === 'captured' && session.contents
+          ? projectEnclaveSessionDiagnostics(session.contents)
+          : stderr.status === 'captured' && stderr.contents
+            ? projectEnclaveSessionDiagnostics(stderr.contents) : undefined;
+        const initialized = entrypoint?.events?.some(event =>
+          event.event === 'progress' && ['runtime-paths-ready', 'preflight-completed', 'engine-started'].includes(String(event.stage)));
+        diagnostic.event('entrypoint-initialization', initialized ? 'succeeded' : 'unavailable');
+        Object.assign(record.publicDebug, diagnostic.snapshot());
+      }
+      const artifact: Parameters<typeof preservePublicEnclaveArtifacts>[0] = {
+        directory: path.join(artifactRoot, record.runId, record.invocationId),
+        protectedRoot, stdout, stderr, session, secrets,
+        envelope: {
+          version: 1, runId: record.runId, invocationId: record.invocationId, entryId: record.entryId,
+          executorKind: entry.executorKind, runtime: 'docker', workloadStopped: true,
+          stage: record.publicDebug.stage, failure: record.publicDebug.failure, exitCode: record.publicDebug.exitCode,
+          stages: record.publicDebug.stages, primaryFailure: record.publicDebug.primaryFailure,
+          cleanupFailure: record.publicDebug.cleanupFailure, dockerState: record.publicDebug.dockerState,
+          workloadLaunched: Boolean(record.expected && !record.expected.name.endsWith('-probe')),
+        },
+        owner: { uid, gid: process.getgid?.() ?? 0 },
+        dependencies: { ...fs.promises, resolveIdentity: () => ({ uid, gid: process.getgid?.() ?? 0 }) },
+      };
+      publicArtifacts.set(record.invocationId, artifact);
+      try { await preservePublicEnclaveArtifacts(artifact); } catch (error) {
+        diagnostic?.fail('cleanup', error, true, 'retention-failed');
+        record.publicDebug.stage = 'retention';
+        record.publicDebug.failure = 'retention-failed';
+        journal.write(record);
+        throw error;
+      }
+      record.publicDebug.pending = false;
+      record.publicDebug.retained = true;
       journal.write(record);
     }
-    await removeDockerHostContainer(docker, record);
-    if ((await labelledIds(record.invocationId)).length !== 0) throw new Error('Uncertain Docker enclave containers remain');
     // A crash between mount(2) and journal update is reconciled using the
     // unique source name and exact restrictive mount/capacity, never a path alone.
-    await cleanupDockerHostStorage(record);
+    if (diagnostic) await diagnostic.check('cleanup', () => cleanupDockerHostStorage(record), true);
+    else await cleanupDockerHostStorage(record);
     journal.remove(record);
   }
 
@@ -216,7 +311,15 @@ export function createDockerHostEnclaveExecutor(options: DockerHostEnclaveExecut
       const inspected = await inspectDockerHostContainer(docker, id);
       if (!inspected || !known.has(inspected.Name?.slice(1))) throw new Error('Unjournaled Docker enclave resources require operator recovery');
     }
-    for (const record of recoverable) await cleanup(record);
+    for (const record of recoverable) {
+      if (record.runId !== options.runId && record.publicDebug?.pending && !record.publicDebug.retained) {
+        await reconcileCreate(record);
+        await removeDockerHostContainer(docker, record);
+        logger.warn(`Public Docker diagnostics for run ${record.runId}, invocation ${record.invocationId} require trusted recovery; source is preserved`);
+        continue;
+      }
+      await cleanup(record);
+    }
   }
 
   async function createContainer(record: DockerHostRecoveryRecord, args: string[], command?: string[]): Promise<string> {
@@ -227,7 +330,15 @@ export function createDockerHostEnclaveExecutor(options: DockerHostEnclaveExecut
     journal.write(record);
     const created = await docker(['create', ...args.slice(1), ...(command || [])]);
     if (created.exitCode !== 0 || !/^[0-9a-f]{64}$/.test(created.stdout.trim())) {
-      throw new Error('Docker enclave creation failed');
+      const imageAbsent = created.exitCode !== 0 && created.imageUnavailable === record.expected.image;
+      if (imageAbsent && !await inspectDockerHostContainer(docker, record.expected.name)
+        && (await labelledIds(record.invocationId)).length === 0) {
+        // --pull never plus a definitive no-image daemon response cannot create
+        // a workload. Transport/cancellation failures never take this path.
+        record.createPending = false;
+        journal.write(record);
+      }
+      throw Object.assign(new Error('Docker enclave creation failed'), imageAbsent ? { code: 'ENOENT' } : {});
     }
     const id = created.stdout.trim();
     const inspected = await inspectDockerHostContainer(docker, id);
@@ -238,16 +349,27 @@ export function createDockerHostEnclaveExecutor(options: DockerHostEnclaveExecut
     return id;
   }
 
-  async function runContainer(record: DockerHostRecoveryRecord, id: string, signal: AbortSignal, launched?: () => void): Promise<number> {
+  async function runContainer(record: DockerHostRecoveryRecord, id: string, signal: AbortSignal,
+    launched?: () => void, diagnostic?: PublicEnclaveOperationRecorder,
+    exited?: (state: { running: false; exitCode: number; oomKilled: boolean | null }) => void): Promise<number> {
     if (signal.aborted) throw new Error('Docker enclave cancelled before start');
     launched?.();
-    const started = await docker(['start', id], signal);
-    if (started.exitCode !== 0) throw new Error('Docker enclave start failed');
+    const start = async () => {
+      const started = await docker(['start', id], signal);
+      if (started.exitCode !== 0) throw new Error('Docker enclave start failed');
+    };
+    if (diagnostic) await diagnostic.check('workload-start', start);
+    else await start();
     while (!signal.aborted) {
       const current = await inspectDockerHostContainer(docker, id, signal);
       assertDockerHostContainer(current, record.expected!, id);
       if (!current.State?.Running) {
         if (!Number.isInteger(current.State?.ExitCode)) throw new Error('Invalid Docker enclave exit status');
+        exited?.({
+          running: false, exitCode: current.State.ExitCode,
+          oomKilled: typeof current.State.OOMKilled === 'boolean' ? current.State.OOMKilled : null,
+        });
+        diagnostic?.event('workload-exit', 'succeeded');
         return current.State.ExitCode;
       }
       await pause();
@@ -256,6 +378,9 @@ export function createDockerHostEnclaveExecutor(options: DockerHostEnclaveExecut
   }
 
   async function execute(plan: HostExecutorInvocationPlan, signal: AbortSignal, authorityState: InvocationAuthorityState): Promise<HostExecutorBackendResult> {
+    const diagnostic = authorityState.diagnostic;
+    const debugCheck = <T>(stage: PublicEnclaveOperationStage, operation: () => Promise<T> | T) =>
+      diagnostic ? diagnostic.check(stage, operation) : Promise.resolve().then(operation);
     const entry = entries.get(plan.entryId);
     if (!entry || plan.runId !== options.runId || plan.executorKind !== entry.executorKind
       || !HOST_EXECUTOR_ID_PATTERN.test(plan.invocationId)) return { outcome: 'executor-failure' };
@@ -270,9 +395,10 @@ export function createDockerHostEnclaveExecutor(options: DockerHostEnclaveExecut
     let authority: DockerHostAgentAuthority = {};
     if (entry.executorKind === 'agent' && options.resolveAgentAuthority) {
       authorityState.attempted = plan.selector !== undefined;
-      authority = await options.resolveAgentAuthority(plan, signal);
+      authority = await debugCheck('authority-handoff', () => options.resolveAgentAuthority!(plan, signal));
       authorityState.resolved = true;
     }
+    else diagnostic?.event('authority-handoff', 'not-applicable');
     if (signal.aborted) return { outcome: 'cancelled' };
     const config: Record<string, any> = {
       ...entry.config,
@@ -303,18 +429,41 @@ export function createDockerHostEnclaveExecutor(options: DockerHostEnclaveExecut
       args[args.indexOf(source)] = `${plan.seedHostPath}:/awf/seed:ro`;
     }
     args.splice(1, 0, '--log-driver', 'none');
+    const credential = (key: string, value: unknown): value is string => typeof value === 'string'
+      && /secret|token|bearer|authorization/i.test(key) && !/tokens|path|directory|file|budget|limit/i.test(key);
+    const debugSecrets = Object.entries(config).filter(([key, value]) => credential(key, value))
+      .map(([, value]) => value as string);
+    debugSecrets.push(authority.githubAgentId || '', authority.githubBearer || '', '******');
+    for (let i = 0; i < args.length; i++) {
+      if (args[i] === '--env') {
+        const value = args[i + 1] || '';
+        const at = value.indexOf('=');
+        const contents = value.slice(at + 1);
+        if (at > 0 && credential(value.slice(0, at), contents)) debugSecrets.push(contents);
+      }
+    }
+    if (options.publicDebug) {
+      args.splice(args.length - 1, 0, '--env', 'AWF_ENCLAVE_DEBUG_PUBLIC=true',
+        ...(entry.executorKind === 'agent' ? ['--env', 'AWF_ENCLAVE_AGENT_DEBUG_RAW_SESSION_LOGS=true'] : []),
+        '-v', `${storageTarget}/stdout.log:/awf/stdout.log:rw`,
+        '-v', `${storageTarget}/stderr.log:/awf/stderr.log:rw`);
+    }
     const record: DockerHostRecoveryRecord = {
       version: 1, runId: plan.runId, entryId: plan.entryId, invocationId: plan.invocationId,
       storageTarget,
       storageSource: `awf-enclave-${plan.runId}-${plan.entryId}-${plan.invocationId}`,
       storageBytes: entry.hostWritableBytes, mountPending: true, owner,
+      ...(options.publicDebug ? { publicDebug: {
+        pending: true, stage: 'setup' as const, failure: 'setup-failed' as const, exitCode: null,
+      } } : {}),
     };
     authorityState.resourcesPossible = true;
     journal.write(record, true);
     let result: HostExecutorBackendResult;
     try {
       try {
-        record.mount = await mountDockerHostStorage(record.storageTarget, record.storageSource, record.storageBytes);
+        record.mount = await debugCheck('storage-preparation',
+          () => mountDockerHostStorage(record.storageTarget, record.storageSource, record.storageBytes));
       } finally {
         record.mountPending = false;
         journal.write(record);
@@ -335,17 +484,24 @@ export function createDockerHostEnclaveExecutor(options: DockerHostEnclaveExecut
       bindArgs.splice(bindArgs.length - 3, 0, '-v', `${record.storageTarget}:/awf/host-storage-probe:ro`);
       const probeCommand = [...(entry.executorKind === 'agent' ? ['python3'] : []), '-c', 'import os; p="/awf/host-storage-probe"; s=os.stat(p); v=os.statvfs(p); ' +
         `assert s.st_dev==${stat.dev} and s.st_ino==${stat.ino} and v.f_blocks*v.f_frsize==${record.storageBytes}`];
-      const probe = await createContainer(record, bindArgs, probeCommand);
-      if (await runContainer(record, probe, signal) !== 0) throw new Error('Docker daemon cannot see the verified invocation tmpfs');
+      const probe = await debugCheck('storage-probe', () => createContainer(record, bindArgs, probeCommand));
+      await debugCheck('storage-probe', async () => {
+        if (await runContainer(record, probe, signal) !== 0) throw new Error('Docker daemon cannot see the verified invocation tmpfs');
+      });
       await removeDockerHostContainer(docker, record);
       delete record.containerId;
       delete record.expected;
       journal.write(record);
+      diagnostic?.event('authority-handoff', 'started');
       const stageFile = async (name: string, value: string, mode: 0o400 | 0o444 | 0o600 = 0o444) => {
         privateFile(record.storageTarget, name, value, mode);
         if (mode !== 0o444) await ownDockerHostStorageFile(record.mount!, name, entry.uid, entry.gid);
       };
       await stageFile('out', '', 0o600);
+      if (options.publicDebug) {
+        await stageFile('stdout.log', '', 0o600);
+        await stageFile('stderr.log', '', 0o600);
+      }
       if (entry.executorKind === 'script') await stageFile('script.py', plan.payload);
       else {
         const task = buildAgentTask(plan.payload, {
@@ -368,41 +524,122 @@ export function createDockerHostEnclaveExecutor(options: DockerHostEnclaveExecut
           if (!/^[\x21-\x7e]{16,512}$/.test(authority.githubBearer || '')) throw new Error('Invalid dynamic GitHub enclave authority');
           await stageFile('github-bearer', authority.githubBearer!, 0o400);
         }
-        await new DockerEnclaveRunner(config, {
+        await debugCheck('network-isolation', () => new DockerEnclaveRunner(config, {
           docker: { runDocker: (values: string[]) => docker(values) },
-        }).assertNetworkIsolated();
+        }).assertNetworkIsolated());
       }
-      const id = await createContainer(record, args);
-      const exitCode = await runContainer(record, id, signal, () => { authorityState.launchedAt = Date.now(); });
+      diagnostic?.event('authority-handoff', 'succeeded');
+      const id = await debugCheck('workload-create', () => createContainer(record, args));
+      if (record.publicDebug) {
+        record.publicDebug.stage = 'execution';
+        record.publicDebug.failure = 'execution-exception';
+        journal.write(record);
+      }
+      const exitCode = await runContainer(record, id, signal, () => { authorityState.launchedAt = Date.now(); },
+        diagnostic, state => { authorityState.dockerState = state; });
+      if (exitCode !== 0) diagnostic?.fail('workload-exit', undefined, false, 'workload-exit');
+      if (record.publicDebug) {
+        record.publicDebug.exitCode = exitCode;
+        record.publicDebug.stage = exitCode === 0 ? 'result' : 'execution';
+        record.publicDebug.failure = exitCode === 0 ? 'result-invalid' : 'workload-exit';
+        record.publicDebug.dockerState = authorityState.dockerState;
+        journal.write(record);
+      }
       // Remove first: only a proven stopped/removed container may yield output.
-      await removeDockerHostContainer(docker, record);
-      await ownDockerHostStorageFile(record.mount!, 'out', entry.uid, entry.gid, true);
+      const remove = () => removeDockerHostContainer(docker, record);
+      if (diagnostic) await diagnostic.check('cleanup', remove, true);
+      else await remove();
+      const reclaimOutput = () => ownDockerHostStorageFile(record.mount!, 'out', entry.uid, entry.gid, true);
+      if (diagnostic) await diagnostic.check('cleanup', reclaimOutput, true);
+      else await reclaimOutput();
       if (entry.executorKind === 'agent') {
-        await ownDockerHostStorageFile(record.mount!, 'session.jsonl', entry.uid, entry.gid, true);
+        const reclaimSession = () => ownDockerHostStorageFile(record.mount!, 'session.jsonl', entry.uid, entry.gid, true);
+        if (diagnostic) await diagnostic.check('cleanup', reclaimSession, true);
+        else await reclaimSession();
       }
       if (signal.aborted) result = { outcome: 'cancelled' };
       else if (exitCode === 0) {
         const maximum = Math.min(Number(config.maxOutputBytes || HOST_EXECUTOR_MAX_RESULT_BYTES), HOST_EXECUTOR_MAX_RESULT_BYTES);
-        const bounded = await readBoundedEnclaveResult(path.join(record.storageTarget, 'out'), plan.schema, maximum);
+        const bounded = await debugCheck('output-validation',
+          () => readBoundedEnclaveResult(path.join(record.storageTarget, 'out'), plan.schema, maximum));
+        if (bounded === undefined) diagnostic?.fail('output-validation', undefined, false, 'result-invalid');
         result = bounded === undefined ? { outcome: 'schema-failure' } : { outcome: 'success', result: bounded };
-      } else result = { outcome: 'executor-failure', recoverableFailure: true, cleanupComplete: true };
-    } catch {
+      } else {
+        result = { outcome: 'executor-failure', recoverableFailure: true, cleanupComplete: true };
+      }
+    } catch (error) {
+      if (diagnostic && !diagnostic.primaryFailure && !diagnostic.cleanupFailure) {
+        diagnostic.fail(diagnostic.events[diagnostic.events.length - 1]?.stage ?? 'storage-preparation', error);
+      }
       result = { outcome: signal.aborted ? 'cancelled' : 'executor-failure' };
     }
-    try { await cleanup(record); }
-    catch { return { outcome: result.outcome === 'cancelled' ? 'cancelled' : 'executor-failure', cleanupComplete: false }; }
+    if (record.publicDebug) {
+      Object.assign(record.publicDebug, diagnostic?.snapshot());
+      if (signal.aborted) record.publicDebug.failure = 'cancelled';
+      else if (result.outcome === 'success') {
+        record.publicDebug.stage = 'complete';
+        record.publicDebug.failure = 'none';
+      }
+      journal.write(record);
+    }
+    try { await cleanup(record, debugSecrets, diagnostic); }
+    catch (error) {
+      diagnostic?.fail('cleanup', error, true, 'cleanup-failed');
+      if (record.publicDebug) {
+        Object.assign(record.publicDebug, diagnostic?.snapshot());
+        journal.write(record);
+        const artifact = publicArtifacts.get(record.invocationId);
+        if (artifact) {
+          try {
+            await preservePublicEnclaveArtifacts({
+              ...artifact, envelope: {
+                ...artifact.envelope, ...diagnostic?.snapshot(),
+                stage: record.publicDebug.stage, failure: record.publicDebug.failure,
+              },
+            });
+            record.publicDebug.pending = false;
+            record.publicDebug.retained = true;
+            journal.write(record);
+          } catch { /* Initial retained evidence or the invocation source remains protected. */ }
+        }
+      }
+      return { outcome: result.outcome === 'cancelled' ? 'cancelled' : 'executor-failure', cleanupComplete: false };
+    }
     return signal.aborted ? { outcome: 'cancelled' } : result;
   }
 
   async function executeAndSettle(plan: HostExecutorInvocationPlan, signal: AbortSignal): Promise<HostExecutorBackendResult> {
-    const state: InvocationAuthorityState = { attempted: false, resolved: false, prepared: false, resourcesPossible: false };
+    const state: InvocationAuthorityState = {
+      attempted: false, resolved: false, prepared: false, resourcesPossible: false,
+      ...(options.publicDebug ? { diagnostic: new PublicEnclaveOperationRecorder() } : {}),
+    };
     let result: HostExecutorBackendResult;
     try { result = await execute(plan, signal, state); }
-    catch {
+    catch (error) {
       result = {
         outcome: signal.aborted ? 'cancelled' : 'executor-failure',
         ...(!state.prepared || state.resourcesPossible ? { cleanupComplete: false } : {}),
       };
+      if (options.publicDebug && !state.resourcesPossible) {
+        if (!state.diagnostic!.primaryFailure) {
+          state.diagnostic!.fail(state.attempted ? 'authority-handoff' : 'storage-preparation', error);
+        }
+        const { protectedRoot, root } = resolveDockerPublicEnclaveDebugPaths();
+        const uid = process.getuid?.() ?? 0;
+        try {
+          await preservePublicEnclaveArtifacts({
+            directory: path.join(root, plan.runId, plan.invocationId), protectedRoot,
+            stdout: { status: 'unavailable' }, stderr: { status: 'unavailable' }, session: { status: 'unavailable' },
+            secrets: [], owner: { uid, gid: process.getgid?.() ?? 0 },
+            dependencies: { ...fs.promises, resolveIdentity: () => ({ uid, gid: process.getgid?.() ?? 0 }) },
+            envelope: {
+              version: 1, runId: plan.runId, invocationId: plan.invocationId, entryId: plan.entryId,
+              executorKind: plan.executorKind, runtime: 'docker', stage: 'setup', failure: 'setup-failed',
+              exitCode: null, workloadStopped: true, workloadLaunched: false, ...state.diagnostic!.snapshot(),
+            },
+          });
+        } catch { result = { outcome: 'executor-failure', cleanupComplete: false }; }
+      }
     }
     if (state.attempted && options.settleAgentAuthority) {
       const entry = entries.get(plan.entryId)!;
@@ -443,6 +680,7 @@ export function createDockerHostEnclaveExecutor(options: DockerHostEnclaveExecut
       owners.add(backendIdentity);
       activeDockerHostBackends.set(ownerKey, owners);
       handle.done = executeAndSettle(plan, controller.signal).finally(() => {
+        publicArtifacts.delete(plan.invocationId);
         signal.removeEventListener('abort', cancel);
         active.delete(handle);
         if (active.size === 0) {
@@ -461,6 +699,7 @@ export function createDockerHostEnclaveExecutor(options: DockerHostEnclaveExecut
       // to a duplicate start. It must not reconcile a live run it never owned.
       if (ready) await ready;
       if (cleanupIncomplete) throw new Error('Docker enclave resource or authority cleanup requires recovery');
+      publicArtifacts.clear();
     },
   };
 }

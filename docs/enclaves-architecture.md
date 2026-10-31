@@ -348,9 +348,9 @@ this by construction:
 - Raw (but still secret-redacted via `redact_diagnostics`) text is restored
   only when the broker sets the privileged, non-caller-controlled
   `AWF_ENCLAVE_AGENT_DEBUG_RAW_SESSION_LOGS=true` environment variable on the
-  enclave container. AWF does not set this variable anywhere by default, so
-  raw enclave engine output never leaves the enclave unless an operator
-  deliberately wires up that opt-in for local debugging. The broker marks
+  enclave container. Eligible, positively verified public-only host execution
+  uses this trusted setting for protected retention; private, mixed, dynamic,
+  custom-image and unsupported-runtime scopes cannot enable it. The broker marks
   these transcripts and segregates them under its private
   `raw-debug-sessions/` directory instead of `sessions/`; the CLI's audit
   collector copies only `sessions/`, so raw-debug transcripts are never
@@ -359,8 +359,8 @@ this by construction:
   timeouts, cancellations, engine failures, malformed output, and
   configuration errors all route through `append_engine_result`,
   `read_copilot_diagnostics`, or the fixed `failure`/`operation-error`
-  shapes above, so there is no code path that appends raw enclave text to
-  the transcript.
+  shapes above. Outside authorized public-only debugging, there is no code path
+  that appends raw enclave text to the transcript.
 
 The only free-form, repository-derived value that is allowed to leave the
 enclave through a different channel is the broker-validated bounded result
@@ -371,6 +371,43 @@ through the audit transcript.
 See `src/enclave/agent-entrypoint-diagnostics.test.ts` and
 `src/enclave/agent-session-artifact.test.ts` for coverage of the
 default-redacted, privileged-opt-in, and artifact segregation behaviors.
+
+### Protected public-only diagnostics
+
+Top-level `enclaveDebugPublic` is runtime-neutral; the legacy
+`cloudHypervisor.enclaveDebugPublic` is Cloud Hypervisor-only, and the top-level
+value takes precedence. Retention defaults on only for static public-only
+built-in-image default Docker or attested Cloud Hypervisor executors, after
+credential-free GitHub metadata positively proves every repository public.
+An unavailable or unverified response disables capture for the run, not enclave
+execution. Explicit requests cannot authorize private/mixed/dynamic, custom-image,
+runsc, development or heterogeneous scopes. Workload payloads cannot opt in.
+
+Both runtimes retain a bounded, host-only artifact envelope after verified
+workload stop and before destroying invocation storage, including success,
+execution failure and partial setup failure. Retention is not a result channel:
+the primary receives only the existing canonical bounded result or non-disclosing
+failure. Missing streams and unavailable/backend-specific evidence are explicit,
+not inferred success. Protected-write failures prevent successful release and
+preserve source storage for recovery; abrupt host termination cannot guarantee
+capture.
+
+Docker acceptance in `tests/integration/enclave-docker-host.test.ts` uses audited
+entrypoints, real daemon operations, an unprivileged AWF process and the narrow
+version-matched storage helper. Only Copilot is synthetic; no production provider
+credential or live model is used. Fixture subprocesses use an explicit
+non-provider environment allowlist and empty isolated HOME/Docker configuration,
+and Docker receives an isolated build
+context containing only audited entrypoints and executor/server code, not the
+host workspace or credential files. Its trusted low-level image seam tests artifact
+handling, **not** permission for production custom-image retention. See
+[operator paths, bounds and controlled sharing](cloud-hypervisor-foundation.md#public-fixture-enclave-debugging).
+The controlled fixture covers success, nonzero workload exit, missing-network
+and genuine missing-image setup failures, unchanged large-file budgets, bounded
+retention, redaction, cleanup, and direct/symlink mount exclusion. A definitive
+missing-image response still requires independent named-container and invocation
+label absence; ambiguous create/transport failures retain their fail-closed
+pending intent instead of claiming cleanup.
 
 The AWF-owned MCP server publishes only the enabled enclave tools:
 

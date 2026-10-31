@@ -16,6 +16,7 @@ const ROOTS = {
   debug: '/var/lib/awf-cloud-hypervisor/debug-artifacts/cloud-hypervisor',
 };
 const DIAGNOSTIC_NAME = /^([a-f0-9]{32})-([a-f0-9]{32})(?:\.proxy-debug)?\.json$/;
+const INVOCATION_ID = /^[a-f0-9]{16,64}$/;
 const UPLOAD_NAME = /^(?:acceptance|invocation-[0-9]+|session-[0-9]+|proxy-[0-9]+)\.json$/;
 const MAX_RECORDS = 128;
 
@@ -418,6 +419,9 @@ function collect(context, acceptance) {
       throw new Error('Conformance diagnostic run identity mismatch');
     }
     if (value.executorKind !== undefined) {
+      if (typeof value.invocationId !== 'string' || !INVOCATION_ID.test(value.invocationId)) {
+        throw new Error('Conformance diagnostic invocation identity mismatch');
+      }
       files.push([`invocation-${++invocations}.json`, projectInvocation(value)]);
     } else if (value.component === 'enclave-proxy-usage') {
       files.push([`proxy-${++proxies}.json`, {
@@ -439,8 +443,8 @@ function collect(context, acceptance) {
     }
     // Only production's host-authorized public debug directory can supply a session.
     // Project it again: even credential-redacted free-form text is not upload-safe.
-    const debugDirectory = path.join(roots.debug, match[2]);
-    if (value.executorKind === 'agent' && !baseline.debug.includes(match[2])) {
+    if (value.executorKind === 'agent' && !baseline.debug.includes(match[1])) {
+      const debugDirectory = path.join(roots.debug, match[1], value.invocationId);
       try {
         collector.directory(debugDirectory, uid, trustedRoot);
         const bytes = collector.readRegular(path.join(debugDirectory, 'enclave-session.log'), collector.MAX_STREAM_BYTES, uid);

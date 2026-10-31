@@ -27,6 +27,11 @@ import { deriveHostExecutorRunState } from './host-executor-run-state';
 import { startHostExecutorService } from './host-service';
 import { deriveEnclaveSeedId, readEnclaveRunId, resolveEnclavePaths } from './paths';
 import { updateEnclaveStartupProgress } from './startup-progress';
+import {
+  resolvePublicEnclaveDebugConfig, publicEnclaveDebugEnabled, verifyPublicEnclaveDebugRepositories,
+  PublicDebugVisibilityError, resolveDockerPublicEnclaveDebugPaths,
+} from './public-debug';
+import { logger } from '../logger';
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const enclaveSeccompProfile = require('../../containers/enclave/seccomp.json');
@@ -115,6 +120,20 @@ export async function startDockerEnclaveLifecycle(
     });
   await lifecycle.start(paths.root, config, runState.runId, async (run) => {
     onLifecycleStart?.();
+    const debugConfig = resolvePublicEnclaveDebugConfig(config);
+    let publicDebug = publicEnclaveDebugEnabled(debugConfig);
+    if (publicDebug) {
+      try {
+        await verifyPublicEnclaveDebugRepositories(debugConfig);
+        run.publicDebugVerified = true;
+        const { protectedRoot } = resolveDockerPublicEnclaveDebugPaths();
+        assertPrivateRootIsolated(config, { root: protectedRoot }, environment, process.cwd(), 'Public enclave diagnostics');
+      } catch (error) {
+        if (!(error instanceof PublicDebugVisibilityError)) throw error;
+        publicDebug = false;
+        logger.warn(`Public enclave debug capture disabled: ${error.message}`);
+      }
+    }
     updateEnclaveStartupProgress(config, { stage: 'host-service' });
     let listenerExists = false;
     try {
@@ -189,6 +208,7 @@ export async function startDockerEnclaveLifecycle(
           journalDir: path.join(paths.hostExecutorJournalDir, 'docker'),
           entries,
           dockerSocketPath: dockerHost.slice('unix://'.length),
+          publicDebug,
           resolveAgentAuthority: async (plan, signal) => {
             if (signal.aborted) throw new Error('Docker enclave admission cancelled');
             if (plan.selector !== undefined) {

@@ -155,7 +155,7 @@ export async function startCloudHypervisorEnclaveLifecycle(
           publicDebugArtifactDirectory: ENCLAVE_DEBUG_ARTIFACT_ROOT,
           publicDebugArtifactProtectedRoot: ENCLAVE_DEBUG_ARTIFACT_PROTECTED_ROOT,
         };
-        logger.warn(`Public enclave debug retains unredacted raw logs in ${ENCLAVE_DEBUG_ARTIFACT_ROOT}; do not publish these artifacts.`);
+        logger.warn(`Public enclave debug retains bounded redacted logs in ${ENCLAVE_DEBUG_ARTIFACT_ROOT}; do not publish these artifacts.`);
       } catch (error) {
         if (!(error instanceof PublicDebugVisibilityError)) throw error;
         options = { ...options, config: { ...options.config, enclaveDebugPublic: false } };

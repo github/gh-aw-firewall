@@ -31,6 +31,7 @@ export interface ResourceRecord {
   snapshot?: { path: string; identity: FileIdentity; parentIdentity: FileIdentity };
   snapshotPending: boolean;
   state: 'pending' | 'cleaned';
+  publicDebugRetentionPending?: boolean;
   storage?: {
     directory: string;
     parentIdentity: FileIdentity;
@@ -68,6 +69,7 @@ export function validateResourceRecord(record: ResourceRecord, file: string): vo
     typeof record.root !== 'string' || !path.isAbsolute(record.root) || path.normalize(record.root) !== record.root ||
     record.directory !== path.join(record.root, record.entryId, record.invocationId) ||
     !['pending', 'cleaned'].includes(record.state) || typeof record.bootId !== 'string' ||
+    (record.publicDebugRetentionPending !== undefined && typeof record.publicDebugRetentionPending !== 'boolean') ||
     typeof record.mountPending !== 'boolean' || typeof record.snapshotPending !== 'boolean' ||
     !Array.isArray(record.ancestors) || record.ancestors.length !== 2 ||
     record.ancestors[0]?.path !== record.root ||

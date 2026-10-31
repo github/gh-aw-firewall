@@ -85,6 +85,7 @@ following top-level properties. All are OPTIONAL:
 | `rateLimiting` | object | Egress rate limiting |
 | `platform` | object | GitHub platform deployment type declaration |
 | `enclaves` | object | Unified private-repository enclave subsystem (see §14) |
+| `enclaveDebugPublic` | boolean | Runtime-neutral public-only enclave diagnostic retention; defaults on only for eligible, positively verified scopes (see [public enclave debugging](cloud-hypervisor-foundation.md#public-fixture-enclave-debugging)) |
 
 Property-level constraints, types, and descriptions are defined
 normatively by `docs/awf-config.schema.json`.
@@ -330,7 +331,8 @@ AWF settings MAY be supplied via config files, including stdin (`--config -`).
 - `cloudHypervisor.vcpuCount` → `--cloud-hypervisor-vcpus`
 - `cloudHypervisor.memoryMib` → `--cloud-hypervisor-memory-mib`
 - `cloudHypervisor.scratchMib` → `--cloud-hypervisor-scratch-mib` *(optional positive integer MiB; bounds primary guest `/tmp` with tmpfs before workload startup, leaving fixed enclave budgets unchanged)*
-- `cloudHypervisor.enclaveDebugPublic` → `--cloud-hypervisor-enclave-debug-public` *(defaults on for eligible attested, static public-only enclaves after positive GitHub visibility verification; set `false` in configuration to opt out; host-only bounded artifacts include agent session diagnostics; private/mixed/dynamic scopes remain default off; see [public enclave debugging](cloud-hypervisor-foundation.md#public-fixture-enclave-debugging))*
+- `enclaveDebugPublic` → *(config-only; runtime-neutral, defaults on for eligible static public-only built-in-image default Docker or attested Cloud Hypervisor enclaves after positive GitHub visibility verification; set `false` to opt out; unsupported scopes cannot enable retention; see [public enclave debugging](cloud-hypervisor-foundation.md#public-fixture-enclave-debugging))*
+- `cloudHypervisor.enclaveDebugPublic` → `--cloud-hypervisor-enclave-debug-public` *(legacy Cloud Hypervisor alias; top-level `enclaveDebugPublic` takes precedence; the alias does not enable Docker retention)*
 - `cloudHypervisor.apiTimeoutMs` → `--cloud-hypervisor-api-timeout-ms`
 - `cloudHypervisor.sha256.cloudHypervisor` → `--cloud-hypervisor-binary-sha256` *(development bypass only)*
 - `cloudHypervisor.sha256.virtiofsd` → `--cloud-hypervisor-virtiofsd-sha256`
@@ -2681,6 +2683,20 @@ for the closed JSON format, one-hour lifetime bound, cleanup obligations and
 compiler/gateway coordination. gh-aw v1.0.1 does not implement this contract.
 
 The agent executor additionally requires `enableApiProxy`, a configured provider route for its fixed engine/profile, a configured `model`, and the absence of `enableDind`. AWF validates those requirements before repository staging.
+
+**Public diagnostic retention:** top-level `enclaveDebugPublic` is an OPTIONAL
+boolean, not an enclave-entry field or MCP argument. An omitted value defaults on
+only for homogeneous built-in-image default Docker or attested Cloud Hypervisor
+static public-only executors. Every repository MUST have declared `public`
+sensitivity and positive credential-free GitHub visibility verification before
+capture. `false` disables retention; explicit `true` MUST NOT authorize private,
+mixed, dynamic, custom-image, runsc or unattested development scopes.
+Unavailable or unverified metadata disables capture without changing execution.
+Top-level values override the legacy Cloud Hypervisor-only
+`cloudHypervisor.enclaveDebugPublic` alias, including `false`.
+The protected, bounded four-file diagnostic envelope MUST NOT enter normal
+audit uploads, workload mounts or the canonical result channel. See the
+[retention, operator-path and controlled-sharing contract](cloud-hypervisor-foundation.md#public-fixture-enclave-debugging).
 
 ### 14.1a Dynamic repository admission (agent-only)
 

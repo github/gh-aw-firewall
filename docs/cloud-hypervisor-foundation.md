@@ -177,8 +177,11 @@ record is removed while the requested resources remain preserved.
 
 ### Public-fixture enclave debugging
 
-For attested, static **public-only** Cloud Hypervisor enclaves, AWF retains logs
-by default. This includes script stdout/stderr, VM diagnostics, and the agent's
+For eligible, static **public-only** enclaves, AWF retains protected diagnostics
+by default after positive repository-visibility verification. Eligible runtimes
+are built-in-image default Docker and attested Cloud Hypervisor; this is not
+permission to use custom images or alternative Docker runtimes. Cloud Hypervisor
+retention includes script stdout/stderr, VM diagnostics, and the agent's
 bounded `enclave-session.log`: Copilot stdout/stderr and failure diagnostics
 captured by the guest entrypoint, with credential redaction. It is captured
 after confirmed VM stop, before invocation storage is removed, including failed
@@ -186,21 +189,21 @@ invocations. The session is limited to 1 MiB and never included in the ordinary
 audit projection. A failed protected write prevents removal of the source
 storage and reports incomplete cleanup.
 
-Private, mixed-sensitivity, dynamic, custom-image, development, and other-runtime
-configurations retain their existing default-discard behavior. Set
-`cloudHypervisor.enclaveDebugPublic: false` to opt out, or explicitly request
-public-only retention with `--cloud-hypervisor-enclave-debug-public` or this
-top-level configuration alongside the existing enclave and attested
-Cloud Hypervisor configuration:
+Private, mixed-sensitivity, dynamic, custom-image, development, runsc, and
+unsupported-runtime configurations remain default-discard. Set top-level
+`enclaveDebugPublic: false` to opt out, or `true` to explicitly request retention
+alongside an eligible enclave configuration. For example:
 
 ```json
 {
-  "cloudHypervisor": {
-    "previewEnabled": true,
-    "enclaveDebugPublic": true
-  }
+  "enclaveDebugPublic": true
 }
 ```
+
+The legacy `cloudHypervisor.enclaveDebugPublic` and
+`--cloud-hypervisor-enclave-debug-public` remain Cloud Hypervisor-only aliases.
+The runtime-neutral top-level setting takes precedence, including an explicit
+`false`; the legacy alias cannot enable Docker retention.
 
 Retention does not open any production rollout gate or enable a different
 runtime. Every configured repository must have `sensitivity: "public"`. AWF also
@@ -220,16 +223,92 @@ transport codes. Response bodies, headers, repository names, and raw transport
 errors are not included. A `403` alone does not establish rate limiting, and
 an unknown transport code must not be treated as a diagnosed network cause.
 Explicit requests for dynamic repository admission, non-public sensitivities (including `trusted`),
-custom enclave images, unattested development artifacts, and non-Cloud-Hypervisor
-executors are rejected. A guest request, payload, or environment variable cannot
+custom enclave images, unattested development artifacts, runsc, and unsupported
+or heterogeneous executors are rejected. A guest request, payload, or environment variable cannot
 enable capture.
 
-Artifacts persist outside the work directory under
-`/var/lib/awf-cloud-hypervisor/debug-artifacts/cloud-hypervisor/<opaque-invocation-id>/`.
-AWF checks this root against primary-agent mounts and actual virtio-fs exports,
+The common invocation envelope uses four fixed filenames: `stdout.log`, `stderr.log`,
+`enclave-session.log`, and `diagnostics.json`. The workload's source
+`session.jsonl` is not the retained artifact name. Its versioned metadata records run,
+invocation, executor and runtime identity; lifecycle stage and fixed failure
+classification; actual workload exit code (or `null` before execution); verified
+workload-stop proof; and each stream's collection status. Script sessions are
+`not-applicable`. Missing, unsafe, oversized and unreadable files are classified
+explicitly; they are not published as successful captures. Docker inspect,
+network and VM evidence availability is explicit, and unavailable counters must
+not be invented or used to diagnose a root cause.
+The bounded `stages` array contains at most 64 fixed operation events covering
+storage preparation/probing, network isolation, authority handoff, workload creation/start,
+entrypoint initialization, workload exit, output validation and cleanup.
+Events distinguish started, succeeded, failed and unavailable/not-applicable
+observations, with allowlisted error categories and numeric errno only—never
+exception messages. `primaryFailure` preserves the original failed operation;
+an independently observed `cleanupFailure` does not overwrite it. Absent failure
+fields do not substitute for cleanup proof. `stopProof: "not-launched"` explicitly
+distinguishes setup failure from `stopProof: "verified"` after workload stop.
+Available Docker evidence is a closed stopped/exit/OOM summary; Cloud Hypervisor
+counters can be explicitly supplemental rather than pretending identical backend
+instrumentation exists.
+Nonzero workload exits use the common `stage: "execution"` classification;
+network membership checks use `network-isolation`, not `storage-probe`.
+Pending public diagnostic recovery preserves its source and reports the affected
+run separately without blocking unrelated runs. Reusing the affected Docker run
+still requires trusted recovery with the original credential custody.
+For agents, read the envelope's `streamCoverage` metadata alongside stream
+availability: `enclave-session.log` contains captured Copilot stdout/stderr and
+failure diagnostics. An absent standalone stream does not mean that session
+coverage is absent, nor does session coverage prove that every guest or launcher
+stream was collected.
+For each stdout/stderr artifact, `artifactSource` distinguishes a Docker
+`workload-file`, Cloud Hypervisor `backend-stream`, a recovered `agent-session`
+stream, or `unavailable`. The separate `agentSession` field indicates whether the
+session also covers that engine stream; `copilotDiagnostics` identifies session
+failure-diagnostic coverage or explicitly unavailable evidence. Session-derived
+streams are credential-redacted before their retained size is bounded.
+Only missing, unavailable or empty safe standalone streams can recover a bounded
+session-derived artifact. Unsafe or oversized sources remain classified and
+empty; a retained bounded session excerpt can still report engine coverage
+without silently overriding that source failure.
+
+Artifacts persist outside the work directory:
+
+| Runtime / host custody | Invocation path |
+|---|---|
+| Unprivileged Docker with narrow storage helper | `/var/lib/awf/enclave-storage/<host-uid>/host-state/debug-artifacts/docker/<run-id>/<invocation-id>/` |
+| Privileged Docker host adapter | `/var/lib/awf-cloud-hypervisor/debug-artifacts/docker/<run-id>/<invocation-id>/` |
+| Cloud Hypervisor | `/var/lib/awf-cloud-hypervisor/debug-artifacts/cloud-hypervisor/<run-id>/<invocation-id>/` |
+
+Older Cloud Hypervisor hashed VM-run directories can remain below the same
+protected root and remain mount-isolated. New captures use the canonical two-ID
+layout, while retaining the existing `enclave-session.log` filename; do not infer
+a legacy artifact's run identity from a new-layout path.
+
+Docker's helper installation is version-matched through `install.sh`; run AWF
+as the ordinary host user with noninteractive authorization for that narrow
+helper, **not** by running the whole workflow under sudo. The helper controls
+only fixed-root invocation storage and file ownership, never arbitrary debug
+destinations or arbitrary host commands. Docker public retention adds bounded
+stdout/stderr files to the same verified aggregate invocation allocation; it
+does not change resource budgets or impose a new process-wide file-size limit
+on seed copying or query writes. Standard-library pipe drains continuously
+consume stdout/stderr while retaining at most 1 MiB per stream, with bounded
+collector shutdown rather than waiting forever for descendant writers.
+Fixed capture-bound/capture-I/O evidence distinguishes truncation or unavailable
+capture from a complete stream; oversized streams remain explicitly classified
+and empty in the common artifact. The retention reader also rejects source files
+above 1 MiB instead of exporting an unbounded file.
+An unprivileged AWF process does not mean a rootless Docker daemon: this adapter
+still requires a supported local rootful daemon with shared host mount visibility.
+
+AWF checks the protected roots against primary-agent mounts and actual virtio-fs exports,
 on every startup regardless of the current debug flag or runtime, and never
-mounts it in the primary agent, broker, or enclave. The protected directory
-chain and artifacts are root-owned; directories are `0700`, regular single-link
+mounts it in the primary agent, broker, or enclave. Parent, child and symlink-alias
+mount exposures are rejected even when capture is disabled. The Cloud Hypervisor protected root
+and the fixed Docker helper storage root `/var/lib/awf/enclave-storage` remain
+excluded independently of the active runtime or flag. Cloud Hypervisor
+and privileged Docker artifacts are root-owned; unprivileged Docker artifacts
+are owned by the host AWF UID under the helper-created owner-only `host-state`.
+Protected artifact directories are `0700`, regular single-link
 files are `0600`, and symlink destinations are rejected. They are **not** copied into ordinary
 audit/log collections or widened for upload. Inspect them on the host and remove
 the specific invocation directory when no longer needed.
@@ -260,10 +339,36 @@ headers, or credentials. Public repository visibility is not a guarantee that
 every log line is safe to publish; host-only retention is not automatic upload
 authorization.
 
-Capture retains the trailing **1 MiB per raw stream/file**, not an unlimited
+#### Controlled inspection and sharing
+
+1. Locate the exact run/invocation path above using opaque host executor IDs.
+   Inspect `diagnostics.json` first as its owning host user (root only for
+   root-owned artifacts); do not infer an exit code from a host setup exception.
+2. Review only that invocation's four allowlisted files locally. Verify the
+   expected owner, directory `0700`, regular single-link files `0600`, and at
+   most 1 MiB per file. Reject aliases, unexpected files and mismatched IDs.
+   Redaction is defense in depth: public repository visibility does not make
+   prompts, outputs, provider details or unrelated host content safe to publish.
+3. If incident-specific disclosure is authorized, stage **only reviewed,
+   approved copies of those named files** in a dedicated upload directory.
+   Never change protected-source permissions or upload a parent directory,
+   recovery journals, seeds, capabilities, environment dumps, raw proxy logs,
+   Docker inspect output, or an entire AWF work directory. Omit any unapproved
+   file; no broad artifact glob or recursive archive is allowed.
+4. Use the existing incident artifact mechanism with explicit file paths,
+   an aggregate ceiling of 4 MiB for the common envelope and one-day retention.
+   Do not paste stream contents into ordinary logs, PR comments or summaries.
+   Remove staging copies after upload and the exact protected invocation
+   directory once the incident's local retention requirement is satisfied.
+   The Cloud Hypervisor smoke collector's separately bounded, explicitly
+   allowlisted proxy/VM evidence is not blanket authorization for Docker logs.
+
+Cloud Hypervisor additionally retains the trailing **1 MiB per raw stream/file**, not an unlimited
 transcript: guest stdout/stderr, launcher stdout/stderr, serial/VMM logs, and
 available virtiofs logs. Existing VM, network and confinement metadata accompany
-the logs. Collection runs before run-directory and network cleanup, including
+the logs. If a tail begins mid-line, its leading boundary fragment is discarded
+before redaction, rather than publishing a credential fragment whose prefix was
+outside the retained window. Collection runs before run-directory and network cleanup, including
 partial startup failure; an early termination/cleanup failure also attempts
 collection before propagating the failure. Missing/not-yet-created streams can
 be empty or absent. Once collected, cleanup retries do not overwrite the

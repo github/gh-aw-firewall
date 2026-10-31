@@ -26,6 +26,7 @@ import type { VirtiofsdDevice } from './virtiofsd';
 import type { CloudHypervisorConfinementEvidence } from './confinement-verifier';
 import { redactSensitiveValues } from '../redact-secrets';
 import type { GuestConnectionDiagnostics } from './guest-execution';
+import { redactPublicEnclaveText } from '../enclave/public-debug-redaction';
 
 export class DiagnosticPersistenceCleanupError extends Error {
   readonly cause: unknown;
@@ -40,9 +41,11 @@ export class DiagnosticPersistenceCleanupError extends Error {
 
 /** Reads at most `maxBytes` from the end of `filePath`. */
 export async function readBoundedTail(filePath: string, maxBytes: number): Promise<Buffer> {
-  const handle = await fs.open(filePath, 'r');
+  const handle = await fs.open(filePath, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
   try {
-    const { size } = await handle.stat();
+    const stat = await handle.stat();
+    if (!stat.isFile() || stat.nlink !== 1) throw new Error('Unsafe diagnostic source file');
+    const { size } = stat;
     const length = Math.min(size, maxBytes);
     const buffer = Buffer.alloc(length);
     if (length > 0) {
@@ -78,6 +81,7 @@ async function secureFileHandoff(
 /** Retains only the trailing `maximumBytes` of an unbounded output stream. */
 export class BoundedOutputCapture {
   private buffer = Buffer.alloc(0);
+  private truncated = false;
 
   constructor(private readonly maximumBytes: number) {}
 
@@ -85,12 +89,20 @@ export class BoundedOutputCapture {
     const next = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
     this.buffer = Buffer.concat([this.buffer, next]);
     if (this.buffer.length > this.maximumBytes) {
+      this.truncated = true;
       this.buffer = this.buffer.subarray(this.buffer.length - this.maximumBytes);
     }
   }
 
   contents(): Buffer {
     return this.buffer;
+  }
+
+  /** Public retention cannot disclose a partial credential at a tail boundary. */
+  publicContents(): Buffer {
+    if (!this.truncated) return this.buffer;
+    const newline = this.buffer.indexOf(10);
+    return newline < 0 ? Buffer.alloc(0) : this.buffer.subarray(newline + 1);
   }
 
   writable(): Writable {
@@ -187,6 +199,7 @@ async function copyBoundedDiagnostic(
   source: string,
   destination: string,
   identity: CloudHypervisorIdentity,
+  secrets?: readonly string[],
 ): Promise<void> {
   let bounded: Buffer;
   try {
@@ -195,7 +208,12 @@ async function copyBoundedDiagnostic(
     if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
     return;
   }
-  await writeAuditFile(dependencies, destination, bounded, identity);
+  if (secrets && bounded.length === CLOUD_HYPERVISOR_CAPTURE_LIMIT_BYTES) {
+    const newline = bounded.indexOf(10);
+    bounded = newline < 0 ? Buffer.alloc(0) : bounded.subarray(newline + 1);
+  }
+  await writeAuditFile(dependencies, destination,
+    secrets ? redactPublicEnclaveText(bounded, secrets) : bounded, identity);
 }
 
 export async function waitForApiSocket(
@@ -248,9 +266,10 @@ export interface CloudHypervisorDiagnosticsContext {
   fsDevices: readonly VirtiofsdDevice[];
   confinementEvidence: CloudHypervisorConfinementEvidence | undefined;
   debugArtifactProtectedRoot?: string;
+  debugSecrets?: readonly string[];
 }
 
-type AuditDependencies = Pick<
+export type AuditDependencies = Pick<
   CloudHypervisorManagerDependencies,
   'mkdir' | 'lstat' | 'realpath' | 'open' | 'resolveIdentity'
 >;
@@ -359,10 +378,11 @@ async function prepareAuditDirectory(
   return { identity, directory: canonicalDirectory };
 }
 
-async function prepareRootOwnedDebugDirectory(
+export async function prepareRootOwnedDebugDirectory(
   directory: string,
   protectedRoot: string,
   dependencies: AuditDependencies,
+  identity: CloudHypervisorIdentity = { uid: 0, gid: 0 },
 ): Promise<{ identity: CloudHypervisorIdentity; directory: string }> {
   const canonicalRoot = path.resolve(protectedRoot);
   const canonicalDirectory = path.resolve(directory);
@@ -370,7 +390,20 @@ async function prepareRootOwnedDebugDirectory(
   if (!relative || relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {
     throw new Error('Public enclave debug artifacts must be stored below their protected root');
   }
-  const identity = { uid: 0, gid: 0 };
+  let ancestor = path.parse(canonicalDirectory).root;
+  for (const component of canonicalDirectory.slice(ancestor.length).split(path.sep)) {
+    ancestor = path.join(ancestor, component);
+    try {
+      const stat = await dependencies.lstat(ancestor);
+      if (stat.isSymbolicLink() || !stat.isDirectory()
+        || (stat.uid !== 0 && stat.uid !== identity.uid) || (stat.mode & 0o022) !== 0) {
+        throw new Error('Unsafe protected public diagnostic path ancestor');
+      }
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') break;
+      throw error;
+    }
+  }
   await assertExistingDiagnosticComponents(dependencies, canonicalDirectory);
   const components = relative.split(path.sep);
   let current = canonicalRoot;
@@ -378,17 +411,19 @@ async function prepareRootOwnedDebugDirectory(
     if (component) current = path.join(current, component);
     await dependencies.mkdir(current, { recursive: true, mode: 0o700 });
     const canonicalCurrent = await realDirectoryPath(dependencies, current);
+    if (canonicalCurrent !== current) throw new Error('Public diagnostic path has symlink ancestors');
     const handle = await dependencies.open(
       canonicalCurrent,
       constants.O_RDONLY | (constants.O_DIRECTORY ?? 0) | (constants.O_NOFOLLOW ?? 0),
     );
     try {
       const stat = await handle.stat();
-      if (!stat.isDirectory()) {
+      if (!stat.isDirectory() || stat.uid !== identity.uid || (stat.mode & 0o022) !== 0) {
         throw new Error(`Refusing to use non-directory path: ${canonicalCurrent}`);
       }
       await handle.chmod(0o700);
       await handle.chown(identity.uid, identity.gid);
+      await handle.sync?.();
     } finally {
       await handle.close();
     }
@@ -396,7 +431,7 @@ async function prepareRootOwnedDebugDirectory(
   return { identity, directory: await realDirectoryPath(dependencies, canonicalDirectory) };
 }
 
-async function writeAuditFile(
+export async function writeAuditFile(
   dependencies: AuditDependencies,
   destination: string,
   contents: string | Buffer,
@@ -418,6 +453,7 @@ async function writeAuditFile(
     await handle.truncate(0);
     await handle.writeFile(contents);
     await handle.chmod(0o600);
+    await handle.sync?.();
   } catch (error) {
     failure = { error };
   }
@@ -456,7 +492,7 @@ export async function preservePublicEnclaveSession(
 ): Promise<void> {
   const prepared = await prepareRootOwnedDebugDirectory(directory, protectedRoot, dependencies);
   const forms = secrets.flatMap((secret) => [secret, JSON.stringify(secret).slice(1, -1)]);
-  const redacted = redactSensitiveValues(contents, forms)
+  const redacted = redactPublicEnclaveText(Buffer.from(redactSensitiveValues(contents, forms)), secrets).toString()
     .replace(/\b((?:proxy-)?authorization\s*[:=]\s*)[^\r\n"\\]+/gi, '$1[REDACTED]')
     .replace(/\bbearer\s+[^\s"\\]+/gi, 'Bearer [REDACTED]')
     .replace(/\b(?:github_pat_[A-Za-z0-9_]+|gh[pousr]_[A-Za-z0-9_]+|sk-[A-Za-z0-9_-]+)\b/g, '[REDACTED]');
@@ -473,18 +509,22 @@ export async function writeGuestOutputAudit(
   dependencies: AuditDependencies,
   stdoutCapture: BoundedOutputCapture,
   stderrCapture: BoundedOutputCapture,
+  secrets?: readonly string[],
+  protectedRoot?: string,
 ): Promise<void> {
-  const { identity, directory: auditDirectory } = await prepareAuditDirectory(directory, dependencies);
+  const { identity, directory: auditDirectory } = protectedRoot
+    ? await prepareRootOwnedDebugDirectory(directory, protectedRoot, dependencies)
+    : await prepareAuditDirectory(directory, dependencies);
   await writeAuditFile(
     dependencies,
     path.join(auditDirectory, 'guest-stdout.raw.log'),
-    stdoutCapture.contents(),
+    protectedRoot ? redactPublicEnclaveText(stdoutCapture.publicContents(), secrets ?? []) : stdoutCapture.contents(),
     identity,
   );
   await writeAuditFile(
     dependencies,
     path.join(auditDirectory, 'guest-stderr.raw.log'),
-    stderrCapture.contents(),
+    protectedRoot ? redactPublicEnclaveText(stderrCapture.publicContents(), secrets ?? []) : stderrCapture.contents(),
     identity,
   );
 }
@@ -525,25 +565,35 @@ export async function collectCloudHypervisorDiagnostics(
   }
   const writeBounded = async (fileName: string, contents: string | Buffer): Promise<void> => {
     const destination = path.join(directory, fileName);
-    await writeAuditFile(dependencies, destination, contents, identity);
+    await writeAuditFile(dependencies, destination,
+      context.debugArtifactProtectedRoot ? redactPublicEnclaveText(Buffer.from(contents), context.debugSecrets ?? []) : contents,
+      identity);
   };
-  await writeBounded('launcher-stdout.log', context.stdoutCapture.contents());
-  await writeBounded('launcher-stderr.log', context.stderrCapture.contents());
+  const streamContents = (capture: BoundedOutputCapture) =>
+    context.debugArtifactProtectedRoot ? capture.publicContents() : capture.contents();
+  await writeBounded('launcher-stdout.log', streamContents(context.stdoutCapture));
+  await writeBounded('launcher-stderr.log', streamContents(context.stderrCapture));
   if (context.captureGuestRawOutput !== false) {
-    await writeBounded('guest-stdout.raw.log', context.guestStdoutCapture.contents());
-    await writeBounded('guest-stderr.raw.log', context.guestStderrCapture.contents());
+    await writeBounded('guest-stdout.raw.log', streamContents(context.guestStdoutCapture));
+    await writeBounded('guest-stderr.raw.log', streamContents(context.guestStderrCapture));
+    if (context.debugArtifactProtectedRoot) {
+      await writeBounded('stdout.log', streamContents(context.guestStdoutCapture));
+      await writeBounded('stderr.log', streamContents(context.guestStderrCapture));
+    }
   }
   await copyBoundedDiagnostic(
     dependencies,
     paths.logPath,
     path.join(directory, CLOUD_HYPERVISOR_LOG_NAME),
     identity,
+    context.debugArtifactProtectedRoot ? context.debugSecrets ?? [] : undefined,
   );
   await copyBoundedDiagnostic(
     dependencies,
     paths.serialLogPath,
     path.join(directory, CLOUD_HYPERVISOR_SERIAL_LOG_NAME),
     identity,
+    context.debugArtifactProtectedRoot ? context.debugSecrets ?? [] : undefined,
   );
   for (const [index, device] of context.fsDevices.entries()) {
     await copyBoundedDiagnostic(
@@ -551,12 +601,14 @@ export async function collectCloudHypervisorDiagnostics(
       device.logPath,
       path.join(directory, `virtiofs-${index}-${device.export.tag}.log`),
       identity,
+      context.debugArtifactProtectedRoot ? context.debugSecrets ?? [] : undefined,
     );
     await copyBoundedDiagnostic(
       dependencies,
       device.evidencePath,
       path.join(directory, `virtiofs-${index}-${device.export.tag}-confinement.json`),
       identity,
+      context.debugArtifactProtectedRoot ? context.debugSecrets ?? [] : undefined,
     );
   }
   await writeBounded(
