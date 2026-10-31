@@ -97,13 +97,13 @@ post-steps:
     run: |
       sudo node /var/lib/awf-enclave-smoke-export/collector.cjs collect cloud-hypervisor "$DEBUG_RUN_KEY" "$(id -u)" "$(id -g)"
   - name: Upload public enclave debug evidence
-    if: always() && steps.collect-enclave-debug.outcome == 'success'
+    if: always()
     uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
     with:
       name: public-enclave-debug-${{ github.run_id }}-${{ github.run_attempt }}
       path: /var/lib/awf-enclave-smoke-export/${{ github.run_id }}-${{ github.run_attempt }}/upload/
       retention-days: 1
-      if-no-files-found: error
+      if-no-files-found: ignore
   - name: Validate enclave invocation and result
     if: always()
     env:
@@ -236,6 +236,9 @@ debug artifact has one-day retention. These unredacted public-fixture logs are
 intentionally disclosed to Actions artifact readers; public-repository artifact
 access is not private or owner-only. No secret values or environment dumps are
 collected. A failure before debug capture starts produces only a status record.
+Collection and upload run even when collection fails; missing output is ignored
+when preparation did not produce a scope, while the collection failure remains
+visible as a failed workflow step.
 
 ## Resolved-config collection wiring and remaining verification
 

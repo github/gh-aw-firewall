@@ -268,7 +268,7 @@ function projectDiagnostics(value, identity) {
   check(value.workloadStopped === true && typeof value.workloadLaunched === 'boolean'
     && value.stopProof === (value.workloadLaunched ? 'verified' : 'not-launched')
     && (value.workloadLaunched || (value.exitCode === null
-      && ((value.failure === 'setup-failed' && value.stage === 'setup')
+      && ((['setup-failed', 'cancelled', 'timeout'].includes(value.failure) && value.stage === 'setup')
         || (value.failure === 'retention-failed' && value.stage === 'retention')))),
   'stop-proof', 'not-stopped');
   check(Array.isArray(value.stages) && value.stages.length <= 64, 'operation-schema');
@@ -341,7 +341,17 @@ function redactCredentials(bytes) {
     .replace(/\b(?:github_pat_[A-Za-z0-9_]+|gh[pousr]_[A-Za-z0-9_]+|sk-[A-Za-z0-9_-]+)\b/g, '[REDACTED]');
   const redactValue = (value, depth = 0) => {
     check(depth <= 64, 'credential-redaction-bound', 'oversized');
-    if (typeof value === 'string') return redactText(value);
+    if (typeof value === 'string') {
+      let embedded;
+      try {
+        embedded = JSON.parse(value);
+      } catch { return redactText(value); }
+      if (object(embedded) || Array.isArray(embedded)) {
+        const sanitized = redactValue(embedded, depth + 1);
+        return JSON.stringify(sanitized) === JSON.stringify(embedded) ? value : JSON.stringify(sanitized);
+      }
+      return redactText(value);
+    }
     if (Array.isArray(value)) return value.map(item => redactValue(item, depth + 1));
     if (object(value)) return Object.fromEntries(Object.entries(value).map(([key, item]) => [
       redactText(key), /^(?:proxy-)?authorization$/i.test(key) ? '[REDACTED]' : redactValue(item, depth + 1),
@@ -589,9 +599,10 @@ function prepare(runDirectory, roots = ROOTS, uid = 0, trustedRoot = '/', bindin
     { mode: 0o600, flag: 'wx' });
 }
 
-function collect(runDirectory, runnerUid, runnerGid, roots = ROOTS, uid = 0, trustedRoot = '/', binding) {
-  const stagingUid = binding ? 0 : uid;
-  directory(runDirectory, stagingUid, trustedRoot);
+function collect(runDirectory, runnerUid, runnerGid, roots = ROOTS, uid = 0, trustedRoot = '/', binding,
+  privilegedUid = 0, stagingTrustedRoot = '/') {
+  const stagingUid = binding ? privilegedUid : uid;
+  directory(runDirectory, stagingUid, stagingTrustedRoot);
   const prepared = JSON.parse(readRegular(path.join(runDirectory, 'baseline.json'), 1024 * 1024, stagingUid));
   const baseline = prepared.sourceScopes
     ? prepared.sourceScopes.find(scope => scope.journal === roots.journal) : prepared;
@@ -611,6 +622,7 @@ function collect(runDirectory, runnerUid, runnerGid, roots = ROOTS, uid = 0, tru
   let invocation;
   let invocationEntry;
   let runId;
+  let invocationStopped = false;
   let nonInvocationRecords = 0;
   let invalidIdentityRecords = 0;
   if (journals.length) {
@@ -640,6 +652,7 @@ function collect(runDirectory, runnerUid, runnerGid, roots = ROOTS, uid = 0, tru
       }
       invocation = candidate;
       invocationEntry = record.entryId;
+      if (record.state === 'terminal') invocationStopped = true;
     }
   }
   if (proxyDebug.length) {
@@ -675,8 +688,9 @@ function collect(runDirectory, runnerUid, runnerGid, roots = ROOTS, uid = 0, tru
       { runId, invocationId: invocation, entryId: invocationEntry, runtime });
     } catch (error) {
       if (error.code === 'ENOENT' && runtime === 'cloud-hypervisor') {
+        check(invocationStopped, 'stop-proof', 'not-stopped');
         // Pre-shared-envelope CH releases still retain bounded public-only
-        // supplemental evidence in this same protected namespace.
+        // supplemental evidence only after the journal proves backend cleanup.
         envelope = undefined;
       } else if (error.code === 'ENOENT') check(false, 'diagnostics-envelope', 'absent-evidence');
       else throw error;
@@ -827,11 +841,12 @@ function cliCandidates(backend, runnerUid) {
 }
 
 function snapshot(roots) {
+  const trustedRoot = roots.trustedRoot ?? '/';
   return { journal: roots.journal,
-    journals: inventory(roots.journal, roots.sourceUid, '/').filter(name => name.endsWith('.journal')),
-    proxyDebug: inventory(path.join(roots.journal, 'diagnostics'), roots.sourceUid, '/')
+    journals: inventory(roots.journal, roots.sourceUid, trustedRoot).filter(name => name.endsWith('.journal')),
+    proxyDebug: inventory(path.join(roots.journal, 'diagnostics'), roots.sourceUid, trustedRoot)
       .filter(name => name.endsWith('.proxy-debug.json')),
-    debug: inventory(roots.debug, roots.sourceUid, '/'),
+    debug: inventory(roots.debug, roots.sourceUid, trustedRoot),
   };
 }
 
@@ -856,23 +871,27 @@ function parseArguments(args) {
   return { operation, backend, key, runnerUid, runnerGid, binding };
 }
 
-function main(args = process.argv.slice(2)) {
-  check(process.getuid() === 0, 'cli-arguments');
+function main(args = process.argv.slice(2), options = {}) {
+  const privilegedUid = options.privilegedUid ?? 0;
+  const exportRoot = options.exportRoot ?? '/var/lib/awf-enclave-smoke-export';
+  const exportTrustedRoot = options.exportTrustedRoot ?? '/';
+  const candidatesForBackend = options.candidatesForBackend ?? cliCandidates;
+  check(process.getuid() === privilegedUid, 'cli-arguments');
   const { operation, backend, key, runnerUid, runnerGid, binding } = parseArguments(args);
-  const candidates = cliCandidates(backend, runnerUid);
-  const runDirectory = path.join('/var/lib/awf-enclave-smoke-export', key);
+  const candidates = candidatesForBackend(backend, runnerUid);
+  const runDirectory = path.join(exportRoot, key);
   if (operation === 'prepare') {
     // Source ownership may be the unprivileged Docker runner, but staging is root-only.
-    directory(path.dirname(runDirectory), 0);
+    directory(path.dirname(runDirectory), privilegedUid, exportTrustedRoot);
     fs.mkdirSync(runDirectory, { mode: 0o700 });
     const baseline = { binding, sourceScopes: candidates.map(snapshot) };
     fs.writeFileSync(path.join(runDirectory, 'baseline.json'), JSON.stringify(baseline), { mode: 0o600, flag: 'wx' });
     return 0;
   }
   try {
-    directory(runDirectory, 0);
+    directory(runDirectory, privilegedUid, exportTrustedRoot);
     check(!fs.existsSync(path.join(runDirectory, 'collected')), 'prepared-scope', 'scope-already-collected');
-    const prepared = JSON.parse(readRegular(path.join(runDirectory, 'baseline.json'), MAX_STREAM_BYTES, 0));
+    const prepared = JSON.parse(readRegular(path.join(runDirectory, 'baseline.json'), MAX_STREAM_BYTES, privilegedUid));
     check(object(prepared) && JSON.stringify(prepared.binding) === JSON.stringify(binding)
       && Array.isArray(prepared.sourceScopes) && prepared.sourceScopes.length === candidates.length, 'prepared-scope');
     const active = candidates.filter((candidate, index) => {
@@ -889,11 +908,12 @@ function main(args = process.argv.slice(2)) {
       check(false, 'run-budget', 'concurrent-runs');
     }
     const roots = active[0] ?? candidates[0];
-    collect(runDirectory, runnerUid, runnerGid, roots, roots.sourceUid, '/', binding);
+    collect(runDirectory, runnerUid, runnerGid, roots, roots.sourceUid, roots.trustedRoot ?? '/',
+      binding, privilegedUid, exportTrustedRoot);
     return 0;
   } catch (error) {
     const failure = classifyFailure(error);
-    publishCollectionFailure(runDirectory, runnerUid, runnerGid, error, 0, '/', binding);
+    publishCollectionFailure(runDirectory, runnerUid, runnerGid, error, privilegedUid, exportTrustedRoot, binding);
     process.stderr.write(`Collection failed: failedCheck=${failure.failedCheck} category=${failure.category}\n`);
     return 1;
   }

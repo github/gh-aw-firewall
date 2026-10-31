@@ -1,4 +1,5 @@
 import * as fs from 'fs';
+import * as os from 'os';
 import * as path from 'path';
 import { createHash } from 'crypto';
 import { preservePublicEnclaveProxyDiagnostics } from '../../src/enclave/proxy-debug-retention';
@@ -12,6 +13,8 @@ import { resolveDockerPublicEnclaveDebugPaths } from '../../src/enclave/public-d
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const collector = require('./collect-enclave-smoke-debug.cjs');
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const mutableFs: typeof fs = require('node:fs');
 const { prepare, collect, MAX_STREAM_BYTES, MAX_FILES, projectDiagnostics, cliRoots } = collector;
 
 describe('host-only public enclave debug collector', () => {
@@ -30,12 +33,13 @@ describe('host-only public enclave debug collector', () => {
   });
   afterEach(() => fs.rmSync(temp, { recursive: true, force: true }));
   const prepareRun = () => prepare(run, roots, uid, temp);
-  function invocation() {
+  function invocation(terminal = true) {
     const journal = new HostExecutorJournal({
       runId, journalDir: roots.journal, seedsDir: path.join(temp, 'seeds'),
       invocationsDir: path.join(temp, 'invocations'), entries: [],
     });
     journal.record({ invocationId, entryId: 'script', state: 'cleanup-pending' });
+    if (terminal) journal.record({ invocationId, entryId: 'script', state: 'terminal', outcome: 'executor-failure' });
     const source = path.join(roots.debug, runId, invocationId);
     fs.mkdirSync(source, { recursive: true, mode: 0o700 });
     fs.writeFileSync(path.join(source, 'guest-stderr.raw.log'), 'failed guest evidence', { mode: 0o600 });
@@ -85,6 +89,12 @@ describe('host-only public enclave debug collector', () => {
     absentEvidence();
     expect(fs.readFileSync(path.join(run, 'upload/collection-status.txt'), 'utf8'))
       .toContain('category=absent-evidence');
+  });
+  it('rejects legacy Cloud Hypervisor evidence without a correlated terminal stop record', () => {
+    prepareRun();
+    invocation(false);
+    expect(collectRun).toThrow(/stop-proof/);
+    expect(fs.existsSync(path.join(run, 'upload'))).toBe(false);
   });
   it('collects the common public artifacts from the run and broker invocation layout', () => {
     prepareRun();
@@ -609,6 +619,30 @@ describe('standalone public enclave diagnostics collector', () => {
     expect(result.primaryFailure.errno).toBe(13);
   });
 
+  it.each(['docker', 'cloud-hypervisor'])('accepts cancelled and timed-out %s setup before launch', backend => {
+    roots.backend = backend;
+    for (const failure of ['cancelled', 'timeout']) {
+      const setup = envelope({
+        stage: 'setup', failure, exitCode: null, workloadLaunched: false, stopProof: 'not-launched',
+        streams: { stdout: 'unavailable', stderr: 'missing', session: 'not-applicable' },
+        streamCoverage: {
+          stdout: { artifactSource: 'unavailable', agentSession: 'unavailable' },
+          stderr: { artifactSource: 'unavailable', agentSession: 'unavailable' }, copilotDiagnostics: 'unavailable',
+        },
+        backendEvidence: {
+          dockerInspect: { status: backend === 'docker' ? 'unavailable' : 'not-applicable' },
+          vmCounters: { status: backend === 'docker' ? 'not-applicable' : 'unavailable' },
+          network: { status: 'unavailable' },
+        },
+      });
+      expect(JSON.parse(projectDiagnostics(setup, identity()).toString())).toMatchObject({
+        stage: 'setup', failure, exitCode: null, workloadLaunched: false, stopProof: 'not-launched',
+      });
+      expect(() => projectDiagnostics({ ...setup, exitCode: 0 }, identity())).toThrow(/stop-proof/);
+      expect(() => projectDiagnostics({ ...setup, stage: 'execution' }, identity())).toThrow(/stop-proof/);
+    }
+  });
+
   it.each(['missing', 'unsafe', 'oversized', 'read-failed', 'unavailable', 'not-applicable'])(
     'keeps explicit %s capture status instead of zero/success evidence', status => {
       prepareRun();
@@ -643,6 +677,139 @@ describe('standalone public enclave diagnostics collector', () => {
     expect(collectRun()).toBe(4);
     expect(JSON.parse(fs.readFileSync(path.join(scope, 'upload/diagnostics.json'), 'utf8'))).toMatchObject({
       stage: 'retention', failure: 'retention-failed', workloadLaunched: false, stopProof: 'not-launched', exitCode: null,
+    });
+  });
+
+  describe('public enclave diagnostics CLI dispatcher', () => {
+    let root: string;
+    let exportRoot: string;
+    let candidates: Array<{
+      backend: string; sourceUid: number; journal: string; debug: string; trustedRoot: string;
+    }>;
+    let sourceRoots: string[];
+    const privilegedUid = process.getuid!();
+    const privilegedGid = process.getgid!();
+    const runnerUid = privilegedUid < 0xfffffffe ? privilegedUid + 1 : privilegedUid - 1;
+    const runnerGid = privilegedGid < 0xfffffffe ? privilegedGid + 1 : privilegedGid - 1;
+    const key = '123456789-1';
+    const runId = 'c'.repeat(32);
+    const invocationId = 'd'.repeat(24);
+
+    beforeEach(() => {
+      root = fs.mkdtempSync(path.join(os.tmpdir(), 'enclave-dispatcher-test-'));
+      exportRoot = path.join(root, 'export');
+      fs.mkdirSync(exportRoot, { mode: 0o711 });
+      sourceRoots = [0, 1].map(() => fs.mkdtempSync(path.join(os.tmpdir(), 'enclave-source-test-')));
+      candidates = sourceRoots.map((sourceRoot, index) => {
+        const journal = path.join(sourceRoot, 'journal');
+        const debug = path.join(sourceRoot, 'debug');
+        fs.mkdirSync(journal, { mode: 0o700 });
+        fs.mkdirSync(debug, { mode: 0o700 });
+        return {
+          backend: 'docker', sourceUid: index === 0 ? runnerUid : privilegedUid, journal, debug, trustedRoot: sourceRoot,
+        };
+      });
+
+      const actualLstatSync = mutableFs.lstatSync.bind(mutableFs);
+      jest.spyOn(mutableFs, 'lstatSync').mockImplementation(((target: fs.PathLike) => {
+        const stat = actualLstatSync(target);
+        const targetPath = path.resolve(target.toString());
+        const sourceIndex = sourceRoots.findIndex(sourceRoot => targetPath === sourceRoot
+          || targetPath.startsWith(`${sourceRoot}${path.sep}`));
+        if (sourceIndex === -1) return stat;
+        const ownedStat = Object.assign(Object.create(Object.getPrototypeOf(stat)), stat);
+        Object.defineProperty(ownedStat, 'uid', {
+          value: sourceIndex === 0 ? runnerUid : privilegedUid, configurable: true, enumerable: true,
+        });
+        return ownedStat;
+      }) as typeof fs.lstatSync);
+      const actualFstatSync = mutableFs.fstatSync.bind(mutableFs);
+      jest.spyOn(mutableFs, 'fstatSync').mockImplementation(((fd: number) => {
+        const stat = actualFstatSync(fd);
+        const targetPath = path.resolve(mutableFs.readlinkSync(`/proc/self/fd/${fd}`));
+        const sourceIndex = sourceRoots.findIndex(sourceRoot => targetPath === sourceRoot
+          || targetPath.startsWith(`${sourceRoot}${path.sep}`));
+        if (sourceIndex === -1) return stat;
+        const ownedStat = Object.assign(Object.create(Object.getPrototypeOf(stat)), stat);
+        Object.defineProperty(ownedStat, 'uid', {
+          value: sourceIndex === 0 ? runnerUid : privilegedUid, configurable: true, enumerable: true,
+        });
+        return ownedStat;
+      }) as typeof fs.fstatSync);
+      jest.spyOn(mutableFs, 'chownSync').mockImplementation(() => undefined);
+    });
+
+    afterEach(() => {
+      jest.restoreAllMocks();
+      fs.rmSync(root, { recursive: true, force: true });
+      for (const sourceRoot of sourceRoots) fs.rmSync(sourceRoot, { recursive: true, force: true });
+    });
+
+    const options = () => ({
+      privilegedUid, exportRoot, exportTrustedRoot: root, candidatesForBackend: () => candidates,
+    });
+    const args = (operation: string, uid = runnerUid, backend = 'docker') =>
+      [operation, backend, key, String(uid), String(runnerGid)];
+
+    function active(candidate: typeof candidates[number]) {
+      const invocationRoot = path.join(candidate.debug, runId, invocationId);
+      fs.mkdirSync(invocationRoot, { recursive: true, mode: 0o700 });
+      fs.writeFileSync(path.join(candidate.journal, `${runId}.journal`), [
+        JSON.stringify({ version: 1, runId, state: 'open' }),
+        JSON.stringify({ runId, invocationId, entryId: 'script', state: 'terminal', outcome: 'success' }),
+      ].join('\n') + '\n', { mode: 0o600 });
+      fs.writeFileSync(path.join(invocationRoot, 'diagnostics.json'), JSON.stringify({
+        version: 1, runId, invocationId, entryId: 'script', runtime: 'docker', executorKind: 'script',
+        stage: 'complete', failure: 'none', exitCode: 0, workloadStopped: true, workloadLaunched: true,
+        stopProof: 'verified', stages: [],
+        streams: { stdout: 'unavailable', stderr: 'unavailable', session: 'not-applicable' },
+        streamCoverage: {
+          stdout: { artifactSource: 'unavailable', agentSession: 'unavailable' },
+          stderr: { artifactSource: 'unavailable', agentSession: 'unavailable' },
+          copilotDiagnostics: 'unavailable',
+        },
+        session: { status: 'not-applicable' },
+        backendEvidence: {
+          dockerInspect: { status: 'captured', running: false, exitCode: 0, oomKilled: false },
+          vmCounters: { status: 'not-applicable' }, network: { status: 'unavailable' },
+        },
+      }) + '\n', { mode: 0o600 });
+    }
+
+    it.each([0, 1])('dispatches and validates the Docker storage layout %i with separate identities', layout => {
+      expect(runnerUid).not.toBe(privilegedUid);
+      expect(collector.main(args('prepare'), options())).toBe(0);
+      active(candidates[layout]);
+      expect(collector.main(args('collect'), options())).toBe(0);
+
+      const runDirectory = path.join(exportRoot, key);
+      const upload = path.join(runDirectory, 'upload');
+      expect(fs.readdirSync(upload).sort()).toEqual(['collection-status.txt', 'diagnostics.json']);
+      expect(fs.statSync(runDirectory).uid).toBe(privilegedUid);
+      expect(fs.statSync(upload).mode & 0o7777).toBe(0o700);
+      expect(fs.statSync(path.join(upload, 'diagnostics.json')).mode & 0o7777).toBe(0o600);
+      expect((mutableFs.chownSync as unknown as jest.Mock).mock.calls)
+        .toContainEqual([path.join(runDirectory, 'pending', 'diagnostics.json'), runnerUid, runnerGid]);
+    });
+
+    it.each([
+      { backend: 'cloud-hypervisor', uid: runnerUid },
+      { backend: 'docker', uid: runnerUid + 1 },
+    ])('rejects a collect invocation with mismatched prepared binding %j', binding => {
+      expect(collector.main(args('prepare'), options())).toBe(0);
+      active(candidates[0]);
+      expect(() => collector.main(args('collect', binding.uid, binding.backend), options())).toThrow(/prepared-scope/);
+      expect(fs.existsSync(path.join(exportRoot, key, 'upload'))).toBe(false);
+    });
+
+    it('rejects simultaneous activity in both Docker layouts without exporting either source', () => {
+      expect(collector.main(args('prepare'), options())).toBe(0);
+      for (const candidate of candidates) active(candidate);
+      expect(collector.main(args('collect'), options())).toBe(1);
+      const upload = path.join(exportRoot, key, 'upload');
+      expect(fs.readdirSync(upload)).toEqual(['collection-status.txt']);
+      expect(fs.readFileSync(path.join(upload, 'collection-status.txt'), 'utf8'))
+        .toContain('failedCheck=run-budget category=concurrent-runs');
     });
   });
 
@@ -868,6 +1035,24 @@ describe('standalone public enclave diagnostics collector', () => {
       event: 'engine-diagnostics', log: { raw: 'Authorization: [REDACTED]\nretained engine detail\n' },
       approvedRetainedField: '[REDACTED]',
     });
+  });
+
+  it('recursively redacts JSON strings inside retained session fields', () => {
+    const embedded = JSON.stringify({
+      message: 'Authorization: [REDACTED]\npublic diagnostic detail',
+      nested: JSON.stringify({ authorization: 'PRIVATE_TOKEN', detail: 'keep this detail' }),
+    });
+    const bytes = Buffer.from(JSON.stringify({ event: 'engine-diagnostics', log: { raw: embedded } }) + '\n');
+    const redacted = collector.redactCredentials(bytes).toString('utf8');
+    const result = JSON.parse(redacted);
+    const raw = JSON.parse(result.log.raw);
+    expect(raw.message).toBe('Authorization: [REDACTED]\npublic diagnostic detail');
+    expect(JSON.parse(raw.nested)).toEqual({ authorization: '[REDACTED]', detail: 'keep this detail' });
+    expect(redacted).not.toContain('PRIVATE_TOKEN');
+    let deeplyNested: unknown = 'Authorization: PRIVATE_TOKEN';
+    for (let index = 0; index < 70; index++) deeplyNested = { nested: deeplyNested };
+    expect(() => collector.redactCredentials(Buffer.from(JSON.stringify({ raw: JSON.stringify(deeplyNested) }) + '\n')))
+      .toThrow(/credential-redaction-bound/);
   });
 
   it('retains Cloud Hypervisor supplemental and closed proxy evidence only after eligibility validation', async () => {

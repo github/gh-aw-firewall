@@ -873,7 +873,7 @@ pathlib.Path("/query/out").write_text(json.dumps(result), encoding="utf-8")`);
   it('enables debugging on the real AWF command and collects only after the agent, including failure', () => {
     const compiled = yaml.load(lock) as {
       jobs: Record<string, {
-        steps: Array<{ name: string; id?: string; if?: string; run?: string;
+        steps: Array<{ name: string; id?: string; if?: string; run?: string; 'continue-on-error'?: boolean;
           env?: Record<string, string>; uses?: string; with?: Record<string, unknown> }>;
       }>;
     };
@@ -897,12 +897,13 @@ pathlib.Path("/query/out").write_text(json.dumps(result), encoding="utf-8")`);
     expect(steps[collect].run).toContain(
       'sudo node /var/lib/awf-enclave-smoke-export/collector.cjs collect cloud-hypervisor "$DEBUG_RUN_KEY" "$(id -u)" "$(id -g)"'
     );
-    expect(steps[upload].if).toBe("always() && steps.collect-enclave-debug.outcome == 'success'");
+    expect(steps[upload].if).toBe('always()');
     expect(steps[upload].with?.['retention-days']).toBe(1);
     expect(steps[upload].with?.path).toBe(
       '/var/lib/awf-enclave-smoke-export/${{ github.run_id }}-${{ github.run_attempt }}/upload/'
     );
-    expect(steps[upload].with?.['if-no-files-found']).toBe('error');
+    expect(steps[upload].with?.['if-no-files-found']).toBe('ignore');
+    expect(steps[upload]['continue-on-error']).toBeUndefined();
     expect(source).toContain('intentionally disclosed to Actions artifact readers');
     expect(source.split('---').slice(2).join('---')).not.toContain('/var/lib/');
     expect(() => applyGeneralWorkflowPatches(
