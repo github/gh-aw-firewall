@@ -21,6 +21,7 @@ const { parseScopedAutoRequest, rewriteScopedAutoRequest, pickerError } = requir
 const { parseBodyAsObject } = require('./body-utils');
 const { resolveModelSelector } = require('./model-selector');
 const { captureRuntimePricing } = require('./runtime-model-catalog');
+const { pinRequestEligibility, isModelEligible, isModelHarnessEligible } = require('./model-eligibility');
 
 const MODEL_ALIASES_RAW = (process.env.AWF_MODEL_ALIASES || '').trim() || undefined;
 const MODEL_ALIASES = parseModelAliases(MODEL_ALIASES_RAW);
@@ -129,11 +130,21 @@ function makeModelBodyTransform(
       : cachedModels
   );
   return async (body, req) => {
+    const eligibilityRequest = req || {};
+    pinRequestEligibility(eligibilityRequest);
+    const requestedModel = parseBodyAsObject(body)?.model;
+    // Keep an explicit incompatible model intact so the normal guard order
+    // reports it; alias or family fallback must not silently replace it.
+    if (typeof requestedModel === 'string' && !isModelHarnessEligible(requestedModel, provider, eligibilityRequest)) return null;
+    const eligibleIds = route => resolvableModels()[route]?.filter(id =>
+      isModelEligible(id, route, eligibilityRequest, { inputMode: 'native' }));
+    const eligibleRecords = route => (getRuntimeModels(route) || []).filter(record =>
+      isModelEligible(record.id, route, eligibilityRequest, { inputMode: 'native' }));
     let result = null;
     const scopedAuto = parseScopedAutoRequest(body, req, provider);
     if (scopedAuto) {
       const resolveScopedAuto = () => rewriteScopedAutoRequest(
-        scopedAuto, provider, resolvableModels()[provider], getRuntimeModels(provider), MODEL_POLICY_CONFIG,
+        scopedAuto, provider, eligibleIds(provider), eligibleRecords(provider), MODEL_POLICY_CONFIG,
       );
       result = resolveScopedAuto();
       if (!result) {
@@ -156,8 +167,8 @@ function makeModelBodyTransform(
     ) {
       const getAutoResolution = () => rewriteCopilotAutoResponsesModelInBody(
         body,
-        cachedModels.copilot,
-        getRuntimeModels('copilot'),
+        eligibleIds('copilot'),
+        eligibleRecords('copilot'),
         MODEL_POLICY_CONFIG,
       );
       result = getAutoResolution();
@@ -177,7 +188,7 @@ function makeModelBodyTransform(
       const parsed = parseBodyAsObject(body);
       const selectModel = () => resolveModelSelector(
         parsed?.model, provider, resolvableModels()[provider], getRuntimeModels(provider),
-        MODEL_ALIASES?.models, MODEL_POLICY_CONFIG,
+        MODEL_ALIASES?.models, MODEL_POLICY_CONFIG, eligibilityRequest,
       );
       let selectedModel;
       try {
@@ -210,10 +221,10 @@ function makeModelBodyTransform(
       }
     }
     if (!result && MODEL_ALIASES) {
-      result = rewriteModelInBody(body, provider, MODEL_ALIASES.models, resolvableModels(), providerModelFallback, MODEL_POLICY_CONFIG);
+      result = rewriteModelInBody(body, provider, MODEL_ALIASES.models, resolvableModels(), providerModelFallback, MODEL_POLICY_CONFIG, eligibilityRequest);
       if (!result || (result.fallback && result.fallback.activated)) {
         await refreshProviderModelsForResolution(provider);
-        result = rewriteModelInBody(body, provider, MODEL_ALIASES.models, resolvableModels(), providerModelFallback, MODEL_POLICY_CONFIG);
+        result = rewriteModelInBody(body, provider, MODEL_ALIASES.models, resolvableModels(), providerModelFallback, MODEL_POLICY_CONFIG, eligibilityRequest);
       }
     }
     if (req && result?.aliasKeys?.some(aliasKey => {
@@ -233,6 +244,11 @@ function makeModelBodyTransform(
       }
     }
     if (!result) return null;
+    if (req && result.eligibilityDecision) {
+      req.awfSelectedModelEligibility = Object.freeze({
+        model: result.resolvedModel, provider, decision: result.eligibilityDecision,
+      });
+    }
     // Store ranked candidates on the request object so endpoint-blocked retry
     // logic can fall back to the next candidate without re-resolving.
     if (req && Array.isArray(result.candidates)) {

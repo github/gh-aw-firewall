@@ -1,5 +1,5 @@
 const { EventEmitter } = require('events');
-const { enforceWebSocketRateLimit } = require('./websocket-guards');
+const { enforceWebSocketRateLimit, enforceWebSocketGuards } = require('./websocket-guards');
 
 function makeSocket() {
   const socket = new EventEmitter();
@@ -9,6 +9,20 @@ function makeSocket() {
 }
 
 describe('websocket-guards', () => {
+  it.each(['?effort=high', '/opaque'])('does not reject opaque handshake model %s as harness-incompatible', requestModel => {
+    const socket = makeSocket();
+    const deps = Object.fromEntries([
+      'getMaxRunsBlockState', 'getMaxCacheMissesBlockState', 'getPermissionDeniedBlockState',
+      'getAiCreditsBlockState', 'getModelMultiplierCapBlockState', 'getRetiredModelBlockState',
+      'getModelPolicyBlockState', 'checkModelPricing',
+    ].map(name => [name, () => null]));
+    expect(enforceWebSocketGuards({
+      socket, logRequest: jest.fn(), requestId: 'opaque-handshake', provider: 'openai', requestModel,
+    }, deps)).toBe(false);
+    expect(socket.write).not.toHaveBeenCalled();
+    expect(socket.destroy).not.toHaveBeenCalled();
+  });
+
   it('blocks and returns 429 when rate limit is exceeded', () => {
     const limiter = { check: jest.fn(() => ({ allowed: false, limitType: 'requests', limit: 10, retryAfter: 5 })) };
     const metrics = { increment: jest.fn() };

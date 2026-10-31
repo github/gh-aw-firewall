@@ -119,6 +119,8 @@ function createProductionRoutingController({
   observer = createRoutingObserver(),
   clock,
   random,
+  eligibilityStore,
+  eligibilityScope,
 } = {}) {
   const config = parseRoutingConfig(rawConfig);
   if (config === null) return null;
@@ -151,6 +153,8 @@ function createProductionRoutingController({
     executor,
     observer,
     routerIdentity: Object.freeze({ name: 'gh-aw-router' }),
+    ...(eligibilityStore ? { eligibilityStore } : {}),
+    ...(eligibilityScope ? { eligibilityScope } : {}),
     ...(clock ? { clock } : {}),
     ...(random ? { random } : {}),
   });

@@ -13,6 +13,8 @@ const metrics = require('./metrics');
 const { logRequest, sanitizeForLog } = require('./logging');
 const { writeBlockedRequestDiag } = require('./blocked-request-diagnostics');
 const { buildCommonGuardChecks } = require('./guards/common-guard-checks');
+const { evaluateModelEligibility, buildEligibilityError, getAliasEligibilityRejection } = require('./model-eligibility');
+const { getRequestModel } = require('./model-fallback-chain');
 const {
   getMaxRunsBlockState,
   buildMaxRunsExceededError,
@@ -196,6 +198,31 @@ function enforceGuards({ body, provider, req, res, requestId, startTime, span, i
     return true;
   }
 
+  const eligibilityModel = checkModelMultiplier
+    ? getRequestModel(null, req.url) || getRequestModel(body, req.url)
+    : null;
+  const aliasRejection = eligibilityModel?.location === 'body'
+    ? getAliasEligibilityRejection(eligibilityModel.model, provider, req)
+    : !eligibilityModel ? getAliasEligibilityRejection('', provider, req) : null;
+  if (eligibilityModel || aliasRejection) {
+    const selected = req.awfSelectedModelEligibility;
+    const decision = aliasRejection || (eligibilityModel.location === 'body' && selected?.provider === provider && selected.model === eligibilityModel.model
+      ? selected.decision
+      : evaluateModelEligibility(eligibilityModel.model, provider, req,
+        eligibilityModel.location === 'path' ? { inputMode: 'native' } : undefined));
+    const harnessBlocked = ['incompatible', 'unverified'].includes(decision.harness);
+    // Existing guards retain lifecycle/policy/pricing behavior. Opaque IDs
+    // without an identifiable harness constraint remain provider-owned.
+    if (!decision.admitted && harnessBlocked) {
+      sendGuardBlockedResponse(decision, {
+        req, res, provider, requestId, startTime, span, body, inboundBytes,
+        statusCode: 400, eventName: 'model_harness_incompatible',
+        buildError: buildEligibilityError,
+        buildLogFields: block => ({ model: block.identity?.key, harness: block.harness }),
+      });
+      return true;
+    }
+  }
   return false;
 }
 

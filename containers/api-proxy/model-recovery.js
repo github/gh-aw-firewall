@@ -11,6 +11,10 @@ const { compareByVersion } = require('./model-utils');
 const { sanitizeForLog } = require('./logging');
 const { MODEL_FALLBACK } = require('./model-config');
 const { isModelPriceable } = require('./guards/ai-credits-guard');
+const {
+  evaluateModelEligibility, isModelEligible, isModelHarnessEligible, getAliasEligibilityRejection,
+  getModelEligibilityScope,
+} = require('./model-eligibility');
 
 const MAX_AUTOMATIC_RECOVERIES = 3;
 
@@ -36,13 +40,22 @@ function nativeModel(model, provider) {
 function getModelUnavailability(model, provider, req) {
   if (!model || !isAutomaticRecoveryEnabled(provider, req)) return null;
   const retired = getRetiredModelBlockState(model, provider);
-  if (retired) return { reason: 'retired_model', suggestion: retired.suggestion };
   // Absence from a custom provider catalogue does not prove a deployment is
   // unavailable. Those backends recover only after an upstream model error.
   const records = recoveryRecords(provider, req);
-  if (provider === 'copilot' && req?.awfModelCatalogAuthoritative && records.length > 0 &&
+  const unavailable = provider === 'copilot' && req?.awfModelCatalogAuthoritative && records.length > 0 &&
       nativeModel(model, provider).toLowerCase() !== 'auto' &&
-      !records.some(record => record.id.toLowerCase() === nativeModel(model, provider).toLowerCase())) {
+      !records.some(record => record.id.toLowerCase() === nativeModel(model, provider).toLowerCase());
+  const decision = evaluateModelEligibility(model, provider, req, {
+    evidence: { discovery: {
+      status: unavailable ? 'unavailable' : 'unknown', authoritative: unavailable === true,
+      scope: getModelEligibilityScope(provider, req),
+    } },
+  });
+  if (decision.reasons.some(reason => reason.code === 'lifecycle_retired')) {
+    return { reason: 'retired_model', suggestion: retired.suggestion };
+  }
+  if (decision.reasons.some(reason => reason.code === 'discovery_unavailable')) {
     return { reason: 'model_unavailable' };
   }
   return null;
@@ -149,6 +162,7 @@ function getAutomaticRecoveryCandidates({ model, provider, body, url, req, isPer
   };
   const enforceCreditPricing = parsePositiveNumber(process.env.AWF_MAX_AI_CREDITS) !== null;
   const permitted = (candidate, route) =>
+    isModelEligible(candidate, route, req, { inputMode: 'native' }) &&
     (!enforceCreditPricing || isModelPriceable(candidate, route, pricingOptions)) &&
     (isPermitted
       ? isPermitted(candidate, route)
@@ -182,6 +196,8 @@ function recordModelRecovery({ req, provider, requestedModel, fromModel, toModel
 function recoverRequestModel(body, provider, req, requestId, logRequest) {
   const parsed = parseBodyAsObject(body);
   if (typeof parsed?.model !== 'string') return null;
+  if (getAliasEligibilityRejection(parsed.model, provider, req)) return null;
+  if (!isModelHarnessEligible(parsed.model, provider, req)) return null;
   const state = getModelUnavailability(parsed.model, provider, req);
   if (!state) return null;
   if (getCurrentGuardChecks(null, provider).some(guard => guard.isBlocked(guard.block))) return null;

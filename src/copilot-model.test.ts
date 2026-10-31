@@ -1,6 +1,50 @@
 import { validateCopilotModel } from './copilot-model';
+import { createEligibilityStore } from '../shared/model-information/eligibility';
+import { identity } from '../shared/model-information/identity';
 
 describe('validateCopilotModel', () => {
+  const cliScope = { provider: 'copilot', channel: 'copilot-cli' };
+  const harness = {
+    scope: cliScope, name: 'copilot', scheme: 'semver' as const, minimum: '2.0.0',
+    reason: 'Explicit test requirement', provenance: { authority: 'maintained', source: 'fixture' },
+  };
+  it('uses explicit actual CLI evidence without treating the host as the sandbox', () => {
+    const evidence = {
+      harnesses: [harness], executionEnvironment: 'container:run',
+      observations: [{
+        scope: cliScope, name: 'copilot', version: '2.0.0',
+        environment: 'container:run', verified: true, actual: true,
+      }],
+    };
+    expect(validateCopilotModel('GPT_5_3_CODEX', evidence))
+      .toEqual({ valid: true, resolvedModel: 'gpt-5.3-codex' });
+    expect(validateCopilotModel('gpt-5.3-codex', {
+      ...evidence, observations: [{ ...evidence.observations[0], environment: 'host' }],
+    })).toMatchObject({ valid: false, reason: 'unsupported', message: expect.stringContaining('harness_unverified') });
+    expect(validateCopilotModel('gpt-5.3-codex', {
+      ...evidence, observations: [{ ...evidence.observations[0], version: '1.9.9' }],
+    })).toMatchObject({
+      valid: false, reason: 'unsupported',
+      message: expect.stringContaining('required semver >=2.0.0; excluded=[]; detected=1.9.9; Explicit test requirement'),
+    });
+    const failure = validateCopilotModel('gpt-5.3-codex', { ...evidence, observations: [] });
+    expect(failure).toMatchObject({
+      valid: false,
+      message: expect.stringContaining('scope={"provider":"copilot","channel":"copilot-cli"}; environment=container:run'),
+    });
+  });
+
+  it('keeps API harness requirements out of the CLI and accepts an explicit pinned snapshot', () => {
+    expect(validateCopilotModel('gpt-5.3-codex', {
+      harnesses: [{ ...harness, scope: { ...cliScope, channel: 'copilot-api' } }],
+    })).toEqual({ valid: true, resolvedModel: 'gpt-5.3-codex' });
+    const snapshot = createEligibilityStore({
+      models: [{ identity: identity('copilot', 'gpt-5.3-codex'), harnesses: [harness] }],
+    }).pin();
+    expect(validateCopilotModel('gpt-5.3-codex', { snapshot }))
+      .toMatchObject({ valid: false, reason: 'unsupported' });
+  });
+
   it('rejects retired aliases with a clear suggestion', () => {
     const result = validateCopilotModel('gpt-5-codex');
     expect(result.valid).toBe(false);

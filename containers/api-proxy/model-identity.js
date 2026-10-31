@@ -12,12 +12,12 @@ function resolveModelIdentity(model, provider, options = {}) {
 }
 
 // Callers supply provider-native names; discovery owns availability and wire spelling.
-function findAvailableModel(model, provider, availableModels = []) {
+function findAvailableModel(model, provider, availableModels = [], resolutionOptions = {}) {
   const base = model.split('?')[0];
   const literal = availableModels.find(id => id.toLowerCase() ===
     base.toLowerCase());
   if (literal) return literal;
-  const options = { policy: { providerPrefix: false } };
+  const options = { ...resolutionOptions, policy: { ...resolutionOptions.policy, providerPrefix: false } };
   const requested = resolveModelIdentity(model, provider, options);
   const direct = availableModels.find(id => id.toLowerCase() ===
     requested.wireId.toLowerCase());

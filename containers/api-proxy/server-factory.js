@@ -1,6 +1,7 @@
 'use strict';
 
 const http = require('http');
+const { pinRequestEligibility } = require('./model-eligibility');
 const { composeBodyTransforms } = require('./proxy-utils');
 const { logRequest } = require('./logging');
 const { CALLER_HEADER, callerHeaderRejection, parseCallerHeader } = require('./caller-header');
@@ -174,6 +175,7 @@ function createProviderServer(adapter, deps) {
   const handleUpgrade = createWebSocketUpgradeHandler(adapter, proxyWebSocket, { modelBudgetEnabled });
 
   const server = http.createServer(async (req, res) => {
+    pinRequestEligibility(req);
     if (adapter.isManagementPort && handleManagementEndpoint(req, res)) return;
 
     if (req.url === '/health' && req.method === 'GET') {
@@ -219,6 +221,7 @@ function createProviderServer(adapter, deps) {
   });
 
   server.on('upgrade', async (req, socket, head) => {
+    pinRequestEligibility(req);
     if (catalogueReady) await catalogueReady;
     if (socket.destroyed) return;
     attachCaller(req, adapter);

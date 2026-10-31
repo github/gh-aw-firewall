@@ -372,12 +372,19 @@ function compile() {
       JSON.stringify(sorted(a)) < JSON.stringify(sorted(b)) ? -1 :
         JSON.stringify(sorted(a)) > JSON.stringify(sorted(b)) ? 1 : 0),
   });
+  const eligibility = json({
+    models: sortedModels.filter(model => model.harnesses && model.harnesses.length).map(model => ({
+      identity: model.identity, harnesses: model.harnesses,
+    })),
+  });
   const output = {
     [importedFile]: json(imported),
     'shared/model-information/naming.generated.json': naming,
     'containers/api-proxy/model-information.naming.generated.json': naming,
     'src/model-information.naming.generated.json': naming,
     'src/model-information.compat.generated.json': json({ supported: ['auto', ...supported], retired, suggestionOrder }),
+    'src/model-information.eligibility.generated.json': eligibility,
+    'containers/api-proxy/model-information.eligibility.generated.json': eligibility,
     'containers/api-proxy/model-information.pricing.generated.json': json(pricing),
     'containers/api-proxy/model-information.retired.generated.json': json(retired),
     'containers/api-proxy/ai-credits-pricing-reference.json': json({
@@ -411,12 +418,13 @@ function compile() {
   };
   errors.push(...validate('resolvedExport', JSON.parse(output['shared/model-information/catalog.generated.json'])));
   errors.push(...validate('resolvedExport', JSON.parse(output['shared/model-information/target.generated.json'])));
-  for (const file of ['contracts.js', 'contracts.d.ts', 'identity.js', 'identity.d.ts', 'resolution.js', 'resolution.d.ts', 'schema.v1.json',
+  for (const file of ['contracts.js', 'contracts.d.ts', 'identity.js', 'identity.d.ts', 'resolution.js', 'resolution.d.ts',
+    'eligibility.js', 'eligibility.d.ts', 'schema.v1.json',
     'publication.v1.schema.json', 'publication-contract.cjs', 'publication.cjs']) {
     output[`containers/api-proxy/catalogue-contract/${file}`] =
       fs.readFileSync(path.join(root, 'shared/model-information', file), 'utf8');
   }
-  for (const file of ['identity.js', 'identity.d.ts', 'resolution.js', 'resolution.d.ts']) {
+  for (const file of ['identity.js', 'identity.d.ts', 'resolution.js', 'resolution.d.ts', 'eligibility.js', 'eligibility.d.ts']) {
     output[`src/model-information-contract/${file}`] =
       fs.readFileSync(path.join(root, 'shared/model-information', file), 'utf8');
   }
