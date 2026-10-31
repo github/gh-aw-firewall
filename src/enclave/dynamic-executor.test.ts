@@ -698,7 +698,10 @@ module.AGENT_DIR = root / "agent"
 module.GITHUB_BEARER_PATH = root / "bearer"
 module.GITHUB_MCP_CONFIG_PATH = module.AGENT_DIR / "github-mcp.json"
 module.configure_github_mcp()
-print(module.GITHUB_MCP_CONFIG_PATH.read_text())
+print(json.dumps({
+    "config": json.loads(module.GITHUB_MCP_CONFIG_PATH.read_text()),
+    "authorization": os.environ.get("AWF_GITHUB_MCP_AUTHORIZATION"),
+}))
 `,
         {
           HARNESS_ROOT: stage,
@@ -708,13 +711,16 @@ print(module.GITHUB_MCP_CONFIG_PATH.read_text())
         },
       );
       expect(result.status).toBe(0);
-      const config = JSON.parse(result.stdout);
+      const { config, authorization } = JSON.parse(result.stdout);
       expect(config.mcpServers.github).toEqual({
         type: 'http',
         url: 'http://172.31.0.40:8080/mcp/github',
-        headers: { Authorization: 'dlgbearer_abcdef0123456789' },
+        headers: { Authorization: '${AWF_GITHUB_MCP_AUTHORIZATION}' },
         tools: ['list_issues', 'issue_read'],
       });
+      expect(authorization).toBe('dlgbearer_abcdef0123456789');
+      expect(fs.readFileSync(path.join(stage, 'agent', 'github-mcp.json'), 'utf8'))
+        .not.toContain('dlgbearer_abcdef0123456789');
       expect(fs.statSync(path.join(stage, 'agent', 'github-mcp.json')).mode & 0o777).toBe(0o600);
     } finally {
       cleanup();

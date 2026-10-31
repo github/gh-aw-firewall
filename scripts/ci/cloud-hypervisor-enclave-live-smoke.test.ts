@@ -1076,7 +1076,7 @@ describe('Cloud Hypervisor enclave live acceptance harness', () => {
     expect(source).toContain("writeAwfConfig(workDir, awfConfigPath, profile)");
     expect(source).toContain("waitForHostGatewayReadiness(awf, Date.now() + 150_000, diagnostics)");
     expect(source).toContain("assertExpectedToolResult(response, requestId + 2, scriptProbe.expected, 'script-only profile')");
-    expect(source).toContain("assertExpectedToolResult(response, requestId + 2, agentResultValue, 'agent-only profile')");
+    expect(source).toContain("scopedGithubProbe?.expected || agentResultValue, 'agent-only profile'");
   });
 
   it('requires the package-matched release assets, never development artifacts', () => {
@@ -2129,7 +2129,7 @@ describe('single-executor profile acceptance diagnostics', () => {
     expect(block.indexOf("'tools-validation'")).toBeGreaterThan(block.indexOf("'tools-list'"));
     expect(block.indexOf("'result-validation'")).toBeGreaterThan(block.indexOf("'request'"));
     expect(block.indexOf("'output-redaction'")).toBeGreaterThan(block.indexOf("'cleanup'"));
-    expect(block).toContain('() => captureContainerLogs(profile)');
+    expect(block).toContain('() => captureLiveContainerLogs(profile)');
     expect(block.indexOf("'output-redaction'")).toBeGreaterThan(block.indexOf("'container-logs'"));
     expect(block).toContain('[profileStdout, profileStderr, ...profileContainerLogs]');
   });

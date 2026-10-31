@@ -168,8 +168,8 @@ describe('Cloud Hypervisor Copilot agent enclave smoke', () => {
     } finally {
       process.env = original;
     }
-    expect(() => normalizeEnclavesConfig(entries, { primaryRuntime: 'docker' }))
-      .toThrow(/differs from primary backend/);
+    const dockerPrimaryEnclaves = normalizeEnclavesConfig(entries, { primaryRuntime: 'docker' });
+    expect(dockerPrimaryEnclaves?.executors.agent.runtime).toBe('cloud-hypervisor');
     expect(source).toContain('eight-request and');
     expect(source).toContain('131,072-token invocation budgets');
   });
