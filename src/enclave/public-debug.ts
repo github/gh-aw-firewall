@@ -2,6 +2,7 @@ import * as path from 'path';
 import type { WrapperConfig } from '../types';
 import { PRIVATE_REPOSITORY_PATTERN } from '../bounded-execution';
 import { HOST_EXECUTOR_DEFAULT_JOURNAL_DIRECTORY } from './host-executor-journal';
+import { dockerHelperHostStateRoot, hasDockerHostMountCapability } from './docker-storage-helper';
 
 export const ENCLAVE_DEBUG_ARTIFACT_ROOT = path.join(
   path.dirname(HOST_EXECUTOR_DEFAULT_JOURNAL_DIRECTORY), 'debug-artifacts', 'cloud-hypervisor',
@@ -9,33 +10,62 @@ export const ENCLAVE_DEBUG_ARTIFACT_ROOT = path.join(
 export const ENCLAVE_DEBUG_ARTIFACT_PROTECTED_ROOT =
   path.dirname(path.dirname(ENCLAVE_DEBUG_ARTIFACT_ROOT));
 
+export function resolveDockerPublicEnclaveDebugPaths(): { protectedRoot: string; root: string } {
+  const protectedRoot = hasDockerHostMountCapability()
+    ? ENCLAVE_DEBUG_ARTIFACT_PROTECTED_ROOT : dockerHelperHostStateRoot();
+  return { protectedRoot, root: path.join(protectedRoot, 'debug-artifacts', 'docker') };
+}
+
+export function publicEnclaveDebugEnabled(config: WrapperConfig): boolean {
+  return (config.enclaveDebugPublic ?? config.cloudHypervisor?.enclaveDebugPublic) === true;
+}
+
 export function validatePublicEnclaveDebug(config: WrapperConfig): string[] {
-  if (!config.cloudHypervisor?.enclaveDebugPublic) return [];
+  if (!publicEnclaveDebugEnabled(config)) return [];
   const enclaves = config.enclaves;
+  const entries = Object.values(enclaves?.executors ?? {}).filter((entry) => entry.enabled);
+  const runtime = entries[0]?.runtime;
+  const cloudHypervisor = runtime === 'cloud-hypervisor';
   if (
-    !config.cloudHypervisor.previewEnabled
-    || config.cloudHypervisor.developmentAllowUnattestedArtifacts
-    || config.cloudHypervisor.sha256 !== undefined
+    (cloudHypervisor && (!config.cloudHypervisor?.previewEnabled
+      || config.cloudHypervisor.developmentAllowUnattestedArtifacts
+      || config.cloudHypervisor.sha256 !== undefined))
+    || (!cloudHypervisor && (runtime !== 'docker'
+      || (config.enclaveDebugPublic === undefined && config.cloudHypervisor?.enclaveDebugPublic === true)))
     || !enclaves?.enabled
     || enclaves.executors.agent.dynamic !== undefined
     || enclaves.privateRepos.length === 0
     || enclaves.privateRepos.some(({ repo, sensitivity }) =>
       sensitivity !== 'public' || !PRIVATE_REPOSITORY_PATTERN.test(repo))
-    || !Object.values(enclaves.executors).some((entry) => entry.enabled)
-    || Object.values(enclaves.executors).some((entry) =>
-      entry.enabled && (entry.runtime !== 'cloud-hypervisor' || entry.image !== undefined))
+    || entries.length === 0
+    || entries.some((entry) => entry.runtime !== runtime || entry.image !== undefined)
+    || (!cloudHypervisor && config.imageRegistry !== undefined
+      && config.imageRegistry !== 'ghcr.io/github/gh-aw-firewall')
+    || (!cloudHypervisor && (config.images?.enclaveScript !== undefined
+      || config.images?.enclaveAgent !== undefined))
   ) {
-    return ['Cloud Hypervisor enclave debug requires attested, static public-only fixtures and Cloud Hypervisor executors; dynamic, private, custom-image and development scopes are unsupported'];
+    return ['Public enclave debug requires static public-only fixtures and homogeneous default Docker or attested Cloud Hypervisor executors; dynamic, private, mixed, custom-image and development scopes are unsupported'];
   }
   return [];
 }
 
 /** Default to retention only for the same scopes admitted by the explicit public-debug gate. */
 export function resolvePublicEnclaveDebugConfig(config: WrapperConfig): WrapperConfig {
-  if (!config.cloudHypervisor || config.cloudHypervisor.enclaveDebugPublic !== undefined) return config;
+  const cloudHypervisor = Object.values(config.enclaves?.executors ?? {})
+    .some((entry) => entry.enabled && entry.runtime === 'cloud-hypervisor');
+  const explicit = config.enclaveDebugPublic
+    ?? (cloudHypervisor ? config.cloudHypervisor?.enclaveDebugPublic : undefined);
+  if (!cloudHypervisor && config.enclaveDebugPublic === undefined
+    && config.cloudHypervisor?.enclaveDebugPublic === true) return config;
+  if (explicit !== undefined) {
+    return cloudHypervisor && config.enclaveDebugPublic !== undefined && config.cloudHypervisor
+      ? { ...config, cloudHypervisor: { ...config.cloudHypervisor, enclaveDebugPublic: explicit } }
+      : config;
+  }
   const candidate: WrapperConfig = {
     ...config,
-    cloudHypervisor: { ...config.cloudHypervisor, enclaveDebugPublic: true },
+    enclaveDebugPublic: true,
+    ...(cloudHypervisor ? { cloudHypervisor: { ...config.cloudHypervisor!, enclaveDebugPublic: true } } : {}),
   };
   return validatePublicEnclaveDebug(candidate).length === 0 ? candidate : config;
 }
@@ -71,7 +101,7 @@ export async function verifyPublicEnclaveDebugRepositories(
   config: WrapperConfig,
   request: typeof fetch = fetch,
 ): Promise<void> {
-  if (!config.cloudHypervisor?.enclaveDebugPublic) return;
+  if (!publicEnclaveDebugEnabled(config)) return;
   const errors = validatePublicEnclaveDebug(config);
   if (errors.length) throw new Error(errors.join('; '));
   for (const { repo } of config.enclaves!.privateRepos) {

@@ -91,6 +91,7 @@ export interface CloudHypervisorManagerDependencies {
   enclaveDebugArtifactDirectory?: string;
   /** Root-owned parent that protects retained enclave debug artifacts. */
   enclaveDebugArtifactProtectedRoot?: string;
+  enclaveDebugSecrets?: readonly string[];
   createRunPaths?: typeof createCloudHypervisorRunPaths;
   preflight: typeof runCloudHypervisorPreflight;
   launch(

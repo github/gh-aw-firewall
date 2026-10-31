@@ -71,6 +71,11 @@ export class HostExecutorResourceJournal {
     persist(this.file, this.record);
   }
 
+  async publicDebugRetention(pending: boolean): Promise<void> {
+    this.record.publicDebugRetentionPending = pending;
+    persist(this.file, this.record);
+  }
+
   async captureMount(): Promise<void> {
     const mount = (await readMounts(this.dependencies.readFile)).find(
       (candidate) => candidate.mountPoint === this.record.directory,
@@ -262,6 +267,9 @@ export async function reapHostExecutorResources(
     if (record.state === 'cleaned') continue;
     if (record.bootId === bootId && await processMatches(dependencies, record.owner) &&
       !(await runWasClosed(directory, record.runId, dependencies))) continue;
+    if (record.publicDebugRetentionPending) {
+      throw new Error('Public enclave diagnostic retention requires trusted recovery; invocation sources are preserved');
+    }
     const release = await claimRecord(dependencies, file);
     if (!release) continue;
     try {

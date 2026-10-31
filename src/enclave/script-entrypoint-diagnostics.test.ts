@@ -1,5 +1,6 @@
 import { spawnSync } from 'child_process';
 import * as path from 'path';
+import * as fs from 'fs';
 
 const entrypoint = path.resolve(__dirname, '../../containers/enclave/script-entrypoint.py');
 const harness = String.raw`
@@ -98,5 +99,109 @@ with tempfile.TemporaryDirectory() as temporary:
     });
     expect(result.error).toBeUndefined();
     expect(result.status).toBe(0);
+  });
+  it('bounds public streams without changing >1MiB seed, workspace, output, or file budgets', () => {
+    const root = fs.mkdtempSync(path.join(process.cwd(), '.public-script-capture-'));
+    const source = String.raw`
+import importlib.util
+import os
+from pathlib import Path
+import resource
+import sys
+from unittest.mock import patch
+
+root = Path(os.environ["ROOT"])
+sys.path.insert(0, str(Path(os.environ["ENTRYPOINT"]).parent))
+from public_debug_capture import PublicDebugCapture
+spec = importlib.util.spec_from_file_location("script_entrypoint", os.environ["ENTRYPOINT"])
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+seed = root / "seed"
+seed.mkdir()
+(seed / "large.bin").write_bytes(b"x" * (2 * 1024 * 1024))
+query = root / "query"
+query.mkdir()
+diagnostics = root / "diagnostics"
+diagnostics.mkdir(mode=0o700)
+for name in ("stdout.log", "stderr.log"):
+    (diagnostics / name).touch(mode=0o600)
+script = root / "script.py"
+script.write_text('import sys\nfrom pathlib import Path\n'
+                  'assert Path("repo/large.bin").stat().st_size == 2 * 1024 * 1024\n'
+                  'Path("repo/workspace.bin").write_bytes(b"w" * (2 * 1024 * 1024))\n'
+                  'Path("out").write_bytes(b"o" * (2 * 1024 * 1024))\n'
+                  'Path("out").write_text("true")\n'
+                  'print("x" * (2 * 1024 * 1024))\n'
+                  'print("y" * (2 * 1024 * 1024), file=sys.stderr)\n')
+module.SEED = seed
+module.REPO = query / "repo"
+module.OUTPUT = root / "out"
+module.SCRIPT = str(script)
+resource.setrlimit(resource.RLIMIT_FSIZE, (16 * 1024 * 1024, 16 * 1024 * 1024))
+original_limit = resource.getrlimit(resource.RLIMIT_FSIZE)
+real_link = Path.symlink_to
+real_chdir = os.chdir
+def link(self, target, *args, **kwargs):
+    return real_link(query / "out" if str(self) == "/query/out" else self, target, *args, **kwargs)
+with patch.object(module.Path, "symlink_to", link), \
+     patch.object(module.os, "chdir", lambda directory: real_chdir(query if directory == "/query" else directory)), \
+     patch("public_debug_capture.PublicDebugCapture", lambda: PublicDebugCapture(diagnostics)):
+    capture = module.enable_public_capture()
+    assert resource.getrlimit(resource.RLIMIT_FSIZE) == original_limit
+    try:
+        module.main()
+    finally:
+        capture.close()
+assert resource.getrlimit(resource.RLIMIT_FSIZE) == original_limit
+assert (query / "repo" / "workspace.bin").stat().st_size == 2 * 1024 * 1024
+assert module.OUTPUT.read_text() == "true"
+for name in ("stdout.log", "stderr.log"):
+    assert (diagnostics / name).stat().st_size <= 1024 * 1024
+assert b'"event":"capture-bound"' in (diagnostics / "stderr.log").read_bytes()
+`;
+    try {
+      const result = spawnSync('python3', ['-c', source], {
+        encoding: 'utf8', timeout: 10_000,
+        env: {
+          ...process.env, ROOT: root, ENTRYPOINT: entrypoint,
+          AWF_ENCLAVE_DEBUG_PUBLIC: 'true', PYTHONDONTWRITEBYTECODE: '1',
+        },
+      });
+      expect(result.error).toBeUndefined();
+      expect(result.status).toBe(0);
+    } finally { fs.rmSync(root, { recursive: true, force: true }); }
+  });
+  it('does not wait indefinitely for descendants holding public capture pipes', () => {
+    const root = fs.mkdtempSync(path.join(process.cwd(), '.public-drain-capture-'));
+    const source = String.raw`
+import os
+from pathlib import Path
+import subprocess
+import sys
+import time
+sys.path.insert(0, str(Path(os.environ["ENTRYPOINT"]).parent))
+from public_debug_capture import PublicDebugCapture
+root = Path(os.environ["ROOT"])
+for name in ("stdout.log", "stderr.log"):
+    (root / name).touch(mode=0o600)
+capture = PublicDebugCapture(root)
+child = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(5)"])
+try:
+    started = time.monotonic()
+    capture.close()
+    assert time.monotonic() - started < 2
+    assert b'"event":"capture-drain","status":"unavailable"' in (root / "stderr.log").read_bytes()
+finally:
+    child.terminate()
+    child.wait(timeout=2)
+`;
+    try {
+      const result = spawnSync('python3', ['-c', source], {
+        encoding: 'utf8', timeout: 10_000,
+        env: { ...process.env, ROOT: root, ENTRYPOINT: entrypoint, PYTHONDONTWRITEBYTECODE: '1' },
+      });
+      expect(result.error).toBeUndefined();
+      expect(result.status).toBe(0);
+    } finally { fs.rmSync(root, { recursive: true, force: true }); }
   });
 });

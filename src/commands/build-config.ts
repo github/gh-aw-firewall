@@ -260,6 +260,7 @@ export function buildConfig(inputs: BuildConfigInputs): WrapperConfig {
     chrootIdentity,
     dind,
     cloudHypervisor,
+    enclaveDebugPublic: options.enclaveDebugPublic as boolean | undefined,
     nvx,
     enclaves: normalizeEnclavesConfig(
       options.enclaves as AwfFileConfig['enclaves'] | undefined,

@@ -25,6 +25,7 @@ SESSION_LOG_PATH = Path("/awf/session.jsonl")
 AGENT_DIR = Path("/agent")
 TEMP_DIR = Path("/tmp")
 SHARED_MEMORY_DIR = Path("/dev/shm")
+PUBLIC_CAPTURE = None
 STORAGE_PROBE_PATH = TEMP_DIR / ".awf-enclave-storage-probe.jsonl"
 COPILOT_BIN = "/usr/local/bin/copilot"
 GITHUB_AGENT_ID_PATH = Path("/run/awf-enclave-github/agent-id")
@@ -223,7 +224,12 @@ def summarize_enclave_stream(value: str) -> dict:
         "sensitivity": "raw-debug" if ALLOW_RAW_SESSION_LOGS else "redacted",
     }
     if ALLOW_RAW_SESSION_LOGS:
-        summary["raw"] = truncate_utf8(redact_diagnostics(value), MAX_ENGINE_STREAM_BYTES)
+        redacted = redact_diagnostics(value)
+        raw = truncate_utf8(redacted, MAX_ENGINE_STREAM_BYTES)
+        if len(redacted.encode("utf-8")) > MAX_ENGINE_STREAM_BYTES:
+            end = raw.rfind("\n")
+            raw = raw[:end + 1] if end >= 0 else ""
+        summary["raw"] = raw
     return summary
 
 
@@ -842,6 +848,9 @@ def configure_dynamic_github_mcp() -> None:
 
 
 def append_engine_result(completed: subprocess.CompletedProcess) -> tuple[str, str]:
+    if PUBLIC_CAPTURE is not None:
+        PUBLIC_CAPTURE.append("stdout", completed.stdout)
+        PUBLIC_CAPTURE.append("stderr", completed.stderr)
     stdout = completed.stdout.decode("utf-8", errors="replace").strip()
     stderr = completed.stderr.decode("utf-8", errors="replace")
     append_event({
@@ -969,6 +978,9 @@ def main() -> int:
                 except ProcessLookupError:
                     pass
                 process_stdout, process_stderr = process.communicate()
+                if PUBLIC_CAPTURE is not None:
+                    PUBLIC_CAPTURE.append("stdout", process_stdout)
+                    PUBLIC_CAPTURE.append("stderr", process_stderr)
                 append_event({
                     "event": "engine-result",
                     "exitCode": None,
@@ -1072,4 +1084,16 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    if os.environ.get("AWF_ENCLAVE_DEBUG_PUBLIC") == "true":
+        from public_debug_capture import PublicDebugCapture
+        PUBLIC_CAPTURE = PublicDebugCapture()
+    try:
+        sys.exit(main())
+    except BaseException as error:
+        if PUBLIC_CAPTURE is not None and not isinstance(error, SystemExit):
+            import traceback
+            traceback.print_exc()
+        raise
+    finally:
+        if PUBLIC_CAPTURE is not None:
+            PUBLIC_CAPTURE.close()

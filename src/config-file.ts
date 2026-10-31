@@ -185,6 +185,7 @@ export interface AwfFileConfig {
    * behind `previewEnabled`/`--cloud-hypervisor-preview`. Supported only on
    * GitHub-hosted Ubuntu x86_64 KVM runners.
    */
+  enclaveDebugPublic?: boolean;
   cloudHypervisor?: {
     previewEnabled?: boolean;
     mountPolicy?: CloudHypervisorMountPolicy;

@@ -61,11 +61,13 @@ export interface HostEnclaveExecutorManager {
   cancel(reason?: string): Promise<void>;
   stop(): Promise<void>;
   completeCleanupRecord(): Promise<void>;
+  publicDiagnosticEvidence?(): { vmCountersAvailable: boolean };
 }
 
 export interface HostEnclaveExecutorDependencies {
   readonly readSessionDiagnostics?: typeof import('./enclave-session-diagnostics').readEnclaveSessionDiagnostics;
   readonly preservePublicSession?: typeof import('./diagnostics').preservePublicEnclaveSession;
+  readonly preservePublicArtifacts?: typeof import('../enclave/public-debug-artifacts').preservePublicEnclaveArtifacts;
   readonly preflight?: typeof import('./preflight').runCloudHypervisorCommonPreflight;
   readonly preflightEnclaveArtifacts?: typeof import('./enclave-artifact-preflight').preflightCloudHypervisorEnclaveArtifacts;
   readonly prepareInvocationStorage?: (
@@ -98,7 +100,7 @@ export interface HostEnclaveExecutorDependencies {
     vmRunId: string,
   ) => Promise<Pick<HostExecutorResourceJournal,
     'captureDirectory' | 'captureMount' | 'prepareSnapshot' | 'captureSnapshot' | 'verifyMount' | 'verifyDirectory' |
-    'verifySnapshot' | 'complete'>>;
+    'verifySnapshot' | 'complete'> & Partial<Pick<HostExecutorResourceJournal, 'publicDebugRetention'>>>;
   readonly copySparseFile: (rsyncBinaryPath: string, source: string, destination: string) => Promise<void>;
   readonly removeArtifactSnapshot: (directory: string) => Promise<void>;
   readonly createManager: (

@@ -11,8 +11,13 @@ import { mountDockerHostStorage, cleanupDockerHostStorage } from './docker-host-
 import type { HostExecutorInvocationPlan } from './host-executor-server';
 import { validateSchema } from '../bounded-execution/finite-schema';
 import { hasDockerHostMountCapability } from './docker-storage-helper';
+import { preservePublicEnclaveArtifacts } from './public-debug-artifacts';
+import { expectPublicEnclaveAdapterConformance } from './public-debug-conformance.test-utils';
 
-jest.mock('fs', () => ({ ...jest.requireActual('fs'), chownSync: jest.fn() }));
+jest.mock('fs', () => ({ ...jest.requireActual('fs'), chownSync: jest.fn(), fchownSync: jest.fn() }));
+jest.mock('./public-debug-artifacts', () => ({
+  ...jest.requireActual('./public-debug-artifacts'), preservePublicEnclaveArtifacts: jest.fn(),
+}));
 jest.mock('./docker-host-storage', () => ({
   ...jest.requireActual('./docker-host-storage'),
   mountDockerHostStorage: jest.fn(),
@@ -35,6 +40,7 @@ class FakeDocker {
   serial = 1;
   failRemoval = false;
   pendingCreate = false;
+  missingImage = false;
   holdWorkload = false;
   failProbe = false;
   outputValue = 'true';
@@ -59,7 +65,10 @@ class FakeDocker {
     }
     if (args[0] === 'create') {
       if (this.pendingCreate) return { exitCode: 1, stdout: '' };
-      const imageAt = args.indexOf('--entrypoint') + 2;
+      if (this.missingImage) return {
+        exitCode: 1, stdout: '', imageUnavailable: args.find(value => value.startsWith('trusted/')),
+      };
+      const imageAt = args.findIndex(value => value.startsWith('trusted/'));
       const base = args.slice(0, imageAt + 1);
       const expected = expectedDockerHostContainer(base);
       const values = (flag: string) => base.filter((_, i) => base[i - 1] === flag);
@@ -126,6 +135,7 @@ describeLinux('host-owned Docker enclave executor', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    jest.mocked(preservePublicEnclaveArtifacts).mockReset().mockResolvedValue();
     jest.mocked(hasDockerHostMountCapability).mockReturnValue(true);
     root = path.join(process.cwd(), `.docker-host-executor-${randomBytes(8).toString('hex')}`);
     fs.mkdirSync(root, { mode: 0o700 });
@@ -201,6 +211,123 @@ describeLinux('host-owned Docker enclave executor', () => {
     await executor.close!();
   });
 
+  test('captures only public-enabled Docker invocations with log driver none before storage cleanup', async () => {
+    let retained = false;
+    jest.mocked(preservePublicEnclaveArtifacts).mockImplementation(async input => {
+      expect(docker.containers.size).toBe(0);
+      expect(fs.existsSync(plan.invocationHostDir)).toBe(true);
+      expect(input.envelope).toMatchObject({
+        runtime: 'docker', runId, invocationId, stage: 'complete', failure: 'none', exitCode: 0,
+      });
+      expect(input.session.status).toBe('not-applicable');
+      expectPublicEnclaveAdapterConformance(input.envelope, 'docker');
+      retained = true;
+    });
+    jest.mocked(cleanupDockerHostStorage).mockImplementation(async record => {
+      expect(retained).toBe(true);
+      fs.rmSync(record.storageTarget, { recursive: true, force: true });
+    });
+    await expect(backend([script], { publicDebug: true }).execute(plan, new AbortController().signal))
+      .resolves.toEqual({ outcome: 'success', result: 'true' });
+    const launch = docker.calls.filter(args => args[0] === 'create')[1];
+    expect(launch).toEqual(expect.arrayContaining(['--log-driver', 'none', 'AWF_ENCLAVE_DEBUG_PUBLIC=true',
+      `${plan.invocationHostDir}/stdout.log:/awf/stdout.log:rw`,
+      `${plan.invocationHostDir}/stderr.log:/awf/stderr.log:rw`]));
+    expect(docker.calls.some(args => args[0] === 'logs')).toBe(false);
+  });
+
+  test.each([false, undefined])('never stages capture files for publicDebug=%s', async publicDebug => {
+    await backend([script], { publicDebug }).execute(plan, new AbortController().signal);
+    expect(preservePublicEnclaveArtifacts).not.toHaveBeenCalled();
+    expect(docker.calls.flat().some(value => value.includes('AWF_ENCLAVE_DEBUG_PUBLIC'))).toBe(false);
+  });
+
+  test.each(['exit', 'exception', 'setup'] as const)('retains %s failure with correct workload exit provenance', async failure => {
+    if (failure === 'exit') docker.workloadExitCode = 23;
+    if (failure === 'exception') {
+      const command = docker.command;
+      docker.command = async (args, signal) => {
+        if (args[0] === 'start' && !docker.containers.get(args[1])!.Name.endsWith('-probe')) throw new Error('private exception');
+        return command(args, signal);
+      };
+    }
+    if (failure === 'setup') docker.failProbe = true;
+    await backend([script], { publicDebug: true }).execute(plan, new AbortController().signal);
+    expect(preservePublicEnclaveArtifacts).toHaveBeenCalledWith(expect.objectContaining({
+      envelope: expect.objectContaining({
+        exitCode: failure === 'exit' ? 23 : null,
+        failure: failure === 'exit' ? 'workload-exit' : failure === 'exception' ? 'execution-exception' : 'setup-failed',
+      }),
+    }));
+    const envelope = jest.mocked(preservePublicEnclaveArtifacts).mock.calls[0][0].envelope;
+    expectPublicEnclaveAdapterConformance(envelope, 'docker');
+    expect(envelope.primaryFailure).toMatchObject({
+      stage: failure === 'exit' ? 'workload-exit' : failure === 'exception' ? 'workload-start' : 'storage-probe',
+    });
+  });
+
+  test('retention failure preserves source and pending journal, and recovery never exports credential text', async () => {
+    jest.mocked(preservePublicEnclaveArtifacts).mockRejectedValueOnce(new Error('retention failed'));
+    await expect(backend([script], { publicDebug: true }).execute(plan, new AbortController().signal))
+      .resolves.toMatchObject({ outcome: 'executor-failure', cleanupComplete: false });
+    expect(cleanupDockerHostStorage).not.toHaveBeenCalled();
+    expect(fs.existsSync(plan.invocationHostDir)).toBe(true);
+    const journal = new DockerHostRecoveryJournal(path.join(root, 'journal'), runId);
+    expect(journal.records()[0].publicDebug?.pending).toBe(true);
+    jest.mocked(preservePublicEnclaveArtifacts).mockResolvedValue();
+    await recoverDockerHostEnclaveExecutor({
+      runId, journalDir: path.join(root, 'journal'), entries: [script], dockerCommand: docker.command,
+      publicDebug: true,
+    });
+    expect(preservePublicEnclaveArtifacts).toHaveBeenLastCalledWith(expect.objectContaining({
+      stdout: { status: 'unavailable' }, stderr: { status: 'unavailable' }, session: { status: 'unavailable' },
+    }));
+    expect(journal.records()).toEqual([]);
+  });
+
+  test('never reads public artifacts before proved container removal and rejects runtime scope', async () => {
+    docker.onWorkloadStart = () => { docker.failRemoval = true; };
+    await expect(backend([script], { publicDebug: true }).execute(plan, new AbortController().signal))
+      .resolves.toMatchObject({ cleanupComplete: false });
+    expect(preservePublicEnclaveArtifacts).not.toHaveBeenCalled();
+    expect(() => backend([{ ...script, runtimeName: 'runsc' }], { publicDebug: true })).toThrow(/default-runtime/);
+  });
+  test('retains fixed authority failures before storage exists without synthesizing a stop or exit', async () => {
+    const authority = jest.fn().mockRejectedValue(Object.assign(new Error('PRIVATE_AUTHORITY'), { code: 'EACCES' }));
+    await expect(backend([agent], { publicDebug: true, resolveAgentAuthority: authority }).execute({
+      ...plan, entryId: 'agent', executorKind: 'agent',
+    }, new AbortController().signal)).resolves.toEqual({ outcome: 'executor-failure' });
+    expect(mountDockerHostStorage).not.toHaveBeenCalled();
+    expect(docker.calls.some(args => args[0] === 'create')).toBe(false);
+    const input = jest.mocked(preservePublicEnclaveArtifacts).mock.calls[0][0];
+    expectPublicEnclaveAdapterConformance(input.envelope, 'docker');
+    expect(input.envelope).toMatchObject({
+      workloadLaunched: false, exitCode: null,
+      primaryFailure: { stage: 'authority-handoff', category: 'permission-denied', errno: 13 },
+    });
+    test('retains definitive missing-image setup failure only after proved absence, not unresolved creates', async () => {
+      docker.missingImage = true;
+      await expect(backend([script], { publicDebug: true }).execute(plan, new AbortController().signal))
+        .resolves.toEqual({ outcome: 'executor-failure' });
+      expect(fs.existsSync(plan.invocationHostDir)).toBe(false);
+      const input = jest.mocked(preservePublicEnclaveArtifacts).mock.calls[0][0];
+      expectPublicEnclaveAdapterConformance(input.envelope, 'docker');
+      expect(input.envelope).toMatchObject({
+        stage: 'setup', failure: 'setup-failed', exitCode: null, workloadLaunched: false,
+        primaryFailure: { stage: 'storage-probe', category: 'not-found', errno: 2 },
+      });
+      expect(new DockerHostRecoveryJournal(path.join(root, 'journal'), runId).records()).toEqual([]);
+      docker.missingImage = false;
+      docker.pendingCreate = true;
+      jest.mocked(preservePublicEnclaveArtifacts).mockClear();
+      await expect(backend([script], { publicDebug: true }).execute(plan, new AbortController().signal))
+        .resolves.toMatchObject({ cleanupComplete: false });
+      expect(preservePublicEnclaveArtifacts).not.toHaveBeenCalled();
+      expect(fs.existsSync(plan.invocationHostDir)).toBe(true);
+    });
+    expect(JSON.stringify(input.envelope)).not.toContain('PRIVATE_AUTHORITY');
+  });
+
   test('rounds fractional CPU limits to Docker inspect integer nanocpus', async () => {
     script.config = { ...script.config, cpuLimit: '1.001' };
     docker.onWorkloadStart = () => { docker.failRemoval = true; };
@@ -228,9 +355,9 @@ describeLinux('host-owned Docker enclave executor', () => {
     await expect(backend([entry]).execute(invocation, new AbortController().signal)).resolves.toMatchObject({ outcome: 'success' });
     const launch = docker.calls.filter((c) => c[0] === 'create')[1];
     expect(launch).toEqual(expect.arrayContaining(['--user', '12345:23456']));
-    expect(fs.chownSync).toHaveBeenCalledWith(path.join(plan.invocationHostDir, 'out'), 12345, 23456);
+    expect(fs.fchownSync).toHaveBeenCalledWith(expect.any(Number), 12345, 23456);
     if (kind === 'agent') {
-      expect(fs.chownSync).toHaveBeenCalledWith(path.join(plan.invocationHostDir, 'agent'), 12345, 23456);
+      expect(fs.fchownSync).toHaveBeenCalledWith(expect.any(Number), 12345, 23456);
     } else expect(launch).toContain('/query:rw,nosuid,nodev,size=96m,uid=12345,gid=23456,mode=0700');
   });
 
@@ -250,7 +377,7 @@ describeLinux('host-owned Docker enclave executor', () => {
       };
       await expect(backend([agent]).execute(agentPlan, new AbortController().signal))
         .resolves.toMatchObject({ outcome: 'success' });
-      expect(fs.chownSync).toHaveBeenCalledWith(path.join(agentPlan.invocationHostDir, 'agent'), 65534, 65534);
+      expect(fs.fchownSync).toHaveBeenCalledWith(expect.any(Number), 65534, 65534);
     } finally {
       process.umask(previousUmask);
     }

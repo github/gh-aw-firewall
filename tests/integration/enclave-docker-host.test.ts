@@ -1,18 +1,20 @@
 /**
  * Real host-adapter acceptance, deliberately separate from mocked runner tests.
- * Run unprivileged after installing the version-matched storage helper, or as
- * root to cover the existing direct CAP_SYS_ADMIN path:
- * mkdir -p .git/enclave-docker-host-cache
- * sudo env -u TMPDIR PATH="$PATH" \
- *   NODE_DISABLE_COMPILE_CACHE=1 AWF_DOCKER_HOST_ACCEPTANCE=1 \
- *   node node_modules/jest/bin/jest.js \
- *   --config tests/setup/jest.integration.config.js --cacheDirectory .git/enclave-docker-host-cache \
- *   --runInBand enclave-docker-host.test.ts
+ * Public diagnostics acceptance runs WITHOUT sudo after installing the
+ * version-matched storage helper:
+ * REPO="$(pwd)"
+ * mkdir -p "$REPO/.git/enclave-docker-host-cache"
+ * env TMPDIR="$REPO/.git/enclave-docker-host-cache" \
+ *   NODE_DISABLE_COMPILE_CACHE=1 TSX_DISABLE_CACHE=1 AWF_DOCKER_HOST_STORAGE_HELPER_ACCEPTANCE=1 \
+ *   node "$REPO/node_modules/jest/bin/jest.js" \
+ *   --config "$REPO/tests/setup/jest.integration.config.js" \
+ *   --cacheDirectory "$REPO/.git/enclave-docker-host-cache" \
+ *   --runInBand "$REPO/tests/integration/enclave-docker-host.test.ts" \
+ *   --testNamePattern='public diagnostics:'
  * The agent image substitutes only Copilot, not the audited Python entrypoint.
  * This exercises confinement, NOT a live Copilot model or provider.
- * Helper mode is explicit and must run WITHOUT sudo:
- * AWF_DOCKER_HOST_STORAGE_HELPER_ACCEPTANCE=1 node node_modules/jest/bin/jest.js \
- *   --config tests/setup/jest.integration.config.js --runInBand enclave-docker-host.test.ts
+ * Omit the name selector for the full existing fixture matrix. The separate
+ * AWF_DOCKER_HOST_ACCEPTANCE=1 mode requires root and direct CAP_SYS_ADMIN.
  */
 import { afterAll, beforeAll, describe, expect, test } from '@jest/globals';
 import { execFile, spawn, type ChildProcess } from 'child_process';
@@ -26,6 +28,9 @@ import { buildEnclaveMcpService } from '../../src/services/enclave-mcp-service';
 import { parseImageTag } from '../../src/image-tag';
 import { resolveEnclavePaths } from '../../src/enclave/paths';
 import { ENCLAVE_MCP_CONTROL_ALIAS, ENCLAVE_MCP_CONTROL_NETWORK } from '../../src/enclave/network';
+import { assertPersistentDebugArtifactsIsolated } from '../../src/enclave/mount-policy';
+import { resolveDockerPublicEnclaveDebugPaths } from '../../src/enclave/public-debug';
+import { PUBLIC_ENCLAVE_ARTIFACT_NAMES, PUBLIC_ENCLAVE_CAPTURE_BYTES } from '../../src/enclave/public-debug-artifacts';
 import type { WrapperConfig } from '../../src/types';
 import {
   createDockerHostEnclaveExecutor, type DockerHostExecutorEntry, type DockerHostEnclaveExecutorBackend,
@@ -45,7 +50,14 @@ const enabled = process.env.AWF_DOCKER_HOST_ACCEPTANCE === '1' || helperAcceptan
 const acceptance = enabled ? describe : describe.skip;
 const privilegedAcceptance = helperAcceptance ? test.skip : test;
 const root = path.resolve(__dirname, '../..');
-const subprocessEnv = { ...process.env, NODE_DISABLE_COMPILE_CACHE: '1', TSX_DISABLE_CACHE: '1' };
+const fixtureHome = path.join(root, '.git/enclave-docker-host-cache', `isolated-home-${process.pid}`);
+const subprocessEnv = {
+  PATH: process.env.PATH || '/usr/bin:/bin', HOME: fixtureHome,
+  DOCKER_CONFIG: path.join(fixtureHome, 'docker-config'),
+  LANG: 'C.UTF-8', DOCKER_HOST: process.env.DOCKER_HOST,
+  TMPDIR: path.join(root, '.git/enclave-docker-host-cache'),
+  NODE_DISABLE_COMPILE_CACHE: '1', TSX_DISABLE_CACHE: '1',
+};
 const image = 'awf-enclave-script:host-acceptance';
 const agentImage = 'awf-enclave-agent:host-acceptance-fixture';
 const brokerImage = 'awf-enclave-mcp-server:host-acceptance';
@@ -58,7 +70,7 @@ const schema = {
 function docker(args: string[], input?: string, timeout = 180_000): Promise<string> {
   return new Promise((resolve, reject) => {
     const child = execFile('docker', args, {
-      cwd: root, timeout, maxBuffer: 1024 * 1024,
+      cwd: root, env: subprocessEnv, timeout, maxBuffer: 1024 * 1024,
     }, (error, stdout, stderr) => {
       if (error) reject(new Error(`docker ${args[0]} failed: ${stderr}`));
       else resolve(stdout.trim());
@@ -114,6 +126,7 @@ acceptance('Docker host enclave adapter: REAL daemon acceptance', () => {
   const transcripts = new Map<string, string>();
   const exitedStates = new Map<string, { OOMKilled: boolean; ExitCode: number }>();
   const sessionContainers = new Map<string, string>();
+  const debugDirectories = new Set<string>();
   const helperStorage = !hasDockerHostMountCapability();
   let proxyId: string | undefined;
   let networkCreated = false;
@@ -147,10 +160,15 @@ acceptance('Docker host enclave adapter: REAL daemon acceptance', () => {
     return { runId, journalDir, entries: [entry('script'), entry('agent')] };
   }
 
-  function backend(kinds: readonly ('script' | 'agent')[] = ['script', 'agent']): DockerHostEnclaveExecutorBackend {
+  function backend(
+    kinds: readonly ('script' | 'agent')[] = ['script', 'agent'],
+    publicDebug = false,
+    configure: (value: DockerHostExecutorEntry) => DockerHostExecutorEntry = (value) => value,
+  ): DockerHostEnclaveExecutorBackend {
     const value = createDockerHostEnclaveExecutor({
       ...options(),
-      entries: kinds.map(entry),
+      entries: kinds.map((kind) => configure(entry(kind))),
+      publicDebug,
       // Observe actual daemon commands; no Docker response is mocked or rewritten.
       dockerCommand: async (args, signal) => {
         if (args[0] === 'rm') {
@@ -165,7 +183,9 @@ acceptance('Docker host enclave adapter: REAL daemon acceptance', () => {
           }
         }
         return new Promise((resolve) => {
-        execFile('docker', [...args], { signal, timeout: 30_000, maxBuffer: 1024 * 1024 }, (error, stdout, stderr) => {
+        execFile('docker', [...args], {
+          cwd: root, env: subprocessEnv, signal, timeout: 30_000, maxBuffer: 1024 * 1024,
+        }, (error, stdout, stderr) => {
           const exitCode = error ? typeof error.code === 'number' ? error.code : 1 : 0;
           commandTrace.push(`${JSON.stringify(args)} => ${exitCode} ${stderr}`);
           if (args[0] === 'container' && args[1] === 'inspect' && exitCode === 0) {
@@ -177,7 +197,9 @@ acceptance('Docker host enclave adapter: REAL daemon acceptance', () => {
               exitedStates.set(inspected.Config.Labels['awf.enclave.invocation'], inspected.State);
             }
           }
-          resolve({ exitCode, stdout });
+          const imageUnavailable = error?.code === 1
+            ? /^Error response from daemon: No such image: ([^\r\n]+)\r?\n?$/.exec(stderr)?.[1] : undefined;
+          resolve({ exitCode, stdout, ...(imageUnavailable ? { imageUnavailable } : {}) });
         });
         });
       },
@@ -217,7 +239,7 @@ acceptance('Docker host enclave adapter: REAL daemon acceptance', () => {
     });
   }
 
-  async function assertBoundary(inspected: Record<string, any>, kind: 'script' | 'agent') {
+  async function assertBoundary(inspected: Record<string, any>, kind: 'script' | 'agent', publicDebug = false) {
     expect(inspected.Config.User).toBe('65534:65534');
     expect(inspected.Config.Entrypoint).toEqual([
       `/usr/local/bin/run-enclave-${kind === 'script' ? 'script' : 'agent'}`,
@@ -237,7 +259,8 @@ acceptance('Docker host enclave adapter: REAL daemon acceptance', () => {
     expect(inspected.Mounts.find((m: any) => m.Destination === '/awf/seed')).toMatchObject({ RW: false });
     const writable = inspected.Mounts.filter((m: any) => m.RW);
     expect(writable.map((m: any) => m.Destination).sort()).toEqual(
-      kind === 'script' ? ['/awf/out'] : ['/agent', '/awf/out', '/awf/session.jsonl'],
+      [...(kind === 'script' ? ['/awf/out'] : ['/agent', '/awf/out', '/awf/session.jsonl']),
+        ...(publicDebug ? ['/awf/stdout.log', '/awf/stderr.log'] : [])].sort(),
     );
     // Verify the host's actual superblock, not just Docker mount flags.
     expect(new Set(writable.map((m: any) => fs.statSync(m.Source).dev)).size).toBe(1);
@@ -281,6 +304,7 @@ acceptance('Docker host enclave adapter: REAL daemon acceptance', () => {
     } else if (process.getuid?.() !== 0 || (capabilities & 0x200003n) !== 0x200003n) {
       throw new Error('Real host tmpfs acceptance requires root with CAP_SYS_ADMIN, CAP_CHOWN and CAP_DAC_OVERRIDE.');
     }
+    fs.mkdirSync(fixtureHome, { recursive: true, mode: 0o700 });
     expect(await docker(['version', '--format', '{{.Server.Os}}'])).toBe('linux');
     const fixtureParent = root;
     directory = fs.mkdtempSync(path.join(fixtureParent, '.e-'));
@@ -293,11 +317,31 @@ acceptance('Docker host enclave adapter: REAL daemon acceptance', () => {
     expect(fs.statSync(seed).mode & 0o777).toBe(0o755);
     expect(fs.statSync(path.join(seed, 'private.txt')).mode & 0o777).toBe(0o444);
     assertDockerHostPath(directory);
+    const buildContext = path.join(directory, 'audited-build-context');
+    fs.mkdirSync(path.join(buildContext, 'enclave'), { recursive: true, mode: 0o700 });
+    for (const filename of ['script-entrypoint.py', 'agent-entrypoint.py', 'public_debug_capture.py', 'seccomp.json']) {
+      const source = path.join(root, 'containers/enclave', filename);
+      if (!fs.lstatSync(source).isFile()) throw new Error('Audited fixture source must be a regular file');
+      fs.copyFileSync(source, path.join(buildContext, 'enclave', filename));
+    }
+    for (const sourceDirectory of [
+      'bounded-execution', 'enclave/script-executor', 'enclave/agent-executor', 'enclave/mcp-server',
+    ]) {
+      fs.cpSync(path.join(root, 'containers', sourceDirectory), path.join(buildContext, sourceDirectory), {
+        recursive: true,
+        filter: (filename) => {
+          const stat = fs.lstatSync(filename);
+          if (stat.isSymbolicLink()) throw new Error('Audited fixture build context must not contain symlinks');
+          return stat.isDirectory() || (stat.isFile() && /\.(js|json)$/.test(filename));
+        },
+      });
+    }
     const sourceDockerfile = fs.readFileSync(path.join(root, 'containers/enclave/Dockerfile'), 'utf8');
     const scriptBase = /^FROM (\S+) AS enclave-script$/m.exec(sourceDockerfile)![1];
-    await docker(['build', '-f', '-', '-t', image, 'containers'], [
+    await docker(['build', '-f', '-', '-t', image, buildContext], [
       `FROM ${scriptBase}`,
       'COPY enclave/script-entrypoint.py /usr/local/bin/run-enclave-script',
+      'COPY enclave/public_debug_capture.py /usr/local/bin/public_debug_capture.py',
       'RUN chmod 0555 /usr/local/bin/run-enclave-script && mkdir -p /script /awf/seed && ln -s /usr/local/bin/python3 /usr/bin/python3',
     ].join('\n'));
     const fixture = '#!/usr/bin/python3\n' +
@@ -306,13 +350,14 @@ acceptance('Docker host enclave adapter: REAL daemon acceptance', () => {
     const dockerfile = [
       `FROM ${image}`,
       'COPY enclave/agent-entrypoint.py /usr/local/bin/run-enclave-agent',
+      'COPY enclave/public_debug_capture.py /usr/local/bin/public_debug_capture.py',
       `RUN python3 -c ${JSON.stringify(`from pathlib import Path; Path("/usr/local/bin/copilot").write_text(${JSON.stringify(fixture)})`)}`,
       'RUN chmod 0555 /usr/local/bin/run-enclave-agent /usr/local/bin/copilot && mkdir -p /agent /run/awf-enclave-github',
       '',
     ].join('\n');
-    await docker(['build', '-f', '-', '-t', agentImage, 'containers'], dockerfile);
+    await docker(['build', '-f', '-', '-t', agentImage, buildContext], dockerfile);
     const brokerBase = /^FROM (\S+) AS enclave-mcp-server$/m.exec(sourceDockerfile)![1];
-    await docker(['build', '-f', '-', '-t', brokerImage, 'containers'], [
+    await docker(['build', '-f', '-', '-t', brokerImage, buildContext], [
       `FROM ${brokerBase}`,
       'WORKDIR /opt/awf/enclave/mcp-server',
       'COPY bounded-execution/ /opt/awf/bounded-execution/',
@@ -346,6 +391,7 @@ acceptance('Docker host enclave adapter: REAL daemon acceptance', () => {
       try { await docker(['network', 'rm', network]); } catch (error) { errors.push(error); }
     }
     if (errors.length) throw errors[0];
+    for (const debugDirectory of debugDirectories) fs.rmSync(debugDirectory, { recursive: true, force: true });
     // Never delete recovery journals while helper allocations or mounts may remain.
     if (directory && fs.existsSync(directory)) {
       const mounts = fs.readFileSync('/proc/self/mountinfo', 'utf8');
@@ -355,6 +401,7 @@ acceptance('Docker host enclave adapter: REAL daemon acceptance', () => {
       )))) throw new Error('Acceptance helper allocation remains; retain journals for recovery.');
       fs.rmSync(directory, { recursive: true, force: true });
     }
+    fs.rmSync(fixtureHome, { recursive: true, force: true });
   }, 120_000);
 
   test('script: effective identity, readonly seed/rootfs, no networking, exact cgroups and bounded writable bind', async () => {
@@ -625,7 +672,224 @@ time.sleep(2)
     expect(transcript).toContain('"engine-result"');
     expect(result).toEqual({ outcome: 'success', result: '{"passed":true}' });
     expect(JSON.stringify(result)).not.toContain(sentinel);
+    expect(fs.existsSync(path.join(
+      resolveDockerPublicEnclaveDebugPaths().root, runId, invocation.invocationId,
+    ))).toBe(false);
     await assertGone(invocation);
+  });
+
+  test.each([
+    ['script', false], ['script', true], ['agent', false], ['agent', true],
+  ] as const)('public diagnostics: %s %s retains redacted bounded evidence without changing canonical results', async (kind, fails) => {
+    const syntheticToken = 'synthetic-fixture-token:"quoted"/value';
+    const secretForms = [syntheticToken, JSON.stringify(syntheticToken).slice(1, -1),
+      encodeURIComponent(syntheticToken), Buffer.from(syntheticToken).toString('base64')];
+    const marker = `PUBLIC-DIAGNOSTIC-${kind}-${fails ? 'failure' : 'success'}`;
+    const invocation = plan(kind, `
+import json, os, sys, time
+from pathlib import Path
+assert os.geteuid() == 65534
+assert ${JSON.stringify(syntheticToken)} not in json.dumps(dict(os.environ))
+assert not any(name in os.environ for name in [
+    "GITHUB_TOKEN", "GH_TOKEN", "COPILOT_GITHUB_TOKEN", "OPENAI_API_KEY", "ANTHROPIC_API_KEY"])
+assert os.environ["AWF_ENCLAVE_DEBUG_PUBLIC"] == "true"
+print(${JSON.stringify(marker)}, flush=True)
+print(${JSON.stringify(secretForms.join('\n'))}, flush=True)
+print("Authorization: Bearer " + "not-a-live-fixture-credential", file=sys.stderr, flush=True)
+print(${JSON.stringify(marker + '-stderr')}, file=sys.stderr, flush=True)
+if "--log-dir" in sys.argv:
+    Path(sys.argv[sys.argv.index("--log-dir") + 1], "fixture.log").write_text(
+        ${JSON.stringify(marker + '-copilot-diagnostic\n' + syntheticToken)})
+Path("/awf/out").write_text(' { "passed" : true } \\n')
+time.sleep(2)
+${fails ? 'sys.exit(7)' : ''}
+`);
+    const debugDirectory = path.join(resolveDockerPublicEnclaveDebugPaths().root, runId, invocation.invocationId);
+    debugDirectories.add(debugDirectory);
+    const executor = backend([kind], true, (value) => ({
+      ...value, config: { ...value.config, syntheticToken },
+    }));
+    const pending = executor.execute(invocation, new AbortController().signal);
+    const inspected = await running(invocation);
+    await assertBoundary(inspected, kind, true);
+    for (const mount of inspected.Mounts) {
+      expect(path.relative(mount.Source, debugDirectory).startsWith(`..${path.sep}`)).toBe(true);
+    }
+    const result = await pending;
+    expect(result).toEqual(fails
+      ? { outcome: 'executor-failure', recoverableFailure: true, cleanupComplete: true }
+      : { outcome: 'success', result: '{"passed":true}' });
+    expect(JSON.stringify(result)).not.toContain(marker);
+    expect(JSON.stringify(result)).not.toContain(syntheticToken);
+    expect(fs.readdirSync(debugDirectory).sort()).toEqual([...PUBLIC_ENCLAVE_ARTIFACT_NAMES].sort());
+    const directoryStat = fs.lstatSync(debugDirectory);
+    expect({ uid: directoryStat.uid, mode: directoryStat.mode & 0o777 }).toEqual({
+      uid: process.getuid?.(), mode: 0o700,
+    });
+    const artifacts = PUBLIC_ENCLAVE_ARTIFACT_NAMES.map((name) => {
+      const filename = path.join(debugDirectory, name);
+      const stat = fs.lstatSync(filename);
+      expect(stat.isFile()).toBe(true);
+      expect({ uid: stat.uid, mode: stat.mode & 0o777, nlink: stat.nlink }).toEqual({
+        uid: process.getuid?.(), mode: 0o600, nlink: 1,
+      });
+      expect(stat.size).toBeLessThanOrEqual(PUBLIC_ENCLAVE_CAPTURE_BYTES);
+      return fs.readFileSync(filename, 'utf8');
+    });
+    const retained = artifacts.join('\n');
+    expect(retained).toContain(marker);
+    expect(retained).toContain('[REDACTED]');
+    for (const secret of [...secretForms, 'not-a-live-fixture-credential']) {
+      expect(retained).not.toContain(secret);
+    }
+    const diagnostics = JSON.parse(fs.readFileSync(path.join(debugDirectory, 'diagnostics.json'), 'utf8'));
+    expect(diagnostics).toMatchObject({
+      version: 1, runtime: 'docker', runId, invocationId: invocation.invocationId, entryId: kind,
+      executorKind: kind, stage: fails ? 'result' : 'complete', failure: fails ? 'workload-exit' : 'none',
+      workloadStopped: true, workloadLaunched: true, stopProof: 'verified',
+      streams: { stdout: 'captured', stderr: 'captured', session: kind === 'agent' ? 'captured' : 'not-applicable' },
+    });
+    const exited = exitedStates.get(invocation.invocationId);
+    expect(exited).toBeDefined();
+    expect(diagnostics.exitCode).toBe(exited!.ExitCode);
+    expect(diagnostics.exitCode === 0).toBe(!fails);
+    expect(diagnostics.backendEvidence.dockerInspect).toMatchObject({
+      status: 'captured', running: false, exitCode: exited!.ExitCode, oomKilled: exited!.OOMKilled,
+    });
+    expect(diagnostics.backendEvidence.vmCounters.status).toBe('not-applicable');
+    expect(diagnostics.backendEvidence.network.status).toBe('unavailable');
+    expect(diagnostics.streamCoverage).toMatchObject({
+      stdout: { artifactSource: 'workload-file', agentSession: kind === 'agent' ? 'captured' : 'unavailable' },
+      stderr: { artifactSource: 'workload-file', agentSession: kind === 'agent' ? 'captured' : 'unavailable' },
+      copilotDiagnostics: kind === 'agent' && fails ? 'agent-session' : 'unavailable',
+    });
+    for (const stage of ['storage-preparation', 'storage-probe', 'workload-create', 'workload-start', 'workload-exit']) {
+      expect(diagnostics.stages).toContainEqual(expect.objectContaining({ stage, status: 'succeeded' }));
+    }
+    expect(diagnostics.stages.length).toBeLessThanOrEqual(64);
+    expect(diagnostics).not.toHaveProperty('cleanupFailure');
+    if (fails) {
+      expect(diagnostics.primaryFailure).toMatchObject({ stage: 'workload-exit', category: 'workload-exit' });
+    } else {
+      expect(diagnostics).not.toHaveProperty('primaryFailure');
+      expect(diagnostics.stages).toContainEqual(expect.objectContaining({
+        stage: 'output-validation', status: 'succeeded',
+      }));
+    }
+    if (kind === 'agent') {
+      const session = fs.readFileSync(path.join(debugDirectory, 'enclave-session.log'), 'utf8');
+      expect(session).toContain('"engine-result"');
+      const texts = (value: unknown): string[] => typeof value === 'string' ? [value]
+        : value && typeof value === 'object' ? Object.values(value).flatMap(texts) : [];
+      const decodedSession = session.split('\n').filter(Boolean).flatMap((line) => texts(JSON.parse(line))).join('\n');
+      for (const secret of [...secretForms, 'not-a-live-fixture-credential']) {
+        expect(decodedSession).not.toContain(secret);
+      }
+      if (fails) expect(retained).toContain(marker + '-copilot-diagnostic');
+    }
+    await assertGone(invocation);
+    expect(fs.existsSync(debugDirectory)).toBe(true);
+    expect(commandTrace.join('\n')).not.toContain(marker);
+  }, 90_000);
+
+  test('public diagnostics: oversized stream and large public files preserve existing budgets and canonical results', async () => {
+    const largeSeed = path.join(directory, 'large-public-fixture');
+    fs.mkdirSync(largeSeed, { mode: 0o755 });
+    fs.writeFileSync(path.join(largeSeed, 'large-fixture.bin'), Buffer.alloc(2 * MiB), { mode: 0o444 });
+    const invocation = { ...plan('script', `
+import os
+from pathlib import Path
+assert Path("/awf/seed/large-fixture.bin").stat().st_size == ${2 * MiB}
+assert Path("/query/repo/large-fixture.bin").stat().st_size == ${2 * MiB}
+assert Path("/query/budget-regression.bin").write_bytes(b"x" * ${2 * MiB}) == ${2 * MiB}
+assert os.write(1, b"x" * ${PUBLIC_ENCLAVE_CAPTURE_BYTES + 4096}) == ${PUBLIC_ENCLAVE_CAPTURE_BYTES + 4096}
+Path("/awf/out").write_text('{"passed":true}')
+`), seedHostPath: largeSeed };
+    const debugDirectory = path.join(resolveDockerPublicEnclaveDebugPaths().root, runId, invocation.invocationId);
+    debugDirectories.add(debugDirectory);
+    expect(await backend(['script'], true).execute(invocation, new AbortController().signal))
+      .toEqual({ outcome: 'success', result: '{"passed":true}' });
+    const diagnostics = JSON.parse(fs.readFileSync(path.join(debugDirectory, 'diagnostics.json'), 'utf8'));
+    expect(diagnostics.streams.stdout).toBe('oversized');
+    expect(fs.statSync(path.join(debugDirectory, 'stdout.log')).size).toBe(0);
+    expect(diagnostics).not.toHaveProperty('primaryFailure');
+    expect(diagnostics).not.toHaveProperty('cleanupFailure');
+    await assertGone(invocation);
+  }, 90_000);
+
+  test('public diagnostics: genuine Docker setup failure retains explicit unavailable evidence and cleans source storage', async () => {
+    const invocation = plan('agent', 'raise AssertionError("PUBLIC-SETUP-WORKLOAD-MUST-NOT-START")');
+    const debugDirectory = path.join(resolveDockerPublicEnclaveDebugPaths().root, runId, invocation.invocationId);
+    debugDirectories.add(debugDirectory);
+    const executor = backend(['agent'], true, (value) => ({
+      ...value, config: { ...value.config, network: `awf-missing-${randomBytes(8).toString('hex')}` },
+    }));
+    const result = await executor.execute(invocation, new AbortController().signal);
+    expect(result).toEqual({ outcome: 'executor-failure' });
+    const diagnostics = JSON.parse(fs.readFileSync(path.join(debugDirectory, 'diagnostics.json'), 'utf8'));
+    expect(diagnostics).toMatchObject({
+      version: 1, runtime: 'docker', runId, invocationId: invocation.invocationId, executorKind: 'agent',
+      stage: 'setup', failure: 'setup-failed', exitCode: null, workloadStopped: true,
+      workloadLaunched: false, stopProof: 'not-launched',
+    });
+    expect(diagnostics.backendEvidence.dockerInspect.status).toBe('unavailable');
+    expect(diagnostics.backendEvidence.vmCounters.status).toBe('not-applicable');
+    expect(diagnostics.backendEvidence.network.status).toBe('unavailable');
+    expect(diagnostics.primaryFailure).toMatchObject({ stage: 'storage-probe', category: 'host-exception' });
+    expect(diagnostics.stages).toContainEqual(expect.objectContaining({
+      stage: 'storage-probe', status: 'failed', category: 'host-exception',
+    }));
+    expect(diagnostics).not.toHaveProperty('cleanupFailure');
+    const retained = PUBLIC_ENCLAVE_ARTIFACT_NAMES
+      .map((name) => fs.readFileSync(path.join(debugDirectory, name), 'utf8')).join('\n');
+    expect(retained).not.toContain('PUBLIC-SETUP-WORKLOAD-MUST-NOT-START');
+    await assertGone(invocation);
+  }, 90_000);
+
+  test('public diagnostics: genuine missing-image setup failure proves absence before retaining evidence and cleaning storage', async () => {
+    const missingImage = `awf-enclave-script:missing-${randomBytes(8).toString('hex')}`;
+    const invocation = plan('script', 'raise AssertionError("MISSING-IMAGE-WORKLOAD-MUST-NOT-START")');
+    const debugDirectory = path.join(resolveDockerPublicEnclaveDebugPaths().root, runId, invocation.invocationId);
+    debugDirectories.add(debugDirectory);
+    const executor = backend(['script'], true, (value) => ({
+      ...value, config: { ...value.config, queryImage: missingImage },
+    }));
+    expect(await executor.execute(invocation, new AbortController().signal)).toEqual({ outcome: 'executor-failure' });
+    const diagnostics = JSON.parse(fs.readFileSync(path.join(debugDirectory, 'diagnostics.json'), 'utf8'));
+    expect(diagnostics).toMatchObject({
+      runtime: 'docker', runId, invocationId: invocation.invocationId, executorKind: 'script',
+      stage: 'setup', failure: 'setup-failed', exitCode: null,
+      workloadLaunched: false, stopProof: 'not-launched',
+      primaryFailure: { stage: 'storage-probe', category: 'not-found', errno: 2 },
+      streams: { stdout: 'missing', stderr: 'missing', session: 'not-applicable' },
+    });
+    expect(diagnostics).not.toHaveProperty('cleanupFailure');
+    expect(diagnostics.backendEvidence.dockerInspect.status).toBe('unavailable');
+    expect(PUBLIC_ENCLAVE_ARTIFACT_NAMES.map((name) =>
+      fs.readFileSync(path.join(debugDirectory, name), 'utf8')).join('\n'))
+      .not.toContain('MISSING-IMAGE-WORKLOAD-MUST-NOT-START');
+    expect(commandTrace.some((trace) => trace.includes(`No such image: ${missingImage}`))).toBe(true);
+    await assertGone(invocation);
+  }, 90_000);
+
+  test('public diagnostics: persistent host artifacts reject primary mount exposure even with retention disabled', () => {
+    const config: WrapperConfig = {
+      workDir: path.join(directory, 'mount-policy'), allowedDomains: [], agentCommand: 'true',
+      logLevel: 'error', keepContainers: false, enclaveDebugPublic: false,
+    };
+    const { protectedRoot } = resolveDockerPublicEnclaveDebugPaths();
+    expect(() => assertPersistentDebugArtifactsIsolated({
+      ...config, volumeMounts: [`${protectedRoot}:/exposed:ro`],
+    })).toThrow(/persistent debug artifact root/);
+    const alias = path.join(directory, 'debug-root-alias');
+    fs.symlinkSync(protectedRoot, alias);
+    try {
+      expect(() => assertPersistentDebugArtifactsIsolated({
+        ...config, volumeMounts: [`${alias}:/exposed:ro`],
+      })).toThrow(/persistent debug artifact root/);
+    } finally {
+      fs.unlinkSync(alias);
+    }
   });
 
   test('coordinated private staging, scoped GitHub fixture tools, bounded agent result and complete cleanup', async () => {

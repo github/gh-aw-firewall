@@ -24,6 +24,9 @@ import { guestExecutionFailureReason } from '../microvm/vsock-client';
 import { projectEnclaveSessionDiagnostics, readEnclaveSessionDiagnostics } from './enclave-session-diagnostics';
 import { Writable } from 'stream';
 import { preservePublicEnclaveSession } from './diagnostics';
+import { preservePublicEnclaveArtifacts, readPublicEnclaveFile, type PublicEnclaveFailure,
+  type PublicEnclaveStage } from '../enclave/public-debug-artifacts';
+import { PublicEnclaveOperationRecorder, type PublicEnclaveOperationStage } from '../enclave/public-debug-events';
 import { DurableCloudHypervisorCleanupRegistry } from './cleanup-registry';
 import {
   assertBoundedEnclaveStorage, mountBoundedEnclaveStorage, unmountBoundedEnclaveStorage,
@@ -372,19 +375,50 @@ export class CloudHypervisorHostEnclaveExecutorBackend implements HostEnclaveExe
       diagnostic.publish,
       (failedReport, _id, error) => diagnostic.classifyFailure(failedReport, error),
     );
-    const check = <T>(id: Parameters<HostPreflightReporter['check']>[0], operation: () => Promise<T> | T) =>
-      diagnostic.check(report, id, operation);
+    const publicOperations = this.options.publicDebugArtifactDirectory ? new PublicEnclaveOperationRecorder() : undefined;
+    const operationStage = (id: string): PublicEnclaveOperationStage => {
+      if (['policy', 'input-staging', 'export-plan'].includes(id)) return 'authority-handoff';
+      if (['snapshot', 'snapshot-digest', 'workload-profile'].includes(id)) return 'storage-probe';
+      if (id === 'manager-create') return 'workload-create';
+      if (['manager-start', 'instance-start'].includes(id)) return 'workload-start';
+      if (id === 'guest-execute') return 'workload-exit';
+      if (id === 'result-read') return 'output-validation';
+      return 'storage-preparation';
+    };
+    const check = <T>(id: Parameters<HostPreflightReporter['check']>[0], operation: () => Promise<T> | T) => {
+      const run = () => diagnostic.check(report, id, operation);
+      return publicOperations ? publicOperations.check(operationStage(id), run) : run();
+    };
+    const cleanupOperation = <T>(operation: () => Promise<T>) =>
+      publicOperations ? publicOperations.check('cleanup', operation, true) : operation();
     const role: CloudHypervisorEnclaveRole = plan.executorKind;
     const agentPolicies = this.options.agentPolicies;
     const rawAgentPolicy = agentPolicies &&
       Object.prototype.hasOwnProperty.call(agentPolicies, plan.entryId)
       ? agentPolicies[plan.entryId]
       : undefined;
-    const policy = await check('policy', () => {
+    let policy: HostExecutorAgentPolicy | undefined;
+    try { policy = await check('policy', () => {
       const normalized = role === 'agent' ? normalizeAgentPolicy(rawAgentPolicy, plan.timeoutMs) : undefined;
       assertGithubCapabilityLifetime(normalized, plan.timeoutMs);
       return normalized;
-    });
+    }); } catch (error) {
+      if (!publicOperations) throw error;
+      try {
+        await (this.dependencies.preservePublicArtifacts ?? preservePublicEnclaveArtifacts)({
+          directory: path.join(this.options.publicDebugArtifactDirectory!, plan.runId, plan.invocationId),
+          protectedRoot: this.options.publicDebugArtifactProtectedRoot!,
+          stdout: { status: 'unavailable' }, stderr: { status: 'unavailable' }, session: { status: 'unavailable' },
+          secrets: [], dependencies: resolveCloudHypervisorManagerDependencies(this.options.managerDependencies),
+          envelope: {
+            version: 1, runId: plan.runId, invocationId: plan.invocationId, entryId: plan.entryId,
+            executorKind: role, runtime: 'cloud-hypervisor', stage: 'setup', failure: 'setup-failed',
+            exitCode: null, workloadStopped: true, workloadLaunched: false, ...publicOperations.snapshot(),
+          },
+        });
+      } catch { return { outcome: 'executor-failure', cleanupComplete: false }; }
+      return { outcome: 'executor-failure' };
+    }
     const verifiedRootfs = this.options.enclaveArtifacts.rootfs[
       this.options.enclaveArtifacts.manifest.schemaVersion === 2 ? 'script' : role
     ];
@@ -406,6 +440,10 @@ export class CloudHypervisorHostEnclaveExecutorBackend implements HostEnclaveExe
     let outcome: HostExecutorBackendResult = { outcome: 'executor-failure' };
     let guestWorkloadFailed = false;
     let cleanupError: unknown;
+    let publicArtifact: Parameters<typeof preservePublicEnclaveArtifacts>[0] | undefined;
+    let publicStage: PublicEnclaveStage = 'setup';
+    let publicFailure: PublicEnclaveFailure = 'setup-failed';
+    let workloadExitCode: number | null = null;
     const pendingWork = new Set<Promise<unknown>>();
     let filesystemCleanupPromise: Promise<void> | undefined;
     const runId = hostExecutorVmRunId(plan);
@@ -489,6 +527,7 @@ export class CloudHypervisorHostEnclaveExecutorBackend implements HostEnclaveExe
         this.options.preflight.tools,
         async () => {
           resourceJournal = await this.dependencies.createResourceJournal(this.options.runState, plan, runId);
+          if (this.options.publicDebugArtifactDirectory) await resourceJournal.publicDebugRetention?.(true);
           diagnostic.resourcePublished(this.options.runState, plan);
           if (this.dependencies.prepareInvocationStorage) {
             invocationStorage = await this.dependencies.prepareInvocationStorage(
@@ -602,8 +641,12 @@ export class CloudHypervisorHostEnclaveExecutorBackend implements HostEnclaveExe
         debugDirectory
           ? {
               ...resolveCloudHypervisorManagerDependencies(managerDependencies),
-              enclaveDebugArtifactDirectory: path.join(debugDirectory, runId),
+              enclaveDebugArtifactDirectory: path.join(debugDirectory, plan.runId, plan.invocationId),
               enclaveDebugArtifactProtectedRoot: this.options.publicDebugArtifactProtectedRoot,
+              enclaveDebugSecrets: policy ? [
+                policy.githubBearer ?? '', policy.githubAgentId ?? '', policy.modelBudgetSecret ?? '',
+                agentEnvironment(policy, plan).COPILOT_TOKEN,
+              ] : [],
             }
           : managerDependencies,
         report.fork('vm-launch'),
@@ -615,6 +658,8 @@ export class CloudHypervisorHostEnclaveExecutorBackend implements HostEnclaveExe
       await check('instance-start', () => raceInterruption(trackFilesystemWork(manager!.startInstance())));
       if (filesystemState.aborted) throw new Error('Host executor invocation was cancelled');
       assertGithubCapabilityLifetime(policy, plan.timeoutMs);
+      publicStage = 'execution';
+      publicFailure = 'execution-exception';
       const executionResult = await check('guest-execute', () => raceInterruption(manager!.execute({
         argv: [CLOUD_HYPERVISOR_ENCLAVE_ENTRYPOINTS[role]],
         cwd: '/',
@@ -624,7 +669,7 @@ export class CloudHypervisorHostEnclaveExecutorBackend implements HostEnclaveExe
         env: role === 'agent' && policy ? {
           ...agentEnvironment(policy, plan),
           ...(debugDirectory ? { AWF_ENCLAVE_AGENT_DEBUG_RAW_SESSION_LOGS: 'true' } : {}),
-        } : {},
+        } : debugDirectory ? { AWF_ENCLAVE_SCRIPT_DEBUG_PROGRESS: 'true' } : {},
         onDiagnostics: diagnostic.guestExecution,
         ...(role === 'agent' ? { stderr: wrapperStderr } : {}),
       }).catch((error: unknown) => {
@@ -632,6 +677,8 @@ export class CloudHypervisorHostEnclaveExecutorBackend implements HostEnclaveExe
         throw reason ? markHostPreflightError(error, reason) : error;
       })));
       diagnostic.milestone('guest-complete');
+      workloadExitCode = executionResult.exitCode;
+      publicFailure = executionResult.exitCode === 0 && executionResult.signal === null ? 'none' : 'workload-exit';
       if (filesystemState.timedOut || executionResult.timedOut) {
         diagnostic.fail(report, 'guest-execute', markHostPreflightError(
           new Error('Host executor invocation timed out'), 'invocation-timeout'));
@@ -641,6 +688,7 @@ export class CloudHypervisorHostEnclaveExecutorBackend implements HostEnclaveExe
           new Error('Host executor invocation was cancelled'), 'invocation-cancelled'));
         outcome = { outcome: 'cancelled' };
       } else if (executionResult.exitCode !== 0 || executionResult.signal !== null) {
+        publicOperations?.fail('workload-exit', undefined, false, 'workload-exit');
         diagnostic.fail(report, 'guest-execute', markHostPreflightError(
           new Error('Host executor guest command failed'), 'command-failed'));
         outcome = { outcome: 'executor-failure' };
@@ -649,9 +697,9 @@ export class CloudHypervisorHostEnclaveExecutorBackend implements HostEnclaveExe
         // Result reads require the VM to have stopped, but cleanup failures
         // must remain distinct from the invocation's original failure.
         const cleanupReport = report.fork('host-invocation-cleanup');
-        await diagnostic.check(cleanupReport, 'manager-stop', () => raceInterruption(stopManager()));
+        await cleanupOperation(() => diagnostic.check(cleanupReport, 'manager-stop', () => raceInterruption(stopManager())));
         managerStopped = true;
-        await diagnostic.check(cleanupReport, 'manager-record', () => raceInterruption(manager!.completeCleanupRecord()));
+        await cleanupOperation(() => diagnostic.check(cleanupReport, 'manager-record', () => raceInterruption(manager!.completeCleanupRecord())));
         if (filesystemState.timedOut || filesystemState.aborted || signal.aborted) {
           outcome = filesystemState.timedOut ? { outcome: 'timeout' } : { outcome: 'cancelled' };
         } else {
@@ -660,6 +708,8 @@ export class CloudHypervisorHostEnclaveExecutorBackend implements HostEnclaveExe
             ? policy?.maxOutputBytes ?? HOST_EXECUTOR_MAX_RESULT_BYTES
             : HOST_EXECUTOR_MAX_RESULT_BYTES;
           diagnostic.milestone('result-read-start');
+          publicStage = 'result';
+          publicFailure = 'result-invalid';
           const resultValue = await check('result-read', () => raceInterruption(readBoundedCloudHypervisorEnclaveResult(
             outputPath,
             plan.schema,
@@ -670,8 +720,13 @@ export class CloudHypervisorHostEnclaveExecutorBackend implements HostEnclaveExe
             ? { outcome: 'schema-failure' }
             : { outcome: 'success', result: resultValue };
           if (resultValue === undefined) {
+            publicOperations?.fail('output-validation', undefined, false, 'result-invalid');
             diagnostic.fail(report, 'result-read', markHostPreflightError(
               new Error('Host executor result is invalid'), 'result-invalid'));
+          }
+          if (resultValue !== undefined) {
+            publicStage = 'complete';
+            publicFailure = 'none';
           }
         }
       }
@@ -687,8 +742,10 @@ export class CloudHypervisorHostEnclaveExecutorBackend implements HostEnclaveExe
       signal.removeEventListener('abort', abortManager);
       clearTimeout(deadline);
       const cleanupReport = report.fork('host-invocation-cleanup');
-      const cleanupCheck = <T>(id: Parameters<HostPreflightReporter['check']>[0], operation: () => Promise<T>) =>
-        diagnostic.check(cleanupReport, id, operation);
+      const cleanupCheck = <T>(id: Parameters<HostPreflightReporter['check']>[0], operation: () => Promise<T>) => {
+        const run = () => diagnostic.check(cleanupReport, id, operation);
+        return cleanupOperation(run);
+      };
       // Interrupted staging/startup can still create resources. Drain every
       // such operation before removing exports or reporting terminal.
       await cleanupCheck('pending-work', () => Promise.allSettled([...pendingWork]));
@@ -713,7 +770,7 @@ export class CloudHypervisorHostEnclaveExecutorBackend implements HostEnclaveExe
             : error;
         }
       }
-      if (role === 'agent' && managerStopped && filesystemState.mounted) {
+      if (role === 'agent' && (managerStopped || !manager) && filesystemState.mounted) {
         try {
           if (stderrBytes) {
             diagnostic.guestFileOperations(projectEnclaveSessionDiagnostics(Buffer.concat(stderrChunks)));
@@ -725,7 +782,7 @@ export class CloudHypervisorHostEnclaveExecutorBackend implements HostEnclaveExe
             undefined,
             this.options.publicDebugArtifactDirectory
               ? (contents) => (dependencies.preservePublicSession ?? preservePublicEnclaveSession)(
-                  path.join(this.options.publicDebugArtifactDirectory!, runId),
+                  path.join(this.options.publicDebugArtifactDirectory!, plan.runId, plan.invocationId),
                   this.options.publicDebugArtifactProtectedRoot!,
                   contents,
                   policy ? [
@@ -739,11 +796,55 @@ export class CloudHypervisorHostEnclaveExecutorBackend implements HostEnclaveExe
               : undefined,
           ));
         } catch (error) {
+          publicOperations?.fail('cleanup', error, true, 'retention-failed');
           diagnostic.guestSession({ status: 'read-failed' });
           cleanupError ??= error;
         }
       } else if (role === 'agent' && manager && !managerStopped) {
         diagnostic.guestSession({ status: 'not-stopped' });
+      }
+      if (this.options.publicDebugArtifactDirectory && (!manager || managerStopped)) {
+        try {
+          await resourceJournal?.publicDebugRetention?.(true);
+          const directory = path.join(this.options.publicDebugArtifactDirectory, plan.runId, plan.invocationId);
+          const [stdout, stderr, session] = await Promise.all([
+            readPublicEnclaveFile(directory, 'stdout.log', 0, 0),
+            readPublicEnclaveFile(directory, 'stderr.log', 0, 0),
+            role === 'agent' ? readPublicEnclaveFile(directory, 'enclave-session.log', 0, 0)
+              : Promise.resolve({ status: 'not-applicable' as const }),
+          ]);
+          const entrypoint = session.status === 'captured' && session.contents
+            ? projectEnclaveSessionDiagnostics(session.contents)
+            : stderr.status === 'captured' && stderr.contents ? projectEnclaveSessionDiagnostics(stderr.contents) : undefined;
+          publicOperations?.event('entrypoint-initialization', entrypoint?.events?.some(event =>
+            event.event === 'progress' && ['runtime-paths-ready', 'preflight-completed', 'engine-started'].includes(String(event.stage)))
+            ? 'succeeded' : 'unavailable');
+          publicArtifact = {
+            directory, protectedRoot: this.options.publicDebugArtifactProtectedRoot!,
+            stdout, stderr, session,
+            secrets: policy ? [
+              policy.githubBearer ?? '', policy.githubAgentId ?? '', policy.modelBudgetSecret ?? '',
+              agentEnvironment(policy, plan).COPILOT_TOKEN,
+            ] : [],
+            envelope: {
+              version: 1, runId: plan.runId, invocationId: plan.invocationId, entryId: plan.entryId,
+              executorKind: role, runtime: 'cloud-hypervisor', workloadStopped: true,
+              stage: publicStage, failure: outcome.outcome === 'timeout' ? 'timeout'
+                : outcome.outcome === 'cancelled' ? 'cancelled' : publicFailure, exitCode: workloadExitCode,
+              workloadLaunched: Boolean(manager),
+              ...publicOperations?.snapshot(),
+              vmCountersAvailable: manager?.publicDiagnosticEvidence?.().vmCountersAvailable ?? false,
+            },
+            dependencies: resolveCloudHypervisorManagerDependencies(
+              invocationStorage?.managerDependencies ?? this.options.managerDependencies,
+            ),
+          };
+          await (dependencies.preservePublicArtifacts ?? preservePublicEnclaveArtifacts)(publicArtifact);
+          if (cleanupError === undefined) await resourceJournal?.publicDebugRetention?.(false);
+        } catch (error) {
+          publicOperations?.fail('cleanup', error, true, 'retention-failed');
+          cleanupError ??= error;
+        }
       }
       if (snapshot && (!manager || managerStopped) && cleanupError === undefined) {
         try {
@@ -767,7 +868,7 @@ export class CloudHypervisorHostEnclaveExecutorBackend implements HostEnclaveExe
             ? new Error(`${String(cleanupError)}; ${String(error)}`)
             : error;
         }
-      } else if (filesystemState.invocationDirectoryCreated && !filesystemState.mounted) {
+      } else if (cleanupError === undefined && filesystemState.invocationDirectoryCreated && !filesystemState.mounted) {
         try {
           await cleanupCheck('filesystem-remove', async () => {
             await resourceJournal?.verifyDirectory();
@@ -776,6 +877,14 @@ export class CloudHypervisorHostEnclaveExecutorBackend implements HostEnclaveExe
         } catch (error) {
           cleanupError = error;
         }
+      }
+      if (cleanupError !== undefined && publicArtifact && publicOperations?.cleanupFailure) {
+        try {
+          await (dependencies.preservePublicArtifacts ?? preservePublicEnclaveArtifacts)({
+            ...publicArtifact,
+            envelope: { ...publicArtifact.envelope, ...publicOperations.snapshot() },
+          });
+        } catch { /* The original retained evidence or the invocation source is preserved. */ }
       }
     }
     diagnostic.milestone('cleanup-complete', cleanupError === undefined ? outcome.outcome : 'executor-failure');

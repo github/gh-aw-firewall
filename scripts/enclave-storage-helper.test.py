@@ -102,6 +102,42 @@ class HelperPolicy(unittest.TestCase):
         self.assertEqual(list(self.state_path.iterdir()), [])
         self.assertEqual(self.invoke("unmount"), {"clean": True})
 
+    def test_public_capture_files_are_fixed_and_reclaim_is_restartable(self):
+        self.invoke("mount")
+        for name in ("stdout.log", "stderr.log"):
+            with self.subTest(name=name):
+                target = Path(self.target) / name
+                target.write_text("raw fixture evidence")
+                target.chmod(0o600)
+                self.assertEqual(self.invoke("own", name, "65534", "65534"), {"owned": True})
+                self.assertEqual(self.invoke("reclaim", name), {"owned": True})
+                self.assertEqual(self.invoke("reclaim", name), {"owned": True})
+                self.assertEqual(target.stat().st_mode & 0o777, 0o600)
+        with self.assertRaises(ValueError):
+            self.invoke("reclaim", "agent/credential")
+        self.assertEqual(self.invoke("unmount"), {"clean": True})
+        self.assertEqual(os.listdir(self.state), [])
+
+    def test_public_capture_reclaim_denies_replaced_inode_and_links(self):
+        self.invoke("mount")
+        target = Path(self.target) / "stdout.log"
+        target.write_text("")
+        target.chmod(0o600)
+        self.invoke("own", "stdout.log", "65534", "65534")
+        target.rename(Path(self.target) / "original")
+        target.write_text("")
+        target.chmod(0o600)
+        with self.assertRaises(ValueError):
+            self.invoke("reclaim", "stdout.log")
+        target.unlink()
+        target.symlink_to(Path(self.target) / "original")
+        with self.assertRaises(OSError):
+            self.invoke("reclaim", "stdout.log")
+        target.unlink()
+        os.link(Path(self.target) / "original", target)
+        with self.assertRaises(ValueError):
+            self.invoke("reclaim", "stdout.log")
+
     def test_state_publication_is_exclusive_and_reconciles_abandoned_staging(self):
         storage.write_json(self.state, "entry", {"bytes": 65536})
         with self.assertRaises(FileExistsError):

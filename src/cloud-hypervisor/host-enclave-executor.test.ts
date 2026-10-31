@@ -18,6 +18,7 @@ import {
 } from './host-enclave-executor';
 import { agentEnvironment, stageInvocationInputs } from './enclave-invocation-staging';
 import { readEnclaveSessionDiagnostics } from './enclave-session-diagnostics';
+import { expectPublicEnclaveAdapterConformance } from '../enclave/public-debug-conformance.test-utils';
 import {
   assertEnclaveStartupChecklistComplete, getEnclaveStartupProgress, updateEnclaveStartupProgress,
 } from '../enclave/startup-progress';
@@ -335,6 +336,7 @@ describe('readBoundedCloudHypervisorEnclaveResult', () => {
       let stagedHandoff: { bearer: string } | undefined;
       const sessionReads: Array<{ stopped: boolean; unmounted: boolean }> = [];
       const preservePublicSession = jest.fn().mockResolvedValue(undefined);
+      const preservePublicArtifacts = jest.fn().mockResolvedValue(undefined);
       const backendOptions = {
         runState,
         config,
@@ -349,6 +351,7 @@ describe('readBoundedCloudHypervisorEnclaveResult', () => {
       };
       const dependencies: Partial<HostEnclaveExecutorDependencies> = {
         preservePublicSession,
+        preservePublicArtifacts,
         readSessionDiagnostics: async (directory, _uid, _gid, retain) => {
           const runtime = path.join(directory, 'runtime');
           const dir = await fs.stat(runtime);
@@ -407,7 +410,7 @@ describe('readBoundedCloudHypervisorEnclaveResult', () => {
           expect(profile.rawOutput).toBe(publicDebug ? 'capture' : 'discard');
           if (publicDebug) {
             expect(managerDependencies?.enclaveDebugArtifactDirectory).toMatch(
-              /^\/protected\/cloud-hypervisor\/[a-f0-9]+$/,
+              /^\/protected\/cloud-hypervisor\/[a-f0-9]+\/[a-f0-9]+$/,
             );
             expect(managerDependencies?.enclaveDebugArtifactProtectedRoot).toBe('/protected');
             expect(profile.guest?.exports.every((entry) => !entry.source.startsWith('/protected'))).toBe(true);
@@ -512,6 +515,11 @@ describe('readBoundedCloudHypervisorEnclaveResult', () => {
             ? { outcome: 'success', result: 'true' }
             : { outcome: 'timeout' },
         );
+        if (publicDebug) {
+          const envelope = preservePublicArtifacts.mock.calls[preservePublicArtifacts.mock.calls.length - 1][0].envelope;
+          expectPublicEnclaveAdapterConformance(envelope, 'cloud-hypervisor');
+          expect(envelope).toMatchObject({ exitCode: 0, failure: 'none' });
+        } else expect(preservePublicArtifacts).not.toHaveBeenCalled();
         expect(mountedIdentity).toEqual({ uid: 65534, gid: 65534 });
         expect(managerBinary).toBe('/snapshot/cloud-hypervisor');
         if (expectedOutcome === 'success') {
@@ -572,6 +580,12 @@ describe('readBoundedCloudHypervisorEnclaveResult', () => {
           });
           await expect(failingCleanupBackend.execute(plan, new AbortController().signal))
             .resolves.toEqual({ outcome: 'executor-failure', cleanupComplete: false });
+          if (publicDebug) {
+            const envelope = preservePublicArtifacts.mock.calls[preservePublicArtifacts.mock.calls.length - 1][0].envelope;
+            expectPublicEnclaveAdapterConformance(envelope, 'cloud-hypervisor');
+            expect(envelope.cleanupFailure).toMatchObject({ stage: 'cleanup', category: 'host-exception' });
+            expect(envelope.primaryFailure).toMatchObject({ stage: 'workload-exit', category: 'workload-exit' });
+          }
           await failingCleanupBackend.close();
           await fs.rm(invocationHostDir, { recursive: true, force: true });
 
@@ -671,7 +685,7 @@ describe('readBoundedCloudHypervisorEnclaveResult', () => {
             .toBe(publicDebug ? 'true' : undefined);
           if (publicDebug) {
             expect(preservePublicSession).toHaveBeenCalledWith(
-              expect.stringMatching(/^\/protected\/cloud-hypervisor\/[a-f0-9]+$/),
+              expect.stringMatching(/^\/protected\/cloud-hypervisor\/[a-f0-9]+\/[a-f0-9]+$/),
               '/protected',
               expect.stringContaining('PRIVATE_SESSION_TOKEN'),
               expect.arrayContaining([agentPolicy.githubBearer]),
@@ -715,6 +729,12 @@ describe('readBoundedCloudHypervisorEnclaveResult', () => {
           expect(failed.milestones).not.toContainEqual(expect.objectContaining({ phase: 'guest-complete' }));
           expect(failed.guestSession).toMatchObject({ status: 'captured' });
           expect(preservePublicSession).toHaveBeenCalledTimes(publicDebug ? 2 : 0);
+          if (publicDebug) {
+            const envelope = preservePublicArtifacts.mock.calls[preservePublicArtifacts.mock.calls.length - 1][0].envelope;
+            expectPublicEnclaveAdapterConformance(envelope, 'cloud-hypervisor');
+            expect(envelope).toMatchObject({ exitCode: null, failure: 'execution-exception' });
+            expect(envelope.primaryFailure).toMatchObject({ stage: 'workload-exit', category: 'host-exception' });
+          }
           await expect(fs.stat(invocationHostDir)).rejects.toMatchObject({ code: 'ENOENT' });
           managerExecuteError = false;
         } else if (expectedOutcome === 'success') {

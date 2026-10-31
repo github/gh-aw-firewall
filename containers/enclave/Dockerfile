@@ -9,6 +9,7 @@ RUN apk upgrade --no-cache \
     && test -x /usr/local/bin/python3 \
     && ln -s /usr/local/bin/python3 /usr/bin/python3
 COPY enclave/script-entrypoint.py /usr/local/bin/run-enclave-script
+COPY enclave/public_debug_capture.py /usr/local/bin/public_debug_capture.py
 RUN chmod 0555 /usr/local/bin/run-enclave-script \
     && mkdir -p /script /awf/seed
 COPY trust/ /opt/awf/trust/
@@ -65,6 +66,7 @@ RUN sed -i '1c#!/usr/local/bin/node' /usr/local/lib/node_modules/@github/copilot
     && rm -f /usr/bin/pebble \
     && rm -rf /root/.cache/copilot
 COPY enclave/agent-entrypoint.py /usr/local/bin/run-enclave-agent
+COPY enclave/public_debug_capture.py /usr/local/bin/public_debug_capture.py
 RUN chmod 0555 /usr/local/bin/run-enclave-agent \
     && python3 -m py_compile /usr/local/bin/run-enclave-agent \
     && rm -rf /usr/local/bin/__pycache__ \

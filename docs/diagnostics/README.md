@@ -110,7 +110,21 @@ separate invocation destination outside the private allocation. No registry
 finding matches the v0.28.43 failure yet; a release-pinned observation is needed
 before claiming a root cause.
 
-For an eligible attested, static public-only Cloud Hypervisor enclave, inspect
+For eligible, positively verified static public-only default Docker or attested
+Cloud Hypervisor enclaves, start with the protected `diagnostics.json` invocation
+envelope and its runtime, stage, failure, workload-stop proof, and stream
+availability. Read bounded operation `stages`, the original `primaryFailure`,
+and separate `cleanupFailure`; a succeeded observation is not necessarily
+successful workload execution. `stdout.log`, `stderr.log`, and `enclave-session.log` are bounded,
+credential-redacted host-only evidence, not canonical results or ordinary audit
+artifacts. Setup failure can precede any workload exit code or session; explicit
+missing/unavailable evidence must not be interpreted as success. Check retention
+and cleanup failures separately. Top-level `enclaveDebugPublic: false` opts out;
+private, mixed, dynamic, custom-image and unsupported-runtime scopes cannot opt
+in. See [protected paths and controlled sharing](../cloud-hypervisor-foundation.md#public-fixture-enclave-debugging);
+never upload the whole host-state, work, journal, or proxy-log tree.
+
+For an eligible attested, static public-only Cloud Hypervisor enclave, additionally inspect
 the protected run-cumulative `enclave-proxy-events.jsonl` and closed-vocabulary
 `enclave-proxy-container.log`, separately from per-invocation `enclave-session.log`.
 Proxy projections are retained under the run's protected journal identity even

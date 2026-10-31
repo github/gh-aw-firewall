@@ -231,6 +231,8 @@ export interface RuntimeOptions {
    * GitHub-hosted Ubuntu x86_64 KVM runners.
    */
   cloudHypervisor?: CloudHypervisorOptions;
+  /** Host-only diagnostics for verified static public enclaves; false disables automatic capture. */
+  enclaveDebugPublic?: boolean;
 
   /**
    * NVX preview microVM runtime settings.

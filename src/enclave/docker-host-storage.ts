@@ -192,5 +192,19 @@ export async function ownDockerHostStorageFile(
       name, ...(reclaim ? [] : [String(uid), String(gid)]),
     ]) as { owned?: boolean };
     if (result.owned !== true) throw new Error('Docker enclave ownership was not proven');
-  } else if (!reclaim) fs.chownSync(path.join(identity.target, name), uid, gid);
+  } else {
+    const filename = path.join(identity.target, name);
+    const fd = fs.openSync(filename, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW | fs.constants.O_NONBLOCK
+      | (name === 'agent' ? fs.constants.O_DIRECTORY : 0));
+    try {
+      const info = fs.fstatSync(fd);
+      if (info.dev !== fs.statSync(identity.target).dev
+        || (name === 'agent' ? !info.isDirectory() : !info.isFile() || info.nlink !== 1)
+        || (reclaim && info.uid !== uid && info.uid !== process.getuid?.())) {
+        throw new Error('Docker enclave ownership target is unsafe');
+      }
+      fs.fchownSync(fd, reclaim ? process.getuid?.() ?? 0 : uid, reclaim ? process.getgid?.() ?? 0 : gid);
+      if (reclaim) fs.fchmodSync(fd, 0o600);
+    } finally { fs.closeSync(fd); }
+  }
 }
