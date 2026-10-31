@@ -1168,11 +1168,22 @@ describe('smoke enclave issues workflow', () => {
     };
     const command = frontmatter.sandbox.agent.command;
     expect(command).toBe(
-      'sudo --preserve-env=AWF_REFLECT_ENABLED,COPILOT_AGENT_RUNNER_TYPE,COPILOT_DUMMY_BYOK,COPILOT_GITHUB_TOKEN,COPILOT_MODEL,GH_AW_LLM_PROVIDER,GH_AW_MAX_AI_CREDITS,GH_AW_MAX_TURNS,GH_AW_PHASE,GH_AW_PROMPT,GH_AW_SAFE_OUTPUTS,GH_AW_TIMEOUT_MINUTES,GH_AW_VERSION,GITHUB_API_URL,GITHUB_AW,GITHUB_COPILOT_INTEGRATION_ID,GITHUB_COPILOT_PROMPT_MODE_EXTENSIONS,GITHUB_HEAD_REF,GITHUB_REF_NAME,GITHUB_SERVER_URL,GITHUB_STEP_SUMMARY,GITHUB_WORKSPACE,GIT_AUTHOR_EMAIL,GIT_AUTHOR_NAME,GIT_COMMITTER_EMAIL,GIT_COMMITTER_NAME,MCP_GATEWAY_API_KEY,GH_TOKEN,RUNNER_TEMP,RUNNER_TOOL_CACHE,S2STOKENS,TRACEPARENT,AWF_ENCLAVE_MCP_CAPABILITY,GH_AW_AWF_EXECUTION_COMPONENT,GH_AW_AWF_EXECUTION_EVIDENCE_FILE,GH_AW_AWF_ENGINE_NAME,GH_AW_AWF_HARNESS_MARKER,GH_AW_AWF_LOG_FILE,GH_AW_AWF_ATTEMPT_LOG_NAME,GH_AW_NODE_BIN /usr/local/bin/awf'
+      'sudo --preserve-env=AWF_REFLECT_ENABLED,COPILOT_AGENT_RUNNER_TYPE,COPILOT_DUMMY_BYOK,COPILOT_GITHUB_TOKEN,COPILOT_MODEL,GH_AW_LLM_PROVIDER,GH_AW_MAX_AI_CREDITS,GH_AW_MAX_TURNS,GH_AW_PHASE,GH_AW_PROMPT,GH_AW_SAFE_OUTPUTS,GH_AW_TIMEOUT_MINUTES,GH_AW_VERSION,GITHUB_API_URL,GITHUB_AW,GITHUB_COPILOT_INTEGRATION_ID,GITHUB_COPILOT_PROMPT_MODE_EXTENSIONS,GITHUB_HEAD_REF,GITHUB_REF_NAME,GITHUB_SERVER_URL,GITHUB_STEP_SUMMARY,GITHUB_WORKSPACE,GIT_AUTHOR_EMAIL,GIT_AUTHOR_NAME,GIT_COMMITTER_EMAIL,GIT_COMMITTER_NAME,MCP_GATEWAY_API_KEY,GH_TOKEN,RUNNER_TEMP,RUNNER_TOOL_CACHE,S2STOKENS,TRACEPARENT,AWF_ENCLAVE_MCP_CAPABILITY,AWF_ENCLAVE_MCP_GATEWAY_CONTAINER,AWF_ENCLAVE_MCP_GATEWAY_ENDPOINT,AWF_ENCLAVE_MCP_GATEWAY_IDENTITY,AWF_ENCLAVE_MCP_READINESS_TIMEOUT_MS,AWF_ENCLAVE_GITHUB_MCP_AGENT_ID,GH_AW_AWF_EXECUTION_COMPONENT,GH_AW_AWF_EXECUTION_EVIDENCE_FILE,GH_AW_AWF_ENGINE_NAME,GH_AW_AWF_HARNESS_MARKER,GH_AW_AWF_LOG_FILE,GH_AW_AWF_ATTEMPT_LOG_NAME,GH_AW_NODE_BIN /usr/local/bin/awf'
     );
     expect(lock).toContain(`${command} --config`);
     expect(lock).toContain('COPILOT_GITHUB_TOKEN: ${{ github.token }}');
     expect(lock).toContain('--exclude-env COPILOT_GITHUB_TOKEN');
+    const handoff = {
+      AWF_ENCLAVE_MCP_GATEWAY_CONTAINER: 'awmg-mcpg',
+      AWF_ENCLAVE_MCP_GATEWAY_ENDPOINT: 'http://localhost:8080/mcp/awf-enclave',
+      AWF_ENCLAVE_MCP_GATEWAY_IDENTITY: 'gh-aw-test-run',
+      AWF_ENCLAVE_MCP_READINESS_TIMEOUT_MS: '120000',
+      AWF_ENCLAVE_GITHUB_MCP_AGENT_ID: 'synthetic-enclave-agent-identity',
+    };
+    for (const name of Object.keys(handoff)) {
+      expect(lock).toContain(`--exclude-env ${name}`);
+      expect(lock).toContain(`printf '%s=%s\\n' ${name} "$${name}"`);
+    }
 
     const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'enclave-sudo-env-'));
     try {
@@ -1181,6 +1192,7 @@ describe('smoke enclave issues workflow', () => {
       const securePath = '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin';
       fs.writeFileSync(awf, `#!/bin/bash
 printf '%s\\0' "$COPILOT_GITHUB_TOKEN" "$MCP_GATEWAY_API_KEY" "$AWF_ENCLAVE_MCP_CAPABILITY" "$RUNNER_TEMP" "$PATH" "$@"
+printf '%s\\0' ${Object.keys(handoff).map(name => `"$${name}"`).join(' ')}
 `, { mode: 0o700 });
       const script = `sudo() {
   printf '%s\\0' "$@" > ${JSON.stringify(sudoArgs)}
@@ -1203,18 +1215,19 @@ ${command.replace('/usr/local/bin/awf', JSON.stringify(awf))} --config /tmp/awf-
         MCP_GATEWAY_API_KEY: 'synthetic-gateway-credential',
         AWF_ENCLAVE_MCP_CAPABILITY: 'synthetic-enclave-capability',
         RUNNER_TEMP: directory,
+        ...handoff,
       };
       const result = execFileSync('/bin/bash', ['--noprofile', '--norc', '-c', script],
         { env, encoding: 'utf8', timeout: 5000 }).split('\0').slice(0, -1);
       expect(result).toEqual([env.COPILOT_GITHUB_TOKEN, env.MCP_GATEWAY_API_KEY,
         env.AWF_ENCLAVE_MCP_CAPABILITY, env.RUNNER_TEMP, securePath,
-        '--config', '/tmp/awf-config.json']);
+        '--config', '/tmp/awf-config.json', ...Object.values(handoff)]);
       const args = fs.readFileSync(sudoArgs, 'utf8');
       for (const name of Object.keys(env).filter(name => name !== 'PATH')) {
         expect(args.split('\0')[0].slice('--preserve-env='.length).split(',')).toContain(name);
       }
       for (const credential of [env.COPILOT_GITHUB_TOKEN, env.MCP_GATEWAY_API_KEY,
-        env.AWF_ENCLAVE_MCP_CAPABILITY]) {
+        env.AWF_ENCLAVE_MCP_CAPABILITY, env.AWF_ENCLAVE_GITHUB_MCP_AGENT_ID]) {
         expect(args).not.toContain(credential);
       }
       const insecureScript = script.replace(
@@ -1232,6 +1245,7 @@ ${command.replace('/usr/local/bin/awf', JSON.stringify(awf))} --config /tmp/awf-
       const oldResult = execFileSync('/bin/bash', ['--noprofile', '--norc', '-c',
         oldScript], { env, encoding: 'utf8', timeout: 5000 }).split('\0');
       expect(oldResult.slice(0, 4)).toEqual(['', '', '', '']);
+      expect(oldResult.slice(7, 12)).toEqual(['', '', '', '', '']);
     } finally {
       fs.rmSync(directory, { recursive: true, force: true });
     }
