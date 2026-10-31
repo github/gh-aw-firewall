@@ -481,6 +481,11 @@ The workload user still needs filesystem read/traverse permission, and engines
 such as Copilot require their own scope grant (for example, `--add-dir`).
 AWF passes the command through unchanged; it does not add engine scope flags.
 
+When explicit mounts are supplied, AWF emits one advisory about this distinction.
+The advisory is not a scope check: AWF cannot infer a wrapper's subprocess policy
+from shell command text, and emits it even when scope has already been granted.
+It does not change the command, permissions, or exit status.
+
 For example, mount staged inputs read-only and grant Copilot the
 **sandbox-visible destination**, not a different host source path:
 

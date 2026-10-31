@@ -66,6 +66,9 @@ export function validateAgentOptions(options: Record<string, unknown>): AgentOpt
     }
     volumeMounts = parsed.mounts;
     logger.debug(`Parsed ${volumeMounts.length} volume mount(s)`);
+    logger.warn(
+      '--mount provides filesystem visibility, not engine file scope. Grant the sandbox-visible input directory to the engine subprocess (e.g. Copilot --add-dir). Detectors must fail closed on empty or unreadable inputs; AWF does not verify detector input access or verdicts.',
+    );
   }
 
   // --- SSL Bump URL patterns -----------------------------------------------
