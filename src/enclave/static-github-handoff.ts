@@ -27,7 +27,7 @@ export interface StaticGithubExecutorCapability {
 const capabilities = new WeakMap<WrapperConfig, StaticGithubExecutorCapability>();
 
 function required(config: WrapperConfig): boolean {
-  const agent = config.enclaves?.executors.agent;
+  const agent = config.enclaves?.executors?.agent;
   return agent?.enabled === true && agent.runtime === 'cloud-hypervisor'
     && resolveEnclaveAgentGithubAllowedTools(agent) !== undefined;
 }
@@ -45,8 +45,12 @@ export function takeStaticGithubExecutorCapability(
   now = Date.now(),
 ): void {
   const raw = env[ENCLAVE_GITHUB_EXECUTOR_CAPABILITY_ENV];
+  const handoffAgentId = env[ENCLAVE_GITHUB_MCP_AGENT_ID_ENV];
   delete env[ENCLAVE_GITHUB_EXECUTOR_CAPABILITY_ENV];
+  if (env !== process.env) delete process.env[ENCLAVE_GITHUB_EXECUTOR_CAPABILITY_ENV];
   if (!required(config)) return;
+  delete env[ENCLAVE_GITHUB_MCP_AGENT_ID_ENV];
+  if (env !== process.env) delete process.env[ENCLAVE_GITHUB_MCP_AGENT_ID_ENV];
   if (raw === undefined && capabilities.has(config)) return;
   capabilities.delete(config);
   const fail = (): never => {
@@ -76,7 +80,7 @@ export function takeStaticGithubExecutorCapability(
     || value.gatewayIdentity !== env[ENCLAVE_MCP_GATEWAY_IDENTITY_ENV]
     || typeof value.agentId !== 'string'
     || !/^[A-Za-z0-9_-]{32,128}$/.test(value.agentId)
-    || value.agentId !== env[ENCLAVE_GITHUB_MCP_AGENT_ID_ENV]
+    || value.agentId !== handoffAgentId
     || typeof value.bearer !== 'string' || !/^[\x21-\x7e]{32,512}$/.test(value.bearer)
     || /^(?:github_pat_|gh[pousr]_)/.test(value.bearer)
     || value.bearer === value.agentId || value.bearer === env.MCP_GATEWAY_API_KEY

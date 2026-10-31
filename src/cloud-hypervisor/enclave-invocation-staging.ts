@@ -35,7 +35,6 @@ import {
   getGithubTokenEnvValues,
 } from '../services/agent-environment/github-token-isolation';
 
-const GITHUB_PROFILE = 'issues-read-v1';
 const GITHUB_ENDPOINT = `http://${ENCLAVE_AGENT_GITHUB_MCP_IP}:${ENCLAVE_GITHUB_MCP_PORT}/mcp/github`;
 const OUTPUT_NAME = 'out';
 
@@ -178,11 +177,10 @@ export function agentEnvironment(
     AWF_ENCLAVE_AGENT_DEADLINE_SECONDS: String(Math.max(1,
       Math.floor((plan.timeoutMs + HOST_EXECUTOR_TIMEOUT_GRACE_MS) / 1000))),
     AWF_ENCLAVE_AGENT_API_ENDPOINT: `http://${ENCLAVE_AGENT_API_PROXY_IP}:10002`,
-    AWF_ENCLAVE_AGENT_GITHUB_ENABLED: String(policy.githubAgentId !== undefined),
-    ...(policy.githubAgentId !== undefined ? {
+    AWF_ENCLAVE_AGENT_GITHUB_ENABLED: String(policy.githubBearer !== undefined),
+    ...(policy.githubBearer !== undefined ? {
       AWF_ENCLAVE_AGENT_GITHUB_AUTH_MODE: 'scoped-bearer',
       AWF_ENCLAVE_AGENT_GITHUB_ALLOWED_TOOLS: JSON.stringify(policy.githubAllowedTools),
-      AWF_ENCLAVE_AGENT_GITHUB_PROFILE: GITHUB_PROFILE,
       AWF_ENCLAVE_AGENT_GITHUB_MCP_URL: GITHUB_ENDPOINT,
     } : {}),
     ...(policy.maxModelRequests !== undefined

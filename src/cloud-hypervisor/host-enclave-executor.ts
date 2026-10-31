@@ -256,7 +256,7 @@ function createWorkloadProfile(
       engine: 'copilot',
       profile: agentPolicy.profile,
     },
-    ...(agentPolicy.githubAgentId !== undefined
+    ...(agentPolicy.githubBearer !== undefined
       ? { githubDataPlane: { ip: ENCLAVE_AGENT_GITHUB_MCP_IP, port: ENCLAVE_GITHUB_MCP_PORT } }
       : {}),
   });

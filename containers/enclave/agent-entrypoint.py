@@ -615,6 +615,7 @@ def run_preflight(copilot_logs: Path) -> bool:
             safe_os_error(error, f"preflight-{identifier}")
             valid = False
     if os.environ.get("AWF_ENCLAVE_AGENT_GITHUB_ENABLED") == "true" \
+            and not dynamic \
             and os.environ.get("AWF_ENCLAVE_AGENT_GITHUB_AUTH_MODE") != "scoped-bearer":
         error = preflight_path(
             "github-agent-id",
@@ -785,12 +786,13 @@ def configure_scoped_github_mcp() -> None:
     bearer = bearer_bytes.decode("ascii").strip()
     if not re.fullmatch(r"[\x21-\x7e]{16,512}", bearer):
         raise ValueError("invalid scoped GitHub MCP bearer")
+    os.environ["AWF_GITHUB_MCP_AUTHORIZATION"] = bearer
     config = {
         "mcpServers": {
             "github": {
                 "type": "http",
                 "url": endpoint,
-                "headers": {"Authorization": bearer},
+                "headers": {"Authorization": "${AWF_GITHUB_MCP_AUTHORIZATION}"},
                 "tools": tools,
             }
         }
@@ -816,12 +818,13 @@ def configure_dynamic_github_mcp() -> None:
     bearer = read_file(GITHUB_BEARER_PATH, "github-bearer-read").decode("ascii").strip()
     if not re.fullmatch(r"[\x21-\x7e]{16,512}", bearer):
         raise ValueError("invalid delegated executor bearer")
+    os.environ["AWF_GITHUB_MCP_AUTHORIZATION"] = bearer
     config = {
         "mcpServers": {
             "github": {
                 "type": "http",
                 "url": endpoint,
-                "headers": {"Authorization": bearer},
+                "headers": {"Authorization": "${AWF_GITHUB_MCP_AUTHORIZATION}"},
                 "tools": ["list_issues", "issue_read"],
             }
         }

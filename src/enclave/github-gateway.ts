@@ -121,6 +121,8 @@ function resolveGithubEndpoint(rawEndpoint: string | undefined): URL {
 }
 
 function resolveGithubAgentId(config: WrapperConfig, env: NodeJS.ProcessEnv): string | undefined {
+  const capability = getStaticGithubExecutorCapability(config);
+  if (capability) return capability.agentId;
   if (env[ENCLAVE_GITHUB_MCP_AGENT_ID_ENV]) {
     return env[ENCLAVE_GITHUB_MCP_AGENT_ID_ENV];
   }

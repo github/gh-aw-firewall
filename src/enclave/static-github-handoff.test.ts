@@ -39,7 +39,9 @@ describe('Cloud Hypervisor scoped GitHub compiler handoff', () => {
     const env = environment();
     takeStaticGithubExecutorCapability(config, env, now);
     expect(env[ENCLAVE_GITHUB_EXECUTOR_CAPABILITY_ENV]).toBeUndefined();
+    expect(env.AWF_ENCLAVE_GITHUB_MCP_AGENT_ID).toBeUndefined();
     expect(getStaticGithubExecutorCapability(config, now)).toEqual(capability());
+    expect(getStaticGithubExecutorCapability(config, now)?.agentId).toBe(agentId);
     expect(Object.isFrozen(getStaticGithubExecutorCapability(config, now)?.allowedTools)).toBe(true);
     takeStaticGithubExecutorCapability(config, env, now);
     releaseStaticGithubExecutorCapability(config);

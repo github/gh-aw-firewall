@@ -138,10 +138,12 @@ describe('trusted Cloud Hypervisor enclave lifecycle', () => {
     const capability = getStaticGithubExecutorCapability(config)!;
     await startCloudHypervisorEnclaveLifecycle(config, provider, environment);
     expect(environment.AWF_ENCLAVE_GITHUB_EXECUTOR_CAPABILITY).toBeUndefined();
+    expect(environment.AWF_ENCLAVE_GITHUB_MCP_AGENT_ID).toBeUndefined();
     expect(start.mock.calls[0][0].agentPolicies?.agent).toMatchObject({
-      githubAgentId: capability.agentId, githubBearer: capability.bearer,
+      githubBearer: capability.bearer,
       githubExpiresAt: capability.expiresAt, githubAllowedTools: ['issue_read'],
     });
+    expect(start.mock.calls[0][0].agentPolicies?.agent).not.toHaveProperty('githubAgentId');
     await stopCloudHypervisorEnclaveLifecycle(config);
     expect(() => getStaticGithubExecutorCapability(config)).toThrow(/missing or expired/);
   });

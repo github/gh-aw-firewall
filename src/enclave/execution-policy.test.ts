@@ -69,11 +69,16 @@ describe('backend-neutral enclave execution policy', () => {
 
   it.each([
     { githubAgentId: 'agent' },
-    { githubBearer: 'x'.repeat(32) },
     { githubAgentId: '../agent', githubBearer: 'x'.repeat(32) },
     { githubAgentId: 'agent', githubBearer: 'short' },
     { githubAgentId: 'agent', githubBearer: `${'x'.repeat(32)}\n` },
   ])('rejects partial or malformed GitHub credential handoffs: %j', (credentials) => {
     expect(() => normalizeAgentPolicy({ ...agentPolicy, ...credentials }, 1000)).toThrow(/GitHub/);
+  });
+
+  it('accepts a bearer-only scoped GitHub capability', () => {
+    expect(normalizeAgentPolicy({
+    ...agentPolicy, githubBearer: 'x'.repeat(32),
+    }, 1000)).toMatchObject({ githubBearer: 'x'.repeat(32) });
   });
 });

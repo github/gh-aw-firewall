@@ -52,6 +52,7 @@ import {
   startEnclaveDynamicDelegation,
   stopEnclaveDynamicDelegation,
 } from '../enclave/dynamic-delegation';
+import { takeStaticGithubExecutorCapability } from '../enclave/static-github-handoff';
 import { getStartupDiagnosticPath } from '../logs/startup-diagnostics';
 import { HostPreflightReporter } from '../cloud-hypervisor/host-preflight-progress';
 import {
@@ -596,6 +597,9 @@ export function createMainAction(getOptionValueSource: OptionSourceResolver) {
   };
 
   try {
+    if (config.enclaves?.enabled) {
+      takeStaticGithubExecutorCapability(config, process.env);
+    }
     initializeEnclaveStartupProgress(config, () => {
       const outcome = writeStartupFailureDiagnostic(
         config, new Error('Enclave startup in progress'), 'enclave-startup-progress',

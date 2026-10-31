@@ -65,6 +65,10 @@ import { CloudHypervisorUnsupportedHostError } from '../cloud-hypervisor/errors'
 import { RoutingFailureExitError } from '../routing/bootstrap';
 import { initializeEnclaveStartupProgress, updateEnclaveStartupProgress } from '../enclave/startup-progress';
 import { normalizeEnclavesConfig } from '../parsers/enclave-parser';
+import {
+  ENCLAVE_GITHUB_EXECUTOR_CAPABILITY_ENV,
+  releaseStaticGithubExecutorCapability,
+} from '../enclave/static-github-handoff';
 import * as enclaveMountPolicy from '../enclave/mount-policy';
 
 const {
@@ -393,6 +397,61 @@ describe('createMainAction', () => {
 
       expect(mockedDindProbe.probeSplitFilesystem).not.toHaveBeenCalled();
       expect(mockedDindBootstrap.runDindBootstrap).not.toHaveBeenCalled();
+    });
+
+    it('takes scoped GitHub capability custody before the Docker filesystem probe', async () => {
+      const config = {
+        ...MAIN_ACTION_STUB_CONFIG,
+        enclaves: normalizeEnclavesConfig([{
+          runtime: 'cloud-hypervisor',
+          agent: {
+            model: 'gpt-test',
+            tools: { github: { allowed: ['issue_read'], allowedRepos: ['octo/private'] } },
+          },
+          repos: [{ repo: 'octo/private', sensitivity: 'confidential' }],
+        }]),
+      } as WrapperConfig;
+      const envNames = [
+        ENCLAVE_GITHUB_EXECUTOR_CAPABILITY_ENV,
+        'AWF_ENCLAVE_GITHUB_MCP_AGENT_ID',
+        'AWF_ENCLAVE_MCP_GATEWAY_IDENTITY',
+      ];
+      const previousEnv = Object.fromEntries(envNames.map((name) => [name, process.env[name]]));
+      const agentId = 'a'.repeat(40);
+      const now = Date.now();
+      Object.assign(process.env, {
+        AWF_ENCLAVE_MCP_GATEWAY_IDENTITY: 'compiler-run-123',
+        AWF_ENCLAVE_GITHUB_MCP_AGENT_ID: agentId,
+        [ENCLAVE_GITHUB_EXECUTOR_CAPABILITY_ENV]: JSON.stringify({
+          version: 1,
+          gatewayIdentity: 'compiler-run-123',
+          executor: 'agent',
+          agentId,
+          bearer: 'scoped-executor-capability-for-cli-ordering-test',
+          issuedAt: now - 1000,
+          expiresAt: now + 300_000,
+          allowedTools: ['issue_read'],
+          allowedRepos: ['octo/private'],
+          minIntegrity: null,
+        }),
+      });
+      mockedValidateOptions.validateOptions.mockReturnValueOnce(config);
+      mockedDindProbe.probeSplitFilesystem.mockImplementationOnce(async () => {
+        expect(process.env[ENCLAVE_GITHUB_EXECUTOR_CAPABILITY_ENV]).toBeUndefined();
+        expect(process.env.AWF_ENCLAVE_GITHUB_MCP_AGENT_ID).toBeUndefined();
+        return { prefix: undefined, splitDetected: false, inconclusive: false };
+      });
+
+      try {
+        await createMainAction(getOptionValueSource)(['echo hi'], {});
+      } finally {
+        releaseStaticGithubExecutorCapability(config);
+        for (const [name, value] of Object.entries(previousEnv)) {
+          if (value === undefined) delete process.env[name];
+          else process.env[name] = value;
+        }
+      }
+      expect(mockedDindProbe.probeSplitFilesystem).toHaveBeenCalledTimes(1);
     });
 
     it('auto-applies detected DinD prefix and logs info', async () => {

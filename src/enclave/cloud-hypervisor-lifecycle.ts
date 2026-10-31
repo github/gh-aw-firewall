@@ -112,7 +112,6 @@ function deriveAgentPolicies(
       maxModelTokens: agent.maxModelTokens,
       modelBudgetSecret: getOrCreateEnclaveModelBudgetSecret(config),
       ...(github ? {
-        githubAgentId: github.agentId,
         githubBearer: github.bearer,
         githubExpiresAt: github.expiresAt,
         githubAllowedTools: github.allowedTools,

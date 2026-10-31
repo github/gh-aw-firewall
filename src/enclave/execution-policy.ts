@@ -135,8 +135,8 @@ export function normalizeAgentPolicy(
   }
   const hasGithubId = policy.githubAgentId !== undefined;
   const hasGithubBearer = policy.githubBearer !== undefined;
-  if (hasGithubId !== hasGithubBearer) {
-    throw new Error('Trusted GitHub agent identity and bearer must be configured together');
+  if (hasGithubId && !hasGithubBearer) {
+    throw new Error('Trusted GitHub agent identity requires a bearer');
   }
   if (
     (policy.githubAgentId !== undefined && !AGENT_ID_PATTERN.test(policy.githubAgentId)) ||

@@ -38,6 +38,7 @@ else:
     print(json.dumps({
         "valid": valid,
         "config": json.loads(module.GITHUB_MCP_CONFIG_PATH.read_text()),
+        "authorization": os.environ.get("AWF_GITHUB_MCP_AUTHORIZATION"),
         "mode": module.GITHUB_MCP_CONFIG_PATH.stat().st_mode & 0o777,
         "checks": checks,
         "redacted": module.redact_diagnostics(os.environ["TEST_BEARER"]),
@@ -92,9 +93,11 @@ describe('static scoped GitHub bearer guest wiring', () => {
     expect(result.config.mcpServers.github).toEqual({
       type: 'http',
       url: endpoint,
-      headers: { Authorization: bearer },
+      headers: { Authorization: '${AWF_GITHUB_MCP_AUTHORIZATION}' },
       tools,
     });
+    expect(result.authorization).toBe(bearer);
+    expect(fs.readFileSync(path.join(root, 'agent', 'github-mcp.json'), 'utf8')).not.toContain(bearer);
     expect(result.mode).toBe(0o600);
     expect(result.checks).toContain('github-bearer');
     expect(result.checks).not.toContain('github-agent-id');
@@ -104,7 +107,8 @@ describe('static scoped GitHub bearer guest wiring', () => {
 
   it('ignores a legacy identity even when it is present', () => {
     fs.writeFileSync(path.join(root, 'agent-id'), agentId);
-    expect(run().config.mcpServers.github.headers).toEqual({ Authorization: bearer });
+    expect(run().config.mcpServers.github.headers)
+      .toEqual({ Authorization: '${AWF_GITHUB_MCP_AUTHORIZATION}' });
   });
 
   it('rejects scoped mode combined with dynamic delegation instead of bypassing its tool policy', () => {
@@ -113,6 +117,19 @@ describe('static scoped GitHub bearer guest wiring', () => {
       AWF_ENCLAVE_AGENT_DYNAMIC_REPO: 'octo-org/service',
       AWF_ENCLAVE_AGENT_GITHUB_ALLOWED_TOOLS: '["issue_read"]',
     })).toMatchObject({ valid: false, configExists: false });
+  });
+
+  it('uses an environment placeholder for the dynamic executor bearer too', () => {
+    const result = run({
+      AWF_ENCLAVE_AGENT_GITHUB_AUTH_MODE: '',
+      AWF_ENCLAVE_AGENT_DYNAMIC_ENABLED: 'true',
+      AWF_ENCLAVE_AGENT_DYNAMIC_REPO: 'octo-org/service',
+    });
+    expect(result.valid).toBe(true);
+    expect(result.config.mcpServers.github.headers)
+      .toEqual({ Authorization: '${AWF_GITHUB_MCP_AUTHORIZATION}' });
+    expect(result.authorization).toBe(bearer);
+    expect(fs.readFileSync(path.join(root, 'agent', 'github-mcp.json'), 'utf8')).not.toContain(bearer);
   });
 
   it.each([
