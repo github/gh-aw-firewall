@@ -421,8 +421,9 @@ Examples of failed checks are `retention-eligibility`, `diagnostics-identity`,
 `invalid-evidence` and `read-failed`. These identify a failed collection check,
 not an inferred workload root cause.
 
-**Version-pinned Docker consumer example.** Substitute an independently reviewed
-full exporter commit SHA containing this interface for the placeholder below.
+**Version-pinned Docker consumer example.** This example pins the exporter to the
+implementation commit below; review it independently before adoption and keep
+future upgrades pinned to a reviewed release or full commit SHA.
 The exporter is installed before the agent can modify the checkout. AWF must
 already be installed at a reviewed version supporting public Docker retention,
 with an eligible public-only config and host mount visibility.
@@ -432,7 +433,7 @@ steps:
   - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
     with:
       repository: github/gh-aw-firewall
-      ref: '<reviewed-40-character-exporter-commit-sha>'
+      ref: '22c1f117cb73ad5101746aa2c22b17da9e5f39a6'
       path: trusted-awf-exporter
       persist-credentials: false
   - name: Prepare public Docker diagnostics
