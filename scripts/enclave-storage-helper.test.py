@@ -115,6 +115,22 @@ class HelperPolicy(unittest.TestCase):
             self.assertNotIn(abandoned, os.listdir(directory))
         self.assertEqual(os.listdir(self.state), ["entry"])
 
+    def test_state_publication_reconciles_interruption_after_atomic_link(self):
+        real_unlink = os.unlink
+
+        def interrupt(name, *args, **kwargs):
+            if name.startswith(".awf-stage-"):
+                raise OSError("injected interruption after publication")
+            return real_unlink(name, *args, **kwargs)
+
+        with patch.object(storage.os, "unlink", side_effect=interrupt):
+            with self.assertRaises(OSError):
+                storage.write_json(self.state, "published", {"bytes": 65536})
+        self.assertEqual(len(os.listdir(self.state)), 2)
+        storage.reconcile_staging(self.state)
+        self.assertEqual(storage.read_json(self.state, "published"), {"bytes": 65536})
+        self.assertEqual(os.listdir(self.state), ["published"])
+
     def test_cleanup_retries_after_interruption_at_every_record_removal(self):
         for interrupted_at in range(4):
             with self.subTest(interrupted_at=interrupted_at):

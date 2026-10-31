@@ -48,6 +48,7 @@ def walk_root(create=False):
                 try:
                     os.mkdir(component, 0o711, dir_fd=fd)
                 except FileExistsError:
+                    # The next open validates the directory created by either process.
                     pass
             child = os.open(component, DIRECTORY, dir_fd=fd)
             trusted(child)
@@ -72,6 +73,11 @@ def read_json(fd, name):
         os.close(child)
 
 
+def read_proc(path):
+    with open(path, encoding="ascii") as source:
+        return source.read()
+
+
 def write_json(fd, name, value):
     staging = ".awf-stage-" + os.urandom(16).hex()
     child = os.open(staging, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600, dir_fd=fd)
@@ -88,20 +94,42 @@ def write_json(fd, name, value):
         try:
             os.unlink(staging, dir_fd=fd)
         except FileNotFoundError:
+            # Publication by link/unlink already consumed this staging name.
             pass
     os.fsync(fd)
 
 
 def reconcile_staging(fd):
     removed = False
-    for name in os.listdir(fd):
+    names = os.listdir(fd)
+    for name in names:
         if not re.fullmatch(r"\.awf-stage-[0-9a-f]{32}", name):
             continue
         child = os.open(name, FILE, dir_fd=fd)
         try:
             info = os.fstat(child)
             trusted(child, 0o600)
-            require(stat.S_ISREG(info.st_mode) and info.st_nlink == 1 and info.st_size <= 4096)
+            require(stat.S_ISREG(info.st_mode) and info.st_nlink in (1, 2) and info.st_size <= 4096)
+            if info.st_nlink == 2:
+                published = False
+                for candidate in names:
+                    if candidate == name or re.fullmatch(r"\.awf-stage-[0-9a-f]{32}", candidate):
+                        continue
+                    try:
+                        target = os.open(candidate, FILE, dir_fd=fd)
+                    except FileNotFoundError:
+                        continue
+                    try:
+                        target_info = os.fstat(target)
+                        if (target_info.st_dev, target_info.st_ino) == (info.st_dev, info.st_ino):
+                            trusted(target, 0o600)
+                            require(stat.S_ISREG(target_info.st_mode) and target_info.st_nlink == 2)
+                            require(isinstance(json.loads(os.read(target, 4097)), dict))
+                            published = True
+                            break
+                    finally:
+                        os.close(target)
+                require(published)
         finally:
             os.close(child)
         os.unlink(name, dir_fd=fd)
@@ -114,8 +142,8 @@ def namespace_check(marker=None):
     require(os.getuid() == 0 and os.geteuid() == 0)
     for kind in ("mnt", "pid", "user"):
         require(os.stat("/proc/self/ns/" + kind).st_ino == os.stat("/proc/1/ns/" + kind).st_ino)
-    require(open("/proc/self/uid_map", encoding="ascii").read().split() == ["0", "0", "4294967295"])
-    status = open("/proc/self/status", encoding="ascii").read()
+    require(read_proc("/proc/self/uid_map").split() == ["0", "0", "4294967295"])
+    status = read_proc("/proc/self/status")
     capabilities = re.search(r"^CapEff:\s*([0-9a-f]+)$", status, re.MULTILINE)
     required = (1 << 21) | 11  # SYS_ADMIN, CHOWN, DAC_OVERRIDE and FOWNER.
     require(capabilities is not None and int(capabilities[1], 16) & required == required)
@@ -131,7 +159,7 @@ def decode(value):
 
 
 def mount_at(target, source, size):
-    rows = [line.split() for line in open("/proc/self/mountinfo", encoding="ascii")]
+    rows = [line.split() for line in read_proc("/proc/self/mountinfo").splitlines()]
     matches = [row for row in rows if decode(row[4]) == target]
     require(len(matches) <= 1)
     if not matches:
@@ -158,6 +186,7 @@ def mkdir_open(parent, name, mode):
     try:
         os.mkdir(name, mode, dir_fd=parent)
     except FileExistsError:
+        # The following no-follow open and ownership checks validate the existing directory.
         pass
     child = os.open(name, DIRECTORY, dir_fd=parent)
     trusted(child, mode)
@@ -166,7 +195,7 @@ def mkdir_open(parent, name, mode):
 
 def private_base(base):
     """Make only the fixed root a private bind before any allocation is mounted."""
-    rows = [line.split() for line in open("/proc/self/mountinfo", encoding="ascii")]
+    rows = [line.split() for line in read_proc("/proc/self/mountinfo").splitlines()]
     exact = [row for row in rows if decode(row[4]) == BASE]
     require(len(exact) <= 1)
     replacement = base
@@ -179,7 +208,7 @@ def private_base(base):
             before, after = os.fstat(base), os.fstat(replacement)
             require((before.st_dev, before.st_ino) == (after.st_dev, after.st_ino))
         syscall(libc.mount(None, f"/proc/self/fd/{replacement}".encode(), None, (1 << 18) | 16384, None))
-        rows = [line.split() for line in open("/proc/self/mountinfo", encoding="ascii")]
+        rows = [line.split() for line in read_proc("/proc/self/mountinfo").splitlines()]
         exact = [row for row in rows if decode(row[4]) == BASE]
         require(len(exact) == 1)
         require(not any(field.startswith(("shared:", "master:", "propagate_from:"))
@@ -198,6 +227,7 @@ def prepare_host_state(base, uid):
             os.mkdir("host-state", 0o700, dir_fd=user)
             created = True
         except FileExistsError:
+            # Validate the existing fixed host-state directory below.
             created = False
         child = os.open("host-state", DIRECTORY, dir_fd=user)
         try:
@@ -347,10 +377,12 @@ def allocation_operation(base, state, uid, args):
             try:
                 os.unlink(state_name, dir_fd=state)
             except FileNotFoundError:
+                # Cleanup is restartable after any earlier record removal.
                 pass
         try:
             os.unlink(key, dir_fd=state)
         except FileNotFoundError:
+            # Another completed cleanup may already have removed the primary intent.
             pass
         os.fsync(state)
         return {"clean": True}
@@ -399,6 +431,7 @@ def main(args):
                     try:
                         os.unlink("host.json", dir_fd=base)
                     except FileNotFoundError:
+                        # Reinstalling an already initialized helper is idempotent.
                         pass
                     write_json(base, "host.json", marker)
                     return {"version": VERSION}

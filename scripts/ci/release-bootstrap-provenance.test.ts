@@ -96,7 +96,10 @@ cat > "$CASE_DIR/helper-install-body"
 printf '%s\\n' "$*" >> "$CASE_DIR/helper-install.log"
 grep -q 'VERSION = "1.2.3"' "$1"
 `,
-    'helper-host-check': '#!/bin/bash\nexit "${UNSUPPORTED_STORAGE_HOST:-0}"\n',
+    'helper-host-check': `#!/bin/bash
+printf "%s" "\${GH_TOKEN+x}" > ${JSON.stringify(path.join(directory, 'helper-host-check-token'))}
+[ ! -e ${JSON.stringify(path.join(directory, 'unsupported-storage-host'))} ] || exit 1
+`,
   };
   for (const [name, script] of Object.entries(scripts)) {
     fs.writeFileSync(path.join(bin, name), script, { mode: 0o755 });
@@ -105,6 +108,9 @@ grep -q 'VERSION = "1.2.3"' "$1"
     directory,
     assets,
     run(target: 'installer' | 'action' | 'pull', overrides: Record<string, string> = {}) {
+      if (overrides.UNSUPPORTED_STORAGE_HOST) {
+        fs.writeFileSync(path.join(directory, 'unsupported-storage-host'), '');
+      }
       const script = target === 'installer'
         ? installer.replace(/\nmain "\$@"\s*$/, '\n')
           .replace('TEMP_DIR=$(mktemp -d -t awf-install.XXXXXX)',
@@ -175,12 +181,18 @@ describe('release bootstrap authentication', () => {
 
   it.each(['installer', 'action'] as const)('installs an authenticated %s payload', target => {
     const f = fixture();
-    const result = f.run(target);
+    const result = f.run(target, target === 'installer' ? { GH_TOKEN: 'present' } : {});
     expect(result.stderr + result.stdout).not.toContain('::error::');
     expect(result.status).toBe(0);
     const destination = path.join(f.directory, target === 'installer' ? 'installed/awf' : 'awf-bin/awf');
-    expect(fs.statSync(destination).mode & 0o111).not.toBe(0);
-    expect(fs.readFileSync(destination, 'utf8')).toBe('test ELF payload\n');
+    const fd = fs.openSync(destination, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW | fs.constants.O_NONBLOCK);
+    try {
+      const installed = fs.fstatSync(fd);
+      expect(installed.isFile() && (installed.mode & 0o111) !== 0).toBe(true);
+      expect(fs.readFileSync(fd, 'utf8')).toBe('test ELF payload\n');
+    } finally {
+      fs.closeSync(fd);
+    }
     const calls = f.log('gh.log').trim().split('\n');
     expect(calls[0]).toContain('release-identity.txt');
     expect(calls[1]).toContain('checksums.txt');
@@ -191,6 +203,7 @@ describe('release bootstrap authentication', () => {
     } else {
       expect(calls[3]).toContain('enclave-storage-helper.py');
       expect(f.log('helper-install.log')).toContain('1.2.3');
+      expect(f.log('helper-host-check-token')).toBe('');
     }
   });
 
