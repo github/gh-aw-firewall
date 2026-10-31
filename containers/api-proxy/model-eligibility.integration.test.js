@@ -27,7 +27,10 @@ function evidence(model = 'gpt-6-sol', provider = 'copilot', overrides = {}) {
         name: 'copilot', scheme: 'semver', minimum: '1.2.0',
         excludedRanges: ['>=1.3.0 <1.4.0'], scope: scope(provider),
         reason: 'Requires the revised request protocol',
-        provenance: { authority: 'maintained', source: 'fixture' },
+        provenance: {
+          authority: 'maintained', source: 'https://internal.example/token/secret',
+          revision: 'private-revision',
+        },
       }],
     }],
     executionEnvironment: 'actual-agent',
@@ -119,12 +122,14 @@ test('real HTTP ingress rejects an incompatible harness with scoped actionable d
     });
     expect(result).toMatchObject({
       status: 400,
-      body: { error: { code: 'model_harness_incompatible', scope: scope(), reasons: [{
-        code: 'harness_incompatible', name: 'copilot', detected: '1.1.0',
-        required: { scheme: 'semver', minimum: '1.2.0', excludedRanges: ['>=1.3.0 <1.4.0'] },
-        reason: 'Requires the revised request protocol', scope: scope(),
-      }] } },
+      body: { error: { code: 'model_harness_incompatible', scope: scope() } },
     });
+    expect(result.body.error.reasons).toEqual([{
+      code: 'harness_incompatible', detected: '1.1.0',
+      required: { scheme: 'semver', minimum: '1.2.0', excludedRanges: ['>=1.3.0 <1.4.0'] },
+      reason: 'Requires the revised request protocol',
+    }]);
+    expect(JSON.stringify(result.body)).not.toMatch(/internal\.example|secret|private-revision/);
     expect(requests).toHaveLength(0);
   } finally {
     await new Promise(resolve => server.close(resolve));

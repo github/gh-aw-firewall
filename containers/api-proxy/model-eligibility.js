@@ -100,8 +100,10 @@ function buildEligibilityError(decision) {
       scope: decision.scope,
       reasons: decision.reasons.filter(reason =>
         reason.code.startsWith('harness_') && reason.code !== 'harness_compatible').map(reason => ({
-        ...reason,
+        code: reason.code,
         detected: reason.detected ?? null,
+        ...(reason.required !== undefined ? { required: reason.required } : {}),
+        ...(reason.actual !== undefined ? { actual: reason.actual } : {}),
         reason: reason.reason || 'A compatible verified harness in the actual execution environment is required',
       })),
     },

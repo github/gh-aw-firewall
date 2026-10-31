@@ -369,7 +369,7 @@ describe('shared scoped model eligibility', () => {
   });
 
   it('returns immutable owned diagnostics and strips credential-bearing provenance', () => {
-    const source = new URL('https://example.com/compat');
+    const source = new URL('https://example.com/token/credential');
     source.username = 'user';
     source.password = 'password';
     source.search = '?token=credential';
@@ -391,7 +391,7 @@ describe('shared scoped model eligibility', () => {
     expect(result.reasons[0]).toMatchObject({
       code: 'harness_unverified', scope, name: 'copilot',
       required: { scheme: 'semver', minimum: '1.2.3', excludedRanges: [] },
-      provenance: { authority: 'maintained', source: 'https://example.com/compat', revision: 'r1' },
+      provenance: { authority: 'maintained', source: 'https://example.com/', revision: 'r1' },
     });
     expect(JSON.stringify(result)).not.toMatch(/credential|user:password|nested/);
     expect(Object.isFrozen(result)).toBe(true);

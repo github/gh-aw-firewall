@@ -27,6 +27,7 @@ function provenance(value) {
         if (!['https:', 'http:'].includes(url.protocol)) continue;
         url.username = '';
         url.password = '';
+        url.pathname = '/';
         url.search = '';
         url.hash = '';
         result[field] = url.toString();
