@@ -22,12 +22,14 @@ describe('API proxy sidecar: service configuration', () => {
       it('should not include api-proxy service when enableApiProxy is false', () => {
         const result = generateDockerCompose(mockConfig, mockNetworkConfigWithProxy);
         expect(result.services['api-proxy']).toBeUndefined();
+        expect(result.services.agent.environment).not.toHaveProperty('AWF_API_PROXY_COPILOT_URL');
       });
 
       it('should not include api-proxy service when enableApiProxy is true but no proxyIp', () => {
         const configWithProxy = { ...mockConfig, enableApiProxy: true, openaiApiKey: 'sk-test-key' };
         const result = generateDockerCompose(configWithProxy, mockNetworkConfig);
         expect(result.services['api-proxy']).toBeUndefined();
+        expect(result.services.agent.environment).not.toHaveProperty('AWF_API_PROXY_COPILOT_URL');
       });
 
       it('should include api-proxy service when enableApiProxy is true with OpenAI key', () => {
@@ -38,6 +40,37 @@ describe('API proxy sidecar: service configuration', () => {
         expect(proxy.container_name).toBe('awf-api-proxy');
         expect(proxy.user).toBe(`${getSafeHostUid()}:${getSafeHostGid()}`);
         expect((proxy.networks as any)['awf-net'].ipv4_address).toBe('172.30.0.30');
+      });
+
+      it.each([false, true])('keeps Copilot proxy routing in-network with host access %s', (enableHostAccess) => {
+        const configWithProxy = {
+          ...mockConfig,
+          enableApiProxy: true,
+          enableHostAccess,
+          ...(enableHostAccess ? { allowHostServicePorts: '5432' } : {}),
+          copilotGithubToken: 'ghu_test_token',
+          additionalEnv: {
+            AWF_API_PROXY_COPILOT_URL: 'http://host.docker.internal:10002',
+          },
+        };
+        const result = generateDockerCompose(configWithProxy, mockNetworkConfigWithProxy);
+        const env = result.services.agent.environment as Record<string, string>;
+        const proxy = result.services['api-proxy'];
+
+        expect(env.AWF_API_PROXY_IP).toBe('172.30.0.30');
+        expect(env.AWF_API_PROXY_COPILOT_URL).toBe('http://172.30.0.30:10002');
+        expect(env.COPILOT_API_URL).toBe(env.AWF_API_PROXY_COPILOT_URL);
+        expect(env.NO_PROXY.split(',')).toContain('172.30.0.30');
+        expect(proxy.networks).toMatchObject({
+          'awf-net': { ipv4_address: '172.30.0.30' },
+        });
+        expect(result.services.agent.networks).toHaveProperty('awf-net');
+        expect(proxy.ports).toBeUndefined();
+        expect(proxy.network_mode).toBeUndefined();
+        if (enableHostAccess) {
+          expect(result.services.agent.extra_hosts).toHaveProperty(['host.docker.internal'], 'host-gateway');
+          expect(env.AWF_HOST_SERVICE_PORTS).toBe('5432');
+        }
       });
 
       it('should include api-proxy service when enableApiProxy is true with Anthropic key', () => {
