@@ -160,6 +160,10 @@ async function buildCrossProviderRequest({
     url: endpoint,
     headers: req.headers,
     awfRequestContext: req.awfRequestContext,
+    awfEligibility: req.awfEligibility,
+    awfEligibilityScope: req.awfEligibilityScope,
+    awfCatalogue: req.awfCatalogue,
+    awfRuntimePricing: req.awfRuntimePricing,
   };
 
   let body;

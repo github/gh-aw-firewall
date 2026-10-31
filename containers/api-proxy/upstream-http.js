@@ -1,6 +1,7 @@
 'use strict';
 
 const { parseBodyAsObject } = require('./body-utils');
+const { isModelEligible } = require('./model-eligibility');
 const { carryForwardCodexCompatibility } = require('./codex-compat');
 const {
   attemptKey,
@@ -163,8 +164,9 @@ function createSendUpstreamRequest({
     fallbackOrigin = null,
     protocolTranslation = null,
   }) {
-    const isPermitted = isFallbackModelPermitted
-      ? (model, route) => isFallbackModelPermitted(model, route, req) : null;
+    const isPermitted = (model, route) =>
+      isModelEligible(model, route, req, { inputMode: 'native' }) &&
+      (!isFallbackModelPermitted || isFallbackModelPermitted(model, route, req));
     const cancellation = getRequestCancellation(req, res);
     cancellation.responseStarted = false;
     cancellation.onCancel = () => {

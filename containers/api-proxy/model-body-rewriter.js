@@ -27,7 +27,7 @@ const { isModelPermittedByPolicy } = require('./guards/model-policy-guard');
  * @param {{ allowedModels?: string[]|null, disallowedModels?: string[]|null }|null} [modelPolicyConfig]
  * @returns {{ body: Buffer, originalModel: string, resolvedModel: string, candidates: string[], log: string[], fallback?: object } | null}
  */
-function rewriteModelInBody(body, provider, aliases, availableModels, modelFallbackConfig, modelPolicyConfig) {
+function rewriteModelInBody(body, provider, aliases, availableModels, modelFallbackConfig, modelPolicyConfig, eligibilityRequest) {
   // Only attempt rewrite for non-empty bodies
   if (!body || body.length === 0) return null;
 
@@ -37,7 +37,8 @@ function rewriteModelInBody(body, provider, aliases, availableModels, modelFallb
   // Determine the requested model. If absent, try the default alias ("").
   const originalModel = typeof parsed.model === 'string' ? parsed.model : '';
 
-  const resolution = resolveModel(originalModel, aliases, availableModels, provider, [], modelFallbackConfig, modelPolicyConfig);
+  const resolution = resolveModel(originalModel, aliases, availableModels, provider, [], modelFallbackConfig, modelPolicyConfig,
+    true, { blocked: false }, eligibilityRequest);
   if (!resolution) return null;
 
   const { resolvedModel, candidates, log } = resolution;
@@ -52,6 +53,7 @@ function rewriteModelInBody(body, provider, aliases, availableModels, modelFallb
   return {
     body: newBody, originalModel, resolvedModel, candidates, log, fallback: resolution.fallback,
     identity: resolution.identity, wireId: resolution.wireId, matchKind: resolution.matchKind,
+    eligibilityDecision: resolution.eligibilityDecision,
     aliasKeys: resolution.aliasKeys || [],
   };
 }

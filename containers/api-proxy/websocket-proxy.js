@@ -6,6 +6,8 @@ const { getCatalogueLoader } = require('./catalogue-loader');
 const { captureRuntimePricing } = require('./runtime-model-catalog');
 const { getModelUnavailability } = require('./model-recovery');
 const { isGithubCopilotCatalogTarget } = require('./providers/copilot-auth');
+const { pinRequestEligibility } = require('./model-eligibility');
+const { getRequestModel } = require('./model-fallback-chain');
 
 function createProxyWebSocket({
   limiter,
@@ -76,6 +78,7 @@ function createProxyWebSocket({
    *   port 80 instead of 443.
    */
   return function proxyWebSocket(req, socket, head, targetHost, injectHeaders, provider, basePath = '', lifecycleHooks = {}) {
+    pinRequestEligibility(req);
     req.awfModelCatalogAuthoritative = provider === 'copilot' && isGithubCopilotCatalogTarget(targetHost);
     req.awfCatalogue = getCatalogueLoader().capture();
     req.awfRuntimePricing = captureRuntimePricing();
@@ -106,10 +109,12 @@ function createProxyWebSocket({
     }
 
     const requestModel = extractRequestModelFromUrl(req.url);
+    const eligibilityModel = getRequestModel(null, req.url) ||
+      (requestModel ? { model: requestModel, location: 'query' } : null);
     const upstreamPath = buildUpstreamPath(req.url, targetHost, basePath);
 
     if (enforceWebSocketGuards({
-      socket, logRequest, requestId, provider, requestModel,
+      socket, logRequest, requestId, provider, requestModel, eligibilityModel, req,
       pricingOptions: { catalogue: req.awfCatalogue, runtimeCatalog: req.awfRuntimePricing },
     }, guardDeps)) {
       return;

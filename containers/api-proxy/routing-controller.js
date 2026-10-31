@@ -2,6 +2,7 @@
 
 const { createHash } = require('crypto');
 const { buildRoutingCandidates } = require('./routing-candidates');
+const { pinRequestEligibility, proxyEligibilityStore } = require('./model-eligibility');
 const { extractClassifierOutput, preflightClassifierRequest } = require('./routing-classifier');
 const {
   assertPlanningRequestSize,
@@ -104,11 +105,15 @@ function createRoutingController(dependencies) {
     routerIdentity = {},
     clock = createSystemClock(),
     random = Math.random,
+    eligibilityStore = proxyEligibilityStore,
+    eligibilityScope,
   } = dependencies;
 
   let runPromise;
 
   async function execute(options = {}) {
+    const eligibilityRequest = { awfEligibility: eligibilityStore.pin(), awfEligibilityScope: eligibilityScope };
+    pinRequestEligibility(eligibilityRequest);
     const startedAt = clock.now();
     const jobDeadline = Number.isFinite(options.jobDeadlineMs) ? options.jobDeadlineMs : Infinity;
     const deadline = Math.min(startedAt + ROUTING_BOOTSTRAP_TIMEOUT_MS, jobDeadline);
@@ -154,7 +159,7 @@ function createRoutingController(dependencies) {
 
       const snapshot = await runPhase(({ signal: phaseSignal }) =>
         catalogue.getSnapshot({ signal: phaseSignal, provider: config.provider || 'copilot' }));
-      const pool = buildRoutingCandidates({ catalogue: snapshot, policy, candidateModels: config.candidateModels });
+      const pool = buildRoutingCandidates({ catalogue: snapshot, policy, candidateModels: config.candidateModels, eligibilityRequest });
       catalogueOverlap = countCatalogueOverlap(rawCapabilities, pool.choices);
 
       const loadedConversation = await runPhase(({ signal: phaseSignal }) =>
@@ -208,6 +213,8 @@ function createRoutingController(dependencies) {
               body: preflight.request.body,
               purpose: PURPOSE,
               provider: mapping.provider,
+              awfEligibility: eligibilityRequest.awfEligibility,
+              awfEligibilityScope: eligibilityRequest.awfEligibilityScope,
             }, { signal: phaseSignal, timeoutMs }),
             {
               signal,
@@ -285,7 +292,10 @@ function createRoutingController(dependencies) {
       const selection = createSelection(selectedChoice, pool.byId[selectedChoice.id]);
 
       await runPhase(({ signal: phaseSignal }) =>
-        executor.checkBeforePrimary({ selection, signal: phaseSignal }));
+        executor.checkBeforePrimary({
+          selection, signal: phaseSignal, awfEligibility: eligibilityRequest.awfEligibility,
+          awfEligibilityScope: eligibilityRequest.awfEligibilityScope,
+        }));
 
       safeRecord(observer, {
         stage: 'selection',

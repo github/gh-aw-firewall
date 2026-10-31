@@ -13,6 +13,8 @@ const metrics = require('./metrics');
 const { logRequest, sanitizeForLog } = require('./logging');
 const { writeBlockedRequestDiag } = require('./blocked-request-diagnostics');
 const { buildCommonGuardChecks } = require('./guards/common-guard-checks');
+const { evaluateModelEligibility, buildEligibilityError, getAliasEligibilityRejection } = require('./model-eligibility');
+const { getRequestModel } = require('./model-fallback-chain');
 const {
   getMaxRunsBlockState,
   buildMaxRunsExceededError,
@@ -196,6 +198,30 @@ function enforceGuards({ body, provider, req, res, requestId, startTime, span, i
     return true;
   }
 
+  const eligibilityModel = checkModelMultiplier
+    ? getRequestModel(null, req.url) || getRequestModel(body, req.url)
+    : null;
+  if (eligibilityModel) {
+    const selected = req.awfSelectedModelEligibility;
+    const aliasRejection = eligibilityModel.location === 'body'
+      ? getAliasEligibilityRejection(eligibilityModel.model, provider, req) : null;
+    const decision = aliasRejection || (eligibilityModel.location === 'body' && selected?.provider === provider && selected.model === eligibilityModel.model
+      ? selected.decision
+      : evaluateModelEligibility(eligibilityModel.model, provider, req,
+        eligibilityModel.location === 'path' ? { inputMode: 'native' } : undefined));
+    const harnessBlocked = ['incompatible', 'unverified'].includes(decision.harness);
+    // URL-only providers retain their existing policy/pricing guard behavior;
+    // the path supplies model identity for the new harness admission check.
+    if (!decision.admitted && (eligibilityModel.location === 'body' || harnessBlocked)) {
+      sendGuardBlockedResponse(decision, {
+        req, res, provider, requestId, startTime, span, body, inboundBytes,
+        statusCode: 400, eventName: 'model_harness_incompatible',
+        buildError: buildEligibilityError,
+        buildLogFields: block => ({ model: block.identity?.key, harness: block.harness }),
+      });
+      return true;
+    }
+  }
   return false;
 }
 

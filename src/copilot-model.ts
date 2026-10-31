@@ -1,6 +1,10 @@
 import lifecycle from './model-information.compat.generated.json';
 import naming from './model-information.naming.generated.json';
 import { resolveIdentity } from './model-information-contract/resolution';
+import eligibilityModels from './model-information.eligibility.generated.json';
+import {
+  createEligibilityStore, EligibilityInput, EligibilitySnapshot, HarnessRequirement,
+} from './model-information-contract/eligibility';
 
 interface CopilotModelValidationSuccess {
   valid: true;
@@ -29,6 +33,15 @@ const SUPPORTED_COPILOT_MODELS = new Set(lifecycle.supported);
 const CLI_NAMING = {
   models: naming.models.filter(model => SUPPORTED_COPILOT_MODELS.has(model.identity.rawId) ||
     RETIRED_COPILOT_MODEL_ALIASES.has(model.identity.rawId)),
+};
+const CLI_ELIGIBILITY = createEligibilityStore({
+  models: eligibilityModels.models as {
+    identity: typeof CLI_NAMING.models[number]['identity']; harnesses: HarnessRequirement[];
+  }[],
+}).pin();
+
+export type CopilotModelEvidence = Omit<EligibilityInput, 'identity' | 'scope'> & {
+  snapshot?: EligibilitySnapshot;
 };
 
 function suggestionFor(model: string): string | undefined {
@@ -65,7 +78,9 @@ export const testHelpers = {
   supportedCopilotModels: new Set(SUPPORTED_COPILOT_MODELS) as ReadonlySet<string>,
 };
 
-export function validateCopilotModel(rawModel: string): CopilotModelValidationResult {
+export function validateCopilotModel(
+  rawModel: string, evidence: CopilotModelEvidence = {},
+): CopilotModelValidationResult {
   const trimmed = rawModel.trim();
   if (!trimmed) {
     return { valid: true, resolvedModel: trimmed };
@@ -87,6 +102,34 @@ export function validateCopilotModel(rawModel: string): CopilotModelValidationRe
   }
 
   if (canonicalModel && SUPPORTED_COPILOT_MODELS.has(canonicalModel)) {
+    if (resolution.identity) {
+      const { snapshot = CLI_ELIGIBILITY, ...explicit } = evidence;
+      const eligibility = snapshot.evaluate({
+        ...explicit, identity: resolution.identity,
+        scope: { provider: 'copilot', channel: 'copilot-cli' },
+        discovery: explicit.discovery || { status: 'available', authoritative: true },
+      });
+      if (!eligibility.admitted) {
+        return {
+          valid: false, reason: 'unsupported',
+          message: `Error: model '${trimmed}' is not eligible for Copilot CLI: ${
+            eligibility.reasons.filter(reason =>
+              !['discovery_unknown', 'harness_compatible'].includes(reason.code))
+              .map(reason => {
+                if (!reason.required) return reason.reason
+                  ? `${reason.code}: ${reason.reason}` : reason.code;
+                const required = reason.required;
+                return `${reason.code} (${reason.name}; scope=${JSON.stringify(reason.scope)}; ` +
+                  `environment=${reason.environment || 'unverified'}; ` +
+                  `required ${required.scheme} >=${required.minimum}; ` +
+                  `excluded=${JSON.stringify(required.excludedRanges)}; ` +
+                  `detected=${reason.detected || 'unverified'}${
+                    reason.reason ? `; ${reason.reason}` : ''})`;
+              }).join(', ')
+          }.`,
+        };
+      }
+    }
     return { valid: true, resolvedModel: canonicalModel };
   }
   if (normalized === 'auto') return { valid: true, resolvedModel: 'auto' };

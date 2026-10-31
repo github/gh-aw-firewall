@@ -1327,7 +1327,8 @@ This bounded migration **does not complete or close #10294**.
   tree. Named host/proxy regressions retain their different matching boundaries,
   suggestion ties, staged exclusions, and errors.
 
-**Still open:** there is no verified linked `github/gh-aw` agreement or companion
+**At this compatibility-reader milestone:** there was no verified linked
+`github/gh-aw` agreement or companion
 implementation for this exact payload. No workflow/config keys or schema have
 been introduced, and no compiler-to-AWF round-trip coverage is claimed. The
 cross-repository blocker above remains binding. Run-local overlays, conflict
@@ -1340,6 +1341,115 @@ and the reusable Phase 6 structured eligibility API are also still required;
 neither should infer verified harness support from this compatibility reader or
 from missing constraints. Leave the phase issue open until those requirements
 and the companion round-trip evidence land.
+
+#### Bounded Phase 4 slice: scoped eligibility and re-evaluation
+
+The shared `shared/model-information/eligibility.js` contract consumes an
+already-resolved canonical identity, an explicit provider/channel/deployment
+scope, and evidence. It does not resolve identities again, infer availability
+from aliases or families, or infer a harness floor from a model name. Generated
+copies use the existing host and API-proxy contract packaging mechanism.
+The bundled harness projection is currently empty: no minimum is synthesized
+to fill gaps in authored facts or actual-environment observations.
+
+The decision distinguishes `eligible`, `incompatible`, and `unknown`, with
+structured reasons and a separate admission result. Harness evidence separately
+distinguishes unconstrained, compatible, incompatible, and unverified outcomes.
+`evaluateEligibility({ identity, scope, discovery, lifecycle, policy, harnesses,
+observations, executionEnvironment, selectedHarness })` returns an immutable
+`{ identity, scope, status, admitted, reasons, harness }` decision. Discovery uses
+`available`/`unavailable`/`unknown` plus an `authoritative` flag; policy uses
+`allow`/`deny`/`unknown`; lifecycle uses canonical lifecycle statuses. These are
+evidence inputs, not instructions to fetch or probe anything.
+The decision also retains `selectedHarness` when supplied and valid.
+An unconstrained candidate can retain legacy admission without claiming verified
+harness compatibility. Missing discovery evidence is not authoritative discovery
+absence; consumers retain their existing provider-specific discovery rules.
+In particular, `status: unknown` can coexist with `admitted: true` when only
+discovery is unknown and no applicable safety constraint requires that evidence.
+Lifecycle retirement and policy denial remain distinct from discovery and harness
+requirements. Pricing is not an eligibility input: unpriced usage retains the
+warning and AI-credit undercount boundary introduced in #10757.
+
+Harness requirements reuse the canonical `scope`, `name`, `scheme`, `minimum`,
+optional `excludedRanges`, `reason`, and `provenance` fields. Scope matching is
+exact, including an absent versus present deployment; requirements cannot leak
+between providers, channels, or deployments. An explicitly supplied
+`selectedHarness` additionally restricts requirements to that exact harness name:
+a Copilot CLI floor is not an Aider/Codex floor on the same native API channel.
+Other-harness constraints yield an unconstrained result, not verified support.
+Absent selection retains conservative checks of all scoped requirements; malformed
+selection cannot discard applicable constraints. Selection is a trusted execution
+input, never inferred from installed binaries or arbitrary observations.
+A selected-harness observation must
+identify the same scope, harness, and execution environment and explicitly be
+actual, verified evidence (`environment` matching `executionEnvironment`,
+`actual: true`, and `verified: true`). A host installation cannot satisfy a
+requirement on the container, chroot, or guest binary. Unknown, missing, malformed, or otherwise
+unverified observations cannot satisfy an applicable requirement.
+
+`semver` compares three numeric release components, then SemVer prerelease
+identifiers (numeric identifiers before text, numeric comparison rather than
+lexicographic comparison, release after prerelease); build metadata does not
+affect precedence. `numeric-components` compares dot-separated nonnegative
+integers numerically, with missing trailing components treated as zero.
+Both schemes reject leading zeroes in numeric components (except `0`), version
+prefixes such as `v`, and whitespace; numeric-components does not accept prereleases.
+Excluded ranges use explicit comparison operators, whitespace conjunctions and
+`||` alternatives, rather than package-manager shorthand. Invalid constraints
+and ranges fail closed as unverified, not compatible.
+
+The evidence store exposes immutable request snapshots. Replacing accepted
+local facts or execution-environment observations changes subsequent snapshots;
+it never mutates an in-flight decision. Requests carry the pinned snapshot through
+candidate selection and retries independently of their existing pinned catalogue
+and runtime pricing. Eligibility refresh neither reprices recorded usage nor
+upgrades a harness. Structured reasons are reusable by Phase 6 and later additive
+Phase 7 exports; this slice adds no public endpoint or CLI.
+`createEligibilityStore({ models, observations, executionEnvironment, selectedHarness })` is the
+trusted in-process boundary: `pin()` captures a revision and `evaluate(input)`,
+while `replace(next)` replaces evidence for future pins. Model entries associate
+canonical identities with explicit harness constraints. Neither request bodies
+nor attribution headers supply verified observations. This consumes accepted
+canonical facts; it is not an overlay ingestion, authentication, or conflict
+resolution API.
+The proxy wrapper exposes `createProxyEligibilityStore` and
+`replaceTrustedEvidence`; bundled constraints remain conjunctive with supplied
+constraints. Internal request context carries `awfEligibility` and an optional
+trusted `awfEligibilityScope`, copied and frozen at pinning. Standard listener
+scopes default to `copilot-api` for Copilot and `native-api` otherwise; deployment
+scope is supplied explicitly, never guessed from a model name or client header.
+
+Consumer adapters preserve their outward interfaces and existing guards:
+
+- Host `validateCopilotModel` retains its generated CLI support/retirement
+  projection and canonical identity matching, with an explicit evidence boundary.
+- HTTP `enforceGuards` rejects applicable unsatisfied/unverified requirements with
+  required/detected version, scope, and reason information.
+- `resolveModel` and `resolveModelSelector` evaluate alias/selector candidates;
+  explicit selections carry their decision to the ordered HTTP guard rather
+  than silently substituting another model. `buildRoutingCandidates` admits
+  routing choices;
+  `selectNextFallbackCandidate` admits ordered fallback attempts; and
+  `getAutomaticRecoveryCandidates` admits bounded compatible recovery. They use
+  the same decision. Exhaustion retains the consumer's existing error path.
+- Request protocol/features, effort and known limits, network policy, per-attempt
+  budgets, and enclave capabilities remain independently enforced. Recovery keeps
+  configured-fallback precedence, bounds, and opt-outs; opaque WebSocket sessions
+  are not rewritten or replayed.
+
+**Remaining handoff:** actual selected-harness observation producers across all
+execution backends are not implemented by this API. Default absence of evidence
+is explicit, not a fabricated detected version. An opaque session whose model
+is not visible cannot acquire verified harness eligibility from this decision
+API. Workflow/operator overlay
+transport, contribution conflict/provenance rules, and compiler round trips
+remain under #10294 and
+[github/gh-aw#70728](https://github.com/github/gh-aw/issues/70728).
+The runtime loader still rejects unsupported explicit feed harness constraints;
+full activation requires complete actual-environment enforcement and a separately
+reviewed producer/consumer capability boundary. This slice does not close
+issues #10294, #10295, or parent #10290; it does not complete Phases 5–7.
 
 ### Gate 5: Pricing resolver
 

@@ -1,6 +1,7 @@
 'use strict';
 
 const { buildCommonGuardChecks } = require('./guards/common-guard-checks');
+const { evaluateModelEligibility, buildEligibilityError } = require('./model-eligibility');
 
 /** Maps numeric status codes used by guards to HTTP/1.1 reason phrases. */
 const HTTP_STATUS_LINES = {
@@ -14,7 +15,10 @@ const HTTP_STATUS_LINES = {
  * Writes a raw HTTP error response to the socket and destroys it when any
  * guard triggers, then returns true. Returns false when all guards pass.
  */
-function enforceWebSocketGuards({ socket, logRequest, requestId, provider, requestModel = null, pricingOptions }, guardDeps) {
+function enforceWebSocketGuards({
+  socket, logRequest, requestId, provider, requestModel = null, pricingOptions, req = {},
+  eligibilityModel = requestModel ? { model: requestModel, location: 'query' } : null,
+}, guardDeps) {
   const deps = pricingOptions ? { ...guardDeps, checkModelPricing: (model, route) =>
     guardDeps.checkModelPricing(model, route, pricingOptions) } : guardDeps;
   const guardChecks = buildCommonGuardChecks(deps, requestModel, provider);
@@ -36,6 +40,21 @@ function enforceWebSocketGuards({ socket, logRequest, requestId, provider, reque
     return true;
   }
 
+  if (eligibilityModel) {
+    const decision = evaluateModelEligibility(eligibilityModel.model, provider, req,
+      eligibilityModel.location === 'path' ? { inputMode: 'native' } : undefined);
+    const harnessBlocked = ['incompatible', 'unverified'].includes(decision.harness);
+    if (!decision.admitted && (eligibilityModel.location !== 'path' || harnessBlocked)) {
+      logRequest('warn', 'model_harness_incompatible', {
+        request_id: requestId, provider, model: decision.identity?.key, harness: decision.harness,
+      });
+      const body = JSON.stringify(buildEligibilityError(decision));
+      socket.write(`HTTP/1.1 400 Bad Request\r\nContent-Type: application/json\r\nConnection: close\r\nContent-Length: ${Buffer.byteLength(body)}\r\n\r\n`);
+      socket.write(body);
+      socket.destroy();
+      return true;
+    }
+  }
   return false;
 }
 

@@ -97,6 +97,54 @@ function createHarness(overrides = {}) {
 }
 
 describe('routing controller', () => {
+  it('pins trusted eligibility before discovery and shares it with classifier retries and the final preflight', async () => {
+    const { proxyEligibilityStore, evaluateModelEligibility } = require('./model-eligibility');
+    const { resolveModelIdentity } = require('./model-identity');
+    const scope = { provider: 'copilot', channel: 'copilot-api' };
+    const eligibilityStore = { pin: jest.fn(() => proxyEligibilityStore.pin()) };
+    proxyEligibilityStore.replaceTrustedEvidence({
+      models: [{
+        identity: resolveModelIdentity('blocked-test', 'copilot').identity,
+        harnesses: [{
+          name: 'copilot', scheme: 'semver', minimum: '1.2.0', scope,
+          reason: 'Fixture requires a compatible routing harness',
+          provenance: { authority: 'maintained', source: 'fixture' },
+        }],
+      }],
+    });
+    const models = ['blocked-test', 'gpt-test', 'gpt-next'].map(id => ({
+      id, efforts: ['low'], protocols: ['responses'], contextWindow: 128_000,
+    }));
+    const { controller, calls } = createHarness({
+      models,
+      dependencies: { eligibilityStore, eligibilityScope: scope, catalogue: { getSnapshot: async () => {
+        proxyEligibilityStore.replaceTrustedEvidence({});
+        return snapshot(models);
+      } } },
+      executeResult: attempt => attempt === 1 ? { statusCode: 503 } : {
+        statusCode: 200, body: classifierBody(JSON.stringify(VALID_CLASSIFICATION)),
+      },
+    });
+    try {
+      expect((await controller.run()).ok).toBe(true);
+      await controller.run();
+      expect(eligibilityStore.pin).toHaveBeenCalledTimes(1);
+      expect(calls.classify[0].models.map(model => model.model)).not.toContain('github-copilot/blocked-test');
+      expect(calls.execute).toHaveLength(2);
+      const pin = calls.execute[0].awfEligibility;
+      expect(calls.execute[1].awfEligibility).toBe(pin);
+      expect(calls.checkBeforePrimary[0].awfEligibility).toBe(pin);
+      expect(calls.execute[0].awfEligibilityScope).toEqual(scope);
+      expect(Object.isFrozen(calls.execute[0].awfEligibilityScope)).toBe(true);
+      expect(calls.execute[1].awfEligibilityScope).toBe(calls.execute[0].awfEligibilityScope);
+      expect(calls.checkBeforePrimary[0].awfEligibilityScope).toBe(calls.execute[0].awfEligibilityScope);
+      expect(evaluateModelEligibility('blocked-test', 'copilot', { awfEligibility: pin }).admitted).toBe(false);
+      expect(evaluateModelEligibility('blocked-test', 'copilot', {}).admitted).toBe(true);
+    } finally {
+      proxyEligibilityStore.replaceTrustedEvidence({});
+    }
+  });
+
   it('exposes its bounded constants', () => {
     expect(ROUTING_BOOTSTRAP_TIMEOUT_MS).toBe(90_000);
     expect(CLASSIFIER_ATTEMPT_TIMEOUT_MS).toBe(30_000);
