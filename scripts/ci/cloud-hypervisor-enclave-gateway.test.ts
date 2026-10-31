@@ -1,4 +1,6 @@
-import { spawn, type ChildProcess } from 'child_process';
+import { execFileSync, spawn, type ChildProcess } from 'child_process';
+import * as fs from 'fs';
+import { randomUUID } from 'crypto';
 import { once } from 'events';
 import * as http from 'http';
 import type { AddressInfo } from 'net';
@@ -7,10 +9,17 @@ import { assertEnclaveGatewayReady } from '../../src/enclave/gateway';
 import { normalizeEnclavesConfig } from '../../src/parsers/enclave-parser';
 import { getEnclaveStartupProgress } from '../../src/enclave/startup-progress';
 import type { WrapperConfig } from '../../src/types';
+import { validateSchema, validateValueAgainstSchema } from '../../src/bounded-execution/finite-schema';
+import { takeStaticGithubExecutorCapability, getStaticGithubExecutorCapability } from '../../src/enclave/static-github-handoff';
+import { assertCloudHypervisorPreSecurityCompatibility } from '../../src/cloud-hypervisor/runtime-validation';
 
 /* eslint-disable @typescript-eslint/no-require-imports */
 const { dispatchJsonRpc } = require('../../containers/enclave/mcp-server/mcp-protocol.js');
 const { createToolCallBudget } = require('../../containers/enclave/mcp-server/tool-call-budget.js');
+const {
+  makeGithubFixtureCapability, buildScopedGithubGuestProbe, makeConfig, toAwfConfig,
+  buildAgentGuestProbe,
+} = require('./cloud-hypervisor-enclave-live-smoke.js');
 /* eslint-enable @typescript-eslint/no-require-imports */
 
 const fixture = path.resolve(__dirname, 'cloud-hypervisor-enclave-gateway.js');
@@ -28,14 +37,14 @@ function freePort(): Promise<number> {
   });
 }
 
-async function post(port: number, body: unknown): Promise<{ status: number; body: unknown }> {
+async function post(port: number, body: unknown, route = '/mcp/awf-enclave', authorization = apiKey): Promise<{ status: number; body: unknown }> {
   for (let attempt = 0; ; attempt += 1) {
     try {
       return await new Promise((resolve, reject) => {
         const payload = JSON.stringify(body);
         const request = http.request({
-          host: '127.0.0.1', port, path: '/mcp/awf-enclave', method: 'POST',
-          headers: { authorization: apiKey, 'content-type': 'application/json' },
+          host: '127.0.0.1', port, path: route, method: 'POST',
+          headers: { authorization, 'content-type': 'application/json' },
         }, (response) => {
           const chunks: Buffer[] = [];
           response.on('data', (chunk: Buffer) => chunks.push(chunk));
@@ -69,7 +78,7 @@ describe('Cloud Hypervisor enclave gateway fixture', () => {
     upstream = undefined;
   });
 
-  async function startGateway(upstreamPort: number): Promise<number> {
+  async function startGateway(upstreamPort: number, environment: NodeJS.ProcessEnv = {}): Promise<number> {
     const port = await freePort();
     gateway = spawn(process.execPath, [fixture], {
       env: {
@@ -78,11 +87,174 @@ describe('Cloud Hypervisor enclave gateway fixture', () => {
         MCP_GATEWAY_API_KEY: apiKey,
         AWF_ENCLAVE_MCP_CAPABILITY: capability,
         AWF_ENCLAVE_GATEWAY_FIXTURE_UPSTREAM: `http://127.0.0.1:${upstreamPort}/mcp`,
+        ...environment,
       },
       stdio: 'ignore',
     });
     return port;
   }
+
+  describe('scoped static GitHub controlled route (no VM in deterministic tests)', () => {
+    const identity = 'scoped-github-live-fixture';
+    const issueArgs = { owner: 'github', repo: 'gh-aw-firewall', method: 'get', issue_number: 1 };
+    const message = (name: string, args: unknown = issueArgs) => ({
+      jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name, arguments: args },
+    });
+    const environmentFor = (value: ReturnType<typeof makeGithubFixtureCapability>) => ({
+      AWF_ENCLAVE_MCP_GATEWAY_IDENTITY: identity,
+      AWF_ENCLAVE_GITHUB_MCP_AGENT_ID: value.agentId,
+      AWF_ENCLAVE_GITHUB_EXECUTOR_CAPABILITY: JSON.stringify(value),
+    });
+
+    it('issues an exact compiler handoff, opts configuration in, and preserves the disabled default', () => {
+      const value = makeGithubFixtureCapability(identity, apiKey);
+      expect(value).toEqual({
+        version: 1, gatewayIdentity: identity, executor: 'agent', agentId: expect.stringMatching(/^[a-f0-9]{64}$/),
+        bearer: expect.stringMatching(/^[\x21-\x7e]{32,512}$/),
+        issuedAt: expect.any(Number), expiresAt: value.issuedAt + 3600_000,
+        allowedTools: ['issue_read', 'list_issues'], allowedRepos: ['github/gh-aw-firewall'], minIntegrity: null,
+      });
+      expect([apiKey, value.agentId]).not.toContain(value.bearer);
+      const artifacts = { directory: '/artifacts', tag: 'v0.0.0' };
+      const disabled = makeConfig(artifacts, '/work', '/workspace', {});
+      const enabled = makeConfig(artifacts, '/work', '/workspace', { githubCapability: value });
+      expect(disabled.enclaves[1].agent.tools).toBeUndefined();
+      expect(enabled.enclaves[1].agent.tools.github).toEqual({
+        allowed: value.allowedTools, allowedRepos: value.allowedRepos,
+      });
+      expect(JSON.parse(JSON.stringify(toAwfConfig(enabled))).enclaves[1].agent.tools.github).toEqual({
+        allowed: ['issue_read', 'list_issues'], allowedRepos: ['github/gh-aw-firewall'],
+      });
+      expect(enabled.container.containerRuntime).toBe('docker');
+      expect(disabled.container.containerRuntime).toBe('cloud-hypervisor');
+      expect(JSON.stringify(toAwfConfig(enabled))).not.toContain(value.bearer);
+      const wrapper = {
+        ...enabled, containerRuntime: enabled.container.containerRuntime,
+        networkIsolation: true, enableApiProxy: true,
+        workDir: '/work', enclaves: normalizeEnclavesConfig(enabled.enclaves),
+      } as WrapperConfig;
+      expect(() => assertCloudHypervisorPreSecurityCompatibility(wrapper)).not.toThrow();
+      expect(() => assertCloudHypervisorPreSecurityCompatibility({
+        ...wrapper, containerRuntime: 'cloud-hypervisor',
+      })).toThrow(/primary-agent execution with enclaves is reserved/);
+      const scriptOnly = makeConfig(artifacts, '/work', '/workspace', { githubCapability: value }, 'script-only');
+      expect(scriptOnly.container.containerRuntime).toBe('cloud-hypervisor');
+      expect(scriptOnly.enclaves).toHaveLength(1);
+      expect(scriptOnly.enclaves[0].agent).toBeUndefined();
+      const agentOnly = makeConfig(artifacts, '/work', '/workspace', { githubCapability: value }, 'agent-only');
+      expect(agentOnly.container.containerRuntime).toBe('docker');
+      expect(() => assertCloudHypervisorPreSecurityCompatibility({
+        ...wrapper, enclaves: normalizeEnclavesConfig(agentOnly.enclaves),
+      })).not.toThrow();
+      const handoffEnvironment = { ...environmentFor(value), MCP_GATEWAY_API_KEY: apiKey };
+      expect(() => takeStaticGithubExecutorCapability(wrapper, handoffEnvironment)).not.toThrow();
+      expect(getStaticGithubExecutorCapability(wrapper)).toEqual(value);
+      expect(handoffEnvironment).not.toHaveProperty('AWF_ENCLAVE_GITHUB_EXECUTOR_CAPABILITY');
+      expect(buildAgentGuestProbe().expected.githubPeerBlocked).toBe(true);
+      expect(buildAgentGuestProbe({ githubEnabled: true }).expected.githubPeerBlocked).toBe(false);
+    });
+
+    it('runs the actual guest diagnostic against the controlled HTTP fixture and staged source', async () => {
+      const value = makeGithubFixtureCapability(identity, apiKey);
+      const port = await startGateway(await freePort(), environmentFor(value));
+      const auth = value.bearer;
+      await expect(post(port, message('issue_read'), '/mcp/github', auth)).resolves.toMatchObject({
+        status: 200, body: { result: { structuredContent: {
+          number: 1, title: 'AWF controlled scoped issue', repository: 'github/gh-aw-firewall',
+        } } },
+      });
+      await expect(post(port, message('issue_read'), '/mcp/github', ['Bearer', auth].join(' ')))
+        .resolves.toEqual({ status: 403, body: { error: 'forbidden' } });
+      await expect(post(port, message('list_issues', { owner: 'github', repo: 'gh-aw-firewall' }),
+        '/mcp/github', auth)).resolves.toMatchObject({ status: 200, body: { result: {
+        structuredContent: { issues: [{ number: 1 }] },
+      } } });
+      const directory = path.join(process.cwd(), `.scoped-github-fixture-${randomUUID()}`);
+      fs.mkdirSync(directory, { mode: 0o700 });
+      try {
+        const source = path.join(directory, 'README.md');
+        const config = path.join(directory, 'github-mcp.json');
+        const out = path.join(directory, 'out');
+        fs.writeFileSync(source, 'Controlled staged source\n');
+        fs.writeFileSync(config, JSON.stringify({ mcpServers: { github: {
+          url: `http://127.0.0.1:${port}/mcp/github`,
+          headers: { Authorization: auth }, tools: value.allowedTools,
+        } } }), { mode: 0o600 });
+        const probe = buildScopedGithubGuestProbe();
+        expect(Buffer.byteLength(probe.prompt)).toBeLessThanOrEqual(4096);
+        const parsed = validateSchema(probe.schema);
+        expect(parsed.valid).toBe(true);
+        if (parsed.valid) expect(validateValueAgainstSchema(parsed.schema, probe.expected)).toBe(true);
+        // Only this deterministic diagnostic test substitutes paths/loopback.
+        // The live harness retains the real VM and fixed .40 endpoint.
+        const script = probe.python
+          .replaceAll('/awf/seed/README.md', source).replaceAll('/agent/github-mcp.json', config)
+          .replaceAll('/awf/out', out)
+          .replaceAll('http://172.31.0.40:8080/mcp/github', `http://127.0.0.1:${port}/mcp/github`);
+        const result = execFileSync('python3', ['-c', script], { encoding: 'utf8' });
+        expect(JSON.parse(result)).toEqual(probe.expected);
+        expect(JSON.parse(fs.readFileSync(out, 'utf8'))).toEqual(probe.expected);
+        expect(result).not.toContain(value.bearer);
+      } finally {
+        fs.rmSync(directory, { recursive: true, force: true });
+      }
+    });
+
+    it.each([
+      ['gateway-wide key', apiKey], ['broker capability', capability], ['wrong bearer', 'x'.repeat(40)],
+      ['static executor identity', 'agent-id'], ['missing bearer', ''],
+    ])('denies %s, including identities that are not scoped bearers', async (_label, rejected) => {
+      const value = makeGithubFixtureCapability(identity, apiKey);
+      const port = await startGateway(await freePort(), environmentFor(value));
+      for (const auth of [rejected, ['Bearer', rejected].join(' '), value.agentId]) {
+        await expect(post(port, message('issue_read'), '/mcp/github', auth))
+          .resolves.toEqual({ status: 403, body: { error: 'forbidden' } });
+      }
+    });
+
+    it.each([
+      message('issue_write'),
+      message('issue_read', { ...issueArgs, repo: 'other' }),
+      message('issue_read', { ...issueArgs, owner: 'Github' }),
+      message('issue_read', { ...issueArgs, method: 'get_comments' }),
+      message('issue_read', { ...issueArgs, issue_number: 2 }),
+      message('list_issues', { owner: 'github', repo: 'gh-aw-firewall', query: 'repo:other/private' }),
+    ])('rejects tools, repositories, and argument escape paths: %j', async (request) => {
+      const value = makeGithubFixtureCapability(identity, apiKey);
+      const port = await startGateway(await freePort(), environmentFor(value));
+      await expect(post(port, request, '/mcp/github', value.bearer))
+        .resolves.toEqual({ status: 403, body: { error: 'forbidden' } });
+    });
+
+    it('denies expired capabilities on every method instead of falling back to broad credentials', async () => {
+      const value = makeGithubFixtureCapability(identity, apiKey, Date.now() - 3600_001);
+      const port = await startGateway(await freePort(), environmentFor(value));
+      for (const method of ['initialize', 'tools/list', 'tools/call']) {
+        await expect(post(port, { ...message('issue_read'), method }, '/mcp/github',
+          value.bearer)).resolves.toEqual({ status: 403, body: { error: 'forbidden' } });
+      }
+    });
+
+    it('does not expose the controlled GitHub route without opt-in', async () => {
+      const port = await startGateway(await freePort());
+      await expect(post(port, message('issue_read'), '/mcp/github'))
+        .resolves.toEqual({ status: 404, body: { error: 'not found' } });
+    });
+
+    it.each([
+      { executor: 'script' }, { gatewayIdentity: 'different-gateway' }, { agentId: 'other-agent'.repeat(4) },
+      { bearer: apiKey }, { allowedTools: ['issue_read', 'issue_write'] },
+      { allowedRepos: ['other/private'] }, { minIntegrity: 'unconfigured' },
+      { expiresAt: Date.now() + 7200_000 }, { issuedAt: Date.now() + 3600_000 },
+    ])('refuses mismatched capability issuance %j', async (patch) => {
+      const value = makeGithubFixtureCapability(identity, apiKey);
+      const env = environmentFor(value);
+      env.AWF_ENCLAVE_GITHUB_EXECUTOR_CAPABILITY = JSON.stringify({ ...value, ...patch });
+      await startGateway(await freePort(), env);
+      const [code] = await once(gateway!, 'close');
+      expect(code).not.toBe(0);
+    });
+  });
 
   async function protocolGateway(
     profile: 'script' | 'agent' | 'combined',

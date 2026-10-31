@@ -32,6 +32,8 @@ export interface HostExecutorAgentPolicy {
   readonly modelBudgetSecret?: string;
   readonly githubAgentId?: string;
   readonly githubBearer?: string;
+  readonly githubExpiresAt?: number;
+  readonly githubAllowedTools?: readonly string[];
 }
 
 const MIB = 1024 * 1024;

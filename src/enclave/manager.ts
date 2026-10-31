@@ -58,6 +58,7 @@ import { HOST_EXECUTOR_STORAGE_ROOT } from './host-executor-journal';
 import * as path from 'path';
 import { updateEnclaveStartupProgress } from './startup-progress';
 import { HostPreflightReporter } from '../cloud-hypervisor/host-preflight-progress';
+import { takeStaticGithubExecutorCapability } from './static-github-handoff';
 
 export const ENCLAVE_RUN_LABEL = 'awf.enclave.run';
 export function isEnclaveScriptEnabled(config: WrapperConfig): boolean {
@@ -165,6 +166,7 @@ export async function prepareEnclaves(
   updateEnclaveStartupProgress(config, { stage: 'configuration' });
   const enclaves = config.enclaves!;
   const env = deps.env ?? process.env;
+  takeStaticGithubExecutorCapability(config, env);
   const storageProvider = deps.cloudHypervisorStorageProvider ??
     new ProductionTrustedCloudHypervisorEnclaveStorageProvider();
   // Take custody of the compiler's AWF-only delegation handoff before anything

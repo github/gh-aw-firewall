@@ -53,6 +53,20 @@ describe('run sandbox backend', () => {
     expect(validateRunSandboxBackend('cloud-hypervisor', enclaves)).toHaveLength(1);
   });
 
+  it.each([undefined, 'docker', 'runc'])(
+    'allows a static VM agent enclave under Docker primary %s without runtime substitution', (primary) => {
+      const enclaves = normalizeEnclavesConfig([{
+        agent: { model: 'trusted-model' }, runtime: 'cloud-hypervisor',
+        repos: [{ repo: 'octo/private', sensitivity: 'confidential' }],
+      }])!;
+      expect(validateRunSandboxBackend(primary, enclaves)).toEqual([]);
+      expect(enclaves.executors.agent.runtime).toBe('cloud-hypervisor');
+      expect(validateRunSandboxBackend('gvisor', enclaves)).toHaveLength(1);
+      enclaves.executors.script.enabled = true;
+      expect(validateRunSandboxBackend(primary, enclaves)).toHaveLength(1);
+    },
+  );
+
   it('ignores disabled executors and rejects unknown enclave run backends', () => {
     const enclaves = normalizeEnclavesConfig([{ script: {}, runtime: 'gvisor', repos: [] }])!;
     expect(validateRunSandboxBackend('runsc', enclaves)).toEqual([]);

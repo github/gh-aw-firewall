@@ -180,6 +180,8 @@ export function agentEnvironment(
     AWF_ENCLAVE_AGENT_API_ENDPOINT: `http://${ENCLAVE_AGENT_API_PROXY_IP}:10002`,
     AWF_ENCLAVE_AGENT_GITHUB_ENABLED: String(policy.githubAgentId !== undefined),
     ...(policy.githubAgentId !== undefined ? {
+      AWF_ENCLAVE_AGENT_GITHUB_AUTH_MODE: 'scoped-bearer',
+      AWF_ENCLAVE_AGENT_GITHUB_ALLOWED_TOOLS: JSON.stringify(policy.githubAllowedTools),
       AWF_ENCLAVE_AGENT_GITHUB_PROFILE: GITHUB_PROFILE,
       AWF_ENCLAVE_AGENT_GITHUB_MCP_URL: GITHUB_ENDPOINT,
     } : {}),

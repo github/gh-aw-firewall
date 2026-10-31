@@ -245,11 +245,12 @@ function run(command, args, options = {}) {
   return captureStderr ? `${result.stdout}\n${result.stderr}` : result.stdout;
 }
 
-function captureContainerLogs(profile = 'combined') {
+function captureContainerLogs(profile = 'combined', dockerPrimary = false) {
   return [
     GATEWAY_CONTAINER,
     'awf-enclave-mcp-server',
     'awf-api-proxy',
+    ...(dockerPrimary ? ['awf-agent'] : []),
     ...(profile === 'script-only' ? [] : ['awf-enclave-agent-api-proxy']),
     'awf-squid',
   ].map((container) => run('docker', ['logs', container], {
@@ -1174,7 +1175,7 @@ function assertExpectedToolResult(response, requestId, expected, label) {
   }
 }
 
-function buildAgentGuestProbe() {
+function buildAgentGuestProbe({ githubEnabled = false } = {}) {
   const expected = {
     uid: 65534,
     gid: 65534,
@@ -1187,7 +1188,7 @@ function buildAgentGuestProbe() {
     apiProxyReachable: true,
     wrongPortBlocked: true,
     wrongPeerBlocked: true,
-    githubPeerBlocked: true,
+    githubPeerBlocked: !githubEnabled,
     publicEgressBlocked: true,
   };
   const schema = buildConstantObjectSchema(expected);
@@ -1844,6 +1845,77 @@ function prepareAcceptanceArtifacts(checkout, directory, environment) {
   };
 }
 
+async function waitForDockerPrimaryReadiness(child, deadline, stdoutFile, readyToken) {
+  if (!/^AWF_DOCKER_PRIMARY_READY_[a-f0-9]{48}$/.test(readyToken || '')) {
+    throw new Error('Invalid live Docker primary readiness token');
+  }
+  while (Date.now() < deadline) {
+    if (failedSpawns.has(child) || child.exitCode !== null || child.signalCode !== null) {
+      throw new Error('AWF exited before live Docker primary command readiness');
+    }
+    // This fresh per-launch token is printed by the actual primary command,
+    // after Docker entrypoint/chroot setup, not by a container healthcheck.
+    if (readDiagnosticFile(stdoutFile).includes(Buffer.from(`${readyToken}\n`))) {
+      assertNoVmResidue();
+      return undefined; // Docker primary: no baseline VMM/netns/cgroup may remain.
+    }
+    await new Promise((resolve) => setTimeout(resolve, 500));
+  }
+  throw new Error('Timed out waiting for actual live Docker primary command readiness');
+}
+
+function makeGithubFixtureCapability(identity, gatewayKey, now = Date.now()) {
+  const agentId = crypto.randomBytes(32).toString('hex');
+  let bearer;
+  do { bearer = crypto.randomBytes(36).toString('base64url'); } while (bearer === gatewayKey || bearer === agentId);
+  return {
+    version: 1, gatewayIdentity: identity, executor: 'agent', agentId, bearer,
+    issuedAt: now, expiresAt: now + 3600_000,
+    allowedTools: ['issue_read', 'list_issues'],
+    allowedRepos: ['github/gh-aw-firewall'], minIntegrity: null,
+  };
+}
+
+function buildScopedGithubGuestProbe() {
+  const expected = { sourceRead: true, issueRead: true, toolsExact: true,
+    wrongToolDenied: true, wrongRepoDenied: true, wrongIdentityDenied: true };
+  const python = [
+    'import json, pathlib, urllib.request, urllib.error',
+    'assert pathlib.Path("/awf/seed/README.md").read_bytes()',
+    'config = json.loads(pathlib.Path("/agent/github-mcp.json").read_text())["mcpServers"]["github"]',
+    'assert config["url"] == "http://172.31.0.40:8080/mcp/github"',
+    'assert sorted(config["tools"]) == ["issue_read", "list_issues"]',
+    'def rpc(method, params, auth=None):',
+    '    req = urllib.request.Request(config["url"], json.dumps({"jsonrpc":"2.0","id":1,"method":method,"params":params}).encode(),',
+    '        {"Content-Type":"application/json","Authorization":auth or config["headers"]["Authorization"]})',
+    '    try:',
+    '        with urllib.request.build_opener(urllib.request.ProxyHandler({})).open(req, timeout=10) as r:',
+    '            return r.status, json.loads(r.read(16384))',
+    '    except urllib.error.HTTPError as e:',
+    '        return e.code, None',
+    'status, listed = rpc("tools/list", {})',
+    'assert status == 200 and sorted(t["name"] for t in listed["result"]["tools"]) == ["issue_read", "list_issues"]',
+    'args = {"owner":"github","repo":"gh-aw-firewall","method":"get","issue_number":1}',
+    'status, issue = rpc("tools/call", {"name":"issue_read","arguments":args})',
+    'assert status == 200 and issue["result"]["structuredContent"] == {"number":1,"title":"AWF controlled scoped issue","repository":"github/gh-aw-firewall"}',
+    'assert rpc("tools/call", {"name":"issue_write","arguments":args})[0] == 403',
+    'assert rpc("tools/call", {"name":"issue_read","arguments":dict(args, repo="other")})[0] == 403',
+    'assert rpc("tools/list", {}, "invalid-executor-identity-" * 2)[0] == 403',
+    `result = dict.fromkeys(${JSON.stringify(Object.keys(expected))}, True)`,
+    'encoded = json.dumps(result, separators=(",", ":"))',
+    'print(encoded)',
+    'pathlib.Path("/awf/out").write_text(encoded)',
+  ].join('\n');
+  return {
+    expected, schema: buildConstantObjectSchema(expected), python,
+    prompt: [
+      'Run this exact controlled fixture diagnostic with your shell tool. Never print credentials or repository contents.',
+      "```bash\npython3 - <<'PY'", python, 'PY\n```',
+      'Return exactly the JSON object printed, and write it to /awf/out.',
+    ].join('\n'),
+  };
+}
+
 function makeConfig(artifacts, workDir, workspace, handoff, profile = 'combined') {
   const enclaveRepository = { repo: 'github/gh-aw-firewall', sensitivity: 'public' };
   const main = artifacts.directory;
@@ -1881,6 +1953,10 @@ function makeConfig(artifacts, workDir, workspace, handoff, profile = 'combined'
           engine: 'copilot',
           profile: 'openai',
           maxTaskBytes: 4096,
+          ...(handoff.githubCapability ? { tools: { github: {
+            allowed: handoff.githubCapability.allowedTools,
+            allowedRepos: handoff.githubCapability.allowedRepos,
+          } } } : {}),
         },
         runtime: 'cloud-hypervisor',
         timeout: 360,
@@ -1890,7 +1966,11 @@ function makeConfig(artifacts, workDir, workspace, handoff, profile = 'combined'
     ].filter((entry) => profile === 'combined'
       || (profile === 'script-only' && entry.script)
       || (profile === 'agent-only' && entry.agent)),
-    container: { containerRuntime: 'cloud-hypervisor', imageTag: artifacts.tag },
+    container: {
+      containerRuntime: handoff.githubCapability && ['combined', 'agent-only'].includes(profile)
+        ? 'docker' : 'cloud-hypervisor',
+      imageTag: artifacts.tag,
+    },
     apiProxy: { enabled: true },
     logging: {
       auditDir: path.join(workDir, 'audit'),
@@ -2006,11 +2086,16 @@ function spawnAwf(awfArguments, environment, stdoutFile, stderrFile, stage) {
 }
 
 // The key reaches the fixture only through a private env file, never argv or logs.
-function startGatewayFixture({ gatewayEnv, gatewayKey, capability, identity, onStarted }) {
+function startGatewayFixture({ gatewayEnv, gatewayKey, capability, identity, githubCapability, onStarted }) {
   fs.writeFileSync(gatewayEnv, [
     'MCP_GATEWAY_PORT=8080',
     `MCP_GATEWAY_API_KEY=${gatewayKey}`,
     `AWF_ENCLAVE_MCP_CAPABILITY=${capability}`,
+    ...(githubCapability ? [
+      `AWF_ENCLAVE_MCP_GATEWAY_IDENTITY=${identity}`,
+      `AWF_ENCLAVE_GITHUB_MCP_AGENT_ID=${githubCapability.agentId}`,
+      `AWF_ENCLAVE_GITHUB_EXECUTOR_CAPABILITY=${JSON.stringify(githubCapability)}`,
+    ] : []),
     '',
   ].join('\n'), { mode: 0o600, flag: 'wx' });
 
@@ -2032,6 +2117,7 @@ function startGatewayFixture({ gatewayEnv, gatewayKey, capability, identity, onS
     gatewayKey,
     endpoint: `http://127.0.0.1:${mapping.HostPort}/mcp/awf-enclave`,
     identity,
+    ...(githubCapability ? { githubCapability } : {}),
   };
 }
 
@@ -2061,6 +2147,7 @@ const FAILURE_STAGES = Object.freeze({
   GATEWAY: 'gateway setup',
   BROKER: 'broker readiness',
   PRIMARY: 'primary VM readiness',
+  PRIMARY_DOCKER: 'primary Docker readiness',
   MCP_ROUTE: 'public MCP route',
   SCRIPT: 'script enclave checks',
   AGENT: 'agent enclave checks',
@@ -2093,6 +2180,8 @@ async function main(failureContext = { stage: FAILURE_STAGES.RUNNER }) {
   }
   failureContext.stage = FAILURE_STAGES.RELEASE;
   const environment = { ...process.env };
+  const scopedGithubMode = environment.AWF_ENCLAVE_LIVE_SCOPED_GITHUB === '1';
+  let dockerPrimary = scopedGithubMode;
   const runnerTemp = environment.RUNNER_TEMP || os.tmpdir();
   const root = fs.mkdtempSync(path.join(runnerTemp, 'awf-enclave-live-'));
   fs.chmodSync(root, 0o700);
@@ -2114,9 +2203,19 @@ async function main(failureContext = { stage: FAILURE_STAGES.RUNNER }) {
   const runDirectories = [workDir];
   let awfEnvironment;
   let primaryVmResidue;
+  let primaryReadyToken;
+  const captureLiveContainerLogs = (profile) => captureContainerLogs(profile, dockerPrimary);
+  const waitForPrimary = (vmReadiness) => dockerPrimary
+    ? waitForDockerPrimaryReadiness(awf, Date.now() + 5 * 60_000, awfOut, primaryReadyToken)
+    : vmReadiness();
   let diagnosticContext;
   const startupSnapshots = [];
   const launchAwf = (stage, profile = stage === 'initial' || stage === 'recovery' ? 'combined' : stage) => {
+    dockerPrimary = scopedGithubMode && ['combined', 'agent-only'].includes(profile);
+    primaryReadyToken = `AWF_DOCKER_PRIMARY_READY_${crypto.randomBytes(24).toString('hex')}`;
+    const stopPath = dockerPrimary ? path.join(workspace, '.awf-enclave-live-stop')
+      : '/workspace/.awf-enclave-live-stop';
+    const quote = (value) => `'${value.replaceAll("'", "'\\''")}'`;
     const awfArguments = [
       path.resolve(__dirname, '../../dist/cli.js'),
       '--config', awfConfigPath,
@@ -2127,7 +2226,8 @@ async function main(failureContext = { stage: FAILURE_STAGES.RUNNER }) {
       '--log-level', 'error',
       '--agent-timeout', '45',
       '--',
-      'while [ ! -f /workspace/.awf-enclave-live-stop ]; do sleep 1; done',
+      `${dockerPrimary ? `printf '%s\\n' ${quote(primaryReadyToken)}; ` : ''}`
+        + `while [ ! -f ${quote(stopPath)} ]; do sleep 1; done`,
     ];
     const startupErrorFile = path.join(workDir, 'proxy-logs', 'awf-startup-error.json');
     let child;
@@ -2175,13 +2275,15 @@ async function main(failureContext = { stage: FAILURE_STAGES.RUNNER }) {
       JSON.parse(fs.readFileSync(artifacts.enclaveArtifactEnvironment.AWF_CLOUD_HYPERVISOR_ENCLAVE_MANIFEST, 'utf8')),
       JSON.parse(fs.readFileSync(path.join(artifacts.enclaveDirectory, 'enclave-rootfs.sbom.spdx.json'), 'utf8')),
     );
+    const githubCapability = scopedGithubMode
+      ? makeGithubFixtureCapability(gatewayIdentity, gatewayKey) : undefined;
     fs.mkdirSync(workDir, { recursive: true, mode: 0o700 });
     fs.mkdirSync(workspace, { recursive: true, mode: 0o755 });
     fs.chmodSync(workspace, 0o755);
     fs.mkdirSync(path.join(workDir, 'audit'), { recursive: true, mode: 0o700 });
     fs.mkdirSync(path.join(workDir, 'proxy-logs'), { recursive: true, mode: 0o700 });
     diagnosticContext = conformanceDiagnostics.prepareForJob(
-      toAwfConfig(makeConfig(artifacts, workDir, workspace, {})), 'live',
+      toAwfConfig(makeConfig(artifacts, workDir, workspace, { githubCapability })), 'live',
     );
     if (diagnosticContext) {
       failureContext.observeAdmission = () => conformanceDiagnostics.captureAdmissionEvidence(
@@ -2191,6 +2293,7 @@ async function main(failureContext = { stage: FAILURE_STAGES.RUNNER }) {
     failureContext.stage = FAILURE_STAGES.GATEWAY;
     const handoff = startGatewayFixture({
       gatewayEnv, gatewayKey, capability, identity: gatewayIdentity,
+      githubCapability,
       onStarted: () => { gatewayStarted = true; },
     });
     const { endpoint } = handoff;
@@ -2217,6 +2320,10 @@ async function main(failureContext = { stage: FAILURE_STAGES.RUNNER }) {
       GITHUB_WORKSPACE: workspace,
       GH_TOKEN: environment.GH_TOKEN,
       GITHUB_TOKEN: environment.GITHUB_TOKEN,
+      ...(githubCapability ? {
+        AWF_ENCLAVE_GITHUB_MCP_AGENT_ID: githubCapability.agentId,
+        AWF_ENCLAVE_GITHUB_EXECUTOR_CAPABILITY: JSON.stringify(githubCapability),
+      } : {}),
     };
     failureContext.stage = FAILURE_STAGES.BROKER;
     awf = launchAwf('initial', 'combined');
@@ -2228,10 +2335,10 @@ async function main(failureContext = { stage: FAILURE_STAGES.RUNNER }) {
       stage: 'initial', stderrFile: awfErr,
       startupErrorFile: path.join(workDir, 'proxy-logs', 'awf-startup-error.json'),
     });
-    failureContext.stage = FAILURE_STAGES.PRIMARY;
-    primaryVmResidue = await waitForPrimaryVmReadiness(awf, Date.now() + 5 * 60_000, {
+    failureContext.stage = dockerPrimary ? FAILURE_STAGES.PRIMARY_DOCKER : FAILURE_STAGES.PRIMARY;
+    primaryVmResidue = await waitForPrimary(() => waitForPrimaryVmReadiness(awf, Date.now() + 5 * 60_000, {
       startupErrorFile: path.join(workDir, 'proxy-logs', 'awf-startup-error.json'),
-    });
+    }));
 
     failureContext.stage = FAILURE_STAGES.MCP_ROUTE;
     const initialized = await requestMcp(
@@ -2303,21 +2410,24 @@ async function main(failureContext = { stage: FAILURE_STAGES.RUNNER }) {
 
     failureContext.stage = FAILURE_STAGES.AGENT;
     const agentResultValue = 'AWF_ENCLAVE_LIVE_AGENT_RESULT';
+    const scopedGithubProbe = githubCapability ? buildScopedGithubGuestProbe() : undefined;
     const agentResponse = await requestMcp(endpoint, gatewayKey, 4, 'tools/call', {
       name: 'enclave_run_agent',
       arguments: {
         privateRepo: 'github/gh-aw-firewall',
-        schema: { type: 'enum', values: [agentResultValue] },
-        prompt: `Return exactly the string ${JSON.stringify(agentResultValue)}. Do not inspect or quote repository files.`,
+        schema: scopedGithubProbe?.schema || { type: 'enum', values: [agentResultValue] },
+        prompt: scopedGithubProbe?.prompt
+          || `Return exactly the string ${JSON.stringify(agentResultValue)}. Do not inspect or quote repository files.`,
       },
     });
     const agentResult = parsePublicToolResult(agentResponse, 4);
-    if (agentResult.status !== 'ok' || agentResult.result !== agentResultValue) {
+    if (agentResult.status !== 'ok'
+        || !isDeepStrictEqual(agentResult.result, scopedGithubProbe?.expected || agentResultValue)) {
       throw new Error('Live agent enclave did not return the bounded canonical result');
     }
     await waitForVmCleanup(15_000, primaryVmResidue);
 
-    const agentProbe = buildAgentGuestProbe();
+    const agentProbe = buildAgentGuestProbe({ githubEnabled: !!githubCapability });
     const agentProbeResponse = await requestMcp(endpoint, gatewayKey, 5, 'tools/call', {
       name: 'enclave_run_agent',
       arguments: {
@@ -2517,7 +2627,7 @@ async function main(failureContext = { stage: FAILURE_STAGES.RUNNER }) {
       const stderr = await acceptanceCheck(failureContext, 'crash-recovery', 'stderr-read',
         () => fs.readFileSync(awfErr, 'utf8'));
       const containerLogs = await acceptanceCheck(failureContext, 'crash-recovery', 'container-logs',
-        () => captureContainerLogs());
+        () => captureLiveContainerLogs());
       preRestartLogContents = [stdout, stderr, ...containerLogs];
       await acceptanceCheck(failureContext, 'crash-recovery', 'compose-stop',
         () => stopComposeAfterCrash(interruptedWorkDir));
@@ -2541,9 +2651,9 @@ async function main(failureContext = { stage: FAILURE_STAGES.RUNNER }) {
           startupErrorFile: path.join(workDir, 'proxy-logs', 'awf-startup-error.json'),
         }));
       primaryVmResidue = await acceptanceCheck(failureContext, 'crash-recovery', 'primary-readiness',
-        () => waitForPrimaryVmReadiness(awf, Date.now() + 5 * 60_000, {
+        () => waitForPrimary(() => waitForPrimaryVmReadiness(awf, Date.now() + 5 * 60_000, {
           startupErrorFile: path.join(workDir, 'proxy-logs', 'awf-startup-error.json'),
-        }));
+        })));
       await acceptanceCheck(failureContext, 'crash-recovery', 'tools-list', async () => {
         const recoveryTools = await requestMcp(endpoint, gatewayKey, 13, 'tools/list', {});
         if (!Array.isArray(recoveryTools?.result?.tools)) {
@@ -2577,14 +2687,14 @@ async function main(failureContext = { stage: FAILURE_STAGES.RUNNER }) {
       ...preRestartLogContents,
       fs.readFileSync(awfOut, 'utf8'),
       fs.readFileSync(awfErr, 'utf8'),
-      ...captureContainerLogs(),
+      ...captureLiveContainerLogs(),
     ];
     const privateRoots = runDirectories.map((directory) => path.join(
       '/var/tmp',
       `awf-enclave-private-0-${crypto.createHash('sha256')
         .update(path.resolve(directory), 'utf8').digest('hex').slice(0, 20)}`,
     ));
-    assertNoSentinelLeak([
+    const redactionDirectories = [
       ...runDirectories.flatMap((directory) => [
         path.join(directory, 'audit'),
         path.join(directory, 'proxy-logs'),
@@ -2594,9 +2704,10 @@ async function main(failureContext = { stage: FAILURE_STAGES.RUNNER }) {
         path.join(directory, 'api-proxy-logs'),
       ]),
       journalRoot,
-    ], [
-      ...logContents,
-    ], sentinel);
+    ];
+    for (const protectedValue of [sentinel, githubCapability?.bearer].filter(Boolean)) {
+      assertNoSentinelLeak(redactionDirectories, logContents, protectedValue);
+    }
 
     // Exercise each single-executor configuration through a fresh broker and real VM.
     // The combined run above retains the full failure/recovery coverage.
@@ -2630,9 +2741,9 @@ async function main(failureContext = { stage: FAILURE_STAGES.RUNNER }) {
       await acceptanceCheck(failureContext, profile, 'gateway-readiness',
         () => waitForHostGatewayReadiness(awf, Date.now() + 150_000, diagnostics));
       const profileStage = failureContext.stage;
-      failureContext.stage = FAILURE_STAGES.PRIMARY;
+      failureContext.stage = dockerPrimary ? FAILURE_STAGES.PRIMARY_DOCKER : FAILURE_STAGES.PRIMARY;
       primaryVmResidue = await acceptanceCheck(failureContext, profile, 'primary-readiness',
-        () => waitForPrimaryVmReadiness(awf, Date.now() + 5 * 60_000, diagnostics));
+        () => waitForPrimary(() => waitForPrimaryVmReadiness(awf, Date.now() + 5 * 60_000, diagnostics)));
       failureContext.stage = profileStage;
       const requestId = profile === 'script-only' ? 14 : 17;
       const profileInit = await acceptanceCheck(failureContext, profile, 'initialize',
@@ -2661,12 +2772,14 @@ async function main(failureContext = { stage: FAILURE_STAGES.RUNNER }) {
             name: 'enclave_run_agent',
             arguments: {
               privateRepo: 'github/gh-aw-firewall',
-              schema: { type: 'enum', values: [agentResultValue] },
-              prompt: `Return exactly the string ${JSON.stringify(agentResultValue)}. Do not inspect or quote repository files.`,
+              schema: scopedGithubProbe?.schema || { type: 'enum', values: [agentResultValue] },
+              prompt: scopedGithubProbe?.prompt
+                || `Return exactly the string ${JSON.stringify(agentResultValue)}. Do not inspect or quote repository files.`,
             },
           }));
         await acceptanceCheck(failureContext, profile, 'result-validation',
-          () => assertExpectedToolResult(response, requestId + 2, agentResultValue, 'agent-only profile'));
+          () => assertExpectedToolResult(response, requestId + 2,
+            scopedGithubProbe?.expected || agentResultValue, 'agent-only profile'));
       }
       await acceptanceCheck(failureContext, profile, 'cleanup',
         () => waitForVmCleanup(15_000, primaryVmResidue));
@@ -2675,18 +2788,21 @@ async function main(failureContext = { stage: FAILURE_STAGES.RUNNER }) {
       const profileStderr = await acceptanceCheck(failureContext, profile, 'stderr-read',
         () => fs.readFileSync(awfErr, 'utf8'));
       const profileContainerLogs = await acceptanceCheck(failureContext, profile, 'container-logs',
-        () => captureContainerLogs(profile));
+        () => captureLiveContainerLogs(profile));
       await acceptanceCheck(failureContext, profile, 'output-redaction', () => {
         const privateRoot = path.join(
           '/var/tmp',
           `awf-enclave-private-0-${crypto.createHash('sha256')
             .update(path.resolve(workDir), 'utf8').digest('hex').slice(0, 20)}`,
         );
-        assertNoSentinelLeak([
+        const directories = [
           path.join(workDir, 'audit'), path.join(workDir, 'proxy-logs'),
           path.join(privateRoot, 'audit'), path.join(privateRoot, 'api-proxy-logs'),
           journalRoot,
-        ], [profileStdout, profileStderr, ...profileContainerLogs], sentinel);
+        ];
+        for (const protectedValue of [sentinel, githubCapability?.bearer].filter(Boolean)) {
+          assertNoSentinelLeak(directories, [profileStdout, profileStderr, ...profileContainerLogs], protectedValue);
+        }
       });
     }
     acceptancePassed = true;
@@ -2846,6 +2962,7 @@ module.exports = {
   startGatewayFixture,
   waitForVmCleanup,
   waitForPrimaryVmReadiness,
+  waitForDockerPrimaryReadiness,
   readPrimaryVmProgress,
   verifyPrimaryVmIdentity,
   startupDiagnostic,
@@ -2873,6 +2990,8 @@ module.exports = {
   killAwfForRecovery,
   withCrashRecoveryCleanup,
   buildAgentGuestProbe,
+  makeGithubFixtureCapability,
+  buildScopedGithubGuestProbe,
   buildAgentEnospcProbe,
   buildConstantObjectSchema,
   buildEnospcProbeScript,

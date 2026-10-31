@@ -26,6 +26,14 @@ export function validateRunSandboxBackend(
   } catch (error) {
     return [error instanceof Error ? error.message : String(error)];
   }
+  const enabled = Object.values(enclaves.executors).filter((executor) => executor.enabled);
+  if (backend === 'docker'
+    && enclaves.executors.agent.enabled
+    && enclaves.executors.agent.runtime === 'cloud-hypervisor'
+    && enclaves.executors.agent.dynamic === undefined
+    && enabled.every((executor) => executor.runtime === 'cloud-hypervisor')) {
+    return [];
+  }
   return Object.entries(enclaves.executors)
     .filter(([, executor]) => executor.enabled && executor.runtime !== backend)
     .map(([kind, executor]) =>

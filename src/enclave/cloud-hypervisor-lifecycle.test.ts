@@ -20,6 +20,9 @@ import { ENCLAVE_DEBUG_ARTIFACT_ROOT } from './public-debug';
 import * as proxyDebugRetention from './proxy-debug-retention';
 import { logger } from '../logger';
 import {
+  getStaticGithubExecutorCapability, takeStaticGithubExecutorCapability,
+} from './static-github-handoff';
+import {
   assertCloudHypervisorEnclaveLifecycleReady,
   assertCloudHypervisorEnclavePrerequisites,
   closeCloudHypervisorEnclaveAdmissions,
@@ -110,6 +113,57 @@ describe('trusted Cloud Hypervisor enclave lifecycle', () => {
     fs.rmSync(paths.ingressRoot, { recursive: true, force: true });
     fs.rmSync(paths.hostExecutorJournalDir, { recursive: true, force: true });
     fs.rmSync(workDir, { recursive: true, force: true });
+  });
+
+  function githubHandoff(): NodeJS.ProcessEnv {
+    config.enclaves!.executors.agent.tools = {
+      github: { allowed: ['issue_read'], allowedRepos: [repository.repo] },
+    };
+    const now = Date.now();
+    return {
+      AWF_ENCLAVE_MCP_GATEWAY_IDENTITY: 'gateway-run-12345',
+      AWF_ENCLAVE_GITHUB_MCP_AGENT_ID: 'a'.repeat(32),
+      AWF_ENCLAVE_GITHUB_EXECUTOR_CAPABILITY: JSON.stringify({
+        version: 1, executor: 'agent', gatewayIdentity: 'gateway-run-12345',
+        agentId: 'a'.repeat(32), bearer: 'b'.repeat(40),
+        issuedAt: now, expiresAt: now + 300_000,
+        allowedTools: ['issue_read'], allowedRepos: [repository.repo], minIntegrity: null,
+      }),
+    };
+  }
+
+  it('derives scoped GitHub policy from host custody and releases only after successful drain', async () => {
+    const environment = githubHandoff();
+    takeStaticGithubExecutorCapability(config, environment);
+    const capability = getStaticGithubExecutorCapability(config)!;
+    await startCloudHypervisorEnclaveLifecycle(config, provider, environment);
+    expect(environment.AWF_ENCLAVE_GITHUB_EXECUTOR_CAPABILITY).toBeUndefined();
+    expect(start.mock.calls[0][0].agentPolicies?.agent).toMatchObject({
+      githubAgentId: capability.agentId, githubBearer: capability.bearer,
+      githubExpiresAt: capability.expiresAt, githubAllowedTools: ['issue_read'],
+    });
+    await stopCloudHypervisorEnclaveLifecycle(config);
+    expect(() => getStaticGithubExecutorCapability(config)).toThrow(/missing or expired/);
+  });
+
+  it('retains the scoped GitHub capability when draining fails', async () => {
+    await startCloudHypervisorEnclaveLifecycle(config, provider, githubHandoff());
+    const capability = getStaticGithubExecutorCapability(config)!;
+    server.close = jest.fn().mockRejectedValue(new Error('drain pending'));
+    await expect(stopCloudHypervisorEnclaveLifecycle(config)).rejects.toThrow('drain pending');
+    expect(getStaticGithubExecutorCapability(config)).toBe(capability);
+  });
+
+  it.each([undefined, 'not-json'])('rejects absent or invalid GitHub capability %s before side effects', async (raw) => {
+    const environment = githubHandoff();
+    if (raw === undefined) delete environment.AWF_ENCLAVE_GITHUB_EXECUTOR_CAPABILITY;
+    else environment.AWF_ENCLAVE_GITHUB_EXECUTOR_CAPABILITY = raw;
+    await expect(startCloudHypervisorEnclaveLifecycle(config, provider, environment))
+      .rejects.toThrow(/compiler-scoped executor capability/);
+    expect(provider.assertAvailable).not.toHaveBeenCalled();
+    expect(provider.prepareRun).not.toHaveBeenCalled();
+    expect(start).not.toHaveBeenCalled();
+    expect(environment.AWF_ENCLAVE_GITHUB_EXECUTOR_CAPABILITY).toBeUndefined();
   });
 
   it('requires hard-bounded storage and propagates unavailable-provider failure', async () => {
@@ -486,6 +540,7 @@ describe('trusted Cloud Hypervisor enclave lifecycle', () => {
 
   it('rejects mixed workload backends at the internal lifecycle boundary', async () => {
     config.containerRuntime = undefined;
+    config.enclaves!.executors.script.runtime = 'docker';
     await expect(startCloudHypervisorEnclaveLifecycle(config, provider, {}))
       .rejects.toThrow(/differs from primary backend/);
     expect(provider.prepareRun).not.toHaveBeenCalled();

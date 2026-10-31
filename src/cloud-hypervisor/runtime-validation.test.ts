@@ -112,11 +112,6 @@ describe('Cloud Hypervisor runtime validation', () => {
 
   it.each([
     [{ script: {}, runtime: 'cloud-hypervisor' }],
-    [{ agent: { model: 'trusted-model' }, runtime: 'cloud-hypervisor' }],
-    [
-      { script: {}, runtime: 'cloud-hypervisor' },
-      { agent: { model: 'trusted-model' }, runtime: 'cloud-hypervisor' },
-    ],
   ])('rejects the former Docker-primary enclave-only artifact configuration', (...entries) => {
     const enclaveOnly = config({
       containerRuntime: 'docker',
@@ -127,6 +122,7 @@ describe('Cloud Hypervisor runtime validation', () => {
       }))),
       cloudHypervisor: { ...config().cloudHypervisor!, rootfsPath: undefined },
     });
+
     expect(() => assertCloudHypervisorRuntimeCompatibility(enclaveOnly)).toThrow(/one sandbox backend/);
     expect(() => assertCloudHypervisorRuntimeCompatibility({
       ...enclaveOnly,
@@ -136,6 +132,26 @@ describe('Cloud Hypervisor runtime validation', () => {
       ...enclaveOnly,
       cloudHypervisor: { ...enclaveOnly.cloudHypervisor!, kernelPath: undefined },
     })).toThrow(/one sandbox backend/);
+  });
+
+  it('accepts static VM agents under Docker without requiring a primary VM rootfs', () => {
+    const enclaveOnly = config({
+      containerRuntime: 'docker',
+      enclaves: normalizeEnclavesConfig([{
+        agent: { model: 'trusted-model' }, runtime: 'cloud-hypervisor',
+        repos: [{ repo: 'octo/private', sensitivity: 'internal' }],
+      }]),
+      cloudHypervisor: { ...config().cloudHypervisor!, rootfsPath: undefined },
+    });
+    expect(() => assertCloudHypervisorRuntimeCompatibility(enclaveOnly)).not.toThrow();
+    expect(() => assertCloudHypervisorRuntimeCompatibility({
+      ...enclaveOnly,
+      cloudHypervisor: { ...enclaveOnly.cloudHypervisor!, developmentAllowUnattestedArtifacts: true },
+    })).toThrow(/require attested common artifacts/);
+    expect(() => assertCloudHypervisorRuntimeCompatibility({
+      ...enclaveOnly,
+      cloudHypervisor: { ...enclaveOnly.cloudHypervisor!, kernelPath: undefined },
+    })).toThrow(/explicit kernel and guest supervisor/);
   });
 
   it('still requires a primary rootfs when the primary Cloud Hypervisor runtime is selected', () => {

@@ -181,14 +181,16 @@ def redact_diagnostics(value: str) -> str:
             redacted = redacted.replace(secret, "[REDACTED]")
     try:
         agent_id = read_file(GITHUB_AGENT_ID_PATH, "redaction-agent-id-read", fatal=False).decode("ascii").strip() \
-            if os.environ.get("AWF_ENCLAVE_AGENT_GITHUB_ENABLED") == "true" else ""
+            if os.environ.get("AWF_ENCLAVE_AGENT_GITHUB_ENABLED") == "true" \
+            and os.environ.get("AWF_ENCLAVE_AGENT_GITHUB_AUTH_MODE") != "scoped-bearer" else ""
         if agent_id:
             redacted = redacted.replace(agent_id, "[REDACTED]")
     except (OSError, UnicodeDecodeError):
         pass
     try:
         bearer = read_file(GITHUB_BEARER_PATH, "redaction-bearer-read", fatal=False).decode("ascii").strip() \
-            if is_dynamic_enabled() else ""
+            if is_dynamic_enabled() \
+            or os.environ.get("AWF_ENCLAVE_AGENT_GITHUB_AUTH_MODE") == "scoped-bearer" else ""
         if bearer:
             redacted = redacted.replace(bearer, "[REDACTED]")
     except (OSError, UnicodeDecodeError):
@@ -612,7 +614,8 @@ def run_preflight(copilot_logs: Path) -> bool:
         if error is not None:
             safe_os_error(error, f"preflight-{identifier}")
             valid = False
-    if os.environ.get("AWF_ENCLAVE_AGENT_GITHUB_ENABLED") == "true":
+    if os.environ.get("AWF_ENCLAVE_AGENT_GITHUB_ENABLED") == "true" \
+            and os.environ.get("AWF_ENCLAVE_AGENT_GITHUB_AUTH_MODE") != "scoped-bearer":
         error = preflight_path(
             "github-agent-id",
             GITHUB_AGENT_ID_PATH,
@@ -621,7 +624,7 @@ def run_preflight(copilot_logs: Path) -> bool:
         if error is not None:
             safe_os_error(error, "preflight-github-agent-id")
             valid = False
-    if dynamic:
+    if dynamic or os.environ.get("AWF_ENCLAVE_AGENT_GITHUB_AUTH_MODE") == "scoped-bearer":
         error = preflight_path("github-bearer", GITHUB_BEARER_PATH, "file")
         if error is not None:
             safe_os_error(error, "preflight-github-bearer")
@@ -733,10 +736,18 @@ def is_dynamic_enabled() -> bool:
 
 
 def configure_github_mcp() -> None:
+    auth_mode = os.environ.get("AWF_ENCLAVE_AGENT_GITHUB_AUTH_MODE", "")
+    if auth_mode not in {"", "scoped-bearer"}:
+        raise ValueError("unsupported GitHub MCP auth mode")
     if is_dynamic_enabled():
+        if auth_mode:
+            raise ValueError("static GitHub MCP auth mode cannot be combined with dynamic delegation")
         configure_dynamic_github_mcp()
         return
     if os.environ.get("AWF_ENCLAVE_AGENT_GITHUB_ENABLED") != "true":
+        return
+    if auth_mode == "scoped-bearer":
+        configure_scoped_github_mcp()
         return
     if os.environ.get("AWF_ENCLAVE_AGENT_GITHUB_PROFILE") != "issues-read-v1":
         raise ValueError("unsupported GitHub MCP profile")
@@ -752,6 +763,35 @@ def configure_github_mcp() -> None:
                 "type": "http",
                 "url": endpoint,
                 "headers": {"Authorization": agent_id},
+            }
+        }
+    }
+    write_file(GITHUB_MCP_CONFIG_PATH, json.dumps(config, separators=(",", ":")), "github-mcp-config-write")
+    file_operation("github-mcp-config-chmod", lambda: GITHUB_MCP_CONFIG_PATH.chmod(0o600))
+
+
+def configure_scoped_github_mcp() -> None:
+    endpoint = os.environ.get("AWF_ENCLAVE_AGENT_GITHUB_MCP_URL", "")
+    if endpoint != "http://172.31.0.40:8080/mcp/github":
+        raise ValueError("invalid scoped GitHub MCP endpoint")
+    tools = json.loads(os.environ.get("AWF_ENCLAVE_AGENT_GITHUB_ALLOWED_TOOLS", ""))
+    if not isinstance(tools, list) or not tools \
+            or any(not isinstance(tool, str) or tool not in {"list_issues", "issue_read"} for tool in tools) \
+            or len(tools) != len(set(tools)):
+        raise ValueError("invalid scoped GitHub MCP tools")
+    bearer_bytes = read_file(GITHUB_BEARER_PATH, "github-bearer-read", limit=514)
+    if len(bearer_bytes) > 513:
+        raise ValueError("invalid scoped GitHub MCP bearer")
+    bearer = bearer_bytes.decode("ascii").strip()
+    if not re.fullmatch(r"[\x21-\x7e]{16,512}", bearer):
+        raise ValueError("invalid scoped GitHub MCP bearer")
+    config = {
+        "mcpServers": {
+            "github": {
+                "type": "http",
+                "url": endpoint,
+                "headers": {"Authorization": bearer},
+                "tools": tools,
             }
         }
     }

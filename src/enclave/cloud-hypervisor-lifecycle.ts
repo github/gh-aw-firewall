@@ -36,6 +36,11 @@ import {
 } from './public-debug';
 import { logger } from '../logger';
 import { getOrCreateEnclaveModelBudgetSecret } from './model-budget-capability';
+import {
+  getStaticGithubExecutorCapability,
+  releaseStaticGithubExecutorCapability,
+  takeStaticGithubExecutorCapability,
+} from './static-github-handoff';
 
 export const CLOUD_HYPERVISOR_ENCLAVE_STORAGE_REQUIRED =
   'Cloud Hypervisor enclaves require the trusted hard-bounded writable-storage provider (#9394); '
@@ -97,6 +102,7 @@ function deriveAgentPolicies(
 ): Readonly<Record<string, HostExecutorAgentPolicy>> {
   const agent = config.enclaves!.executors.agent;
   if (!agent.enabled) return {};
+  const github = getStaticGithubExecutorCapability(config);
   return {
     agent: Object.freeze({
       model: agent.model,
@@ -105,6 +111,12 @@ function deriveAgentPolicies(
       maxModelRequests: agent.maxModelRequests,
       maxModelTokens: agent.maxModelTokens,
       modelBudgetSecret: getOrCreateEnclaveModelBudgetSecret(config),
+      ...(github ? {
+        githubAgentId: github.agentId,
+        githubBearer: github.bearer,
+        githubExpiresAt: github.expiresAt,
+        githubAllowedTools: github.allowedTools,
+      } : {}),
     }),
   };
 }
@@ -118,6 +130,7 @@ export async function startCloudHypervisorEnclaveLifecycle(
   storageProvider: TrustedCloudHypervisorEnclaveStorageProvider,
   environment: NodeJS.ProcessEnv = process.env,
 ): Promise<void> {
+  takeStaticGithubExecutorCapability(config, environment);
   const paths = resolveEnclavePaths(config.workDir);
   if (lifecycle.has(paths.root)) throw new Error('Cloud Hypervisor enclave host executor already exists for this run');
   if (!config.cloudHypervisor) throw new Error('Cloud Hypervisor enclave runtime configuration is missing');
@@ -281,4 +294,5 @@ export async function stopCloudHypervisorEnclaveLifecycle(config: WrapperConfig)
       combineErrors: (cleanupError, evidenceError) => new HostPreflightCleanupError(cleanupError, evidenceError),
     });
   });
+  releaseStaticGithubExecutorCapability(config);
 }

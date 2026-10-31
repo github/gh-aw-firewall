@@ -2656,9 +2656,20 @@ GitHub tools lacking a scoped executor bearer handoff are rejected.
 No unavailable configuration falls back to another runtime.
 
 An enclave-only `cloud-hypervisor` selection does not implicitly switch the
-primary agent: with a default Docker primary it is now rejected as a backend
-mismatch. Existing host-executor machinery is retained for subsequent
-same-backend lifecycle integration; it is not a supported mixed-backend run.
+primary agent. A static Cloud Hypervisor agent enclave may run under a Docker
+primary, provided every enabled enclave executor uses Cloud Hypervisor.
+Other backend mismatches still fail closed, and general all-VM primary-agent
+execution with enclaves retains its separate acceptance gates.
+
+Static GitHub tools on VM agents require the trusted compiler's
+`AWF_ENCLAVE_GITHUB_EXECUTOR_CAPABILITY` handoff and a gateway enforcing that
+capability's run/executor identity, exact tools, repositories, integrity policy
+and expiry. AWF consumes this host-only handoff before spawning children and
+exports only the scoped bearer to the guest's private read-only session handoff.
+There is no identity-only or gateway-wide-key fallback. See the
+[capability contract and lifetime](enclaves-architecture.md#cloud-hypervisor-scoped-executor-capability)
+for the closed JSON format, one-hour lifetime bound, cleanup obligations and
+compiler/gateway coordination. gh-aw v1.0.1 does not implement this contract.
 
 The agent executor additionally requires `enableApiProxy`, a configured provider route for its fixed engine/profile, a configured `model`, and the absence of `enableDind`. AWF validates those requirements before repository staging.
 

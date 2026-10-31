@@ -113,9 +113,13 @@ and release conformance exception have different predicates; neither grants
 private-repository acceptance. `assertCloudHypervisorWorkloadLaunchable` also
 requires trusted enclave-executor authorization. Its boolean is not a user flag.
 
-Exactly **one workload backend per run** covers the primary and every enabled
-executor. Omitted runtimes inherit the primary; Docker/runc and gVisor/runsc are
-aliases within their respective backends, not equivalent to each other.
+By default, **one workload backend per run** covers the primary and every enabled
+executor. The explicit exception is a Docker primary with a static Cloud
+Hypervisor agent enclave, optionally accompanied by a Cloud Hypervisor script
+enclave. Omitted runtimes still inherit the primary; all enabled enclave
+executors in that exception must explicitly select Cloud Hypervisor.
+Docker/runc and gVisor/runsc are aliases within their respective backends,
+not equivalent to each other.
 Supporting Docker proxy/broker infrastructure does not make a VM workload a
 Docker workload. Unknown selections, backend mismatches, missing prerequisites and
 launch failures must fail closed, except for the existing Cloud Hypervisor
@@ -132,7 +136,7 @@ containers, user-space kernels and hardware VMs equivalent isolation boundaries.
 | --- | --- | --- | --- |
 | Static repository seeds | I: script and agent; merged trusted catalog | U: no enclave runtime | G: host executor implemented; public acceptance scope above, private acceptance V |
 | Dynamic repositories | G: agent only, compiler delegation handoff and supported mcpg required | U | U: preflight rejects |
-| Static GitHub tools | G: compiler-scoped identity, `list_issues` / `issue_read`; legacy `issues-read-v1` retained | U for enclaves | U: scoped executor bearer handoff missing on accepted host path |
+| Static GitHub tools | G: compiler-scoped identity, `list_issues` / `issue_read`; legacy `issues-read-v1` retained | U for enclaves | G: requires the scoped executor capability contract below; older compilers fail closed |
 | Dynamic GitHub tools | G: `github-repository-read-v1`, one repository per invocation | U | U |
 | Enclave engines | I: Copilot only; other engine names are parsed but rejected | U | G: Copilot in acceptance fixtures; other engines rejected despite wider profile types |
 | Primary engines/commands | I: arbitrary installed command, provider routes as configured | G: guest-installed commands, approved environment/routes | G: guest-installed commands, approved environment/routes |
@@ -165,7 +169,7 @@ disposable fixtures and the final workload identity, not privileged `docker exec
 | Primary environment and proxies | `src/services/agent-environment-{credentials,proxy}.test.ts`, `src/microvm/guest-environment.test.ts`, `src/cloud-hypervisor-runtime-backend.env-mapping.test.ts`, `src/nvx/guest-entrypoint.test.ts` | Verify explicit env/env-file/env-all precedence, reserved guest HOME/PATH/proxy handling, allowed/denied egress and absent provider secrets with API proxy enabled. VM tool caches are read-only seeds, not live Docker home shares. |
 | Primary status, output, cancellation | `src/run-agent-command.test.ts`, `src/commands/signal-handler.test.ts`, `src/{cloud-hypervisor-runtime-backend,nvx/runtime-backend}.test.ts` | Command exits 0/nonzero, streams stdout/stderr, then interrupt an active command and verify guest/process/resource teardown. NVX is one-shot; Cloud Hypervisor uses supervisor requests; do not invent common TTY or signal-number semantics. |
 | Script no-network | `src/enclave/script-runner-spec.test.ts`, `src/cloud-hypervisor/enclave-network.test.ts`, `src/cloud-hypervisor/workload-profile.test.ts` | Deny IPv4/IPv6, DNS, direct IP, proxy and host-service connections. Docker uses `--network none`; Cloud Hypervisor omits NIC and creates only an empty network namespace. NVX enclave checks unavailable. |
-| Agent dedicated proxy and authorized GitHub only | `src/enclave/{agent-runner-spec,github-gateway,preflight}.test.ts`, `src/cloud-hypervisor/enclave-network.test.ts` | Assert exact peer set, deny primary/Squid/internet and unauthorized repo/tool calls; no provider key in workload. VM static GitHub admission remains U even if network profiles validate. |
+| Agent dedicated proxy and authorized GitHub only | `src/enclave/{agent-runner-spec,github-gateway,static-github-handoff,preflight}.test.ts`, `src/cloud-hypervisor/enclave-network.test.ts` | Assert exact peer set, deny primary/Squid/internet and unauthorized repo/tool calls; no provider key in workload. Live VM scoped GitHub acceptance requires a compiler/gateway implementing the capability contract below. |
 | Immutable seed, private invocation state, non-root identity | `src/enclave/{staging,invocation-staging,mount-policy}.test.ts`, `src/cloud-hypervisor/{enclave-export-plan,workload-profile}.test.ts` | Attempt seed/root writes and cross-invocation reads; inspect UID/GID, groups, capabilities and denied host paths. VM profile fixes enclave UID/GID 65534; do not infer live DAC from export metadata. See filesystem contract for remaining identity gaps. |
 | Aggregate storage and resource limits | `src/enclave/execution-policy.test.ts`, runner-spec tests, `src/cloud-hypervisor/{enclave-storage,trusted-enclave-storage}.test.ts` | Multi-file/concurrent/sparse writers across every writable export; memory/process/CPU exhaustion. Privileged storage integration tests are separate from mocked policy evidence. Docker host-output confinement has real-daemon fixture evidence; live Copilot combinations remain V. See the Docker acceptance scope below. |
 | Canonical bounded results | `src/enclave/invocation-result.test.ts`, `src/bounded-execution/finite-disclosure-*.test.ts`, `src/enclave/host-executor-protocol.test.ts` | Malformed/oversized/non-UTF-8/wrong-schema output, symlink/special-file outputs, private stdout/stderr: only canonical approved result or non-disclosing error may reach primary. |
@@ -768,7 +772,7 @@ it directly as the `Authorization` value to
 endpoint before primary-agent work begins and requires the advertised tool set
 to be exactly the configured `allowed` list — no more, no fewer.
 
-The mcpg identity is job-lifetime, not per-invocation. Consequently, mcpg
+For Docker enclaves, the mcpg identity is job-lifetime, not per-invocation. Consequently, mcpg
 enforces the union of repositories configured for the enclave agent rather than
 binding the credential to one invocation's assigned repository, and the
 identity is not independently expired or revoked after each invocation. This
@@ -776,6 +780,113 @@ weaker lifetime and repository scope is an explicit tradeoff of direct shared
 mcpg access; AWF still isolates each identity file and enclave process and
 retains its own per-invocation seed, admission, ledger, output-schema, and
 timing controls.
+
+### Cloud Hypervisor scoped executor capability
+
+Static Cloud Hypervisor agent enclaves use a separate **executor bearer**, not
+Docker's identity-only authentication. A Docker primary with a static VM agent
+enclave is supported by AWF's topology validation; enabled enclave executors
+must all use Cloud Hypervisor. This does not open the general Cloud Hypervisor
+primary-with-enclaves topology, which retains its existing acceptance gates.
+Dynamic VM enclaves, custom images, split-filesystem DinD and runtime fallback
+remain unsupported.
+
+This is a coordinated compiler/gateway contract. **gh-aw v1.0.1 does not emit
+it and remains unsupported.** The compiler must remove its static VM GitHub
+rejection only when paired with AWF implementing this contract and a gateway
+that enforces the bearer policy. This repository does not change the compiler.
+Do not manually substitute `MCP_GATEWAY_API_KEY`, an existing static identity,
+a repository PAT or a staging token.
+
+Alongside the existing gateway handoff and
+`AWF_ENCLAVE_GITHUB_MCP_AGENT_ID`, the trusted compiler supplies
+`AWF_ENCLAVE_GITHUB_EXECUTOR_CAPABILITY` to the AWF host process as bounded JSON:
+
+```json
+{
+  "version": 1,
+  "gatewayIdentity": "compiler-run-identifier",
+  "executor": "agent",
+  "agentId": "<same compiler-issued enclave identity>",
+  "bearer": "<distinct gateway-issued executor capability>",
+  "issuedAt": 1800000000000,
+  "expiresAt": 1800003600000,
+  "allowedTools": ["issue_read", "list_issues"],
+  "allowedRepos": ["owner/private-repository"],
+  "minIntegrity": "approved"
+}
+```
+
+Times are Unix milliseconds. The closed record must match the gateway run
+label, agent identity, exact configured tool set, lowercase repository
+allowlist and integrity policy. `minIntegrity` is `null` when the trusted
+configuration supplies no override; the legacy marker selects both tools and
+the trusted catalog. No extra fields, duplicate grants, future issue time or
+lifetime over one hour is accepted. The capability must remain valid through
+the entire invocation timeout plus transport grace, including VM startup.
+
+The compiler/gateway is responsible for issuing an unforgeable capability
+bound to that run and executor, enforcing tools, repository allowlist,
+integrity and expiration on **every request**, and refusing other identities,
+servers and control operations. The JSON record is a trusted host handoff,
+not a self-authenticating token or a replacement for gateway authorization.
+The host verifies exact tool exposure using the scoped bearer before primary
+startup; it must not authenticate readiness with a broader key.
+
+AWF consumes and deletes the handoff environment variable before launching
+children, keeps the record in host-only memory, and excludes it from primary
+`--env-all` passthrough. The compiler must not leave the record in primary-visible
+workflow files, environment files, logs or workspace storage. Only the designated
+invocation's mode-0400, read-only session handoff receives the executor bearer.
+The guest's MCP configuration uses bearer-only authentication and the exact
+tool allowlist at `http://172.31.0.40:8080/mcp/github`.
+Both readiness and guest requests send the opaque `bearer` value unchanged as
+the `Authorization` header, without adding an authentication scheme prefix.
+The guest receives neither repository/staging credentials, the gateway-wide
+key, control credentials nor another executor's identity.
+
+The existing isolated bridge and per-peer/port VM firewall are unchanged: only
+the selected dedicated API-proxy port and the fixed GitHub data-plane endpoint
+are reachable. No direct GitHub, DNS, host-service or general internet route is
+added. Admission limits, information ledger, finite-schema output and cardinality
+bounds, artifact attestations and cleanup-before-release remain unchanged.
+
+The bearer has **run/executor scope**, not per-invocation repository scope.
+It is not individually revoked between invocations; each invocation's VM,
+network and private handoff storage must be destroyed before output release.
+AWF discards host custody after successful lifecycle drain. The compiler must
+stop the run-owned gateway and invalidate its capabilities on job completion
+or cancellation; expiration provides the maximum one-hour backstop after a
+crash. There is no renewal: later invocations fail closed once the remaining
+lifetime cannot cover their full deadline. Uncertain VM/storage cleanup retains
+protected recovery state and never releases a successful result.
+
+Runner prerequisites remain GitHub-hosted Ubuntu x86_64, privileged KVM,
+writable cgroup v2, the trusted aggregate-storage provider, a local Unix Docker
+daemon and matching release-attested common/enclave artifacts with explicit
+Cloud Hypervisor preview opt-in. Deterministic contract and guest tests are not
+evidence of a live compiler-to-VM GitHub run; that acceptance requires matching
+compiler/gateway releases and controlled issue fixtures.
+
+The existing live acceptance harness,
+`scripts/ci/cloud-hypervisor-enclave-live-smoke.js`, has an opt-in
+`AWF_ENCLAVE_LIVE_SCOPED_GITHUB=1` mode. It uses a Docker primary with static
+VM agent enclaves and a controlled gateway fixture, reads staged source and a
+fixture issue, tests denied tools/repositories/identities, returns a finite
+structured result and checks VM cleanup. It retains the harness's supported-runner,
+release-attestation and host credential prerequisites. Its gateway is a test
+double, not evidence that an unmodified production compiler/gateway supports
+the new contract. Gateway fixture tests separately exercise expiration.
+
+Threat-model decisions for this transport:
+
+| Threat | Boundary / mitigation |
+| --- | --- |
+| Primary steals or reuses enclave authority | Host-only custody, excluded environment variable, existing private-root isolation, invocation-only read-only export; no primary mount or transport receives the capability. |
+| Compromised guest steals host credentials | Guest receives only the scoped bearer; staging, repository, control and gateway-wide credentials remain outside its filesystem and environment. |
+| Guest widens tool/repository/integrity policy | Compiler configures gateway-side enforcement on every request; AWF checks exact handoff metadata and tool exposure. Guest MCP tool configuration alone is not authorization. |
+| Guest calls another service or bypasses gateway | Existing fixed-peer/port nftables policy and exact internal-network membership checks remain mandatory; no new relay or host listener is introduced. |
+| Replay after completion or crash | Gateway-enforced expiry and run teardown; VM/network/storage cleanup before release. Run-scoped reuse between admitted invocations is explicit, not a per-invocation revocation guarantee. |
 
 The agent enclave layers its Copilot/runtime on the primary's build-tools OCI
 image, sharing compilers, build libraries and utilities (including `gh`). The

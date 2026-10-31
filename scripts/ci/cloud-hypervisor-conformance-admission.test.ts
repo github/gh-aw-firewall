@@ -146,9 +146,15 @@ describe('generated native conformance production admission (no KVM)', () => {
   );
 
   it.each(['script-only', 'agent-only', 'combined', 'probe'])(
-    'rejects Docker-default or explicit mismatched backends in the actual %s config', profile => {
+    'admits only supported primary/enclave backend combinations in the actual %s config', profile => {
       const raw = generated(profile);
       for (const primaryRuntime of [undefined, 'docker', 'gvisor', 'sbx', 'nvx']) {
+        if ((primaryRuntime === undefined || primaryRuntime === 'docker')
+          && (profile === 'agent-only' || profile === 'combined')) {
+          expect(normalizeEnclavesConfig(raw.enclaves, { primaryRuntime })?.executors.agent.runtime)
+            .toBe('cloud-hypervisor');
+          continue;
+        }
         expect(() => normalizeEnclavesConfig(raw.enclaves, { primaryRuntime }))
           .toThrow(/one sandbox backend|NVX enclaves are not implemented/);
       }
