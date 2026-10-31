@@ -49,6 +49,18 @@ describe('backend-neutral invocation input staging', () => {
     expect(deps.chown).toHaveBeenCalledTimes(5);
   });
 
+  it('stages only the bearer for a scoped GitHub capability', async () => {
+    const deps = dependencies();
+    await stageInvocationInputs(plan, 'agent', {
+      ...policy, githubBearer: 'scoped-executor-test-bearer',
+    }, deps);
+    expect(deps.writeFile.mock.calls.map(([target]) => path.relative(plan.invocationHostDir, target)))
+      .not.toContain('session-handoff/github-agent-id');
+    expect(deps.writeFile.mock.calls.map(([target, contents]) => [
+      path.relative(plan.invocationHostDir, target), contents,
+    ])).toContainEqual(['session-handoff/github-bearer', 'scoped-executor-test-bearer\n']);
+  });
+
   it('rejects missing agent policy before writing inputs', async () => {
     const deps = dependencies();
     await expect(stageInvocationInputs(plan, 'agent', undefined, deps)).rejects.toThrow(/Trusted agent policy/);

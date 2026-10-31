@@ -11,6 +11,32 @@ const maxBodyBytes = 420 * 1024;
 const upstreamUrl = process.env.AWF_ENCLAVE_GATEWAY_FIXTURE_UPSTREAM || 'http://awf-enclave-mcp:8080/mcp';
 const upstreamMatch = /^http:\/\/(awf-enclave-mcp|127\.0\.0\.1):(\d{1,5})\/mcp$/.exec(upstreamUrl);
 const upstreamPort = Number(upstreamMatch?.[2]);
+let githubCapability;
+if (process.env.AWF_ENCLAVE_GITHUB_EXECUTOR_CAPABILITY !== undefined) {
+  try {
+    githubCapability = JSON.parse(process.env.AWF_ENCLAVE_GITHUB_EXECUTOR_CAPABILITY);
+    const value = githubCapability;
+    if (!value || Object.keys(value).sort().join(',') !== [
+      'version', 'gatewayIdentity', 'executor', 'agentId', 'bearer', 'issuedAt',
+      'expiresAt', 'allowedTools', 'allowedRepos', 'minIntegrity',
+    ].sort().join(',')
+        || value.version !== 1 || value.executor !== 'agent'
+        || !/^[A-Za-z0-9][A-Za-z0-9_.-]{7,127}$/.test(value.gatewayIdentity)
+        || value.gatewayIdentity !== process.env.AWF_ENCLAVE_MCP_GATEWAY_IDENTITY
+        || typeof value.agentId !== 'string' || !/^[A-Za-z0-9_-]{32,128}$/.test(value.agentId)
+        || value.agentId !== process.env.AWF_ENCLAVE_GITHUB_MCP_AGENT_ID
+        || typeof value.bearer !== 'string' || !/^[\x21-\x7e]{32,512}$/.test(value.bearer)
+        || [apiKey, capability, value.agentId].includes(value.bearer)
+        || !Number.isSafeInteger(value.issuedAt) || !Number.isSafeInteger(value.expiresAt)
+        || value.issuedAt > Date.now() || value.expiresAt <= value.issuedAt
+        || value.expiresAt - value.issuedAt > 3600_000
+        || JSON.stringify(value.allowedTools) !== '["issue_read","list_issues"]'
+        || JSON.stringify(value.allowedRepos) !== '["github/gh-aw-firewall"]'
+        || value.minIntegrity !== null) throw new Error();
+  } catch {
+    throw new Error('Scoped GitHub fixture capability is invalid');
+  }
+}
 
 if (!Number.isSafeInteger(port) || port < 1 || port > 65535
     || !/^[A-Za-z0-9_-]{32,256}$/.test(apiKey)
@@ -51,9 +77,67 @@ function transformResponse(request, response) {
   return response;
 }
 
+// Controlled data only: this route never forwards GitHub or provider credentials.
+function serveGithub(request, response, payload) {
+  const value = githubCapability;
+  if (!value || Date.now() < value.issuedAt || Date.now() >= value.expiresAt
+      || !authorized(request.headers.authorization, value.bearer)) {
+    sendJson(response, 403, { error: 'forbidden' });
+    return;
+  }
+  let message;
+  try {
+    message = JSON.parse(payload);
+    if (!message || message.jsonrpc !== '2.0' || Array.isArray(message)) throw new Error();
+  } catch {
+    sendJson(response, 400, { error: 'invalid request' });
+    return;
+  }
+  response.setHeader('mcp-session-id', 'awf-controlled-github-fixture');
+  const reply = (result) => sendJson(response, 200, { jsonrpc: '2.0', id: message.id, result });
+  if (message.method === 'initialize') {
+    reply({
+      protocolVersion: message.params?.protocolVersion || '2025-06-18',
+      capabilities: { tools: {} }, serverInfo: { name: 'controlled-github-fixture', version: '1' },
+    });
+  } else if (message.method === 'notifications/initialized') {
+    response.writeHead(202, { 'content-length': '0' });
+    response.end();
+  } else if (message.method === 'tools/list') {
+    reply({ tools: value.allowedTools.map((name) => ({
+      name, description: 'Controlled static GitHub fixture',
+      inputSchema: {
+        type: 'object', properties: {
+          owner: { type: 'string' }, repo: { type: 'string' },
+          ...(name === 'issue_read' ? { method: { type: 'string', enum: ['get'] },
+            issue_number: { type: 'integer', enum: [1] } } : {}),
+        }, required: name === 'issue_read' ? ['owner', 'repo', 'method', 'issue_number'] : ['owner', 'repo'],
+        additionalProperties: false,
+      },
+    })) });
+  } else if (message.method === 'tools/call') {
+    const { name, arguments: args } = message.params || {};
+    const fields = name === 'issue_read' ? ['owner', 'repo', 'method', 'issue_number'] : ['owner', 'repo'];
+    if (!value.allowedTools.includes(name) || !args || typeof args !== 'object'
+        || typeof args.owner !== 'string' || typeof args.repo !== 'string'
+        || !value.allowedRepos.includes(`${args.owner}/${args.repo}`)
+        || Object.keys(args).sort().join(',') !== fields.sort().join(',')
+        || (name === 'issue_read' && (args.method !== 'get' || args.issue_number !== 1))) {
+      sendJson(response, 403, { error: 'forbidden' });
+      return;
+    }
+    const issue = { number: 1, title: 'AWF controlled scoped issue', repository: value.allowedRepos[0] };
+    const result = name === 'issue_read' ? issue : { issues: [issue] };
+    reply({ content: [{ type: 'text', text: JSON.stringify(result) }], structuredContent: result });
+  } else {
+    sendJson(response, 403, { error: 'forbidden' });
+  }
+}
+
 const server = http.createServer((request, response) => {
-  if (request.method !== 'POST' || request.url !== '/mcp/awf-enclave'
-      || !authorized(request.headers.authorization, apiKey)) {
+  const githubRoute = githubCapability && request.url === '/mcp/github';
+  if (request.method !== 'POST' || (!githubRoute && (request.url !== '/mcp/awf-enclave'
+      || !authorized(request.headers.authorization, apiKey)))) {
     request.resume();
     sendJson(response, 404, { error: 'not found' });
     return;
@@ -72,6 +156,10 @@ const server = http.createServer((request, response) => {
   request.on('end', () => {
     if (bytes > maxBodyBytes) return;
     const payload = Buffer.concat(chunks);
+    if (githubRoute) {
+      serveGithub(request, response, payload.toString('utf8'));
+      return;
+    }
     let upstreamResponded = false;
     const upstream = http.request(upstreamUrl, {
       method: 'POST',

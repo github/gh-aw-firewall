@@ -8,7 +8,7 @@ import {
   type RawEnclaveScriptEntry,
   type RawEnclavesConfig,
 } from '../types/enclave-options';
-import { resolveRunSandboxBackend } from '../enclave/run-backend';
+import { resolveRunSandboxBackend, validateRunSandboxBackend } from '../enclave/run-backend';
 
 function isScriptEntry(entry: RawEnclaveEntry): entry is RawEnclaveScriptEntry {
   return Object.prototype.hasOwnProperty.call(entry, 'script');
@@ -104,16 +104,7 @@ export function normalizeEnclavesConfig(
   if (backend === 'nvx') {
     throw new Error('NVX enclaves are not implemented; no runtime fallback is permitted');
   }
-  for (const entry of raw) {
-    if (backend !== undefined && entry.runtime !== undefined && entry.runtime !== backend) {
-      throw new Error(
-        `Enclave backend "${entry.runtime}" differs from primary backend "${backend}"; `
-        + 'one sandbox backend is required per run; no runtime fallback',
-      );
-    }
-  }
-
-  return {
+  const normalized: EnclavesConfig = {
     enabled: raw.length > 0,
     privateRepos: mergeRepositories(raw),
     executors: {
@@ -137,4 +128,9 @@ export function normalizeEnclavesConfig(
       },
     },
   };
+  if (selection) {
+    const errors = validateRunSandboxBackend(selection.primaryRuntime, normalized);
+    if (errors.length) throw new Error(errors.join('; '));
+  }
+  return normalized;
 }

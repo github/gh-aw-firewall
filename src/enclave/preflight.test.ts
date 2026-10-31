@@ -3,6 +3,7 @@ import type { WrapperConfig } from '../types';
 import {
   DYNAMIC_ENCLAVE_EXECUTION_UNSUPPORTED_REASON,
   validateEnclavesConfig,
+  validateEnclavesStructure,
 } from './preflight';
 import {
   GH_AW_DYNAMIC_ENCLAVE_POLICY_FIXTURE,
@@ -97,17 +98,17 @@ describe('validateEnclavesConfig', () => {
     })).join('\n')).toMatch(/cannot be mixed.*no runtime fallback/);
   });
 
-  it('does not replace missing static GitHub executor credentials with gateway-wide authority', () => {
+  it('accepts static GitHub tools structurally pending runtime capability validation', () => {
     const enclaves = normalizeEnclavesConfig([{
       agent: { model: 'trusted', github: { cli: 'issues-read-v1' } },
       runtime: 'cloud-hypervisor', repos: [{ repo: 'octo/private', sensitivity: 'internal' }],
     }]);
-    expect(validateEnclavesConfig(config({
+    expect(validateEnclavesStructure(config({
       enclaves,
       cloudHypervisor: { previewEnabled: true } as WrapperConfig['cloudHypervisor'],
       enableApiProxy: true,
       copilotGithubToken: 'test',
-    })).join('\n')).toMatch(/compiler-scoped executor bearer.*never substitutes a gateway-wide key/);
+    }))).toEqual([]);
   });
 
   it('rejects repositories shared with conflicting sensitivities', () => {

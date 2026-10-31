@@ -71,9 +71,13 @@ export async function stageInvocationInputs(
   await write(requestDir, 'task.txt', plan.payload);
   await write(requestDir, 'schema.json', JSON.stringify(plan.schema));
   await write(invocationFilePath(plan.invocationHostDir, 'runtime'), 'session.jsonl', '', 0o600);
-  if (policy.githubAgentId !== undefined && policy.githubBearer !== undefined) {
+  if (policy.githubAgentId !== undefined || policy.githubBearer !== undefined) {
     const handoffDir = invocationFilePath(plan.invocationHostDir, 'session-handoff');
-    await write(handoffDir, 'github-agent-id', `${policy.githubAgentId}\n`);
-    await write(handoffDir, 'github-bearer', `${policy.githubBearer}\n`);
+    if (policy.githubAgentId !== undefined) {
+      await write(handoffDir, 'github-agent-id', `${policy.githubAgentId}\n`);
+    }
+    if (policy.githubBearer !== undefined) {
+      await write(handoffDir, 'github-bearer', `${policy.githubBearer}\n`);
+    }
   }
 }

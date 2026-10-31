@@ -165,8 +165,6 @@ if scenario in ("injected-io", "verify-io"):
         if operation != os.environ["FAULT_OPERATION"]:
             return original_operation(operation, action, fatal=fatal)
         def fail():
-            if operation.endswith("-close"):
-                action()
             raise OSError(
                 int(os.environ.get("FAULT_ERRNO", str(errno.EIO))),
                 "unsafe detail " + os.environ["TEST_API_TOKEN"],
@@ -174,6 +172,19 @@ if scenario in ("injected-io", "verify-io"):
             )
         return original_operation(operation, fail, fatal=fatal)
     module.file_operation = injected_operation
+    original_close_file = module.close_file
+    def injected_close_file(handle, operation, *, fatal=True):
+        if operation != os.environ.get("FAULT_OPERATION"):
+            return original_close_file(handle, operation, fatal=fatal)
+        handle.close()
+        error = OSError(
+            int(os.environ.get("FAULT_ERRNO", str(errno.EIO))),
+            "unsafe detail " + os.environ["TEST_API_TOKEN"],
+            os.environ["PRIVATE_PATH"],
+        )
+        module.safe_os_error(error, operation, fatal=fatal)
+        raise error
+    module.close_file = injected_close_file
 
 original_engine_result = module.append_engine_result
 def engine_result(completed):

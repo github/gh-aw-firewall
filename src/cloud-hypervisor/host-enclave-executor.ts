@@ -34,6 +34,7 @@ import {
   ENCLAVE_GITHUB_MCP_PORT,
 } from '../enclave/network';
 import type { CloudHypervisorOptions } from '../types/runtime-options';
+import { ENCLAVE_AGENT_GITHUB_TOOLS } from '../types/enclave-options';
 import {
   createArtifactSnapshot,
   createCommonArtifactSnapshot,
@@ -90,6 +91,23 @@ export type {
 export { preflightCloudHypervisorEnclaveArtifacts } from './enclave-artifact-preflight';
 
 const OUTPUT_NAME = 'out';
+
+function assertGithubCapabilityLifetime(
+  policy: HostExecutorAgentPolicy | undefined,
+  timeoutMs: number,
+): void {
+  if (!policy) return;
+  const hasCredentials = policy.githubAgentId !== undefined || policy.githubBearer !== undefined;
+  if (!hasCredentials && policy.githubExpiresAt === undefined && policy.githubAllowedTools === undefined) return;
+  if (!hasCredentials || !Number.isSafeInteger(policy.githubExpiresAt)
+    || policy.githubExpiresAt! < Date.now() + timeoutMs + HOST_EXECUTOR_TIMEOUT_GRACE_MS
+    || !Array.isArray(policy.githubAllowedTools) || policy.githubAllowedTools.length === 0
+    || new Set(policy.githubAllowedTools).size !== policy.githubAllowedTools.length
+    || !policy.githubAllowedTools.every((tool) =>
+      (ENCLAVE_AGENT_GITHUB_TOOLS as readonly string[]).includes(tool))) {
+    throw new Error('Trusted Cloud Hypervisor GitHub capability must include tools and cover the invocation deadline');
+  }
+}
 
 const defaultDependencies: HostEnclaveExecutorDependencies = {
   createArtifactSnapshot: (sources, copy, onDirectoryCreated, report) =>
@@ -238,7 +256,7 @@ function createWorkloadProfile(
       engine: 'copilot',
       profile: agentPolicy.profile,
     },
-    ...(agentPolicy.githubAgentId !== undefined
+    ...(agentPolicy.githubBearer !== undefined
       ? { githubDataPlane: { ip: ENCLAVE_AGENT_GITHUB_MCP_IP, port: ENCLAVE_GITHUB_MCP_PORT } }
       : {}),
   });
@@ -362,9 +380,11 @@ export class CloudHypervisorHostEnclaveExecutorBackend implements HostEnclaveExe
       Object.prototype.hasOwnProperty.call(agentPolicies, plan.entryId)
       ? agentPolicies[plan.entryId]
       : undefined;
-    const policy = await check('policy', () => role === 'agent'
-      ? normalizeAgentPolicy(rawAgentPolicy, plan.timeoutMs)
-      : undefined);
+    const policy = await check('policy', () => {
+      const normalized = role === 'agent' ? normalizeAgentPolicy(rawAgentPolicy, plan.timeoutMs) : undefined;
+      assertGithubCapabilityLifetime(normalized, plan.timeoutMs);
+      return normalized;
+    });
     const verifiedRootfs = this.options.enclaveArtifacts.rootfs[
       this.options.enclaveArtifacts.manifest.schemaVersion === 2 ? 'script' : role
     ];
@@ -594,6 +614,7 @@ export class CloudHypervisorHostEnclaveExecutorBackend implements HostEnclaveExe
       if (filesystemState.aborted) throw new Error('Host executor invocation was cancelled');
       await check('instance-start', () => raceInterruption(trackFilesystemWork(manager!.startInstance())));
       if (filesystemState.aborted) throw new Error('Host executor invocation was cancelled');
+      assertGithubCapabilityLifetime(policy, plan.timeoutMs);
       const executionResult = await check('guest-execute', () => raceInterruption(manager!.execute({
         argv: [CLOUD_HYPERVISOR_ENCLAVE_ENTRYPOINTS[role]],
         cwd: '/',

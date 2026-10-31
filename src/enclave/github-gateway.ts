@@ -22,8 +22,9 @@ import {
 export { ENCLAVE_GITHUB_MCP_PORT } from './network';
 import { resolveEnclavePaths } from './paths';
 import { readGatewayReadinessResponse } from './gateway-readiness';
+import { ENCLAVE_GITHUB_MCP_AGENT_ID_ENV, getStaticGithubExecutorCapability } from './static-github-handoff';
+export { ENCLAVE_GITHUB_MCP_AGENT_ID_ENV } from './static-github-handoff';
 
-export const ENCLAVE_GITHUB_MCP_AGENT_ID_ENV = 'AWF_ENCLAVE_GITHUB_MCP_AGENT_ID';
 export const ENCLAVE_GITHUB_MCP_SERVER_NAME = 'github';
 export const ENCLAVE_GITHUB_MCP_INTERNAL_URL =
   `http://${ENCLAVE_AGENT_GITHUB_MCP_IP}:${ENCLAVE_GITHUB_MCP_PORT}/mcp/${ENCLAVE_GITHUB_MCP_SERVER_NAME}`;
@@ -120,6 +121,8 @@ function resolveGithubEndpoint(rawEndpoint: string | undefined): URL {
 }
 
 function resolveGithubAgentId(config: WrapperConfig, env: NodeJS.ProcessEnv): string | undefined {
+  const capability = getStaticGithubExecutorCapability(config);
+  if (capability) return capability.agentId;
   if (env[ENCLAVE_GITHUB_MCP_AGENT_ID_ENV]) {
     return env[ENCLAVE_GITHUB_MCP_AGENT_ID_ENV];
   }
@@ -397,6 +400,7 @@ export async function connectEnclaveGithubGateway(
 }
 
 async function proveGithubGatewayReadiness(
+  config: WrapperConfig,
   contract: EnclaveGithubGatewayContract,
   deadline: number,
 ): Promise<void> {
@@ -415,7 +419,8 @@ async function proveGithubGatewayReadiness(
     // profile; tool exposure is enforced by the delegated identity itself.
     return;
   }
-  const agentId = contract.agentId;
+  const scoped = getStaticGithubExecutorCapability(config);
+  const agentId = scoped ? scoped.bearer : contract.agentId;
   const initialized = await postJsonRpc(contract.endpoint, agentId, {
     jsonrpc: '2.0',
     id: 1,
@@ -530,7 +535,7 @@ export async function assertEnclaveGithubGatewayReady(
   let lastError: unknown;
   do {
     try {
-      await proveGithubGatewayReadiness(contract, deadline);
+      await proveGithubGatewayReadiness(config, contract, deadline);
       return;
     } catch (error) {
       if (!(error instanceof GithubGatewayReadinessError) || !error.retryable) throw error;

@@ -56,6 +56,18 @@ describe('normalizeEnclavesConfig', () => {
     expect(config?.executors.agent.enabled).toBe(false);
   });
 
+  it('preserves an explicitly selected VM agent under a Docker primary', () => {
+    const config = normalizeEnclavesConfig([{
+      agent: { model: 'gpt-5', tools: { github: {
+        allowed: ['issue_read'], allowedRepos: [repository.repo],
+      } } },
+      runtime: 'cloud-hypervisor', repos: [repository],
+    }], { primaryRuntime: 'docker' });
+    expect(config?.executors.agent.runtime).toBe('cloud-hypervisor');
+    expect(config?.executors.agent.tools?.github?.allowed).toEqual(['issue_read']);
+    expect(config?.executors.script.enabled).toBe(false);
+  });
+
   it('keeps unsupported NVX enclave execution closed without affecting standalone NVX', () => {
     expect(() => normalizeEnclavesConfig([
       { script: {}, repos: [repository] },

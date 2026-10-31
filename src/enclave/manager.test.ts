@@ -222,6 +222,33 @@ describe('prepareEnclaves fail-closed preflight', () => {
     })).rejects.toThrow(/Unix-socket Docker host/);
   });
 
+  it('takes custody of invalid VM GitHub capability before child processes or staging', async () => {
+    const wrapper = config(workDir, [{
+      agent: { model: 'trusted', github: { cli: 'issues-read-v1' } },
+      runtime: 'cloud-hypervisor', repos: [repository],
+    }]);
+    const env = githubEnclaveEnv(workDir, { AWF_ENCLAVE_GITHUB_EXECUTOR_CAPABILITY: 'invalid' });
+    const clone = jest.fn();
+    const runtime = jest.fn();
+    await expect(prepareEnclaves(wrapper, {
+      env, gitRunner: clone, assertPrimaryAvailable: runtime, assertAgentRuntimeAvailable: runtime,
+    })).rejects.toThrow(/compiler-scoped executor capability/);
+    expect(env.AWF_ENCLAVE_GITHUB_EXECUTOR_CAPABILITY).toBeUndefined();
+    expect(mockExeca).not.toHaveBeenCalled();
+    expect(clone).not.toHaveBeenCalled();
+    expect(runtime).not.toHaveBeenCalled();
+    expect(fs.existsSync(resolveEnclavePaths(workDir).root)).toBe(false);
+  });
+
+  it('discards unused scoped GitHub capability even on non-VM runs', async () => {
+    const env = enclaveEnv({
+      GH_TOKEN: undefined, GITHUB_TOKEN: undefined, AWF_ENCLAVE_GITHUB_EXECUTOR_CAPABILITY: 'unused',
+    });
+    await expect(prepareEnclaves(config(workDir), { env })).rejects.toThrow(/staging credential/);
+    expect(env.AWF_ENCLAVE_GITHUB_EXECUTOR_CAPABILITY).toBeUndefined();
+    expect(mockExeca).not.toHaveBeenCalled();
+  });
+
   it('rejects Docker host prerequisites before cloning or creating private staging', async () => {
     const clone = jest.fn();
     const check = jest.fn(() => { throw new Error('Docker enclaves require CAP_SYS_ADMIN'); });

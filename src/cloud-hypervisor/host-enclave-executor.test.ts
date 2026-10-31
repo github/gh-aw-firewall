@@ -1,5 +1,5 @@
 import { createHash } from 'crypto';
-import { promises as fs } from 'fs';
+import { existsSync, promises as fs } from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import {
@@ -47,6 +47,7 @@ import type {
   VerifiedCloudHypervisorEnclaveArtifacts,
 } from './host-enclave-executor';
 import type { CloudHypervisorWorkloadProfile } from './workload-profile';
+import { HOST_EXECUTOR_TIMEOUT_GRACE_MS } from '../enclave/host-executor-protocol';
 /* eslint-disable @typescript-eslint/no-require-imports */
 const { decodeCapability } = require('../../containers/api-proxy/enclave-model-budget');
 /* eslint-enable @typescript-eslint/no-require-imports */
@@ -80,6 +81,8 @@ describe('readBoundedCloudHypervisorEnclaveResult', () => {
       maxOutputBytes: 4096,
       githubAgentId: 'trusted-agent-id',
       githubBearer: token,
+      githubExpiresAt: Date.now() + 300_000,
+      githubAllowedTools: ['issue_read', 'list_issues'],
     };
 
     try {
@@ -297,8 +300,9 @@ describe('readBoundedCloudHypervisorEnclaveResult', () => {
         maxOutputBytes: 4096,
         maxModelRequests: 5,
         maxModelTokens: 1000,
-        githubAgentId: 'agent_123',
         githubBearer: `ghs_${'a'.repeat(40)}`,
+        githubExpiresAt: Date.now() + 3_600_000,
+        githubAllowedTools: ['issue_read', 'list_issues'],
       };
       const config: CloudHypervisorOptions = {
         previewEnabled: true,
@@ -328,7 +332,7 @@ describe('readBoundedCloudHypervisorEnclaveResult', () => {
       let expectHandoffCredentials = true;
       let executionRequest: Parameters<HostEnclaveExecutorManager['execute']>[0] | undefined;
       let workloadProfile: CloudHypervisorWorkloadProfile | undefined;
-      let stagedHandoff: { agentId: string; bearer: string } | undefined;
+      let stagedHandoff: { bearer: string } | undefined;
       const sessionReads: Array<{ stopped: boolean; unmounted: boolean }> = [];
       const preservePublicSession = jest.fn().mockResolvedValue(undefined);
       const backendOptions = {
@@ -451,15 +455,13 @@ describe('readBoundedCloudHypervisorEnclaveResult', () => {
               if (managerExecuteError) throw new GuestTransportError('guest-disconnected');
               if (role === 'agent' && expectHandoffCredentials) {
                 stagedHandoff = {
-                  agentId: await fs.readFile(
-                    path.join(invocationHostDir, 'session-handoff', 'github-agent-id'),
-                    'utf8',
-                  ),
                   bearer: await fs.readFile(
                     path.join(invocationHostDir, 'session-handoff', 'github-bearer'),
                     'utf8',
                   ),
                 };
+                expect(existsSync(path.join(invocationHostDir, 'session-handoff', 'github-agent-id')))
+                  .toBe(false);
               }
               const output = profile.guest?.exports.find(({ tag }) => tag === 'enclave-output')?.source;
               if (!output) throw new Error('expected the trusted output export');
@@ -658,10 +660,13 @@ describe('readBoundedCloudHypervisorEnclaveResult', () => {
             AWF_ENCLAVE_AGENT_PROFILE: 'openai',
             AWF_ENCLAVE_AGENT_MODEL: 'gpt-4.1',
             AWF_ENCLAVE_AGENT_GITHUB_ENABLED: 'true',
+            AWF_ENCLAVE_AGENT_GITHUB_AUTH_MODE: 'scoped-bearer',
+            AWF_ENCLAVE_AGENT_GITHUB_ALLOWED_TOOLS: JSON.stringify(agentPolicy.githubAllowedTools),
             AWF_ENCLAVE_AGENT_MAX_MODEL_REQUESTS: '5',
             AWF_ENCLAVE_AGENT_MAX_MODEL_TOKENS: '1000',
             AWF_ENCLAVE_AGENT_DEADLINE_SECONDS: '61',
           });
+          expect(executionRequest?.env.AWF_ENCLAVE_AGENT_GITHUB_PROFILE).toBeUndefined();
           expect(executionRequest?.env.AWF_ENCLAVE_AGENT_DEBUG_RAW_SESSION_LOGS)
             .toBe(publicDebug ? 'true' : undefined);
           if (publicDebug) {
@@ -683,7 +688,6 @@ describe('readBoundedCloudHypervisorEnclaveResult', () => {
             COPILOT_PROVIDER_BEARER_TOKEN: '******',
           });
           expect(stagedHandoff).toEqual({
-            agentId: 'agent_123\n',
             bearer: `${agentPolicy.githubBearer}\n`,
           });
           const [file] = hostExecutorDiagnostics.readHostExecutorInvocationDiagnostics(runState);
@@ -778,13 +782,24 @@ describe('readBoundedCloudHypervisorEnclaveResult', () => {
               error: 'Trusted host executor agent policy is invalid',
             },
             {
-              policy: { ...agentPolicy, githubAgentId: undefined },
-              error: 'Trusted GitHub agent identity and bearer must be configured together',
+              policy: { ...agentPolicy, githubBearer: undefined },
+              error: 'Trusted Cloud Hypervisor GitHub capability must include tools and cover the invocation deadline',
             },
             {
               policy: { ...agentPolicy, githubBearer: 'invalid' },
               error: 'Trusted host executor GitHub credentials are invalid',
             },
+            ...[
+              { githubExpiresAt: undefined },
+              { githubExpiresAt: Date.now() + plan.timeoutMs },
+              { githubAllowedTools: undefined },
+              { githubAllowedTools: [] },
+              { githubAllowedTools: ['unknown_tool'] },
+              { githubAllowedTools: ['issue_read', 'issue_read'] },
+            ].map((fields) => ({
+              policy: { ...agentPolicy, ...fields },
+              error: 'Trusted Cloud Hypervisor GitHub capability must include tools and cover the invocation deadline',
+            })),
             {
               policy: agentPolicy,
               plan: { ...plan, timeoutMs: 0 },
@@ -792,6 +807,7 @@ describe('readBoundedCloudHypervisorEnclaveResult', () => {
             },
           ];
           for (const invalid of invalidPolicies) {
+            const snapshotsBefore = snapshotNumber;
             const invalidPolicyBackend = new CloudHypervisorHostEnclaveExecutorBackend({
               ...backendOptions,
               agentPolicies: { [entryId]: invalid.policy },
@@ -800,7 +816,39 @@ describe('readBoundedCloudHypervisorEnclaveResult', () => {
               invalid.plan ?? plan,
               new AbortController().signal,
             )).rejects.toThrow(invalid.error);
+            expect(snapshotNumber).toBe(snapshotsBefore);
             await invalidPolicyBackend.close();
+          }
+
+          const now = Date.now();
+          const delayedExecution = jest.fn();
+          let clock: jest.SpyInstance | undefined;
+          const deadlineBackend = new CloudHypervisorHostEnclaveExecutorBackend({
+            ...backendOptions,
+            agentPolicies: { [entryId]: {
+              ...agentPolicy, githubExpiresAt: now + plan.timeoutMs + HOST_EXECUTOR_TIMEOUT_GRACE_MS + 1000,
+            } },
+          }, {
+            ...dependencies,
+            createManager: (...args) => {
+              const manager = dependencies.createManager!(...args);
+              return {
+                ...manager,
+                startInstance: async () => {
+                  await manager.startInstance();
+                  clock = jest.spyOn(Date, 'now').mockReturnValue(now + 1001);
+                },
+                execute: delayedExecution,
+              };
+            },
+          });
+          try {
+            await expect(deadlineBackend.execute(plan, new AbortController().signal))
+              .resolves.toEqual({ outcome: 'executor-failure' });
+            expect(delayedExecution).not.toHaveBeenCalled();
+          } finally {
+            clock?.mockRestore();
+            await deadlineBackend.close();
           }
 
           const missingPolicyBackend = new CloudHypervisorHostEnclaveExecutorBackend({

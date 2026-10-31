@@ -32,6 +32,8 @@ export interface HostExecutorAgentPolicy {
   readonly modelBudgetSecret?: string;
   readonly githubAgentId?: string;
   readonly githubBearer?: string;
+  readonly githubExpiresAt?: number;
+  readonly githubAllowedTools?: readonly string[];
 }
 
 const MIB = 1024 * 1024;
@@ -133,8 +135,8 @@ export function normalizeAgentPolicy(
   }
   const hasGithubId = policy.githubAgentId !== undefined;
   const hasGithubBearer = policy.githubBearer !== undefined;
-  if (hasGithubId !== hasGithubBearer) {
-    throw new Error('Trusted GitHub agent identity and bearer must be configured together');
+  if (hasGithubId && !hasGithubBearer) {
+    throw new Error('Trusted GitHub agent identity requires a bearer');
   }
   if (
     (policy.githubAgentId !== undefined && !AGENT_ID_PATTERN.test(policy.githubAgentId)) ||

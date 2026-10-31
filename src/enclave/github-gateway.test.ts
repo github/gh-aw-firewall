@@ -1,6 +1,5 @@
 import * as fs from 'fs';
 import * as http from 'http';
-import * as os from 'os';
 import * as path from 'path';
 import execa from 'execa';
 import { normalizeEnclavesConfig } from '../parsers/enclave-parser';
@@ -14,8 +13,16 @@ import {
   resolveEnclaveGithubGatewayContract,
 } from './github-gateway';
 import { resolveEnclavePaths } from './paths';
+import { takeStaticGithubExecutorCapability } from './static-github-handoff';
 
 jest.mock('execa', () => ({ __esModule: true, default: jest.fn() }));
+jest.mock('./paths', () => {
+  const actual = jest.requireActual('./paths');
+  return {
+    ...actual,
+    resolveEnclavePaths: (workDir: string) => actual.resolveEnclavePaths(workDir, process.cwd()),
+  };
+});
 const mockExeca = execa as unknown as jest.Mock;
 
 const AGENT_ID = 'enclaveAgentId0123456789abcdef012345';
@@ -138,6 +145,44 @@ describe('direct enclave GitHub MCP handoff', () => {
     expect(contract.endpoint.href).toBe('http://localhost:8080/mcp/github');
   });
 
+  it('authenticates scoped VM readiness with a bearer, never the static identity', async () => {
+    const config = enabledConfig();
+    config.enclaves!.executors.agent.runtime = 'cloud-hypervisor';
+    const environment = handoff();
+    const bearer = 'scoped-executor-bearer-'.repeat(3);
+    environment.AWF_ENCLAVE_GITHUB_EXECUTOR_CAPABILITY = JSON.stringify({
+      version: 1, executor: 'agent', gatewayIdentity: environment.AWF_ENCLAVE_MCP_GATEWAY_IDENTITY,
+      agentId: AGENT_ID, bearer, issuedAt: Date.now(), expiresAt: Date.now() + 300_000,
+      allowedTools: ['list_issues', 'issue_read'], allowedRepos: ['octo/private'], minIntegrity: null,
+    });
+    takeStaticGithubExecutorCapability(config, environment);
+    mockGatewayNetworkChecks();
+    const authorizations: Array<string | undefined> = [];
+    const handler = githubGatewayHandler();
+    await withGatewayServer((request, response) => {
+      authorizations.push(request.headers.authorization);
+      handler(request, response);
+    }, async (endpoint) => {
+      await assertEnclaveGithubGatewayReady(config, {
+        ...environment, AWF_ENCLAVE_MCP_GATEWAY_ENDPOINT: endpoint,
+      });
+    });
+    expect(authorizations).toEqual(Array(3).fill(bearer));
+  });
+
+  it('never sends static identity readiness when a VM scoped capability is absent', async () => {
+    const config = enabledConfig();
+    config.enclaves!.executors.agent.runtime = 'cloud-hypervisor';
+    mockGatewayNetworkChecks();
+    const handler = jest.fn(githubGatewayHandler());
+    await withGatewayServer(handler, async (endpoint) => {
+      await expect(assertEnclaveGithubGatewayReady(config, {
+        ...handoff(), AWF_ENCLAVE_MCP_GATEWAY_ENDPOINT: endpoint,
+      })).rejects.toThrow(/missing or expired/);
+    });
+    expect(handler).not.toHaveBeenCalled();
+  });
+
   it('derives allowedTools from the tools.github allowlist', () => {
     const config: WrapperConfig = {
       workDir: '/tmp/awf-test',
@@ -168,7 +213,7 @@ describe('direct enclave GitHub MCP handoff', () => {
   });
 
   it('resolves the scrubbed agent identity from private staged state', () => {
-    const workDir = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-github-agent-id-'));
+    const workDir = fs.mkdtempSync(path.join(process.cwd(), '.awf-github-agent-id-'));
     const config = { ...enabledConfig(), workDir };
     const paths = resolveEnclavePaths(workDir);
     try {
@@ -181,6 +226,7 @@ describe('direct enclave GitHub MCP handoff', () => {
     } finally {
       fs.rmSync(workDir, { recursive: true, force: true });
       fs.rmSync(paths.root, { recursive: true, force: true });
+      fs.rmSync(paths.ingressRoot, { recursive: true, force: true });
     }
   });
 
