@@ -62,7 +62,7 @@ describe('public Copilot authentication projection', () => {
       expect(Buffer.byteLength(log)).toBeLessThan(1024);
       expect(() => collector.projectProxyContainerLog(Buffer.from(
         log.replace('target=standard', 'target=PRIVATE_HOST'),
-      ))).toThrow(/Unsafe/);
+      ))).toThrow(/proxy-container-schema/);
       await expect(preservePublicEnclaveProxyDiagnostics({ runId, journalDir },
         { scope: 'run-cumulative', status: 'empty' }, [],
         log.replace('target=standard', 'target=PRIVATE_HOST'))).rejects.toThrow(/Unsafe/);
@@ -75,6 +75,6 @@ describe('public Copilot authentication projection', () => {
     expect(() => collector.projectProxyContainerLog(Buffer.from(
       'source=stdout level=warn event=upstream_auth_error status=401 target=standard\n' +
       'capture_status=captured dropped=0\n',
-    ))).toThrow(/Unsafe/);
+    ))).toThrow(/proxy-container-schema/);
   });
 });
