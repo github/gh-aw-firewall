@@ -6,6 +6,33 @@ const workflowsDir = path.resolve(__dirname, '../../.github/workflows');
 const sourcePath = path.join(workflowsDir, 'copilot-token-usage-analyzer.md');
 
 describe('copilot token usage analyzer workflow prompt', () => {
+  it('allows time for sandbox image builds, analysis, and cleanup', () => {
+    const source = fs.readFileSync(sourcePath, 'utf-8');
+    const frontmatter = yaml.load(source.split('---')[1]) as {
+      'timeout-minutes': number;
+    };
+    const lock = fs.readFileSync(
+      path.join(workflowsDir, 'copilot-token-usage-analyzer.lock.yml'),
+      'utf-8',
+    );
+    const compiled = yaml.load(lock) as {
+      jobs: { agent: {
+        'timeout-minutes': number;
+        steps: Array<{ id?: string; 'timeout-minutes'?: number; env?: Record<string, string | number> }>;
+      } };
+    };
+    const execution = compiled.jobs.agent.steps.find(step => step.id === 'agentic_execution');
+    const detection = compiled.jobs.agent.steps.find(
+      step => step.env?.GH_AW_ENGINE_STEP_TIMEOUT_MINUTES !== undefined,
+    );
+
+    expect(frontmatter['timeout-minutes']).toBe(25);
+    expect(execution?.['timeout-minutes']).toBe(frontmatter['timeout-minutes']);
+    expect(detection?.env?.GH_AW_ENGINE_STEP_TIMEOUT_MINUTES)
+      .toBe(frontmatter['timeout-minutes']);
+    expect(compiled.jobs.agent['timeout-minutes']).toBeGreaterThan(frontmatter['timeout-minutes']);
+  });
+
   it('pins the CLI install to the reviewed release instead of resolving mutable compatibility defaults', () => {
     const source = fs.readFileSync(sourcePath, 'utf-8');
     const frontmatter = yaml.load(source.split('---')[1]) as {

@@ -35,7 +35,7 @@ engine:
   id: copilot
   version: "1.0.98"
 max-ai-credits: 2500
-timeout-minutes: 15
+timeout-minutes: 25
 steps:
   - name: Download Copilot workflow logs
     env:
