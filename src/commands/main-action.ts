@@ -35,8 +35,11 @@ import { validateOptions } from './validate-options';
 import { probeSplitFilesystem } from '../dind-probe';
 import { applyHostPathPrefixToVolumes, resolveRunnerMountPaths } from '../services/host-path-prefix';
 import { buildCustomVolumeMounts } from '../services/agent-volumes/workspace-mounts';
+import { buildCredentialHidingOverlays } from '../services/agent-volumes/credential-hiding';
+import { createLocalSourceResolver } from '../services/agent-volumes/mount-topology';
 import { filterAgentVolumesForSysroot } from '../services/optional-services';
 import { getRealUserHome } from '../host-identity';
+import { runtimeUsesComposeAgent } from '../container-runtime';
 import { assertTopologySupported, connectTopologyContainers } from '../topology';
 import { runDindBootstrap } from '../dind-bootstrap';
 import { adaptExternalRuntimeBackend } from '../external-runtime-backend';
@@ -152,10 +155,47 @@ function persistConfigAuditArtifact(
         config.dockerHostPathPrefix,
       );
       const retained = new Set(filterAgentVolumesForSysroot(customMounts, config, getRealUserHome()));
+      const localCustomMounts = buildCustomVolumeMounts(config.volumeMounts, undefined, { quiet: true });
+      const customSourceRoots = new Map(
+        customMounts.map((spec, index) => [
+          spec.split(':')[0] ?? '',
+          localCustomMounts[index]?.split(':')[0] ?? '',
+        ]),
+      );
+      let credentialOverlayTargets: string[];
+      try {
+        credentialOverlayTargets = buildCredentialHidingOverlays(
+          getRealUserHome(),
+          customMounts,
+          createLocalSourceResolver(customSourceRoots, config.dockerHostPathPrefix),
+        ).flatMap((spec) => {
+          const parts = spec.split(':');
+          return parts[0] === '/dev/null' && parts[1] ? [parts[1]] : [];
+        });
+      } catch {
+        // If effective credential masks cannot be determined, do not publish
+        // runner paths that might point through one.
+        credentialOverlayTargets = customMounts.flatMap((spec) => {
+          const target = spec.split(':')[1];
+          return target ? [target] : [];
+        });
+      }
+      const runnerBackedMounts = config.volumeMounts?.filter((_, index) => {
+        const mount = customMounts[index];
+        if (!retained.has(mount)) return false;
+        const target = mount.split(':')[1];
+        if (!target) return false;
+        return !credentialOverlayTargets.some((overlayTarget) =>
+          overlayTarget === target || overlayTarget.startsWith(`${target}/`) || target.startsWith(`${overlayTarget}/`)
+        );
+      });
       runnerMountPaths = resolveRunnerMountPaths(
-        config.volumeMounts?.filter((_, index) => retained.has(customMounts[index])),
+        runnerBackedMounts,
         config.dockerHostPathPrefix,
       );
+      if (runtimeUsesComposeAgent(config.containerRuntime)) {
+        runnerMountPaths = runnerMountPaths.filter(({ sandboxPath }) => sandboxPath !== '/');
+      }
     }
     const contents = JSON.stringify({
       ...redactedConfig,

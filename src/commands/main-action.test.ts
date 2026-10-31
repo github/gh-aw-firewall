@@ -37,6 +37,10 @@ jest.mock('../external-runtime-backend-resolver', () => {
     resolveExternalRuntimeBackend: jest.fn(actual.resolveExternalRuntimeBackend),
   };
 });
+jest.mock('../services/agent-volumes/credential-hiding', () => ({
+  ...jest.requireActual('../services/agent-volumes/credential-hiding'),
+  buildCredentialHidingOverlays: jest.fn(() => []),
+}));
 
 import { logger } from '../logger';
 import * as dockerManager from '../docker-manager';
@@ -59,6 +63,7 @@ import * as enclaveHostLifecycle from '../enclave/cloud-hypervisor-lifecycle';
 import * as dockerHostLifecycle from '../enclave/docker-lifecycle';
 import * as dynamicDelegation from '../enclave/dynamic-delegation';
 import * as externalRuntimeResolver from '../external-runtime-backend-resolver';
+import * as credentialHiding from '../services/agent-volumes/credential-hiding';
 import { MAIN_ACTION_STUB_CONFIG, setupMainActionTestHarness } from './main-action.test-utils';
 import type { WrapperConfig } from '../types';
 import { CloudHypervisorUnsupportedHostError } from '../cloud-hypervisor/errors';
@@ -1572,6 +1577,45 @@ describe('createMainAction', () => {
         { sandboxPath: target, runnerPath: source },
       ]);
     });
+
+    it('does not publish a custom bind hidden by a credential overlay', () => {
+      const source = '/home/runner/_work/_temp/config.yml';
+      const target = '/tmp/agent-logs/config.yml';
+      const config = {
+        ...MAIN_ACTION_STUB_CONFIG,
+        runnerTopology: 'arc-dind' as const,
+        dockerHostPathPrefix: '/host',
+        volumeMounts: [`${source}:${target}:rw`],
+      };
+      const overlays = jest.spyOn(credentialHiding, 'buildCredentialHidingOverlays')
+        .mockReturnValue([`/dev/null:/host${target}:ro`]);
+
+      try {
+        testHelpers.persistConfigAuditArtifact(config, {});
+      } finally {
+        overlays.mockRestore();
+      }
+
+      const calls = jest.mocked(publishEarlyResolvedConfig).mock.calls;
+      expect(JSON.parse(calls[calls.length - 1][0]).runnerMountPaths).toEqual([]);
+    });
+
+    it.each(['/tmp/root:/host:rw', '/tmp/root:/host/:rw'])(
+      'does not publish a root bind replaced by the ARC sysroot (%s)',
+      (rootMount) => {
+        const config = {
+          ...MAIN_ACTION_STUB_CONFIG,
+          runnerTopology: 'arc-dind' as const,
+          dockerHostPathPrefix: '/host',
+          volumeMounts: [rootMount],
+        };
+
+        testHelpers.persistConfigAuditArtifact(config, {});
+
+        const calls = jest.mocked(publishEarlyResolvedConfig).mock.calls;
+        expect(JSON.parse(calls[calls.length - 1][0]).runnerMountPaths).toEqual([]);
+      },
+    );
 
     it('does not publish compose mount mappings for other topologies', () => {
       testHelpers.persistConfigAuditArtifact(MAIN_ACTION_STUB_CONFIG, { agentCommand: 'redacted' });
