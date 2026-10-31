@@ -10,6 +10,11 @@ import {
   type DockerHostExecutorEntry,
 } from './docker-host-executor';
 import { dockerMemoryBytes, dockerWritableBudget } from './docker-host-storage';
+import {
+  assertDockerStorageHelperAvailable, DOCKER_ENCLAVE_HELPER_ROOT, DOCKER_ENCLAVE_MAX_HOST_BYTES,
+  hasDockerHostMountCapability, dockerHelperHostStateRoot,
+} from './docker-storage-helper';
+import { assertPrivateRootIsolated, resolvePathThroughExistingAncestor } from './mount-policy';
 import { getEnclaveHostDynamicAuthority } from './dynamic-delegation';
 import type { DynamicDelegationService } from './dynamic-delegation-service';
 import {
@@ -34,6 +39,14 @@ export function isDockerEnclaveSelected(config: WrapperConfig): boolean {
 
 const lifecycle = new HostExecutorLifecycleRegistry<WrapperConfig, never>('Docker enclave');
 
+export function resolveDockerEnclavePaths(workDir: string): ReturnType<typeof resolveEnclavePaths> {
+  const paths = resolveEnclavePaths(workDir);
+  if (!hasDockerHostMountCapability()) {
+    paths.hostExecutorJournalDir = path.join(dockerHelperHostStateRoot(), 'host-executor-journal');
+  }
+  return paths;
+}
+
 export function assertDockerEnclaveHostPrerequisites(
   config: WrapperConfig,
   environment: NodeJS.ProcessEnv = process.env,
@@ -46,14 +59,23 @@ export function assertDockerEnclaveHostPrerequisites(
   if (config.dockerHostPathPrefix && config.dockerHostPathPrefix !== '/') {
     throw new Error('Docker host enclaves do not support dockerHostPathPrefix or split-filesystem daemons; mount policy is never bypassed');
   }
-  let capabilities = '';
-  try {
-    capabilities = /^CapEff:\s*([0-9a-f]+)$/mi.exec(fs.readFileSync('/proc/self/status', 'utf8'))?.[1] || '';
-  } catch {
-    // Report the same actionable prerequisite failure when host capability state is unavailable.
-  }
-  if (!capabilities || (BigInt(`0x${capabilities}`) & (1n << 21n)) === 0n) {
-    throw new Error('Docker host enclaves require effective CAP_SYS_ADMIN to mount and clean bounded tmpfs storage');
+  if (!hasDockerHostMountCapability()) {
+    if (Object.values(config.enclaves!.executors).some((entry) => entry.enabled
+      && dockerMemoryBytes(entry.tmpfsLimit) > DOCKER_ENCLAVE_MAX_HOST_BYTES)) {
+      throw new Error('Docker enclave helper host tmpfs exceeds the 4 GiB hard ceiling');
+    }
+    const paths = resolveDockerEnclavePaths(config.workDir);
+    assertPrivateRootIsolated(config, { root: DOCKER_ENCLAVE_HELPER_ROOT }, environment, process.cwd(), 'Docker helper storage');
+    const storage = resolvePathThroughExistingAncestor(DOCKER_ENCLAVE_HELPER_ROOT);
+    // Include every broker bind, not only those also visible to the primary.
+    for (const brokerPath of [paths.seedsDir, paths.workDir, paths.controlDir, paths.auditDir,
+      paths.runDir, paths.delegationChannelDir, paths.hostExecutorDir]) {
+      const broker = resolvePathThroughExistingAncestor(brokerPath);
+      if (storage === broker || storage.startsWith(`${broker}/`) || broker.startsWith(`${storage}/`)) {
+        throw new Error('Docker helper storage must not overlap broker bind mounts');
+      }
+    }
+    assertDockerStorageHelperAvailable();
   }
 }
 
@@ -65,7 +87,7 @@ export async function startDockerEnclaveLifecycle(
   if (!isDockerEnclaveSelected(config)) return;
   assertDockerEnclaveHostPrerequisites(config, environment);
   const dockerHost = config.awfDockerHost ?? environment.DOCKER_HOST ?? 'unix:///var/run/docker.sock';
-  const paths = resolveEnclavePaths(config.workDir);
+  const paths = resolveDockerEnclavePaths(config.workDir);
   const runState = deriveHostExecutorRunState(config, paths, 'Docker enclave', { dynamicAgents: true });
   const registry = config.imageRegistry || 'ghcr.io/github/gh-aw-firewall';
   const parsedTag = parseImageTag(config.imageTag || 'latest');
@@ -260,18 +282,18 @@ export async function startDockerEnclaveLifecycle(
 }
 
 export function closeDockerEnclaveAdmissions(config: WrapperConfig): void {
-  lifecycle.closeAdmissions(resolveEnclavePaths(config.workDir).root, config);
+  lifecycle.closeAdmissions(resolveDockerEnclavePaths(config.workDir).root, config);
 }
 
 export function assertDockerEnclaveLifecycleReady(config: WrapperConfig): Promise<void> {
-  return lifecycle.ready(resolveEnclavePaths(config.workDir).root, config);
+  return lifecycle.ready(resolveDockerEnclavePaths(config.workDir).root, config);
 }
 
 export async function stopDockerEnclaveLifecycle(
   config: WrapperConfig,
   allowNeverLaunchedStaging: () => boolean = () => false,
 ): Promise<void> {
-  const paths = resolveEnclavePaths(config.workDir);
+  const paths = resolveDockerEnclavePaths(config.workDir);
   if (!lifecycle.has(paths.root) && !isDockerEnclaveSelected(config)) return;
   await lifecycle.stop(paths.root, config, () => {
     if (allowNeverLaunchedStaging()) return;

@@ -50,6 +50,7 @@ import { ProductionTrustedCloudHypervisorEnclaveStorageProvider } from '../cloud
 import {
   assertDockerEnclaveLifecycleReady,
   assertDockerEnclaveHostPrerequisites,
+  resolveDockerEnclavePaths,
   isDockerEnclaveSelected,
   startDockerEnclaveLifecycle,
   stopDockerEnclaveLifecycle,
@@ -249,7 +250,7 @@ export async function prepareEnclaves(
   }
   updateEnclaveStartupProgress(config, { stage: 'host-preflight' });
   if (hostExecutorSelected) {
-    const hostPaths = resolveEnclavePaths(config.workDir);
+    const hostPaths = dockerSelected ? resolveDockerEnclavePaths(config.workDir) : resolveEnclavePaths(config.workDir);
     const report = cloudHypervisorSelected
       ? new HostPreflightReporter('host-isolation', (hostPreflight) =>
         updateEnclaveStartupProgress(config, { hostPreflight }))

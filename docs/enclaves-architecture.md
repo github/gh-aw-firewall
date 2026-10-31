@@ -1222,15 +1222,88 @@ For configured Docker tmpfs capacity `T`, the host writable allocation is also
 container tmpfs and shared memory, the aggregate is `3T + 64 MiB` for scripts
 and `3T` for agents. These are Docker-derived bounds, not VM storage defaults.
 
+### Unprivileged AWF orchestration with rootful Docker
+
+The default `gh-aw --rootless` mode means an unprivileged **AWF process**, not a
+rootless Docker daemon. Docker enclaves retain their rootful local daemon,
+namespace/identity checks and network restrictions. AWF without `CAP_SYS_ADMIN`
+uses the version-matched host storage helper installed by the authenticated
+`install.sh`. Run that installer using sudo as the workflow's host user; it
+installs a root-owned Python helper and an exact, noninteractive sudo rule for
+that numeric user. Installation as root without `SUDO_UID` does not authorize
+an additional user. npm/source installs alone do not install privileged support.
+Authenticated legacy releases whose signed checksum manifest predates the helper
+still install the ordinary CLI, with an explicit unsupported-helper warning;
+a listed helper may never be skipped on download or authentication failure.
+After authenticating a listed helper, installation detects missing interpreter/
+sudo prerequisites or unsupported host namespaces/capabilities and preserves
+ordinary CLI installation with an explicit unsupported-helper warning. Enclave
+preflight still fails closed until the matching helper is installed on a supported
+host; a signature/checksum failure is never treated as an unsupported-host skip.
+
+The only authorized command is `/usr/bin/python3 -I
+/var/lib/awf/enclave-storage-helper.py` with the helper's closed protocol.
+There is no helper-path override, generic mount/chown permission, setuid shell,
+credential forwarding, or privileged AWF orchestration. The helper verifies the
+installed version, host root identity and initial PID/user/mount namespaces.
+Its root-owned state and allocation parents live at
+`/var/lib/awf/enclave-storage`, outside every primary-agent and broker bind;
+preflight rejects overlapping mounts. Neither the helper script nor its state
+is present in the primary's system mounts. Preflight also bootstraps the caller's
+fixed, owner-only `host-state` directory beneath its root-owned user parent.
+Docker's durable journals and logical invocation roots use that directory,
+not the privileged Cloud Hypervisor journal defaults.
+Before allocation, the helper pins a private self-bind of that fixed root so
+new tmpfs mounts cannot propagate to shared peer mounts. Probe also requires
+effective host mount and ownership capabilities; namespace presence alone is
+not accepted as mount authority.
+
+Each allocation is a `nosuid,nodev,noexec` tmpfs, at most **4 GiB** (8 GiB and
+32 outstanding allocations per host user). Root-owned, fd-relative no-follow
+directory walks and a cross-process lock pin its identity. Ownership transfer
+is limited to the invocation's fixed writable/credential files and empty agent directory,
+always to the audited `65534:65534` identity;
+only the fixed output/session files can be reclaimed, against recorded inode
+identities. Repository credentials, payloads and caller environment are never
+sent to the helper. Normal result release still requires verified container
+removal before output reclaim and bounded reading.
+
+Helper intents and mount identities are retained through partial failures.
+Existing journal-led recovery must prove immutable container removal before
+requesting exact allocation cleanup; missing authorization, busy mounts, identity
+changes or uncertain completion preserve recovery state and fail closed.
+Reinstall/upgrade refuses outstanding helper allocations; reconcile them first.
+The existing direct privileged path remains available. Compiler-side adoption
+or changes in `github/gh-aw` are upstream work, not configuration changes in AWF.
+
 ### Docker acceptance scope
 
-`tests/integration/enclave-docker-host.test.ts` provides privileged real-daemon
+`tests/integration/enclave-docker-host.test.ts` provides real-daemon
 evidence on Linux with rootful Docker and cgroup v2. It exercises the audited
 script and agent entrypoints, substituting a local fixture for Copilot only.
 It verifies effective non-root identity, read-only seed/rootfs mounts, no-network
 scripts, the exact dedicated agent network, configured memory/PID limits and CPU
 quota, and one kernel-bounded allocation across output, session and runtime binds.
 Concurrent sparse writers exhaust that shared capacity with `ENOSPC`.
+Independent concurrent run IDs additionally prove distinct allocations and
+recovery journals while exercising separate helper processes under its lock.
+Run it as the unprivileged authorized user to exercise helper setup, fixed-file
+ownership, result reclaim and cleanup; run as root with `CAP_SYS_ADMIN` to
+exercise the backwards-compatible direct storage path. Select helper acceptance
+explicitly with `AWF_DOCKER_HOST_STORAGE_HELPER_ACCEPTANCE=1`; the existing
+`AWF_DOCKER_HOST_ACCEPTANCE=1` remains the privileged-path gate. It uses only local
+fixture engines, never a production provider or workflow dispatch.
+The coordinated case runs real `stageEnclaveSeeds` scrubbing/read-only staging
+with only Git network transport replaced, then starts the audited agent
+entrypoint, consumes its generated credential-isolated MCP configuration, calls
+allowed read tools against an internal controlled GitHub responder, rejects a
+write tool and another repository, releases a bounded result and verifies
+container/mount/journal cleanup. The responder models repository/tool policy;
+it is not evidence for a production mcpg controller or upstream compiler rollout.
+The suite intentionally constructs one set of minimal controlled fixtures from
+the production-pinned Python/Node bases and audited entrypoints/modules. It keeps
+confinement/network rules intact; production image builds, trust-store installation
+and external TLS remain separate validation concerns, not a fixture mode or bypass.
 Cancellation, host deadlines, broker lease expiry, host-service shutdown and
 SIGKILL orphan recovery remove verified containers and mounts; private-output
 sentinels and invalid results are not released. The authenticated broker client

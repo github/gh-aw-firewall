@@ -7,11 +7,13 @@ import { readBoundedEnclaveResult } from './invocation-result';
 import { serializeFiniteSchema } from '../bounded-execution/finite-schema';
 import {
   assertDockerHostPath, dockerWritableBudget, mountDockerHostStorage, cleanupDockerHostStorage, resolveDockerHostTool,
+  ownDockerHostStorageFile,
 } from './docker-host-storage';
+import { dockerHelperStorageTarget, hasDockerHostMountCapability } from './docker-storage-helper';
 import {
   assertDockerHostContainer, assertDockerHostOwnerStopped, captureDockerHostOwner,
   DockerHostRecoveryJournal, expectedDockerHostContainer,
-  inspectDockerHostContainer, removeDockerHostContainer,
+  inspectDockerHostContainer, isDockerHostOwnerLive, removeDockerHostContainer,
   type DockerHostCommand, type DockerHostRecoveryRecord,
 } from './docker-host-recovery';
 
@@ -101,10 +103,9 @@ interface InvocationAuthorityState {
   launchedAt?: number;
 }
 
-function privateFile(directory: string, name: string, value: string, uid: number, gid: number, mode: 0o400 | 0o444 | 0o600 = 0o444): void {
+function privateFile(directory: string, name: string, value: string, mode: 0o400 | 0o444 | 0o600 = 0o444): void {
   const target = path.join(directory, name);
   fs.writeFileSync(target, value, { flag: 'wx', mode });
-  fs.chownSync(target, uid, gid);
   fs.chmodSync(target, mode);
 }
 
@@ -124,6 +125,7 @@ export function createDockerHostEnclaveExecutor(options: DockerHostEnclaveExecut
   }
   if (!options.dockerCommand && !fs.statSync(socket).isSocket()) throw new Error('Docker host enclaves require a local Unix Docker socket');
   const docker = options.dockerCommand || defaultDockerCommand(socket);
+  const helperStorage = !hasDockerHostMountCapability();
   const entries = new Map(options.entries.map((entry) => {
     if (!/^[a-z0-9][a-z0-9-]{0,62}$/.test(entry.entryId)
       || !['script', 'agent'].includes(entry.executorKind)) throw new Error('Invalid Docker host enclave entry');
@@ -133,6 +135,9 @@ export function createDockerHostEnclaveExecutor(options: DockerHostEnclaveExecut
     const gid = entry.config[entry.executorKind === 'script' ? 'queryGid' : 'enclaveGid'];
     if (![uid, gid].every((value) => typeof value === 'number' && Number.isSafeInteger(value) && value > 0 && value <= 2147483647)) {
       throw new Error('Docker enclave UID and GID must be trusted non-root numeric identities');
+    }
+    if (helperStorage && (uid !== 65534 || gid !== 65534)) {
+      throw new Error('Unprivileged Docker enclaves require the fixed 65534:65534 identity');
     }
     const image = entry.config[entry.executorKind === 'script' ? 'queryImage' : 'enclaveImage'];
     if (typeof image !== 'string' || !image || image.startsWith('-')) throw new Error('Invalid trusted Docker enclave image');
@@ -197,8 +202,13 @@ export function createDockerHostEnclaveExecutor(options: DockerHostEnclaveExecut
     if (daemon.OSType !== 'linux' || (daemon.SecurityOptions || []).some((v: string) => /rootless|userns/.test(v))) {
       throw new Error('Docker host enclave daemon filesystem/identity mode is unsupported');
     }
-    const records = journal.records();
-    for (const record of records) assertDockerHostOwnerStopped(record.owner, owner);
+    const records = journal.records(true);
+    const recoverable: DockerHostRecoveryRecord[] = [];
+    for (const record of records) {
+      if (record.runId !== options.runId && isDockerHostOwnerLive(record.owner, owner)) continue;
+      assertDockerHostOwnerStopped(record.owner, owner);
+      recoverable.push(record);
+    }
     const known = new Set(records.map((record) => record.expected?.name).filter(Boolean));
     // Labels alone confer no cleanup authority. Every orphan must have a
     // durable intent and an inspected launch configuration before removal.
@@ -206,7 +216,7 @@ export function createDockerHostEnclaveExecutor(options: DockerHostEnclaveExecut
       const inspected = await inspectDockerHostContainer(docker, id);
       if (!inspected || !known.has(inspected.Name?.slice(1))) throw new Error('Unjournaled Docker enclave resources require operator recovery');
     }
-    for (const record of records) await cleanup(record);
+    for (const record of recoverable) await cleanup(record);
   }
 
   async function createContainer(record: DockerHostRecoveryRecord, args: string[], command?: string[]): Promise<string> {
@@ -254,6 +264,9 @@ export function createDockerHostEnclaveExecutor(options: DockerHostEnclaveExecut
     authorityState.prepared = true;
     if (closed || signal.aborted) return { outcome: 'cancelled' };
     assertDockerHostPath(plan.invocationHostDir);
+    if (path.basename(plan.invocationHostDir) !== plan.invocationId) return { outcome: 'executor-failure' };
+    const storageTarget = helperStorage
+      ? dockerHelperStorageTarget(plan.runId, plan.entryId, plan.invocationId) : plan.invocationHostDir;
     let authority: DockerHostAgentAuthority = {};
     if (entry.executorKind === 'agent' && options.resolveAgentAuthority) {
       authorityState.attempted = plan.selector !== undefined;
@@ -263,14 +276,13 @@ export function createDockerHostEnclaveExecutor(options: DockerHostEnclaveExecut
     if (signal.aborted) return { outcome: 'cancelled' };
     const config: Record<string, any> = {
       ...entry.config,
-      hostWorkDir: path.dirname(plan.invocationHostDir),
+      hostWorkDir: path.dirname(storageTarget),
       hostSeedsDir: plan.seedHostPath ? path.dirname(plan.seedHostPath) : '',
       runLabelKey: 'awf.enclave.run', invocationLabelKey: 'awf.enclave.invocation',
       containerPrefix: `awf-enclave-${entry.executorKind}-${entry.entryId}`,
-      querySeccompPath: path.join(plan.invocationHostDir, 'seccomp.json'),
-      enclaveSeccompPath: path.join(plan.invocationHostDir, 'seccomp.json'),
+      querySeccompPath: path.join(storageTarget, 'seccomp.json'),
+      enclaveSeccompPath: path.join(storageTarget, 'seccomp.json'),
     };
-    if (path.basename(plan.invocationHostDir) !== plan.invocationId) return { outcome: 'executor-failure' };
     if (entry.executorKind === 'agent') {
       if (Boolean(config.dynamicEnabled) !== (plan.selector !== undefined)) return { outcome: 'executor-failure' };
       if (config.dynamicEnabled) {
@@ -287,13 +299,13 @@ export function createDockerHostEnclaveExecutor(options: DockerHostEnclaveExecut
     // Retain the audited script entrypoint, mounting the immutable seed directly
     // instead of making an unbounded host-side seed copy.
     if (entry.executorKind === 'script') {
-      const source = `${plan.invocationHostDir}/repo:/awf/seed:ro`;
+      const source = `${storageTarget}/repo:/awf/seed:ro`;
       args[args.indexOf(source)] = `${plan.seedHostPath}:/awf/seed:ro`;
     }
     args.splice(1, 0, '--log-driver', 'none');
     const record: DockerHostRecoveryRecord = {
       version: 1, runId: plan.runId, entryId: plan.entryId, invocationId: plan.invocationId,
-      storageTarget: plan.invocationHostDir,
+      storageTarget,
       storageSource: `awf-enclave-${plan.runId}-${plan.entryId}-${plan.invocationId}`,
       storageBytes: entry.hostWritableBytes, mountPending: true, owner,
     };
@@ -329,26 +341,32 @@ export function createDockerHostEnclaveExecutor(options: DockerHostEnclaveExecut
       delete record.containerId;
       delete record.expected;
       journal.write(record);
-      privateFile(record.storageTarget, 'out', '', entry.uid, entry.gid, 0o600);
-      if (entry.executorKind === 'script') privateFile(record.storageTarget, 'script.py', plan.payload, entry.uid, entry.gid);
+      const stageFile = async (name: string, value: string, mode: 0o400 | 0o444 | 0o600 = 0o444) => {
+        privateFile(record.storageTarget, name, value, mode);
+        if (mode !== 0o444) await ownDockerHostStorageFile(record.mount!, name, entry.uid, entry.gid);
+      };
+      await stageFile('out', '', 0o600);
+      if (entry.executorKind === 'script') await stageFile('script.py', plan.payload);
       else {
         const task = buildAgentTask(plan.payload, {
           githubEnabled: Boolean(config.githubEnabled || config.dynamicEnabled),
           privateRepo: authority.repository,
         });
         if (Buffer.byteLength(task) > 64 * 1024) throw new Error('Docker enclave scoped task exceeds the audited input bound');
-        privateFile(record.storageTarget, 'task.txt', task, entry.uid, entry.gid);
-        privateFile(record.storageTarget, 'schema.json', JSON.stringify(serializeFiniteSchema(plan.schema)), entry.uid, entry.gid);
-        privateFile(record.storageTarget, 'session.jsonl', '', entry.uid, entry.gid, 0o600);
-        fs.mkdirSync(path.join(record.storageTarget, 'agent'), { mode: 0o700 });
-        fs.chownSync(path.join(record.storageTarget, 'agent'), entry.uid, entry.gid);
+        await stageFile('task.txt', task);
+        await stageFile('schema.json', JSON.stringify(serializeFiniteSchema(plan.schema)));
+        await stageFile('session.jsonl', '', 0o600);
+        const agentDirectory = path.join(record.storageTarget, 'agent');
+        fs.mkdirSync(agentDirectory, { mode: 0o700 });
+        fs.chmodSync(agentDirectory, 0o700);
+        await ownDockerHostStorageFile(record.mount!, 'agent', entry.uid, entry.gid);
         if (config.githubEnabled) {
           if (!/^[A-Za-z0-9_-]{32,128}$/.test(authority.githubAgentId || '')) throw new Error('Invalid static GitHub enclave authority');
-          privateFile(record.storageTarget, 'github-agent-id', authority.githubAgentId!, entry.uid, entry.gid, 0o400);
+          await stageFile('github-agent-id', authority.githubAgentId!, 0o400);
         }
         if (config.dynamicEnabled) {
           if (!/^[\x21-\x7e]{16,512}$/.test(authority.githubBearer || '')) throw new Error('Invalid dynamic GitHub enclave authority');
-          privateFile(record.storageTarget, 'github-bearer', authority.githubBearer!, entry.uid, entry.gid, 0o400);
+          await stageFile('github-bearer', authority.githubBearer!, 0o400);
         }
         await new DockerEnclaveRunner(config, {
           docker: { runDocker: (values: string[]) => docker(values) },
@@ -358,6 +376,10 @@ export function createDockerHostEnclaveExecutor(options: DockerHostEnclaveExecut
       const exitCode = await runContainer(record, id, signal, () => { authorityState.launchedAt = Date.now(); });
       // Remove first: only a proven stopped/removed container may yield output.
       await removeDockerHostContainer(docker, record);
+      await ownDockerHostStorageFile(record.mount!, 'out', entry.uid, entry.gid, true);
+      if (entry.executorKind === 'agent') {
+        await ownDockerHostStorageFile(record.mount!, 'session.jsonl', entry.uid, entry.gid, true);
+      }
       if (signal.aborted) result = { outcome: 'cancelled' };
       else if (exitCode === 0) {
         const maximum = Math.min(Number(config.maxOutputBytes || HOST_EXECUTOR_MAX_RESULT_BYTES), HOST_EXECUTOR_MAX_RESULT_BYTES);

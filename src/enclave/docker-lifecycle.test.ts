@@ -11,6 +11,8 @@ import type { HostEnclaveExecutorBackend, HostExecutorInvocationPlan, HostExecut
 import { typedDynamicEnclavePolicyFixture } from './dynamic-policy.test-utils';
 import { deriveDockerEnclaveRunnerConfig } from '../services/enclave-mcp-service';
 import { parseImageTag } from '../image-tag';
+import { assertDockerStorageHelperAvailable, dockerHelperHostStateRoot } from './docker-storage-helper';
+import { PRIVATE_REPOSITORY_SEED_MAP_VERSION } from '../bounded-execution';
 import {
   assertDockerEnclaveLifecycleReady,
   closeDockerEnclaveAdmissions,
@@ -21,6 +23,10 @@ import {
 } from './docker-lifecycle';
 
 jest.mock('./docker-host-executor', () => ({ createDockerHostEnclaveExecutor: jest.fn() }));
+jest.mock('./docker-storage-helper', () => ({
+  ...jest.requireActual('./docker-storage-helper'), assertDockerStorageHelperAvailable: jest.fn(),
+  dockerHelperHostStateRoot: jest.fn(),
+}));
 jest.mock('./host-service', () => ({ startHostExecutorService: jest.fn() }));
 jest.mock('./host-executor-run-state', () => ({ deriveHostExecutorRunState: jest.fn() }));
 jest.mock('./dynamic-delegation', () => ({ getEnclaveHostDynamicAuthority: jest.fn() }));
@@ -34,6 +40,7 @@ jest.mock('./paths', () => {
     resolveEnclavePaths: (workDir: string) => ({
       ...actual.resolveEnclavePaths(workDir, path.dirname(workDir)),
       hostExecutorJournalDir: path.join(workDir, 'journal'),
+      hostExecutorDir: path.join(workDir, 'ipc'),
     }),
   };
 });
@@ -55,6 +62,7 @@ describe('Docker enclave host run lifecycle', () => {
         : originalReadFileSync(file as fs.PathOrFileDescriptor, ...(args as [any]))
     ) as typeof fs.readFileSync);
     directory = fs.mkdtempSync(path.join(process.cwd(), '.docker-lifecycle-test-'));
+    jest.mocked(dockerHelperHostStateRoot).mockReturnValue(path.join(directory, 'helper-state'));
     config = {
       workDir: directory,
       awfDockerHost: 'unix:///run/trusted-docker.sock',
@@ -131,8 +139,66 @@ describe('Docker enclave host run lifecycle', () => {
       ? 'CapEff:\t0000000000000000\n'
       : originalReadFileSync(file as fs.PathOrFileDescriptor, ...(args as [any]))
     ) as typeof fs.readFileSync);
-    expect(() => assertDockerEnclaveHostPrerequisites(config))
-      .toThrow(/effective CAP_SYS_ADMIN.*tmpfs storage/);
+    jest.mocked(assertDockerStorageHelperAvailable).mockImplementationOnce(() => {
+      throw new Error('matching AWF host storage helper unavailable');
+    });
+    expect(() => assertDockerEnclaveHostPrerequisites(config)).toThrow(/storage helper unavailable/);
+  });
+
+  it('accepts unprivileged orchestration only after helper preflight', () => {
+    readFileSpy.mockImplementation(((file: fs.PathOrFileDescriptor, ...args: any[]) => file === '/proc/self/status'
+      ? 'CapEff:\t0000000000000000\n'
+      : originalReadFileSync(file as fs.PathOrFileDescriptor, ...(args as [any]))
+    ) as typeof fs.readFileSync);
+    expect(() => assertDockerEnclaveHostPrerequisites(config)).not.toThrow();
+    expect(assertDockerStorageHelperAvailable).toHaveBeenCalled();
+    config.volumeMounts = ['/var/lib:/data:ro'];
+    expect(() => assertDockerEnclaveHostPrerequisites(config)).toThrow(/agent-visible/);
+  });
+
+  it('uses the helper-bootstrapped caller journal instead of privileged VM defaults', async () => {
+    readFileSpy.mockImplementation(((file: fs.PathOrFileDescriptor, ...args: any[]) => file === '/proc/self/status'
+      ? 'CapEff:\t0000000000000000\n'
+      : originalReadFileSync(file as fs.PathOrFileDescriptor, ...(args as [any]))
+    ) as typeof fs.readFileSync);
+    await startDockerEnclaveLifecycle(config);
+    const journal = path.join(dockerHelperHostStateRoot(), 'host-executor-journal');
+    expect(deriveHostExecutorRunState).toHaveBeenLastCalledWith(config,
+      expect.objectContaining({ hostExecutorJournalDir: journal }), 'Docker enclave', { dynamicAgents: true });
+    expect(createDockerHostEnclaveExecutor).toHaveBeenCalledWith(
+      expect.objectContaining({ journalDir: path.join(journal, 'docker') }));
+    await stopDockerEnclaveLifecycle(config);
+  });
+
+  it('creates durable journals through the ordinary unprivileged host lifecycle', async () => {
+    readFileSpy.mockImplementation(((file: fs.PathOrFileDescriptor, ...args: any[]) => file === '/proc/self/status'
+      ? 'CapEff:\t0000000000000000\n'
+      : originalReadFileSync(file as fs.PathOrFileDescriptor, ...(args as [any]))
+    ) as typeof fs.readFileSync);
+    const paths = resolveEnclavePaths(directory);
+    const seedId = deriveEnclaveSeedId(runId, 'octo/private');
+    fs.mkdirSync(path.join(paths.seedsDir, seedId), { recursive: true, mode: 0o700 });
+    fs.writeFileSync(paths.runIdPath, runId, { mode: 0o600 });
+    fs.writeFileSync(paths.seedMapPath, JSON.stringify({
+      version: PRIVATE_REPOSITORY_SEED_MAP_VERSION, runId,
+      seeds: [{ repo: 'octo/private', sensitivity: 'internal', seedId }],
+    }), { mode: 0o600 });
+    jest.mocked(deriveHostExecutorRunState).mockImplementationOnce(
+      jest.requireActual('./host-executor-run-state').deriveHostExecutorRunState,
+    );
+    jest.mocked(startHostExecutorService).mockImplementationOnce(
+      jest.requireActual('./host-service').startHostExecutorService,
+    );
+    await startDockerEnclaveLifecycle(config);
+    const state = jest.mocked(startHostExecutorService).mock.calls[0][0].runState;
+    expect(state.journalDir).toBe(path.join(dockerHelperHostStateRoot(), 'host-executor-journal'));
+    expect(state.invocationsDir).toBe(path.join(dockerHelperHostStateRoot(), 'host-invocations', runId));
+    const tombstone = path.join(state.journalDir!, `${runId}.journal`);
+    expect(fs.statSync(tombstone).uid).toBe(process.getuid?.());
+    expect(fs.statSync(state.journalDir!).mode & 0o777).toBe(0o700);
+    await stopDockerEnclaveLifecycle(config);
+    fs.rmSync(paths.root, { recursive: true, force: true });
+    expect(fs.existsSync(tombstone)).toBe(true);
   });
 
   it.each(['script', 'agent'] as const)('preserves the trusted Docker %s UID/GID defaults', async (kind) => {

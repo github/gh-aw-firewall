@@ -320,6 +320,97 @@ verify_checksum() {
     info "Checksum verification passed ✓"
 }
 
+# Only the authenticated, version-matched helper is authorized, never mount,
+# chown, a shell, or an arbitrary Python script.
+install_enclave_storage_helper() {
+    [ "$(uname -s)" = Linux ] || return 0
+    local helper="enclave-storage-helper.py"
+    if ! awk -v fname="$helper" '$2 == fname { found=1 } END { exit !found }' "$TEMP_DIR/checksums.txt"; then
+        warn "This authenticated legacy release has no unprivileged Docker enclave support; installing the ordinary CLI only"
+        return 0
+    fi
+    download_file "${BASE_URL}/${helper}" "$TEMP_DIR/$helper"
+    verify_provenance "$TEMP_DIR/$helper"
+    local BINARY_NAME="$helper"
+    verify_checksum "$TEMP_DIR/$helper" "$TEMP_DIR/checksums.txt"
+    local missing=()
+    [ -x /usr/bin/python3 ] || missing+=("/usr/bin/python3")
+    if [ -n "${SUDO_UID:-}" ]; then
+        [ -x /usr/bin/sudo ] || missing+=("/usr/bin/sudo")
+        [ -x /usr/sbin/visudo ] || missing+=("/usr/sbin/visudo")
+    fi
+    if [ ${#missing[@]} -ne 0 ]; then
+        warn "Installing ordinary CLI without unprivileged Docker enclave support; missing helper prerequisites: ${missing[*]}"
+        return 0
+    fi
+    if ! /usr/bin/env -i PATH=/usr/bin:/bin LANG=C /usr/bin/python3 -I "$TEMP_DIR/$helper" check-install-host >/dev/null 2>&1; then
+        warn "Installing ordinary CLI without unprivileged Docker enclave support; this is not a supported privileged storage host"
+        return 0
+    fi
+    /usr/bin/python3 -I - "$TEMP_DIR/$helper" "${VERSION#v}" "${SUDO_UID:-}" <<'PY'
+import os, re, stat, subprocess, sys
+source, version, uid = sys.argv[1:]
+os.umask(0o022)
+payload = open(source, "rb").read()
+if not re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+", version) or (
+        b'VERSION = "' + version.encode() + b'"') not in payload:
+    raise SystemExit("Enclave storage helper version mismatch")
+def directory(name):
+    fd = os.open("/", os.O_RDONLY | os.O_DIRECTORY)
+    for part in name.strip("/").split("/"):
+        try:
+            os.mkdir(part, 0o755, dir_fd=fd)
+        except FileExistsError:
+            pass
+        child = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=fd)
+        info = os.fstat(child)
+        if info.st_uid != 0 or info.st_mode & 0o022:
+            raise SystemExit("Unsafe helper installation directory")
+        os.close(fd)
+        fd = child
+    return fd
+def publish(fd, name, data, mode):
+    staging = name + ".new-" + os.urandom(16).hex()
+    try:
+        child = os.open(staging, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, mode, dir_fd=fd)
+        try:
+            os.fchown(child, 0, 0)
+            os.fchmod(child, mode)
+            if os.write(child, data) != len(data):
+                raise SystemExit("Incomplete helper installation")
+            os.fsync(child)
+        finally:
+            os.close(child)
+        os.replace(staging, name, src_dir_fd=fd, dst_dir_fd=fd)
+        os.fsync(fd)
+    finally:
+        try:
+            os.unlink(staging, dir_fd=fd)
+        except FileNotFoundError:
+            pass
+subprocess.run(["/usr/bin/python3", "-I", source, "install"],
+               env={"PATH": "/usr/bin:/bin", "LANG": "C"}, check=True)
+fd = directory("/var/lib/awf")
+os.fchmod(fd, 0o755)
+publish(fd, "enclave-storage-helper.py", payload, 0o644)
+os.close(fd)
+if uid:
+    if not re.fullmatch(r"[1-9][0-9]{0,9}", uid) or int(uid) > 2147483647:
+        raise SystemExit("Invalid installing user")
+    policy = (f"#{uid} ALL=(root) NOPASSWD: /usr/bin/python3 -I "
+              "/var/lib/awf/enclave-storage-helper.py *\n").encode()
+    fd = directory("/etc/sudoers.d")
+    name = "awf-enclave-storage-" + uid
+    # Validate a root-only staging policy before publishing authorization.
+    publish(fd, name + ".pending", policy, 0o440)
+    subprocess.run(["/usr/sbin/visudo", "-cf", "/etc/sudoers.d/" + name + ".pending"],
+                   env={"PATH": "/usr/bin:/bin", "LANG": "C"}, check=True)
+    os.replace(name + ".pending", name, src_dir_fd=fd, dst_dir_fd=fd)
+    os.fsync(fd)
+    os.close(fd)
+PY
+}
+
 # Main installation function
 main() {
     info "Starting awf installation..."
@@ -373,6 +464,8 @@ main() {
             exit 1
         fi
 
+        install_enclave_storage_helper
+
         # Make executable and install
         chmod +x "$TEMP_DIR/$ASSET_NAME"
         info "Installing bundle to $INSTALL_DIR/$INSTALL_NAME..."
@@ -402,6 +495,8 @@ main() {
             error "Downloaded file is not a valid executable: $file_type"
             exit 1
         fi
+
+        install_enclave_storage_helper
 
         # Install binary
         info "Installing to $INSTALL_DIR/$INSTALL_NAME..."
