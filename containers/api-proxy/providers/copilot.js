@@ -43,6 +43,8 @@ const { bearerAuthHeaders, tokenAuthHeaders, buildAuthHeaderFn, withCopilotInteg
 const { URL } = require('url');
 const { COPILOT_ENV } = require('../provider-env-constants');
 const { attachCopilotAuthDiagnostic } = require('../copilot-auth-diagnostics');
+const { isTokenBrokerEnabled } = require('./token-broker');
+const { createCopilotTokenBrokerAdapter } = require('./copilot-token-broker');
 
 const COPILOT_MODELS_API_VERSION = '2026-07-01';
 const COPILOT_LEGACY_AUTO_API_VERSION = '2025-07-16';
@@ -94,6 +96,7 @@ function omitUnsupportedAutoModel(body, req, rawTarget) {
  * @returns {import('./index').ProviderAdapter}
  */
 function createCopilotAdapter(env, deps = {}) {
+  if (isTokenBrokerEnabled(env)) return createCopilotTokenBrokerAdapter(env, deps);
   const githubToken = stripBearerPrefix(env[COPILOT_ENV.GITHUB_TOKEN]);
   // resolveApiKey filters out the AWF placeholder so it is never used as a real BYOK credential.
   const apiKey = resolveApiKey(env);

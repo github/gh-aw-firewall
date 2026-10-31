@@ -175,7 +175,8 @@ function buildRequestHeaders(body, inboundBytes, req, { injectHeaders, provider,
   const injectedKey = Object.entries(injectHeaders).find(([k]) =>
     ['x-api-key', 'authorization', 'x-goog-api-key'].includes(k.toLowerCase())
   )?.[1];
-  if (injectedKey) {
+  const renewableAuth = injectHeaders[Symbol.for('awf.renewableAuth')] === true;
+  if (injectedKey && !renewableAuth) {
     const keyPreview = injectedKey.length > 8
       ? `${injectedKey.substring(0, 8)}...${injectedKey.substring(injectedKey.length - 4)}`
       : '(short)';
@@ -186,7 +187,7 @@ function buildRequestHeaders(body, inboundBytes, req, { injectHeaders, provider,
     });
   }
 
-  if (provider === 'copilot') recordCopilotInjectedHeaders(req, injectHeaders);
+  if (provider === 'copilot' && !renewableAuth) recordCopilotInjectedHeaders(req, injectHeaders);
   return headers;
 }
 

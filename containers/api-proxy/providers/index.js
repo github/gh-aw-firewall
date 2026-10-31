@@ -84,13 +84,17 @@ const PROVIDER_ADAPTER_FACTORIES = [
  * @property {() => boolean} isEnabled - Whether this provider is configured (has credentials)
  * @property {(req?: import('http').IncomingMessage) => string} getTargetHost - Upstream hostname
  * @property {(req?: import('http').IncomingMessage) => string} getBasePath - Base path prefix
- * @property {(req: import('http').IncomingMessage) => Record<string,string>} getAuthHeaders - Auth headers
+ * @property {(req: import('http').IncomingMessage) => Record<string,string>|Promise<Record<string,string>>} getAuthHeaders - Auth headers (renewable auth is asynchronous)
+ * @property {boolean} [renewableAuth] - Resolve authentication at each upstream attempt; WebSockets are unsupported
+ * @property {() => boolean} [isReady] - Broker-only passive readiness; never performs token acquisition
+ * @property {(success: boolean) => void} [recordAuthReadiness] - Record startup credential validation outcomes
+ * @property {() => void} [shutdown] - Dispose of renewable credentials
  * @property {() => (((request: object) => Record<string,string>)|null)} [getRequestSigner] - Optional final-request signer
  * @property {((url: string) => string) | undefined} transformRequestUrl - Optional URL transform
  * @property {() => ((body: Buffer) => Buffer|null)|null} getBodyTransform - Optional body transform
  *
- * @property {() => ProbeConfig|SkipProbeConfig|null} getValidationProbe - Startup validation probe
- * @property {() => ModelsFetchConfig|null} getModelsFetchConfig - Startup model fetch config
+ * @property {() => ProbeConfig|SkipProbeConfig|null|Promise<ProbeConfig|null>} getValidationProbe - Startup validation probe
+ * @property {() => ModelsFetchConfig|null|Promise<ModelsFetchConfig|null>} getModelsFetchConfig - Startup model fetch config
  * @property {() => ReflectionInfo} getReflectionInfo - Reflection endpoint metadata
  * @property {() => UnconfiguredResponse} [getUnconfiguredResponse] - Response when not configured (alwaysBind adapters)
  * @property {() => UnconfiguredResponse} [getUnconfiguredHealthResponse] - /health response when not configured

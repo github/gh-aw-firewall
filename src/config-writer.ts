@@ -27,6 +27,7 @@ import {
 } from './sensitive-paths';
 import { writeSensitivePathAudit } from './sensitive-path-audit';
 import { resolveApiProxyUpstreams } from './services/api-proxy-env-config';
+import { copilotBrokerSensitiveValues, resolveCopilotBrokerUpstreams } from './copilot-token-broker';
 
 // When bundled with esbuild, this global is replaced at build time with the
 // JSON content of containers/agent/seccomp-profile.json.  In normal (tsc)
@@ -444,7 +445,10 @@ function writeAuditArtifacts(
   // Secret-derived endpoints (e.g. an OpenAI base URL supplied through
   // `apiProxy.targets.openai.baseUrlEnv`) must never appear in audit artifacts,
   // so redact their URL/host/host:port forms from the snapshots below.
-  const sensitiveEndpointForms = deriveSensitiveEndpointForms(config.sensitiveAllowedDomains);
+  const sensitiveEndpointForms = [
+    ...deriveSensitiveEndpointForms(config.sensitiveAllowedDomains),
+    ...copilotBrokerSensitiveValues(config),
+  ];
 
   // Save squid.conf for audit (domain ACLs and proxy config, sensitive hosts redacted)
   writeAuditArtifact(
@@ -482,6 +486,7 @@ function writeAuditArtifacts(
     ...(config.enableApiProxy && networkConfig.proxyIp ? {
       apiProxyIp: networkConfig.proxyIp,
       apiProxyUpstreams: resolveApiProxyUpstreams(config),
+      apiProxyBrokerUpstreams: resolveCopilotBrokerUpstreams(config),
     } : {}),
     // Include topology peer allow rules so the audit log correctly attributes
     // allowed connections to topology-attached containers (e.g. awmg-mcpg:8080)
@@ -604,7 +609,12 @@ export async function writeConfigs(config: WrapperConfig): Promise<void> {
     // all necessary egress without exposing the sensitive hostnames in logs or
     // the audit artifact (where only config.allowedDomains is serialised).
     domains: [...config.allowedDomains, ...(config.sensitiveAllowedDomains ?? [])],
-    sensitiveDomains: config.sensitiveAllowedDomains,
+    sensitiveDomains: [
+      ...(config.sensitiveAllowedDomains ?? []),
+      ...(config.copilotTokenBroker
+        ? (resolveCopilotBrokerUpstreams(config).slice(0, 2).map(endpoint => endpoint.hostname))
+        : []),
+    ],
     blockedDomains: config.blockedDomains,
     port: SQUID_PORT,
     sslBump: config.sslBump,
@@ -622,6 +632,7 @@ export async function writeConfigs(config: WrapperConfig): Promise<void> {
     ...(config.enableApiProxy && networkConfig.proxyIp ? {
       apiProxyIp: networkConfig.proxyIp,
       apiProxyUpstreams: resolveApiProxyUpstreams(config),
+      apiProxyBrokerUpstreams: resolveCopilotBrokerUpstreams(config),
       apiProxyPorts: Object.values(API_PROXY_PORTS),
     } : {}),
     ...(config.difcProxyHost && networkConfig.cliProxyIp ? {

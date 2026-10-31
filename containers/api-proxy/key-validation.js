@@ -14,12 +14,33 @@ const { resolveModel } = require('./model-resolver');
 const cachedModels = {};
 let modelFetchComplete = false;
 
-/** @type {Record<string, { status: 'pending'|'valid'|'auth_rejected'|'network_error'|'inconclusive'|'skipped', message: string }>} */
+/** @type {Record<string, { status: 'pending'|'valid'|'auth_rejected'|'network_error'|'inconclusive'|'skipped', message: string, code?: string }>} */
 const keyValidationResults = {};
 let keyValidationComplete = false;
 
 let getRegisteredAdapters = () => [];
 let getModelAliases = () => null;
+
+const brokerFailures = Object.freeze({
+  ERR_TOKEN_BROKER_CONFIGURATION: ['inconclusive', 'Token broker configuration is invalid. Check the broker configuration.'],
+  ERR_TOKEN_BROKER_OIDC: ['inconclusive', 'Token broker identity acquisition failed. Check Actions OIDC permissions and availability.'],
+  ERR_TOKEN_BROKER_UNAUTHORIZED: ['auth_rejected', 'Token broker authorization failed. Check broker authorization policy and workflow identity.'],
+  ERR_TOKEN_BROKER_UNSUPPORTED: ['inconclusive', 'Token broker capability is unsupported. Check broker compatibility.'],
+  ERR_TOKEN_BROKER_UNAVAILABLE: ['network_error', 'Token broker is unavailable. Check broker connectivity and retry.'],
+  ERR_TOKEN_BROKER_MALFORMED_RESPONSE: ['inconclusive', 'Token broker response is invalid. Check the broker response contract.'],
+});
+
+function validationPreparationFailure(err, adapter) {
+  let code = err?.brokerErrorCode || err?.code;
+  if (adapter.renewableAuth && !(typeof code === 'string' && Object.hasOwn(brokerFailures, code))) {
+    code = 'ERR_TOKEN_BROKER_UNAVAILABLE';
+  }
+  if (typeof code === 'string' && Object.hasOwn(brokerFailures, code)) {
+    const [status, message] = brokerFailures[code];
+    return { status, message, code };
+  }
+  return { status: 'auth_rejected', message: 'Provider authentication unavailable' };
+}
 
 function configureKeyValidation(options = {}) {
   if (typeof options.getRegisteredAdapters === 'function') getRegisteredAdapters = options.getRegisteredAdapters;
@@ -59,10 +80,9 @@ function isKeyValidationComplete() {
 
 async function refreshProviderModelsForResolution(provider) {
   const adapter = getRegisteredAdapters().find(a => a.name === provider);
-  const config = adapter?.getModelsFetchConfig?.();
-  if (!config) return;
-
   try {
+    const config = await adapter?.getModelsFetchConfig?.();
+    if (!config) return;
     const json = await fetchJson(config.url, config.opts, 10_000);
     const extracted = extractModelIds(json);
     const metadata = extractModelMetadata(provider, json, {
@@ -81,15 +101,20 @@ async function refreshProviderModelsForResolution(provider) {
   } catch (err) {
     logRequest('debug', 'model_cache_refresh_failed', {
       provider,
-      error: String(err && err.message ? err.message : err),
+      error: adapter?.renewableAuth ? 'Copilot token broker model refresh unavailable'
+        : String(err && err.message ? err.message : err),
     });
   }
 }
 
-async function probeProvider(provider, url, opts, timeoutMs) {
+async function probeProvider(provider, url, opts, timeoutMs, adapter) {
   keyValidationResults[provider] = { status: 'pending', message: 'Validating...' };
   try {
     const status = await httpProbe(url, opts, timeoutMs);
+    if (adapter?.renewableAuth) {
+      if ((status >= 200 && status < 300) || status === 400) adapter.recordAuthReadiness?.(true);
+      else if (status === 401 || status === 403) adapter.recordAuthReadiness?.(false);
+    }
 
     if (status >= 200 && status < 300) {
       keyValidationResults[provider] = { status: 'valid', message: `HTTP ${status}` };
@@ -105,7 +130,8 @@ async function probeProvider(provider, url, opts, timeoutMs) {
       logRequest('warn', 'key_validation', { provider, status: 'inconclusive', httpStatus: status });
     }
   } catch (err) {
-    const message = err && err.message ? err.message : String(err);
+    const message = adapter?.renewableAuth ? 'Copilot token broker startup validation unavailable'
+      : (err && err.message ? err.message : String(err));
     keyValidationResults[provider] = { status: 'network_error', message };
     logRequest('warn', 'key_validation', { provider, status: 'network_error', error: message });
   }
@@ -123,7 +149,14 @@ async function validateApiKeys(adapters = []) {
   const probes = [];
 
   for (const adapter of adapters) {
-    const probe = adapter.getValidationProbe?.();
+    let probe;
+    try {
+      probe = await adapter.getValidationProbe?.();
+    } catch (err) {
+      keyValidationResults[adapter.name] = validationPreparationFailure(err, adapter);
+      logRequest('warn', 'key_validation', { provider: adapter.name, ...keyValidationResults[adapter.name] });
+      continue;
+    }
     if (!probe) continue;
 
     if (probe.skip) {
@@ -132,29 +165,34 @@ async function validateApiKeys(adapters = []) {
       continue;
     }
 
-    probes.push(probeProvider(adapter.name, probe.url, probe.opts, TIMEOUT_MS));
+    probes.push(probeProvider(adapter.name, probe.url, probe.opts, TIMEOUT_MS, adapter));
   }
 
   if (probes.length === 0) {
     logRequest('info', 'key_validation', { message: 'No providers to validate' });
     keyValidationComplete = true;
+    _summarizeValidationFailures(mode, adapters);
     return;
   }
 
   await Promise.allSettled(probes);
   keyValidationComplete = true;
-  _summarizeValidationFailures(mode);
+  _summarizeValidationFailures(mode, adapters);
 }
 
-function _summarizeValidationFailures(mode) {
+function _summarizeValidationFailures(mode, adapters) {
   const failures = Object.entries(keyValidationResults)
     .filter(([, r]) => r.status === 'auth_rejected');
 
   if (failures.length > 0) {
     for (const [provider, result] of failures) {
+      const broker = adapters.some(adapter => adapter.name === provider && adapter.renewableAuth)
+        || Object.hasOwn(brokerFailures, result.code || '');
       logRequest('error', 'key_validation_failed', {
         provider,
-        message: `${provider.toUpperCase()} API key validation failed — ${result.message}. Rotate the secret and re-run.`,
+        message: broker
+          ? `${provider.toUpperCase()} token broker validation failed — ${result.message}. Check broker authorization policy, workflow identity and Copilot access.`
+          : `${provider.toUpperCase()} API key validation failed — ${result.message}. Rotate the secret and re-run.`,
       });
     }
     if (mode === 'strict') {
@@ -164,7 +202,7 @@ function _summarizeValidationFailures(mode) {
       });
       process.exit(1);
     }
-  } else {
+  } else if (Object.values(keyValidationResults).every(result => ['valid', 'skipped'].includes(result.status))) {
     logRequest('info', 'key_validation', { message: 'All configured API keys validated successfully' });
   }
 }
@@ -174,11 +212,19 @@ async function fetchStartupModels(adapters = []) {
   const fetches = [];
 
   for (const adapter of adapters) {
-    const config = adapter.getModelsFetchConfig?.();
+    let config;
+    try {
+      config = await adapter.getModelsFetchConfig?.();
+    } catch {
+      cachedModels[adapter.name] = null;
+      continue;
+    }
     if (!config) continue;
 
     fetches.push(
       fetchJson(config.url, config.opts, TIMEOUT_MS).then((json) => {
+        // A null model response carries no status, so it cannot revoke accepted auth.
+        if (adapter.renewableAuth && json !== null && json !== undefined) adapter.recordAuthReadiness?.(true);
         const extracted = extractModelIds(json);
         const metadata = extractModelMetadata(adapter.name, json, {
           format: config.modelMetadataFormat,
@@ -190,7 +236,7 @@ async function fetchStartupModels(adapters = []) {
         } else if (cachedModels[config.cacheKey] === undefined) {
           cachedModels[config.cacheKey] = null;
         }
-      })
+      }).catch(() => {})
     );
   }
 

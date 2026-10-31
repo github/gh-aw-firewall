@@ -36,6 +36,7 @@ function generateSslSections(options: {
   blockedDomains?: string[];
   apiProxyIp?: string;
   cliProxyIp?: string;
+  brokerTlsSection?: string;
 }): {
   portConfig: string;
   sslBumpSection: string;
@@ -58,6 +59,7 @@ function generateSslSections(options: {
       hasPatternsForSslBump,
       urlPatterns,
       Boolean(cliProxyIp),
+      options.brokerTlsSection,
     );
     if (urlPatterns && urlPatterns.length > 0) {
       const urlAccessLines = urlPatterns
@@ -274,6 +276,7 @@ function generateConfigSections(options: {
   topologyPeers?: string[];
   otlpEndpoints?: SquidConfig['otlpEndpoints'];
   cliProxyIp?: string;
+  brokerTlsSection?: string;
 }): {
   dlpAclSection: string;
   dlpAccessSection: string;
@@ -319,6 +322,7 @@ function generateConfigSections(options: {
     blockedDomains,
     apiProxyIp,
     cliProxyIp,
+    brokerTlsSection: options.brokerTlsSection,
   });
   const portAclsAndRules = generatePortAclsAndRules(enableHostAccess, allowHostPorts, apiProxyPorts, otlpEndpoints);
   const apiProxySection = generateApiProxySection(apiProxyIp);

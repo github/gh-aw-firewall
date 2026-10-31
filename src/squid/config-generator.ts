@@ -1,11 +1,12 @@
 import type { SquidConfig } from '../types';
+import { isIP } from 'net';
 import { assertSafeForSquidConfig, parseDomainConfig } from './domain-acl';
 import { generateUpstreamProxySection } from './upstream-proxy';
 import { generateAclSections } from './acl-generator';
 import { generateAccessRules } from './access-rules';
 import { buildConfigSections } from './config-sections';
 import { validateApiProxyIp, validateCliProxyIp } from './validation';
-import { generateApiProxyUpstreamSection } from './api-proxy-upstreams';
+import { generateApiProxyUpstreamSection, generateApiProxyBrokerSpliceSection, generateApiProxyBrokerLogSection } from './api-proxy-upstreams';
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const { version: AWF_VERSION } = require('../../package.json') as { version: string };
@@ -39,7 +40,10 @@ export function generateSquidConfig(config: SquidConfig): string {
   validateCliProxyIp(cliProxyIp);
 
   const { domainsByProto, patternsByProto } = parseDomainConfig(domains);
-  const { domainsByProto: sensitiveDomainsByProto } = parseDomainConfig(sensitiveDomains ?? []);
+  const { domainsByProto: sensitiveDomainsByProto } = parseDomainConfig(
+    (sensitiveDomains ?? []).filter(domain => !isIP(domain.replace(/^\[|\]$/g, ''))),
+  );
+  const brokerLogSection = generateApiProxyBrokerLogSection(config);
   const { aclLines, blockedDomainConfig } = generateAclSections(domainsByProto, patternsByProto, blockedDomains);
   const { accessRulesSection, denyRule } = generateAccessRules(
     domainsByProto,
@@ -99,6 +103,7 @@ export function generateSquidConfig(config: SquidConfig): string {
     topologyPeers,
     otlpEndpoints,
     cliProxyIp,
+    brokerTlsSection: generateApiProxyBrokerSpliceSection(config),
   });
   const otlpAccessRules = (otlpEndpoints ?? []).map((endpoint, index) =>
     `http_access allow ${endpoint.protocol === 'http' ? '!CONNECT ' : 'CONNECT '}otlp_endpoint_${index}_host otlp_endpoint_${index}_port`
@@ -143,8 +148,9 @@ umask 022
 # Don't log healthcheck probes from localhost (using ACL filter on access_log)
 acl healthcheck_localhost src 127.0.0.1 ::1
 ${sensitiveLogAclSection}
-access_log /var/log/squid/access.log firewall_detailed !healthcheck_localhost ${sensitiveLogAcl.length > 0 ? '!sensitive_log_domains' : ''}
-access_log /var/log/squid/audit.jsonl audit_jsonl !healthcheck_localhost ${sensitiveLogAcl.length > 0 ? '!sensitive_log_domains' : ''}
+${brokerLogSection.acls}
+access_log /var/log/squid/access.log firewall_detailed !healthcheck_localhost ${sensitiveLogAcl.length > 0 ? '!sensitive_log_domains' : ''} ${brokerLogSection.exclusions}
+access_log /var/log/squid/audit.jsonl audit_jsonl !healthcheck_localhost ${sensitiveLogAcl.length > 0 ? '!sensitive_log_domains' : ''} ${brokerLogSection.exclusions}
 cache_log /var/log/squid/cache.log
 cache deny all
 

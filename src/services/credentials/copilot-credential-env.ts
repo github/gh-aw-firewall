@@ -46,7 +46,7 @@ export function buildCopilotCredentialEnv(params: CopilotCredentialEnvParams): R
   // Reference: https://github.blog/changelog/2026-04-07-copilot-cli-now-supports-byok-and-local-models/
   const hasCopilotProviderApiKey = !!config.copilotProviderApiKey || !!getConfigEnvValue(config, 'COPILOT_PROVIDER_API_KEY');
   const hasCopilotProviderBaseUrl = !!config.copilotProviderBaseUrl || !!getConfigEnvValue(config, 'COPILOT_PROVIDER_BASE_URL');
-  const enabled = !!(config.copilotGithubToken || hasCopilotProviderApiKey || hasCopilotProviderBaseUrl);
+  const enabled = !!(config.copilotTokenBroker || config.copilotGithubToken || hasCopilotProviderApiKey || hasCopilotProviderBaseUrl);
 
   const env = buildProviderCredentialIsolationEnv({
     providerName: 'GitHub Copilot',
@@ -95,7 +95,7 @@ export function buildCopilotCredentialEnv(params: CopilotCredentialEnvParams): R
   // Only mask COPILOT_PROVIDER_API_KEY when the user actually supplied one. If
   // there is nothing to mask, omit it rather than injecting a placeholder that
   // would misleadingly tell Copilot CLI "a key is configured".
-  if (hasCopilotProviderApiKey) {
+  if (hasCopilotProviderApiKey || config.copilotTokenBroker) {
     env.COPILOT_PROVIDER_API_KEY = COPILOT_PLACEHOLDER_TOKEN;
     logger.debug('COPILOT_PROVIDER_API_KEY set to placeholder value for credential isolation');
   }

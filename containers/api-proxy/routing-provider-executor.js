@@ -138,13 +138,21 @@ function createRoutingProviderExecutor({
         signal?.addEventListener('abort', onAbort, { once: true });
         res.once('error', error => settle(reject, error));
         res.once('finish', () => settle(resolve, normalizeResult(res.result())));
-        try {
-          if (checkRateLimit(req, res, provider, body.length)) return;
+        const dispatch = (headers) => {
+          if (settled) return;
           proxyRequest(
-            req, res, adapter.getTargetHost(req), adapter.getAuthHeaders(req), provider,
+            req, res, adapter.getTargetHost(req), headers, provider,
             adapter.getBasePath(req), null, adapter.getRequestSigner ? adapter.getRequestSigner() : null,
             adapter.getTargetScheme ? adapter.getTargetScheme(req) : 'https',
           );
+        };
+        try {
+          if (checkRateLimit(req, res, provider, body.length)) return;
+          if (adapter.renewableAuth) {
+            adapter.getAuthHeaders(req).then(dispatch).catch(error => settle(reject, error));
+          } else {
+            dispatch(adapter.getAuthHeaders(req));
+          }
         } catch (error) {
           settle(reject, error);
         }

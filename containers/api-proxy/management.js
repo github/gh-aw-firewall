@@ -143,12 +143,15 @@ function createManagementHandlers(deps) {
    */
   function healthResponse() {
     const providers = {};
+    let brokerUnavailable = false;
     for (const adapter of getAdapters()) {
-      providers[adapter.name] = adapter.isEnabled();
+      const ready = adapter.renewableAuth ? adapter.isReady?.() === true : adapter.isEnabled();
+      providers[adapter.name] = ready;
+      if (adapter.renewableAuth && !ready) brokerUnavailable = true;
     }
     const { complete: kvComplete, results: kvResults } = getKeyValidationState();
     return {
-      status: 'healthy',
+      status: brokerUnavailable ? 'unavailable' : 'healthy',
       service: 'awf-api-proxy',
       ...(modelBudgetEnabled ? { model_budget_enforcement: true } : {}),
       squid_proxy: httpsProxy || 'not configured',
@@ -237,8 +240,9 @@ function createManagementHandlers(deps) {
    */
   function handleManagementEndpoint(req, res) {
     if (req.method === 'GET' && req.url === '/health') {
-      res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify(healthResponse()));
+      const health = healthResponse();
+      res.writeHead(health.status === 'healthy' ? 200 : 503, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(health));
       return true;
     }
     if (req.method === 'GET' && req.url === '/metrics') {

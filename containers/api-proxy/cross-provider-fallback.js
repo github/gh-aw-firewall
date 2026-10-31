@@ -210,7 +210,7 @@ async function buildCrossProviderRequest({
 
   const filteredReq = { headers: filterHeadersForTarget(req.headers, endpoint.endsWith('/messages')) };
   const headers = buildRequestHeaders(body, -1, filteredReq, {
-    injectHeaders: adapter.getAuthHeaders(req) || {},
+    injectHeaders: await adapter.getAuthHeaders(req) || {},
     provider: targetProvider,
     targetHost,
     requestId,

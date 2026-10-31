@@ -116,6 +116,10 @@
       "description": "API proxy sidecar configuration. The sidecar injects real API credentials so the agent never has direct access to them.",
       "additionalProperties": false,
       "properties": {
+        "copilotTokenBroker": {
+          "type": "boolean",
+          "description": "Explicitly use host GitHub Actions OIDC and the runtime token broker for Copilot credentials."
+        },
         "enabled": {
           "type": "boolean",
           "deprecated": true,

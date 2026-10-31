@@ -12,6 +12,7 @@ import { buildToolEnvironment } from './tool-specific-environment';
 import { enforceGithubTokenIsolation, getGithubTokenEnvValues } from './github-token-isolation';
 import { isRouterOtelHostEnvVar } from '../router-otel-env';
 import { AgentEnvironmentParams } from './types';
+import { COPILOT_BROKER_PRIVATE_ENV, COPILOT_BROKER_CONTEXT_ENV } from '../../copilot-token-broker';
 
 export function buildAgentEnvironment(params: AgentEnvironmentParams): Record<string, string> {
   const excludedEnvVars = buildExclusionSet(params.config);
@@ -31,6 +32,10 @@ export function buildAgentEnvironment(params: AgentEnvironmentParams): Record<st
   warnLargeEnvironmentIfNeeded(params.config.envAll, environment);
   buildApiProxyEnvironment({ ...params, environment });
   buildSslEnvironment(environment, params.sslConfig);
+  for (const name of COPILOT_BROKER_PRIVATE_ENV) delete environment[name];
+  if (params.config.copilotTokenBroker) {
+    for (const name of COPILOT_BROKER_CONTEXT_ENV) delete environment[name];
+  }
   if (params.config.enclaves?.enabled) {
     enforceGithubTokenIsolation(
       environment,

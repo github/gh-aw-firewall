@@ -33,6 +33,7 @@ export interface AwfFileConfig {
     allowWrite?: string[];
   };
   apiProxy?: {
+    copilotTokenBroker?: boolean;
     modelCatalogue?: ModelCatalogueOptions;
     enabled?: boolean;
     caCert?: string;
