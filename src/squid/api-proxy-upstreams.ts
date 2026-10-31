@@ -79,12 +79,12 @@ export function generateApiProxyBrokerLogSection(config: SquidConfig): { acls: s
   const lines: string[] = [];
   const exclusions: string[] = [];
   for (const [index, endpoint] of (config.apiProxyBrokerUpstreams ?? []).entries()) {
-    if (!isIP(endpoint.hostname.replace(/^\[|\]$/g, ''))) continue;
     validateApiProxyPort(endpoint.port);
+    const hostname = endpoint.hostname.replace(/\.$/, '');
     const name = `api_broker_log_${index}`;
     lines.push(
       `acl ${name}_source src ${config.apiProxyIp}/32`,
-      destinationAcl(`${name}_destination`, endpoint.hostname, true),
+      destinationAcl(`${name}_destination`, hostname, true),
       `acl ${name}_port port ${endpoint.port}`,
       `acl ${name}_private all-of ${name}_source ${name}_destination ${name}_port`,
     );
