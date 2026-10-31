@@ -109,6 +109,13 @@ export ANTHROPIC_BASE_URL="${AWF_API_PROXY_COPILOT_URL:?AWF Copilot proxy URL is
 curl --fail --silent --show-error "${ANTHROPIC_BASE_URL}/health"
 ```
 
+The inherited host/runner `ANTHROPIC_BASE_URL` must not be forwarded into the
+AWF agent environment: AWF checks it before the launcher runs, so a stale
+host-gateway URL can fail startup when only Copilot credentials are available.
+The compiler must omit it from explicit `--env` and `--env-file` inputs. If
+using `--env-all`, exclude it with `--exclude-env ANTHROPIC_BASE_URL`. Set the
+Copilot URL only in the in-sandbox launcher above.
+
 The workflow compiler must consume this contract; enabling host access alone
 must never select `http://host.docker.internal:10002` as the inference gateway.
 
