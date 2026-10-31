@@ -62,7 +62,8 @@ beforeEach(() => {
   proxy = require('./proxy-request');
 });
 
-afterEach(() => {
+afterEach(async () => {
+  await require('./otel').shutdown();
   jest.dontMock('./model-information.naming.generated.json');
   jest.restoreAllMocks();
   for (const [key, value] of Object.entries(savedEnv)) {
