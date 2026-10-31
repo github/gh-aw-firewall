@@ -73,6 +73,52 @@ The `--enable-api-proxy` CLI flag is deprecated and ignored — it is kept only 
 4. Squid recognizes the trusted sidecar source IP and bypasses domain ACL evaluation
 5. Request reaches `api.openai.com` or `api.anthropic.com`
 
+### In-network endpoint contract for launchers
+
+AWF sets these variables in the agent environment whenever the API proxy is
+configured, independently of which provider credentials are present:
+
+| Variable | Default Docker-agent URL |
+|---|---|
+| `AWF_API_PROXY_OPENAI_URL` | `http://172.30.0.30:10000` |
+| `AWF_API_PROXY_ANTHROPIC_URL` | `http://172.30.0.30:10001` |
+| `AWF_API_PROXY_COPILOT_URL` | `http://172.30.0.30:10002` |
+| `AWF_API_PROXY_GEMINI_URL` | `http://172.30.0.30:10003` |
+| `AWF_API_PROXY_VERTEX_URL` | `http://172.30.0.30:10004` |
+
+These are local listener origins, not upstream API targets; they contain no
+credentials and do not indicate that a provider is authenticated. The URLs use
+the runtime-selected proxy address (also available as `AWF_API_PROXY_IP`), so
+launchers must read them inside the sandbox rather than hardcode the default
+subnet. Append any provider-required API path separately.
+
+For Compose-managed agents, host-service access is independent of inference
+routing. `--enable-host-access` and `--allow-host-service-ports 5432` may make
+PostgreSQL reachable through `host.docker.internal`, but do not move or publish
+the API proxy on the host. In particular, port `10002` is not published on the
+host in this topology. MicroVM backends select their own reachable proxy address
+and may publish infrastructure ports; launchers should still use these variables.
+
+For Claude using Copilot inference, the compiler-generated launcher must select
+the Copilot listener, regardless of host access, before running its preflight
+health check or starting Claude:
+
+```bash
+# Run inside the AWF agent sandbox, not in a host-runner setup step.
+export ANTHROPIC_BASE_URL="${AWF_API_PROXY_COPILOT_URL:?AWF Copilot proxy URL is required}"
+curl --fail --silent --show-error "${ANTHROPIC_BASE_URL}/health"
+```
+
+The inherited host/runner `ANTHROPIC_BASE_URL` must not be forwarded into the
+AWF agent environment: AWF checks it before the launcher runs, so a stale
+host-gateway URL can fail startup when only Copilot credentials are available.
+The compiler must omit it from explicit `--env` and `--env-file` inputs. If
+using `--env-all`, exclude it with `--exclude-env ANTHROPIC_BASE_URL`. Set the
+Copilot URL only in the in-sandbox launcher above.
+
+The workflow compiler must consume this contract; enabling host access alone
+must never select `http://host.docker.internal:10002` as the inference gateway.
+
 ## Usage
 
 ### Restrict BYOK models

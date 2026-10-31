@@ -117,6 +117,22 @@ describe('API proxy split builders', () => {
     expect(env.ANTHROPIC_API_TARGET).toBe('gateway.example.com');
   });
 
+  it('exposes in-network proxy URLs without requiring provider credentials', () => {
+    const env = buildAgentCredentialEnv({
+      config: { ...baseConfig, workDir: '/tmp/awf-test', enableApiProxy: true },
+      networkConfig: { ...networkConfig, proxyIp: '172.42.0.30' },
+    });
+
+    expect(env).toMatchObject({
+      AWF_API_PROXY_IP: '172.42.0.30',
+      AWF_API_PROXY_OPENAI_URL: 'http://172.42.0.30:10000',
+      AWF_API_PROXY_ANTHROPIC_URL: 'http://172.42.0.30:10001',
+      AWF_API_PROXY_COPILOT_URL: 'http://172.42.0.30:10002',
+      AWF_API_PROXY_GEMINI_URL: 'http://172.42.0.30:10003',
+      AWF_API_PROXY_VERTEX_URL: 'http://172.42.0.30:10004',
+    });
+  });
+
   it('buildAgentCredentialEnv builds isolated agent credentials', () => {
     const agentEnvAdditions = buildAgentCredentialEnv({
       config: {
