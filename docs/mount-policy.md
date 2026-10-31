@@ -39,6 +39,15 @@ for an example and fail-closed input verification guidance.
 | `home.forbiddenSubdirs` | deny guard | compose + sbx | invariant tests |
 | `credentials.entries` | deny (files/dirs) | compose + sbx + microVM workspace tests | `credential-hiding.ts`, `sbx-manager.ts`, `microvm/workspace.ts` |
 
+In compose, `~/.gemini` is mounted only when a Gemini or Google API key is
+configured; the other `toolSubdirs` are always bound, and `~/.copilot` is bound
+from the host only when it exists and is readable and writable. Independently,
+compose always binds the supplied session-state and agent-log paths beneath
+`~/.copilot/session-state` and `~/.copilot/logs`, even when the host directory
+is absent or inaccessible
+([`home-strategy.ts`](../src/services/agent-volumes/home-strategy.ts),
+[`workspace-mounts.ts`](../src/services/agent-volumes/workspace-mounts.ts)).
+
 The `system.*` section is compose-only: sbx gets its system libraries from a
 guest image, not from host mounts. Cloud Hypervisor also boots from a guest
 image and is not driven by this config at all.
