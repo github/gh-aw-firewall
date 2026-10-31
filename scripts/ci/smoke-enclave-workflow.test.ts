@@ -1223,7 +1223,7 @@ ${command.replace('/usr/local/bin/awf', JSON.stringify(awf))} --config /tmp/awf-
         expect(args.split('\0')[0].slice('--preserve-env='.length).split(',')).toContain(name);
       }
       for (const credential of [env.COPILOT_GITHUB_TOKEN, env.MCP_GATEWAY_API_KEY,
-        env.AWF_ENCLAVE_MCP_CAPABILITY]) {
+        env.AWF_ENCLAVE_MCP_CAPABILITY, env.AWF_ENCLAVE_GITHUB_MCP_AGENT_ID]) {
         expect(args).not.toContain(credential);
       }
       const insecureScript = script.replace(
