@@ -24,4 +24,5 @@ export function expectPublicEnclaveAdapterConformance(
   }
   if (envelope.primaryFailure) expect(envelope.primaryFailure).not.toHaveProperty('message');
   if (envelope.cleanupFailure) expect(envelope.cleanupFailure).not.toHaveProperty('message');
+  if (envelope.failure === 'workload-exit') expect(envelope.stage).toBe('execution');
 }

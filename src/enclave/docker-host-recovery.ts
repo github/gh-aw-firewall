@@ -297,8 +297,10 @@ export async function removeDockerHostContainer(docker: DockerHostCommand, recor
   }
   assertDockerHostContainer(inspected, record.expected, record.containerId);
   if (!inspected.State?.Running) stopped?.({
-    running: false, exitCode: Number.isInteger(inspected.State?.ExitCode) ? inspected.State.ExitCode : null,
-    oomKilled: typeof inspected.State?.OOMKilled === 'boolean' ? inspected.State.OOMKilled : null,
+    running: false, exitCode: inspected.State?.Status === 'exited' && Number.isInteger(inspected.State?.ExitCode)
+      ? inspected.State.ExitCode : null,
+    oomKilled: inspected.State?.Status === 'exited' && typeof inspected.State?.OOMKilled === 'boolean'
+      ? inspected.State.OOMKilled : null,
   });
   if (inspected.State?.Running) {
     const killed = await docker(['kill', inspected.Id]);

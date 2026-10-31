@@ -754,7 +754,7 @@ ${fails ? 'sys.exit(7)' : ''}
     const diagnostics = JSON.parse(fs.readFileSync(path.join(debugDirectory, 'diagnostics.json'), 'utf8'));
     expect(diagnostics).toMatchObject({
       version: 1, runtime: 'docker', runId, invocationId: invocation.invocationId, entryId: kind,
-      executorKind: kind, stage: fails ? 'result' : 'complete', failure: fails ? 'workload-exit' : 'none',
+      executorKind: kind, stage: fails ? 'execution' : 'complete', failure: fails ? 'workload-exit' : 'none',
       workloadStopped: true, workloadLaunched: true, stopProof: 'verified',
       streams: { stdout: 'captured', stderr: 'captured', session: kind === 'agent' ? 'captured' : 'not-applicable' },
     });
@@ -801,6 +801,24 @@ ${fails ? 'sys.exit(7)' : ''}
     expect(commandTrace.join('\n')).not.toContain(marker);
   }, 90_000);
 
+  test.each([1, 2])('public diagnostics: capture startup preserves script execution with pidsLimit=%s', async pidsLimit => {
+    const invocation = plan('script', `
+from pathlib import Path
+Path("/awf/out").write_text('{"passed":true}')
+`);
+    const debugDirectory = path.join(resolveDockerPublicEnclaveDebugPaths().root, runId, invocation.invocationId);
+    debugDirectories.add(debugDirectory);
+    const executor = backend(['script'], true, value => ({
+      ...value, config: { ...value.config, pidsLimit },
+    }));
+    await expect(executor.execute(invocation, new AbortController().signal))
+      .resolves.toEqual({ outcome: 'success', result: '{"passed":true}' });
+    const diagnostics = JSON.parse(fs.readFileSync(path.join(debugDirectory, 'diagnostics.json'), 'utf8'));
+    expect(diagnostics.streams).toMatchObject({ stdout: 'unavailable', stderr: 'unavailable' });
+    expect(diagnostics.streamCoverage.captureErrors).toMatchObject({ stdout: 'io-error', stderr: 'io-error' });
+    await assertGone(invocation);
+  });
+
   test('public diagnostics: oversized stream and large public files preserve existing budgets and canonical results', async () => {
     const largeSeed = path.join(directory, 'large-public-fixture');
     fs.mkdirSync(largeSeed, { mode: 0o755 });
@@ -844,9 +862,9 @@ Path("/awf/out").write_text('{"passed":true}')
     expect(diagnostics.backendEvidence.dockerInspect.status).toBe('unavailable');
     expect(diagnostics.backendEvidence.vmCounters.status).toBe('not-applicable');
     expect(diagnostics.backendEvidence.network.status).toBe('unavailable');
-    expect(diagnostics.primaryFailure).toMatchObject({ stage: 'storage-probe', category: 'host-exception' });
+    expect(diagnostics.primaryFailure).toMatchObject({ stage: 'network-isolation', category: 'host-exception' });
     expect(diagnostics.stages).toContainEqual(expect.objectContaining({
-      stage: 'storage-probe', status: 'failed', category: 'host-exception',
+      stage: 'network-isolation', status: 'failed', category: 'host-exception',
     }));
     expect(diagnostics).not.toHaveProperty('cleanupFailure');
     const retained = PUBLIC_ENCLAVE_ARTIFACT_NAMES

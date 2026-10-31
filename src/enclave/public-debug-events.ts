@@ -1,5 +1,5 @@
 export const PUBLIC_ENCLAVE_OPERATION_STAGES = [
-  'storage-preparation', 'storage-probe', 'authority-handoff', 'workload-create',
+  'storage-preparation', 'storage-probe', 'network-isolation', 'authority-handoff', 'workload-create',
   'workload-start', 'entrypoint-initialization', 'workload-exit', 'output-validation', 'cleanup',
 ] as const;
 export const PUBLIC_ENCLAVE_ERROR_CATEGORIES = [

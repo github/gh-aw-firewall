@@ -91,7 +91,7 @@ class FakeDocker {
           const [Source, Destination, mode] = bind.split(':');
           return { Source, Destination, RW: mode === 'rw', Type: 'bind' };
         }),
-        State: { Running: false, ExitCode: 0 },
+        State: { Running: false, ExitCode: 0, Status: 'created' },
         NetworkSettings: { Networks: { [expected.network]: {} } },
       };
       this.containers.set(id, inspected);
@@ -103,11 +103,13 @@ class FakeDocker {
     }
     if (args[0] === 'start') {
       const current = this.containers.get(args[1]);
+      current.State.Status = 'exited';
       if (current.Name.endsWith('-probe')) current.State.ExitCode = this.failProbe ? 1 : 0;
       else {
         const output = current.Mounts.find((m: any) => m.Destination === '/awf/out');
         fs.writeFileSync(output.Source, this.outputValue);
         current.State.Running = this.holdWorkload;
+        if (this.holdWorkload) current.State.Status = 'running';
         current.State.ExitCode = this.workloadExitCode;
         this.onWorkloadStart?.();
       }
@@ -115,6 +117,7 @@ class FakeDocker {
     }
     if (args[0] === 'kill') {
       this.containers.get(args[1]).State.Running = false;
+      this.containers.get(args[1]).State.Status = 'exited';
       return ok();
     }
     if (args[0] === 'rm') {
@@ -305,6 +308,103 @@ describeLinux('host-owned Docker enclave executor', () => {
     expect(journal.records()).toHaveLength(1);
   });
 
+  test('pending stale public diagnostics do not block an unrelated run or lose their source', async () => {
+    jest.mocked(preservePublicEnclaveArtifacts).mockRejectedValue(new Error('retention failed'));
+    await backend([script], { publicDebug: true }).execute(plan, new AbortController().signal);
+    const journal = new DockerHostRecoveryJournal(path.join(root, 'journal'), runId);
+    const record = journal.records()[0];
+    record.owner.bootId = '00000000-0000-0000-0000-000000000000';
+    journal.write(record);
+    const nextRun = 'd'.repeat(32);
+    const nextInvocation = 'e'.repeat(32);
+    const executor = backend([script], { runId: nextRun });
+    await expect(executor.execute({
+      ...plan, runId: nextRun, invocationId: nextInvocation,
+      invocationHostDir: path.join(root, 'invocations', 'script', nextInvocation),
+    }, new AbortController().signal)).resolves.toEqual({ outcome: 'success', result: 'true' });
+    await executor.close!();
+    expect(fs.existsSync(record.storageTarget)).toBe(true);
+    expect(journal.records()).toEqual([record]);
+  });
+
+  test('redaction secrets exclude numeric token budgets and bearer paths', async () => {
+    agent.config = { ...agent.config, maxModelTokens: 128, syntheticToken: 'fixture-credential' };
+    await backend([agent], { publicDebug: true }).execute({
+      ...plan, entryId: 'agent', executorKind: 'agent',
+    }, new AbortController().signal);
+    const { secrets } = jest.mocked(preservePublicEnclaveArtifacts).mock.calls[0][0];
+    expect(secrets).toContain('fixture-credential');
+    expect(secrets).not.toContain('128');
+    expect(secrets).not.toContain(agent.config.enclaveGithubBearerPath);
+  });
+
+  test('reconciles stale pending-create identity before removal across repeated unrelated startups', async () => {
+    docker.onWorkloadStart = () => { docker.failRemoval = true; };
+    await backend([script], { publicDebug: true }).execute(plan, new AbortController().signal);
+    const journal = new DockerHostRecoveryJournal(path.join(root, 'journal'), runId);
+    const record = journal.records()[0];
+    record.owner.bootId = '00000000-0000-0000-0000-000000000000';
+    record.createPending = true;
+    delete record.containerId;
+    journal.write(record);
+    docker.failRemoval = false;
+    for (const nextRun of ['d'.repeat(32), 'e'.repeat(32)]) {
+      const executor = backend([script], { runId: nextRun });
+      await executor.prepare!();
+      await executor.close!();
+      expect(fs.existsSync(record.storageTarget)).toBe(true);
+      expect(journal.records()[0]).toMatchObject({
+        createPending: false, containerId: expect.stringMatching(/^[a-f0-9]{64}$/),
+        publicDebug: { pending: true },
+      });
+    }
+    expect(docker.containers.size).toBe(0);
+  });
+
+  test('already-retained stale diagnostics allow unrelated storage cleanup without re-export', async () => {
+    jest.mocked(preservePublicEnclaveArtifacts).mockRejectedValueOnce(new Error('retention failed'));
+    await backend([script], { publicDebug: true }).execute(plan, new AbortController().signal);
+    const journal = new DockerHostRecoveryJournal(path.join(root, 'journal'), runId);
+    const record = journal.records()[0];
+    expect(record.publicDebug?.retained).toBe(true);
+    record.owner.bootId = '00000000-0000-0000-0000-000000000000';
+    journal.write(record);
+    jest.mocked(preservePublicEnclaveArtifacts).mockClear();
+    const executor = backend([script], { runId: 'd'.repeat(32) });
+    await executor.prepare!();
+    await executor.close!();
+    expect(preservePublicEnclaveArtifacts).not.toHaveBeenCalled();
+    expect(journal.records()).toEqual([]);
+    expect(fs.existsSync(record.storageTarget)).toBe(false);
+  });
+
+  test('records observed nonzero exit before a cleanup failure', async () => {
+    docker.workloadExitCode = 23;
+    docker.onWorkloadStart = () => { docker.failRemoval = true; };
+    await expect(backend([script], { publicDebug: true }).execute(plan, new AbortController().signal))
+      .resolves.toMatchObject({ cleanupComplete: false });
+    const record = new DockerHostRecoveryJournal(path.join(root, 'journal'), runId).records()[0];
+    expect(record.publicDebug).toMatchObject({
+      stage: 'execution', failure: 'workload-exit', exitCode: 23,
+      primaryFailure: { stage: 'workload-exit', category: 'workload-exit' },
+      cleanupFailure: { stage: 'cleanup' },
+    });
+  });
+
+  test('never records a created-but-unstarted container default exit as workload evidence', async () => {
+    const command = docker.command;
+    docker.command = async (args, signal) => {
+      if (args[0] === 'start' && !docker.containers.get(args[1])!.Name.endsWith('-probe')) {
+        throw new Error('start failed');
+      }
+      return command(args, signal);
+    };
+    await backend([script], { publicDebug: true }).execute(plan, new AbortController().signal);
+    const { envelope } = jest.mocked(preservePublicEnclaveArtifacts).mock.calls[0][0];
+    expect(envelope.exitCode).toBeNull();
+    expect(envelope.dockerState?.exitCode).toBeNull();
+  });
+
   test('never reads public artifacts before proved container removal and rejects runtime scope', async () => {
     docker.onWorkloadStart = () => { docker.failRemoval = true; };
     await expect(backend([script], { publicDebug: true }).execute(plan, new AbortController().signal))
@@ -326,6 +426,9 @@ describeLinux('host-owned Docker enclave executor', () => {
       primaryFailure: { stage: 'authority-handoff', category: 'permission-denied', errno: 13 },
     });
     expect(JSON.stringify(input.envelope)).not.toContain('PRIVATE_AUTHORITY');
+    expect(input.envelope.stages?.filter(event => event.status === 'failed')).toEqual([
+      { stage: 'authority-handoff', status: 'failed', category: 'permission-denied', errno: 13 },
+    ]);
   });
 
   test('retains definitive missing-image setup failure only after proved absence, not unresolved creates', async () => {

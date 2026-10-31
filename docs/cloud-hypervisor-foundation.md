@@ -238,7 +238,7 @@ explicitly; they are not published as successful captures. Docker inspect,
 network and VM evidence availability is explicit, and unavailable counters must
 not be invented or used to diagnose a root cause.
 The bounded `stages` array contains at most 64 fixed operation events covering
-storage preparation/probing, authority handoff, workload creation/start,
+storage preparation/probing, network isolation, authority handoff, workload creation/start,
 entrypoint initialization, workload exit, output validation and cleanup.
 Events distinguish started, succeeded, failed and unavailable/not-applicable
 observations, with allowlisted error categories and numeric errno only—never
@@ -249,6 +249,11 @@ distinguishes setup failure from `stopProof: "verified"` after workload stop.
 Available Docker evidence is a closed stopped/exit/OOM summary; Cloud Hypervisor
 counters can be explicitly supplemental rather than pretending identical backend
 instrumentation exists.
+Nonzero workload exits use the common `stage: "execution"` classification;
+network membership checks use `network-isolation`, not `storage-probe`.
+Pending public diagnostic recovery preserves its source and reports the affected
+run separately without blocking unrelated runs. Reusing the affected Docker run
+still requires trusted recovery with the original credential custody.
 For agents, read the envelope's `streamCoverage` metadata alongside stream
 availability: `enclave-session.log` contains captured Copilot stdout/stderr and
 failure diagnostics. An absent standalone stream does not mean that session
