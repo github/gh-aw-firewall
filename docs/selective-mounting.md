@@ -99,8 +99,10 @@ remain invisible. A custom bind or symlink alias can defeat an otherwise
 narrow mount policy and must be reviewed separately.
 
 **Additional security:**
-- Docker socket hidden: `/dev/null:/host/var/run/docker.sock:ro`
-- Prevents `docker run` firewall bypass
+- Docker socket hidden by default: `/dev/null:/host/var/run/docker.sock:ro` and
+  `/dev/null:/host/run/docker.sock:ro`
+- Prevents `docker run` firewall bypass; `--enable-dind` exposes the socket
+  instead (see [`docker-socket.ts`](../src/services/agent-volumes/docker-socket.ts))
 - **Dual-path protection**: Credentials hidden at applicable direct and `/host` paths
 
 ## Usage Examples
