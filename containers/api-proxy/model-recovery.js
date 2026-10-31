@@ -13,6 +13,7 @@ const { MODEL_FALLBACK } = require('./model-config');
 const { isModelPriceable } = require('./guards/ai-credits-guard');
 const {
   evaluateModelEligibility, isModelEligible, isModelHarnessEligible, getAliasEligibilityRejection,
+  getModelEligibilityScope,
 } = require('./model-eligibility');
 
 const MAX_AUTOMATIC_RECOVERIES = 3;
@@ -48,7 +49,7 @@ function getModelUnavailability(model, provider, req) {
   const decision = evaluateModelEligibility(model, provider, req, {
     evidence: { discovery: {
       status: unavailable ? 'unavailable' : 'unknown', authoritative: unavailable === true,
-      scope: { provider, channel: provider === 'copilot' ? 'copilot-api' : 'native-api' },
+      scope: getModelEligibilityScope(provider, req),
     } },
   });
   if (decision.reasons.some(reason => reason.code === 'lifecycle_retired')) {

@@ -544,26 +544,29 @@ test('existing lifecycle and positive discovery evidence use the shared admissio
   });
 });
 
-test('the existing recovery boundary interprets authoritative Copilot absence through the shared evaluator', () => {
-  const { getModelUnavailability } = require('./model-recovery');
-  const pin = eligibility.proxyEligibilityStore.pin();
-  const evaluate = jest.fn(input => pin.evaluate(input));
-  const req = {
-    url: '/chat/completions', awfModelCatalogAuthoritative: true,
-    awfRuntimePricing: { copilot: [record('available')] },
-    awfEligibility: { revision: pin.revision, evaluate },
-  };
-  expect(getModelUnavailability('missing', 'copilot', req)).toEqual({ reason: 'model_unavailable' });
-  expect(evaluate).toHaveBeenCalledWith(expect.objectContaining({
-    discovery: { status: 'unavailable', authoritative: true, scope: scope() },
-    policy: expect.objectContaining({ status: 'allow' }),
-  }));
-  req.awfModelRecoveryDisabled = true;
-  expect(getModelUnavailability('missing', 'copilot', req)).toBeNull();
-  req.awfModelRecoveryDisabled = false;
-  req.awfModelCatalogAuthoritative = false;
-  expect(getModelUnavailability('missing', 'copilot', req)).toBeNull();
-});
+test.each([undefined, { ...scope(), deployment: 'private' }])(
+  'the existing recovery boundary interprets authoritative Copilot absence in scope %j', eligibilityScope => {
+    const { getModelUnavailability } = require('./model-recovery');
+    const pin = eligibility.proxyEligibilityStore.pin();
+    const evaluate = jest.fn(input => pin.evaluate(input));
+    const req = {
+      url: '/chat/completions', awfModelCatalogAuthoritative: true,
+      awfRuntimePricing: { copilot: [record('available')] },
+      awfEligibility: { revision: pin.revision, evaluate },
+      awfEligibilityScope: eligibilityScope,
+    };
+    expect(getModelUnavailability('missing', 'copilot', req)).toEqual({ reason: 'model_unavailable' });
+    expect(evaluate).toHaveBeenCalledWith(expect.objectContaining({
+      discovery: { status: 'unavailable', authoritative: true, scope: eligibilityScope || scope() },
+      policy: expect.objectContaining({ status: 'allow' }),
+    }));
+    req.awfModelRecoveryDisabled = true;
+    expect(getModelUnavailability('missing', 'copilot', req)).toBeNull();
+    req.awfModelRecoveryDisabled = false;
+    req.awfModelCatalogAuthoritative = false;
+    expect(getModelUnavailability('missing', 'copilot', req)).toBeNull();
+  },
+);
 
 test('selector aliases and resolver automatic candidates skip incompatible models', () => {
   const req = { awfEligibility: eligibility.createProxyEligibilityStore(evidence()).pin() };
