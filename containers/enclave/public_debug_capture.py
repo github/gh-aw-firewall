@@ -20,24 +20,52 @@ class PublicDebugCapture:
         self.streams = {}
         self.threads = []
         self.closed = False
+        saved = {}
+        pipes = []
+        try:
+            for number in (1, 2):
+                saved[number] = os.dup(number)
+            self._initialize(directory, pipes)
+        except BaseException:
+            for number, fd in saved.items():
+                os.dup2(fd, number)
+            for read_fd, write_fd, thread in pipes:
+                os.close(write_fd)
+                if thread.ident is not None:
+                    thread.join()
+                else:
+                    os.close(read_fd)
+            for stream in self.streams.values():
+                os.close(stream["fd"])
+            raise
+        finally:
+            for fd in saved.values():
+                os.close(fd)
+        for _, write_fd, _ in pipes:
+            os.close(write_fd)
+
+    def _initialize(self, directory, pipes):
         for number, name in ((1, "stdout"), (2, "stderr")):
             fd = os.open(directory / (name + ".log"), os.O_WRONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
-            info = os.fstat(fd)
-            if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1 \
-                    or info.st_uid != os.getuid() or stat.S_IMODE(info.st_mode) != 0o600:
+            try:
+                info = os.fstat(fd)
+                if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1 \
+                        or info.st_uid != os.getuid() or stat.S_IMODE(info.st_mode) != 0o600:
+                    raise ValueError("unsafe public diagnostic file")
+            except BaseException:
                 os.close(fd)
-                raise ValueError("unsafe public diagnostic file")
+                raise
             reserve = METADATA_BYTES if name == "stderr" else 0
             self.streams[name] = {"fd": fd, "lock": threading.Lock(),
                                   "offset": reserve, "oversized": False, "error": None}
             if reserve:
                 os.write(fd, b" " * (reserve - 1) + b"\n")
             read_fd, write_fd = os.pipe()
-            os.dup2(write_fd, number)
-            os.close(write_fd)
             thread = threading.Thread(target=self._drain, args=(name, read_fd), daemon=True)
+            pipes.append((read_fd, write_fd, thread))
             self.threads.append(thread)
             thread.start()
+            os.dup2(write_fd, number)
 
     def append(self, name, contents):
         stream = self.streams[name]
@@ -106,3 +134,28 @@ class PublicDebugCapture:
         if not any(thread.is_alive() for thread in self.threads):
             for stream in self.streams.values():
                 os.close(stream["fd"])
+
+
+def enable_public_capture():
+    if os.environ.get("AWF_ENCLAVE_DEBUG_PUBLIC") != "true":
+        return None
+    try:
+        return PublicDebugCapture()
+    except (OSError, ValueError, RuntimeError) as error:
+        category = ERRORS.get(getattr(error, "errno", None), "io-error")
+        fd = None
+        try:
+            fd = os.open("/awf/stderr.log", os.O_WRONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+            info = os.fstat(fd)
+            if stat.S_ISREG(info.st_mode) and info.st_nlink == 1 \
+                    and info.st_uid == os.getuid() and stat.S_IMODE(info.st_mode) == 0o600:
+                events = b"".join(json.dumps({
+                    "event": "capture-io", "stream": name, "category": category,
+                }, separators=(",", ":")).encode() + b"\n" for name in ("stdout", "stderr"))
+                os.pwrite(fd, events, 0)
+        except OSError:
+            pass
+        finally:
+            if fd is not None:
+                os.close(fd)
+        return None

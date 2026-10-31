@@ -56,7 +56,7 @@ describe('host-only public enclave debug admission', () => {
     expect(c.enclaveDebugPublic).toBeUndefined();
     c.enclaveDebugPublic = false;
     expect(resolvePublicEnclaveDebugConfig(c)).toBe(c);
-    c.cloudHypervisor = { previewEnabled: true, enclaveDebugPublic: true };
+    c.cloudHypervisor = config().cloudHypervisor;
     c.enclaves!.executors.script.runtime = 'cloud-hypervisor';
     expect(resolvePublicEnclaveDebugConfig(c).cloudHypervisor!.enclaveDebugPublic).toBe(false);
   });

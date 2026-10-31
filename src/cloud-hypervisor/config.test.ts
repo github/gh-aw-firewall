@@ -64,6 +64,7 @@ describe('Cloud Hypervisor configuration (foundation only)', () => {
   it.each([true, false])('keeps top-level precedence through config-file mapping and CH build (%s)', enabled => {
     const mapped = mapAwfFileConfigToCliOptions({
       enclaveDebugPublic: enabled,
+      container: { containerRuntime: 'cloud-hypervisor' },
       cloudHypervisor: { previewEnabled: true, enclaveDebugPublic: !enabled },
       enclaves: [{
         runtime: 'cloud-hypervisor', script: {}, repos: [{ repo: 'octo/public-fixture', sensitivity: 'public' }],

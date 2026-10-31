@@ -115,6 +115,49 @@ describe('shared public enclave diagnostic conformance', () => {
     })).rejects.toThrow(/identity or stop proof/);
     expect(fs.readdirSync(root)).toEqual([]);
   });
+  it('redacts encoded credentials inside JSON session strings without invalidating records', () => {
+    const secret = 'synthetic-token:"quoted"/value';
+    const forms = [secret, JSON.stringify(secret).slice(1, -1), encodeURIComponent(secret), Buffer.from(secret).toString('base64')];
+    const record = {
+      event: 'engine-result', stdout: { raw: forms.join('\n') },
+      stderr: { raw: `Authorization: ${'Bearer'} synthetic-auth-value\n` },
+      nested: [{ [secret]: secret }],
+    };
+    const retained = redactPublicEnclaveText(Buffer.from(`${JSON.stringify(record)}\n`), [secret]);
+    const decoded = JSON.parse(retained.toString());
+    expect(decoded).toMatchObject({
+      event: 'engine-result', stdout: { raw: '[REDACTED]\n[REDACTED]\n[REDACTED]\n[REDACTED]' },
+      stderr: { raw: 'Authorization: [REDACTED]\n' },
+      nested: [{ '[REDACTED]': '[REDACTED]' }],
+    });
+    for (const form of forms) expect(JSON.stringify(decoded)).not.toContain(form);
+    expect(retained.toString()).not.toContain('synthetic-auth-value');
+  });
+
+  it('redacts nested JSON strings, quoted headers, and Authorization fields', () => {
+    const secret = 'synthetic-token:"quoted"/value';
+    const message = JSON.stringify(secret).slice(1, -1);
+    const record = {
+      raw: `${JSON.stringify({ message })}\n${JSON.stringify({ message })}`,
+      pretty: JSON.stringify({ message }, null, 2),
+      quoted: `Authorization: ${'Bearer'} "synthetic-auth-value"\n`,
+      authorization: '"synthetic-auth-value"',
+      'Proxy-Authorization': { value: 'synthetic-auth-value' },
+    };
+    const decoded = JSON.parse(redactPublicEnclaveText(Buffer.from(JSON.stringify(record)), [secret]).toString());
+    for (const line of decoded.raw.split('\n')) {
+      expect(JSON.parse(line)).toEqual({ message: '[REDACTED]' });
+    }
+    expect(JSON.parse(decoded.pretty)).toEqual({ message: '[REDACTED]' });
+    expect(decoded.quoted).toBe('Authorization: [REDACTED]\n');
+    expect(decoded.authorization).toBe('[REDACTED]');
+    expect(decoded['Proxy-Authorization']).toBe('[REDACTED]');
+    expect(JSON.stringify(decoded)).not.toContain('synthetic-auth-value');
+    let nested: unknown = secret;
+    for (let depth = 0; depth < 70; depth++) nested = { nested };
+    expect(redactPublicEnclaveText(Buffer.from(JSON.stringify(nested)), [secret]).toString()).not.toContain('synthetic-token');
+  });
+
   it('redacts credentials, escaped/encoded forms, and partial over-limit boundary lines', () => {
     const secret = 'secret"credential';
     const forms = [secret, JSON.stringify(secret).slice(1, -1), encodeURIComponent(secret), Buffer.from(secret).toString('base64')];

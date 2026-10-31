@@ -17,7 +17,7 @@ describe('Cloud Hypervisor diagnostic ownership', () => {
   let scratch: string;
 
   beforeEach(async () => {
-    scratch = await fs.mkdtemp(path.join(os.tmpdir(), 'awf-ch-audit-'));
+    scratch = await fs.mkdtemp(path.join(os.homedir(), '.awf-ch-audit-'));
   });
 
   afterEach(async () => {
@@ -261,11 +261,14 @@ describe('Cloud Hypervisor diagnostic ownership', () => {
       const chown = jest.fn().mockResolvedValue(undefined);
       const deps = dependencies({
         mkdir: fs.mkdir,
-        lstat: fs.lstat,
+        lstat: (async (...args: Parameters<typeof fs.lstat>) =>
+          Object.assign(await fs.lstat(...args), { uid: 0 })) as typeof fs.lstat,
         realpath: fs.realpath,
         open: async (...args: Parameters<typeof fs.open>) => {
           const handle = await fs.open(...args);
           handle.chown = chown;
+          const stat = handle.stat.bind(handle);
+          handle.stat = (async () => Object.assign(await stat(), { uid: 0 })) as typeof handle.stat;
           return handle;
         },
       });
@@ -275,7 +278,7 @@ describe('Cloud Hypervisor diagnostic ownership', () => {
         `Authorization: Bearer ${secret}`,
         `{"credential":"${secret}","message":"copilot exited"}`,
         'github_pat_example123 sk-example123',
-        'x'.repeat(1024 * 1024),
+        `${'x'.repeat(80)}\n`.repeat(16 * 1024),
       ].join('\n'), [secret], deps);
       if (kind !== 'regular') {
         await expect(result).rejects.toThrow();
@@ -287,7 +290,9 @@ describe('Cloud Hypervisor diagnostic ownership', () => {
       expect(text).toContain('PUBLIC_ENGINE_ERROR');
       expect(text).toContain('copilot exited');
       expect(text).not.toMatch(/invocation-capability-secret|github_pat_example123|sk-example123/);
-      expect((await fs.stat(destination)).size).toBe(1024 * 1024);
+      expect((await fs.stat(destination)).size).toBeLessThanOrEqual(1024 * 1024);
+      expect((await fs.stat(destination)).size).toBeGreaterThan(1024 * 1024 - 81);
+      expect(text.endsWith('\n')).toBe(true);
       expect((await fs.stat(destination)).mode & 0o777).toBe(0o600);
       expect((await fs.stat(directory)).mode & 0o777).toBe(0o700);
       expect(chown.mock.calls.every(([uid, gid]) => uid === 0 && gid === 0)).toBe(true);

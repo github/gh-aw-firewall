@@ -572,6 +572,9 @@ export function createDockerHostEnclaveExecutor(options: DockerHostEnclaveExecut
                 stage: record.publicDebug.stage, failure: record.publicDebug.failure,
               },
             });
+            record.publicDebug.pending = false;
+            record.publicDebug.retained = true;
+            journal.write(record);
           } catch { /* Initial retained evidence or the invocation source remains protected. */ }
         }
       }

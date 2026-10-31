@@ -45,6 +45,9 @@ import type {
 import { startHostExecutorServer } from '../../src/enclave/host-executor-server';
 import { releaseSeedPermissions, stageEnclaveSeeds, type GitRunner } from '../../src/enclave/staging';
 
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const { deriveEnclaveContainerSpec } = require('../../containers/enclave/agent-executor/enclave-runner-spec.js');
+
 const helperAcceptance = process.env.AWF_DOCKER_HOST_STORAGE_HELPER_ACCEPTANCE === '1';
 const enabled = process.env.AWF_DOCKER_HOST_ACCEPTANCE === '1' || helperAcceptance;
 const acceptance = enabled ? describe : describe.skip;
@@ -685,13 +688,19 @@ time.sleep(2)
     const secretForms = [syntheticToken, JSON.stringify(syntheticToken).slice(1, -1),
       encodeURIComponent(syntheticToken), Buffer.from(syntheticToken).toString('base64')];
     const marker = `PUBLIC-DIAGNOSTIC-${kind}-${fails ? 'failure' : 'success'}`;
+    const launchArgs: string[] = deriveEnclaveContainerSpec({
+      config: entry('agent').config, runId, invocationId: 'b'.repeat(32), seedId,
+    }).launchArgs;
+    const dummyCopilotToken = launchArgs.find(value => value.startsWith('COPILOT_GITHUB_TOKEN='))!
+      .slice('COPILOT_GITHUB_TOKEN='.length);
     const invocation = plan(kind, `
 import json, os, sys, time
 from pathlib import Path
 assert os.geteuid() == 65534
 assert ${JSON.stringify(syntheticToken)} not in json.dumps(dict(os.environ))
 assert not any(name in os.environ for name in [
-    "GITHUB_TOKEN", "GH_TOKEN", "COPILOT_GITHUB_TOKEN", "OPENAI_API_KEY", "ANTHROPIC_API_KEY"])
+    "GITHUB_TOKEN", "GH_TOKEN", "OPENAI_API_KEY", "ANTHROPIC_API_KEY"])
+assert os.environ.get("COPILOT_GITHUB_TOKEN") == ${kind === 'agent' ? JSON.stringify(dummyCopilotToken) : 'None'}
 assert os.environ["AWF_ENCLAVE_DEBUG_PUBLIC"] == "true"
 print(${JSON.stringify(marker)}, flush=True)
 print(${JSON.stringify(secretForms.join('\n'))}, flush=True)

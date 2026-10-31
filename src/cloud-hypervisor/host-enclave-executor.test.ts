@@ -430,7 +430,9 @@ describe('readBoundedCloudHypervisorEnclaveResult', () => {
             execute: async (request) => {
               executionRequest = request;
               expect(request.argv).toEqual([`/usr/local/bin/run-enclave-${role}`]);
-              if (role === 'script') expect(request.env).toEqual({});
+              if (role === 'script') expect(request.env).toEqual(
+                publicDebug ? { AWF_ENCLAVE_SCRIPT_DEBUG_PROGRESS: 'true' } : {},
+              );
               request.onDiagnostics?.({
                 phase: 'sending', elapsedMs: 0, framesReceived: 0, stdoutBytes: 0,
                 stderrBytes: 0, pendingFrameBytes: 0, resultReceived: false,
@@ -762,7 +764,9 @@ describe('readBoundedCloudHypervisorEnclaveResult', () => {
             .toBe(false);
           if (expectedOutcome === 'success') {
             expect(executionRequest?.argv).toEqual([scriptArtifact.entrypoint]);
-            expect(executionRequest?.env).toEqual({});
+            expect(executionRequest?.env).toEqual(
+              publicDebug ? { AWF_ENCLAVE_SCRIPT_DEBUG_PROGRESS: 'true' } : {},
+            );
           }
         }
 
@@ -832,10 +836,19 @@ describe('readBoundedCloudHypervisorEnclaveResult', () => {
               ...backendOptions,
               agentPolicies: { [entryId]: invalid.policy },
             }, dependencies);
-            await expect(invalidPolicyBackend.execute(
+            const execution = invalidPolicyBackend.execute(
               invalid.plan ?? plan,
               new AbortController().signal,
-            )).rejects.toThrow(invalid.error);
+            );
+            if (publicDebug) {
+              await expect(execution).resolves.toEqual({ outcome: 'executor-failure' });
+              expect(preservePublicArtifacts).toHaveBeenLastCalledWith(expect.objectContaining({
+                envelope: expect.objectContaining({
+                  workloadLaunched: false, exitCode: null, failure: 'setup-failed',
+                  primaryFailure: expect.objectContaining({ stage: 'authority-handoff' }),
+                }),
+              }));
+            } else await expect(execution).rejects.toThrow(invalid.error);
             expect(snapshotNumber).toBe(snapshotsBefore);
             await invalidPolicyBackend.close();
           }
@@ -924,7 +937,7 @@ describe('readBoundedCloudHypervisorEnclaveResult', () => {
               ...preflight,
               tools: { ...tools, mount: '/usr/bin/false' },
             },
-          });
+          }, { preservePublicArtifacts, preservePublicSession });
           await expect(mountFailureBackend.execute(plan, new AbortController().signal))
             .resolves.toEqual({ outcome: 'executor-failure' });
           await mountFailureBackend.close();

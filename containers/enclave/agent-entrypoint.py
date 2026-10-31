@@ -1085,8 +1085,8 @@ def main() -> int:
 
 if __name__ == "__main__":
     if os.environ.get("AWF_ENCLAVE_DEBUG_PUBLIC") == "true":
-        from public_debug_capture import PublicDebugCapture
-        PUBLIC_CAPTURE = PublicDebugCapture()
+        from public_debug_capture import enable_public_capture
+        PUBLIC_CAPTURE = enable_public_capture()
     try:
         sys.exit(main())
     except BaseException as error:

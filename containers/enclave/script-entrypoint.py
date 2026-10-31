@@ -19,8 +19,8 @@ OUTPUT = Path("/awf/out")
 def enable_public_capture():
     if os.environ.get("AWF_ENCLAVE_DEBUG_PUBLIC") != "true":
         return None
-    from public_debug_capture import PublicDebugCapture
-    return PublicDebugCapture()
+    from public_debug_capture import enable_public_capture as enable
+    return enable()
 
 def make_repository_writable():
     for root, directories, files in os.walk(REPO, followlinks=False):
