@@ -343,13 +343,14 @@ install_enclave_storage_helper() {
         warn "Installing ordinary CLI without unprivileged Docker enclave support; missing helper prerequisites: ${missing[*]}"
         return 0
     fi
-    if ! /usr/bin/python3 -I "$TEMP_DIR/$helper" check-install-host >/dev/null 2>&1; then
+    if ! /usr/bin/env -i PATH=/usr/bin:/bin LANG=C /usr/bin/python3 -I "$TEMP_DIR/$helper" check-install-host >/dev/null 2>&1; then
         warn "Installing ordinary CLI without unprivileged Docker enclave support; this is not a supported privileged storage host"
         return 0
     fi
     /usr/bin/python3 -I - "$TEMP_DIR/$helper" "${VERSION#v}" "${SUDO_UID:-}" <<'PY'
 import os, re, stat, subprocess, sys
 source, version, uid = sys.argv[1:]
+os.umask(0o022)
 payload = open(source, "rb").read()
 if not re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+", version) or (
         b'VERSION = "' + version.encode() + b'"') not in payload:
@@ -369,21 +370,28 @@ def directory(name):
         fd = child
     return fd
 def publish(fd, name, data, mode):
-    staging = name + ".new"
-    child = os.open(staging, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, mode, dir_fd=fd)
+    staging = name + ".new-" + os.urandom(16).hex()
     try:
-        os.fchown(child, 0, 0)
-        os.fchmod(child, mode)
-        if os.write(child, data) != len(data):
-            raise SystemExit("Incomplete helper installation")
-        os.fsync(child)
+        child = os.open(staging, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, mode, dir_fd=fd)
+        try:
+            os.fchown(child, 0, 0)
+            os.fchmod(child, mode)
+            if os.write(child, data) != len(data):
+                raise SystemExit("Incomplete helper installation")
+            os.fsync(child)
+        finally:
+            os.close(child)
+        os.replace(staging, name, src_dir_fd=fd, dst_dir_fd=fd)
+        os.fsync(fd)
     finally:
-        os.close(child)
-    os.replace(staging, name, src_dir_fd=fd, dst_dir_fd=fd)
-    os.fsync(fd)
+        try:
+            os.unlink(staging, dir_fd=fd)
+        except FileNotFoundError:
+            pass
 subprocess.run(["/usr/bin/python3", "-I", source, "install"],
                env={"PATH": "/usr/bin:/bin", "LANG": "C"}, check=True)
 fd = directory("/var/lib/awf")
+os.fchmod(fd, 0o755)
 publish(fd, "enclave-storage-helper.py", payload, 0o644)
 os.close(fd)
 if uid:

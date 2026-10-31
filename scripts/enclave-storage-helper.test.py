@@ -102,6 +102,45 @@ class HelperPolicy(unittest.TestCase):
         self.assertEqual(list(self.state_path.iterdir()), [])
         self.assertEqual(self.invoke("unmount"), {"clean": True})
 
+    def test_state_publication_is_exclusive_and_reconciles_abandoned_staging(self):
+        storage.write_json(self.state, "entry", {"bytes": 65536})
+        with self.assertRaises(FileExistsError):
+            storage.write_json(self.state, "entry", {"bytes": 1})
+        self.assertEqual(storage.read_json(self.state, "entry"), {"bytes": 65536})
+        abandoned = ".awf-stage-" + "a" * 32
+        for directory in (self.base, self.state):
+            fd = os.open(abandoned, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600, dir_fd=directory)
+            os.close(fd)
+            storage.reconcile_staging(directory)
+            self.assertNotIn(abandoned, os.listdir(directory))
+        self.assertEqual(os.listdir(self.state), ["entry"])
+
+    def test_cleanup_retries_after_interruption_at_every_record_removal(self):
+        for interrupted_at in range(4):
+            with self.subTest(interrupted_at=interrupted_at):
+                self.invoke("mount")
+                key = str(self.uid) + "-" + self.allocation.replace("/", "-") + ".json"
+                storage.write_json(self.state, key + ".own-out", {"uid": 65534, "inode": 1})
+                storage.write_json(self.state, key + ".own-agent", {"uid": 65534, "inode": 2})
+                real_unlink = os.unlink
+                removed = 0
+
+                def interrupt(name, *args, **kwargs):
+                    nonlocal removed
+                    if name in {key + ".mounted", key + ".own-out", key + ".own-agent", key}:
+                        if removed == interrupted_at:
+                            raise OSError("injected cleanup interruption")
+                        removed += 1
+                    return real_unlink(name, *args, **kwargs)
+
+                with patch.object(storage.os, "unlink", side_effect=interrupt):
+                    with self.assertRaises(OSError):
+                        self.invoke("unmount")
+                self.assertFalse(Path(self.target).exists())
+                self.assertEqual(self.invoke("unmount"), {"clean": True})
+                self.assertFalse(Path(self.target).exists())
+                self.assertEqual(os.listdir(self.state), [])
+
     def test_rejects_paths_sizes_and_arbitrary_operations(self):
         valid = ["mount", self.allocation, self.source, "65536"]
         for index, value in [(0, "exec"), (1, "../../etc/passwd"), (1, "/etc"),

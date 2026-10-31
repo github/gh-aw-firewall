@@ -13,7 +13,7 @@ import { dockerHelperStorageTarget, hasDockerHostMountCapability } from './docke
 import {
   assertDockerHostContainer, assertDockerHostOwnerStopped, captureDockerHostOwner,
   DockerHostRecoveryJournal, expectedDockerHostContainer,
-  inspectDockerHostContainer, removeDockerHostContainer,
+  inspectDockerHostContainer, isDockerHostOwnerLive, removeDockerHostContainer,
   type DockerHostCommand, type DockerHostRecoveryRecord,
 } from './docker-host-recovery';
 
@@ -202,8 +202,13 @@ export function createDockerHostEnclaveExecutor(options: DockerHostEnclaveExecut
     if (daemon.OSType !== 'linux' || (daemon.SecurityOptions || []).some((v: string) => /rootless|userns/.test(v))) {
       throw new Error('Docker host enclave daemon filesystem/identity mode is unsupported');
     }
-    const records = journal.records();
-    for (const record of records) assertDockerHostOwnerStopped(record.owner, owner);
+    const records = journal.records(true);
+    const recoverable: DockerHostRecoveryRecord[] = [];
+    for (const record of records) {
+      if (record.runId !== options.runId && isDockerHostOwnerLive(record.owner, owner)) continue;
+      assertDockerHostOwnerStopped(record.owner, owner);
+      recoverable.push(record);
+    }
     const known = new Set(records.map((record) => record.expected?.name).filter(Boolean));
     // Labels alone confer no cleanup authority. Every orphan must have a
     // durable intent and an inspected launch configuration before removal.
@@ -211,7 +216,7 @@ export function createDockerHostEnclaveExecutor(options: DockerHostEnclaveExecut
       const inspected = await inspectDockerHostContainer(docker, id);
       if (!inspected || !known.has(inspected.Name?.slice(1))) throw new Error('Unjournaled Docker enclave resources require operator recovery');
     }
-    for (const record of records) await cleanup(record);
+    for (const record of recoverable) await cleanup(record);
   }
 
   async function createContainer(record: DockerHostRecoveryRecord, args: string[], command?: string[]): Promise<string> {
@@ -351,7 +356,9 @@ export function createDockerHostEnclaveExecutor(options: DockerHostEnclaveExecut
         await stageFile('task.txt', task);
         await stageFile('schema.json', JSON.stringify(serializeFiniteSchema(plan.schema)));
         await stageFile('session.jsonl', '', 0o600);
-        fs.mkdirSync(path.join(record.storageTarget, 'agent'), { mode: 0o700 });
+        const agentDirectory = path.join(record.storageTarget, 'agent');
+        fs.mkdirSync(agentDirectory, { mode: 0o700 });
+        fs.chmodSync(agentDirectory, 0o700);
         await ownDockerHostStorageFile(record.mount!, 'agent', entry.uid, entry.gid);
         if (config.githubEnabled) {
           if (!/^[A-Za-z0-9_-]{32,128}$/.test(authority.githubAgentId || '')) throw new Error('Invalid static GitHub enclave authority');

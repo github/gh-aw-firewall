@@ -165,6 +165,7 @@ describeLinux('host-owned Docker enclave executor', () => {
     };
     jest.mocked(mountDockerHostStorage).mockImplementation(async (target, source, bytes) => {
       fs.mkdirSync(target, { recursive: true, mode: 0o700 });
+      fs.chmodSync(target, 0o700);
       return { mountId: '42', device: '0:42', root: '/', source, target, bytes };
     });
     jest.mocked(cleanupDockerHostStorage).mockImplementation(async (record) => {
@@ -231,6 +232,28 @@ describeLinux('host-owned Docker enclave executor', () => {
     if (kind === 'agent') {
       expect(fs.chownSync).toHaveBeenCalledWith(path.join(plan.invocationHostDir, 'agent'), 12345, 23456);
     } else expect(launch).toContain('/query:rw,nosuid,nodev,size=96m,uid=12345,gid=23456,mode=0700');
+  });
+
+  test('creates the agent bind directory with its exact mode under a restrictive umask', async () => {
+    const journalDirectory = path.join(root, 'journal');
+    fs.mkdirSync(journalDirectory, { mode: 0o700 });
+    fs.chmodSync(journalDirectory, 0o700);
+    const invocationParent = path.join(root, 'invocations', 'agent');
+    fs.mkdirSync(invocationParent, { recursive: true, mode: 0o700 });
+    fs.chmodSync(path.join(root, 'invocations'), 0o700);
+    fs.chmodSync(invocationParent, 0o700);
+    const previousUmask = process.umask(0o177);
+    try {
+      const agentPlan = {
+        ...plan, entryId: 'agent', executorKind: 'agent' as const,
+        invocationHostDir: path.join(root, 'invocations', 'agent', invocationId),
+      };
+      await expect(backend([agent]).execute(agentPlan, new AbortController().signal))
+        .resolves.toMatchObject({ outcome: 'success' });
+      expect(fs.chownSync).toHaveBeenCalledWith(path.join(agentPlan.invocationHostDir, 'agent'), 65534, 65534);
+    } finally {
+      process.umask(previousUmask);
+    }
   });
 
   test.each([0, -1, undefined, '65534', NaN])('rejects missing or unsafe trusted Docker identity %s instead of applying VM defaults', (uid) => {
@@ -414,6 +437,42 @@ describeLinux('host-owned Docker enclave executor', () => {
     expect(docker.containers.size).toBe(0);
     expect(cleanupDockerHostStorage).toHaveBeenCalledTimes(1);
     expect(fs.readdirSync(path.join(root, 'journal'))).toEqual([]);
+  });
+
+  test('a new run reconciles verified allocations from older run IDs', async () => {
+    docker.onWorkloadStart = () => { docker.failRemoval = true; };
+    await backend().execute(plan, new AbortController().signal);
+    const journal = new DockerHostRecoveryJournal(path.join(root, 'journal'), runId);
+    const record = journal.records()[0];
+    record.owner = { ...record.owner, pid: 2147483647, startTicks: '1' };
+    journal.write(record);
+    docker.failRemoval = false;
+    const nextRun = 'e'.repeat(32);
+    const recovered = backend([script], { runId: nextRun });
+    await recovered.prepare();
+    await recovered.close!();
+    expect(docker.containers.size).toBe(0);
+    expect(cleanupDockerHostStorage).toHaveBeenCalledTimes(1);
+    expect(journal.records(true)).toEqual([]);
+  });
+
+  test('a new run preserves allocations owned by another live host process', async () => {
+    docker.onWorkloadStart = () => { docker.failRemoval = true; };
+    await backend().execute(plan, new AbortController().signal);
+    const journal = new DockerHostRecoveryJournal(path.join(root, 'journal'), runId);
+    const record = journal.records()[0];
+    const parentStat = fs.readFileSync(`/proc/${process.ppid}/stat`, 'utf8');
+    record.owner = {
+      ...record.owner, pid: process.ppid,
+      startTicks: parentStat.slice(parentStat.lastIndexOf(')') + 2).trim().split(/\s+/)[19],
+    };
+    journal.write(record);
+    const nextRun = 'e'.repeat(32);
+    const recovered = backend([script], { runId: nextRun });
+    await recovered.prepare();
+    await recovered.close!();
+    expect(docker.containers.size).toBe(1);
+    expect(cleanupDockerHostStorage).not.toHaveBeenCalled();
   });
 
   test('recovers the create-before-ID-journal window only after inspected config verification', async () => {

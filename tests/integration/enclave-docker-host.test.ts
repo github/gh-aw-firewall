@@ -43,6 +43,7 @@ import { releaseSeedPermissions, stageEnclaveSeeds, type GitRunner } from '../..
 const helperAcceptance = process.env.AWF_DOCKER_HOST_STORAGE_HELPER_ACCEPTANCE === '1';
 const enabled = process.env.AWF_DOCKER_HOST_ACCEPTANCE === '1' || helperAcceptance;
 const acceptance = enabled ? describe : describe.skip;
+const privilegedAcceptance = helperAcceptance ? test.skip : test;
 const root = path.resolve(__dirname, '../..');
 const subprocessEnv = { ...process.env, NODE_DISABLE_COMPILE_CACHE: '1', TSX_DISABLE_CACHE: '1' };
 const image = 'awf-enclave-script:host-acceptance';
@@ -281,11 +282,7 @@ acceptance('Docker host enclave adapter: REAL daemon acceptance', () => {
       throw new Error('Real host tmpfs acceptance requires root with CAP_SYS_ADMIN, CAP_CHOWN and CAP_DAC_OVERRIDE.');
     }
     expect(await docker(['version', '--format', '{{.Server.Os}}'])).toBe('linux');
-    const fixtureParent = helperAcceptance ? root : '/var/lib/awf';
-    if (!helperAcceptance) {
-      assertDockerHostPath(fixtureParent);
-      fs.mkdirSync(fixtureParent, { recursive: true, mode: 0o700 });
-    }
+    const fixtureParent = root;
     directory = fs.mkdtempSync(path.join(fixtureParent, '.e-'));
     seed = path.join(directory, 'seeds', seedId);
     journalDir = path.join(directory, 'journal');
@@ -348,13 +345,16 @@ acceptance('Docker host enclave adapter: REAL daemon acceptance', () => {
     if (networkCreated) {
       try { await docker(['network', 'rm', network]); } catch (error) { errors.push(error); }
     }
-    // Never recursively delete a surviving invocation mount after uncertain cleanup.
+    if (errors.length) throw errors[0];
+    // Never delete recovery journals while helper allocations or mounts may remain.
     if (directory && fs.existsSync(directory)) {
       const mounts = fs.readFileSync('/proc/self/mountinfo', 'utf8');
       if (mounts.includes(directory)) throw new Error('Acceptance storage still mounted; retain evidence for recovery.');
+      if (helperStorage && ['script', 'agent'].some((entryId) => fs.existsSync(path.dirname(
+        dockerHelperStorageTarget(runId, entryId, 'a'.repeat(16)),
+      )))) throw new Error('Acceptance helper allocation remains; retain journals for recovery.');
       fs.rmSync(directory, { recursive: true, force: true });
     }
-    if (errors.length) throw errors[0];
   }, 120_000);
 
   test('script: effective identity, readonly seed/rootfs, no networking, exact cgroups and bounded writable bind', async () => {
@@ -970,7 +970,7 @@ Path("/awf/out").write_text('{"passed":true}')
     await assertGone(invocation);
   });
 
-  test('a split mount namespace with the same source pathname fails closed before private workload launch', async () => {
+  privilegedAcceptance('a split mount namespace with the same source pathname fails closed before private workload launch', async () => {
     const invocation = plan('script', `raise RuntimeError(${JSON.stringify(sentinel)})`);
     const code = `
 const {execFile}=require("child_process");

@@ -53,6 +53,8 @@ def walk_root(create=False):
             trusted(child)
             os.close(fd)
             fd = child
+        if create:
+            os.fchmod(fd, 0o711)
         return fd
     except BaseException:
         os.close(fd)
@@ -71,15 +73,41 @@ def read_json(fd, name):
 
 
 def write_json(fd, name, value):
-    # State files live under a root-only directory, serialized by its lock.
-    child = os.open(name, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600, dir_fd=fd)
+    staging = ".awf-stage-" + os.urandom(16).hex()
+    child = os.open(staging, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600, dir_fd=fd)
     try:
         data = json.dumps(value, separators=(",", ":")).encode()
         require(os.write(child, data) == len(data))
         os.fsync(child)
     finally:
         os.close(child)
+    try:
+        os.link(staging, name, src_dir_fd=fd, dst_dir_fd=fd, follow_symlinks=False)
+        os.unlink(staging, dir_fd=fd)
+    finally:
+        try:
+            os.unlink(staging, dir_fd=fd)
+        except FileNotFoundError:
+            pass
     os.fsync(fd)
+
+
+def reconcile_staging(fd):
+    removed = False
+    for name in os.listdir(fd):
+        if not re.fullmatch(r"\.awf-stage-[0-9a-f]{32}", name):
+            continue
+        child = os.open(name, FILE, dir_fd=fd)
+        try:
+            info = os.fstat(child)
+            trusted(child, 0o600)
+            require(stat.S_ISREG(info.st_mode) and info.st_nlink == 1 and info.st_size <= 4096)
+        finally:
+            os.close(child)
+        os.unlink(name, dir_fd=fd)
+        removed = True
+    if removed:
+        os.fsync(fd)
 
 
 def namespace_check(marker=None):
@@ -302,23 +330,28 @@ def allocation_operation(base, state, uid, args):
             require(mount_at(target, source, size) == current)
             syscall(libc.umount2(target.encode(), 0))
             require(mount_at(target, source, size) is None)
-        underlying = os.open(name, DIRECTORY, dir_fd=parent)
         try:
-            trusted(underlying, 0o700)
-            info = os.fstat(underlying)
-            require((info.st_dev, info.st_ino) == (record["underDevice"], record["underInode"]))
-            require(not os.listdir(underlying))
-        finally:
-            os.close(underlying)
-        os.rmdir(name, dir_fd=parent)
-        if committed is not None:
-            os.unlink(key + ".mounted", dir_fd=state)
-        for child_name in {*FILES, "agent"}:
+            underlying = os.open(name, DIRECTORY, dir_fd=parent)
+        except FileNotFoundError:
+            underlying = None
+        if underlying is not None:
             try:
-                os.unlink(key + ".own-" + child_name, dir_fd=state)
+                trusted(underlying, 0o700)
+                info = os.fstat(underlying)
+                require((info.st_dev, info.st_ino) == (record["underDevice"], record["underInode"]))
+                require(not os.listdir(underlying))
+            finally:
+                os.close(underlying)
+            os.rmdir(name, dir_fd=parent)
+        for state_name in [key + ".mounted", *(key + ".own-" + child_name for child_name in {*FILES, "agent"})]:
+            try:
+                os.unlink(state_name, dir_fd=state)
             except FileNotFoundError:
                 pass
-        os.unlink(key, dir_fd=state)
+        try:
+            os.unlink(key, dir_fd=state)
+        except FileNotFoundError:
+            pass
         os.fsync(state)
         return {"clean": True}
     finally:
@@ -336,6 +369,7 @@ def allocation_operation(base, state, uid, args):
 
 def main(args):
     require(sys.flags.isolated == 1)
+    os.umask(0o022)
     namespace_check()
     if args == ["check-install-host"]:
         return {"version": VERSION, "supported": True}
@@ -351,6 +385,8 @@ def main(args):
             try:
                 trusted(lock, 0o600)
                 fcntl.flock(lock, fcntl.LOCK_EX)
+                reconcile_staging(base)
+                reconcile_staging(state)
                 if not installing:
                     namespace_check(read_json(base, "host.json"))
                 replacement = private_base(base)
