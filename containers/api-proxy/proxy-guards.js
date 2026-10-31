@@ -201,10 +201,11 @@ function enforceGuards({ body, provider, req, res, requestId, startTime, span, i
   const eligibilityModel = checkModelMultiplier
     ? getRequestModel(null, req.url) || getRequestModel(body, req.url)
     : null;
-  if (eligibilityModel) {
+  const aliasRejection = eligibilityModel?.location === 'body'
+    ? getAliasEligibilityRejection(eligibilityModel.model, provider, req)
+    : !eligibilityModel ? getAliasEligibilityRejection('', provider, req) : null;
+  if (eligibilityModel || aliasRejection) {
     const selected = req.awfSelectedModelEligibility;
-    const aliasRejection = eligibilityModel.location === 'body'
-      ? getAliasEligibilityRejection(eligibilityModel.model, provider, req) : null;
     const decision = aliasRejection || (eligibilityModel.location === 'body' && selected?.provider === provider && selected.model === eligibilityModel.model
       ? selected.decision
       : evaluateModelEligibility(eligibilityModel.model, provider, req,

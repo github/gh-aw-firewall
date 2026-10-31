@@ -150,7 +150,15 @@ function getRequestModel(body, upstreamPath) {
   if (parsed && typeof parsed.model === 'string' && parsed.model.trim()) {
     return { model: parsed.model, location: 'body' };
   }
-  const match = typeof upstreamPath === 'string' ? upstreamPath.match(PATH_MODEL_PATTERN) : null;
+  let pathname;
+  try {
+    pathname = typeof upstreamPath === 'string'
+      ? new URL(upstreamPath, 'http://localhost').pathname
+      : null;
+  } catch {
+    pathname = null;
+  }
+  const match = pathname ? pathname.match(PATH_MODEL_PATTERN) : null;
   if (match) {
     let model = match[2];
     try { model = decodeURIComponent(model); } catch { /* keep raw */ }

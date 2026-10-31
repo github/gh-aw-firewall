@@ -8,6 +8,32 @@ const { stripRedundantProviderPrefix } = require('./model-utils');
 const { getRetiredModelBlockState } = require('./guards/retired-model-guard');
 const { getModelPolicyBlockState } = require('./guards/model-policy-guard');
 
+const EMPTY_RECORDS = Object.freeze([]);
+const discoveryIdentityCache = new WeakMap();
+
+function getDiscoveryIdentityKeys(req, provider, scope, records) {
+  let scopedCache = discoveryIdentityCache.get(req);
+  if (!scopedCache) {
+    scopedCache = new Map();
+    discoveryIdentityCache.set(req, scopedCache);
+  }
+  const scopeKey = JSON.stringify(Object.entries(scope).sort(([left], [right]) => left.localeCompare(right)));
+  const cacheKey = `${provider}:${scopeKey}`;
+  let cached = scopedCache.get(cacheKey);
+  if (!cached || cached.records !== records) {
+    const keys = new Set();
+    for (const record of records) {
+      const { identity } = resolveModelIdentity(record.id, provider, {
+        scope, policy: { providerPrefix: false },
+      });
+      if (identity) keys.add(identity.key);
+    }
+    cached = { records, keys };
+    scopedCache.set(cacheKey, cached);
+  }
+  return cached.keys;
+}
+
 // Only the embedding process may supply evidence. Request bodies, headers,
 // remote catalogues and host-side version guesses are not trusted observations.
 function createProxyEligibilityStore(initial = {}) {
@@ -57,9 +83,8 @@ function evaluateModelEligibility(model, provider, req = {}, options = {}) {
   const { identity } = resolveModelIdentity(nativeModel, provider, { scope, policy: { providerPrefix: false } });
   const retired = getRetiredModelBlockState(model, provider, { inputMode: options.inputMode });
   const blocked = getModelPolicyBlockState(model, provider);
-  const records = req.awfRuntimePricing?.[provider] || [];
-  const available = identity && records.some(record =>
-    resolveModelIdentity(record.id, provider, { scope: consumerScope, policy: { providerPrefix: false } }).identity?.key === identity.key);
+  const records = req.awfRuntimePricing?.[provider] || EMPTY_RECORDS;
+  const available = identity && getDiscoveryIdentityKeys(req, provider, consumerScope, records).has(identity.key);
   // Only the existing recovery path may assert authoritative absence. A custom
   // deployment, explicit fallback or recovery opt-out still permits opaque IDs.
   const discovery = {

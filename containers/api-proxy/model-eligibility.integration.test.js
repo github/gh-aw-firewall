@@ -138,6 +138,43 @@ test('real HTTP ingress rejects an incompatible harness with scoped actionable d
   }
 });
 
+test('discovery identities are cached per request and rebuilt when its records snapshot changes', () => {
+  const firstId = jest.fn(() => 'gpt-6-sol');
+  const secondId = jest.fn(() => 'gpt-5.3-codex');
+  const firstRecords = [{ get id() { return firstId(); } }, { get id() { return secondId(); } }];
+  const req = { awfRuntimePricing: { copilot: firstRecords } };
+
+  eligibility.evaluateModelEligibility('gpt-6-sol', 'copilot', req);
+  eligibility.evaluateModelEligibility('gpt-5.3-codex', 'copilot', req);
+  expect(firstId).toHaveBeenCalledTimes(1);
+  expect(secondId).toHaveBeenCalledTimes(1);
+
+  const replacementId = jest.fn(() => 'gpt-5.2');
+  req.awfRuntimePricing.copilot = [{ get id() { return replacementId(); } }];
+  eligibility.evaluateModelEligibility('gpt-5.2', 'copilot', req);
+  expect(replacementId).toHaveBeenCalledTimes(1);
+});
+
+test('a rejected default alias is blocked when the request omits its model', () => {
+  eligibility.proxyEligibilityStore.replaceTrustedEvidence(evidence());
+  const req = makeReq('/chat/completions');
+  req.awfRequestContext = { purpose: 'routing_classification' };
+  req.awfAliasEligibilityRejection = {
+    requestedModel: '',
+    provider: 'copilot',
+    decision: eligibility.evaluateModelEligibility('gpt-6-sol', 'copilot', req),
+  };
+  const res = makeRes();
+  const { enforceGuards } = require('./proxy-guards');
+
+  expect(enforceGuards({
+    body: Buffer.from('{"messages":[]}'), provider: 'copilot', req, res,
+    requestId: 'default-alias-rejection', startTime: Date.now(), span: {}, inboundBytes: 15,
+  })).toBe(true);
+  expect(res.writeHead).toHaveBeenCalledWith(400, expect.any(Object));
+  expect(JSON.parse(res.end.mock.calls[0][0]).error.code).toBe('model_harness_incompatible');
+});
+
 test.each([true, false])('real HTTP alias exhaustion cannot become unrelated preflight recovery (harness constrained=%s)', async constrained => {
   process.env.AWF_MODEL_ALIASES = JSON.stringify({ models: { coding: ['copilot/gpt-6-sol'] } });
   jest.resetModules();

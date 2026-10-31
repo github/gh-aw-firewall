@@ -14,6 +14,7 @@
  */
 
 const { resolveModel } = require('./model-resolver');
+const { proxyEligibilityStore } = require('./model-eligibility');
 
 // ── resolveModel ───────────────────────────────────────────────────────────
 
@@ -29,6 +30,37 @@ describe('resolveModel', () => {
     'gpt-5-codex': ['copilot/gpt-5*-codex', 'openai/gpt-5*-codex'],
     '': ['sonnet', 'gpt-5-codex'],
   };
+
+  it.each([
+    ['missing-model fallback', 'unknown-model', {}],
+    ['alias fallback', 'uncatalogued', { uncatalogued: { patterns: ['copilot/never-matches'], fallback: true } }],
+  ])('does not retain an unrelated constrained inventory rejection for %s', (_name, requestedModel, modelAliases) => {
+    const identity = require('./model-identity').resolveModelIdentity('gpt-6-sol', 'copilot').identity;
+    proxyEligibilityStore.replaceTrustedEvidence({
+      models: [{
+        identity,
+        harnesses: [{
+          name: 'copilot', scheme: 'semver', minimum: '1.2.0',
+          scope: { provider: 'copilot', channel: 'copilot-api' },
+        }],
+      }],
+      executionEnvironment: 'actual-agent',
+      observations: [{
+        name: 'copilot', scheme: 'semver', version: '1.1.0',
+        scope: { provider: 'copilot', channel: 'copilot-api' },
+        environment: 'actual-agent', verified: true, actual: true,
+      }],
+    });
+    const req = { awfRuntimePricing: { copilot: [{ id: 'gpt-6-sol' }] } };
+    const state = { eligibilityRequest: req };
+
+    expect(resolveModel(
+      requestedModel, modelAliases, { copilot: ['gpt-6-sol'] }, 'copilot', [],
+      { enabled: false, strategy: 'middle_power' }, null, true, state, req,
+    )).toBeNull();
+    expect(state.harnessRejection).toBeUndefined();
+    expect(req.awfAliasEligibilityRejection).toBeUndefined();
+  });
 
   it('should resolve a simple alias to copilot models', () => {
     const result = resolveModel('sonnet', aliases, availableModels, 'copilot');

@@ -104,6 +104,13 @@ describe('model-fallback-chain', () => {
         .toEqual({ model: 'gemini-2.5-pro', location: 'path' });
     });
 
+    test('does not extract a path model from a query-string decoy', () => {
+      expect(getRequestModel(null, '/v1/chat/completions?decoy=/models/unconstrained:generateContent'))
+        .toBeNull();
+      expect(getRequestModel(null, '/v1beta/models/constrained:generateContent?decoy=/models/unconstrained:generateContent'))
+        .toEqual({ model: 'constrained', location: 'path' });
+    });
+
     test('returns null when no model can be located', () => {
       expect(getRequestModel(Buffer.from('not json'), '/v1/chat/completions')).toBeNull();
       expect(getRequestModel(Buffer.alloc(0), undefined)).toBeNull();

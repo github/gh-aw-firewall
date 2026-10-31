@@ -211,7 +211,7 @@ function _resolveDirectMatch(key, requestedModel, currentProvider, availableMode
   const fallbackAvailableModels = {
     [currentProvider]: providerModels.filter(m =>
       _isModelPermittedByPolicy(m, modelPolicyConfig, currentProvider) &&
-      _isModelHarnessPermitted(m, currentProvider, resolutionState)),
+      isModelHarnessEligible(m, currentProvider, resolutionState.eligibilityRequest, { inputMode: 'native' })),
   };
   return applyModelParametersToResolution(tryMiddlePowerFallback(
     requestedModel, fallbackAvailableModels, currentProvider,
@@ -350,7 +350,7 @@ function _resolveAliasPatterns(aliasKey, aliasDefinition, requestedModel, aliase
         requestedModel, {
           [currentProvider]: (availableModels[currentProvider] || [])
             .filter(model => _isModelPermittedByPolicy(model, modelPolicyConfig, currentProvider) &&
-              _isModelHarnessPermitted(model, currentProvider, resolutionState)),
+              isModelHarnessEligible(model, currentProvider, resolutionState.eligibilityRequest, { inputMode: 'native' })),
         }, currentProvider,
         'no_alias_match_and_not_in_available_models', fallbackConfig, log
       ), parameterSuffix);
