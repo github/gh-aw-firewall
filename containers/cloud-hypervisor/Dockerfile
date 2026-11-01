@@ -61,12 +61,12 @@ RUN apt-get update \
       build-essential cmake pkg-config ripgrep \
     && rm -rf /var/lib/apt/lists/*
 COPY --from=copilot-runtime /usr/local/lib/node_modules/@github/copilot/ /usr/local/lib/node_modules/@github/copilot/
+ENV COPILOT_CLI_DIST_DIR=/usr/local/lib/node_modules/@github/copilot/runtime
 COPY --from=copilot-runtime /usr/bin/gh /usr/bin/gh
 RUN sh /opt/awf/trust/install-system-trust.sh
 COPY enclave/script-entrypoint.py /usr/local/bin/run-enclave-script
 COPY enclave/agent-entrypoint.py /usr/local/bin/run-enclave-agent
-RUN sed -i '1c#!/usr/local/bin/node' /usr/local/lib/node_modules/@github/copilot/npm-loader.js \
-    && ln -s ../lib/node_modules/@github/copilot/npm-loader.js /usr/local/bin/copilot \
+RUN ln -s ../lib/node_modules/@github/copilot/npm-loader.js /usr/local/bin/copilot \
     && chmod 0555 /usr/local/bin/run-enclave-script /usr/local/bin/run-enclave-agent \
     && python3 -m py_compile /usr/local/bin/run-enclave-script /usr/local/bin/run-enclave-agent \
     && rm -rf /usr/local/bin/__pycache__ /root/.cache /root/.npm \

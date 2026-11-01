@@ -85,6 +85,14 @@ what evidence supports it. Existing Docker capabilities must survive extraction.
 
 ### Roles and execution combinations
 
+The pinned Copilot distribution and native addons are extracted during image
+build, root-owned and non-writable under
+`/usr/local/lib/node_modules/@github/copilot/runtime`. The pinned SEA loader's
+`COPILOT_CLI_DIST_DIR` selects this immutable distribution in both Docker and
+Cloud Hypervisor images, independently of invocation `HOME=/agent/home`.
+Docker's writable `/agent` backing storage and `/tmp` remain `noexec`; native
+addons must not be extracted there.
+
 | Role | Observable contract | Security boundary |
 | --- | --- | --- |
 | Primary agent | Runs the caller's command with the approved workspace, environment, proxy routes and workdir; streams command output and returns its exit status. | Primary workspace is not a private repository seed. No enclave-private roots, enclave credentials, broker capability, ledger, or recovery journal. |

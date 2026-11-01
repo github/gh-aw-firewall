@@ -34,11 +34,18 @@ RUN npm_config_ignore_scripts=false npm ci --prefix /tmp/copilot-cli --install-s
     && cp -a /tmp/copilot-cli/node_modules/. /usr/local/lib/node_modules/@github/copilot/node_modules/ \
     && rm -rf /usr/local/lib/node_modules/@github/copilot/node_modules/@github/copilot \
     && ln -s ../lib/node_modules/@github/copilot/npm-loader.js /usr/local/bin/copilot \
+    && COPILOT_CLI_VERSION="$(node -p 'require("/usr/local/lib/node_modules/@github/copilot/package.json").version')" \
+    && COPILOT_CACHE_HOME=/usr/local/lib/node_modules/@github/copilot/cache \
+         copilot --no-auto-update --version | grep -q "GitHub Copilot CLI ${COPILOT_CLI_VERSION}" \
     && find /usr/local/lib/node_modules/@github/copilot \
          -path '*/foundry-local-sdk/node_modules/adm-zip' -prune -type d \
          -exec sh -c 'rm -rf "$1" && cp -a /usr/local/lib/node_modules/@github/copilot/node_modules/adm-zip "$1"' sh {} \; \
-    && COPILOT_CLI_VERSION="$(node -p 'require("/usr/local/lib/node_modules/@github/copilot/package.json").version')" \
-    && copilot --version | grep -q "GitHub Copilot CLI ${COPILOT_CLI_VERSION}"
+    && ln -s "cache/pkg/$(node -p 'process.platform + "-" + process.arch')/${COPILOT_CLI_VERSION}" \
+         /usr/local/lib/node_modules/@github/copilot/runtime \
+    && test -r /usr/local/lib/node_modules/@github/copilot/runtime/index.js \
+    && sed -i '1c#!/usr/local/bin/node' /usr/local/lib/node_modules/@github/copilot/npm-loader.js \
+    && chown -R 0:0 /usr/local/lib/node_modules/@github/copilot \
+    && chmod -R a+rX,a-w /usr/local/lib/node_modules/@github/copilot
 
 FROM ${BUILD_TOOLS_IMAGE} AS enclave-agent
 
@@ -57,9 +64,11 @@ COPY trust/ /opt/awf/trust/
 RUN sh /opt/awf/trust/install-system-trust.sh \
     && sh /opt/awf/trust/install-node-trust.sh
 COPY --from=enclave-agent-build /usr/local/lib/node_modules/@github/copilot/ /usr/local/lib/node_modules/@github/copilot/
-# Avoid uutils env's executable-name check on shebangs under BuildKit's QEMU.
-RUN sed -i '1c#!/usr/local/bin/node' /usr/local/lib/node_modules/@github/copilot/npm-loader.js \
-    && ln -s ../lib/node_modules/@github/copilot/npm-loader.js /usr/local/bin/copilot \
+# The pinned SEA loader supports this fixed distribution path. Never extract
+# native addons into the invocation's writable, noexec HOME.
+ENV COPILOT_CLI_DIST_DIR=/usr/local/lib/node_modules/@github/copilot/runtime
+# The runtime is sealed in the build stage before it is copied into this image.
+RUN ln -s ../lib/node_modules/@github/copilot/npm-loader.js /usr/local/bin/copilot \
     && node --version | grep -qE '^v26\.' \
     && COPILOT_CLI_VERSION="$(node -p 'require("/usr/local/lib/node_modules/@github/copilot/package.json").version')" \
     && copilot --version | grep -q "GitHub Copilot CLI ${COPILOT_CLI_VERSION}" \

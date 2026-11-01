@@ -161,6 +161,7 @@ describe('readBoundedCloudHypervisorEnclaveResult', () => {
     };
 
     const environment = agentEnvironment(policy, plan);
+    expect(environment.COPILOT_CLI_DIST_DIR).toBe('/usr/local/lib/node_modules/@github/copilot/runtime');
     expect(environment.COPILOT_GITHUB_TOKEN).toBe('******');
     expect(environment.COPILOT_TOKEN).not.toContain(secret);
     expect(decodeCapability(environment.COPILOT_TOKEN, secret)).toEqual({

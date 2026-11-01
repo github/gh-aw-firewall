@@ -20,7 +20,7 @@ const crypto = require('crypto');
  *  - `--read-only` with the repository seed bind-mounted `ro`: the enclave can
  *    never mutate private source.
  *  - bounded `--tmpfs` mounts for `/tmp` and shared memory, plus an
- *    invocation-private disk-backed `/agent` runtime root.
+ *    invocation-private noexec `/agent` runtime root.
  *  - fixed non-root uid/gid, `--cap-drop ALL`, `no-new-privileges`, a seccomp
  *    profile, and memory/CPU/PID/file-size/timeout bounds.
  */
