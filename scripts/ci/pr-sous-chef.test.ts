@@ -447,6 +447,65 @@ describe('PR sous-chef reads, configuration and queue gates', () => {
   it('provides a runnable dependency-free CLI and rejects malformed scope', () => {
     expect(() => execFileSync(process.execPath, [path.join(__dirname, 'pr-sous-chef.cjs'), '42;echo unsafe'], { stdio: 'pipe' })).toThrow();
   });
+
+  it('executes the queued refresh CLI and returns the sanitized comment using read-only API fixtures', async () => {
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'pr-sous-chef-refresh-'));
+    try {
+      const api = apiFixture();
+      const responses: Record<string, unknown> = {};
+      const options = { repo, number: 42, mode: 'pilot', writer: 'sous-chef', writerConfigured: true, now: NOW };
+      const expected = await fetchQueue(options, async (args: string[]) => {
+        const response = await api(args);
+        responses[JSON.stringify(args)] = response;
+        return response;
+      });
+      const fixturePath = path.join(directory, 'responses.json');
+      const preloadPath = path.join(directory, 'preload.cjs');
+      const queuePath = path.join(directory, 'queue.json');
+      fs.writeFileSync(fixturePath, JSON.stringify(responses));
+      fs.writeFileSync(queuePath, JSON.stringify(expected));
+      fs.writeFileSync(preloadPath, `
+        const responses = JSON.parse(require('node:fs').readFileSync(${JSON.stringify(fixturePath)}, 'utf8'));
+        Date.now = () => ${NOW};
+        require('node:child_process').execFileSync = (command, args) => {
+          const key = JSON.stringify(args);
+          if (command !== 'gh' || !Object.hasOwn(responses, key)) throw new Error('Unexpected API call');
+          return JSON.stringify(responses[key]);
+        };
+      `);
+      const runRefresh = () => execFileSync(process.execPath, ['--require', preloadPath, 'scripts/ci/pr-sous-chef.cjs', '--refresh'], {
+        cwd: path.resolve(__dirname, '../..'),
+        encoding: 'utf8',
+        timeout: 10_000,
+        env: {
+          PR_SOUS_CHEF_REPOSITORY: repo,
+          PR_SOUS_CHEF_MODE: 'pilot',
+          PR_SOUS_CHEF_WRITER_LOGIN: 'sous-chef',
+          PR_SOUS_CHEF_WRITER_CONFIGURED: 'true',
+          PR_SOUS_CHEF_NUMBER: '999',
+          PR_SOUS_CHEF_QUEUE_PATH: queuePath,
+        },
+      });
+      const output = runRefresh();
+      expect(JSON.parse(output)).toEqual(expected);
+      expect(JSON.parse(output).prs).toHaveLength(1);
+      expect(JSON.parse(output).prs[0].body).toContain('@copilot');
+      expect(JSON.parse(fs.readFileSync(queuePath, 'utf8'))).toEqual(expected);
+      for (const queue of [
+        { ...expected, mode: 'dry-run' },
+        { ...expected, rate_limit: { low: true } },
+        { ...expected, prs: [] },
+        { ...expected, prs: [expected.prs[0], expected.prs[0]] },
+        { ...expected, prs: [{ number: '42;echo unsafe' }] },
+        { ...expected, prs: [{ number: 0 }] },
+      ]) {
+        fs.writeFileSync(queuePath, JSON.stringify(queue));
+        expect(runRefresh).toThrow('Refresh requires a single positive PR number');
+      }
+    } finally {
+      fs.rmSync(directory, { recursive: true, force: true });
+    }
+  });
 });
 
 describe('PR sous-chef workflow safety contract', () => {
@@ -460,12 +519,13 @@ describe('PR sous-chef workflow safety contract', () => {
     checkout: { ref: string; 'pull-request': boolean };
     jobs: { prefilter: { if: string } };
     env: { PR_SOUS_CHEF_MODE: string };
-    tools: { bash: string[] };
+    tools: { edit: boolean; bash: string[] };
   };
 
-  it('authorizes refresh arguments only for the trusted helper in noninteractive Copilot', () => {
+  it('authorizes only the exact queued refresh command in noninteractive Copilot', () => {
+    const refreshCommand = 'node scripts/ci/pr-sous-chef.cjs --refresh';
     expect(config.tools.bash).toEqual([
-      'node scripts/ci/pr-sous-chef.cjs:*',
+      refreshCommand,
       'cat /tmp/gh-aw/agent/pr-sous-chef-queue.json',
     ]);
     const lock = yaml.load(fs.readFileSync(path.join(root, '.github/workflows/pr-sous-chef.lock.yml'), 'utf8')) as {
@@ -473,12 +533,18 @@ describe('PR sous-chef workflow safety contract', () => {
     };
     const invocation = lock.jobs.agent.steps.find(step => step.run?.includes('copilot_harness.cjs'))!.run!;
     const permissions = [...invocation.matchAll(/shell\(([^)]+)\)/g)].map(match => match[1]);
-    // A trailing " *" is normalized away by gh-aw; Copilot needs ":*" for arguments.
     expect(permissions.filter(permission => permission.startsWith('node'))).toEqual([
-      'node scripts/ci/pr-sous-chef.cjs:*',
+      refreshCommand,
     ]);
+    expect(source).toContain('`node scripts/ci/pr-sous-chef.cjs --refresh` to refresh the single original queued PR');
+    expect(source).not.toContain('`node scripts/ci/pr-sous-chef.cjs NUMBER`');
+    expect(permissions).not.toContain('node:*');
+    expect(permissions).not.toContain('node scripts/ci/pr-sous-chef.cjs:*');
     expect(invocation).toContain('--no-ask-user');
     expect(invocation).not.toContain('--allow-all-tools');
+    expect(config.tools.edit).toBe(false);
+    expect(invocation).not.toContain('--allow-tool write');
+    expect(invocation).not.toContain('--allow-all-paths');
     expect(invocation).not.toMatch(/--allow-tool\s+(?:'|\\')?shell(?:'|\\')?(?:\s|$)/);
   });
 

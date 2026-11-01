@@ -372,8 +372,17 @@ async function main() {
     console.log('Writer validation passed');
     return;
   }
-  requireValue(args.length <= 1 && (!args.length || /^[1-9]\d*$/.test(args[0])), 'Usage: node scripts/ci/pr-sous-chef.cjs [PR number]');
-  const rawNumber = args[0] ?? process.env.PR_SOUS_CHEF_NUMBER;
+  const refresh = args[0] === '--refresh';
+  requireValue(args.length <= 1 && (!args.length || refresh || /^[1-9]\d*$/.test(args[0])), 'Usage: node scripts/ci/pr-sous-chef.cjs [PR number | --refresh]');
+  let rawNumber = args[0] ?? process.env.PR_SOUS_CHEF_NUMBER;
+  if (refresh) {
+    const queue = JSON.parse(readFileSync(process.env.PR_SOUS_CHEF_QUEUE_PATH ?? '/tmp/gh-aw/agent/pr-sous-chef-queue.json', 'utf8'));
+    requireValue(queue.mode === 'pilot' && !queue.rate_limit?.low &&
+      Array.isArray(queue.prs) && queue.prs.length === 1 &&
+      Number.isSafeInteger(queue.prs[0].number) && queue.prs[0].number > 0,
+    'Refresh requires a single positive PR number in the original pilot queue');
+    rawNumber = String(queue.prs[0].number);
+  }
   requireValue(!rawNumber || /^[1-9]\d*$/.test(rawNumber), 'Invalid scoped PR number');
   const output = await fetchQueue({
     repo: process.env.PR_SOUS_CHEF_REPOSITORY ?? process.env.GITHUB_REPOSITORY,
