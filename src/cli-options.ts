@@ -276,6 +276,11 @@ program
     []
   )
   .option(
+    '--input-dir <path>',
+    'Require a non-empty, readable sandbox-visible input directory before running the command (repeatable; does not grant engine scope)',
+    collectStringArray
+  )
+  .option(
     '--container-workdir <dir>',
     'Working directory inside the container'
   )

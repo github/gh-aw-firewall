@@ -1,4 +1,5 @@
 import * as fs from 'fs';
+import * as path from 'path';
 import { logger } from '../../logger';
 import { SQUID_DANGEROUS_CHARS } from '../../domain-validation';
 import { parseDomains } from '../../domain-utils';
@@ -55,6 +56,14 @@ export function validateAgentOptions(options: Record<string, unknown>): AgentOpt
 
   // --- Volume mounts -------------------------------------------------------
 
+  if (options.inputDir !== undefined && (
+    !Array.isArray(options.inputDir) ||
+    options.inputDir.some(input => typeof input !== 'string' || !path.posix.isAbsolute(input) || input.includes('\0'))
+  )) {
+    logger.error('--input-dir requires absolute sandbox-visible directory paths');
+    process.exit(1);
+  }
+
   // Parse and validate volume mounts from --mount flags
   let volumeMounts: string[] | undefined;
   if (options.mount && Array.isArray(options.mount) && (options.mount as string[]).length > 0) {
@@ -67,7 +76,7 @@ export function validateAgentOptions(options: Record<string, unknown>): AgentOpt
     volumeMounts = parsed.mounts;
     logger.debug(`Parsed ${volumeMounts.length} volume mount(s)`);
     logger.warn(
-      '--mount provides filesystem visibility, not engine file scope. Grant the sandbox-visible input directory to the engine subprocess (e.g. Copilot --add-dir). Detectors must fail closed on empty or unreadable inputs; AWF does not verify detector input access or verdicts.',
+      '--mount provides filesystem visibility, not engine file scope. Grant the sandbox-visible input directory to the engine subprocess (e.g. Copilot --add-dir). Use --input-dir for a sandbox readability preflight. Detectors must fail closed on empty or unreadable inputs; AWF does not verify engine input access or verdicts.',
     );
   }
 

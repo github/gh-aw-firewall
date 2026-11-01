@@ -17,6 +17,7 @@ import {
 } from './preflight';
 import { getSafeHostGid, getSafeHostUid } from '../host-identity';
 import { logger } from '../logger';
+import { withInputPreflight } from '../input-preflight';
 import type { CloudHypervisorOptions, WrapperConfig } from '../types';
 import {
   assertCloudHypervisorRuntimeCompatibility,
@@ -323,7 +324,7 @@ class CloudHypervisorRuntimeBackend implements ExternalAgentRuntimeBackend {
     this.agentExecutionStarted = true;
     const execution = manager.execute({
       requestId,
-      argv: ['/bin/sh', '-lc', this.config.agentCommand],
+      argv: ['/bin/sh', '-lc', withInputPreflight(this.config.agentCommand, this.config.inputDirs)],
       env: environment,
       cwd: CLOUD_HYPERVISOR_GUEST_WORKSPACE,
       ...identity,

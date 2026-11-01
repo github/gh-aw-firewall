@@ -493,6 +493,7 @@ For example, mount staged inputs read-only and grant Copilot the
 # Stage the required input files in this directory before invoking AWF.
 mkdir -p "${RUNNER_TEMP}/gh-aw/threat-detection"
 awf --mount "${RUNNER_TEMP}/gh-aw/threat-detection:/tmp/gh-aw/threat-detection:ro" \
+    --input-dir /tmp/gh-aw/threat-detection \
     --allow-domains github.com,api.githubcopilot.com \
     -- copilot --add-dir /tmp/gh-aw/threat-detection \
        --prompt "Analyze the staged inputs in /tmp/gh-aw/threat-detection"
@@ -502,9 +503,17 @@ This illustrates a direct Copilot invocation, not the `threat-detect` interface.
 When a wrapper launches the engine, it must grant scope to that subprocess;
 adding a mount or granting scope to a separate agent invocation is insufficient.
 
-AWF validates mount syntax and host source existence, but has no input-specific
-readability preflight. A host-side check (possibly running as root) cannot prove
-access under the sandbox user's identity or the engine's file policy.
+AWF validates mount syntax and host source existence. Opt in to an input-specific
+preflight with repeatable `--input-dir <sandbox-visible-path>` flags. Before the
+command runs, the sandbox workload user must be able to traverse and list each
+declared directory and read every file in its tree. Missing or empty directories,
+unreadable files, broken/cyclic symlinks, and non-regular input entries fail with
+exit code 1 and an `AWF input preflight failed` error. Symlinks are followed;
+file contents are discarded, not logged. The flag does not add mounts, change
+permissions, grant engine scope, or validate a detector verdict. Without it,
+mount behavior is unchanged. This is a CLI option, not an AWF config-file field.
+A host-side check (possibly running as root) cannot prove access under the
+sandbox user's identity or the engine's file policy.
 Inside the sandbox, `test -r` on each required file and `test -x` on its parent
 directories are preliminary checks only: the detector must successfully open
 and consume every required input through its actual engine/tool path.

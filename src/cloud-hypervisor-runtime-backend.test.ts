@@ -8,6 +8,7 @@ import * as enclaveLifecycle from './enclave/cloud-hypervisor-lifecycle';
 import * as runtimeValidation from './cloud-hypervisor/runtime-validation';
 import { normalizeEnclavesConfig } from './parsers/enclave-parser';
 import { runCloudHypervisorPreflight } from './cloud-hypervisor/preflight';
+import { withInputPreflight } from './input-preflight';
 import {
   cloudHypervisorRuntimeTestHelpers,
   createCloudHypervisorRuntimeBackend,
@@ -183,6 +184,20 @@ describe('Cloud Hypervisor runtime backend', () => {
 
   afterEach(() => {
     eligibilitySpy.mockRestore();
+  });
+
+  it('passes input preflight to the guest execution request under the workload identity', async () => {
+    const backendConfig = config({ inputDirs: ['/workspace/inputs'] });
+    const { deps, manager } = harness();
+    const backend = createBackend(backendConfig, deps);
+    await backend.start('/tmp/awf', ['github.com']);
+    await backend.exec('/tmp/awf', ['github.com']);
+    expect(manager.execute).toHaveBeenNthCalledWith(3, expect.objectContaining({
+      argv: ['/bin/sh', '-lc', withInputPreflight(backendConfig.agentCommand, backendConfig.inputDirs)],
+      uid: 1000,
+      gid: 1000,
+    }));
+    await backend.stop();
   });
 
   it('publishes primary preflight phase/profile through the real runtime caller', async () => {

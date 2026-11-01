@@ -5,6 +5,7 @@ import {
   type SbxRuntimeBackendDependencies,
 } from './sbx-runtime-backend';
 import type { WrapperConfig } from './types';
+import { withInputPreflight } from './input-preflight';
 
 const SBX_GATEWAY_HOST = 'host.docker.internal';
 const SBX_HOST_DOCKER_INTERNAL = 'host.docker.internal';
@@ -50,6 +51,20 @@ function createDependencies(
 }
 
 describe('SbxRuntimeBackend', () => {
+  it('executes declared input checks inside the sandbox and propagates failure', async () => {
+    const config = createConfig({ inputDirs: ['/guest/inputs'] });
+    const dependencies = createDependencies();
+    const backend = new SbxRuntimeBackend(config, dependencies);
+    await backend.start(config.workDir, config.allowedDomains);
+    (dependencies.execInSandbox as jest.Mock).mockResolvedValue({ exitCode: 1 });
+    expect(await backend.exec(config.workDir, config.allowedDomains)).toEqual({ exitCode: 1 });
+    expect(dependencies.execInSandbox).toHaveBeenLastCalledWith(
+      'awf-agent-created',
+      withInputPreflight(config.agentCommand, config.inputDirs),
+      expect.any(Object),
+    );
+  });
+
   it('owns infrastructure startup, preflight, environment, reflection, exec, diagnostics, and stop', async () => {
     const dependencies = createDependencies();
     const execInSandbox = dependencies.execInSandbox as jest.MockedFunction<
