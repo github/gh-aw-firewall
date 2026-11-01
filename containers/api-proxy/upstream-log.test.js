@@ -105,6 +105,13 @@ describe('upstream-log', () => {
       ['POST', '/chat/completions'],
       ['POST', '/v1/responses'],
       ['POST', '/responses'],
+      ['POST', '/v1/decisions'],
+      ['POST', '/decisions'],
+      ['POST', '/openai/v1/decisions/?api-version=test'],
+      ['POST', '/v1\\decisions'],
+      ['POST', '/v1/./decisions'],
+      ['POST', '/v1/unused/../decisions///?api-version=test#section'],
+      ['POST', '/v1\\responses'],
       ['POST', '/v1/messages'],
       // Gemini generateContent endpoints
       ['POST', '/v1beta/models/gemini-pro:generateContent'],

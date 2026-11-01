@@ -36,6 +36,7 @@ describe('request-headers', () => {
       headers: {
         host: 'example.com',
         authorization: '******',
+        'api-key': 'untrusted-placeholder',
         'x-forwarded-for': '1.2.3.4',
         'x-custom': 'keep-me',
       },
@@ -48,6 +49,7 @@ describe('request-headers', () => {
     });
 
     expect(headers.host).toBeUndefined();
+    expect(headers['api-key']).toBeUndefined();
     expect(headers['x-forwarded-for']).toBeUndefined();
     expect(headers.authorization).toBe('******');
     expect(headers['x-custom']).toBe('keep-me');

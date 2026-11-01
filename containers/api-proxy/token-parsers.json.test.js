@@ -10,6 +10,39 @@ const {
 // ── extractUsageFromJson ──────────────────────────────────────────────
 
 describe('extractUsageFromJson', () => {
+  test('extracts Decisions usage with cache reads, cache writes, and reasoning', () => {
+    const usage = {
+      input_tokens: 1000,
+      output_tokens: 50,
+      total_tokens: 1050,
+      input_tokens_details: { cached_tokens: 400, cache_write_tokens: 300 },
+      output_tokens_details: { reasoning_tokens: 20 },
+    };
+    const result = extractUsageFromJson(Buffer.from(JSON.stringify({
+      model: 'gpt-6-luna',
+      answers: [{ type: 'predicate', name: null, probability: 0.95 }],
+      usage,
+    })));
+    expect(result.model).toBe('gpt-6-luna');
+    const normalized = {
+      input_tokens: 1000,
+      output_tokens: 50,
+      cache_read_tokens: 400,
+      cache_write_tokens: 300,
+      reasoning_tokens: 20,
+      input_tokens_include_cache: true,
+    };
+    expect(normalizeUsage(result.usage)).toEqual(normalized);
+    expect(normalizeUsage(usage)).toEqual({ ...normalized, reasoning_tokens: 0 });
+  });
+
+  test('ignores malformed nested cache-write counts', () => {
+    const result = extractUsageFromJson(Buffer.from(JSON.stringify({
+      usage: { input_tokens: 100, input_tokens_details: { cache_write_tokens: '300' } },
+    })));
+    expect(normalizeUsage(result.usage).cache_write_tokens).toBe(0);
+  });
+
   test('extracts OpenAI usage format', () => {
     const body = Buffer.from(JSON.stringify({
       id: 'chatcmpl-123',

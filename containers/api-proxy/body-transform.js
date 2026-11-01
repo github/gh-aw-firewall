@@ -94,6 +94,15 @@ function isResponsesRequest(requestPath) {
  * @returns {Buffer|null}
  */
 function injectSteeringMessage(body, provider, message, requestPath = '') {
+  // Evaluation evidence must not be changed by conversational budget warnings.
+  if (typeof requestPath === 'string') {
+    try {
+      const path = new URL(requestPath, 'https://localhost').pathname.replace(/\/+$/, '');
+      if (path.endsWith('/decisions')) return null;
+    } catch {
+      return null;
+    }
+  }
   let parsed = parseBodyAsObject(body);
   if (!parsed) return null;
 

@@ -228,6 +228,7 @@ const STRIPPED_HEADERS = new Set([
   'authorization',
   'proxy-authorization',
   'x-api-key',
+  'api-key',
   'x-goog-api-key',
   'forwarded',
   'via',
