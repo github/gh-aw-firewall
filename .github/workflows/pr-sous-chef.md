@@ -44,8 +44,8 @@ tools:
     mode: gh-proxy
     toolsets: [pull_requests, repos, issues, actions]
   bash:
-    # Copilot requires :* for argument-prefix matching; gh-aw strips a trailing " *".
-    - "node scripts/ci/pr-sous-chef.cjs:*"
+    # Use an exact command rule; the helper reads the single target from the queue.
+    - "node scripts/ci/pr-sous-chef.cjs --refresh"
     - "cat /tmp/gh-aw/agent/pr-sous-chef-queue.json"
 if: needs.prefilter.outputs.eligible_count > 0
 jobs:
@@ -169,7 +169,7 @@ budget is low, or `prs` is empty, call `noop` and stop without comments.
 Process only the single PR number in this original queue; do not scan others.
 
 Immediately before each comment, run
-`node scripts/ci/pr-sous-chef.cjs NUMBER` with that numeric PR number.
+`node scripts/ci/pr-sous-chef.cjs --refresh` to refresh the single original queued PR.
 If the refresh fails, use `report_incomplete` and stop: an API error is not a no-op.
 If the refreshed mode is not `pilot`, its budget is low, or its `prs` is empty,
 skip that PR. Use the refreshed helper body, which deterministically removes
