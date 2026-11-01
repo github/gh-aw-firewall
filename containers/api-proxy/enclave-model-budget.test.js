@@ -207,18 +207,45 @@ describe('invocation-scoped enclave model budgets', () => {
       cache_read_tokens: 20,
       cache_write_tokens: 3,
       input_tokens_include_cache: true,
-    })).toBe(28);
+    })).toBe(25);
+    expect(usageTokenCount({
+      input_tokens: 20,
+      output_tokens: 5,
+      cache_read_tokens: 20,
+      cache_write_tokens: 3,
+      input_tokens_include_cache: false,
+    })).toBe(48);
 
     const budget = createInvocationModelBudget(secret);
     expect(attempt(budget, '******')).toMatchObject({
       allowed: false,
       reason: 'invalid_capability',
     });
+
     expect(attempt(
       budget,
       capability('invocation-00000008', null, 128),
       Buffer.from('{}'),
       '/v1/completions',
     )).toMatchObject({ allowed: false, reason: 'unsupported_token_accounting' });
+  });
+
+  test('keeps Responses budgets available when cache writes are included in input tokens', () => {
+    const budget = createInvocationModelBudget(secret);
+    const token = capability('invocation-cache00001', null, 1200);
+    const first = attempt(budget, token, Buffer.from('{"model":"test"}'), '/v1/responses');
+    expect(first.allowed).toBe(true);
+    first.settle({
+      input_tokens: 1000,
+      output_tokens: 50,
+      cache_read_tokens: 400,
+      cache_write_tokens: 300,
+      input_tokens_include_cache: true,
+    });
+    const next = attempt(budget, token, Buffer.from('{"model":"test"}'), '/v1/responses');
+    expect(next.allowed).toBe(true);
+    expect(JSON.parse(next.body.toString('utf8')).max_output_tokens).toBe(
+      150 - Buffer.byteLength('{"model":"test"}'),
+    );
   });
 });

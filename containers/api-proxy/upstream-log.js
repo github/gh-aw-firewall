@@ -47,8 +47,13 @@ const INFERENCE_SUFFIXES = [
 function isInferenceRequest(method, url) {
   if (typeof method !== 'string' || typeof url !== 'string') return false;
   if (method !== 'POST') return false;
-  // Strip query string, fragment, and trailing slashes before matching.
-  const path = url.split('?')[0].split('#')[0].replace(/\/+$/, '');
+  // Normalize as forwarding does, then strip trailing slashes before matching.
+  let path;
+  try {
+    path = new URL(url, 'https://localhost').pathname.replace(/\/+$/, '');
+  } catch {
+    return false;
+  }
   if (INFERENCE_PATHS.some((p) => path === p || path.endsWith(p))) return true;
   if (INFERENCE_SUFFIXES.some((s) => path.endsWith(s))) return true;
   return false;

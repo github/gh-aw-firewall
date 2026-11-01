@@ -71,7 +71,14 @@ describe('transformRequestBody Codex custom-tool translation routing', () => {
       applyAiCreditsUsage({ input_tokens: 32 }, 'gpt-5-mini');
     }
 
-    test.each(['/decisions', '/v1/decisions', '/v1/decisions/?api-version=test'])(
+    test.each([
+      '/decisions',
+      '/v1/decisions',
+      '/v1/decisions/?api-version=test',
+      '/v1\\decisions',
+      '/v1/./decisions',
+      '/v1/unused/../decisions///?api-version=test#section',
+    ])(
       'preserves Decisions evidence and leaves warnings pending on %s',
       async (url) => {
         createCreditWarning();

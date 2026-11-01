@@ -128,8 +128,7 @@ function usageTokenCount(usage) {
       (usage.input_tokens_include_cache !== undefined &&
         typeof usage.input_tokens_include_cache !== 'boolean')) return null;
   const count = usage.input_tokens + usage.output_tokens +
-    (usage.input_tokens_include_cache ? 0 : usage.cache_read_tokens) +
-    usage.cache_write_tokens;
+    (usage.input_tokens_include_cache ? 0 : usage.cache_read_tokens + usage.cache_write_tokens);
   return Number.isSafeInteger(count) ? count : null;
 }
 

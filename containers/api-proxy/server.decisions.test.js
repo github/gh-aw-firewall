@@ -14,7 +14,9 @@ if (Number(process.versions.node.split('.')[0]) >= 22) {
     if (err.code !== 'MODULE_NOT_FOUND') throw err;
   }
 }
-const sdkTest = OpenAI ? test : test.skip;
+const hasDecisionsSdk = typeof OpenAI === 'function' &&
+  typeof new OpenAI({ apiKey: 'awf-placeholder' }).decisions?.create === 'function';
+const sdkTest = hasDecisionsSdk ? test : test.skip;
 
 const questions = [
   { type: 'predicate', name: 'correct', instructions: 'Is the answer correct?' },
@@ -243,9 +245,31 @@ describe('OpenAI Decisions HTTP conformance', () => {
     expect(requests).toHaveLength(1);
   });
 
-  test('Decisions and existing endpoints share invocation limits', async () => {
+  test.each([
+    '/v1/decisions',
+    '/v1\\decisions',
+    '/v1/./decisions',
+    '/v1/decisions///?api-version=test',
+  ])('Decisions at %s and existing endpoints share invocation limits', async requestPath => {
     process.env.AWF_MAX_RUNS = '1';
-    await post('/decisions', { model: 'gpt-6-luna', input: 'Evidence', questions });
+    const body = { model: 'gpt-6-luna', input: 'Evidence', questions };
+    const status = await new Promise((resolve, reject) => {
+      const req = http.request({
+        hostname: '127.0.0.1', port: proxy.address().port,
+        path: requestPath, method: 'POST',
+        headers: { 'content-type': 'application/json' },
+      }, res => {
+        res.resume();
+        res.on('end', () => resolve(res.statusCode));
+      });
+      req.on('error', reject);
+      req.end(JSON.stringify(body));
+    });
+    expect(status).toBe(200);
+    const forwarded = new URL(requestPath, baseURL);
+    expect(requests[0].url).toBe(forwarded.pathname + forwarded.search);
+    await expect(post('/decisions', body))
+      .rejects.toMatchObject({ status: 429, error: { type: 'max_runs_exceeded' } });
     await expect(post('/responses', { model: 'gpt-6-luna', input: 'Evidence' }))
       .rejects.toMatchObject({ status: 429, error: { type: 'max_runs_exceeded' } });
     expect(requests).toHaveLength(1);
@@ -291,7 +315,7 @@ describe('OpenAI Decisions HTTP conformance', () => {
 
   const liveTest = process.env.AWF_TEST_LIVE_DECISIONS === '1' ? test : test.skip;
   liveTest('live Decisions conformance through the configured AWF sidecar', async () => {
-    if (!OpenAI) throw new Error('Live SDK conformance requires Node.js 22+ and the OpenAI SDK');
+    if (!hasDecisionsSdk) throw new Error('Live SDK conformance requires Node.js 22+ and an OpenAI SDK with client.decisions.create');
     const origin = process.env.AWF_API_PROXY_OPENAI_URL;
     if (!origin) throw new Error('Run inside AWF with AWF_API_PROXY_OPENAI_URL configured');
     const client = new OpenAI({ baseURL: `${origin.replace(/\/+$/, '')}/v1`, apiKey: 'awf-placeholder', maxRetries: 0 });
