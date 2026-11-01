@@ -519,7 +519,7 @@ describe('PR sous-chef workflow safety contract', () => {
     checkout: { ref: string; 'pull-request': boolean };
     jobs: { prefilter: { if: string } };
     env: { PR_SOUS_CHEF_MODE: string };
-    tools: { bash: string[] };
+    tools: { edit: boolean; bash: string[] };
   };
 
   it('authorizes only the exact queued refresh command in noninteractive Copilot', () => {
@@ -542,6 +542,9 @@ describe('PR sous-chef workflow safety contract', () => {
     expect(permissions).not.toContain('node scripts/ci/pr-sous-chef.cjs:*');
     expect(invocation).toContain('--no-ask-user');
     expect(invocation).not.toContain('--allow-all-tools');
+    expect(config.tools.edit).toBe(false);
+    expect(invocation).not.toContain('--allow-tool write');
+    expect(invocation).not.toContain('--allow-all-paths');
     expect(invocation).not.toMatch(/--allow-tool\s+(?:'|\\')?shell(?:'|\\')?(?:\s|$)/);
   });
 

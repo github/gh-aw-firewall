@@ -39,6 +39,7 @@ env:
   # The prefilter validates the real secret before allowing agent startup.
   PR_SOUS_CHEF_WRITER_CONFIGURED: "true"
 tools:
+  edit: false
   cli-proxy: true
   github:
     mode: gh-proxy
