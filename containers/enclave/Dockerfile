@@ -34,12 +34,12 @@ RUN npm_config_ignore_scripts=false npm ci --prefix /tmp/copilot-cli --install-s
     && cp -a /tmp/copilot-cli/node_modules/. /usr/local/lib/node_modules/@github/copilot/node_modules/ \
     && rm -rf /usr/local/lib/node_modules/@github/copilot/node_modules/@github/copilot \
     && ln -s ../lib/node_modules/@github/copilot/npm-loader.js /usr/local/bin/copilot \
-    && find /usr/local/lib/node_modules/@github/copilot \
-         -path '*/foundry-local-sdk/node_modules/adm-zip' -prune -type d \
-         -exec sh -c 'rm -rf "$1" && cp -a /usr/local/lib/node_modules/@github/copilot/node_modules/adm-zip "$1"' sh {} \; \
     && COPILOT_CLI_VERSION="$(node -p 'require("/usr/local/lib/node_modules/@github/copilot/package.json").version')" \
     && COPILOT_CACHE_HOME=/usr/local/lib/node_modules/@github/copilot/cache \
          copilot --no-auto-update --version | grep -q "GitHub Copilot CLI ${COPILOT_CLI_VERSION}" \
+    && find /usr/local/lib/node_modules/@github/copilot \
+         -path '*/foundry-local-sdk/node_modules/adm-zip' -prune -type d \
+         -exec sh -c 'rm -rf "$1" && cp -a /usr/local/lib/node_modules/@github/copilot/node_modules/adm-zip "$1"' sh {} \; \
     && ln -s "cache/pkg/$(node -p 'process.platform + "-" + process.arch')/${COPILOT_CLI_VERSION}" \
          /usr/local/lib/node_modules/@github/copilot/runtime \
     && test -r /usr/local/lib/node_modules/@github/copilot/runtime/index.js \

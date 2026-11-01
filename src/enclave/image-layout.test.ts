@@ -59,7 +59,7 @@ describe('enclave image contract', () => {
   it('launches Copilot through the copied Node interpreter without env', () => {
     const dockerfile = fs.readFileSync(dockerfilePath, 'utf8');
     const patch = dockerfile.match(
-      /RUN sed -i '([^']+)' \/usr\/local\/lib\/node_modules\/@github\/copilot\/npm-loader\.js/,
+      /sed -i '([^']+)' \/usr\/local\/lib\/node_modules\/@github\/copilot\/npm-loader\.js/,
     );
     expect(patch?.[1]).toBe('1c#!/usr/local/bin/node');
     expect(dockerfile).toContain(
@@ -109,11 +109,15 @@ describe('enclave image contract', () => {
     expect(dockerfile).toContain('copilot --no-auto-update --version');
     expect(dockerfile).toContain('cache/pkg/$(node -p \'process.platform + "-" + process.arch\')/${COPILOT_CLI_VERSION}');
     expect(dockerfile).toContain('test -r /usr/local/lib/node_modules/@github/copilot/runtime/index.js');
+    expect(dockerfile.indexOf('find /usr/local/lib/node_modules/@github/copilot')).toBeGreaterThan(
+      dockerfile.indexOf('copilot --no-auto-update --version'),
+    );
+    expect(dockerfile.indexOf('copilot --no-auto-update --version')).toBeGreaterThanOrEqual(0);
     for (const image of ['enclave', 'cloud-hypervisor']) {
       const source = fs.readFileSync(path.join(containersRoot, image, 'Dockerfile'), 'utf8');
       expect(source).toContain('ENV COPILOT_CLI_DIST_DIR=/usr/local/lib/node_modules/@github/copilot/runtime');
-      expect(source).toContain('chown -R 0:0 /usr/local/lib/node_modules/@github/copilot');
-      expect(source).toContain('chmod -R a+rX,a-w /usr/local/lib/node_modules/@github/copilot');
     }
+    expect(dockerfile).toContain('chown -R 0:0 /usr/local/lib/node_modules/@github/copilot');
+    expect(dockerfile).toContain('chmod -R a+rX,a-w /usr/local/lib/node_modules/@github/copilot');
   });
 });
