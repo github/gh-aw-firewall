@@ -254,14 +254,18 @@ Decisions requests count once against the shared invocation limit, even for a
 400-question batch. Budget and timeout steering messages are not inserted into
 evaluation evidence; hard budget enforcement remains active.
 
-The proxy's automated tests use the native JavaScript OpenAI SDK against a local
-mock upstream. For an optional live check, run the example through AWF with your
+The proxy's automated tests use a local mock upstream. The additional native
+JavaScript SDK conformance test runs when an OpenAI SDK with Decisions support
+is installed and Node.js 22+ is available; it is otherwise skipped. For example,
+install the SDK outside the repository with
+`npm install --prefix /tmp/awf-decisions-sdk openai` and run the proxy tests with
+`NODE_PATH=/tmp/awf-decisions-sdk/node_modules npm test -- --runInBand server.decisions.test.js`.
+For an optional live check, run the example through AWF with your
 existing secure provider configuration and a Decisions-enabled account; it
 incurs API usage. The opt-in automated check can also be run inside that sandbox
 from `containers/api-proxy` with
-`AWF_TEST_LIVE_DECISIONS=1 npm test -- --runInBand server.decisions.test.js`.
-The JavaScript SDK test dependency requires Node.js 22 or newer; production
-proxy runtime requirements are unchanged. See the
+`AWF_TEST_LIVE_DECISIONS=1 NODE_PATH=/tmp/awf-decisions-sdk/node_modules npm test -- --runInBand server.decisions.test.js`.
+Proxy dependencies and supported runtime versions are unchanged. See the
 [OpenAI Decisions API reference](https://developers.openai.com/api/reference/python/resources/decisions/methods/create)
 for the provider contract.
 

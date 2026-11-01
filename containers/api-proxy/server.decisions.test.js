@@ -4,8 +4,17 @@ const http = require('http');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { OpenAI } = require('openai');
 const { setupServerTestEnv, getStructuredLogs } = require('./test-helpers/server-mock-factories');
+
+let OpenAI;
+if (Number(process.versions.node.split('.')[0]) >= 22) {
+  try {
+    ({ OpenAI } = require('openai'));
+  } catch (err) {
+    if (err.code !== 'MODULE_NOT_FOUND') throw err;
+  }
+}
+const sdkTest = OpenAI ? test : test.skip;
 
 const questions = [
   { type: 'predicate', name: 'correct', instructions: 'Is the answer correct?' },
@@ -33,7 +42,7 @@ describe('OpenAI Decisions HTTP conformance', () => {
   const savedEnv = Object.fromEntries(envKeys.map(key => [key, process.env[key]]));
   let proxy;
   let upstream;
-  let client;
+  let baseURL;
   let requests;
   let respond;
   let proxyCore;
@@ -96,11 +105,19 @@ describe('OpenAI Decisions HTTP conformance', () => {
       proxyWebSocket: proxyCore.proxyWebSocket,
     });
     await listen(proxy);
-    client = new OpenAI({
-      baseURL: `http://127.0.0.1:${proxy.address().port}/v1`,
-      apiKey: 'agent-placeholder',
-      maxRetries: 0,
+    baseURL = `http://127.0.0.1:${proxy.address().port}/v1`;
+  }
+
+  async function post(endpoint, body, { headers = {}, query, signal } = {}) {
+    const url = new URL(baseURL + endpoint);
+    for (const [key, value] of Object.entries(query || {})) url.searchParams.set(key, value);
+    const response = await fetch(url, {
+      method: 'POST', body: JSON.stringify(body), signal,
+      headers: { 'content-type': 'application/json', authorization: ['Bearer', 'agent-placeholder'].join(' '), ...headers },
     });
+    const result = await response.json();
+    if (!response.ok) throw Object.assign(new Error('Proxy rejected request'), { status: response.status, error: result.error });
+    return result;
   }
 
   afterEach(async () => {
@@ -121,14 +138,22 @@ describe('OpenAI Decisions HTTP conformance', () => {
     fs.rmSync(tokenLogDir, { recursive: true, force: true });
   });
 
-  test('client.decisions.create preserves a single predicate and injects only sidecar credentials', async () => {
+  sdkTest('client.decisions.create preserves typed questions and the native response', async () => {
+    const client = new OpenAI({ baseURL, apiKey: 'agent-placeholder', maxRetries: 0 });
+    expect(await client.decisions.create({ model: 'gpt-6-luna', input: 'Evidence', questions })).toEqual(decision);
+    expect(requests[0].url).toBe('/v1/decisions');
+    expect(JSON.parse(requests[0].body).questions).toEqual(questions);
+    expect(requests[0].headers.authorization).toBe(['Bearer', 'trusted-sidecar-placeholder'].join(' '));
+  });
+
+  test('preserves a single predicate and injects only sidecar credentials', async () => {
     const result = { ...decision, answers: [decision.answers[0]] };
     respond = (_req, res) => {
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify(result));
     };
     const body = { model: 'gpt-6-luna', input: 'Evidence', questions: [questions[0]] };
-    expect(await client.decisions.create(body, {
+    expect(await post('/decisions', body, {
       headers: { 'api-key': 'untrusted-placeholder', 'x-api-key': 'untrusted-placeholder' },
     })).toEqual(result);
     expect(requests[0].url).toBe('/v1/decisions');
@@ -158,7 +183,7 @@ describe('OpenAI Decisions HTTP conformance', () => {
       prompt_cache_options: { mode: 'explicit', ttl: '30m' },
     };
     const logs = jest.spyOn(process.stdout, 'write').mockImplementation(() => true);
-    expect(await client.decisions.create(body)).toEqual(decision);
+    expect(await post('/decisions', body)).toEqual(decision);
     expect(JSON.parse(requests[0].body)).toEqual(body);
     expect(logs.mock.calls.map(([line]) => line).join('')).not.toMatch(/Private evaluation evidence|private-cache-partition|trusted-sidecar-placeholder/);
     await closeLogStream();
@@ -173,8 +198,8 @@ describe('OpenAI Decisions HTTP conformance', () => {
   test('honors an Azure-compatible base path, query string, and configured api-key injection', async () => {
     await new Promise(resolve => proxy.close(resolve));
     await startProxy({ OPENAI_API_BASE_PATH: '/openai/v1', AWF_OPENAI_AUTH_HEADER: 'api-key' });
-    client.baseURL = client.baseURL.replace(/\/v1$/, '');
-    await client.decisions.create({ model: 'gpt-6-luna', input: 'Evidence', questions }, {
+    baseURL = baseURL.replace(/\/v1$/, '');
+    await post('/decisions', { model: 'gpt-6-luna', input: 'Evidence', questions }, {
       query: { 'api-version': 'test' },
       headers: { 'api-key': 'untrusted-placeholder' },
     });
@@ -190,38 +215,38 @@ describe('OpenAI Decisions HTTP conformance', () => {
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ ...decision, answers }));
     };
-    expect((await client.decisions.create({ model: 'gpt-6-luna', input: 'Evidence', questions: batch })).answers).toEqual(answers);
+    expect((await post('/decisions', { model: 'gpt-6-luna', input: 'Evidence', questions: batch })).answers).toEqual(answers);
     expect(requests).toHaveLength(1);
     expect(JSON.parse(requests[0].body).questions).toEqual(batch);
   });
 
   test.each(['gpt-5.4', 'gpt-6-sol', 'anthropic/gpt-6-luna'])('rejects policy-disallowed model %s before forwarding', async model => {
-    await expect(client.decisions.create({ model, input: 'Evidence', questions }))
+    await expect(post('/decisions', { model, input: 'Evidence', questions }))
       .rejects.toMatchObject({ status: 403, error: { type: 'model_policy_violation' } });
     expect(requests).toHaveLength(0);
   });
 
   test.each(['grader', 'openai/gpt-6-luna'])('uses existing alias/prefix resolution for %s', async model => {
-    await client.decisions.create({ model, input: 'Evidence', questions });
+    await post('/decisions', { model, input: 'Evidence', questions });
     expect(JSON.parse(requests[0].body).model).toBe('gpt-6-luna');
   });
 
   test('accounts for all token classes once and enforces the shared AI-credit budget', async () => {
     process.env.AWF_MAX_AI_CREDITS = '0.009';
     const logs = jest.spyOn(process.stdout, 'write').mockImplementation(() => true);
-    await client.decisions.create({ model: 'gpt-6-luna', input: 'Evidence', questions });
+    await post('/decisions', { model: 'gpt-6-luna', input: 'Evidence', questions });
     expect(getStructuredLogs(logs, 'token_budget_usage')).toEqual([
       expect.objectContaining({ ai_credits_this_response: 0.00965, ai_credits_total: 0.00965 }),
     ]);
-    await expect(client.decisions.create({ model: 'gpt-6-luna', input: 'Evidence', questions }))
+    await expect(post('/decisions', { model: 'gpt-6-luna', input: 'Evidence', questions }))
       .rejects.toMatchObject({ status: 403, error: { type: 'ai_credits_limit_exceeded' } });
     expect(requests).toHaveLength(1);
   });
 
   test('Decisions and existing endpoints share invocation limits', async () => {
     process.env.AWF_MAX_RUNS = '1';
-    await client.decisions.create({ model: 'gpt-6-luna', input: 'Evidence', questions });
-    await expect(client.responses.create({ model: 'gpt-6-luna', input: 'Evidence' }))
+    await post('/decisions', { model: 'gpt-6-luna', input: 'Evidence', questions });
+    await expect(post('/responses', { model: 'gpt-6-luna', input: 'Evidence' }))
       .rejects.toMatchObject({ status: 429, error: { type: 'max_runs_exceeded' } });
     expect(requests).toHaveLength(1);
   });
@@ -233,8 +258,8 @@ describe('OpenAI Decisions HTTP conformance', () => {
     limiter.rpm = 1;
     limiter.providers.clear();
     try {
-      await client.decisions.create({ model: 'gpt-6-luna', input: 'Evidence', questions });
-      await expect(client.decisions.create({ model: 'gpt-6-luna', input: 'Evidence', questions }))
+      await post('/decisions', { model: 'gpt-6-luna', input: 'Evidence', questions });
+      await expect(post('/decisions', { model: 'gpt-6-luna', input: 'Evidence', questions }))
         .rejects.toMatchObject({ status: 429 });
       expect(requests).toHaveLength(1);
     } finally {
@@ -245,7 +270,7 @@ describe('OpenAI Decisions HTTP conformance', () => {
   });
 
   test('rejects Decisions requests exceeding the shared 10 MB body limit', async () => {
-    const response = await fetch(`${client.baseURL}/decisions`, {
+    const response = await fetch(`${baseURL}/decisions`, {
       method: 'POST',
       body: JSON.stringify({ model: 'gpt-6-luna', input: 'x'.repeat(10 * 1024 * 1024), questions }),
     });
@@ -259,13 +284,14 @@ describe('OpenAI Decisions HTTP conformance', () => {
       res.writeHead(status, { 'Content-Type': 'application/json', 'retry-after': '2' });
       res.end(JSON.stringify(error));
     };
-    await expect(client.decisions.create({ model: 'gpt-6-luna', input: 'Evidence', questions }))
+    await expect(post('/decisions', { model: 'gpt-6-luna', input: 'Evidence', questions }))
       .rejects.toMatchObject({ status, error: error.error });
     expect(requests).toHaveLength(1);
   });
 
   const liveTest = process.env.AWF_TEST_LIVE_DECISIONS === '1' ? test : test.skip;
   liveTest('live Decisions conformance through the configured AWF sidecar', async () => {
+    if (!OpenAI) throw new Error('Live SDK conformance requires Node.js 22+ and the OpenAI SDK');
     const origin = process.env.AWF_API_PROXY_OPENAI_URL;
     if (!origin) throw new Error('Run inside AWF with AWF_API_PROXY_OPENAI_URL configured');
     const client = new OpenAI({ baseURL: `${origin.replace(/\/+$/, '')}/v1`, apiKey: 'awf-placeholder', maxRetries: 0 });
@@ -280,22 +306,22 @@ describe('OpenAI Decisions HTTP conformance', () => {
       res.writeHead(400, { 'Content-Type': 'application/json' });
       res.end('{"error":{"type":"invalid_request_error","message":"Malformed request"}}');
     };
-    const result = await fetch(`${client.baseURL}/decisions`, { method: 'POST', body });
+    const result = await fetch(`${baseURL}/decisions`, { method: 'POST', body });
     expect(result.status).toBe(400);
     expect(requests[0].body).toBe(body);
   });
 
   test('returns the shared gateway error on an upstream connection failure', async () => {
     respond = req => req.socket.destroy();
-    await expect(client.decisions.create({ model: 'gpt-6-luna', input: 'Evidence', questions }))
+    await expect(post('/decisions', { model: 'gpt-6-luna', input: 'Evidence', questions }))
       .rejects.toMatchObject({ status: 502 });
     expect(requests).toHaveLength(1);
   });
 
-  test('supports SDK timeouts without retrying Decisions requests', async () => {
+  test('supports client timeouts without retrying Decisions requests', async () => {
     respond = () => {};
-    await expect(client.decisions.create({ model: 'gpt-6-luna', input: 'Evidence', questions }, { timeout: 100 }))
-      .rejects.toBeInstanceOf(OpenAI.APIConnectionError);
+    await expect(post('/decisions', { model: 'gpt-6-luna', input: 'Evidence', questions }, { signal: AbortSignal.timeout(100) }))
+      .rejects.toMatchObject({ name: 'TimeoutError' });
     expect(requests).toHaveLength(1);
   });
 
@@ -310,7 +336,7 @@ describe('OpenAI Decisions HTTP conformance', () => {
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify(native));
     };
-    expect(await client.post(`/${endpoint}`, { body })).toEqual(native);
+    expect(await post(`/${endpoint}`, body)).toEqual(native);
     expect(requests[0].url).toBe(`/v1/${endpoint}`);
     expect(JSON.parse(requests[0].body)).toEqual(body);
   });
