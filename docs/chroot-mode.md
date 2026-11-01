@@ -81,7 +81,7 @@ As of v0.13.13, chroot mode mounts a fresh container-scoped procfs at `/host/pro
 - Static bind mounts of `/proc/self` always resolve to the parent shell, not the current process
 
 **How it works:**
-1. Before chroot, the entrypoint mounts a fresh procfs: `mount -t proc -o nosuid,nodev,noexec proc /host/proc`
+1. Before chroot, the entrypoint mounts a fresh procfs: `mount -t proc -o nosuid,nodev,noexec,hidepid=2 proc /host/proc`
 2. This requires `CAP_SYS_ADMIN` capability, which is granted during container startup
 3. The procfs is container-scoped, showing only container processes (not host processes)
 4. `CAP_SYS_ADMIN` is dropped via capsh before executing user commands
@@ -90,7 +90,7 @@ As of v0.13.13, chroot mode mounts a fresh container-scoped procfs at `/host/pro
 **Security implications:**
 - The mounted procfs only exposes container processes, not host processes
 - Mount operation completes before user code runs (capability dropped)
-- procfs is mounted with security restrictions: `nosuid,nodev,noexec`
+- procfs is mounted with security restrictions: `nosuid,nodev,noexec,hidepid=2` (`hidepid=2` stops the agent reading other processes' `/proc/[pid]/environ`)
 - User code cannot unmount or remount (no `CAP_SYS_ADMIN`, umount blocked in seccomp)
 
 **Backwards compatibility:**
@@ -178,12 +178,23 @@ In chroot mode, selective paths are mounted for security instead of the entire f
 | `/lib` | `/host/lib:ro` | Shared libraries |
 | `/lib64` | `/host/lib64:ro` | 64-bit shared libraries |
 | `/opt` | `/host/opt:ro` | Tool cache (Python, Node, Go) |
+| `/sys` | `/host/sys:ro` | Kernel sysfs |
+| `/dev` | `/host/dev:ro` | Device nodes (`/dev/null` is re-added read-write, see below) |
 | `/etc/ssl` | `/host/etc/ssl:ro` | SSL certificates |
 | `/etc/ca-certificates` | `/host/etc/ca-certificates:ro` | CA certificates |
 | `/etc/pki/ca-trust/extracted` | `/host/etc/pki/ca-trust/extracted:ro` | RHEL/Amazon Linux extracted CA bundle roots |
 | `/etc/pki/tls/certs` | `/host/etc/pki/tls/certs:ro` | RHEL/Amazon Linux CA certificate directory |
+| `/etc/alternatives` | `/host/etc/alternatives:ro` | Alternatives symlinks |
+| `/etc/ld.so.cache` | `/host/etc/ld.so.cache:ro` | Dynamic linker cache |
+| `/etc/nsswitch.conf` | `/host/etc/nsswitch.conf:ro` | Name service switch config |
 | `/etc/passwd` | `/host/etc/passwd:ro` | User lookup |
 | `/etc/group` | `/host/etc/group:ro` | Group lookup |
+
+The system and `/etc` lists come from the central policy in
+[`sandbox-mount-policy.json`](../src/config/sandbox-mount-policy.json) (see
+[Sandbox Mount Policy](mount-policy.md)); mounts are built in
+[`system-mounts.ts`](../src/services/agent-volumes/system-mounts.ts) and
+[`etc-mounts.ts`](../src/services/agent-volumes/etc-mounts.ts).
 
 When `chroot.binariesSourcePath` is set in stdin config, AWF also mounts:
 
@@ -199,15 +210,24 @@ When `chroot.binariesSourcePath` is set in stdin config, AWF also mounts:
 
 | Host Path | Container Path | Purpose |
 |-----------|----------------|---------|
-| `$HOME` | `$HOME:rw` | User's home directory |
+| Workspace directory | `/host<workspace>:rw` (also at its direct path) | Project files |
+| Empty chroot home (`<workDir>-chroot-home`) | `/host$HOME:rw` | Empty writable home; the real `$HOME` is **not** mounted |
+| `$HOME/<tool dir>` | `/host$HOME/<tool dir>:rw` | Only allowlisted tool dirs (`.cache`, `.config`, `.local/{bin,lib,lib64,share,pipx}`, `.azure`, `.anthropic`, `.claude`, `.cargo`, `.rustup`, `.npm`, `.nvm`, `.copilot`, and `.gemini` only when a Gemini/Google API key is set) |
 | `/tmp` | `/host/tmp:rw` | Temporary files |
+| `/dev/null` | `/host/dev/null:rw` | Lets chrooted tools write to `/dev/null` |
+
+Known credential files inside the mounted tool dirs are masked with
+`/dev/null` overlays; see [Sandbox Mount Policy](mount-policy.md) and
+[Selective Mounting](selective-mounting.md).
 
 ### Hidden Paths (Security)
 
 | Host Path | Mount Target | Purpose |
 |-----------|--------------|---------|
-| `/var/run/docker.sock` | `/dev/null` | Prevents firewall bypass via `docker run` |
-| `/run/docker.sock` | `/dev/null` | Prevents firewall bypass |
+| `/dev/null` | `/host/var/run/docker.sock:ro` | Prevents firewall bypass via `docker run` |
+| `/dev/null` | `/host/run/docker.sock:ro` | Prevents firewall bypass |
+
+With `--enable-dind` the socket is mounted read-write instead.
 
 ## Security Model
 
@@ -267,19 +287,19 @@ Linux namespaces operate independently:
 
 | Risk | Severity | Description | Mitigation |
 |------|----------|-------------|------------|
-| Host file access | HIGH | `$HOME` is read-write | CI/CD secrets should use env vars, not files |
+| Host file access | MEDIUM | Allowlisted `$HOME` tool dirs and the workspace are read-write | CI/CD secrets should use env vars, not files |
 | DNS override | LOW | Host's `/etc/resolv.conf` temporarily modified | Backup created, restored on exit |
 | /dev visibility | LOW | Device nodes visible | Read-only, cannot create new devices |
 
 ### Host File Access
 
-With chroot mode, the agent can read/write to the user's home directory:
+With chroot mode, the real `$HOME` is not mounted; the agent sees an empty home plus the allowlisted tool dirs (known credential files inside them are masked):
 
 | Path | Access | Risk |
 |------|--------|------|
-| `$HOME/.ssh/*` | READ/WRITE | SSH keys accessible |
-| `$HOME/.aws/*` | READ/WRITE | AWS credentials accessible |
-| `$HOME/.config/*` | READ/WRITE | Various configs |
+| `$HOME/.ssh/*` | Not mounted | Not exposed |
+| `$HOME/.aws/*` | Not mounted | Not exposed |
+| `$HOME/.config/*` | READ/WRITE | Unrecognized secrets here can remain reachable |
 | `/etc/passwd` | READ | User enumeration |
 | `/usr/bin/*` | READ | System binaries |
 
