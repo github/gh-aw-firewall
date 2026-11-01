@@ -121,7 +121,8 @@ acceptance('Docker enclave pinned Copilot native bootstrap', () => {
     } finally {
       // Storage is released only after daemon-confirmed container removal.
       if (containerName) {
-        docker(['rm', '-f', containerName]);
+        const existing = docker(['ps', '-aq', '--filter', `name=^/${containerName}$`]);
+        if (existing) docker(['rm', '-f', existing]);
         expect(docker(['ps', '-aq', '--filter', `name=^/${containerName}$`])).toBe('');
       }
       if (networkCreated) docker(['network', 'rm', network]);
