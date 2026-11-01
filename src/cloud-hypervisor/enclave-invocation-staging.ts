@@ -161,6 +161,7 @@ export function agentEnvironment(
     PATH: '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin',
     HOME: '/agent/home',
     COPILOT_HOME: '/agent/copilot',
+    COPILOT_CLI_DIST_DIR: '/usr/local/lib/node_modules/@github/copilot/runtime',
     COPILOT_OFFLINE: 'true',
     COPILOT_GITHUB_TOKEN: '******',
     COPILOT_TOKEN: modelBudgetToken || '******',
