@@ -21,9 +21,10 @@ describe('sandbox input preflight', () => {
     fs.rmSync(root, { recursive: true, force: true });
   });
 
-  function run(dirs = [input], command = 'printf scanned') {
+  function run(dirs = [input], command = 'printf scanned', env = process.env) {
     return spawnSync('/bin/sh', ['-c', withInputPreflight(command, dirs)], {
       encoding: 'utf8',
+      env,
       ...(process.getuid?.() === 0 ? { uid: 65534, gid: 65534 } : {}),
     });
   }
@@ -41,6 +42,28 @@ describe('sandbox input preflight', () => {
     expect(result.stdout).toBe('scanned');
     expect(result.stderr).toBe('');
     expect(run([input], 'exit 7').status).toBe(7);
+  });
+
+  it.each([false, true])('batches full reads and propagates read failures (failure=%s)', (failure) => {
+    fs.writeFileSync(path.join(input, 'file with spaces'), 'private-content');
+    fs.writeFileSync(path.join(input, '-file\nwith newline'), 'private-content');
+    const bin = path.join(root, 'bin');
+    fs.mkdirSync(bin);
+    fs.writeFileSync(
+      path.join(bin, 'cat'),
+      `#!/bin/sh
+printf 'cat arguments: %s\\n' "$#" >&2
+/bin/cat "$@" || exit 1
+exit ${failure ? 1 : 0}
+`,
+      { mode: 0o755 }
+    );
+
+    const result = run([input], 'printf scanned', { ...process.env, PATH: `${bin}:${process.env.PATH}` });
+    expect(result.status).toBe(failure ? 1 : 0);
+    expect(result.stdout).toBe(failure ? '' : 'scanned');
+    expect(result.stderr.match(/cat arguments: \d+/g)).toEqual(['cat arguments: 4']);
+    if (failure) expect(result.stderr).toContain('AWF input preflight failed');
   });
 
   it.each(['missing', 'empty', 'unreadable-directory', 'untraversable-directory', 'unreadable-file'])(
