@@ -31,6 +31,9 @@ export interface VolumeOptions {
    */
   volumeMounts?: string[];
 
+  /** Sandbox-visible input directories that must be non-empty and readable. */
+  inputDirs?: string[];
+
   /**
    * Guest-visible absolute paths that may remain writable.
    *

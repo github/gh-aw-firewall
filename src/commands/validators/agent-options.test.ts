@@ -44,7 +44,7 @@ describe('mount file-scope advisory', () => {
     validateAgentOptions({ mount: [`${inputDir}:/tmp/gh-aw/threat-detection:rw`] });
 
     expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining('fail closed on empty or unreadable inputs'));
-    expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining('AWF does not verify detector input access or verdicts'));
+    expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining('AWF does not verify engine input access or verdicts'));
   });
 
   it.each([{}, { mount: [] }])('does not emit a mount advisory without explicit mounts', (options) => {
@@ -59,5 +59,19 @@ describe('mount file-scope advisory', () => {
     expect(warning).not.toContain(inputDir);
     expect(warning).not.toContain('/private/input');
     expect(warning).not.toContain('private-prompt');
+  });
+
+  it.each(['relative', '', '/tmp/input\0', 42])('rejects invalid input directory %p', (input) => {
+    const exit = jest.spyOn(process, 'exit').mockImplementation(() => { throw new Error('exit'); });
+    try {
+      expect(() => validateAgentOptions({ inputDir: [input] })).toThrow('exit');
+      expect(exit).toHaveBeenCalledWith(1);
+    } finally {
+      exit.mockRestore();
+    }
+  });
+
+  it('accepts sandbox-visible inputs without requiring host visibility', () => {
+    expect(() => validateAgentOptions({ inputDir: ['/guest/input'] })).not.toThrow();
   });
 });

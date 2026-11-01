@@ -2,6 +2,7 @@ import { execSync } from 'child_process';
 import type { WorkflowDependencies } from './cli-workflow';
 import type { ExternalAgentRuntimeBackend } from './external-runtime-backend';
 import { logger } from './logger';
+import { withInputPreflight } from './input-preflight';
 import {
   assertSbxApiProxyReflect,
   assertSbxEgressEnforced,
@@ -207,7 +208,7 @@ export class SbxRuntimeBackend implements ExternalAgentRuntimeBackend {
     );
     const result = await this.dependencies.execInSandbox(
       this.sandboxName,
-      this.config.agentCommand,
+      withInputPreflight(this.config.agentCommand, this.config.inputDirs),
       {
         timeoutMinutes: agentTimeoutMinutes,
         workDir: this.config.containerWorkDir,

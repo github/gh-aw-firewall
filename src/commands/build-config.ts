@@ -162,6 +162,7 @@ export function buildConfig(inputs: BuildConfigInputs): WrapperConfig {
         : undefined,
     envFile: options.envFile as string | undefined,
     volumeMounts,
+    inputDirs: options.inputDir as string[] | undefined,
     filesystemAllowWrite: options.filesystemAllowWrite as string[] | undefined,
     containerWorkDir: options.containerWorkdir as string | undefined,
     dnsServers,

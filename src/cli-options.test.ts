@@ -16,6 +16,7 @@ describe('cli-options program', () => {
     program.setOptionValueWithSource('env', [], 'default');
     program.setOptionValueWithSource('excludeEnv', [], 'default');
     program.setOptionValueWithSource('mount', [], 'default');
+    program.setOptionValueWithSource('inputDir', undefined, 'default');
     program.setOptionValueWithSource('cloudHypervisorMountPolicy', undefined, 'default');
     program.setOptionValueWithSource('cloudHypervisorScratchMib', undefined, 'default');
     program.setOptionValueWithSource('cloudHypervisorEnclaveDebugPublic', undefined, 'default');
@@ -51,6 +52,14 @@ describe('cli-options program', () => {
     );
     const opts = program.opts();
     expect(opts.mount).toEqual(['/a:/a:ro', '/b:/b']);
+  });
+
+  it('accumulates repeated sandbox input directories without interpreting their contents', () => {
+    program.parse(
+      ['node', 'awf', '--input-dir', '/guest/inputs', '--input-dir', '/guest/with space', '--', 'true'],
+      { from: 'node' },
+    );
+    expect(program.opts().inputDir).toEqual(['/guest/inputs', '/guest/with space']);
   });
 
   it('collector callbacks work when called with no previous value (default parameter)', () => {

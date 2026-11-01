@@ -1,6 +1,8 @@
 import type { WrapperConfig } from '../types';
 import type { MicrovmInfrastructureSnapshot } from '../microvm/infrastructure';
 import type { NvxOneShotExecutionResult } from './one-shot-adapter';
+import { withInputPreflight } from '../input-preflight';
+import { shellSingleQuote } from '../cloud-hypervisor/backend-utils';
 import {
   nvxRuntimeTestHelpers,
   type NvxRuntimeBackendDependencies,
@@ -108,6 +110,17 @@ describe('NvxRuntimeBackend', () => {
   afterEach(() => {
     Object.defineProperty(process, 'platform', { value: originalPlatform });
     Object.defineProperty(process, 'arch', { value: originalArch });
+  });
+
+  it('includes declared input checks in the privilege-dropped guest run script', async () => {
+    const config = { ...nvxConfig(), inputDirs: ['/workspace/inputs'] };
+    const { dependencies } = harness();
+    const backend = nvxRuntimeTestHelpers.createBackendWithDependencies(config, dependencies);
+    await backend.start(config.workDir, ['example.com']);
+    await backend.exec(config.workDir, ['example.com']);
+    expect(dependencies.createGuestConfigLayer).toHaveBeenCalledWith(expect.objectContaining({
+      runScript: expect.stringContaining(shellSingleQuote(withInputPreflight(config.agentCommand, config.inputDirs))),
+    }));
   });
 
   it('starts host infrastructure and resolves microVM infrastructure using a trusted ip tool before executing', async () => {

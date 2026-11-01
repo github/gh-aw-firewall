@@ -4,6 +4,7 @@ import { resolveLogPaths } from '../log-paths';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
+import { withInputPreflight } from '../input-preflight';
 
 // Create mock functions (must remain per-file — jest.mock() is hoisted before imports)
 
@@ -14,6 +15,14 @@ jest.mock('execa', () => require('../test-helpers/mock-execa.test-utils').execaM
 let mockConfig: WrapperConfig;
 
 describe('agent service', () => {
+  it.each(['docker', 'gvisor'] as const)('adds guest input preflight to the %s workload command', (containerRuntime) => {
+    const config = { ...mockConfig, containerRuntime, inputDirs: ['/guest/inputs'] };
+    const result = generateDockerCompose(config, mockNetworkConfig);
+    expect(result.services.agent.command).toEqual([
+      '/bin/bash', '-c', withInputPreflight(config.agentCommand, config.inputDirs).replace(/\$/g, '$$$$'),
+    ]);
+  });
+
   useTempWorkDir(
     baseConfig,
     (config) => {

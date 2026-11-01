@@ -4,6 +4,7 @@ import type { WorkflowDependencies } from '../cli-workflow';
 import type { ExternalAgentRuntimeBackend } from '../external-runtime-backend';
 import { getSafeHostGid, getSafeHostUid } from '../host-identity';
 import { logger } from '../logger';
+import { withInputPreflight } from '../input-preflight';
 import {
   resolveMicrovmInfrastructure,
   type MicrovmInfrastructureSnapshot,
@@ -262,7 +263,7 @@ export class NvxRuntimeBackend implements ExternalAgentRuntimeBackend {
       runScript: buildNvxGuestRunScript({
         environment,
         workingDirectory: resolveNvxGuestWorkDir(this.config.containerWorkDir),
-        command: this.config.agentCommand,
+        command: withInputPreflight(this.config.agentCommand, this.config.inputDirs),
       }),
       homePath: process.env.HOME,
       hostAliases: {

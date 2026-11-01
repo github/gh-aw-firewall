@@ -30,6 +30,15 @@ const ENV_KEYS = [
 ] as const;
 
 describe('buildConfig', () => {
+  it('preserves declared guest input directories without changing the engine command', () => {
+    const config = buildConfig(makeInputs({
+      options: { ...makeInputs().options, inputDir: ['/guest/inputs', '/guest/prompts'] },
+      agentCommand: 'copilot --add-dir /guest/inputs',
+    }));
+    expect(config.inputDirs).toEqual(['/guest/inputs', '/guest/prompts']);
+    expect(config.agentCommand).toBe('copilot --add-dir /guest/inputs');
+  });
+
   it('inherits the primary backend while retaining its original CLI selection', () => {
     const config = buildConfig(makeInputs({
       options: {
