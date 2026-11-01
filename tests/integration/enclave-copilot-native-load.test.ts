@@ -83,6 +83,8 @@ acceptance('Docker enclave pinned Copilot native bootstrap', () => {
     let mount: DockerHostMountIdentity | undefined;
     let containerName: string | undefined;
     let networkCreated = false;
+    let operationFailed = false;
+    let operationError: unknown;
     try {
       mount = await mountDockerHostStorage(path.join(directory, 'storage'), `awf-native-${runId}`, 256 * 1024 ** 2);
       const invocation = path.join(mount.target, invocationId);
@@ -118,16 +120,48 @@ acceptance('Docker enclave pinned Copilot native bootstrap', () => {
       // Replace only the workload: all production mounts/security flags remain.
       args[args.indexOf('--entrypoint') + 1] = '/usr/bin/python3';
       expect(docker([...args, '-c', probe])).toContain('pinned Copilot native load and writable noexec checks passed');
+    } catch (error) {
+      operationFailed = true;
+      operationError = error;
     } finally {
       // Storage is released only after daemon-confirmed container removal.
+      let cleanupError: unknown;
+      let containerAbsent = !containerName;
+      let storageReleased = !mount;
       if (containerName) {
-        const existing = docker(['ps', '-aq', '--filter', `name=^/${containerName}$`]);
-        if (existing) docker(['rm', '-f', existing]);
-        expect(docker(['ps', '-aq', '--filter', `name=^/${containerName}$`])).toBe('');
+        try {
+          const existing = docker(['ps', '-aq', '--filter', `name=^/${containerName}$`]);
+          if (existing) docker(['rm', '-f', existing]);
+          expect(docker(['ps', '-aq', '--filter', `name=^/${containerName}$`])).toBe('');
+          containerAbsent = true;
+        } catch (error) {
+          cleanupError = error;
+        }
       }
-      if (networkCreated) docker(['network', 'rm', network]);
-      if (mount) await unmountDockerHostStorage(mount);
-      fs.rmSync(directory, { recursive: true, force: true });
+      if (networkCreated) {
+        try {
+          docker(['network', 'rm', network]);
+        } catch (error) {
+          cleanupError ??= error;
+        }
+      }
+      if (mount && containerAbsent) {
+        try {
+          await unmountDockerHostStorage(mount);
+          storageReleased = true;
+        } catch (error) {
+          cleanupError ??= error;
+        }
+      }
+      if (containerAbsent && storageReleased) {
+        try {
+          fs.rmSync(directory, { recursive: true, force: true });
+        } catch (error) {
+          cleanupError ??= error;
+        }
+      }
+      if (operationFailed) throw operationError;
+      if (cleanupError) throw cleanupError;
     }
   }, 120_000);
 });
