@@ -189,6 +189,82 @@ the OpenAI route (port `10000`) is normalized to `gpt-6-sol` before the
 request reaches OpenAI, so harnesses like Pi that send provider-prefixed model
 IDs no longer receive an opaque upstream `400` for an unrecognized model name.
 
+### OpenAI Decisions API
+
+The OpenAI listener forwards `POST /v1/decisions` (or `/decisions` with the
+configured upstream base path) using the same trusted sidecar as Chat
+Completions and Responses. No protocol adapter or separate service is needed.
+OpenAI currently supports `gpt-6-luna` for Decisions; availability on compatible
+providers, including Azure OpenAI deployments, is determined by that upstream.
+AWF does not hardcode a Decisions model allowlist.
+
+Run this example **inside the AWF sandbox** with a standard OpenAI SDK release
+that includes `client.decisions.create()`:
+
+```python
+import os
+from openai import OpenAI
+
+client = OpenAI(
+    base_url=os.environ["AWF_API_PROXY_OPENAI_URL"].rstrip("/") + "/v1",
+    api_key="awf-placeholder",  # Not a real credential.
+)
+decision = client.decisions.create(
+    model="gpt-6-luna",
+    input="The answer is 42.",
+    questions=[
+        {"type": "predicate", "instructions": "Does the answer contain a number?"},
+        {
+            "type": "choice",
+            "instructions": "Classify the answer.",
+            "choices": [{"value": "numeric"}, {"value": "other"}],
+        },
+        {
+            "type": "score",
+            "instructions": "Rate how concise the answer is.",
+            "levels": [{"label": "verbose"}, {"label": "concise"}],
+        },
+    ],
+)
+print(decision.answers)
+```
+
+Supply the real `OPENAI_API_KEY` through the existing host-side secure
+configuration, never in the agent script. The proxy replaces client
+authentication with its configured static key or OIDC token. Existing
+`OPENAI_API_TARGET`, `OPENAI_API_BASE_PATH`, and `AWF_OPENAI_AUTH_HEADER`
+settings apply, including `api-key` authentication for compatible Azure targets.
+For a custom upstream base path such as `/openai/v1`, use the listener origin
+without `/v1` as the SDK base URL; AWF prepends the configured path.
+Model allowlists, denylists, provider-qualified restrictions, and aliases apply
+before forwarding; a resolved model must also be supported by the upstream.
+Decisions requests are not translated into Chat Completions or Responses for
+cross-provider fallback.
+
+Requests may contain 1–400 predicate, choice, or score questions. AWF preserves
+their order and native answers (including refusals), structured JSON, images,
+conversation and tool history, `prompt_cache_key`, `prompt_cache_options`, and
+explicit cache breakpoints. Upstream validation, errors, and status codes are
+preserved. The shared 10 MB request limit and rate limits still apply.
+
+Usage feeds the existing audit, token metrics, AI-credit budget, and cache-miss
+controls. `input_tokens_details.cached_tokens` and `cache_write_tokens` are
+accounted for separately without double-counting total input. Successful
+Decisions requests count once against the shared invocation limit, even for a
+400-question batch. Budget and timeout steering messages are not inserted into
+evaluation evidence; hard budget enforcement remains active.
+
+The proxy's automated tests use the native JavaScript OpenAI SDK against a local
+mock upstream. For an optional live check, run the example through AWF with your
+existing secure provider configuration and a Decisions-enabled account; it
+incurs API usage. The opt-in automated check can also be run inside that sandbox
+from `containers/api-proxy` with
+`AWF_TEST_LIVE_DECISIONS=1 npm test -- --runInBand server.decisions.test.js`.
+The JavaScript SDK test dependency requires Node.js 22 or newer; production
+proxy runtime requirements are unchanged. See the
+[OpenAI Decisions API reference](https://developers.openai.com/api/reference/python/resources/decisions/methods/create)
+for the provider contract.
+
 ### Claude Code example
 
 ```bash

@@ -32,6 +32,8 @@ const INFERENCE_PATHS = [
   '/chat/completions',
   '/v1/responses',
   '/responses',
+  '/v1/decisions',
+  '/decisions',
   '/v1/messages',
 ];
 

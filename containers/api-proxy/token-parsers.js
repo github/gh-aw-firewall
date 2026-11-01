@@ -161,6 +161,8 @@ function buildUsageFromSource(usageSource) {
   if (typeof usageSource.output_tokens === 'number') usage.output_tokens = usageSource.output_tokens;
   if (typeof usageSource.cache_creation_input_tokens === 'number') {
     usage.cache_creation_input_tokens = usageSource.cache_creation_input_tokens;
+  } else if (typeof usageSource.input_tokens_details?.cache_write_tokens === 'number') {
+    usage.cache_creation_input_tokens = usageSource.input_tokens_details.cache_write_tokens;
   }
   if (typeof usageSource.prompt_tokens === 'number') usage.prompt_tokens = usageSource.prompt_tokens;
   if (typeof usageSource.completion_tokens === 'number') usage.completion_tokens = usageSource.completion_tokens;
@@ -507,7 +509,9 @@ function normalizeUsage(usage) {
     input_tokens: usage.input_tokens ?? usage.prompt_tokens ?? 0,
     output_tokens: usage.output_tokens ?? usage.completion_tokens ?? 0,
     cache_read_tokens: cacheReadTokens,
-    cache_write_tokens: usage.cache_creation_input_tokens ?? 0,
+    cache_write_tokens: usage.cache_creation_input_tokens ??
+      (typeof usage.input_tokens_details?.cache_write_tokens === 'number'
+        ? usage.input_tokens_details.cache_write_tokens : 0),
     reasoning_tokens: usage.reasoning_tokens ?? 0,
     ...(inputTokensIncludeCache ? { input_tokens_include_cache: true } : {}),
   };
