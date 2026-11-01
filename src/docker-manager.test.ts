@@ -259,4 +259,27 @@ describe('docker-manager (barrel re-exports)', () => {
     });
   });
 
+  describe('isCapDropSkipped value parsing via barrel', () => {
+    const original = process.env.AWF_SKIP_CAP_DROP;
+    afterEach(() => {
+      if (original === undefined) delete process.env.AWF_SKIP_CAP_DROP;
+      else process.env.AWF_SKIP_CAP_DROP = original;
+    });
+
+    it.each(['1', 'true', 'TRUE', ' yes ', 'Yes'])('treats %p as skipped', (v) => {
+      process.env.AWF_SKIP_CAP_DROP = v;
+      expect(dockerManager.isCapDropSkipped()).toBe(true);
+    });
+
+    it.each(['', '0', 'false', 'no', 'maybe'])('treats %p as not skipped', (v) => {
+      process.env.AWF_SKIP_CAP_DROP = v;
+      expect(dockerManager.isCapDropSkipped()).toBe(false);
+    });
+
+    it('is not skipped when unset', () => {
+      delete process.env.AWF_SKIP_CAP_DROP;
+      expect(dockerManager.isCapDropSkipped()).toBe(false);
+    });
+  });
+
 });
