@@ -195,7 +195,7 @@ describe('NVX Phase 3d runtime lifecycle', () => {
       network: { guestAddress: '192.168.127.2/30' },
     }, '/run/awf-nvx/outcome.json');
     expect(args).not.toContain('--mount');
-    expect(args).not.toContain('--cpu-profile');
+    expect(args).toEqual(expect.arrayContaining(['--cpu-profile', 'host']));
     expect(args).toEqual(expect.arrayContaining([
       '--mount-aggregate', '/run/nvx/shares',
       '--mount-child', `${nvxShareName(0, '/workspace')},/host/workspace,rw`,
@@ -478,6 +478,8 @@ describe('NVX Phase 3d runtime lifecycle', () => {
       '--single-process',
       '--hypervisor',
       'kvm',
+      '--cpu-profile',
+      'host',
       '--network-egress',
       'deny',
     ]));
@@ -499,9 +501,9 @@ describe('NVX Phase 3d runtime lifecycle', () => {
       'microvm',
       '--paused',
       '--microvm-sandbox-block',
-      'distro:file:/run/awf-nvx/distro.erofs,ro',
+      'distro:file:/proc/self/fd/6,ro',
       '--microvm-sandbox-block',
-      'scratch:file:/run/awf-nvx/scratch.ext4',
+      'scratch:file:/proc/self/fd/7',
       '--microvm-workload-identity',
       '65534:65534',
       '--microvm-lifecycle',
@@ -509,6 +511,8 @@ describe('NVX Phase 3d runtime lifecycle', () => {
       '--single-process',
       '--hypervisor',
       'kvm',
+      '--cpu-profile',
+      'host',
       '--memory',
       '512M',
       '--kernel',
@@ -540,7 +544,16 @@ describe('NVX Phase 3d runtime lifecycle', () => {
     expect(openvmmArguments.join(' ')).not.toContain(`/var/lib/awf-nvx/runs/${RUN_ID}`);
     expect(plan.outcomePath).toBe(`/var/lib/awf-nvx/runs/${RUN_ID}/outcome.json`);
 
-    expect(openvmmArguments).not.toContain('--cpu-profile');
+    const pinnedProfile = buildDirectOpenvmmArguments({
+      nvxRoot: '/opt/awf-nvx',
+      filesystem: filesystemBundle(),
+      entrypoint: '/bin/true',
+      cpuProfile: 'intel.icelake-sp.v1',
+      network: { guestAddress: '192.168.127.2/30' },
+    }, '/run/awf-nvx/outcome.json');
+    expect(pinnedProfile).toEqual(expect.arrayContaining([
+      '--cpu-profile', 'intel.icelake-sp.v1',
+    ]));
   });
 
   it('rejects a filesystem bundle staged outside the canonical run directory', () => {

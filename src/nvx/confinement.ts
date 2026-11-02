@@ -18,6 +18,9 @@ const NO_CAPABILITIES = '0000000000000000';
 type NvxCapabilitySet = typeof CALLER_MOUNT_CAPABILITIES | typeof NO_CAPABILITIES;
 const SECCOMP_EXEC_PYTHON = [
   'import ctypes, os, sys',
+  // Bubblewrap preserves unused inherited FDs; Python must not make these
+  // checked disk handles close-on-exec before handing them to OpenVMM.
+  '[(os.fstat(fd), os.set_inheritable(fd, True)) for fd in (6, 7)]',
   'data = open(sys.argv[1], "rb").read()',
   'data and len(data) % 8 == 0 or sys.exit("invalid seccomp filter")',
   'F = type("F", (ctypes.Structure,), {"_fields_": [("code", ctypes.c_ushort), ("jt", ctypes.c_ubyte), ("jf", ctypes.c_ubyte), ("k", ctypes.c_uint)]})',

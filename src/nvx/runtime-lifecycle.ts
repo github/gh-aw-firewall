@@ -22,6 +22,7 @@ import type { NvxFilesystemBundle } from './filesystem-builder';
 import {
   appendMountArguments,
   buildNvxKernelCommandLine,
+  NVX_ONE_SHOT_CPU_PROFILE,
   validateNvxExecutionRequest,
   type NvxOneShotExecutionRequest,
 } from './one-shot-adapter';
@@ -697,12 +698,12 @@ export function buildDirectOpenvmmArguments(
   for (const layer of ordered) {
     args.push(
       '--microvm-sandbox-block',
-      `${layer.role}:file:${layer.path},ro`,
+      `${layer.role}:file:/proc/self/fd/6,ro`,
     );
   }
   args.push(
     '--microvm-sandbox-block',
-    `scratch:file:${request.filesystem.scratch.path}`,
+    'scratch:file:/proc/self/fd/7',
     '--microvm-workload-identity',
     `${uid}:${gid}`,
     '--microvm-lifecycle',
@@ -710,6 +711,8 @@ export function buildDirectOpenvmmArguments(
     '--single-process',
     '--hypervisor',
     'kvm',
+    '--cpu-profile',
+    request.cpuProfile ?? NVX_ONE_SHOT_CPU_PROFILE,
     '--memory',
     `${request.memoryMib ?? 512}M`,
     '--kernel',

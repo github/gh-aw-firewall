@@ -217,8 +217,14 @@ describe('NvxManager', () => {
       ],
     }));
     const launch = jest.mocked(value.launchExecutor.execute).mock.calls[0][0];
-    expect(JSON.stringify(launch.plan.launchCommand)).toContain('distro.erofs');
+    expect(JSON.stringify(launch.plan.launchCommand)).toContain('distro:file:/proc/self/fd/6,ro');
     expect(JSON.stringify(launch.plan.launchCommand)).not.toContain('custom.erofs');
+    expect(launch.request.filesystem.layers).toEqual([
+      expect.objectContaining({
+        role: 'distro',
+        path: `/var/lib/awf-nvx/runs/${RUN_ID}/distro.erofs`,
+      }),
+    ]);
     expect(guestConfig.cleanup).toHaveBeenCalledTimes(1);
   });
 

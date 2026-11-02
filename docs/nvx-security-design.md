@@ -9,16 +9,16 @@ This document defines the Phase 1 security contract for evaluating NVX as an
 AWF primary-agent microVM backend. It is a design contract, not an implemented
 runtime.
 
-The design is pinned to NVX release `v0.1.0-dev.13504aa3497c`, commit
-`13504aa3497cb0257ca855937f410100eabc856d`, and OpenVMM commit
-`b58040ee46c6ed2953415b3734b0ee0c2b7485b6`. The Linux KVM archive is
+The design is pinned to NVX release `v0.1.0-dev.8fb0f1d64f2f`, commit
+`8fb0f1d64f2f67e0017a4f94693244297852ed1f`, and OpenVMM commit
+`0ac254109ed32fc5fa2b1a6fc526a10593b1f986`. The Linux KVM archive is
 `nvx-0.1.0-linux-kvm.tar.gz` with SHA-256
-`df8ad7aaeeee1cbfe43a590f4702c9b3c14622407a86e7cd8f8d3778eacefc6a`.
+`0a4bb74e76e80a524c3dccd9336b77705ef91d6a908d6979403c59151a5883da`.
 
-The public release feed was checked on 2026-11-02 and also lists
-`v0.1.0-dev.8fb0f1d64f2f`. This update retains the proposed pin above;
-later development builds require their own artifact and live-KVM validation
-before substitution.
+The public release feed was checked on 2026-11-02. This pin supersedes the
+issue's proposed 2026-10-30 release after rechecking the one-shot root, share,
+limit, and outcome contracts. One-shot runs still use `nvx_share` boot tokens;
+the `nvx_maps` mapping-table protocol belongs to managed sessions.
 
 ## Decision: one-shot execution
 
@@ -701,9 +701,10 @@ Phase 2 adds reusable foundations without making `nvx` a selectable AWF
 runtime:
 
 - `src/nvx/filesystem-builder.ts` creates one deterministic distro EROFS image
-  from the toolchain and ownership-preserving guest configuration, excludes known credential paths at
-  any depth, rejects escaping links and special files, records source and image
-  identities, and creates one fresh bounded ext4 scratch image per invocation.
+  from the toolchain and ownership-preserving guest configuration, excludes
+  known credential paths at any depth, rejects escaping links and special
+  files, records source and image identities, and creates one fresh bounded
+  ext4 scratch image per invocation.
   Staging requires Linux `/proc/self/fd` and no-follow directory descriptors to
   prevent source-tree path races;
 - `src/nvx/one-shot-adapter.ts` constructs `bin/nvx-rs sandbox run`, launches
@@ -719,6 +720,24 @@ The adapter intentionally requires a prebuilt absolute entrypoint and
 whitespace-free NVX arguments. Complex agent commands must be placed in an
 immutable layer as an entrypoint script because the pinned NVX kernel-command
 line ABI rejects whitespace-bearing `--arg` values.
+
+`scripts/ci/nvx-release-contract.test.ts` compares AWF's direct launch with the
+pinned package's `bin/nvx-rs sandbox run --dry-run` for no shares, a single
+directory, aggregate directories with policies, and a single file. It runs in
+Phase 3b against the checksum-verified package. To run it locally, set
+`AWF_NVX_PACKAGE_ROOT` to the extracted `nvx-0.1.0-linux-kvm` directory; normal
+unit runs skip this release-dependent check.
+
+Local repin validation also built and extracted an actual EROFS image:
+toolchain entries remained root-owned with setuid stripped, the generated
+entrypoint remained root-owned `0555`, and the home/cache seed retained the
+workload UID/GID. Reversing the source list produced byte-identical images.
+The pinned release also completed real KVM `/bin/true` runs with one directory
+share and two aggregate shares, reporting applied deny-default networking and
+complete teardown, with no residual VMM process. These upstream-launch checks
+do not replace attested AWF confinement/proxy checks, authenticated
+Copilot/build-test smoke runs, or the Phase 4 canary evidence required for
+promotion.
 
 Phase 2 does not add `nvx` to the runtime registry or CLI. Selection remains
 blocked until Phase 3 supplies the dedicated VMM identity, ACL-only device

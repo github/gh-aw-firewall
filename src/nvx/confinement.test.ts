@@ -172,6 +172,10 @@ describe('NVX host confinement', () => {
     });
 
     expect(result.command).toBe('/usr/sbin/ip');
+    expect(result.args).not.toContain('--preserve-fds');
+    expect(result.args.find((argument) => argument.includes('import ctypes'))).toContain(
+      '[(os.fstat(fd), os.set_inheritable(fd, True)) for fd in (6, 7)]',
+    );
     expect(result.args.slice(0, 4)).toEqual([
       'netns', 'exec', 'awfnvx-abc123', '/usr/bin/bwrap',
     ]);

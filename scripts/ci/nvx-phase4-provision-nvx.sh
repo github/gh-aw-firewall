@@ -2,9 +2,9 @@
 set -euo pipefail
 
 : "${RUNNER_TEMP:?}" "${GITHUB_SHA:?}" "${GITHUB_ENV:?}" "${GH_TOKEN:?}"
-NVX_RELEASE=v0.1.0-dev.13504aa3497c
+NVX_RELEASE=v0.1.0-dev.8fb0f1d64f2f
 NVX_ARCHIVE=nvx-0.1.0-linux-kvm.tar.gz
-NVX_ARCHIVE_SHA256=df8ad7aaeeee1cbfe43a590f4702c9b3c14622407a86e7cd8f8d3778eacefc6a
+NVX_ARCHIVE_SHA256=0a4bb74e76e80a524c3dccd9336b77705ef91d6a908d6979403c59151a5883da
 package="$RUNNER_TEMP/nvx-package"
 artifacts="$RUNNER_TEMP/nvx-artifacts"
 layer="$RUNNER_TEMP/nvx-layer"
@@ -48,9 +48,9 @@ jq -n \
   '{schemaVersion:2,release:{repository:"github/gh-aw-firewall",
     workflow:"github/gh-aw-firewall/.github/workflows/nvx-phase-4-benchmark.yml",
     tag:"v0.28.54",sourceCommit:$source},
-    upstream:{releaseTag:"v0.1.0-dev.13504aa3497c",
-      nvxCommit:"13504aa3497cb0257ca855937f410100eabc856d",
-      openvmmCommit:"b58040ee46c6ed2953415b3734b0ee0c2b7485b6"},
+    upstream:{releaseTag:"v0.1.0-dev.8fb0f1d64f2f",
+      nvxCommit:"8fb0f1d64f2f67e0017a4f94693244297852ed1f",
+      openvmmCommit:"0ac254109ed32fc5fa2b1a6fc526a10593b1f986"},
     architecture:"x86_64",
     artifacts:{openvmm:{file:"openvmm",sizeBytes:$openvmm_size,sha256:$openvmm},
       kernel:{file:"vmlinux",sizeBytes:$kernel_size,sha256:$kernel},

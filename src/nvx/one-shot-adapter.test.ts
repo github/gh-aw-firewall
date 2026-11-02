@@ -303,7 +303,7 @@ describe('NVX one-shot execution adapter', () => {
     const { root, request } = await fixture();
     try {
       const args = buildNvxOneShotArguments(
-        request,
+        { ...request, cpuProfile: 'intel.icelake-sp.v1' },
         path.join(request.filesystem.runDirectory, 'outcome.json'),
       );
       expect(args).not.toContain('--cpu-profile');

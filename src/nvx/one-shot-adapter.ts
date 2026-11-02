@@ -20,6 +20,7 @@ const NVX_MAX_OUTCOME_BYTES = 64 * 1024;
 const NVX_DEFAULT_RAW_TAIL_BYTES = 64 * 1024;
 const NVX_TERMINATION_GRACE_MS = 2_000;
 const NVX_DEFAULT_WORKLOAD_ID = 65534;
+export const NVX_ONE_SHOT_CPU_PROFILE = 'host';
 
 export interface NvxOneShotNetworkPlan {
   readonly guestAddress: string;
@@ -40,6 +41,7 @@ export interface NvxOneShotExecutionRequest {
   readonly memoryMaxBytes?: number;
   readonly pidsMax?: number;
   readonly memoryMib?: number;
+  readonly cpuProfile?: string;
   readonly mounts?: readonly NvxLiveMount[];
   readonly timeoutMs?: number;
   readonly abortSignal?: AbortSignal;
@@ -235,7 +237,7 @@ const defaultDependencies: NvxOneShotAdapterDependencies = {
  *
  * Direct OpenVMM launches reuse NvxPreparedExecution so validation, filtered
  * output, timeout/cancellation results, and structured outcome checks stay
- * identical without depending on the broken flat launcher artifact.
+ * identical while applying their own host confinement.
  */
 export class NvxOneShotAdapter {
   constructor(
@@ -524,6 +526,10 @@ export function validateNvxExecutionRequest(request: NvxOneShotExecutionRequest)
   }
   if (request.memoryMib !== undefined && request.memoryMib > 17592186044415) {
     throw new Error('NVX guest memory overflows its byte representation');
+  }
+  const cpuProfile = request.cpuProfile ?? NVX_ONE_SHOT_CPU_PROFILE;
+  if (!/^[a-z0-9]+(?:[.-][a-z0-9]+)*$/.test(cpuProfile)) {
+    throw new Error(`NVX CPU profile is invalid: ${cpuProfile}`);
   }
   for (const mount of request.mounts ?? []) {
     for (const [label, value] of [
