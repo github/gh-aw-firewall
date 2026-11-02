@@ -27,10 +27,12 @@ describe('host ownership targets', () => {
 
   beforeEach(() => {
     jest.mocked(getRealUserHome).mockImplementation(getDir);
+    (fs.fchownSync as jest.Mock).mockReset();
   });
 
   afterEach(() => {
     fs.rmSync(`${getDir()}-chroot-home`, { recursive: true, force: true });
+    fs.rmSync(`${getDir()}-chroot-home-moved`, { recursive: true, force: true });
     (fs.lstatSync as jest.Mock).mockImplementation(actualFs.lstatSync);
   });
 
@@ -48,6 +50,10 @@ describe('host ownership targets', () => {
     const target = path.join(getDir(), 'gemini-target');
     fs.mkdirSync(target);
     fs.symlinkSync(target, gemini);
+    const changedInodes: number[] = [];
+    (fs.fchownSync as jest.Mock).mockImplementation((fd: number) => {
+      changedInodes.push(actualFs.fstatSync(fd).ino);
+    });
     // Segment creation permits root-owned system symlinks, but ownership repair
     // must not follow such a link at the .gemini leaf.
     (fs.lstatSync as jest.Mock).mockImplementation((file: fs.PathLike) => {
@@ -59,14 +65,66 @@ describe('host ownership targets', () => {
     expect(() => prepareChrootHomeMounts({
       ...baseConfig, workDir: getDir(), geminiApiKey: 'synthetic-key',
     })).toThrow(`Refusing to use symlink as directory: ${gemini}`);
-    expect(fs.chownSync).not.toHaveBeenCalledWith(gemini, expect.anything(), expect.anything());
+    expect(changedInodes).not.toContain(actualFs.statSync(target).ino);
   });
 
   it('still repairs ownership of an existing real .gemini directory', () => {
     const gemini = path.join(getDir(), '.gemini');
     fs.mkdirSync(gemini);
+    const geminiInode = actualFs.statSync(gemini).ino;
+    const changedInodes: number[] = [];
+    (fs.fchownSync as jest.Mock).mockImplementation((fd: number) => {
+      changedInodes.push(actualFs.fstatSync(fd).ino);
+    });
     prepareChrootHomeMounts({ ...baseConfig, workDir: getDir(), geminiApiKey: 'synthetic-key' });
-    expect(fs.chownSync).toHaveBeenCalledWith(gemini, 1000, 1000);
+    expect(changedInodes).toContain(geminiInode);
+  });
+
+  it('keeps chroot-home mountpoint creation pinned if the home path is replaced after opening', () => {
+    const home = `${getDir()}-chroot-home`;
+    const movedHome = `${home}-moved`;
+    const outside = path.join(getDir(), 'outside-home');
+    fs.mkdirSync(home);
+    fs.mkdirSync(outside);
+    const originalInode = actualFs.statSync(home).ino;
+    let replaced = false;
+    (fs.fchownSync as jest.Mock).mockImplementation((fd: number) => {
+      if (!replaced && actualFs.fstatSync(fd).ino === originalInode) {
+        actualFs.renameSync(home, movedHome);
+        actualFs.symlinkSync(outside, home);
+        replaced = true;
+      }
+    });
+
+    expect(() => prepareChrootHomeMounts({ ...baseConfig, workDir: getDir() })).not.toThrow();
+    expect(replaced).toBe(true);
+    expect(fs.lstatSync(home).isSymbolicLink()).toBe(true);
+    expect(fs.readdirSync(outside)).toEqual([]);
+    expect(fs.existsSync(path.join(movedHome, '.cache'))).toBe(true);
+  });
+
+  it('keeps Gemini ownership pinned if its path is replaced after opening', () => {
+    const gemini = path.join(getDir(), '.gemini');
+    const movedGemini = `${gemini}-moved`;
+    const outside = path.join(getDir(), 'outside-gemini');
+    fs.mkdirSync(gemini);
+    fs.mkdirSync(outside);
+    const geminiInode = actualFs.statSync(gemini).ino;
+    let replaced = false;
+    (fs.fchownSync as jest.Mock).mockImplementation((fd: number) => {
+      if (!replaced && actualFs.fstatSync(fd).ino === geminiInode) {
+        actualFs.renameSync(gemini, movedGemini);
+        actualFs.symlinkSync(outside, gemini);
+        replaced = true;
+      }
+    });
+
+    expect(() => prepareChrootHomeMounts({
+      ...baseConfig, workDir: getDir(), geminiApiKey: 'synthetic-key',
+    })).not.toThrow();
+    expect(replaced).toBe(true);
+    expect(fs.lstatSync(gemini).isSymbolicLink()).toBe(true);
+    expect(fs.readdirSync(outside)).toEqual([]);
   });
 });
 
@@ -96,6 +154,18 @@ describe('audit copy destinations', () => {
     expect(warnSpy).toHaveBeenCalled();
     if (kind === 'directory-link') expect(fs.readdirSync(outside)).toEqual([]);
     if (kind === 'dangling-link') expect(fs.existsSync(outside)).toBe(false);
+  });
+
+  it('refuses an audit directory beneath a symlinked ancestor', () => {
+    const target = path.join(getDir(), 'target');
+    const alias = path.join(getDir(), 'alias');
+    fs.mkdirSync(path.join(target, 'audit'), { recursive: true });
+    fs.symlinkSync(target, alias);
+
+    expect(preserveIptablesAudit(getDir(), path.join(alias, 'audit'))).toBe(false);
+    expect(mockExecaSync).not.toHaveBeenCalled();
+    expect(fs.readdirSync(path.join(target, 'audit'))).toEqual([]);
+    expect(warnSpy).toHaveBeenCalled();
   });
 
   describe.each([
@@ -145,5 +215,25 @@ describe('audit copy destinations', () => {
 
     expect(mockExecaSync).toHaveBeenCalledTimes(4);
     expect(warnSpy).not.toHaveBeenCalled();
+  });
+
+  it('publishes staged copies to the opened audit directory if its path is replaced', () => {
+    const audit = path.join(getDir(), 'audit');
+    const movedAudit = path.join(getDir(), 'audit-moved');
+    const outside = path.join(getDir(), 'outside-audit');
+    fs.mkdirSync(audit);
+    fs.mkdirSync(outside);
+    mockExecaSync.mockImplementationOnce((_command, args) => {
+      actualFs.renameSync(audit, movedAudit);
+      actualFs.symlinkSync(outside, audit);
+      actualFs.writeFileSync(args[2] as string, 'staged audit');
+      return { exitCode: 0, stdout: '', stderr: '' };
+    });
+
+    preserveIptablesAudit(getDir(), audit);
+
+    expect(fs.readFileSync(path.join(movedAudit, 'enclave.jsonl'), 'utf8')).toBe('staged audit');
+    expect(fs.lstatSync(audit).isSymbolicLink()).toBe(true);
+    expect(fs.readdirSync(outside)).toEqual([]);
   });
 });

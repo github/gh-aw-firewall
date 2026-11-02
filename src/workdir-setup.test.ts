@@ -38,6 +38,7 @@ function setupWorkdirFixture({ cleanupChrootHome = true } = {}) {
     tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'workdir-setup-test-'));
     jest.clearAllMocks();
     (fs.chownSync as unknown as jest.Mock).mockImplementation(() => undefined);
+    (fs.fchownSync as jest.Mock).mockReset();
     // Restore chmodSync to its default passthrough (clearAllMocks doesn't reset implementations)
     (fs.chmodSync as jest.Mock).mockImplementation(
       (...args: Parameters<typeof actualFs.chmodSync>) => actualFs.chmodSync(...args),
@@ -398,13 +399,18 @@ describe('prepareWorkDirectories', () => {
     it('repairs ownership on existing .gemini directory for vertex runs', () => {
       const geminiDir = path.join(fixture.tempDir, '.gemini');
       fs.mkdirSync(geminiDir, { recursive: true });
+      const geminiInode = actualFs.statSync(geminiDir).ino;
+      const ownedInodes: number[] = [];
+      (fs.fchownSync as jest.Mock).mockImplementation((fd: number) => {
+        ownedInodes.push(actualFs.fstatSync(fd).ino);
+      });
 
       const config = buildConfig({ googleApiKey: 'test-key' });
       const logPaths = resolveLogPaths(config);
 
       prepareWorkDirectories(config, logPaths);
 
-      expect(fs.chownSync).toHaveBeenCalledWith(geminiDir, 1000, 1000);
+      expect(ownedInodes).toContain(geminiInode);
     });
 
     it('does not create .gemini directory when geminiApiKey is not provided', () => {
@@ -475,10 +481,9 @@ describe('prepareWorkDirectories', () => {
       const chrootToolCacheDir = path.join(chrootWorkDir, '_tool');
       expect(fs.existsSync(chrootToolCacheDir)).toBe(true);
       expect(fs.statSync(chrootToolCacheDir).isDirectory()).toBe(true);
-      expect(fs.chownSync).toHaveBeenCalledWith(chrootWorkDir, 1000, 1000);
-      expect(fs.chmodSync).toHaveBeenCalledWith(chrootWorkDir, 0o755);
-      expect(fs.chownSync).toHaveBeenCalledWith(chrootToolCacheDir, 1000, 1000);
-      expect(fs.chmodSync).toHaveBeenCalledWith(chrootToolCacheDir, 0o755);
+      expect(fs.fchownSync).toHaveBeenCalledWith(expect.any(Number), 1000, 1000);
+      expect(fs.statSync(chrootWorkDir).mode & 0o777).toBe(0o755);
+      expect(fs.statSync(chrootToolCacheDir).mode & 0o777).toBe(0o755);
     });
   });
 });
@@ -574,8 +579,8 @@ describe('prepareChrootHomeMounts (sub-function)', () => {
       workdirSetupTestHelpers.prepareChrootHomeMounts(buildConfig());
 
       const chrootHome = `${fixture.tempDir}-chroot-home`;
-      expect(fs.chownSync).toHaveBeenCalledWith(chrootHome, 1000, 986);
-      expect(fs.chownSync).toHaveBeenCalledWith(path.join(chrootHome, '.cache'), 1000, 986);
+      expect(fs.fchownSync).toHaveBeenCalledWith(expect.any(Number), 1000, 986);
+      expect(fs.existsSync(chrootHome)).toBe(true);
     } finally {
       (getSafeHostGid as jest.Mock).mockReturnValue('1000');
     }

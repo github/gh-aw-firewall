@@ -477,10 +477,9 @@ describe('writeConfigs', () => {
       const chrootToolCacheDir = path.join(chrootWorkDir, '_tool');
       expect(fs.existsSync(chrootToolCacheDir)).toBe(true);
       expect(fs.statSync(chrootToolCacheDir).isDirectory()).toBe(true);
-      expect(fs.chownSync).toHaveBeenCalledWith(chrootWorkDir, 1000, 1000);
-      expect(fs.chmodSync).toHaveBeenCalledWith(chrootWorkDir, 0o755);
-      expect(fs.chownSync).toHaveBeenCalledWith(chrootToolCacheDir, 1000, 1000);
-      expect(fs.chmodSync).toHaveBeenCalledWith(chrootToolCacheDir, 0o755);
+      expect(fs.fchownSync).toHaveBeenCalledWith(expect.any(Number), 1000, 1000);
+      expect(fs.statSync(chrootWorkDir).mode & 0o777).toBe(0o755);
+      expect(fs.statSync(chrootToolCacheDir).mode & 0o777).toBe(0o755);
     });
 
     it('does not create .gemini directory when geminiApiKey is not provided', async () => {
