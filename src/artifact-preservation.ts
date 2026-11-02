@@ -78,6 +78,7 @@ function copyEnclaveArtifact(
     throw new Error(`Unsafe enclave artifact destination: ${name}`);
   }
   const stagingPath = fs.mkdtempSync(`/proc/self/fd/${directoryFd}/.awf-enclave-audit-`);
+  fs.chmodSync(stagingPath, 0o700);
   let stagingFd: number | undefined;
   try {
     stagingFd = fs.openSync(
