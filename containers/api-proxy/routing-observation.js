@@ -143,12 +143,14 @@ function createRoutingObservation({
       // success event, before AWF finishes writing (Codex stops reading at
       // response.completed). Other downstream closes are cancellations, not
       // evidence that the upstream provider failed.
+      // Decoding may reveal terminal success after the upstream has torn down.
+      const upstreamFailed = state.upstreamFailed && !state.upstreamCompleted;
       const clientClosed = !res.writableFinished && state.upstreamCompleted && !state.sseFailed
-        && !state.upstreamFailed
+        && !upstreamFailed
         && res.statusCode >= 200 && res.statusCode < 300;
       const incompleteStream = state.streaming && !state.upstreamCompleted
         && (res.writableFinished || state.upstreamEnded);
-      const requestFailed = res.statusCode >= 400 || state.sseFailed || state.upstreamFailed || incompleteStream;
+      const requestFailed = res.statusCode >= 400 || state.sseFailed || upstreamFailed || incompleteStream;
       const outcome = clientClosed ? 'client_closed'
         : !res.writableFinished ? 'aborted'
         : req.awfRouting.rejected ? 'rejected'

@@ -686,7 +686,7 @@ describe('routed request outcome when the client closes early', () => {
   // one Codex /responses request tracked like upstream-token.js wires it.
   // With translatedToChat, the request is served by a Chat-only model, as
   // body-handler.js reports through onEndpointTranslation.
-  async function startRoutedRequest({ translatedToChat = false } = {}) {
+  async function startRoutedRequest({ translatedToChat = false, compressed = false } = {}) {
     const outputDir = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-routing-client-close-'));
     const records = [];
     const session = createProductionRoutingSession({
@@ -713,7 +713,10 @@ describe('routed request outcome when the client closes early', () => {
     }
 
     const proxyRes = new EventEmitter();
-    proxyRes.headers = { 'content-type': 'text/event-stream' };
+    proxyRes.headers = {
+      'content-type': 'text/event-stream',
+      ...(compressed ? { 'content-encoding': 'gzip' } : {}),
+    };
     proxyRes.statusCode = 200;
     req.awfRouting.onUpstreamResponseHeaders(proxyRes.headers, proxyRes);
     const usage = [];
@@ -729,7 +732,7 @@ describe('routed request outcome when the client closes early', () => {
       onSseInspectionStart: req.awfRouting.onSseInspectionStart,
       onSseInspectionComplete: req.awfRouting.onSseInspectionComplete,
     });
-    if (!translatedToChat) {
+    if (!translatedToChat && !compressed) {
       proxyRes.emit('data', sse({ type: 'response.created', response: { id: 'resp_luna', model: 'gpt-5.6-luna' } }));
       proxyRes.emit('data', sse({ type: 'response.output_text.delta', delta: 'fixed' }));
     }
@@ -807,6 +810,24 @@ describe('routed request outcome when the client closes early', () => {
       request_id: run.req.awfRouting.requestId,
       outcome: 'client_closed',
       status: 200,
+    })]);
+    expect(run.usage).toEqual([expect.objectContaining({ input_tokens: 21000, output_tokens: 640 })]);
+    await expectRoutingSucceeded(run);
+  });
+
+  test('compressed_terminal_success_inspected_after_upstream_teardown_remains_client_closed', async () => {
+    const run = await startRoutedRequest({ compressed: true });
+    run.proxyRes.emit('data', zlib.gzipSync(sse(COMPLETED)));
+    // The compressed terminal event is buffered in the decoder when the
+    // transport closes. Drain must wait for protocol inspection before
+    // deciding whether this was an incomplete upstream response.
+    run.proxyRes.emit('aborted');
+    run.proxyRes.emit('close');
+    run.res.emit('close');
+    expect(requestRecords(run.records)).toEqual([]);
+    await run.session.shutdown();
+    expect(requestRecords(run.records)).toEqual([expect.objectContaining({
+      outcome: 'client_closed', status: 200,
     })]);
     expect(run.usage).toEqual([expect.objectContaining({ input_tokens: 21000, output_tokens: 640 })]);
     await expectRoutingSucceeded(run);
