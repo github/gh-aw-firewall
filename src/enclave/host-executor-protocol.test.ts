@@ -877,18 +877,23 @@ describe('host executor server', () => {
 
   it('renews liveness only with fresh authenticated status, not invoke retries', async () => {
     await start({}, { statusLeaseMs: 100 });
-    const broker = client();
-    await broker.invoke(invokeArgs);
-    for (let count = 0; count < 3; count += 1) {
-      await new Promise((resolve) => setTimeout(resolve, 40));
-      await broker.status({ entryId: ENTRY_ID, invocationId: INVOCATION_ID });
-      expect(signals[0].aborted).toBe(false);
-    }
-    for (let count = 0; count < 3; count += 1) {
-      await new Promise((resolve) => setTimeout(resolve, 40));
+    jest.useFakeTimers({ doNotFake: ['nextTick', 'setImmediate', 'hrtime', 'performance'] });
+    try {
+      const broker = client();
       await broker.invoke(invokeArgs);
+      for (let count = 0; count < 3; count += 1) {
+        await jest.advanceTimersByTimeAsync(40);
+        await broker.status({ entryId: ENTRY_ID, invocationId: INVOCATION_ID });
+        expect(signals[0].aborted).toBe(false);
+      }
+      for (let count = 0; count < 3; count += 1) {
+        await jest.advanceTimersByTimeAsync(40);
+        await broker.invoke(invokeArgs);
+      }
+      expect(signals[0].aborted).toBe(true);
+    } finally {
+      jest.useRealTimers();
     }
-    expect(signals[0].aborted).toBe(true);
   });
 
   it('keeps incomplete cleanup nonterminal and closes further admissions', async () => {
