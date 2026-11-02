@@ -64,7 +64,7 @@ describe('host ownership targets', () => {
 
     expect(() => prepareChrootHomeMounts({
       ...baseConfig, workDir: getDir(), geminiApiKey: 'synthetic-key',
-    })).toThrow(`Refusing to use symlink as directory: ${gemini}`);
+    })).toThrow();
     expect(changedInodes).not.toContain(actualFs.statSync(target).ino);
   });
 

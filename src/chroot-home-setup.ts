@@ -12,10 +12,6 @@ function descriptorPath(fd: number): string {
 }
 
 function openRealDirectory(directory: string): number {
-  const lstat = fs.lstatSync(directory);
-  if (lstat.isSymbolicLink()) {
-    throw new Error(`Refusing to use symlink as directory: ${directory}`);
-  }
   const fd = fs.openSync(
     directory,
     fs.constants.O_RDONLY | fs.constants.O_DIRECTORY | fs.constants.O_NOFOLLOW,
