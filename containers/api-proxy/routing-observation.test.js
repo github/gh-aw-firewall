@@ -70,6 +70,14 @@ class FakeResponse extends EventEmitter {
     return this;
   }
 
+  destroy() {
+    if (!this.destroyed) {
+      this.destroyed = true;
+      this.emit('close');
+    }
+    return this;
+  }
+
   body() {
     return Buffer.concat(this.chunks).toString('utf8');
   }
@@ -81,14 +89,21 @@ function request(overrides = {}) {
 
 function createHarness(selection = SELECTION, generateRequestId = () => 'generated-inference-123') {
   const failures = [];
+  const failureOptions = [];
   const records = [];
+  const events = [];
   const observation = createRoutingObservation({
     getSelection: () => selection,
-    recordFailure: code => failures.push(code),
+    recordFailure: (code, options) => {
+      failures.push(code);
+      failureOptions.push(options);
+      events.push(`failure:${code}`);
+    },
+    recordRecovery: () => events.push('recovery'),
     observer: { record: record => records.push(record) },
     generateRequestId,
   });
-  return { observation, failures, records };
+  return { observation, failures, failureOptions, records, events };
 }
 
 function observe(harness, req, adapter = { name: 'copilot' }) {
@@ -788,7 +803,7 @@ describe('advisory routing observation', () => {
     expect(harness.failures).toEqual([]);
   });
 
-  it('records a prematurely closed response and drains observed responses', async () => {
+  it('records a client-abandoned response without a routing failure and drains observed responses', async () => {
     const harness = createHarness();
     const { req, res } = observe(harness, request());
     send(req, { model: 'gpt-test', reasoning: { effort: 'high' } });
@@ -801,7 +816,7 @@ describe('advisory routing observation', () => {
     res.emit('close');
     await draining;
     expect(drained).toBe(true);
-    expect(harness.failures).toContain('provider_unavailable');
+    expect(harness.failures).toEqual([]);
     expect(harness.records).toEqual([expect.objectContaining({ outcome: 'aborted', status: 200 })]);
 
     // A request that arrives while draining is proxied but no longer observed.
@@ -844,7 +859,7 @@ describe('advisory routing observation', () => {
       req.awfRouting.onSseData('[DONE]');
       closeEarly(res);
       expect(harness.records).toEqual([expect.objectContaining({ outcome: 'aborted', status: 200 })]);
-      expect(harness.failures).toEqual(['provider_unavailable']);
+      expect(harness.failures).toEqual([]);
     });
 
     it('treats the usage-only chunk as completion only for translated /responses', () => {
@@ -873,11 +888,11 @@ describe('advisory routing observation', () => {
         req.awfRouting.onSseData(usageOnly);
         closeEarly(res);
         expect(harness.records).toEqual([expect.objectContaining({ outcome: 'aborted', status: 200 })]);
-        expect(harness.failures).toEqual(['provider_unavailable']);
+        expect(harness.failures).toEqual([]);
       }
     });
 
-    it('stream_without_terminal_success_remains_provider_unavailable', () => {
+    it('client_abandoning_a_stream_without_terminal_success_is_client_side', () => {
       const harness = createHarness();
       const { req, res } = observe(harness, request());
       send(req, { model: 'gpt-test', reasoning: { effort: 'low' } });
@@ -890,6 +905,16 @@ describe('advisory routing observation', () => {
       req.awfRouting.onSseData(JSON.stringify({ type: 'response.output_text.delta', delta: 'partial' }));
       req.awfRouting.onSseInspectionComplete();
       closeEarly(res);
+      expect(harness.records).toEqual([expect.objectContaining({ outcome: 'aborted', status: 200 })]);
+      expect(harness.failures).toEqual([]);
+    });
+
+    it('an AWF-destroyed stream without terminal success remains provider_unavailable', () => {
+      const harness = createHarness();
+      const { req, res } = observe(harness, request());
+      send(req, { model: 'gpt-test', reasoning: { effort: 'low' } });
+      req.awfRouting.onSseData(JSON.stringify({ type: 'response.output_text.delta', delta: 'partial' }));
+      res.destroy(new Error('aborted'));
       expect(harness.records).toEqual([expect.objectContaining({ outcome: 'aborted', status: 200 })]);
       expect(harness.failures).toEqual(['provider_unavailable']);
     });
@@ -922,6 +947,86 @@ describe('advisory routing observation', () => {
       closeEarly(non2xx.res);
       expect(harness.records[2]).toMatchObject({ outcome: 'aborted', status: 502 });
       expect(harness.failures.at(-1)).toBe('provider_unavailable');
+    });
+  });
+
+  describe('recovery from selected-model failures', () => {
+    const BODY = { model: 'gpt-test', reasoning: { effort: 'low' } };
+
+    function fail503(harness) {
+      const { req, res } = observe(harness, request());
+      send(req, BODY);
+      res.statusCode = 503;
+      res.end('upstream connect error or disconnect/reset before headers. reset reason: connection termination');
+    }
+
+    function stream(harness, { terminal = true } = {}) {
+      const { req, res } = observe(harness, request());
+      send(req, BODY);
+      req.awfRouting.onSseInspectionStart();
+      req.awfRouting.onSseData(JSON.stringify({ type: 'response.output_text.delta', delta: 'ok' }));
+      if (terminal) req.awfRouting.onSseData(JSON.stringify({ type: 'response.completed', response: {} }));
+      res.end();
+      req.awfRouting.onSseInspectionComplete();
+      return { req, res };
+    }
+
+    it('reports upstream errors as recoverable and a later selected-model success as recovery', () => {
+      const harness = createHarness();
+      stream(harness);
+      fail503(harness);
+      stream(harness);
+      expect(harness.events).toEqual(['recovery', 'failure:provider_unavailable', 'recovery']);
+      expect(harness.failureOptions).toEqual([{ recoverable: true }]);
+      expect(harness.records.map(record => [record.outcome, record.status])).toEqual([
+        ['completed', 200], ['failed', 503], ['completed', 200],
+      ]);
+    });
+
+    it('does not count a request that started before the failure as recovery', () => {
+      const harness = createHarness();
+      const earlier = observe(harness, request());
+      send(earlier.req, BODY);
+      fail503(harness);
+      earlier.res.end();
+      expect(harness.events).toEqual(['failure:provider_unavailable']);
+    });
+
+    it('does not count a stream without terminal success or a deviating model as recovery', () => {
+      const harness = createHarness();
+      fail503(harness);
+      stream(harness, { terminal: false });
+      const deviating = observe(harness, request());
+      send(deviating.req, { model: 'other-model', reasoning: { effort: 'low' } });
+      deviating.res.end();
+      expect(harness.events).toEqual(['failure:provider_unavailable']);
+      expect(harness.records.map(record => record.outcome)).toEqual(['failed', 'completed', 'completed']);
+    });
+
+    it('reports a policy rejection on the selected model as non-recoverable', () => {
+      const harness = createHarness();
+      const { req, res } = observe(harness, request());
+      send(req, BODY);
+      req.awfRouting.rejected = true;
+      res.statusCode = 429;
+      res.end(JSON.stringify({ error: { type: 'max_runs_exceeded', message: 'Maximum LLM invocations exceeded' } }));
+      expect(harness.failures).toEqual(['max_runs_exceeded']);
+      expect(harness.failureOptions).toEqual([{ recoverable: false }]);
+      expect(harness.records).toEqual([expect.objectContaining({ outcome: 'rejected', status: 429 })]);
+    });
+
+    it('treats a destroy after the client already closed as client-side', () => {
+      const harness = createHarness();
+      const { req, res } = observe(harness, request());
+      send(req, BODY);
+      req.awfRouting.onSseInspectionStart();
+      req.awfRouting.onSseData(JSON.stringify({ type: 'response.output_text.delta', delta: 'partial' }));
+      res.emit('close');
+      // Upstream cancellation then tears down the already-closed response.
+      res.destroy(new Error('aborted'));
+      req.awfRouting.onSseInspectionComplete();
+      expect(harness.records).toEqual([expect.objectContaining({ outcome: 'aborted', status: 200 })]);
+      expect(harness.failures).toEqual([]);
     });
   });
 

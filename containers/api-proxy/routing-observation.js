@@ -124,12 +124,25 @@ function requestedEffortFor(parsed, endpoint) {
 function createRoutingObservation({
   getSelection,
   recordFailure,
+  recordRecovery,
   observer,
   generateRequestId: makeRequestId = generateRequestId,
 }) {
   let draining = false;
   const active = new Set();
   const waiters = new Set();
+  // Requests are numbered as they start. A selected-model success proves
+  // recovery only for failures recorded before that request started.
+  let requestSequence = 0;
+  let lastFailureSequence = 0;
+
+  // A failure on the selected provider and model. Recoverable failures are
+  // upstream errors that a later successful request on the selected model can
+  // supersede; the runtime decides once observed requests have drained.
+  function fail(code, { recoverable = true } = {}) {
+    lastFailureSequence = requestSequence;
+    recordFailure(code, { recoverable });
+  }
 
   function trackResponse(req, res, state) {
     active.add(res);
@@ -155,8 +168,20 @@ function createRoutingObservation({
         status: res.statusCode,
         ...(outcome === 'failed' ? requestErrorFields(req.awfRouting.localError, state.errorFields) : {}),
       });
-      if (outcome === 'aborted' && state.selectedModel) {
-        recordFailure('provider_unavailable');
+      // A client that abandons an unfinished request (for example a
+      // background call at shutdown) is not a provider failure. An early
+      // close is one only when AWF itself tore the response down or an
+      // upstream error was observed for this request.
+      if (outcome === 'aborted' && state.selectedModel
+        && (state.serverAborted || state.sseFailed || res.statusCode >= 400)) {
+        fail('provider_unavailable');
+      }
+      // A selected-model request that started after the latest failure and
+      // reached protocol-level success shows the provider recovered. A stream
+      // must also have delivered its terminal success event.
+      if ((outcome === 'completed' || outcome === 'client_closed') && state.selectedModel
+        && state.sequence > lastFailureSequence && (!state.streamed || state.upstreamCompleted)) {
+        recordRecovery?.();
       }
       if (active.size === 0) {
         for (const resolve of waiters) {
@@ -175,8 +200,20 @@ function createRoutingObservation({
     }
     res.once('finish', complete);
     res.once('close', complete);
+    res.once('close', () => { state.closed = true; });
+    // AWF destroys the downstream response when the upstream fails after
+    // headers were sent. A destroy after the client already closed is only
+    // cleanup of that client close.
+    if (typeof res.destroy === 'function') {
+      const originalDestroy = res.destroy;
+      res.destroy = function(...args) {
+        if (!state.closed && !this.destroyed) state.serverAborted = true;
+        return originalDestroy.apply(this, args);
+      };
+    }
     return {
       sseInspectionStart() {
+        state.streamed = true;
         state.sseInspectionPending = true;
       },
       sseInspectionComplete() {
@@ -186,7 +223,7 @@ function createRoutingObservation({
     };
   }
 
-  function observeFailure(res, state, recordsRoutingFailure) {
+  function observeFailure(req, res, state, recordsRoutingFailure) {
     const originalWrite = res.write;
     const originalEnd = res.end;
     const chunks = [];
@@ -224,15 +261,16 @@ function createRoutingObservation({
         }
         if (recordsRoutingFailure && state.selectedModel) {
           const error = parsed?.error;
-          recordNativeFailure(error?.code || error?.type);
+          // A policy rejection is reported as before: it ends the routed run.
+          recordNativeFailure(error?.code || error?.type, { recoverable: !req.awfRouting?.rejected });
         }
       }
       return originalEnd.call(this, chunk, encoding, callback);
     };
   }
 
-  function recordNativeFailure(code) {
-    recordFailure(typeof code === 'string' && /^[A-Za-z0-9_.-]{1,100}$/.test(code) ? code : 'provider_unavailable');
+  function recordNativeFailure(code, options) {
+    fail(typeof code === 'string' && /^[A-Za-z0-9_.-]{1,100}$/.test(code) ? code : 'provider_unavailable', options);
   }
 
   function requestTelemetry(req, pathname, adapter, selection, body) {
@@ -301,13 +339,14 @@ function createRoutingObservation({
       // used the selected provider and model; a deviating request is the
       // agent's own choice and never ends the routed run.
       const state = {
+        sequence: ++requestSequence,
         selectedModel: false,
         sseFailed: false,
         upstreamCompleted: false,
         telemetry: requestTelemetry(req, pathname, adapter, selection),
       };
       const responseHooks = trackResponse(req, res, state);
-      observeFailure(res, state, adapter.name === (selection.provider || 'copilot'));
+      observeFailure(req, res, state, adapter.name === (selection.provider || 'copilot'));
       const onSseData = line => {
         if (line === '[DONE]') {
           if (state.telemetry.upstream_endpoint === '/chat/completions') state.upstreamCompleted = true;

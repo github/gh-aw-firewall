@@ -203,6 +203,15 @@ describe('routing bootstrap', () => {
       schema: 'awf-routing-complete/v1',
     }));
     expect(() => verifyRoutingCompletion(state)).not.toThrow();
+
+    // An unrecovered runtime failure published at drain still fails the run.
+    fs.writeFileSync(path.join(outputDir, 'runtime-failure.json'), JSON.stringify({
+      schema: 'awf-routing-failure/v1',
+      code: 'provider_unavailable',
+      detail: 'Routed execution failed',
+      retryable: false,
+    }));
+    expect(() => verifyRoutingCompletion(state)).toThrow('Model routing failed (provider_unavailable): Routed execution failed');
   });
 
   it('keeps result-file validation helpers closed to malformed records', () => {

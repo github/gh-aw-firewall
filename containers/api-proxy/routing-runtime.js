@@ -8,7 +8,8 @@
  * Session lifecycle:
  *   start()            → plan → write selection.json
  *   observation        → advisory: record requested vs. selected model per request
- *   shutdown()         → abort in-flight work, drain, then write complete.json
+ *   shutdown()         → abort in-flight work, drain, publish any unrecovered
+ *                        selected-model failure, then write complete.json
  *
  * The input and output directories belong to the proxy alone and are the only
  * channel back to the host, so every file there is opened with O_NOFOLLOW and
@@ -242,12 +243,28 @@ function createProductionRoutingSession({
   let runPromise;
   let result;
   let terminalFailure;
+  let pendingFailure;
   let drained = false;
 
-  // Terminal failure reported from anywhere in the run. Called from the live
-  // agent response path, so it must never throw back into that stream.
-  function recordFailure(code) {
+  // Failure reported from anywhere in the run. Called from the live agent
+  // response path, so it must never throw back into that stream. A
+  // recoverable selected-model failure stays pending until observed requests
+  // drain: a later successful selected-model request supersedes it, and only
+  // an unrecovered one ends the routed run.
+  function recordFailure(code, { recoverable = false } = {}) {
     if (terminalFailure || (result && !result.ok)) return;
+    if (recoverable && result?.ok) {
+      pendingFailure ??= code;
+      return;
+    }
+    latchFailure(pendingFailure ?? code);
+  }
+
+  function recordRecovery() {
+    pendingFailure = undefined;
+  }
+
+  function latchFailure(code) {
     terminalFailure = toRoutingFailure(createRoutingError(code, 'Routed execution failed'));
     try {
       observer.record({ stage: 'failure', phase: result?.ok ? 'primary' : 'bootstrap', code: terminalFailure.code });
@@ -290,7 +307,7 @@ function createProductionRoutingSession({
       },
     };
   }
-  const observation = createRoutingObservation({ getSelection, recordFailure, observer });
+  const observation = createRoutingObservation({ getSelection, recordFailure, recordRecovery, observer });
 
   async function execute() {
     try {
@@ -330,6 +347,8 @@ function createProductionRoutingSession({
       abortController.abort();
       await runPromise;
       await observation.drain();
+      if (pendingFailure && !terminalFailure) latchFailure(pendingFailure);
+      pendingFailure = undefined;
       drained = true;
     },
     completeShutdown() {

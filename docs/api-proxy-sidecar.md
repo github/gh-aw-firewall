@@ -1143,8 +1143,16 @@ rejection, not a failure to select a route. HTTP success alone does not imply
 the connection before AWF finished writing, after the upstream sent its
 protocol terminal success event (`response.completed` for Responses,
 `message_stop` for Messages, or `data: [DONE]` for Chat Completions). Codex,
-for example, stops reading at `response.completed`. Unlike `aborted`, a
-`client_closed` request on the selected model does not fail the routed run.
+for example, stops reading at `response.completed`. A `client_closed` request
+on the selected model does not fail the routed run. Nor does an `aborted`
+request that the client abandoned (for example a background call at shutdown)
+without an observed upstream error; an `aborted` request fails it only when AWF
+tore the response down or an upstream error was observed. A selected-model
+upstream failure is decided after observed requests drain: a later request on
+the selected provider and model that started after the failure and completed
+successfully supersedes it, so a recovered transient error remains telemetry
+(its `failed` record is unchanged). An unrecovered failure, or a model-policy
+rejection, still fails the routed run.
 Request records include `requested_endpoint` and `upstream_endpoint`; these
 differ when the Copilot proxy translates a request for a model that supports
 only the other wire API. Endpoint-only translation remains informational and

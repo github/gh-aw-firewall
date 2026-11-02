@@ -2287,8 +2287,18 @@ response whose client closed the connection before AWF finished writing is
 recorded as `client_closed`, not `aborted`, only after the upstream sent its
 protocol terminal success event (`response.completed`, `message_stop`, or
 the Chat Completions `[DONE]` sentinel) and no stream error; it MUST NOT be
-reported as a provider failure. Any other premature closure on the selected
-model remains `aborted` and fails the routed run with `provider_unavailable`. When token usage is
+reported as a provider failure. Any other premature closure is recorded as
+`aborted`. It is a provider failure on the selected model only when AWF tore
+the response down or an upstream error (HTTP status >= 400 or an SSE error) was
+observed for that request; a client abandoning an unfinished request, for
+example a background call at shutdown, MUST NOT fail the routed run.
+Per-request records are telemetry; the routed run fails only for an unrecovered
+failure. A selected-model upstream failure is decided after observed requests
+have drained: a later request on the selected provider and model that started
+after the failure and completed successfully (for a stream, after its terminal
+success event) supersedes it, and its `failed` record is unchanged. Otherwise,
+and immediately for a model-policy rejection, AWF writes one `failure` stage
+record and the run fails with the first unrecovered failure code. When token usage is
 available, `request_id` MUST correlate with the corresponding
 `token-usage.jsonl` record; not every rejected or aborted call produces usage.
 A `failed` request record MUST include `error_code` and `error_type` when an

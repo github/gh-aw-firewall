@@ -359,13 +359,16 @@ describe('createProductionRoutingSession', () => {
     res.statusCode = 200;
     res.writableFinished = false;
     res.write = jest.fn();
-    res.end = jest.fn();
+    res.end = jest.fn(() => { res.writableFinished = true; res.emit('finish'); });
     const req = { url: '/v1/chat/completions', method: 'POST', headers: {} };
     session.observeRequest(req, res, { name: 'copilot' });
     req.awfRouting.bodyTransform(Buffer.from(JSON.stringify({ model: SELECTION.wire_model })));
     res.statusCode = 503;
     res.end(JSON.stringify({ error: { code: 'provider_unavailable' } }));
 
+    // Decided only once observed requests have drained.
+    expect(fs.existsSync(path.join(outputDir, 'runtime-failure.json'))).toBe(false);
+    await session.shutdown();
     expect(readResult(outputDir, 'runtime-failure.json')).toMatchObject({
       schema: 'awf-routing-failure/v1',
       code: 'provider_unavailable',
@@ -388,12 +391,260 @@ describe('createProductionRoutingSession', () => {
     const res = new EventEmitter();
     res.statusCode = 502;
     res.write = jest.fn();
-    res.end = jest.fn();
+    res.end = jest.fn(() => { res.writableFinished = true; res.emit('finish'); });
     const req = { url: '/v1/chat/completions', method: 'POST', headers: {} };
     session.observeRequest(req, res, { name: 'copilot' });
     req.awfRouting.bodyTransform(Buffer.from(JSON.stringify({ model: SELECTION.wire_model })));
     res.end(JSON.stringify({ error: { code: 'bad_gateway' } }));
+    await session.shutdown();
 
     expect(fatalExit).toHaveBeenCalledWith(78);
+  });
+});
+
+describe('routed run completion after per-request failures', () => {
+  const { EventEmitter } = require('events');
+
+  // github-copilot/claude-haiku-5.5:xhigh served over /chat/completions, as
+  // the Copilot SDK reviewer runs in github/gh-aw-firewall#11002 selected it.
+  const HAIKU = Object.freeze({
+    schema: 'awf-routing-selection/v1',
+    engine: 'copilot',
+    provider: 'copilot',
+    endpoint: '/chat/completions',
+    choice: Object.freeze({ id: 'choice-haiku', model: 'github-copilot/claude-haiku-5.5', effort: 'xhigh' }),
+    wire_model: 'claude-haiku-5.5',
+  });
+  const HAIKU_BODY = { model: 'claude-haiku-5.5', reasoning_effort: 'xhigh', stream: true };
+
+  class Response extends EventEmitter {
+    constructor() {
+      super();
+      this.statusCode = 200;
+      this.writableFinished = false;
+      this.destroyed = false;
+    }
+
+    writeHead(statusCode) {
+      this.statusCode = statusCode;
+      return this;
+    }
+
+    write() {
+      return true;
+    }
+
+    end() {
+      this.writableFinished = true;
+      this.emit('finish');
+      this.emit('close');
+      return this;
+    }
+
+    destroy() {
+      if (this.destroyed) return this;
+      this.destroyed = true;
+      this.emit('close');
+      return this;
+    }
+  }
+
+  async function startRun(selection = HAIKU) {
+    const outputDir = makeOutputDir();
+    const records = [];
+    const session = createProductionRoutingSession({
+      rawConfig: '{}',
+      outputDir,
+      observer: { record: record => records.push(record) },
+      createController: controllerReturning({ ok: true, selection }),
+      fatalExit: jest.fn(),
+    });
+    await session.start();
+    let counter = 0;
+    function begin(body = HAIKU_BODY, url = '/chat/completions') {
+      const req = { url, method: 'POST', headers: { 'x-request-id': `request-${++counter}` } };
+      const res = new Response();
+      session.observeRequest(req, res, { name: 'copilot' });
+      req.awfRouting.bodyTransform(Buffer.from(JSON.stringify(body)));
+      return { req, res };
+    }
+    function completed(count = 1) {
+      for (let i = 0; i < count; i++) {
+        const { req, res } = begin();
+        req.awfRouting.onSseInspectionStart();
+        req.awfRouting.onSseData(JSON.stringify({ choices: [{ index: 0, delta: { content: 'ok' } }] }));
+        req.awfRouting.onSseData('[DONE]');
+        res.end();
+        req.awfRouting.onSseInspectionComplete();
+      }
+    }
+    function upstream503() {
+      const { res } = begin();
+      res.writeHead(503);
+      res.end('upstream connect error or disconnect/reset before headers. reset reason: connection termination');
+    }
+    return { outputDir, records, session, begin, completed, upstream503 };
+  }
+
+  // Mirrors verifyRoutingCompletion in src/routing/bootstrap.ts: any failure
+  // record fails the routed run with 78; otherwise the agent's exit code
+  // stands once selection and completion are both published.
+  function hostExitCode(outputDir, agentExitCode) {
+    for (const name of ['failure.json', 'runtime-failure.json']) {
+      if (fs.existsSync(path.join(outputDir, name))) return 78;
+    }
+    for (const name of ['selection.json', 'complete.json']) {
+      if (!fs.existsSync(path.join(outputDir, name))) return 78;
+    }
+    return agentExitCode;
+  }
+
+  async function finish(run, agentExitCode = 0) {
+    await run.session.shutdown();
+    run.session.completeShutdown();
+    return hostExitCode(run.outputDir, agentExitCode);
+  }
+
+  const requests = run => run.records.filter(record => record.stage === 'request');
+  const failures = run => run.records.filter(record => record.stage === 'failure');
+
+  test('a 503 recovered by later selected-model requests exits 0 (run 41462389118)', async () => {
+    const run = await startRun();
+    run.completed(12);
+    run.upstream503();
+    run.completed(5);
+
+    expect(await finish(run)).toBe(0);
+    const recorded = requests(run);
+    expect(recorded).toHaveLength(18);
+    expect(recorded.filter(record => record.outcome === 'completed')).toHaveLength(17);
+    expect(recorded[12]).toMatchObject({
+      request_id: 'request-13', routed: 'as_selected', outcome: 'failed', status: 503,
+    });
+    expect(failures(run)).toEqual([]);
+    expect(run.session.getFailure()).toBeNull();
+  });
+
+  test('a final request abandoned by the client at shutdown exits 0 (run 41467590803)', async () => {
+    const run = await startRun();
+    run.completed(51);
+    // Background compaction is in flight when the harness exits.
+    const compaction = run.begin();
+    compaction.req.awfRouting.onSseInspectionStart();
+    let drained = false;
+    const shutdown = run.session.shutdown().then(() => { drained = true; });
+    await Promise.resolve();
+    expect(drained).toBe(false);
+    compaction.res.emit('close');
+    compaction.req.awfRouting.onSseInspectionComplete();
+    await shutdown;
+    run.session.completeShutdown();
+
+    expect(hostExitCode(run.outputDir, 0)).toBe(0);
+    expect(requests(run).at(-1)).toMatchObject({ request_id: 'request-52', outcome: 'aborted', status: 200 });
+    expect(failures(run)).toEqual([]);
+  });
+
+  test('every selected-model request failing still exits 78 with provider_unavailable', async () => {
+    const run = await startRun();
+    run.upstream503();
+    run.upstream503();
+    // An unreachable provider: AWF answers 502 itself.
+    const unreachable = run.begin();
+    unreachable.res.writeHead(502);
+    unreachable.res.end(JSON.stringify({ error: { message: 'Proxy error' } }));
+
+    expect(await finish(run, 1)).toBe(78);
+    expect(requests(run).map(record => [record.outcome, record.status])).toEqual([
+      ['failed', 503], ['failed', 503], ['failed', 502],
+    ]);
+    expect(failures(run)).toEqual([{ stage: 'failure', phase: 'primary', code: 'provider_unavailable' }]);
+    expect(readResult(run.outputDir, 'runtime-failure.json')).toMatchObject({ code: 'provider_unavailable' });
+  });
+
+  test('a failure with no later selected-model success stays fatal', async () => {
+    const run = await startRun();
+    run.completed(3);
+    run.upstream503();
+    // A later request on another model does not show the selected model recovered.
+    const deviating = run.begin({ model: 'gpt-5.6-luna', reasoning_effort: 'xhigh' });
+    deviating.res.end();
+    // Nor does a stream that never delivered its terminal success.
+    const truncated = run.begin();
+    truncated.req.awfRouting.onSseInspectionStart();
+    truncated.res.end();
+    truncated.req.awfRouting.onSseInspectionComplete();
+
+    expect(await finish(run)).toBe(78);
+    expect(failures(run)).toEqual([{ stage: 'failure', phase: 'primary', code: 'provider_unavailable' }]);
+  });
+
+  test('an upstream reset that AWF tears down mid-stream stays fatal when unrecovered', async () => {
+    const run = await startRun();
+    run.completed(2);
+    const reset = run.begin();
+    reset.req.awfRouting.onSseInspectionStart();
+    reset.res.destroy(new Error('aborted'));
+    reset.req.awfRouting.onSseInspectionComplete();
+
+    expect(await finish(run)).toBe(78);
+    expect(requests(run).at(-1)).toMatchObject({ outcome: 'aborted', status: 200 });
+    expect(failures(run)).toEqual([{ stage: 'failure', phase: 'primary', code: 'provider_unavailable' }]);
+  });
+
+  test('a Codex client close at response.completed is unchanged', async () => {
+    const luna = Object.freeze({
+      schema: 'awf-routing-selection/v1',
+      engine: 'codex',
+      provider: 'copilot',
+      choice: Object.freeze({ id: 'choice-luna', model: 'github-copilot/gpt-5.6-luna', effort: 'max' }),
+      wire_model: 'gpt-5.6-luna',
+    });
+    const run = await startRun(luna);
+    const { req, res } = run.begin({ model: 'gpt-5.6-luna', reasoning: { effort: 'max' } }, '/responses');
+    req.awfRouting.onSseInspectionStart();
+    req.awfRouting.onSseData(JSON.stringify({ type: 'response.completed', response: { status: 'completed' } }));
+    res.emit('close');
+    req.awfRouting.onSseInspectionComplete();
+
+    expect(await finish(run)).toBe(0);
+    expect(requests(run)).toEqual([expect.objectContaining({ outcome: 'client_closed', status: 200 })]);
+    expect(failures(run)).toEqual([]);
+  });
+
+  test('the Avenger shape still reports its policy rejections and never succeeds', async () => {
+    const luna = Object.freeze({ ...HAIKU, choice: Object.freeze({ id: 'choice-luna', model: 'github-copilot/gpt-5.6-luna', effort: 'max' }), wire_model: 'gpt-5.6-luna' });
+    const lunaBody = { model: 'gpt-5.6-luna', reasoning_effort: 'max', stream: true };
+    const run = await startRun(luna);
+    const succeed = count => {
+      for (let i = 0; i < count; i++) {
+        const { req, res } = run.begin(lunaBody);
+        req.awfRouting.onSseInspectionStart();
+        req.awfRouting.onSseData('[DONE]');
+        res.end();
+        req.awfRouting.onSseInspectionComplete();
+      }
+    };
+    succeed(10);
+    // A client abort mid-run, then later successful requests.
+    const aborted = run.begin(lunaBody);
+    aborted.res.emit('close');
+    succeed(39);
+    // The invocation budget is exhausted: six policy-rejected 429s.
+    for (let i = 0; i < 6; i++) {
+      const { req, res } = run.begin(lunaBody);
+      req.awfRouting.rejected = true;
+      res.writeHead(429);
+      res.end(JSON.stringify({ error: { type: 'max_runs_exceeded', message: 'Maximum LLM invocations exceeded (50 / 50)' } }));
+    }
+
+    // The policy rejection latches immediately, as it did before.
+    expect(run.session.getFailure()).toMatchObject({ code: 'max_runs_exceeded' });
+    expect(await finish(run, 1)).toBe(78);
+    const recorded = requests(run);
+    expect(recorded[10]).toMatchObject({ outcome: 'aborted', status: 200 });
+    expect(recorded.filter(record => record.outcome === 'completed')).toHaveLength(49);
+    expect(recorded.filter(record => record.outcome === 'rejected' && record.status === 429)).toHaveLength(6);
+    expect(failures(run)).toEqual([{ stage: 'failure', phase: 'primary', code: 'max_runs_exceeded' }]);
   });
 });
