@@ -1483,12 +1483,23 @@ Selection order is:
    and `apt-get install -y --no-install-recommends nodejs`, followed by the same
    validation. APT manages architecture, package versions, authentication and
    its normal download cache. No Node archive URL, tar member, architecture digest
-   table, third-party repository, or AWF runtime distribution is maintained.
+   table or AWF runtime distribution is maintained.
+4. With **both** `--install --allow-nodesource`, if the distribution's package is
+   incompatible, use NodeSource's standard `https://deb.nodesource.com/setup_lts.x`
+   mechanism and install `nodejs` through APT again. This explicitly authorizes
+   trusting NodeSource's HTTPS-delivered setup script and APT signing keys.
+   The standard installer manages LTS selection, repository configuration and
+   x64/ARM64 package metadata; AWF does not duplicate them. Its script is fetched
+   with system curl (ignoring curlrc, HTTPS-only redirects), into a root-created
+   mode-0700 directory under protected `/var/lib`, run with a clean environment,
+   and removed afterwards.
 
 An administrator must configure an authenticated package source with a suitable
-Node package, or pre-provision a trusted runtime/cache on non-APT hosts. For
-example, a distribution that only offers Node 18 cannot satisfy this contract;
-setup fails clearly rather than running it or silently adding a repository.
+Node package, explicitly permit NodeSource, or pre-provision a trusted
+runtime/cache on non-APT hosts. GitHub-hosted Ubuntu runners commonly have a
+runner-writable tools cache and only Node 18 in their default APT repositories;
+use the explicit NodeSource option there. Without that authorization, setup
+fails clearly rather than running an incompatible Node or adding a repository.
 Without `--install`, selection is offline and never changes installed packages.
 
 ### Privileged-execution boundary
@@ -1526,7 +1537,8 @@ with a call to that authenticated bootstrap, for example:
 # CANDIDATE_NODE is only a hint: the root bootstrap validates it before use.
 trusted_node=$(sudo -n /usr/bin/env -i PATH=/usr/bin:/bin LC_ALL=C \
   /bin/bash "$ROOT_STAGE/enclave-installer-node.sh" \
-  --node-path "$CANDIDATE_NODE" --tool-cache /opt/hostedtoolcache --install)
+  --node-path "$CANDIDATE_NODE" --tool-cache /opt/hostedtoolcache \
+  --install --allow-nodesource)
 sudo -n /usr/bin/env -i PATH=/usr/bin:/bin LC_ALL=C \
   "$trusted_node" --no-addons --no-global-search-paths \
   "$ROOT_STAGE/install_awf_enclave_helper.cjs" "$@"

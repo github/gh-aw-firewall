@@ -13,7 +13,7 @@ describe('trusted enclave installer Node bootstrap', () => {
   afterEach(() => fs.rmSync(temp, { recursive: true, force: true }));
 
   function shell(body: string, args: string[] = [], env: NodeJS.ProcessEnv = {}) {
-    return spawnSync('/bin/bash', ['-c', 'source "$1"; shift; ' + body, 'test', script, ...args], {
+    return spawnSync('/bin/bash', ['-c', 'source "$1"; shift; allow_nodesource=false; ' + body, 'test', script, ...args], {
       encoding: 'utf8', env: { PATH: '/usr/bin:/bin', ...env },
     });
   }
@@ -119,14 +119,25 @@ printf '%s\\n' '${metadata}'
 
   it('does not install anything on an installed-runtime or cache hit', () => {
     const result = shell(`
-      install=true
+      install=true; allow_nodesource=true
       find_node() { printf '/protected/node\\n'; }
       install_node() { echo unexpected-install >&2; return 1; }
+      configure_nodesource() { echo unexpected-vendor-setup >&2; return 1; }
       resolve_node
     `);
     expect(result.status).toBe(0);
     expect(result.stdout.trim()).toBe('/protected/node');
     expect(result.stderr).toBe('');
+  });
+
+  it('tries repeated explicit candidate paths in order before system paths', () => {
+    const result = shell(`
+      node_paths=(/incompatible/node /protected/node /later/node)
+      probe_node() { [[ "$1" == /protected/node ]] && printf '%s\\n' "$1"; }
+      find_node
+    `);
+    expect(result.status).toBe(0);
+    expect(result.stdout.trim()).toBe('/protected/node');
   });
 
   it('uses the package manager only after a miss and validates its result again', () => {
@@ -174,6 +185,85 @@ printf '%s\\n' "$*" >> '${log}'
     const result = shell('trusted_path() { return 1; }; install_node');
     expect(result.status).toBe(1);
     expect(result.stderr).toContain('No trusted apt-get');
+  });
+
+  it('can explicitly provision standard NodeSource LTS when distro packages are incompatible', () => {
+    const installed = path.join(temp, 'installed');
+    const result = shell(`
+      install=true; allow_nodesource=true
+      find_node() { [[ -f "${installed}" ]] && printf '/protected/node\\n'; }
+      install_node() { :; }
+      configure_nodesource() { /usr/bin/touch "${installed}"; }
+      resolve_node
+    `);
+    expect(result.status).toBe(0);
+    expect(result.stdout.trim()).toBe('/protected/node');
+  });
+
+  it('does not configure NodeSource without explicit permission', () => {
+    const result = shell(`
+      install=true
+      find_node() { return 1; }
+      install_node() { :; }
+      configure_nodesource() { echo unexpected-vendor-setup >&2; }
+      resolve_node
+    `);
+    expect(result.status).toBe(1);
+    expect(result.stderr).not.toContain('unexpected-vendor-setup');
+  });
+
+  it('downloads the standard LTS installer using HTTPS-only curl and runs it in a clean environment', () => {
+    const curl = path.join(temp, 'curl');
+    const marker = path.join(temp, 'setup-ran');
+    fs.writeFileSync(curl, `#!/bin/bash
+[[ -z "\${CURL_HOME:-}\${NODE_OPTIONS:-}\${HOME:-}" ]] || exit 91
+[[ "$1" == -q && "$*" == *"--proto =https --proto-redir =https"* ]] || exit 92
+[[ "\${!#}" == https://deb.nodesource.com/setup_lts.x ]] || exit 93
+while [[ "$1" != --output ]]; do shift; done
+cat > "$2" <<'SETUP'
+[[ -z "\${NODE_OPTIONS:-}\${HOME:-}" ]] || exit 94
+[[ "$DEBIAN_FRONTEND" == noninteractive ]] || exit 95
+touch '${marker}'
+SETUP
+`, { mode: 0o755 });
+    const result = shell('run_nodesource_setup "$1" "$2"', [curl, temp], {
+      CURL_HOME: temp, NODE_OPTIONS: '--require=/untrusted.cjs', HOME: temp,
+    });
+    expect(result.status).toBe(0);
+    expect(fs.existsSync(marker)).toBe(true);
+    expect(result.stdout).toBe('');
+  });
+
+  it('does not run vendor setup if download authentication fails', () => {
+    const curl = path.join(temp, 'curl');
+    fs.writeFileSync(curl, '#!/bin/sh\nexit 1\n', { mode: 0o755 });
+    const result = shell('run_nodesource_setup "$1" "$2"', [curl, temp]);
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('Could not authenticate/download standard NodeSource');
+    expect(fs.existsSync(path.join(temp, 'setup.sh'))).toBe(false);
+  });
+
+  it('refuses vendor setup unless both system curl and its staging ancestor are trusted', () => {
+    const result = shell(`
+      trusted_path() { [[ "$1" == /usr/bin/curl ]] && printf '%s\\n' "$1"; }
+      configure_nodesource
+    `);
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('NodeSource setup requires a protected /var/lib');
+    expect(result.stdout).toBe('');
+  });
+
+  it.each([
+    [['--node-path'], 'Missing value'],
+    [['--tool-cache'], 'Missing value'],
+    [['--node-path', 'node'], 'requires an absolute path'],
+    [['--tool-cache', 'relative'], 'requires an absolute path'],
+    [['--unknown'], 'Unknown option'],
+    [['--allow-nodesource'], 'requires --install'],
+  ])('validates public CLI arguments %j before requiring root', (args, message) => {
+    const result = shell('main "$@"', args);
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain(message);
   });
 
   it('fails closed if the authenticated package manager cannot install Node', () => {

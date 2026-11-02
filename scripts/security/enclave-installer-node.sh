@@ -58,13 +58,36 @@ install_node() {
     local apt
     apt=$(trusted_path /usr/bin/apt-get) || fail 'No trusted apt-get; provision a root-managed Node >=20.19 installation or protected tool cache.'
     [[ -f "$apt" && -x "$apt" ]] || fail 'apt-get is not executable.'
-    # APT owns repository authentication, architecture selection and download
-    # caching. Never add a repository or run an installer fetched from PATH.
+    # APT owns repository authentication, architecture selection and caching.
     /usr/bin/env -i PATH=/usr/bin:/bin LC_ALL=C DEBIAN_FRONTEND=noninteractive \
         "$apt" update >&2 || fail 'Could not refresh authenticated Node packages.'
     /usr/bin/env -i PATH=/usr/bin:/bin LC_ALL=C DEBIAN_FRONTEND=noninteractive \
         "$apt" install -y --no-install-recommends nodejs >&2 || fail 'Could not install Node through apt-get.'
 }
+
+run_nodesource_setup() {
+    local curl=$1 staging=$2
+    # This is the vendor's standard installer, not an AWF Node distribution.
+    # Opt-in explicitly trusts NodeSource's HTTPS endpoint and signing keys.
+    /usr/bin/env -i PATH=/usr/bin:/bin LC_ALL=C \
+        "$curl" -q --fail --silent --show-error --location \
+        --proto '=https' --proto-redir '=https' --tlsv1.2 \
+        --max-time 120 --max-filesize 1048576 \
+        --output "$staging/setup.sh" https://deb.nodesource.com/setup_lts.x \
+        || fail 'Could not authenticate/download standard NodeSource LTS setup.'
+    /usr/bin/env -i PATH=/usr/bin:/bin LC_ALL=C DEBIAN_FRONTEND=noninteractive \
+        /bin/bash "$staging/setup.sh" >&2 || fail 'Standard NodeSource LTS setup failed.'
+}
+
+configure_nodesource() (
+    local curl staging state_root
+    curl=$(trusted_path /usr/bin/curl) || fail 'No trusted system curl for NodeSource setup.'
+    state_root=$(trusted_path /var/lib) || fail 'NodeSource setup requires a protected /var/lib.'
+    umask 077
+    staging=$(/usr/bin/mktemp -d "$state_root/awf-node-setup.XXXXXX")
+    trap '/usr/bin/rm -rf -- "$staging"' EXIT
+    run_nodesource_setup "$curl" "$staging"
+)
 
 node_architecture() {
     case "$1" in
@@ -86,13 +109,20 @@ resolve_node() {
             printf '%s\n' "$selected"
             return
         fi
+        if "$allow_nodesource"; then
+            configure_nodesource
+            install_node
+            if selected=$(find_node); then
+                printf '%s\n' "$selected"
+                return
+            fi
+        fi
     fi
     fail 'No trusted compatible Node >=20.19 runtime. Configure an authenticated system package source providing it, or a root-managed installation/cache; runner-writable PATH and setup-node caches cannot be elevated.'
 }
 
 main() {
-    [[ "$EUID" == 0 ]] || fail 'Run as root from authenticated, protected staging with a clean environment.'
-    local tool_cache=/opt/hostedtoolcache node_arch install=false
+    local tool_cache=/opt/hostedtoolcache node_arch install=false allow_nodesource=false
     local -a node_paths=()
     while (( $# )); do
         case "$1" in
@@ -103,9 +133,12 @@ main() {
                 shift 2
                 ;;
             --install) install=true; shift ;;
+            --allow-nodesource) allow_nodesource=true; shift ;;
             *) fail "Unknown option: $1." ;;
         esac
     done
+    if "$allow_nodesource" && ! "$install"; then fail '--allow-nodesource requires --install.'; fi
+    [[ "$EUID" == 0 ]] || fail 'Run as root from authenticated, protected staging with a clean environment.'
     [[ "$(/usr/bin/uname -s)" == Linux ]] || fail 'Only Linux is supported.'
     node_arch=$(node_architecture "$(/usr/bin/uname -m)")
     resolve_node
