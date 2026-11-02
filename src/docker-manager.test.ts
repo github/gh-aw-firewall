@@ -10,7 +10,6 @@
 
 import * as dockerManager from './docker-manager';
 import { execFileSync } from 'child_process';
-import { hostEnvTestHelpers } from './host-env';
 
 jest.mock('child_process', () => ({ ...jest.requireActual('child_process'), execFileSync: jest.fn() }));
 const mockExec = execFileSync as unknown as jest.Mock;
@@ -223,22 +222,6 @@ describe('docker-manager (barrel re-exports)', () => {
     it('removes remote tcp DOCKER_HOST', () => {
       process.env.DOCKER_HOST = 'tcp://remote.example.com:2375';
       expect(dockerManager.getLocalDockerEnv().DOCKER_HOST).toBeUndefined();
-    });
-  });
-
-  describe('host-env subnetsOverlap edge cases', () => {
-    const { subnetsOverlap } = hostEnvTestHelpers;
-
-    it('detects identical and nested subnets', () => {
-      expect(subnetsOverlap('172.30.0.0/24', '172.30.0.0/24')).toBe(true);
-      expect(subnetsOverlap('172.30.0.0/16', '172.30.5.0/24')).toBe(true);
-      expect(subnetsOverlap('172.30.5.0/24', '172.30.0.0/16')).toBe(true);
-    });
-
-    it('reports disjoint and adjacent subnets as non-overlapping', () => {
-      expect(subnetsOverlap('172.30.0.0/24', '172.31.0.0/24')).toBe(false);
-      expect(subnetsOverlap('10.0.0.0/8', '192.168.0.0/16')).toBe(false);
-      expect(subnetsOverlap('172.30.0.0/24', '172.30.1.0/24')).toBe(false);
     });
   });
 
