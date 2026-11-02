@@ -13,6 +13,7 @@ const TELEMETRY_EFFORTS = new Set(['none', 'minimal', 'low', 'medium', 'high', '
 // Protocol-level terminal success events: Responses `response.completed` and
 // Messages `message_stop`. Chat Completions ends with the `[DONE]` sentinel.
 const TERMINAL_SUCCESS_EVENTS = new Set(['response.completed', 'message_stop']);
+const TERMINAL_PROTOCOL_EVENTS = new Set([...TERMINAL_SUCCESS_EVENTS, 'response.incomplete']);
 
 // A /responses request served by a Chat-only model is translated back to the
 // client by createChatToResponsesSseTransform(), which emits
@@ -148,9 +149,10 @@ function createRoutingObservation({
       const clientClosed = !res.writableFinished && state.upstreamCompleted && !state.sseFailed
         && !upstreamFailed
         && res.statusCode >= 200 && res.statusCode < 300;
-      const incompleteStream = state.streaming && !state.upstreamCompleted
+      const incompleteStream = state.streaming && !state.upstreamTerminated
         && (res.writableFinished || state.upstreamEnded);
-      const requestFailed = res.statusCode >= 400 || state.sseFailed || upstreamFailed || incompleteStream;
+      const requestFailed = res.statusCode >= 400 || state.upstreamStatusCode >= 400
+        || state.sseFailed || upstreamFailed || incompleteStream;
       const outcome = clientClosed ? 'client_closed'
         : !res.writableFinished ? 'aborted'
         : req.awfRouting.rejected ? 'rejected'
@@ -166,7 +168,8 @@ function createRoutingObservation({
         if (state.failureCode || requestFailed) {
           recordFailure(state.failureCode || 'provider_unavailable');
         } else if ((outcome === 'completed' || outcome === 'client_closed')
-          && res.statusCode >= 200 && res.statusCode < 300) {
+          && res.statusCode >= 200 && res.statusCode < 300
+          && (!state.streaming || state.upstreamCompleted)) {
           recordSuccess();
         }
       }
@@ -318,13 +321,17 @@ function createRoutingObservation({
         selectedModel: false,
         sseFailed: false,
         upstreamCompleted: false,
+        upstreamTerminated: false,
         telemetry: requestTelemetry(req, pathname, adapter, selection),
       };
       const responseHooks = trackResponse(req, res, state);
       observeFailure(res, state, adapter.name === (selection.provider || 'copilot'));
       const onSseData = line => {
         if (line === '[DONE]') {
-          if (state.telemetry.upstream_endpoint === '/chat/completions') state.upstreamCompleted = true;
+          if (state.telemetry.upstream_endpoint === '/chat/completions') {
+            state.upstreamCompleted = true;
+            state.upstreamTerminated = true;
+          }
           return;
         }
         let event;
@@ -332,6 +339,10 @@ function createRoutingObservation({
           event = JSON.parse(line);
         } catch {
           return;
+        }
+        if (TERMINAL_PROTOCOL_EVENTS.has(event?.type)
+          || (isTranslatedResponses(state.telemetry) && isChatUsageOnlyChunk(event))) {
+          state.upstreamTerminated = true;
         }
         if (TERMINAL_SUCCESS_EVENTS.has(event?.type)
           || (isTranslatedResponses(state.telemetry) && isChatUsageOnlyChunk(event))) {
@@ -385,6 +396,7 @@ function createRoutingObservation({
         onUpstreamResponseHeaders(headers, upstream) {
           state.upstreamContentEncoding = headers?.['content-encoding'];
           state.streaming = (headers?.['content-type'] || '').includes('text/event-stream');
+          state.upstreamStatusCode = upstream?.statusCode;
           state.upstreamEnded = false;
           upstream?.once('end', () => {
             if (!state.downstreamClosed) state.upstreamEnded = true;

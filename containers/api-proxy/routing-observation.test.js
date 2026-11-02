@@ -187,6 +187,29 @@ describe('advisory routing observation', () => {
     expect(harness.failures).toEqual([]);
   });
 
+  it('does not count an endpoint-blocked model retry as recovery of the selected model', () => {
+    const harness = createHarness();
+    const earlierFailure = observe(harness, request());
+    send(earlierFailure.req, { model: 'gpt-test', reasoning: { effort: 'low' } });
+    earlierFailure.res.statusCode = 503;
+    earlierFailure.res.end();
+
+    const retry = observe(harness, request());
+    send(retry.req, { model: 'gpt-test', reasoning: { effort: 'low' } });
+    retry.req.awfRouting.onModelFallback({
+      requested_model: 'gpt-test', model: 'gpt-test-mini', provider: 'copilot',
+      from_model: 'gpt-test', reason: 'model_endpoint_incompatible',
+    });
+    retry.res.end();
+
+    expect(harness.failures).toEqual(['provider_unavailable']);
+    expect(harness.successes).toEqual([]);
+    expect(harness.records[1]).toMatchObject({
+      model_fallback: { model: 'gpt-test-mini', reason: 'model_endpoint_incompatible' },
+      outcome: 'completed',
+    });
+  });
+
   it('request records carry the same caller fields as the token record', () => {
     const { parseCallerHeader } = require('./caller-header');
     const { buildTokenUsageRecord } = require('./token-persistence');
@@ -904,6 +927,54 @@ describe('advisory routing observation', () => {
       res.end();
       expect(harness.records).toEqual([expect.objectContaining({ outcome: 'failed', status: 200 })]);
       expect(harness.failures).toEqual(['provider_unavailable']);
+    });
+
+    it('does not treat a terminal response.incomplete event as transport truncation or success', () => {
+      const harness = createHarness();
+      const { req, res } = observe(harness, request());
+      const upstream = new EventEmitter();
+      upstream.statusCode = 200;
+      send(req, { model: 'gpt-test', reasoning: { effort: 'low' } });
+      req.awfRouting.onUpstreamResponseHeaders({ 'content-type': 'text/event-stream' }, upstream);
+      req.awfRouting.onSseInspectionStart();
+      req.awfRouting.onSseData(JSON.stringify({
+        type: 'response.incomplete',
+        response: { incomplete_details: { reason: 'max_output_tokens' } },
+      }));
+      req.awfRouting.onSseInspectionComplete();
+      res.end();
+      upstream.emit('end');
+
+      expect(harness.records).toEqual([expect.objectContaining({ outcome: 'completed', status: 200 })]);
+      expect(harness.failures).toEqual([]);
+      expect(harness.successes).toEqual([]);
+    });
+
+    it('retains a buffered upstream HTTP failure after client cancellation, but lets a successful retry supersede it', () => {
+      const cancelled = createHarness();
+      const failed = observe(cancelled, request());
+      send(failed.req, { model: 'gpt-test', reasoning: { effort: 'low' } });
+      failed.req.awfRouting.onUpstreamResponseHeaders(
+        { 'content-type': 'application/json' }, Object.assign(new EventEmitter(), { statusCode: 400 }),
+      );
+      failed.res.emit('close');
+
+      expect(cancelled.failures).toEqual(['provider_unavailable']);
+      expect(cancelled.records).toEqual([expect.objectContaining({ outcome: 'aborted', status: 200 })]);
+
+      const retried = createHarness();
+      const requestWithRetry = observe(retried, request());
+      send(requestWithRetry.req, { model: 'gpt-test', reasoning: { effort: 'low' } });
+      requestWithRetry.req.awfRouting.onUpstreamResponseHeaders(
+        { 'content-type': 'application/json' }, Object.assign(new EventEmitter(), { statusCode: 503 }),
+      );
+      requestWithRetry.req.awfRouting.onUpstreamResponseHeaders(
+        { 'content-type': 'application/json' }, Object.assign(new EventEmitter(), { statusCode: 200 }),
+      );
+      requestWithRetry.res.end();
+
+      expect(retried.failures).toEqual([]);
+      expect(retried.successes).toEqual([true]);
     });
 
     it('non_2xx_upstream_response_preserves_existing_failure_behavior', () => {

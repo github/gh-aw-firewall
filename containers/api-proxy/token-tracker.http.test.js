@@ -24,6 +24,12 @@ const ROUTING_SELECTION = Object.freeze({
   wire_model: 'gpt-test',
 });
 
+const CHAT_ROUTING_SELECTION = Object.freeze({
+  ...ROUTING_SELECTION,
+  choice: Object.freeze({ id: 'choice-2', model: 'github-copilot/chat-test' }),
+  wire_model: 'chat-test',
+});
+
 afterAll(async () => {
   await closeLogStream();
 });
@@ -51,6 +57,53 @@ describe('isStreamingResponse', () => {
 // ── trackTokenUsage integration ───────────────────────────────────────
 
 describe('trackTokenUsage', () => {
+  test('routes a no-space Chat Completions terminal event through token tracking', () => {
+    const records = [];
+    const failures = [];
+    const successes = [];
+    const observation = createRoutingObservation({
+      getSelection: () => CHAT_ROUTING_SELECTION,
+      recordFailure: code => failures.push(code),
+      recordSuccess: () => successes.push(true),
+      observer: { record: record => records.push(record) },
+    });
+    const req = { method: 'POST', url: '/chat/completions', headers: {} };
+    const res = new EventEmitter();
+    res.statusCode = 200;
+    res.writableFinished = false;
+    observation.observeRequest(req, res, { name: 'copilot' });
+    req.awfRouting.bodyTransform(Buffer.from(JSON.stringify({ model: 'chat-test' })));
+
+    const proxyRes = new EventEmitter();
+    proxyRes.headers = { 'content-type': 'text/event-stream' };
+    proxyRes.statusCode = 200;
+    req.awfRouting.onUpstreamResponseHeaders(proxyRes.headers, proxyRes);
+    trackTokenUsage(proxyRes, {
+      requestId: req.awfRouting.requestId,
+      provider: 'copilot',
+      path: '/chat/completions',
+      startTime: Date.now(),
+      metrics: { increment: jest.fn() },
+      res,
+      onSseData: req.awfRouting.onSseData,
+      onSseInspectionStart: req.awfRouting.onSseInspectionStart,
+      onSseInspectionComplete: req.awfRouting.onSseInspectionComplete,
+    });
+
+    proxyRes.emit('data', Buffer.from('data:[DONE]\n\n'));
+    res.writableFinished = true;
+    res.emit('finish');
+    proxyRes.emit('end');
+
+    expect(records).toEqual([expect.objectContaining({
+      routed: 'as_selected',
+      outcome: 'completed',
+      status: 200,
+    })]);
+    expect(failures).toEqual([]);
+    expect(successes).toEqual([true]);
+  });
+
   test('waits for compressed SSE failure inspection before recording and draining', async () => {
     const records = [];
     const observation = createRoutingObservation({
