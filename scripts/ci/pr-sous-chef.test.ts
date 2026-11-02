@@ -554,6 +554,28 @@ describe('PR sous-chef reads, configuration and queue gates', () => {
       expect(JSON.parse(output).prs).toHaveLength(1);
       expect(JSON.parse(output).prs[0].body).toContain('@copilot');
       expect(JSON.parse(fs.readFileSync(queuePath, 'utf8'))).toEqual(expected);
+      const runEntrypoint = (args: string[] = []) => execFileSync(
+        path.join(__dirname, 'pr-sous-chef-refresh'), args, {
+          cwd: directory,
+          encoding: 'utf8',
+          timeout: 10_000,
+          env: {
+            PATH: path.dirname(process.execPath),
+            NODE_OPTIONS: `--require ${JSON.stringify(preloadPath)}`,
+            PR_SOUS_CHEF_REPOSITORY: repo,
+            PR_SOUS_CHEF_MODE: 'pilot',
+            PR_SOUS_CHEF_WRITER_LOGIN: 'sous-chef',
+            PR_SOUS_CHEF_WRITER_CONFIGURED: 'true',
+            PR_SOUS_CHEF_NUMBER: '999',
+            PR_SOUS_CHEF_QUEUE_PATH: queuePath,
+          },
+        },
+      );
+      expect(JSON.parse(runEntrypoint())).toEqual(expected);
+      expect(JSON.parse(fs.readFileSync(queuePath, 'utf8'))).toEqual(expected);
+      for (const args of [['42'], ['--verify-target'], ['--refresh'], ['-e', 'throw new Error()']]) {
+        expect(() => runEntrypoint(args)).toThrow('(no arguments)');
+      }
       for (const queue of [
         { ...expected, mode: 'dry-run' },
         { ...expected, rate_limit: { low: true } },
@@ -564,6 +586,7 @@ describe('PR sous-chef reads, configuration and queue gates', () => {
       ]) {
         fs.writeFileSync(queuePath, JSON.stringify(queue));
         expect(runRefresh).toThrow('Refresh requires a single positive PR number');
+        expect(runEntrypoint).toThrow('Refresh requires a single positive PR number');
       }
     } finally {
       fs.rmSync(directory, { recursive: true, force: true });
@@ -586,7 +609,7 @@ describe('PR sous-chef workflow safety contract', () => {
   };
 
   it('authorizes only the exact queued refresh command in noninteractive Copilot', () => {
-    const refreshCommand = 'node scripts/ci/pr-sous-chef.cjs --refresh';
+    const refreshCommand = 'scripts/ci/pr-sous-chef-refresh';
     expect(config.tools.bash).toEqual([
       refreshCommand,
       'cat /tmp/gh-aw/agent/pr-sous-chef-queue.json',
@@ -596,22 +619,32 @@ describe('PR sous-chef workflow safety contract', () => {
     };
     const invocation = lock.jobs.agent.steps.find(step => step.run?.includes('copilot_harness.cjs'))!.run!;
     const permissions = [...invocation.matchAll(/shell\(([^)]+)\)/g)].map(match => match[1]);
-    expect(permissions.filter(permission => permission.startsWith('node'))).toEqual([
+    expect(permissions.filter(permission => permission.includes('scripts/ci/pr-sous-chef'))).toEqual([
       refreshCommand,
     ]);
-    expect(source).toContain('`node scripts/ci/pr-sous-chef.cjs --refresh` to refresh the single original queued PR');
+    expect(source).toContain('`scripts/ci/pr-sous-chef-refresh` to refresh the single original queued PR');
     expect(source).toContain('Pass exactly that command string to the shell tool, with no wrappers, redirection,\npipelines, or extra arguments.');
     expect(source).toContain('Do not append `2>&1` or pipe to `head`');
     expect(source).toContain('only the exact command is authorized');
     expect(source).not.toContain('`node scripts/ci/pr-sous-chef.cjs NUMBER`');
     expect(permissions).not.toContain('node:*');
     expect(permissions).not.toContain('node scripts/ci/pr-sous-chef.cjs:*');
+    expect(permissions.some(permission => /^(?:node|sh|bash)(?:\s|:|$)/.test(permission))).toBe(false);
+    expect(fs.statSync(path.join(__dirname, 'pr-sous-chef-refresh')).mode & 0o111).not.toBe(0);
     expect(invocation).toContain('--no-ask-user');
     expect(invocation).not.toContain('--allow-all-tools');
     expect(config.tools.edit).toBe(false);
     expect(invocation).not.toContain('--allow-tool write');
     expect(invocation).not.toContain('--allow-all-paths');
     expect(invocation).not.toMatch(/--allow-tool\s+(?:'|\\')?shell(?:'|\\')?(?:\s|$)/);
+  });
+
+  it('retains the pinned session-state copy helper in the compiled workflow', () => {
+    const lock = fs.readFileSync(path.join(root, '.github/workflows/pr-sous-chef.lock.yml'), 'utf8');
+    expect(lock).toContain(
+      'run: bash "${RUNNER_TEMP}/gh-aw/actions/copy_copilot_session_state.sh"',
+    );
+    expect(lock).not.toContain('SESSION_STATE_SRC=');
   });
 
   it('keeps the coordinator read-only with one bounded comment-only write path', () => {
