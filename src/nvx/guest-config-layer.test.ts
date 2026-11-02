@@ -37,11 +37,14 @@ describe('NvxGuestConfigLayer', () => {
       const source = await layer.stage();
       expect(chown).toHaveBeenCalledWith(path.join(source, 'etc/awf/nvx-run.sh'), 0, 0);
       expect(chown).toHaveBeenCalledWith(path.join(source, 'etc/hosts'), 0, 0);
+      expect(chown).toHaveBeenCalledWith(path.join(source, 'home'), 0, 0);
+      expect((await fs.stat(path.join(source, 'home'))).mode & 0o777).toBe(0o755);
       expect(chown).toHaveBeenCalledWith(
         path.join(source, 'home/awf'),
         process.getuid?.() ?? 1000,
         process.getgid?.() ?? 1000,
       );
+      expect((await fs.stat(path.join(source, 'home/awf'))).mode & 0o777).toBe(0o700);
       await expect(fs.readFile(path.join(source, 'etc/awf/nvx-run.sh'), 'utf8'))
         .resolves.toContain('exec true');
       await expect(fs.readFile(path.join(source, 'home/awf/.npm/cache'), 'utf8'))

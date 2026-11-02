@@ -711,7 +711,7 @@ steps:
 
         snapshot_one_shot_host_state() {
           snapshot_name=$1
-          openvmm_binary="$SOURCE_DIR/openvmm/target/release/openvmm"
+          openvmm_binary="$RUNNER_TEMP/nvx-release/nvx-0.1.0-linux-kvm/bin/openvmm"
           for process_executable in /proc/[0-9]*/exe; do
             if [ "$(readlink "$process_executable" 2> /dev/null)" = \
               "$openvmm_binary" ]; then

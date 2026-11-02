@@ -166,6 +166,11 @@ describe('NVX deterministic filesystem builder', () => {
       await fs.mkdir(path.join(source, 'etc'), { recursive: true });
       await fs.writeFile(path.join(source, 'etc/value'), path.basename(source));
     }
+    await fs.mkdir(path.join(distro, 'home'), { recursive: true });
+    await fs.chmod(path.join(distro, 'home'), 0o755);
+    await fs.mkdir(path.join(custom, 'home/awf'), { recursive: true, mode: 0o700 });
+    await fs.chmod(path.join(custom, 'home'), 0o755);
+    await fs.chmod(path.join(custom, 'home/awf'), 0o700);
     await fs.writeFile(path.join(distro, 'tool'), 'toolchain');
     await fs.symlink('/etc/value', path.join(distro, 'link'));
     await fs.writeFile(path.join(custom, 'link'), 'replaces symlink');
@@ -191,6 +196,8 @@ describe('NVX deterministic filesystem builder', () => {
       const staged = path.join(builders[0].stagingDirectory, 'distro');
       expect(await fs.readFile(path.join(staged, 'etc/value'), 'utf8')).toBe('custom');
       expect(await fs.readFile(path.join(staged, 'link'), 'utf8')).toBe('replaces symlink');
+      expect((await fs.stat(path.join(staged, 'home'))).mode & 0o777).toBe(0o755);
+      expect((await fs.stat(path.join(staged, 'home/awf'))).mode & 0o777).toBe(0o700);
       expect(fs.chown).toHaveBeenCalledWith(path.join(staged, 'tool'), 0, 0);
       const owner = await fs.stat(path.join(custom, 'etc/value'));
       expect(fs.chown).toHaveBeenCalledWith(path.join(staged, 'etc/value'), owner.uid, owner.gid);

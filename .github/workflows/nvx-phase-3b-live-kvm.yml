@@ -159,6 +159,33 @@ jobs:
           name: nvx-attested-artifacts
           path: ${{ runner.temp }}/nvx-attested-artifacts
 
+      - name: Download and verify full pinned NVX package
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NVX_RELEASE: v0.1.0-dev.8fb0f1d64f2f
+          NVX_ARCHIVE: nvx-0.1.0-linux-kvm.tar.gz
+          NVX_ARCHIVE_SHA256: 0a4bb74e76e80a524c3dccd9336b77705ef91d6a908d6979403c59151a5883da
+        run: |
+          set -euo pipefail
+          package_dir="$RUNNER_TEMP/nvx-package"
+          mkdir -p "$package_dir"
+          gh release download "$NVX_RELEASE" \
+            --repo microsoft/nvx \
+            --pattern "$NVX_ARCHIVE" \
+            --dir "$package_dir"
+          printf '%s  %s\n' \
+            "$NVX_ARCHIVE_SHA256" \
+            "$package_dir/$NVX_ARCHIVE" |
+            sha256sum --check --status
+          tar -xzf "$package_dir/$NVX_ARCHIVE" -C "$package_dir"
+          extracted="$package_dir/nvx-0.1.0-linux-kvm"
+          (
+            cd "$extracted"
+            sha256sum --check SHA256SUMS
+          )
+          test -s "$extracted/SOURCE-MANIFEST.json"
+          test -x "$extracted/bin/nvx-rs"
+
       - name: Fetch pinned NVX source
         env:
           NVX_COMMIT: 8fb0f1d64f2f67e0017a4f94693244297852ed1f

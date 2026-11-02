@@ -110,6 +110,9 @@ describe('NVX artifact manifest', () => {
     expect(phase3b).toContain('nvx-rs/src/host/sandbox/plan.rs');
     expect(phase3b).not.toContain('nvx_tools/sandbox.py');
     expect(phase3b).toContain('AWF_NVX_PACKAGE_ROOT: ${{ runner.temp }}/nvx-package/nvx-0.1.0-linux-kvm');
+    expect(phase3b).toContain('Download and verify full pinned NVX package');
+    expect(phase3b).toContain('test -s "$extracted/SOURCE-MANIFEST.json"');
+    expect(phase3b).toContain('test -x "$extracted/bin/nvx-rs"');
     expect(phase3b).toContain('scripts/ci/nvx-release-contract.test.ts');
   });
 

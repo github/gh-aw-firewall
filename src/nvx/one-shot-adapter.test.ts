@@ -261,6 +261,26 @@ describe('NVX one-shot execution adapter', () => {
     }
   });
 
+  it('rejects commas in mount targets, host paths, and mount policy paths', async () => {
+    const { root, request } = await fixture();
+    try {
+      for (const options of [
+        { guestTarget: '/workspace,extra' },
+        { hostPath: '/host/workspace,extra' },
+        { deniedPaths: ['/host/workspace,extra'] },
+        { allowedPaths: ['/host/workspace,extra'] },
+        { writablePaths: ['/host/workspace,extra'] },
+      ]) {
+        expect(() => validateNvxExecutionRequest({
+          ...request,
+          mounts: [mount('/workspace', options)],
+        })).toThrow(/commas/);
+      }
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
   it('builds only a one-shot sandbox run command with fixed-deny network defaults', async () => {
     const { root, request } = await fixture();
     try {
