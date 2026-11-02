@@ -1,5 +1,11 @@
 import { EventEmitter } from 'events';
 import { PassThrough } from 'stream';
+import { constants, promises as fs } from 'fs';
+import type { FileHandle } from 'fs/promises';
+import { createHash } from 'crypto';
+import * as path from 'path';
+import { spawnSync } from 'child_process';
+import { buildNvxConstrainedLaunchCommand } from './confinement';
 import {
   DirectOpenvmmLaunchExecutor,
   testHelpers,
@@ -69,7 +75,14 @@ function request(overrides: Partial<NvxOneShotExecutionRequest> = {}):
 NvxOneShotExecutionRequest {
   return {
     nvxRoot: `/var/lib/awf-nvx/trusted-artifacts/run-${RUN_ID}`,
-    filesystem: {} as never,
+    filesystem: {
+      layers: [{
+        role: 'distro',
+        path: '/images/distro.erofs',
+        sha256: createHash('sha256').update('distro').digest('hex'),
+      }],
+      scratch: { path: '/images/scratch.ext4', sizeBytes: 7 },
+    } as never,
     entrypoint: '/bin/true',
     network: {
       guestAddress: '100.64.0.2/30',
@@ -110,6 +123,21 @@ function harness(options: {
   });
   const dependencies: NvxLaunchExecutorDependencies = {
     spawn: jest.fn(() => child as never),
+    open: jest.fn(async (filePath) => ({
+      fd: filePath.endsWith('distro.erofs') ? 60 : 70,
+      stat: jest.fn(async () => ({
+        isFile: () => true,
+        mode: filePath.endsWith('distro.erofs') ? 0o400 : 0o600,
+        size: filePath.endsWith('distro.erofs') ? 6 : 7,
+        mtimeMs: 1,
+        ctimeMs: 1,
+      })),
+      read: jest.fn(async (buffer: Buffer) => {
+        buffer.write('distro');
+        return { bytesRead: 6, buffer };
+      }),
+      close: jest.fn(async () => undefined),
+    }) as unknown as FileHandle),
     readFile: jest.fn(async (filePath) => {
       if (filePath === `${CGROUP}/cgroup.procs`) return '4100\n4200\n';
       throw new Error(`unexpected read: ${filePath}`);
@@ -207,6 +235,48 @@ function harness(options: {
 }
 
 describe('direct OpenVMM launch executor', () => {
+  it('closes parent image handles immediately after spawn and on synchronous spawn failure', async () => {
+    for (const fail of [false, true]) {
+      const value = harness({ status: fail ? undefined : '{"child-pid":4200}\n' });
+      const handles: FileHandle[] = [];
+      const originalOpen = value.dependencies.open;
+      value.dependencies.open = jest.fn(async (...args) => {
+        const handle = await originalOpen(...args);
+        handles.push(handle);
+        return handle;
+      });
+      const spawn = value.dependencies.spawn;
+      value.dependencies.spawn = jest.fn((...args) => {
+        expect(handles).toHaveLength(2);
+        handles.forEach((handle) => expect(handle.close).not.toHaveBeenCalled());
+        if (fail) throw new Error('spawn failed');
+        return spawn(...args);
+      });
+      value.hooks.launcherStarted.mockImplementation(async () => {
+        handles.forEach((handle) => expect(handle.close).toHaveBeenCalledTimes(1));
+      });
+      const execution = value.executor.execute({
+        plan: plan(), request: value.executionRequest, hooks: value.hooks,
+      });
+      if (fail) await expect(execution).rejects.toThrow('spawn failed');
+      else await expect(execution).resolves.toMatchObject({ category: 'success' });
+      handles.forEach((handle) => expect(handle.close).toHaveBeenCalledTimes(1));
+    }
+  });
+
+  it('closes both images and terminates if the launcher omits a required gate', async () => {
+    const value = harness();
+    value.child.stdio[3] = null as never;
+    await expect(value.executor.execute({
+      plan: plan(), request: value.executionRequest, hooks: value.hooks,
+    })).rejects.toThrow(/required process file descriptors/);
+    const results = (value.dependencies.open as jest.Mock).mock.results;
+    for (const result of results) {
+      expect((await result.value).close).toHaveBeenCalledTimes(1);
+    }
+    expect(value.dependencies.kill).toHaveBeenCalledWith(-4100, 'SIGKILL');
+  });
+
   it('rejects the x32 syscall ABI before applying the native denylist', () => {
     const filter = testHelpers.buildOpenvmmSeccompFilter();
     const instructions = Array.from(
@@ -227,6 +297,153 @@ describe('direct OpenVMM launch executor', () => {
         instruction[3] === testHelpers.x32SyscallBit,
     );
     expect(instructions[x32Guard + 1]).toEqual([0x06, 0, 0, 0x00050001]);
+  });
+
+  describe('checked image descriptor handoff', () => {
+    let directory: string;
+    let executionRequest: NvxOneShotExecutionRequest;
+    const handles: FileHandle[] = [];
+    const dependencies = {
+      open: jest.fn(async (filePath: string, flags: number) => {
+        const handle = await fs.open(filePath, flags);
+        handles.push(handle);
+        return handle;
+      }),
+    };
+
+    beforeEach(async () => {
+      directory = await fs.mkdtemp(path.join(process.cwd(), '.nvx-checked-images-'));
+      const distro = path.join(directory, 'distro.erofs');
+      const scratch = path.join(directory, 'scratch.ext4');
+      await fs.writeFile(distro, 'distro', { mode: 0o400 });
+      await fs.writeFile(scratch, 'scratch', { mode: 0o600 });
+      executionRequest = request({
+        filesystem: {
+          ...request().filesystem,
+          layers: [{ ...request().filesystem.layers[0], path: distro }],
+          scratch: { ...request().filesystem.scratch, path: scratch },
+        },
+      });
+      handles.length = 0;
+      dependencies.open.mockClear();
+    });
+
+    afterEach(async () => {
+      await Promise.all(handles.map((handle) => handle.close()));
+      await fs.rm(directory, { recursive: true, force: true });
+    });
+
+    it.each(['distro', 'scratch'])('rejects a replaced %s symlink and closes earlier handles', async (image) => {
+      const imagePath = image === 'distro'
+        ? executionRequest.filesystem.layers[0].path
+        : executionRequest.filesystem.scratch.path;
+      await fs.rename(imagePath, `${imagePath}.original`);
+      await fs.symlink(`${imagePath}.original`, imagePath);
+      await expect(testHelpers.openCheckedImages(executionRequest, dependencies))
+        .rejects.toMatchObject({ code: 'ELOOP' });
+      expect(handles.every((handle) => handle.fd === -1)).toBe(true);
+    });
+
+    it('rejects a replaced distro digest and closes its descriptor', async () => {
+      const distro = executionRequest.filesystem.layers[0].path;
+      await fs.unlink(distro);
+      await fs.writeFile(distro, 'altered', { mode: 0o400 });
+      await expect(testHelpers.openCheckedImages(executionRequest, dependencies))
+        .rejects.toThrow(/digest changed/);
+      expect(handles[0].fd).toBe(-1);
+    });
+
+    it('closes the distro if opening scratch fails', async () => {
+      await fs.unlink(executionRequest.filesystem.scratch.path);
+      await expect(testHelpers.openCheckedImages(executionRequest, dependencies))
+        .rejects.toMatchObject({ code: 'ENOENT' });
+      expect(handles).toHaveLength(1);
+      expect(handles[0].fd).toBe(-1);
+    });
+
+    it.each(['distro-mode', 'scratch-mode', 'scratch-size', 'distro-directory'])(
+      'rejects invalid descriptor metadata: %s', async (variation) => {
+        const distro = executionRequest.filesystem.layers[0].path;
+        const scratch = executionRequest.filesystem.scratch.path;
+        if (variation === 'distro-mode') await fs.chmod(distro, 0o600);
+        if (variation === 'scratch-mode') await fs.chmod(scratch, 0o644);
+        if (variation === 'scratch-size') await fs.truncate(scratch, 1);
+        if (variation === 'distro-directory') {
+          await fs.unlink(distro);
+          await fs.mkdir(distro, { mode: 0o400 });
+        }
+        await expect(testHelpers.openCheckedImages(executionRequest, dependencies))
+          .rejects.toThrow(/checked .*image must/);
+        expect(handles.every((handle) => handle.fd === -1)).toBe(true);
+      },
+    );
+
+    it('hashes and inherits the same inode despite path replacement, with read-only distro and read-write scratch', async () => {
+      const distroPath = executionRequest.filesystem.layers[0].path;
+      const open = dependencies.open;
+      const images = await testHelpers.openCheckedImages(executionRequest, {
+        open: async (...args) => {
+          const handle = await open(...args);
+          if (args[0] === distroPath) {
+            await fs.rename(distroPath, `${distroPath}.checked`);
+            await fs.writeFile(distroPath, 'attacker', { mode: 0o400 });
+          }
+          return handle;
+        },
+      });
+      const child = spawnSync(process.execPath, ['-e', `
+        const fs = require('fs');
+        const distro = fs.readFileSync('/proc/self/fd/6', 'utf8');
+        let readOnly = false;
+        try { fs.writeSync(6, 'x'); } catch (error) { readOnly = error.code === 'EBADF'; }
+        fs.writeSync(7, 'updated');
+        process.stdout.write(JSON.stringify({ distro, readOnly }));
+      `], {
+        stdio: ['ignore', 'pipe', 'pipe', 'ignore', 'ignore', 'ignore', images[0].fd, images[1].fd],
+      });
+      expect(child.status).toBe(0);
+      expect(JSON.parse(child.stdout.toString())).toEqual({ distro: 'distro', readOnly: true });
+      expect(await fs.readFile(executionRequest.filesystem.scratch.path, 'utf8')).toBe('updated');
+      expect(dependencies.open).toHaveBeenNthCalledWith(
+        1, distroPath, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK,
+      );
+      expect(dependencies.open).toHaveBeenNthCalledWith(
+        2, executionRequest.filesystem.scratch.path,
+        constants.O_RDWR | constants.O_NOFOLLOW | constants.O_NONBLOCK,
+      );
+    });
+
+    it('preserves checked images through the actual Python seccomp exec trampoline', async () => {
+      const images = await testHelpers.openCheckedImages(executionRequest, dependencies);
+      const command = buildNvxConstrainedLaunchCommand({
+        tools: { ip: '/usr/sbin/ip', bwrap: '/usr/bin/bwrap', setpriv: '/usr/bin/setpriv' },
+        namespaceName: 'awfnvx-test',
+        identity: { uid: 2001, gid: 2002 },
+        nvxRoot: `/var/lib/awf-nvx/trusted-artifacts/run-${RUN_ID}`,
+        runDirectory: `/var/lib/awf-nvx/runs/${RUN_ID}`,
+        systemReadOnlyPaths: ['/usr'],
+        openvmmArguments: [],
+      });
+      const trampoline = command.args.find((argument) => argument.startsWith('import ctypes'));
+      expect(trampoline).toBeDefined();
+      const filterPath = path.join(directory, 'seccomp.bpf');
+      await fs.writeFile(filterPath, testHelpers.buildOpenvmmSeccompFilter());
+      const child = spawnSync('/usr/bin/python3', [
+        '-c',
+        `import ctypes; ctypes.CDLL(None).prctl(38,1,0,0,0); ${trampoline}`,
+        filterPath,
+        '/usr/bin/python3',
+        '-c',
+        'import os; assert open("/proc/self/fd/6", "rb").read() == b"distro"; ' +
+        'os.write(7, b"updated"); print("checked images inherited")',
+      ], {
+        stdio: ['ignore', 'pipe', 'pipe', 'ignore', 'ignore', 'ignore', images[0].fd, images[1].fd],
+      });
+      expect(child.stderr.toString()).toBe('');
+      expect(child.status).toBe(0);
+      expect(child.stdout.toString()).toBe('checked images inherited\n');
+      expect(await fs.readFile(executionRequest.filesystem.scratch.path, 'utf8')).toBe('updated');
+    });
   });
 
   it('denies filesystem credential switching unless a caller-owned share is mounted', () => {
@@ -270,6 +487,7 @@ describe('direct OpenVMM launch executor', () => {
       '/usr/sbin/ip',
       expect.any(Array),
       expect.objectContaining({
+        stdio: ['pipe', 'pipe', 'pipe', 'pipe', 'pipe', 'pipe', 60, 70],
         env: {
           PATH: '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin',
           LANG: 'C.UTF-8',

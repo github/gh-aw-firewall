@@ -27,7 +27,8 @@ export interface NvxGuestConfigLayerDependencies {
 }
 
 /**
- * Builds the immutable custom EROFS source tree. It contains only AWF-owned
+ * Builds an ownership-preserving source overlay for the single distro EROFS
+ * image, not a separate guest root. It contains only AWF-owned
  * guest configuration: the generated entrypoint and the explicitly allowed
  * guest-home state. Live workspace/tool-cache content is never copied here.
  */
@@ -66,7 +67,12 @@ export class NvxGuestConfigLayer {
 
   private async stageGuestHome(): Promise<void> {
     const guestHome = path.join(this.layerSourcePath, NVX_GUEST_HOME_SEED.slice(1));
+    const guestHomeParent = path.dirname(guestHome);
+    await fs.mkdir(guestHomeParent, { recursive: true, mode: 0o755 });
+    await fs.chmod(guestHomeParent, 0o755);
+    await this.chown(guestHomeParent, 0, 0);
     await fs.mkdir(guestHome, { recursive: true, mode: 0o700 });
+    await fs.chmod(guestHome, 0o700);
     await this.chown(guestHome, this.config.uid, this.config.gid);
     if (!this.config.homePath) return;
     for (const toolPath of HOME_TOOL_PATHS) {

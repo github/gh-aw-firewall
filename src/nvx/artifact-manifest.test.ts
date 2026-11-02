@@ -1,3 +1,5 @@
+import { readFileSync } from 'fs';
+import * as path from 'path';
 import {
   NVX_ARTIFACT_RELEASE_TAG,
   NVX_ARTIFACT_REPOSITORY,
@@ -41,9 +43,9 @@ describe('NVX artifact manifest', () => {
       nvxCommit: NVX_COMMIT,
       openvmmCommit: NVX_OPENVMM_COMMIT,
     }).toEqual({
-      releaseTag: 'v0.1.0-dev.be859aa77ffa',
-      nvxCommit: 'be859aa77ffa7a20f9ef50f68c5386acdfca9955',
-      openvmmCommit: '762bc1c7a203b16aee752324d6a4ab0bde1a713a',
+      releaseTag: 'v0.1.0-dev.8fb0f1d64f2f',
+      nvxCommit: '8fb0f1d64f2f67e0017a4f94693244297852ed1f',
+      openvmmCommit: '0ac254109ed32fc5fa2b1a6fc526a10593b1f986',
     });
   });
 
@@ -52,6 +54,66 @@ describe('NVX artifact manifest', () => {
       JSON.stringify(manifest()),
       NVX_ARTIFACT_RELEASE_TAG,
     )).toEqual(manifest());
+  });
+
+  it.each([
+    '.github/workflows/nvx-phase-0-feasibility.md',
+    '.github/workflows/nvx-phase-0-feasibility.lock.yml',
+    '.github/workflows/nvx-phase-3b-live-kvm.yml',
+    '.github/workflows/nvx-phase-4-canary.yml',
+    '.github/workflows/release.yml',
+    '.github/workflows/smoke-nvx-build-test.md',
+    '.github/workflows/smoke-nvx-build-test.lock.yml',
+    '.github/workflows/smoke-nvx-copilot.md',
+    '.github/workflows/smoke-nvx-copilot.lock.yml',
+    '.github/workflows/smoke-verify-release-nvx-assets.md',
+    '.github/workflows/smoke-verify-release-nvx-assets.lock.yml',
+    'scripts/ci/nvx-phase4-provision-nvx.sh',
+    'docs/nvx-security-design.md',
+  ])('keeps the upstream identity synchronized in %s', (file) => {
+    const source = readFileSync(path.resolve(__dirname, '../..', file), 'utf8');
+    expect(source).toContain(NVX_RELEASE_TAG);
+    expect(source).toContain(NVX_COMMIT);
+    expect(source).toContain(NVX_OPENVMM_COMMIT);
+    if (!file.includes('smoke-verify-release')) {
+      expect(source).toContain(
+        '0a4bb74e76e80a524c3dccd9336b77705ef91d6a908d6979403c59151a5883da',
+      );
+    }
+    expect(source).not.toContain('be859aa77ffa');
+    expect(source).not.toContain('762bc1c7a203');
+    expect(source).not.toContain('ad6bf948d84d');
+    expect(source).not.toContain('13504aa3497c');
+    expect(source).not.toContain('b58040ee46c6');
+    expect(source).not.toContain('df8ad7aaeeee');
+  });
+
+  it.each([
+    '.github/workflows/nvx-phase-4-benchmark.yml',
+    'docs/nvx-promotion-thresholds.json',
+    'docs/nvx-promotion-evaluation.md',
+  ])('measures the pinned release in the promotion baseline in %s', (file) => {
+    const source = readFileSync(path.resolve(__dirname, '../..', file), 'utf8');
+    expect(source).toContain(`microsoft/nvx@${NVX_RELEASE_TAG}`);
+    expect(source).not.toContain('be859aa77ffa');
+  });
+
+  it('uses the packaged Rust launcher and source contract in feasibility workflows', () => {
+    const phase0 = readFileSync(path.resolve(
+      __dirname, '../../.github/workflows/nvx-phase-0-feasibility.md',
+    ), 'utf8');
+    expect(phase0.match(/bin\/nvx-rs" \\\n\s+sandbox run/g)).toHaveLength(2);
+    expect(phase0).not.toMatch(/nvx\.py\s+\\?\s*sandbox/);
+    const phase3b = readFileSync(path.resolve(
+      __dirname, '../../.github/workflows/nvx-phase-3b-live-kvm.yml',
+    ), 'utf8');
+    expect(phase3b).toContain('nvx-rs/src/host/sandbox/plan.rs');
+    expect(phase3b).not.toContain('nvx_tools/sandbox.py');
+    expect(phase3b).toContain('AWF_NVX_PACKAGE_ROOT: ${{ runner.temp }}/nvx-package/nvx-0.1.0-linux-kvm');
+    expect(phase3b).toContain('Download and verify full pinned NVX package');
+    expect(phase3b).toContain('test -s "$extracted/SOURCE-MANIFEST.json"');
+    expect(phase3b).toContain('test -x "$extracted/bin/nvx-rs"');
+    expect(phase3b).toContain('scripts/ci/nvx-release-contract.test.ts');
   });
 
   it('trusts the bounded Phase 4 canary signer workflow', () => {
@@ -84,17 +146,17 @@ describe('NVX artifact manifest', () => {
   it.each([
     ['release tag', () => {
       const value = manifest();
-      value.upstream.releaseTag = 'v0.1.0-dev.d561c4300ebe';
+      value.upstream.releaseTag = 'v0.1.0-dev.be859aa77ffa';
       return value;
     }, /releaseTag/],
     ['NVX commit', () => {
       const value = manifest();
-      value.upstream.nvxCommit = 'd561c4300ebe854baba5d154056ead6f9d462047';
+      value.upstream.nvxCommit = 'be859aa77ffa7a20f9ef50f68c5386acdfca9955';
       return value;
     }, /nvxCommit/],
     ['OpenVMM commit', () => {
       const value = manifest();
-      value.upstream.openvmmCommit = '0bc357bbcf3a654b63dfb51f1103c5751bf3d31f';
+      value.upstream.openvmmCommit = '762bc1c7a203b16aee752324d6a4ab0bde1a713a';
       return value;
     }, /openvmmCommit/],
     ['artifact role', () => {
@@ -104,7 +166,7 @@ describe('NVX artifact manifest', () => {
     }, /kernel\.file/],
     ['artifact size', () => {
       const value = manifest();
-      value.artifacts.openvmm.sizeBytes = (512 * 1024 * 1024) + 1;
+      value.artifacts.openvmm.sizeBytes = (1024 * 1024 * 1024) + 1;
       return value;
     }, /openvmm\.sizeBytes/],
     ['unexpected field', () => ({
@@ -118,13 +180,13 @@ describe('NVX artifact manifest', () => {
     )).toThrow(error);
   });
 
-  it('accepts an OpenVMM artifact at the bounded 512 MiB ceiling', () => {
+  it('accepts an OpenVMM artifact at the bounded 1 GiB ceiling', () => {
     const value = manifest();
-    value.artifacts.openvmm.sizeBytes = 512 * 1024 * 1024;
+    value.artifacts.openvmm.sizeBytes = 1024 * 1024 * 1024;
     expect(parseNvxArtifactManifest(
       JSON.stringify(value),
       NVX_ARTIFACT_RELEASE_TAG,
-    ).artifacts.openvmm.sizeBytes).toBe(512 * 1024 * 1024);
+    ).artifacts.openvmm.sizeBytes).toBe(1024 * 1024 * 1024);
   });
 
   it('rejects artifacts from another AWF release', () => {

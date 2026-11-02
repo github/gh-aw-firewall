@@ -1,8 +1,8 @@
 import { version as AWF_VERSION } from '../../package.json';
 
-export const NVX_RELEASE_TAG = 'v0.1.0-dev.be859aa77ffa';
-export const NVX_COMMIT = 'be859aa77ffa7a20f9ef50f68c5386acdfca9955';
-export const NVX_OPENVMM_COMMIT = '762bc1c7a203b16aee752324d6a4ab0bde1a713a';
+export const NVX_RELEASE_TAG = 'v0.1.0-dev.8fb0f1d64f2f';
+export const NVX_COMMIT = '8fb0f1d64f2f67e0017a4f94693244297852ed1f';
+export const NVX_OPENVMM_COMMIT = '0ac254109ed32fc5fa2b1a6fc526a10593b1f986';
 export const NVX_ARTIFACT_RELEASE_TAG = `v${AWF_VERSION}`;
 export const NVX_ARTIFACT_REPOSITORY = 'github/gh-aw-firewall';
 export const NVX_ARTIFACT_SIGNER_WORKFLOW =
@@ -25,10 +25,10 @@ const ARTIFACT_FILES = {
 } as const;
 // Conservative per-role ceilings bound pre-copy disk exposure while leaving
 // headroom for expected OpenVMM, kernel, and initramfs artifact growth. The
-// pinned OpenVMM binary is 481,508,816 bytes, so its ceiling is the next
-// binary-size boundary rather than an unbounded allowance.
+// OpenVMM binary is approaching 512 MiB, so allow bounded growth without
+// accepting an unbounded artifact.
 const ARTIFACT_SIZE_LIMITS_BYTES = {
-  openvmm: 512 * 1024 * 1024,
+  openvmm: 1024 * 1024 * 1024,
   kernel: 512 * 1024 * 1024,
   initramfs: 1024 * 1024 * 1024,
 } as const;

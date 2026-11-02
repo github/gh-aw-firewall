@@ -85,7 +85,7 @@ jobs:
             if (t.baseline.ghAw !== "v0.91.9" || t.baseline.awf !== "v0.28.54") {
               throw new Error("reviewed gh-aw/AWF baseline changed");
             }
-            if (t.baseline.nvxArtifact !== "microsoft/nvx@v0.1.0-dev.be859aa77ffa" ||
+            if (t.baseline.nvxArtifact !== "microsoft/nvx@v0.1.0-dev.8fb0f1d64f2f" ||
                 t.baseline.cloudHypervisorArtifact !== "Cloud Hypervisor v53.0") {
               throw new Error("reviewed runtime artifact pins changed");
             }
@@ -189,7 +189,7 @@ jobs:
             npx tsx scripts/ci/nvx-benchmark-campaign.ts plan \
               "$plan/manifest.json" "$CAMPAIGN_ID" "$CAMPAIGN_MODE" "$GITHUB_SHA" \
               ubuntu-24.04 ubuntu24 \
-              "NVX microsoft/nvx@v0.1.0-dev.be859aa77ffa; Cloud Hypervisor v53.0"
+              "NVX microsoft/nvx@v0.1.0-dev.8fb0f1d64f2f; Cloud Hypervisor v53.0"
           fi
           if [ "$CAMPAIGN_MODE" != dry-run ]; then
             npx tsx scripts/ci/nvx-benchmark-campaign.ts matrix \

@@ -8,6 +8,8 @@ dist/
 coverage/
 .nyc_output/
 /.ch-unified-*/
+/.nvx-test-temp/
+/.awf-nvx-process-*/
 /awf-enclave-private-*/
 *.swp
 *.swo

@@ -1,4 +1,6 @@
-import { promises as fs } from 'fs';
+import { constants, promises as fs } from 'fs';
+import type { FileHandle } from 'fs/promises';
+import { createHash } from 'crypto';
 import { spawn, type ChildProcess } from 'child_process';
 import type { Readable, Writable } from 'stream';
 import {
@@ -76,6 +78,8 @@ type NvxLaunchChild = Omit<ChildProcess, 'stdio'> & {
     Writable | null,
     Readable | null,
     Writable | null,
+    null,
+    null,
   ];
 };
 
@@ -87,13 +91,14 @@ export interface NvxLaunchExecutorDependencies {
       cwd: string;
       env: NodeJS.ProcessEnv;
       detached: boolean;
-      stdio: ['pipe', 'pipe', 'pipe', 'pipe', 'pipe', 'pipe'];
+      stdio: ['pipe', 'pipe', 'pipe', 'pipe', 'pipe', 'pipe', number, number];
     },
   ): NvxLaunchChild;
   readFile(filePath: string, encoding: 'utf8'): Promise<string>;
   writeFile(filePath: string, contents: string): Promise<void>;
   readlink(filePath: string): Promise<string>;
   stat(filePath: string): Promise<{ dev: bigint; ino: bigint }>;
+  open(filePath: string, flags: number): Promise<FileHandle>;
   kill(pid: number, signal: NodeJS.Signals): void;
   sleep(milliseconds: number): Promise<void>;
   prepareExecution(
@@ -109,6 +114,7 @@ const defaultDependencies: NvxLaunchExecutorDependencies = {
   writeFile: fs.writeFile,
   readlink: fs.readlink,
   stat: (filePath) => fs.stat(filePath, { bigint: true }),
+  open: fs.open,
   kill: (pid, signal) => process.kill(pid, signal),
   sleep: (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds)),
   prepareExecution: (request, outcomePath) =>
@@ -134,43 +140,61 @@ export class DirectOpenvmmLaunchExecutor implements NvxLaunchExecutor {
       options.request,
       options.plan.outcomePath,
     );
+    const images = await openCheckedImages(options.request, this.dependencies);
     this.cgroupPath = options.plan.layout.cgroupPath;
-    const child = this.dependencies.spawn(
-      options.plan.launchCommand.command,
-      options.plan.launchCommand.args,
-      {
-        cwd: options.plan.layout.runDirectory,
-        env: {
-          PATH: '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin',
-          LANG: 'C.UTF-8',
-          LC_ALL: 'C.UTF-8',
-          OPENVMM_LOG: 'off',
-          TERM: 'dumb',
-        },
-        detached: true,
-        stdio: ['pipe', 'pipe', 'pipe', 'pipe', 'pipe', 'pipe'],
-      },
-    );
-    this.child = child;
-    if (
-      !child.pid ||
-      !child.stdin ||
-      !child.stdio[3] ||
-      !child.stdio[4] ||
-      !child.stdio[5]
-    ) {
-      await this.terminate();
-      throw new Error('NVX direct executor did not receive required process file descriptors');
-    }
+    let child: NvxLaunchChild;
     let launcherExited = false;
-    const exit = waitForExit(child).then((result) => {
-      launcherExited = true;
-      return result;
-    });
-    await endStream(
-      child.stdio[5],
-      buildOpenvmmSeccompFilter(options.plan.launchCommand.allowCallerMount),
-    );
+    let exit: ReturnType<typeof waitForExit>;
+    try {
+      try {
+        child = this.dependencies.spawn(
+          options.plan.launchCommand.command,
+          options.plan.launchCommand.args,
+          {
+            cwd: options.plan.layout.runDirectory,
+            env: {
+              PATH: '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin',
+              LANG: 'C.UTF-8',
+              LC_ALL: 'C.UTF-8',
+              OPENVMM_LOG: 'off',
+              TERM: 'dumb',
+            },
+            detached: true,
+            stdio: ['pipe', 'pipe', 'pipe', 'pipe', 'pipe', 'pipe', images[0].fd, images[1].fd],
+          },
+        );
+        this.child = child;
+        exit = waitForExit(child).then((result) => {
+          launcherExited = true;
+          return result;
+        });
+        void exit.catch(() => undefined);
+      } finally {
+        await closeImages(images);
+      }
+      if (
+        !child.pid ||
+        !child.stdin ||
+        !child.stdio[3] ||
+        !child.stdio[4] ||
+        !child.stdio[5]
+      ) {
+        throw new Error('NVX direct executor did not receive required process file descriptors');
+      }
+      await endStream(
+        child.stdio[5],
+        buildOpenvmmSeccompFilter(options.plan.launchCommand.allowCallerMount),
+      );
+    } catch (error) {
+      try {
+        await this.terminate();
+      } finally {
+        this.child = undefined;
+        this.cgroupPath = undefined;
+        this.terminating = undefined;
+      }
+      throw error;
+    }
 
     const stdoutGate = createOpenvmmStdoutGate(
       child.stdout,
@@ -303,6 +327,66 @@ export class DirectOpenvmmLaunchExecutor implements NvxLaunchExecutor {
         if ((error as NodeJS.ErrnoException).code !== 'ESRCH') throw error;
       }
     }
+  }
+}
+
+async function closeImages(images: readonly FileHandle[]): Promise<void> {
+  const results = await Promise.allSettled(images.map((image) => image.close()));
+  const failure = results.find((result) => result.status === 'rejected');
+  if (failure?.status === 'rejected') throw failure.reason;
+}
+
+async function openCheckedImages(
+  request: NvxOneShotExecutionRequest,
+  dependencies: Pick<NvxLaunchExecutorDependencies, 'open'>,
+): Promise<readonly [FileHandle, FileHandle]> {
+  const images: FileHandle[] = [];
+  try {
+    const layers = request.filesystem.layers;
+    if (layers.length !== 1 || layers[0].role !== 'distro') {
+      throw new Error('NVX checked image handoff requires exactly one distro layer');
+    }
+    const distro = await dependencies.open(
+      layers[0].path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK,
+    );
+    images.push(distro);
+    const distroStat = await distro.stat();
+    if (!distroStat.isFile() || (distroStat.mode & 0o7777) !== 0o400 ||
+      !Number.isSafeInteger(distroStat.size) || distroStat.size < 1) {
+      throw new Error('NVX checked distro image must be a nonempty regular file with mode 0400');
+    }
+    const hash = createHash('sha256');
+    const buffer = Buffer.alloc(1024 * 1024);
+    let position = 0;
+    while (position < distroStat.size) {
+      const { bytesRead } = await distro.read(
+        buffer, 0, Math.min(buffer.length, distroStat.size - position), position,
+      );
+      if (!bytesRead) throw new Error('NVX distro image size changed during descriptor verification');
+      hash.update(buffer.subarray(0, bytesRead));
+      position += bytesRead;
+    }
+    const afterHash = await distro.stat();
+    if (afterHash.size !== distroStat.size || afterHash.mode !== distroStat.mode ||
+      afterHash.mtimeMs !== distroStat.mtimeMs || afterHash.ctimeMs !== distroStat.ctimeMs ||
+      hash.digest('hex') !== layers[0].sha256) {
+      throw new Error('NVX distro image digest changed after preparation');
+    }
+    const scratch = await dependencies.open(
+      request.filesystem.scratch.path,
+      constants.O_RDWR | constants.O_NOFOLLOW | constants.O_NONBLOCK,
+    );
+    images.push(scratch);
+    const scratchStat = await scratch.stat();
+    if (!scratchStat.isFile() || (scratchStat.mode & 0o7777) !== 0o600 ||
+      !Number.isSafeInteger(scratchStat.size) || scratchStat.size < 1 ||
+      scratchStat.size !== request.filesystem.scratch.sizeBytes) {
+      throw new Error('NVX checked scratch image must be a regular file with mode 0600 and the prepared size');
+    }
+    return [distro, scratch];
+  } catch (error) {
+    await closeImages(images);
+    throw error;
   }
 }
 
@@ -565,11 +649,12 @@ function formatError(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-/** @internal Exposed only for focused seccomp policy tests. */
+/** @internal Exposed only for focused policy and descriptor tests. */
 // ts-prune-ignore-next
 export const testHelpers = {
   deniedX86_64Syscalls: DENIED_X86_64_SYSCALLS,
   deniedWithoutCallerMount: [...DENIED_X86_64_SYSCALLS, 122, 123],
   buildOpenvmmSeccompFilter,
+  openCheckedImages,
   x32SyscallBit: X32_SYSCALL_BIT,
 };

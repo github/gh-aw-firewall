@@ -39,9 +39,9 @@ jobs:
       - name: Fetch and verify pinned NVX release artifacts
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          NVX_RELEASE: v0.1.0-dev.be859aa77ffa
+          NVX_RELEASE: v0.1.0-dev.8fb0f1d64f2f
           NVX_ARCHIVE: nvx-0.1.0-linux-kvm.tar.gz
-          NVX_ARCHIVE_SHA256: ad6bf948d84d60d92f35103b52dc3ad33a421e9a4457ce0823d1890a6985a912
+          NVX_ARCHIVE_SHA256: 0a4bb74e76e80a524c3dccd9336b77705ef91d6a908d6979403c59151a5883da
           SIGNER_WORKFLOW: github/gh-aw-firewall/.github/workflows/nvx-phase-3b-live-kvm.yml
         run: |
           set -euo pipefail
@@ -87,9 +87,9 @@ jobs:
                 sourceCommit:$source_commit
               },
               upstream:{
-                releaseTag:"v0.1.0-dev.be859aa77ffa",
-                nvxCommit:"be859aa77ffa7a20f9ef50f68c5386acdfca9955",
-                openvmmCommit:"762bc1c7a203b16aee752324d6a4ab0bde1a713a"
+                releaseTag:"v0.1.0-dev.8fb0f1d64f2f",
+                nvxCommit:"8fb0f1d64f2f67e0017a4f94693244297852ed1f",
+                openvmmCommit:"0ac254109ed32fc5fa2b1a6fc526a10593b1f986"
               },
               architecture:"x86_64",
               artifacts:{
@@ -159,10 +159,37 @@ jobs:
           name: nvx-attested-artifacts
           path: ${{ runner.temp }}/nvx-attested-artifacts
 
+      - name: Download and verify full pinned NVX package
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NVX_RELEASE: v0.1.0-dev.8fb0f1d64f2f
+          NVX_ARCHIVE: nvx-0.1.0-linux-kvm.tar.gz
+          NVX_ARCHIVE_SHA256: 0a4bb74e76e80a524c3dccd9336b77705ef91d6a908d6979403c59151a5883da
+        run: |
+          set -euo pipefail
+          package_dir="$RUNNER_TEMP/nvx-package"
+          mkdir -p "$package_dir"
+          gh release download "$NVX_RELEASE" \
+            --repo microsoft/nvx \
+            --pattern "$NVX_ARCHIVE" \
+            --dir "$package_dir"
+          printf '%s  %s\n' \
+            "$NVX_ARCHIVE_SHA256" \
+            "$package_dir/$NVX_ARCHIVE" |
+            sha256sum --check --status
+          tar -xzf "$package_dir/$NVX_ARCHIVE" -C "$package_dir"
+          extracted="$package_dir/nvx-0.1.0-linux-kvm"
+          (
+            cd "$extracted"
+            sha256sum --check SHA256SUMS
+          )
+          test -s "$extracted/SOURCE-MANIFEST.json"
+          test -x "$extracted/bin/nvx-rs"
+
       - name: Fetch pinned NVX source
         env:
-          NVX_COMMIT: be859aa77ffa7a20f9ef50f68c5386acdfca9955
-          NVX_OPENVMM_COMMIT: 762bc1c7a203b16aee752324d6a4ab0bde1a713a
+          NVX_COMMIT: 8fb0f1d64f2f67e0017a4f94693244297852ed1f
+          NVX_OPENVMM_COMMIT: 0ac254109ed32fc5fa2b1a6fc526a10593b1f986
         run: |
           set -euo pipefail
           source_dir="$RUNNER_TEMP/nvx-source"
@@ -196,8 +223,8 @@ jobs:
           grep -q -- '--block-fd' <<<"$bwrap_help"
           grep -q -- '--json-status-fd' <<<"$bwrap_help"
           grep -q -- '--seccomp' <<<"$bwrap_help"
-          grep -Fq 'nvx_pids_max={self.pids_max + 1}' \
-            "$source_dir/scripts/nvx_tools/sandbox.py"
+          grep -Fq 'tokens.push(format!("nvx_pids_max={}", pids_max + 1));' \
+            "$source_dir/nvx-rs/src/host/sandbox/plan.rs"
           grep -Fq 'proxy.address != self.gateway_ipv4' \
             "$source_dir/openvmm/vm/devices/net/net_backend_resources/src/egress.rs"
           grep -Fq 'if deny.iter().any' \
@@ -635,8 +662,11 @@ jobs:
             --evidence "$EVIDENCE_DIR"
 
       - name: Run focused NVX Phase 3d tests
+        env:
+          AWF_NVX_PACKAGE_ROOT: ${{ runner.temp }}/nvx-package/nvx-0.1.0-linux-kvm
         run: |
           npm test -- --runTestsByPath \
+            scripts/ci/nvx-release-contract.test.ts \
             src/nvx/cleanup-record.test.ts \
             src/nvx/artifact-manifest.test.ts \
             src/nvx/preflight.test.ts \

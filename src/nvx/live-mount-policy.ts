@@ -21,6 +21,7 @@ export interface NvxLiveMount {
   readonly guestTarget: string;
   readonly hostPath: string;
   readonly mode: NvxExportMode;
+  readonly file?: boolean;
   readonly deniedPaths: readonly string[];
   readonly allowedPaths: readonly string[];
   readonly writablePaths: readonly string[];

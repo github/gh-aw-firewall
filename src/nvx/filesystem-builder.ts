@@ -25,10 +25,9 @@ export interface NvxLayerSource {
   readonly sourcePath: string;
   readonly exclude?: readonly string[];
   /**
-   * Stages the layer with the source tree's own uid/gid instead of flattening
-   * everything to root (`mkfs.erofs --all-root`).
+   * Merges this source with its own uid/gid instead of flattening it to root.
    *
-   * The AWF-owned custom layer uses this to retain the workload ownership of
+   * The AWF-owned configuration source uses this to retain the workload ownership of
    * allowed guest-home state while keeping the generated run script root-owned.
    */
   readonly preserveOwnership?: boolean;
@@ -117,7 +116,6 @@ interface StagedLayer {
   readonly sourceManifestSha256: string;
   readonly sourceEntries: number;
   readonly excludedPaths: readonly string[];
-  readonly preserveOwnership: boolean;
 }
 
 const DEFAULT_EXCLUDED_PATHS = [
@@ -126,11 +124,9 @@ const DEFAULT_EXCLUDED_PATHS = [
 ];
 
 /**
- * Builds immutable deterministic EROFS layers and a fresh private ext4 scratch
- * image for one NVX invocation.
- *
- * This module does not launch NVX. Runtime selection remains disabled until
- * the Phase 3 host-confinement and network-policy gates are implemented.
+ * Merges deterministic sources into one immutable distro EROFS image and builds
+ * a fresh private ext4 scratch image. Legacy runtime/custom roles are source
+ * precedence only (distro, runtime, custom), never separate guest roots.
  */
 export class NvxFilesystemBuilder {
   readonly runDirectory: string;
@@ -176,11 +172,22 @@ export class NvxFilesystemBuilder {
       await fs.mkdir(this.runDirectory, { mode: 0o700 });
       this.ownsRunDirectory = true;
       await fs.mkdir(this.stagingDirectory, { mode: 0o700 });
-      const layers: NvxLayerArtifact[] = [];
+      const stagingPath = path.join(this.stagingDirectory, 'distro');
+      await fs.mkdir(stagingPath, { mode: 0o755 });
+      const sources: StagedLayer[] = [];
       for (const source of orderedLayerSources(this.config.layers)) {
-        const staged = await this.stageLayer(source);
-        layers.push(await this.buildLayer(staged, sourceDateEpoch));
+        sources.push(await this.stageLayer(source, stagingPath));
       }
+      const layers = [await this.buildLayer({
+        role: 'distro',
+        stagingPath,
+        sourceManifestSha256: sha256Text(JSON.stringify(sources.map((source) => ({
+          role: source.role,
+          sha256: source.sourceManifestSha256,
+        })))),
+        sourceEntries: sources.reduce((total, source) => total + source.sourceEntries, 0),
+        excludedPaths: [...new Set(sources.flatMap((source) => source.excludedPaths))].sort(),
+      }, sourceDateEpoch)];
       const scratch = await this.buildScratch(scratchBytes, scratchUid, scratchGid);
       const manifest = {
         schemaVersion: 1,
@@ -226,14 +233,19 @@ export class NvxFilesystemBuilder {
     this.ownsRunDirectory = false;
   }
 
-  private async stageLayer(source: NvxLayerSource): Promise<StagedLayer> {
+  private async stageLayer(
+    source: NvxLayerSource,
+    stagingPath: string,
+  ): Promise<StagedLayer> {
     const sourcePath = path.resolve(source.sourcePath);
     const sourceStat = await fs.lstat(sourcePath);
     if (!sourceStat.isDirectory() || sourceStat.isSymbolicLink()) {
       throw new Error(`NVX ${source.role} layer source must be a real directory: ${sourcePath}`);
     }
-    const stagingPath = path.join(this.stagingDirectory, source.role);
-    await fs.mkdir(stagingPath, { mode: 0o700 });
+    const stagingRelative = path.relative(sourcePath, this.stagingDirectory);
+    if (!stagingRelative.startsWith(`..${path.sep}`) && stagingRelative !== '..') {
+      throw new Error('NVX layer source must not contain the staging directory');
+    }
     const excludedPaths = normalizeExcludedPaths([
       ...DEFAULT_EXCLUDED_PATHS,
       ...(source.exclude ?? []),
@@ -246,6 +258,7 @@ export class NvxFilesystemBuilder {
       entries,
       this.config.sourceDateEpoch ?? 0,
       source.preserveOwnership ?? false,
+      source.role === 'distro',
     );
     const sourceManifestSha256 = sha256Text(JSON.stringify({
       role: source.role,
@@ -258,7 +271,6 @@ export class NvxFilesystemBuilder {
       sourceManifestSha256,
       sourceEntries: entries.length,
       excludedPaths,
-      preserveOwnership: source.preserveOwnership ?? false,
     };
   }
 
@@ -270,7 +282,6 @@ export class NvxFilesystemBuilder {
     const imagePath = path.join(this.runDirectory, `${staged.role}.erofs`);
     await this.dependencies.runTool('mkfs.erofs', [
       '--quiet',
-      ...(staged.preserveOwnership ? [] : ['--all-root']),
       '-E', 'force-inode-compact',
       '-T', String(sourceDateEpoch),
       '-U', uuid,
@@ -381,6 +392,7 @@ async function copyDeterministicTree(
   manifest: NvxLayerSourceManifestEntry[],
   sourceDateEpoch: number,
   preserveOwnership = false,
+  includeRoot = true,
 ): Promise<void> {
   await assertDescriptorTraversalSupport();
   const root = await openDirectoryNoFollow(sourceRoot);
@@ -392,15 +404,16 @@ async function copyDeterministicTree(
 
   async function copyDirectory(directory: FileHandle, relativePath: string): Promise<void> {
     const current = descriptorPath(directory);
-    if (relativePath) {
+    if (relativePath || includeRoot) {
       const destination = stagingPath(destinationRoot, relativePath);
       const stat = await directory.stat();
       const mode = normalizedMode(stat);
-      await fs.mkdir(destination, { recursive: true, mode });
+      await prepareDestination(destination, true);
       await fs.chmod(destination, mode);
       const ownership = await applyOwnership(destination, stat, false);
       manifest.push({ path: relativePath, type: 'directory', mode, size: 0, ...ownership });
     }
+    const before = await directory.stat();
     const children = await fs.readdir(current);
     children.sort();
     for (const child of children) {
@@ -417,7 +430,9 @@ async function copyDeterministicTree(
           path.resolve(sourceRoot, path.dirname(childRelativePath), target),
           `NVX layer symlink target for ${childRelativePath}`,
         );
-        await fs.mkdir(path.dirname(destination), { recursive: true, mode: 0o700 });
+        const after = await fs.lstat(childPath);
+        assertSourceUnchanged(stat, after, childRelativePath);
+        await prepareDestination(destination, false);
         await fs.symlink(target, destination);
         await fs.lutimes(destination, sourceDateEpoch, sourceDateEpoch);
         const ownership = await applyOwnership(destination, stat, true);
@@ -432,6 +447,7 @@ async function copyDeterministicTree(
       } else if (stat.isDirectory()) {
         const childDirectory = await openDirectoryNoFollow(childPath);
         try {
+          assertSourceUnchanged(stat, await childDirectory.stat(), childRelativePath);
           await copyDirectory(childDirectory, childRelativePath);
         } finally {
           await childDirectory.close();
@@ -442,9 +458,8 @@ async function copyDeterministicTree(
         throw new Error(`Special filesystem entry is not safe for NVX layer: ${childRelativePath}`);
       }
     }
-    if (relativePath) {
-      await fs.utimes(stagingPath(destinationRoot, relativePath), sourceDateEpoch, sourceDateEpoch);
-    }
+    assertSourceUnchanged(before, await directory.stat(), relativePath || '/');
+    await fs.utimes(stagingPath(destinationRoot, relativePath), sourceDateEpoch, sourceDateEpoch);
   }
 
   async function applyOwnership(
@@ -452,10 +467,30 @@ async function copyDeterministicTree(
     stat: Pick<Stats, 'uid' | 'gid'>,
     symbolicLink: boolean,
   ): Promise<{ uid?: number; gid?: number }> {
-    if (!preserveOwnership) return {};
-    if (symbolicLink) await fs.lchown(destination, stat.uid, stat.gid);
-    else await fs.chown(destination, stat.uid, stat.gid);
-    return { uid: stat.uid, gid: stat.gid };
+    const uid = preserveOwnership ? stat.uid : 0;
+    const gid = preserveOwnership ? stat.gid : 0;
+    if (symbolicLink) await fs.lchown(destination, uid, gid);
+    else await fs.chown(destination, uid, gid);
+    return { uid, gid };
+  }
+
+  async function prepareDestination(destination: string, directory: boolean): Promise<void> {
+    let existing: Stats | undefined;
+    try {
+      existing = await fs.lstat(destination);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+    }
+    // Never descend through a lower-precedence symlink, even if it points
+    // inside the guest: resolving it here would use the host's namespace.
+    if (directory) {
+      if (existing && (!existing.isDirectory() || existing.isSymbolicLink())) {
+        throw new Error(`NVX overlay directory conflicts with non-directory: ${destination}`);
+      }
+      if (!existing) await fs.mkdir(destination, { mode: 0o700 });
+    } else if (existing) {
+      await fs.rm(destination, { recursive: true, force: true });
+    }
   }
 
   async function copyRegularFile(
@@ -467,16 +502,19 @@ async function copyDeterministicTree(
     const handle = await fs.open(source, constants.O_RDONLY | noFollowFlag());
     try {
       const stat = await handle.stat();
-      if (!stat.isFile() || stat.dev !== lstat.dev || stat.ino !== lstat.ino) {
+      if (!stat.isFile()) {
         throw new Error(`NVX layer source changed while opening file: ${relativePath}`);
       }
+      assertSourceUnchanged(lstat, stat, relativePath);
       const mode = normalizedMode(stat);
-      await fs.mkdir(path.dirname(destination), { recursive: true, mode: 0o700 });
+      await prepareDestination(destination, false);
       await pipeline(
         createReadStream(descriptorPath(handle)),
         createWriteStream(destination, { flags: 'wx', mode }),
       );
       await fs.chmod(destination, mode);
+      assertSourceUnchanged(stat, await handle.stat(), relativePath);
+      assertSourceUnchanged(stat, await fs.lstat(source), relativePath);
       await fs.utimes(destination, sourceDateEpoch, sourceDateEpoch);
       const copied = await fs.stat(destination);
       const ownership = await applyOwnership(destination, stat, false);
@@ -491,6 +529,17 @@ async function copyDeterministicTree(
     } finally {
       await handle.close();
     }
+  }
+}
+
+function assertSourceUnchanged(before: Stats, after: Stats, relativePath: string): void {
+  if (
+    before.dev !== after.dev || before.ino !== after.ino ||
+    before.mode !== after.mode || before.uid !== after.uid || before.gid !== after.gid ||
+    before.size !== after.size || before.mtimeMs !== after.mtimeMs ||
+    before.ctimeMs !== after.ctimeMs
+  ) {
+    throw new Error(`NVX layer source changed during staging: ${relativePath}`);
   }
 }
 
@@ -577,6 +626,9 @@ function assertLayerSources(sources: readonly NvxLayerSource[]): void {
   const duplicates = roles.filter((role, index) => roles.indexOf(role) !== index);
   if (duplicates.length > 0) {
     throw new Error(`Duplicate NVX layer role: ${duplicates[0]}`);
+  }
+  if (!roles.includes('distro')) {
+    throw new Error('NVX requires a distro source for its single immutable guest root');
   }
 }
 

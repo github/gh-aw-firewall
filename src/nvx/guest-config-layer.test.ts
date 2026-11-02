@@ -1,11 +1,10 @@
 import { promises as fs } from 'fs';
-import * as os from 'os';
 import * as path from 'path';
 import { NvxGuestConfigLayer } from './guest-config-layer';
 
 describe('NvxGuestConfigLayer', () => {
   it('stages only the AWF run script and allowed guest-home state', async () => {
-    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'awf-nvx-config-'));
+    const root = await fs.mkdtemp(path.join(process.cwd(), 'awf-nvx-config-'));
     const home = path.join(root, 'home');
     await fs.mkdir(path.join(home, '.npm'), { recursive: true });
     await fs.writeFile(path.join(home, '.npm', 'cache'), 'allowed');
@@ -19,6 +18,7 @@ describe('NvxGuestConfigLayer', () => {
     await fs.writeFile(path.join(home, '.azure', 'credentials'), 'secret');
     await fs.mkdir(path.join(home, '.ssh'), { recursive: true });
     await fs.writeFile(path.join(home, '.ssh', 'id_ed25519'), 'secret');
+    const chown = jest.fn(async () => undefined);
     const layer = new NvxGuestConfigLayer({
       stagingRoot: path.join(root, 'staging'),
       uid: process.getuid?.() ?? 1000,
@@ -30,11 +30,21 @@ describe('NvxGuestConfigLayer', () => {
         'api.githubcopilot.com': '172.30.0.30',
       },
     }, {
-      chown: async () => undefined,
+      chown,
       lchown: async () => undefined,
     });
     try {
       const source = await layer.stage();
+      expect(chown).toHaveBeenCalledWith(path.join(source, 'etc/awf/nvx-run.sh'), 0, 0);
+      expect(chown).toHaveBeenCalledWith(path.join(source, 'etc/hosts'), 0, 0);
+      expect(chown).toHaveBeenCalledWith(path.join(source, 'home'), 0, 0);
+      expect((await fs.stat(path.join(source, 'home'))).mode & 0o777).toBe(0o755);
+      expect(chown).toHaveBeenCalledWith(
+        path.join(source, 'home/awf'),
+        process.getuid?.() ?? 1000,
+        process.getgid?.() ?? 1000,
+      );
+      expect((await fs.stat(path.join(source, 'home/awf'))).mode & 0o777).toBe(0o700);
       await expect(fs.readFile(path.join(source, 'etc/awf/nvx-run.sh'), 'utf8'))
         .resolves.toContain('exec true');
       await expect(fs.readFile(path.join(source, 'home/awf/.npm/cache'), 'utf8'))
@@ -72,7 +82,7 @@ describe('NvxGuestConfigLayer', () => {
   });
 
   it('rejects a symlinked allowed home directory', async () => {
-    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'awf-nvx-config-'));
+    const root = await fs.mkdtemp(path.join(process.cwd(), 'awf-nvx-config-'));
     const home = path.join(root, 'home');
     await fs.mkdir(home);
     await fs.symlink('/etc', path.join(home, '.npm'));
@@ -95,7 +105,7 @@ describe('NvxGuestConfigLayer', () => {
   });
 
   it('removes the staged tree when permission restoration encounters a read-only path', async () => {
-    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'awf-nvx-config-'));
+    const root = await fs.mkdtemp(path.join(process.cwd(), 'awf-nvx-config-'));
     const stagingRoot = path.join(root, 'staging');
     const layer = new NvxGuestConfigLayer({
       stagingRoot,

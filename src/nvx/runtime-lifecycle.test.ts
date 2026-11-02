@@ -3,6 +3,7 @@ import {
   NvxCgroupManager,
   NvxVmmIdentityManager,
   buildNvxPhase3dLaunchPlan,
+  buildDirectOpenvmmArguments,
   createNvxAccountName,
   createNvxNetworkPlan,
   type NvxRuntimeLifecycleDependencies,
@@ -10,6 +11,7 @@ import {
 } from './runtime-lifecycle';
 import type { NvxFilesystemBundle } from './filesystem-builder';
 import { runtimeUsesComposeAgent } from '../container-runtime';
+import { nvxShareName } from './one-shot-adapter';
 
 const RUN_ID = 'a1b2c3d4e5f60718293a4b5c6d7e8f90';
 const tools: NvxRuntimeToolPaths = {
@@ -163,6 +165,49 @@ function filesystemBundle(): NvxFilesystemBundle {
 }
 
 describe('NVX Phase 3d runtime lifecycle', () => {
+  it('passes aggregate child mappings and the exact distro format token to direct OpenVMM', () => {
+    const mounts = [
+      {
+        tag: 'workspace',
+        guestTarget: '/workspace',
+        hostPath: '/host/workspace',
+        mode: 'rw' as const,
+        deniedPaths: ['/host/workspace/private'],
+        allowedPaths: [],
+        writablePaths: [],
+      },
+      {
+        tag: 'configuration',
+        guestTarget: '/configuration',
+        hostPath: '/host/configuration',
+        mode: 'ro' as const,
+        file: true,
+        deniedPaths: [],
+        allowedPaths: [],
+        writablePaths: [],
+      },
+    ];
+    const args = buildDirectOpenvmmArguments({
+      nvxRoot: '/opt/awf-nvx',
+      filesystem: filesystemBundle(),
+      entrypoint: '/bin/true',
+      mounts,
+      network: { guestAddress: '192.168.127.2/30' },
+    }, '/run/awf-nvx/outcome.json');
+    expect(args).not.toContain('--mount');
+    expect(args).toEqual(expect.arrayContaining(['--cpu-profile', 'host']));
+    expect(args).toEqual(expect.arrayContaining([
+      '--mount-aggregate', '/run/nvx/shares',
+      '--mount-child', `${nvxShareName(0, '/workspace')},/host/workspace,rw`,
+      '--mount-child', `${nvxShareName(1, '/configuration')},/host/configuration,ro,file`,
+      '--mount-deny', '/host/workspace/private',
+    ]));
+    const cmdline = args[args.indexOf('--cmdline') + 1];
+    expect(cmdline).toContain('nvx_layer=distro,0xd0003000,erofs:11111111-1111-4111-8111-111111111111');
+    expect(cmdline).toContain(`nvx_share=${nvxShareName(0, '/workspace')},/workspace,rw`);
+    expect(cmdline).toContain(`nvx_share=${nvxShareName(1, '/configuration')},/configuration,ro,file`);
+  });
+
   it('creates a run-bound no-login account and grants only the KVM device ACL', async () => {
     const { deps, run } = identityDependencies();
     const observer = {
@@ -433,6 +478,8 @@ describe('NVX Phase 3d runtime lifecycle', () => {
       '--single-process',
       '--hypervisor',
       'kvm',
+      '--cpu-profile',
+      'host',
       '--network-egress',
       'deny',
     ]));
@@ -454,9 +501,9 @@ describe('NVX Phase 3d runtime lifecycle', () => {
       'microvm',
       '--paused',
       '--microvm-sandbox-block',
-      'distro:file:/run/awf-nvx/distro.erofs,ro',
+      'distro:file:/proc/self/fd/6,ro',
       '--microvm-sandbox-block',
-      'scratch:file:/run/awf-nvx/scratch.ext4',
+      'scratch:file:/proc/self/fd/7',
       '--microvm-workload-identity',
       '65534:65534',
       '--microvm-lifecycle',
@@ -474,7 +521,7 @@ describe('NVX Phase 3d runtime lifecycle', () => {
       '/opt/awf-nvx/initramfs.cpio.gz',
       '--cmdline',
       'nvx_sandbox=1 ' +
-      'nvx_layer=distro,0xd0003000,11111111-1111-4111-8111-111111111111 ' +
+      'nvx_layer=distro,0xd0003000,erofs:11111111-1111-4111-8111-111111111111 ' +
       'nvx_scratch=0xd0006000,ext4 nvx_entrypoint=/bin/true ' +
       'nvx_hostname=awf-nvx nvx_arg=--version nvx_pids_max=257',
       '--net',
@@ -497,23 +544,15 @@ describe('NVX Phase 3d runtime lifecycle', () => {
     expect(openvmmArguments.join(' ')).not.toContain(`/var/lib/awf-nvx/runs/${RUN_ID}`);
     expect(plan.outcomePath).toBe(`/var/lib/awf-nvx/runs/${RUN_ID}/outcome.json`);
 
-    const customProfilePlan = buildNvxPhase3dLaunchPlan({
-      runId: RUN_ID,
-      tools,
-      identity: { name: `awfnvx-${RUN_ID.slice(0, 20)}`, uid: 23001, gid: 23002 },
+    const pinnedProfile = buildDirectOpenvmmArguments({
+      nvxRoot: '/opt/awf-nvx',
       filesystem: filesystemBundle(),
-      execution: {
-        entrypoint: '/bin/true',
-        cpuProfile: 'intel.icelake-sp.v1',
-      },
-      network: { infrastructureBridge: 'br-awf', enableApiProxy: false },
-    });
-    const customProfileArguments = customProfilePlan.launchCommand.args.slice(
-      customProfilePlan.launchCommand.args.indexOf('/opt/awf-nvx/openvmm') + 1,
-    );
-    expect(customProfileArguments).toEqual(expect.arrayContaining([
-      '--cpu-profile',
-      'intel.icelake-sp.v1',
+      entrypoint: '/bin/true',
+      cpuProfile: 'intel.icelake-sp.v1',
+      network: { guestAddress: '192.168.127.2/30' },
+    }, '/run/awf-nvx/outcome.json');
+    expect(pinnedProfile).toEqual(expect.arrayContaining([
+      '--cpu-profile', 'intel.icelake-sp.v1',
     ]));
   });
 

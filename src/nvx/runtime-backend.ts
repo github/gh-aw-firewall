@@ -116,8 +116,8 @@ export const nvxRuntimeTestHelpers = {
  * The per-run guest environment (including `--env`/`--env-all`/`--env-file`
  * values and proxy settings), the working directory selected by
  * `--container-workdir`, and the agent command are delivered through an
- * AWF-owned guest entrypoint script staged into the immutable `custom` EROFS
- * layer. Workspace and optional tool-cache content are attached directly as
+ * AWF-owned guest entrypoint script merged into the immutable distro EROFS
+ * image. Workspace and optional tool-cache content are attached directly as
  * OpenVMM virtio-fs shares.
  *
  * Production code must go through {@link createNvxRuntimeBackend} instead of
@@ -301,7 +301,7 @@ export class NvxRuntimeBackend implements ExternalAgentRuntimeBackend {
         // The guest contract accepts a single absolute entrypoint plus
         // whitespace-free `nvx_arg=` tokens only, so the per-run environment,
         // working directory, and agent command are delivered through the
-        // AWF-owned guest script staged in the custom layer instead.
+        // AWF-owned guest script merged into the distro image instead.
         entrypoint: NVX_GUEST_RUN_SCRIPT,
         args: [],
         workloadUid: identity.uid,

@@ -1,17 +1,21 @@
 import { createHash } from 'crypto';
 import { promises as fs } from 'fs';
-import * as os from 'os';
 import * as path from 'path';
 import { PassThrough } from 'stream';
 import type { NvxFilesystemBundle } from './filesystem-builder';
 import {
   buildNvxOneShotArguments,
+  appendMountArguments,
+  buildNvxKernelCommandLine,
+  nvxShareName,
+  validateNvxExecutionRequest,
   NvxOneShotAdapter,
   testHelpers,
   type NvxOneShotAdapterDependencies,
   type NvxOneShotExecutionRequest,
 } from './one-shot-adapter';
 import { NVX_TEARDOWN_STAGES } from './outcome';
+import type { NvxLiveMount } from './live-mount-policy';
 
 const linuxIt = process.platform === 'linux' ? it : it.skip;
 
@@ -24,13 +28,13 @@ async function fixture(): Promise<{
   bundle: NvxFilesystemBundle;
   request: NvxOneShotExecutionRequest;
 }> {
-  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'awf-nvx-run-'));
+  const root = await fs.mkdtemp(path.join(process.cwd(), '.awf-nvx-run-'));
   const nvxRoot = path.join(root, 'nvx');
   const runDirectory = path.join(root, 'run');
-  await fs.mkdir(path.join(nvxRoot, 'scripts'), { recursive: true });
+  await fs.mkdir(path.join(nvxRoot, 'bin'), { recursive: true });
   await fs.mkdir(runDirectory);
   await fs.chmod(runDirectory, 0o700);
-  await fs.writeFile(path.join(nvxRoot, 'scripts', 'nvx.py'), '#!/usr/bin/env python3\n');
+  await fs.writeFile(path.join(nvxRoot, 'bin', 'nvx-rs'), 'launcher');
   const layerPath = path.join(runDirectory, 'distro.erofs');
   const scratchPath = path.join(runDirectory, 'scratch.ext4');
   await fs.writeFile(layerPath, 'layer');
@@ -124,6 +128,159 @@ function outcome(category: 'success' | 'guest-exit' | 'vmm-failure', statusCode:
 }
 
 describe('NVX one-shot execution adapter', () => {
+  const mount = (guestTarget: string, overrides: Partial<NvxLiveMount> = {}): NvxLiveMount => ({
+    tag: 'workspace',
+    guestTarget,
+    hostPath: `/host${guestTarget}`,
+    mode: 'ro',
+    deniedPaths: [],
+    allowedPaths: [],
+    writablePaths: [],
+    ...overrides,
+  });
+
+  it('lowers multiple direct shares with the upstream target-hashed child names', () => {
+    const args: string[] = [];
+    appendMountArguments(args, [
+      mount('/workspace', {
+        mode: 'rw',
+        deniedPaths: ['/host/workspace/private'],
+        allowedPaths: ['/host/workspace/private/payload'],
+        writablePaths: ['/host/workspace/dist'],
+      }),
+      mount('/toolcache'),
+    ]);
+    expect(nvxShareName(0, '/workspace')).toBe(
+      `0-${createHash('sha256').update('/workspace').digest('hex').slice(0, 32)}`,
+    );
+    expect(args).toEqual([
+      '--mount-aggregate', '/run/nvx/shares',
+      '--mount-child', `${nvxShareName(0, '/workspace')},/host/workspace,rw`,
+      '--mount-deny', '/host/workspace/private',
+      '--mount-allow', '/host/workspace/private/payload',
+      '--mount-write', '/host/workspace/dist',
+      '--mount-child', `${nvxShareName(1, '/toolcache')},/host/toolcache,ro`,
+      '--mount-owner', 'caller',
+    ]);
+  });
+
+  it('uses an aggregate for a single file but preserves one direct directory', () => {
+    const fileArgs: string[] = [];
+    appendMountArguments(fileArgs, [mount('/config', { file: true })]);
+    expect(fileArgs).toEqual([
+      '--mount-aggregate', '/run/nvx/shares',
+      '--mount-child', `${nvxShareName(0, '/config')},/host/config,ro,file`,
+      '--mount-owner', 'caller',
+    ]);
+    const directoryArgs: string[] = [];
+    appendMountArguments(directoryArgs, [mount('/workspace')]);
+    expect(directoryArgs).toEqual([
+      '--mount', '/workspace,/host/workspace,ro', '--mount-owner', 'caller',
+    ]);
+  });
+
+  it('budgets share mappings and OpenVMM bootstrap tokens including the terminating NUL', async () => {
+    const { root, request } = await fixture();
+    try {
+      const mounts = [mount('/config', { file: true })];
+      const base = { ...request, mounts, args: [] };
+      const commandLine = buildNvxKernelCommandLine(base);
+      expect(commandLine).toContain(
+        `nvx_share=${nvxShareName(0, '/config')},/config,ro,file`,
+      );
+      const fragment = ' virtfs_dir=/run/nvx/shares virtfs_tag=microvm virtfs_mode=ro virtfs_aggregate=1';
+      const available = 1024 - Buffer.byteLength(commandLine + fragment) - 1 - ' nvx_arg='.length;
+      expect(() => buildNvxKernelCommandLine({ ...base, args: ['x'.repeat(available)] })).not.toThrow();
+      expect(() => buildNvxKernelCommandLine({ ...base, args: ['x'.repeat(available + 1)] }))
+        .toThrow(/1024-byte/);
+      const single = { ...request, mounts: [mount('/workspace')], args: [] };
+      const singleBase = buildNvxKernelCommandLine(single);
+      const singleFragment = ' virtfs_dir=/workspace virtfs_tag=microvm virtfs_mode=ro';
+      const singleAvailable = 1024 - Buffer.byteLength(singleBase + singleFragment) - 1 - ' nvx_arg='.length;
+      expect(() => buildNvxKernelCommandLine({ ...single, args: ['x'.repeat(singleAvailable + 1)] }))
+        .toThrow(/1024-byte/);
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('rejects kernel token separators, unsafe identities, and overflowing resource limits on the host', async () => {
+    const { root, request } = await fixture();
+    try {
+      for (const token of ['', 'a b', 'a\tb', 'a\nb', 'a"b', 'a\u007fb', 'à']) {
+        expect(() => validateNvxExecutionRequest({ ...request, args: [token] }))
+          .toThrow(/argument/);
+      }
+      for (const entrypoint of ['/bin/a b', '/bin/a"b', '/bin/à']) {
+        expect(() => validateNvxExecutionRequest({ ...request, entrypoint })).toThrow(/entrypoint/);
+      }
+      for (const id of [0xffffffff, 0x100000000]) {
+        expect(() => validateNvxExecutionRequest({ ...request, workloadUid: id })).toThrow(/UID/);
+        expect(() => validateNvxExecutionRequest({ ...request, workloadGid: id })).toThrow(/GID/);
+      }
+      expect(() => validateNvxExecutionRequest({ ...request, pidsMax: 4194304 })).toThrow(/process limit/);
+      expect(() => validateNvxExecutionRequest({ ...request, memoryMib: 17592186044416 }))
+        .toThrow(/guest memory/);
+      expect(() => validateNvxExecutionRequest({ ...request, memoryMaxBytes: Number.MAX_SAFE_INTEGER + 1 }))
+        .toThrow(/memory limit/);
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('fails closed for read-only mappings inside writable shares and invalid policy paths', async () => {
+    const { root, request } = await fixture();
+    try {
+      expect(() => validateNvxExecutionRequest({
+        ...request,
+        mounts: [
+          mount('/workspace', { mode: 'rw' }),
+          mount('/readonly', { hostPath: '/host/workspace/private' }),
+        ],
+      })).toThrow(/overlap/);
+      expect(() => validateNvxExecutionRequest({
+        ...request,
+        mounts: [mount('/workspace', { deniedPaths: ['relative'] })],
+      })).toThrow(/absolute path/);
+      expect(() => validateNvxExecutionRequest({
+        ...request,
+        mounts: [mount('/workspace', { deniedPaths: ['/other/path'] })],
+      })).toThrow(/inside its share/);
+      expect(() => validateNvxExecutionRequest({
+        ...request,
+        mounts: [mount('/config', { file: true, deniedPaths: ['/host/config'] })],
+      })).toThrow(/file mount/);
+      for (const target of ['/proc/self', '/run/nvx/time', '/workspace/../root', '/workspace=x', '/workspace//x']) {
+        expect(() => validateNvxExecutionRequest({
+          ...request,
+          mounts: [mount(target)],
+        })).toThrow();
+      }
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('rejects commas in mount targets, host paths, and mount policy paths', async () => {
+    const { root, request } = await fixture();
+    try {
+      for (const options of [
+        { guestTarget: '/workspace,extra' },
+        { hostPath: '/host/workspace,extra' },
+        { deniedPaths: ['/host/workspace,extra'] },
+        { allowedPaths: ['/host/workspace,extra'] },
+        { writablePaths: ['/host/workspace,extra'] },
+      ]) {
+        expect(() => validateNvxExecutionRequest({
+          ...request,
+          mounts: [mount('/workspace', options)],
+        })).toThrow(/commas/);
+      }
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
   it('builds only a one-shot sandbox run command with fixed-deny network defaults', async () => {
     const { root, request } = await fixture();
     try {
@@ -131,7 +288,8 @@ describe('NVX one-shot execution adapter', () => {
         request,
         path.join(request.filesystem.runDirectory, 'outcome.json'),
       );
-      expect(args.slice(0, 3)).toEqual(['scripts/nvx.py', 'sandbox', 'run']);
+      expect(args.slice(0, 2)).toEqual(['sandbox', 'run']);
+      expect(args).not.toContain('--cpu-profile');
       expect(args).toEqual(expect.arrayContaining([
         '--layer',
         `distro,${request.filesystem.layers[0].path},11111111-2222-5333-8444-555555555555`,
@@ -139,8 +297,6 @@ describe('NVX one-shot execution adapter', () => {
         request.filesystem.scratch.path,
         '--network-profile',
         'portable',
-        '--cpu-profile',
-        'host',
         '--network-egress',
         'deny',
         '--network-ingress',
@@ -163,23 +319,20 @@ describe('NVX one-shot execution adapter', () => {
     }
   });
 
-  it('passes an explicitly pinned CPU profile to NVX', async () => {
+  it('does not pass the obsolete CPU profile option to NVX', async () => {
     const { root, request } = await fixture();
     try {
       const args = buildNvxOneShotArguments(
         { ...request, cpuProfile: 'intel.icelake-sp.v1' },
         path.join(request.filesystem.runDirectory, 'outcome.json'),
       );
-      expect(args).toEqual(expect.arrayContaining([
-        '--cpu-profile',
-        'intel.icelake-sp.v1',
-      ]));
+      expect(args).not.toContain('--cpu-profile');
     } finally {
       await fs.rm(root, { recursive: true, force: true });
     }
   });
 
-  it('orders filesystem layers before building NVX arguments', async () => {
+  it('rejects filesystem bundles with more than one distro image', async () => {
     const { root, request } = await fixture();
     const customPath = path.join(request.filesystem.runDirectory, 'custom.erofs');
     await fs.writeFile(customPath, 'custom');
@@ -192,20 +345,13 @@ describe('NVX one-shot execution adapter', () => {
         uuid: '22222222-3333-5444-8555-666666666666',
         sha256: await sha256(customPath),
       };
-      const args = buildNvxOneShotArguments({
+      expect(() => buildNvxOneShotArguments({
         ...request,
         filesystem: {
           ...request.filesystem,
           layers: [custom, request.filesystem.layers[0]],
         },
-      }, path.join(request.filesystem.runDirectory, 'outcome.json'));
-      const firstLayer = args.indexOf('--layer');
-      expect(args.slice(firstLayer, firstLayer + 4)).toEqual([
-        '--layer',
-        expect.stringMatching(/^distro,/),
-        '--layer',
-        expect.stringMatching(/^custom,/),
-      ]);
+      }, path.join(request.filesystem.runDirectory, 'outcome.json'))).toThrow(/exactly one distro/);
     } finally {
       await fs.rm(root, { recursive: true, force: true });
     }
@@ -263,7 +409,6 @@ describe('NVX one-shot execution adapter', () => {
     stderr.on('data', (chunk: Buffer) => presentedErrors.push(chunk));
     let hostEnvironment: NodeJS.ProcessEnv | undefined;
     const dependencies: NvxOneShotAdapterDependencies = {
-      pythonBinary: '/usr/bin/python3',
       runProcess: jest.fn(async (processRequest) => {
         hostEnvironment = processRequest.env;
         await processRequest.onStdout(Buffer.from(':'));
@@ -289,6 +434,10 @@ describe('NVX one-shot execution adapter', () => {
         rawTailBytes: 8,
       });
 
+      expect(dependencies.runProcess).toHaveBeenCalledWith(expect.objectContaining({
+        command: path.join(request.nvxRoot, 'bin', 'nvx-rs'),
+        args: expect.arrayContaining(['sandbox', 'run']),
+      }));
       expect(result).toMatchObject({
         exitCode: 125,
         category: 'guest-exit',
@@ -303,7 +452,6 @@ describe('NVX one-shot execution adapter', () => {
       expect(result.rawStderrTail.toString()).toBe('err-tail');
       expect(hostEnvironment?.GITHUB_TOKEN).toBeUndefined();
       expect(hostEnvironment).toMatchObject({
-        PYTHONUNBUFFERED: '1',
         TMPDIR: request.filesystem.runDirectory,
       });
     } finally {
@@ -316,7 +464,6 @@ describe('NVX one-shot execution adapter', () => {
   it('returns 124 on a host timeout without requiring a completed outcome', async () => {
     const { root, request } = await fixture();
     const dependencies: NvxOneShotAdapterDependencies = {
-      pythonBinary: '/usr/bin/python3',
       runProcess: jest.fn(async () => ({
         exitCode: null,
         signal: 'SIGKILL' as NodeJS.Signals,
@@ -340,7 +487,6 @@ describe('NVX one-shot execution adapter', () => {
   it('reports an unexpected process signal without trusting a partial outcome', async () => {
     const { root, request } = await fixture();
     const dependencies: NvxOneShotAdapterDependencies = {
-      pythonBinary: '/usr/bin/python3',
       runProcess: jest.fn(async () => ({
         exitCode: null,
         signal: 'SIGABRT' as NodeJS.Signals,
@@ -366,7 +512,6 @@ describe('NVX one-shot execution adapter', () => {
     const runProcess = jest.fn();
     try {
       await expect(new NvxOneShotAdapter({
-        pythonBinary: '/usr/bin/python3',
         runProcess,
       }).execute({
         ...request,
@@ -384,7 +529,6 @@ describe('NVX one-shot execution adapter', () => {
     const runProcess = jest.fn();
     try {
       await expect(new NvxOneShotAdapter({
-        pythonBinary: '/usr/bin/python3',
         runProcess,
       }).execute({
         ...request,
@@ -397,17 +541,16 @@ describe('NVX one-shot execution adapter', () => {
     }
   });
 
-  it('rejects malformed CPU profiles before launching NVX', async () => {
+  it('rejects the unchanged-identity sentinel before launching NVX', async () => {
     const { root, request } = await fixture();
     const runProcess = jest.fn();
     try {
       await expect(new NvxOneShotAdapter({
-        pythonBinary: '/usr/bin/python3',
         runProcess,
       }).execute({
         ...request,
-        cpuProfile: 'host invalid',
-      })).rejects.toThrow(/NVX CPU profile is invalid/);
+        workloadUid: 0xffffffff,
+      })).rejects.toThrow(/at most 4294967294/);
       expect(runProcess).not.toHaveBeenCalled();
     } finally {
       await fs.rm(root, { recursive: true, force: true });
@@ -417,7 +560,6 @@ describe('NVX one-shot execution adapter', () => {
   it('rejects missing outcomes, wrapper mismatches, and modified images', async () => {
     const missing = await fixture();
     const noOutcomeDependencies: NvxOneShotAdapterDependencies = {
-      pythonBinary: '/usr/bin/python3',
       runProcess: jest.fn(async () => ({
         exitCode: 1,
         signal: null,
@@ -434,7 +576,6 @@ describe('NVX one-shot execution adapter', () => {
 
     const mismatch = await fixture();
     const mismatchDependencies: NvxOneShotAdapterDependencies = {
-      pythonBinary: '/usr/bin/python3',
       runProcess: jest.fn(async (processRequest) => {
         const outcomePath = processRequest.args[processRequest.args.length - 1];
         await fs.writeFile(
@@ -460,7 +601,6 @@ describe('NVX one-shot execution adapter', () => {
     await fs.chmod(modified.bundle.layers[0].path, 0o400);
     try {
       await expect(new NvxOneShotAdapter({
-        pythonBinary: '/usr/bin/python3',
         runProcess,
       }).execute(modified.request)).rejects.toThrow(/digest changed/);
       expect(runProcess).not.toHaveBeenCalled();
@@ -472,7 +612,6 @@ describe('NVX one-shot execution adapter', () => {
   it('rejects a successful workload when the structured network policy differs', async () => {
     const { root, request } = await fixture();
     const dependencies: NvxOneShotAdapterDependencies = {
-      pythonBinary: '/usr/bin/python3',
       runProcess: jest.fn(async (processRequest) => {
         const report = outcome('success', 0);
         report.network_policy.allow_rule_count = 0;
@@ -496,7 +635,6 @@ describe('NVX one-shot execution adapter', () => {
   it('preserves bounded output evidence when the outcome is missing', async () => {
     const { root, request } = await fixture();
     const dependencies: NvxOneShotAdapterDependencies = {
-      pythonBinary: '/usr/bin/python3',
       runProcess: jest.fn(async (processRequest) => {
         await processRequest.onStderr(Buffer.from('diagnostic'));
         return { exitCode: 1, signal: null, timedOut: false, cancelled: false };
@@ -522,7 +660,6 @@ describe('NVX one-shot execution adapter', () => {
       { mode: 0o600 },
     );
     const dependencies: NvxOneShotAdapterDependencies = {
-      pythonBinary: '/usr/bin/python3',
       runProcess: jest.fn(async (processRequest) => {
         const outcomePath = processRequest.args[processRequest.args.length - 1];
         await fs.symlink(externalOutcome, outcomePath);
@@ -543,7 +680,6 @@ describe('NVX one-shot execution adapter', () => {
   it('returns a distinct cancellation result', async () => {
     const { root, request } = await fixture();
     const dependencies: NvxOneShotAdapterDependencies = {
-      pythonBinary: '/usr/bin/python3',
       runProcess: jest.fn(async () => ({
         exitCode: null,
         signal: 'SIGTERM' as NodeJS.Signals,
@@ -592,7 +728,7 @@ describe('NVX one-shot execution adapter', () => {
 
   linuxIt('escalates process-group termination after the launcher exits', async () => {
     const childPidPath = path.join(
-      await fs.mkdtemp(path.join(os.tmpdir(), 'awf-nvx-process-')),
+      await fs.mkdtemp(path.join(process.cwd(), '.awf-nvx-process-')),
       'child.pid',
     );
     const childScript = [

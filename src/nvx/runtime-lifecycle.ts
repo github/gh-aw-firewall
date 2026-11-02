@@ -21,7 +21,9 @@ import type { NvxCleanupDeviceAclIdentity } from './cleanup-record';
 import type { NvxFilesystemBundle } from './filesystem-builder';
 import {
   appendMountArguments,
+  buildNvxKernelCommandLine,
   NVX_ONE_SHOT_CPU_PROFILE,
+  validateNvxExecutionRequest,
   type NvxOneShotExecutionRequest,
 } from './one-shot-adapter';
 import type { NvxLiveMount } from './live-mount-policy';
@@ -685,28 +687,23 @@ export function buildDirectOpenvmmArguments(
   request: NvxOneShotExecutionRequest,
   outcomePath: string,
 ): readonly string[] {
+  validateNvxExecutionRequest(request);
   const uid = request.workloadUid ?? 65534;
   const gid = request.workloadGid ?? 65534;
-  const layerAddresses = {
-    distro: '0xd0003000',
-    runtime: '0xd0004000',
-    custom: '0xd0005000',
-  } as const;
-  const ordered = [...request.filesystem.layers].sort(
-    (left, right) =>
-      ['distro', 'runtime', 'custom'].indexOf(left.role) -
-      ['distro', 'runtime', 'custom'].indexOf(right.role),
-  );
+  const ordered = request.filesystem.layers;
+  if (ordered.length !== 1 || ordered[0].role !== 'distro') {
+    throw new Error('NVX launch requires exactly one distro layer');
+  }
   const args: string[] = ['--machine', 'microvm', '--paused'];
   for (const layer of ordered) {
     args.push(
       '--microvm-sandbox-block',
-      `${layer.role}:file:${layer.path},ro`,
+      `${layer.role}:file:/proc/self/fd/6,ro`,
     );
   }
   args.push(
     '--microvm-sandbox-block',
-    `scratch:file:${request.filesystem.scratch.path}`,
+    'scratch:file:/proc/self/fd/7',
     '--microvm-workload-identity',
     `${uid}:${gid}`,
     '--microvm-lifecycle',
@@ -723,7 +720,7 @@ export function buildDirectOpenvmmArguments(
     '--initrd',
     path.join(request.nvxRoot, 'initramfs.cpio.gz'),
     '--cmdline',
-    buildDirectKernelCommandLine(request, ordered, layerAddresses),
+    buildNvxKernelCommandLine(request),
     '--net',
     request.network.guestAddress,
     '--network-profile',
@@ -781,37 +778,6 @@ function toJailedLiveMounts(
       },
     };
   });
-}
-
-function buildDirectKernelCommandLine(
-  request: NvxOneShotExecutionRequest,
-  layers: readonly NvxFilesystemBundle['layers'][number][],
-  addresses: Readonly<Record<'distro' | 'runtime' | 'custom', string>>,
-): string {
-  const tokens = ['nvx_sandbox=1'];
-  for (const layer of layers) {
-    tokens.push(`nvx_layer=${layer.role},${addresses[layer.role]},${layer.uuid}`);
-  }
-  tokens.push(
-    'nvx_scratch=0xd0006000,ext4',
-    `nvx_entrypoint=${request.entrypoint}`,
-    `nvx_hostname=${request.hostname ?? 'awf-nvx'}`,
-  );
-  for (const argument of request.args ?? []) tokens.push(`nvx_arg=${argument}`);
-  if (request.memoryMaxBytes !== undefined) {
-    tokens.push(`nvx_memory_max=${request.memoryMaxBytes}`);
-  }
-  if (request.pidsMax !== undefined) {
-    if (request.pidsMax >= Number.MAX_SAFE_INTEGER) {
-      throw new Error('NVX process limit is too large for the sandbox PID 1 allowance');
-    }
-    tokens.push(`nvx_pids_max=${request.pidsMax + 1}`);
-  }
-  const commandLine = tokens.join(' ');
-  if (Buffer.byteLength(commandLine) + 1 > 1024) {
-    throw new Error('NVX sandbox kernel command line exceeds its 1024-byte x86 budget');
-  }
-  return commandLine;
 }
 
 function toNvxGuestFilesystemBundle(

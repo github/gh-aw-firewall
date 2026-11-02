@@ -85,7 +85,6 @@ export interface NvxProcessResult {
 
 export interface NvxOneShotAdapterDependencies {
   runProcess(request: NvxProcessRequest): Promise<NvxProcessResult>;
-  pythonBinary: string;
 }
 
 export class NvxOneShotExecutionError extends Error {
@@ -123,7 +122,8 @@ export class NvxPreparedExecution {
       request: NvxOneShotExecutionRequest,
       outcomePath = path.join(request.filesystem.runDirectory, 'outcome.json'),
     ): Promise<NvxPreparedExecution> {
-      validateRequest(request);
+      validateNvxExecutionRequest(request);
+      buildNvxKernelCommandLine(request);
       await verifyFilesystemBundle(request.filesystem);
       await assertNewOutcomePath(outcomePath, request.filesystem.runDirectory);
       const rawTailBytes = request.rawTailBytes ?? NVX_DEFAULT_RAW_TAIL_BYTES;
@@ -230,15 +230,14 @@ export class NvxPreparedExecution {
 
 const defaultDependencies: NvxOneShotAdapterDependencies = {
   runProcess: runNvxProcess,
-  pythonBinary: '/usr/bin/python3',
 };
 
 /**
- * Legacy `nvx.py sandbox run` transport retained for contract tests.
+ * Packaged `nvx-rs sandbox run` transport retained for contract tests.
  *
  * Direct OpenVMM launches reuse NvxPreparedExecution so validation, filtered
  * output, timeout/cancellation results, and structured outcome checks stay
- * identical without depending on the broken flat launcher artifact.
+ * identical while applying their own host confinement.
  */
 export class NvxOneShotAdapter {
   constructor(
@@ -246,12 +245,12 @@ export class NvxOneShotAdapter {
   ) {}
 
   async execute(request: NvxOneShotExecutionRequest): Promise<NvxOneShotExecutionResult> {
-    const nvxScript = path.join(request.nvxRoot, 'scripts', 'nvx.py');
-    await assertRegularFile(nvxScript, 'NVX launcher');
+    const nvxBinary = path.join(request.nvxRoot, 'bin', 'nvx-rs');
+    await assertRegularFile(nvxBinary, 'NVX launcher');
     const outcomePath = path.join(request.filesystem.runDirectory, 'outcome.json');
     const execution = await NvxPreparedExecution.create(request, outcomePath);
     const processResult = await this.dependencies.runProcess({
-      command: this.dependencies.pythonBinary,
+      command: nvxBinary,
       args: buildNvxOneShotArguments(request, outcomePath),
       cwd: request.nvxRoot,
       env: buildNvxHostEnvironment(request.filesystem.runDirectory),
@@ -268,17 +267,24 @@ export function buildNvxOneShotArguments(
   request: NvxOneShotExecutionRequest,
   outcomePath: string,
 ): readonly string[] {
+  validateNvxExecutionRequest(request);
+  buildNvxKernelCommandLine(request);
   const uid = request.workloadUid ?? NVX_DEFAULT_WORKLOAD_ID;
   const gid = request.workloadGid ?? NVX_DEFAULT_WORKLOAD_ID;
   const args = [
-    path.join('scripts', 'nvx.py'),
     'sandbox',
     'run',
   ];
   for (const layer of orderedLayers(request.filesystem.layers)) {
     args.push('--layer', `${layer.role},${layer.path},${layer.uuid}`);
   }
-  appendMountArguments(args, request.mounts ?? []);
+  for (const mount of request.mounts ?? []) {
+    args.push('--mount', `${mount.guestTarget},${mount.hostPath},${mount.mode}`);
+    for (const denied of mount.deniedPaths) args.push('--mount-deny', denied);
+    for (const allowed of mount.allowedPaths) args.push('--mount-allow', allowed);
+    for (const writable of mount.writablePaths) args.push('--mount-write', writable);
+  }
+  if (request.mounts?.length) args.push('--mount-owner', 'caller');
   args.push(
     '--scratch', request.filesystem.scratch.path,
     '--entrypoint', request.entrypoint,
@@ -295,7 +301,6 @@ export function buildNvxOneShotArguments(
   args.push(
     '--memory-mib', String(request.memoryMib ?? 512),
     '--hypervisor', 'kvm',
-    '--cpu-profile', request.cpuProfile ?? NVX_ONE_SHOT_CPU_PROFILE,
     '--net', request.network.guestAddress,
     '--network-profile', 'portable',
     '--network-egress', 'deny',
@@ -321,13 +326,66 @@ export function appendMountArguments(
   args: string[],
   mounts: readonly NvxLiveMount[],
 ): void {
-  for (const mount of mounts) {
-    args.push('--mount', `${mount.guestTarget},${mount.hostPath},${mount.mode}`);
+  const aggregate = usesNvxAggregateMount(mounts);
+  if (aggregate) args.push('--mount-aggregate', '/run/nvx/shares');
+  for (const [index, mount] of mounts.entries()) {
+    args.push(
+      aggregate ? '--mount-child' : '--mount',
+      aggregate
+        ? `${nvxShareName(index, mount.guestTarget)},${mount.hostPath},${mount.mode}${mount.file ? ',file' : ''}`
+        : `${mount.guestTarget},${mount.hostPath},${mount.mode}`,
+    );
     for (const denied of mount.deniedPaths) args.push('--mount-deny', denied);
     for (const allowed of mount.allowedPaths) args.push('--mount-allow', allowed);
     for (const writable of mount.writablePaths) args.push('--mount-write', writable);
   }
   if (mounts.length > 0) args.push('--mount-owner', 'caller');
+}
+
+export function usesNvxAggregateMount(mounts: readonly NvxLiveMount[]): boolean {
+  return mounts.length > 1 || mounts.some((mount) => mount.file);
+}
+
+export function nvxShareName(index: number, target: string): string {
+  return `${index}-${createHash('sha256').update(target).digest('hex').slice(0, 32)}`;
+}
+
+export function buildNvxKernelCommandLine(request: NvxOneShotExecutionRequest): string {
+  const layers = request.filesystem.layers;
+  if (layers.length !== 1 || layers[0].role !== 'distro') {
+    throw new Error('NVX launch requires exactly one distro layer');
+  }
+  const tokens = [
+    'nvx_sandbox=1',
+    `nvx_layer=distro,0xd0003000,erofs:${layers[0].uuid}`,
+    'nvx_scratch=0xd0006000,ext4',
+    `nvx_entrypoint=${request.entrypoint}`,
+    `nvx_hostname=${request.hostname ?? 'awf-nvx'}`,
+  ];
+  for (const argument of request.args ?? []) tokens.push(`nvx_arg=${argument}`);
+  const mounts = request.mounts ?? [];
+  const aggregate = usesNvxAggregateMount(mounts);
+  if (aggregate) {
+    for (const [index, mount] of mounts.entries()) {
+      tokens.push(
+        `nvx_share=${nvxShareName(index, mount.guestTarget)},${mount.guestTarget},${mount.mode}${mount.file ? ',file' : ''}`,
+      );
+    }
+  }
+  if (request.memoryMaxBytes !== undefined) tokens.push(`nvx_memory_max=${request.memoryMaxBytes}`);
+  if (request.pidsMax !== undefined) tokens.push(`nvx_pids_max=${request.pidsMax + 1}`);
+  const commandLine = tokens.join(' ');
+  let fragment = '';
+  if (mounts.length) {
+    const target = aggregate ? '/run/nvx/shares' : mounts[0].guestTarget;
+    const mode = mounts.some((mount) => mount.mode === 'rw') ? 'rw' : 'ro';
+    fragment = ` virtfs_dir=${target} virtfs_tag=microvm virtfs_mode=${mode}` +
+      (aggregate ? ' virtfs_aggregate=1' : '');
+  }
+  if (Buffer.byteLength(commandLine + fragment) + 1 > 1024) {
+    throw new Error('NVX sandbox kernel command line exceeds its 1024-byte x86 budget');
+  }
+  return commandLine;
 }
 
 async function verifyFilesystemBundle(bundle: NvxFilesystemBundle): Promise<void> {
@@ -339,12 +397,12 @@ async function verifyFilesystemBundle(bundle: NvxFilesystemBundle): Promise<void
   if ((runDirectoryStat.mode & 0o077) !== 0) {
     throw new Error('NVX run directory must not be accessible to group or other users');
   }
-  if (bundle.layers.length < 1 || bundle.layers.length > 3) {
-    throw new Error('NVX filesystem bundle must contain one to three layers');
+  if (bundle.layers.length !== 1 || bundle.layers[0].role !== 'distro') {
+    throw new Error('NVX filesystem bundle must contain exactly one distro layer');
   }
   const roles = new Set<string>();
   for (const layer of orderedLayers(bundle.layers)) {
-    if (layer.role !== 'distro' && layer.role !== 'runtime' && layer.role !== 'custom') {
+    if (layer.role !== 'distro') {
       throw new Error(`Unsupported NVX layer role: ${String(layer.role)}`);
     }
     if (roles.has(layer.role)) throw new Error(`Duplicate NVX layer role: ${layer.role}`);
@@ -426,24 +484,13 @@ async function verifyFilesystemBundle(bundle: NvxFilesystemBundle): Promise<void
   }
 }
 
-function validateRequest(request: NvxOneShotExecutionRequest): void {
+export function validateNvxExecutionRequest(request: NvxOneShotExecutionRequest): void {
   if (request.entrypoint.includes('\0') || !request.entrypoint.startsWith('/')) {
     throw new Error('NVX entrypoint must be an absolute path without NUL bytes');
   }
-  if (/\s/.test(request.entrypoint)) {
-    throw new Error('NVX entrypoint must not contain whitespace');
-  }
+  assertKernelToken(request.entrypoint, 'NVX entrypoint');
   for (const argument of request.args ?? []) {
-    // Argument elements are passed as literal, unshelled entries in the
-    // `execa`/`spawn` argv array (see `buildNvxOneShotArguments`'s
-    // `--arg=<argument>` construction) — there is no intermediate shell
-    // reinterpretation step, so embedded whitespace (e.g. the full shell
-    // script passed to `sh -c "<command>"`) is safe and must be preserved
-    // to support multi-word agent commands. Only reject NUL bytes, which
-    // cannot be represented in a process argv entry.
-    if (!argument || argument.includes('\0')) {
-      throw new Error('NVX one-shot arguments must be nonempty and contain no NUL bytes');
-    }
+    assertKernelToken(argument, 'NVX one-shot argument');
   }
   const hostname = request.hostname ?? 'awf-nvx';
   if (
@@ -459,6 +506,9 @@ function validateRequest(request: NvxOneShotExecutionRequest): void {
   const workloadGid = request.workloadGid ?? NVX_DEFAULT_WORKLOAD_ID;
   assertPositiveInteger(workloadUid, 'NVX workload UID');
   assertPositiveInteger(workloadGid, 'NVX workload GID');
+  if (workloadUid >= 0xffffffff || workloadGid >= 0xffffffff) {
+    throw new Error('NVX workload UID and GID must be at most 4294967294');
+  }
   if (
     (request.filesystem.scratch.uid !== workloadUid ||
       request.filesystem.scratch.gid !== workloadGid)
@@ -471,6 +521,12 @@ function validateRequest(request: NvxOneShotExecutionRequest): void {
   assertOptionalPositiveInteger(request.memoryMaxBytes, 'NVX memory limit');
   assertOptionalPositiveInteger(request.pidsMax, 'NVX process limit');
   assertOptionalPositiveInteger(request.memoryMib, 'NVX guest memory');
+  if (request.pidsMax !== undefined && request.pidsMax > 4194303) {
+    throw new Error('NVX process limit exceeds 4194303 (including the PID 1 allowance)');
+  }
+  if (request.memoryMib !== undefined && request.memoryMib > 17592186044415) {
+    throw new Error('NVX guest memory overflows its byte representation');
+  }
   const cpuProfile = request.cpuProfile ?? NVX_ONE_SHOT_CPU_PROFILE;
   if (!/^[a-z0-9]+(?:[.-][a-z0-9]+)*$/.test(cpuProfile)) {
     throw new Error(`NVX CPU profile is invalid: ${cpuProfile}`);
@@ -483,8 +539,8 @@ function validateRequest(request: NvxOneShotExecutionRequest): void {
       ...mount.allowedPaths.map((value) => ['allowed path', value] as const),
       ...mount.writablePaths.map((value) => ['writable path', value] as const),
     ] as const) {
-      if (!path.isAbsolute(value) || value.includes('\0') || value.includes(',')) {
-        throw new Error(`NVX mount ${label} must be an absolute path without NUL or comma`);
+      if (!path.isAbsolute(value) || value.includes('\0') || value.includes(',') || value.split('/').includes('..')) {
+        throw new Error(`NVX mount ${label} must be an absolute path without NUL, commas, or parent components`);
       }
     }
     if (mount.mode !== 'ro' && mount.mode !== 'rw') {
@@ -493,11 +549,63 @@ function validateRequest(request: NvxOneShotExecutionRequest): void {
     if (mount.mode === 'ro' && mount.writablePaths.length > 0) {
       throw new Error(`NVX read-only mount cannot have writable paths: ${mount.guestTarget}`);
     }
+    assertKernelToken(mount.guestTarget, 'NVX mount guest target');
+    const target = mount.guestTarget;
+    if (/[\\=,]/.test(target) || target === '/' ||
+      target.slice(1).split('/').some((component) => !component || component === '.') ||
+      Buffer.byteLength(target) > 4096) {
+      throw new Error('NVX mount guest target must be a canonical non-root path without backslash, equals, or comma');
+    }
+    if (['/etc', '/run', '/run/nvx'].includes(target) ||
+      ['/proc', '/sys', '/dev', '/.nvx-agent', '/etc/machine-id', '/etc/resolv.conf', '/run/nvx/time']
+        .some((reserved) => target === reserved || target.startsWith(`${reserved}/`))) {
+      throw new Error(`NVX mount guest target is reserved: ${target}`);
+    }
+    if (mount.file && (
+      mount.deniedPaths.length || mount.allowedPaths.length || mount.writablePaths.length
+    )) {
+      throw new Error('NVX file mount cannot have directory policies');
+    }
+    for (const paths of [mount.deniedPaths, mount.allowedPaths, mount.writablePaths]) {
+      if (paths.length > 128 || new Set(paths).size !== paths.length ||
+        paths.some((candidate) => !isWithin(candidate, mount.hostPath))) {
+        throw new Error('NVX mount policy must contain at most 128 distinct paths inside its share');
+      }
+    }
+    if (mount.allowedPaths.some((allowed) =>
+      !mount.deniedPaths.some((denied) => isWithin(allowed, denied)))) {
+      throw new Error('NVX allowed path must be inside a denied path');
+    }
+  }
+  const mounts = request.mounts ?? [];
+  for (const [index, mount] of mounts.entries()) {
+    for (const other of mounts.slice(0, index)) {
+      if (pathsOverlap(mount.guestTarget, other.guestTarget) ||
+        pathsOverlap(mount.hostPath, other.hostPath)) {
+        throw new Error('NVX mount targets and host paths must not overlap');
+      }
+    }
   }
   assertOptionalPositiveInteger(request.timeoutMs, 'NVX timeout');
   assertIpv4Cidr(request.network.guestAddress, 'NVX guest network address');
   if (request.network.proxyAddress !== undefined) {
     assertIpv4Endpoint(request.network.proxyAddress, 'NVX network proxy address');
+  }
+
+  function assertKernelToken(value: string, label: string): void {
+    const bytes = Buffer.from(value);
+    if (!value || /[\s\p{Cc}"]/u.test(value) ||
+      bytes.some((byte) => byte === 0xa0 || (byte >= 9 && byte <= 13) || byte === 32)) {
+      throw new Error(`${label} must be nonempty without whitespace, control characters, or double quotes`);
+    }
+  }
+
+  function pathsOverlap(left: string, right: string): boolean {
+    return isWithin(left, right) || isWithin(right, left);
+  }
+
+  function isWithin(candidate: string, root: string): boolean {
+    return candidate === root || candidate.startsWith(root === '/' ? '/' : `${root}/`);
   }
   for (const value of [
     ...(request.network.egressAllow ?? []),
@@ -592,7 +700,6 @@ function buildNvxHostEnvironment(runDirectory: string): NodeJS.ProcessEnv {
     PATH: '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin',
     LANG: 'C.UTF-8',
     LC_ALL: 'C.UTF-8',
-    PYTHONUNBUFFERED: '1',
     TMPDIR: runDirectory,
   };
   return environment;

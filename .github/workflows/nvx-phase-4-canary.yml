@@ -118,9 +118,9 @@ jobs:
         if: matrix.runtime == 'nvx'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          NVX_RELEASE: v0.1.0-dev.be859aa77ffa
+          NVX_RELEASE: v0.1.0-dev.8fb0f1d64f2f
           NVX_ARCHIVE: nvx-0.1.0-linux-kvm.tar.gz
-          NVX_ARCHIVE_SHA256: ad6bf948d84d60d92f35103b52dc3ad33a421e9a4457ce0823d1890a6985a912
+          NVX_ARCHIVE_SHA256: 0a4bb74e76e80a524c3dccd9336b77705ef91d6a908d6979403c59151a5883da
         run: |
           set -euo pipefail
           package="$RUNNER_TEMP/nvx-package"
@@ -163,7 +163,7 @@ jobs:
             --argjson openvmm_size "$(stat -c %s "$artifacts/openvmm")" \
             --argjson kernel_size "$(stat -c %s "$artifacts/vmlinux")" \
             --argjson initramfs_size "$(stat -c %s "$artifacts/initramfs.cpio.gz")" \
-            '{schemaVersion:2,release:{repository:"github/gh-aw-firewall",workflow:"github/gh-aw-firewall/.github/workflows/nvx-phase-4-canary.yml",tag:"v0.28.54",sourceCommit:$source},upstream:{releaseTag:"v0.1.0-dev.be859aa77ffa",nvxCommit:"be859aa77ffa7a20f9ef50f68c5386acdfca9955",openvmmCommit:"762bc1c7a203b16aee752324d6a4ab0bde1a713a"},architecture:"x86_64",artifacts:{openvmm:{file:"openvmm",sizeBytes:$openvmm_size,sha256:$openvmm},kernel:{file:"vmlinux",sizeBytes:$kernel_size,sha256:$kernel},initramfs:{file:"initramfs.cpio.gz",sizeBytes:$initramfs_size,sha256:$initramfs}}}' \
+            '{schemaVersion:2,release:{repository:"github/gh-aw-firewall",workflow:"github/gh-aw-firewall/.github/workflows/nvx-phase-4-canary.yml",tag:"v0.28.54",sourceCommit:$source},upstream:{releaseTag:"v0.1.0-dev.8fb0f1d64f2f",nvxCommit:"8fb0f1d64f2f67e0017a4f94693244297852ed1f",openvmmCommit:"0ac254109ed32fc5fa2b1a6fc526a10593b1f986"},architecture:"x86_64",artifacts:{openvmm:{file:"openvmm",sizeBytes:$openvmm_size,sha256:$openvmm},kernel:{file:"vmlinux",sizeBytes:$kernel_size,sha256:$kernel},initramfs:{file:"initramfs.cpio.gz",sizeBytes:$initramfs_size,sha256:$initramfs}}}' \
             > "$artifacts/manifest.json"
           sudo chown root:root "$artifacts/manifest.json"
           sudo chmod 0444 "$artifacts/manifest.json"
@@ -267,7 +267,7 @@ jobs:
           npx tsx scripts/ci/nvx-benchmark-campaign.ts plan \
             "$evidence/manifest.json" "$CAMPAIGN_ID" canary "$GITHUB_SHA" \
             ubuntu-24.04 "$runner_image" \
-            "NVX microsoft/nvx@v0.1.0-dev.be859aa77ffa; Cloud Hypervisor v53.0"
+            "NVX microsoft/nvx@v0.1.0-dev.8fb0f1d64f2f; Cloud Hypervisor v53.0"
           sample_id=$(jq -er --arg runtime "$RUNTIME" --arg workload "$WORKLOAD" \
             '.expectedRuns[] | select(.runtime == $runtime and .workload == $workload) | .sampleId' \
             "$evidence/manifest.json")

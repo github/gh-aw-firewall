@@ -9,11 +9,16 @@ This document defines the Phase 1 security contract for evaluating NVX as an
 AWF primary-agent microVM backend. It is a design contract, not an implemented
 runtime.
 
-The design is pinned to NVX release `v0.1.0-dev.be859aa77ffa`, commit
-`be859aa77ffa7a20f9ef50f68c5386acdfca9955`, and OpenVMM commit
-`762bc1c7a203b16aee752324d6a4ab0bde1a713a`. The Linux KVM archive is
+The design is pinned to NVX release `v0.1.0-dev.8fb0f1d64f2f`, commit
+`8fb0f1d64f2f67e0017a4f94693244297852ed1f`, and OpenVMM commit
+`0ac254109ed32fc5fa2b1a6fc526a10593b1f986`. The Linux KVM archive is
 `nvx-0.1.0-linux-kvm.tar.gz` with SHA-256
-`ad6bf948d84d60d92f35103b52dc3ad33a421e9a4457ce0823d1890a6985a912`.
+`0a4bb74e76e80a524c3dccd9336b77705ef91d6a908d6979403c59151a5883da`.
+
+The public release feed was checked on 2026-11-02. This pin supersedes the
+issue's proposed 2026-10-30 release after rechecking the one-shot root, share,
+limit, and outcome contracts. One-shot runs still use `nvx_share` boot tokens;
+the `nvx_maps` mapping-table protocol belongs to managed sessions.
 
 ## Decision: one-shot execution
 
@@ -25,7 +30,7 @@ The NVX backend will therefore use one-shot execution:
 
 1. validate the host, policy, and trusted artifacts;
 2. start AWF's host-side Squid and API proxy;
-3. prepare immutable guest layers and a fresh writable scratch image;
+3. prepare one immutable distro image and a fresh writable scratch image;
 4. launch one NVX microVM with the complete agent command;
 5. stream filtered output and collect a structured outcome;
 6. propagate the exit status; and
@@ -64,7 +69,7 @@ The initial trusted computing base contains:
 - the AWF CLI and its privileged host launcher;
 - the pinned OpenVMM binary;
 - the NVX guest kernel and initramfs;
-- AWF-produced EROFS layers and their source inputs;
+- the AWF-produced EROFS distro image and its source inputs;
 - the host kernel's KVM, namespace, cgroup v2, Landlock, seccomp, and firewall
   implementations;
 - Squid and the credential-holding AWF API proxy; and
@@ -85,7 +90,7 @@ downloaded repository content, and model-generated instructions are untrusted.
 | VMM launch | Launch with an argument vector, never a shell. Set `no_new_privs`, empty supplementary groups, retain exactly `CAP_SETUID|CAP_SETGID` for caller-owned virtio-fs requests, enter dedicated mount and network namespaces plus a bounded cgroup, and restrict host filesystem visibility to the staged run directory, canonical live-share roots, and required device nodes. | AWF |
 | Live verification | Before treating the VM as ready, verify the VMM executable, PID start time, uid/gid, capabilities, seccomp state, namespace, cgroup membership, and configured limits from host kernel state. | AWF |
 | Network | Host-enforced policy permits only the required paths to Squid, API-proxy ports, and explicitly configured control peers. Direct internet, metadata, arbitrary DNS, host loopback, ingress, and lateral traffic are denied. | AWF + NVX |
-| Filesystem | Guest lower layers are immutable EROFS images. Each run receives a new private ext4 scratch image mounted `nosuid,nodev`; only explicit canonical virtio-fs workspace/tool-cache shares are live. No host path is exposed implicitly. | AWF + NVX |
+| Filesystem | The guest lower root is one immutable distro EROFS image. Each run receives a new private ext4 scratch image mounted `nosuid,nodev`; only explicit canonical virtio-fs workspace/tool-cache shares are live. No host path is exposed implicitly. | AWF + NVX |
 | Workload identity | The guest command runs as an image-defined non-root uid/gid with cleared supplementary groups, `no_new_privs`, and no capabilities. | NVX, verified by AWF |
 | Credentials | Real provider credentials remain only in the host API proxy. The guest receives non-secret endpoint configuration and placeholder material only when required by the agent. | AWF |
 | Resources | Memory, process, CPU, disk, file-size, and wall-clock limits are explicit and applied before the workload starts. Unsupported limits fail closed rather than being ignored. | AWF + NVX |
@@ -151,7 +156,7 @@ Implemented boundary:
   add a catch-all deny rule that would override those allows or misuse
   `--network-proxy`, whose pinned ABI is only for guest-gateway-to-host-loopback
   translation;
-- exact direct OpenVMM argv equivalent to the pinned `nvx.py sandbox run`
+- exact direct OpenVMM argv equivalent to the pinned `bin/nvx-rs sandbox run`
   implementation, including ordered sandbox blocks, workload identity,
   one-shot lifecycle, KVM, memory, kernel/initramfs, NVX-owned kernel command
   line, portable network policy, outcome report, and an initial paused state;
@@ -352,17 +357,28 @@ does not weaken any Phase 3f invariant above.
   `workspace-and-tool-cache` (additionally exports `RUNNER_TOOL_CACHE` /
   `AGENT_TOOLSDIRECTORY` read-only), mirroring the Cloud Hypervisor mount
   policies. Credential paths and forbidden `$HOME` subdirectories are excluded
-  from the AWF-owned guest configuration layer. The guest `$HOME` is a separate
-  immutable custom EROFS tree at `/home/awf`, seeded only with allowed tool
-  state. The optional runner tool cache is a separate `ro` virtio-fs share and
+  from the AWF-owned guest configuration tree. That tree, including the guest
+  `$HOME` seed, is merged with the toolchain into one immutable distro EROFS
+  image. Toolchain files are root-owned; the guest configuration retains
+  explicit owners, including the workload-owned home seed. No `runtime` or
+  `custom` block layer is attached. The only root token is
+  `nvx_layer=distro,0xd0003000,erofs:<UUID>`.
+  The optional runner tool cache is a separate `ro` virtio-fs share and
   never inherits workspace write policy.
 - **`filesystem.allowWrite`**: narrows the workspace export to specific
   writable host subpaths (`src/nvx/filesystem-write-policy.ts`,
   `src/nvx/live-mount-policy.ts`). AWF passes each canonical path as
-  `--mount-write` immediately after its owning `--mount`; OpenVMM returns
+  `--mount-write`; OpenVMM returns
   `EROFS` for writes elsewhere. Sensitive read masks are translated to
   `--mount-deny`, with readable exemptions translated to `--mount-allow` when
   they lie inside a denied tree.
+- **Aggregate shares**: a single directory uses OpenVMM's `--mount`. Multiple
+  shares or a shared file use one `--mount-aggregate /run/nvx/shares` and a
+  `--mount-child NAME,HOST_PATH,MODE[,file]` per share. Names combine the
+  zero-based index and the first 16 bytes of the target's SHA-256. Every child
+  has an `nvx_share=NAME,TARGET,MODE[,file]` boot token; these count toward the
+  1024-byte kernel command-line budget, including the trailing NUL. Deny,
+  allow, and write policy paths are absolute paths within their owning share.
 - **Alias safety**: policy paths must be canonical and contain no symlink
   components. Share roots must be disjoint lexically and by directory identity.
   AWF rejects nested mounts inside a share and scans policy-bearing trees for
@@ -398,7 +414,8 @@ does not weaken any Phase 3f invariant above.
   to the guest workload. The guest contract carries no environment mechanism —
   `nvx_entrypoint=` takes a single absolute path and each `nvx_arg=` token must
   be whitespace-free — so AWF generates a per-run `/bin/sh` script into the
-  AWF-owned `custom` layer (`src/nvx/guest-entrypoint.ts`,
+  AWF-owned guest configuration tree merged into the distro image
+  (`src/nvx/guest-entrypoint.ts`,
   `src/nvx/guest-environment-builder.ts`) and points `nvx_entrypoint=` at it.
   The script exports the environment, changes to the configured working
   directory, and execs the agent command. It is staged root-owned and mode
@@ -541,7 +558,7 @@ startup failure.
 
 Phase 2 will implement the image builder, but Phase 1 fixes its contract:
 
-- build deterministic EROFS lower layers from allowlisted inputs;
+- build one deterministic EROFS lower image from allowlisted inputs;
 - use the reproducible fixed-timestamp and fixed-UUID options available in the
   Ubuntu 24.04 `erofs-utils` 1.7.1 production baseline;
 - do not pass arbitrary host paths directly to OpenVMM;
@@ -550,7 +567,7 @@ Phase 2 will implement the image builder, but Phase 1 fixes its contract:
 - bind each layer's UUID, digest, role, and source manifest into the artifact
   manifest;
 - create a fresh sparse ext4 scratch image for every invocation;
-- mount lower layers read-only and scratch `rw,nosuid,nodev`;
+- mount the lower image read-only and scratch `rw,nosuid,nodev`;
 - rewrite absolute guest-root symlinks to equivalent relative targets and
   reject relative symlinks or aliases that escape the staged build root;
 - cap scratch size and verify teardown; and
@@ -683,13 +700,14 @@ execution adapter. Managed execution is not an exit criterion.
 Phase 2 adds reusable foundations without making `nvx` a selectable AWF
 runtime:
 
-- `src/nvx/filesystem-builder.ts` creates ordered deterministic EROFS layers
-  from explicitly selected source roots, excludes known credential paths at
-  any depth, rejects escaping links and special files, records source and image
-  identities, and creates one fresh bounded ext4 scratch image per invocation.
+- `src/nvx/filesystem-builder.ts` creates one deterministic distro EROFS image
+  from the toolchain and ownership-preserving guest configuration, excludes
+  known credential paths at any depth, rejects escaping links and special
+  files, records source and image identities, and creates one fresh bounded
+  ext4 scratch image per invocation.
   Staging requires Linux `/proc/self/fd` and no-follow directory descriptors to
   prevent source-tree path races;
-- `src/nvx/one-shot-adapter.ts` constructs only `nvx.py sandbox run`, launches
+- `src/nvx/one-shot-adapter.ts` constructs `bin/nvx-rs sandbox run`, launches
   without a shell or inherited credential environment, applies a host
   wall-clock timeout or cancellation to the full process group, filters
   workflow-command syntax as a byte stream, and retains bounded raw output
@@ -702,6 +720,24 @@ The adapter intentionally requires a prebuilt absolute entrypoint and
 whitespace-free NVX arguments. Complex agent commands must be placed in an
 immutable layer as an entrypoint script because the pinned NVX kernel-command
 line ABI rejects whitespace-bearing `--arg` values.
+
+`scripts/ci/nvx-release-contract.test.ts` compares AWF's direct launch with the
+pinned package's `bin/nvx-rs sandbox run --dry-run` for no shares, a single
+directory, aggregate directories with policies, and a single file. It runs in
+Phase 3b against the checksum-verified package. To run it locally, set
+`AWF_NVX_PACKAGE_ROOT` to the extracted `nvx-0.1.0-linux-kvm` directory; normal
+unit runs skip this release-dependent check.
+
+Local repin validation also built and extracted an actual EROFS image:
+toolchain entries remained root-owned with setuid stripped, the generated
+entrypoint remained root-owned `0555`, and the home/cache seed retained the
+workload UID/GID. Reversing the source list produced byte-identical images.
+The pinned release also completed real KVM `/bin/true` runs with one directory
+share and two aggregate shares, reporting applied deny-default networking and
+complete teardown, with no residual VMM process. These upstream-launch checks
+do not replace attested AWF confinement/proxy checks, authenticated
+Copilot/build-test smoke runs, or the Phase 4 canary evidence required for
+promotion.
 
 Phase 2 does not add `nvx` to the runtime registry or CLI. Selection remains
 blocked until Phase 3 supplies the dedicated VMM identity, ACL-only device

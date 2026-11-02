@@ -45,11 +45,11 @@ import {
 import { DirectOpenvmmLaunchExecutor } from './launch-executor';
 
 /**
- * Host-side lifecycle of the AWF-owned immutable `custom` guest layer.
- * Workspace and tool-cache content are live shares and never enter this layer.
+ * Host-side lifecycle of AWF-owned configuration merged into the distro image.
+ * Workspace and tool-cache content are live shares and never enter this image.
  */
 export interface NvxGuestConfigLifecycle {
-  /** Stages the layer source tree and returns its host path. */
+  /** Stages the ownership-preserving overlay source and returns its host path. */
   stage(): Promise<string>;
   cleanup(): Promise<void>;
 }
@@ -227,6 +227,8 @@ export class NvxManager {
       const guestConfigLayerSource = await this.config.guestConfig?.stage();
       this.filesystemBuilder = this.dependencies.createFilesystem({
         ...this.config.filesystem,
+        // These are merge sources, not guest layers. The builder emits only
+        // distro.erofs, retaining this overlay's workload/root ownership.
         layers: [
           ...this.config.filesystem.layers,
           ...(guestConfigLayerSource === undefined
