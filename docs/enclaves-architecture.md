@@ -1458,6 +1458,102 @@ Discovery follows replacement children when virtiofsd's temporary setup child
 exits, and waits for the parent capability drop before taking final evidence.
 An unsettled or changed worker still fails closed before its socket reaches
 the VM; namespace, root, environment, and cgroup checks remain mandatory.
+## Trusted Node bootstrap for gh-aw installers
+
+`scripts/security/enclave-installer-node.sh` is the shared host bootstrap contract
+for gh-aw's Docker storage-helper CJS installer and public diagnostic collector
+setup. It replaces runtime acquisition in `trustedEnclaveInstallerNodeLines`
+introduced by [github/gh-aw#73984](https://github.com/github/gh-aw/pull/73984).
+The upstream compiler integration is a separate change in gh-aw; adding this
+script does not change already-generated workflows.
+
+The script requires Linux x64 or ARM64, Bash, GNU coreutils, and root execution
+from authenticated, protected staging. It writes exactly one absolute canonical
+Node executable path to stdout; errors and package-manager output go to stderr.
+Its Node API baseline is >=20.19, matching AWF, not an exact distribution version.
+Selection order is:
+
+1. Explicit `--node-path /absolute/path` candidates (repeatable), then
+   `/usr/bin/node` and `/usr/local/bin/node`.
+2. The standard `actions/setup-node` tools-cache layout,
+   `/opt/hostedtoolcache/node/*/{x64,arm64}/bin/node`, or a cache root passed with
+   `--tool-cache /absolute/path`. The executable's actual version, platform and
+   architecture are checked, not inferred from directory names.
+3. With `--install`, the system's authenticated APT repositories: `apt-get update`
+   and `apt-get install -y --no-install-recommends nodejs`, followed by the same
+   validation. APT manages architecture, package versions, authentication and
+   its normal download cache. No Node archive URL, tar member, architecture digest
+   table, third-party repository, or AWF runtime distribution is maintained.
+
+An administrator must configure an authenticated package source with a suitable
+Node package, or pre-provision a trusted runtime/cache on non-APT hosts. For
+example, a distribution that only offers Node 18 cannot satisfy this contract;
+setup fails clearly rather than running it or silently adding a repository.
+Without `--install`, selection is offline and never changes installed packages.
+
+### Privileged-execution boundary
+
+Before any candidate is executed, symlinks are resolved and the executable and
+**every canonical ancestor through `/`** must be root-owned and not group- or
+world-writable. A runner-writable `PATH` entry or tools-cache installation is
+never executed as root, even to ask its version. Probes use `env -i`, a fixed
+system PATH, and `--no-addons --no-global-search-paths`; `NODE_OPTIONS`,
+`NODE_PATH`, loader variables and runner configuration are not inherited.
+
+Root ownership is a trust-policy prerequisite, not a way to authenticate
+previously untrusted bytes. A protected cache must have been provisioned through
+an authenticated administrator-controlled setup process, with protected
+ancestors from the start. Do **not** make an ordinary runner-owned setup-node
+cache eligible by copying/chowning it. Standard `actions/setup-node` remains
+appropriate for **unprivileged** downloader scripts; it does not by itself
+authenticate an executable for elevation. This assumes a trusted base OS and
+system utilities, as do the existing privileged installers.
+
+### Upstream replacement path
+
+In gh-aw, embed a reviewed copy of this shell source in the compiler (or fetch it
+at an immutable AWF revision with a compiler-pinned SHA-256). Stage it alongside
+the existing CJS installers in a root-created random directory under a protected
+`/var/lib` ancestor; install root-owned mode 0500 and verify the **staged**
+bootstrap digest before invoking it. Do not execute it from the checkout or a
+runner download directory with sudo.
+
+Replace `trustedEnclaveInstallerNodeLines`'s Node tarball acquisition/staging
+with a call to that authenticated bootstrap, for example:
+
+```bash
+# ROOT_STAGE and the bootstrap are already protected and authenticated.
+# CANDIDATE_NODE is only a hint: the root bootstrap validates it before use.
+trusted_node=$(sudo -n /usr/bin/env -i PATH=/usr/bin:/bin LC_ALL=C \
+  /bin/bash "$ROOT_STAGE/enclave-installer-node.sh" \
+  --node-path "$CANDIDATE_NODE" --tool-cache /opt/hostedtoolcache --install)
+sudo -n /usr/bin/env -i PATH=/usr/bin:/bin LC_ALL=C \
+  "$trusted_node" --no-addons --no-global-search-paths \
+  "$ROOT_STAGE/install_awf_enclave_helper.cjs" "$@"
+```
+
+Omit `--node-path` if no installed candidate is known; do not assume
+`/usr/bin/node` exists. Pass any runner-specific tools-cache location explicitly,
+since the privileged bootstrap does not read runner environment variables.
+Keep installer arguments explicit in generated workflows.
+
+Apply the same selection to `install_enclave_diagnostics.cjs` and
+`install_enclave_diagnostics_trusted.cjs`: remove their Node archive download,
+archive/executable pins, extraction and tarball-specific inputs. Keep the
+unprivileged collector download and all existing root-side size, regular-file,
+symlink, digest and protected-publication checks. When diagnostics need a stable
+interpreter after setup, install a private copy **from the validated protected
+canonical path**, not from runner staging, into their existing root-protected
+export directory, and use that absolute path for both `prepare` and `collect`
+under `env -i`.
+
+Do not remove the CJS installer checksums, collector checksum, AWF release
+manifest/provenance verification, protected staging, or clean privileged
+environment. Runtime selection replaces only the bespoke Node distribution.
+The separately authenticated `enclave-storage-helper.py` remains the storage
+helper; this integration adds no Python installer sources to gh-aw's
+`actions/setup/`.
+
 ## Coverage after legacy smoke removal
 
 The experimental Cloud Hypervisor Copilot enclave smoke is distinct from
