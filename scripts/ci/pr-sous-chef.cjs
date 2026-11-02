@@ -343,6 +343,7 @@ async function verifyTarget({ repo, number, writer = '', writerConfigured = fals
   const comments = entries.filter(entry => entry.type === 'add_comment');
   requireValue(comments.length <= 1 && comments.every(entry => entry.item_number === number &&
     entry.body === queue.prs[0].body), 'Staged comment differs from the original sanitized target body');
+  if (comments.length === 0) return true;
 
   const refreshed = await fetchQueue({ repo, number, mode: 'pilot', writer, writerConfigured, now }, api);
   requireValue(refreshed.mode === 'pilot' && !refreshed.rate_limit.low && refreshed.prs.length === 1 &&

@@ -420,6 +420,69 @@ describe('PR sous-chef reads, configuration and queue gates', () => {
     }
   });
 
+  it.each(['MERGED', 'CLOSED', 'changed_head', 'stale'])(
+    'allows validated non-comment outputs for a %s target but rejects a staged comment',
+    async state => {
+      const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'pr-sous-chef-writer-'));
+      const queuePath = path.join(directory, 'queue.json');
+      const safeOutputsPath = path.join(directory, 'safeoutputs.jsonl');
+      const options = { repo, number: 42, mode: 'pilot', writer: 'sous-chef', writerConfigured: true, now: NOW };
+      try {
+        const queue = await fetchQueue(options, apiFixture());
+        fs.writeFileSync(queuePath, JSON.stringify(queue));
+        const api = apiFixture();
+        const base = api.getMockImplementation()!;
+        api.mockImplementation(async args => args[1] === 'graphql'
+          ? { data: { repository: { pullRequest: {
+            ...pr(),
+            state: ['MERGED', 'CLOSED'].includes(state) ? state : 'OPEN',
+            headRefOid: state === 'changed_head' ? 'b'.repeat(40) : HEAD,
+            updatedAt: state === 'stale' ? '2026-10-01T11:00:00Z' : OLD,
+          } } } }
+          : base(args));
+        for (const type of ['noop', 'report_incomplete', 'report_missing_data', 'report_missing_tool']) {
+          const output = JSON.stringify({ type, message: 'No comment staged' });
+          fs.writeFileSync(safeOutputsPath, output);
+          await expect(verifyTarget({ ...options, queuePath, safeOutputsPath }, api)).resolves.toBe(true);
+          expect(api).not.toHaveBeenCalled();
+          expect(fs.readFileSync(safeOutputsPath, 'utf8')).toBe(output);
+        }
+        fs.writeFileSync(safeOutputsPath, JSON.stringify({ type: 'create_issue', title: 'Unexpected write' }));
+        await expect(verifyTarget({ ...options, queuePath, safeOutputsPath }, api))
+          .rejects.toThrow('unexpected safe-output type');
+        expect(api).not.toHaveBeenCalled();
+
+        fs.writeFileSync(safeOutputsPath, JSON.stringify({
+          type: 'add_comment', item_number: 42, body: queue.prs[0].body,
+        }));
+        await expect(verifyTarget({ ...options, queuePath, safeOutputsPath }, api))
+          .rejects.toThrow('changed target, HEAD, body, or safety gate');
+        expect(api).toHaveBeenCalled();
+      } finally {
+        fs.rmSync(directory, { recursive: true, force: true });
+      }
+    },
+  );
+
+  it('does not hide writer API errors when a comment is staged', async () => {
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'pr-sous-chef-writer-'));
+    const queuePath = path.join(directory, 'queue.json');
+    const safeOutputsPath = path.join(directory, 'safeoutputs.jsonl');
+    const options = { repo, number: 42, mode: 'pilot', writer: 'sous-chef', writerConfigured: true, now: NOW };
+    try {
+      const queue = await fetchQueue(options, apiFixture());
+      fs.writeFileSync(queuePath, JSON.stringify(queue));
+      fs.writeFileSync(safeOutputsPath, JSON.stringify({
+        type: 'add_comment', item_number: 42, body: queue.prs[0].body,
+      }));
+      await expect(verifyTarget({ ...options, queuePath, safeOutputsPath }, async () => {
+        throw new Error('HTTP 401 Bad credentials');
+      })).rejects.toThrow('401');
+    } finally {
+      fs.rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
   it('filters listed fork PRs unless their author association is trusted', async () => {
     const api = apiFixture();
     const base = api.getMockImplementation()!;
@@ -537,6 +600,9 @@ describe('PR sous-chef workflow safety contract', () => {
       refreshCommand,
     ]);
     expect(source).toContain('`node scripts/ci/pr-sous-chef.cjs --refresh` to refresh the single original queued PR');
+    expect(source).toContain('Pass exactly that command string to the shell tool, with no wrappers, redirection,\npipelines, or extra arguments.');
+    expect(source).toContain('Do not append `2>&1` or pipe to `head`');
+    expect(source).toContain('only the exact command is authorized');
     expect(source).not.toContain('`node scripts/ci/pr-sous-chef.cjs NUMBER`');
     expect(permissions).not.toContain('node:*');
     expect(permissions).not.toContain('node scripts/ci/pr-sous-chef.cjs:*');

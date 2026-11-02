@@ -171,6 +171,9 @@ Process only the single PR number in this original queue; do not scan others.
 
 Immediately before each comment, run
 `node scripts/ci/pr-sous-chef.cjs --refresh` to refresh the single original queued PR.
+Pass exactly that command string to the shell tool, with no wrappers, redirection,
+pipelines, or extra arguments. Do not append `2>&1` or pipe to `head`; the helper
+already returns compact JSON, and only the exact command is authorized.
 If the refresh fails, use `report_incomplete` and stop: an API error is not a no-op.
 If the refreshed mode is not `pilot`, its budget is low, or its `prs` is empty,
 skip that PR. Use the refreshed helper body, which deterministically removes
@@ -186,6 +189,10 @@ After agent execution, trusted writer-validation code checks that the staged
 comment exactly matches the sanitized original queue body, remains bound to its
 single PR target, and still passes the full classifier and safety gates. If the
 target, HEAD, body, or any safety gate changed, the safe-output writer is blocked.
+If no `add_comment` is staged, validation still checks the original queue and
+allowed safe-output types, but skips live target-freshness checks. A `noop` or
+`report_incomplete` does not write a comment and must not fail because the PR
+changed or merged after it was queued.
 
 A `nudge` delegates concrete unanswered trusted review feedback, current-head
 failing checks, or an actually conflicting/behind branch. A `handoff` has no
