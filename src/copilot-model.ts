@@ -40,7 +40,7 @@ const CLI_ELIGIBILITY = createEligibilityStore({
   }[],
 }).pin();
 
-export type CopilotModelEvidence = Omit<EligibilityInput, 'identity' | 'scope'> & {
+type CopilotModelEvidence = Omit<EligibilityInput, 'identity' | 'scope'> & {
   snapshot?: EligibilitySnapshot;
 };
 
