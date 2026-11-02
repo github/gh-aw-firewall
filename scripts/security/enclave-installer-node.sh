@@ -54,14 +54,45 @@ find_node() {
     return 1
 }
 
+apt_candidate_is_compatible() {
+    local apt_cache=$1 policy candidate version major minor line
+    policy=$(/usr/bin/env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin LC_ALL=C \
+        "$apt_cache" policy nodejs) || fail 'Could not inspect authenticated Node package candidate.'
+    candidate=
+    while IFS= read -r line; do
+        if [[ "$line" == *Candidate:* ]]; then
+            candidate=${line##*Candidate: }
+            break
+        fi
+    done <<< "$policy"
+    version=${candidate#*:}
+    if [[ "$version" =~ ^([0-9]+)\.([0-9]+)\.[0-9]+([+~.-].*)?$ ]]; then
+        major=${BASH_REMATCH[1]}
+        minor=${BASH_REMATCH[2]}
+    else
+        major=0
+        minor=0
+    fi
+    (( major > 20 || (major == 20 && minor >= 19) ))
+}
+
 install_node() {
-    local apt
+    local apt apt_cache
     apt=$(trusted_path /usr/bin/apt-get) || fail 'No trusted apt-get; provision a root-managed Node >=20.19 installation or protected tool cache.'
     [[ -f "$apt" && -x "$apt" ]] || fail 'apt-get is not executable.'
-    # APT owns repository authentication, architecture selection and caching.
-    /usr/bin/env -i PATH=/usr/bin:/bin LC_ALL=C DEBIAN_FRONTEND=noninteractive \
+    apt_cache=$(trusted_path /usr/bin/apt-cache) || fail 'No trusted apt-cache; cannot check the authenticated Node package candidate.'
+    [[ -f "$apt_cache" && -x "$apt_cache" ]] || fail 'apt-cache is not executable.'
+
+    /usr/bin/env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin LC_ALL=C DEBIAN_FRONTEND=noninteractive \
         "$apt" update >&2 || fail 'Could not refresh authenticated Node packages.'
-    /usr/bin/env -i PATH=/usr/bin:/bin LC_ALL=C DEBIAN_FRONTEND=noninteractive \
+    if ! apt_candidate_is_compatible "$apt_cache"; then
+        "$allow_nodesource" || fail 'No compatible Node >=20.19 APT candidate; explicitly enable NodeSource or configure a suitable authenticated package source.'
+        configure_nodesource
+        /usr/bin/env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin LC_ALL=C DEBIAN_FRONTEND=noninteractive \
+            "$apt" update >&2 || fail 'Could not refresh authenticated NodeSource packages.'
+        apt_candidate_is_compatible "$apt_cache" || fail 'NodeSource has no compatible Node >=20.19 APT candidate.'
+    fi
+    /usr/bin/env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin LC_ALL=C DEBIAN_FRONTEND=noninteractive \
         "$apt" install -y --no-install-recommends nodejs >&2 || fail 'Could not install Node through apt-get.'
 }
 
@@ -75,7 +106,12 @@ run_nodesource_setup() {
         --max-time 120 --max-filesize 1048576 \
         --output "$staging/setup.sh" https://deb.nodesource.com/setup_lts.x \
         || fail 'Could not authenticate/download standard NodeSource LTS setup.'
-    /usr/bin/env -i PATH=/usr/bin:/bin LC_ALL=C DEBIAN_FRONTEND=noninteractive \
+    [[ -f "$staging/setup.sh" && ! -L "$staging/setup.sh" ]] || fail 'NodeSource setup download is not a regular file.'
+    local digest
+    digest=$(/usr/bin/sha256sum "$staging/setup.sh") || fail 'Could not verify NodeSource setup checksum.'
+    [[ "${digest%% *}" == '4b735bb6ffba89e2965fa4219ec24c598b19d7ca63796ff6afaa324583333384' ]] \
+        || fail 'NodeSource setup checksum mismatch.'
+    /usr/bin/env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin LC_ALL=C DEBIAN_FRONTEND=noninteractive \
         /bin/bash "$staging/setup.sh" >&2 || fail 'Standard NodeSource LTS setup failed.'
 }
 
@@ -86,6 +122,7 @@ configure_nodesource() (
     umask 077
     staging=$(/usr/bin/mktemp -d "$state_root/awf-node-setup.XXXXXX")
     trap '/usr/bin/rm -rf -- "$staging"' EXIT
+    umask 022
     run_nodesource_setup "$curl" "$staging"
 )
 
@@ -108,14 +145,6 @@ resolve_node() {
         if selected=$(find_node); then
             printf '%s\n' "$selected"
             return
-        fi
-        if "$allow_nodesource"; then
-            configure_nodesource
-            install_node
-            if selected=$(find_node); then
-                printf '%s\n' "$selected"
-                return
-            fi
         fi
     fi
     fail 'No trusted compatible Node >=20.19 runtime. Configure an authenticated system package source providing it, or a root-managed installation/cache; runner-writable PATH and setup-node caches cannot be elevated.'

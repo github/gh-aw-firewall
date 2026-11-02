@@ -1479,20 +1479,23 @@ Selection order is:
    `/opt/hostedtoolcache/node/*/{x64,arm64}/bin/node`, or a cache root passed with
    `--tool-cache /absolute/path`. The executable's actual version, platform and
    architecture are checked, not inferred from directory names.
-3. With `--install`, the system's authenticated APT repositories: `apt-get update`
-   and `apt-get install -y --no-install-recommends nodejs`, followed by the same
-   validation. APT manages architecture, package versions, authentication and
-   its normal download cache. No Node archive URL, tar member, architecture digest
+3. With `--install`, refresh the system's authenticated APT repositories and
+   inspect the `nodejs` candidate before installing. APT installs only a candidate
+   at or above the Node >=20.19 baseline; repository update and candidate-query
+   failures are fatal. APT manages architecture, package authentication and its
+   normal download cache. No Node archive URL, tar member, architecture digest
    table or AWF runtime distribution is maintained.
-4. With **both** `--install --allow-nodesource`, if the distribution's package is
-   incompatible, use NodeSource's standard `https://deb.nodesource.com/setup_lts.x`
-   mechanism and install `nodejs` through APT again. This explicitly authorizes
-   trusting NodeSource's HTTPS-delivered setup script and APT signing keys.
-   The standard installer manages LTS selection, repository configuration and
-   x64/ARM64 package metadata; AWF does not duplicate them. Its script is fetched
-   with system curl (ignoring curlrc, HTTPS-only redirects), into a root-created
-   mode-0700 directory under protected `/var/lib`, run with a clean environment,
-   and removed afterwards.
+4. With **both** `--install --allow-nodesource`, if the distribution has no
+   compatible candidate, use NodeSource's standard
+   `https://deb.nodesource.com/setup_lts.x` mechanism and inspect the refreshed
+   APT candidate before installing. This explicitly authorizes trusting
+   NodeSource's APT signing keys and the setup script whose SHA-256 is pinned in
+   the bootstrap. A changed script fails closed until its approved digest is
+   updated. The standard installer manages LTS selection, repository configuration
+   and x64/ARM64 package metadata; AWF does not duplicate them. The script is
+   fetched with system curl (ignoring curlrc, HTTPS-only redirects), into a
+   root-created mode-0700 directory under protected `/var/lib`, run with a clean
+   environment and readable APT configuration permissions, then removed.
 
 An administrator must configure an authenticated package source with a suitable
 Node package, explicitly permit NodeSource, or pre-provision a trusted
