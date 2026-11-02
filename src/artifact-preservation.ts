@@ -24,6 +24,24 @@ const ENCLAVE_AUDIT_FILES = [
 ] as const;
 const PRIVATE_ENCLAVE_AUDIT_FILE = 'enclave-host-executor.jsonl';
 
+function isSafeAuditDestination(destination: string, directory = false): boolean {
+  if (!isRealDirectory(path.dirname(destination))) {
+    logger.warn(`Refusing to preserve audit artifact in non-directory or symlink: ${path.dirname(destination)}`);
+    return false;
+  }
+  try {
+    const stat = fs.lstatSync(destination);
+    if (!stat.isSymbolicLink() && (directory ? stat.isDirectory() : stat.isFile())) {
+      return true;
+    }
+    logger.warn(`Refusing to preserve audit artifact at unsafe destination: ${destination}`);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return true;
+    logger.warn(`Could not validate audit artifact destination: ${destination}`, error);
+  }
+  return false;
+}
+
 /** @internal Final broker copy only: never widen access to its payload-bearing records. */
 // ts-prune-ignore-next
 export function handoffPrivateEnclaveAudit(
@@ -59,7 +77,8 @@ export function handoffPrivateEnclaveAudit(
 /**
  * Copies the iptables audit dump from the init-signal volume to the audit directory.
  * Must be called BEFORE stopContainers() because `docker compose down -v` destroys
- * the init-signal volume.
+ * the init-signal volume. Returns false if a destination is unsafe or a required
+ * audit copy fails; a missing optional enclave session directory is tolerated.
  */
 export function preserveIptablesAudit(
   workDir: string,
@@ -69,7 +88,17 @@ export function preserveIptablesAudit(
   const enclavePaths = resolveEnclavePaths(workDir);
   const enclaveRoot = enclavePaths.root;
   const targetAuditDir = auditDir || path.join(workDir, 'audit');
-  if (!fs.existsSync(targetAuditDir)) return true;
+  try {
+    const stat = fs.lstatSync(targetAuditDir);
+    if (stat.isSymbolicLink() || !stat.isDirectory()) {
+      logger.warn(`Refusing to preserve audit artifacts in non-directory or symlink: ${targetAuditDir}`);
+      return false;
+    }
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return true;
+    logger.warn(`Could not validate audit directory: ${targetAuditDir}`, error);
+    return false;
+  }
   let complete = true;
 
   if (fs.existsSync(iptablesAuditSrc)) {
@@ -98,6 +127,10 @@ export function preserveIptablesAudit(
       try {
         const source = `${ENCLAVE_MCP_SERVER_CONTAINER_NAME}:/var/log/awf-enclave/${auditFile.source}`;
         const destination = path.join(targetAuditDir, auditFile.destination);
+        if (!isSafeAuditDestination(destination)) {
+          complete = false;
+          continue;
+        }
         const result = execa.sync(
           'docker',
           ['cp', source, destination],
@@ -117,6 +150,7 @@ export function preserveIptablesAudit(
     }
     try {
       const destination = path.join(targetAuditDir, 'enclave-agent-sessions');
+      if (!isSafeAuditDestination(destination, true)) return false;
       const result = execa.sync(
         'docker',
         [

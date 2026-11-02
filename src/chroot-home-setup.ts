@@ -59,6 +59,7 @@ export function prepareChrootHomeMounts(config: WrapperConfig): void {
   if (!fs.existsSync(emptyHomeDir)) {
     fs.mkdirSync(emptyHomeDir, { recursive: true });
   }
+  assertRealDirectory(emptyHomeDir);
   fs.chownSync(emptyHomeDir, uid, gid);
   logger.debug(`Created chroot home directory: ${emptyHomeDir} (${uid}:${gid})`);
 
@@ -77,6 +78,7 @@ export function prepareChrootHomeMounts(config: WrapperConfig): void {
     } else if (toolPath === '.gemini') {
       // Repair existing .gemini ownership for Gemini/Vertex runs where prior
       // root-owned bind mounts can break atomic writes in the CLI.
+      assertRealDirectory(toolPathSource);
       fs.chownSync(toolPathSource, uid, gid);
       logger.debug(`Fixed host home tool path ownership: ${toolPathSource} (${uid}:${gid})`);
     }
