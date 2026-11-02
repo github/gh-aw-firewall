@@ -13,6 +13,7 @@ const TELEMETRY_EFFORTS = new Set(['none', 'minimal', 'low', 'medium', 'high', '
 // Protocol-level terminal success events: Responses `response.completed` and
 // Messages `message_stop`. Chat Completions ends with the `[DONE]` sentinel.
 const TERMINAL_SUCCESS_EVENTS = new Set(['response.completed', 'message_stop']);
+const TERMINAL_PROTOCOL_EVENTS = new Set([...TERMINAL_SUCCESS_EVENTS, 'response.incomplete']);
 
 // A /responses request served by a Chat-only model is translated back to the
 // client by createChatToResponsesSseTransform(), which emits
@@ -124,6 +125,7 @@ function requestedEffortFor(parsed, endpoint) {
 function createRoutingObservation({
   getSelection,
   recordFailure,
+  recordSuccess = () => {},
   observer,
   generateRequestId: makeRequestId = generateRequestId,
 }) {
@@ -140,14 +142,21 @@ function createRoutingObservation({
       res.removeListener('close', complete);
       // A client may close its connection once it has read the terminal
       // success event, before AWF finishes writing (Codex stops reading at
-      // response.completed). That is not a provider failure; any other early
-      // close still is.
+      // response.completed). Other downstream closes are cancellations, not
+      // evidence that the upstream provider failed.
+      // Decoding may reveal terminal success after the upstream has torn down.
+      const upstreamFailed = state.upstreamFailed && !state.upstreamCompleted;
       const clientClosed = !res.writableFinished && state.upstreamCompleted && !state.sseFailed
+        && !upstreamFailed
         && res.statusCode >= 200 && res.statusCode < 300;
+      const incompleteStream = state.streaming && !state.upstreamTerminated
+        && (res.writableFinished || state.upstreamEnded);
+      const requestFailed = res.statusCode >= 400 || state.upstreamStatusCode >= 400
+        || state.sseFailed || upstreamFailed || incompleteStream;
       const outcome = clientClosed ? 'client_closed'
         : !res.writableFinished ? 'aborted'
         : req.awfRouting.rejected ? 'rejected'
-          : res.statusCode >= 400 || state.sseFailed ? 'failed' : 'completed';
+          : requestFailed ? 'failed' : 'completed';
       safeRecord(observer, {
         ...state.telemetry,
         request_id: req.awfRouting.requestId || res.getHeader?.('X-Request-ID') || null,
@@ -155,8 +164,14 @@ function createRoutingObservation({
         status: res.statusCode,
         ...(outcome === 'failed' ? requestErrorFields(req.awfRouting.localError, state.errorFields) : {}),
       });
-      if (outcome === 'aborted' && state.selectedModel) {
-        recordFailure('provider_unavailable');
+      if (state.selectedModel && !req.awfRouting.rejected) {
+        if (state.failureCode || requestFailed) {
+          recordFailure(state.failureCode || 'provider_unavailable');
+        } else if ((outcome === 'completed' || outcome === 'client_closed')
+          && res.statusCode >= 200 && res.statusCode < 300
+          && (!state.streaming || state.upstreamCompleted)) {
+          recordSuccess();
+        }
       }
       if (active.size === 0) {
         for (const resolve of waiters) {
@@ -167,6 +182,7 @@ function createRoutingObservation({
     }
     function complete() {
       if (!active.has(res)) return;
+      if (!res.writableFinished) state.downstreamClosed = true;
       if (state.sseInspectionPending) {
         state.responseComplete = true;
         return;
@@ -177,6 +193,7 @@ function createRoutingObservation({
     res.once('close', complete);
     return {
       sseInspectionStart() {
+        state.streaming = true;
         state.sseInspectionPending = true;
       },
       sseInspectionComplete() {
@@ -224,15 +241,15 @@ function createRoutingObservation({
         }
         if (recordsRoutingFailure && state.selectedModel) {
           const error = parsed?.error;
-          recordNativeFailure(error?.code || error?.type);
+          recordNativeFailure(state, error?.code || error?.type);
         }
       }
       return originalEnd.call(this, chunk, encoding, callback);
     };
   }
 
-  function recordNativeFailure(code) {
-    recordFailure(typeof code === 'string' && /^[A-Za-z0-9_.-]{1,100}$/.test(code) ? code : 'provider_unavailable');
+  function recordNativeFailure(state, code) {
+    state.failureCode ||= typeof code === 'string' && /^[A-Za-z0-9_.-]{1,100}$/.test(code) ? code : 'provider_unavailable';
   }
 
   function requestTelemetry(req, pathname, adapter, selection, body) {
@@ -304,13 +321,17 @@ function createRoutingObservation({
         selectedModel: false,
         sseFailed: false,
         upstreamCompleted: false,
+        upstreamTerminated: false,
         telemetry: requestTelemetry(req, pathname, adapter, selection),
       };
       const responseHooks = trackResponse(req, res, state);
       observeFailure(res, state, adapter.name === (selection.provider || 'copilot'));
       const onSseData = line => {
         if (line === '[DONE]') {
-          if (state.telemetry.upstream_endpoint === '/chat/completions') state.upstreamCompleted = true;
+          if (state.telemetry.upstream_endpoint === '/chat/completions') {
+            state.upstreamCompleted = true;
+            state.upstreamTerminated = true;
+          }
           return;
         }
         let event;
@@ -318,6 +339,10 @@ function createRoutingObservation({
           event = JSON.parse(line);
         } catch {
           return;
+        }
+        if (TERMINAL_PROTOCOL_EVENTS.has(event?.type)
+          || (isTranslatedResponses(state.telemetry) && isChatUsageOnlyChunk(event))) {
+          state.upstreamTerminated = true;
         }
         if (TERMINAL_SUCCESS_EVENTS.has(event?.type)
           || (isTranslatedResponses(state.telemetry) && isChatUsageOnlyChunk(event))) {
@@ -328,7 +353,7 @@ function createRoutingObservation({
           rememberErrorFields(state, event);
           if (state.selectedModel) {
             const error = event.error || event.response?.error || event;
-            recordNativeFailure(error.code || error.type);
+            recordNativeFailure(state, error.code || error.type);
           }
         }
       };
@@ -368,8 +393,22 @@ function createRoutingObservation({
             upstream_endpoint: compatibility.upstreamEndpoint,
           };
         },
-        onUpstreamResponseHeaders(headers) {
+        onUpstreamResponseHeaders(headers, upstream) {
           state.upstreamContentEncoding = headers?.['content-encoding'];
+          state.streaming = (headers?.['content-type'] || '').includes('text/event-stream');
+          state.upstreamStatusCode = upstream?.statusCode;
+          state.upstreamEnded = false;
+          upstream?.once('end', () => {
+            if (!state.downstreamClosed) state.upstreamEnded = true;
+          });
+          const upstreamFailed = () => {
+            // Destroying the upstream after a downstream cancellation is not a
+            // new provider error, nor is teardown after protocol completion.
+            if (!state.downstreamClosed && !res.destroyed && !req.awfUpstreamCancellation?.cancelled
+              && !state.upstreamCompleted) state.upstreamFailed = true;
+          };
+          upstream?.once('aborted', upstreamFailed);
+          upstream?.once('error', upstreamFailed);
         },
         onSseData,
         onSseInspectionStart: responseHooks.sseInspectionStart,

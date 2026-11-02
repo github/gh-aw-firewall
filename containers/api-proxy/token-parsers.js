@@ -474,10 +474,10 @@ function parseSseDataLines(text) {
   const parts = text.split('\n');
   for (const part of parts) {
     const trimmed = part.trim();
-    if (trimmed.startsWith('data: ')) {
-      lines.push(trimmed.slice(6));
-    } else if (trimmed === 'data:') {
-      // empty data line
+    if (trimmed.startsWith('data:')) {
+      const data = trimmed.slice(5);
+      const value = data.startsWith(' ') ? data.slice(1) : data;
+      if (value) lines.push(value);
     }
   }
   return lines;

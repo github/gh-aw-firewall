@@ -828,6 +828,13 @@ function createSendUpstreamRequest({
           const newParsed = parseBodyAsObject(body);
           if (!newParsed) return false;
           newParsed.model = nextModel;
+          req.awfRouting?.onModelFallback?.({
+            requested_model: req.awfRequestedModelSelector || currentModel,
+            model: nextModel,
+            provider,
+            from_model: currentModel,
+            reason: 'model_endpoint_incompatible',
+          });
           const newBody = wireFallback?.body || Buffer.from(JSON.stringify(newParsed), 'utf8');
           const retryPath = wireFallback?.upstreamPath || upstreamPath;
           const retryHeaders = rebuildBodyFramingHeaders(requestHeaders, newBody.length);

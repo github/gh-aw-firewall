@@ -242,21 +242,23 @@ function createProductionRoutingSession({
   let runPromise;
   let result;
   let terminalFailure;
+  let pendingFailure;
   let drained = false;
 
-  // Terminal failure reported from anywhere in the run. Called from the live
-  // agent response path, so it must never throw back into that stream.
+  // A request failure is provisional until all responses (including decoded
+  // SSE inspection) drain. Only a later completed selected-model request can
+  // recover it; cancellation is neither failure nor recovery evidence.
   function recordFailure(code) {
-    if (terminalFailure || (result && !result.ok)) return;
-    terminalFailure = toRoutingFailure(createRoutingError(code, 'Routed execution failed'));
+    pendingFailure = toRoutingFailure(createRoutingError(code, 'Routed execution failed'));
+  }
+
+  function publishRuntimeFailure() {
+    if (!pendingFailure || terminalFailure || !result?.ok) return;
+    terminalFailure = pendingFailure;
     try {
-      observer.record({ stage: 'failure', phase: result?.ok ? 'primary' : 'bootstrap', code: terminalFailure.code });
+      observer.record({ stage: 'failure', phase: 'primary', code: terminalFailure.code });
     } catch {
       // Observability must not change the routing decision or the live response.
-    }
-    if (!result?.ok) {
-      abortController.abort();
-      return;
     }
     try {
       publishRoutingResult(outputDir, 'runtime-failure.json', terminalFailure);
@@ -290,7 +292,9 @@ function createProductionRoutingSession({
       },
     };
   }
-  const observation = createRoutingObservation({ getSelection, recordFailure, observer });
+  const observation = createRoutingObservation({
+    getSelection, recordFailure, recordSuccess: () => { pendingFailure = null; }, observer,
+  });
 
   async function execute() {
     try {
@@ -301,7 +305,6 @@ function createProductionRoutingSession({
       }
       const controller = createController({ rawConfig, getAdapter, getCopilotAdapter, observer });
       result = await controller.run({ signal: abortController.signal, jobDeadlineMs: deadline });
-      if (terminalFailure) result = Object.freeze({ ok: false, failure: terminalFailure });
       publishRoutingResult(outputDir, result.ok ? 'selection.json' : 'failure.json',
         result.ok ? result.selection : result.failure);
     } catch (error) {
@@ -330,6 +333,7 @@ function createProductionRoutingSession({
       abortController.abort();
       await runPromise;
       await observation.drain();
+      publishRuntimeFailure();
       drained = true;
     },
     completeShutdown() {

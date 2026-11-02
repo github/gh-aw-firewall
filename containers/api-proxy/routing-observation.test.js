@@ -81,14 +81,16 @@ function request(overrides = {}) {
 
 function createHarness(selection = SELECTION, generateRequestId = () => 'generated-inference-123') {
   const failures = [];
+  const successes = [];
   const records = [];
   const observation = createRoutingObservation({
     getSelection: () => selection,
     recordFailure: code => failures.push(code),
+    recordSuccess: () => successes.push(true),
     observer: { record: record => records.push(record) },
     generateRequestId,
   });
-  return { observation, failures, records };
+  return { observation, failures, successes, records };
 }
 
 function observe(harness, req, adapter = { name: 'copilot' }) {
@@ -183,6 +185,29 @@ describe('advisory routing observation', () => {
       model_fallback: { model: 'replacement', from_model: 'gpt-test', reason: 'model_not_supported' },
     });
     expect(harness.failures).toEqual([]);
+  });
+
+  it('does not count an endpoint-blocked model retry as recovery of the selected model', () => {
+    const harness = createHarness();
+    const earlierFailure = observe(harness, request());
+    send(earlierFailure.req, { model: 'gpt-test', reasoning: { effort: 'low' } });
+    earlierFailure.res.statusCode = 503;
+    earlierFailure.res.end();
+
+    const retry = observe(harness, request());
+    send(retry.req, { model: 'gpt-test', reasoning: { effort: 'low' } });
+    retry.req.awfRouting.onModelFallback({
+      requested_model: 'gpt-test', model: 'gpt-test-mini', provider: 'copilot',
+      from_model: 'gpt-test', reason: 'model_endpoint_incompatible',
+    });
+    retry.res.end();
+
+    expect(harness.failures).toEqual(['provider_unavailable']);
+    expect(harness.successes).toEqual([]);
+    expect(harness.records[1]).toMatchObject({
+      model_fallback: { model: 'gpt-test-mini', reason: 'model_endpoint_incompatible' },
+      outcome: 'completed',
+    });
   });
 
   it('request records carry the same caller fields as the token record', () => {
@@ -452,11 +477,18 @@ describe('advisory routing observation', () => {
     expect(res.body()).toBe(payload);
     expect(harness.failures).toContain('model_not_supported');
 
-    req.awfRouting.onSseData(JSON.stringify({ type: 'response.failed', response: { error: { code: 'rate_limited' } } }));
+    const sse = observe(harness, request());
+    send(sse.req, { model: 'gpt-test' });
+    sse.req.awfRouting.onSseData(JSON.stringify({ type: 'response.failed', response: { error: { code: 'rate_limited' } } }));
+    sse.res.end();
     expect(harness.failures).toContain('rate_limited');
     expect(() => req.awfRouting.onSseData('not json')).not.toThrow();
-    req.awfRouting.onSseData(JSON.stringify({ error: { code: 'bad code with spaces' } }));
+    const invalid = observe(harness, request());
+    send(invalid.req, { model: 'gpt-test' });
+    invalid.req.awfRouting.onSseData(JSON.stringify({ error: { code: 'bad code with spaces' } }));
+    invalid.res.end();
     expect(harness.failures).toContain('provider_unavailable');
+    expect(harness.successes).toEqual([]);
   });
 
   it('records failed completion on another provider without failing the routed run', () => {
@@ -801,7 +833,8 @@ describe('advisory routing observation', () => {
     res.emit('close');
     await draining;
     expect(drained).toBe(true);
-    expect(harness.failures).toContain('provider_unavailable');
+    expect(harness.failures).toEqual([]);
+    expect(harness.successes).toEqual([]);
     expect(harness.records).toEqual([expect.objectContaining({ outcome: 'aborted', status: 200 })]);
 
     // A request that arrives while draining is proxied but no longer observed.
@@ -844,7 +877,8 @@ describe('advisory routing observation', () => {
       req.awfRouting.onSseData('[DONE]');
       closeEarly(res);
       expect(harness.records).toEqual([expect.objectContaining({ outcome: 'aborted', status: 200 })]);
-      expect(harness.failures).toEqual(['provider_unavailable']);
+      expect(harness.failures).toEqual([]);
+      expect(harness.successes).toEqual([]);
     });
 
     it('treats the usage-only chunk as completion only for translated /responses', () => {
@@ -873,7 +907,8 @@ describe('advisory routing observation', () => {
         req.awfRouting.onSseData(usageOnly);
         closeEarly(res);
         expect(harness.records).toEqual([expect.objectContaining({ outcome: 'aborted', status: 200 })]);
-        expect(harness.failures).toEqual(['provider_unavailable']);
+        expect(harness.failures).toEqual([]);
+        expect(harness.successes).toEqual([]);
       }
     });
 
@@ -889,9 +924,57 @@ describe('advisory routing observation', () => {
       }));
       req.awfRouting.onSseData(JSON.stringify({ type: 'response.output_text.delta', delta: 'partial' }));
       req.awfRouting.onSseInspectionComplete();
-      closeEarly(res);
-      expect(harness.records).toEqual([expect.objectContaining({ outcome: 'aborted', status: 200 })]);
+      res.end();
+      expect(harness.records).toEqual([expect.objectContaining({ outcome: 'failed', status: 200 })]);
       expect(harness.failures).toEqual(['provider_unavailable']);
+    });
+
+    it('does not treat a terminal response.incomplete event as transport truncation or success', () => {
+      const harness = createHarness();
+      const { req, res } = observe(harness, request());
+      const upstream = new EventEmitter();
+      upstream.statusCode = 200;
+      send(req, { model: 'gpt-test', reasoning: { effort: 'low' } });
+      req.awfRouting.onUpstreamResponseHeaders({ 'content-type': 'text/event-stream' }, upstream);
+      req.awfRouting.onSseInspectionStart();
+      req.awfRouting.onSseData(JSON.stringify({
+        type: 'response.incomplete',
+        response: { incomplete_details: { reason: 'max_output_tokens' } },
+      }));
+      req.awfRouting.onSseInspectionComplete();
+      res.end();
+      upstream.emit('end');
+
+      expect(harness.records).toEqual([expect.objectContaining({ outcome: 'completed', status: 200 })]);
+      expect(harness.failures).toEqual([]);
+      expect(harness.successes).toEqual([]);
+    });
+
+    it('retains a buffered upstream HTTP failure after client cancellation, but lets a successful retry supersede it', () => {
+      const cancelled = createHarness();
+      const failed = observe(cancelled, request());
+      send(failed.req, { model: 'gpt-test', reasoning: { effort: 'low' } });
+      failed.req.awfRouting.onUpstreamResponseHeaders(
+        { 'content-type': 'application/json' }, Object.assign(new EventEmitter(), { statusCode: 400 }),
+      );
+      failed.res.emit('close');
+
+      expect(cancelled.failures).toEqual(['provider_unavailable']);
+      expect(cancelled.records).toEqual([expect.objectContaining({ outcome: 'aborted', status: 200 })]);
+
+      const retried = createHarness();
+      const requestWithRetry = observe(retried, request());
+      send(requestWithRetry.req, { model: 'gpt-test', reasoning: { effort: 'low' } });
+      requestWithRetry.req.awfRouting.onUpstreamResponseHeaders(
+        { 'content-type': 'application/json' }, Object.assign(new EventEmitter(), { statusCode: 503 }),
+      );
+      requestWithRetry.req.awfRouting.onUpstreamResponseHeaders(
+        { 'content-type': 'application/json' }, Object.assign(new EventEmitter(), { statusCode: 200 }),
+      );
+      requestWithRetry.res.end();
+
+      expect(retried.failures).toEqual([]);
+      expect(retried.successes).toEqual([true]);
     });
 
     it('non_2xx_upstream_response_preserves_existing_failure_behavior', () => {
@@ -912,7 +995,7 @@ describe('advisory routing observation', () => {
       sseError.req.awfRouting.onSseData(JSON.stringify({ type: 'response.completed', response: {} }));
       closeEarly(sseError.res);
       expect(harness.records[1]).toMatchObject({ outcome: 'aborted', status: 200 });
-      expect(harness.failures).toEqual(['service_unavailable', 'rate_limited', 'provider_unavailable']);
+      expect(harness.failures).toEqual(['service_unavailable', 'rate_limited']);
 
       // A non-2xx response closed early is not a client close, even with a terminal event.
       const non2xx = observe(harness, request());

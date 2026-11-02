@@ -630,6 +630,7 @@ describe('upstream-http', () => {
     const req = {
       method: 'POST',
       awfModelCandidates: ['a', 'much-longer-model-name'],
+      awfRouting: { onModelFallback: jest.fn() },
     };
 
     sendUpstreamRequest({
@@ -659,6 +660,13 @@ describe('upstream-http', () => {
       body: retryBody,
       headers: expect.objectContaining({ 'content-length': String(retryBody.length) }),
     }));
+    expect(req.awfRouting.onModelFallback).toHaveBeenCalledWith({
+      requested_model: 'a',
+      model: 'much-longer-model-name',
+      provider: 'copilot',
+      from_model: 'a',
+      reason: 'model_endpoint_incompatible',
+    });
   });
 
   test('marks a local unsupported_reasoning_effort rejection on req.awfRouting', () => {

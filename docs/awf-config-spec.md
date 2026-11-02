@@ -2287,8 +2287,18 @@ response whose client closed the connection before AWF finished writing is
 recorded as `client_closed`, not `aborted`, only after the upstream sent its
 protocol terminal success event (`response.completed`, `message_stop`, or
 the Chat Completions `[DONE]` sentinel) and no stream error; it MUST NOT be
-reported as a provider failure. Any other premature closure on the selected
-model remains `aborted` and fails the routed run with `provider_unavailable`. When token usage is
+reported as a provider failure. A client cancellation before terminal success
+remains `aborted` and MUST NOT itself be reported as a provider failure or as
+successful completion. Genuine upstream resets, SSE errors, and clean upstream
+EOF without streaming terminal success remain failure evidence.
+Primary-request failures MUST remain provisional until all observed responses
+and SSE inspection drain. A later fully completed 2xx request (or `client_closed`
+after protocol terminal success) on the same selected provider and model
+recovers an earlier failure in fully inspected response-completion order.
+Another provider/model, preliminary HTTP 200, or cancellation MUST NOT recover
+a failure. Only an unrecovered failure publishes the terminal private runtime
+failure and primary `stage: "failure"` record; failed request telemetry MUST
+remain intact. Independent nonzero harness exits MUST remain nonzero. When token usage is
 available, `request_id` MUST correlate with the corresponding
 `token-usage.jsonl` record; not every rejected or aborted call produces usage.
 A `failed` request record MUST include `error_code` and `error_type` when an

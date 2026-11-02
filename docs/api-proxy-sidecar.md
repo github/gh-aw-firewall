@@ -1089,8 +1089,16 @@ logged as a `model_routing` event with `stage: "request"` and
 or `provider`), recording requested and selected values side by side. Endpoint
 differences are informational: they remain in `deviations` but do not by
 themselves make a request `deviated`. Only genuine routing failures (no
-selection could be produced, or an upstream failure on a request that used the
-selected provider and model) end the run with exit `78`.
+selection could be produced, or an unrecovered upstream failure on a request
+that used the selected provider and model) end the run with exit `78`.
+Primary-request failures remain provisional until observed responses and SSE
+inspection have drained. A later fully completed 2xx request on the same selected
+provider and model recovers an earlier failure; another route, preliminary HTTP
+200, or an abandoned request does not. Streaming recovery requires a protocol
+terminal success event without a stream error. Request telemetry is retained
+unchanged, and only an unrecovered failure publishes the terminal private result
+and primary `stage: "failure"` record. Independent nonzero harness exits remain
+nonzero.
 
 ### Model-routing audit log
 
@@ -1143,8 +1151,11 @@ rejection, not a failure to select a route. HTTP success alone does not imply
 the connection before AWF finished writing, after the upstream sent its
 protocol terminal success event (`response.completed` for Responses,
 `message_stop` for Messages, or `data: [DONE]` for Chat Completions). Codex,
-for example, stops reading at `response.completed`. Unlike `aborted`, a
-`client_closed` request on the selected model does not fail the routed run.
+for example, stops reading at `response.completed`. A client cancellation before
+terminal success remains `aborted`, not successful completion or recovery
+evidence. Without an observed upstream error, that cancellation does not itself
+fail the routed run or write a `stage: "failure"` record. Real upstream resets,
+SSE errors, and streams ending without terminal success remain failure evidence.
 Request records include `requested_endpoint` and `upstream_endpoint`; these
 differ when the Copilot proxy translates a request for a model that supports
 only the other wire API. Endpoint-only translation remains informational and

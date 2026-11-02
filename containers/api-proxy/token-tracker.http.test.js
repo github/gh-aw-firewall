@@ -24,6 +24,12 @@ const ROUTING_SELECTION = Object.freeze({
   wire_model: 'gpt-test',
 });
 
+const CHAT_ROUTING_SELECTION = Object.freeze({
+  ...ROUTING_SELECTION,
+  choice: Object.freeze({ id: 'choice-2', model: 'github-copilot/chat-test' }),
+  wire_model: 'chat-test',
+});
+
 afterAll(async () => {
   await closeLogStream();
 });
@@ -51,6 +57,53 @@ describe('isStreamingResponse', () => {
 // ── trackTokenUsage integration ───────────────────────────────────────
 
 describe('trackTokenUsage', () => {
+  test('routes a no-space Chat Completions terminal event through token tracking', () => {
+    const records = [];
+    const failures = [];
+    const successes = [];
+    const observation = createRoutingObservation({
+      getSelection: () => CHAT_ROUTING_SELECTION,
+      recordFailure: code => failures.push(code),
+      recordSuccess: () => successes.push(true),
+      observer: { record: record => records.push(record) },
+    });
+    const req = { method: 'POST', url: '/chat/completions', headers: {} };
+    const res = new EventEmitter();
+    res.statusCode = 200;
+    res.writableFinished = false;
+    observation.observeRequest(req, res, { name: 'copilot' });
+    req.awfRouting.bodyTransform(Buffer.from(JSON.stringify({ model: 'chat-test' })));
+
+    const proxyRes = new EventEmitter();
+    proxyRes.headers = { 'content-type': 'text/event-stream' };
+    proxyRes.statusCode = 200;
+    req.awfRouting.onUpstreamResponseHeaders(proxyRes.headers, proxyRes);
+    trackTokenUsage(proxyRes, {
+      requestId: req.awfRouting.requestId,
+      provider: 'copilot',
+      path: '/chat/completions',
+      startTime: Date.now(),
+      metrics: { increment: jest.fn() },
+      res,
+      onSseData: req.awfRouting.onSseData,
+      onSseInspectionStart: req.awfRouting.onSseInspectionStart,
+      onSseInspectionComplete: req.awfRouting.onSseInspectionComplete,
+    });
+
+    proxyRes.emit('data', Buffer.from('data:[DONE]\n\n'));
+    res.writableFinished = true;
+    res.emit('finish');
+    proxyRes.emit('end');
+
+    expect(records).toEqual([expect.objectContaining({
+      routed: 'as_selected',
+      outcome: 'completed',
+      status: 200,
+    })]);
+    expect(failures).toEqual([]);
+    expect(successes).toEqual([true]);
+  });
+
   test('waits for compressed SSE failure inspection before recording and draining', async () => {
     const records = [];
     const observation = createRoutingObservation({
@@ -686,7 +739,7 @@ describe('routed request outcome when the client closes early', () => {
   // one Codex /responses request tracked like upstream-token.js wires it.
   // With translatedToChat, the request is served by a Chat-only model, as
   // body-handler.js reports through onEndpointTranslation.
-  async function startRoutedRequest({ translatedToChat = false } = {}) {
+  async function startRoutedRequest({ translatedToChat = false, compressed = false } = {}) {
     const outputDir = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-routing-client-close-'));
     const records = [];
     const session = createProductionRoutingSession({
@@ -713,8 +766,12 @@ describe('routed request outcome when the client closes early', () => {
     }
 
     const proxyRes = new EventEmitter();
-    proxyRes.headers = { 'content-type': 'text/event-stream' };
+    proxyRes.headers = {
+      'content-type': 'text/event-stream',
+      ...(compressed ? { 'content-encoding': 'gzip' } : {}),
+    };
     proxyRes.statusCode = 200;
+    req.awfRouting.onUpstreamResponseHeaders(proxyRes.headers, proxyRes);
     const usage = [];
     trackTokenUsage(proxyRes, {
       requestId: req.awfRouting.requestId,
@@ -728,7 +785,7 @@ describe('routed request outcome when the client closes early', () => {
       onSseInspectionStart: req.awfRouting.onSseInspectionStart,
       onSseInspectionComplete: req.awfRouting.onSseInspectionComplete,
     });
-    if (!translatedToChat) {
+    if (!translatedToChat && !compressed) {
       proxyRes.emit('data', sse({ type: 'response.created', response: { id: 'resp_luna', model: 'gpt-5.6-luna' } }));
       proxyRes.emit('data', sse({ type: 'response.output_text.delta', delta: 'fixed' }));
     }
@@ -750,6 +807,8 @@ describe('routed request outcome when the client closes early', () => {
   }
 
   async function expectProviderUnavailable({ outputDir, records, session }) {
+    expect(fs.existsSync(runtimeFailurePath(outputDir))).toBe(false);
+    await session.shutdown();
     expect(failureRecords(records)).toEqual([
       expect.objectContaining({ stage: 'failure', phase: 'primary', code: 'provider_unavailable' }),
     ]);
@@ -759,7 +818,6 @@ describe('routed request outcome when the client closes early', () => {
     });
     expect(session.getFailure()).toMatchObject({ code: 'provider_unavailable' });
     expect(session.getReflectState()).toMatchObject({ status: 'failed', failure_code: 'provider_unavailable' });
-    await session.shutdown();
   }
 
   test('completed_upstream_then_client_close_does_not_fail_routing', async () => {
@@ -805,6 +863,24 @@ describe('routed request outcome when the client closes early', () => {
       request_id: run.req.awfRouting.requestId,
       outcome: 'client_closed',
       status: 200,
+    })]);
+    expect(run.usage).toEqual([expect.objectContaining({ input_tokens: 21000, output_tokens: 640 })]);
+    await expectRoutingSucceeded(run);
+  });
+
+  test('compressed_terminal_success_inspected_after_upstream_teardown_remains_client_closed', async () => {
+    const run = await startRoutedRequest({ compressed: true });
+    run.proxyRes.emit('data', zlib.gzipSync(sse(COMPLETED)));
+    // The compressed terminal event is buffered in the decoder when the
+    // transport closes. Drain must wait for protocol inspection before
+    // deciding whether this was an incomplete upstream response.
+    run.proxyRes.emit('aborted');
+    run.proxyRes.emit('close');
+    run.res.emit('close');
+    expect(requestRecords(run.records)).toEqual([]);
+    await run.session.shutdown();
+    expect(requestRecords(run.records)).toEqual([expect.objectContaining({
+      outcome: 'client_closed', status: 200,
     })]);
     expect(run.usage).toEqual([expect.objectContaining({ input_tokens: 21000, output_tokens: 640 })]);
     await expectRoutingSucceeded(run);
@@ -894,7 +970,7 @@ describe('routed request outcome when the client closes early', () => {
       await expectRoutingSucceeded(run);
     });
 
-    test('translated_client_close_before_terminal_event_remains_provider_unavailable', async () => {
+    test('translated_client_close_before_terminal_event_is_cancellation_not_success', async () => {
       const run = await startRoutedRequest({ translatedToChat: true });
       // Content and finish chunks only: the translator has not emitted
       // response.completed when the client closes.
@@ -909,7 +985,7 @@ describe('routed request outcome when the client closes early', () => {
         outcome: 'aborted',
         status: 200,
       })]);
-      await expectProviderUnavailable(run);
+      await expectRoutingSucceeded(run);
     });
   });
 
@@ -923,13 +999,13 @@ describe('routed request outcome when the client closes early', () => {
     expect(requestRecords(run.records)).toEqual([expect.objectContaining({
       outcome: 'failed', status: 200, error_code: 'rate_limited', error_source: 'upstream',
     })]);
+    await run.session.shutdown();
     expect(failureRecords(run.records)).toEqual([
       expect.objectContaining({ stage: 'failure', phase: 'primary', code: 'rate_limited' }),
     ]);
     expect(JSON.parse(fs.readFileSync(runtimeFailurePath(run.outputDir), 'utf8'))).toMatchObject({
       code: 'rate_limited',
     });
-    await run.session.shutdown();
   });
 });
 

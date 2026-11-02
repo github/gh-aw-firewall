@@ -385,6 +385,11 @@ describe('parseSseDataLines', () => {
     expect(lines).toEqual(['[DONE]']);
   });
 
+  test('handles data lines without a space after the colon', () => {
+    expect(parseSseDataLines('data:[DONE]\n\ndata:{"type":"response.completed"}\n\n'))
+      .toEqual(['[DONE]', '{"type":"response.completed"}']);
+  });
+
   test('returns empty array for non-data text', () => {
     const text = 'event: message\nid: 123\n\n';
     const lines = parseSseDataLines(text);
