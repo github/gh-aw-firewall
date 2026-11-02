@@ -81,14 +81,16 @@ function request(overrides = {}) {
 
 function createHarness(selection = SELECTION, generateRequestId = () => 'generated-inference-123') {
   const failures = [];
+  const successes = [];
   const records = [];
   const observation = createRoutingObservation({
     getSelection: () => selection,
     recordFailure: code => failures.push(code),
+    recordSuccess: () => successes.push(true),
     observer: { record: record => records.push(record) },
     generateRequestId,
   });
-  return { observation, failures, records };
+  return { observation, failures, successes, records };
 }
 
 function observe(harness, req, adapter = { name: 'copilot' }) {
@@ -452,11 +454,18 @@ describe('advisory routing observation', () => {
     expect(res.body()).toBe(payload);
     expect(harness.failures).toContain('model_not_supported');
 
-    req.awfRouting.onSseData(JSON.stringify({ type: 'response.failed', response: { error: { code: 'rate_limited' } } }));
+    const sse = observe(harness, request());
+    send(sse.req, { model: 'gpt-test' });
+    sse.req.awfRouting.onSseData(JSON.stringify({ type: 'response.failed', response: { error: { code: 'rate_limited' } } }));
+    sse.res.end();
     expect(harness.failures).toContain('rate_limited');
     expect(() => req.awfRouting.onSseData('not json')).not.toThrow();
-    req.awfRouting.onSseData(JSON.stringify({ error: { code: 'bad code with spaces' } }));
+    const invalid = observe(harness, request());
+    send(invalid.req, { model: 'gpt-test' });
+    invalid.req.awfRouting.onSseData(JSON.stringify({ error: { code: 'bad code with spaces' } }));
+    invalid.res.end();
     expect(harness.failures).toContain('provider_unavailable');
+    expect(harness.successes).toEqual([]);
   });
 
   it('records failed completion on another provider without failing the routed run', () => {
@@ -801,7 +810,8 @@ describe('advisory routing observation', () => {
     res.emit('close');
     await draining;
     expect(drained).toBe(true);
-    expect(harness.failures).toContain('provider_unavailable');
+    expect(harness.failures).toEqual([]);
+    expect(harness.successes).toEqual([]);
     expect(harness.records).toEqual([expect.objectContaining({ outcome: 'aborted', status: 200 })]);
 
     // A request that arrives while draining is proxied but no longer observed.
@@ -844,7 +854,8 @@ describe('advisory routing observation', () => {
       req.awfRouting.onSseData('[DONE]');
       closeEarly(res);
       expect(harness.records).toEqual([expect.objectContaining({ outcome: 'aborted', status: 200 })]);
-      expect(harness.failures).toEqual(['provider_unavailable']);
+      expect(harness.failures).toEqual([]);
+      expect(harness.successes).toEqual([]);
     });
 
     it('treats the usage-only chunk as completion only for translated /responses', () => {
@@ -873,7 +884,8 @@ describe('advisory routing observation', () => {
         req.awfRouting.onSseData(usageOnly);
         closeEarly(res);
         expect(harness.records).toEqual([expect.objectContaining({ outcome: 'aborted', status: 200 })]);
-        expect(harness.failures).toEqual(['provider_unavailable']);
+        expect(harness.failures).toEqual([]);
+        expect(harness.successes).toEqual([]);
       }
     });
 
@@ -889,8 +901,8 @@ describe('advisory routing observation', () => {
       }));
       req.awfRouting.onSseData(JSON.stringify({ type: 'response.output_text.delta', delta: 'partial' }));
       req.awfRouting.onSseInspectionComplete();
-      closeEarly(res);
-      expect(harness.records).toEqual([expect.objectContaining({ outcome: 'aborted', status: 200 })]);
+      res.end();
+      expect(harness.records).toEqual([expect.objectContaining({ outcome: 'failed', status: 200 })]);
       expect(harness.failures).toEqual(['provider_unavailable']);
     });
 
@@ -912,7 +924,7 @@ describe('advisory routing observation', () => {
       sseError.req.awfRouting.onSseData(JSON.stringify({ type: 'response.completed', response: {} }));
       closeEarly(sseError.res);
       expect(harness.records[1]).toMatchObject({ outcome: 'aborted', status: 200 });
-      expect(harness.failures).toEqual(['service_unavailable', 'rate_limited', 'provider_unavailable']);
+      expect(harness.failures).toEqual(['service_unavailable', 'rate_limited']);
 
       // A non-2xx response closed early is not a client close, even with a terminal event.
       const non2xx = observe(harness, request());

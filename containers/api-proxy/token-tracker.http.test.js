@@ -715,6 +715,7 @@ describe('routed request outcome when the client closes early', () => {
     const proxyRes = new EventEmitter();
     proxyRes.headers = { 'content-type': 'text/event-stream' };
     proxyRes.statusCode = 200;
+    req.awfRouting.onUpstreamResponseHeaders(proxyRes.headers, proxyRes);
     const usage = [];
     trackTokenUsage(proxyRes, {
       requestId: req.awfRouting.requestId,
@@ -750,6 +751,8 @@ describe('routed request outcome when the client closes early', () => {
   }
 
   async function expectProviderUnavailable({ outputDir, records, session }) {
+    expect(fs.existsSync(runtimeFailurePath(outputDir))).toBe(false);
+    await session.shutdown();
     expect(failureRecords(records)).toEqual([
       expect.objectContaining({ stage: 'failure', phase: 'primary', code: 'provider_unavailable' }),
     ]);
@@ -759,7 +762,6 @@ describe('routed request outcome when the client closes early', () => {
     });
     expect(session.getFailure()).toMatchObject({ code: 'provider_unavailable' });
     expect(session.getReflectState()).toMatchObject({ status: 'failed', failure_code: 'provider_unavailable' });
-    await session.shutdown();
   }
 
   test('completed_upstream_then_client_close_does_not_fail_routing', async () => {
@@ -894,7 +896,7 @@ describe('routed request outcome when the client closes early', () => {
       await expectRoutingSucceeded(run);
     });
 
-    test('translated_client_close_before_terminal_event_remains_provider_unavailable', async () => {
+    test('translated_client_close_before_terminal_event_is_cancellation_not_success', async () => {
       const run = await startRoutedRequest({ translatedToChat: true });
       // Content and finish chunks only: the translator has not emitted
       // response.completed when the client closes.
@@ -909,7 +911,7 @@ describe('routed request outcome when the client closes early', () => {
         outcome: 'aborted',
         status: 200,
       })]);
-      await expectProviderUnavailable(run);
+      await expectRoutingSucceeded(run);
     });
   });
 
@@ -923,13 +925,13 @@ describe('routed request outcome when the client closes early', () => {
     expect(requestRecords(run.records)).toEqual([expect.objectContaining({
       outcome: 'failed', status: 200, error_code: 'rate_limited', error_source: 'upstream',
     })]);
+    await run.session.shutdown();
     expect(failureRecords(run.records)).toEqual([
       expect.objectContaining({ stage: 'failure', phase: 'primary', code: 'rate_limited' }),
     ]);
     expect(JSON.parse(fs.readFileSync(runtimeFailurePath(run.outputDir), 'utf8'))).toMatchObject({
       code: 'rate_limited',
     });
-    await run.session.shutdown();
   });
 });
 

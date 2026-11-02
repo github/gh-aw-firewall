@@ -203,6 +203,70 @@ describe('createRoutingObserver', () => {
 });
 
 describe('createProductionRoutingSession', () => {
+  function selectedRequest(session) {
+    const { EventEmitter } = require('events');
+    const res = new EventEmitter();
+    res.statusCode = 200;
+    res.writableFinished = false;
+    res.write = jest.fn();
+    res.end = jest.fn(() => {
+      res.writableFinished = true;
+      res.emit('finish');
+    });
+    const req = { url: '/v1/chat/completions', method: 'POST', headers: {} };
+    session.observeRequest(req, res, { name: 'copilot' });
+    req.awfRouting.bodyTransform(Buffer.from(JSON.stringify({ model: SELECTION.wire_model })));
+    return { req, res };
+  }
+
+  test('keeps a recovered 503 in request telemetry without publishing a terminal failure', async () => {
+    const outputDir = makeOutputDir();
+    const records = [];
+    const session = createProductionRoutingSession({
+      rawConfig: '{}', outputDir,
+      observer: { record: record => records.push(record) },
+      createController: controllerReturning({ ok: true, selection: SELECTION }),
+    });
+    await session.start();
+    const failed = selectedRequest(session);
+    failed.res.statusCode = 503;
+    failed.res.end('unavailable');
+    expect(fs.existsSync(path.join(outputDir, 'runtime-failure.json'))).toBe(false);
+    expect(session.getReflectState().status).toBe('selected');
+    selectedRequest(session).res.end('recovered');
+    await session.shutdown();
+    session.completeShutdown();
+    expect(records).toEqual([
+      expect.objectContaining({ stage: 'request', outcome: 'failed', status: 503 }),
+      expect.objectContaining({ stage: 'request', outcome: 'completed', status: 200 }),
+    ]);
+    expect(session.getFailure()).toBeNull();
+    expect(fs.existsSync(path.join(outputDir, 'runtime-failure.json'))).toBe(false);
+  });
+
+  test('keeps a client-abandoned shutdown request as aborted telemetry without failing', async () => {
+    const outputDir = makeOutputDir();
+    const records = [];
+    const session = createProductionRoutingSession({
+      rawConfig: '{}', outputDir,
+      observer: { record: record => records.push(record) },
+      createController: controllerReturning({ ok: true, selection: SELECTION }),
+    });
+    await session.start();
+    selectedRequest(session).res.end('completed');
+    const abandoned = selectedRequest(session);
+    const draining = session.shutdown();
+    abandoned.res.emit('close');
+    await draining;
+    session.completeShutdown();
+    expect(records).toEqual([
+      expect.objectContaining({ stage: 'request', outcome: 'completed', status: 200 }),
+      expect.objectContaining({ stage: 'request', outcome: 'aborted', status: 200 }),
+    ]);
+    expect(session.getFailure()).toBeNull();
+    expect(fs.existsSync(path.join(outputDir, 'runtime-failure.json'))).toBe(false);
+  });
+
   test('returns null when routing is not configured', () => {
     expect(createProductionRoutingSession({ rawConfig: undefined })).toBeNull();
   });
@@ -354,18 +418,12 @@ describe('createProductionRoutingSession', () => {
     });
     await session.start();
 
-    const { EventEmitter } = require('events');
-    const res = new EventEmitter();
-    res.statusCode = 200;
-    res.writableFinished = false;
-    res.write = jest.fn();
-    res.end = jest.fn();
-    const req = { url: '/v1/chat/completions', method: 'POST', headers: {} };
-    session.observeRequest(req, res, { name: 'copilot' });
-    req.awfRouting.bodyTransform(Buffer.from(JSON.stringify({ model: SELECTION.wire_model })));
+    const { res } = selectedRequest(session);
     res.statusCode = 503;
     res.end(JSON.stringify({ error: { code: 'provider_unavailable' } }));
 
+    expect(fs.existsSync(path.join(outputDir, 'runtime-failure.json'))).toBe(false);
+    await session.shutdown();
     expect(readResult(outputDir, 'runtime-failure.json')).toMatchObject({
       schema: 'awf-routing-failure/v1',
       code: 'provider_unavailable',
@@ -384,16 +442,11 @@ describe('createProductionRoutingSession', () => {
     await session.start();
     fs.writeFileSync(path.join(outputDir, 'runtime-failure.json'), '{}');
 
-    const { EventEmitter } = require('events');
-    const res = new EventEmitter();
+    const { res } = selectedRequest(session);
     res.statusCode = 502;
-    res.write = jest.fn();
-    res.end = jest.fn();
-    const req = { url: '/v1/chat/completions', method: 'POST', headers: {} };
-    session.observeRequest(req, res, { name: 'copilot' });
-    req.awfRouting.bodyTransform(Buffer.from(JSON.stringify({ model: SELECTION.wire_model })));
     res.end(JSON.stringify({ error: { code: 'bad_gateway' } }));
 
+    await session.shutdown();
     expect(fatalExit).toHaveBeenCalledWith(78);
   });
 });

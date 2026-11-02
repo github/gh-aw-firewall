@@ -180,7 +180,7 @@ function createUpstreamResponseHandlers({
     wireApiCompatibility = null,
     protocolTranslation = null,
   }) {
-    req.awfRouting?.onUpstreamResponseHeaders?.(proxyRes.headers);
+    req.awfRouting?.onUpstreamResponseHeaders?.(proxyRes.headers, proxyRes);
     let responseBytes = 0;
     let capturedErrorBytes = 0;
     let errorBodyTruncated = false;

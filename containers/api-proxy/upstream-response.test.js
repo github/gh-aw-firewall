@@ -40,6 +40,47 @@ function createProxyRes({ statusCode, headers }) {
 }
 
 describe('upstream-response', () => {
+  test.each([false, true])('distinguishes upstream stream failure from downstream cancellation (client closes first: %s)', clientClosesFirst => {
+    const deps = createDependencies();
+    const failures = [];
+    const records = [];
+    const observation = createRoutingObservation({
+      getSelection: () => ({
+        provider: 'copilot', wire_model: 'test-model',
+        choice: { id: 'choice-test', model: 'github-copilot/test-model' },
+      }),
+      recordFailure: code => failures.push(code),
+      observer: { record: record => records.push(record) },
+    });
+    const req = { method: 'POST', url: '/chat/completions', headers: {} };
+    const res = new EventEmitter();
+    res.statusCode = 200;
+    res.writableFinished = false;
+    res.writeHead = jest.fn();
+    res.write = jest.fn();
+    res.end = jest.fn();
+    res.destroy = jest.fn(() => {
+      res.destroyed = true;
+      res.emit('close');
+    });
+    observation.observeRequest(req, res, { name: 'copilot' });
+    const body = Buffer.from('{"model":"test-model","stream":true}');
+    req.awfRouting.bodyTransform(body);
+    deps.handleRequestError.mockImplementation((_error, { onHeadersSent }) => onHeadersSent());
+    const { handleUpstreamResponse } = createUpstreamResponseHandlers(deps);
+    const proxyRes = createProxyRes({ statusCode: 200, headers: { 'content-type': 'text/event-stream' } });
+    handleUpstreamResponse(proxyRes, {}, {
+      req, res, body, provider: 'copilot', requestId: 'stream-failure',
+      targetHost: 'unused', upstreamPath: '/chat/completions',
+      startTime: Date.now(), span: {}, requestBytes: body.length,
+    });
+    if (clientClosesFirst) res.destroy();
+    proxyRes.emit('aborted');
+    proxyRes.emit('error', new Error('upstream reset'));
+    expect(failures).toEqual(clientClosesFirst ? [] : ['provider_unavailable']);
+    expect(records).toEqual([expect.objectContaining({ outcome: 'aborted', status: 200 })]);
+  });
+
   test.each([200, 400, 401, 403])('retains real wire auth context and original response classification for %s', statusCode => {
     const deps = createDependencies();
     const { handleUpstreamResponse } = createUpstreamResponseHandlers(deps);
