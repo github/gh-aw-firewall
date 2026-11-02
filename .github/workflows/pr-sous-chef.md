@@ -45,8 +45,9 @@ tools:
     mode: gh-proxy
     toolsets: [pull_requests, repos, issues, actions]
   bash:
-    # Use an exact command rule; the helper reads the single target from the queue.
-    - "node scripts/ci/pr-sous-chef.cjs --refresh"
+    # Copilot matches executable identifiers, not arbitrary Node command arguments.
+    # This argument-free entry point refreshes only the original queued target.
+    - "scripts/ci/pr-sous-chef-refresh"
     - "cat /tmp/gh-aw/agent/pr-sous-chef-queue.json"
 if: needs.prefilter.outputs.eligible_count > 0
 jobs:
@@ -170,10 +171,12 @@ budget is low, or `prs` is empty, call `noop` and stop without comments.
 Process only the single PR number in this original queue; do not scan others.
 
 Immediately before each comment, run
-`node scripts/ci/pr-sous-chef.cjs --refresh` to refresh the single original queued PR.
+`scripts/ci/pr-sous-chef-refresh` to refresh the single original queued PR.
 Pass exactly that command string to the shell tool, with no wrappers, redirection,
 pipelines, or extra arguments. Do not append `2>&1` or pipe to `head`; the helper
 already returns compact JSON, and only the exact command is authorized.
+The trusted executable rejects arguments and invokes the read-only helper's
+`--refresh` mode; do not invoke it through `node`, `sh`, or `bash`.
 If the refresh fails, use `report_incomplete` and stop: an API error is not a no-op.
 If the refreshed mode is not `pilot`, its budget is low, or its `prs` is empty,
 skip that PR. Use the refreshed helper body, which deterministically removes
