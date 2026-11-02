@@ -23,6 +23,90 @@ const ENCLAVE_AUDIT_FILES = [
   { source: 'enclave-host-executor.jsonl', destination: 'enclave-host-executor.jsonl' },
 ] as const;
 const PRIVATE_ENCLAVE_AUDIT_FILE = 'enclave-host-executor.jsonl';
+type EnclaveArtifactCopyResult = { exitCode: number | null; stderr: string };
+
+function isSafeAuditDestination(
+  directoryFd: number,
+  directoryPath: string,
+  name: string,
+  directory = false,
+): boolean {
+  try {
+    const stat = fs.lstatSync(`/proc/self/fd/${directoryFd}/${name}`);
+    if (!stat.isSymbolicLink() && (directory ? stat.isDirectory() : stat.isFile())) {
+      return true;
+    }
+    logger.warn(`Refusing to preserve audit artifact at unsafe destination: ${path.join(directoryPath, name)}`);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return true;
+    logger.warn(`Could not validate audit artifact destination: ${path.join(directoryPath, name)}`, error);
+  }
+  return false;
+}
+
+function handoffPrivateEnclaveAuditInDirectory(
+  directoryFd: number,
+  fileName: (typeof ENCLAVE_AUDIT_FILES)[number]['destination'],
+): void {
+  const owner = resolveArtifactOwner();
+  const fd = fs.openSync(`/proc/self/fd/${directoryFd}/${fileName}`,
+    fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW | fs.constants.O_NONBLOCK);
+  try {
+    const stat = fs.fstatSync(fd);
+    const mode = stat.mode & 0o777;
+    if (!stat.isFile() || stat.nlink !== 1 ||
+        (mode !== 0o600 && !(mode === 0o644 && fileName !== PRIVATE_ENCLAVE_AUDIT_FILE)) ||
+        (stat.uid !== process.getuid?.() && stat.uid !== owner.uid) ||
+        stat.size > 32 * 1024 * 1024) {
+      throw new Error('Unsafe private enclave audit handoff');
+    }
+    fs.fchmodSync(fd, 0o600);
+    fs.fchownSync(fd, owner.uid, owner.gid);
+  } finally {
+    fs.closeSync(fd);
+  }
+}
+
+function copyEnclaveArtifact(
+  directoryFd: number,
+  directoryPath: string,
+  source: string,
+  name: string,
+  directory: boolean,
+): EnclaveArtifactCopyResult {
+  if (!isSafeAuditDestination(directoryFd, directoryPath, name, directory)) {
+    throw new Error(`Unsafe enclave artifact destination: ${name}`);
+  }
+  const stagingPath = fs.mkdtempSync(`/proc/self/fd/${directoryFd}/.awf-enclave-audit-`);
+  fs.chmodSync(stagingPath, 0o700);
+  let stagingFd: number | undefined;
+  try {
+    stagingFd = fs.openSync(
+      stagingPath,
+      fs.constants.O_RDONLY | fs.constants.O_DIRECTORY | fs.constants.O_NOFOLLOW,
+    );
+    const stagedPath = `/proc/self/fd/${stagingFd}/${name}`;
+    const result = execa.sync(
+      'docker',
+      ['cp', source, `/proc/${process.pid}/fd/${stagingFd}/${name}`],
+      { env: getLocalDockerEnv(), reject: false },
+    );
+    if (result.exitCode !== 0) return result;
+
+    const stagedStat = fs.lstatSync(stagedPath);
+    if (stagedStat.isSymbolicLink() || (directory ? !stagedStat.isDirectory() : !stagedStat.isFile())) {
+      throw new Error(`Unsafe staged enclave artifact: ${name}`);
+    }
+    if (!isSafeAuditDestination(directoryFd, directoryPath, name, directory)) {
+      throw new Error(`Unsafe enclave artifact destination: ${name}`);
+    }
+    fs.renameSync(stagedPath, `/proc/self/fd/${directoryFd}/${name}`);
+    return result;
+  } finally {
+    if (stagingFd !== undefined) fs.closeSync(stagingFd);
+    fs.rmSync(stagingPath, { recursive: true, force: true });
+  }
+}
 
 /** @internal Final broker copy only: never widen access to its payload-bearing records. */
 // ts-prune-ignore-next
@@ -33,25 +117,9 @@ export function handoffPrivateEnclaveAudit(
   if (!ENCLAVE_AUDIT_FILES.some(file => file.destination === fileName)) {
     throw new Error('Invalid enclave audit role');
   }
-  const owner = resolveArtifactOwner();
   const directoryFd = openArtifactDirectory(directory);
   try {
-    const fd = fs.openSync(`/proc/self/fd/${directoryFd}/${fileName}`,
-      fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW | fs.constants.O_NONBLOCK);
-    try {
-      const stat = fs.fstatSync(fd);
-      const mode = stat.mode & 0o777;
-      if (!stat.isFile() || stat.nlink !== 1 ||
-          (mode !== 0o600 && !(mode === 0o644 && fileName !== PRIVATE_ENCLAVE_AUDIT_FILE)) ||
-          (stat.uid !== process.getuid?.() && stat.uid !== owner.uid) ||
-          stat.size > 32 * 1024 * 1024) {
-        throw new Error('Unsafe private enclave audit handoff');
-      }
-      fs.fchmodSync(fd, 0o600);
-      fs.fchownSync(fd, owner.uid, owner.gid);
-    } finally {
-      fs.closeSync(fd);
-    }
+    handoffPrivateEnclaveAuditInDirectory(directoryFd, fileName);
   } finally {
     fs.closeSync(directoryFd);
   }
@@ -59,7 +127,8 @@ export function handoffPrivateEnclaveAudit(
 /**
  * Copies the iptables audit dump from the init-signal volume to the audit directory.
  * Must be called BEFORE stopContainers() because `docker compose down -v` destroys
- * the init-signal volume.
+ * the init-signal volume. Returns false if a destination is unsafe or a required
+ * audit copy fails; a missing optional enclave session directory is tolerated.
  */
 export function preserveIptablesAudit(
   workDir: string,
@@ -68,74 +137,81 @@ export function preserveIptablesAudit(
   const iptablesAuditSrc = path.join(workDir, 'init-signal', 'iptables-audit.txt');
   const enclavePaths = resolveEnclavePaths(workDir);
   const enclaveRoot = enclavePaths.root;
-  const targetAuditDir = auditDir || path.join(workDir, 'audit');
-  if (!fs.existsSync(targetAuditDir)) return true;
-  let complete = true;
+  const targetAuditDir = path.resolve(auditDir || path.join(workDir, 'audit'));
+  let auditDirectoryFd: number;
+  try {
+    auditDirectoryFd = openArtifactDirectory(targetAuditDir);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return true;
+    logger.warn(`Could not validate audit directory: ${targetAuditDir}`, error);
+    return false;
+  }
+  try {
+    let complete = true;
 
-  if (fs.existsSync(iptablesAuditSrc)) {
-    try {
-      const directoryFd = openArtifactDirectory(targetAuditDir);
+    if (fs.existsSync(iptablesAuditSrc)) {
       try {
-        const fd = fs.openSync(`/proc/self/fd/${directoryFd}/iptables-audit.txt`, 'wx', 0o600);
+        const fd = fs.openSync(`/proc/self/fd/${auditDirectoryFd}/iptables-audit.txt`, 'wx', 0o600);
         try {
           fs.writeFileSync(fd, fs.readFileSync(iptablesAuditSrc));
           fs.fchmodSync(fd, 0o644);
         } finally {
           fs.closeSync(fd);
         }
-      } finally {
-        fs.closeSync(directoryFd);
+        logger.debug('Copied iptables audit state to audit directory');
+      } catch (error) {
+        complete = false;
+        logger.warn('Could not safely preserve iptables audit file:', error);
       }
-      logger.debug('Copied iptables audit state to audit directory');
-    } catch (error) {
-      complete = false;
-      logger.warn('Could not safely preserve iptables audit file:', error);
     }
-  }
 
-  if (fs.existsSync(enclaveRoot)) {
-    for (const auditFile of ENCLAVE_AUDIT_FILES) {
+    if (fs.existsSync(enclaveRoot)) {
+      for (const auditFile of ENCLAVE_AUDIT_FILES) {
+        try {
+          const source = `${ENCLAVE_MCP_SERVER_CONTAINER_NAME}:/var/log/awf-enclave/${auditFile.source}`;
+          const result = copyEnclaveArtifact(
+            auditDirectoryFd,
+            targetAuditDir,
+            source,
+            auditFile.destination,
+            false,
+          );
+          if (result.exitCode === 0) {
+            if (auditFile.destination === PRIVATE_ENCLAVE_AUDIT_FILE) {
+              handoffPrivateEnclaveAuditInDirectory(auditDirectoryFd, auditFile.destination);
+            }
+            logger.debug(`Copied enclave MCP server ${auditFile.source} to audit directory`);
+          } else {
+            complete = false;
+            logger.debug(`Could not copy enclave ${auditFile.source}:`, result.stderr);
+          }
+        } catch {
+          complete = false;
+          logger.error('Protected enclave audit handoff failed (role=broker-audit, reason=unsafe-or-inaccessible).');
+        }
+      }
       try {
-        const source = `${ENCLAVE_MCP_SERVER_CONTAINER_NAME}:/var/log/awf-enclave/${auditFile.source}`;
-        const destination = path.join(targetAuditDir, auditFile.destination);
-        const result = execa.sync(
-          'docker',
-          ['cp', source, destination],
-          { env: getLocalDockerEnv(), reject: false },
+        const source = `${ENCLAVE_MCP_SERVER_CONTAINER_NAME}:/var/log/awf-enclave/${ENCLAVE_SESSION_DIR}`;
+        const result = copyEnclaveArtifact(
+          auditDirectoryFd,
+          targetAuditDir,
+          source,
+          'enclave-agent-sessions',
+          true,
         );
         if (result.exitCode === 0) {
-          handoffPrivateEnclaveAudit(targetAuditDir, auditFile.destination);
-          logger.debug(`Copied enclave MCP server ${auditFile.source} to audit directory`);
+          logger.debug('Copied enclave agent sessions to audit directory');
         } else {
-          complete = false;
-          logger.debug(`Could not copy enclave ${auditFile.source}:`, result.stderr);
+          logger.debug('Could not copy enclave agent sessions:', result.stderr);
         }
       } catch {
-        complete = false;
-        logger.error('Protected enclave audit handoff failed (role=broker-audit, reason=unsafe-or-inaccessible).');
+        logger.debug('Could not copy enclave agent sessions: unsafe destination or staging');
       }
     }
-    try {
-      const destination = path.join(targetAuditDir, 'enclave-agent-sessions');
-      const result = execa.sync(
-        'docker',
-        [
-          'cp',
-          `${ENCLAVE_MCP_SERVER_CONTAINER_NAME}:/var/log/awf-enclave/${ENCLAVE_SESSION_DIR}`,
-          destination,
-        ],
-        { env: getLocalDockerEnv(), reject: false },
-      );
-      if (result.exitCode === 0) {
-        logger.debug('Copied enclave agent sessions to audit directory');
-      } else {
-        logger.debug('Could not copy enclave agent sessions:', result.stderr);
-      }
-    } catch (error) {
-      logger.debug('Could not copy enclave agent sessions:', error);
-    }
+    return complete;
+  } finally {
+    fs.closeSync(auditDirectoryFd);
   }
-  return complete;
 }
 
 type PreserveDirectoryOptions = {

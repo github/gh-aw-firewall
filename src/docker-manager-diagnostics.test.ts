@@ -218,7 +218,7 @@ describe('docker-manager diagnostics', () => {
         [
           'cp',
           'awf-enclave-mcp-server:/var/log/awf-enclave/enclave.jsonl',
-          path.join(auditDir, 'enclave.jsonl'),
+          expect.stringMatching(new RegExp(`/proc/${process.pid}/fd/\\d+/enclave.jsonl$`)),
         ],
         expect.objectContaining({ reject: false }),
       );
@@ -227,7 +227,7 @@ describe('docker-manager diagnostics', () => {
         [
           'cp',
           'awf-enclave-mcp-server:/var/log/awf-enclave/runtime-telemetry.jsonl',
-          path.join(auditDir, 'enclave-runtime.jsonl'),
+          expect.stringMatching(new RegExp(`/proc/${process.pid}/fd/\\d+/enclave-runtime.jsonl$`)),
         ],
         expect.objectContaining({ reject: false }),
       );
@@ -236,7 +236,7 @@ describe('docker-manager diagnostics', () => {
         [
           'cp',
           'awf-enclave-mcp-server:/var/log/awf-enclave/enclave-host-executor.jsonl',
-          path.join(auditDir, 'enclave-host-executor.jsonl'),
+          expect.stringMatching(new RegExp(`/proc/${process.pid}/fd/\\d+/enclave-host-executor.jsonl$`)),
         ],
         expect.objectContaining({ reject: false }),
       );
@@ -245,7 +245,7 @@ describe('docker-manager diagnostics', () => {
         [
           'cp',
           'awf-enclave-mcp-server:/var/log/awf-enclave/sessions',
-          path.join(auditDir, 'enclave-agent-sessions'),
+          expect.stringMatching(new RegExp(`/proc/${process.pid}/fd/\\d+/enclave-agent-sessions$`)),
         ],
         expect.objectContaining({ reject: false }),
       );
@@ -283,7 +283,11 @@ describe('docker-manager diagnostics', () => {
 
       expect(mockExecaSync).toHaveBeenCalledWith(
         'docker',
-        ['cp', 'awf-enclave-mcp-server:/var/log/awf-enclave/enclave.jsonl', path.join(auditDir, 'enclave.jsonl')],
+        [
+          'cp',
+          'awf-enclave-mcp-server:/var/log/awf-enclave/enclave.jsonl',
+          expect.stringMatching(new RegExp(`/proc/${process.pid}/fd/\\d+/enclave.jsonl$`)),
+        ],
         expect.objectContaining({ reject: false }),
       );
       expect(mockExecaSync).toHaveBeenCalledWith(
@@ -291,7 +295,7 @@ describe('docker-manager diagnostics', () => {
         [
           'cp',
           'awf-enclave-mcp-server:/var/log/awf-enclave/runtime-telemetry.jsonl',
-          path.join(auditDir, 'enclave-runtime.jsonl'),
+          expect.stringMatching(new RegExp(`/proc/${process.pid}/fd/\\d+/enclave-runtime.jsonl$`)),
         ],
         expect.objectContaining({ reject: false }),
       );

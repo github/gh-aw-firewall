@@ -3,9 +3,37 @@ import * as path from 'path';
 import { WrapperConfig } from './types';
 import { logger } from './logger';
 import { getSafeHostUid, getSafeHostGid, getRealUserHome } from './host-env';
-import { assertRealDirectory, createMissingOwnedDirectorySegments } from './fs-utils';
+import { createMissingOwnedDirectorySegments } from './fs-utils';
 import { resolveRunnerToolCachePath } from './runner-tool-cache';
 import { HOME_TOOL_PATHS } from './config/mount-policy';
+
+function descriptorPath(fd: number): string {
+  return `${process.platform === 'linux' ? '/proc/self/fd' : '/dev/fd'}/${fd}`;
+}
+
+function openRealDirectory(directory: string): number {
+  const fd = fs.openSync(
+    directory,
+    fs.constants.O_RDONLY | fs.constants.O_DIRECTORY | fs.constants.O_NOFOLLOW,
+  );
+  try {
+    if (!fs.fstatSync(fd).isDirectory()) {
+      throw new Error(`Expected directory but found non-directory path: ${directory}`);
+    }
+    return fd;
+  } catch (error) {
+    fs.closeSync(fd);
+    throw error;
+  }
+}
+
+function setDirectoryOwnership(fd: number, uid: number, gid: number, mode?: number): void {
+  if (!fs.fstatSync(fd).isDirectory()) {
+    throw new Error('Expected directory but found non-directory descriptor');
+  }
+  fs.fchownSync(fd, uid, gid);
+  if (mode !== undefined) fs.fchmodSync(fd, mode);
+}
 
 // Prepare a nested bind-mount destination inside the empty chroot home before
 // Docker sees it. Without this, Docker may create intermediate parents such as
@@ -14,54 +42,65 @@ import { HOME_TOOL_PATHS } from './config/mount-policy';
 // This operates only on the chroot-home placeholder path, e.g.
 // `<emptyHome>/work/_tool`; it does not chown or chmod the real host source
 // `/home/runner/work/_tool`, which Docker will later mount over the placeholder.
-export function prepareChrootHomeMountpoint(emptyHomeDir: string, relativeMountPath: string, uid: number, gid: number): string {
+function prepareChrootHomeMountpointAtFd(
+  emptyHomeDir: string,
+  emptyHomeFd: number,
+  relativeMountPath: string,
+  uid: number,
+  gid: number,
+): string {
+  let parentFd = emptyHomeFd;
+  let ownedFd: number | undefined;
   let chrootPath = emptyHomeDir;
   const segments = relativeMountPath.split(path.sep).filter(Boolean);
 
-  for (const segment of segments) {
-    chrootPath = path.join(chrootPath, segment);
-    if (!fs.existsSync(chrootPath)) {
-      fs.mkdirSync(chrootPath);
-    }
+  try {
+    for (const segment of segments) {
+      const segmentPath = path.join(descriptorPath(parentFd), segment);
+      chrootPath = path.join(chrootPath, segment);
+      try {
+        fs.mkdirSync(segmentPath);
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
+      }
 
-    // The final segment may be the leaf mountpoint (`_tool`). That is okay: this
-    // is still only the placeholder inside emptyHomeDir, not the host tool cache.
-    assertRealDirectory(chrootPath);
-    fs.chownSync(chrootPath, uid, gid);
-    fs.chmodSync(chrootPath, 0o755);
+      // The final segment may be the leaf mountpoint (`_tool`). That is okay: this
+      // is still only the placeholder inside emptyHomeDir, not the host tool cache.
+      const nextFd = openRealDirectory(segmentPath);
+      setDirectoryOwnership(nextFd, uid, gid, 0o755);
+      if (ownedFd !== undefined) fs.closeSync(ownedFd);
+      ownedFd = nextFd;
+      parentFd = nextFd;
+    }
+  } finally {
+    if (ownedFd !== undefined) fs.closeSync(ownedFd);
   }
 
-  return chrootPath;
+  return segments.length === 0 ? emptyHomeDir : chrootPath;
 }
 
-/**
- * Creates the empty chroot home directory placeholder, all whitelisted ~/.
- * subdirectories on the host, and any runner tool-cache mountpoints so Docker
- * does not create them as root-owned before bind mounts are established.
- *
- * Security note: this enforces correct UID/GID ownership on chroot home paths
- * before Docker bind-mounts overwrite the placeholders at container start.
- */
-export function prepareChrootHomeMounts(config: WrapperConfig): void {
-  // Ensure chroot home subdirectories exist with correct ownership before Docker
-  // bind-mounts them. If a source directory doesn't exist, Docker creates it as
-  // root:root, making it inaccessible to the agent user (e.g., UID 1001).
-  // Also create an empty writable home directory that gets mounted as $HOME
-  // in the chroot, giving tools a writable home without exposing credentials.
-  const effectiveHome = getRealUserHome();
-  const uid = parseInt(getSafeHostUid(), 10);
-  const gid = parseInt(getSafeHostGid(), 10);
-
-  // Create empty writable home directory for the chroot
-  // This is mounted as $HOME inside the container so tools can write to it
-  // NOTE: Must be outside workDir to avoid being hidden by the tmpfs overlay
-  const emptyHomeDir = `${config.workDir}-chroot-home`;
-  if (!fs.existsSync(emptyHomeDir)) {
-    fs.mkdirSync(emptyHomeDir, { recursive: true });
+export function prepareChrootHomeMountpoint(
+  emptyHomeDir: string,
+  relativeMountPath: string,
+  uid: number,
+  gid: number,
+): string {
+  const emptyHomeFd = openRealDirectory(emptyHomeDir);
+  try {
+    return prepareChrootHomeMountpointAtFd(emptyHomeDir, emptyHomeFd, relativeMountPath, uid, gid);
+  } finally {
+    fs.closeSync(emptyHomeFd);
   }
-  fs.chownSync(emptyHomeDir, uid, gid);
-  logger.debug(`Created chroot home directory: ${emptyHomeDir} (${uid}:${gid})`);
+}
 
+function prepareHomeMountsWithFd(
+  config: WrapperConfig,
+  effectiveHome: string,
+  uid: number,
+  gid: number,
+  emptyHomeDir: string,
+  emptyHomeFd: number,
+): void {
   // Ensure source directories and nested chroot mountpoints exist before Docker
   // sees them, so it cannot create either side as root-owned.
   const hostHomeMountSourcePaths = HOME_TOOL_PATHS.filter(
@@ -77,12 +116,18 @@ export function prepareChrootHomeMounts(config: WrapperConfig): void {
     } else if (toolPath === '.gemini') {
       // Repair existing .gemini ownership for Gemini/Vertex runs where prior
       // root-owned bind mounts can break atomic writes in the CLI.
-      fs.chownSync(toolPathSource, uid, gid);
+      const geminiFd = openRealDirectory(toolPathSource);
+      try {
+        setDirectoryOwnership(geminiFd, uid, gid);
+      } finally {
+        fs.closeSync(geminiFd);
+      }
       logger.debug(`Fixed host home tool path ownership: ${toolPathSource} (${uid}:${gid})`);
     }
 
-    const chrootToolPath = prepareChrootHomeMountpoint(
+    const chrootToolPath = prepareChrootHomeMountpointAtFd(
       emptyHomeDir,
+      emptyHomeFd,
       toolPath,
       uid,
       gid,
@@ -127,7 +172,13 @@ export function prepareChrootHomeMounts(config: WrapperConfig): void {
   if (runnerToolCachePath) {
     const relativeToolCachePath = path.relative(effectiveHome, runnerToolCachePath);
     if (relativeToolCachePath && !relativeToolCachePath.startsWith('..') && !path.isAbsolute(relativeToolCachePath)) {
-      const chrootToolCachePath = prepareChrootHomeMountpoint(emptyHomeDir, relativeToolCachePath, uid, gid);
+      const chrootToolCachePath = prepareChrootHomeMountpointAtFd(
+        emptyHomeDir,
+        emptyHomeFd,
+        relativeToolCachePath,
+        uid,
+        gid,
+      );
       logger.debug(`Prepared chroot runner tool cache mountpoint: ${chrootToolCachePath} (${uid}:${gid})`);
     }
   }
@@ -141,7 +192,48 @@ export function prepareChrootHomeMounts(config: WrapperConfig): void {
   const workspaceDir = process.env.GITHUB_WORKSPACE || process.cwd();
   const relativeWorkspacePath = path.relative(effectiveHome, workspaceDir);
   if (relativeWorkspacePath && !relativeWorkspacePath.startsWith('..') && !path.isAbsolute(relativeWorkspacePath)) {
-    const chrootWorkspacePath = prepareChrootHomeMountpoint(emptyHomeDir, relativeWorkspacePath, uid, gid);
+    const chrootWorkspacePath = prepareChrootHomeMountpointAtFd(
+      emptyHomeDir,
+      emptyHomeFd,
+      relativeWorkspacePath,
+      uid,
+      gid,
+    );
     logger.debug(`Prepared chroot workspace mountpoint: ${chrootWorkspacePath} (${uid}:${gid})`);
+  }
+}
+
+/**
+ * Creates the empty chroot home directory placeholder, all whitelisted ~/.
+ * subdirectories on the host, and any runner tool-cache mountpoints so Docker
+ * does not create them as root-owned before bind mounts are established.
+ *
+ * Security note: this enforces correct UID/GID ownership on chroot home paths
+ * before Docker bind-mounts overwrite the placeholders at container start.
+ */
+export function prepareChrootHomeMounts(config: WrapperConfig): void {
+  // Ensure chroot home subdirectories exist with correct ownership before Docker
+  // bind-mounts them. If a source directory doesn't exist, Docker creates it as
+  // root:root, making it inaccessible to the agent user (e.g., UID 1001).
+  // Also create an empty writable home directory that gets mounted as $HOME
+  // in the chroot, giving tools a writable home without exposing credentials.
+  const effectiveHome = getRealUserHome();
+  const uid = parseInt(getSafeHostUid(), 10);
+  const gid = parseInt(getSafeHostGid(), 10);
+
+  // Create empty writable home directory for the chroot
+  // This is mounted as $HOME inside the container so tools can write to it
+  // NOTE: Must be outside workDir to avoid being hidden by the tmpfs overlay
+  const emptyHomeDir = `${config.workDir}-chroot-home`;
+  if (!fs.existsSync(emptyHomeDir)) {
+    fs.mkdirSync(emptyHomeDir, { recursive: true });
+  }
+  const emptyHomeFd = openRealDirectory(emptyHomeDir);
+  try {
+    setDirectoryOwnership(emptyHomeFd, uid, gid);
+    logger.debug(`Created chroot home directory: ${emptyHomeDir} (${uid}:${gid})`);
+    prepareHomeMountsWithFd(config, effectiveHome, uid, gid, emptyHomeDir, emptyHomeFd);
+  } finally {
+    fs.closeSync(emptyHomeFd);
   }
 }
