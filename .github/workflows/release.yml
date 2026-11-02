@@ -1520,9 +1520,9 @@ jobs:
       - name: Fetch and verify pinned NVX release artifacts
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          NVX_RELEASE: v0.1.0-dev.be859aa77ffa
+          NVX_RELEASE: v0.1.0-dev.13504aa3497c
           NVX_ARCHIVE: nvx-0.1.0-linux-kvm.tar.gz
-          NVX_ARCHIVE_SHA256: ad6bf948d84d60d92f35103b52dc3ad33a421e9a4457ce0823d1890a6985a912
+          NVX_ARCHIVE_SHA256: df8ad7aaeeee1cbfe43a590f4702c9b3c14622407a86e7cd8f8d3778eacefc6a
         run: |
           set -euo pipefail
           package_dir="$RUNNER_TEMP/nvx-package"
@@ -1565,9 +1565,9 @@ jobs:
                 sourceCommit:$source_commit
               },
               upstream:{
-                releaseTag:"v0.1.0-dev.be859aa77ffa",
-                nvxCommit:"be859aa77ffa7a20f9ef50f68c5386acdfca9955",
-                openvmmCommit:"762bc1c7a203b16aee752324d6a4ab0bde1a713a"
+                releaseTag:"v0.1.0-dev.13504aa3497c",
+                nvxCommit:"13504aa3497cb0257ca855937f410100eabc856d",
+                openvmmCommit:"b58040ee46c6ed2953415b3734b0ee0c2b7485b6"
               },
               architecture:"x86_64",
               artifacts:{

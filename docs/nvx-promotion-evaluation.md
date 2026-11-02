@@ -19,7 +19,7 @@ does not remove the mandatory preview gate or change the default runtime.
 | AWF                                  | v0.28.54                                                                             |
 | NVX workflow upgrade                 | github/gh-aw-firewall#9886                                                           |
 | Automatic musl guest asset selection | github/gh-aw#67915                                                                   |
-| NVX artifact                         | microsoft/nvx@v0.1.0-dev.be859aa77ffa                                                |
+| NVX artifact                         | microsoft/nvx@v0.1.0-dev.13504aa3497c                                                |
 | Cloud Hypervisor artifact            | Cloud Hypervisor v53.0                                                               |
 | NVX build smoke                      | [run 38320706390](https://github.com/github/gh-aw-firewall/actions/runs/38320706390) |
 | Official-release build confirmation  | [run 38272330203](https://github.com/github/gh-aw-firewall/actions/runs/38272330203) |
@@ -134,7 +134,7 @@ None of these may be weakened to improve success rates.
 
 | Topic                                 | Assessment                                                                                                                                                 |
 | ------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Artifact stability and cadence        | NVX is pinned to `microsoft/nvx` release `v0.1.0-dev.be859aa77ffa`, a development pre-release. No stable release cadence exists yet.                       |
+| Artifact stability and cadence        | NVX is pinned to `microsoft/nvx` release `v0.1.0-dev.13504aa3497c`, a development pre-release. No stable release cadence exists yet.                       |
 | Supported runners                     | GitHub-hosted Ubuntu x86_64 runners with `/dev/kvm`; no ARM, self-hosted or nested-virtualization guarantees.                                              |
 | Diagnostics and retention             | Guest output, manager evidence and cleanup records are collected as workflow artifacts; retention quality is to be reviewed with the first benchmark data. |
 | Upgrade                               | Update the pinned release tag and SHA-256, rebuild the attested artifacts, and rerun the live-KVM and smoke workflows.                                     |

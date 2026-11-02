@@ -39,9 +39,9 @@ jobs:
       - name: Fetch and verify pinned NVX release artifacts
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          NVX_RELEASE: v0.1.0-dev.be859aa77ffa
+          NVX_RELEASE: v0.1.0-dev.13504aa3497c
           NVX_ARCHIVE: nvx-0.1.0-linux-kvm.tar.gz
-          NVX_ARCHIVE_SHA256: ad6bf948d84d60d92f35103b52dc3ad33a421e9a4457ce0823d1890a6985a912
+          NVX_ARCHIVE_SHA256: df8ad7aaeeee1cbfe43a590f4702c9b3c14622407a86e7cd8f8d3778eacefc6a
           SIGNER_WORKFLOW: github/gh-aw-firewall/.github/workflows/nvx-phase-3b-live-kvm.yml
         run: |
           set -euo pipefail
@@ -87,9 +87,9 @@ jobs:
                 sourceCommit:$source_commit
               },
               upstream:{
-                releaseTag:"v0.1.0-dev.be859aa77ffa",
-                nvxCommit:"be859aa77ffa7a20f9ef50f68c5386acdfca9955",
-                openvmmCommit:"762bc1c7a203b16aee752324d6a4ab0bde1a713a"
+                releaseTag:"v0.1.0-dev.13504aa3497c",
+                nvxCommit:"13504aa3497cb0257ca855937f410100eabc856d",
+                openvmmCommit:"b58040ee46c6ed2953415b3734b0ee0c2b7485b6"
               },
               architecture:"x86_64",
               artifacts:{
@@ -161,8 +161,8 @@ jobs:
 
       - name: Fetch pinned NVX source
         env:
-          NVX_COMMIT: be859aa77ffa7a20f9ef50f68c5386acdfca9955
-          NVX_OPENVMM_COMMIT: 762bc1c7a203b16aee752324d6a4ab0bde1a713a
+          NVX_COMMIT: 13504aa3497cb0257ca855937f410100eabc856d
+          NVX_OPENVMM_COMMIT: b58040ee46c6ed2953415b3734b0ee0c2b7485b6
         run: |
           set -euo pipefail
           source_dir="$RUNNER_TEMP/nvx-source"
@@ -196,8 +196,8 @@ jobs:
           grep -q -- '--block-fd' <<<"$bwrap_help"
           grep -q -- '--json-status-fd' <<<"$bwrap_help"
           grep -q -- '--seccomp' <<<"$bwrap_help"
-          grep -Fq 'nvx_pids_max={self.pids_max + 1}' \
-            "$source_dir/scripts/nvx_tools/sandbox.py"
+          grep -Fq 'tokens.push(format!("nvx_pids_max={}", pids_max + 1));' \
+            "$source_dir/nvx-rs/src/host/sandbox/plan.rs"
           grep -Fq 'proxy.address != self.gateway_ipv4' \
             "$source_dir/openvmm/vm/devices/net/net_backend_resources/src/egress.rs"
           grep -Fq 'if deny.iter().any' \

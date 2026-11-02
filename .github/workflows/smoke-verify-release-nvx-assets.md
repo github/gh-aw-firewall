@@ -95,9 +95,9 @@ steps:
       fi
 
       if ! jq -e \
-        --arg release_tag "v0.1.0-dev.be859aa77ffa" \
-        --arg nvx_commit "be859aa77ffa7a20f9ef50f68c5386acdfca9955" \
-        --arg openvmm_commit "762bc1c7a203b16aee752324d6a4ab0bde1a713a" \
+        --arg release_tag "v0.1.0-dev.13504aa3497c" \
+        --arg nvx_commit "13504aa3497cb0257ca855937f410100eabc856d" \
+        --arg openvmm_commit "b58040ee46c6ed2953415b3734b0ee0c2b7485b6" \
         '.upstream.releaseTag == $release_tag and
          .upstream.nvxCommit == $nvx_commit and
          .upstream.openvmmCommit == $openvmm_commit' \

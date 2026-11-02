@@ -27,7 +27,8 @@ export interface NvxGuestConfigLayerDependencies {
 }
 
 /**
- * Builds the immutable custom EROFS source tree. It contains only AWF-owned
+ * Builds an ownership-preserving source overlay for the single distro EROFS
+ * image, not a separate guest root. It contains only AWF-owned
  * guest configuration: the generated entrypoint and the explicitly allowed
  * guest-home state. Live workspace/tool-cache content is never copied here.
  */
