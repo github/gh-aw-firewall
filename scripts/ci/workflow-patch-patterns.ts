@@ -129,15 +129,6 @@ export function removeCopilotGithubCliPermission(workflow: string): string {
   return workflow.replace(" --allow-tool '\\''shell(github:*)'\\''", '');
 }
 
-// Sentinel used to detect whether the "Copy Copilot session state" step has
-// already been replaced with the AWF-aware inline script.
-export const copySessionStateSentinel = 'SESSION_STATE_SRC=';
-
-// Matches the original "Copy Copilot session state files to logs" step emitted
-// by the gh-aw compiler.
-export const copySessionStateStepRegex =
-  /^(\s+)- name: Copy Copilot session state files to logs\n\1  if: always\(\)\n\1  continue-on-error: true\n\1  run: bash "\$\{RUNNER_TEMP\}\/gh-aw\/actions\/copy_copilot_session_state\.sh"\n/m;
-
 // Matches the "Copy Copilot CLI to daemon-visible path" step that the gh-aw
 // compiler emits for every firewall + arc-dind workflow regardless of the
 // configured engine (gh-aw bug, github/gh-aw-firewall#7505). The step runs

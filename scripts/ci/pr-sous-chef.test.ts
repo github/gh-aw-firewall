@@ -639,6 +639,14 @@ describe('PR sous-chef workflow safety contract', () => {
     expect(invocation).not.toMatch(/--allow-tool\s+(?:'|\\')?shell(?:'|\\')?(?:\s|$)/);
   });
 
+  it('retains the pinned session-state copy helper in the compiled workflow', () => {
+    const lock = fs.readFileSync(path.join(root, '.github/workflows/pr-sous-chef.lock.yml'), 'utf8');
+    expect(lock).toContain(
+      'run: bash "${RUNNER_TEMP}/gh-aw/actions/copy_copilot_session_state.sh"',
+    );
+    expect(lock).not.toContain('SESSION_STATE_SRC=');
+  });
+
   it('keeps the coordinator read-only with one bounded comment-only write path', () => {
     expect(config.on.schedule).toBe('every 15m');
     expect(config.on).not.toHaveProperty('slash_command');

@@ -3,7 +3,6 @@
 // block ready for splicing into a compiled lock file.
 
 import {
-  SESSION_STATE_DIR,
   SAFE_XPIA_CONTENT,
   copilotCliDaemonCopyStepSentinel,
 } from './workflow-patch-patterns';
@@ -74,29 +73,6 @@ export function buildBranchEnclaveInstallSteps(indent: string, includeMain = fal
       `${scriptIndent}exec "\${NODE_BIN}" "\${WORKSPACE_PATH}/dist/cli.js" "\\$@"`,
       wrapper,
     );
-}
-
-// Builds the replacement step that copies session state from the AWF-managed
-// host path (populated via --session-state-dir) into the agent logs directory
-// so it is captured by the existing artifact upload step.
-export function buildCopySessionStateStep(indent: string): string {
-  const i = indent;
-  const ri = `${i}    `;
-  return (
-    `${i}- name: Copy Copilot session state files to logs\n` +
-    `${i}  if: always()\n` +
-    `${i}  continue-on-error: true\n` +
-    `${i}  run: |\n` +
-    `${ri}SESSION_STATE_SRC="${SESSION_STATE_DIR}"\n` +
-    `${ri}LOGS_DIR="/tmp/gh-aw/sandbox/agent/logs"\n` +
-    `${ri}if [ -d "$SESSION_STATE_SRC" ] && [ -n "$(ls -A "$SESSION_STATE_SRC" 2>/dev/null)" ]; then\n` +
-    `${ri}  mkdir -p "$LOGS_DIR/session-state"\n` +
-    `${ri}  cp -rp "$SESSION_STATE_SRC/." "$LOGS_DIR/session-state/"\n` +
-    `${ri}  echo "Copied session state to $LOGS_DIR/session-state"\n` +
-    `${ri}else\n` +
-    `${ri}  echo "No session state found at $SESSION_STATE_SRC"\n` +
-    `${ri}fi\n`
-  );
 }
 
 // Builds the replacement for the compiler-emitted "Copy Copilot CLI to

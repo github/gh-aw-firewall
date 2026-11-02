@@ -15,8 +15,6 @@ import {
   SESSION_STATE_DIR,
   legacyApiProxyLogsDirRegex,
   copilotModelOverrideRegex,
-  copySessionStateSentinel,
-  copySessionStateStepRegex,
   copilotCliDaemonCopyStepRegex,
   copilotCliDaemonCopyStepSentinel,
   compiledEngineIdRegex,
@@ -39,7 +37,6 @@ import {
 import {
   buildLocalInstallSteps,
   buildBranchEnclaveInstallSteps,
-  buildCopySessionStateStep,
   buildCopilotCliDaemonCopyStep,
   buildStripExecBitsStep,
   buildScanInjectionStep,
@@ -624,21 +621,6 @@ export function applyGeneralWorkflowPatches(
   }
 
   // Claude Code: no --ignore-scripts injection (needs postinstall for native binary)
-
-  // Replace the "Copy Copilot session state files to logs" step with an inline
-  // script that reads from the AWF-managed session-state path instead of
-  // $HOME/.copilot/session-state (which is empty when Copilot CLI ran inside
-  // the AWF Docker container).
-  if (!content.includes(copySessionStateSentinel)) {
-    const copyMatch = content.match(copySessionStateStepRegex);
-    if (copyMatch) {
-      const indent = copyMatch[1];
-      content = content.replace(copySessionStateStepRegex, buildCopySessionStateStep(indent));
-      log.push(`  Replaced 'Copy Copilot session state' step with AWF-path inline script`);
-    }
-  } else {
-    log.push(`  'Copy Copilot session state' step already updated`);
-  }
 
   // Rewrite the compiler-emitted "Copy Copilot CLI to daemon-visible path"
   // step (firewall + arc-dind) so it is gated on the compiled engine. gh-aw

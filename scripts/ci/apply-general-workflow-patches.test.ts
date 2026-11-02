@@ -17,6 +17,12 @@ const COMPILER_EMITTED_COPY_STEP =
   '          cp "$COPILOT_SRC" "${RUNNER_TEMP}/gh-aw/bin/copilot"\n' +
   '          chmod +x "${RUNNER_TEMP}/gh-aw/bin/copilot"\n';
 
+const COMPILER_EMITTED_SESSION_STATE_STEP =
+  '      - name: Copy Copilot session state files to logs\n' +
+  '        if: always()\n' +
+  '        continue-on-error: true\n' +
+  '        run: bash "${RUNNER_TEMP}/gh-aw/actions/copy_copilot_session_state.sh"\n';
+
 function lockFileWithEngine(engineId: string): string {
   return (
     'jobs:\n' +
@@ -27,6 +33,15 @@ function lockFileWithEngine(engineId: string): string {
     COMPILER_EMITTED_COPY_STEP
   );
 }
+
+describe('Copilot session-state collection', () => {
+  it('preserves the compiler-pinned copy helper', () => {
+    expect(applyGeneralWorkflowPatches(
+      COMPILER_EMITTED_SESSION_STATE_STEP,
+      '/tmp/workflows/pr-sous-chef.lock.yml',
+    ).content).toBe(COMPILER_EMITTED_SESSION_STATE_STEP);
+  });
+});
 
 describe('applyGeneralWorkflowPatches disabled admission outputs', () => {
   const compilerOutput =

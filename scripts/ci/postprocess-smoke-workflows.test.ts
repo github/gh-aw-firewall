@@ -23,7 +23,6 @@ import {
   sessionStateDirInjectionRegex,
   sessionStateDirConfigInjectionRegex,
   legacyApiProxyLogsDirRegex,
-  copySessionStateStepRegex,
   copilotCliDaemonCopyStepRegex,
   copilotCliDaemonCopyStepSentinel,
   copilotModelOverrideRegex,
@@ -34,10 +33,7 @@ import {
   assertCloudHypervisorSmokePrimaryRuntime,
   removeCopilotGithubCliPermission,
 } from './workflow-patch-patterns';
-import {
-  buildCopySessionStateStep,
-  buildCopilotCliDaemonCopyStep,
-} from './workflow-step-builders';
+import { buildCopilotCliDaemonCopyStep } from './workflow-step-builders';
 import { applyCodexWorkflowPatches } from './apply-codex-workflow-patches';
 
 
@@ -443,7 +439,7 @@ describe('codexConfigTomlHeredocRegex + CODEX_PROXY_ENV_KEY_REGEX', () => {
   });
 });
 
-// ── Session state dir injection and Copy step replacement tests ──────────────
+// ── Session state directory injection tests ─────────────────────────────────
 
 describe('sessionStateDirInjectionRegex', () => {
   beforeEach(() => {
@@ -555,51 +551,6 @@ describe('legacyApiProxyLogsDirRegex', () => {
   it('should not match already-updated api-proxy-logs path', () => {
     const input = 'LOG_DIR="/tmp/gh-aw/sandbox/firewall/logs/api-proxy-logs"';
     expect(legacyApiProxyLogsDirRegex.test(input)).toBe(false);
-  });
-});
-
-describe('copySessionStateStepRegex', () => {
-  const ORIGINAL_STEP =
-    '      - name: Copy Copilot session state files to logs\n' +
-    '        if: always()\n' +
-    '        continue-on-error: true\n' +
-    '        run: bash "${RUNNER_TEMP}/gh-aw/actions/copy_copilot_session_state.sh"\n';
-
-  it('should match the original compiler-generated step', () => {
-    expect(copySessionStateStepRegex.test(ORIGINAL_STEP)).toBe(true);
-  });
-
-  it('should capture indentation', () => {
-    const match = ORIGINAL_STEP.match(copySessionStateStepRegex);
-    expect(match).not.toBeNull();
-    expect(match![1]).toBe('      ');
-  });
-
-  it('should NOT match after replacement (sentinel check)', () => {
-    const replaced = buildCopySessionStateStep('      ');
-    expect(replaced).toContain('SESSION_STATE_SRC=');
-    expect(copySessionStateStepRegex.test(replaced)).toBe(false);
-  });
-});
-
-describe('buildCopySessionStateStep', () => {
-  it('should emit inline script reading from AWF session-state path', () => {
-    const result = buildCopySessionStateStep('      ');
-    expect(result).toContain(`SESSION_STATE_SRC="${SESSION_STATE_DIR}"`);
-    expect(result).toContain('LOGS_DIR="/tmp/gh-aw/sandbox/agent/logs"');
-    expect(result).toContain('cp -rp "$SESSION_STATE_SRC/." "$LOGS_DIR/session-state/"');
-  });
-
-  it('should use correct YAML indentation', () => {
-    const result = buildCopySessionStateStep('      ');
-    expect(result).toMatch(/^      - name: Copy Copilot session state files to logs\n/);
-    expect(result).toContain('        run: |\n');
-    expect(result).toContain('          SESSION_STATE_SRC=');
-  });
-
-  it('should be idempotent — sentinel is present in output', () => {
-    const result = buildCopySessionStateStep('      ');
-    expect(result).toContain('SESSION_STATE_SRC=');
   });
 });
 
