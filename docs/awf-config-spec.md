@@ -389,6 +389,7 @@ rejected before it is executed; the CLI proxy writes a
 points, configured limit, and remaining budget.
 
 - *(no config equivalent)* → `--reflect` *(CLI-only; starts AWF, queries the API proxy `/reflect` endpoint, and prints its JSON response instead of running a command; mutually exclusive with a command argument)*
+- *(no config equivalent)* → `--input-dir <path>` *(CLI-only; repeatable; each absolute sandbox-visible path must be a non-empty, readable directory before the command runs, otherwise the run fails closed; does not grant engine file scope)*
 - *(no config equivalent)* → `--capture-command-output <directory>` *(CLI-only; captures raw command stdout/stderr into a new absolute host-only directory outside agent-visible mounts; non-TTY Compose runtimes only; see `docs/protected-command-output.md`)*
 - *(no config equivalent)* → `--capture-command-output-max-bytes <bytes>` *(CLI-only; requires `--capture-command-output`; default and maximum 67108864)*
 - `platform.type` → *(config-only; maps to `AWF_PLATFORM_TYPE`)*
