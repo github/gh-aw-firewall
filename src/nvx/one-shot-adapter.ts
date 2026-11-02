@@ -539,8 +539,8 @@ export function validateNvxExecutionRequest(request: NvxOneShotExecutionRequest)
       ...mount.allowedPaths.map((value) => ['allowed path', value] as const),
       ...mount.writablePaths.map((value) => ['writable path', value] as const),
     ] as const) {
-      if (!path.isAbsolute(value) || value.includes('\0') || value.split('/').includes('..')) {
-        throw new Error(`NVX mount ${label} must be an absolute path without NUL or parent components`);
+      if (!path.isAbsolute(value) || value.includes('\0') || value.includes(',') || value.split('/').includes('..')) {
+        throw new Error(`NVX mount ${label} must be an absolute path without NUL, commas, or parent components`);
       }
     }
     if (mount.mode !== 'ro' && mount.mode !== 'rw') {
