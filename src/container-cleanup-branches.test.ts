@@ -129,12 +129,49 @@ describe('sanitizeDockerComposeYaml edge cases', () => {
       'utf8'
     );
     expect(sanitized).not.toContain('ghp_array');
-    expect(sanitized).toContain('keep_me');
-    // Entry without "=" should be preserved unchanged
-    expect(sanitized).toContain('NO_EQUALS_HERE');
+    expect(sanitized).not.toContain('keep_me');
+    expect(sanitized).toContain('NORMAL_VAR=[REDACTED]');
+    expect(sanitized).toContain('NO_EQUALS_HERE=[REDACTED]');
   });
 
-  it('redacts OTLP collector headers and endpoint user info in both environment forms', async () => {
+  it.each([
+    JSON.stringify([
+      { url: 'https://first-canary.example/v1/traces?ingest=endpoint-canary', headers: 'authorization=Bearer%20first-canary' },
+      { url: 'https://second-canary.example/v1/traces', headers: 'x-api-key=second-canary' },
+    ]),
+    '[{"headers":"malformed-canary"',
+  ])('redacts aggregate OTLP credentials in both diagnostic environment forms: %s', async endpoints => {
+    const raw = yaml.dump({
+      services: {
+        'api-proxy': {
+          environment: { GH_AW_OTLP_ENDPOINTS: endpoints, OTEL_SERVICE_NAME: 'keep-me' },
+        },
+        agent: {
+          environment: [`GH_AW_OTLP_ENDPOINTS=${endpoints}`, 'OTEL_SERVICE_NAME=keep-me'],
+        },
+      },
+    });
+    const composeFile = path.join(getDir(), 'docker-compose.yml');
+    fs.writeFileSync(composeFile, raw);
+
+    await collectDiagnosticLogs(getDir());
+
+    const sanitized = fs.readFileSync(path.join(getDir(), 'diagnostics', 'docker-compose.yml'), 'utf8');
+    expect(sanitized).not.toContain('canary');
+    expect(yaml.load(sanitized)).toEqual({
+      services: {
+        'api-proxy': {
+          environment: { GH_AW_OTLP_ENDPOINTS: '[REDACTED]', OTEL_SERVICE_NAME: '[REDACTED]' },
+        },
+        agent: {
+          environment: ['GH_AW_OTLP_ENDPOINTS=[REDACTED]', 'OTEL_SERVICE_NAME=[REDACTED]'],
+        },
+      },
+    });
+    expect(fs.readFileSync(composeFile, 'utf8')).toBe(raw);
+  });
+
+  it('redacts OTLP collector headers and entire endpoints in both environment forms', async () => {
     const raw = [
       'services:',
       '  router:',
@@ -143,10 +180,13 @@ describe('sanitizeDockerComposeYaml edge cases', () => {
       '      OTEL_EXPORTER_OTLP_HEADERS: authorization=Bearer%20shared-canary',
       '      OTEL_EXPORTER_OTLP_TRACES_HEADERS: x-traces=traces-canary',
       '      OTEL_EXPORTER_OTLP_METRICS_HEADERS: x-metrics=metrics-canary',
+      '      OTEL_EXPORTER_OTLP_LOGS_HEADERS: x-logs=logs-canary',
+      '      OTEL_EXPORTER_OTLP_LOGS_ENDPOINT: https://logs-canary@logs.example/v1/logs',
       '      OTEL_SERVICE_NAME: gh-aw-router-ci',
       '  other:',
       '    environment:',
       '      - AWF_ROUTER_OTEL_EXPORTER_OTLP_HEADERS=authorization=router-canary',
+      '      - AWF_ROUTER_OTEL_EXPORTER_OTLP_LOGS_HEADERS=authorization=router-logs-canary',
       '      - OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=https://id-canary@traces.example/v1/traces',
       '      - OTEL_SERVICE_NAME=keep_me',
     ].join('\n');
@@ -161,25 +201,28 @@ describe('sanitizeDockerComposeYaml edge cases', () => {
       services: {
         router: {
           environment: {
-            OTEL_EXPORTER_OTLP_ENDPOINT: 'http://[REDACTED]@otel-collector:4318',
+            OTEL_EXPORTER_OTLP_ENDPOINT: '[REDACTED]',
             OTEL_EXPORTER_OTLP_HEADERS: '[REDACTED]',
             OTEL_EXPORTER_OTLP_TRACES_HEADERS: '[REDACTED]',
             OTEL_EXPORTER_OTLP_METRICS_HEADERS: '[REDACTED]',
-            OTEL_SERVICE_NAME: 'gh-aw-router-ci',
+            OTEL_EXPORTER_OTLP_LOGS_HEADERS: '[REDACTED]',
+            OTEL_EXPORTER_OTLP_LOGS_ENDPOINT: '[REDACTED]',
+            OTEL_SERVICE_NAME: '[REDACTED]',
           },
         },
         other: {
           environment: [
             'AWF_ROUTER_OTEL_EXPORTER_OTLP_HEADERS=[REDACTED]',
-            'OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=https://[REDACTED]@traces.example/v1/traces',
-            'OTEL_SERVICE_NAME=keep_me',
+            'AWF_ROUTER_OTEL_EXPORTER_OTLP_LOGS_HEADERS=[REDACTED]',
+            'OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=[REDACTED]',
+            'OTEL_SERVICE_NAME=[REDACTED]',
           ],
         },
       },
     });
   });
 
-  it('redacts the user info of OTLP endpoints with leading whitespace', async () => {
+  it('redacts entire OTLP endpoints with leading whitespace', async () => {
     const raw = [
       'services:',
       '  router:',
@@ -198,8 +241,8 @@ describe('sanitizeDockerComposeYaml edge cases', () => {
       services: {
         router: {
           environment: {
-            OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: ' \u00a0http://[REDACTED]@traces:4318/v1/traces',
-            OTEL_EXPORTER_OTLP_METRICS_ENDPOINT: '\u0085\thttps://[REDACTED]@metrics:4318/v1/metrics',
+            OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: '[REDACTED]',
+            OTEL_EXPORTER_OTLP_METRICS_ENDPOINT: '[REDACTED]',
           },
         },
       },
@@ -222,7 +265,7 @@ describe('sanitizeDockerComposeYaml edge cases', () => {
     );
     expect(sanitized).not.toContain('a=b=c');
     expect(sanitized).toContain('API_KEY=[REDACTED]');
-    expect(sanitized).toContain('NORMAL_VAR=keep_me');
+    expect(sanitized).toContain('NORMAL_VAR=[REDACTED]');
   });
 });
 

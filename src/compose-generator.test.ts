@@ -1,11 +1,13 @@
 import { generateDockerCompose, redactDockerComposeSecrets } from './compose-generator';
+import { sanitizeDockerComposeYaml } from './compose-sanitizer';
 import { ACT_PRESET_BASE_IMAGE } from './host-identity';
-import { WrapperConfig } from './types';
+import { DockerComposeConfig, WrapperConfig } from './types';
 import { baseConfig, mockNetworkConfig } from './test-helpers/docker-test-fixtures.test-utils';
 import * as crypto from 'crypto';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
+import * as yaml from 'js-yaml';
 
 // Create mock functions (must remain per-file — jest.mock() is hoisted before imports)
 
@@ -51,6 +53,109 @@ describe('generateDockerCompose', () => {
   afterEach(() => {
     fs.rmSync(mockConfig.workDir, { recursive: true, force: true });
   });
+
+    it('redacts aggregate OTLP credentials and logs settings in audit snapshots without mutating runtime config', () => {
+      const endpoints = JSON.stringify([
+        { url: 'https://first-canary.example/v1/traces?ingest=endpoint-canary', headers: 'authorization=Bearer%20first-canary' },
+        { url: 'https://second-canary.example/v1/traces', headers: 'x-api-key=second-canary' },
+      ]);
+      const environment = {
+        GH_AW_OTLP_ENDPOINTS: endpoints,
+        OTEL_EXPORTER_OTLP_LOGS_HEADERS: 'authorization=logs-canary',
+        OTEL_EXPORTER_OTLP_LOGS_ENDPOINT: 'https://logs-canary@collector.example/v1/logs',
+        GH_TOKEN: 'token-canary',
+        OTEL_SERVICE_NAME: 'keep-me',
+      };
+      const compose: DockerComposeConfig = {
+        services: Object.fromEntries(
+          ['api-proxy', 'router', 'agent'].map(name => [
+            name, { container_name: name, environment: { ...environment } },
+          ]),
+        ),
+        networks: {},
+      };
+      const original = JSON.stringify(compose);
+
+      const redacted = redactDockerComposeSecrets(compose);
+
+      expect(yaml.dump(redacted, { lineWidth: -1 })).not.toContain('canary');
+      for (const service of Object.values(redacted.services)) {
+        expect(service.environment).toEqual({
+          GH_AW_OTLP_ENDPOINTS: '[REDACTED]',
+          OTEL_EXPORTER_OTLP_LOGS_HEADERS: '[REDACTED]',
+          OTEL_EXPORTER_OTLP_LOGS_ENDPOINT: '[REDACTED]',
+          GH_TOKEN: '[REDACTED]',
+          OTEL_SERVICE_NAME: '[REDACTED]',
+        });
+      }
+      expect(JSON.stringify(compose)).toBe(original);
+    });
+
+    it('hides forwarded and generated environment values after the real environment builders run', () => {
+      const savedEnv = process.env;
+      const endpoints = '[{"url":"https://collector-canary.example","headers":"authorization=aggregate-canary"}]';
+      const squidConfig = 'acl private_endpoint dstdomain private-canary.example';
+      const envFile = path.join(mockConfig.workDir, 'agent.env');
+      fs.writeFileSync(envFile, 'STORAGE_CONNECTION_STRING=Account=file-canary\n');
+      try {
+        process.env = {
+          ...savedEnv,
+          GH_AW_OTLP_ENDPOINTS: endpoints,
+          OTEL_EXPORTER_OTLP_LOGS_HEADERS: 'authorization=logs-canary',
+          OTEL_EXPORTER_OTLP_LOGS_ENDPOINT: 'https://collector.example/ingest/path-canary?auth=query-canary',
+          DATABASE_URL: 'postgresql://db.example/database?password=database-canary',
+          SERVICE_PASSWORD: 'password-canary',
+          SERVICE_AUTH: 'auth-canary',
+          SERVICE_PAT: 'pat-canary',
+          SERVICE_CREDENTIALS: 'credentials-canary',
+          PRIVATE_BASE_URL: 'https://private-canary.example/v1',
+        };
+        const compose = generateDockerCompose({
+          ...mockConfig,
+          enableApiProxy: true,
+          envAll: true,
+          additionalEnv: { WEBHOOK_URL: 'https://hook.example/flag-canary' },
+          envFile,
+          openaiBaseUrlEnv: 'PRIVATE_BASE_URL',
+        }, { ...mockNetworkConfig, proxyIp: '172.30.0.30' }, undefined, squidConfig);
+        const original = JSON.stringify(compose);
+
+        expect(compose.services['api-proxy'].environment).toMatchObject({
+          GH_AW_OTLP_ENDPOINTS: endpoints,
+          OPENAI_API_TARGET: 'private-canary.example',
+          AWF_SENSITIVE_OPENAI_TARGET: 'private-canary.example',
+        });
+        expect(compose.services.agent.environment).toMatchObject({
+          DATABASE_URL: process.env.DATABASE_URL,
+          WEBHOOK_URL: 'https://hook.example/flag-canary',
+          STORAGE_CONNECTION_STRING: 'Account=file-canary',
+          SERVICE_PASSWORD: 'password-canary',
+          SERVICE_AUTH: 'auth-canary',
+          SERVICE_PAT: 'pat-canary',
+          SERVICE_CREDENTIALS: 'credentials-canary',
+          OTEL_EXPORTER_OTLP_LOGS_HEADERS: 'authorization=logs-canary',
+          OTEL_EXPORTER_OTLP_LOGS_ENDPOINT: process.env.OTEL_EXPORTER_OTLP_LOGS_ENDPOINT,
+        });
+        const encodedSquidConfig = Buffer.from(squidConfig).toString('base64');
+        expect(compose.services['squid-proxy'].environment?.AWF_SQUID_CONFIG_B64).toBe(encodedSquidConfig);
+
+        const audit = redactDockerComposeSecrets(compose);
+        const diagnostics = sanitizeDockerComposeYaml(yaml.dump(compose));
+        expect(yaml.load(diagnostics)).toEqual(audit);
+        for (const snapshot of [yaml.dump(audit), diagnostics]) {
+          expect(snapshot).not.toContain('canary');
+          expect(snapshot).not.toContain(encodedSquidConfig);
+        }
+        expect(JSON.stringify(compose)).toBe(original);
+        for (const [name, service] of Object.entries(compose.services)) {
+          expect({ ...audit.services[name], environment: service.environment }).toEqual(service);
+        }
+        expect(audit.networks).toEqual(compose.networks);
+        expect(audit.volumes).toEqual(compose.volumes);
+      } finally {
+        process.env = savedEnv;
+      }
+    });
 
     it('should generate docker-compose config with GHCR images by default', () => {
       const result = generateDockerCompose(mockConfig, mockNetworkConfig);
@@ -337,24 +442,24 @@ describe('generateDockerCompose', () => {
         });
 
         expect(redactDockerComposeSecrets(compose).services.router.environment).toEqual({
-          OTEL_EXPORTER_OTLP_ENDPOINT: ' http://[REDACTED]@otel-collector:4318',
+          OTEL_EXPORTER_OTLP_ENDPOINT: '[REDACTED]',
           OTEL_EXPORTER_OTLP_HEADERS: '[REDACTED]',
         });
       });
 
-      it('redacts the user info of endpoints with leading whitespace in the audit snapshot', () => {
+      it('redacts entire endpoints with leading whitespace in the audit snapshot', () => {
         process.env.AWF_ROUTER_OTEL_EXPORTER_OTLP_TRACES_ENDPOINT = ' \u00a0http://user:pw-canary@traces:4318/v1/traces';
         process.env.AWF_ROUTER_OTEL_EXPORTER_OTLP_METRICS_ENDPOINT = '\u0085\thttps://id-canary@metrics:4318/v1/metrics';
 
         const redacted = redactDockerComposeSecrets(generateRouted());
 
         expect(redacted.services.router.environment).toEqual({
-          OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: ' \u00a0http://[REDACTED]@traces:4318/v1/traces',
-          OTEL_EXPORTER_OTLP_METRICS_ENDPOINT: '\u0085\thttps://[REDACTED]@metrics:4318/v1/metrics',
+          OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: '[REDACTED]',
+          OTEL_EXPORTER_OTLP_METRICS_ENDPOINT: '[REDACTED]',
         });
       });
 
-      it('redacts router collector headers and endpoint user info in the audit snapshot', () => {
+      it('redacts router collector headers and entire endpoints in the audit snapshot', () => {
         process.env.AWF_ROUTER_OTEL_EXPORTER_OTLP_ENDPOINT = 'http://user:pw-canary@otel-collector:4318';
         process.env.AWF_ROUTER_OTEL_EXPORTER_OTLP_HEADERS = 'authorization=Bearer%20router-canary';
         process.env.AWF_ROUTER_OTEL_EXPORTER_OTLP_TRACES_HEADERS = 'x-traces=traces-canary';
@@ -365,11 +470,11 @@ describe('generateDockerCompose', () => {
         const redacted = redactDockerComposeSecrets(compose);
 
         expect(redacted.services.router.environment).toEqual({
-          OTEL_EXPORTER_OTLP_ENDPOINT: 'http://[REDACTED]@otel-collector:4318',
+          OTEL_EXPORTER_OTLP_ENDPOINT: '[REDACTED]',
           OTEL_EXPORTER_OTLP_HEADERS: '[REDACTED]',
           OTEL_EXPORTER_OTLP_TRACES_HEADERS: '[REDACTED]',
           OTEL_EXPORTER_OTLP_METRICS_HEADERS: '[REDACTED]',
-          OTEL_SERVICE_NAME: 'gh-aw-router-ci',
+          OTEL_SERVICE_NAME: '[REDACTED]',
         });
         expect(JSON.stringify(redacted)).not.toMatch(/canary/);
         // The compose file that runs the router keeps the real values.

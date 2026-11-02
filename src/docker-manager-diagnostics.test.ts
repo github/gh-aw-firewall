@@ -60,7 +60,8 @@ describe('docker-manager diagnostics', () => {
       expect(sanitizedCompose).not.toContain('ghp_abc123');
       expect(sanitizedCompose).not.toContain('mykey');
       expect(sanitizedCompose).not.toContain('secretvalue');
-      expect(sanitizedCompose).toContain('NORMAL_VAR: normalvalue');
+      expect(sanitizedCompose).not.toContain('normalvalue');
+      expect(sanitizedCompose).toContain('NORMAL_VAR:');
     });
 
     it('should not write log file when docker logs returns empty output', async () => {
@@ -138,7 +139,8 @@ describe('docker-manager diagnostics', () => {
       expect(sanitized).not.toContain('ghp_lowercase');
       expect(sanitized).not.toContain('mixedcase_value');
       expect(sanitized).not.toContain('uppercase_secret');
-      expect(sanitized).toContain('not_sensitive: keepme');
+      expect(sanitized).not.toContain('keepme');
+      expect(sanitized).toContain('not_sensitive:');
     });
 
     it('should never copy the model router\'s logs into diagnostics', async () => {

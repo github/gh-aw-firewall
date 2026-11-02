@@ -1,7 +1,6 @@
 import {
   buildRouterOtelEnv,
   isRouterOtelHostEnvVar,
-  redactOtlpEnvValue,
 } from './router-otel-env';
 
 const SIGNAL_SETTINGS = ['ENDPOINT', 'PROTOCOL', 'HEADERS', 'TIMEOUT', 'CERTIFICATE'];
@@ -70,53 +69,5 @@ describe('router OpenTelemetry settings', () => {
       OTEL_SERVICE_NAME: 'awf-api-proxy',
       GH_AW_OTLP_ENDPOINTS: '[{"url":"https://external.example"}]',
     })).toEqual({});
-  });
-
-  describe('redactOtlpEnvValue', () => {
-    it.each([
-      'OTEL_EXPORTER_OTLP_HEADERS',
-      'OTEL_EXPORTER_OTLP_TRACES_HEADERS',
-      'OTEL_EXPORTER_OTLP_METRICS_HEADERS',
-      'AWF_ROUTER_OTEL_EXPORTER_OTLP_HEADERS',
-      'AWF_ROUTER_OTEL_EXPORTER_OTLP_TRACES_HEADERS',
-      'AWF_ROUTER_OTEL_EXPORTER_OTLP_METRICS_HEADERS',
-    ])('redacts %s', name => {
-      expect(redactOtlpEnvValue(name, 'authorization=Bearer%20secret')).toBe('[REDACTED]');
-    });
-
-    it.each([
-      'OTEL_EXPORTER_OTLP_ENDPOINT',
-      'OTEL_EXPORTER_OTLP_TRACES_ENDPOINT',
-      'OTEL_EXPORTER_OTLP_METRICS_ENDPOINT',
-      'AWF_ROUTER_OTEL_EXPORTER_OTLP_ENDPOINT',
-      'AWF_ROUTER_OTEL_EXPORTER_OTLP_TRACES_ENDPOINT',
-      'AWF_ROUTER_OTEL_EXPORTER_OTLP_METRICS_ENDPOINT',
-    ])('redacts the user info of %s', name => {
-      expect(redactOtlpEnvValue(name, 'https://user:p%40ss@collector:4318/otlp?x=1'))
-        .toBe('https://[REDACTED]@collector:4318/otlp?x=1');
-      expect(redactOtlpEnvValue(name, 'http://collector:4318/path@v1')).toBe('http://collector:4318/path@v1');
-    });
-
-    // Every leading character Go's strings.TrimSpace removes, as the router trims settings.
-    it.each([
-      ' ', '\t', '\n', '\v', '\f', '\r', '\u0085', '\u00a0', '\u1680', '\u2000', '\u200a',
-      '\u2028', '\u2029', '\u202f', '\u205f', '\u3000',
-    ].map(space => [JSON.stringify(space), space]))('redacts the user info of an endpoint padded with %s', (_label, space) => {
-      const endpoint = `${space}${space}HTTPS://user-canary:pw-canary@collector:4318/v1`;
-      expect(redactOtlpEnvValue('AWF_ROUTER_OTEL_EXPORTER_OTLP_ENDPOINT', endpoint))
-        .toBe(`${space}${space}HTTPS://[REDACTED]@collector:4318/v1`);
-    });
-
-    it('redacts header values of any type and leaves other non-string values unchanged', () => {
-      expect(redactOtlpEnvValue('OTEL_EXPORTER_OTLP_HEADERS', 12345)).toBe('[REDACTED]');
-      expect(redactOtlpEnvValue('AWF_ROUTER_OTEL_EXPORTER_OTLP_TRACES_HEADERS', null)).toBe('[REDACTED]');
-      expect(redactOtlpEnvValue('OTEL_EXPORTER_OTLP_ENDPOINT', null)).toBeNull();
-      expect(redactOtlpEnvValue('OTEL_METRIC_EXPORT_INTERVAL', 1000)).toBe(1000);
-    });
-
-    it('leaves other settings unchanged', () => {
-      expect(redactOtlpEnvValue('OTEL_SERVICE_NAME', 'user:pw@x')).toBe('user:pw@x');
-      expect(redactOtlpEnvValue('OTEL_EXPORTER_OTLP_PROTOCOL', 'http/protobuf')).toBe('http/protobuf');
-    });
   });
 });

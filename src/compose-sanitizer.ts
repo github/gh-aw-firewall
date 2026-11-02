@@ -1,43 +1,39 @@
 import * as yaml from 'js-yaml';
-import { redactOtlpEnvValue } from './services/router-otel-env';
 
-function isSensitiveComposeEnvVar(name: string): boolean {
-  const upperName = name.toUpperCase();
-  return (
-    /(TOKEN|KEY|SECRET)/i.test(name) ||
-    upperName === 'AWF_SQUID_CONFIG_B64' ||
-    upperName === 'ACTIONS_ID_TOKEN_REQUEST_URL'
-  );
+// Keep only bounded control values; a safe-looking name alone does not make a value safe.
+const SAFE_COMPOSE_ENV_VALUES = new Map<string, readonly string[]>([
+  ['AWF_CHROOT_ENABLED', ['true', 'false']],
+  ['AWF_DOH_ENABLED', ['true', 'false']],
+  ['AWF_SSL_BUMP_ENABLED', ['true', 'false']],
+  ['OTEL_SDK_DISABLED', ['true', 'false']],
+  ['OTEL_EXPORTER_OTLP_PROTOCOL', ['grpc', 'http/protobuf', 'http/json']],
+  ['OTEL_EXPORTER_OTLP_TRACES_PROTOCOL', ['grpc', 'http/protobuf', 'http/json']],
+  ['OTEL_EXPORTER_OTLP_METRICS_PROTOCOL', ['grpc', 'http/protobuf', 'http/json']],
+  ['OTEL_EXPORTER_OTLP_LOGS_PROTOCOL', ['grpc', 'http/protobuf', 'http/json']],
+]);
+
+function redactComposeEnvValue(name: string, value: unknown): string {
+  return typeof value === 'string' && SAFE_COMPOSE_ENV_VALUES.get(name)?.includes(value)
+    ? value : '[REDACTED]';
 }
 
-function sanitizeComposeEnvValue(name: string, value: unknown): unknown {
-  return isSensitiveComposeEnvVar(name) ? '[REDACTED]' : redactOtlpEnvValue(name, value);
-}
-
-function sanitizeComposeEnvironment(environment: unknown): void {
+/** Only use on snapshot copies; runtime configuration must retain its original values. */
+export function redactComposeServiceEnvironment(service: { environment?: unknown }): void {
+  const environment = service.environment;
   if (Array.isArray(environment)) {
-    for (let i = 0; i < environment.length; i++) {
-      const entry = environment[i];
-      if (typeof entry !== 'string') {
-        continue;
-      }
-
+    service.environment = environment.map(entry => {
+      if (typeof entry !== 'string') return '[REDACTED]';
       const separatorIndex = entry.indexOf('=');
-      if (separatorIndex === -1) {
-        continue;
-      }
-
-      const key = entry.slice(0, separatorIndex);
-      environment[i] = `${key}=${sanitizeComposeEnvValue(key, entry.slice(separatorIndex + 1))}`;
-    }
-    return;
-  }
-
-  if (environment && typeof environment === 'object') {
-    const values = environment as Record<string, unknown>;
-    for (const key of Object.keys(values)) {
-      values[key] = sanitizeComposeEnvValue(key, values[key]);
-    }
+      const key = separatorIndex === -1 ? entry : entry.slice(0, separatorIndex);
+      const value = separatorIndex === -1 ? undefined : entry.slice(separatorIndex + 1);
+      return `${key}=${redactComposeEnvValue(key, value)}`;
+    });
+  } else if (environment && typeof environment === 'object') {
+    service.environment = Object.fromEntries(
+      Object.entries(environment).map(([key, value]) => [key, redactComposeEnvValue(key, value)]),
+    );
+  } else if ('environment' in service) {
+    service.environment = '[REDACTED]';
   }
 }
 
@@ -58,10 +54,7 @@ export function sanitizeDockerComposeYaml(raw: string): string {
       continue;
     }
 
-    const serviceConfig = service as Record<string, unknown>;
-    if ('environment' in serviceConfig) {
-      sanitizeComposeEnvironment(serviceConfig.environment);
-    }
+    redactComposeServiceEnvironment(service as Record<string, unknown>);
   }
 
   return yaml.dump(compose, { lineWidth: -1 });

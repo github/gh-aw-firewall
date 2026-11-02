@@ -304,6 +304,27 @@ The following OTEL variables often carry bearer tokens or other credentials and 
 | `OTEL_EXPORTER_OTLP_METRICS_HEADERS` | Per-signal auth headers |
 | `OTEL_EXPORTER_OTLP_LOGS_HEADERS` | Per-signal auth headers |
 
+### Security: compose snapshots
+
+Audit and diagnostic compose snapshots hide environment values **by default**, using
+`[REDACTED]`. One shared policy covers both snapshots, including `GH_AW_OTLP_ENDPOINTS`,
+OTLP headers, complete endpoint URLs, and secrets in ordinary or newly introduced variables.
+
+A small allowlist preserves only `true`/`false` for `AWF_CHROOT_ENABLED`, `AWF_DOH_ENABLED`,
+`AWF_SSL_BUMP_ENABLED`, and `OTEL_SDK_DISABLED`, and `grpc`/`http/protobuf`/`http/json` for
+global and per-signal `OTEL_EXPORTER_OTLP_*PROTOCOL` settings. Unexpected values under
+these names are still hidden. Free-form identifiers, addresses, and paths are not exempt.
+
+Variable names, service definitions, images, mounts, and networks remain available for
+diagnosis, but other environment values previously visible in snapshots are no longer available.
+This is snapshot redaction, not a change to environment forwarding or network policy.
+It does not sanitize arbitrary credentials embedded outside the environment section.
+
+The runtime compose file retains the original values so container startup and telemetry
+export work unchanged; snapshots are not suitable for replay. Do not upload the runtime
+file. Upgrading does not sanitize previously uploaded artifacts. If collector credentials
+or job secrets were exposed, revoke or rotate them and remove the affected artifacts.
+
 ### Network requirements
 
 - **OTLP/HTTP (`http/protobuf`, default):** Traffic goes through the Squid proxy on ports 80/443. The collector domain is [auto-allowed](#automatic-otlp-endpoint-allowlisting) from `OTEL_EXPORTER_OTLP_ENDPOINT` / `_TRACES_ENDPOINT` / `_METRICS_ENDPOINT` / `_LOGS_ENDPOINT`, so no `--allow-domains` flag is normally required:

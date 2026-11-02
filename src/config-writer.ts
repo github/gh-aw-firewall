@@ -457,8 +457,8 @@ function writeAuditArtifacts(
     redactSensitiveValues(squidConfig, sensitiveEndpointForms)
   );
 
-  // Save redacted docker-compose.yml (strip env vars that may contain secrets)
-  const redactedCompose = redactDockerComposeSecrets(dockerCompose, sensitiveEndpointForms);
+  // Save a default-redacted snapshot, leaving runtime config intact.
+  const redactedCompose = redactDockerComposeSecrets(dockerCompose);
   writeAuditArtifact(
     auditDir,
     'docker-compose.redacted.yml',

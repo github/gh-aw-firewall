@@ -284,7 +284,7 @@ it('redacts broker/bootstrap endpoints from audit compose values', () => {
   const compose = { services: { 'api-proxy': {
     environment: buildApiProxyBaseEnv(config, network),
   } } };
-  const serialized = JSON.stringify(redactDockerComposeSecrets(compose as never, copilotBrokerSensitiveValues(config)));
+  const serialized = JSON.stringify(redactDockerComposeSecrets(compose as never));
   expect(serialized).not.toContain(runtime.GH_AW_TOKEN_BROKER_URL);
   expect(serialized).not.toContain(runtime.ACTIONS_ID_TOKEN_REQUEST_URL);
   expect(serialized).not.toContain(runtime.ACTIONS_ID_TOKEN_REQUEST_TOKEN);
