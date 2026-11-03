@@ -42,6 +42,14 @@ steps:
         const fs = require('fs');
         const dir = '/tmp/gh-aw/runtime-optimization';
         fs.mkdirSync(dir, { recursive: true });
+        const sanitizeIssueBodyForContext = (value) => {
+          if (typeof value !== 'string') return null;
+          const noCodeFences = value.replace(/```[\s\S]*?```/g, ' ');
+          const noHtmlComments = noCodeFences.replace(/<!--[\s\S]*?-->/g, ' ');
+          const noMdLinks = noHtmlComments.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '$1');
+          const collapsed = noMdLinks.replace(/\s+/g, ' ').trim();
+          return collapsed.slice(0, 2000);
+        };
         const reports = await github.paginate(github.rest.issues.listForRepo, {
           ...context.repo, labels: 'workflow-runtime-report', state: 'all',
           sort: 'created', direction: 'desc', per_page: 100,
@@ -59,9 +67,10 @@ steps:
         fs.writeFileSync(`${dir}/context.json`, JSON.stringify({
           triggering_audit_run_id: auditRun?.id ?? null,
           report: report ? { number: report.number, url: report.html_url,
-            created_at: report.created_at, body: report.body } : null,
+            created_at: report.created_at, body_excerpt: sanitizeIssueBodyForContext(report.body) } : null,
           open_recommendations: open.filter(issue => !issue.pull_request).map(issue => ({
-            number: issue.number, url: issue.html_url, title: issue.title, body: issue.body,
+            number: issue.number, url: issue.html_url, title: issue.title,
+            body_excerpt: sanitizeIssueBodyForContext(issue.body),
           })),
         }));
 ---
