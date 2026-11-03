@@ -391,7 +391,7 @@ class CloudHypervisorRuntimeBackend implements ExternalAgentRuntimeBackend {
       requestId, argv: ['/bin/sh', '-lc', command],
       env: this.environment, cwd: CLOUD_HYPERVISOR_GUEST_WORKSPACE,
       ...this.identity, timeoutMs: 10_000, tty: false,
-      stdout: stdout.stream, stderr: stderr.stream,
+      stdout: stdout.stream, stderr: stderr.stream, auditOutput: false,
     });
     this.activeExecution = { requestId, promise };
     try {

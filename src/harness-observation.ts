@@ -4,6 +4,7 @@ import * as path from 'path';
 import type { WrapperConfig } from './types';
 import { resolveLogPaths } from './log-paths';
 import { writeFileNoFollow } from './fs-utils';
+import { resolveRunnerVisibleHostPath } from './services/host-path-prefix';
 import { logger } from './logger';
 import {
   HarnessContext, HarnessObservationReport, HarnessProbe,
@@ -37,7 +38,10 @@ export function harnessProxyEnvironment(config: WrapperConfig): Record<string, s
 
 function publish(config: WrapperConfig, report: HarnessObservationReport): void {
   if (!config.enableApiProxy) return;
-  const filename = path.join(resolveLogPaths(config).apiProxyLogs, OBSERVATION_FILE);
+  const apiProxyLogs = resolveRunnerVisibleHostPath(
+    resolveLogPaths(config).apiProxyLogs, config.dockerHostPathPrefix,
+  );
+  const filename = path.join(apiProxyLogs, OBSERVATION_FILE);
   const temporary = `${filename}.${randomUUID()}.tmp`;
   try {
     writeFileNoFollow(temporary, `${JSON.stringify(report)}\n`, 0o644);

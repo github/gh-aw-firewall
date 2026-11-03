@@ -635,7 +635,7 @@ export async function execInSandbox(
   try {
     const result = await execa('sbx', args, {
       env: sanitizeEnvForSbx(),
-      stdio: options?.captureOutput ? ['ignore', 'pipe', 'pipe'] : ['ignore', 'inherit', 'inherit'],
+      stdio: options?.captureOutput ? ['ignore', 'pipe', 'ignore'] : ['ignore', 'inherit', 'inherit'],
       ...(options?.captureOutput ? { maxBuffer: 4096, stripFinalNewline: false } : {}),
       reject: options?.captureOutput === true,
       timeout: options?.timeoutMinutes ? options.timeoutMinutes * 60 * 1000 : undefined,

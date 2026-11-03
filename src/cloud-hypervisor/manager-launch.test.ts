@@ -468,6 +468,19 @@ import {
       gid: 1000,
     })).resolves.toEqual(expect.objectContaining({ exitCode: 0 }));
     const forwardedRequest = (guestClient.execute as jest.Mock).mock.calls[0][0];
+    await manager.execute({
+      requestId: 'internal-probe',
+      argv: ['true'],
+      env: {},
+      cwd: '/workspace',
+      uid: 1000,
+      gid: 1000,
+      auditOutput: false,
+    });
+    const internalRequest = (guestClient.execute as jest.Mock).mock.calls[1][0];
+    expect(internalRequest).not.toHaveProperty('auditOutput');
+    expect(internalRequest).not.toHaveProperty('rawStdout');
+    expect(internalRequest).not.toHaveProperty('rawStderr');
     const rawGuestStdout = Buffer.concat([
       Buffer.from('discarded prefix'),
       Buffer.alloc(1024 * 1024, 0x7a),

@@ -194,6 +194,7 @@ describe('Cloud Hypervisor runtime backend', () => {
     expect(probe).toMatchObject({
       argv: ['/bin/sh', '-lc', 'probe'], timeoutMs: 10_000,
       cwd: execution.cwd, uid: execution.uid, gid: execution.gid, tty: false,
+      auditOutput: false,
     });
     expect(probe.env).toBe(execution.env);
     expect((deps.stderr as PassThrough).read()).toBeNull();

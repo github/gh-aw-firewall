@@ -52,7 +52,7 @@ function parseProbe(context, result) {
     return unavailable(context, 'probe_output_invalid');
   }
   const patterns = {
-    'copilot-cli': new RegExp(`^(?:GitHub Copilot CLI |copilot )?v?(${VERSION})$`),
+    'copilot-cli': new RegExp(`^(?:GitHub Copilot CLI |copilot )?v?(${VERSION})\\.?$`),
     'claude-code': new RegExp(`^(${VERSION}) \\(Claude Code\\)$`),
     'codex-cli': new RegExp(`^codex-cli (${VERSION})$`),
   };

@@ -16,10 +16,13 @@ import { runMainWorkflow, WorkflowDependencies } from './cli-workflow';
 import { validateCopilotModel } from './copilot-model';
 import * as copilotModels from './copilot-model';
 import { validateCopilotModelOption } from './commands/validators/api-proxy-validator';
+import { resolveLogPaths } from './log-paths';
+import { resolveRunnerVisibleHostPath } from './services/host-path-prefix';
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
-const { pinHarnessObservation } = require('../containers/api-proxy/harness-observation') as {
+const { pinHarnessObservation, readHarnessObservation } = require('../containers/api-proxy/harness-observation') as {
   pinHarnessObservation(snapshot: EligibilitySnapshot): EligibilitySnapshot;
+  readHarnessObservation(): HarnessObservationReport | undefined;
 };
 
 const scope = { provider: 'copilot', channel: 'copilot-api', deployment: 'fixture' };
@@ -36,6 +39,7 @@ const result = (version = '1.2.3') => ({ exitCode: 0, stdout: `/guest/bin/copilo
 
 describe('actual-environment harness observations', () => {
   let directory: string;
+  let translatedLogsDirectory: string | undefined;
   let config: WrapperConfig;
   const savedEnv = { ...process.env };
   beforeEach(() => {
@@ -53,12 +57,19 @@ describe('actual-environment harness observations', () => {
       if (savedEnv[key] === undefined) delete process.env[key];
       else process.env[key] = savedEnv[key];
     }
+    if (translatedLogsDirectory) fs.rmSync(translatedLogsDirectory, { recursive: true, force: true });
     fs.rmSync(directory, { recursive: true, force: true });
   });
-  function report(): HarnessObservationReport {
-    return JSON.parse(fs.readFileSync(path.join(directory, 'api-proxy-logs/harness-observation.json'), 'utf8'));
+  function observationPath(): string {
+    const apiProxyLogs = resolveRunnerVisibleHostPath(
+      resolveLogPaths(config).apiProxyLogs, config.dockerHostPathPrefix,
+    );
+    return path.join(apiProxyLogs, 'harness-observation.json');
   }
-  function connectProxy() {
+  function report(): HarnessObservationReport {
+    return JSON.parse(fs.readFileSync(observationPath(), 'utf8'));
+  }
+  function connectProxy(trust: { uid?: number; mode?: number } = {}) {
     Object.assign(process.env, harnessProxyEnvironment(config));
     const open = fs.openSync;
     const fstat = fs.fstatSync;
@@ -66,14 +77,17 @@ describe('actual-environment harness observations', () => {
     jest.spyOn(fs, 'openSync').mockImplementation((filename, flags, mode) => {
       const observation = filename === '/var/log/api-proxy/harness-observation.json';
       const fd = open(observation
-        ? path.join(directory, 'api-proxy-logs/harness-observation.json') : filename, flags, mode);
+        ? observationPath() : filename, flags, mode);
       if (observation) fixtureStat = fstat(fd);
       return fd;
     });
     jest.spyOn(fs, 'fstatSync').mockImplementation(fd => {
       const stat = fstat(fd);
       // Capture each atomic replacement, but simulate root ownership only for the fixture.
-      if (fixtureStat && stat.dev === fixtureStat.dev && stat.ino === fixtureStat.ino) stat.uid = 0;
+      if (fixtureStat && stat.dev === fixtureStat.dev && stat.ino === fixtureStat.ino) {
+        stat.uid = 'uid' in trust ? trust.uid as number : 0;
+        if (trust.mode !== undefined) stat.mode = (stat.mode & ~0o7777) | trust.mode;
+      }
       return stat;
     });
   }
@@ -97,6 +111,7 @@ describe('actual-environment harness observations', () => {
   });
   it.each([
     ['copilot', 'copilot-cli', 'GitHub Copilot CLI v1.2.3', '1.2.3'],
+    ['copilot', 'copilot-cli', 'GitHub Copilot CLI 1.0.3.', '1.0.3'],
     ['claude', 'claude-code', '2.1.3 (Claude Code)', '2.1.3'],
     ['codex', 'codex-cli', 'codex-cli 0.89.0', '0.89.0'],
     ['copilot', 'copilot-cli', '1.2.3-rc.2+fixture', '1.2.3-rc.2+fixture'],
@@ -174,12 +189,43 @@ describe('actual-environment harness observations', () => {
     expect(fs.readdirSync(path.join(directory, 'api-proxy-logs'))).toEqual(['harness-observation.json']);
   });
 
+  it('publishes observations through the runner-visible translated log mount', async () => {
+    config.proxyLogsDir = path.join('/outside', path.basename(directory));
+    config.dockerHostPathPrefix = '/tmp';
+    const apiProxyLogs = resolveRunnerVisibleHostPath(
+      resolveLogPaths(config).apiProxyLogs, config.dockerHostPathPrefix,
+    );
+    translatedLogsDirectory = path.dirname(apiProxyLogs);
+    fs.mkdirSync(apiProxyLogs, { recursive: true });
+    prepareHarnessObservation(config);
+    connectProxy();
+    await observeHarness(config, jest.fn().mockResolvedValue(result()));
+    expect(report()).toMatchObject({ status: 'observed', version: '1.2.3' });
+    expect(pinHarnessObservation(store().pin()).evaluate(input)).toMatchObject({
+      admitted: true, harness: 'compatible',
+    });
+  });
+
+  it.each([
+    ['non-root owner', { uid: 1000 }],
+    ['missing owner metadata', { uid: undefined }],
+    ['group-writable mode', { mode: 0o660 }],
+    ['other-writable mode', { mode: 0o606 }],
+  ])('rejects observation files with %s', async (_label, trust) => {
+    prepareHarnessObservation(config);
+    connectProxy(trust);
+    await observeHarness(config, jest.fn().mockResolvedValue(result()));
+    expect(readHarnessObservation()).toMatchObject({
+      status: 'unavailable', reason: 'observation_invalid',
+    });
+  });
+
   it.each(['missing', 'malformed', 'environment', 'harness', 'binary', 'oversized'] as const)(
     'keeps %s evidence explicitly unverified', async failure => {
       prepareHarnessObservation(config);
       connectProxy();
       await observeHarness(config, jest.fn().mockResolvedValue(result()));
-      const filename = path.join(directory, 'api-proxy-logs/harness-observation.json');
+      const filename = observationPath();
       const changed = report();
       if (failure === 'missing') fs.unlinkSync(filename);
       else if (failure === 'malformed') fs.writeFileSync(filename, '{invalid');

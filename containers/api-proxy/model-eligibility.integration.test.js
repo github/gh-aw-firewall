@@ -187,7 +187,9 @@ test.each([
     expect(resolveModelSelector('Coding Model', 'copilot', ['gpt-6-sol', 'gpt-5.3-codex'],
       [], aliases, null, {}).resolvedModel).toBe(admitted ? 'gpt-6-sol' : 'gpt-5.3-codex');
     // Neither an in-flight request nor its recovery chain can repin on refresh.
-    fs.writeFileSync(file, JSON.stringify({ ...report, status: 'unavailable', reason: 'probe_failed' }));
+    const replacement = `${file}.replacement`;
+    fs.writeFileSync(replacement, JSON.stringify({ ...report, status: 'unavailable', reason: 'probe_failed' }));
+    fs.renameSync(replacement, file);
     expect(eligibility.evaluateModelEligibility('gpt-6-sol', 'copilot', req).admitted).toBe(admitted);
     expect(isModelEligible('gpt-6-sol', 'copilot', {})).toBe(false);
   } finally {

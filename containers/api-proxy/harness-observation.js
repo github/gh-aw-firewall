@@ -21,7 +21,7 @@ function readHarnessObservation() {
       fs.constants.O_RDONLY | fs.constants.O_NONBLOCK | (fs.constants.O_NOFOLLOW || 0));
     const stat = fs.fstatSync(fd);
     const writableByGroupOrOthers = (stat.mode & 0o022) !== 0;
-    const untrustedOwner = typeof stat.uid === 'number' && stat.uid !== 0;
+    const untrustedOwner = stat.uid !== 0;
     if (!stat.isFile()
       || stat.size > MAX_PROBE_BYTES
       || writableByGroupOrOthers

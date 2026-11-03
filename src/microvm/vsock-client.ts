@@ -40,6 +40,7 @@ export interface GuestExecutionRequest {
   readonly tty?: boolean;
   readonly timeoutMs?: number;
   readonly requestId?: string;
+  readonly auditOutput?: boolean;
   readonly stdout?: Writable;
   readonly stderr?: Writable;
   readonly rawStdout?: Writable;
