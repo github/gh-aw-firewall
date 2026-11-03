@@ -526,7 +526,7 @@ describe('writeConfigs', () => {
       const environment = {
         GH_AW_OTLP_ENDPOINTS: '[{"url":"https://collector.example","headers":"authorization=collector-canary"}]',
         DATABASE_URL: 'postgresql://db.example/database?password=database-canary',
-        FUTURE_SETTING: 'opaque-canary',
+        FUTURE_SETTING: 'opaque-canary ${warning.title} $NAME $$',
         AWF_CHROOT_ENABLED: 'true',
         OTEL_EXPORTER_OTLP_PROTOCOL: 'http/protobuf',
       };
@@ -550,7 +550,18 @@ describe('writeConfigs', () => {
 
       const runtime = fs.readFileSync(path.join(tempDir, 'docker-compose.yml'), 'utf8');
       const audit = fs.readFileSync(path.join(tempDir, 'audit', 'docker-compose.redacted.yml'), 'utf8');
-      expect(yaml.load(runtime)).toEqual(compose);
+      expect(yaml.load(runtime)).toEqual({
+        ...compose,
+        services: {
+          'api-proxy': {
+            ...compose.services['api-proxy'],
+            environment: {
+              ...environment,
+              FUTURE_SETTING: 'opaque-canary $${warning.title} $$NAME $$$$',
+            },
+          },
+        },
+      });
       expect(audit).not.toContain('canary');
       expect(yaml.load(audit)).toEqual({
         ...compose,

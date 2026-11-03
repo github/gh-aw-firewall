@@ -195,10 +195,10 @@ interface DockerService {
   /**
    * Environment variables for the container
    * 
-   * Key-value pairs of environment variables. Values can include variable
-   * substitutions (e.g., ${HOME}) which are resolved by Docker Compose.
+   * Key-value pairs of literal environment variables. Dollar signs are escaped
+   * at the Compose rendering boundary, not in these canonical values.
    * 
-   * @example { HTTP_PROXY: 'http://172.30.0.10:3128', GITHUB_TOKEN: '${GITHUB_TOKEN}' }
+   * @example { HTTP_PROXY: 'http://172.30.0.10:3128' }
    */
   environment?: Record<string, string>;
 
