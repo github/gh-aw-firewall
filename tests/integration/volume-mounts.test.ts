@@ -42,9 +42,45 @@ describe('Volume Mount Functionality', () => {
   afterEach(() => {
     // Clean up test directory
     if (fs.existsSync(testDir)) {
+      fs.chmodSync(testDir, 0o700);
       fs.rmSync(testDir, { recursive: true, force: true });
     }
   });
+
+  test.each(['readable', 'empty', 'unreadable-directory', 'unreadable-file'])(
+    'Detector input preflight with a %s read-write mount',
+    async (state) => {
+      const inputFile = path.join(testDir, 'agent_output.json');
+      fs.chmodSync(testDir, 0o755);
+      if (state !== 'empty') {
+        fs.writeFileSync(inputFile, '{"output":"staged detector input"}', { mode: 0o644 });
+      }
+      if (state === 'unreadable-directory') fs.chmodSync(testDir, 0);
+      if (state === 'unreadable-file') fs.chmodSync(inputFile, 0);
+
+      const inputDir = '/tmp/gh-aw/threat-detection';
+      const result = await runner.run(
+        'printf "DETECTOR_CLEAN_VERDICT\\n"',
+        {
+          allowDomains: ['github.com'],
+          volumeMounts: [`${testDir}:${inputDir}:rw`],
+          inputDirs: [inputDir],
+          timeout: 60000,
+        }
+      );
+
+      expect(result.timedOut).toBe(false);
+      if (state === 'readable') {
+        expect(result).toSucceed();
+        expect(result.stdout).toMatch(/^DETECTOR_CLEAN_VERDICT$/m);
+      } else {
+        expect(result.exitCode).toBe(1);
+        expect(result.stdout).not.toMatch(/^DETECTOR_CLEAN_VERDICT$/m);
+        expect(result.stdout + result.stderr).toMatch(/^AWF input preflight failed:/m);
+      }
+    },
+    120000
+  );
 
   test('Test 1: Read-only custom mount', async () => {
     // Create a test file
