@@ -42,15 +42,15 @@ steps:
         });
         const end = new Date(audit.created_at);
         const start = new Date(end.getTime() - 7 * 86400000);
-        const reportKey = `workflow-runtime-audit:${end.toISOString().slice(0, 10)}`;
+        const auditDate = end.toISOString().slice(0, 10);
         const previous = await github.paginate(github.rest.issues.listForRepo, {
           ...repo, labels: 'workflow-runtime-report', state: 'all', per_page: 100,
         });
         const existing = previous.find(issue => !issue.pull_request &&
-          issue.body?.includes(`<!-- ${reportKey} -->`));
+          issue.body?.match(new RegExp(`^Audit date: ${auditDate}$`, 'm')));
         if (existing) {
           fs.writeFileSync(`${dir}/report.json`, JSON.stringify({
-            duplicate_report: existing.html_url, report_key: reportKey,
+            duplicate_report: existing.html_url, audit_date: auditDate,
           }));
           return;
         }
@@ -135,7 +135,7 @@ steps:
           b.total_success_seconds - a.total_success_seconds ||
           a.workflow_path.localeCompare(b.workflow_path));
         const report = {
-          report_key: reportKey, audit_run_id: context.runId,
+          audit_date: auditDate, audit_run_id: context.runId,
           window_start: start.toISOString(), window_end: end.toISOString(),
           window_basis: 'Run creation time, inclusive UTC bounds; latest attempt only',
           available_runs: total, sampled_runs: runs.length,
@@ -187,12 +187,12 @@ supersedes older audit reports, but never closes implementation recommendations.
 Even an empty window gets a short report stating that no measurable successful
 runs were found; missing measurements are unknown, not zero.
 
-Include these exact markers, substituting values from the JSON:
+Include these visible identifiers, substituting values from the JSON. Do not hide
+them in HTML comments; they must remain available after safe-output sanitization:
 
-```text
-<!-- workflow-runtime-audit:YYYY-MM-DD -->
-<!-- workflow-runtime-audit-run:AUDIT_RUN_ID -->
-```
+`Audit date: YYYY-MM-DD`
+
+`Audit run ID: AUDIT_RUN_ID`
 
 Use this compact body structure:
 
@@ -208,6 +208,13 @@ Use this compact body structure:
   secondary observations.
 
 Keep the top-ten table visible: it is the runtime optimizer's handoff contract.
+Also include a `### Runtime Audit Data` section containing a `json` fenced block
+with only `audit_run_id`, `window_start`, `window_end`, and `candidates`. Each
+candidate must contain `workflow_id`, `workflow_path`, `successful_runs`,
+`mean_seconds`, `p50_seconds`, `p95_seconds`, `total_success_seconds`, and up to
+three `evidence` records containing only `run_id`, `attempt`, and
+`elapsed_seconds`. Preserve numeric values and exact workflow paths from the
+provided report. Do not add names, prose, URLs, or extra fields to this block.
 No code changes, workflow dispatches, cancellations, assignments, or PRs.
 
 ## Usage
