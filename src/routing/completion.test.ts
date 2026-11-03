@@ -124,7 +124,9 @@ describe('routed host workflow completion', () => {
     const dependencies: WorkflowDependencies = {
       ensureFirewallNetwork: jest.fn(), setupHostIptables: jest.fn(),
       prepareRouting: async () => state,
-      writeConfigs: async () => {},
+      writeConfigs: async () => {
+        fs.mkdirSync(path.join(root, 'api-proxy-logs'));
+      },
       startContainers: async (_work, _domains, _logs, _pull, _network, ready) => {
         await session.start();
         await ready?.();

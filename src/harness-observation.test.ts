@@ -61,9 +61,21 @@ describe('actual-environment harness observations', () => {
   function connectProxy() {
     Object.assign(process.env, harnessProxyEnvironment(config));
     const open = fs.openSync;
-    jest.spyOn(fs, 'openSync').mockImplementation((filename, flags, mode) =>
-      open(filename === '/var/log/api-proxy/harness-observation.json'
-        ? path.join(directory, 'api-proxy-logs/harness-observation.json') : filename, flags, mode));
+    const fstat = fs.fstatSync;
+    let fixtureStat: fs.Stats | undefined;
+    jest.spyOn(fs, 'openSync').mockImplementation((filename, flags, mode) => {
+      const observation = filename === '/var/log/api-proxy/harness-observation.json';
+      const fd = open(observation
+        ? path.join(directory, 'api-proxy-logs/harness-observation.json') : filename, flags, mode);
+      if (observation) fixtureStat = fstat(fd);
+      return fd;
+    });
+    jest.spyOn(fs, 'fstatSync').mockImplementation(fd => {
+      const stat = fstat(fd);
+      // Capture each atomic replacement, but simulate root ownership only for the fixture.
+      if (fixtureStat && stat.dev === fixtureStat.dev && stat.ino === fixtureStat.ino) stat.uid = 0;
+      return stat;
+    });
   }
   function store(harnesses = [requirement]) {
     return createEligibilityStore({ models: [{ identity: model, harnesses }] });
