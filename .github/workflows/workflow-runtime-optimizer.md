@@ -56,6 +56,18 @@ steps:
           issue.number > 0 &&
           issue.html_url === `https://github.com/${context.repo.owner}/${context.repo.repo}/issues/${issue.number}`
             ? issue.html_url : null;
+        const AUDIT_PRODUCER_MARKER = /^<!--\s*workflow-runtime-audit-run:(\d+)\s*-->$/m;
+        const hasTrustedAuditMarker = (issue, parsed) => {
+          if (!issue || typeof issue.body !== 'string') return false;
+          const match = issue.body.match(AUDIT_PRODUCER_MARKER);
+          if (!match) return false;
+          const markerRunId = Number(match[1]);
+          return Number.isSafeInteger(markerRunId) &&
+            markerRunId > 0 &&
+            parsed &&
+            Number.isSafeInteger(parsed.audit_run_id) &&
+            parsed.audit_run_id === markerRunId;
+        };
         const parseAuditData = body => {
           if (typeof body !== 'string') return null;
           const runId = body.match(/^Audit run ID: (\d+)$/m);
@@ -109,9 +121,12 @@ steps:
           sort: 'created', direction: 'desc', per_page: 100,
         });
         const auditRun = context.payload.workflow_run;
-        const report = reports.find(issue => !issue.pull_request &&
-          safeIssueUrl(issue) && parseAuditData(issue.body) &&
-          (!auditRun || parseAuditData(issue.body).audit_run_id === auditRun.id));
+        const report = reports.find(issue => {
+          if (issue.pull_request || !safeIssueUrl(issue)) return false;
+          const parsed = parseAuditData(issue.body);
+          if (!parsed || !hasTrustedAuditMarker(issue, parsed)) return false;
+          return !auditRun || parsed.audit_run_id === auditRun.id;
+        });
         const open = await github.paginate(github.rest.issues.listForRepo, {
           ...context.repo, labels: 'workflow-runtime-optimization',
           state: 'open', per_page: 100,
