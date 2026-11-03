@@ -73,8 +73,14 @@ steps:
         const measured = [];
         const unmeasured = [];
         let excluded = 0;
+        const sanitizeText = (value, maxLen = 200) => String(value ?? '')
+          .replace(/[\u0000-\u001F\u007F]/g, ' ')
+          .replace(/\s+/g, ' ')
+          .trim()
+          .slice(0, maxLen);
         for (const run of runs) {
           const workflowPath = run.path.split('@')[0];
+          const safeWorkflowPath = sanitizeText(workflowPath, 300);
           if (excludedPaths.has(workflowPath)) {
             excluded++;
             continue;
@@ -90,17 +96,17 @@ steps:
             Number.isFinite(Date.parse(job.completed_at)) &&
             Date.parse(job.completed_at) >= Date.parse(job.started_at));
           if (!valid) {
-            unmeasured.push({ run_id: run.id, workflow_path: workflowPath,
-              reason: 'Missing, invalid, or incomplete job timestamps' });
+            unmeasured.push({ run_id: run.id, workflow_path: safeWorkflowPath,
+              reason: sanitizeText('Missing, invalid, or incomplete job timestamps', 120) });
             continue;
           }
           const first = Math.min(...executed.map(job => Date.parse(job.started_at)));
           const last = Math.max(...executed.map(job => Date.parse(job.completed_at)));
           measured.push({
-            workflow_id: run.workflow_id, workflow_path: workflowPath, name: run.name,
+            workflow_id: run.workflow_id, workflow_path: safeWorkflowPath, name: sanitizeText(run.name, 200),
             run_id: run.id, attempt: run.run_attempt, url: run.html_url,
-            event: run.event, branch: run.head_branch, sha: run.head_sha,
-            conclusion: run.conclusion, elapsed_seconds: (last - first) / 1000,
+            event: sanitizeText(run.event, 80), branch: sanitizeText(run.head_branch, 200), sha: sanitizeText(run.head_sha, 80),
+            conclusion: sanitizeText(run.conclusion, 80), elapsed_seconds: (last - first) / 1000,
             initial_queue_seconds: run.run_attempt === 1
               ? (first - Date.parse(run.created_at)) / 1000 : null,
           });
