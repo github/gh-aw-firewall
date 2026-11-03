@@ -15,6 +15,7 @@ export interface AwfOptions {
   env?: Record<string, string>;
   configFile?: string;
   volumeMounts?: string[]; // Volume mounts in format: host_path:container_path[:mode]
+  inputDirs?: string[]; // Sandbox-visible directories required by the command
   containerWorkDir?: string; // Working directory inside the container
   tty?: boolean; // Allocate pseudo-TTY (required for interactive tools like Claude Code)
   dnsServers?: string[]; // DNS servers to use (e.g., ['8.8.8.8', '2001:4860:4860::8888'])
@@ -105,6 +106,10 @@ export class AwfRunner {
       options.volumeMounts.forEach(mount => {
         args.push('--mount', mount);
       });
+    }
+
+    for (const inputDir of options.inputDirs ?? []) {
+      args.push('--input-dir', inputDir);
     }
 
     // Add container working directory
