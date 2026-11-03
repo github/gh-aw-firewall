@@ -126,6 +126,8 @@ describe('applyGeneralWorkflowPatches runtime auditor credential exclusions', ()
     const { content } = applyGeneralWorkflowPatches(compiledAuditor, lockPath);
     expect(content.match(/--exclude-env GH_AW_DEFAULT_OTLP_HEADERS/g)).toHaveLength(2);
     expect(content.match(/--exclude-env GH_AW_OTLP_ENDPOINTS/g)).toHaveLength(2);
+    expect(content.match(/--exclude-env OTEL_EXPORTER_OTLP_HEADERS/g)).toHaveLength(2);
+    expect(content.match(/--exclude-env OTEL_EXPORTER_OTLP_ENDPOINT/g)).toHaveLength(2);
     expect(applyGeneralWorkflowPatches(content, lockPath).content).toBe(content);
   });
 

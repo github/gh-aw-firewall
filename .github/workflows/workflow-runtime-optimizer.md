@@ -33,11 +33,6 @@ safe-outputs:
     title-prefix: "[Workflow Runtime Optimization] "
     labels: [workflow-runtime-optimization]
     max: 1
-# security-policy:
-#   issue-context: structured-fields-only
-#   free-form-issue-content: forbidden
-#   schema-validation: required
-#   invalid-or-unexpected-fields: drop
 timeout-minutes: 20
 strict: true
 steps:
@@ -56,20 +51,9 @@ steps:
           issue.number > 0 &&
           issue.html_url === `https://github.com/${context.repo.owner}/${context.repo.repo}/issues/${issue.number}`
             ? issue.html_url : null;
-        const AUDIT_PRODUCER_MARKER = /^<!--\s*workflow-runtime-audit-run:(\d+)\s*-->$/m;
-        const hasTrustedAuditMarker = (issue, parsed) => {
-          if (!issue || typeof issue.body !== 'string') return false;
-          const match = issue.body.match(AUDIT_PRODUCER_MARKER);
-          if (!match) return false;
-          const markerRunId = Number(match[1]);
-          return Number.isSafeInteger(markerRunId) &&
-            markerRunId > 0 &&
-            parsed &&
-            Number.isSafeInteger(parsed.audit_run_id) &&
-            parsed.audit_run_id === markerRunId;
-        };
         const parseAuditData = body => {
           if (typeof body !== 'string') return null;
+          if (!/^Audit producer: workflow-runtime-auditor$/m.test(body)) return null;
           const runId = body.match(/^Audit run ID: (\d+)$/m);
           const date = body.match(/^Audit date: (\d{4}-\d{2}-\d{2})$/m);
           const block = body.match(/^### Runtime Audit Data\s*\n```json\s*\n([\s\S]*?)\n```\s*$/m);
@@ -124,7 +108,7 @@ steps:
         const report = reports.find(issue => {
           if (issue.pull_request || !safeIssueUrl(issue)) return false;
           const parsed = parseAuditData(issue.body);
-          if (!parsed || !hasTrustedAuditMarker(issue, parsed)) return false;
+          if (!parsed) return false;
           return !auditRun || parsed.audit_run_id === auditRun.id;
         });
         const open = await github.paginate(github.rest.issues.listForRepo, {
@@ -139,11 +123,16 @@ steps:
           return [{ number: issue.number, url, target_path: target[1] }];
         });
         const reportData = report ? parseAuditData(report.body) : null;
+        const createdAt = report && typeof report.created_at === 'string'
+          ? Date.parse(report.created_at) : NaN;
+        if (report && !Number.isFinite(createdAt)) {
+          core.warning('Runtime audit report has an invalid creation timestamp.');
+        }
         fs.writeFileSync(`${dir}/context.json`, JSON.stringify({
           triggering_audit_run_id: auditRun?.id ?? null,
-          report: report && reportData ? {
+          report: report && reportData && Number.isFinite(createdAt) ? {
             number: report.number, url: safeIssueUrl(report),
-            created_at: report.created_at, ...reportData,
+            created_at: new Date(createdAt).toISOString(), ...reportData,
           } : null,
           open_recommendations: recommendations,
         }));
