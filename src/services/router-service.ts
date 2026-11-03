@@ -39,9 +39,7 @@ export function buildRouterService({ imageConfig, hostEnv = process.env }: Route
   };
   const environment = Object.entries(buildRouterOtelEnv(hostEnv));
   if (environment.length > 0) {
-    // Compose interpolates `$` in values; `$$` passes a literal `$` to the router.
-    service.environment = Object.fromEntries(
-      environment.map(([name, value]) => [name, value.replace(/\$/g, '$$$$')]));
+    service.environment = Object.fromEntries(environment);
   }
 
   assignImageSource(service, {

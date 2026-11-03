@@ -41,7 +41,7 @@ describe('router OpenTelemetry settings', () => {
     }
   });
 
-  it('passes values, including any $, unchanged; escaping for Compose is the router service\'s job', () => {
+  it('passes values, including any $, unchanged until Compose rendering', () => {
     expect(buildRouterOtelEnv({ AWF_ROUTER_OTEL_EXPORTER_OTLP_HEADERS: 'x-api-key=a$b${C}' }))
       .toEqual({ OTEL_EXPORTER_OTLP_HEADERS: 'x-api-key=a$b${C}' });
   });

@@ -1,5 +1,6 @@
 import { generateDockerCompose, redactDockerComposeSecrets } from './compose-generator';
 import { sanitizeDockerComposeYaml } from './compose-sanitizer';
+import { renderDockerCompose } from './compose-renderer';
 import { ACT_PRESET_BASE_IMAGE } from './host-identity';
 import { DockerComposeConfig, WrapperConfig } from './types';
 import { baseConfig, mockNetworkConfig } from './test-helpers/docker-test-fixtures.test-utils';
@@ -406,13 +407,13 @@ describe('generateDockerCompose', () => {
         });
       });
 
-      it('escapes $ so that Compose passes router settings literally', () => {
+      it('keeps router settings literal until Compose rendering', () => {
         process.env.AWF_ROUTER_OTEL_EXPORTER_OTLP_HEADERS = 'x-api-key=abc$part${HOME}$$';
         process.env.AWF_ROUTER_OTEL_SERVICE_NAME = 'router$1';
 
         expect(generateRouted().services.router.environment).toEqual({
-          OTEL_EXPORTER_OTLP_HEADERS: 'x-api-key=abc$$part$${HOME}$$$$',
-          OTEL_SERVICE_NAME: 'router$$1',
+          OTEL_EXPORTER_OTLP_HEADERS: 'x-api-key=abc$part${HOME}$$',
+          OTEL_SERVICE_NAME: 'router$1',
         });
       });
 
@@ -431,12 +432,13 @@ describe('generateDockerCompose', () => {
         expect(JSON.stringify(otherServices)).not.toMatch(/canary/);
       });
 
-      it('redacts an escaped endpoint and header in the audit snapshot', () => {
+      it('escapes rendered router values and redacts them in the audit snapshot', () => {
         process.env.AWF_ROUTER_OTEL_EXPORTER_OTLP_ENDPOINT = ' http://user:pa$$word-canary@otel-collector:4318';
         process.env.AWF_ROUTER_OTEL_EXPORTER_OTLP_HEADERS = 'authorization=Bearer%20$token-canary';
 
         const compose = generateRouted();
-        expect(compose.services.router.environment).toEqual({
+        const rendered = yaml.load(renderDockerCompose(compose)) as DockerComposeConfig;
+        expect(rendered.services.router.environment).toEqual({
           OTEL_EXPORTER_OTLP_ENDPOINT: ' http://user:pa$$$$word-canary@otel-collector:4318',
           OTEL_EXPORTER_OTLP_HEADERS: 'authorization=Bearer%20$$token-canary',
         });

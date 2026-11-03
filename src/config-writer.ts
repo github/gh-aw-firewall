@@ -1,6 +1,5 @@
 import * as fs from 'fs';
 import * as path from 'path';
-import * as yaml from 'js-yaml';
 import execa from 'execa';
 import { WrapperConfig, API_PROXY_PORTS, DockerComposeConfig } from './types';
 import { logger } from './logger';
@@ -10,6 +9,7 @@ import { generateSessionCa, initSslDb, isOpenSslAvailable } from './ssl-bump';
 import { parseUrlPatterns } from './domain-matchers';
 import { SslConfig, SQUID_PORT } from './host-env';
 import { generateDockerCompose, redactDockerComposeSecrets } from './compose-generator';
+import { renderDockerCompose } from './compose-renderer';
 import { collectResolvedRuntimeImages } from './image-resolver';
 import { deriveSensitiveEndpointForms, redactSensitiveValues } from './redact-secrets';
 import { resolveLogPaths } from './log-paths';
@@ -462,7 +462,7 @@ function writeAuditArtifacts(
   writeAuditArtifact(
     auditDir,
     'docker-compose.redacted.yml',
-    yaml.dump(redactedCompose, { lineWidth: -1 })
+    renderDockerCompose(redactedCompose)
   );
 
   // Effective infrastructure images, recorded centrally by the image resolver
@@ -654,9 +654,7 @@ export async function writeConfigs(config: WrapperConfig): Promise<void> {
   // environment variables (tokens, API keys) in plaintext
   const dockerCompose = generateDockerCompose(config, networkConfig, sslConfig, squidConfig);
   const dockerComposePath = path.join(config.workDir, 'docker-compose.yml');
-  // lineWidth: -1 disables line wrapping to prevent base64-encoded values
-  // (like AWF_SQUID_CONFIG_B64) from being split across multiple lines
-  fs.writeFileSync(dockerComposePath, yaml.dump(dockerCompose, { lineWidth: -1 }), { mode: 0o600 });
+  fs.writeFileSync(dockerComposePath, renderDockerCompose(dockerCompose), { mode: 0o600 });
   logger.debug(`Docker Compose config written to: ${dockerComposePath}`);
 
   // Phase 7: Audit artifact writing
