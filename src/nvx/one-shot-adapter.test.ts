@@ -16,6 +16,16 @@ import {
 } from './one-shot-adapter';
 import { NVX_TEARDOWN_STAGES } from './outcome';
 import type { NvxLiveMount } from './live-mount-policy';
+import * as adapter from './one-shot-adapter';
+import * as argumentsModule from './one-shot-arguments';
+import {
+  assertMatchingExitCode,
+  assertNewOutcomePath,
+  readOutcome,
+  verifyFilesystemBundle,
+} from './one-shot-outcome';
+import { runNvxProcess } from './one-shot-process';
+import * as validation from './one-shot-validation';
 
 const linuxIt = process.platform === 'linux' ? it : it.skip;
 
@@ -128,6 +138,54 @@ function outcome(category: 'success' | 'guest-exit' | 'vmm-failure', statusCode:
 }
 
 describe('NVX one-shot execution adapter', () => {
+  it('preserves the original exports as references to the extracted implementations', () => {
+    expect(adapter.appendMountArguments).toBe(argumentsModule.appendMountArguments);
+    expect(adapter.buildNvxKernelCommandLine).toBe(argumentsModule.buildNvxKernelCommandLine);
+    expect(adapter.buildNvxOneShotArguments).toBe(argumentsModule.buildNvxOneShotArguments);
+    expect(adapter.nvxShareName).toBe(argumentsModule.nvxShareName);
+    expect(adapter.usesNvxAggregateMount).toBe(argumentsModule.usesNvxAggregateMount);
+    expect(adapter.validateNvxExecutionRequest).toBe(validation.validateNvxExecutionRequest);
+    expect(adapter.NVX_ONE_SHOT_CPU_PROFILE).toBe(validation.NVX_ONE_SHOT_CPU_PROFILE);
+    expect(testHelpers.runNvxProcess).toBe(runNvxProcess);
+  });
+
+  it('verifies prepared artifacts and outcomes through the extracted outcome module', async () => {
+    const { root, bundle } = await fixture();
+    const outcomePath = path.join(bundle.runDirectory, 'outcome.json');
+    try {
+      await verifyFilesystemBundle(bundle);
+      await assertNewOutcomePath(outcomePath, bundle.runDirectory);
+      await fs.writeFile(outcomePath, JSON.stringify(outcome('guest-exit', 42)), { mode: 0o600 });
+      await fs.chmod(outcomePath, 0o600);
+      const report = await readOutcome(outcomePath);
+      expect(report.outcome).toMatchObject({ category: 'guest-exit', statusCode: 42 });
+      expect(() => assertMatchingExitCode(42, report)).not.toThrow();
+      expect(() => assertMatchingExitCode(0, report)).toThrow(/does not match structured outcome/);
+      await expect(assertNewOutcomePath(outcomePath, bundle.runDirectory))
+        .rejects.toThrow(/already exists/);
+      await expect(assertNewOutcomePath(path.join(root, 'outside.json'), bundle.runDirectory))
+        .rejects.toThrow(/escapes/);
+      await fs.chmod(outcomePath, 0o644);
+      await expect(readOutcome(outcomePath)).rejects.toThrow(/group or other users/);
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it.each([
+    ['guest address', { guestAddress: '192.168.127.2/33' }],
+    ['proxy address', { guestAddress: '192.168.127.2/30', proxyAddress: '192.168.127.1:65536' }],
+    ['network rule', { guestAddress: '192.168.127.2/30', egressAllow: ['tcp:192.168.127.1:3128\n'] }],
+  ])('rejects an invalid %s through the extracted validator', async (_label, network) => {
+    const { root, request } = await fixture();
+    try {
+      expect(() => validation.validateNvxExecutionRequest({ ...request, network }))
+        .toThrow(/Invalid NVX/);
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
   const mount = (guestTarget: string, overrides: Partial<NvxLiveMount> = {}): NvxLiveMount => ({
     tag: 'workspace',
     guestTarget,
