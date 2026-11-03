@@ -103,10 +103,10 @@ steps:
           const first = Math.min(...executed.map(job => Date.parse(job.started_at)));
           const last = Math.max(...executed.map(job => Date.parse(job.completed_at)));
           measured.push({
-            workflow_id: run.workflow_id, workflow_path: safeWorkflowPath, name: sanitizeText(run.name, 200),
+            workflow_id: run.workflow_id, workflow_path: safeWorkflowPath,
             run_id: run.id, attempt: run.run_attempt, url: run.html_url,
-            event: sanitizeText(run.event, 80), branch: sanitizeText(run.head_branch, 200), sha: sanitizeText(run.head_sha, 80),
-            conclusion: sanitizeText(run.conclusion, 80), elapsed_seconds: (last - first) / 1000,
+            sha: sanitizeText(run.head_sha, 80),
+            elapsed_seconds: (last - first) / 1000,
             initial_queue_seconds: run.run_attempt === 1
               ? (first - Date.parse(run.created_at)) / 1000 : null,
           });
