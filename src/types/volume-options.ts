@@ -89,7 +89,7 @@ export interface VolumeOptions {
    *
    * Artifacts include:
    * - squid.conf: The generated Squid proxy configuration
-   * - docker-compose.redacted.yml: Container orchestration config (secrets redacted)
+   * - docker-compose.redacted.yml: Compose snapshot with environment values hidden by default
    * - policy-manifest.json: Structured description of all firewall rules
    * - iptables-audit.txt: Captured iptables state from the agent container
    *
@@ -152,7 +152,8 @@ export interface VolumeOptions {
    * - `<container>.log`: stdout+stderr from `docker logs`
    * - `<container>.state`: exit code and error string from `docker inspect`
    * - `<container>.mounts.json`: volume mount info from `docker inspect`
-   * - `docker-compose.yml`: generated compose file with TOKEN/KEY/SECRET values redacted
+   * - `docker-compose.yml`: compose snapshot with environment values hidden by default, except
+   *   exact bounded control and protocol values
    *
    * Containers inspected: awf-squid, awf-agent, awf-api-proxy, awf-iptables-init.
    * Containers that never started (e.g. api-proxy when not enabled) are silently skipped.

@@ -8,9 +8,11 @@ jest.mock('execa', () => ({
 
 import * as fs from 'fs';
 import * as path from 'path';
+import * as yaml from 'js-yaml';
 import execa from 'execa';
 import { writeConfigs } from './config-writer';
-import { generateDockerCompose } from './compose-generator';
+import { generateDockerCompose, redactDockerComposeSecrets } from './compose-generator';
+import type { DockerComposeConfig } from './types';
 import { isOpenSslAvailable } from './ssl-bump';
 import { getRealUserHome, isNativeRootWithoutSudo } from './host-identity';
 import {
@@ -518,6 +520,55 @@ describe('writeConfigs', () => {
       expect(sensitivePathAudit.maskedPaths[0].targets)
         .toEqual(['/tmp/gh-aw/mcp-logs', '/host/tmp/gh-aw/mcp-logs']);
       expect(sensitivePathAudit.exemptions[0].path).toBe('/tmp/gh-aw/mcp-payloads');
+    });
+
+    it('writes default-hidden audit values without changing the runnable compose file', async () => {
+      const environment = {
+        GH_AW_OTLP_ENDPOINTS: '[{"url":"https://collector.example","headers":"authorization=collector-canary"}]',
+        DATABASE_URL: 'postgresql://db.example/database?password=database-canary',
+        FUTURE_SETTING: 'opaque-canary',
+        AWF_CHROOT_ENABLED: 'true',
+        OTEL_EXPORTER_OTLP_PROTOCOL: 'http/protobuf',
+      };
+      const compose: DockerComposeConfig = {
+        services: {
+          'api-proxy': {
+            container_name: 'awf-api-proxy',
+            image: 'api-proxy:test',
+            environment,
+            ports: ['10000:10000'],
+          },
+        },
+        networks: {},
+      };
+      const original = JSON.stringify(compose);
+      jest.mocked(generateDockerCompose).mockReturnValueOnce(compose);
+      const actual = jest.requireActual<typeof import('./compose-generator')>('./compose-generator');
+      jest.mocked(redactDockerComposeSecrets).mockImplementationOnce(actual.redactDockerComposeSecrets);
+
+      await writeConfigs(buildWriteConfig(tempDir));
+
+      const runtime = fs.readFileSync(path.join(tempDir, 'docker-compose.yml'), 'utf8');
+      const audit = fs.readFileSync(path.join(tempDir, 'audit', 'docker-compose.redacted.yml'), 'utf8');
+      expect(yaml.load(runtime)).toEqual(compose);
+      expect(audit).not.toContain('canary');
+      expect(yaml.load(audit)).toEqual({
+        ...compose,
+        services: {
+          'api-proxy': {
+            ...compose.services['api-proxy'],
+            environment: {
+              GH_AW_OTLP_ENDPOINTS: '[REDACTED]',
+              DATABASE_URL: '[REDACTED]',
+              FUTURE_SETTING: '[REDACTED]',
+              AWF_CHROOT_ENABLED: 'true',
+              OTEL_EXPORTER_OTLP_PROTOCOL: 'http/protobuf',
+            },
+          },
+        },
+      });
+      expect(JSON.stringify(compose)).toBe(original);
+      expect(fs.statSync(path.join(tempDir, 'docker-compose.yml')).mode & 0o777).toBe(0o600);
     });
 
     it('records NVX sensitive paths as deferred rather than applied', async () => {

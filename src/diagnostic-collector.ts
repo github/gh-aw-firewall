@@ -18,7 +18,7 @@ import { sanitizeDockerComposeYaml } from './compose-sanitizer';
  * - `<container>.log`          – stdout+stderr captured via `docker logs`
  * - `<container>.state`        – ExitCode + Error string from `docker inspect`
  * - `<container>.mounts.json`  – Mount metadata from `docker inspect` (no env vars)
- * - `docker-compose.yml`       – Generated compose file with TOKEN/KEY/SECRET values redacted
+ * - `docker-compose.yml`       – Generated compose file with environment values hidden by default
  *
  * Containers that were never started (e.g. awf-api-proxy when `--enable-api-proxy` is
  * not set) are silently skipped — `docker logs` returns a non-zero exit code and the

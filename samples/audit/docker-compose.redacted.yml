@@ -1,3 +1,5 @@
+# Legacy sample generated before compose snapshots hid environment values by default.
+# Current snapshots retain only exact, bounded control and protocol values.
 services:
   squid-proxy:
     container_name: awf-squid

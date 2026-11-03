@@ -161,8 +161,9 @@ image.
 **Credentials.** `..._HEADERS` values are collector credentials that the operator chose to give
 the router. AWF keeps the whole `AWF_ROUTER_OTEL_*` namespace out of the coding agent's
 environment, including names it doesn't forward, whether `--env-all`, `--env-file` or `--env`
-supplies them. The audit and diagnostics copies of the compose file replace OTLP header values
-with `[REDACTED]` and remove user info from OTLP endpoint URLs.
+supplies them. Audit and diagnostic compose snapshots hide environment values by default. Only
+exact, bounded control and protocol values are retained; OTLP headers, complete endpoint URLs and
+other free-form values appear as `[REDACTED]`. The same policy applies to both snapshot types.
 
 **Correlation.** With export on, the router's `SERVER` span for each call is a child of the
 api-proxy's `api_proxy.router.<operation>` span, so both appear in the workflow's trace. Each

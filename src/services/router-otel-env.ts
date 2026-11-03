@@ -46,22 +46,3 @@ export function buildRouterOtelEnv(hostEnv: NodeJS.ProcessEnv): Record<string, s
   }
   return environment;
 }
-
-const OTLP_HEADERS_ENV_VAR = /^(?:AWF_ROUTER_)?OTEL_EXPORTER_OTLP_(?:(?:TRACES|METRICS)_)?HEADERS$/;
-const OTLP_ENDPOINT_ENV_VAR = /^(?:AWF_ROUTER_)?OTEL_EXPORTER_OTLP_(?:(?:TRACES|METRICS)_)?ENDPOINT$/;
-// The router trims settings with Go's strings.TrimSpace, so leading whitespace, including
-// U+0085, which JavaScript's \s doesn't match, still leaves a usable endpoint.
-const URL_USER_INFO = /^([\s\u0085]*[A-Za-z][A-Za-z0-9+.-]*:\/\/)[^/?#]*@/;
-
-/**
- * Redacts an OTLP exporter setting for a compose snapshot: header values, which carry
- * collector credentials, entirely, whatever their type, and the user info of an endpoint URL.
- * Other values are returned unchanged.
- */
-export function redactOtlpEnvValue(name: string, value: unknown): unknown {
-  if (OTLP_HEADERS_ENV_VAR.test(name)) return '[REDACTED]';
-  if (OTLP_ENDPOINT_ENV_VAR.test(name) && typeof value === 'string') {
-    return value.replace(URL_USER_INFO, '$1[REDACTED]@');
-  }
-  return value;
-}

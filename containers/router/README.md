@@ -311,8 +311,9 @@ external collector, and never reach the router. The router stays only on AWF's i
 `awf-routing` network, so its collector must be a container attached to that network; it can't
 reach the internet or the host, where `localhost` is the router container itself. A certificate
 path must exist inside the router image, because AWF mounts nothing into the router. The coding
-agent never sees any `AWF_ROUTER_OTEL_*` variable, and the audit and diagnostics copies of the
-compose file redact collector headers and endpoint user info. See
+agent never sees any `AWF_ROUTER_OTEL_*` variable. Audit and diagnostic compose snapshots hide
+environment values by default, retaining only exact, bounded control and protocol values; collector
+headers, endpoint URLs and other free-form values are redacted. See
 [OTEL Tracing in Sentry](https://github.com/github/gh-aw-firewall/blob/main/docs/otel-sentry.md#router-export)
 for details.
 
