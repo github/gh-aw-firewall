@@ -419,12 +419,13 @@ function compile() {
   errors.push(...validate('resolvedExport', JSON.parse(output['shared/model-information/catalog.generated.json'])));
   errors.push(...validate('resolvedExport', JSON.parse(output['shared/model-information/target.generated.json'])));
   for (const file of ['contracts.js', 'contracts.d.ts', 'identity.js', 'identity.d.ts', 'resolution.js', 'resolution.d.ts',
-    'eligibility.js', 'eligibility.d.ts', 'schema.v1.json',
+    'eligibility.js', 'eligibility.d.ts', 'harness-observation.js', 'harness-observation.d.ts', 'schema.v1.json',
     'publication.v1.schema.json', 'publication-contract.cjs', 'publication.cjs']) {
     output[`containers/api-proxy/catalogue-contract/${file}`] =
       fs.readFileSync(path.join(root, 'shared/model-information', file), 'utf8');
   }
-  for (const file of ['identity.js', 'identity.d.ts', 'resolution.js', 'resolution.d.ts', 'eligibility.js', 'eligibility.d.ts']) {
+  for (const file of ['identity.js', 'identity.d.ts', 'resolution.js', 'resolution.d.ts', 'eligibility.js', 'eligibility.d.ts',
+    'harness-observation.js', 'harness-observation.d.ts']) {
     output[`src/model-information-contract/${file}`] =
       fs.readFileSync(path.join(root, 'shared/model-information', file), 'utf8');
   }

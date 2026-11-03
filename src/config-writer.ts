@@ -28,6 +28,7 @@ import {
 import { writeSensitivePathAudit } from './sensitive-path-audit';
 import { resolveApiProxyUpstreams } from './services/api-proxy-env-config';
 import { copilotBrokerSensitiveValues, resolveCopilotBrokerUpstreams } from './copilot-token-broker';
+import { prepareHarnessObservation } from './harness-observation';
 
 // When bundled with esbuild, this global is replaced at build time with the
 // JSON content of containers/agent/seccomp-profile.json.  In normal (tsc)
@@ -555,6 +556,7 @@ export async function writeConfigs(config: WrapperConfig): Promise<void> {
   // Phase 2: Log-path resolution and directory preparation
   const logPaths = resolveLogPaths(config);
   prepareWorkDirectories(config, logPaths);
+  prepareHarnessObservation(config);
   repairRunnerTempGhAwOwnership();
   repairContainerWorkDirOwnership(config);
 

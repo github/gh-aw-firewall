@@ -42,6 +42,22 @@ describe('API proxy sidecar: service configuration', () => {
         expect((proxy.networks as any)['awf-net'].ipv4_address).toBe('172.30.0.30');
       });
 
+      it('binds only the primary proxy to the selected command and per-run observation environment', () => {
+        const config = {
+          ...mockConfig, agentCommand: 'copilot --model x', enableApiProxy: true, openaiApiKey: 'fixture',
+          additionalEnv: { AWF_HARNESS_ENVIRONMENT: 'host:forged', AWF_SELECTED_HARNESS: 'forged' },
+        };
+        const generated = generateDockerCompose(config, mockNetworkConfigWithProxy);
+        const env = generated.services['api-proxy'].environment;
+        if (!env) throw new Error('Missing primary proxy environment');
+        expect(env).toMatchObject({ AWF_SELECTED_HARNESS: 'copilot-cli', AWF_HARNESS_BINARY: 'copilot' });
+        expect(env.AWF_HARNESS_ENVIRONMENT).toMatch(/^runc:/);
+        expect(generateDockerCompose(config, mockNetworkConfigWithProxy).services['api-proxy'].environment)
+          .toMatchObject({ AWF_HARNESS_ENVIRONMENT: env.AWF_HARNESS_ENVIRONMENT });
+        expect(generateDockerCompose({ ...config }, mockNetworkConfigWithProxy).services['api-proxy'].environment
+          ?.AWF_HARNESS_ENVIRONMENT).not.toBe(env.AWF_HARNESS_ENVIRONMENT);
+      });
+
       it.each([false, true])('keeps Copilot proxy routing in-network with host access %s', (enableHostAccess) => {
         const configWithProxy = {
           ...mockConfig,

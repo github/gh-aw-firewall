@@ -1,4 +1,5 @@
 import type { WorkflowDependencies } from './cli-workflow';
+import type { HarnessProbe } from './model-information-contract/harness-observation';
 
 /**
  * Lifecycle contract for agent runtimes managed outside Docker Compose.
@@ -16,6 +17,8 @@ export interface ExternalAgentRuntimeBackend {
   stop(): Promise<void>;
   /** Safely quiesces the runtime while retaining inspectable state. */
   preserve?(): Promise<void>;
+  /** Bounded output from the ready agent environment, not the host installation. */
+  probeHarness?: HarnessProbe;
 }
 
 type ExternalRuntimeWorkflowDependencies = Pick<

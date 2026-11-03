@@ -16,6 +16,8 @@ import { HostPreflightReporter } from './cloud-hypervisor/host-preflight-progres
 import { isCloudHypervisorEnclaveSelected } from './enclave/cloud-hypervisor-lifecycle';
 import { ensureAgentRuntimeStartMarker } from './agent-runtime-start';
 import type { ProtectedCommandOutputCapture } from './protected-command-output-capture';
+import { observeHarness } from './harness-observation';
+import type { HarnessProbe } from './model-information-contract/harness-observation';
 
 /**
  * Dependencies injected into the main workflow.
@@ -25,6 +27,7 @@ import type { ProtectedCommandOutputCapture } from './protected-command-output-c
  * `runAgentCommand` while continuing to use compose for infrastructure.
  */
 export interface WorkflowDependencies {
+  probeHarness?: HarnessProbe;
   ensureFirewallNetwork: (subnetOverride?: string) => Promise<{ squidIp: string; agentIp: string; proxyIp: string; subnet: string }>;
   setupHostIptables: (squidIp: string, port: number, dnsServers: string[], apiProxyIp?: string, dohProxyIp?: string, hostAccess?: HostAccessConfig, cliProxyConfig?: CliProxyHostConfig, gatewayIp?: string) => Promise<void>;
   writeConfigs: (config: WrapperConfig) => Promise<void>;
@@ -360,6 +363,7 @@ export async function runMainWorkflow(
   }
   onContainersStarted?.();
   assertEnclaveStartupChecklistComplete(config);
+  await observeHarness(config, dependencies.probeHarness);
   updateEnclaveStartupProgress(config, { stage: 'primary-agent' });
 
   // Step 3: Wait for agent to complete

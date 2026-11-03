@@ -23,6 +23,7 @@ import {
   SQUID_IP,
 } from './host-iptables-shared';
 import type { WrapperConfig } from './types';
+import type { HarnessProbe } from './model-information-contract/harness-observation';
 
 const SBX_HOST_DOCKER_INTERNAL = 'host.docker.internal';
 const SBX_GATEWAY_HOST = SBX_HOST_DOCKER_INTERNAL;
@@ -223,6 +224,15 @@ export class SbxRuntimeBackend implements ExternalAgentRuntimeBackend {
     }
 
     return { exitCode: result.exitCode };
+  };
+
+  readonly probeHarness: HarnessProbe = async (command) => {
+    if (!this.sandboxCreated || this.stopped || !this.environment) throw new Error('Sandbox not ready');
+    const result = await this.dependencies.execInSandbox(this.sandboxName, command, {
+      timeoutMinutes: 10 / 60, workDir: this.config.containerWorkDir,
+      environment: this.environment, tty: false, captureOutput: true,
+    });
+    return { ...result, stdout: result.stdout || '' };
   };
 
   async collectDiagnostics(): Promise<void> {

@@ -12,6 +12,8 @@ import { readEnvVarFromEnvFiles } from '../../parsers/env-parsers';
 import { NetworkOptionsResult } from './network-options';
 import { AgentOptionsResult } from './agent-options';
 import { resolveCopilotBrokerRuntime } from '../../copilot-token-broker';
+import { selectHarness } from '../../model-information-contract/harness-observation';
+import type { EligibilityInput } from '../../model-information-contract/eligibility';
 
 /**
  * Validates and logs the API proxy configuration.  Emits warnings for missing
@@ -137,6 +139,32 @@ function resolveAliasToFirstConcrete(
   return undefined;
 }
 
+function configuredCopilotModel(config: WrapperConfig, additionalEnv = config.additionalEnv): string | undefined {
+  return (additionalEnv?.COPILOT_MODEL ??
+    readEnvVarFromEnvFiles((config as { envFile?: unknown }).envFile, 'COPILOT_MODEL') ??
+    (config.envAll ? process.env.COPILOT_MODEL : undefined))?.trim();
+}
+
+function hasCustomCopilotProvider(config: WrapperConfig): boolean {
+  return !!(config.copilotProviderBaseUrl ||
+    config.additionalEnv?.COPILOT_PROVIDER_BASE_URL ||
+    readEnvVarFromEnvFiles((config as { envFile?: unknown }).envFile, 'COPILOT_PROVIDER_BASE_URL') ||
+    (config.envAll ? process.env.COPILOT_PROVIDER_BASE_URL : undefined));
+}
+
+/** Recheck concrete CLI targets after a supported backend becomes observable. */
+export function validateObservedCopilotHarness(
+  config: WrapperConfig,
+  evidence: Omit<EligibilityInput, 'identity' | 'scope'>,
+): void {
+  const model = configuredCopilotModel(config);
+  if (!model || hasCustomCopilotProvider(config) ||
+      !(config.copilotGithubToken || config.copilotProviderApiKey) ||
+      Object.keys(config.modelAliases || {}).some(key => key.toLowerCase() === model.toLowerCase())) return;
+  const result = validateCopilotModel(model, evidence);
+  if (!result.valid && result.eligibility && !result.eligibility.admitted) throw new Error(result.message);
+}
+
 /**
  * Resolves the effective `COPILOT_MODEL` value (from `--env`, env-file, or host
  * env when `--env-all` is active), warns on classic-PAT usage, and validates
@@ -149,32 +177,22 @@ export function validateCopilotModelOption(
   agentOptions: AgentOptionsResult,
 ): void {
   // Check if COPILOT_MODEL is set via --env/-e flags, --env-file, or host env (when --env-all is active)
-  const copilotModelFromFlags = agentOptions.additionalEnv.COPILOT_MODEL;
-  const copilotModelInEnvFile = readEnvVarFromEnvFiles(
-    (config as { envFile?: unknown }).envFile,
-    'COPILOT_MODEL',
-  );
-  const copilotModelInHostEnv = config.envAll ? process.env.COPILOT_MODEL : undefined;
-  const copilotModel = (
-    copilotModelFromFlags ??
-    copilotModelInEnvFile ??
-    copilotModelInHostEnv
-  )?.trim();
+  const copilotModel = configuredCopilotModel(config, agentOptions.additionalEnv);
   warnClassicPATWithCopilotModel(
     config.copilotGithubToken?.startsWith('ghp_') ?? false,
     !!copilotModel,
     logger.warn.bind(logger),
   );
 
-  const hasCustomCopilotProviderBaseUrl = !!(
-    config.copilotProviderBaseUrl ||
-    config.additionalEnv?.COPILOT_PROVIDER_BASE_URL ||
-    readEnvVarFromEnvFiles((config as { envFile?: unknown }).envFile, 'COPILOT_PROVIDER_BASE_URL') ||
-    (config.envAll ? process.env.COPILOT_PROVIDER_BASE_URL : undefined)
-  );
+  const selectedHarness = selectHarness(config.agentCommand)?.name;
+  const selection = { selectedHarness };
+  const deferredToReadyRuntime = (result: ReturnType<typeof validateCopilotModel>): boolean =>
+    !result.valid && result.eligibility?.harness === 'unverified' &&
+    result.eligibility.status === 'unknown' && selectedHarness === 'copilot-cli' &&
+    ['sbx', 'cloud-hypervisor'].includes(config.containerRuntime || '');
   if (
     copilotModel &&
-    !hasCustomCopilotProviderBaseUrl &&
+    !hasCustomCopilotProvider(config) &&
     (config.copilotGithubToken || config.copilotProviderApiKey)
   ) {
     // Check whether COPILOT_MODEL is a runtime alias key.  Aliases are resolved
@@ -192,8 +210,13 @@ export function validateCopilotModelOption(
       // its own availability-aware resolution at request time.
       const firstConcrete = resolveAliasToFirstConcrete(copilotModel, config.modelAliases!);
       if (firstConcrete !== undefined) {
-        const aliasValidation = validateCopilotModel(firstConcrete);
+        const aliasValidation = validateCopilotModel(firstConcrete, selection);
         if (!aliasValidation.valid) {
+          if (config.enableApiProxy && aliasValidation.eligibility?.harness === 'unverified' &&
+              aliasValidation.eligibility.status === 'unknown') {
+            logger.debug(`Alias '${copilotModel}' harness compatibility will be checked by runtime candidate eligibility`);
+            return;
+          }
           if (aliasValidation.reason === 'retired' || !config.enableApiProxy) {
             logger.error(
               `Error: alias '${copilotModel}' resolves to model '${firstConcrete}' which is ${aliasValidation.reason === 'retired' ? 'retired or unsupported' : 'unsupported or unrecognized by this AWF version'}.`,
@@ -210,9 +233,9 @@ export function validateCopilotModelOption(
       // COPILOT_MODEL as the alias name for the api-proxy.
     } else {
       // Not an alias: validate and normalise the concrete model name directly.
-      const validation = validateCopilotModel(copilotModel);
-      if (!validation.valid) {
-        if (validation.reason === 'retired' || !config.enableApiProxy) {
+      const validation = validateCopilotModel(copilotModel, selection);
+      if (!validation.valid && !deferredToReadyRuntime(validation)) {
+        if (validation.reason === 'retired' || !config.enableApiProxy || validation.eligibility) {
           logger.error(validation.message);
           process.exit(1);
         }
@@ -226,14 +249,19 @@ export function validateCopilotModelOption(
         return;
       }
 
-      if (validation.resolvedModel !== copilotModel) {
+      const resolvedModel = validation.valid ? validation.resolvedModel :
+        validation.eligibility?.identity?.rawId || copilotModel;
+      if (!validation.valid) {
+        logger.debug(`COPILOT_MODEL '${copilotModel}' awaits actual-environment harness observation`);
+      }
+      if (resolvedModel !== copilotModel) {
         logger.info(
-          `Normalized COPILOT_MODEL value '${copilotModel}' -> '${validation.resolvedModel}'`,
+          `Normalized COPILOT_MODEL value '${copilotModel}' -> '${resolvedModel}'`,
         );
       }
       config.additionalEnv = {
         ...(config.additionalEnv ?? {}),
-        COPILOT_MODEL: validation.resolvedModel,
+        COPILOT_MODEL: resolvedModel,
       };
     }
   }

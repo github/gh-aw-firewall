@@ -373,9 +373,10 @@ export class CloudHypervisorManager {
     const forwardedRequest = { ...request };
     delete forwardedRequest.rawStdout;
     delete forwardedRequest.rawStderr;
+    delete forwardedRequest.auditOutput;
     return this.guest.execute({
       ...forwardedRequest,
-      ...(this.workloadProfile.rawOutput === 'capture'
+      ...(this.workloadProfile.rawOutput === 'capture' && request.auditOutput !== false
         ? {
             rawStdout: this.guestStdoutAudit,
             rawStderr: this.guestStderrAudit,

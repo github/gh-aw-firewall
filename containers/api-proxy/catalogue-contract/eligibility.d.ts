@@ -26,6 +26,8 @@ export interface HarnessObservation {
   environment: string;
   verified: boolean;
   actual: boolean;
+  /** Sanitized producer failure classification, never raw subprocess output. */
+  reason?: string;
 }
 export interface EligibilityInput {
   identity: ModelIdentity | null;
@@ -57,6 +59,7 @@ export interface EligibilityReason {
   readonly environment?: string;
   readonly reason?: string;
   readonly provenance?: Readonly<Record<string, unknown>>;
+  readonly observationReason?: string;
 }
 export interface EligibilityResult {
   readonly identity: Readonly<ModelIdentity> | null;

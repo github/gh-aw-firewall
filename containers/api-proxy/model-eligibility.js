@@ -7,6 +7,7 @@ const { getProviderAliases } = require('./provider-pricing-overlays');
 const { stripRedundantProviderPrefix } = require('./model-utils');
 const { getRetiredModelBlockState } = require('./guards/retired-model-guard');
 const { getModelPolicyBlockState } = require('./guards/model-policy-guard');
+const { pinHarnessObservation } = require('./harness-observation');
 
 const EMPTY_RECORDS = Object.freeze([]);
 const discoveryIdentityCache = new WeakMap();
@@ -50,7 +51,7 @@ function createProxyEligibilityStore(initial = {}) {
   };
   const store = createEligibilityStore(state(initial));
   return Object.freeze({
-    pin: () => store.pin(),
+    pin: () => pinHarnessObservation(store.pin()),
     replaceTrustedEvidence: evidence => store.replace(state(evidence)),
   });
 }
@@ -130,6 +131,7 @@ function buildEligibilityError(decision) {
         ...(reason.required !== undefined ? { required: reason.required } : {}),
         ...(reason.actual !== undefined ? { actual: reason.actual } : {}),
         reason: reason.reason || 'A compatible verified harness in the actual execution environment is required',
+        ...(reason.observationReason ? { observationReason: reason.observationReason } : {}),
       })),
     },
   };

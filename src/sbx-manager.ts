@@ -610,8 +610,10 @@ export async function execInSandbox(
     workDir?: string;
     environment?: Record<string, string>;
     tty?: boolean;
+    /** Bounded, non-streaming output for internal runtime observations. */
+    captureOutput?: boolean;
   },
-): Promise<{ exitCode: number }> {
+): Promise<{ exitCode: number; stdout?: string; timedOut?: boolean; overflow?: boolean }> {
   logger.info(`Executing in sandbox "${name}": ${command}`);
 
   const args = ['exec'];
@@ -633,8 +635,9 @@ export async function execInSandbox(
   try {
     const result = await execa('sbx', args, {
       env: sanitizeEnvForSbx(),
-      stdio: ['ignore', 'inherit', 'inherit'],
-      reject: false,
+      stdio: options?.captureOutput ? ['ignore', 'pipe', 'ignore'] : ['ignore', 'inherit', 'inherit'],
+      ...(options?.captureOutput ? { maxBuffer: 4096, stripFinalNewline: false } : {}),
+      reject: options?.captureOutput === true,
       timeout: options?.timeoutMinutes ? options.timeoutMinutes * 60 * 1000 : undefined,
     });
 
@@ -646,8 +649,19 @@ export async function execInSandbox(
       logger.warn(`Sandbox command exited with code ${exitCode}`);
     }
 
-    return { exitCode };
+    return { exitCode, ...(options?.captureOutput ? { stdout: result.stdout } : {}) };
   } catch (error: any) {
+    if (options?.captureOutput) {
+      // Raw command errors/output can contain credentials. Only classifications
+      // cross the model-information observation boundary.
+      return {
+        exitCode: error.timedOut ? 124 :
+          typeof error.exitCode === 'number' && error.exitCode !== 0 ? error.exitCode : 1,
+        stdout: '',
+        timedOut: error.timedOut === true,
+        overflow: error.name === 'MaxBufferError' || error.message?.includes('maxBuffer') === true,
+      };
+    }
     if (error.timedOut) {
       logger.error(`Sandbox command timed out after ${options?.timeoutMinutes} minutes`);
       return { exitCode: 124 }; // match timeout convention

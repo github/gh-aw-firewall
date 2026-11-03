@@ -33,7 +33,9 @@ import {
   CLOUD_HYPERVISOR_GUEST_WORKSPACE,
   MCP_GATEWAY_PORT,
   formatError,
+  createBoundedOutputCollector,
 } from './backend-utils';
+import { MAX_PROBE_BYTES, type HarnessProbe } from '../model-information-contract/harness-observation';
 import { runCloudHypervisorBootLoop } from './runtime-boot-loop';
 import {
   cleanupArtifactSnapshot,
@@ -374,6 +376,32 @@ class CloudHypervisorRuntimeBackend implements ExternalAgentRuntimeBackend {
       if (this.config.auditDir) {
         await manager.collectGuestOutputAudit(`${this.config.auditDir}/cloud-hypervisor`);
       }
+    }
+  };
+
+  readonly probeHarness: HarnessProbe = async (command) => {
+    const manager = this.manager;
+    if (this.stopped || this.stopping || !manager || !this.environment || !this.identity) {
+      throw new Error('Cloud Hypervisor microVM is not ready');
+    }
+    const stdout = createBoundedOutputCollector(MAX_PROBE_BYTES + 1);
+    const stderr = createBoundedOutputCollector(0);
+    const requestId = `harness-${process.pid}-${Date.now()}`;
+    const promise = manager.execute({
+      requestId, argv: ['/bin/sh', '-lc', command],
+      env: this.environment, cwd: CLOUD_HYPERVISOR_GUEST_WORKSPACE,
+      ...this.identity, timeoutMs: 10_000, tty: false,
+      stdout: stdout.stream, stderr: stderr.stream, auditOutput: false,
+    });
+    this.activeExecution = { requestId, promise };
+    try {
+      const result = await promise;
+      return {
+        stdout: stdout.toString(), exitCode: result.signal ? 1 : result.exitCode, timedOut: result.timedOut,
+        overflow: Buffer.byteLength(stdout.toString()) > MAX_PROBE_BYTES,
+      };
+    } finally {
+      this.activeExecution = undefined;
     }
   };
 

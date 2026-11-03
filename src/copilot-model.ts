@@ -3,7 +3,7 @@ import naming from './model-information.naming.generated.json';
 import { resolveIdentity } from './model-information-contract/resolution';
 import eligibilityModels from './model-information.eligibility.generated.json';
 import {
-  createEligibilityStore, EligibilityInput, EligibilitySnapshot, HarnessRequirement,
+  createEligibilityStore, EligibilityInput, EligibilitySnapshot, HarnessRequirement, EligibilityResult,
 } from './model-information-contract/eligibility';
 
 interface CopilotModelValidationSuccess {
@@ -15,6 +15,7 @@ interface CopilotModelValidationFailure {
   valid: false;
   reason: 'retired' | 'unsupported';
   message: string;
+  eligibility?: EligibilityResult;
 }
 
 type CopilotModelValidationResult =
@@ -111,7 +112,7 @@ export function validateCopilotModel(
       });
       if (!eligibility.admitted) {
         return {
-          valid: false, reason: 'unsupported',
+          valid: false, reason: 'unsupported', eligibility,
           message: `Error: model '${trimmed}' is not eligible for Copilot CLI: ${
             eligibility.reasons.filter(reason =>
               !['discovery_unknown', 'harness_compatible'].includes(reason.code))
@@ -124,7 +125,8 @@ export function validateCopilotModel(
                   `required ${required.scheme} >=${required.minimum}; ` +
                   `excluded=${JSON.stringify(required.excludedRanges)}; ` +
                   `detected=${reason.detected || 'unverified'}${
-                    reason.reason ? `; ${reason.reason}` : ''})`;
+                    reason.reason ? `; ${reason.reason}` : ''}${
+                    reason.observationReason ? `; observation=${reason.observationReason}` : ''})`;
               }).join(', ')
           }.`,
         };

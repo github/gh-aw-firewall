@@ -58,7 +58,8 @@ describe('maintained model compilation', () => {
       'src/model-information.naming.generated.json']) {
       expect(fs.readFileSync(path.join(root, file))).toEqual(bytes);
     }
-    for (const file of ['identity.js', 'identity.d.ts', 'resolution.js', 'resolution.d.ts', 'eligibility.js', 'eligibility.d.ts']) {
+    for (const file of ['identity.js', 'identity.d.ts', 'resolution.js', 'resolution.d.ts', 'eligibility.js', 'eligibility.d.ts',
+      'harness-observation.js', 'harness-observation.d.ts']) {
       const shared = fs.readFileSync(path.join(root, 'shared/model-information', file));
       expect(fs.readFileSync(path.join(root, 'src/model-information-contract', file))).toEqual(shared);
       expect(fs.readFileSync(path.join(root, 'containers/api-proxy/catalogue-contract', file))).toEqual(shared);
@@ -85,6 +86,39 @@ describe('maintained model compilation', () => {
       expect(execFileSync(process.execPath, ['-e',
         "const assert=require('node:assert/strict');const {evaluateEligibility:e}=require('./eligibility');const r=e({identity:{key:'copilot/test',provider:'copilot',rawId:'test',lookupId:'test'},scope:{provider:'copilot',channel:'copilot-api'}});assert.equal(r.admitted,true);assert.equal(r.harness,'unconstrained');assert(Object.isFrozen(r));"],
       { cwd: directory, encoding: 'utf8' })).toBe('');
+    } finally {
+      fs.rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
+  it('packages host and proxy harness observation assets without source-relative imports', () => {
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'harness-observation-package-'));
+    try {
+      fs.mkdirSync(path.join(directory, 'catalogue-contract'));
+      for (const file of ['harness-observation.js', 'eligibility.js']) {
+        fs.copyFileSync(path.join(root, 'containers/api-proxy/catalogue-contract', file),
+          path.join(directory, 'catalogue-contract', file));
+      }
+      fs.copyFileSync(path.join(root, 'containers/api-proxy/harness-observation.js'),
+        path.join(directory, 'harness-observation.js'));
+      buildSync({
+        entryPoints: [path.join(root, 'src/harness-observation.ts')],
+        outfile: path.join(directory, 'host.js'), bundle: true, platform: 'node', format: 'cjs',
+      });
+      expect(execFileSync(process.execPath, ['-e', `
+        const assert = require('node:assert/strict');
+        const host = require('./host');
+        const env = host.harnessProxyEnvironment({agentCommand:'copilot --model x', containerRuntime:'sbx'});
+        assert.equal(env.AWF_SELECTED_HARNESS, 'copilot-cli');
+        assert.match(env.AWF_HARNESS_ENVIRONMENT, /^sbx:/);
+        const contract = require('./catalogue-contract/harness-observation');
+        const context = {environment:env.AWF_HARNESS_ENVIRONMENT,name:'copilot-cli',binary:'copilot'};
+        const report = contract.parseProbe(context,{exitCode:0,stdout:'/bin/copilot\\n1.2.3\\n'});
+        assert.equal(report.status, 'observed');
+        assert.equal(contract.eligibilityEvidence(report,{provider:'openai',channel:'native-api'}).observations[0].version,'1.2.3');
+        Object.assign(process.env, env);
+        assert.equal(require('./harness-observation').readHarnessObservation().status, 'unavailable');
+      `], { cwd: directory, encoding: 'utf8' })).toBe('');
     } finally {
       fs.rmSync(directory, { recursive: true, force: true });
     }
@@ -371,6 +405,7 @@ describe('maintained model compilation', () => {
   it('resolves generated proxy assets independently of repository shared modules', () => {
     const dockerfile = fs.readFileSync(path.join(root, 'containers/api-proxy/Dockerfile'), 'utf8');
     expect(dockerfile).toMatch(/model-information\.pricing\.generated\.json model-information\.retired\.generated\.json/);
+    expect(dockerfile).toMatch(/model-eligibility\.js harness-observation\.js/);
     const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-model-assets-'));
     try {
       const fixturePath = fs.realpathSync(temp);
@@ -381,7 +416,7 @@ describe('maintained model compilation', () => {
       for (const file of ['model-information.pricing.generated.json',
         'model-information.retired.generated.json', 'model-api-mapping.json', 'model-api-mapping.js',
         'model-information.naming.generated.json', 'model-identity.js', 'model-utils.js',
-        'model-eligibility.js', 'model-information.eligibility.generated.json',
+        'model-eligibility.js', 'harness-observation.js', 'model-information.eligibility.generated.json',
         'provider-pricing-overlays.js',
         'guards/retired-model-guard.js', 'guards/model-policy-guard.js', 'guards/guard-utils.js', 'logging.js']) {
         fs.copyFileSync(path.join(root, 'containers/api-proxy', file), path.join(temp, file));

@@ -863,6 +863,7 @@ export function createMainAction(getOptionValueSource: OptionSourceResolver) {
         ensureFirewallNetwork,
         setupHostIptables,
         writeConfigs,
+        probeHarness: externalRuntimeBackend?.probeHarness?.bind(externalRuntimeBackend),
         startContainers: externalWorkflowDependencies?.startContainers ?? startContainers,
         runAgentCommand: trackedRunAgentCommand,
         collectDiagnosticLogs: workflowCollectDiagnosticLogs,

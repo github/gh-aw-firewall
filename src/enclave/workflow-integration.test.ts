@@ -1,3 +1,6 @@
+import * as fs from 'fs';
+import * as os from 'os';
+import * as path from 'path';
 import { normalizeEnclavesConfig } from '../parsers/enclave-parser';
 import type { WrapperConfig } from '../types';
 import { runMainWorkflow } from '../cli-workflow';
@@ -9,9 +12,11 @@ jest.mock('../container-runtime', () => ({
   runtimeUsesComposeAgent: jest.fn().mockReturnValue(true),
 }));
 
+let workDir: string;
+
 function config(): WrapperConfig {
   return {
-    workDir: '/tmp/awf-enclave-test',
+    workDir,
     networkIsolation: true,
     enclaves: normalizeEnclavesConfig([
       { script: {}, repos: [{ repo: 'octo/private', sensitivity: 'internal' }] },
@@ -47,6 +52,15 @@ function dynamicConfig(): WrapperConfig {
 }
 
 describe('unified enclave workflow integration', () => {
+  beforeEach(() => {
+    workDir = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-enclave-test-'));
+    fs.mkdirSync(path.join(workDir, 'api-proxy-logs'));
+  });
+
+  afterEach(() => {
+    fs.rmSync(workDir, { recursive: true, force: true });
+  });
+
   it.each([
     ['prepareEnclaves', 'enclave-preflight'],
     ['writeConfigs', 'compose-config'],
