@@ -1440,9 +1440,15 @@ Consumer adapters preserve their outward interfaces and existing guards:
 
 #### Bounded Phase 4 slice: actual-environment harness observations
 
-The host now produces selected-harness observations using the existing ready
-runtime execution channels, after backend startup and before primary command
-execution. Selection is deliberately limited to direct `copilot`, `claude`, and
+The supported product targets are **cloud-hypervisor, nvx, docker, and arc/dind**.
+ARC/DinD is a Docker deployment topology, not a separate runtime backend.
+Runtime enum values and historical backend implementations are not a product
+support list: sbx is not supported, and runc/gVisor/Kata are not separate
+supported product targets.
+
+The host produces selected-harness observations through the existing ready
+Cloud Hypervisor execution channel, after backend startup and before primary
+command execution. Selection is deliberately limited to direct `copilot`, `claude`, and
 `codex` executables (including simple absolute or `./` paths), mapped to the
 exact harness identifiers `copilot-cli`, `claude-code`, and `codex-cli`.
 These names are not aliases for arbitrary constraint names. Shell wrappers,
@@ -1450,11 +1456,11 @@ environment assignments, quoted executable paths, command substitutions and
 compound commands remain `selection_unavailable`; installing a binary alone
 never establishes selection.
 
-| Backend | Observation coverage |
+| Target / execution context | Observation coverage |
 |---------|----------------------|
 | Cloud Hypervisor primary guest | Existing `manager.execute` channel, same guest UID/GID, environment, cwd and login shell as the primary command |
-| Docker sbx primary sandbox | Existing `execInSandbox` channel, same sandbox, cwd, environment and login-shell PATH setup; bounded capture rather than streaming |
-| Compose agents (default/runc, gVisor, Kata) | Explicit `runtime_probe_unsupported`; Compose starts the user command during `startContainers`, before a ready pre-command probe can run through the current lifecycle |
+| Docker primary agent | Explicit `runtime_probe_unsupported`; Compose starts the user command during `startContainers`, before a ready pre-command probe can run through the current lifecycle |
+| ARC/DinD (Docker deployment topology) | Same explicit missing Docker producer; split-filesystem report publication uses the existing runner-visible log-mount translation, not a new execution backend |
 | NVX | Explicit `runtime_probe_unsupported`; its one-shot execute lifecycle exposes no persistent ready guest for a separate observation |
 | Enclave executors | No primary observation is attached to the dedicated enclave proxy; per-invocation enclave observation remains unimplemented |
 
@@ -1490,7 +1496,7 @@ requirement reason. The host also supplies the report when rechecking concrete
 `COPILOT_MODEL` CLI selections (flags, env files or opted-in host env) after backend
 readiness. Pre-start offline validation preserves naming/retirement checks but
 defers an otherwise-known direct Copilot model's unverified harness decision to
-that ready-runtime check on sbx/Cloud Hypervisor. Alias candidate expansion and
+that ready-runtime check on Cloud Hypervisor only. Alias candidate expansion and
 its final harness eligibility remain proxy-owned; custom provider paths retain
 their existing validation exemption. No applicable constraint means legacy admission, not a claim of
 verified compatibility.
@@ -1509,12 +1515,15 @@ Deterministic tests cover backend invocation context, bounds and timeouts,
 producer-to-file-to-eligibility wiring, host and HTTP admission, automatic
 candidate filtering, failure/mismatch cases and immutable refresh. Generated
 host/proxy assets and a bundled host consumer are exercised outside the source
-tree. These fixtures do not establish live sbx or KVM guest compatibility; no
-live provider inference or workflow dispatch is needed for this slice.
+tree. These fixtures do not establish live KVM guest compatibility or exercise
+live Docker, NVX or ARC/DinD deployments; no live provider inference or workflow
+dispatch is needed for this slice.
 
-**Remaining handoff:** actual observations for Compose/NVX/enclave execution,
+**Remaining handoff:** actual observation producers for supported Docker, NVX
+and ARC/DinD targets are still missing; product support does not imply
+observation capability. Per-invocation enclave observations,
 opaque commands and per-session attribution, and complete pre-start enforcement
-on the unsupported lifecycles remain open. This slice keeps the bundled
+on lifecycles without observation capability remain open. This slice keeps the bundled
 constraint projection empty. An opaque
 session whose model is not visible cannot acquire verified harness eligibility.
 Workflow/operator overlay

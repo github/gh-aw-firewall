@@ -241,11 +241,25 @@ describe('actual-environment harness observations', () => {
       });
     },
   );
-  it.each(['runc', 'gvisor', 'kata', 'nvx'])('never substitutes the host version for unsupported %s probes', async runtime => {
+  it.each([
+    ['Docker (default)', undefined, 'standard'],
+    ['Docker (explicit)', 'docker', 'standard'],
+    ['ARC/DinD (Docker topology)', undefined, 'arc-dind'],
+    ['NVX', 'nvx', 'standard'],
+  ] as const)('keeps missing observation capability explicit for supported target %s', async (_target, runtime, topology) => {
     config.containerRuntime = runtime;
+    config.runnerTopology = topology;
     prepareHarnessObservation(config);
     expect(report()).toMatchObject({ status: 'unavailable', reason: 'runtime_probe_unsupported' });
+    expect(harnessContext(config).environment).toMatch(runtime === 'nvx' ? /^nvx:/ : /^docker:/);
     expect(await observeHarness(config)).toMatchObject({ status: 'unavailable', reason: 'runtime_probe_unsupported' });
+    connectProxy();
+    expect(pinHarnessObservation(store().pin()).evaluate(input)).toMatchObject({
+      admitted: false, harness: 'unverified',
+    });
+    expect(pinHarnessObservation(store([]).pin()).evaluate(input)).toMatchObject({
+      admitted: true, harness: 'unconstrained',
+    });
   });
   it('records probe exceptions without credentials and leaves unconstrained admission unchanged', async () => {
     await observeHarness(config, async () => { throw new Error('Bearer do-not-disclose'); });
@@ -269,8 +283,7 @@ describe('actual-environment harness observations', () => {
     });
     expect(validateCopilotModel('gpt-6-sol', eligibilityEvidence(failed, cliScope))).toMatchObject({ valid: true });
   });
-  it.each(['sbx', 'cloud-hypervisor'])('defers only pending host harness checks until %s is ready, then enforces the real report', async runtime => {
-    config.containerRuntime = runtime;
+  it('defers pending host harness checks until Cloud Hypervisor is ready, then enforces the real report', async () => {
     config.copilotGithubToken = 'fixture-token';
     config.additionalEnv = { COPILOT_MODEL: 'gpt-6-sol' };
     const actualValidation = copilotModels.validateCopilotModel;
@@ -289,6 +302,29 @@ describe('actual-environment harness observations', () => {
       .toThrow('harness_incompatible');
     await expect(observeHarness(config, jest.fn().mockResolvedValue({ exitCode: 127, stdout: '' }))).rejects
       .toThrow('observation=binary_missing');
+  });
+  it.each([
+    ['Docker', undefined, 'standard'],
+    ['ARC/DinD (Docker topology)', undefined, 'arc-dind'],
+    ['NVX', 'nvx', 'standard'],
+  ] as const)('does not defer an applicable host requirement without an observation producer on %s', (_target, runtime, topology) => {
+    config.containerRuntime = runtime;
+    config.runnerTopology = topology;
+    config.copilotGithubToken = 'fixture-token';
+    config.additionalEnv = { COPILOT_MODEL: 'gpt-6-sol' };
+    const actualValidation = copilotModels.validateCopilotModel;
+    jest.spyOn(copilotModels, 'validateCopilotModel').mockImplementation((model, evidence) =>
+      actualValidation(model, {
+        ...evidence,
+        harnesses: [{ ...requirement, scope: { provider: 'copilot', channel: 'copilot-cli' } }],
+      }));
+    const exit = jest.spyOn(process, 'exit').mockImplementation(() => {
+      throw new Error('preflight rejected');
+    });
+    expect(() => validateCopilotModelOption(config, {
+      additionalEnv: config.additionalEnv!, volumeMounts: undefined, allowedUrls: undefined,
+    })).toThrow('preflight rejected');
+    expect(exit).toHaveBeenCalledWith(1);
   });
   it('does not impose the first alias candidate floor on a later eligible runtime sibling', async () => {
     config.copilotGithubToken = 'fixture-token';
