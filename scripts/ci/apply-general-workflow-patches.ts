@@ -79,6 +79,30 @@ export function applyGeneralWorkflowPatches(
   workflowPath: string
 ): PatchResult {
   const log: string[] = [];
+  if (workflowPath.endsWith('workflow-runtime-auditor.lock.yml')) {
+    const exclusions = [
+      'GH_AW_DEFAULT_OTLP_HEADERS',
+      'GH_AW_OTLP_ENDPOINTS',
+      'OTEL_EXPORTER_OTLP_HEADERS',
+      'OTEL_EXPORTER_OTLP_ENDPOINT',
+    ];
+    let commandCount = 0;
+    content = content.split('\n').map(line => {
+      if (!/^\s*awf --config\b/.test(line) || !line.includes('--env-all')) return line;
+      commandCount++;
+      for (const name of exclusions) {
+        if (!line.includes(`--exclude-env ${name}`)) {
+          line = line.replace('--env-all', `--env-all --exclude-env ${name}`);
+        }
+      }
+      return line;
+    }).join('\n');
+    if (commandCount < 2) {
+      throw new Error(`Expected both AWF sandbox commands in ${workflowPath}`);
+    }
+    log.push('  Excluded OTLP credentials from both auditor sandboxes');
+  }
+
   const preparedSmokeImages = /(?:^|[/\\])smoke-(?:copilot(?:-network-isolation)?|services)\.lock\.yml$/.test(workflowPath)
     && content.includes('- name: Build local AWF smoke images\n');
   const preparedSmokeImageArgs =

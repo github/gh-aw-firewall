@@ -109,6 +109,36 @@ describe('applyGeneralWorkflowPatches disabled admission outputs', () => {
   });
 });
 
+describe('applyGeneralWorkflowPatches runtime auditor credential exclusions', () => {
+  const compiledAuditor = [
+    'jobs:',
+    '  agent:',
+    '    steps:',
+    '      - run: |',
+    '          awf --config /tmp/config.json --env-all --log-level info \\',
+    '      - run: |',
+    '          awf --config /tmp/config.json --env-all --mount /tmp/data',
+    '',
+  ].join('\n');
+  const lockPath = '/tmp/workflow-runtime-auditor.lock.yml';
+
+  it('excludes OTLP credentials from both sandbox commands idempotently', () => {
+    const { content } = applyGeneralWorkflowPatches(compiledAuditor, lockPath);
+    expect(content.match(/--exclude-env GH_AW_DEFAULT_OTLP_HEADERS/g)).toHaveLength(2);
+    expect(content.match(/--exclude-env GH_AW_OTLP_ENDPOINTS/g)).toHaveLength(2);
+    expect(content.match(/--exclude-env OTEL_EXPORTER_OTLP_HEADERS/g)).toHaveLength(2);
+    expect(content.match(/--exclude-env OTEL_EXPORTER_OTLP_ENDPOINT/g)).toHaveLength(2);
+    expect(applyGeneralWorkflowPatches(content, lockPath).content).toBe(content);
+  });
+
+  it('fails when the compiler output no longer has both sandbox commands', () => {
+    expect(() => applyGeneralWorkflowPatches(
+      compiledAuditor.replace(/awf --config[^\n]+/g, 'echo no sandbox'),
+      lockPath,
+    )).toThrow('Expected both AWF sandbox commands');
+  });
+});
+
 describe('applyGeneralWorkflowPatches Copilot CLI copy step gating', () => {
   it('skips the copy for a non-copilot compiled engine', () => {
     const { content, log } = applyGeneralWorkflowPatches(
