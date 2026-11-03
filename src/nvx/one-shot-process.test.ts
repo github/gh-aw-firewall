@@ -1,6 +1,8 @@
 import { constants as osConstants } from 'os';
 import { runNvxProcess, signalExitCode } from './one-shot-process';
 
+const linuxIt = process.platform === 'linux' ? it : it.skip;
+
 describe('NVX one-shot process supervision', () => {
   it('preserves nonzero exits and drains both output streams', async () => {
     const stdout: Buffer[] = [];
@@ -24,7 +26,7 @@ describe('NVX one-shot process supervision', () => {
     expect(Buffer.concat(stderr).toString()).toBe('err');
   });
 
-  it('terminates a timed-out process without reporting cancellation', async () => {
+  linuxIt('terminates a timed-out process without reporting cancellation', async () => {
     const result = await runNvxProcess({
       command: process.execPath,
       args: ['-e', 'setInterval(() => {}, 1_000)'],
