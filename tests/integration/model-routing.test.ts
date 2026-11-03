@@ -3,9 +3,10 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import execa = require('execa');
-import * as yaml from 'js-yaml';
 import { afterAll, beforeAll, describe, expect, test } from '@jest/globals';
+import { renderDockerCompose } from '../../src/compose-renderer';
 import { parseImageTag } from '../../src/image-tag';
+import { DockerComposeConfig } from '../../src/types';
 import { buildRouterService, ROUTER_HEALTHCHECK_TEST } from '../../src/services/router-service';
 import { ROUTER_LOG_FILE, stopRouterAndSaveLogs } from '../../src/routing/router-log-capture';
 import { cleanup } from '../fixtures/cleanup';
@@ -309,7 +310,7 @@ describe('Model routing', () => {
   let collectorDir: string;
   const projects: Array<{ project: string; file: string }> = [];
 
-  function routerSource(): Record<string, unknown> {
+  function routerSource(): Pick<DockerComposeConfig['services'][string], 'image' | 'build'> {
     if (ROUTER_IMAGE) return { image: ROUTER_IMAGE };
     return {
       build: {
@@ -327,7 +328,7 @@ describe('Model routing', () => {
       imageConfig: ROUTER_IMAGE_CONFIG,
       hostEnv: scenario.hostSettings ?? {},
     }).environment;
-    const services: Record<string, unknown> = {
+    const services: DockerComposeConfig['services'] = {
       router: {
         ...routerSource(),
         ...(routerEnvironment && { environment: routerEnvironment }),
@@ -357,10 +358,10 @@ describe('Model routing', () => {
       };
     }
     const file = path.join(workDir, 'docker-compose.yml');
-    fs.writeFileSync(file, yaml.dump({
+    fs.writeFileSync(file, renderDockerCompose({
       services,
       networks: { routing: { internal: true }, egress: {} },
-    }, { lineWidth: -1 }), { mode: 0o600 });
+    }), { mode: 0o600 });
     return file;
   }
 
@@ -564,4 +565,3 @@ describe('Model routing', () => {
     expect(received.some(e => e.signal === 'traces' && e.status === 503)).toBe(true);
   }, 360000);
 });
-
