@@ -175,6 +175,12 @@ function evaluateEligibility(input) {
       unknown = true;
       if (harness !== 'incompatible') harness = 'unverified';
       add('harness_unverified', requirement, requirement);
+      const failed = (Array.isArray(input.observations) ? input.observations : []).find(observation =>
+        observation && observation.name === requirement.name && sameScope(observation.scope, scope) &&
+        observation.environment === executionEnvironment && observation.verified === false);
+      if (failed && typeof failed.reason === 'string' && /^[a-z_]{1,64}$/.test(failed.reason)) {
+        reasons[reasons.length - 1].observationReason = failed.reason;
+      }
       continue;
     }
     for (const observation of observations) {

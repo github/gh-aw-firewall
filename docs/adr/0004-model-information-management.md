@@ -1438,11 +1438,86 @@ Consumer adapters preserve their outward interfaces and existing guards:
   configured-fallback precedence, bounds, and opt-outs; opaque WebSocket sessions
   are not rewritten or replayed.
 
-**Remaining handoff:** actual selected-harness observation producers across all
-execution backends are not implemented by this API. Default absence of evidence
-is explicit, not a fabricated detected version. An opaque session whose model
-is not visible cannot acquire verified harness eligibility from this decision
-API. Workflow/operator overlay
+#### Bounded Phase 4 slice: actual-environment harness observations
+
+The host now produces selected-harness observations using the existing ready
+runtime execution channels, after backend startup and before primary command
+execution. Selection is deliberately limited to direct `copilot`, `claude`, and
+`codex` executables (including simple absolute or `./` paths), mapped to the
+exact harness identifiers `copilot-cli`, `claude-code`, and `codex-cli`.
+These names are not aliases for arbitrary constraint names. Shell wrappers,
+environment assignments, quoted executable paths, command substitutions and
+compound commands remain `selection_unavailable`; installing a binary alone
+never establishes selection.
+
+| Backend | Observation coverage |
+|---------|----------------------|
+| Cloud Hypervisor primary guest | Existing `manager.execute` channel, same guest UID/GID, environment, cwd and login shell as the primary command |
+| Docker sbx primary sandbox | Existing `execInSandbox` channel, same sandbox, cwd, environment and login-shell PATH setup; bounded capture rather than streaming |
+| Compose agents (default/runc, gVisor, Kata) | Explicit `runtime_probe_unsupported`; Compose starts the user command during `startContainers`, before a ready pre-command probe can run through the current lifecycle |
+| NVX | Explicit `runtime_probe_unsupported`; its one-shot execute lifecycle exposes no persistent ready guest for a separate observation |
+| Enclave executors | No primary observation is attached to the dedicated enclave proxy; per-invocation enclave observation remains unimplemented |
+
+Supported probes resolve the selected executable with `command -v` and run only
+its `--version`, with a 10-second timeout and 4096-byte stdout bound. Version
+formats are intentionally strict: Copilot's bare or named three-component
+version (optional `v`), Claude's `version (Claude Code)`, and Codex's
+`codex-cli version`. Existing shared eligibility retains responsibility for
+SemVer/numeric-components comparison, prereleases and exclusions. Unrecognized
+output never becomes a guessed version. Only a bounded executable path, parsed
+version, exact selection, unique per-run environment identifier and finite
+failure classification survive; stderr, error messages and informational
+metadata are discarded. The environment identifier denotes the agent boundary,
+not the host installation.
+
+`src/harness-observation.ts` initializes explicit unavailable/pending evidence
+before Compose generation, then atomically publishes the observation to
+`harness-observation.json` in the existing primary API-proxy log mount.
+AWF-owned sidecar process configuration pins the expected environment and
+selection; request bodies, headers, catalogues and compiler overlays cannot
+choose them. The file reader bounds and validates evidence, rejecting missing,
+malformed, wrong-environment and wrong-harness records as unverified. It binds
+the runtime binary observation to the consumer's exact provider/channel/deployment
+scope rather than inferring a provider from the binary. Dedicated enclave
+proxies do not inherit this primary process configuration.
+
+Each proxy eligibility pin captures both the existing canonical-fact snapshot
+and one observation report. Subsequent requests see a newly published report;
+in-flight selection, routing, fallback and recovery retain their original
+immutable evidence. All existing consumers still call shared eligibility.
+Failures add an `observationReason` alongside (not instead of) the canonical
+requirement reason. The host also supplies the report when rechecking concrete
+`COPILOT_MODEL` CLI selections (flags, env files or opted-in host env) after backend
+readiness. Pre-start offline validation preserves naming/retirement checks but
+defers an otherwise-known direct Copilot model's unverified harness decision to
+that ready-runtime check on sbx/Cloud Hypervisor. Alias candidate expansion and
+its final harness eligibility remain proxy-owned; custom provider paths retain
+their existing validation exemption. No applicable constraint means legacy admission, not a claim of
+verified compatibility.
+
+This is model-management evidence, **not adversarial execution attestation**:
+it does not pin an executable inode, prevent later PATH/binary replacement,
+observe binaries chosen inside opaque commands, or verify every subsequent
+subprocess/session sharing a proxy. It adds no protected spawn, controller,
+authentication scheme or compiler field. Routing's pre-agent infrastructure
+gate is not moved: Compose routing cannot obtain verified primary-harness
+evidence before agent launch and therefore remains explicitly unverified for
+applicable constraints. Other policy, lifecycle, protocol/feature/effort/limit,
+network, budget and enclave-capability guards are not relaxed.
+
+Deterministic tests cover backend invocation context, bounds and timeouts,
+producer-to-file-to-eligibility wiring, host and HTTP admission, automatic
+candidate filtering, failure/mismatch cases and immutable refresh. Generated
+host/proxy assets and a bundled host consumer are exercised outside the source
+tree. These fixtures do not establish live sbx or KVM guest compatibility; no
+live provider inference or workflow dispatch is needed for this slice.
+
+**Remaining handoff:** actual observations for Compose/NVX/enclave execution,
+opaque commands and per-session attribution, and complete pre-start enforcement
+on the unsupported lifecycles remain open. This slice keeps the bundled
+constraint projection empty. An opaque
+session whose model is not visible cannot acquire verified harness eligibility.
+Workflow/operator overlay
 transport, contribution conflict/provenance rules, and compiler round trips
 remain under #10294 and
 [github/gh-aw#70728](https://github.com/github/gh-aw/issues/70728).

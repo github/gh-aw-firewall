@@ -2,6 +2,9 @@
 
 const http = require('http');
 const https = require('https');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
 const { PassThrough } = require('node:stream');
 const {
   makeReq, makeRes, makeProxyReq, makeProxyRes, flushPromises,
@@ -11,6 +14,7 @@ const ENV_KEYS = [
   'HTTPS_PROXY', 'AWF_FALLBACK_MODELS', 'AWF_MODEL_FALLBACK', 'AWF_ALLOWED_MODELS',
   'AWF_DISALLOWED_MODELS', 'AWF_MAX_MODEL_MULTIPLIER', 'AWF_MAX_AI_CREDITS',
   'AWF_MODEL_ALIASES', 'AWF_MAX_RUNS',
+  'AWF_HARNESS_ENVIRONMENT', 'AWF_SELECTED_HARNESS', 'AWF_HARNESS_BINARY',
 ];
 const savedEnv = Object.fromEntries(ENV_KEYS.map(key => [key, process.env[key]]));
 let eligibility, proxy, requests, responses;
@@ -107,6 +111,7 @@ test('real HTTP ingress rejects an incompatible harness with scoped actionable d
     handleManagementEndpoint: () => false, reflectEndpoints: () => [],
     checkRateLimit: () => false, proxyRequest: proxy.proxyRequest, proxyWebSocket: jest.fn(),
   });
+
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
   try {
     const result = await new Promise((resolve, rejectRequest) => {
@@ -135,6 +140,50 @@ test('real HTTP ingress rejects an incompatible harness with scoped actionable d
   } finally {
     await new Promise(resolve => server.close(resolve));
     await server.shutdownConnections();
+  }
+});
+
+test.each([
+  ['1.2.3', true], ['1.0.0', false], ['1.3.2', false], [undefined, false],
+])('runtime-produced version %s drives explicit HTTP guards and automatic candidate filtering', async (version, admitted) => {
+  const { parseProbe } = require('./catalogue-contract/harness-observation');
+  process.env.AWF_HARNESS_ENVIRONMENT = 'guest:fixture';
+  process.env.AWF_SELECTED_HARNESS = 'copilot-cli';
+  process.env.AWF_HARNESS_BINARY = 'copilot';
+  const context = { environment: 'guest:fixture', name: 'copilot-cli', binary: 'copilot' };
+  const report = parseProbe(context, version
+    ? { exitCode: 0, stdout: `/guest/bin/copilot\n${version}\n` }
+    : { exitCode: 127, stdout: '' });
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'proxy-harness-observation-'));
+  const file = path.join(directory, 'observation.json');
+  fs.writeFileSync(file, JSON.stringify(report));
+  const open = fs.openSync;
+  jest.spyOn(fs, 'openSync').mockImplementation((filename, flags, mode) =>
+    open(filename === '/var/log/api-proxy/harness-observation.json' ? file : filename, flags, mode));
+  try {
+    const trusted = evidence();
+    trusted.models[0].harnesses[0].name = 'copilot-cli';
+    eligibility.proxyEligibilityStore.replaceTrustedEvidence(trusted);
+    const { req, res } = await start();
+    expect(eligibility.evaluateModelEligibility('gpt-6-sol', 'copilot', req).admitted).toBe(admitted);
+    if (admitted) expect(requests).toHaveLength(1);
+    else {
+      expect(requests).toHaveLength(0);
+      expect(JSON.parse(res.end.mock.calls[0][0]).error.code).toBe('model_harness_incompatible');
+    }
+    const { isModelEligible } = eligibility;
+    expect(isModelEligible('gpt-6-sol', 'copilot', {})).toBe(admitted);
+    expect(isModelEligible('gpt-5.3-codex', 'copilot', {})).toBe(true);
+    const { resolveModelSelector } = require('./model-selector');
+    const aliases = { 'Coding Model': ['copilot/gpt-6-sol', 'copilot/gpt-5.3-codex'] };
+    expect(resolveModelSelector('Coding Model', 'copilot', ['gpt-6-sol', 'gpt-5.3-codex'],
+      [], aliases, null, {}).resolvedModel).toBe(admitted ? 'gpt-6-sol' : 'gpt-5.3-codex');
+    // Neither an in-flight request nor its recovery chain can repin on refresh.
+    fs.writeFileSync(file, JSON.stringify({ ...report, status: 'unavailable', reason: 'probe_failed' }));
+    expect(eligibility.evaluateModelEligibility('gpt-6-sol', 'copilot', req).admitted).toBe(admitted);
+    expect(isModelEligible('gpt-6-sol', 'copilot', {})).toBe(false);
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
   }
 });
 

@@ -20,8 +20,11 @@ import {
   ROUTING_CONTAINER_OUTPUT_DIR,
 } from '../routing/bootstrap';
 import { ROUTER_SERVICE_NAME, ROUTING_NETWORK_NAME } from './router-service';
+import { harnessProxyEnvironment } from '../harness-observation';
 
 interface ApiProxyServiceConfigParams {
+  /** Dedicated enclave proxies must never consume the primary agent's evidence. */
+  primaryAgent?: boolean;
   config: WrapperConfig;
   networkConfig: NetworkConfig;
   apiProxyLogsPath: string;
@@ -79,7 +82,10 @@ export function buildApiProxyServiceConfig(params: ApiProxyServiceConfigParams):
       ],
       config.dockerHostPathPrefix,
     ),
-    environment: buildApiProxyBaseEnv(config, networkConfig),
+    environment: {
+      ...buildApiProxyBaseEnv(config, networkConfig),
+      ...(params.primaryAgent ? harnessProxyEnvironment(config) : {}),
+    },
     // Security hardening and resource limits to prevent DoS attacks
     ...buildContainerSecurityHardening({ memLimit: '512m', pidsLimit: 100, cpuShares: 512 }),
     stop_grace_period: `${stopGracePeriodSeconds}s`,

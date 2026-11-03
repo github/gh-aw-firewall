@@ -175,6 +175,46 @@ async function startNestedKvmProbeCase() {
 }
 
 describe('Cloud Hypervisor runtime backend', () => {
+  it('captures a bounded version probe in the ready guest with the actual command identity and environment', async () => {
+    const { manager, deps } = harness();
+    const backend = createBackend(config(), deps);
+    await expect(backend.probeHarness!('probe')).rejects.toThrow('not ready');
+    await backend.start('/tmp/awf', ['github.com']);
+    manager.execute.mockReset().mockImplementationOnce(async request => {
+      request.stdout.write('/guest/copilot\n1.2.3\n');
+      request.stderr.write('Bearer discarded');
+      return { requestId: request.requestId, exitCode: 0, signal: null, timedOut: false };
+    }).mockResolvedValueOnce({ requestId: 'agent', exitCode: 23, signal: null, timedOut: false });
+    expect(await backend.probeHarness!('probe')).toMatchObject({
+      stdout: '/guest/copilot\n1.2.3\n', exitCode: 0, timedOut: false, overflow: false,
+    });
+    await backend.exec('/tmp/awf', []);
+    const probe = manager.execute.mock.calls[0][0];
+    const execution = manager.execute.mock.calls[1][0];
+    expect(probe).toMatchObject({
+      argv: ['/bin/sh', '-lc', 'probe'], timeoutMs: 10_000,
+      cwd: execution.cwd, uid: execution.uid, gid: execution.gid, tty: false,
+    });
+    expect(probe.env).toBe(execution.env);
+    expect((deps.stderr as PassThrough).read()).toBeNull();
+    await backend.stop();
+    await expect(backend.probeHarness!('probe')).rejects.toThrow('not ready');
+  });
+
+  it('classifies guest probe timeout and output overflow without retaining stderr', async () => {
+    const { manager, deps } = harness();
+    const backend = createBackend(config(), deps);
+    await backend.start('/tmp/awf', []);
+    manager.execute.mockReset().mockImplementation(async request => {
+      request.stdout.write('x'.repeat(100_000));
+      request.stderr.write('secret');
+      return { requestId: request.requestId, exitCode: 124, signal: null, timedOut: true };
+    });
+    const result = await backend.probeHarness!('probe');
+    expect(result).toMatchObject({ timedOut: true, overflow: true, exitCode: 124 });
+    expect(Buffer.byteLength(result.stdout)).toBe(4097);
+    await backend.stop();
+  });
   let eligibilitySpy: jest.SpyInstance;
 
   beforeEach(() => {

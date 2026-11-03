@@ -3,6 +3,7 @@ import { WrapperConfig } from './types';
 import { HostAccessConfig } from './host-iptables';
 import { normalizeEnclavesConfig } from './parsers/enclave-parser';
 import { getEnclaveStartupProgress } from './enclave/startup-progress';
+jest.mock('./harness-observation', () => ({ observeHarness: jest.fn().mockResolvedValue(undefined) }));
 
 jest.mock('./topology', () => ({
   TOPOLOGY_NETWORK_NAME: 'awf-net',

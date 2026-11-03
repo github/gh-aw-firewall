@@ -33,7 +33,7 @@ export function buildApiProxyService(params: ApiProxyServiceParams): ApiProxyBui
     throw new Error('buildApiProxyService: networkConfig.proxyIp is required');
   }
 
-  const service = buildApiProxyServiceConfig(params);
+  const service = buildApiProxyServiceConfig({ ...params, primaryAgent: true });
   const agentEnvAdditions = buildAgentCredentialEnv(params);
 
   logger.info('API proxy sidecar enabled - API keys will be held securely in sidecar container');

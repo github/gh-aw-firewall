@@ -86,6 +86,14 @@ function githubToolsEnclaves() {
 }
 
 describe('unified enclave agent executor compose assembly', () => {
+  it('never applies the primary harness observation to a dedicated enclave proxy', () => {
+    const env = build({ agentCommand: 'copilot --model primary' }).agentApiProxyService?.environment;
+    expect(env).toBeDefined();
+    expect(env).not.toHaveProperty('AWF_HARNESS_ENVIRONMENT');
+    expect(env).not.toHaveProperty('AWF_SELECTED_HARNESS');
+    expect(env).not.toHaveProperty('AWF_HARNESS_BINARY');
+  });
+
   it('uses the runner UID/GID for enclave API proxy shared log writes on ARC/DinD', () => {
     const uid = jest.spyOn(hostIdentity, 'getSafeHostUid').mockReturnValue('12345');
     const gid = jest.spyOn(hostIdentity, 'getSafeHostGid').mockReturnValue('23456');
