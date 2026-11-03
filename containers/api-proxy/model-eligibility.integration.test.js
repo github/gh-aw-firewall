@@ -156,10 +156,18 @@ test.each([
     : { exitCode: 127, stdout: '' });
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'proxy-harness-observation-'));
   const file = path.join(directory, 'observation.json');
-  fs.writeFileSync(file, JSON.stringify(report));
+  fs.writeFileSync(file, JSON.stringify(report), { mode: 0o600 });
+  const fixtureStat = fs.statSync(file);
   const open = fs.openSync;
+  const fstat = fs.fstatSync;
   jest.spyOn(fs, 'openSync').mockImplementation((filename, flags, mode) =>
     open(filename === '/var/log/api-proxy/harness-observation.json' ? file : filename, flags, mode));
+  jest.spyOn(fs, 'fstatSync').mockImplementation(fd => {
+    const stat = fstat(fd);
+    // Simulate the runtime's root-owned observation without trusting other files.
+    if (stat.dev === fixtureStat.dev && stat.ino === fixtureStat.ino) stat.uid = 0;
+    return stat;
+  });
   try {
     const trusted = evidence();
     trusted.models[0].harnesses[0].name = 'copilot-cli';
