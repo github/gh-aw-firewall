@@ -80,7 +80,12 @@ export function applyGeneralWorkflowPatches(
 ): PatchResult {
   const log: string[] = [];
   if (workflowPath.endsWith('workflow-runtime-auditor.lock.yml')) {
-    const exclusions = ['GH_AW_DEFAULT_OTLP_HEADERS', 'GH_AW_OTLP_ENDPOINTS'];
+    const exclusions = [
+      'GH_AW_DEFAULT_OTLP_HEADERS',
+      'GH_AW_OTLP_ENDPOINTS',
+      'OTEL_EXPORTER_OTLP_HEADERS',
+      'OTEL_EXPORTER_OTLP_ENDPOINT',
+    ];
     let commandCount = 0;
     content = content.split('\n').map(line => {
       if (!/^\s*awf --config\b/.test(line) || !line.includes('--env-all')) return line;
