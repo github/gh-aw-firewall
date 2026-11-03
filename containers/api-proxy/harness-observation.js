@@ -20,7 +20,12 @@ function readHarnessObservation() {
     fd = fs.openSync('/var/log/api-proxy/harness-observation.json',
       fs.constants.O_RDONLY | fs.constants.O_NONBLOCK | (fs.constants.O_NOFOLLOW || 0));
     const stat = fs.fstatSync(fd);
-    if (!stat.isFile() || stat.size > MAX_PROBE_BYTES) return unavailable(context, 'observation_invalid');
+    const writableByGroupOrOthers = (stat.mode & 0o022) !== 0;
+    const untrustedOwner = typeof stat.uid === 'number' && stat.uid !== 0;
+    if (!stat.isFile()
+      || stat.size > MAX_PROBE_BYTES
+      || writableByGroupOrOthers
+      || untrustedOwner) return unavailable(context, 'observation_invalid');
     const buffer = Buffer.alloc(MAX_PROBE_BYTES + 1);
     const count = fs.readSync(fd, buffer, 0, buffer.length, 0);
     if (count > MAX_PROBE_BYTES) return unavailable(context, 'observation_invalid');
