@@ -343,6 +343,10 @@ export class AwfRunner {
       });
     }
 
+    for (const inputDir of options.inputDirs ?? []) {
+      args.push('--input-dir', inputDir);
+    }
+
     // Add container working directory
     if (options.containerWorkDir) {
       args.push('--container-workdir', options.containerWorkDir);
