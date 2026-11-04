@@ -49,6 +49,32 @@ describe('agent regression evidence collector', () => {
     expect(fs.readFileSync(outside, 'utf8')).toBe('host secret');
   });
 
+  it('does not follow a file replaced with a symlink while opening it', () => {
+    const outside = path.join(directory, 'outside.txt');
+    const sourceFile = path.join(source, 'agent-proof.txt');
+    fs.writeFileSync(outside, 'host secret');
+    fs.writeFileSync(sourceFile, 'guest evidence');
+    /* eslint-disable @typescript-eslint/no-require-imports */
+    const nodeFs = require('node:fs') as typeof fs;
+    /* eslint-enable @typescript-eslint/no-require-imports */
+    const originalOpenSync = nodeFs.openSync;
+    const openSpy = jest.spyOn(nodeFs, 'openSync').mockImplementation((...args) => {
+      if (args[0] === sourceFile) {
+        fs.unlinkSync(sourceFile);
+        fs.symlinkSync(outside, sourceFile);
+      }
+      return originalOpenSync(...args);
+    });
+
+    try {
+      expect(collectAgentRegressionEvidence(source, destination)).toEqual([]);
+      expect(fs.readdirSync(destination)).toEqual([]);
+      expect(fs.readFileSync(outside, 'utf8')).toBe('host secret');
+    } finally {
+      openSpy.mockRestore();
+    }
+  });
+
   it('rejects oversized evidence instead of staging it', () => {
     fs.writeFileSync(path.join(source, 'response.txt'), randomBytes(64 * 1024 + 1));
     expect(collectAgentRegressionEvidence(source, destination)).toEqual([]);

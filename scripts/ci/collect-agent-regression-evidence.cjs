@@ -48,19 +48,29 @@ function collectAgentRegressionEvidence(sourceDirectory, destination, secrets = 
     const sourcePath = path.join(source, name);
     let fd;
     try {
-      const before = fs.lstatSync(sourcePath);
-      if (!before.isFile() || before.isSymbolicLink() || before.size > MAX_FILE_BYTES) continue;
-      fd = fs.openSync(sourcePath, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
+      fd = fs.openSync(
+        sourcePath,
+        fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW | fs.constants.O_NONBLOCK,
+      );
       const opened = fs.fstatSync(fd);
-      if (!opened.isFile() || opened.dev !== before.dev || opened.ino !== before.ino
-        || opened.size > MAX_FILE_BYTES || total + opened.size > MAX_TOTAL_BYTES) continue;
-      const contents = redact(fs.readFileSync(fd, 'utf8'), secrets);
+      if (!opened.isFile() || opened.size > MAX_FILE_BYTES || total + opened.size > MAX_TOTAL_BYTES) continue;
+      const buffer = Buffer.alloc(MAX_FILE_BYTES + 1);
+      let length = 0;
+      while (length < buffer.length) {
+        const bytesRead = fs.readSync(fd, buffer, length, buffer.length - length, null);
+        if (bytesRead === 0) break;
+        length += bytesRead;
+      }
+      if (length > MAX_FILE_BYTES || total + length > MAX_TOTAL_BYTES) continue;
+      const contents = redact(buffer.subarray(0, length).toString('utf8'), secrets);
+      const contentSize = Buffer.byteLength(contents);
+      if (contentSize > MAX_FILE_BYTES || total + contentSize > MAX_TOTAL_BYTES) continue;
       const targetPath = path.join(target, name);
       fs.writeFileSync(targetPath, contents, { mode: 0o600, flag: 'wx' });
-      total += Buffer.byteLength(contents);
+      total += contentSize;
       copied.push(name);
     } catch (error) {
-      if (error.code !== 'ENOENT') throw error;
+      if (!['ENOENT', 'ELOOP'].includes(error.code)) throw error;
     } finally {
       if (fd !== undefined) fs.closeSync(fd);
     }
