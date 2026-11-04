@@ -335,7 +335,8 @@ async function suite() {
       assert.equal(probe, fs.readFileSync(run.commandFile, 'utf8'));
       const context = probe.trim().split('\n');
       assert.deepEqual(context.slice(0, 7), [
-        '1001', '1002', `${run.directory}/workspace`, `${run.directory}/bin:/usr/sbin:/usr/bin:/sbin:/bin`,
+        '1001', '1002', `${run.directory}/workspace`,
+        `${run.directory}/home/.npm-global/bin:${run.directory}/bin:/usr/sbin:/usr/bin:/sbin:/bin`,
         `${run.directory}/home`, 'fixture', 'fixture',
       ]);
       assert.match(context[7], /^controlled(?::startup)+$/);
