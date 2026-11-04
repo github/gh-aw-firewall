@@ -71,6 +71,86 @@ digests. Scan targets, vulnerability database updates, and the blocking
 High/Critical PR-image gate are unchanged. The setup script validates the merged
 daemon configuration before restart and refuses local or self-hosted runners.
 
+### Provider-free Docker harness observations
+
+`.github/workflows/test-docker-harness-observation.yml` automatically runs two
+bounded jobs on GitHub-hosted Ubuntu 24.04 for relevant pull requests and pushes
+to `main`: native Docker agent execution and split-filesystem Docker-in-Docker.
+The latter uses separate Debian runner and Alpine Docker-daemon containers,
+stages runner system binaries under daemon-only `/runner`, and shares temporary
+files at runner `/tmp` versus daemon `/runner/tmp`. A live negative bind probe
+must reject the untranslated runner path before the translated mount succeeds.
+This tests the split-filesystem topology used by ARC/DinD; it is **not a
+Kubernetes or ARC deployment test**. The older ARC volume/log fixture that shares
+the same filesystem is not a substitute for this evidence.
+
+Both jobs build the production agent image and TypeScript from the tested
+checkout. `scripts/ci/live-docker-harness.cjs` uses the real agent-service builder,
+image entrypoint, chroot, capability/identity setup, container-local tmpfs,
+Docker-exec observation transport, atomic report publisher and release gate.
+It supplies narrowly scoped fixture mounts and uses `network_mode: none` in place
+of Squid/provider services. This is a focused producer/lifecycle integration,
+not an end-to-end CLI, Squid, iptables-init, provider inference or enclave test.
+No provider request or real credential is needed.
+
+Direct fixture executables named `copilot`, `claude` and `codex` exercise bounded
+version output and ordinary command stdout/stderr/exit. Checks compare UID/GID,
+cwd, PATH, home/user, controlled exported environment, BASH_ENV startup effects
+and login-shell state between probe and command. The existing final command shell
+is non-login in these fixtures; the test does not enable a new login-shell mode.
+Cases cover publication before release, missing/malformed/overflow/failed/timeout
+observations, unchanged unconstrained admission, test-only incompatible and
+unverified evaluator requirements withholding release, shell-pinned resolution,
+unverified shell functions, wrong-run transport, cancellation, early startup exit
+and ownership-checked container removal. The blocking cases invoke the real
+`runMainWorkflow`/`observeHarness` admission recheck with live Docker lifecycle
+adapters, injecting a floor only at the test process's model-validator module
+boundary (as in the existing deterministic tests). They verify neither release
+nor command wait is reached. This does not install production constraints or add
+a configuration bypass. Bundled harness constraints remain empty and configured
+catalogue harness facts remain rejected.
+
+A separate networkless container uses the real proxy report reader on a
+read-only mount to check root ownership, writable-file/symlink rejection,
+stale-run binding and immutable evidence across atomic replacement. A
+no-binding reader must not infer primary evidence. Existing deterministic
+service-builder checks additionally verify dedicated enclave proxies receive no
+primary harness environment; no enclave producer is added or claimed.
+
+For native reproduction on a disposable Linux Docker host with `libcap2-bin`:
+
+```bash
+npm ci
+npm run build
+docker build --label "org.opencontainers.image.revision=$(git rev-parse HEAD)" \
+  -t awf-harness-agent:local containers/agent
+sudo env "PATH=$PATH" "AWF_LIVE_COMMIT=$(git rev-parse HEAD)" \
+  timeout --kill-after=20s 420s node scripts/ci/live-docker-harness.cjs
+```
+
+The split job additionally builds `Dockerfile.runner` and invokes
+`scripts/ci/live-docker-harness-split.sh`; its privileged outer-daemon launcher
+refuses non-GitHub-hosted environments. Cleanup removes only the generated
+Compose project's resources and label-verified test-owned containers, never
+prunes the shared daemon. An existing `awf-agent` causes a preflight failure
+rather than being removed. Per-container memory/PID/CPU limits, subprocess and
+job deadlines, and signal cleanup bound execution.
+
+Uploaded `harness-live-native` and `harness-live-split-dind` JSON artifacts contain
+the tested commit, actual agent image ID, Docker/Node/platform identification,
+sanitized canonical reports, per-case outcomes and cleanup status. They exclude
+raw version metadata, full environment, credentials, Compose dumps and container
+logs. `harness-deterministic` is a separately named Jest fixture artifact, **not
+live proof**. Deterministic workflow/fixture regressions run with:
+
+```bash
+npx jest --runInBand --runTestsByPath scripts/ci/live-docker-harness-workflow.test.ts
+```
+
+Live acceptance is established only by successful jobs and their artifacts for
+the exact tested commit; local deterministic results or an unavailable Docker
+daemon must not be reported as live acceptance.
+
 ### Unified enclave coverage
 
 Cloud Hypervisor enclave contract coverage runs in

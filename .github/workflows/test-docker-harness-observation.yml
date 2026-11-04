@@ -1,0 +1,107 @@
+name: Live Docker harness observations
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+    paths:
+      - 'src/**'
+      - 'containers/agent/**'
+      - 'containers/api-proxy/**'
+      - 'tests/fixtures/harness-observation/**'
+      - 'scripts/ci/live-docker-harness*'
+      - 'package*.json'
+      - '.github/workflows/test-docker-harness-observation.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: docker-harness-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  native:
+    name: Native Docker agent execution
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - name: Build checkout and verify deterministic fixtures separately
+        run: |
+          npm run build
+          mkdir -p artifacts/harness-deterministic
+          npx jest --runInBand --runTestsByPath \
+            scripts/ci/live-docker-harness-workflow.test.ts \
+            src/docker-harness-observation.test.ts src/harness-observation.test.ts \
+            src/model-information-contract.test.ts src/model-information-eligibility.test.ts \
+            src/services/api-proxy-service-config.test.ts src/services/enclave-agent-service.test.ts \
+            --json --outputFile=artifacts/harness-deterministic/results.json
+          npm run build:bundle
+          node release/awf-bundle.js --version
+      - name: Build production agent image from checkout
+        timeout-minutes: 20
+        run: docker build --label "org.opencontainers.image.revision=$(git rev-parse HEAD)" -t awf-harness-agent:local containers/agent
+      - name: Run provider-free live native Docker cases
+        timeout-minutes: 8
+        run: |
+          sudo env "PATH=$PATH" \
+            "AWF_LIVE_COMMIT=$(git rev-parse HEAD)" \
+            AWF_LIVE_TOPOLOGY=native \
+            "AWF_LIVE_ARTIFACTS=$PWD/artifacts/harness-live/native" \
+            timeout --kill-after=20s 420s node scripts/ci/live-docker-harness.cjs
+      - name: Upload sanitized live evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: harness-live-native
+          path: artifacts/harness-live/native/*.json
+          retention-days: 7
+          if-no-files-found: warn
+      - name: Upload deterministic fixture results (not live evidence)
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: harness-deterministic
+          path: artifacts/harness-deterministic/results.json
+          retention-days: 7
+          if-no-files-found: warn
+
+  split-dind:
+    name: Split-filesystem Docker-in-Docker (not Kubernetes ARC)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - name: Build production agent and isolated runner from checkout
+        timeout-minutes: 20
+        run: |
+          docker build --label "org.opencontainers.image.revision=$(git rev-parse HEAD)" -t awf-harness-agent:local containers/agent
+          docker build -t awf-harness-runner:local -f tests/fixtures/harness-observation/Dockerfile.runner .
+      - name: Run real split runner and daemon path views
+        timeout-minutes: 10
+        run: bash scripts/ci/live-docker-harness-split.sh
+      - name: Upload sanitized live evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: harness-live-split-dind
+          path: artifacts/harness-live/split-dind/*.json
+          retention-days: 7
+          if-no-files-found: warn
