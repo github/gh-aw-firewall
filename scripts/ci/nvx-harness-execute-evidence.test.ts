@@ -69,7 +69,9 @@ describe('NVX existing execute evidence (deterministic, not live KVM)', () => {
     });
     expect(execute).toHaveBeenNthCalledWith(9, inputs, {
       name: 'execution-cancel', entrypoint: `${NVX_HARNESS_FIXTURE_ROOT}/timeout/copilot`,
-      args: ['--version'], timeoutMs: 120_000, abortAfterMs: 10_000,
+      args: ['--version'], timeoutMs: 120_000, cancelOnOutput: {
+        marker: 'NVX-FIXTURE-ENV:', delayMs: 10_000, startupTimeoutMs: 90_000,
+      },
     });
     expect(evidence).toMatchObject({
       canonicalObservation: 'not-produced',

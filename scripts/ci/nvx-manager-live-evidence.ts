@@ -149,6 +149,11 @@ interface RunCaseOptions {
   args?: readonly string[];
   timeoutMs: number;
   abortAfterMs?: number;
+  cancelOnOutput?: {
+    marker: string;
+    delayMs: number;
+    startupTimeoutMs: number;
+  };
   enableApiProxy?: boolean;
   memoryMib?: number;
   memoryMaxBytes?: number;
@@ -179,12 +184,33 @@ export async function runCase(
     stderrBytes = appendBoundedOutput(stderrChunks, stderrBytes, chunk);
     process.stderr.write(chunk);
   });
-  const abortController = options.abortAfterMs === undefined && !options.hostInteraction
+  const abortController = options.abortAfterMs === undefined &&
+      options.cancelOnOutput === undefined && !options.hostInteraction
     ? undefined
     : new AbortController();
+  const cancelOnOutput = options.cancelOnOutput;
   const abortTimer = options.abortAfterMs === undefined
     ? undefined
     : setTimeout(() => abortController!.abort(), options.abortAfterMs);
+  let cancelTimer: ReturnType<typeof setTimeout> | undefined;
+  let startupTimer: ReturnType<typeof setTimeout> | undefined;
+  let startupTimedOut = false;
+  let cancellationMarkerSeen = false;
+  if (cancelOnOutput) {
+    let pendingOutput = '';
+    stdout.on('data', (chunk: Buffer) => {
+      if (cancellationMarkerSeen || startupTimedOut) return;
+      pendingOutput = `${pendingOutput}${chunk.toString('utf8')}`
+        .slice(-cancelOnOutput.marker.length);
+      if (!pendingOutput.includes(cancelOnOutput.marker)) return;
+      cancellationMarkerSeen = true;
+      if (startupTimer) clearTimeout(startupTimer);
+      cancelTimer = setTimeout(
+        () => abortController!.abort(),
+        cancelOnOutput.delayMs,
+      );
+    });
+  }
   const manager = new NvxManager({
     runId,
     preflight: {
@@ -240,6 +266,12 @@ export async function runCase(
 
   let result;
   try {
+    if (options.cancelOnOutput) {
+      startupTimer = setTimeout(() => {
+        startupTimedOut = true;
+        abortController!.abort();
+      }, options.cancelOnOutput.startupTimeoutMs);
+    }
     const execution = manager.execute();
     try {
       await options.hostInteraction?.();
@@ -251,6 +283,8 @@ export async function runCase(
     result = await execution;
   } finally {
     if (abortTimer) clearTimeout(abortTimer);
+    if (cancelTimer) clearTimeout(cancelTimer);
+    if (startupTimer) clearTimeout(startupTimer);
     stdout.end();
     stderr.end();
   }
@@ -259,6 +293,9 @@ export async function runCase(
   const residue = await inspectResidue(layout);
   if (residue.length > 0) {
     throw new Error(`${options.name} left NVX residue: ${residue.join(', ')}`);
+  }
+  if (options.cancelOnOutput && (startupTimedOut || !cancellationMarkerSeen)) {
+    throw new Error(`${options.name} did not emit its cancellation startup marker`);
   }
   return {
     runId,

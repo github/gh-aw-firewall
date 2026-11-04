@@ -38,7 +38,13 @@ export async function collectNvxHarnessExecuteEvidence(
       entrypoint: `${NVX_HARNESS_FIXTURE_ROOT}/${test.mode}/${test.harness}`,
       args: ['command' in test ? '--fixture-command' : '--version'],
       timeoutMs: 'timeout' in test ? 10_000 : 120_000,
-      ...('cancelled' in test ? { abortAfterMs: 10_000 } : {}),
+      ...('cancelled' in test ? {
+        cancelOnOutput: {
+          marker: 'NVX-FIXTURE-ENV:',
+          delayMs: 10_000,
+          startupTimeoutMs: 90_000,
+        },
+      } : {}),
     });
     const expectedCode = 'timeout' in test ? 124 : 'cancelled' in test ? 130 :
       'exitCode' in test ? test.exitCode : 0;
