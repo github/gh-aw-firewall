@@ -5,6 +5,10 @@ ARG BUILD_TOOLS_IMAGE=awf-build-tools
 FROM python:3.14.10-alpine3.24@sha256:eb2c62658b8d51bff0acc408504b76521d02030de56a8a3c1e830083e89b89d2 AS enclave-script
 
 RUN apk upgrade --no-cache \
+    && apk add --no-cache \
+         --repository=https://dl-cdn.alpinelinux.org/alpine/edge/main \
+         sqlite-libs=3.54.1-r0 \
+    && test "$(python3 -c 'import sqlite3; print(sqlite3.sqlite_version)')" = 3.54.1 \
     && python3 -c 'import json, pathlib, sys; sys.exit(0)' \
     && test -x /usr/local/bin/python3 \
     && ln -s /usr/local/bin/python3 /usr/bin/python3

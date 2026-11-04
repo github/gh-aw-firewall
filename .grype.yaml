@@ -421,3 +421,17 @@ ignore:
       name: http-cache-semantics
       version: "4.2.0"
       type: npm
+
+  # ── SQLite CLI-only vulnerability in enclave-script ───────────────────────────
+  #
+  # CVE-2026-119586 affects the SQLite shell's `.recover` command, not the
+  # SQLite library. Grype associates it with sqlite-libs, but Alpine packages
+  # the shell separately as sqlite-tools; enclave-script installs only
+  # sqlite-libs for Python's sqlite3 module and contains no sqlite3 executable.
+  # Keep this exception scoped to the pinned library version and remove it when
+  # Grype distinguishes the shell package from the library.
+  - vulnerability: CVE-2026-119586
+    package:
+      name: sqlite-libs
+      version: "3.54.1-r0"
+      type: apk
