@@ -333,6 +333,20 @@ printf "1.2.3\\n"`);
       expect(createManager).toHaveBeenCalledTimes(1);
     });
 
+    it('kills background probe helpers even when version execution succeeds', async () => {
+      writeHarness('copilot', `( trap '' TERM; exec sleep 30 ) >/dev/null 2>&1 &
+printf '%s\\n' "$!" >"$FIXTURE_DIRECTORY/helper-pid"
+printf '1.2.3\\n'`);
+      await observe();
+      expect(report()).toMatchObject({ status: 'observed' });
+      const pid = Number(fs.readFileSync(`${directory}/helper-pid`, 'utf8'));
+      const stat = fs.existsSync(`/proc/${pid}/stat`) ? fs.readFileSync(`/proc/${pid}/stat`, 'utf8') : '';
+      expect(stat === '' || stat.split(' ')[2] === 'Z').toBe(true);
+      await backend.releaseHarness!();
+      expect(await backend.exec(directory, [])).toEqual({ exitCode: 23 });
+      assertCleaned();
+    });
+
     it('cancels during version execution without waiting for the readiness deadline', async () => {
       writeHarness('copilot', 'sleep 30');
       const observation = observe();

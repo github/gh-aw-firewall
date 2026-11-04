@@ -106,7 +106,9 @@ or KVM produce `blocked`, never successful acceptance. No test requirement is
 added to the bundled catalogue or authorizes feed activation.
 
 **Current acceptance status:** blocked, not live-accepted. The implementation
-session on 2026-11-04 had Linux `7.0.0-1017-azure` x86_64 and readable `/dev/kvm`,
+session's prerequisite attempt at revision
+`20db162668b6ea0f5ce6e2845e1a24ed0ce958c0` (clean tree) on 2026-11-04
+had Linux `7.0.0-1017-azure` x86_64 and readable `/dev/kvm`,
 but no signed NVX OpenVMM/kernel/initramfs/manifest bundle or distro layer, and
 neither Bubblewrap nor `mkfs.erofs`. Deterministic results are separate from this
 missing guest evidence. No Docker/ARC-DinD live acceptance, provider inference,

@@ -231,7 +231,8 @@ async function runHarnessObservationCases(inputs: Inputs): Promise<void> {
             USER: 'nobody', LOGNAME: 'nobody', FIXTURE_DIRECTORY: '/workspace',
             FIXTURE_ENV: 'controlled', FIXTURE_MODE: mode, FIXTURE_VERSION: version,
           },
-          workingDirectory: '/workspace', command: controller.wrap(config.agentCommand),
+          workingDirectory: '/workspace',
+          command: `if touch /run/awf-harness/release/forbidden 2>/dev/null; then exit 90; fi\n${controller.wrap(config.agentCommand)}`,
         });
         prepareHarnessObservation(config);
         let report;
@@ -380,7 +381,15 @@ async function runCase(
   try {
     const execution = manager.execute();
     try {
-      if (await options.hostInteraction?.() === 'stop') abortController?.abort();
+      if (options.hostInteraction) {
+        const action = await Promise.race([
+          options.hostInteraction(),
+          execution.then(() => {
+            throw new Error(`${options.name} exited before host interaction completed`);
+          }),
+        ]);
+        if (action === 'stop') abortController?.abort();
+      }
     } catch (error) {
       abortController?.abort();
       await execution.catch(() => undefined);

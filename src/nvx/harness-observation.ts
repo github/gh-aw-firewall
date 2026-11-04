@@ -134,7 +134,12 @@ if [ -f ${GUEST_PROBE}/timed-out ]; then
   exit 124
 fi
 kill -TERM -- "-$watchdog" 2>/dev/null || :
-wait "$watchdog" 2>/dev/null || :`;
+wait "$watchdog" 2>/dev/null || :
+kill -TERM -- "-$probe" 2>/dev/null || :
+if kill -0 -- "-$probe" 2>/dev/null; then
+  /bin/sleep 1
+  kill -KILL -- "-$probe" 2>/dev/null || :
+fi`;
   return `(
 umask 077
 if /bin/bash --noprofile --norc -p -c ${quote(bounded)} >${GUEST_PROBE}/stdout 2>/dev/null; then
