@@ -379,13 +379,13 @@ describe('enclave agent protected entrypoint diagnostics', () => {
     expect(result.arguments).not.toContain('--max-model-requests');
     expect(result.arguments).not.toContain('--max-model-tokens');
     if (engine === 'codex') {
-      expect(result.arguments).toContain('--dangerously-bypass-approvals-and-sandbox');
+      expect(result.arguments).not.toContain('--dangerously-bypass-approvals-and-sandbox');
       expect(result.arguments).toContain('model_providers.awf.env_key="OPENAI_API_KEY"');
       expect(result.arguments).toContain('--ephemeral');
     } else {
       expect(result.arguments).toContain('--print');
       expect(result.arguments).toContain('--bare');
-      expect(result.arguments).toContain('--dangerously-skip-permissions');
+      expect(result.arguments).not.toContain('--dangerously-skip-permissions');
       expect(result.arguments).toContain('--strict-mcp-config');
       expect(result.arguments).toContain('{"mcpServers":{}}');
       expect(result.arguments).toContain('--no-session-persistence');
