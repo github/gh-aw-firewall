@@ -868,7 +868,7 @@ export function createMainAction(getOptionValueSource: OptionSourceResolver) {
         setupHostIptables,
         writeConfigs,
         probeHarness: externalRuntimeBackend?.probeHarness?.bind(externalRuntimeBackend) ?? dockerHarness?.probeHarness,
-        releaseHarness: externalRuntimeBackend?.releaseHarness?.bind(externalRuntimeBackend) ?? dockerHarness?.releaseHarness,
+        releaseHarness: dockerHarness?.releaseHarness,
         startContainers: externalWorkflowDependencies?.startContainers ?? startContainers,
         runAgentCommand: trackedRunAgentCommand,
         collectDiagnosticLogs: workflowCollectDiagnosticLogs,

@@ -71,48 +71,24 @@ digests. Scan targets, vulnerability database updates, and the blocking
 High/Critical PR-image gate are unchanged. The setup script validates the merged
 daemon configuration before restart and refuses local or self-hosted runners.
 
-### Provider-free NVX harness observations
+### NVX harness-observation limitation
 
-The deterministic NVX cases in `src/nvx/runtime-backend.test.ts` run the generated
-one-shot entrypoint in local shells with fixture executables. They verify the
-adapter's single-launch ordering, command context, bounded/sanitized evidence,
-test-only host requirements, cancellation, exit collection and observation-share
-cleanup. They do **not** establish NVX guest compatibility.
+NVX currently launches the configured command through one atomic
+`NvxManager.execute()` lifecycle. It does not expose a persistent ready guest or
+a selected-harness probe/pre-command release interface, so NVX harness
+observations remain `runtime_probe_unsupported`. The existing manager tests and
+live evidence runner validate NVX execution and result/cleanup behavior only;
+they do not establish selected-harness evidence or guest compatibility for a
+probe lifecycle.
 
-On a supported Linux x86_64/KVM runner provisioned with the existing signed NVX
-release artifacts, distro layer, host tools and infrastructure bridge, the
-existing live runner offers a separate provider-free mode:
-
-```bash
-sudo npx tsx scripts/ci/nvx-manager-live-evidence.ts \
-  --artifacts /absolute/path/to/attested-nvx-artifacts \
-  --layer /absolute/path/to/distro-layer \
-  --bridge awfnvxbr0 \
-  --signerWorkflow github/gh-aw-firewall/.github/workflows/release.yml \
-  --evidence /tmp/nvx-harness-live-evidence \
-  --harnessOnly true
-```
-
-Use the signer workflow from the attested artifact release, not an arbitrary
-replacement. This mode does not run the default provider-inference campaign.
-It uses the production NVX manager, guest entrypoint and observation producer
-with the existing version fixture, checks matching guest contexts, and exercises
-compatible, incompatible and unverified test-owned requirements before command
-release. Blocked commands are cancelled; final outcomes, confinement and resource
-residue checks still use the existing manager evidence path. It writes
-`harness-observation-live.json` with the tested Git revision, Linux environment,
-artifact manifest, sanitized reports and individual outcomes. Missing artifacts
-or KVM produce `blocked`, never successful acceptance. No test requirement is
-added to the bundled catalogue or authorizes feed activation.
-
-**Current acceptance status:** blocked, not live-accepted. The implementation
-session's prerequisite attempt at revision
-`20db162668b6ea0f5ce6e2845e1a24ed0ce958c0` (clean tree) on 2026-11-04
-had Linux `7.0.0-1017-azure` x86_64 and readable `/dev/kvm`,
-but no signed NVX OpenVMM/kernel/initramfs/manifest bundle or distro layer, and
-neither Bubblewrap nor `mkfs.erofs`. Deterministic results are separate from this
-missing guest evidence. No Docker/ARC-DinD live acceptance, provider inference,
-enclave observation or opaque/session attribution is claimed.
+**Current live acceptance status:** blocked, not live-accepted. A provider-free
+NVX guest acceptance run requires signed OpenVMM/kernel/initramfs/manifest
+artifacts, a distro layer, and host tooling including Bubblewrap and
+`mkfs.erofs`, in addition to a supported Linux x86_64/KVM runner. The recorded
+prerequisite attempt had no signed runtime bundle or distro layer and lacked
+Bubblewrap and `mkfs.erofs`. Deterministic fixtures are not a substitute for
+that guest evidence. No NVX harness-observation producer or live acceptance is
+claimed.
 
 ### Provider-free Docker harness observations
 

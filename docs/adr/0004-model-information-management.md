@@ -1447,7 +1447,7 @@ support list: sbx is not supported, and runc/gVisor/Kata are not separate
 supported product targets.
 
 The host produces selected-harness observations through the existing ready
-Cloud Hypervisor execution channel and Docker/NVX command-shell pre-command gates,
+Cloud Hypervisor execution channel and a Docker command-shell pre-command gate,
 after backend startup and before primary command execution.
 Selection is deliberately limited to direct `copilot`, `claude`, and
 `codex` executables (including simple absolute or `./` paths), mapped to the
@@ -1462,7 +1462,7 @@ never establishes selection.
 | Cloud Hypervisor primary guest | Existing `manager.execute` channel, same guest UID/GID, environment, cwd and login shell as the primary command |
 | Docker primary agent | Generated command prelude runs the probe after the existing entrypoint's identity, chroot, environment, PATH and cwd setup; user command waits for host publication/recheck and release |
 | ARC/DinD (Docker deployment topology) | Same Docker producer, with container-local private tmpfs control transport via Docker exec; public report publication retains existing runner-visible log-mount translation |
-| NVX primary guest | The observation starts the single existing `manager.execute` lifecycle; the generated entrypoint probes in the command's non-login `/bin/sh`, UID/GID, env, PATH and cwd, then waits for host publication/recheck and release over existing virtio-fs mounts |
+| NVX | Explicit `runtime_probe_unsupported`; its one-shot execute lifecycle exposes no persistent ready guest for a separate observation |
 | Enclave executors | No primary observation is attached to the dedicated enclave proxy; per-invocation enclave observation remains unimplemented |
 
 Supported probes resolve the selected executable with `command -v` and run only
@@ -1511,23 +1511,6 @@ back to the existing log/exit-status collection, without issuing any release.
 Historical non-default OCI backend names do not gain additional producer
 coverage in this slice.
 
-NVX does not assume a persistent ready guest or launch a version-only VM.
-Its probe rendezvous is a private per-run read-write share; its separate release
-share is read-only in the guest, because NVX maps workload ownership to share
-ownership. Only the host can publish the release. The generated POSIX prelude
-uses the supported distro's Bash job control to supervise whole process groups
-(BusyBox timeout alone signals only one PID), bounds the entire pipeline to
-10 seconds plus a one-second kill grace, retains at most 4097 stdout
-bytes, and discards stderr. Readiness and release each have a 120-second bound.
-The host bounds the raw read and checks its unique environment binding before
-publishing through the same canonical parser and atomic report path.
-An applicable failed host recheck never releases the guest. Failed version
-evidence alone still permits unconstrained legacy admission, not verified support.
-Startup failure races readiness so an exited guest cannot deadlock observation;
-the existing one-shot result remains responsible for exit status, timeout,
-cancellation and manager cleanup. Private observation shares are removed after
-that execution settles, including failed startup and cancellation.
-
 `src/harness-observation.ts` initializes explicit unavailable/pending evidence
 before Compose generation, then atomically publishes the observation to
 `harness-observation.json` in the existing primary API-proxy log mount.
@@ -1548,7 +1531,7 @@ requirement reason. The host also supplies the report when rechecking concrete
 `COPILOT_MODEL` CLI selections (flags, env files or opted-in host env) after backend
 readiness. Pre-start offline validation preserves naming/retirement checks but
 defers an otherwise-known direct Copilot model's unverified harness decision to
-that pre-command check on Cloud Hypervisor, NVX and Docker (including ARC/DinD).
+that ready-runtime check on Cloud Hypervisor and Docker (including ARC/DinD).
 Alias candidate expansion and
 its final harness eligibility remain proxy-owned; custom provider paths retain
 their existing validation exemption. No applicable constraint means legacy admission, not a claim of
@@ -1579,16 +1562,8 @@ deployments. Live Docker and ARC/DinD acceptance must be recorded separately
 when infrastructure is available; no live provider inference or workflow
 dispatch is needed.
 
-NVX deterministic shell-transport fixtures exercise its real backend adapter,
-generated entrypoint, probe bounds, context equality, host requirements, startup
-failure, cancellation, final exit and share cleanup. They are not live guest
-acceptance. The existing NVX live-evidence runner has a separate provider-free
-`--harnessOnly true` mode; prerequisites and recorded acceptance are described in
-[the integration guide](../INTEGRATION-TESTS.md).
-
-**Remaining handoff:** live supported NVX guest acceptance must be recorded
-separately; product support and deterministic fixtures do not establish it.
-Per-invocation enclave observations,
+**Remaining handoff:** the actual observation producer for NVX is still missing;
+product support does not imply observation capability. Per-invocation enclave observations,
 opaque commands and per-session attribution, and complete pre-start enforcement
 on lifecycles without observation capability remain open. This slice keeps the bundled
 constraint projection empty. An opaque

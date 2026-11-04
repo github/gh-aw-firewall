@@ -17,10 +17,8 @@ export interface ExternalAgentRuntimeBackend {
   stop(): Promise<void>;
   /** Safely quiesces the runtime while retaining inspectable state. */
   preserve?(): Promise<void>;
-  /** Bounded output from the agent environment; a one-shot backend may launch here. */
+  /** Bounded output from the ready agent environment, not the host installation. */
   probeHarness?: HarnessProbe;
-  /** Release a one-shot guest only after observation publication and eligibility. */
-  releaseHarness?: () => Promise<void>;
 }
 
 type ExternalRuntimeWorkflowDependencies = Pick<

@@ -28,9 +28,6 @@ import {
 import { buildNvxGuestEnvironment } from './guest-environment-builder';
 import { buildNvxGuestRunScript } from './guest-entrypoint';
 import { NvxGuestConfigLayer } from './guest-config-layer';
-import { harnessContext } from '../harness-observation';
-import { selectHarness, type HarnessProbe } from '../model-information-contract/harness-observation';
-import { NvxHarnessObservation } from './harness-observation';
 import {
   planNvxLiveMounts,
   type NvxLiveMountPlan,
@@ -136,30 +133,6 @@ export class NvxRuntimeBackend implements ExternalAgentRuntimeBackend {
   private abortController: AbortController | undefined;
   private activeExecution: Promise<NvxOneShotExecutionResult> | undefined;
   private stopped = false;
-  private harnessObservation: NvxHarnessObservation | undefined;
-  private oneShotExecution: Promise<{ exitCode: number }> | undefined;
-  private executionSettled = false;
-
-  readonly probeHarness: HarnessProbe = async () => {
-    if (this.oneShotExecution || !selectHarness(this.config.agentCommand)) {
-      throw new Error('NVX selected harness observation cannot be restarted');
-    }
-    this.harnessObservation = new NvxHarnessObservation(harnessContext(this.config));
-    // Start exactly one guest now, not a second version-only VM. Its command
-    // remains gated while the workflow publishes evidence and checks eligibility.
-    this.oneShotExecution = this.executeOnce(this.config.agentTimeout);
-    return Promise.race([
-      this.harnessObservation.probe(''),
-      this.oneShotExecution.then(() => {
-        throw new Error('NVX guest exited before harness observation');
-      }),
-    ]);
-  };
-
-  readonly releaseHarness = async (): Promise<void> => {
-    if (!this.harnessObservation || this.executionSettled) return;
-    await this.harnessObservation.release();
-  };
 
   constructor(
     private readonly config: WrapperConfig,
@@ -237,19 +210,6 @@ export class NvxRuntimeBackend implements ExternalAgentRuntimeBackend {
     _proxyLogsDir,
     agentTimeoutMinutes,
   ) => {
-    return this.oneShotExecution ?? this.executeOnce(agentTimeoutMinutes);
-  };
-
-  private async executeOnce(agentTimeoutMinutes?: number): Promise<{ exitCode: number }> {
-    try {
-      return await this.runExecution(agentTimeoutMinutes);
-    } finally {
-      this.executionSettled = true;
-      await this.harnessObservation?.cleanup();
-    }
-  }
-
-  private async runExecution(agentTimeoutMinutes?: number): Promise<{ exitCode: number }> {
     if (this.stopped) {
       throw new Error('NVX microVM execution aborted by shutdown');
     }
@@ -296,11 +256,6 @@ export class NvxRuntimeBackend implements ExternalAgentRuntimeBackend {
       exports,
     );
     logNvxGuestEnvironment(environment, this.dependencies.logger);
-    const harnessMounts = await this.harnessObservation?.stage(identity.uid, identity.gid);
-    if (this.stopped) {
-      throw new Error('NVX microVM execution aborted by shutdown');
-    }
-    const command = withInputPreflight(this.config.agentCommand, this.config.inputDirs);
     const guestConfigLayer = this.dependencies.createGuestConfigLayer({
       stagingRoot: path.join(this.config.workDir ?? '/run/awf-nvx', 'nvx-guest-layer', runId),
       uid: identity.uid,
@@ -308,7 +263,7 @@ export class NvxRuntimeBackend implements ExternalAgentRuntimeBackend {
       runScript: buildNvxGuestRunScript({
         environment,
         workingDirectory: resolveNvxGuestWorkDir(this.config.containerWorkDir),
-        command: this.harnessObservation?.wrap(command) ?? command,
+        command: withInputPreflight(this.config.agentCommand, this.config.inputDirs),
       }),
       homePath: process.env.HOME,
       hostAliases: {
@@ -354,7 +309,7 @@ export class NvxRuntimeBackend implements ExternalAgentRuntimeBackend {
         memoryMib: nvx.memoryMib,
         memoryMaxBytes: nvx.memoryMaxBytes,
         pidsMax: nvx.pidsMax,
-        mounts: harnessMounts ? [...mountPlan.mounts, ...harnessMounts] : mountPlan.mounts,
+        mounts: mountPlan.mounts,
         ...(timeoutMs === undefined ? {} : { timeoutMs }),
         abortSignal: abortController.signal,
         stdout: process.stdout,
@@ -381,7 +336,7 @@ export class NvxRuntimeBackend implements ExternalAgentRuntimeBackend {
       this.activeExecution = undefined;
       this.abortController = undefined;
     }
-  }
+  };
 
   async collectDiagnostics(): Promise<void> {
     // NvxManager tears down all per-run diagnostics-bearing state (network
@@ -397,7 +352,6 @@ export class NvxRuntimeBackend implements ExternalAgentRuntimeBackend {
     if (this.activeExecution) {
       await this.activeExecution.catch(() => undefined);
     }
-    await this.oneShotExecution?.catch(() => undefined);
   }
 }
 
