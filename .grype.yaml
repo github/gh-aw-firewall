@@ -151,6 +151,38 @@ ignore:
       version: "24.18.1"
       type: binary
 
+  # ── SQLite 3.53.4-r0 in Python Alpine v3.24 ────────────────────────────────
+  #
+  # Alpine v3.24 currently publishes sqlite-libs 3.53.4-r0; the FTS5/session
+  # fixes require SQLite 3.54.0 or later, and apk upgrade cannot remediate the
+  # pinned stable repository. FTS5 is reachable through Python's sqlite3 module,
+  # so these findings are not considered unreachable. The enclave-script image
+  # is single-use, has no network, and runs read-only under seccomp; accept this
+  # bounded exposure temporarily rather than ship a modified SQLite build.
+  # CVE-2026-119586 affects the sqlite3 CLI's .recover command; that CLI is not
+  # present in this image. Revisit with the enclave maintainers when Alpine
+  # publishes a fixed v3.24 package, then remove these version-scoped entries.
+  - vulnerability: CVE-2026-119373
+    package:
+      name: sqlite-libs
+      version: "3.53.4-r0"
+      type: apk
+  - vulnerability: CVE-2026-119374
+    package:
+      name: sqlite-libs
+      version: "3.53.4-r0"
+      type: apk
+  - vulnerability: CVE-2026-119379
+    package:
+      name: sqlite-libs
+      version: "3.53.4-r0"
+      type: apk
+  - vulnerability: CVE-2026-119586
+    package:
+      name: sqlite-libs
+      version: "3.53.4-r0"
+      type: apk
+
   # ── CPython 3.14.7 corrected affected-version metadata ──────────────────────
   #
   # The Python CNA records for these findings mark 3.14.0 through 3.14.6 as
