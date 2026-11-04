@@ -1,4 +1,4 @@
-import type { EnclaveAgentProfile } from '../types/enclave-options';
+import type { EnclaveAgentEngine, EnclaveAgentProfile } from '../types/enclave-options';
 import { HOST_EXECUTOR_MAX_RESULT_BYTES } from './host-executor-protocol';
 
 export type EnclaveExecutionRole = 'script' | 'agent';
@@ -24,6 +24,7 @@ export interface EnclaveExecutionIdentity<Role extends EnclaveExecutionRole = En
 }
 
 export interface HostExecutorAgentPolicy {
+  readonly engine?: EnclaveAgentEngine;
   readonly model: string;
   readonly profile: EnclaveAgentProfile;
   readonly maxOutputBytes: number;
@@ -120,6 +121,10 @@ export function normalizeAgentPolicy(
     policy.model.length === 0 ||
     Buffer.byteLength(policy.model, 'utf8') > 256 ||
     hasControlCharacters(policy.model) ||
+    (policy.engine !== undefined && !['copilot', 'codex', 'claude'].includes(policy.engine)) ||
+    (policy.engine === 'codex' && policy.profile !== 'openai') ||
+    (policy.engine === 'claude' && policy.profile !== 'anthropic') ||
+    (policy.engine !== undefined && policy.engine !== 'copilot' && policy.githubBearer !== undefined) ||
     !['openai', 'anthropic'].includes(policy.profile) ||
     !Number.isSafeInteger(policy.maxOutputBytes) ||
     policy.maxOutputBytes < 1 ||

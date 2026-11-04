@@ -69,6 +69,22 @@ describe('shared public enclave diagnostic conformance', () => {
     });
     expect(projection.session.events[0]).not.toHaveProperty('private');
   });
+  it('redacts bare provider capabilities from exported stdout, stderr, and session streams', async () => {
+    const capability = 'enclave-budget-capability-raw-value';
+    const input = {
+      ...options('docker'),
+      secrets: [capability],
+      stdout: { status: 'captured' as const, contents: Buffer.from(`stdout ${capability}\n`) },
+      stderr: { status: 'captured' as const, contents: Buffer.from(`stderr ${capability}\n`) },
+      session: { status: 'captured' as const, contents: Buffer.from(`session ${capability}\n`) },
+    };
+    await preservePublicEnclaveArtifacts(input);
+    for (const name of ['stdout.log', 'stderr.log', 'enclave-session.log']) {
+      const { contents } = readArtifact(path.join(input.directory, name));
+      expect(contents).not.toContain(capability);
+      expect(contents).toContain('[REDACTED]');
+    }
+  });
   it('supports safe retry after retention failed without treating the exception as a workload exit', async () => {
     const input = options('docker');
     const realOpen = dependencies.open;

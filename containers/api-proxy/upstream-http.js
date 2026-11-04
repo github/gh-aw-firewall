@@ -37,6 +37,7 @@ const {
 
 const invocationModelBudget = createInvocationModelBudget(
   process.env.AWF_ENCLAVE_AGENT_MODEL_BUDGET_SECRET,
+  { enforceInferenceEndpoints: process.env.AWF_ENCLAVE_AGENT_PROXY === '1' },
 );
 
 /**

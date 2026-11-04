@@ -42,7 +42,7 @@ const AGENT_SCHEMA_PATH = '/awf/schema.json';
 const AGENT_UID = 65534;
 const AGENT_GID = 65534;
 const AGENT_SUPPORTED_BACKENDS = new Set(['docker', 'gvisor']);
-const AGENT_SUPPORTED_ENGINES = new Set(['copilot']);
+const AGENT_SUPPORTED_ENGINES = new Set(['copilot', 'codex', 'claude']);
 const AGENT_SUPPORTED_PROFILES = new Set(['openai', 'anthropic']);
 const AGENT_CONTAINER_PREFIX = 'awf-enclave-agent';
 const GITHUB_AGENT_ID_FILE = '/run/awf-enclave-mcp/github-agent-id';
@@ -245,6 +245,10 @@ function loadAgentConfig(server, files = fs) {
   const profile = requireEnv('AWF_ENCLAVE_AGENT_PROFILE');
   if (!AGENT_SUPPORTED_PROFILES.has(profile)) {
     throw new Error(`Unsupported AWF_ENCLAVE_AGENT_PROFILE: ${profile}`);
+  }
+  if ((engine === 'claude' && profile !== 'anthropic')
+    || (engine === 'codex' && profile !== 'openai')) {
+    throw new Error('Enclave agent engine and provider profile do not match');
   }
   const apiEndpoint = requireEnv('AWF_ENCLAVE_AGENT_API_ENDPOINT');
   if (!/^http:\/\/[0-9a-zA-Z.:-]+$/.test(apiEndpoint)) {

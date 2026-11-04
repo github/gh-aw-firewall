@@ -4,8 +4,8 @@ import * as path from 'path';
 const MAX_SESSION_BYTES = 1024 * 1024;
 const MAX_EVENTS = 32;
 const PATHS = [
-  'copilot-executable', 'seed-directory', 'task-input', 'schema-input', 'output-file',
-  'session-log', 'agent-directory', 'copilot-log-directory', 'github-agent-id', 'github-bearer',
+  'copilot-executable', 'codex-executable', 'claude-executable', 'seed-directory', 'task-input', 'schema-input', 'output-file',
+  'session-log', 'agent-directory', 'copilot-log-directory', 'codex-log-directory', 'claude-log-directory', 'github-agent-id', 'github-bearer',
   'temporary-directory', 'shared-memory',
 ];
 const STAGES = [
@@ -45,7 +45,9 @@ const OPERATIONS = [
   ...FILE_OPERATIONS.flatMap(id => [id, `${id}-open`, `${id}-close`]),
   ...['stat', 'open', 'write', 'close'].map(id => `session-log-${id}`),
   ...PATHS.flatMap(id => [`preflight-${id}`, `preflight-${id}-stat`]),
-  ...['home-directory', 'copilot-directory', 'copilot-log-directory'].map(id => `runtime-path-creation-${id}`),
+  ...['home-directory', 'copilot-directory', 'copilot-log-directory',
+    'codex-directory', 'codex-log-directory', 'claude-directory', 'claude-log-directory']
+    .map(id => `runtime-path-creation-${id}`),
   ...['agent-directory', 'temporary-directory', 'shared-memory'].map(id => `resource-${id}-statvfs`),
   ...OUTPUT_PATHS.flatMap(id => [`snapshot-${id}-stat`, `snapshot-${id}-lstat`]),
   'verify-output-link-lstat', 'verify-output-link-readlink',

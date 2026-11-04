@@ -29,7 +29,12 @@ export default tseslint.config(
     },
   },
   {
-    files: ['src/model-information-contract/*.js'],
+    files: [
+      'src/model-information-contract/*.js',
+      'containers/enclave/agent-executor/agent-provider-environment.js',
+      'scripts/ci/configure-agent-regression-build.js',
+      'scripts/ci/run-enclave-agent-regression.js',
+    ],
     languageOptions: {
       sourceType: 'commonjs',
       globals: globals.node,

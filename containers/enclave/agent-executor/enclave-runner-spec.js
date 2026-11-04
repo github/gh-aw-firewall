@@ -1,6 +1,7 @@
 'use strict';
 
 const crypto = require('crypto');
+const { agentProviderEnvironment } = require('./agent-provider-environment');
 
 /**
  * Fixed enclave container specification.
@@ -147,6 +148,9 @@ function deriveEnclaveContainerSpec({ config, runId, invocationId, seedId, runti
   const containerName = `${containerPrefix}-${runId.slice(0, 12)}-${invocationId}`;
   const hostInvocationDir = `${config.hostWorkDir}/${invocationId}`;
   const modelBudgetToken = createModelBudgetToken(config, invocationId);
+  const providerEnvironment = agentProviderEnvironment(
+    config.engine, config.apiEndpoint, config.model, config.enclaveMountDir, modelBudgetToken,
+  );
   const runLabel = `${runLabelKey}=${runId}`;
   const invocationLabel = `${invocationLabelKey}=${invocationId}`;
   const launchArgs = [
@@ -173,14 +177,7 @@ function deriveEnclaveContainerSpec({ config, runId, invocationId, seedId, runti
     '--workdir', config.dynamicEnabled ? config.enclaveMountDir : config.enclaveSeedPath,
     '--env', `AWF_ENCLAVE_AGENT_ENGINE=${config.engine}`,
     '--env', `HOME=${config.enclaveMountDir}/home`,
-    '--env', `COPILOT_HOME=${config.enclaveMountDir}/copilot`,
-    '--env', 'COPILOT_OFFLINE=true',
-    '--env', 'COPILOT_GITHUB_TOKEN=******',
-    '--env', `COPILOT_TOKEN=${modelBudgetToken || '******'}`,
-    '--env', `COPILOT_PROVIDER_BEARER_TOKEN=${modelBudgetToken?.slice('Bearer '.length) || '******'}`,
-    '--env', `COPILOT_API_URL=${config.apiEndpoint}`,
-    '--env', `COPILOT_PROVIDER_BASE_URL=${config.apiEndpoint}`,
-    '--env', `COPILOT_MODEL=${config.model}`,
+    ...Object.entries(providerEnvironment).flatMap(([key, value]) => ['--env', `${key}=${value}`]),
     '--env', 'PYTHONDONTWRITEBYTECODE=1',
     '--env', 'PYTHONUNBUFFERED=1',
     '--env', `AWF_ENCLAVE_AGENT_API_ENDPOINT=${config.apiEndpoint}`,

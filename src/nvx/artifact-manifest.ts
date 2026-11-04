@@ -17,6 +17,8 @@ export const NVX_CANARY_SIGNER_WORKFLOW =
   'github/gh-aw-firewall/.github/workflows/nvx-phase-4-canary.yml';
 export const NVX_CAMPAIGN_SIGNER_WORKFLOW =
   'github/gh-aw-firewall/.github/workflows/nvx-phase-4-benchmark.yml';
+export const NVX_AGENT_REGRESSION_SIGNER_WORKFLOW =
+  'github/gh-aw-firewall/.github/workflows/daily-agent-runtime-regression.yml';
 
 const ARTIFACT_FILES = {
   openvmm: 'openvmm',
@@ -190,7 +192,8 @@ function assertTrustedSignerWorkflow(workflow: string): void {
     workflow !== NVX_SMOKE_SIGNER_WORKFLOW &&
     workflow !== NVX_BUILD_TEST_SIGNER_WORKFLOW &&
     workflow !== NVX_CANARY_SIGNER_WORKFLOW &&
-    workflow !== NVX_CAMPAIGN_SIGNER_WORKFLOW
+    workflow !== NVX_CAMPAIGN_SIGNER_WORKFLOW &&
+    workflow !== NVX_AGENT_REGRESSION_SIGNER_WORKFLOW
   ) {
     throw new Error(`Untrusted NVX artifact signer workflow: ${workflow}`);
   }

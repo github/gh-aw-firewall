@@ -1401,7 +1401,7 @@ jobs:
   build-cloud-hypervisor-test-artifacts:
     name: Build Cloud Hypervisor Preview Test Artifacts
     runs-on: ubuntu-24.04
-    needs: [bump-version, build-cloud-hypervisor-guest-base, build-cloud-hypervisor-profiles]
+    needs: [bump-version, build-enclaves, build-cloud-hypervisor-guest-base, build-cloud-hypervisor-profiles]
     timeout-minutes: 60
     steps:
       - name: Checkout code
@@ -1447,6 +1447,7 @@ jobs:
           GUEST_BASE_IMAGE="ghcr.io/${{ github.repository }}/cloud-hypervisor-guest-base@${{ needs.build-cloud-hypervisor-guest-base.outputs.digest }}" \
             PRIMARY_IMAGE="ghcr.io/${{ github.repository }}/cloud-hypervisor-primary@${{ needs.build-cloud-hypervisor-profiles.outputs.primary_digest }}" \
             ENCLAVE_IMAGE="ghcr.io/${{ github.repository }}/cloud-hypervisor-enclave@${{ needs.build-cloud-hypervisor-profiles.outputs.enclave_digest }}" \
+            ENCLAVE_AGENT_IMAGE="ghcr.io/${{ github.repository }}/enclave-agent@${{ needs.build-enclaves.outputs.enclave_agent_digest }}" \
             VERSION="${{ needs.bump-version.outputs.version }}" \
             AWF_CH_PRUNE_DOCKER_BUILD_CACHE=1 \
             ./guest/cloud-hypervisor/build-test-artifacts.sh

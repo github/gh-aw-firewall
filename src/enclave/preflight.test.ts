@@ -414,7 +414,7 @@ describe('validateEnclavesConfig', () => {
   it('rejects an agent executor whose engine has no audited enclave image', () => {
     const enclaves = normalizeEnclavesConfig([
       {
-        agent: { model: 'claude-test', engine: 'claude' },
+        agent: { model: 'gemini-test', engine: 'gemini' },
         repos: [{ repo: 'octo/private', sensitivity: 'internal' }],
       },
     ]);
@@ -423,8 +423,47 @@ describe('validateEnclavesConfig', () => {
       enableApiProxy: true,
       anthropicApiKey: 'key',
     })).join('\n');
-    expect(errors).toMatch(/engine "claude" is not implemented/);
+    expect(errors).toMatch(/engine "gemini" is not implemented/);
     expect(errors).toMatch(/never fall back to a different engine/);
+  });
+
+  it.each(['docker', 'cloud-hypervisor'] as const)('accepts native Codex and Claude engines on %s', runtime => {
+    for (const engine of ['codex', 'claude'] as const) {
+      const enclaves = normalizeEnclavesConfig([{
+        agent: { engine, profile: engine === 'claude' ? 'anthropic' : 'openai', model: 'trusted' },
+        runtime, repos: [{ repo: 'octo/private', sensitivity: 'internal' }],
+      }]);
+      expect(validateEnclavesStructure(config({
+        enclaves, enableApiProxy: true, anthropicApiKey: 'key', openaiApiKey: 'key',
+        ...(runtime === 'cloud-hypervisor' ? { cloudHypervisor: {
+          previewEnabled: true, mountPolicy: 'workspace-only' as const,
+          cloudHypervisorBinary: '/usr/local/bin/cloud-hypervisor',
+          vcpuCount: 1, memoryMib: 768, apiTimeoutMs: 5000,
+        } } : {}),
+      }))).toEqual([]);
+    }
+  });
+
+  it('rejects Claude token limits until Messages accounting is supported', () => {
+    const enclaves = normalizeEnclavesConfig([{
+      agent: { engine: 'claude', profile: 'anthropic', model: 'trusted', maxModelTokens: 128 },
+      repos: [{ repo: 'octo/private', sensitivity: 'internal' }],
+    }]);
+    expect(validateEnclavesConfig(config({
+      enclaves, enableApiProxy: true, anthropicApiKey: 'key',
+    })).join('\n')).toMatch(/maxModelTokens is not supported with the Claude engine/);
+  });
+
+  it.each([
+    ['codex', 'anthropic'], ['claude', 'openai'],
+  ] as const)('rejects mismatched %s provider profile %s', (engine, profile) => {
+    const enclaves = normalizeEnclavesConfig([{
+      agent: { engine, profile, model: 'trusted' },
+      repos: [{ repo: 'octo/private', sensitivity: 'internal' }],
+    }]);
+    expect(validateEnclavesConfig(config({
+      enclaves, enableApiProxy: true, anthropicApiKey: 'key', openaiApiKey: 'key',
+    })).join('\n')).toMatch(/profile does not match/);
   });
 
   it('rejects an agent executor without a configured provider route', () => {

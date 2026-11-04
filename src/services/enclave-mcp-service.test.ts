@@ -170,6 +170,7 @@ describe('buildEnclaveMcpService', () => {
     expect(result.service.environment).not.toHaveProperty('AWF_ENCLAVE_AGENT_MODEL_BUDGET_SECRET');
     expect(proxyEnvironment.AWF_ENCLAVE_AGENT_MODEL_BUDGET_SECRET).toBe(secret);
     expect(proxyEnvironment.AWF_ENCLAVE_PROXY_DIAGNOSTICS).toBe('1');
+    expect(proxyEnvironment.AWF_ENCLAVE_AGENT_PROXY).toBe('1');
     expect((proxy.healthcheck as { test: string[] }).test.join(' '))
       .toContain('model_budget_enforcement');
   });
@@ -185,10 +186,12 @@ describe('buildEnclaveMcpService', () => {
     const services = compose.services;
     expect(services['enclave-agent-api-proxy'].environment).toMatchObject({
       AWF_ENCLAVE_PROXY_DIAGNOSTICS: '1',
+      AWF_ENCLAVE_AGENT_PROXY: '1',
     });
     expect(services['enclave-agent-api-proxy'].environment)
       .not.toHaveProperty('AWF_ENCLAVE_AGENT_MODEL_BUDGET_SECRET');
     expect(services['api-proxy'].environment).not.toHaveProperty('AWF_ENCLAVE_PROXY_DIAGNOSTICS');
+    expect(services['api-proxy'].environment).not.toHaveProperty('AWF_ENCLAVE_AGENT_PROXY');
   });
 
   it('fails closed for the not-yet-proven sbx script runtime', () => {

@@ -21,10 +21,10 @@ function capability(invocationId, maxRequests = null, maxTokens = null) {
   return 'Bearer ' + payload + '.' + signature;
 }
 
-function attempt(budget, token, body = Buffer.from('{"model":"test"}'), path = '/v1/chat/completions') {
+function attempt(budget, token, body = Buffer.from('{"model":"test"}'), path = '/v1/chat/completions', method = 'POST') {
   return budget.beginAttempt({
     authorization: token,
-    method: 'POST',
+    method,
     path,
     body,
   });
@@ -227,7 +227,53 @@ describe('invocation-scoped enclave model budgets', () => {
       capability('invocation-00000008', null, 128),
       Buffer.from('{}'),
       '/v1/completions',
-    )).toMatchObject({ allowed: false, reason: 'unsupported_token_accounting' });
+    )).toMatchObject({ allowed: false, reason: 'unsupported_endpoint' });
+  });
+
+  test('allows only inference endpoints and safe read-only metadata when budget enforcement is enabled', () => {
+    const budget = createInvocationModelBudget(secret);
+    const token = capability('invocation-storage-denied001', 5);
+    for (const [method, path] of [
+      ['POST', '/v1/files'],
+      ['GET', '/v1/files'],
+      ['DELETE', '/v1/files/file-123'],
+      ['POST', '/v1/embeddings'],
+      ['POST', '/v1/fine_tuning/jobs'],
+      ['GET', '/v1/chat/completions'],
+    ]) {
+      expect(attempt(budget, token, Buffer.from('{}'), path, method)).toEqual({
+        allowed: false, reason: 'unsupported_endpoint',
+      });
+    }
+    for (const path of ['/health', '/status', '/v1/models', '/models']) {
+      expect(attempt(budget, token, Buffer.alloc(0), path, 'GET').allowed).toBe(true);
+    }
+    expect(attempt(
+      budget, token, Buffer.from('{"model":"test","messages":[]}'), '/v1/messages',
+    ).allowed).toBe(true);
+  });
+
+  test('restricts the dedicated enclave proxy to inference routes without optional budgets', () => {
+    const proxy = createInvocationModelBudget(undefined, { enforceInferenceEndpoints: true });
+    expect(attempt(proxy, undefined, Buffer.from('{}'), '/v1/responses').allowed).toBe(true);
+    expect(attempt(proxy, undefined, Buffer.from('{}'), '/v1/models', 'GET').allowed).toBe(true);
+    for (const [method, path] of [
+      ['POST', '/v1/files'],
+      ['GET', '/v1/files'],
+      ['DELETE', '/v1/files/file-123'],
+    ]) {
+      expect(attempt(proxy, undefined, Buffer.from('{}'), path, method))
+        .toEqual({ allowed: false, reason: 'unsupported_endpoint' });
+    }
+  });
+
+  test('does not allow Claude Messages inference with token accounting until it is supported', () => {
+    expect(attempt(
+      createInvocationModelBudget(secret),
+      capability('invocation-messages-token-budget01', null, 128),
+      Buffer.from('{"model":"test","messages":[]}'),
+      '/v1/messages',
+    )).toEqual({ allowed: false, reason: 'unsupported_token_accounting' });
   });
 
   test('keeps Responses budgets available when cache writes are included in input tokens', () => {

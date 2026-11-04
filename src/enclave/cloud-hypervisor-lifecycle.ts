@@ -105,6 +105,7 @@ function deriveAgentPolicies(
   const github = getStaticGithubExecutorCapability(config);
   return {
     agent: Object.freeze({
+      engine: agent.engine,
       model: agent.model,
       profile: agent.profile,
       maxOutputBytes: agent.maxOutputBytes,

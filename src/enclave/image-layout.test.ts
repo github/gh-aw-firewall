@@ -8,6 +8,24 @@ const containersRoot = path.join(repoRoot, 'containers');
 const dockerfilePath = path.join(containersRoot, 'enclave', 'Dockerfile');
 
 describe('enclave image contract', () => {
+  it('pins and seals all coding engines with their native optional dependencies', () => {
+    const dockerfile = fs.readFileSync(dockerfilePath, 'utf8');
+    expect(dockerfile).toContain('ARG CODEX_VERSION=0.159.3');
+    expect(dockerfile).toContain('ARG CLAUDE_VERSION=2.1.280');
+    expect(dockerfile).toContain('npm_config_ignore_scripts=false npm install --global --include=optional --install-strategy=nested');
+    expect(dockerfile).toContain('"@openai/codex@${CODEX_VERSION}"');
+    expect(dockerfile).toContain('"@anthropic-ai/claude-code@${CLAUDE_VERSION}"');
+    for (const scope of ['@openai', '@anthropic-ai']) {
+      expect(dockerfile).toContain(
+        `COPY --from=enclave-agent-build /usr/local/lib/node_modules/${scope}/ /usr/local/lib/node_modules/${scope}/`,
+      );
+    }
+    expect(dockerfile).toContain('libgcc-s1 libstdc++6');
+    expect(dockerfile).toContain('chmod -R a+rX,a-w /usr/local/lib/node_modules/@openai /usr/local/lib/node_modules/@anthropic-ai');
+    expect(dockerfile).toContain('codex --version && claude --version');
+    expect(dockerfile).toContain('LABEL io.github.awf.enclave.role="script"');
+  });
+
   it('builds all three enclave images from one neutral Dockerfile', () => {
     const dockerfile = fs.readFileSync(dockerfilePath, 'utf8');
     for (const target of ['AS enclave-script', 'AS enclave-agent', 'AS enclave-mcp-server']) {

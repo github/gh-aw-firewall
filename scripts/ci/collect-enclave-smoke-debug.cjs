@@ -63,8 +63,8 @@ const ERROR_CATEGORIES = ['host-exception', 'not-found', 'permission-denied', 'o
 const object = value => value !== null && typeof value === 'object' && !Array.isArray(value);
 const count = value => Number.isSafeInteger(value) && value >= 0;
 const exitCode = value => value === null || (Number.isInteger(value) && value >= -64 && value <= 255);
-const SESSION_PATHS = ['copilot-executable', 'seed-directory', 'task-input', 'schema-input', 'output-file',
-  'session-log', 'agent-directory', 'copilot-log-directory', 'github-agent-id', 'github-bearer',
+const SESSION_PATHS = ['copilot-executable', 'codex-executable', 'claude-executable', 'seed-directory', 'task-input', 'schema-input', 'output-file',
+  'session-log', 'agent-directory', 'copilot-log-directory', 'codex-log-directory', 'claude-log-directory', 'github-agent-id', 'github-bearer',
   'temporary-directory', 'shared-memory'];
 const OUTPUT_PATHS = ['output-parent', 'output-directory', 'output-link', 'output-file'];
 const SESSION_OPERATIONS = [
@@ -77,7 +77,9 @@ const SESSION_OPERATIONS = [
     .flatMap(id => [id, `${id}-open`, `${id}-close`]),
   ...['stat', 'open', 'write', 'close'].map(id => `session-log-${id}`),
   ...SESSION_PATHS.flatMap(id => [`preflight-${id}`, `preflight-${id}-stat`]),
-  ...['home-directory', 'copilot-directory', 'copilot-log-directory'].map(id => `runtime-path-creation-${id}`),
+  ...['home-directory', 'copilot-directory', 'copilot-log-directory',
+    'codex-directory', 'codex-log-directory', 'claude-directory', 'claude-log-directory']
+    .map(id => `runtime-path-creation-${id}`),
   ...['agent-directory', 'temporary-directory', 'shared-memory'].map(id => `resource-${id}-statvfs`),
   ...OUTPUT_PATHS.flatMap(id => [`snapshot-${id}-stat`, `snapshot-${id}-lstat`]),
   'verify-output-link-lstat', 'verify-output-link-readlink',

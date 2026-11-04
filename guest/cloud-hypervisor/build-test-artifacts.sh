@@ -45,10 +45,12 @@ GUEST_BASE_IMAGE=${GUEST_BASE_IMAGE:-awf-cloud-hypervisor-guest-base:build}
 PRIMARY_IMAGE=${PRIMARY_IMAGE:-awf-cloud-hypervisor-primary:build}
 ENCLAVE_IMAGE=${ENCLAVE_IMAGE:-awf-cloud-hypervisor-enclave:build}
 ENCLAVE_AGENT_IMAGE=${ENCLAVE_AGENT_IMAGE:-awf-enclave-agent:local}
+CODEX_VERSION=${CODEX_VERSION:-0.159.3}
+CLAUDE_VERSION=${CLAUDE_VERSION:-2.1.280}
 RELEASE_TAG=${VERSION:-v0.0.0-development}
 ARTIFACT_SIGNER_WORKFLOW=${ARTIFACT_SIGNER_WORKFLOW:-github/gh-aw-firewall/.github/workflows/release.yml}
 case "$ARTIFACT_SIGNER_WORKFLOW" in
-  github/gh-aw-firewall/.github/workflows/release.yml|github/gh-aw-firewall/.github/workflows/test-cloud-hypervisor.yml) ;;
+  github/gh-aw-firewall/.github/workflows/release.yml|github/gh-aw-firewall/.github/workflows/test-cloud-hypervisor.yml|github/gh-aw-firewall/.github/workflows/daily-agent-runtime-regression.yml) ;;
   *) echo "unsupported artifact signer workflow" >&2; exit 1 ;;
 esac
 
@@ -62,7 +64,7 @@ if [ "$(uname -s)" != Linux ] || [ "$(uname -m)" != x86_64 ]; then
   exit 1
 fi
 
-for tool in curl sha256sum tar make gcc ld mke2fs e2fsck go node docker sudo getcap setcap jq rustup pkg-config; do
+for tool in curl sha256sum tar make gcc ld mke2fs e2fsck go node docker sudo getcap setcap jq rustup pkg-config python3 unshare timeout mount; do
   command -v "$tool" >/dev/null || {
     echo "required build tool not found: $tool" >&2
     exit 1
@@ -261,15 +263,27 @@ if ! docker image inspect "$GUEST_BASE_IMAGE" >/dev/null 2>&1; then
   fi
 fi
 guest_base_image_id=$(docker image inspect --format '{{.Id}}' "$GUEST_BASE_IMAGE")
-if [[ "$ENCLAVE_IMAGE" != *@sha256:* && "$ENCLAVE_AGENT_IMAGE" == "awf-enclave-agent:local" ]] \
-  && ! docker image inspect "$ENCLAVE_AGENT_IMAGE" >/dev/null 2>&1; then
-  docker build \
-    --platform linux/amd64 \
-    --file "$ROOT/containers/enclave/Dockerfile" \
-    --target enclave-agent \
-    --build-arg "BUILD_TOOLS_IMAGE=$BUILD_TOOLS_IMAGE" \
-    --tag "$ENCLAVE_AGENT_IMAGE" \
-    "$ROOT/containers"
+# A restored Docker script image supplies the Python entrypoint, not a Linux
+# microVM sysroot. Reuse it and the restored agent image in a CH-only wrapper.
+if docker image inspect "$ENCLAVE_IMAGE" >/dev/null 2>&1 \
+  && [ "$(docker image inspect --format '{{index .Config.Labels "io.github.awf.enclave.role"}}' "$ENCLAVE_IMAGE")" = script ]; then
+  ENCLAVE_SCRIPT_IMAGE=$ENCLAVE_IMAGE
+  ENCLAVE_IMAGE=${CH_ENCLAVE_IMAGE:-awf-cloud-hypervisor-enclave:build}
+fi
+if ! docker image inspect "$ENCLAVE_AGENT_IMAGE" >/dev/null 2>&1; then
+  if [[ "$ENCLAVE_AGENT_IMAGE" == *@sha256:* ]]; then
+    docker pull --platform linux/amd64 "$ENCLAVE_AGENT_IMAGE"
+  elif [[ "$ENCLAVE_IMAGE" != *@sha256:* && "$ENCLAVE_AGENT_IMAGE" == "awf-enclave-agent:local" ]]; then
+    docker build \
+      --platform linux/amd64 \
+      --file "$ROOT/containers/enclave/Dockerfile" \
+      --target enclave-agent \
+      --build-arg "BUILD_TOOLS_IMAGE=$BUILD_TOOLS_IMAGE" \
+      --build-arg "CODEX_VERSION=$CODEX_VERSION" \
+      --build-arg "CLAUDE_VERSION=$CLAUDE_VERSION" \
+      --tag "$ENCLAVE_AGENT_IMAGE" \
+      "$ROOT/containers"
+  fi
 fi
 primary_runtime_image=$(resolve_guest_image "$PRIMARY_IMAGE" primary)
 enclave_runtime_image=$(resolve_guest_image "$ENCLAVE_IMAGE" enclave)
@@ -335,6 +349,41 @@ build_enclave_rootfs() {
   local rootfs="$OUTPUT/enclave-rootfs.ext4"
 
   export_guest_tree "$image" "$tree"
+  # Reuse the Docker enclave's sealed engines, including nested native optional
+  # packages. Copying just the JS entrypoints leaves Codex unable to launch.
+  local engine_container
+  engine_container=$(docker create --platform linux/amd64 "$ENCLAVE_AGENT_IMAGE")
+  sudo mkdir -p "$tree/usr/local/lib/node_modules" "$tree/usr/local/bin"
+  for scope in @openai @anthropic-ai; do
+    if ! docker cp "$engine_container:/usr/local/lib/node_modules/$scope" - \
+      | sudo tar --extract --directory "$tree/usr/local/lib/node_modules" \
+          --numeric-owner --preserve-permissions --same-owner; then
+      docker rm -f "$engine_container" >/dev/null 2>&1 || true
+      return 1
+    fi
+  done
+  for engine in codex claude run-enclave-agent public_debug_capture.py; do
+    if ! docker cp "$engine_container:/usr/local/bin/$engine" - \
+      | sudo tar --extract --directory "$tree/usr/local/bin" \
+          --numeric-owner --preserve-permissions --same-owner; then
+      docker rm -f "$engine_container" >/dev/null 2>&1 || true
+      return 1
+    fi
+  done
+  docker rm -f "$engine_container" >/dev/null
+  if [ -n "${ENCLAVE_SCRIPT_IMAGE:-}" ]; then
+    local script_container
+    script_container=$(docker create --platform linux/amd64 "$ENCLAVE_SCRIPT_IMAGE")
+    for entrypoint in run-enclave-script public_debug_capture.py; do
+      if ! docker cp "$script_container:/usr/local/bin/$entrypoint" - \
+        | sudo tar --extract --directory "$tree/usr/local/bin" \
+            --numeric-owner --preserve-permissions --same-owner; then
+        docker rm -f "$script_container" >/dev/null 2>&1 || true
+        return 1
+      fi
+    done
+    docker rm -f "$script_container" >/dev/null
+  fi
   sudo mkdir -p \
     "$tree/dev/shm" \
     "$tree/run" \
@@ -439,6 +488,18 @@ EOF
   sudo tee "$tree/etc/resolv.conf" >/dev/null <<'EOF'
 # Direct DNS is intentionally unavailable in Cloud Hypervisor enclave guests.
 EOF
+
+  # The exported tree has no procfs until boot. Probe in disposable namespaces,
+  # not a bare chroot or a bind of host /proc. PID 1 exit kills all descendants;
+  # unshare waits for it, so private mounts disappear before packaging/cleanup.
+  for engine in copilot codex claude; do
+    sudo env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin \
+      timeout --signal=TERM --kill-after=5s 30s \
+      unshare --mount --pid --fork --kill-child=KILL --net --ipc --uts --propagation=private \
+      /usr/bin/python3 -I "$ROOT/guest/cloud-hypervisor/verify-guest-engine.py" \
+      "$tree" "$engine" < /dev/null
+  done
+  test -z "$(sudo find "$tree/proc" -mindepth 1 -print -quit)"
 
   assemble_guest_rootfs "$tree" "$rootfs" \
     1862c171-7198-4f19-a07d-8eeb61d1ed01 $((64 * 1024 * 1024))

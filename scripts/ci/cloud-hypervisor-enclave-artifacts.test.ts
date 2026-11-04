@@ -30,6 +30,104 @@ function releaseStep(name: string): string {
 }
 
 describe('Cloud Hypervisor enclave rootfs artifacts', () => {
+  it('reuses sealed Docker engine trees and verifies all three guest launchers', () => {
+    const build = fs.readFileSync(buildPath, 'utf8');
+    const verify = fs.readFileSync(verifyPath, 'utf8');
+    expect(build).toContain('engine_container=$(docker create --platform linux/amd64 "$ENCLAVE_AGENT_IMAGE")');
+    expect(build).toContain('docker pull --platform linux/amd64 "$ENCLAVE_AGENT_IMAGE"');
+    expect(build).toContain('for scope in @openai @anthropic-ai; do');
+    expect(build).toContain('docker cp "$engine_container:/usr/local/lib/node_modules/$scope" -');
+    expect(build).toContain('for engine in codex claude run-enclave-agent public_debug_capture.py; do');
+    expect(build).toContain('docker cp "$engine_container:/usr/local/bin/$engine" -');
+    expect(build).toContain('for engine in copilot codex claude; do');
+    expect(build).toContain('verify-guest-engine.py"');
+    expect(build).not.toContain('chroot "$tree" /usr/local/bin/"$engine" --version');
+    expect(verify).toContain('for engine in copilot codex claude; do');
+    expect(verify).toContain('@openai/codex/node_modules/@openai/codex-linux-x64/vendor/x86_64-unknown-linux-musl/bin/codex');
+    expect(verify).toContain('@anthropic-ai/claude-code/bin/claude.exe');
+    expect(build).toContain('ENCLAVE_SCRIPT_IMAGE=$ENCLAVE_IMAGE');
+    expect(build).toContain('ENCLAVE_IMAGE=${CH_ENCLAVE_IMAGE:-awf-cloud-hypervisor-enclave:build}');
+    expect(build).toContain('docker cp "$script_container:/usr/local/bin/$entrypoint" -');
+    for (const source of [build, verify]) {
+      expect(source).toContain('github/gh-aw-firewall/.github/workflows/daily-agent-runtime-regression.yml');
+    }
+  });
+
+  it('isolates preboot engine probes after rootfs hardening and before packaging', () => {
+    const build = fs.readFileSync(buildPath, 'utf8');
+    const probe = build.indexOf('timeout --signal=TERM --kill-after=5s 30s');
+    expect(probe).toBeGreaterThan(build.indexOf('sudo chown 65534:65534 "$tree/home/awf-enclave"'));
+    expect(probe).toBeGreaterThan(build.indexOf('sudo setcap -r "$capability_file"'));
+    expect(probe).toBeLessThan(build.indexOf('assemble_guest_rootfs "$tree" "$rootfs"'));
+    expect(build).toContain('sudo env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin');
+    expect(build).toContain(
+      'unshare --mount --pid --fork --kill-child=KILL --net --ipc --uts --propagation=private',
+    );
+    expect(build).toContain('"$tree" "$engine" < /dev/null');
+    expect(build.slice(probe)).toContain('test -z "$(sudo find "$tree/proc" -mindepth 1 -print -quit)"');
+    execFileSync('python3', [
+      '-I', '-B', path.join(root, 'scripts/ci/verify-guest-engine.test.py'),
+    ], { stdio: 'pipe' });
+  });
+
+  it.each([0, 124, 134, 137])('propagates verifier status %i before packaging', status => {
+    const build = fs.readFileSync(buildPath, 'utf8');
+    const start = build.lastIndexOf('  for engine in copilot codex claude; do');
+    const end = build.indexOf('  assemble_guest_rootfs "$tree" "$rootfs"', start);
+    const result = spawnSync('bash', ['-eu', '-c', [
+      'ROOT=/unused; tree=/unused/rootfs',
+      'sudo() {',
+      '  if [ "$1" = env ]; then',
+      '    local engine="${@: -1}"',
+      '    printf "%s\\n" "$engine"',
+      `    if [ "$engine" = codex ]; then return ${status}; fi`,
+      '  fi',
+      '}',
+      build.slice(start, end),
+      'echo packaged',
+    ].join('\n')], { encoding: 'utf8' });
+    expect(result.status).toBe(status);
+    expect(result.stdout.trim().split('\n')).toEqual(
+      status === 0 ? ['copilot', 'codex', 'claude', 'packaged'] : ['copilot', 'codex'],
+    );
+  });
+
+  it('reuses restored script, agent, and CH wrapper tags without rebuilding any image', () => {
+    const build = fs.readFileSync(buildPath, 'utf8');
+    const resolver = build.slice(
+      build.indexOf('resolve_guest_image() {'),
+      build.indexOf('if ! docker image inspect "$GUEST_BASE_IMAGE"'),
+    );
+    const selection = build.slice(
+      build.indexOf('# A restored Docker script image'),
+      build.indexOf('if [ "${AWF_CH_PRUNE_DOCKER_BUILD_CACHE'),
+    );
+    const output = execFileSync('bash', ['-eu', '-c', [
+      'docker() {',
+      '  if [ "$1 $2" != "image inspect" ]; then echo "Unexpected Docker rebuild: $*" >&2; return 1; fi',
+      '  if [ "${3:-}" = --format ]; then printf "%s\\n" script; fi',
+      '}',
+      resolver,
+      selection,
+      'printf "%s\\n" "$ENCLAVE_SCRIPT_IMAGE" "$ENCLAVE_AGENT_IMAGE" "$primary_runtime_image" "$enclave_runtime_image"',
+    ].join('\n')], {
+      encoding: 'utf8',
+      env: {
+        ...process.env,
+        ENCLAVE_IMAGE: 'awf-regression/enclave-script:source-sha',
+        ENCLAVE_AGENT_IMAGE: 'awf-regression/enclave-agent:source-sha',
+        PRIMARY_IMAGE: 'awf-regression/ch-primary:source-sha',
+        CH_ENCLAVE_IMAGE: 'awf-regression/ch-enclave:source-sha',
+      },
+    });
+    expect(output.trim().split('\n')).toEqual([
+      'awf-regression/enclave-script:source-sha',
+      'awf-regression/enclave-agent:source-sha',
+      'awf-regression/ch-primary:source-sha',
+      'awf-regression/ch-enclave:source-sha',
+    ]);
+  });
+
   it('keeps guest enforcement and shared build metadata aligned with trusted host policy', () => {
     const guest = fs.readFileSync(path.join(root, 'guest/microvm-supervisor/resources_linux.go'), 'utf8');
     const build = fs.readFileSync(buildPath, 'utf8');

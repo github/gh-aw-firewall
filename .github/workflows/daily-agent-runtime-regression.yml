@@ -1,0 +1,596 @@
+name: Daily Agent Runtime Regression
+
+on:
+  schedule:
+    - cron: '37 6 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: daily-agent-runtime-regression-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  COPILOT_VERSION: 1.0.90
+  CODEX_VERSION: 0.159.3
+  CLAUDE_VERSION: 2.1.280
+
+jobs:
+  build:
+    name: Build AWF and images once from main
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    outputs:
+      source_sha: ${{ steps.source.outputs.sha }}
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+          persist-credentials: false
+      - name: Pin source commit
+        id: source
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+      - name: Set up Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24'
+          package-manager-cache: false
+      - name: Build AWF
+        env:
+          SOURCE_SHA: ${{ steps.source.outputs.sha }}
+        run: |
+          node scripts/ci/configure-agent-regression-build.js
+          npm ci
+          npm run build
+          npm prune --omit=dev --ignore-scripts
+      - name: Build and package shared images and CLI
+        run: |
+          set -euo pipefail
+          sha=$(git rev-parse HEAD)
+          output="$RUNNER_TEMP/awf-regression-build"
+          mkdir -p "$output"
+          uid=$(node -p "require('./dist/host-identity').getSafeHostUid()")
+          gid=$(node -p "require('./dist/host-identity').getSafeHostGid()")
+          docker build --tag awf-regression/build-tools:local containers/build-tools
+          images=(awf-regression/build-tools:local)
+          for image in squid agent api-proxy; do
+            args=()
+            if [ "$image" = agent ]; then
+              args+=(--build-arg "USER_UID=$uid" --build-arg "USER_GID=$gid")
+            fi
+            tag="awf-regression/$image:$sha"
+            docker build "${args[@]}" --tag "$tag" "containers/$image"
+            images+=("$tag")
+          done
+          for image in enclave-script enclave-agent enclave-mcp-server; do
+            tag="awf-regression/$image:$sha"
+            docker build --file containers/enclave/Dockerfile --target "$image" \
+              --build-arg BUILD_TOOLS_IMAGE=awf-regression/build-tools:local \
+              --build-arg "CODEX_VERSION=$CODEX_VERSION" \
+              --build-arg "CLAUDE_VERSION=$CLAUDE_VERSION" --tag "$tag" containers
+            images+=("$tag")
+          done
+          docker build --file scripts/ci/cloud-hypervisor-enclave-gateway.Dockerfile \
+            --tag awf-cloud-hypervisor-enclave-live-gateway:test .
+          images+=(awf-cloud-hypervisor-enclave-live-gateway:test)
+          docker save "${images[@]}" | gzip -1 > "$output/images.tar.gz"
+          tar -czf "$output/awf.tar.gz" dist node_modules
+          printf '%s\n' "$sha" > "$output/source-sha.txt"
+          (cd "$output" && sha256sum awf.tar.gz images.tar.gz source-sha.txt > SHA256SUMS)
+      - name: Upload shared AWF build
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: agent-runtime-awf-build
+          path: ${{ runner.temp }}/awf-regression-build/
+          compression-level: 0
+          if-no-files-found: error
+          retention-days: 2
+
+  build-cloud-hypervisor:
+    name: Build Cloud Hypervisor guest once from main
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+          persist-credentials: false
+      - name: Pin build source commit
+        env:
+          SOURCE_SHA: ${{ needs.build.outputs.source_sha }}
+        run: |
+          set -euo pipefail
+          [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          git fetch --no-tags origin "$SOURCE_SHA"
+          git checkout --detach FETCH_HEAD
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: '1.25.0'
+          cache-dependency-path: guest/microvm-supervisor/go.mod
+      - name: Set up Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24'
+          package-manager-cache: false
+      - name: Download shared AWF build
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: agent-runtime-awf-build
+          path: ${{ runner.temp }}/awf-regression-build
+      - name: Restore shared enclave source images
+        env:
+          SOURCE_SHA: ${{ needs.build.outputs.source_sha }}
+        run: |
+          set -euo pipefail
+          output="$RUNNER_TEMP/awf-regression-build"
+          (cd "$output" && sha256sum --check SHA256SUMS)
+          test "$(cat "$output/source-sha.txt")" = "$SOURCE_SHA"
+          gunzip -c "$output/images.tar.gz" | docker load
+      - name: Install guest build prerequisites
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends \
+            bc binutils bison build-essential ca-certificates cpio e2fsprogs \
+            file flex libcap2-bin libcap-ng-dev libelf-dev libseccomp-dev \
+            libssl-dev pkg-config rsync xz-utils
+      - name: Build and verify guest artifacts
+        env:
+          SOURCE_SHA: ${{ needs.build.outputs.source_sha }}
+        run: |
+          export VERSION="v0.0.0-regression.$SOURCE_SHA"
+          export ARTIFACT_SIGNER_WORKFLOW=github/gh-aw-firewall/.github/workflows/daily-agent-runtime-regression.yml
+          BUILD_TOOLS_IMAGE=awf-regression/build-tools:local \
+            ENCLAVE_IMAGE="awf-regression/enclave-script:$SOURCE_SHA" \
+            ENCLAVE_AGENT_IMAGE="awf-regression/enclave-agent:$SOURCE_SHA" \
+            bash guest/cloud-hypervisor/build-test-artifacts.sh
+          bash guest/cloud-hypervisor/verify-test-artifacts.sh \
+            release/cloud-hypervisor-test-x86_64
+      - name: Name shared manifests for runtime validation
+        run: |
+          output=release/cloud-hypervisor-test-x86_64
+          cp "$output/manifest.json" "$output/cloud-hypervisor-test-x86_64.manifest.json"
+          cp "$output/enclave-manifest.json" "$output/cloud-hypervisor-enclave-rootfs-x86_64.manifest.json"
+      - name: Attest shared microVM manifests and enclave rootfs
+        id: attest
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: |
+            release/cloud-hypervisor-test-x86_64/cloud-hypervisor-test-x86_64.manifest.json
+            release/cloud-hypervisor-test-x86_64/cloud-hypervisor-enclave-rootfs-x86_64.manifest.json
+            release/cloud-hypervisor-test-x86_64/enclave-rootfs.ext4
+      - name: Bundle shared microVM attestations
+        env:
+          BUNDLE_PATH: ${{ steps.attest.outputs.bundle-path }}
+        run: |
+          output=release/cloud-hypervisor-test-x86_64
+          for name in cloud-hypervisor-test-x86_64.manifest cloud-hypervisor-enclave-rootfs-x86_64.manifest enclave-rootfs.provenance; do
+            cp "$BUNDLE_PATH" "$output/$name.sigstore.jsonl"
+          done
+      - name: Upload shared guest artifacts
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: agent-runtime-cloud-hypervisor
+          path: |
+            release/cloud-hypervisor-test-x86_64/cloud-hypervisor
+            release/cloud-hypervisor-test-x86_64/virtiofsd
+            release/cloud-hypervisor-test-x86_64/vmlinux.bin
+            release/cloud-hypervisor-test-x86_64/kernel.config
+            release/cloud-hypervisor-test-x86_64/rootfs.ext4
+            release/cloud-hypervisor-test-x86_64/rootfs.sbom.spdx.json
+            release/cloud-hypervisor-test-x86_64/awf-supervisor
+            release/cloud-hypervisor-test-x86_64/SHA256SUMS
+            release/cloud-hypervisor-test-x86_64/cloud-hypervisor-test-x86_64.manifest.json
+            release/cloud-hypervisor-test-x86_64/cloud-hypervisor-test-x86_64.manifest.sigstore.jsonl
+            release/cloud-hypervisor-test-x86_64/cloud-hypervisor-enclave-rootfs-x86_64.manifest.json
+            release/cloud-hypervisor-test-x86_64/cloud-hypervisor-enclave-rootfs-x86_64.manifest.sigstore.jsonl
+            release/cloud-hypervisor-test-x86_64/enclave-rootfs.ext4
+            release/cloud-hypervisor-test-x86_64/enclave-rootfs.sbom.spdx.json
+            release/cloud-hypervisor-test-x86_64/enclave-rootfs.SHA256SUMS
+            release/cloud-hypervisor-test-x86_64/enclave-rootfs.provenance.sigstore.jsonl
+          if-no-files-found: error
+          retention-days: 2
+
+  build-nvx:
+    name: Prepare attested NVX artifacts and guest once
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+          persist-credentials: false
+      - name: Pin build source commit
+        env:
+          SOURCE_SHA: ${{ needs.build.outputs.source_sha }}
+        run: |
+          set -euo pipefail
+          [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          git fetch --no-tags origin "$SOURCE_SHA"
+          git checkout --detach FETCH_HEAD
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+      - name: Fetch and verify pinned NVX artifacts
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash scripts/ci/prepare-agent-regression-nvx.sh
+      - name: Attest NVX manifest
+        id: attest
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: ${{ runner.temp }}/agent-runtime-nvx/manifest.json
+      - name: Bundle manifest attestation
+        env:
+          BUNDLE_PATH: ${{ steps.attest.outputs.bundle-path }}
+        run: cp "$BUNDLE_PATH" "$RUNNER_TEMP/agent-runtime-nvx/manifest.sigstore.jsonl"
+      - name: Build shared NVX guest distro with all three agents
+        env:
+          ALPINE_IMAGE: alpine@sha256:eafc1edb577d2e9b458664a15f23ea1c370214193226069eb22921169fc7e43f
+        run: |
+          set -euo pipefail
+          container=$(docker create "$ALPINE_IMAGE" sh -ec '
+            apk add --no-cache bash ca-certificates curl git libgcc libstdc++ nodejs npm ripgrep
+            npm install --global --no-audit --no-fund \
+              "@github/copilot@$1" "@openai/codex@$2" "@anthropic-ai/claude-code@$3"
+            printf "runner:x:%s:%s:runner:/home/awf:/bin/bash\n" "$4" "$5" >> /etc/passwd
+            printf "runner:x:%s:\n" "$5" >> /etc/group
+          ' -- "$COPILOT_VERSION" "$CODEX_VERSION" "$CLAUDE_VERSION" "$(id -u)" "$(id -g)")
+          trap 'docker rm -f "$container"' EXIT
+          docker start --attach "$container"
+          # A container's exit code is not propagated by docker start --attach.
+          test "$(docker inspect --format '{{.State.ExitCode}}' "$container")" = 0
+          docker export "$container" | gzip -1 > "$RUNNER_TEMP/agent-runtime-nvx/layer.tar.gz"
+      - name: Upload shared NVX artifacts
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: agent-runtime-nvx
+          path: ${{ runner.temp }}/agent-runtime-nvx/
+          compression-level: 0
+          if-no-files-found: error
+          retention-days: 2
+
+  regression-copilot:
+    name: ${{ matrix.agent }} / ${{ matrix.runtime }}
+    needs: [build, build-cloud-hypervisor, build-nvx]
+    if: ${{ !cancelled() && needs.build.result == 'success' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      copilot-requests: write
+    strategy:
+      fail-fast: false
+      matrix:
+        agent: [copilot]
+        runtime: [docker, cloud-hypervisor, nvx]
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+          persist-credentials: false
+      - name: Pin build source commit
+        env:
+          SOURCE_SHA: ${{ needs.build.outputs.source_sha }}
+        run: |
+          set -euo pipefail
+          [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          git fetch --no-tags origin "$SOURCE_SHA"
+          git checkout --detach FETCH_HEAD
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+      - name: Set up Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24'
+          package-manager-cache: false
+      - name: Download shared AWF build
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: agent-runtime-awf-build
+          path: ${{ runner.temp }}/awf-regression-build
+      - name: Load the shared CLI and images
+        env:
+          SOURCE_SHA: ${{ needs.build.outputs.source_sha }}
+        run: |
+          set -euo pipefail
+          output="$RUNNER_TEMP/awf-regression-build"
+          (cd "$output" && sha256sum --check SHA256SUMS)
+          test "$(cat "$output/source-sha.txt")" = "$SOURCE_SHA"
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+          tar -xzf "$output/awf.tar.gz"
+          gunzip -c "$output/images.tar.gz" | docker load
+          for image in squid agent api-proxy; do
+            docker image inspect "awf-regression/$image:$SOURCE_SHA" > /dev/null
+          done
+      - name: Install host microVM tools
+        if: matrix.runtime != 'docker'
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends \
+            acl bubblewrap e2fsprogs erofs-utils jq nftables rsync uidmap
+      - name: Download Cloud Hypervisor artifacts
+        if: matrix.runtime == 'cloud-hypervisor'
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: agent-runtime-cloud-hypervisor
+          path: ${{ runner.temp }}/agent-runtime-cloud-hypervisor
+      - name: Download NVX artifacts
+        if: matrix.runtime == 'nvx'
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: agent-runtime-nvx
+          path: ${{ runner.temp }}/agent-runtime-nvx
+      - name: Install the pinned agent
+        if: matrix.runtime != 'nvx'
+        env:
+          AGENT: ${{ matrix.agent }}
+        run: |
+          set -euo pipefail
+          case "$AGENT" in
+            copilot) package="@github/copilot@$COPILOT_VERSION" ;;
+            codex) package="@openai/codex@$CODEX_VERSION" ;;
+            claude) package="@anthropic-ai/claude-code@$CLAUDE_VERSION" ;;
+            *) exit 1 ;;
+          esac
+          npm install --prefix .awf-regression/tools --no-package-lock --no-audit --no-fund "$package"
+      - name: Run real agent regression
+        env:
+          AGENT: ${{ matrix.agent }}
+          RUNTIME: ${{ matrix.runtime }}
+          SOURCE_SHA: ${{ needs.build.outputs.source_sha }}
+          COPILOT_GITHUB_TOKEN: ${{ matrix.agent == 'copilot' && (secrets.COPILOT_GITHUB_TOKEN || github.token) || '' }}
+          OPENAI_API_KEY: ${{ matrix.agent == 'codex' && (secrets.CODEX_API_KEY || secrets.OPENAI_API_KEY) || '' }}
+          ANTHROPIC_API_KEY: ${{ matrix.agent == 'claude' && secrets.ANTHROPIC_API_KEY || '' }}
+        run: |
+          host_script=$(<scripts/ci/run-agent-runtime-regression.sh)
+          bash -c "$host_script"
+      - name: Upload regression evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: agent-runtime-${{ matrix.agent }}-${{ matrix.runtime }}
+          path: ${{ runner.temp }}/agent-runtime-evidence-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.agent }}-${{ matrix.runtime }}/
+          if-no-files-found: warn
+          retention-days: 7
+
+  regression-non-copilot:
+    name: ${{ matrix.agent }} / ${{ matrix.runtime }}
+    needs: [build, build-cloud-hypervisor, build-nvx]
+    if: ${{ !cancelled() && needs.build.result == 'success' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        agent: [codex, claude]
+        runtime: [docker, cloud-hypervisor, nvx]
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+          persist-credentials: false
+      - name: Pin build source commit
+        env:
+          SOURCE_SHA: ${{ needs.build.outputs.source_sha }}
+        run: |
+          set -euo pipefail
+          [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          git fetch --no-tags origin "$SOURCE_SHA"
+          git checkout --detach FETCH_HEAD
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+      - name: Set up Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24'
+          package-manager-cache: false
+      - name: Download shared AWF build
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: agent-runtime-awf-build
+          path: ${{ runner.temp }}/awf-regression-build
+      - name: Load the shared CLI and images
+        env:
+          SOURCE_SHA: ${{ needs.build.outputs.source_sha }}
+        run: |
+          set -euo pipefail
+          output="$RUNNER_TEMP/awf-regression-build"
+          (cd "$output" && sha256sum --check SHA256SUMS)
+          test "$(cat "$output/source-sha.txt")" = "$SOURCE_SHA"
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+          tar -xzf "$output/awf.tar.gz"
+          gunzip -c "$output/images.tar.gz" | docker load
+          for image in squid agent api-proxy; do
+            docker image inspect "awf-regression/$image:$SOURCE_SHA" > /dev/null
+          done
+      - name: Install host microVM tools
+        if: matrix.runtime != 'docker'
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends \
+            acl bubblewrap e2fsprogs erofs-utils jq nftables rsync uidmap
+      - name: Download Cloud Hypervisor artifacts
+        if: matrix.runtime == 'cloud-hypervisor'
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: agent-runtime-cloud-hypervisor
+          path: ${{ runner.temp }}/agent-runtime-cloud-hypervisor
+      - name: Download NVX artifacts
+        if: matrix.runtime == 'nvx'
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: agent-runtime-nvx
+          path: ${{ runner.temp }}/agent-runtime-nvx
+      - name: Install the pinned agent
+        if: matrix.runtime != 'nvx'
+        env:
+          AGENT: ${{ matrix.agent }}
+        run: |
+          set -euo pipefail
+          case "$AGENT" in
+            copilot) package="@github/copilot@$COPILOT_VERSION" ;;
+            codex) package="@openai/codex@$CODEX_VERSION" ;;
+            claude) package="@anthropic-ai/claude-code@$CLAUDE_VERSION" ;;
+            *) exit 1 ;;
+          esac
+          npm install --prefix .awf-regression/tools --no-package-lock --no-audit --no-fund "$package"
+      - name: Run real agent regression
+        env:
+          AGENT: ${{ matrix.agent }}
+          RUNTIME: ${{ matrix.runtime }}
+          SOURCE_SHA: ${{ needs.build.outputs.source_sha }}
+          COPILOT_GITHUB_TOKEN: ${{ matrix.agent == 'copilot' && (secrets.COPILOT_GITHUB_TOKEN || github.token) || '' }}
+          OPENAI_API_KEY: ${{ matrix.agent == 'codex' && (secrets.CODEX_API_KEY || secrets.OPENAI_API_KEY) || '' }}
+          ANTHROPIC_API_KEY: ${{ matrix.agent == 'claude' && secrets.ANTHROPIC_API_KEY || '' }}
+        run: |
+          host_script=$(<scripts/ci/run-agent-runtime-regression.sh)
+          bash -c "$host_script"
+      - name: Upload regression evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: agent-runtime-${{ matrix.agent }}-${{ matrix.runtime }}
+          path: ${{ runner.temp }}/agent-runtime-evidence-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.agent }}-${{ matrix.runtime }}/
+          if-no-files-found: warn
+          retention-days: 7
+
+  enclave-regression-copilot:
+    name: ${{ matrix.agent }} / enclave-${{ matrix.runtime }}
+    needs: [build, build-cloud-hypervisor]
+    if: ${{ !cancelled() && needs.build.result == 'success' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      copilot-requests: write
+    strategy:
+      fail-fast: false
+      matrix:
+        agent: [copilot]
+        runtime: [docker, cloud-hypervisor]
+    steps: &enclave-regression-steps
+      - name: Checkout main
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+          persist-credentials: false
+      - name: Pin build source commit
+        env:
+          SOURCE_SHA: ${{ needs.build.outputs.source_sha }}
+        run: |
+          set -euo pipefail
+          [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          git fetch --no-tags origin "$SOURCE_SHA"
+          git checkout --detach FETCH_HEAD
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+      - name: Set up Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24'
+          package-manager-cache: false
+      - name: Download shared AWF build
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: agent-runtime-awf-build
+          path: ${{ runner.temp }}/awf-regression-build
+      - name: Load the shared CLI and images
+        env:
+          SOURCE_SHA: ${{ needs.build.outputs.source_sha }}
+        run: |
+          set -euo pipefail
+          output="$RUNNER_TEMP/awf-regression-build"
+          (cd "$output" && sha256sum --check SHA256SUMS)
+          test "$(cat "$output/source-sha.txt")" = "$SOURCE_SHA"
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+          tar -xzf "$output/awf.tar.gz"
+          gunzip -c "$output/images.tar.gz" | docker load
+          for image in squid agent api-proxy enclave-script enclave-agent enclave-mcp-server; do
+            docker image inspect "awf-regression/$image:$SOURCE_SHA" > /dev/null
+            docker tag "awf-regression/$image:$SOURCE_SHA" "ghcr.io/github/gh-aw-firewall/$image:$SOURCE_SHA"
+          done
+      - name: Install host microVM tools
+        if: matrix.runtime == 'cloud-hypervisor'
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends \
+            acl bubblewrap e2fsprogs erofs-utils jq nftables rsync uidmap
+      - name: Download Cloud Hypervisor artifacts
+        if: matrix.runtime == 'cloud-hypervisor'
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: agent-runtime-cloud-hypervisor
+          path: ${{ runner.temp }}/agent-runtime-cloud-hypervisor
+      - name: Prepare trusted Cloud Hypervisor artifacts
+        if: matrix.runtime == 'cloud-hypervisor'
+        run: |
+          set -euo pipefail
+          output="$RUNNER_TEMP/agent-runtime-cloud-hypervisor"
+          (cd "$output" && sha256sum --check SHA256SUMS && sha256sum --check enclave-rootfs.SHA256SUMS)
+          sudo chown root:root "$output"/*
+          sudo chmod 0444 "$output"/*
+          sudo chmod 0555 "$output/cloud-hypervisor" "$output/virtiofsd" "$output/awf-supervisor"
+      - name: Prepare protected public enclave diagnostics
+        env:
+          RUNTIME: ${{ matrix.runtime }}
+        run: |
+          sudo install -d -m 0711 -o root -g root /var/lib/awf-enclave-smoke-export
+          sudo install -m 0600 -o root -g root scripts/ci/collect-enclave-smoke-debug.cjs /var/lib/awf-enclave-smoke-export/collector.cjs
+          sudo node /var/lib/awf-enclave-smoke-export/collector.cjs prepare "$RUNTIME" "$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" "$(id -u)" "$(id -g)"
+      - name: Run real coding agent inside enclave
+        env:
+          AGENT: ${{ matrix.agent }}
+          RUNTIME: ${{ matrix.runtime }}
+          SOURCE_SHA: ${{ needs.build.outputs.source_sha }}
+          GH_TOKEN: ${{ github.token }}
+          COPILOT_GITHUB_TOKEN: ${{ matrix.agent == 'copilot' && (secrets.COPILOT_GITHUB_TOKEN || github.token) || '' }}
+          OPENAI_API_KEY: ${{ matrix.agent == 'codex' && (secrets.CODEX_API_KEY || secrets.OPENAI_API_KEY) || '' }}
+          ANTHROPIC_API_KEY: ${{ matrix.agent == 'claude' && secrets.ANTHROPIC_API_KEY || '' }}
+        run: |
+          sudo --preserve-env=AGENT,RUNTIME,SOURCE_SHA,GH_TOKEN,COPILOT_GITHUB_TOKEN,OPENAI_API_KEY,ANTHROPIC_API_KEY,GITHUB_ACTIONS,GITHUB_REPOSITORY,GITHUB_WORKSPACE,GITHUB_RUN_ID,GITHUB_RUN_ATTEMPT,GITHUB_EVENT_NAME,GITHUB_REF,GITHUB_SHA,GITHUB_WORKFLOW_REF,GITHUB_WORKFLOW_SHA,RUNNER_ENVIRONMENT,ImageOS,RUNNER_TEMP,RUNNER_TOOL_CACHE,AGENT_TOOLSDIRECTORY \
+            "$(command -v node)" scripts/ci/run-enclave-agent-regression.js
+      - name: Collect protected public enclave diagnostics
+        if: always()
+        env:
+          RUNTIME: ${{ matrix.runtime }}
+        run: |
+          sudo node /var/lib/awf-enclave-smoke-export/collector.cjs collect "$RUNTIME" "$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" "$(id -u)" "$(id -g)"
+      - name: Upload enclave regression evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: agent-enclave-${{ matrix.agent }}-${{ matrix.runtime }}
+          path: /var/lib/awf-enclave-smoke-export/${{ github.run_id }}-${{ github.run_attempt }}/upload/
+          if-no-files-found: warn
+          retention-days: 1
+
+  enclave-regression-non-copilot:
+    name: ${{ matrix.agent }} / enclave-${{ matrix.runtime }}
+    needs: [build, build-cloud-hypervisor]
+    if: ${{ !cancelled() && needs.build.result == 'success' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        agent: [codex, claude]
+        runtime: [docker, cloud-hypervisor]
+    steps: *enclave-regression-steps
