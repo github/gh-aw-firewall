@@ -26,7 +26,7 @@ class VerifierTests(unittest.TestCase):
         tree = Path("/guest")
         with patch.object(verifier, "mount") as mount, \
                 patch.object(verifier.os, "mknod", create=True) as mknod, \
-                patch.object(verifier.os, "chmod") as chmod, patch.object(Path, "mkdir"):
+                patch.object(verifier.os, "chown") as chown, patch.object(Path, "mkdir"):
             verifier.prepare_mounts(tree)
         self.assertEqual(mount.call_args_list[:4], [
             call("--make-rprivate", "/"),
@@ -43,11 +43,11 @@ class VerifierTests(unittest.TestCase):
             self.assertIn("nosuid", args[3])
             self.assertIn("noexec", args[3])
         self.assertEqual(mknod.call_args_list, [
-            call(tree / "dev" / name, stat.S_IFCHR | 0o666, os.makedev(1, minor))
+            call(tree / "dev" / name, stat.S_IFCHR | 0o600, os.makedev(1, minor))
             for name, minor in (("null", 3), ("zero", 5), ("random", 8), ("urandom", 9))
         ])
-        self.assertEqual(chmod.call_args_list, [
-            call(tree / "dev" / name, 0o666)
+        self.assertEqual(chown.call_args_list, [
+            call(tree / "dev" / name, verifier.UID, verifier.GID)
             for name in ("null", "zero", "random", "urandom")
         ])
 

@@ -70,8 +70,9 @@ def prepare_mounts(tree):
     # An empty exported /dev is not a runtime /dev. Supply only inert standard
     # devices, never a bind of the host's devices.
     for name, minor in (("null", 3), ("zero", 5), ("random", 8), ("urandom", 9)):
-        os.mknod(tree / "dev" / name, stat.S_IFCHR | 0o666, os.makedev(1, minor))
-        os.chmod(tree / "dev" / name, 0o666)
+        device = tree / "dev" / name
+        os.mknod(device, stat.S_IFCHR | 0o600, os.makedev(1, minor))
+        os.chown(device, UID, GID)
     (tree / "dev/shm").mkdir()
     mount("-t", "tmpfs", "-o",
           "nosuid,nodev,noexec,size=16m,nr_inodes=1024,mode=1777",
