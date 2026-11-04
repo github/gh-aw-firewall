@@ -1447,8 +1447,9 @@ support list: sbx is not supported, and runc/gVisor/Kata are not separate
 supported product targets.
 
 The host produces selected-harness observations through the existing ready
-Cloud Hypervisor execution channel, after backend startup and before primary
-command execution. Selection is deliberately limited to direct `copilot`, `claude`, and
+Cloud Hypervisor execution channel and a Docker command-shell pre-command gate,
+after backend startup and before primary command execution.
+Selection is deliberately limited to direct `copilot`, `claude`, and
 `codex` executables (including simple absolute or `./` paths), mapped to the
 exact harness identifiers `copilot-cli`, `claude-code`, and `codex-cli`.
 These names are not aliases for arbitrary constraint names. Shell wrappers,
@@ -1459,8 +1460,8 @@ never establishes selection.
 | Target / execution context | Observation coverage |
 |---------|----------------------|
 | Cloud Hypervisor primary guest | Existing `manager.execute` channel, same guest UID/GID, environment, cwd and login shell as the primary command |
-| Docker primary agent | Explicit `runtime_probe_unsupported`; Compose starts the user command during `startContainers`, before a ready pre-command probe can run through the current lifecycle |
-| ARC/DinD (Docker deployment topology) | Same explicit missing Docker producer; split-filesystem report publication uses the existing runner-visible log-mount translation, not a new execution backend |
+| Docker primary agent | Generated command prelude runs the probe after the existing entrypoint's identity, chroot, environment, PATH and cwd setup; user command waits for host publication/recheck and release |
+| ARC/DinD (Docker deployment topology) | Same Docker producer, with container-local private tmpfs control transport via Docker exec; public report publication retains existing runner-visible log-mount translation |
 | NVX | Explicit `runtime_probe_unsupported`; its one-shot execute lifecycle exposes no persistent ready guest for a separate observation |
 | Enclave executors | No primary observation is attached to the dedicated enclave proxy; per-invocation enclave observation remains unimplemented |
 
@@ -1475,6 +1476,40 @@ version, exact selection, unique per-run environment identifier and finite
 failure classification survive; stderr, error messages and informational
 metadata are discarded. The environment identifier denotes the agent boundary,
 not the host installation.
+
+Docker's prelude runs in the final command shell, with the version subprocess
+inheriting the command's UID/GID, environment, PATH and working directory.
+The probe launcher suppresses additional shell-startup evaluation and restores
+the exported `BASH_ENV` for the executable itself, so startup files do not
+silently select a different PATH or environment. It does not use a separately
+initialized Docker exec shell to discover the executable.
+The existing entrypoint (including pinned images) needs no new
+handshake support: Compose injects the prelude and private tmpfs pairs for
+chroot/non-chroot execution. Only the active pair is used. Each pair has a
+root-owned, 0711 control directory and a nested 0700, command-identity-owned
+probe directory. Only the host's Docker exec can write the release file; the
+unprivileged probe can write its bounded output, not authorize the command.
+Raw probe output is bounded to 4097 bytes (one overflow sentinel)
+and stderr is discarded; raw output never enters container logs or the proxy
+mount. The host reads the bounded result via Docker exec, checks its per-run
+environment binding, publishes the canonical sanitized report and rechecks
+applicable CLI eligibility before atomically releasing the command gate.
+Neither rendezvous path is a runner/daemon host bind mount or exposed to
+dedicated enclave proxies. Ordinary ARC/DinD path translation still governs
+the public report's existing log mount.
+
+Docker readiness and gate-release waits are each bounded to 120 seconds;
+version execution has a 10-second deadline with a one-second forced-kill
+grace. Failed version evidence can still release an unconstrained command;
+failed readiness/transport or an applicable failed eligibility recheck cannot.
+An abandoned gate exits 125 without starting the user command. Normal command
+stdout/stderr and exit status remain owned by the existing container lifecycle;
+its timeout/cancellation/cleanup tears down the waiting container and its tmpfs.
+If entrypoint/preflight already exited before reaching the gate, the host
+requires an exited container with this run's environment label before handing
+back to the existing log/exit-status collection, without issuing any release.
+Historical non-default OCI backend names do not gain additional producer
+coverage in this slice.
 
 `src/harness-observation.ts` initializes explicit unavailable/pending evidence
 before Compose generation, then atomically publishes the observation to
@@ -1496,7 +1531,8 @@ requirement reason. The host also supplies the report when rechecking concrete
 `COPILOT_MODEL` CLI selections (flags, env files or opted-in host env) after backend
 readiness. Pre-start offline validation preserves naming/retirement checks but
 defers an otherwise-known direct Copilot model's unverified harness decision to
-that ready-runtime check on Cloud Hypervisor only. Alias candidate expansion and
+that ready-runtime check on Cloud Hypervisor and Docker (including ARC/DinD).
+Alias candidate expansion and
 its final harness eligibility remain proxy-owned; custom provider paths retain
 their existing validation exemption. No applicable constraint means legacy admission, not a claim of
 verified compatibility.
@@ -1515,13 +1551,19 @@ Deterministic tests cover backend invocation context, bounds and timeouts,
 producer-to-file-to-eligibility wiring, host and HTTP admission, automatic
 candidate filtering, failure/mismatch cases and immutable refresh. Generated
 host/proxy assets and a bundled host consumer are exercised outside the source
-tree. These fixtures do not establish live KVM guest compatibility or exercise
-live Docker, NVX or ARC/DinD deployments; no live provider inference or workflow
-dispatch is needed for this slice.
+tree. Docker regression fixtures execute the generated prelude and Docker-exec
+rendezvous scripts in local shells, covering context equality, ordering,
+timeout/output bounds, failure, cancellation and exit propagation. Their
+ARC/DinD variants exercise configuration/transport separation, not a live split
+runner/daemon deployment. On macOS, the deterministic shell fixture substitutes
+a test-only process-group supervisor for GNU `timeout`. These fixtures do not
+establish live KVM guest compatibility or exercise live Docker, NVX or ARC/DinD
+deployments. Live Docker and ARC/DinD acceptance must be recorded separately
+when infrastructure is available; no live provider inference or workflow
+dispatch is needed.
 
-**Remaining handoff:** actual observation producers for supported Docker, NVX
-and ARC/DinD targets are still missing; product support does not imply
-observation capability. Per-invocation enclave observations,
+**Remaining handoff:** the actual observation producer for NVX is still missing;
+product support does not imply observation capability. Per-invocation enclave observations,
 opaque commands and per-session attribution, and complete pre-start enforcement
 on lifecycles without observation capability remain open. This slice keeps the bundled
 constraint projection empty. An opaque

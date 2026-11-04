@@ -246,11 +246,13 @@ describe('actual-environment harness observations', () => {
     ['Docker (explicit)', 'docker', 'standard'],
     ['ARC/DinD (Docker topology)', undefined, 'arc-dind'],
     ['NVX', 'nvx', 'standard'],
-  ] as const)('keeps missing observation capability explicit for supported target %s', async (_target, runtime, topology) => {
+  ] as const)('keeps missing/pending observation capability explicit for supported target %s', async (_target, runtime, topology) => {
     config.containerRuntime = runtime;
     config.runnerTopology = topology;
     prepareHarnessObservation(config);
-    expect(report()).toMatchObject({ status: 'unavailable', reason: 'runtime_probe_unsupported' });
+    expect(report()).toMatchObject({
+      status: 'unavailable', reason: runtime === 'nvx' ? 'runtime_probe_unsupported' : 'probe_pending',
+    });
     expect(harnessContext(config).environment).toMatch(runtime === 'nvx' ? /^nvx:/ : /^docker:/);
     expect(await observeHarness(config)).toMatchObject({ status: 'unavailable', reason: 'runtime_probe_unsupported' });
     connectProxy();
@@ -283,7 +285,13 @@ describe('actual-environment harness observations', () => {
     });
     expect(validateCopilotModel('gpt-6-sol', eligibilityEvidence(failed, cliScope))).toMatchObject({ valid: true });
   });
-  it('defers pending host harness checks until Cloud Hypervisor is ready, then enforces the real report', async () => {
+  it.each([
+    ['Cloud Hypervisor', 'cloud-hypervisor', 'standard'],
+    ['Docker', undefined, 'standard'],
+    ['ARC/DinD', undefined, 'arc-dind'],
+  ] as const)('defers pending host harness checks until %s is ready, then enforces the real report', async (_target, runtime, topology) => {
+    config.containerRuntime = runtime;
+    config.runnerTopology = topology;
     config.copilotGithubToken = 'fixture-token';
     config.additionalEnv = { COPILOT_MODEL: 'gpt-6-sol' };
     const actualValidation = copilotModels.validateCopilotModel;
@@ -304,8 +312,6 @@ describe('actual-environment harness observations', () => {
       .toThrow('observation=binary_missing');
   });
   it.each([
-    ['Docker', undefined, 'standard'],
-    ['ARC/DinD (Docker topology)', undefined, 'arc-dind'],
     ['NVX', 'nvx', 'standard'],
   ] as const)('does not defer an applicable host requirement without an observation producer on %s', (_target, runtime, topology) => {
     config.containerRuntime = runtime;
@@ -365,6 +371,10 @@ describe('actual-environment harness observations', () => {
       writeConfigs: async () => { prepareHarnessObservation(config); order.push('config'); },
       startContainers: async () => { order.push('ready'); },
       probeHarness: async () => { order.push('observe'); return result(); },
+      releaseHarness: async () => {
+        expect(report()).toMatchObject({ status: 'observed' });
+        order.push('release');
+      },
       runAgentCommand: async () => {
         order.push('agent');
         expect(report()).toMatchObject({ status: 'observed', version: '1.2.3' });
@@ -377,6 +387,36 @@ describe('actual-environment harness observations', () => {
       performCleanup: async () => { order.push('cleanup'); },
     });
     expect(code).toBe(23);
-    expect(order).toEqual(['config', 'ready', 'observe', 'agent', 'cleanup']);
+    expect(order).toEqual(['config', 'ready', 'observe', 'release', 'agent', 'cleanup']);
+  });
+  it.each([
+    [result('1.0.0'), 'harness_incompatible'],
+    [{ stdout: '', exitCode: 127 }, 'observation=binary_missing'],
+    [{ stdout: '', exitCode: 124, timedOut: true }, 'observation=probe_timed_out'],
+  ])('does not release or execute Docker user code after an applicable failed recheck', async (probeResult, reason) => {
+    config.containerRuntime = undefined;
+    config.networkIsolation = true;
+    config.copilotGithubToken = 'fixture-token';
+    config.additionalEnv = { COPILOT_MODEL: 'gpt-6-sol' };
+    const actualValidation = copilotModels.validateCopilotModel;
+    jest.spyOn(copilotModels, 'validateCopilotModel').mockImplementation((model, evidence) =>
+      actualValidation(model, {
+        ...evidence,
+        harnesses: [{ ...requirement, scope: { provider: 'copilot', channel: 'copilot-cli' } }],
+      }));
+    const releaseHarness = jest.fn();
+    const runAgentCommand = jest.fn();
+    await expect(runMainWorkflow(config, {
+      ensureFirewallNetwork: jest.fn(), setupHostIptables: jest.fn(),
+      writeConfigs: async () => prepareHarnessObservation(config),
+      startContainers: jest.fn().mockResolvedValue(undefined),
+      probeHarness: async () => probeResult, releaseHarness, runAgentCommand,
+    }, {
+      logger: { info: jest.fn(), warn: jest.fn(), success: jest.fn() },
+      performCleanup: jest.fn(),
+    })).rejects.toThrow(reason);
+    expect(releaseHarness).not.toHaveBeenCalled();
+    expect(runAgentCommand).not.toHaveBeenCalled();
+    expect(report().status).toBe(probeResult.exitCode === 0 ? 'observed' : 'unavailable');
   });
 });

@@ -43,6 +43,8 @@ import { runtimeUsesComposeAgent } from '../container-runtime';
 import { assertTopologySupported, connectTopologyContainers } from '../topology';
 import { runDindBootstrap } from '../dind-bootstrap';
 import { adaptExternalRuntimeBackend } from '../external-runtime-backend';
+import { createDockerHarnessObservation } from '../docker-harness-observation';
+import { harnessContext } from '../harness-observation';
 import type { ExternalAgentRuntimeBackend } from '../external-runtime-backend';
 import { resolveExternalRuntimeBackend } from '../external-runtime-backend-resolver';
 import { prepareEnclaves, teardownEnclaves } from '../enclave/manager';
@@ -800,6 +802,8 @@ export function createMainAction(getOptionValueSource: OptionSourceResolver) {
     const externalWorkflowDependencies = externalRuntimeBackend
       ? adaptExternalRuntimeBackend(externalRuntimeBackend)
       : undefined;
+    const dockerHarness = externalRuntimeBackend
+      ? undefined : createDockerHarnessObservation(config, harnessContext(config));
     const workflowRunAgentCommand = externalWorkflowDependencies?.runAgentCommand
       ?? ((
         workDir: string,
@@ -863,7 +867,8 @@ export function createMainAction(getOptionValueSource: OptionSourceResolver) {
         ensureFirewallNetwork,
         setupHostIptables,
         writeConfigs,
-        probeHarness: externalRuntimeBackend?.probeHarness?.bind(externalRuntimeBackend),
+        probeHarness: externalRuntimeBackend?.probeHarness?.bind(externalRuntimeBackend) ?? dockerHarness?.probeHarness,
+        releaseHarness: dockerHarness?.releaseHarness,
         startContainers: externalWorkflowDependencies?.startContainers ?? startContainers,
         runAgentCommand: trackedRunAgentCommand,
         collectDiagnosticLogs: workflowCollectDiagnosticLogs,

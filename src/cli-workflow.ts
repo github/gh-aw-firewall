@@ -28,6 +28,8 @@ import type { HarnessProbe } from './model-information-contract/harness-observat
  */
 export interface WorkflowDependencies {
   probeHarness?: HarnessProbe;
+  /** Release Docker's pre-command gate only after publication and eligibility recheck. */
+  releaseHarness?: () => Promise<void>;
   ensureFirewallNetwork: (subnetOverride?: string) => Promise<{ squidIp: string; agentIp: string; proxyIp: string; subnet: string }>;
   setupHostIptables: (squidIp: string, port: number, dnsServers: string[], apiProxyIp?: string, dohProxyIp?: string, hostAccess?: HostAccessConfig, cliProxyConfig?: CliProxyHostConfig, gatewayIp?: string) => Promise<void>;
   writeConfigs: (config: WrapperConfig) => Promise<void>;
@@ -364,6 +366,7 @@ export async function runMainWorkflow(
   onContainersStarted?.();
   assertEnclaveStartupChecklistComplete(config);
   await observeHarness(config, dependencies.probeHarness);
+  await dependencies.releaseHarness?.();
   updateEnclaveStartupProgress(config, { stage: 'primary-agent' });
 
   // Step 3: Wait for agent to complete

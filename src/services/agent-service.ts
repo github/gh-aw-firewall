@@ -17,6 +17,11 @@ import { NetworkConfig, ImageBuildConfig } from './squid-service';
 import { resolveLogPaths } from '../log-paths';
 import { AGENT_RUNTIME_START_FILE } from '../agent-runtime-start';
 import { withInputPreflight } from '../input-preflight';
+import { harnessContext } from '../harness-observation';
+import {
+  supportsDockerHarnessObservation, withDockerHarnessObservation, dockerHarnessTmpfs,
+  DOCKER_HARNESS_ENVIRONMENT_LABEL,
+} from '../docker-harness-observation';
 
 // Re-export functions for backwards compatibility
 export { buildAgentEnvironment } from './agent-environment/environment-builder';
@@ -149,8 +154,14 @@ export function buildAgentService(params: AgentServiceParams): any {
       start_period: '1s',
     },
     // Escape $ with $$ for Docker Compose variable interpolation
-    command: ['/bin/bash', '-c', withInputPreflight(config.agentCommand, config.inputDirs).replace(/\$/g, '$$$$')],
+    command: ['/bin/bash', '-c', withDockerHarnessObservation(
+      config, harnessContext(config), withInputPreflight(config.agentCommand, config.inputDirs),
+    ).replace(/\$/g, '$$$$')],
   };
+  if (supportsDockerHarnessObservation(config)) {
+    agentService.tmpfs.push(...dockerHarnessTmpfs(environment.AWF_USER_UID, environment.AWF_USER_GID));
+    agentService.labels = { [DOCKER_HARNESS_ENVIRONMENT_LABEL]: harnessContext(config).environment };
+  }
 
   // Set working directory if specified (overrides Dockerfile WORKDIR)
   if (config.containerWorkDir) {

@@ -11,6 +11,7 @@ import {
   selectHarness, unavailable, probeCommand, parseProbe, eligibilityEvidence,
 } from './model-information-contract/harness-observation';
 import { validateObservedCopilotHarness } from './commands/validators/api-proxy-validator';
+import { supportsDockerHarnessObservation } from './docker-harness-observation';
 
 const contexts = new WeakMap<WrapperConfig, HarnessContext>();
 const OBSERVATION_FILE = 'harness-observation.json';
@@ -55,7 +56,7 @@ function publish(config: WrapperConfig, report: HarnessObservationReport): void 
 export function prepareHarnessObservation(config: WrapperConfig): void {
   const context = harnessContext(config);
   publish(config, unavailable(context, !context.name ? 'selection_unavailable' :
-    config.containerRuntime === 'cloud-hypervisor'
+    config.containerRuntime === 'cloud-hypervisor' || supportsDockerHarnessObservation(config)
       ? 'probe_pending' : 'runtime_probe_unsupported'));
 }
 

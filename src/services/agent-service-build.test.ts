@@ -5,6 +5,8 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import { withInputPreflight } from '../input-preflight';
+import { harnessContext } from '../harness-observation';
+import { withDockerHarnessObservation } from '../docker-harness-observation';
 
 // Create mock functions (must remain per-file — jest.mock() is hoisted before imports)
 
@@ -15,6 +17,33 @@ jest.mock('execa', () => require('../test-helpers/mock-execa.test-utils').execaM
 let mockConfig: WrapperConfig;
 
 describe('agent service', () => {
+  it.each(['standard', 'arc-dind'] as const)(
+    'gates only the primary direct harness and keeps control transport container-local on %s',
+    runnerTopology => {
+      const config = {
+        ...mockConfig, runnerTopology, agentCommand: 'copilot -p "fixture"',
+        enableApiProxy: true, copilotGithubToken: 'fixture-token',
+        dockerHostPathPrefix: runnerTopology === 'arc-dind' ? '/runner' : undefined,
+      };
+      const result = generateDockerCompose(config, mockNetworkConfigWithProxy);
+      const agent = result.services.agent;
+      expect(agent.command).toEqual([
+        '/bin/bash', '-c', withDockerHarnessObservation(
+          config, harnessContext(config), config.agentCommand,
+        ).replace(/\$/g, '$$$$'),
+      ]);
+      expect(agent.tmpfs).toContain(
+        `/host/run/awf-harness/probe:rw,noexec,nosuid,nodev,size=64k,mode=0700,uid=${agent.environment!.AWF_USER_UID},gid=${agent.environment!.AWF_USER_GID}`,
+      );
+      expect(agent.tmpfs).toContain('/host/run/awf-harness:rw,noexec,nosuid,nodev,size=64k,mode=0711,uid=0,gid=0');
+      expect(agent).toMatchObject({ labels: { 'io.github.awf.harness-environment': harnessContext(config).environment } });
+      expect(agent.volumes!.some((volume: string) => volume.includes('awf-harness'))).toBe(false);
+      expect(result.services['api-proxy'].volumes!.some((volume: string) => volume.includes('awf-harness')))
+        .toBe(false);
+      expect(result.services['api-proxy'].environment!.AWF_HARNESS_ENVIRONMENT)
+        .toBe(harnessContext(config).environment);
+    },
+  );
   it.each(['docker', 'gvisor'] as const)('adds guest input preflight to the %s workload command', (containerRuntime) => {
     const config = { ...mockConfig, containerRuntime, inputDirs: ['/guest/inputs'] };
     const result = generateDockerCompose(config, mockNetworkConfig);
