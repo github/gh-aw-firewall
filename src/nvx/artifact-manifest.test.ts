@@ -4,6 +4,7 @@ import {
   NVX_ARTIFACT_RELEASE_TAG,
   NVX_ARTIFACT_REPOSITORY,
   NVX_ARTIFACT_SIGNER_WORKFLOW,
+  NVX_AGENT_REGRESSION_SIGNER_WORKFLOW,
   NVX_CANARY_SIGNER_WORKFLOW,
   NVX_CAMPAIGN_SIGNER_WORKFLOW,
   NVX_COMMIT,
@@ -56,6 +57,25 @@ describe('NVX artifact manifest', () => {
     )).toEqual(manifest());
   });
 
+  it('accepts the daily regression signer only when explicitly selected', () => {
+    const value = manifest();
+    value.release.workflow = NVX_AGENT_REGRESSION_SIGNER_WORKFLOW;
+    expect(parseNvxArtifactManifest(
+      JSON.stringify(value),
+      NVX_ARTIFACT_RELEASE_TAG,
+      NVX_AGENT_REGRESSION_SIGNER_WORKFLOW,
+    )).toEqual(value);
+    expect(() => parseNvxArtifactManifest(
+      JSON.stringify(value),
+      NVX_ARTIFACT_RELEASE_TAG,
+    )).toThrow(/release.workflow/);
+    expect(() => parseNvxArtifactManifest(
+      JSON.stringify(value),
+      NVX_ARTIFACT_RELEASE_TAG,
+      'github/gh-aw-firewall/.github/workflows/untrusted.yml',
+    )).toThrow(/Untrusted NVX artifact signer/);
+  });
+
   it.each([
     '.github/workflows/nvx-phase-0-feasibility.md',
     '.github/workflows/nvx-phase-0-feasibility.lock.yml',
@@ -69,6 +89,7 @@ describe('NVX artifact manifest', () => {
     '.github/workflows/smoke-verify-release-nvx-assets.md',
     '.github/workflows/smoke-verify-release-nvx-assets.lock.yml',
     'scripts/ci/nvx-phase4-provision-nvx.sh',
+    'scripts/ci/prepare-agent-regression-nvx.sh',
     'docs/nvx-security-design.md',
   ])('keeps the upstream identity synchronized in %s', (file) => {
     const source = readFileSync(path.resolve(__dirname, '../..', file), 'utf8');

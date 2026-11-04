@@ -2,6 +2,7 @@ import {
   NVX_ARTIFACT_RELEASE_TAG,
   NVX_ARTIFACT_REPOSITORY,
   NVX_ARTIFACT_SIGNER_WORKFLOW,
+  NVX_AGENT_REGRESSION_SIGNER_WORKFLOW,
   NVX_COMMIT,
   NVX_OPENVMM_COMMIT,
   NVX_RELEASE_TAG,
@@ -184,6 +185,7 @@ describe('NVX preflight', () => {
     ['validation', NVX_VALIDATION_SIGNER_WORKFLOW],
     ['Copilot smoke', NVX_SMOKE_SIGNER_WORKFLOW],
     ['build-test smoke', NVX_BUILD_TEST_SIGNER_WORKFLOW],
+    ['daily agent regression', NVX_AGENT_REGRESSION_SIGNER_WORKFLOW],
   ])('accepts the explicitly pinned %s workflow without weakening the default', async (_label, signer) => {
     const deps = dependencies({ readFile: signedManifestReader(signer) });
 

@@ -429,6 +429,36 @@ Each document provides per-test-case analysis with plain-language descriptions, 
 - **[CI & Smoke Tests](test-analysis/ci-smoke.md)** — All 27 CI/smoke/build-test workflows analyzed
 - **[Test Infrastructure](test-analysis/test-infra.md)** — Runner architecture, batch pattern, cleanup strategy, limitations
 
+## Daily agent/runtime regression matrix
+
+`daily-agent-runtime-regression.yml` runs daily at 06:37 UTC and supports manual
+dispatch. It exercises Copilot, Codex, and Claude under Docker, Cloud Hypervisor,
+and NVX in nine independent jobs with fail-fast disabled.
+
+The shared build checks out `main`, records its exact commit, and builds the AWF
+CLI, Squid, agent, and API proxy images once. Every regression job checks out that
+same commit, verifies and restores the run-scoped CLI/image artifacts, and uses
+commit-tagged local images with `--skip-pull`; no job substitutes a released AWF
+binary or GHCR image. Cloud Hypervisor guest artifacts (including source-built
+AWF build-tools and supervisor) and the NVX guest distro are also prepared once
+per run. NVX retains its pinned upstream artifacts and requires a manifest
+attested by this exact workflow, explicitly selected as the expected signer.
+The production default signer remains the release workflow.
+
+Each cell checks allowed and denied HTTPS access, credential isolation, real
+provider inference through the API proxy, and an agent tool writing a unique
+proof file through the live workspace share. Missing credentials, nonzero exits,
+missing proof files, and incorrect model responses fail the job rather than
+merely producing a FAIL summary. Evidence artifacts identify the tested source
+commit and retain logs for seven days. A failed VM artifact build does not
+suppress Docker jobs or the other VM runtime's jobs.
+
+Required credentials follow the existing smoke workflows: Copilot uses
+`COPILOT_GITHUB_TOKEN` or the job token with `copilot-requests: write`; Codex uses
+`CODEX_API_KEY` or `OPENAI_API_KEY`; Claude uses `ANTHROPIC_API_KEY`. Agent CLI
+versions are pinned in the workflow. The existing engine-specific smoke
+workflows remain available for focused PR/label-triggered checks.
+
 ## Cloud Hypervisor preview integration tests
 
 The Cloud Hypervisor backend has its own separate CI workflow
