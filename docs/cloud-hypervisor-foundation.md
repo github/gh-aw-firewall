@@ -1679,7 +1679,7 @@ existing request/routing pins retain their original decisions. This is consumer
 fixture coverage with a guest-produced report, not live inference or a full
 production routing conversation.
 
-Only sanitized JSON is uploaded as `cloud-hypervisor-harness-live`: exact checkout
+Only sanitized JSON is uploaded as `cloud-hypervisor-harness-observation-live`: exact checkout
 SHA, runner image/kernel, Node/Docker versions, infrastructure image IDs, guest
 artifact digests/source metadata, per-case probe/command evidence and cleanup
 outcomes. Probe metadata, stderr and the credential sentinel must not occur in
@@ -1720,6 +1720,76 @@ artifact build with the existing signer/digest validation, an eligible
 GitHub-hosted Ubuntu x86_64 runner with accessible KVM and cgroup v2, Docker and
 the production host preflight. Neither label application nor dispatch is
 performed by the portable tests.
+### Selected-harness fixture acceptance
+
+The same opt-in live-KVM job also runs
+`scripts/ci/cloud-hypervisor-harness-live.cjs` against the compiled primary
+backend and real guest manager. Copilot, Claude and Codex are deterministic
+fixture executables, not provider inference. The guest probe must precede command
+entry and use the command's UID/GID, environment, login-shell startup and
+`/workspace` cwd. Guest boot identity distinguishes this evidence from host
+execution. The fixture tests sanitized versions, unavailable probes, the
+10-second/4096-byte limits, admission blocking, cancellation and scoped cleanup.
+
+Test-owned requirements exercise matching, incompatible and unverified admission;
+they never modify the bundled catalogue. Unconstrained legacy admission is not
+verified compatibility. Feed harness constraints remain rejected as
+`catalogue_harness_unsupported`. Primary observations cannot qualify an enclave.
+The real sidecar report reader and immutable request/routing consumers are tested
+without changing an in-flight decision when the report is replaced.
+
+From a clean checkout on a supported GitHub-hosted Ubuntu x86_64/KVM runner,
+after building the CLI and the production Squid/API-proxy images as in the
+workflow, run:
+
+```bash
+sudo env "PATH=$PATH" \
+  "GITHUB_ACTIONS=$GITHUB_ACTIONS" \
+  "RUNNER_ENVIRONMENT=$RUNNER_ENVIRONMENT" "ImageOS=$ImageOS" \
+  "AWF_LIVE_COMMIT=$(git rev-parse HEAD)" \
+  "AWF_LIVE_ARTIFACTS=$PWD/artifacts/cloud-hypervisor-harness-live" \
+  timeout --signal=TERM --kill-after=30s 1100s \
+  node scripts/ci/cloud-hypervisor-harness-live.cjs /absolute/path/to/guest-artifacts
+```
+
+The API-proxy consumer image must carry
+`org.opencontainers.image.revision=$(git rev-parse HEAD)`. Guest artifact
+checksums and production host/artifact preflight remain required; the primary
+development-artifact bypass is explicit and is not release attestation.
+
+Keep the `cloud-hypervisor-harness-live` JSON artifact (exact tested revision,
+environment, artifact digests, observations and case outcomes) separate from
+`cloud-hypervisor-harness-deterministic` Jest results. Missing KVM, artifacts,
+runner capabilities, a skipped job or absent evidence is a **blocker**, never a
+pass. A green build-only workflow is not live selected-harness acceptance.
+Issue [#11091](https://github.com/github/gh-aw-firewall/issues/11091) must remain
+open until the exact reviewed revision has passing live evidence. This does not
+establish NVX, Docker/ARC-DinD or enclave acceptance, or close the broader phases.
+
+#### Implementation validation status (not live acceptance)
+
+The implementation session on GitHub-hosted Ubuntu 24 x86_64, Linux
+`7.0.0-1017-azure`, Node `22.23.4` had KVM access and passed unchanged production
+host/artifact preflight. Primary artifact inputs came from workflow run
+`41734616574`, manifest source `99b9bd90575ee6194a66cf793b3e9b25f7a284d8`
+(not the workflow head `2ac37e5006440059617f1d1976d6e1d0976078f0`); the downloaded
+archive matched GitHub's SHA-256
+`a20bdec0193b251eb7e719d5441008d8e93a7354c96983148dbc494037b0ff4b`,
+and its primary checksum set verified.
+
+**Live acceptance is blocked:** building the checkout's API-proxy image failed
+in the existing `install-system-trust.sh` because the sandbox's mounted
+`/etc/ssl/certs/ca-certificates.crt` could not be deleted (`Resource busy`).
+The clean-revision attempt at
+`450b755facef7b6826928249be797a7a62769156` exited 1 with `status: blocked`,
+`code: consumer-image-missing`, `passed: false` and an empty case list. Its
+separate `environment.json` records that revision, environment and artifact
+hashes. No guest observation-to-command case has passed in this session.
+
+Targeted deterministic tests, consumer tests and bundle checks passed; these
+do not replace the missing guest evidence. Use the
+opt-in KVM job above on an ordinary supported runner without bypassing trust
+checks or relabelling an unrelated image.
 
 ### Enclave conformance evidence and remaining live gate
 

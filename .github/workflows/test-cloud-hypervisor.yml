@@ -37,15 +37,18 @@ on:
       - 'src/cloud-hypervisor/**'
       - 'src/cloud-hypervisor-runtime-backend.ts'
       - 'src/cloud-hypervisor-runtime-backend.test.ts'
+      - 'src/harness-observation*'
+      - 'src/model-information-contract/**'
+      - 'src/cli-workflow*'
+      - 'containers/api-proxy/harness-observation*'
+      - 'tests/fixtures/harness-observation/**'
       - 'src/microvm/**'
       - 'src/filesystem-policy.ts'
       - 'src/types/runtime-options.ts'
       - 'scripts/ci/cloud-hypervisor-*.sh'
       - 'scripts/ci/cloud-hypervisor-harness-observation*'
-      - 'tests/fixtures/harness-observation/cloud-hypervisor/**'
-      - 'src/harness-observation*'
       - 'shared/model-information/harness-observation*'
-      - 'containers/api-proxy/harness-observation.js'
+      - 'scripts/ci/cloud-hypervisor-harness-*'
       - 'scripts/ci/cloud-hypervisor-primary-release-gate*'
       - 'scripts/ci/dispatch-release-enclave-conformance*'
       - 'scripts/ci/configure-docker-mirror.sh'
@@ -240,9 +243,9 @@ jobs:
     # Existing smoke cases, each with up to a 90s boot budget and (since the guest
     # connectivity probe raised its own timeout for the same nested-KVM
     # scheduling reasons) up to a further 90s probe budget in the worst
-    # case; retain that 60-minute budget plus 30 minutes for the separately
-    # reported provider-free selected-harness cases.
-    timeout-minutes: 90
+    # case; retain that 60-minute budget plus 32 and 20 minutes for the two
+    # separately bounded provider-free harness suites, with setup headroom.
+    timeout-minutes: 120
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4
@@ -312,19 +315,24 @@ jobs:
           npm ci
           npm run build
           docker build -t ghcr.io/github/gh-aw-firewall/squid:latest containers/squid
-          docker build -t ghcr.io/github/gh-aw-firewall/api-proxy:latest containers/api-proxy
+          docker build --label "org.opencontainers.image.revision=$(git rev-parse HEAD)" \
+            -t ghcr.io/github/gh-aw-firewall/api-proxy:latest containers/api-proxy
 
       - name: Run live fail-closed smoke/security coverage
         run: |
           ./scripts/ci/cloud-hypervisor-live-smoke.sh \
             "$RUNNER_TEMP/cloud-hypervisor-test-x86_64"
 
-      - name: Validate portable harness fixtures separately
+      - name: Validate harness contracts and packaging separately from live evidence
         run: |
           mkdir -p artifacts/cloud-hypervisor-harness-deterministic
           npx jest --runInBand --runTestsByPath \
             scripts/ci/cloud-hypervisor-harness-observation.test.ts \
+            scripts/ci/cloud-hypervisor-harness-live.test.ts \
+            scripts/ci/test-cloud-hypervisor-workflow.test.ts \
             src/cloud-hypervisor-runtime-backend.test.ts src/harness-observation.test.ts \
+            src/cli-workflow.test.ts src/model-information-contract.test.ts \
+            src/model-information-eligibility.test.ts \
             --json --outputFile=artifacts/cloud-hypervisor-harness-deterministic/results.json
           npm run build:bundle
           node release/awf-bundle.js --version
@@ -333,7 +341,7 @@ jobs:
         timeout-minutes: 32
         run: |
           sudo -E env "PATH=$PATH" \
-            "AWF_CH_HARNESS_ARTIFACTS=$PWD/artifacts/cloud-hypervisor-harness-live" \
+            "AWF_CH_HARNESS_ARTIFACTS=$PWD/artifacts/cloud-hypervisor-harness-observation-live" \
             timeout --kill-after=20s 1800s \
             node scripts/ci/cloud-hypervisor-harness-observation.cjs \
             "$RUNNER_TEMP/cloud-hypervisor-test-x86_64"
@@ -342,19 +350,40 @@ jobs:
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: cloud-hypervisor-harness-live
-          path: artifacts/cloud-hypervisor-harness-live/*.json
+          name: cloud-hypervisor-harness-observation-live
+          path: artifacts/cloud-hypervisor-harness-observation-live/*.json
           retention-days: 7
           if-no-files-found: warn
 
-      - name: Upload portable harness fixture results (not guest evidence)
+      - name: Run provider-free selected-harness guest acceptance
+        timeout-minutes: 20
+        run: |
+          sudo env "PATH=$PATH" \
+            "GITHUB_ACTIONS=$GITHUB_ACTIONS" \
+            "RUNNER_ENVIRONMENT=$RUNNER_ENVIRONMENT" "ImageOS=$ImageOS" \
+            "AWF_LIVE_COMMIT=$(git rev-parse HEAD)" \
+            "AWF_LIVE_ARTIFACTS=$PWD/artifacts/cloud-hypervisor-harness-live" \
+            timeout --signal=TERM --kill-after=30s 1100s \
+            node scripts/ci/cloud-hypervisor-harness-live.cjs \
+            "$RUNNER_TEMP/cloud-hypervisor-test-x86_64"
+
+      - name: Upload sanitized harness guest evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: cloud-hypervisor-harness-live
+          path: artifacts/cloud-hypervisor-harness-live/*.json
+          if-no-files-found: warn
+          retention-days: 7
+
+      - name: Upload harness deterministic results (not guest evidence)
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: cloud-hypervisor-harness-deterministic
           path: artifacts/cloud-hypervisor-harness-deterministic/results.json
-          retention-days: 7
           if-no-files-found: warn
+          retention-days: 7
 
       - name: Print guest boot diagnostics on failure
         if: failure()

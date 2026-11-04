@@ -254,8 +254,9 @@ describe('portable Cloud Hypervisor acceptance fixtures (not KVM evidence)', () 
     expect(step.run).toContain('node scripts/ci/cloud-hypervisor-harness-observation.cjs');
     expect(step.run).toContain('"$RUNNER_TEMP/cloud-hypervisor-test-x86_64"');
     expect(step.run).not.toMatch(/workflow run|continue-on-error|\|\| true/);
-    expect(job.steps.find(step => step.with?.name === 'cloud-hypervisor-harness-live'))
-      .toMatchObject({ if: 'always()', with: { path: 'artifacts/cloud-hypervisor-harness-live/*.json' } });
+    expect(step.run).toContain('"AWF_CH_HARNESS_ARTIFACTS=$PWD/artifacts/cloud-hypervisor-harness-observation-live"');
+    expect(job.steps.find(step => step.with?.name === 'cloud-hypervisor-harness-observation-live'))
+      .toMatchObject({ if: 'always()', with: { path: 'artifacts/cloud-hypervisor-harness-observation-live/*.json' } });
     expect(job.steps.find(step => step.with?.name === 'cloud-hypervisor-harness-deterministic'))
       .toMatchObject({ if: 'always()' });
     execFileSync('sh', ['-n', `${fixtureRoot}/executable.sh`]);
