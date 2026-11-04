@@ -78,6 +78,19 @@ steps:
       sudo apt-get update -qq && sudo apt-get install -y -qq redis-tools postgresql-client
       echo "redis-cli: $(redis-cli --version)"
       echo "psql: $(psql --version)"
+  - name: Require sandbox service connectivity
+    timeout-minutes: 3
+    run: |
+      sudo /usr/local/bin/awf \
+        --image-registry awf-smoke --image-tag "${AWF_SMOKE_IMAGE_TAG:?}" --skip-pull \
+        --allow-domains github.com --allow-host-service-ports 5432,6379 \
+        --legacy-security -- /bin/bash -ceu '
+          redis_reply=$(timeout 10 redis-cli -h host.docker.internal -p 6379 PING)
+          test "$redis_reply" = PONG
+          pg_isready -h host.docker.internal -p 5432 -U postgres -t 10
+          pg_reply=$(PGPASSWORD=testpass PGCONNECT_TIMEOUT=10 psql -h host.docker.internal -p 5432 -U postgres -d smoketest -v ON_ERROR_STOP=1 -t -A -c "SELECT 1")
+          test "$pg_reply" = 1
+        '
 post-steps:
   - name: Validate safe outputs were invoked
     env:

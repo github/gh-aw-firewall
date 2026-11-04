@@ -22,10 +22,11 @@ const root = path.resolve(__dirname, '../..');
 const imageArgs = '--image-registry awf-smoke --image-tag "${AWF_SMOKE_IMAGE_TAG:?}" --skip-pull';
 
 describe.each([
-  ['copilot', 15],
-  ['copilot-network-isolation', 15],
-  ['services', 10],
-])('Smoke %s local image preparation', (workflow, executionTimeout) => {
+  ['claude', 20, 'Claude Code'],
+  ['copilot', 15, 'GitHub Copilot'],
+  ['copilot-network-isolation', 15, 'GitHub Copilot'],
+  ['services', 10, 'GitHub Copilot'],
+])('Smoke %s local image preparation', (workflow, executionTimeout, engine) => {
   const workflowPath = path.join(root, `.github/workflows/smoke-${workflow}.lock.yml`);
   const source = fs.readFileSync(path.join(root, `.github/workflows/smoke-${workflow}.md`), 'utf8');
   const frontmatter = yaml.load(source.split('---')[1]) as {
@@ -152,7 +153,7 @@ ${preparation.run}
     const preserveIndex = steps.findIndex(step => step.name === 'Preserve smoke image preparation helper');
     const checkoutIndex = steps.findIndex(step => step.name === 'Checkout PR branch');
     const prepareIndex = steps.findIndex(step => step.name === preparation.name);
-    const executeIndex = steps.findIndex(step => step.name === 'Execute GitHub Copilot CLI');
+    const executeIndex = steps.findIndex(step => step.name === `Execute ${engine} CLI`);
     expect(preserveIndex).toBeGreaterThan(-1);
     expect(preserveIndex).toBeLessThan(checkoutIndex);
     expect(steps[preserveIndex].run).toContain(
@@ -164,7 +165,7 @@ ${preparation.run}
     expect(steps[prepareIndex]['timeout-minutes']).toBe(35);
     expect(steps[executeIndex]['timeout-minutes']).toBe(frontmatter['timeout-minutes']);
     expect(frontmatter['timeout-minutes']).toBe(executionTimeout);
-    expect(lock.jobs.agent['timeout-minutes']).toBeGreaterThanOrEqual(50);
+    expect(lock.jobs.agent['timeout-minutes']).toBeGreaterThanOrEqual(35 + Number(executionTimeout));
     expect(steps[executeIndex].run).toContain(imageArgs);
     expect(steps[executeIndex].run).not.toContain('--build-local');
     expect(steps[executeIndex].run).not.toMatch(/docker (?:build|compose .*build)/);
@@ -178,16 +179,29 @@ ${preparation.run}
         `      - name: ${preparation.name}\n        run: echo prepare\n` +
         '      - name: Install AWF binary\n' +
         '        run: bash "${RUNNER_TEMP}/gh-aw/actions/install_awf_binary.sh" v0.29.0 --rootless\n' +
-        `      - name: Execute GitHub Copilot CLI\n        run: awf ${flags} -- echo smoke\n`;
+        `      - name: Execute ${engine} CLI\n        run: awf ${flags} -- echo smoke\n`;
       const first = applyGeneralWorkflowPatches(input, workflowPath).content;
       expect(first).toContain(imageArgs);
       expect(first.indexOf('Preserve smoke image preparation helper'))
         .toBeLessThan(first.indexOf('Checkout PR branch'));
       expect(first).not.toContain('--build-local');
       expect(applyGeneralWorkflowPatches(first, workflowPath).content).toBe(first);
-      const other = applyGeneralWorkflowPatches(input, '/tmp/smoke-claude.lock.yml').content;
+      const other = applyGeneralWorkflowPatches(input, '/tmp/smoke-codex.lock.yml').content;
       expect(other).toContain('--build-local');
       expect(other).not.toContain(imageArgs);
     },
   );
+
+  it('preserves quoted YAML run steps with prepared image flags', () => {
+    const command = `awf ${imageArgs} -- echo smoke\n`;
+    const input = '      - name: Checkout PR branch\n        id: checkout-pr\n' +
+      `      - name: ${preparation.name}\n        run: echo prepare\n` +
+      '      - name: Install AWF binary\n' +
+      '        run: bash "${RUNNER_TEMP}/gh-aw/actions/install_awf_binary.sh" v0.29.0\n' +
+      `      - name: Require sandbox service connectivity\n        run: ${JSON.stringify(command)}\n`;
+    const first = applyGeneralWorkflowPatches(input, workflowPath).content;
+    const steps = yaml.load(first) as Step[];
+    expect(steps.find(step => step.name === 'Require sandbox service connectivity')?.run).toBe(command);
+    expect(applyGeneralWorkflowPatches(first, workflowPath).content).toBe(first);
+  });
 });

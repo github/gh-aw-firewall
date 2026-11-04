@@ -56,6 +56,9 @@ safe-outputs:
       run-failure: "❌ [{workflow_name}]({run_url}) {status}"
 timeout-minutes: 20
 steps:
+  - name: Build local AWF smoke images
+    timeout-minutes: 35
+    run: bash "${RUNNER_TEMP}/awf-smoke/build-smoke-images.sh"
   - name: Create smoke test file
     env:
       EXPR_GITHUB_RUN_ID: ${{ github.run_id }}
@@ -134,6 +137,11 @@ post-steps:
 ---
 
 # Smoke Test: Claude Engine Validation
+
+The host preparation step builds the checked-out Squid, agent, and API proxy
+images with a separate 35-minute budget. Repository post-processing selects
+those run-specific local images with `--skip-pull`, leaving the 20-minute Claude
+execution budget for startup and the smoke checks rather than cold builds.
 
 <!--
   The `${{ github.run_id }}` reference below is intentional and load-bearing.

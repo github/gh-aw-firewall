@@ -156,7 +156,27 @@ jobs:
           df -h /
 
       - name: Configure Docker Hub cache
+        env:
+          AWF_DOCKER_CONTAINERD_SNAPSHOTTER: ${{ matrix.scan == 'pr-images' && 'true' || 'false' }}
         run: bash scripts/ci/configure-docker-mirror.sh
+
+      - name: Set up Docker Buildx for cached PR builds
+        if: matrix.scan == 'pr-images'
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+        with:
+          driver: docker
+
+      - name: Expose GitHub Actions cache runtime for Buildx CLI
+        if: matrix.scan == 'pr-images'
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        with:
+          script: |
+            for (const name of ['ACTIONS_RUNTIME_TOKEN', 'ACTIONS_RESULTS_URL']) {
+              const value = process.env[name];
+              if (!value) throw new Error(`Missing ${name} for Buildx cache`);
+              if (name === 'ACTIONS_RUNTIME_TOKEN') core.setSecret(value);
+              core.exportVariable(name, value);
+            }
 
       - name: Prepare pinned Grype scanner
         if: matrix.scan != 'licenses'
@@ -202,6 +222,10 @@ jobs:
             -e GRYPE_DB_CACHE_DIR=/cache \
             ghcr.io/anchore/grype@sha256:fd4ab4d1042b522c896e73bdf09ab8bf384fa417df99d6dd0d6e1008c7e7c821 \
             db update
+          # Docker creates root-owned DB directories; actions/cache runs as the
+          # runner user and must be able to traverse and archive every file.
+          sudo chown -R "$(id -u):$(id -g)" "$GRYPE_DB"
+          chmod -R u+rwX "$GRYPE_DB"
 
       - name: Save Grype vulnerability DB cache
         if: matrix.scan != 'licenses'
@@ -263,9 +287,12 @@ jobs:
           GRYPE_DB: ${{ runner.temp }}/grype-db
         run: |
           python3 - <<'PYEOF'
-          import hashlib, os, subprocess, sys
+          import datetime, hashlib, os, subprocess, sys
           cwd = os.getcwd()
           db_cache = os.environ['GRYPE_DB']
+          # Never import yesterday's package layers: refresh apt/apk security
+          # upgrades at least daily, while reusing all stages within the UTC day.
+          cache_day = datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%d')
           # The router build requires the SHA-256 of its OpenAPI contract.
           with open('containers/router/openapi.yaml', 'rb') as f:
               router_openapi_sha256 = hashlib.sha256(f.read()).hexdigest()
@@ -306,12 +333,28 @@ jobs:
                   tag = f'awf-pr-scan-{name}:pr'
                   tar = f'/tmp/awf-pr-scan-{name}.tar'
                   print(f'::group::docker build {name}', flush=True)
-                  b = subprocess.run(['docker', 'build', *build_args, '-t', tag, context])
+                  cache_scope = f'supply-chain-v1-{name}-{cache_day}'
+                  # The Docker driver shares the daemon's image store. Do not
+                  # --pull enclave-agent's exact locally built build-tools base.
+                  pull_args = [] if name == 'enclave-agent' else ['--pull']
+                  b = subprocess.run([
+                      'docker', 'buildx', 'build', '--load', '--progress=plain',
+                      *pull_args,
+                      '--cache-from', f'type=gha,version=2,scope={cache_scope}',
+                      '--cache-to', f'type=gha,version=2,mode=max,scope={cache_scope}',
+                      *build_args, '-t', tag, context,
+                  ])
                   print('::endgroup::', flush=True)
                   prune_build_cache()
                   if b.returncode != 0:
                       print(f'::error::docker build failed for {name}', flush=True)
                       rc = b.returncode
+                      # Cache export can fail after --load has created the tag.
+                      subprocess.run(
+                          ['docker', 'image', 'rm', '--force', tag],
+                          stdout=subprocess.DEVNULL,
+                          stderr=subprocess.DEVNULL,
+                      )
                       continue
                   if name == 'build-tools':
                       build_tools_ready = True

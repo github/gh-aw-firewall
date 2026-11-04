@@ -103,12 +103,15 @@ export function applyGeneralWorkflowPatches(
     log.push('  Excluded OTLP credentials from both auditor sandboxes');
   }
 
-  const preparedSmokeImages = /(?:^|[/\\])smoke-(?:copilot(?:-network-isolation)?|services)\.lock\.yml$/.test(workflowPath)
+  const preparedSmokeImages = /(?:^|[/\\])smoke-(?:claude|copilot(?:-network-isolation)?|services)\.lock\.yml$/.test(workflowPath)
     && content.includes('- name: Build local AWF smoke images\n');
   const preparedSmokeImageArgs =
     '--image-registry awf-smoke --image-tag "${AWF_SMOKE_IMAGE_TAG:?}" --skip-pull';
   // Normalize our prior output before the shared local-build transforms for idempotency.
-  if (preparedSmokeImages) content = content.split(preparedSmokeImageArgs).join('--build-local');
+  if (preparedSmokeImages) {
+    content = content.split(preparedSmokeImageArgs).join('--build-local');
+    content = content.split(JSON.stringify(preparedSmokeImageArgs).slice(1, -1)).join('--build-local');
+  }
 
   const manifest = content.match(/^# gh-aw-manifest: (.+)$/m);
   if (manifest && (JSON.parse(manifest[1]) as { admission?: boolean }).admission === false) {
@@ -587,7 +590,12 @@ export function applyGeneralWorkflowPatches(
       }
       content = content.replace(preparation[0], '');
       content = content.replace(localInstall, step => step + preparation[0]);
-      content = content.replace(/--build-local\b/g, preparedSmokeImageArgs);
+      content = content.split('\n').map(line => line.replace(
+        /--build-local\b/g,
+        /^\s*run: "/.test(line)
+          ? JSON.stringify(preparedSmokeImageArgs).slice(1, -1)
+          : preparedSmokeImageArgs,
+      )).join('\n');
       log.push('  Reused prepared PR images outside the smoke execution budget');
     }
   }

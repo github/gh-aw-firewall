@@ -145,12 +145,12 @@ describe('host-iptables (host access)', () => {
       // Verify port range rule
       expect(mockedExeca).toHaveBeenCalledWith('iptables', [
         '-t', 'filter', '-A', 'FW_WRAPPER',
-        '-p', 'tcp', '-d', '172.30.0.1', '--dport', '3000-3010',
+        '-p', 'tcp', '-d', '172.30.0.1', '--dport', '3000:3010',
         '-j', 'ACCEPT',
       ]);
       expect(mockedExeca).toHaveBeenCalledWith('iptables', [
         '-t', 'filter', '-A', 'FW_WRAPPER',
-        '-p', 'tcp', '-d', '172.17.0.1', '--dport', '3000-3010',
+        '-p', 'tcp', '-d', '172.17.0.1', '--dport', '3000:3010',
         '-j', 'ACCEPT',
       ]);
     });
@@ -162,6 +162,52 @@ describe('host-iptables (host access)', () => {
 
       // Default ports should still be present
       expectGatewayHttpAcceptRules(mockedExeca, '172.30.0.1');
+    });
+
+    it('allows published ports by their original gateway tuple before the default deny', async () => {
+      await setupHostAccessWithServicePorts('15432,6379,16000-16010,abc,99999');
+
+      const rules = mockedExeca.mock.calls
+        .filter(([command]) => command === 'iptables')
+        .map(([, args]) => args as string[]);
+      const dnatRules = rules.filter(args => args.includes('--ctorigdst'));
+      expect(dnatRules).toHaveLength(10);
+      for (const gateway of ['172.30.0.1', '172.17.0.1']) {
+        for (const port of ['80', '443', '15432', '6379', '16000:16010']) {
+          const rule = [
+            '-t', 'filter', '-A', 'FW_WRAPPER',
+            '-p', 'tcp', '-m', 'conntrack', '--ctstate', 'DNAT', '--ctdir', 'ORIGINAL',
+            '--ctorigdst', gateway, '--ctorigdstport', port,
+            '-j', 'ACCEPT',
+          ];
+          expect(dnatRules).toContainEqual(rule);
+          expect(rules.findIndex(args => JSON.stringify(args) === JSON.stringify(rule)))
+            .toBeLessThan(rules.findIndex(args => args.includes('REJECT')));
+        }
+      }
+    });
+
+    it.each([undefined, { enabled: false, allowHostServicePorts: '6379' }])(
+      'does not allow DNAT host traffic when host access is %p',
+      async hostAccess => {
+        setupDefaultIptablesMocks();
+        await setupHostIptables('172.30.0.10', 3128, ['8.8.8.8'], undefined, undefined, hostAccess);
+        expect(mockedExeca).not.toHaveBeenCalledWith('iptables', expect.arrayContaining(['--ctorigdst']));
+      },
+    );
+
+    it('uses the relocated AWF gateway for published ports', async () => {
+      setupDefaultIptablesMocks();
+      setupDockerBridgeMock();
+      await setupHostIptables('172.28.0.10', 3128, ['8.8.8.8'], undefined, undefined,
+        { enabled: true, allowHostServicePorts: '6379' }, undefined, '172.28.0.1');
+
+      expect(mockedExeca).toHaveBeenCalledWith('iptables', expect.arrayContaining([
+        '--ctorigdst', '172.28.0.1', '--ctorigdstport', '6379',
+      ]));
+      expect(mockedExeca).not.toHaveBeenCalledWith('iptables', expect.arrayContaining([
+        '--ctorigdst', '172.30.0.1',
+      ]));
     });
 
     it('should skip invalid ports in allowHostPorts', async () => {
