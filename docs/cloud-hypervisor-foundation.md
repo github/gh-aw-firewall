@@ -1686,6 +1686,12 @@ outcomes. Probe metadata, stderr and the credential sentinel must not occur in
 command output or audit/proxy logs. Failures retain bounded phase information,
 not raw exceptions or logs. Portable fixture/parser/consumer and mocked-manager
 results are uploaded separately as `cloud-hypervisor-harness-deterministic`.
+Portable preload lifecycle regressions also run the compiled observation,
+applicable-floor validator and report publication through real proxy consumers.
+They simulate the guest probe, Docker transport and root-owned file metadata:
+expected incompatible/unverified failures must retain consumer and blocked-case
+evidence before rethrowing the original error; unexpected failures still fail.
+These regressions do not establish guest or mounted-sidecar acceptance.
 
 **Acceptance remains open in [#11091](https://github.com/github/gh-aw-firewall/issues/11091)
 until an eligible KVM run of this new step passes and its exact revision/evidence

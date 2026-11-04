@@ -100,7 +100,10 @@ function install() {
       const { waitForSignalExit } = require(`${root}/scripts/ci/cloud-hypervisor-harness-observation.cjs`);
       await waitForSignalExit(cancellationSignal, report, evidence.probeTimedOut);
     }
-    if (failure) throw failure;
+    const blockedCode = expected.reason ? 'harness_unverified' : 'harness_incompatible';
+    if (failure && !(expected.blocked && failure instanceof Error && failure.message.includes(blockedCode))) {
+      throw failure;
+    }
     assert.deepEqual(report, {
       ...observations.harnessContext(config),
       ...(expected.reason ? { status: 'unavailable', reason: expected.reason } : {
@@ -132,10 +135,9 @@ function install() {
     evidence.check = 'host-admission';
     if (expected.blocked) {
       assert(failure, 'incompatible/unverified command was not blocked');
-      const code = expected.reason ? 'harness_unverified' : 'harness_incompatible';
-      assert.match(failure.message, new RegExp(code));
+      assert.match(failure.message, new RegExp(blockedCode));
       assert(!failure.message.includes('discard-this-ch'));
-      evidence.blocked = code;
+      evidence.blocked = blockedCode;
       save();
       throw failure;
     }
