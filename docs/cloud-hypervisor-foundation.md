@@ -950,6 +950,24 @@ refresh Sigstore trust-root material unless that material is already cached or
 provisioned on the runner. Missing, mutable, incorrectly owned, renamed, or
 digest-mismatched artifacts fail closed.
 
+During artifact construction, engine `--version` probes run through
+`guest/cloud-hypervisor/verify-guest-engine.py`, not a bare privileged chroot.
+Each probe has private PID, mount, network, IPC, and UTS namespaces, private mount
+propagation, and a fresh read-only `nosuid,nodev,noexec` procfs so native runtimes
+can resolve `/proc/self/exe` without exposing host processes. No host `/proc` or
+`/dev` is bound into the verifier. The rootfs is read-only and `nosuid,nodev`;
+temporary home (32 MiB), `/tmp` (64 MiB), minimal devices (64 KiB), and `/dev/shm`
+(16 MiB) use disposable, inode-bounded tmpfs mounts. The host Python launcher
+chroots before dropping to the guest's UID/GID 65534 with no supplementary groups,
+empty capability sets, and `no_new_privs`, then executes only a fixed engine's
+version command with a minimal environment and no inherited credentials or input.
+Core dumps are disabled; file size, open files, and process count are limited.
+A 30-second timeout escalates to SIGKILL after 5 seconds. Namespace init exit
+kills descendants, and the synchronous `unshare` owner finishes before packaging
+or cleanup; all mounts are namespace-local and disappear with the verifier.
+The packaged `/proc` remains empty and guest boot mounts are unchanged.
+These probes are not a full VM boot or a reproduction of a specific engine crash.
+
 The Cloud Hypervisor-only `cloud-hypervisor-guest-base` image uses pinned Ubuntu
 26.04/glibc, certificates, distribution Python (`/usr/bin/python3`), Node 26,
 shell utilities, and common runtime libraries. The release builds it once,

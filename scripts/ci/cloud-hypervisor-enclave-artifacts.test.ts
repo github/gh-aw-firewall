@@ -40,8 +40,8 @@ describe('Cloud Hypervisor enclave rootfs artifacts', () => {
     expect(build).toContain('for engine in codex claude run-enclave-agent public_debug_capture.py; do');
     expect(build).toContain('docker cp "$engine_container:/usr/local/bin/$engine" -');
     expect(build).toContain('for engine in copilot codex claude; do');
-    expect(build).toContain('chroot "$tree" /usr/local/bin/"$engine" --version');
-    expect(build).toContain('COPILOT_CLI_DIST_DIR=/usr/local/lib/node_modules/@github/copilot/runtime');
+    expect(build).toContain('verify-guest-engine.py"');
+    expect(build).not.toContain('chroot "$tree" /usr/local/bin/"$engine" --version');
     expect(verify).toContain('for engine in copilot codex claude; do');
     expect(verify).toContain('@openai/codex/node_modules/@openai/codex-linux-x64/vendor/x86_64-unknown-linux-musl/bin/codex');
     expect(verify).toContain('@anthropic-ai/claude-code/bin/claude.exe');
@@ -51,6 +51,45 @@ describe('Cloud Hypervisor enclave rootfs artifacts', () => {
     for (const source of [build, verify]) {
       expect(source).toContain('github/gh-aw-firewall/.github/workflows/daily-agent-runtime-regression.yml');
     }
+  });
+
+  it('isolates preboot engine probes after rootfs hardening and before packaging', () => {
+    const build = fs.readFileSync(buildPath, 'utf8');
+    const probe = build.indexOf('timeout --signal=TERM --kill-after=5s 30s');
+    expect(probe).toBeGreaterThan(build.indexOf('sudo chown 65534:65534 "$tree/home/awf-enclave"'));
+    expect(probe).toBeGreaterThan(build.indexOf('sudo setcap -r "$capability_file"'));
+    expect(probe).toBeLessThan(build.indexOf('assemble_guest_rootfs "$tree" "$rootfs"'));
+    expect(build).toContain('sudo env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin');
+    expect(build).toContain(
+      'unshare --mount --pid --fork --kill-child=KILL --net --ipc --uts --propagation=private',
+    );
+    expect(build).toContain('"$tree" "$engine" < /dev/null');
+    expect(build.slice(probe)).toContain('test -z "$(sudo find "$tree/proc" -mindepth 1 -print -quit)"');
+    execFileSync('python3', [
+      '-I', '-B', path.join(root, 'scripts/ci/verify-guest-engine.test.py'),
+    ], { stdio: 'pipe' });
+  });
+
+  it.each([0, 124, 134, 137])('propagates verifier status %i before packaging', status => {
+    const build = fs.readFileSync(buildPath, 'utf8');
+    const start = build.lastIndexOf('  for engine in copilot codex claude; do');
+    const end = build.indexOf('  assemble_guest_rootfs "$tree" "$rootfs"', start);
+    const result = spawnSync('bash', ['-eu', '-c', [
+      'ROOT=/unused; tree=/unused/rootfs',
+      'sudo() {',
+      '  if [ "$1" = env ]; then',
+      '    local engine="${@: -1}"',
+      '    printf "%s\\n" "$engine"',
+      `    if [ "$engine" = codex ]; then return ${status}; fi`,
+      '  fi',
+      '}',
+      build.slice(start, end),
+      'echo packaged',
+    ].join('\n')], { encoding: 'utf8' });
+    expect(result.status).toBe(status);
+    expect(result.stdout.trim().split('\n')).toEqual(
+      status === 0 ? ['copilot', 'codex', 'claude', 'packaged'] : ['copilot', 'codex'],
+    );
   });
 
   it('reuses restored script, agent, and CH wrapper tags without rebuilding any image', () => {

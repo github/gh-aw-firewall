@@ -64,7 +64,7 @@ if [ "$(uname -s)" != Linux ] || [ "$(uname -m)" != x86_64 ]; then
   exit 1
 fi
 
-for tool in curl sha256sum tar make gcc ld mke2fs e2fsck go node docker sudo getcap setcap jq rustup pkg-config; do
+for tool in curl sha256sum tar make gcc ld mke2fs e2fsck go node docker sudo getcap setcap jq rustup pkg-config python3 unshare timeout mount; do
   command -v "$tool" >/dev/null || {
     echo "required build tool not found: $tool" >&2
     exit 1
@@ -458,12 +458,6 @@ build_enclave_rootfs() {
   test -x "$tree/usr/local/bin/run-enclave-script"
   test -x "$tree/usr/local/bin/run-enclave-agent"
   sudo chroot "$tree" /usr/bin/python3 -c 'import json, runpy, pathlib'
-  for engine in copilot codex claude; do
-    sudo env \
-      COPILOT_CLI_DIST_DIR=/usr/local/lib/node_modules/@github/copilot/runtime \
-      COPILOT_OFFLINE=true \
-      chroot "$tree" /usr/local/bin/"$engine" --version
-  done
   test -x "$tree/usr/sbin/awf-supervisor"
   test -z "$(sudo find "$tree/awf/seed" -mindepth 1 -print -quit)"
 
@@ -494,6 +488,18 @@ EOF
   sudo tee "$tree/etc/resolv.conf" >/dev/null <<'EOF'
 # Direct DNS is intentionally unavailable in Cloud Hypervisor enclave guests.
 EOF
+
+  # The exported tree has no procfs until boot. Probe in disposable namespaces,
+  # not a bare chroot or a bind of host /proc. PID 1 exit kills all descendants;
+  # unshare waits for it, so private mounts disappear before packaging/cleanup.
+  for engine in copilot codex claude; do
+    sudo env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin \
+      timeout --signal=TERM --kill-after=5s 30s \
+      unshare --mount --pid --fork --kill-child=KILL --net --ipc --uts --propagation=private \
+      /usr/bin/python3 -I "$ROOT/guest/cloud-hypervisor/verify-guest-engine.py" \
+      "$tree" "$engine" < /dev/null
+  done
+  test -z "$(sudo find "$tree/proc" -mindepth 1 -print -quit)"
 
   assemble_guest_rootfs "$tree" "$rootfs" \
     1862c171-7198-4f19-a07d-8eeb61d1ed01 $((64 * 1024 * 1024))
