@@ -218,4 +218,91 @@ describe('DurableNvxCleanupRegistry', () => {
     expect(second).toBeUndefined();
     await first?.();
   });
+
+  describe('cleanup handle guards', () => {
+    const name = `awfnvx-${'d'.repeat(20)}`;
+
+    it('rejects an artifact snapshot outside the run layout', async () => {
+      const handle = await registry.createPending(RUN_ID);
+      await expect(handle.captureArtifactSnapshot('/tmp/not-the-run-layout')).rejects.toThrow(
+        /outside the run layout/,
+      );
+      expect(handle.record.stages.artifactSnapshotCreated).toBe(false);
+    });
+
+    it('rejects preparing the account twice', async () => {
+      const handle = await registry.createPending(RUN_ID);
+      await handle.prepareAccount(name);
+      await expect(handle.prepareAccount(name)).rejects.toThrow(/already prepared/);
+    });
+
+    it('rejects an identity that does not match the pending account', async () => {
+      const handle = await registry.createPending(RUN_ID);
+      await expect(handle.captureIdentity({ name, uid: 1, gid: 1 })).rejects.toThrow(
+        /does not match its pending identity/,
+      );
+      await handle.prepareAccount(name);
+      await expect(
+        handle.captureIdentity({ name: `awfnvx-${'e'.repeat(20)}`, uid: 1, gid: 1 }),
+      ).rejects.toThrow(/does not match its pending identity/);
+    });
+
+    it('promotes a matching pending account to live', async () => {
+      const handle = await registry.createPending(RUN_ID);
+      await handle.prepareAccount(name);
+      await handle.captureIdentity({ name, uid: 23001, gid: 23002 });
+      expect(handle.record.vmmIdentity).toMatchObject({ state: 'live', name, uid: 23001 });
+      expect(handle.record.stages.accountCreated).toBe(true);
+    });
+
+    it('tracks device ACLs without duplicates and clears the stage on release', async () => {
+      const handle = await registry.createPending(RUN_ID);
+      const acl = {
+        path: '/dev/kvm' as const,
+        device: '8',
+        inode: '10',
+        permissions: 'rw-' as const,
+        uid: 23001,
+      };
+      await handle.prepareDeviceAcl(acl);
+      await handle.prepareDeviceAcl(acl);
+      expect(handle.record.resources.deviceAcls).toHaveLength(1);
+      expect(handle.record.stages.deviceAclsGranted).toBe(true);
+      await handle.releaseDeviceAcl(acl);
+      await handle.releaseDeviceAcl(acl);
+      expect(handle.record.resources.deviceAcls).toHaveLength(0);
+      expect(handle.record.stages.deviceAclsGranted).toBe(false);
+    });
+
+    it('rejects a network plan that is not bound to the run', async () => {
+      const handle = await registry.createPending(RUN_ID);
+      await expect(
+        handle.captureNetworkPlan({ runId: 'f'.repeat(32), namespaceName: 'other' } as never),
+      ).rejects.toThrow(/not bound to the run/);
+      await expect(
+        handle.captureNetworkPlan({ runId: RUN_ID, namespaceName: 'other' } as never),
+      ).rejects.toThrow(/not bound to the run/);
+    });
+
+    it('rejects capturing a network resource before a plan exists', async () => {
+      const handle = await registry.createPending(RUN_ID);
+      await expect(handle.captureNetworkResource('netns')).rejects.toThrow();
+    });
+
+    it('validates mount namespace inodes', async () => {
+      const handle = await registry.createPending(RUN_ID);
+      await expect(handle.captureMountNamespace('abc')).rejects.toThrow(/inode is invalid/);
+      await expect(handle.captureMountNamespace('')).rejects.toThrow(/inode is invalid/);
+      await handle.captureMountNamespace('4026531841');
+      expect(handle.record.resources.mountNamespaceInode).toBe('4026531841');
+    });
+
+    it('removes the durable record on complete', async () => {
+      const handle = await registry.createPending(RUN_ID);
+      await handle.complete();
+      await expect(fs.access(path.join(root, `${RUN_ID}.json`))).rejects.toMatchObject({
+        code: 'ENOENT',
+      });
+    });
+  });
 });
