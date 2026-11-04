@@ -25,6 +25,10 @@ cleanup() {
 trap cleanup EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
+# Populate the runner view before the daemon mounts it read-only. In particular,
+# the nested /runner/tmp mountpoint must already exist under that read-only root.
+timeout 60s "${compose[@]}" run --rm --no-deps runner /bin/bash -euc \
+  'test ! -e /staged/usr; cp -a /usr /bin /sbin /lib /lib64 /etc /staged/; mkdir -p /staged/tmp'
 timeout 120s "${compose[@]}" up -d --wait daemon
 docker image inspect --format '{{json .Id}}' awf-harness-runner:local >"$AWF_LIVE_OUTPUT/runner-image.json"
 docker image inspect --format '{{json .Id}}' docker:28.5.1-dind >"$AWF_LIVE_OUTPUT/daemon-image.json"

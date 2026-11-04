@@ -38,13 +38,7 @@ services:
     mem_limit: 1g
     cpus: 1
     pids_limit: 256
-    command:
-      - /bin/bash
-      - -euc
-      - |
-        test ! -e /staged/usr
-        cp -a /usr /bin /sbin /lib /lib64 /etc /staged/
-        node scripts/ci/live-docker-harness.cjs
+    command: ['node', 'scripts/ci/live-docker-harness.cjs']
 networks:
   control:
     internal: true

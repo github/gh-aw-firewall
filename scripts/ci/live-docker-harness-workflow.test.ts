@@ -91,6 +91,8 @@ describe('provider-free live Docker harness workflow contract (deterministic, no
     expect(launch).toContain('RUNNER_ENVIRONMENT');
     expect(launch).toContain('github-hosted');
     expect(launch).toContain('docker save awf-harness-agent:local');
+    expect(launch.indexOf('run --rm --no-deps runner')).toBeLessThan(launch.indexOf('up -d --wait daemon'));
+    expect(launch).toContain('mkdir -p /staged/tmp');
     expect(launch).toContain('down -v --timeout 5');
     expect(launch).not.toMatch(/prune|cleanup\.sh|docker rm/);
   });
