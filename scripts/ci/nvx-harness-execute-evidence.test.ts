@@ -104,22 +104,88 @@ describe('NVX existing execute evidence (deterministic, not live KVM)', () => {
     expect(execute).toHaveBeenCalledTimes(1);
   });
 
-  it('wires direct provider-free fixtures into the existing opt-in KVM workflow with an exact revision', async () => {
+  async function workflowDefinition() {
     const source = await fs.readFile(path.join(__dirname, '../../.github/workflows/nvx-phase-3b-live-kvm.yml'), 'utf8');
-    const workflow = load(source) as {
-      jobs: Record<string, { if: string; steps: Array<{ name?: string; run?: string }> }>;
+    return load(source) as {
+      on: { workflow_dispatch: { inputs: Record<string, unknown> } };
+      permissions: Record<string, string>;
+      jobs: Record<string, {
+        if: string; needs?: string; permissions: Record<string, string>; 'runs-on': string;
+        steps: Array<{ name?: string; run?: string; uses?: string; with?: Record<string, string>; env?: Record<string, string> }>;
+      }>;
     };
-    const job = workflow.jobs['live-kvm-evidence'];
-    expect(job.if).toContain("'nvx-live-kvm'");
+  }
+
+  it('isolates both opt-in directions: fixtures never select full inference, and full never selects fixture execution', async () => {
+    const workflow = await workflowDefinition();
+    const fixture = workflow.jobs['harness-execute-evidence'];
+    const full = workflow.jobs['live-kvm-evidence'];
+    expect(fixture.if.replace(/\s+/g, ' ').trim()).toBe(
+      "(github.event_name == 'workflow_dispatch' && inputs.suite == 'fixtures') || " +
+      "(github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'nvx-harness-execute'))",
+    );
+    expect(full.if.replace(/\s+/g, ' ').trim()).toBe(
+      "(github.event_name == 'workflow_dispatch' && inputs.suite == 'full') || " +
+      "(github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'nvx-live-kvm'))",
+    );
+    expect(workflow.on.workflow_dispatch.inputs.suite).toEqual({
+      description: 'Evidence suite (full includes provider inference)',
+      type: 'choice', required: true, default: 'full', options: ['full', 'fixtures'],
+    });
+    expect(workflow.permissions).toEqual({ contents: 'read' });
+    expect(fixture.permissions).toEqual({ contents: 'read' });
+    expect(full.permissions).toEqual({ contents: 'read', 'copilot-requests': 'write' });
+    const fullRuns = full.steps.map(({ run }) => run ?? '').join('\n');
+    expect(fullRuns).toContain('scripts/ci/nvx-manager-live-evidence.ts');
+    expect(fullRuns).not.toContain('scripts/ci/nvx-harness-execute-evidence.ts');
+  });
+
+  it('reuses attested artifacts and signer identity without granting provider permissions to provisioning', async () => {
+    const workflow = await workflowDefinition();
+    const build = workflow.jobs['build-attested-artifacts'];
+    const fixture = workflow.jobs['harness-execute-evidence'];
+    expect(build.if.replace(/\s+/g, ' ').trim()).toBe(
+      "github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && " +
+      "(contains(github.event.pull_request.labels.*.name, 'nvx-live-kvm') || " +
+      "contains(github.event.pull_request.labels.*.name, 'nvx-harness-execute')))",
+    );
+    expect(build.permissions).toEqual({ contents: 'read', 'id-token': 'write', attestations: 'write' });
+    expect(fixture.needs).toBe('build-attested-artifacts');
+    expect(fixture['runs-on']).toBe('ubuntu-24.04');
+    expect(fixture.steps.find(({ uses }) => uses?.startsWith('actions/download-artifact@'))?.with)
+      .toEqual({ name: 'nvx-attested-artifacts', path: '${{ runner.temp }}/nvx-attested-artifacts' });
+    expect(fixture.steps.find(({ name }) => name === 'Run existing execute with provider-free fixture distro')?.env)
+      .toMatchObject({
+        ALPINE_IMAGE: 'alpine@sha256:eafc1edb577d2e9b458664a15f23ea1c370214193226069eb22921169fc7e43f',
+        SIGNER_WORKFLOW: 'github/gh-aw-firewall/.github/workflows/nvx-phase-3b-live-kvm.yml',
+      });
+    const provision = fixture.steps.map(({ run }) => run ?? '').join('\n');
+    expect(provision).toContain('acl bubblewrap e2fsprogs erofs-utils iproute2 iptables jq nftables python3 uidmap');
+    expect(provision).toContain('sudo chown -R root:root "$artifact_dir"');
+    expect(provision).toContain('sudo docker network create --driver bridge --subnet 172.30.0.0/24');
+    expect(provision).toContain('trap cleanup EXIT');
+    expect(provision).toContain('sudo docker network rm awf-nvx-harness || status=1');
+    expect(provision).toContain('node_modules/.bin/tsx');
+    expect(provision).not.toMatch(/COPILOT_GITHUB_TOKEN|secrets\.|copilot-requests|@github\/copilot|npm pack|run-copilot-proof|api-proxy|squid|docker (?:run|compose)|scripts\/ci\/nvx-manager-live-evidence\.ts/);
+    expect(JSON.stringify(fixture)).not.toMatch(/COPILOT_GITHUB_TOKEN|secrets\.|copilot-requests/);
+    expect(fixture.steps.find(({ name }) => name === 'Upload fixture execute evidence')?.with)
+      .toMatchObject({ name: 'nvx-harness-execute-evidence', path: '${{ runner.temp }}/nvx-harness-execute-evidence/' });
+  });
+
+  it('wires direct fixtures and automatic validation with an exact revision and valid shell syntax', async () => {
+    const workflow = await workflowDefinition();
+    const job = workflow.jobs['harness-execute-evidence'];
     const step = job.steps.find(({ run }) => run?.includes('scripts/ci/nvx-harness-execute-evidence.ts'));
     expect(step?.run).toContain('AWF_NVX_EVIDENCE_REVISION=$(git rev-parse HEAD)');
     expect(step?.run).toContain('install -m 0755 tests/fixtures/harness-observation/nvx-executable.sh "$target"');
     expect(step?.run).toContain('$layer_root/usr/local/awf-harness-fixtures/$fixture');
     expect(step?.run).toContain('"$PWD/node_modules/.bin/tsx" scripts/ci/nvx-harness-execute-evidence.ts');
-    expect(job.steps.find(({ name }) => name === 'Run focused NVX Phase 3d tests')?.run)
+    expect(job.steps.find(({ name }) => name === 'Validate fixture runner and existing execute interfaces')?.run)
       .toContain('scripts/ci/nvx-harness-execute-evidence.test.ts');
-    for (const { run } of job.steps) {
-      if (run) execFileSync('/bin/bash', ['-n'], { input: run });
+    for (const { steps } of Object.values(workflow.jobs)) {
+      for (const { run } of steps) {
+        if (run) execFileSync('/bin/bash', ['-n'], { input: run });
+      }
     }
   });
 

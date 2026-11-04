@@ -2,6 +2,13 @@ name: NVX Phase 3f Promotion Evidence
 
 on:
   workflow_dispatch:
+    inputs:
+      suite:
+        description: Evidence suite (full includes provider inference)
+        type: choice
+        required: true
+        default: full
+        options: [full, fixtures]
   pull_request:
     types: [opened, synchronize, reopened, labeled]
     paths:
@@ -17,9 +24,6 @@ on:
 
 permissions:
   contents: read
-  copilot-requests: write
-  id-token: write
-  attestations: write
 
 concurrency:
   group: nvx-phase-3f-${{ github.ref }}
@@ -31,9 +35,14 @@ jobs:
     if: >-
       github.event_name == 'workflow_dispatch' ||
       (github.event_name == 'pull_request' &&
-       contains(github.event.pull_request.labels.*.name, 'nvx-live-kvm'))
+       (contains(github.event.pull_request.labels.*.name, 'nvx-live-kvm') ||
+        contains(github.event.pull_request.labels.*.name, 'nvx-harness-execute')))
     runs-on: ubuntu-24.04
     timeout-minutes: 20
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4
@@ -126,15 +135,135 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
+  harness-execute-evidence:
+    name: Provider-free NVX harness execute evidence
+    needs: build-attested-artifacts
+    if: >-
+      (github.event_name == 'workflow_dispatch' && inputs.suite == 'fixtures') ||
+      (github.event_name == 'pull_request' &&
+       contains(github.event.pull_request.labels.*.name, 'nvx-harness-execute'))
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Validate fixture runner and existing execute interfaces
+        run: |
+          npm test -- --runInBand --runTestsByPath \
+            scripts/ci/nvx-harness-execute-evidence.test.ts \
+            src/nvx/manager.test.ts src/nvx/one-shot-adapter.test.ts \
+            src/nvx/runtime-backend.test.ts src/harness-observation.test.ts
+
+      - name: Install host validation tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends \
+            acl bubblewrap e2fsprogs erofs-utils iproute2 iptables jq nftables python3 uidmap
+
+      - name: Download attested NVX artifacts
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: nvx-attested-artifacts
+          path: ${{ runner.temp }}/nvx-attested-artifacts
+
+      - name: Run existing execute with provider-free fixture distro
+        env:
+          ALPINE_IMAGE: alpine@sha256:eafc1edb577d2e9b458664a15f23ea1c370214193226069eb22921169fc7e43f
+          SIGNER_WORKFLOW: github/gh-aw-firewall/.github/workflows/nvx-phase-3b-live-kvm.yml
+          EVIDENCE_DIR: ${{ runner.temp }}/nvx-harness-execute-evidence
+        run: |
+          set -euo pipefail
+          artifact_dir="$RUNNER_TEMP/nvx-attested-artifacts"
+          layer_root="$RUNNER_TEMP/nvx-harness-root"
+          bridge=awfnvxhf0
+          container=
+          network_created=false
+          cleanup() {
+            status=$?
+            if [ -n "$container" ]; then
+              sudo docker rm -f "$container" || status=1
+            fi
+            if [ "$network_created" = true ]; then
+              sudo docker network rm awf-nvx-harness || status=1
+            fi
+            exit "$status"
+          }
+          trap cleanup EXIT
+          sudo chown -R root:root "$artifact_dir"
+          sudo chmod 0555 "$artifact_dir/openvmm"
+          sudo chmod 0444 \
+            "$artifact_dir/vmlinux" "$artifact_dir/initramfs.cpio.gz" \
+            "$artifact_dir/manifest.json" "$artifact_dir/manifest.sigstore.jsonl"
+          sudo docker network create --driver bridge --subnet 172.30.0.0/24 \
+            --opt "com.docker.network.bridge.name=$bridge" awf-nvx-harness
+          network_created=true
+          mkdir -p "$layer_root"
+          sudo docker pull "$ALPINE_IMAGE"
+          container=$(sudo docker create "$ALPINE_IMAGE")
+          sudo docker export "$container" | tar -xf - -C "$layer_root"
+          sudo docker rm "$container"
+          container=
+          mkdir -p "$layer_root/etc" "$layer_root/home/nobody"
+          printf 'nobody:x:65534:65534:nobody:/home/nobody:/sbin/nologin\n' \
+            > "$layer_root/etc/passwd"
+          printf 'nogroup:x:65534:\n' > "$layer_root/etc/group"
+          chmod 1777 "$layer_root/tmp"
+          sudo chown -R 65534:65534 "$layer_root/home/nobody"
+          for fixture in valid/copilot valid/claude valid/codex \
+            malformed/copilot failed/copilot overflow/copilot timeout/copilot; do
+            target="$layer_root/usr/local/awf-harness-fixtures/$fixture"
+            mkdir -p "$(dirname "$target")"
+            install -m 0755 tests/fixtures/harness-observation/nvx-executable.sh "$target"
+          done
+          sudo env "AWF_NVX_EVIDENCE_REVISION=$(git rev-parse HEAD)" \
+            "$PWD/node_modules/.bin/tsx" scripts/ci/nvx-harness-execute-evidence.ts \
+            --artifacts "$artifact_dir" --layer "$layer_root" --bridge "$bridge" \
+            --signerWorkflow "$SIGNER_WORKFLOW" --evidence "$EVIDENCE_DIR"
+
+      - name: Prepare bounded fixture diagnostics
+        if: always()
+        env:
+          EVIDENCE_DIR: ${{ runner.temp }}/nvx-harness-execute-evidence
+        run: |
+          if sudo test -d "$EVIDENCE_DIR"; then
+            sudo chown -R "$(id -u):$(id -g)" "$EVIDENCE_DIR"
+          fi
+
+      - name: Upload fixture execute evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: nvx-harness-execute-evidence
+          path: ${{ runner.temp }}/nvx-harness-execute-evidence/
+          if-no-files-found: warn
+          retention-days: 7
+
   live-kvm-evidence:
     name: Live Linux x86_64 KVM evidence
     needs: build-attested-artifacts
     if: >-
-      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'workflow_dispatch' && inputs.suite == 'full') ||
       (github.event_name == 'pull_request' &&
        contains(github.event.pull_request.labels.*.name, 'nvx-live-kvm'))
     runs-on: ubuntu-24.04
     timeout-minutes: 45
+    permissions:
+      contents: read
+      copilot-requests: write
 
     steps:
       - name: Checkout repository
@@ -647,21 +776,6 @@ jobs:
             "$layer_root/usr/local/bin/nvx-network-proof" \
             "$layer_root/usr/local/bin/run-copilot-proof"
           sudo chown -R 65534:65534 "$layer_root/home/nobody"
-
-          # Dedicated fixture paths do not replace the real Copilot executable.
-          for fixture in valid/copilot valid/claude valid/codex \
-            malformed/copilot failed/copilot overflow/copilot timeout/copilot; do
-            target="$layer_root/usr/local/awf-harness-fixtures/$fixture"
-            mkdir -p "$(dirname "$target")"
-            install -m 0755 tests/fixtures/harness-observation/nvx-executable.sh "$target"
-          done
-          sudo env "AWF_NVX_EVIDENCE_REVISION=$(git rev-parse HEAD)" \
-            "$PWD/node_modules/.bin/tsx" scripts/ci/nvx-harness-execute-evidence.ts \
-            --artifacts "$artifact_dir" \
-            --layer "$layer_root" \
-            --bridge "$bridge" \
-            --signerWorkflow "$SIGNER_WORKFLOW" \
-            --evidence "$EVIDENCE_DIR"
 
           evidence_runner="$RUNNER_TEMP/nvx-manager-live-evidence.cjs"
           ./node_modules/.bin/esbuild \

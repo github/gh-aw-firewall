@@ -435,8 +435,8 @@ mount, launch flag, control channel, or production lifecycle change.
 Fixtures live under `/usr/local/awf-harness-fixtures` in the test distro;
 they never shadow the real Copilot executable or call a provider.
 
-The opt-in `.github/workflows/nvx-phase-3b-live-kvm.yml` runner installs these
-fixtures and runs the cases before its existing end-to-end checks. The new
+The fixture-only job in `.github/workflows/nvx-phase-3b-live-kvm.yml` installs
+these fixtures and runs the cases independently of the full suite. The new
 cases recover the three harness version formats, malformed and oversized
 output, a failed version command, command exit `23`, execution timeout, and
 cancellation. Each execution uses a fresh run ID and the existing cleanup
@@ -445,8 +445,24 @@ defaults; the test expects the existing direct-entrypoint identity
 `65534:65534`, cwd `/`, PATH `/usr/sbin:/usr/bin:/sbin:/bin`, HOME
 `/home/nobody`, and USER/LOGNAME `nobody`. This is not a test of the primary
 agent's generated environment, PATH, login-shell state, or configured cwd.
-The workflow retains its existing `nvx-live-kvm` label /
-manual-dispatch gate; adding these tests does not dispatch it.
+The fixture-only opt-in is the `nvx-harness-execute` PR label, or manual
+dispatch with `suite: fixtures`. It reuses the workflow-attested artifacts,
+but provisions only a fixture distro and an isolated bridge, without an
+API proxy, provider credentials, real Copilot package, or inference command.
+Its job has only `contents: read` permission. Artifact signing permissions
+are confined to the shared artifact builder.
+
+The existing full suite retains the `nvx-live-kvm` label, or manual dispatch
+with `suite: full` (the default, preserving the previous manual full-suite
+behavior). Only that full-suite job requests `copilot-requests: write` and
+starts credential-bearing provider inference. Neither suite's opt-in selects
+the other suite. Adding these tests does not apply labels or dispatch jobs.
+For a provider-free run, select only the fixture opt-in; setting both PR
+labels intentionally selects both jobs. Live execution requires a Linux
+x86_64 runner with usable KVM, root, cgroup v2 controllers, Docker, the host
+validation tools, and successfully provisioned workflow-attested artifacts.
+The fixture job verifies those artifacts using this same workflow's signer
+identity; portable fixtures and skipped jobs are not live evidence.
 
 `harness-execute.json` records the tested checkout revision, host kernel and
 architecture, artifact-manifest and fixture hashes, individual results,
