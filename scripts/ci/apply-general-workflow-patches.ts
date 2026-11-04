@@ -103,7 +103,7 @@ export function applyGeneralWorkflowPatches(
     log.push('  Excluded OTLP credentials from both auditor sandboxes');
   }
 
-  const preparedSmokeImages = /(?:^|[/\\])smoke-(?:copilot(?:-network-isolation)?|services)\.lock\.yml$/.test(workflowPath)
+  const preparedSmokeImages = /(?:^|[/\\])smoke-(?:claude|copilot(?:-network-isolation)?|services)\.lock\.yml$/.test(workflowPath)
     && content.includes('- name: Build local AWF smoke images\n');
   const preparedSmokeImageArgs =
     '--image-registry awf-smoke --image-tag "${AWF_SMOKE_IMAGE_TAG:?}" --skip-pull';
