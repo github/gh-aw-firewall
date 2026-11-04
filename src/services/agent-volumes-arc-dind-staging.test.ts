@@ -4,6 +4,9 @@ import * as path from 'path';
 import { stageHostFile } from './agent-volumes/docker-host-staging';
 import { applyHostPathPrefixToVolumes, resolveRunnerMountPaths, resolveRunnerVisibleHostPath } from './host-path-prefix';
 import { GEMINI_SETTINGS_MOUNT, GEMINI_SETTINGS_SERVICE } from './gemini-settings-service';
+import { harnessContext } from '../harness-observation';
+import { withDockerHarnessObservation } from '../docker-harness-observation';
+import type { WrapperConfig } from '../types';
 
 // Create mock functions (must remain per-file — jest.mock() is hoisted before imports)
 
@@ -38,23 +41,25 @@ describe('agent service', () => {
 
       try {
         const agentCommand = `copilot --log-dir ${logsDir}`;
-        const result = generateDockerCompose(
-          {
-            ...getConfig(),
-            runnerTopology: 'arc-dind',
-            dockerHostPathPrefix,
-            agentCommand,
-            volumeMounts: [`${logsDir}:${logsDir}:rw`],
-          },
-          mockNetworkConfig,
-        );
+        const config: WrapperConfig = {
+          ...getConfig(),
+          runnerTopology: 'arc-dind',
+          dockerHostPathPrefix,
+          agentCommand,
+          volumeMounts: [`${logsDir}:${logsDir}:rw`],
+        };
+        const result = generateDockerCompose(config, mockNetworkConfig);
         const volumes = result.services.agent.volumes as string[];
         const translatedSource = dockerHostPathPrefix === '/tmp' ? logsDir : `${dockerHostPathPrefix}${logsDir}`;
         const logMounts = volumes.filter((mount) => mount.split(':')[1] === `/host${logsDir}`);
 
         expect(logMounts).toEqual([`${translatedSource}:/host${logsDir}:rw`]);
         expect(volumes).not.toContain(`${translatedSource}:/host/tmp/gh-aw/sandbox/agent/logs:rw`);
-        expect(result.services.agent.command).toEqual(['/bin/bash', '-c', agentCommand]);
+        expect(result.services.agent.command).toEqual([
+          '/bin/bash', '-c', withDockerHarnessObservation(config, harnessContext(config), agentCommand)
+            .replace(/\$/g, '$$$$'),
+        ]);
+        expect(result.services.agent.command?.[2].endsWith(`\n${agentCommand}`)).toBe(true);
         expect(resolveRunnerMountPaths([`${logsDir}:${logsDir}:rw`], dockerHostPathPrefix))
           .toEqual([{ sandboxPath: logsDir, runnerPath: logsDir }]);
       } finally {
@@ -73,22 +78,24 @@ describe('agent service', () => {
 
       try {
         const agentCommand = `copilot --log-dir ${canonicalLogsDir}`;
-        const result = generateDockerCompose(
-          {
-            ...getConfig(),
-            runnerTopology: 'arc-dind',
-            dockerHostPathPrefix,
-            agentCommand,
-            volumeMounts: [`${logsDir}:${canonicalLogsDir}:rw`],
-          },
-          mockNetworkConfig,
-        );
+        const config: WrapperConfig = {
+          ...getConfig(),
+          runnerTopology: 'arc-dind',
+          dockerHostPathPrefix,
+          agentCommand,
+          volumeMounts: [`${logsDir}:${canonicalLogsDir}:rw`],
+        };
+        const result = generateDockerCompose(config, mockNetworkConfig);
         const volumes = result.services.agent.volumes as string[];
         const translatedSource = dockerHostPathPrefix === '/tmp' ? logsDir : `${dockerHostPathPrefix}${logsDir}`;
 
         expect(volumes).toContain(`${translatedSource}:/host${canonicalLogsDir}:rw`);
         expect(volumes).not.toContain(`${translatedSource}:/host${logsDir}:rw`);
-        expect(result.services.agent.command).toEqual(['/bin/bash', '-c', agentCommand]);
+        expect(result.services.agent.command).toEqual([
+          '/bin/bash', '-c', withDockerHarnessObservation(config, harnessContext(config), agentCommand)
+            .replace(/\$/g, '$$$$'),
+        ]);
+        expect(result.services.agent.command?.[2].endsWith(`\n${agentCommand}`)).toBe(true);
         expect(resolveRunnerVisibleHostPath(logsDir, dockerHostPathPrefix)).toBe(logsDir);
         expect(logsDir).not.toBe(canonicalLogsDir);
         expect(fs.lstatSync(logsDir).isSymbolicLink()).toBe(false);
@@ -111,19 +118,17 @@ describe('agent service', () => {
 
       try {
         const agentCommand = `copilot --add-dir ${detectionDir}`;
-        const result = generateDockerCompose(
-          {
-            ...getConfig(),
-            runnerTopology: 'arc-dind',
-            dockerHostPathPrefix,
-            agentCommand,
-            volumeMounts: [
-              `${detectionDir}:${detectionDir}:ro`,
-              `${safeOutputsDir}:${safeOutputsDir}:rw`,
-            ],
-          },
-          mockNetworkConfig,
-        );
+        const config: WrapperConfig = {
+          ...getConfig(),
+          runnerTopology: 'arc-dind',
+          dockerHostPathPrefix,
+          agentCommand,
+          volumeMounts: [
+            `${detectionDir}:${detectionDir}:ro`,
+            `${safeOutputsDir}:${safeOutputsDir}:rw`,
+          ],
+        };
+        const result = generateDockerCompose(config, mockNetworkConfig);
         const volumes = result.services.agent.volumes as string[];
         const translatedDetectionDir = dockerHostPathPrefix === '/tmp'
           ? detectionDir : `${dockerHostPathPrefix}${detectionDir}`;
@@ -133,7 +138,11 @@ describe('agent service', () => {
         expect(volumes).toContain(`${translatedDetectionDir}:/host${detectionDir}:ro`);
         expect(volumes).not.toContain(`${translatedDetectionDir}:/host${detectionDir}:rw`);
         expect(volumes).toContain(`${translatedSafeOutputsDir}:/host${safeOutputsDir}:rw`);
-        expect(result.services.agent.command).toEqual(['/bin/bash', '-c', agentCommand]);
+        expect(result.services.agent.command).toEqual([
+          '/bin/bash', '-c', withDockerHarnessObservation(config, harnessContext(config), agentCommand)
+            .replace(/\$/g, '$$$$'),
+        ]);
+        expect(result.services.agent.command?.[2].endsWith(`\n${agentCommand}`)).toBe(true);
       } finally {
         fs.rmSync(runnerTemp, { recursive: true, force: true });
       }
