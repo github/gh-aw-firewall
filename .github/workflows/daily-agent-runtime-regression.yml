@@ -80,10 +80,10 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 90
     steps:
-      - name: Checkout pinned main commit
+      - name: Checkout main
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ needs.build.outputs.source_sha }}
+          ref: main
           persist-credentials: false
       - name: Set up Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
@@ -135,10 +135,10 @@ jobs:
       id-token: write
       attestations: write
     steps:
-      - name: Checkout pinned main commit
+      - name: Checkout main
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ needs.build.outputs.source_sha }}
+          ref: main
           persist-credentials: false
       - name: Fetch and verify pinned NVX artifacts
         env:
@@ -179,7 +179,7 @@ jobs:
           if-no-files-found: error
           retention-days: 2
 
-  regression:
+  regression-copilot:
     name: ${{ matrix.agent }} / ${{ matrix.runtime }}
     needs: [build, build-cloud-hypervisor, build-nvx]
     if: ${{ !cancelled() && needs.build.result == 'success' }}
@@ -191,13 +191,13 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        agent: [copilot, codex, claude]
+        agent: [copilot]
         runtime: [docker, cloud-hypervisor, nvx]
     steps:
-      - name: Checkout pinned main commit
+      - name: Checkout main
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ needs.build.outputs.source_sha }}
+          ref: main
           persist-credentials: false
       - name: Set up Node.js
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
@@ -262,7 +262,103 @@ jobs:
           COPILOT_GITHUB_TOKEN: ${{ matrix.agent == 'copilot' && (secrets.COPILOT_GITHUB_TOKEN || github.token) || '' }}
           OPENAI_API_KEY: ${{ matrix.agent == 'codex' && (secrets.CODEX_API_KEY || secrets.OPENAI_API_KEY) || '' }}
           ANTHROPIC_API_KEY: ${{ matrix.agent == 'claude' && secrets.ANTHROPIC_API_KEY || '' }}
-        run: bash scripts/ci/run-agent-runtime-regression.sh
+        run: |
+          host_script=$(<scripts/ci/run-agent-runtime-regression.sh)
+          bash -c "$host_script"
+      - name: Upload regression evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: agent-runtime-${{ matrix.agent }}-${{ matrix.runtime }}
+          path: .awf-regression/results/
+          if-no-files-found: warn
+          retention-days: 7
+
+  regression-non-copilot:
+    name: ${{ matrix.agent }} / ${{ matrix.runtime }}
+    needs: [build, build-cloud-hypervisor, build-nvx]
+    if: ${{ !cancelled() && needs.build.result == 'success' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        agent: [codex, claude]
+        runtime: [docker, cloud-hypervisor, nvx]
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+          persist-credentials: false
+      - name: Set up Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24'
+          package-manager-cache: false
+      - name: Download shared AWF build
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: agent-runtime-awf-build
+          path: ${{ runner.temp }}/awf-regression-build
+      - name: Load the shared CLI and images
+        env:
+          SOURCE_SHA: ${{ needs.build.outputs.source_sha }}
+        run: |
+          set -euo pipefail
+          output="$RUNNER_TEMP/awf-regression-build"
+          (cd "$output" && sha256sum --check SHA256SUMS)
+          test "$(cat "$output/source-sha.txt")" = "$SOURCE_SHA"
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+          tar -xzf "$output/awf.tar.gz"
+          gunzip -c "$output/images.tar.gz" | docker load
+          for image in squid agent api-proxy; do
+            docker image inspect "awf-regression/$image:$SOURCE_SHA" > /dev/null
+          done
+      - name: Install host microVM tools
+        if: matrix.runtime != 'docker'
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends \
+            acl bubblewrap e2fsprogs erofs-utils jq nftables rsync uidmap
+      - name: Download Cloud Hypervisor artifacts
+        if: matrix.runtime == 'cloud-hypervisor'
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: agent-runtime-cloud-hypervisor
+          path: ${{ runner.temp }}/agent-runtime-cloud-hypervisor
+      - name: Download NVX artifacts
+        if: matrix.runtime == 'nvx'
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: agent-runtime-nvx
+          path: ${{ runner.temp }}/agent-runtime-nvx
+      - name: Install the pinned agent
+        if: matrix.runtime != 'nvx'
+        env:
+          AGENT: ${{ matrix.agent }}
+        run: |
+          set -euo pipefail
+          case "$AGENT" in
+            copilot) package="@github/copilot@$COPILOT_VERSION" ;;
+            codex) package="@openai/codex@$CODEX_VERSION" ;;
+            claude) package="@anthropic-ai/claude-code@$CLAUDE_VERSION" ;;
+            *) exit 1 ;;
+          esac
+          npm install --prefix .awf-regression/tools --no-package-lock --no-audit --no-fund "$package"
+      - name: Run real agent regression
+        env:
+          AGENT: ${{ matrix.agent }}
+          RUNTIME: ${{ matrix.runtime }}
+          SOURCE_SHA: ${{ needs.build.outputs.source_sha }}
+          COPILOT_GITHUB_TOKEN: ${{ matrix.agent == 'copilot' && (secrets.COPILOT_GITHUB_TOKEN || github.token) || '' }}
+          OPENAI_API_KEY: ${{ matrix.agent == 'codex' && (secrets.CODEX_API_KEY || secrets.OPENAI_API_KEY) || '' }}
+          ANTHROPIC_API_KEY: ${{ matrix.agent == 'claude' && secrets.ANTHROPIC_API_KEY || '' }}
+        run: |
+          host_script=$(<scripts/ci/run-agent-runtime-regression.sh)
+          bash -c "$host_script"
       - name: Upload regression evidence
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2

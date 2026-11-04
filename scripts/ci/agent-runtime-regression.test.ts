@@ -56,16 +56,22 @@ describe('daily agent/runtime regression workflow', () => {
   it('runs daily with all nine independent combinations and manual dispatch', () => {
     expect(workflow.on.schedule).toEqual([{ cron: '37 6 * * *' }]);
     expect(workflow.on).toHaveProperty('workflow_dispatch');
-    expect(workflow.jobs.regression.strategy).toEqual({
+    expect(workflow.jobs['regression-copilot'].strategy).toEqual({
       'fail-fast': false,
-      matrix: { agent: agents, runtime: runtimes },
+      matrix: { agent: ['copilot'], runtime: runtimes },
     });
-    expect(workflow.jobs.regression.if).toBe(
-      "${{ !cancelled() && needs.build.result == 'success' }}",
-    );
-    expect(workflow.jobs.regression.needs).toEqual([
-      'build', 'build-cloud-hypervisor', 'build-nvx',
-    ]);
+    expect(workflow.jobs['regression-non-copilot'].strategy).toEqual({
+      'fail-fast': false,
+      matrix: { agent: ['codex', 'claude'], runtime: runtimes },
+    });
+    for (const job of ['regression-copilot', 'regression-non-copilot']) {
+      expect(workflow.jobs[job].if).toBe(
+        "${{ !cancelled() && needs.build.result == 'success' }}",
+      );
+      expect(workflow.jobs[job].needs).toEqual([
+        'build', 'build-cloud-hypervisor', 'build-nvx',
+      ]);
+    }
   });
 
   it('pins main once and uses that exact source for every artifact and regression', () => {
@@ -73,16 +79,18 @@ describe('daily agent/runtime regression workflow', () => {
       ref: 'main', 'persist-credentials': false,
     });
     expect(step('build', 'Pin source commit').run).toContain('git rev-parse HEAD');
-    for (const job of ['build-cloud-hypervisor', 'build-nvx', 'regression']) {
-      expect(step(job, 'Checkout pinned main commit').with).toEqual({
-        ref: '${{ needs.build.outputs.source_sha }}',
+    for (const job of ['build-cloud-hypervisor', 'build-nvx', 'regression-copilot', 'regression-non-copilot']) {
+      expect(step(job, 'Checkout main').with).toEqual({
+        ref: 'main',
         'persist-credentials': false,
       });
     }
-    const restore = step('regression', 'Load the shared CLI and images').run;
-    expect(restore).toContain('sha256sum --check SHA256SUMS');
-    expect(restore).toContain('test "$(cat "$output/source-sha.txt")" = "$SOURCE_SHA"');
-    expect(restore).toContain('test "$(git rev-parse HEAD)" = "$SOURCE_SHA"');
+    for (const job of ['regression-copilot', 'regression-non-copilot']) {
+      const restore = step(job, 'Load the shared CLI and images').run;
+      expect(restore).toContain('sha256sum --check SHA256SUMS');
+      expect(restore).toContain('test "$(cat "$output/source-sha.txt")" = "$SOURCE_SHA"');
+      expect(restore).toContain('test "$(git rev-parse HEAD)" = "$SOURCE_SHA"');
+    }
   });
 
   it('builds the CLI and AWF images once, without rebuilding or pulling in the fan-out', () => {
@@ -91,13 +99,15 @@ describe('daily agent/runtime regression workflow', () => {
     expect(build).toContain('for image in squid agent api-proxy; do');
     expect(build).toContain('docker save "${images[@]}"');
     expect(build).toContain('tar -czf "$output/awf.tar.gz" dist node_modules');
-    const fanout = workflow.jobs.regression.steps.map(entry => entry.run ?? '').join('\n');
-    expect(fanout).toContain('docker load');
-    expect(fanout).not.toMatch(/docker (build|pull)|npm (ci|run build)/);
+    for (const job of ['regression-copilot', 'regression-non-copilot']) {
+      const fanout = workflow.jobs[job].steps.map(entry => entry.run ?? '').join('\n');
+      expect(fanout).toContain('docker load');
+      expect(fanout).not.toMatch(/docker (build|pull)|npm (ci|run build)/);
+    }
     const runner = fs.readFileSync(hostScript, 'utf8');
     expect(runner).toContain('--image-registry awf-regression --image-tag "$SOURCE_SHA" --skip-pull');
     expect(runner).not.toContain('--build-local');
-    expect(step('regression', 'Download shared AWF build').with?.name)
+    expect(step('regression-copilot', 'Download shared AWF build').with?.name)
       .toBe(step('build', 'Upload shared AWF build').with?.name);
   });
 
@@ -135,14 +145,25 @@ describe('daily agent/runtime regression workflow', () => {
   });
 
   it('keeps credential scope and evidence separate from build artifacts', () => {
-    const run = step('regression', 'Run real agent regression');
-    expect(run.env?.COPILOT_GITHUB_TOKEN).toContain("matrix.agent == 'copilot'");
-    expect(run.env?.OPENAI_API_KEY).toContain("matrix.agent == 'codex'");
-    expect(run.env?.ANTHROPIC_API_KEY).toContain("matrix.agent == 'claude'");
-    expect(step('regression', 'Upload regression evidence').if).toBe('always()');
-    expect(step('regression', 'Upload regression evidence').with?.path)
-      .toBe('.awf-regression/results/');
-    expect(step('regression', 'Upload regression evidence').with?.['retention-days']).toBe(7);
+    expect(workflow.jobs['regression-copilot'].permissions).toEqual({
+      contents: 'read',
+      'copilot-requests': 'write',
+    });
+    expect(workflow.jobs['regression-non-copilot'].permissions).toEqual({
+      contents: 'read',
+    });
+    for (const job of ['regression-copilot', 'regression-non-copilot']) {
+      const run = step(job, 'Run real agent regression');
+      expect(run.env?.COPILOT_GITHUB_TOKEN).toContain("matrix.agent == 'copilot'");
+      expect(run.env?.OPENAI_API_KEY).toContain("matrix.agent == 'codex'");
+      expect(run.env?.ANTHROPIC_API_KEY).toContain("matrix.agent == 'claude'");
+      expect(run.run).toContain('host_script=$(<scripts/ci/run-agent-runtime-regression.sh)');
+      expect(run.run).toContain('bash -c "$host_script"');
+      expect(step(job, 'Upload regression evidence').if).toBe('always()');
+      expect(step(job, 'Upload regression evidence').with?.path)
+        .toBe('.awf-regression/results/');
+      expect(step(job, 'Upload regression evidence').with?.['retention-days']).toBe(7);
+    }
     expect(fs.readFileSync(hostScript, 'utf8')).not.toContain('--env-all');
   });
 });
