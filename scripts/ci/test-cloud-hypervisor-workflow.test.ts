@@ -121,6 +121,41 @@ describe('Cloud Hypervisor CI workflow', () => {
     }
   });
 
+  it('keeps bounded fixture guest acceptance distinct from deterministic and packaging checks', () => {
+    const doc = loadWorkflow();
+    const paths = (doc.on.pull_request as { paths: string[] }).paths;
+    expect(paths).toEqual(expect.arrayContaining([
+      'scripts/ci/cloud-hypervisor-harness-*', 'src/harness-observation*',
+      'src/model-information-contract/**', 'tests/fixtures/harness-observation/**',
+    ]));
+    const steps = doc.jobs['live-kvm'].steps!;
+    const acceptance = steps.find(step => step.name === 'Run provider-free selected-harness guest acceptance')!;
+    expect(acceptance.run).toContain('"AWF_LIVE_COMMIT=$(git rev-parse HEAD)"');
+    for (const name of ['GITHUB_ACTIONS', 'RUNNER_ENVIRONMENT', 'ImageOS']) {
+      expect(acceptance.run).toContain(`"${name}=$${name}"`);
+    }
+    expect(acceptance.run).toContain('timeout --signal=TERM --kill-after=30s 1100s');
+    expect(acceptance.run).toContain('node scripts/ci/cloud-hypervisor-harness-live.cjs');
+    expect(acceptance.run).toContain('"$RUNNER_TEMP/cloud-hypervisor-test-x86_64"');
+    expect(acceptance.run).not.toMatch(/secrets\.|env-all|continue-on-error/);
+    const deterministic = steps.find(step => step.name === 'Validate harness contracts and packaging separately from live evidence')!;
+    expect(deterministic.run).toContain('cloud-hypervisor-harness-deterministic/results.json');
+    expect(deterministic.run).toContain('src/cloud-hypervisor-runtime-backend.test.ts');
+    expect(deterministic.run).toContain('src/cli-workflow.test.ts');
+    expect(deterministic.run).toContain('npm run build:bundle');
+    expect(deterministic.run).toContain('node release/awf-bundle.js --version');
+    const upload = steps.find(step => step.name === 'Upload sanitized harness guest evidence')!;
+    expect(upload.if).toBe('always()');
+    expect(upload.with?.path).toBe('artifacts/cloud-hypervisor-harness-live/*.json');
+    expect(upload.with?.['retention-days']).toBe(7);
+    expect(steps.find(step => step.name === 'Upload harness deterministic results (not guest evidence)')?.with?.path)
+      .toBe('artifacts/cloud-hypervisor-harness-deterministic/results.json');
+    expect(steps.indexOf(acceptance)).toBeGreaterThan(steps.indexOf(deterministic));
+    expect(steps.indexOf(acceptance)).toBeGreaterThan(
+      steps.findIndex(step => step.name === 'Verify capable host and artifact digests'),
+    );
+  });
+
   it('authenticates same-tag guest archives before host preflight and live VM coverage', () => {
     const doc = loadWorkflow();
     const build = doc.jobs['build-test-artifacts'].steps!
