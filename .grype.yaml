@@ -282,6 +282,36 @@ ignore:
       version: "1.3.2-r1"
       type: apk
 
+  # ── SQLite 3.53.4-r0 in the enclave-script Python base ─────────────────────
+  #
+  # Alpine v3.24 has no fixed sqlite-libs package yet; the PR scan's Grype
+  # findings list no fixed versions. CVE-2026-119586 affects the SQLite CLI,
+  # which is not installed. The enclave-script entrypoint does not use SQLite;
+  # its user-supplied scripts already run with the same restricted, disposable,
+  # no-network privileges that a SQLite exploit would obtain. Keep these
+  # exceptions scoped to this exact package version and remove them when Alpine
+  # publishes a fixed v3.24 package.
+  - vulnerability: CVE-2026-119586
+    package:
+      name: sqlite-libs
+      version: "3.53.4-r0"
+      type: apk
+  - vulnerability: CVE-2026-119374
+    package:
+      name: sqlite-libs
+      version: "3.53.4-r0"
+      type: apk
+  - vulnerability: CVE-2026-119379
+    package:
+      name: sqlite-libs
+      version: "3.53.4-r0"
+      type: apk
+  - vulnerability: CVE-2026-119373
+    package:
+      name: sqlite-libs
+      version: "3.53.4-r0"
+      type: apk
+
   # ── stdlib@go1.24.6 embedded in gosu binary ──────────────────────────────────
   #
   # GO-2026-4337 (stdlib go1.24.6 -> 1.24.13 / 1.25.7 / 1.26.0-rc.3, CRITICAL):
