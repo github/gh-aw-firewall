@@ -1,221 +1,211 @@
 {
   "schemaVersion": 1,
   "status": "proposed-awaiting-human-review",
-  "baseRevision": "cd3106668384036c5c13902533b8f1fa9d014e49",
-  "reviewBaseRevision": "cd3106668384036c5c13902533b8f1fa9d014e49",
+  "baseRevision": "ef4752b88af6b05de1b26cd138e890184980667e",
+  "reviewBaseRevision": "ef4752b88af6b05de1b26cd138e890184980667e",
   "runtimeConsumerEffects": [
     {
       "file": "containers/api-proxy/models.dev.catalog.json",
       "changes": [
         {
-          "pointer": "/runtimeResolution/@lookup=deepseek-flash-latest/pricing/cachedInput",
-          "before": 0.005,
-          "after": 0.006
-        },
-        {
-          "pointer": "/runtimeResolution/@lookup=deepseek-flash-latest/pricing/output",
-          "before": 0.5,
-          "after": 0.315
-        },
-        {
-          "pointer": "/runtimeResolution/@lookup=deepseek-v4-1-flash/pricing/cachedInput",
-          "before": 0.006,
-          "after": 0.012
-        },
-        {
-          "pointer": "/runtimeResolution/@lookup=deepseek-v4-flash-0731/pricing/cachedInput",
-          "before": 0.0238,
-          "after": 0.035
-        },
-        {
-          "pointer": "/runtimeResolution/@lookup=deepseek-v4-flash-0731/pricing/input",
-          "before": 0.119,
-          "after": 0.059
-        },
-        {
-          "pointer": "/runtimeResolution/@lookup=deepseek-v4-flash-0731/pricing/output",
-          "before": 0.238,
-          "after": 0.3
-        },
-        {
-          "pointer": "/runtimeResolution/@lookup=gemma-4-26b-a4b-it/pricing/cachedInput",
-          "before": 0.032999999999999995,
-          "after": 0.036
-        },
-        {
-          "pointer": "/runtimeResolution/@lookup=gemma-4-26b-a4b-it/pricing/input",
-          "before": 0.065,
-          "after": 0.072
-        },
-        {
-          "pointer": "/runtimeResolution/@lookup=gemma-4-26b-a4b-it/pricing/output",
-          "before": 0.195,
-          "after": 0.215
-        },
-        {
-          "pointer": "/runtimeResolution/@lookup=glm-5-3-flash/pricing/cachedInput",
-          "before": 0.0285,
-          "after": 0.03
-        },
-        {
-          "pointer": "/runtimeResolution/@lookup=glm-5-3-flash/pricing/input",
-          "before": 0.0285,
-          "after": 0.0313
-        },
-        {
-          "pointer": "/runtimeResolution/@lookup=glm-5-3-flash/pricing/output",
-          "before": 0.0923,
-          "after": 0.08460000000000001
-        },
-        {
-          "pointer": "/runtimeResolution/@lookup=glm-5-3-flashx/pricing/cachedInput",
-          "before": 0.09,
-          "after": 0.075
-        },
-        {
-          "pointer": "/runtimeResolution/@lookup=glm-5-3-flashx-legal",
+          "pointer": "/runtimeResolution/@lookup=crouton-alpha",
           "before": null,
           "after": {
             "exists": true,
             "pricing": {
-              "modelId": "z-ai/glm-5.3-flashx-legal",
-              "alias": "z-ai/glm-5.3-flashx-legal",
-              "input": 0.37,
-              "cachedInput": 0.075,
+              "modelId": "stealth/crouton-alpha",
+              "alias": "stealth/crouton-alpha",
+              "input": 0,
+              "cachedInput": 0,
               "cacheWrite": null,
-              "output": 1.25
+              "output": 0
             }
           }
         },
         {
+          "pointer": "/runtimeResolution/@lookup=deepseek-flash-latest/pricing/cachedInput",
+          "before": 0.006,
+          "after": 0.005
+        },
+        {
+          "pointer": "/runtimeResolution/@lookup=deepseek-flash-latest/pricing/input",
+          "before": 0.035,
+          "after": 0.032
+        },
+        {
+          "pointer": "/runtimeResolution/@lookup=deepseek-flash-latest/pricing/output",
+          "before": 0.315,
+          "after": 0.288
+        },
+        {
+          "pointer": "/runtimeResolution/@lookup=deepseek-v4-1-flash/pricing/cachedInput",
+          "before": 0.012,
+          "after": 0.018
+        },
+        {
+          "pointer": "/runtimeResolution/@lookup=deepseek-v4-pro-0813/pricing/output",
+          "before": 4,
+          "after": 4.6
+        },
+        {
+          "pointer": "/runtimeResolution/@lookup=gemma-4-26b-a4b-it/pricing/cachedInput",
+          "before": 0.036,
+          "after": 0.035
+        },
+        {
+          "pointer": "/runtimeResolution/@lookup=gemma-4-26b-a4b-it/pricing/input",
+          "before": 0.072,
+          "after": 0.07
+        },
+        {
+          "pointer": "/runtimeResolution/@lookup=gemma-4-26b-a4b-it/pricing/output",
+          "before": 0.215,
+          "after": 0.21
+        },
+        {
+          "pointer": "/runtimeResolution/@lookup=glm-5-3-flash/pricing/cachedInput",
+          "before": 0.03,
+          "after": 0.0269
+        },
+        {
+          "pointer": "/runtimeResolution/@lookup=glm-5-3-flash/pricing/input",
+          "before": 0.0313,
+          "after": 0.0269
+        },
+        {
+          "pointer": "/runtimeResolution/@lookup=glm-5-3-flash/pricing/output",
+          "before": 0.08460000000000001,
+          "after": 0.09960000000000001
+        },
+        {
           "pointer": "/runtimeResolution/@lookup=glm-flash-latest/pricing/cachedInput",
-          "before": 0.0285,
-          "after": 0.03
+          "before": 0.03,
+          "after": 0.0269
         },
         {
           "pointer": "/runtimeResolution/@lookup=glm-flash-latest/pricing/input",
-          "before": 0.0285,
-          "after": 0.0313
+          "before": 0.0313,
+          "after": 0.0269
         },
         {
           "pointer": "/runtimeResolution/@lookup=glm-flash-latest/pricing/output",
-          "before": 0.0923,
-          "after": 0.08460000000000001
+          "before": 0.08460000000000001,
+          "after": 0.09960000000000001
         },
         {
-          "pointer": "/runtimeResolution/@lookup=grok-latest/pricing/cacheWrite",
+          "pointer": "/runtimeResolution/@lookup=granite-4-2-8b/pricing/output",
+          "before": 0.15,
+          "after": 0.25
+        },
+        {
+          "pointer": "/runtimeResolution/@lookup=grok-4-6:batch",
           "before": null,
-          "after": 0
-        },
-        {
-          "pointer": "/runtimeResolution/@lookup=hermes-3-llama-3-1-405b",
-          "before": {
+          "after": {
             "exists": true,
             "pricing": {
-              "modelId": "nousresearch/hermes-3-llama-3.1-405b",
-              "alias": "nousresearch/hermes-3-llama-3.1-405b",
-              "input": 1,
-              "cachedInput": 0.1,
+              "modelId": "x-ai/grok-4.6:batch",
+              "alias": "x-ai/grok-4.6:batch",
+              "input": 1.5999999999999999,
+              "cachedInput": 0.39999999999999997,
               "cacheWrite": null,
-              "output": 1
+              "output": 4.8
             }
-          },
-          "after": null
+          }
         },
         {
-          "pointer": "/runtimeResolution/@lookup=hermes-3-llama-3-1-70b",
-          "before": {
+          "pointer": "/runtimeResolution/@lookup=grok-4-7:batch",
+          "before": null,
+          "after": {
             "exists": true,
             "pricing": {
-              "modelId": "nousresearch/hermes-3-llama-3.1-70b",
-              "alias": "nousresearch/hermes-3-llama-3.1-70b",
-              "input": 0.7,
-              "cachedInput": 0.06999999999999999,
+              "modelId": "x-ai/grok-4.7:batch",
+              "alias": "x-ai/grok-4.7:batch",
+              "input": 1.5999999999999999,
+              "cachedInput": 0.39999999999999997,
               "cacheWrite": null,
-              "output": 0.7
+              "output": 4.8
             }
-          },
-          "after": null
+          }
+        },
+        {
+          "pointer": "/runtimeResolution/@lookup=hy4",
+          "before": null,
+          "after": {
+            "exists": true,
+            "pricing": {
+              "modelId": "tencent/hy4",
+              "alias": "tencent/hy4",
+              "input": 0.417,
+              "cachedInput": 0.020999999999999998,
+              "cacheWrite": null,
+              "output": 1.2505
+            }
+          }
+        },
+        {
+          "pointer": "/runtimeResolution/@lookup=kimi-k3/pricing/output",
+          "before": 15,
+          "after": 16
         },
         {
           "pointer": "/runtimeResolution/@lookup=kimi-latest/pricing/cachedInput",
-          "before": 0.07475000000000001,
-          "after": 0.16999999999999998
+          "before": 0.16999999999999998,
+          "after": 0.18
         },
         {
           "pointer": "/runtimeResolution/@lookup=kimi-latest/pricing/input",
-          "before": 0.14950000000000002,
-          "after": 0.1719
+          "before": 0.1719,
+          "after": 0.18239999999999998
         },
         {
           "pointer": "/runtimeResolution/@lookup=kimi-latest/pricing/output",
-          "before": 7.15,
-          "after": 10.5572
-        },
-        {
-          "pointer": "/runtimeResolution/@lookup=llama-3-1-70b-instruct/pricing/cachedInput",
-          "before": 0.04,
-          "after": 0.072
-        },
-        {
-          "pointer": "/runtimeResolution/@lookup=llama-3-1-70b-instruct/pricing/input",
-          "before": 0.39999999999999997,
-          "after": 0.72
-        },
-        {
-          "pointer": "/runtimeResolution/@lookup=llama-3-1-70b-instruct/pricing/output",
-          "before": 0.39999999999999997,
-          "after": 0.72
+          "before": 10.5572,
+          "after": 10.1583
         },
         {
           "pointer": "/runtimeResolution/@lookup=llama-3-3-70b-instruct/pricing/cachedInput",
-          "before": 0.01,
-          "after": 0.09999999999999999
+          "before": 0.09999999999999999,
+          "after": 0.01
         },
         {
           "pointer": "/runtimeResolution/@lookup=llama-3-3-70b-instruct/pricing/input",
-          "before": 0.09999999999999999,
-          "after": 0.19999999999999998
+          "before": 0.19999999999999998,
+          "after": 0.09999999999999999
         },
         {
           "pointer": "/runtimeResolution/@lookup=llama-3-3-70b-instruct/pricing/output",
-          "before": 0.32,
-          "after": 0.52
+          "before": 0.52,
+          "after": 0.32
         },
         {
-          "pointer": "/runtimeResolution/@lookup=qwen3-coder-30b-a3b-instruct/pricing/cachedInput",
-          "before": 0.007000000000000001,
-          "after": 0.015
-        },
-        {
-          "pointer": "/runtimeResolution/@lookup=qwen3-coder-30b-a3b-instruct/pricing/input",
-          "before": 0.07,
-          "after": 0.15
-        },
-        {
-          "pointer": "/runtimeResolution/@lookup=qwen3-coder-30b-a3b-instruct/pricing/output",
-          "before": 0.28,
-          "after": 0.6
-        },
-        {
-          "pointer": "/runtimeResolution/@lookup=qwen3-next-80b-a3b-instruct/pricing/cachedInput",
+          "pointer": "/runtimeResolution/@lookup=qwen3-235b-a22b-07-25/pricing/cachedInput",
           "before": 0.009,
-          "after": 0.07
+          "after": 0.049999999999999996
         },
         {
-          "pointer": "/runtimeResolution/@lookup=qwen3-next-80b-a3b-instruct/pricing/input",
+          "pointer": "/runtimeResolution/@lookup=qwen3-235b-a22b-07-25/pricing/input",
           "before": 0.09,
-          "after": 0.09999999999999999
+          "after": 0.14
         },
         {
-          "pointer": "/runtimeResolution/@lookup=qwen3-next-80b-a3b-instruct-2509/pricing/cachedInput",
+          "pointer": "/runtimeResolution/@lookup=qwen3-235b-a22b-07-25/pricing/output",
+          "before": 0.55,
+          "after": 0.7999999999999999
+        },
+        {
+          "pointer": "/runtimeResolution/@lookup=qwen3-235b-a22b-2507/pricing/cachedInput",
           "before": 0.009,
-          "after": 0.07
+          "after": 0.049999999999999996
         },
         {
-          "pointer": "/runtimeResolution/@lookup=qwen3-next-80b-a3b-instruct-2509/pricing/input",
+          "pointer": "/runtimeResolution/@lookup=qwen3-235b-a22b-2507/pricing/input",
           "before": 0.09,
-          "after": 0.09999999999999999
+          "after": 0.14
+        },
+        {
+          "pointer": "/runtimeResolution/@lookup=qwen3-235b-a22b-2507/pricing/output",
+          "before": 0.55,
+          "after": 0.7999999999999999
         }
       ]
     }
@@ -229,9 +219,9 @@
       "kind": "documentation",
       "url": "https://docs.github.com/en/copilot/reference/ai-models/supported-models",
       "finalUrl": "https://docs.github.com/en/copilot/reference/ai-models/supported-models",
-      "sha256": "77bb87d66736dbb647b67e19783e2c7b5a715c0fc4ef23cfe255ebd842db2cae",
+      "sha256": "2b96fa0377c87044d34b3cc7dbad94922e048d3ebcf96d054ed68890bae08cd1",
       "textSha256": "939f043efd90e282dc512d4f593387a4d260e23c2ed4ed80b8632ded343993eb",
-      "retrievedAt": "2026-11-03T12:53:52.960Z",
+      "retrievedAt": "2026-11-04T12:53:50.537Z",
       "status": "ok"
     },
     {
@@ -240,9 +230,9 @@
       "kind": "documentation",
       "url": "https://docs.github.com/en/copilot/reference/ai-models/supported-models#model-retirement-history",
       "finalUrl": "https://docs.github.com/en/copilot/reference/ai-models/supported-models",
-      "sha256": "77bb87d66736dbb647b67e19783e2c7b5a715c0fc4ef23cfe255ebd842db2cae",
+      "sha256": "2b96fa0377c87044d34b3cc7dbad94922e048d3ebcf96d054ed68890bae08cd1",
       "textSha256": "939f043efd90e282dc512d4f593387a4d260e23c2ed4ed80b8632ded343993eb",
-      "retrievedAt": "2026-11-03T12:53:52.982Z",
+      "retrievedAt": "2026-11-04T12:53:50.571Z",
       "status": "ok"
     },
     {
@@ -251,9 +241,9 @@
       "kind": "documentation",
       "url": "https://github.blog/changelog/label/copilot/",
       "finalUrl": "https://github.blog/changelog/label/copilot/",
-      "sha256": "a2f153062358825035b8afc85be5940f5630827cf4802dd22fc151cb732a2266",
-      "textSha256": "72bafd652011d5215402edf6274d9dee27c96c3dce44292330ea4ac7e4102990",
-      "retrievedAt": "2026-11-03T12:53:53.123Z",
+      "sha256": "ebc1d09130632a93cc4e4b63b72b30a8f54573c7ab3cc3540c57b88833f744cd",
+      "textSha256": "b2b140893ab2c119d359d6fb4dc5f9a8987e5b682ad0f3e107866f8fa1e3a0a0",
+      "retrievedAt": "2026-11-04T12:53:50.617Z",
       "status": "ok"
     },
     {
@@ -262,9 +252,9 @@
       "kind": "documentation",
       "url": "https://developers.openai.com/api/docs/models",
       "finalUrl": "https://developers.openai.com/api/docs/models",
-      "sha256": "6eec5dfe6149ee78dea34b4826a9b8c9dc82b90aec76570d22e9d6d66c045956",
-      "textSha256": "5e209ad7ddf2ed4973205d3af7ec06a7c22a47d285ec9fb56f16e2de9a5e79ee",
-      "retrievedAt": "2026-11-03T12:53:53.602Z",
+      "sha256": "05eb68cf05855a591f422368b2cbb0a3ef0ed20aabf83a0823c7e6d72c2f1e37",
+      "textSha256": "96bbba17f5df02ca54da78150d630c81d0ee2d4105f79e1e74e69a0b9b1ffe30",
+      "retrievedAt": "2026-11-04T12:53:50.788Z",
       "status": "ok"
     },
     {
@@ -273,9 +263,9 @@
       "kind": "documentation",
       "url": "https://developers.openai.com/api/docs/pricing",
       "finalUrl": "https://developers.openai.com/api/docs/pricing",
-      "sha256": "cedc40b4f1331a4ba0e1dd22711170496756b30a8bccafc12d2f3c3868c2ab8c",
-      "textSha256": "9c95ea68e172dbbca04b643ae3c1c84918d45222ca436973c1c25d1e053f9964",
-      "retrievedAt": "2026-11-03T12:53:53.637Z",
+      "sha256": "228f234c1fed53055bc84ac58bc9472503e08455d8e9bffebccf389419329e97",
+      "textSha256": "2e0775c10a213776cee9494cd7a4bed12f5538388bc09b70f08a18c92a0b6b31",
+      "retrievedAt": "2026-11-04T12:53:50.812Z",
       "status": "ok"
     },
     {
@@ -284,9 +274,9 @@
       "kind": "documentation",
       "url": "https://developers.openai.com/api/reference/responses/overview",
       "finalUrl": "https://developers.openai.com/api/reference/responses/overview",
-      "sha256": "7fcca58f881e1f4eafbe488524966f0ad0057da78b1c1414a9156017d6fa7554",
-      "textSha256": "2296b425cbe462b4c699079d3e27e25c711b3050e9b8166b23d28d3d8a27da5e",
-      "retrievedAt": "2026-11-03T12:53:53.670Z",
+      "sha256": "7efdc5db93e1ef5e68a5aa8e9708ff34c5e2c9a505368d1c68be75586503a357",
+      "textSha256": "a6ffd6911ee2842a50c76a0856369470b36ff787174078828dfb471200fa9f77",
+      "retrievedAt": "2026-11-04T12:53:50.840Z",
       "status": "ok"
     },
     {
@@ -295,9 +285,9 @@
       "kind": "documentation",
       "url": "https://platform.claude.com/docs/en/about-claude/models/overview",
       "finalUrl": "https://platform.claude.com/docs/en/models/overview",
-      "sha256": "224ee42199b887413feed73f1741fe03e9749c1c11c4fd64d02fc363970cbcad",
+      "sha256": "a9f3dee98380bf2391edc1cfb4b535a6ad000fde3c6fb915889edd54a25f637a",
       "textSha256": "8bfcd1f2d0d6586202f7f34dd071e5faa4cea908d654cb3ef614da1da9231f7a",
-      "retrievedAt": "2026-11-03T12:53:54.295Z",
+      "retrievedAt": "2026-11-04T12:53:51.226Z",
       "status": "ok"
     },
     {
@@ -306,9 +296,9 @@
       "kind": "documentation",
       "url": "https://platform.claude.com/docs/en/about-claude/pricing",
       "finalUrl": "https://platform.claude.com/docs/en/about-claude/pricing",
-      "sha256": "f32ea4e174b823c13a7e7cf56e9e3166e1ab2b42eeb81a30af6e177d236b2f13",
-      "textSha256": "4f638e39f405d56996ce0dd8481fb7e29c874246efe8566a0c914083bd0cbf44",
-      "retrievedAt": "2026-11-03T12:53:54.710Z",
+      "sha256": "70af46be4af61971112c8b96d5a7fb6be1425b1ed1dde7daa22d2a82a58e1555",
+      "textSha256": "1f321caa2a9512a48cc67894a4e6be2925ea661744083d562ef04181bdf1744f",
+      "retrievedAt": "2026-11-04T12:53:51.503Z",
       "status": "ok"
     },
     {
@@ -319,7 +309,7 @@
       "finalUrl": "https://aistudio.google.com/docs/models?hl=en",
       "sha256": "1bde9437aa183fbc09aa3f7ba601b400b3f187df72eabfd3148361dabbc48519",
       "textSha256": "0b4b86ebe8150de03032a9f97361bdf7d6fa7f3503655c34d826030110786362",
-      "retrievedAt": "2026-11-03T12:53:55.403Z",
+      "retrievedAt": "2026-11-04T12:53:51.860Z",
       "status": "ok"
     },
     {
@@ -328,9 +318,9 @@
       "kind": "documentation",
       "url": "https://docs.x.ai/developers/models",
       "finalUrl": "https://docs.x.ai/developers/models",
-      "sha256": "afb13ff91b62c227e6859fae8f63af52af430648caf7111765551e5b1627865c",
+      "sha256": "14c51d87b010c924579ba687dee3e7cc123a71e6a0b69f3f71fea9ad5e0bb069",
       "textSha256": "ac61194d030e8ad2d9abcba5a2399fd43a451cc2cafa4a5221ffacb6872d745a",
-      "retrievedAt": "2026-11-03T12:53:55.655Z",
+      "retrievedAt": "2026-11-04T12:53:52.057Z",
       "status": "ok"
     },
     {
@@ -339,12 +329,12 @@
       "kind": "catalogue",
       "url": "https://openrouter.ai/api/v1/models",
       "finalUrl": "https://openrouter.ai/api/v1/models",
-      "sha256": "87ff57dc5a154afb8ca6023f3c3ba553bb9baf2ac8e8c30d6244431eb1675dc8",
-      "textSha256": "87ff57dc5a154afb8ca6023f3c3ba553bb9baf2ac8e8c30d6244431eb1675dc8",
-      "retrievedAt": "2026-11-03T12:53:55.728Z",
+      "sha256": "69d5ff8e0e8fd3400fdf6efd4dbf4e5ef5ddac7b94473052288b1d3aa6a8e266",
+      "textSha256": "69d5ff8e0e8fd3400fdf6efd4dbf4e5ef5ddac7b94473052288b1d3aa6a8e266",
+      "retrievedAt": "2026-11-04T12:53:52.125Z",
       "status": "ok",
       "import": {
-        "accepted": 425,
+        "accepted": 429,
         "rejected": 26,
         "collisions": [],
         "excluded": [
@@ -383,337 +373,328 @@
       "file": "containers/api-proxy/models.dev.catalog.json",
       "changes": [
         {
-          "pointer": "/data/@id=deepseek~1deepseek-v4-flash-0731/pricing/completion",
-          "before": "0.000000238",
-          "after": "0.0000003"
-        },
-        {
-          "pointer": "/data/@id=deepseek~1deepseek-v4-flash-0731/pricing/input_cache_read",
-          "before": "0.0000000238",
-          "after": "0.000000035"
-        },
-        {
-          "pointer": "/data/@id=deepseek~1deepseek-v4-flash-0731/pricing/prompt",
-          "before": "0.000000119",
-          "after": "0.000000059"
+          "pointer": "/data/@id=deepseek~1deepseek-v4-pro-0813/pricing/completion",
+          "before": "0.000004",
+          "after": "0.0000046"
         },
         {
           "pointer": "/data/@id=deepseek~1deepseek-v4.1-flash/pricing/input_cache_read",
-          "before": "0.000000006",
-          "after": "0.000000012"
+          "before": "0.000000012",
+          "after": "0.000000018"
         },
         {
           "pointer": "/data/@id=google~1gemma-4-26b-a4b-it/pricing/completion",
-          "before": "0.000000195",
-          "after": "0.000000215"
+          "before": "0.000000215",
+          "after": "0.00000021"
         },
         {
           "pointer": "/data/@id=google~1gemma-4-26b-a4b-it/pricing/input_cache_read",
-          "before": "0.000000033",
-          "after": "0.000000036"
+          "before": "0.000000036",
+          "after": "0.000000035"
         },
         {
           "pointer": "/data/@id=google~1gemma-4-26b-a4b-it/pricing/prompt",
-          "before": "0.000000065",
-          "after": "0.000000072"
-        },
-        {
-          "pointer": "/data/@id=meta-llama~1llama-3.1-70b-instruct/expiration",
-          "before": "2026-11-03",
-          "after": null
-        },
-        {
-          "pointer": "/data/@id=meta-llama~1llama-3.1-70b-instruct/maxCompletion",
-          "before": 16384,
-          "after": 8192
-        },
-        {
-          "pointer": "/data/@id=meta-llama~1llama-3.1-70b-instruct/pricing/completion",
-          "before": "0.0000004",
-          "after": "0.00000072"
-        },
-        {
-          "pointer": "/data/@id=meta-llama~1llama-3.1-70b-instruct/pricing/prompt",
-          "before": "0.0000004",
-          "after": "0.00000072"
-        },
-        {
-          "pointer": "/data/@id=meta-llama~1llama-3.3-70b-instruct/maxCompletion",
-          "before": 16384,
-          "after": 128000
-        },
-        {
-          "pointer": "/data/@id=meta-llama~1llama-3.3-70b-instruct/pricing/completion",
-          "before": "0.00000032",
-          "after": "0.00000052"
-        },
-        {
-          "pointer": "/data/@id=meta-llama~1llama-3.3-70b-instruct/pricing/input_cache_read",
-          "before": null,
-          "after": "0.0000001"
-        },
-        {
-          "pointer": "/data/@id=meta-llama~1llama-3.3-70b-instruct/pricing/prompt",
-          "before": "0.0000001",
-          "after": "0.0000002"
-        },
-        {
-          "pointer": "/data/@id=nousresearch~1hermes-3-llama-3.1-405b",
-          "before": {
-            "id": "nousresearch/hermes-3-llama-3.1-405b",
-            "pricing": {
-              "completion": "0.000001",
-              "prompt": "0.000001"
-            },
-            "canonicalSlug": "nousresearch/hermes-3-llama-3.1-405b",
-            "context": 131072,
-            "providerContext": 131072,
-            "maxCompletion": 16384,
-            "parameters": [
-              "frequency_penalty",
-              "logit_bias",
-              "max_tokens",
-              "min_p",
-              "presence_penalty",
-              "repetition_penalty",
-              "response_format",
-              "seed",
-              "stop",
-              "structured_outputs",
-              "temperature",
-              "top_k",
-              "top_p"
-            ],
-            "inputModalities": [
-              "text"
-            ],
-            "outputModalities": [
-              "text"
-            ],
-            "expiration": "2026-11-02"
-          },
-          "after": null
-        },
-        {
-          "pointer": "/data/@id=nousresearch~1hermes-3-llama-3.1-70b",
-          "before": {
-            "id": "nousresearch/hermes-3-llama-3.1-70b",
-            "pricing": {
-              "completion": "0.0000007",
-              "prompt": "0.0000007"
-            },
-            "canonicalSlug": "nousresearch/hermes-3-llama-3.1-70b",
-            "context": 131072,
-            "providerContext": 131072,
-            "maxCompletion": 16384,
-            "parameters": [
-              "frequency_penalty",
-              "logit_bias",
-              "max_tokens",
-              "min_p",
-              "presence_penalty",
-              "repetition_penalty",
-              "seed",
-              "stop",
-              "structured_outputs",
-              "temperature",
-              "top_k",
-              "top_p"
-            ],
-            "inputModalities": [
-              "text"
-            ],
-            "outputModalities": [
-              "text"
-            ],
-            "expiration": "2026-11-02"
-          },
-          "after": null
-        },
-        {
-          "pointer": "/data/@id=nvidia~1nemotron-3-nano-30b-a3b/parameters/10",
-          "before": "stop",
-          "after": "structured_outputs"
-        },
-        {
-          "pointer": "/data/@id=nvidia~1nemotron-3-nano-30b-a3b/parameters/11",
-          "before": "structured_outputs",
-          "after": "temperature"
-        },
-        {
-          "pointer": "/data/@id=nvidia~1nemotron-3-nano-30b-a3b/parameters/12",
-          "before": "temperature",
-          "after": "tool_choice"
-        },
-        {
-          "pointer": "/data/@id=nvidia~1nemotron-3-nano-30b-a3b/parameters/13",
-          "before": "tool_choice",
-          "after": "tools"
-        },
-        {
-          "pointer": "/data/@id=nvidia~1nemotron-3-nano-30b-a3b/parameters/14",
-          "before": "tools",
-          "after": "top_k"
-        },
-        {
-          "pointer": "/data/@id=nvidia~1nemotron-3-nano-30b-a3b/parameters/15",
-          "before": "top_k",
-          "after": "top_p"
-        },
-        {
-          "pointer": "/data/@id=nvidia~1nemotron-3-nano-30b-a3b/parameters/16",
-          "before": "top_logprobs",
-          "after": null
-        },
-        {
-          "pointer": "/data/@id=nvidia~1nemotron-3-nano-30b-a3b/parameters/17",
-          "before": "top_p",
-          "after": null
-        },
-        {
-          "pointer": "/data/@id=nvidia~1nemotron-3-nano-30b-a3b/parameters/3",
-          "before": "logprobs",
-          "after": "max_tokens"
-        },
-        {
-          "pointer": "/data/@id=nvidia~1nemotron-3-nano-30b-a3b/parameters/4",
-          "before": "max_tokens",
-          "after": "presence_penalty"
-        },
-        {
-          "pointer": "/data/@id=nvidia~1nemotron-3-nano-30b-a3b/parameters/5",
-          "before": "presence_penalty",
-          "after": "reasoning"
-        },
-        {
-          "pointer": "/data/@id=nvidia~1nemotron-3-nano-30b-a3b/parameters/6",
-          "before": "reasoning",
-          "after": "repetition_penalty"
-        },
-        {
-          "pointer": "/data/@id=nvidia~1nemotron-3-nano-30b-a3b/parameters/7",
-          "before": "repetition_penalty",
-          "after": "response_format"
-        },
-        {
-          "pointer": "/data/@id=nvidia~1nemotron-3-nano-30b-a3b/parameters/8",
-          "before": "response_format",
-          "after": "seed"
-        },
-        {
-          "pointer": "/data/@id=nvidia~1nemotron-3-nano-30b-a3b/parameters/9",
-          "before": "seed",
-          "after": "stop"
-        },
-        {
-          "pointer": "/data/@id=qwen~1qwen3-coder-30b-a3b-instruct/pricing/completion",
-          "before": "0.00000028",
-          "after": "0.0000006"
-        },
-        {
-          "pointer": "/data/@id=qwen~1qwen3-coder-30b-a3b-instruct/pricing/prompt",
-          "before": "0.00000007",
-          "after": "0.00000015"
-        },
-        {
-          "pointer": "/data/@id=qwen~1qwen3-next-80b-a3b-instruct/maxCompletion",
-          "before": 16384,
-          "after": 235929
-        },
-        {
-          "pointer": "/data/@id=qwen~1qwen3-next-80b-a3b-instruct/pricing/input_cache_read",
-          "before": null,
+          "before": "0.000000072",
           "after": "0.00000007"
         },
         {
-          "pointer": "/data/@id=qwen~1qwen3-next-80b-a3b-instruct/pricing/prompt",
-          "before": "0.00000009",
+          "pointer": "/data/@id=ibm-granite~1granite-4.2-8b/pricing/completion",
+          "before": "0.00000015",
+          "after": "0.00000025"
+        },
+        {
+          "pointer": "/data/@id=inception~1mercury-2/expiration",
+          "before": null,
+          "after": "2026-11-08"
+        },
+        {
+          "pointer": "/data/@id=inception~1mercury-2.5/expiration",
+          "before": null,
+          "after": "2026-11-08"
+        },
+        {
+          "pointer": "/data/@id=inception~1mercury-3/expiration",
+          "before": null,
+          "after": "2026-11-08"
+        },
+        {
+          "pointer": "/data/@id=liquid~1lfm-2.5-2.6b:free/parameters/18",
+          "before": null,
+          "after": "top_p"
+        },
+        {
+          "pointer": "/data/@id=liquid~1lfm-2.5-24b-a2b/parameters/18",
+          "before": null,
+          "after": "top_p"
+        },
+        {
+          "pointer": "/data/@id=meta-llama~1llama-3.1-70b-instruct/parameters/0",
+          "before": "frequency_penalty",
+          "after": "max_tokens"
+        },
+        {
+          "pointer": "/data/@id=meta-llama~1llama-3.1-70b-instruct/parameters/1",
+          "before": "logit_bias",
+          "after": "stop"
+        },
+        {
+          "pointer": "/data/@id=meta-llama~1llama-3.1-70b-instruct/parameters/10",
+          "before": "temperature",
+          "after": null
+        },
+        {
+          "pointer": "/data/@id=meta-llama~1llama-3.1-70b-instruct/parameters/11",
+          "before": "tool_choice",
+          "after": null
+        },
+        {
+          "pointer": "/data/@id=meta-llama~1llama-3.1-70b-instruct/parameters/12",
+          "before": "tools",
+          "after": null
+        },
+        {
+          "pointer": "/data/@id=meta-llama~1llama-3.1-70b-instruct/parameters/13",
+          "before": "top_k",
+          "after": null
+        },
+        {
+          "pointer": "/data/@id=meta-llama~1llama-3.1-70b-instruct/parameters/14",
+          "before": "top_p",
+          "after": null
+        },
+        {
+          "pointer": "/data/@id=meta-llama~1llama-3.1-70b-instruct/parameters/2",
+          "before": "max_tokens",
+          "after": "temperature"
+        },
+        {
+          "pointer": "/data/@id=meta-llama~1llama-3.1-70b-instruct/parameters/3",
+          "before": "min_p",
+          "after": "top_k"
+        },
+        {
+          "pointer": "/data/@id=meta-llama~1llama-3.1-70b-instruct/parameters/4",
+          "before": "presence_penalty",
+          "after": "top_p"
+        },
+        {
+          "pointer": "/data/@id=meta-llama~1llama-3.1-70b-instruct/parameters/5",
+          "before": "repetition_penalty",
+          "after": null
+        },
+        {
+          "pointer": "/data/@id=meta-llama~1llama-3.1-70b-instruct/parameters/6",
+          "before": "response_format",
+          "after": null
+        },
+        {
+          "pointer": "/data/@id=meta-llama~1llama-3.1-70b-instruct/parameters/7",
+          "before": "seed",
+          "after": null
+        },
+        {
+          "pointer": "/data/@id=meta-llama~1llama-3.1-70b-instruct/parameters/8",
+          "before": "stop",
+          "after": null
+        },
+        {
+          "pointer": "/data/@id=meta-llama~1llama-3.1-70b-instruct/parameters/9",
+          "before": "structured_outputs",
+          "after": null
+        },
+        {
+          "pointer": "/data/@id=meta-llama~1llama-3.3-70b-instruct/maxCompletion",
+          "before": 128000,
+          "after": 16384
+        },
+        {
+          "pointer": "/data/@id=meta-llama~1llama-3.3-70b-instruct/pricing/completion",
+          "before": "0.00000052",
+          "after": "0.00000032"
+        },
+        {
+          "pointer": "/data/@id=meta-llama~1llama-3.3-70b-instruct/pricing/input_cache_read",
+          "before": "0.0000001",
+          "after": null
+        },
+        {
+          "pointer": "/data/@id=meta-llama~1llama-3.3-70b-instruct/pricing/prompt",
+          "before": "0.0000002",
           "after": "0.0000001"
         },
         {
-          "pointer": "/data/@id=thinkingmachines~1inkling-small:free/expiration",
+          "pointer": "/data/@id=minimax~1minimax-01/expiration",
           "before": null,
-          "after": "2026-11-04"
+          "after": "2026-11-05"
         },
         {
-          "pointer": "/data/@id=thinkingmachines~1inkling:free/expiration",
+          "pointer": "/data/@id=minimax~1minimax-m2/expiration",
           "before": null,
-          "after": "2026-11-04"
+          "after": "2026-11-05"
         },
         {
-          "pointer": "/data/@id=x-ai~1grok-4.7/parameters/10",
+          "pointer": "/data/@id=minimax~1minimax-m2-her/expiration",
+          "before": null,
+          "after": "2026-11-05"
+        },
+        {
+          "pointer": "/data/@id=minimax~1minimax-m2.1/expiration",
+          "before": null,
+          "after": "2026-11-05"
+        },
+        {
+          "pointer": "/data/@id=minimax~1minimax-m2.7/expiration",
+          "before": null,
+          "after": "2026-11-05"
+        },
+        {
+          "pointer": "/data/@id=moonshotai~1kimi-k3/pricing/completion",
+          "before": "0.000015",
+          "after": "0.000016"
+        },
+        {
+          "pointer": "/data/@id=moonshotai~1kimi-k3.1-pro/parameters/10",
+          "before": "tool_choice",
+          "after": "temperature"
+        },
+        {
+          "pointer": "/data/@id=moonshotai~1kimi-k3.1-pro/parameters/11",
           "before": "tools",
           "after": "tool_choice"
         },
         {
-          "pointer": "/data/@id=x-ai~1grok-4.7/parameters/11",
+          "pointer": "/data/@id=moonshotai~1kimi-k3.1-pro/parameters/12",
           "before": "top_logprobs",
           "after": "tools"
         },
         {
-          "pointer": "/data/@id=x-ai~1grok-4.7/parameters/12",
-          "before": "top_p",
-          "after": "top_k"
-        },
-        {
-          "pointer": "/data/@id=x-ai~1grok-4.7/parameters/13",
+          "pointer": "/data/@id=moonshotai~1kimi-k3.1-pro/parameters/13",
           "before": null,
           "after": "top_logprobs"
         },
         {
-          "pointer": "/data/@id=x-ai~1grok-4.7/parameters/14",
+          "pointer": "/data/@id=moonshotai~1kimi-k3.1-pro/parameters/14",
           "before": null,
           "after": "top_p"
         },
         {
-          "pointer": "/data/@id=x-ai~1grok-4.7/parameters/7",
-          "before": "structured_outputs",
+          "pointer": "/data/@id=nousresearch~1hermes-4-405b/parameters/10",
+          "before": "top_k",
           "after": "stop"
         },
         {
-          "pointer": "/data/@id=x-ai~1grok-4.7/parameters/8",
-          "before": "temperature",
+          "pointer": "/data/@id=nousresearch~1hermes-4-405b/parameters/11",
+          "before": "top_logprobs",
           "after": "structured_outputs"
         },
         {
-          "pointer": "/data/@id=x-ai~1grok-4.7/parameters/9",
-          "before": "tool_choice",
+          "pointer": "/data/@id=nousresearch~1hermes-4-405b/parameters/12",
+          "before": "top_p",
           "after": "temperature"
         },
         {
-          "pointer": "/data/@id=z-ai~1glm-5.3-flash/pricing/completion",
-          "before": "0.0000000923",
-          "after": "0.0000000846"
+          "pointer": "/data/@id=nousresearch~1hermes-4-405b/parameters/13",
+          "before": null,
+          "after": "top_k"
         },
         {
-          "pointer": "/data/@id=z-ai~1glm-5.3-flash/pricing/input_cache_read",
-          "before": "0.0000000285",
-          "after": "0.00000003"
+          "pointer": "/data/@id=nousresearch~1hermes-4-405b/parameters/14",
+          "before": null,
+          "after": "top_logprobs"
         },
         {
-          "pointer": "/data/@id=z-ai~1glm-5.3-flash/pricing/prompt",
-          "before": "0.0000000285",
-          "after": "0.0000000313"
+          "pointer": "/data/@id=nousresearch~1hermes-4-405b/parameters/15",
+          "before": null,
+          "after": "top_p"
         },
         {
-          "pointer": "/data/@id=z-ai~1glm-5.3-flashx/pricing/input_cache_read",
+          "pointer": "/data/@id=nousresearch~1hermes-4-405b/parameters/2",
+          "before": "logprobs",
+          "after": "logit_bias"
+        },
+        {
+          "pointer": "/data/@id=nousresearch~1hermes-4-405b/parameters/3",
+          "before": "max_tokens",
+          "after": "logprobs"
+        },
+        {
+          "pointer": "/data/@id=nousresearch~1hermes-4-405b/parameters/4",
+          "before": "presence_penalty",
+          "after": "max_tokens"
+        },
+        {
+          "pointer": "/data/@id=nousresearch~1hermes-4-405b/parameters/5",
+          "before": "reasoning",
+          "after": "presence_penalty"
+        },
+        {
+          "pointer": "/data/@id=nousresearch~1hermes-4-405b/parameters/6",
+          "before": "repetition_penalty",
+          "after": "reasoning"
+        },
+        {
+          "pointer": "/data/@id=nousresearch~1hermes-4-405b/parameters/7",
+          "before": "response_format",
+          "after": "repetition_penalty"
+        },
+        {
+          "pointer": "/data/@id=nousresearch~1hermes-4-405b/parameters/8",
+          "before": "structured_outputs",
+          "after": "response_format"
+        },
+        {
+          "pointer": "/data/@id=nousresearch~1hermes-4-405b/parameters/9",
+          "before": "temperature",
+          "after": "seed"
+        },
+        {
+          "pointer": "/data/@id=nvidia~1nemotron-3.5-super-vl/maxCompletion",
+          "before": 235929,
+          "after": 943718
+        },
+        {
+          "pointer": "/data/@id=nvidia~1nemotron-3.5-super-vl/providerContext",
+          "before": 262144,
+          "after": 1048576
+        },
+        {
+          "pointer": "/data/@id=qwen~1qwen3-235b-a22b-2507/maxCompletion",
+          "before": 16384,
+          "after": 117964
+        },
+        {
+          "pointer": "/data/@id=qwen~1qwen3-235b-a22b-2507/pricing/completion",
+          "before": "0.00000055",
+          "after": "0.0000008"
+        },
+        {
+          "pointer": "/data/@id=qwen~1qwen3-235b-a22b-2507/pricing/input_cache_read",
+          "before": null,
+          "after": "0.00000005"
+        },
+        {
+          "pointer": "/data/@id=qwen~1qwen3-235b-a22b-2507/pricing/prompt",
           "before": "0.00000009",
-          "after": "0.000000075"
+          "after": "0.00000014"
         },
         {
-          "pointer": "/data/@id=z-ai~1glm-5.3-flashx-legal",
+          "pointer": "/data/@id=qwen~1qwen3-235b-a22b-2507/providerContext",
+          "before": 262144,
+          "after": 131072
+        },
+        {
+          "pointer": "/data/@id=stealth~1crouton-alpha",
           "before": null,
           "after": {
-            "id": "z-ai/glm-5.3-flashx-legal",
+            "id": "stealth/crouton-alpha",
             "pricing": {
-              "completion": "0.00000125",
-              "input_cache_read": "0.000000075",
-              "prompt": "0.00000037"
+              "completion": "0",
+              "prompt": "0"
             },
-            "canonicalSlug": "z-ai/glm-5.3-flashx-legal-20261102",
+            "canonicalSlug": "stealth/crouton-alpha",
             "context": 1048576,
             "providerContext": 1048576,
-            "maxCompletion": 131072,
+            "maxCompletion": 943718,
             "parameters": [
               "include_reasoning",
               "max_tokens",
@@ -724,10 +705,11 @@
               "temperature",
               "tool_choice",
               "tools",
-              "top_k",
               "top_p"
             ],
             "inputModalities": [
+              "audio",
+              "file",
               "image",
               "text",
               "video"
@@ -739,214 +721,399 @@
           }
         },
         {
-          "pointer": "/runtimeResolution/@lookup=deepseek-flash-latest/pricing/cachedInput",
-          "before": 0.005,
-          "after": 0.006
+          "pointer": "/data/@id=tencent~1hy4",
+          "before": null,
+          "after": {
+            "id": "tencent/hy4",
+            "pricing": {
+              "completion": "0.0000012505",
+              "input_cache_read": "0.000000021",
+              "prompt": "0.000000417"
+            },
+            "canonicalSlug": "tencent/hy4-20261104",
+            "context": 1048576,
+            "providerContext": 1048576,
+            "maxCompletion": 65536,
+            "parameters": [
+              "include_reasoning",
+              "max_completion_tokens",
+              "max_tokens",
+              "reasoning",
+              "reasoning_effort",
+              "response_format",
+              "stop",
+              "structured_outputs",
+              "temperature",
+              "tool_choice",
+              "tools"
+            ],
+            "inputModalities": [
+              "image",
+              "text"
+            ],
+            "outputModalities": [
+              "text"
+            ],
+            "expiration": null
+          }
         },
         {
-          "pointer": "/runtimeResolution/@lookup=deepseek-flash-latest/pricing/output",
-          "before": 0.5,
-          "after": 0.315
+          "pointer": "/data/@id=x-ai~1grok-4.6:batch",
+          "before": null,
+          "after": {
+            "id": "x-ai/grok-4.6:batch",
+            "pricing": {
+              "completion": "0.0000048",
+              "input_cache_read": "0.0000004",
+              "overrides": [
+                {
+                  "completion": "0.0000096",
+                  "input_cache_read": "0.0000008",
+                  "min_prompt_tokens": 200000,
+                  "prompt": "0.0000032"
+                }
+              ],
+              "prompt": "0.0000016",
+              "web_search": "0.005"
+            },
+            "canonicalSlug": "x-ai/grok-4.6-20260810",
+            "context": 500000,
+            "providerContext": 500000,
+            "maxCompletion": 450000,
+            "parameters": [
+              "include_reasoning",
+              "logprobs",
+              "max_tokens",
+              "reasoning",
+              "reasoning_effort",
+              "response_format",
+              "seed",
+              "structured_outputs",
+              "temperature",
+              "tool_choice",
+              "tools",
+              "top_logprobs",
+              "top_p"
+            ],
+            "inputModalities": [
+              "file",
+              "image",
+              "text"
+            ],
+            "outputModalities": [
+              "text"
+            ],
+            "expiration": null
+          }
         },
         {
-          "pointer": "/runtimeResolution/@lookup=deepseek-v4-1-flash/pricing/cachedInput",
-          "before": 0.006,
-          "after": 0.012
+          "pointer": "/data/@id=x-ai~1grok-4.7:batch",
+          "before": null,
+          "after": {
+            "id": "x-ai/grok-4.7:batch",
+            "pricing": {
+              "completion": "0.0000048",
+              "input_cache_read": "0.0000004",
+              "overrides": [
+                {
+                  "completion": "0.0000096",
+                  "input_cache_read": "0.0000008",
+                  "min_prompt_tokens": 200000,
+                  "prompt": "0.0000032"
+                }
+              ],
+              "prompt": "0.0000016",
+              "web_search": "0.005"
+            },
+            "canonicalSlug": "x-ai/grok-4.7-20260916",
+            "context": 500000,
+            "providerContext": 500000,
+            "maxCompletion": 450000,
+            "parameters": [
+              "include_reasoning",
+              "logprobs",
+              "max_tokens",
+              "reasoning",
+              "reasoning_effort",
+              "response_format",
+              "seed",
+              "structured_outputs",
+              "temperature",
+              "tool_choice",
+              "tools",
+              "top_logprobs",
+              "top_p"
+            ],
+            "inputModalities": [
+              "file",
+              "image",
+              "text"
+            ],
+            "outputModalities": [
+              "text"
+            ],
+            "expiration": null
+          }
         },
         {
-          "pointer": "/runtimeResolution/@lookup=deepseek-v4-flash-0731/pricing/cachedInput",
-          "before": 0.0238,
-          "after": 0.035
+          "pointer": "/data/@id=xiaomi~1mimo-v2.5/context",
+          "before": 1050000,
+          "after": 1000000
         },
         {
-          "pointer": "/runtimeResolution/@lookup=deepseek-v4-flash-0731/pricing/input",
-          "before": 0.119,
-          "after": 0.059
+          "pointer": "/data/@id=xiaomi~1mimo-v2.5/parameters/10",
+          "before": "tool_choice",
+          "after": "tools"
         },
         {
-          "pointer": "/runtimeResolution/@lookup=deepseek-v4-flash-0731/pricing/output",
-          "before": 0.238,
-          "after": 0.3
+          "pointer": "/data/@id=xiaomi~1mimo-v2.5/parameters/11",
+          "before": "tools",
+          "after": "top_k"
         },
         {
-          "pointer": "/runtimeResolution/@lookup=gemma-4-26b-a4b-it/pricing/cachedInput",
-          "before": 0.032999999999999995,
-          "after": 0.036
+          "pointer": "/data/@id=xiaomi~1mimo-v2.5/parameters/12",
+          "before": "top_k",
+          "after": "top_p"
         },
         {
-          "pointer": "/runtimeResolution/@lookup=gemma-4-26b-a4b-it/pricing/input",
-          "before": 0.065,
-          "after": 0.072
+          "pointer": "/data/@id=xiaomi~1mimo-v2.5/parameters/13",
+          "before": "top_p",
+          "after": null
         },
         {
-          "pointer": "/runtimeResolution/@lookup=gemma-4-26b-a4b-it/pricing/output",
-          "before": 0.195,
-          "after": 0.215
+          "pointer": "/data/@id=xiaomi~1mimo-v2.5/parameters/6",
+          "before": "seed",
+          "after": "stop"
         },
         {
-          "pointer": "/runtimeResolution/@lookup=glm-5-3-flash/pricing/cachedInput",
-          "before": 0.0285,
-          "after": 0.03
+          "pointer": "/data/@id=xiaomi~1mimo-v2.5/parameters/7",
+          "before": "stop",
+          "after": "structured_outputs"
         },
         {
-          "pointer": "/runtimeResolution/@lookup=glm-5-3-flash/pricing/input",
-          "before": 0.0285,
-          "after": 0.0313
+          "pointer": "/data/@id=xiaomi~1mimo-v2.5/parameters/8",
+          "before": "structured_outputs",
+          "after": "temperature"
         },
         {
-          "pointer": "/runtimeResolution/@lookup=glm-5-3-flash/pricing/output",
-          "before": 0.0923,
-          "after": 0.08460000000000001
+          "pointer": "/data/@id=xiaomi~1mimo-v2.5/parameters/9",
+          "before": "temperature",
+          "after": "tool_choice"
         },
         {
-          "pointer": "/runtimeResolution/@lookup=glm-5-3-flashx/pricing/cachedInput",
-          "before": 0.09,
-          "after": 0.075
+          "pointer": "/data/@id=z-ai~1glm-5.3-flash/pricing/completion",
+          "before": "0.0000000846",
+          "after": "0.0000000996"
         },
         {
-          "pointer": "/runtimeResolution/@lookup=glm-5-3-flashx-legal",
+          "pointer": "/data/@id=z-ai~1glm-5.3-flash/pricing/input_cache_read",
+          "before": "0.00000003",
+          "after": "0.0000000269"
+        },
+        {
+          "pointer": "/data/@id=z-ai~1glm-5.3-flash/pricing/prompt",
+          "before": "0.0000000313",
+          "after": "0.0000000269"
+        },
+        {
+          "pointer": "/runtimeResolution/@lookup=crouton-alpha",
           "before": null,
           "after": {
             "exists": true,
             "pricing": {
-              "modelId": "z-ai/glm-5.3-flashx-legal",
-              "alias": "z-ai/glm-5.3-flashx-legal",
-              "input": 0.37,
-              "cachedInput": 0.075,
+              "modelId": "stealth/crouton-alpha",
+              "alias": "stealth/crouton-alpha",
+              "input": 0,
+              "cachedInput": 0,
               "cacheWrite": null,
-              "output": 1.25
+              "output": 0
             }
           }
         },
         {
+          "pointer": "/runtimeResolution/@lookup=deepseek-flash-latest/pricing/cachedInput",
+          "before": 0.006,
+          "after": 0.005
+        },
+        {
+          "pointer": "/runtimeResolution/@lookup=deepseek-flash-latest/pricing/input",
+          "before": 0.035,
+          "after": 0.032
+        },
+        {
+          "pointer": "/runtimeResolution/@lookup=deepseek-flash-latest/pricing/output",
+          "before": 0.315,
+          "after": 0.288
+        },
+        {
+          "pointer": "/runtimeResolution/@lookup=deepseek-v4-1-flash/pricing/cachedInput",
+          "before": 0.012,
+          "after": 0.018
+        },
+        {
+          "pointer": "/runtimeResolution/@lookup=deepseek-v4-pro-0813/pricing/output",
+          "before": 4,
+          "after": 4.6
+        },
+        {
+          "pointer": "/runtimeResolution/@lookup=gemma-4-26b-a4b-it/pricing/cachedInput",
+          "before": 0.036,
+          "after": 0.035
+        },
+        {
+          "pointer": "/runtimeResolution/@lookup=gemma-4-26b-a4b-it/pricing/input",
+          "before": 0.072,
+          "after": 0.07
+        },
+        {
+          "pointer": "/runtimeResolution/@lookup=gemma-4-26b-a4b-it/pricing/output",
+          "before": 0.215,
+          "after": 0.21
+        },
+        {
+          "pointer": "/runtimeResolution/@lookup=glm-5-3-flash/pricing/cachedInput",
+          "before": 0.03,
+          "after": 0.0269
+        },
+        {
+          "pointer": "/runtimeResolution/@lookup=glm-5-3-flash/pricing/input",
+          "before": 0.0313,
+          "after": 0.0269
+        },
+        {
+          "pointer": "/runtimeResolution/@lookup=glm-5-3-flash/pricing/output",
+          "before": 0.08460000000000001,
+          "after": 0.09960000000000001
+        },
+        {
           "pointer": "/runtimeResolution/@lookup=glm-flash-latest/pricing/cachedInput",
-          "before": 0.0285,
-          "after": 0.03
+          "before": 0.03,
+          "after": 0.0269
         },
         {
           "pointer": "/runtimeResolution/@lookup=glm-flash-latest/pricing/input",
-          "before": 0.0285,
-          "after": 0.0313
+          "before": 0.0313,
+          "after": 0.0269
         },
         {
           "pointer": "/runtimeResolution/@lookup=glm-flash-latest/pricing/output",
-          "before": 0.0923,
-          "after": 0.08460000000000001
+          "before": 0.08460000000000001,
+          "after": 0.09960000000000001
         },
         {
-          "pointer": "/runtimeResolution/@lookup=grok-latest/pricing/cacheWrite",
+          "pointer": "/runtimeResolution/@lookup=granite-4-2-8b/pricing/output",
+          "before": 0.15,
+          "after": 0.25
+        },
+        {
+          "pointer": "/runtimeResolution/@lookup=grok-4-6:batch",
           "before": null,
-          "after": 0
-        },
-        {
-          "pointer": "/runtimeResolution/@lookup=hermes-3-llama-3-1-405b",
-          "before": {
+          "after": {
             "exists": true,
             "pricing": {
-              "modelId": "nousresearch/hermes-3-llama-3.1-405b",
-              "alias": "nousresearch/hermes-3-llama-3.1-405b",
-              "input": 1,
-              "cachedInput": 0.1,
+              "modelId": "x-ai/grok-4.6:batch",
+              "alias": "x-ai/grok-4.6:batch",
+              "input": 1.5999999999999999,
+              "cachedInput": 0.39999999999999997,
               "cacheWrite": null,
-              "output": 1
+              "output": 4.8
             }
-          },
-          "after": null
+          }
         },
         {
-          "pointer": "/runtimeResolution/@lookup=hermes-3-llama-3-1-70b",
-          "before": {
+          "pointer": "/runtimeResolution/@lookup=grok-4-7:batch",
+          "before": null,
+          "after": {
             "exists": true,
             "pricing": {
-              "modelId": "nousresearch/hermes-3-llama-3.1-70b",
-              "alias": "nousresearch/hermes-3-llama-3.1-70b",
-              "input": 0.7,
-              "cachedInput": 0.06999999999999999,
+              "modelId": "x-ai/grok-4.7:batch",
+              "alias": "x-ai/grok-4.7:batch",
+              "input": 1.5999999999999999,
+              "cachedInput": 0.39999999999999997,
               "cacheWrite": null,
-              "output": 0.7
+              "output": 4.8
             }
-          },
-          "after": null
+          }
+        },
+        {
+          "pointer": "/runtimeResolution/@lookup=hy4",
+          "before": null,
+          "after": {
+            "exists": true,
+            "pricing": {
+              "modelId": "tencent/hy4",
+              "alias": "tencent/hy4",
+              "input": 0.417,
+              "cachedInput": 0.020999999999999998,
+              "cacheWrite": null,
+              "output": 1.2505
+            }
+          }
+        },
+        {
+          "pointer": "/runtimeResolution/@lookup=kimi-k3/pricing/output",
+          "before": 15,
+          "after": 16
         },
         {
           "pointer": "/runtimeResolution/@lookup=kimi-latest/pricing/cachedInput",
-          "before": 0.07475000000000001,
-          "after": 0.16999999999999998
+          "before": 0.16999999999999998,
+          "after": 0.18
         },
         {
           "pointer": "/runtimeResolution/@lookup=kimi-latest/pricing/input",
-          "before": 0.14950000000000002,
-          "after": 0.1719
+          "before": 0.1719,
+          "after": 0.18239999999999998
         },
         {
           "pointer": "/runtimeResolution/@lookup=kimi-latest/pricing/output",
-          "before": 7.15,
-          "after": 10.5572
-        },
-        {
-          "pointer": "/runtimeResolution/@lookup=llama-3-1-70b-instruct/pricing/cachedInput",
-          "before": 0.04,
-          "after": 0.072
-        },
-        {
-          "pointer": "/runtimeResolution/@lookup=llama-3-1-70b-instruct/pricing/input",
-          "before": 0.39999999999999997,
-          "after": 0.72
-        },
-        {
-          "pointer": "/runtimeResolution/@lookup=llama-3-1-70b-instruct/pricing/output",
-          "before": 0.39999999999999997,
-          "after": 0.72
+          "before": 10.5572,
+          "after": 10.1583
         },
         {
           "pointer": "/runtimeResolution/@lookup=llama-3-3-70b-instruct/pricing/cachedInput",
-          "before": 0.01,
-          "after": 0.09999999999999999
+          "before": 0.09999999999999999,
+          "after": 0.01
         },
         {
           "pointer": "/runtimeResolution/@lookup=llama-3-3-70b-instruct/pricing/input",
-          "before": 0.09999999999999999,
-          "after": 0.19999999999999998
+          "before": 0.19999999999999998,
+          "after": 0.09999999999999999
         },
         {
           "pointer": "/runtimeResolution/@lookup=llama-3-3-70b-instruct/pricing/output",
-          "before": 0.32,
-          "after": 0.52
+          "before": 0.52,
+          "after": 0.32
         },
         {
-          "pointer": "/runtimeResolution/@lookup=qwen3-coder-30b-a3b-instruct/pricing/cachedInput",
-          "before": 0.007000000000000001,
-          "after": 0.015
-        },
-        {
-          "pointer": "/runtimeResolution/@lookup=qwen3-coder-30b-a3b-instruct/pricing/input",
-          "before": 0.07,
-          "after": 0.15
-        },
-        {
-          "pointer": "/runtimeResolution/@lookup=qwen3-coder-30b-a3b-instruct/pricing/output",
-          "before": 0.28,
-          "after": 0.6
-        },
-        {
-          "pointer": "/runtimeResolution/@lookup=qwen3-next-80b-a3b-instruct/pricing/cachedInput",
+          "pointer": "/runtimeResolution/@lookup=qwen3-235b-a22b-07-25/pricing/cachedInput",
           "before": 0.009,
-          "after": 0.07
+          "after": 0.049999999999999996
         },
         {
-          "pointer": "/runtimeResolution/@lookup=qwen3-next-80b-a3b-instruct/pricing/input",
+          "pointer": "/runtimeResolution/@lookup=qwen3-235b-a22b-07-25/pricing/input",
           "before": 0.09,
-          "after": 0.09999999999999999
+          "after": 0.14
         },
         {
-          "pointer": "/runtimeResolution/@lookup=qwen3-next-80b-a3b-instruct-2509/pricing/cachedInput",
+          "pointer": "/runtimeResolution/@lookup=qwen3-235b-a22b-07-25/pricing/output",
+          "before": 0.55,
+          "after": 0.7999999999999999
+        },
+        {
+          "pointer": "/runtimeResolution/@lookup=qwen3-235b-a22b-2507/pricing/cachedInput",
           "before": 0.009,
-          "after": 0.07
+          "after": 0.049999999999999996
         },
         {
-          "pointer": "/runtimeResolution/@lookup=qwen3-next-80b-a3b-instruct-2509/pricing/input",
+          "pointer": "/runtimeResolution/@lookup=qwen3-235b-a22b-2507/pricing/input",
           "before": 0.09,
-          "after": 0.09999999999999999
+          "after": 0.14
+        },
+        {
+          "pointer": "/runtimeResolution/@lookup=qwen3-235b-a22b-2507/pricing/output",
+          "before": 0.55,
+          "after": 0.7999999999999999
         }
       ],
       "reviewRequired": [
@@ -958,12 +1125,12 @@
         "source-or-record-disappearance-not-proof-of-retirement"
       ],
       "addedModels": [
-        "z-ai/glm-5.3-flashx-legal"
+        "stealth/crouton-alpha",
+        "tencent/hy4",
+        "x-ai/grok-4.6:batch",
+        "x-ai/grok-4.7:batch"
       ],
-      "removedModels": [
-        "nousresearch/hermes-3-llama-3.1-405b",
-        "nousresearch/hermes-3-llama-3.1-70b"
-      ],
+      "removedModels": [],
       "previousProvenance": null,
       "proposal": {
         "scope": "OpenRouter observation only; no native-provider deployability or billing inference"
@@ -974,18 +1141,18 @@
       "changes": [
         {
           "pointer": "/retrievedAt",
-          "before": "2026-11-02T12:53:02.678Z",
-          "after": "2026-11-03T12:53:55.728Z"
+          "before": "2026-11-03T12:53:55.728Z",
+          "after": "2026-11-04T12:53:52.125Z"
         },
         {
           "pointer": "/revision",
-          "before": "cb6edfaa6b82a4132a4c857a57febb89742c888b993b9f8eb80655fa90b16c7e",
-          "after": "87ff57dc5a154afb8ca6023f3c3ba553bb9baf2ac8e8c30d6244431eb1675dc8"
+          "before": "87ff57dc5a154afb8ca6023f3c3ba553bb9baf2ac8e8c30d6244431eb1675dc8",
+          "after": "69d5ff8e0e8fd3400fdf6efd4dbf4e5ef5ddac7b94473052288b1d3aa6a8e266"
         },
         {
           "pointer": "/sha256",
-          "before": "cb6edfaa6b82a4132a4c857a57febb89742c888b993b9f8eb80655fa90b16c7e",
-          "after": "87ff57dc5a154afb8ca6023f3c3ba553bb9baf2ac8e8c30d6244431eb1675dc8"
+          "before": "87ff57dc5a154afb8ca6023f3c3ba553bb9baf2ac8e8c30d6244431eb1675dc8",
+          "after": "69d5ff8e0e8fd3400fdf6efd4dbf4e5ef5ddac7b94473052288b1d3aa6a8e266"
         }
       ],
       "reviewRequired": [
@@ -995,9 +1162,9 @@
       "removedModels": [],
       "previousProvenance": {
         "source": "https://openrouter.ai/api/v1/models",
-        "revision": "cb6edfaa6b82a4132a4c857a57febb89742c888b993b9f8eb80655fa90b16c7e",
-        "retrievedAt": "2026-11-02T12:53:02.678Z",
-        "sha256": "cb6edfaa6b82a4132a4c857a57febb89742c888b993b9f8eb80655fa90b16c7e",
+        "revision": "87ff57dc5a154afb8ca6023f3c3ba553bb9baf2ac8e8c30d6244431eb1675dc8",
+        "retrievedAt": "2026-11-03T12:53:55.728Z",
+        "sha256": "87ff57dc5a154afb8ca6023f3c3ba553bb9baf2ac8e8c30d6244431eb1675dc8",
         "license": "Model API does not declare a catalogue/model license; no license rights inferred."
       },
       "proposal": {

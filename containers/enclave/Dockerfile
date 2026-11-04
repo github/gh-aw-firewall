@@ -11,7 +11,8 @@ RUN apk upgrade --no-cache \
     && test "$(python3 -c 'import sqlite3; print(sqlite3.sqlite_version)')" = 3.54.1 \
     && python3 -c 'import json, pathlib, sys; sys.exit(0)' \
     && test -x /usr/local/bin/python3 \
-    && ln -s /usr/local/bin/python3 /usr/bin/python3
+    && ln -s /usr/local/bin/python3 /usr/bin/python3 \
+    && ! command -v sqlite3
 COPY enclave/script-entrypoint.py /usr/local/bin/run-enclave-script
 COPY enclave/public_debug_capture.py /usr/local/bin/public_debug_capture.py
 RUN chmod 0555 /usr/local/bin/run-enclave-script \
