@@ -26,7 +26,7 @@ class VerifierTests(unittest.TestCase):
         tree = Path("/guest")
         with patch.object(verifier, "mount") as mount, \
                 patch.object(verifier.os, "mknod", create=True) as mknod, \
-                patch.object(verifier.os, "chmod"), patch.object(Path, "mkdir"):
+                patch.object(verifier.os, "chmod") as chmod, patch.object(Path, "mkdir"):
             verifier.prepare_mounts(tree)
         self.assertEqual(mount.call_args_list[:4], [
             call("--make-rprivate", "/"),
@@ -45,6 +45,10 @@ class VerifierTests(unittest.TestCase):
         self.assertEqual(mknod.call_args_list, [
             call(tree / "dev" / name, stat.S_IFCHR | 0o666, os.makedev(1, minor))
             for name, minor in (("null", 3), ("zero", 5), ("random", 8), ("urandom", 9))
+        ])
+        self.assertEqual(chmod.call_args_list, [
+            call(tree / "dev" / name, 0o666)
+            for name in ("null", "zero", "random", "urandom")
         ])
 
     def test_mount_command_has_no_inherited_environment_or_input_and_fails_closed(self):
@@ -108,6 +112,7 @@ class VerifierTests(unittest.TestCase):
                     events.attach_mock(stack.enter_context(patch.object(owner, name, create=True)), name)
             stack.enter_context(patch.dict(os.environ, {"SECRET_TOKEN": "must-not-escape"}))
             verifier.verify("/guest", "claude")
+        events.umask.assert_called_once_with(0o077)
         events.closerange.assert_called_once_with(3, 1024)
         self.assertEqual(events.setrlimit.call_args_list, [
             call(verifier.resource.RLIMIT_CORE, (0, 0)),
