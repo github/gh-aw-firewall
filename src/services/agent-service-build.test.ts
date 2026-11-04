@@ -44,6 +44,18 @@ describe('agent service', () => {
         .toBe(harnessContext(config).environment);
     },
   );
+  it('uses the effective chroot identity for the probe tmpfs owner', () => {
+    const config = {
+      ...mockConfig,
+      agentCommand: 'copilot --fixture',
+      chrootIdentity: { uid: 1001, gid: 1002 },
+    };
+    const agent = generateDockerCompose(config, mockNetworkConfig).services.agent;
+
+    expect(agent.tmpfs).toContain(
+      '/host/run/awf-harness/probe:rw,noexec,nosuid,nodev,size=64k,mode=0700,uid=1001,gid=1002',
+    );
+  });
   it.each(['docker', 'gvisor'] as const)('adds guest input preflight to the %s workload command', (containerRuntime) => {
     const config = { ...mockConfig, containerRuntime, inputDirs: ['/guest/inputs'] };
     const result = generateDockerCompose(config, mockNetworkConfig);

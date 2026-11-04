@@ -165,6 +165,21 @@ fi
     await observation.releaseHarness();
     expect((await child).exitCode).toBe(23);
   });
+  it('detects a 4097-byte probe payload that ends in a newline', async () => {
+    const resolvedBinary = path.join(directory, 'bin/copilot');
+    const trailingBytes = 4097 - Buffer.byteLength(`${resolvedBinary}\n1.2.3\n`);
+    writeHarness(`printf '1.2.3\\n'; printf '%${trailingBytes - 1}s\\n' x`);
+    const observation = controller();
+    const child = launch();
+
+    await observeHarness(config, observation.probeHarness);
+    expect(report()).toMatchObject({ status: 'unavailable', reason: 'probe_output_limit' });
+    const output = fs.readFileSync(`${directory}/control/probe/stdout`);
+    expect(output.byteLength).toBe(4097);
+    expect(output[output.byteLength - 1]).toBe(10);
+    await observation.releaseHarness();
+    expect((await child).exitCode).toBe(23);
+  });
   it('classifies a missing selected binary without substituting a host executable', async () => {
     config.agentCommand = `${directory}/missing/copilot`;
     const observation = controller();
@@ -268,5 +283,44 @@ fi
     expect(parseProbe(harnessContext(config), result)).toMatchObject({ status: 'observed', version });
     await observation.releaseHarness();
     expect((await child).exitCode).toBe(0);
+  });
+  it('probes a shell-pinned executable rather than the PATH candidate', async () => {
+    const pinnedDirectory = path.join(directory, 'pinned');
+    fs.mkdirSync(pinnedDirectory);
+    const pinnedBinary = path.join(pinnedDirectory, 'copilot');
+    fs.copyFileSync(path.join(directory, 'bin/copilot'), pinnedBinary);
+    fs.chmodSync(pinnedBinary, 0o700);
+    fs.appendFileSync(
+      fixtureEnv.BASH_ENV!,
+      'hash -p "$FIXTURE_DIRECTORY/pinned/copilot" copilot\n',
+    );
+    const observation = controller();
+    const child = launch();
+
+    await observeHarness(config, observation.probeHarness);
+    expect(report()).toMatchObject({ status: 'observed', resolvedBinary: pinnedBinary });
+    await observation.releaseHarness();
+    expect((await child).exitCode).toBe(23);
+    expect(fs.readFileSync(`${directory}/probe-context`, 'utf8'))
+      .toBe(fs.readFileSync(`${directory}/command-context`, 'utf8'));
+  });
+  it.each(['function', 'alias'])('leaves %s command selections unverified', async selection => {
+    const startup = [
+      'export FIXTURE_ENV="$FIXTURE_ENV:startup"',
+      ...(selection === 'function'
+        ? ['copilot() { "$FIXTURE_DIRECTORY/bin/copilot" "$@"; }']
+        : ['shopt -s expand_aliases', 'alias copilot=\'"$FIXTURE_DIRECTORY/bin/copilot"\'']),
+      '',
+    ].join('\n');
+    fs.writeFileSync(fixtureEnv.BASH_ENV!, startup);
+    const observation = controller();
+    const child = launch();
+
+    await observeHarness(config, observation.probeHarness);
+    expect(report()).toMatchObject({ status: 'unavailable', reason: 'probe_failed' });
+    expect(fs.existsSync(`${directory}/probe-context`)).toBe(false);
+    await observation.releaseHarness();
+    expect((await child).exitCode).toBe(23);
+    expect(fs.existsSync(`${directory}/command-context`)).toBe(true);
   });
 });

@@ -159,7 +159,10 @@ export function buildAgentService(params: AgentServiceParams): any {
     ).replace(/\$/g, '$$$$')],
   };
   if (supportsDockerHarnessObservation(config)) {
-    agentService.tmpfs.push(...dockerHarnessTmpfs(environment.AWF_USER_UID, environment.AWF_USER_GID));
+    agentService.tmpfs.push(...dockerHarnessTmpfs(
+      environment.AWF_CHROOT_IDENTITY_UID || environment.AWF_USER_UID,
+      environment.AWF_CHROOT_IDENTITY_GID || environment.AWF_USER_GID,
+    ));
     agentService.labels = { [DOCKER_HARNESS_ENVIRONMENT_LABEL]: harnessContext(config).environment };
   }
 

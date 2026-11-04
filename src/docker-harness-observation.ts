@@ -4,7 +4,7 @@ import { AGENT_CONTAINER_NAME } from './constants';
 import { getLocalDockerEnv } from './docker-host';
 import { shellSingleQuote } from './cloud-hypervisor/backend-utils';
 import {
-  MAX_PROBE_BYTES, selectHarness, probeCommand,
+  MAX_PROBE_BYTES, selectHarness,
   type HarnessContext, type HarnessProbe,
 } from './model-information-contract/harness-observation';
 
@@ -30,13 +30,30 @@ export function withDockerHarnessObservation(
   // Avoid sourcing BASH_ENV a second time in the probe launcher, but restore
   // its exported value for the executable itself (including script harnesses).
   const probe = `if [ "$1" = x ]; then export BASH_ENV="$2"; else unset BASH_ENV; fi; ` +
-    `( ${probeCommand(selection)} ) | /usr/bin/head -c ${MAX_PROBE_BYTES + 1}; exit \${PIPESTATUS[0]}`;
+    `p=$3; test -f "$p" && test -x "$p" || exit 126; ` +
+    `( printf '%s\\n' "$p"; "$p" --version ) | /usr/bin/head -c ${MAX_PROBE_BYTES + 1}; ` +
+    `exit \${PIPESTATUS[0]}`;
+  const selectedBinary = shellSingleQuote(selection.binary);
   return `(
 umask 077
-if /usr/bin/timeout --signal=TERM --kill-after=1s 10s /usr/bin/env -u BASH_ENV /bin/bash --noprofile --norc -c ${shellSingleQuote(probe)} awf-harness "$(/usr/bin/printenv BASH_ENV >/dev/null && printf x)" "\${BASH_ENV-}" >${PROBE_DIR}/stdout 2>/dev/null; then
-  status=0
+target_type=$(type -t -- ${selectedBinary} 2>/dev/null) || target_type=
+resolved=
+if [ "$target_type" = file ]; then
+  resolved=$(command -v -- ${selectedBinary} 2>/dev/null) || resolved=
+fi
+if [ -n "$resolved" ] && [ -f "$resolved" ] && [ -x "$resolved" ]; then
+  if /usr/bin/timeout --signal=TERM --kill-after=1s 10s /usr/bin/env -u BASH_ENV /bin/bash --noprofile --norc -c ${shellSingleQuote(probe)} awf-harness "$(/usr/bin/printenv BASH_ENV >/dev/null && printf x)" "\${BASH_ENV-}" "$resolved" >${PROBE_DIR}/stdout 2>/dev/null; then
+    status=0
+  else
+    status=$?
+  fi
 else
-  status=$?
+  : >${PROBE_DIR}/stdout
+  if [ "$target_type" = file ] || [ -z "$target_type" ]; then
+    status=127
+  else
+    status=126
+  fi
 fi
 cd ${shellSingleQuote(PROBE_DIR)} || exit 125
 printf '%s\\n%s\\n' ${shellSingleQuote(context.environment)} "$status" >result.tmp || exit 125
@@ -87,7 +104,7 @@ exit 124`;
       '/bin/bash', '--noprofile', '--norc', '-p', '-c', script,
     ], {
       env: getLocalDockerEnv(), timeout: (READY_TIMEOUT_SECONDS + 5) * 1000,
-      maxBuffer: MAX_PROBE_BYTES + 512, stderr: 'ignore', reject: false,
+      maxBuffer: MAX_PROBE_BYTES + 512, stderr: 'ignore', reject: false, stripFinalNewline: false,
     });
     const [environment, status, ...output] = result.stdout.split('\n');
     if (result.exitCode !== 0 || environment !== context.environment || !/^\d{1,3}$/.test(status)) {
