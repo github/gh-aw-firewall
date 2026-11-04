@@ -12,6 +12,13 @@ import {
   type NvxLiveMount,
 } from '../../src/nvx';
 import { guardStaleChildPipe } from './nvx-manager-live-evidence-stream';
+import { NvxHarnessObservation } from '../../src/nvx/harness-observation';
+import { buildNvxGuestRunScript } from '../../src/nvx/guest-entrypoint';
+import { harnessContext, observeHarness, prepareHarnessObservation } from '../../src/harness-observation';
+import { eligibilityEvidence } from '../../src/model-information-contract/harness-observation';
+import { createEligibilityStore } from '../../src/model-information-contract/eligibility';
+import { identity } from '../../src/model-information-contract/identity';
+import type { WrapperConfig } from '../../src/types';
 
 interface Inputs {
   artifacts: string;
@@ -20,6 +27,7 @@ interface Inputs {
   signerWorkflow: string;
   evidence: string;
   childRunId?: string;
+  harnessOnly?: boolean;
 }
 
 const MAX_CAPTURED_OUTPUT_BYTES = 64 * 1024;
@@ -30,6 +38,10 @@ async function main(): Promise<void> {
   }
   const inputs = parseInputs(process.argv.slice(2));
   await fs.mkdir(inputs.evidence, { recursive: true, mode: 0o700 });
+  if (inputs.harnessOnly) {
+    await runHarnessObservationCases(inputs);
+    return;
+  }
   if (inputs.childRunId) {
     await runCase(inputs, {
       name: 'stale-owner-child',
@@ -156,7 +168,133 @@ interface RunCaseOptions {
   scratchBytes?: number;
   mounts?: readonly NvxLiveMount[];
   runScript?: string;
-  hostInteraction?: () => Promise<void>;
+  hostInteraction?: () => Promise<void | 'stop'>;
+}
+
+/** Provider-free acceptance, deliberately separate from deterministic shell fixtures. */
+async function runHarnessObservationCases(inputs: Inputs): Promise<void> {
+  const revision = (await execa('git', ['rev-parse', 'HEAD'])).stdout;
+  const environment = (await execa('uname', ['-smr'])).stdout;
+  const dirty = Boolean((await execa('git', ['status', '--porcelain'])).stdout);
+  const evidenceFile = path.join(inputs.evidence, 'harness-observation-live.json');
+  const evidence: Record<string, unknown> = {
+    schemaVersion: 1, revision, dirty, environment, status: 'blocked', cases: [],
+  };
+  const checks: unknown[] = [];
+  evidence.cases = checks;
+  const writeEvidence = () => fs.writeFile(evidenceFile, `${JSON.stringify(evidence, null, 2)}\n`);
+  const prerequisites = [
+    '/dev/kvm', inputs.layer,
+    ...['openvmm', 'vmlinux', 'initramfs.cpio.gz', 'manifest.json', 'manifest.sigstore.jsonl']
+      .map(name => path.join(inputs.artifacts, name)),
+  ];
+  const missing: string[] = [];
+  for (const filename of prerequisites) {
+    try { await fs.access(filename, constants.R_OK); } catch { missing.push(filename); }
+  }
+  if (missing.length) {
+    evidence.missing = missing;
+    await writeEvidence();
+    throw new Error('NVX harness live acceptance blocked: missing KVM/runtime artifacts (see evidence)');
+  }
+  evidence.manifest = JSON.parse(await fs.readFile(path.join(inputs.artifacts, 'manifest.json'), 'utf8'));
+  evidence.status = 'failed';
+  await writeEvidence();
+  try {
+    for (const [binary, mode, version, expected] of [
+      ['copilot', 'valid', '1.2.3', 'compatible'],
+      ['claude', 'valid', '2.1.3 (Claude Code)', 'compatible'],
+      ['codex', 'valid', 'codex-cli 0.89.0', 'incompatible'],
+      ['copilot', 'valid', '1.0.0', 'incompatible'],
+      ...['malformed', 'failed', 'overflow', 'timeout', 'missing'].map(mode =>
+        ['copilot', mode, '1.2.3', 'unverified']),
+    ]) {
+      const workspace = await fs.mkdtemp('/tmp/awf-nvx-harness-live-');
+      await fs.chmod(workspace, 0o755);
+      await fs.chown(workspace, 65534, 65534);
+      const config = {
+        containerRuntime: 'nvx', agentCommand: `./${binary} --fixture`,
+        workDir: workspace, enableApiProxy: true,
+      } as WrapperConfig;
+      const controller = new NvxHarnessObservation(harnessContext(config));
+      try {
+        await fs.mkdir(path.join(workspace, 'api-proxy-logs'));
+        if (mode !== 'missing') {
+          await fs.copyFile(path.resolve('tests/fixtures/harness-observation/executable.sh'),
+            path.join(workspace, binary));
+          await fs.chmod(path.join(workspace, binary), 0o755);
+        }
+        const mounts = await controller.stage(65534, 65534);
+        const runScript = buildNvxGuestRunScript({
+          environment: {
+            PATH: '/usr/local/bin:/usr/bin:/bin', HOME: '/tmp/awf-home',
+            USER: 'nobody', LOGNAME: 'nobody', FIXTURE_DIRECTORY: '/workspace',
+            FIXTURE_ENV: 'controlled', FIXTURE_MODE: mode, FIXTURE_VERSION: version,
+          },
+          workingDirectory: '/workspace', command: controller.wrap(config.agentCommand),
+        });
+        prepareHarnessObservation(config);
+        let report;
+        const outcome = await runCase(inputs, {
+          name: `selected-harness-${binary}-${mode}-${version.split(' ')[0]}`,
+          entrypoint: '/etc/awf/nvx-run.sh', timeoutMs: 120_000, runScript,
+          mounts: [{
+            tag: 'workspace', guestTarget: '/workspace', hostPath: workspace, mode: 'rw',
+            deniedPaths: [], allowedPaths: [], writablePaths: [],
+          }, ...mounts],
+          hostInteraction: async () => {
+            report = await observeHarness(config, controller.probe);
+            const scope = { provider: 'copilot', channel: 'fixture' };
+            const model = identity('copilot', 'fixture-model');
+            const snapshot = createEligibilityStore({ models: [{
+              identity: model, harnesses: [{
+                scope, name: harnessContext(config).name!, minimum: '1.2.0',
+                scheme: 'semver', reason: 'Test-only NVX requirement',
+                provenance: { authority: 'maintained' },
+              }],
+            }] }).pin();
+            const decision = snapshot.evaluate({
+              identity: model, scope, ...eligibilityEvidence(report, scope),
+              discovery: { status: 'available', authoritative: true },
+            });
+            if (decision.harness !== expected) throw new Error('Unexpected NVX harness eligibility');
+            try {
+              await fs.access(path.join(workspace, 'command-context'));
+              throw new Error('NVX command started before host eligibility');
+            } catch (error) {
+              if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+            }
+            if (!decision.admitted) return 'stop';
+            await controller.release();
+          },
+        });
+        if (expected === 'compatible') {
+          if (outcome.result.exitCode !== 23) throw new Error('NVX fixture exit code was not propagated');
+          const probe = await fs.readFile(path.join(workspace, 'probe-context'), 'utf8');
+          const command = await fs.readFile(path.join(workspace, 'command-context'), 'utf8');
+          if (probe !== command) throw new Error('NVX probe and command contexts differ');
+        } else {
+          if (outcome.result.exitCode !== 130 || outcome.result.category !== 'cancelled') {
+            throw new Error('NVX blocked guest did not complete cancellation');
+          }
+          try {
+            await fs.access(path.join(workspace, 'command-context'));
+            throw new Error('NVX blocked command executed');
+          } catch (error) {
+            if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+          }
+        }
+        checks.push({ binary, mode, expected, report, outcome, status: 'passed' });
+        await writeEvidence();
+      } finally {
+        await controller.cleanup();
+        await fs.rm(workspace, { recursive: true, force: true });
+      }
+    }
+    evidence.status = 'passed';
+  } finally {
+    await writeEvidence();
+  }
 }
 
 async function runCase(
@@ -242,7 +380,7 @@ async function runCase(
   try {
     const execution = manager.execute();
     try {
-      await options.hostInteraction?.();
+      if (await options.hostInteraction?.() === 'stop') abortController?.abort();
     } catch (error) {
       abortController?.abort();
       await execution.catch(() => undefined);
@@ -613,6 +751,7 @@ function parseInputs(args: readonly string[]): Inputs {
     signerWorkflow,
     evidence: required('evidence'),
     ...(values.get('childRunId') ? { childRunId: values.get('childRunId') } : {}),
+    ...(values.get('harnessOnly') === 'true' ? { harnessOnly: true } : {}),
   };
 }
 

@@ -56,7 +56,7 @@ function publish(config: WrapperConfig, report: HarnessObservationReport): void 
 export function prepareHarnessObservation(config: WrapperConfig): void {
   const context = harnessContext(config);
   publish(config, unavailable(context, !context.name ? 'selection_unavailable' :
-    config.containerRuntime === 'cloud-hypervisor' || supportsDockerHarnessObservation(config)
+    config.containerRuntime === 'cloud-hypervisor' || config.containerRuntime === 'nvx' || supportsDockerHarnessObservation(config)
       ? 'probe_pending' : 'runtime_probe_unsupported'));
 }
 
