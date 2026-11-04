@@ -47,7 +47,7 @@ async function main(options) {
     models: ids.map(id => ({
       identity: resolveModelIdentity(id, 'copilot').identity,
       harnesses: [{
-        scope, name: 'copilot-cli', minimum: '1.0.0', scheme: 'semver',
+        scope, name: process.env.AWF_SELECTED_HARNESS || 'copilot-cli', minimum: '1.0.0', scheme: 'semver',
         reason: 'Test-owned compatible consumer constraint', provenance: { authority: 'maintained' },
       }],
     })),
