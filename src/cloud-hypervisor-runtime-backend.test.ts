@@ -216,6 +216,27 @@ describe('Cloud Hypervisor runtime backend', () => {
     expect(Buffer.byteLength(result.stdout)).toBe(4097);
     await backend.stop();
   });
+
+  it('cancels the selected-harness probe before cleanup without entering the agent command', async () => {
+    const { manager, deps } = harness();
+    const backend = createBackend(config(), deps);
+    await backend.start('/tmp/awf', []);
+    let finish!: (result: ExecutionResult) => void;
+    manager.execute.mockReset().mockImplementationOnce(() => new Promise<ExecutionResult>(resolve => {
+      finish = resolve;
+    }));
+    manager.cancel.mockImplementationOnce(async () => {
+      finish({ requestId: 'harness', exitCode: 143, signal: null, timedOut: false });
+    });
+    const probe = backend.probeHarness!('probe');
+    await backend.stop();
+    await expect(probe).resolves.toMatchObject({ stdout: '', exitCode: 143, timedOut: false });
+    expect(manager.cancel).toHaveBeenCalledWith('AWF cleanup', expect.stringMatching(/^harness-/));
+    expect(manager.execute).toHaveBeenCalledTimes(1);
+    expect(manager.stop).toHaveBeenCalledWith({ preserve: false });
+    expect(deps.removeArtifactSnapshot).toHaveBeenCalledWith('/snapshot');
+    await expect(backend.exec('/tmp/awf', [])).rejects.toThrow('not ready');
+  });
   let eligibilitySpy: jest.SpyInstance;
 
   beforeEach(() => {
