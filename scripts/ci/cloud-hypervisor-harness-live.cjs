@@ -71,11 +71,16 @@ async function loadArtifacts(directory) {
   catch { throw new Blocked('artifact-manifest-invalid'); }
   const manifestFile = path.join(directory, 'manifest.json');
   let manifest;
+  let manifestFd;
   try {
-    const stat = fs.lstatSync(manifestFile);
+    manifestFd = fs.openSync(manifestFile, fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW || 0));
+    const stat = fs.fstatSync(manifestFd);
     failPrerequisite(stat.isFile() && stat.size <= 65536, 'artifact-manifest-invalid');
-    manifest = JSON.parse(fs.readFileSync(manifestFile, 'utf8'));
+    const contents = fs.readFileSync(manifestFd);
+    failPrerequisite(contents.length <= 65536, 'artifact-manifest-invalid');
+    manifest = JSON.parse(contents.toString('utf8'));
   } catch { throw new Blocked('artifact-manifest-invalid'); }
+  finally { if (manifestFd !== undefined) fs.closeSync(manifestFd); }
   const artifactSourceCommit = manifest?.release?.sourceCommit;
   checkArtifactSourceCommit(artifactSourceCommit);
   for (const [key, filename] of Object.entries(ARTIFACTS)) {

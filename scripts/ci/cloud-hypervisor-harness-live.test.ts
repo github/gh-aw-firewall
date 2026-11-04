@@ -100,15 +100,20 @@ describe('Cloud Hypervisor harness acceptance driver (deterministic, not live pr
       .toMatchObject({ commit: sha, artifactSourceCommit });
   });
 
-  it('rejects missing manifest source and manifest/checksum disagreement', async () => {
-    for (const mode of ['missing-source', 'wrong-digest', 'missing-manifest']) {
+  it('rejects missing manifest source, manifest/checksum disagreement and symlinked manifests', async () => {
+    for (const mode of ['missing-source', 'wrong-digest', 'missing-manifest', 'symlink-manifest']) {
       const work = artifacts();
       const file = path.join(work, 'manifest.json');
       const manifest = JSON.parse(fs.readFileSync(file, 'utf8'));
       if (mode === 'missing-source') delete manifest.release.sourceCommit;
       if (mode === 'wrong-digest') manifest.artifacts.kernel.sha256 = '0'.repeat(64);
-      fs.writeFileSync(file, JSON.stringify(manifest));
-      if (mode === 'missing-manifest') fs.unlinkSync(file);
+      if (mode === 'symlink-manifest') {
+        fs.renameSync(file, path.join(work, 'manifest-target.json'));
+        fs.symlinkSync('manifest-target.json', file);
+      } else {
+        fs.writeFileSync(file, JSON.stringify(manifest));
+        if (mode === 'missing-manifest') fs.unlinkSync(file);
+      }
       await expect(driver.loadArtifacts(work)).rejects.toThrow(mode === 'missing-source'
         ? 'artifact-source-commit-required' : mode === 'wrong-digest'
           ? 'artifact-manifest-digest-mismatch' : 'artifact-manifest-invalid');
