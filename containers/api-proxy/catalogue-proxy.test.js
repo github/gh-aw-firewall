@@ -5,11 +5,15 @@ const os = require('node:os');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const { EventEmitter } = require('node:events');
+const http = require('node:http');
 const { createCatalogueLoader } = require('./catalogue-loader');
 const { buildSnapshot } = require('./catalogue-contract/publication.cjs');
 const { createProviderServer } = require('./server-factory');
 const { setupTokenTracking } = require('./upstream-token');
 const { bootPrimary } = require('./startup');
+const { createWebSocketTunnel } = require('./websocket-tunnel');
+const { collectLogOutput } = require('./test-helpers/log-test-helpers');
+const { resetAiCreditsGuardForTests } = require('./guards/ai-credits-guard');
 const baseline = require('../../shared/model-information/catalog.generated.json');
 
 function snapshot(price = '2') {
@@ -78,6 +82,65 @@ test('actual upstream usage callback retains request revision across refresh and
   }
 });
 
+test('real WebSocket usage callback retains captured feed revision without extra egress or duplicate billing', async () => {
+  resetAiCreditsGuardForTests();
+  let current = snapshot();
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-catalogue-websocket-'));
+  const getBytes = jest.fn(async () => JSON.stringify(current));
+  const loader = createCatalogueLoader({
+    source: 'https://mirror.invalid/feed', trustSource: true, cacheDirectory: directory,
+  }, { now: () => Date.parse('2026-10-23T12:00:00Z'), getBytes, report: jest.fn() });
+  const connectRequest = new EventEmitter();
+  connectRequest.end = jest.fn();
+  const request = jest.spyOn(http, 'request').mockReturnValue(connectRequest);
+  const logs = collectLogOutput();
+  try {
+    await loader.start();
+    const pinned = loader.capture();
+    const req = {
+      url: '/responses?model=opaque', headers: {},
+      awfCatalogue: pinned, awfRuntimePricing: {},
+    };
+    const socket = () => Object.assign(new EventEmitter(), {
+      write: jest.fn(), pipe: jest.fn(), destroy: jest.fn(), writable: true,
+    });
+    const trackWebSocketTokenUsage = jest.fn();
+    createWebSocketTunnel({
+      HTTPS_PROXY: 'http://squid:3128',
+      metrics: { gaugeDec: jest.fn(), increment: jest.fn(), observe: jest.fn() },
+      logRequest: jest.fn(), sanitizeForLog: String, shouldStripHeader: () => false,
+      trackWebSocketTokenUsage,
+    })({
+      req, socket: socket(), head: Buffer.alloc(0), targetHost: 'api.githubcopilot.com',
+      targetScheme: 'http', injectHeaders: {}, provider: 'copilot',
+      requestId: 'ws-pin', startTime: 0, upstreamPath: req.url,
+    });
+    connectRequest.emit('connect', { statusCode: 200 }, socket());
+    expect(trackWebSocketTokenUsage).toHaveBeenCalledTimes(1);
+    current = snapshot('9');
+    await loader.refresh();
+    const beforeUsageRequests = getBytes.mock.calls.length;
+    const usage = trackWebSocketTokenUsage.mock.calls[0][1].onUsage(
+      { input_tokens: 1000000 }, pinned.snapshot.models[0].identity.rawId,
+    );
+    expect(usage).toMatchObject({
+      ai_credits_this_response: 200, ai_credits_total: 200,
+      ai_credits_pricing_source: 'central_feed',
+      ai_credits_pricing_catalog_version: pinned.revision,
+    });
+    expect(loader.capture().revision).not.toBe(pinned.revision);
+    expect(getBytes).toHaveBeenCalledTimes(beforeUsageRequests);
+    expect(request).toHaveBeenCalledTimes(1);
+    expect(logs.lines.filter(line => line.event === 'pricing_resolution_error')).toEqual([]);
+  } finally {
+    request.mockRestore();
+    logs.spy.mockRestore();
+    resetAiCreditsGuardForTests();
+    await loader.stop();
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
 test('startup shares readiness with every adapter and drains the loader before exit', async () => {
   const handlers = {};
   const on = jest.spyOn(process, 'on').mockImplementation((event, handler) => {
@@ -106,41 +169,39 @@ test('startup shares readiness with every adapter and drains the loader before e
   }
 });
 
-test('Docker app/package context includes validators and runs without repository source paths', () => {
+test.each(['docker', 'npm'])('provider-free pricing smoke runs in the %s package without repository source paths', distribution => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-catalogue-package-'));
   try {
-    const dockerfile = fs.readFileSync(path.join(__dirname, 'Dockerfile'), 'utf8').replace(/\\\n\s*/g, ' ');
-    const application = [...dockerfile.matchAll(/^COPY (.+) \.\/$/gm)]
-      .flatMap(match => match[1].split(/\s+/)).filter(file => !file.includes('*'));
-    for (const file of application) fs.copyFileSync(path.join(__dirname, file), path.join(directory, file));
-    for (const folder of ['guards', 'providers', 'transforms', 'catalogue-contract']) {
-      expect(dockerfile).toContain(`COPY ${folder}/ ./${folder}/`);
-      fs.cpSync(path.join(__dirname, folder), path.join(directory, folder), { recursive: true });
+    let proxyDirectory = directory;
+    if (distribution === 'docker') {
+      const dockerfile = fs.readFileSync(path.join(__dirname, 'Dockerfile'), 'utf8').replace(/\\\n\s*/g, ' ');
+      const application = [...dockerfile.matchAll(/^COPY (.+) \.\/$/gm)]
+        .flatMap(match => match[1].split(/\s+/)).filter(file => !file.includes('*'));
+      for (const file of application) fs.copyFileSync(path.join(__dirname, file), path.join(directory, file));
+      for (const folder of ['guards', 'providers', 'transforms', 'catalogue-contract']) {
+        expect(dockerfile).toContain(`COPY ${folder}/ ./${folder}/`);
+        fs.cpSync(path.join(__dirname, folder), path.join(directory, folder), { recursive: true });
+      }
+    } else {
+      const packed = spawnSync('npm', ['pack', '--ignore-scripts', '--json', '--pack-destination', directory], {
+        cwd: path.join(__dirname, '../..'), encoding: 'utf8', timeout: 30000,
+      });
+      expect(packed.status).toBe(0);
+      const archive = path.join(directory, JSON.parse(packed.stdout)[0].filename);
+      const extracted = spawnSync('tar', ['-xzf', archive, '-C', directory], { encoding: 'utf8' });
+      expect(extracted.status).toBe(0);
+      proxyDirectory = path.join(directory, 'package/containers/api-proxy');
     }
-    fs.symlinkSync(path.join(__dirname, 'node_modules'), path.join(directory, 'node_modules'), 'dir');
-    const result = spawnSync(process.execPath, ['-e', `
-      const { createCatalogueLoader, optionsFromEnv } = require('./catalogue-loader');
-      const { computeTokenBudgetUsage } = require('./token-budget-log');
-      (async () => {
-        const loader = createCatalogueLoader(optionsFromEnv(), {
-          now: () => Date.parse('2026-10-23T12:00:00Z'), report: () => {},
-          getBytes: () => { throw new Error('local mode made a network request'); }
-        });
-        await loader.start();
-        if (!loader.capture()) throw new Error('no active local catalogue');
-        const model = loader.capture().snapshot.models[0].identity.rawId;
-        const result = computeTokenBudgetUsage({
-          logRequest: () => {}, requestId: 'package', provider: 'copilot', catalogue: loader.capture()
-        }, { input_tokens: 1000000 }, model);
-        if (result.ai_credits_pricing_source !== 'central_feed' ||
-            result.ai_credits_this_response !== 200) throw new Error('incorrect package accounting');
-        await loader.stop();
-      })().catch(error => { console.error(error); process.exitCode = 1; });
-    `], { cwd: directory, encoding: 'utf8', env: {
+    fs.symlinkSync(path.join(__dirname, 'node_modules'), path.join(proxyDirectory, 'node_modules'), 'dir');
+    const result = spawnSync(process.execPath, [
+      path.join(__dirname, '../../scripts/ci/smoke-pricing-resolution.cjs'), proxyDirectory,
+    ], { cwd: proxyDirectory, encoding: 'utf8', env: {
       PATH: process.env.PATH,
-      AWF_MODEL_CATALOGUE: JSON.stringify({ trustSource: true, localSnapshot: snapshot() }),
+      AWF_VERSION: '0.0.0-smoke', AWF_TOKEN_LOG_DIR: directory,
+      AWF_PRICING_SMOKE_SNAPSHOTS: JSON.stringify([snapshot(), snapshot('4')]),
     } });
     expect(result.stderr).toBe('');
+    expect(result.stdout).toContain('"event":"pricing_resolution_smoke_passed"');
     expect(result.status).toBe(0);
   } finally {
     fs.rmSync(directory, { recursive: true, force: true });

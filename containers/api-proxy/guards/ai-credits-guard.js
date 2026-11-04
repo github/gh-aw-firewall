@@ -3,15 +3,17 @@
 const { logRequest, sanitizeForLog } = require('../logging');
 const pricingByModel = require('../ai-credits-pricing');
 const { resolveCatalogModel } = require('../models-dev-catalog');
-const { resolveRuntimePricing } = require('../runtime-model-catalog');
+const { getRuntimePricingFact } = require('../runtime-model-catalog');
 const { getCatalogueLoader } = require('../catalogue-loader');
-const { resolveCentralPricing, fresh } = require('../catalogue-pricing');
+const { getCentralPricingFact } = require('../catalogue-pricing');
 const { resolveApiKey, deriveCopilotApiTarget, isGithubCopilotCatalogTarget } = require('../providers/copilot-auth');
-const { resolveProviderPricingOverlay } = require('../provider-pricing-overlays');
-const { resolveModelPricingCatalog } = require('../model-pricing-catalog');
+const { getProviderPricingFact } = require('../provider-pricing-overlays');
+const { getConfiguredPricingFact } = require('../model-pricing-catalog');
 const { parsePositiveNumber } = require('./guard-utils');
 const { PROVIDER_ANTHROPIC, PROVIDER_COPILOT } = require('../provider-names');
 const { BUDGET_WARNING_THRESHOLDS } = require('./steering-thresholds');
+const { resolvePricing } = require('../catalogue-contract/pricing-resolution');
+const { resolveModelIdentity } = require('../model-identity');
 
 const TOKENS_PER_MILLION = 1_000_000;
 const DOLLARS_PER_CREDIT = 0.01;
@@ -103,6 +105,7 @@ function createAiCreditsState() {
     totalAiCredits: 0,
     byModel: {},
     warnedUnknownModels: new Set(),
+    pricingFailure: false,
     steeringConfigKey: null,
     emittedThresholds: new Set(),
     uninjectedThresholds: new Set(),
@@ -168,65 +171,72 @@ function canonicalizeModel(model) {
 
 function resolveModelPricing(model, state = aiCreditsState, provider = undefined, inputTokens = 0, options = {}) {
   const pricingModel = model.includes('?') ? model.slice(0, model.indexOf('?')) : model;
-  const operatorPricing = provider
-    ? resolveProviderPricingOverlay(provider, pricingModel, inputTokens)
-    : null;
-  if (operatorPricing) return operatorPricing;
-
-  const catalogPricing = provider
-    ? resolveModelPricingCatalog(provider, pricingModel, inputTokens)
-    : null;
-  if (catalogPricing) return catalogPricing;
-
-  const runtime = provider ? resolveRuntimePricing(provider, pricingModel, inputTokens, options.runtimeCatalog) : null;
-  const capture = Object.hasOwn(options, 'catalogue') ? options.catalogue : getCatalogueLoader().capture();
-  if (runtime && ['input', 'cachedInput', 'cacheWrite', 'output']
-    .every(field => Object.hasOwn(runtime.pricing, field)) &&
-    (!capture || fresh({ at: runtime.observedAt }, capture.time, capture.maxAge))) {
-    return runtime;
+  let catalogue;
+  const scope = provider
+    ? { provider, channel: provider === PROVIDER_COPILOT ? 'copilot-api' : 'native-api' } : null;
+  const capture = { identity: null, scope, inputTokens, time: null, maxAge: null, sources: {
+    operator: () => provider ? getProviderPricingFact(provider, pricingModel) : null,
+    configured: () => provider ? getConfiguredPricingFact(provider, pricingModel) : null,
+    runtime: () => {
+      const fact = provider ? getRuntimePricingFact(provider, pricingModel, options.runtimeCatalog) : null;
+      catalogue = Object.hasOwn(options, 'catalogue') ? options.catalogue : getCatalogueLoader().capture();
+      capture.time = catalogue?.time ?? null;
+      capture.maxAge = catalogue?.maxAge ?? null;
+      return fact;
+    },
+    central: () => provider && !resolveApiKey(process.env) &&
+      isGithubCopilotCatalogTarget(deriveCopilotApiTarget(process.env))
+      ? getCentralPricingFact(provider, pricingModel, catalogue, { nativeInput: true }) : null,
+    curated: () => getCuratedPricingFact(pricingModel),
+    imported: () => {
+      const { pricing } = resolveCatalogModel(pricingModel);
+      return pricing ? { source: 'models.dev', default: pricing } : null;
+    },
+    selector: () => {
+      const selector = getDynamicSelectorDescriptor(pricingModel, provider);
+      return selector ? {
+        source: DYNAMIC_SELECTOR_FALLBACK_PRICING_SOURCE, tier: 'conservative',
+        default: DYNAMIC_SELECTOR_FALLBACK_PRICING,
+        metadata: { accountingPolicy: 'dynamic_selector_fallback',
+          dynamicSelector: selector.name, usedFallbackPricing: true },
+      } : null;
+    },
+    configuredDefault: () => {
+      const { defaultPricing } = getAiCreditsConfig();
+      return defaultPricing ? { source: 'configured_default', default: defaultPricing } : null;
+    },
+    sentinel: () => pricingModel === 'unknown'
+      ? { source: 'builtin_fallback', default: BUILTIN_FALLBACK_PRICING } : null,
+  } };
+  let resolution;
+  try {
+    capture.identity = provider
+      ? resolveModelIdentity(pricingModel, provider, { scope, policy: { providerPrefix: false } }).identity : null;
+    resolution = resolvePricing(capture);
+  } catch {
+    if (!options.quiet) state.pricingFailure = true;
+    logRequest('error', 'pricing_resolution_error', {
+      reason: 'shared_resolver_failed', message: 'AI-credit pricing resolution failed; no price was applied.',
+    });
+    const error = new Error('AI-credit pricing resolution failed');
+    error.code = 'pricing_resolution_error';
+    error.statusCode = 500;
+    throw error;
   }
-  const copilotScope = !resolveApiKey(process.env) &&
-    isGithubCopilotCatalogTarget(deriveCopilotApiTarget(process.env));
-  const central = provider && copilotScope
-    ? resolveCentralPricing(provider, pricingModel, inputTokens, capture, { nativeInput: true }) : null;
-  if (central) return central;
-  const fallback = resolveLowerPriorityPricing(pricingModel, state, {
-    ...options,
-    provider,
-    originalModel: model,
-    inputTokens: runtime ? 0 : inputTokens,
-    preferredTier: runtime?.tier,
-  });
-  if (!runtime) return fallback;
-  const mergedPricing = {};
-  for (const field of ['input', 'cachedInput', 'cacheWrite', 'output']) {
-    if (Object.hasOwn(runtime.pricing, field)) {
-      mergedPricing[field] = runtime.pricing[field];
-    } else if (fallback?.pricing && Object.hasOwn(fallback.pricing, field)) {
-      mergedPricing[field] = fallback.pricing[field];
-    } else {
-      return null;
-    }
-  }
-  return { ...runtime, pricing: mergedPricing };
+  if (resolution.missingModelPricing && !options.quiet) warnMissingModelPricing(model, state);
+  return resolution.result;
 }
 
-function resolveCuratedPricing(pricing, inputTokens, preferredTier) {
-  const longContext = pricing.longContext;
-  const useLongContext = !!longContext && (preferredTier
-    ? preferredTier === 'long_context'
-    : inputTokens > longContext.threshold);
-  if (!useLongContext) {
-    const { longContext: _longContext, ...defaultPricing } = pricing;
-    return { pricing: defaultPricing, source: 'curated', tier: 'default' };
-  }
-  const { threshold: _threshold, ...selectedPricing } = longContext;
-  return { pricing: selectedPricing, source: 'curated', tier: 'long_context' };
+function curatedPricingFact(pricing) {
+  const { longContext, ...defaultPricing } = pricing;
+  const { threshold, ...longPrices } = longContext || {};
+  return { source: 'curated', default: defaultPricing,
+    ...(longContext ? { longContext: longPrices, threshold } : {}) };
 }
 
-function resolveLowerPriorityPricing(model, state, options = {}) {
+function getCuratedPricingFact(model) {
   if (Object.hasOwn(pricingByModel, model)) {
-    return resolveCuratedPricing(pricingByModel[model], options.inputTokens || 0, options.preferredTier);
+    return curatedPricingFact(pricingByModel[model]);
   }
 
   const canonical = canonicalizeModel(model);
@@ -235,45 +245,8 @@ function resolveLowerPriorityPricing(model, state, options = {}) {
   for (const [configuredModel, pricing] of Object.entries(pricingByModel)) {
     const canonicalKey = canonicalizeModel(configuredModel);
     if (canonical === canonicalKey) {
-      return resolveCuratedPricing(pricing, options.inputTokens || 0, options.preferredTier);
+      return curatedPricingFact(pricing);
     }
-  }
-
-  const catalogModel = resolveCatalogModel(model);
-  if (catalogModel.pricing) {
-    return { pricing: catalogModel.pricing, source: 'models.dev', tier: 'default' };
-  }
-
-  const dynamicSelector = getDynamicSelectorDescriptor(model, options.provider);
-  if (dynamicSelector) {
-    return {
-      pricing: DYNAMIC_SELECTOR_FALLBACK_PRICING,
-      source: DYNAMIC_SELECTOR_FALLBACK_PRICING_SOURCE,
-      tier: 'conservative',
-      accountingPolicy: 'dynamic_selector_fallback',
-      dynamicSelector: dynamicSelector.name,
-      usedFallbackPricing: true,
-    };
-  }
-
-  // Pricing probes pass quiet:true
-  // so that probing a model neither emits an operator-facing warning nor marks the
-  // model as already-warned — which would suppress the warning if it is genuinely
-  // requested later.
-  if (!options.quiet) warnMissingModelPricing(options.originalModel || model, state);
-
-  // Fall back to configured default pricing if available
-  const config = getAiCreditsConfig();
-  if (config.defaultPricing) {
-    return { pricing: config.defaultPricing, source: 'configured_default', tier: 'default' };
-  }
-
-  // When the model is the 'unknown' sentinel (response omitted model and
-  // request body didn't contain one either), use conservative fallback pricing
-  // so AI credits are never silently lost. Concrete unpriced models instead
-  // proceed with a warning and no invented pricing.
-  if (model === 'unknown') {
-    return { pricing: BUILTIN_FALLBACK_PRICING, source: 'builtin_fallback', tier: 'default' };
   }
 
   return null;
@@ -283,7 +256,8 @@ function resolveLowerPriorityPricing(model, state, options = {}) {
  * Side-effect-free check for whether a model has resolvable AI-credits pricing.
  *
  * Both the default and the highest selectable pricing tier must resolve.
- * Emits no logs and does not mutate guard state.
+ * Does not warn for missing prices or mutate guard state. Operational failures
+ * are logged and thrown, not treated as missing pricing.
  *
  * @param {string} model
  * @param {string} [provider]
@@ -315,8 +289,21 @@ function warnMissingModelPricing(model, state = aiCreditsState) {
 }
 
 function checkModelPricing(model, provider = undefined, options = {}) {
-  if (model && !isModelPriceable(model, provider, options)) warnMissingModelPricing(model);
+  if (aiCreditsState.pricingFailure) return buildPricingResolutionError();
+  try {
+    if (model && !isModelPriceable(model, provider, options)) warnMissingModelPricing(model);
+  } catch (error) {
+    if (error.code !== 'pricing_resolution_error') throw error;
+    return buildPricingResolutionError();
+  }
   return null;
+}
+
+function buildPricingResolutionError() {
+  return { error: {
+    type: 'pricing_resolution_error',
+    message: 'AI-credit pricing resolution failed; accounting could not be completed. Restart the proxy after correcting pricing configuration.',
+  } };
 }
 
 function calculateAiCredits(normalizedUsage, model, state = aiCreditsState, provider = undefined, options = {}) {
@@ -480,6 +467,7 @@ function getAiCreditsReflectState() {
   }
   return {
     total: roundCredits(aiCreditsState.totalAiCredits),
+    ...(aiCreditsState.pricingFailure ? { pricing_error: 'pricing_resolution_error' } : {}),
     max_ai_credits: config.max,
     effective_max_ai_credits: effectiveCeiling,
     percent_used: Math.round((reflectedTotal / effectiveCeiling) * 10000) / 100,
