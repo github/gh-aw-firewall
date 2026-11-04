@@ -190,4 +190,17 @@ ${preparation.run}
       expect(other).not.toContain(imageArgs);
     },
   );
+
+  it('preserves quoted YAML run steps with prepared image flags', () => {
+    const command = `awf ${imageArgs} -- echo smoke\n`;
+    const input = '      - name: Checkout PR branch\n        id: checkout-pr\n' +
+      `      - name: ${preparation.name}\n        run: echo prepare\n` +
+      '      - name: Install AWF binary\n' +
+      '        run: bash "${RUNNER_TEMP}/gh-aw/actions/install_awf_binary.sh" v0.29.0\n' +
+      `      - name: Require sandbox service connectivity\n        run: ${JSON.stringify(command)}\n`;
+    const first = applyGeneralWorkflowPatches(input, workflowPath).content;
+    const steps = yaml.load(first) as Step[];
+    expect(steps.find(step => step.name === 'Require sandbox service connectivity')?.run).toBe(command);
+    expect(applyGeneralWorkflowPatches(first, workflowPath).content).toBe(first);
+  });
 });
