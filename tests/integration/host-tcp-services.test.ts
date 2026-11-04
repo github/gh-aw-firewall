@@ -199,8 +199,8 @@ describe('Host TCP Service Ports', () => {
     expect(result).toSucceed();
     expect(result.stderr).toContain('Host service ports allowed (host gateway only): 5432,6379,3306');
     // Should show iptables rules for each port
-    expect(result.stderr).toContain('Allow host service port 5432');
-    expect(result.stderr).toContain('Allow host service port 6379');
-    expect(result.stderr).toContain('Allow host service port 3306');
+    for (const port of [5432, 6379, 3306]) {
+      expect(result.stderr).toMatch(new RegExp(`Allowing host gateway traffic: [\\da-fA-F:.]+:${port}\\b`));
+    }
   }, 120000);
 });

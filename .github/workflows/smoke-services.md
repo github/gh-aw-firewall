@@ -78,7 +78,6 @@ steps:
       sudo apt-get update -qq && sudo apt-get install -y -qq redis-tools postgresql-client
       echo "redis-cli: $(redis-cli --version)"
       echo "psql: $(psql --version)"
-post-steps:
   - name: Require sandbox service connectivity
     timeout-minutes: 3
     run: |
@@ -92,6 +91,7 @@ post-steps:
           pg_reply=$(PGPASSWORD=testpass PGCONNECT_TIMEOUT=10 psql -h host.docker.internal -p 5432 -U postgres -d smoketest -v ON_ERROR_STOP=1 -t -A -c "SELECT 1")
           test "$pg_reply" = 1
         '
+post-steps:
   - name: Validate safe outputs were invoked
     env:
       OUTPUTS_FILE: ${{ steps.set-runtime-paths.outputs.GH_AW_SAFE_OUTPUTS }}

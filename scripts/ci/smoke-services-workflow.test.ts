@@ -10,18 +10,24 @@ const lockPath = path.join(workflowsDir, 'smoke-services.lock.yml');
 describe('Smoke Services workflow token optimization', () => {
   const source = fs.readFileSync(sourcePath, 'utf-8');
   const workflow = yaml.load(source.split(/^---$/m)[1]) as {
-    'post-steps': { name: string; run: string }[];
+    steps: { name: string; run: string }[];
+    'post-steps'?: { name: string; run: string }[];
   };
-  const connectivityStep = workflow['post-steps'].find(
+  const connectivityStep = workflow.steps.find(
     step => step.name === 'Require sandbox service connectivity',
   )!;
 
-  it('compiles an independent sandbox connectivity gate, not just agent-reported safe outputs', () => {
+  it('runs the independent sandbox connectivity gate before agent execution', () => {
     const lock = yaml.load(fs.readFileSync(lockPath, 'utf-8')) as {
       jobs: Record<string, { steps?: { name: string; run?: string }[] }>;
     };
     const steps = Object.values(lock.jobs).flatMap(job => job.steps ?? []);
-    expect(steps.find(step => step.name === connectivityStep.name)?.run).toBe(connectivityStep.run);
+    const connectivityStepIndex = steps.findIndex(step => step.name === connectivityStep.name);
+    const agentStepIndex = steps.findIndex(step => step.name === 'Execute GitHub Copilot CLI');
+    expect(connectivityStepIndex).toBeGreaterThanOrEqual(0);
+    expect(connectivityStepIndex).toBeLessThan(agentStepIndex);
+    expect(steps[connectivityStepIndex]?.run).toBe(connectivityStep.run);
+    expect(workflow['post-steps']?.some(step => step.name === connectivityStep.name)).toBe(false);
     expect(connectivityStep.run).toContain('--allow-host-service-ports 5432,6379');
     expect(connectivityStep.run).toContain('--image-registry awf-smoke');
     expect(connectivityStep.run).not.toContain('--env-all');
