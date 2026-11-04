@@ -919,7 +919,7 @@ def build_engine_command(engine: str, model: str, prompt: str, log_dir: Path) ->
     if engine == "codex":
         return [
             CODEX_BIN, "exec", "--skip-git-repo-check",
-            "--dangerously-bypass-approvals-and-sandbox", "--ephemeral",
+            "--ephemeral",
             "--model", model,
             "-c", 'model_provider="awf"',
             "-c", 'model_providers.awf.name="AWF"',
@@ -933,7 +933,7 @@ def build_engine_command(engine: str, model: str, prompt: str, log_dir: Path) ->
         ]
     if engine == "claude":
         return [
-            CLAUDE_BIN, "--print", "--bare", "--dangerously-skip-permissions",
+            CLAUDE_BIN, "--print", "--bare",
             "--model", model, "--output-format", "text",
             "--no-session-persistence", "--setting-sources", "",
             "--strict-mcp-config", "--mcp-config", '{"mcpServers":{}}',
